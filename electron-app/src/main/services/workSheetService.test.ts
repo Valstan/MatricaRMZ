@@ -35,7 +35,15 @@ function makeDb() {
   const sqlite = new Database(':memory:');
   sqlite.exec(DDL);
   sqlite.prepare(`INSERT INTO entity_types (id,code,name,created_at,updated_at) VALUES (?,?,?,?,?)`).run('et-engine', 'engine', 'Двигатель', 1, 1);
-  const codes = [...STATUS_CODES, ...Object.values(STATUS_DATE_CODES), 'engine_number', 'engine_brand'];
+  const codes = [
+    ...STATUS_CODES,
+    ...Object.values(STATUS_DATE_CODES),
+    'engine_number',
+    'engine_brand',
+    'contract_id',
+    'customer_id',
+    'contract_section_number',
+  ];
   for (const [i, code] of codes.entries()) {
     sqlite
       .prepare(`INSERT INTO attribute_defs (id,entity_type_id,code,name,data_type,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`)
@@ -67,6 +75,37 @@ const UKLADKA: SaveInputType = { id: 't-ukl', code: 'ukladka', name: 'Уклад
 type SaveInputType = Pick<WorkSheetType, 'id' | 'code' | 'name' | 'completesRepair' | 'columns' | 'workshopId'>;
 
 const AT = Date.parse('2026-09-10T00:00:00');
+
+/**
+ * Договор с заказчиком и привязка к двигателю. Заказчик ДОГОВОРА важнее поля карточки —
+ * это единое правило проекта (`resolveEngineCustomer`), и ведомость обязана его соблюдать,
+ * иначе она назовёт заказчика иначе, чем список двигателей и отчёты.
+ */
+function seedContract(sqlite: any, opts: { number: string; section?: string; short: string; full: string }) {
+  const attrDef = (id: string, typeId: string, code: string) =>
+    sqlite
+      .prepare(`INSERT INTO attribute_defs (id,entity_type_id,code,name,data_type,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`)
+      .run(id, typeId, code, code, 'text', 1, 1);
+  const value = (id: string, entityId: string, defId: string, v: unknown) =>
+    sqlite
+      .prepare(`INSERT INTO attribute_values (id,entity_id,attribute_def_id,value_json,created_at,updated_at) VALUES (?,?,?,?,?,?)`)
+      .run(id, entityId, defId, JSON.stringify(v), 1, 1);
+
+  sqlite.prepare(`INSERT INTO entity_types (id,code,name,created_at,updated_at) VALUES (?,?,?,?,?)`).run('et-contract', 'contract', 'Договор', 1, 1);
+  sqlite.prepare(`INSERT INTO entity_types (id,code,name,created_at,updated_at) VALUES (?,?,?,?,?)`).run('et-customer', 'customer', 'Заказчик', 1, 1);
+  attrDef('def-c-number', 'et-contract', 'number');
+  attrDef('def-c-customer', 'et-contract', 'customer_id');
+  attrDef('def-cu-name', 'et-customer', 'name');
+  attrDef('def-cu-short', 'et-customer', 'short_name');
+  sqlite.prepare(`INSERT INTO entities (id,type_id,created_at,updated_at) VALUES (?,?,?,?)`).run('con-1', 'et-contract', 1, 1);
+  sqlite.prepare(`INSERT INTO entities (id,type_id,created_at,updated_at) VALUES (?,?,?,?)`).run('cus-1', 'et-customer', 1, 1);
+  value('v-c-number', 'con-1', 'def-c-number', opts.number);
+  value('v-c-customer', 'con-1', 'def-c-customer', 'cus-1');
+  value('v-cu-name', 'cus-1', 'def-cu-name', opts.full);
+  value('v-cu-short', 'cus-1', 'def-cu-short', opts.short);
+  value('v-eng-contract', 'eng-1', 'def-contract_id', 'con-1');
+  if (opts.section) value('v-eng-section', 'eng-1', 'def-contract_section_number', opts.section);
+}
 
 describe('строка ведомости', () => {
   it('ложится записью истории с полями узла и датой строки', async () => {
@@ -222,6 +261,37 @@ describe('строка ведомости', () => {
 
     // Обе строки правились только что — по времени правки в окно попали бы обе.
     expect((await listWorkSheetRows(db)).rows.map((r) => r.id).sort()).toEqual(['row-new', 'row-old']);
+  });
+
+  it('в строке — заказчик кратким именем и короткий номер договора из карточки двигателя', async () => {
+    const { sqlite, db } = makeDb();
+    seedContract(sqlite, {
+      number: '2325187913551442245231239/27/ГОЗ-24',
+      short: 'АО «Ромашка»',
+      full: 'Акционерное общество «Ромашка»',
+    });
+    await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');
+
+    const { rows } = await listWorkSheetRows(db);
+    expect(rows[0]?.customerName, 'в строке — краткое имя').toBe('АО «Ромашка»');
+    expect(rows[0]?.customerFullName, 'полное остаётся для подсказки').toBe('Акционерное общество «Ромашка»');
+    expect(rows[0]?.contractNumber).toBe('2325187913551442245231239/27/ГОЗ-24');
+    expect(rows[0]?.contractShortLabel, 'три последние цифры части до «/»').toBe('*239');
+  });
+
+  it('раздел договора попадает в короткую метку', async () => {
+    const { sqlite, db } = makeDb();
+    seedContract(sqlite, { number: '239/27', section: 'ДС 2', short: 'АО «Р»', full: 'АО «Р»' });
+    await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');
+    expect((await listWorkSheetRows(db)).rows[0]?.contractShortLabel).toBe('*239 / ДС 2');
+  });
+
+  it('двигатель без договора — пустые реквизиты, а не прочерк-заглушка', async () => {
+    const { db } = makeDb();
+    await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');
+    const { rows } = await listWorkSheetRows(db);
+    expect(rows[0]?.customerName).toBe('');
+    expect(rows[0]?.contractShortLabel).toBe('');
   });
 
   it('имя цеха читается снимком из самой строки — без справочника', async () => {

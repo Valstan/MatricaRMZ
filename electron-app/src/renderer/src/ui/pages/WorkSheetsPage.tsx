@@ -297,6 +297,20 @@ function WorkSheetTab(props: {
       { id: 'engine', label: 'Двигатель', kind: 'name', render: (r) => engineLabel(r), sortValue: (r) => engineLabel(r), alwaysVisible: true },
       { id: 'brand', label: 'Марка', kind: 'name', render: (r) => r.engineBrand, sortValue: (r) => r.engineBrand },
       { id: 'internal', label: 'Внутр. №', kind: 'num', render: (r) => r.internalNumber, sortValue: (r) => r.internalNumber },
+      {
+        id: 'customer',
+        label: 'Заказчик',
+        kind: 'name',
+        render: (r) => (r.customerName ? <span title={r.customerFullName || r.customerName}>{r.customerName}</span> : ''),
+        sortValue: (r) => r.customerName,
+      },
+      {
+        id: 'contract',
+        label: 'Договор',
+        kind: 'name',
+        render: (r) => (r.contractShortLabel ? <span title={r.contractNumber}>{r.contractShortLabel}</span> : ''),
+        sortValue: (r) => r.contractShortLabel,
+      },
       ...(type ? [] : [{ id: 'type', label: 'Узел', kind: 'name' as ListColumnKind, render: (r: WorkSheetRow) => r.typeName, sortValue: (r: WorkSheetRow) => r.typeName }]),
       { id: 'workshop', label: 'Цех', kind: 'name', render: (r) => workshopLabel(r, workshopName), sortValue: (r) => workshopLabel(r, workshopName) },
     ];

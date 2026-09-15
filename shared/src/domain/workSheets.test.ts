@@ -127,7 +127,17 @@ describe('ступени фильтра ведомости', () => {
       { code: 'hours', label: 'Часы', type: 'number' },
       { code: 'stand_date', label: 'Дата стенда', type: 'date' },
     ]);
-    expect(facets.map((f) => f.id)).toEqual(['type', 'engineBrand', 'workshop', 'performedBy', 'date', 'f:hours', 'f:stand_date']);
+    expect(facets.map((f) => f.id)).toEqual([
+      'type',
+      'engineBrand',
+      'customer',
+      'contract',
+      'workshop',
+      'performedBy',
+      'date',
+      'f:hours',
+      'f:stand_date',
+    ]);
     expect(facets.find((f) => f.id === 'f:stand_date')?.kind).toBe('dateRange');
   });
 

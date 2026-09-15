@@ -267,6 +267,15 @@ export type WorkSheetRow = {
   engineNumber: string;
   engineBrand: string;
   internalNumber: string;
+  /**
+   * Реквизиты берутся из карточки двигателя ПРИ ЧТЕНИИ, а не кладутся снимком в строку:
+   * договор двигателя перецепляют, заказчика уточняют, и ведомость обязана называть их
+   * так же, как остальная программа сегодня, а не так, как было в день записи.
+   */
+  customerName: string;
+  customerFullName: string;
+  contractNumber: string;
+  contractShortLabel: string;
   at: number;
   typeId: string;
   typeCode: string;
@@ -292,6 +301,10 @@ export function workSheetFacets(columns: readonly WorkSheetColumn[]): FacetDescr
   const facets: FacetDescriptor<WorkSheetRow>[] = [
     { kind: 'values', id: 'type', label: 'Узел', valueOf: (r) => val(r.typeCode, r.typeName || r.typeCode) },
     { kind: 'values', id: 'engineBrand', label: 'Марка', valueOf: (r) => val(text(r.engineBrand)) },
+    { kind: 'values', id: 'customer', label: 'Заказчик', valueOf: (r) => val(text(r.customerName)) },
+    // Отбираем по КОРОТКОЙ метке: именно ею договор называют в цеху, и именно она стоит
+    // в колонке. Ступень, отбирающая по невидимому значению, читается как сломанная.
+    { kind: 'values', id: 'contract', label: 'Договор', valueOf: (r) => val(text(r.contractShortLabel)) },
     // Подпись ступени — имя из снимка строки; uuid сюда не ставится даже как последнее
     // средство: он не опознаёт цех, а читается как испорченные данные (см. `humanLabels`).
     { kind: 'values', id: 'workshop', label: 'Цех', valueOf: (r) => val(r.workshopId, r.workshopName || HUMAN_LABEL_DASH) },

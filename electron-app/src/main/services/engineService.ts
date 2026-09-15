@@ -28,6 +28,7 @@ import {
   normalizeLookupCompact,
   parseContractSections,
   resolveEngineCustomer,
+  shortContractSuffixLabel,
   searchLookupOptionsTiered,
   statusDateCode,
   type StatusCode,
@@ -35,7 +36,7 @@ import {
 
 import { attributeDefs, attributeValues, entities, entityTypes, operations } from '../database/schema.js';
 import { collectChunked } from '../utils/sqlChunks.js';
-import { listEntitiesByType } from './entityService.js';
+import { listEntitiesByType, listEntitiesByTypeWithAttrs } from './entityService.js';
 import type {
   RepairHistorySourceRow,
   EngineDetails,
@@ -451,7 +452,19 @@ async function getEngineRepairHistoryMap(
   return result;
 }
 
-export type EngineLabel = { engineNumber: string; engineBrand: string; internalNumberFull: string };
+export type EngineLabel = {
+  engineNumber: string;
+  engineBrand: string;
+  internalNumberFull: string;
+  /** Краткое имя заказчика (`short_name`, иначе полное) — оно влезает в строку и на бумагу. */
+  customerName: string;
+  /** Полное имя заказчика — для подсказки: краткое годится смотреть, а не сверять. */
+  customerFullName: string;
+  /** Полный номер договора. */
+  contractNumber: string;
+  /** Короткая метка договора: «*239» либо «*239 / ДС 2» — по ней договор узнают в цеху. */
+  contractShortLabel: string;
+};
 
 /**
  * Номер / марка / внутренний номер по горстке двигателей — без построения каталога.
@@ -463,6 +476,7 @@ export type EngineLabel = { engineNumber: string; engineBrand: string; internalN
 export async function resolveEngineLabels(
   db: BetterSQLite3Database,
   engineIds: string[],
+  opts: { withCounterparty?: boolean } = {},
 ): Promise<Map<string, EngineLabel>> {
   const out = new Map<string, EngineLabel>();
   const ids = [...new Set(engineIds.map((id) => String(id ?? '').trim()).filter(Boolean))];
@@ -470,27 +484,35 @@ export async function resolveEngineLabels(
 
   const defs = await getEngineAttrDefs(db);
   const defIdByCode = new Map<string, string>();
-  for (const code of ['engine_number', 'engine_brand', ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE]) {
+  // Заказчик и договор читаются ТОЛЬКО по просьбе: они тянут за собой справочники
+  // контрагентов и договоров, а списку нарядов (второй читатель) нужны три поля.
+  const codes = ['engine_number', 'engine_brand', ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE];
+  if (opts.withCounterparty) codes.push('customer_id', 'contract_id', 'contract_section_number');
+  for (const code of codes) {
     const defId = defs[code];
     if (defId) defIdByCode.set(defId, code);
   }
   if (defIdByCode.size === 0) return out;
 
-  const rows = await db
-    .select({
-      entityId: attributeValues.entityId,
-      attributeDefId: attributeValues.attributeDefId,
-      valueJson: attributeValues.valueJson,
-    })
-    .from(attributeValues)
-    .where(
-      and(
-        inArray(attributeValues.entityId, ids),
-        inArray(attributeValues.attributeDefId, [...defIdByCode.keys()]),
-        isNull(attributeValues.deletedAt),
-      ),
-    )
-    .orderBy(asc(attributeValues.updatedAt));
+  // Чанкуем под 999-парамный кап SQLite на планшете: ведомостей за год может быть
+  // больше тысячи, и одним `IN` этот запрос там просто упал бы.
+  const rows = await collectChunked(ids, (idsChunk) =>
+    db
+      .select({
+        entityId: attributeValues.entityId,
+        attributeDefId: attributeValues.attributeDefId,
+        valueJson: attributeValues.valueJson,
+      })
+      .from(attributeValues)
+      .where(
+        and(
+          inArray(attributeValues.entityId, idsChunk),
+          inArray(attributeValues.attributeDefId, [...defIdByCode.keys()]),
+          isNull(attributeValues.deletedAt),
+        ),
+      )
+      .orderBy(asc(attributeValues.updatedAt)),
+  );
 
   const byEntity = new Map<string, Record<string, string | undefined>>();
   for (const row of rows) {
@@ -505,10 +527,23 @@ export async function resolveEngineLabels(
     bag[code] = row.valueJson == null ? undefined : safeStringFromJson(String(row.valueJson));
   }
 
+  // Справочники — один раз на вызов, и только если заказчика вообще спрашивали.
+  const contractCustomerById = opts.withCounterparty ? await getContractCustomerMap(db) : new Map<string, string>();
+  const contractNameById = opts.withCounterparty ? await getDisplayNameMap(db, EntityTypeCode.Contract) : new Map<string, string>();
+  const customerNames = opts.withCounterparty ? await getCustomerNameMap(db) : new Map<string, { short: string; full: string }>();
+
   for (const [entityId, bag] of byEntity) {
     // Год читается ровно как в listEngines: невалидный отбрасывается, иначе номер напечатался бы «41/NaN».
     const yearRaw = bag[ENGINE_INTERNAL_NUMBER_YEAR_CODE];
     const year = yearRaw != null ? Number(yearRaw) : Number.NaN;
+    // Заказчик двигателя считается ЕДИНЫМ правилом проекта: заказчик договора важнее
+    // поля карточки (`resolveEngineCustomer`) — иначе в ведомости и в отчётах он разный.
+    const contractId = (bag['contract_id'] ?? '').trim();
+    const customer = opts.withCounterparty
+      ? resolveEngineCustomer({ contractId, customerId: (bag['customer_id'] ?? '').trim() }, contractCustomerById)
+      : { id: '', source: 'none' as const };
+    const names = customer.id ? customerNames.get(customer.id) : undefined;
+    const contractNumber = contractId ? (contractNameById.get(contractId) ?? '') : '';
     out.set(entityId, {
       engineNumber: (bag['engine_number'] ?? '').trim(),
       engineBrand: (bag['engine_brand'] ?? '').trim(),
@@ -516,9 +551,34 @@ export async function resolveEngineLabels(
         bag[ENGINE_INTERNAL_NUMBER_CODE] ?? '',
         isValidEngineInternalNumberYear(year) ? year : undefined,
       ),
+      customerName: names?.short ?? '',
+      customerFullName: names?.full ?? '',
+      contractNumber,
+      contractShortLabel: contractNumber
+        ? shortContractSuffixLabel(contractNumber, bag['contract_section_number'] ?? null)
+        : '',
     });
   }
 
+  return out;
+}
+
+/**
+ * Имена контрагентов: краткое и полное. Краткое (`short_name`) — то, чем контрагента
+ * называют в наряде и в цеху; полное остаётся для подсказки и бумаги. Без краткого
+ * возвращается полное — пустой ячейки быть не должно.
+ */
+async function getCustomerNameMap(db: BetterSQLite3Database): Promise<Map<string, { short: string; full: string }>> {
+  const typeId = await getEntityTypeIdByCode(db, EntityTypeCode.Customer);
+  if (!typeId) return new Map();
+  const rows = await listEntitiesByTypeWithAttrs(db, typeId);
+  const out = new Map<string, { short: string; full: string }>();
+  for (const row of rows) {
+    const attrs = row.attributes ?? {};
+    const full = String(attrs.name ?? '').trim();
+    const short = String(attrs.short_name ?? '').trim() || full;
+    if (short || full) out.set(String(row.id), { short, full: full || short });
+  }
   return out;
 }
 
