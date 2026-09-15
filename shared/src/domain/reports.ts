@@ -69,7 +69,7 @@ export type ReportOptionSource =
   | 'engines'
   /** Контракты для режима «По контрактам» в прогнозе сборки: подпись № / внутр. / заказчик и поиск по номерам. */
   | 'assembly_forecast_contracts'
-  /** Узлы ведомостей работ: value — код узла (по нему строка себя и называет), подпись — имя. */
+  /** Виды работ ведомостей: value — код вида (по нему ведомость себя и называет), подпись — имя. */
   | 'work_sheet_types';
 
 export type ReportFilterSpec =
@@ -173,7 +173,7 @@ export const ENGINES_LIST_REPORT_COLUMNS: ReportColumn[] = [
   { key: 'scrapReason', label: 'Причина утиля' },
   { key: 'completenessAct', label: 'Акт комплектности' },
   // Ведомости работ (15.09.2026): на каком узле двигатель по последней строке ведомости.
-  { key: 'lastSheetNode', label: 'Узел (последняя ведомость)' },
+  { key: 'lastSheetNode', label: 'Вид работ (последняя ведомость)' },
   { key: 'lastSheetAt', label: 'Дата ведомости', kind: 'date' },
 ];
 
@@ -1865,11 +1865,11 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     id: 'work_sheets',
     title: 'Ведомости работ',
     description:
-      'Строки ведомостей по узлам (укладка, вал, обкатка, сборка, …) — те же записи истории ремонта, что на экране ' +
-      '«Ведомости работ». Колонки узлов добавляются сами: новая колонка в узле появится и здесь.',
+      'Ведомости по видам работ (укладка вала, обкатка, сборка, …) — те же записи истории ремонта, что на экране ' +
+      '«Ведомости работ». Колонки видов работ добавляются сами: новая колонка появится и здесь.',
     filters: [
       { type: 'date_range', key: 'period', label: 'Период', startKey: 'startMs', endKey: 'endMs', unboundedByDefault: true },
-      { type: 'multi_select', key: 'nodeCodes', label: 'Узлы', optionsSource: 'work_sheet_types' },
+      { type: 'multi_select', key: 'nodeCodes', label: 'Виды работ', optionsSource: 'work_sheet_types' },
       { type: 'multi_select', key: 'brandIds', label: 'Марки двигателей', optionsSource: 'brands' },
       { type: 'multi_select', key: 'workshopIds', label: 'Цеха', optionsSource: 'workshops' },
     ],
@@ -1878,7 +1878,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'engineNumber', label: '№ двигателя' },
       { key: 'engineInternalNumber', label: 'Внутр. №' },
       { key: 'engineBrand', label: 'Марка' },
-      { key: 'nodeLabel', label: 'Узел' },
+      { key: 'nodeLabel', label: 'Вид работ' },
       { key: 'customerLabel', label: 'Заказчик' },
       { key: 'contractLabel', label: 'Договор' },
       { key: 'workshopLabel', label: 'Цех' },

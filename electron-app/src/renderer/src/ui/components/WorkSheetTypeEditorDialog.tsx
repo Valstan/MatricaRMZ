@@ -42,9 +42,9 @@ function draftFrom(t: WorkSheetType | null): Draft {
 }
 
 /**
- * Редактор узлов: название, цех, «строка завершает ремонт» и набор колонок (подпись, тип,
- * обязательность, варианты). Код узла и код колонки после создания заморожены — на них ссылаются
- * строки истории. Новая колонка попадает в фильтры и отчёты сама: строка несёт поля с собой.
+ * Редактор видов работ: название, цех, «ведомость завершает ремонт» и набор колонок (подпись,
+ * тип, обязательность, варианты). Код вида и код колонки после создания заморожены — на них
+ * ссылаются ведомости. Новая колонка попадает в фильтры и отчёты сама: ведомость несёт поля с собой.
  */
 export function WorkSheetTypeEditorDialog(props: {
   types: WorkSheetType[];
@@ -111,7 +111,7 @@ export function WorkSheetTypeEditorDialog(props: {
   };
 
   const save = async () => {
-    if (!draft.name.trim()) return setStatus('Название узла обязательно');
+    if (!draft.name.trim()) return setStatus('Название вида работ обязательно');
     setBusy(true);
     setStatus('');
     try {
@@ -142,7 +142,7 @@ export function WorkSheetTypeEditorDialog(props: {
       if (!r.ok) return setStatus(`Ошибка: ${r.error}`);
       await props.onChanged();
       await refreshArchived();
-      setStatus(`Узел «${t.name}» возвращён из архива`);
+      setStatus(`Вид работ «${t.name}» возвращён из архива`);
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     } finally {
@@ -152,7 +152,7 @@ export function WorkSheetTypeEditorDialog(props: {
 
   const archive = async () => {
     if (!selected) return;
-    if (!window.confirm(`Убрать узел «${selected.name}» в архив? Его строки в истории останутся.`)) return;
+    if (!window.confirm(`Убрать вид работ «${selected.name}» в архив? Его ведомости в истории останутся.`)) return;
     setBusy(true);
     try {
       const r = await window.matrica.workSheets.types.archive(selected.id);
@@ -170,7 +170,7 @@ export function WorkSheetTypeEditorDialog(props: {
   return (
     <div
       role="dialog"
-      aria-label="Узлы ведомостей работ"
+      aria-label="Виды работ"
       data-work-sheet-type-editor
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
       onClick={() => {
@@ -182,7 +182,7 @@ export function WorkSheetTypeEditorDialog(props: {
         style={{ background: 'var(--surface)', borderRadius: 10, padding: 16, width: 'min(900px, 96vw)', maxHeight: '90vh', overflow: 'auto', display: 'grid', gridTemplateColumns: '220px 1fr', gap: 14 }}
       >
         <div style={{ display: 'grid', gap: 6, alignContent: 'start' }}>
-          <div style={{ fontWeight: 700 }}>Узлы</div>
+          <div style={{ fontWeight: 700 }}>Виды работ</div>
           {props.types.map((t) => (
             <button
               key={t.code}
@@ -195,16 +195,16 @@ export function WorkSheetTypeEditorDialog(props: {
             </button>
           ))}
           <Button variant="ghost" onClick={() => pick(null)} data-work-sheet-type-new>
-            + Новый узел
+            + Новый вид работ
           </Button>
 
           {archived.length > 0 ? (
             <div style={{ display: 'grid', gap: 6, marginTop: 10 }} data-work-sheet-type-archived>
-              <div className="ui-muted" style={{ fontSize: 12 }}>В архиве — строки остались, код занят</div>
+              <div className="ui-muted" style={{ fontSize: 12 }}>В архиве — ведомости остались, код занят</div>
               {archived.map((t) => (
                 <div key={t.code} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span className="ui-muted" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</span>
-                  <Button variant="ghost" disabled={busy} onClick={() => void restore(t)} title="Вернуть узел из архива">
+                  <Button variant="ghost" disabled={busy} onClick={() => void restore(t)} title="Вернуть вид работ из архива">
                     Вернуть
                   </Button>
                 </div>
@@ -214,7 +214,7 @@ export function WorkSheetTypeEditorDialog(props: {
         </div>
 
         <div style={{ display: 'grid', gap: 10, alignContent: 'start' }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>{draft.id ? `Узел «${selected?.name ?? ''}»` : 'Новый узел'}</div>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>{draft.id ? `Вид работ «${selected?.name ?? ''}»` : 'Новый вид работ'}</div>
           <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '8px 10px', alignItems: 'center' }}>
             <span className="ui-muted">Название</span>
             <Input value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} data-work-sheet-type-name />
@@ -240,7 +240,7 @@ export function WorkSheetTypeEditorDialog(props: {
             </label>
           </div>
 
-          <div style={{ fontWeight: 600 }}>Колонки узла</div>
+          <div style={{ fontWeight: 600 }}>Колонки вида работ</div>
           {draft.columns.length === 0 ? <div className="ui-muted">Пока только общие: дата, двигатель, цех, исполнитель, примечание.</div> : null}
           {draft.columns.map((c, i) => (
             <div key={c.code} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 150px auto auto', gap: 8, alignItems: 'center' }} data-work-sheet-column={c.code}>
@@ -298,7 +298,7 @@ export function WorkSheetTypeEditorDialog(props: {
               Закрыть
             </Button>
             <Button onClick={save} disabled={busy} data-work-sheet-type-save>
-              {busy ? 'Сохранение…' : 'Сохранить узел'}
+              {busy ? 'Сохранение…' : 'Сохранить вид работ'}
             </Button>
           </div>
         </div>
