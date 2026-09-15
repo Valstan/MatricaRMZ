@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
@@ -12,15 +14,17 @@ import {
   repairHistoryEntryType,
   repairHistoryMetaForStatus,
   sanitizeWorkSheetColumns,
+  statusDateCode,
   workSheetFieldsSummary,
+  type RepairStatusStamp,
   type StatusCode,
   type WorkSheetField,
   type WorkSheetRow,
   type WorkSheetType,
 } from '@matricarmz/shared';
 
-import { advanceEngineStatusForWorkOrder, getEngineDetails, resolveEngineLabels } from './engineService.js';
-import { addOperation, getOperation, listOperationsByType, softDeleteOperation, upsertOperation } from './operationService.js';
+import { advanceEngineStatusForWorkOrder, getEngineDetails, resolveEngineLabels, setEngineAttribute } from './engineService.js';
+import { getOperation, listOperationsByType, softDeleteOperation, upsertOperation } from './operationService.js';
 
 /**
  * Строки ведомостей работ (владелец 15.09.2026).
@@ -32,8 +36,14 @@ import { addOperation, getOperation, listOperationsByType, softDeleteOperation, 
  *
  * Узел с `completesRepair` (обкатка) при ДОБАВЛЕНИИ строки ставит `status_repaired` датой строки
  * тем же путём, что сборочный наряд (`advanceEngineStatusForWorkOrder`), и пишет автозапись
- * стадии — как делает карточка при взведённой галочке. Правка и удаление строки статус не
- * трогают: снятие «Отремонтирован» — решение оператора в карточке, не побочный эффект.
+ * стадии — как делает карточка при взведённой галочке. Правка строки статус не трогает.
+ *
+ * Удаление строки предлагает откатить сделанное — по явному подтверждению оператора (решение
+ * владельца 15.09.2026). Откат честен, потому что строка оставляет ШТАМП: какие флаги она
+ * переключила, из чего в что, какой была дата и какую автозапись стадии она написала. Без
+ * штампа это было бы угадывание — историю стадий пишут не все пути, а карточка не помнит, кто
+ * поставил статус. Откатывается только то, что с тех пор никто не менял: если значение уже не
+ * такое, каким его оставила строка, это чужое решение, и трогать его нельзя.
  */
 
 export type SaveWorkSheetRowInput = {
@@ -120,7 +130,21 @@ export async function saveWorkSheetRow(db: BetterSQLite3Database, input: SaveWor
 
   let repair: { applied: boolean; reason?: string } | null = null;
   if (created && input.type.completesRepair === true) {
-    repair = await completeRepairFromSheet(db, engineId, atMs, actor);
+    const done = await completeRepairFromSheet(db, engineId, atMs, actor);
+    repair = { applied: done.applied, ...(done.reason ? { reason: done.reason } : {}) };
+    if (done.stamp) {
+      // Штамп кладётся вторым проходом: что именно изменилось в карточке, известно только
+      // после самого перехода. id тот же — это правка meta той же строки, не вторая строка.
+      await upsertOperation(db, {
+        id,
+        engineId,
+        operationType: REPAIR_HISTORY_OPERATION_TYPE,
+        status: 'done',
+        note: noteLine,
+        performedBy: actor,
+        metaJson: JSON.stringify({ ...meta, repairStamp: done.stamp }),
+      });
+    }
   }
   return { ok: true, id, created, repair };
 }
@@ -129,7 +153,12 @@ export async function saveWorkSheetRow(db: BetterSQLite3Database, input: SaveWor
  * «Отремонтирован» датой строки. Утиль и уже отремонтированный — пропуск (дату не двигаем:
  * первая обкатка и есть дата ремонта). Автозапись стадии — той же формой, что пишет карточка.
  */
-async function completeRepairFromSheet(db: BetterSQLite3Database, engineId: string, atMs: number, actor: string) {
+async function completeRepairFromSheet(
+  db: BetterSQLite3Database,
+  engineId: string,
+  atMs: number,
+  actor: string,
+): Promise<{ applied: boolean; reason?: string; stamp?: RepairStatusStamp }> {
   const details = await getEngineDetails(db, engineId);
   const attrs = details.attributes ?? {};
   const current: Partial<Record<StatusCode, boolean>> = {};
@@ -137,23 +166,89 @@ async function completeRepairFromSheet(db: BetterSQLite3Database, engineId: stri
   if (isScrapEngine(current)) return { applied: false, reason: 'scrap-engine' };
   if (current.status_repaired) return { applied: false, reason: 'already-repaired' };
 
+  const dateCode = statusDateCode('status_repaired');
+  const dateBefore = typeof attrs[dateCode] === 'number' ? (attrs[dateCode] as number) : null;
+
   const result = await advanceEngineStatusForWorkOrder(db, engineId, 'status_repaired', atMs, actor);
-  if (result.applied) {
-    const statusMeta = repairHistoryMetaForStatus('status_repaired', atMs);
-    await addOperation(db, engineId, REPAIR_HISTORY_OPERATION_TYPE, 'done', statusMeta.action, actor, JSON.stringify(statusMeta));
+  if (!result.applied) return result;
+
+  const statusEntryId = randomUUID();
+  const statusMeta = repairHistoryMetaForStatus('status_repaired', atMs);
+  await upsertOperation(db, {
+    id: statusEntryId,
+    engineId,
+    operationType: REPAIR_HISTORY_OPERATION_TYPE,
+    status: 'done',
+    note: statusMeta.action,
+    performedBy: actor,
+    metaJson: JSON.stringify(statusMeta),
+  });
+
+  // Что поменялось на самом деле — читаем из карточки ПОСЛЕ перехода, а не выводим из правил:
+  // набор гасимых флагов задаёт `applyStatusFlagChange`, и копия этого правила здесь молча
+  // разошлась бы с оригиналом.
+  const after = await getEngineDetails(db, engineId);
+  const attrsAfter = after.attributes ?? {};
+  const flags: RepairStatusStamp['flags'] = [];
+  for (const code of STATUS_CODES) {
+    const from = current[code] === true;
+    const to = isEavFlagSet(attrsAfter[code]);
+    if (from !== to) flags.push({ code, from, to });
   }
-  return result;
+  if (flags.length === 0) return { applied: true };
+  return { applied: true, stamp: { statusEntryId, flags, dateCode, dateFrom: dateBefore, dateTo: atMs } };
 }
 
-export async function deleteWorkSheetRow(db: BetterSQLite3Database, id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+/**
+ * Вернуть карточке то, что оставила строка. Каждое значение возвращается, только если оно всё
+ * ещё такое, каким его оставила строка: иначе после неё решение принял человек, и откат затёр
+ * бы его. Пропущенное не ошибка — о нём сообщается вызывающему словами.
+ */
+async function rollbackRepairFromSheet(
+  db: BetterSQLite3Database,
+  engineId: string,
+  stamp: RepairStatusStamp,
+  actor: string,
+): Promise<{ applied: boolean; reason?: string }> {
+  const details = await getEngineDetails(db, engineId);
+  const attrs = details.attributes ?? {};
+  let changed = 0;
+  let kept = 0;
+  for (const flag of stamp.flags) {
+    if (isEavFlagSet(attrs[flag.code]) !== flag.to) {
+      kept += 1;
+      continue;
+    }
+    await setEngineAttribute(db, engineId, flag.code, flag.from, actor);
+    changed += 1;
+  }
+  if (changed === 0) return { applied: false, reason: 'changed-elsewhere' };
+  const dateNow = typeof attrs[stamp.dateCode] === 'number' ? (attrs[stamp.dateCode] as number) : null;
+  if (dateNow === stamp.dateTo) await setEngineAttribute(db, engineId, stamp.dateCode, stamp.dateFrom, actor);
+  // Автозапись стадии гаснет вместе со статусом — иначе история продолжит утверждать, что
+  // ремонт закончен, когда галочки в карточке уже нет.
+  await softDeleteOperation(db, stamp.statusEntryId);
+  return { applied: true, ...(kept > 0 ? { reason: 'partial' } : {}) };
+}
+
+export async function deleteWorkSheetRow(
+  db: BetterSQLite3Database,
+  id: string,
+  opts: { rollbackRepair?: boolean } = {},
+  actor = 'local',
+): Promise<{ ok: true; repairRolledBack: boolean; reason?: string } | { ok: false; error: string }> {
   const existing = await getOperation(db, text(id));
   if (!existing) return { ok: false, error: 'Строка не найдена' };
   const meta = parseRepairHistoryMeta(existing.metaJson ?? null);
   if (!meta || repairHistoryEntryType(meta, existing.operationType) !== 'sheet') {
     return { ok: false, error: 'Эта запись истории — не строка ведомости' };
   }
+  let rolled: { applied: boolean; reason?: string } = { applied: false };
+  if (opts.rollbackRepair === true && meta.repairStamp) {
+    rolled = await rollbackRepairFromSheet(db, String(existing.engineEntityId), meta.repairStamp, actor);
+  }
   await softDeleteOperation(db, text(id));
-  return { ok: true };
+  return { ok: true, repairRolledBack: rolled.applied, ...(rolled.reason ? { reason: rolled.reason } : {}) };
 }
 
 /**
@@ -204,6 +299,7 @@ export async function listWorkSheetRows(
       performedBy: text(op.performedBy) === 'local' ? '' : text(op.performedBy),
       note: meta.note ?? '',
       fields: meta.sheet!.fields,
+      repairStamped: meta.repairStamp != null,
     };
   });
   return { rows: rows.sort((a, b) => b.at - a.at || a.id.localeCompare(b.id)), truncated };

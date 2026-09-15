@@ -47,6 +47,27 @@ export type RepairHistorySheet = {
   fields: WorkSheetField[];
 };
 
+/**
+ * След строки в карточке двигателя: что именно она изменила, когда поставила «Отремонтирован».
+ *
+ * Без штампа откат — угадывание. История стадий неполна по построению (карточка пишет
+ * автозапись только для ВЗВЕДЁННЫХ флагов, путь наряда не пишет её вовсе), в самой карточке
+ * не записано, КТО поставил статус, а прежнее значение даты после перехода нигде не хранится.
+ * Поэтому строка запоминает свой след сама — и удаление возвращает ровно его, не трогая
+ * «Отремонтирован», поставленный карточкой или сборочным нарядом.
+ *
+ * `to` хранится рядом с `from` не для симметрии: по нему видно, держится ли ещё наша правка.
+ * Если с тех пор значение изменил кто-то другой, откатывать его нельзя — это уже чужое решение.
+ */
+export type RepairStatusStamp = {
+  /** Автозапись стадии, написанная вместе со статусом: при откате гаснет вместе с ним. */
+  statusEntryId: string;
+  flags: Array<{ code: string; from: boolean; to: boolean }>;
+  dateCode: string;
+  dateFrom: number | null;
+  dateTo: number;
+};
+
 export type RepairHistoryMeta = {
   kind: typeof REPAIR_HISTORY_META_KIND;
   action: string;
@@ -68,6 +89,8 @@ export type RepairHistoryMeta = {
   entryType?: RepairHistoryEntryType;
   /** Строка ведомости работ. */
   sheet?: RepairHistorySheet;
+  /** След этой строки в карточке двигателя — основание для отката при удалении. */
+  repairStamp?: RepairStatusStamp;
   /**
    * Дата события, когда она НЕ совпадает с моментом записи: строку истории часто заводят
    * задним числом. Хранится здесь, потому что запись операции даты не принимает — иначе
@@ -149,6 +172,31 @@ function parseExtra(raw: unknown): RepairHistoryExtraField[] {
   return out;
 }
 
+function parseRepairStamp(raw: unknown): RepairStatusStamp | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const statusEntryId = text(obj.statusEntryId).slice(0, 80);
+  const dateCode = text(obj.dateCode).slice(0, 80);
+  const dateTo = typeof obj.dateTo === 'number' && Number.isFinite(obj.dateTo) ? obj.dateTo : null;
+  if (!statusEntryId || !dateCode || dateTo === null) return null;
+  const flags: RepairStatusStamp['flags'] = [];
+  for (const item of Array.isArray(obj.flags) ? obj.flags : []) {
+    if (!item || typeof item !== 'object') continue;
+    const f = item as Record<string, unknown>;
+    const code = text(f.code).slice(0, 80);
+    if (!code || typeof f.from !== 'boolean' || typeof f.to !== 'boolean') continue;
+    flags.push({ code, from: f.from, to: f.to });
+  }
+  if (flags.length === 0) return null;
+  return {
+    statusEntryId,
+    flags,
+    dateCode,
+    dateFrom: typeof obj.dateFrom === 'number' && Number.isFinite(obj.dateFrom) ? obj.dateFrom : null,
+    dateTo,
+  };
+}
+
 function parseSheet(raw: unknown): RepairHistorySheet | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const obj = raw as Record<string, unknown>;
@@ -199,6 +247,7 @@ export function parseRepairHistoryMeta(metaJson: string | null): RepairHistoryMe
     ...(typeof obj.at === 'number' && Number.isFinite(obj.at) && obj.at > 0 ? { at: obj.at } : {}),
     ...(parseEntryType(obj.entryType) ? { entryType: parseEntryType(obj.entryType)! } : {}),
     ...(parseSheet(obj.sheet) ? { sheet: parseSheet(obj.sheet)! } : {}),
+    ...(parseRepairStamp(obj.repairStamp) ? { repairStamp: parseRepairStamp(obj.repairStamp)! } : {}),
   };
 }
 
@@ -218,6 +267,7 @@ export function buildRepairHistoryMeta(input: {
   at?: number;
   entryType?: RepairHistoryEntryType;
   sheet?: RepairHistorySheet | null;
+  repairStamp?: RepairStatusStamp | null;
 }): RepairHistoryMeta {
   const sheet = parseSheet(input.sheet);
   return {
@@ -232,6 +282,7 @@ export function buildRepairHistoryMeta(input: {
     ...(typeof input.at === 'number' && Number.isFinite(input.at) && input.at > 0 ? { at: input.at } : {}),
     ...(input.entryType ? { entryType: input.entryType } : {}),
     ...(sheet ? { sheet } : {}),
+    ...(parseRepairStamp(input.repairStamp) ? { repairStamp: parseRepairStamp(input.repairStamp)! } : {}),
   };
 }
 

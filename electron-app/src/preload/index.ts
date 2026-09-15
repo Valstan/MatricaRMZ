@@ -580,7 +580,7 @@ const matricaApi = {
     rows: {
       list: async (args?: { sinceMs?: number | null; typeCode?: string | null }) => ipcRenderer.invoke('workSheets:rows:list', args),
       save: async (args: unknown) => ipcRenderer.invoke('workSheets:rows:save', args),
-      delete: async (id: string) => ipcRenderer.invoke('workSheets:rows:delete', id),
+      delete: async (id: string, opts?: { rollbackRepair?: boolean }) => ipcRenderer.invoke('workSheets:rows:delete', id, opts),
     },
   },
   tools: {

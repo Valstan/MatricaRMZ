@@ -47,7 +47,7 @@ export function WorkSheetRowDialog(props: {
   canDelete: boolean;
   onClose: () => void;
   onSaved: (result: { repair: { applied: boolean; reason?: string } | null; typeName: string }) => void;
-  onDeleted: () => void;
+  onDeleted: (result: { repairRolledBack: boolean; askedRollback: boolean; reason?: string }) => void;
   onOpenEngine?: (id: string) => void;
 }) {
   const editing = props.row !== null;
@@ -142,14 +142,24 @@ export function WorkSheetRowDialog(props: {
   const remove = async () => {
     if (!props.row) return;
     if (!window.confirm(`Удалить строку «${props.row.typeName}» от ${formatWorkSheetValue({ type: 'date', value: props.row.at })}?`)) return;
+    // Второй вопрос — только если откатывать ЕСТЬ ЧТО: статус поставила эта строка.
+    // Снятие отметки — отдельное решение оператора, а не следствие удаления строки.
+    const askedRollback = props.row.repairStamped;
+    const rollbackRepair =
+      askedRollback &&
+      window.confirm('Эта строка поставила двигателю «Отремонтирован». Снять отметку вместе со строкой?');
     setBusy(true);
     try {
-      const r = await window.matrica.workSheets.rows.delete(props.row.id);
+      const r = await window.matrica.workSheets.rows.delete(props.row.id, { rollbackRepair });
       if (!r.ok) {
         setStatus(`Ошибка: ${r.error}`);
         return;
       }
-      props.onDeleted();
+      props.onDeleted({
+        repairRolledBack: r.repairRolledBack === true,
+        askedRollback: rollbackRepair,
+        ...(r.reason ? { reason: r.reason } : {}),
+      });
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     } finally {

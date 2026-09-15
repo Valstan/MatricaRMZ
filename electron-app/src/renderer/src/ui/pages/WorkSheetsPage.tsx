@@ -245,9 +245,14 @@ export function WorkSheetsPage(props: { canEdit: boolean; canManageTypes: boolea
             else if (repair && repair.reason === 'scrap-engine') setStatus(`Строка «${typeName}» записана; двигатель в утиле — статус ремонта не трогали.`);
             else setStatus('');
           }}
-          onDeleted={() => {
+          onDeleted={({ repairRolledBack, askedRollback, reason }) => {
             setRowDialog(null);
             void refreshRows();
+            if (repairRolledBack && reason === 'partial') setStatus('Строка удалена; «Отремонтирован» снят — часть отметок с тех пор меняли, их не трогали.');
+            else if (repairRolledBack) setStatus('Строка удалена; «Отремонтирован» снят, запись о завершении ремонта убрана из истории.');
+            else if (askedRollback && reason === 'changed-elsewhere') setStatus('Строка удалена; отметку «Отремонтирован» после неё меняли в другом месте — она осталась как есть.');
+            else if (askedRollback) setStatus('Строка удалена; отметка «Отремонтирован» оставлена.');
+            else setStatus('');
           }}
         />
       ) : null}

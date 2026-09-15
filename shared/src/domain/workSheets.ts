@@ -256,6 +256,8 @@ export type WorkSheetRow = {
   performedBy: string;
   note: string;
   fields: WorkSheetField[];
+  /** Эта строка поставила двигателю «Отремонтирован» — при удалении есть что откатывать. */
+  repairStamped: boolean;
 };
 
 export const WORK_SHEET_ROW_FACET_IDS = ['type', 'engineBrand', 'workshop', 'performedBy', 'date'] as const;
