@@ -4,9 +4,12 @@ import type { FacetDescriptor } from './listFacets.js';
 /**
  * Ведомости работ (владелец 15.09.2026): общий журнал движений двигателя по заводу.
  *
- * **Узел** (укладка, вал, обкатка, сборка, …) — вид ведомости: свой набор колонок,
- * опционально цех, признак «строка завершает ремонт». Узлы заводит пользователь; справочник
- * живёт REST-таблицей `work_sheet_types` (без синхронизации — как шаблоны нарядов).
+ * **Вид работ** (укладка вала в картер, обкатка, сборка, …) — то, ЧТО делали: свой набор
+ * колонок, опционально цех, признак «ведомость завершает ремонт». Виды работ заводит
+ * пользователь; справочник живёт REST-таблицей `work_sheet_types` (без синхронизации — как
+ * шаблоны нарядов). В коде и в базе это по-прежнему `type`: сменилось слово на экране, а не
+ * модель — узлом в программе зовётся сборочная единица (`warehouse.ts`), и два значения
+ * одного слова путали (решение владельца 15.09.2026).
  *
  * **Строка ведомости** — запись истории ремонта двигателя (`operations` типа
  * `repair_history_entry`, см. `engineRepairHistory.ts`, поле `sheet`). Поэтому она сама
@@ -25,7 +28,7 @@ export const WORK_SHEET_COLUMN_TYPE_LABELS: Record<WorkSheetColumnType, string> 
   choice: 'Выбор из списка',
 };
 
-/** Колонка узла. `code` — латиница, стабилен после создания; `label` — подпись оператору. */
+/** Колонка вида работ. `code` — латиница, стабилен после создания; `label` — подпись оператору. */
 export type WorkSheetColumn = {
   code: string;
   label: string;
@@ -299,7 +302,7 @@ export const WORK_SHEET_ROW_FACET_IDS = ['type', 'engineBrand', 'workshop', 'per
 export function workSheetFacets(columns: readonly WorkSheetColumn[]): FacetDescriptor<WorkSheetRow>[] {
   const val = (value: string, label = value) => (value ? { value, label } : null);
   const facets: FacetDescriptor<WorkSheetRow>[] = [
-    { kind: 'values', id: 'type', label: 'Узел', valueOf: (r) => val(r.typeCode, r.typeName || r.typeCode) },
+    { kind: 'values', id: 'type', label: 'Вид работ', valueOf: (r) => val(r.typeCode, r.typeName || r.typeCode) },
     { kind: 'values', id: 'engineBrand', label: 'Марка', valueOf: (r) => val(text(r.engineBrand)) },
     { kind: 'values', id: 'customer', label: 'Заказчик', valueOf: (r) => val(text(r.customerName)) },
     // Отбираем по КОРОТКОЙ метке: именно ею договор называют в цеху, и именно она стоит

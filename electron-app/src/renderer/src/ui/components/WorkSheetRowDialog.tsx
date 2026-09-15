@@ -32,13 +32,13 @@ function fromDateInput(raw: string): number | null {
 }
 
 /**
- * Строка ведомости: двигатель, дата, цех, примечание и поля узла. Одна форма на добавление и
+ * Ведомость: двигатель, дата, цех, примечание и поля вида работ. Одна форма на добавление и
  * правку — правка приходит с тем же id, и main-процесс бьёт в ту же запись истории (без дублей).
- * Узел меняется только у новой строки: у существующей поля уже принадлежат его набору колонок.
+ * Вид работ меняется только у новой ведомости: у существующей поля уже принадлежат его набору.
  */
 export function WorkSheetRowDialog(props: {
   types: WorkSheetType[];
-  /** Узел активной вкладки — предвыбор для новой строки; `null` — вкладка «Все». */
+  /** Вид работ, выбранный в фильтре списка — предвыбор для новой ведомости; `null` — решает справочник. */
   initialTypeCode: string | null;
   row: WorkSheetRow | null;
   engines: EngineListItem[];
@@ -101,7 +101,7 @@ export function WorkSheetRowDialog(props: {
   const setValue = (code: string, v: unknown) => setValues((prev) => ({ ...prev, [code]: v }));
 
   const save = async () => {
-    if (!effectiveType) return setStatus('Выберите узел');
+    if (!effectiveType) return setStatus('Выберите вид работ');
     if (!engineId) return setStatus('Выберите двигатель');
     const atMs = fromDateInput(date);
     if (!atMs) return setStatus('Укажите дату');
@@ -186,7 +186,7 @@ export function WorkSheetRowDialog(props: {
         <div style={{ fontWeight: 700, fontSize: 16 }}>{editing ? `Строка ведомости «${props.row?.typeName}»` : 'Новая строка ведомости'}</div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '8px 10px', alignItems: 'center' }}>
-          {label('Узел')}
+          {label('Вид работ')}
           <select value={typeCode} disabled={editing} onChange={(e) => setTypeCode(e.target.value)} data-work-sheet-type-select>
             {type === null && effectiveType !== null ? (
               <option value={effectiveType.code}>{effectiveType.name}</option>
@@ -264,7 +264,7 @@ export function WorkSheetRowDialog(props: {
 
         {!editing && type?.completesRepair ? (
           <div className="ui-muted" style={{ fontSize: 12 }} data-work-sheet-completes-hint>
-            Строка узла «{type.name}» завершает ремонт: в карточке двигателя встанет «Отремонтирован» датой строки.
+            Ведомость «{type.name}» завершает ремонт: в карточке двигателя встанет «Отремонтирован» датой ведомости.
           </div>
         ) : null}
 

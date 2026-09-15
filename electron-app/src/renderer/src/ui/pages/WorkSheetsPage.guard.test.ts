@@ -59,17 +59,51 @@ describe('ведомости работ — экран', () => {
     expect(ANDROID_WIRING).toContain('registerWorkSheetsIpc(ctx);');
   });
 
-  it('вкладки узлов на CardTabs, панели смонтированы и скрыты hidden без инлайнового display', () => {
-    expect(PAGE).toContain('<CardTabs');
-    expect(PAGE).toContain('hidden={activeTab !== tab.key}');
-    expect(PAGE).toContain("...(activeTab === tab.key ? { display: 'flex', flexDirection: 'column' } : {})");
+  // Вкладки по видам работ разрезали экран на копии одного списка — каждая со своим
+  // тулбаром, ступенями и раскладкой колонок. Отобрать одно значение умеет ступень.
+  it('список ОДИН: вкладок нет, вид работ — колонка и ступень', () => {
+    expect(PAGE, 'вкладки сняты').not.toContain('<CardTabs');
+    expect(PAGE, 'вид работ — колонка списка').toContain("id: 'type', label: 'Вид работ'");
+    expect(PAGE, 'ступени общие для всего списка, без полей отдельного вида').toContain('workSheetFacets([])');
+    expect(PAGE, 'раскладка колонок одна на список, а не на вид').toContain("useColumnLayout('list:workSheets:columns'");
   });
 
-  it('список — на общей обвязке: счётчик, «№», ступени по колонкам узла', () => {
+  it('новая ведомость берёт вид работ из фильтра, а не первый из справочника', () => {
+    expect(PAGE).toContain('const initialTypeCode = useMemo(');
+    expect(PAGE).toContain('ui.facets?.[TYPE_FACET_ID]');
+    expect(PAGE).toContain('initialTypeCode={initialTypeCode}');
+  });
+
+  it('печать списка — общим механизмом и вне тулбара', () => {
+    expect(PAGE).toContain('<ListPrintDialog');
+    expect(PAGE).toContain('buildListPrintColumns(columns)');
+    // Внутри PageToolbar диалог уехал бы в меню переполнения вместе с кнопкой.
+    const toolbarEnd = PAGE.indexOf('</PageToolbar>');
+    expect(toolbarEnd, 'тулбар на месте').toBeGreaterThan(0);
+    expect(PAGE.indexOf('<ListPrintDialog'), 'диалог печати ниже тулбара').toBeGreaterThan(toolbarEnd);
+    expect(PAGE, 'на планшете печати нет — как у всех списков').toContain('!isAndroidPlatform()');
+  });
+
+  it('список — на общей обвязке: счётчик, «№», виртуализация', () => {
     expect(PAGE).toContain('<ListCount');
     expect(PAGE).toContain('<RowNumberHeaderCell');
     expect(PAGE).toContain('rowNumbers');
-    expect(PAGE).toContain('workSheetFacets(type?.columns ?? [])');
+  });
+
+  // Слово сменилось по решению владельца: узлом в программе зовётся сборочная единица
+  // (`warehouse.ts`, «№ узла сборки» в дефектовке), и два значения одного слова путали.
+  it('на экране — «вид работ», а не «узел»', () => {
+    // Смотрим ТОЛЬКО на то, что видит оператор: комментарии объясняют само переименование
+    // и обязаны называть старое слово, иначе объяснение теряет смысл.
+    const withoutComments = (text: string) =>
+      text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    for (const [name, text] of [
+      ['страница', PAGE],
+      ['диалог ведомости', ROW_DIALOG],
+      ['редактор видов работ', TYPE_DIALOG],
+    ] as const) {
+      expect(withoutComments(text), `${name}: на экране осталось слово «узел»`).not.toMatch(/[Уу]зл|[Уу]зел/);
+    }
   });
 
   it('строка пишется через main-сервис, id даёт клиент — правка бьёт в ту же запись', () => {
