@@ -23,6 +23,10 @@ export class SyncManager {
   private timer: NodeJS.Timeout | null = null;
   private nextAt: number | null = null;
   private inFlight = false;
+  /** Текущий прогон (с его же уборкой в finally); null — синка сейчас нет. */
+  private chain: Promise<SyncRunResult> | null = null;
+  /** Уже поставленный в очередь следующий прогон: глубже одного не копим. */
+  private pending: Promise<SyncRunResult> | null = null;
   private baseIntervalMs = 5 * 60_000;
   private consecutiveErrors = 0;
   private readonly onProgress?: ProgressHandler;
@@ -85,9 +89,45 @@ export class SyncManager {
     this.nextAt = null;
   }
 
+  /**
+   * Синхронизация «по требованию». Параллельных синков по-прежнему нет, но занятость
+   * больше НЕ отвечает чужим результатом.
+   *
+   * Было: при идущем синке возвращался `lastResult` ПРОШЛОГО прогона — то есть на вопрос
+   * «синхронизируй и скажи, как прошло» приходило бодрое `ok: true` от работы, которая
+   * закончилась раньше, чем вызывающий вообще что-то изменил. Вызывающий верил и читал
+   * реплику, где его данных ещё нет. Так ломалась дефектовка: личные номера экземпляров
+   * появлялись со второго-третьего нажатия — не потому, что «долго считается», а потому
+   * что показ опережал синк (GOTCHAS M134).
+   *
+   * Стало: обращение во время чужого синка ЖДЁТ его и запускает свежий — идущий мог
+   * стартовать до изменения, которого ждёт вызывающий, и его результат ничего не
+   * доказывает. Очередь глубиной один: десять нажатий подряд дают один догоняющий
+   * прогон, а не десять.
+   */
   async runOnce(opts?: Parameters<typeof runSync>[3]): Promise<SyncRunResult> {
-    // Не запускаем параллельные синки.
-    if (this.inFlight) return this.lastResult ?? { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: 'sync busy' };
+    const current = this.chain;
+    if (current) {
+      if (this.pending) return this.pending;
+      // Цепляемся за `current` — это прогон ВМЕСТЕ с его уборкой, поэтому к моменту
+      // рекурсии `this.chain` уже пуст и новый прогон стартует, а не встаёт в очередь.
+      const queued = current
+        .catch(() => undefined)
+        .then(() => {
+          this.pending = null;
+          return this.runOnce(opts);
+        });
+      this.pending = queued;
+      return queued;
+    }
+    const run = this.runNow(opts).finally(() => {
+      if (this.chain === run) this.chain = null;
+    });
+    this.chain = run;
+    return run;
+  }
+
+  private async runNow(opts?: Parameters<typeof runSync>[3]): Promise<SyncRunResult> {
     this.inFlight = true;
 
     this.state = 'syncing';

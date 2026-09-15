@@ -640,7 +640,9 @@ export function RepairChecklistPanel(props: {
     ]);
     setRepairPartStates(states.ok ? states.states : {});
     setPartStatusEvents(events.ok ? events.events : []);
-    setStampedInstances(stamped.ok ? stamped.instances : []);
+    // Отказ чтения — не повод стирать показанное: пустой список читается как «экземпляров
+    // нет», хотя на деле их просто не отдали.
+    if (stamped.ok) setStampedInstances(stamped.instances);
     setRequirementVersions(requirement.ok ? requirement.versions : []);
     setConductedVersions(versions.ok ? versions.versions : []);
     setDefectPartHistory(history.ok ? history.events : []);
@@ -751,8 +753,17 @@ export function RepairChecklistPanel(props: {
       setStatus(result.unchanged
         ? `Дефектовка уже проведена без изменений (версия ${result.version.version}).`
         : `Дефектовка проведена атомарно, версия ${result.version.version}. Ремфонд, утиль и личные номера обновлены.`);
-      await window.matrica.sync.run().catch(() => undefined);
+      // Проводит дефектовку СЕРВЕР, а панель показывает реплику — между ними синхронизация,
+      // и её исход больше не выбрасывается. Пока он выбрасывался, отказ синка выглядел как
+      // «личные номера не появились», и мастер жал кнопку второй и третий раз (GOTCHAS M134).
+      const synced = await window.matrica.sync.run().catch(() => null);
       await loadRepairPartData();
+      if (!synced?.ok) {
+        setStatus(
+          `Дефектовка проведена (версия ${result.version.version}), но обменяться с сервером не вышло` +
+            `${synced?.error ? `: ${synced.error}` : ''}. Личные номера экземпляров появятся после синхронизации.`,
+        );
+      }
       setDefectHistoryOpen(true);
     } catch (error) {
       setStatus(`Ошибка проведения: ${String(error)}`);
