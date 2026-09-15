@@ -11,7 +11,7 @@ function src(rel: string): string {
 }
 
 const PAGE = src('./WorkSheetsPage.tsx');
-const ROW_DIALOG = src('../components/WorkSheetRowDialog.tsx');
+const CARD = src('./WorkSheetDetailsPage.tsx');
 const TYPE_DIALOG = src('../components/WorkSheetTypeEditorDialog.tsx');
 const APP = src('../App.tsx');
 const SECTIONS = src('../../../../../../shared/src/domain/uiSections.ts');
@@ -34,9 +34,11 @@ describe('ведомости работ — экран', () => {
   });
 
   it('запись в ведомости — отдельное право, и раздельный уровень у секционного гейта', () => {
-    expect(APP, 'строки и узлы — одно право, кнопка не врёт про доступ').toContain(
-      'canEdit={caps.canEditWorkSheets} canManageTypes={caps.canEditWorkSheets}',
-    );
+    // Проверяем пропы по отдельности: разметка многострочная, и непрерывная подстрока
+    // ломалась бы от любого переноса, а не от потери права.
+    for (const prop of ['canEdit={caps.canEditWorkSheets}', 'canManageTypes={caps.canEditWorkSheets}']) {
+      expect(APP, `ведомости: ${prop} — строки и виды работ под одним правом`).toContain(prop);
+    }
     expect(IPC, 'запись — work_sheets.edit, а не operations.edit мастеров').toContain(
       "requirePermOrResult(ctx, 'work_sheets.edit')",
     );
@@ -99,17 +101,37 @@ describe('ведомости работ — экран', () => {
       text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     for (const [name, text] of [
       ['страница', PAGE],
-      ['диалог ведомости', ROW_DIALOG],
+      ['карточка ведомости', CARD],
       ['редактор видов работ', TYPE_DIALOG],
     ] as const) {
       expect(withoutComments(text), `${name}: на экране осталось слово «узел»`).not.toMatch(/[Уу]зл|[Уу]зел/);
     }
   });
 
-  it('строка пишется через main-сервис, id даёт клиент — правка бьёт в ту же запись', () => {
-    expect(ROW_DIALOG).toContain('window.matrica.workSheets.rows.save(');
-    expect(ROW_DIALOG).toContain('const id = props.row?.id ?? crypto.randomUUID();');
-    expect(ROW_DIALOG, 'строка не переезжает на другой двигатель').toContain('disabled={editing}');
+  // Ведомость пишется по id, который сгенерировал список: карточка новой открывается
+  // сразу, а запись появляется только по «Сохранить» — пустых ведомостей не остаётся.
+  it('ведомость пишется через main-сервис тем же id, что открыл карточку', () => {
+    expect(CARD).toContain('window.matrica.workSheets.rows.save(');
+    expect(CARD, 'сохраняем ровно тот id, с которым карточку открыли').toContain('id: props.rowId,');
+    expect(PAGE, 'id новой ведомости даёт список').toContain('crypto.randomUUID()');
+    expect(CARD, 'ведомость не переезжает на другой двигатель и не меняет вид работ').toContain(
+      'disabled={!props.canEdit || !props.isNew}',
+    );
+  });
+
+  it('карточка ведомости — вкладка со стандартной обвязкой, а не модальное окно', () => {
+    expect(CARD).toContain('<EntityCardShell');
+    expect(CARD, 'сохранить / сохранить и выйти / сброс / удалить / закрыть').toContain('<CardActionBar');
+    expect(CARD, 'сторож несохранённого').toContain('props.registerCardCloseActions({');
+    expect(APP, 'вид вкладки заведён и рисуется').toContain("{t === 'work_sheet' && selectedWorkSheetId && (");
+    expect(APP, 'карточку не выкидывает гейт скрытых вкладок').toContain("tab === 'work_sheet' ||");
+    expect(APP, 'вкладка восстанавливается из сессии').toContain("case 'work_sheet': return void openWorkSheet(entityId);");
+    expect(APP, 'в шапке вкладки — не огрызок id').toContain("return known ? `📒 ${known}` : '📒 Ведомость';");
+  });
+
+  it('из карточки ведомости можно уйти в двигатель', () => {
+    expect(CARD).toContain('data-work-sheet-open-engine');
+    expect(CARD).toContain('props.onOpenEngine(engineId)');
   });
 
   it('завершение ремонта — один раз при добавлении, той же формой автозаписи, что у карточки', () => {
@@ -136,13 +158,11 @@ describe('ведомости работ — экран', () => {
     expect(CACHE, 'три состояния источника, а не флаг «из кэша»').toContain("source: (cached.length > 0 ? 'cache' : 'none')");
   });
 
-  it('правка строки без справочника узлов: колонки восстанавливаются из полей самой строки', () => {
-    expect(ROW_DIALOG).toContain('const rowColumns = useMemo<WorkSheetColumn[]>(');
-    expect(ROW_DIALOG, 'форма рисует восстановленный набор, а не только колонки узла').toContain('{columns.map((col) => (');
-    expect(ROW_DIALOG, 'статус при правке не ставится — подставлять чужой completesRepair нельзя').toContain(
-      'completesRepair: false',
-    );
-    expect(ROW_DIALOG, 'имя цеха уезжает снимком вместе со строкой').toContain(
+  it('правка без справочника видов работ: колонки восстанавливаются из полей самой ведомости', () => {
+    expect(CARD).toContain('const rowColumns = useMemo<WorkSheetColumn[]>(');
+    expect(CARD, 'форма рисует восстановленный набор, а не только колонки вида').toContain('{columns.map((col) => (');
+    expect(CARD, 'статус при правке не ставится — подставлять чужой completesRepair нельзя').toContain('completesRepair: false');
+    expect(CARD, 'имя цеха уезжает снимком вместе с ведомостью').toContain(
       'workshopName: props.workshops.find((w) => w.id === workshopId)?.label ?? null,',
     );
   });
@@ -157,10 +177,7 @@ describe('ведомости работ — экран', () => {
     expect(SERVICE, 'автозапись стадии гаснет вместе со статусом').toContain(
       'await softDeleteOperation(db, stamp.statusEntryId);',
     );
-    expect(ROW_DIALOG, 'второй вопрос — только когда откатывать есть что').toContain(
-      'const askedRollback = props.row.repairStamped;',
-    );
-    expect(PAGE, 'исход отката проговаривается оператору').toContain("reason === 'changed-elsewhere'");
+    expect(CARD, 'второй вопрос — только когда откатывать есть что').toContain('row.repairStamped && window.confirm(');
   });
 
   it('архив узла обратим из того же окна — иначе это дверь в одну сторону', () => {

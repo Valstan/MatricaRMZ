@@ -14,7 +14,9 @@ import { Button } from './Button.js';
 import { Input } from './Input.js';
 import { RowReorderButtons } from './RowReorderButtons.js';
 import { loadWorkSheetTypes } from '../utils/workSheetTypesCache.js';
-import type { WorkshopOption } from './WorkSheetRowDialog.js';
+
+/** Цех для выпадающих списков ведомостей. Живёт здесь: диалог строки сменился карточкой. */
+export type WorkshopOption = { id: string; label: string };
 
 type Draft = {
   id: string | null;

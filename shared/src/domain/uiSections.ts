@@ -8,6 +8,7 @@ export type TabId =
   | 'history'
   | 'engines'
   | 'work_sheets'
+  | 'work_sheet'
   | 'assembly_forecast'
   | 'engine'
   | 'engine_brands'
@@ -78,6 +79,7 @@ export type TabId =
 export type MenuTabId = Exclude<
   TabId,
   | 'engine'
+  | 'work_sheet'
   | 'request'
   | 'work_order'
   | 'employee'
@@ -101,6 +103,7 @@ export type MenuTabId = Exclude<
 /** Maps detail tabs to their parent menu tab so the correct section button stays highlighted. */
 const PARENT_TAB: Record<string, MenuTabId> = {
   engine: 'engines',
+  work_sheet: 'work_sheets',
   engine_brand: 'engine_brands',
   engine_brand_group: 'engine_brand_groups',
   work_order: 'work_orders',

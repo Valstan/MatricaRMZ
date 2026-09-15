@@ -6,7 +6,6 @@ import {
   applyFacets,
   workSheetFacets,
   workSheetFieldsSummary,
-  type EngineListItem,
   type FacetDescriptor,
   type FacetSelection,
   type WorkSheetRow,
@@ -24,8 +23,7 @@ import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
-import { WorkSheetRowDialog, type WorkshopOption } from '../components/WorkSheetRowDialog.js';
-import { WorkSheetTypeEditorDialog } from '../components/WorkSheetTypeEditorDialog.js';
+import { WorkSheetTypeEditorDialog, type WorkshopOption } from '../components/WorkSheetTypeEditorDialog.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { useListDeepFilter } from '../hooks/useListDeepFilter.js';
 import { useListUiState } from '../hooks/useListBehavior.js';
@@ -91,7 +89,15 @@ function workshopLabel(r: WorkSheetRow, fromDirectory: (id: string) => string): 
   return fromDirectory(r.workshopId) || r.workshopName || HUMAN_LABEL_DASH;
 }
 
-export function WorkSheetsPage(props: { canEdit: boolean; canManageTypes: boolean; onOpenEngine: (id: string) => void }) {
+export function WorkSheetsPage(props: {
+  canEdit: boolean;
+  canManageTypes: boolean;
+  onOpenEngine: (id: string) => void;
+  /** Открыть карточку ведомости. Новая заводится тем же путём: id генерирует список. */
+  onOpenSheet: (id: string, opts?: { isNew?: boolean; typeCode?: string | null; title?: string }) => void;
+  /** Справочник цехов нужен и карточке — грузим один раз здесь и отдаём наверх. */
+  onWorkshopsLoaded?: (rows: WorkshopOption[]) => void;
+}) {
   const [types, setTypes] = useState<WorkSheetType[]>([]);
   const [typesSource, setTypesSource] = useState<WorkSheetTypesSource>('server');
   const [rows, setRows] = useState<WorkSheetRow[]>([]);
@@ -99,9 +105,6 @@ export function WorkSheetsPage(props: { canEdit: boolean; canManageTypes: boolea
   const [status, setStatus] = useState('');
   const [allTime, setAllTime] = useState(false);
   const [workshops, setWorkshops] = useState<WorkshopOption[]>([]);
-  const [engines, setEngines] = useState<EngineListItem[]>([]);
-  const [enginesReady, setEnginesReady] = useState(false);
-  const [rowDialog, setRowDialog] = useState<{ row: WorkSheetRow | null } | null>(null);
   const [typeEditorOpen, setTypeEditorOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -146,26 +149,22 @@ export function WorkSheetsPage(props: { canEdit: boolean; canManageTypes: boolea
   }, [refresh]);
   useLiveDataRefresh(refreshRows);
 
-  // Цеха — подписи для колонки и диалогов; прав на справочник может не быть — тогда снимок строки.
+  // Цеха — подписи для колонки и карточки; прав на справочник может не быть — тогда снимок строки.
+  const onWorkshopsLoaded = props.onWorkshopsLoaded;
   useEffect(() => {
     void (async () => {
       try {
         const r = await window.matrica.workshops.list({ activeOnly: true });
-        if (r.ok) setWorkshops(r.rows.map((w) => ({ id: String(w.id), label: String(w.name || w.code) })));
+        if (r.ok) {
+          const rows = r.rows.map((w) => ({ id: String(w.id), label: String(w.name || w.code) }));
+          setWorkshops(rows);
+          onWorkshopsLoaded?.(rows);
+        }
       } catch {
         /* без справочника цехов возьмём снимок имени из самой строки */
       }
     })();
-  }, []);
-
-  const ensureEngines = useCallback(async () => {
-    if (enginesReady) return;
-    try {
-      setEngines(await window.matrica.engines.list());
-    } finally {
-      setEnginesReady(true);
-    }
-  }, [enginesReady]);
+  }, [onWorkshopsLoaded]);
 
   const workshopFromDirectory = useCallback((id: string) => workshops.find((w) => w.id === id)?.label ?? '', [workshops]);
 
@@ -180,18 +179,11 @@ export function WorkSheetsPage(props: { canEdit: boolean; canManageTypes: boolea
     return first && types.some((t) => t.code === first) ? first : null;
   }, [ui.facets, types]);
 
-  const openNewRow = async () => {
-    await ensureEngines();
-    setRowDialog({ row: null });
-  };
-  const openRow = async (row: WorkSheetRow) => {
-    if (!props.canEdit) {
-      props.onOpenEngine(row.engineId);
-      return;
-    }
-    await ensureEngines();
-    setRowDialog({ row });
-  };
+  // id новой ведомости генерирует список: карточка открывается сразу, а запись появляется
+  // только по «Сохранить» — пустых ведомостей в истории ремонта не остаётся.
+  const openNewRow = () => props.onOpenSheet(crypto.randomUUID(), { isNew: true, typeCode: initialTypeCode });
+  const openRow = (row: WorkSheetRow) =>
+    props.onOpenSheet(row.id, { title: `${row.typeName}${row.engineNumber ? ` · ${row.engineNumber}` : ''}` });
 
   const columns = useMemo<Column[]>(
     () => [
@@ -405,37 +397,6 @@ export function WorkSheetsPage(props: { canEdit: boolean; canManageTypes: boolea
           selectedRows={[]}
           storageKey="list:workSheets:printFields"
           onClose={() => setPrintOpen(false)}
-        />
-      ) : null}
-
-      {rowDialog ? (
-        <WorkSheetRowDialog
-          types={types}
-          initialTypeCode={initialTypeCode}
-          row={rowDialog.row}
-          engines={engines}
-          enginesReady={enginesReady}
-          workshops={workshops}
-          canDelete={props.canEdit}
-          onClose={() => setRowDialog(null)}
-          onOpenEngine={props.onOpenEngine}
-          onSaved={({ repair, typeName }) => {
-            setRowDialog(null);
-            void refreshRows();
-            if (repair?.applied) setStatus(`Ведомость «${typeName}» записана; двигателю поставлен «Отремонтирован» датой ведомости.`);
-            else if (repair && repair.reason === 'already-repaired') setStatus(`Ведомость «${typeName}» записана; двигатель уже был отремонтирован — дата не менялась.`);
-            else if (repair && repair.reason === 'scrap-engine') setStatus(`Ведомость «${typeName}» записана; двигатель в утиле — статус ремонта не трогали.`);
-            else setStatus('');
-          }}
-          onDeleted={({ repairRolledBack, askedRollback, reason }) => {
-            setRowDialog(null);
-            void refreshRows();
-            if (repairRolledBack && reason === 'partial') setStatus('Ведомость удалена; «Отремонтирован» снят — часть отметок с тех пор меняли, их не трогали.');
-            else if (repairRolledBack) setStatus('Ведомость удалена; «Отремонтирован» снят, запись о завершении ремонта убрана из истории.');
-            else if (askedRollback && reason === 'changed-elsewhere') setStatus('Ведомость удалена; отметку «Отремонтирован» после неё меняли в другом месте — она осталась как есть.');
-            else if (askedRollback) setStatus('Ведомость удалена; отметка «Отремонтирован» оставлена.');
-            else setStatus('');
-          }}
         />
       ) : null}
 

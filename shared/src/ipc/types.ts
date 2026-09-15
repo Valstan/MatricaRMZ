@@ -2107,7 +2107,9 @@ export type MatricaApi = {
         sinceMs?: number | null;
         typeCode?: string | null;
       }) => Promise<{ ok: true; rows: WorkSheetRow[]; truncated?: boolean } | { ok: false; error: string }>;
-      /** id строки генерирует клиент; правка приходит с тем же id (upsert). */
+      /** Одна ведомость по id — для её карточки. */
+      get: (id: string) => Promise<{ ok: true; row: WorkSheetRow } | { ok: false; error: string }>;
+      /** id ведомости генерирует клиент; правка приходит с тем же id (upsert). */
       save: (args: {
         id: string;
         engineId: string;
