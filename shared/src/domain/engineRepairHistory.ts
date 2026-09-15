@@ -51,6 +51,14 @@ export type RepairHistoryMeta = {
   kind: typeof REPAIR_HISTORY_META_KIND;
   action: string;
   workshopId?: string;
+  /**
+   * Имя цеха НА МОМЕНТ ЗАПИСИ. Снимок, а не источник правды: при чтении сначала спрашивается
+   * справочник (там имя свежее), и только если он недоступен — права не выданы, офлайн, цех
+   * деактивирован — показывается это. Без снимка на экран уезжал uuid: справочник цехов живёт
+   * на сервере и требует `masterdata.view`, а строка обязана читаться без него — ровно по той
+   * же причине, по которой она несёт `typeName` рядом с `typeId`.
+   */
+  workshopName?: string;
   reason?: string;
   note?: string;
   extra?: RepairHistoryExtraField[];
@@ -183,6 +191,7 @@ export function parseRepairHistoryMeta(metaJson: string | null): RepairHistoryMe
     kind: REPAIR_HISTORY_META_KIND,
     action: action.slice(0, 200),
     ...(text(obj.workshopId) ? { workshopId: text(obj.workshopId) } : {}),
+    ...(text(obj.workshopName) ? { workshopName: text(obj.workshopName).slice(0, 200) } : {}),
     ...(text(obj.reason) ? { reason: text(obj.reason).slice(0, 1000) } : {}),
     ...(text(obj.note) ? { note: text(obj.note).slice(0, 2000) } : {}),
     ...(parseExtra(obj.extra).length > 0 ? { extra: parseExtra(obj.extra) } : {}),
@@ -201,6 +210,7 @@ export function parseRepairHistoryMeta(metaJson: string | null): RepairHistoryMe
 export function buildRepairHistoryMeta(input: {
   action: string;
   workshopId?: string | null;
+  workshopName?: string | null;
   reason?: string;
   note?: string;
   extra?: RepairHistoryExtraField[];
@@ -214,6 +224,7 @@ export function buildRepairHistoryMeta(input: {
     kind: REPAIR_HISTORY_META_KIND,
     action: text(input.action).slice(0, 200),
     ...(text(input.workshopId) ? { workshopId: text(input.workshopId) } : {}),
+    ...(text(input.workshopName) ? { workshopName: text(input.workshopName).slice(0, 200) } : {}),
     ...(text(input.reason) ? { reason: text(input.reason).slice(0, 1000) } : {}),
     ...(text(input.note) ? { note: text(input.note).slice(0, 2000) } : {}),
     ...(parseExtra(input.extra).length > 0 ? { extra: parseExtra(input.extra) } : {}),

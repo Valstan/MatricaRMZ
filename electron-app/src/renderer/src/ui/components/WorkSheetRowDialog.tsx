@@ -4,6 +4,7 @@ import {
   WORK_SHEET_COLUMN_TYPE_LABELS,
   formatWorkSheetValue,
   type EngineListItem,
+  type WorkSheetColumn,
   type WorkSheetRow,
   type WorkSheetType,
 } from '@matricarmz/shared';
@@ -52,6 +53,22 @@ export function WorkSheetRowDialog(props: {
   const editing = props.row !== null;
   const [typeCode, setTypeCode] = useState<string>(props.row?.typeCode ?? props.initialTypeCode ?? props.types[0]?.code ?? '');
   const type = useMemo(() => props.types.find((t) => t.code === typeCode) ?? null, [props.types, typeCode]);
+
+  // Узла может не быть в справочнике: клиент офлайн (справочник — REST) или узел заведён в
+  // архив. Правку это пустить под откос не должно — строка самоописываема, и её собственные
+  // поля несут подпись и тип. Новую строку без узла завести по-прежнему нельзя: у неё полей нет.
+  const rowColumns = useMemo<WorkSheetColumn[]>(
+    () => (props.row?.fields ?? []).map((f) => ({ code: f.code, label: f.label || f.code, type: f.type })),
+    [props.row],
+  );
+  const effectiveType = useMemo(() => {
+    if (type) return type;
+    if (!editing || !props.row) return null;
+    // completesRepair здесь false намеренно: статус ставится только при СОЗДАНИИ строки,
+    // а это ветка правки — подставлять сюда догадку о чужом узле незачем.
+    return { id: props.row.typeId, code: props.row.typeCode, name: props.row.typeName, completesRepair: false, columns: rowColumns, workshopId: null };
+  }, [type, editing, props.row, rowColumns]);
+  const columns = effectiveType?.columns ?? [];
   const [engineId, setEngineId] = useState<string | null>(props.row?.engineId ?? null);
   const [date, setDate] = useState<string>(toDateInput(props.row?.at ?? Date.now()));
   const [workshopId, setWorkshopId] = useState<string>(props.row?.workshopId ?? type?.workshopId ?? '');
@@ -84,7 +101,7 @@ export function WorkSheetRowDialog(props: {
   const setValue = (code: string, v: unknown) => setValues((prev) => ({ ...prev, [code]: v }));
 
   const save = async () => {
-    if (!type) return setStatus('Выберите узел');
+    if (!effectiveType) return setStatus('Выберите узел');
     if (!engineId) return setStatus('Выберите двигатель');
     const atMs = fromDateInput(date);
     if (!atMs) return setStatus('Укажите дату');
@@ -95,9 +112,18 @@ export function WorkSheetRowDialog(props: {
       const r = await window.matrica.workSheets.rows.save({
         id,
         engineId,
-        type: { id: type.id, code: type.code, name: type.name, completesRepair: type.completesRepair, columns: type.columns, workshopId: type.workshopId },
+        type: {
+          id: effectiveType.id,
+          code: effectiveType.code,
+          name: effectiveType.name,
+          completesRepair: effectiveType.completesRepair,
+          columns: effectiveType.columns,
+          workshopId: effectiveType.workshopId,
+        },
         atMs,
         workshopId: workshopId || null,
+        // Имя цеха — снимком в строку: без него читатель без прав на справочник видит uuid.
+        workshopName: props.workshops.find((w) => w.id === workshopId)?.label ?? null,
         note: note.trim() || null,
         values,
       });
@@ -105,7 +131,7 @@ export function WorkSheetRowDialog(props: {
         setStatus(`Ошибка: ${r.error}`);
         return;
       }
-      props.onSaved({ repair: r.repair, typeName: type.name });
+      props.onSaved({ repair: r.repair, typeName: effectiveType.name });
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     } finally {
@@ -124,6 +150,8 @@ export function WorkSheetRowDialog(props: {
         return;
       }
       props.onDeleted();
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
     } finally {
       setBusy(false);
     }
@@ -150,6 +178,9 @@ export function WorkSheetRowDialog(props: {
         <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '8px 10px', alignItems: 'center' }}>
           {label('Узел')}
           <select value={typeCode} disabled={editing} onChange={(e) => setTypeCode(e.target.value)} data-work-sheet-type-select>
+            {type === null && effectiveType !== null ? (
+              <option value={effectiveType.code}>{effectiveType.name}</option>
+            ) : null}
             {props.types.map((t) => (
               <option key={t.code} value={t.code}>
                 {t.name}
@@ -183,7 +214,7 @@ export function WorkSheetRowDialog(props: {
             ))}
           </select>
 
-          {(type?.columns ?? []).map((col) => (
+          {columns.map((col) => (
             <React.Fragment key={col.code}>
               {label(`${col.label}${col.required ? ' *' : ''}`)}
               {col.type === 'boolean' ? (

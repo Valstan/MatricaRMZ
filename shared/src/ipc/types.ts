@@ -2100,7 +2100,11 @@ export type MatricaApi = {
       restore: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     };
     rows: {
-      list: (args?: { sinceMs?: number | null; typeCode?: string | null }) => Promise<{ ok: true; rows: WorkSheetRow[] } | { ok: false; error: string }>;
+      /** `truncated` — упёрлись в потолок выборки: показано не всё, счётчик «Всего» неполон. */
+      list: (args?: {
+        sinceMs?: number | null;
+        typeCode?: string | null;
+      }) => Promise<{ ok: true; rows: WorkSheetRow[]; truncated?: boolean } | { ok: false; error: string }>;
       /** id строки генерирует клиент; правка приходит с тем же id (upsert). */
       save: (args: {
         id: string;
@@ -2108,6 +2112,8 @@ export type MatricaApi = {
         type: Pick<WorkSheetType, 'id' | 'code' | 'name' | 'completesRepair' | 'columns' | 'workshopId'>;
         atMs: number;
         workshopId?: string | null;
+        /** Имя цеха на момент записи — снимок в строку, чтобы она читалась без справочника. */
+        workshopName?: string | null;
         note?: string | null;
         values: Record<string, unknown>;
       }) => Promise<

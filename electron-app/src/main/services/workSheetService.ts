@@ -45,6 +45,7 @@ export type SaveWorkSheetRowInput = {
   /** Дата строки, мс. */
   atMs: number;
   workshopId?: string | null;
+  workshopName?: string | null;
   note?: string | null;
   /** Значения по коду колонки — сырые, нормализуются здесь по типу колонки. */
   values: Record<string, unknown>;
@@ -92,11 +93,15 @@ export async function saveWorkSheetRow(db: BetterSQLite3Database, input: SaveWor
   }
 
   const workshopId = text(input.workshopId) || text(input.type.workshopId) || null;
+  // Имя цеха кладём снимком: справочник цехов живёт на сервере и требует `masterdata.view`,
+  // а строка обязана читаться без него — иначе на экран уезжает uuid.
+  const workshopName = text(input.workshopName) || null;
   const summary = workSheetFieldsSummary(fields);
   const meta = buildRepairHistoryMeta({
     action: typeName,
     at: atMs,
     workshopId,
+    workshopName,
     ...(text(input.note) ? { note: text(input.note) } : {}),
     entryType: 'sheet',
     sheet: { typeId: text(input.type.id), typeCode, typeName, fields },
@@ -152,19 +157,33 @@ export async function deleteWorkSheetRow(db: BetterSQLite3Database, id: string):
 }
 
 /**
- * Строки всех ведомостей с подписями двигателей — новые сверху. Название цеха здесь пусто:
- * справочник цехов у клиента живёт на сервере, рендерер подставит имя сам.
+ * Строки всех ведомостей с подписями двигателей — новые сверху. Имя цеха отдаётся снимком из
+ * самой строки: рендерер сначала спросит справочник (там свежее) и возьмёт снимок, только если
+ * справочник недоступен — прав нет, офлайн, цех деактивирован.
  */
+const WORK_SHEET_ROWS_LIMIT = 20_000;
+
 export async function listWorkSheetRows(
   db: BetterSQLite3Database,
   opts: { sinceMs?: number | null; typeCode?: string | null } = {},
-): Promise<WorkSheetRow[]> {
-  const ops = await listOperationsByType(db, [REPAIR_HISTORY_OPERATION_TYPE], { sinceMs: opts.sinceMs ?? null });
+): Promise<{ rows: WorkSheetRow[]; truncated: boolean }> {
+  const ops = await listOperationsByType(db, [REPAIR_HISTORY_OPERATION_TYPE], {
+    sinceMs: opts.sinceMs ?? null,
+    limit: WORK_SHEET_ROWS_LIMIT,
+  });
+  // Потолок выборки достигнут — значит показано не всё, и «Всего: N» без этой оговорки врёт.
+  const truncated = ops.length >= WORK_SHEET_ROWS_LIMIT;
+  const sinceMs = typeof opts.sinceMs === 'number' && Number.isFinite(opts.sinceMs) && opts.sinceMs > 0 ? opts.sinceMs : null;
   const picked: Array<{ op: (typeof ops)[number]; meta: NonNullable<ReturnType<typeof parseRepairHistoryMeta>> }> = [];
   for (const op of ops) {
     const meta = parseRepairHistoryMeta(op.metaJson ?? null);
     if (!meta?.sheet) continue;
     if (opts.typeCode && meta.sheet.typeCode !== text(opts.typeCode).toLowerCase()) continue;
+    // Окно — по ДАТЕ СТРОКИ, а не по времени правки: строку заводят задним числом, и запись,
+    // сделанную вчера о событии двухлетней давности, «за последний год» показывать нельзя.
+    // SQL-окно по updated_at остаётся дешёвым предфильтром и ничего лишнего не отсекает:
+    // строку заводят не раньше события, то есть at <= updated_at.
+    if (sinceMs !== null && (meta.at ?? Number(op.performedAt ?? op.updatedAt)) < sinceMs) continue;
     picked.push({ op, meta });
   }
   const labels = await resolveEngineLabels(db, picked.map((p) => String(p.op.engineEntityId)));
@@ -181,11 +200,11 @@ export async function listWorkSheetRows(
       typeCode: meta.sheet!.typeCode,
       typeName: meta.sheet!.typeName,
       workshopId: meta.workshopId ?? '',
-      workshopName: '',
+      workshopName: meta.workshopName ?? '',
       performedBy: text(op.performedBy) === 'local' ? '' : text(op.performedBy),
       note: meta.note ?? '',
       fields: meta.sheet!.fields,
     };
   });
-  return rows.sort((a, b) => b.at - a.at || a.id.localeCompare(b.id));
+  return { rows: rows.sort((a, b) => b.at - a.at || a.id.localeCompare(b.id)), truncated };
 }

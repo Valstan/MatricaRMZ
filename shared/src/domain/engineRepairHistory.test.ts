@@ -174,6 +174,22 @@ describe('классификация записей и строки ведомо
     expect(lastSheetEntry(list)).toBeNull();
   });
 
+  // Справочник цехов живёт на сервере и требует masterdata.view — без снимка читатель без
+  // прав видел в колонке «Цех» uuid. Снимок обязан пережить круг build → JSON → parse:
+  // парсер режет неизвестные ключи, и поле, положенное только в билдер, пропало бы молча.
+  it('имя цеха едет снимком в самой строке и переживает круг сборки и разбора', () => {
+    const meta = buildRepairHistoryMeta({ action: 'Обкатка', workshopId: 'W1', workshopName: 'Цех № 4', at: 100 });
+    expect(meta.workshopName).toBe('Цех № 4');
+    const parsed = parseRepairHistoryMeta(JSON.stringify(meta));
+    expect(parsed?.workshopName).toBe('Цех № 4');
+    expect(parsed?.workshopId).toBe('W1');
+  });
+
+  it('пустое имя цеха в строку не кладётся — нечего показывать, нечего и хранить', () => {
+    expect(buildRepairHistoryMeta({ action: 'Обкатка', workshopId: 'W1', workshopName: '   ' }).workshopName).toBeUndefined();
+    expect(buildRepairHistoryMeta({ action: 'Обкатка' }).workshopName).toBeUndefined();
+  });
+
   it('автозапись стадии несёт entryType и дату строки, если она дана', () => {
     const meta = repairHistoryMetaForStatus('status_repaired', 777);
     expect(meta.entryType).toBe('status');

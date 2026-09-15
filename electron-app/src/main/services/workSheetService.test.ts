@@ -88,7 +88,7 @@ describe('строка ведомости', () => {
     await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: OBKATKA, atMs: AT, values: { hours: '4' } }, 'ivanov');
     const r = await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: OBKATKA, atMs: AT, values: { hours: '6' } }, 'ivanov');
     expect(r).toMatchObject({ ok: true, created: false });
-    const rows = await listWorkSheetRows(db);
+    const { rows } = await listWorkSheetRows(db);
     expect(rows.filter((x) => x.typeCode === 'obkatka')).toHaveLength(1);
     expect(rows[0]?.fields).toEqual([{ code: 'hours', label: 'Часы', type: 'number', value: 6 }]);
     expect(rows[0]?.engineNumber).toBe('ДВ-1');
@@ -143,11 +143,40 @@ describe('строка ведомости', () => {
     expect((await deleteWorkSheetRow(db, 'manual-1')).ok).toBe(false);
   });
 
+  // Строку заводят задним числом: запись, сделанную вчера о событии двухлетней давности,
+  // «за последний год» показывать нельзя — иначе кнопка обещает одно, а показывает другое.
+  it('окно «за год» считается по дате строки, а не по времени правки', async () => {
+    const { db } = makeDb();
+    const year = 365 * 24 * 60 * 60 * 1000;
+    const now = AT;
+    await saveWorkSheetRow(db, { id: 'row-old', engineId: 'eng-1', type: UKLADKA, atMs: now - 2 * year, values: {} }, 'ivanov');
+    await saveWorkSheetRow(db, { id: 'row-new', engineId: 'eng-1', type: UKLADKA, atMs: now - 10 * 60 * 1000, values: {} }, 'ivanov');
+
+    const windowed = await listWorkSheetRows(db, { sinceMs: now - year });
+    expect(windowed.rows.map((r) => r.id)).toEqual(['row-new']);
+    expect(windowed.truncated).toBe(false);
+
+    // Обе строки правились только что — по времени правки в окно попали бы обе.
+    expect((await listWorkSheetRows(db)).rows.map((r) => r.id).sort()).toEqual(['row-new', 'row-old']);
+  });
+
+  it('имя цеха читается снимком из самой строки — без справочника', async () => {
+    const { db } = makeDb();
+    await saveWorkSheetRow(
+      db,
+      { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, workshopId: 'W1', workshopName: 'Цех № 4', values: {} },
+      'ivanov',
+    );
+    const { rows } = await listWorkSheetRows(db);
+    expect(rows[0]?.workshopId).toBe('W1');
+    expect(rows[0]?.workshopName).toBe('Цех № 4');
+  });
+
   it('удаление — мягкое, строка уходит из списка', async () => {
     const { sqlite, db } = makeDb();
     await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');
     expect((await deleteWorkSheetRow(db, 'row-1')).ok).toBe(true);
-    expect(await listWorkSheetRows(db)).toHaveLength(0);
+    expect((await listWorkSheetRows(db)).rows).toHaveLength(0);
     expect((sqlite.prepare(`SELECT deleted_at FROM operations WHERE id = 'row-1'`).get() as any).deleted_at).toBeTruthy();
   });
 });

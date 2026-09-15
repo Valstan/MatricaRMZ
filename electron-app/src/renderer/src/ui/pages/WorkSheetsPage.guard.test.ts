@@ -20,6 +20,7 @@ const GATE = src('../../../../main/ipc/sectionGate.ts');
 const SERVICE = src('../../../../main/services/workSheetService.ts');
 const IPC = src('../../../../main/ipc/register/workSheets.ts');
 const ANDROID_WIRING = src('../../../../../../android-app/src/core/ipcWiring.ts');
+const CACHE = src('../utils/workSheetTypesCache.ts');
 
 describe('ведомости работ — экран', () => {
   it('вкладка заведена в реестре разделов, меню и приложении под правом на операции', () => {
@@ -73,6 +74,34 @@ describe('ведомости работ — экран', () => {
     expect(SERVICE).toContain("advanceEngineStatusForWorkOrder(db, engineId, 'status_repaired', atMs, actor)");
     expect(SERVICE).toContain("repairHistoryMetaForStatus('status_repaired', atMs)");
     expect(SERVICE).toContain("if (current.status_repaired) return { applied: false, reason: 'already-repaired' };");
+  });
+
+  // Идентификатор не заменяет подпись: огрызок uuid в колонке «Двигатель» и голый uuid в
+  // колонке «Цех» читаются как испорченные данные, а не как «подписи нет».
+  it('на экран не уходит идентификатор: ни огрызок uuid двигателя, ни uuid цеха', () => {
+    expect(PAGE, 'огрызок uuid двигателя убран').not.toContain('engineId.slice(0, 8)');
+    expect(PAGE).toContain('return r.engineNumber || HUMAN_LABEL_NO_NUMBER;');
+    expect(PAGE, 'цех: справочник → снимок строки → прочерк').toContain(
+      "return fromDirectory(r.workshopId) || r.workshopName || HUMAN_LABEL_DASH;",
+    );
+    expect(SERVICE, 'снимок имени цеха отдаётся из самой строки').toContain("workshopName: meta.workshopName ?? ''");
+  });
+
+  it('справочник узлов недоступен — экран говорит это вслух, а не показывает пустоту', () => {
+    expect(PAGE).toContain("typesSource === 'none'");
+    expect(PAGE).toContain('data-work-sheet-types-unavailable');
+    expect(CACHE, 'три состояния источника, а не флаг «из кэша»').toContain("source: (cached.length > 0 ? 'cache' : 'none')");
+  });
+
+  it('правка строки без справочника узлов: колонки восстанавливаются из полей самой строки', () => {
+    expect(ROW_DIALOG).toContain('const rowColumns = useMemo<WorkSheetColumn[]>(');
+    expect(ROW_DIALOG, 'форма рисует восстановленный набор, а не только колонки узла').toContain('{columns.map((col) => (');
+    expect(ROW_DIALOG, 'статус при правке не ставится — подставлять чужой completesRepair нельзя').toContain(
+      'completesRepair: false',
+    );
+    expect(ROW_DIALOG, 'имя цеха уезжает снимком вместе со строкой').toContain(
+      'workshopName: props.workshops.find((w) => w.id === workshopId)?.label ?? null,',
+    );
   });
 
   it('код узла и код колонки после создания заморожены — на них ссылаются строки', () => {

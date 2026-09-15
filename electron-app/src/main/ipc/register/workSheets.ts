@@ -82,7 +82,7 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'operations.view');
     if (!gate.ok) return gate as Err;
     try {
-      return { ok: true as const, rows: await listWorkSheetRows(ctx.dataDb(), args ?? {}) };
+      return { ok: true as const, ...(await listWorkSheetRows(ctx.dataDb(), args ?? {})) };
     } catch (e) {
       return { ok: false as const, error: String(e) };
     }
