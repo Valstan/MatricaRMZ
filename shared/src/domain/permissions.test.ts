@@ -44,6 +44,17 @@ describe('operator role presets (RBAC #474)', () => {
     }
   });
 
+  // Ведомости работ заполняет узкий круг, названный владельцем поимённо (15.09.2026).
+  // Роль их не даёт никому: право выдаётся конкретным людям в админке поверх роли.
+  // Смотреть может каждый оператор — чтение сидит на operations.view из базы.
+  it('work_sheets.edit не входит ни в одну операторскую роль, а чтение есть у всех', () => {
+    for (const role of ['engineer', 'technolog', 'master', 'supply', 'storekeeper', 'timekeeper', 'viewer']) {
+      const perms = operatorRolePermissions(role)!;
+      expect(perms[PermissionCode.WorkSheetsEdit], role).toBeFalsy();
+      expect(perms[PermissionCode.OperationsView], role).toBe(true);
+    }
+  });
+
   it('viewer can edit nothing', () => {
     const perms = operatorRolePermissions('viewer')!;
     expect(perms[PermissionCode.EnginesEdit]).toBeFalsy();

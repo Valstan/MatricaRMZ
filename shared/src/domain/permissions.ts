@@ -38,6 +38,10 @@ export const PermissionCode = {
   EnginesDisassembleConfirm: 'engines.disassemble_confirm',
   OperationsView: 'operations.view',
   OperationsEdit: 'operations.edit',
+  // Ведомости работ — отдельное право, а не operations.edit: заполняет их узкий круг
+  // (решение владельца 15.09.2026), а правка истории ремонта есть у мастеров и бригадиров.
+  // Чтение ведомостей остаётся на operations.view, который входит в базу оператора.
+  WorkSheetsEdit: 'work_sheets.edit',
 
   // workshops (parts-movement module)
   WorkshopsManage: 'workshops.manage',
@@ -154,6 +158,7 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
 
   { code: PermissionCode.OperationsView, group: 'Операции', titleRu: 'Просмотр операций (таймлайн)' },
   { code: PermissionCode.OperationsEdit, group: 'Операции', titleRu: 'Создание/редактирование операций (таймлайн)' },
+  { code: PermissionCode.WorkSheetsEdit, group: 'Операции', titleRu: 'Ведомости работ: заполнение строк и ведение узлов' },
 
   { code: PermissionCode.DefectActView, group: 'Акт дефектовки', titleRu: 'Просмотр акта дефектовки' },
   { code: PermissionCode.DefectActEdit, group: 'Акт дефектовки', titleRu: 'Редактирование акта дефектовки' },

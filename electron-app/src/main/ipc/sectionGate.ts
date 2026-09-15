@@ -115,6 +115,11 @@ const WRITE_CHANNELS = new Set([
   'warehouse:repairNorm:upsert',
   'warehouse:engineInstances:upsert',
   'warehouse:engineInstances:delete',
+  'workSheets:types:upsert',
+  'workSheets:types:archive',
+  'workSheets:types:restore',
+  'workSheets:rows:save',
+  'workSheets:rows:delete',
   // work_orders
   'workOrders:create',
   'workOrders:update',

@@ -21,7 +21,10 @@ function toResult<T>(r: { ok: boolean; status: number; json?: unknown; text?: st
  * Узлы ведомостей работ (справочник видов ведомостей) живут только на сервере — REST
  * `/work-sheet-types`, как приказы о ценах. Строки ведомостей — записи истории ремонта в
  * `operations`, они синхронизируются обычным путём (см. `workSheetService`, PR-B3).
- * Читать — `operations.view` (то же право, что у истории), заводить узлы — `erp.dictionary.edit`.
+ * Читать — `operations.view` (то же право, что у истории, входит в базу оператора).
+ * Писать — `work_sheets.edit`: и строки, и узлы. Право отдельное, потому что ведомости
+ * заполняет узкий круг (решение владельца 15.09.2026), а `operations.edit` есть у мастеров
+ * и бригадиров — на нём «остальным только смотреть» не держится.
  */
 export function registerWorkSheetsIpc(ctx: IpcContext) {
   const base = () => ctx.mgr.getApiBaseUrl();
@@ -48,7 +51,7 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
       },
     ) => {
       if (isViewMode(ctx)) return viewModeWriteError();
-      const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+      const gate = await requirePermOrResult(ctx, 'work_sheets.edit');
       if (!gate.ok) return gate as Err;
       return toResult(
         await httpAuthed(ctx.sysDb, base(), '/work-sheet-types', {
@@ -62,19 +65,19 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
 
   ipcMain.handle('workSheets:types:archive', async (_e, id: string) => {
     if (isViewMode(ctx)) return viewModeWriteError();
-    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    const gate = await requirePermOrResult(ctx, 'work_sheets.edit');
     if (!gate.ok) return gate as Err;
     return toResult(await httpAuthed(ctx.sysDb, base(), `/work-sheet-types/${encodeURIComponent(id)}/archive`, { method: 'POST' }));
   });
 
   ipcMain.handle('workSheets:types:restore', async (_e, id: string) => {
     if (isViewMode(ctx)) return viewModeWriteError();
-    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    const gate = await requirePermOrResult(ctx, 'work_sheets.edit');
     if (!gate.ok) return gate as Err;
     return toResult(await httpAuthed(ctx.sysDb, base(), `/work-sheet-types/${encodeURIComponent(id)}/restore`, { method: 'POST' }));
   });
   // Строки — записи истории ремонта в локальной реплике: читаются и пишутся без сервера,
-  // уезжают обычным синком. Права те же, что у истории (`operations.view` / `operations.edit`).
+  // уезжают обычным синком. Чтение — `operations.view`, запись — `work_sheets.edit` (см. шапку).
   ipcMain.handle('workSheets:rows:list', async (_e, args?: { sinceMs?: number | null; typeCode?: string | null }) => {
     const gate = await requirePermOrResult(ctx, 'operations.view');
     if (!gate.ok) return gate as Err;
@@ -87,7 +90,7 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
 
   ipcMain.handle('workSheets:rows:save', async (_e, args: SaveWorkSheetRowInput) => {
     if (isViewMode(ctx)) return viewModeWriteError();
-    const gate = await requirePermOrResult(ctx, 'operations.edit');
+    const gate = await requirePermOrResult(ctx, 'work_sheets.edit');
     if (!gate.ok) return gate as Err;
     try {
       return await saveWorkSheetRow(ctx.dataDb(), args, await ctx.currentActor());
@@ -98,7 +101,7 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
 
   ipcMain.handle('workSheets:rows:delete', async (_e, id: string) => {
     if (isViewMode(ctx)) return viewModeWriteError();
-    const gate = await requirePermOrResult(ctx, 'operations.edit');
+    const gate = await requirePermOrResult(ctx, 'work_sheets.edit');
     if (!gate.ok) return gate as Err;
     try {
       return await deleteWorkSheetRow(ctx.dataDb(), id);

@@ -18,6 +18,8 @@ const SECTIONS = src('../../../../../../shared/src/domain/uiSections.ts');
 const ACCESS = src('../../../../../../shared/src/domain/sectionAccess.ts');
 const GATE = src('../../../../main/ipc/sectionGate.ts');
 const SERVICE = src('../../../../main/services/workSheetService.ts');
+const IPC = src('../../../../main/ipc/register/workSheets.ts');
+const ANDROID_WIRING = src('../../../../../../android-app/src/core/ipcWiring.ts');
 
 describe('ведомости работ — экран', () => {
   it('вкладка заведена в реестре разделов, меню и приложении под правом на операции', () => {
@@ -27,6 +29,24 @@ describe('ведомости работ — экран', () => {
     expect(APP).toContain("...(caps.canViewOperations ? (['work_sheets'] as const) : [])");
     expect(APP).toContain("{t === 'work_sheets' && (");
     expect(GATE, 'IPC ведомостей гейтится разделом «Производство»').toContain("['workSheets:', 'production']");
+  });
+
+  it('запись в ведомости — отдельное право, и раздельный уровень у секционного гейта', () => {
+    expect(APP, 'строки и узлы — одно право, кнопка не врёт про доступ').toContain(
+      'canEdit={caps.canEditWorkSheets} canManageTypes={caps.canEditWorkSheets}',
+    );
+    expect(IPC, 'запись — work_sheets.edit, а не operations.edit мастеров').toContain(
+      "requirePermOrResult(ctx, 'work_sheets.edit')",
+    );
+    expect(IPC, 'чтение остаётся правом истории').toContain("requirePermOrResult(ctx, 'operations.view')");
+    expect(IPC, 'erp.dictionary.edit больше не при чём').not.toContain('erp.dictionary.edit');
+    for (const ch of ['workSheets:rows:save', 'workSheets:rows:delete', 'workSheets:types:upsert']) {
+      expect(GATE, `наблюдателю раздела запись ${ch} закрыта`).toContain(`'${ch}'`);
+    }
+  });
+
+  it('домен ведомостей подключён и на планшете — плитка без IPC открывалась и молчала', () => {
+    expect(ANDROID_WIRING).toContain('registerWorkSheetsIpc(ctx);');
   });
 
   it('вкладки узлов на CardTabs, панели смонтированы и скрыты hidden без инлайнового display', () => {

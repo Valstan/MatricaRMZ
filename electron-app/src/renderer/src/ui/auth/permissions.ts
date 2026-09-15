@@ -10,6 +10,7 @@ export type UiCaps = {
   canEditEngines: boolean;
   canViewOperations: boolean;
   canEditOperations: boolean;
+  canEditWorkSheets: boolean;
   canViewSupplyRequests: boolean;
   canCreateSupplyRequests: boolean;
   canEditSupplyRequests: boolean;
@@ -93,6 +94,7 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
 
   const canViewOperations = has(perms, 'operations.view');
   const canEditOperations = has(perms, 'operations.edit');
+  const canEditWorkSheets = has(perms, 'work_sheets.edit');
 
   const canUseSync = has(perms, 'sync.use');
   const canUseUpdates = has(perms, 'updates.use');
@@ -139,6 +141,7 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
     canEditEngines,
     canViewOperations,
     canEditOperations,
+    canEditWorkSheets,
     canViewSupplyRequests,
     canCreateSupplyRequests,
     canEditSupplyRequests,
