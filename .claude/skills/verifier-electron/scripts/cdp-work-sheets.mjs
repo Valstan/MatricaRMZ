@@ -1,7 +1,11 @@
 // Смоук «Ведомости работ» (15.09.2026): вкладки узлов на экране, строка обкатки заводится
 // диалогом, попадает в список и в историю ремонта двигателя, а карточке ставится
-// «Отремонтирован» датой строки. Убирает за собой: строку удаляет через диалог, статус
-// двигателя откатывает мостом (снятие галочки — решение оператора, ведомость его не делает).
+// «Отремонтирован» датой строки.
+//
+// Уборка заодно проверяет откат: удаление строки, поставившей статус, спрашивает вторым
+// вопросом, снимать ли отметку, и по согласию снимает её вместе с автозаписью стадии.
+// Если двигатель был отремонтирован ДО прогона, строка штампа не несёт — второго вопроса
+// нет, и чужая отметка не трогается.
 //
 // Запуск: стек поднят с -Cdp, `node .claude/skills/verifier-electron/scripts/cdp-work-sheets.mjs`.
 import { createRequire } from 'node:module';
@@ -268,25 +272,32 @@ async function main() {
   );
   note(edited.ok && edited.rows === after.rows && edited.first.includes('6'), 'правка строки: тот же счёт строк, часы 6', edited);
 
-  // 5. Уборка: удалить строку диалогом, статус откатить мостом (если его поставили мы).
+  // 5. Уборка = проверка отката: удалить строку диалогом, согласиться снять отметку.
   const cleanup = await evaluate(
     ws,
     `const r = dataRows()[0]; click(r); await wait(900);
      const d = document.querySelector('[data-work-sheet-row-dialog]');
      if (!d) return { ok: false, reason: 'диалог не открылся для удаления' };
-     window.confirm = () => true;
-     click(d.querySelector('[data-work-sheet-row-delete]')); await wait(2000);
+     const asked = [];
+     window.confirm = (msg) => { asked.push(String(msg ?? '')); return true; };
+     click(d.querySelector('[data-work-sheet-row-delete]')); await wait(2500);
      const rowsLeft = dataRows().length;
-     let reverted = null;
-     if (!${wasRepaired}) {
-       await window.matrica.engines.setAttr(${JSON.stringify(engine.id)}, 'status_repaired', false);
-       await window.matrica.engines.setAttr(${JSON.stringify(engine.id)}, 'status_repaired_date', null);
-       const d2 = await window.matrica.engines.get(${JSON.stringify(engine.id)});
-       reverted = d2.attributes.status_repaired;
-     }
-     return { ok: !document.querySelector('[data-work-sheet-row-dialog]'), rowsLeft, reverted };`,
+     const card = await window.matrica.engines.get(${JSON.stringify(engine.id)});
+     const ops = await window.matrica.operations.list(${JSON.stringify(engine.id)});
+     const statusLeft = ops.filter((o) => { try { const m = JSON.parse(o.metaJson); return m?.entryType === 'status' && m.action === 'Отремонтирован'; } catch { return false; } }).length;
+     return { ok: !document.querySelector('[data-work-sheet-row-dialog]'), rowsLeft, asked, repaired: card.attributes.status_repaired, repairedDate: card.attributes.status_repaired_date, statusLeft };`,
   );
   note(cleanup.ok && cleanup.rowsLeft === before, 'строка удалена, счёт строк прежний', cleanup);
+  if (!wasRepaired) {
+    const asked2 = (cleanup.asked ?? []).length === 2 && String(cleanup.asked?.[1] ?? '').includes('Отремонтирован');
+    note(asked2, 'вторым вопросом спрошено про снятие отметки', cleanup.asked);
+    note(cleanup.repaired !== true, 'отметка «Отремонтирован» снята вместе со строкой', { repaired: cleanup.repaired });
+    note(cleanup.repairedDate == null, 'дата ремонта очищена', { repairedDate: cleanup.repairedDate });
+    note(cleanup.statusLeft === 0, 'автозапись стадии убрана из истории', { statusLeft: cleanup.statusLeft });
+  } else {
+    note((cleanup.asked ?? []).length === 1, 'строка без штампа: второго вопроса нет', cleanup.asked);
+    note(cleanup.repaired === true || cleanup.repaired === 'true', 'чужая отметка не тронута', { repaired: cleanup.repaired });
+  }
   shots.push(await shot(ws, 'after-cleanup'));
 
   const ok = steps.every((s) => s.ok);

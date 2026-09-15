@@ -92,8 +92,9 @@ export async function saveWorkSheetRow(db: BetterSQLite3Database, input: SaveWor
   if (missing.length > 0) return { ok: false, error: `Заполните: ${missing.join(', ')}` };
 
   const existing = await getOperation(db, id);
+  const existingMeta = existing ? parseRepairHistoryMeta(existing.metaJson ?? null) : null;
   if (existing) {
-    const meta = parseRepairHistoryMeta(existing.metaJson ?? null);
+    const meta = existingMeta;
     if (!meta || repairHistoryEntryType(meta, existing.operationType) !== 'sheet') {
       return { ok: false, error: 'Эта запись истории — не строка ведомости, править её здесь нельзя' };
     }
@@ -115,6 +116,10 @@ export async function saveWorkSheetRow(db: BetterSQLite3Database, input: SaveWor
     ...(text(input.note) ? { note: text(input.note) } : {}),
     entryType: 'sheet',
     sheet: { typeId: text(input.type.id), typeCode, typeName, fields },
+    // Штамп переживает правку: meta пересобирается целиком, и без переноса правка строки
+    // молча стирала бы её след в карточке — удаление после правки уже нечего было бы
+    // откатывать. Сам след правкой не меняется: статус при правке не трогается.
+    ...(existingMeta?.repairStamp ? { repairStamp: existingMeta.repairStamp } : {}),
   });
   const noteLine = [`Ведомость: ${typeName}`, summary, text(input.note)].filter(Boolean).join(' · ');
 

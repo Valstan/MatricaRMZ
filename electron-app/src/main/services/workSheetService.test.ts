@@ -132,6 +132,20 @@ describe('строка ведомости', () => {
     expect(live.n, 'автозапись стадии гаснет вместе со статусом').toBe(0);
   });
 
+  // Правка пересобирает meta целиком: без явного переноса штамп молча пропадал, и удаление
+  // ПОСЛЕ правки уже нечего было откатывать. Поймано живым смоуком, не юнит-тестом.
+  it('штамп переживает правку строки — откат после правки всё ещё возможен', async () => {
+    const { sqlite, db } = makeDb();
+    await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: OBKATKA, atMs: AT, values: { hours: 4 } }, 'ivanov');
+    await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: OBKATKA, atMs: AT, values: { hours: 6 } }, 'ivanov');
+    const { rows } = await listWorkSheetRows(db);
+    expect(rows[0]?.repairStamped, 'после правки строка всё ещё знает свой след').toBe(true);
+
+    const r = await deleteWorkSheetRow(db, 'row-1', { rollbackRepair: true }, 'ivanov');
+    expect(r).toMatchObject({ ok: true, repairRolledBack: true });
+    expect(attr(sqlite, 'eng-1', 'status_repaired')).toBe(false);
+  });
+
   it('без подтверждения удаляется только строка — статус остаётся решением оператора', async () => {
     const { sqlite, db } = makeDb();
     await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: OBKATKA, atMs: AT, values: { hours: 4 } }, 'ivanov');
