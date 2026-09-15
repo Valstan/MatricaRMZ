@@ -31,6 +31,11 @@ export function EngineRepairHistoryPanel(props: {
   workshopOptions: Array<{ id: string; label: string }>;
   /** Перерисовать карточку после записи — история влияет на строку списка (цех, действие). */
   onChanged?: () => void;
+  /**
+   * Открыть карточку ведомости, породившей запись. Запись ведомости правится не здесь, и
+   * до появления карточки оператору оставалось только идти искать её в списке руками.
+   */
+  onOpenWorkSheet?: (id: string, title?: string) => void;
 }) {
   const [entries, setEntries] = useState<RepairHistoryEntry[]>([]);
   const [status, setStatus] = useState('');
@@ -220,15 +225,38 @@ export function EngineRepairHistoryPanel(props: {
                   <td style={{ padding: '4px 6px' }}>
                     {/* Класс записи виден сразу: ручную правит оператор, стадию и переезд пишет
                         программа, строка ведомости правится только на экране «Ведомости работ». */}
-                    <span
-                      className="ui-muted"
-                      title={entry.entryType === 'sheet' ? 'Правится в «Ведомостях работ»' : undefined}
-                      style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 4, padding: '0 4px', marginRight: 6, whiteSpace: 'nowrap' }}
-                    >
-                      {entry.entryType === 'sheet' && entry.sheet
-                        ? `${REPAIR_HISTORY_ENTRY_TYPE_LABELS.sheet}: ${entry.sheet.typeName}`
-                        : REPAIR_HISTORY_ENTRY_TYPE_LABELS[entry.entryType]}
-                    </span>
+                    {entry.entryType === 'sheet' && entry.sheet && props.onOpenWorkSheet ? (
+                      <button
+                        type="button"
+                        className="ui-muted"
+                        title="Открыть карточку ведомости"
+                        data-repair-history-open-sheet={entry.id}
+                        onClick={() => props.onOpenWorkSheet?.(entry.id, entry.sheet?.typeName)}
+                        style={{
+                          fontSize: 11,
+                          border: '1px solid var(--border)',
+                          borderRadius: 4,
+                          padding: '0 4px',
+                          marginRight: 6,
+                          whiteSpace: 'nowrap',
+                          background: 'transparent',
+                          cursor: 'pointer',
+                          textDecoration: 'underline',
+                        }}
+                      >
+                        {`${REPAIR_HISTORY_ENTRY_TYPE_LABELS.sheet}: ${entry.sheet.typeName} ↗`}
+                      </button>
+                    ) : (
+                      <span
+                        className="ui-muted"
+                        title={entry.entryType === 'sheet' ? 'Правится в «Ведомостях работ»' : undefined}
+                        style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 4, padding: '0 4px', marginRight: 6, whiteSpace: 'nowrap' }}
+                      >
+                        {entry.entryType === 'sheet' && entry.sheet
+                          ? `${REPAIR_HISTORY_ENTRY_TYPE_LABELS.sheet}: ${entry.sheet.typeName}`
+                          : REPAIR_HISTORY_ENTRY_TYPE_LABELS[entry.entryType]}
+                      </span>
+                    )}
                     {entry.action}
                   </td>
                   <td style={{ padding: '4px 6px' }}>{entry.workshopId ? workshopName(entry.workshopId) : ''}</td>

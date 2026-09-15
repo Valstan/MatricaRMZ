@@ -5325,6 +5325,7 @@ export function App() {
             canCreateSupplyRequest={caps.canCreateSupplyRequests && caps.canEditSupplyRequests}
             canCreateWorkOrder={caps.canCreateWorkOrders}
             onOpenWorkOrder={(x: string) => void openWorkOrder(x)}
+            onOpenWorkSheet={(id: string, title?: string) => void openWorkSheet(id, title ? { title } : undefined)}
             onClose={close}
           />
         );
