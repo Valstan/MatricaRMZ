@@ -390,6 +390,7 @@ export function EngineDetailsPage(props: {
   /** Ф5: Repair-наряд из строк «свой ремонт» в списке деталей. */
   canCreateWorkOrder?: boolean;
   onOpenWorkOrder?: (workOrderId: string) => void;
+  onOpenWorkSheet?: (id: string, title?: string) => void;
   onClose: () => void;
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
   requestClose?: () => void;
@@ -2476,6 +2477,7 @@ export function EngineDetailsPage(props: {
             canEdit={canEditEnginesEff}
             workshopOptions={workshopOptions}
             onChanged={() => void props.onEngineUpdated()}
+            {...(props.onOpenWorkSheet ? { onOpenWorkSheet: props.onOpenWorkSheet } : {})}
           />
           <EngineTimelinePanel engineId={props.engineId} />
           <DocumentHistoryPanel entityId={props.engineId} canView={props.canViewAudit === true} />

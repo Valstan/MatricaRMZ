@@ -68,6 +68,15 @@ describe('история доезжает до списка', () => {
     expect(SERVICE).toContain('lastHistoryAt: history.lastAt');
   });
 
+  // Запись ведомости правится не в истории: до карточки оператору оставалось идти искать
+  // её в списке руками, зная только дату и вид работ.
+  it('из истории ремонта можно перейти в карточку самой ведомости', () => {
+    expect(PANEL).toContain('data-repair-history-open-sheet');
+    expect(PANEL).toContain('props.onOpenWorkSheet?.(entry.id, entry.sheet?.typeName)');
+    expect(PANEL, 'переход только у записей ведомости').toContain("entry.entryType === 'sheet' && entry.sheet && props.onOpenWorkSheet");
+    expect(APP, 'карточка двигателя получает открывашку от приложения').toContain('onOpenWorkSheet={(id: string, title?: string)');
+  });
+
   // M118: список заменяется только если подпись строки изменилась. Поля, которые меняются БЕЗ
   // правки самой сущности (операции!), обязаны быть в подписи — иначе свежий список признаётся
   // тем же самым и отбрасывается, а оператор видит «событий нет» сразу после записи события.
