@@ -5380,7 +5380,7 @@ export function App() {
       case 'stock_document':
         return <StockDocumentDetailsPage key={k} id={id} canEdit={caps.canEditWarehouseDocs} canRevert={caps.canRevertMovements} canCreateParts={caps.canCreateParts} onOpenCounterparty={openCounterparty} onOpenEngine={openEngine} onOpenWorkOrder={openWorkOrder} onOpenNomenclature={openNomenclature} onOpenWarehouse={() => setTab('warehouse_locations')} onClose={close} />;
       case 'report_preset':
-        return <ReportPresetPage key={k} presetId={id as ReportPresetId} canExport={caps.canExportReports} userId={authStatus.user?.id ?? ''} initialFilters={initialFiltersFor(id as ReportPresetId)} onBack={close} onOpenWorkOrder={openWorkOrder} onOpenSupplyRequest={(x: string, payload: unknown) => void openRequest(x, { initialPayload: payload as SupplyRequestPayload })} />;
+        return <ReportPresetPage key={k} presetId={id as ReportPresetId} canExport={caps.canExportReports} userId={authStatus.user?.id ?? ''} initialFilters={initialFiltersFor(id as ReportPresetId)} onBack={close} onOpenWorkOrder={openWorkOrder} onOpenSupplyRequest={(x: string, payload: unknown) => void openRequest(x, { initialPayload: payload as SupplyRequestPayload })} engines={engines} onOpenEngine={(x: string) => void openEngine(x)} />;
       default:
         return <div style={{ padding: 16, color: 'var(--muted)' }}>Этот вид карточки нельзя открыть во второй панели.</div>;
     }
@@ -6188,6 +6188,8 @@ export function App() {
             onBack={() => setTab('reports')}
             onOpenWorkOrder={openWorkOrder}
             onOpenSupplyRequest={(id: string, payload: unknown) => void openRequest(id, { initialPayload: payload as SupplyRequestPayload })}
+            engines={engines}
+            onOpenEngine={(id: string) => void openEngine(id)}
           />
         )}
 

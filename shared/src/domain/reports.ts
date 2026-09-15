@@ -26,6 +26,7 @@ export type ReportPresetId =
   | 'engines_contracts_overview'
   | 'engines'
   | 'engine_flow_by_counterparty'
+  | 'engine_factory_stages'
   | 'warehouse_stock_path_audit'
   | 'assembly_forecast_7d'
   | 'part_movement_journal'
@@ -352,6 +353,14 @@ export type ReportPresetDefinition = {
   description: string;
   filters: ReportFilterSpec[];
   columns: ReportColumn[];
+  /**
+   * Как отчёт показывается. `table` (по умолчанию) — строится сервисом по фильтрам и
+   * рисуется таблицей предпросмотра. `list` — экран-список поверх данных приложения с
+   * панелью ступеней, колонками и группировкой (владелец 15.09.2026: «отчёты должны стать
+   * такими же списками, как список двигателей»); `filters`/`columns` у него пусты, сервис
+   * его не строит — компонент берётся из реестра `LIST_REPORT_PAGES` клиента.
+   */
+  presentation?: 'table' | 'list';
 };
 
 export type ReportThemeId =
@@ -452,6 +461,7 @@ export const REPORT_PRESET_THEMES: Record<ReportPresetId, readonly [ReportThemeI
   engines_contracts_overview: ['engines', 'contracts'],
   engines: ['engines', 'contracts'],
   engine_flow_by_counterparty: ['engines', 'contracts'],
+  engine_factory_stages: ['engines', 'contracts'],
   warehouse_stock_path_audit: ['audit', 'warehouse'],
   assembly_forecast_7d: ['engines', 'supply'],
   part_movement_journal: ['warehouse'],
@@ -1354,6 +1364,15 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       },
     ],
     columns: ENGINES_CONTRACTS_CONTRACT_COLUMNS,
+  },
+  {
+    id: 'engine_factory_stages',
+    title: 'Двигатели на заводе: этапы ремонта',
+    description:
+      'Кто пришёл и ещё не отгружен — где каждый сейчас: пришёл и не начат, ремонт начат, комплектовка, дефектовка, по последней ведомости (укладка, вал, сборка, обкатка), отремонтирован, утиль. Список с панелью ступеней (заказчик, договор, марка, цех, этап), настройкой колонок, группировкой по этапу / заказчику / заказчик → этап и печатью.',
+    filters: [],
+    columns: [],
+    presentation: 'list',
   },
   {
     id: 'engine_flow_by_counterparty',

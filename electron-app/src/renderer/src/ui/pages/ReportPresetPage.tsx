@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  EngineListItem,
   ReportCellValue,
   ReportFilterOption,
   ReportFilterSpec,
@@ -48,6 +49,7 @@ import {
 } from '../utils/reportUtils.js';
 import { renderWorkOrderPayrollFormInnerHtml } from '../utils/workOrderPayrollReportLayoutHtml.js';
 import { lookupLabel } from '../utils/lookupLabel.js';
+import { LIST_REPORT_PAGES } from './reports/listReportPages.js';
 
 /** Значение фильтра есть, названия у него нет — но код оператору не показываем. */
 const UNNAMED_FILTER_TEXTS = { missing: 'без названия' } as const;
@@ -125,7 +127,21 @@ export function ReportPresetPage(props: {
   onOpenWorkOrder?: (operationId: string) => void;
   /** Ф2 forecast-remfond-aware: открыть карточку заявки в снабжение, созданной из дефицитов прогноза. */
   onOpenSupplyRequest?: (id: string, payload: unknown) => void;
+  /** Для отчётов-списков (`presentation: 'list'`): каталог двигателей приложения и переход в карточку. */
+  engines?: EngineListItem[];
+  onOpenEngine?: (id: string) => void;
 }) {
+  // Отчёт-список рисуется своим компонентом целиком: панель ступеней, колонки, группировка
+  // (рамка «отчёт как список», см. `reports/listReportPages.ts`). Пресетная механика ниже —
+  // фильтры, авто-сборка, экспорт — к нему не относится.
+  const ListPage = LIST_REPORT_PAGES[resolveReportPresetId(String(props.presetId)) as ReportPresetId];
+  if (ListPage) {
+    return <ListPage engines={props.engines ?? []} canExport={props.canExport} onOpenEngine={props.onOpenEngine ?? (() => {})} onBack={props.onBack} />;
+  }
+  return <ReportPresetTablePage {...props} />;
+}
+
+function ReportPresetTablePage(props: Parameters<typeof ReportPresetPage>[0]) {
   const [presets, setPresets] = useState<ReportPresetDefinition[]>([]);
   const [optionSets, setOptionSets] = useState<Partial<Record<ReportOptionSource, ReportFilterOption[]>>>({});
   const [filtersByPreset, setFiltersByPreset] = useState<Partial<Record<ReportPresetId, ReportPresetFilters>>>({});

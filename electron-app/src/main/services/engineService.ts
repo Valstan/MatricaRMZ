@@ -379,6 +379,7 @@ type EngineRepairHistorySummary = {
   workshopId: string;
   lastSheetNode: string;
   lastSheetAt: number | null;
+  lastSheetTypeCode: string;
 };
 
 /**
@@ -447,6 +448,7 @@ async function getEngineRepairHistoryMap(
       workshopId: currentWorkshopFromHistory(entries) ?? '',
       lastSheetNode: sheet?.sheet?.typeName ?? '',
       lastSheetAt: sheet?.at ?? null,
+      lastSheetTypeCode: sheet?.sheet?.typeCode ?? '',
     });
   }
   return result;
@@ -859,6 +861,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       ...(history?.lastAt != null ? { lastHistoryAt: history.lastAt } : {}),
       ...(history?.lastSheetNode ? { lastSheetNode: history.lastSheetNode } : {}),
       ...(history?.lastSheetAt != null ? { lastSheetAt: history.lastSheetAt } : {}),
+      ...(history?.lastSheetTypeCode ? { lastSheetTypeCode: history.lastSheetTypeCode } : {}),
       ...(isReclamation ? { isReclamation: true } : {}),
       ...(isRepeatArrival ? { isRepeatArrival: true } : {}),
       ...(isNumberCollision ? { isNumberCollision: true } : {}),
