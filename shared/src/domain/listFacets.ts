@@ -204,6 +204,14 @@ export function activeFacetCount<Row>(facets: readonly FacetDescriptor<Row>[], s
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * Потолок значения ступени. Равен потолку текстового поля ведомости (`WORK_SHEET_MAX_TEXT`):
+ * пока он был меньше, длинное значение резалось при сохранении выбора, переставало совпадать
+ * с самим значением строки, и ступень молча переставала отбирать — выбор есть, отбора нет.
+ * Потолок оставлен: состояние списка роумится, и в него может приехать что угодно.
+ */
+const FACET_VALUE_MAX = 500;
+
 /** Санитайзер: состояние списка роумится, и в него может приехать что угодно. */
 export function sanitizeFacetSelection<Row>(facets: readonly FacetDescriptor<Row>[], raw: unknown): FacetSelection {
   if (typeof raw !== 'object' || raw == null || Array.isArray(raw)) return {};
@@ -222,7 +230,7 @@ export function sanitizeFacetSelection<Row>(facets: readonly FacetDescriptor<Row
       continue;
     }
     if (!Array.isArray(value)) continue;
-    const values = value.map((x) => String(x ?? '').trim().slice(0, 120)).filter(Boolean).slice(0, 200);
+    const values = value.map((x) => String(x ?? '').trim().slice(0, FACET_VALUE_MAX)).filter(Boolean).slice(0, 200);
     if (values.length > 0) out[facet.id] = Array.from(new Set(values));
   }
   return out;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyFacets, facetOptions } from './listFacets.js';
+import { applyFacets, facetOptions, sanitizeFacetSelection } from './listFacets.js';
 import {
   DEFAULT_WORK_SHEET_TYPES,
   buildWorkSheetFields,
@@ -12,11 +12,37 @@ import {
   workSheetCodeFromName,
   workSheetFacets,
   workSheetFieldsSummary,
+  WORK_SHEET_MAX_TEXT,
   type WorkSheetRow,
 } from './workSheets.js';
 
 // Ведомости работ (владелец 15.09.2026): узел = вид ведомости со своими колонками, строка =
 // запись истории ремонта. Колонки заводит пользователь, поэтому набор чистится здесь, а не в UI.
+
+// Обязательность — правило ВВОДА, а не проверка задним числом всего, что уже записано.
+describe('обязательные колонки', () => {
+  const cols = [
+    { code: 'hours', label: 'Часы', type: 'number' as const, required: true },
+    { code: 'note', label: 'Замечание', type: 'text' as const },
+  ];
+
+  it('новая строка требует все обязательные', () => {
+    const fields = buildWorkSheetFields(cols, { note: 'ок' });
+    expect(missingRequiredWorkSheetFields(cols, fields)).toEqual(['Часы']);
+  });
+
+  it('колонку сделали обязательной задним числом — старую строку всё ещё можно править', () => {
+    const before = buildWorkSheetFields([{ code: 'note', label: 'Замечание', type: 'text' }], { note: 'старое' });
+    const after = buildWorkSheetFields(cols, { note: 'исправленное' });
+    expect(missingRequiredWorkSheetFields(cols, after, before)).toEqual([]);
+  });
+
+  it('очистить уже заполненное обязательное поле по-прежнему нельзя', () => {
+    const before = buildWorkSheetFields(cols, { hours: 4 });
+    const after = buildWorkSheetFields(cols, {});
+    expect(missingRequiredWorkSheetFields(cols, after, before)).toEqual(['Часы']);
+  });
+});
 
 describe('колонки узла', () => {
   it('код из подписи — латиница без пробелов, устойчивая к повтору', () => {
@@ -115,5 +141,31 @@ describe('ступени фильтра ведомости', () => {
     const options = facetOptions(facets, rows, {}, 'f:res');
     expect(options.map((o) => [o.label, o.count])).toEqual(expect.arrayContaining([['годен', 1], ['брак', 1]]));
     expect(applyFacets(facets, rows, { 'f:res': ['брак'] }).map((r) => r.id)).toEqual(['b']);
+  });
+
+  // Пока потолок значения ступени был ниже потолка текстового поля, длинное значение резалось
+  // при сохранении выбора, переставало совпадать со значением строки — и ступень молча
+  // переставала отбирать: выбор в интерфейсе есть, отбора нет.
+  it('длинное значение поля отбирается: потолок ступени не ниже потолка поля', () => {
+    const long = 'я'.repeat(WORK_SHEET_MAX_TEXT);
+    const facets = workSheetFacets([{ code: 'res', label: 'Результат', type: 'text' }]);
+    const rows = [
+      row({ id: 'a', fields: [{ code: 'res', label: 'Результат', type: 'text', value: long }] }),
+      row({ id: 'b', fields: [{ code: 'res', label: 'Результат', type: 'text', value: 'коротко' }] }),
+    ];
+    const selection = sanitizeFacetSelection(facets, { 'f:res': [long] });
+    expect((selection['f:res'] as string[])[0]).toHaveLength(WORK_SHEET_MAX_TEXT);
+    expect(applyFacets(facets, rows, selection).map((r) => r.id)).toEqual(['a']);
+  });
+
+  it('подпись ступени «Цех» — имя из строки, а не uuid', () => {
+    const facets = workSheetFacets([]);
+    const rows = [
+      row({ id: 'a', workshopId: '0f3f2a6e-0000-4000-8000-000000000001', workshopName: 'Цех № 4' }),
+      row({ id: 'b', workshopId: '0f3f2a6e-0000-4000-8000-000000000002', workshopName: '' }),
+    ];
+    const labels = facetOptions(facets, rows, {}, 'workshop').map((o) => o.label);
+    expect(labels).toContain('Цех № 4');
+    expect(labels.some((l) => l.includes('0f3f2a6e'))).toBe(false);
   });
 });
