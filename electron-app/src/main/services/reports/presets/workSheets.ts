@@ -8,6 +8,7 @@ import {
   formatEngineInternalNumber,
   formatWorkSheetValue,
   parseRepairHistoryMeta,
+  shortContractSuffixLabel,
   pickHumanText,
   repairHistoryEntryType,
   type ReportCellValue,
@@ -19,8 +20,18 @@ import {
 
 import { operations } from '../../../database/schema.js';
 import { asArray, msToDate, normalizeText, readPeriod } from '../format.js';
-import { buildBrandFilterMatcher, getPreset, getWorkshops, loadSnapshot, resolveEngineBrandRef, type ReportBuildContext, type Snapshot } from '../context.js';
-import { BRAND_MISSING, UNKNOWN_ENGINE_NUMBER_LABEL, buildOptions, relatedEntityLabel } from '../options.js';
+import {
+  buildBrandFilterMatcher,
+  buildContractCounterpartyIndex,
+  getPreset,
+  getWorkshops,
+  loadSnapshot,
+  resolveEngineBrandRef,
+  resolveEngineCounterpartyId,
+  type ReportBuildContext,
+  type Snapshot,
+} from '../context.js';
+import { BRAND_MISSING, UNKNOWN_ENGINE_NUMBER_LABEL, buildCounterpartyOptions, buildOptions, relatedEntityLabel } from '../options.js';
 
 /**
  * Отчёт «Ведомости работ» (15.09.2026): строки всех узлов по дате — те же записи истории
@@ -69,6 +80,11 @@ export async function buildWorkSheetsReport(
   const brandMatches = buildBrandFilterMatcher(brandFilter, new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const)));
   const workshops = await getWorkshops(ctx);
   const workshopNameById = new Map(workshops.map((w) => [w.id, w.name] as const));
+  // Заказчик считается тем же правилом, что и везде в отчётах: заказчик договора важнее
+  // поля карточки. Иначе ведомость назовёт заказчика иначе, чем «Двигатели» рядом.
+  const contractCounterpartyById = buildContractCounterpartyIndex(snapshot);
+  const counterpartyLabels = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
+  const contractLabels = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
 
   // Тип — в SQL, а не в цикле: без него скан поднимает ВСЕ операции вместе с их meta_json
   // (класс GOTCHAS M39 — чтение всех актов с meta_json стоило 1168 мс), а индекс
@@ -136,6 +152,15 @@ export async function buildWorkSheetsReport(
       engineInternalNumber: formatEngineInternalNumber(normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''), attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE]),
       engineBrand: engineBrandLabel(snapshot, attrs),
       nodeLabel: p.typeName || HUMAN_DASH,
+      customerLabel: counterpartyLabels.get(resolveEngineCounterpartyId(attrs, contractCounterpartyById)) ?? HUMAN_DASH,
+      // Короткая метка — та же, что в списке и в печати: «*239» узнают в цеху, полный
+      // номер в двадцать пять цифр в таблицу не влезает и читается как шум.
+      contractLabel: normalizeText(attrs.contract_id, '')
+        ? shortContractSuffixLabel(
+            contractLabels.get(normalizeText(attrs.contract_id, '')) ?? '',
+            normalizeText(attrs.contract_section_number, '') || null,
+          )
+        : HUMAN_DASH,
       // Название цеха — по справочнику сервера; без него — прочерк, а не идентификатор.
       workshopLabel: p.workshopId ? workshopNameById.get(p.workshopId) ?? HUMAN_DASH : HUMAN_DASH,
       performedBy: p.performedBy || HUMAN_DASH,

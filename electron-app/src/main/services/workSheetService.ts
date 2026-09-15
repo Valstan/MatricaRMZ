@@ -288,7 +288,7 @@ export async function listWorkSheetRows(
     if (sinceMs !== null && (meta.at ?? Number(op.performedAt ?? op.updatedAt)) < sinceMs) continue;
     picked.push({ op, meta });
   }
-  const labels = await resolveEngineLabels(db, picked.map((p) => String(p.op.engineEntityId)));
+  const labels = await resolveEngineLabels(db, picked.map((p) => String(p.op.engineEntityId)), { withCounterparty: true });
   const rows: WorkSheetRow[] = picked.map(({ op, meta }) => {
     const label = labels.get(String(op.engineEntityId));
     return {
@@ -297,6 +297,10 @@ export async function listWorkSheetRows(
       engineNumber: label?.engineNumber ?? '',
       engineBrand: label?.engineBrand ?? '',
       internalNumber: label?.internalNumberFull ?? '',
+      customerName: label?.customerName ?? '',
+      customerFullName: label?.customerFullName ?? '',
+      contractNumber: label?.contractNumber ?? '',
+      contractShortLabel: label?.contractShortLabel ?? '',
       at: meta.at ?? Number(op.performedAt ?? op.updatedAt),
       typeId: meta.sheet!.typeId,
       typeCode: meta.sheet!.typeCode,

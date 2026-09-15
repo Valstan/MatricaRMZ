@@ -1879,6 +1879,8 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'engineInternalNumber', label: 'Внутр. №' },
       { key: 'engineBrand', label: 'Марка' },
       { key: 'nodeLabel', label: 'Узел' },
+      { key: 'customerLabel', label: 'Заказчик' },
+      { key: 'contractLabel', label: 'Договор' },
       { key: 'workshopLabel', label: 'Цех' },
       { key: 'performedBy', label: 'Кто внёс' },
       { key: 'note', label: 'Примечание' },
