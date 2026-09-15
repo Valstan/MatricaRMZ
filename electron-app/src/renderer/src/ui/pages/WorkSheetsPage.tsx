@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  HUMAN_LABEL_DASH,
+  HUMAN_LABEL_NO_NUMBER,
   applyFacets,
   formatWorkSheetValue,
   workSheetFacets,
@@ -30,7 +32,7 @@ import { useListDeepFilter } from '../hooks/useListDeepFilter.js';
 import { useListUiState } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { listCellKindProps, listHeaderKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
-import { loadWorkSheetTypes } from '../utils/workSheetTypesCache.js';
+import { loadWorkSheetTypes, type WorkSheetTypesSource } from '../utils/workSheetTypesCache.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
 
 /**
@@ -62,16 +64,31 @@ const defaultTabUi = (): TabUiState => ({ query: '', searchSimilar: false, facet
 
 const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
+// Огрызок uuid здесь стоял как «хоть как-то опознать строку» — ровно то, что запрещает
+// `humanLabels`: идентификатор не заменяет подпись, а притворяется ею. Двигатель без номера
+// называется так же, как в отчётах.
 function engineLabel(r: WorkSheetRow): string {
-  return r.engineNumber || r.engineId.slice(0, 8);
+  return r.engineNumber || HUMAN_LABEL_NO_NUMBER;
+}
+
+/**
+ * Имя цеха: справочник → снимок в строке → прочерк. Справочник спрашивается первым (там имя
+ * свежее), снимок выручает, когда справочника нет — прав `masterdata.view` не выдали, клиент
+ * офлайн, цех деактивирован (`activeOnly: true` не отдаёт его и онлайн). Uuid не показывается
+ * никогда: строку он не опознаёт, а читается как испорченные данные.
+ */
+function workshopLabel(r: WorkSheetRow, fromDirectory: (id: string) => string): string {
+  if (!r.workshopId) return '';
+  return fromDirectory(r.workshopId) || r.workshopName || HUMAN_LABEL_DASH;
 }
 
 export function WorkSheetsPage(props: { canEdit: boolean; canManageTypes: boolean; onOpenEngine: (id: string) => void }) {
   const [types, setTypes] = useState<WorkSheetType[]>([]);
-  const [typesFromCache, setTypesFromCache] = useState(false);
+  const [typesSource, setTypesSource] = useState<WorkSheetTypesSource>('server');
   const [rows, setRows] = useState<WorkSheetRow[]>([]);
   const [status, setStatus] = useState('');
   const [allTime, setAllTime] = useState(false);
+  const [truncated, setTruncated] = useState(false);
   const [workshops, setWorkshops] = useState<WorkshopOption[]>([]);
   const [engines, setEngines] = useState<EngineListItem[]>([]);
   const [enginesReady, setEnginesReady] = useState(false);
@@ -89,7 +106,7 @@ export function WorkSheetsPage(props: { canEdit: boolean; canManageTypes: boolea
   const refreshTypes = useCallback(async () => {
     const res = await loadWorkSheetTypes();
     setTypes(res.rows);
-    setTypesFromCache(res.fromCache);
+    setTypesSource(res.source);
   }, []);
 
   const refreshRows = useCallback(async () => {
@@ -100,6 +117,7 @@ export function WorkSheetsPage(props: { canEdit: boolean; canManageTypes: boolea
         return;
       }
       setRows(res.rows);
+      setTruncated(res.truncated === true);
       setStatus('');
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
@@ -136,7 +154,7 @@ export function WorkSheetsPage(props: { canEdit: boolean; canManageTypes: boolea
     }
   }, [enginesReady]);
 
-  const workshopName = useCallback((id: string) => workshops.find((w) => w.id === id)?.label || id, [workshops]);
+  const workshopFromDirectory = useCallback((id: string) => workshops.find((w) => w.id === id)?.label ?? '', [workshops]);
 
   const tabs: CardTab<string>[] = useMemo(
     () => [{ key: ALL_TAB, label: 'Все' }, ...types.map((t) => ({ key: t.code, label: t.name }))],
@@ -164,7 +182,21 @@ export function WorkSheetsPage(props: { canEdit: boolean; canManageTypes: boolea
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }} data-work-sheets-page>
       <CardTabs tabs={tabs} active={tabs.some((t) => t.key === activeTab) ? activeTab : ALL_TAB} onChange={(key) => patchState({ activeTab: key })} className="" />
-      {typesFromCache ? <div className="ui-muted" style={{ fontSize: 12 }}>Список узлов взят из кэша — сервер недоступен, набор может быть устаревшим.</div> : null}
+      {truncated ? (
+        <div className="ui-muted" style={{ fontSize: 12 }} data-work-sheet-truncated>
+          Показаны не все строки: выборка упёрлась в потолок. Счётчик «Всего» считает загруженное, а не всё, что есть, —
+          сузьте период кнопкой «За год».
+        </div>
+      ) : null}
+      {typesSource === 'cache' ? (
+        <div className="ui-muted" style={{ fontSize: 12 }}>Список узлов взят из кэша — сервер недоступен, набор может быть устаревшим.</div>
+      ) : null}
+      {typesSource === 'none' ? (
+        <div className="ui-muted" style={{ fontSize: 12 }} data-work-sheet-types-unavailable>
+          Справочник узлов недоступен: сервер не ответил, а на этом устройстве он ещё ни разу не загружался. Строки ниже читаются
+          как есть — они несут свои поля с собой; завести новую строку можно будет, когда появится связь.
+        </div>
+      ) : null}
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
 
       {tabs.map((tab) => {
@@ -179,7 +211,7 @@ export function WorkSheetsPage(props: { canEdit: boolean; canManageTypes: boolea
               rows={tabRows}
               ui={tabUi(tab.key)}
               onPatch={(patch) => patchTab(tab.key, patch)}
-              workshopName={workshopName}
+              workshopName={workshopFromDirectory}
               canEdit={props.canEdit}
               canManageTypes={props.canManageTypes}
               allTime={allTime}
@@ -239,6 +271,7 @@ function WorkSheetTab(props: {
   rows: WorkSheetRow[];
   ui: TabUiState;
   onPatch: (patch: Partial<TabUiState>) => void;
+  /** Имя цеха из справочника; пусто — справочника нет, читатель возьмёт снимок из строки. */
   workshopName: (id: string) => string;
   canEdit: boolean;
   canManageTypes: boolean;
@@ -260,7 +293,7 @@ function WorkSheetTab(props: {
       { id: 'brand', label: 'Марка', kind: 'name', render: (r) => r.engineBrand, sortValue: (r) => r.engineBrand },
       { id: 'internal', label: 'Внутр. №', kind: 'num', render: (r) => r.internalNumber, sortValue: (r) => r.internalNumber },
       ...(type ? [] : [{ id: 'type', label: 'Узел', kind: 'name' as ListColumnKind, render: (r: WorkSheetRow) => r.typeName, sortValue: (r: WorkSheetRow) => r.typeName }]),
-      { id: 'workshop', label: 'Цех', kind: 'name', render: (r) => (r.workshopId ? workshopName(r.workshopId) : ''), sortValue: (r) => (r.workshopId ? workshopName(r.workshopId) : '') },
+      { id: 'workshop', label: 'Цех', kind: 'name', render: (r) => workshopLabel(r, workshopName), sortValue: (r) => workshopLabel(r, workshopName) },
     ];
     const dynamic: Column[] = type
       ? type.columns.map((c) => ({
@@ -373,7 +406,7 @@ function WorkSheetTab(props: {
             {type ? 'Колонки узла' : 'Узлы'}
           </Button>
         )}
-        <Button variant="ghost" onClick={props.onToggleAllTime} title="По умолчанию показаны строки за последний год">
+        <Button variant="ghost" onClick={props.onToggleAllTime} title="По умолчанию показаны строки с датой за последний год">
           {props.allTime ? 'За год' : 'За всё время'}
         </Button>
         <Button variant="ghost" onClick={() => void props.onRefresh()}>

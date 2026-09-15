@@ -26,16 +26,29 @@ export function writeWorkSheetTypesCache(rows: WorkSheetType[]): void {
   }
 }
 
-/** Список узлов: сервер, при отказе — кэш. `fromCache` говорит экрану, что данные могут быть старыми. */
-export async function loadWorkSheetTypes(opts: { includeArchived?: boolean } = {}): Promise<{ rows: WorkSheetType[]; fromCache: boolean; error?: string }> {
+/**
+ * Список узлов: сервер, при отказе — кэш. Состояний ТРИ, и экран обязан различать все:
+ * `server` — свежий список; `cache` — сервер молчит, набор может быть устаревшим; `none` —
+ * сервера нет И кэш пуст (первый запуск офлайн). Без третьего состояния экран в этом случае
+ * показывал пустой набор вкладок молча, как будто узлов на заводе не заведено.
+ */
+export type WorkSheetTypesSource = 'server' | 'cache' | 'none';
+
+export async function loadWorkSheetTypes(
+  opts: { includeArchived?: boolean } = {},
+): Promise<{ rows: WorkSheetType[]; source: WorkSheetTypesSource; error?: string }> {
+  const fallback = (error: string) => {
+    const cached = readWorkSheetTypesCache();
+    return { rows: cached, source: (cached.length > 0 ? 'cache' : 'none') as WorkSheetTypesSource, error };
+  };
   try {
     const res = await window.matrica.workSheets.types.list(opts);
     if (res.ok) {
       if (!opts.includeArchived) writeWorkSheetTypesCache(res.rows);
-      return { rows: res.rows, fromCache: false };
+      return { rows: res.rows, source: 'server' };
     }
-    return { rows: readWorkSheetTypesCache(), fromCache: true, error: res.error };
+    return fallback(res.error);
   } catch (e) {
-    return { rows: readWorkSheetTypesCache(), fromCache: true, error: String(e) };
+    return fallback(String(e));
   }
 }
