@@ -2216,6 +2216,18 @@ export function App() {
     return () => window.removeEventListener('matrica:custom-reports-changed', onChange);
   }, []);
 
+  // Ведомость сохранена/удалена → каталог двигателей приложения обязан перечитаться:
+  // «Этап на заводе» в списке «Двигатели» и в отчёте считается по последней ведомости, а
+  // без этого он менялся только после захода на вкладку «Двигатели» (стенд, 15.09.2026).
+  useEffect(() => {
+    function onEnginesChanged() {
+      void refreshEngines();
+    }
+    window.addEventListener('matrica:engines-changed', onEnginesChanged);
+    return () => window.removeEventListener('matrica:engines-changed', onEnginesChanged);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: refreshEngines пересоздаётся каждый рендер, но трогает лишь IPC-мост и setEngines — первая идентичность безопасна (как у подписки на прогресс синка)
+  }, []);
+
   // Правка шаблонов фильтров на странице отчёта поднимает nonce → перечитываем
   // блоб из main и отправляем секцию профиля своим ключом.
   useEffect(() => {
@@ -5380,7 +5392,7 @@ export function App() {
       case 'stock_document':
         return <StockDocumentDetailsPage key={k} id={id} canEdit={caps.canEditWarehouseDocs} canRevert={caps.canRevertMovements} canCreateParts={caps.canCreateParts} onOpenCounterparty={openCounterparty} onOpenEngine={openEngine} onOpenWorkOrder={openWorkOrder} onOpenNomenclature={openNomenclature} onOpenWarehouse={() => setTab('warehouse_locations')} onClose={close} />;
       case 'report_preset':
-        return <ReportPresetPage key={k} presetId={id as ReportPresetId} canExport={caps.canExportReports} userId={authStatus.user?.id ?? ''} initialFilters={initialFiltersFor(id as ReportPresetId)} onBack={close} onOpenWorkOrder={openWorkOrder} onOpenSupplyRequest={(x: string, payload: unknown) => void openRequest(x, { initialPayload: payload as SupplyRequestPayload })} />;
+        return <ReportPresetPage key={k} presetId={id as ReportPresetId} canExport={caps.canExportReports} userId={authStatus.user?.id ?? ''} initialFilters={initialFiltersFor(id as ReportPresetId)} onBack={close} onOpenWorkOrder={openWorkOrder} onOpenSupplyRequest={(x: string, payload: unknown) => void openRequest(x, { initialPayload: payload as SupplyRequestPayload })} engines={engines} onOpenEngine={(x: string) => void openEngine(x)} />;
       default:
         return <div style={{ padding: 16, color: 'var(--muted)' }}>Этот вид карточки нельзя открыть во второй панели.</div>;
     }
@@ -6188,6 +6200,8 @@ export function App() {
             onBack={() => setTab('reports')}
             onOpenWorkOrder={openWorkOrder}
             onOpenSupplyRequest={(id: string, payload: unknown) => void openRequest(id, { initialPayload: payload as SupplyRequestPayload })}
+            engines={engines}
+            onOpenEngine={(id: string) => void openEngine(id)}
           />
         )}
 

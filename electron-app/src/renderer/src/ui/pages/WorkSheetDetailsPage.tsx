@@ -177,6 +177,7 @@ export function WorkSheetDetailsPage(props: {
           return;
         }
         dirtyRef.current = false;
+        window.dispatchEvent(new Event('matrica:engines-changed'));
         props.onSaved?.({ repair: r.repair, typeName: effectiveType.name });
         if (opts.close) props.onClose();
         else {
@@ -207,6 +208,7 @@ export function WorkSheetDetailsPage(props: {
         return;
       }
       dirtyRef.current = false;
+      window.dispatchEvent(new Event('matrica:engines-changed'));
       props.onClose();
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);

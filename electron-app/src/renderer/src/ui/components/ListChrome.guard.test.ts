@@ -31,6 +31,7 @@ const PAGES = [
   'NomenclaturePage',
   'NomenclatureDirectoryPage',
   'WorkSheetsPage',
+  'reports/EngineFactoryStagesReportPage',
 ].map((name) => [name, src(`../pages/${name}.tsx`)] as const);
 
 describe('тулбар списка — одна строка', () => {

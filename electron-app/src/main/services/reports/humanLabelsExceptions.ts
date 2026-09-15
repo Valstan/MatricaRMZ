@@ -112,6 +112,12 @@ export const HUMAN_LABEL_GUARD_UNCOVERED_PRESETS: HumanLabelGuardUncoveredPreset
       'Прогноз без сети не деградирует, а отказывает: при отсутствии apiBaseUrl билдер выходит ' +
       'до построения строк. Как и нормам, нужен стаб HTTP-слоя.',
   },
+  {
+    presetId: 'engine_factory_stages',
+    reason:
+      'Отчёт-список (presentation: list): строится на экране из каталога двигателей, сервис ' +
+      'отвечает отказом по замыслу. Подписи этапов держит `engineFactoryStage.test.ts` в shared.',
+  },
 ];
 
 /**

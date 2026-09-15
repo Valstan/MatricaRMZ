@@ -60,6 +60,12 @@ export function ListPrintDialog<T>(props: {
   selectedRows: T[];
   storageKey: string;
   onClose: () => void;
+  /**
+   * Подпись группы строки — для списков с группировкой (отчёт «этапы на заводе»): строки
+   * приходят уже в порядке групп, и перед первой строкой каждой новой группы печатается
+   * строка-заголовок на всю ширину. Нумерация сквозная, заголовки её не сбивают.
+   */
+  rowGroupLabel?: (row: T) => string | null;
 }) {
   const knownIds = useMemo(() => new Set(props.columns.map((c) => c.id)), [props.columns]);
   const defaultIds = useMemo(() => {
@@ -97,11 +103,17 @@ export function ListPrintDialog<T>(props: {
   const emit = () => {
     // Колонка «№» идёт на печать первой — как на экране (владелец 15.09.2026).
     const thead = `<th style="text-align:right">№</th>${fields.map((f) => `<th>${escapeHtml(f.label)}</th>`).join('')}`;
+    let lastGroup: string | null = null;
     const tbody = rows
-      .map(
-        (row, i) =>
-          `<tr><td style="text-align:right">${i + 1}</td>${fields.map((f) => `<td>${escapeHtml(f.printValue(row) || '—')}</td>`).join('')}</tr>`,
-      )
+      .map((row, i) => {
+        const group = props.rowGroupLabel ? props.rowGroupLabel(row) : null;
+        const head =
+          group != null && group !== lastGroup
+            ? `<tr><td colspan="${fields.length + 1}" style="font-weight:600;background:#f3f4f6">${escapeHtml(group)}</td></tr>`
+            : '';
+        lastGroup = group;
+        return `${head}<tr><td style="text-align:right">${i + 1}</td>${fields.map((f) => `<td>${escapeHtml(f.printValue(row) || '—')}</td>`).join('')}</tr>`;
+      })
       .join('');
     openPrintPreview({
       title: props.title,

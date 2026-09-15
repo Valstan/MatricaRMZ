@@ -273,6 +273,7 @@ export function WorkSheetsPage(props: {
         return;
       }
       setDraft(null);
+      window.dispatchEvent(new Event('matrica:engines-changed'));
       // Сначала перечитать список, потом сказать словами: `refreshRows` в конце чистит статус,
       // и написанное до него исчезало через десятки миллисекунд (поймано живьём 15.09).
       await refreshRows();

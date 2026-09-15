@@ -1,5 +1,6 @@
 import type { EngineListItem } from '../ipc/types.js';
 import { STATUS_LABELS, type StatusCode } from './contract.js';
+import { engineFactoryStage } from './engineFactoryStage.js';
 import {
   activeFacetCount,
   applyFacets,
@@ -40,7 +41,8 @@ export type EngineFacetId =
   | 'historyAction'
   | 'historyDate'
   | 'sheetNode'
-  | 'sheetDate';
+  | 'sheetDate'
+  | 'factoryStage';
 
 export type EngineFacetValue = FacetValue;
 export type EngineFacetDateRange = FacetDateRange;
@@ -231,6 +233,18 @@ export const ENGINE_FACETS: readonly EngineFacetDescriptor[] = [
     id: 'sheetDate',
     label: 'Дата ведомости',
     dateOf: (e) => dateMs(e.lastSheetAt),
+  },
+  {
+    kind: 'values',
+    id: 'factoryStage',
+    // «Этап на заводе» — один ответ из карточки и ведомостей разом (`engineFactoryStage`):
+    // побеждает поздний признак. Справочник видов для отбора не нужен — ключ и подпись
+    // ведомость несёт сама; ранг важен только для порядка групп в отчёте.
+    label: 'Этап на заводе',
+    valueOf: (e) => {
+      const s = engineFactoryStage(e);
+      return { value: s.key, label: s.label };
+    },
   },
 ] as const;
 

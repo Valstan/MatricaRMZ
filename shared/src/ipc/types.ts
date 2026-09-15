@@ -83,6 +83,8 @@ export type EngineListItem = {
   /** Узел последней строки ведомости работ (укладка / обкатка / …) и её дата — «где двигатель по ведомостям». */
   lastSheetNode?: string;
   lastSheetAt?: number;
+  /** Код вида работ последней ведомости — заморожен, по нему этап на заводе узнаёт вид точнее имени. */
+  lastSheetTypeCode?: string;
   isReclamation?: boolean;
   isRepeatArrival?: boolean;
   isNumberCollision?: boolean;
