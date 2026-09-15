@@ -22,12 +22,22 @@ type Draft = {
   workshopId: string;
   completesRepair: boolean;
   columns: WorkSheetColumn[];
+  /** Версия узла на момент открытия — с ней сервер сверится, чтобы чужая правка не пропала. */
+  updatedAt: number | null;
 };
 
 function draftFrom(t: WorkSheetType | null): Draft {
   return t
-    ? { id: t.id, code: t.code, name: t.name, workshopId: t.workshopId ?? '', completesRepair: t.completesRepair, columns: t.columns.map((c) => ({ ...c })) }
-    : { id: null, code: '', name: '', workshopId: '', completesRepair: false, columns: [] };
+    ? {
+        id: t.id,
+        code: t.code,
+        name: t.name,
+        workshopId: t.workshopId ?? '',
+        completesRepair: t.completesRepair,
+        columns: t.columns.map((c) => ({ ...c })),
+        updatedAt: t.updatedAt,
+      }
+    : { id: null, code: '', name: '', workshopId: '', completesRepair: false, columns: [], updatedAt: null };
 }
 
 /**
@@ -101,6 +111,7 @@ export function WorkSheetTypeEditorDialog(props: {
         workshopId: draft.workshopId || null,
         completesRepair: draft.completesRepair,
         columns: draft.columns,
+        ...(draft.id && draft.updatedAt != null ? { expectedUpdatedAt: draft.updatedAt } : {}),
       });
       if (!r.ok) return setStatus(`Ошибка: ${r.error}`);
       await props.onChanged();
@@ -122,6 +133,8 @@ export function WorkSheetTypeEditorDialog(props: {
       if (!r.ok) return setStatus(`Ошибка: ${r.error}`);
       await props.onChanged();
       pick(null);
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
     } finally {
       setBusy(false);
     }

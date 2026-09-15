@@ -34,7 +34,7 @@ const columnSchema = z
   })
   .passthrough();
 
-workSheetTypesRouter.post('/', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+workSheetTypesRouter.post('/', requirePermission(PermissionCode.WorkSheetsEdit), async (req, res) => {
   const schema = z.object({
     id: z.string().optional(),
     code: z.string().max(40).optional(),
@@ -43,6 +43,9 @@ workSheetTypesRouter.post('/', requirePermission(PermissionCode.ErpDictionaryEdi
     completesRepair: z.boolean().optional(),
     columns: z.array(columnSchema).optional(),
     sortOrder: z.number().int().optional(),
+    // Узел, каким его видел редактор: не совпал — правил кто-то ещё, и набор колонок
+    // затёрся бы целиком (сервис пишет columns_json одним куском).
+    expectedUpdatedAt: z.number().int().optional(),
   });
   const parsed = schema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
@@ -52,14 +55,14 @@ workSheetTypesRouter.post('/', requirePermission(PermissionCode.ErpDictionaryEdi
   return res.json(result);
 });
 
-workSheetTypesRouter.post('/:id/archive', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+workSheetTypesRouter.post('/:id/archive', requirePermission(PermissionCode.WorkSheetsEdit), async (req, res) => {
   const actor = (req as AuthenticatedRequest).user?.username ?? null;
   const result = await archiveWorkSheetType(String(req.params.id ?? ''), actor);
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });
 
-workSheetTypesRouter.post('/:id/restore', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+workSheetTypesRouter.post('/:id/restore', requirePermission(PermissionCode.WorkSheetsEdit), async (req, res) => {
   const actor = (req as AuthenticatedRequest).user?.username ?? null;
   const result = await restoreWorkSheetType(String(req.params.id ?? ''), actor);
   if (!result.ok) return res.status(400).json(result);

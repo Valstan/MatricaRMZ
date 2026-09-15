@@ -1,14 +1,18 @@
-import { and, asc, eq, isNull, ne } from 'drizzle-orm';
+import { and, asc, eq, isNull, like, ne, or } from 'drizzle-orm';
 
 import {
+  REPAIR_HISTORY_OPERATION_TYPE,
+  WORK_SHEET_COLUMN_TYPE_LABELS,
   WORK_SHEET_CODE_RE,
+  parseRepairHistoryMeta,
   sanitizeWorkSheetColumns,
   workSheetCodeFromName,
+  type WorkSheetColumnType,
   type WorkSheetType,
 } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
-import { workSheetTypes } from '../database/schema.js';
+import { operations, workSheetTypes } from '../database/schema.js';
 
 type Ok<T> = { ok: true } & T;
 type Err = { ok: false; error: string };
@@ -69,7 +73,41 @@ export type UpsertWorkSheetTypeInput = {
   columns?: unknown;
   sortOrder?: number | undefined;
   actor?: string | null | undefined;
+  /** `updatedAt` узла, каким его видел редактор. Не совпал — узел правил кто-то ещё. */
+  expectedUpdatedAt?: number | undefined;
 };
+
+/**
+ * Типы полей, которыми узел УЖЕ заполнен, по коду колонки. Источник правды — сами строки, а
+ * не прежний набор колонок узла: сравнение с прежним набором обходится в два сохранения
+ * (удалить колонку → завести заново с тем же кодом и другим типом), и старые значения молча
+ * меняют смысл. Строка несёт тип своего поля с собой, поэтому ответ честен даже там, где
+ * колонку успели переименовать.
+ *
+ * Запрос идёт по `meta_json` подстрокой — индекса на содержимое JSON нет; он сужен типом
+ * операции и выполняется только при правке узла (редкое действие), не при чтении строк.
+ */
+async function columnTypesInUse(typeId: string, typeCode: string): Promise<Map<string, { type: WorkSheetColumnType; rows: number }>> {
+  const out = new Map<string, { type: WorkSheetColumnType; rows: number }>();
+  const conds = [like(operations.metaJson, `%"typeId":"${typeId}"%`), like(operations.metaJson, `%"typeCode":"${typeCode}"%`)];
+  const rows = await db
+    .select({ metaJson: operations.metaJson })
+    .from(operations)
+    .where(and(eq(operations.operationType, REPAIR_HISTORY_OPERATION_TYPE), isNull(operations.deletedAt), or(...conds)))
+    .limit(50_000);
+  for (const row of rows) {
+    const meta = parseRepairHistoryMeta(row.metaJson ?? null);
+    const sheet = meta?.sheet;
+    if (!sheet) continue;
+    if (sheet.typeId !== typeId && sheet.typeCode !== typeCode) continue;
+    for (const field of sheet.fields) {
+      const seen = out.get(field.code);
+      if (seen) seen.rows += 1;
+      else out.set(field.code, { type: field.type, rows: 1 });
+    }
+  }
+  return out;
+}
 
 /**
  * Создать или обновить узел. Код у существующего узла не меняется (на него ссылаются строки
@@ -89,6 +127,26 @@ export async function upsertWorkSheetType(input: UpsertWorkSheetTypeInput): Prom
     if (id) {
       const [existing] = await db.select().from(workSheetTypes).where(eq(workSheetTypes.id, id)).limit(1);
       if (!existing) return { ok: false, error: 'Узел не найден' };
+      if (
+        typeof input.expectedUpdatedAt === 'number' &&
+        Number.isFinite(input.expectedUpdatedAt) &&
+        Number(existing.updatedAt) !== input.expectedUpdatedAt
+      ) {
+        return { ok: false, error: 'Узел успели изменить в другом месте — закройте окно и откройте его заново, иначе чужая правка пропадёт' };
+      }
+      const inUse = await columnTypesInUse(String(existing.id), String(existing.code));
+      for (const col of columns) {
+        const used = inUse.get(col.code);
+        if (used && used.type !== col.type) {
+          return {
+            ok: false,
+            error:
+              `Колонка «${col.label}» уже заполнена в ${used.rows} стр. как «${WORK_SHEET_COLUMN_TYPE_LABELS[used.type]}» — ` +
+              `сменить тип на «${WORK_SHEET_COLUMN_TYPE_LABELS[col.type]}» нельзя: старые значения сменили бы смысл. ` +
+              'Заведите новую колонку с другим названием.',
+          };
+        }
+      }
       const [row] = await db
         .update(workSheetTypes)
         .set({
