@@ -70,6 +70,27 @@ corepack pnpm -F @matricarmz/backend-api files:offload-to-yandex --apply        
 - Сироты в `uploads/local` (файл без живой локальной строки) печатаются всегда; в `--apply` удаляются только те, чья строка уже на Яндексе и копия там подтверждена.
 - **Лог прогона — манифест.** Строка `OK <id> … -> <path> sha256=<hex>` позволяет после восстановления БД из дампа старше прогона снова привязать строки: `UPDATE file_assets SET storage_kind='yandex', yandex_disk_path=$2, local_rel_path=NULL WHERE id=$1 AND storage_kind='local';`. Сразу после успешного `--apply` — внеочередной `matricarmz-backup-encrypted`, чтобы свежий дамп уже нёс новые пути.
 
+## Съём клиентской обвязки из `node_modules` (`prune-virtual-store.mjs`)
+
+Прод исполняет только `backend-api` (+ `shared`/`ledger`) и раздаёт статику `web-admin`. Клиентские пакеты там не собираются никогда, но `pnpm install` в корне монорепо ставит зависимости **всех** воркспейс-пакетов — и самое тяжёлое на диске оказывается тем, что этой машине не нужно. Съём 15.09.2026: **974 → 400 МБ**, из них 414 МБ — две версии `app-builder-bin` (бинарь electron-builder), остальное — Capacitor/stencil планшета, `electron`, `better-sqlite3-multiple-ciphers` реплики клиента.
+
+Скрипт считает **замыкание** пакетов, достижимых по симлинкам виртуального стора от серверных корней, и убирает недостижимое — это не список «на глаз».
+
+```bash
+cd ~/MatricaRMZ
+node scripts/prod-ops/prune-virtual-store.mjs           # сухой прогон: что и сколько
+node scripts/prod-ops/prune-virtual-store.mjs --stage   # отнести в сторону (rename, обратимо)
+# ... проверка: бэкенд жив, зависимости грузятся, ops-скрипты идут ...
+node scripts/prod-ops/prune-virtual-store.mjs --drop    # удалить отложенное
+corepack pnpm store prune                               # <- ТОЛЬКО ЭТО освобождает место
+```
+
+- **Место освобождает не удаление `.pnpm`, а `store prune` после него** (GOTCHAS **M132**): файлы в `node_modules` — хардлинки в стор, и пока на инод ссылается стор, блоки заняты. До съёма `du` показывал `node_modules` 975 МБ, из них собственных блоков — 59 МБ.
+- **Только `corepack pnpm`**, никогда голый `pnpm`: системный бинарь на боксе новее пиннутого и смотрит в другой стор (GOTCHAS **M133**).
+- **Проверка после съёма — не «сервис живой», а загрузка графа:** `node -e`-обход всех `dependencies` бэкенда в свежем процессе (включая нативные `better-sqlite3`/`sharp`/`node-datachannel`), `tsx --version` и реальный read-only ops-скрипт (`users:parity`). Живой сервис уже держит свои модули в памяти и о поломке резолвинга не узнает до ближайшего рестарта.
+- **Что НЕ резать:** devDependencies `backend-api`. `db:migrate` и все `files:*`/`photos:*`/`users:*` идут через `tsx` — наивный `--prod` их убивает.
+- **После съёма корневой `pnpm install` вернёт всё обратно.** Релиз с новой рантаймовой зависимостью бэкенда ставить фильтрованно (`corepack pnpm install --filter "@matricarmz/backend-api..."`) и прогонять скрипт заново. Восстановление полное в любом случае — `corepack pnpm install` (нужна сеть).
+
 ## Восстановление из бэкапа
 
 ```bash
