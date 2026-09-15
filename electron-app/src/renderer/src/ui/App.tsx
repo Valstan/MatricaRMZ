@@ -5373,7 +5373,7 @@ export function App() {
         )}
 
         {t === 'work_sheets' && (
-          <WorkSheetsPage canEdit={caps.canEditOperations} canManageTypes={caps.canEditMasterData} onOpenEngine={(id: string) => void openEngine(id)} />
+          <WorkSheetsPage canEdit={caps.canEditWorkSheets} canManageTypes={caps.canEditWorkSheets} onOpenEngine={(id: string) => void openEngine(id)} />
         )}
         {t === 'engines' && (
           <EnginesPage

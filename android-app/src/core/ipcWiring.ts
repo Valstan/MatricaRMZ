@@ -31,6 +31,7 @@ import { registerWarehouseLocationsIpc } from '../../../electron-app/src/main/ip
 import { registerWorkOrderSignatureCaptionsIpc } from '../../../electron-app/src/main/ipc/register/workOrderSignatureCaptions.js';
 import { registerWorkOrderTemplatesIpc } from '../../../electron-app/src/main/ipc/register/workOrderTemplates.js';
 import { registerWorkOrdersIpc } from '../../../electron-app/src/main/ipc/register/workOrders.js';
+import { registerWorkSheetsIpc } from '../../../electron-app/src/main/ipc/register/workSheets.js';
 import { registerWorkshopsIpc } from '../../../electron-app/src/main/ipc/register/workshops.js';
 
 import { getAndroidPlatformHooks } from '../shims/platform.js';
@@ -94,6 +95,10 @@ export function wireIpcForAndroid(core: AndroidCore): IpcContext {
   registerWorkOrderTemplatesIpc(ctx);
   registerWorkOrderSignatureCaptionsIpc(ctx);
   registerWarehouseLocationsIpc(ctx);
+  // Ведомости работ: плитка на планшете есть с 3.33.0, а домен подключён не был —
+  // вкладка открывалась и молча не работала. Строки живут в локальной реплике
+  // (офлайн), справочник узлов — REST, как наряды: «нужна сеть» здесь штатно.
+  registerWorkSheetsIpc(ctx);
   registerSettingsIpc(ctx);
   registerNotesIpc(ctx);
   registerPartsIpc(ctx);
