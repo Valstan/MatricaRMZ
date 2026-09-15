@@ -129,6 +129,12 @@ describe('ведомости работ — экран', () => {
     expect(PAGE, 'исход отката проговаривается оператору').toContain("reason === 'changed-elsewhere'");
   });
 
+  it('архив узла обратим из того же окна — иначе это дверь в одну сторону', () => {
+    expect(TYPE_DIALOG, 'редактор видит архивные узлы').toContain('loadWorkSheetTypes({ includeArchived: true })');
+    expect(TYPE_DIALOG).toContain('window.matrica.workSheets.types.restore(t.id)');
+    expect(TYPE_DIALOG).toContain('data-work-sheet-type-archived');
+  });
+
   it('код узла и код колонки после создания заморожены — на них ссылаются строки', () => {
     expect(TYPE_DIALOG).toContain('Код заморожен');
     expect(TYPE_DIALOG).toContain('workSheetCodeFromName(label)');
