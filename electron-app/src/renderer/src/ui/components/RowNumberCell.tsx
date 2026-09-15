@@ -14,10 +14,11 @@ export function RowNumberHeaderCell(props: { style?: React.CSSProperties; classN
   );
 }
 
-export function RowNumberCell(props: { n: number; style?: React.CSSProperties }) {
+/** `n: null` — строка без номера (черновик, заголовок группы): ячейка есть, номера нет. */
+export function RowNumberCell(props: { n: number | null; style?: React.CSSProperties }) {
   return (
     <td data-col-kind="rownum" style={props.style}>
-      {props.n}
+      {props.n ?? ''}
     </td>
   );
 }

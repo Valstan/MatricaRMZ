@@ -94,6 +94,28 @@ describe('ведомости работ — экран', () => {
     expect(PAGE).toContain('initialTypeCode={initialTypeCode}');
   });
 
+  // Владелец 15.09 (вечер): «прямо в списке появлялась новая чистая строка, и мы в ней всё
+  // забивали». Черновик — индекс 0 той же виртуальной таблицы (одни ширины колонок), уходит
+  // тем же main-сервисом, что и карточка; сохранённые строки по-прежнему открывает карточка.
+  it('новая ведомость — черновая строка в самом списке, а не отдельное окно', () => {
+    expect(PAGE, 'черновик размечен').toContain('data-work-sheet-draft-row');
+    expect(PAGE, 'черновик — строка той же таблицы, не вторая таблица').toContain('draft && i === 0 ? draftCells(draft)');
+    expect(PAGE, 'черновик без номера, остальные с 1').toContain('rowNumberOf={(i) => (draft ? (i === 0 ? null : i) : i + 1)}');
+    expect(PAGE, 'сохранение — тем же сервисом, что и карточка').toContain('window.matrica.workSheets.rows.save(');
+    expect(PAGE, 'Esc убирает черновик').toContain("e.key === 'Escape'");
+    expect(PAGE, 'Enter из открытого списка двигателей не сохраняет').toContain("e.key === 'Enter' && !e.defaultPrevented");
+    expect(PAGE, 'кнопка «Добавить» на месте и не плодит второй черновик').toContain('disabled={draft !== null || types.length === 0} data-work-sheet-add-row');
+    expect(PAGE, 'сохранённая строка открывается карточкой').toContain('onClick: () => void openRow(r),');
+    expect(PAGE, 'выбор двигателя — тем же полем, что в карточке').toContain('target="engine"');
+    expect(PAGE, 'каталог двигателей приходит из приложения').toContain('engines: EngineListItem[];');
+    expect(APP, 'приложение отдаёт каталог списку').toMatch(/<WorkSheetsPage[\s\S]{0,300}engines=\{engines\}/);
+    // Редактор поля вида и опции двигателя — общие: две копии разошлись бы на первой новой колонке.
+    for (const [name, text] of [['список', PAGE], ['карточка', CARD]] as const) {
+      expect(text, `${name}: общий редактор поля вида`).toContain("from '../components/WorkSheetFieldEditor.js'");
+      expect(text, `${name}: общие опции двигателя`).toContain('buildEngineSearchOptions(props.engines)');
+    }
+  });
+
   it('печать списка — общим механизмом и вне тулбара', () => {
     expect(PAGE).toContain('<ListPrintDialog');
     expect(PAGE).toContain('buildListPrintColumns(columns)');

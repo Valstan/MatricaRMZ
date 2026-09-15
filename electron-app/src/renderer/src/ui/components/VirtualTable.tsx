@@ -47,6 +47,12 @@ export function VirtualTable(props: {
    * `colCount` передаётся БЕЗ учёта этой колонки — спейсеры расширяются здесь.
    */
   rowNumbers?: boolean | { offset?: number };
+  /**
+   * Номер для колонки «№» по индексу, когда сквозная нумерация не годится: черновая строка
+   * или заголовок группы получают `null` (пустая ячейка), остальные — свой номер.
+   * Работает только вместе с `rowNumbers`.
+   */
+  rowNumberOf?: (index: number) => number | null;
 }) {
   const {
     scrollElementRef,
@@ -61,6 +67,7 @@ export function VirtualTable(props: {
     tableClassName = 'list-table',
     emptyState,
     rowNumbers,
+    rowNumberOf,
   } = props;
   const rowNumberOffset = rowNumbers ? (typeof rowNumbers === 'object' ? rowNumbers.offset ?? 0 : 0) : null;
   const colCount = rowNumberOffset === null ? baseColCount : baseColCount + 1;
@@ -106,7 +113,9 @@ export function VirtualTable(props: {
                   ref={virtualizer.measureElement}
                   {...(getRowProps?.(vi.index) ?? {})}
                 >
-                  {rowNumberOffset !== null && <RowNumberCell n={rowNumberOffset + vi.index + 1} />}
+                  {rowNumberOffset !== null && (
+                    <RowNumberCell n={rowNumberOf ? rowNumberOf(vi.index) : rowNumberOffset + vi.index + 1} />
+                  )}
                   {renderCells(vi.index)}
                 </tr>
               ))}
