@@ -126,6 +126,19 @@ describe('узел ведомости', () => {
     expect(state.updates).toHaveLength(0);
   });
 
+  // Архивный узел код НЕ освобождает: на код ссылаются его строки, и вкладка экрана отбирает
+  // строки по нему — новый узел с тем же кодом собрал бы у себя чужие строки с чужими колонками.
+  it('код, занятый узлом в архиве, не отдаётся новому узлу — и сказано, почему', async () => {
+    state.selects.push([{ id: 'OLD', archivedAt: 1_700_000_000_000 }]);
+    const r = await upsertWorkSheetType({ name: 'Обкатка', code: 'obkatka' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toContain('архиве');
+      expect(r.error, 'сказано, что делать').toContain('верните');
+    }
+    expect(state.inserts).toHaveLength(0);
+  });
+
   it('без названия узел не создаётся', async () => {
     const r = await upsertWorkSheetType({ name: '   ' });
     expect(r.ok).toBe(false);

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   WORK_SHEET_COLUMN_TYPES,
@@ -13,6 +13,7 @@ import {
 import { Button } from './Button.js';
 import { Input } from './Input.js';
 import { RowReorderButtons } from './RowReorderButtons.js';
+import { loadWorkSheetTypes } from '../utils/workSheetTypesCache.js';
 import type { WorkshopOption } from './WorkSheetRowDialog.js';
 
 type Draft = {
@@ -59,6 +60,16 @@ export function WorkSheetTypeEditorDialog(props: {
   const [newColType, setNewColType] = useState<WorkSheetColumnType>('text');
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
+  // Архивные узлы экран не показывает, но редактор обязан: иначе архив — дверь в одну
+  // сторону, а код узла занят навсегда (на него ссылаются строки).
+  const [archived, setArchived] = useState<WorkSheetType[]>([]);
+  const refreshArchived = useCallback(async () => {
+    const res = await loadWorkSheetTypes({ includeArchived: true });
+    setArchived(res.rows.filter((t) => t.archivedAt != null));
+  }, []);
+  useEffect(() => {
+    void refreshArchived();
+  }, [refreshArchived]);
 
   const pick = (t: WorkSheetType | null) => {
     setSelectedCode(t?.code ?? null);
@@ -124,6 +135,21 @@ export function WorkSheetTypeEditorDialog(props: {
     }
   };
 
+  const restore = async (t: WorkSheetType) => {
+    setBusy(true);
+    try {
+      const r = await window.matrica.workSheets.types.restore(t.id);
+      if (!r.ok) return setStatus(`Ошибка: ${r.error}`);
+      await props.onChanged();
+      await refreshArchived();
+      setStatus(`Узел «${t.name}» возвращён из архива`);
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const archive = async () => {
     if (!selected) return;
     if (!window.confirm(`Убрать узел «${selected.name}» в архив? Его строки в истории останутся.`)) return;
@@ -132,6 +158,7 @@ export function WorkSheetTypeEditorDialog(props: {
       const r = await window.matrica.workSheets.types.archive(selected.id);
       if (!r.ok) return setStatus(`Ошибка: ${r.error}`);
       await props.onChanged();
+      await refreshArchived();
       pick(null);
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
@@ -170,6 +197,20 @@ export function WorkSheetTypeEditorDialog(props: {
           <Button variant="ghost" onClick={() => pick(null)} data-work-sheet-type-new>
             + Новый узел
           </Button>
+
+          {archived.length > 0 ? (
+            <div style={{ display: 'grid', gap: 6, marginTop: 10 }} data-work-sheet-type-archived>
+              <div className="ui-muted" style={{ fontSize: 12 }}>В архиве — строки остались, код занят</div>
+              {archived.map((t) => (
+                <div key={t.code} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="ui-muted" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</span>
+                  <Button variant="ghost" disabled={busy} onClick={() => void restore(t)} title="Вернуть узел из архива">
+                    Вернуть
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         <div style={{ display: 'grid', gap: 10, alignContent: 'start' }}>

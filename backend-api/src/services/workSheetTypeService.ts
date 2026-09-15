@@ -168,12 +168,23 @@ export async function upsertWorkSheetType(input: UpsertWorkSheetTypeInput): Prom
     if (!WORK_SHEET_CODE_RE.test(code)) {
       return { ok: false, error: 'Код узла — латиница, цифры и «_», от 2 до 40 знаков, с буквы' };
     }
+    // Архивный узел код НЕ освобождает: на код ссылаются его строки (`sheet.typeCode`), и
+    // вкладка экрана отбирает строки по нему. Заведись новый узел с тем же кодом — строки
+    // старого приехали бы в чужую вкладку с чужими колонками. Частичный уникальный индекс
+    // миграции 0097 такого дубля не ловит: он живых и архивных не различает по коду.
     const [dup] = await db
-      .select({ id: workSheetTypes.id })
+      .select({ id: workSheetTypes.id, archivedAt: workSheetTypes.archivedAt })
       .from(workSheetTypes)
-      .where(and(eq(workSheetTypes.code, code), isNull(workSheetTypes.archivedAt)))
+      .where(eq(workSheetTypes.code, code))
       .limit(1);
-    if (dup) return { ok: false, error: `Узел с кодом «${code}» уже есть` };
+    if (dup) {
+      return {
+        ok: false,
+        error: dup.archivedAt
+          ? `Код «${code}» занят узлом в архиве — верните его из архива или назовите новый узел иначе`
+          : `Узел с кодом «${code}» уже есть`,
+      };
+    }
 
     let sortOrder = typeof input.sortOrder === 'number' && Number.isFinite(input.sortOrder) ? Math.trunc(input.sortOrder) : null;
     if (sortOrder == null) {
