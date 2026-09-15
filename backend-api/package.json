@@ -42,6 +42,8 @@
     "access:backfill-sections:apply": "tsx src/scripts/backfillSectionAccess.ts --apply",
     "perm:seed": "tsx src/scripts/seedPermissions.ts",
     "perm:fix-chat": "tsx src/scripts/fixChatPermissions.ts",
+    "perm:revoke-work-sheets": "tsx src/scripts/revokeWorkSheetPermissions.ts",
+    "perm:revoke-work-sheets:apply": "tsx src/scripts/revokeWorkSheetPermissions.ts --apply",
     "security:role-report": "tsx src/scripts/roleReport.ts",
     "masterdata:seed-nomenclature-groups": "tsx src/scripts/seedNomenclatureGroups.ts",
     "masterdata:migrate-directories-to-nomenclature": "tsx src/scripts/migrateDirectoriesToNomenclature.ts",

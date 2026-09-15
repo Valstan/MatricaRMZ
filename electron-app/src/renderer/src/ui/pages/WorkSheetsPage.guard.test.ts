@@ -22,6 +22,8 @@ const IPC = src('../../../../main/ipc/register/workSheets.ts');
 const ANDROID_WIRING = src('../../../../../../android-app/src/core/ipcWiring.ts');
 const CACHE = src('../utils/workSheetTypesCache.ts');
 const REST_ROUTE = src('../../../../../../backend-api/src/routes/workSheetTypes.ts');
+const BACKEND_PERMS = src('../../../../../../backend-api/src/auth/permissions.ts');
+const SYNC_GUARD = src('../../../../../../backend-api/src/services/sync/ledgerAuthzGuard.ts');
 
 describe('ведомости работ — экран', () => {
   it('вкладка заведена в реестре разделов, меню и приложении под правом на операции', () => {
@@ -33,27 +35,43 @@ describe('ведомости работ — экран', () => {
     expect(GATE, 'IPC ведомостей гейтится разделом «Производство»').toContain("['workSheets:', 'production']");
   });
 
-  it('запись в ведомости — отдельное право, и раздельный уровень у секционного гейта', () => {
+  // Два права (владелец 15.09.2026, вечер): строки заполняют одни люди, виды работ ведут
+  // другие. Под одним кодом «выдать заполнение» означало бы «выдать и справочник».
+  it('строки и виды работ — два отдельных права, и раздельный уровень у секционного гейта', () => {
     // Проверяем пропы по отдельности: разметка многострочная, и непрерывная подстрока
     // ломалась бы от любого переноса, а не от потери права.
-    for (const prop of ['canEdit={caps.canEditWorkSheets}', 'canManageTypes={caps.canEditWorkSheets}']) {
-      expect(APP, `ведомости: ${prop} — строки и виды работ под одним правом`).toContain(prop);
-    }
-    expect(IPC, 'запись — work_sheets.edit, а не operations.edit мастеров').toContain(
+    expect(APP, 'строки — work_sheets.edit').toContain('canEdit={caps.canEditWorkSheets}');
+    expect(APP, 'виды работ — своё право, не то же, что строки').toContain('canManageTypes={caps.canEditWorkSheetTypes}');
+    expect(APP).not.toContain('canManageTypes={caps.canEditWorkSheets}');
+    expect(IPC, 'строки — work_sheets.edit, а не operations.edit мастеров').toContain(
       "requirePermOrResult(ctx, 'work_sheets.edit')",
     );
+    expect(IPC, 'виды работ — work_sheet_types.edit').toContain("requirePermOrResult(ctx, 'work_sheet_types.edit')");
     expect(IPC, 'чтение остаётся правом истории').toContain("requirePermOrResult(ctx, 'operations.view')");
     expect(IPC, 'erp.dictionary.edit больше не при чём').not.toContain('erp.dictionary.edit');
     for (const ch of ['workSheets:rows:save', 'workSheets:rows:delete', 'workSheets:types:upsert']) {
       expect(GATE, `наблюдателю раздела запись ${ch} закрыта`).toContain(`'${ch}'`);
     }
-    // Узлы — REST: гейт клиента без такого же гейта на сервере означал бы, что выданное
-    // поимённо право работает до первого сохранения, а потом сервер отвечает отказом.
-    expect(REST_ROUTE, 'серверный роут узлов — то же право, что и IPC').toContain(
-      'requirePermission(PermissionCode.WorkSheetsEdit)',
+    // Виды работ — REST: гейт клиента без такого же гейта на сервере означал бы, что
+    // выданное поимённо право работает до первого сохранения, а потом сервер отвечает отказом.
+    expect(REST_ROUTE, 'серверный роут видов работ — то же право, что и IPC').toContain(
+      'requirePermission(PermissionCode.WorkSheetTypesEdit)',
     );
+    expect(REST_ROUTE, 'право строк на справочник не распространяется').not.toContain('PermissionCode.WorkSheetsEdit)');
     expect(REST_ROUTE, 'чтение справочника остаётся правом истории').toContain(
       'requirePermission(PermissionCode.OperationsView)',
+    );
+  });
+
+  // Роль admin получает «всё» циклом, и без точечного исключения любой администратор снова
+  // молча редактировал бы ведомости — а владелец снял право у всех, чтобы выдавать поимённо.
+  it('роль не даёт прав на ведомости никому, кроме суперадмина; сервер режет строку без права', () => {
+    expect(BACKEND_PERMS).toContain("all[PermissionCode.WorkSheetsEdit] = r === 'superadmin';");
+    expect(BACKEND_PERMS).toContain("all[PermissionCode.WorkSheetTypesEdit] = r === 'superadmin';");
+    // Строка ведомости идёт обычным синком: клиентский гейт без серверного — не гейт.
+    expect(SYNC_GUARD, 'backstop до обхода для admin / легаси user').toContain("reason: 'forbidden:work_sheet_row'");
+    expect(SYNC_GUARD.indexOf("forbidden:work_sheet_row"), 'backstop стоит ДО ветки !operatorScoped').toBeLessThan(
+      SYNC_GUARD.indexOf('if (!operatorScoped) {'),
     );
   });
 

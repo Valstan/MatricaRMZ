@@ -52,6 +52,7 @@ vi.mock('../engineReservationGuard.js', () => ({
 
 const { attributeDefs, entities, entityTypes, users } = await import('../../database/schema.js');
 const { partitionLedgerInputsByAuthz } = await import('./ledgerAuthzGuard.js');
+const { getEffectivePermissionsForUser } = await import('../../auth/permissions.js');
 
 function seedTypes() {
   state.selectByTable.set(entityTypes, [
@@ -125,6 +126,59 @@ describe('partitionLedgerInputsByAuthz', () => {
       state.selectByTable.clear();
       seedTypes();
     }
+  });
+
+  // Строки ведомостей работ: поимённое право `work_sheets.edit` для ВСЕХ ролей, кроме
+  // суперадмина. Без backstop'а мастер писал бы их по operations.edit, а admin / легаси
+  // `user` — вообще мимо requirement'ов (владелец снял право у всех, 15.09.2026).
+  describe('строки ведомостей работ — поимённое право для любой роли', () => {
+    const sheetMeta = JSON.stringify({
+      kind: 'repair_history',
+      action: 'Ведомость: Обкатка',
+      entryType: 'sheet',
+      sheet: { typeId: 't1', typeCode: 'obkatka', typeName: 'Обкатка', fields: [] },
+    });
+    const manualMeta = JSON.stringify({ kind: 'repair_history', action: 'Снят с обкатки', entryType: 'manual' });
+    const inputs = () => [
+      { type: 'upsert' as const, table: 'operations', row: { id: 'op-sheet', operation_type: 'repair_history_entry', engine_entity_id: 'eng-1', meta_json: sheetMeta, updated_at: Date.now() }, row_id: 'op-sheet' },
+      { type: 'upsert' as const, table: 'operations', row: { id: 'op-manual', operation_type: 'repair_history_entry', engine_entity_id: 'eng-1', meta_json: manualMeta, updated_at: Date.now() }, row_id: 'op-manual' },
+    ];
+
+    it('инженер с operations.edit без work_sheets.edit: ведомость режется, ручная запись проходит', async () => {
+      seedTypes();
+      const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs() as any, ENGINEER);
+      expect(allowed.map((i) => i.row_id)).toEqual(['op-manual']);
+      expect(denied.map((d) => d.row_id)).toEqual(['op-sheet']);
+      expect(denied[0]?.reason).toBe('forbidden:work_sheet_row');
+    });
+
+    it('admin и легаси user без права — тоже режутся: обход requirement\'ов сюда не доходит', async () => {
+      for (const role of ['admin', 'user']) {
+        seedTypes();
+        vi.mocked(getEffectivePermissionsForUser).mockResolvedValueOnce({ [PermissionCode.OperationsEdit]: true });
+        const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs() as any, { id: 'u', username: 'u', role });
+        expect(allowed.map((i) => i.row_id), role).toEqual(['op-manual']);
+        expect(denied.map((d) => d.reason), role).toEqual(['forbidden:work_sheet_row']);
+        state.selectByTable.clear();
+      }
+    });
+
+    it('держатель права (любой роли) и суперадмин проходят', async () => {
+      seedTypes();
+      vi.mocked(getEffectivePermissionsForUser).mockResolvedValueOnce({
+        ...operatorRolePermissions('engineer')!,
+        [PermissionCode.WorkSheetsEdit]: true,
+      });
+      const engineer = await partitionLedgerInputsByAuthz(inputs() as any, ENGINEER);
+      expect(engineer.denied).toHaveLength(0);
+      expect(engineer.allowed.map((i) => i.row_id)).toEqual(['op-sheet', 'op-manual']);
+
+      state.selectByTable.clear();
+      seedTypes();
+      const admin = await partitionLedgerInputsByAuthz(inputs() as any, { id: 'root', username: 'root', role: 'superadmin' });
+      expect(admin.denied).toHaveLength(0);
+      expect(admin.allowed).toHaveLength(2);
+    });
   });
 
   // C2 backstop: server-managed employee auth attrs are never writable via a

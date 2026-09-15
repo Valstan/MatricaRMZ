@@ -11,6 +11,7 @@
 // is the entity_type code — NOT the table. Requests/work orders live in
 // `operations`, keyed by operation_type.
 
+import { parseRepairHistoryMeta, repairHistoryEntryType, REPAIR_HISTORY_OPERATION_TYPE } from './engineRepairHistory.js';
 import { PermissionCode } from './permissions.js';
 import { SyncTableName } from '../sync/tables.js';
 
@@ -183,6 +184,25 @@ const TABLE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
 };
 
 /**
+ * Строка ведомости работ в батче синка: `operations` типа `repair_history_entry`, чья meta
+ * классифицируется как `sheet`. Ведомости заполняет поимённый круг (`work_sheets.edit`),
+ * а `operations.edit` есть у мастеров — поэтому у этих строк своё требование, и гейд
+ * применяет его КО ВСЕМ ролям, кроме суперадмина (в отличие от прочих requirement'ов,
+ * которые admin / легаси `user` обходят).
+ */
+export function isWorkSheetRowWrite(args: {
+  table: string;
+  operationType?: string | null;
+  operationMetaJson?: string | null;
+}): boolean {
+  if (args.table !== SyncTableName.Operations) return false;
+  const op = (args.operationType ?? '').trim();
+  if (op !== REPAIR_HISTORY_OPERATION_TYPE) return false;
+  const meta = parseRepairHistoryMeta(args.operationMetaJson ?? null);
+  return meta != null && repairHistoryEntryType(meta, op) === 'sheet';
+}
+
+/**
  * Required capability for a single ledger write. `entityTypeCode` must be the
  * resolved entity_type code for entities/attribute_values rows; `operationType`
  * the operation_type for operations rows. Unknown/unmapped types fail OPEN
@@ -193,6 +213,12 @@ export function ledgerWriteRequirement(args: {
   table: string;
   entityTypeCode?: string | null;
   operationType?: string | null;
+  /**
+   * `meta_json` строки operations. Строка ведомости работ — та же запись истории ремонта
+   * (`repair_history_entry`), что и ручная запись мастера; отличает их только meta
+   * (`entryType: 'sheet'` / `sheet`). Без meta (легаси-очередь) — прежний фолбэк.
+   */
+  operationMetaJson?: string | null;
 }): LedgerWriteRequirement {
   const { table } = args;
 
@@ -203,6 +229,7 @@ export function ledgerWriteRequirement(args: {
   }
 
   if (table === SyncTableName.Operations) {
+    if (isWorkSheetRowWrite(args)) return { kind: 'permission', code: PermissionCode.WorkSheetsEdit };
     const op = (args.operationType ?? '').trim();
     return OPERATION_TYPE_REQUIREMENT[op] ?? { kind: 'permission', code: PermissionCode.OperationsEdit };
   }

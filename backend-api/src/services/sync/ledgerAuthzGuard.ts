@@ -31,7 +31,9 @@ import {
   isServerOnlyAttrCode,
   isServerManagedSyncTable,
   isSuperadminOnlyAttrCode,
+  isWorkSheetRowWrite,
   ledgerWriteRequirement,
+  PermissionCode,
   operatorMeetsRequirement,
   sectionForLedgerWrite,
   sectionLevelFor,
@@ -183,7 +185,18 @@ export async function partitionLedgerInputsByAuthz(
   const actorIsAdmin = role === 'admin' || role === 'superadmin';
   const gateNow = Date.now();
 
-  const perms = operatorScoped ? await getEffectivePermissionsForUser(actor.id) : {};
+  // Строки ведомостей работ гейтятся поимённым правом для ВСЕХ ролей (кроме суперадмина),
+  // поэтому права нужны и admin'у / легаси `user`, если такая строка есть в батче.
+  const hasWorkSheetRows =
+    role !== 'superadmin' &&
+    inputs.some((i) =>
+      isWorkSheetRowWrite({
+        table: i.table,
+        operationType: str(i.row?.['operation_type']),
+        operationMetaJson: str(i.row?.['meta_json']) || null,
+      }),
+    );
+  const perms = operatorScoped || hasWorkSheetRows ? await getEffectivePermissionsForUser(actor.id) : {};
 
   // Restricted work-order write isolation (Phase 3): map of restricted order id ->
   // owner login. A restricted order may be edited only by its owner or the superadmin,
@@ -224,6 +237,7 @@ export async function partitionLedgerInputsByAuthz(
     let entityTypeCode: string | null = null;
     let ownerEntityId: string | null = null;
     let operationType: string | null = null;
+    let operationMetaJson: string | null = null;
 
     if (inp.table === SyncTableName.Entities) {
       ownerEntityId = str(inp.row?.['id'] ?? inp.row_id);
@@ -234,6 +248,22 @@ export async function partitionLedgerInputsByAuthz(
       entityTypeCode = tid ? (codeByTypeId.get(tid) ?? null) : null;
     } else if (inp.table === SyncTableName.Operations) {
       operationType = str(inp.row?.['operation_type']);
+      operationMetaJson = str(inp.row?.['meta_json']) || null;
+    }
+
+    // Universal backstop: строка ведомости работ пишется только держателем поимённого
+    // права `work_sheets.edit` — для ЛЮБОЙ роли, кроме суперадмина. Стоит до ветки
+    // `if (!operatorScoped)` ниже: иначе admin / легаси `user` проходили бы мимо, а
+    // владелец снял это право у всех именно затем, чтобы заполнял узкий круг
+    // (15.09.2026). Ручная запись истории ремонта (без meta `sheet`) сюда не попадает.
+    // Пустой `meta_json` (легаси-очередь) — не строка ведомости: прежний фолбэк.
+    if (
+      role !== 'superadmin' &&
+      isWorkSheetRowWrite({ table: inp.table, operationType, operationMetaJson }) &&
+      perms[PermissionCode.WorkSheetsEdit] !== true
+    ) {
+      denied.push({ table: inp.table, row_id: inp.row_id, reason: 'forbidden:work_sheet_row' });
+      continue;
     }
 
     // Universal backstop: server-managed employee auth/security attributes are
@@ -347,7 +377,7 @@ export async function partitionLedgerInputsByAuthz(
       continue;
     }
 
-    const req = ledgerWriteRequirement({ table: inp.table, entityTypeCode, operationType });
+    const req = ledgerWriteRequirement({ table: inp.table, entityTypeCode, operationType, operationMetaJson });
     const ok = operatorMeetsRequirement(req, { perms, actorId: actor.id, ownerEntityId });
     if (ok) {
       allowed.push(inp);

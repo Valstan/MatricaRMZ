@@ -41,7 +41,11 @@ export const PermissionCode = {
   // Ведомости работ — отдельное право, а не operations.edit: заполняет их узкий круг
   // (решение владельца 15.09.2026), а правка истории ремонта есть у мастеров и бригадиров.
   // Чтение ведомостей остаётся на operations.view, который входит в базу оператора.
+  // Два отдельных права (владелец, 15.09.2026, вечер): заполнять строки и вести справочник
+  // видов работ — разные люди. Роль не даёт ни того, ни другого даже admin'у: оба
+  // выдаются поимённо в админке (см. backend `defaultPermissionsForRole`).
   WorkSheetsEdit: 'work_sheets.edit',
+  WorkSheetTypesEdit: 'work_sheet_types.edit',
 
   // workshops (parts-movement module)
   WorkshopsManage: 'workshops.manage',
@@ -158,7 +162,18 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
 
   { code: PermissionCode.OperationsView, group: 'Операции', titleRu: 'Просмотр операций (таймлайн)' },
   { code: PermissionCode.OperationsEdit, group: 'Операции', titleRu: 'Создание/редактирование операций (таймлайн)' },
-  { code: PermissionCode.WorkSheetsEdit, group: 'Операции', titleRu: 'Ведомости работ: заполнение строк и ведение узлов' },
+  {
+    code: PermissionCode.WorkSheetsEdit,
+    group: 'Операции',
+    titleRu: 'Ведомости работ: заполнение строк',
+    descriptionRu: 'Добавлять, править и удалять строки ведомостей. Роль права не даёт — выдаётся поимённо. Смотреть ведомости могут все, у кого есть просмотр операций.',
+  },
+  {
+    code: PermissionCode.WorkSheetTypesEdit,
+    group: 'Операции',
+    titleRu: 'Ведомости работ: ведение видов работ (справочник)',
+    descriptionRu: 'Заводить, править и архивировать виды работ и их колонки. Роль права не даёт — выдаётся поимённо.',
+  },
 
   { code: PermissionCode.DefectActView, group: 'Акт дефектовки', titleRu: 'Просмотр акта дефектовки' },
   { code: PermissionCode.DefectActEdit, group: 'Акт дефектовки', titleRu: 'Редактирование акта дефектовки' },
