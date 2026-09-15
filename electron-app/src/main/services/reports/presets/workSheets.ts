@@ -1,4 +1,4 @@
-import { and, isNull } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
@@ -60,18 +60,27 @@ export async function buildWorkSheetsReport(
   const workshops = await getWorkshops(ctx);
   const workshopNameById = new Map(workshops.map((w) => [w.id, w.name] as const));
 
+  // Тип — в SQL, а не в цикле: без него скан поднимает ВСЕ операции вместе с их meta_json
+  // (класс GOTCHAS M39 — чтение всех актов с meta_json стоило 1168 мс), а индекс
+  // `operations(operation_type, deleted_at, updated_at)` не применяется вовсе. Проекция —
+  // только читаемые ниже колонки, по образцу `getCompletenessActStartedMap` в `engines.ts`.
   const ops = await db
-    .select()
+    .select({
+      engineEntityId: operations.engineEntityId,
+      metaJson: operations.metaJson,
+      performedAt: operations.performedAt,
+      performedBy: operations.performedBy,
+      updatedAt: operations.updatedAt,
+    })
     .from(operations)
-    .where(and(isNull(operations.deletedAt)))
+    .where(and(eq(operations.operationType, REPAIR_HISTORY_OPERATION_TYPE), isNull(operations.deletedAt)))
     .limit(250_000);
 
   type Picked = { at: number; engineId: string; typeName: string; typeCode: string; workshopId: string; performedBy: string; note: string; fields: WorkSheetField[] };
   const picked: Picked[] = [];
   for (const row of ops as any[]) {
-    if (String(row.operationType ?? '') !== REPAIR_HISTORY_OPERATION_TYPE) continue;
     const meta = parseRepairHistoryMeta(row.metaJson == null ? null : String(row.metaJson));
-    if (!meta?.sheet || repairHistoryEntryType(meta, String(row.operationType)) !== 'sheet') continue;
+    if (!meta?.sheet || repairHistoryEntryType(meta, REPAIR_HISTORY_OPERATION_TYPE) !== 'sheet') continue;
     const at = meta.at ?? Number(row.performedAt ?? row.updatedAt ?? 0);
     if (period.startMs != null && at < period.startMs) continue;
     if (at > period.endMs) continue;
@@ -151,13 +160,19 @@ export async function buildWorkSheetsReport(
 /** Последняя строка ведомости по каждому двигателю — колонки «Узел (последняя ведомость)» отчёта «Двигатели». */
 export async function getLastSheetByEngine(db: BetterSQLite3Database): Promise<Map<string, { node: string; at: number }>> {
   const out = new Map<string, { node: string; at: number }>();
+  // Этот скан идёт при ОБЫЧНОМ построении отчёта «Двигатели» (needSheet истинен, когда
+  // колонки не выбраны), поэтому тип обязан быть в SQL — см. комментарий у скана выше.
   const ops = await db
-    .select()
+    .select({
+      engineEntityId: operations.engineEntityId,
+      metaJson: operations.metaJson,
+      performedAt: operations.performedAt,
+      updatedAt: operations.updatedAt,
+    })
     .from(operations)
-    .where(and(isNull(operations.deletedAt)))
+    .where(and(eq(operations.operationType, REPAIR_HISTORY_OPERATION_TYPE), isNull(operations.deletedAt)))
     .limit(250_000);
   for (const row of ops as any[]) {
-    if (String(row.operationType ?? '') !== REPAIR_HISTORY_OPERATION_TYPE) continue;
     const meta = parseRepairHistoryMeta(row.metaJson == null ? null : String(row.metaJson));
     if (!meta?.sheet) continue;
     const engineId = String(row.engineEntityId ?? '');
