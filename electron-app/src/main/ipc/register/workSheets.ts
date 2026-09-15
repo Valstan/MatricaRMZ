@@ -3,7 +3,7 @@ import { ipcMain } from 'electron';
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { httpAuthed } from '../../services/httpClient.js';
-import { deleteWorkSheetRow, listWorkSheetRows, saveWorkSheetRow, type SaveWorkSheetRowInput } from '../../services/workSheetService.js';
+import { deleteWorkSheetRow, getWorkSheetRow, listWorkSheetRows, saveWorkSheetRow, type SaveWorkSheetRowInput } from '../../services/workSheetService.js';
 
 type Ok<T> = { ok: true } & T;
 type Err = { ok: false; error: string };
@@ -84,6 +84,17 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
     if (!gate.ok) return gate as Err;
     try {
       return { ok: true as const, ...(await listWorkSheetRows(ctx.dataDb(), args ?? {})) };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('workSheets:rows:get', async (_e, id: string) => {
+    const gate = await requirePermOrResult(ctx, 'operations.view');
+    if (!gate.ok) return gate as Err;
+    try {
+      const row = await getWorkSheetRow(ctx.dataDb(), id);
+      return row ? { ok: true as const, row } : { ok: false as const, error: 'Ведомость не найдена' };
     } catch (e) {
       return { ok: false as const, error: String(e) };
     }

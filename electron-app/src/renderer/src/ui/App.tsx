@@ -198,6 +198,7 @@ function lazyPage(modulePath: keyof typeof pageModules, exportName: string) {
 
 const EnginesPage = lazyPage('./pages/EnginesPage.tsx', 'EnginesPage');
 const WorkSheetsPage = lazyPage('./pages/WorkSheetsPage.tsx', 'WorkSheetsPage');
+const WorkSheetDetailsPage = lazyPage('./pages/WorkSheetDetailsPage.tsx', 'WorkSheetDetailsPage');
 const EngineDetailsPage = lazyPage('./pages/EngineDetailsPage.tsx', 'EngineDetailsPage');
 const EngineBrandsPage = lazyPage('./pages/EngineBrandsPage.tsx', 'EngineBrandsPage');
 const EngineBrandDetailsPage = lazyPage('./pages/EngineBrandDetailsPage.tsx', 'EngineBrandDetailsPage');
@@ -707,6 +708,7 @@ const CARD_PARENT_TAB: Partial<Record<TabId, TabId>> = {
 
 const CARD_DETAIL_TABS: ReadonlyArray<TabId> = [
   'engine',
+  'work_sheet',
   'engine_brand',
   'engine_brand_group',
   'request',
@@ -797,6 +799,13 @@ export function App() {
   const [backupMode, setBackupMode] = useState<{ mode: 'live' | 'backup'; backupDate: string | null } | null>(null);
 
   const [engines, setEngines] = useState<EngineListItem[]>([]);
+  const [selectedWorkSheetId, setSelectedWorkSheetId] = useState<string | null>(null);
+  const [workSheetIsNew, setWorkSheetIsNew] = useState(false);
+  const [workSheetInitialType, setWorkSheetInitialType] = useState<string | null>(null);
+  // Заголовок вкладки ведомости: id в шапке читается как мусор, а имени ведомости у
+  // приложения нет — его знает только список, который её открыл. Он же его и кладёт.
+  const workSheetTitleRef = useRef(new Map<string, string>());
+  const [workSheetWorkshops, setWorkSheetWorkshops] = useState<Array<{ id: string; label: string }>>([]);
   const [selectedEngineId, setSelectedEngineId] = useState<string | null>(null);
   const [engineInitialTab, setEngineInitialTab] = useState<'main' | 'details' | 'files' | 'reclamation' | 'payments'>('main');
   const [engineDetails, setEngineDetails] = useState<EngineDetails | null>(null);
@@ -2996,6 +3005,7 @@ export function App() {
   useEffect(() => {
     if (
       tab === 'engine' ||
+      tab === 'work_sheet' ||
       tab === 'engine_brand' ||
       tab === 'engine_brand_group' ||
       tab === 'request' ||
@@ -3355,6 +3365,20 @@ export function App() {
     });
   }
 
+  /**
+   * Карточка ведомости. `isNew` — заводим новую: id уже сгенерирован списком, но записи
+   * ещё нет, и она появится только по «Сохранить» (пустых ведомостей в истории не остаётся).
+   */
+  async function openWorkSheet(id: string, opts?: { isNew?: boolean; typeCode?: string | null; title?: string }) {
+    if (opts?.title) workSheetTitleRef.current.set(id, opts.title);
+    v2OpenCardGuarded('work_sheet', id, () => {
+      setSelectedWorkSheetId(id);
+      setWorkSheetIsNew(opts?.isNew === true);
+      setWorkSheetInitialType(opts?.typeCode ?? null);
+      setTab('work_sheet');
+    });
+  }
+
   async function openContract(id: string) {
     v2OpenCardGuarded('contract', id, () => {
       setSelectedContractId(id);
@@ -3541,6 +3565,7 @@ export function App() {
 
   const openByCode = {
     engine: openEngine,
+    work_sheet: (id: string) => void openWorkSheet(id),
     customer: openCounterparty,
     counterparty: openCounterparty,
     contract: openContract,
@@ -3571,6 +3596,7 @@ export function App() {
     if (!isCardTab(tab)) return null;
     const idByTab: Partial<Record<TabId, string | null>> = {
       engine: selectedEngineId,
+      work_sheet: selectedWorkSheetId,
       engine_brand: selectedEngineBrandId,
       engine_brand_group: selectedEngineBrandGroupId,
       request: selectedRequestId,
@@ -3597,6 +3623,7 @@ export function App() {
   // полосы вкладок, иначе зависшая вкладка переоткрывает устаревшее состояние карточки.
   const v2SelectedByKind: Partial<Record<TabId, string | null>> = {
     engine: selectedEngineId,
+    work_sheet: selectedWorkSheetId,
     engine_brand: selectedEngineBrandId,
     engine_brand_group: selectedEngineBrandGroupId,
     request: selectedRequestId,
@@ -3638,6 +3665,10 @@ export function App() {
       const internal = e?.internalNumberFull?.trim();
       if (num) return internal ? `⚙️ ${num} · ${internal}` : `⚙️ ${num}`;
       if (internal) return `⚙️ ${internal}`;
+    }
+    if (kind === 'work_sheet') {
+      const known = workSheetTitleRef.current.get(entityId);
+      return known ? `📒 ${known}` : '📒 Ведомость';
     }
     if (kind === 'report_preset') {
       const p = REPORT_PRESET_DEFINITIONS.find((x) => String(x.id) === entityId);
@@ -3705,6 +3736,9 @@ export function App() {
   function reopenV2Card(kind: TabId, entityId: string) {
     switch (kind) {
       case 'engine': return void openEngine(entityId);
+      // Восстановленная из сессии ведомость открывается как существующая: черновик новой
+      // нигде не сохранён, и делать вид, что он пережил перезапуск, было бы обманом.
+      case 'work_sheet': return void openWorkSheet(entityId);
       case 'engine_brand': return void openEngineBrand(entityId);
       case 'engine_brand_group': return void openEngineBrandGroup(entityId);
       case 'request': return void openRequest(entityId);
@@ -5373,7 +5407,33 @@ export function App() {
         )}
 
         {t === 'work_sheets' && (
-          <WorkSheetsPage canEdit={caps.canEditWorkSheets} canManageTypes={caps.canEditWorkSheets} onOpenEngine={(id: string) => void openEngine(id)} />
+          <WorkSheetsPage
+            canEdit={caps.canEditWorkSheets}
+            canManageTypes={caps.canEditWorkSheets}
+            onOpenEngine={(id: string) => void openEngine(id)}
+            onOpenSheet={(id: string, opts?: { isNew?: boolean; typeCode?: string | null; title?: string }) => void openWorkSheet(id, opts)}
+            onWorkshopsLoaded={setWorkSheetWorkshops}
+          />
+        )}
+        {t === 'work_sheet' && selectedWorkSheetId && (
+          <WorkSheetDetailsPage
+            key={cardKey(selectedWorkSheetId)}
+            rowId={selectedWorkSheetId}
+            isNew={workSheetIsNew}
+            initialTypeCode={workSheetInitialType}
+            canEdit={caps.canEditWorkSheets}
+            engines={engines}
+            workshops={workSheetWorkshops}
+            onOpenEngine={(id: string) => void openEngine(id)}
+            registerCardCloseActions={registerCardCloseActions}
+            onClose={() => {
+              setSelectedWorkSheetId(null);
+              setTab('work_sheets');
+            }}
+          />
+        )}
+        {t === 'work_sheet' && !selectedWorkSheetId && (
+          <div style={{ color: 'var(--muted)' }}>Выберите ведомость из списка.</div>
         )}
         {t === 'engines' && (
           <EnginesPage

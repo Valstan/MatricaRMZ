@@ -238,6 +238,40 @@ async function rollbackRepairFromSheet(
   return { applied: true, ...(kept > 0 ? { reason: 'partial' } : {}) };
 }
 
+/**
+ * Одна ведомость по id — для её карточки. Читается тем же путём, что и список (те же подписи
+ * двигателя и снимок цеха), чтобы карточка и строка списка не расходились в мелочах.
+ */
+export async function getWorkSheetRow(db: BetterSQLite3Database, id: string): Promise<WorkSheetRow | null> {
+  const existing = await getOperation(db, text(id));
+  if (!existing || existing.deletedAt != null) return null;
+  const meta = parseRepairHistoryMeta(existing.metaJson ?? null);
+  if (!meta?.sheet || repairHistoryEntryType(meta, existing.operationType) !== 'sheet') return null;
+  const labels = await resolveEngineLabels(db, [String(existing.engineEntityId)], { withCounterparty: true });
+  const label = labels.get(String(existing.engineEntityId));
+  return {
+    id: String(existing.id),
+    engineId: String(existing.engineEntityId),
+    engineNumber: label?.engineNumber ?? '',
+    engineBrand: label?.engineBrand ?? '',
+    internalNumber: label?.internalNumberFull ?? '',
+    customerName: label?.customerName ?? '',
+    customerFullName: label?.customerFullName ?? '',
+    contractNumber: label?.contractNumber ?? '',
+    contractShortLabel: label?.contractShortLabel ?? '',
+    at: meta.at ?? Number(existing.performedAt ?? existing.updatedAt),
+    typeId: meta.sheet.typeId,
+    typeCode: meta.sheet.typeCode,
+    typeName: meta.sheet.typeName,
+    workshopId: meta.workshopId ?? '',
+    workshopName: meta.workshopName ?? '',
+    performedBy: text(existing.performedBy) === 'local' ? '' : text(existing.performedBy),
+    note: meta.note ?? '',
+    fields: meta.sheet.fields,
+    repairStamped: meta.repairStamp != null,
+  };
+}
+
 export async function deleteWorkSheetRow(
   db: BetterSQLite3Database,
   id: string,
