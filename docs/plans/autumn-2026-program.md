@@ -16,26 +16,26 @@
 
 ## Блок A — мелкие, независимые (первая пачка, разогрев)
 
-### A1. `grep -q` под `pipefail` в prod-ops — `chore/prod-ops-grep-pipefail`
+### A1. ✅ (#942) `grep -q` под `pipefail` в prod-ops — `chore/prod-ops-grep-pipefail`
 - `scripts/prod-ops/audit-deps.sh:121` → `case "$(printf '%s' "$REPORT" | sed -n '2p')" in ALERT) NEEDS_ALERT=1;; esac`
 - `scripts/prod-ops/backup-encrypted.sh:228` → цикл `for f in "${ROOT_FILES[@]}"` с флагом, без пайпа (заодно `${ROOT_FILES[@]+"${ROOT_FILES[@]}"}` под `set -u`).
 - `scripts/prod-ops/install-prod-ops.sh:82` → `case " $(id -nG "$MATRICA_USER") " in *" adm "*) ;; *) usermod…;; esac`.
 - Судить по CI `prod-ops-backup`; локально на PC79 — SKIP (нет zstd/flock). Снять пункт из PENDING §🟡.
 
-### A2. Вкладка «Готовые отчёты» — `chore/report-templates-tab-name`
+### A2. ✅ (#945) Вкладка «Готовые отчёты» — `chore/report-templates-tab-name`
 Четыре строки: `App.tsx:629`, `layout/Tabs.tsx:103`, `ReportTemplatesShowcasePage.tsx:320`, `uiSearchRegistry.ts:67-69` (+ синонимы «заготовки» оставить в ключевых словах поиска). Снять вопрос из handoff.
 
-### A3. Новая вкладка — справа от текущей — `feat/tabs-open-right-of-active`
+### A3. ✅ (#943) Новая вкладка — справа от текущей — `feat/tabs-open-right-of-active`
 `shared/src/domain/tabsModel.ts` — три места `[...state.tabs, X]` (362 `OPEN_LIST`, 384 `OPEN_SINGLETON`, 417 `OPEN_CARD`) → общий helper `insertAfterActive(tabs, activeId, tab)`: splice в `findIndex(activeId)+1`, fallback — в конец. Обновить порядковые ассерты в `tabsModel.test.ts` (~157–194). Проверить session-restore (`App.tsx:3798, 3937`) — он читает массив как порядок полосы, ничего не ломается.
 
-### A4. Убрать «Компактный режим» из списка деталей — `chore/remove-inventory-compact-mode`
+### A4. ✅ (#946) Убрать «Компактный режим» из списка деталей — `chore/remove-inventory-compact-mode`
 `components/RepairChecklistPanel.tsx:4072-4083` (тумблер) + `renderCompactList` (4004+) + state `compactMode` (3568) — только для `isInventoryItemsTable`; легаси-стадии `completeness`/`defect` не трогать, если тумблер там ещё осмыслен (проверить `isCompactModeSupported`).
 
 ---
 
 ## Блок B — отчёты-списки и этапы (ядро задания)
 
-### B1. Динамический фильтр «Этап» — `fix/factory-stage-facet-dynamic`
+### B1. ✅ (#944) Динамический фильтр «Этап» — `fix/factory-stage-facet-dynamic`
 Причина «нет обкатки» (разведка): фасет `factoryStage` в `shared/src/domain/engineListFacets.ts:239-248` зовёт `engineFactoryStage(e)` **без справочника типов**, а варианты фасета строятся только из присутствующих строк — этап без двигателей не показывается.
 - `ENGINE_FACETS` → фабрика `engineFacets(types: WorkSheetType[])` (или `factoryStage.valueOf(e, ctx)` с контекстом `{ workSheetTypes }` — выбрать меньший диф по `FacetFilter`/`applyEngineFacets`/`engineFacetOptions`).
 - Сеять варианты фасета из `engineFactoryStageOrder(types)` (`engineFactoryStage.ts:114-125`) — **все** этапы, включая пустые, в порядке `sortOrder`; счётчик 0 у пустых. Так новый вид работ из справочника появляется в фильтре сам.
@@ -43,7 +43,7 @@
 - Статусы двигателя (`contract.ts STATUS_CODES`) — уже перечисляются из домена; ручные записи истории (`entryType: manual`) в фильтр **не** идут (решение владельца — только шаблонное).
 - Тест: `engineListFacets.test.ts` — вариант «обкатка» есть при нуле строк; ключ фасета == ключу колонки `stage` в отчёте.
 
-### B2. Даты стадий в `EngineListItem` — `feat/engine-list-status-dates`
+### B2. ✅ (#947, #948) Даты стадий в `EngineListItem` — `feat/engine-list-status-dates`
 Снять запрет из плана reports-as-lists («не носим»): в `electron-app/src/main/services/engineService.ts` (сборка `EngineListItem`, ~376–452) добавить `statusDates: Partial<Record<StatusCode, number>>` из атрибутов `status_<code>_date` (`STATUS_DATE_CODES`, `contract.ts:92-101`). Колонки «Ремонт начат / Отремонтирован / Утиль» в `EngineFactoryStagesReportPage` и `EnginesPage` (скрыты по умолчанию). Обновить `sameEngineList`-диф в `App.tsx:3309`.
 
 ### B3. Отчёт «Двигатели» → список — `feat/report-engines-as-list`
@@ -146,7 +146,7 @@
 
 ## Порядок и пачки релизов
 
-1. **Пачка 1** (день 1): A1, A2, A3, A4, B1, B2 → релиз.
+1. **Пачка 1** (день 1): A1, A2, A3, A4, B1, B2 → релиз. ✅ v3.36.0, 16.09 (смоук `cdp-pack1` 13/13; попутно #948 — дефект `useColumnLayout`).
 2. **Пачка 2**: C1, C2, C3, C4, C5 → релиз («ведомости стали этапами»).
 3. **Пачка 3**: B3, B5, B4 → релиз (отчёты-списки).
 4. **Пачка 4**: D1, D2, D4 → релиз (карточка двигателя); D4 можно раньше, независим.
