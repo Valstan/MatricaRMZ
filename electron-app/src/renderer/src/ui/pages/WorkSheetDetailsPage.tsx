@@ -11,6 +11,9 @@ import { Input } from '../components/Input.js';
 import { UnifiedDateInput } from '../components/UnifiedDateInput.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { WorkSheetFieldEditor, fromWorkSheetDateInput, toWorkSheetDateInput } from '../components/WorkSheetFieldEditor.js';
+import { openPrintPreview } from '../utils/printPreview.js';
+import { buildWorkSheetPrintModel } from '../utils/workSheetPrintModel.js';
+import { isAndroidPlatform } from '../platform.js';
 import type { WorkshopOption } from '../components/WorkSheetTypeEditorDialog.js';
 import { buildEngineSearchOptions } from '../utils/selectOptions.js';
 import { loadWorkSheetTypes } from '../utils/workSheetTypesCache.js';
@@ -217,6 +220,19 @@ export function WorkSheetDetailsPage(props: {
     }
   };
 
+  // Бланк собирается из самой строки: карточка отдаёт живые колонки только ради порядка,
+  // а имя цеха — цепочкой «справочник → снимок строки» (см. модель).
+  const handlePrint = () => {
+    if (!row) return;
+    openPrintPreview(
+      buildWorkSheetPrintModel({
+        row,
+        liveColumns: type?.columns ?? [],
+        workshopFromDirectory: (id) => props.workshops.find((w) => w.id === id)?.label ?? '',
+      }),
+    );
+  };
+
   useEffect(() => {
     if (!props.registerCardCloseActions) return;
     props.registerCardCloseActions({
@@ -270,6 +286,7 @@ export function WorkSheetDetailsPage(props: {
           {...(props.canEdit ? { onSaveAndClose: () => void save({ close: true }) } : {})}
           {...(props.canEdit ? { onReset: () => void load() } : {})}
           {...(props.canEdit && !props.isNew ? { onDelete: () => void remove(), deleteLabel: 'Удалить этап работ', deleteSkipBuiltInConfirm: true } : {})}
+          {...(!props.isNew && row && !isAndroidPlatform() ? { onPrint: handlePrint } : {})}
           onClose={props.onClose}
         />
       }
@@ -363,6 +380,15 @@ export function WorkSheetDetailsPage(props: {
               </option>
             ))}
           </select>
+
+          {/* Справочно, только чтение: сервер сам ставит сюда того, кто записал строку
+              последним. Печатать в бланке то, чего оператор в карточке не видит, нельзя. */}
+          {!props.isNew ? (
+            <>
+              {label('Кто записал')}
+              <span className="ui-muted">{row?.performedBy || '—'}</span>
+            </>
+          ) : null}
 
           {columns.map((col) => (
             <React.Fragment key={col.code}>
