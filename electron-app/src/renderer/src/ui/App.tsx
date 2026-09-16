@@ -683,6 +683,7 @@ const SECONDARY_CARD_KINDS: ReadonlyArray<TabId> = [
   'engine_assembly_bom_item',
   'stock_document',
   'report_preset',
+  'work_sheet',
 ];
 
 const CARD_PARENT_TAB: Partial<Record<TabId, TabId>> = {
@@ -5369,6 +5370,12 @@ export function App() {
       case 'counterparty':
         return (
           <CounterpartyDetailsPage key={k} counterpartyId={id} canEdit={caps.canEditContracts} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} registerCardCloseActions={reg} requestClose={close} onClose={close} />
+        );
+      // Во второй панели этап работ открывается только существующий: новый заводится
+      // раздвижной строкой в списке, а `isNew` подняло бы пустую карточку без записи.
+      case 'work_sheet':
+        return (
+          <WorkSheetDetailsPage key={k} rowId={id} isNew={false} initialTypeCode={null} canEdit={caps.canEditWorkSheets} engines={engines} workshops={workSheetWorkshops} onOpenEngine={(eid: string) => void openEngine(eid)} registerCardCloseActions={reg} onClose={close} />
         );
       case 'employee':
         return (
