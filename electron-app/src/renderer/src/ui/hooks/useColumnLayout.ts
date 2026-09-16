@@ -26,6 +26,25 @@ function normalizeOrder(persisted: string[], allColumnIds: string[]): string[] {
   return result;
 }
 
+/**
+ * Раскладка из сохранённой записи. Колонка, которой в записи ещё нет (добавлена в коде после
+ * того, как оператор настроил список), берёт видимость из `defaultHidden`: иначе каждая новая
+ * колонка выезжала бы на экран у всего парка — у любого, кто хоть раз трогал раскладку
+ * (поймано смоуком 16.09: три колонки дат в списке двигателей).
+ */
+export function layoutFromPersisted(
+  persisted: ColumnLayoutState | null,
+  allColumnIds: string[],
+  defaultHidden: string[],
+): ColumnLayoutState {
+  if (!persisted) return { order: [...allColumnIds], hidden: [...defaultHidden] };
+  const known = new Set(allColumnIds);
+  const seenBefore = new Set(persisted.order);
+  const hidden = new Set(persisted.hidden.filter((id) => known.has(id)));
+  for (const id of defaultHidden) if (known.has(id) && !seenBefore.has(id)) hidden.add(id);
+  return { order: normalizeOrder(persisted.order, allColumnIds), hidden: Array.from(hidden) };
+}
+
 export type UseColumnLayoutResult = {
   order: string[];
   hidden: Set<string>;
@@ -40,47 +59,28 @@ export function useColumnLayout(
   allColumnIds: string[],
   defaultHidden: string[] = [],
 ): UseColumnLayoutResult {
-  const [state, setState] = useState<ColumnLayoutState>(() => {
-    const persisted = readColumnLayout(layoutId);
-    if (persisted) {
-      return {
-        order: normalizeOrder(persisted.order, allColumnIds),
-        hidden: persisted.hidden.filter((id) => allColumnIds.includes(id)),
-      };
-    }
-    return { order: [...allColumnIds], hidden: [...defaultHidden] };
-  });
+  const [state, setState] = useState<ColumnLayoutState>(() => layoutFromPersisted(readColumnLayout(layoutId), allColumnIds, defaultHidden));
 
   // Re-normalize if the set of columns changes (e.g. new column added in code).
   useEffect(() => {
     setState((prev) => {
-      const nextOrder = normalizeOrder(prev.order, allColumnIds);
-      const knownSet = new Set(allColumnIds);
-      const nextHidden = prev.hidden.filter((id) => knownSet.has(id));
+      const next = layoutFromPersisted(prev, allColumnIds, defaultHidden);
       if (
-        nextOrder.length === prev.order.length &&
-        nextOrder.every((id, i) => id === prev.order[i]) &&
-        nextHidden.length === prev.hidden.length
+        next.order.length === prev.order.length &&
+        next.order.every((id, i) => id === prev.order[i]) &&
+        next.hidden.length === prev.hidden.length
       ) {
         return prev;
       }
-      return { order: nextOrder, hidden: nextHidden };
+      return next;
     });
-  }, [allColumnIds]);
+  }, [allColumnIds, defaultHidden]);
 
   useEffect(() => {
     function onChange(ev: Event) {
       const detail = (ev as CustomEvent<{ layoutId?: string }>).detail;
       if (!detail || detail.layoutId !== layoutId) return;
-      const persisted = readColumnLayout(layoutId);
-      if (persisted) {
-        setState({
-          order: normalizeOrder(persisted.order, allColumnIds),
-          hidden: persisted.hidden.filter((id) => allColumnIds.includes(id)),
-        });
-      } else {
-        setState({ order: [...allColumnIds], hidden: [...defaultHidden] });
-      }
+      setState(layoutFromPersisted(readColumnLayout(layoutId), allColumnIds, defaultHidden));
     }
     window.addEventListener(COLUMN_LAYOUT_CHANGE_EVENT, onChange);
     return () => window.removeEventListener(COLUMN_LAYOUT_CHANGE_EVENT, onChange);

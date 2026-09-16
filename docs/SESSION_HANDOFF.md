@@ -3,12 +3,12 @@
 > Sticky-note для непрерывности разработки между сессиями и компьютерами. Обновляется в PR каждого шага нитки (D-066); `/close_session` — страховка. История — через `git log -- docs/SESSION_HANDOFF.md`.
 
 **Status:** ACTIVE
-**Updated:** 2026-09-16 (Fable 5.1, машина `PC79`) — **программа осень-2026** ([план](plans/autumn-2026-program.md)), пачка 1 по коду закрыта: A1 ✅ [#942](https://github.com/Valstan/MatricaRMZ/pull/942), A3 ✅ [#943](https://github.com/Valstan/MatricaRMZ/pull/943), B1 ✅ [#944](https://github.com/Valstan/MatricaRMZ/pull/944), A2 ✅ [#945](https://github.com/Valstan/MatricaRMZ/pull/945), A4 [#946](https://github.com/Valstan/MatricaRMZ/pull/946), B2 — этот PR: строка списка несёт `statusDates` (проставленные `status_<code>_date`), `engineFactoryStage` даёт дату утиля/отремонтирован/ремонт начат (`engineStatusDate`, `engineScrapDate`), в списке двигателей и в отчёте «этапы на заводе» три скрытые по умолчанию колонки дат.
-**Branch:** `feat/engine-list-status-dates` → PR.
+**Updated:** 2026-09-16 (Fable 5.1, машина `PC79`) — **программа осень-2026** ([план](plans/autumn-2026-program.md)), пачка 1 закрыта и **проверена на стенде** (драйвер `.verifier-electron/cdp-pack1.mjs`, 13/13): A1 ✅ [#942](https://github.com/Valstan/MatricaRMZ/pull/942), A3 ✅ [#943](https://github.com/Valstan/MatricaRMZ/pull/943), B1 ✅ [#944](https://github.com/Valstan/MatricaRMZ/pull/944), A2 ✅ [#945](https://github.com/Valstan/MatricaRMZ/pull/945), A4 ✅ [#946](https://github.com/Valstan/MatricaRMZ/pull/946), B2 ✅ [#947](https://github.com/Valstan/MatricaRMZ/pull/947). Смоук поймал дефект хука `useColumnLayout`: у оператора с сохранённой раскладкой новые колонки из кода выезжали видимыми (`defaultHidden` работал только с нуля) — починено (`layoutFromPersisted`), этот PR.
+**Branch:** `fix/column-layout-new-columns-default-hidden` → PR.
 **Last released version:** **v3.35.0**, выкат 15.09. Права на ведомости на проде владелец снял и раздал вручную — прод-шаг `perm:revoke-work-sheets` не нужен.
 
-**Текущая нитка:** пачка 1 программы по коду готова → CDP-смоук пачки одним стендом (полоса вкладок A3; фильтр «Этап» с обкаткой B1; список деталей без тумблера A4; колонки дат B2) → `/reliz` v3.36.0.
-**Следующий шаг:** смоук по рецепту `docs/machines/PC79.md` (ABI-танец → backend 3011 → клиент с CDP 9222), затем релиз. После релиза — пачка 2: C1 переименование «ведомости → этапы работ» (см. план, словарь и список файлов там).
+**Текущая нитка:** пачка 1 → после мержа этого PR — `/reliz` v3.36.0 (миграций нет, зависимостей нет — code-only).
+**Следующий шаг:** релиз; затем пачка 2: C1 переименование «ведомости → этапы работ» (словарь и список файлов — в плане).
 
 **Решения владельца 16.09** (продублированы в плане): «Провести комплектность» фиксирует акт; нитка E2.2→E3→дубли берётся последней; рейтинг по частоте во всех пикерах сотрудников; «Заготовки отчётов» → «Готовые отчёты»; машины для LAN-обхода подбираю по прод-данным, утверждает владелец.
 
