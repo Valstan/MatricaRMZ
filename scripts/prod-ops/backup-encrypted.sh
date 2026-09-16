@@ -225,7 +225,12 @@ if (( HAS_LEDGER )); then
   done < <(find "$LEDGER_DIR" -maxdepth 1 -type f -printf '%P\n' | LC_ALL=C sort)
   for required in index.json data-key.json server-key.json; do
     [[ -f "$LEDGER_DIR/$required" ]] || fail "ledger root has no $required — a restore from this archive would be unreadable"
-    printf '%s\n' "${ROOT_FILES[@]}" | grep -qxF "$required" || fail "$required is excluded from the archive by a pattern"
+    # Plain loop instead of `| grep -q`: under pipefail an early grep exit fails the pipeline (brain G322).
+    listed=0
+    for name in "${ROOT_FILES[@]}"; do
+      [[ "$name" == "$required" ]] && { listed=1; break; }
+    done
+    (( listed )) || fail "$required is excluded from the archive by a pattern"
   done
   BLOCKS_BEFORE="$(find "$LEDGER_DIR/blocks" -maxdepth 1 -name '*.json' | wc -l)"
   (( BLOCKS_BEFORE > 0 )) || fail "ledger has no blocks — refusing to archive an empty ledger"
