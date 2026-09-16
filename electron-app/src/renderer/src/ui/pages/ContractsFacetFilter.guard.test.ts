@@ -49,12 +49,16 @@ describe('ступенчатый фильтр доезжает до строк �
     expect(FILTER).toContain('data-facet-reset');
   });
 
-  it('ряд кнопок — одна строка, а выбор колонок переехал в панель фильтров', () => {
+  it('ряд кнопок — одна строка, а выбор колонок стоит в тулбаре', () => {
     expect(PAGE).toContain('<PageToolbar>');
     expect(PAGE).toContain('<ToolbarPin>');
+    // Владелец 16.09.2026 вернул кнопку в тулбар: панель фильтров сворачивается, и вместе с
+    // ней пропадала настройка колонок — а она нужна и при закрытом фильтре.
     expect(PAGE).toContain('label="Колонки списка"');
-    expect(PAGE).toContain('columnsControl={');
-    expect(FILTER).toContain('data-facet-columns');
+    const toolbar = PAGE.slice(PAGE.indexOf('<PageToolbar>'), PAGE.indexOf('</PageToolbar>'));
+    expect(toolbar, 'кнопка колонок живёт в тулбаре — она нужна и при свёрнутом фильтре').toContain('<ColumnSettingsButton');
+    expect(PAGE, 'в панель фильтров кнопка больше не отдаётся').not.toContain('columnsControl={');
+    expect(FILTER, 'слот колонок из панели убран — иначе останется мёртвая разметка').not.toContain('data-facet-columns');
   });
 
   it('тулбар без кнопки превью: колонку убирают в шапке столбцов', () => {

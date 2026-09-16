@@ -48,7 +48,6 @@ export function EngineFacetFilter(props: {
   onChangeSelection: (next: EngineFacetSelection) => void;
   onChangeFields: (next: EngineFacetId[]) => void;
   onReset: () => void;
-  columnsControl?: React.ReactNode;
 }) {
   const facets = useEngineFacetDescriptors(props.types);
   return (
@@ -61,7 +60,6 @@ export function EngineFacetFilter(props: {
       onChangeSelection={(next) => props.onChangeSelection(next as EngineFacetSelection)}
       onChangeFields={(next) => props.onChangeFields(next as EngineFacetId[])}
       onReset={props.onReset}
-      columnsControl={props.columnsControl}
     />
   );
 }

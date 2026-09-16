@@ -994,6 +994,15 @@ export function ContractsPage(props: {
             onToggle={() => patchState({ facetsOpen: !facetsOpen })}
           />
         </ToolbarPin>
+        <ColumnSettingsButton
+          label="Колонки списка"
+          columns={columnDescriptors}
+          order={columnLayout.order}
+          isVisible={columnLayout.isVisible}
+          onToggleVisible={columnLayout.setVisible}
+          onMove={columnLayout.moveColumn}
+          onReset={columnLayout.resetToDefault}
+        />
         <Button variant="ghost" onClick={() => void loadContracts()}>
           Обновить
         </Button>
@@ -1035,17 +1044,6 @@ export function ContractsPage(props: {
           onChangeSelection={(next) => patchState({ facets: next as ContractFacetSelection })}
           onChangeFields={(next) => patchState({ facetFields: next })}
           onReset={() => patchState({ facets: {}, facetFields: [] })}
-          columnsControl={
-            <ColumnSettingsButton
-              label="Колонки списка"
-              columns={columnDescriptors}
-              order={columnLayout.order}
-              isVisible={columnLayout.isVisible}
-              onToggleVisible={columnLayout.setVisible}
-              onMove={columnLayout.moveColumn}
-              onReset={columnLayout.resetToDefault}
-            />
-          }
         />
       </div>
 

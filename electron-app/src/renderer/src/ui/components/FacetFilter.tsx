@@ -74,12 +74,9 @@ export function FacetFilter<Row>(props: {
   onChangeSelection: (next: FacetSelection) => void;
   onChangeFields: (next: string[]) => void;
   onReset: () => void;
-  /**
-   * Кнопка выбора колонок списка. Живёт здесь, а не в тулбаре (владелец 08.09.2026): что
-   * показывать и по чему отбирать — один и тот же вопрос «как я хочу видеть список», и место
-   * у него одно.
-   */
-  columnsControl?: React.ReactNode;
+  // Кнопки колонок здесь больше нет (владелец 16.09.2026): она жила в панели с 08.09, но
+  // панель сворачивается, и «Колонки списка» пропадали вместе с ней. Настройка колонок нужна
+  // и при закрытом фильтре, поэтому она вернулась в тулбар — постоянно на виду.
 }) {
   const activeCount = activeFacetCount(props.facets, props.selection);
   const chosen = new Set(props.fields);
@@ -117,7 +114,25 @@ export function FacetFilter<Row>(props: {
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         {/* Подписи у ряда нет: кнопка «Фильтры» уже сказала, что это фильтры, а сами кнопки
-            названы столбцами (владелец 08.09.2026). */}
+            названы столбцами (владелец 08.09.2026). «Сбросить фильтр» — ПЕРВОЙ в ряду
+            (владелец 16.09.2026): выход из фильтра ищут в начале панели, а не в её хвосте,
+            который на узком окне уезжает под перенос ступеней. */}
+        <button
+          type="button"
+          data-facet-reset
+          onClick={props.onReset}
+          disabled={activeCount === 0 && props.fields.length === 0}
+          title="Снять все ступени и вернуть полный список"
+          style={{
+            padding: '4px 10px',
+            borderRadius: 8,
+            border: '1px solid var(--border)',
+            background: 'var(--surface)',
+            cursor: activeCount === 0 && props.fields.length === 0 ? 'default' : 'pointer',
+          }}
+        >
+          Сбросить фильтр{activeCount > 0 ? ` (${activeCount})` : ''}
+        </button>
         {props.facets.map((facet) => {
           const on = chosen.has(facet.id);
           const picked = pickedCount(facet.id);
@@ -142,24 +157,6 @@ export function FacetFilter<Row>(props: {
             </button>
           );
         })}
-        <div style={{ flex: 1 }} />
-        {props.columnsControl ? <div data-facet-columns>{props.columnsControl}</div> : null}
-        <button
-          type="button"
-          data-facet-reset
-          onClick={props.onReset}
-          disabled={activeCount === 0 && props.fields.length === 0}
-          title="Снять все ступени и вернуть полный список"
-          style={{
-            padding: '4px 10px',
-            borderRadius: 8,
-            border: '1px solid var(--border)',
-            background: 'var(--surface)',
-            cursor: activeCount === 0 && props.fields.length === 0 ? 'default' : 'pointer',
-          }}
-        >
-          Сбросить фильтр{activeCount > 0 ? ` (${activeCount})` : ''}
-        </button>
       </div>
 
       {props.fields.map((fieldId) => {
