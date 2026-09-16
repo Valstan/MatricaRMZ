@@ -215,8 +215,10 @@ export function createTabsState(menuLabel: string = DEFAULT_MENU_LABEL): TabsSta
 // Нормализация — ЕДИНСТВЕННЫЙ выход редьюсера. Держит инварианты:
 //   1) МЕНЮ существует и стоит на индексе 0 (значит у любой вкладки есть сосед слева);
 //   2) id вкладок уникальны;
-//   3) канонический порядок полосы: МЕНЮ → Чат → ИИваныч → Настройки → карточки → списки
-//      (1:1 с App.tsx:5228-5256; внутри ранга — порядок открытия, сортировка стабильна);
+//   3) служебные вкладки прибиты слева: МЕНЮ → Чат → ИИваныч → Настройки; карточки и списки
+//      делят один ранг и стоят там, куда их поставили (новая — справа от активной, см.
+//      insertAfterActive; владелец 16.09). До того карточки и списки были двумя группами,
+//      и карточка из списка уезжала в хвост своей группы — «где угодно» для оператора;
 //   4) activeId ∈ tabs (иначе 'menu') — «пустой экран» невозможен;
 //   5) secondary.id !== activeId — одна сущность не висит слева и справа одновременно.
 // ---------------------------------------------------------------------------
@@ -227,7 +229,7 @@ const TAB_RANK: Record<WorkTabKind, number> = {
   ai_chat: 2,
   settings: 3,
   card: 4,
-  list: 5,
+  list: 4,
 };
 
 function normalize(state: TabsState): TabsState {
@@ -320,6 +322,14 @@ function withCardTitle(tab: CardTab, title: string, titleIsFallback: boolean): C
   return { ...tab, label: text, titleIsFallback };
 }
 
+/** Новая вкладка встаёт справа от активной (владелец 16.09): открыл строку из списка — карточка рядом,
+ *  а не в хвосте полосы. Активной нет в массиве (не бывает по инварианту 4, но дёшево) — в конец. */
+function insertAfterActive(tabs: readonly WorkTab[], activeId: string, tab: WorkTab): WorkTab[] {
+  const at = tabs.findIndex((t) => t.id === activeId);
+  if (at < 0) return [...tabs, tab];
+  return [...tabs.slice(0, at + 1), tab, ...tabs.slice(at + 1)];
+}
+
 function countCards(tabs: readonly WorkTab[]): number {
   let n = 0;
   for (const t of tabs) if (t.kind === 'card') n += 1;
@@ -359,7 +369,7 @@ export function reduceTabs(state: TabsState, action: TabsAction): TabsResult {
       }
       const tab: ListTab = { id, kind: 'list', label: action.label.trim() || tabId, tabId };
       return ok(state, {
-        tabs: [...state.tabs, tab],
+        tabs: insertAfterActive(state.tabs, state.activeId, tab),
         activeId: action.focus ? id : state.activeId,
         secondary: state.secondary,
         notice: state.notice,
@@ -381,7 +391,7 @@ export function reduceTabs(state: TabsState, action: TabsAction): TabsResult {
         });
       }
       return ok(state, {
-        tabs: [...state.tabs, createSingletonTab(id, action.label)],
+        tabs: insertAfterActive(state.tabs, state.activeId, createSingletonTab(id, action.label)),
         activeId: action.focus ? id : state.activeId,
         secondary: state.secondary,
         notice: state.notice,
@@ -414,7 +424,7 @@ export function reduceTabs(state: TabsState, action: TabsAction): TabsResult {
         return { state: raiseNotice(state, 'card_limit'), rejected: 'card_limit' };
       }
       return ok(state, {
-        tabs: [...state.tabs, card],
+        tabs: insertAfterActive(state.tabs, state.activeId, card),
         activeId: action.focus ? card.id : state.activeId,
         secondary: state.secondary,
         notice: state.notice,
