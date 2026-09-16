@@ -5,6 +5,7 @@ import {
   DEFAULT_WORK_SHEET_TYPES,
   buildWorkSheetFields,
   formatWorkSheetValue,
+  mergeWorkSheetColumns,
   missingRequiredWorkSheetFields,
   normalizeWorkSheetValue,
   parseWorkSheetFields,
@@ -91,6 +92,58 @@ describe('значения полей', () => {
   it('разбор из meta терпит мусор и сохраняет подпись с типом', () => {
     const fields = parseWorkSheetFields([{ code: 'hours', label: 'Часы', type: 'number', value: '3' }, { code: '', value: 1 }, 'x']);
     expect(fields).toEqual([{ code: 'hours', label: 'Часы', type: 'number', value: 3 }]);
+  });
+});
+
+// Правка записанной строки пересобирает поля СТРОГО по присланным колонкам
+// (`buildWorkSheetFields`), поэтому набор колонок для правки — это не справочник вида работ:
+// колонку из вида убрали, а записанное значение обязано пережить правку соседнего поля.
+describe('колонки для правки записанной строки', () => {
+  const rowFields = buildWorkSheetFields(
+    [
+      { code: 'hours', label: 'Часы', type: 'number' as const },
+      { code: 'stand', label: 'Стенд', type: 'text' as const },
+    ],
+    { hours: 4, stand: 'СТ-1' },
+  );
+
+  it('значение колонки, удалённой из вида работ, переживает правку', () => {
+    const live = [{ code: 'hours', label: 'Часы', type: 'number' as const }];
+    const cols = mergeWorkSheetColumns(live, rowFields);
+    expect(cols.map((c) => c.code)).toContain('stand');
+    // Тем же набором собираются поля при сохранении — значение остаётся на месте.
+    expect(buildWorkSheetFields(cols, { hours: 5, stand: 'СТ-1' }).find((f) => f.code === 'stand')?.value).toBe('СТ-1');
+    // А по одному живому справочнику удалённая колонка исчезла бы вместе со значением.
+    expect(buildWorkSheetFields(live, { hours: 5, stand: 'СТ-1' }).some((f) => f.code === 'stand')).toBe(false);
+  });
+
+  it('подписи берутся из живой колонки при совпадении кода', () => {
+    const cols = mergeWorkSheetColumns(
+      [{ code: 'hours', label: 'Часы обкатки', type: 'number' as const, required: true }],
+      rowFields,
+    );
+    // Переименование подписи и новая обязательность доезжают до старых строк, а код не двоится.
+    expect(cols.filter((c) => c.code === 'hours')).toEqual([
+      { code: 'hours', label: 'Часы обкатки', type: 'number', required: true },
+    ]);
+  });
+
+  it('живые колонки идут первыми, коды строки — следом и без дублей', () => {
+    const cols = mergeWorkSheetColumns(
+      [
+        { code: 'res', label: 'Результат', type: 'choice' as const, options: ['годен'] },
+        { code: 'hours', label: 'Часы', type: 'number' as const },
+      ],
+      [...rowFields, ...rowFields],
+    );
+    expect(cols.map((c) => c.code)).toEqual(['res', 'hours', 'stand']);
+  });
+
+  it('без справочника строка описывает себя сама', () => {
+    expect(mergeWorkSheetColumns([], rowFields).map((c) => [c.code, c.label, c.type])).toEqual([
+      ['hours', 'Часы', 'number'],
+      ['stand', 'Стенд', 'text'],
+    ]);
   });
 });
 

@@ -71,7 +71,13 @@ describe('отчёт-список «этапы на заводе» и рамка
     const SHEETS = src('../WorkSheetsPage.tsx');
     const CARD = src('../WorkSheetDetailsPage.tsx');
     expect(APP).toContain("window.addEventListener('matrica:engines-changed', onEnginesChanged);");
-    expect(SHEETS).toContain("window.dispatchEvent(new Event('matrica:engines-changed'));");
+    // Счётом, а не `toContain`: у списка один путь записи (создание и правка строки — один
+    // `rows.save`), значит и оповещение ровно одно. Появился второй путь без dispatch — отчёт
+    // «Двигатели на заводе» показывает вчерашнюю стадию, и молча.
+    expect(
+      SHEETS.split("window.dispatchEvent(new Event('matrica:engines-changed'));").length - 1,
+      'список: один путь сохранения — один dispatch',
+    ).toBe(1);
     expect(CARD.split("window.dispatchEvent(new Event('matrica:engines-changed'));").length - 1, 'карточка: после сохранения и после удаления').toBe(2);
   });
 });

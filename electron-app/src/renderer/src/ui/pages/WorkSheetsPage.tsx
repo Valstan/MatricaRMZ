@@ -4,11 +4,13 @@ import {
   HUMAN_LABEL_DASH,
   HUMAN_LABEL_NO_NUMBER,
   applyFacets,
+  mergeWorkSheetColumns,
   workSheetFacets,
   workSheetFieldsSummary,
   type EngineListItem,
   type FacetDescriptor,
   type FacetSelection,
+  type WorkSheetColumn,
   type WorkSheetRow,
   type WorkSheetType,
 } from '@matricarmz/shared';
@@ -53,16 +55,25 @@ import { isAndroidPlatform } from '../platform.js';
  * Строки живут записями истории ремонта (`operations`, см. `workSheetService`), справочник
  * видов работ — серверный REST.
  *
- * Новый этап работ заводится ПРЯМО В СПИСКЕ (владелец 15.09.2026, вечер): «Добавить»
- * вставляет черновую строку сверху с редакторами в ячейках — двигатель, вид работ, дата,
- * цех, поля вида, примечание — и он уходит в историю по Enter / «Сохранить». Отдельное
- * окно с вертикальной формой «иногда не совсем удобно». Черновик — индекс 0 той же
- * виртуальной таблицы, а не вторая таблица сверху: ширины колонок меряются по одной
- * таблице (`useAdaptiveListTables`), две разъехались бы. Правка сохранённой строки —
- * по-прежнему карточкой-вкладкой.
+ * Этап работ заводится И правится ПРЯМО В СПИСКЕ (владелец 15.09.2026 и 16.09.2026):
+ * «Добавить» вставляет строку сверху, щелчок по записанной строке превращает её саму в
+ * редакторы — двигатель, вид работ, дата, цех, поля вида, примечание, — а ПОД ней
+ * раздвигается полка с «Сохранить» / «Отмена» по центру. Отдельное окно с вертикальной
+ * формой «иногда не совсем удобно».
+ *
+ * Редактор — ряды той же виртуальной таблицы, а не вторая таблица сверху: ширины колонок
+ * меряются по одной таблице (`useAdaptiveListTables`), две разъехались бы. Полка — ОТДЕЛЬНЫЙ
+ * ряд, а не второй `<tr>` внутри одного индекса: `VirtualTable` рисует ровно один `<tr>` на
+ * индекс, и чужой ряд не измерят и не отспейсерят — высоты поедут.
+ *
+ * Карточка-вкладка осталась и достижима кнопкой «Карточка ↗» из полки: только там живут
+ * удаление строки с откатом «Отремонтирован», сторож несохранённого, переход «↗ Двигатель»,
+ * восстановление вкладки после перезапуска и переход по ссылке приложения.
  */
 
-type WorkSheetDraft = {
+type SheetEditor = {
+  /** `null` — новый этап работ; иначе строка, из которой открыли редактор, и `id` равен её id. */
+  base: WorkSheetRow | null;
   id: string;
   typeCode: string;
   engineId: string | null;
@@ -72,7 +83,52 @@ type WorkSheetDraft = {
   note: string;
   busy: boolean;
   error: string;
+  /** Есть несохранённое: взводится любым изменением данных, гасит живое обновление списка. */
+  dirty: boolean;
+  /** Первый Esc с несохранённым только предупреждает; второй выбрасывает. */
+  escArmed: boolean;
+  /** Колонка, по которой щёлкнули: в неё и встанет курсор. */
+  focusColId: string | null;
 };
+
+/** Поля редактора, которые считаются данными: их правка взводит `dirty`. */
+const EDITOR_DATA_KEYS = ['typeCode', 'engineId', 'date', 'workshopId', 'values', 'note'] as const;
+
+/**
+ * Ряд списка. Редактор занимает ДВА соседних ряда — сам редактор и полка с кнопками, —
+ * поэтому «где строка» больше не считается индексной арифметикой: до C2 допущение «служебный
+ * ряд один и он сверху» было записано пятью выражениями подряд, и третий вид ряда ронял
+ * `getRowKey` на `undefined.id`.
+ */
+type SheetItem =
+  | { kind: 'row'; row: WorkSheetRow; number: number }
+  | { kind: 'editor'; number: number | null }
+  | { kind: 'actions' };
+
+/**
+ * Ряды списка = сортированные строки + пара рядов редактора. Служебные ряды строятся ПОВЕРХ
+ * `sorted` и в него не попадают: счётчик «Всего · Показано» и печать берут те же данные и
+ * остаются честными.
+ */
+export function buildWorkSheetListItems(sorted: readonly WorkSheetRow[], editor: SheetEditor | null): SheetItem[] {
+  const items: SheetItem[] = [];
+  let n = 0;
+  let placed = false;
+  for (const row of sorted) {
+    // `!placed` — чтобы дубль id в выборке не породил вторую пару рядов редактора.
+    if (!placed && editor?.base && editor.id === row.id) {
+      placed = true;
+      items.push({ kind: 'editor', number: ++n }, { kind: 'actions' });
+      continue;
+    }
+    items.push({ kind: 'row', row, number: ++n });
+  }
+  // Новый — сверху. Туда же уезжает правка, если строка выпала из выборки (сменился период или
+  // фильтр, её удалили на другом устройстве): иначе набранное исчезло бы молча. `unshift` идёт
+  // ПОСЛЕ нумерации — номера настоящих строк остаются 1..N без дыр в обеих ветках.
+  if (editor && !placed) items.unshift({ kind: 'editor', number: null }, { kind: 'actions' });
+  return items;
+}
 
 type Column = ColumnDescriptor & {
   kind?: ListColumnKind;
@@ -134,8 +190,13 @@ export function WorkSheetsPage(props: {
   const [workshops, setWorkshops] = useState<WorkshopOption[]>([]);
   const [typeEditorOpen, setTypeEditorOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
-  const [draft, setDraft] = useState<WorkSheetDraft | null>(null);
+  const [editor, setEditor] = useState<SheetEditor | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const addButtonRef = useRef<HTMLButtonElement | null>(null);
+  /** Фокус наводится один раз на каждый открытый редактор, иначе он воюет с набором. */
+  const focusedEditorRef = useRef<string | null>(null);
+  /** Куда вернуть фокус после сохранения правки — на саму строку, а не в начало списка. */
+  const pendingFocusRowRef = useRef<string | null>(null);
 
   const { state: ui, patchState } = useListUiState<ListUiState>('list:workSheets:ui', {
     query: '',
@@ -175,7 +236,12 @@ export function WorkSheetsPage(props: {
   useEffect(() => {
     void refresh();
   }, [refresh]);
-  useLiveDataRefresh(refreshRows);
+  // Открытый, но пустой редактор списку не мешает — список остаётся живым. Как только набрали
+  // хоть символ, обновление замирает до «Сохранить»/«Отмены»: `skipWhenInteracting` смотрит
+  // только на поля ввода, а после Tab фокус стоит на кнопке «Сохранить» — и `rows` переписался
+  // бы под рукой. Глушить на всё время открытия тоже нельзя: редактор, оставленный на обед,
+  // сделал бы список устаревшим на час.
+  useLiveDataRefresh(refreshRows, { enabled: editor === null || !editor.dirty });
 
   // Цеха — подписи для колонки и карточки; прав на справочник может не быть — тогда снимок строки.
   const onWorkshopsLoaded = props.onWorkshopsLoaded;
@@ -208,15 +274,16 @@ export function WorkSheetsPage(props: {
   }, [ui.facets, types]);
 
   // id нового этапа работ генерирует список; запись появляется только по «Сохранить» —
-  // пустых этапов работ в истории ремонта не остаётся. Черновик один: второй «Добавить»
-  // при открытом черновике кнопка не даёт.
+  // пустых этапов работ в истории ремонта не остаётся. Редактор один: второй «Добавить»
+  // при открытом кнопка не даёт.
   const openNewRow = () => {
     const typeCode = initialTypeCode ?? types[0]?.code ?? '';
     const type = types.find((t) => t.code === typeCode) ?? null;
     // Поля вида — обязательные среди них — живут в колонке «Поля»; скрытую придётся показать,
     // иначе оператор не увидит, чего от него ждут.
     if ((type?.columns.length ?? 0) > 0 && !columnLayout.isVisible('fields')) columnLayout.setVisible('fields', true);
-    setDraft({
+    setEditor({
+      base: null,
       id: crypto.randomUUID(),
       typeCode,
       engineId: null,
@@ -226,67 +293,167 @@ export function WorkSheetsPage(props: {
       note: '',
       busy: false,
       error: '',
+      dirty: false,
+      escArmed: false,
+      focusColId: 'engine',
     });
   };
   const openRow = (row: WorkSheetRow) =>
     props.onOpenSheet(row.id, { title: `${row.typeName}${row.engineNumber ? ` · ${row.engineNumber}` : ''}` });
 
-  const draftType = useMemo(() => (draft ? types.find((t) => t.code === draft.typeCode) ?? null : null), [draft, types]);
-  const draftEngine = useMemo(() => (draft?.engineId ? props.engines.find((e) => e.id === draft.engineId) ?? null : null), [draft?.engineId, props.engines]);
-  const engineOptions = useMemo(() => buildEngineSearchOptions(props.engines), [props.engines]);
-  const patchDraft = (patch: Partial<WorkSheetDraft>) => setDraft((d) => (d ? { ...d, ...patch, error: patch.error ?? '' } : d));
-  // Смена вида работ подставляет его цех и сбрасывает поля чужого вида — как в карточке.
-  const setDraftType = (typeCode: string) => {
-    const type = types.find((t) => t.code === typeCode) ?? null;
-    patchDraft({ typeCode, workshopId: type?.workshopId ?? '', values: {} });
+  /** Правка записанной строки: тот же id — сохранение идёт upsert'ом, а не второй записью. */
+  const editorFromRow = (row: WorkSheetRow, colId: string | null): SheetEditor => ({
+    base: row,
+    id: row.id,
+    typeCode: row.typeCode,
+    engineId: row.engineId,
+    date: toWorkSheetDateInput(row.at),
+    workshopId: row.workshopId,
+    // Значения берутся из самой строки, а не из справочника: она самоописываема и правится
+    // даже без связи с сервером.
+    values: Object.fromEntries(row.fields.map((f) => [f.code, f.value])),
+    note: row.note,
+    busy: false,
+    error: '',
+    dirty: false,
+    escArmed: false,
+    focusColId: colId,
+  });
+
+  const colIdFromEvent = (e: React.MouseEvent<HTMLTableRowElement>): string | null =>
+    (e.target as HTMLElement | null)?.closest('td')?.dataset.colId ?? null;
+
+  /**
+   * Единственная дверь в правку. Чистый редактор просто переезжает на другую строку — мастер
+   * правит подряд, и заставлять его жать «Отмена» незачем; грязный не теряется ни при каком
+   * щелчке (ни confirm, ни автосохранения — набранное остаётся на экране).
+   */
+  const beginEdit = (row: WorkSheetRow, colId: string | null) => {
+    if (!props.canEdit) return void openRow(row);
+    if (editor && editor.dirty) {
+      patchEditor({ error: 'Сначала сохраните (Enter) или отмените (Esc) — тогда откроется другая строка' });
+      return;
+    }
+    if (row.fields.length > 0 && !columnLayout.isVisible('fields')) columnLayout.setVisible('fields', true);
+    setEditor(editorFromRow(row, colId));
   };
 
-  const saveDraft = async () => {
-    if (!draft || draft.busy) return;
-    if (!draftType) return patchDraft({ error: 'Выберите вид работ' });
-    if (!draft.engineId) return patchDraft({ error: 'Выберите двигатель' });
-    const atMs = fromWorkSheetDateInput(draft.date);
-    if (!atMs) return patchDraft({ error: 'Укажите дату' });
-    patchDraft({ busy: true });
+  const liveType = useMemo(() => (editor ? types.find((t) => t.code === editor.typeCode) ?? null : null), [editor, types]);
+  const draftEngine = useMemo(
+    () => (editor && !editor.base && editor.engineId ? props.engines.find((e) => e.id === editor.engineId) ?? null : null),
+    [editor, props.engines],
+  );
+  /**
+   * Колонки правки: живой справочник плюс коды, которых в виде уже нет, — иначе правка
+   * примечания стёрла бы значения удалённых колонок. Один и тот же массив идёт и в отрисовку
+   * ячейки «Поля», и в payload: два разных набора разъехались бы на первой же правке.
+   */
+  const editorColumns = useMemo<WorkSheetColumn[]>(
+    () => (editor?.base ? mergeWorkSheetColumns(liveType?.columns ?? [], editor.base.fields) : liveType?.columns ?? []),
+    [editor?.base, liveType],
+  );
+  const engineOptions = useMemo(() => buildEngineSearchOptions(props.engines), [props.engines]);
+  const patchEditor = (patch: Partial<SheetEditor>) =>
+    setEditor((ed) =>
+      ed
+        ? {
+            ...ed,
+            ...patch,
+            error: patch.error ?? '',
+            escArmed: false,
+            dirty: ed.dirty || EDITOR_DATA_KEYS.some((k) => k in patch),
+          }
+        : ed,
+    );
+  // Смена вида работ подставляет его цех и сбрасывает поля чужого вида — как в карточке.
+  // У записанной строки вид заморожен, и сюда не приходят вовсе.
+  const setEditorType = (typeCode: string) => {
+    const type = types.find((t) => t.code === typeCode) ?? null;
+    // Колонку «Поля» показываем и здесь, а не только при открытии: у выбранного вида работ
+    // может быть обязательная колонка, и при скрытых «Полях» вводить её было бы негде —
+    // сохранение упиралось бы в «Заполните: …» без единой подсказки, где.
+    if ((type?.columns.length ?? 0) > 0 && !columnLayout.isVisible('fields')) columnLayout.setVisible('fields', true);
+    patchEditor({ typeCode, workshopId: type?.workshopId ?? '', values: {} });
+  };
+
+  const saveEditor = async () => {
+    const ed = editor;
+    if (!ed || ed.busy) return;
+    const base = ed.base;
+    // Вид работ и двигатель у записанной строки заморожены — эти две проверки только для нового:
+    // у правки они взяты из самой строки и пустыми быть не могут.
+    if (!base && !liveType) return patchEditor({ error: 'Выберите вид работ' });
+    const engineId = base ? base.engineId : ed.engineId;
+    if (!engineId) return patchEditor({ error: 'Выберите двигатель' });
+    const atMs = fromWorkSheetDateInput(ed.date);
+    if (!atMs) return patchEditor({ error: 'Укажите дату' });
+    patchEditor({ busy: true });
     try {
       // Тот же payload и тот же main-сервис, что у карточки: проверка обязательных полей и
-      // «Отремонтирован» по completesRepair остаются в одном месте.
+      // «Отремонтирован» по completesRepair остаются в одном месте. Payload собирается из
+      // СОСТОЯНИЯ, а не из видимых ячеек: скрытые колонки «Цех»/«Поля»/«Примечание» иначе
+      // обнулили бы свои значения.
       const r = await window.matrica.workSheets.rows.save({
-        id: draft.id,
-        engineId: draft.engineId,
-        type: {
-          id: draftType.id,
-          code: draftType.code,
-          name: draftType.name,
-          completesRepair: draftType.completesRepair,
-          columns: draftType.columns,
-          workshopId: draftType.workshopId,
-        },
+        id: ed.id,
+        engineId,
+        type: base
+          ? {
+              id: base.typeId,
+              code: base.typeCode,
+              name: base.typeName,
+              // Как в карточке: статус ставится только при создании строки. Правка не может
+              // ни поставить «Отремонтирован», ни снять его.
+              completesRepair: false,
+              columns: editorColumns,
+              // null, чтобы выбранное оператором «—» не подменялось цехом вида работ.
+              workshopId: null,
+            }
+          : {
+              id: liveType!.id,
+              code: liveType!.code,
+              name: liveType!.name,
+              completesRepair: liveType!.completesRepair,
+              columns: liveType!.columns,
+              workshopId: liveType!.workshopId,
+            },
         atMs,
-        workshopId: draft.workshopId || null,
-        workshopName: workshops.find((w) => w.id === draft.workshopId)?.label ?? null,
-        note: draft.note.trim() || null,
-        values: draft.values,
+        workshopId: ed.workshopId || null,
+        // Без справочника цехов имя берётся из снимка самой строки — иначе правка примечания
+        // стирала бы название цеха у того, кому не выдали `masterdata.view`.
+        workshopName:
+          workshops.find((w) => w.id === ed.workshopId)?.label ??
+          (base && ed.workshopId === base.workshopId ? base.workshopName || null : null),
+        note: ed.note.trim() || null,
+        values: ed.values,
       });
       if (!r.ok) {
-        patchDraft({ busy: false, error: `Ошибка: ${r.error}` });
+        patchEditor({ busy: false, error: `Ошибка: ${r.error}` });
         return;
       }
-      setDraft(null);
+      const typeName = base ? base.typeName : liveType!.name;
+      if (base) pendingFocusRowRef.current = ed.id;
+      setEditor(null);
       window.dispatchEvent(new Event('matrica:engines-changed'));
       // Сначала перечитать список, потом сказать словами: `refreshRows` в конце чистит статус,
       // и написанное до него исчезало через десятки миллисекунд (поймано живьём 15.09).
       await refreshRows();
       setStatus(
-        r.repair?.applied
-          ? `Этап работ «${draftType.name}» сохранён; двигателю поставлен «Отремонтирован» датой этапа работ`
-          : `Этап работ «${draftType.name}» сохранён`,
+        base
+          ? `Этап работ «${typeName}» изменён`
+          : r.repair?.applied
+            ? `Этап работ «${typeName}» сохранён; двигателю поставлен «Отремонтирован» датой этапа работ`
+            : `Этап работ «${typeName}» сохранён`,
       );
+      if (!base) addButtonRef.current?.focus();
     } catch (e) {
-      patchDraft({ busy: false, error: `Ошибка: ${String(e)}` });
+      patchEditor({ busy: false, error: `Ошибка: ${String(e)}` });
     }
   };
-  const cancelDraft = () => setDraft(null);
+  const cancelEditor = () => {
+    if (editor?.base) pendingFocusRowRef.current = editor.id;
+    else addButtonRef.current?.focus();
+    setEditor(null);
+  };
 
   const columns = useMemo<Column[]>(
     () => [
@@ -383,30 +550,47 @@ export function WorkSheetsPage(props: {
   const cells = (r: WorkSheetRow) => (
     <>
       {visibleColumns.map((col) => (
-        <td key={col.id} {...listCellKindProps(col.kind)} style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }}>
+        // `data-col-id` — чтобы щелчок по ячейке ставил курсор в ту же колонку в редакторе.
+        <td key={col.id} data-col-id={col.id} {...listCellKindProps(col.kind)} style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }}>
           {col.render(r)}
         </td>
       ))}
       <td className="list-col-filler" aria-hidden="true" style={{ borderBottom: '1px solid #f3f4f6' }} />
     </>
   );
-  const rowProps = (r: WorkSheetRow): VirtualTableRowProps => ({
-    onClick: () => void openRow(r),
-    title: props.canEdit ? 'Открыть строку этапа работ' : 'Открыть карточку двигателя',
-    style: { cursor: 'pointer' },
-    'data-work-sheet-row': r.id,
-  });
+  const rowProps = (r: WorkSheetRow): VirtualTableRowProps =>
+    props.canEdit
+      ? {
+          onClick: (e) => beginEdit(r, colIdFromEvent(e)),
+          title: 'Править этап работ прямо в строке',
+          style: { cursor: 'pointer' },
+          // Фокус после сохранения возвращается на саму строку — для этого она фокусируемая.
+          tabIndex: -1,
+          'data-work-sheet-row': r.id,
+        }
+      : {
+          onClick: () => void openRow(r),
+          title: 'Открыть карточку этапа работ',
+          style: { cursor: 'pointer' },
+          'data-work-sheet-row': r.id,
+        };
 
-  // Черновик: редакторы прямо в ячейках видимых колонок. Реквизиты двигателя — справкой из
-  // каталога, как в карточке; поля вида — в колонке «Поля» одной ячейкой; кнопки — в хвосте.
-  const draftCellStyle: React.CSSProperties = { borderBottom: '1px solid #f3f4f6', padding: 6, verticalAlign: 'top' };
-  const draftCellFor = (col: Column, d: WorkSheetDraft): React.ReactNode => {
+  // Редактор: поля прямо в ячейках видимых колонок. У НОВОГО этапа реквизиты двигателя —
+  // справкой из каталога, как в карточке; у записанной строки они берутся из неё самой:
+  // заказчика и договора в каталоге двигателей нет вовсе.
+  const editorCellStyle: React.CSSProperties = { borderBottom: 'none', padding: 6, verticalAlign: 'top' };
+  const editorCellFor = (col: Column, ed: SheetEditor): React.ReactNode => {
+    const base = ed.base;
     switch (col.id) {
       case 'at':
-        return <UnifiedDateInput type="date" value={d.date} disabled={d.busy} onChange={(e) => patchDraft({ date: e.target.value })} data-work-sheet-draft-date />;
+        return <UnifiedDateInput type="date" value={ed.date} disabled={ed.busy} onChange={(e) => patchEditor({ date: e.target.value })} data-work-sheet-editor-date />;
       case 'type':
-        return (
-          <select value={d.typeCode} disabled={d.busy} onChange={(e) => setDraftType(e.target.value)} data-work-sheet-draft-type>
+        // Вид работ у записанной строки заморожен: поля пересобираются строго по присланным
+        // колонкам, и смена вида молча превратила бы строку в другой этап с пустыми полями.
+        return base ? (
+          base.typeName
+        ) : (
+          <select value={ed.typeCode} disabled={ed.busy} onChange={(e) => setEditorType(e.target.value)} data-work-sheet-editor-type>
             {types.map((t) => (
               <option key={t.code} value={t.code}>
                 {t.name}
@@ -415,32 +599,36 @@ export function WorkSheetsPage(props: {
           </select>
         );
       case 'engine':
-        return (
-          <div style={{ minWidth: 220 }}>
+        // Двигатель заморожен: сервис отказывает явным текстом «Строку нельзя перевесить…»,
+        // и дать набрать, чтобы отказать после «Сохранить», хуже, чем не дать набрать.
+        return base ? (
+          engineLabel(base)
+        ) : (
+          <div style={{ minWidth: 220 }} data-work-sheet-editor-engine>
             <EntityReferenceField
               target="engine"
               targetLabel="Двигатель"
-              value={d.engineId}
+              value={ed.engineId}
               options={engineOptions}
               optionsReady={props.engines.length > 0}
-              disabled={d.busy}
+              disabled={ed.busy}
               placeholder="Номер двигателя или внутренний №…"
-              onChange={(next) => patchDraft({ engineId: next })}
+              onChange={(next) => patchEditor({ engineId: next })}
               onOpen={props.onOpenEngine}
             />
           </div>
         );
       case 'brand':
-        return draftEngine?.engineBrand ?? '';
+        return base ? base.engineBrand : draftEngine?.engineBrand ?? '';
       case 'internal':
-        return draftEngine?.internalNumberFull ?? '';
+        return base ? base.internalNumber : draftEngine?.internalNumberFull ?? '';
       case 'customer':
-        return draftEngine?.customerName ?? '';
+        return base ? base.customerName : draftEngine?.customerName ?? '';
       case 'contract':
-        return draftEngine?.contractName ?? '';
+        return base ? base.contractShortLabel : draftEngine?.contractName ?? '';
       case 'workshop':
         return (
-          <select value={d.workshopId} disabled={d.busy} onChange={(e) => patchDraft({ workshopId: e.target.value })}>
+          <select value={ed.workshopId} disabled={ed.busy} onChange={(e) => patchEditor({ workshopId: e.target.value })} data-work-sheet-editor-workshop>
             <option value="">—</option>
             {workshops.map((w) => (
               <option key={w.id} value={w.id}>
@@ -451,80 +639,212 @@ export function WorkSheetsPage(props: {
         );
       case 'fields':
         return (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', alignItems: 'center' }}>
-            {(draftType?.columns ?? []).map((c) => (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', alignItems: 'center' }} data-work-sheet-editor-fields>
+            {editorColumns.map((c) => (
               <label key={c.code} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
                 <span className="ui-muted" style={{ whiteSpace: 'nowrap' }}>
                   {c.label}
                   {c.required ? ' *' : ''}
                 </span>
-                <WorkSheetFieldEditor column={c} value={d.values[c.code]} disabled={d.busy} compact onChange={(v) => patchDraft({ values: { ...d.values, [c.code]: v } })} />
+                <WorkSheetFieldEditor column={c} value={ed.values[c.code]} disabled={ed.busy} compact onChange={(v) => patchEditor({ values: { ...ed.values, [c.code]: v } })} />
               </label>
             ))}
-            {draftType?.completesRepair ? (
+            {/* Обещание «Отремонтирован» — только у нового этапа: правка статус не трогает. */}
+            {!base && liveType?.completesRepair ? (
               <span className="ui-muted" style={{ fontSize: 12 }} data-work-sheet-completes-hint>
                 Завершает ремонт: двигателю встанет «Отремонтирован» датой этапа работ
               </span>
             ) : null}
           </div>
         );
+      case 'performedBy':
+        // Не редактируется, но показывается — иначе ячейка выглядит опустевшей. Сервер всё
+        // равно перепишет «Кто» на того, кто правит.
+        return base ? base.performedBy : '';
       case 'note':
-        return <Input value={d.note} disabled={d.busy} placeholder="Примечание" onChange={(e) => patchDraft({ note: e.target.value })} />;
+        return <Input value={ed.note} disabled={ed.busy} placeholder="Примечание" onChange={(e) => patchEditor({ note: e.target.value })} data-work-sheet-editor-note />;
       default:
         return '';
     }
   };
-  const draftCells = (d: WorkSheetDraft) => (
+  const editorCells = (ed: SheetEditor) => (
     <>
       {visibleColumns.map((col) => (
-        <td key={col.id} {...listCellKindProps(col.kind)} style={draftCellStyle}>
-          {draftCellFor(col, d)}
+        <td key={col.id} {...listCellKindProps(col.kind)} style={editorCellStyle}>
+          {editorCellFor(col, ed)}
         </td>
       ))}
-      <td className="list-col-filler" style={{ ...draftCellStyle, whiteSpace: 'nowrap' }}>
-        <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-          <Button size="sm" disabled={d.busy} onClick={() => void saveDraft()} title="Сохранить этап работ (Enter)" data-work-sheet-draft-save>
-            {d.busy ? 'Сохраняю…' : 'Сохранить'}
-          </Button>
-          <Button size="sm" variant="ghost" disabled={d.busy} onClick={cancelDraft} title="Убрать черновик (Esc)" data-work-sheet-draft-cancel>
-            Отмена
-          </Button>
-          {d.error ? (
-            <span style={{ color: 'var(--danger)', fontSize: 12 }} data-work-sheet-draft-error>
-              {d.error}
-            </span>
-          ) : null}
-        </span>
-      </td>
+      {/* Хвостовая ячейка пустеет: кнопки уехали в полку. `nowrap` здесь ставить нельзя —
+          в полноширинном ряду длинный текст стал бы min-content и раздвинул таблицу. */}
+      <td className="list-col-filler" aria-hidden="true" style={editorCellStyle} />
     </>
   );
-  const draftRowProps = (d: WorkSheetDraft): VirtualTableRowProps => ({
-    'data-work-sheet-draft-row': d.id,
-    style: { background: 'rgba(29, 78, 216, 0.06)' },
-    onKeyDown: (e) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        cancelDraft();
-        return;
-      }
-      // Enter сохраняет строку, но не из открытого списка двигателей (там он выбирает и
-      // гасится через preventDefault) и не из select'а (там он раскрывает варианты).
-      if (e.key === 'Enter' && !e.defaultPrevented && !(e.target instanceof HTMLSelectElement) && !(e.target instanceof HTMLTextAreaElement)) {
-        e.preventDefault();
-        void saveDraft();
-      }
-    },
+
+  /** Подсказка полки: почему строка прыгнула наверх или что будет с несохранённым. */
+  const editorHint = (ed: SheetEditor): string => {
+    if (ed.dirty && ed.escArmed) return 'Есть несохранённое. Esc ещё раз — выбросить';
+    if (!ed.base) return '';
+    if (!rows.some((r) => r.id === ed.id)) return 'Строку удалили на другом устройстве. «Сохранить» вернёт её в список';
+    if (!sorted.some((r) => r.id === ed.id)) return 'Строка не попадает в текущий фильтр — правка продолжается';
+    return '';
+  };
+
+  // Полка — полноширинная ячейка под редактором. `colSpan` считается по видимым колонкам плюс
+  // филлер: ячейку «№» VirtualTable рисует отдельно, и в colSpan она не входит. Всё содержимое —
+  // во внутреннем div: паддинг у `td` списка задан в global.css с !important, и inline-стилями
+  // ячейки центрировать нельзя.
+  const editorActionsCell = (ed: SheetEditor) => {
+    const hint = editorHint(ed);
+    return (
+      <td colSpan={Math.max(1, visibleColumns.length) + 1} style={{ borderBottom: '1px solid #f3f4f6' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '6px 8px' }}>
+          {/* Сетка держит две кнопки ровно по центру таблицы независимо от «Карточка ↗». */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr)', alignItems: 'center', gap: 8 }}>
+            <span />
+            <span style={{ display: 'inline-flex', gap: 8 }}>
+              <Button
+                size="sm"
+                disabled={ed.busy}
+                onClick={() => void saveEditor()}
+                title={ed.base ? 'Сохранить правку (Enter); в колонке «Кто» встанете вы' : 'Сохранить этап работ (Enter)'}
+                data-work-sheet-editor-save
+              >
+                {ed.busy ? 'Сохраняю…' : 'Сохранить'}
+              </Button>
+              <Button size="sm" variant="ghost" disabled={ed.busy} onClick={cancelEditor} title="Закрыть редактор (Esc)" data-work-sheet-editor-cancel>
+                Отмена
+              </Button>
+            </span>
+            <span style={{ justifySelf: 'start' }}>
+              {ed.base ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={ed.busy}
+                  onClick={() => openRow(ed.base!)}
+                  title="Карточка этапа работ: удаление и откат «Отремонтирован»"
+                  data-work-sheet-open-card
+                >
+                  Карточка ↗
+                </Button>
+              ) : null}
+            </span>
+          </div>
+          {ed.error ? (
+            <div data-work-sheet-editor-error style={{ color: 'var(--danger)', fontSize: 12, textAlign: 'center', whiteSpace: 'normal' }}>
+              {ed.error}
+            </div>
+          ) : null}
+          {hint ? (
+            <div data-work-sheet-editor-hint className="ui-muted" style={{ fontSize: 12, textAlign: 'center', whiteSpace: 'normal' }}>
+              {hint}
+            </div>
+          ) : null}
+        </div>
+      </td>
+    );
+  };
+
+  // Один обработчик на ОБА ряда: общей обёртки у двух `<tr>` не бывает, а повесить только на
+  // редактор — значит потерять Esc/Enter, когда фокус ушёл на кнопки полки.
+  const editorKeyDown = (e: React.KeyboardEvent<HTMLTableRowElement>) => {
+    const ed = editor;
+    if (!ed) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      // Двухступенчатый Esc вместо модального вопроса: окно — ровно то, от чего уходим.
+      if (!ed.dirty || ed.escArmed) cancelEditor();
+      else setEditor({ ...ed, escArmed: true, error: '' });
+      return;
+    }
+    // Enter сохраняет строку, но не из открытого списка двигателей (там он выбирает и
+    // гасится через preventDefault) и не из select'а (там он раскрывает варианты).
+    if (e.key === 'Enter' && !e.defaultPrevented && !(e.target instanceof HTMLSelectElement) && !(e.target instanceof HTMLTextAreaElement)) {
+      e.preventDefault();
+      void saveEditor();
+    }
+  };
+
+  // Фон бьёт и зебру, и hover. `onClick` у рядов редактора нет вовсе: он ловил бы всплытие из
+  // ячеек, и каждый щелчок по полю перезапускал бы правку.
+  const EDITOR_ROW_STYLE: React.CSSProperties = { background: 'rgba(29, 78, 216, 0.06)' };
+  const editorRowProps = (ed: SheetEditor): VirtualTableRowProps => ({
+    'data-work-sheet-editor-row': ed.id,
+    'data-work-sheet-editor-mode': ed.base ? 'edit' : 'new',
+    'data-work-sheet-editor-dirty': ed.dirty ? '1' : undefined,
+    style: EDITOR_ROW_STYLE,
+    onKeyDown: editorKeyDown,
+  });
+  const editorActionsRowProps = (ed: SheetEditor): VirtualTableRowProps => ({
+    'data-work-sheet-editor-actions': ed.id,
+    style: EDITOR_ROW_STYLE,
+    onKeyDown: editorKeyDown,
   });
 
-  // Черновик — индекс 0 той же таблицы: общая шапка и общие ширины колонок.
-  const itemCount = sorted.length + (draft ? 1 : 0);
-  const rowAt = (i: number) => sorted[draft ? i - 1 : i]!;
+  const items = useMemo(() => buildWorkSheetListItems(sorted, editor), [sorted, editor]);
+  // Промах на единицу даёт пустую строку, а не исключение в рендере всего списка.
+  const itemAt = (i: number): SheetItem | undefined => items[i];
+
+  /**
+   * Курсор встаёт в ту колонку, по которой щёлкнули, — один раз на каждый открытый редактор.
+   * `autoFocus` в ячейках не годится: VirtualTable перемонтирует ряды при прокрутке, и он
+   * начал бы воровать фокус. Запрос скоупится контейнером — на «2 рядом» иначе поймаем чужой.
+   */
+  const editorId = editor?.id ?? null;
+  const editorIsNew = editor !== null && editor.base === null;
+  const editorFocusColId = editor?.focusColId ?? null;
+  useEffect(() => {
+    if (!editorId) {
+      focusedEditorRef.current = null;
+      return;
+    }
+    if (focusedEditorRef.current === editorId) return;
+    const attrOf: Record<string, string> = { at: 'date', type: 'type', engine: 'engine', workshop: 'workshop', fields: 'fields', note: 'note' };
+    const editable = editorIsNew ? ['at', 'type', 'engine', 'workshop', 'fields', 'note'] : ['at', 'workshop', 'fields', 'note'];
+    const colId = editorFocusColId && editable.includes(editorFocusColId) ? editorFocusColId : editorIsNew ? 'engine' : 'at';
+    const tryFocus = (): boolean => {
+      const host = containerRef.current?.querySelector<HTMLElement>(`[data-work-sheet-editor-${attrOf[colId] ?? 'date'}]`) ?? null;
+      const target =
+        host instanceof HTMLInputElement || host instanceof HTMLSelectElement
+          ? host
+          : host?.querySelector<HTMLInputElement | HTMLSelectElement>('input, select') ?? null;
+      if (!target) return false;
+      target.focus({ preventScroll: true });
+      if (target instanceof HTMLInputElement && target.type === 'text') target.select();
+      return true;
+    };
+    // Пробуем СРАЗУ: к моменту эффекта ряд-редактор уже в DOM, а кадр анимации в неактивном
+    // окне может не прийти вовсе — на этом курсор и не вставал никуда (поймано смоуком).
+    // Кадр остаётся запасным на случай, когда ряда ещё нет (список прокручен от начала).
+    if (tryFocus()) {
+      focusedEditorRef.current = editorId;
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      if (tryFocus()) focusedEditorRef.current = editorId;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [editorId, editorIsNew, editorFocusColId]);
+
+  /** После сохранения правки фокус возвращается на саму строку, а не улетает в начало списка. */
+  useEffect(() => {
+    const id = pendingFocusRowRef.current;
+    if (!id) return;
+    pendingFocusRowRef.current = null;
+    const tr = containerRef.current?.querySelector<HTMLElement>(`tr[data-work-sheet-row="${id}"]`) ?? null;
+    if (!tr) return;
+    tr.focus({ preventScroll: true });
+    tr.scrollIntoView({ block: 'nearest' });
+    // Зависимость от `editorId` обязательна: при «Отмене» список не меняется, и по одному
+    // только `rows` эффект бы не сработал — метка осталась бы висеть до следующего обновления
+    // и увела бы фокус посреди чужой работы.
+  }, [rows, editorId]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }} data-work-sheets-page>
       <PageToolbar>
         {props.canEdit && (
-          <Button onClick={() => void openNewRow()} disabled={draft !== null || types.length === 0} data-work-sheet-add-row>
+          <Button ref={addButtonRef} onClick={() => void openNewRow()} disabled={editor !== null || types.length === 0} data-work-sheet-add-row>
             Добавить этап работ
           </Button>
         )}
@@ -600,12 +920,35 @@ export function WorkSheetsPage(props: {
       <div ref={containerRef} style={{ marginTop: 2, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         <VirtualTable
           scrollElementRef={containerRef}
-          count={itemCount}
+          count={items.length}
           header={header}
-          renderCells={(i) => (draft && i === 0 ? draftCells(draft) : cells(rowAt(i)))}
-          getRowKey={(i) => (draft && i === 0 ? draft.id : rowAt(i).id)}
-          getRowProps={(i) => (draft && i === 0 ? draftRowProps(draft) : rowProps(rowAt(i)))}
-          rowNumberOf={(i) => (draft ? (i === 0 ? null : i) : i + 1)}
+          renderCells={(i) => {
+            const it = itemAt(i);
+            if (!it) return null;
+            if (it.kind === 'row') return cells(it.row);
+            if (!editor) return null;
+            return it.kind === 'editor' ? editorCells(editor) : editorActionsCell(editor);
+          }}
+          // Префиксы обязательны: без них ключ ряда-редактора совпал бы с ключом самой строки,
+          // React переиспользовал бы DOM, и поле теряло бы фокус на каждом символе.
+          getRowKey={(i) => {
+            const it = itemAt(i);
+            if (!it) return `gap:${i}`;
+            return it.kind === 'row' ? it.row.id : `${it.kind === 'editor' ? 'ed' : 'act'}:${editor?.id ?? ''}`;
+          }}
+          getRowProps={(i) => {
+            const it = itemAt(i);
+            if (!it) return {};
+            if (it.kind === 'row') return rowProps(it.row);
+            if (!editor) return {};
+            return it.kind === 'editor' ? editorRowProps(editor) : editorActionsRowProps(editor);
+          }}
+          // Номер несёт сам ряд: у правки — свой (иначе нумерация ниже прыгала бы при каждом
+          // открытии), у нового этапа и у полки — пусто.
+          rowNumberOf={(i) => {
+            const it = itemAt(i);
+            return !it || it.kind === 'actions' ? null : it.number;
+          }}
           colCount={Math.max(1, visibleColumns.length) + 1}
           rowNumbers
           estimateSize={40}
