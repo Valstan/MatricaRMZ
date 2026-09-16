@@ -128,10 +128,10 @@ describe('partitionLedgerInputsByAuthz', () => {
     }
   });
 
-  // Строки ведомостей работ: поимённое право `work_sheets.edit` для ВСЕХ ролей, кроме
+  // Строки этапов работ: поимённое право `work_sheets.edit` для ВСЕХ ролей, кроме
   // суперадмина. Без backstop'а мастер писал бы их по operations.edit, а admin / легаси
   // `user` — вообще мимо requirement'ов (владелец снял право у всех, 15.09.2026).
-  describe('строки ведомостей работ — поимённое право для любой роли', () => {
+  describe('строки этапов работ — поимённое право для любой роли', () => {
     const sheetMeta = JSON.stringify({
       kind: 'repair_history',
       action: 'Ведомость: Обкатка',
@@ -144,7 +144,7 @@ describe('partitionLedgerInputsByAuthz', () => {
       { type: 'upsert' as const, table: 'operations', row: { id: 'op-manual', operation_type: 'repair_history_entry', engine_entity_id: 'eng-1', meta_json: manualMeta, updated_at: Date.now() }, row_id: 'op-manual' },
     ];
 
-    it('инженер с operations.edit без work_sheets.edit: ведомость режется, ручная запись проходит', async () => {
+    it('инженер с operations.edit без work_sheets.edit: этап работ режется, ручная запись проходит', async () => {
       seedTypes();
       const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs() as any, ENGINEER);
       expect(allowed.map((i) => i.row_id)).toEqual(['op-manual']);

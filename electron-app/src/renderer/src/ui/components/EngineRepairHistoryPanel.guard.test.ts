@@ -41,12 +41,12 @@ describe('история ремонта пишется', () => {
   });
 
   it('автоматические записи помечены — оператор не должен принимать их за свои', () => {
-    // С 15.09.2026 пометка — бейдж класса записи (Ручная / Стадия / Переезд / Ведомость: узел),
-    // а строка ведомости ещё и говорит, где её правят.
+    // С 15.09.2026 пометка — бейдж класса записи (Ручная / Стадия / Переезд / Этап работ: вид работ),
+    // а строка этапа работ ещё и говорит, где её правят.
     expect(PANEL).toContain('REPAIR_HISTORY_ENTRY_TYPE_LABELS[entry.entryType]');
     expect(PANEL).toContain('data-repair-history-row={entry.source}');
     expect(PANEL).toContain('data-repair-history-kind={entry.entryType}');
-    expect(PANEL).toContain('Правится в «Ведомостях работ»');
+    expect(PANEL).toContain('Правится в «Этапах работ»');
     expect(PANEL).toContain('formatWorkSheetValue(f)');
   });
 });
@@ -68,12 +68,12 @@ describe('история доезжает до списка', () => {
     expect(SERVICE).toContain('lastHistoryAt: history.lastAt');
   });
 
-  // Запись ведомости правится не в истории: до карточки оператору оставалось идти искать
+  // Запись этапа работ правится не в истории: до карточки оператору оставалось идти искать
   // её в списке руками, зная только дату и вид работ.
-  it('из истории ремонта можно перейти в карточку самой ведомости', () => {
+  it('из истории ремонта можно перейти в карточку самого этапа работ', () => {
     expect(PANEL).toContain('data-repair-history-open-sheet');
     expect(PANEL).toContain('props.onOpenWorkSheet?.(entry.id, entry.sheet?.typeName)');
-    expect(PANEL, 'переход только у записей ведомости').toContain("entry.entryType === 'sheet' && entry.sheet && props.onOpenWorkSheet");
+    expect(PANEL, 'переход только у записей этапа работ').toContain("entry.entryType === 'sheet' && entry.sheet && props.onOpenWorkSheet");
     expect(APP, 'карточка двигателя получает открывашку от приложения').toContain('onOpenWorkSheet={(id: string, title?: string)');
   });
 

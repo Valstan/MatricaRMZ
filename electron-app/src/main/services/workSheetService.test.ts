@@ -6,7 +6,7 @@ import { STATUS_CODES, STATUS_DATE_CODES, parseRepairHistoryMeta, type WorkSheet
 
 import { deleteWorkSheetRow, listWorkSheetRows, saveWorkSheetRow } from './workSheetService.js';
 
-// Ведомости работ (15.09.2026): строка = запись истории ремонта, id даёт клиент, правка бьёт в
+// Этапы работ (15.09.2026): строка = запись истории ремонта, id даёт клиент, правка бьёт в
 // ту же строку. Узел «завершает ремонт» ставит «Отремонтирован» датой строки — один раз и
 // только при добавлении; утиль и уже отремонтированный не трогаются.
 
@@ -78,8 +78,8 @@ const AT = Date.parse('2026-09-10T00:00:00');
 
 /**
  * Договор с заказчиком и привязка к двигателю. Заказчик ДОГОВОРА важнее поля карточки —
- * это единое правило проекта (`resolveEngineCustomer`), и ведомость обязана его соблюдать,
- * иначе она назовёт заказчика иначе, чем список двигателей и отчёты.
+ * это единое правило проекта (`resolveEngineCustomer`), и этап работ обязан его соблюдать,
+ * иначе он назовёт заказчика иначе, чем список двигателей и отчёты.
  */
 function seedContract(sqlite: any, opts: { number: string; section?: string; short: string; full: string }) {
   const attrDef = (id: string, typeId: string, code: string) =>
@@ -107,7 +107,7 @@ function seedContract(sqlite: any, opts: { number: string; section?: string; sho
   if (opts.section) value('v-eng-section', 'eng-1', 'def-contract_section_number', opts.section);
 }
 
-describe('строка ведомости', () => {
+describe('строка этапа работ', () => {
   it('ложится записью истории с полями узла и датой строки', async () => {
     const { sqlite, db } = makeDb();
     const r = await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');
@@ -236,7 +236,7 @@ describe('строка ведомости', () => {
     if (!r.ok) expect(r.error).toContain('Мастер');
   });
 
-  it('ручную запись истории через ведомость не переписать и не удалить', async () => {
+  it('ручную запись истории через этап работ не переписать и не удалить', async () => {
     const { sqlite, db } = makeDb();
     sqlite
       .prepare(`INSERT INTO operations (id,engine_entity_id,operation_type,status,meta_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`)

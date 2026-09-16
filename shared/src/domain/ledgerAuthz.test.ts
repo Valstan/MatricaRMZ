@@ -73,10 +73,10 @@ describe('ledgerWriteRequirement — operations & tables', () => {
     }
   });
 
-  // Строка ведомости и ручная запись истории ремонта — один operation_type; отличает
-  // их meta. Без своего требования строку ведомости писал бы любой держатель
-  // operations.edit (мастер), а владелец снял право заполнять ведомости у всех.
-  it('строка ведомости работ требует work_sheets.edit, ручная запись истории — operations.edit', () => {
+  // Строка этапа работ и ручная запись истории ремонта — один operation_type; отличает
+  // их meta. Без своего требования строку этапа работ писал бы любой держатель
+  // operations.edit (мастер), а владелец снял право заполнять этапы работ у всех.
+  it('строка этапа работ требует work_sheets.edit, ручная запись истории — operations.edit', () => {
     const sheetMeta = JSON.stringify({
       kind: 'repair_history',
       action: 'Ведомость: Обкатка',
@@ -103,7 +103,7 @@ describe('ledgerWriteRequirement — operations & tables', () => {
         code: PermissionCode.OperationsEdit,
       });
     }
-    // meta ведомости на другом типе операции — не ведомость.
+    // meta этапа работ на другом типе операции — не этап работ.
     expect(isWorkSheetRowWrite({ table: OPS, operationType: 'work_order', operationMetaJson: sheetMeta })).toBe(false);
     expect(isWorkSheetRowWrite({ table: ENTITIES, operationType: 'repair_history_entry', operationMetaJson: sheetMeta })).toBe(false);
   });

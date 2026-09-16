@@ -47,10 +47,10 @@ describe('operator role presets (RBAC #474)', () => {
     }
   });
 
-  // Ведомости работ заполняет узкий круг, названный владельцем поимённо (15.09.2026).
+  // Этапы работ заполняет узкий круг, названный владельцем поимённо (15.09.2026).
   // Роль их не даёт никому: право выдаётся конкретным людям в админке поверх роли.
   // Смотреть может каждый оператор — чтение сидит на operations.view из базы.
-  it('права на ведомости не входят ни в одну операторскую роль, а чтение есть у всех', () => {
+  it('права на этапы работ не входят ни в одну операторскую роль, а чтение есть у всех', () => {
     for (const role of ['engineer', 'technolog', 'master', 'supply', 'storekeeper', 'timekeeper', 'viewer']) {
       const perms = operatorRolePermissions(role)!;
       expect(perms[PermissionCode.WorkSheetsEdit], role).toBeFalsy();
@@ -66,7 +66,7 @@ describe('operator role presets (RBAC #474)', () => {
     expect(PermissionCode.WorkSheetsEdit).not.toBe(PermissionCode.WorkSheetTypesEdit);
     for (const code of [PermissionCode.WorkSheetsEdit, PermissionCode.WorkSheetTypesEdit]) {
       expect(permGroupRu(code), code).toBe('Операции');
-      expect(permTitleRu(code), code).toContain('Ведомости работ');
+      expect(permTitleRu(code), code).toContain('Этапы работ');
       expect(permAdminOnly(code), code).toBe(false);
     }
   });

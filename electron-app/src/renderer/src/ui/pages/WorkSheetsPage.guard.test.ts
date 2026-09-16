@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-// Ведомости работ (15.09.2026) рвутся молча в четырёх местах: вкладка исчезает из меню
+// Этапы работ (15.09.2026) рвутся молча в четырёх местах: вкладка исчезает из меню
 // (реестр разделов), строка уходит не в main-сервис (и «Отремонтирован» не ставится),
 // скрытая панель остаётся на экране (M78), список теряет счётчик и «№».
 function src(rel: string): string {
@@ -25,14 +25,14 @@ const REST_ROUTE = src('../../../../../../backend-api/src/routes/workSheetTypes.
 const BACKEND_PERMS = src('../../../../../../backend-api/src/auth/permissions.ts');
 const SYNC_GUARD = src('../../../../../../backend-api/src/services/sync/ledgerAuthzGuard.ts');
 
-describe('ведомости работ — экран', () => {
+describe('этапы работ — экран', () => {
   it('вкладка заведена в реестре разделов, меню и приложении под правом на операции', () => {
-    expect(SECTIONS).toContain("work_sheets: 'Ведомости работ'");
+    expect(SECTIONS).toContain("work_sheets: 'Этапы работ'");
     expect(SECTIONS).toContain("production: ['engines', 'work_sheets'");
     expect(ACCESS).toContain("menuTabs: ['engines', 'work_sheets'");
     expect(APP).toContain("...(caps.canViewOperations ? (['work_sheets'] as const) : [])");
     expect(APP).toContain("{t === 'work_sheets' && (");
-    expect(GATE, 'IPC ведомостей гейтится разделом «Производство»').toContain("['workSheets:', 'production']");
+    expect(GATE, 'IPC этапов работ гейтится разделом «Производство»').toContain("['workSheets:', 'production']");
   });
 
   // Два права (владелец 15.09.2026, вечер): строки заполняют одни люди, виды работ ведут
@@ -64,18 +64,18 @@ describe('ведомости работ — экран', () => {
   });
 
   // Роль admin получает «всё» циклом, и без точечного исключения любой администратор снова
-  // молча редактировал бы ведомости — а владелец снял право у всех, чтобы выдавать поимённо.
-  it('роль не даёт прав на ведомости никому, кроме суперадмина; сервер режет строку без права', () => {
+  // молча редактировал бы этапы работ — а владелец снял право у всех, чтобы выдавать поимённо.
+  it('роль не даёт прав на этапы работ никому, кроме суперадмина; сервер режет строку без права', () => {
     expect(BACKEND_PERMS).toContain("all[PermissionCode.WorkSheetsEdit] = r === 'superadmin';");
     expect(BACKEND_PERMS).toContain("all[PermissionCode.WorkSheetTypesEdit] = r === 'superadmin';");
-    // Строка ведомости идёт обычным синком: клиентский гейт без серверного — не гейт.
+    // Строка этапа работ идёт обычным синком: клиентский гейт без серверного — не гейт.
     expect(SYNC_GUARD, 'backstop до обхода для admin / легаси user').toContain("reason: 'forbidden:work_sheet_row'");
     expect(SYNC_GUARD.indexOf("forbidden:work_sheet_row"), 'backstop стоит ДО ветки !operatorScoped').toBeLessThan(
       SYNC_GUARD.indexOf('if (!operatorScoped) {'),
     );
   });
 
-  it('домен ведомостей подключён и на планшете — плитка без IPC открывалась и молчала', () => {
+  it('домен этапов работ подключён и на планшете — плитка без IPC открывалась и молчала', () => {
     expect(ANDROID_WIRING).toContain('registerWorkSheetsIpc(ctx);');
   });
 
@@ -88,7 +88,7 @@ describe('ведомости работ — экран', () => {
     expect(PAGE, 'раскладка колонок одна на список, а не на вид').toContain("useColumnLayout('list:workSheets:columns'");
   });
 
-  it('новая ведомость берёт вид работ из фильтра, а не первый из справочника', () => {
+  it('новый этап работ берёт вид из фильтра, а не первый из справочника', () => {
     expect(PAGE).toContain('const initialTypeCode = useMemo(');
     expect(PAGE).toContain('ui.facets?.[TYPE_FACET_ID]');
     expect(PAGE).toContain('initialTypeCode={initialTypeCode}');
@@ -97,7 +97,7 @@ describe('ведомости работ — экран', () => {
   // Владелец 15.09 (вечер): «прямо в списке появлялась новая чистая строка, и мы в ней всё
   // забивали». Черновик — индекс 0 той же виртуальной таблицы (одни ширины колонок), уходит
   // тем же main-сервисом, что и карточка; сохранённые строки по-прежнему открывает карточка.
-  it('новая ведомость — черновая строка в самом списке, а не отдельное окно', () => {
+  it('новый этап работ — черновая строка в самом списке, а не отдельное окно', () => {
     expect(PAGE, 'черновик размечен').toContain('data-work-sheet-draft-row');
     expect(PAGE, 'черновик — строка той же таблицы, не вторая таблица').toContain('draft && i === 0 ? draftCells(draft)');
     expect(PAGE, 'черновик без номера, остальные с 1').toContain('rowNumberOf={(i) => (draft ? (i === 0 ? null : i) : i + 1)}');
@@ -141,35 +141,35 @@ describe('ведомости работ — экран', () => {
       text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     for (const [name, text] of [
       ['страница', PAGE],
-      ['карточка ведомости', CARD],
+      ['карточка этапа работ', CARD],
       ['редактор видов работ', TYPE_DIALOG],
     ] as const) {
       expect(withoutComments(text), `${name}: на экране осталось слово «узел»`).not.toMatch(/[Уу]зл|[Уу]зел/);
     }
   });
 
-  // Ведомость пишется по id, который сгенерировал список: карточка новой открывается
-  // сразу, а запись появляется только по «Сохранить» — пустых ведомостей не остаётся.
-  it('ведомость пишется через main-сервис тем же id, что открыл карточку', () => {
+  // Этап работ пишется по id, который сгенерировал список: карточка нового открывается
+  // сразу, а запись появляется только по «Сохранить» — пустых этапов работ не остаётся.
+  it('этап работ пишется через main-сервис тем же id, что открыл карточку', () => {
     expect(CARD).toContain('window.matrica.workSheets.rows.save(');
     expect(CARD, 'сохраняем ровно тот id, с которым карточку открыли').toContain('id: props.rowId,');
-    expect(PAGE, 'id новой ведомости даёт список').toContain('crypto.randomUUID()');
-    expect(CARD, 'ведомость не переезжает на другой двигатель и не меняет вид работ').toContain(
+    expect(PAGE, 'id нового этапа работ даёт список').toContain('crypto.randomUUID()');
+    expect(CARD, 'этап работ не переезжает на другой двигатель и не меняет вид').toContain(
       'disabled={!props.canEdit || !props.isNew}',
     );
   });
 
-  it('карточка ведомости — вкладка со стандартной обвязкой, а не модальное окно', () => {
+  it('карточка этапа работ — вкладка со стандартной обвязкой, а не модальное окно', () => {
     expect(CARD).toContain('<EntityCardShell');
     expect(CARD, 'сохранить / сохранить и выйти / сброс / удалить / закрыть').toContain('<CardActionBar');
     expect(CARD, 'сторож несохранённого').toContain('props.registerCardCloseActions({');
     expect(APP, 'вид вкладки заведён и рисуется').toContain("{t === 'work_sheet' && selectedWorkSheetId && (");
     expect(APP, 'карточку не выкидывает гейт скрытых вкладок').toContain("tab === 'work_sheet' ||");
     expect(APP, 'вкладка восстанавливается из сессии').toContain("case 'work_sheet': return void openWorkSheet(entityId);");
-    expect(APP, 'в шапке вкладки — не огрызок id').toContain("return known ? `📒 ${known}` : '📒 Ведомость';");
+    expect(APP, 'в шапке вкладки — не огрызок id').toContain("return known ? `📒 ${known}` : '📒 Этап работ';");
   });
 
-  it('из карточки ведомости можно уйти в двигатель', () => {
+  it('из карточки этапа работ можно уйти в двигатель', () => {
     expect(CARD).toContain('data-work-sheet-open-engine');
     expect(CARD).toContain('props.onOpenEngine(engineId)');
   });
@@ -198,11 +198,11 @@ describe('ведомости работ — экран', () => {
     expect(CACHE, 'три состояния источника, а не флаг «из кэша»').toContain("source: (cached.length > 0 ? 'cache' : 'none')");
   });
 
-  it('правка без справочника видов работ: колонки восстанавливаются из полей самой ведомости', () => {
+  it('правка без справочника видов работ: колонки восстанавливаются из полей самого этапа работ', () => {
     expect(CARD).toContain('const rowColumns = useMemo<WorkSheetColumn[]>(');
     expect(CARD, 'форма рисует восстановленный набор, а не только колонки вида').toContain('{columns.map((col) => (');
     expect(CARD, 'статус при правке не ставится — подставлять чужой completesRepair нельзя').toContain('completesRepair: false');
-    expect(CARD, 'имя цеха уезжает снимком вместе с ведомостью').toContain(
+    expect(CARD, 'имя цеха уезжает снимком вместе с этапом работ').toContain(
       'workshopName: props.workshops.find((w) => w.id === workshopId)?.label ?? null,',
     );
   });

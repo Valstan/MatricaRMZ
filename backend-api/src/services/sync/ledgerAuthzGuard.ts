@@ -185,7 +185,7 @@ export async function partitionLedgerInputsByAuthz(
   const actorIsAdmin = role === 'admin' || role === 'superadmin';
   const gateNow = Date.now();
 
-  // Строки ведомостей работ гейтятся поимённым правом для ВСЕХ ролей (кроме суперадмина),
+  // Строки этапов работ гейтятся поимённым правом для ВСЕХ ролей (кроме суперадмина),
   // поэтому права нужны и admin'у / легаси `user`, если такая строка есть в батче.
   const hasWorkSheetRows =
     role !== 'superadmin' &&
@@ -251,12 +251,12 @@ export async function partitionLedgerInputsByAuthz(
       operationMetaJson = str(inp.row?.['meta_json']) || null;
     }
 
-    // Universal backstop: строка ведомости работ пишется только держателем поимённого
+    // Universal backstop: строка этапа работ пишется только держателем поимённого
     // права `work_sheets.edit` — для ЛЮБОЙ роли, кроме суперадмина. Стоит до ветки
     // `if (!operatorScoped)` ниже: иначе admin / легаси `user` проходили бы мимо, а
     // владелец снял это право у всех именно затем, чтобы заполнял узкий круг
     // (15.09.2026). Ручная запись истории ремонта (без meta `sheet`) сюда не попадает.
-    // Пустой `meta_json` (легаси-очередь) — не строка ведомости: прежний фолбэк.
+    // Пустой `meta_json` (легаси-очередь) — не строка этапа работ: прежний фолбэк.
     if (
       role !== 'superadmin' &&
       isWorkSheetRowWrite({ table: inp.table, operationType, operationMetaJson }) &&

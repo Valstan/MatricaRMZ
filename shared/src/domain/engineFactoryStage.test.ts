@@ -25,18 +25,18 @@ describe('isEngineAtPlant — пришёл и не отгружен', () => {
 });
 
 describe('engineFactoryStage — побеждает поздний признак', () => {
-  it('утиль перебивает всё, даже отремонтированного с ведомостью', () => {
+  it('утиль перебивает всё, даже отремонтированного с этапом работ', () => {
     const s = engineFactoryStage(engine({ isScrap: true, statusFlags: { status_repaired: true }, lastSheetNode: 'Обкатка' }), TYPES);
     expect(s.key).toBe('scrap');
     expect(s.label).toBe('Утиль');
   });
 
-  it('отремонтирован перебивает ведомость', () => {
+  it('отремонтирован перебивает этап работ', () => {
     const s = engineFactoryStage(engine({ statusFlags: { status_repaired: true }, lastSheetNode: 'Укладка', lastSheetAt: 11 * DAY }), TYPES);
     expect(s.key).toBe('repaired');
   });
 
-  it('ведомость перебивает дефектовку, ранг растёт по порядку видов работ', () => {
+  it('этап работ перебивает дефектовку, ранг растёт по порядку видов работ', () => {
     const ukladka = engineFactoryStage(engine({ hasDefectAct: true, lastSheetTypeCode: 'ukladka', lastSheetNode: 'Укладка', lastSheetAt: 12 * DAY }), TYPES);
     const obkatka = engineFactoryStage(engine({ hasDefectAct: true, lastSheetTypeCode: 'obkatka', lastSheetNode: 'Обкатка', lastSheetAt: 13 * DAY }), TYPES);
     expect(ukladka).toMatchObject({ key: 'sheet:ukladka', label: 'Укладка', at: 12 * DAY });
@@ -80,7 +80,7 @@ describe('engineFactoryStage — побеждает поздний призна�
     expect(noDates).toMatchObject({ key: 'repaired', at: null });
   });
 
-  it('без справочника видов ведомость всё равно узнаётся', () => {
+  it('без справочника видов этап работ всё равно узнаётся', () => {
     expect(engineFactoryStage(engine({ lastSheetNode: 'Сборка' })).key).toBe('sheet:сборка');
   });
 });

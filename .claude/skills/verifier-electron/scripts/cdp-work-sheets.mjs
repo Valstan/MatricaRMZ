@@ -1,4 +1,4 @@
-// Смоук «Ведомости работ» (15.09.2026): вкладки узлов на экране, строка обкатки заводится
+// Смоук «Этапы работ» (15.09.2026): вкладки узлов на экране, строка обкатки заводится
 // диалогом, попадает в список и в историю ремонта двигателя, а карточке ставится
 // «Отремонтирован» датой строки.
 //
@@ -180,8 +180,8 @@ async function main() {
   if (!engine) throw new Error('нет двигателя');
 
   // 1. Экран и вкладки узлов.
-  await openSection(ws, 'Производство', 'Ведомости работ');
-  await waitFor(ws, `PAGE() && counter()`, 'экран ведомостей со счётчиком');
+  await openSection(ws, 'Производство', 'Этапы работ');
+  await waitFor(ws, `PAGE() && counter()`, 'экран этапов работ со счётчиком');
   const tabs = await evaluate(ws, `return [...PAGE().querySelectorAll('button')].map(txt).filter((t) => ['Все','Укладка','Вал','Сборка','Обкатка'].includes(t));`);
   note(['Все', 'Укладка', 'Вал', 'Сборка', 'Обкатка'].every((t) => tabs.includes(t)), 'вкладки: «Все» и четыре узла по умолчанию', { tabs });
   const shots = [await shot(ws, 'tabs')];
@@ -253,7 +253,7 @@ async function main() {
   );
   const wasRepaired = engine.repaired === true || engine.repaired === 'true';
   note(card.repaired === true, 'карточке поставлен «Отремонтирован»', { repaired: card.repaired, wasRepaired });
-  note(card.sheet !== null && card.sheet.fields?.[0]?.value === 4, 'в истории ремонта — строка ведомости с полями', card.sheet);
+  note(card.sheet !== null && card.sheet.fields?.[0]?.value === 4, 'в истории ремонта — строка этапа работ с полями', card.sheet);
   if (!wasRepaired) {
     note(card.status !== null && card.status.at === card.sheet?.at, 'автозапись стадии датой строки', { status: card.status, sheetAt: card.sheet?.at });
     note(typeof card.repairedDate === 'number' && card.repairedDate === card.sheet?.at, 'дата «Отремонтирован» = дата строки', { repairedDate: card.repairedDate, sheetAt: card.sheet?.at });

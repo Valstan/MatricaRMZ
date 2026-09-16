@@ -1043,9 +1043,9 @@ export const workOrderTemplates = pgTable(
   }),
 );
 
-// Ведомости работ (15.09.2026): справочник узлов — видов ведомостей со своим набором колонок.
+// Этапы работ (15.09.2026): справочник видов работ со своим набором колонок.
 // columns_json — WorkSheetColumn[] (shared/domain/workSheets.ts). Вне синка: клиент ходит по
-// REST /work-sheet-types, строки ведомостей самоописываемы и живут в `operations`.
+// REST /work-sheet-types, строки этапов работ самоописываемы и живут в `operations`.
 export const workSheetTypes = pgTable(
   'work_sheet_types',
   {

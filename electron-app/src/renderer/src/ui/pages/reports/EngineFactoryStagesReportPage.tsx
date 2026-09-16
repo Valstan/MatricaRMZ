@@ -41,8 +41,8 @@ import type { ListReportPageProps } from './listReportPages.js';
  * в укладе списка: вверху панель ступеней, ниже список, который можно разложить по группам.
  *
  * Строки — двигатели, что числятся пришедшими и ещё не отправленными (`isEngineAtPlant`).
- * Этап — `engineFactoryStage`: побеждает поздний признак из карточки и ведомостей (утиль,
- * отремонтирован, последняя ведомость по виду работ, дефектовка, комплектовка, ремонт начат,
+ * Этап — `engineFactoryStage`: побеждает поздний признак из карточки и этапов работ (утиль,
+ * отремонтирован, последний этап работ по виду, дефектовка, комплектовка, ремонт начат,
  * пришёл). Группировка: по этапу / по заказчику / заказчик → этап / без.
  *
  * Данные — каталог двигателей приложения, тот же, что у списка «Двигатели»: ничего не
@@ -93,8 +93,8 @@ function fmtDate(ms: number | null | undefined): string {
 }
 
 export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
-  // Справочник видов работ задаёт порядок групп-ведомостей и полный ряд ступени «Этап»;
-  // без него (офлайн, нет кэша) этап всё равно узнаётся по самой ведомости.
+  // Справочник видов работ задаёт порядок групп-этапов и полный ряд ступени «Этап»;
+  // без него (офлайн, нет кэша) этап всё равно узнаётся по самой записи этапа работ.
   const types = useWorkSheetTypeRefs();
   const [printOpen, setPrintOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -129,8 +129,8 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
       { id: 'repairStartedAt', label: 'Ремонт начат', kind: 'date', render: (e) => fmtDate(engineStatusDate(e, 'status_repair_started')), sortValue: (e) => engineStatusDate(e, 'status_repair_started') ?? 0 },
       { id: 'repairedAt', label: 'Отремонтирован', kind: 'date', render: (e) => fmtDate(engineStatusDate(e, 'status_repaired')), sortValue: (e) => engineStatusDate(e, 'status_repaired') ?? 0 },
       { id: 'scrapAt', label: 'Дата утиля', kind: 'date', render: (e) => fmtDate(engineScrapDate(e)), sortValue: (e) => engineScrapDate(e) ?? 0 },
-      { id: 'sheetNode', label: 'Вид работ (последняя ведомость)', kind: 'name', render: (e) => text(e.lastSheetNode), sortValue: (e) => text(e.lastSheetNode) },
-      { id: 'sheetAt', label: 'Дата ведомости', kind: 'date', render: (e) => fmtDate(e.lastSheetAt), sortValue: (e) => e.lastSheetAt ?? 0 },
+      { id: 'sheetNode', label: 'Последний этап работ', kind: 'name', render: (e) => text(e.lastSheetNode), sortValue: (e) => text(e.lastSheetNode) },
+      { id: 'sheetAt', label: 'Дата этапа работ', kind: 'date', render: (e) => fmtDate(e.lastSheetAt), sortValue: (e) => e.lastSheetAt ?? 0 },
       { id: 'historyAction', label: 'Последнее событие', kind: 'text', render: (e) => text(e.lastHistoryAction), sortValue: (e) => text(e.lastHistoryAction) },
       { id: 'historyAt', label: 'Дата события', kind: 'date', render: (e) => fmtDate(e.lastHistoryAt), sortValue: (e) => e.lastHistoryAt ?? 0 },
     ],

@@ -15,7 +15,7 @@ import { parseWorkSheetFields, type WorkSheetField } from './workSheets.js';
  *    оператор их не правит, иначе история перестанет соответствовать карточке;
  *  - **ручные** — строка, которую оператор завёл сам (дата, действие, цех, причина, примечание
  *    и произвольные поля, которых мы не предусмотрели);
- *  - **строки ведомостей работ** (15.09.2026, `workSheets.ts`) — заводятся с экрана «Ведомости
+ *  - **строки этапов работ** (15.09.2026, `workSheets.ts`) — заводятся с экрана «Этапы
  *    работ» и правятся только там; несут узел и его поля в `sheet`.
  *
  * Классификация — `entryType`: `manual | status | transfer | sheet`. У старых строк поля нет,
@@ -36,10 +36,10 @@ export const REPAIR_HISTORY_ENTRY_TYPE_LABELS: Record<RepairHistoryEntryType, st
   manual: 'Ручная',
   status: 'Стадия',
   transfer: 'Переезд',
-  sheet: 'Ведомость',
+  sheet: 'Этап работ',
 };
 
-/** Строка ведомости работ: узел и его поля — самоописываемо, чтобы читаться без справочника. */
+/** Строка этапа работ: узел и его поля — самоописываемо, чтобы читаться без справочника. */
 export type RepairHistorySheet = {
   typeId: string;
   typeCode: string;
@@ -87,7 +87,7 @@ export type RepairHistoryMeta = {
   auto?: boolean;
   /** Классификация записи; у старых строк отсутствует и выводится (`repairHistoryEntryType`). */
   entryType?: RepairHistoryEntryType;
-  /** Строка ведомости работ. */
+  /** Строка этапа работ. */
   sheet?: RepairHistorySheet;
   /** След этой строки в карточке двигателя — основание для отката при удалении. */
   repairStamp?: RepairStatusStamp;
@@ -213,7 +213,7 @@ function parseEntryType(raw: unknown): RepairHistoryEntryType | null {
 }
 
 /**
- * Классификация записи: явное поле, иначе по признакам. Порядок важен: ведомость узнаётся
+ * Классификация записи: явное поле, иначе по признакам. Порядок важен: этап работ узнаётся
  * по `sheet` даже если кто-то выставил `auto`, переезд — по типу операции.
  */
 export function repairHistoryEntryType(
@@ -373,7 +373,7 @@ export function repairHistoryMetaForStatus(code: StatusCode, at?: number): Repai
   return buildRepairHistoryMeta({ action: STATUS_LABELS[code] ?? code, auto: true, entryType: 'status', ...(at ? { at } : {}) });
 }
 
-/** Последняя строка ведомости в ленте — «на каком узле двигатель» для списка и отчётов. */
+/** Последняя строка этапа работ в ленте — «на каком узле двигатель» для списка и отчётов. */
 export function lastSheetEntry(entries: readonly RepairHistoryEntry[]): RepairHistoryEntry | null {
   for (const entry of entries) {
     if (entry.entryType === 'sheet' && entry.sheet) return entry;

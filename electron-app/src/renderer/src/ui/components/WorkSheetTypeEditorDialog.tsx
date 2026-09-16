@@ -15,7 +15,7 @@ import { Input } from './Input.js';
 import { RowReorderButtons } from './RowReorderButtons.js';
 import { loadWorkSheetTypes } from '../utils/workSheetTypesCache.js';
 
-/** Цех для выпадающих списков ведомостей. Живёт здесь: диалог строки сменился карточкой. */
+/** Цех для выпадающих списков этапов работ. Живёт здесь: диалог строки сменился карточкой. */
 export type WorkshopOption = { id: string; label: string };
 
 type Draft = {
@@ -44,9 +44,9 @@ function draftFrom(t: WorkSheetType | null): Draft {
 }
 
 /**
- * Редактор видов работ: название, цех, «ведомость завершает ремонт» и набор колонок (подпись,
+ * Редактор видов работ: название, цех, «этап работ завершает ремонт» и набор колонок (подпись,
  * тип, обязательность, варианты). Код вида и код колонки после создания заморожены — на них
- * ссылаются ведомости. Новая колонка попадает в фильтры и отчёты сама: ведомость несёт поля с собой.
+ * ссылаются этапы работ. Новая колонка попадает в фильтры и отчёты сама: этап работ несёт поля с собой.
  */
 export function WorkSheetTypeEditorDialog(props: {
   types: WorkSheetType[];
@@ -154,7 +154,7 @@ export function WorkSheetTypeEditorDialog(props: {
 
   const archive = async () => {
     if (!selected) return;
-    if (!window.confirm(`Убрать вид работ «${selected.name}» в архив? Его ведомости в истории останутся.`)) return;
+    if (!window.confirm(`Убрать вид работ «${selected.name}» в архив? Его этапы работ в истории останутся.`)) return;
     setBusy(true);
     try {
       const r = await window.matrica.workSheets.types.archive(selected.id);
@@ -202,7 +202,7 @@ export function WorkSheetTypeEditorDialog(props: {
 
           {archived.length > 0 ? (
             <div style={{ display: 'grid', gap: 6, marginTop: 10 }} data-work-sheet-type-archived>
-              <div className="ui-muted" style={{ fontSize: 12 }}>В архиве — ведомости остались, код занят</div>
+              <div className="ui-muted" style={{ fontSize: 12 }}>В архиве — этапы работ остались, код занят</div>
               {archived.map((t) => (
                 <div key={t.code} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span className="ui-muted" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</span>

@@ -319,7 +319,7 @@ export async function buildEnginesReport(
   const completenessActByEngineId = needCompleteness
     ? await getCompletenessActStartedMap(db).catch(() => new Map<string, boolean>())
     : new Map<string, boolean>();
-  // Узел последней ведомости — тоже скан operations, только для детального разреза.
+  // Узел последнего этапа работ — тоже скан operations, только для детального разреза.
   const needSheet = groupBy === 'engines' && (columnKeys.length === 0 || columnKeys.includes('lastSheetNode') || columnKeys.includes('lastSheetAt'));
   const lastSheetByEngineId = needSheet ? await getLastSheetByEngine(db).catch(() => new Map<string, { node: string; at: number }>()) : new Map<string, { node: string; at: number }>();
 

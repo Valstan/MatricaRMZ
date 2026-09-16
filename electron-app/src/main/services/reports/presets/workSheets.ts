@@ -34,7 +34,7 @@ import {
 import { BRAND_MISSING, UNKNOWN_ENGINE_NUMBER_LABEL, buildCounterpartyOptions, buildOptions, relatedEntityLabel } from '../options.js';
 
 /**
- * Отчёт «Ведомости работ» (15.09.2026): строки всех узлов по дате — те же записи истории
+ * Отчёт «Этапы работ» (15.09.2026): строки всех узлов по дате — те же записи истории
  * ремонта, что видит экран. Колонки = общие ∪ объединение колонок узлов, встретившихся в
  * выборке: новая колонка узла попадает в отчёт сама, потому что строка несёт подписи полей
  * с собой. Подписи человеческие: номер и марка двигателя, имя узла, название цеха.
@@ -81,7 +81,7 @@ export async function buildWorkSheetsReport(
   const workshops = await getWorkshops(ctx);
   const workshopNameById = new Map(workshops.map((w) => [w.id, w.name] as const));
   // Заказчик считается тем же правилом, что и везде в отчётах: заказчик договора важнее
-  // поля карточки. Иначе ведомость назовёт заказчика иначе, чем «Двигатели» рядом.
+  // поля карточки. Иначе этап работ назовёт заказчика иначе, чем «Двигатели» рядом.
   const contractCounterpartyById = buildContractCounterpartyIndex(snapshot);
   const counterpartyLabels = new Map(buildCounterpartyOptions(snapshot).map((o) => [o.value, o.label] as const));
   const contractLabels = new Map(buildOptions(snapshot, 'contract').map((o) => [o.value, o.label] as const));
@@ -192,7 +192,7 @@ export async function buildWorkSheetsReport(
   };
 }
 
-/** Последняя строка ведомости по каждому двигателю — колонки «Узел (последняя ведомость)» отчёта «Двигатели». */
+/** Последняя строка этапа работ по каждому двигателю — колонки «Последний этап работ» и «Дата этапа работ» отчёта «Двигатели». */
 export async function getLastSheetByEngine(db: BetterSQLite3Database): Promise<Map<string, { node: string; at: number }>> {
   const out = new Map<string, { node: string; at: number }>();
   // Этот скан идёт при ОБЫЧНОМ построении отчёта «Двигатели» (needSheet истинен, когда
