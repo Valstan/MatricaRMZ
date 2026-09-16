@@ -99,6 +99,7 @@ export const UI_SEARCH_ENTRIES: UiSearchEntry[] = [
 // результата показывала место, а не только тип.
 export const KIND_PATH: Record<GlobalSearchKind, string> = {
   engine: M('Производство', 'Двигатели'),
+  work_sheet: M('Производство', 'Этапы работ'),
   engine_brand: M('Производство', 'Марки двигателей'),
   nomenclature: M('Склад', 'Номенклатура'),
   contract: M('Договоры и контрагенты', 'Контракты'),

@@ -24,6 +24,8 @@ const CACHE = src('../utils/workSheetTypesCache.ts');
 const REST_ROUTE = src('../../../../../../backend-api/src/routes/workSheetTypes.ts');
 const BACKEND_PERMS = src('../../../../../../backend-api/src/auth/permissions.ts');
 const SYNC_GUARD = src('../../../../../../backend-api/src/services/sync/ledgerAuthzGuard.ts');
+const OVERLAY = src('../components/GlobalSearchOverlay.tsx');
+const GLOBAL_SEARCH = src('../../../../../../shared/src/domain/globalSearch.ts');
 
 describe('этапы работ — экран', () => {
   it('вкладка заведена в реестре разделов, меню и приложении под правом на операции', () => {
@@ -307,5 +309,116 @@ describe('этапы работ — экран', () => {
   it('код узла и код колонки после создания заморожены — на них ссылаются строки', () => {
     expect(TYPE_DIALOG).toContain('Код заморожен');
     expect(TYPE_DIALOG).toContain('workSheetCodeFromName(label)');
+  });
+});
+
+// Ctrl+K (16.09.2026). Строка этапа работ лежит в локальной реплике `operations`: её не видит
+// ни серверный /search (там другое пространство id), ни deep-поиск по `attribute_values`.
+// Отсюда собственный узкий main-поиск на канале раздела «Производство» и своя группа в
+// палитре. Сторожа ниже держат свойства этой развязки, а не её написание: переход по хиту,
+// словарь C1, цену одной буквы, гейт, разбор ответа и невмешательство в чужие ярусы.
+describe('этапы работ — Ctrl+K', () => {
+  // Единственное место C4, не защищённое типами: `navigateToRoute` — цепочка `if` без
+  // never-проверки и с фолбэком «переключить вкладку по id». Забытая ветка собирается и
+  // проходит typecheck, а оператор по клику на хит уезжает на вкладку с uuid вместо карточки.
+  it('переход по хиту знает вид: ветка стоит ДО фолбэка setTab', () => {
+    const branch = APP.indexOf("route.kind === 'work_sheet'");
+    const fallback = APP.indexOf('setTab(route.id as TabId);');
+    expect(branch, 'navigateToRoute не знает вида work_sheet — клик по хиту уйдёт мимо карточки').toBeGreaterThan(0);
+    expect(fallback, 'фолбэк navigateToRoute на месте — относительно него и меряем').toBeGreaterThan(0);
+    expect(branch, 'ветка ниже фолбэка не выполнится никогда: фолбэк возвращает управление первым').toBeLessThan(
+      fallback,
+    );
+    expect(APP, 'хит открывает карточку этапа работ, а не просто меняет вкладку').toContain(
+      "return await openWorkSheet(route.id);",
+    );
+  });
+
+  // Словарь C1: голое «этап» в программе занято тремя другими смыслами (стадия двигателя,
+  // шаг мастера, ступень фильтра). Сторожим свойство — подпись группы называет сущность
+  // целиком, — а не строку: «Этапы работ по двигателям» тест переживёт, «Этапы» нет.
+  it('группа в палитре названа по словарю: «этапы работ», а не голое «Этапы»', () => {
+    const at = GLOBAL_SEARCH.indexOf('const KIND_LABELS');
+    expect(at, 'подписи видов глобального поиска на месте').toBeGreaterThan(0);
+    const block = GLOBAL_SEARCH.slice(at, GLOBAL_SEARCH.indexOf('};', at));
+    const label = /work_sheet: '([^']*)'/.exec(block)?.[1] ?? '';
+    expect(label, 'у вида work_sheet нет подписи — заголовком группы стал бы код вида').not.toBe('');
+    expect(label, 'заголовок группы обязан называть сущность целиком — «этап работ»').toMatch(/этап(ы)? работ/i);
+  });
+
+  // Цена одной буквы. `listWorkSheetRows` поднимает ВСЕ колонки до 20 000 строк (включая
+  // meta_json), разбирает каждую мету и резолвит подписи двигателей по всей выборке вместе с
+  // договорами и контрагентами — тот самый класс расхода, что однажды стоил main секунды на
+  // нажатие. Поиск обязан остаться узким: дешёвая проверка сырого текста ДО разбора меты и
+  // резолв подписей только по совпавшим строкам.
+  it('поиск не читает список целиком: грубый отсев стоит раньше разбора меты', () => {
+    const start = SERVICE.indexOf('export async function searchWorkSheetRows(');
+    expect(start, 'main-поиск этапов работ пропал — палитра осталась без источника').toBeGreaterThan(0);
+    const end = SERVICE.indexOf('\n}\n', start);
+    const fn = SERVICE.slice(start, end > 0 ? end : SERVICE.length);
+    expect(fn, 'поиск через полный список строк вернул бы расход списка на каждую букву').not.toContain(
+      'listWorkSheetRows(',
+    );
+    expect(fn, 'в хите нужен номер двигателя — договоры и контрагенты это три лишних справочника').not.toContain(
+      'withCounterparty',
+    );
+    const rough = fn.search(/raw\w*\.(includes|indexOf|match|search)\(/);
+    const parse = ['parseRepairHistoryMeta(', 'JSON.parse('].reduce((min, needle) => {
+      const i = fn.indexOf(needle);
+      return i >= 0 && i < min ? i : min;
+    }, fn.length);
+    expect(rough, 'грубого отсева по сырой мете нет — значит разбирается каждая из 20 000 строк').toBeGreaterThan(0);
+    expect(rough, 'разбор меты раньше отсева — это полный парс всей выборки на каждую букву').toBeLessThan(parse);
+  });
+
+  // Имя канала здесь — часть гейта, а не косметика: секционный гейт требует раздел
+  // «Производство» по префиксу `workSheets:`, и у префикса `search:` правила нет вовсе.
+  it('канал поиска — под секционным гейтом «Производство» и под правом истории', () => {
+    expect(IPC, 'поиск живёт в namespace этапов работ — по префиксу его и гейтят').toContain(
+      "ipcMain.handle('workSheets:rows:search'",
+    );
+    expect(IPC, 'канал search:* оказался бы вне секционного гейта — палитра стала бы его обходом').not.toContain(
+      "ipcMain.handle('search:",
+    );
+    expect(GATE, 'у префикса search: раздела нет — потому имя канала и держим в namespace этапов работ').not.toContain(
+      "['search:'",
+    );
+    const at = IPC.indexOf("ipcMain.handle('workSheets:rows:search'");
+    const next = IPC.indexOf('ipcMain.handle(', at + 1);
+    const handler = IPC.slice(at, next > 0 ? next : IPC.length);
+    expect(handler, 'чтение этапов работ — право истории операций, и поиск не исключение').toContain(
+      "requirePermOrResult(ctx, 'operations.view')",
+    );
+  });
+
+  // Грабля соседнего яруса: `safeList` в globalSearchSources отдаёт [] на любой не-массив, и
+  // источник, собранный по его образцу, молча давал бы ноль хитов навсегда — форма ответа
+  // канала другая. Эффект обязан разбирать именно её: сначала признак успеха, потом хиты.
+  it('ответ канала разбирается по форме {ok, hits} — молчаливый ноль невозможен', () => {
+    expect(OVERLAY, 'отказ по праву и ошибка гасят группу осознанно, а не мимо разбора ответа').toContain(
+      'setSheetHits(res?.ok ? res.hits : [])',
+    );
+  });
+
+  // Deep-поиск (L2.5) ходит ТОЛЬКО в `attribute_values`, а строка этапа работ лежит в
+  // `operations`. Вид в DEEP_KINDS дал бы ноль попаданий и раздутый список entityIds на каждую
+  // букву — поэтому его там нет намеренно, и это не забытая строка, которую надо «дописать».
+  it('вид не подмешан в deep-поиск по EAV', () => {
+    const at = OVERLAY.indexOf('const DEEP_KINDS');
+    expect(at, 'набор видов deep-поиска на месте').toBeGreaterThan(0);
+    const block = OVERLAY.slice(at, OVERLAY.indexOf('];', at));
+    expect(block, 'этап работ живёт в operations — в EAV искать его нечем, попаданий будет ноль').not.toContain(
+      "'work_sheet'",
+    );
+  });
+
+  // Палитра открывается с пустым запросом, и все соседние наборы хитов на открытии гасятся.
+  // Не сброшенный набор показал бы результат прошлого Ctrl+K под новым пустым вводом.
+  it('хиты этапов работ сбрасываются при открытии палитры', () => {
+    const at = OVERLAY.indexOf('if (!open) return;');
+    const end = OVERLAY.indexOf('}, [open]);', at);
+    expect(at, 'эффект открытия палитры на месте').toBeGreaterThan(0);
+    expect(end, 'эффект открытия палитры замкнут на [open] — в нём и сбрасывают наборы').toBeGreaterThan(at);
+    expect(OVERLAY.slice(at, end), 'повторный Ctrl+K показал бы хиты прошлого запроса').toContain('setSheetHits([]);');
   });
 });

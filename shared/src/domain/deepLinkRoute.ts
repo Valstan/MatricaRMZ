@@ -7,6 +7,9 @@ import type { ChatDeepLinkPayload } from '../ipc/types.js';
 export type DeepLinkRoute =
   | { kind: 'card'; cardKind: string; id: string }
   | { kind: 'engine'; id: string }
+  // Строка этапа работ: в разборе ссылок приложения её нет — сюда попадают только хиты
+  // глобального поиска (`searchHitToRoute`), у которых kind приходит из `GlobalSearchKind`.
+  | { kind: 'work_sheet'; id: string }
   | { kind: 'request'; id: string }
   | { kind: 'tool'; id: string }
   | { kind: 'tool_property'; id: string }

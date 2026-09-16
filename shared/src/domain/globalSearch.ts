@@ -4,6 +4,7 @@
 
 export type GlobalSearchKind =
   | 'engine'
+  | 'work_sheet'
   | 'engine_brand'
   | 'nomenclature'
   | 'contract'
@@ -19,6 +20,7 @@ export type GlobalSearchKind =
 
 export const GLOBAL_SEARCH_KINDS: readonly GlobalSearchKind[] = [
   'engine',
+  'work_sheet',
   'engine_brand',
   'nomenclature',
   'contract',
@@ -49,6 +51,7 @@ export type GlobalSearchResponse = {
 
 const KIND_LABELS: Record<GlobalSearchKind, string> = {
   engine: 'Двигатели',
+  work_sheet: 'Этапы работ',
   engine_brand: 'Марки двигателей',
   nomenclature: 'Детали / номенклатура',
   contract: 'Контракты',

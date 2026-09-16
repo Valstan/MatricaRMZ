@@ -21,6 +21,7 @@ const LEVELS: Array<{ mode: LevelMode; label: string }> = [
 const KIND_ORDER: GlobalSearchKind[] = [
   'nomenclature',
   'engine',
+  'work_sheet',
   'engine_brand',
   'contract',
   'counterparty',
@@ -83,6 +84,7 @@ export function GlobalSearchOverlay(props: {
   const [deepIds, setDeepIds] = useState<Set<string>>(new Set());
   // Двигатели, найденные по НАБИТОМУ на детали номеру (№ на детали) из списка деталей карточки.
   const [stampHits, setStampHits] = useState<GlobalSearchHit[]>([]);
+  const [sheetHits, setSheetHits] = useState<GlobalSearchHit[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -97,6 +99,7 @@ export function GlobalSearchOverlay(props: {
     setServerHits([]);
     setDeepIds(new Set());
     setStampHits([]);
+    setSheetHits([]);
     const focus = window.setTimeout(() => inputRef.current?.focus(), 0);
     let cancelled = false;
     void (async () => {
@@ -202,6 +205,34 @@ export function GlobalSearchOverlay(props: {
     };
   }, [open, mode, query]);
 
+  // Этапы работ: строки живут в локальной реплике `operations`, а не в EAV и не на сервере,
+  // поэтому ни deep card-content, ни серверный /search их не видят — свой main-поиск.
+  useEffect(() => {
+    if (!open || mode === 'page') {
+      setSheetHits([]);
+      return;
+    }
+    const q = query.trim();
+    if (q.length < SERVER_MIN_CHARS) {
+      setSheetHits([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await window.matrica.workSheets.rows.search({ q, limit: 12 });
+        if (!cancelled) setSheetHits(res?.ok ? res.hits : []);
+      } catch {
+        // Нет права или раздела — группы просто не будет, как у серверного поиска.
+        if (!cancelled) setSheetHits([]);
+      }
+    }, DEEP_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [open, mode, query]);
+
   const l2Prepared = useMemo(() => {
     const out: Partial<Record<GlobalSearchKind, PreparedRecordSearch<L2Row>>> = {};
     for (const src of L2_SOURCES) {
@@ -254,6 +285,8 @@ export function GlobalSearchOverlay(props: {
       }
     }
     if (showL3) out.push(...serverHits);
+    // Режим «Эта страница» показывает только строки активного списка — свой поиск туда не лезет.
+    if (mode !== 'page') out.push(...sheetHits);
 
     const seen = new Set<string>();
     return out.filter((h) => {
@@ -262,7 +295,7 @@ export function GlobalSearchOverlay(props: {
       seen.add(key);
       return true;
     });
-  }, [query, mode, scope, l1Prepared, l2Prepared, serverHits]);
+  }, [query, mode, scope, l1Prepared, l2Prepared, serverHits, sheetHits]);
 
   // Deep-only hits: ids matched inside card content that tier-1/2/3 did not surface.
   const deepHits = useMemo<GlobalSearchHit[]>(() => {

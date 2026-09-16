@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
+  HUMAN_LABEL_NO_NUMBER,
+  REPAIR_HISTORY_ENTRY_TYPE_LABELS,
   REPAIR_HISTORY_OPERATION_TYPE,
   STATUS_CODES,
   buildRepairHistoryMeta,
@@ -16,6 +19,7 @@ import {
   sanitizeWorkSheetColumns,
   statusDateCode,
   workSheetFieldsSummary,
+  type GlobalSearchHit,
   type RepairStatusStamp,
   type StatusCode,
   type WorkSheetField,
@@ -23,6 +27,7 @@ import {
   type WorkSheetType,
 } from '@matricarmz/shared';
 
+import { operations } from '../database/schema.js';
 import { advanceEngineStatusForWorkOrder, getEngineDetails, resolveEngineLabels, setEngineAttribute } from './engineService.js';
 import { getOperation, listOperationsByType, softDeleteOperation, upsertOperation } from './operationService.js';
 
@@ -348,4 +353,128 @@ export async function listWorkSheetRows(
     };
   });
   return { rows: rows.sort((a, b) => b.at - a.at || a.id.localeCompare(b.id)), truncated };
+}
+
+/**
+ * Поиск строк этапов работ для Ctrl+K. Отдаёт готовые `GlobalSearchHit` — как единственный
+ * другой main-поиск палитры (`searchEnginesByStampedPartNumber`), чтобы хит не переупаковывать.
+ *
+ * Не через `listWorkSheetRows`: тот берёт ВСЕ колонки до 20 000 строк (включая `meta_json`),
+ * разбирает каждую и резолвит подписи двигателей по всей выборке вместе с договорами и
+ * контрагентами. На каждую букву в палитре это тот же расход, что однажды уже стоил main
+ * секунды на нажатие. Здесь — четыре узкие колонки, фильтр по типу в SQL (индекс
+ * `operations_type_deleted_updated_idx` не поднимает блобы дефектовки), подстрочный префильтр
+ * до `JSON.parse` и резолв подписей только по совпавшим строкам.
+ *
+ * Окна дат нет намеренно: у списка есть тумблер «за всё время», и поиск, слепой к тому, что
+ * список находит, врал бы молча.
+ */
+const WORK_SHEET_SEARCH_MAX_OPS = 20_000;
+
+/** Склейка без разделителей: «2401» находит «240-1», заодно складывает регистр. */
+function compactText(s: string): string {
+  return s.replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
+function formatSearchDate(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return '';
+  const d = new Date(ms);
+  const pad2 = (n: number) => String(n).padStart(2, '0');
+  return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()}`;
+}
+
+export async function searchWorkSheetRows(
+  db: BetterSQLite3Database,
+  args: { q: string; limit?: number },
+): Promise<{ ok: true; hits: GlobalSearchHit[] } | { ok: false; error: string }> {
+  try {
+    const q = String(args.q ?? '').trim();
+    if (!q) return { ok: true, hits: [] };
+    const tokens = q.toLowerCase().split(/\s+/).filter(Boolean);
+    const compactTokens = tokens.map(compactText).filter(Boolean);
+    const limit = Math.min(Math.max(Number(args.limit ?? 12), 1), 50);
+
+    const rows = await db
+      .select({
+        id: operations.id,
+        engineEntityId: operations.engineEntityId,
+        metaJson: operations.metaJson,
+        performedAt: operations.performedAt,
+        updatedAt: operations.updatedAt,
+      })
+      .from(operations)
+      .where(and(eq(operations.operationType, REPAIR_HISTORY_OPERATION_TYPE), isNull(operations.deletedAt)))
+      .orderBy(desc(operations.updatedAt))
+      .limit(WORK_SHEET_SEARCH_MAX_OPS);
+
+    type Picked = { id: string; engineId: string; at: number; typeName: string };
+    const picked: Picked[] = [];
+    for (const r of rows) {
+      const raw = r.metaJson ? String(r.metaJson) : '';
+      if (!raw) continue;
+      // Префильтр по сырой мете — каждый токен обязан в ней встретиться. Он дешёвый, но
+      // грубый: в тексте лежат и uuid, и служебные ключи, поэтому ниже идёт точный матч
+      // по человеческим полям — иначе запрос «sheet» находил бы всё подряд.
+      const rawLower = raw.toLowerCase();
+      const rawCompact = compactText(rawLower);
+      let rough = true;
+      for (let i = 0; i < tokens.length; i += 1) {
+        const t = tokens[i]!;
+        const c = compactTokens[i] ?? '';
+        if (rawLower.includes(t) || (c && rawCompact.includes(c))) continue;
+        rough = false;
+        break;
+      }
+      if (!rough) continue;
+      const meta = parseRepairHistoryMeta(raw);
+      // В ведре `repair_history_entry` лежат ещё ручные записи, стадии и переезды — этап
+      // работ узнаётся по `meta.sheet`, а не по префиксу примечания (у строк от 15.09 там
+      // остался старый словарь, GOTCHAS M136).
+      if (!meta?.sheet) continue;
+      const hay = [meta.sheet.typeName, workSheetFieldsSummary(meta.sheet.fields), meta.note ?? '', meta.workshopName ?? '']
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      const hayCompact = compactText(hay);
+      let hit = true;
+      for (let i = 0; i < tokens.length; i += 1) {
+        const t = tokens[i]!;
+        const c = compactTokens[i] ?? '';
+        if (hay.includes(t) || (c && hayCompact.includes(c))) continue;
+        hit = false;
+        break;
+      }
+      if (!hit) continue;
+      picked.push({
+        id: String(r.id),
+        engineId: String(r.engineEntityId ?? ''),
+        at: meta.at ?? Number(r.performedAt ?? r.updatedAt),
+        typeName: meta.sheet.typeName,
+      });
+      if (picked.length >= limit) break;
+    }
+
+    // Подписи двигателей — только по совпавшим строкам и без договоров с контрагентами:
+    // в хите нужен один номер двигателя.
+    const labels = await resolveEngineLabels(db, picked.map((p) => p.engineId), {});
+    // Порядок сканирования (по времени правки) и порядок показа (по дате этапа) — разные:
+    // строку правят позже, чем она датирована. Сортируем тем же компаратором, что список.
+    const hits: GlobalSearchHit[] = picked
+      .sort((a, b) => b.at - a.at || a.id.localeCompare(b.id))
+      .map((p) => {
+        const engineNumber = labels.get(p.engineId)?.engineNumber?.trim() || HUMAN_LABEL_NO_NUMBER;
+        const date = formatSearchDate(p.at);
+        return {
+          kind: 'work_sheet' as const,
+          id: p.id,
+          // Дословно заголовок вкладки из списка (WorkSheetsPage): открытая из палитры и
+          // открытая из списка карточки обязаны называться одинаково.
+          label: `${p.typeName || REPAIR_HISTORY_ENTRY_TYPE_LABELS.sheet} · ${engineNumber}`,
+          ...(date ? { code: date } : {}),
+        };
+      });
+    return { ok: true, hits };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
 }
