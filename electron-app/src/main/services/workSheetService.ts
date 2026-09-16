@@ -27,7 +27,7 @@ import { advanceEngineStatusForWorkOrder, getEngineDetails, resolveEngineLabels,
 import { getOperation, listOperationsByType, softDeleteOperation, upsertOperation } from './operationService.js';
 
 /**
- * Строки ведомостей работ (владелец 15.09.2026).
+ * Строки этапов работ (владелец 15.09.2026).
  *
  * Строка = запись истории ремонта двигателя (`operations` типа `repair_history_entry` с
  * `meta.sheet`): она сама попадает в карточку, ленту паспорта и ступени списка, дублей нет по
@@ -82,7 +82,7 @@ export async function saveWorkSheetRow(db: BetterSQLite3Database, input: SaveWor
   if (!engineId) return { ok: false, error: 'Укажите двигатель' };
   const typeCode = text(input.type?.code).toLowerCase();
   const typeName = text(input.type?.name) || typeCode;
-  if (!typeCode) return { ok: false, error: 'Не указан узел ведомости' };
+  if (!typeCode) return { ok: false, error: 'Не указан вид работ' };
   const atMs = Number(input.atMs);
   if (!Number.isFinite(atMs) || atMs <= 0) return { ok: false, error: 'Укажите дату строки' };
 
@@ -98,7 +98,7 @@ export async function saveWorkSheetRow(db: BetterSQLite3Database, input: SaveWor
   if (existing) {
     const meta = existingMeta;
     if (!meta || repairHistoryEntryType(meta, existing.operationType) !== 'sheet') {
-      return { ok: false, error: 'Эта запись истории — не строка ведомости, править её здесь нельзя' };
+      return { ok: false, error: 'Эта запись истории — не строка этапа работ, править её здесь нельзя' };
     }
     if (text(existing.engineEntityId) !== engineId) {
       return { ok: false, error: 'Строку нельзя перевесить на другой двигатель — удалите и заведите заново' };
@@ -123,7 +123,7 @@ export async function saveWorkSheetRow(db: BetterSQLite3Database, input: SaveWor
     // откатывать. Сам след правкой не меняется: статус при правке не трогается.
     ...(existingMeta?.repairStamp ? { repairStamp: existingMeta.repairStamp } : {}),
   });
-  const noteLine = [`Ведомость: ${typeName}`, summary, text(input.note)].filter(Boolean).join(' · ');
+  const noteLine = [`Этап работ: ${typeName}`, summary, text(input.note)].filter(Boolean).join(' · ');
 
   const { created } = await upsertOperation(db, {
     id,
@@ -239,7 +239,7 @@ async function rollbackRepairFromSheet(
 }
 
 /**
- * Одна ведомость по id — для её карточки. Читается тем же путём, что и список (те же подписи
+ * Один этап работ по id — для его карточки. Читается тем же путём, что и список (те же подписи
  * двигателя и снимок цеха), чтобы карточка и строка списка не расходились в мелочах.
  */
 export async function getWorkSheetRow(db: BetterSQLite3Database, id: string): Promise<WorkSheetRow | null> {
@@ -282,7 +282,7 @@ export async function deleteWorkSheetRow(
   if (!existing) return { ok: false, error: 'Строка не найдена' };
   const meta = parseRepairHistoryMeta(existing.metaJson ?? null);
   if (!meta || repairHistoryEntryType(meta, existing.operationType) !== 'sheet') {
-    return { ok: false, error: 'Эта запись истории — не строка ведомости' };
+    return { ok: false, error: 'Эта запись истории — не строка этапа работ' };
   }
   let rolled: { applied: boolean; reason?: string } = { applied: false };
   if (opts.rollbackRepair === true && meta.repairStamp) {
@@ -293,7 +293,7 @@ export async function deleteWorkSheetRow(
 }
 
 /**
- * Строки всех ведомостей с подписями двигателей — новые сверху. Имя цеха отдаётся снимком из
+ * Строки всех этапов работ с подписями двигателей — новые сверху. Имя цеха отдаётся снимком из
  * самой строки: рендерер сначала спросит справочник (там свежее) и возьмёт снимок, только если
  * справочник недоступен — прав нет, офлайн, цех деактивирован.
  */

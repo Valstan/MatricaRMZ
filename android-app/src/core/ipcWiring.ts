@@ -95,7 +95,7 @@ export function wireIpcForAndroid(core: AndroidCore): IpcContext {
   registerWorkOrderTemplatesIpc(ctx);
   registerWorkOrderSignatureCaptionsIpc(ctx);
   registerWarehouseLocationsIpc(ctx);
-  // Ведомости работ: плитка на планшете есть с 3.33.0, а домен подключён не был —
+  // Этапы работ: плитка на планшете есть с 3.33.0, а домен подключён не был —
   // вкладка открывалась и молча не работала. Строки живут в локальной реплике
   // (офлайн), справочник узлов — REST, как наряды: «нужна сеть» здесь штатно.
   registerWorkSheetsIpc(ctx);

@@ -7,7 +7,7 @@ import { getLastSheetByEngine } from './workSheets.js';
 
 // Оба скана этого файла ходят по `operations` — таблице, где лежит вся история завода, и
 // самая тяжёлая её колонка `meta_json`. Пока тип строки проверялся в цикле, а не в SQL,
-// отчёт поднимал ВСЕ операции ради нескольких строк ведомостей (класс GOTCHAS M39), причём
+// отчёт поднимал ВСЕ операции ради нескольких строк этапов работ (класс GOTCHAS M39), причём
 // второй скан идёт при обычном построении отчёта «Двигатели», а не только по требованию.
 function src(rel: string): string {
   return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8').replace(/\r\n/g, '\n');
@@ -46,7 +46,7 @@ function stubDb(rows: Array<Record<string, unknown>>) {
   } as any;
 }
 
-describe('отчёт «Ведомости работ» — сканы operations', () => {
+describe('отчёт «Этапы работ» — сканы operations', () => {
   it('тип строки отбирается в SQL, а не в цикле, и колонки проецируются', () => {
     const scans = SRC.split('.from(operations)').length - 1;
     expect(scans, 'сканов operations в файле два — оба обязаны быть узкими').toBe(2);
@@ -71,7 +71,7 @@ describe('getLastSheetByEngine', () => {
     expect(out.get('e2')).toEqual({ node: 'val', at: 3_000 });
   });
 
-  it('запись истории без ведомости в карту не попадает', async () => {
+  it('запись истории без этапа работ в карту не попадает', async () => {
     const rows = [
       { engineEntityId: 'e1', metaJson: JSON.stringify({ kind: 'repair_history', action: 'Смена статуса', at: 7_000 }) },
       { engineEntityId: 'e1', metaJson: null },

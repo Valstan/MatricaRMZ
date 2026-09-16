@@ -16,12 +16,12 @@ import { buildEngineSearchOptions } from '../utils/selectOptions.js';
 import { loadWorkSheetTypes } from '../utils/workSheetTypesCache.js';
 
 /**
- * Карточка ведомости работ (владелец 15.09.2026): «как у нас вся система работает — есть
- * карточки, есть списки карточек». Одна ведомость = одна запись истории ремонта = одна
+ * Карточка этапа работ (владелец 15.09.2026): «как у нас вся система работает — есть
+ * карточки, есть списки карточек». Один этап работ = одна запись истории ремонта = одна
  * карточка; двигатель в ней ровно один.
  *
- * Новая ведомость заводится ТОЙ ЖЕ карточкой: id генерирует список при открытии, а запись
- * появляется только по «Сохранить» — пустых ведомостей в истории ремонта не остаётся.
+ * Новый этап работ заводится ТОЙ ЖЕ карточкой: id генерирует список при открытии, а запись
+ * появляется только по «Сохранить» — пустых этапов работ в истории ремонта не остаётся.
  *
  * Реквизиты двигателя (марка, внутренний номер, заказчик, договор) не вводятся: они приходят
  * из его карточки и показываются справкой — их подставляет номер двигателя.
@@ -98,7 +98,7 @@ export function WorkSheetDetailsPage(props: {
   const type = useMemo(() => types.find((t) => t.code === typeCode) ?? null, [types, typeCode]);
 
   // Вид работ может быть недоступен: клиент офлайн (справочник — REST) или вид заведён в
-  // архив. Правку это пустить под откос не должно — ведомость самоописываема, её поля несут
+  // архив. Правку это пустить под откос не должно — этап работ самоописываем, его поля несут
   // подпись и тип с собой.
   const rowColumns = useMemo<WorkSheetColumn[]>(
     () => (row?.fields ?? []).map((f) => ({ code: f.code, label: f.label || f.code, type: f.type })),
@@ -107,13 +107,13 @@ export function WorkSheetDetailsPage(props: {
   const effectiveType = useMemo(() => {
     if (type) return type;
     if (props.isNew || !row) return null;
-    // completesRepair здесь false намеренно: статус ставится только при СОЗДАНИИ ведомости,
+    // completesRepair здесь false намеренно: статус ставится только при СОЗДАНИИ этапа работ,
     // а это ветка правки — подставлять сюда догадку о чужом виде работ незачем.
     return { id: row.typeId, code: row.typeCode, name: row.typeName, completesRepair: false, columns: rowColumns, workshopId: null };
   }, [type, props.isNew, row, rowColumns]);
   const columns = effectiveType?.columns ?? [];
 
-  // Смена вида работ у НОВОЙ ведомости подставляет его цех; поля чужого вида не переносим.
+  // Смена вида работ у НОВОГО этапа подставляет его цех; поля чужого вида не переносим.
   useEffect(() => {
     if (!props.isNew) return;
     setWorkshopId(type?.workshopId ?? '');
@@ -125,8 +125,8 @@ export function WorkSheetDetailsPage(props: {
   /**
    * Справка по двигателю — то, что владелец назвал «взаимно помогающим»: ввели номер (или
    * внутренний номер — он же ищется тем же полем), и марка, внутренний номер, заказчик и
-   * договор подставляются сами. Для сохранённой ведомости берём её же посчитанные реквизиты,
-   * для новой — каталог двигателей, уже загруженный приложением.
+   * договор подставляются сами. Для сохранённого этапа работ берём его же посчитанные реквизиты,
+   * для нового — каталог двигателей, уже загруженный приложением.
    */
   const engineFacts = useMemo(() => {
     if (row && row.engineId === engineId) {
@@ -167,7 +167,7 @@ export function WorkSheetDetailsPage(props: {
           },
           atMs,
           workshopId: workshopId || null,
-          // Имя цеха — снимком в ведомость: без него читатель без прав на справочник видит uuid.
+          // Имя цеха — снимком в этап работ: без него читатель без прав на справочник видит uuid.
           workshopName: props.workshops.find((w) => w.id === workshopId)?.label ?? null,
           note: note.trim() || null,
           values,
@@ -196,10 +196,10 @@ export function WorkSheetDetailsPage(props: {
 
   const remove = async () => {
     if (props.isNew || !row) return;
-    if (!window.confirm(`Удалить ведомость «${row.typeName}» от ${formatWorkSheetValue({ type: 'date', value: row.at })}?`)) return;
-    // Второй вопрос — только если откатывать ЕСТЬ ЧТО: статус поставила эта ведомость.
+    if (!window.confirm(`Удалить этап работ «${row.typeName}» от ${formatWorkSheetValue({ type: 'date', value: row.at })}?`)) return;
+    // Второй вопрос — только если откатывать ЕСТЬ ЧТО: статус поставил этот этап работ.
     const rollbackRepair =
-      row.repairStamped && window.confirm('Эта ведомость поставила двигателю «Отремонтирован». Снять отметку вместе с ней?');
+      row.repairStamped && window.confirm('Этот этап работ поставил двигателю «Отремонтирован». Снять отметку вместе с ним?');
     setBusy(true);
     try {
       const r = await window.matrica.workSheets.rows.delete(row.id, { rollbackRepair });
@@ -231,8 +231,8 @@ export function WorkSheetDetailsPage(props: {
         dirtyRef.current = false;
         props.onClose();
       },
-      // Копии ведомости нет и не планируется: она привязана к одному двигателю и одной дате,
-      // а «копия» такой записи — это новая ведомость, которую заводят кнопкой в списке.
+      // Копии этапа работ нет и не планируется: он привязан к одному двигателю и одной дате,
+      // а «копия» такой записи — это новый этап работ, который заводят кнопкой в списке.
       copyToNew: async () => {},
     });
     return () => {
@@ -249,8 +249,8 @@ export function WorkSheetDetailsPage(props: {
   const fact = (text: string) => <span style={{ fontSize: 13 }}>{text || '—'}</span>;
 
   const title = props.isNew
-    ? 'Новая ведомость'
-    : `Ведомость «${row?.typeName ?? effectiveType?.name ?? ''}»${row?.engineNumber ? ` · ${row.engineNumber}` : ''}`;
+    ? 'Новый этап работ'
+    : `Этап работ «${row?.typeName ?? effectiveType?.name ?? ''}»${row?.engineNumber ? ` · ${row.engineNumber}` : ''}`;
 
   return (
     <EntityCardShell
@@ -264,7 +264,7 @@ export function WorkSheetDetailsPage(props: {
           {...(props.canEdit ? { onSave: () => void save() } : {})}
           {...(props.canEdit ? { onSaveAndClose: () => void save({ close: true }) } : {})}
           {...(props.canEdit ? { onReset: () => void load() } : {})}
-          {...(props.canEdit && !props.isNew ? { onDelete: () => void remove(), deleteLabel: 'Удалить ведомость', deleteSkipBuiltInConfirm: true } : {})}
+          {...(props.canEdit && !props.isNew ? { onDelete: () => void remove(), deleteLabel: 'Удалить этап работ', deleteSkipBuiltInConfirm: true } : {})}
           onClose={props.onClose}
         />
       }
@@ -380,7 +380,7 @@ export function WorkSheetDetailsPage(props: {
             <>
               <span />
               <span className="ui-muted" style={{ fontSize: 12 }} data-work-sheet-completes-hint>
-                Ведомость «{type.name}» завершает ремонт: в карточке двигателя встанет «Отремонтирован» датой ведомости.
+                Этап работ «{type.name}» завершает ремонт: в карточке двигателя встанет «Отремонтирован» датой этапа работ.
               </span>
             </>
           ) : null}

@@ -216,7 +216,7 @@ export const MENU_TAB_LABELS: Record<MenuTabId, string> = {
   contracts: 'Контракты',
   changes: 'Изменения',
   engines: 'Двигатели',
-  work_sheets: 'Ведомости работ',
+  work_sheets: 'Этапы работ',
   assembly_forecast: 'Прогноз сборки',
   engine_brands: 'Марки двигателей',
   engine_brand_groups: 'Группы марок',

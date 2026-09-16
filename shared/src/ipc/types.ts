@@ -80,10 +80,10 @@ export type EngineListItem = {
   /** Последнее событие истории ремонта — «что с двигателем происходило» для ступени списка. */
   lastHistoryAction?: string;
   lastHistoryAt?: number;
-  /** Узел последней строки ведомости работ (укладка / обкатка / …) и её дата — «где двигатель по ведомостям». */
+  /** Узел последней строки этапа работ (укладка / обкатка / …) и её дата — «где двигатель по этапам работ». */
   lastSheetNode?: string;
   lastSheetAt?: number;
-  /** Код вида работ последней ведомости — заморожен, по нему этап на заводе узнаёт вид точнее имени. */
+  /** Код вида работ последнего этапа работ — заморожен: по нему «Этап на заводе» узнаёт вид точнее имени. */
   lastSheetTypeCode?: string;
   isReclamation?: boolean;
   isRepeatArrival?: boolean;
@@ -2087,7 +2087,7 @@ export type MatricaApi = {
     };
     current: (nomenclatureId: string) => Promise<{ ok: true; row: ServicePriceHistoryDto | null } | { ok: false; error: string }>;
   };
-  /** Ведомости работ: узлы — REST-справочник сервера; строки — записи истории ремонта (`operations`). */
+  /** Этапы работ: узлы — REST-справочник сервера; строки — записи истории ремонта (`operations`). */
   workSheets: {
     types: {
       list: (args?: { includeArchived?: boolean }) => Promise<{ ok: true; rows: WorkSheetType[] } | { ok: false; error: string }>;
@@ -2111,9 +2111,9 @@ export type MatricaApi = {
         sinceMs?: number | null;
         typeCode?: string | null;
       }) => Promise<{ ok: true; rows: WorkSheetRow[]; truncated?: boolean } | { ok: false; error: string }>;
-      /** Одна ведомость по id — для её карточки. */
+      /** Один этап работ по id — для его карточки. */
       get: (id: string) => Promise<{ ok: true; row: WorkSheetRow } | { ok: false; error: string }>;
-      /** id ведомости генерирует клиент; правка приходит с тем же id (upsert). */
+      /** id этапа работ генерирует клиент; правка приходит с тем же id (upsert). */
       save: (args: {
         id: string;
         engineId: string;

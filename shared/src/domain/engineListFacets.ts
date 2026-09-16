@@ -228,27 +228,27 @@ export function engineFacets(types?: readonly EngineFactoryStageTypeRef[]): read
     {
       kind: 'values',
       id: 'sheetNode',
-      // Вид работ последней ведомости — «на каком участке двигатель»: укладка, вал,
+      // Вид работ последнего этапа — «на каком участке двигатель»: укладка, вал,
       // обкатка, сборка. Отдельно от «последнего события», потому что ручные записи и стадии
-      // перебивали бы узел, а вопрос диспетчера — именно про ведомости.
-      label: 'Вид работ (последняя ведомость)',
+      // перебивали бы узел, а вопрос диспетчера — именно про этапы работ.
+      label: 'Последний этап работ',
       valueOf: (e) => {
         const node = text(e.lastSheetNode);
-        return node ? { value: node.toLowerCase(), label: node } : { value: 'none', label: 'ведомостей нет' };
+        return node ? { value: node.toLowerCase(), label: node } : { value: 'none', label: 'этапов работ нет' };
       },
-      options: [...sheetTypes.map((s) => ({ value: s.label.toLowerCase(), label: s.label })), { value: 'none', label: 'ведомостей нет' }],
+      options: [...sheetTypes.map((s) => ({ value: s.label.toLowerCase(), label: s.label })), { value: 'none', label: 'этапов работ нет' }],
     },
     {
       kind: 'dateRange',
       id: 'sheetDate',
-      label: 'Дата ведомости',
+      label: 'Дата этапа работ',
       dateOf: (e) => dateMs(e.lastSheetAt),
     },
     {
       kind: 'values',
       id: 'factoryStage',
-      // «Этап на заводе» — один ответ из карточки и ведомостей разом (`engineFactoryStage`):
-      // побеждает поздний признак. Справочник нужен и здесь: ключ ведомости без кода (старые
+      // «Этап на заводе» — один ответ из карточки и этапов работ разом (`engineFactoryStage`):
+      // побеждает поздний признак. Справочник нужен и здесь: ключ этапа работ без кода (старые
       // строки) сходится с ключом отчёта только через него, а полный ряд этапов — из него же.
       label: 'Этап на заводе',
       valueOf: (e) => {

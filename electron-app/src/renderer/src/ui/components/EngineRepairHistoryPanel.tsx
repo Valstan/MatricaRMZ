@@ -32,7 +32,7 @@ export function EngineRepairHistoryPanel(props: {
   /** Перерисовать карточку после записи — история влияет на строку списка (цех, действие). */
   onChanged?: () => void;
   /**
-   * Открыть карточку ведомости, породившей запись. Запись ведомости правится не здесь, и
+   * Открыть карточку этапа работ, породившего запись. Запись этапа работ правится не здесь, и
    * до появления карточки оператору оставалось только идти искать её в списке руками.
    */
   onOpenWorkSheet?: (id: string, title?: string) => void;
@@ -224,12 +224,12 @@ export function EngineRepairHistoryPanel(props: {
                   <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }}>{formatMoscowDate(new Date(entry.at))}</td>
                   <td style={{ padding: '4px 6px' }}>
                     {/* Класс записи виден сразу: ручную правит оператор, стадию и переезд пишет
-                        программа, строка ведомости правится только на экране «Ведомости работ». */}
+                        программа, строка этапа работ правится только на экране «Этапы работ». */}
                     {entry.entryType === 'sheet' && entry.sheet && props.onOpenWorkSheet ? (
                       <button
                         type="button"
                         className="ui-muted"
-                        title="Открыть карточку ведомости"
+                        title="Открыть карточку этапа работ"
                         data-repair-history-open-sheet={entry.id}
                         onClick={() => props.onOpenWorkSheet?.(entry.id, entry.sheet?.typeName)}
                         style={{
@@ -249,7 +249,7 @@ export function EngineRepairHistoryPanel(props: {
                     ) : (
                       <span
                         className="ui-muted"
-                        title={entry.entryType === 'sheet' ? 'Правится в «Ведомостях работ»' : undefined}
+                        title={entry.entryType === 'sheet' ? 'Правится в «Этапах работ»' : undefined}
                         style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 4, padding: '0 4px', marginRight: 6, whiteSpace: 'nowrap' }}
                       >
                         {entry.entryType === 'sheet' && entry.sheet

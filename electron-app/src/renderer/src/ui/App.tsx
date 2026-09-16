@@ -524,7 +524,7 @@ function appTabTitle(tab: string): string {
   const labels: Record<string, string> = {
     history: 'История',
     engines: 'Двигатели',
-    work_sheets: 'Ведомости работ',
+    work_sheets: 'Этапы работ',
     assembly_forecast: 'Прогноз сборки',
     engine: 'Карточка двигателя',
     engine_brands: 'Марки двигателей',
@@ -591,7 +591,7 @@ const MENU_LABELS: Record<MenuTabId, string> = {
   contracts: 'Контракты',
   changes: 'Изменения',
   engines: 'Двигатели',
-  work_sheets: 'Ведомости работ',
+  work_sheets: 'Этапы работ',
   assembly_forecast: 'Прогноз сборки',
   engine_brands: 'Марки двигателей',
   engine_brand_groups: 'Группы марок',
@@ -802,8 +802,8 @@ export function App() {
   const [selectedWorkSheetId, setSelectedWorkSheetId] = useState<string | null>(null);
   const [workSheetIsNew, setWorkSheetIsNew] = useState(false);
   const [workSheetInitialType, setWorkSheetInitialType] = useState<string | null>(null);
-  // Заголовок вкладки ведомости: id в шапке читается как мусор, а имени ведомости у
-  // приложения нет — его знает только список, который её открыл. Он же его и кладёт.
+  // Заголовок вкладки этапа работ: id в шапке читается как мусор, а имени у
+  // приложения нет — его знает только список, который открыл этот этап. Он же имя и кладёт.
   const workSheetTitleRef = useRef(new Map<string, string>());
   const [workSheetWorkshops, setWorkSheetWorkshops] = useState<Array<{ id: string; label: string }>>([]);
   const [selectedEngineId, setSelectedEngineId] = useState<string | null>(null);
@@ -2219,8 +2219,8 @@ export function App() {
     return () => window.removeEventListener('matrica:custom-reports-changed', onChange);
   }, []);
 
-  // Ведомость сохранена/удалена → каталог двигателей приложения обязан перечитаться:
-  // «Этап на заводе» в списке «Двигатели» и в отчёте считается по последней ведомости, а
+  // Этап работ сохранён/удалён → каталог двигателей приложения обязан перечитаться:
+  // «Этап на заводе» в списке «Двигатели» и в отчёте считается по последнему этапу работ, а
   // без этого он менялся только после захода на вкладку «Двигатели» (стенд, 15.09.2026).
   useEffect(() => {
     function onEnginesChanged() {
@@ -2758,7 +2758,7 @@ export function App() {
     ...(authStatus.loggedIn ? (['user_screens'] as const) : []),
     ...(caps.canViewMasterData ? (['contracts'] as const) : []),
     ...(caps.canViewEngines ? (['engines'] as const) : []),
-    // Ведомости работ — строки истории ремонта, право то же, что у истории.
+    // Этапы работ — строки истории ремонта, право то же, что у истории.
     ...(caps.canViewOperations ? (['work_sheets'] as const) : []),
     ...(caps.canViewReports ? (['assembly_forecast'] as const) : []),
     ...(caps.canViewMasterData ? (['engine_brands'] as const) : []),
@@ -3381,8 +3381,8 @@ export function App() {
   }
 
   /**
-   * Карточка ведомости. `isNew` — заводим новую: id уже сгенерирован списком, но записи
-   * ещё нет, и она появится только по «Сохранить» (пустых ведомостей в истории не остаётся).
+   * Карточка этапа работ. `isNew` — заводим новый: id уже сгенерирован списком, но записи
+   * ещё нет, и она появится только по «Сохранить» (пустых этапов работ в истории не остаётся).
    */
   async function openWorkSheet(id: string, opts?: { isNew?: boolean; typeCode?: string | null; title?: string }) {
     if (opts?.title) workSheetTitleRef.current.set(id, opts.title);
@@ -3683,7 +3683,7 @@ export function App() {
     }
     if (kind === 'work_sheet') {
       const known = workSheetTitleRef.current.get(entityId);
-      return known ? `📒 ${known}` : '📒 Ведомость';
+      return known ? `📒 ${known}` : '📒 Этап работ';
     }
     if (kind === 'report_preset') {
       const p = REPORT_PRESET_DEFINITIONS.find((x) => String(x.id) === entityId);
@@ -3751,7 +3751,7 @@ export function App() {
   function reopenV2Card(kind: TabId, entityId: string) {
     switch (kind) {
       case 'engine': return void openEngine(entityId);
-      // Восстановленная из сессии ведомость открывается как существующая: черновик новой
+      // Восстановленный из сессии этап работ открывается как существующий: черновик нового
       // нигде не сохранён, и делать вид, что он пережил перезапуск, было бы обманом.
       case 'work_sheet': return void openWorkSheet(entityId);
       case 'engine_brand': return void openEngineBrand(entityId);
@@ -4221,7 +4221,7 @@ export function App() {
       counterparty: 'Карточка контрагента',
       changes: 'Изменения',
       engines: 'Двигатели',
-      work_sheets: 'Ведомости работ',
+      work_sheets: 'Этапы работ',
       engine_brands: 'Марки двигателей',
       engine_brand: 'Карточка марки двигателя',
       engine: 'Карточка двигателя',
@@ -5454,7 +5454,7 @@ export function App() {
           />
         )}
         {t === 'work_sheet' && !selectedWorkSheetId && (
-          <div style={{ color: 'var(--muted)' }}>Выберите ведомость из списка.</div>
+          <div style={{ color: 'var(--muted)' }}>Выберите этап работ из списка.</div>
         )}
         {t === 'engines' && (
           <EnginesPage

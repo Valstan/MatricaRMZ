@@ -33,10 +33,10 @@ describe('defaultPermissionsForRole — pending lockout (security-hardening C1)'
   });
 });
 
-// Ведомости работ заполняет и ведёт поимённый круг (владелец 15.09.2026): роль этих прав
+// Этапы работ заполняет и ведёт поимённый круг (владелец 15.09.2026): роль этих прав
 // не даёт даже admin'у и легаси `user` — иначе «снять у всех» не держалось бы на первом
 // же новом администраторе. Выдаются персональным override'ом в админке.
-describe('defaultPermissionsForRole — права на ведомости работ выдаются поимённо', () => {
+describe('defaultPermissionsForRole — права на этапы работ выдаются поимённо', () => {
   it('admin и легаси user не получают их от роли, остальное у admin на месте', () => {
     for (const role of ['admin', 'user']) {
       const perms = defaultPermissionsForRole(role);

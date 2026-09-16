@@ -18,8 +18,8 @@ function toResult<T>(r: { ok: boolean; status: number; json?: unknown; text?: st
 }
 
 /**
- * Узлы ведомостей работ (справочник видов ведомостей) живут только на сервере — REST
- * `/work-sheet-types`, как приказы о ценах. Строки ведомостей — записи истории ремонта в
+ * Виды работ — серверный справочник этапов работ: живут только на сервере, REST
+ * `/work-sheet-types`, как приказы о ценах. Строки этапов работ — записи истории ремонта в
  * `operations`, они синхронизируются обычным путём (см. `workSheetService`, PR-B3).
  * Читать — `operations.view` (то же право, что у истории, входит в базу оператора).
  * Писать — два отдельных поимённых права (решение владельца 15.09.2026): строки —
@@ -80,7 +80,7 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
   });
   // Строки — записи истории ремонта в локальной реплике: читаются и пишутся без сервера,
   // уезжают обычным синком. Чтение — `operations.view`, запись — `work_sheets.edit` (см. шапку);
-  // серверный гейт синка требует то же право для строк ведомостей (`ledgerAuthz`).
+  // серверный гейт синка требует то же право для строк этапов работ (`ledgerAuthz`).
   ipcMain.handle('workSheets:rows:list', async (_e, args?: { sinceMs?: number | null; typeCode?: string | null }) => {
     const gate = await requirePermOrResult(ctx, 'operations.view');
     if (!gate.ok) return gate as Err;
@@ -96,7 +96,7 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
     if (!gate.ok) return gate as Err;
     try {
       const row = await getWorkSheetRow(ctx.dataDb(), id);
-      return row ? { ok: true as const, row } : { ok: false as const, error: 'Ведомость не найдена' };
+      return row ? { ok: true as const, row } : { ok: false as const, error: 'Этап работ не найден' };
     } catch (e) {
       return { ok: false as const, error: String(e) };
     }

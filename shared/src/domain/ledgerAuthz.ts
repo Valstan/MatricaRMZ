@@ -184,8 +184,8 @@ const TABLE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
 };
 
 /**
- * Строка ведомости работ в батче синка: `operations` типа `repair_history_entry`, чья meta
- * классифицируется как `sheet`. Ведомости заполняет поимённый круг (`work_sheets.edit`),
+ * Строка этапа работ в батче синка: `operations` типа `repair_history_entry`, чья meta
+ * классифицируется как `sheet`. Этапы работ заполняет поимённый круг (`work_sheets.edit`),
  * а `operations.edit` есть у мастеров — поэтому у этих строк своё требование, и гейд
  * применяет его КО ВСЕМ ролям, кроме суперадмина (в отличие от прочих requirement'ов,
  * которые admin / легаси `user` обходят).
@@ -214,7 +214,7 @@ export function ledgerWriteRequirement(args: {
   entityTypeCode?: string | null;
   operationType?: string | null;
   /**
-   * `meta_json` строки operations. Строка ведомости работ — та же запись истории ремонта
+   * `meta_json` строки operations. Строка этапа работ — та же запись истории ремонта
    * (`repair_history_entry`), что и ручная запись мастера; отличает их только meta
    * (`entryType: 'sheet'` / `sheet`). Без meta (легаси-очередь) — прежний фолбэк.
    */

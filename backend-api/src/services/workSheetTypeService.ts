@@ -19,7 +19,7 @@ type Err = { ok: false; error: string };
 type Result<T> = Ok<T> | Err;
 
 /**
- * Справочник узлов ведомостей работ (владелец 15.09.2026). Живёт только на сервере, как шаблоны
+ * Справочник видов работ для этапов (владелец 15.09.2026). Живёт только на сервере, как шаблоны
  * нарядов: клиент ходит по REST и держит последний удачный список в кэше. Набор колонок
  * принимается через общий санитайзер — единственную точку, где форма колонок определена.
  */
@@ -111,7 +111,7 @@ async function columnTypesInUse(typeId: string, typeCode: string): Promise<Map<s
 
 /**
  * Создать или обновить узел. Код у существующего узла не меняется (на него ссылаются строки
- * ведомостей через `sheet.typeCode`); у нового — из тела либо из названия.
+ * этапов работ через `sheet.typeCode`); у нового — из тела либо из названия.
  */
 export async function upsertWorkSheetType(input: UpsertWorkSheetTypeInput): Promise<Result<{ row: WorkSheetType }>> {
   const name = text(input.name).slice(0, 120);
@@ -211,7 +211,7 @@ export async function upsertWorkSheetType(input: UpsertWorkSheetTypeInput): Prom
   }
 }
 
-/** Архив, не удаление: строки ведомостей ссылаются на узел и обязаны читаться дальше. */
+/** Архив, не удаление: строки этапов работ ссылаются на узел и обязаны читаться дальше. */
 export async function archiveWorkSheetType(id: string, actor?: string | null): Promise<Result<{ id: string }>> {
   const key = text(id);
   if (!key) return { ok: false, error: 'id обязателен' };

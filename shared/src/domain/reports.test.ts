@@ -9,7 +9,7 @@ import {
   reportThemeCounts,
 } from './reports.js';
 
-describe('отчёт «Ведомости работ»', () => {
+describe('отчёт «Этапы работ»', () => {
   it('узлы выбираются из справочника, а не набираются кодами руками', () => {
     const found = REPORT_PRESET_DEFINITIONS.find((p) => p.id === 'work_sheets');
     expect(found, 'пресет на месте').toBeTruthy();

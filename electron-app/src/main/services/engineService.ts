@@ -496,7 +496,7 @@ export async function resolveEngineLabels(
   }
   if (defIdByCode.size === 0) return out;
 
-  // Чанкуем под 999-парамный кап SQLite на планшете: ведомостей за год может быть
+  // Чанкуем под 999-парамный кап SQLite на планшете: этапов работ за год может быть
   // больше тысячи, и одним `IN` этот запрос там просто упал бы.
   const rows = await collectChunked(ids, (idsChunk) =>
     db
@@ -539,7 +539,7 @@ export async function resolveEngineLabels(
     const yearRaw = bag[ENGINE_INTERNAL_NUMBER_YEAR_CODE];
     const year = yearRaw != null ? Number(yearRaw) : Number.NaN;
     // Заказчик двигателя считается ЕДИНЫМ правилом проекта: заказчик договора важнее
-    // поля карточки (`resolveEngineCustomer`) — иначе в ведомости и в отчётах он разный.
+    // поля карточки (`resolveEngineCustomer`) — иначе в этапе работ и в отчётах он разный.
     const contractId = (bag['contract_id'] ?? '').trim();
     const customer = opts.withCounterparty
       ? resolveEngineCustomer({ contractId, customerId: (bag['customer_id'] ?? '').trim() }, contractCustomerById)

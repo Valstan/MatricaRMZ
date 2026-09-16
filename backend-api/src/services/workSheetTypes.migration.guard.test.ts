@@ -6,12 +6,12 @@ import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_WORK_SHEET_TYPES } from '@matricarmz/shared';
 
-// Узлы ведомостей (15.09.2026): таблица вне синка, поэтому ни один гейт контракта её не видит.
+// Узлы этапов работ (15.09.2026): таблица вне синка, поэтому ни один гейт контракта её не видит.
 // Сторож держит то, что молчало бы: миграция есть, числится в журнале, а сид узлов по умолчанию
 // совпадает с DEFAULT_WORK_SHEET_TYPES — иначе стенд и прод разойдутся в id, на которые ссылаются строки.
 const drizzleDir = fileURLToPath(new URL('../../drizzle/', import.meta.url));
 
-describe('миграция узлов ведомостей работ', () => {
+describe('миграция узлов этапов работ', () => {
   const file = readdirSync(drizzleDir).find((f) => f.endsWith('_work_sheet_types.sql'));
   const sql = file ? readFileSync(join(drizzleDir, file), 'utf8').replace(/\r\n/g, '\n') : '';
 

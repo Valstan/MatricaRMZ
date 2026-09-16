@@ -40,7 +40,7 @@ import { formatMoscowDate } from '../utils/dateUtils.js';
 import { isAndroidPlatform } from '../platform.js';
 
 /**
- * Ведомости работ — ОДИН список, как двигатели и контракты (владелец 15.09.2026).
+ * Этапы работ — ОДИН список, как двигатели и контракты (владелец 15.09.2026).
  *
  * Вкладок по видам работ больше нет: они разрезали экран на копии одного и того же списка,
  * каждая со своим тулбаром, своими ступенями и своей раскладкой колонок, — а отобрать одно
@@ -53,9 +53,9 @@ import { isAndroidPlatform } from '../platform.js';
  * Строки живут записями истории ремонта (`operations`, см. `workSheetService`), справочник
  * видов работ — серверный REST.
  *
- * Новая ведомость заводится ПРЯМО В СПИСКЕ (владелец 15.09.2026, вечер): «Добавить»
+ * Новый этап работ заводится ПРЯМО В СПИСКЕ (владелец 15.09.2026, вечер): «Добавить»
  * вставляет черновую строку сверху с редакторами в ячейках — двигатель, вид работ, дата,
- * цех, поля вида, примечание — и она уходит в историю по Enter / «Сохранить». Отдельное
+ * цех, поля вида, примечание — и он уходит в историю по Enter / «Сохранить». Отдельное
  * окно с вертикальной формой «иногда не совсем удобно». Черновик — индекс 0 той же
  * виртуальной таблицы, а не вторая таблица сверху: ширины колонок меряются по одной
  * таблице (`useAdaptiveListTables`), две разъехались бы. Правка сохранённой строки —
@@ -93,7 +93,7 @@ type ListUiState = {
 
 const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
-/** Ступень вида работ: по ней же берётся предвыбор для новой ведомости. */
+/** Ступень вида работ: по ней же берётся предвыбор для нового этапа работ. */
 const TYPE_FACET_ID = 'type';
 
 // Огрызок uuid здесь стоял как «хоть как-то опознать строку» — ровно то, что запрещает
@@ -120,7 +120,7 @@ export function WorkSheetsPage(props: {
   /** Каталог двигателей приложения — для выбора двигателя в черновой строке и его справки. */
   engines: EngineListItem[];
   onOpenEngine: (id: string) => void;
-  /** Открыть карточку ведомости. Новая заводится тем же путём: id генерирует список. */
+  /** Открыть карточку этапа работ. Новый заводится тем же путём: id генерирует список. */
   onOpenSheet: (id: string, opts?: { isNew?: boolean; typeCode?: string | null; title?: string }) => void;
   /** Справочник цехов нужен и карточке — грузим один раз здесь и отдаём наверх. */
   onWorkshopsLoaded?: (rows: WorkshopOption[]) => void;
@@ -197,7 +197,7 @@ export function WorkSheetsPage(props: {
   const workshopFromDirectory = useCallback((id: string) => workshops.find((w) => w.id === id)?.label ?? '', [workshops]);
 
   /**
-   * Вид работ для НОВОЙ ведомости: тот, что выбран в фильтре. Мастер отобрал обкатку и жмёт
+   * Вид работ для НОВОГО этапа: тот, что выбран в фильтре. Мастер отобрал обкатку и жмёт
    * «Добавить» — он заводит обкатку, а не то, что стоит первым в справочнике. Выбрано
    * несколько — берём первый отобранный; не выбрано ничего — решает диалог (первый вид).
    */
@@ -207,8 +207,8 @@ export function WorkSheetsPage(props: {
     return first && types.some((t) => t.code === first) ? first : null;
   }, [ui.facets, types]);
 
-  // id новой ведомости генерирует список; запись появляется только по «Сохранить» —
-  // пустых ведомостей в истории ремонта не остаётся. Черновик один: второй «Добавить»
+  // id нового этапа работ генерирует список; запись появляется только по «Сохранить» —
+  // пустых этапов работ в истории ремонта не остаётся. Черновик один: второй «Добавить»
   // при открытом черновике кнопка не даёт.
   const openNewRow = () => {
     const typeCode = initialTypeCode ?? types[0]?.code ?? '';
@@ -279,8 +279,8 @@ export function WorkSheetsPage(props: {
       await refreshRows();
       setStatus(
         r.repair?.applied
-          ? `Ведомость «${draftType.name}» сохранена; двигателю поставлен «Отремонтирован» датой ведомости`
-          : `Ведомость «${draftType.name}» сохранена`,
+          ? `Этап работ «${draftType.name}» сохранён; двигателю поставлен «Отремонтирован» датой этапа работ`
+          : `Этап работ «${draftType.name}» сохранён`,
       );
     } catch (e) {
       patchDraft({ busy: false, error: `Ошибка: ${String(e)}` });
@@ -313,7 +313,7 @@ export function WorkSheetsPage(props: {
       },
       { id: 'workshop', label: 'Цех', kind: 'name', render: (r) => workshopLabel(r, workshopFromDirectory), sortValue: (r) => workshopLabel(r, workshopFromDirectory) },
       // Поля вида работ — одной сводной колонкой: у каждого вида свой набор, и разворачивать
-      // их в общем списке значило бы плодить пустые колонки. Сами поля — в строке ведомости.
+      // их в общем списке значило бы плодить пустые колонки. Сами поля — в строке этапа работ.
       { id: 'fields', label: 'Поля', kind: 'text', render: (r) => workSheetFieldsSummary(r.fields) },
       { id: 'performedBy', label: 'Кто', kind: 'name', render: (r) => r.performedBy, sortValue: (r) => r.performedBy },
       { id: 'note', label: 'Примечание', kind: 'text', render: (r) => r.note },
@@ -392,7 +392,7 @@ export function WorkSheetsPage(props: {
   );
   const rowProps = (r: WorkSheetRow): VirtualTableRowProps => ({
     onClick: () => void openRow(r),
-    title: props.canEdit ? 'Открыть строку ведомости' : 'Открыть карточку двигателя',
+    title: props.canEdit ? 'Открыть строку этапа работ' : 'Открыть карточку двигателя',
     style: { cursor: 'pointer' },
     'data-work-sheet-row': r.id,
   });
@@ -463,7 +463,7 @@ export function WorkSheetsPage(props: {
             ))}
             {draftType?.completesRepair ? (
               <span className="ui-muted" style={{ fontSize: 12 }} data-work-sheet-completes-hint>
-                Завершает ремонт: двигателю встанет «Отремонтирован» датой ведомости
+                Завершает ремонт: двигателю встанет «Отремонтирован» датой этапа работ
               </span>
             ) : null}
           </div>
@@ -483,7 +483,7 @@ export function WorkSheetsPage(props: {
       ))}
       <td className="list-col-filler" style={{ ...draftCellStyle, whiteSpace: 'nowrap' }}>
         <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-          <Button size="sm" disabled={d.busy} onClick={() => void saveDraft()} title="Сохранить ведомость (Enter)" data-work-sheet-draft-save>
+          <Button size="sm" disabled={d.busy} onClick={() => void saveDraft()} title="Сохранить этап работ (Enter)" data-work-sheet-draft-save>
             {d.busy ? 'Сохраняю…' : 'Сохранить'}
           </Button>
           <Button size="sm" variant="ghost" disabled={d.busy} onClick={cancelDraft} title="Убрать черновик (Esc)" data-work-sheet-draft-cancel>
@@ -525,11 +525,11 @@ export function WorkSheetsPage(props: {
       <PageToolbar>
         {props.canEdit && (
           <Button onClick={() => void openNewRow()} disabled={draft !== null || types.length === 0} data-work-sheet-add-row>
-            Добавить ведомость
+            Добавить этап работ
           </Button>
         )}
         <ToolbarPin>
-          <Input value={ui.query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по ведомостям…" />
+          <Input value={ui.query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по этапам работ…" />
         </ToolbarPin>
         <ToolbarPin>
           <SearchModeToggle similar={ui.searchSimilar} onToggle={() => patchState({ searchSimilar: !ui.searchSimilar })} />
@@ -542,7 +542,7 @@ export function WorkSheetsPage(props: {
             Виды работ
           </Button>
         )}
-        <Button variant="ghost" onClick={() => setAllTime((v) => !v)} title="По умолчанию показаны ведомости с датой за последний год">
+        <Button variant="ghost" onClick={() => setAllTime((v) => !v)} title="По умолчанию показаны этапы работ с датой за последний год">
           {allTime ? 'За год' : 'За всё время'}
         </Button>
         {!isAndroidPlatform() && (
@@ -557,7 +557,7 @@ export function WorkSheetsPage(props: {
 
       {truncated ? (
         <div className="ui-muted" style={{ fontSize: 12 }} data-work-sheet-truncated>
-          Показаны не все ведомости: выборка упёрлась в потолок. Счётчик «Всего» считает загруженное, а не всё, что есть, —
+          Показаны не все этапы работ: выборка упёрлась в потолок. Счётчик «Всего» считает загруженное, а не всё, что есть, —
           сузьте период кнопкой «За год».
         </div>
       ) : null}
@@ -566,8 +566,8 @@ export function WorkSheetsPage(props: {
       ) : null}
       {typesSource === 'none' ? (
         <div className="ui-muted" style={{ fontSize: 12 }} data-work-sheet-types-unavailable>
-          Справочник видов работ недоступен: сервер не ответил, а на этом устройстве он ещё ни разу не загружался. Ведомости ниже
-          читаются как есть — они несут свои поля с собой; завести новую можно будет, когда появится связь.
+          Справочник видов работ недоступен: сервер не ответил, а на этом устройстве он ещё ни разу не загружался. Этапы работ ниже
+          читаются как есть — они несут свои поля с собой; завести новый этап работ можно будет, когда появится связь.
         </div>
       ) : null}
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
@@ -609,15 +609,15 @@ export function WorkSheetsPage(props: {
           colCount={Math.max(1, visibleColumns.length) + 1}
           rowNumbers
           estimateSize={40}
-          emptyState={rows.length === 0 ? 'Ведомостей пока нет' : 'Ничего не найдено'}
+          emptyState={rows.length === 0 ? 'Этапов работ пока нет' : 'Ничего не найдено'}
         />
       </div>
 
       {/* Диалоги — ВНЕ тулбара: внутри они уехали бы в меню переполнения вместе с кнопкой. */}
       {printOpen ? (
         <ListPrintDialog
-          title="Ведомости работ"
-          unitLabel="Ведомостей"
+          title="Этапы работ"
+          unitLabel="Этапов работ"
           columns={buildListPrintColumns(columns)}
           visibleColumnIds={visibleColumns.map((c) => c.id)}
           rows={sorted}

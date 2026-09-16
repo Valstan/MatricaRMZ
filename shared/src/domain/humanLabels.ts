@@ -119,7 +119,7 @@ export const REPORT_TOTAL_LABELS: Record<string, string> = {
   deliveredQty: 'Привезено, шт.',
   remainingNeedQty: 'Остаточная потребность, шт.',
   engines: 'Двигатели, шт.',
-  workSheetRows: 'Строк ведомостей, шт.',
+  workSheetRows: 'Строк этапов работ, шт.',
   progressPct: 'Прогресс, %',
   contracts: 'Контракты, шт.',
   totalQty: 'Общий объем, шт.',
