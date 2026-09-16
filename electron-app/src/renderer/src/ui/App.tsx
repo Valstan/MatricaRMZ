@@ -1630,6 +1630,9 @@ export function App() {
       e.lastHistoryAt ?? '',
       e.lastSheetNode ?? '',
       e.lastSheetAt ?? '',
+      Object.entries(e.statusDates ?? {})
+        .map(([code, ms]) => `${code}=${ms}`)
+        .join(','),
       (e.attachmentPreviews ?? []).map((p) => p.id).join(','),
     ].join('|');
   }

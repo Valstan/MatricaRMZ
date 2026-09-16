@@ -66,6 +66,20 @@ describe('engineFactoryStage — побеждает поздний призна�
     expect(started.rank).toBeGreaterThan(arrived.rank);
   });
 
+  it('даты стадий карточки — из statusDates: утиль, отремонтирован, ремонт начат', () => {
+    // Владелец 16.09: в отчёте у этих этапов стоял прочерк — строка списка дат не несла.
+    const scrap = engineFactoryStage(engine({ isScrap: true, statusDates: { status_scrap_confirmed: 20 * DAY, status_rejected: 18 * DAY } }), TYPES);
+    const rejectedOnly = engineFactoryStage(engine({ isScrap: true, statusDates: { status_rejected: 18 * DAY } }), TYPES);
+    const repaired = engineFactoryStage(engine({ statusFlags: { status_repaired: true }, statusDates: { status_repaired: 15 * DAY } }), TYPES);
+    const started = engineFactoryStage(engine({ statusFlags: { status_repair_started: true }, statusDates: { status_repair_started: 11 * DAY } }), TYPES);
+    const noDates = engineFactoryStage(engine({ statusFlags: { status_repaired: true } }), TYPES);
+    expect(scrap).toMatchObject({ key: 'scrap', at: 20 * DAY });
+    expect(rejectedOnly).toMatchObject({ key: 'scrap', at: 18 * DAY });
+    expect(repaired).toMatchObject({ key: 'repaired', at: 15 * DAY });
+    expect(started).toMatchObject({ key: 'repair_started', at: 11 * DAY });
+    expect(noDates).toMatchObject({ key: 'repaired', at: null });
+  });
+
   it('без справочника видов ведомость всё равно узнаётся', () => {
     expect(engineFactoryStage(engine({ lastSheetNode: 'Сборка' })).key).toBe('sheet:сборка');
   });

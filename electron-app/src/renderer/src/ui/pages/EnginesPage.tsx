@@ -7,6 +7,8 @@ import {
   sanitizeEngineFacetSelection,
   classifyEngineContractBinding,
   engineInternalNumberSortKey,
+  engineScrapDate,
+  engineStatusDate,
   findArchivedArrivalIds,
   formatEngineInternalNumber,
   formatEngineReservationUntil,
@@ -128,6 +130,9 @@ export type EnginesPageUiState = {
     | 'binding'
     | 'arrivalDate'
     | 'shippingDate'
+    | 'repairStartedDate'
+    | 'repairedDate'
+    | 'scrapDate'
     | 'completenessAct'
     | 'updatedAt';
   sortDir: 'asc' | 'desc';
@@ -478,6 +483,12 @@ export function EnginesPage(props: {
           return byDate(a.arrivalDate ?? null, b.arrivalDate ?? null);
         case 'shippingDate':
           return byDate(a.shippingDate ?? null, b.shippingDate ?? null);
+        case 'repairStartedDate':
+          return byDate(engineStatusDate(a, 'status_repair_started'), engineStatusDate(b, 'status_repair_started'));
+        case 'repairedDate':
+          return byDate(engineStatusDate(a, 'status_repaired'), engineStatusDate(b, 'status_repaired'));
+        case 'scrapDate':
+          return byDate(engineScrapDate(a), engineScrapDate(b));
         case 'updatedAt':
           return byDate(a.updatedAt ?? null, b.updatedAt ?? null);
         case 'completenessAct': {
@@ -607,6 +618,10 @@ export function EnginesPage(props: {
       },
       { id: 'arrivalDate', label: 'Дата прихода', tabletLabel: 'Приход', sortable: true, sortKey: 'arrivalDate', kind: 'date', render: (e) => toDateLabel(e.arrivalDate) || '-' },
       { id: 'shippingDate', label: 'Дата отгрузки', tabletLabel: 'Отгр.', sortable: true, sortKey: 'shippingDate', kind: 'date', render: (e) => toDateLabel(e.shippingDate) || '-' },
+      // Даты стадий карточки (владелец 16.09) — скрыты по умолчанию, включаются в «Колонках списка».
+      { id: 'repairStartedDate', label: 'Ремонт начат', tabletLabel: 'Рем. нач.', sortable: true, sortKey: 'repairStartedDate', kind: 'date', render: (e) => toDateLabel(engineStatusDate(e, 'status_repair_started')) || '-' },
+      { id: 'repairedDate', label: 'Отремонтирован', tabletLabel: 'Отрем.', sortable: true, sortKey: 'repairedDate', kind: 'date', render: (e) => toDateLabel(engineStatusDate(e, 'status_repaired')) || '-' },
+      { id: 'scrapDate', label: 'Дата утиля', tabletLabel: 'Утиль', sortable: true, sortKey: 'scrapDate', kind: 'date', render: (e) => toDateLabel(engineScrapDate(e)) || '-' },
       {
         id: 'updatedAt',
         label: 'Дата изменения',
@@ -631,7 +646,7 @@ export function EnginesPage(props: {
   );
   const allColumnIds = useMemo(() => allColumns.map((c) => c.id), [allColumns]);
   const columnsById = useMemo(() => new Map(allColumns.map((c) => [c.id, c])), [allColumns]);
-  const columnLayout = useColumnLayout('list:engines:columns', allColumnIds);
+  const columnLayout = useColumnLayout('list:engines:columns', allColumnIds, ['repairStartedDate', 'repairedDate', 'scrapDate']);
   const visibleColumns = useMemo(
     () =>
       columnLayout.order
