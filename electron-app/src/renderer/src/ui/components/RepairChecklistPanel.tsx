@@ -3563,9 +3563,6 @@ function TableEditor(props: {
   const isDefectItemsTable = props.tableId === 'defect_items';
   const isCompletenessItemsTable = props.tableId === 'completeness_items';
   const isInventoryItemsTable = props.tableId === 'engine_inventory_items';
-  const isCompactModeSupported = isDefectItemsTable || isCompletenessItemsTable || isInventoryItemsTable;
-  // Список деталей двигателя по умолчанию показываем табличным видом (строки), не компактным.
-  const [compactMode, setCompactMode] = useState(isInventoryItemsTable ? false : isCompactModeSupported);
   // Список деталей делится на два сворачиваемых блока; по умолчанию оба свёрнуты.
   const [baseGroupOpen, setBaseGroupOpen] = useState(false);
   const [otherGroupOpen, setOtherGroupOpen] = useState(false);
@@ -3755,12 +3752,11 @@ function TableEditor(props: {
     if (column.kind === 'number') {
       const readOnly = isReadOnlyNumberColumn(rowIdx, column.id);
       const maxQty = getQuantityByRowIndex(rowIdx);
-      // Список деталей в табличном виде ужимается под ширину окна: число заполняет ячейку,
-      // степперы +/- скрыты (13 колонок иначе не влезают). Компактный режим и листы
-      // дефектовки/комплектности сохраняют степперы.
+      // Список деталей ужимается под ширину окна: число заполняет ячейку, степперы +/- скрыты
+      // (13 колонок иначе не влезают). Листы дефектовки/комплектности сохраняют степперы.
       // В планшете степперы +/- нужны под палец — не ужимаем в fit-режим (широкая таблица
       // тогда уходит в горизонтальный скролл, это ожидаемо для планшетного режима).
-      const numberFitMode = isInventoryItemsTable && !compactMode && !tabletActive;
+      const numberFitMode = isInventoryItemsTable && !tabletActive;
       const lockedByPresence =
         isInventoryItemsTable &&
         (column.id === 'scrap_qty' || column.id === 'replace_qty') &&
@@ -3793,7 +3789,7 @@ function TableEditor(props: {
                     }),
                 }
               : {})}
-            style={numberFitMode ? { width: '100%', minWidth: 0 } : { minWidth: 72, maxWidth: compactMode ? 110 : undefined }}
+            style={numberFitMode ? { width: '100%', minWidth: 0 } : { minWidth: 72 }}
             disabled={!props.canEdit || readOnly}
             onChange={(e) => {
               const raw = e.target.value;
@@ -4001,37 +3997,6 @@ function TableEditor(props: {
     );
   }
 
-  // Компактный рендер (карточки) заданного набора строк.
-  function renderCompactList(idxList: number[]) {
-    return (
-      <div style={{ padding: 10 }}>
-        {idxList.map((idx) => {
-          const r = rows[idx]!;
-          const extra = props.renderRowExtra?.(idx, r);
-          return (
-            <div key={idx} style={{ border: '1px solid rgba(15, 23, 42, 0.12)', borderRadius: 10, padding: 10, marginBottom: 8, background: '#ffffff' }}>
-              {cols.map((c) => (
-                <div key={c.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(190px, 34%) 1fr', gap: 10, alignItems: 'start', marginBottom: 10 }}>
-                  <div style={{ fontSize: 12, color: '#334155', paddingTop: 7 }}>{c.label}</div>
-                  <div style={{ minWidth: 0 }}>{renderCellInput(idx, c)}</div>
-                </div>
-              ))}
-              {props.canEdit ? (
-                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 4 }}>
-                  {extra}
-                  {renderDeleteButton(idx)}
-                </div>
-              ) : extra ? (
-                <div style={{ marginTop: 4 }}>{extra}</div>
-              ) : null}
-            </div>
-          );
-        })}
-        {idxList.length === 0 && <div style={{ padding: 10, color: '#64748b' }}>Пусто</div>}
-      </div>
-    );
-  }
-
   // Сворачиваемый блок списка деталей двигателя.
   function renderGroup(title: string, idxList: number[], open: boolean, onToggle: () => void) {
     return (
@@ -4058,7 +4023,7 @@ function TableEditor(props: {
           <span>{title}</span>
           <span style={{ color: '#64748b', fontWeight: 400 }}>({idxList.length})</span>
         </button>
-        {open ? (compactMode ? renderCompactList(idxList) : renderDataTable(idxList, idxList.length)) : null}
+        {open ? renderDataTable(idxList, idxList.length) : null}
       </div>
     );
   }
@@ -4070,17 +4035,6 @@ function TableEditor(props: {
     // there to keep sticky headers attached to the real (card) scroller. The fixed-layout
     // defect/completeness tables keep `auto` for their horizontal scroll.
     <div style={{ border: '1px solid rgba(15, 23, 42, 0.18)', borderRadius: 12, overflowX: isInventoryItemsTable ? 'clip' : 'auto', overflowY: isInventoryItemsTable ? 'visible' : 'hidden' }}>
-      {isCompactModeSupported && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid rgba(15, 23, 42, 0.1)' }}>
-          <div style={{ color: '#64748b', fontSize: 12 }}>
-            {compactMode ? 'Компактный режим: заполнение по строкам без горизонтальной прокрутки' : 'Табличный режим'}
-          </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#334155' }}>
-            <input type="checkbox" checked={compactMode} onChange={(e) => setCompactMode(e.target.checked)} />
-            <span>Компактный режим</span>
-          </label>
-        </div>
-      )}
       {showBulkOps && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', padding: '8px 10px', borderBottom: '1px solid rgba(15, 23, 42, 0.1)' }}>
           <span style={{ fontSize: 12, color: '#334155' }}>Массовые операции:</span>
@@ -4097,8 +4051,6 @@ function TableEditor(props: {
           {renderGroup('Базовые детали (в актах)', baseRowIdxs, baseGroupOpen, () => setBaseGroupOpen((v) => !v))}
           {renderGroup('Остальные детали', otherRowIdxs, otherGroupOpen, () => setOtherGroupOpen((v) => !v))}
         </>
-      ) : compactMode ? (
-        renderCompactList(visibleRowIdxs)
       ) : (
         renderDataTable(visibleRowIdxs, rows.length)
       )}
