@@ -3,7 +3,7 @@
 > Sticky-note для непрерывности разработки между сессиями и компьютерами. Обновляется в PR каждого шага нитки (D-066); `/close_session` — страховка. История — через `git log -- docs/SESSION_HANDOFF.md`.
 
 **Status:** ACTIVE
-**Updated:** 2026-09-16 (Opus 5, машина `PC79`) — **C1 пачки 2 сделан**: «ведомости работ» → «этапы работ» во всём интерфейсе ([план](plans/autumn-2026-program.md) §C1). 56 файлов, ~250 строк, идентификаторы не тронуты. Гейты зелёные: typecheck, typecheck:test, lint, **3053 теста** (shared 1117 · android 72 · backend 862 · electron 1002). Живой смоук `.verifier-electron/cdp-c1-labels.mjs` — **9/9**. Миграций нет, lockfile не менялся.
+**Updated:** 2026-09-16 (Opus 5, машина `PC79`) — **C1 пачки 2 сделан**: «ведомости работ» → «этапы работ» во всём интерфейсе ([план](plans/autumn-2026-program.md) §C1; [#950](https://github.com/Valstan/MatricaRMZ/pull/950)). 56 файлов, ~250 строк, идентификаторы не тронуты. Гейты зелёные: typecheck, typecheck:test, lint, **3053 теста** (shared 1117 · android 72 · backend 862 · electron 1002). Живой смоук `.verifier-electron/cdp-c1-labels.mjs` — **9/9**. Миграций нет, lockfile не менялся.
 **Branch:** `refactor/work-sheets-to-stages-labels`.
 **Last released version:** **v3.36.0**, выкат 16.09.
 
