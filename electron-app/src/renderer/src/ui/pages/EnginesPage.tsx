@@ -28,6 +28,7 @@ import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTa
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
 import { useListUiState, usePersistedScrollTop } from '../hooks/useListBehavior.js';
+import { useWorkSheetTypeRefs } from '../hooks/useWorkSheetTypeRefs.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
@@ -410,7 +411,8 @@ export function EnginesPage(props: {
   }, [filtered, workshopNameById]);
 
   /** Ступенчатый фильтр применяется последним: его варианты считаются по уже отобранному. */
-  const facetFiltered = useMemo(() => applyEngineFacets(facetRows, facets), [facetRows, facets]);
+  const sheetTypes = useWorkSheetTypeRefs();
+  const facetFiltered = useMemo(() => applyEngineFacets(facetRows, facets, sheetTypes), [facetRows, facets, sheetTypes]);
 
 
   // Этикетка клеится на тару с деталями двигателя: в QR — полный внутренний номер
@@ -816,6 +818,7 @@ export function EnginesPage(props: {
           selection={facets}
           fields={facetFields}
           open={facetsOpen}
+          types={sheetTypes}
           columnsControl={
             <ColumnSettingsButton
               label="Колонки списка"

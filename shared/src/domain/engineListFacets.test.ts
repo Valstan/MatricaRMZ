@@ -234,3 +234,58 @@ describe('ступень по узлу ведомости', () => {
     expect(ids(applyEngineFacets(sheetRows, { sheetDate: { from: '2026-09-07' } }))).toEqual(['s1']);
   });
 });
+
+// Владелец 16.09.2026: «в фильтре этапа нет обкатки» — ни один двигатель в ней не стоял, а ряд
+// ступени собирался только из строк. Со справочником видов работ ряд полный и в его порядке.
+const STAGE_TYPES = [
+  { code: 'ukladka', name: 'Укладка', sortOrder: 10 },
+  { code: 'sborka', name: 'Сборка', sortOrder: 30 },
+  { code: 'obkatka', name: 'Обкатка', sortOrder: 40 },
+];
+const stageRows = [
+  { id: 'f1', arrivalDate: DAY_05, lastSheetNode: 'Укладка', lastSheetTypeCode: 'ukladka', lastSheetAt: DAY_09 },
+  { id: 'f2', arrivalDate: DAY_05, lastSheetNode: 'сборка', lastSheetAt: DAY_09 },
+  { id: 'f3', arrivalDate: DAY_05 },
+] as unknown as EngineListItem[];
+
+describe('ступень «Этап на заводе» со справочником видов работ', () => {
+  it('предлагает ВСЕ этапы в порядке от позднего к раннему, пустые — нулём', () => {
+    const options = engineFacetOptions(stageRows, {}, 'factoryStage', STAGE_TYPES);
+    expect(options.map((o) => o.value)).toEqual([
+      'scrap',
+      'repaired',
+      'sheet:obkatka',
+      'sheet:sborka',
+      'sheet:ukladka',
+      'defect_act',
+      'completeness_act',
+      'repair_started',
+      'arrived',
+    ]);
+    expect(options.find((o) => o.value === 'sheet:obkatka')).toMatchObject({ label: 'Обкатка', count: 0 });
+    expect(options.find((o) => o.value === 'sheet:ukladka')?.count).toBe(1);
+  });
+
+  it('ведомость без кода узнаётся по имени и отбирается тем же ключом, что и в отчёте', () => {
+    expect(engineFacetOptions(stageRows, {}, 'factoryStage', STAGE_TYPES).find((o) => o.value === 'sheet:sborka')?.count).toBe(1);
+    expect(ids(applyEngineFacets(stageRows, { factoryStage: ['sheet:sborka'] }, STAGE_TYPES))).toEqual(['f2']);
+  });
+
+  it('вид работ вне справочника не теряется — идёт после ряда', () => {
+    const rows = [...stageRows, { id: 'f4', arrivalDate: DAY_05, lastSheetNode: 'Покраска', lastSheetAt: DAY_09 }] as unknown as EngineListItem[];
+    const options = engineFacetOptions(rows, {}, 'factoryStage', STAGE_TYPES);
+    expect(options[options.length - 1]).toMatchObject({ value: 'sheet:покраска', label: 'Покраска', count: 1 });
+  });
+
+  it('ступень «Вид работ» тоже сеется справочником в его порядке', () => {
+    const options = engineFacetOptions(stageRows, {}, 'sheetNode', STAGE_TYPES);
+    expect(options.map((o) => o.value)).toEqual(['укладка', 'сборка', 'обкатка', 'none']);
+  });
+
+  it('без справочника постоянные этапы всё равно в ряду, ведомости — по строкам', () => {
+    const values = engineFacetOptions(stageRows, {}, 'factoryStage').map((o) => o.value);
+    expect(values.slice(0, 6)).toEqual(['scrap', 'repaired', 'defect_act', 'completeness_act', 'repair_started', 'arrived']);
+    // Ведомость без кода получает ключ по имени — со справочником он стал бы `sheet:sborka`.
+    expect(values.slice(6).sort()).toEqual(['sheet:ukladka', 'sheet:сборка']);
+  });
+});

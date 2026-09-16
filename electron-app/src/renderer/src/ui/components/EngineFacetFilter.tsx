@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 
 import {
-  ENGINE_FACETS,
+  engineFacets,
   type EngineFacetId,
   type EngineFacetSelection,
+  type EngineFactoryStageTypeRef,
   type EngineListItem,
   type FacetDescriptor,
   type FacetSelection,
@@ -11,17 +12,22 @@ import {
 
 import { FacetFilter, FacetToggleButton } from './FacetFilter.js';
 
-const ENGINE_FACET_DESCRIPTORS = ENGINE_FACETS as readonly FacetDescriptor<EngineListItem>[];
+/** Ступени со справочником видов работ: ряд этапов полный, а не «что встретилось». */
+function useEngineFacetDescriptors(types: readonly EngineFactoryStageTypeRef[] | undefined) {
+  return useMemo(() => engineFacets(types) as readonly FacetDescriptor<EngineListItem>[], [types]);
+}
 
 /** Кнопка «Фильтры» списка двигателей — живёт в тулбаре рядом с поиском. */
 export function EngineFacetToggleButton(props: {
   selection: EngineFacetSelection;
   open: boolean;
   onToggle: () => void;
+  types?: readonly EngineFactoryStageTypeRef[];
 }) {
+  const facets = useEngineFacetDescriptors(props.types);
   return (
     <FacetToggleButton<EngineListItem>
-      facets={ENGINE_FACET_DESCRIPTORS}
+      facets={facets}
       selection={props.selection as FacetSelection}
       open={props.open}
       onToggle={props.onToggle}
@@ -38,14 +44,16 @@ export function EngineFacetFilter(props: {
   selection: EngineFacetSelection;
   fields: EngineFacetId[];
   open: boolean;
+  types?: readonly EngineFactoryStageTypeRef[];
   onChangeSelection: (next: EngineFacetSelection) => void;
   onChangeFields: (next: EngineFacetId[]) => void;
   onReset: () => void;
   columnsControl?: React.ReactNode;
 }) {
+  const facets = useEngineFacetDescriptors(props.types);
   return (
     <FacetFilter<EngineListItem>
-      facets={ENGINE_FACET_DESCRIPTORS}
+      facets={facets}
       rows={props.engines}
       selection={props.selection as FacetSelection}
       fields={props.fields}

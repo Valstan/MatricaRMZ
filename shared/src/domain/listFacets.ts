@@ -29,6 +29,13 @@ export type FacetDescriptor<Row> =
       label: string;
       /** Значение поля у строки; `null` — у этой строки поля нет (в отбор по нему не попадёт). */
       valueOf: (row: Row) => FacetValue | null;
+      /**
+       * Полный ряд значений ступени, когда он известен заранее (справочник этапов, статусы):
+       * показывается весь и в этом порядке, пустые — нулём. Без него ступень предлагает только
+       * то, что встретилось в строках, и этап без двигателей исчезает из фильтра (владелец 16.09:
+       * «обкатки нет в фильтре» — ни один двигатель в ней сейчас не стоял).
+       */
+      options?: readonly FacetValue[];
     }
   | {
       kind: 'dateRange';
@@ -148,18 +155,28 @@ export function facetOptions<Row>(
   }
 
   const selected = new Set(selectedOf(selection, facetId));
-  const out: FacetOption[] = Array.from(counts, ([value, x]) => ({
-    value,
-    label: x.label,
-    count: x.count,
-    selected: selected.has(value),
+  // Ступень с известным рядом значений: сперва весь ряд в его порядке (пустые — нулём), потом
+  // то, что встретилось в строках сверх ряда (архивный вид работ у старой ведомости).
+  const seeded = facet.options ?? [];
+  const seededValues = new Set(seeded.map((o) => o.value));
+  const out: FacetOption[] = seeded.map((o) => ({
+    value: o.value,
+    label: o.label,
+    count: counts.get(o.value)?.count ?? 0,
+    selected: selected.has(o.value),
   }));
+  const extra: FacetOption[] = [];
+  for (const [value, x] of counts) {
+    if (seededValues.has(value)) continue;
+    extra.push({ value, label: x.label, count: x.count, selected: selected.has(value) });
+  }
   // Уже выбранное значение, которого не осталось в отборе, всё равно показываем нулём: иначе
   // снять его можно было бы только сбросом всего фильтра.
   for (const value of selected) {
-    if (!counts.has(value)) out.push({ value, label: value, count: 0, selected: true });
+    if (!counts.has(value) && !seededValues.has(value)) extra.push({ value, label: value, count: 0, selected: true });
   }
-  return out.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'ru'));
+  extra.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'ru'));
+  return [...out, ...extra];
 }
 
 /** Переключить одно значение ступени. */
