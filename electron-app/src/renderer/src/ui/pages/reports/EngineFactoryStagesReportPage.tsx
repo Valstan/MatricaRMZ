@@ -1,13 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 
 import {
-  ENGINE_FACETS,
   HUMAN_LABEL_DASH,
   applyFacets,
+  engineFacets,
   engineFactoryStage,
   flattenGrouped,
   isEngineAtPlant,
-  type EngineFactoryStageTypeRef,
   type EngineListItem,
   type FacetDescriptor,
   type FacetSelection,
@@ -31,7 +30,7 @@ import { useListUiState } from '../../hooks/useListBehavior.js';
 import { formatMoscowDate } from '../../utils/dateUtils.js';
 import { listCellKindProps, listHeaderKindProps, type ListColumnKind } from '../../utils/listColumnKinds.js';
 import { buildListPrintColumns } from '../../utils/listPrintColumns.js';
-import { loadWorkSheetTypes } from '../../utils/workSheetTypesCache.js';
+import { useWorkSheetTypeRefs } from '../../hooks/useWorkSheetTypeRefs.js';
 import { isAndroidPlatform } from '../../platform.js';
 import type { ListReportPageProps } from './listReportPages.js';
 
@@ -90,7 +89,9 @@ function fmtDate(ms: number | null | undefined): string {
 }
 
 export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
-  const [types, setTypes] = useState<EngineFactoryStageTypeRef[]>([]);
+  // Справочник видов работ задаёт порядок групп-ведомостей и полный ряд ступени «Этап»;
+  // без него (офлайн, нет кэша) этап всё равно узнаётся по самой ведомости.
+  const types = useWorkSheetTypeRefs();
   const [printOpen, setPrintOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -104,16 +105,6 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
     sortDir: 'asc',
     groupBy: 'stage',
   });
-
-  // Справочник видов работ задаёт порядок групп-ведомостей; без него (офлайн, нет кэша)
-  // этап всё равно узнаётся по самой ведомости, страдает лишь порядок групп.
-  const refreshTypes = useCallback(async () => {
-    const res = await loadWorkSheetTypes();
-    setTypes(res.rows.map((t) => ({ code: t.code, name: t.name, sortOrder: t.sortOrder })));
-  }, []);
-  useEffect(() => {
-    void refreshTypes();
-  }, [refreshTypes]);
 
   const rows = useMemo<Row[]>(
     () => props.engines.filter(isEngineAtPlant).map((e) => ({ ...e, stage: engineFactoryStage(e, types) })),
@@ -150,10 +141,10 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
     [columnLayout, columnsById],
   );
 
-  const facets = useMemo(
-    () => FACET_IDS.map((id) => ENGINE_FACETS.find((f) => f.id === id)).filter(Boolean) as FacetDescriptor<Row>[],
-    [],
-  );
+  const facets = useMemo(() => {
+    const all = engineFacets(types);
+    return FACET_IDS.map((id) => all.find((f) => f.id === id)).filter(Boolean) as FacetDescriptor<Row>[];
+  }, [types]);
 
   const deep = useListDeepFilter(
     rows,

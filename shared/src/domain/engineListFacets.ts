@@ -1,6 +1,6 @@
 import type { EngineListItem } from '../ipc/types.js';
 import { STATUS_LABELS, type StatusCode } from './contract.js';
-import { engineFactoryStage } from './engineFactoryStage.js';
+import { engineFactoryStage, engineFactoryStageOrder, type EngineFactoryStageTypeRef } from './engineFactoryStage.js';
 import {
   activeFacetCount,
   applyFacets,
@@ -77,176 +77,191 @@ const ENGINE_STATUS_STAGE_ORDER: readonly StatusCode[] = [
   'status_storage_received',
 ];
 
-export const ENGINE_FACETS: readonly EngineFacetDescriptor[] = [
-  {
-    kind: 'values',
-    id: 'customer',
-    label: 'Контрагент',
-    valueOf: (e) => {
-      const id = text(e.customerId);
-      const label = text(e.customerName);
-      if (!id && !label) return NO_VALUE;
-      return { value: id || `name:${label.toLowerCase()}`, label: label || 'без названия' };
+/**
+ * Ступени списка двигателей. Справочник видов работ (`types`) даёт ступеням «Этап на заводе» и
+ * «Вид работ» полный ряд значений в порядке справочника — новый вид работ появляется в фильтре
+ * сам, даже пока в нём нет ни одного двигателя (владелец 16.09). Без справочника ступени живут
+ * на том, что несут строки.
+ */
+export function engineFacets(types?: readonly EngineFactoryStageTypeRef[]): readonly EngineFacetDescriptor[] {
+  // Виды работ в порядке справочника (ранний → поздний); в ряду этапов они идут наоборот.
+  const sheetTypes = engineFactoryStageOrder(types).filter((s) => s.key.startsWith('sheet:')).reverse();
+  return [
+    {
+      kind: 'values',
+      id: 'customer',
+      label: 'Контрагент',
+      valueOf: (e) => {
+        const id = text(e.customerId);
+        const label = text(e.customerName);
+        if (!id && !label) return NO_VALUE;
+        return { value: id || `name:${label.toLowerCase()}`, label: label || 'без названия' };
+      },
     },
-  },
-  {
-    kind: 'values',
-    id: 'contract',
-    label: 'Контракт',
-    valueOf: (e) => {
-      const id = text(e.contractId);
-      const label = text(e.contractName);
-      if (!id && !label) return NO_VALUE;
-      return { value: id || `name:${label.toLowerCase()}`, label: label || 'без номера' };
+    {
+      kind: 'values',
+      id: 'contract',
+      label: 'Контракт',
+      valueOf: (e) => {
+        const id = text(e.contractId);
+        const label = text(e.contractName);
+        if (!id && !label) return NO_VALUE;
+        return { value: id || `name:${label.toLowerCase()}`, label: label || 'без номера' };
+      },
     },
-  },
-  {
-    kind: 'values',
-    id: 'brand',
-    label: 'Марка',
-    valueOf: (e) => {
-      const id = text(e.engineBrandId);
-      const label = text(e.engineBrand);
-      if (!id && !label) return NO_VALUE;
-      return { value: id || `name:${label.toLowerCase()}`, label: label || 'без марки' };
+    {
+      kind: 'values',
+      id: 'brand',
+      label: 'Марка',
+      valueOf: (e) => {
+        const id = text(e.engineBrandId);
+        const label = text(e.engineBrand);
+        if (!id && !label) return NO_VALUE;
+        return { value: id || `name:${label.toLowerCase()}`, label: label || 'без марки' };
+      },
     },
-  },
-  {
-    kind: 'values',
-    id: 'arrivalYear',
-    label: 'Год прихода',
-    valueOf: (e) => {
-      const ms = typeof e.arrivalDate === 'number' && Number.isFinite(e.arrivalDate) ? e.arrivalDate : null;
-      if (ms == null || ms <= 0) return NO_VALUE;
-      const year = String(new Date(ms).getFullYear());
-      return { value: year, label: year };
+    {
+      kind: 'values',
+      id: 'arrivalYear',
+      label: 'Год прихода',
+      valueOf: (e) => {
+        const ms = typeof e.arrivalDate === 'number' && Number.isFinite(e.arrivalDate) ? e.arrivalDate : null;
+        if (ms == null || ms <= 0) return NO_VALUE;
+        const year = String(new Date(ms).getFullYear());
+        return { value: year, label: year };
+      },
     },
-  },
-  {
-    kind: 'values',
-    id: 'completenessAct',
-    label: 'Акт комплектности',
-    valueOf: (e) => (e.hasCompletenessAct === true ? { value: 'yes', label: 'заполнен' } : { value: 'no', label: 'не заполнен' }),
-  },
-  {
-    kind: 'values',
-    id: 'presence',
-    label: 'Где двигатель',
-    // Отгрузка определяется датой отгрузки строки списка — тем же полем, что печатает колонка.
-    valueOf: (e) => {
-      const shipped = typeof e.shippingDate === 'number' && Number.isFinite(e.shippingDate) && e.shippingDate > 0;
-      return shipped ? { value: 'shipped', label: 'отгружен' } : { value: 'on_site', label: 'на заводе' };
+    {
+      kind: 'values',
+      id: 'completenessAct',
+      label: 'Акт комплектности',
+      valueOf: (e) => (e.hasCompletenessAct === true ? { value: 'yes', label: 'заполнен' } : { value: 'no', label: 'не заполнен' }),
     },
-  },
-  {
-    kind: 'values',
-    id: 'scrap',
-    label: 'Утиль',
-    valueOf: (e) => (e.isScrap === true ? { value: 'yes', label: 'утиль' } : { value: 'no', label: 'не утиль' }),
-  },
-  {
-    kind: 'values',
-    id: 'reclamation',
-    label: 'Рекламация',
-    valueOf: (e) => (e.isReclamation === true ? { value: 'yes', label: 'рекламационный' } : { value: 'no', label: 'обычный' }),
-  },
-  {
-    kind: 'values',
-    id: 'defectAct',
-    label: 'Акт дефектовки',
-    valueOf: (e) => (e.hasDefectAct === true ? { value: 'yes', label: 'заполнен' } : { value: 'no', label: 'не заполнен' }),
-  },
-  {
-    kind: 'values',
-    id: 'status',
-    // Стадия ремонта — последний выставленный флаг по порядку жизненного цикла, а не набор
-    // галочек: оператор спрашивает «где двигатель сейчас», и двух ответов тут быть не должно.
-    label: 'Стадия ремонта',
-    valueOf: (e) => {
-      const flags = e.statusFlags ?? {};
-      for (const code of ENGINE_STATUS_STAGE_ORDER) {
-        if (flags[code] === true) return { value: code, label: STATUS_LABELS[code] ?? code };
-      }
-      return { value: 'none', label: 'без стадии' };
+    {
+      kind: 'values',
+      id: 'presence',
+      label: 'Где двигатель',
+      // Отгрузка определяется датой отгрузки строки списка — тем же полем, что печатает колонка.
+      valueOf: (e) => {
+        const shipped = typeof e.shippingDate === 'number' && Number.isFinite(e.shippingDate) && e.shippingDate > 0;
+        return shipped ? { value: 'shipped', label: 'отгружен' } : { value: 'on_site', label: 'на заводе' };
+      },
     },
-  },
-  {
-    kind: 'values',
-    id: 'workshop',
-    label: 'Цех',
-    valueOf: (e) => {
-      const id = text(e.workshopId);
-      const label = text(e.workshopName);
-      if (!id && !label) return { value: 'none', label: 'без цеха' };
-      return { value: id || `name:${label.toLowerCase()}`, label: label || 'без названия' };
+    {
+      kind: 'values',
+      id: 'scrap',
+      label: 'Утиль',
+      valueOf: (e) => (e.isScrap === true ? { value: 'yes', label: 'утиль' } : { value: 'no', label: 'не утиль' }),
     },
-  },
-  {
-    kind: 'dateRange',
-    id: 'arrivalDate',
-    label: 'Дата прихода',
-    dateOf: (e) => dateMs(e.arrivalDate),
-  },
-  {
-    kind: 'dateRange',
-    id: 'defectDate',
-    label: 'Дата дефектовки',
-    dateOf: (e) => dateMs(e.defectDate),
-  },
-  {
-    kind: 'dateRange',
-    id: 'shippingDate',
-    label: 'Дата отгрузки',
-    dateOf: (e) => dateMs(e.shippingDate),
-  },
-  {
-    kind: 'values',
-    id: 'historyAction',
-    // «Что с двигателем происходило» — последнее событие истории ремонта. По нему видно, где
-    // двигатель застрял: список отбирается по действию, а не по одной лишь стадии из карточки.
-    label: 'Последнее событие',
-    valueOf: (e) => {
-      const action = text(e.lastHistoryAction);
-      return action ? { value: action.toLowerCase(), label: action } : { value: 'none', label: 'событий нет' };
+    {
+      kind: 'values',
+      id: 'reclamation',
+      label: 'Рекламация',
+      valueOf: (e) => (e.isReclamation === true ? { value: 'yes', label: 'рекламационный' } : { value: 'no', label: 'обычный' }),
     },
-  },
-  {
-    kind: 'dateRange',
-    id: 'historyDate',
-    label: 'Дата события',
-    dateOf: (e) => dateMs(e.lastHistoryAt),
-  },
-  {
-    kind: 'values',
-    id: 'sheetNode',
-    // Вид работ последней ведомости — «на каком участке двигатель»: укладка, вал,
-    // обкатка, сборка. Отдельно от «последнего события», потому что ручные записи и стадии
-    // перебивали бы узел, а вопрос диспетчера — именно про ведомости.
-    label: 'Вид работ (последняя ведомость)',
-    valueOf: (e) => {
-      const node = text(e.lastSheetNode);
-      return node ? { value: node.toLowerCase(), label: node } : { value: 'none', label: 'ведомостей нет' };
+    {
+      kind: 'values',
+      id: 'defectAct',
+      label: 'Акт дефектовки',
+      valueOf: (e) => (e.hasDefectAct === true ? { value: 'yes', label: 'заполнен' } : { value: 'no', label: 'не заполнен' }),
     },
-  },
-  {
-    kind: 'dateRange',
-    id: 'sheetDate',
-    label: 'Дата ведомости',
-    dateOf: (e) => dateMs(e.lastSheetAt),
-  },
-  {
-    kind: 'values',
-    id: 'factoryStage',
-    // «Этап на заводе» — один ответ из карточки и ведомостей разом (`engineFactoryStage`):
-    // побеждает поздний признак. Справочник видов для отбора не нужен — ключ и подпись
-    // ведомость несёт сама; ранг важен только для порядка групп в отчёте.
-    label: 'Этап на заводе',
-    valueOf: (e) => {
-      const s = engineFactoryStage(e);
-      return { value: s.key, label: s.label };
+    {
+      kind: 'values',
+      id: 'status',
+      // Стадия ремонта — последний выставленный флаг по порядку жизненного цикла, а не набор
+      // галочек: оператор спрашивает «где двигатель сейчас», и двух ответов тут быть не должно.
+      label: 'Стадия ремонта',
+      valueOf: (e) => {
+        const flags = e.statusFlags ?? {};
+        for (const code of ENGINE_STATUS_STAGE_ORDER) {
+          if (flags[code] === true) return { value: code, label: STATUS_LABELS[code] ?? code };
+        }
+        return { value: 'none', label: 'без стадии' };
+      },
     },
-  },
-] as const;
+    {
+      kind: 'values',
+      id: 'workshop',
+      label: 'Цех',
+      valueOf: (e) => {
+        const id = text(e.workshopId);
+        const label = text(e.workshopName);
+        if (!id && !label) return { value: 'none', label: 'без цеха' };
+        return { value: id || `name:${label.toLowerCase()}`, label: label || 'без названия' };
+      },
+    },
+    {
+      kind: 'dateRange',
+      id: 'arrivalDate',
+      label: 'Дата прихода',
+      dateOf: (e) => dateMs(e.arrivalDate),
+    },
+    {
+      kind: 'dateRange',
+      id: 'defectDate',
+      label: 'Дата дефектовки',
+      dateOf: (e) => dateMs(e.defectDate),
+    },
+    {
+      kind: 'dateRange',
+      id: 'shippingDate',
+      label: 'Дата отгрузки',
+      dateOf: (e) => dateMs(e.shippingDate),
+    },
+    {
+      kind: 'values',
+      id: 'historyAction',
+      // «Что с двигателем происходило» — последнее событие истории ремонта. По нему видно, где
+      // двигатель застрял: список отбирается по действию, а не по одной лишь стадии из карточки.
+      label: 'Последнее событие',
+      valueOf: (e) => {
+        const action = text(e.lastHistoryAction);
+        return action ? { value: action.toLowerCase(), label: action } : { value: 'none', label: 'событий нет' };
+      },
+    },
+    {
+      kind: 'dateRange',
+      id: 'historyDate',
+      label: 'Дата события',
+      dateOf: (e) => dateMs(e.lastHistoryAt),
+    },
+    {
+      kind: 'values',
+      id: 'sheetNode',
+      // Вид работ последней ведомости — «на каком участке двигатель»: укладка, вал,
+      // обкатка, сборка. Отдельно от «последнего события», потому что ручные записи и стадии
+      // перебивали бы узел, а вопрос диспетчера — именно про ведомости.
+      label: 'Вид работ (последняя ведомость)',
+      valueOf: (e) => {
+        const node = text(e.lastSheetNode);
+        return node ? { value: node.toLowerCase(), label: node } : { value: 'none', label: 'ведомостей нет' };
+      },
+      options: [...sheetTypes.map((s) => ({ value: s.label.toLowerCase(), label: s.label })), { value: 'none', label: 'ведомостей нет' }],
+    },
+    {
+      kind: 'dateRange',
+      id: 'sheetDate',
+      label: 'Дата ведомости',
+      dateOf: (e) => dateMs(e.lastSheetAt),
+    },
+    {
+      kind: 'values',
+      id: 'factoryStage',
+      // «Этап на заводе» — один ответ из карточки и ведомостей разом (`engineFactoryStage`):
+      // побеждает поздний признак. Справочник нужен и здесь: ключ ведомости без кода (старые
+      // строки) сходится с ключом отчёта только через него, а полный ряд этапов — из него же.
+      label: 'Этап на заводе',
+      valueOf: (e) => {
+        const s = engineFactoryStage(e, types);
+        return { value: s.key, label: s.label };
+      },
+      options: engineFactoryStageOrder(types).map((s) => ({ value: s.key, label: s.label })),
+    },
+  ];
+}
+
+/** Ступени без справочника — для санитайзера и мест, где виды работ не нужны. */
+export const ENGINE_FACETS: readonly EngineFacetDescriptor[] = engineFacets();
 
 const SELECTION = (selection: EngineFacetSelection): FacetSelection => selection as FacetSelection;
 
@@ -262,16 +277,21 @@ export function engineFacetIsActive(selection: EngineFacetSelection, id: EngineF
   return facetIsActive(ENGINE_FACETS, SELECTION(selection), id);
 }
 
-export function applyEngineFacets(engines: readonly EngineListItem[], selection: EngineFacetSelection): EngineListItem[] {
-  return applyFacets(ENGINE_FACETS, engines, SELECTION(selection));
+export function applyEngineFacets(
+  engines: readonly EngineListItem[],
+  selection: EngineFacetSelection,
+  types?: readonly EngineFactoryStageTypeRef[],
+): EngineListItem[] {
+  return applyFacets(types ? engineFacets(types) : ENGINE_FACETS, engines, SELECTION(selection));
 }
 
 export function engineFacetOptions(
   engines: readonly EngineListItem[],
   selection: EngineFacetSelection,
   facetId: EngineFacetId,
+  types?: readonly EngineFactoryStageTypeRef[],
 ): EngineFacetOption[] {
-  return facetOptions(ENGINE_FACETS, engines, SELECTION(selection), facetId);
+  return facetOptions(types ? engineFacets(types) : ENGINE_FACETS, engines, SELECTION(selection), facetId);
 }
 
 export function toggleEngineFacetValue(
