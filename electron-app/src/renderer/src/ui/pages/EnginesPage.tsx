@@ -162,6 +162,9 @@ export function createDefaultEnginesPageUiState(): EnginesPageUiState {
   };
 }
 
+/** Даты стадий (16.09) — скрыты, пока оператор сам не включит их в «Колонках списка». */
+const ENGINE_LIST_HIDDEN_BY_DEFAULT = ['repairStartedDate', 'repairedDate', 'scrapDate'];
+
 function toDateLabel(ms?: number | null) {
   if (!ms) return '';
   const dt = new Date(ms);
@@ -646,7 +649,7 @@ export function EnginesPage(props: {
   );
   const allColumnIds = useMemo(() => allColumns.map((c) => c.id), [allColumns]);
   const columnsById = useMemo(() => new Map(allColumns.map((c) => [c.id, c])), [allColumns]);
-  const columnLayout = useColumnLayout('list:engines:columns', allColumnIds, ['repairStartedDate', 'repairedDate', 'scrapDate']);
+  const columnLayout = useColumnLayout('list:engines:columns', allColumnIds, ENGINE_LIST_HIDDEN_BY_DEFAULT);
   const visibleColumns = useMemo(
     () =>
       columnLayout.order

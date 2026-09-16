@@ -82,6 +82,8 @@ type ListUiState = {
 /** Ступени отчёта — подмножество ступеней списка двигателей; порядок — как на панели. */
 const FACET_IDS = ['customer', 'contract', 'brand', 'workshop', 'factoryStage', 'sheetNode', 'scrap', 'reclamation', 'arrivalYear', 'arrivalDate', 'sheetDate'] as const;
 
+const REPORT_HIDDEN_BY_DEFAULT = ['contract', 'sheetAt', 'historyAt', 'repairStartedAt', 'repairedAt', 'scrapAt'];
+
 function text(v: unknown): string {
   return String(v ?? '').trim();
 }
@@ -138,7 +140,7 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
   const columnLayout = useColumnLayout(
     'report:engineFactoryStages:columns',
     columns.map((c) => c.id),
-    ['contract', 'sheetAt', 'historyAt', 'repairStartedAt', 'repairedAt', 'scrapAt'],
+    REPORT_HIDDEN_BY_DEFAULT,
   );
   const columnsById = useMemo(() => new Map(columns.map((c) => [c.id, c])), [columns]);
   const visibleColumns = useMemo(
