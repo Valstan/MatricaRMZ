@@ -77,7 +77,7 @@ describe('tabsModel: состав полосы вкладок', () => {
     expect(s.tabs[0]?.id).toBe(MENU_TAB_ID);
   });
 
-  it('канонический порядок полосы: МЕНЮ → Чат → ИИваныч → Настройки → карточки → списки', () => {
+  it('служебные вкладки прибиты слева, карточки и списки стоят где открыты', () => {
     const s = run(
       createTabsState(),
       openList('engines', 'Двигатели'),
@@ -92,29 +92,35 @@ describe('tabsModel: состав полосы вкладок', () => {
       'chat',
       'ai_chat',
       'settings',
-      'card:engine:E1',
-      'list:engines',
       'list:tools',
+      'list:engines',
+      'card:engine:E1',
     ]);
   });
 
-  it('внутри группы сохраняется порядок открытия', () => {
+  it('новая вкладка встаёт справа от активной, а не в хвост', () => {
     const s = run(
       createTabsState(),
+      openList('engines', 'Двигатели'),
       openCard('engine', 'E1'),
       openList('tools', 'Инструмент'),
-      openCard('request', 'R1'),
-      openList('engines', 'Двигатели'),
+      { type: 'FOCUS', id: 'list:engines' },
       openCard('engine', 'E2'),
     );
-    expect(ids(s)).toEqual([
-      'menu',
-      'card:engine:E1',
-      'card:request:R1',
-      'card:engine:E2',
-      'list:tools',
-      'list:engines',
-    ]);
+    expect(ids(s)).toEqual(['menu', 'list:engines', 'card:engine:E2', 'card:engine:E1', 'list:tools']);
+    expect(s.activeId).toBe('card:engine:E2');
+  });
+
+  it('открытие без фокуса тоже ставит вкладку рядом с активной', () => {
+    const s = run(
+      createTabsState(),
+      openList('engines', 'Двигатели'),
+      openList('tools', 'Инструмент'),
+      { type: 'FOCUS', id: 'list:engines' },
+      openCard('engine', 'E1', 'engine E1', false, false),
+    );
+    expect(ids(s)).toEqual(['menu', 'list:engines', 'card:engine:E1', 'list:tools']);
+    expect(s.activeId).toBe('list:engines');
   });
 
   it('дедуп по id: повторное открытие вкладки не плодит вторую', () => {
@@ -125,7 +131,7 @@ describe('tabsModel: состав полосы вкладок', () => {
       openCard('engine', 'E1'),
       openCard('engine', 'E1'),
     );
-    expect(ids(s)).toEqual(['menu', 'card:engine:E1', 'list:engines']);
+    expect(ids(s)).toEqual(['menu', 'list:engines', 'card:engine:E1']);
   });
 
   it('«settings» — синглтон, а не список', () => {
@@ -408,12 +414,14 @@ describe('tabsModel: сессия и сброс', () => {
       focusedCardId: cardTabId('work_order', 'W1'),
       secondary: null,
     });
+    // Восстановленные карточки идут после уже открытых списков: у сессии нет «активной»,
+    // от которой считать «справа».
     expect(ids(next)).toEqual([
       'menu',
       'ai_chat',
+      'list:engines',
       'card:engine:E1',
       'card:work_order:W1',
-      'list:engines',
     ]);
     expect(next.activeId).toBe(cardTabId('work_order', 'W1'));
   });
@@ -510,7 +518,8 @@ describe('tabsModel: восстановление полосы из сессии
         'card:engine:E1',
       ),
     );
-    expect(ids(s)).toEqual([MENU_TAB_ID, 'chat', 'card:engine:E1', 'list:engines']);
+    // Порядок списков и карточек из снимка сохраняется — полоса вернётся такой, какой была.
+    expect(ids(s)).toEqual([MENU_TAB_ID, 'chat', 'list:engines', 'card:engine:E1']);
     expect(s.activeId).toBe('card:engine:E1');
   });
 
@@ -579,8 +588,8 @@ describe('tabsModel: восстановление полосы из сессии
     const snapshot = sessionTabs(before);
     expect(snapshot).toEqual([
       { kind: 'chat' },
-      { kind: 'card', card: { kind: 'engine', entityId: 'E1', title: 'Д-41' } },
       { kind: 'list', tabId: 'engines' },
+      { kind: 'card', card: { kind: 'engine', entityId: 'E1', title: 'Д-41' } },
     ]);
     const restored = run(
       createTabsState(),
