@@ -1,0 +1,161 @@
+# Программа осень-2026: отчёты-списки, этапы работ, карточка двигателя, номенклатура
+
+**Статус:** ACTIVE с 2026-09-16. Владелец выдал пакет 16.09, план утверждён в тот же день. Ход — по пачкам, отметки ✅ ставятся у пунктов по мере мержа PR.
+
+## Context
+
+Владелец 16.09.2026 закрыл релиз v3.35.0 и выдал пакет из ~15 задач: перевод отчётов в уклад списка, динамический фильтр этапов, переименование «ведомостей» в «этапы работ» с правкой прямо в списке, разбор перегруженной вкладки «Детали и акты» в карточке двигателя, рейтинг подсказок в пикерах, тормоза раздела «Детали» в номенклатуре, порядок вкладок, а также хвосты из handoff (E2.2→E3 + дубли листов, `grep -q`/pipefail, обход машин, «Готовые отчёты»). Права на ведомости на проде уже сняты владельцем вручную — прод-шаг `perm:revoke-work-sheets` **не нужен**.
+
+Решения владельца (16.09): кнопка комплектности = «Провести комплектность» (фиксирует акт → этап «Комплектовка» в отчёте становится честным); нитка E2.2→E2.3→E3→чистка дублей **берётся**, идёт последней; рейтинг пикеров — **все** пикеры сотрудников, по частоте; «Заготовки отчётов» → **«Готовые отчёты»**; машины для обхода выбираю по прод-данным, владелец утверждает.
+
+Каждый пункт — свой PR (ADR-0002, один PR — одна задача), handoff едет в каждом PR (D-066). Первым PR этот план ложится в `docs/plans/autumn-2026-program.md` (плюс правки существующих `reports-as-lists-2026-09.md`, `engine-inventory-lines-2026-09.md`), иначе он не виден другим машинам.
+
+Порядок ниже — по зависимостям и ценности для цеха. Релизы — пачками по 2–4 PR (`/reliz`), не после каждого.
+
+---
+
+## Блок A — мелкие, независимые (первая пачка, разогрев)
+
+### A1. `grep -q` под `pipefail` в prod-ops — `chore/prod-ops-grep-pipefail`
+- `scripts/prod-ops/audit-deps.sh:121` → `case "$(printf '%s' "$REPORT" | sed -n '2p')" in ALERT) NEEDS_ALERT=1;; esac`
+- `scripts/prod-ops/backup-encrypted.sh:228` → цикл `for f in "${ROOT_FILES[@]}"` с флагом, без пайпа (заодно `${ROOT_FILES[@]+"${ROOT_FILES[@]}"}` под `set -u`).
+- `scripts/prod-ops/install-prod-ops.sh:82` → `case " $(id -nG "$MATRICA_USER") " in *" adm "*) ;; *) usermod…;; esac`.
+- Судить по CI `prod-ops-backup`; локально на PC79 — SKIP (нет zstd/flock). Снять пункт из PENDING §🟡.
+
+### A2. Вкладка «Готовые отчёты» — `chore/report-templates-tab-name`
+Четыре строки: `App.tsx:629`, `layout/Tabs.tsx:103`, `ReportTemplatesShowcasePage.tsx:320`, `uiSearchRegistry.ts:67-69` (+ синонимы «заготовки» оставить в ключевых словах поиска). Снять вопрос из handoff.
+
+### A3. Новая вкладка — справа от текущей — `feat/tabs-open-right-of-active`
+`shared/src/domain/tabsModel.ts` — три места `[...state.tabs, X]` (362 `OPEN_LIST`, 384 `OPEN_SINGLETON`, 417 `OPEN_CARD`) → общий helper `insertAfterActive(tabs, activeId, tab)`: splice в `findIndex(activeId)+1`, fallback — в конец. Обновить порядковые ассерты в `tabsModel.test.ts` (~157–194). Проверить session-restore (`App.tsx:3798, 3937`) — он читает массив как порядок полосы, ничего не ломается.
+
+### A4. Убрать «Компактный режим» из списка деталей — `chore/remove-inventory-compact-mode`
+`components/RepairChecklistPanel.tsx:4072-4083` (тумблер) + `renderCompactList` (4004+) + state `compactMode` (3568) — только для `isInventoryItemsTable`; легаси-стадии `completeness`/`defect` не трогать, если тумблер там ещё осмыслен (проверить `isCompactModeSupported`).
+
+---
+
+## Блок B — отчёты-списки и этапы (ядро задания)
+
+### B1. Динамический фильтр «Этап» — `fix/factory-stage-facet-dynamic`
+Причина «нет обкатки» (разведка): фасет `factoryStage` в `shared/src/domain/engineListFacets.ts:239-248` зовёт `engineFactoryStage(e)` **без справочника типов**, а варианты фасета строятся только из присутствующих строк — этап без двигателей не показывается.
+- `ENGINE_FACETS` → фабрика `engineFacets(types: WorkSheetType[])` (или `factoryStage.valueOf(e, ctx)` с контекстом `{ workSheetTypes }` — выбрать меньший диф по `FacetFilter`/`applyEngineFacets`/`engineFacetOptions`).
+- Сеять варианты фасета из `engineFactoryStageOrder(types)` (`engineFactoryStage.ts:114-125`) — **все** этапы, включая пустые, в порядке `sortOrder`; счётчик 0 у пустых. Так новый вид работ из справочника появляется в фильтре сам.
+- Те же ступени применить к `EnginesPage` (там тот же фасет).
+- Статусы двигателя (`contract.ts STATUS_CODES`) — уже перечисляются из домена; ручные записи истории (`entryType: manual`) в фильтр **не** идут (решение владельца — только шаблонное).
+- Тест: `engineListFacets.test.ts` — вариант «обкатка» есть при нуле строк; ключ фасета == ключу колонки `stage` в отчёте.
+
+### B2. Даты стадий в `EngineListItem` — `feat/engine-list-status-dates`
+Снять запрет из плана reports-as-lists («не носим»): в `electron-app/src/main/services/engineService.ts` (сборка `EngineListItem`, ~376–452) добавить `statusDates: Partial<Record<StatusCode, number>>` из атрибутов `status_<code>_date` (`STATUS_DATE_CODES`, `contract.ts:92-101`). Колонки «Ремонт начат / Отремонтирован / Утиль» в `EngineFactoryStagesReportPage` и `EnginesPage` (скрыты по умолчанию). Обновить `sameEngineList`-диф в `App.tsx:3309`.
+
+### B3. Отчёт «Двигатели» → список — `feat/report-engines-as-list`
+По рецепту плана: `pages/reports/EnginesReportPage.tsx` (копия `EngineFactoryStagesReportPage`), ступени = полный `ENGINE_FACETS` + `period/periodBasis` как ступень «дата» (arrival/shipping/created — есть в `EngineListItem`?, иначе B2-подход), колонки = `ENGINES_REPORT_ENGINE_COLUMNS` (`reports.ts:283-298`) — `repairStartedDate/repairedDate` из B2, `daysOnSite` считается на экране, `scrapReason`/`completenessAct` — проверить наличие в `EngineListItem`, недостающее добавить в B2. Группировка: договор / марка / заказчик / нет. `reports.ts:1231-1367` → `presentation:'list', filters:[], columns:[]`; `dispatch.ts` case-отказ; `humanLabelsExceptions.ts`; регистрация в `LIST_REPORT_PAGES`; алиасы `engines_list`/`engines_contracts_overview` резолвятся в него автоматически (`ReportPresetPage.tsx:137`). Сторожа: `EngineFactoryStagesReportPage.guard.test.ts`, `ListChrome.guard.test.ts` (добавить в `PAGES`). Старый builder `presets/engines.ts` и его тест — удалить.
+
+### B4. Снять `engine_stages` — `chore/retire-engine-stages-report`
+Поглощён «Этапами на заводе» (группировка заказчик → этап). Пресет оставить как **алиас** на `engine_factory_stages` (ярлыки/история открывают по id — правило 5 рецепта), builder и тест удалить, из каталога убрать. Условие — приёмка владельцем нового отчёта на настоящих данных (в handoff «Приёмка живьём»); PR готовлю, мерж после его слова.
+
+### B5. Отчёт «Этапы работ» (бывш. `work_sheets`) → список — `feat/report-work-sheets-as-list`
+Нарушает правило 4 рецепта (данных нет в каталоге двигателей) — расширить `ListReportPageProps` полем `workSheetRows` (App грузит через тот же `workSheets.rows.list`, что и `WorkSheetsPage`, лениво при первом открытии — не на старте). Страница: ступени `workSheetFacets` + двигательные (марка/заказчик/договор через `engineId`), группировка вид работ / договор / цех, **итоги по видам работ** в футере групп, печать `ListPrintDialog` с `rowGroupLabel`. `reports.ts:1884-1907` → list. Делать **после** C1 (переименование), чтобы не переименовывать дважды.
+
+---
+
+## Блок C — «Ведомости» → «Этапы работ», правка в списке
+
+### C1. Переименование в UI — `refactor/work-sheets-to-stages-labels`
+Только строки, **не** идентификаторы (`work_sheets`, `work_sheet_types`, IPC `workSheets`, права, storage-keys, preset id, `sheet` entryType). Словарь: «Ведомости работ» → «Этапы работ», «Ведомость» → «Этап работ», «Добавить ведомость» → «Добавить этап», «Виды работ» (справочник) — оставить, «Дата ведомости» → «Дата этапа», «Вид работ (последняя ведомость)» → «Последний этап работ». Файлы: `uiSections.ts:219`, `App.tsx` (527, 594, 3683, 4217, 5450), `WorkSheetsPage.tsx` (~9), `WorkSheetDetailsPage.tsx` (253, 383), `permissions.ts:168-174`, `reports.ts` (177, 178, 1372, 1885-1888), `engineListFacets.ts` (225, 228, 234), `engineRepairHistory.ts:39`, `EngineRepairHistoryPanel.tsx:252`, `uiSearchRegistry.ts:28` (синоним «ведомость» оставить), `ipc/register/workSheets.ts:99`, `workSheetService.ts:126` (`Ведомость: ${typeName}` пишется в note — **новые** записи «Этап: …», старые не трогать). **Не трогать:** «Оборотная ведомость по складу», «Ведомость деталей» (`engineTimeline.ts:73`), `releaseWelcome.ts`. Тесты с русскими строками: `WorkSheetsPage.guard.test.ts`, `engineListFacets.test.ts`, `engineFactoryStage.test.ts`, `presets/workSheets.test.ts`. Название отчёта-списка «Двигатели на заводе: этапы ремонта» — оставить.
+
+### C2. Создание и правка этапа прямо в списке (раздвижная строка) — `feat/work-sheets-inline-editor-row`
+Сейчас (`WorkSheetsPage.tsx`): черновик = индекс 0 виртуальной таблицы, поля в ячейках, «Сохранить/Отмена» в хвостовой `<td>`; правка строки открывает карточку `WorkSheetDetailsPage`. Владелец хочет: новая строка встаёт в список, **под ней** раздвигается пустая строка с двумя кнопками по центру; правка существующей — то же самое под выбранной строкой, без карточки.
+- Модель «виртуальный ряд» в `WorkSheetsPage`: `rowAt(i)` возвращает `data | draft | editor`; `editor` — один `<td colSpan>` с центрированными «Сохранить / Отмена» (+ ошибка), `rowNumberOf → null`. `VirtualTable` уже меряет высоту (`measureElement`), API менять не надо.
+- Новый этап: draft-строка вставляется **на своё место по сортировке** (дата), а не в индекс 0 — либо оставить сверху, если сортировка по дате убыв. (уточнить у владельца по факту на стенде — дешёвое решение).
+- Правка: клик по строке (не по ссылкам двигателя/договора) → `editing = {rowId, draft: WorkSheetDraft}` — ячейки строки переключаются в те же `draftCellFor`, под ней `editor`-ряд. Esc/Enter как у черновика (`draftRowProps`). Сохранение — тот же `workSheets.rows.save` (upsert по id). Двойной клик/кнопка «Карточка» — оставить путь в карточку (файлы, история) как второстепенный.
+- Право `work_sheets.edit` — без него строка не раскрывается.
+- Сторож `WorkSheetsPage.guard.test.ts`: data-атрибуты `data-work-sheet-editor-row`, `-save`, `-cancel`.
+- CDP-смоук: добавить, отредактировать, отменить.
+
+### C3. Этап работ во второй панели «2 рядом» — `feat/work-sheet-secondary-card`
+`App.tsx:665-686 SECONDARY_CARD_KINDS` + `'work_sheet'`; `renderSecondaryCard` case по образцу `loadSecondaryEngine` (3839-3850); `canSplitCard` проходит автоматически. Маленький PR.
+
+### C4. Этапы работ в Ctrl+K — `feat/global-search-work-sheets`
+`shared/src/domain/globalSearch.ts` — kind `work_sheet` + `KIND_LABELS`; источник — локальная реплика `operations` типа `repair_history_entry` с `meta.sheet` (main-сторона поиска, где ищутся двигатели); текст хита «Этап: <вид> — <двигатель> — <дата>»; `searchHitToRoute` → `openWorkSheet(id)`.
+
+### C5. Печатный бланк одного этапа — `feat/work-sheet-print-form`
+`WorkSheetDetailsPage.tsx` — кнопка «Печать»; HTML-рендер по образцу `engineInventoryPrintHtml.ts` (шапка: двигатель, марка, договор, заказчик, цех, дата, вид работ; таблица полей узла из `columns_json`; исполнитель; место под подпись). Формат — A4, без грифов (подписные грифы — отдельный открытый вопрос в handoff).
+
+---
+
+## Блок D — карточка двигателя: «Детали и акты» → три вкладки
+
+### D1. Вкладки и раскладка — `feat/engine-card-acts-tabs`
+`EngineDetailsPage.tsx:57-69` — `EngineCardTab` + `'completeness' | 'defect' | 'parts'`, «Детали и акты» → три: **«Акт комплектности»**, **«Акт дефектовки»**, **«Список деталей»** (см. открытый вопрос ниже). Панели `hidden` (M78). `RepairChecklistPanel` принимает проп `actView` снаружи (сейчас внутренние sub-tabs 2179-2210 — убрать) и `mode: 'act' | 'parts'`.
+Внутри каждой акт-вкладки — **три сворачиваемых блока** (state в `useListUiState`-подобном ключе, чтобы помнилось):
+1. **«Оформление»** (свёрнут по умолчанию): шаблон акта марки, комиссия (комплектность) / «Разборку произвёл» (дефектовка), гриф «Утверждаю», подписи, даты (`COMPLETENESS_ONLY_ITEM_IDS` / `DEFECT_ONLY_ITEM_IDS`).
+2. **«Сведения»** (свёрнут): состояние при поступлении, номера договоров, марка деталей, подсказка клейма.
+3. **«Детали»** (развёрнут): панель массовых операций + «Базовые детали (в актах)» / «Остальные детали» (существующие `renderGroup`), колонки — только своего акта (2776-2797).
+Кнопки печати/бланка — в шапке своей вкладки (комплектность — свои две, дефектовка — свои).
+
+### D2. Кнопки «Провести …» наверху — `feat/engine-card-conduct-buttons`
+- «Провести дефектовку» (3284-3293) переезжает в шапку вкладки над списком, справа от печати.
+- Новая «Провести комплектность»: ставит `completeness_inspection_date` (если пуста — сегодня) и признак `hasCompletenessAct` (проверить, откуда он читается в `EngineListItem` — engineService ~600; если признак выводится из наличия строк «в акте», то кнопка фиксирует дату + `acceptance_signed_by` текущим пользователем и пишет запись истории `status`-типа «Акт комплектности проведён»). Серверная транзакция по образцу `conduct` дефектовки (обработчик ~730-760) — сервер единственный авторитет (ст. 5).
+- Обе кнопки — под `props.canCreateWorkOrder`/правами как сейчас.
+
+### D3. Вкладка «Список деталей» — общий список с обеими группами колонок? **Открытый вопрос** — см. ниже.
+
+### D4. Рейтинг пикеров сотрудников — `feat/employee-picker-frequency-rank`
+`hooks/useRecentSelectOptions.ts` → расширить до `useRankedSelectOptions(storageKey)`: `Record<field, Record<id, {n, last}>>`, сортировка по `n` desc, затем `last`, затем алфавит; хранить в `localStorage` под ключом `matrica:picker-rank:<scope>`. Подключить в `EntityReferenceField` (target `employee`) и `SearchSelect` через опциональный проп `rankKey` — вызов `bump(id)` при выборе. Точки: комиссия (`RepairChecklistPanel.tsx:2315, 2675`), «Разборку произвёл» (2394), «Утверждающий» (2490), исполнитель этапа работ (`WorkSheetsPage` draft), подписанты нарядов, прочие `target="employee"`. Предзаполнение подписей текущим пользователем (1080-1103) — оставить, но **не** перетирать выбранное (проверить, что эффект не срабатывает повторно после ручного выбора — жалоба «не того человека»).
+
+---
+
+## Блок E — номенклатура
+
+### E1. Раздел «Детали» без тормозов и без «unknown» — `fix/nomenclature-parts-list-perf`
+- **«Справочники склада: unknown»** — `erpService.ts:483, 534, 565` (`?? 'unknown'`): сервер отдал `ok:false` без `error`. Найти, какой ответ (`/warehouse/lookups` или `/warehouse/nomenclature`) — прогнать на стенде с 700 деталями; вероятно таймаут/размер. Починить причину + человеческий текст вместо `unknown` («Сервер не ответил (…)»).
+- **Виртуализация**: `NomenclaturePage.tsx` рисует `<table>` на все строки (850-895) — перевести на `VirtualTable` + `usePersistedScrollTop('list:nomenclature')` по образцу `EnginesPage`/`NomenclatureDirectoryPage.tsx:732`. Это и есть «порционно» у двигателей — виртуализация, не пагинация; данные по 500 (`warehousePagedFetch.ts CHUNK`) уже грузятся, но лучше — из реплики.
+- **Источник**: сейчас REST `GET /warehouse/nomenclature` с fallback на SQLite (`erpService.ts:453-491`). Реплика `erp_nomenclature` есть (миграция клиента 12→13) → перевернуть: **реплика первична**, REST — только при пустой реплике. Владелец прямо просил «не гонять с интернета».
+- Индекс `parent_nomenclature_id` в `ensureClientSchemaParity` обоих клиентов (PENDING :742) — включить сюда, решение владельца по сути получено («берём всё»).
+
+### E2. Артикул / родитель-варианты — **не код, а доклад** — `docs/nomenclature-parent-variants-status`
+Разведка: механизм **уже есть** (E3 плана bom-simplify, 13.09): `erp_nomenclature.parent_nomenclature_id` (0096), карточка «Обобщённая позиция», «Свернуть варианты», свод остатков по родителю, прогноз раскрывает BOM-строку на родителя в варианты (`warehouseForecastService.ts:856`). Открыто: импорт базового списка съедает безартикульного родителя (`importBasePartsList.ts:218-242`), у `part_id` строки листа дефектовки нет правила «родитель или вариант», остатки агрегируются только сводом. Шаг: короткая памятка владельцу «как работать только родителями сегодня» + три PR-кандидата в PENDING (импорт, правило part_id, агрегат остатков). Реализация — после слова владельца, отдельно.
+
+---
+
+## Блок F — обход машин для LAN-раздачи (прод, read-only + ваше утверждение)
+
+### F1. Выбор машин — без PR
+`ssh matricarmz` read-only: `client_settings` (lastUsername, lastSeen, IP/подсеть) → 2–3 живых клиента одной подсети → список владельцу (логин + ФИО, `clientLabel.ts`). После утверждения — владелец идёт по машинам с `scripts/client-ops/lan-share-firewall.ps1` (правило → тумблер «Раздача соседям» → перезапуск). Приёмка по данным: `update_peers` непуст, запросы к `/updates/peers`. Кода нет; результат — в PENDING :167.
+
+---
+
+## Блок G — строгие строки листа деталей и дубли (последняя нитка, самая длинная)
+
+План — `docs/plans/engine-inventory-lines-2026-09.md` (читать перед началом).
+### G1. E2.2 — чтение из реплики — `feat/inventory-lines-read-replica`
+`readEngineInventoryRows(db, engineId)` из `erp_engine_inventory_lines` с fallback на `meta_json`; `inventoryRowFromLine` (`shared/domain/engineInventoryLines.ts`). Сторож паритета: строки из реплики == строки из `meta_json` для того же листа.
+### G2. E2.3 — запись строк с клиента + push — `feat/inventory-lines-write-push`
+Строки в реплику с `sync_status='pending'`, секция push; продолжаем дублировать в `meta_json`. Контроль на живом потоке (PENDING :259): одна изменённая строка → одна транзакция в журнале.
+### G3. E3 — флип — `feat/inventory-lines-flip`
+Клиент кладёт `{kind:'table', rows: [], rowsIn:'erp_engine_inventory_lines'}`; рычаг 426 старым сборкам (`UPGRADE_CASCADE`/минимальная версия); прод-скрипт чистки `rows` из `meta_json` (dry-run → apply, **явный OK владельца**, −~140 МБ).
+### G4. Чистка дублей листов — `chore/inventory-sheets-dedup`
+Скрипт `engine-inventory:dedup-sheets` (dry-run: двигатели с >1 живым листом, оставляем свежий по `updated_at`, остальные `deleted_at`), счётчик «новых дублей после 3.25» (M122). Apply — **явный OK владельца в том же ходе** (ст. 1, G29). Числа из PENDING (483 листа без строк / ~350 двигателей) — перемерить перед apply.
+
+---
+
+## Открытые вопросы владельцу (задам в ходе, не блокируют старт)
+
+1. **D3**: третья вкладка «Список деталей» — нужна ли как отдельная (общий список с колонками обоих актов, для массового заполнения), или деталей достаточно внутри двух акт-вкладок? Владелец говорил «разделить на два независимых списка» — по умолчанию делаю **две** вкладки, третью не завожу.
+2. **C2**: новая строка этапа — сверху списка или на своём месте по дате? Покажу на стенде оба, решим за минуту.
+3. **B4**: снятие `engine_stages` — после приёмки нового отчёта на настоящих данных.
+
+## Порядок и пачки релизов
+
+1. **Пачка 1** (день 1): A1, A2, A3, A4, B1, B2 → релиз.
+2. **Пачка 2**: C1, C2, C3, C4, C5 → релиз («ведомости стали этапами»).
+3. **Пачка 3**: B3, B5, B4 → релиз (отчёты-списки).
+4. **Пачка 4**: D1, D2, D4 → релиз (карточка двигателя); D4 можно раньше, независим.
+5. **Пачка 5**: E1 (+E2-доклад), F1 → релиз.
+6. **Нитка G**: G1 → G2 → релиз → G3 → релиз → G4.
+
+## Verification (общее для всех PR)
+
+- Гейты: `corepack pnpm -F @matricarmz/shared build` (+ `ledger` — на PC79 обязателен) → `corepack pnpm -r typecheck` → `corepack pnpm -F @matricarmz/electron-app typecheck:test` → `lint` → `corepack pnpm -r test` (на PC79 — `--workspace-concurrency=1` при случайном красном).
+- UI-правки (A3, A4, B1–B3, B5, C2, C3, C5, D1, D2, D4, E1) — CDP-смоук `verifier-electron` по рецепту `docs/machines/PC79.md` (ABI-танец, backend 3011, CDP 9222, стенд не гасить между итерациями). Для E1 — фикстура на ≥700 номенклатур в `matricarmz_dev`, замер времени раскрытия «Детали» до/после.
+- Прод-шаги (G3 чистка, G4 apply) — dry-run → числа в тело PR → apply только по явному OK владельца в том же ходе.
+- После каждой пачки — `/reliz`, релиз-ноты языком оператора (C1 — «ведомости теперь называются этапами работ»).

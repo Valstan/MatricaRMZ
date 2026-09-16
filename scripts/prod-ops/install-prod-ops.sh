@@ -79,11 +79,14 @@ for n in backup.log audit-deps.log watch-failed-auth.log; do
 done
 
 # the service user needs read access to nginx log (group adm)
-if ! id -nG "$MATRICA_USER" | tr ' ' '\n' | grep -qx adm; then
-  log "adding $MATRICA_USER to group 'adm' (for nginx log access)"
-  sudo usermod -aG adm "$MATRICA_USER"
-  log "  NOTE: re-login required for new group to take effect (or use 'newgrp adm')"
-fi
+case " $(id -nG "$MATRICA_USER") " in
+  *" adm "*) ;;
+  *)
+    log "adding $MATRICA_USER to group 'adm' (for nginx log access)"
+    sudo usermod -aG adm "$MATRICA_USER"
+    log "  NOTE: re-login required for new group to take effect (or use 'newgrp adm')"
+    ;;
+esac
 
 log "done. summary:"
 ls -la "$BIN_DIR"/matricarmz-* 2>/dev/null || true

@@ -332,10 +332,6 @@ Anthropic режет РФ-IP на edge (прод стоит на российс�
 
 Сторожа на первые два стоят (`usersStrictContract.guard.test.ts`, describe «база записи читается из того же хранилища»), поэтому переезд не пройдёт молча — тест покраснеет и потребует осознанного решения.
 
-## 🟡 `cmd | grep -q` под `pipefail` в prod-ops — гейт, который врёт с вероятностью 🗓 since:2026-09-15
-
-Письмо brain `2026-09-15-erratum-g322-pipefail-plus-grep-q…` (пул G355): под `set -o pipefail` `grep -q` выходит на первом совпадении, левая часть получает EPIPE, конвейер отдаёт 141 — найденное читается как ненайденное (у Казанской 49 ложных из 1800 на 1 vCPU). Проверка одной командой из письма нашла у нас **3 места**, все под `pipefail`: `scripts/prod-ops/audit-deps.sh:121` (`… | sed -n 2p | grep -q '^ALERT$' && NEEDS_ALERT=1` — ложное «не ALERT» = молчащий алерт), `scripts/prod-ops/backup-encrypted.sh:228` (`printf … | grep -qxF "$required" || fail` — ложный отказ бэкапа), `scripts/prod-ops/install-prod-ops.sh:82` (`id -nG | tr | grep -qx adm`). Лечение — `case` без пайпа либо `grep -c` (дочитывает вход). Ack brain'у отправлен (`mailbox/to-brain/2026-09-15-a-right-granted-…`), правка — отдельным PR; судить по CI (`prod-ops-backup`), не по локальному прогону (на PC79 нет zstd/flock → SKIP).
-
 ## ⏳ Ждёт внешнего окна / события
 
 ### Пересадить 3 живых legacy-`user` на роль «Кладовщик» — после релиза с ней и обновления парка 🗓 since:2026-08-28

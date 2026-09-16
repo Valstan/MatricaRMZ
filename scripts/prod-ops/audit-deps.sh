@@ -118,7 +118,11 @@ PY
 
 SUMMARY="$(printf '%s' "$REPORT" | head -n 1)"
 NEEDS_ALERT=0
-printf '%s' "$REPORT" | sed -n '2p' | grep -q '^ALERT$' && NEEDS_ALERT=1
+# No `| grep -q` here: under pipefail it exits on the first match, the producer gets EPIPE and the
+# pipeline reads as "not found" — a silent alert (brain G322).
+case "$(printf '%s' "$REPORT" | sed -n '2p')" in
+  ALERT) NEEDS_ALERT=1 ;;
+esac
 
 log "$SUMMARY"
 
