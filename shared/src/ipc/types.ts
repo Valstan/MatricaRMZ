@@ -2113,6 +2113,14 @@ export type MatricaApi = {
       }) => Promise<{ ok: true; rows: WorkSheetRow[]; truncated?: boolean } | { ok: false; error: string }>;
       /** Один этап работ по id — для его карточки. */
       get: (id: string) => Promise<{ ok: true; row: WorkSheetRow } | { ok: false; error: string }>;
+      /**
+       * Поиск строк для Ctrl+K: отдаёт готовые хиты палитры. Канал живёт в namespace
+       * `workSheets:`, а не в `search:` — так секционный гейт «Производство» приезжает сам,
+       * и поиск не становится обходом раздела.
+       */
+      search: (args: { q: string; limit?: number }) => Promise<
+        { ok: true; hits: GlobalSearchHit[] } | { ok: false; error: string }
+      >;
       /** id этапа работ генерирует клиент; правка приходит с тем же id (upsert). */
       save: (args: {
         id: string;

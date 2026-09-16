@@ -966,6 +966,29 @@ export function App() {
   // Своё состояние загрузки двигателя (engine — единственная не-self-load карточка) и
   // свой close-actions ref (backstop сохранения работает по обеим панелям).
   const [v2SecondaryCard, setV2SecondaryCard] = useState<{ kind: TabId; entityId: string; title: string } | null>(null);
+  // Снимок в ref: правило «карточка не бывает слева и справа разом» применяется из
+  // мемоизированной двери открытия карточек, а её замыкание не должно тянуть за собой рендер.
+  const v2SecondaryCardRef = useRef(v2SecondaryCard);
+  v2SecondaryCardRef.current = v2SecondaryCard;
+
+  /**
+   * Не держать одну и ту же карточку и слева, и справа: карточка, которую открывают в
+   * основной панели, перестаёт быть второй. Правило объявлено давно, но жило только в
+   * `focusV2Card` — то есть срабатывало лишь на щелчок по вкладке. Ctrl+K, ссылка приложения
+   * и переход из другой карточки шли мимо, и закреплённая справа строка оставалась в правой
+   * панели, хотя оператор целился в неё (поймано смоуком C4). Домен вкладок это гасит сам
+   * (инвариант нормализации), но у оболочки своя копия состояния второй панели.
+   */
+  const dropSecondaryIfSame = useCallback((kind: TabId, entityId: string) => {
+    const secondary = v2SecondaryCardRef.current;
+    if (!secondary || secondary.kind !== kind || secondary.entityId !== entityId) return;
+    secondaryCloseRef.current = null;
+    setV2SecondaryCard(null);
+    dispatchTabs({ type: 'SET_SECONDARY', card: null });
+    setSecondaryEngineDetails(null);
+    setSecondaryEngineLoading(false);
+  }, []);
+
   const [secondaryEngineDetails, setSecondaryEngineDetails] = useState<EngineDetails | null>(null);
   const [secondaryEngineLoading, setSecondaryEngineLoading] = useState(false);
   const [v2SecondaryEpoch, setV2SecondaryEpoch] = useState(0);
@@ -1476,6 +1499,7 @@ export function App() {
   const v2OpenCardGuarded = useCallback(
     (kind: TabId, entityId: string, run: () => void) => {
       logUiUsage('ui.card_open', kind, entityId);
+      dropSecondaryIfSame(kind, entityId);
       // Лимит проверяем ДО всего остального: при отказе ни сущность, ни tab не меняются
       // (раньше сущность выбиралась, а вкладка молча нет), и оператор не проходит зря
       // dirty-диалог, отказавшись от правок в обмен на карточку, которую не получит.
@@ -1506,7 +1530,7 @@ export function App() {
       };
       void closeCardSession({ targetTab: null, appClose: false });
     },
-    [isV2, tab, closeCardSession, openCardTab],
+    [isV2, tab, closeCardSession, openCardTab, dropSecondaryIfSame],
   );
 
   // Ключ активной карточки: открытие карточки того же вида (список → другой двигатель)
@@ -3776,15 +3800,7 @@ export function App() {
   }
 
   function focusV2Card(card: { kind: TabId; entityId: string }) {
-    // Не держать одну и ту же карточку и слева, и справа: если фокусируем ту, что сейчас
-    // в secondary, — закрываем правую панель (пользователь сам увёл её в primary).
-    if (v2SecondaryCard && v2SecondaryCard.kind === card.kind && v2SecondaryCard.entityId === card.entityId) {
-      secondaryCloseRef.current = null;
-      setV2SecondaryCard(null);
-      dispatchTabs({ type: 'SET_SECONDARY', card: null });
-      setSecondaryEngineDetails(null);
-      setSecondaryEngineLoading(false);
-    }
+    dropSecondaryIfSame(card.kind, card.entityId);
     reopenV2Card(card.kind, card.entityId);
   }
 
@@ -4092,6 +4108,7 @@ export function App() {
   async function navigateToRoute(route: DeepLinkRoute) {
     if (route.kind === 'card') return reopenV2Card(route.cardKind as TabId, route.id);
     if (route.kind === 'engine') return await openEngine(route.id);
+    if (route.kind === 'work_sheet') return await openWorkSheet(route.id);
     if (route.kind === 'request') return await openRequest(route.id);
     if (route.kind === 'tool') return await openTool(route.id);
     if (route.kind === 'tool_property') return await openToolProperty(route.id);
@@ -6646,7 +6663,15 @@ export function App() {
         <GlobalSearchOverlay
           open={globalSearchOpen}
           onClose={() => setGlobalSearchOpen(false)}
-          onSelect={(hit) => { setGlobalSearchOpen(false); void navigateToRoute(searchHitToRoute(hit)); }}
+          onSelect={(hit) => {
+            setGlobalSearchOpen(false);
+            // Имя вкладки кладём ДО перехода: у карточки этапа работ дорезолва заголовка не
+            // будет — `isFallbackCardTitle` признаёт фолбэком только «… · <6 hex>», а
+            // безликое «📒 Этап работ» под это не подходит, и вкладка так бы и осталась
+            // безымянной. Хит несёт ровно ту строку, что кладёт список.
+            if (hit.kind === 'work_sheet') workSheetTitleRef.current.set(hit.id, hit.label);
+            void navigateToRoute(searchHitToRoute(hit));
+          }}
           onNavigateTab={(tabId) => { void navigateToRoute({ kind: "tab", id: tabId }); }}
         />
         <GlobalInputAssist storageKey="matrica_client_input_assist_history_v1" />

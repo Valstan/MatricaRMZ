@@ -3,7 +3,14 @@ import { ipcMain } from 'electron';
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { httpAuthed } from '../../services/httpClient.js';
-import { deleteWorkSheetRow, getWorkSheetRow, listWorkSheetRows, saveWorkSheetRow, type SaveWorkSheetRowInput } from '../../services/workSheetService.js';
+import {
+  deleteWorkSheetRow,
+  getWorkSheetRow,
+  listWorkSheetRows,
+  saveWorkSheetRow,
+  searchWorkSheetRows,
+  type SaveWorkSheetRowInput,
+} from '../../services/workSheetService.js';
 
 type Ok<T> = { ok: true } & T;
 type Err = { ok: false; error: string };
@@ -89,6 +96,15 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
     } catch (e) {
       return { ok: false as const, error: String(e) };
     }
+  });
+
+  // Ctrl+K. Имя канала начинается с `workSheets:` не для красоты: по этому префиксу
+  // секционный гейт требует раздел «Производство» (sectionGate). Канал `search:*` жил бы
+  // вне гейта, и палитра стала бы обходом раздела.
+  ipcMain.handle('workSheets:rows:search', async (_e, args: { q: string; limit?: number }) => {
+    const gate = await requirePermOrResult(ctx, 'operations.view');
+    if (!gate.ok) return gate as Err;
+    return await searchWorkSheetRows(ctx.dataDb(), args ?? { q: '' });
   });
 
   ipcMain.handle('workSheets:rows:get', async (_e, id: string) => {
