@@ -249,7 +249,7 @@ export const MENU_TAB_LABELS: Record<MenuTabId, string> = {
   access_sections: 'Доступы по разделам',
   reports: 'Отчёты',
   custom_reports: 'Мои отчёты',
-  report_templates: 'Заготовки отчётов',
+  report_templates: 'Готовые отчёты',
   audit: 'Журнал',
   empty_cards: 'Пустые карточки',
   drafts: 'Черновики',

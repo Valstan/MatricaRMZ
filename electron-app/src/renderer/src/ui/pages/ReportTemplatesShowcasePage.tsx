@@ -317,7 +317,7 @@ export function ReportTemplatesShowcasePage(props: {
   return (
     <div style={{ display: 'grid', gap: 10 }}>
       <SectionCard
-        title="Заготовки отчётов"
+        title="Готовые отчёты"
         actions={
           <Button variant="ghost" onClick={() => void loadAll()} disabled={busy}>
             Обновить
@@ -334,7 +334,7 @@ export function ReportTemplatesShowcasePage(props: {
             value={query}
             onChange={(e) => setQuery(e.currentTarget.value)}
             placeholder="Поиск по названию, описанию и настройкам"
-            aria-label="Поиск заготовки отчёта"
+            aria-label="Поиск готового отчёта"
             data-report-showcase-search
           />
 
