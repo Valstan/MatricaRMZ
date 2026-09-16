@@ -94,18 +94,91 @@ describe('этапы работ — экран', () => {
     expect(PAGE).toContain('initialTypeCode={initialTypeCode}');
   });
 
-  // Владелец 15.09 (вечер): «прямо в списке появлялась новая чистая строка, и мы в ней всё
-  // забивали». Черновик — индекс 0 той же виртуальной таблицы (одни ширины колонок), уходит
-  // тем же main-сервисом, что и карточка; сохранённые строки по-прежнему открывает карточка.
-  it('новый этап работ — черновая строка в самом списке, а не отдельное окно', () => {
-    expect(PAGE, 'черновик размечен').toContain('data-work-sheet-draft-row');
-    expect(PAGE, 'черновик — строка той же таблицы, не вторая таблица').toContain('draft && i === 0 ? draftCells(draft)');
-    expect(PAGE, 'черновик без номера, остальные с 1').toContain('rowNumberOf={(i) => (draft ? (i === 0 ? null : i) : i + 1)}');
-    expect(PAGE, 'сохранение — тем же сервисом, что и карточка').toContain('window.matrica.workSheets.rows.save(');
-    expect(PAGE, 'Esc убирает черновик').toContain("e.key === 'Escape'");
+  // Владелец 15.09 (вечер) и 16.09.2026: «прямо в списке появлялась новая чистая строка, и мы
+  // в ней всё забивали», а записанную строку правим щелчком по ней самой — отдельное окно с
+  // вертикальной формой «иногда не совсем удобно». Редактор — ряды ТОЙ ЖЕ виртуальной таблицы
+  // и тот же main-сервис, что у карточки; карточка осталась дверью в удаление и откат
+  // «Отремонтирован». Ассерты ниже держат свойства, а не написание: одна таблица, номера без
+  // дыр, один путь записи, один редактор на экран, карточка достижима.
+  it('этап работ заводится И правится строкой в самом списке', () => {
+    expect(PAGE, 'редактор строки размечен').toContain('data-work-sheet-editor-row');
+    expect(PAGE, 'полка с кнопками — отдельный ряд под редактором').toContain('data-work-sheet-editor-actions');
+    // colSpan считается по видимым колонкам плюс филлер: ячейку «№» VirtualTable рисует сам, и
+    // в colSpan она не входит. В хвостовой ячейке кнопки уехали бы за правый край таблицы.
+    expect(PAGE, 'кнопки — в полноширинной строке, а не в хвостовой ячейке').toMatch(
+      /colSpan=\{[^}]*visibleColumns\.length[^}]*\+ 1\}/,
+    );
+    expect((PAGE.match(/<VirtualTable/g) ?? []).length, 'таблица одна: две разъехались бы по ширинам').toBe(1);
+    // Рядов стало три вида, и пара «редактор + полка» встаёт в середину списка. Допущение
+    // «служебный ряд один и он сверху» на этом ломается — его место заняла чистая функция,
+    // а свойство «номера 1..N без дыр» проверяет отдельный unit-тест модели рядов.
+    expect(PAGE, 'ряды списка собирает одна чистая функция').toContain('buildWorkSheetListItems(sorted, editor)');
+    expect(PAGE, 'индексной арифметики «минус служебный ряд» больше нет').not.toMatch(/sorted\[[^\]]*\?\s*i\s*-\s*1/);
+    expect(PAGE, 'номер несёт сам ряд, а не формула по индексу').toMatch(/rowNumberOf=\{\(i\) =>/);
+    expect(PAGE, 'у полки номера нет, у правки — свой номер строки').toContain(
+      "it.kind === 'actions' ? null : it.number",
+    );
+    expect(
+      PAGE.split('window.matrica.workSheets.rows.save(').length - 1,
+      'создание и правка — один путь записи: со вторым разъедется и оповещение об изменении двигателя',
+    ).toBe(1);
+    expect(
+      PAGE.split("window.dispatchEvent(new Event('matrica:engines-changed'));").length - 1,
+      'один путь сохранения — один dispatch: забытый оставит отчёт «Двигатели на заводе» на вчерашней стадии',
+    ).toBe(1);
+    expect(PAGE, 'Esc убирает редактор').toContain("e.key === 'Escape'");
     expect(PAGE, 'Enter из открытого списка двигателей не сохраняет').toContain("e.key === 'Enter' && !e.defaultPrevented");
-    expect(PAGE, 'кнопка «Добавить» на месте и не плодит второй черновик').toContain('disabled={draft !== null || types.length === 0} data-work-sheet-add-row');
-    expect(PAGE, 'сохранённая строка открывается карточкой').toContain('onClick: () => void openRow(r),');
+    expect(
+      (PAGE.match(/onKeyDown: editorKeyDown/g) ?? []).length,
+      'Esc/Enter работают и из полки: общей обёртки у двух <tr> не бывает',
+    ).toBe(2);
+    expect(PAGE, 'кнопка «Добавить» на месте').toContain('data-work-sheet-add-row');
+    expect(PAGE, 'второй редактор не заводится ни новым, ни правкой').toContain(
+      'disabled={editor !== null || types.length === 0}',
+    );
+    expect(PAGE, 'щелчок по строке правит её на месте, и курсор встаёт в кликнутую колонку').toMatch(
+      /beginEdit\(r, colIdFromEvent/,
+    );
+    expect(PAGE, 'без права — read-only карточка, а не мёртвый редактор').toMatch(
+      /props\.canEdit[\s\S]{0,400}beginEdit[\s\S]{0,400}openRow\(r\)/,
+    );
+    expect(PAGE, 'путь в карточку не исчез: удаление и откат «Отремонтирован» живут только там').toContain(
+      'data-work-sheet-open-card',
+    );
+    expect(PAGE, 'карточка открывается вкладкой приложения').toContain('props.onOpenSheet(');
+    // Вид работ и двигатель у записанной строки — ТЕКСТ, а не редактор: поля пересобираются
+    // строго по присланным колонкам (смена вида молча превратила бы строку в другой этап с
+    // пустыми полями), а перевесить строку на другой двигатель сервис и так отказывается.
+    expect(PAGE, 'вид работ у записанной строки заморожен').toMatch(
+      /case 'type':[\s\S]{0,400}return base \? \(\s*base\.typeName/,
+    );
+    expect(PAGE, 'двигатель у записанной строки заморожен').toMatch(
+      /case 'engine':[\s\S]{0,400}return base \? \(\s*engineLabel\(base\)/,
+    );
+    // «Отремонтирован» ставится один раз, при создании строки: правкой его нельзя ни поставить,
+    // ни снять, и обещать это в правке было бы враньём.
+    expect(PAGE, 'правка не ставит и не снимает статус двигателя').toContain('completesRepair: false');
+    expect(PAGE, 'обещание «Завершает ремонт» — только у нового этапа работ').toMatch(
+      /!base && liveType\?\.completesRepair[\s\S]{0,200}data-work-sheet-completes-hint/,
+    );
+    // Колонки правки — живой справочник плюс коды, которых в виде уже нет: без них правка
+    // примечания стёрла бы значения удалённых колонок. Набор один и тот же на экране и в
+    // записи — два разных разъехались бы на первой же правке.
+    expect(PAGE, 'колонки, удалённые из вида, переживают правку').toContain('mergeWorkSheetColumns(');
+    expect(PAGE, 'на экране — тот самый набор колонок').toContain('editorColumns.map((c) => (');
+    expect(PAGE, 'и в запись уходит он же').toContain('columns: editorColumns,');
+    expect(PAGE, 'без справочника цехов имя цеха берётся из снимка строки, а не обнуляется').toContain(
+      '(base && ed.workshopId === base.workshopId ? base.workshopName || null : null)',
+    );
+    expect(PAGE, 'пустой редактор списку не мешает, набранное — замораживает обновление до сохранения').toContain(
+      'enabled: editor === null || !editor.dirty',
+    );
+    expect(PAGE, 'у первой колонки данных есть вид — иначе полноширинная полка раздует «Дату» в компактном режиме').toContain(
+      "id: 'at', label: 'Дата', kind: 'date'",
+    );
+    expect(PAGE, 'служебные ряды строятся поверх выборки: счётчик и печать остаются честными').toContain(
+      'total={rows.length} shown={sorted.length}',
+    );
     expect(PAGE, 'выбор двигателя — тем же полем, что в карточке').toContain('target="engine"');
     expect(PAGE, 'каталог двигателей приходит из приложения').toContain('engines: EngineListItem[];');
     expect(APP, 'приложение отдаёт каталог списку').toMatch(/<WorkSheetsPage[\s\S]{0,300}engines=\{engines\}/);
@@ -150,10 +223,15 @@ describe('этапы работ — экран', () => {
 
   // Этап работ пишется по id, который сгенерировал список: карточка нового открывается
   // сразу, а запись появляется только по «Сохранить» — пустых этапов работ не остаётся.
+  // Правка идёт тем же id: это upsert одной записи, а не вторая строка в истории ремонта.
   it('этап работ пишется через main-сервис тем же id, что открыл карточку', () => {
     expect(CARD).toContain('window.matrica.workSheets.rows.save(');
     expect(CARD, 'сохраняем ровно тот id, с которым карточку открыли').toContain('id: props.rowId,');
     expect(PAGE, 'id нового этапа работ даёт список').toContain('crypto.randomUUID()');
+    expect(PAGE, 'правка сохраняет тот же id строки').toContain('id: ed.id,');
+    expect(PAGE, 'новый id — только у нового этапа работ').toMatch(
+      /base: null[\s\S]{0,200}crypto\.randomUUID\(\)|crypto\.randomUUID\(\)[\s\S]{0,200}base: null/,
+    );
     expect(CARD, 'этап работ не переезжает на другой двигатель и не меняет вид').toContain(
       'disabled={!props.canEdit || !props.isNew}',
     );

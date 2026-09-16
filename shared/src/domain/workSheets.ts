@@ -163,6 +163,29 @@ export function buildWorkSheetFields(columns: readonly WorkSheetColumn[], values
 }
 
 /**
+ * Колонки для правки уже записанной строки: живой справочник даёт подписи, типы, варианты и
+ * обязательность, а коды, которых в виде работ уже нет, тянутся из самой строки.
+ *
+ * Без этого правка примечания стирала бы значения колонок, удалённых из вида: поля строки
+ * пересобираются строго по присланным колонкам (`buildWorkSheetFields`), и колонка, которой нет
+ * в наборе, исчезает вместе со значением. Живая колонка побеждает при совпадении кода —
+ * переименование подписи должно доезжать до старых строк.
+ */
+export function mergeWorkSheetColumns(
+  live: readonly WorkSheetColumn[],
+  rowFields: readonly WorkSheetField[],
+): WorkSheetColumn[] {
+  const out: WorkSheetColumn[] = [...live];
+  const known = new Set(live.map((c) => c.code));
+  for (const f of rowFields) {
+    if (known.has(f.code)) continue;
+    known.add(f.code);
+    out.push({ code: f.code, label: f.label || f.code, type: f.type });
+  }
+  return out;
+}
+
+/**
  * Обязательные колонки без значения — подписи для сообщения оператору.
  *
  * `previous` — поля строки ДО правки. Когда они переданы, пустота, которая была пустой и
