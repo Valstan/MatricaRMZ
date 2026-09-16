@@ -12,7 +12,7 @@ import { useChromeVisibility } from '../shell/ChromeVisibilityContext.js';
 import type { ShellNotice } from '../shell/shellNotice.js';
 import { TabVisibilityProvider } from '../shell/TabVisibilityContext.js';
 import { matricaPlatform } from '../platform.js';
-import { TieIcon } from '../components/TieIcon.js';
+import { ShortcutIcon } from '../components/ShortcutIcon.js';
 import { shouldKeepAliveTab } from './keepAlive.js';
 import rmzLogo from '../../assets/logo_rmz.png';
 import './shellV3.css';
@@ -394,7 +394,7 @@ export function V3TabShell(props: {
                     aria-label={title}
                     onClick={(e) => { e.stopPropagation(); props.onToggleDesktop?.(tab); }}
                   >
-                    <TieIcon active={onDesktop} />
+                    <ShortcutIcon active={onDesktop} />
                   </button>
                 );
               })()}

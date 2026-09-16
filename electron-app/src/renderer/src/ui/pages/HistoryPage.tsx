@@ -10,7 +10,7 @@ import { formatMoscowDateTime } from '../utils/dateUtils.js';
 import { pollWhenVisible } from '../utils/pollWhenVisible.js';
 import { TAB_SHORTCUT_META, resolveQuickStartTile, type PinnedTile } from '../utils/favoriteShortcut.js';
 import { useTabVisibleRef } from '../shell/TabVisibilityContext.js';
-import { TieIcon } from '../components/TieIcon.js';
+import { ShortcutIcon } from '../components/ShortcutIcon.js';
 
 type RecentVisitEntry = {
   id: string;
@@ -412,7 +412,7 @@ export function HistoryPage(props: {
           }}
         >
           <div style={{ fontWeight: 800, fontSize: 17, color: '#065f46', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <TieIcon active size={18} />
+            <ShortcutIcon active size={18} />
             Ярлыки Верстака
           </div>
           <div style={{ color: theme.colors.muted, fontSize: 12, marginBottom: 10 }}>Те же ярлыки, что лежат на Верстаке: галстук на вкладке кладёт их сюда и туда разом.</div>
