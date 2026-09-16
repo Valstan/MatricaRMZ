@@ -1,11 +1,13 @@
 import type { EngineListItem } from '../ipc/types.js';
+import type { StatusCode } from './contract.js';
 
 /**
  * «Где двигатель на заводе» — этап ремонта по данным карточки и ведомостей (владелец
  * 15.09.2026, вечер): отчёт по двигателям, которые числятся пришедшими и ещё не
  * отправленными, разбитый по группам движения.
  *
- * Правило одно: **побеждает самый поздний признак**, а не дата. Утиль — отдельная группа
+ * Правило одно: **побеждает самый поздний признак**, а не дата. Дата этапа — из строки списка
+ * (`statusDates` для стадий карточки, `defectDate`, дата ведомости, приход). Утиль — отдельная группа
  * выше всех; дальше от позднего к раннему: Отремонтирован → последняя ведомость по виду
  * работ (обкатка / сборка / вал / укладка — порядок из справочника видов) → Дефектовка
  * сделана → Комплектовка сделана → Ремонт начат → Пришёл, ремонт не начат.
@@ -84,13 +86,23 @@ function sheetStage(
   };
 }
 
+/** Дата стадии карточки из строки списка (`status_<code>_date`); нет — `null`. */
+export function engineStatusDate(e: Pick<EngineListItem, 'statusDates'>, code: StatusCode): number | null {
+  return dateMs(e.statusDates?.[code]);
+}
+
+/** Дата утиля — по той же паре меток, что и `isScrapEngine`; забракованный без них — дата брака. */
+export function engineScrapDate(e: Pick<EngineListItem, 'statusDates'>): number | null {
+  return engineStatusDate(e, 'status_scrap_confirmed') ?? engineStatusDate(e, 'status_rework_sent') ?? engineStatusDate(e, 'status_rejected');
+}
+
 export function engineFactoryStage(e: EngineListItem, types?: readonly EngineFactoryStageTypeRef[]): EngineFactoryStage {
   const flags = e.statusFlags ?? {};
   if (e.isScrap === true) {
-    return { key: 'scrap', label: ENGINE_FACTORY_STAGE_LABELS.scrap, rank: ENGINE_FACTORY_STAGE_RANK.scrap, at: null };
+    return { key: 'scrap', label: ENGINE_FACTORY_STAGE_LABELS.scrap, rank: ENGINE_FACTORY_STAGE_RANK.scrap, at: engineScrapDate(e) };
   }
   if (flags.status_repaired === true) {
-    return { key: 'repaired', label: ENGINE_FACTORY_STAGE_LABELS.repaired, rank: ENGINE_FACTORY_STAGE_RANK.repaired, at: null };
+    return { key: 'repaired', label: ENGINE_FACTORY_STAGE_LABELS.repaired, rank: ENGINE_FACTORY_STAGE_RANK.repaired, at: engineStatusDate(e, 'status_repaired') };
   }
   const sheet = sheetStage(e, types);
   if (sheet) return sheet;
@@ -101,7 +113,7 @@ export function engineFactoryStage(e: EngineListItem, types?: readonly EngineFac
     return { key: 'completeness_act', label: ENGINE_FACTORY_STAGE_LABELS.completenessAct, rank: ENGINE_FACTORY_STAGE_RANK.completenessAct, at: null };
   }
   if (flags.status_repair_started === true) {
-    return { key: 'repair_started', label: ENGINE_FACTORY_STAGE_LABELS.repairStarted, rank: ENGINE_FACTORY_STAGE_RANK.repairStarted, at: null };
+    return { key: 'repair_started', label: ENGINE_FACTORY_STAGE_LABELS.repairStarted, rank: ENGINE_FACTORY_STAGE_RANK.repairStarted, at: engineStatusDate(e, 'status_repair_started') };
   }
   return { key: 'arrived', label: ENGINE_FACTORY_STAGE_LABELS.arrived, rank: ENGINE_FACTORY_STAGE_RANK.arrived, at: dateMs(e.arrivalDate) };
 }

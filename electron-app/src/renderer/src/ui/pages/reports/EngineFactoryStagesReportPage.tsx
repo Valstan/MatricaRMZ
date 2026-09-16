@@ -5,6 +5,8 @@ import {
   applyFacets,
   engineFacets,
   engineFactoryStage,
+  engineScrapDate,
+  engineStatusDate,
   flattenGrouped,
   isEngineAtPlant,
   type EngineListItem,
@@ -44,8 +46,8 @@ import type { ListReportPageProps } from './listReportPages.js';
  * пришёл). Группировка: по этапу / по заказчику / заказчик → этап / без.
  *
  * Данные — каталог двигателей приложения, тот же, что у списка «Двигатели»: ничего не
- * строится сервисом, сортировка и ступени считаются на экране. Дат стадий «отремонтирован»,
- * «утиль» и «ремонт начат» у строки списка нет — там прочерк; расширение — отдельная задача.
+ * строится сервисом, сортировка и ступени считаются на экране. Даты стадий «отремонтирован»,
+ * «утиль», «ремонт начат» строка несёт в `statusDates` (с 16.09) — «Дата этапа» заполнена у всех.
  */
 
 type Column = ColumnDescriptor & {
@@ -122,6 +124,9 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
       { id: 'arrivalDate', label: 'Дата прихода', kind: 'date', render: (e) => fmtDate(e.arrivalDate), sortValue: (e) => e.arrivalDate ?? 0 },
       { id: 'stage', label: 'Этап на заводе', kind: 'name', render: (e) => e.stage.label, sortValue: (e) => e.stage.rank, alwaysVisible: true },
       { id: 'stageAt', label: 'Дата этапа', kind: 'date', render: (e) => fmtDate(e.stage.at), sortValue: (e) => e.stage.at ?? 0 },
+      { id: 'repairStartedAt', label: 'Ремонт начат', kind: 'date', render: (e) => fmtDate(engineStatusDate(e, 'status_repair_started')), sortValue: (e) => engineStatusDate(e, 'status_repair_started') ?? 0 },
+      { id: 'repairedAt', label: 'Отремонтирован', kind: 'date', render: (e) => fmtDate(engineStatusDate(e, 'status_repaired')), sortValue: (e) => engineStatusDate(e, 'status_repaired') ?? 0 },
+      { id: 'scrapAt', label: 'Дата утиля', kind: 'date', render: (e) => fmtDate(engineScrapDate(e)), sortValue: (e) => engineScrapDate(e) ?? 0 },
       { id: 'sheetNode', label: 'Вид работ (последняя ведомость)', kind: 'name', render: (e) => text(e.lastSheetNode), sortValue: (e) => text(e.lastSheetNode) },
       { id: 'sheetAt', label: 'Дата ведомости', kind: 'date', render: (e) => fmtDate(e.lastSheetAt), sortValue: (e) => e.lastSheetAt ?? 0 },
       { id: 'historyAction', label: 'Последнее событие', kind: 'text', render: (e) => text(e.lastHistoryAction), sortValue: (e) => text(e.lastHistoryAction) },
@@ -133,7 +138,7 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
   const columnLayout = useColumnLayout(
     'report:engineFactoryStages:columns',
     columns.map((c) => c.id),
-    ['contract', 'sheetAt', 'historyAt'],
+    ['contract', 'sheetAt', 'historyAt', 'repairStartedAt', 'repairedAt', 'scrapAt'],
   );
   const columnsById = useMemo(() => new Map(columns.map((c) => [c.id, c])), [columns]);
   const visibleColumns = useMemo(

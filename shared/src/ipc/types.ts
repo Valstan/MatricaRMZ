@@ -97,6 +97,8 @@ export type EngineListItem = {
   syncStatus: string;
   contractSignedAt?: number | null;
   statusFlags?: Partial<Record<StatusCode, boolean>>;
+  /** Даты стадий карточки (`status_<code>_date`), только проставленные — «ремонт начат», «отремонтирован», «утиль» в списке и отчётах. */
+  statusDates?: Partial<Record<StatusCode, number>>;
   attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
 };
 

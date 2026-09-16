@@ -809,6 +809,12 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     } else {
       shippingDate = legacyShippingDate;
     }
+    // В строку списка уезжают только проставленные даты стадий: «ремонт начат / отремонтирован /
+    // утиль» нужны колонкам списка и отчёту «этапы на заводе» (владелец 16.09).
+    const statusDates: Partial<Record<StatusCode, number>> = {};
+    for (const [code, ms] of Object.entries(statusDateByCode) as Array<[StatusCode, number | null]>) {
+      if (ms != null) statusDates[code] = ms;
+    }
     const statusRejected = statusFlags.status_rejected === true;
     // «Признан утильным» / «Утиль — отправлен заказчику» — те же две метки, по которым утиль
     // определяет shared `isScrapEngine` (отчёты, гейт выдачи Assembly-наряда). Список их не читал:
@@ -877,6 +883,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       syncStatus: e.syncStatus,
       ...(typeof contractSignedAt === 'number' ? { contractSignedAt } : {}),
       ...(Object.keys(statusFlags).length > 0 && { statusFlags }),
+      ...(Object.keys(statusDates).length > 0 ? { statusDates } : {}),
       ...(attachmentPreviews.length > 0 ? { attachmentPreviews } : {}),
     });
   }

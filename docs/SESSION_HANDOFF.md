@@ -3,12 +3,12 @@
 > Sticky-note для непрерывности разработки между сессиями и компьютерами. Обновляется в PR каждого шага нитки (D-066); `/close_session` — страховка. История — через `git log -- docs/SESSION_HANDOFF.md`.
 
 **Status:** ACTIVE
-**Updated:** 2026-09-16 (Fable 5.1, машина `PC79`) — **программа осень-2026** ([план](plans/autumn-2026-program.md)), пачка 1. A1 ✅ [#942](https://github.com/Valstan/MatricaRMZ/pull/942), A3 ✅ [#943](https://github.com/Valstan/MatricaRMZ/pull/943). B1 — динамический фильтр «Этап»: у описателя ступени появился полный ряд `options` (`listFacets.ts`), `ENGINE_FACETS` → фабрика `engineFacets(types)`; ряд этапов и видов работ сеется справочником `work_sheet_types` (хук `useWorkSheetTypeRefs`), пустые этапы видны нулём, новый вид работ попадает в фильтр сам. Ключ ведомости без кода теперь сходится с ключом отчёта.
-**Branch:** `fix/factory-stage-facet-dynamic` → PR.
+**Updated:** 2026-09-16 (Fable 5.1, машина `PC79`) — **программа осень-2026** ([план](plans/autumn-2026-program.md)), пачка 1 по коду закрыта: A1 ✅ [#942](https://github.com/Valstan/MatricaRMZ/pull/942), A3 ✅ [#943](https://github.com/Valstan/MatricaRMZ/pull/943), B1 ✅ [#944](https://github.com/Valstan/MatricaRMZ/pull/944), A2 ✅ [#945](https://github.com/Valstan/MatricaRMZ/pull/945), A4 [#946](https://github.com/Valstan/MatricaRMZ/pull/946), B2 — этот PR: строка списка несёт `statusDates` (проставленные `status_<code>_date`), `engineFactoryStage` даёт дату утиля/отремонтирован/ремонт начат (`engineStatusDate`, `engineScrapDate`), в списке двигателей и в отчёте «этапы на заводе» три скрытые по умолчанию колонки дат.
+**Branch:** `feat/engine-list-status-dates` → PR.
 **Last released version:** **v3.35.0**, выкат 15.09. Права на ведомости на проде владелец снял и раздал вручную — прод-шаг `perm:revoke-work-sheets` не нужен.
 
-**Текущая нитка:** пачка 1 программы — A1 ✅ → A3 ✅ → B1 (этот PR) → A2 «Готовые отчёты» → A4 убрать компактный режим → B2 даты стадий в `EngineListItem` → CDP-смоук пачки одним стендом (A3, B1, A4, B2) → релиз.
-**Следующий шаг:** A2 (`App.tsx:629`, `uiSections.ts:252`, `ReportTemplatesShowcasePage.tsx:320,337`, `uiSearchRegistry.ts:67`) + A4 (`RepairChecklistPanel.tsx:3566-3568, 4004-4083` — только для `engine_inventory_items`).
+**Текущая нитка:** пачка 1 программы по коду готова → CDP-смоук пачки одним стендом (полоса вкладок A3; фильтр «Этап» с обкаткой B1; список деталей без тумблера A4; колонки дат B2) → `/reliz` v3.36.0.
+**Следующий шаг:** смоук по рецепту `docs/machines/PC79.md` (ABI-танец → backend 3011 → клиент с CDP 9222), затем релиз. После релиза — пачка 2: C1 переименование «ведомости → этапы работ» (см. план, словарь и список файлов там).
 
 **Решения владельца 16.09** (продублированы в плане): «Провести комплектность» фиксирует акт; нитка E2.2→E3→дубли берётся последней; рейтинг по частоте во всех пикерах сотрудников; «Заготовки отчётов» → «Готовые отчёты»; машины для LAN-обхода подбираю по прод-данным, утверждает владелец.
 
