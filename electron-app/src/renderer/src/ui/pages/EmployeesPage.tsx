@@ -608,6 +608,15 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
             onToggle={() => patchState({ facetsOpen: !facetsOpen })}
           />
         </ToolbarPin>
+        <ColumnSettingsButton
+          label="Колонки списка"
+          columns={columnDescriptors}
+          order={columnLayout.order}
+          isVisible={columnLayout.isVisible}
+          onToggleVisible={columnLayout.setVisible}
+          onMove={columnLayout.moveColumn}
+          onReset={columnLayout.resetToDefault}
+        />
         {props.canCreate && (
           <Button variant="ghost" data-employee-dedupe-open onClick={() => setDedupeOpen(true)} title="Найти сотрудников, заведённых дважды, и объединить записи">
             Найти дубли
@@ -665,17 +674,6 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
           onChangeSelection={(next) => patchState({ facets: next as EmployeeFacetSelection, pageIndex: 0 })}
           onChangeFields={(next) => patchState({ facetFields: next })}
           onReset={() => patchState({ facets: {}, facetFields: [] })}
-          columnsControl={
-            <ColumnSettingsButton
-              label="Колонки списка"
-              columns={columnDescriptors}
-              order={columnLayout.order}
-              isVisible={columnLayout.isVisible}
-              onToggleVisible={columnLayout.setVisible}
-              onMove={columnLayout.moveColumn}
-              onReset={columnLayout.resetToDefault}
-            />
-          }
         />
       </div>
 

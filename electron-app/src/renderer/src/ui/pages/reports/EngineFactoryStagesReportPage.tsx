@@ -277,6 +277,15 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
         <ToolbarPin>
           <FacetToggleButton<Row> facets={facets} selection={ui.facets} open={ui.facetsOpen} onToggle={() => patchState({ facetsOpen: !ui.facetsOpen })} />
         </ToolbarPin>
+        <ColumnSettingsButton
+          label="Колонки списка"
+          columns={columns}
+          order={columnLayout.order}
+          isVisible={columnLayout.isVisible}
+          onToggleVisible={columnLayout.setVisible}
+          onMove={columnLayout.moveColumn}
+          onReset={columnLayout.resetToDefault}
+        />
         <ToolbarPin>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
             <span className="ui-muted">Группировать</span>
@@ -306,17 +315,6 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
           onChangeSelection={(next) => patchState({ facets: next })}
           onChangeFields={(next) => patchState({ facetFields: next })}
           onReset={() => patchState({ facets: {}, facetFields: [] })}
-          columnsControl={
-            <ColumnSettingsButton
-              label="Колонки списка"
-              columns={columns}
-              order={columnLayout.order}
-              isVisible={columnLayout.isVisible}
-              onToggleVisible={columnLayout.setVisible}
-              onMove={columnLayout.moveColumn}
-              onReset={columnLayout.resetToDefault}
-            />
-          }
         />
       </div>
 

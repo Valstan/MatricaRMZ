@@ -857,6 +857,15 @@ export function WorkSheetsPage(props: {
         <ToolbarPin>
           <FacetToggleButton<WorkSheetRow> facets={facets} selection={ui.facets} open={ui.facetsOpen} onToggle={() => patchState({ facetsOpen: !ui.facetsOpen })} />
         </ToolbarPin>
+        <ColumnSettingsButton
+          label="Колонки списка"
+          columns={columns}
+          order={columnLayout.order}
+          isVisible={columnLayout.isVisible}
+          onToggleVisible={columnLayout.setVisible}
+          onMove={columnLayout.moveColumn}
+          onReset={columnLayout.resetToDefault}
+        />
         {props.canManageTypes && (
           <Button variant="ghost" onClick={() => setTypeEditorOpen(true)} title="Виды работ: названия, цеха, колонки" data-work-sheet-edit-types>
             Виды работ
@@ -902,17 +911,6 @@ export function WorkSheetsPage(props: {
           onChangeSelection={(next) => patchState({ facets: next })}
           onChangeFields={(next) => patchState({ facetFields: next })}
           onReset={() => patchState({ facets: {}, facetFields: [] })}
-          columnsControl={
-            <ColumnSettingsButton
-              label="Колонки списка"
-              columns={columns}
-              order={columnLayout.order}
-              isVisible={columnLayout.isVisible}
-              onToggleVisible={columnLayout.setVisible}
-              onMove={columnLayout.moveColumn}
-              onReset={columnLayout.resetToDefault}
-            />
-          }
         />
       </div>
 

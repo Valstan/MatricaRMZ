@@ -807,6 +807,15 @@ export function EnginesPage(props: {
         <ToolbarPin>
           <EngineFacetToggleButton selection={facets} open={facetsOpen} onToggle={() => patchState({ facetsOpen: !facetsOpen })} />
         </ToolbarPin>
+        <ColumnSettingsButton
+          label="Колонки списка"
+          columns={columnDescriptors}
+          order={columnLayout.order}
+          isVisible={columnLayout.isVisible}
+          onToggleVisible={columnLayout.setVisible}
+          onMove={columnLayout.moveColumn}
+          onReset={columnLayout.resetToDefault}
+        />
         <Button variant="ghost" onClick={() => setDedupeOpen(true)} title="Найти и склеить дубли двигателей">
           Поиск дублей
         </Button>
@@ -837,17 +846,6 @@ export function EnginesPage(props: {
           fields={facetFields}
           open={facetsOpen}
           types={sheetTypes}
-          columnsControl={
-            <ColumnSettingsButton
-              label="Колонки списка"
-              columns={columnDescriptors}
-              order={columnLayout.order}
-              isVisible={columnLayout.isVisible}
-              onToggleVisible={columnLayout.setVisible}
-              onMove={columnLayout.moveColumn}
-              onReset={columnLayout.resetToDefault}
-            />
-          }
           onChangeSelection={(next) => patchState({ facets: next, page: 0 })}
           onChangeFields={(next) => patchState({ facetFields: next, page: 0 })}
           onReset={() =>
