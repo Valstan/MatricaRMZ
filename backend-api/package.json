@@ -22,6 +22,8 @@
     "files:drop-cache:apply": "tsx src/scripts/dropLocalFileCache.ts --apply",
     "users:parity": "tsx src/scripts/checkUsersParity.ts",
     "users:fixture-check": "tsx src/scripts/checkUsersStrictFixture.ts",
+    "sync:restamp": "tsx src/scripts/restampUnjournaledRows.ts",
+    "sync:restamp:apply": "tsx src/scripts/restampUnjournaledRows.ts --apply",
     "users:backfill-check": "tsx src/scripts/checkUsersBackfill.ts",
     "users:merge-repoint-check": "tsx src/scripts/checkEmployeeMergeRepoint.ts",
     "users:publisher-check": "tsx src/scripts/checkUsersPublisher.ts",

@@ -15,6 +15,7 @@ const world = {
   inserted: [] as Array<Record<string, unknown>>,
   insertFailures: [] as Array<unknown>,
   transactions: 0,
+  updates: [] as Array<{ table: unknown; set: unknown; where: unknown }>,
 };
 
 /** Текст запроса из drizzle-шаблона `sql` — по нему тесты и отличают запросы друг от друга. */
@@ -30,12 +31,27 @@ function sqlText(q: unknown): string {
     .join(' ');
 }
 
-/** Скалярные параметры шаблона — у `generate_series(1, ${n})` это и есть размер пачки. */
-function sqlParams(q: unknown): unknown[] {
-  const chunks = (q as { queryChunks?: unknown[] })?.queryChunks ?? [];
-  return chunks
-    .filter((c) => !!c && typeof c === 'object' && 'value' in (c as Record<string, unknown>) && !Array.isArray((c as { value: unknown }).value))
-    .map((c) => (c as { value: unknown }).value);
+/** Все скалярные параметры запроса, включая вложенные `sql`-фрагменты (case … end, in (…)). */
+function sqlDeepParams(q: unknown, out: unknown[] = [], depth = 0): unknown[] {
+  if (depth > 12 || q === undefined || q === null) return out;
+  if (typeof q !== 'object') {
+    // Значения шаблона drizzle держит в queryChunks как есть и оборачивает в Param при сборке.
+    out.push(q);
+    return out;
+  }
+  if (Array.isArray(q)) {
+    for (const item of q) sqlDeepParams(item, out, depth + 1);
+    return out;
+  }
+  const rec = q as Record<string, unknown>;
+  // StringChunk — текст запроса, не параметр.
+  if (Array.isArray(rec.value) && rec.value.every((s) => typeof s === 'string')) return out;
+  if ('queryChunks' in rec) return sqlDeepParams(rec.queryChunks, out, depth + 1);
+  if ('value' in rec) return sqlDeepParams(rec.value, out, depth + 1);
+  // Колонка / таблица drizzle — ссылка на схему, не параметр.
+  if ('table' in rec || 'columns' in rec) return out;
+  for (const v of Object.values(rec)) sqlDeepParams(v, out, depth + 1);
+  return out;
 }
 
 async function runExecute(q: unknown) {
@@ -45,7 +61,7 @@ async function runExecute(q: unknown) {
     return { rows: [{ seq: String(world.maxSeq), gap: '0' }] };
   }
   if (text.includes('nextval')) {
-    const batch = Math.max(1, Number(sqlParams(q)[0] ?? 1));
+    const batch = Math.max(1, Number(sqlDeepParams(q).find((v) => typeof v === 'number') ?? 1));
     const rows: Array<{ seq: string }> = [];
     for (let i = 0; i < batch; i += 1) rows.push({ seq: String(world.nextSeqStart + i) });
     world.nextSeqStart += batch;
@@ -56,6 +72,14 @@ async function runExecute(q: unknown) {
 
 const txMock = {
   execute: vi.fn(async (q: unknown) => runExecute(q)),
+  update: vi.fn((table: unknown) => ({
+    set: vi.fn((set: unknown) => ({
+      where: vi.fn(async (where: unknown) => {
+        world.updates.push({ table, set, where });
+        return undefined;
+      }),
+    })),
+  })),
   insert: vi.fn(() => ({
     values: vi.fn(async (rows: Array<Record<string, unknown>>) => {
       const failure = world.insertFailures.shift();
@@ -107,6 +131,7 @@ beforeEach(() => {
   world.maxSeq = 0;
   world.nextSeqStart = 1;
   world.transactions = 0;
+  world.updates = [];
   vi.clearAllMocks();
 });
 
@@ -149,6 +174,46 @@ describe('signAndAppendDetailed — запись в журнал', () => {
     // Штамп внутри payload обязателен: pullChangesSince отдаёт эту строку клиенту как есть,
     // и без last_server_seq клиент не сможет продвинуть курсор по не-sync таблице.
     expect(JSON.parse(String(row.payloadJson)).last_server_seq).toBe(42);
+  });
+
+  // Инкрементальный pull читает таблицы по `last_server_seq > since`. Прямые писатели
+  // (upsertWarehouseNomenclature, BOM, дедуп, скрипты) журналируют без applyPushBatch, и до
+  // 17.09.2026 их строки оставались без штампа — правка уезжала клиентам только полным pull'ом
+  // (на проде 1607 из 1625 позиций номенклатуры без номера). Штамп ставит сам журнал.
+  it('штампует номер и на строку PG-таблицы синка — в той же транзакции', async () => {
+    const { signAndAppendDetailed } = await import('./ledgerService.js');
+    const { entities } = await import('../database/schema.js');
+    world.nextSeqStart = 42;
+    await signAndAppendDetailed([payload()]);
+
+    expect(world.updates).toHaveLength(1);
+    const u = world.updates[0]!;
+    expect(u.table).toBe(entities);
+    expect(sqlDeepParams((u.set as { lastServerSeq: unknown }).lastServerSeq)).toContain(42);
+    expect(sqlDeepParams(u.where)).toContain('11111111-1111-4111-8111-111111111111');
+    expect(world.transactions).toBe(1);
+  });
+
+  it('одна пачка на таблицу: две строки одной таблицы — один UPDATE, две таблицы — два', async () => {
+    const { signAndAppendDetailed } = await import('./ledgerService.js');
+    world.nextSeqStart = 10;
+    await signAndAppendDetailed([
+      payload(),
+      payload({ row: { id: '33333333-3333-4333-8333-333333333333', name: 'вторая' } }),
+      payload({ table: 'erp_nomenclature', row: { id: '44444444-4444-4444-8444-444444444444', code: 'A', name: 'n' } }),
+    ]);
+    expect(world.updates).toHaveLength(2);
+    const sets = world.updates.map((u) => sqlDeepParams((u.set as { lastServerSeq: unknown }).lastServerSeq));
+    // Каждая строка получает СВОЙ номер, а не номер пачки.
+    expect(sets.some((s) => s.includes(10) && s.includes(11))).toBe(true);
+    expect(sets.some((s) => s.includes(12))).toBe(true);
+  });
+
+  it('таблица вне контура синка штампа не получает', async () => {
+    const { signAndAppendDetailed } = await import('./ledgerService.js');
+    await signAndAppendDetailed([payload({ table: 'release_registry', row: { id: '55555555-5555-4555-8555-555555555555' } })]);
+    expect(world.updates).toHaveLength(0);
+    expect(world.inserted).toHaveLength(1);
   });
 
   it('удаление без строки пишет тумстоун с id и меткой времени', async () => {
