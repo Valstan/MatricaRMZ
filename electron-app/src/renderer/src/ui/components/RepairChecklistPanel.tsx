@@ -3723,8 +3723,10 @@ function TableEditor(props: {
   const isDefectItemsTable = props.tableId === 'defect_items';
   const isCompletenessItemsTable = props.tableId === 'completeness_items';
   const isInventoryItemsTable = props.tableId === 'engine_inventory_items';
-  // Список деталей делится на два сворачиваемых блока; по умолчанию оба свёрнуты.
-  const [baseGroupOpen, setBaseGroupOpen] = useState(false);
+  // Список деталей делится на два сворачиваемых блока. «Базовые детали (в актах)» раскрыты
+  // с первого захода (владелец 17.09.2026, D5): до этого блок «Детали» выглядел пустым, пока
+  // оператор не щёлкнет по группе. «Остальные детали» по-прежнему свёрнуты — это хвост списка.
+  const [baseGroupOpen, setBaseGroupOpen] = useState(true);
   const [otherGroupOpen, setOtherGroupOpen] = useState(false);
   // Планшетный numpad для количества (Ф-later): тап по числовому полю открывает крупную экранную
   // клавиатуру; на confirm клампим ровно как обычный ввод (см. renderCellInput onChange).
