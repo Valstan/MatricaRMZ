@@ -72,6 +72,33 @@ export type RepairChecklistAnswers = Record<
   | { kind: 'approver'; grif: RepairChecklistApproverGrif }
 >;
 
+/**
+ * Служебный ключ листа: каким подписям своё ФИО уже предлагали (D6, владелец 17.09.2026: при
+ * повторном открытии карточки не предлагать). Пустое поле после сохранения неотличимо от
+ * незаполненного (M139), поэтому память об этом живёт в самих данных листа, а не в памяти
+ * панели. Шаблон этот ключ не рисует, печать по нему не ходит.
+ */
+export const SIGNATURE_PREFILL_MARK_KEY = '_signature_prefill_offered';
+
+/** Подписи, которым своё ФИО уже предлагали в этом листе. */
+export function readSignaturePrefillMark(answers: RepairChecklistAnswers): Set<string> {
+  const raw = answers[SIGNATURE_PREFILL_MARK_KEY];
+  if (!raw || raw.kind !== 'text') return new Set<string>();
+  return new Set(
+    String(raw.value ?? '')
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean),
+  );
+}
+
+/** Тот же лист с отметкой о предложенных подписях; порядок id стабильный, дубли схлопнуты. */
+export function withSignaturePrefillMark(answers: RepairChecklistAnswers, ids: Iterable<string>): RepairChecklistAnswers {
+  const merged = new Set(readSignaturePrefillMark(answers));
+  for (const id of ids) if (id) merged.add(id);
+  return { ...answers, [SIGNATURE_PREFILL_MARK_KEY]: { kind: 'text', value: [...merged].sort().join(',') } };
+}
+
 import type { FileRef } from './fileStorage.js';
 import type { SupplyRequestItem } from './supplyRequest.js';
 import type { RepairFundInstanceClassification } from './repairFundInstance.js';

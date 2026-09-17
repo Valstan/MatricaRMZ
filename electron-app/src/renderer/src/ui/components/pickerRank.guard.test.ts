@@ -132,4 +132,15 @@ describe('§D4: подстановка своего имени одноразо�
     expect(effect).toContain('loadVersion === 0');
     expect(code).toContain('${props.stage}:${activeTemplate.id}:${loadVersion}');
   });
+
+  it('лист сам помнит, кому уже предлагали: при повторном открытии карточки подпись не предлагается (D6)', () => {
+    // Владелец 17.09.2026: «нет» на «предлагать при каждом открытии». Ref помнит только текущую
+    // загрузку; навсегда помнит отметка в самих `answers` — иначе после сохранения пустого поля
+    // «стёрли намеренно» и «не заполняли» неотличимы (M139).
+    const effect = PANEL.split('const alreadyPrefilled =')[1]?.split('// Хвост Т6')[0] ?? '';
+    expect(effect).toContain('readSignaturePrefillMark(answers)');
+    expect(effect).toContain('offeredBefore.has(item.id)');
+    expect(effect, 'отметка едет в тот же save, что и подпись').toContain('next = withSignaturePrefillMark(next, offeredNow);');
+    expect(effect.indexOf('withSignaturePrefillMark(next, offeredNow)'), 'отметка ставится ДО сохранения').toBeLessThan(effect.indexOf('void save(next, { auto: true });'));
+  });
 });

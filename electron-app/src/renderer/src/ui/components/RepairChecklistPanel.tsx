@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { DefectConductedVersionSummary, DefectPartHistoryEvent, EngineActApprover, EngineActTemplateSummary, EngineActType, EngineActVersionRecord, EngineCommissionRole, EngineInventoryRow, EngineRepairPartState, FileRef, InventoryShortageSummary, PartStatusEventPayload, RepairChecklistApproverGrif, RepairChecklistCommissionMember, RepairChecklistConditionItem, RepairFundInstancePayload, RepairFundRequirementVersionRecord, RepairChecklistAnswers, RepairChecklistPayload, RepairChecklistTemplate, SupplyRequestItem } from '@matricarmz/shared';
-import { APPROVER_GRIF_KEY, applyEngineActTemplate, buildEngineActTemplatePayloadFromAnswers, buildRepairOrderItemsFromInventory, buildSupplyRequestItemsFromInventory, collectDefectPhotosFromInventory, COMMISSION_MEMBERS_KEY, computeCustomerClaim, computeInventoryShortage, ENGINE_ACT_APPROVER_DEFAULT, ENGINE_ACT_APPROVERS, ENGINE_INVENTORY_STAGE, engineInventoryRowSignature, fillCrankcaseStampedNumbers, findEmployeeByPositionGroups, migrateEngineInventoryAnswers, normalizeEngineInventoryRows, partRepairStatusLabel, readApproverGrif, readCommissionMembers, readConditionItems, RECEIPT_CONDITION_LIST_KEY, repairFundInstanceClassificationLabel, repairFundInstanceStatusLabel, resolveEngineActApprover, resolveHeaderAutofill, selectRequirementInstances, rowHasDefect, summarizeReplenishment } from '@matricarmz/shared';
+import { APPROVER_GRIF_KEY, applyEngineActTemplate, buildEngineActTemplatePayloadFromAnswers, buildRepairOrderItemsFromInventory, buildSupplyRequestItemsFromInventory, collectDefectPhotosFromInventory, COMMISSION_MEMBERS_KEY, computeCustomerClaim, computeInventoryShortage, ENGINE_ACT_APPROVER_DEFAULT, ENGINE_ACT_APPROVERS, ENGINE_INVENTORY_STAGE, engineInventoryRowSignature, fillCrankcaseStampedNumbers, findEmployeeByPositionGroups, migrateEngineInventoryAnswers, normalizeEngineInventoryRows, partRepairStatusLabel, readApproverGrif, readCommissionMembers, readConditionItems, readSignaturePrefillMark, withSignaturePrefillMark, RECEIPT_CONDITION_LIST_KEY, repairFundInstanceClassificationLabel, repairFundInstanceStatusLabel, resolveEngineActApprover, resolveHeaderAutofill, selectRequirementInstances, rowHasDefect, summarizeReplenishment } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { ListCount } from './ListCount.js';
@@ -1130,13 +1130,22 @@ export function RepairChecklistPanel(props: {
       prefilledSignaturesRef.current = { sheetKey, ids: new Set<string>() };
     }
     const alreadyPrefilled = prefilledSignaturesRef.current.ids;
-    const next = { ...answers } as RepairChecklistAnswers;
+    // Память листа (D6, владелец 17.09.2026): подпись, которую уже предлагали в ЭТОМ листе,
+    // при следующем открытии карточки не предлагается снова — даже если оператор её стёр и
+    // сохранил пустой. Ref выше помнит только текущую загрузку, отметка в `answers` — навсегда.
+    const offeredBefore = readSignaturePrefillMark(answers);
+    const offeredNow: string[] = [];
+    let next = { ...answers } as RepairChecklistAnswers;
     let changed = false;
     for (const item of activeTemplate.items) {
       if (item.kind !== 'signature') continue;
       // Комиссию заполняет автоподстановка по цеху, не текущий пользователь.
       if (item.id.startsWith('commission_')) continue;
       if (alreadyPrefilled.has(item.id)) continue;
+      if (offeredBefore.has(item.id)) {
+        alreadyPrefilled.add(item.id);
+        continue;
+      }
       const current = (answers as any)[item.id];
       const currentFio = current?.kind === 'signature' ? String(current.fio ?? '').trim() : '';
       const currentPosition = current?.kind === 'signature' ? String(current.position ?? '').trim() : '';
@@ -1149,9 +1158,13 @@ export function RepairChecklistPanel(props: {
       const signedAt = current?.kind === 'signature' ? (current.signedAt ?? null) : null;
       (next as any)[item.id] = { kind: 'signature', fio: fullName, position, signedAt };
       alreadyPrefilled.add(item.id);
+      offeredNow.push(item.id);
       changed = true;
     }
     if (!changed) return;
+    // Отметка едет тем же автосейвом, что и подпись: семь `auto`-сохранений панели — контрольное
+    // число сторожа, восьмого не заводим.
+    next = withSignaturePrefillMark(next, offeredNow);
     setAnswers(next);
     if (props.canEdit) void save(next, { auto: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the ONLY omitted dep is `save`: a plain function declared later in the body and recreated every render, so listing it would re-run this effect on every render. `answers` IS in the deps, so this runs on every answer edit; the per-sheet `prefilledSignaturesRef` set above keeps it a no-op after the first pass over each signature
