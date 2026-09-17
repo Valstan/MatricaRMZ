@@ -97,3 +97,18 @@ describe('fillCrankcaseStampedNumbers', () => {
     expect(isCrankcaseRowName(undefined)).toBe(false);
   });
 });
+
+describe('отметка «своё ФИО уже предлагали» живёт в самом листе (D6)', async () => {
+  const { readSignaturePrefillMark, withSignaturePrefillMark, SIGNATURE_PREFILL_MARK_KEY } = await import('./repairChecklist.js');
+  it('пустой лист — никому не предлагали; отметка читается обратно и не плодит дублей', () => {
+    expect([...readSignaturePrefillMark({})]).toEqual([]);
+    const marked = withSignaturePrefillMark({}, ['sig_b', 'sig_a', 'sig_b', '']);
+    expect(marked[SIGNATURE_PREFILL_MARK_KEY]).toEqual({ kind: 'text', value: 'sig_a,sig_b' });
+    expect([...readSignaturePrefillMark(marked)].sort()).toEqual(['sig_a', 'sig_b']);
+    const more = withSignaturePrefillMark(marked, ['sig_c']);
+    expect([...readSignaturePrefillMark(more)].sort()).toEqual(['sig_a', 'sig_b', 'sig_c']);
+  });
+  it('чужое значение под ключом не ломает чтение', () => {
+    expect([...readSignaturePrefillMark({ [SIGNATURE_PREFILL_MARK_KEY]: { kind: 'boolean', value: true } })]).toEqual([]);
+  });
+});
