@@ -126,3 +126,25 @@ describe('engineFactoryStageOrder — ряд групп от позднего к
     expect([...ranks].sort((a, b) => b - a)).toEqual(ranks);
   });
 });
+
+describe('engineStateLabel / engineDaysOnSite — отчёт «Двигатели» (B3 осень-2026)', async () => {
+  const { engineStateLabel, engineDaysOnSite } = await import('./engineFactoryStage.js');
+  const DAY = 86_400_000;
+  const T0 = Date.UTC(2026, 8, 1);
+  it('состояние — поздний признак: утиль выше отгрузки, отгрузка выше готовности', () => {
+    expect(engineStateLabel({ isScrap: true, shippingDate: T0 })).toBe('Утиль');
+    expect(engineStateLabel({ shippingDate: T0, statusFlags: { status_repaired: true } })).toBe('Отгружен');
+    expect(engineStateLabel({ arrivalDate: T0, statusFlags: { status_customer_sent: true } })).toBe('Отгружен');
+    expect(engineStateLabel({ arrivalDate: T0, statusFlags: { status_repaired: true, status_repair_started: true } })).toBe('Готов, не отгружен');
+    expect(engineStateLabel({ arrivalDate: T0, statusFlags: { status_repair_started: true } })).toBe('В ремонте');
+    expect(engineStateLabel({ arrivalDate: T0, statusFlags: { status_storage_received: true } })).toBe('Принят');
+    expect(engineStateLabel({ arrivalDate: T0 })).toBe('На заводе');
+    expect(engineStateLabel({})).toBe('Заведён');
+  });
+  it('дней на заводе: до отгрузки — по ней, иначе по сегодняшнему дню; без прихода — нет', () => {
+    expect(engineDaysOnSite({ arrivalDate: T0, shippingDate: T0 + 10 * DAY }, T0 + 100 * DAY)).toBe(10);
+    expect(engineDaysOnSite({ arrivalDate: T0 }, T0 + 3 * DAY)).toBe(3);
+    expect(engineDaysOnSite({ shippingDate: T0 }, T0)).toBeNull();
+    expect(engineDaysOnSite({ arrivalDate: null }, T0)).toBeNull();
+  });
+});

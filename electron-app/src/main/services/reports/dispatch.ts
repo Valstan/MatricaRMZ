@@ -14,7 +14,7 @@ import {
 
 import { buildPartsDemandReport, buildSupplyFulfillmentReport, buildPartMovementJournalReport, buildStockTurnoverReport, buildWorkshopThroughputReport, buildDefectReturnsSummaryReport, buildMovementIntegrityAuditReport, buildWarehouseStockPathAuditReport, buildSupplyReceiptGapReport, buildRepairFundReconciliationReport } from './presets/warehouse.js';
 import { buildWorkSheetsReport } from './presets/workSheets.js';
-import { buildEngineStagesReport, buildEnginesReport, buildEnginesListReport, buildEnginesContractsOverviewReport, buildEngineReadinessToAssembleReport, buildScrapRegisterReport, buildEngineKittingReport, buildNormsPurchasePlanReport } from './presets/engines.js';
+import { buildEngineStagesReport, buildEngineReadinessToAssembleReport, buildScrapRegisterReport, buildEngineKittingReport, buildNormsPurchasePlanReport } from './presets/engines.js';
 import { buildContractsFinanceReport, buildContractsDeadlinesReport, buildContractsRequisitesReport } from './presets/contracts.js';
 import { buildWorkOrderCostsReport, buildWorkOrdersReport, buildWorkOrderPayrollReport, buildWorkOrderPayrollSummaryReport } from './presets/workOrders.js';
 import { buildEmployeesRosterReport, buildOrganizationStructureReport, buildToolsInventoryReport, buildServicesPricelistReport, buildProductsCatalogReport, buildPartsCompatibilityReport, buildCounterpartiesSummaryReport } from './presets/catalogs.js';
@@ -84,14 +84,12 @@ async function dispatchReportPreset(
         return buildPartsCompatibilityReport(db, args.filters);
       case 'counterparties_summary':
         return buildCounterpartiesSummaryReport(db, args.filters);
+      // «Двигатели» с B3 программы осень-2026 — отчёт-список, строится на экране; старые
+      // ярлыки `engines_list` / `engines_contracts_overview` (этап 6, 19.08б) резолвятся в него.
       case 'engines':
-        return buildEnginesReport(db, args.filters);
-      // Алиасы прежних отчётов (этап 6, 19.08б): сохранённые ссылки и шаблоны
-      // продолжают работать, каталог показывает только объединённый «Двигатели».
       case 'engines_list':
-        return buildEnginesListReport(db, args.filters);
       case 'engines_contracts_overview':
-        return buildEnginesContractsOverviewReport(db, args.filters);
+        return { ok: false, error: 'Отчёт «Двигатели» строится на экране как список — откройте его из каталога отчётов' };
       case 'engine_flow_by_counterparty':
         return buildEngineFlowByCounterpartyReport(db, args.filters);
       case 'scrap_register':

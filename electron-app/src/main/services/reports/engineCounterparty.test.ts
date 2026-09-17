@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { attributeDefs, attributeValues, entities, entityTypes } from '../../database/schema.js';
 
 import { buildContractCounterpartyIndex, loadSnapshot, resolveEngineCounterpartyId } from './context.js';
-import { buildEnginesReport, buildEngineStagesReport } from './presets/engines.js';
+import { buildEngineStagesReport } from './presets/engines.js';
 import { buildEngineFlowByCounterpartyReport } from './presets/engineFlowByCounterparty.js';
 
 // Решение владельца 07.09: заказчик двигателя ищется всеми доступными путями и читается
@@ -135,29 +135,6 @@ describe('resolveEngineCounterpartyId', () => {
 });
 
 describe('фильтр «Заказчики» одинаков во всех отчётах по двигателям', () => {
-  it('«Двигатели»: выбор заказчика берёт и двигатель с пустым полем карточки', async () => {
-    const report = await buildEnginesReport(stubDb(), {
-      groupBy: 'engines',
-      periodBasis: 'none',
-      counterpartyIds: ['CP1'],
-    });
-    expect(report.ok).toBe(true);
-    if (!report.ok) return;
-    const numbers = report.rows.map((r) => String(r.engineNumber ?? '')).sort();
-    expect(numbers).toEqual(['E1', 'E2']);
-  });
-
-  it('«Двигатели»: заказчик из легаси-атрибута договора тоже находится', async () => {
-    const report = await buildEnginesReport(stubDb(), {
-      groupBy: 'engines',
-      periodBasis: 'none',
-      counterpartyIds: ['CP2'],
-    });
-    expect(report.ok).toBe(true);
-    if (!report.ok) return;
-    expect(report.rows.map((r) => String(r.engineNumber ?? ''))).toEqual(['E3']);
-  });
-
   it('«Движение по заказчикам» на тех же данных отбирает ровно то же', async () => {
     const flow = await buildEngineFlowByCounterpartyReport(stubDb(), { counterpartyIds: ['CP1'] });
     expect(flow.ok).toBe(true);
@@ -173,12 +150,12 @@ describe('фильтр «Заказчики» одинаков во всех о�
   });
 
   it('двигатель без договора и без поля не приписывается никому', async () => {
-    const all = await buildEnginesReport(stubDb(), { groupBy: 'engines', periodBasis: 'none' });
+    const all = await buildEngineStagesReport(stubDb(), {});
     expect(all.ok).toBe(true);
     if (!all.ok) return;
     expect(all.rows.map((r) => String(r.engineNumber ?? '')).sort()).toEqual(['E1', 'E2', 'E3', 'E4']);
 
-    const cp1 = await buildEnginesReport(stubDb(), { groupBy: 'engines', periodBasis: 'none', counterpartyIds: ['CP1'] });
+    const cp1 = await buildEngineStagesReport(stubDb(), { counterpartyIds: ['CP1'] });
     expect(cp1.ok).toBe(true);
     if (!cp1.ok) return;
     expect(cp1.rows.map((r) => String(r.engineNumber ?? ''))).not.toContain('E4');

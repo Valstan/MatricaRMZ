@@ -236,7 +236,7 @@ describe('cascadeVisibleOptions', () => {
   });
 });
 
-describe.each(['engine_flow_by_counterparty', 'engines'])('отбор отчёта %s каскадный', (presetId) => {
+describe.each(['engine_flow_by_counterparty'])('отбор отчёта %s каскадный', (presetId) => {
   it('заказчик → договор → марка', () => {
     const flow = preset(presetId);
     const byKey = (key: string) => flow?.filters.find((f) => 'key' in f && (f as { key: string }).key === key);

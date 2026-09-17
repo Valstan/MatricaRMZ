@@ -1,6 +1,6 @@
 import type { EngineListItem } from '../ipc/types.js';
 import { STATUS_LABELS, type StatusCode } from './contract.js';
-import { engineFactoryStage, engineFactoryStageOrder, type EngineFactoryStageTypeRef } from './engineFactoryStage.js';
+import { engineFactoryStage, engineFactoryStageOrder, engineStatusDate, type EngineFactoryStageTypeRef } from './engineFactoryStage.js';
 import {
   activeFacetCount,
   applyFacets,
@@ -38,6 +38,8 @@ export type EngineFacetId =
   | 'arrivalDate'
   | 'defectDate'
   | 'shippingDate'
+  | 'repairStartedDate'
+  | 'repairedDate'
   | 'historyAction'
   | 'historyDate'
   | 'sheetNode'
@@ -207,6 +209,20 @@ export function engineFacets(types?: readonly EngineFactoryStageTypeRef[]): read
       id: 'shippingDate',
       label: 'Дата отгрузки',
       dateOf: (e) => dateMs(e.shippingDate),
+    },
+    // Даты стадий карточки (B2 программы осень-2026): отчёт «Двигатели» отбирает по ним
+    // «ремонт начат в периоде» и «отремонтированы в периоде» — исторически, включая отгруженные.
+    {
+      kind: 'dateRange',
+      id: 'repairStartedDate',
+      label: 'Начало ремонта',
+      dateOf: (e) => engineStatusDate(e, 'status_repair_started'),
+    },
+    {
+      kind: 'dateRange',
+      id: 'repairedDate',
+      label: 'Окончание ремонта',
+      dateOf: (e) => engineStatusDate(e, 'status_repaired'),
     },
     {
       kind: 'values',

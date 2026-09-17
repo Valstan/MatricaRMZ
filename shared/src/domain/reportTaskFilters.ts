@@ -26,14 +26,6 @@ export type ReportTaskFilters = {
   applied: number;
 };
 
-/**
- * Основа периода у отчёта по двигателям: сам диапазон дат там ничего не ограничивает,
- * пока не выбрано, по какой дате его применять. Без этого ссылка «за сентябрь» открывала
- * бы отчёт с датами и надписью «за всё время» — то есть обманывала бы.
- */
-const PERIOD_BASIS_KEY = 'periodBasis';
-const PERIOD_BASIS_DEFAULT = 'arrival';
-
 function optionIdsFor(source: ReportOptionSource | undefined, entities: ReportTaskEntities): Array<{ id: string; name: string }> {
   if (source === 'brands' || source === 'assemblyBrands') return entities.brands ?? [];
   if (source === 'contracts' || source === 'assembly_forecast_contracts') return entities.contracts ?? [];
@@ -67,14 +59,6 @@ export function buildReportTaskFilters(preset: ReportPresetDefinition, entities:
       applied += 1;
       parts.push(found.map((x) => x.name).join(', '));
       continue;
-    }
-    if (spec.type === 'select' && spec.key === PERIOD_BASIS_KEY) {
-      if (!periodApplied) continue;
-      const options = spec.options ?? [];
-      const preferred = options.find((o) => String(o.value) === PERIOD_BASIS_DEFAULT) ?? options.find((o) => String(o.value) !== 'none');
-      if (!preferred) continue;
-      filters[spec.key] = String(preferred.value);
-      parts.push(String(preferred.label ?? preferred.value).toLowerCase());
     }
   }
 
