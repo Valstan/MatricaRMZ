@@ -6,6 +6,7 @@ import { useConfirmOptional } from './ConfirmContext.js';
 import { SearchSelect, type SearchSelectOption } from './SearchSelect.js';
 import { QuickCreateDialog } from './QuickCreateDialog.js';
 import { normalizeLookupCompact, rankLookupOptions } from '../utils/searchMatching.js';
+import { usePickerRank } from '../hooks/usePickerRank.js';
 
 export type EntityReferenceFieldProps = {
   target: EntityReferenceTarget;
@@ -23,6 +24,13 @@ export type EntityReferenceFieldProps = {
   onCreate?: (label: string) => Promise<string | null>;
   onQuickCreate?: (request: QuickCreateRequest) => Promise<QuickCreateResult | null>;
   onOpen?: (id: string) => void;
+  /**
+   * Точка выбора для рейтинга «кого оператор выбирает чаще» (§D4). Задан — часто выбираемые
+   * поднимаются наверх списка, и каждый выбор поднимает счётчик. Ключ называет РОЛЬ, а не
+   * экран: «утверждающий» и «член экипажа» — разные люди, общий рейтинг мешал бы обоим.
+   * Не задан — порядок опций ровно тот, что пришёл от вызывающего.
+   */
+  rankKey?: string;
 };
 
 export function findUniqueExactReference(query: string, options: SearchSelectOption[]): SearchSelectOption | null {
@@ -47,19 +55,24 @@ export function hasUnresolvedEntityReference(
 
 export function EntityReferenceField(props: EntityReferenceFieldProps) {
   const confirm = useConfirmOptional();
+  const rank = usePickerRank(props.rankKey);
+  // Рейтинг переставляет опции ДО выпадающего списка: при пустом запросе он показывает первые
+  // N штук, и нужный человек иначе в эти N не попадал вовсе. При набранном запросе порядок
+  // держит поиск (`rankLookupOptions`), рейтинг там разводит только равные совпадения.
+  const options = useMemo(() => rank.rankOptions(props.options), [props.options, rank]);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const resolvingRef = useRef(false);
   const preserveTypedQueryRef = useRef(false);
   const previousValueRef = useRef<string | null>(props.value);
   const selected = useMemo(
-    () => (props.value ? props.options.find((option) => option.id === props.value) ?? null : null),
-    [props.options, props.value],
+    () => (props.value ? options.find((option) => option.id === props.value) ?? null : null),
+    [options, props.value],
   );
   // Висячая ссылка: значение задано, но не резолвится в живую опцию (сущность удалена).
   // Гейтим на загруженность опций (length>0 и optionsReady!==false), чтобы не показывать
   // предупреждение, пока справочник ещё грузится — иначе мигало бы на каждом старте карточки.
-  const dangling = props.value != null && !selected && props.options.length > 0 && props.optionsReady !== false;
+  const dangling = props.value != null && !selected && options.length > 0 && props.optionsReady !== false;
   const [query, setQuery] = useState(selected?.label ?? '');
   const [quickCreateLabel, setQuickCreateLabel] = useState<string | null>(null);
   const quickCreateResolveRef = useRef<((result: QuickCreateResult | null) => void) | null>(null);
@@ -98,11 +111,15 @@ export function EntityReferenceField(props: EntityReferenceFieldProps) {
     }
     document.addEventListener('mousedown', blockActionUntilResolved, true);
     return () => document.removeEventListener('mousedown', blockActionUntilResolved, true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- resolveOnBlur is re-created on every render, so listing it would detach/attach this capture-phase document listener on every render. KNOWN GAP: the deps cover only what the listener body itself reads (query, props.value, selected) plus the props resolveOnBlur reads on its way to the dialog (props.disabled, props.optionsReady, props.options); resolveOnBlur and its callees commit/clear/runCreate additionally read props.onChange, props.canCreate, props.onCreate, props.onQuickCreate, props.targetLabel and props.createLabel from the render closure, and those are NOT deps — on this click-away path a listener installed before one of them changes keeps using the value captured at install time (e.g. flipping props.canCreate false->true without touching options/value/query/selected leaves the dialog without the «Создать» choice)
-  }, [props.disabled, props.options, props.optionsReady, props.value, query, selected]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- resolveOnBlur is re-created on every render, so listing it would detach/attach this capture-phase document listener on every render. KNOWN GAP: the deps cover only what the listener body itself reads (query, props.value, selected) plus what resolveOnBlur reads on its way to the dialog (props.disabled, props.optionsReady, and `options` — the ranked list, whose identity changes with both props.options and the pick rating); resolveOnBlur and its callees commit/clear/runCreate additionally read props.onChange, props.canCreate, props.onCreate, props.onQuickCreate, props.targetLabel and props.createLabel from the render closure, and those are NOT deps — on this click-away path a listener installed before one of them changes keeps using the value captured at install time (e.g. flipping props.canCreate false->true without touching options/value/query/selected leaves the dialog without the «Создать» choice)
+  }, [options, props.disabled, props.optionsReady, props.value, query, selected]);
 
   function commit(option: SearchSelectOption) {
     setQuery(option.label);
+    // Счётчик поднимается ЗДЕСЬ, потому что это единственная воронка настоящего выбора:
+    // клик по подсказке, Enter с клавиатуры, точное совпадение по набранному тексту и ответ
+    // «Выбрать: …» в диалоге. Очистка поля (`clear`) выбором не является и не считается.
+    rank.bump(option.id);
     props.onChange(option.id);
   }
 
@@ -134,7 +151,7 @@ export function EntityReferenceField(props: EntityReferenceFieldProps) {
     }
     if (props.optionsReady === false) return;
 
-    const exact = findUniqueExactReference(trimmed, props.options);
+    const exact = findUniqueExactReference(trimmed, options);
     if (exact) {
       commit(exact);
       return;
@@ -143,7 +160,7 @@ export function EntityReferenceField(props: EntityReferenceFieldProps) {
     resolvingRef.current = true;
     try {
       const canCreate = props.canCreate === true && Boolean(props.onCreate || props.onQuickCreate);
-      const similar = rankLookupOptions(props.options, trimmed)[0] ?? null;
+      const similar = rankLookupOptions(options, trimmed)[0] ?? null;
       const choice = await confirm?.pickChoice({
         title: `${props.targetLabel}: элемент не выбран`,
         detail: `Значение «${trimmed}» не найдено в базе. Выберите существующий элемент или создайте новый.`,
@@ -205,7 +222,7 @@ export function EntityReferenceField(props: EntityReferenceFieldProps) {
       )}
       <SearchSelect
         value={props.value}
-        options={props.options}
+        options={options}
         query={query}
         inputRef={inputRef}
         disabled={props.disabled === true}
@@ -216,7 +233,7 @@ export function EntityReferenceField(props: EntityReferenceFieldProps) {
             clear();
             return;
           }
-          const option = props.options.find((candidate) => candidate.id === next);
+          const option = options.find((candidate) => candidate.id === next);
           if (option) commit(option);
         }}
         {...(props.showAllWhenEmpty !== undefined ? { showAllWhenEmpty: props.showAllWhenEmpty } : {})}

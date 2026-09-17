@@ -543,6 +543,9 @@ export function RepairChecklistPanel(props: {
   const queuedSaveAutoRef = useRef(false);
   // templateId листа, запись которого main отложил: двигатель карточки ещё не сохранён.
   const deferredAutoSaveRef = useRef<string | null>(null);
+  // Какие подписи текущим пользователем уже подставлялись в этот лист (§D4): подстановка
+  // одноразовая, иначе она возвращала бы себя в поле, которое оператор только что стёр.
+  const prefilledSignaturesRef = useRef<{ sheetKey: string; ids: Set<string> }>({ sheetKey: '', ids: new Set<string>() });
   const [employeeOptions, setEmployeeOptions] = useState<Array<{ id: string; label: string; position?: string | null }>>([]);
   // Полные записи работников для автоподстановки комиссии (нужны departmentName/employmentStatus).
   const [employeeRows, setEmployeeRows] = useState<any[]>([]);
@@ -1109,25 +1112,59 @@ export function RepairChecklistPanel(props: {
     const fullName = String(props.currentUserProfile?.fullName ?? '').trim();
     const position = String(props.currentUserProfile?.position ?? '').trim();
     if (!fullName && !position) return;
+    // Подстановка своего имени — ОДИН раз на подпись, а не «всегда, пока пусто» (§D4).
+    // Пустая подпись бывает двух разных видов: «ещё не заполняли» и «оператор СТЁР, чтобы
+    // выбрать другого». Эффект висит на `answers` и срабатывал на второй вид тоже — человек
+    // очищал поле, а туда мгновенно возвращалось его собственное имя, и в акт уходил не тот,
+    // кто работу делал. Набор помнит, какие подписи мы уже прошли в ЭТОМ листе, и второй раз
+    // их не трогает; ключ набора — лист (двигатель + стадия + шаблон), так что у следующей
+    // карточки подстановка снова работает.
+    // Ключ включает `loadVersion` (счётчик завершённых загрузок листа) НЕ для красоты.
+    // Эффект успевает отработать ДО того, как лист приедет с сервера: шаблон уже есть, а
+    // `answers` ещё пусты. Без гейта он помечал все подписи пройденными по этим пустышкам,
+    // приехавший лист их перетирал — и подстановка не срабатывала уже никогда, поле молча
+    // оставалось пустым (поймано смоуком §D4). `loadVersion === 0` — лист ещё не читали.
+    if (loadVersion === 0) return;
+    const sheetKey = `${props.engineId}:${props.stage}:${activeTemplate.id}:${loadVersion}`;
+    if (prefilledSignaturesRef.current.sheetKey !== sheetKey) {
+      prefilledSignaturesRef.current = { sheetKey, ids: new Set<string>() };
+    }
+    const alreadyPrefilled = prefilledSignaturesRef.current.ids;
     const next = { ...answers } as RepairChecklistAnswers;
     let changed = false;
     for (const item of activeTemplate.items) {
       if (item.kind !== 'signature') continue;
       // Комиссию заполняет автоподстановка по цеху, не текущий пользователь.
       if (item.id.startsWith('commission_')) continue;
+      if (alreadyPrefilled.has(item.id)) continue;
       const current = (answers as any)[item.id];
       const currentFio = current?.kind === 'signature' ? String(current.fio ?? '').trim() : '';
       const currentPosition = current?.kind === 'signature' ? String(current.position ?? '').trim() : '';
-      if (currentFio || currentPosition) continue;
+      // Подпись, пришедшая с листа заполненной, тоже помечается пройденной: если оператор её
+      // сотрёт, подставлять туда себя мы не вправе — это чужая подпись, а не пустое место.
+      if (currentFio || currentPosition) {
+        alreadyPrefilled.add(item.id);
+        continue;
+      }
       const signedAt = current?.kind === 'signature' ? (current.signedAt ?? null) : null;
       (next as any)[item.id] = { kind: 'signature', fio: fullName, position, signedAt };
+      alreadyPrefilled.add(item.id);
       changed = true;
     }
     if (!changed) return;
     setAnswers(next);
     if (props.canEdit) void save(next, { auto: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the ONLY omitted dep is `save`: a plain function declared later in the body and recreated every render, so listing it would re-run this effect on every render. `answers` IS in the deps, so this runs on every answer edit; the `if (!changed) return` guard above keeps it a no-op once the signature fields already hold the current user's name/position
-  }, [activeTemplate?.id, answers, props.canEdit, props.currentUserProfile?.fullName, props.currentUserProfile?.position]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the ONLY omitted dep is `save`: a plain function declared later in the body and recreated every render, so listing it would re-run this effect on every render. `answers` IS in the deps, so this runs on every answer edit; the per-sheet `prefilledSignaturesRef` set above keeps it a no-op after the first pass over each signature
+  }, [
+    activeTemplate,
+    answers,
+    loadVersion,
+    props.canEdit,
+    props.currentUserProfile?.fullName,
+    props.currentUserProfile?.position,
+    props.engineId,
+    props.stage,
+  ]);
 
   // Хвост Т6: автоподстановка комиссии акта комплектности по цеху двигателя (динамический список).
   // Нач. цеха / мастер ищутся среди работников подразделения, чьё имя совпадает с цехом двигателя
@@ -2151,6 +2188,7 @@ export function RepairChecklistPanel(props: {
                     options={options}
                     disabled={!props.canEdit}
                     placeholder="ФИО"
+                    rankKey={`employee:act-signature:${it.id}`}
                     onChange={(next) => {
                       if (!props.canEdit) return;
                       const prev = a?.kind === 'signature' ? a : { fio: '', position: '', signedAt: null };
@@ -2983,6 +3021,7 @@ export function RepairChecklistPanel(props: {
                           options={options}
                           disabled={!props.canEdit}
                           placeholder="ФИО"
+                          rankKey="employee:act-commission"
                           onChange={(next) => {
                             if (!props.canEdit) return;
                             const chosen = options.find((o) => o.id === next) ?? null;
@@ -3064,6 +3103,7 @@ export function RepairChecklistPanel(props: {
                             options={options}
                             disabled={!props.canEdit}
                             placeholder="ФИО сотрудника"
+                            rankKey="employee:act-dismantled-by"
                             onChange={(next) => {
                               if (!props.canEdit) return;
                               const chosen = options.find((o) => o.id === next) ?? null;
@@ -3159,6 +3199,7 @@ export function RepairChecklistPanel(props: {
                     value={empValue}
                     options={employeeOptions}
                     disabled={!props.canEdit}
+                    rankKey="employee:approver"
                     placeholder={`Сотрудник для ФИО (по умолч.: ${preset.name || '—'})`}
                     onChange={(id) => {
                       if (!props.canEdit) return;

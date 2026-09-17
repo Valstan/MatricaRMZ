@@ -353,6 +353,7 @@ export function WorkOrderPrintDialog(props: {
                   <EntityReferenceField
                     target="employee"
                     targetLabel="Утверждающий"
+                    rankKey="employee:approver"
                     value={draft.approverEmployeeId ?? null}
                     options={emp.map((x) => ({ id: x.id, label: x.label, ...(x.hintText ? { hintText: x.hintText } : {}) }))}
                     placeholder={`Сотрудник для ФИО (по умолчанию: ${preset.name})`}

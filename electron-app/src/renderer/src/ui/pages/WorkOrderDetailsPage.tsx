@@ -96,32 +96,6 @@ function normalizeLookupValue(value: string): string {
     .trim();
 }
 
-/**
- * «Последние использованные» подписанты — локально у оператора (D1: per-machine).
- * Когда поле выбора сотрудника в подписи пустое, эти ФИО показываются в выпадающем
- * списке первыми (выпадающий список — это options в порядке recent-first).
- */
-const RECENT_SIGNATURE_EMPLOYEES_KEY = 'wo:recentSignatureEmployees';
-const RECENT_SIGNATURE_EMPLOYEES_CAP = 8;
-function readRecentSignatureEmployeeIds(): string[] {
-  try {
-    const raw = localStorage.getItem(RECENT_SIGNATURE_EMPLOYEES_KEY);
-    const arr = raw ? JSON.parse(raw) : [];
-    return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-function pushRecentSignatureEmployeeId(id: string): void {
-  if (!id) return;
-  const next = [id, ...readRecentSignatureEmployeeIds().filter((x) => x !== id)].slice(0, RECENT_SIGNATURE_EMPLOYEES_CAP);
-  try {
-    localStorage.setItem(RECENT_SIGNATURE_EMPLOYEES_KEY, JSON.stringify(next));
-  } catch {
-    /* localStorage недоступен — деградируем молча */
-  }
-}
-
 function toInputDate(ms: number | null | undefined) {
   if (!ms) return '';
   const d = new Date(ms);
@@ -750,22 +724,6 @@ export function WorkOrderDetailsPage(props: {
         .filter((e) => e.label && e.grifName),
     [employees],
   );
-  const [recentSignatureEmployeeIds, setRecentSignatureEmployeeIds] = useState<string[]>(() => readRecentSignatureEmployeeIds());
-  const rememberSignatureEmployee = (id: string) => {
-    pushRecentSignatureEmployeeId(id);
-    setRecentSignatureEmployeeIds(readRecentSignatureEmployeeIds());
-  };
-  /** Опции выбора подписанта с «последними использованными» вверху (recent-first). */
-  const signatureEmployeeOptions: LinkOpt[] = useMemo(() => {
-    if (!recentSignatureEmployeeIds.length) return employeeOptions;
-    const byId = new Map(employeeOptions.map((o) => [o.id, o] as const));
-    const recent = recentSignatureEmployeeIds
-      .map((id) => byId.get(id))
-      .filter((o): o is LinkOpt => Boolean(o));
-    if (!recent.length) return employeeOptions;
-    const recentSet = new Set(recent.map((o) => o.id));
-    return [...recent, ...employeeOptions.filter((o) => !recentSet.has(o.id))];
-  }, [employeeOptions, recentSignatureEmployeeIds]);
   // Кастомные формулировки подписей из общей БД (D1: формулировки шарятся на всех клиентов).
   const [customSignatureCaptions, setCustomSignatureCaptions] = useState<string[]>([]);
   useEffect(() => {
@@ -1775,6 +1733,7 @@ export function WorkOrderDetailsPage(props: {
                       options={employeeOptions}
                       disabled={!canEditNow}
                       optionsReady={!loading}
+                      rankKey="employee:work-order-crew"
                       {...(props.onOpenEmployee ? { onOpen: props.onOpenEmployee } : {})}
                       onChange={(next) => {
                         const employee = employees.find((x) => x.id === next);
@@ -2050,14 +2009,12 @@ export function WorkOrderDetailsPage(props: {
                         target="employee"
                         targetLabel="Сотрудник"
                         value={slot.employeeId || null}
-                        options={signatureEmployeeOptions}
+                        options={employeeOptions}
                         disabled={!canEditNow}
                         optionsReady={!loading}
+                        rankKey="employee:work-order-signature"
                         {...(props.onOpenEmployee ? { onOpen: props.onOpenEmployee } : {})}
-                        onChange={(next) => {
-                          setSlot(idx, 'employeeId', next || '');
-                          if (next) rememberSignatureEmployee(next);
-                        }}
+                        onChange={(next) => setSlot(idx, 'employeeId', next || '')}
                         placeholder="Сотрудник (пусто — подпись от руки)"
                       />
                       {canEditNow ? (
