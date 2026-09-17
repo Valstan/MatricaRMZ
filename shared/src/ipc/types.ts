@@ -70,6 +70,12 @@ export type EngineListItem = {
   isScrap?: boolean;
   /** Акт комплектности начат: хотя бы одна деталь в списке деталей отмечена «на месте». */
   hasCompletenessAct?: boolean;
+  /**
+   * Дата осмотра из акта комплектности (`answers.completeness_inspection_date`) — ею
+   * датируется этап «Комплектовка сделана» в отчёте. `hasCompletenessAct` отвечает на другой
+   * вопрос — «акт начали заполнять» (хотя бы одна деталь отмечена «на месте»).
+   */
+  completenessActDate?: number | null;
   /** Акт дефектовки начат: у хотя бы одной детали проставлен утиль или замена. */
   hasDefectAct?: boolean;
   /** Дата дефектовки (attr `defect_date`) — для фильтра по датам. */

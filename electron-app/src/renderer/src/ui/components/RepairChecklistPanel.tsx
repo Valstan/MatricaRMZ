@@ -499,6 +499,9 @@ export function RepairChecklistPanel(props: {
   const [supplyRequestBusy, setSupplyRequestBusy] = useState(false);
   const [repairOrderBusy, setRepairOrderBusy] = useState(false);
   const [conductBusy, setConductBusy] = useState(false);
+  // Только против дребезга двойного клика. Идемпотентность держит не он, а то, что дата
+  // пишется лишь в пустое поле (см. conductCompleteness).
+  const [completenessBusy, setCompletenessBusy] = useState(false);
   const conductOperationIdRef = useRef<string | null>(null);
   const [conductedVersions, setConductedVersions] = useState<DefectConductedVersionSummary[]>([]);
   const { confirm } = useConfirm();
@@ -1732,9 +1735,11 @@ export function RepairChecklistPanel(props: {
     };
   }, [props.engineId, props.stage]);
 
-  async function save(nextAnswers: RepairChecklistAnswers, opts?: { auto?: boolean }) {
-    if (!activeTemplate) return;
-    if (!props.canEdit) return;
+  // Возвращает, легла ли запись: проводка комплектности не должна рапортовать об успехе,
+  // когда сохранение отказано или отложено.
+  async function save(nextAnswers: RepairChecklistAnswers, opts?: { auto?: boolean }): Promise<boolean> {
+    if (!activeTemplate) return false;
+    if (!props.canEdit) return false;
     const auto = opts?.auto === true;
     const normalized =
       props.stage === 'defect'
@@ -1747,12 +1752,12 @@ export function RepairChecklistPanel(props: {
     if (normalized.changed) setAnswers(normalized.next);
 
     const snapshot = safeJsonStringify({ templateId: activeTemplate.id, answers: normalized.next });
-    if (snapshot && snapshot === lastSavedAnswersRef.current) return;
+    if (snapshot && snapshot === lastSavedAnswersRef.current) return true;
     if (saveInFlightRef.current) {
       // Очередь — автозаполнение, только если автозаполнением было всё, что в неё легло.
       queuedSaveAutoRef.current = queuedSaveAnswersRef.current == null ? auto : queuedSaveAutoRef.current && auto;
       queuedSaveAnswersRef.current = normalized.next;
-      return;
+      return true;
     }
 
     saveInFlightRef.current = true;
@@ -1767,29 +1772,78 @@ export function RepairChecklistPanel(props: {
     });
     saveInFlightRef.current = false;
 
+    let written = true;
     if (!r.ok) {
       setStatus(`Ошибка: ${r.error}`);
-      return;
+      return false;
     }
     if ('deferred' in r) {
       deferredAutoSaveRef.current = activeTemplate.id;
       setStatus('');
+      written = false;
     } else {
       deferredAutoSaveRef.current = null;
       setOperationId(r.operationId);
       lastSavedAnswersRef.current = snapshot;
       setStatus('Сохранено');
-      setTimeout(() => setStatus(''), 700);
+      // Гасим только собственное «Сохранено»: сообщение проводки живёт дольше и не должно
+      // исчезать через 700 мс после чужой записи.
+      setTimeout(() => setStatus((cur) => (cur === 'Сохранено' ? '' : cur)), 700);
     }
 
     const queued = queuedSaveAnswersRef.current;
     const queuedAuto = queuedSaveAutoRef.current;
     queuedSaveAnswersRef.current = null;
     queuedSaveAutoRef.current = false;
-    if (!queued) return;
+    if (!queued) return written;
     const queuedSnapshot = safeJsonStringify({ templateId: activeTemplate.id, answers: queued });
     if (queuedSnapshot && queuedSnapshot !== lastSavedAnswersRef.current) {
       void save(queued, { auto: queuedAuto });
+    }
+    return written;
+  }
+
+  /**
+   * «Провести комплектность» — ярлык к полю «Дата осмотра (акт комплектности)»: ставит
+   * сегодняшний день, если дата пуста. По ней двигатель встаёт на этап «Комплектовка сделана»
+   * в отчёте, и у этапа появляется дата — раньше эта группа была единственной без неё.
+   *
+   * Серверной транзакции нет намеренно: в отличие от дефектовки, здесь не двигаются ни остатки,
+   * ни экземпляры — пишется одно поле того же листа, тем же путём, что и любая правка акта.
+   * Повторное нажатие поэтому ничего не пишет: значение уже стоит, и функция выходит до записи.
+   */
+  async function conductCompleteness() {
+    if (completenessBusy) return;
+    if (!activeTemplate) return;
+    // Поля нет в активном шаблоне — записали бы дату, которой оператор не увидит и не поправит.
+    if (!activeTemplate.items.some((it) => it.id === 'completeness_inspection_date')) {
+      setStatus('Ошибка: в шаблоне акта нет поля «Дата осмотра (акт комплектности)» — обратитесь к администратору.');
+      return;
+    }
+    if (inventoryRawRows(answers).length === 0) {
+      setStatus('Ошибка: в акте комплектности нет строк — список деталей пуст.');
+      return;
+    }
+    const cur = (answers as any).completeness_inspection_date as { kind?: string; value?: unknown } | undefined;
+    const curMs = cur?.kind === 'date' && Number.isFinite(Number(cur.value)) ? Number(cur.value) : null;
+    if (curMs != null && curMs > 0) {
+      setStatus(
+        `Комплектность уже проведена: дата осмотра — ${formatMoscowDate(curMs)}. Чтобы изменить — правьте поле «Дата осмотра (акт комплектности)» в блоке «Оформление».`,
+      );
+      return;
+    }
+    // Полночь местного дня — ровно то значение, которое дало бы само поле даты. Момент клика
+    // положил бы в базу время, и два одинаковых с виду акта различались бы значением.
+    const today = fromInputDate(toInputDate(Date.now())) ?? Date.now();
+    const next = { ...answers, completeness_inspection_date: { kind: 'date' as const, value: today } };
+    setAnswers(next);
+    setCompletenessBusy(true);
+    try {
+      const written = await save(next);
+      if (!written) return;
+      setStatus(`Комплектность проведена: дата осмотра — ${formatMoscowDate(today)}. Двигатель на этапе «Комплектовка сделана».`);
+    } finally {
+      setCompletenessBusy(false);
     }
   }
 
@@ -2562,7 +2616,7 @@ export function RepairChecklistPanel(props: {
 
   return (
     <div style={{ marginTop: 14, border: '1px solid rgba(15, 23, 42, 0.18)', borderRadius: 14, padding: 12 }}>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <strong>{panelTitle}</strong>
         <span style={{ flex: 1 }} />
         <Button variant="ghost" onClick={() => setCollapsed((v) => !v)}>
@@ -2626,6 +2680,27 @@ export function RepairChecklistPanel(props: {
               </span>
             )}
           </>
+        )}
+        {/* Проводка стоит в шапке своей вкладки, но НЕ внутри печатной ветки: там она
+            исчезла бы на планшете и у всех без права печати. `!collapsed` обязателен —
+            ответ проводки показывается строкой статуса, а она живёт в развёрнутой панели. */}
+        {!collapsed && isInventoryStage && isCompletenessView && props.canEdit && (
+          <Button
+            disabled={completenessBusy}
+            title="Фиксирует акт комплектности: ставит дату осмотра (если она не заполнена — сегодняшнюю). По этой дате двигатель встаёт на этап «Комплектовка сделана» в отчёте «Двигатели на заводе: этапы ремонта»."
+            onClick={() => void conductCompleteness()}
+          >
+            {completenessBusy ? 'Проводим…' : 'Провести комплектность'}
+          </Button>
+        )}
+        {!collapsed && isInventoryStage && isDefectView && props.canCreateWorkOrder && (
+          <Button
+            disabled={conductBusy}
+            title="Фиксирует неизменяемую версию дефектовки и одной серверной транзакцией отражает разборку, ремфонд, утиль, личные номера и историю деталей."
+            onClick={() => void conductDefect()}
+          >
+            {conductBusy ? 'Проводим…' : 'Провести дефектовку'}
+          </Button>
         )}
       </div>
 
@@ -3335,13 +3410,6 @@ export function RepairChecklistPanel(props: {
       {!collapsed && isInventoryStage && isDefectView && props.canCreateWorkOrder && (
         <div style={{ marginTop: 10, padding: 10, border: '1px solid #6366f1', borderRadius: 8, background: '#eef2ff' }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Button
-              disabled={conductBusy}
-              title="Фиксирует неизменяемую версию дефектовки и одной серверной транзакцией отражает разборку, ремфонд, утиль, личные номера и историю деталей."
-              onClick={() => void conductDefect()}
-            >
-              {conductBusy ? 'Проводим…' : 'Провести дефектовку'}
-            </Button>
             {canPrint && requirementInstances.length > 0 ? (
               <Button
                 size="sm"

@@ -66,6 +66,39 @@ describe('engineFactoryStage — побеждает поздний призна�
     expect(started.rank).toBeGreaterThan(arrived.rank);
   });
 
+  it('у комплектовки появилась дата: дата осмотра из акта становится «Датой этапа»', () => {
+    // 17.09.2026: «Провести комплектность» пишет дату осмотра в лист, main несёт её в строке
+    // списка. До этого `at` у группы был зашит в null — единственная группа отчёта с прочерком
+    // в колонке «Дата этапа».
+    const s = engineFactoryStage(engine({ completenessActDate: 8 * DAY }), TYPES);
+    expect(s).toMatchObject({ key: 'completeness_act', label: 'Комплектовка сделана', at: 8 * DAY });
+  });
+
+  it('дата даёт этап сама по себе — галочки «на месте» для этого не нужны', () => {
+    // `hasCompletenessAct` зажигается от галочек списка деталей, дату ставит проводка: это два
+    // разных вопроса. Проведённый акт, где комиссия не нашла ни одной детали, всё равно на этапе.
+    const s = engineFactoryStage(engine({ completenessActDate: 8 * DAY, hasCompletenessAct: false }), TYPES);
+    expect(s).toMatchObject({ key: 'completeness_act', at: 8 * DAY });
+  });
+
+  it('прежний признак без даты держит членство в группе, но «Дата этапа» остаётся пустой', () => {
+    // Осознанный промежуточный шаг: сузить этап до одной лишь даты — значит разом вывести из
+    // группы все двигатели, которым дату никто не проставлял. Это решение владельца, не рефакторинг.
+    const s = engineFactoryStage(engine({ hasCompletenessAct: true }), TYPES);
+    expect(s.key).toBe('completeness_act');
+    expect(s.at).toBeNull();
+  });
+
+  it('порядок веток не изменился: дефектовка побеждает и датированную комплектовку', () => {
+    // По ключам этапов группируется отчёт, поэтому порядок веток — свойство, а не деталь:
+    // появление даты у комплектовки не должно поднимать её над дефектовкой.
+    const defect = engineFactoryStage(engine({ hasDefectAct: true, completenessActDate: 8 * DAY, defectDate: 9 * DAY }), TYPES);
+    const compl = engineFactoryStage(engine({ completenessActDate: 8 * DAY, statusFlags: { status_repair_started: true } }), TYPES);
+    expect(defect).toMatchObject({ key: 'defect_act', at: 9 * DAY });
+    expect(compl).toMatchObject({ key: 'completeness_act', at: 8 * DAY });
+    expect(defect.rank).toBeGreaterThan(compl.rank);
+  });
+
   it('даты стадий карточки — из statusDates: утиль, отремонтирован, ремонт начат', () => {
     // Владелец 16.09: в отчёте у этих этапов стоял прочерк — строка списка дат не несла.
     const scrap = engineFactoryStage(engine({ isScrap: true, statusDates: { status_scrap_confirmed: 20 * DAY, status_rejected: 18 * DAY } }), TYPES);

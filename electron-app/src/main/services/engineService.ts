@@ -254,7 +254,13 @@ function toNonNegativeInteger(value: unknown): number | null {
 // (migrateChecklistToEngineInventory) объединил defect+completeness в неё и soft-delete'нул
 // прежние defect-акты, поэтому читать надо именно её, иначе флаг всегда пуст (G: метка
 // не снималась — читался опустевший defect-акт, а карточка пишет engine_inventory).
-type EngineInventoryFlags = { crankcaseScrapped: boolean; actStarted: boolean; defectStarted: boolean };
+type EngineInventoryFlags = {
+  crankcaseScrapped: boolean;
+  actStarted: boolean;
+  defectStarted: boolean;
+  /** Дата осмотра из акта комплектности — ею датируется этап «Комплектовка сделана». */
+  completenessInspectionAt: number | null;
+};
 
 function inventoryRowsOf(payload: unknown): Array<Record<string, unknown>> {
   if (!payload || typeof payload !== 'object') return [];
@@ -269,11 +275,25 @@ function inventoryRowsOf(payload: unknown): Array<Record<string, unknown>> {
   return inventoryItemsObj.rows.filter((r): r is Record<string, unknown> => !!r && typeof r === 'object');
 }
 
+/** Дата осмотра из ответов листа: только настоящее положительное число, иначе «нет даты». */
+function completenessInspectionAtOf(payload: unknown): number | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const answers = (payload as Record<string, unknown>).answers;
+  if (!answers || typeof answers !== 'object') return null;
+  const a = (answers as Record<string, unknown>).completeness_inspection_date as { kind?: unknown; value?: unknown } | undefined;
+  if (!a || a.kind !== 'date') return null;
+  // Именно число, а не всё, что к нему приводится: числовая строка в поле даты — признак
+  // чужой записи, и молча принимать её значило бы датировать этап по мусору.
+  if (typeof a.value !== 'number') return null;
+  return Number.isFinite(a.value) && a.value > 0 ? a.value : null;
+}
+
 function isPresentValue(value: unknown): boolean {
   return value === true || value === 'true' || value === 1 || value === '1';
 }
 
-function computeEngineInventoryFlags(payload: unknown): EngineInventoryFlags {
+export function computeEngineInventoryFlags(payload: unknown): EngineInventoryFlags {
+  const completenessInspectionAt = completenessInspectionAtOf(payload);
   let crankcaseScrapped = false;
   let actStarted = false;
   let defectStarted = false;
@@ -297,7 +317,7 @@ function computeEngineInventoryFlags(payload: unknown): EngineInventoryFlags {
     }
     if (actStarted && crankcaseScrapped && defectStarted) break;
   }
-  return { crankcaseScrapped, actStarted, defectStarted };
+  return { crankcaseScrapped, actStarted, defectStarted, completenessInspectionAt };
 }
 
 /**
@@ -858,6 +878,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       // dual-source-ловушка, что у shipping_date. На проде было лишь 2 таких, оба уже status_rejected.
       isScrap: statusRejected || statusScrapMarked || crankcaseScrapped,
       ...(inventoryFlags?.actStarted === true ? { hasCompletenessAct: true } : {}),
+      completenessActDate: inventoryFlags?.completenessInspectionAt ?? null,
       ...(inventoryFlags?.defectStarted === true ? { hasDefectAct: true } : {}),
       defectDate,
       // Цех истории важнее атрибута карточки: переезд фиксируется событием, и список должен
