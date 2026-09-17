@@ -109,8 +109,17 @@ export function engineFactoryStage(e: EngineListItem, types?: readonly EngineFac
   if (e.hasDefectAct === true) {
     return { key: 'defect_act', label: ENGINE_FACTORY_STAGE_LABELS.defectAct, rank: ENGINE_FACTORY_STAGE_RANK.defectAct, at: dateMs(e.defectDate) };
   }
-  if (e.hasCompletenessAct === true) {
-    return { key: 'completeness_act', label: ENGINE_FACTORY_STAGE_LABELS.completenessAct, rank: ENGINE_FACTORY_STAGE_RANK.completenessAct, at: null };
+  // Дата берётся из акта («Провести комплектность» её и ставит): до этого группа была
+  // единственной без «Даты этапа». Признак «акт начали заполнять» пока оставлен вторым
+  // основанием — снять его значит разом вывести из группы двигатели, у которых дата не
+  // проставлена, а это решение владельца (вопрос записан в handoff).
+  if (e.completenessActDate != null || e.hasCompletenessAct === true) {
+    return {
+      key: 'completeness_act',
+      label: ENGINE_FACTORY_STAGE_LABELS.completenessAct,
+      rank: ENGINE_FACTORY_STAGE_RANK.completenessAct,
+      at: dateMs(e.completenessActDate),
+    };
   }
   if (flags.status_repair_started === true) {
     return { key: 'repair_started', label: ENGINE_FACTORY_STAGE_LABELS.repairStarted, rank: ENGINE_FACTORY_STAGE_RANK.repairStarted, at: engineStatusDate(e, 'status_repair_started') };
