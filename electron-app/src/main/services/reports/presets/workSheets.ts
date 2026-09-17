@@ -38,9 +38,27 @@ import { BRAND_MISSING, UNKNOWN_ENGINE_NUMBER_LABEL, buildCounterpartyOptions, b
  * ремонта, что видит экран. Колонки = общие ∪ объединение колонок узлов, встретившихся в
  * выборке: новая колонка узла попадает в отчёт сама, потому что строка несёт подписи полей
  * с собой. Подписи человеческие: номер и марка двигателя, имя узла, название цеха.
+ *
+ * С B5 программы осень-2026 каталог открывает «Этапы работ» списком на экране
+ * (`presentation: 'list'`, `WorkSheetsReportPage`), и этот builder остаётся ТОЛЬКО источником
+ * для конструктора отчётов (`CUSTOM_REPORT_SOURCE_PRESET_IDS`): у пресета фильтров и колонок
+ * больше нет, поэтому базовые колонки живут здесь.
  */
 
 const HUMAN_DASH = '—';
+
+const WORK_SHEETS_SOURCE_COLUMNS: ReportColumn[] = [
+  { key: 'at', label: 'Дата', kind: 'date' },
+  { key: 'engineNumber', label: '№ двигателя' },
+  { key: 'engineInternalNumber', label: 'Внутр. №' },
+  { key: 'engineBrand', label: 'Марка' },
+  { key: 'nodeLabel', label: 'Вид работ' },
+  { key: 'customerLabel', label: 'Заказчик' },
+  { key: 'contractLabel', label: 'Договор' },
+  { key: 'workshopLabel', label: 'Цех' },
+  { key: 'performedBy', label: 'Кто внёс' },
+  { key: 'note', label: 'Примечание' },
+];
 
 function engineNumberLabel(attrs: Record<string, unknown>): string {
   return pickHumanText(attrs.engine_number) || UNKNOWN_ENGINE_NUMBER_LABEL;
@@ -184,36 +202,10 @@ export async function buildWorkSheetsReport(
     presetId: 'work_sheets',
     title: preset.title,
     subtitle: `${msToDate(period.startMs)} — ${msToDate(period.endMs)}`,
-    columns: [...preset.columns, ...fieldColumns.values()],
+    columns: [...WORK_SHEETS_SOURCE_COLUMNS, ...fieldColumns.values()],
     rows,
     totals: { workSheetRows: rows.length, engines: new Set(picked.map((p) => p.engineId)).size },
     totalsByGroup,
     generatedAt: Date.now(),
   };
-}
-
-/** Последняя строка этапа работ по каждому двигателю — колонки «Последний этап работ» и «Дата этапа работ» отчёта «Двигатели». */
-export async function getLastSheetByEngine(db: BetterSQLite3Database): Promise<Map<string, { node: string; at: number }>> {
-  const out = new Map<string, { node: string; at: number }>();
-  // Этот скан идёт при ОБЫЧНОМ построении отчёта «Двигатели» (needSheet истинен, когда
-  // колонки не выбраны), поэтому тип обязан быть в SQL — см. комментарий у скана выше.
-  const ops = await db
-    .select({
-      engineEntityId: operations.engineEntityId,
-      metaJson: operations.metaJson,
-      performedAt: operations.performedAt,
-      updatedAt: operations.updatedAt,
-    })
-    .from(operations)
-    .where(and(eq(operations.operationType, REPAIR_HISTORY_OPERATION_TYPE), isNull(operations.deletedAt)))
-    .limit(250_000);
-  for (const row of ops as any[]) {
-    const meta = parseRepairHistoryMeta(row.metaJson == null ? null : String(row.metaJson));
-    if (!meta?.sheet) continue;
-    const engineId = String(row.engineEntityId ?? '');
-    const at = meta.at ?? Number(row.performedAt ?? row.updatedAt ?? 0);
-    const prev = out.get(engineId);
-    if (!prev || at > prev.at) out.set(engineId, { node: meta.sheet.typeName || HUMAN_DASH, at });
-  }
-  return out;
 }

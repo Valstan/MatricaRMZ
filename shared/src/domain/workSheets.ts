@@ -315,6 +315,18 @@ export type WorkSheetRow = {
   repairStamped: boolean;
 };
 
+/**
+ * Объединение колонок всех видов работ в порядке справочника; одинаковый код — одна колонка
+ * (первая по порядку). Отчёт «Этапы работ» строит по нему колонки полей и ступени.
+ */
+export function unionWorkSheetColumns(types: ReadonlyArray<{ sortOrder?: number; columns: readonly WorkSheetColumn[] }>): WorkSheetColumn[] {
+  const seen = new Map<string, WorkSheetColumn>();
+  for (const t of [...types].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))) {
+    for (const c of t.columns) if (!seen.has(c.code)) seen.set(c.code, c);
+  }
+  return [...seen.values()];
+}
+
 export const WORK_SHEET_ROW_FACET_IDS = ['type', 'engineBrand', 'workshop', 'performedBy', 'date'] as const;
 
 /**

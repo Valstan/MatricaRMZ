@@ -1642,25 +1642,11 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     title: 'Этапы работ',
     description:
       'Строки этапов работ по видам (укладка вала, обкатка, сборка, …) — те же записи истории ремонта, что на экране ' +
-      '«Этапы работ». Колонки видов работ добавляются сами: новая колонка появится и здесь.',
-    filters: [
-      { type: 'date_range', key: 'period', label: 'Период', startKey: 'startMs', endKey: 'endMs', unboundedByDefault: true },
-      { type: 'multi_select', key: 'nodeCodes', label: 'Виды работ', optionsSource: 'work_sheet_types' },
-      { type: 'multi_select', key: 'brandIds', label: 'Марки двигателей', optionsSource: 'brands' },
-      { type: 'multi_select', key: 'workshopIds', label: 'Цеха', optionsSource: 'workshops' },
-    ],
-    columns: [
-      { key: 'at', label: 'Дата', kind: 'date' },
-      { key: 'engineNumber', label: '№ двигателя' },
-      { key: 'engineInternalNumber', label: 'Внутр. №' },
-      { key: 'engineBrand', label: 'Марка' },
-      { key: 'nodeLabel', label: 'Вид работ' },
-      { key: 'customerLabel', label: 'Заказчик' },
-      { key: 'contractLabel', label: 'Договор' },
-      { key: 'workshopLabel', label: 'Цех' },
-      { key: 'performedBy', label: 'Кто внёс' },
-      { key: 'note', label: 'Примечание' },
-    ],
+      '«Этапы работ», за всё время. Список с панелью ступеней (вид работ, марка, заказчик, договор, цех, исполнитель, дата и поля видов работ), ' +
+      'настройкой колонок, группировкой по виду работ / договору / цеху / заказчику с итогами и печатью.',
+    filters: [],
+    columns: [],
+    presentation: 'list',
   },
   {
     id: 'engine_readiness_to_assemble',

@@ -10,12 +10,11 @@ import {
 } from './reports.js';
 
 describe('отчёт «Этапы работ»', () => {
-  it('узлы выбираются из справочника, а не набираются кодами руками', () => {
+  it('с B5 программы осень-2026 — отчёт-список: фильтров у пресета нет, виды работ — ступень на экране', () => {
     const found = REPORT_PRESET_DEFINITIONS.find((p) => p.id === 'work_sheets');
     expect(found, 'пресет на месте').toBeTruthy();
-    const node = found!.filters?.find((f) => f.key === 'nodeCodes');
-    expect(node?.type).toBe('multi_select');
-    expect((node as { optionsSource?: string } | undefined)?.optionsSource).toBe('work_sheet_types');
+    expect(found!.presentation).toBe('list');
+    expect(found!.filters).toEqual([]);
   });
 });
 

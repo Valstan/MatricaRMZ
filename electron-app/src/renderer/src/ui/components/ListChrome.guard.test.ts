@@ -33,6 +33,7 @@ const PAGES = [
   'WorkSheetsPage',
   'reports/EngineFactoryStagesReportPage',
   'reports/EnginesReportPage',
+  'reports/WorkSheetsReportPage',
 ].map((name) => [name, src(`../pages/${name}.tsx`)] as const);
 
 describe('тулбар списка — одна строка', () => {
