@@ -369,3 +369,10 @@ describe('RepairChecklistPanel: проводка комплектности пи
     );
   });
 });
+
+describe('RepairChecklistPanel: блок «Базовые детали» раскрыт с первого захода (D5, владелец 17.09.2026)', () => {
+  it('базовые детали открыты по умолчанию, остальные — свёрнуты', () => {
+    expect(PANEL).toContain('const [baseGroupOpen, setBaseGroupOpen] = useState(true);');
+    expect(PANEL).toContain('const [otherGroupOpen, setOtherGroupOpen] = useState(false);');
+  });
+});
