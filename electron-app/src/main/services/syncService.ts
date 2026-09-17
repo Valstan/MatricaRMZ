@@ -2263,19 +2263,30 @@ async function applyPulledChanges(
       case SyncTableName.ErpNomenclature:
         {
           const payload = payloadRaw;
+          // Полная строка, а не «тонкая» копия: с E1 (17.09.2026) список номенклатуры читает
+          // реплику первой, и без источника / родителя / артикула слепнут фильтр «Источник»,
+          // колонка «Обобщённая позиция» и дедуп по карточке-источнику.
           warehouseNomenclatureRows.push({
             id: payload.id,
             code: payload.code,
+            sku: payload.sku ?? null,
             name: payload.name,
             itemType: payload.item_type,
+            category: payload.category ?? null,
+            directoryKind: payload.directory_kind ?? null,
+            directoryRefId: payload.directory_ref_id ?? null,
             groupId: payload.group_id ?? null,
             unitId: payload.unit_id ?? null,
             barcode: payload.barcode ?? null,
             minStock: payload.min_stock ?? null,
             maxStock: payload.max_stock ?? null,
+            defaultBrandId: payload.default_brand_id ?? null,
+            isSerialTracked: payload.is_serial_tracked === true,
             defaultWarehouseId: payload.default_warehouse_id ?? null,
             specJson: payload.spec_json ?? null,
+            parentNomenclatureId: payload.parent_nomenclature_id ?? null,
             isActive: payload.is_active !== false,
+            lastServerSeq: payload.last_server_seq ?? null,
             createdAt: Number(payload.created_at ?? ts),
             updatedAt: Number(payload.updated_at ?? ts),
             deletedAt: payload.deleted_at ?? null,
@@ -3058,16 +3069,24 @@ async function applyPulledChanges(
     emitApplyRaw('erp_nomenclature', dedupWarehouseNomenclature.length);
     const nomSet: Record<string, unknown> = {
       code: sql`excluded.code`,
+      sku: sql`excluded.sku`,
       name: sql`excluded.name`,
       itemType: sql`excluded.item_type`,
+      category: sql`excluded.category`,
+      directoryKind: sql`excluded.directory_kind`,
+      directoryRefId: sql`excluded.directory_ref_id`,
       groupId: sql`excluded.group_id`,
       unitId: sql`excluded.unit_id`,
       barcode: sql`excluded.barcode`,
       minStock: sql`excluded.min_stock`,
       maxStock: sql`excluded.max_stock`,
+      defaultBrandId: sql`excluded.default_brand_id`,
+      isSerialTracked: sql`excluded.is_serial_tracked`,
       defaultWarehouseId: sql`excluded.default_warehouse_id`,
       specJson: sql`excluded.spec_json`,
+      parentNomenclatureId: sql`excluded.parent_nomenclature_id`,
       isActive: sql`excluded.is_active`,
+      lastServerSeq: sql`excluded.last_server_seq`,
       updatedAt: sql`excluded.updated_at`,
       deletedAt: sql`excluded.deleted_at`,
     };

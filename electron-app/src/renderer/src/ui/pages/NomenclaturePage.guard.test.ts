@@ -16,6 +16,7 @@ function src(rel: string): string {
 const PAGE = src('./NomenclaturePage.tsx');
 const SERVICE = src('../../../../main/services/erpService.ts');
 const IPC = src('../../../../main/ipc/register/erp.ts');
+const SYNC = src('../../../../main/services/syncService.ts');
 const ELECTRON_PARITY = src('../../../../main/database/migrate.ts');
 const ANDROID_PARITY = src('../../../../../../android-app/src/db/migrate.ts');
 
@@ -40,6 +41,15 @@ describe('номенклатура — список без тормозов (E1)
   it('строка реплики оформляется как серверная, счётчик группы знает её имя', () => {
     expect(SERVICE).toContain('decorateNomenclatureReplicaRow(row as Record<string, unknown>, refs)');
     expect(SERVICE).not.toContain("groupName: 'Без группы',");
+  });
+
+  it('pull переносит в реплику полную строку номенклатуры: источник, родитель, артикул, штамп', () => {
+    const push = SYNC.slice(SYNC.indexOf('warehouseNomenclatureRows.push({'), SYNC.indexOf('case SyncTableName.ErpEngineAssemblyBom:'));
+    const set = SYNC.slice(SYNC.indexOf('const nomSet: Record<string, unknown> = {'), SYNC.indexOf('await upsertPulledRowsInChunks(db, erpNomenclature'));
+    for (const col of ['directory_kind', 'directory_ref_id', 'parent_nomenclature_id', 'sku', 'category', 'default_brand_id', 'is_serial_tracked', 'last_server_seq']) {
+      expect(push, `push ${col}`).toContain(col);
+      expect(set, `set ${col}`).toContain(`excluded.${col}`);
+    }
   });
 
   it('HTTP 2xx без разобранного тела больше не показывается как «unknown»', () => {
