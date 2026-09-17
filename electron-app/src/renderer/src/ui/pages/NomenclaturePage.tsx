@@ -8,6 +8,8 @@ import { Input } from '../components/Input.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
+import { usePersistedScrollTop } from '../hooks/useListBehavior.js';
+import { VirtualTable } from '../components/VirtualTable.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
 import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
@@ -85,6 +87,12 @@ function NomenclatureCollapsePanel(props: {
 
 type SortKey = 'name' | 'code' | 'parent' | 'itemType' | 'group' | 'unit' | 'updatedAt';
 
+type NomenclatureGroupCount = { groupId: string | null; groupName: string; count: number };
+
+type NomenclatureListItem =
+  | { kind: 'group'; key: string; group: NomenclatureGroupCount }
+  | { kind: 'row'; row: WarehouseNomenclatureListItem; n: number };
+
 type PropertyGovernanceRow = {
   id: string;
   code: string;
@@ -145,7 +153,7 @@ export function NomenclaturePage(props: {
   const [expandedGroupKey, setExpandedGroupKey] = useState<string | null>(null);
   // Обобщённые позиции: варианты прячутся под родителя (E3). Тумблер не роумится — это удобство экрана.
   const [collapseVariants, setCollapseVariants] = useState(false);
-  const [groupCounts, setGroupCounts] = useState<Array<{ groupId: string | null; groupName: string; count: number }>>([]);
+  const [groupCounts, setGroupCounts] = useState<NomenclatureGroupCount[]>([]);
   const [panelTypesOpen, setPanelTypesOpen] = useState(false);
   const [panelPropertiesOpen, setPanelPropertiesOpen] = useState(false);
   const [panelTemplatesOpen, setPanelTemplatesOpen] = useState(false);
@@ -296,6 +304,20 @@ export function NomenclaturePage(props: {
         return cmp * dir;
       });
   }, [rows, expandedGroupKey, sortDir, sortKey, collapseVariants]);
+
+  // Один виртуальный список на все группы: заголовки групп — строки того же `<table>`,
+  // под развёрнутой — её позиции. Отдельная таблица на группу не даёт одного окна
+  // прокрутки, а без него виртуализация не считает, что на экране.
+  const listItems = useMemo<NomenclatureListItem[]>(() => {
+    const out: NomenclatureListItem[] = [];
+    for (const group of groupCounts) {
+      const key = group.groupId ?? '__none__';
+      out.push({ kind: 'group', key, group });
+      if (expandedGroupKey === key) sorted.forEach((row, i) => out.push({ kind: 'row', row, n: i + 1 }));
+    }
+    return out;
+  }, [groupCounts, expandedGroupKey, sorted]);
+  const { containerRef, onScroll } = usePersistedScrollTop('list:nomenclature');
 
   useEffect(() => {
     if (groupCounts.length === 0) {
@@ -786,120 +808,115 @@ export function NomenclaturePage(props: {
             {/* Всего — позиции всех групп (счётчики групп приходят с сервера), показано — строки
                 раскрытой группы: пока ничего не раскрыто, на экране строк нет. */}
             <ListCount total={groupCounts.reduce((acc, g) => acc + (Number(g.count) || 0), 0)} shown={sorted.length} style={{ flexShrink: 0 }} />
-            <div style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)', background: 'var(--surface)', borderRadius: 8 }}>
-              {groupCounts.length === 0 && sorted.length === 0 ? (
-                <div style={{ color: 'var(--subtle)', textAlign: 'center', padding: 14 }}>Нет данных</div>
-              ) : (
-                groupCounts.map((group) => {
-                  const expanded = expandedGroupKey === (group.groupId ?? '__none__');
-                  const pageRowsForGroup = expanded ? sorted : [];
-                  return (
-                    <section key={group.groupId ?? '__none__'} style={{ width: '100%', borderBottom: '1px solid var(--border)' }}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const key = group.groupId ?? '__none__';
-                          if (expandedGroupKey === key) {
-                            setExpandedGroupKey(null);
-                            setGroupId(null);
-                          } else {
-                            setExpandedGroupKey(key);
-                            setGroupId(group.groupId ?? null);
-                          }
-                        }}
-                        style={{
-                          width: '100%',
-                          height: GROUP_HEADER_HEIGHT,
-                          display: 'grid',
-                          gridTemplateColumns: '1fr auto',
-                          alignItems: 'center',
-                          columnGap: 10,
-                          position: 'sticky',
-                          top: 0,
-                          zIndex: 3,
-                          border: 'none',
-                          borderBottom: '1px solid var(--border)',
-                          background: expanded ? '#1d4ed8' : '#dcfce7',
-                          color: expanded ? '#ffffff' : '#14532d',
-                          fontWeight: 700,
-                          fontSize: 13,
-                          textAlign: 'left',
-                          cursor: 'pointer',
-                          padding: '0 10px',
-                          boxSizing: 'border-box',
-                        }}
-                      >
-                        <span
+            <div
+              ref={containerRef}
+              onScroll={onScroll}
+              style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)', background: 'var(--surface)', borderRadius: 8 }}
+            >
+              <VirtualTable
+                scrollElementRef={containerRef}
+                count={listItems.length}
+                header={
+                  <thead>
+                    <tr>
+                      <RowNumberHeaderCell />
+                      {visibleColumns.map((col) => (
+                        <th
+                          key={col.id}
+                          {...listHeaderKindProps(col.kind, col.label)}
                           style={{
-                            minWidth: 0,
-                            justifySelf: 'stretch',
                             textAlign: 'left',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
+                            cursor: 'pointer',
+                            ...(col.minWidth ? { minWidth: col.minWidth } : { whiteSpace: 'nowrap' }),
+                          }}
+                          onClick={() => onSort(col.sortKey)}
+                        >
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                            <span>{sortLabel(tabletColumnLabel(col.label, col.tabletLabel), col.sortKey)}</span>
+                            <ColumnToggleButton
+                              colId={col.id}
+                              visible
+                              alwaysVisible={col.id === 'name'}
+                              onToggle={() => columnLayout.setVisible(col.id, false)}
+                            />
+                          </span>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                }
+                renderCells={(i) => {
+                  const it = listItems[i]!;
+                  if (it.kind === 'group') {
+                    const expanded = expandedGroupKey === it.key;
+                    return (
+                      <td colSpan={visibleColumns.length} style={{ padding: 0 }} data-nomenclature-group-row={it.key}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (expandedGroupKey === it.key) {
+                              setExpandedGroupKey(null);
+                              setGroupId(null);
+                            } else {
+                              setExpandedGroupKey(it.key);
+                              setGroupId(it.group.groupId ?? null);
+                            }
+                          }}
+                          style={{
+                            width: '100%',
+                            height: GROUP_HEADER_HEIGHT,
+                            display: 'grid',
+                            gridTemplateColumns: '1fr auto',
+                            alignItems: 'center',
+                            columnGap: 10,
+                            border: 'none',
+                            background: expanded ? '#1d4ed8' : '#dcfce7',
+                            color: expanded ? '#ffffff' : '#14532d',
+                            fontWeight: 700,
+                            fontSize: 13,
+                            textAlign: 'left',
+                            cursor: 'pointer',
+                            padding: '0 10px',
+                            boxSizing: 'border-box',
                           }}
                         >
-                          {group.groupName}
-                        </span>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: expanded ? '#dbeafe' : '#166534', flexShrink: 0 }}>
-                          <span>{group.count}</span>
-                          <span style={{ fontSize: 14 }}>{expanded ? '▾' : '▸'}</span>
-                        </span>
-                      </button>
-                      {expanded ? (
-                        <>
-                        <table className="list-table">
-                          <thead>
-                            <tr>
-                              <RowNumberHeaderCell style={{ top: GROUP_HEADER_HEIGHT }} />
-                              {visibleColumns.map((col) => (
-                                <th
-                                  key={col.id}
-                                  {...listHeaderKindProps(col.kind, col.label)}
-                                  style={{
-                                    textAlign: 'left',
-                                    cursor: 'pointer',
-                                    top: GROUP_HEADER_HEIGHT,
-                                    ...(col.minWidth ? { minWidth: col.minWidth } : { whiteSpace: 'nowrap' }),
-                                  }}
-                                  onClick={() => onSort(col.sortKey)}
-                                >
-                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                                    <span>{sortLabel(tabletColumnLabel(col.label, col.tabletLabel), col.sortKey)}</span>
-                                    <ColumnToggleButton
-                                      colId={col.id}
-                                      visible
-                                      alwaysVisible={col.id === 'name'}
-                                      onToggle={() => columnLayout.setVisible(col.id, false)}
-                                    />
-                                  </span>
-                                </th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {pageRowsForGroup.map((row, i) => (
-                              <tr key={row.id} style={{ cursor: 'pointer' }} onClick={() => props.onOpen(String(row.id))}>
-                                <RowNumberCell n={i + 1} />
-                                {visibleColumns.map((col) => (
-                                  <td
-                                    key={col.id}
-                                    {...listCellKindProps(col.kind)}
-                                    style={col.minWidth ? { wordBreak: 'break-word' } : { whiteSpace: 'nowrap' }}
-                                  >
-                                    {col.render(row)}
-                                  </td>
-                                ))}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        </>
-                      ) : null}
-                    </section>
+                          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.group.groupName}</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: expanded ? '#dbeafe' : '#166534', flexShrink: 0 }}>
+                            <span>{it.group.count}</span>
+                            <span style={{ fontSize: 14 }}>{expanded ? '▾' : '▸'}</span>
+                          </span>
+                        </button>
+                      </td>
+                    );
+                  }
+                  return (
+                    <>
+                      {visibleColumns.map((col) => (
+                        <td key={col.id} {...listCellKindProps(col.kind)} style={col.minWidth ? { wordBreak: 'break-word' } : { whiteSpace: 'nowrap' }}>
+                          {col.render(it.row)}
+                        </td>
+                      ))}
+                    </>
                   );
-                })
-              )}
+                }}
+                getRowKey={(i) => {
+                  const it = listItems[i]!;
+                  return it.kind === 'group' ? `group:${it.key}` : `row:${it.row.id}`;
+                }}
+                getRowProps={(i) => {
+                  const it = listItems[i]!;
+                  if (it.kind === 'group') return { 'data-nomenclature-group': it.key };
+                  return { style: { cursor: 'pointer' }, onClick: () => props.onOpen(String(it.row.id)), 'data-nomenclature-row': String(it.row.id) };
+                }}
+                rowNumbers
+                rowNumberOf={(i) => {
+                  const it = listItems[i]!;
+                  return it.kind === 'group' ? null : it.n;
+                }}
+                colCount={Math.max(1, visibleColumns.length)}
+                estimateSize={40}
+                emptyState="Нет данных"
+              />
             </div>
           </div>
         </NomenclatureCollapsePanel>

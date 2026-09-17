@@ -67,6 +67,9 @@ describe('android clientSchemaCompatible', () => {
 
     // Откат к состоянию БД клиента версии 12: колонки обобщённой позиции ещё нет.
     // Без зеркального шага цепочка вернула бы null → rebuild (полный pull на планшете).
+    // У планшета версии 12 нет и индекса родителя (парити ставит его с E1, 17.09.2026) —
+    // SQLite не даст снять колонку, пока на неё смотрит индекс.
+    await adapter.exec(`DROP INDEX IF EXISTS erp_nomenclature_parent_idx`);
     await adapter.exec(`ALTER TABLE erp_nomenclature DROP COLUMN parent_nomenclature_id`);
     await adapter.run(`UPDATE sync_state SET value = ? WHERE key = 'schema.clientVersion'`, ['12']);
 

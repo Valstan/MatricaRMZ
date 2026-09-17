@@ -74,6 +74,15 @@ import {
 // surface (nomenclature, documents, BOM, defects, repair fund, global search).
 // The dead erp:* handlers were removed 2026-07-25; the file itself was briefly
 // deleted whole in #333 which broke the whole warehouse UI (restored same day).
+// Списки номенклатуры читаются из реплики (erpService.warehouseNomenclatureList), а запись
+// идёт REST-ом на сервер: без догоняющего синка страница после «Сохранить» перечитала бы
+// реплику без только что записанной строки. Ждём прогон, а не запускаем в фоне — вызывающий
+// перечитывает список сразу по ответу. Ошибка синка не отменяет удавшуюся запись.
+async function afterNomenclatureWrite<T extends { ok: boolean }>(ctx: IpcContext, result: T): Promise<T> {
+  if (result.ok) await ctx.mgr.runOnce().catch(() => undefined);
+  return result;
+}
+
 export function registerErpIpc(ctx: IpcContext) {
   ipcMain.handle(
     'warehouse:nomenclature:list',
@@ -196,14 +205,14 @@ export function registerErpIpc(ctx: IpcContext) {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
     if (!gate.ok) return gate as any;
-    return warehouseNomenclatureUpsert(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
+    return afterNomenclatureWrite(ctx, await warehouseNomenclatureUpsert(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args));
   });
 
   ipcMain.handle('warehouse:nomenclature:delete', async (_e, id: string) => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
     if (!gate.ok) return gate as any;
-    return warehouseNomenclatureDelete(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || ''));
+    return afterNomenclatureWrite(ctx, await warehouseNomenclatureDelete(ctx.sysDb, ctx.mgr.getApiBaseUrl(), String(id || '')));
   });
 
   ipcMain.handle('warehouse:nomenclature:partSpecs:list', async (_e, args?: { templateId?: string; engineBrandId?: string }) => {
@@ -224,20 +233,26 @@ export function registerErpIpc(ctx: IpcContext) {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
     if (!gate.ok) return gate as any;
-    return warehousePartsDedupeMerge(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
-      survivorId: String(args?.survivorId ?? ''),
-      mergedIds: Array.isArray(args?.mergedIds) ? args.mergedIds.map(String) : [],
-    });
+    return afterNomenclatureWrite(
+      ctx,
+      await warehousePartsDedupeMerge(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
+        survivorId: String(args?.survivorId ?? ''),
+        mergedIds: Array.isArray(args?.mergedIds) ? args.mergedIds.map(String) : [],
+      }),
+    );
   });
 
   ipcMain.handle('warehouse:directoryPart:create', async (_e, args: { name: string; code?: string | null }) => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse nomenclature is not available' };
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
     if (!gate.ok) return gate as any;
-    return warehouseDirectoryPartCreate(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
-      name: String(args?.name ?? ''),
-      ...(args?.code !== undefined ? { code: args.code } : {}),
-    });
+    return afterNomenclatureWrite(
+      ctx,
+      await warehouseDirectoryPartCreate(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
+        name: String(args?.name ?? ''),
+        ...(args?.code !== undefined ? { code: args.code } : {}),
+      }),
+    );
   });
 
   ipcMain.handle('warehouse:nomenclature:partSpec:get', async (_e, args: { nomenclatureId: string }) => {

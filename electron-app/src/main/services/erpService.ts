@@ -4,6 +4,8 @@ import { filterRowsTiered } from '@matricarmz/shared';
 import type { GlobalSearchResponse, PartMetadata, PartSpec } from '@matricarmz/shared';
 
 import { httpAuthed } from './httpClient.js';
+import { listEntitiesByTypeWithAttrs } from './entityService.js';
+import { decorateNomenclatureReplicaRow, masterdataLookupLabel, type NomenclatureReplicaRefs } from './nomenclatureReplica.js';
 import { SettingsKey, settingsGetNumber } from './settingsStore.js';
 import {
   enqueueWarehouseCommand,
@@ -12,11 +14,13 @@ import {
   markWarehouseCommandFailed,
 } from './warehouseCommandOutboxService.js';
 import {
+  entityTypes,
   erpDocumentHeaders,
   erpDocumentLines,
   erpNomenclature,
   erpRegStockBalance,
   erpRegStockMovements,
+  warehouseLocations,
 } from '../database/schema.js';
 
 
@@ -81,6 +85,16 @@ function formatHttpError(
   return `HTTP ${r.status}${msg ? `: ${msg}` : ''}`;
 }
 
+// HTTP 2xx, а тела в форме `{ ok: true, … }` нет: JSON не разобрался (обрыв на середине
+// тела — таймер транспорта снимается по заголовкам, тело читается без него) либо вместо
+// JSON пришла страница прокси/портала. Раньше это выглядело как «unknown» на экране.
+function unreadableResponseError(r: { status: number; json?: any; text?: string }): string {
+  const jsonErr = r?.json && typeof r.json === 'object' ? (r.json.error ?? r.json.message ?? null) : null;
+  if (jsonErr != null) return typeof jsonErr === 'string' ? jsonErr : JSON.stringify(jsonErr);
+  const text = typeof r.text === 'string' ? r.text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) : '';
+  return `Сервер не ответил (HTTP ${r.status}: ${text ? `вместо данных пришло «${text}»` : 'ответ не разобран'})`;
+}
+
 type OfflineReadMeta = {
   dataSource: 'remote' | 'local';
   isStale: boolean;
@@ -102,6 +116,53 @@ async function buildOfflineReadMeta(db: BetterSQLite3Database, dataSource: 'remo
     isStale: dataSource === 'local',
     lastSyncedAt: Number(lastSyncedAt) > 0 ? Number(lastSyncedAt) : null,
   };
+}
+
+// Подписи справочников из реплики. Группы и единицы — EAV-сущности (`entities` + `attribute_values`,
+// синкаются всем), склады — реплика `warehouse_locations`; их и читает сервер для того же списка.
+async function localMasterdataLabels(db: BetterSQLite3Database, typeCode: string): Promise<Map<string, string>> {
+  const type = await db
+    .select({ id: entityTypes.id })
+    .from(entityTypes)
+    .where(and(eq(entityTypes.code, typeCode), isNull(entityTypes.deletedAt)))
+    .limit(1);
+  const typeId = type[0]?.id ? String(type[0].id) : '';
+  if (!typeId) return new Map();
+  const rows = await listEntitiesByTypeWithAttrs(db, typeId);
+  return new Map(rows.map((row) => [row.id, masterdataLookupLabel(row.id, row.attributes)]));
+}
+
+async function localNomenclatureRefs(
+  db: BetterSQLite3Database,
+  rows: ReadonlyArray<{ parentNomenclatureId: string | null }>,
+): Promise<NomenclatureReplicaRefs> {
+  const parentIds = Array.from(new Set(rows.map((r) => r.parentNomenclatureId).filter((v): v is string => !!v)));
+  const [groupById, unitById, warehouses, parents] = await Promise.all([
+    localMasterdataLabels(db, 'nomenclature_group'),
+    localMasterdataLabels(db, 'unit'),
+    db
+      .select({ code: warehouseLocations.code, name: warehouseLocations.name })
+      .from(warehouseLocations)
+      .where(isNull(warehouseLocations.deletedAt)),
+    parentIds.length
+      ? db.select({ id: erpNomenclature.id, name: erpNomenclature.name }).from(erpNomenclature).where(inArray(erpNomenclature.id, parentIds))
+      : Promise.resolve([] as Array<{ id: string; name: string | null }>),
+  ]);
+  return {
+    groupById,
+    unitById,
+    warehouseByCode: new Map(warehouses.map((w) => [String(w.code), String(w.name)])),
+    parentNameById: new Map(parents.map((p) => [String(p.id), String(p.name ?? '')])),
+  };
+}
+
+async function localWarehouseNomenclatureHasRows(db: BetterSQLite3Database): Promise<boolean> {
+  const row = await db
+    .select({ id: erpNomenclature.id })
+    .from(erpNomenclature)
+    .where(isNull(erpNomenclature.deletedAt))
+    .limit(1);
+  return row.length > 0;
 }
 
 async function localWarehouseNomenclatureList(
@@ -146,9 +207,11 @@ async function localWarehouseNomenclatureList(
   const offset = Math.max(0, Math.trunc(Number(args?.offset ?? 0)));
   const page = limit == null ? filtered : filtered.slice(offset, offset + limit + 1);
   const hasMore = limit == null ? false : page.length > limit;
+  const pageRows = hasMore ? page.slice(0, limit!) : page;
+  const refs = await localNomenclatureRefs(db, pageRows);
   return {
     ok: true,
-    rows: (hasMore ? page.slice(0, limit!) : page) as Array<Record<string, unknown>>,
+    rows: pageRows.map((row) => decorateNomenclatureReplicaRow(row as Record<string, unknown>, refs)),
     hasMore,
     meta: await buildOfflineReadMeta(db, 'local'),
   };
@@ -162,23 +225,36 @@ async function localWarehouseNomenclatureGroupCounts(
   if (args?.itemType) where.push(eq(erpNomenclature.itemType, String(args.itemType)));
   if (args?.directoryKind) where.push(eq(erpNomenclature.directoryKind, String(args.directoryKind)));
   let allRows = await db
-    .select({ groupId: erpNomenclature.groupId, name: erpNomenclature.name, code: erpNomenclature.code })
+    .select({
+      groupId: erpNomenclature.groupId,
+      name: erpNomenclature.name,
+      code: erpNomenclature.code,
+      sku: erpNomenclature.sku,
+      barcode: erpNomenclature.barcode,
+    })
     .from(erpNomenclature)
     .where(and(...where));
-  const search = String(args?.search ?? '').trim().toLowerCase();
+  const search = String(args?.search ?? '').trim();
   if (search) {
-    allRows = allRows.filter((row) => `${String(row.code ?? '')} ${String(row.name ?? '')}`.toLowerCase().includes(search));
+    // Тот же отбор, что у локального списка: счётчик группы обязан сходиться с её строками.
+    allRows = filterRowsTiered(
+      allRows,
+      search,
+      (row) => ({ label: String(row.name ?? ''), searchText: `${String(row.code ?? '')} ${String(row.sku ?? '')} ${String(row.barcode ?? '')}` }),
+      { fuzzyFallback: false },
+    ).rows;
   }
   const countMap = new Map<string | null, number>();
   for (const row of allRows) {
     const key = row.groupId ?? null;
     countMap.set(key, (countMap.get(key) ?? 0) + 1);
   }
+  const groupById = await localMasterdataLabels(db, 'nomenclature_group');
   return {
     ok: true,
     rows: Array.from(countMap.entries()).map(([groupId, cnt]) => ({
       groupId,
-      groupName: 'Без группы',
+      groupName: (groupId ? groupById.get(groupId) : null) ?? 'Без группы',
       count: cnt,
     })),
   };
@@ -376,7 +452,7 @@ async function warehouseDocumentCreateRemote(
       body: JSON.stringify(args),
     });
     if (!r.ok) return { ok: false, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false, error: unreadableResponseError(r) };
     return { ok: true, id: String(r.json.id) };
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -404,7 +480,7 @@ async function warehouseDocumentCancelRemote(
         : {}),
     });
     if (!r.ok) return { ok: false, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false, error: unreadableResponseError(r) };
     return { ok: true, id: String(r.json.id ?? id), status: String(r.json.status ?? 'cancelled') };
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -477,12 +553,18 @@ export async function warehouseNomenclatureList(
     if (args?.limit !== undefined) qp.set('limit', String(Math.trunc(args.limit)));
     if (args?.offset !== undefined) qp.set('offset', String(Math.trunc(args.offset)));
     const path = `/warehouse/nomenclature${qp.toString() ? `?${qp.toString()}` : ''}`;
-    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, INTERACTIVE_READ_HTTP_OPTS);
-    if (!r.ok) {
-      const local = await localWarehouseNomenclatureList(db, args);
-      return { ...local, warning: formatHttpError(r, path) } as const;
+    // Списки — из реплики (владелец, 16.09.2026: «не гонять с интернета»): та же таблица, что
+    // на сервере, синкается фоном, а после записи из этого клиента IPC дожидается догоняющего
+    // синка. REST остаётся для одной карточки по id (свежесть сразу после чужой правки) и для
+    // пустой реплики — свежая установка до первого pull.
+    if (!args?.id && (await localWarehouseNomenclatureHasRows(db))) {
+      return localWarehouseNomenclatureList(db, args);
     }
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, INTERACTIVE_READ_HTTP_OPTS);
+    if (!r.ok || !r.json?.ok) {
+      const local = await localWarehouseNomenclatureList(db, args);
+      return { ...local, warning: r.ok ? unreadableResponseError(r) : formatHttpError(r, path) } as const;
+    }
     return {
       ...(r.json as { ok: true; rows: Array<Record<string, unknown>>; hasMore?: boolean }),
       meta: await buildOfflineReadMeta(db, 'remote'),
@@ -530,11 +612,14 @@ export async function warehouseNomenclatureGroupCounts(
     if (args?.itemType) qp.set('itemType', args.itemType);
     if (args?.directoryKind) qp.set('directoryKind', args.directoryKind);
     const path = `/warehouse/nomenclature/group-counts${qp.toString() ? `?${qp.toString()}` : ''}`;
-    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, { timeoutMs: 15_000 });
-    if (!r.ok) {
+    // Счётчики групп — из той же реплики, что и строки под ними (см. warehouseNomenclatureList).
+    if (await localWarehouseNomenclatureHasRows(db)) {
       return localWarehouseNomenclatureGroupCounts(db, args);
     }
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, { timeoutMs: 15_000 });
+    if (!r.ok || !r.json?.ok) {
+      return localWarehouseNomenclatureGroupCounts(db, args);
+    }
     return r.json as { ok: true; rows: Array<{ groupId: string | null; groupName: string; count: number }> };
   } catch {
     return localWarehouseNomenclatureGroupCounts(db, args);
@@ -561,7 +646,7 @@ export async function warehouseLookupsGet(
       if (warehouseLookupsCache) return warehouseLookupsCache.value;
       return { ok: false as const, error: formatHttpError(r, path) };
     }
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     const value = r.json as { ok: true; lookups: Record<string, unknown> };
     warehouseLookupsCache = { at: Date.now(), value };
     return value;
@@ -587,7 +672,7 @@ export async function warehouseNomenclatureItemTypeUpsert(db: BetterSQLite3Datab
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, id: String((r.json as any).id) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -621,7 +706,7 @@ export async function warehouseNomenclaturePropertyUpsert(db: BetterSQLite3Datab
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, id: String((r.json as any).id) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -655,7 +740,7 @@ export async function warehouseNomenclatureTemplateUpsert(db: BetterSQLite3Datab
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, id: String((r.json as any).id) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -693,7 +778,7 @@ export async function warehouseNomenclatureUpsert(
       body: JSON.stringify(args),
     }, httpOpts);
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, id: String(r.json.id) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -709,7 +794,7 @@ export async function warehouseNomenclatureDelete(
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'DELETE' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, id: String(r.json.id ?? id) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -729,7 +814,7 @@ export async function warehouseNomenclaturePartSpecsList(
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as {
       ok: true;
       rows: Array<{ id: string; name: string; isActive: boolean; templateName: string | null; metadata: PartMetadata } & PartSpec>;
@@ -748,7 +833,7 @@ export async function warehouseNomenclaturePartSpecGet(
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, INTERACTIVE_NO_FALLBACK_HTTP_OPTS);
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as {
       ok: true;
       spec: PartSpec | null;
@@ -774,7 +859,7 @@ export async function warehouseDirectoryPartCreate(
       body: JSON.stringify({ name: String(args?.name ?? ''), ...(args?.code !== undefined ? { code: args.code } : {}) }),
     });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as { ok: true; part: { id: string } };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -786,7 +871,7 @@ export async function engineDedupeAnalyze(db: BetterSQLite3Database, apiBaseUrl:
   try {
     const r = await httpAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as {
       ok: true;
       totalEngines: number;
@@ -821,7 +906,7 @@ export async function engineDedupeMerge(
       { timeoutMs: 60_000, attempts: 1 },
     );
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as {
       ok: true;
       report: { survivorId: string; merged: Array<{ loserId: string; opsRepointed: number; attrsFilled: number }> };
@@ -836,7 +921,7 @@ export async function warehousePartsDedupeAnalyze(db: BetterSQLite3Database, api
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as {
       ok: true;
       totalParts: number;
@@ -886,7 +971,7 @@ export async function warehousePartsDedupeMerge(
       { timeoutMs: 60_000, attempts: 1 },
     );
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as {
       ok: true;
       report: {
@@ -911,7 +996,7 @@ export async function maintenanceEmptyCardsAnalyze(db: BetterSQLite3Database, ap
   try {
     const r = await httpAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as {
       ok: true;
       total: number;
@@ -943,7 +1028,7 @@ export async function maintenanceEmptyCardsDelete(db: BetterSQLite3Database, api
       { timeoutMs: 60_000, attempts: 1 },
     );
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as { ok: true; deleted: number; skipped: Array<{ id: string; reason: string }> };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -967,7 +1052,7 @@ export async function warehouseNomenclaturePartSpecUpdate(
       body: JSON.stringify({ ...spec, ...(metadata !== undefined ? { metadata } : {}) }),
     });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as { ok: true; spec: PartSpec; metadata: PartMetadata | null };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -991,7 +1076,7 @@ export async function warehouseEngineInstancesList(
     const path = `/warehouse/engine-instances${qp.toString() ? `?${qp.toString()}` : ''}`;
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, INTERACTIVE_NO_FALLBACK_HTTP_OPTS);
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as { ok: true; rows: Array<Record<string, unknown>>; hasMore?: boolean };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1011,7 +1096,7 @@ export async function warehouseEngineInstanceUpsert(
       body: JSON.stringify(args),
     });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, id: String(r.json.id) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1027,7 +1112,7 @@ export async function warehouseEngineInstanceDelete(
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'DELETE' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, id: String(r.json.id ?? id) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1049,7 +1134,7 @@ export async function warehouseContractSectionsGet(
       return { ok: false as const, error: formatHttpError({ status: r.status, text }, path) };
     }
     const json = (await r.json().catch(() => null)) as { ok?: boolean; error?: string; sections?: string[] } | null;
-    if (!json?.ok) return { ok: false as const, error: String(json?.error ?? 'unknown') };
+    if (!json?.ok) return { ok: false as const, error: unreadableResponseError({ status: r.status, json }) };
     return { ok: true as const, sections: Array.isArray(json.sections) ? json.sections : [] };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1083,7 +1168,7 @@ export async function warehouseStockList(
       const local = await localWarehouseStockList(db, args);
       return { ...local, warning: formatHttpError(r, path) } as const;
     }
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return {
       ...(r.json as { ok: true; rows: Array<Record<string, unknown>>; hasMore?: boolean }),
       meta: await buildOfflineReadMeta(db, 'remote'),
@@ -1109,7 +1194,7 @@ export async function warehouseEngineOutputAnalytics(
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, { timeoutMs: 60_000 });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as { ok: true; result: unknown };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1152,7 +1237,7 @@ export async function warehouseDocumentsList(
       const local = await localWarehouseDocumentsList(db, args);
       return { ...local, warning: formatHttpError(r, path) } as const;
     }
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return {
       ...(r.json as { ok: true; rows: Array<Record<string, unknown>>; hasMore?: boolean }),
       meta: await buildOfflineReadMeta(db, 'remote'),
@@ -1176,7 +1261,7 @@ export async function warehouseDocumentGet(
       if (!local.ok) return { ok: false as const, error: formatHttpError(r, path) };
       return { ...local, warning: formatHttpError(r, path) } as const;
     }
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return {
       ...(r.json as { ok: true; document: { header: Record<string, unknown>; lines: Array<Record<string, unknown>> } }),
       meta: await buildOfflineReadMeta(db, 'remote'),
@@ -1233,7 +1318,7 @@ export async function warehouseDocumentPost(
         : {}),
     });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, id: String(r.json.id ?? id) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1259,7 +1344,7 @@ export async function warehouseRepairFundIntakePreview(
       body: JSON.stringify(args),
     });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, ...(r.json as Record<string, unknown>) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1279,7 +1364,7 @@ export async function warehouseRepairFundIntake(
       body: JSON.stringify(args),
     });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, ...(r.json as Record<string, unknown>) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1300,7 +1385,7 @@ export async function warehouseScrapIntakePreview(
       body: JSON.stringify(args),
     });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, ...(r.json as Record<string, unknown>) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1321,7 +1406,7 @@ export async function warehouseScrapIntake(
       body: JSON.stringify(args),
     });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, ...(r.json as Record<string, unknown>) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1350,7 +1435,7 @@ export async function warehouseRepairFundCaptureInstances(
       body: JSON.stringify(args),
     });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, ...(r.json as Record<string, unknown>) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1375,7 +1460,7 @@ export async function warehouseRepairFundSetInstanceRepaired(
       body: JSON.stringify({ repaired: args.repaired }),
     });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, ...(r.json as Record<string, unknown>) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1391,7 +1476,7 @@ export async function warehouseDocumentPlan(
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'POST' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, id: String(r.json.id ?? id) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1447,7 +1532,7 @@ export async function warehouseDocumentReverse(
         : {}),
     });
     if (!r.ok) return { ok: false, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false, error: unreadableResponseError(r) };
     return { ok: true, id: String(r.json.id ?? ''), docNo: String(r.json.docNo ?? '') };
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -1467,7 +1552,7 @@ export async function warehouseForecastIncomingGet(
     const path = `/warehouse/forecast/incoming?${qp.toString()}`;
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as { ok: true; rows: Array<Record<string, unknown>> };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1487,7 +1572,7 @@ export async function warehouseAssemblyBomList(
     const path = `/warehouse/assembly-bom${qp.toString() ? `?${qp.toString()}` : ''}`;
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as { ok: true; rows: Array<Record<string, unknown>> };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1507,7 +1592,7 @@ export async function warehouseDefectConduct(
       body: JSON.stringify(args),
     });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, ...(r.json as Record<string, unknown>) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1519,7 +1604,7 @@ export async function warehouseDefectVersions(db: BetterSQLite3Database, apiBase
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, ...(r.json as Record<string, unknown>) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1531,7 +1616,7 @@ export async function warehouseDefectHistory(db: BetterSQLite3Database, apiBaseU
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, ...(r.json as Record<string, unknown>) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1548,7 +1633,7 @@ export async function warehouseDefectAvailableInstances(
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, ...(r.json as Record<string, unknown>) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1564,7 +1649,7 @@ export async function warehouseDefectIssuedInstances(
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, ...(r.json as Record<string, unknown>) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1583,7 +1668,7 @@ export async function warehouseRepairNormList(
     const path = `/warehouse/repair-norms${qp.toString() ? `?${qp.toString()}` : ''}`;
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json;
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1595,7 +1680,7 @@ export async function warehouseRepairNormGet(db: BetterSQLite3Database, apiBaseU
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json;
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1615,7 +1700,7 @@ export async function warehouseRepairNormUpsert(
       body: JSON.stringify(args),
     });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, id: String(r.json.id) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1644,7 +1729,7 @@ export async function warehouseAssemblyBomSchemaGet(db: BetterSQLite3Database, a
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as { ok: true; schema: Record<string, unknown>; updatedAt: number };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1667,7 +1752,7 @@ export async function warehouseAssemblyBomSchemaSet(
       }),
     });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as { ok: true; schema: Record<string, unknown>; updatedAt: number; renamedLineCount?: number };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1679,7 +1764,7 @@ export async function warehouseAssemblyBomSchemaUsageGet(db: BetterSQLite3Databa
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as { ok: true; rows: Array<Record<string, unknown>> };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1695,7 +1780,7 @@ export async function warehouseAssemblyBomGet(
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as { ok: true; bom: Record<string, unknown> };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1715,7 +1800,7 @@ export async function warehouseAssemblyBomUpsert(
       body: JSON.stringify(args),
     });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, id: String(r.json.id) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1727,7 +1812,7 @@ export async function warehouseAssemblyBomDelete(db: BetterSQLite3Database, apiB
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'DELETE' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, id: String(r.json.id ?? id) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1743,7 +1828,7 @@ export async function warehouseAssemblyBomActivateDefault(
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'POST' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, id: String(r.json.id ?? id) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1759,7 +1844,7 @@ export async function warehouseAssemblyBomArchive(
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'POST' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return { ok: true as const, id: String(r.json.id ?? id) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1775,7 +1860,7 @@ export async function warehouseAssemblyBomHistory(
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as { ok: true; rows: Array<Record<string, unknown>> };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1791,7 +1876,7 @@ export async function warehouseAssemblyBomPrint(
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as { ok: true; payload: Record<string, unknown> };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1812,7 +1897,7 @@ export async function warehouseForecastBomGet(
     const path = `/warehouse/forecast/bom?${qp.toString()}`;
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as { ok: true; rows: Array<Record<string, unknown>>; warnings?: string[] };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1838,7 +1923,7 @@ export async function warehouseMovementsList(
       const local = await localWarehouseMovementsList(db, args);
       return { ...local, warning: formatHttpError(r, path) } as const;
     }
-    if (!r.json?.ok) return { ok: false as const, error: String(r.json?.error ?? 'unknown') };
+    if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return {
       ...(r.json as { ok: true; rows: Array<Record<string, unknown>> }),
       meta: await buildOfflineReadMeta(db, 'remote'),
