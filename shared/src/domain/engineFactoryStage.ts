@@ -96,6 +96,30 @@ export function engineScrapDate(e: Pick<EngineListItem, 'statusDates'>): number 
   return engineStatusDate(e, 'status_scrap_confirmed') ?? engineStatusDate(e, 'status_rework_sent') ?? engineStatusDate(e, 'status_rejected');
 }
 
+/**
+ * Состояние двигателя одной подписью для отчёта «Двигатели» (все двигатели, не только на
+ * заводе): побеждает поздний признак — утиль, отгружен, готов и не отгружен, в ремонте,
+ * принят, на заводе; без даты прихода — «Заведён». Подписи те же, что были у пресетного
+ * отчёта до B3 программы осень-2026, чтобы оператор не переучивался.
+ */
+export function engineStateLabel(e: Pick<EngineListItem, 'isScrap' | 'arrivalDate' | 'shippingDate' | 'statusFlags'>): string {
+  const flags = e.statusFlags ?? {};
+  if (e.isScrap) return 'Утиль';
+  if (dateMs(e.shippingDate) != null || flags.status_customer_sent || flags.status_customer_accepted) return 'Отгружен';
+  if (flags.status_repaired) return 'Готов, не отгружен';
+  if (flags.status_repair_started) return 'В ремонте';
+  if (flags.status_storage_received) return 'Принят';
+  return dateMs(e.arrivalDate) != null ? 'На заводе' : 'Заведён';
+}
+
+/** Дней на заводе: до отгрузки — по дате отгрузки, иначе по сегодняшнему дню; без даты прихода — `null`. */
+export function engineDaysOnSite(e: Pick<EngineListItem, 'arrivalDate' | 'shippingDate'>, now = Date.now()): number | null {
+  const arrival = dateMs(e.arrivalDate);
+  if (arrival == null) return null;
+  const end = dateMs(e.shippingDate) ?? now;
+  return Math.max(0, Math.round((end - arrival) / 86_400_000));
+}
+
 export function engineFactoryStage(e: EngineListItem, types?: readonly EngineFactoryStageTypeRef[]): EngineFactoryStage {
   const flags = e.statusFlags ?? {};
   if (e.isScrap === true) {

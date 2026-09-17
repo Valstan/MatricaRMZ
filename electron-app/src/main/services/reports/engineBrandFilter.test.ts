@@ -5,7 +5,7 @@ vi.mock('electron', () => ({ app: {} }));
 import { attributeDefs, attributeValues, entities, entityTypes, operations } from '../../database/schema.js';
 
 import { buildBrandFilterMatcher, resolveEngineBrandRef } from './context.js';
-import { buildEnginesReport, buildEngineStagesReport } from './presets/engines.js';
+import { buildEngineStagesReport } from './presets/engines.js';
 import { buildPartsDemandReport } from './presets/warehouse.js';
 
 // Марка двигателя записана двумя способами: ссылкой `engine_brand_id` и текстом `engine_brand`.
@@ -127,13 +127,6 @@ describe('buildBrandFilterMatcher', () => {
 });
 
 describe('фильтр по марке достаёт карточки, где марка записана только текстом', () => {
-  it('«Двигатели»: в отбор попадают обе карточки', async () => {
-    const report = await buildEnginesReport(stubDb(), { groupBy: 'engines', periodBasis: 'none', brandIds: ['BR1'] });
-    expect(report.ok).toBe(true);
-    if (!report.ok) return;
-    expect(report.rows.map((r) => String(r.engineNumber ?? '')).sort()).toEqual(['REF', 'TEXT']);
-  });
-
   it('«Стадии двигателей»: та же пара', async () => {
     const report = await buildEngineStagesReport(stubDb(), { brandIds: ['BR1'] });
     expect(report.ok).toBe(true);
@@ -150,7 +143,7 @@ describe('фильтр по марке достаёт карточки, где �
   });
 
   it('чужая марка не приносит ничего — контроль непустой', async () => {
-    const report = await buildEnginesReport(stubDb(), { groupBy: 'engines', periodBasis: 'none', brandIds: ['BR_OTHER'] });
+    const report = await buildEngineStagesReport(stubDb(), { brandIds: ['BR_OTHER'] });
     expect(report.ok).toBe(true);
     if (!report.ok) return;
     expect(report.rows).toHaveLength(0);

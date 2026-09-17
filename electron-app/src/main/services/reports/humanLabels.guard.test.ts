@@ -687,7 +687,6 @@ const COVERED_PRESETS: Array<{ presetId: string; filters?: Record<string, unknow
   { presetId: 'contracts_finance' },
   { presetId: 'contracts_deadlines' },
   { presetId: 'contracts_requisites' },
-  { presetId: 'engines' },
   { presetId: 'engine_stages' },
   { presetId: 'work_sheets' },
   { presetId: 'engine_flow_by_counterparty' },

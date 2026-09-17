@@ -111,15 +111,17 @@ export async function suggestReportsForTask(task: string, now: Date = new Date()
       contracts: entities.contracts,
       counterparties: entities.counterparties,
     });
-    // Отчёт, который умеет принять больше найденного, поднимается: при равном совпадении по
-    // словам полезнее тот, что откроется уже настроенным.
-    const score = scoreReportPreset(preset, keywords) + built.applied;
-    return { preset, built, score };
+    // Слова задачи главнее найденных сущностей: отчёт-список (presentation: list) не принимает
+    // фильтры маркером — оператор выбирает ступени на экране, — и его нельзя ронять ниже
+    // пресета, который просто умеет принять марку. Найденное решает только полную ничью.
+    const words = scoreReportPreset(preset, keywords);
+    return { preset, built, words, score: words + built.applied };
   })
-    .filter((x) => x.score > 0)
+    .filter((x) => x.words > 0)
     // Ничью разрешает краткость названия: на «покажи двигатели» точнее отчёт «Двигатели»,
-    // чем «Стадии ремонта двигателей» — лишние слова в названии означают более узкую тему.
-    .sort((a, b) => b.score - a.score || titleWords(a.preset.title) - titleWords(b.preset.title))
+    // чем «Прогноз сборки двигателей» — лишние слова в названии означают более узкую тему.
+    // И лишь потом — сколько найденного отчёт принял.
+    .sort((a, b) => b.words - a.words || titleWords(a.preset.title) - titleWords(b.preset.title) || b.built.applied - a.built.applied)
     .slice(0, MAX_SUGGESTIONS);
 
   return {

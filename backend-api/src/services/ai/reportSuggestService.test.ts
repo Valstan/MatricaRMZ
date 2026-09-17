@@ -55,10 +55,13 @@ describe('suggestReportsForTask', () => {
     const { suggestions, period } = await suggestReportsForTask('покажи двигатели Д-245 за сентябрь', NOW);
     expect(period).toBe('сентябрь 2026');
     const best = suggestions[0]!;
+    // «Двигатели» — отчёт-список: фильтров маркером не принимает, ступени оператор выбирает на
+    // экране. Найденные марка и период не должны ронять его ниже пресета, который их принял бы.
     expect(best.id).toBe('engines');
-    expect(best.marker.startsWith('[report:engines?')).toBe(true);
-    expect(best.applied).toContain('сентябрь 2026');
-    expect(best.applied).toContain('Д-245');
+    expect(best.marker).toBe('[report:engines]');
+    expect(best.applied).toBe('');
+    const withFilters = suggestions.find((s) => s.applied.includes('Д-245'));
+    expect(withFilters, 'найденное всё же уехало в отчёт, который его принимает').toBeDefined();
   });
 
   it('без узнаваемых слов ничего не предлагает, а не подсовывает случайный отчёт', async () => {
@@ -74,10 +77,12 @@ describe('suggestReportsForTask', () => {
 
   it('недоступная база не роняет подбор — отчёт предлагается без отбора', async () => {
     rows.fail = true;
-    const { suggestions } = await suggestReportsForTask('двигатели Д-245 за сентябрь', NOW);
+    const { suggestions, period } = await suggestReportsForTask('двигатели Д-245 за сентябрь', NOW);
     expect(suggestions.length).toBeGreaterThan(0);
-    expect(suggestions[0]!.applied).toContain('сентябрь 2026');
-    expect(suggestions[0]!.applied).not.toContain('Д-245');
+    expect(suggestions[0]!.id).toBe('engines');
+    // Период разобран и без базы; марка без базы не находится — ни в одном предложении.
+    expect(period).toBe('сентябрь 2026');
+    for (const s of suggestions) expect(s.applied).not.toContain('Д-245');
   });
 
   it('предложений не больше трёх — иначе ответ превращается в каталог', async () => {

@@ -9,7 +9,7 @@ const byId = (id: string) => REPORT_PRESET_DEFINITIONS.find((p) => String(p.id) 
 
 describe('buildReportTaskFilters', () => {
   it('раскладывает период, марки и контракты по фильтрам отчёта', () => {
-    const out = buildReportTaskFilters(byId('engines'), {
+    const out = buildReportTaskFilters(byId('scrap_register'), {
       period,
       brands: [{ id: 'b1', name: 'Д-245' }],
       contracts: [{ id: 'c1', name: 'Договор 12/26' }],
@@ -23,24 +23,12 @@ describe('buildReportTaskFilters', () => {
     expect(out.applied).toBeGreaterThanOrEqual(3);
   });
 
-  it('у отчёта по двигателям период включается основой, иначе он ничего не отбирает', () => {
-    const out = buildReportTaskFilters(byId('engines'), { period });
-    expect(out.filters.periodBasis).toBe('arrival');
-    expect(out.summary).toContain('по дате прихода');
-  });
-
-  it('без периода основа не ставится — иначе отчёт молча сузился бы', () => {
-    const out = buildReportTaskFilters(byId('engines'), { brands: [{ id: 'b1', name: 'Д-245' }] });
-    expect(out.filters.periodBasis).toBeUndefined();
-    expect(out.filters.startMs).toBeUndefined();
-  });
-
   it('период кладётся только в первый диапазон отчёта', () => {
-    const out = buildReportTaskFilters(byId('engines'), { period });
-    // У отчёта по двигателям есть ещё «Дата прихода» и «Начало ремонта»: заполнив их тем же
-    // периодом, мы отсекли бы почти всё.
-    expect(out.filters.arrivalStartMs).toBeUndefined();
-    expect(out.filters.repairStartStartMs).toBeUndefined();
+    const out = buildReportTaskFilters(byId('engine_flow_by_counterparty'), { period });
+    // У «Движения по заказчикам» есть ещё «Дата отгрузки»: заполнив её тем же периодом,
+    // мы отсекли бы почти всё.
+    expect(out.filters.arrivalStartMs).toBe(100);
+    expect(out.filters.shippingStartMs).toBeUndefined();
   });
 
   it('чего в отчёте нет — то не подставляется', () => {

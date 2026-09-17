@@ -68,6 +68,8 @@ export type EngineListItem = {
   arrivalDate?: number | null;
   shippingDate?: number | null;
   isScrap?: boolean;
+  /** Причина утиля из карточки (attr `scrap_reason`) — колонка отчёта «Двигатели». */
+  scrapReason?: string;
   /** Акт комплектности начат: хотя бы одна деталь в списке деталей отмечена «на месте». */
   hasCompletenessAct?: boolean;
   /**

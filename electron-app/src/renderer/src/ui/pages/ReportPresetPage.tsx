@@ -1432,76 +1432,6 @@ function ReportPresetTablePage(props: Parameters<typeof ReportPresetPage>[0]) {
     );
   }
 
-  // Отчёт «Двигатели и контракты»: фильтры разложены по сворачиваемым секциям с живой
-  // сводкой в заголовке (образец — Прогноз сборки), каждый контрол рендерит общий
-  // renderFilterControl — единый вид с прочими отчётами. Свёрнуты по умолчанию.
-  function renderEnginesContractsFilters() {
-    if (!activePreset || activePreset.id !== 'engines') return null;
-    const filterByKey = (key: string) =>
-      activePreset.filters.find((f) => 'key' in f && (f as { key: string }).key === key);
-    const renderKeys = (keys: string[]) =>
-      keys
-        .map((k) => filterByKey(k))
-        .filter((f): f is ReportFilterSpec => Boolean(f))
-        .map((f) => renderFilterControl(f));
-
-    const section = (id: string, num: string, title: string, summary: string, keys: string[]) => {
-      const open = Boolean(afOpenSections[id]);
-      return (
-        <div className="report-preset-af-section" data-open={open ? 'true' : 'false'}>
-          <button
-            type="button"
-            className="report-preset-af-section-header"
-            onClick={() => setAfOpenSections((prev) => ({ ...prev, [id]: !open }))}
-            title={open ? 'Свернуть' : 'Развернуть настройки'}
-          >
-            <span className="report-preset-af-section-num">{num}</span>
-            <span className="report-preset-af-section-title">{title}</span>
-            <span className="report-preset-af-section-summary" title={summary}>
-              {summary}
-            </span>
-            <span className="report-preset-af-section-chevron">{open ? '▾' : '▸'}</span>
-          </button>
-          {open ? (
-            <div className="report-preset-af-section-body" style={{ display: 'grid', gap: 12 }}>
-              {renderKeys(keys)}
-            </div>
-          ) : null}
-        </div>
-      );
-    };
-
-    const groupByVal = String(activeFilters.groupBy ?? 'contracts');
-    const viewSummary = groupByVal === 'brands' ? 'По маркам двигателей' : groupByVal === 'engines' ? 'По двигателям (детально)' : 'По контрактам';
-    const periodBasisVal = String(activeFilters.periodBasis ?? 'none');
-    const periodSummary =
-      periodBasisVal === 'none'
-        ? 'за всё время'
-        : `${periodBasisVal === 'arrival' ? 'по приходу' : periodBasisVal === 'created' ? 'по созданию' : 'по отгрузке'}: ${toInputDate(activeFilters.startMs) || '…'} — ${toInputDate(activeFilters.endMs) || '…'}`;
-    const selCount = (key: string) => (Array.isArray(activeFilters[key]) ? (activeFilters[key] as unknown[]).length : 0);
-    // Сводка идёт ступенями каскада, в том же порядке, что и контролы внутри секции.
-    const scopeSummary = `Заказчики: ${selCount('counterpartyIds') || 'все'} · Контракты: ${selCount('contractIds') || 'все'} · Марки: ${selCount('brandIds') || 'все'}`;
-    const stateVal = String(activeFilters.engineState ?? 'all');
-    const stateNames: Record<string, string> = {
-      all: 'все',
-      on_site: 'на заводе',
-      shipped: 'отгружены',
-      ready_not_shipped: 'готовы, не отгружены',
-      scrap: 'утиль',
-    };
-    const agingVal = Number(activeFilters.agingDays) || 0;
-    const stateSummary = `${stateNames[stateVal] ?? 'все'}${String(activeFilters.scrapFilter ?? 'all') === 'no' ? ' · без утиля' : String(activeFilters.scrapFilter ?? 'all') === 'yes' ? ' · только утиль' : ''}${activeFilters.overdueOnly ? ' · просроченные' : ''}${agingVal > 0 ? ` · застряли >${agingVal} дн` : ''}`;
-
-    return (
-      <div style={{ display: 'grid', gap: 8 }}>
-        {section('ec_view', '1', 'Разрез отчёта', viewSummary, ['groupBy', 'columns'])}
-        {section('ec_period', '2', 'Период и даты', periodSummary, ['period', 'periodBasis', 'arrivalPeriod', 'repairStartPeriod', 'repairEndPeriod', 'shippingPeriod'])}
-        {section('ec_scope', '3', 'Отбор', scopeSummary, ['counterpartyIds', 'contractIds', 'brandIds'])}
-        {section('ec_state', '4', 'Состояние и фильтры', stateSummary, ['engineState', 'repairActiveFilter', 'scrapFilter', 'completenessActFilter', 'overdueOnly', 'agingDays'])}
-      </div>
-    );
-  }
-
   return (
     <div className="report-preset-page" style={{ display: 'grid', gap: 10 }}>
       <SectionCard
@@ -1709,20 +1639,14 @@ function ReportPresetTablePage(props: Parameters<typeof ReportPresetPage>[0]) {
                 </Button>
               </div>
             ) : null}
-            {activePreset.id === 'engines' ? (
-              renderEnginesContractsFilters()
-            ) : (
-              <>
-                <div className="report-preset-filter-block report-preset-filter-block-selection">
-                  <div className="report-preset-filter-block-title">Фильтры отбора</div>
-                  <div className="report-preset-filter-grid">{filterGroups.selection.map((filter) => renderFilterControl(filter))}</div>
-                </div>
-                <div className="report-preset-filter-block report-preset-filter-block-settings">
-                  <div className="report-preset-filter-block-title">Настройки расчёта</div>
-                  <div className="report-preset-filter-grid">{filterGroups.settings.map((filter) => renderFilterControl(filter))}</div>
-                </div>
-              </>
-            )}
+            <div className="report-preset-filter-block report-preset-filter-block-selection">
+              <div className="report-preset-filter-block-title">Фильтры отбора</div>
+              <div className="report-preset-filter-grid">{filterGroups.selection.map((filter) => renderFilterControl(filter))}</div>
+            </div>
+            <div className="report-preset-filter-block report-preset-filter-block-settings">
+              <div className="report-preset-filter-block-title">Настройки расчёта</div>
+              <div className="report-preset-filter-grid">{filterGroups.settings.map((filter) => renderFilterControl(filter))}</div>
+            </div>
           </div>
         )}
       </SectionCard>

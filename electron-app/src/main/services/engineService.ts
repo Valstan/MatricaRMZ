@@ -624,6 +624,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   const shippingDateDefId = defs['shipping_date'];
   const defectDateDefId = defs['defect_date'];
   const workshopIdDefId = defs['workshop_id'];
+  const scrapReasonDefId = defs['scrap_reason'];
   const statusDateDefIds = STATUS_CODES.map((c) => defs[statusDateCode(c)]).filter(Boolean) as string[];
   const attachmentsDefId = defs['attachments'];
   const reclamationFlagDefId = defs['reclamation_flag'];
@@ -652,6 +653,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     shippingDateDefId,
     defectDateDefId,
     workshopIdDefId,
+    scrapReasonDefId,
     attachmentsDefId,
     reclamationFlagDefId,
     repeatArrivalDefId,
@@ -781,6 +783,12 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       const raw = v != null ? safeJsonParse(v) : null;
       workshopId = String(raw ?? '').trim();
     }
+    let scrapReason = '';
+    if (scrapReasonDefId) {
+      const v = rowValues.get(scrapReasonDefId);
+      const raw = v != null ? safeJsonParse(v) : null;
+      scrapReason = String(raw ?? '').trim();
+    }
     for (const statusDateDefId of statusDateDefIds) {
       const code = (statusDateDefById as Record<string, StatusCode | undefined>)[statusDateDefId];
       if (!code) continue;
@@ -877,6 +885,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       // намеренно НЕ читаем: его OR делал импортное true неисправимым из карточки — та же
       // dual-source-ловушка, что у shipping_date. На проде было лишь 2 таких, оба уже status_rejected.
       isScrap: statusRejected || statusScrapMarked || crankcaseScrapped,
+      ...(scrapReason ? { scrapReason } : {}),
       ...(inventoryFlags?.actStarted === true ? { hasCompletenessAct: true } : {}),
       completenessActDate: inventoryFlags?.completenessInspectionAt ?? null,
       ...(inventoryFlags?.defectStarted === true ? { hasDefectAct: true } : {}),
