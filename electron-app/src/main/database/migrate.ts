@@ -331,5 +331,9 @@ function ensureClientSchemaParity(sqlite: Database.Database) {
     sqlite.exec(
       `CREATE INDEX IF NOT EXISTS erp_nomenclature_directory_kind_idx ON erp_nomenclature(directory_kind);`,
     );
+    // Индекс родителя шаг 12→13 ставит, а свежая установка идёт мимо цепочки — дубль здесь.
+    sqlite.exec(
+      `CREATE INDEX IF NOT EXISTS erp_nomenclature_parent_idx ON erp_nomenclature(parent_nomenclature_id);`,
+    );
   }
 }
