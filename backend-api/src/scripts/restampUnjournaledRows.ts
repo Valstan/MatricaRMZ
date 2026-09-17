@@ -20,6 +20,11 @@ import { PG_SYNC_TABLES } from '../services/sync/pgSyncTables.js';
  *   corepack pnpm -F @matricarmz/backend-api sync:restamp                  # dry-run: счёт по таблицам
  *   corepack pnpm -F @matricarmz/backend-api sync:restamp:apply            # проштамповать всё
  *   … sync:restamp -- --tables erp_nomenclature,erp_engine_assembly_bom    # только эти таблицы
+ *   … sync:restamp:apply -- --tables erp_nomenclature --all               # ВСЕ строки таблицы, не только без номера
+ *
+ * `--all` нужен, когда реплики должны получить строки заново целиком: клиент до E1 (v3.40)
+ * принимал у номенклатуры «тонкую» строку без источника, родителя и артикула, и после
+ * обновления парка таблицу надо прогнать по журналу ещё раз — теперь уже в полную реплику.
  *
  * Таблицы с собственным публикатором (users, user_section_access, warehouse_locations) и
  * audit_log пропускаются: у первых NULL означает «ещё не опубликовано», второй — только для
@@ -31,6 +36,7 @@ const BATCH = 200;
 
 const argv = process.argv.slice(2);
 const apply = argv.includes('--apply');
+const all = argv.includes('--all');
 const tablesArg = argv.find((a) => a.startsWith('--tables='))?.slice('--tables='.length)
   ?? (argv.includes('--tables') ? argv[argv.indexOf('--tables') + 1] : undefined);
 const onlyTables = tablesArg ? new Set(tablesArg.split(',').map((s) => s.trim()).filter(Boolean)) : null;
@@ -44,9 +50,11 @@ async function main() {
     if (onlyTables && !onlyTables.has(table)) continue;
     const drizzle = entry.drizzle;
     if (!('lastServerSeq' in drizzle)) continue;
-    const rows = (await db.select().from(drizzle).where(isNull(drizzle.lastServerSeq))) as Array<Record<string, unknown>>;
+    const rows = (all
+      ? await db.select().from(drizzle)
+      : await db.select().from(drizzle).where(isNull(drizzle.lastServerSeq))) as Array<Record<string, unknown>>;
     const deleted = rows.filter((r) => r.deletedAt != null).length;
-    console.log(`${table}: без номера ${rows.length} (из них удалённых ${deleted})`);
+    console.log(`${table}: ${all ? 'всего' : 'без номера'} ${rows.length} (из них удалённых ${deleted})`);
     totalRows += rows.length;
     if (!apply || rows.length === 0) continue;
     for (let i = 0; i < rows.length; i += BATCH) {
@@ -65,7 +73,7 @@ async function main() {
       console.log(`  ${table}: проштамповано ${Math.min(i + BATCH, rows.length)}/${rows.length}, последний номер ${res.lastSeq}`);
     }
   }
-  console.log(apply ? `APPLIED: строк проштамповано ${totalStamped} из ${totalRows}` : `DRY-RUN: строк без номера ${totalRows}; запуск с --apply проштампует их`);
+  console.log(apply ? `APPLIED: строк проштамповано ${totalStamped} из ${totalRows}` : `DRY-RUN: строк к штампу ${totalRows}; запуск с --apply проштампует их`);
 }
 
 main()

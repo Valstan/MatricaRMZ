@@ -31,14 +31,6 @@ function sqlText(q: unknown): string {
     .join(' ');
 }
 
-/** Скалярные параметры шаблона — у `generate_series(1, ${n})` это и есть размер пачки. */
-function sqlParams(q: unknown): unknown[] {
-  const chunks = (q as { queryChunks?: unknown[] })?.queryChunks ?? [];
-  return chunks
-    .filter((c) => !!c && typeof c === 'object' && 'value' in (c as Record<string, unknown>) && !Array.isArray((c as { value: unknown }).value))
-    .map((c) => (c as { value: unknown }).value);
-}
-
 /** Все скалярные параметры запроса, включая вложенные `sql`-фрагменты (case … end, in (…)). */
 function sqlDeepParams(q: unknown, out: unknown[] = [], depth = 0): unknown[] {
   if (depth > 12 || q === undefined || q === null) return out;
