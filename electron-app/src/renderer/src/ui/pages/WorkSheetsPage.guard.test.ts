@@ -21,7 +21,6 @@ const SERVICE = src('../../../../main/services/workSheetService.ts');
 const IPC = src('../../../../main/ipc/register/workSheets.ts');
 const ANDROID_WIRING = src('../../../../../../android-app/src/core/ipcWiring.ts');
 const CACHE = src('../utils/workSheetTypesCache.ts');
-const PRINT_MODEL = src('../utils/workSheetPrintModel.ts');
 const REST_ROUTE = src('../../../../../../backend-api/src/routes/workSheetTypes.ts');
 const BACKEND_PERMS = src('../../../../../../backend-api/src/auth/permissions.ts');
 const SYNC_GUARD = src('../../../../../../backend-api/src/services/sync/ledgerAuthzGuard.ts');
@@ -202,33 +201,13 @@ describe('этапы работ — экран', () => {
     expect(PAGE, 'на планшете печати нет — как у всех списков').toContain('!isAndroidPlatform()');
   });
 
-  // Печать бланка одного этапа работ — соседняя дверь к тем же граблям плюс своя: в репозитории
-  // уже лежит ПАРАЛЛЕЛЬНЫЙ стек печати (`engineInventoryPrintHtml.ts`) со своим escapeHtml, своими
-  // стилями и своим опенером окна. Скопировать его — завести ТРЕТИЙ и вернуть M11: в окне
-  // `window.open` + `document.write` inline-script не исполняется, и обход этого живёт внутри
-  // `printPreview.ts`. Потому карточка только СОБИРАЕТ модель, а окно открывает общий механизм.
-  it('бланк этапа работ печатается общим механизмом, а кнопка закрыта новизной и планшетом', () => {
-    expect(CARD, 'бланк собирает отдельная модель — склейка HTML на месте снова спрятала бы печать внутрь страницы, где её ничем не проверить').toContain(
-      'buildWorkSheetPrintModel(',
-    );
-    expect(CARD, 'окно предпросмотра открывает общая печать, а не карточка').toContain('openPrintPreview(');
-    expect(CARD, 'свой опенер окна — третий стек печати и возврат M11: inline-script в document.write-окне не исполняется').not.toContain(
-      'window.open(',
-    );
-    expect(CARD, 'копия печати двигателя принесла бы вторые escapeHtml, стили и опенер окна').not.toContain(
-      'engineInventoryPrintHtml',
-    );
-    // Условие показа читаем целиком: у нового этапа работ печатать ещё нечего (записи нет),
-    // а на планшете печати нет вовсе — то же правило, что у печати списка выше.
-    const at = CARD.indexOf('onPrint');
-    expect(at, 'кнопка печати пропала с полосы действий карточки').toBeGreaterThan(0);
-    const condStart = CARD.lastIndexOf('{...(', at);
-    expect(condStart, 'проп onPrint выдаётся безусловно — условия показа кнопки нет вовсе').toBeGreaterThan(0);
-    const cond = CARD.slice(condStart, at);
-    expect(cond, 'у нового этапа работ печатать ещё нечего — кнопка обязана ждать сохранения').toContain(
-      '!props.isNew',
-    );
-    expect(cond, 'на планшете печати нет — как у всех списков и карточек').toContain('!isAndroidPlatform()');
+  // Бланка одного этапа работ НЕТ (владелец 17.09.2026, C6): этапы печатаются только
+  // списками и отчётом движений двигателя. Кнопка «Распечатать» на карточке и её модель сняты;
+  // вернувшийся `onPrint` в карточке — это возврат снятого решения, а не улучшение.
+  it('карточка этапа работ не печатает бланк одного этапа', () => {
+    expect(CARD).not.toContain('onPrint');
+    expect(CARD).not.toContain('workSheetPrintModel');
+    expect(CARD).not.toContain('openPrintPreview(');
   });
 
   it('список — на общей обвязке: счётчик, «№», виртуализация', () => {
@@ -248,9 +227,6 @@ describe('этапы работ — экран', () => {
       ['страница', PAGE],
       ['карточка этапа работ', CARD],
       ['редактор видов работ', TYPE_DIALOG],
-      // Бумага живёт дольше экрана: подпись бланка уходит в архив и в чужие руки, и словарю
-      // она подчиняется ровно так же. Набросок программы звал эту таблицу «полями узла».
-      ['печатный бланк этапа работ', PRINT_MODEL],
     ] as const) {
       expect(withoutComments(text), `${name}: слово «узел» осталось на виду у оператора`).not.toMatch(/[Уу]зл|[Уу]зел/);
     }
