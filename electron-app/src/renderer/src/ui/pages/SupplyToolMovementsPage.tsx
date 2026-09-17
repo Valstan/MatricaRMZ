@@ -393,6 +393,7 @@ export function SupplyToolMovementsPage(props: {
             <EntityReferenceField
               target="employee"
               targetLabel="Сотрудник"
+              rankKey="employee:tool-holder"
               value={newMoveEmployeeId || null}
               options={employeeOptions}
               placeholder="Сотрудник"
@@ -414,6 +415,7 @@ export function SupplyToolMovementsPage(props: {
             <EntityReferenceField
               target="employee"
               targetLabel="Заведующий"
+              rankKey="employee:tool-keeper"
               value={newMoveConfirmedById || null}
               options={employeeOptions}
               placeholder="Заведующий"

@@ -691,6 +691,7 @@ export function WorkOrderTemplateEditorDialog(props: WorkOrderTemplateEditorDial
                         <EntityReferenceField
                           target="employee"
                           targetLabel="Сотрудник"
+                          rankKey="employee:work-order-signature"
                           value={slot.employeeId || null}
                           options={employees}
                           placeholder="Сотрудник (необязательно)"

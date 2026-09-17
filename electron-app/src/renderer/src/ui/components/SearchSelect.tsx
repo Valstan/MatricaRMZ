@@ -7,6 +7,7 @@ import {
 } from './componentSuggestionHints.js';
 import { useSuggestionDropdown } from '../hooks/useSuggestionDropdown.js';
 import { buildLookupHighlightParts, normalizeLookupCompact, normalizeLookupText, rankLookupOptions } from '../utils/searchMatching.js';
+import { usePickerRank } from '../hooks/usePickerRank.js';
 
 export type SearchSelectOption = { id: string; label: string; hintText?: string; searchText?: string };
 
@@ -54,9 +55,20 @@ export function SearchSelect(props: {
   onChange: (next: string | null) => void;
   onCreate?: (label: string) => Promise<string | null>;
   createLabel?: string;
+  /**
+   * Точка выбора для рейтинга «кого/что оператор выбирает чаще» (§D4). Задан — часто
+   * выбираемые поднимаются наверх, и каждый выбор поднимает счётчик. Не задан — порядок
+   * ровно тот, что пришёл от вызывающего. Тот же проп есть у `EntityReferenceField`.
+   */
+  rankKey?: string;
 }) {
   const disabled = props.disabled === true;
-  const dropdown = useSuggestionDropdown(props.options);
+  const rank = usePickerRank(props.rankKey);
+  // Рейтинг переставляет опции ДО списка: при пустом запросе виден только его первый десяток,
+  // и нужный человек иначе в этот десяток не попадал. При набранном запросе порядок держит
+  // поиск, рейтинг там разводит только равные совпадения.
+  const options = useMemo(() => rank.rankOptions(props.options), [props.options, rank]);
+  const dropdown = useSuggestionDropdown(options);
   // Hoisted so the effects below can depend on the setters themselves instead of the
   // whole `dropdown` object (which is a fresh object on every render). Both are raw
   // useState setters from useSuggestionDropdown, so they are referentially stable.
@@ -87,15 +99,15 @@ export function SearchSelect(props: {
 
   const selected = useMemo(() => {
     if (!props.value) return null;
-    return props.options.find((o) => o.id === props.value) ?? null;
-  }, [props.options, props.value]);
+    return options.find((o) => o.id === props.value) ?? null;
+  }, [options, props.value]);
 
   const normalizedQuery = useMemo(() => normalizeLookupText(dropdown.query), [dropdown.query]);
 
   const similarMatches = useMemo(() => {
     if (!normalizedQuery) return [];
-    return rankLookupOptions(props.options, normalizedQuery).slice(0, MAX_RANKED_OPTIONS);
-  }, [normalizedQuery, props.options]);
+    return rankLookupOptions(options, normalizedQuery).slice(0, MAX_RANKED_OPTIONS);
+  }, [normalizedQuery, options]);
 
   const showAllWhenEmpty = props.showAllWhenEmpty !== false;
 
@@ -103,16 +115,16 @@ export function SearchSelect(props: {
     if (normalizedQuery) return [];
     if (!showAllWhenEmpty) return [];
     const limit = Math.max(1, Math.min(500, Math.trunc(Number(props.emptyQueryLimit ?? MAX_RANKED_OPTIONS))));
-    return props.options.slice(0, limit).map((option) => ({ option, source: 'database' as SourceLabel }));
-  }, [normalizedQuery, props.emptyQueryLimit, props.options, showAllWhenEmpty]);
+    return options.slice(0, limit).map((option) => ({ option, source: 'database' as SourceLabel }));
+  }, [normalizedQuery, props.emptyQueryLimit, options, showAllWhenEmpty]);
 
   // Compact ("в84" == «В-84»): spacing/punctuation differences must neither hide
   // the existing element nor allow creating its duplicate.
   const exactMatch = useMemo(() => {
     const compactQuery = normalizeLookupCompact(dropdown.query);
     if (!compactQuery) return null;
-    return props.options.find((option) => normalizeLookupCompact(option.label) === compactQuery) ?? null;
-  }, [dropdown.query, props.options]);
+    return options.find((option) => normalizeLookupCompact(option.label) === compactQuery) ?? null;
+  }, [dropdown.query, options]);
 
   const visibleItems = useMemo(() => {
     if (!normalizedQuery) return emptyQueryItems;
@@ -139,6 +151,8 @@ export function SearchSelect(props: {
   function pickByIndex(idx: number) {
     const item = visibleItems[idx];
     if (!item) return;
+    // Единственная воронка настоящего выбора (клик по строке и Enter с клавиатуры идут сюда).
+    rank.bump(item.option.id);
     props.onChange(item.option.id);
     close(item.option.label);
   }
@@ -387,10 +401,13 @@ export function SearchSelect(props: {
                   const highlightParts = buildLookupHighlightParts(option.label, dropdown.query);
                   const hintParts = option.hintText ? buildLookupHighlightParts(option.hintText, dropdown.query) : null;
                   return (
+                    // Мышь идёт ТОЙ ЖЕ воронкой, что и Enter: у выбора один путь, а не два.
+                    // Раньше здесь был свой `props.onChange` — и всё, что вешается на выбор
+                    // (с §D4 — счётчик рейтинга), работало с клавиатуры и молчало на клике.
                     <div
                       key={option.id}
                       data-idx={idx}
-                      onClick={() => { props.onChange(option.id); close(option.label); }}
+                      onClick={() => pickByIndex(idx)}
                       onMouseEnter={() => dropdown.setActiveIdx(idx)}
                       style={{
                         padding: '8px 12px',
