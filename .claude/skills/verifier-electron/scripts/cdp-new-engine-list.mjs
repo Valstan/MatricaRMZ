@@ -133,11 +133,17 @@ window.__mv = {
   },
   // Панель списка деталей ВИДИМОЙ карточки: её пропсы — единственный способ узнать id двигателя,
   // у которого ещё нет строки в списке (deferred create).
-  // Панель живёт на вкладке «Детали и акты» и на «Основном» скрыта, а открытых карточек бывает
+  // Панель живёт на акт-вкладках («Акт комплектности» / «Акт дефектовки» — ОДНА панель на обе,
+  // вкладки «Детали и акты» больше нет) и на «Основном» скрыта, а открытых карточек бывает
   // несколько: id берём у ВИДИМОЙ карточки, панель с этим id ищем по всему DOM.
+  // Поле count — сколько экземпляров панели у этого двигателя; обязан быть 1. Две панели держали
+  // бы два независимых answers, а сохранение пишет meta_json ПОЛНОЙ ЗАМЕНОЙ — вторая молча
+  // затирала бы правки первой, и «ровно один лист» ниже проверялось бы на непонятно какой.
+  // Считаем КОРНЕВЫЕ DOM-узлы, а не совпавшие фиберы: у одного экземпляра фиберов два
+  // (current/alternate), а корень — один.
   panel(){
     const fk = (el) => Object.keys(el).find(x => x.startsWith('__reactFiber$'));
-    const anchor = window.__mv.byExact('button', 'Детали и акты');
+    const anchor = window.__mv.byExact('button', 'Акт комплектности');
     if (!anchor || !fk(anchor)) return null;
     let engineId = null;
     for (let f = anchor[fk(anchor)], i = 0; i < 300 && f; i += 1, f = f.return) {
@@ -145,15 +151,23 @@ window.__mv = {
       if (p && typeof p.engineId === 'string' && p.engine && typeof p.onEngineUpdated === 'function') { engineId = p.engineId; break; }
     }
     if (!engineId) return null;
+    const roots = new Set();
+    let engineStored = null;
     for (const el of document.querySelectorAll('div')) {
       const k = fk(el);
       if (!k) continue;
       for (let g = el[k], i = 0; i < 6 && g; i += 1, g = g.return) {
         const p = g.memoizedProps;
-        if (p && p.stage === 'engine_inventory' && p.engineId === engineId) return { engineId, engineStored: p.engineStored ?? null };
+        if (!p || p.stage !== 'engine_inventory' || p.engineId !== engineId) continue;
+        let host = g;
+        while (host && typeof host.type !== 'string') host = host.child;
+        if (host && host.stateNode) roots.add(host.stateNode);
+        if (engineStored === null) engineStored = p.engineStored ?? null;
+        break;
       }
     }
-    return { engineId, engineStored: null, noPanel: true };
+    if (roots.size === 0) return { engineId, engineStored: null, count: 0, noPanel: true };
+    return { engineId, engineStored, count: roots.size };
   },
   numberInput(){
     const label = window.__mv.byExact('div, span, label, td, th', 'Номер двигателя');
@@ -270,6 +284,7 @@ async function main() {
   check('карточка открылась, панель листа на месте', Boolean(p1?.engineId), JSON.stringify(p1));
   if (p1?.engineId) {
     report.saved = p1.engineId;
+    check('панель списка деталей ровно одна (обе акт-вкладки делят один экземпляр)', p1.count === 1, JSON.stringify(p1));
     check('двигатель ещё не сохранён', p1.engineStored === false, JSON.stringify(p1));
     await sleep(3000);
     const early = await cdp.evalAsync(`window.__mv.inventoryOps(${JSON.stringify(p1.engineId)})`);
@@ -284,6 +299,7 @@ async function main() {
     check('и он ровно один', Array.isArray(again) && again.length === 1, JSON.stringify(again));
     const p1after = await cdp.evalAsync('window.__mv.panel()');
     check('панель видит сохранённый двигатель', p1after?.engineStored === true, JSON.stringify(p1after));
+    check('после сохранения панель по-прежнему одна', p1after?.count === 1, JSON.stringify(p1after));
     await cdp.shot('new-engine-list-saved');
   }
 
@@ -293,6 +309,7 @@ async function main() {
   check('вторая карточка открылась', Boolean(p2?.engineId), JSON.stringify(p2));
   if (p2?.engineId) {
     report.savedAndClosed = p2.engineId;
+    check('панель второй карточки ровно одна', p2.count === 1, JSON.stringify(p2));
     await sleep(1500);
     await cdp.evalAsync(`window.__mv.setInput(window.__mv.numberInput(), ${JSON.stringify(`SMK2-${stamp}`)})`);
     await sleep(600);
@@ -311,6 +328,7 @@ async function main() {
   check('третья карточка открылась', Boolean(p3?.engineId), JSON.stringify(p3));
   if (p3?.engineId) {
     report.abandoned = p3.engineId;
+    check('панель третьей карточки ровно одна', p3.count === 1, JSON.stringify(p3));
     await sleep(3000);
     await cdp.evalAsync("window.__mv.click(window.__mv.byExact('button', 'Закрыть карточку'))");
     await sleep(1200);

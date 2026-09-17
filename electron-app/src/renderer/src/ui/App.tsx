@@ -140,6 +140,8 @@ import { logUiUsage } from './utils/uiUsageLog.js';
 import { resolveQuickStartTile } from './utils/favoriteShortcut.js';
 import type { MenuButtonDescriptor } from './shellV2/v2ButtonCatalog.js';
 import type { CardCloseActions } from './cardCloseTypes.js';
+// Только тип: страница грузится лениво, и обычный импорт утянул бы её в стартовый бандл.
+import type { EngineCardTab } from './pages/EngineDetailsPage.js';
 import { PRODUCTS_PRESET, SERVICES_PRESET } from './pages/nomenclatureDirectoryPresets.js';
 import { buildV2Buttons } from './shellV2/v2ButtonCatalog.js';
 import type { ActionButtonId } from './shellV2/menuActions.js';
@@ -808,7 +810,9 @@ export function App() {
   const workSheetTitleRef = useRef(new Map<string, string>());
   const [workSheetWorkshops, setWorkSheetWorkshops] = useState<Array<{ id: string; label: string }>>([]);
   const [selectedEngineId, setSelectedEngineId] = useState<string | null>(null);
-  const [engineInitialTab, setEngineInitialTab] = useState<'main' | 'details' | 'files' | 'reclamation' | 'payments'>('main');
+  // Тип вкладки — из самой карточки: три рукописные копии этого объединения уже разъезжались
+  // с её вкладками молча (ключ `details` жил здесь и после переименования).
+  const [engineInitialTab, setEngineInitialTab] = useState<EngineCardTab>('main');
   const [engineDetails, setEngineDetails] = useState<EngineDetails | null>(null);
   const [engineLoading, setEngineLoading] = useState<boolean>(false);
   const [engineOpenError, setEngineOpenError] = useState<string>('');
@@ -3347,13 +3351,13 @@ export function App() {
     }
   }
 
-  async function openEngine(id: string, opts?: { initialTab?: 'main' | 'details' | 'files' | 'reclamation' | 'payments' }) {
+  async function openEngine(id: string, opts?: { initialTab?: EngineCardTab }) {
     v2OpenCardGuarded('engine', id, () => {
       void openEngineNow(id, opts);
     });
   }
 
-  async function openEngineNow(id: string, opts?: { initialTab?: 'main' | 'details' | 'files' | 'reclamation' | 'payments' }) {
+  async function openEngineNow(id: string, opts?: { initialTab?: EngineCardTab }) {
     setEngineInitialTab(opts?.initialTab ?? 'main');
     // Смена двигателя: сбросить details ДО переключения, иначе карточка нового id
     // монтируется (key-ремоунт) с чужими stale-атрибутами и «снимок создания»
