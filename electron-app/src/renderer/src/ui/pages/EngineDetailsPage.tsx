@@ -55,11 +55,19 @@ const FEATURE_ENGINE_DISMANTLE = false;
 type LinkOpt = SearchSelectOption;
 
 /** Вкладки карточки двигателя (реорганизация «полотенца», план reclamation-mvp-2026-07). */
-export type EngineCardTab = 'main' | 'details' | 'history' | 'files' | 'reclamation' | 'payments' | 'docs';
+export type EngineCardTab = 'main' | 'completeness' | 'defect' | 'history' | 'files' | 'reclamation' | 'payments' | 'docs';
+
+/** Вкладки, которые показываются только с правом на операции. Список, а не перечисление
+ * ключей в фильтре: забытый ключ открывал бы акты тому, кому их видеть нельзя. */
+const OPERATIONS_ONLY_TABS = new Set<EngineCardTab>(['completeness', 'defect', 'history']);
 
 const ENGINE_CARD_TABS: { key: EngineCardTab; label: string }[] = [
   { key: 'main', label: 'Основное' },
-  { key: 'details', label: 'Детали и акты' },
+  // Один лист деталей, но два акта — у каждого своя вкладка (владелец 16.09.2026: «Детали и
+  // акты» были перегружены). Панель под ними ОДНА: лист общий, и два экземпляра затирали бы
+  // правки друг друга.
+  { key: 'completeness', label: 'Акт комплектности' },
+  { key: 'defect', label: 'Акт дефектовки' },
   { key: 'history', label: 'История ремонта' },
   { key: 'files', label: 'Фото и документы' },
   // Платежи остаются вне цеховой рамки планшета.
@@ -2217,7 +2225,7 @@ export function EngineDetailsPage(props: {
         {/* Вкладки карточки (план reclamation-mvp-2026-07 Ф0). Панели НЕ размонтируются
             (скрытие через hidden) — save-on-close/черновики/печать работают по state как раньше. */}
         <CardTabs
-          tabs={ENGINE_CARD_TABS.filter((t) => (t.key !== 'details' && t.key !== 'history') || props.canViewOperations).map((t) => ({
+          tabs={ENGINE_CARD_TABS.filter((t) => !OPERATIONS_ONLY_TABS.has(t.key) || props.canViewOperations).map((t) => ({
             ...t,
             ...(t.key === 'main' && mainDirty ? { dot: 'warning' as const } : {}),
             ...(t.key === 'reclamation' && reclFlag ? { dot: 'info' as const } : {}),
@@ -2284,7 +2292,7 @@ export function EngineDetailsPage(props: {
         {/* Поля + действия — центрированная читаемая колонка (а не прижатая влево
             с пустотой справа): span-full тянется на всю grid-ширину, но внутренний
             контейнер капнут и центрирован, контролы не растягиваются. UI-аудит p2 #5. */}
-        <div className="entity-card-span-full" hidden={activeTab !== 'main'} style={{ maxWidth: 820, width: '100%', margin: '0 auto' }}>
+        <div className="entity-card-span-full" data-card-tab="main" hidden={activeTab !== 'main'} style={{ maxWidth: 820, width: '100%', margin: '0 auto' }}>
         <SectionCard style={{ padding: 12, background: 'rgba(59, 130, 246, 0.08)' }}>
         <DraggableFieldList
           items={mainBaseFields}
@@ -2432,9 +2440,17 @@ export function EngineDetailsPage(props: {
         engineBrandId={engineBrandId || null}
       />
 
+      {/* Обёртка ОДНА на обе акт-вкладки: панель внутри одна, меняется только вид акта.
+          Инлайнового `display` на ней нет — иначе он перебил бы `hidden` (грабля M78). */}
       {props.canViewOperations && (
-        <div className="entity-card-span-full" hidden={activeTab !== 'details'} style={{ background: 'rgba(99, 102, 241, 0.08)', borderRadius: 14, padding: 10 }}>
+        <div
+          className="entity-card-span-full"
+          data-card-tab="acts"
+          hidden={activeTab !== 'completeness' && activeTab !== 'defect'}
+          style={{ background: 'rgba(99, 102, 241, 0.08)', borderRadius: 14, padding: 10 }}
+        >
           <RepairChecklistPanel
+            actView={activeTab === 'defect' ? 'defect' : 'completeness'}
             engineId={props.engineId}
             // Строка двигателя появляется с первым записанным полем (deferred create), до этого
             // у карточки нет атрибутов — панель придерживает автозаполненный лист до этого момента.
@@ -2469,7 +2485,7 @@ export function EngineDetailsPage(props: {
       {props.canViewOperations && (
         <div
           className="entity-card-span-full"
-          hidden={activeTab !== 'history'}
+          data-card-tab="history" hidden={activeTab !== 'history'}
           style={{ maxWidth: 820, width: '100%', margin: '0 auto' }}
         >
           <EngineRepairHistoryPanel
@@ -2484,7 +2500,7 @@ export function EngineDetailsPage(props: {
         </div>
       )}
 
-      <div className="entity-card-span-full" hidden={activeTab !== 'files'}>
+      <div className="entity-card-span-full" data-card-tab="files" hidden={activeTab !== 'files'}>
         {/* Один модуль вместо двух независимых компонентов над одним и тем же
             массивом `attachments`: выборка общая для фото и списка, групповые
             кнопки — один тулбар. Scope раньше не передавался, и файлы двигателя
@@ -2502,7 +2518,7 @@ export function EngineDetailsPage(props: {
         />
       </div>
 
-      <div className="entity-card-span-full" hidden={activeTab !== 'docs'} style={{ maxWidth: 820, width: '100%', margin: '0 auto' }}>
+      <div className="entity-card-span-full" data-card-tab="docs" hidden={activeTab !== 'docs'} style={{ maxWidth: 820, width: '100%', margin: '0 auto' }}>
         <SectionCard title="Отчётные документы" style={{ padding: 16 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {ENGINE_DOC_FIELDS.map((f) => (
@@ -2537,7 +2553,7 @@ export function EngineDetailsPage(props: {
       </div>
 
 
-      <div className="entity-card-span-full" hidden={activeTab !== 'reclamation'} style={{ maxWidth: 820, width: '100%', margin: '0 auto' }}>
+      <div className="entity-card-span-full" data-card-tab="reclamation" hidden={activeTab !== 'reclamation'} style={{ maxWidth: 820, width: '100%', margin: '0 auto' }}>
         <EngineReclamationTab
           visible={activeTab === 'reclamation'}
           canEdit={canEditEnginesEff}
@@ -2573,7 +2589,7 @@ export function EngineDetailsPage(props: {
 
       {/* Вкладка «Платежи» (план engine-payments-2026-07): слот двигателя в контрактном
           contract_payments. Пишет в КОНТРАКТ → гейт masterdata.edit, не резерв двигателя. */}
-      <div className="entity-card-span-full" hidden={activeTab !== 'payments'} style={{ maxWidth: 920, width: '100%', margin: '0 auto' }}>
+      <div className="entity-card-span-full" data-card-tab="payments" hidden={activeTab !== 'payments'} style={{ maxWidth: 920, width: '100%', margin: '0 auto' }}>
         <EnginePaymentsTab
           engineId={props.engineId}
           contractId={contractId}

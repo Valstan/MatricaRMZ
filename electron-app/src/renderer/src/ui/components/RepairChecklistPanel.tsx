@@ -12,6 +12,7 @@ import { Input } from './Input.js';
 import { OverflowTooltipInput } from './OverflowTooltipInput.js';
 import { NumpadOverlay } from './NumpadOverlay.js';
 import { AttachmentsPanel } from './AttachmentsPanel.js';
+import { useListUiState } from '../hooks/useListBehavior.js';
 import { isAndroidPlatform } from '../platform.js';
 import { SearchSelect } from './SearchSelect.js';
 import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
@@ -452,6 +453,9 @@ function applyCommissionPicks(
   return { members: out, changed };
 }
 
+/** Блоки акт-вкладки: «Оформление» и «Сведения» свёрнуты, «Детали» открыты (план D1). */
+const ACT_SECTIONS_DEFAULT = { registrationOpen: false, infoOpen: false, partsOpen: true };
+
 export function RepairChecklistPanel(props: {
   engineId: string;
   /** Строка двигателя уже есть в базе. До этого автозаполнение листа придерживается (deferred create). */
@@ -481,6 +485,13 @@ export function RepairChecklistPanel(props: {
   canCreateWorkOrder?: boolean;
   /** Ф5: открыть карточку созданного наряда (оператор заполняет цех/услуги там). */
   onOpenWorkOrder?: (workOrderId: string) => void;
+  /**
+   * Какой акт показывать: «комплектности» или «дефектовки». Приходит СНАРУЖИ — вкладкой
+   * карточки двигателя (D1, план autumn-2026). Панель при этом одна на обе вкладки: лист
+   * `engine_inventory` общий, у него одно сохранение и одна очередь автосейва, и два
+   * смонтированных экземпляра затирали бы правки друг друга.
+   */
+  actView: 'completeness' | 'defect';
 }) {
   const [status, setStatus] = useState<string>('');
   // Android v1: печать скрыта платформой (кнопки актов/бланков/претензии).
@@ -555,6 +566,19 @@ export function RepairChecklistPanel(props: {
 
   const activeTemplate = useMemo(() => templates.find((t) => t.id === templateId) ?? templates[0] ?? null, [templates, templateId]);
   const isInventoryStage = props.stage === ENGINE_INVENTORY_STAGE;
+  // Разделение единого списка на два акта — «комплектности» и «дефектовки» (решение
+  // владельца 2026-07-09). Данные общие (одно сохранение), меняется набор колонок таблицы,
+  // показанных подписей/дат и кнопок печати. Переключатель поднят до вкладок карточки
+  // (D1, план autumn-2026): здесь остаётся только чтение пропа.
+  // Свёрнутость блоков помнится отдельно у каждого акта. Два вызова, а не один с ключом по
+  // виду: `useListUiState` читает хранилище только в инициализаторе, а пишет по изменению —
+  // смена ключа на лету не перечитала бы чужое состояние, зато немедленно записала бы поверх него.
+  const completenessSections = useListUiState('card:engine:acts:completeness:ui', ACT_SECTIONS_DEFAULT);
+  const defectSections = useListUiState('card:engine:acts:defect:ui', ACT_SECTIONS_DEFAULT);
+  const actView = props.actView;
+  const isCompletenessView = actView === 'completeness';
+  const isDefectView = actView === 'defect';
+  const sections = isDefectView ? defectSections : completenessSections;
   const internalNumberForStamp = String(props.engineInternalNumber ?? '').trim();
   // Detail rows marked «заказать новую» (replace_qty>0) → draft supply-request items.
   // Read raw rows (not normalized) so the helper can pick up the optional __part_id/__part_unit hints.
@@ -582,8 +606,12 @@ export function RepairChecklistPanel(props: {
   }, [answers]);
   const variantFilterActive =
     isInventoryStage && variantFilterOn && !!assemblyVariant && !!variantMembership && variantMembership.size > 0;
+  // Заголовок панели называет тот акт, который открыт вкладкой: иначе он спорил бы с ярлыком
+  // вкладки, под которой стоит.
   const panelTitle = isInventoryStage
-    ? 'Список деталей двигателя'
+    ? isDefectView
+      ? 'Акт дефектовки'
+      : 'Акт комплектности'
     : props.stage === 'defect'
       ? 'Лист дефектовки'
       : 'Акт комплектности двигателя';
@@ -610,10 +638,6 @@ export function RepairChecklistPanel(props: {
     claim: [],
   });
   const [actVersionsOpen, setActVersionsOpen] = useState(false);
-  // Разделение единого списка на под-вкладки: «Акт комплектности» / «Акт дефектовки»
-  // (решение владельца 2026-07-09). Данные общие (одно сохранение), меняется набор
-  // колонок таблицы, показанных подписей/дат и кнопок печати.
-  const [actView, setActView] = useState<'completeness' | 'defect'>('completeness');
   const loadActVersions = useCallback(async () => {
     if (!isInventoryStage || !props.engineId) return;
     const [c, d, p] = await Promise.all([
@@ -1937,6 +1961,605 @@ export function RepairChecklistPanel(props: {
     }, 200);
   }
 
+  /**
+   * Сворачиваемый блок акт-вкладки. Скрываем АТРИБУТОМ, а не размонтированием: внутри
+   * «Деталей» живёт состояние таблицы (раскрытые группы, цифровая клавиатура), и общий
+   * `CollapsibleSection` его терял бы — он рисует контент через `{open && …}`.
+   * `overflow` здесь тоже нельзя: он сделал бы блок скролл-контейнером и отцепил бы
+   * sticky-шапку таблицы деталей от прокрутки карточки.
+   * Раскладку вешаем на ДОЧЕРНИЙ узел: инлайновый `display` на скрываемом перебил бы `hidden` (M78).
+   */
+  const renderSection = (title: string, open: boolean, onToggle: () => void, body: React.ReactNode) => (
+    <div style={{ marginTop: 12, border: '1px solid rgba(15,23,42,0.14)', borderRadius: 12 }} data-act-section={title}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        style={{
+          width: '100%',
+          textAlign: 'left',
+          padding: '8px 10px',
+          background: 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          fontWeight: 600,
+          fontSize: 14,
+          color: 'var(--text)',
+        }}
+      >
+        {open ? '▼' : '▶'} {title}
+      </button>
+      <div hidden={!open} style={{ padding: '0 10px 10px' }}>
+        {body}
+      </div>
+    </div>
+  );
+
+  /** Виден ли пункт шаблона на текущей акт-вкладке: чужие даты и подписи не показываем,
+   *  данные при этом не теряются — их правят на своей вкладке. */
+  const actItemVisible = (it: any): boolean => {
+    if (!isInventoryStage) return true;
+    // Легаси-слоты комиссии заменены динамическим редактором «Комиссия в составе» выше.
+    if (HIDDEN_GENERIC_ITEM_IDS.has(it.id)) return false;
+    if (isCompletenessView && DEFECT_ONLY_ITEM_IDS.has(it.id)) return false;
+    if (isDefectView && COMPLETENESS_ONLY_ITEM_IDS.has(it.id)) return false;
+    return true;
+  };
+
+  /** Один пункт шаблона. Вынесен из разметки, чтобы одни и те же пункты раскладывались
+   *  по трём блокам вкладки, а не одним полотном. */
+  const renderTemplateItem = (it: any) => {
+        const a: any = (answers as any)[it.id];
+        const isDefectResultsTable = props.stage === 'defect' && it.kind === 'table' && it.id === 'defect_items';
+        const isCompletenessGroupsTable = props.stage === 'completeness' && it.kind === 'table' && it.id === 'completeness_items';
+        const isInventoryItemsTable = isInventoryStage && it.kind === 'table' && it.id === 'engine_inventory_items';
+        const isWideTableRow = isDefectResultsTable || isCompletenessGroupsTable || isInventoryItemsTable;
+        return (
+          <React.Fragment key={it.id}>
+            <div
+              style={{
+                color: '#334155',
+                ...(isWideTableRow
+                  ? { gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }
+                  : {}),
+              }}
+            >
+              <span>
+                {it.label} {it.required ? <span style={{ color: '#b91c1c' }}>*</span> : null}
+              </span>
+              {isWideTableRow && props.canEdit ? (
+                <Button
+                  variant="ghost"
+                  title="Вернуть строки к спецификации марки двигателя, а марку / номер / договор / дату — к значениям из карточки двигателя. Ручные правки этого акта (добавленные строки, количества, брак, отметки наличия) будут потеряны."
+                  onClick={() => void resetToBrandCanonical()}
+                >
+                  Сбросить по двигателю и марке
+                </Button>
+              ) : null}
+            </div>
+            <div style={isWideTableRow ? { gridColumn: '1 / -1' } : undefined}>
+              {it.kind === 'text' && (
+                <OverflowTooltipInput
+                  value={a?.kind === 'text' ? a.value : ''}
+                  disabled={!props.canEdit}
+                  onChange={(e) => {
+                    const next = { ...answers, [it.id]: { kind: 'text', value: e.target.value } } as RepairChecklistAnswers;
+                    setAnswers(next);
+                  }}
+                  onBlur={() => void save(answers)}
+                />
+              )}
+
+              {it.kind === 'date' && (
+                <Input
+                  type="date"
+                  value={a?.kind === 'date' && a.value ? toInputDate(a.value) : ''}
+                  disabled={!props.canEdit}
+                  onChange={(e) => {
+                    const nextVal = fromInputDate(e.target.value);
+                    const next = { ...answers, [it.id]: { kind: 'date', value: nextVal } } as RepairChecklistAnswers;
+                    setAnswers(next);
+                    void save(next);
+                  }}
+                />
+              )}
+
+              {it.kind === 'boolean' && (
+                <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={a?.kind === 'boolean' ? !!a.value : false}
+                    disabled={!props.canEdit}
+                    onChange={(e) => {
+                      const next = { ...answers, [it.id]: { kind: 'boolean', value: e.target.checked } } as RepairChecklistAnswers;
+                      setAnswers(next);
+                      void save(next);
+                    }}
+                  />
+                  <span style={{ color: '#64748b', fontSize: 12 }}>{a?.kind === 'boolean' && a.value ? 'да' : 'нет'}</span>
+                </label>
+              )}
+
+              {it.kind === 'signature' && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 1.4fr) 150px', gap: 8 }}>
+                  {(() => {
+                    const fioValue = a?.kind === 'signature' ? String(a.fio ?? '') : '';
+                    const inList = fioValue ? employeeOptions.some((opt) => opt.label === fioValue || opt.id === fioValue) : false;
+                    const extra = fioValue && !inList ? [{ id: fioValue, label: fioValue, position: a?.position ?? null }] : [];
+                    const options = [...employeeOptions, ...extra];
+                    const valueId =
+                      fioValue && inList
+                        ? employeeOptions.find((opt) => opt.label === fioValue || opt.id === fioValue)?.id ?? fioValue
+                        : fioValue || null;
+                    return (
+                  <SearchSelect
+                    value={valueId}
+                    options={options}
+                    disabled={!props.canEdit}
+                    placeholder="ФИО"
+                    onChange={(next) => {
+                      if (!props.canEdit) return;
+                      const prev = a?.kind === 'signature' ? a : { fio: '', position: '', signedAt: null };
+                      const chosen = options.find((opt) => opt.id === next) ?? null;
+                      const fio = chosen?.label ?? '';
+                      const position = chosen?.position ?? prev.position ?? '';
+                      const nextAnswers = {
+                        ...answers,
+                        [it.id]: { kind: 'signature', fio, position, signedAt: prev.signedAt },
+                      } as RepairChecklistAnswers;
+                      setAnswers(nextAnswers);
+                      void save(nextAnswers);
+                    }}
+                  />
+                    );
+                  })()}
+                  <OverflowTooltipInput
+                    value={a?.kind === 'signature' ? String(a.position ?? '') : ''}
+                    disabled={!props.canEdit}
+                    placeholder="Должность"
+                    onChange={(e) => {
+                      if (!props.canEdit) return;
+                      const prev = a?.kind === 'signature' ? a : { fio: '', position: '', signedAt: null };
+                      const next = {
+                        ...answers,
+                        [it.id]: { kind: 'signature', fio: prev.fio, position: e.target.value, signedAt: prev.signedAt },
+                      } as RepairChecklistAnswers;
+                      setAnswers(next);
+                    }}
+                    onBlur={() => void save(answers)}
+                  />
+                  <Input
+                    type="date"
+                    value={a?.kind === 'signature' && a.signedAt ? toInputDate(a.signedAt) : ''}
+                    disabled={!props.canEdit}
+                    onChange={(e) => {
+                      const prev = a?.kind === 'signature' ? a : { fio: '', position: '', signedAt: null };
+                      const nextVal = fromInputDate(e.target.value);
+                      const next = { ...answers, [it.id]: { kind: 'signature', fio: prev.fio, position: prev.position, signedAt: nextVal } } as RepairChecklistAnswers;
+                      setAnswers(next);
+                      void save(next);
+                    }}
+                  />
+                </div>
+              )}
+
+              {it.kind === 'table' && (
+                <>
+                {isInventoryStage && it.id === 'engine_inventory_items' && assemblyVariant && variantMembership && variantMembership.size > 0 ? (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      flexWrap: 'wrap',
+                      marginBottom: 8,
+                      padding: '6px 10px',
+                      borderRadius: 8,
+                      background: variantFilterOn ? 'rgba(37, 99, 235, 0.10)' : 'rgba(100, 116, 139, 0.10)',
+                      fontSize: 13,
+                    }}
+                  >
+                    <span>
+                      {variantFilterOn ? (
+                        <>Показаны детали варианта сборки: <strong>{assemblyVariant}</strong> (+ общие)</>
+                      ) : (
+                        <>Показаны все детали марки (фильтр по варианту выключен)</>
+                      )}
+                    </span>
+                    <Button variant="ghost" onClick={() => setVariantFilterOn((v) => !v)}>
+                      {variantFilterOn ? 'Показать все детали' : `Фильтровать по варианту «${assemblyVariant}»`}
+                    </Button>
+                  </div>
+                ) : null}
+                <TableEditor
+                  tableId={it.id}
+                  canEdit={props.canEdit}
+                  columns={
+                    props.stage === 'defect' && it.id === 'defect_items'
+                      ? [
+                          { id: 'part_name', label: 'Наименование узла (детали)' },
+                          { id: 'part_number', label: '№ детали (узла)' },
+                          { id: 'quantity', label: 'Количество', kind: 'number' as const },
+                          { id: 'repairable_qty', label: 'Ремонтно-пригодная', kind: 'number' as const },
+                          { id: 'scrap_qty', label: 'Утиль', kind: 'number' as const },
+                          { id: 'scrap_reason', label: 'Причина утиля' },
+                        ]
+                      : props.stage === 'completeness' && it.id === 'completeness_items'
+                        ? [
+                            { id: 'part_name', label: 'Наименование' },
+                            { id: 'assembly_unit_number', label: 'Обозначение (№ сборочной единицы)' },
+                            { id: 'quantity', label: 'Количество', kind: 'number' as const },
+                            { id: 'present', label: 'Наличие', kind: 'boolean' as const },
+                            { id: 'actual_qty', label: 'Фактическое количество', kind: 'number' as const },
+                          ]
+                        : isInventoryStage && it.id === 'engine_inventory_items'
+                          ? actView === 'completeness'
+                            ? [
+                                { id: 'part_name', label: 'Наименование' },
+                                { id: 'assembly_unit_number', label: '№ сборочной единицы' },
+                                { id: 'stamped_number', label: '№ на детали' },
+                                { id: 'quantity', label: 'План', kind: 'number' as const },
+                                { id: 'present', label: 'На месте', kind: 'boolean' as const },
+                                { id: 'actual_qty', label: 'Принято', kind: 'number' as const },
+                                { id: 'in_completeness_act', label: 'В акте' },
+                              ]
+                            : [
+                                { id: 'part_name', label: 'Наименование' },
+                                { id: 'assembly_unit_number', label: '№ сборочной единицы' },
+                                { id: 'stamped_number', label: '№ на детали' },
+                                { id: 'quantity', label: 'План', kind: 'number' as const },
+                                { id: 'present', label: 'На месте', kind: 'boolean' as const },
+                                { id: 'repairable_qty', label: 'Ремонт', kind: 'number' as const },
+                                { id: 'scrap_qty', label: 'Утиль', kind: 'number' as const },
+                                { id: 'scrap_reason', label: 'Причина утиля' },
+                                { id: 'replace_qty', label: 'Заменить', kind: 'number' as const },
+                                { id: 'in_defect_act', label: 'В акте' },
+                                { id: 'replenishment_branch', label: 'Восполнение' },
+                              ]
+                          : (it.columns ?? [])
+                  }
+                  rows={a?.kind === 'table' ? (a.rows ?? []) : []}
+                  {...(() => {
+                    const defectRenderers =
+                      props.stage === 'defect' && it.id === 'defect_items'
+                        ? {
+                            part_name: ({ rowIdx, row, columnId, value, setValue }: any) => {
+                              if (isBrandLinkedChecklistRow(row as ChecklistTableRow)) {
+                                return <Input value={String(value ?? '')} disabled />;
+                              }
+                              const current = String(value ?? '');
+                              const rowPartId = String((row as any)?.[ROW_PART_ID_KEY] ?? '').trim();
+                              const match =
+                                (rowPartId ? defectOptions.find((o) => o.id === `part:${rowPartId}`) : null) ??
+                                defectOptions.find((o) => o.label === current) ??
+                                null;
+                              const valueId = match?.id ?? null;
+                              return (
+                                <EntityReferenceField
+                                  target="part"
+                                  targetLabel="Деталь или узел"
+                                  value={valueId}
+                                  options={defectOptions}
+                                  disabled={!props.canEdit}
+                                  placeholder="Выберите деталь или узел"
+                                  createLabel="Добавить"
+                                  {...(props.canEdit ? { onCreate: createDefectItem, canCreate: true } : {})}
+                                  onChange={(next) => {
+                                    const selected = defectOptions.find((o) => o.id === next) ?? null;
+                                    const label = selected?.label ?? '';
+                                    setValue(rowIdx, BRAND_ROW_SOURCE_KEY, '');
+                                    setValue(rowIdx, BRAND_ROW_PART_ID_KEY, '');
+                                    setValue(rowIdx, ROW_PART_ID_KEY, rowPartIdFromOptionId(next));
+                                    setValue(rowIdx, columnId, label);
+                                    const meta = defectPartMetaById[next ?? ''];
+                                    if (meta) {
+                                      setValue(rowIdx, 'part_number', meta.partNumber);
+                                      setValue(rowIdx, 'quantity', meta.quantity);
+                                      setValue(rowIdx, 'repairable_qty', meta.quantity);
+                                      setValue(rowIdx, 'scrap_qty', 0, true);
+                                      return;
+                                    }
+                                    setValue(rowIdx, 'repairable_qty', 0);
+                                    setValue(rowIdx, 'scrap_qty', 0, true);
+                                  }}
+                                />
+                              );
+                            },
+                          }
+                        : null;
+                    if (defectRenderers) return { cellRenderers: defectRenderers };
+                    const completenessRenderers =
+                      props.stage === 'completeness' && it.id === 'completeness_items'
+                        ? {
+                            part_name: ({ rowIdx, row, columnId, value, setValue }: any) => {
+                              if (isBrandLinkedChecklistRow(row as ChecklistTableRow)) {
+                                return <Input value={String(value ?? '')} disabled />;
+                              }
+                              const current = String(value ?? '');
+                              const rowPartId = String((row as any)?.[ROW_PART_ID_KEY] ?? '').trim();
+                              const match =
+                                (rowPartId ? completenessOptions.find((o) => o.id === `part:${rowPartId}`) : null) ??
+                                completenessOptions.find((o) => o.label === current) ??
+                                null;
+                              const valueId = match?.id ?? null;
+                              return (
+                                <EntityReferenceField
+                                  target="part"
+                                  targetLabel="Деталь"
+                                  value={valueId}
+                                  options={completenessOptions}
+                                  disabled={!props.canEdit}
+                                  placeholder="Выберите деталь"
+                                  createLabel="Добавить"
+                                  {...(props.canEdit ? { onCreate: createCompletenessItem, canCreate: true } : {})}
+                                  onChange={(next) => {
+                                    const selected = completenessOptions.find((o) => o.id === next) ?? null;
+                                    const label = selected?.label ?? '';
+                                    setValue(rowIdx, BRAND_ROW_SOURCE_KEY, '');
+                                    setValue(rowIdx, BRAND_ROW_PART_ID_KEY, '');
+                                    setValue(rowIdx, ROW_PART_ID_KEY, rowPartIdFromOptionId(next));
+                                    setValue(rowIdx, columnId, label);
+                                    const meta = completenessPartMetaById[next ?? ''];
+                                    if (meta) {
+                                      setValue(rowIdx, 'assembly_unit_number', meta.assemblyUnitNumber);
+                                      setValue(rowIdx, 'quantity', meta.quantity);
+                                      setValue(rowIdx, 'present', false);
+                                      setValue(rowIdx, 'actual_qty', 0, true);
+                                      return;
+                                    }
+                                    setValue(rowIdx, 'actual_qty', 0, true);
+                                  }}
+                                />
+                              );
+                            },
+                          }
+                        : null;
+                    if (completenessRenderers) return { cellRenderers: completenessRenderers };
+                    // Т5: галочка акта пишет И эффективное значение, И операторский
+                    // override — иначе brand-resync вернёт значение шаблона марки.
+                    const actFlagRenderer =
+                      (flagId: 'in_completeness_act' | 'in_defect_act') =>
+                      ({ rowIdx, value, setValue }: any) => (
+                        <input
+                          type="checkbox"
+                          checked={Boolean(value)}
+                          disabled={!props.canEdit}
+                          onChange={(e) => {
+                            setValue(rowIdx, flagId, e.target.checked);
+                            setValue(rowIdx, `${flagId}_override`, e.target.checked, true);
+                          }}
+                        />
+                      );
+                    const inventoryRenderers =
+                      isInventoryStage && it.id === 'engine_inventory_items'
+                        ? {
+                            in_completeness_act: actFlagRenderer('in_completeness_act'),
+                            in_defect_act: actFlagRenderer('in_defect_act'),
+                            part_name: ({ rowIdx, row, columnId, value, setValue }: any) => {
+                              if (isBrandLinkedChecklistRow(row as ChecklistTableRow)) {
+                                return <Input value={String(value ?? '')} disabled />;
+                              }
+                              const current = String(value ?? '');
+                              const rowPartId = String((row as any)?.[ROW_PART_ID_KEY] ?? '').trim();
+                              const match =
+                                (rowPartId ? inventoryOptions.find((o) => o.id === `part:${rowPartId}`) : null) ??
+                                inventoryOptions.find((o) => o.label === current) ??
+                                null;
+                              const valueId = match?.id ?? null;
+                              return (
+                                <EntityReferenceField
+                                  target="part"
+                                  targetLabel="Деталь"
+                                  value={valueId}
+                                  options={inventoryOptions}
+                                  disabled={!props.canEdit}
+                                  placeholder="Выберите деталь"
+                                  createLabel="Добавить"
+                                  {...(props.canEdit ? { onCreate: createInventoryItem, canCreate: true } : {})}
+                                  onChange={(next) => {
+                                    const selected = inventoryOptions.find((o) => o.id === next) ?? null;
+                                    const label = selected?.label ?? '';
+                                    setValue(rowIdx, BRAND_ROW_SOURCE_KEY, '');
+                                    setValue(rowIdx, BRAND_ROW_PART_ID_KEY, '');
+                                    setValue(rowIdx, ROW_PART_ID_KEY, rowPartIdFromOptionId(next));
+                                    setValue(rowIdx, columnId, label);
+                                    const meta = inventoryPartMetaById[next ?? ''];
+                                    if (meta) {
+                                      setValue(rowIdx, 'assembly_unit_number', meta.assemblyUnitNumber);
+                                      setValue(rowIdx, 'part_number', meta.partNumber);
+                                      setValue(rowIdx, 'quantity', meta.quantity);
+                                      setValue(rowIdx, 'present', false);
+                                      setValue(rowIdx, 'actual_qty', 0);
+                                      setValue(rowIdx, 'repairable_qty', meta.quantity);
+                                      setValue(rowIdx, 'scrap_qty', 0);
+                                      setValue(rowIdx, 'replace_qty', 0, true);
+                                      return;
+                                    }
+                                    setValue(rowIdx, 'quantity', 0);
+                                    setValue(rowIdx, 'repairable_qty', 0);
+                                    setValue(rowIdx, 'scrap_qty', 0);
+                                    setValue(rowIdx, 'replace_qty', 0, true);
+                                  }}
+                                />
+                              );
+                            },
+                            // Причина утиля (scrap-transparency 2026-07): активна при scrap_qty>0;
+                            // мягкая подсветка когда утиль есть, а причина пуста — не блокируем сохранение.
+                            scrap_reason: ({ rowIdx, row, value, setValue }: any) => {
+                              const hasScrap = Number((row as any).scrap_qty ?? 0) > 0;
+                              const text = String(value ?? '');
+                              return (
+                                <>
+                                  <input
+                                    type="text"
+                                    list="scrap-reason-hints"
+                                    value={text}
+                                    disabled={!props.canEdit || !hasScrap}
+                                    placeholder={hasScrap ? 'почему утиль?' : '—'}
+                                    title={hasScrap ? 'Причина отправки в утиль (видна в актах и отчётах)' : 'Доступно для строк с утилём (Утиль > 0)'}
+                                    onChange={(e) => setValue(rowIdx, 'scrap_reason', e.target.value, true)}
+                                    style={{
+                                      width: '100%',
+                                      minWidth: 140,
+                                      padding: '7px 8px',
+                                      borderRadius: 8,
+                                      border: hasScrap && !text.trim() ? '1px solid rgba(220, 38, 38, 0.55)' : '1px solid rgba(15, 23, 42, 0.25)',
+                                      background: hasScrap ? 'var(--input-bg)' : 'rgba(100,116,139,0.08)',
+                                      color: hasScrap ? 'var(--text)' : '#94a3b8',
+                                    }}
+                                  />
+                                  <datalist id="scrap-reason-hints">
+                                    <option value="Трещина" />
+                                    <option value="Износ сверх допуска" />
+                                    <option value="Коррозия" />
+                                    <option value="Деформация" />
+                                    <option value="Обрыв резьбы" />
+                                    <option value="Не подлежит восстановлению" />
+                                  </datalist>
+                                </>
+                              );
+                            },
+                            // Ф3/Ф4: ветка восполнения per-деталь — активна при дефекте (утиль или замена > 0):
+                            // и утиль, и замена выводят деталь из двигателя, решение «кто восполняет» нужно в обоих случаях.
+                            replenishment_branch: ({ rowIdx, row, value, setValue }: any) => {
+                              const needsReplenish = rowHasDefect({
+                                scrap_qty: Number((row as any).scrap_qty ?? 0),
+                                replace_qty: Number((row as any).replace_qty ?? 0),
+                              });
+                              // Ф5: производный статус ремонта детали (open Repair-наряд → «в ремонте», closed → «готова»).
+                              // Событие ready_for_assembly того же наряда переводит в «готова» даже пока статус
+                              // closed самого наряда ещё не доехал синком (закрытие происходит на backend).
+                              const rowPartIdForState = getRowPartId(row as ChecklistTableRow);
+                              const rawRepairState = repairPartStates[rowPartIdForState];
+                              const repairState =
+                                rawRepairState &&
+                                rawRepairState.state === 'in_repair' &&
+                                partStatusEvents.some(
+                                  (ev) =>
+                                    ev.status === 'ready_for_assembly' &&
+                                    ev.partId === rowPartIdForState &&
+                                    ev.workOrderOperationId === rawRepairState.workOrderOperationId,
+                                )
+                                  ? { ...rawRepairState, state: 'repaired' as const }
+                                  : rawRepairState;
+                              return (
+                                <div style={{ display: 'grid', gap: 3 }}>
+                                  <select
+                                    value={String(value ?? '')}
+                                    disabled={!props.canEdit || !needsReplenish}
+                                    title={needsReplenish ? 'Как восполнить деталь' : 'Доступно для деталей с дефектом (утиль или заменить > 0)'}
+                                    onChange={(e) => setValue(rowIdx, 'replenishment_branch', e.target.value, true)}
+                                    style={{
+                                      width: '100%',
+                                      minWidth: 130,
+                                      padding: '7px 8px',
+                                      borderRadius: 8,
+                                      border: '1px solid rgba(15, 23, 42, 0.25)',
+                                      background: needsReplenish ? 'var(--input-bg)' : 'rgba(100,116,139,0.08)',
+                                      color: needsReplenish ? 'var(--text)' : '#94a3b8',
+                                    }}
+                                  >
+                                    <option value="">—</option>
+                                    <option value="customer">Заказчик</option>
+                                    <option value="repair">Свой ремонт</option>
+                                    <option value="purchase">Закупка</option>
+                                  </select>
+                                  {repairState && (
+                                    <span
+                                      title={`Статус из ремонтного наряда №${repairState.workOrderNumber}`}
+                                      style={{
+                                        fontSize: 11,
+                                        color: repairState.state === 'repaired' ? '#15803d' : '#b45309',
+                                        whiteSpace: 'nowrap',
+                                      }}
+                                    >
+                                      {repairState.state === 'repaired' ? '✅ готова к сборке' : '🔧 в ремонте'}
+                                      {repairState.workOrderNumber > 0 ? ` (№${repairState.workOrderNumber})` : ''}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            },
+                          }
+                        : null;
+                    return inventoryRenderers ? { cellRenderers: inventoryRenderers } : {};
+                  })()}
+                  {...(variantFilterActive && it.id === 'engine_inventory_items' && variantMembership
+                    ? {
+                        isRowHidden: (row: Record<string, string | boolean | number>) =>
+                          !isInventoryRowVisibleForVariant(
+                            getRowPartId(row as ChecklistTableRow),
+                            variantMembership,
+                            assemblyVariant,
+                          ),
+                      }
+                    : {})}
+                  {...(isInventoryStage && it.id === 'engine_inventory_items' && props.canViewFiles === true
+                    ? {
+                        renderRowExtra: (rowIdx: number, row: Record<string, string | boolean | number>) => (
+                          <InventoryRowPhotos
+                            photos={getRowPhotos(row as ChecklistTableRow)}
+                            canView={props.canViewFiles === true}
+                            canUpload={props.canUploadFiles === true && props.canEdit}
+                            scope={{ ownerType: 'engine', ownerId: props.engineId, category: 'defect_photo' }}
+                            onChange={(next) => {
+                              const cur = (answers as any).engine_inventory_items;
+                              const curRows: ChecklistTableRow[] =
+                                cur?.kind === 'table' && Array.isArray(cur.rows) ? (cur.rows as ChecklistTableRow[]) : [];
+                              const nextRows = curRows.map((r, i) => (i === rowIdx ? withRowPhotos(r, next) : r));
+                              const nextAnswers = {
+                                ...answers,
+                                [it.id]: { kind: 'table', rows: nextRows },
+                              } as RepairChecklistAnswers;
+                              setAnswers(nextAnswers);
+                              void save(nextAnswers);
+                            }}
+                          />
+                        ),
+                      }
+                    : {})}
+                  onChange={(rows) => {
+                    const normalizedRows =
+                      props.stage === 'defect' && it.id === 'defect_items'
+                        ? (normalizeDefectRows(rows as any).rows as ChecklistTableRow[])
+                        : props.stage === 'completeness' && it.id === 'completeness_items'
+                          ? (normalizeCompletenessRows(rows as any).rows as ChecklistTableRow[])
+                          : isInventoryStage && it.id === 'engine_inventory_items'
+                            ? normalizeEngineInventoryRows(rows as unknown as Record<string, unknown>[]).rows.map((nr, i) => {
+                                const prev = rows[i] as ChecklistTableRow | undefined;
+                                return { ...nr, ...preserveRowIdentityMeta(prev) } as unknown as ChecklistTableRow;
+                              })
+                            : (rows as ChecklistTableRow[]);
+                    const next = { ...answers, [it.id]: { kind: 'table', rows: normalizedRows } } as RepairChecklistAnswers;
+                    setAnswers(next);
+                  }}
+                  onSave={(rows) => {
+                    const normalizedRows =
+                      props.stage === 'defect' && it.id === 'defect_items'
+                        ? (normalizeDefectRows(rows as any).rows as ChecklistTableRow[])
+                        : props.stage === 'completeness' && it.id === 'completeness_items'
+                          ? (normalizeCompletenessRows(rows as any).rows as ChecklistTableRow[])
+                          : isInventoryStage && it.id === 'engine_inventory_items'
+                            ? normalizeEngineInventoryRows(rows as unknown as Record<string, unknown>[]).rows.map((nr, i) => {
+                                const prev = rows[i] as ChecklistTableRow | undefined;
+                                return { ...nr, ...preserveRowIdentityMeta(prev) } as unknown as ChecklistTableRow;
+                              })
+                            : (rows as ChecklistTableRow[]);
+                    void save({ ...answers, [it.id]: { kind: 'table', rows: normalizedRows } } as RepairChecklistAnswers);
+                  }}
+                />
+                </>
+              )}
+            </div>
+          </React.Fragment>
+        );
+  };
+
+  const shownItems: any[] = activeTemplate ? (activeTemplate.items as any[]).filter(actItemVisible) : [];
+  const tableItems = shownItems.filter((it) => it.kind === 'table');
+  const signItems = shownItems.filter((it) => it.kind === 'date' || it.kind === 'signature');
+  const infoItems = shownItems.filter((it) => it.kind !== 'table' && it.kind !== 'date' && it.kind !== 'signature');
+
   return (
     <div style={{ marginTop: 14, border: '1px solid rgba(15, 23, 42, 0.18)', borderRadius: 14, padding: 12 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -2175,38 +2798,6 @@ export function RepairChecklistPanel(props: {
 
       {!collapsed && !activeTemplate ? (
         <div style={{ marginTop: 10, color: '#64748b' }}>Нет доступных шаблонов.</div>
-      ) : null}
-      {!collapsed && activeTemplate && isInventoryStage ? (
-        <div style={{ marginTop: 12, display: 'flex', gap: 6, borderBottom: '2px solid var(--border)' }}>
-          {(
-            [
-              { key: 'completeness', label: 'Акт комплектности' },
-              { key: 'defect', label: 'Акт дефектовки' },
-            ] as const
-          ).map((t) => {
-            const active = actView === t.key;
-            return (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => setActView(t.key)}
-                style={{
-                  padding: '8px 16px',
-                  fontSize: 14,
-                  fontWeight: active ? 700 : 500,
-                  border: 'none',
-                  borderBottom: active ? '3px solid #2563eb' : '3px solid transparent',
-                  background: 'transparent',
-                  color: active ? 'var(--text)' : '#64748b',
-                  cursor: 'pointer',
-                  marginBottom: -2,
-                }}
-              >
-                {t.label}
-              </button>
-            );
-          })}
-        </div>
       ) : null}
       {!collapsed && activeTemplate && isInventoryStage && actView === 'completeness' && props.engineBrandId
         ? (() => {
@@ -2579,562 +3170,22 @@ export function RepairChecklistPanel(props: {
             );
           })()
         : null}
-      {!collapsed && activeTemplate ? (
-        <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '340px 1fr', gap: 10, alignItems: 'center' }}>
-          {activeTemplate.items.map((it) => {
-            // Под-вкладки: скрываем даты/подписи чужого акта (данные не теряются — просто не показаны).
-            if (isInventoryStage) {
-              // Легаси-слоты комиссии заменены динамическим редактором «Комиссия в составе» выше.
-              if (HIDDEN_GENERIC_ITEM_IDS.has(it.id)) return null;
-              if (actView === 'completeness' && DEFECT_ONLY_ITEM_IDS.has(it.id)) return null;
-              if (actView === 'defect' && COMPLETENESS_ONLY_ITEM_IDS.has(it.id)) return null;
-            }
-            const a: any = (answers as any)[it.id];
-            const isDefectResultsTable = props.stage === 'defect' && it.kind === 'table' && it.id === 'defect_items';
-            const isCompletenessGroupsTable = props.stage === 'completeness' && it.kind === 'table' && it.id === 'completeness_items';
-            const isInventoryItemsTable = isInventoryStage && it.kind === 'table' && it.id === 'engine_inventory_items';
-            const isWideTableRow = isDefectResultsTable || isCompletenessGroupsTable || isInventoryItemsTable;
-            return (
-              <React.Fragment key={it.id}>
-                <div
-                  style={{
-                    color: '#334155',
-                    ...(isWideTableRow
-                      ? { gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }
-                      : {}),
-                  }}
-                >
-                  <span>
-                    {it.label} {it.required ? <span style={{ color: '#b91c1c' }}>*</span> : null}
-                  </span>
-                  {isWideTableRow && props.canEdit ? (
-                    <Button
-                      variant="ghost"
-                      title="Вернуть строки к спецификации марки двигателя, а марку / номер / договор / дату — к значениям из карточки двигателя. Ручные правки этого акта (добавленные строки, количества, брак, отметки наличия) будут потеряны."
-                      onClick={() => void resetToBrandCanonical()}
-                    >
-                      Сбросить по двигателю и марке
-                    </Button>
-                  ) : null}
-                </div>
-                <div style={isWideTableRow ? { gridColumn: '1 / -1' } : undefined}>
-                  {it.kind === 'text' && (
-                    <OverflowTooltipInput
-                      value={a?.kind === 'text' ? a.value : ''}
-                      disabled={!props.canEdit}
-                      onChange={(e) => {
-                        const next = { ...answers, [it.id]: { kind: 'text', value: e.target.value } } as RepairChecklistAnswers;
-                        setAnswers(next);
-                      }}
-                      onBlur={() => void save(answers)}
-                    />
-                  )}
-
-                  {it.kind === 'date' && (
-                    <Input
-                      type="date"
-                      value={a?.kind === 'date' && a.value ? toInputDate(a.value) : ''}
-                      disabled={!props.canEdit}
-                      onChange={(e) => {
-                        const nextVal = fromInputDate(e.target.value);
-                        const next = { ...answers, [it.id]: { kind: 'date', value: nextVal } } as RepairChecklistAnswers;
-                        setAnswers(next);
-                        void save(next);
-                      }}
-                    />
-                  )}
-
-                  {it.kind === 'boolean' && (
-                    <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                      <input
-                        type="checkbox"
-                        checked={a?.kind === 'boolean' ? !!a.value : false}
-                        disabled={!props.canEdit}
-                        onChange={(e) => {
-                          const next = { ...answers, [it.id]: { kind: 'boolean', value: e.target.checked } } as RepairChecklistAnswers;
-                          setAnswers(next);
-                          void save(next);
-                        }}
-                      />
-                      <span style={{ color: '#64748b', fontSize: 12 }}>{a?.kind === 'boolean' && a.value ? 'да' : 'нет'}</span>
-                    </label>
-                  )}
-
-                  {it.kind === 'signature' && (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 1.4fr) 150px', gap: 8 }}>
-                      {(() => {
-                        const fioValue = a?.kind === 'signature' ? String(a.fio ?? '') : '';
-                        const inList = fioValue ? employeeOptions.some((opt) => opt.label === fioValue || opt.id === fioValue) : false;
-                        const extra = fioValue && !inList ? [{ id: fioValue, label: fioValue, position: a?.position ?? null }] : [];
-                        const options = [...employeeOptions, ...extra];
-                        const valueId =
-                          fioValue && inList
-                            ? employeeOptions.find((opt) => opt.label === fioValue || opt.id === fioValue)?.id ?? fioValue
-                            : fioValue || null;
-                        return (
-                      <SearchSelect
-                        value={valueId}
-                        options={options}
-                        disabled={!props.canEdit}
-                        placeholder="ФИО"
-                        onChange={(next) => {
-                          if (!props.canEdit) return;
-                          const prev = a?.kind === 'signature' ? a : { fio: '', position: '', signedAt: null };
-                          const chosen = options.find((opt) => opt.id === next) ?? null;
-                          const fio = chosen?.label ?? '';
-                          const position = chosen?.position ?? prev.position ?? '';
-                          const nextAnswers = {
-                            ...answers,
-                            [it.id]: { kind: 'signature', fio, position, signedAt: prev.signedAt },
-                          } as RepairChecklistAnswers;
-                          setAnswers(nextAnswers);
-                          void save(nextAnswers);
-                        }}
-                      />
-                        );
-                      })()}
-                      <OverflowTooltipInput
-                        value={a?.kind === 'signature' ? String(a.position ?? '') : ''}
-                        disabled={!props.canEdit}
-                        placeholder="Должность"
-                        onChange={(e) => {
-                          if (!props.canEdit) return;
-                          const prev = a?.kind === 'signature' ? a : { fio: '', position: '', signedAt: null };
-                          const next = {
-                            ...answers,
-                            [it.id]: { kind: 'signature', fio: prev.fio, position: e.target.value, signedAt: prev.signedAt },
-                          } as RepairChecklistAnswers;
-                          setAnswers(next);
-                        }}
-                        onBlur={() => void save(answers)}
-                      />
-                      <Input
-                        type="date"
-                        value={a?.kind === 'signature' && a.signedAt ? toInputDate(a.signedAt) : ''}
-                        disabled={!props.canEdit}
-                        onChange={(e) => {
-                          const prev = a?.kind === 'signature' ? a : { fio: '', position: '', signedAt: null };
-                          const nextVal = fromInputDate(e.target.value);
-                          const next = { ...answers, [it.id]: { kind: 'signature', fio: prev.fio, position: prev.position, signedAt: nextVal } } as RepairChecklistAnswers;
-                          setAnswers(next);
-                          void save(next);
-                        }}
-                      />
-                    </div>
-                  )}
-
-                  {it.kind === 'table' && (
-                    <>
-                    {isInventoryStage && it.id === 'engine_inventory_items' && assemblyVariant && variantMembership && variantMembership.size > 0 ? (
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 10,
-                          flexWrap: 'wrap',
-                          marginBottom: 8,
-                          padding: '6px 10px',
-                          borderRadius: 8,
-                          background: variantFilterOn ? 'rgba(37, 99, 235, 0.10)' : 'rgba(100, 116, 139, 0.10)',
-                          fontSize: 13,
-                        }}
-                      >
-                        <span>
-                          {variantFilterOn ? (
-                            <>Показаны детали варианта сборки: <strong>{assemblyVariant}</strong> (+ общие)</>
-                          ) : (
-                            <>Показаны все детали марки (фильтр по варианту выключен)</>
-                          )}
-                        </span>
-                        <Button variant="ghost" onClick={() => setVariantFilterOn((v) => !v)}>
-                          {variantFilterOn ? 'Показать все детали' : `Фильтровать по варианту «${assemblyVariant}»`}
-                        </Button>
-                      </div>
-                    ) : null}
-                    <TableEditor
-                      tableId={it.id}
-                      canEdit={props.canEdit}
-                      columns={
-                        props.stage === 'defect' && it.id === 'defect_items'
-                          ? [
-                              { id: 'part_name', label: 'Наименование узла (детали)' },
-                              { id: 'part_number', label: '№ детали (узла)' },
-                              { id: 'quantity', label: 'Количество', kind: 'number' as const },
-                              { id: 'repairable_qty', label: 'Ремонтно-пригодная', kind: 'number' as const },
-                              { id: 'scrap_qty', label: 'Утиль', kind: 'number' as const },
-                              { id: 'scrap_reason', label: 'Причина утиля' },
-                            ]
-                          : props.stage === 'completeness' && it.id === 'completeness_items'
-                            ? [
-                                { id: 'part_name', label: 'Наименование' },
-                                { id: 'assembly_unit_number', label: 'Обозначение (№ сборочной единицы)' },
-                                { id: 'quantity', label: 'Количество', kind: 'number' as const },
-                                { id: 'present', label: 'Наличие', kind: 'boolean' as const },
-                                { id: 'actual_qty', label: 'Фактическое количество', kind: 'number' as const },
-                              ]
-                            : isInventoryStage && it.id === 'engine_inventory_items'
-                              ? actView === 'completeness'
-                                ? [
-                                    { id: 'part_name', label: 'Наименование' },
-                                    { id: 'assembly_unit_number', label: '№ сборочной единицы' },
-                                    { id: 'stamped_number', label: '№ на детали' },
-                                    { id: 'quantity', label: 'План', kind: 'number' as const },
-                                    { id: 'present', label: 'На месте', kind: 'boolean' as const },
-                                    { id: 'actual_qty', label: 'Принято', kind: 'number' as const },
-                                    { id: 'in_completeness_act', label: 'В акте' },
-                                  ]
-                                : [
-                                    { id: 'part_name', label: 'Наименование' },
-                                    { id: 'assembly_unit_number', label: '№ сборочной единицы' },
-                                    { id: 'stamped_number', label: '№ на детали' },
-                                    { id: 'quantity', label: 'План', kind: 'number' as const },
-                                    { id: 'present', label: 'На месте', kind: 'boolean' as const },
-                                    { id: 'repairable_qty', label: 'Ремонт', kind: 'number' as const },
-                                    { id: 'scrap_qty', label: 'Утиль', kind: 'number' as const },
-                                    { id: 'scrap_reason', label: 'Причина утиля' },
-                                    { id: 'replace_qty', label: 'Заменить', kind: 'number' as const },
-                                    { id: 'in_defect_act', label: 'В акте' },
-                                    { id: 'replenishment_branch', label: 'Восполнение' },
-                                  ]
-                              : (it.columns ?? [])
-                      }
-                      rows={a?.kind === 'table' ? (a.rows ?? []) : []}
-                      {...(() => {
-                        const defectRenderers =
-                          props.stage === 'defect' && it.id === 'defect_items'
-                            ? {
-                                part_name: ({ rowIdx, row, columnId, value, setValue }: any) => {
-                                  if (isBrandLinkedChecklistRow(row as ChecklistTableRow)) {
-                                    return <Input value={String(value ?? '')} disabled />;
-                                  }
-                                  const current = String(value ?? '');
-                                  const rowPartId = String((row as any)?.[ROW_PART_ID_KEY] ?? '').trim();
-                                  const match =
-                                    (rowPartId ? defectOptions.find((o) => o.id === `part:${rowPartId}`) : null) ??
-                                    defectOptions.find((o) => o.label === current) ??
-                                    null;
-                                  const valueId = match?.id ?? null;
-                                  return (
-                                    <EntityReferenceField
-                                      target="part"
-                                      targetLabel="Деталь или узел"
-                                      value={valueId}
-                                      options={defectOptions}
-                                      disabled={!props.canEdit}
-                                      placeholder="Выберите деталь или узел"
-                                      createLabel="Добавить"
-                                      {...(props.canEdit ? { onCreate: createDefectItem, canCreate: true } : {})}
-                                      onChange={(next) => {
-                                        const selected = defectOptions.find((o) => o.id === next) ?? null;
-                                        const label = selected?.label ?? '';
-                                        setValue(rowIdx, BRAND_ROW_SOURCE_KEY, '');
-                                        setValue(rowIdx, BRAND_ROW_PART_ID_KEY, '');
-                                        setValue(rowIdx, ROW_PART_ID_KEY, rowPartIdFromOptionId(next));
-                                        setValue(rowIdx, columnId, label);
-                                        const meta = defectPartMetaById[next ?? ''];
-                                        if (meta) {
-                                          setValue(rowIdx, 'part_number', meta.partNumber);
-                                          setValue(rowIdx, 'quantity', meta.quantity);
-                                          setValue(rowIdx, 'repairable_qty', meta.quantity);
-                                          setValue(rowIdx, 'scrap_qty', 0, true);
-                                          return;
-                                        }
-                                        setValue(rowIdx, 'repairable_qty', 0);
-                                        setValue(rowIdx, 'scrap_qty', 0, true);
-                                      }}
-                                    />
-                                  );
-                                },
-                              }
-                            : null;
-                        if (defectRenderers) return { cellRenderers: defectRenderers };
-                        const completenessRenderers =
-                          props.stage === 'completeness' && it.id === 'completeness_items'
-                            ? {
-                                part_name: ({ rowIdx, row, columnId, value, setValue }: any) => {
-                                  if (isBrandLinkedChecklistRow(row as ChecklistTableRow)) {
-                                    return <Input value={String(value ?? '')} disabled />;
-                                  }
-                                  const current = String(value ?? '');
-                                  const rowPartId = String((row as any)?.[ROW_PART_ID_KEY] ?? '').trim();
-                                  const match =
-                                    (rowPartId ? completenessOptions.find((o) => o.id === `part:${rowPartId}`) : null) ??
-                                    completenessOptions.find((o) => o.label === current) ??
-                                    null;
-                                  const valueId = match?.id ?? null;
-                                  return (
-                                    <EntityReferenceField
-                                      target="part"
-                                      targetLabel="Деталь"
-                                      value={valueId}
-                                      options={completenessOptions}
-                                      disabled={!props.canEdit}
-                                      placeholder="Выберите деталь"
-                                      createLabel="Добавить"
-                                      {...(props.canEdit ? { onCreate: createCompletenessItem, canCreate: true } : {})}
-                                      onChange={(next) => {
-                                        const selected = completenessOptions.find((o) => o.id === next) ?? null;
-                                        const label = selected?.label ?? '';
-                                        setValue(rowIdx, BRAND_ROW_SOURCE_KEY, '');
-                                        setValue(rowIdx, BRAND_ROW_PART_ID_KEY, '');
-                                        setValue(rowIdx, ROW_PART_ID_KEY, rowPartIdFromOptionId(next));
-                                        setValue(rowIdx, columnId, label);
-                                        const meta = completenessPartMetaById[next ?? ''];
-                                        if (meta) {
-                                          setValue(rowIdx, 'assembly_unit_number', meta.assemblyUnitNumber);
-                                          setValue(rowIdx, 'quantity', meta.quantity);
-                                          setValue(rowIdx, 'present', false);
-                                          setValue(rowIdx, 'actual_qty', 0, true);
-                                          return;
-                                        }
-                                        setValue(rowIdx, 'actual_qty', 0, true);
-                                      }}
-                                    />
-                                  );
-                                },
-                              }
-                            : null;
-                        if (completenessRenderers) return { cellRenderers: completenessRenderers };
-                        // Т5: галочка акта пишет И эффективное значение, И операторский
-                        // override — иначе brand-resync вернёт значение шаблона марки.
-                        const actFlagRenderer =
-                          (flagId: 'in_completeness_act' | 'in_defect_act') =>
-                          ({ rowIdx, value, setValue }: any) => (
-                            <input
-                              type="checkbox"
-                              checked={Boolean(value)}
-                              disabled={!props.canEdit}
-                              onChange={(e) => {
-                                setValue(rowIdx, flagId, e.target.checked);
-                                setValue(rowIdx, `${flagId}_override`, e.target.checked, true);
-                              }}
-                            />
-                          );
-                        const inventoryRenderers =
-                          isInventoryStage && it.id === 'engine_inventory_items'
-                            ? {
-                                in_completeness_act: actFlagRenderer('in_completeness_act'),
-                                in_defect_act: actFlagRenderer('in_defect_act'),
-                                part_name: ({ rowIdx, row, columnId, value, setValue }: any) => {
-                                  if (isBrandLinkedChecklistRow(row as ChecklistTableRow)) {
-                                    return <Input value={String(value ?? '')} disabled />;
-                                  }
-                                  const current = String(value ?? '');
-                                  const rowPartId = String((row as any)?.[ROW_PART_ID_KEY] ?? '').trim();
-                                  const match =
-                                    (rowPartId ? inventoryOptions.find((o) => o.id === `part:${rowPartId}`) : null) ??
-                                    inventoryOptions.find((o) => o.label === current) ??
-                                    null;
-                                  const valueId = match?.id ?? null;
-                                  return (
-                                    <EntityReferenceField
-                                      target="part"
-                                      targetLabel="Деталь"
-                                      value={valueId}
-                                      options={inventoryOptions}
-                                      disabled={!props.canEdit}
-                                      placeholder="Выберите деталь"
-                                      createLabel="Добавить"
-                                      {...(props.canEdit ? { onCreate: createInventoryItem, canCreate: true } : {})}
-                                      onChange={(next) => {
-                                        const selected = inventoryOptions.find((o) => o.id === next) ?? null;
-                                        const label = selected?.label ?? '';
-                                        setValue(rowIdx, BRAND_ROW_SOURCE_KEY, '');
-                                        setValue(rowIdx, BRAND_ROW_PART_ID_KEY, '');
-                                        setValue(rowIdx, ROW_PART_ID_KEY, rowPartIdFromOptionId(next));
-                                        setValue(rowIdx, columnId, label);
-                                        const meta = inventoryPartMetaById[next ?? ''];
-                                        if (meta) {
-                                          setValue(rowIdx, 'assembly_unit_number', meta.assemblyUnitNumber);
-                                          setValue(rowIdx, 'part_number', meta.partNumber);
-                                          setValue(rowIdx, 'quantity', meta.quantity);
-                                          setValue(rowIdx, 'present', false);
-                                          setValue(rowIdx, 'actual_qty', 0);
-                                          setValue(rowIdx, 'repairable_qty', meta.quantity);
-                                          setValue(rowIdx, 'scrap_qty', 0);
-                                          setValue(rowIdx, 'replace_qty', 0, true);
-                                          return;
-                                        }
-                                        setValue(rowIdx, 'quantity', 0);
-                                        setValue(rowIdx, 'repairable_qty', 0);
-                                        setValue(rowIdx, 'scrap_qty', 0);
-                                        setValue(rowIdx, 'replace_qty', 0, true);
-                                      }}
-                                    />
-                                  );
-                                },
-                                // Причина утиля (scrap-transparency 2026-07): активна при scrap_qty>0;
-                                // мягкая подсветка когда утиль есть, а причина пуста — не блокируем сохранение.
-                                scrap_reason: ({ rowIdx, row, value, setValue }: any) => {
-                                  const hasScrap = Number((row as any).scrap_qty ?? 0) > 0;
-                                  const text = String(value ?? '');
-                                  return (
-                                    <>
-                                      <input
-                                        type="text"
-                                        list="scrap-reason-hints"
-                                        value={text}
-                                        disabled={!props.canEdit || !hasScrap}
-                                        placeholder={hasScrap ? 'почему утиль?' : '—'}
-                                        title={hasScrap ? 'Причина отправки в утиль (видна в актах и отчётах)' : 'Доступно для строк с утилём (Утиль > 0)'}
-                                        onChange={(e) => setValue(rowIdx, 'scrap_reason', e.target.value, true)}
-                                        style={{
-                                          width: '100%',
-                                          minWidth: 140,
-                                          padding: '7px 8px',
-                                          borderRadius: 8,
-                                          border: hasScrap && !text.trim() ? '1px solid rgba(220, 38, 38, 0.55)' : '1px solid rgba(15, 23, 42, 0.25)',
-                                          background: hasScrap ? 'var(--input-bg)' : 'rgba(100,116,139,0.08)',
-                                          color: hasScrap ? 'var(--text)' : '#94a3b8',
-                                        }}
-                                      />
-                                      <datalist id="scrap-reason-hints">
-                                        <option value="Трещина" />
-                                        <option value="Износ сверх допуска" />
-                                        <option value="Коррозия" />
-                                        <option value="Деформация" />
-                                        <option value="Обрыв резьбы" />
-                                        <option value="Не подлежит восстановлению" />
-                                      </datalist>
-                                    </>
-                                  );
-                                },
-                                // Ф3/Ф4: ветка восполнения per-деталь — активна при дефекте (утиль или замена > 0):
-                                // и утиль, и замена выводят деталь из двигателя, решение «кто восполняет» нужно в обоих случаях.
-                                replenishment_branch: ({ rowIdx, row, value, setValue }: any) => {
-                                  const needsReplenish = rowHasDefect({
-                                    scrap_qty: Number((row as any).scrap_qty ?? 0),
-                                    replace_qty: Number((row as any).replace_qty ?? 0),
-                                  });
-                                  // Ф5: производный статус ремонта детали (open Repair-наряд → «в ремонте», closed → «готова»).
-                                  // Событие ready_for_assembly того же наряда переводит в «готова» даже пока статус
-                                  // closed самого наряда ещё не доехал синком (закрытие происходит на backend).
-                                  const rowPartIdForState = getRowPartId(row as ChecklistTableRow);
-                                  const rawRepairState = repairPartStates[rowPartIdForState];
-                                  const repairState =
-                                    rawRepairState &&
-                                    rawRepairState.state === 'in_repair' &&
-                                    partStatusEvents.some(
-                                      (ev) =>
-                                        ev.status === 'ready_for_assembly' &&
-                                        ev.partId === rowPartIdForState &&
-                                        ev.workOrderOperationId === rawRepairState.workOrderOperationId,
-                                    )
-                                      ? { ...rawRepairState, state: 'repaired' as const }
-                                      : rawRepairState;
-                                  return (
-                                    <div style={{ display: 'grid', gap: 3 }}>
-                                      <select
-                                        value={String(value ?? '')}
-                                        disabled={!props.canEdit || !needsReplenish}
-                                        title={needsReplenish ? 'Как восполнить деталь' : 'Доступно для деталей с дефектом (утиль или заменить > 0)'}
-                                        onChange={(e) => setValue(rowIdx, 'replenishment_branch', e.target.value, true)}
-                                        style={{
-                                          width: '100%',
-                                          minWidth: 130,
-                                          padding: '7px 8px',
-                                          borderRadius: 8,
-                                          border: '1px solid rgba(15, 23, 42, 0.25)',
-                                          background: needsReplenish ? 'var(--input-bg)' : 'rgba(100,116,139,0.08)',
-                                          color: needsReplenish ? 'var(--text)' : '#94a3b8',
-                                        }}
-                                      >
-                                        <option value="">—</option>
-                                        <option value="customer">Заказчик</option>
-                                        <option value="repair">Свой ремонт</option>
-                                        <option value="purchase">Закупка</option>
-                                      </select>
-                                      {repairState && (
-                                        <span
-                                          title={`Статус из ремонтного наряда №${repairState.workOrderNumber}`}
-                                          style={{
-                                            fontSize: 11,
-                                            color: repairState.state === 'repaired' ? '#15803d' : '#b45309',
-                                            whiteSpace: 'nowrap',
-                                          }}
-                                        >
-                                          {repairState.state === 'repaired' ? '✅ готова к сборке' : '🔧 в ремонте'}
-                                          {repairState.workOrderNumber > 0 ? ` (№${repairState.workOrderNumber})` : ''}
-                                        </span>
-                                      )}
-                                    </div>
-                                  );
-                                },
-                              }
-                            : null;
-                        return inventoryRenderers ? { cellRenderers: inventoryRenderers } : {};
-                      })()}
-                      {...(variantFilterActive && it.id === 'engine_inventory_items' && variantMembership
-                        ? {
-                            isRowHidden: (row: Record<string, string | boolean | number>) =>
-                              !isInventoryRowVisibleForVariant(
-                                getRowPartId(row as ChecklistTableRow),
-                                variantMembership,
-                                assemblyVariant,
-                              ),
-                          }
-                        : {})}
-                      {...(isInventoryStage && it.id === 'engine_inventory_items' && props.canViewFiles === true
-                        ? {
-                            renderRowExtra: (rowIdx: number, row: Record<string, string | boolean | number>) => (
-                              <InventoryRowPhotos
-                                photos={getRowPhotos(row as ChecklistTableRow)}
-                                canView={props.canViewFiles === true}
-                                canUpload={props.canUploadFiles === true && props.canEdit}
-                                scope={{ ownerType: 'engine', ownerId: props.engineId, category: 'defect_photo' }}
-                                onChange={(next) => {
-                                  const cur = (answers as any).engine_inventory_items;
-                                  const curRows: ChecklistTableRow[] =
-                                    cur?.kind === 'table' && Array.isArray(cur.rows) ? (cur.rows as ChecklistTableRow[]) : [];
-                                  const nextRows = curRows.map((r, i) => (i === rowIdx ? withRowPhotos(r, next) : r));
-                                  const nextAnswers = {
-                                    ...answers,
-                                    [it.id]: { kind: 'table', rows: nextRows },
-                                  } as RepairChecklistAnswers;
-                                  setAnswers(nextAnswers);
-                                  void save(nextAnswers);
-                                }}
-                              />
-                            ),
-                          }
-                        : {})}
-                      onChange={(rows) => {
-                        const normalizedRows =
-                          props.stage === 'defect' && it.id === 'defect_items'
-                            ? (normalizeDefectRows(rows as any).rows as ChecklistTableRow[])
-                            : props.stage === 'completeness' && it.id === 'completeness_items'
-                              ? (normalizeCompletenessRows(rows as any).rows as ChecklistTableRow[])
-                              : isInventoryStage && it.id === 'engine_inventory_items'
-                                ? normalizeEngineInventoryRows(rows as unknown as Record<string, unknown>[]).rows.map((nr, i) => {
-                                    const prev = rows[i] as ChecklistTableRow | undefined;
-                                    return { ...nr, ...preserveRowIdentityMeta(prev) } as unknown as ChecklistTableRow;
-                                  })
-                                : (rows as ChecklistTableRow[]);
-                        const next = { ...answers, [it.id]: { kind: 'table', rows: normalizedRows } } as RepairChecklistAnswers;
-                        setAnswers(next);
-                      }}
-                      onSave={(rows) => {
-                        const normalizedRows =
-                          props.stage === 'defect' && it.id === 'defect_items'
-                            ? (normalizeDefectRows(rows as any).rows as ChecklistTableRow[])
-                            : props.stage === 'completeness' && it.id === 'completeness_items'
-                              ? (normalizeCompletenessRows(rows as any).rows as ChecklistTableRow[])
-                              : isInventoryStage && it.id === 'engine_inventory_items'
-                                ? normalizeEngineInventoryRows(rows as unknown as Record<string, unknown>[]).rows.map((nr, i) => {
-                                    const prev = rows[i] as ChecklistTableRow | undefined;
-                                    return { ...nr, ...preserveRowIdentityMeta(prev) } as unknown as ChecklistTableRow;
-                                  })
-                                : (rows as ChecklistTableRow[]);
-                        void save({ ...answers, [it.id]: { kind: 'table', rows: normalizedRows } } as RepairChecklistAnswers);
-                      }}
-                    />
-                    </>
-                  )}
-                </div>
-              </React.Fragment>
-            );
-          })}
-        </div>
+      {!collapsed && activeTemplate && isInventoryStage ? (
+        <>
+          {renderSection('Оформление', sections.state.registrationOpen, () => sections.patchState({ registrationOpen: !sections.state.registrationOpen }), (
+            <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '340px 1fr', gap: 10, alignItems: 'center' }}>{signItems.map(renderTemplateItem)}</div>
+          ))}
+          {renderSection('Сведения', sections.state.infoOpen, () => sections.patchState({ infoOpen: !sections.state.infoOpen }), (
+            <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '340px 1fr', gap: 10, alignItems: 'center' }}>{infoItems.map(renderTemplateItem)}</div>
+          ))}
+          {renderSection('Детали', sections.state.partsOpen, () => sections.patchState({ partsOpen: !sections.state.partsOpen }), (
+            <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '340px 1fr', gap: 10, alignItems: 'center' }}>{tableItems.map(renderTemplateItem)}</div>
+          ))}
+        </>
+      ) : null}
+      {/* Не-inventory стадии (легаси «дефектовка»/«комплектность») рисуются как раньше — одним полотном. */}
+      {!collapsed && activeTemplate && !isInventoryStage ? (
+        <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '340px 1fr', gap: 10, alignItems: 'center' }}>{shownItems.map(renderTemplateItem)}</div>
       ) : null}
 
       {!collapsed && !props.canEdit && <div style={{ marginTop: 10, color: '#64748b' }}>Только просмотр (нет прав на редактирование операций).</div>}
@@ -3200,7 +3251,7 @@ export function RepairChecklistPanel(props: {
           Выберите марку двигателя, чтобы подставить список деталей из справочника.
         </div>
       )}
-      {!collapsed && isInventoryStage && props.onCreateSupplyRequestFromDefects && (
+      {!collapsed && isInventoryStage && isDefectView && props.onCreateSupplyRequestFromDefects && (
         <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <Button
             size="sm"
@@ -3256,7 +3307,7 @@ export function RepairChecklistPanel(props: {
       )}
 
       {/* Ф5 (GAP-4 вход): строки «свой ремонт» с дефектом → черновик ремонтного наряда. */}
-      {!collapsed && isInventoryStage && props.canCreateWorkOrder && (
+      {!collapsed && isInventoryStage && isDefectView && props.canCreateWorkOrder && (
         <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <Button
             size="sm"
@@ -3281,7 +3332,7 @@ export function RepairChecklistPanel(props: {
         </div>
       )}
 
-      {!collapsed && isInventoryStage && props.canCreateWorkOrder && (
+      {!collapsed && isInventoryStage && isDefectView && props.canCreateWorkOrder && (
         <div style={{ marginTop: 10, padding: 10, border: '1px solid #6366f1', borderRadius: 8, background: '#eef2ff' }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <Button
@@ -3315,7 +3366,7 @@ export function RepairChecklistPanel(props: {
         </div>
       )}
 
-      {!collapsed && isInventoryStage && defectPartHistory.length > 0 && (
+      {!collapsed && isInventoryStage && isDefectView && defectPartHistory.length > 0 && (
         <div style={{ marginTop: 10 }}>
           <Button variant="ghost" onClick={() => setDefectHistoryOpen((value) => !value)}>
             {`История деталей (${defectPartHistory.length}) ${defectHistoryOpen ? '▲' : '▼'}`}
@@ -3340,7 +3391,7 @@ export function RepairChecklistPanel(props: {
       )}
 
       {/* Ремфонд Ф3: реестр номерных экземпляров этого двигателя (провенанс-вид для претензии). */}
-      {!collapsed && isInventoryStage && stampedInstances.length > 0 && (
+      {!collapsed && isInventoryStage && isDefectView && stampedInstances.length > 0 && (
         <div style={{ marginTop: 10 }}>
           <Button variant="ghost" onClick={() => setStampedOpen((v) => !v)}>
             {`Личные номера экземпляров (${stampedInstances.length}) ${stampedOpen ? '▲' : '▼'}`}
@@ -3412,7 +3463,7 @@ export function RepairChecklistPanel(props: {
       )}
 
       {/* Ремфонд Ф4: версии печатного «требования к заказчику» (снимки), с повторной печатью. */}
-      {!collapsed && isInventoryStage && requirementVersions.length > 0 && (
+      {!collapsed && isInventoryStage && isDefectView && requirementVersions.length > 0 && (
         <div style={{ marginTop: 10 }}>
           <Button variant="ghost" onClick={() => setRequirementVersionsOpen((v) => !v)}>
             {`Версии требования (${requirementVersions.length}) ${requirementVersionsOpen ? '▲' : '▼'}`}
@@ -3454,7 +3505,7 @@ export function RepairChecklistPanel(props: {
       )}
 
       {/* Ф5 (GAP-6): история статусов деталей двигателя (события part_status_event). */}
-      {!collapsed && isInventoryStage && partStatusEvents.length > 0 && (
+      {!collapsed && isInventoryStage && isDefectView && partStatusEvents.length > 0 && (
         <div style={{ marginTop: 10 }}>
           <Button variant="ghost" onClick={() => setPartStatusHistoryOpen((v) => !v)}>
             {`История статусов деталей (${partStatusEvents.length}) ${partStatusHistoryOpen ? '▲' : '▼'}`}

@@ -1,5 +1,5 @@
 /**
- * CDP e2e-смоук: номер двигателя в акте (карточка двигателя → «Детали и акты»).
+ * CDP e2e-смоук: номер двигателя в акте (карточка двигателя → «Акт комплектности»).
  *
  * Две вещи, обе на живом клиенте:
  *  1. Шапка акта получает номер двигателя ЦЕЛИКОМ и догоняет карточку при правке. Раньше туда
@@ -259,10 +259,42 @@ const opened = await ev(`(() => {
 await sleep(2500);
 step('карточка двигателя открыта', !!opened);
 
-// ── 3. Вкладка «Детали и акты»: панель обязана быть на экране, иначе автоподстановка не идёт.
-const tabOk = await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x => ${txt('x')} === 'Детали и акты'); if (b) b.click(); return !!b; })()`);
+// ── 3. Вкладка «Акт комплектности»: панель обязана быть на экране, иначе автоподстановка не идёт.
+// Вкладки «Детали и акты» больше нет — она разрезана на «Акт комплектности» и «Акт дефектовки»
+// (D1); шапка акта и клеймо живут на первой из них.
+const tabOk = await ev(`(() => { const b=[...document.querySelectorAll('button')].find(x => ${txt('x')} === 'Акт комплектности'); if (b) b.click(); return !!b; })()`);
 await sleep(3500);
-step('вкладка «Детали и акты» открыта', !!tabOk);
+step('вкладка «Акт комплектности» открыта', !!tabOk);
+
+/**
+ * Панель списка деталей у двигателя обязана быть ОДНА — обе акт-вкладки показывают один
+ * экземпляр. Две панели держали бы два независимых `answers`, а сохранение пишет `meta_json`
+ * ПОЛНОЙ ЗАМЕНОЙ: вторая молча затирала бы правки первой, и проверки ниже читали бы лист,
+ * которого уже нет. Экземпляры считаем по КОРНЕВЫМ DOM-узлам, а не по совпавшим фиберам:
+ * у одного экземпляра фиберов два (current/alternate), корень — один.
+ */
+const PANEL_COUNT = [
+  "(() => {",
+  "  const fk = (el) => Object.keys(el).find(x => x.startsWith('__reactFiber$'));",
+  "  const roots = new Set();",
+  "  for (const el of document.querySelectorAll('div')) {",
+  "    const k = fk(el);",
+  "    if (!k) continue;",
+  "    for (let f = el[k], i = 0; i < 6 && f; i += 1, f = f.return) {",
+  "      const p = f.memoizedProps;",
+  "      if (!p || p.stage !== 'engine_inventory' || typeof p.engineId !== 'string') continue;",
+  "      if (p.engineId !== " + JSON.stringify(eng.id) + ") break;",
+  "      let host = f;",
+  "      while (host && typeof host.type !== 'string') host = host.child;",
+  "      if (host && host.stateNode) roots.add(host.stateNode);",
+  "      break;",
+  "    }",
+  "  }",
+  "  return roots.size;",
+  "})()",
+].join(String.fromCharCode(10));
+const panelCount = await ev(PANEL_COUNT);
+step('панель списка деталей ровно одна (обе акт-вкладки делят один экземпляр)', panelCount === 1, `найдено ${panelCount}`);
 
 const read = async () => ev(`(async () => {
   const r = await window.matrica.checklists.engineGet({ engineId: ${JSON.stringify(eng.id)}, stage: 'engine_inventory' });
