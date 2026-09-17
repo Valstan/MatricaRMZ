@@ -48,13 +48,13 @@
 ### B2. ✅ (#947, #948) Даты стадий в `EngineListItem` — `feat/engine-list-status-dates`
 Снять запрет из плана reports-as-lists («не носим»): в `electron-app/src/main/services/engineService.ts` (сборка `EngineListItem`, ~376–452) добавить `statusDates: Partial<Record<StatusCode, number>>` из атрибутов `status_<code>_date` (`STATUS_DATE_CODES`, `contract.ts:92-101`). Колонки «Ремонт начат / Отремонтирован / Утиль» в `EngineFactoryStagesReportPage` и `EnginesPage` (скрыты по умолчанию). Обновить `sameEngineList`-диф в `App.tsx:3309`.
 
-### B3. ✅ (#TBD) Отчёт «Двигатели» → список — `feat/report-engines-as-list`
+### B3. ✅ ([#962](https://github.com/Valstan/MatricaRMZ/pull/962)) Отчёт «Двигатели» → список — `feat/report-engines-as-list`
 По рецепту плана: `pages/reports/EnginesReportPage.tsx` (копия `EngineFactoryStagesReportPage`), ступени = полный `ENGINE_FACETS` + `period/periodBasis` как ступень «дата» (arrival/shipping/created — есть в `EngineListItem`?, иначе B2-подход), колонки = `ENGINES_REPORT_ENGINE_COLUMNS` (`reports.ts:283-298`) — `repairStartedDate/repairedDate` из B2, `daysOnSite` считается на экране, `scrapReason`/`completenessAct` — проверить наличие в `EngineListItem`, недостающее добавить в B2. Группировка: договор / марка / заказчик / нет. `reports.ts:1231-1367` → `presentation:'list', filters:[], columns:[]`; `dispatch.ts` case-отказ; `humanLabelsExceptions.ts`; регистрация в `LIST_REPORT_PAGES`; алиасы `engines_list`/`engines_contracts_overview` резолвятся в него автоматически (`ReportPresetPage.tsx:137`). Сторожа: `EngineFactoryStagesReportPage.guard.test.ts`, `ListChrome.guard.test.ts` (добавить в `PAGES`). Старый builder `presets/engines.ts` и его тест — удалить.
 
 ### B4. Снять `engine_stages` — `chore/retire-engine-stages-report`
 Поглощён «Этапами на заводе» (группировка заказчик → этап). Пресет оставить как **алиас** на `engine_factory_stages` (ярлыки/история открывают по id — правило 5 рецепта), builder и тест удалить, из каталога убрать. Условие — приёмка владельцем нового отчёта на настоящих данных (в handoff «Приёмка живьём»); PR готовлю, мерж после его слова.
 
-### B5. ✅ (#TBD) Отчёт «Этапы работ» (бывш. `work_sheets`) → список — `feat/report-work-sheets-as-list`
+### B5. ✅ ([#963](https://github.com/Valstan/MatricaRMZ/pull/963)) Отчёт «Этапы работ» (бывш. `work_sheets`) → список — `feat/report-work-sheets-as-list`
 Нарушает правило 4 рецепта (данных нет в каталоге двигателей) — расширить `ListReportPageProps` полем `workSheetRows` (App грузит через тот же `workSheets.rows.list`, что и `WorkSheetsPage`, лениво при первом открытии — не на старте). Страница: ступени `workSheetFacets` + двигательные (марка/заказчик/договор через `engineId`), группировка вид работ / договор / цех, **итоги по видам работ** в футере групп, печать `ListPrintDialog` с `rowGroupLabel`. `reports.ts:1884-1907` → list. Делать **после** C1 (переименование), чтобы не переименовывать дважды.
 
 ---
@@ -133,7 +133,7 @@
 
 ---
 
-### C6. ✅ (#TBD) Снять печать одного этапа работ — `chore/remove-work-sheet-print-form`
+### C6. ✅ ([#965](https://github.com/Valstan/MatricaRMZ/pull/965)) Снять печать одного этапа работ — `chore/remove-work-sheet-print-form`
 Владелец 17.09: этапы печатаются только списками и отчётом движений двигателя, бланк одного этапа (C5) не нужен, грифов не делать. Кнопку и печатную форму убрать; печать списка этапов остаётся.
 
 ## Блок D — карточка двигателя: «Детали и акты» → две акт-вкладки
@@ -219,10 +219,10 @@
 
 ---
 
-### D5. ✅ (#TBD) «Базовые детали» раскрыты по умолчанию — `chore/engine-card-base-parts-open`
+### D5. ✅ ([#964](https://github.com/Valstan/MatricaRMZ/pull/964)) «Базовые детали» раскрыты по умолчанию — `chore/engine-card-base-parts-open`
 Владелец 17.09: да. Группа «Базовые детали (в актах)» внутри блока «Детали» открыта при первом заходе; «Остальные детали» — как были. Свёрнутость по-прежнему помнится.
 
-### D6. ✅ (#TBD) Не предлагать своё ФИО в подпись при повторном открытии карточки — `feat/act-signature-autofill-once`
+### D6. ✅ ([#966](https://github.com/Valstan/MatricaRMZ/pull/966)) Не предлагать своё ФИО в подпись при повторном открытии карточки — `feat/act-signature-autofill-once`
 Владелец 17.09: нет. Нужна отметка в самих данных листа («подписи уже предлагали»), иначе пустое поле после сохранения неотличимо от незаполненного (M139). Хранение — ключ в `answers`, без миграции.
 
 ## Блок E — номенклатура
@@ -281,7 +281,7 @@
 1. **Пачка 1** (день 1): A1, A2, A3, A4, B1, B2 → релиз. ✅ v3.36.0, 16.09 (смоук `cdp-pack1` 13/13; попутно #948 — дефект `useColumnLayout`).
 2. **Пачка 2**: C1, C2, C3, C4, C5 → релиз («ведомости стали этапами»).
 3. **Пачка 4**: D1 ✅, D2 ✅, D4 ✅ → релиз (карточка двигателя). ✅ v3.38.0, 17.09 — вышла раньше пачки 3.
-4. **Пачка 3** (в работе с 17.09): B3 ✅, B5 ✅, D5 ✅, C6 ✅, D6 ✅ → релиз; B6 — по слову владельца (замер: 95 → 3) → релиз (отчёты-списки + решения владельца 17.09); B4 — по приёмке.
+4. **Пачка 3**: B3 ✅, B5 ✅, D5 ✅, C6 ✅, D6 ✅ → ✅ v3.39.0, 17.09 (смоуки `cdp-pack3` и `cdp-pack3-d6` — все шаги). B6 — по слову владельца (замер: 95 → 3); B4 — по приёмке.
 5. **Пачка 5**: E1 (+E2-доклад), F1 → релиз.
 6. **Нитка G**: G1 → G2 → релиз → G3 → релиз → G4.
 7. **Блок H** — после G или раньше по слову владельца.
