@@ -4,6 +4,7 @@ import type { EngineListItem, ReportPresetId } from '@matricarmz/shared';
 
 import { EngineFactoryStagesReportPage } from './EngineFactoryStagesReportPage.js';
 import { EnginesReportPage } from './EnginesReportPage.js';
+import { WorkSheetsReportPage } from './WorkSheetsReportPage.js';
 
 /**
  * Рамка «отчёт как список» (владелец 15.09.2026: «отчёты должны стать такими же списками,
@@ -26,4 +27,5 @@ export type ListReportPageProps = {
 export const LIST_REPORT_PAGES: Partial<Record<ReportPresetId, React.ComponentType<ListReportPageProps>>> = {
   engine_factory_stages: EngineFactoryStagesReportPage,
   engines: EnginesReportPage,
+  work_sheets: WorkSheetsReportPage,
 };

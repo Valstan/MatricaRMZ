@@ -232,3 +232,17 @@ describe('ступени фильтра этапов работ', () => {
     expect(labels.some((l) => l.includes('0f3f2a6e'))).toBe(false);
   });
 });
+
+describe('unionWorkSheetColumns — колонки всех видов работ для отчёта', () => {
+  it('объединяет в порядке справочника, одинаковый код берёт один раз — первый по порядку', async () => {
+    const { unionWorkSheetColumns } = await import('./workSheets.js');
+    const col = (code: string, label: string) => ({ code, label, type: 'text' as const, required: false });
+    const out = unionWorkSheetColumns([
+      { sortOrder: 2, columns: [col('b', 'B'), col('shared', 'из второго')] },
+      { sortOrder: 1, columns: [col('a', 'A'), col('shared', 'из первого')] },
+    ]);
+    expect(out.map((c) => c.code)).toEqual(['a', 'shared', 'b']);
+    expect(out.find((c) => c.code === 'shared')?.label).toBe('из первого');
+    expect(unionWorkSheetColumns([])).toEqual([]);
+  });
+});
