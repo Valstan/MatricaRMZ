@@ -1,6 +1,6 @@
 import { hashTxPayload, LedgerTableName, type LedgerSignedTx, type LedgerTxPayload } from '@matricarmz/ledger';
 import { SyncTableRegistry, type SyncTableName } from '@matricarmz/shared';
-import { sql } from 'drizzle-orm';
+import { inArray, sql } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
 import { ledgerTxIndex, releaseRegistry } from '../database/schema.js';
@@ -118,8 +118,43 @@ async function appendBatch(payloads: LedgerTxPayload[], now: number): Promise<Le
         actorUsername: t.actor?.username ?? null,
       })),
     );
+    await stampRowSeq(tx, out);
     return out;
   });
+}
+
+/**
+ * Номер журнала ставится и на саму строку PG. Инкрементальный pull читает таблицы по
+ * `last_server_seq > since`, и строка без штампа не доедет до клиентов никогда (`NULL > n`
+ * в SQL не TRUE). До 17.09.2026 штамп ставил только `applyPushBatch` (канонический путь
+ * `writeSyncChanges`), а прямые писатели — `upsertWarehouseNomenclature`, BOM, дедуп деталей,
+ * maintenance-скрипты — журналировали без него: их правки уезжали клиентам только полным
+ * pull'ом (GOTCHAS M38). Раз номер выдаёт журнал, журнал его и штампует — тогда обойти
+ * доставку нельзя ни одним писателем. Строки, которых в PG ещё нет (канонический путь пишет
+ * журнал раньше таблицы), UPDATE не находит — их проштампует `applyPushBatch` тем же номером.
+ */
+async function stampRowSeq(tx: Pick<typeof db, 'update'>, signed: LedgerSignedTx[]): Promise<void> {
+  const byTable = new Map<string, Array<{ rowId: string; seq: number }>>();
+  for (const t of signed) {
+    const entry = PG_SYNC_TABLES[String(t.table)];
+    if (!entry || !('lastServerSeq' in entry.drizzle)) continue;
+    const rowId = rowIdOf(t);
+    if (!rowId) continue;
+    const list = byTable.get(String(t.table)) ?? [];
+    list.push({ rowId, seq: t.seq });
+    byTable.set(String(t.table), list);
+  }
+  for (const [table, pairs] of [...byTable.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const drizzle = PG_SYNC_TABLES[table]!.drizzle;
+    const cases = sql.join(
+      pairs.map((p) => sql`when ${drizzle.id} = ${p.rowId} then ${p.seq}::bigint`),
+      sql.raw(' '),
+    );
+    await tx
+      .update(drizzle)
+      .set({ lastServerSeq: sql`case ${cases} end` })
+      .where(inArray(drizzle.id, pairs.map((p) => p.rowId) as any));
+  }
 }
 
 export async function signAndAppend(payloads: LedgerTxPayload[]): Promise<{ applied: number; lastSeq: number; blockHeight: number }> {
