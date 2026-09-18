@@ -180,8 +180,6 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
         INSERT INTO erp_engine_assembly_bom_new (${cols}) SELECT ${cols} FROM erp_engine_assembly_bom;
         DROP TABLE erp_engine_assembly_bom;
         ALTER TABLE erp_engine_assembly_bom_new RENAME TO erp_engine_assembly_bom;
-        CREATE UNIQUE INDEX IF NOT EXISTS erp_engine_assembly_bom_engine_version_uq
-          ON erp_engine_assembly_bom(engine_nomenclature_id, version);
         CREATE INDEX IF NOT EXISTS erp_engine_assembly_bom_engine_idx
           ON erp_engine_assembly_bom(engine_nomenclature_id);
         CREATE INDEX IF NOT EXISTS erp_engine_assembly_bom_status_idx
@@ -189,6 +187,12 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
         COMMIT;
       `);
     }
+
+    // Зеркало правки десктопа (electron-app/src/main/database/migrate.ts): пары
+    // (engine_nomenclature_id, version) на сервере НЕ уникальны — в PG такого ограничения
+    // нет вообще, колонка устарела. Клиентский UNIQUE делал законные серверные строки
+    // непринимаемыми, и pull падал целиком у всего парка (инцидент 18.09.2026, GOTCHAS M142).
+    await sqlite.exec(`DROP INDEX IF EXISTS erp_engine_assembly_bom_engine_version_uq;`);
   }
 
   // erp_nomenclature.directory_kind / directory_ref_id — clientSchemaMigrations 7->8.
