@@ -48,7 +48,7 @@ export function purgeLeakedCredentialAttributes(sqlite: Database.Database) {
 // clientSchemaMigrations), и неэкранированный ALTER упал бы с «duplicate column
 // name» → откат транзакции → self-heal-перестройка БД в index.ts. Поэтому
 // идемпотентная PRAGMA-обёртка в стиле clientSchemaMigrations.ts.
-function ensureClientSchemaParity(sqlite: Database.Database) {
+export function ensureClientSchemaParity(sqlite: Database.Database) {
   const hasTable = (name: string): boolean =>
     !!sqlite.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(name);
   const columnNames = (table: string): Set<string> =>
@@ -304,8 +304,6 @@ function ensureClientSchemaParity(sqlite: Database.Database) {
         INSERT INTO erp_engine_assembly_bom_new (${cols}) SELECT ${cols} FROM erp_engine_assembly_bom;
         DROP TABLE erp_engine_assembly_bom;
         ALTER TABLE erp_engine_assembly_bom_new RENAME TO erp_engine_assembly_bom;
-        CREATE UNIQUE INDEX IF NOT EXISTS erp_engine_assembly_bom_engine_version_uq
-          ON erp_engine_assembly_bom(engine_nomenclature_id, version);
         CREATE INDEX IF NOT EXISTS erp_engine_assembly_bom_engine_idx
           ON erp_engine_assembly_bom(engine_nomenclature_id);
         CREATE INDEX IF NOT EXISTS erp_engine_assembly_bom_status_idx
@@ -313,6 +311,23 @@ function ensureClientSchemaParity(sqlite: Database.Database) {
         COMMIT;
       `);
     }
+
+    // Пары (engine_nomenclature_id, version) на сервере НЕ уникальны: колонка устарела
+    // (марки BOM переехали в erp_engine_assembly_bom_brand_links), и в PG такого
+    // ограничения нет ВООБЩЕ. Клиентский UNIQUE делал пару строк, законных на сервере,
+    // физически непринимаемой — и любой pull, который их вёз, падал целиком:
+    // `UNIQUE constraint failed: erp_engine_assembly_bom.engine_nomenclature_id, .version`.
+    //
+    // Индекс уже снимают версионные миграции (clientSchemaMigrations 4->5 и 8->9), но
+    // пересборка выше создавала его заново, а свежая установка базлайнит версию и цепочку
+    // пропускает. Поэтому снос здесь — безусловный и идемпотентный: он и есть то место,
+    // где чинится долгоживущая БД, до sync и до логина.
+    //
+    // Это ВТОРОЙ инцидент того же вида на этой же таблице: в июле 2026 клиентский NOT NULL
+    // на той же колонке так же валил pull у всего парка (см. комментарий к пересборке выше).
+    // Общее правило — ограничение на клиенте не может быть строже серверного: сервер решает,
+    // какие строки законны, клиент обязан суметь их принять (GOTCHAS M142).
+    sqlite.exec(`DROP INDEX IF EXISTS erp_engine_assembly_bom_engine_version_uq;`);
   }
 
   // erp_nomenclature.directory_kind / directory_ref_id — добавлены через clientSchemaMigrations 7->8.
