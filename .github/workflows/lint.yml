@@ -50,3 +50,9 @@ jobs:
       # список принятых находок не может стать вечным глушителем.
       - name: Deps audit script smoke test
         run: bash scripts/prod-ops/audit-deps.test.sh
+
+      # Выкат бэкенда — самый дорогой отказ из ops-скриптов: он бьёт ровно в тот день, когда
+      # нужна способность выкатывать. Смоук держит откат, отказ до `rm -rf` при неустановленной
+      # рантаймовой зависимости и ширину окна ожидания primary (канон: не меньше 90 с).
+      - name: Backend deploy script smoke test
+        run: bash scripts/prod-ops/deploy-backend.test.sh

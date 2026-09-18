@@ -63,29 +63,118 @@ for p in backend-api/dist/index.js shared/dist ledger/dist; do
   [[ -e "$STAGE/$p" ]] || { log "в архиве нет $p — выкат отменён"; exit 1; }
 done
 
+PATHS=(backend-api/dist backend-api/drizzle shared/dist ledger/dist)
+
+# Рантаймовые зависимости проверяем ДО сноса. Артефакт несёт только собранное; `dependencies`
+# приезжают с `git pull`, а ставит их человек отдельным фильтрованным install'ом (см. AGENTS.md
+# §Release). Пропущенный install виден иначе только после `rm -rf` — сервис не поднимается с
+# MODULE_NOT_FOUND, а возвращаться уже некуда.
+missing_runtime_deps() {
+  local names dep missing=""
+  names="$(node -p 'Object.keys(require("./backend-api/package.json").dependencies||{}).join(" ")' 2>/dev/null)" || return 0
+  for dep in $names; do
+    case "$dep" in
+      @matricarmz/*) continue ;;  # workspace-пакеты приезжают этим же архивом
+    esac
+    [[ -e "$REPO_DIR/backend-api/node_modules/$dep" ]] || missing="$missing $dep"
+  done
+  printf '%s' "${missing# }"
+}
+
+MISSING="$(missing_runtime_deps)"
+if [[ -n "$MISSING" ]]; then
+  log "рантаймовые зависимости не установлены:$(printf ' %s' $MISSING)"
+  log "выкат отменён ДО замены dist — прежний остался на месте и работает"
+  log "поставить: corepack pnpm install --filter \"@matricarmz/backend-api...\" && node scripts/prod-ops/prune-virtual-store.mjs"
+  exit 1
+fi
+
+# Резервная копия прежнего dist. Раньше её не было вовсе: скрипт сносил `rm -rf` и клал новое,
+# а вернуться можно было только повторным выкатом прошлого артефакта — который живёт
+# retention-days: 14. Старше двух недель откатываться было не на что.
+BACKUP_ROOT="$REPO_DIR/.deploy-backup"
+BACKUP_KEEP="${MATRICA_DEPLOY_BACKUP_KEEP:-3}"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+BACKUP="$BACKUP_ROOT/$STAMP"
+
+log "сохраняю прежний dist в .deploy-backup/$STAMP"
+for p in "${PATHS[@]}"; do
+  if [[ -e "$REPO_DIR/$p" ]]; then
+    mkdir -p "$BACKUP/$(dirname "$p")"
+    cp -a "$REPO_DIR/$p" "$BACKUP/$p"
+  fi
+done
+
 log "раскладываю"
-for p in backend-api/dist backend-api/drizzle shared/dist ledger/dist; do
+for p in "${PATHS[@]}"; do
   rm -rf "${REPO_DIR:?}/$p"
   mkdir -p "$(dirname "$REPO_DIR/$p")"
   cp -a "$STAGE/$p" "$REPO_DIR/$p"
 done
 
+restore_backup() {
+  log "ОТКАТ: возвращаю dist из .deploy-backup/$STAMP"
+  local p
+  for p in "${PATHS[@]}"; do
+    [[ -e "$BACKUP/$p" ]] || continue
+    rm -rf "${REPO_DIR:?}/$p"
+    mkdir -p "$(dirname "$REPO_DIR/$p")"
+    cp -a "$BACKUP/$p" "$REPO_DIR/$p"
+  done
+}
+
+# Окно ожидания — по канону (AGENTS.md §Release, GOTCHAS M100): primary поднимает фоновую
+# обвязку и биндится ~50 с, поэтому меньше 90 с брать нельзя — иначе здоровый выкат объявляется
+# упавшим и откат стреляет по исправному. `systemctl is-active` за готовность не считаем:
+# он печатает active до бинда. Здесь было 60 с.
+PRIMARY_WAIT="${MATRICA_DEPLOY_PRIMARY_WAIT:-120}"
+SECONDARY_WAIT="${MATRICA_DEPLOY_SECONDARY_WAIT:-60}"
+
 restart_one() {
-  local unit="$1" port="$2"
-  log "перезапуск $unit"
+  local unit="$1" port="$2" wait_s="$3" waited=0
+  log "перезапуск $unit (жду до $wait_s с)"
   sudo -n systemctl restart "$unit"
-  for _ in $(seq 1 30); do
+  while (( waited < wait_s )); do
     sleep 2
+    waited=$((waited + 2))
     if curl -fs "http://127.0.0.1:$port/health" >/dev/null 2>&1; then
-      log "$unit отвечает"
+      log "$unit отвечает через $waited с"
       return 0
     fi
   done
-  log "$unit НЕ поднялся за 60 с — второй инстанс не трогаю"
+  log "$unit НЕ поднялся за $wait_s с"
   return 1
 }
 
-restart_one matricarmz-backend-primary 3001
-restart_one matricarmz-backend-secondary 3002
+if ! restart_one matricarmz-backend-primary 3001 "$PRIMARY_WAIT"; then
+  # Secondary ещё не перезапускали — он держит парк на прежнем коде из памяти. Но новый dist
+  # уже на диске, общий для обоих юнитов, и secondary подхватил бы его при любом рестарте.
+  # Поэтому откат обязателен, а не желателен.
+  restore_backup
+  if restart_one matricarmz-backend-primary 3001 "$PRIMARY_WAIT"; then
+    log "откат удался: primary снова на прежнем dist, secondary не трогали"
+  else
+    log "ОТКАТ НЕ ПОМОГ — primary не поднимается и на прежнем dist. Дело не в выкате."
+    log "прежний dist лежит в .deploy-backup/$STAMP; смотреть journalctl -u matricarmz-backend-primary"
+  fi
+  exit 1
+fi
+
+if ! restart_one matricarmz-backend-secondary 3002 "$SECONDARY_WAIT"; then
+  # Primary уже здоров на новом dist — откатывать всё назад дороже, чем чинить secondary:
+  # парк обслуживается. Поэтому громко говорим и выходим с ошибкой, но dist не трогаем.
+  log "secondary не поднялся, primary здоров на новом dist — парк обслуживается одним инстансом"
+  log "прежний dist для ручного отката: .deploy-backup/$STAMP"
+  exit 1
+fi
+
+# Чистим старые копии только после успеха: упавший выкат оставляет их все.
+if [[ -d "$BACKUP_ROOT" ]]; then
+  mapfile -t OLD < <(ls -1 "$BACKUP_ROOT" 2>/dev/null | sort -r | tail -n "+$((BACKUP_KEEP + 1))")
+  for old in "${OLD[@]}"; do
+    [[ -n "$old" ]] && rm -rf "${BACKUP_ROOT:?}/$old"
+  done
+fi
 
 log "готово: $(curl -fsk https://127.0.0.1/health || echo 'nginx не ответил')"
+log "откат при нужде: cp -a .deploy-backup/$STAMP/<путь> <путь> и рестарт юнитов"
