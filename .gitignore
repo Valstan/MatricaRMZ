@@ -118,3 +118,7 @@ electron-app/.delta-blockmaps/
 
 # Scratch / voice-note temp files at repo root (e.g. tmp_golosovye_*.txt) — never commit.
 /tmp_*
+
+# Копии прежнего dist, которые deploy-backend.sh кладёт на прод-боксе перед заменой (для отката).
+# Живут внутри клона, потому что клон и есть каталог выката; в Git им делать нечего.
+/.deploy-backup/
