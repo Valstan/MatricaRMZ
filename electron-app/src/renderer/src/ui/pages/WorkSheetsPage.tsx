@@ -23,6 +23,9 @@ import { FacetFilter, FacetToggleButton } from '../components/FacetFilter.js';
 import { Input } from '../components/Input.js';
 import { UnifiedDateInput } from '../components/UnifiedDateInput.js';
 import { WorkSheetFieldEditor, fromWorkSheetDateInput, toWorkSheetDateInput } from '../components/WorkSheetFieldEditor.js';
+import { useConfirm } from '../components/ConfirmContext.js';
+import { formatEngineGateLabel } from '../utils/assemblyDuplicateGate.js';
+import { askWorkSheetDuplicate } from '../utils/workSheetDuplicateGate.js';
 import { ListCount } from '../components/ListCount.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
@@ -157,6 +160,15 @@ const TYPE_FACET_ID = 'type';
 // называется так же, как в отчётах.
 function engineLabel(r: WorkSheetRow): string {
   return r.engineNumber || HUMAN_LABEL_NO_NUMBER;
+}
+
+/**
+ * Подпись вида работ в списке. Осознанный возврат подписывается прямо здесь: две одинаковые
+ * строки за один день законны ТОЛЬКО когда вторая — повторный проход, и это должно быть видно
+ * глазом в списке. Иначе отличие, ради которого заведён гейт дублей, существует лишь в базе.
+ */
+function typeCellLabel(r: WorkSheetRow): string {
+  return r.repeatPass >= 2 ? `${r.typeName} · проход ${r.repeatPass}` : r.typeName;
 }
 
 /**
@@ -338,6 +350,7 @@ export function WorkSheetsPage(props: {
     setEditor(editorFromRow(row, colId));
   };
 
+  const { pickChoice } = useConfirm();
   const liveType = useMemo(() => (editor ? types.find((t) => t.code === editor.typeCode) ?? null : null), [editor, types]);
   const draftEngine = useMemo(
     () => (editor && !editor.base && editor.engineId ? props.engines.find((e) => e.id === editor.engineId) ?? null : null),
@@ -393,7 +406,7 @@ export function WorkSheetsPage(props: {
       // «Отремонтирован» по completesRepair остаются в одном месте. Payload собирается из
       // СОСТОЯНИЯ, а не из видимых ячеек: скрытые колонки «Цех»/«Поля»/«Примечание» иначе
       // обнулили бы свои значения.
-      const r = await window.matrica.workSheets.rows.save({
+      const payload = {
         id: ed.id,
         engineId,
         type: base
@@ -425,7 +438,28 @@ export function WorkSheetsPage(props: {
           (base && ed.workshopId === base.workshopId ? base.workshopName || null : null),
         note: ed.note.trim() || null,
         values: ed.values,
-      });
+      };
+      // Путь записи ОДИН на всё: создание, правку и повтор после гейта дублей. Второй вызов
+      // разъехался бы с первым — и по payload, и по оповещению об изменении двигателя.
+      const writeRow = (repeatPass?: number) =>
+        window.matrica.workSheets.rows.save({ ...payload, ...(repeatPass ? { repeatPass } : {}) });
+
+      let r = await writeRow();
+      // Совпадение с уже внесённой строкой — вопрос к оператору, а не ошибка: двигатель может
+      // и правда вернуться на тот же этап. Спрашиваем и при «это возврат» пишем повторно с
+      // номером прохода; при отказе строка редактора остаётся на экране, чтобы её было видно.
+      if (!r.ok && r.duplicate) {
+        const decision = await askWorkSheetDuplicate({
+          duplicate: r.duplicate,
+          engineLabel: formatEngineGateLabel(props.engines.find((e) => e.id === engineId) ?? {}),
+          pickChoice,
+        });
+        if (decision.action !== 'repeat') {
+          patchEditor({ busy: false, error: 'Такой этап за этот день уже есть — строка не сохранена' });
+          return;
+        }
+        r = await writeRow(decision.pass);
+      }
       if (!r.ok) {
         patchEditor({ busy: false, error: `Ошибка: ${r.error}` });
         return;
@@ -458,7 +492,7 @@ export function WorkSheetsPage(props: {
   const columns = useMemo<Column[]>(
     () => [
       { id: 'at', label: 'Дата', kind: 'date', render: (r) => formatMoscowDate(new Date(r.at)), sortValue: (r) => r.at, alwaysVisible: true },
-      { id: 'type', label: 'Вид работ', kind: 'name', render: (r) => r.typeName, sortValue: (r) => r.typeName, alwaysVisible: true },
+      { id: 'type', label: 'Вид работ', kind: 'name', render: typeCellLabel, sortValue: (r) => r.typeName, alwaysVisible: true },
       { id: 'engine', label: 'Двигатель', kind: 'name', render: (r) => engineLabel(r), sortValue: (r) => engineLabel(r), alwaysVisible: true },
       { id: 'brand', label: 'Марка', kind: 'name', render: (r) => r.engineBrand, sortValue: (r) => r.engineBrand },
       { id: 'internal', label: 'Внутр. №', kind: 'num', render: (r) => r.internalNumber, sortValue: (r) => r.internalNumber },

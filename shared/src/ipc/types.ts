@@ -10,6 +10,7 @@ import type { SectionMembership } from '../domain/sectionAccess.js';
 import type { SupportContact } from '../domain/supportContact.js';
 import type { ServicePriceHistoryDto, ServicePriceOrderDto } from '../domain/servicePriceOrders.js';
 import type { WorkSheetRow, WorkSheetType } from '../domain/workSheets.js';
+import type { WorkSheetDuplicateRef } from '../domain/workSheetDuplicates.js';
 
 // Общие типы IPC (используются и в Electron main, и в renderer).
 
@@ -2140,9 +2141,24 @@ export type MatricaApi = {
         workshopName?: string | null;
         note?: string | null;
         values: Record<string, unknown>;
+        /**
+         * Осознанный повторный проход: оператор ответил на гейт дублей «двигатель вернулся на
+         * этот этап». Без него строка, совпавшая с уже внесённой по (двигатель, вид работ,
+         * день), не пишется — возвращается `duplicate`, и вопрос задаёт интерфейс.
+         */
+        repeatPass?: number | null;
+        repeatReason?: string | null;
       }) => Promise<
         | { ok: true; id: string; created: boolean; repair: { applied: boolean; reason?: string } | null }
-        | { ok: false; error: string }
+        | {
+            ok: false;
+            error: string;
+            /**
+             * Отказ именно по дублю. Наличие поля — сигнал интерфейсу поднять гейт, а не
+             * показать красную ошибку: совпадение не ошибка, а вопрос к человеку.
+             */
+            duplicate?: { refs: WorkSheetDuplicateRef[]; nextPass: number; typeName: string; atMs: number };
+          }
       >;
       /**
        * `rollbackRepair` — снять «Отремонтирован», если его поставила ЭТА строка (решение

@@ -12,8 +12,11 @@ import { UnifiedDateInput } from '../components/UnifiedDateInput.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { WorkSheetFieldEditor, fromWorkSheetDateInput, toWorkSheetDateInput } from '../components/WorkSheetFieldEditor.js';
 import type { WorkshopOption } from '../components/WorkSheetTypeEditorDialog.js';
+import { formatEngineGateLabel } from '../utils/assemblyDuplicateGate.js';
 import { buildEngineSearchOptions } from '../utils/selectOptions.js';
+import { askWorkSheetDuplicate } from '../utils/workSheetDuplicateGate.js';
 import { loadWorkSheetTypes } from '../utils/workSheetTypesCache.js';
+import { useConfirm } from '../components/ConfirmContext.js';
 
 /**
  * Карточка этапа работ (владелец 15.09.2026): «как у нас вся система работает — есть
@@ -43,6 +46,7 @@ export function WorkSheetDetailsPage(props: {
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
+  const { pickChoice } = useConfirm();
 
   const [typeCode, setTypeCode] = useState('');
   const [engineId, setEngineId] = useState<string | null>(null);
@@ -154,7 +158,7 @@ export function WorkSheetDetailsPage(props: {
       setBusy(true);
       setStatus('');
       try {
-        const r = await window.matrica.workSheets.rows.save({
+        const payload = {
           id: props.rowId,
           engineId,
           type: {
@@ -171,7 +175,27 @@ export function WorkSheetDetailsPage(props: {
           workshopName: props.workshops.find((w) => w.id === workshopId)?.label ?? null,
           note: note.trim() || null,
           values,
-        });
+        };
+        // Путь записи один на создание, правку и повтор после гейта: второй вызов разъехался
+        // бы с первым по payload.
+        const writeRow = (repeatPass?: number) =>
+          window.matrica.workSheets.rows.save({ ...payload, ...(repeatPass ? { repeatPass } : {}) });
+
+        let r = await writeRow();
+        // Совпало с уже внесённой строкой — это вопрос к оператору, а не ошибка. Спрашиваем и,
+        // если он говорит «двигатель вернулся», сохраняем повторно с номером прохода.
+        if (!r.ok && r.duplicate) {
+          const decision = await askWorkSheetDuplicate({
+            duplicate: r.duplicate,
+            engineLabel: formatEngineGateLabel(props.engines.find((e) => e.id === engineId) ?? {}),
+            pickChoice,
+          });
+          if (decision.action !== 'repeat') {
+            setStatus('Не сохранено: такой этап за этот день уже есть');
+            return;
+          }
+          r = await writeRow(decision.pass);
+        }
         if (!r.ok) {
           setStatus(`Ошибка: ${r.error}`);
           return;
@@ -191,7 +215,7 @@ export function WorkSheetDetailsPage(props: {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- props пересоздаётся каждый рендер; зависим от редактируемых значений
-    [effectiveType, engineId, date, workshopId, note, values, props.rowId, load],
+    [effectiveType, engineId, date, workshopId, note, values, props.rowId, load, pickChoice],
   );
 
   const remove = async () => {
