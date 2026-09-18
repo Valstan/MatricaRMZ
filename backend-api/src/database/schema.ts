@@ -30,6 +30,7 @@ export const entityTypes = pgTable(
     syncStatus: text('sync_status').notNull().default('synced'),
   },
   (t) => ({
+    seqIdx: index('entity_types_seq_idx').on(t.lastServerSeq),
     codeIdx: uniqueIndex('entity_types_code_uq').on(t.code),
   }),
 );
@@ -44,7 +45,9 @@ export const entities = pgTable('entities', {
   lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
   deletedAt: bigint('deleted_at', { mode: 'number' }),
   syncStatus: text('sync_status').notNull().default('synced'),
-});
+}, (t) => ({
+  seqIdx: index('entities_seq_idx').on(t.lastServerSeq),
+}));
 
 export const attributeDefs = pgTable(
   'attribute_defs',
@@ -66,6 +69,7 @@ export const attributeDefs = pgTable(
     syncStatus: text('sync_status').notNull().default('synced'),
   },
   (t) => ({
+    seqIdx: index('attribute_defs_seq_idx').on(t.lastServerSeq),
     codePerTypeIdx: uniqueIndex('attribute_defs_type_code_uq').on(t.entityTypeId, t.code),
   }),
 );
@@ -88,6 +92,7 @@ export const attributeValues = pgTable(
     syncStatus: text('sync_status').notNull().default('synced'),
   },
   (t) => ({
+    seqIdx: index('attribute_values_seq_idx').on(t.lastServerSeq),
     perEntityAttrIdx: uniqueIndex('attribute_values_entity_attr_uq').on(t.entityId, t.attributeDefId),
   }),
 );
@@ -108,7 +113,9 @@ export const operations = pgTable('operations', {
   lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
   deletedAt: bigint('deleted_at', { mode: 'number' }),
   syncStatus: text('sync_status').notNull().default('synced'),
-});
+}, (t) => ({
+  seqIdx: index('operations_seq_idx').on(t.lastServerSeq),
+}));
 
 export const auditLog = pgTable('audit_log', {
   id: uuid('id').primaryKey(),
@@ -122,7 +129,9 @@ export const auditLog = pgTable('audit_log', {
   lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
   deletedAt: bigint('deleted_at', { mode: 'number' }),
   syncStatus: text('sync_status').notNull().default('synced'),
-});
+}, (t) => ({
+  seqIdx: index('audit_log_seq_idx').on(t.lastServerSeq),
+}));
 
 // -----------------------------
 // Ownership & Change Requests (server-side only)
@@ -572,7 +581,9 @@ export const chatRooms = pgTable(
     deletedAt: bigint('deleted_at', { mode: 'number' }),
     syncStatus: text('sync_status').notNull().default('synced'),
   },
-  (_t) => ({}),
+  (t) => ({
+    seqIdx: index('chat_rooms_seq_idx').on(t.lastServerSeq),
+  }),
 );
 
 export const chatMessages = pgTable(
@@ -602,7 +613,9 @@ export const chatMessages = pgTable(
     deletedAt: bigint('deleted_at', { mode: 'number' }),
     syncStatus: text('sync_status').notNull().default('synced'),
   },
-  (_t) => ({}),
+  (t) => ({
+    seqIdx: index('chat_messages_seq_idx').on(t.lastServerSeq),
+  }),
 );
 
 export const chatReads = pgTable(
@@ -624,6 +637,7 @@ export const chatReads = pgTable(
     syncStatus: text('sync_status').notNull().default('synced'),
   },
   (t) => ({
+    seqIdx: index('chat_reads_seq_idx').on(t.lastServerSeq),
     msgUserUq: uniqueIndex('chat_reads_message_user_uq').on(t.messageId, t.userId),
   }),
 );
@@ -650,6 +664,7 @@ export const notes = pgTable(
     syncStatus: text('sync_status').notNull().default('synced'),
   },
   (t) => ({
+    seqIdx: index('notes_seq_idx').on(t.lastServerSeq),
     ownerSortIdx: index('notes_owner_sort_idx').on(t.ownerUserId, t.sortOrder),
   }),
 );
@@ -673,6 +688,7 @@ export const noteShares = pgTable(
     syncStatus: text('sync_status').notNull().default('synced'),
   },
   (t) => ({
+    seqIdx: index('note_shares_seq_idx').on(t.lastServerSeq),
     noteRecipientUq: uniqueIndex('note_shares_note_recipient_uq').on(t.noteId, t.recipientUserId),
     recipientSortIdx: index('note_shares_recipient_sort_idx').on(t.recipientUserId, t.sortOrder),
   }),
@@ -700,6 +716,7 @@ export const cardDrafts = pgTable(
     syncStatus: text('sync_status').notNull().default('synced'),
   },
   (t) => ({
+    seqIdx: index('card_drafts_seq_idx').on(t.lastServerSeq),
     ownerKindIdx: index('card_drafts_owner_kind_idx').on(t.ownerUserId, t.kind),
     ownerCardIdx: index('card_drafts_owner_card_idx').on(t.ownerUserId, t.cardType, t.cardId),
   }),
@@ -731,6 +748,7 @@ export const aiChatRequests = pgTable(
     syncStatus: text('sync_status').notNull().default('synced'),
   },
   (t) => ({
+    seqIdx: index('ai_chat_requests_seq_idx').on(t.lastServerSeq),
     userCreatedIdx: index('ai_chat_requests_user_created_idx').on(t.userId, t.createdAt),
     statusIdx: index('ai_chat_requests_status_idx').on(t.status),
   }),
@@ -780,7 +798,9 @@ export const userPresence = pgTable(
     deletedAt: bigint('deleted_at', { mode: 'number' }),
     syncStatus: text('sync_status').notNull().default('synced'),
   },
-  (_t) => ({}),
+  (t) => ({
+    seqIdx: index('user_presence_seq_idx').on(t.lastServerSeq),
+  }),
 );
 
 // -----------------------------
@@ -1285,6 +1305,7 @@ export const erpNomenclature = pgTable(
     deletedAt: bigint('deleted_at', { mode: 'number' }),
   },
   (t) => ({
+    seqIdx: index('erp_nomenclature_seq_idx').on(t.lastServerSeq),
     // Partial: a soft-deleted row must NOT keep holding its code, otherwise a
     // dedupe-merge (which soft-deletes the loser, leaving two rows that share the
     // pre-merge code) makes a full replayLedgerToDb / cold-rebuild collide on this
@@ -1361,6 +1382,7 @@ export const erpEngineAssemblyBom = pgTable(
     lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
   },
   (t) => ({
+    seqIdx: index('erp_engine_assembly_bom_seq_idx').on(t.lastServerSeq),
     statusIdx: index('erp_engine_assembly_bom_status_idx').on(t.status),
   }),
 );
@@ -1386,6 +1408,7 @@ export const erpEngineAssemblyBomBrandLinks = pgTable(
     lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
   },
   (t) => ({
+    seqIdx: index('erp_engine_assembly_bom_brand_links_seq_idx').on(t.lastServerSeq),
     bomBrandUq: uniqueIndex('erp_eabbl_bom_brand_uq')
       .on(t.bomId, t.engineBrandId)
       .where(sql`${t.deletedAt} is null`),
@@ -1426,6 +1449,7 @@ export const erpEngineAssemblyBomLines = pgTable(
     lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
   },
   (t) => ({
+    seqIdx: index('erp_engine_assembly_bom_lines_seq_idx').on(t.lastServerSeq),
     bomIdx: index('erp_engine_assembly_bom_lines_bom_idx').on(t.bomId),
     componentIdx: index('erp_engine_assembly_bom_lines_component_idx').on(t.componentNomenclatureId),
     bomVariantComponentUq: uniqueIndex('erp_engine_assembly_bom_lines_variant_component_uq')
@@ -1528,6 +1552,7 @@ export const erpEngineInstances = pgTable(
     lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
   },
   (t) => ({
+    seqIdx: index('erp_engine_instances_seq_idx').on(t.lastServerSeq),
     nomenclatureSerialUq: uniqueIndex('erp_engine_instances_nomenclature_serial_uq')
       .on(t.nomenclatureId, t.serialNumber)
       .where(sql`${t.deletedAt} is null`),

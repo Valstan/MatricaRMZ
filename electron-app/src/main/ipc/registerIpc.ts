@@ -64,9 +64,13 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     appendMainLogLine(app, message);
   }
 
+  // Страховочный тик. Основную доставку держат пробуждение сервером и сторож своих
+  // правок (оба внутри SyncManager); интервал остаётся на случай, когда подвели они —
+  // оборвалась сессия, сервер старее клиента, сеть отвечает молчанием.
+  const AUTO_SYNC_MS = 60_000;
   // Один менеджер на процесс (переиспользуем и для ручного sync, и для status).
   const mgr = new SyncManager(db, opts.clientId, opts.apiBaseUrl, { onProgress: emitSyncProgress });
-  mgr.startAuto(5 * 60_000);
+  mgr.startAuto(AUTO_SYNC_MS);
   onNetworkChange((next) => {
     if (!next.online) return;
     void mgr.runOnce().catch(() => {});
@@ -108,7 +112,6 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
 
   // Live DB also stores settings/auth, so use it as sysDb.
   const sysDb = db;
-  const AUTO_SYNC_MS = 5 * 60_000;
   let mode: IpcContext['mode'] = () => ({ mode: 'live' as const });
   let backupSqlite: any | null = null;
   let backupDb: BetterSQLite3Database | null = null;

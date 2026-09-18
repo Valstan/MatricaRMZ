@@ -443,7 +443,11 @@ export function V3TabShell(props: {
             className={`v3-sync-btn ${props.syncState === 'syncing' ? 'v3-sync-spinning' : ''} ${props.syncState === 'done' ? 'v3-sync-done' : ''}`}
             onClick={props.onSyncClick}
           >
-            ↻
+            {/* Стрелка — отдельным элементом: вращение вешается на неё, иначе крутилась
+                бы вся кнопка вместе с рамкой (владелец 18.09.2026). */}
+            <span className="v3-sync-glyph" aria-hidden="true">
+              ↻
+            </span>
           </button>
           {props.syncState === 'syncing' && props.syncProgress != null && (
             <span className="v3-sync-pct">{props.syncProgress}%</span>

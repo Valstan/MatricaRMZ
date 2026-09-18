@@ -386,6 +386,8 @@ function desktopUsagePendingStorageKey(userId: string) {
 
 /** Как редко свёртка уезжает наверх. Одна запись профиля = две строки ledger (M79). */
 const DESKTOP_USAGE_FOLD_MS = 5 * 60_000;
+/** Через сколько показывать вращение значка синка: короткие прогоны не мигают. */
+const SYNC_SPIN_DELAY_MS = 400;
 
 // Default «Табель» shortcut in «Мой круг»: seeded once per client (this flag), so the
 // client can later remove the tile (right-click → «Убрать из избранного») and it stays
@@ -966,6 +968,13 @@ export function App() {
     progress: number | null;
     summary: string | null;
   }>({ state: 'idle', progress: null, summary: null });
+  /** Отложенный показ вращения: короткий синк значком не мигает. */
+  const syncSpinDelayRef = useRef<number | null>(null);
+  const clearSyncSpinDelay = useCallback(() => {
+    if (syncSpinDelayRef.current == null) return;
+    window.clearTimeout(syncSpinDelayRef.current);
+    syncSpinDelayRef.current = null;
+  }, []);
   // Split «2 рядом»: вторая карточка, смонтированная одновременно с primary (справа).
   // Своё состояние загрузки двигателя (engine — единственная не-self-load карточка) и
   // свой close-actions ref (backstop сохранения работает по обеим панелям).
@@ -1766,24 +1775,43 @@ export function App() {
       if (!evt) return;
       if (evt.mode === 'incremental') {
         if (evt.state === 'start') {
-          setSyncIndicator({ state: 'syncing', progress: null, summary: null });
+          // Синк теперь идёт на каждую правку (свою и чужую) и обычно занимает доли
+          // секунды. Показывать вращение на каждый такой прогон значило бы мигать
+          // значком в шапке весь день, поэтому включаем его, только если работа
+          // затянулась дольше порога.
+          clearSyncSpinDelay();
+          syncSpinDelayRef.current = window.setTimeout(() => {
+            syncSpinDelayRef.current = null;
+            setSyncIndicator({ state: 'syncing', progress: null, summary: null });
+          }, SYNC_SPIN_DELAY_MS);
         }
         if (evt.state === 'progress' && !evt.coreReady) return;
         if (evt.state === 'progress') {
-          setSyncIndicator({ state: 'syncing', progress: evt.progress != null ? Math.round(evt.progress * 100) : null, summary: null });
+          // Проценты дорисовываем только тому прогону, который уже видно.
+          setSyncIndicator((prev) =>
+            prev.state === 'syncing'
+              ? { state: 'syncing', progress: evt.progress != null ? Math.round(evt.progress * 100) : null, summary: null }
+              : prev,
+          );
           void refreshEngines();
           if (tabRef.current === 'engine' && !isEditingAField()) void reloadEngineRef.current();
         }
         if (evt.state === 'done') {
+          clearSyncSpinDelay();
           const pulled = Number(evt.pulled ?? 0);
-          setSyncIndicator({ state: 'done', progress: null, summary: pulled > 0 ? `Обновилось ${pulled} док.` : 'Синхронизировано' });
           if (pulled > 0) {
+            setSyncIndicator({ state: 'done', progress: null, summary: `Обновилось ${pulled} док.` });
             void refreshEngines();
             if (tabRef.current === 'engine' && !isEditingAField()) void reloadEngineRef.current();
+            setTimeout(() => setSyncIndicator({ state: 'idle', progress: null, summary: null }), 4000);
+          } else {
+            // Ничего не приехало — и сообщать не о чем: «Синхронизировано» на каждом
+            // тихом прогоне висело бы в шапке постоянно и перестало бы что-то значить.
+            setSyncIndicator({ state: 'idle', progress: null, summary: null });
           }
-          setTimeout(() => setSyncIndicator({ state: 'idle', progress: null, summary: null }), 4000);
         }
         if (evt.state === 'error') {
+          clearSyncSpinDelay();
           setSyncIndicator({ state: 'idle', progress: null, summary: 'Ошибка синхронизации' });
           setTimeout(() => setSyncIndicator({ state: 'idle', progress: null, summary: null }), 5000);
         }
@@ -1851,6 +1879,7 @@ export function App() {
     return () => {
       if (fullSyncCloseTimer.current) window.clearTimeout(fullSyncCloseTimer.current);
       fullSyncCloseTimer.current = null;
+      clearSyncSpinDelay();
       if (unsubscribe) unsubscribe();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only sync-progress IPC subscription: re-subscribing on tab/helper identity changes would clear fullSyncCloseTimer mid-flight and strand the full-sync modal open. The handler reads the live tab and reloadEngine through tabRef/reloadEngineRef, and skips the card reload while a field is focused (isEditingAField) so a sync tick cannot overwrite what the operator is typing; refreshEngines only touches the IPC bridge and setEngines, so its first-render identity is safe to keep

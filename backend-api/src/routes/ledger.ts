@@ -17,6 +17,7 @@ import {
   getOwnedNoteIds,
 } from '../services/sync/syncPrivacy.js';
 import { idempotencyCache } from '../services/sync/idempotencyCache.js';
+import { waitForLedgerSeqAbove } from '../services/sync/ledgerSeqWatch.js';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { db } from '../database/db.js';
 import { attributeDefs, entityTypes, releaseRegistry, syncState } from '../database/schema.js';
@@ -515,6 +516,38 @@ ledgerRouter.get('/state/changes', async (req, res) => {
     has_more: pull.has_more,
     changes: visible,
   });
+});
+
+/**
+ * Ждущий запрос «появилось ли что-то новее моего курсора».
+ *
+ * Клиент держит его открытым и получает ответ в тот же миг, когда номер журнала уходит
+ * выше `since`, — отсюда мгновенная доставка чата, карточек и списков на соседнюю машину
+ * без частого опроса. Пустой ответ по таймауту (`changed: false`) — штатный исход, клиент
+ * просто спрашивает снова.
+ *
+ * Дешевле опроса `/state/changes`: там запрос к каждой синкаемой таблице на каждого
+ * клиента, здесь — один общий `max(server_seq)` на инстанс независимо от числа ждущих.
+ */
+ledgerRouter.get('/state/wait', async (req, res) => {
+  const actor = (req as AuthenticatedRequest).user;
+  if (!actor) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
+  const parsed = z
+    .object({
+      since: z.coerce.number().int().nonnegative().default(0),
+      timeout_ms: z.coerce.number().int().min(1000).max(60_000).optional(),
+    })
+    .safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+
+  // Клиент ушёл (закрыл приложение, оборвалась сеть) — снимаем ожидание сразу,
+  // иначе слот держится до конца окна, а ответ пишется в мёртвый сокет.
+  const ac = new AbortController();
+  req.on('close', () => ac.abort());
+
+  const result = await waitForLedgerSeqAbove(parsed.data.since, parsed.data.timeout_ms ?? 25_000, ac.signal);
+  if (res.writableEnded || ac.signal.aborted) return;
+  return res.json({ ok: true, changed: result.changed, server_last_seq: result.seq });
 });
 
 // The former /state/restricted-purge endpoint was removed: clients now keep the full
