@@ -1,11 +1,18 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { filterRowsTiered } from '@matricarmz/shared';
-import type { GlobalSearchResponse, PartMetadata, PartSpec } from '@matricarmz/shared';
+import type { GlobalSearchResponse, PartMetadata, PartSpec, WarehouseLookupOption, WarehouseLookups } from '@matricarmz/shared';
 
 import { httpAuthed } from './httpClient.js';
 import { listEntitiesByTypeWithAttrs } from './entityService.js';
 import { decorateNomenclatureReplicaRow, masterdataLookupLabel, type NomenclatureReplicaRefs } from './nomenclatureReplica.js';
+import {
+  contractLookupOption,
+  counterpartyLookupOption,
+  engineBrandLookupOption,
+  masterdataLookupOption,
+  sortLookupOptions,
+} from './warehouseLookupsReplica.js';
 import { SettingsKey, settingsGetNumber } from './settingsStore.js';
 import {
   enqueueWarehouseCommand,
@@ -626,32 +633,111 @@ export async function warehouseNomenclatureGroupCounts(
   }
 }
 
-// Лукапы склада запрашиваются на КАЖДЫЙ маунт карточек (useWarehouseReferenceData без
-// кэша) — TTL-кэш в main снимает повторные раунд-трипы; при недоступном сервере
-// отдаётся последний удачный ответ (лучше устаревших групп, чем пустых селектов).
-let warehouseLookupsCache: { at: number; value: { ok: true; lookups: Record<string, unknown> } } | null = null;
-const WAREHOUSE_LOOKUPS_CACHE_TTL_MS = 60_000;
-
-export async function warehouseLookupsGet(
+/**
+ * Складские справочники — ИЗ РЕПЛИКИ, без запроса к серверу.
+ *
+ * Лукапы запрашиваются на КАЖДЫЙ маунт складских карточек (`useWarehouseReferenceData`).
+ * Раньше это был REST-запрос с TTL-кэшем на 60 секунд в памяти main-процесса: карточка
+ * ждала сеть, а свежесть держалась минутой (владелец 18.09.2026: «странно как-то по 60
+ * секунд держать её в памяти — всё, дак всё, пусть будет на клиенте»).
+ *
+ * Всё, из чего сервер собирает эти списки, давно синкается клиенту: EAV-справочники
+ * (`entities` + `attribute_values`) и реплика `warehouse_locations`. Читаем их на месте —
+ * ответ мгновенный, offline-устойчивый, а свежесть теперь держит сам синк (правка
+ * справочника приезжает за секунду, а не за минуту).
+ *
+ * Контрагенты — EAV-тип `customer`; строгая `erp_counterparties` на сервере лишь его
+ * триггерное зеркало, и в контракт синхронизации она не входит (как и `erp_contracts`,
+ * `directory_engine_brands`) — поэтому читаем первоисточник, а не зеркало.
+ */
+async function localMasterdataOptions(
   db: BetterSQLite3Database,
-  apiBaseUrl: string,
-) {
-  const path = '/warehouse/lookups';
-  if (warehouseLookupsCache && Date.now() - warehouseLookupsCache.at < WAREHOUSE_LOOKUPS_CACHE_TTL_MS) {
-    return warehouseLookupsCache.value;
+  typeCode: string,
+  toOption: (id: string, attrs: Record<string, unknown>) => WarehouseLookupOption = masterdataLookupOption,
+): Promise<WarehouseLookupOption[]> {
+  const type = await db
+    .select({ id: entityTypes.id })
+    .from(entityTypes)
+    .where(and(eq(entityTypes.code, typeCode), isNull(entityTypes.deletedAt)))
+    .limit(1);
+  const typeId = type[0]?.id ? String(type[0].id) : '';
+  if (!typeId) return [];
+  const rows = await listEntitiesByTypeWithAttrs(db, typeId);
+  return sortLookupOptions(rows.map((row) => toOption(row.id, row.attributes)));
+}
+
+async function localWarehouseLookups(db: BetterSQLite3Database): Promise<WarehouseLookups> {
+  const [
+    warehouseRows,
+    nomenclatureGroups,
+    units,
+    writeoffReasons,
+    counterparties,
+    employees,
+    engineBrands,
+    contracts,
+    nomenclatureItemTypes,
+    nomenclatureProperties,
+    nomenclatureTemplates,
+  ] = await Promise.all([
+    db
+      .select({ id: warehouseLocations.id, code: warehouseLocations.code, name: warehouseLocations.name, isActive: warehouseLocations.isActive })
+      .from(warehouseLocations)
+      .where(isNull(warehouseLocations.deletedAt))
+      // Порядок — как у сервера (`listWarehouseLocations`): по sort_order, затем по имени.
+      // Складам порядок ЗАДАН вручную, и пересортировка по алфавиту его бы сломала.
+      .orderBy(asc(warehouseLocations.sortOrder), asc(warehouseLocations.name)),
+    localMasterdataOptions(db, 'nomenclature_group'),
+    localMasterdataOptions(db, 'unit'),
+    localMasterdataOptions(db, 'stock_write_off_reason'),
+    localMasterdataOptions(db, 'customer', counterpartyLookupOption),
+    localMasterdataOptions(db, 'employee'),
+    localMasterdataOptions(db, 'engine_brand', engineBrandLookupOption),
+    localMasterdataOptions(db, 'contract', contractLookupOption),
+    localMasterdataOptions(db, 'nomenclature_item_type'),
+    localMasterdataOptions(db, 'nomenclature_property'),
+    localMasterdataOptions(db, 'nomenclature_template'),
+  ]);
+
+  // Склад в складском контуре адресуется КОДОМ (`warehouse_id` регистров хранит код),
+  // поэтому `id` опции — код, как и на сервере. Порядок берём из таблицы, а не по
+  // алфавиту: сверка с сервером на стенде поймала расхождение именно здесь.
+  const warehouses = warehouseRows
+    .filter((row) => Boolean(row.isActive))
+    .map((row) => ({ id: String(row.code), label: String(row.name ?? row.code), code: String(row.code) }));
+
+  return {
+    warehouses,
+    nomenclatureGroups,
+    units,
+    writeoffReasons,
+    counterparties,
+    employees,
+    engineBrands,
+    contracts,
+    nomenclatureItemTypes,
+    nomenclatureProperties,
+    nomenclatureTemplates,
+  };
+}
+
+export async function warehouseLookupsGet(db: BetterSQLite3Database, apiBaseUrl: string) {
+  try {
+    const lookups = await localWarehouseLookups(db);
+    // Пустая реплика бывает ровно один раз — у свежей установки до первого полного pull'а.
+    // Тогда честнее сходить на сервер, чем показать оператору пустые селекты.
+    const empty = Object.values(lookups).every((list) => !list || list.length === 0);
+    if (!empty) return { ok: true as const, lookups };
+  } catch {
+    // Реплика не ответила (БД пересобирается, схема отстала) — спрашиваем сервер.
   }
+  const path = '/warehouse/lookups';
   try {
     const r = await warehouseAuthed(db, apiBaseUrl, path, { method: 'GET' }, INTERACTIVE_NO_FALLBACK_HTTP_OPTS);
-    if (!r.ok) {
-      if (warehouseLookupsCache) return warehouseLookupsCache.value;
-      return { ok: false as const, error: formatHttpError(r, path) };
-    }
+    if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
     if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
-    const value = r.json as { ok: true; lookups: Record<string, unknown> };
-    warehouseLookupsCache = { at: Date.now(), value };
-    return value;
+    return r.json as { ok: true; lookups: WarehouseLookups };
   } catch (e) {
-    if (warehouseLookupsCache) return warehouseLookupsCache.value;
     return { ok: false as const, error: String(e) };
   }
 }
