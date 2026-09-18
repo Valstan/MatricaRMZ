@@ -314,3 +314,97 @@ describe('строка этапа работ', () => {
     expect((sqlite.prepare(`SELECT deleted_at FROM operations WHERE id = 'row-1'`).get() as any).deleted_at).toBeTruthy();
   });
 });
+
+/**
+ * Гейт дублей (просьба владельца 18.09.2026). Оператор дважды нажал «Добавить» — в списке два
+ * одинаковых этапа. Гейт не запрещает: двигатель реально возвращается на тот же этап, и запрет
+ * оператор обошёл бы сдвигом даты. Он ОТКАЗЫВАЕТ записи и возвращает описание совпавших строк,
+ * а решение принимает человек в интерфейсе.
+ */
+describe('гейт дублей этапов работ', () => {
+  it('вторую одинаковую строку не пишет и называет совпавшую', async () => {
+    const { sqlite, db } = makeDb();
+    await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');
+
+    const r = await saveWorkSheetRow(db, { id: 'row-2', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'petrov');
+
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error('гейт пропустил дубль');
+    expect(r.duplicate?.refs).toHaveLength(1);
+    expect(r.duplicate?.refs[0]?.id).toBe('row-1');
+    expect(r.duplicate?.nextPass).toBe(2);
+    // Главное: отказ — это НЕ запись. Иначе гейт лишь переименовывал бы дубль.
+    expect(sqlite.prepare(`SELECT COUNT(*) c FROM operations`).get()).toMatchObject({ c: 1 });
+  });
+
+  it('с подтверждением оператора пишет строку и помечает её проходом № 2', async () => {
+    const { db } = makeDb();
+    await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');
+
+    const r = await saveWorkSheetRow(db, { id: 'row-2', engineId: 'eng-1', type: UKLADKA, atMs: AT, repeatPass: 2, values: {} }, 'petrov');
+
+    expect(r).toMatchObject({ ok: true, created: true });
+    const { rows } = await listWorkSheetRows(db);
+    expect(rows.map((x) => x.repeatPass).sort()).toEqual([1, 2]);
+  });
+
+  it('третья строка того же дня получает проход № 3, а не № 2', async () => {
+    const { db } = makeDb();
+    await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');
+    await saveWorkSheetRow(db, { id: 'row-2', engineId: 'eng-1', type: UKLADKA, atMs: AT, repeatPass: 2, values: {} }, 'petrov');
+
+    const r = await saveWorkSheetRow(db, { id: 'row-3', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'petrov');
+
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error('гейт пропустил дубль');
+    expect(r.duplicate?.refs).toHaveLength(2);
+    expect(r.duplicate?.nextPass).toBe(3);
+  });
+
+  it('правка своей же строки дублем не считается', async () => {
+    const { db } = makeDb();
+    await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');
+
+    const r = await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, note: 'уточнил', values: {} }, 'ivanov');
+
+    expect(r).toMatchObject({ ok: true, created: false });
+  });
+
+  it('правка помеченного возврата не переспрашивает и не разжалует его в первый проход', async () => {
+    const { db } = makeDb();
+    await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');
+    await saveWorkSheetRow(db, { id: 'row-2', engineId: 'eng-1', type: UKLADKA, atMs: AT, repeatPass: 2, values: {} }, 'petrov');
+
+    // Правка БЕЗ repeatPass — интерфейс его не шлёт, вопрос уже был задан один раз.
+    const r = await saveWorkSheetRow(db, { id: 'row-2', engineId: 'eng-1', type: UKLADKA, atMs: AT, note: 'уточнил', values: {} }, 'petrov');
+
+    expect(r).toMatchObject({ ok: true, created: false });
+    const { rows } = await listWorkSheetRows(db);
+    expect(rows.find((x) => x.id === 'row-2')?.repeatPass).toBe(2);
+  });
+
+  it('другой день и другой вид работ гейт не трогает', async () => {
+    const { db } = makeDb();
+    await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');
+
+    const otherDay = await saveWorkSheetRow(
+      db,
+      { id: 'row-2', engineId: 'eng-1', type: UKLADKA, atMs: Date.parse('2026-09-11T00:00:00'), values: {} },
+      'ivanov',
+    );
+    const otherType = await saveWorkSheetRow(db, { id: 'row-3', engineId: 'eng-1', type: OBKATKA, atMs: AT, values: { hours: 1 } }, 'ivanov');
+
+    expect(otherDay).toMatchObject({ ok: true, created: true });
+    expect(otherType).toMatchObject({ ok: true, created: true });
+  });
+
+  it('удалённая строка дублем быть перестаёт', async () => {
+    const { db } = makeDb();
+    await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');
+    expect((await deleteWorkSheetRow(db, 'row-1')).ok).toBe(true);
+
+    const r = await saveWorkSheetRow(db, { id: 'row-2', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');
+
+    expect(r).toMatchObject({ ok: true, created: true });
+  });
+});

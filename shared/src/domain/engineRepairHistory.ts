@@ -68,6 +68,16 @@ export type RepairStatusStamp = {
   dateTo: number;
 };
 
+/**
+ * Повторный проход этапа. `pass` — номер прохода, начиная с 2: первый проход поля не несёт
+ * вовсе, поэтому «есть `repeat`» и означает «это возврат». `reason` необязателен — заставлять
+ * оператора объяснять возврат в момент, когда он просто вносит факт, значит получить отписку.
+ */
+export type RepairHistoryRepeat = {
+  pass: number;
+  reason?: string;
+};
+
 export type RepairHistoryMeta = {
   kind: typeof REPAIR_HISTORY_META_KIND;
   action: string;
@@ -91,6 +101,19 @@ export type RepairHistoryMeta = {
   sheet?: RepairHistorySheet;
   /** След этой строки в карточке двигателя — основание для отката при удалении. */
   repairStamp?: RepairStatusStamp;
+  /**
+   * Осознанный повторный проход: двигатель вернулся на ТОТ ЖЕ этап в тот же день.
+   * Ставится только когда оператор ответил на гейт дублей «это повторный проход» —
+   * отсутствие поля означает первый проход, а не «неизвестно».
+   *
+   * Почему отдельным полем, а не префиксом в названии или отдельным видом работ:
+   * префикс — данные в имени (не посчитать, не отфильтровать, ломается опечаткой),
+   * а отдельный вид работ разъехался бы с основным во всех группировках отчётов
+   * (`typeCode` заморожен после создания, ранги этапов строятся по `sortOrder` вида).
+   * Явное поле делает возврат считаемым: доля этапов, пройденных с первого раза, —
+   * это выход годного с первого предъявления, и сегодня его посчитать нечем.
+   */
+  repeat?: RepairHistoryRepeat;
   /**
    * Дата события, когда она НЕ совпадает с моментом записи: строку истории часто заводят
    * задним числом. Хранится здесь, потому что запись операции даты не принимает — иначе
@@ -172,6 +195,20 @@ function parseExtra(raw: unknown): RepairHistoryExtraField[] {
   return out;
 }
 
+/**
+ * Разбор признака повторного прохода. Номер меньше 2 отбрасывается вместе со всем полем:
+ * `pass: 1` — это первый проход, а первый проход признака не несёт; хранить его значило бы
+ * завести два разных представления одного состояния и разойтись на первой же проверке.
+ */
+function parseRepeat(raw: unknown): RepairHistoryRepeat | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const pass = typeof obj.pass === 'number' && Number.isFinite(obj.pass) ? Math.floor(obj.pass) : 0;
+  if (pass < 2) return null;
+  const reason = text(obj.reason).slice(0, 500);
+  return { pass: Math.min(pass, 99), ...(reason ? { reason } : {}) };
+}
+
 function parseRepairStamp(raw: unknown): RepairStatusStamp | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const obj = raw as Record<string, unknown>;
@@ -248,6 +285,7 @@ export function parseRepairHistoryMeta(metaJson: string | null): RepairHistoryMe
     ...(parseEntryType(obj.entryType) ? { entryType: parseEntryType(obj.entryType)! } : {}),
     ...(parseSheet(obj.sheet) ? { sheet: parseSheet(obj.sheet)! } : {}),
     ...(parseRepairStamp(obj.repairStamp) ? { repairStamp: parseRepairStamp(obj.repairStamp)! } : {}),
+    ...(parseRepeat(obj.repeat) ? { repeat: parseRepeat(obj.repeat)! } : {}),
   };
 }
 
@@ -268,6 +306,7 @@ export function buildRepairHistoryMeta(input: {
   entryType?: RepairHistoryEntryType;
   sheet?: RepairHistorySheet | null;
   repairStamp?: RepairStatusStamp | null;
+  repeat?: RepairHistoryRepeat | null;
 }): RepairHistoryMeta {
   const sheet = parseSheet(input.sheet);
   return {
@@ -283,6 +322,7 @@ export function buildRepairHistoryMeta(input: {
     ...(input.entryType ? { entryType: input.entryType } : {}),
     ...(sheet ? { sheet } : {}),
     ...(parseRepairStamp(input.repairStamp) ? { repairStamp: parseRepairStamp(input.repairStamp)! } : {}),
+    ...(parseRepeat(input.repeat) ? { repeat: parseRepeat(input.repeat)! } : {}),
   };
 }
 

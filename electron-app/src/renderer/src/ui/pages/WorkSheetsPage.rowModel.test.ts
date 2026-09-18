@@ -43,6 +43,7 @@ function row(id: string): WorkSheetRow {
     note: '',
     fields: [],
     repairStamped: false,
+    repeatPass: 1,
   };
 }
 

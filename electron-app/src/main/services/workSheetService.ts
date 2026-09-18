@@ -19,9 +19,14 @@ import {
   sanitizeWorkSheetColumns,
   statusDateCode,
   workSheetFieldsSummary,
+  isSameWorkSheetDay,
+  moscowDayKey,
+  nextWorkSheetPass,
+  repeatForPass,
   type GlobalSearchHit,
   type RepairStatusStamp,
   type StatusCode,
+  type WorkSheetDuplicateRef,
   type WorkSheetField,
   type WorkSheetRow,
   type WorkSheetType,
@@ -64,6 +69,14 @@ export type SaveWorkSheetRowInput = {
   note?: string | null;
   /** Значения по коду колонки — сырые, нормализуются здесь по типу колонки. */
   values: Record<string, unknown>;
+  /**
+   * Осознанный повторный проход: оператор ответил на гейт дублей «двигатель вернулся на этот
+   * этап». Без него строка, совпавшая с уже существующей по (двигатель, вид работ, день),
+   * НЕ пишется — возвращается отказ с описанием найденных строк, и спрашивает оператора UI.
+   * Пишущая сторона вопросов задавать не умеет, поэтому решение приходит сюда готовым.
+   */
+  repeatPass?: number | null;
+  repeatReason?: string | null;
 };
 
 export type SaveWorkSheetRowResult =
@@ -74,10 +87,73 @@ export type SaveWorkSheetRowResult =
       /** Что случилось со статусом «Отремонтирован» у узла, завершающего ремонт. */
       repair: { applied: boolean; reason?: string } | null;
     }
-  | { ok: false; error: string };
+  | {
+      ok: false;
+      error: string;
+      /**
+       * Отказ именно по дублю: строки, с которыми совпало, и номер прохода, который запись
+       * получит, если оператор подтвердит возврат. UI по этому полю поднимает гейт, а не
+       * показывает красную ошибку — совпадение не ошибка, это вопрос к человеку.
+       */
+      duplicate?: { refs: WorkSheetDuplicateRef[]; nextPass: number; typeName: string; atMs: number };
+    };
 
 function text(value: unknown): string {
   return String(value ?? '').trim();
+}
+
+/**
+ * Строки того же этапа того же двигателя за тот же календарный день.
+ *
+ * Читает узкую выборку по индексу `operations_engine_type_idx (engine_entity_id, operation_type)`;
+ * вид работ и дата лежат внутри `meta_json`, поэтому фильтр по ним — в JS, иначе понадобился бы
+ * индекс по JSON, а он на клиенте и сервере разъедется (грабля **M142**).
+ *
+ * `excludeId` — сама сохраняемая строка: без него правка примечания считала бы строку дублем
+ * самой себя. Мягко удалённые строки не учитываются: удалённый дубль дублем быть перестал.
+ */
+export async function listWorkSheetDuplicates(
+  db: BetterSQLite3Database,
+  args: { engineId: string; typeCode: string; atMs: number; excludeId?: string },
+): Promise<WorkSheetDuplicateRef[]> {
+  const engineId = text(args.engineId);
+  const typeCode = text(args.typeCode).toLowerCase();
+  if (!engineId || !typeCode || !Number.isFinite(args.atMs) || args.atMs <= 0) return [];
+  const exclude = text(args.excludeId);
+
+  const rows = await db
+    .select()
+    .from(operations)
+    .where(
+      and(
+        eq(operations.engineEntityId, engineId),
+        eq(operations.operationType, REPAIR_HISTORY_OPERATION_TYPE),
+        isNull(operations.deletedAt),
+      ),
+    )
+    .orderBy(desc(operations.updatedAt))
+    .limit(2000);
+
+  const out: WorkSheetDuplicateRef[] = [];
+  for (const row of rows as Array<Record<string, any>>) {
+    const id = text(row.id);
+    if (!id || id === exclude) continue;
+    const meta = parseRepairHistoryMeta(row.metaJson ?? null);
+    const sheet = meta?.sheet;
+    if (!sheet) continue;
+    if (text(sheet.typeCode).toLowerCase() !== typeCode) continue;
+    // Дата этапа живёт только в meta.at: `performed_at` — момент записи строки, а не этапа.
+    const at = typeof meta?.at === 'number' && Number.isFinite(meta.at) ? meta.at : null;
+    if (at === null || !isSameWorkSheetDay(at, args.atMs)) continue;
+    out.push({
+      id,
+      typeName: text(sheet.typeName) || text(sheet.typeCode),
+      at,
+      pass: meta?.repeat?.pass ?? 1,
+      performedBy: text(row.performedBy) || null,
+    });
+  }
+  return out.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id));
 }
 
 export async function saveWorkSheetRow(db: BetterSQLite3Database, input: SaveWorkSheetRowInput, actor: string): Promise<SaveWorkSheetRowResult> {
@@ -110,6 +186,25 @@ export async function saveWorkSheetRow(db: BetterSQLite3Database, input: SaveWor
     }
   }
 
+  // Гейт дублей — ПОСЛЕ проверок формы (незачем спрашивать про дубль у строки, которую всё
+  // равно не примут) и ДО любой записи. Строка уже помеченная возвратом переспроса не требует:
+  // решение по ней принято, и правка примечания не повод спрашивать заново.
+  const explicitPass = Number(input.repeatPass);
+  const confirmedRepeat = Number.isFinite(explicitPass) && explicitPass >= 2 ? Math.floor(explicitPass) : null;
+  const carriedRepeat = existingMeta?.repeat ?? null;
+  if (confirmedRepeat === null && !carriedRepeat) {
+    const refs = await listWorkSheetDuplicates(db, { engineId, typeCode, atMs, excludeId: id });
+    if (refs.length > 0) {
+      const nextPass = nextWorkSheetPass(refs);
+      return {
+        ok: false,
+        error: `На этот двигатель за ${moscowDayKey(atMs)} этап «${typeName}» уже внесён`,
+        duplicate: { refs, nextPass, typeName, atMs },
+      };
+    }
+  }
+  const repeat = confirmedRepeat !== null ? repeatForPass(confirmedRepeat, text(input.repeatReason)) : carriedRepeat;
+
   const workshopId = text(input.workshopId) || text(input.type.workshopId) || null;
   // Имя цеха кладём снимком: справочник цехов живёт на сервере и требует `masterdata.view`,
   // а строка обязана читаться без него — иначе на экран уезжает uuid.
@@ -127,6 +222,10 @@ export async function saveWorkSheetRow(db: BetterSQLite3Database, input: SaveWor
     // молча стирала бы её след в карточке — удаление после правки уже нечего было бы
     // откатывать. Сам след правкой не меняется: статус при правке не трогается.
     ...(existingMeta?.repairStamp ? { repairStamp: existingMeta.repairStamp } : {}),
+    // Признак возврата переживает правку по той же причине, что и штамп: meta пересобирается
+    // целиком, и без переноса правка примечания молча разжаловала бы проход № 2 обратно в
+    // первый — строка перестала бы отличаться от случайного дубля.
+    ...(repeat ? { repeat } : {}),
   });
   const noteLine = [`Этап работ: ${typeName}`, summary, text(input.note)].filter(Boolean).join(' · ');
 
@@ -274,6 +373,7 @@ export async function getWorkSheetRow(db: BetterSQLite3Database, id: string): Pr
     note: meta.note ?? '',
     fields: meta.sheet.fields,
     repairStamped: meta.repairStamp != null,
+    repeatPass: meta.repeat?.pass ?? 1,
   };
 }
 
@@ -350,6 +450,7 @@ export async function listWorkSheetRows(
       note: meta.note ?? '',
       fields: meta.sheet!.fields,
       repairStamped: meta.repairStamp != null,
+      repeatPass: meta.repeat?.pass ?? 1,
     };
   });
   return { rows: rows.sort((a, b) => b.at - a.at || a.id.localeCompare(b.id)), truncated };
