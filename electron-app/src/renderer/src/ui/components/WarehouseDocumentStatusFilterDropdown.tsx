@@ -4,6 +4,8 @@ import {
   WAREHOUSE_DOCUMENT_STATUS_FILTER_ORDER,
 } from '@matricarmz/shared';
 
+import { PopupLayer, useAnchoredPopup } from './PopupLayer.js';
+
 type Props = {
   value: string[];
   onChange: (next: string[]) => void;
@@ -22,16 +24,23 @@ function summaryText(selected: Set<string>): string {
 export function WarehouseDocumentStatusFilterDropdown(props: Props) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  // Отбор статусов стоит в панели фильтров над списком: без портала список
+  // перекрывал раскрытые статусы (PopupLayer).
+  const [anchor, setAnchor] = useState<HTMLDivElement | null>(null);
+  const popup = useAnchoredPopup(open, anchor, { matchAnchorWidth: true });
   const selected = new Set(props.value);
 
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (rootRef.current?.contains(target)) return;
+      if (popup.node?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
-  }, [open]);
+  }, [open, popup.node]);
 
   function toggle(id: string) {
     const next = new Set(selected);
@@ -41,7 +50,13 @@ export function WarehouseDocumentStatusFilterDropdown(props: Props) {
   }
 
   return (
-    <div ref={rootRef} style={{ position: 'relative', minWidth: 200 }}>
+    <div
+      ref={(el) => {
+        (rootRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+        setAnchor(el);
+      }}
+      style={{ position: 'relative', minWidth: 200 }}
+    >
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -60,14 +75,12 @@ export function WarehouseDocumentStatusFilterDropdown(props: Props) {
         Статусы: {summaryText(selected)}
       </button>
       {open ? (
+        <PopupLayer>
         <div
+          ref={popup.ref}
           style={{
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            top: '100%',
-            marginTop: 4,
-            zIndex: 50,
+            ...popup.style,
+            overflowY: 'auto',
             padding: 10,
             border: '1px solid var(--border)',
             borderRadius: 6,
@@ -95,6 +108,7 @@ export function WarehouseDocumentStatusFilterDropdown(props: Props) {
             </label>
           ))}
         </div>
+        </PopupLayer>
       ) : null}
     </div>
   );

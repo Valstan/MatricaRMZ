@@ -11,6 +11,7 @@ import { pollWhenVisible } from '../utils/pollWhenVisible.js';
 import { TAB_SHORTCUT_META, resolveQuickStartTile, type PinnedTile } from '../utils/favoriteShortcut.js';
 import { useTabVisibleRef } from '../shell/TabVisibilityContext.js';
 import { ShortcutIcon } from '../components/ShortcutIcon.js';
+import { POPUP_Z_INDEX, PopupLayer } from '../components/PopupLayer.js';
 
 type RecentVisitEntry = {
   id: string;
@@ -458,12 +459,14 @@ export function HistoryPage(props: {
       )}
 
       {pinnedContextMenu && (
+        // Портал в body: меню не должно зависеть от контекста наложения страницы.
+        <PopupLayer>
         <div
           style={{
             position: 'fixed',
             left: pinnedContextMenu.x,
             top: pinnedContextMenu.y,
-            zIndex: 13000,
+            zIndex: POPUP_Z_INDEX,
             minWidth: 200,
             background: 'var(--surface, #fff)',
             border: '1px solid var(--border)',
@@ -493,6 +496,7 @@ export function HistoryPage(props: {
             Убрать с Верстака (в корзину)
           </button>
         </div>
+        </PopupLayer>
       )}
 
       <div

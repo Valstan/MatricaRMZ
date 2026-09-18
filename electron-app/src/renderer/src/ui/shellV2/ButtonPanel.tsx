@@ -11,6 +11,7 @@ import {
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
+import { PopupLayer } from '../components/PopupLayer.js';
 import type { MenuTabId } from '../layout/Tabs.js';
 import { isAndroidPlatform } from '../platform.js';
 import type { ActionButtonId } from './menuActions.js';
@@ -281,40 +282,44 @@ export function ButtonPanel(props: {
       </div>
       </div>
       {menu && (
-        <div className="v2-context-menu" style={{ left: menu.x, top: menu.y }} onClick={(e) => e.stopPropagation()}>
-          <button
-            type="button"
-            className="v2-footer-btn"
-            onClick={() => {
-              togglePin(menu.btn);
-              closeMenu();
-            }}
-          >
-            {menu.pinned ? 'Открепить' : '📌 Закрепить сверху'}
-          </button>
-          {menu.btn.kind === 'nav' && desktopShortcutAvailable && (
+        // Портал в body: панель МЕНЮ — это `.v3-menu-overlay` со своим `z-index`,
+        // и меню кнопки внутри него выше ЭТОГО слоя подняться не может (PopupLayer).
+        <PopupLayer>
+          <div className="v2-context-menu" style={{ left: menu.x, top: menu.y }} onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
               className="v2-footer-btn"
               onClick={() => {
-                props.onDesktopShortcut?.(menu.btn);
+                togglePin(menu.btn);
                 closeMenu();
               }}
             >
-              🧣 Добавить на Верстак
+              {menu.pinned ? 'Открепить' : '📌 Закрепить сверху'}
             </button>
-          )}
-          <button
-            type="button"
-            className="v2-footer-btn"
-            onClick={() => {
-              hideButton(menu.btn.id);
-              closeMenu();
-            }}
-          >
-            🗑 Скрыть кнопку
-          </button>
-        </div>
+            {menu.btn.kind === 'nav' && desktopShortcutAvailable && (
+              <button
+                type="button"
+                className="v2-footer-btn"
+                onClick={() => {
+                  props.onDesktopShortcut?.(menu.btn);
+                  closeMenu();
+                }}
+              >
+                🧣 Добавить на Верстак
+              </button>
+            )}
+            <button
+              type="button"
+              className="v2-footer-btn"
+              onClick={() => {
+                hideButton(menu.btn.id);
+                closeMenu();
+              }}
+            >
+              🗑 Скрыть кнопку
+            </button>
+          </div>
+        </PopupLayer>
       )}
     </div>
   );

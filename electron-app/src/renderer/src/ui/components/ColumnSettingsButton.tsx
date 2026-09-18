@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import { useViewportClamp } from '../hooks/useViewportClamp.js';
+import { PopupLayer, useAnchoredPopup } from './PopupLayer.js';
 import { isAndroidPlatform } from '../platform.js';
 import { Button } from './Button.js';
 
@@ -24,8 +24,11 @@ export function ColumnSettingsButton(props: {
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  // Кнопка колонок стоит у правого края панели фильтров: без зажима панель уезжала за экран.
-  const clamp = useViewportClamp(open);
+  // Панель колонок уезжает порталом в body: в тулбаре и панели фильтров у неё липкие
+  // соседи со своим z-index, и «поверх» внутри них не получается (PopupLayer).
+  // Кнопка стоит у правого края — координаты считаются с зажимом в границы окна.
+  const [anchor, setAnchor] = useState<HTMLDivElement | null>(null);
+  const popup = useAnchoredPopup(open, anchor, { align: 'right' });
 
   const close = useCallback(() => setOpen(false), []);
 
@@ -35,6 +38,7 @@ export function ColumnSettingsButton(props: {
       if (!containerRef.current) return;
       const target = ev.target as Node | null;
       if (target && containerRef.current.contains(target)) return;
+      if (target && popup.node?.contains(target)) return;
       close();
     }
     function onKeyDown(ev: KeyboardEvent) {
@@ -46,7 +50,7 @@ export function ColumnSettingsButton(props: {
       window.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [open, close]);
+  }, [open, close, popup.node]);
 
   const byId = new Map(props.columns.map((c) => [c.id, c]));
   const orderedDescriptors = props.order
@@ -56,7 +60,13 @@ export function ColumnSettingsButton(props: {
   const totalCount = orderedDescriptors.length;
 
   return (
-    <div ref={containerRef} style={{ position: 'relative', display: 'inline-block' }}>
+    <div
+      ref={(el) => {
+        containerRef.current = el;
+        setAnchor(el);
+      }}
+      style={{ position: 'relative', display: 'inline-block' }}
+    >
       <Button
         variant="ghost"
         onClick={() => setOpen((v) => !v)}
@@ -86,18 +96,14 @@ export function ColumnSettingsButton(props: {
         </span>
       </Button>
       {open && (
+        <PopupLayer>
         <div
           role="dialog"
           aria-label="Настройка колонок"
-          ref={clamp.ref}
+          ref={popup.ref}
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 4px)',
-            right: 0,
-            zIndex: 50,
+            ...popup.style,
             minWidth: 320,
-            maxHeight: 480,
-            ...clamp.style,
             overflowY: 'auto',
             background: 'var(--surface)',
             color: 'var(--text)',
@@ -163,6 +169,7 @@ export function ColumnSettingsButton(props: {
             Перемещайте колонки стрелками ↑/↓. Снимите галочку, чтобы скрыть колонку.
           </div>
         </div>
+        </PopupLayer>
       )}
     </div>
   );
