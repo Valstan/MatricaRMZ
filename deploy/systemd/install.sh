@@ -57,7 +57,13 @@ echo "==> Next scheduled runs:"
 sudo systemctl list-timers matricarmz-cleanup-updates.timer --no-pager || true
 
 echo
-if systemctl list-unit-files 'matricarmz-updates-prune*' --no-legend 2>/dev/null | grep -q .; then
+# Без `| grep -q`: под pipefail grep выходит на первом совпадении, и если производитель ещё пишет,
+# он получает SIGPIPE — статус конвейера 141 ИМЕННО когда совпадение найдено, то есть проверка
+# молчит ровно в том случае, ради которого написана (brain G322/G355, 4-е место класса).
+# Здесь вывод systemctl — единицы строк, он влезает в буфер трубы (64 КБ) и SIGPIPE не случается,
+# так что этот гейт пока не молчал. Переписано как мина, а не как инцидент: буфер — не контракт.
+prune_units="$(systemctl list-unit-files 'matricarmz-updates-prune*' --no-legend 2>/dev/null || true)"
+if [[ -n "$prune_units" ]]; then
   echo
   echo "WARN: найден второй механизм ретенции (matricarmz-updates-prune.*) — по решению владельца живёт только этот скрипт."
   echo "      Снять: sudo systemctl disable --now matricarmz-updates-prune.timer && sudo rm /etc/systemd/system/matricarmz-updates-prune.{timer,service} /usr/local/bin/matricarmz-updates-prune && sudo systemctl daemon-reload"
