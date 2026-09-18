@@ -186,8 +186,19 @@
   color: var(--accent, #2563eb);
 }
 
+/* Вращается СТРЕЛКА, а не кнопка: анимация на кнопке крутила рамку вместе со
+   значком, и это читалось как «вертится вся кнопка» (владелец 18.09.2026).
+   inline-block обязателен — к строчному элементу transform не применяется. */
+.v3-sync-glyph {
+  display: inline-block;
+  line-height: 1;
+}
+
 .v3-sync-spinning {
   color: var(--accent, #2563eb);
+}
+
+.v3-sync-spinning .v3-sync-glyph {
   animation: v3-sync-spin 1s linear infinite;
 }
 

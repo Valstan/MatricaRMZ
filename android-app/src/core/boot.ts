@@ -65,7 +65,9 @@ export async function bootAndroidCore(cfg: AndroidCoreConfig): Promise<AndroidCo
     apiBaseUrl,
     cfg.onSyncProgress ? { onProgress: cfg.onSyncProgress } : {},
   );
-  syncManager.startAuto(5 * 60_000);
+  // Страховочный тик: доставку держат пробуждение сервером и сторож своих правок
+  // (внутри SyncManager), интервал — на случай, когда они недоступны.
+  syncManager.startAuto(60_000);
 
   const startHeartbeat = () =>
     startClientSettingsPolling({

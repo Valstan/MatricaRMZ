@@ -85,6 +85,7 @@ import {
 } from './sync/errorRecovery.js';
 import { sendDiagnosticsSnapshot as sendDiagnosticsSnapshotImpl } from './sync/diagnosticsReporter.js';
 import { isOfflineSyncError } from './sync/syncErrorClassifier.js';
+import { countPendingLocalRows } from './sync/localPending.js';
 import { nowMs, yieldToEventLoop } from './sync/progressEmitter.js';
 import { fetchWithRetry } from './netFetch.js';
 // getKeyRing/keyRingToBuffers now imported in sync/e2eCrypto.ts
@@ -771,11 +772,17 @@ function formatError(e: unknown): string {
 
 // markPendingUserPresenceError: Moved to sync/errorRecovery.ts
 
-async function fetchWithRetryLogged(
-  url: string,
-  init: RequestInit,
-  opts: { attempts: number; timeoutMs: number; label: 'push' | 'pull'; retryOnStatuses?: number[] },
-): Promise<Response> {
+type SyncFetchOpts = {
+  attempts: number;
+  timeoutMs: number;
+  label: 'push' | 'pull' | 'wake';
+  retryOnStatuses?: number[];
+  /** Не писать в лог удачный ответ. Для ждущего запроса: он висит постоянно, и
+   *  строка на каждое окно засорила бы лог, куда смотрят при разборе синка. */
+  quiet?: boolean;
+};
+
+async function fetchWithRetryLogged(url: string, init: RequestInit, opts: SyncFetchOpts): Promise<Response> {
   const started = nowMs();
   try {
     const res = await fetchWithRetry(url, init, {
@@ -787,7 +794,7 @@ async function fetchWithRetryLogged(
       ...(opts.retryOnStatuses != null ? { retryOnStatuses: opts.retryOnStatuses } : {}),
     });
     const dur = nowMs() - started;
-    logSync(`${opts.label} attempt=ok status=${res.status} durMs=${dur} url=${url}`);
+    if (!opts.quiet || !res.ok) logSync(`${opts.label} attempt=ok status=${res.status} durMs=${dur} url=${url}`);
     return res;
   } catch (e) {
     const dur = nowMs() - started;
@@ -808,7 +815,7 @@ async function fetchAuthed(
   apiBaseUrl: string,
   url: string,
   init: RequestInit,
-  opts: { attempts: number; timeoutMs: number; label: 'push' | 'pull'; retryOnStatuses?: number[] },
+  opts: SyncFetchOpts,
 ): Promise<Response> {
   const session = await getSession(db).catch(() => null);
   const first = await fetchWithRetryLogged(url, withAuthHeader(init, session?.accessToken ?? null), opts);
@@ -3492,6 +3499,73 @@ type SyncProgressEvent = {
   pulled?: number;
   error?: string;
 };
+
+export type ServerWakeResult =
+  | { ok: true; changed: boolean; serverLastSeq: number }
+  | { ok: false; unsupported: boolean; status: number | null; error: string };
+
+/** Запас к таймауту запроса поверх окна ожидания: ответ должен прийти раньше обрыва. */
+const WAKE_SLACK_MS = 10_000;
+
+/**
+ * Ждущий запрос к серверу: «разбуди меня, когда журнал уйдёт выше моего курсора».
+ *
+ * Возвращается либо сразу (новости есть), либо по истечении окна с `changed: false` —
+ * оба исхода штатные. `unsupported` означает сервер без этого маршрута (парк обновляется
+ * не разом): вызывающий переходит на обычный интервал и больше не спрашивает.
+ */
+export async function waitForServerChanges(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  since: number,
+  holdMs: number,
+): Promise<ServerWakeResult> {
+  const base = normalizeApiBaseUrl(apiBaseUrl);
+  const sinceSeq = Math.max(0, Math.floor(Number(since) || 0));
+  const url = `${base}/ledger/state/wait?since=${sinceSeq}&timeout_ms=${Math.floor(holdMs)}`;
+  try {
+    const res = await fetchAuthed(
+      db,
+      base,
+      url,
+      { method: 'GET' },
+      { attempts: 1, timeoutMs: holdMs + WAKE_SLACK_MS, label: 'wake', quiet: true },
+    );
+    // 404 — сервер старее клиента: маршрута нет. 401/403 — не наше дело решать,
+    // вернём как обычную ошибку: сессию чинит тот же fetchAuthed.
+    if (res.status === 404 || res.status === 405) {
+      return { ok: false, unsupported: true, status: res.status, error: `HTTP ${res.status}` };
+    }
+    if (!res.ok) return { ok: false, unsupported: false, status: res.status, error: `HTTP ${res.status}` };
+    const json = (await res.json()) as { changed?: boolean; server_last_seq?: number };
+    return { ok: true, changed: Boolean(json?.changed), serverLastSeq: Number(json?.server_last_seq ?? 0) || 0 };
+  } catch (e) {
+    return { ok: false, unsupported: false, status: null, error: formatError(e) };
+  }
+}
+
+/**
+ * Есть ли действующая сессия. Пробуждение спрашивает это ПЕРЕД тем, как идти в сеть:
+ * пока оператор стоит на экране входа, ждущий запрос всё равно получит отказ, а стоить
+ * будет запроса и паузы — после которой первая правка приезжала бы уже с задержкой
+ * (поймано живым прогоном 18.09.2026: после входа доставка молчала до минуты).
+ */
+export async function hasActiveSession(db: BetterSQLite3Database): Promise<boolean> {
+  const session = await getSession(db).catch(() => null);
+  return Boolean(session?.accessToken);
+}
+
+/** Курсор реплики: номер журнала, до которого клиент уже дочитал. */
+export async function readLastPulledServerSeq(db: BetterSQLite3Database): Promise<number> {
+  return await settingsGetNumber(db, SettingsKey.LastPulledServerSeq, 0);
+}
+
+/** Сколько локальных строк ждут отправки (`-1` — проба не выполнилась). */
+export async function countPendingLocalChanges(): Promise<number> {
+  const exec = getSqlExecutor();
+  if (!exec) return -1;
+  return await countPendingLocalRows(exec);
+}
 
 type RunSyncOptions = {
   fullPull?: {

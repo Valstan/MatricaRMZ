@@ -680,6 +680,13 @@
       "when": 1789344000000,
       "tag": "0097_work_sheet_types",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1789732800000,
+      "tag": "0098_sync_seq_indexes",
+      "breakpoints": true
     }
   ]
 }
