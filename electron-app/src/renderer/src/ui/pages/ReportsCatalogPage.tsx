@@ -12,6 +12,7 @@ import { REPORT_PRESET_THEMES, REPORT_THEMES, formatReportFiltersSummary } from 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SectionCard } from '../components/SectionCard.js';
+import { POPUP_Z_INDEX, PopupLayer } from '../components/PopupLayer.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
 
 function presetThemes(presetId: ReportPresetId): readonly ReportThemeId[] {
@@ -431,13 +432,15 @@ export function ReportsCatalogPage(props: {
       )}
 
       {ctxMenu && (
+        // Портал в body: меню не должно зависеть от контекста наложения страницы.
+        <PopupLayer>
         <div
           ref={ctxMenuRef}
           style={{
             position: 'fixed',
             left: ctxMenu.x,
             top: ctxMenu.y,
-            zIndex: 13000,
+            zIndex: POPUP_Z_INDEX,
             minWidth: 220,
             background: 'var(--surface, #fff)',
             border: '1px solid var(--border)',
@@ -473,6 +476,7 @@ export function ReportsCatalogPage(props: {
             );
           })()}
         </div>
+        </PopupLayer>
       )}
     </div>
   );

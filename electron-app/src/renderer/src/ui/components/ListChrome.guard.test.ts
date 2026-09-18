@@ -18,7 +18,7 @@ const TOOLBAR = src('./PageToolbar.tsx');
 const COLUMNS = src('./ColumnSettingsButton.tsx');
 const CSS = src('../global.css');
 const WIDTHS = src('../hooks/useAdaptiveListTables.ts');
-const CLAMP = src('../hooks/useViewportClamp.ts');
+const POPUP = src('./PopupLayer.tsx');
 const KINDS = src('../utils/listColumnKinds.ts');
 const PAGES = [
   'EnginesPage',
@@ -83,13 +83,19 @@ describe('выпадающие панели остаются на экране',
   it('меню тулбара и выбор колонок зажаты в границы окна', () => {
     // Владелец 09.09.2026: кнопка стоит у правого края, панель уезжала за экран, и выбрать
     // в ней было нечего. Зажим считается ПОСЛЕ отрисовки — ширина панели зависит от состава.
-    expect(CLAMP).toContain('export function useViewportClamp');
-    expect(CLAMP).toContain('if (rect.right > window.innerWidth - margin)');
-    expect(CLAMP, 'без сброса прежнего сдвига поправка накапливается').toContain("node.style.transform = '';");
-    expect(TOOLBAR).toContain('useViewportClamp(menuOpen)');
-    expect(TOOLBAR).toContain('...clamp.style,');
-    expect(COLUMNS).toContain('useViewportClamp(open)');
-    expect(COLUMNS).toContain('...clamp.style,');
+    // С 18.09.2026 зажим живёт в `useAnchoredPopup`: панели уехали порталом в body
+    // (иначе их перекрывал интерфейс на планшете), и координаты считаются от кнопки.
+    expect(POPUP).toContain('export function useAnchoredPopup');
+    expect(POPUP).toContain('if (left + width > window.innerWidth - margin)');
+    expect(POPUP, 'без запасного края панель прилипает к самой кромке').toContain('const margin = 8;');
+    expect(TOOLBAR).toContain('useAnchoredPopup(menuOpen, menuAnchor');
+    expect(TOOLBAR).toContain('...popup.style,');
+    expect(COLUMNS).toContain('useAnchoredPopup(open, anchor');
+    expect(COLUMNS).toContain('...popup.style,');
+  });
+
+  it('панель, не влезающая вниз, открывается вверх (низкий экран планшета)', () => {
+    expect(POPUP).toContain('const putAbove =');
   });
 });
 

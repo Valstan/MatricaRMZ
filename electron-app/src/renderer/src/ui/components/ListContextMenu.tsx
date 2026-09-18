@@ -1,5 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
+import { POPUP_Z_INDEX, PopupLayer } from './PopupLayer.js';
+
 export type ListContextMenuItem = {
   id: string;
   label: string;
@@ -48,48 +50,52 @@ export function ListContextMenu(props: {
     };
   }, [props]);
 
+  // Портал в body: меню строки списка живёт внутри вкладки, липких шапок и
+  // прокручиваемых обёрток — там свой `z-index` его не поднимает (см. PopupLayer).
   return (
-    <div
-      ref={menuRef}
-      data-list-context-menu="true"
-      style={{
-        position: 'fixed',
-        left: pos.left,
-        top: pos.top,
-        zIndex: 13000,
-        minWidth: 240,
-        background: 'var(--surface)',
-        border: '1px solid var(--border)',
-        boxShadow: 'var(--chat-menu-shadow)',
-        padding: 6,
-      }}
-    >
-      {props.items.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          disabled={item.disabled}
-          onClick={() => {
-            if (item.disabled) return;
-            item.onClick();
-            props.onClose();
-          }}
-          style={{
-            width: '100%',
-            textAlign: 'left',
-            border: '1px solid transparent',
-            background: 'transparent',
-            color: item.danger ? 'var(--danger)' : 'var(--text)',
-            padding: '8px 10px',
-            cursor: item.disabled ? 'default' : 'pointer',
-            opacity: item.disabled ? 0.55 : 1,
-            fontSize: 13,
-          }}
-        >
-          {item.label}
-        </button>
-      ))}
-    </div>
+    <PopupLayer>
+      <div
+        ref={menuRef}
+        data-list-context-menu="true"
+        style={{
+          position: 'fixed',
+          left: pos.left,
+          top: pos.top,
+          zIndex: POPUP_Z_INDEX,
+          minWidth: 240,
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          boxShadow: 'var(--chat-menu-shadow)',
+          padding: 6,
+        }}
+      >
+        {props.items.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            disabled={item.disabled}
+            onClick={() => {
+              if (item.disabled) return;
+              item.onClick();
+              props.onClose();
+            }}
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              border: '1px solid transparent',
+              background: 'transparent',
+              color: item.danger ? 'var(--danger)' : 'var(--text)',
+              padding: '8px 10px',
+              cursor: item.disabled ? 'default' : 'pointer',
+              opacity: item.disabled ? 0.55 : 1,
+              fontSize: 13,
+            }}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </PopupLayer>
   );
 }
 

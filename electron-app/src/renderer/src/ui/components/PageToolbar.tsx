@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import { useViewportClamp } from '../hooks/useViewportClamp.js';
+import { PopupLayer, useAnchoredPopup } from './PopupLayer.js';
 
 /**
  * Ряд кнопок списка в ОДНУ строку (владелец 08.09.2026): что не поместилось по ширине —
@@ -59,7 +59,10 @@ export function PageToolbar(props: { children: React.ReactNode; className?: stri
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   // Кнопка «⋯» по определению стоит у правого края — панель обязана вернуться в экран.
-  const clamp = useViewportClamp(menuOpen);
+  // Меню «Ещё кнопки» уезжает порталом в body: тулбар липкий и со своим z-index,
+  // внутри него меню оказывалось под соседней шапкой (PopupLayer).
+  const [menuAnchor, setMenuAnchor] = useState<HTMLDivElement | null>(null);
+  const popup = useAnchoredPopup(menuOpen, menuAnchor, { align: 'right' });
 
   const setItemRef = useCallback((key: string, el: HTMLElement | null) => {
     if (el) itemRefs.current.set(key, el);
@@ -122,6 +125,7 @@ export function PageToolbar(props: { children: React.ReactNode; className?: stri
     function onPointerDown(ev: PointerEvent) {
       const target = ev.target as Node | null;
       if (target && menuRef.current && menuRef.current.contains(target)) return;
+      if (target && popup.node?.contains(target)) return;
       setMenuOpen(false);
     }
     function onKeyDown(ev: KeyboardEvent) {
@@ -133,7 +137,7 @@ export function PageToolbar(props: { children: React.ReactNode; className?: stri
       window.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [menuOpen]);
+  }, [menuOpen, popup.node]);
 
   const hiddenItems = items.filter((it) => hiddenKeys.has(it.key));
 
@@ -161,7 +165,13 @@ export function PageToolbar(props: { children: React.ReactNode; className?: stri
           </div>
         ))}
       {hiddenItems.length > 0 && (
-        <div ref={menuRef} style={{ position: 'relative', marginLeft: 'auto', flex: '0 0 auto' }}>
+        <div
+          ref={(el) => {
+            menuRef.current = el;
+            setMenuAnchor(el);
+          }}
+          style={{ position: 'relative', marginLeft: 'auto', flex: '0 0 auto' }}
+        >
           <button
             type="button"
             data-toolbar-overflow
@@ -180,16 +190,13 @@ export function PageToolbar(props: { children: React.ReactNode; className?: stri
             ⋯
           </button>
           {menuOpen && (
+            <PopupLayer>
             <div
               role="menu"
               data-toolbar-overflow-menu
-              ref={clamp.ref}
+              ref={popup.ref}
               style={{
-                position: 'absolute',
-                top: 'calc(100% + 4px)',
-                right: 0,
-                zIndex: 50,
-                ...clamp.style,
+                ...popup.style,
                 display: 'grid',
                 gap: 6,
                 justifyItems: 'stretch',
@@ -210,6 +217,7 @@ export function PageToolbar(props: { children: React.ReactNode; className?: stri
                 </div>
               ))}
             </div>
+            </PopupLayer>
           )}
         </div>
       )}
