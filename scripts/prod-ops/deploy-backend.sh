@@ -11,6 +11,13 @@
 #
 #   scripts/prod-ops/deploy-backend.sh              # из последней успешной сборки main
 #   scripts/prod-ops/deploy-backend.sh <run-id>     # из конкретного прогона
+#   scripts/prod-ops/deploy-backend.sh snapshot     # копия текущего dist в .deploy-backup, без рестарта
+#   scripts/prod-ops/deploy-backend.sh rollback [<стамп>]   # вернуть копию (по умолчанию — последнюю) и перезапустить
+#
+# `rollback` — команда скрипта, а не рецепт в доке (brain #324/G373): откат, который живёт
+# только в инструкции, при приёмке не прогоняется и в день отказа делается впервые.
+# Репетиция на живом проде без смены версии: `snapshot` → `rollback` (dist тот же, механика
+# копирования, порядок рестарта и health-гейты — настоящие).
 #
 # Требует `gh` (авторизован) и права на systemctl для юнитов Матрицы.
 
@@ -19,9 +26,87 @@ set -euo pipefail
 REPO_DIR="${MATRICA_REPO_DIR:-$HOME/MatricaRMZ}"
 WORKFLOW="${MATRICA_DIST_WORKFLOW:-backend-dist.yml}"
 ARTIFACT="${MATRICA_DIST_ARTIFACT:-backend-dist}"
-RUN_ID="${1:-}"
+COMMAND="${1:-}"
+RUN_ID=""
+case "$COMMAND" in
+  snapshot|rollback) ;;
+  *) RUN_ID="$COMMAND"; COMMAND="deploy" ;;
+esac
 
 log() { printf '[%s] %s\n' "$(date +%FT%T%z)" "$*"; }
+
+# Тот же список, что пакует `.github/workflows/backend-dist.yml` — менять парой. `web-admin/dist`
+# здесь с 21.09: бэкенд раздаёт админку как `/admin-ui` из этого каталога, и без него в архиве
+# она на проде обновлялась руками и отставала от кода.
+PATHS=(backend-api/dist backend-api/drizzle shared/dist ledger/dist web-admin/dist)
+
+BACKUP_ROOT="$REPO_DIR/.deploy-backup"
+BACKUP_KEEP="${MATRICA_DEPLOY_BACKUP_KEEP:-3}"
+
+# Окно ожидания — по канону (AGENTS.md §Release, GOTCHAS M100): primary поднимает фоновую
+# обвязку и биндится ~50 с, поэтому меньше 90 с брать нельзя — иначе здоровый выкат объявляется
+# упавшим и откат стреляет по исправному. `systemctl is-active` за готовность не считаем:
+# он печатает active до бинда. Здесь было 60 с.
+PRIMARY_WAIT="${MATRICA_DEPLOY_PRIMARY_WAIT:-120}"
+SECONDARY_WAIT="${MATRICA_DEPLOY_SECONDARY_WAIT:-60}"
+
+snapshot_to() {
+  local dest="$1" p
+  for p in "${PATHS[@]}"; do
+    if [[ -e "$REPO_DIR/$p" ]]; then
+      mkdir -p "$dest/$(dirname "$p")"
+      cp -a "$REPO_DIR/$p" "$dest/$p"
+    fi
+  done
+}
+
+restore_from() {
+  local src="$1" p
+  for p in "${PATHS[@]}"; do
+    [[ -e "$src/$p" ]] || continue
+    rm -rf "${REPO_DIR:?}/$p"
+    mkdir -p "$(dirname "$REPO_DIR/$p")"
+    cp -a "$src/$p" "$REPO_DIR/$p"
+  done
+}
+
+restart_one() {
+  local unit="$1" port="$2" wait_s="$3" waited=0
+  log "перезапуск $unit (жду до $wait_s с)"
+  sudo -n systemctl restart "$unit"
+  while (( waited < wait_s )); do
+    sleep 2
+    waited=$((waited + 2))
+    if curl -fs "http://127.0.0.1:$port/health" >/dev/null 2>&1; then
+      log "$unit отвечает через $waited с"
+      return 0
+    fi
+  done
+  log "$unit НЕ поднялся за $wait_s с"
+  return 1
+}
+
+if [[ "$COMMAND" == "snapshot" ]]; then
+  STAMP="$(date +%Y%m%d-%H%M%S)"
+  log "snapshot: копирую текущий dist в .deploy-backup/$STAMP (без рестарта)"
+  snapshot_to "$BACKUP_ROOT/$STAMP"
+  log "готово: .deploy-backup/$STAMP"
+  exit 0
+fi
+
+if [[ "$COMMAND" == "rollback" ]]; then
+  STAMP="${2:-}"
+  if [[ -z "$STAMP" ]]; then
+    STAMP="$(ls -1 "$BACKUP_ROOT" 2>/dev/null | sort -r | head -n 1)"
+  fi
+  [[ -n "$STAMP" && -d "$BACKUP_ROOT/$STAMP" ]] || { log "rollback: копии '$STAMP' нет в .deploy-backup"; exit 1; }
+  log "rollback: возвращаю dist из .deploy-backup/$STAMP"
+  restore_from "$BACKUP_ROOT/$STAMP"
+  restart_one matricarmz-backend-primary 3001 "$PRIMARY_WAIT" || { log "rollback: primary не поднялся на копии $STAMP — смотреть journalctl -u matricarmz-backend-primary"; exit 1; }
+  restart_one matricarmz-backend-secondary 3002 "$SECONDARY_WAIT" || { log "rollback: secondary не поднялся — primary здоров, парк обслуживается одним инстансом"; exit 1; }
+  log "готово: откат на $STAMP, $(curl -fsk https://127.0.0.1/health || echo 'nginx не ответил')"
+  exit 0
+fi
 
 command -v gh >/dev/null || { log "gh не установлен — без него артефакт не забрать"; exit 1; }
 gh auth status >/dev/null 2>&1 || { log "gh не авторизован"; exit 1; }
@@ -63,11 +148,6 @@ for p in backend-api/dist/index.js shared/dist ledger/dist web-admin/dist/index.
   [[ -e "$STAGE/$p" ]] || { log "в архиве нет $p — выкат отменён"; exit 1; }
 done
 
-# Тот же список, что пакует `.github/workflows/backend-dist.yml` — менять парой. `web-admin/dist`
-# здесь с 21.09: бэкенд раздаёт админку как `/admin-ui` из этого каталога, и без него в архиве
-# она на проде обновлялась руками и отставала от кода.
-PATHS=(backend-api/dist backend-api/drizzle shared/dist ledger/dist web-admin/dist)
-
 # Рантаймовые зависимости проверяем ДО сноса. Артефакт несёт только собранное; `dependencies`
 # приезжают с `git pull`, а ставит их человек отдельным фильтрованным install'ом (см. AGENTS.md
 # §Release). Пропущенный install виден иначе только после `rm -rf` — сервис не поднимается с
@@ -95,58 +175,18 @@ fi
 # Резервная копия прежнего dist. Раньше её не было вовсе: скрипт сносил `rm -rf` и клал новое,
 # а вернуться можно было только повторным выкатом прошлого артефакта — который живёт
 # retention-days: 14. Старше двух недель откатываться было не на что.
-BACKUP_ROOT="$REPO_DIR/.deploy-backup"
-BACKUP_KEEP="${MATRICA_DEPLOY_BACKUP_KEEP:-3}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP="$BACKUP_ROOT/$STAMP"
 
 log "сохраняю прежний dist в .deploy-backup/$STAMP"
-for p in "${PATHS[@]}"; do
-  if [[ -e "$REPO_DIR/$p" ]]; then
-    mkdir -p "$BACKUP/$(dirname "$p")"
-    cp -a "$REPO_DIR/$p" "$BACKUP/$p"
-  fi
-done
+snapshot_to "$BACKUP"
 
 log "раскладываю"
-for p in "${PATHS[@]}"; do
-  rm -rf "${REPO_DIR:?}/$p"
-  mkdir -p "$(dirname "$REPO_DIR/$p")"
-  cp -a "$STAGE/$p" "$REPO_DIR/$p"
-done
+restore_from "$STAGE"
 
 restore_backup() {
   log "ОТКАТ: возвращаю dist из .deploy-backup/$STAMP"
-  local p
-  for p in "${PATHS[@]}"; do
-    [[ -e "$BACKUP/$p" ]] || continue
-    rm -rf "${REPO_DIR:?}/$p"
-    mkdir -p "$(dirname "$REPO_DIR/$p")"
-    cp -a "$BACKUP/$p" "$REPO_DIR/$p"
-  done
-}
-
-# Окно ожидания — по канону (AGENTS.md §Release, GOTCHAS M100): primary поднимает фоновую
-# обвязку и биндится ~50 с, поэтому меньше 90 с брать нельзя — иначе здоровый выкат объявляется
-# упавшим и откат стреляет по исправному. `systemctl is-active` за готовность не считаем:
-# он печатает active до бинда. Здесь было 60 с.
-PRIMARY_WAIT="${MATRICA_DEPLOY_PRIMARY_WAIT:-120}"
-SECONDARY_WAIT="${MATRICA_DEPLOY_SECONDARY_WAIT:-60}"
-
-restart_one() {
-  local unit="$1" port="$2" wait_s="$3" waited=0
-  log "перезапуск $unit (жду до $wait_s с)"
-  sudo -n systemctl restart "$unit"
-  while (( waited < wait_s )); do
-    sleep 2
-    waited=$((waited + 2))
-    if curl -fs "http://127.0.0.1:$port/health" >/dev/null 2>&1; then
-      log "$unit отвечает через $waited с"
-      return 0
-    fi
-  done
-  log "$unit НЕ поднялся за $wait_s с"
-  return 1
+  restore_from "$BACKUP"
 }
 
 if ! restart_one matricarmz-backend-primary 3001 "$PRIMARY_WAIT"; then
