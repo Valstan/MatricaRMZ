@@ -128,6 +128,33 @@ describe('partitionLedgerInputsByAuthz', () => {
     }
   });
 
+  // Регистры склада считает сервер по проведённым документам. До 21.09 они стояли `open`:
+  // клиент подписывал произвольное движение склада в неизменяемый журнал, а от записи в
+  // PG спасало только отсутствие обработчика (brain #015, SYNC_TABLE_OWNERSHIP 'server').
+  it('регистры склада режутся у ЛЮБОЙ роли, включая суперадмина (server-owned table)', async () => {
+    seedTypes();
+    for (const role of ['engineer', 'user', 'admin', 'superadmin']) {
+      const inputs = [
+        {
+          type: 'upsert' as const,
+          table: 'erp_reg_stock_movements',
+          row: { id: 'm1', nomenclature_id: 'n1', movement_type: 'in', qty: 100, direction: 'in' },
+          row_id: 'm1',
+        },
+        { type: 'upsert' as const, table: 'erp_reg_stock_balance', row: { id: 'b1', qty: 9999 }, row_id: 'b1' },
+        { type: 'upsert' as const, table: 'entities', row: { id: 'e1', type_id: 't-engine' }, row_id: 'e1' },
+      ];
+      const { allowed, denied } = await partitionLedgerInputsByAuthz(inputs as any, { id: 'u', username: 'u', role });
+      expect(allowed.map((a) => a.table), role).toEqual(['entities']);
+      expect(denied.map((d) => d.reason).sort(), role).toEqual([
+        'forbidden:server_managed_table:erp_reg_stock_balance',
+        'forbidden:server_managed_table:erp_reg_stock_movements',
+      ]);
+      state.selectByTable.clear();
+      seedTypes();
+    }
+  });
+
   // Строки этапов работ: поимённое право `work_sheets.edit` для ВСЕХ ролей, кроме
   // суперадмина. Без backstop'а мастер писал бы их по operations.edit, а admin / легаси
   // `user` — вообще мимо requirement'ов (владелец снял право у всех, 15.09.2026).

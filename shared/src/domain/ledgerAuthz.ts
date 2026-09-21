@@ -55,9 +55,74 @@ export function isServerOnlyAttrCode(attrCode: string | null | undefined): boole
   return SERVER_ONLY_EMPLOYEE_ATTR_CODES.has((attrCode ?? '').trim().toLowerCase());
 }
 
-// Тот же запрет, но по ТАБЛИЦЕ, а не по коду атрибута (B3/R3).
+/**
+ * Кто владеет строкой каждой таблицы sync-контракта (brain #015, 2026-09-21).
+ *
+ * Класс лечился четырежды точечными исключениями (M17, M34/M35, M36, M135): каждая новая
+ * таблица попадала в гейт «по имени» и, не будучи размеченной, падала в `?? { kind: 'open' }`.
+ * Здесь — механизм вместо восьмого исключения: у КАЖДОЙ таблицы контракта обязательная
+ * запись «кто владеет строкой». Карта типизирована `Record<SyncTableName, …>` — новая таблица
+ * в `SyncTableName` без записи здесь не проходит typecheck; сторож `syncTableOwnership.guard`
+ * сверяет её с `TABLE_REQUIREMENT`, `SERVER_MANAGED_SYNC_TABLES` и построчными проверками.
+ *
+ * - `server` — клиентский пуш запрещён любой роли, включая суперадмина: у строки свои
+ *   серверные двери. Ровно это множество режет backstop в `ledgerAuthzGuard` ДО ветки
+ *   `operatorScoped` (см. `SERVER_MANAGED_SYNC_TABLES` ниже — выводится отсюда).
+ * - `session` — строку штампует сервер из аутентифицированной сессии; клиентский payload
+ *   не читается (`user_presence`: applyPushBatch пишет heartbeat сам).
+ * - `append_only` — клиент только добавляет; существующая строка правке и удалению с клиента
+ *   не подлежит (`audit_log`: журнал, по которому ловят злоупотребление, нельзя править той
+ *   же дверью, что и данные).
+ * - `row` — владелец в колонке строки, проверяется построчно в applyPushBatch; `guard` —
+ *   буквальная причина отказа, которую сторож ищет в исходнике (проверка обязана существовать).
+ * - `type` — требование определяется не таблицей, а кодом типа сущности / операции
+ *   (`ENTITY_TYPE_REQUIREMENT` / `OPERATION_TYPE_REQUIREMENT`).
+ * - `permission` — требование по таблице в `TABLE_REQUIREMENT` (`kind: 'permission'`).
+ * - `schema` — метаданные схемы; данные живут в attribute_values, которые гейтятся.
+ */
+export type SyncTableOwnership =
+  | { owner: 'server'; why: string }
+  | { owner: 'session'; why: string }
+  | { owner: 'append_only'; why: string }
+  | { owner: 'row'; column: string; guard: string }
+  | { owner: 'type'; via: 'entity_type' | 'operation_type' }
+  | { owner: 'permission' }
+  | { owner: 'schema'; why: string };
+
+export const SYNC_TABLE_OWNERSHIP: Readonly<Record<SyncTableName, SyncTableOwnership>> = {
+  [SyncTableName.EntityTypes]: { owner: 'schema', why: 'клиент регистрирует типы при первом открытии раздела (ensureAttributeDefs)' },
+  [SyncTableName.AttributeDefs]: { owner: 'schema', why: 'то же; защищённые коды режет backstop по коду атрибута' },
+  [SyncTableName.Entities]: { owner: 'type', via: 'entity_type' },
+  [SyncTableName.AttributeValues]: { owner: 'type', via: 'entity_type' },
+  [SyncTableName.Operations]: { owner: 'type', via: 'operation_type' },
+  [SyncTableName.AuditLog]: { owner: 'append_only', why: 'журнал действий: сервер штампует актора, существующую строку не перезаписывает' },
+  [SyncTableName.ChatMessages]: { owner: 'row', column: 'sender_user_id', guard: 'sync_policy_denied: chat_message_sender' },
+  [SyncTableName.ChatReads]: { owner: 'row', column: 'user_id', guard: 'sync_policy_denied: chat_room_member' },
+  [SyncTableName.ChatRooms]: { owner: 'row', column: 'owner_user_id', guard: 'sync_policy_denied: chat_room_owner' },
+  [SyncTableName.UserPresence]: { owner: 'session', why: 'heartbeat пишется сервером из сессии пуша; клиентский payload не читается' },
+  [SyncTableName.Notes]: { owner: 'row', column: 'owner_user_id', guard: 'sync_policy_denied: note_owner' },
+  [SyncTableName.NoteShares]: { owner: 'row', column: 'recipient_user_id', guard: 'sync_policy_denied: note_share' },
+  [SyncTableName.CardDrafts]: { owner: 'row', column: 'owner_user_id', guard: 'sync_policy_denied: card_draft_owner' },
+  [SyncTableName.AiChatRequests]: { owner: 'row', column: 'user_id', guard: 'applyAiChatPushPolicy(' },
+  [SyncTableName.ErpNomenclature]: { owner: 'permission' },
+  [SyncTableName.ErpEngineAssemblyBom]: { owner: 'permission' },
+  [SyncTableName.ErpEngineAssemblyBomLines]: { owner: 'permission' },
+  [SyncTableName.ErpEngineAssemblyBomBrandLinks]: { owner: 'permission' },
+  [SyncTableName.ErpEngineInstances]: { owner: 'permission' },
+  [SyncTableName.ErpRegStockBalance]: { owner: 'server', why: 'регистр считает сервер по проведённым документам' },
+  [SyncTableName.ErpRegStockMovements]: { owner: 'server', why: 'регистр считает сервер по проведённым документам' },
+  [SyncTableName.ErpEngineInventoryLines]: { owner: 'permission' },
+  // Справочник складов ведут только серверные двери (`warehouseLocationsService`), клиент
+  // его читает. Без этой строки любой авторизованный клиент мог бы крафтить строку локации
+  // и, например, переименовать цех у всего парка.
+  [SyncTableName.WarehouseLocations]: { owner: 'server', why: 'warehouseLocationsService + публикатор зеркала' },
+  [SyncTableName.Users]: { owner: 'server', why: 'setEmployeeAuth + публикатор зеркала (B3/R3)' },
+  [SyncTableName.UserSectionAccess]: { owner: 'server', why: 'setEmployeeSectionAccess + публикатор зеркала (B3/R3)' },
+};
+
+// Таблицы, которые клиент не пишет никогда, — по ТАБЛИЦЕ, а не по коду атрибута (B3/R3).
 //
-// Backstop выше сидит на attribute_values и на строгие таблицы не
+// Backstop по коду атрибута сидит на attribute_values и на строгие таблицы не
 // распространяется. Как только users входит в sync-контракт, без этого списка
 // любой авторизованный клиент крафтит ledger-tx `upsert users {id: <свой>,
 // system_role:'superadmin', access_enabled:true}` — эскалация одной строкой.
@@ -66,17 +131,10 @@ export function isServerOnlyAttrCode(attrCode: string | null | undefined): boole
 // (ledgerAuthzGuard: `if (!operatorScoped) { allowed.push(inp); continue; }`).
 // Поэтому запрет — отдельный, безусловный, ДО ветки operatorScoped.
 //
-// Запись в эти таблицы идёт только серверными дверьми (setEmployeeAuth /
-// setEmployeeSectionAccess) и публикатором зеркала; ни одна из них через
-// клиентский путь пуша не проходит.
-export const SERVER_MANAGED_SYNC_TABLES: ReadonlySet<string> = new Set([
-  SyncTableName.Users,
-  SyncTableName.UserSectionAccess,
-  // Справочник складов ведут только серверные двери (`warehouseLocationsService`), клиент
-  // его читает. Без этой строки любой авторизованный клиент мог бы крафтить строку локации
-  // и, например, переименовать цех у всего парка.
-  SyncTableName.WarehouseLocations,
-]);
+// Множество не пишется руками — выводится из карты владения выше (один источник).
+export const SERVER_MANAGED_SYNC_TABLES: ReadonlySet<string> = new Set(
+  (Object.keys(SYNC_TABLE_OWNERSHIP) as SyncTableName[]).filter((t) => SYNC_TABLE_OWNERSHIP[t].owner === 'server'),
+);
 
 export function isServerManagedSyncTable(table: string | null | undefined): boolean {
   return SERVER_MANAGED_SYNC_TABLES.has((table ?? '').trim());
@@ -157,14 +215,21 @@ const TABLE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
   [SyncTableName.ChatReads]: { kind: 'open' },
   // Комнаты: право на строку проверяется в push-гарде (правит только создатель).
   [SyncTableName.ChatRooms]: { kind: 'open' },
+  // Черновики: owner-private, владелец проверяется в push-гарде (card_draft_owner).
+  [SyncTableName.CardDrafts]: { kind: 'open' },
+  // Presence: сервер штампует heartbeat сам из сессии, клиентский payload не читается.
   [SyncTableName.UserPresence]: { kind: 'open' },
+  // Журнал действий: добавлять может любой аутентифицированный, править существующую
+  // строку — никто с клиента (append-only в applyPushBatch).
   [SyncTableName.AuditLog]: { kind: 'open' },
   // schema metadata — not the sensitive surface (data lives in attribute_values, which IS gated)
   [SyncTableName.EntityTypes]: { kind: 'open' },
   [SyncTableName.AttributeDefs]: { kind: 'open' },
-  // stock registers are server-computed from posted documents
-  [SyncTableName.ErpRegStockBalance]: { kind: 'open' },
-  [SyncTableName.ErpRegStockMovements]: { kind: 'open' },
+  // Регистры склада считает сервер по проведённым документам. До 21.09 стояло `open`:
+  // клиент подписывал произвольное движение склада в неизменяемый журнал, а от записи в PG
+  // спасало только отсутствие обработчика в applyPushBatch — случайность, не гейт.
+  [SyncTableName.ErpRegStockBalance]: { kind: 'superadmin' },
+  [SyncTableName.ErpRegStockMovements]: { kind: 'superadmin' },
   // ERP entity tables -> technolog/engine domain
   [SyncTableName.ErpNomenclature]: { kind: 'permission', code: PermissionCode.PartsEdit },
   [SyncTableName.ErpEngineAssemblyBom]: { kind: 'permission', code: PermissionCode.MasterDataEdit },
@@ -205,9 +270,15 @@ export function isWorkSheetRowWrite(args: {
 /**
  * Required capability for a single ledger write. `entityTypeCode` must be the
  * resolved entity_type code for entities/attribute_values rows; `operationType`
- * the operation_type for operations rows. Unknown/unmapped types fail OPEN
+ * the operation_type for operations rows. Unknown/unmapped entity TYPES fail OPEN
  * (availability over strictness — migration safety; sensitive types are mapped
- * explicitly). Adding a new sensitive entity_type REQUIRES a map entry here.
+ * explicitly; переворот — вместе с B6 и прогретой офлайн-очередью парка). Adding a
+ * new sensitive entity_type REQUIRES a map entry here.
+ *
+ * Unknown TABLES fail CLOSED (с 21.09): каждая таблица контракта размечена в
+ * `SYNC_TABLE_OWNERSHIP` и `TABLE_REQUIREMENT` (сторож это держит), а всё, чего нет
+ * в `SyncTableName`, отвергает `ensureSyncTable` ещё до гейта — так что сюда
+ * попадает только строка, которую забыли разметить, и она не должна быть открытой.
  */
 export function ledgerWriteRequirement(args: {
   table: string;
@@ -234,7 +305,7 @@ export function ledgerWriteRequirement(args: {
     return OPERATION_TYPE_REQUIREMENT[op] ?? { kind: 'permission', code: PermissionCode.OperationsEdit };
   }
 
-  return TABLE_REQUIREMENT[table] ?? { kind: 'open' };
+  return TABLE_REQUIREMENT[table] ?? { kind: 'superadmin' };
 }
 
 /**

@@ -19,6 +19,7 @@ import {
   userRowSchema,
   warehouseLocationRowSchema,
   userSectionAccessRowSchema,
+  SyncTableRegistry,
   type SyncPushRequest,
 } from '@matricarmz/shared';
 import { and, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
@@ -1340,48 +1341,70 @@ export async function applyPushBatch(
       }
     }
 
-    // AuditLog
+    // AuditLog — append-only (SYNC_TABLE_OWNERSHIP: owner 'append_only', brain #015, 21.09).
+    // Журнал, по которому ловят злоупотребление, нельзя править той же дверью, что и данные:
+    // до 21.09 клиент апсертил строку по id и мог принести `deleted_at` — запись гасилась.
+    // Теперь: новая строка вставляется (актор — из сессии, `deleted_at` всегда null);
+    // существующая НЕ перезаписывается, а повторный пуш (ретрай очереди) подтверждается
+    // СЕРВЕРНОЙ копией строки — иначе клиент держал бы её pending и слал вечно, а фан-аут
+    // из клиентского payload'а развёл бы реплики с PG.
     {
       const raw = grouped.get(SyncTableName.AuditLog) ?? [];
       const parsed = parseRows(SyncTableName.AuditLog, raw, auditLogRowSchema);
-      const rows = await filterStaleBySeqOrUpdatedAt(auditLog, parsed, SyncTableName.AuditLog);
-      if (rows.length > 0) {
-        await tx
-          .insert(auditLog)
-          .values(
-            rows.map((r) => ({
-              id: r.id,
-              // Server-stamp the actor from the authenticated push session instead of
-              // trusting the client-supplied value, otherwise any operator could forge
-              // audit entries attributed to e.g. "superadmin". Mirrors how owner
-              // attribution is stamped for other synced tables above.
-              // (security-hardening-2026-06, Phase 3 — audit_log integrity)
-              actor: actor.username,
-              action: r.action,
-              entityId: r.entity_id ?? null,
-              tableName: r.table_name ?? null,
-              payloadJson: r.payload_json ?? null,
-              createdAt: r.created_at,
-              updatedAt: r.updated_at,
-              deletedAt: r.deleted_at ?? null,
-              syncStatus: 'synced',
-            })),
-          )
-          .onConflictDoUpdate({
-            target: auditLog.id,
-            set: {
-              actor: sql`excluded.actor`,
-              action: sql`excluded.action`,
-              entityId: sql`excluded.entity_id`,
-              tableName: sql`excluded.table_name`,
-              payloadJson: sql`excluded.payload_json`,
-              updatedAt: sql`excluded.updated_at`,
-              deletedAt: sql`excluded.deleted_at`,
-              syncStatus: 'synced',
-            },
+      if (parsed.length > 0) {
+        const ids = parsed.map((r) => String(r.id));
+        const existing = await tx.select().from(auditLog).where(inArray(auditLog.id, ids as any));
+        const existingById = new Map<string, any>();
+        for (const e of existing as any[]) existingById.set(String(e.id), e);
+        const seqOf = (r: any): number | null =>
+          r.last_server_seq == null ? null : Number(r.last_server_seq);
+
+        const fresh = parsed.filter((r) => !existingById.has(String(r.id)));
+        if (fresh.length > 0) {
+          await tx
+            .insert(auditLog)
+            .values(
+              fresh.map((r) => ({
+                id: r.id,
+                // Server-stamp the actor from the authenticated push session instead of
+                // trusting the client-supplied value, otherwise any operator could forge
+                // audit entries attributed to e.g. "superadmin".
+                // (security-hardening-2026-06, Phase 3 — audit_log integrity)
+                actor: actor.username,
+                action: r.action,
+                entityId: r.entity_id ?? null,
+                tableName: r.table_name ?? null,
+                payloadJson: r.payload_json ?? null,
+                createdAt: r.created_at,
+                updatedAt: r.updated_at,
+                deletedAt: null,
+                syncStatus: 'synced',
+              })),
+            )
+            .onConflictDoNothing({ target: auditLog.id });
+          await updateSeqAndCollect(
+            auditLog,
+            SyncTableName.AuditLog,
+            fresh.map((r) => ({ ...r, actor: actor.username, deleted_at: null })),
+          );
+          applied += fresh.length;
+        }
+
+        const replayed = parsed.filter((r) => existingById.has(String(r.id)));
+        if (replayed.length > 0) {
+          const stored = replayed.map((r) => {
+            const row = SyncTableRegistry.toSyncRow(SyncTableName.AuditLog, existingById.get(String(r.id)));
+            const seq = seqOf(r);
+            return seq == null ? row : { ...row, last_server_seq: seq };
           });
-        await updateSeqAndCollect(auditLog, SyncTableName.AuditLog, rows);
-        applied += rows.length;
+          await updateSeqAndCollect(auditLog, SyncTableName.AuditLog, stored);
+          logSkip('audit_log rows already stored — client copy ignored (append-only)', {
+            table: SyncTableName.AuditLog,
+            count: replayed.length,
+            client_id: req.client_id,
+            user: actor.username,
+          });
+        }
       }
     }
 
