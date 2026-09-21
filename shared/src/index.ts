@@ -11,6 +11,7 @@ export * from './domain/partsDedup.js';
 export * from './domain/fileStorage.js';
 export * from './domain/repairChecklist.js';
 export * from './domain/engineInventoryLines.js';
+export * from './domain/engineInventoryLineId.js';
 export * from './domain/repairNorm.js';
 export * from './domain/docxText.js';
 export * from './domain/pastableFile.js';

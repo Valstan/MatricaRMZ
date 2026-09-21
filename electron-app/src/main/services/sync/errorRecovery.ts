@@ -20,6 +20,7 @@ import {
   aiChatRequests,
   operations,
   userPresence,
+  erpEngineInventoryLines,
 } from '../../database/schema.js';
 
 // ── Error classifiers ──────────────────────────────────────
@@ -77,8 +78,8 @@ const DRIZZLE_TABLE_MAP: Record<SyncTableName, any> = {
   [SyncTableName.ErpEngineInstances]: undefined,
   [SyncTableName.ErpRegStockBalance]: undefined,
   [SyncTableName.ErpRegStockMovements]: undefined,
-  // pull-only до E2.3 плана engine-inventory-lines (клиент пишет строки — тогда и чинить).
-  [SyncTableName.ErpEngineInventoryLines]: undefined,
+  // E2.3 (21.09): клиент пишет строки списка деталей сам — ошибочные pending-строки чинятся.
+  [SyncTableName.ErpEngineInventoryLines]: erpEngineInventoryLines,
 };
 const IN_ARRAY_CHUNK = 400;
 

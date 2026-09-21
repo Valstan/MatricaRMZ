@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { eq, inArray } from 'drizzle-orm';
 
 import {
@@ -6,6 +5,7 @@ import {
   SyncTableName,
   SyncTableRegistry,
   diffInventoryLines,
+  engineInventoryLineId,
   inventoryLineKeys,
   inventoryRawRowsFromPayload,
   lineFromInventoryRow,
@@ -28,18 +28,9 @@ import { writeSyncChanges, type SyncWriteActor, type SyncWriteInput } from './sy
  * Чистая половина — `planEngineInventoryLines` (под тестом), запись — `deriveEngineInventoryLines`.
  */
 
-const UUID_NS_ENGINE_INVENTORY_LINE = '7e0a5e2c-3b7f-4d38-9a5b-2c1f0b6d8e41';
-
-/** RFC 4122 v5 (SHA-1) — детерминированный id строки от (лист, ключ строки): повторный
- * бэкфилл и повторный вывод не плодят строк, а погашенная и вернувшаяся строка — та же. */
-export function engineInventoryLineId(operationId: string, lineKey: string): string {
-  const ns = Buffer.from(UUID_NS_ENGINE_INVENTORY_LINE.replace(/-/g, ''), 'hex');
-  const h = createHash('sha1').update(ns).update(`${operationId}\u0000${lineKey}`, 'utf8').digest();
-  h[6] = (h[6]! & 0x0f) | 0x50;
-  h[8] = (h[8]! & 0x3f) | 0x80;
-  const hex = h.subarray(0, 16).toString('hex');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
-}
+// id строки — `engineInventoryLineId` из shared (с 21.09 одна функция на сервер и клиент:
+// клиент пишет строки сам, E2.3). Реэкспорт — ради прежних импортов и теста.
+export { engineInventoryLineId };
 
 export type InventoryOperationRow = {
   id: string;

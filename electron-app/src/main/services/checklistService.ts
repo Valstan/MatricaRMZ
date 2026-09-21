@@ -22,7 +22,7 @@ import {
   type RepairFundRequirementVersionRecord,
 } from '@matricarmz/shared';
 import { entities, operations } from '../database/schema.js';
-import { withReplicaInventoryRows } from './engineInventoryLinesReplica.js';
+import { withReplicaInventoryRows, writeInventoryLinesForSheet } from './engineInventoryLinesReplica.js';
 import { getEntityDetails, listEntitiesByType } from './entityService.js';
 import { listEntityTypes } from './adminService.js';
 import { ensureEngineRow } from './engineService.js';
@@ -285,6 +285,7 @@ export async function saveRepairChecklistForEngine(
         .update(operations)
         .set({ metaJson, updatedAt: ts, syncStatus: 'pending' })
         .where(and(eq(operations.id, opId), isNull(operations.deletedAt)));
+      await writeSheetLines(db, opId, args.engineId, args.stage, args.payload, ts);
       return { ok: true as const, operationId: opId };
     }
 
@@ -311,10 +312,25 @@ export async function saveRepairChecklistForEngine(
       deletedAt: null,
       syncStatus: 'pending',
     });
+    await writeSheetLines(db, newId, args.engineId, args.stage, args.payload, ts);
     return { ok: true as const, operationId: newId };
   } catch (e) {
     return { ok: false as const, error: String(e) };
   }
+}
+
+// E2.3: список деталей едет на сервер и строками строгой таблицы (pending → push), и по-прежнему
+// целиком в meta_json листа — до E3 это держит старые клиенты и серверный вывод согласованными.
+async function writeSheetLines(
+  db: BetterSQLite3Database,
+  operationId: string,
+  engineId: string,
+  stage: string,
+  payload: RepairChecklistPayload,
+  ts: number,
+): Promise<void> {
+  if (stage !== ENGINE_INVENTORY_STAGE) return;
+  await writeInventoryLinesForSheet(db, { operationId, engineId, payload, ts });
 }
 
 /* -------------------------------------------------------------------------- *
