@@ -15,6 +15,7 @@ import {
   operationRowSchema,
   parseEngineReservationSkipReason,
   userPresenceRowSchema,
+  erpEngineInventoryLineRowSchema,
   type SyncPullResponse,
   type SyncPushRequest,
 } from '@matricarmz/shared';
@@ -110,6 +111,9 @@ const MAX_ROWS_PER_TABLE: Partial<Record<SyncTableName, number>> = {
   [SyncTableName.NoteShares]: 500,
   [SyncTableName.CardDrafts]: 500,
   [SyncTableName.AiChatRequests]: 100,
+  // Один лист — до 659 строк; лист и его строки должны уехать одним пушем (иначе сервер
+  // выведет строки из meta_json сам — с теми же id, но лишней транзакцией).
+  [SyncTableName.ErpEngineInventoryLines]: 1500,
 };
 // Bind-param limit lives in sync/upsertChunks.ts (desktop 32000; android injects 900
 // + byte cap via setSyncSqlLimits — GOTCHAS M74). Large chunks matter on desktop:
@@ -1185,6 +1189,7 @@ async function collectPending(db: BetterSQLite3Database) {
   await recoverErroredRows(cardDrafts, cardDraftRowSchema, SyncTableName.CardDrafts);
   await recoverErroredRows(aiChatRequests, aiChatRequestRowSchema, SyncTableName.AiChatRequests);
   await recoverErroredRows(userPresence, userPresenceRowSchema, SyncTableName.UserPresence);
+  await recoverErroredRows(erpEngineInventoryLines, erpEngineInventoryLineRowSchema, SyncTableName.ErpEngineInventoryLines);
 
   async function add(table: SyncTableName, rows: unknown[]) {
     if (rows.length === 0) return;
@@ -1544,6 +1549,28 @@ async function collectPending(db: BetterSQLite3Database) {
     }
     await add(SyncTableName.UserPresence, valid);
   }
+  {
+    // E2.3: строки списка деталей — первая строгая таблица, которую клиент ПИШЕТ. Лист
+    // (operations) уходит в этом же пуше выше; сервер, видя строки таблицы для листа, свой
+    // вывод из meta_json для него не делает (syncWriteService.deriveLinesForAppliedOperations).
+    const pendingLines = await db
+      .select()
+      .from(erpEngineInventoryLines)
+      .where(eq(erpEngineInventoryLines.syncStatus, pending))
+      .limit(limitFor(SyncTableName.ErpEngineInventoryLines));
+    const valid: typeof pendingLines = [];
+    const invalidIds: string[] = [];
+    for (const row of pendingLines) {
+      const parsed = erpEngineInventoryLineRowSchema.safeParse(toSyncRow(SyncTableName.ErpEngineInventoryLines, row));
+      if (parsed.success) valid.push(row);
+      else invalidIds.push(String(row.id));
+    }
+    if (invalidIds.length > 0) {
+      await markPendingError(db, SyncTableName.ErpEngineInventoryLines, invalidIds);
+      logSync(`push drop invalid erp_engine_inventory_lines count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')}`);
+    }
+    await add(SyncTableName.ErpEngineInventoryLines, valid);
+  }
 
   return packs;
 }
@@ -1751,6 +1778,9 @@ async function markAllSynced(db: BetterSQLite3Database, table: SyncTableName, id
         break;
       case SyncTableName.UserPresence:
         await db.update(userPresence).set({ syncStatus: 'synced' }).where(inArray(userPresence.id, chunk));
+        break;
+      case SyncTableName.ErpEngineInventoryLines:
+        await db.update(erpEngineInventoryLines).set({ syncStatus: 'synced' }).where(inArray(erpEngineInventoryLines.id, chunk));
         break;
     }
   }

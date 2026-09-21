@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ENGINE_INVENTORY_STAGE,
+  engineInventoryLineId,
   inventoryLineKeys,
   inventoryRawRowsFromPayload,
   lineFromInventoryRow,
@@ -11,7 +12,10 @@ import {
   type EngineInventoryLineRow,
 } from '@matricarmz/shared';
 
-import { getRepairChecklistForEngine } from './checklistService.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+import { getRepairChecklistForEngine, saveRepairChecklistForEngine } from './checklistService.js';
 import { computeEngineInventoryFlags } from './engineService.js';
 import { readInventoryRowsForOperations, withReplicaInventoryRows } from './engineInventoryLinesReplica.js';
 
@@ -24,6 +28,8 @@ import { readInventoryRowsForOperations, withReplicaInventoryRows } from './engi
 function makeDb() {
   const sqlite = new Database(':memory:');
   sqlite.exec(`
+    CREATE TABLE entities (id text PRIMARY KEY, type_id text NOT NULL, created_at integer NOT NULL,
+      updated_at integer NOT NULL, last_server_seq integer, deleted_at integer, sync_status text NOT NULL DEFAULT 'synced');
     CREATE TABLE operations (id text PRIMARY KEY, engine_entity_id text NOT NULL, operation_type text NOT NULL,
       status text NOT NULL, note text, performed_at integer, performed_by text, meta_json text,
       created_at integer NOT NULL, updated_at integer NOT NULL, last_server_seq integer,
@@ -228,5 +234,99 @@ describe('E2.2 — строки списка из реплики строгой 
       .run('op-act', ENGINE, 'completeness_act', 'done', JSON.stringify({ kind: 'repair_checklist', answers: { x: 1 } }), 1, 1);
     const r = await getRepairChecklistForEngine(db, ENGINE, 'completeness_act');
     expect(r.ok && (r.payload as any).answers).toEqual({ x: 1 });
+  });
+});
+
+// ─── E2.3 (G2): запись строк с клиента ───────────────────────────────────────────────────
+
+type LineRow = { id: string; line_key: string; part_name: string; scrap_qty: number; sync_status: string; deleted_at: number | null; sort_order: number };
+
+function linesInDb(sqlite: Database.Database): LineRow[] {
+  return sqlite
+    .prepare(`SELECT id, line_key, part_name, scrap_qty, sync_status, deleted_at, sort_order FROM erp_engine_inventory_lines ORDER BY sort_order`)
+    .all() as LineRow[];
+}
+
+function markLinesSynced(sqlite: Database.Database) {
+  sqlite.prepare(`UPDATE erp_engine_inventory_lines SET sync_status = 'synced'`).run();
+}
+
+async function saveSheet(db: any, sqlite: Database.Database, rows: Array<Record<string, unknown>>, operationId?: string) {
+  sqlite.prepare(`INSERT OR IGNORE INTO entities (id, type_id, created_at, updated_at) VALUES (?,?,?,?)`).run(ENGINE, 'et-engine', 1, 1);
+  const r = await saveRepairChecklistForEngine(db, {
+    engineId: ENGINE,
+    stage: ENGINE_INVENTORY_STAGE,
+    operationId: operationId ?? null,
+    payload: sheetPayload(rows) as any,
+    actor: 'tester',
+  });
+  expect(r.ok).toBe(true);
+  if (!r.ok || !r.operationId) throw new Error('save failed');
+  return r.operationId;
+}
+
+describe('E2.3 — сохранение листа пишет строки в реплику pending, по одной на изменение', () => {
+  it('первое сохранение: все строки pending, id — тот же, что считает сервер, meta_json по-прежнему несёт rows', async () => {
+    const { sqlite, db } = makeDb();
+    const opId = await saveSheet(db, sqlite, RAW_ROWS);
+    const lines = linesInDb(sqlite);
+    expect(lines.map((l) => l.part_name)).toEqual(['Картер', 'Поршень', 'Прокладка ручная']);
+    expect(lines.every((l) => l.sync_status === 'pending' && l.deleted_at == null)).toBe(true);
+    const keys = inventoryLineKeys(RAW_ROWS);
+    expect(lines.map((l) => l.id)).toEqual(keys.map((k) => engineInventoryLineId(opId, k)));
+    const meta = JSON.parse(sqlite.prepare(`SELECT meta_json FROM operations WHERE id = ?`).get(opId)!['meta_json' as never] as string);
+    expect(inventoryRawRowsFromPayload(meta).length).toBe(3);
+  });
+
+  it('одна изменённая ячейка → ровно одна pending-строка, остальные остаются synced', async () => {
+    const { sqlite, db } = makeDb();
+    const opId = await saveSheet(db, sqlite, RAW_ROWS);
+    markLinesSynced(sqlite);
+    const changed = RAW_ROWS.map((r, i) => (i === 1 ? { ...r, scrap_qty: 2 } : r));
+    await saveSheet(db, sqlite, changed, opId);
+    const lines = linesInDb(sqlite);
+    expect(lines.filter((l) => l.sync_status === 'pending').map((l) => l.part_name)).toEqual(['Поршень']);
+    expect(lines.find((l) => l.part_name === 'Поршень')?.scrap_qty).toBe(2);
+    expect(lines.filter((l) => l.sync_status === 'synced').length).toBe(2);
+  });
+
+  it('удалённая строка гасится pending-тумстоуном, а вернувшаяся оживает под прежним id', async () => {
+    const { sqlite, db } = makeDb();
+    const opId = await saveSheet(db, sqlite, RAW_ROWS);
+    markLinesSynced(sqlite);
+    const pistonId = linesInDb(sqlite).find((l) => l.part_name === 'Поршень')!.id;
+    await saveSheet(db, sqlite, [RAW_ROWS[0]!, RAW_ROWS[2]!], opId);
+    let piston = linesInDb(sqlite).find((l) => l.id === pistonId)!;
+    expect(piston.deleted_at).not.toBeNull();
+    expect(piston.sync_status).toBe('pending');
+    // Читатель тумстоун не видит.
+    const r = await getRepairChecklistForEngine(db, ENGINE, ENGINE_INVENTORY_STAGE);
+    expect(r.ok && inventoryRawRowsFromPayload(r.payload).map((x) => x.part_name)).toEqual(['Картер', 'Прокладка ручная']);
+    markLinesSynced(sqlite);
+    await saveSheet(db, sqlite, RAW_ROWS, opId);
+    piston = linesInDb(sqlite).find((l) => l.id === pistonId)!;
+    expect(piston.deleted_at).toBeNull();
+    expect(piston.sync_status).toBe('pending');
+    expect(linesInDb(sqlite).length).toBe(3);
+  });
+
+  it('повторное сохранение без изменений не трогает ни одной строки', async () => {
+    const { sqlite, db } = makeDb();
+    const opId = await saveSheet(db, sqlite, RAW_ROWS);
+    markLinesSynced(sqlite);
+    await saveSheet(db, sqlite, RAW_ROWS, opId);
+    expect(linesInDb(sqlite).every((l) => l.sync_status === 'synced')).toBe(true);
+  });
+});
+
+describe('E2.3 — push-обвязка знает таблицу строк (сторож по исходнику syncService)', () => {
+  const sync = readFileSync(fileURLToPath(new URL('./syncService.ts', import.meta.url)), 'utf8');
+  const recovery = readFileSync(fileURLToPath(new URL('./sync/errorRecovery.ts', import.meta.url)), 'utf8');
+  it('секция push, лимит пачки, подтверждение synced и recovery — все четыре', () => {
+    expect(sync).toContain('await add(SyncTableName.ErpEngineInventoryLines, valid)');
+    expect(sync).toMatch(/\[SyncTableName\.ErpEngineInventoryLines\]: \d+,/);
+    expect(sync).toContain("await db.update(erpEngineInventoryLines).set({ syncStatus: 'synced' })");
+    expect(sync).toContain('recoverErroredRows(erpEngineInventoryLines, erpEngineInventoryLineRowSchema, SyncTableName.ErpEngineInventoryLines)');
+    expect(recovery).toContain('[SyncTableName.ErpEngineInventoryLines]: erpEngineInventoryLines,');
   });
 });

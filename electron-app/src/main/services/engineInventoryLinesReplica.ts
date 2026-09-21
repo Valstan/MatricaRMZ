@@ -1,10 +1,14 @@
-import { and, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
+  diffInventoryLines,
+  engineInventoryLineId,
   type EngineInventoryLineRow,
+  inventoryLineKeys,
   inventoryRawRowsFromPayload,
   inventoryRowsFromLines,
+  lineFromInventoryRow,
   SyncTableName,
   SyncTableRegistry,
 } from '@matricarmz/shared';
@@ -92,6 +96,54 @@ export async function withReplicaInventoryRows<T>(db: BetterSQLite3Database, ope
   const lines = (await readInventoryLinesByOperations(db, [operationId])).get(operationId);
   if (!lines || lines.length === 0) return payload;
   return payloadWithInventoryRows(payload, inventoryRowsFromLines(lines));
+}
+
+export type InventoryLinesWriteResult = { insert: number; update: number; tombstone: number; unchanged: number };
+
+/**
+ * E2.3: строки листа — в реплику с `sync_status='pending'`, чтобы штатный push отвёз их
+ * таблицей. Сверка с существующими строками — по `line_key` (`diffInventoryLines`): меняется
+ * одна строка → одна pending-строка → одна транзакция в журнале, а не 130. Id строки —
+ * `engineInventoryLineId` из shared, тот же, что считает сервер, выводя строки из `meta_json`:
+ * иначе один лист породил бы два набора строк. Погашенные строки читаются тоже — вернувшаяся
+ * строка оживает под прежним id.
+ */
+export async function writeInventoryLinesForSheet(
+  db: BetterSQLite3Database,
+  args: { operationId: string; engineId: string; payload: unknown; ts: number },
+): Promise<InventoryLinesWriteResult> {
+  const raw = inventoryRawRowsFromPayload(args.payload);
+  const keys = inventoryLineKeys(raw);
+  const desired = raw.map((row, i) =>
+    lineFromInventoryRow(row, {
+      id: engineInventoryLineId(args.operationId, keys[i]!),
+      operationId: args.operationId,
+      engineEntityId: args.engineId,
+      lineKey: keys[i]!,
+      sortOrder: i,
+      createdAt: args.ts,
+      updatedAt: args.ts,
+    }),
+  );
+  const existingRows = await db
+    .select()
+    .from(erpEngineInventoryLines)
+    .where(eq(erpEngineInventoryLines.operationId, args.operationId));
+  const existing = (existingRows as Array<Record<string, unknown>>).map(
+    (r) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineInventoryLines, r) as unknown as EngineInventoryLineRow,
+  );
+  const diff = diffInventoryLines(existing, desired, args.ts);
+
+  const toDb = (line: EngineInventoryLineRow) =>
+    SyncTableRegistry.toDbRow(SyncTableName.ErpEngineInventoryLines, { ...line, sync_status: 'pending' });
+  if (diff.insert.length > 0) {
+    await db.insert(erpEngineInventoryLines).values(diff.insert.map((l) => toDb(l) as any));
+  }
+  for (const line of [...diff.update, ...diff.tombstone]) {
+    const { id: _id, createdAt: _c, lastServerSeq: _s, ...set } = toDb(line) as Record<string, unknown>;
+    await db.update(erpEngineInventoryLines).set(set as any).where(eq(erpEngineInventoryLines.id, line.id));
+  }
+  return { insert: diff.insert.length, update: diff.update.length, tombstone: diff.tombstone.length, unchanged: diff.unchanged };
 }
 
 export function payloadWithInventoryRows<T>(payload: T, rows: Array<Record<string, unknown>>): T {
