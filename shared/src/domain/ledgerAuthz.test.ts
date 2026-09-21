@@ -108,7 +108,7 @@ describe('ledgerWriteRequirement — operations & tables', () => {
     expect(isWorkSheetRowWrite({ table: ENTITIES, operationType: 'repair_history_entry', operationMetaJson: sheetMeta })).toBe(false);
   });
 
-  it('social / schema / register tables are open', () => {
+  it('social / schema tables are open (владелец строки проверяется построчно или сервером)', () => {
     for (const t of [
       SyncTableName.Notes,
       SyncTableName.ChatMessages,
@@ -116,10 +116,21 @@ describe('ledgerWriteRequirement — operations & tables', () => {
       SyncTableName.AuditLog,
       SyncTableName.EntityTypes,
       SyncTableName.AttributeDefs,
-      SyncTableName.ErpRegStockMovements,
+      SyncTableName.CardDrafts,
     ]) {
       expect(ledgerWriteRequirement({ table: t }).kind, t).toBe('open');
     }
+  });
+
+  it('регистры склада закрыты для клиента: считает сервер (было open до 21.09)', () => {
+    for (const t of [SyncTableName.ErpRegStockBalance, SyncTableName.ErpRegStockMovements]) {
+      expect(ledgerWriteRequirement({ table: t }).kind, t).toBe('superadmin');
+      expect(isServerManagedSyncTable(t), t).toBe(true);
+    }
+  });
+
+  it('неизвестная таблица падает ЗАКРЫТО, а не open', () => {
+    expect(ledgerWriteRequirement({ table: 'some_new_table' }).kind).toBe('superadmin');
   });
 });
 
