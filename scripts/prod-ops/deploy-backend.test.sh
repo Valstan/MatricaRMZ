@@ -77,23 +77,29 @@ export MATRICA_TEST_HEAD_SHA="deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 
 # --- Сборка артефакта с НОВЫМ содержимым --------------------------------------------------
 ART="$ROOT/artifact"
-mkdir -p "$ART/backend-api/dist" "$ART/backend-api/drizzle" "$ART/shared/dist" "$ART/ledger/dist"
+mkdir -p "$ART/backend-api/dist" "$ART/backend-api/drizzle" "$ART/shared/dist" "$ART/ledger/dist" "$ART/web-admin/dist"
 echo "NEW" > "$ART/backend-api/dist/index.js"
 echo "NEW" > "$ART/backend-api/drizzle/marker"
 echo "NEW" > "$ART/shared/dist/marker"
 echo "NEW" > "$ART/ledger/dist/marker"
+echo "NEW" > "$ART/web-admin/dist/index.html"
 export MATRICA_TEST_TARBALL="$ROOT/backend-dist.tar.gz"
-tar -czf "$MATRICA_TEST_TARBALL" -C "$ART" backend-api/dist backend-api/drizzle shared/dist ledger/dist
+tar -czf "$MATRICA_TEST_TARBALL" -C "$ART" backend-api/dist backend-api/drizzle shared/dist ledger/dist web-admin/dist
+# Архив образца до 21.09 — без админки. Прод его обязан отвергнуть до сноса, иначе `/admin-ui`
+# исчезнет вместе с прежним каталогом.
+export MATRICA_TEST_TARBALL_NO_ADMIN="$ROOT/backend-dist-no-admin.tar.gz"
+tar -czf "$MATRICA_TEST_TARBALL_NO_ADMIN" -C "$ART" backend-api/dist backend-api/drizzle shared/dist ledger/dist
 
 # Свежий прод-клон с ПРЕЖНИМ содержимым перед каждым случаем.
 make_repo() {
   local repo="$1" deps="$2"
   rm -rf "$repo"
-  mkdir -p "$repo/backend-api/dist" "$repo/backend-api/drizzle" "$repo/shared/dist" "$repo/ledger/dist"
+  mkdir -p "$repo/backend-api/dist" "$repo/backend-api/drizzle" "$repo/shared/dist" "$repo/ledger/dist" "$repo/web-admin/dist"
   echo "OLD" > "$repo/backend-api/dist/index.js"
   echo "OLD" > "$repo/backend-api/drizzle/marker"
   echo "OLD" > "$repo/shared/dist/marker"
   echo "OLD" > "$repo/ledger/dist/marker"
+  echo "OLD" > "$repo/web-admin/dist/index.html"
   printf '{"name":"@matricarmz/backend-api","dependencies":%s}' "$deps" > "$repo/backend-api/package.json"
 }
 install_dep() { mkdir -p "$1/backend-api/node_modules/$2"; }
@@ -117,6 +123,8 @@ RC="$(MATRICA_TEST_HEALTH_FAIL_UNTIL=0 run_deploy "$REPO")"
 ls -d "$REPO"/.deploy-backup/*/ >/dev/null 2>&1 && ok "копия прежнего dist создана" || fail "копии прежнего dist нет"
 BK="$(ls -d "$REPO"/.deploy-backup/*/ | head -1)"
 [[ "$(cat "$BK/backend-api/dist/index.js")" == "OLD" ]] && ok "в копии лежит именно прежний dist" || fail "копия не содержит прежний dist"
+[[ "$(cat "$REPO/web-admin/dist/index.html")" == "NEW" ]] && ok "админка разложена вместе с бэкендом" || fail "web-admin/dist не разложен"
+[[ "$(cat "$BK/web-admin/dist/index.html")" == "OLD" ]] && ok "прежняя админка в копии" || fail "web-admin/dist не скопирован"
 
 # --- 2. Primary не поднялся → откат --------------------------------------------------------
 REPO="$ROOT/repo2"; make_repo "$REPO" '{"express":"5.0.0"}'; install_dep "$REPO" express
@@ -125,6 +133,7 @@ RC="$(MATRICA_TEST_HEALTH_NEVER=1 run_deploy "$REPO")"
 [[ "$(cat "$REPO/backend-api/dist/index.js")" == "OLD" ]] \
   && ok "ОТКАТ: прежний dist возвращён на место" || fail "отката не произошло — на диске остался новый dist"
 [[ "$(cat "$REPO/shared/dist/marker")" == "OLD" ]] && ok "откат вернул и shared/dist" || fail "shared/dist не откачен"
+[[ "$(cat "$REPO/web-admin/dist/index.html")" == "OLD" ]] && ok "откат вернул и админку" || fail "web-admin/dist не откачен"
 grep -q "ОТКАТ" "$ROOT/out.txt" && ok "откат назван в логе" || fail "лог молчит про откат"
 
 # --- 3. Не установлена рантаймовая зависимость → отказ ДО сноса -----------------------------
@@ -154,6 +163,13 @@ COUNT="$(ls -1 "$REPO/.deploy-backup" | wc -l | tr -d ' ')"
 [[ "$RC" == 0 && "$COUNT" == 3 ]] && ok "оставлено ровно 3 копии (было 4 старых + новая)" \
   || fail "подрезка копий: rc=$RC, осталось $COUNT вместо 3"
 [[ ! -d "$REPO/.deploy-backup/20200101-000001" ]] && ok "снесена самая старая копия" || fail "старая копия уцелела"
+
+# --- 6. Архив без админки (сборка до 21.09) → отказ ДО сноса ---------------------------------
+REPO="$ROOT/repo6"; make_repo "$REPO" '{"express":"5.0.0"}'; install_dep "$REPO" express
+RC="$(MATRICA_TEST_TARBALL="$MATRICA_TEST_TARBALL_NO_ADMIN" MATRICA_TEST_HEALTH_FAIL_UNTIL=0 run_deploy "$REPO")"
+[[ "$RC" != 0 ]] && ok "архив без web-admin/dist отвергнут" || fail "архив без админки принят"
+[[ "$(cat "$REPO/web-admin/dist/index.html")" == "OLD" && "$(cat "$REPO/backend-api/dist/index.js")" == "OLD" ]]   && ok "ничего не тронуто — отказ случился до rm -rf" || fail "dist заменён неполным архивом"
+grep -q "web-admin/dist" "$ROOT/out.txt" && ok "недостающий путь назван" || fail "лог не назвал недостающий путь"
 
 echo "deploy-backend.sh: $PASS ok, $FAILED failed"
 [[ "$FAILED" == 0 ]] || exit 1
