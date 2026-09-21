@@ -220,4 +220,4 @@ if [[ -d "$BACKUP_ROOT" ]]; then
 fi
 
 log "готово: $(curl -fsk https://127.0.0.1/health || echo 'nginx не ответил')"
-log "откат при нужде: cp -a .deploy-backup/$STAMP/<путь> <путь> и рестарт юнитов"
+log "откат при нужде: bash scripts/prod-ops/deploy-backend.sh rollback $STAMP"
