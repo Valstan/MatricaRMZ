@@ -52,6 +52,7 @@ bash deploy/nginx/install.sh
 3. Валидирует через `nginx -t`.
 4. Перезагружает: `nginx -s reload`.
 5. Smoke-test: `curl https://127.0.0.1/health`.
+6. Smoke-test open redirect (G371): запрос на `:80` с чужим `Host: evil.example` — `Location` не должен его содержать (редирект ведёт на литеральный хост, а не на `$host`).
 
 При любой ошибке после копирования — авто-откат из backup'а и `nginx -s reload`.
 

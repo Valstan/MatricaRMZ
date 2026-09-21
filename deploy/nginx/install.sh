@@ -63,6 +63,18 @@ fi
 cat /tmp/nginx-deploy-health.log
 echo
 
+# Open redirect (G371): редирект :80 -> https обязан вести на наш хост, а не на тот, что
+# пришёл в Host. Проверяем чужим именем: Location не должен его содержать.
+echo "==> Smoke test: foreign Host is not reflected into Location"
+REDIRECT_URL="$(curl -sS -o /dev/null -w '%{redirect_url}' -H 'Host: evil.example' http://127.0.0.1:80/health || true)"
+if [[ "$REDIRECT_URL" == *"evil.example"* ]]; then
+  echo "Location: $REDIRECT_URL"
+  rollback
+  echo "ERROR: foreign Host reflected into redirect Location, rolled back" >&2
+  exit 4
+fi
+echo "    Location: ${REDIRECT_URL:-<none>}"
+
 echo "==> Done. Backup kept at $BACKUP_PATH"
 echo "    Чтобы откатить вручную:"
 echo "      sudo cp $BACKUP_PATH $TARGET_CONF && sudo nginx -s reload"

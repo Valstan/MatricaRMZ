@@ -519,7 +519,7 @@ exe/ярлык/окно/таскбар на реально обновлённо�
 
 ## 🟡 Долги, вскрытые разбором мандата D-096 (18.09) 🗓 since:2026-09-18
 
-**Open redirect с отражением `Host` на :80.** `deploy/nginx/matricarmz-backend.conf:49` — `if ($redirect_http = 1) { return 302 https://$host$request_uri; }`. Блок помечен `default_server` на :80/:443 и `server_name _`, то есть принимает запрос с любым именем и отражает его в `Location`. Запрос с чужим `Host` уводит клиента на чужой адрес за подписью нашего сервера. Правка — одна строка на каноническое имя; версионируется в репо, катится `deploy/nginx/install.sh`, **на проде руками не трогать**. Это же — ответ по идее **#251**: `default_server` у нас есть (в отличие от исходной посылки идеи), а дыра оказалась соседняя.
+**Open redirect с отражением `Host` на :80 — ✅ конфиг исправлен 21.09** (`return 302 https://<литерал>$request_uri` вместо `$host`; `install.sh` получил смоук чужим `Host: evil.example` с авто-откатом, если `Location` его содержит). **Выкат на прод — `bash deploy/nginx/install.sh` после `git pull`**; строка ack brain к 16.10 закрывается, когда на проде `curl -H 'Host: evil.example' http://127.0.0.1/health` отдаёт `Location` на наш хост. Это же — ответ по идее **#251**: `default_server` у нас есть, а дыра оказалась соседняя.
 
 **Sourcemap'ы админки раздаются публично.** `web-admin` собирается с `sourcemap: true`, и `/admin-ui/assets/*.map` (~1.9 МБ исходников) доступны всем. Либо `sourcemap: 'hidden'`, либо не класть `.map` в `dist`.
 
