@@ -171,5 +171,33 @@ RC="$(MATRICA_TEST_TARBALL="$MATRICA_TEST_TARBALL_NO_ADMIN" MATRICA_TEST_HEALTH_
 [[ "$(cat "$REPO/web-admin/dist/index.html")" == "OLD" && "$(cat "$REPO/backend-api/dist/index.js")" == "OLD" ]]   && ok "ничего не тронуто — отказ случился до rm -rf" || fail "dist заменён неполным архивом"
 grep -q "web-admin/dist" "$ROOT/out.txt" && ok "недостающий путь назван" || fail "лог не назвал недостающий путь"
 
+# --- 7. snapshot → rollback: репетиция отката без смены версии (brain #324/G373) --------------
+REPO="$ROOT/repo7"; make_repo "$REPO" '{"express":"5.0.0"}'; install_dep "$REPO" express
+export MATRICA_REPO_DIR="$REPO"; export MATRICA_TEST_CURL_COUNT="$ROOT/curl.count"; rm -f "$MATRICA_TEST_CURL_COUNT"
+( cd "$REPO" && bash "$SUT" snapshot ) > "$ROOT/out.txt" 2>&1; RC=$?
+[[ "$RC" == 0 ]] && ok "snapshot выходит с 0" || fail "snapshot вернул $RC"
+SNAP="$(ls -1 "$REPO/.deploy-backup" | head -1)"
+[[ -n "$SNAP" && "$(cat "$REPO/.deploy-backup/$SNAP/backend-api/dist/index.js")" == "OLD" ]]   && ok "snapshot скопировал текущий dist" || fail "snapshot не создал копию"
+grep -q "перезапуск" "$ROOT/out.txt" && fail "snapshot перезапускал сервисы" || ok "snapshot ничего не перезапускает"
+# Портим рабочий dist, будто выкат сломал его, и откатываемся на копию.
+echo "BROKEN" > "$REPO/backend-api/dist/index.js"
+echo "BROKEN" > "$REPO/web-admin/dist/index.html"
+rm -f "$MATRICA_TEST_CURL_COUNT"
+( cd "$REPO" && MATRICA_TEST_HEALTH_FAIL_UNTIL=0 bash "$SUT" rollback ) > "$ROOT/out.txt" 2>&1; RC=$?
+[[ "$RC" == 0 ]] && ok "rollback без аргумента выходит с 0" || fail "rollback вернул $RC: $(tail -3 "$ROOT/out.txt")"
+[[ "$(cat "$REPO/backend-api/dist/index.js")" == "OLD" && "$(cat "$REPO/web-admin/dist/index.html")" == "OLD" ]]   && ok "rollback вернул последнюю копию (бэкенд и админку)" || fail "rollback не вернул dist"
+grep -q "перезапуск matricarmz-backend-primary" "$ROOT/out.txt" && grep -q "перезапуск matricarmz-backend-secondary" "$ROOT/out.txt"   && ok "rollback перезапустил primary и secondary" || fail "rollback не перезапустил оба юнита"
+# Явный стамп и несуществующий стамп.
+mkdir -p "$REPO/.deploy-backup/20200101-000001/backend-api/dist"; echo "OLDER" > "$REPO/.deploy-backup/20200101-000001/backend-api/dist/index.js"
+rm -f "$MATRICA_TEST_CURL_COUNT"
+( cd "$REPO" && bash "$SUT" rollback 20200101-000001 ) > "$ROOT/out.txt" 2>&1
+[[ "$(cat "$REPO/backend-api/dist/index.js")" == "OLDER" ]] && ok "rollback <стамп> берёт названную копию" || fail "rollback игнорирует стамп"
+( cd "$REPO" && bash "$SUT" rollback nope ) > "$ROOT/out.txt" 2>&1; RC=$?
+[[ "$RC" != 0 ]] && grep -q "нет в .deploy-backup" "$ROOT/out.txt" && ok "rollback на несуществующую копию отказывает" || fail "rollback принял несуществующий стамп"
+# Primary не поднялся на копии — rollback честно падает и не трогает secondary.
+rm -f "$MATRICA_TEST_CURL_COUNT"
+( cd "$REPO" && MATRICA_TEST_HEALTH_NEVER=1 bash "$SUT" rollback ) > "$ROOT/out.txt" 2>&1; RC=$?
+[[ "$RC" != 0 ]] && ! grep -q "перезапуск matricarmz-backend-secondary" "$ROOT/out.txt"   && ok "rollback при мёртвом primary выходит с ошибкой, secondary не трогает" || fail "rollback при мёртвом primary повёл себя не так: rc=$RC"
+
 echo "deploy-backend.sh: $PASS ok, $FAILED failed"
 [[ "$FAILED" == 0 ]] || exit 1
