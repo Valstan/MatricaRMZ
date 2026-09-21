@@ -59,11 +59,14 @@ TARBALL="$STAGE/backend-dist.tar.gz"
 # и половину нового — худшее из состояний.
 log "проверяю содержимое"
 tar -xzf "$TARBALL" -C "$STAGE"
-for p in backend-api/dist/index.js shared/dist ledger/dist; do
+for p in backend-api/dist/index.js shared/dist ledger/dist web-admin/dist/index.html; do
   [[ -e "$STAGE/$p" ]] || { log "в архиве нет $p — выкат отменён"; exit 1; }
 done
 
-PATHS=(backend-api/dist backend-api/drizzle shared/dist ledger/dist)
+# Тот же список, что пакует `.github/workflows/backend-dist.yml` — менять парой. `web-admin/dist`
+# здесь с 21.09: бэкенд раздаёт админку как `/admin-ui` из этого каталога, и без него в архиве
+# она на проде обновлялась руками и отставала от кода.
+PATHS=(backend-api/dist backend-api/drizzle shared/dist ledger/dist web-admin/dist)
 
 # Рантаймовые зависимости проверяем ДО сноса. Артефакт несёт только собранное; `dependencies`
 # приезжают с `git pull`, а ставит их человек отдельным фильтрованным install'ом (см. AGENTS.md

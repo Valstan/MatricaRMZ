@@ -12,7 +12,8 @@ name: Backend dist
 #
 # Что едет в архиве: dist всех трёх пакетов, которые нужны бэкенду в рантайме
 # (`shared` и `ledger` — workspace-зависимости, их dist обязан совпадать с тем, против чего
-# собирался backend), плюс drizzle-миграции.
+# собирался backend), drizzle-миграции и статика админки (`web-admin/dist`): бэкенд раздаёт её
+# как `/admin-ui`, и до 21.09 она в артефакт не входила — на проде обновлялась руками и отставала.
 
 on:
   push:
@@ -48,15 +49,20 @@ jobs:
       - name: Build backend-api
         run: pnpm --filter @matricarmz/backend-api build
 
+      - name: Build web-admin
+        run: pnpm --filter @matricarmz/web-admin build
+
       # Складываем ровно те пути, которые прод распаковывает поверх своего клона. Архив
       # разворачивается из корня репозитория, поэтому пути внутри — от корня.
+      # Список путей дублируется в `scripts/prod-ops/deploy-backend.sh` (PATHS) — менять парой.
       - name: Pack dist
         run: |
           tar -czf backend-dist.tar.gz \
             backend-api/dist \
             backend-api/drizzle \
             shared/dist \
-            ledger/dist
+            ledger/dist \
+            web-admin/dist
           ls -la backend-dist.tar.gz
 
       - name: Upload artifact
