@@ -53,14 +53,19 @@ echo "==> Reloading nginx"
 sudo nginx -s reload
 
 sleep 1
+# Лог смоука — во временный файл СВОЕГО процесса. Фиксированный /tmp/nginx-deploy-health.log
+# остался от прошлого запуска под другим пользователем, был недоступен на запись, и здоровый
+# конфиг откатился «по /health» (прод, 21.09.2026).
+HEALTH_LOG="$(mktemp)"
+trap 'rm -f "$HEALTH_LOG"' EXIT
 echo "==> Smoke test: curl https://127.0.0.1/health"
-if ! curl -fsSk https://127.0.0.1/health > /tmp/nginx-deploy-health.log 2>&1; then
-  cat /tmp/nginx-deploy-health.log
+if ! curl -fsSk https://127.0.0.1/health > "$HEALTH_LOG" 2>&1; then
+  cat "$HEALTH_LOG"
   rollback
   echo "ERROR: /health failed after reload, rolled back" >&2
   exit 3
 fi
-cat /tmp/nginx-deploy-health.log
+cat "$HEALTH_LOG"
 echo
 
 # Open redirect (G371): редирект :80 -> https обязан вести на наш хост, а не на тот, что
