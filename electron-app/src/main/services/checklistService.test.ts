@@ -22,6 +22,18 @@ function makeDb() {
       status text NOT NULL, note text, performed_at integer, performed_by text, meta_json text,
       created_at integer NOT NULL, updated_at integer NOT NULL, last_server_seq integer,
       deleted_at integer, sync_status text NOT NULL DEFAULT 'synced');
+    CREATE TABLE erp_engine_inventory_lines (id text PRIMARY KEY NOT NULL, operation_id text NOT NULL,
+      engine_entity_id text NOT NULL, line_key text NOT NULL, sort_order integer NOT NULL, part_id text,
+      brand_managed integer NOT NULL DEFAULT false, part_name text NOT NULL DEFAULT '',
+      assembly_unit_number text NOT NULL DEFAULT '', part_number text NOT NULL DEFAULT '',
+      stamped_number text NOT NULL DEFAULT '', bom_variant_group text, quantity integer NOT NULL DEFAULT 0,
+      present integer NOT NULL DEFAULT false, actual_qty integer NOT NULL DEFAULT 0,
+      repairable_qty integer NOT NULL DEFAULT 0, scrap_qty integer NOT NULL DEFAULT 0,
+      replace_qty integer NOT NULL DEFAULT 0, replenishment_branch text, scrap_reason text NOT NULL DEFAULT '',
+      in_completeness_act integer, in_defect_act integer, in_completeness_act_override integer,
+      in_defect_act_override integer, selected integer NOT NULL DEFAULT false, photos_json text,
+      created_at integer NOT NULL, updated_at integer NOT NULL, last_server_seq integer, deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced');
   `);
   sqlite.prepare(`INSERT INTO entity_types (id,code,name,created_at,updated_at) VALUES (?,?,?,?,?)`).run('et-engine', 'engine', 'Двигатель', 1, 1);
   return { sqlite, db: drizzle(sqlite) as any };

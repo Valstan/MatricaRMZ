@@ -22,6 +22,7 @@ import {
   type RepairFundRequirementVersionRecord,
 } from '@matricarmz/shared';
 import { entities, operations } from '../database/schema.js';
+import { withReplicaInventoryRows } from './engineInventoryLinesReplica.js';
 import { getEntityDetails, listEntitiesByType } from './entityService.js';
 import { listEntityTypes } from './adminService.js';
 import { ensureEngineRow } from './engineService.js';
@@ -231,7 +232,13 @@ export async function getRepairChecklistForEngine(
       if (!raw) continue;
       const parsed = safeJsonParse(raw) as any;
       if (parsed && typeof parsed === 'object' && parsed.kind === 'repair_checklist') {
-        return { ok: true as const, operationId: String(r.id), payload: parsed as RepairChecklistPayload };
+        // E2.2: строки списка — из реплики строгой таблицы, если она знает этот лист; иначе
+        // из meta_json (см. engineInventoryLinesReplica.ts).
+        const payload =
+          stage === ENGINE_INVENTORY_STAGE
+            ? await withReplicaInventoryRows(db, String(r.id), parsed as RepairChecklistPayload)
+            : (parsed as RepairChecklistPayload);
+        return { ok: true as const, operationId: String(r.id), payload };
       }
     }
 
