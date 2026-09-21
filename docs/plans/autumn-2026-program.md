@@ -251,8 +251,8 @@
 ## Блок G — строгие строки листа деталей и дубли (последняя нитка, самая длинная)
 
 План — `docs/plans/engine-inventory-lines-2026-09.md` (читать перед началом).
-### G1. E2.2 — чтение из реплики — `feat/inventory-lines-read-replica`
-`readEngineInventoryRows(db, engineId)` из `erp_engine_inventory_lines` с fallback на `meta_json`; `inventoryRowFromLine` (`shared/domain/engineInventoryLines.ts`). Сторож паритета: строки из реплики == строки из `meta_json` для того же листа.
+### G1. ✅ (21.09) E2.2 — чтение из реплики — `feat/inventory-lines-read-replica`
+Сделано: `electron-app/src/main/services/engineInventoryLinesReplica.ts` (`readInventoryRowsForOperations` — батч по листам: реплика, если знает лист, иначе `meta_json`; `withReplicaInventoryRows` для одного листа). Подключены `getRepairChecklistForEngine` (панель + IPC), флаги двигателя (`engineService`), два пресета отчёта «Двигатели». Сторож паритета — `engineInventoryLinesReplica.guard.test.ts` (реплика == `meta_json` по всем полям и мета-ключам; краснеет на мутации). **Не переведён** поиск по клейму (`cardContentSearchService`): его префильтр ищет по тексту `meta_json`, строки там есть до E3 — перевод входит в G3.
 ### G2. E2.3 — запись строк с клиента + push — `feat/inventory-lines-write-push`
 Строки в реплику с `sync_status='pending'`, секция push; продолжаем дублировать в `meta_json`. Контроль на живом потоке (PENDING :259): одна изменённая строка → одна транзакция в журнале.
 ### G3. E3 — флип — `feat/inventory-lines-flip`

@@ -36,6 +36,7 @@ import {
 
 import { attributeDefs, attributeValues, entities, entityTypes, operations } from '../database/schema.js';
 import { collectChunked } from '../utils/sqlChunks.js';
+import { payloadWithInventoryRows, readInventoryRowsForOperations } from './engineInventoryLinesReplica.js';
 import { listEntitiesByType, listEntitiesByTypeWithAttrs } from './entityService.js';
 import type {
   RepairHistorySourceRow,
@@ -379,8 +380,17 @@ async function getEngineInventoryFlagsMap(db: BetterSQLite3Database, engineIds: 
         .where(inArray(operations.id, idsChunk)),
     );
     const metaById = new Map(bodies.map((b) => [String(b.id), b.metaJson == null ? null : String(b.metaJson)]));
+    // E2.2: строки списка — из реплики строгой таблицы, где она знает лист. Кэш ниже ключуется
+    // `updated_at` листа: до E3 строки и лист меняются вместе (клиент пишет оба), после E3
+    // ключ кэша обязан учитывать и строки.
+    const payloadById = new Map(stale.map((s) => [s.id, safeJsonParse(metaById.get(s.id) ?? '')]));
+    const rowsById = await readInventoryRowsForOperations(
+      db,
+      stale.map((s) => ({ id: s.id, payload: payloadById.get(s.id) })),
+    );
     for (const item of stale) {
-      const flags = computeEngineInventoryFlags(safeJsonParse(metaById.get(item.id) ?? ''));
+      const payload = payloadWithInventoryRows(payloadById.get(item.id), rowsById.get(item.id) ?? []);
+      const flags = computeEngineInventoryFlags(payload);
       inventoryFlagsCache.set(item.id, { updatedAt: item.updatedAt, flags });
       result.set(item.engineId, flags);
     }

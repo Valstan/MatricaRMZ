@@ -33,6 +33,7 @@ import {
 } from '../../../database/schema.js';
 
 import { httpAuthed } from '../../httpClient.js';
+import { readInventoryRowsForOperations } from '../../engineInventoryLinesReplica.js';
 
 import { resolveContractLabel, toNumber, normalizeText, asArray, asNumberOrNull, readPeriod, msToDate, stageLabel, stageProgressFallback } from '../format.js';
 import { getWarehouseLocationsForReport, getPreset, loadSnapshot, getIdsByType, buildContractCounterpartyIndex, resolveEngineCounterpartyId, buildBrandFilterMatcher, resolveEngineBrandRef, type ReportBuildContext, type Snapshot } from '../context.js';
@@ -172,23 +173,32 @@ export async function buildEngineStagesReport(
 export async function getCompletenessActStartedMap(db: BetterSQLite3Database): Promise<Map<string, boolean>> {
   const result = new Map<string, boolean>();
   const opRows = await db
-    .select({ engineEntityId: operations.engineEntityId, metaJson: operations.metaJson, updatedAt: operations.updatedAt })
+    .select({ id: operations.id, engineEntityId: operations.engineEntityId, metaJson: operations.metaJson, updatedAt: operations.updatedAt })
     .from(operations)
     .where(and(eq(operations.operationType, ENGINE_INVENTORY_STAGE), isNull(operations.deletedAt)))
     .orderBy(desc(operations.updatedAt));
+  // Первый (свежайший) лист на двигатель — как и раньше; строки его — из реплики строгой
+  // таблицы, если она знает лист, иначе из meta_json (E2.2).
+  const heads: Array<{ id: string; engineId: string; payload: unknown }> = [];
   for (const op of opRows as any[]) {
     const engineId = String(op?.engineEntityId ?? '').trim();
     if (!engineId || result.has(engineId)) continue;
-    let started = false;
+    result.set(engineId, false);
+    let payload: unknown = null;
     try {
-      const payload = op.metaJson ? JSON.parse(String(op.metaJson)) : null;
-      const table = payload?.answers?.engine_inventory_items;
-      const tableRows = table?.kind === 'table' && Array.isArray(table.rows) ? table.rows : [];
-      started = tableRows.some((r: any) => r?.present === true || r?.present === 'true' || r?.present === 1 || r?.present === '1');
+      payload = op.metaJson ? JSON.parse(String(op.metaJson)) : null;
     } catch {
-      started = false;
+      payload = null;
     }
-    result.set(engineId, started);
+    heads.push({ id: String(op.id), engineId, payload });
+  }
+  const rowsByOp = await readInventoryRowsForOperations(db, heads);
+  for (const head of heads) {
+    const tableRows = rowsByOp.get(head.id) ?? [];
+    result.set(
+      head.engineId,
+      tableRows.some((r: any) => r?.present === true || r?.present === 'true' || r?.present === 1 || r?.present === '1'),
+    );
   }
   return result;
 }
@@ -224,6 +234,7 @@ export async function buildScrapRegisterReport(
   // «только последняя» занижала охват при повторных заездах — дефект аудита 2026-07-22).
   const opRows = await db
     .select({
+      id: operations.id,
       engineEntityId: operations.engineEntityId,
       metaJson: operations.metaJson,
       performedAt: operations.performedAt,
@@ -233,17 +244,29 @@ export async function buildScrapRegisterReport(
     .from(operations)
     .where(and(eq(operations.operationType, ENGINE_INVENTORY_STAGE), isNull(operations.deletedAt)))
     .orderBy(desc(operations.updatedAt));
-  const opsByEngine = new Map<string, Array<{ metaJson: string | null; ts: number }>>();
+  const opsByEngine = new Map<string, Array<{ id: string; payload: unknown; ts: number }>>();
   for (const op of opRows as any[]) {
     const engineId = String(op?.engineEntityId ?? '').trim();
     if (!engineId) continue;
     const list = opsByEngine.get(engineId) ?? [];
+    let payload: unknown = null;
+    try {
+      payload = op.metaJson == null ? null : JSON.parse(String(op.metaJson));
+    } catch {
+      payload = null;
+    }
     list.push({
-      metaJson: op.metaJson == null ? null : String(op.metaJson),
+      id: String(op.id),
+      payload,
       ts: Number(op.performedAt ?? op.updatedAt ?? op.createdAt ?? 0),
     });
     opsByEngine.set(engineId, list);
   }
+  // Строки всех листов разом: из реплики строгой таблицы, где она знает лист (E2.2).
+  const inventoryRowsByOp = await readInventoryRowsForOperations(
+    db,
+    [...opsByEngine.values()].flat().map((o) => ({ id: o.id, payload: o.payload })),
+  );
 
   type EngineCtx = {
     engineNumber: string;
@@ -319,15 +342,7 @@ export async function buildScrapRegisterReport(
     // Детали из всех дефектовок двигателя (каждый повторный заезд — свой акт).
     if (kindFilter === 'engines') continue;
     for (const op of opsByEngine.get(id) ?? []) {
-      if (!op.metaJson) continue;
-      let rawRows: Array<Record<string, unknown>> = [];
-      try {
-        const payload = JSON.parse(op.metaJson);
-        const table = payload?.answers?.engine_inventory_items;
-        rawRows = table?.kind === 'table' && Array.isArray(table.rows) ? table.rows : [];
-      } catch {
-        rawRows = [];
-      }
+      const rawRows = inventoryRowsByOp.get(op.id) ?? [];
       if (period.startMs != null && op.ts > 0 && op.ts < period.startMs) continue;
       if (op.ts > 0 && op.ts > period.endMs) continue;
       for (const raw of rawRows) {
