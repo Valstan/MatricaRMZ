@@ -3522,11 +3522,12 @@ export function WorkOrderDetailsPage(props: {
         ) : null}
       </SectionCard>
       </div>
-      {/* Вкладка «Подписи» */}
+      </div>
+      {/* Вкладка «Подписи» — СЕСТРА вкладки «Содержимое», а не её потомок: вложенная,
+          она гасла вместе с родителем при переключении, и вкладка выглядела пустой. */}
       <div data-card-tab="signatures" hidden={activeTab !== 'signatures'} style={{ maxWidth: 'min(95vw, 1200px)', marginInline: 'auto', width: '100%', flexShrink: 0 }}>
         {signaturesSection}
       </div>
-    </div>
     {workOrderTemplateEditor ? (
       <WorkOrderTemplateEditorDialog
         open
