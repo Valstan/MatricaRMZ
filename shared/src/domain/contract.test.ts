@@ -16,6 +16,9 @@ import {
   parseContractExecutionParts,
   parseContractKind,
   parseContractSections,
+  shortContractSuffix,
+  shortContractSuffixLabel,
+  splitContractNumberAccent,
   sumEngineBrandQtyByBrandFromContractSections,
   type ContractSections,
 } from './contract.js';
@@ -318,5 +321,51 @@ describe('вид контракта', () => {
     expect(CONTRACT_KIND_LABELS.military).toBe('Военный');
     expect(CONTRACT_KIND_LABELS.civil).toBe('Гражданский');
     expect(parseContractKind('civil')).toBe('civil');
+  });
+});
+
+// Короткий номер договора до 22.09.2026 покрывался только косвенно — через ожидания
+// вывода в workSheetService и в пресете engineFlowByCounterparty. Из-за этого правило
+// «берём цифры до слэша» молча работало и там, где слэша нет: «Письмо № 15 от 03.09.2026»
+// превращалось в «*026», то есть в три цифры года. Тесты закрепляют обе ветки.
+describe('короткий номер договора', () => {
+  it('берёт три последние цифры части до первого «/»', () => {
+    expect(shortContractSuffix('2325187913551442245231239/27/ГОЗ-24')).toBe('*239');
+    expect(shortContractSuffix('125/2026')).toBe('*125');
+  });
+
+  it('без «/» короткого номера не делает — номер показывается как есть', () => {
+    expect(shortContractSuffix('Письмо № 15 от 03.09.2026')).toBe('');
+    expect(shortContractSuffixLabel('Письмо № 15 от 03.09.2026')).toBe('Письмо № 15 от 03.09.2026');
+  });
+
+  it('без цифр до «/» тоже пусто, и метка падает на сырой номер', () => {
+    expect(shortContractSuffix('ГОЗ/24')).toBe('');
+    expect(shortContractSuffixLabel('ГОЗ/24')).toBe('ГОЗ/24');
+  });
+
+  it('пустой номер называется «(без номера)»', () => {
+    expect(shortContractSuffixLabel('')).toBe('(без номера)');
+    expect(shortContractSuffixLabel(null)).toBe('(без номера)');
+  });
+
+  it('дополнение к договору дописывается к короткой метке', () => {
+    expect(shortContractSuffixLabel('125/2026', 'ДС 2')).toBe('*125 / ДС 2');
+  });
+
+  it('жирным выделяются ровно те цифры, что дали короткий номер', () => {
+    expect(splitContractNumberAccent('2325187913551442245231239/27/ГОЗ-24')).toEqual({
+      before: '2325187913551442245231',
+      accent: '239',
+      after: '/27/ГОЗ-24',
+    });
+  });
+
+  it('без «/» не выделяет ничего: рабочего номера в строке нет', () => {
+    expect(splitContractNumberAccent('Письмо № 15 от 03.09.2026')).toEqual({
+      before: 'Письмо № 15 от 03.09.2026',
+      accent: '',
+      after: '',
+    });
   });
 });

@@ -9,7 +9,8 @@ import { buildEngineFlowByCounterpartyReport } from './engineFlowByCounterparty.
 //   C1/BR1: E1 на заводе (в ремонте), E2 отгружен, E3 утиль на заводе, E4 утиль отправлен,
 //           E8 признан утильным и уехал заказчику обычной отгрузкой — тоже «утиль отправлен»
 //   C1/BR2: E5 на заводе
-//   C2 (ДС 2)/BR1: E6 отгружен — заказчик у двигателя не проставлен, берётся с договора
+//   C2 (ДС 2)/BR1: E6 отгружен — заказчик у двигателя не проставлен, берётся с договора;
+//     номер договора без «/» — короткий номер для него не строится (владелец 22.09.2026)
 //   C3 (CP2)/BR2: E7 на заводе
 const ARRIVAL = Date.UTC(2026, 0, 10);
 
@@ -183,7 +184,10 @@ describe('buildEngineFlowByCounterpartyReport', () => {
     if (!report.ok) return;
     const labels = report.rows.map((r) => r.contractShortLabel);
     expect(labels).toContain('*125'); // «125/2026» → цифры части до слеша
-    expect(labels).toContain('*158 / ДС 2'); // «РМЗ-2026-0158» → слеша нет, берутся три последние цифры + ДС
+    // «РМЗ-2026-0158» — слеша нет, значит рабочего номера в строке нет: с 22.09.2026
+    // печатаем номер как есть. Прежнее «*158» — три цифры года — цех вводило в заблуждение.
+    expect(labels).toContain('РМЗ-2026-0158 / ДС 2');
+    expect(labels).not.toContain('*158 / ДС 2');
     expect(labels).toContain('*7'); // «7/2026» → цифр меньше трёх — берём сколько есть
   });
 
@@ -191,7 +195,7 @@ describe('buildEngineFlowByCounterpartyReport', () => {
     const report = await buildEngineFlowByCounterpartyReport(stubDb(), {});
     expect(report.ok).toBe(true);
     if (!report.ok) return;
-    const e6Row = findRow(report.rows, '*158 / ДС 2', 'Д-245');
+    const e6Row = findRow(report.rows, 'РМЗ-2026-0158 / ДС 2', 'Д-245');
     expect(e6Row?.counterpartyLabel).toBe('АО «Первый заказчик»');
     expect(report.rows.some((r) => r.counterpartyLabel === '(без заказчика)')).toBe(false);
   });
