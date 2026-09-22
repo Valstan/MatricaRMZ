@@ -18,7 +18,7 @@
 |---|---|---|---|
 | 1 ✅ | `fix/search-exact-default-everywhere` | точный поиск по умолчанию в Ctrl+K, 8 списках и остатках склада | S |
 | 2 ✅ | `fix/short-contract-number-no-slash` | короткий номер только при слэше | XS |
-| 3 | `fix/parts-duplicate-hard-block` | запрет дублей деталей, наглядный переход к существующей | S |
+| 3 ✅ | `fix/parts-duplicate-hard-block` | запрет дублей деталей, наглядный переход к существующей | S |
 | 4 | `fix/repeat-arrival-labels` | пометки заездов в пикерах и логика карточки | M |
 | 5 | `feat/contract-repair-days` | «дней на ремонт» в контракте, горящие от поступления, фильтры | M |
 | 6 | `feat/defect-blank-two-columns` | бланк дефектовки: флаг «свой номер», два столбца на листе | M |
@@ -52,7 +52,7 @@
 - Добавить прямой unit-тест `shared/src/domain/contract.test.ts` (пока покрытие косвенное: `workSheetService.test.ts:266-294`, `engineFlowByCounterparty.test.ts:180-374`) — случаи: ГОЗ с `/` → `*239`; `125/2026` → `*125`; «Письмо № 15 от 03.09.2026» → `''`, label = сырой номер; пусто → `(без номера)`.
 - Проверить, что существующие фикстуры не полагались на номер без слэша.
 
-## 3. Дубли деталей — жёсткий запрет с переходом
+## 3. ✅ Дубли деталей — жёсткий запрет с переходом
 
 **Что есть.** Двигатель по номеру блокируется локально (`engineService.ts:1269-1277`) и на сервере (`adminMasterdataService.ts:1258-1270`); обход — только флаги заезда/коллизии. Детали: `quickCreateEntity.ts:19-30` тихо возвращает существующую; `SearchSelect.tsx:205` блокирует inline-create; но `SimpleMasterdataDetailsPage.tsx:466,518,1267` показывает `DuplicateWarningDialog` с кнопкой **«Всё равно сохранить как новую»** (`components/DuplicateWarningDialog.tsx:137-174`) — это дыра. Серверный гейт `createDirectoryPart` (`warehouseService.ts:2126-2170`) — ключ `directoryPartDedupKey(name, code)` — блокирует только точное совпадение имя+артикул, а не «то же имя, другой артикул» и не «тот же сборочный номер».
 

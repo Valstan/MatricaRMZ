@@ -32,6 +32,49 @@ export function directoryPartIdentityKey(name: string, code: string | null | und
   return `${normalizeLookupCompact(String(name ?? ''))}|${normalizeLookupCompact(String(code ?? ''))}`;
 }
 
+/**
+ * Классы жёсткого дубля детали — то, что создавать НЕЛЬЗЯ (владелец 22.09.2026:
+ * «нельзя позволять создать дубль… предлагать перейти в существующий объект»).
+ *
+ * Ровно два класса, и оба выведены из уже принятого в Т2 правила идентичности выше:
+ * - `same-name-and-article` — совпала пара (название, артикул): это и есть дубль;
+ * - `same-article` — совпал непустой артикул при любом названии: артикул задуман
+ *   опознавать деталь, поэтому общий код — либо дубль, либо опечатка в коде, но
+ *   никогда не законная пара.
+ *
+ * Чего здесь намеренно НЕТ: совпадения одного только названия при РАЗНЫХ непустых
+ * артикулах. Это законная семья («Вал коленчатый 3305-01-18» и «…-17»), и запрет
+ * по имени останавливал бы нормальную работу склада. Такие пары по-прежнему
+ * показываются оператору как похожие — с правом сохранить.
+ */
+export type DuplicateBlockReason = 'same-name-and-article' | 'same-article';
+
+export type DirectoryPartIdentity = {
+  name: string;
+  code: string | null | undefined;
+};
+
+/** Причина жёсткого запрета, либо null — если пара законна и это лишь «похоже». */
+export function duplicateBlockReason(a: DirectoryPartIdentity, b: DirectoryPartIdentity): DuplicateBlockReason | null {
+  if (directoryPartIdentityKey(a.name, a.code) === directoryPartIdentityKey(b.name, b.code)) {
+    // Пара ключей совпала целиком. Но у пустых имени и артикула ключ тоже «совпадает»
+    // («|»), а это не дубль, а две пустые заготовки — их различает оператор, не гейт.
+    const filled = normalizeLookupCompact(String(a.name ?? '')) || normalizeLookupCompact(String(a.code ?? ''));
+    return filled ? 'same-name-and-article' : null;
+  }
+  const codeA = normalizeLookupCompact(String(a.code ?? ''));
+  const codeB = normalizeLookupCompact(String(b.code ?? ''));
+  if (codeA && codeA === codeB) return 'same-article';
+  return null;
+}
+
+/** Текст для оператора: чем именно новая запись столкнулась с существующей. */
+export function duplicateBlockReasonLabel(reason: DuplicateBlockReason): string {
+  return reason === 'same-article'
+    ? 'Такой сборочный номер уже занят другой деталью'
+    : 'Деталь с таким названием и сборочным номером уже есть';
+}
+
 function nameFuzzyBudget(len: number): number {
   if (len < 4) return 0;
   if (len <= 7) return 1;

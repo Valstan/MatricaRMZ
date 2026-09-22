@@ -130,10 +130,28 @@ function EngineDuplicateHint(props: {
     whiteSpace: 'nowrap',
     flexShrink: 0,
   };
+  // Владелец 22.09.2026: оператор «всё равно создаёт дубль». Причина не в гейте, а в том,
+  // что единственный путь без побочных эффектов — просто открыть найденную карточку — был
+  // спрятан за формулировкой «Открыть по рекламации»: у кого не рекламация, тот проходил
+  // мимо и заводил второй двигатель через «повторный заезд». Поэтому переход вынесен
+  // отдельным первым вариантом и единственный нарисован заливкой: он должен читаться как
+  // действие по умолчанию, а остальные — как частные случаи.
+  const primaryBtnStyle: React.CSSProperties = {
+    ...pathBtnStyle,
+    background: '#2563eb',
+    border: '1px solid #1d4ed8',
+    color: '#ffffff',
+    padding: '7px 14px',
+    fontSize: 13,
+  };
+  const openExistingButton =
+    props.onOpenEngine && exact[0] ? (
+      <button type="button" style={primaryBtnStyle} onClick={() => props.onOpenEngine?.(exact[0]!.id)}>
+        Открыть существующий двигатель →
+      </button>
+    ) : null;
   // Понятный путь-выбор: заголовок + строка на каждый случай с человеческим описанием
-  // последствия (не только тултип), чтобы оператор сразу понял, что нажать. «Повторный
-  // заезд» выделен — это самый частый не-рекламационный случай (тот же номер, новый ремонт,
-  // возможно другой заказчик).
+  // последствия (не только тултип), чтобы оператор сразу понял, что нажать.
   function pathRow(opts: { emphasize?: boolean; title: string; desc: string; button: React.ReactNode }): React.ReactNode {
     // Вертикальная раскладка (заголовок → описание → кнопка): контейнер подсказки узкий
     // (сидит в ячейке поля номера), и горизонтальный ряд «текст | кнопка» ужимал описание
@@ -203,9 +221,23 @@ function EngineDuplicateHint(props: {
           </div>
         ))}
       </div>
+      {/* Точное совпадение без выбора пути (уже сохранённая карточка либо нет права на правку):
+          кроме мелкой ссылки «Открыть» в строке списка перехода не было вовсе. При showPaths
+          кнопка не дублируется — она же стоит первой строкой выбора ниже. */}
+      {isExact && !asArrivals && !showPaths && openExistingButton ? (
+        <div style={{ marginTop: 8, display: 'flex' }}>{openExistingButton}</div>
+      ) : null}
       {showPaths && (
         <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={{ fontWeight: 700, color: '#111827' }}>Такой номер уже есть в базе. Что это за случай?</div>
+          {openExistingButton
+            ? pathRow({
+                emphasize: true,
+                title: 'Это тот же двигатель — он уже заведён',
+                desc: 'Создавать ничего не нужно: открываем существующую карточку и работаем в ней. Ни повторного заезда, ни коллизии номера не помечаем.',
+                button: openExistingButton,
+              })
+            : null}
           {props.onChooseReclamation && exact[0]
             ? pathRow({
                 title: 'Возврат по рекламации',
@@ -219,7 +251,6 @@ function EngineDuplicateHint(props: {
             : null}
           {props.onChooseRepeatArrival && exact[0]
             ? pathRow({
-                emphasize: true,
                 title: 'Повторный заезд — новый ремонт',
                 desc: 'Тот же двигатель снова привезли на отдельный ремонт (возможно, другой заказчик/договор). Эта карточка станет новым независимым заездом с тем же номером — история прежнего сохранится.',
                 button: (

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { directoryPartIdentityKey, groupDirectoryPartDuplicates } from './partsDedup.js';
+import {
+  directoryPartIdentityKey,
+  duplicateBlockReason,
+  duplicateBlockReasonLabel,
+  groupDirectoryPartDuplicates,
+} from './partsDedup.js';
 
 describe('directoryPartIdentityKey', () => {
   it('compact-normalizes both name and code', () => {
@@ -120,5 +125,70 @@ describe('groupDirectoryPartDuplicates', () => {
       { id: 'b', name: 'Вол', code: null },
     ]);
     expect(groups).toHaveLength(0);
+  });
+});
+
+describe('duplicateBlockReason', () => {
+  it('blocks an identical (name, артикул) pair', () => {
+    expect(
+      duplicateBlockReason(
+        { name: 'Вал коленчатый', code: '3305-01-18' },
+        { name: 'Вал коленчатый', code: '3305-01-18' },
+      ),
+    ).toBe('same-name-and-article');
+  });
+
+  it('blocks the same pair written differently: case, spaces, «ё», punctuation', () => {
+    // Оператор вводит от руки — гейт обязан ловить пару через ту же нормализацию,
+    // что и поиск (normalizeLookupCompact), иначе дубль пройдёт из-за пробела.
+    expect(
+      duplicateBlockReason({ name: 'Съёмник шатуна', code: '447-00' }, { name: '  СЪЕМНИК   шатуна ', code: '447 00' }),
+    ).toBe('same-name-and-article');
+    expect(
+      duplicateBlockReason({ name: 'Втулка (верхняя)', code: '3301-15-30' }, { name: 'Втулка верхняя', code: '33011530' }),
+    ).toBe('same-name-and-article');
+  });
+
+  it('blocks a shared non-empty артикул even when the names differ', () => {
+    expect(
+      duplicateBlockReason({ name: 'Картер верхний', code: '3301-15-30' }, { name: 'Крышка люка', code: '3301 15 30' }),
+    ).toBe('same-article');
+  });
+
+  it('allows the same name with two DIFFERENT non-empty артикулы (legal family)', () => {
+    // Довод из шапки правила: «Вал коленчатый 3305-01-18» и «…-17» — законная семья,
+    // запрет по одному имени остановил бы нормальную работу склада.
+    expect(
+      duplicateBlockReason(
+        { name: 'Вал коленчатый', code: '3305-01-18' },
+        { name: 'Вал коленчатый', code: '3305-01-17' },
+      ),
+    ).toBeNull();
+  });
+
+  it('allows the same name when one side has no артикул yet', () => {
+    // Артикул ещё не заполнен — судит оператор, а не гейт.
+    expect(duplicateBlockReason({ name: 'Форсунка', code: '303-07-22' }, { name: 'Форсунка', code: null })).toBeNull();
+    expect(duplicateBlockReason({ name: 'Форсунка', code: '' }, { name: 'Форсунка', code: '303-07-22' })).toBeNull();
+  });
+
+  it('allows two empty records (two blank drafts are not a duplicate)', () => {
+    expect(duplicateBlockReason({ name: '', code: '' }, { name: '', code: null })).toBeNull();
+  });
+
+  it('blocks the same name when BOTH артикулы are empty', () => {
+    expect(duplicateBlockReason({ name: 'Поршень', code: null }, { name: 'поршень', code: '' })).toBe(
+      'same-name-and-article',
+    );
+  });
+});
+
+describe('duplicateBlockReasonLabel', () => {
+  it('gives a distinct operator text per reason', () => {
+    const byPair = duplicateBlockReasonLabel('same-name-and-article');
+    const byCode = duplicateBlockReasonLabel('same-article');
+    expect(byPair).not.toBe(byCode);
+    expect(byPair.trim()).not.toBe('');
+    expect(byCode.trim()).not.toBe('');
   });
 });

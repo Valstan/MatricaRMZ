@@ -2,6 +2,7 @@ import type { AuthFailureCode } from '../domain/authFailure.js';
 import type { EngineReservation } from '../domain/engineReservation.js';
 import type { GlobalSearchHit, GlobalSearchResponse } from '../domain/globalSearch.js';
 import type { PartDimension, PartEngineBrandLink, PartMetadata, PartSpec } from '../domain/part.js';
+import type { DuplicateBlockReason } from '../domain/partsDedup.js';
 import type { WorkshopStatsResult } from '../domain/workshopStats.js';
 import type { TimesheetCodeDef, TimesheetData, TimesheetHeader } from '../domain/timesheet.js';
 import type { UserUiProfile } from '../domain/userUiProfile.js';
@@ -136,6 +137,12 @@ export type DuplicateCandidate = {
   displayName: string;
   score: number;
   attributes: Record<string, unknown>;
+  /**
+   * Класс жёсткого дубля (владелец 22.09.2026: такую запись создавать нельзя, надо
+   * перейти в существующую). Отдельно от score: score — одно усреднённое число по
+   * имени и артикулу, по нему не восстановить, ЧТО именно совпало. Пусто — лишь похоже.
+   */
+  blockReason?: DuplicateBlockReason;
 };
 
 export type EngineDuplicateCandidate = {
