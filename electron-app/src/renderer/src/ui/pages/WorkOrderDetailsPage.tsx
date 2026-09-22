@@ -1669,11 +1669,6 @@ export function WorkOrderDetailsPage(props: {
           props.onClose();
         })();
       }}
-      onReset={() => {
-        void refresh().then(() => {
-          dirtyRef.current = false;
-        });
-      }}
       onPrint={() => setPrintDialogOpen(true)}
       onClose={() => props.requestClose?.()}
       onDelete={
@@ -1752,7 +1747,7 @@ export function WorkOrderDetailsPage(props: {
                   <Input
                     type="number"
                     min={0.01}
-                    step="0.01"
+                    step="any"
                     value={String(member.ktu ?? 1)}
                     style={amountInputStyle}
                     disabled={!canEditNow}
@@ -1766,7 +1761,7 @@ export function WorkOrderDetailsPage(props: {
                   <div style={{ display: 'grid', gap: 6 }}>
                     <Input
                       type="number"
-                      step="0.01"
+                      step="any"
                       min={0}
                       value={String(member.payoutFrozen ? member.manualPayoutRub ?? member.payoutRub ?? 0 : member.payoutRub ?? 0)}
                       style={amountInputStyle}
@@ -3358,7 +3353,7 @@ export function WorkOrderDetailsPage(props: {
                   <td data-col-kind="num" style={rightCellStyle}>
                     <Input
                       type="number"
-                      step="0.01"
+                      step="any"
                       min={0}
                       value={String(line.qty ?? 0)}
                       style={amountInputStyle}
@@ -3376,7 +3371,7 @@ export function WorkOrderDetailsPage(props: {
                   <td data-col-kind="num" style={rightCellStyle}>
                     <Input
                       type="number"
-                      step="0.01"
+                      step="any"
                       min={0}
                       value={String(line.priceRub ?? 0)}
                       style={amountInputStyle}
