@@ -13,6 +13,7 @@ export async function fetchWarehouseStockAllPages(args: {
   warehouseId?: string;
   nomenclatureId?: string;
   search?: string;
+  similar?: boolean;
   lowStockOnly?: boolean;
 }): Promise<WarehouseStockListItem[]> {
   return (await fetchWarehouseStockAllPagesEx(args)).rows;
@@ -23,6 +24,8 @@ export async function fetchWarehouseStockAllPagesEx(args: {
   warehouseId?: string;
   nomenclatureId?: string;
   search?: string;
+  /** Тумблер «≈ Похожие»: без него поиск ищет только точное совпадение введённого. */
+  similar?: boolean;
   lowStockOnly?: boolean;
 }): Promise<{ rows: WarehouseStockListItem[]; searchSimilar: boolean }> {
   let offset = 0;

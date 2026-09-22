@@ -3,6 +3,7 @@ import type { WarehouseMovementListItem, WarehouseStockListItem } from '@matrica
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { SearchModeToggle } from '../components/SearchModeToggle.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { rollupStockByParent, type StockRollupRow } from '../utils/nomenclatureParent.js';
@@ -27,7 +28,10 @@ export function StockBalancesPage(props: {
 }) {
   const { lookups, nomenclature, error: refsError, refresh: refreshRefs } = useWarehouseReferenceData({ loadNomenclature: true });
   const [rows, setRows] = useState<WarehouseStockListItem[]>([]);
+  // Тумблер «≈ Похожие»: намерение оператора, уезжает в запрос. Поиск здесь серверный.
   const [searchSimilar, setSearchSimilar] = useState(false);
+  // Флаг ответа: точных совпадений не нашлось и показаны похожие — только для баннера.
+  const [responseSimilar, setResponseSimilar] = useState(false);
   const [status, setStatus] = useState('');
   const [query, setQuery] = useState('');
   const [warehouseId, setWarehouseId] = useState<string | null>(null);
@@ -54,17 +58,18 @@ export function StockBalancesPage(props: {
       setStatus('Загрузка остатков...');
       const fetched = await fetchWarehouseStockAllPagesEx({
         ...(query.trim() ? { search: query.trim() } : {}),
+        ...(searchSimilar ? { similar: true } : {}),
         ...(warehouseId ? { warehouseId } : {}),
         ...(nomenclatureId ? { nomenclatureId } : {}),
         ...(lowStockOnly ? { lowStockOnly: true } : {}),
       });
       setRows(fetched.rows);
-      setSearchSimilar(fetched.searchSimilar);
+      setResponseSimilar(fetched.searchSimilar);
       setStatus('');
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
-  }, [lowStockOnly, nomenclatureId, query, warehouseId]);
+  }, [lowStockOnly, nomenclatureId, query, searchSimilar, warehouseId]);
 
   useEffect(() => {
     void refresh();
@@ -329,7 +334,10 @@ export function StockBalancesPage(props: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%', minHeight: 0 }}>
       <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'minmax(220px, 1.2fr) minmax(220px, 1fr) minmax(260px, 1.1fr) minmax(180px, 0.8fr) minmax(180px, 0.8fr) auto auto' }}>
-        <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по складу, коду и номенклатуре..." />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по складу, коду и номенклатуре..." />
+          <SearchModeToggle similar={searchSimilar} onToggle={() => setSearchSimilar((prev) => !prev)} />
+        </div>
         <SearchSelect
           value={warehouseId}
           options={lookupToSelectOptions(lookups.warehouses)}
@@ -373,7 +381,7 @@ export function StockBalancesPage(props: {
         </div>
       </div>
 
-      {searchSimilar && (
+      {responseSimilar && (
         <div
           style={{
             padding: '6px 10px',

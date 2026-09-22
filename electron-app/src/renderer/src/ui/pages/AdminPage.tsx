@@ -6,6 +6,7 @@ import { Button } from '../components/Button.js';
 import { DeletionIntentDialog } from '../components/DeletionIntentDialog.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { Input } from '../components/Input.js';
+import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SearchSelect } from '../components/SearchSelect.js';
@@ -152,6 +153,7 @@ export function MasterdataPage(props: {
   const [entities, setEntities] = useState<EntityRow[]>([]);
   const [selectedEntityId, setSelectedEntityId] = useState<string>('');
   const [entityQuery, setEntityQuery] = useState<string>('');
+  const [entitySearchSimilar, setEntitySearchSimilar] = useState(false);
   const [entityAttrs, setEntityAttrs] = useState<Record<string, unknown>>({});
   // Кнопочное сохранение карточки записи: правки копятся локально, пишутся по «Сохранить».
   const [dirtyAttrCodes, setDirtyAttrCodes] = useState<Set<string>>(new Set());
@@ -298,8 +300,8 @@ export function MasterdataPage(props: {
     let list = entities;
     if (entityFilter === 'named') list = list.filter((e) => String(e.displayName ?? '').trim());
     if (entityFilter === 'empty') list = list.filter((e) => !String(e.displayName ?? '').trim());
-    return list.filter((row) => matchesQueryInRecord(entityQuery, row));
-  }, [entities, entityQuery, entityFilter]);
+    return list.filter((row) => matchesQueryInRecord(entityQuery, row, undefined, searchModeOf(entitySearchSimilar)));
+  }, [entities, entityQuery, entityFilter, entitySearchSimilar]);
 
   const linkTargetByCode: Record<string, string> = {
     customer_id: 'customer',
@@ -1152,8 +1154,9 @@ export function MasterdataPage(props: {
                   </Button>
                 )}
               </div>
-              <div style={{ padding: '4px 12px' }}>
+              <div style={{ padding: '4px 12px', display: 'flex', gap: 6, alignItems: 'center' }}>
                 <Input value={entityQuery} onChange={(e) => setEntityQuery(e.target.value)} placeholder="Поиск…" />
+                <SearchModeToggle similar={entitySearchSimilar} onToggle={() => setEntitySearchSimilar((v) => !v)} />
               </div>
               <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
                 {!selectedTypeId ? (

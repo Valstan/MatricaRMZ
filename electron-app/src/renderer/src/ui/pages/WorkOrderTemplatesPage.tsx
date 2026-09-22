@@ -12,6 +12,7 @@ import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
+import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 import { WorkOrderTemplateEditorDialog } from '../components/WorkOrderTemplateEditorDialog.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
@@ -25,6 +26,7 @@ export function WorkOrderTemplatesPage(props: { canEdit: boolean }) {
   const [rows, setRows] = useState<WorkOrderTemplateSummary[]>([]);
   const [kindFilter, setKindFilter] = useState<KindFilter>(KIND_FILTER_ALL);
   const [search, setSearch] = useState('');
+  const [searchSimilar, setSearchSimilar] = useState(false);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
   const [dialog, setDialog] = useState<{ templateId: string | null; defaultKind: WorkOrderKind } | null>(null);
@@ -56,10 +58,10 @@ export function WorkOrderTemplatesPage(props: { canEdit: boolean }) {
   const filteredRows = useMemo(
     () =>
       rows
-        .filter((r) => matchesQueryInRecord(search, { name: r.name }))
+        .filter((r) => matchesQueryInRecord(search, { name: r.name }, undefined, searchModeOf(searchSimilar)))
         .slice()
         .sort((a, b) => (Number(a.updatedAt ?? 0) - Number(b.updatedAt ?? 0)) * (sortDesc ? -1 : 1)),
-    [rows, search, sortDesc],
+    [rows, search, searchSimilar, sortDesc],
   );
 
   async function handleDelete(template: WorkOrderTemplateSummary) {
@@ -114,6 +116,7 @@ export function WorkOrderTemplatesPage(props: { canEdit: boolean }) {
           onChange={(e) => setSearch(e.target.value)}
           style={{ width: 260 }}
         />
+        <SearchModeToggle similar={searchSimilar} onToggle={() => setSearchSimilar((v) => !v)} />
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
           {props.canEdit
             ? WORK_ORDER_TEMPLATE_KINDS.map((k) => (

@@ -476,6 +476,11 @@ warehouseRouter.get('/stock', requirePermission(PermissionCode.ErpRegistersView)
     warehouseId: z.string().optional(),
     nomenclatureId: z.string().uuid().optional(),
     search: z.string().optional(),
+    // Тумблер «≈ Похожие» на странице остатков; без него поиск строго точный.
+    similar: z
+      .union([z.literal('true'), z.literal('false'), z.literal('1'), z.literal('0')])
+      .optional()
+      .transform((v) => v === 'true' || v === '1'),
     lowStockOnly: z.coerce.boolean().optional(),
     limit: z.coerce.number().int().min(1).max(10_000).optional(),
     offset: z.coerce.number().int().min(0).optional(),
@@ -486,6 +491,7 @@ warehouseRouter.get('/stock', requirePermission(PermissionCode.ErpRegistersView)
     ...(parsed.data.warehouseId !== undefined ? { warehouseId: parsed.data.warehouseId } : {}),
     ...(parsed.data.nomenclatureId !== undefined ? { nomenclatureId: parsed.data.nomenclatureId } : {}),
     ...(parsed.data.search !== undefined ? { search: parsed.data.search } : {}),
+    ...(parsed.data.similar === true ? { similar: true } : {}),
     ...(parsed.data.lowStockOnly !== undefined ? { lowStockOnly: parsed.data.lowStockOnly } : {}),
     ...(parsed.data.limit !== undefined ? { limit: parsed.data.limit } : {}),
     ...(parsed.data.offset !== undefined ? { offset: parsed.data.offset } : {}),

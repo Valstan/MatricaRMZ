@@ -5,6 +5,7 @@ import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
+import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { fetchWarehouseStockAllPages } from '../utils/warehousePagedFetch.js';
@@ -36,15 +37,17 @@ export function StockInventoryPage(props: {
   // скрыты. В документ идут только строки с введённым фактом (частичная инвентаризация).
   const [blindMode, setBlindMode] = useState(false);
   const [query, setQuery] = useState('');
+  const [searchSimilar, setSearchSimilar] = useState(false);
   const [rows, setRows] = useState<InventoryLine[]>([]);
   const [loadingRows, setLoadingRows] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const containerRef = useRef<HTMLDivElement | null>(null);
 
+  const searchMode = searchModeOf(searchSimilar);
   const visibleRows = useMemo(
-    () => rows.filter((row) => matchesQueryInRecord(query, { code: row.code, name: row.name })),
-    [query, rows],
+    () => rows.filter((row) => matchesQueryInRecord(query, { code: row.code, name: row.name }, undefined, searchMode)),
+    [query, rows, searchMode],
   );
 
   const sortedRows = useMemo(() => {
@@ -276,6 +279,7 @@ export function StockInventoryPage(props: {
             placeholder="Поиск по коду и номенклатуре..."
             style={{ maxWidth: 360 }}
           />
+          <SearchModeToggle similar={searchSimilar} onToggle={() => setSearchSimilar((prev) => !prev)} />
         </div>
         {/* NB: без виртуализации — редактируемое поле «Факт» не должно размонтироваться
             при прокрутке (иначе фокус слетает посреди ввода). Sticky-шапка работает,

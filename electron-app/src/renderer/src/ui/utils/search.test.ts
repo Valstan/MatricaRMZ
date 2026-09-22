@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matchesQueryInRecord } from './search.js';
+import { filterPreparedRecords, matchesQueryInRecord, prepareRecordSearch } from './search.js';
 
 describe('matchesQueryInRecord (#035 Ф2 tiered)', () => {
   it('matches everything for an empty / whitespace query', () => {
@@ -36,5 +36,29 @@ describe('matchesQueryInRecord (#035 Ф2 tiered)', () => {
 
   it('collects nested record fields', () => {
     expect(matchesQueryInRecord('deepval', { a: { b: { c: 'deepval' } } })).toBe(true);
+  });
+});
+
+// Владелец 22.09.2026: «по умолчанию поиск точный, похожее — по кнопке». Раньше умолчание
+// было 'similar', поэтому каждый экран, который забыли перевести, молча искал похожее —
+// и правка выглядела невыполненной. Тесты проверяют само поведение, а не только сигнатуру.
+describe('умолчание матчера — точный режим', () => {
+  it('набранное в другой раскладке не проходит без явной просьбы', () => {
+    // «lbptkm» — это «дизель», набранное латиницей на той же клавиатуре.
+    expect(matchesQueryInRecord('lbptkm', { name: 'Дизель В-59' })).toBe(false);
+    expect(matchesQueryInRecord('lbptkm', { name: 'Дизель В-59' }, undefined, 'similar')).toBe(true);
+  });
+
+  it('точное вхождение подряд работает и в умолчании', () => {
+    expect(matchesQueryInRecord('зель В', { name: 'Дизель В-59' })).toBe(true);
+  });
+
+  it('фильтр набора строк тоже точен по умолчанию: опечатка молчит, пока не попросили похожие', () => {
+    // Тир-3 (опечатки) живёт только на уровне набора: «похожее» имеет смысл, когда есть
+    // с чем сравнивать. Построчный матчер выше проверяется раскладкой, а не опечаткой.
+    const rows = [{ id: '1', name: 'Дизель В-59' }];
+    const prepared = prepareRecordSearch(rows, (r) => r.id, (r) => r.name);
+    expect(filterPreparedRecords(prepared, 'дизелб').records).toHaveLength(0);
+    expect(filterPreparedRecords(prepared, 'дизелб', 'similar').records).toHaveLength(1);
   });
 });

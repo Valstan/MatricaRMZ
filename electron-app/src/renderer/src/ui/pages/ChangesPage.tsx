@@ -4,6 +4,7 @@ import { looksLikeIdentifier, HUMAN_LABEL_OTHER, type AuthUserInfo, type ChangeR
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { VirtualTable } from '../components/VirtualTable.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { ListCount } from '../components/ListCount.js';
@@ -145,6 +146,7 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
   const { state: listState, patchState } = useListUiState('list:changes', {
     status: 'pending' as 'pending' | 'applied' | 'rejected',
     query: '',
+    searchSimilar: false,
     sortKey: 'createdAt' as SortKey,
     sortDir: 'desc' as const,
   });
@@ -173,9 +175,11 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
     void refresh();
   }, [refresh]);
 
+  const searchSimilar = listState.searchSimilar === true;
+  const searchMode = searchModeOf(searchSimilar);
   const filtered = useMemo(() => {
-    return rows.filter((row) => matchesQueryInRecord(query, row));
-  }, [rows, query]);
+    return rows.filter((row) => matchesQueryInRecord(query, row, undefined, searchMode));
+  }, [rows, query, searchMode]);
   const visible = useMemo(() => {
     return filtered.filter((c) => {
       const note = String(c.note ?? '');
@@ -370,6 +374,7 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
           <option value="rejected">Отклонены</option>
         </select>
         <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным изменения…" />
+        <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar })} />
         <Button variant="ghost" onClick={() => void refresh()}>
           Обновить
         </Button>

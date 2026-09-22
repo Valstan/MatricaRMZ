@@ -269,7 +269,7 @@ async function localWarehouseNomenclatureGroupCounts(
 
 async function localWarehouseStockList(
   db: BetterSQLite3Database,
-  args?: { warehouseId?: string; nomenclatureId?: string; search?: string; lowStockOnly?: boolean; limit?: number; offset?: number },
+  args?: { warehouseId?: string; nomenclatureId?: string; search?: string; similar?: boolean; lowStockOnly?: boolean; limit?: number; offset?: number },
 ): Promise<{ ok: true; rows: Array<Record<string, unknown>>; hasMore: boolean; searchSimilar?: boolean; meta: OfflineReadMeta }> {
   const where = [];
   // Phase 2.4 PR 2: warehouseId-аргумент теперь uuid warehouse_location_id (UI после PR 1 шлёт UUID).
@@ -309,10 +309,16 @@ async function localWarehouseStockList(
       const qty = Number(row.qty ?? 0);
       return Number.isFinite(minStock) ? qty <= minStock : false;
     });
-  const searched = filterRowsTiered(base, search, (row) => ({
-    label: String(row.nomenclatureName ?? ''),
-    searchText: `${String(row.nomenclatureCode ?? '')} ${String(row.warehouseId ?? '')}`,
-  }));
+  // Похожее (опечатки, часть слова, другая раскладка) подмешивается только по тумблеру на странице.
+  const searched = filterRowsTiered(
+    base,
+    search,
+    (row) => ({
+      label: String(row.nomenclatureName ?? ''),
+      searchText: `${String(row.nomenclatureCode ?? '')} ${String(row.warehouseId ?? '')}`,
+    }),
+    { fuzzyFallback: args?.similar === true },
+  );
   const mapped = searched.rows;
   const limit = args?.limit == null ? null : Math.max(1, Math.min(10_000, Math.trunc(Number(args.limit))));
   const offset = Math.max(0, Math.trunc(Number(args?.offset ?? 0)));
@@ -1230,7 +1236,7 @@ export async function warehouseContractSectionsGet(
 export async function warehouseStockList(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args?: { warehouseId?: string; nomenclatureId?: string; search?: string; lowStockOnly?: boolean; limit?: number; offset?: number },
+  args?: { warehouseId?: string; nomenclatureId?: string; search?: string; similar?: boolean; lowStockOnly?: boolean; limit?: number; offset?: number },
 ) {
   try {
     // Дрейн offline-команд перед чтением остаётся (сервер должен увидеть команды до
@@ -1245,6 +1251,7 @@ export async function warehouseStockList(
     if (args?.warehouseId) qp.set('warehouseId', args.warehouseId);
     if (args?.nomenclatureId) qp.set('nomenclatureId', args.nomenclatureId);
     if (args?.search) qp.set('search', args.search);
+    if (args?.similar === true) qp.set('similar', 'true');
     if (args?.lowStockOnly !== undefined) qp.set('lowStockOnly', args.lowStockOnly ? 'true' : 'false');
     if (args?.limit !== undefined) qp.set('limit', String(Math.trunc(args.limit)));
     if (args?.offset !== undefined) qp.set('offset', String(Math.trunc(args.offset)));

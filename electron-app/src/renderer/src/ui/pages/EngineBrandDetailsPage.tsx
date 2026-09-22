@@ -6,6 +6,7 @@ import { Input } from '../components/Input.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { CardActionBar } from '../components/CardActionBar.js';
+import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { ensureAttributeDefs, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
@@ -854,6 +855,7 @@ export function EngineBrandDetailsPage(props: {
 
   // Фильтр + режим отображения списка деталей.
   const [partsQuery, setPartsQuery] = useState('');
+  const [partsSearchSimilar, setPartsSearchSimilar] = useState(false);
   const [partsView, setPartsView] = useState<BrandPartsView>('all');
   const [openUnits, setOpenUnits] = useState<Record<string, boolean>>({});
 
@@ -864,13 +866,18 @@ export function EngineBrandDetailsPage(props: {
     let rows = selectedParts;
     if (q) {
       rows = rows.filter((p) =>
-        matchesQueryInRecord(q, { label: p.label, article: p.article, assemblyUnitNumber: p.assemblyUnitNumber }),
+        matchesQueryInRecord(
+          q,
+          { label: p.label, article: p.article, assemblyUnitNumber: p.assemblyUnitNumber },
+          undefined,
+          searchModeOf(partsSearchSimilar),
+        ),
       );
     }
     if (partsView === 'completeness') rows = rows.filter((p) => p.inCompletenessAct);
     if (partsView === 'defect') rows = rows.filter((p) => p.inDefectAct);
     return rows;
-  }, [selectedParts, partsQuery, partsView]);
+  }, [selectedParts, partsQuery, partsSearchSimilar, partsView]);
 
   const unitGroups = useMemo(() => {
     if (partsView !== 'units') return [];
@@ -1302,6 +1309,7 @@ export function EngineBrandDetailsPage(props: {
                 placeholder="Фильтр: деталь, артикул, узел…"
               />
             </div>
+            <SearchModeToggle similar={partsSearchSimilar} onToggle={() => setPartsSearchSimilar((v) => !v)} />
             <span style={{ fontSize: 12, color: 'var(--subtle)', whiteSpace: 'nowrap' }}>
               {partsQuery.trim() || partsView !== 'all' ? `${visibleParts.length} из ${selectedParts.length}` : `${selectedParts.length}`}
             </span>

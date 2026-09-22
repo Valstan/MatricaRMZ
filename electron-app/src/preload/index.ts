@@ -721,6 +721,7 @@ const matricaApi = {
       warehouseId?: string;
       nomenclatureId?: string;
       search?: string;
+      similar?: boolean;
       lowStockOnly?: boolean;
       limit?: number;
       offset?: number;
