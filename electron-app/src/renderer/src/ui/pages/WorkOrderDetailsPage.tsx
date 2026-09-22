@@ -289,6 +289,7 @@ export function WorkOrderDetailsPage(props: {
   const [payload, setPayload] = useState<WorkOrderPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('');
+  const [pricesBusy, setPricesBusy] = useState(false);
   const [services, setServices] = useState<ServiceInfo[]>([]);
   const [employees, setEmployees] = useState<EmployeeInfo[]>([]);
   const [engines, setEngines] = useState<EngineInfo[]>([]);
@@ -1451,6 +1452,31 @@ export function WorkOrderDetailsPage(props: {
           }
         : line,
     );
+  }
+
+  // Цена в строке — снимок на момент добавления работы: старые наряды обязаны
+  // остаться со старыми ценами, поэтому подтягивание идёт только по кнопке.
+  async function refreshLinePrices() {
+    if (!payload) return;
+    setPricesBusy(true);
+    try {
+      const refs = await getWorkOrderRefs({ force: true });
+      setServices(refs.services);
+      const freshById = new Map(refs.services.map((service) => [service.id, service]));
+      let changed = 0;
+      const freeWorks = payload.freeWorks.map((line) => {
+        const service = line.serviceId ? freshById.get(line.serviceId) : null;
+        if (!service || service.priceRub === line.priceRub) return line;
+        changed += 1;
+        return { ...line, priceRub: service.priceRub };
+      });
+      if (changed > 0) patch({ ...payload, freeWorks });
+      setStatus(changed > 0 ? `Цены обновлены: строк ${changed}` : 'Цены уже совпадают со справочником');
+    } catch (e) {
+      setStatus(`Не удалось обновить цены: ${String(e)}`);
+    } finally {
+      setPricesBusy(false);
+    }
   }
 
   async function createServiceFromWorkOrder(
@@ -3439,9 +3465,17 @@ export function WorkOrderDetailsPage(props: {
           </table>
         </div>
         {canEditNow && (
-          <div style={{ marginTop: 'var(--ui-space-2, 4px)' }}>
+          <div style={{ marginTop: 'var(--ui-space-2, 4px)', display: 'flex', gap: 'var(--ui-space-2, 4px)', flexWrap: 'wrap' }}>
             <Button variant="ghost" onClick={addFreeWorkLine}>
               Добавить работу +
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={pricesBusy || !payload.freeWorks.some((line) => line.serviceId)}
+              onClick={() => void refreshLinePrices()}
+              title="Подставить в строки текущие цены из карточек услуг. Меняется только этот наряд — закрытые наряды сохраняют свои цены"
+            >
+              {pricesBusy ? 'Обновляю цены…' : 'Обновить цены'}
             </Button>
           </div>
         )}
