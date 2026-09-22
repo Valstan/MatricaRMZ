@@ -815,9 +815,11 @@ table.list-table.work-order-table td {
 }
 
 /* Текстовые колонки переносятся по словам: длинное наименование услуги раздвигало
-   таблицу шире карточки, а обёртка строки её клипует — правый край уезжал в никуда. */
-table.list-table.work-order-table th[data-col-kind='name'],
-table.list-table.work-order-table td[data-col-kind='name'] {
+   таблицу шире карточки, а обёртка строки её клипует — правый край уезжал в никуда.
+   Класс work-order-table носит ещё и список товаров заявки на снабжение — её
+   исключаем: там жалобы не было, а перенос сам по себе меняет вид таблицы. */
+table.list-table.work-order-table:not(.supply-request-items-table) th[data-col-kind='name'],
+table.list-table.work-order-table:not(.supply-request-items-table) td[data-col-kind='name'] {
   white-space: normal;
   overflow-wrap: anywhere;
 }
