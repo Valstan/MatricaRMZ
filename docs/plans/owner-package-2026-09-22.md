@@ -22,7 +22,7 @@
 | 4 ✅ | `fix/repeat-arrival-labels` | пометки заездов в пикерах и логика карточки | M |
 | 5 ✅ | `feat/contract-repair-days` | «дней на ремонт» в контракте, горящие от поступления, фильтры | M |
 | 6 ✅ | `feat/defect-blank-two-columns` | бланк дефектовки: флаг «свой номер», два столбца на листе | M |
-| 7 | `feat/engine-tags-print` | бирки на двигатель 6/4/2 на А4 | M |
+| 7 ✅ | `feat/engine-tags-print` | бирки на двигатель 6/4/2 на А4 | M |
 | 8 | `perf/renderer-scanners-and-sync-refresh` | замер + дешёвые ускорения | M |
 | 9 | `fix/entity-reference-focus-trap` | залипание фокуса | S |
 
@@ -104,7 +104,7 @@
 
 **Проверка.** Тест генератора: строка с флагом содержит клетку номера, без флага — нет; стенд: марка с 90 деталями → бланк на одном листе в предпросмотре печати.
 
-## 7. Бирки на двигатель: 6 / 4 / 2 на А4
+## 7. ✅ Бирки на двигатель: 6 / 4 / 2 на А4
 
 **Что есть.** QR-этикетки: `utils/qrLabels.ts` (`openLabelsPrint`, сетка `#sheet` A4 `grid-template-columns: repeat(N,1fr)`), `components/LabelPrintDialog.tsx`, кнопка «Печать этикеток» в `EnginesPage.tsx:822-829` строится из **отфильтрованного списка**, не из выделения. Выделение — `useListSelection` (`EnginesPage.tsx:512`, Shift+клик/стрелки, контекстное меню bulk `:748`); выражение выбранных строк уже есть на `:949`. Печатная инфраструктура — `utils/printPreview.ts` (`printSectionsDirect`, `openPrintPreview`).
 

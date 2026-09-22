@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { EngineDetails, EngineDuplicateMatches, EngineInternalNumberDuplicate, FileRef, SupplyRequestItem } from '@matricarmz/shared';
-import { REPAIR_HISTORY_OPERATION_TYPE, repairHistoryMetaForStatus, repairHistoryNoteLine, looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, buildContractSectionOptions, contractSectionAddonToken, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, planSlotForEngine, attachEngineToSlot, applyStatusFlagChange, isEavFlagSet, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, arrivalPlacements, arrivalPlacementLabel, type ArrivalListItem, type ArrivalPlacement, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
+import { REPAIR_HISTORY_OPERATION_TYPE, repairHistoryMetaForStatus, repairHistoryNoteLine, looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, DEFAULT_CONTRACT_REPAIR_DAYS, effectiveRepairDays, buildContractSectionOptions, contractSectionAddonToken, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, planSlotForEngine, attachEngineToSlot, applyStatusFlagChange, isEavFlagSet, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, arrivalPlacements, arrivalPlacementLabel, type ArrivalListItem, type ArrivalPlacement, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -13,6 +13,7 @@ import { EngineRepairHistoryPanel } from '../components/EngineRepairHistoryPanel
 import { EngineTimelinePanel } from '../components/EngineTimelinePanel.js';
 import { AttachmentsModule } from '../components/AttachmentsModule.js';
 import { EngineReclamationTab, type ReclamationDraft } from '../components/EngineReclamationTab.js';
+import { EngineTagPrintDialog, type EngineTagSource } from '../components/EngineTagPrintDialog.js';
 import { buildEngineTimeline, type EngineTimelineItem } from '@matricarmz/shared';
 import { DocumentHistoryPanel } from '../components/DocumentHistoryPanel.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
@@ -436,6 +437,8 @@ export function EngineDetailsPage(props: {
   initialTab?: EngineCardTab;
 }) {
   const [dismantleOpen, setDismantleOpen] = useState(false);
+  /** Диалог печати бирки на этот двигатель (раскладку 6/4/2 он помнит сам). */
+  const [engineTagOpen, setEngineTagOpen] = useState(false);
   // Ф2 advisory-резерв. Истечение зависит от ЧАСОВ, а не от прихода данных, поэтому
   // отдельный минутный тик: useLiveDataRefresh (12 с) обновляет только данные.
   const [nowTick, setNowTick] = useState(() => Date.now());
@@ -535,6 +538,10 @@ export function EngineDetailsPage(props: {
   // прежнее значение остаётся в базе следом, но нигде не показывается.
   const [contractCustomerId, setContractCustomerId] = useState('');
   const effectiveCustomerId = contractCustomerId || customerId;
+  // Срок ремонта по договору — для бирки: крайний день ремонта в карточке взять неоткуда
+  // (строка списка его уже несёт, карточка — нет). Читаем из тех же секций, что грузятся
+  // ради разделов; без договора остаётся общее умолчание.
+  const [contractRepairDays, setContractRepairDays] = useState<number>(DEFAULT_CONTRACT_REPAIR_DAYS);
   // Цех, выполнивший ремонт (захват цех-измерения, warehouse-analytics C2). Id из
   // канонного справочника directory_workshops (как наряды/склад), не workshop_ref.
   const [workshopId, setWorkshopId] = useState(String(props.engine.attributes?.workshop_id ?? ''));
@@ -970,6 +977,7 @@ export function EngineDetailsPage(props: {
       // Договора нет — показываем поле карточки (запасной путь) и даём его править.
       setContractCustomerId('');
       setContractSectionOptions([]);
+      setContractRepairDays(DEFAULT_CONTRACT_REPAIR_DAYS);
       return;
     }
     void (async () => {
@@ -977,10 +985,12 @@ export function EngineDetailsPage(props: {
         const contract = await window.matrica.admin.entities.get(contractId);
         const sections = parseContractSections((contract as { attributes?: Record<string, unknown> })?.attributes ?? {});
         setContractSectionOptions(buildContractSectionOptions(sections));
+        setContractRepairDays(effectiveRepairDays(sections));
         const contractAttrs = ((contract as { attributes?: Record<string, unknown> })?.attributes ?? {}) as Record<string, unknown>;
         setContractCustomerId(String(sections.primary.customerId ?? contractAttrs.customer_id ?? '').trim());
       } catch {
         setContractSectionOptions([]);
+        setContractRepairDays(DEFAULT_CONTRACT_REPAIR_DAYS);
       }
     })();
   }, [contractId]);
@@ -2166,6 +2176,33 @@ export function EngineDetailsPage(props: {
       : 'Карточка двигателя';
   const contractLabelForChecklist = ((linkLists.contract_id ?? []).find((o) => o.id === contractId)?.label ?? '').trim();
   const arrivalDateMsForChecklist = fromInputDate(arrivalDate);
+  // Бирка на один двигатель — те же поля, что у бирок из списка, но собранные из состояния
+  // карточки: крайний день ремонта считаем сами (поступление + срок ремонта его договора),
+  // в списке это же значение приезжает готовым из listEngines.
+  const engineTagSource = useMemo<EngineTagSource>(() => {
+    const arrivalMs = arrivalDateMsForChecklist;
+    return {
+      engineBrand,
+      engineNumber,
+      customerName: linkLabel('customer_id', effectiveCustomerId),
+      contractName: contractLabelForChecklist,
+      arrivalDate: arrivalMs,
+      repairDueDate: arrivalMs === null ? null : arrivalMs + contractRepairDays * 24 * 60 * 60 * 1000,
+      statusDates,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- linkLabel пересоздаётся каждый рендер; настоящая зависимость — linkLists.customer_id, она в списке ниже
+  }, [
+    engineBrand,
+    engineNumber,
+    effectiveCustomerId,
+    linkLists.customer_id,
+    contractLabelForChecklist,
+    arrivalDateMsForChecklist,
+    contractRepairDays,
+    statusDates,
+  ]);
+  // Новый массив на каждый рендер перезагружал бы iframe превью — держим ссылку стабильной.
+  const engineTagList = useMemo(() => [engineTagSource], [engineTagSource]);
   // Печать понимает, какая вкладка открыта (решение владельца 2026-08-20):
   // на «Фото и документы» — работа с файлами (выбранные из списка или все),
   // с выбором «список / содержимое / вместе»; на остальных — карточка как раньше.
@@ -2315,6 +2352,18 @@ export function EngineDetailsPage(props: {
       cardActions={
         <CardActionBar
           canEdit={canEditEnginesEff}
+          extraActionsCenter={
+            props.canPrintEngineCard && !isAndroidPlatform() ? (
+              <Button
+                variant="ghost"
+                tone="info"
+                title="Печать бирки на двигатель: 6 / 4 / 2 бирки на листе A4"
+                onClick={() => setEngineTagOpen(true)}
+              >
+                Бирка
+              </Button>
+            ) : null
+          }
           extraActionsLeft={
             reservationState === 'mine' ? (
               <Button
@@ -2584,6 +2633,13 @@ export function EngineDetailsPage(props: {
         engineId={props.engineId}
         engineLabel={String(engineNumber || props.engineId)}
         engineBrandId={engineBrandId || null}
+      />
+
+      <EngineTagPrintDialog
+        open={engineTagOpen}
+        title="Бирка на двигатель"
+        engines={engineTagList}
+        onClose={() => setEngineTagOpen(false)}
       />
 
       {/* Обёртка ОДНА на обе акт-вкладки: панель внутри одна, меняется только вид акта.

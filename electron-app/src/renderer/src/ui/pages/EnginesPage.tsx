@@ -19,6 +19,7 @@ import { EngineFacetFilter, EngineFacetToggleButton } from '../components/Engine
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { Button } from '../components/Button.js';
 import { LabelPrintDialog } from '../components/LabelPrintDialog.js';
+import { EngineTagPrintDialog } from '../components/EngineTagPrintDialog.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
@@ -341,6 +342,10 @@ export function EnginesPage(props: {
   const [dedupeOpen, setDedupeOpen] = React.useState(false);
   const [labelDialogOpen, setLabelDialogOpen] = React.useState(false);
   const [printDialogOpen, setPrintDialogOpen] = React.useState(false);
+  // Бирки печатаются по строкам, которые оператор выделил (а не по фильтру, как этикетки),
+  // поэтому диалог держит свой набор строк: из выделения тулбара или из ПКМ-меню.
+  const [tagRows, setTagRows] = React.useState<EngineListItem[] | null>(null);
+  const [tagHintVisible, setTagHintVisible] = React.useState(false);
   const { state: listState, patchState } = useListUiState<EnginesPageUiState>('list:engines', createDefaultEnginesPageUiState());
   const { containerRef, onScroll } = usePersistedScrollTop('list:engines');
   const query = listState.query;
@@ -507,13 +512,32 @@ export function EnginesPage(props: {
   // ПКМ-меню строки: пункт «Наряд на сборку» (тема D) для одиночной строки. Печать/копия/
   // удаление двигателей из списка не поддержаны — меню целевое, без общего набора.
   const selection = useListSelection(displayRows.map((e) => String(e.id)));
+  // Бирки — единственное действие списка, которое работает от ВЫДЕЛЕНИЯ: печать этикеток
+  // и печать списка берут отфильтрованное, а пачка бирок «на весь фильтр» — это пачка бумаги.
+  const selectedEngines = useMemo(
+    () => displayRows.filter((e) => selection.selectedIds.has(String(e.id))),
+    [displayRows, selection.selectedIds],
+  );
   const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
   const engineById = useMemo(() => new Map(props.engines.map((e) => [String(e.id), e])), [props.engines]);
   const menuRows = useMemo(() => (menu ? resolveMenuRows(menu.targetIds, engineById) : []), [menu, engineById]);
   const menuItems = useMemo<ListContextMenuItem[]>(() => {
-    if (!menu || menu.bulk || menuRows.length !== 1) return [];
-    const engine = menuRows[0]!;
+    if (!menu) return [];
     const items: ListContextMenuItem[] = [];
+    if (menu.bulk) {
+      // Пачка выделенных строк: бирки на них — единственное групповое действие списка.
+      items.push({
+        id: 'engine-tags-bulk',
+        label: `🏷️ Бирки на выбранные (${menuRows.length})`,
+        onClick: () => {
+          setTagHintVisible(false);
+          setTagRows(menuRows);
+        },
+      });
+      return items;
+    }
+    if (menuRows.length !== 1) return [];
+    const engine = menuRows[0]!;
     if (props.onCreateAssemblyOrder) {
       items.push({ id: 'assembly-order', label: '🛠️ Наряд на сборку', onClick: () => props.onCreateAssemblyOrder?.(engine) });
     }
@@ -670,6 +694,22 @@ export function EnginesPage(props: {
     void props.onOpen(id);
   };
 
+  // Подсказка живёт, пока выделения нет: как только оператор выделил строки, она лишняя.
+  useEffect(() => {
+    if (selectedEngines.length > 0) setTagHintVisible(false);
+  }, [selectedEngines.length]);
+
+  function openTagDialog() {
+    // Ничего не выделено — говорим это словами. Напечатать вместо этого весь отфильтрованный
+    // список (как делает печать этикеток) значило бы молча выдать сотни листов.
+    if (selectedEngines.length === 0) {
+      setTagHintVisible(true);
+      return;
+    }
+    setTagHintVisible(false);
+    setTagRows(selectedEngines);
+  }
+
   function renderTableHeader() {
     const allInOrder = columnLayout.order
       .map((id) => columnsById.get(id))
@@ -747,7 +787,9 @@ export function EnginesPage(props: {
       },
       onContextMenu: (event) => {
         const result = selection.onRowContextMenu(event, String(e.id));
-        if (!result.openMenu || !props.onCreateAssemblyOrder) return;
+        // Меню открываем и без права на сборочный наряд: у пачки выделенных строк есть
+        // своё действие — бирки, и раньше оно было бы недостижимо из ПКМ.
+        if (!result.openMenu) return;
         setMenu({ x: event.clientX, y: event.clientY, targetIds: result.targetIds, bulk: result.bulk });
       },
       ...(isSelected ? { 'data-list-selected': 'true' as const } : {}),
@@ -832,6 +874,15 @@ export function EnginesPage(props: {
         {!isAndroidPlatform() && (
           <Button
             variant="ghost"
+            onClick={openTagDialog}
+            title="Бирки на двигатель (марка, номера, заказчик, договор, даты) по ВЫДЕЛЕННЫМ строкам: 6 / 4 / 2 на листе A4"
+          >
+            {selectedEngines.length > 0 ? `Бирки на двигатели (${selectedEngines.length})` : 'Бирки на двигатели'}
+          </Button>
+        )}
+        {!isAndroidPlatform() && (
+          <Button
+            variant="ghost"
             onClick={() => setPrintDialogOpen(true)}
             title="Печать текущего списка (по фильтру или выделенных строк) с выбором полей"
           >
@@ -861,6 +912,23 @@ export function EnginesPage(props: {
           }
         />
       </div>
+
+      {tagHintVisible && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: '6px 10px',
+            borderRadius: 8,
+            background: 'rgba(245, 158, 11, 0.15)',
+            color: '#92400e',
+            fontSize: 13,
+            flex: '0 0 auto',
+          }}
+        >
+          Бирки печатаются на выделенные двигатели — сейчас не выделен ни один. Выделите строки
+          (Shift+клик или Shift+стрелки) и нажмите «Бирки на двигатели» ещё раз.
+        </div>
+      )}
 
       {similarMode && (
         <div
@@ -938,6 +1006,13 @@ export function EnginesPage(props: {
         title="Печать этикеток двигателей"
         targets={labelTargets}
         onClose={() => setLabelDialogOpen(false)}
+      />
+
+      <EngineTagPrintDialog
+        open={tagRows !== null}
+        title="Бирки на двигатели"
+        engines={tagRows ?? []}
+        onClose={() => setTagRows(null)}
       />
 
       {printDialogOpen && (
