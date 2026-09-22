@@ -191,4 +191,37 @@ describe('woPrintModel — простая форма (обычный / ремо�
     expect(works).not.toContain('Итог:');
     expect(html(model, 'crew')).not.toContain('Начислено');
   });
+  it('галочка снимает один блок подписей, остальные печатаются', () => {
+    const model = buildWorkOrderPrintModel(
+      payload({
+        workOrderKind: WorkOrderKind.Repair,
+        signatureBlocks: [{ blockId: 'completion', slots: [{ caption: 'Работу принял', employeeId: 'e-1' }] }],
+      }),
+      { hideSignatureBlocks: ['completion'] },
+      DEPS,
+    );
+    const signatures = html(model, 'signatures');
+    expect(signatures).not.toContain('Работу принял');
+    expect(signatures).toContain('Специалист по нормированию');
+  });
+
+  it('галочка «убрать все подписи» снимает секцию целиком', () => {
+    const model = buildWorkOrderPrintModel(payload({ workOrderKind: WorkOrderKind.Repair }), { hideSignatures: true }, DEPS);
+    expect(sectionIds(model)).not.toContain('signatures');
+  });
+
+  it('роспись бригады снимается галочкой', () => {
+    const model = buildWorkOrderPrintModel(payload({ workOrderKind: WorkOrderKind.Repair }), { hideCrewSignatures: true }, DEPS);
+    const crew = html(model, 'crew');
+    expect(crew).not.toContain('<th>Подпись</th>');
+    expect(crew).not.toContain('wo-sign-cell');
+  });
+
+  it('бригада сборочного наряда тоже получает клетку под роспись', () => {
+    const model = buildWorkOrderPrintModel(payload({ workOrderKind: WorkOrderKind.Assembly }), {}, DEPS);
+    const crew = html(model, 'crew');
+    expect(crew).toContain('<th>Подпись</th>');
+    expect(crew).toContain('wo-sign-cell');
+    expect(model.extraCss).toContain('td.wo-sign-cell');
+  });
 });

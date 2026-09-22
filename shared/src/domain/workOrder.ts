@@ -277,6 +277,15 @@ export type WorkOrderPrintSettings = {
    * ремонт / изготовление — грифа нет в принципе, и флаг на неё не влияет.
    */
   hideApprover?: boolean;
+  /** Убрать блок подписей целиком (галочка «Печатать подписи» в панели печати). */
+  hideSignatures?: boolean;
+  /**
+   * Блоки подписей, снятые галочками поимённо (id из `getWorkOrderSignatureBlocks`).
+   * Пусто = печатать все настроенные.
+   */
+  hideSignatureBlocks?: string[];
+  /** Убрать колонку «Подпись» в таблице бригады (рабочие расписываются на отпечатке). */
+  hideCrewSignatures?: boolean;
   /** Гриф «Утверждаю · Директор» (верхний правый угол). */
   fontDirector?: number;
   /** Заголовок наряда («Наряд на …»). */
@@ -851,6 +860,14 @@ function normalizeWorkOrderPrintSettings(raw: unknown): WorkOrderPrintSettings |
   if (rec.hideStartDate === true) out.hideStartDate = true;
   if (rec.hideDueDate === true) out.hideDueDate = true;
   if (rec.hideWorkshop === true) out.hideWorkshop = true;
+  // hideApprover сюда не доезжал: снятый гриф возвращался при следующем открытии наряда.
+  if (rec.hideApprover === true) out.hideApprover = true;
+  if (rec.hideSignatures === true) out.hideSignatures = true;
+  if (rec.hideCrewSignatures === true) out.hideCrewSignatures = true;
+  if (Array.isArray(rec.hideSignatureBlocks)) {
+    const hidden = [...new Set(rec.hideSignatureBlocks.map((value) => String(value ?? '').trim()).filter(Boolean))];
+    if (hidden.length > 0) out.hideSignatureBlocks = hidden;
+  }
   const director = clampFont(rec.fontDirector, WORK_ORDER_PRINT_FONT_RANGES.director);
   if (director !== undefined) out.fontDirector = director;
   // Back-compat: старое единое поле fontHeader (масштаб всей шапки) → размер заголовка.

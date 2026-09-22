@@ -46,7 +46,6 @@ import { EntityCardShell } from '../components/EntityCardShell.js';
 import { Input } from '../components/Input.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { SectionCard } from '../components/SectionCard.js';
-import { CollapsibleSection } from '../components/CollapsibleSection.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { WorkOrderTemplateEditorDialog } from '../components/WorkOrderTemplateEditorDialog.js';
 import { WorkOrderPrintDialog } from '../components/WorkOrderPrintDialog.js';
@@ -1878,14 +1877,30 @@ export function WorkOrderDetailsPage(props: {
     </SectionCard>
   );
 
+  // У обычного/ремонтного наряда блоки «Выдача» и «Завершение» держатся только ради
+  // старых подписанных нарядов: без слотов они рисовались двумя пустыми рамками, и
+  // вкладка выглядела пустой. Показываем блок, если в нём есть что показать; если пусто
+  // везде — оставляем первый, иначе некуда нажать «Добавить подписанта».
+  const allSignatureBlocks = payload ? getWorkOrderSignatureBlocks(payload.workOrderKind) : [];
+  const filledSignatureBlocks = allSignatureBlocks.filter(
+    (block) => resolveWorkOrderSignatureSlots(block, payload?.signatureBlocks).length > 0,
+  );
+  const signatureBlocksToShow = filledSignatureBlocks.length
+    ? filledSignatureBlocks
+    : allSignatureBlocks.slice(0, 1);
+  const crewSignatureNames = (payload?.crew ?? [])
+    .map((member) => {
+      const employee = employees.find((e) => e.id === String(member.employeeId ?? '').trim());
+      return String(employee?.displayName ?? member.employeeName ?? '').trim();
+    })
+    .filter(Boolean);
+
   const signaturesSection = (
     <SectionCard className="entity-card-span-full">
-      {/* Фаза E (ui-themes-ergonomics): блок подписей свёрнут по умолчанию — заполняется
-          при закрытии наряда, а в повседневной работе только загромождает карточку. */}
-      {/* Секция живёт на своей вкладке — держим её раскрытой (свёрнутая размонтирует
-          содержимое, и вкладка выглядела бы пустой). */}
-      <CollapsibleSection title="Подписи" defaultOpen>
+      {/* Вкладка целиком про подписи — сворачивать нечего, а свёрнутая секция
+          размонтирует содержимое, и вкладка выглядит пустой. */}
       <div style={{ display: 'grid', gap: 16 }}>
+        <div style={{ fontWeight: 700 }}>Подписи</div>
         {isWorkOrderTemplateKind(payload.workOrderKind) ? (
           <div style={{ display: 'grid', gap: 8, padding: 10, border: '1px solid var(--border)', borderRadius: 8 }}>
             <div style={{ fontWeight: 600 }}>Применить подписи и настройки из шаблона наряда</div>
@@ -1980,7 +1995,7 @@ export function WorkOrderDetailsPage(props: {
             <option key={c} value={c} />
           ))}
         </datalist>
-        {getWorkOrderSignatureBlocks(payload.workOrderKind).map((block) => {
+        {signatureBlocksToShow.map((block) => {
           const slots = resolveWorkOrderSignatureSlots(block, payload.signatureBlocks);
           const setSlot = (idx: number, key: 'caption' | 'employeeId', value: string) => {
             const next = slots.map((s, j) => {
@@ -2082,8 +2097,17 @@ export function WorkOrderDetailsPage(props: {
             </div>
           );
         })}
+        {crewSignatureNames.length > 0 ? (
+          <div style={{ display: 'grid', gap: 4, padding: 10, border: '1px solid var(--border)', borderRadius: 8 }}>
+            <div style={{ fontWeight: 600 }}>Бригада распишется в своей таблице</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+              В отпечатке у каждого рабочего своя пустая клетка под роспись. Состав правится на вкладке «Реквизиты»,
+              а убрать колонку можно галочкой в окне печати.
+            </div>
+            <div style={{ fontSize: 13 }}>{crewSignatureNames.join(', ')}</div>
+          </div>
+        ) : null}
       </div>
-      </CollapsibleSection>
     </SectionCard>
   );
 
@@ -3533,6 +3557,10 @@ export function WorkOrderDetailsPage(props: {
         workOrderKindLabel={payload.workOrderKind ? WORK_ORDER_KIND_LABELS[payload.workOrderKind] : 'этого вида'}
         autoTitle={buildPrintModel(payload, {}).title}
         approverEmployees={approverEmployees}
+        signatureBlocks={getWorkOrderSignatureBlocks(payload.workOrderKind)
+          .filter((block) => resolveWorkOrderSignatureSlots(block, payload.signatureBlocks).length > 0)
+          .map((block) => ({ id: block.id, title: block.title }))}
+        hasCrew={payload.crew.length > 0}
         buildHtml={(settings) => buildWorkOrderA4PreviewHtml(buildPrintModel(payload, settings))}
         onChange={(settings) => {
           const cleaned: WorkOrderPrintSettings = {
@@ -3545,6 +3573,11 @@ export function WorkOrderDetailsPage(props: {
             ...(settings.hideStartDate ? { hideStartDate: true } : {}),
             ...(settings.hideDueDate ? { hideDueDate: true } : {}),
             ...(settings.hideWorkshop ? { hideWorkshop: true } : {}),
+            // Снятый гриф и снятые подписи прежде терялись на этом фильтре и возвращались при открытии.
+            ...(settings.hideApprover ? { hideApprover: true } : {}),
+            ...(settings.hideSignatures ? { hideSignatures: true } : {}),
+            ...(settings.hideCrewSignatures ? { hideCrewSignatures: true } : {}),
+            ...(settings.hideSignatureBlocks?.length ? { hideSignatureBlocks: settings.hideSignatureBlocks } : {}),
             ...(settings.fontDirector ? { fontDirector: settings.fontDirector } : {}),
             ...(settings.fontTitle ? { fontTitle: settings.fontTitle } : {}),
             ...(settings.fontMeta ? { fontMeta: settings.fontMeta } : {}),
