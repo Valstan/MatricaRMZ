@@ -330,9 +330,38 @@ describe('ступень «Срок ремонта»', () => {
 
   it('ряд значений полный и идёт от срочного к спокойному', () => {
     const options = engineFacetOptions(deadlineRows, {}, 'repairDeadline');
-    expect(options.map((o) => o.value)).toEqual(['danger', 'warning', 'ok', 'no_arrival', 'done']);
-    expect(options.map((o) => o.label)).toEqual(['горит', 'скоро', 'в сроке', 'без даты поступления', 'ремонт закончен']);
-    expect(options.map((o) => o.count)).toEqual([2, 1, 2, 1, 1]);
+    expect(options.map((o) => o.value)).toEqual(['danger', 'warning', 'ok', 'stale', 'no_arrival', 'done']);
+    expect(options.map((o) => o.label)).toEqual(['горит', 'скоро', 'в сроке', 'без движения', 'без даты поступления', 'ремонт закончен']);
+    // «Без движения» пуст: ни у одной строки выше нет даты последней работы, и это прежнее
+    // поведение — без сведений о работах карточку забытой не объявляем.
+    expect(options.map((o) => o.count)).toEqual([2, 1, 2, 0, 1, 1]);
+  });
+});
+
+// Индикатор ограничен двигателями, по которым реально работают (владелец 22.09.2026): вышедший
+// срок у брошенной карточки — это незакрытый учёт, а не срыв ремонта. Порог общий
+// (`COUNTDOWN_STALE_DAYS`), «сегодня» ступень берёт сама — поэтому даты работ здесь от текущего дня.
+const daysAgo = (days: number) => Date.now() - days * 86_400_000;
+
+const staleRows = [
+  // Просрочен и 90 дней без единой работы — «без движения», а не «горит».
+  { id: 's1', arrivalDate: DEADLINE_ARRIVAL, repairDueDate: due(90), daysLeftForRepair: -5, lastActivityAt: daysAgo(90) },
+  // Просрочен, но работали на днях — горит по-прежнему.
+  { id: 's2', arrivalDate: DEADLINE_ARRIVAL, repairDueDate: due(90), daysLeftForRepair: -5, lastActivityAt: daysAgo(3) },
+  // В сроке и без работ 90 дней — остаётся «в сроке»: спокойное состояние в «без движения» не превращаем.
+  { id: 's3', arrivalDate: DEADLINE_ARRIVAL, repairDueDate: due(90), daysLeftForRepair: 70, lastActivityAt: daysAgo(90) },
+  // Сведений о работах нет — прежнее поведение, карточка остаётся горящей.
+  { id: 's4', arrivalDate: DEADLINE_ARRIVAL, repairDueDate: due(90), daysLeftForRepair: -5 },
+] as unknown as EngineListItem[];
+
+describe('ступень «Срок ремонта»: забытые карточки', () => {
+  it('просроченный без работ уходит в «без движения», со свежей работой — остаётся горящим', () => {
+    expect(ids(applyEngineFacets(staleRows, { repairDeadline: ['stale'] }))).toEqual(['s1']);
+    expect(ids(applyEngineFacets(staleRows, { repairDeadline: ['danger'] }))).toEqual(['s2', 's4']);
+  });
+
+  it('«в сроке» без работ остаётся «в сроке» — гасить там нечего', () => {
+    expect(ids(applyEngineFacets(staleRows, { repairDeadline: ['ok'] }))).toEqual(['s3']);
   });
 });
 

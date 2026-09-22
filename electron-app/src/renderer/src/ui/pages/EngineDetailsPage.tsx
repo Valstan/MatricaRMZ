@@ -542,6 +542,7 @@ export function EngineDetailsPage(props: {
   // (строка списка его уже несёт, карточка — нет). Читаем из тех же секций, что грузятся
   // ради разделов; без договора остаётся общее умолчание.
   const [contractRepairDays, setContractRepairDays] = useState<number>(DEFAULT_CONTRACT_REPAIR_DAYS);
+  const [lastActivityAt, setLastActivityAt] = useState<number | null>(null);
   // Цех, выполнивший ремонт (захват цех-измерения, warehouse-analytics C2). Id из
   // канонного справочника directory_workshops (как наряды/склад), не workshop_ref.
   const [workshopId, setWorkshopId] = useState(String(props.engine.attributes?.workshop_id ?? ''));
@@ -994,6 +995,28 @@ export function EngineDetailsPage(props: {
       }
     })();
   }, [contractId]);
+
+  // Дата последней любой работы по двигателю — вкладке платежей она нужна, чтобы не звать
+  // просрочкой забытую карточку (список контрактов её уже называет «без движения»).
+  // Отдельным запросом: карточка не грузит строку списка, где это поле считается разом на всех.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const rows = await window.matrica.operations.list(props.engineId);
+        const last = (rows ?? []).reduce((acc: number, r: unknown) => {
+          const at = Number((r as { updatedAt?: unknown })?.updatedAt ?? 0);
+          return Number.isFinite(at) && at > acc ? at : acc;
+        }, 0);
+        if (!cancelled) setLastActivityAt(last > 0 ? last : null);
+      } catch {
+        if (!cancelled) setLastActivityAt(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [props.engineId]);
 
   useEffect(() => {
     // Reset “editing session” baseline on engine switch.
@@ -2800,6 +2823,7 @@ export function EngineDetailsPage(props: {
           sectionKey={contractSectionNumber}
           {...(engineBrandId ? { engineBrandId } : {})}
           arrivalIso={toInputDate(props.engine.attributes?.arrival_date as number | null | undefined)}
+          lastActivityIso={toInputDate(lastActivityAt)}
           engineRepaired={Boolean(
             statusFlags.status_repaired ||
               statusFlags.status_customer_sent ||

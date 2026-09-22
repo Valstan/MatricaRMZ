@@ -1213,9 +1213,12 @@ function SectionBlock(props: {
                           const repaired = engine ? isEngineRepairedForCountdown(engine.statusFlags) : false;
                           // Отсчёт идёт от приезда двигателя на завод: пока слот пуст или дата
                           // прихода не проставлена, считать не от чего — статус будет «none».
+                          // Дата последней работы гасит тревогу у забытых карточек: без неё
+                          // строка снова загорится незакрытым учётом, а не просрочкой.
                           const visual = paymentCountdownVisual(
                             countdownStatus(slot, paymentsToday, repaired, {
                               arrivalIso: toInputDate(engine?.arrivalDate ?? null),
+                              lastActivityIso: toInputDate(engine?.lastActivityAt ?? null),
                               days: repairDays,
                             }),
                           );
@@ -1260,7 +1263,9 @@ function SectionBlock(props: {
                               </td>
                               <td
                                 data-col-kind="text"
-                                style={{ ...TD_CELL, color: visual.textColor ?? 'inherit', fontWeight: visual.textColor ? 700 : 400 }}
+                                // Жирным выделяем только тревогу (она же с заливкой): у забытой
+                                // карточки цвет тоже задан, но кричать ей не о чем.
+                                style={{ ...TD_CELL, color: visual.textColor ?? 'inherit', fontWeight: visual.rowBackground ? 700 : 400 }}
                               >
                                 {visual.label}
                               </td>
@@ -2132,6 +2137,7 @@ export function ContractDetailsPage(props: {
         slot
           ? countdownStatus(slot, today, isEngineRepairedForCountdown(e.statusFlags), {
               arrivalIso: toInputDate(e.arrivalDate ?? null),
+              lastActivityIso: toInputDate(e.lastActivityAt ?? null),
               days: repairDays,
             })
           : { state: 'none' },

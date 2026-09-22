@@ -23,6 +23,16 @@ export const COUNTDOWN_DANGER_LEFT_DAYS = 20;
  * (половина срока до жёлтого, последние 20/90 до красного). Так контракт на 30 дней
  * не получает красную зону шириной в две трети срока.
  */
+/**
+ * Сколько дней без единой работы по двигателю считаем «карточка забыта».
+ *
+ * Зачем порог вообще: замер на проде 22.09 после v3.45.0 показал 335 красных двигателей,
+ * из них у 198 не было работ два месяца, а 142 стоят больше года. Красным в таком виде
+ * горела не просрочка ремонта, а незакрытый учёт — индикатор терял смысл ровно так же,
+ * как поиск, подмешивавший похожее. Решение владельца: гореть должны те, кем занимаются.
+ */
+export const COUNTDOWN_STALE_DAYS = 60;
+
 export function countdownThresholds(days: number): { warningElapsed: number; dangerLeft: number } {
   const total = Number.isFinite(days) && days > 0 ? Math.trunc(days) : REPAIR_COUNTDOWN_DAYS;
   return {
@@ -192,12 +202,19 @@ export function slotTotals(slot: PaymentSlot): SlotTotals {
   };
 }
 
-export type CountdownState = 'none' | 'ok' | 'warning' | 'danger';
+/**
+ * `stale` — срок формально вышел, но по двигателю давно ничего не делали
+ * (владелец 22.09.2026, приёмка v3.45.0). Отдельное состояние, а не `none`:
+ * такие карточки надо разобрать, а не спрятать.
+ */
+export type CountdownState = 'none' | 'ok' | 'warning' | 'danger' | 'stale';
 
 export type CountdownStatus = {
   state: CountdownState;
   daysElapsed?: number;
   daysLeft?: number;
+  /** Сколько дней по двигателю не было ни одной работы. Заполняется у `stale`. */
+  daysIdle?: number;
 };
 
 function daysBetweenIso(fromIso: string, toIso: string): number | null {
@@ -212,6 +229,13 @@ export type CountdownInput = {
   arrivalIso?: string | null;
   /** Срок ремонта по контракту, дней. Пусто — общий по умолчанию. */
   days?: number;
+  /**
+   * ISO-дата последней работы по двигателю (любая операция: история ремонта, акт, этап).
+   * Пусто — сведений о движении нет, и карточку забытой НЕ объявляем: умолчание сохраняет
+   * прежнее поведение. За тем, что поле передают все вызывающие, следит сторож — забытый
+   * аргумент тихо вернул бы те самые 335 красных.
+   */
+  lastActivityIso?: string | null;
 };
 
 /**
@@ -246,7 +270,22 @@ export function countdownStatus(
     daysLeft <= dangerLeft ? 'danger'
     : daysElapsed > warningElapsed ? 'warning'
     : 'ok';
+  // Забытую карточку не красим: она не про срыв срока, а про неразобранный учёт.
+  // Гасим только тревожные состояния: «в сроке» внимания и так не просит, а переименовать
+  // его в «без движения» значило бы соврать, будто по двигателю идёт работа.
+  const daysIdle = idleDays(input?.lastActivityIso, todayIso);
+  if (daysIdle != null && daysIdle > COUNTDOWN_STALE_DAYS && (state === 'danger' || state === 'warning')) {
+    return { state: 'stale', daysElapsed, daysLeft, daysIdle };
+  }
   return { state, daysElapsed, daysLeft };
+}
+
+/** Сколько дней прошло с последней работы. `null`, если даты нет или она в будущем. */
+function idleDays(lastActivityIso: string | null | undefined, todayIso: string): number | null {
+  const iso = String(lastActivityIso ?? '').trim();
+  if (!iso) return null;
+  const days = daysBetweenIso(iso, todayIso);
+  return days != null && days >= 0 ? days : null;
 }
 
 export function findSlotForEngine(cp: ContractPayments, engineId: string): PaymentSlot | undefined {
@@ -571,14 +610,21 @@ export function burningEnginesCount(
   cp: ContractPayments,
   todayIso: string,
   repairedEngineIds: ReadonlySet<string>,
-  input?: { arrivalIsoByEngineId?: ReadonlyMap<string, string>; days?: number },
+  input?: {
+    arrivalIsoByEngineId?: ReadonlyMap<string, string>;
+    /** Дата последней работы по каждому двигателю — забытые карточки в счёт не идут. */
+    lastActivityIsoByEngineId?: ReadonlyMap<string, string>;
+    days?: number;
+  },
 ): number {
   return cp.slots.filter((s) => {
     const repaired = s.engineId != null && repairedEngineIds.has(s.engineId);
     const arrivalIso = s.engineId != null ? input?.arrivalIsoByEngineId?.get(s.engineId) : undefined;
+    const lastActivityIso = s.engineId != null ? input?.lastActivityIsoByEngineId?.get(s.engineId) : undefined;
     return (
       countdownStatus(s, todayIso, repaired, {
         ...(arrivalIso ? { arrivalIso } : {}),
+        ...(lastActivityIso ? { lastActivityIso } : {}),
         ...(input?.days != null ? { days: input.days } : {}),
       }).state === 'danger'
     );
