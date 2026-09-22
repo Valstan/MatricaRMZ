@@ -57,18 +57,20 @@ describe('buildPartSpecPayload', () => {
     ]);
   });
 
-  it('carries sourceGroupId and act flags through (does not drop them on a plain card save)', () => {
+  it('carries sourceGroupId, act flags and hasOwnNumber through (does not drop them on a plain card save)', () => {
     const out = buildPartSpecPayload({
       code: null,
       dimensions: [],
       brandLinks: [
         { id: 'b1', engineBrandId: 'eb1', assemblyUnitNumber: null, quantity: 1, sourceGroupId: 'g1', inCompletenessAct: true },
         { id: 'b2', engineBrandId: 'eb2', assemblyUnitNumber: null, quantity: 1, inDefectAct: true },
+        { id: 'b3', engineBrandId: 'eb3', assemblyUnitNumber: null, quantity: 1, hasOwnNumber: true },
       ],
     });
     expect(out.brandLinks).toEqual([
       { id: 'b1', engineBrandId: 'eb1', assemblyUnitNumber: null, quantity: 1, sourceGroupId: 'g1', inCompletenessAct: true },
       { id: 'b2', engineBrandId: 'eb2', assemblyUnitNumber: null, quantity: 1, inDefectAct: true },
+      { id: 'b3', engineBrandId: 'eb3', assemblyUnitNumber: null, quantity: 1, hasOwnNumber: true },
     ]);
   });
 

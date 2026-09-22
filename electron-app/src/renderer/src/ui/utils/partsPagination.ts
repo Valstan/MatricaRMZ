@@ -29,6 +29,8 @@ export type PartSpecRow = {
     // Т4: галочки актов приходят в runtime-объекте привязки; нужны для act-scoped replace (G2).
     inCompletenessAct?: boolean;
     inDefectAct?: boolean;
+    // «Свой номер» (22.09.2026): шаблон марки для поля номера в бланке дефектовки.
+    hasOwnNumber?: boolean;
   }>;
 };
 
@@ -144,6 +146,8 @@ export async function upsertPartSpecBrandLink(args: {
   // (правка количества/узла не должна стирать флаги); false = явно снять.
   inCompletenessAct?: boolean;
   inDefectAct?: boolean;
+  // «Свой номер» (22.09.2026) — та же семантика undefined/false, что у флагов актов.
+  hasOwnNumber?: boolean;
 }): Promise<{ ok: true; linkId: string } | { ok: false; error: string }> {
   try {
     const r = await readPartSpec(String(args.partId));
@@ -166,6 +170,7 @@ export async function upsertPartSpecBrandLink(args: {
       quantity,
       ...((args.inCompletenessAct ?? prev?.inCompletenessAct) ? { inCompletenessAct: true } : {}),
       ...((args.inDefectAct ?? prev?.inDefectAct) ? { inDefectAct: true } : {}),
+      ...((args.hasOwnNumber ?? prev?.hasOwnNumber) ? { hasOwnNumber: true } : {}),
     };
     if (idx >= 0) links[idx] = next;
     else links.push(next);
@@ -200,6 +205,9 @@ export async function propagatePartSpecBrandLinkToBrands(args: {
   quantity: number;
   inCompletenessAct: boolean;
   inDefectAct: boolean;
+  // «Свой номер» — часть шаблона марки, поэтому едет вместе с кол-вом/узлом/флагами актов:
+  // без него overwrite на марке-цели снял бы флаг, проставленный у детали-источника.
+  hasOwnNumber: boolean;
   mergeMode: 'overwrite' | 'add-missing';
   ensureActFlag?: 'completeness' | 'defect';
 }): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -232,6 +240,7 @@ export async function propagatePartSpecBrandLinkToBrands(args: {
         quantity,
         ...(args.inCompletenessAct ? { inCompletenessAct: true } : {}),
         ...(args.inDefectAct ? { inDefectAct: true } : {}),
+        ...(args.hasOwnNumber ? { hasOwnNumber: true } : {}),
       };
       if (idx >= 0) links[idx] = next;
       else links.push(next);

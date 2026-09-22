@@ -116,6 +116,8 @@ export const erpEngineInventoryLineRowSchema = z.object({
   in_defect_act: z.boolean().nullable().optional(),
   in_completeness_act_override: z.boolean().nullable().optional(),
   in_defect_act_override: z.boolean().nullable().optional(),
+  has_own_number: z.boolean().nullable().optional(),
+  has_own_number_override: z.boolean().nullable().optional(),
   selected: z.boolean(),
   photos_json: z.string().nullable().optional(),
   last_server_seq: z.number().int().nullable().optional(),

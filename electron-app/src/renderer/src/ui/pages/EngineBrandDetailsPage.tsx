@@ -60,7 +60,18 @@ type BrandPartRow = {
   // Т4: галочки актов шаблона марки — наследуются строками двигателей этой марки.
   inCompletenessAct: boolean;
   inDefectAct: boolean;
+  // «Свой номер» (владелец 22.09.2026): у детали бывает свой номер — в бланке дефектовки
+  // ей печатается поле под номер. Тоже шаблон марки, тоже наследуется листами.
+  hasOwnNumber: boolean;
 };
+const BRAND_PART_FLAG_LABELS = {
+  inCompletenessAct: 'Акт компл.',
+  inDefectAct: 'Акт деф.',
+  hasOwnNumber: 'Свой номер',
+} as const satisfies Record<'inCompletenessAct' | 'inDefectAct' | 'hasOwnNumber', string>;
+const BRAND_PART_FLAG_HINTS = {
+  hasOwnNumber: 'У детали бывает свой номер: в бланке дефектовки ей печатается поле под номер',
+} as const;
 export function EngineBrandDetailsPage(props: {
   brandId: string;
   canEdit: boolean;
@@ -262,6 +273,7 @@ export function EngineBrandDetailsPage(props: {
         quantity: row.quantity,
         inCompletenessAct: row.inCompletenessAct,
         inDefectAct: row.inDefectAct,
+        hasOwnNumber: row.hasOwnNumber,
         mergeMode: perPartMerge,
         ...(ensureActFlag ? { ensureActFlag } : {}),
       });
@@ -461,6 +473,7 @@ export function EngineBrandDetailsPage(props: {
       let quantity = 0;
       let inCompletenessAct = false;
       let inDefectAct = false;
+      let hasOwnNumber = false;
       for (const link of linksForBrand) {
         if (!assemblyUnitNumber) {
           const fallback = String((link as any)?.assemblyUnitNumber || '').trim();
@@ -470,6 +483,7 @@ export function EngineBrandDetailsPage(props: {
         if (Number.isFinite(rawQty)) quantity += Math.max(0, Math.floor(rawQty));
         if ((link as any)?.inCompletenessAct) inCompletenessAct = true;
         if ((link as any)?.inDefectAct) inDefectAct = true;
+        if ((link as any)?.hasOwnNumber) hasOwnNumber = true;
       }
 
       const name = typeof part.name === 'string' ? String(part.name) : '';
@@ -485,6 +499,7 @@ export function EngineBrandDetailsPage(props: {
         quantity,
         inCompletenessAct,
         inDefectAct,
+        hasOwnNumber,
       } satisfies BrandPartRow);
       seenPartIds.add(partId);
     }
@@ -593,6 +608,7 @@ export function EngineBrandDetailsPage(props: {
     quantity: number;
     inCompletenessAct?: boolean;
     inDefectAct?: boolean;
+    hasOwnNumber?: boolean;
   }) {
     if (!props.canEdit || !props.canEditParts) return { ok: false as const, error: 'no permission' };
     const assemblyUnitNumber = String(args.assemblyUnitNumber || '').trim();
@@ -605,6 +621,7 @@ export function EngineBrandDetailsPage(props: {
       ...(args.linkId ? { linkId: args.linkId } : {}),
       ...(args.inCompletenessAct !== undefined ? { inCompletenessAct: args.inCompletenessAct } : {}),
       ...(args.inDefectAct !== undefined ? { inDefectAct: args.inDefectAct } : {}),
+      ...(args.hasOwnNumber !== undefined ? { hasOwnNumber: args.hasOwnNumber } : {}),
     };
     const r = await upsertPartSpecBrandLink(payload);
     if (!r.ok) return { ok: false as const, error: r.error ?? 'Не удалось сохранить связь' };
@@ -633,6 +650,7 @@ export function EngineBrandDetailsPage(props: {
         prev.quantity !== r.quantity ||
         prev.inCompletenessAct !== r.inCompletenessAct ||
         prev.inDefectAct !== r.inDefectAct ||
+        prev.hasOwnNumber !== r.hasOwnNumber ||
         prev.assemblyUnitNumber !== r.assemblyUnitNumber
       );
     });
@@ -663,6 +681,7 @@ export function EngineBrandDetailsPage(props: {
         quantity: row.quantity,
         inCompletenessAct: row.inCompletenessAct,
         inDefectAct: row.inDefectAct,
+        hasOwnNumber: row.hasOwnNumber,
         ...(row.linkId ? { linkId: row.linkId } : {}),
       });
       if (!r.ok) failed += 1;
@@ -730,6 +749,7 @@ export function EngineBrandDetailsPage(props: {
         quantity: 1,
         inCompletenessAct: false,
         inDefectAct: false,
+        hasOwnNumber: false,
       };
       return [...prev, draftRow].sort((a, b) => a.label.localeCompare(b.label, 'ru'));
     });
@@ -919,6 +939,7 @@ export function EngineBrandDetailsPage(props: {
         { title: 'Кол-во', value: (p) => String(p.quantity) },
         { title: 'Акт компл.', value: (p) => (p.inCompletenessAct ? 'да' : '—') },
         { title: 'Акт деф.', value: (p) => (p.inDefectAct ? 'да' : '—') },
+        { title: 'Свой номер', value: (p) => (p.hasOwnNumber ? 'да' : '—') },
       ],
     });
   }
@@ -971,10 +992,11 @@ export function EngineBrandDetailsPage(props: {
           {articleDisplay || 'не задано'}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {(['inCompletenessAct', 'inDefectAct'] as const).map((flag) => (
+          {(['inCompletenessAct', 'inDefectAct', 'hasOwnNumber'] as const).map((flag) => (
             <label
               key={flag}
               style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--subtle)', cursor: 'pointer' }}
+              title={flag === 'hasOwnNumber' ? BRAND_PART_FLAG_HINTS.hasOwnNumber : undefined}
               onClick={(event) => event.stopPropagation()}
             >
               <input
@@ -987,7 +1009,7 @@ export function EngineBrandDetailsPage(props: {
                   markPartsDirty();
                 }}
               />
-              {flag === 'inCompletenessAct' ? 'Акт компл.' : 'Акт деф.'}
+              {BRAND_PART_FLAG_LABELS[flag]}
             </label>
           ))}
         </div>

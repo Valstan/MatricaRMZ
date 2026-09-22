@@ -1871,6 +1871,10 @@ export const erpEngineInventoryLines = pgTable(
     inDefectAct: boolean('in_defect_act'),
     inCompletenessActOverride: boolean('in_completeness_act_override'),
     inDefectActOverride: boolean('in_defect_act_override'),
+    // «Свой номер» (22.09.2026) — эффективное значение строки и операторский per-engine override.
+    // nullable, как и флаги актов: NULL = legacy-строка без флага.
+    hasOwnNumber: boolean('has_own_number'),
+    hasOwnNumberOverride: boolean('has_own_number_override'),
     selected: boolean('selected').notNull().default(false),
     photosJson: text('photos_json'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),

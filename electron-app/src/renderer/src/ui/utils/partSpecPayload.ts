@@ -5,9 +5,10 @@ import type { PartDimension, PartSpec, PartSpecBrandLink } from '@matricarmz/sha
 // round-trips `code` untouched (the card's «Код» field owns erp_nomenclature.code;
 // directory_parts.code is not edited here).
 // A link is kept when it carries a brand OR a `sourceGroupId` — the latter preserves live-group
-// anchors (engineBrandId=null). `inCompletenessAct`/`inDefectAct` (Т4) and `sourceGroupId` are
-// carried through via conditional spread so a plain card save doesn't drop act flags or live-group
-// membership (exactOptionalPropertyTypes: never assign undefined to the optional fields).
+// anchors (engineBrandId=null). `inCompletenessAct`/`inDefectAct` (Т4), `hasOwnNumber` («свой
+// номер», 22.09.2026) and `sourceGroupId` are carried through via conditional spread so a plain
+// card save doesn't drop act flags, the own-number flag or live-group membership
+// (exactOptionalPropertyTypes: never assign undefined to the optional fields).
 export function buildPartSpecPayload(args: {
   code: string | null;
   dimensions: PartDimension[];
@@ -27,6 +28,7 @@ export function buildPartSpecPayload(args: {
         quantity: Number.isFinite(b.quantity) ? b.quantity : 0,
         ...(b.inCompletenessAct ? { inCompletenessAct: true } : {}),
         ...(b.inDefectAct ? { inDefectAct: true } : {}),
+        ...(b.hasOwnNumber ? { hasOwnNumber: true } : {}),
         ...(b.sourceGroupId ? { sourceGroupId: b.sourceGroupId } : {}),
       })),
   };

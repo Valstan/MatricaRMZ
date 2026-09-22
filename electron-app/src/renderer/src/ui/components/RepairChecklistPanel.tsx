@@ -283,6 +283,7 @@ function getBrandLinkForPart(part: unknown, engineBrandId: string | undefined) {
     quantity: Number.isFinite(Number(link.quantity)) ? Number(link.quantity) : 0,
     inCompletenessAct: Boolean(link.inCompletenessAct),
     inDefectAct: Boolean(link.inDefectAct),
+    hasOwnNumber: Boolean(link.hasOwnNumber),
   };
 }
 
@@ -353,6 +354,8 @@ function buildBrandRowsForStage(
         replace_qty: 0,
         in_completeness_act: inCompleteness,
         in_defect_act: inDefect,
+        // «Свой номер» — тоже флаг комплекта марки: строка двигателя наследует его отсюда.
+        has_own_number: Boolean((link as any)?.hasOwnNumber),
       },
       partId,
     );
@@ -1633,6 +1636,14 @@ export function RepairChecklistPanel(props: {
             ...((prev as any)?.in_defect_act_override !== undefined
               ? { in_defect_act_override: Boolean((prev as any).in_defect_act_override) }
               : {}),
+            // «Свой номер» (22.09.2026) — по тому же правилу: эффективное значение строки =
+            // override листа ?? актуальное значение комплекта марки.
+            ...((prev as any)?.has_own_number_override !== undefined
+              ? { has_own_number: Boolean((prev as any).has_own_number_override) }
+              : {}),
+            ...((prev as any)?.has_own_number_override !== undefined
+              ? { has_own_number_override: Boolean((prev as any).has_own_number_override) }
+              : {}),
             // Ф3: ветка восполнения — пользовательский выбор детали, переживает brand-resync.
             replenishment_branch: (prev as any)?.replenishment_branch ?? null,
             // MVP-2: фото-доказательства — пользовательские данные строки, переживают brand-resync.
@@ -2319,6 +2330,7 @@ export function RepairChecklistPanel(props: {
                                 { id: 'scrap_reason', label: 'Причина утиля' },
                                 { id: 'replace_qty', label: 'Заменить', kind: 'number' as const },
                                 { id: 'in_defect_act', label: 'В акте' },
+                                { id: 'has_own_number', label: 'Свой номер' },
                                 { id: 'replenishment_branch', label: 'Восполнение' },
                               ]
                           : (it.columns ?? [])
@@ -2422,8 +2434,9 @@ export function RepairChecklistPanel(props: {
                     if (completenessRenderers) return { cellRenderers: completenessRenderers };
                     // Т5: галочка акта пишет И эффективное значение, И операторский
                     // override — иначе brand-resync вернёт значение шаблона марки.
+                    // «Свой номер» (22.09.2026) устроен так же, поэтому рендерер общий.
                     const actFlagRenderer =
-                      (flagId: 'in_completeness_act' | 'in_defect_act') =>
+                      (flagId: 'in_completeness_act' | 'in_defect_act' | 'has_own_number') =>
                       ({ rowIdx, value, setValue }: any) => (
                         <input
                           type="checkbox"
@@ -2440,6 +2453,7 @@ export function RepairChecklistPanel(props: {
                         ? {
                             in_completeness_act: actFlagRenderer('in_completeness_act'),
                             in_defect_act: actFlagRenderer('in_defect_act'),
+                            has_own_number: actFlagRenderer('has_own_number'),
                             part_name: ({ rowIdx, row, columnId, value, setValue }: any) => {
                               if (isBrandLinkedChecklistRow(row as ChecklistTableRow)) {
                                 return <Input value={String(value ?? '')} disabled />;
@@ -3687,6 +3701,7 @@ const INVENTORY_COL_WIDTHS: Record<string, string> = {
   stamped_number: '8%',
   in_completeness_act: '6%',
   in_defect_act: '6%',
+  has_own_number: '6%',
   quantity: '5%',
   present: '7%',
   actual_qty: '7%',
@@ -3783,7 +3798,12 @@ function TableEditor(props: {
       // для читаемости, чекбокс-колонки центрируем.
       const wrap: React.CSSProperties = { whiteSpace: 'normal', wordBreak: 'break-word' };
       if (columnId === 'part_name') return { ...wrap, minWidth: 150 };
-      if (columnId === 'present' || columnId === 'in_completeness_act' || columnId === 'in_defect_act') {
+      if (
+        columnId === 'present' ||
+        columnId === 'in_completeness_act' ||
+        columnId === 'in_defect_act' ||
+        columnId === 'has_own_number'
+      ) {
         return { ...wrap, textAlign: 'center' };
       }
       return wrap;

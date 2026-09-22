@@ -373,6 +373,16 @@ export type EngineInventoryRow = {
    */
   in_completeness_act_override?: boolean;
   in_defect_act_override?: boolean;
+
+  /**
+   * «Свой номер» (владелец 22.09.2026): у детали бывает СВОЙ номер — в бланке дефектовки
+   * ей рисуется отдельное поле под номер, а у остальных печатается просто строка (так весь
+   * список умещается на лист). Значение приходит из комплекта марки (PartSpecBrandLink.hasOwnNumber)
+   * и пересчитывается при brand-resync — как и галочки актов.
+   * `*_override` — операторская правка в конкретном листе; задан → побеждает значение марки.
+   */
+  has_own_number?: boolean;
+  has_own_number_override?: boolean;
 };
 
 const ENGINE_INVENTORY_KEYS = [
@@ -489,6 +499,10 @@ export function normalizeEngineInventoryRow(raw: Record<string, unknown>): {
       ? { in_completeness_act_override: toBoolField(raw.in_completeness_act_override) }
       : {}),
     ...(raw.in_defect_act_override !== undefined ? { in_defect_act_override: toBoolField(raw.in_defect_act_override) } : {}),
+    ...(raw.has_own_number !== undefined ? { has_own_number: toBoolField(raw.has_own_number) } : {}),
+    ...(raw.has_own_number_override !== undefined
+      ? { has_own_number_override: toBoolField(raw.has_own_number_override) }
+      : {}),
   };
 
   // Detect changes by comparing key-by-key with raw input.
