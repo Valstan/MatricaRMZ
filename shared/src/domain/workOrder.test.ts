@@ -317,6 +317,23 @@ describe('normalizeWorkOrderPayloadV3Fields — signatureBlocks', () => {
 });
 
 describe('normalizeWorkOrderPayloadV3Fields — printSettings', () => {
+  it('снятые галочки печати переживают сохранение наряда', () => {
+    const r = normalizeWorkOrderPayloadV3Fields({
+      printSettings: {
+        hideApprover: true,
+        hideSignatures: true,
+        hideCrewSignatures: true,
+        hideSignatureBlocks: ['completion', ' issue ', '', 'completion'],
+      },
+    });
+    expect(r.printSettings).toEqual({
+      hideApprover: true,
+      hideSignatures: true,
+      hideCrewSignatures: true,
+      hideSignatureBlocks: ['completion', 'issue'],
+    });
+  });
+
   it('keeps title/date and clamps the per-block fonts to their ranges', () => {
     const r = normalizeWorkOrderPayloadV3Fields({
       printSettings: { titleOverride: '  Мой наряд ', orderDateOverride: 1718312400000, fontDirector: 30, fontTitle: 99, fontMeta: 2, fontCrew: 2, fontWorks: 16, fontSignatures: 13 },

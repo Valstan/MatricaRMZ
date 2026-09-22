@@ -178,11 +178,19 @@ function signCell(slot: WorkOrderSignatureSlot, deps: WoPrintDeps, fs: Fonts): s
  * подписей не создаётся вовсе (раньше внешний flex-контейнер строился безусловно, и
  * пустая секция всё равно попадала в отпечаток вопреки комментарию в коде).
  */
-function buildSignaturesHtml(payload: WorkOrderPayload, deps: WoPrintDeps, fs: Fonts): string {
+function buildSignaturesHtml(
+  payload: WorkOrderPayload,
+  settings: WorkOrderPrintSettings,
+  deps: WoPrintDeps,
+  fs: Fonts,
+): string {
+  if (settings.hideSignatures) return '';
+  const hidden = new Set(settings.hideSignatureBlocks ?? []);
   const sigTitle = fs.signatures + 1;
   const sigName = fs.signatures;
   const blocks = getWorkOrderSignatureBlocks(payload.workOrderKind)
     .map((def) => {
+      if (hidden.has(def.id)) return '';
       const slots = resolveWorkOrderSignatureSlots(def, payload.signatureBlocks);
       if (!slots.length) return '';
       const dateLine = def.dateLineLabel
@@ -223,6 +231,9 @@ function baseExtraCss(fs: Fonts): string[] {
     // последнего блока — но НЕ прижимаются к низу листа: прежний bottom-pin выталкивал
     // блок подписей на 2-ю страницу.
     `[data-print-section="signatures"] { margin-top: 24px; }`,
+    // Ячейка под роспись бригады — пустая, но с гарантированной шириной и высотой:
+    // иначе браузер схлопывает её в нитку и расписаться негде.
+    `[data-print-section="crew"] table.wo-crew td.wo-sign-cell { min-width: 34mm; height: 9mm; }`,
     // Поля печати задаёт body (12мм, PRINT_BASE_CSS) — поля @page обнуляем, иначе браузер
     // добавит свои сверху и вытолкнет контент на 2-й лист.
     `@page { size: A4; margin: 0; }`,
@@ -305,8 +316,12 @@ function buildAssemblyModel(
       .join('')}</tbody></table>`;
   };
 
+  // Бригада сборочного наряда расписывается там же, где ремонтного, — последней колонкой.
+  const showCrewSign = !settings.hideCrewSignatures;
   const crewHtml = current.crew.length
-    ? `<table><thead><tr><th>Сотрудник</th><th>Таб. №</th><th>КТУ</th><th>Начислено</th><th>Заморозка</th></tr></thead><tbody>${current.crew
+    ? `<table class="wo-crew"><thead><tr><th>Сотрудник</th><th>Таб. №</th><th>КТУ</th><th>Начислено</th><th>Заморозка</th>${
+        showCrewSign ? '<th>Подпись</th>' : ''
+      }</tr></thead><tbody>${current.crew
         .map(
           (member) =>
             `<tr><td>${escapeHtml(crewMemberLabel(member, deps) || '—')}</td><td>${escapeHtml(
@@ -315,13 +330,13 @@ function buildAssemblyModel(
               String(member.ktu ?? 1),
             )}</td><td>${escapeHtml(money(member.payoutRub ?? 0))}</td><td>${
               member.payoutFrozen ? 'Да' : 'Нет'
-            }</td></tr>`,
+            }</td>${showCrewSign ? '<td class="wo-sign-cell"></td>' : ''}</tr>`,
         )
         .join('')}</tbody></table>`
     : `<div class="muted">Нет данных</div>`;
 
   const worksHtml = linesTable(current.freeWorks);
-  const signaturesHtml = buildSignaturesHtml(current, deps, fs);
+  const signaturesHtml = buildSignaturesHtml(current, settings, deps, fs);
 
   const firstWorkType = distinctTrimmed(current.freeWorks.map((l) => l.serviceName))[0] ?? headerWorkType;
   const autoTitle = firstWorkType ? `Наряд на ${firstWorkType}` : `Наряд №${current.workOrderNumber || '—'}`;
@@ -456,22 +471,23 @@ function buildSimpleModel(
   // Бригада расписывается прямо в своей таблице: пятая колонка — пустая ячейка под роспись.
   // Отдельных слотов подписи на бригаду не заводим — их число заранее неизвестно, а
   // колонка растёт вместе с составом сама.
+  const showCrewSign = !settings.hideCrewSignatures;
   const crewHtml = current.crew.length
     ? `<table class="wo-crew"><thead><tr><th>Сотрудник</th><th>Таб. №</th><th>КТУ</th>${
         showAmount ? '<th>Начислено</th>' : ''
-      }<th>Подпись</th></tr></thead><tbody>${current.crew
+      }${showCrewSign ? '<th>Подпись</th>' : ''}</tr></thead><tbody>${current.crew
         .map(
           (member) =>
             `<tr><td>${escapeHtml(crewMemberLabel(member, deps) || '—')}</td><td>${escapeHtml(
               crewMemberPersonnelNumber(member, deps),
             )}</td><td>${escapeHtml(String(member.ktu ?? 1))}</td>${
               showAmount ? `<td>${escapeHtml(money(member.payoutRub ?? 0))}</td>` : ''
-            }<td class="wo-sign-cell"></td></tr>`,
+            }${showCrewSign ? '<td class="wo-sign-cell"></td>' : ''}</tr>`,
         )
         .join('')}</tbody></table>`
     : `<div class="muted">Нет данных</div>`;
 
-  const signaturesHtml = buildSignaturesHtml(current, deps, fs);
+  const signaturesHtml = buildSignaturesHtml(current, settings, deps, fs);
 
   const firstWorkType = distinctTrimmed(current.freeWorks.map((l) => l.serviceName))[0] ?? '';
   const autoTitle = firstWorkType
@@ -507,12 +523,7 @@ function buildSimpleModel(
   return {
     title: headerTitle,
     subtitle: printDate ? `Дата: ${formatMoscowDate(printDate)}` : 'Дата: —',
-    extraCss: [
-      ...baseExtraCss(fs),
-      // Ячейка под роспись бригадира/рабочего — пустая, но с гарантированной шириной и
-      // высотой: иначе браузер схлопывает её в нитку и расписаться негде.
-      `[data-print-section="crew"] table.wo-crew td.wo-sign-cell { min-width: 34mm; height: 9mm; }`,
-    ].join(' '),
+    extraCss: baseExtraCss(fs).join(' '),
     sections: [
       { id: 'title', title: 'Заголовок', html: titleHtml, hideTitle: true },
       { id: 'meta', title: 'Реквизиты', html: metaHtml, hideTitle: true },

@@ -142,6 +142,10 @@ export function WorkOrderPrintDialog(props: {
   autoTitle: string;
   /** Кандидаты в утверждающие грифа (сотрудники): id, метка и готовое ФИО «И.О. Фамилия» для печати. */
   approverEmployees?: Array<{ id: string; label: string; grifName: string; hintText?: string }>;
+  /** Заполненные блоки подписей наряда — по галочке на блок; пустые сюда не попадают. */
+  signatureBlocks?: Array<{ id: string; title: string }>;
+  /** Есть ли бригада — от этого зависит галочка «Роспись бригады». */
+  hasCrew?: boolean;
   /** Строит standalone A4-HTML (с #wo-a4) для iframe-превью по заданным настройкам. */
   buildHtml: (settings: WorkOrderPrintSettings) => string;
   onChange: (settings: WorkOrderPrintSettings) => void;
@@ -286,6 +290,66 @@ export function WorkOrderPrintDialog(props: {
               </label>
             ))}
           </div>
+
+          {(props.signatureBlocks?.length ?? 0) > 0 || props.hasCrew ? (
+            <div style={{ display: 'grid', gap: 4 }}>
+              <div style={{ fontSize: 12, color: 'var(--subtle)' }}>Печатать подписи</div>
+              {(props.signatureBlocks ?? []).map((block) => {
+                const hidden = (draft.hideSignatureBlocks ?? []).includes(block.id);
+                return (
+                  <label key={block.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={!draft.hideSignatures && !hidden}
+                      disabled={draft.hideSignatures === true}
+                      onChange={(e) => {
+                        const rest = (draft.hideSignatureBlocks ?? []).filter((id) => id !== block.id);
+                        const next = { ...draft };
+                        if (e.target.checked) {
+                          if (rest.length) next.hideSignatureBlocks = rest;
+                          else delete next.hideSignatureBlocks;
+                        } else {
+                          next.hideSignatureBlocks = [...rest, block.id];
+                        }
+                        applySettings(next);
+                      }}
+                    />
+                    {block.title}
+                  </label>
+                );
+              })}
+              {props.hasCrew ? (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={!draft.hideCrewSignatures}
+                    onChange={(e) => {
+                      const next = { ...draft };
+                      if (e.target.checked) delete next.hideCrewSignatures;
+                      else next.hideCrewSignatures = true;
+                      applySettings(next);
+                    }}
+                  />
+                  Роспись бригады в таблице
+                </label>
+              ) : null}
+              {(props.signatureBlocks?.length ?? 0) > 0 ? (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--subtle)', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={draft.hideSignatures === true}
+                    onChange={(e) => {
+                      const next = { ...draft };
+                      if (e.target.checked) next.hideSignatures = true;
+                      else delete next.hideSignatures;
+                      applySettings(next);
+                    }}
+                  />
+                  Убрать все подписи
+                </label>
+              ) : null}
+            </div>
+          ) : null}
 
           {props.workOrderKind === WorkOrderKind.Assembly ? (
           <div>
