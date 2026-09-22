@@ -2971,7 +2971,7 @@ export function WorkOrderDetailsPage(props: {
       </div>
 
       {payload.workOrderKind === WorkOrderKind.Assembly && (payload.consumedLines?.length ?? 0) > 0 ? (
-        <div style={{ maxWidth: 'min(98vw, 1600px)', marginInline: 'auto', width: '100%' }}>
+        <div style={{ maxWidth: '100%', marginInline: 'auto', width: '100%' }}>
           <SectionCard className="entity-card-span-full">
             <div style={{ fontWeight: 700, marginBottom: 8 }}>
               Комплектовка · {payload.assemblyBomSnapshot?.bomName ?? 'ручной состав'}
@@ -3103,7 +3103,7 @@ export function WorkOrderDetailsPage(props: {
       ) : null}
 
       {/* Виды работ — отдельный широкий блок */}
-      <div style={{ maxWidth: 'min(98vw, 1600px)', marginInline: 'auto', width: '100%' }}>
+      <div style={{ maxWidth: '100%', marginInline: 'auto', width: '100%' }}>
         <SectionCard className="entity-card-span-full work-order-works-panel">
         <ListCount total={payload.freeWorks.length} shown={payload.freeWorks.length} />
         <div className="list-table-wrap list-table-wrap--single">
@@ -3120,9 +3120,9 @@ export function WorkOrderDetailsPage(props: {
               {payload.workOrderKind !== WorkOrderKind.Assembly ? <col style={{ width: '110px' }} /> : null}
               {payload.workOrderKind === WorkOrderKind.Assembly ? <col style={{ width: '160px' }} /> : null}
               {!appliedHiddenFields.has('productNumber') ? <col style={{ width: '100px' }} /> : null}
-              <col style={{ width: '65px' }} />
-              <col style={{ width: '50px' }} />
-              {!appliedHiddenFields.has('priceRub') ? <col style={{ width: '80px' }} /> : null}
+              <col style={{ width: '92px' }} />
+              <col style={{ width: '58px' }} />
+              {!appliedHiddenFields.has('priceRub') ? <col style={{ width: '112px' }} /> : null}
               {!appliedHiddenFields.has('amountRub') ? <col style={{ width: '100px' }} /> : null}
               {canEditNow ? <col style={{ width: '184px' }} /> : null}
             </colgroup>
