@@ -814,6 +814,22 @@ table.list-table.work-order-table td {
   text-overflow: clip;
 }
 
+/* Текстовые колонки переносятся по словам: длинное наименование услуги раздвигало
+   таблицу шире карточки, а обёртка строки её клипует — правый край уезжал в никуда. */
+table.list-table.work-order-table th[data-col-kind='name'],
+table.list-table.work-order-table td[data-col-kind='name'] {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Если таблица всё же шире панели (узкий экран, много колонок) — её прокручивают
+   внутри панели. Общая обёртка списков режет переполнение (overflow-x: clip),
+   потому что там сверху висит липкий заголовок виртуального списка; в наряде
+   таблица обычная, липкого заголовка нет — прокрутка безопасна. */
+.work-order-works-panel .list-table-wrap--single {
+  overflow-x: auto;
+}
+
 table.list-table.supply-request-items-table th,
 table.list-table.supply-request-items-table td {
   vertical-align: top;
@@ -1811,11 +1827,12 @@ table.list-table.list-table--catalog {
   max-width: 100%;
 }
 
-/* Блок видов работ в наряде — по ширине контента, не больше */
+/* Блок видов работ в наряде — по ширине контента, но не уже доступного места:
+   прежний min-width: 900px на узком экране выдавливал панель за край карточки. */
 .work-order-works-panel {
   width: fit-content !important;
   max-width: 100% !important;
-  min-width: 900px;
+  min-width: 0;
   margin-inline: auto !important;
   justify-self: center;
 }
