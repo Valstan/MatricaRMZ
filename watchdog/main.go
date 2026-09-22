@@ -157,12 +157,20 @@ func main() {
 			repair = true
 		}
 	}
+	// Ярлык «Восстановить Матрицу РМЗ» обязан ответить мгновенно: человек нажал
+	// кнопку и до первого признака жизни иначе сидит перед пустым экраном. Плановый
+	// проход окна НЕ показывает — иначе оно мигало бы на всём парке раз в 15 минут.
+	if repair {
+		statusShow("Проверяю установку Матрицы")
+	}
+	defer statusClose()
 	logf("watchdog pass start (repair=%v)", repair)
 	hs, err := readHandshake()
 	if err != nil {
 		// No handshake means the app has never run on this account, so there is
 		// nothing this user's watchdog can or should recover.
 		logf("no usable handshake (%v) — nothing to do", err)
+		statusFinal("Матрица РМЗ ещё не запускалась — восстанавливать нечего")
 		return
 	}
 
@@ -171,6 +179,7 @@ func main() {
 	// silent installers over the same install dir.
 	if !acquirePassLock() {
 		logf("another watchdog pass is in flight (fresh watchdog-pass.lock) — exiting")
+		statusFinal("Восстановление уже идёт. Подождите несколько минут")
 		return
 	}
 	defer releasePassLock()
@@ -195,14 +204,17 @@ func main() {
 		// headless --restore-shortcuts child does not disturb a live instance.
 		if !shortcuts && (!running || repair) {
 			logf("app exe present but shortcuts missing — restoring shortcuts directly (running=%v)", running)
+			statusShow("Восстанавливаю ярлыки")
 			if restoreShortcuts(hs) {
 				logf("shortcuts restored directly (no reinstall needed)")
 				report(hs, "recovered", "shortcuts restored directly (desktop + start menu)", 0)
+				statusFinal("Готово. Ярлыки восстановлены")
 				return
 			}
 			logf("direct restore failed — falling back to reinstall")
 		} else {
 			logf("app present and no pending command — healthy, exiting (running=%v shortcuts=%v repair=%v)", running, shortcuts, repair)
+			statusFinal("Матрица РМЗ в порядке. Восстановление не требуется")
 			return
 		}
 	}
@@ -231,6 +243,9 @@ func main() {
 		}
 	}
 	logf("recovery needed: %s (clientId=%s)", reason, hs.ClientID)
+	// Начинается реальная работа — с этой секунды пользователь видит окно. Выше по
+	// лестнице проход либо ничего не делает, либо уже показал окно сам (--repair).
+	statusShow("Проверяю установку Матрицы")
 	if !present {
 		// Standalone «the app is gone» signal, distinct from the recovery
 		// outcome: the owner sees the incident even when recovery succeeds
@@ -248,6 +263,7 @@ func main() {
 	// to the next pass rather than launching a second installer over it.
 	if updaterInProgress(hs) {
 		logf("update.lock is fresh — normal updater in progress, deferring to next pass")
+		statusFinal("Обновление уже идёт. Подождите несколько минут")
 		return
 	}
 
@@ -258,24 +274,30 @@ func main() {
 		if forced {
 			ackCommand(hs, reqID, "error", fmt.Sprintf("no valid installer: %v", err))
 		}
+		statusFinal("Не удалось восстановить. Сообщено администратору")
 		return
 	}
 	logf("using installer %s (source=%s)", installer, src)
 
+	statusSet("Переустанавливаю Матрицу. До 15 минут, не выключайте компьютер")
 	exitCode, runErr := runSilentInstaller(installer)
 	time.Sleep(3 * time.Second)
 
 	if appPresent(hs) {
 		logf("recovery succeeded (installer exit=%d)", exitCode)
 		// The installer skips shortcuts it considers user-deleted — top them up.
-		if !shortcutsPresent(hs) && restoreShortcuts(hs) {
-			logf("shortcuts topped up after reinstall")
+		if !shortcutsPresent(hs) {
+			statusSet("Восстанавливаю ярлыки")
+			if restoreShortcuts(hs) {
+				logf("shortcuts topped up after reinstall")
+			}
 		}
 		writeState(state{}) // success resets the failure counter
 		report(hs, "recovered", fmt.Sprintf("installer=%s source=%s exit=%d reason=%s", filepath.Base(installer), src, exitCode, reason), exitCode)
 		if forced {
 			ackCommand(hs, reqID, "ok", "")
 		}
+		statusFinal("Готово. Матрица восстановлена")
 		return
 	}
 
@@ -288,6 +310,7 @@ func main() {
 	if forced {
 		ackCommand(hs, reqID, "error", "app still missing after install")
 	}
+	statusFinal("Не удалось восстановить. Сообщено администратору")
 }
 
 // --- pass state (attempt counter + backoff) --------------------------------
@@ -387,8 +410,8 @@ func processRunning() bool {
 	}
 	defer syscall.CloseHandle(snap)
 	var entry syscall.ProcessEntry32
-	// Единственное место с unsafe во всём стороже: Windows требует, чтобы структура
-	// сама несла свой размер. Это compile-time Sizeof, без арифметики над указателями
+	// Windows требует, чтобы структура сама несла свой размер. Это compile-time
+	// Sizeof, без арифметики над указателями
 	// и без преобразований uintptr↔Pointer — ровно так это делает и golang.org/x/sys.
 	// nosemgrep: use-of-unsafe-block
 	entry.Size = uint32(unsafe.Sizeof(entry))
@@ -674,6 +697,38 @@ func installerFromUpdatesDir(hs *handshake, latestVersion string) (string, bool)
 	return "", false
 }
 
+// progressWriter докладывает окну статуса, сколько установщика уже скачано. Без
+// него пользователь полторы минуты смотрит на неподвижную строку и решает, что всё
+// встало. Шаг в один процент — чтобы не слать окну сообщение на каждый килобайт.
+type progressWriter struct {
+	total   int64
+	written int64
+	lastPct int
+	lastMiB int64
+}
+
+func (w *progressWriter) Write(p []byte) (int, error) {
+	n := len(p)
+	w.written += int64(n)
+	if w.total > 0 {
+		pct := int(w.written * 100 / w.total)
+		if pct > 100 {
+			pct = 100
+		}
+		if pct != w.lastPct {
+			w.lastPct = pct
+			statusSet(fmt.Sprintf("Скачиваю установщик Матрицы… %d%%", pct))
+		}
+		return n, nil
+	}
+	// Сервер не сообщил размер — показываем хотя бы мегабайты, иначе строка мертва.
+	if mib := w.written >> 20; mib >= w.lastMiB+4 {
+		w.lastMiB = mib
+		statusSet(fmt.Sprintf("Скачиваю установщик Матрицы… %d МБ", mib))
+	}
+	return n, nil
+}
+
 func downloadInstaller(hs *handshake) (string, error) {
 	meta, err := fetchLatestMeta(hs.APIBaseURL, hs.Version)
 	if err != nil {
@@ -683,6 +738,7 @@ func downloadInstaller(hs *handshake) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	statusSet("Скачиваю установщик Матрицы")
 	cl := &http.Client{Timeout: downloadTimeout}
 	resp, err := cl.Do(req)
 	if err != nil {
@@ -714,7 +770,7 @@ func downloadInstaller(hs *handshake) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := io.Copy(out, resp.Body); err != nil {
+	if _, err := io.Copy(io.MultiWriter(out, &progressWriter{total: meta.Size}), resp.Body); err != nil {
 		out.Close()
 		_ = os.Remove(tmp)
 		return "", fmt.Errorf("write installer: %w", err)
