@@ -290,6 +290,52 @@ describe('ступень «Этап на заводе» со справочни�
   });
 });
 
+// Срок ремонта (владелец 22.09.2026): «чтобы показывал горящие контракты… и добавить в фильтры
+// нужных отчётов, чтобы по горящим двигателям можно было отфильтровать». Строка несёт крайний
+// день и остаток дней готовыми (их считает listEngines от даты поступления и срока контракта) —
+// ступень только раскладывает их по порогам подсветки.
+const DEADLINE_ARRIVAL = Date.parse('2026-06-01T10:00:00');
+// Срок контракта = (крайний день − поступление): 90 дней у C1 и 30 у C2. Пороги масштабируются,
+// поэтому «горит» у короткого контракта начинается раньше по остатку, чем у длинного.
+const due = (days: number) => DEADLINE_ARRIVAL + days * 86_400_000;
+
+const deadlineRows = [
+  // 90 дней: осталось 25 из 90 — прошло больше половины, но до красной зоны (20) ещё не дошло.
+  { id: 'w1', arrivalDate: DEADLINE_ARRIVAL, repairDueDate: due(90), daysLeftForRepair: 25 },
+  // 90 дней: осталось 20 — ровно порог «горит», и просрочка туда же.
+  { id: 'w2', arrivalDate: DEADLINE_ARRIVAL, repairDueDate: due(90), daysLeftForRepair: 20 },
+  { id: 'w3', arrivalDate: DEADLINE_ARRIVAL, repairDueDate: due(90), daysLeftForRepair: -5 },
+  // 90 дней: осталось 70 — в сроке.
+  { id: 'w4', arrivalDate: DEADLINE_ARRIVAL, repairDueDate: due(90), daysLeftForRepair: 70 },
+  // 30 дней: остаток тот же 20, но у короткого контракта это ещё «в сроке» (красная зона — 7).
+  { id: 'w5', arrivalDate: DEADLINE_ARRIVAL, repairDueDate: due(30), daysLeftForRepair: 20 },
+  // Двигатель не приехал: срок не от чего считать.
+  { id: 'w6' },
+  // Ремонт закончен — отсчёт погашен, даже если день уже вышел.
+  { id: 'w7', arrivalDate: DEADLINE_ARRIVAL, repairDueDate: due(90), statusFlags: { status_repaired: true } },
+] as unknown as EngineListItem[];
+
+describe('ступень «Срок ремонта»', () => {
+  it('раскладывает горящие, близкие к сроку и спокойные двигатели', () => {
+    expect(engineFacetById('repairDeadline')?.label).toBe('Срок ремонта');
+    expect(ids(applyEngineFacets(deadlineRows, { repairDeadline: ['danger'] }))).toEqual(['w2', 'w3']);
+    expect(ids(applyEngineFacets(deadlineRows, { repairDeadline: ['warning'] }))).toEqual(['w1']);
+    expect(ids(applyEngineFacets(deadlineRows, { repairDeadline: ['ok'] }))).toEqual(['w4', 'w5']);
+  });
+
+  it('двигатель без даты поступления и законченный ремонт стоят отдельно', () => {
+    expect(ids(applyEngineFacets(deadlineRows, { repairDeadline: ['no_arrival'] }))).toEqual(['w6']);
+    expect(ids(applyEngineFacets(deadlineRows, { repairDeadline: ['done'] }))).toEqual(['w7']);
+  });
+
+  it('ряд значений полный и идёт от срочного к спокойному', () => {
+    const options = engineFacetOptions(deadlineRows, {}, 'repairDeadline');
+    expect(options.map((o) => o.value)).toEqual(['danger', 'warning', 'ok', 'no_arrival', 'done']);
+    expect(options.map((o) => o.label)).toEqual(['горит', 'скоро', 'в сроке', 'без даты поступления', 'ремонт закончен']);
+    expect(options.map((o) => o.count)).toEqual([2, 1, 2, 1, 1]);
+  });
+});
+
 // Повторный заезд (владелец 22.09.2026): «чтобы потом в отчётах мы могли разобрать, где старый
 // заезд, где новый». Роль заезда строка несёт готовой — ступень её только раскладывает.
 const arrivalRows = [

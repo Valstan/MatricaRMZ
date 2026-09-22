@@ -6,6 +6,7 @@ import {
   burningEnginesCount,
   collectContractPaymentsEngineIds,
   countdownStatus,
+  countdownThresholds,
   distributeAmountToSlots,
   emptyContractPayments,
   findSlotForEngine,
@@ -15,6 +16,7 @@ import {
   paymentRowLabel,
   planSlotForEngine,
   removePayment,
+  REPAIR_COUNTDOWN_DAYS,
   slotTotals,
   syncSlotsWithPlan,
   updatePayment,
@@ -27,6 +29,12 @@ const nextId = () => `id-${++seq}`;
 
 function slot(partial: Partial<PaymentSlot> = {}): PaymentSlot {
   return { id: 's1', sectionKey: 'primary', payments: [], ...partial };
+}
+
+// Даты отсчёта считаем от даты поступления, а не выписываем руками: иначе проверка
+// порога превращается в сверку двух подогнанных чисел и перестаёт ловить сдвиг границы.
+function isoPlusDays(fromIso: string, days: number): string {
+  return new Date(Date.parse(`${fromIso}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 }
 
 describe('parseContractPayments', () => {
@@ -107,19 +115,94 @@ describe('slotTotals', () => {
   });
 });
 
+// Точка отсчёта с 22.09.2026 — ДАТА ПОСТУПЛЕНИЯ двигателя на завод, а не стартовый аванс:
+// обязательство завода начинается с приезда двигателя, а не с прихода денег. Прежние тесты
+// этого describe считали от аванса и переписаны целиком, а не подправлены по числам.
 describe('countdownStatus', () => {
-  const started = slot({ payments: [{ id: 'p1', date: '2026-01-01', amountKop: 1, kind: 'advance' }] });
+  // Слот с авансом — именно он раньше запускал отсчёт; теперь сам по себе не запускает.
+  const paid = slot({ payments: [{ id: 'p1', date: '2026-01-01', amountKop: 1, kind: 'advance' }] });
 
-  it('none without a start date or when repaired', () => {
-    expect(countdownStatus(slot(), '2026-07-01', false).state).toBe('none');
-    expect(countdownStatus(started, '2026-07-01', true).state).toBe('none');
+  it('без даты поступления отсчёта нет — даже когда аванс получен', () => {
+    expect(countdownStatus(paid, '2026-07-01', false).state).toBe('none');
+    expect(countdownStatus(paid, '2026-07-01', false, {}).state).toBe('none');
+    expect(countdownStatus(paid, '2026-07-01', false, { arrivalIso: null }).state).toBe('none');
+    expect(countdownStatus(paid, '2026-07-01', false, { arrivalIso: '   ' }).state).toBe('none');
+    // срок задан, а поступления нет — считать всё равно не от чего
+    expect(countdownStatus(paid, '2026-07-01', false, { days: 60 }).state).toBe('none');
   });
 
-  it('ok / warning / danger thresholds', () => {
-    expect(countdownStatus(started, '2026-01-31', false)).toEqual({ state: 'ok', daysElapsed: 30, daysLeft: 60 });
-    expect(countdownStatus(started, '2026-02-16', false).state).toBe('warning'); // 46 дней
-    expect(countdownStatus(started, '2026-03-12', false).state).toBe('danger'); // осталось 20
-    expect(countdownStatus(started, '2026-06-01', false).state).toBe('danger'); // просрочка
+  it('ремонт гасит отсчёт', () => {
+    const arrived = { arrivalIso: '2026-01-01' };
+    expect(countdownStatus(paid, '2026-06-01', false, arrived).state).toBe('danger');
+    expect(countdownStatus(paid, '2026-06-01', true, arrived).state).toBe('none');
+  });
+
+  it('дата поступления в будущем — отсчёта ещё нет', () => {
+    expect(countdownStatus(paid, '2026-01-01', false, { arrivalIso: '2026-02-01' }).state).toBe('none');
+    expect(countdownStatus(paid, '2026-01-01', false, { arrivalIso: '2026-01-02' }).state).toBe('none');
+  });
+
+  it('без days берётся умолчание 90 дней', () => {
+    expect(REPAIR_COUNTDOWN_DAYS).toBe(90);
+    // день в день: двигатель приехал, отсчёт пошёл с нуля
+    expect(countdownStatus(paid, '2026-01-01', false, { arrivalIso: '2026-01-01' })).toEqual({
+      state: 'ok',
+      daysElapsed: 0,
+      daysLeft: 90,
+    });
+    expect(countdownStatus(paid, isoPlusDays('2026-01-01', 30), false, { arrivalIso: '2026-01-01' })).toEqual({
+      state: 'ok',
+      daysElapsed: 30,
+      daysLeft: 60,
+    });
+  });
+
+  it('срок из контракта: состояние меняется ровно на границах countdownThresholds', () => {
+    const days = 60;
+    const arrivalIso = '2026-03-01';
+    const { warningElapsed, dangerLeft } = countdownThresholds(days);
+    const at = (elapsed: number) =>
+      countdownStatus(paid, isoPlusDays(arrivalIso, elapsed), false, { arrivalIso, days });
+
+    expect(at(warningElapsed).state).toBe('ok');
+    expect(at(warningElapsed + 1).state).toBe('warning');
+    expect(at(days - dangerLeft - 1).state).toBe('warning');
+    expect(at(days - dangerLeft).state).toBe('danger');
+    expect(at(days + 5)).toEqual({ state: 'danger', daysElapsed: days + 5, daysLeft: -5 });
+  });
+
+  it('40 дней из 60 — ещё «warning»: остаток 20 больше красного порога', () => {
+    const arrivalIso = '2026-03-01';
+    const status = countdownStatus(paid, isoPlusDays(arrivalIso, 40), false, { arrivalIso, days: 60 });
+    expect(status).toEqual({ state: 'warning', daysElapsed: 40, daysLeft: 20 });
+    expect(status.daysLeft!).toBeGreaterThan(countdownThresholds(60).dangerLeft);
+  });
+});
+
+describe('countdownThresholds', () => {
+  it('при 90 днях даёт ровно прежние 45/20 — защита от тихой смены подсветки', () => {
+    expect(countdownThresholds(90)).toEqual({ warningElapsed: 45, dangerLeft: 20 });
+    expect(countdownThresholds(REPAIR_COUNTDOWN_DAYS)).toEqual({ warningElapsed: 45, dangerLeft: 20 });
+  });
+
+  it('короткий срок — пропорционально меньшие пороги, красная зона не съедает срок', () => {
+    expect(countdownThresholds(30)).toEqual({ warningElapsed: 15, dangerLeft: 7 });
+    expect(countdownThresholds(30).warningElapsed).toBeLessThan(countdownThresholds(90).warningElapsed);
+    expect(countdownThresholds(30).dangerLeft).toBeLessThan(countdownThresholds(90).dangerLeft);
+    expect(countdownThresholds(30).dangerLeft).toBeLessThan(30 / 2);
+  });
+
+  it('dangerLeft не опускается ниже одного дня', () => {
+    expect(countdownThresholds(1).dangerLeft).toBe(1);
+    expect(countdownThresholds(2).dangerLeft).toBe(1);
+  });
+
+  it('мусорный срок падает на умолчание', () => {
+    const fallback = countdownThresholds(REPAIR_COUNTDOWN_DAYS);
+    expect(countdownThresholds(0)).toEqual(fallback);
+    expect(countdownThresholds(-5)).toEqual(fallback);
+    expect(countdownThresholds(Number.NaN)).toEqual(fallback);
+    expect(countdownThresholds(Number.POSITIVE_INFINITY)).toEqual(fallback);
   });
 });
 
@@ -448,17 +531,39 @@ describe('payment row mutations', () => {
   });
 });
 
+// Тоже переписано под новую точку отсчёта: раньше здесь горели слоты по одному лишь
+// авансу (в том числе слот без двигателя), теперь горит только то, что реально приехало.
 describe('burningEnginesCount', () => {
-  it('counts danger slots, repaired engines excluded', () => {
-    const cp: ContractPayments = {
-      version: 1,
-      slots: [
-        slot({ id: 'a', engineId: 'eng-1', payments: [{ id: 'p', date: '2026-01-01', amountKop: 1, kind: 'advance' }] }),
-        slot({ id: 'b', engineId: 'eng-2', payments: [{ id: 'p', date: '2026-01-01', amountKop: 1, kind: 'advance' }] }),
-        slot({ id: 'c', payments: [{ id: 'p', date: '2026-01-01', amountKop: 1, kind: 'advance' }] }),
-      ],
-    };
-    expect(burningEnginesCount(cp, '2026-06-01', new Set(['eng-2']))).toBe(2); // eng-1 + пустой слот
+  const advance = [{ id: 'p', date: '2026-01-01', amountKop: 1, kind: 'advance' as const }];
+  const cp: ContractPayments = {
+    version: 1,
+    slots: [
+      slot({ id: 'a', engineId: 'eng-1', payments: advance }),
+      slot({ id: 'b', engineId: 'eng-2', payments: advance }),
+      slot({ id: 'c', payments: advance }), // деньги без двигателя — гореть нечему
+    ],
+  };
+
+  it('без карты дат поступления не горит ничего: аванс отсчёта не начинает', () => {
+    expect(burningEnginesCount(cp, '2026-06-01', new Set())).toBe(0);
+    expect(burningEnginesCount(cp, '2026-06-01', new Set(), { arrivalIsoByEngineId: new Map() })).toBe(0);
+  });
+
+  it('считает только слоты с датой поступления в карте, отремонтированные не горят', () => {
+    const arrivalIsoByEngineId = new Map([
+      ['eng-1', '2026-01-01'],
+      ['eng-2', '2026-01-01'],
+    ]);
+    expect(burningEnginesCount(cp, '2026-06-01', new Set(), { arrivalIsoByEngineId })).toBe(2);
+    expect(burningEnginesCount(cp, '2026-06-01', new Set(['eng-2']), { arrivalIsoByEngineId })).toBe(1);
+    // слот 'c' без двигателя даты поступления иметь не может — до трёх счёт не доходит никогда
+    expect(burningEnginesCount(cp, '2026-06-01', new Set(), { arrivalIsoByEngineId })).toBeLessThan(cp.slots.length);
+  });
+
+  it('срок контракта доезжает до счёта: при 30 днях горит то, что при 90 ещё «ok»', () => {
+    const arrivalIsoByEngineId = new Map([['eng-1', '2026-05-07']]); // 25 дней до 2026-06-01
+    expect(burningEnginesCount(cp, '2026-06-01', new Set(), { arrivalIsoByEngineId })).toBe(0);
+    expect(burningEnginesCount(cp, '2026-06-01', new Set(), { arrivalIsoByEngineId, days: 30 })).toBe(1);
   });
 });
 

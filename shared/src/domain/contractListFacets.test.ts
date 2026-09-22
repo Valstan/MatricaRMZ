@@ -101,6 +101,14 @@ describe('ступени списка контрактов', () => {
     expect(ids(applyContractFacets(rows, { enginesAtFactory: ['yes'] }))).toEqual(['c1']);
   });
 
+  it('горящие: в «нет» падает и ноль, и контракт без счётчика', () => {
+    // Счётчик считает страница по сроку ремонта из контракта с даты поступления двигателя
+    // на завод. Двигатель без даты поступления не горит — и такой контракт обязан остаться
+    // видимым в «нет», а не выпасть из отбора вовсе.
+    expect(ids(applyContractFacets(rows, { burning: ['no'] }))).toEqual(['c2', 'c3']);
+    expect(contractFacetOptions(rows, {}, 'burning').map((o) => o.value).sort()).toEqual(['no', 'yes']);
+  });
+
   it('диапазон даты заключения работает как у двигателей', () => {
     expect(ids(applyContractFacets(rows, { signedAt: { from: '2026-09-05', to: '2026-09-05' } }))).toEqual(['c1']);
     // Контракт без даты в отбор по диапазону не попадает.

@@ -20,7 +20,7 @@
 | 2 ✅ | `fix/short-contract-number-no-slash` | короткий номер только при слэше | XS |
 | 3 ✅ | `fix/parts-duplicate-hard-block` | запрет дублей деталей, наглядный переход к существующей | S |
 | 4 ✅ | `fix/repeat-arrival-labels` | пометки заездов в пикерах и логика карточки | M |
-| 5 | `feat/contract-repair-days` | «дней на ремонт» в контракте, горящие от поступления, фильтры | M |
+| 5 ✅ | `feat/contract-repair-days` | «дней на ремонт» в контракте, горящие от поступления, фильтры | M |
 | 6 | `feat/defect-blank-two-columns` | бланк дефектовки: флаг «свой номер», два столбца на листе | M |
 | 7 | `feat/engine-tags-print` | бирки на двигатель 6/4/2 на А4 | M |
 | 8 | `perf/renderer-scanners-and-sync-refresh` | замер + дешёвые ускорения | M |
@@ -78,7 +78,7 @@
 
 **Проверка.** Тесты `repeatArrival.test.ts` на `arrivalRole` (3 заезда, коллизия исключена); стенд с двумя карточками одного номера: пикер в контракте показывает пометки, карточки описывают себя правильно.
 
-## 5. «Дней на ремонт» в контракте, горящие от поступления на завод
+## 5. ✅ «Дней на ремонт» в контракте, горящие от поступления на завод
 
 **Что есть.** `shared/src/domain/payments.ts:11-16` — `REPAIR_COUNTDOWN_DAYS = 90` зашито; `countdownStatus:198` считает от даты стартового аванса (`countdownStartDate` из `slotTotals`), гасится ремонтом (`isEngineRepairedForCountdown:514`); `burningEnginesCount:526` → колонка «Горящие двигатели» в `ContractsPage.tsx:688-718`; фасет `burning` уже есть в `contractListFacets.ts:136`. Контракт — EAV с заморозкой (AGENTS.md §EAV): новые поля кладутся в `contract_sections` JSON (`ContractPrimarySection`, `shared/src/domain/contract.ts`), в зеркало `erp_contracts.sections_json` они едут бесплатно, **миграция не нужна**.
 

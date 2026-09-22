@@ -26,6 +26,7 @@ import {
   burningEnginesCount,
   contractFacetIsActive,
   effectiveContractDueAt,
+  effectiveRepairDays,
   isEngineRepairedForCountdown,
   parseContractPayments,
   sanitizeContractFacetSelection,
@@ -85,7 +86,7 @@ type Row = {
   enginesAtFactory: number;
   partsPlanned: number;
   partsCompleted: number;
-  /** «Горящие» двигатели: отсчёт 90 дней ремонта в красной зоне (план engine-payments-2026-07). */
+  /** «Горящие» двигатели: срок ремонта по контракту в красной зоне (отсчёт с поступления на завод). */
   burningEngines: number;
   attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
 };
@@ -151,6 +152,16 @@ function getContractAmount(sections: ContractSections): number {
     total += sumMoneyItems(addon.parts);
   }
   return total;
+}
+
+/**
+ * Дата → ключ суток «yyyy-mm-dd» для отсчёта срока ремонта (тот же формат, что ждёт
+ * `countdownStatus`). Геттеры локальные, а не UTC-срез: `arrival_date` карточка пишет
+ * как локальную полночь, и `toISOString()` сдвинул бы дату поступления на сутки назад.
+ */
+function isoDayKey(value: number | Date): string {
+  const d = value instanceof Date ? value : new Date(value);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function normalizeContractNumber(value: unknown): string {
@@ -327,18 +338,23 @@ export function ContractsPage(props: {
       const engines = await window.matrica.engines.list();
       const linkedItemsByContractId = new Map<string, Array<Pick<ProgressLinkedItem, 'statusFlags'>>>();
       const repairedEngineIds = new Set<string>();
+      // Точка отсчёта срока ремонта — дата поступления двигателя на завод, а она лежит
+      // в карточке двигателя, не в слоте платежей. Карту строим один раз на весь список:
+      // двигателей на заводе тысячи, а контрактов сотни — пересобирать её на каждый
+      // контракт значило бы пройти список двигателей сотню раз.
+      const arrivalIsoByEngineId = new Map<string, string>();
       for (const item of Array.isArray(engines) ? engines : []) {
-        if (isEngineRepairedForCountdown(item.statusFlags)) repairedEngineIds.add(String(item.id));
+        const engineId = String(item.id);
+        if (isEngineRepairedForCountdown(item.statusFlags)) repairedEngineIds.add(engineId);
+        const arrivalMs = typeof item.arrivalDate === 'number' && Number.isFinite(item.arrivalDate) ? item.arrivalDate : null;
+        if (arrivalMs != null && arrivalMs > 0) arrivalIsoByEngineId.set(engineId, isoDayKey(arrivalMs));
         const contractId = String(item.contractId ?? '');
         if (!contractId) continue;
         const bucket = linkedItemsByContractId.get(contractId) ?? [];
         bucket.push({ statusFlags: item.statusFlags ?? null });
         linkedItemsByContractId.set(contractId, bucket);
       }
-      const todayIso = (() => {
-        const d = new Date();
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      })();
+      const todayIso = isoDayKey(Date.now());
 
       const contractIdsByNumber = new Map<string, Set<string>>();
       for (const row of listRaw as any[]) {
@@ -435,6 +451,8 @@ export function ContractsPage(props: {
                 parseContractPayments(attrs[CONTRACT_PAYMENTS_ATTR_CODE]),
                 todayIso,
                 repairedEngineIds,
+                // Срок берём из этого контракта: у каждого он свой (владелец 22.09.2026).
+                { arrivalIsoByEngineId, days: effectiveRepairDays(sections) },
               ),
               ...(attachmentPreviews.length > 0 ? { attachmentPreviews } : {}),
             };
@@ -699,7 +717,7 @@ export function ContractsPage(props: {
         render: (row) =>
           row.burningEngines > 0 ? (
             <span
-              title={`Двигателей с отсчётом ремонта в красной зоне: ${row.burningEngines}. Откройте контракт — красные строки.`}
+              title={`Двигателей в красной зоне срока ремонта: ${row.burningEngines}. Срок берётся из контракта, отсчёт — с даты поступления двигателя на завод. Откройте контракт — красные строки.`}
               style={{
                 display: 'inline-block',
                 minWidth: 22,
