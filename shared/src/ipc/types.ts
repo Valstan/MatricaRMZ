@@ -69,6 +69,15 @@ export type EngineListItem = {
   contractName?: string;
   contractSectionNumber?: string;
   arrivalDate?: number | null;
+  /**
+   * Крайний день ремонта (мс): дата поступления на завод плюс срок ремонта ЕГО контракта
+   * (`effectiveRepairDays`), у двигателя без договора — общий срок по умолчанию. Считает
+   * `listEngines`: срок лежит в секциях контракта, из строки списка его не видно, и каждый
+   * потребитель добирал бы его сам. Пусто — нет даты поступления, считать не от чего.
+   */
+  repairDueDate?: number;
+  /** Сколько дней до крайнего дня осталось (минус — просрочка). Пусто, если отсчёта нет: нет даты поступления или ремонт уже закончен. */
+  daysLeftForRepair?: number;
   shippingDate?: number | null;
   isScrap?: boolean;
   /** Причина утиля из карточки (attr `scrap_reason`) — колонка отчёта «Двигатели». */

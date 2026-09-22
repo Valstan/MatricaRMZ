@@ -18,6 +18,11 @@ import {
   isEngineReservationLive,
   parseEngineReservation,
   STATUS_CODES,
+  DEFAULT_CONTRACT_REPAIR_DAYS,
+  PRIMARY_CONTRACT_SECTION_KEY,
+  countdownStatus,
+  effectiveRepairDays,
+  isEngineRepairedForCountdown,
   isEavFlagSet,
   applyStatusFlagChange,
   arrivalPlacements,
@@ -51,6 +56,25 @@ import type {
 function nowMs() {
   return Date.now();
 }
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Дата → ключ суток «yyyy-mm-dd», как ждёт `countdownStatus`. Геттеры локальные, а не
+ * UTC-срез: `arrival_date` карточка пишет локальной полночью, и `toISOString()` сдвинул бы
+ * дату поступления на сутки назад.
+ */
+function isoDayKey(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Заглушка обязательного слота `countdownStatus`: срок ремонта считается от даты поступления
+ * двигателя и срока контракта, платежи слота в нём больше не участвуют (владелец 22.09.2026).
+ * Правило отсчёта одно на проект — список его зовёт, а не повторяет арифметикой.
+ */
+const COUNTDOWN_SLOT_STUB = { id: '', sectionKey: PRIMARY_CONTRACT_SECTION_KEY, payments: [] };
 
 async function getEngineTypeId(db: BetterSQLite3Database): Promise<string> {
   const rows = await db.select().from(entityTypes).where(eq(entityTypes.code, EntityTypeCode.Engine)).limit(1);
@@ -230,6 +254,38 @@ async function getContractCustomerMap(db: BetterSQLite3Database): Promise<Map<st
     if (customerId) out.set(contractId, customerId);
   }
 
+  return out;
+}
+
+/**
+ * Договор → срок ремонта в днях (`effectiveRepairDays`): по нему список считает крайний день
+ * ремонта каждого двигателя. ОДНИМ запросом на все договоры, а не по договору на двигатель:
+ * список строится в том числе на каждую букву в поиске (см. кэш актов выше). Список сущностей
+ * не читаем — строки значений `contract_sections` и так есть только у договоров.
+ */
+async function getContractRepairDaysMap(db: BetterSQLite3Database): Promise<Map<string, number>> {
+  const typeId = await getEntityTypeIdByCode(db, EntityTypeCode.Contract);
+  if (!typeId) return new Map();
+
+  const contractDefs = await db
+    .select({ id: attributeDefs.id, code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, typeId), isNull(attributeDefs.deletedAt)))
+    .limit(5000);
+  const sectionsDefId = contractDefs.find((row) => String(row.code) === 'contract_sections')?.id ?? null;
+  if (!sectionsDefId) return new Map();
+
+  const valueRows = await db
+    .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(and(eq(attributeValues.attributeDefId, sectionsDefId), isNull(attributeValues.deletedAt)))
+    .limit(200_000);
+
+  const out = new Map<string, number>();
+  for (const row of valueRows) {
+    const raw = row.valueJson == null ? null : safeJsonParse(String(row.valueJson));
+    out.set(String(row.entityId), effectiveRepairDays(parseContractSections({ contract_sections: raw })));
+  }
   return out;
 }
 
@@ -648,6 +704,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   const contractNameById = await getDisplayNameMap(db, EntityTypeCode.Contract);
   const contractSignedAtById = await getContractSignedAtMap(db);
   const contractCustomerById = await getContractCustomerMap(db);
+  const contractRepairDaysById = await getContractRepairDaysMap(db);
   const engineIds = engines.map((e) => e.id);
   const inventoryFlagsByEngineId = await getEngineInventoryFlagsMap(db, engineIds);
   const historyByEngineId = await getEngineRepairHistoryMap(db, engineIds);
@@ -722,6 +779,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
 
   const result: EngineListItem[] = [];
   const listNow = nowMs();
+  const listTodayIso = isoDayKey(listNow);
   for (const e of engines) {
     const rowValues = valuesByEntity.get(e.id) ?? new Map<string, string | null>();
     let engineNumber: string | undefined;
@@ -872,6 +930,20 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     const customerName = resolvedCustomerId ? customerNameById.get(resolvedCustomerId) : undefined;
     const contractName = contractId ? contractNameById.get(contractId) : undefined;
     const contractSignedAt = contractId ? contractSignedAtById.get(contractId) : undefined;
+    // Срок ремонта — из контракта двигателя; у двигателя без договора остаётся общий срок по
+    // умолчанию (договора нет, а обязательство по срокам у завода всё равно есть).
+    const repairDays = (contractId ? contractRepairDaysById.get(contractId) : undefined) ?? DEFAULT_CONTRACT_REPAIR_DAYS;
+    const arrivalMs = typeof arrivalDate === 'number' && Number.isFinite(arrivalDate) && arrivalDate > 0 ? arrivalDate : null;
+    const repairDueDate = arrivalMs != null ? arrivalMs + repairDays * DAY_MS : null;
+    // Остаток дней считает `countdownStatus`: он же гасит отсчёт по факту ремонта и он же
+    // красит карточку — двух правил «сколько осталось» в проекте быть не должно.
+    const repairCountdown =
+      arrivalMs != null
+        ? countdownStatus(COUNTDOWN_SLOT_STUB, listTodayIso, isEngineRepairedForCountdown(statusFlags), {
+            arrivalIso: isoDayKey(arrivalMs),
+            days: repairDays,
+          })
+        : null;
     // Ф2: бейдж «занят» в списке — стартовом экране планшетного режима. Без него
     // оператор узнаёт о замке, только открыв карточку и дойдя до неё по цеху.
     const reservation = reservationDefId ? parseEngineReservation(rowValues.get(reservationDefId)) : null;
@@ -890,6 +962,8 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       ...(contractName ? { contractName } : {}),
       ...(contractSectionNumber ? { contractSectionNumber } : {}),
       arrivalDate: arrivalDate ?? null,
+      ...(repairDueDate != null ? { repairDueDate } : {}),
+      ...(repairCountdown?.daysLeft != null ? { daysLeftForRepair: repairCountdown.daysLeft } : {}),
       shippingDate: shippingDate ?? null,
       // Утиль = живой флаг «Забракован» (status_rejected) ИЛИ картер в утиле (из engine_inventory).
       // Прямой legacy-атрибут is_scrap (замороженный февральский импорт, карточкой не правится)

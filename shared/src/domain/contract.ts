@@ -46,6 +46,17 @@ export type ContractPrimarySection = {
   customerId: string | null;
   /** `null` — вид не проставлен: у старых контрактов его нет, и угадывать нечего. */
   kind: ContractKind | null;
+  /**
+   * Сколько дней даётся на ремонт двигателя с момента приезда на завод (владелец
+   * 22.09.2026). Раньше срок был зашит в код одним числом на весь завод, а он у
+   * каждого контракта свой. Пусто — значит срок не оговорён, берётся общий по умолчанию.
+   *
+   * Живёт ВНУТРИ contract_sections, а не отдельным атрибутом: EAV заморожен
+   * (AGENTS.md §EAV), а секции едут в зеркало `erp_contracts.sections_json` сами —
+   * миграции не нужно. Дополнения наследуют срок основной секции: разный срок на ДС
+   * владелец не просил, а лишнее поле в каждом ДС пришлось бы заполнять вручную.
+   */
+  repairDays?: number;
   engineBrands: ContractEngineBrandRow[];
   parts: ContractPartRow[];
 };
@@ -437,6 +448,28 @@ export function aggregateContractExecutionProgress(args: {
   };
 }
 
+/**
+ * Срок ремонта по умолчанию, дней, когда контракт его не оговаривает. Прежняя
+ * зашитая в код константа: менять её здесь — менять умолчание для всего завода.
+ */
+export const DEFAULT_CONTRACT_REPAIR_DAYS = 90;
+
+/** Срок из секции: целое от 1 до 3650. Мусор и ноль трактуем как «не оговорён». */
+function parseRepairDays(raw: unknown): number | null {
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(n)) return null;
+  const days = Math.trunc(n);
+  return days >= 1 && days <= 3650 ? days : null;
+}
+
+/**
+ * Срок ремонта контракта в днях — столько даётся с даты поступления двигателя на завод.
+ * Дополнения наследуют срок основной секции.
+ */
+export function effectiveRepairDays(sections: ContractSections | null | undefined): number {
+  return parseRepairDays(sections?.primary?.repairDays) ?? DEFAULT_CONTRACT_REPAIR_DAYS;
+}
+
 const defaultPrimary: ContractPrimarySection = {
   number: '',
   signedAt: null,
@@ -464,6 +497,7 @@ export function parseContractSections(attrs: Record<string, unknown> | null | un
             internalNumber: String(primary.internalNumber ?? primary.number ?? ''),
             customerId: primary.customerId != null ? String(primary.customerId) : null,
             kind: parseContractKind(primary.kind),
+            ...(parseRepairDays(primary.repairDays) != null ? { repairDays: parseRepairDays(primary.repairDays)! } : {}),
             engineBrands: Array.isArray(primary.engineBrands) ? primary.engineBrands.filter((r) => r && typeof r.engineBrandId === 'string') : [],
             parts: Array.isArray(primary.parts) ? primary.parts.filter((p) => p && typeof p.partId === 'string') : [],
           }

@@ -1,6 +1,7 @@
 import type { EngineListItem } from '../ipc/types.js';
 import { STATUS_LABELS, type StatusCode } from './contract.js';
 import { engineFactoryStage, engineFactoryStageOrder, engineStatusDate, type EngineFactoryStageTypeRef } from './engineFactoryStage.js';
+import { countdownThresholds, isEngineRepairedForCountdown } from './payments.js';
 import {
   activeFacetCount,
   applyFacets,
@@ -34,6 +35,7 @@ export type EngineFacetId =
   | 'defectAct'
   | 'presence'
   | 'status'
+  | 'repairDeadline'
   | 'workshop'
   | 'scrap'
   | 'reclamation'
@@ -92,6 +94,46 @@ const ARRIVAL_LABELS: Record<ArrivalRole, string> = {
   archived: 'архивный',
   single: 'единственный',
 };
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Срок ремонта по контракту (владелец 22.09.2026: «чтобы по горящим двигателям можно было
+ * отфильтровать»). Значения идут от срочного к спокойному: горящие — то, ради чего ступень и
+ * открывают. «Без даты поступления» — тоже работа, а не тишина: отсчитывать такому двигателю
+ * срок не от чего, и он должен быть виден отдельно.
+ */
+type RepairDeadlineKey = 'danger' | 'warning' | 'ok' | 'no_arrival' | 'done';
+
+const REPAIR_DEADLINE_LABELS: Record<RepairDeadlineKey, string> = {
+  danger: 'горит',
+  warning: 'скоро',
+  ok: 'в сроке',
+  no_arrival: 'без даты поступления',
+  done: 'ремонт закончен',
+};
+
+const REPAIR_DEADLINE_ORDER: readonly RepairDeadlineKey[] = ['danger', 'warning', 'ok', 'no_arrival', 'done'];
+
+/**
+ * Пороги — те же, что красят отсчёт в карточке (`countdownThresholds`): числа руками здесь не
+ * пишем, иначе фильтр и подсветка разъедутся. Срок контракта берём из самой строки (крайний
+ * день минус поступление) — обе даты она уже несёт, третьего поля под срок ей не нужно.
+ */
+function repairDeadlineKey(e: EngineListItem): RepairDeadlineKey {
+  // Ремонт закончен (или двигатель уехал) — отсчёт погашен тем же правилом, что в карточке.
+  if (isEngineRepairedForCountdown(e.statusFlags)) return 'done';
+  const arrival = dateMs(e.arrivalDate);
+  const due = dateMs(e.repairDueDate);
+  if (arrival == null || due == null) return 'no_arrival';
+  const daysLeft = typeof e.daysLeftForRepair === 'number' && Number.isFinite(e.daysLeftForRepair) ? e.daysLeftForRepair : null;
+  // Даты есть, а отсчёта нет — поступление датировано будущим: гореть ещё нечему.
+  if (daysLeft == null) return 'ok';
+  const total = Math.round((due - arrival) / DAY_MS);
+  const { warningElapsed, dangerLeft } = countdownThresholds(total);
+  if (daysLeft <= dangerLeft) return 'danger';
+  return total - daysLeft > warningElapsed ? 'warning' : 'ok';
+}
 
 /**
  * Ступени списка двигателей. Справочник видов работ (`types`) даёт ступеням «Этап на заводе» и
@@ -209,6 +251,18 @@ export function engineFacets(types?: readonly EngineFactoryStageTypeRef[]): read
         }
         return { value: 'none', label: 'без стадии' };
       },
+    },
+    {
+      kind: 'values',
+      id: 'repairDeadline',
+      label: 'Срок ремонта',
+      valueOf: (e) => {
+        const key = repairDeadlineKey(e);
+        return { value: key, label: REPAIR_DEADLINE_LABELS[key] };
+      },
+      // Ряд полный: «горящих» может не быть ни одного, и ступень, собранная по строкам, в такой
+      // день исчезала бы из фильтра — оператор решил бы, что фильтра нет вовсе.
+      options: REPAIR_DEADLINE_ORDER.map((key) => ({ value: key, label: REPAIR_DEADLINE_LABELS[key] })),
     },
     {
       kind: 'values',

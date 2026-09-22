@@ -35,6 +35,8 @@ import {
   normalizeContractExecutionParts,
   contractSectionsToLegacy,
   effectiveContractDueAt,
+  effectiveRepairDays,
+  DEFAULT_CONTRACT_REPAIR_DAYS,
   nextAddonSeq,
   contractSectionAddonToken,
   canonicalContractSectionKey,
@@ -451,6 +453,11 @@ function SectionBlock(props: {
   onMoveEngineToSection?: (engineId: string, sectionToken: string) => void | Promise<void>;
   /** Опции секций для переноса — по КОММИТНЫМ секциям (id = стабильный токен привязки). */
   sectionMoveOptions?: SearchSelectOption[];
+  /**
+   * Срок ремонта по контракту, дней — им считается отсчёт в строках слотов. У ДС он тот же,
+   * что у основного договора (срок живёт в основной секции), поэтому приходит извне готовым.
+   */
+  repairDays: number;
   /** Для гарда резервирования: чужой advisory-резерв блокирует перенос. */
   currentUserId?: string;
   // Платежи (план engine-payments-2026-07, этап 2): слоты секции + распределение аванса.
@@ -495,6 +502,7 @@ function SectionBlock(props: {
     onAttachEngineToSection,
     onMoveEngineToSection,
     sectionMoveOptions = [],
+    repairDays,
   } = props;
 
   // C-#6: токен привязки этой секции — то, что хранит engine.contract_section_number.
@@ -510,6 +518,9 @@ function SectionBlock(props: {
   const engineOptionsForSection = engineOptions.filter((o) => !sectionEngineIds.has(o.id));
   const [addEngineOpen, setAddEngineOpen] = useState(false);
   const [distributeOpen, setDistributeOpen] = useState(false);
+  // Отвергнутый ввод срока ремонта: держим его в поле вместе с причиной. Молча вернуть
+  // прежнее число нельзя — оператор решит, что срок сохранён, а сохранён он не был.
+  const [repairDaysRejected, setRepairDaysRejected] = useState<string | null>(null);
   const sectionSlots = sectionToken
     ? (props.contractPayments?.slots ?? []).filter((s) => s.sectionKey === sectionToken)
     : [];
@@ -653,6 +664,30 @@ function SectionBlock(props: {
 
   const primarySection = isPrimary ? (section as ContractPrimarySection) : null;
 
+  /**
+   * Срок ремонта: пустое поле УДАЛЯЕТ ключ, а не пишет 0 — «не оговорён» и «ноль дней»
+   * разные вещи, и через `update` (слияние патча) ключ не убрать. Значение вне 1..3650
+   * не применяется вовсе: парсер его всё равно отбросит, и молча съеденное число
+   * оператор считал бы сохранённым — поэтому вместо записи показываем ошибку.
+   */
+  const changeRepairDays = (raw: string) => {
+    if (!primarySection) return;
+    const { repairDays: _drop, ...withoutDays } = primarySection;
+    const text = raw.trim();
+    if (!text) {
+      setRepairDaysRejected(null);
+      onChange(withoutDays);
+      return;
+    }
+    const days = Number(text);
+    if (!Number.isInteger(days) || days < 1 || days > 3650) {
+      setRepairDaysRejected(text);
+      return;
+    }
+    setRepairDaysRejected(null);
+    onChange({ ...withoutDays, repairDays: days });
+  };
+
   // C-#6: пустые под-разделы не показывают таблицу — только компактную «➕ Добавить…».
   const hasBrands = section.engineBrands.length > 0;
   const hasParts = section.parts.length > 0;
@@ -721,6 +756,24 @@ function SectionBlock(props: {
           </FormField>
           {isPrimary && primarySection && (
             <>
+              <FormField label="Срок ремонта, дней">
+                <Input
+                  type="number"
+                  min={1}
+                  max={3650}
+                  step={1}
+                  value={repairDaysRejected ?? primarySection.repairDays ?? ''}
+                  disabled={!canEdit}
+                  placeholder={String(DEFAULT_CONTRACT_REPAIR_DAYS)}
+                  onChange={(e) => changeRepairDays(e.target.value)}
+                  style={{ width: '100%', textAlign: 'right', ...(repairDaysRejected ? { borderColor: 'var(--danger)' } : {}) }}
+                />
+                <div style={{ fontSize: 12, color: repairDaysRejected ? 'var(--danger)' : 'var(--subtle)', marginTop: 4 }}>
+                  {repairDaysRejected
+                    ? 'Допустимо целое число от 1 до 3650 — значение не сохранено.'
+                    : `Считается с даты поступления двигателя на завод. Пусто — общий срок ${DEFAULT_CONTRACT_REPAIR_DAYS} дн.`}
+                </div>
+              </FormField>
               <FormField label="Внутренний номер">
                 <Input
                   value={primarySection.internalNumber}
@@ -1111,7 +1164,13 @@ function SectionBlock(props: {
                     <th style={TD_HEAD} data-col-kind="name">Марка</th>
                     <th style={TD_HEAD} data-col-kind="name">Двигатель</th>
                     <th style={TD_HEAD} data-col-kind="text">Статус</th>
-                    <th style={TD_HEAD} data-col-kind="text" title="Отсчёт 90 дней ремонта с первого аванса">Отсчёт ремонта</th>
+                    <th
+                      style={TD_HEAD}
+                      data-col-kind="text"
+                      title={`Отсчёт ${repairDays} дн. ремонта с даты поступления двигателя на завод`}
+                    >
+                      Отсчёт ремонта
+                    </th>
                     <th className="num" data-col-kind="num" title="Стоимость по контракту">Стоимость, ₽</th>
                     <th className="num" data-col-kind="num">Оплачено, ₽</th>
                     {Array.from({ length: paymentColumnCount }, (_, i) => (
@@ -1152,7 +1211,14 @@ function SectionBlock(props: {
                           const { slot, engine } = row;
                           const totals = slotTotals(slot);
                           const repaired = engine ? isEngineRepairedForCountdown(engine.statusFlags) : false;
-                          const visual = paymentCountdownVisual(countdownStatus(slot, paymentsToday, repaired));
+                          // Отсчёт идёт от приезда двигателя на завод: пока слот пуст или дата
+                          // прихода не проставлена, считать не от чего — статус будет «none».
+                          const visual = paymentCountdownVisual(
+                            countdownStatus(slot, paymentsToday, repaired, {
+                              arrivalIso: toInputDate(engine?.arrivalDate ?? null),
+                              days: repairDays,
+                            }),
+                          );
                           const payments = slotPayments(slot);
                           return (
                             <tr key={slot.id} style={visual.rowBackground ? { background: visual.rowBackground } : undefined}>
@@ -2053,6 +2119,7 @@ export function ContractDetailsPage(props: {
 
   function printServiceMemo() {
     const today = todayIsoDate();
+    const repairDays = effectiveRepairDays(sections);
     const selected = selectedMemoEngines;
     if (selected.length === 0) return;
     const customerName = sections?.primary.customerId
@@ -2062,7 +2129,12 @@ export function ContractDetailsPage(props: {
       const slot = findSlotForEngine(contractPayments, e.id);
       const totals = slot ? slotTotals(slot) : null;
       const visual = paymentCountdownVisual(
-        slot ? countdownStatus(slot, today, isEngineRepairedForCountdown(e.statusFlags)) : { state: 'none' },
+        slot
+          ? countdownStatus(slot, today, isEngineRepairedForCountdown(e.statusFlags), {
+              arrivalIso: toInputDate(e.arrivalDate ?? null),
+              days: repairDays,
+            })
+          : { state: 'none' },
       );
       return {
         engineNumber: String(e.engineNumber ?? ''),
@@ -2469,6 +2541,7 @@ export function ContractDetailsPage(props: {
             onAttachEngineToSection={attachEngineToSection}
             onMoveEngineToSection={moveEngineToSection}
             sectionMoveOptions={sectionMoveOptions}
+            repairDays={effectiveRepairDays(sections)}
             {...(props.currentUserId ? { currentUserId: props.currentUserId } : {})}
             contractPayments={contractPayments}
             canEditPayments={props.canEdit}
@@ -2501,6 +2574,7 @@ export function ContractDetailsPage(props: {
               onAttachEngineToSection={attachEngineToSection}
               onMoveEngineToSection={moveEngineToSection}
               sectionMoveOptions={sectionMoveOptions}
+              repairDays={effectiveRepairDays(sections)}
               {...(props.currentUserId ? { currentUserId: props.currentUserId } : {})}
               contractPayments={contractPayments}
               canEditPayments={props.canEdit}

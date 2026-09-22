@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
   CONTRACT_KIND_LABELS,
+  DEFAULT_CONTRACT_REPAIR_DAYS,
   aggregateContractExecutionProgress,
   buildContractSectionOptions,
   canonicalContractSectionKey,
   classifyEngineContractBinding,
   computeObjectProgress,
+  effectiveRepairDays,
   isContractAddonToken,
   isEavFlagSet,
   isScrapEngine,
@@ -367,5 +369,76 @@ describe('короткий номер договора', () => {
       accent: '',
       after: '',
     });
+  });
+});
+
+// Срок ремонта живёт в контракте (владелец 22.09.2026): раньше он был зашит в код одним
+// числом на весь завод, а у каждого контракта он свой. Мусор трактуем как «не оговорён»,
+// а не как срочный контракт: выдуманный короткий срок зажёг бы цеху ложную тревогу.
+describe('срок ремонта по контракту', () => {
+  const sections = (repairDays?: unknown): ContractSections => ({
+    primary: {
+      number: 'K-1',
+      signedAt: null,
+      dueAt: null,
+      internalNumber: '',
+      customerId: null,
+      kind: null,
+      ...(repairDays === undefined ? {} : { repairDays: repairDays as number }),
+      engineBrands: [],
+      parts: [],
+    },
+    addons: [],
+  });
+
+  it('берёт число из основной секции', () => {
+    expect(effectiveRepairDays(sections(60))).toBe(60);
+    expect(effectiveRepairDays(sections(1))).toBe(1);
+    expect(effectiveRepairDays(sections(3650))).toBe(3650);
+  });
+
+  it('без срока — общее умолчание в 90 дней', () => {
+    expect(DEFAULT_CONTRACT_REPAIR_DAYS).toBe(90);
+    expect(effectiveRepairDays(sections())).toBe(90);
+    expect(effectiveRepairDays(null)).toBe(90);
+    expect(effectiveRepairDays(undefined)).toBe(90);
+  });
+
+  it('мусор и ноль читаются как «срок не оговорён»', () => {
+    for (const raw of [0, -30, Number.NaN, 'мусор', '', null, {}, 3651]) {
+      expect(effectiveRepairDays(sections(raw))).toBe(DEFAULT_CONTRACT_REPAIR_DAYS);
+    }
+  });
+
+  it('дробное число дней обрезается вниз', () => {
+    expect(effectiveRepairDays(sections(45.9))).toBe(45);
+    expect(effectiveRepairDays(sections(1.9))).toBe(1);
+  });
+
+  it('парсер поднимает срок из contract_sections', () => {
+    const parsed = parseContractSections({
+      contract_sections: { primary: { number: 'K-1', repairDays: 45 }, addons: [] },
+    });
+    expect(parsed.primary.repairDays).toBe(45);
+    expect(effectiveRepairDays(parsed)).toBe(45);
+  });
+
+  it('мусорный срок парсер не сохраняет — поля просто нет', () => {
+    const parsed = parseContractSections({
+      contract_sections: { primary: { number: 'K-1', repairDays: 'скоро' }, addons: [] },
+    });
+    expect(parsed.primary.repairDays).toBeUndefined();
+    expect(effectiveRepairDays(parsed)).toBe(DEFAULT_CONTRACT_REPAIR_DAYS);
+  });
+
+  it('дополнения наследуют срок основной секции', () => {
+    const parsed = parseContractSections({
+      contract_sections: {
+        primary: { number: 'K-1', repairDays: 45 },
+        addons: [{ number: 'ДС 1', seq: 1 }],
+      },
+    });
+    expect(parsed.addons).toHaveLength(1);
+    expect(effectiveRepairDays(parsed)).toBe(45);
   });
 });

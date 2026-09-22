@@ -136,6 +136,9 @@ export const CONTRACT_FACETS: readonly ContractFacetDescriptor[] = [
     kind: 'values',
     id: 'burning',
     label: 'Горящие двигатели',
+    // Счётчик считает страница (`burningEnginesCount`) по сроку ремонта ИЗ КОНТРАКТА с даты
+    // поступления двигателя на завод. Ступень читает готовое число и потому всегда согласована
+    // с колонкой: у двигателя без даты поступления отсчёта нет, он не горит и падает в «нет».
     valueOf: (r) => yesNo(Number(r.burningEngines ?? 0) > 0, 'есть', 'нет'),
   },
   {

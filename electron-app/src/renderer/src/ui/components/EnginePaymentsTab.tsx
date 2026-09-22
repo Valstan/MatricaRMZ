@@ -2,13 +2,15 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   CONTRACT_PAYMENTS_ATTR_CODE,
+  DEFAULT_CONTRACT_REPAIR_DAYS,
   PAYMENT_KIND_LABELS,
-  REPAIR_COUNTDOWN_DAYS,
   canonicalContractSectionKey,
   countdownStatus,
+  effectiveRepairDays,
   findSlotForEngine,
   formatKopMoney,
   parseContractPayments,
+  parseContractSections,
   parseMoneyToKop,
   PRIMARY_CONTRACT_SECTION_KEY,
   slotTotals,
@@ -37,6 +39,9 @@ type RowDraft = {
   amountText: string;
   kind: PaymentKind;
   note: string;
+  // Старый флаг «этот платёж — старт отсчёта»: в расчёте больше не участвует (отсчёт идёт
+  // от даты поступления двигателя), но в чужих сохранённых записях он есть — читаем и
+  // пишем как есть, чтобы сохранение вкладки его не стирало.
   countdownStart: boolean;
 };
 
@@ -77,7 +82,12 @@ export function EnginePaymentsTab(props: {
   /** contract_section_number двигателя ('' → primary). */
   sectionKey: string;
   engineBrandId?: string;
-  /** Двигатель отремонтирован — отсчёт 90 дней погашен. */
+  /**
+   * Дата поступления двигателя на завод, «yyyy-mm-dd» (пусто — не заполнена). Точка
+   * отсчёта срока ремонта. Приходит из карточки: там она уже разобрана из `arrival_date`.
+   */
+  arrivalIso: string;
+  /** Двигатель отремонтирован — отсчёт срока ремонта погашен. */
   engineRepaired: boolean;
   canEdit: boolean;
   onOpenContract?: (contractId: string) => void;
@@ -91,6 +101,8 @@ export function EnginePaymentsTab(props: {
   const [saveStatus, setSaveStatus] = useState('');
   const [priceText, setPriceText] = useState('');
   const [rows, setRows] = useState<RowDraft[]>([]);
+  // Срок ремонта у каждого контракта свой (владелец 22.09.2026) — берём из его секций.
+  const [repairDays, setRepairDays] = useState(DEFAULT_CONTRACT_REPAIR_DAYS);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   // Id платежей слота на момент загрузки вкладки. Нужен, чтобы при сохранении отличить
@@ -102,6 +114,7 @@ export function EnginePaymentsTab(props: {
   useEffect(() => {
     setRows([]);
     setPriceText('');
+    setRepairDays(DEFAULT_CONTRACT_REPAIR_DAYS);
     setDirty(false);
     setSaveStatus('');
     setLoadError('');
@@ -113,6 +126,9 @@ export function EnginePaymentsTab(props: {
           attributes?: Record<string, unknown>;
         } | null;
         const cp = parseContractPayments(contract?.attributes?.[CONTRACT_PAYMENTS_ATTR_CODE]);
+        // Срок ремонта лежит в тех же секциях контракта, что и платежи, — читаем из того
+        // же ответа, отдельного запроса не нужно.
+        setRepairDays(effectiveRepairDays(parseContractSections(contract?.attributes)));
         const slot = findSlotForEngine(cp, props.engineId);
         loadedPaymentIdsRef.current = new Set(slot?.payments.map((p) => p.id) ?? []);
         if (slot) {
@@ -141,8 +157,8 @@ export function EnginePaymentsTab(props: {
 
   const totals = useMemo(() => slotTotals(draftSlot), [draftSlot]);
   const countdown = useMemo(
-    () => countdownStatus(draftSlot, todayIso(), props.engineRepaired),
-    [draftSlot, props.engineRepaired],
+    () => countdownStatus(draftSlot, todayIso(), props.engineRepaired, { arrivalIso: props.arrivalIso, days: repairDays }),
+    [draftSlot, props.engineRepaired, props.arrivalIso, repairDays],
   );
 
   function markDirty() {
@@ -153,7 +169,7 @@ export function EnginePaymentsTab(props: {
   function updateRow(id: string, patch: Partial<RowDraft>) {
     setRows((prev) =>
       prev.map((r) => {
-        if (r.id !== id) return patch.countdownStart ? { ...r, countdownStart: false } : r;
+        if (r.id !== id) return r;
         return { ...r, ...patch };
       }),
     );
@@ -169,8 +185,8 @@ export function EnginePaymentsTab(props: {
         amountText: '',
         kind: prev.length === 0 ? 'advance' : 'extra_advance',
         note: '',
-        // Первый аванс по умолчанию — старт отсчёта 90 дней.
-        countdownStart: prev.length === 0,
+        // Новые платежи флаг не получают: отсчёт идёт от даты поступления двигателя.
+        countdownStart: false,
       },
     ]);
     markDirty();
@@ -267,12 +283,16 @@ export function EnginePaymentsTab(props: {
   }
 
   const deltaColor = totals.deltaKop > 0 ? '#b45309' : totals.deltaKop < 0 ? '#b91c1c' : '#15803d';
+  // Без даты поступления говорим об этом словами: прочерк оператор читает как «данных нет»,
+  // а здесь есть незаполненное поле карточки, из-за которого срок никто не считает.
   const countdownLabel =
     countdown.state === 'none'
       ? props.engineRepaired
         ? 'Отсчёт погашен: двигатель отремонтирован'
-        : 'Отсчёт не начат (нет аванса с датой)'
-      : `Прошло ${countdown.daysElapsed} дн. из ${REPAIR_COUNTDOWN_DAYS}, осталось ${countdown.daysLeft} дн.`;
+        : props.arrivalIso
+          ? 'Отсчёт ещё не идёт: дата поступления на завод позже сегодняшней'
+          : 'Отсчёт не идёт: не заполнена дата поступления на завод'
+      : `Прошло ${countdown.daysElapsed} дн. из ${repairDays} с даты поступления на завод, осталось ${countdown.daysLeft} дн.`;
   const countdownColor = countdown.state === 'danger' ? '#b91c1c' : countdown.state === 'warning' ? '#b45309' : '#374151';
 
   const thStyle: React.CSSProperties = { textAlign: 'left', padding: '6px 8px', fontSize: 12, color: '#6b7280', fontWeight: 600 };
@@ -311,9 +331,6 @@ export function EnginePaymentsTab(props: {
                 <th style={thStyle}>Дата</th>
                 <th style={thStyle}>Сумма, ₽</th>
                 <th style={thStyle}>Вид платежа</th>
-                <th style={thStyle} title={`Старт отсчёта ${REPAIR_COUNTDOWN_DAYS} дней на ремонт`}>
-                  Старт отсчёта
-                </th>
                 <th style={thStyle}>Примечание</th>
                 <th style={thStyle} />
               </tr>
@@ -321,7 +338,7 @@ export function EnginePaymentsTab(props: {
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ ...tdStyle, color: '#6b7280', fontSize: 13 }}>
+                  <td colSpan={5} style={{ ...tdStyle, color: '#6b7280', fontSize: 13 }}>
                     Платежей пока нет.
                   </td>
                 </tr>
@@ -360,15 +377,6 @@ export function EnginePaymentsTab(props: {
                       ))}
                     </select>
                   </td>
-                  <td style={{ ...tdStyle, textAlign: 'center' }}>
-                    <input
-                      type="radio"
-                      name={`countdown-start-${props.engineId}`}
-                      checked={r.countdownStart}
-                      onChange={() => updateRow(r.id, { countdownStart: true })}
-                      disabled={!props.canEdit}
-                    />
-                  </td>
                   <td style={tdStyle}>
                     <Input
                       value={r.note}
@@ -406,7 +414,12 @@ export function EnginePaymentsTab(props: {
               <b style={{ color: deltaColor }}>{formatKopMoney(Math.abs(totals.deltaKop))} ₽</b>
             </div>
             {totals.lastPaymentDate ? <div>Последний платёж: {totals.lastPaymentDate.split('-').reverse().join('.')}</div> : null}
-            <div style={{ color: countdownColor }}>{countdownLabel}</div>
+            <div
+              style={{ color: countdownColor }}
+              title={`Срок ремонта по контракту — ${repairDays} дн. с даты поступления двигателя на завод`}
+            >
+              {countdownLabel}
+            </div>
           </div>
 
           {props.canEdit ? (

@@ -4,6 +4,7 @@ import {
   CONTRACT_PAYMENTS_ATTR_CODE,
   PAYMENT_KIND_LABELS,
   countdownStatus,
+  effectiveRepairDays,
   isEngineRepairedForCountdown,
   parseContractPayments,
   parseContractSections,
@@ -19,7 +20,7 @@ import {
   pickHumanText,
 } from '@matricarmz/shared';
 
-import { resolveContractLabel, normalizeText, asArray, readPeriod, msToDate } from '../format.js';
+import { resolveContractLabel, normalizeText, asArray, readPeriod, msToDate, toNumber } from '../format.js';
 import { getPreset, loadSnapshot, getIdsByType } from '../context.js';
 import {
   buildOptions,
@@ -31,9 +32,17 @@ import {
 // Отчёты по платежам за двигатели (план engine-payments-2026-07, этап 5).
 // Источник — контрактный EAV-атрибут contract_payments (слоты + платежи в копейках).
 
-function todayIso(): string {
-  const d = new Date();
+// Мс → ключ суток «yyyy-mm-dd», как того ждёт `countdownStatus`. Геттеры локальные, а не
+// UTC-срез: `arrival_date` карточка пишет локальной полуночью, и `toISOString()` сдвинул бы
+// дату поступления на сутки назад. Пусто — даты нет (отсчёту не от чего идти).
+function isoDayKey(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return '';
+  const d = new Date(ms);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function todayIso(): string {
+  return isoDayKey(Date.now());
 }
 
 function isoToRu(iso: string | undefined): string {
@@ -90,6 +99,8 @@ export async function buildContractPaymentsMatrixReport(
   const sections = parseContractSections(attrs);
   const cp: ContractPayments = parseContractPayments(attrs[CONTRACT_PAYMENTS_ATTR_CODE]);
   const today = todayIso();
+  // Срок ремонта — из этого контракта: у каждого он свой (владелец 22.09.2026).
+  const repairDays = effectiveRepairDays(sections);
 
   const rows: Array<Record<string, ReportCellValue>> = [];
   let emptySlotIndex = 0;
@@ -108,12 +119,18 @@ export async function buildContractPaymentsMatrixReport(
     const brandId = slot.engineBrandId ?? (slot.engineId ? normalizeText(engineAttrs.engine_brand_id, '') : '');
     const totals = slotTotals(slot);
     const repaired = slot.engineId ? isEngineRepairedForCountdown(engineRepairedFlags(engineAttrs)) : false;
-    const cd = countdownStatus(slot, today, repaired);
+    // Точка отсчёта — приезд двигателя на завод, а не аванс (владелец 22.09.2026).
+    const arrivalIso = slot.engineId ? isoDayKey(toNumber(engineAttrs.arrival_date)) : '';
+    const cd = countdownStatus(slot, today, repaired, { arrivalIso, days: repairDays });
     const countdownLabel =
       cd.state === 'none'
         ? repaired
           ? 'отремонтирован'
-          : '—'
+          : slot.engineId && !arrivalIso
+            // Не прочерк: отсчёта нет именно потому, что не заполнена дата поступления, —
+            // это работа оператора, а не «данных нет».
+            ? 'нет даты поступления'
+            : '—'
         : (cd.daysLeft ?? 0) < 0
           ? `просрочка ${Math.abs(cd.daysLeft ?? 0)} дн.`
           : `осталось ${cd.daysLeft} дн.`;
@@ -151,6 +168,9 @@ export async function buildContractPaymentsMatrixReport(
     counterpartyId ? `Заказчик: ${resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId)}` : '',
     sections.primary.signedAt ? `заключён ${msToDate(sections.primary.signedAt)}` : '',
     sections.primary.dueAt ? `исполнение до ${msToDate(sections.primary.dueAt)}` : '',
+    // Колонка «Срок ремонта» печатает только остаток — без этой строки читатель не знает,
+    // от какого срока и от какого события он отсчитан.
+    `срок ремонта: ${repairDays} дн. с даты поступления двигателя`,
     sectionToken ? `раздел: ${sectionLabel(sectionToken)}` : 'все разделы',
   ].filter(Boolean);
   return {

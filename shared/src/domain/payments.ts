@@ -8,12 +8,28 @@ import { canonicalContractSectionKey } from './contract.js';
 
 export const CONTRACT_PAYMENTS_ATTR_CODE = 'contract_payments';
 
-/** Срок ремонта с даты стартового аванса, дней. */
+/**
+ * Срок ремонта по умолчанию, дней. С 22.09.2026 срок задаётся в контракте
+ * (`effectiveRepairDays`), а эта константа — лишь умолчание для контрактов без него.
+ */
 export const REPAIR_COUNTDOWN_DAYS = 90;
-/** Порог «жёлтой» подсветки: прошло больше половины срока. */
+/** Порог «жёлтой» подсветки при сроке 90 дней: прошло больше половины. */
 export const COUNTDOWN_WARNING_ELAPSED_DAYS = 45;
-/** Порог «красной» подсветки: осталось не больше стольких дней (или просрочка). */
+/** Порог «красной» подсветки при сроке 90 дней: осталось не больше стольких дней. */
 export const COUNTDOWN_DANGER_LEFT_DAYS = 20;
+
+/**
+ * Пороги подсветки для произвольного срока — те же доли, что у прежних 90 дней
+ * (половина срока до жёлтого, последние 20/90 до красного). Так контракт на 30 дней
+ * не получает красную зону шириной в две трети срока.
+ */
+export function countdownThresholds(days: number): { warningElapsed: number; dangerLeft: number } {
+  const total = Number.isFinite(days) && days > 0 ? Math.trunc(days) : REPAIR_COUNTDOWN_DAYS;
+  return {
+    warningElapsed: Math.round((total * COUNTDOWN_WARNING_ELAPSED_DAYS) / REPAIR_COUNTDOWN_DAYS),
+    dangerLeft: Math.max(1, Math.round((total * COUNTDOWN_DANGER_LEFT_DAYS) / REPAIR_COUNTDOWN_DAYS)),
+  };
+}
 
 export type PaymentKind = 'contract_price' | 'advance' | 'extra_advance' | 'final';
 
@@ -191,20 +207,44 @@ function daysBetweenIso(fromIso: string, toIso: string): number | null {
   return Math.floor((to - from) / 86_400_000);
 }
 
+export type CountdownInput = {
+  /** ISO-дата поступления двигателя на завод — точка отсчёта. */
+  arrivalIso?: string | null;
+  /** Срок ремонта по контракту, дней. Пусто — общий по умолчанию. */
+  days?: number;
+};
+
 /**
- * Статус отсчёта 90 дней ремонта. Гасится фактом ремонта двигателя
- * (`engineRepaired`), не оплатой — решение владельца 2026-07-29.
+ * Статус отсчёта срока ремонта. Гасится фактом ремонта двигателя (`engineRepaired`),
+ * не оплатой — решение владельца 2026-07-29.
+ *
+ * Считаем ОТ ДАТЫ ПОСТУПЛЕНИЯ на завод и на срок из контракта (владелец 22.09.2026).
+ * Прежде точкой отсчёта был стартовый аванс, а срок был один на весь завод — но
+ * обязательство завода начинается с приезда двигателя, а не с прихода денег, и у
+ * каждого контракта свой срок.
+ *
+ * Без даты поступления отсчёта НЕТ (`none`), а не «посчитаем от аванса»: иначе цех
+ * видел бы срок, посчитанный не от того события, и верил бы ему. Такие двигатели
+ * видны в фасете «Срок ремонта» значением «без даты поступления» — это тоже работа,
+ * которую надо сделать, а не тишина.
  */
-export function countdownStatus(slot: PaymentSlot, todayIso: string, engineRepaired: boolean): CountdownStatus {
+export function countdownStatus(
+  slot: PaymentSlot,
+  todayIso: string,
+  engineRepaired: boolean,
+  input?: CountdownInput,
+): CountdownStatus {
   if (engineRepaired) return { state: 'none' };
-  const { countdownStartDate } = slotTotals(slot);
-  if (!countdownStartDate) return { state: 'none' };
-  const daysElapsed = daysBetweenIso(countdownStartDate, todayIso);
+  const startIso = String(input?.arrivalIso ?? '').trim();
+  if (!startIso) return { state: 'none' };
+  const daysElapsed = daysBetweenIso(startIso, todayIso);
   if (daysElapsed == null || daysElapsed < 0) return { state: 'none' };
-  const daysLeft = REPAIR_COUNTDOWN_DAYS - daysElapsed;
+  const total = Number.isFinite(input?.days) && (input?.days ?? 0) > 0 ? Math.trunc(input!.days!) : REPAIR_COUNTDOWN_DAYS;
+  const { warningElapsed, dangerLeft } = countdownThresholds(total);
+  const daysLeft = total - daysElapsed;
   const state: CountdownState =
-    daysLeft <= COUNTDOWN_DANGER_LEFT_DAYS ? 'danger'
-    : daysElapsed > COUNTDOWN_WARNING_ELAPSED_DAYS ? 'warning'
+    daysLeft <= dangerLeft ? 'danger'
+    : daysElapsed > warningElapsed ? 'warning'
     : 'ok';
   return { state, daysElapsed, daysLeft };
 }
@@ -522,11 +562,26 @@ export function isEngineRepairedForCountdown(flags: Partial<Record<string, boole
   );
 }
 
-/** Число «горящих» (danger) двигателей контракта — для колонки в списке контрактов. */
-export function burningEnginesCount(cp: ContractPayments, todayIso: string, repairedEngineIds: ReadonlySet<string>): number {
+/**
+ * Число «горящих» (danger) двигателей контракта — для колонки в списке контрактов.
+ * Даты поступления приходят картой по id двигателя: слот их не знает, а считать
+ * срок не от поступления нельзя (см. countdownStatus).
+ */
+export function burningEnginesCount(
+  cp: ContractPayments,
+  todayIso: string,
+  repairedEngineIds: ReadonlySet<string>,
+  input?: { arrivalIsoByEngineId?: ReadonlyMap<string, string>; days?: number },
+): number {
   return cp.slots.filter((s) => {
     const repaired = s.engineId != null && repairedEngineIds.has(s.engineId);
-    return countdownStatus(s, todayIso, repaired).state === 'danger';
+    const arrivalIso = s.engineId != null ? input?.arrivalIsoByEngineId?.get(s.engineId) : undefined;
+    return (
+      countdownStatus(s, todayIso, repaired, {
+        ...(arrivalIso ? { arrivalIso } : {}),
+        ...(input?.days != null ? { days: input.days } : {}),
+      }).state === 'danger'
+    );
   }).length;
 }
 

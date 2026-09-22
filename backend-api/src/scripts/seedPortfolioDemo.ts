@@ -612,7 +612,9 @@ async function main() {
 
     let cp: ContractPayments = syncSlotsWithPlan(emptyContractPayments(), planned, attached, () => randomUUID());
 
-    // Платежи: стартовые авансы (отсчёт 90 дней), доавансы, пара окончательных расчётов.
+    // Платежи: авансы, доавансы, пара окончательных расчётов. Срок ремонта они больше не
+    // запускают — отсчёт идёт от arrival_date двигателя (флаг countdownStart остался в
+    // старых записях и тут сеется только ради их формата).
     cp = {
       version: 1,
       slots: cp.slots.map((slot, idx) => {

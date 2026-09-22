@@ -2734,13 +2734,16 @@ export function EngineDetailsPage(props: {
       </div>
 
       {/* Вкладка «Платежи» (план engine-payments-2026-07): слот двигателя в контрактном
-          contract_payments. Пишет в КОНТРАКТ → гейт masterdata.edit, не резерв двигателя. */}
+          contract_payments. Пишет в КОНТРАКТ → гейт masterdata.edit, не резерв двигателя.
+          Дату поступления отдаём СОХРАНЁННУЮ (attributes.arrival_date), а не черновик поля
+          «Дата прихода»: срок ремонта считается по тому, что уже лежит в базе. */}
       <div className="entity-card-span-full" data-card-tab="payments" hidden={activeTab !== 'payments'} style={{ maxWidth: 920, width: '100%', margin: '0 auto' }}>
         <EnginePaymentsTab
           engineId={props.engineId}
           contractId={contractId}
           sectionKey={contractSectionNumber}
           {...(engineBrandId ? { engineBrandId } : {})}
+          arrivalIso={toInputDate(props.engine.attributes?.arrival_date as number | null | undefined)}
           engineRepaired={Boolean(
             statusFlags.status_repaired ||
               statusFlags.status_customer_sent ||
