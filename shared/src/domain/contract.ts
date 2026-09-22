@@ -562,9 +562,18 @@ export function classifyEngineContractBinding(args: {
  *
  * Именно первый сегмент — рабочий номер, по которому договор узнают в цеху; хвосты
  * («/27/ГОЗ-24») у договоров одного года общие. Пустая строка, если цифр в нём нет.
+ *
+ * Без «/» короткого номера НЕ делаем (владелец 22.09.2026). У части договоров номер
+ * другого склада — «Письмо № 15 от 03.09.2026»: слэша нет, «часть до слэша» = вся
+ * строка, и правило выдавало «*026» — три цифры года, которые договор не называют.
+ * Такой короткий номер хуже отсутствия: он выглядит рабочим и вводит цех в заблуждение.
+ * Пустая строка здесь читается как «показывай номер как есть» — так и делает
+ * `shortContractSuffixLabel` ниже.
  */
 export function shortContractSuffix(contractNumber: string | null | undefined): string {
-  const beforeSlash = String(contractNumber ?? '').split('/')[0] ?? '';
+  const raw = String(contractNumber ?? '');
+  if (!raw.includes('/')) return '';
+  const beforeSlash = raw.split('/')[0] ?? '';
   const digits = beforeSlash.replace(/\D/g, '');
   const last3 = digits.slice(-3);
   return last3 ? `*${last3}` : '';
@@ -577,7 +586,7 @@ export function shortContractSuffix(contractNumber: string | null | undefined): 
  *
  * Считаем ровно тем же правилом, что и `shortContractSuffix`, чтобы список, карточка и
  * печать называли договор одинаково: последние три цифры части ДО первого «/». Если цифр
- * меньше трёх — выделять нечего, и весь номер возвращается как «до».
+ * меньше трёх или «/» вовсе нет — выделять нечего, и весь номер возвращается как «до».
  */
 export function splitContractNumberAccent(contractNumber: string | null | undefined): {
   before: string;
@@ -586,8 +595,10 @@ export function splitContractNumberAccent(contractNumber: string | null | undefi
 } {
   const raw = String(contractNumber ?? '');
   const slash = raw.indexOf('/');
-  const head = slash >= 0 ? raw.slice(0, slash) : raw;
-  const tail = slash >= 0 ? raw.slice(slash) : '';
+  // Без «/» рабочего номера в строке нет — выделять жирным нечего (см. shortContractSuffix).
+  if (slash < 0) return { before: raw, accent: '', after: '' };
+  const head = raw.slice(0, slash);
+  const tail = raw.slice(slash);
   const digitPositions: number[] = [];
   for (let i = 0; i < head.length; i += 1) {
     const ch = head[i] ?? '';
