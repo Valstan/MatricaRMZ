@@ -687,6 +687,13 @@
       "when": 1789732800000,
       "tag": "0098_sync_seq_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1790035200000,
+      "tag": "0099_engine_inventory_lines_has_own_number",
+      "breakpoints": true
     }
   ]
 }

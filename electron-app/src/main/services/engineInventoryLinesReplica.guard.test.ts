@@ -45,7 +45,8 @@ function makeDb() {
       scrap_qty integer NOT NULL DEFAULT 0, replace_qty integer NOT NULL DEFAULT 0,
       replenishment_branch text, scrap_reason text NOT NULL DEFAULT '',
       in_completeness_act integer, in_defect_act integer, in_completeness_act_override integer,
-      in_defect_act_override integer, selected integer NOT NULL DEFAULT false, photos_json text,
+      in_defect_act_override integer, has_own_number integer, has_own_number_override integer,
+      selected integer NOT NULL DEFAULT false, photos_json text,
       created_at integer NOT NULL, updated_at integer NOT NULL, last_server_seq integer,
       deleted_at integer, sync_status text NOT NULL DEFAULT 'synced');
   `);
@@ -88,6 +89,9 @@ const RAW_ROWS: Array<Record<string, unknown>> = [
     scrap_reason: 'трещина',
     stamped_number: 'A-17',
     in_defect_act: true,
+    // «Свой номер»: значение комплекта марки + операторский override листа.
+    has_own_number: true,
+    has_own_number_override: true,
     __brand_source: 'engine_brand',
     __brand_part_id: 'part-crankcase',
     __selected: true,
@@ -118,6 +122,7 @@ const RAW_ROWS: Array<Record<string, unknown>> = [
     scrap_qty: 0,
     replace_qty: 2,
     in_completeness_act_override: false,
+    has_own_number: false,
   },
 ];
 
@@ -149,16 +154,17 @@ function insertLines(sqlite: Database.Database, lines: EngineInventoryLineRow[],
     id, operation_id, engine_entity_id, line_key, sort_order, part_id, brand_managed, part_name, assembly_unit_number,
     part_number, stamped_number, bom_variant_group, quantity, present, actual_qty, repairable_qty, scrap_qty, replace_qty,
     replenishment_branch, scrap_reason, in_completeness_act, in_defect_act, in_completeness_act_override,
-    in_defect_act_override, selected, photos_json, created_at, updated_at, deleted_at
-  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+    in_defect_act_override, has_own_number, has_own_number_override, selected, photos_json, created_at,
+    updated_at, deleted_at
+  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   const b = (v: boolean | null) => (v == null ? null : v ? 1 : 0);
   for (const l of lines) {
     stmt.run(
       l.id, l.operation_id, l.engine_entity_id, l.line_key, l.sort_order, l.part_id, b(l.brand_managed), l.part_name,
       l.assembly_unit_number, l.part_number, l.stamped_number, l.bom_variant_group, l.quantity, b(l.present), l.actual_qty,
       l.repairable_qty, l.scrap_qty, l.replace_qty, l.replenishment_branch, l.scrap_reason, b(l.in_completeness_act),
-      b(l.in_defect_act), b(l.in_completeness_act_override), b(l.in_defect_act_override), b(l.selected), l.photos_json,
-      l.created_at, l.updated_at, deletedAt,
+      b(l.in_defect_act), b(l.in_completeness_act_override), b(l.in_defect_act_override), b(l.has_own_number),
+      b(l.has_own_number_override), b(l.selected), l.photos_json, l.created_at, l.updated_at, deletedAt,
     );
   }
 }

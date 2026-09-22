@@ -43,6 +43,8 @@ export type EngineInventoryLineRow = {
   in_defect_act: boolean | null;
   in_completeness_act_override: boolean | null;
   in_defect_act_override: boolean | null;
+  has_own_number: boolean | null;
+  has_own_number_override: boolean | null;
   selected: boolean;
   photos_json: string | null;
   created_at: number;
@@ -135,6 +137,8 @@ export function lineFromInventoryRow(raw: Record<string, unknown>, ctx: LineCont
     in_defect_act: optBool(row.in_defect_act),
     in_completeness_act_override: optBool(row.in_completeness_act_override),
     in_defect_act_override: optBool(row.in_defect_act_override),
+    has_own_number: optBool(row.has_own_number),
+    has_own_number_override: optBool(row.has_own_number_override),
     selected: isSelected(raw[SELECTED_KEY]),
     photos_json: photos.length > 0 ? JSON.stringify(photos) : null,
     created_at: ctx.createdAt,
@@ -169,6 +173,8 @@ export function inventoryRowFromLine(line: EngineInventoryLineRow): Record<strin
   if (line.in_defect_act != null) raw.in_defect_act = line.in_defect_act;
   if (line.in_completeness_act_override != null) raw.in_completeness_act_override = line.in_completeness_act_override;
   if (line.in_defect_act_override != null) raw.in_defect_act_override = line.in_defect_act_override;
+  if (line.has_own_number != null) raw.has_own_number = line.has_own_number;
+  if (line.has_own_number_override != null) raw.has_own_number_override = line.has_own_number_override;
   if (line.part_id) {
     if (line.brand_managed) {
       raw[BRAND_SOURCE_KEY] = BRAND_SOURCE_VALUE;
@@ -228,6 +234,8 @@ const CONTENT_FIELDS = [
   'in_defect_act',
   'in_completeness_act_override',
   'in_defect_act_override',
+  'has_own_number',
+  'has_own_number_override',
   'selected',
   'photos_json',
 ] as const satisfies readonly (keyof EngineInventoryLineRow)[];

@@ -440,6 +440,8 @@ warehouseRouter.put('/nomenclature/:id/part-spec', requirePermission(PermissionC
           // Т4: галочки актов на привязке деталь↔марка.
           inCompletenessAct: z.boolean().optional(),
           inDefectAct: z.boolean().optional(),
+          // Владелец 22.09.2026: «у детали бывает свой номер» — шаблон марки для бланка дефектовки.
+          hasOwnNumber: z.boolean().optional(),
           // Живая привязка к группе марок (маркер источника связи; см. shared/liveGroupLinks).
           sourceGroupId: z.string().optional(),
         }),
@@ -462,6 +464,7 @@ warehouseRouter.put('/nomenclature/:id/part-spec', requirePermission(PermissionC
         quantity: l.quantity,
         ...(l.inCompletenessAct !== undefined ? { inCompletenessAct: l.inCompletenessAct } : {}),
         ...(l.inDefectAct !== undefined ? { inDefectAct: l.inDefectAct } : {}),
+        ...(l.hasOwnNumber !== undefined ? { hasOwnNumber: l.hasOwnNumber } : {}),
         ...(l.sourceGroupId !== undefined ? { sourceGroupId: l.sourceGroupId } : {}),
       })),
     },

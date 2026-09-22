@@ -39,6 +39,8 @@ const brandRow = {
   in_completeness_act: true,
   in_defect_act: false,
   in_defect_act_override: true,
+  has_own_number: true,
+  has_own_number_override: true,
   __brand_source: 'engine_brand',
   __brand_part_id: 'part-a',
   __photos: JSON.stringify([{ id: 'f1', name: 'a.jpg' }]),
@@ -73,6 +75,8 @@ describe('lineFromInventoryRow ↔ inventoryRowFromLine — round-trip', () => {
       in_defect_act: false,
       in_completeness_act_override: null,
       in_defect_act_override: true,
+      has_own_number: true,
+      has_own_number_override: true,
       scrap_qty: 1,
       replace_qty: 1,
       repairable_qty: 4,
@@ -97,6 +101,7 @@ describe('lineFromInventoryRow ↔ inventoryRowFromLine — round-trip', () => {
     expect(line.part_id).toBe('part-m');
     expect(line.photos_json).toBeNull();
     expect(line.in_completeness_act).toBeNull();
+    expect(line.has_own_number).toBeNull();
     const back = inventoryRowFromLine(line);
     expect(back.__part_id).toBe('part-m');
     expect('__brand_source' in back).toBe(false);
@@ -104,6 +109,7 @@ describe('lineFromInventoryRow ↔ inventoryRowFromLine — round-trip', () => {
     expect('__selected' in back).toBe(false);
     expect('stamped_number' in back).toBe(false);
     expect('in_completeness_act' in back).toBe(false);
+    expect('has_own_number' in back).toBe(false);
   });
 
   it('невалидный __photos не превращается в строку таблицы', () => {
@@ -176,5 +182,8 @@ describe('diffInventoryLines — одна галочка = одна транза
     const [a] = desiredFrom([{ part_name: 'A' }]);
     expect(sameLineContent(a!, { ...a!, id: 'x', updated_at: 9, last_server_seq: 7, sync_status: 'pending' })).toBe(true);
     expect(sameLineContent(a!, { ...a!, quantity: 5 })).toBe(false);
+    // «Свой номер» — содержательное поле строки: его правка обязана дать update.
+    expect(sameLineContent(a!, { ...a!, has_own_number: true })).toBe(false);
+    expect(sameLineContent(a!, { ...a!, has_own_number_override: true })).toBe(false);
   });
 });

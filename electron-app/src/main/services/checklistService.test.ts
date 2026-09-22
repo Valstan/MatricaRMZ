@@ -31,7 +31,8 @@ function makeDb() {
       repairable_qty integer NOT NULL DEFAULT 0, scrap_qty integer NOT NULL DEFAULT 0,
       replace_qty integer NOT NULL DEFAULT 0, replenishment_branch text, scrap_reason text NOT NULL DEFAULT '',
       in_completeness_act integer, in_defect_act integer, in_completeness_act_override integer,
-      in_defect_act_override integer, selected integer NOT NULL DEFAULT false, photos_json text,
+      in_defect_act_override integer, has_own_number integer, has_own_number_override integer,
+      selected integer NOT NULL DEFAULT false, photos_json text,
       created_at integer NOT NULL, updated_at integer NOT NULL, last_server_seq integer, deleted_at integer,
       sync_status text NOT NULL DEFAULT 'synced');
   `);

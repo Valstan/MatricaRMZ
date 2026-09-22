@@ -21,7 +21,7 @@
 | 3 ✅ | `fix/parts-duplicate-hard-block` | запрет дублей деталей, наглядный переход к существующей | S |
 | 4 ✅ | `fix/repeat-arrival-labels` | пометки заездов в пикерах и логика карточки | M |
 | 5 ✅ | `feat/contract-repair-days` | «дней на ремонт» в контракте, горящие от поступления, фильтры | M |
-| 6 | `feat/defect-blank-two-columns` | бланк дефектовки: флаг «свой номер», два столбца на листе | M |
+| 6 ✅ | `feat/defect-blank-two-columns` | бланк дефектовки: флаг «свой номер», два столбца на листе | M |
 | 7 | `feat/engine-tags-print` | бирки на двигатель 6/4/2 на А4 | M |
 | 8 | `perf/renderer-scanners-and-sync-refresh` | замер + дешёвые ускорения | M |
 | 9 | `fix/entity-reference-focus-trap` | залипание фокуса | S |
@@ -92,7 +92,7 @@
 
 **Проверка.** `payments.test.ts`: 60 дней/поступление → danger при 40 днях; без `arrival_date` → `none`; тесты фасета. Стенд: контракт с 30 днями, двигатель с датой поступления 40 дней назад — горит в списке контрактов и в фасете.
 
-## 6. Бланк дефектовки: флаг «свой номер» и два столбца на листе
+## 6. ✅ Бланк дефектовки: флаг «свой номер» и два столбца на листе
 
 **Что есть.** Генератор — `electron-app/src/renderer/src/ui/utils/engineInventoryPrintHtml.ts` `buildInventoryDefectHtml` (~:322), 9 колонок, `blank` режим. Кнопка «Бланк дефектовки» — `RepairChecklistPanel.tsx:944 printBlankAct`. Флаги актов на детали в комплекте марки — `PartSpecBrandLink.inDefectAct` (`shared/src/domain/part.ts`, хранится в `brand_links_json`, без миграций); копируются в строку листа при resync с override (`RepairChecklistPanel.tsx:1620-1635`, поля `in_defect_act` / `in_defect_act_override`). Редактор марки — `EngineBrandDetailsPage.tsx:60-61, 262-263`.
 

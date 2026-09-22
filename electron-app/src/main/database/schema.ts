@@ -730,6 +730,9 @@ export const erpEngineInventoryLines = sqliteTable(
     inDefectAct: integer('in_defect_act', { mode: 'boolean' }),
     inCompletenessActOverride: integer('in_completeness_act_override', { mode: 'boolean' }),
     inDefectActOverride: integer('in_defect_act_override', { mode: 'boolean' }),
+    // «Свой номер» (22.09.2026): пара «эффективное значение + override», как у флагов актов.
+    hasOwnNumber: integer('has_own_number', { mode: 'boolean' }),
+    hasOwnNumberOverride: integer('has_own_number_override', { mode: 'boolean' }),
     selected: integer('selected', { mode: 'boolean' }).notNull().default(false),
     photosJson: text('photos_json'),
     createdAt: integer('created_at').notNull(),

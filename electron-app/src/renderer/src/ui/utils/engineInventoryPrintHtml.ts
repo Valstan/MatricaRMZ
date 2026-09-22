@@ -181,13 +181,16 @@ const COMMON_STYLES = `
   @media print { .no-print { display: none; } }
 `;
 
-function wrapHtml(opts: { title: string; bodyHtml: string }): string {
+// extraStyles — собственный блок стилей документа, печатается ПОСЛЕ общего, чтобы
+// перебивать его правила (так бланк дефектовки живёт своей раскладкой, а COMMON_STYLES
+// подписных актов не обрастает условиями).
+function wrapHtml(opts: { title: string; bodyHtml: string; extraStyles?: string }): string {
   return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8"/>
   <title>${escapeHtml(opts.title)}</title>
-  <style>${COMMON_STYLES}</style>
+  <style>${COMMON_STYLES}${opts.extraStyles ?? ''}</style>
 </head>
 <body>
   <div class="no-print" style="margin:12px;">
@@ -323,8 +326,133 @@ export function buildInventoryActHtml(ctx: EngineInventoryPrintContext): string 
   return wrapHtml({ title, bodyHtml });
 }
 
+/** Запасных пустых строк в конец КАЖДОГО столбца бланка дефектовки — под дозапись от руки. */
+const DEFECT_BLANK_SPARE_ROWS = 4;
+
+// Стили бланка дефектовки (решение владельца 2026-09-22): весь список деталей должен влезать
+// на один лист A4, поэтому мелкий шрифт, поля 8 мм и два столбца. Отдельный блок, а не условия
+// в COMMON_STYLES: подписной акт печатается крупно и его раскладку трогать нельзя.
+const DEFECT_BLANK_STYLES = `
+  @page { size: A4; margin: 8mm; }
+  .blank-title { font-size: 13px; margin: 0 0 3px 0; }
+  .blank-meta { font-size: 10px; line-height: 1.15; margin-bottom: 4px; }
+  .blank-cols { display: flex; gap: 6px; align-items: flex-start; }
+  .blank-col { flex: 1 1 0; min-width: 0; }
+  .blank-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  .blank-table th, .blank-table td { border: 1px solid #111827; padding: 0 2px; font-size: 9px; line-height: 1.05; vertical-align: middle; word-break: break-word; }
+  .blank-table th { background: #f3f4f6; font-weight: 700; text-align: center; font-size: 8px; padding: 1px; }
+  .blank-table td.idx { text-align: right; color: #334155; }
+  .blank-table td.qty { text-align: center; }
+  .blank-table tr.r-plain td { height: 11px; }
+  .blank-table tr.r-num td { height: 18px; }
+  .blank-table td.pn { border: 0; padding: 0 0 0 3px; }
+  .pn-box { display: block; height: 14px; border: 1px solid #111827; }
+  .blank-sign { margin-top: 6px; font-size: 10px; }
+  .blank-line { display: inline-block; border-bottom: 1px solid #111827; min-width: 200px; vertical-align: bottom; }
+`;
+
+// Строка бланка: клетка «№ на детали» рисуется ТОЛЬКО у помеченных деталей (has_own_number),
+// у остальных на этом месте пусто и без рамки, и сама строка ниже — ради этого всё и затевается:
+// строки без номера компактнее, и список влезает на лист.
+function renderDefectBlankRow(opts: {
+  index: number | null;
+  name: string;
+  qty: string;
+  hasOwnNumber: boolean;
+  spare?: boolean;
+}): string {
+  const cls = `${opts.hasOwnNumber ? 'r-num' : 'r-plain'}${opts.spare ? ' spare' : ''}`;
+  return `<tr class="${cls}">
+        <td class="idx">${opts.index === null ? '' : opts.index}</td>
+        <td>${escapeHtml(opts.name)}</td>
+        <td class="qty">${escapeHtml(opts.qty)}</td>
+        <td></td>
+        <td></td>
+        <td class="pn">${opts.hasOwnNumber ? '<span class="pn-box"></span>' : ''}</td>
+      </tr>`;
+}
+
+// Половина списка = одна таблица. Нумерация сквозная (startIndex), чтобы два столбца читались
+// как один список.
+function renderDefectBlankHalf(rows: EngineInventoryRow[], startIndex: number): string {
+  const head = `
+      <thead>
+        <tr>
+          <th style="width:6%">№</th>
+          <th style="width:48%">Наименование детали</th>
+          <th style="width:7%">Кол-во</th>
+          <th style="width:10%">Ремонтопригодна</th>
+          <th style="width:9%">Утиль</th>
+          <th style="width:20%">№ на детали</th>
+        </tr>
+      </thead>`;
+  const body = rows
+    .map((r, i) =>
+      renderDefectBlankRow({
+        index: startIndex + i,
+        name: r.part_name,
+        qty: qtyOrBlank(r.quantity),
+        // Флаг приезжает из строки списка; у старых строк его ещё нет — тогда поля не рисуем.
+        hasOwnNumber: Boolean((r as any).has_own_number ?? false),
+      }),
+    )
+    .join('');
+  // Запасным строкам клетка номера нужна всегда: дозаписанная от руки деталь тоже может быть номерной.
+  const spare = Array.from({ length: DEFECT_BLANK_SPARE_ROWS }, () =>
+    renderDefectBlankRow({ index: null, name: '', qty: '', hasOwnNumber: true, spare: true }),
+  ).join('');
+  return `<table class="blank-table">${head}<tbody>${body}${spare}</tbody></table>`;
+}
+
+/**
+ * Бланк дефектовки (ctx.blank): чистый лист со списком деталей, который печатают и заполняют
+ * от руки. Держится ОТДЕЛЬНО от подписного акта дефектовки — его колонки утверждены владельцем
+ * 12.06.2026, и переплетать две раскладки условиями в одном шаблоне нельзя.
+ */
+export function buildInventoryDefectBlankHtml(ctx: EngineInventoryPrintContext): string {
+  const title = 'Акт дефектовки двигателя (бланк)';
+  const startDate = getDate(ctx.answers, 'defect_start_date');
+  const endDate = getDate(ctx.answers, 'defect_end_date');
+  const contractNumber = (ctx.contractNumber || getText(ctx.answers, 'contract_number')).trim();
+  const brand = ctx.engineBrand || getText(ctx.answers, 'engine_brand');
+  const number = ctx.engineNumber || getText(ctx.answers, 'engine_number');
+  const internalNumber = String(ctx.engineInternalNumber ?? '').trim();
+
+  const header = `
+    <div class="meta-grid">
+      ${renderHeaderRow('Марка двигателя', brand || '—')}
+      ${renderHeaderRow('№ двигателя', number || '—')}
+      ${internalNumber ? renderHeaderRow('Внутренний №', internalNumber) : ''}
+      ${renderHeaderRow('Договор / заказчик', contractNumber || '')}
+      ${renderHeaderRow('Дата начала дефектовки', dateOrFillIn(startDate))}
+      ${renderHeaderRow('Дата окончания дефектовки', dateOrFillIn(endDate))}
+    </div>`;
+
+  // Два столбца сделаны двумя таблицами рядом, а не CSS-columns на одну таблицу: разрыв строк
+  // таблицы между колонками браузеры печатают непредсказуемо (строка рвётся пополам, теряются
+  // рамки), а две таблицы по половине строк печатаются одинаково.
+  const half = Math.ceil(ctx.rows.length / 2);
+  const leftRows = ctx.rows.slice(0, half);
+  const rightRows = ctx.rows.slice(half);
+
+  const bodyHtml = `
+    <h1 class="blank-title">${escapeHtml(title)}</h1>
+    <div class="meta blank-meta">${header}</div>
+    <div class="blank-cols">
+      <div class="blank-col">${renderDefectBlankHalf(leftRows, 1)}</div>
+      <div class="blank-col">${renderDefectBlankHalf(rightRows, half + 1)}</div>
+    </div>
+    <div class="blank-sign">Дефектовку провёл: <span class="blank-line"></span></div>
+  `;
+
+  return wrapHtml({ title, bodyHtml, extraStyles: DEFECT_BLANK_STYLES });
+}
+
 export function buildInventoryDefectHtml(ctx: EngineInventoryPrintContext): string {
   const blank = ctx.blank === true;
+  // Бланк печатается своей раскладкой (два столбца, клетка номера только у помеченных деталей);
+  // ниже — подписной акт, его раскладку не трогаем.
+  if (blank) return buildInventoryDefectBlankHtml(ctx);
   const title = blank ? 'Акт дефектовки двигателя (бланк)' : 'Акт дефектовки двигателя';
   const startDate = getDate(ctx.answers, 'defect_start_date');
   const endDate = getDate(ctx.answers, 'defect_end_date');

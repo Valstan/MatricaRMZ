@@ -139,6 +139,8 @@ function defaultEngineInventoryTemplate(): RepairChecklistTemplate {
           // Т5: per-engine галочки актов (override поверх шаблона марки).
           { id: 'in_completeness_act', label: 'В акт комплектности', kind: 'boolean' },
           { id: 'in_defect_act', label: 'В акт дефектовки', kind: 'boolean' },
+          // 22.09.2026: у детали бывает свой номер — в бланке дефектовки ей печатается поле под номер.
+          { id: 'has_own_number', label: 'Свой номер', kind: 'boolean' },
           { id: 'quantity', label: 'План', kind: 'number' },
           { id: 'present', label: 'На месте при приёмке', kind: 'boolean' },
           { id: 'actual_qty', label: 'Фактически принято', kind: 'number' },

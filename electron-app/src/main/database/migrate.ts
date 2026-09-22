@@ -197,6 +197,8 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
       in_defect_act integer,
       in_completeness_act_override integer,
       in_defect_act_override integer,
+      has_own_number integer,
+      has_own_number_override integer,
       selected integer NOT NULL DEFAULT false,
       photos_json text,
       created_at integer NOT NULL,
@@ -209,6 +211,19 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS erp_engine_inventory_lines_engine_idx ON erp_engine_inventory_lines(engine_entity_id);
     CREATE INDEX IF NOT EXISTS erp_engine_inventory_lines_part_idx ON erp_engine_inventory_lines(part_id);
   `);
+
+  // has_own_number / has_own_number_override («свой номер», 22.09.2026) — добавлены в уже
+  // существующую реплику клиентской миграцией 0026. Здесь тот же ALTER под проверкой наличия:
+  // SQLite не знает ADD COLUMN IF NOT EXISTS, а повторный ALTER уронил бы транзакцию миграции.
+  {
+    const cols = columnNames('erp_engine_inventory_lines');
+    if (!cols.has('has_own_number')) {
+      sqlite.exec(`ALTER TABLE erp_engine_inventory_lines ADD COLUMN has_own_number integer;`);
+    }
+    if (!cols.has('has_own_number_override')) {
+      sqlite.exec(`ALTER TABLE erp_engine_inventory_lines ADD COLUMN has_own_number_override integer;`);
+    }
+  }
 
   // warehouse_locations — реплика справочника складов и цехов (pull-only, 07.09.2026). Та же
   // причина дубля, что у таблиц выше: свежая установка идёт мимо версионной цепочки, а холодный

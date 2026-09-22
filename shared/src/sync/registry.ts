@@ -319,6 +319,8 @@ const ERP_ENGINE_INVENTORY_LINE_FIELDS: readonly FieldMapping[] = withBase(
   { db: 'inDefectAct', dto: 'in_defect_act' },
   { db: 'inCompletenessActOverride', dto: 'in_completeness_act_override' },
   { db: 'inDefectActOverride', dto: 'in_defect_act_override' },
+  { db: 'hasOwnNumber', dto: 'has_own_number' },
+  { db: 'hasOwnNumberOverride', dto: 'has_own_number_override' },
   { db: 'selected', dto: 'selected' },
   { db: 'photosJson', dto: 'photos_json' },
 );
