@@ -53,6 +53,70 @@ export function hasUnresolvedEntityReference(
   return !value || !selected || normalized !== normalizeLookupCompact(selected.label);
 }
 
+/** Что делать с кликом мимо поля, пока в нём висит неразрешённый текст. */
+export type UnresolvedClickAction =
+  /** Не наше дело: пропустить клик как есть. */
+  | 'ignore'
+  /** Запустить разбор текста, но клик пропустить дальше (фокус обязан уйти). */
+  | 'resolve'
+  /** Запустить разбор текста и съесть клик, чтобы действие не выполнилось. */
+  | 'resolve-and-block';
+
+/** Снимок цели клика: DOM здесь уже разобран, решение принимается по чистым данным. */
+export type ReferenceClickTarget = {
+  /** Клик внутри самого поля или его выпадающего списка. */
+  insideField: boolean;
+  /** Тег элемента под курсором в верхнем регистре: 'INPUT', 'BUTTON', … */
+  tagName: string;
+  /** Значение type у input (для прочих тегов — null). */
+  inputType: string | null;
+  /** Элемент (или его предок) редактируется мышью — contenteditable. */
+  editable: boolean;
+};
+
+/** Типы input, которые по клику выполняют действие, а не принимают текст. */
+const ACTION_INPUT_TYPES = new Set(['button', 'submit', 'reset', 'image', 'checkbox', 'radio', 'file']);
+
+export function isTextEntryClickTarget(target: ReferenceClickTarget): boolean {
+  if (target.editable) return true;
+  if (target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return true;
+  if (target.tagName !== 'INPUT') return false;
+  return !ACTION_INPUT_TYPES.has((target.inputType ?? 'text').toLowerCase());
+}
+
+/**
+ * Клик мимо поля с неразрешённым текстом: съесть, пропустить или пропустить с разбором.
+ *
+ * Глотать клик по ДРУГОМУ полю ввода нельзя: для оператора это выглядит как «курсор
+ * застрял между текстурами» — он целится в соседнее поле, а оно не принимает ввод.
+ * Диалог разбора всё равно откроется, фокус при этом уходит туда, куда оператор метил.
+ * Кнопку/ссылку по-прежнему блокируем: там клик выполняет действие, и выполнить его
+ * с неразобранным значением в поле — это записать в базу мусор.
+ */
+export function decideUnresolvedReferenceClick(
+  target: ReferenceClickTarget,
+  state: { unresolved: boolean; resolving: boolean },
+): UnresolvedClickAction {
+  if (!state.unresolved || state.resolving) return 'ignore';
+  if (target.insideField) return 'ignore';
+  return isTextEntryClickTarget(target) ? 'resolve' : 'resolve-and-block';
+}
+
+function describeReferenceClickTarget(node: Node | null, root: HTMLElement | null): ReferenceClickTarget {
+  const element = node instanceof Element ? node : null;
+  // SearchSelect рисует выпадашку (и кнопку-подсказку) порталом в document.body —
+  // такой клик относится к ЭТОМУ полю, а не к уходу из него.
+  const insideField =
+    (node != null && root?.contains(node) === true) ||
+    (element != null && element.closest('[data-entity-lookup-popup]') != null);
+  return {
+    insideField,
+    tagName: element?.tagName ?? '',
+    inputType: element instanceof HTMLInputElement ? element.type : null,
+    editable: element != null && element.closest('[contenteditable=""],[contenteditable="true"]') != null,
+  };
+}
+
 export function EntityReferenceField(props: EntityReferenceFieldProps) {
   const confirm = useConfirmOptional();
   const rank = usePickerRank(props.rankKey);
@@ -74,6 +138,10 @@ export function EntityReferenceField(props: EntityReferenceFieldProps) {
   // предупреждение, пока справочник ещё грузится — иначе мигало бы на каждом старте карточки.
   const dangling = props.value != null && !selected && options.length > 0 && props.optionsReady !== false;
   const [query, setQuery] = useState(selected?.label ?? '');
+  // Компактная форма текста, который диалог разбора уже отработал. Без этой памяти поле
+  // после «Создать: …» снова считается неразрешённым (опции у вызывающего ещё не
+  // обновились) и опять съедает каждый клик — для оператора это залипание фокуса.
+  const [settledQuery, setSettledQuery] = useState<string | null>(null);
   const [quickCreateLabel, setQuickCreateLabel] = useState<string | null>(null);
   const quickCreateResolveRef = useRef<((result: QuickCreateResult | null) => void) | null>(null);
 
@@ -87,32 +155,42 @@ export function EntityReferenceField(props: EntityReferenceFieldProps) {
     previousValueRef.current = props.value;
   }, [props.value, selected]);
 
+  // Поле «держит» неразрешённый текст. Пока это не так (а это 99% времени), глобального
+  // перехватчика кликов на документе быть не должно вовсе. Выключённое поле и незагруженный
+  // справочник разобрать текст не могут — блокировать клики там значит съедать их молча.
+  const unresolved =
+    props.disabled !== true &&
+    props.optionsReady !== false &&
+    normalizeLookupCompact(query) !== settledQuery &&
+    hasUnresolvedEntityReference(query, props.value, selected);
+
+  // Всё, что читает перехватчик, держим в ref: иначе слушатель переустанавливался бы на
+  // каждый рендер (options — новый массив каждый раз), а props, которые resolveOnBlur
+  // читает по пути к диалогу, оставались бы от момента установки слушателя.
+  const latestRef = useRef({ query, unresolved, resolve: resolveOnBlur });
   useEffect(() => {
+    latestRef.current = { query, unresolved, resolve: resolveOnBlur };
+  });
+
+  useEffect(() => {
+    if (!unresolved) return undefined;
     function blockActionUntilResolved(event: MouseEvent) {
-      // SearchSelect renders its dropdown (and the hint button) through a portal into
-      // document.body — those clicks are part of THIS field's interaction, not a
-      // click-away. Without this check a mouse pick from the dropdown got swallowed
-      // here and the "элемент не выбран" dialog fired instead of committing the pick.
-      const target = event.target as Node | null;
-      const insideLookupPopup =
-        target instanceof Element && target.closest('[data-entity-lookup-popup]') != null;
-      if (
-        resolvingRef.current ||
-        !hasUnresolvedEntityReference(query, props.value, selected) ||
-        rootRef.current?.contains(target) ||
-        insideLookupPopup
-      ) {
-        return;
+      const latest = latestRef.current;
+      const action = decideUnresolvedReferenceClick(
+        describeReferenceClickTarget(event.target as Node | null, rootRef.current),
+        { unresolved: latest.unresolved, resolving: resolvingRef.current },
+      );
+      if (action === 'ignore') return;
+      if (action === 'resolve-and-block') {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
       }
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation();
-      void resolveOnBlur(query);
+      void latest.resolve(latest.query);
     }
     document.addEventListener('mousedown', blockActionUntilResolved, true);
     return () => document.removeEventListener('mousedown', blockActionUntilResolved, true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- resolveOnBlur is re-created on every render, so listing it would detach/attach this capture-phase document listener on every render. KNOWN GAP: the deps cover only what the listener body itself reads (query, props.value, selected) plus what resolveOnBlur reads on its way to the dialog (props.disabled, props.optionsReady, and `options` — the ranked list, whose identity changes with both props.options and the pick rating); resolveOnBlur and its callees commit/clear/runCreate additionally read props.onChange, props.canCreate, props.onCreate, props.onQuickCreate, props.targetLabel and props.createLabel from the render closure, and those are NOT deps — on this click-away path a listener installed before one of them changes keeps using the value captured at install time (e.g. flipping props.canCreate false->true without touching options/value/query/selected leaves the dialog without the «Создать» choice)
-  }, [options, props.disabled, props.optionsReady, props.value, query, selected]);
+  }, [unresolved]);
 
   function commit(option: SearchSelectOption) {
     setQuery(option.label);
@@ -130,6 +208,8 @@ export function EntityReferenceField(props: EntityReferenceFieldProps) {
 
   function handleQueryChange(next: string) {
     setQuery(next);
+    // Текст изменился — прошлый разбор к нему не относится, перехват снова в силе.
+    setSettledQuery(null);
     if (props.value && normalizeLookupCompact(next) !== normalizeLookupCompact(selected?.label ?? '')) {
       preserveTypedQueryRef.current = true;
       props.onChange(null);
@@ -138,27 +218,30 @@ export function EntityReferenceField(props: EntityReferenceFieldProps) {
 
   async function resolveOnBlur(rawQuery: string) {
     if (props.disabled || resolvingRef.current) return;
-    const trimmed = rawQuery.trim();
-    if (!trimmed) {
-      clear();
-      return;
-    }
-    if (selected && normalizeLookupCompact(trimmed) === normalizeLookupCompact(selected.label)) {
-      // Same element typed with different spacing/punctuation — snap the visible
-      // text back to the canonical label instead of leaving the variant on screen.
-      setQuery(selected.label);
-      return;
-    }
-    if (props.optionsReady === false) return;
-
-    const exact = findUniqueExactReference(trimmed, options);
-    if (exact) {
-      commit(exact);
-      return;
-    }
-
+    // Флаг ставим СИНХРОННО, до первого await и до любого выхода: иначе второй клик
+    // успевает проскочить, пока диалог ещё не открылся, и запускает второй диалог поверх.
+    // Снимается во всех ветках выхода — за это отвечает finally.
     resolvingRef.current = true;
     try {
+      const trimmed = rawQuery.trim();
+      if (!trimmed) {
+        clear();
+        return;
+      }
+      if (selected && normalizeLookupCompact(trimmed) === normalizeLookupCompact(selected.label)) {
+        // Same element typed with different spacing/punctuation — snap the visible
+        // text back to the canonical label instead of leaving the variant on screen.
+        setQuery(selected.label);
+        return;
+      }
+      if (props.optionsReady === false) return;
+
+      const exact = findUniqueExactReference(trimmed, options);
+      if (exact) {
+        commit(exact);
+        return;
+      }
+
       const canCreate = props.canCreate === true && Boolean(props.onCreate || props.onQuickCreate);
       const similar = rankLookupOptions(options, trimmed)[0] ?? null;
       const choice = await confirm?.pickChoice({
@@ -170,6 +253,9 @@ export function EntityReferenceField(props: EntityReferenceFieldProps) {
           ...(canCreate ? [{ id: 'create', label: props.createLabel ?? `Создать: ${trimmed}` }] : []),
         ],
       });
+      // Диалог закрыт (в т.ч. «Отмена»/по фону) — этот текст разобран. Дальше он не считается
+      // неразрешённым, пока оператор его не изменит: иначе следующий клик снова блокируется.
+      setSettledQuery(normalizeLookupCompact(trimmed));
       if (choice === 'similar' && similar) {
         commit(similar);
         return;
