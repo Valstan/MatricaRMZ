@@ -20,6 +20,7 @@ import {
   STATUS_CODES,
   isEavFlagSet,
   applyStatusFlagChange,
+  arrivalPlacements,
   engineInternalNumberDuplicateMessage,
   engineInternalNumberKey,
   formatEngineInternalNumber,
@@ -927,6 +928,15 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       ...(attachmentPreviews.length > 0 ? { attachmentPreviews } : {}),
     });
   }
+  // Роль заезда («свежий» / «архивный», N из M) считаем здесь, один раз и по ПОЛНОМУ списку:
+  // правило групповое — из одной строки не видно, есть ли у номера заезд посвежее, а по
+  // обрезанному набору «2 из 2» посчиталось бы враньём. Раньше её считал каждый потребитель
+  // сам (список — по всем ~1600 двигателям на рендер), а выпадающий выбор не считал вовсе.
+  const placements = arrivalPlacements(result);
+  for (const row of result) {
+    const placement = placements.get(row.id);
+    if (placement) row.arrival = placement;
+  }
   return result.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
@@ -1184,18 +1194,30 @@ export async function findEngineDuplicateCandidates(
   const defs = await getEngineAttrDefs(db);
   const numberDefId = defs['engine_number'];
   const brandDefId = defs['engine_brand'];
+  // Дата заезда и флаги едут тем же запросом: по ним карточка считает своё место в группе
+  // заездов (arrivalPlacements). Отдельного запроса по всему парку у карточки быть не должно.
+  const arrivalDateDefId = defs['arrival_date'];
+  const repeatArrivalDefId = defs['repeat_arrival_flag'];
+  const numberCollisionDefId = defs['number_collision_flag'];
   if (!numberDefId) return { exact: [], similar: [] };
 
   const engineTypeId = await getEngineTypeId(db);
   const engineRows = await db
-    .select({ id: entities.id })
+    .select({ id: entities.id, createdAt: entities.createdAt })
     .from(entities)
     .where(and(eq(entities.typeId, engineTypeId), isNull(entities.deletedAt)))
     .limit(200_000);
+  const createdById = new Map<string, number>();
+  for (const r of engineRows) {
+    const at = Number(r.createdAt);
+    if (Number.isFinite(at)) createdById.set(String(r.id), at);
+  }
   const engineIds = engineRows.map((r) => String(r.id)).filter((id) => id !== excludeEngineId);
   if (engineIds.length === 0) return { exact: [], similar: [] };
 
-  const wantedDefIds = [numberDefId, brandDefId].filter(Boolean) as string[];
+  const wantedDefIds = [numberDefId, brandDefId, arrivalDateDefId, repeatArrivalDefId, numberCollisionDefId].filter(
+    Boolean,
+  ) as string[];
   const valueRows = await collectChunked(engineIds, (idsChunk) =>
     db
       .select({
@@ -1216,12 +1238,30 @@ export async function findEngineDuplicateCandidates(
 
   const numberById = new Map<string, string>();
   const brandById = new Map<string, string>();
+  const arrivalDateById = new Map<string, number>();
+  const repeatArrivalIds = new Set<string>();
+  const numberCollisionIds = new Set<string>();
   for (const r of valueRows) {
     const eid = String(r.entityId);
-    const val = r.valueJson != null ? safeStringFromJson(String(r.valueJson)) : undefined;
+    const defId = String(r.attributeDefId);
+    const rawJson = r.valueJson != null ? String(r.valueJson) : null;
+    if (rawJson == null) continue;
+    if (defId === arrivalDateDefId) {
+      const parsed = Number(safeJsonParse(rawJson));
+      if (Number.isFinite(parsed)) arrivalDateById.set(eid, parsed);
+      continue;
+    }
+    if (defId === repeatArrivalDefId || defId === numberCollisionDefId) {
+      const parsed = safeJsonParse(rawJson);
+      if (parsed === true || parsed === 'true' || parsed === 1) {
+        (defId === repeatArrivalDefId ? repeatArrivalIds : numberCollisionIds).add(eid);
+      }
+      continue;
+    }
+    const val = safeStringFromJson(rawJson);
     if (val == null) continue;
-    if (String(r.attributeDefId) === numberDefId) numberById.set(eid, val);
-    else if (brandDefId && String(r.attributeDefId) === brandDefId) brandById.set(eid, val);
+    if (defId === numberDefId) numberById.set(eid, val);
+    else if (brandDefId && defId === brandDefId) brandById.set(eid, val);
   }
 
   const exact: EngineDuplicateCandidate[] = [];
@@ -1233,6 +1273,10 @@ export async function findEngineDuplicateCandidates(
       id: eid,
       engineNumber: trimmed,
       engineBrand: (brandById.get(eid) ?? '').trim(),
+      arrivalDate: arrivalDateById.get(eid) ?? null,
+      ...(createdById.has(eid) ? { createdAt: createdById.get(eid)! } : {}),
+      ...(repeatArrivalIds.has(eid) ? { isRepeatArrival: true } : {}),
+      ...(numberCollisionIds.has(eid) ? { isNumberCollision: true } : {}),
     };
     if (normalizeLookupCompact(trimmed) === key) exact.push(candidate);
     options.push({ id: eid, label: trimmed, hintText: candidate.engineBrand, candidate });

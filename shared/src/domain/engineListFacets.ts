@@ -17,6 +17,7 @@ import {
   type FacetSelection,
   type FacetValue,
 } from './listFacets.js';
+import type { ArrivalRole } from './repeatArrival.js';
 
 /**
  * Ступени списка двигателей поверх общего движка (`listFacets.ts`) — там же описано,
@@ -28,6 +29,7 @@ export type EngineFacetId =
   | 'contract'
   | 'brand'
   | 'arrivalYear'
+  | 'arrival'
   | 'completenessAct'
   | 'defectAct'
   | 'presence'
@@ -78,6 +80,18 @@ const ENGINE_STATUS_STAGE_ORDER: readonly StatusCode[] = [
   'status_repair_started',
   'status_storage_received',
 ];
+
+/**
+ * Заезды в ступени идут от свежего к архивному: оператор ищет в отчёте текущий заезд, а не
+ * перебирает историю. «Единственный» — хвост ряда: это обычный двигатель, а не заезд.
+ */
+const ARRIVAL_STAGE_ORDER: readonly ArrivalRole[] = ['current', 'archived', 'single'];
+
+const ARRIVAL_LABELS: Record<ArrivalRole, string> = {
+  current: 'свежий',
+  archived: 'архивный',
+  single: 'единственный',
+};
 
 /**
  * Ступени списка двигателей. Справочник видов работ (`types`) даёт ступеням «Этап на заводе» и
@@ -132,6 +146,21 @@ export function engineFacets(types?: readonly EngineFactoryStageTypeRef[]): read
         const year = String(new Date(ms).getFullYear());
         return { value: year, label: year };
       },
+    },
+    {
+      kind: 'values',
+      id: 'arrival',
+      // Повторный заезд (владелец 22.09.2026): в отчёте один и тот же номер приходит строкой
+      // свежего заезда и строками архивных, и без этой ступени сводка двоится. Роль берём из
+      // строки — считает её список целиком, по соседям с тем же номером.
+      label: 'Заезд',
+      // Место заезда строка несёт целиком, ступени нужна только роль; заезда нет — двигатель
+      // с этим номером один, и это «единственный», а не пропуск ступени.
+      valueOf: (e) => {
+        const role: ArrivalRole = e.arrival?.role ?? 'single';
+        return { value: role, label: ARRIVAL_LABELS[role] };
+      },
+      options: ARRIVAL_STAGE_ORDER.map((role) => ({ value: role, label: ARRIVAL_LABELS[role] })),
     },
     {
       kind: 'values',

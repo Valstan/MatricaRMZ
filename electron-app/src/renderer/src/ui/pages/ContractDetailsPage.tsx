@@ -89,6 +89,7 @@ import { buildServiceMemoSections } from '../utils/serviceMemo.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions, mapPartRowsToSearchOptions } from '../utils/selectOptions.js';
+import { compareEngineOptions, engineOptionLabel } from '../utils/engineOptionLabel.js';
 import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
 import { BRAND_LABEL_TEXTS, lookupLabel } from '../utils/lookupLabel.js';
 
@@ -307,14 +308,6 @@ function collectProgressContractNumbers(sections: ContractSections | null): Set<
 
 function toggleExpanded(prev: Record<string, boolean>, key: string): Record<string, boolean> {
   return { ...prev, [key]: prev[key] === false };
-}
-
-function engineOptionLabel(engine: EngineListItem): string {
-  const internal = engine.internalNumberFull?.trim();
-  const parts = [engine.engineNumber, internal ? `внутр. ${internal}` : '', engine.engineBrand].filter(
-    (value) => typeof value === 'string' && value.trim(),
-  );
-  return parts.length > 0 ? parts.join(' — ') : engine.id.slice(0, 8);
 }
 
 function currentEngineStatusLabel(engine: EngineListItem): string {
@@ -1556,11 +1549,14 @@ export function ContractDetailsPage(props: {
           e.engineBrandId ? [[String(e.id), String(e.engineBrandId)] as const] : [],
         ),
       );
-      const engineOpts = (Array.isArray(engines) ? engines : []).map((engine) => ({
+      // Сортируем двигатели, а не готовые подписи: по алфавиту пометка «архивный заезд»
+      // встала бы выше «свежего», а первым под пальцем должен быть свежий заезд.
+      const engineOptionSource = Array.isArray(engines) ? [...engines] : [];
+      engineOptionSource.sort(compareEngineOptions);
+      const engineOpts = engineOptionSource.map((engine) => ({
         id: engine.id,
         label: engineOptionLabel(engine),
       }));
-      engineOpts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
       setAllEngineOptions(engineOpts);
       const aggregate = aggregateContractExecutionProgress({
         sections,

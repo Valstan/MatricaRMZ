@@ -68,6 +68,7 @@ import { normalizeLookupText } from '../utils/searchMatching.js';
 import { buildWorkOrderA4PreviewHtml, openPrintPreview } from '../utils/printPreview.js';
 import { buildWorkOrderPrintModel, type WoPrintDeps } from '../utils/woPrintModel.js';
 import { buildSearchOption, joinOptionHint, joinOptionSearch } from '../utils/selectOptions.js';
+import { withArrivalNote } from '../utils/engineOptionLabel.js';
 
 type LinkOpt = SearchSelectOption;
 
@@ -780,7 +781,8 @@ export function WorkOrderDetailsPage(props: {
         const search = joinOptionSearch([e.engineNumber || '', e.engineInternalNumber || '', e.id, e.engineBrandName || '']);
         return buildSearchOption({
           id: e.id,
-          label: e.engineNumber || e.id,
+          // Пометка заезда — в подписи: по одному номеру мастер не отличит свежий заезд от архивного.
+          label: withArrivalNote(e.engineNumber || e.id, e.arrival),
           ...(hint ? { hintText: hint } : {}),
           ...(search ? { searchText: search } : {}),
         });

@@ -9,7 +9,7 @@ import {
   engineInternalNumberSortKey,
   engineScrapDate,
   engineStatusDate,
-  findArchivedArrivalIds,
+  arrivalPlacementLabel,
   formatEngineInternalNumber,
   formatEngineReservationUntil,
 } from '@matricarmz/shared';
@@ -375,9 +375,6 @@ export function EnginesPage(props: {
   const { isMultiColumn } = useListColumnsMode();
   const twoCol = isMultiColumn && width >= 1400;
 
-  // Ф2 (повторный заезд): старые заезды того же номера помечаются «архивный заезд».
-  const archivedArrivalIds = useMemo(() => findArchivedArrivalIds(props.engines), [props.engines]);
-
   // Верхний поиск: tier-1 по полям строки + tier-2 внутрь карточек (EAV).
   const getRowId = React.useCallback((e: EngineListItem) => String(e.id), []);
   const getRowLabel = React.useCallback((e: EngineListItem) => String(e.engineNumber ?? ''), []);
@@ -547,9 +544,13 @@ export function EnginesPage(props: {
         render: (e) => (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <span>{e.engineNumber ?? '-'}</span>
-            {archivedArrivalIds.has(e.id) ? (
+            {/* Ф2 (повторный заезд): роль карточки приезжает готовой из listEngines (`e.arrival`) —
+                правило групповое и живёт в одном месте, список его больше не пересчитывает.
+                Порядковый номер («1 из 2») держим в подсказке, а не в бейдже: колонка «Номер»
+                и так несёт до трёх значков, втрое длиннее бейдж отжал бы сам номер. */}
+            {e.arrival?.role === 'archived' ? (
               <span
-                title="Есть более свежий заезд с этим номером"
+                title={`Есть более свежий заезд с этим номером: ${arrivalPlacementLabel(e.arrival)}`}
                 style={{
                   fontSize: 10,
                   padding: '1px 6px',
@@ -562,7 +563,7 @@ export function EnginesPage(props: {
                 архивный заезд
               </span>
             ) : null}
-            {e.isRepeatArrival && !archivedArrivalIds.has(e.id) ? (
+            {e.isRepeatArrival && e.arrival?.role !== 'archived' ? (
               <span
                 title="Повторный заезд: новый ремонт двигателя с тем же номером"
                 style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: 'rgba(37, 99, 235, 0.12)', color: '#1d4ed8', whiteSpace: 'nowrap' }}
@@ -645,7 +646,7 @@ export function EnginesPage(props: {
         render: (e) => <ListRowThumbs files={(e as EngineRow).attachmentPreviews ?? []} />,
       },
     ],
-    [archivedArrivalIds],
+    [],
   );
   const allColumnIds = useMemo(() => allColumns.map((c) => c.id), [allColumns]);
   const columnsById = useMemo(() => new Map(allColumns.map((c) => [c.id, c])), [allColumns]);

@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import { arrivalPlacementLabel, arrivalPlacements } from '@matricarmz/shared';
+
 // Сторож вкладок карточки двигателя «Акт комплектности» / «Акт дефектовки» (D1, план autumn-2026).
 //
 // Прежняя вкладка «Детали и акты» разрезана на две, но лист деталей под ними остался ОДИН:
@@ -175,5 +177,83 @@ describe('старый ключ вкладки «Детали и акты» вы
     // новый ключ знала, App — нет.
     expect(APP).toContain("import type { EngineCardTab } from './pages/EngineDetailsPage.js';");
     expect(APP).not.toMatch(/'main'\s*\|\s*'/);
+  });
+});
+
+// Карточка описывает себя МЕСТОМ в группе заездов, а не собственным флагом (владелец 22.09.2026:
+// «в карточке старого заезда стоит неправильная логика: там написано "повторный заезд" и есть
+// ссылки на прежние заезды, хотя это и есть тот самый прежний заезд»).
+//
+// `repeat_arrival_flag` образует группу, но ничего не говорит о месте в ней: он взведён и у
+// третьего заезда, и у того, который давно стал архивом. Отсюда ассерты ниже — каждый держит
+// СВОЙСТВО, а не написание.
+describe('карточка двигателя знает, свежий это заезд или архивный', () => {
+  it('бейдж не читает собственный флаг карточки', () => {
+    // Ровно та ветка, на которую жаловался владелец: своим флагом карточка звала себя
+    // «повторным заездом» независимо от того, есть ли заезд свежее.
+    expect(CARD).not.toContain('🔁 Повторный заезд');
+    expect(CARD).not.toMatch(/repeatArrivalFlag\s*\?\s*'/);
+    // Коллизия номера — про другой физический двигатель, а не про заезды: остаётся своим флагом.
+    expect(CARD).toContain('⚠ Коллизия номера');
+    expect(CARD).toMatch(/\{numberCollisionFlag && \(/);
+  });
+
+  it('место и подпись берутся из общего правила shared', () => {
+    // Своя копия правила в карточке разъехалась бы со списком и выпадающим выбором двигателя.
+    expect(CARD).toContain('arrivalPlacements(');
+    expect(CARD).toContain('arrivalPlacementLabel(');
+    expect(CARD).not.toMatch(/'(?:Свежий|Архивный|свежий|архивный) заезд \(/);
+  });
+
+  it('состав группы приходит из подсказки о дублях, а не из нового запроса по парку', () => {
+    // Карточка не должна тянуть весь список двигателей ради одной строки о себе.
+    const memoAt = CARD.indexOf('const arrivalGroup = useMemo(');
+    expect(memoAt).toBeGreaterThan(-1);
+    const memo = CARD.slice(memoAt, CARD.indexOf('}, [', memoAt));
+    expect(memo).toContain('dupMatches.exact');
+    expect(memo).not.toContain('window.matrica');
+    expect(CARD).not.toMatch(/engines\s*\.\s*list\b/);
+  });
+
+  it('у архивной карточки есть заметный переход на более свежий заезд', () => {
+    const archivedAt = CARD.indexOf("arrivalGroup.placement.role === 'archived'");
+    expect(archivedAt).toBeGreaterThan(-1);
+    const branch = CARD.slice(archivedAt, CARD.indexOf('</div>', CARD.indexOf('свежий заезд →', archivedAt)));
+    expect(branch).toContain('Есть более свежий заезд');
+    // Переход — тем же пропом, что и прежняя ссылка: другого способа открыть карточку у страницы нет.
+    expect(branch).toMatch(/onOpenEngine\?\.\(arrivalGroup\.current!?\.id\)/);
+    // Ссылки «прежний заезд →» по previous_arrival_id больше нет: для архивной карточки
+    // прежний заезд — она сама.
+    expect(CARD).not.toContain('прежний заезд →');
+  });
+
+  it('свежая карточка показывает счётчик архивных заездов со ссылками', () => {
+    expect(CARD).toContain('Архивных заездов:');
+    const currentAt = CARD.indexOf("arrivalGroup.placement.role === 'current' && arrivalGroup.archived.length > 0");
+    expect(currentAt).toBeGreaterThan(-1);
+    const branch = CARD.slice(currentAt, currentAt + 1200);
+    expect(branch).toMatch(/arrivalGroup\.archived\.map\(/);
+    expect(branch).toMatch(/onOpenEngine\?\.\(o\.id\)/);
+  });
+
+  it('одиночный заезд блока не рисует', () => {
+    // Весь блок — под группой; правило места не выдаёт места карточкам без группы,
+    // и блока в обычной карточке не появляется.
+    expect(CARD).toMatch(/\{arrivalGroup && \(/);
+    expect(CARD).toContain('if (!selfPlacement) return null;');
+    expect(arrivalPlacements([{ id: 'solo', engineNumber: 'X-1', isRepeatArrival: true }]).size).toBe(0);
+  });
+
+  it('подпись архивного заезда не называет его повторным', () => {
+    // Свойство самой подписи: «повторный заезд» — служебный флаг, оператору он ничего
+    // не говорит о том, где писать новые работы.
+    const placements = arrivalPlacements([
+      { id: 'old', engineNumber: '2Ж03АТ0479', arrivalDate: Date.UTC(2025, 4, 1) },
+      { id: 'fresh', engineNumber: '2ж03ат0479', isRepeatArrival: true, arrivalDate: Date.UTC(2026, 8, 1) },
+    ]);
+    expect(placements.get('old')?.role).toBe('archived');
+    expect(placements.get('fresh')?.role).toBe('current');
+    expect(arrivalPlacementLabel(placements.get('old'))).toContain('архивный заезд');
+    expect(arrivalPlacementLabel(placements.get('old'))).not.toContain('повторный');
   });
 });

@@ -80,7 +80,7 @@ type ListUiState = {
 };
 
 /** Ступени отчёта — подмножество ступеней списка двигателей; порядок — как на панели. */
-const FACET_IDS = ['customer', 'contract', 'brand', 'workshop', 'factoryStage', 'sheetNode', 'scrap', 'reclamation', 'arrivalYear', 'arrivalDate', 'sheetDate'] as const;
+const FACET_IDS = ['customer', 'contract', 'brand', 'workshop', 'factoryStage', 'sheetNode', 'scrap', 'reclamation', 'arrivalYear', 'arrival', 'arrivalDate', 'sheetDate'] as const;
 
 const REPORT_HIDDEN_BY_DEFAULT = ['contract', 'sheetAt', 'historyAt', 'repairStartedAt', 'repairedAt', 'scrapAt'];
 

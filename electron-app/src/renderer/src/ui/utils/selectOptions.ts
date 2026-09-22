@@ -1,3 +1,7 @@
+import type { ArrivalPlacement } from '@matricarmz/shared';
+
+import { withArrivalNote } from './engineOptionLabel.js';
+
 export type SearchableSelectOption = {
   id: string;
   label: string;
@@ -110,16 +114,19 @@ type EngineOptionLike = {
   engineNumber?: string | null;
   internalNumberFull?: string | null;
   engineBrand?: string | null;
+  arrival?: ArrivalPlacement | undefined;
 };
 
 /**
  * Опции выбора двигателя — одни и те же в карточке этапа работ и в черновой строке списка:
  * подпись — номер, подсказка — внутренний номер и марка, ищется по всем трём и по id.
+ * Пометка заезда идёт в подпись, а не в подсказку: два заезда одного номера обязаны
+ * различаться там же, где оператор выбирает — в строке списка.
  */
 export function buildEngineSearchOptions(engines: EngineOptionLike[]): SearchableSelectOption[] {
   return engines.map((e) => {
     const hint = joinOptionHint([e.internalNumberFull ? `внутр. ${e.internalNumberFull}` : '', e.engineBrand]);
     const search = joinOptionSearch([e.engineNumber ?? '', e.internalNumberFull ?? '', e.id, e.engineBrand ?? '']);
-    return buildSearchOption({ id: e.id, label: e.engineNumber || e.id, ...(hint ? { hintText: hint } : {}), ...(search ? { searchText: search } : {}) });
+    return buildSearchOption({ id: e.id, label: withArrivalNote(e.engineNumber || e.id, e.arrival), ...(hint ? { hintText: hint } : {}), ...(search ? { searchText: search } : {}) });
   });
 }
