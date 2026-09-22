@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { EngineDetails, EngineDuplicateMatches, EngineInternalNumberDuplicate, FileRef, SupplyRequestItem } from '@matricarmz/shared';
-import { REPAIR_HISTORY_OPERATION_TYPE, repairHistoryMetaForStatus, repairHistoryNoteLine, looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, buildContractSectionOptions, contractSectionAddonToken, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, planSlotForEngine, attachEngineToSlot, applyStatusFlagChange, isEavFlagSet, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
+import { REPAIR_HISTORY_OPERATION_TYPE, repairHistoryMetaForStatus, repairHistoryNoteLine, looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, buildContractSectionOptions, contractSectionAddonToken, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, planSlotForEngine, attachEngineToSlot, applyStatusFlagChange, isEavFlagSet, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, arrivalPlacements, arrivalPlacementLabel, type ArrivalListItem, type ArrivalPlacement, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -776,6 +776,63 @@ export function EngineDetailsPage(props: {
       clearTimeout(timer);
     };
   }, [engineNumber, props.engineId]);
+
+  /**
+   * Место этой карточки среди заездов с тем же номером (владелец 22.09.2026).
+   *
+   * Карточка не вправе судить о себе по собственному флагу: `repeat_arrival_flag` только
+   * образует группу заездов, но не говорит, свежий это заезд или уже архивный — третий
+   * заезд с тем же флагом звал себя «повторным», а архивный не знал, что он архивный.
+   * Состав группы берём из той же подсказки о дублях (`exact` — тот же канон-номер, текущая
+   * карточка из выдачи исключена), поэтому второго запроса по парку не появляется.
+   * Даты берём сохранённые, а не из полей ввода: правка даты прихода не должна перетасовывать
+   * порядок заездов до сохранения.
+   */
+  const arrivalGroup = useMemo(() => {
+    const number = engineNumber.trim();
+    if (!number) return null;
+    const self: ArrivalListItem = {
+      id: props.engineId,
+      engineNumber: number,
+      isRepeatArrival: repeatArrivalFlag,
+      isNumberCollision: numberCollisionFlag,
+      arrivalDate: normalizeDateInput(props.engine.attributes?.arrival_date),
+      createdAt: props.engine.createdAt,
+    };
+    const items: ArrivalListItem[] = [
+      self,
+      ...dupMatches.exact.map((c) => ({
+        id: c.id,
+        engineNumber: c.engineNumber,
+        isRepeatArrival: c.isRepeatArrival === true,
+        isNumberCollision: c.isNumberCollision === true,
+        arrivalDate: c.arrivalDate ?? null,
+        ...(c.createdAt != null ? { createdAt: c.createdAt } : {}),
+      })),
+    ];
+    const placements = arrivalPlacements(items);
+    const selfPlacement = placements.get(props.engineId);
+    if (!selfPlacement) return null;
+    const others = items
+      .filter((it) => it.id !== props.engineId)
+      .map((it) => ({ id: it.id, placement: placements.get(it.id) }))
+      .filter((o): o is { id: string; placement: ArrivalPlacement } => o.placement != null)
+      // От старого к свежему — тем же порядком, что и нумерация «N из M» в подписи.
+      .sort((a, b) => a.placement.index - b.placement.index);
+    return {
+      placement: selfPlacement,
+      archived: others.filter((o) => o.placement.role === 'archived'),
+      current: others.find((o) => o.placement.role === 'current') ?? null,
+    };
+  }, [
+    dupMatches,
+    engineNumber,
+    repeatArrivalFlag,
+    numberCollisionFlag,
+    props.engineId,
+    props.engine.attributes,
+    props.engine.createdAt,
+  ]);
 
   /**
    * Пара (номер, год) из полей карточки. Номер терпит и '41', и полный '41/26' —
@@ -1594,6 +1651,30 @@ export function EngineDetailsPage(props: {
   // Резиновые поля верхнего блока: floor 30 символов, потолок ~48ch — не на всю ширину экрана.
   const elasticFieldStyle: React.CSSProperties = { width: '100%', minWidth: '30ch', maxWidth: '48ch' };
 
+  const arrivalBadgeStyle: React.CSSProperties = {
+    fontSize: 11,
+    fontWeight: 700,
+    padding: '2px 8px',
+    borderRadius: 10,
+    background: 'rgba(37, 99, 235, 0.12)',
+    color: '#1d4ed8',
+    border: '1px solid rgba(37, 99, 235, 0.35)',
+  };
+  const arrivalLinkStyle: React.CSSProperties = {
+    background: 'none',
+    border: 'none',
+    color: '#2563eb',
+    cursor: 'pointer',
+    fontSize: 11,
+    textDecoration: 'underline',
+    padding: 0,
+  };
+  // Подпись заезда одна на всё приложение (shared), здесь только заглавная буква начала строки.
+  const arrivalLabel = (placement: ArrivalPlacement): string => {
+    const text = arrivalPlacementLabel(placement);
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  };
+
   const mainFieldItems = [
     {
       code: 'engine_number',
@@ -1617,34 +1698,68 @@ export function EngineDetailsPage(props: {
               setEngineNumber(e.target.value);
             }}
           />
-          {(repeatArrivalFlag || numberCollisionFlag) && (
+          {numberCollisionFlag && (
             <div style={{ marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  padding: '2px 8px',
-                  borderRadius: 10,
-                  background: 'rgba(37, 99, 235, 0.12)',
-                  color: '#1d4ed8',
-                  border: '1px solid rgba(37, 99, 235, 0.35)',
-                }}
-              >
-                {repeatArrivalFlag ? '🔁 Повторный заезд' : '⚠ Коллизия номера'}
-              </span>
-              <span style={{ fontSize: 11, color: 'var(--subtle)' }}>
-                {repeatArrivalFlag
-                  ? 'Новый независимый ремонт того же двигателя (не рекламация).'
-                  : 'Другой физический двигатель с совпавшим номером.'}
-              </span>
-              {previousArrivalId && props.onOpenEngine ? (
-                <button
-                  type="button"
-                  onClick={() => props.onOpenEngine?.(previousArrivalId)}
-                  style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: 11, textDecoration: 'underline', padding: 0 }}
+              <span style={arrivalBadgeStyle}>⚠ Коллизия номера</span>
+              <span style={{ fontSize: 11, color: 'var(--subtle)' }}>Другой физический двигатель с совпавшим номером.</span>
+            </div>
+          )}
+          {/* Карточка говорит о себе местом в группе заездов, а не собственным флагом: «повторный
+              заезд» бывает и третьим по счёту, а самый старый заезд группы — уже архив. Единственный
+              заезд (группы нет) блока не показывает — лишняя строка в обычной карточке. */}
+          {arrivalGroup && (
+            <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={arrivalBadgeStyle}>{arrivalLabel(arrivalGroup.placement)}</span>
+                {arrivalGroup.placement.role === 'current' ? (
+                  <span style={{ fontSize: 11, color: 'var(--subtle)' }}>
+                    Этот заезд — действующий; прежние заезды того же двигателя остаются в архиве.
+                  </span>
+                ) : null}
+              </div>
+              {arrivalGroup.placement.role === 'current' && arrivalGroup.archived.length > 0 ? (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'baseline', fontSize: 11, color: 'var(--subtle)' }}>
+                  <span>Архивных заездов: {arrivalGroup.archived.length}</span>
+                  {arrivalGroup.archived.map((o) =>
+                    props.onOpenEngine ? (
+                      <button key={o.id} type="button" onClick={() => props.onOpenEngine?.(o.id)} style={arrivalLinkStyle}>
+                        {arrivalPlacementLabel(o.placement)} →
+                      </button>
+                    ) : (
+                      <span key={o.id}>{arrivalPlacementLabel(o.placement)}</span>
+                    ),
+                  )}
+                </div>
+              ) : null}
+              {arrivalGroup.placement.role === 'archived' ? (
+                // Заметно: оператор, открывший старый заезд из поиска, должен сразу увидеть, что
+                // работать надо не здесь, — иначе он допишет историю в архив.
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 8,
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    padding: '4px 8px',
+                    borderRadius: 8,
+                    background: 'rgba(180, 83, 9, 0.10)',
+                    border: '1px solid rgba(180, 83, 9, 0.35)',
+                    color: '#b45309',
+                    fontSize: 11,
+                    fontWeight: 600,
+                  }}
                 >
-                  прежний заезд →
-                </button>
+                  <span>Есть более свежий заезд этого двигателя — новые работы пишите в него.</span>
+                  {arrivalGroup.current && props.onOpenEngine ? (
+                    <button
+                      type="button"
+                      onClick={() => props.onOpenEngine?.(arrivalGroup.current!.id)}
+                      style={{ ...arrivalLinkStyle, fontWeight: 700 }}
+                    >
+                      свежий заезд →
+                    </button>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           )}

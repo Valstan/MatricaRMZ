@@ -10,7 +10,7 @@
  */
 import { subscribeLiveDataPulse } from './liveDataService.js';
 
-import type { NomenclatureItemType } from '@matricarmz/shared';
+import type { ArrivalPlacement, NomenclatureItemType } from '@matricarmz/shared';
 import { NOMENCLATURE_ITEM_TYPE_HAS_STOCK } from '@matricarmz/shared';
 
 export type ServiceInfo = {
@@ -42,6 +42,8 @@ export type EngineInfo = {
   engineBrandName?: string;
   contractId?: string | null;
   customerId?: string | null;
+  /** Место карточки среди заездов этого номера — им подпись в выборе двигателя отличает свежий заезд от архивного. */
+  arrival?: ArrivalPlacement | undefined;
 };
 export type PartInfo = { id: string; name: string; article?: string; sku?: string; itemType?: NomenclatureItemType };
 
@@ -125,6 +127,7 @@ async function loadEngines(): Promise<EngineInfo[]> {
     engineBrandName: String(e.engineBrand ?? ''),
     contractId: e.contractId ? String(e.contractId) : null,
     customerId: e.customerId ? String(e.customerId) : null,
+    arrival: e.arrival ?? undefined,
   }));
 }
 

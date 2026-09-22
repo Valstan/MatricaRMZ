@@ -289,3 +289,27 @@ describe('ступень «Этап на заводе» со справочни�
     expect(values.slice(6).sort()).toEqual(['sheet:ukladka', 'sheet:сборка']);
   });
 });
+
+// Повторный заезд (владелец 22.09.2026): «чтобы потом в отчётах мы могли разобрать, где старый
+// заезд, где новый». Роль заезда строка несёт готовой — ступень её только раскладывает.
+const arrivalRows = [
+  { id: 'r1', engineNumber: '77', arrival: { role: 'archived', index: 1, total: 2, year: 2025 } },
+  { id: 'r2', engineNumber: '77', arrival: { role: 'current', index: 2, total: 2, year: 2026 } },
+  { id: 'r3', engineNumber: '78' },
+] as unknown as EngineListItem[];
+
+describe('ступень «Заезд»', () => {
+  it('отбирает свежий и архивный заезд врозь, а двигатель без заездов — «единственный»', () => {
+    expect(engineFacetById('arrival')?.label).toBe('Заезд');
+    expect(ids(applyEngineFacets(arrivalRows, { arrival: ['current'] }))).toEqual(['r2']);
+    expect(ids(applyEngineFacets(arrivalRows, { arrival: ['archived'] }))).toEqual(['r1']);
+    expect(ids(applyEngineFacets(arrivalRows, { arrival: ['single'] }))).toEqual(['r3']);
+  });
+
+  it('ряд значений полный и в порядке свежий → архивный → единственный', () => {
+    const options = engineFacetOptions(arrivalRows, {}, 'arrival');
+    expect(options.map((o) => o.value)).toEqual(['current', 'archived', 'single']);
+    expect(options.map((o) => o.label)).toEqual(['свежий', 'архивный', 'единственный']);
+    expect(options.map((o) => o.count)).toEqual([1, 1, 1]);
+  });
+});

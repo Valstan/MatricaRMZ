@@ -12,6 +12,7 @@ import type { SupportContact } from '../domain/supportContact.js';
 import type { ServicePriceHistoryDto, ServicePriceOrderDto } from '../domain/servicePriceOrders.js';
 import type { WorkSheetRow, WorkSheetType } from '../domain/workSheets.js';
 import type { WorkSheetDuplicateRef } from '../domain/workSheetDuplicates.js';
+import type { ArrivalPlacement } from '../domain/repeatArrival.js';
 
 // Общие типы IPC (используются и в Electron main, и в renderer).
 
@@ -98,6 +99,13 @@ export type EngineListItem = {
   isReclamation?: boolean;
   isRepeatArrival?: boolean;
   isNumberCollision?: boolean;
+  /**
+   * Место карточки среди заездов своего номера («свежий» / «архивный», N из M). Считает
+   * `listEngines` один раз на весь список: роль — свойство ГРУППЫ, из одной строки её не
+   * видно, а каждый пикер, пересчитывая её сам, прогонял бы весь парк (~1600) на рендер.
+   * Пусто, если заезд единственный.
+   */
+  arrival?: ArrivalPlacement;
   /** Ф2: живой advisory-резерв — «логин + ФИО» держателя и срок (для бейджа в списке). */
   reservedByLabel?: string;
   reservedByUserId?: string;
@@ -149,6 +157,16 @@ export type EngineDuplicateCandidate = {
   id: string;
   engineNumber: string;
   engineBrand: string;
+  /**
+   * Дата заезда, флаги и created — чтобы карточка сложила из себя и кандидатов группу
+   * заездов и через `arrivalPlacements` узнала, свежий она заезд или архивный. Без них
+   * карточка судила о себе по собственному флагу и звала себя «повторным заездом»,
+   * будучи уже архивной (владелец 22.09.2026).
+   */
+  arrivalDate?: number | null;
+  createdAt?: number;
+  isRepeatArrival?: boolean;
+  isNumberCollision?: boolean;
 };
 
 /** Двигатель, уже занявший пару (внутренний номер, год) — показывается как причина отказа. */

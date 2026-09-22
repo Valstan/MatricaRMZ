@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  ArrivalPlacement,
   DefectConductedVersionSummary,
   DefectOrigin,
   DefectPartHistoryEvent,
@@ -24,6 +25,7 @@ import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js
 import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { fetchWarehouseStockAllPages } from '../utils/warehousePagedFetch.js';
 import { buildStockDocumentSnapshot } from '../utils/stockDocumentDirty.js';
+import { withArrivalNote } from '../utils/engineOptionLabel.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
 import {
@@ -271,10 +273,11 @@ export function StockDocumentDetailsPage(props: {
         const engines = await window.matrica.engines.list();
         if (Array.isArray(engines)) {
           setEngineOptions(
-            engines.map((e: { id: string; engineNumber?: string; internalNumberFull?: string; engineBrand?: string }) => {
+            engines.map((e: { id: string; engineNumber?: string; internalNumberFull?: string; engineBrand?: string; arrival?: ArrivalPlacement }) => {
               const num = String(e.engineNumber ?? '').trim() || String(e.internalNumberFull ?? '').trim() || '(без номера)';
               const brand = String(e.engineBrand ?? '').trim();
-              return { id: String(e.id), label: brand ? `${num} — ${brand}` : num };
+              // Пометка заезда: детали адресуются в конкретный заезд, а не «в номер».
+              return { id: String(e.id), label: withArrivalNote(brand ? `${num} — ${brand}` : num, e.arrival) };
             }),
           );
         }
