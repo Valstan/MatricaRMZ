@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
+import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { matchesQueryInRecord } from '../utils/search.js';
@@ -20,6 +21,7 @@ export function EngineBrandGroupsPage(props: {
   const [entityTypeId, setEntityTypeId] = useState<string | null>(null);
   const [rows, setRows] = useState<GroupRow[]>([]);
   const [query, setQuery] = useState('');
+  const [searchSimilar, setSearchSimilar] = useState(false);
   const [status, setStatus] = useState('');
   const { confirm } = useConfirm();
 
@@ -63,9 +65,13 @@ export function EngineBrandGroupsPage(props: {
 
   useLiveDataRefresh(refresh, { enabled: props.canViewMasterData, intervalMs: 20000 });
 
+  const searchMode = searchModeOf(searchSimilar);
   const filtered = useMemo(
-    () => rows.filter((r) => matchesQueryInRecord(query, { name: r.name, description: r.description, id: r.id })),
-    [rows, query],
+    () =>
+      rows.filter((r) =>
+        matchesQueryInRecord(query, { name: r.name, description: r.description, id: r.id }, undefined, searchMode),
+      ),
+    [rows, query, searchMode],
   );
   const sorted = useMemo(() => [...filtered].sort((a, b) => a.name.localeCompare(b.name, 'ru')), [filtered]);
 
@@ -115,6 +121,7 @@ export function EngineBrandGroupsPage(props: {
         <div style={{ flex: 1 }}>
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по названию или описанию..." />
         </div>
+        <SearchModeToggle similar={searchSimilar} onToggle={() => setSearchSimilar((v) => !v)} />
         <Button variant="ghost" onClick={() => void refresh()}>
           Обновить
         </Button>

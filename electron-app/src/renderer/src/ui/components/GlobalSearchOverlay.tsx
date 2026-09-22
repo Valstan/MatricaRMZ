@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 
 import { globalSearchKindLabel, type GlobalSearchHit, type GlobalSearchKind } from '@matricarmz/shared';
 
+import { SearchModeToggle, searchModeOf } from './SearchModeToggle.js';
 import { useGlobalSearchScope } from '../context/globalSearchScope.js';
 import { L2_SOURCES, loadAllL2, pickL2Label, type L2Row } from '../services/globalSearchSources.js';
 import { KIND_PATH, UI_SEARCH_ENTRIES, type UiSearchEntry } from '../services/uiSearchRegistry.js';
@@ -78,6 +79,9 @@ export function GlobalSearchOverlay(props: {
 
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<LevelMode>('auto');
+  // Режим совпадения — не путать с уровнем поиска `mode`: точное или ещё и похожее.
+  const [searchSimilar, setSearchSimilar] = useState(false);
+  const searchMode = searchModeOf(searchSimilar);
   const [l2Loaded, setL2Loaded] = useState<Partial<Record<GlobalSearchKind, L2Row[]>>>({});
   const [serverHits, setServerHits] = useState<GlobalSearchHit[]>([]);
   const [serverLoading, setServerLoading] = useState(false);
@@ -266,7 +270,7 @@ export function GlobalSearchOverlay(props: {
     const out: GlobalSearchHit[] = [];
 
     if (showL1 && scope && l1Prepared) {
-      for (const r of filterPreparedRecords(l1Prepared, q).records.slice(0, PER_GROUP)) {
+      for (const r of filterPreparedRecords(l1Prepared, q, searchMode).records.slice(0, PER_GROUP)) {
         const id = scope.getId(r);
         if (!id) continue;
         out.push({ kind: scope.kind, id, label: scope.getLabel(r) || id });
@@ -276,7 +280,7 @@ export function GlobalSearchOverlay(props: {
       for (const src of L2_SOURCES) {
         const prep = l2Prepared[src.kind];
         if (!prep) continue;
-        for (const r of filterPreparedRecords(prep, q).records.slice(0, PER_GROUP)) {
+        for (const r of filterPreparedRecords(prep, q, searchMode).records.slice(0, PER_GROUP)) {
           const id = String(r.id ?? '');
           if (!id) continue;
           const code = src.getCode?.(r) ?? '';
@@ -295,7 +299,7 @@ export function GlobalSearchOverlay(props: {
       seen.add(key);
       return true;
     });
-  }, [query, mode, scope, l1Prepared, l2Prepared, serverHits, sheetHits]);
+  }, [query, mode, searchMode, scope, l1Prepared, l2Prepared, serverHits, sheetHits]);
 
   // Deep-only hits: ids matched inside card content that tier-1/2/3 did not surface.
   const deepHits = useMemo<GlobalSearchHit[]>(() => {
@@ -316,8 +320,8 @@ export function GlobalSearchOverlay(props: {
   const uiRows = useMemo<UiSearchEntry[]>(() => {
     const q = query.trim();
     if (!q || !(mode === 'auto' || mode === 'page')) return [];
-    return filterPreparedRecords(uiPrepared, q).records.slice(0, PER_GROUP);
-  }, [query, mode, uiPrepared]);
+    return filterPreparedRecords(uiPrepared, q, searchMode).records.slice(0, PER_GROUP);
+  }, [query, mode, searchMode, uiPrepared]);
 
   // Двигатели по «№ на детали»: dedup против уже показанных двигателей; метку берём из L2
   // (актуальный номер двигателя), номер детали — как code справа.
@@ -509,7 +513,7 @@ export function GlobalSearchOverlay(props: {
               outline: 'none',
             }}
           />
-          <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10 }}>
             {LEVELS.map((lvl) => {
               const activeLevel = lvl.mode === mode;
               return (
@@ -532,6 +536,10 @@ export function GlobalSearchOverlay(props: {
                 </button>
               );
             })}
+            {/* Режим совпадения отодвинут вправо, чтобы не читался как ещё один уровень поиска. */}
+            <span style={{ marginLeft: 'auto' }}>
+              <SearchModeToggle similar={searchSimilar} onToggle={() => setSearchSimilar((v) => !v)} />
+            </span>
           </div>
         </div>
 
@@ -541,7 +549,11 @@ export function GlobalSearchOverlay(props: {
           )}
           {q.length > 0 && flat.length === 0 && (
             <div style={{ padding: '18px 16px', color: 'var(--muted)', fontSize: 14 }}>
-              {serverLoading ? 'Поиск…' : 'Ничего не найдено'}
+              {serverLoading
+                ? 'Поиск…'
+                : searchSimilar
+                  ? 'Ничего не найдено'
+                  : 'Ничего не найдено. Нажмите «≈ Похожие», чтобы искать с опечатками и по части слова.'}
             </div>
           )}
           {groups.map((group) => (

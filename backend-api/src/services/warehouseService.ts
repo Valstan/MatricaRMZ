@@ -2367,6 +2367,8 @@ export async function listWarehouseStock(args?: {
   warehouseId?: string;
   nomenclatureId?: string;
   search?: string;
+  /** Тумблер «≈ Похожие»: без него поиск ищет только точное совпадение введённого. */
+  similar?: boolean;
   lowStockOnly?: boolean;
   limit?: number;
   offset?: number;
@@ -2398,13 +2400,19 @@ export async function listWarehouseStock(args?: {
       }
       return true;
     });
-    const searched = filterRowsTiered(baseFiltered, search, (row) => {
-      const n = row.nomenclatureId ? nomenclatureById.get(String(row.nomenclatureId)) : undefined;
-      return {
-        label: String(n?.name ?? ''),
-        searchText: `${String(n?.code ?? '')} ${String(n?.sku ?? '')} ${String(row.warehouseLocationId ?? '')}`,
-      };
-    });
+    // Похожее (опечатки, часть слова, другая раскладка) подмешивается только по тумблеру на странице.
+    const searched = filterRowsTiered(
+      baseFiltered,
+      search,
+      (row) => {
+        const n = row.nomenclatureId ? nomenclatureById.get(String(row.nomenclatureId)) : undefined;
+        return {
+          label: String(n?.name ?? ''),
+          searchText: `${String(n?.code ?? '')} ${String(n?.sku ?? '')} ${String(row.warehouseLocationId ?? '')}`,
+        };
+      },
+      { fuzzyFallback: args?.similar === true },
+    );
     const filtered = searched.rows
       .map((row) => {
         const n = row.nomenclatureId ? nomenclatureById.get(String(row.nomenclatureId)) : undefined;

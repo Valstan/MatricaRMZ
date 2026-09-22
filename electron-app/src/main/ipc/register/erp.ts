@@ -271,7 +271,7 @@ export function registerErpIpc(ctx: IpcContext) {
 
   ipcMain.handle(
     'warehouse:stock:list',
-    async (_e, args?: { warehouseId?: string; nomenclatureId?: string; search?: string; lowStockOnly?: boolean; limit?: number; offset?: number }) => {
+    async (_e, args?: { warehouseId?: string; nomenclatureId?: string; search?: string; similar?: boolean; lowStockOnly?: boolean; limit?: number; offset?: number }) => {
       if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse stock is not available' };
       const gate = await requirePermOrResult(ctx, 'erp.registers.view');
       if (!gate.ok) return gate as any;

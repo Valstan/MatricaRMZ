@@ -2430,6 +2430,8 @@ export type MatricaApi = {
       warehouseId?: string;
       nomenclatureId?: string;
       search?: string;
+      /** Тумблер «≈ Похожие»: без него поиск ищет только точное совпадение введённого. */
+      similar?: boolean;
       lowStockOnly?: boolean;
       limit?: number;
       offset?: number;

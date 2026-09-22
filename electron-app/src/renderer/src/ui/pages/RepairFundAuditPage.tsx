@@ -8,6 +8,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
+import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
@@ -47,6 +48,7 @@ export function RepairFundAuditPage(props: {
   const [status, setStatus] = useState('');
   const [reason, setReason] = useState('Ревизия ремонтного фонда');
   const [query, setQuery] = useState('');
+  const [searchSimilar, setSearchSimilar] = useState(false);
   const [rows, setRows] = useState<FundLine[]>([]);
   const [loadingRows, setLoadingRows] = useState(false);
   const [posting, setPosting] = useState(false);
@@ -59,8 +61,11 @@ export function RepairFundAuditPage(props: {
   );
 
   const visibleRows = useMemo(
-    () => rows.filter((row) => matchesQueryInRecord(query, { code: row.code, name: row.name })),
-    [query, rows],
+    () =>
+      rows.filter((row) =>
+        matchesQueryInRecord(query, { code: row.code, name: row.name }, undefined, searchModeOf(searchSimilar)),
+      ),
+    [query, rows, searchSimilar],
   );
 
   const changedCount = useMemo(
@@ -277,6 +282,7 @@ export function RepairFundAuditPage(props: {
             placeholder="Поиск по коду и наименованию..."
             style={{ maxWidth: 360 }}
           />
+          <SearchModeToggle similar={searchSimilar} onToggle={() => setSearchSimilar((v) => !v)} />
         </div>
         {/* Без виртуализации — редактируемое поле «Факт» не должно размонтироваться при прокрутке. */}
         <ListCount total={rows.length} shown={visibleRows.length} />
