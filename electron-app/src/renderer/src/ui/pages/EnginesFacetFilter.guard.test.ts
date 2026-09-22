@@ -151,3 +151,33 @@ describe('ступенчатый фильтр доезжает до строк �
     expect(engineFacetOptions(engines, { customer: ['CP1'] }, 'brand').map((o) => o.value)).toEqual(['BR1']);
   });
 });
+
+// Бирки на двигатель (владелец 22.09.2026) — единственная печать списка, которая идёт от
+// ВЫДЕЛЕНИЯ, а не от фильтра. Соседние кнопки («Печать этикеток») берут отфильтрованное, и
+// стоит перепутать источник — оператор молча получит пачку листов на весь парк.
+describe('бирки печатаются по выделенным строкам, а не по фильтру', () => {
+  it('набор бирок собирается из выделения списка', () => {
+    expect(PAGE).toContain('displayRows.filter((e) => selection.selectedIds.has(String(e.id)))');
+    expect(PAGE, 'диалогу бирок отдаётся выделение, а не отфильтрованный список').toContain('setTagRows(selectedEngines)');
+    expect(PAGE).toContain('engines={tagRows ?? []}');
+  });
+
+  it('этикетки по-прежнему берут отфильтрованное — источники не перепутаны', () => {
+    expect(PAGE).toContain('facetFiltered.map((e) => ({');
+    const tagDialog = PAGE.slice(PAGE.indexOf('<EngineTagPrintDialog'), PAGE.indexOf('<EngineTagPrintDialog') + 260);
+    expect(tagDialog, 'бирки не должны питаться списком этикеток').not.toContain('labelTargets');
+    expect(tagDialog).not.toContain('facetFiltered');
+  });
+
+  it('пустое выделение проговаривается словами, а не печатает весь список', () => {
+    expect(PAGE).toContain('if (selectedEngines.length === 0) {');
+    expect(PAGE).toContain('setTagHintVisible(true);');
+    expect(PAGE, 'подсказка должна называть, что делать').toContain('Бирки печатаются на выделенные двигатели');
+  });
+
+  it('пункт ПКМ-меню для пачки выделенных строк есть и не зависит от наряда на сборку', () => {
+    expect(PAGE).toContain('Бирки на выбранные (${menuRows.length})');
+    // Раньше меню вовсе не открывалось без onCreateAssemblyOrder — тогда пункт был бы недостижим.
+    expect(PAGE).not.toContain('if (!result.openMenu || !props.onCreateAssemblyOrder) return;');
+  });
+});
