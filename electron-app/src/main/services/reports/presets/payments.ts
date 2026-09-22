@@ -1,3 +1,4 @@
+import { isNull, max } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
@@ -22,6 +23,7 @@ import {
 
 import { resolveContractLabel, normalizeText, asArray, readPeriod, msToDate, toNumber } from '../format.js';
 import { getPreset, loadSnapshot, getIdsByType } from '../context.js';
+import { operations } from '../../../database/schema.js';
 import {
   buildOptions,
   buildCounterpartyOptions,
@@ -73,6 +75,28 @@ function sectionLabel(sectionKey: string): string {
   return key === 'primary' ? 'Основной договор' : key;
 }
 
+/**
+ * Дата последней ЛЮБОЙ операции по двигателю, ISO-день. Нужна, чтобы отчёт называл забытые
+ * карточки так же, как список контрактов: без неё «просрочка 700 дн.» стояла бы здесь у тех
+ * же двигателей, которые в списке уже помечены «без движения» (замер на проде 22.09.2026).
+ */
+async function loadLastActivityIsoByEngine(db: BetterSQLite3Database): Promise<Map<string, string>> {
+  const rows = await db
+    .select({ engineEntityId: operations.engineEntityId, lastAt: max(operations.updatedAt) })
+    .from(operations)
+    .where(isNull(operations.deletedAt))
+    .groupBy(operations.engineEntityId);
+  const out = new Map<string, string>();
+  for (const row of rows as Array<{ engineEntityId: unknown; lastAt: unknown }>) {
+    const id = String(row.engineEntityId ?? '').trim();
+    const at = Number(row.lastAt ?? 0);
+    if (!id || !Number.isFinite(at) || at <= 0) continue;
+    const iso = isoDayKey(at);
+    if (iso) out.set(id, iso);
+  }
+  return out;
+}
+
 export async function buildContractPaymentsMatrixReport(
   db: BetterSQLite3Database,
   filters: ReportPresetFilters | undefined,
@@ -101,6 +125,7 @@ export async function buildContractPaymentsMatrixReport(
   const today = todayIso();
   // Срок ремонта — из этого контракта: у каждого он свой (владелец 22.09.2026).
   const repairDays = effectiveRepairDays(sections);
+  const lastActivityIsoByEngine = await loadLastActivityIsoByEngine(db);
 
   const rows: Array<Record<string, ReportCellValue>> = [];
   let emptySlotIndex = 0;
@@ -121,7 +146,8 @@ export async function buildContractPaymentsMatrixReport(
     const repaired = slot.engineId ? isEngineRepairedForCountdown(engineRepairedFlags(engineAttrs)) : false;
     // Точка отсчёта — приезд двигателя на завод, а не аванс (владелец 22.09.2026).
     const arrivalIso = slot.engineId ? isoDayKey(toNumber(engineAttrs.arrival_date)) : '';
-    const cd = countdownStatus(slot, today, repaired, { arrivalIso, days: repairDays });
+    const lastActivityIso = slot.engineId ? lastActivityIsoByEngine.get(slot.engineId) ?? '' : '';
+    const cd = countdownStatus(slot, today, repaired, { arrivalIso, lastActivityIso, days: repairDays });
     const countdownLabel =
       cd.state === 'none'
         ? repaired
@@ -131,9 +157,13 @@ export async function buildContractPaymentsMatrixReport(
             // это работа оператора, а не «данных нет».
             ? 'нет даты поступления'
             : '—'
-        : (cd.daysLeft ?? 0) < 0
-          ? `просрочка ${Math.abs(cd.daysLeft ?? 0)} дн.`
-          : `осталось ${cd.daysLeft} дн.`;
+        : cd.state === 'stale'
+          // Срок формально вышел, но по двигателю давно не работали: это неразобранный
+          // учёт, а не срыв ремонта, и называть его просрочкой отчёт не должен.
+          ? `без движения ${cd.daysIdle ?? 0} дн.`
+          : (cd.daysLeft ?? 0) < 0
+            ? `просрочка ${Math.abs(cd.daysLeft ?? 0)} дн.`
+            : `осталось ${cd.daysLeft} дн.`;
     rows.push({
       engineLabel,
       brandLabel: brandId ? pickHumanText(brandOptions.get(brandId)) : '',

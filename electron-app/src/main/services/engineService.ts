@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, max } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
@@ -541,6 +541,40 @@ async function getEngineRepairHistoryMap(
   return result;
 }
 
+/**
+ * Дата последней ЛЮБОЙ операции по каждому двигателю — «по этой карточке ещё работают».
+ *
+ * Тип операции здесь НЕ фильтруем, в отличие от `getEngineRepairHistoryMap`: акт комплектности
+ * и дефектовка — такая же работа, а по типам истории ремонта двигатель со вчерашней дефектовкой
+ * выглядел бы брошенным. Одним сгруппированным запросом на всю пачку: на проде ~2500 двигателей
+ * и ~100k операций, и запрос на каждый двигатель список бы не пережил.
+ */
+async function getEngineLastActivityMap(
+  db: BetterSQLite3Database,
+  engineIds: string[],
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (engineIds.length === 0) return result;
+
+  // Чанкуем под 999-парамный кап Android SQLite, как соседние карты; группировка внутри чанка
+  // целая — каждый engineId попадает ровно в один чанк.
+  const rows = await collectChunked(engineIds, (idsChunk) =>
+    db
+      .select({ engineEntityId: operations.engineEntityId, lastAt: max(operations.updatedAt) })
+      .from(operations)
+      .where(and(inArray(operations.engineEntityId, idsChunk), isNull(operations.deletedAt)))
+      .groupBy(operations.engineEntityId),
+  );
+
+  for (const row of rows) {
+    const engineId = String(row.engineEntityId ?? '').trim();
+    const lastAt = Number(row.lastAt ?? 0);
+    if (!engineId || !Number.isFinite(lastAt) || lastAt <= 0) continue;
+    result.set(engineId, lastAt);
+  }
+  return result;
+}
+
 export type EngineLabel = {
   engineNumber: string;
   engineBrand: string;
@@ -708,6 +742,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   const engineIds = engines.map((e) => e.id);
   const inventoryFlagsByEngineId = await getEngineInventoryFlagsMap(db, engineIds);
   const historyByEngineId = await getEngineRepairHistoryMap(db, engineIds);
+  const lastActivityByEngineId = await getEngineLastActivityMap(db, engineIds);
   const baseDefIds = [
     numberDefId,
     internalNumberDefId,
@@ -922,6 +957,14 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     const inventoryFlags = inventoryFlagsByEngineId.get(e.id);
     const history = historyByEngineId.get(e.id);
     const crankcaseScrapped = inventoryFlags?.crankcaseScrapped === true;
+    // Максимум из операций и уже посчитанных дат истории/этапа: если операция почему-то не
+    // попала в выборку (удалённая строка, рассинхрон реплики), строка не должна выглядеть
+    // мертвее, чем есть — по индикатору срока это решает, гореть ей или числиться забытой.
+    const lastActivityAt = Math.max(
+      lastActivityByEngineId.get(e.id) ?? 0,
+      history?.lastAt ?? 0,
+      history?.lastSheetAt ?? 0,
+    );
 
     // Заказчик считается из договора, а поле карточки — запасной путь (общее правило
     // `resolveEngineCustomer`): перецепили двигатель на другой договор — и колонка, и отбор
@@ -941,6 +984,9 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       arrivalMs != null
         ? countdownStatus(COUNTDOWN_SLOT_STUB, listTodayIso, isEngineRepairedForCountdown(statusFlags), {
             arrivalIso: isoDayKey(arrivalMs),
+            // На сам остаток дней это не влияет (у забытой карточки `daysLeft` тот же), но
+            // передаём: иначе единственный вызов без даты работ стал бы образцом для следующего.
+            lastActivityIso: lastActivityAt > 0 ? isoDayKey(lastActivityAt) : '',
             days: repairDays,
           })
         : null;
@@ -983,6 +1029,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       ...(history?.lastSheetNode ? { lastSheetNode: history.lastSheetNode } : {}),
       ...(history?.lastSheetAt != null ? { lastSheetAt: history.lastSheetAt } : {}),
       ...(history?.lastSheetTypeCode ? { lastSheetTypeCode: history.lastSheetTypeCode } : {}),
+      ...(lastActivityAt > 0 ? { lastActivityAt } : {}),
       ...(isReclamation ? { isReclamation: true } : {}),
       ...(isRepeatArrival ? { isRepeatArrival: true } : {}),
       ...(isNumberCollision ? { isNumberCollision: true } : {}),

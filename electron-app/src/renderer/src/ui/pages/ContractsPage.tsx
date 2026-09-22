@@ -343,11 +343,17 @@ export function ContractsPage(props: {
       // двигателей на заводе тысячи, а контрактов сотни — пересобирать её на каждый
       // контракт значило бы пройти список двигателей сотню раз.
       const arrivalIsoByEngineId = new Map<string, string>();
+      // Дата последней работы — тем же одним проходом: счётчик горящих не должен считать
+      // карточки, которыми давно никто не занимается (владелец 22.09.2026).
+      const lastActivityIsoByEngineId = new Map<string, string>();
       for (const item of Array.isArray(engines) ? engines : []) {
         const engineId = String(item.id);
         if (isEngineRepairedForCountdown(item.statusFlags)) repairedEngineIds.add(engineId);
         const arrivalMs = typeof item.arrivalDate === 'number' && Number.isFinite(item.arrivalDate) ? item.arrivalDate : null;
         if (arrivalMs != null && arrivalMs > 0) arrivalIsoByEngineId.set(engineId, isoDayKey(arrivalMs));
+        const lastActivityMs =
+          typeof item.lastActivityAt === 'number' && Number.isFinite(item.lastActivityAt) ? item.lastActivityAt : null;
+        if (lastActivityMs != null && lastActivityMs > 0) lastActivityIsoByEngineId.set(engineId, isoDayKey(lastActivityMs));
         const contractId = String(item.contractId ?? '');
         if (!contractId) continue;
         const bucket = linkedItemsByContractId.get(contractId) ?? [];
@@ -452,7 +458,7 @@ export function ContractsPage(props: {
                 todayIso,
                 repairedEngineIds,
                 // Срок берём из этого контракта: у каждого он свой (владелец 22.09.2026).
-                { arrivalIsoByEngineId, days: effectiveRepairDays(sections) },
+                { arrivalIsoByEngineId, lastActivityIsoByEngineId, days: effectiveRepairDays(sections) },
               ),
               ...(attachmentPreviews.length > 0 ? { attachmentPreviews } : {}),
             };

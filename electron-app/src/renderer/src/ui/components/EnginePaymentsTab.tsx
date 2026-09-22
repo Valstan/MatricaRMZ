@@ -87,6 +87,12 @@ export function EnginePaymentsTab(props: {
    * отсчёта срока ремонта. Приходит из карточки: там она уже разобрана из `arrival_date`.
    */
   arrivalIso: string;
+  /**
+   * Дата последней любой работы по двигателю, «yyyy-mm-dd» (пусто — сведений нет).
+   * Без неё вкладка звала бы просрочкой то, что список контрактов уже называет
+   * «без движения»: у забытых карточек срок вышел, но ремонт по ним не идёт.
+   */
+  lastActivityIso?: string;
   /** Двигатель отремонтирован — отсчёт срока ремонта погашен. */
   engineRepaired: boolean;
   canEdit: boolean;
@@ -157,8 +163,13 @@ export function EnginePaymentsTab(props: {
 
   const totals = useMemo(() => slotTotals(draftSlot), [draftSlot]);
   const countdown = useMemo(
-    () => countdownStatus(draftSlot, todayIso(), props.engineRepaired, { arrivalIso: props.arrivalIso, days: repairDays }),
-    [draftSlot, props.engineRepaired, props.arrivalIso, repairDays],
+    () =>
+      countdownStatus(draftSlot, todayIso(), props.engineRepaired, {
+        arrivalIso: props.arrivalIso,
+        lastActivityIso: props.lastActivityIso ?? '',
+        days: repairDays,
+      }),
+    [draftSlot, props.engineRepaired, props.arrivalIso, props.lastActivityIso, repairDays],
   );
 
   function markDirty() {
@@ -292,8 +303,16 @@ export function EnginePaymentsTab(props: {
         : props.arrivalIso
           ? 'Отсчёт ещё не идёт: дата поступления на завод позже сегодняшней'
           : 'Отсчёт не идёт: не заполнена дата поступления на завод'
-      : `Прошло ${countdown.daysElapsed} дн. из ${repairDays} с даты поступления на завод, осталось ${countdown.daysLeft} дн.`;
-  const countdownColor = countdown.state === 'danger' ? '#b91c1c' : countdown.state === 'warning' ? '#b45309' : '#374151';
+      : countdown.state === 'stale'
+        // Срок вышел, но по двигателю давно не работали: это неразобранная карточка, а не
+        // срыв ремонта. Называть такое просрочкой — то же самое, чем индикатор был бесполезен.
+        ? `Без движения ${countdown.daysIdle} дн.: срок вышел, но работ по двигателю нет — карточку надо разобрать`
+        : `Прошло ${countdown.daysElapsed} дн. из ${repairDays} с даты поступления на завод, осталось ${countdown.daysLeft} дн.`;
+  const countdownColor =
+    countdown.state === 'danger' ? '#b91c1c'
+    : countdown.state === 'warning' ? '#b45309'
+    : countdown.state === 'stale' ? '#6b7280'
+    : '#374151';
 
   const thStyle: React.CSSProperties = { textAlign: 'left', padding: '6px 8px', fontSize: 12, color: '#6b7280', fontWeight: 600 };
   const tdStyle: React.CSSProperties = { padding: '4px 8px', verticalAlign: 'middle' };

@@ -1,7 +1,7 @@
 import type { EngineListItem } from '../ipc/types.js';
 import { STATUS_LABELS, type StatusCode } from './contract.js';
 import { engineFactoryStage, engineFactoryStageOrder, engineStatusDate, type EngineFactoryStageTypeRef } from './engineFactoryStage.js';
-import { countdownThresholds, isEngineRepairedForCountdown } from './payments.js';
+import { COUNTDOWN_STALE_DAYS, countdownThresholds, isEngineRepairedForCountdown } from './payments.js';
 import {
   activeFacetCount,
   applyFacets,
@@ -100,27 +100,36 @@ const DAY_MS = 86_400_000;
 /**
  * Срок ремонта по контракту (владелец 22.09.2026: «чтобы по горящим двигателям можно было
  * отфильтровать»). Значения идут от срочного к спокойному: горящие — то, ради чего ступень и
- * открывают. «Без даты поступления» — тоже работа, а не тишина: отсчитывать такому двигателю
- * срок не от чего, и он должен быть виден отдельно.
+ * открывают. «Без движения» стоит после живых, но до «нет даты» и «закончен»: срок у такого
+ * двигателя вышел, но разбирать надо не просрочку, а брошенный учёт. «Без даты поступления» —
+ * тоже работа, а не тишина: отсчитывать такому двигателю срок не от чего, и он должен быть
+ * виден отдельно.
  */
-type RepairDeadlineKey = 'danger' | 'warning' | 'ok' | 'no_arrival' | 'done';
+type RepairDeadlineKey = 'danger' | 'warning' | 'ok' | 'stale' | 'no_arrival' | 'done';
 
 const REPAIR_DEADLINE_LABELS: Record<RepairDeadlineKey, string> = {
   danger: 'горит',
   warning: 'скоро',
   ok: 'в сроке',
+  stale: 'без движения',
   no_arrival: 'без даты поступления',
   done: 'ремонт закончен',
 };
 
-const REPAIR_DEADLINE_ORDER: readonly RepairDeadlineKey[] = ['danger', 'warning', 'ok', 'no_arrival', 'done'];
+const REPAIR_DEADLINE_ORDER: readonly RepairDeadlineKey[] = ['danger', 'warning', 'ok', 'stale', 'no_arrival', 'done'];
 
 /**
- * Пороги — те же, что красят отсчёт в карточке (`countdownThresholds`): числа руками здесь не
- * пишем, иначе фильтр и подсветка разъедутся. Срок контракта берём из самой строки (крайний
- * день минус поступление) — обе даты она уже несёт, третьего поля под срок ей не нужно.
+ * Пороги — те же, что красят отсчёт в карточке (`countdownThresholds`, `COUNTDOWN_STALE_DAYS`):
+ * числа руками здесь не пишем, иначе фильтр и подсветка разъедутся. Срок контракта берём из самой
+ * строки (крайний день минус поступление) — обе даты она уже несёт, третьего поля под срок ей не
+ * нужно.
+ *
+ * «Сегодня» — умолчание параметра, как у соседнего `engineDaysOnSite`: строка несёт только даты, а
+ * «сколько дней без работ» — величина на момент показа, и двигатель должен уходить в «без движения»
+ * от смены суток, а не от пересчёта в `listEngines`. Параметром, а не голым `Date.now()` в теле,
+ * чтобы дату можно было задать извне и не зависеть от часов машины.
  */
-function repairDeadlineKey(e: EngineListItem): RepairDeadlineKey {
+function repairDeadlineKey(e: EngineListItem, now = Date.now()): RepairDeadlineKey {
   // Ремонт закончен (или двигатель уехал) — отсчёт погашен тем же правилом, что в карточке.
   if (isEngineRepairedForCountdown(e.statusFlags)) return 'done';
   const arrival = dateMs(e.arrivalDate);
@@ -131,8 +140,18 @@ function repairDeadlineKey(e: EngineListItem): RepairDeadlineKey {
   if (daysLeft == null) return 'ok';
   const total = Math.round((due - arrival) / DAY_MS);
   const { warningElapsed, dangerLeft } = countdownThresholds(total);
-  if (daysLeft <= dangerLeft) return 'danger';
-  return total - daysLeft > warningElapsed ? 'warning' : 'ok';
+  const key: RepairDeadlineKey =
+    daysLeft <= dangerLeft ? 'danger'
+    : total - daysLeft > warningElapsed ? 'warning'
+    : 'ok';
+  // Забытая карточка — про незакрытый учёт, а не про срыв срока (замер владельца 22.09.2026:
+  // из 335 «горящих» у 198 не было ни одной работы два месяца). Гасим ровно так же, как
+  // `countdownStatus`: только тревожные ключи. «В сроке» внимания и так не просит, а назвать
+  // его «без движения» значило бы соврать, будто по двигателю идёт работа.
+  const lastActivity = dateMs(e.lastActivityAt);
+  const daysIdle = lastActivity == null ? null : Math.floor((now - lastActivity) / DAY_MS);
+  if (daysIdle != null && daysIdle > COUNTDOWN_STALE_DAYS && (key === 'danger' || key === 'warning')) return 'stale';
+  return key;
 }
 
 /**

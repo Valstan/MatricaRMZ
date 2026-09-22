@@ -5,6 +5,7 @@ import {
   attachEngineToSlot,
   burningEnginesCount,
   collectContractPaymentsEngineIds,
+  COUNTDOWN_STALE_DAYS,
   countdownStatus,
   countdownThresholds,
   distributeAmountToSlots,
@@ -176,6 +177,104 @@ describe('countdownStatus', () => {
     const status = countdownStatus(paid, isoPlusDays(arrivalIso, 40), false, { arrivalIso, days: 60 });
     expect(status).toEqual({ state: 'warning', daysElapsed: 40, daysLeft: 20 });
     expect(status.daysLeft!).toBeGreaterThan(countdownThresholds(60).dangerLeft);
+  });
+});
+
+// Порог «забытых карточек» (владелец 22.09.2026). Замер на проде после v3.45.0: из 335
+// красных двигателей у 198 не было ни одной работы за два месяца, а 142 стояли больше года.
+// Красным горела не просрочка ремонта, а незакрытый учёт — гореть должно то, чем занимаются.
+describe('countdownStatus — порог забытых карточек', () => {
+  const paid = slot({ payments: [{ id: 'p1', date: '2026-01-01', amountKop: 1, kind: 'advance' }] });
+  const arrivalIso = '2026-01-01';
+  // Срок 90 дней вышел десять дней назад: без порога это твёрдый «danger».
+  const overdueToday = isoPlusDays(arrivalIso, REPAIR_COUNTDOWN_DAYS + 10);
+
+  it('порог — 60 дней: смена числа меняет смысл индикатора и должна быть видна в диффе', () => {
+    expect(COUNTDOWN_STALE_DAYS).toBe(60);
+  });
+
+  it('просроченный двигатель без работ дольше порога — «stale», и видно, сколько он стоит', () => {
+    const daysIdle = COUNTDOWN_STALE_DAYS + 30;
+    expect(
+      countdownStatus(paid, overdueToday, false, { arrivalIso, lastActivityIso: isoPlusDays(overdueToday, -daysIdle) }),
+    ).toEqual({ state: 'stale', daysElapsed: REPAIR_COUNTDOWN_DAYS + 10, daysLeft: -10, daysIdle });
+  });
+
+  it('он же со свежей работой — остаётся «danger»', () => {
+    expect(
+      countdownStatus(paid, overdueToday, false, { arrivalIso, lastActivityIso: isoPlusDays(overdueToday, -1) }),
+    ).toEqual({ state: 'danger', daysElapsed: REPAIR_COUNTDOWN_DAYS + 10, daysLeft: -10 });
+  });
+
+  it('«в сроке» без работ остаётся «ok»: порог гасит только тревожные состояния', () => {
+    // Переименовать «в сроке» в «без движения» значило бы соврать, будто по двигателю идёт
+    // работа; внимания это состояние и так не просит. Границу берём от countdownThresholds,
+    // чтобы тест проверял правило, а не подогнанную пару чисел.
+    const days = 365;
+    const { warningElapsed } = countdownThresholds(days);
+    const forgottenAt = (elapsed: number) => {
+      const today = isoPlusDays(arrivalIso, elapsed);
+      return countdownStatus(paid, today, false, {
+        arrivalIso,
+        days,
+        lastActivityIso: isoPlusDays(today, -(COUNTDOWN_STALE_DAYS + 30)),
+      });
+    };
+    expect(forgottenAt(warningElapsed).state).toBe('ok');
+    expect(forgottenAt(warningElapsed).daysIdle).toBeUndefined();
+    // а соседнее тревожное состояние тем же простоем гасится
+    expect(forgottenAt(warningElapsed + 1).state).toBe('stale');
+  });
+
+  it(`ровно ${COUNTDOWN_STALE_DAYS} дней простоя — ещё не забыт, на следующий день — забыт`, () => {
+    const at = (daysIdle: number) =>
+      countdownStatus(paid, overdueToday, false, {
+        arrivalIso,
+        lastActivityIso: isoPlusDays(overdueToday, -daysIdle),
+      }).state;
+    expect(at(COUNTDOWN_STALE_DAYS - 1)).toBe('danger');
+    expect(at(COUNTDOWN_STALE_DAYS)).toBe('danger');
+    expect(at(COUNTDOWN_STALE_DAYS + 1)).toBe('stale');
+  });
+
+  it('без lastActivityIso поведение прежнее — умолчание осознанное, менять его «заодно» нельзя', () => {
+    // Сведений о движении нет — объявлять карточку забытой не за что. Но именно это
+    // умолчание тихо вернёт все 335 красных, если вызывающий забудет поле, поэтому оно
+    // закреплено тестом, а за передачей поля на каждом вызове следит CountdownStale.guard.
+    expect(countdownStatus(paid, overdueToday, false, { arrivalIso }).state).toBe('danger');
+    expect(countdownStatus(paid, overdueToday, false, { arrivalIso, lastActivityIso: null }).state).toBe('danger');
+    expect(countdownStatus(paid, overdueToday, false, { arrivalIso, lastActivityIso: '   ' }).state).toBe('danger');
+  });
+
+  it('дата последней работы в будущем — как будто её нет', () => {
+    // Дата из будущего приезжает опечаткой в годе; считать по ней простой отрицательным и
+    // объявлять карточку свежей нельзя — так спряталась бы настоящая просрочка.
+    expect(
+      countdownStatus(paid, overdueToday, false, { arrivalIso, lastActivityIso: isoPlusDays(overdueToday, 1) }).state,
+    ).toBe('danger');
+    expect(countdownStatus(paid, overdueToday, false, { arrivalIso, lastActivityIso: 'не дата' }).state).toBe('danger');
+  });
+
+  it('burningEnginesCount не считает забытых, но считает живых просроченных', () => {
+    const advance = [{ id: 'p', date: '2026-01-01', amountKop: 1, kind: 'advance' as const }];
+    const cp: ContractPayments = {
+      version: 1,
+      slots: [
+        slot({ id: 'a', engineId: 'eng-1', payments: advance }),
+        slot({ id: 'b', engineId: 'eng-2', payments: advance }),
+      ],
+    };
+    const arrivalIsoByEngineId = new Map([
+      ['eng-1', arrivalIso],
+      ['eng-2', arrivalIso],
+    ]);
+    // Без карты работ горят оба — это и есть прежний счёт, ради которого затевался порог.
+    expect(burningEnginesCount(cp, overdueToday, new Set(), { arrivalIsoByEngineId })).toBe(2);
+    const lastActivityIsoByEngineId = new Map([
+      ['eng-1', isoPlusDays(overdueToday, -1)],
+      ['eng-2', isoPlusDays(overdueToday, -(COUNTDOWN_STALE_DAYS + 1))],
+    ]);
+    expect(burningEnginesCount(cp, overdueToday, new Set(), { arrivalIsoByEngineId, lastActivityIsoByEngineId })).toBe(1);
   });
 });
 
