@@ -3,13 +3,15 @@ import { and, asc, count, desc, eq, inArray, isNotNull, isNull, or, sql } from '
 import { LedgerTableName } from '@matricarmz/ledger';
 import {
   WAREHOUSE_NOMENCLATURE_SPEC_SOURCE_PART,
+  duplicateBlockReason,
+  duplicateBlockReasonLabel,
   filterRowsTiered,
   keyboardLayoutVariants,
   parseContractSections,
   normalizeLookupCompact,
   resolveNomenclatureComponentTypeId,
 } from '@matricarmz/shared';
-import type { PartDimension, PartMetadata, PartSpec, PartSpecBrandLink } from '@matricarmz/shared';
+import type { DuplicateBlockReason, PartDimension, PartMetadata, PartSpec, PartSpecBrandLink } from '@matricarmz/shared';
 
 import {
   AssemblyReturnMode,
@@ -1550,7 +1552,7 @@ export async function upsertWarehouseNomenclature(args: {
   /** Обобщённая позиция (migration 0096): id родителя без артикула; null — снять. undefined — не трогать. */
   parentNomenclatureId?: string | null;
   isActive?: boolean;
-}): Promise<Result<{ id: string }>> {
+}): Promise<Result<{ id: string }> | DirectoryPartDuplicateRejection> {
   try {
     await ensureNomenclatureGovernanceMeta();
     const id = String(args.id || randomUUID());
@@ -1810,6 +1812,39 @@ export async function upsertWarehouseNomenclature(args: {
       ...(args.parentNomenclatureId !== undefined ? { parentNomenclatureId: parentIdOrNull } : {}),
       isActive: args.isActive ?? true,
     };
+    // Тот же гейт дублей, что и на создании детали: имя и артикул детали оператор правит
+    // здесь, в складской карточке, — без этой проверки переименование в занятый артикул
+    // обходило запрет на дубль (уникальный индекс по erp_nomenclature.code сравнивает
+    // сырой текст и «3305-01-18» / «33050118» для него разные).
+    if (normalized.code && (normalized.itemType === 'part' || sourceKind === 'part')) {
+      // Себя не сравниваем: карточка и её деталь — одна сущность. Связь бывает двух видов:
+      // directory_parts.id == id карточки (канон Phase 3) либо directory_ref_id (строки,
+      // заведённые клиентом — там id карточки свой). Второй резолвим из БД, если клиент
+      // прислал частичный payload без directoryRefId (так шлёт карточка номенклатуры).
+      const skipIds = new Set<string>([id]);
+      if (sourceRefId) skipIds.add(sourceRefId);
+      if (!isCreate && !sourceRefId) {
+        const self = await db
+          .select({ directoryRefId: erpNomenclature.directoryRefId })
+          .from(erpNomenclature)
+          .where(eq(erpNomenclature.id, id))
+          .limit(1);
+        const selfRefId = self[0]?.directoryRefId ? String(self[0].directoryRefId) : '';
+        if (selfRefId) skipIds.add(selfRefId);
+      }
+      const dup = findDuplicatePartBlock(
+        { name: normalized.name, code: normalized.code },
+        await loadDirectoryPartIdentities(),
+        skipIds,
+      );
+      if (dup) {
+        return duplicatePartRejection(
+          dup.id,
+          dup.reason,
+          `${duplicateBlockReasonLabel(dup.reason)}. Откройте существующую деталь вместо создания второй.`,
+        );
+      }
+    }
     await db
       .insert(erpNomenclature)
       .values({ id, ...normalized, createdAt: ts, updatedAt: ts, deletedAt: null })
@@ -2061,14 +2096,93 @@ export async function upsertWarehouseNomenclaturePartSpec(args: {
   }
 }
 
-// Part identity = (name, артикул) pair — the owner's key (program Т1,
-// docs/plans/parts-articul-acts-2026-06.md): two parts may share a name with
-// different артикулы ("Вал коленчатый" 3305-01-18 vs 3305-01-17) AND share an
-// артикул with different names ("Картер верхний"/"Картер нижний" 3301-15-30).
-// Normalized with the same shared normalizer the search uses, so dup-detection
-// and search never disagree on what "the same" means.
-function directoryPartDedupKey(name: string, code: string | null | undefined): string {
-  return `${normalizeLookupCompact(String(name ?? ''))}|${normalizeLookupCompact(String(code ?? ''))}`;
+// Правило дубля детали целиком живёт в shared/domain/partsDedup.ts
+// (duplicateBlockReason): один текст на гейт записи, экран слияния и клиента —
+// две копии правила разошлись бы молча. Здесь только его применение: кого
+// сравнивать и что вернуть оператору.
+//
+// Владелец 22.09.2026: создать вторую деталь с занятым сборочным номером нельзя,
+// и отказ должен давать дорогу в существующую запись — поэтому вместе с текстом
+// возвращаем её id и причину.
+
+/**
+ * Отказ гейта дублей: текст + машинные поля, чтобы клиент открыл существующую деталь.
+ * Поле причины названо `blockReason` — как у DuplicateCandidate в shared/ipc/types.ts,
+ * чтобы у клиента был один словарь на оба окна дублей.
+ */
+export type DirectoryPartDuplicateRejection = {
+  ok: false;
+  error: string;
+  duplicate: { id: string; blockReason: DuplicateBlockReason; message: string };
+};
+
+/**
+ * Текст отказа РАЗНЫЙ по классу — и это не косметика.
+ *
+ * `duplicate part exists: <id>` разбирают тринадцать мест (импорт-скрипты, web-admin,
+ * electron) и по нему МОЛЧА переиспользуют найденную деталь. Для пары (имя, артикул) это
+ * верно: там и правда одна и та же деталь. Для занятого артикула при ДРУГОМ имени —
+ * нет: переиспользование подставило бы «Картер верхний» вместо «Крышки люка», и массовый
+ * импорт разъехался бы с источником молча. Поэтому у этого класса текст намеренно НЕ
+ * подходит под их регулярку: вызывающий уходит в свою ветку ошибки и падает громко.
+ * Машинные поля (`duplicate.id`, `blockReason`) одинаковы у обоих — клиенту, который
+ * хочет предложить переход, разбирать текст не нужно.
+ */
+function duplicatePartRejection(id: string, reason: DuplicateBlockReason, error?: string): DirectoryPartDuplicateRejection {
+  const fallback =
+    reason === 'same-article'
+      ? `${duplicateBlockReasonLabel(reason)} (id ${id}). Откройте существующую деталь вместо создания второй.`
+      : `duplicate part exists: ${id}`;
+  return {
+    ok: false,
+    error: error ?? fallback,
+    duplicate: { id, blockReason: reason, message: duplicateBlockReasonLabel(reason) },
+  };
+}
+
+/**
+ * Первое столкновение среди соседей. Пара (имя, артикул) сильнее занятого артикула:
+ * если совпало и то и другое, оператору честнее показать более сильную причину.
+ */
+function findDuplicatePartBlock(
+  candidate: { name: string; code: string | null },
+  neighbours: ReadonlyArray<{ id: string; name: string; code: string | null }>,
+  skipIds: ReadonlySet<string> = new Set(),
+): { id: string; reason: DuplicateBlockReason } | null {
+  let sameArticle: { id: string; reason: DuplicateBlockReason } | null = null;
+  for (const row of neighbours) {
+    if (skipIds.has(row.id)) continue;
+    const reason = duplicateBlockReason(candidate, row);
+    if (!reason) continue;
+    if (reason === 'same-name-and-article') return { id: row.id, reason };
+    sameArticle ??= { id: row.id, reason };
+  }
+  return sameArticle;
+}
+
+/**
+ * Соседи для гейта. Имя/артикул детали оператор правит в складской карточке
+ * (erp_nomenclature), поэтому сравниваем по ней, а для деталей без карточки — по
+ * directory_parts: та же подстановка, что в списке деталей ниже, иначе гейт ловил бы
+ * устаревшие значения.
+ */
+async function loadDirectoryPartIdentities(): Promise<Array<{ id: string; name: string; code: string | null }>> {
+  const rows = await db
+    .select({
+      id: directoryParts.id,
+      name: directoryParts.name,
+      code: directoryParts.code,
+      nomName: erpNomenclature.name,
+      nomCode: erpNomenclature.code,
+    })
+    .from(directoryParts)
+    .leftJoin(erpNomenclature, and(eq(erpNomenclature.id, directoryParts.id), isNull(erpNomenclature.deletedAt)))
+    .where(isNull(directoryParts.deletedAt));
+  return rows.map((row) => ({
+    id: String(row.id),
+    name: String(row.nomName ?? row.name ?? ''),
+    code: (row.nomCode ?? row.code ?? null) as string | null,
+  }));
 }
 
 // Stage D source: list all part-class items with their hydrated spec. Sourced from
@@ -2119,26 +2233,25 @@ export async function listWarehouseNomenclaturePartSpecs(args?: {
 }
 
 // Stage D: directory-first part creation. Inserts a directory_parts row (the Phase 3
-// source of truth), deduping by code (when given) else name. Emits the same
+// source of truth). Emits the same
 // `duplicate part exists: <uuid>` contract that createWarehouseNomenclatureFromDirectory.ts
 // parses. Does NOT create the paired erp_nomenclature row — the caller pairs it via
 // nomenclatureUpsert(directoryRefId), exactly as the legacy parts.create flow does.
+// Дедуп — по обоим классам duplicateBlockReason, а не только по точной паре (имя, артикул).
 export async function createDirectoryPart(args: {
   name: string;
   code?: string | null;
-}): Promise<Result<{ part: { id: string } }>> {
+}): Promise<Result<{ part: { id: string } }> | DirectoryPartDuplicateRejection> {
   try {
     const name = String(args.name ?? '').trim();
     if (!name) return { ok: false, error: 'название обязательно' };
     const code = args.code ? String(args.code).trim() || null : null;
 
-    const existing = await db
-      .select({ id: directoryParts.id, name: directoryParts.name, code: directoryParts.code })
-      .from(directoryParts)
-      .where(isNull(directoryParts.deletedAt));
-    const key = directoryPartDedupKey(name, code);
-    const dup = existing.find((r) => directoryPartDedupKey(String(r.name ?? ''), r.code) === key);
-    if (dup) return { ok: false, error: `duplicate part exists: ${String(dup.id)}` };
+    // Блокируем оба класса дубля, а не только точную пару: занятый непустой артикул при
+    // другом названии тоже запрещён — он ломает холодный реплей журнала (две строки
+    // переигрывают один уникальный erp_nomenclature.code).
+    const dup = findDuplicatePartBlock({ name, code }, await loadDirectoryPartIdentities());
+    if (dup) return duplicatePartRejection(dup.id, dup.reason);
 
     const id = randomUUID();
     const ts = nowMs();

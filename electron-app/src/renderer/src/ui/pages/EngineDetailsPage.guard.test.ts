@@ -94,6 +94,62 @@ describe('право на операции закрывает акт-вклад�
   });
 });
 
+describe('дубль номера двигателя: переход в существующую карточку — первый и самый заметный путь', () => {
+  // Владелец 22.09.2026: гейт на создание дубля уже жёсткий, но оператор «всё равно создаёт
+  // дубль». Единственный путь без побочных эффектов — открыть найденную карточку — стоял
+  // третьим и был спрятан за словом «рекламация»; кто не по рекламации, тот выбирал
+  // «повторный заезд» и заводил второй двигатель. Ассерты держат СВОЙСТВА этого выбора:
+  // переход есть, он первый и он ничего не помечает.
+  const PATHS_TITLE = 'Такой номер уже есть в базе. Что это за случай?';
+  const OPEN_LABEL = 'Открыть существующий двигатель →';
+
+  it('кнопка перехода существует и только открывает карточку — без флагов', () => {
+    // Кнопка объявлена один раз (openExistingButton) и подставляется и в баннер, и в
+    // выбор пути. Если она начнёт звать onChooseRepeatArrival/onChooseCollision, оператор
+    // снова получит помеченную карточку вместо простого перехода — ровно то, от чего уходим.
+    const defAt = CARD.indexOf('const openExistingButton');
+    expect(defAt).toBeGreaterThan(-1);
+    const labelAt = CARD.indexOf(OPEN_LABEL, defAt);
+    expect(labelAt).toBeGreaterThan(-1);
+    const decl = CARD.slice(defAt, labelAt);
+    expect(decl).toContain('props.onOpenEngine?.(exact[0]!.id)');
+    expect(decl).not.toContain('onChoose');
+  });
+
+  it('в выборе пути переход стоит раньше рекламации, повторного заезда и коллизии', () => {
+    const pathsAt = CARD.indexOf(PATHS_TITLE);
+    expect(pathsAt).toBeGreaterThan(-1);
+    const paths = CARD.slice(pathsAt);
+    const open = paths.indexOf('openExistingButton');
+    expect(open).toBeGreaterThan(-1);
+    for (const label of ['Открыть по рекламации', 'Это повторный заезд', 'Это другой двигатель']) {
+      const at = paths.indexOf(label);
+      expect(at).toBeGreaterThan(-1);
+      expect(open).toBeLessThan(at);
+    }
+    // Выделение (emphasize) — у перехода, а не у «повторного заезда»: заметнее всех должен
+    // быть путь, который не создаёт вторую карточку.
+    const emphasizeAt = paths.indexOf('emphasize: true');
+    expect(emphasizeAt).toBeGreaterThan(-1);
+    expect(emphasizeAt).toBeLessThan(paths.indexOf('Открыть по рекламации'));
+    expect(paths.split('emphasize: true').length - 1).toBe(1);
+  });
+
+  it('красный баннер точного совпадения ведёт в карточку и там, где выбора пути нет', () => {
+    // Выбор пути показывается только при создании (canChoosePath). На уже сохранённой
+    // карточке с тем же номером от перехода оставалась лишь мелкая подчёркнутая ссылка
+    // «Открыть» в строке списка — её оператор не замечает.
+    const pathsAt = CARD.indexOf(PATHS_TITLE);
+    const banner = CARD.slice(CARD.indexOf('const openExistingButton'), pathsAt);
+    const at = banner.indexOf('{openExistingButton}');
+    expect(at).toBeGreaterThan(-1);
+    // Баннерная кнопка скрыта при showPaths — иначе та же кнопка нарисовалась бы дважды
+    // подряд, и «первый вариант выбора» перестал бы читаться как выбор.
+    const guardAt = banner.lastIndexOf('!showPaths', at);
+    expect(guardAt).toBeGreaterThan(-1);
+  });
+});
+
 describe('старый ключ вкладки «Детали и акты» выведен из обращения', () => {
   it('в объединении вкладок карточки его нет, а два акта есть', () => {
     const union = CARD.match(/export type EngineCardTab = [^;]*;/)?.[0] ?? '';

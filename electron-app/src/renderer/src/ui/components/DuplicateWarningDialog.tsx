@@ -1,9 +1,19 @@
 import React from 'react';
 
 import { Button } from './Button.js';
+import { duplicateBlockReasonLabel } from '@matricarmz/shared';
 import type { DuplicateCandidate } from '@matricarmz/shared';
 
-type Action = 'cancel' | 'merge' | 'replace' | 'continue';
+type Action = 'cancel' | 'merge' | 'replace' | 'continue' | 'open';
+
+/**
+ * Есть ли среди кандидатов жёсткий дубль. Владелец 22.09.2026: такую запись создавать
+ * нельзя — значит «Всё равно сохранить как новую» из окна убирается совсем, а не гасится:
+ * видимая, но неработающая кнопка читается как сбой программы, а не как запрет.
+ */
+export function hasBlockingDuplicate(candidates: DuplicateCandidate[]): boolean {
+  return candidates.some((c) => c.blockReason != null);
+}
 
 export function DuplicateWarningDialog(props: {
   open: boolean;
@@ -15,6 +25,7 @@ export function DuplicateWarningDialog(props: {
 
   const top = props.candidates[0];
   if (!top) return null;
+  const blocked = hasBlockingDuplicate(props.candidates);
   const isExactMatch = top.score >= 950;
   const isHighMatch = top.score >= 700;
 
@@ -127,7 +138,31 @@ export function DuplicateWarningDialog(props: {
                   </span>
                 )}
               </div>
-              {c.id === top.id && (
+              {c.blockReason != null && (
+                <div
+                  style={{
+                    marginTop: 10,
+                    padding: '8px 10px',
+                    borderRadius: 8,
+                    background: '#fef2f2',
+                    border: '1px solid #fecaca',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: '#b91c1c',
+                  }}
+                >
+                  ⛔ {duplicateBlockReasonLabel(c.blockReason)}
+                </div>
+              )}
+              {c.blockReason != null ? (
+                // У жёсткого дубля «Объединить/Заменить» не предлагаем: обе эти кнопки правят
+                // существующую запись вслепую из окна. Оператору нужен один ход — открыть её.
+                <div style={{ marginTop: 10 }}>
+                  <Button size="lg" onClick={() => props.onAction('open', c.id)}>
+                    Открыть существующую →
+                  </Button>
+                </div>
+              ) : c.id === top.id ? (
                 <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
                   <Button
                     size="sm"
@@ -145,7 +180,7 @@ export function DuplicateWarningDialog(props: {
                     Заменить эту
                   </Button>
                 </div>
-              )}
+              ) : null}
             </div>
           ))}
         </div>
@@ -165,13 +200,15 @@ export function DuplicateWarningDialog(props: {
           <Button variant="ghost" onClick={() => props.onAction('cancel')}>
             Отменить сохранение
           </Button>
-          <Button
-            variant="ghost"
-            onClick={() => props.onAction('continue')}
-            style={{ color: '#6b7280' }}
-          >
-            Всё равно сохранить как новую
-          </Button>
+          {!blocked && (
+            <Button
+              variant="ghost"
+              onClick={() => props.onAction('continue')}
+              style={{ color: '#6b7280' }}
+            >
+              Всё равно сохранить как новую
+            </Button>
+          )}
         </div>
       </div>
     </div>

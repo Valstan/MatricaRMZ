@@ -14,7 +14,9 @@ import {
   parseContractPayments,
   collectSupplyRequestEntityReferences,
   collectWorkOrderEntityReferences,
+  duplicateBlockReason,
 } from '@matricarmz/shared';
+import type { DuplicateBlockReason } from '@matricarmz/shared';
 
 import { attributeDefs, attributeValues, entities, entityTypes, operations, erpEngineAssemblyBomBrandLinks } from '../database/schema.js';
 import type { EntityDetails, EntityListItem, IncomingReferenceGroup } from '@matricarmz/shared';
@@ -796,6 +798,8 @@ export type DuplicateCandidate = {
   displayName: string;
   score: number;
   attributes: Record<string, unknown>;
+  /** Класс жёсткого дубля — см. одноимённое поле в shared-типе DuplicateCandidate. */
+  blockReason?: DuplicateBlockReason;
 };
 
 export async function findDuplicateEntities(
@@ -907,7 +911,14 @@ export async function findDuplicateEntities(
       if (innDefId && entityValues[innDefId] != null) attrs.inn = entityValues[innDefId];
       if (priceDefId && entityValues[priceDefId] != null) attrs.price = entityValues[priceDefId];
 
-      candidates.push({ id: entityId, displayName, score, attributes: attrs });
+      // Жёсткий дубль считаем отдельным правилом, а не порогом по score: score
+      // усредняет имя и артикул в одно число, из которого уже не видно, ЧТО совпало.
+      const blockReason = duplicateBlockReason(
+        { name, code: article },
+        { name: attrs.name != null ? String(attrs.name) : '', code: attrs.article != null ? String(attrs.article) : '' },
+      );
+
+      candidates.push({ id: entityId, displayName, score, attributes: attrs, ...(blockReason ? { blockReason } : {}) });
     }
   }
 

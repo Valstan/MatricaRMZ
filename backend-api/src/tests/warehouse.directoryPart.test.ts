@@ -119,11 +119,20 @@ describe('Stage D — createDirectoryPart', () => {
     expect(state.insertCalls.filter((c) => c.table === directoryParts)).toHaveLength(1);
   });
 
-  it('allows the same code under different names (Картер верхний/нижний share 3301-15-30)', async () => {
+  // Владелец 22.09.2026: занятый сборочный номер больше не проходит даже под другим
+  // названием (класс 'same-article' в shared/domain/partsDedup.ts) — раньше такая пара
+  // создавалась и ломала холодный реплей журнала на уникальном erp_nomenclature.code.
+  it('rejects a taken артикул even under a different name (Картер верхний/нижний share 3301-15-30)', async () => {
     state.selectByTable.set(directoryParts, [[{ id: 'upper', name: 'Картер верхний', code: '3301-15-30' }]]);
     const res = await createDirectoryPart({ name: 'Картер нижний', code: '3301-15-30' });
-    expect(res.ok).toBe(true);
-    expect(state.insertCalls.filter((c) => c.table === directoryParts)).toHaveLength(1);
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    // Текст НЕ исторический: по `duplicate part exists: <id>` тринадцать вызывающих
+    // молча переиспользуют найденную деталь, а тут имя другое — подставить её было бы
+    // тихой подменой. Пусть падают громко; id и класс лежат в машинных полях.
+    expect(res.error).not.toMatch(/duplicate part exists/);
+    expect(res.error).toContain('upper');
+    expect(state.insertCalls).toHaveLength(0);
   });
 
   it('treats compact-equal codes as the same артикул (search normalizer parity)', async () => {

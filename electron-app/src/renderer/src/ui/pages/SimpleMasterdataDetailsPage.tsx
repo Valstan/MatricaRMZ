@@ -33,6 +33,8 @@ export function SimpleMasterdataDetailsPage(props: {
   canViewFiles: boolean;
   canUploadFiles: boolean;
   onOpenCustomer?: (customerId: string) => void;
+  /** Переход в карточку другой записи ТОГО ЖЕ типа — «Открыть существующую» в окне дублей. */
+  onOpenEntity?: (entityId: string) => void;
   onClose: () => void;
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
   requestClose?: () => void;
@@ -534,10 +536,19 @@ export function SimpleMasterdataDetailsPage(props: {
     else await saveAll();
   }
 
-  async function handleDuplicateAction(action: 'cancel' | 'merge' | 'replace' | 'continue', candidateId?: string) {
+  async function handleDuplicateAction(action: 'cancel' | 'merge' | 'replace' | 'continue' | 'open', candidateId?: string) {
     setDupDialogOpen(false);
     if (action === 'cancel') {
       setPendingSaveAction(null);
+      return;
+    }
+    if (action === 'open' && candidateId) {
+      // Ничего не удаляем, в отличие от 'merge': до первого «Сохранить» строки сущности ещё нет
+      // (deferred-create), а если она есть — это существующая запись, которую правил оператор.
+      setPendingSaveAction(null);
+      dirtyRef.current = false;
+      cancelPendingDraftSave();
+      props.onOpenEntity?.(candidateId);
       return;
     }
     if (action === 'merge' && candidateId) {

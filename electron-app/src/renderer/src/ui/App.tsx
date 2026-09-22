@@ -5436,11 +5436,11 @@ export function App() {
         );
       case 'product':
         return (
-          <SimpleMasterdataDetailsPage key={k} title="Карточка товара" entityId={id} ownerType="product" typeCode="product" canEdit={caps.canEditMasterData} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} registerCardCloseActions={reg} requestClose={close} onOpenCustomer={openCounterparty} onClose={close} />
+          <SimpleMasterdataDetailsPage key={k} title="Карточка товара" entityId={id} ownerType="product" typeCode="product" canEdit={caps.canEditMasterData} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} registerCardCloseActions={reg} requestClose={close} onOpenCustomer={openCounterparty} onOpenEntity={(pid: string) => void openProduct(pid)} onClose={close} />
         );
       case 'service':
         return (
-          <SimpleMasterdataDetailsPage key={k} title="Карточка услуги" entityId={id} ownerType="service" typeCode="service" canEdit={caps.canEditMasterData} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} registerCardCloseActions={reg} requestClose={close} onOpenCustomer={openCounterparty} onClose={close} />
+          <SimpleMasterdataDetailsPage key={k} title="Карточка услуги" entityId={id} ownerType="service" typeCode="service" canEdit={caps.canEditMasterData} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} registerCardCloseActions={reg} requestClose={close} onOpenCustomer={openCounterparty} onOpenEntity={(sid: string) => void openService(sid)} onClose={close} />
         );
       case 'nomenclature_item':
         return (
@@ -6104,6 +6104,7 @@ export function App() {
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
             onOpenCustomer={openCounterparty}
+            onOpenEntity={(pid: string) => void openProduct(pid)}
             onClose={() => {
               setSelectedProductId(null);
               setTabState('nomenclature');
@@ -6125,6 +6126,7 @@ export function App() {
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
             onOpenCustomer={openCounterparty}
+            onOpenEntity={(sid: string) => void openService(sid)}
             onClose={() => {
               const back = serviceOriginTab ?? 'nomenclature';
               setSelectedServiceId(null);
