@@ -19,6 +19,7 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/preload/index.ts'),
           update: resolve(__dirname, 'src/preload/update.ts'),
+          startup: resolve(__dirname, 'src/preload/startup.ts'),
         },
         output: {
           // В Windows preload по умолчанию исполняется как CommonJS.

@@ -31,6 +31,13 @@ import { setLanShareEnabled } from './services/lanUpdateService.js';
 import { readSidecarClientId, writeSidecarClientId } from './services/clientIdStore.js';
 import { isSameMigrationFailure } from './services/dbSelfHealLoopDetector.js';
 import { tryEmergencyUpdate } from './services/emergencyUpdate.js';
+import {
+  finishStartupStatus,
+  hideStartupStatus,
+  raiseStartupStatus,
+  setStartupStage,
+  showStartupStatus,
+} from './services/startupStatusWindow.js';
 import { appDirname, resolvePreloadPath, resolveRendererIndex } from './utils/appPaths.js';
 import { createFileLogger } from './utils/logger.js';
 import { setupMenu } from './utils/menu.js';
@@ -91,6 +98,7 @@ function maybeShowMainWindow() {
   if (!mainWindowReady || !allowMainWindowShow) return;
   mainWindow.maximize();
   mainWindow.show();
+  finishStartupStatus();
 }
 
 function scheduleShowMainWindow(delayMs = 0) {
@@ -367,10 +375,18 @@ app.whenReady().then(() => {
     return;
   }
   app.on('second-instance', () => {
-    if (mainWindow) {
+    // allowMainWindowShow, а не isVisible(): у свёрнутого окна isVisible() отдаёт false,
+    // и самый частый повторный клик («свернул и щёлкнул ярлык») уводило бы в ветку
+    // окна статуса вместо разворота главного окна.
+    if (mainWindow && !mainWindow.isDestroyed() && allowMainWindowShow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
       mainWindow.focus();
+      return;
     }
+    // Главного окна ещё нет (идёт долгий старт): повторный клик по ярлыку не должен
+    // гаснуть молча — поднимаем окно статуса немедленно, без задержки.
+    raiseStartupStatus();
   });
 
   // Security: clear any plaintext full-DB backup snapshots left in userData from a
@@ -406,6 +422,9 @@ app.whenReady().then(() => {
 
   // Инициализируем SQLite + IPC асинхронно (до создания окна).
   void (async () => {
+    // Взводим окно ПЕРЕД первой тяжёлой работой: нативный SQLite и ключ базы уже
+    // могут занять секунды. Само окно всплывёт только если старт затянется.
+    showStartupStatus('Запускаю программу');
     try {
       const { loadRuntimeInitDeps } = await import('./bootstrap/runtimeInitDeps.js');
       const {
@@ -432,17 +451,27 @@ app.whenReady().then(() => {
       const { loadOrCreateDbKey } = await import('./services/dbKeyService.js');
       const dbEncryptionKey = loadOrCreateDbKey(logToFile);
 
-      const openMigrateSeed = async () => {
+      const openMigrateSeed = async (recovery = false) => {
+        // При лечении базы в шапке окна остаётся «Восстанавливаю базу данных», а шаг
+        // уходит во вторую строку: владельцу важнее понять, что идёт долгое лечение.
+        const stage = (text: string) =>
+          recovery
+            ? setStartupStage('Восстанавливаю базу данных', `${text} — это может занять несколько минут`)
+            : setStartupStage(text);
+        await stage('Открываю базу данных');
         const opened = openSqlite(dbPath, dbEncryptionKey);
         const migrationsFolder = join(app.getAppPath(), 'drizzle');
         logToFile(`sqlite migrationsFolder=${migrationsFolder}`);
+        await stage('Обновляю структуру базы');
         migrateSqlite(opened.db, opened.sqlite, migrationsFolder);
+        await stage('Сверяю структуру с сервером');
         const alignResult = await alignSchemaWithServer(opened.db, apiBaseUrl, { allowUnauthenticated: true }).catch(
           (e) => ({ ok: false as const, reason: String(e) }),
         );
         if (!alignResult.ok && alignResult.reason !== 'auth_required') {
           logToFile(`schema align before seed skipped: ${alignResult.reason}`);
         }
+        await stage('Проверяю данные');
         await seedIfNeeded(opened.db);
         return opened.db;
       };
@@ -452,6 +481,10 @@ app.whenReady().then(() => {
         db = await openMigrateSeed();
       } catch (initError) {
         logToFile(`sqlite init failed, attempting self-heal: ${String(initError)}`);
+        // Лечение базы — самый долгий сценарий (владелец ждал полчаса на пустом
+        // экране): окно поднимаем сразу, не дожидаясь таймера.
+        raiseStartupStatus();
+        await setStartupStage('Восстанавливаю базу данных', 'Это может занять несколько минут');
 
         try {
           const broken = getSqliteHandle();
@@ -480,9 +513,11 @@ app.whenReady().then(() => {
         logToFile(`corrupted db backed up (.corrupted-${ts})`);
 
         try {
-          db = await openMigrateSeed();
+          db = await openMigrateSeed(true);
           dbRecovered = true;
           logToFile('DB self-heal succeeded — fresh database created');
+          // Модальный диалог без родителя уйдёт за окно статуса — сначала гасим окно.
+          hideStartupStatus();
           await dialog.showMessageBox({
             type: 'warning',
             title: 'База данных восстановлена',
@@ -516,6 +551,7 @@ app.whenReady().then(() => {
               return;
             }
             logToFile(`emergency update did not run: ${emergency.reason}`);
+            hideStartupStatus();
             await dialog.showMessageBox({
               type: 'error',
               title: 'Критическая ошибка базы данных',
@@ -534,6 +570,7 @@ app.whenReady().then(() => {
             return;
           }
 
+          hideStartupStatus();
           await dialog.showMessageBox({
             type: 'error',
             title: 'Ошибка базы данных',
@@ -610,6 +647,8 @@ app.whenReady().then(() => {
       // потому что именно он и регистрирует машину пиром. Прежде настройка доезжала и не читалась.
       setLanShareEnabled(cached.torrentEnabled !== false);
 
+      await setStartupStage('Проверяю обновления');
+
       // Dev-only верификация окна обновления симуляцией (в проде env не выставлен).
       const simUpdate = process.env.MATRICA_SIMULATE_UPDATE;
       if (simUpdate) {
@@ -628,11 +667,13 @@ app.whenReady().then(() => {
       }
 
       // Создаём окно только после завершения update-flow.
+      await setStartupStage('Загружаю окно');
       createWindow();
       const delay = updatesEnabled ? 800 : 0;
       scheduleShowMainWindow(delay);
     } catch (e) {
       logToFile(`fatal init failed: ${String(e)}`);
+      hideStartupStatus();
       await dialog.showMessageBox({
         type: 'error',
         title: 'Ошибка запуска',

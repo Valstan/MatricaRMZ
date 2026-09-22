@@ -30,6 +30,7 @@ import {
 } from './lanUpdateService.js';
 import { getSession } from './authService.js';
 import { setForceQuit } from '../index.js';
+import { hideStartupStatus } from './startupStatusWindow.js';
 
 export type UpdateCheckResult =
   | {
@@ -920,6 +921,8 @@ function showUpdateWindow(parent?: BrowserWindow | null) {
   }
   updateUiWindow.webContents.on('did-finish-load', () => {
     pushUpdateUiState();
+    // Дальше говорит окно обновления — два окна о запуске спорили бы между собой.
+    hideStartupStatus();
   });
   return updateUiWindow;
 }
