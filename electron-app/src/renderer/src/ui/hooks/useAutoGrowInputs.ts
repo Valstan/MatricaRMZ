@@ -1,6 +1,17 @@
 import { useEffect } from 'react';
 
+import { perfTrace } from '../utils/perfTrace.js';
+import {
+  autoGrowContentLength,
+  autoGrowWidthCss,
+  computeAutoGrowChars,
+  shouldSyncAutoGrowInputs,
+  shouldWriteValue,
+} from './domScanGating.js';
+
 const AUTO_GROW_TYPES = new Set(['text', 'number', 'search', 'email', 'url', 'tel', 'password']);
+/** Страховочный проход: наблюдателей хватает, интервал нужен лишь на случай их промаха. */
+const SAFETY_SYNC_MS = 10_000;
 
 type AutoGrowConfig = {
   autoGrowAll: boolean;
@@ -32,13 +43,6 @@ function shouldAutoGrow(input: HTMLInputElement, config: AutoGrowConfig): boolea
   return config.autoGrowAll || isNumericLike(type, inputMode);
 }
 
-function contentLength(input: HTMLInputElement): number {
-  const value = String(input.value ?? '');
-  const placeholder = String(input.placeholder ?? '');
-  const source = value.length > 0 ? value : placeholder;
-  return Math.max(1, source.length);
-}
-
 export function useAutoGrowInputs() {
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -57,6 +61,15 @@ export function useAutoGrowInputs() {
         maxChars,
         extraChars,
       };
+    };
+
+    // getComputedStyle — принудительный пересчёт стилей, а раньше он случался на каждую
+    // нажатую клавишу. Конфиг живёт в CSS-переменных корня, и его меняет ровно то, за чем
+    // уже следит rootObserver, — им кэш и сбрасывается.
+    let cachedConfig: AutoGrowConfig | null = null;
+    const getConfig = (): AutoGrowConfig => {
+      if (!cachedConfig) cachedConfig = readConfig();
+      return cachedConfig;
     };
 
     const clearManagedStyle = (input: HTMLInputElement) => {
@@ -92,15 +105,23 @@ export function useAutoGrowInputs() {
         input.dataset.uiInputAutogrowPrevMinWidth = input.style.minWidth;
         input.dataset.uiInputAutogrowPrevMaxWidth = input.style.maxWidth;
       }
-      const targetChars = clampInt(contentLength(input) + config.extraChars, config.minChars, config.maxChars);
-      input.style.width = `${targetChars}ch`;
-      input.style.minWidth = `${config.minChars}ch`;
-      input.style.maxWidth = `${config.maxChars}ch`;
-      input.dataset.uiInputAutogrowManaged = '1';
+      const targetChars = computeAutoGrowChars(
+        autoGrowContentLength(input.value, input.placeholder),
+        config,
+      );
+      // Повтор той же ширины ничего не меняет на экране, но заставляет браузер заново
+      // считать раскладку — а проход идёт по всем полям панели.
+      const width = autoGrowWidthCss(targetChars);
+      const minWidth = autoGrowWidthCss(config.minChars);
+      const maxWidth = autoGrowWidthCss(config.maxChars);
+      if (shouldWriteValue(input.style.width, width)) input.style.width = width;
+      if (shouldWriteValue(input.style.minWidth, minWidth)) input.style.minWidth = minWidth;
+      if (shouldWriteValue(input.style.maxWidth, maxWidth)) input.style.maxWidth = maxWidth;
+      if (input.dataset.uiInputAutogrowManaged !== '1') input.dataset.uiInputAutogrowManaged = '1';
     };
 
     const syncAll = () => {
-      const config = readConfig();
+      const config = getConfig();
       // Только видимая панель: с keep-alive в документе живут поля нескольких вкладок,
       // а запись style.width по всем ним грязнила бы раскладку скрытых поддеревьев.
       const scope = document.querySelector('.v3-tab-pane[data-pane-active="1"]') ?? body;
@@ -112,37 +133,55 @@ export function useAutoGrowInputs() {
 
     let rafId = 0;
     const scheduleSync = () => {
+      perfTrace.count('autoGrowInputs.requested');
       if (rafId) return;
       rafId = window.requestAnimationFrame(() => {
         rafId = 0;
-        syncAll();
+        perfTrace.measure('autoGrowInputs.sync', syncAll);
       });
     };
 
     const onInputLike = (event: Event) => {
       const target = event.target;
       if (!(target instanceof HTMLInputElement)) return;
-      applyToInput(target, readConfig());
+      applyToInput(target, getConfig());
     };
 
     document.addEventListener('input', onInputLike, true);
     document.addEventListener('change', onInputLike, true);
     document.addEventListener('focusin', onInputLike, true);
 
-    const observer = new MutationObserver(() => scheduleSync());
+    // Поток childList от виртуального списка к автоширине отношения не имеет: проход нужен
+    // только если среди добавленных узлов есть поле ввода.
+    const observer = new MutationObserver((records) => {
+      if (!shouldSyncAutoGrowInputs(records)) {
+        perfTrace.count('autoGrowInputs.mutationsDropped');
+        return;
+      }
+      scheduleSync();
+    });
     observer.observe(body, {
       childList: true,
       subtree: true,
       attributes: true,
       attributeFilter: ['type', 'placeholder', 'data-autogrow', 'data-pane-active'],
     });
-    const rootObserver = new MutationObserver(() => scheduleSync());
+    const rootObserver = new MutationObserver(() => {
+      cachedConfig = null;
+      scheduleSync();
+    });
     rootObserver.observe(root, {
       attributes: true,
       attributeFilter: ['style', 'data-ui-input-autogrow-all'],
     });
 
-    const intervalId = window.setInterval(scheduleSync, 1200);
+    // Раньше этот проход по всем полям шёл каждые 1.2 с и в фоне тоже. Наблюдателей хватает;
+    // редкая страховка нужна лишь на случай, когда размер пришёл не через них (медиазапрос).
+    const intervalId = window.setInterval(() => {
+      if (!document.hasFocus()) return;
+      cachedConfig = null;
+      scheduleSync();
+    }, SAFETY_SYNC_MS);
     scheduleSync();
 
     return () => {

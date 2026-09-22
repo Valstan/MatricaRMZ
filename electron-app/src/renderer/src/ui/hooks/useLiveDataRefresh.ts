@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 
 import { subscribeLiveDataPulse, type LiveDataPulse } from '../services/liveDataService.js';
 import { useOnTabVisible, useTabVisibility } from '../shell/TabVisibilityContext.js';
+import { perfTrace } from '../utils/perfTrace.js';
 
 type UseLiveDataRefreshOptions = {
   enabled?: boolean;
@@ -26,6 +27,11 @@ export function useLiveDataRefresh(
   const runningRef = useRef(false);
   const mountedRef = useRef(true);
   const lastRefreshAtRef = useRef(0);
+  // Почти все вызывающие собирают колбэк заново на каждом рендере (он читает состояние
+  // страницы). Через ref его свежесть сохраняется, но идентичность — нет, и подписка на
+  // импульсы перестаёт отписываться-подписываться по десятку раз на кадр.
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -48,15 +54,18 @@ export function useLiveDataRefresh(
     }
     runningRef.current = true;
     try {
-      await refresh();
+      await refreshRef.current();
       lastRefreshAtRef.current = Date.now();
     } finally {
       runningRef.current = false;
     }
-  }, [enabled, refresh, skipWhenInteracting]);
+  }, [enabled, skipWhenInteracting]);
 
   useEffect(() => {
     if (!enabled) return;
+    // Замер: сколько раз подписка пересоздалась. До ref'а колбэка счёт рос на каждый
+    // рендер любой открытой страницы — это и есть «много ненужных действий».
+    perfTrace.count('liveData.resubscribe');
     const unsubscribe = subscribeLiveDataPulse((pulse: LiveDataPulse) => {
       if (!enabled) return;
       if (pulse.reason === 'sync_done') {

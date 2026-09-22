@@ -134,6 +134,8 @@ import { useListColumnsMode } from './hooks/useListColumnsMode.js';
 import { useUiMode, useTabletDevice } from './hooks/useUiMode.js';
 import { useLiveDataRefresh } from './hooks/useLiveDataRefresh.js';
 import { checkAssemblyDuplicate, formatEngineGateLabel } from './utils/assemblyDuplicateGate.js';
+import { coalesceCalls } from './utils/coalesceCalls.js';
+import { perfTrace } from './utils/perfTrace.js';
 import { resolveDeepLinkRoute, searchHitToRoute, type DeepLinkRoute } from './utils/deepLinkRouting.js';
 import { pollWhenVisible } from './utils/pollWhenVisible.js';
 import { logUiUsage } from './utils/uiUsageLog.js';
@@ -374,6 +376,72 @@ function isEditingAField() {
     active instanceof HTMLSelectElement
   );
 }
+
+// Signature over the row's DISPLAYED fields, not just the engine entity's own
+// updatedAt. Контрагент/контракт (customerName/contractName), dates, scrap flag
+// and attachment previews are denormalized — derived from related attributes /
+// the contract — and change WITHOUT bumping the engine's updatedAt (e.g. when an
+// engine is attached to a contract from the contract card). A guard keyed only on
+// updatedAt/syncStatus treats such rows as unchanged and discards a correctly
+// refetched list, so the list keeps showing stale контрагент/contract.
+//
+// Лежит вне компонента: подпись читает только свой аргумент, а объявленная внутри
+// она пересоздавалась на каждый рендер и тянула за собой refreshEngines — из-за чего
+// подписка на импульсы живых данных переподписывалась на каждом кадре.
+function engineRowSignature(e: EngineListItem): string {
+  return [
+    e.id,
+    e.updatedAt ?? 0,
+    e.syncStatus ?? '',
+    e.engineNumber ?? '',
+    e.internalNumber ?? '',
+    e.internalNumberYear ?? '',
+    e.engineBrand ?? '',
+    e.customerName ?? '',
+    e.contractName ?? '',
+    e.arrivalDate ?? '',
+    e.shippingDate ?? '',
+    e.isScrap ? 1 : 0,
+    // Поля ступеней фильтра обязаны быть в подписи. Они меняются БЕЗ правки самой сущности:
+    // акт — это операция, история ремонта и переезд в цех — тоже. При сравнении по неполной
+    // подписи свежий список выглядел «таким же», отбрасывался, и фильтр показывал «событий
+    // нет» у двигателя, у которого событие только что записали (поймано смоуком 08.09.2026).
+    e.hasCompletenessAct ? 1 : 0,
+    // Без даты в подписи перечитанный список выглядит прежним и отбрасывается —
+    // этап «Комплектовка» после проводки не обновился бы до перезахода.
+    e.completenessActDate ?? '',
+    e.hasDefectAct ? 1 : 0,
+    e.defectDate ?? '',
+    e.workshopId ?? '',
+    e.lastHistoryAction ?? '',
+    e.lastHistoryAt ?? '',
+    e.lastSheetNode ?? '',
+    e.lastSheetAt ?? '',
+    Object.entries(e.statusDates ?? {})
+      .map(([code, ms]) => `${code}=${ms}`)
+      .join(','),
+    (e.attachmentPreviews ?? []).map((p) => p.id).join(','),
+  ].join('|');
+}
+
+function sameEngineList(a: EngineListItem[], b: EngineListItem[]) {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    const left = a[i];
+    const right = b[i];
+    if (!left || !right) return false;
+    if (engineRowSignature(left) !== engineRowSignature(right)) return false;
+  }
+  return true;
+}
+
+/** Кто попросил перечитать список двигателей — видно в сводке perfTrace. */
+type EnginesRefreshReason = 'sync_done' | 'live_pulse' | 'manual';
+
+/** Окно схлопывания повторных перечитываний списка: 'done' синка и импульс живых данных. */
+const ENGINES_REFRESH_WINDOW_MS = 3000;
 
 function quickStartRatingsStorageKey(userId: string) {
   return `matrica:history:quick-start-ratings:${userId}`;
@@ -1635,62 +1703,6 @@ export function App() {
     root.dataset.uiInputAutogrowAll = safe.inputs.autoGrowAllFields ? '1' : '0';
   }, [effectiveUiControl, tabletActive]);
 
-  // Signature over the row's DISPLAYED fields, not just the engine entity's own
-  // updatedAt. Контрагент/контракт (customerName/contractName), dates, scrap flag
-  // and attachment previews are denormalized — derived from related attributes /
-  // the contract — and change WITHOUT bumping the engine's updatedAt (e.g. when an
-  // engine is attached to a contract from the contract card). A guard keyed only on
-  // updatedAt/syncStatus treats such rows as unchanged and discards a correctly
-  // refetched list, so the list keeps showing stale контрагент/contract.
-  function engineRowSignature(e: EngineListItem): string {
-    return [
-      e.id,
-      e.updatedAt ?? 0,
-      e.syncStatus ?? '',
-      e.engineNumber ?? '',
-      e.internalNumber ?? '',
-      e.internalNumberYear ?? '',
-      e.engineBrand ?? '',
-      e.customerName ?? '',
-      e.contractName ?? '',
-      e.arrivalDate ?? '',
-      e.shippingDate ?? '',
-      e.isScrap ? 1 : 0,
-      // Поля ступеней фильтра обязаны быть в подписи. Они меняются БЕЗ правки самой сущности:
-      // акт — это операция, история ремонта и переезд в цех — тоже. При сравнении по неполной
-      // подписи свежий список выглядел «таким же», отбрасывался, и фильтр показывал «событий
-      // нет» у двигателя, у которого событие только что записали (поймано смоуком 08.09.2026).
-      e.hasCompletenessAct ? 1 : 0,
-      // Без даты в подписи перечитанный список выглядит прежним и отбрасывается —
-      // этап «Комплектовка» после проводки не обновился бы до перезахода.
-      e.completenessActDate ?? '',
-      e.hasDefectAct ? 1 : 0,
-      e.defectDate ?? '',
-      e.workshopId ?? '',
-      e.lastHistoryAction ?? '',
-      e.lastHistoryAt ?? '',
-      e.lastSheetNode ?? '',
-      e.lastSheetAt ?? '',
-      Object.entries(e.statusDates ?? {})
-        .map(([code, ms]) => `${code}=${ms}`)
-        .join(','),
-      (e.attachmentPreviews ?? []).map((p) => p.id).join(','),
-    ].join('|');
-  }
-
-  function sameEngineList(a: EngineListItem[], b: EngineListItem[]) {
-    if (a === b) return true;
-    if (!Array.isArray(a) || !Array.isArray(b)) return false;
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i += 1) {
-      const left = a[i];
-      const right = b[i];
-      if (!left || !right) return false;
-      if (engineRowSignature(left) !== engineRowSignature(right)) return false;
-    }
-    return true;
-  }
-
   function sameEngineDetails(a: EngineDetails | null, b: EngineDetails | null) {
     if (a === b) return true;
     if (!a || !b) return false;
@@ -1737,7 +1749,7 @@ export function App() {
     void window.matrica.settings.uiControlGet().then((r: any) => {
       if (r?.ok && r?.effective) applyEffectiveUiSettings(r.effective as UiControlSettings);
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot startup bootstrap (engines list, auth status, UI prefs); refreshEngines is a render-scoped function recreated every render, adding it would re-run the whole bootstrap on each render
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot startup bootstrap (engines list, auth status, UI prefs); it must not re-run when a listed helper's identity changes
   }, [applyEffectiveUiSettings]);
 
   useEffect(() => {
@@ -1793,15 +1805,14 @@ export function App() {
               ? { state: 'syncing', progress: evt.progress != null ? Math.round(evt.progress * 100) : null, summary: null }
               : prev,
           );
-          void refreshEngines();
-          if (tabRef.current === 'engine' && !isEditingAField()) void reloadEngineRef.current();
+          // На тиках прогресса данные не перечитываем: список и карточка приедут один раз на 'done'.
         }
         if (evt.state === 'done') {
           clearSyncSpinDelay();
           const pulled = Number(evt.pulled ?? 0);
           if (pulled > 0) {
             setSyncIndicator({ state: 'done', progress: null, summary: `Обновилось ${pulled} док.` });
-            void refreshEngines();
+            requestEnginesRefresh('sync_done');
             if (tabRef.current === 'engine' && !isEditingAField()) void reloadEngineRef.current();
             setTimeout(() => setSyncIndicator({ state: 'idle', progress: null, summary: null }), 4000);
           } else {
@@ -1848,7 +1859,7 @@ export function App() {
       }
       if (evt.state === 'done') {
         if (Number(evt.pulled ?? 0) > 0) {
-          void refreshEngines();
+          requestEnginesRefresh('sync_done');
           if (tabRef.current === 'engine' && !isEditingAField()) void reloadEngineRef.current();
         }
         setFullSyncUi((prev) => ({
@@ -1882,7 +1893,7 @@ export function App() {
       clearSyncSpinDelay();
       if (unsubscribe) unsubscribe();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only sync-progress IPC subscription: re-subscribing on tab/helper identity changes would clear fullSyncCloseTimer mid-flight and strand the full-sync modal open. The handler reads the live tab and reloadEngine through tabRef/reloadEngineRef, and skips the card reload while a field is focused (isEditingAField) so a sync tick cannot overwrite what the operator is typing; refreshEngines only touches the IPC bridge and setEngines, so its first-render identity is safe to keep
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only sync-progress IPC subscription: re-subscribing on tab/helper identity changes would clear fullSyncCloseTimer mid-flight and strand the full-sync modal open. The handler reads the live tab and reloadEngine through tabRef/reloadEngineRef, and skips the card reload while a field is focused (isEditingAField) so a sync tick cannot overwrite what the operator is typing; requestEnginesRefresh is stable (useMemo over the stable refreshEngines)
   }, []);
 
   useEffect(() => {
@@ -2289,7 +2300,7 @@ export function App() {
     }
     window.addEventListener('matrica:engines-changed', onEnginesChanged);
     return () => window.removeEventListener('matrica:engines-changed', onEnginesChanged);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: refreshEngines пересоздаётся каждый рендер, но трогает лишь IPC-мост и setEngines — первая идентичность безопасна (как у подписки на прогресс синка)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: слушатель окна не должен пересоздаваться; refreshEngines стабильна (useCallback) и трогает лишь IPC-мост и setEngines
   }, []);
 
   // Правка шаблонов фильтров на странице отчёта поднимает nonce → перечитываем
@@ -2508,7 +2519,7 @@ export function App() {
     setNomenclatureOriginTab(null);
     setSelectedCounterpartyId(null);
     setSelectedReportPresetId(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on mode+backupDate only: the backupMode object is replaced by a 15s status poll, and re-running on object identity would clobber the user's selection every tick; refreshEngines is recreated every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on mode+backupDate only: the backupMode object is replaced by a 15s status poll, and re-running on object identity would clobber the user's selection every tick
   }, [backupMode?.mode, backupMode?.backupDate]);
 
   async function runSyncNow() {
@@ -2637,7 +2648,7 @@ export function App() {
     void (async () => {
       await runSyncNow();
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fires only on a real user-id change (prevUserId ref guard); runSyncNow is recreated every render and would force a useCallback cascade through refreshEngines without changing behavior
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fires only on a real user-id change (prevUserId ref guard); runSyncNow is recreated every render and listing it would re-run the sync on each render without changing behavior
   }, [authReady, authStatus.loggedIn, authStatus.user?.id, backupMode?.mode]);
 
   // Periodically sync auth permissions from server (important for delegated permissions).
@@ -3210,12 +3221,16 @@ export function App() {
     return isLinkOnDesktop(desktopLinkForOpenTab(openTab));
   }
 
-  /** Единственный вход для сообщений оператору — и он рендерится (см. `shell/shellNotice.ts`). */
-  function notifyOperator(text: string, tone: ShellNoticeTone = 'info') {
+  /**
+   * Единственный вход для сообщений оператору — и он рендерится (см. `shell/shellNotice.ts`).
+   * В useCallback, потому что зависимостей у него нет вовсе (сеттер состояния и ref), а от его
+   * идентичности зависит refreshEngines — а от той уже подписка на импульсы живых данных.
+   */
+  const notifyOperator = useCallback((text: string, tone: ShellNoticeTone = 'info') => {
     setShellNotice({ text, tone });
     if (shellNoticeTimerRef.current != null) window.clearTimeout(shellNoticeTimerRef.current);
     shellNoticeTimerRef.current = window.setTimeout(() => setShellNotice(null), SHELL_NOTICE_MS[tone]);
-  }
+  }, []);
 
   /** Сообщение называет то, что произошло: упор в лимит — не «добавлено». */
   function announceDesktopOutcome(outcome: DesktopToggleOutcome | DesktopPutOutcome, label: string) {
@@ -3367,21 +3382,39 @@ export function App() {
     };
   }, []);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- wrapping in useCallback would cascade: it calls the render-scoped helpers sameEngineList/engineRowSignature which would then be flagged in its deps; the consumer callback at useLiveDataRefresh already re-creates every render, so behavior is unchanged
-  async function refreshEngines() {
-    try {
-      const list = await window.matrica.engines.list();
-      setEngines((prev) => (sameEngineList(prev, list) ? prev : list));
-    } catch (e) {
-      const message = String(e ?? '');
-      if (message.includes('permission denied')) {
-        setEngines([]);
-        notifyOperator('Недостаточно прав для просмотра двигателей.', 'error');
-        return;
+  // Стабильна по идентичности: sameEngineList/engineRowSignature вынесены в модуль,
+  // notifyOperator — в useCallback без зависимостей. Раньше функция пересоздавалась на
+  // каждый рендер App и заставляла useLiveDataRefresh переподписываться на импульсы.
+  const refreshEngines = useCallback(
+    async (reason: EnginesRefreshReason = 'manual') => {
+      // Замер: сколько раз и по чьей просьбе перечитывается список — это самый дорогой
+      // вызов рендерера (полный скан EAV по всем двигателям в engineService.listEngines).
+      perfTrace.count(`engines.refresh:${reason}`);
+      try {
+        const list = await window.matrica.engines.list();
+        setEngines((prev) => (sameEngineList(prev, list) ? prev : list));
+      } catch (e) {
+        const message = String(e ?? '');
+        if (message.includes('permission denied')) {
+          setEngines([]);
+          notifyOperator('Недостаточно прав для просмотра двигателей.', 'error');
+          return;
+        }
+        notifyOperator(`Ошибка загрузки двигателей: ${message}`, 'error');
       }
-      notifyOperator(`Ошибка загрузки двигателей: ${message}`, 'error');
-    }
-  }
+    },
+    [notifyOperator],
+  );
+
+  // Синк на 'done' и импульс живых данных приходят почти одновременно и оба просят
+  // перечитать список — коалесер сводит их к одному обращению к базе.
+  const requestEnginesRefresh = useMemo(
+    () =>
+      coalesceCalls<EnginesRefreshReason>((reason) => void refreshEngines(reason), {
+        windowMs: ENGINES_REFRESH_WINDOW_MS,
+      }),
+    [refreshEngines],
+  );
 
   async function openEngine(id: string, opts?: { initialTab?: EngineCardTab }) {
     v2OpenCardGuarded('engine', id, () => {
@@ -4700,9 +4733,11 @@ export function App() {
 
   useLiveDataRefresh(
     useCallback(async () => {
-      await refreshEngines();
+      // Через коалесер: импульс приходит и сразу после 'done' синка, и по фокусу окна —
+      // без него список сканировался бы дважды подряд.
+      requestEnginesRefresh('live_pulse');
       if (tab === 'engine') await reloadEngine();
-    }, [refreshEngines, reloadEngine, tab]),
+    }, [requestEnginesRefresh, reloadEngine, tab]),
     {
       enabled: authStatus.loggedIn && tab === 'engine',
       intervalMs: 12000,
@@ -4716,7 +4751,7 @@ export function App() {
       void refreshEngines();
     }
     prevTabRef.current = tab;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- refetches only on the transition into the engines tab (prevTabRef guard); refreshEngines is recreated every render and adding it would run the effect on each render
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refetches only on the transition into the engines tab (prevTabRef guard); refreshEngines is stable and deliberately left out of the deps
   }, [tab, authStatus.loggedIn]);
 
   // Audit page is hidden in client app.

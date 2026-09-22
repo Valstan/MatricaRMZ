@@ -23,8 +23,8 @@
 | 5 ✅ | `feat/contract-repair-days` | «дней на ремонт» в контракте, горящие от поступления, фильтры | M |
 | 6 ✅ | `feat/defect-blank-two-columns` | бланк дефектовки: флаг «свой номер», два столбца на листе | M |
 | 7 ✅ | `feat/engine-tags-print` | бирки на двигатель 6/4/2 на А4 | M |
-| 8 | `perf/renderer-scanners-and-sync-refresh` | замер + дешёвые ускорения | M |
-| 9 | `fix/entity-reference-focus-trap` | залипание фокуса | S |
+| 8 ✅ | `perf/renderer-scanners-and-focus` | замер + дешёвые ускорения | M |
+| 9 ✅ | `perf/renderer-scanners-and-focus` | залипание фокуса (тем же PR) | S |
 
 ---
 
@@ -116,7 +116,7 @@
 
 **Проверка.** Тест `engineTagPrint.test.ts` (6 двигателей → 1 лист по 6, 2 листа по 4; поля в HTML); стенд: выделить 5 двигателей → предпросмотр 6/4/2.
 
-## 8. Производительность: замер + дешёвые ускорения
+## 8. ✅ Производительность: замер + дешёвые ускорения
 
 **Что есть.** Инструментов замера нет вовсе. Два глобальных DOM-сканера смонтированы у корня (`App.tsx:908-909`): `useAdaptiveListTables.ts` — MutationObserver на `document.body` (subtree + characterData), на каждую мутацию пересчёт до 240 строк × колонок через `querySelectorAll('td,th')[col]` на ячейку дважды (`:96-105`, `:131-137`), запись CSS-переменных и `title` обратно в DOM; rAF-коалесинг (`:145-151`) при непрерывных мутациях срабатывает каждый кадр; скролл `VirtualTable` (measureElement `:111`) мутирует строки → цикл. `useAutoGrowInputs.ts` — `setInterval(1200)` (`:145`) обходит все `<input>` и пишет ширины, `getComputedStyle` ×3 на каждую клавишу (`:122-128`). Шторм обновлений после wake-синка v3.41: `App.tsx:1796` зовёт `refreshEngines()` на каждый `progress`, на `done` — дважды (`:1804` напрямую + через `liveDataService.ts:44` pulse → `useLiveDataRefresh` `App.tsx:4701`); `listEngines` (`engineService.ts:617-700`) — EAV-скан ~1600 двигателей с флагами инвентаря и историей. `refreshEngines` — обычная `async function` (`App.tsx:3371`), поэтому `useLiveDataRefresh.ts:58-74` переподписывается на каждый рендер App. `React.memo` в renderer один (`V3TabShell.tsx:31`).
 
@@ -129,7 +129,7 @@
 
 **Проверка.** Тесты выше + существующие. На слабом ПК: включить флаг, открыть список двигателей, скроллить 10 с, печатать в чат 10 с, дождаться синка; цель — `adaptiveTables.recalc` ≤ 7 за 10 с при скролле, `autoGrow.syncAll` ≈ 0 в покое, `engines.refresh` ≤ 3 за синк, `liveData.resubscribe` 0 в покое. Снять базу до правок тем же способом (A0 отдельным коммитом).
 
-## 9. Залипание фокуса
+## 9. ✅ Залипание фокуса
 
 **Что есть.** `EntityReferenceField.tsx:89-119`: capture-`mousedown` на документе всегда, пока в поле нерешённый текст — `preventDefault + stopImmediatePropagation` на любой клик в окне, потом асинхронный диалог `pickChoice`; `resolvingRef` ставится поздно (`:160`), два клика подряд проходят оба; deps эффекта включают `options` (новая ссылка каждый рендер) — слушатель переустанавливается. Смежные capture-слушатели: `GlobalInputAssist.tsx:394-405,424-428,483` (M143), `useSuggestionDropdown.ts:172-181` (автозакрытие через 3 с), `useTabFocusSelectAll.ts:77,118-119`, `useListSelection.ts:98-135`.
 
