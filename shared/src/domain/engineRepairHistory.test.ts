@@ -196,3 +196,22 @@ describe('классификация записей и строки этапов
     expect(meta.at).toBe(777);
   });
 });
+
+describe('строки единого списка этапов (шаг 2 плана)', () => {
+  it('строит и читает stage-meta, лента классифицирует как этап', async () => {
+    const { repairHistoryMetaForStage } = await import('./engineRepairHistory.js');
+    const meta = repairHistoryMetaForStage('sborka', 'Сборка', 100, { pass: 2 });
+    expect(meta.stage).toEqual({ code: 'sborka', name: 'Сборка' });
+    expect(meta.entryType).toBe('stage');
+    const back = parseRepairHistoryMeta(JSON.stringify(meta));
+    expect(back?.stage).toEqual({ code: 'sborka', name: 'Сборка' });
+    const entries = repairHistoryFromOperations([row({ id: 'op9', metaJson: JSON.stringify(meta) })]);
+    expect(entries[0]?.entryType).toBe('stage');
+    expect(entries[0]?.stage).toEqual({ code: 'sborka', name: 'Сборка' });
+    expect(entries[0]?.at).toBe(100);
+  });
+
+  it('stage без кода или названия — не stage', () => {
+    expect(parseRepairHistoryMeta(JSON.stringify({ kind: 'repair_history', action: 'x', stage: { code: '', name: '' } }))?.stage).toBeUndefined();
+  });
+});

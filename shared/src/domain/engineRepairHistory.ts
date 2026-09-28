@@ -29,7 +29,7 @@ export const REPAIR_HISTORY_META_KIND = 'repair_history';
 /** Произвольное поле строки: владелец просил не упираться в заранее придуманный набор. */
 export type RepairHistoryExtraField = { label: string; value: string };
 
-export const REPAIR_HISTORY_ENTRY_TYPES = ['manual', 'status', 'transfer', 'sheet'] as const;
+export const REPAIR_HISTORY_ENTRY_TYPES = ['manual', 'status', 'transfer', 'sheet', 'stage'] as const;
 export type RepairHistoryEntryType = (typeof REPAIR_HISTORY_ENTRY_TYPES)[number];
 
 export const REPAIR_HISTORY_ENTRY_TYPE_LABELS: Record<RepairHistoryEntryType, string> = {
@@ -37,6 +37,13 @@ export const REPAIR_HISTORY_ENTRY_TYPE_LABELS: Record<RepairHistoryEntryType, st
   status: 'Стадия',
   transfer: 'Переезд',
   sheet: 'Этап работ',
+  stage: 'Этап',
+};
+
+/** Строка единого списка этапов: код из шаблона + снимок названия. */
+export type RepairHistoryStage = {
+  code: string;
+  name: string;
 };
 
 /** Строка этапа работ: узел и его поля — самоописываемо, чтобы читаться без справочника. */
@@ -99,6 +106,8 @@ export type RepairHistoryMeta = {
   entryType?: RepairHistoryEntryType;
   /** Строка этапа работ. */
   sheet?: RepairHistorySheet;
+  /** Строка единого списка этапов (план unified-repair-stages, шаг 2). */
+  stage?: RepairHistoryStage;
   /** След этой строки в карточке двигателя — основание для отката при удалении. */
   repairStamp?: RepairStatusStamp;
   /**
@@ -154,6 +163,7 @@ export type RepairHistoryEntry = {
   operationType: string;
   entryType: RepairHistoryEntryType;
   sheet: RepairHistorySheet | null;
+  stage: RepairHistoryStage | null;
 };
 
 /** Форма строки `operations`, которой достаточно истории (без завязки на ipc/types). */
@@ -249,14 +259,25 @@ function parseEntryType(raw: unknown): RepairHistoryEntryType | null {
   return (REPAIR_HISTORY_ENTRY_TYPES as readonly string[]).includes(s) ? (s as RepairHistoryEntryType) : null;
 }
 
+function parseStage(raw: unknown): RepairHistoryStage | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const code = text(obj.code).toLowerCase().slice(0, 40);
+  const name = text(obj.name).slice(0, 120);
+  if (!code || !name) return null;
+  return { code, name };
+}
+
 /**
  * Классификация записи: явное поле, иначе по признакам. Порядок важен: этап работ узнаётся
- * по `sheet` даже если кто-то выставил `auto`, переезд — по типу операции.
+ * по `sheet` даже если кто-то выставил `auto`, строка единого списка — по `stage`,
+ * переезд — по типу операции.
  */
 export function repairHistoryEntryType(
-  meta: Pick<RepairHistoryMeta, 'entryType' | 'sheet' | 'auto'> | null,
+  meta: Pick<RepairHistoryMeta, 'entryType' | 'sheet' | 'stage' | 'auto'> | null,
   operationType: string,
 ): RepairHistoryEntryType {
+  if (meta?.stage) return 'stage';
   if (meta?.sheet) return 'sheet';
   if (meta?.entryType) return meta.entryType;
   if (operationType === 'workshop_transfer') return 'transfer';
@@ -284,6 +305,7 @@ export function parseRepairHistoryMeta(metaJson: string | null): RepairHistoryMe
     ...(typeof obj.at === 'number' && Number.isFinite(obj.at) && obj.at > 0 ? { at: obj.at } : {}),
     ...(parseEntryType(obj.entryType) ? { entryType: parseEntryType(obj.entryType)! } : {}),
     ...(parseSheet(obj.sheet) ? { sheet: parseSheet(obj.sheet)! } : {}),
+    ...(parseStage(obj.stage) ? { stage: parseStage(obj.stage)! } : {}),
     ...(parseRepairStamp(obj.repairStamp) ? { repairStamp: parseRepairStamp(obj.repairStamp)! } : {}),
     ...(parseRepeat(obj.repeat) ? { repeat: parseRepeat(obj.repeat)! } : {}),
   };
@@ -305,10 +327,12 @@ export function buildRepairHistoryMeta(input: {
   at?: number;
   entryType?: RepairHistoryEntryType;
   sheet?: RepairHistorySheet | null;
+  stage?: RepairHistoryStage | null;
   repairStamp?: RepairStatusStamp | null;
   repeat?: RepairHistoryRepeat | null;
 }): RepairHistoryMeta {
   const sheet = parseSheet(input.sheet);
+  const stage = parseStage(input.stage);
   return {
     kind: REPAIR_HISTORY_META_KIND,
     action: text(input.action).slice(0, 200),
@@ -321,6 +345,7 @@ export function buildRepairHistoryMeta(input: {
     ...(typeof input.at === 'number' && Number.isFinite(input.at) && input.at > 0 ? { at: input.at } : {}),
     ...(input.entryType ? { entryType: input.entryType } : {}),
     ...(sheet ? { sheet } : {}),
+    ...(stage ? { stage } : {}),
     ...(parseRepairStamp(input.repairStamp) ? { repairStamp: parseRepairStamp(input.repairStamp)! } : {}),
     ...(parseRepeat(input.repeat) ? { repeat: parseRepeat(input.repeat)! } : {}),
   };
@@ -362,6 +387,7 @@ export function repairHistoryFromOperations(rows: readonly RepairHistorySourceRo
         operationType: row.operationType,
         entryType: repairHistoryEntryType(meta, row.operationType),
         sheet: meta.sheet ?? null,
+        stage: meta.stage ?? null,
       });
       continue;
     }
@@ -381,6 +407,7 @@ export function repairHistoryFromOperations(rows: readonly RepairHistorySourceRo
         operationType: row.operationType,
         entryType: 'transfer',
         sheet: null,
+        stage: null,
       });
     }
   }
@@ -419,4 +446,20 @@ export function lastSheetEntry(entries: readonly RepairHistoryEntry[]): RepairHi
     if (entry.entryType === 'sheet' && entry.sheet) return entry;
   }
   return null;
+}
+
+/** Строка единого списка этапов для builder-сервиса (шаг 2 плана). */
+export function repairHistoryMetaForStage(
+  code: string,
+  name: string,
+  at?: number,
+  repeat?: RepairHistoryRepeat | null,
+): RepairHistoryMeta {
+  return buildRepairHistoryMeta({
+    action: name,
+    entryType: 'stage',
+    stage: { code, name },
+    ...(typeof at === 'number' && Number.isFinite(at) && at > 0 ? { at } : {}),
+    ...(repeat ? { repeat } : {}),
+  });
 }

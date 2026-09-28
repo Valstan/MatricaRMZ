@@ -55,6 +55,16 @@ export function repairStageTemplate(code: RepairStageCode): RepairStageTemplate 
   return t;
 }
 
+/**
+ * Ранг произвольного кода (не бросает): известный — его приоритет, чужой —
+ * 0, то есть боковая ветка вне порядка. Нужно чтению старых и runtime-строк,
+ * чьи коды могут не совпасть с реестром.
+ */
+export function repairStageRank(code: string): number {
+  const t = byCode.get(code as RepairStageCode);
+  return t ? t.sortOrder : 0;
+}
+
 export type DatedStage = {
   code: RepairStageCode;
   /** ms epoch; 0/null — дата не проставлена, в порядке не участвует. */
