@@ -14,44 +14,19 @@ import {
   REPAIR_HISTORY_OPERATION_TYPE,
   type DatedStage,
   type RepairHistoryRepeat,
+  type RepairStageRow,
   type RepairStageTemplate,
+  type SaveRepairStageInput,
+  type SaveRepairStageResult,
   type WorkSheetDuplicateRef,
 } from '@matricarmz/shared';
 
 import { operations } from '../database/schema.js';
-import { getOperation, upsertOperation } from './operationService.js';
+import { getOperation, softDeleteOperation, upsertOperation } from './operationService.js';
 
 // Строки единого списка этапов (план unified-repair-stages, шаг 2: хранилище).
 // Писатель чистый: статусы карточки не трогает (их смерть — шаг 8 плана после
 // приёмки). Субординация дат и пометка возврата — здесь, в точке записи.
-
-export type RepairStageRow = {
-  id: string;
-  code: string;
-  name: string;
-  at: number | null;
-  pass: number;
-  note: string;
-};
-
-export type SaveRepairStageInput = {
-  id: string;
-  engineId: string;
-  code: string;
-  atMs: number;
-  note?: string;
-  /** Осознанный повторный проход (ответ на гейт дублей), начиная с 2. */
-  repeatPass?: number;
-  repeatReason?: string;
-};
-
-export type SaveRepairStageResult =
-  | { ok: true; id: string; created: boolean; backward: boolean; pass: number }
-  | {
-      ok: false;
-      error: string;
-      duplicate?: { refs: WorkSheetDuplicateRef[]; nextPass: number; typeName: string; atMs: number };
-    };
 
 function text(value: unknown): string {
   return String(value ?? '').trim();
@@ -209,4 +184,20 @@ export async function saveRepairStageRow(
 /** Ранг кода для читателей вне шаблона (неизвестный — боковая ветка). */
 export function stageRank(code: string): number {
   return repairStageRank(code);
+}
+
+/** Мягкое удаление строки этапа (синк погасит её у остальных клиентов). */
+export async function deleteRepairStageRow(
+  db: BetterSQLite3Database,
+  id: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const rowId = text(id);
+  if (!rowId) return { ok: false, error: 'Нет id строки' };
+  const existing = await getOperation(db, rowId);
+  const meta = existing ? parseRepairHistoryMeta(existing.metaJson ?? null) : null;
+  if (!existing || !meta || repairHistoryEntryType(meta, existing.operationType) !== 'stage') {
+    return { ok: false, error: 'Строка этапа не найдена' };
+  }
+  await softDeleteOperation(db, rowId);
+  return { ok: true };
 }

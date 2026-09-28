@@ -86,3 +86,32 @@ describe('история доезжает до списка', () => {
     }
   });
 });
+
+describe('единый список этапов в карточке (план unified-repair-stages, шаг 4)', () => {
+  it('секция этапов живёт во вкладке истории и читает шаблон с мостом', () => {
+    expect(PANEL).toContain('<RepairStagesSection');
+    expect(src('./RepairStagesSection.tsx')).toContain('window.matrica.workSheets.stages.list(props.engineId)');
+    expect(src('./RepairStagesSection.tsx')).toContain('window.matrica.workSheets.stages.templates()');
+  });
+
+  it('этап пишется, правится датой и убирается — всё из секции', () => {
+    const SECTION = src('./RepairStagesSection.tsx');
+    expect(SECTION).toContain("window.matrica.workSheets.stages.save({ ...args, engineId: props.engineId })");
+    expect(SECTION).toContain('data-repair-stage-add');
+    expect(SECTION).toContain('data-repair-stage-date={row.id}');
+    expect(SECTION).toContain('window.matrica.workSheets.stages.remove(id)');
+    expect(SECTION).toContain('data-repair-stage-row={row.code}');
+  });
+
+  it('гейт дублей спрашивает проходом, а не красной ошибкой', () => {
+    expect(src('./RepairStagesSection.tsx')).toContain('data-repair-stage-confirm-pass');
+    expect(src('./RepairStagesSection.tsx')).toContain('repeatPass: pendingPass.pass');
+  });
+
+  it('кнопка «Провести дефектовку» отмечает этап сама, ручной не перезаписывает', () => {
+    const CHECKLIST = src('./RepairChecklistPanel.tsx');
+    expect(CHECKLIST).toContain("window.matrica.workSheets.stages.save({");
+    expect(CHECKLIST).toContain("code: 'disassembly_defect'");
+    expect(CHECKLIST).toContain('!rows.some((r) => r.code ===');
+  });
+});

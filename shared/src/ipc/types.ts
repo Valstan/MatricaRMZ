@@ -11,6 +11,7 @@ import type { SectionMembership } from '../domain/sectionAccess.js';
 import type { SupportContact } from '../domain/supportContact.js';
 import type { ServicePriceHistoryDto, ServicePriceOrderDto } from '../domain/servicePriceOrders.js';
 import type { WorkSheetRow, WorkSheetType } from '../domain/workSheets.js';
+import type { RepairStageRow, RepairStageTemplate, SaveRepairStageInput, SaveRepairStageResult } from '../domain/repairStages.js';
 import type { WorkSheetDuplicateRef } from '../domain/workSheetDuplicates.js';
 import type { ArrivalPlacement } from '../domain/repeatArrival.js';
 
@@ -2212,6 +2213,18 @@ export type MatricaApi = {
         id: string,
         opts?: { rollbackRepair?: boolean },
       ) => Promise<{ ok: true; repairRolledBack?: boolean; reason?: string } | { ok: false; error: string }>;
+    };
+    /**
+     * Строки единого списка этапов (план unified-repair-stages): читаются и
+     * пишутся из карточки двигателя, права те же, что у строк работ
+     * (`work_sheets.edit`), секция `workSheets:` — та же.
+     */
+    stages: {
+      /** Шаблон этапов (пока статика шага 1; шаг 5 сделает справочник). */
+      templates: () => Promise<{ ok: true; templates: RepairStageTemplate[] } | { ok: false; error: string }>;
+      list: (engineId: string) => Promise<{ ok: true; rows: RepairStageRow[] } | { ok: false; error: string }>;
+      save: (args: SaveRepairStageInput) => Promise<SaveRepairStageResult>;
+      remove: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
     };
   };
   tools: {

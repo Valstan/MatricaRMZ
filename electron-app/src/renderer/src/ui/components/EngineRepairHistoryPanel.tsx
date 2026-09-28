@@ -14,6 +14,7 @@ import {
 
 import { Button } from './Button.js';
 import { Input } from './Input.js';
+import { RepairStagesSection } from './RepairStagesSection.js';
 import { SearchSelect } from './SearchSelect.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
 
@@ -114,6 +115,12 @@ export function EngineRepairHistoryPanel(props: {
 
   return (
     <div data-repair-history style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
+      {/* Единый список этапов — выше ленты (план unified-repair-stages, шаг 4). */}
+      <RepairStagesSection
+        engineId={props.engineId}
+        canEdit={props.canEdit}
+        {...(props.onChanged ? { onChanged: props.onChanged } : {})}
+      />
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontWeight: 700 }}>История ремонта</span>
         <span className="ui-muted">{entries.length > 0 ? `${entries.length} событий` : 'событий пока нет'}</span>
