@@ -46,6 +46,9 @@ export const PermissionCode = {
   // выдаются поимённо в админке (см. backend `defaultPermissionsForRole`).
   WorkSheetsEdit: 'work_sheets.edit',
   WorkSheetTypesEdit: 'work_sheet_types.edit',
+  // Шаблон единого списка этапов (план unified-repair-stages, шаг 5): вести его —
+  // тот же узкий круг, что виды работ. Роль не даёт даже admin'у, только поимённо.
+  RepairStageTemplatesEdit: 'repair_stage_templates.edit',
 
   // workshops (parts-movement module)
   WorkshopsManage: 'workshops.manage',
@@ -173,6 +176,12 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
     group: 'Операции',
     titleRu: 'Этапы работ: ведение видов работ (справочник)',
     descriptionRu: 'Заводить, править и архивировать виды работ и их колонки. Роль права не даёт — выдаётся поимённо.',
+  },
+  {
+    code: PermissionCode.RepairStageTemplatesEdit,
+    group: 'Операции',
+    titleRu: 'Этапы ремонта: ведение шаблона (справочник)',
+    descriptionRu: 'Заводить этапы, править названия и двигать приоритет. Роль права не даёт — выдаётся поимённо.',
   },
 
   { code: PermissionCode.DefectActView, group: 'Акт дефектовки', titleRu: 'Просмотр акта дефектовки' },
