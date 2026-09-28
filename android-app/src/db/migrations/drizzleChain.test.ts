@@ -104,3 +104,29 @@ describe('android drizzle chain runner', () => {
     await adapter.close();
   });
 });
+
+describe('корпус миграций безопасен для Android-плагина (M145)', () => {
+  it('ни один чанк цепочки не даёт плагину пустой оператор', async () => {
+    const { readdir, readFile } = await import('node:fs/promises');
+    const { stripSqlLineComments } = await import('../selectAliasing.js');
+    const dir = resolve(here, '../../../../electron-app/drizzle');
+    const files = (await readdir(dir)).filter((f) => f.endsWith('.sql')).sort();
+    expect(files.length).toBeGreaterThan(0);
+    const bad = [];
+    for (const f of files) {
+      const text = await readFile(resolve(dir, f), 'utf8');
+      for (const chunk of text.split('--> statement-breakpoint')) {
+        // Тот же порядок, что в applyDrizzleChain: сначала чистка, потом в exec.
+        // Плагин внутри режет по точке с запятой с переводом строки — после
+        // чистки там не должно остаться пустых элементов (иначе execSQL(";")
+        // с not an error).
+        const stripped = stripSqlLineComments(chunk).trim();
+        if (!stripped) continue;
+        for (const el of stripped.replace(/end;/g, 'END;').split(';\n')) {
+          if (!el.trim()) bad.push(f + ': пустой оператор для execSQL');
+        }
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+});

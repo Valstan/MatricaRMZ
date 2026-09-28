@@ -13,6 +13,7 @@
 import journal from '../../../../electron-app/drizzle/meta/_journal.json';
 
 import type { AsyncSqlite } from '../asyncSqlite.js';
+import { stripSqlLineComments } from '../selectAliasing.js';
 
 const rawByPath = import.meta.glob('../../../../electron-app/drizzle/*.sql', {
   query: '?raw',
@@ -52,7 +53,10 @@ export async function applyDrizzleChain(sqlite: AsyncSqlite): Promise<{ applied:
     if (lastMillis !== null && lastMillis >= entry.when) continue;
     const query = migrationSql(entry.tag);
     for (const stmt of query.split('--> statement-breakpoint')) {
-      const sql = stmt.trim();
+      // Комментарии снимаем ДО exec: `;` внутри комментария даёт плагину
+      // фантомную границу `;\n`, а комментарийный кусок — пустой оператор
+      // с `not an error (code 0)` на Android (M145).
+      const sql = stripSqlLineComments(stmt).trim();
       if (!sql) continue;
       await sqlite.exec(sql);
     }
