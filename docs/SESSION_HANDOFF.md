@@ -3,8 +3,8 @@
 > Sticky-note для непрерывности разработки между сессиями и компьютерами. Обновляется в PR каждого шага нитки (D-066); `/close_session` — страховка. История — через `git log -- docs/SESSION_HANDOFF.md`.
 
 **Status:** ACTIVE
-**Updated:** 2026-09-22 (Claude Opus 5, машина `PC79`) — релиз v3.47.0 выкачен; ротация SSH-порта, перевыпуск ключа бэкапов, комната КАРМАНа наполнена
-**Branch:** `main`
+**Updated:** 2026-09-28 (Claude Opus 5, машина `PC79`) — исправлена ошибка запуска на Android планшете (DROP INDEX IF EXISTS через execSQL); PR #1029 открыт
+**Branch:** `fix/android-drop-index-execsql`
 **Last released version:** **v3.47.0**, выкачено 22.09 (бэкенд, инсталлятор, APK — см. тело PR [#1020](https://github.com/Valstan/MatricaRMZ/pull/1020))
 
 ## Текущая нитка
