@@ -91,7 +91,7 @@ describe('единый список этапов в карточке (план u
   it('секция этапов живёт во вкладке истории и читает шаблон с мостом', () => {
     expect(PANEL).toContain('<RepairStagesSection');
     expect(src('./RepairStagesSection.tsx')).toContain('window.matrica.workSheets.stages.list(props.engineId)');
-    expect(src('./RepairStagesSection.tsx')).toContain('window.matrica.workSheets.stages.templates()');
+    expect(src('./RepairStagesSection.tsx')).toContain('window.matrica.workSheets.stages.templates.list()');
   });
 
   it('этап пишется, правится датой и убирается — всё из секции', () => {

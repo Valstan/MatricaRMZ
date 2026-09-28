@@ -5525,6 +5525,7 @@ export function App() {
           <WorkSheetsPage
             canEdit={caps.canEditWorkSheets}
             canManageTypes={caps.canEditWorkSheetTypes}
+            canManageStageTemplates={caps.canEditRepairStageTemplates}
             engines={engines}
             onOpenEngine={(id: string) => void openEngine(id)}
             onOpenSheet={(id: string, opts?: { isNew?: boolean; typeCode?: string | null; title?: string }) => void openWorkSheet(id, opts)}

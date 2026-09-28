@@ -33,6 +33,7 @@ import { RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { WorkSheetTypeEditorDialog, type WorkshopOption } from '../components/WorkSheetTypeEditorDialog.js';
+import { RepairStageTemplateDialog } from '../components/RepairStageTemplateDialog.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { useListDeepFilter } from '../hooks/useListDeepFilter.js';
 import { useListUiState } from '../hooks/useListBehavior.js';
@@ -185,6 +186,7 @@ function workshopLabel(r: WorkSheetRow, fromDirectory: (id: string) => string): 
 export function WorkSheetsPage(props: {
   canEdit: boolean;
   canManageTypes: boolean;
+  canManageStageTemplates: boolean;
   /** Каталог двигателей приложения — для выбора двигателя в черновой строке и его справки. */
   engines: EngineListItem[];
   onOpenEngine: (id: string) => void;
@@ -201,6 +203,7 @@ export function WorkSheetsPage(props: {
   const [allTime, setAllTime] = useState(false);
   const [workshops, setWorkshops] = useState<WorkshopOption[]>([]);
   const [typeEditorOpen, setTypeEditorOpen] = useState(false);
+  const [stageTemplateEditorOpen, setStageTemplateEditorOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
   const [editor, setEditor] = useState<SheetEditor | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -905,6 +908,11 @@ export function WorkSheetsPage(props: {
             Виды работ
           </Button>
         )}
+        {props.canManageStageTemplates && (
+          <Button variant="ghost" onClick={() => setStageTemplateEditorOpen(true)} title="Шаблон этапов ремонта: названия и порядок" data-repair-stage-edit-templates>
+            Шаблон этапов
+          </Button>
+        )}
         <Button variant="ghost" onClick={() => setAllTime((v) => !v)} title="По умолчанию показаны этапы работ с датой за последний год">
           {allTime ? 'За год' : 'За всё время'}
         </Button>
@@ -1012,6 +1020,10 @@ export function WorkSheetsPage(props: {
             await refreshTypes();
           }}
         />
+      ) : null}
+
+      {stageTemplateEditorOpen ? (
+        <RepairStageTemplateDialog onClose={() => setStageTemplateEditorOpen(false)} onChanged={async () => {}} />
       ) : null}
     </div>
   );

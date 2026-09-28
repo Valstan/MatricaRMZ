@@ -585,7 +585,13 @@ const matricaApi = {
       delete: async (id: string, opts?: { rollbackRepair?: boolean }) => ipcRenderer.invoke('workSheets:rows:delete', id, opts),
     },
     stages: {
-      templates: async () => ipcRenderer.invoke('workSheets:stages:templates'),
+      templates: {
+        list: async (args?: { includeArchived?: boolean }) => ipcRenderer.invoke('workSheets:stages:templates', args),
+        upsert: async (args: unknown) => ipcRenderer.invoke('workSheets:stages:templates:upsert', args),
+        archive: async (id: string) => ipcRenderer.invoke('workSheets:stages:templates:archive', id),
+        restore: async (id: string) => ipcRenderer.invoke('workSheets:stages:templates:restore', id),
+        reorder: async (ids: string[]) => ipcRenderer.invoke('workSheets:stages:templates:reorder', ids),
+      },
       list: async (engineId: string) => ipcRenderer.invoke('workSheets:stages:list', engineId),
       save: async (args: unknown) => ipcRenderer.invoke('workSheets:stages:save', args),
       remove: async (id: string) => ipcRenderer.invoke('workSheets:stages:remove', id),

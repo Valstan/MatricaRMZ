@@ -39,11 +39,13 @@ export function RepairStagesSection(props: { engineId: string; canEdit: boolean;
   const load = useCallback(async () => {
     try {
       const [t, r] = await Promise.all([
-        window.matrica.workSheets.stages.templates(),
+        window.matrica.workSheets.stages.templates.list(),
         window.matrica.workSheets.stages.list(props.engineId),
       ]);
-      if (t.ok) setTemplates(t.templates);
-      else setStatus(`Шаблон этапов не загрузился: ${t.error}`);
+      if (t.ok) {
+        setTemplates(t.templates);
+        if (t.source === 'fallback') setStatus('Шаблон этапов взят из программы — сервер недоступен, свежих правок может не быть.');
+      } else setStatus(`Шаблон этапов не загрузился: ${t.error}`);
       if (r.ok) setRows(r.rows);
       else setStatus(`Этапы не загрузились: ${r.error}`);
     } catch (e) {
