@@ -284,4 +284,25 @@ describe('маршрутизация exec (Android-ограничение пла
       { via: 'execute', sql: `PRAGMA foreign_keys=OFF; CREATE TABLE tmp (x integer); PRAGMA foreign_keys=ON;` },
     ]);
   });
+
+  it('ошибка плагина несёт текст SQL — экран падения называет виновника (M145)', async () => {
+    const boom = new Error('Execute: not an error (code 0)');
+    const conn: CapacitorDbConnection = {
+      async execute() {
+        throw boom;
+      },
+      async run() {
+        throw boom;
+      },
+      async query() {
+        throw boom;
+      },
+      async close() {},
+    };
+    const db = createCapacitorAsyncSqlite(conn);
+
+    await expect(db.exec('DROP INDEX oops_uq;')).rejects.toThrow(/not an error.*DROP INDEX oops_uq/);
+    await expect(db.run('DELETE FROM t WHERE x = ?', [1])).rejects.toThrow(/not an error.*DELETE FROM t/);
+    await expect(db.all('SELECT a FROM t')).rejects.toThrow(/not an error.*FROM t/);
+  });
 });

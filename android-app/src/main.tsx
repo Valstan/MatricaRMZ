@@ -10,11 +10,17 @@ import { Capacitor } from '@capacitor/core';
 // скрытия (печать/вложения/платежи/чат/AI) читают его через ui/platform.ts.
 (globalThis as Record<string, unknown>).__MATRICA_PLATFORM__ = 'android';
 
+declare const __MATRICA_APP_VERSION__: string;
+
 function reportBootFailure(e: unknown): void {
   console.error('[android-boot] старт не удался:', e);
   // Белый экран на планшете неотличим от зависания — показываем причину.
+  // Версия в тексте обязательна: без неё отчёт «та же ошибка» не различает
+  // 3.47 и 3.48 (M145), а текст SQL из адаптера показывает, какой оператор упал.
   const root = document.getElementById('root') ?? document.body;
-  root.textContent = `Не удалось запустить приложение: ${e instanceof Error ? e.message : String(e)}`;
+  root.textContent =
+    `Не удалось запустить приложение (версия ${__MATRICA_APP_VERSION__}): ` +
+    `${e instanceof Error ? e.message : String(e)}`;
 }
 
 void (async () => {
