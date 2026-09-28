@@ -23,6 +23,8 @@ const ANDROID_WIRING = src('../../../../../../android-app/src/core/ipcWiring.ts'
 const CACHE = src('../utils/workSheetTypesCache.ts');
 const REST_ROUTE = src('../../../../../../backend-api/src/routes/workSheetTypes.ts');
 const BACKEND_PERMS = src('../../../../../../backend-api/src/auth/permissions.ts');
+const STAGE_DIALOG = src('../components/RepairStageTemplateDialog.tsx');
+const STAGE_REST_ROUTE = src('../../../../../../backend-api/src/routes/repairStageTemplates.ts');
 const SYNC_GUARD = src('../../../../../../backend-api/src/services/sync/ledgerAuthzGuard.ts');
 const OVERLAY = src('../components/GlobalSearchOverlay.tsx');
 const GLOBAL_SEARCH = src('../../../../../../shared/src/domain/globalSearch.ts');
@@ -79,6 +81,22 @@ describe('этапы работ — экран', () => {
 
   it('домен этапов работ подключён и на планшете — плитка без IPC открывалась и молчала', () => {
     expect(ANDROID_WIRING).toContain('registerWorkSheetsIpc(ctx);');
+  });
+
+  // Шаблон единого списка этапов (план unified-repair-stages, шаг 5b): своё поимённое
+  // право, свой REST, приоритет — порядком (мышь или стрелки), код после создания frozen.
+  it('шаблон этапов — отдельное право и отдельный REST, приоритет двигается порядком', () => {
+    expect(APP, 'шаблон — своё право, не то же, что строки').toContain('canManageStageTemplates={caps.canEditRepairStageTemplates}');
+    expect(IPC, 'запись шаблона — repair_stage_templates.edit').toContain("requirePermOrResult(ctx, 'repair_stage_templates.edit')");
+    expect(STAGE_REST_ROUTE, 'серверный роут шаблона — то же право').toContain('requirePermission(PermissionCode.RepairStageTemplatesEdit)');
+    expect(BACKEND_PERMS).toContain("all[PermissionCode.RepairStageTemplatesEdit] = r === 'superadmin';");
+    expect(PAGE).toContain('data-repair-stage-edit-templates');
+    expect(STAGE_DIALOG).toContain('data-stage-template-row={t.code}');
+    expect(STAGE_DIALOG).toContain('data-stage-template-new');
+    expect(STAGE_DIALOG).toContain('data-stage-template-save');
+    expect(STAGE_DIALOG, 'приоритет — drag-and-drop, на планшете стрелки').toContain('onDrop');
+    expect(STAGE_DIALOG).toContain('RowReorderButtons');
+    expect(STAGE_DIALOG).toContain('window.matrica.workSheets.stages.templates.reorder(');
   });
 
   // Вкладки по видам работ разрезали экран на копии одного списка — каждая со своим

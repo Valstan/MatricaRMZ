@@ -32,9 +32,12 @@ export function rowToRepairStageTemplate(row: typeof repairStageTemplates.$infer
     code: String(row.code) as RepairStageTemplate['code'],
     name: String(row.name),
     sortOrder: Number(row.sortOrder ?? 0),
+    id: String(row.id),
+    updatedAt: Number(row.updatedAt),
   };
   if (row.autoFrom) out.autoFrom = String(row.autoFrom) as NonNullable<RepairStageTemplate['autoFrom']>;
   if (row.sideBranch === true) out.sideBranch = true;
+  out.archivedAt = row.archivedAt == null ? null : Number(row.archivedAt);
   return out;
 }
 
@@ -46,7 +49,8 @@ export async function listRepairStageTemplates(
       .select()
       .from(repairStageTemplates)
       .where(opts.includeArchived ? undefined : isNull(repairStageTemplates.archivedAt))
-      .orderBy(asc(repairStageTemplates.sortOrder), asc(repairStageTemplates.name));
+      // Боковая ветка — всегда после линейки, хоть у неё и приоритет 0.
+      .orderBy(asc(repairStageTemplates.sideBranch), asc(repairStageTemplates.sortOrder), asc(repairStageTemplates.name));
     return { ok: true, rows: rows.map(rowToRepairStageTemplate) };
   } catch (e) {
     return { ok: false, error: String(e) };

@@ -2220,8 +2220,25 @@ export type MatricaApi = {
      * (`work_sheets.edit`), секция `workSheets:` — та же.
      */
     stages: {
-      /** Шаблон этапов (пока статика шага 1; шаг 5 сделает справочник). */
-      templates: () => Promise<{ ok: true; templates: RepairStageTemplate[] } | { ok: false; error: string }>;
+      templates: {
+        /** Сервер, при отказе — статика шага 1 (`source: 'fallback'`). */
+        list: (args?: { includeArchived?: boolean }) => Promise<
+          { ok: true; templates: RepairStageTemplate[]; source: 'server' | 'fallback' } | { ok: false; error: string }
+        >;
+        upsert: (args: {
+          id?: string;
+          code?: string;
+          name: string;
+          autoFrom?: string | null;
+          sideBranch?: boolean;
+          sortOrder?: number;
+          expectedUpdatedAt?: number;
+        }) => Promise<{ ok: true; row: RepairStageTemplate } | { ok: false; error: string }>;
+        archive: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+        restore: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+        /** Порядок массива — новый порядок линейки (шаг 5: drag-and-drop). */
+        reorder: (ids: string[]) => Promise<{ ok: true; updated: number } | { ok: false; error: string }>;
+      };
       list: (engineId: string) => Promise<{ ok: true; rows: RepairStageRow[] } | { ok: false; error: string }>;
       save: (args: SaveRepairStageInput) => Promise<SaveRepairStageResult>;
       remove: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;

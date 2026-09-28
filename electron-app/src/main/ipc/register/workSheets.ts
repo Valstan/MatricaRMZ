@@ -1,6 +1,10 @@
 import { ipcMain } from 'electron';
 
-import { DEFAULT_REPAIR_STAGE_TEMPLATES, type SaveRepairStageInput } from '@matricarmz/shared';
+import {
+  DEFAULT_REPAIR_STAGE_TEMPLATES,
+  type RepairStageTemplate,
+  type SaveRepairStageInput,
+} from '@matricarmz/shared';
 
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
@@ -144,11 +148,70 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
   });
 
   // Строки единого списка этапов (план unified-repair-stages, шаг 4): та же семья
-  // прав, что у строк работ, — `work_sheets.edit`; шаблон пока статика шага 1.
-  ipcMain.handle('workSheets:stages:templates', async () => {
+  // прав, что у строк работ, — `work_sheets.edit`. Шаблон — серверный справочник
+  // (шаг 5); без сервера — статика шага 1, экран честно говорит `fallback`.
+  const loadStageTemplates = async (args?: {
+    includeArchived?: boolean;
+  }): Promise<{ templates: RepairStageTemplate[]; source: 'server' | 'fallback' }> => {
+    try {
+      const qs = args?.includeArchived ? '?includeArchived=1' : '';
+      const res = await httpAuthed(ctx.sysDb, base(), `/repair-stage-templates${qs}`, { method: 'GET' });
+      const json = (res.ok ? res.json : null) as { ok?: boolean; rows?: RepairStageTemplate[] } | null;
+      if (res.ok && json?.ok && Array.isArray(json.rows) && json.rows.length > 0) {
+        return { templates: json.rows, source: 'server' };
+      }
+    } catch {
+      /* офлайн — статика */
+    }
+    return { templates: [...DEFAULT_REPAIR_STAGE_TEMPLATES], source: 'fallback' };
+  };
+
+  ipcMain.handle('workSheets:stages:templates', async (_e, args?: { includeArchived?: boolean }) => {
     const gate = await requirePermOrResult(ctx, 'operations.view');
     if (!gate.ok) return gate as Err;
-    return { ok: true as const, templates: DEFAULT_REPAIR_STAGE_TEMPLATES };
+    const { templates, source } = await loadStageTemplates(args ?? {});
+    return { ok: true as const, templates, source };
+  });
+
+  ipcMain.handle('workSheets:stages:templates:upsert', async (_e, args: unknown) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'repair_stage_templates.edit');
+    if (!gate.ok) return gate as Err;
+    // Право клиентское — серверное решает (его 403 тоже честный ответ, не ошибка моста).
+    return toResult(
+      await httpAuthed(ctx.sysDb, base(), '/repair-stage-templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(args ?? {}),
+      }),
+    );
+  });
+
+  ipcMain.handle('workSheets:stages:templates:archive', async (_e, id: string) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'repair_stage_templates.edit');
+    if (!gate.ok) return gate as Err;
+    return toResult(await httpAuthed(ctx.sysDb, base(), `/repair-stage-templates/${encodeURIComponent(id)}/archive`, { method: 'POST' }));
+  });
+
+  ipcMain.handle('workSheets:stages:templates:restore', async (_e, id: string) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'repair_stage_templates.edit');
+    if (!gate.ok) return gate as Err;
+    return toResult(await httpAuthed(ctx.sysDb, base(), `/repair-stage-templates/${encodeURIComponent(id)}/restore`, { method: 'POST' }));
+  });
+
+  ipcMain.handle('workSheets:stages:templates:reorder', async (_e, ids: string[]) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'repair_stage_templates.edit');
+    if (!gate.ok) return gate as Err;
+    return toResult(
+      await httpAuthed(ctx.sysDb, base(), '/repair-stage-templates/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      }),
+    );
   });
 
   ipcMain.handle('workSheets:stages:list', async (_e, engineId: string) => {
@@ -166,7 +229,8 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'work_sheets.edit');
     if (!gate.ok) return gate as Err;
     try {
-      return await saveRepairStageRow(ctx.dataDb(), args, await ctx.currentActor(), DEFAULT_REPAIR_STAGE_TEMPLATES);
+      const { templates } = await loadStageTemplates();
+      return await saveRepairStageRow(ctx.dataDb(), args, await ctx.currentActor(), templates);
     } catch (e) {
       return { ok: false as const, error: String(e) };
     }

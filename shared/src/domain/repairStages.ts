@@ -32,6 +32,10 @@ export type RepairStageTemplate = {
   autoFrom?: 'defectAct' | 'kittingAct' | 'obkatkaRow';
   /** Боковая ветка (утиль/брак): в порядок по датам не входит. */
   sideBranch?: boolean;
+  /** Серверный id и версия (есть у строк справочника, нет у статики шага 1). */
+  id?: string;
+  updatedAt?: number;
+  archivedAt?: number | null;
 };
 
 export const DEFAULT_REPAIR_STAGE_TEMPLATES: ReadonlyArray<RepairStageTemplate> = [
