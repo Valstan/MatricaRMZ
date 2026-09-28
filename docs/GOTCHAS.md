@@ -148,6 +148,7 @@
 | M141 | Переезд закрыл одну проблему — и вместе с ней унёс гарантию, которой никто не записывал: откат, копия, ожидание. Симптом виден только в день отказа | [M141](#m141--переезд-уносит-гарантию-которая-держалась-на-прежнем-устройстве-а-не-на-требовании) |
 | M142 | Синхронизация встала у ВСЕХ клиентов разом: `UNIQUE`/`NOT NULL constraint failed` в `applyPulledChanges`, при этом на сервере данные законны | [M142](#m142--ограничение-на-клиенте-строже-серверного-весь-парк-теряет-синхронизацию-из-за-двух-строк) |
 | M143 | Смоук ставит значение в пикер — подсказка не открывается, опций `div[data-idx]` нет, форма отказывает «Выберите …». Было зелёным до переезда всплывающих слоёв в портал | [M143](#m143--подсказка-пикера-рисуется-порталом-и-не-открывается-установкой-значения) |
+| M145 | Android: `Execute: not an error (code 0)` при запуске — `DROP INDEX IF EXISTS` через `execSQL` бросает `SQLiteException`, если индекс не существует | [M145](#m145--android-drop-index-if-exists-через-execsql-бросает-sqliteexception-если-индекс-не-существует) |
 
 ---
 
@@ -1355,3 +1356,20 @@ await send(ws, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: r.x, y: r
 **Третья ловушка прогона:** модал «Карточка закрывается» переживает падение драйвера и достаётся следующему прогону, перекрывая собой карточку целиком — все клики уходят в оверлей. Смоук обязан гасить его на входе наравне с «За работу!» и «Отклонить».
 
 **Сторож класса:** `.claude/skills/verifier-electron/scripts/cdp-owner-batch-work-orders.mjs` — все три приёма записаны в нём комментариями.
+
+## M145 — Android: `Execute: not an error (code 0)` при запуске — `DROP INDEX IF EXISTS` через `execSQL` бросает `SQLiteException`, если индекс не существует
+
+- **Симтом:** планшетный клиент после установки не запускается: красный экран `reportBootFailure` с текстом `Не удалось запустить приложение: Execute: not an error (code 0)`. На десктопе и в unit-тестах всё зелёное.
+- **Корень:** `DROP INDEX IF EXISTS` через `execSQL` (Capacitor SQLite плагин) бросает `SQLiteException` с сообщением `"not an error (code 0)"`, если индекс не существует. На десктопе (better-sqlite3) `IF EXISTS` делает тихий no-op. Коммит `02661970` (18.09) добавил `DROP INDEX IF EXISTS erp_engine_assembly_bom_engine_version_uq;` в `ensureClientSchemaParity` — и на планшете boot стал падать на первом же старте.
+- **Диагностика:** текст ошибки на экране `reportBootFailure` содержит `Execute: ` — это префикс из `CapacitorSQLitePlugin.java` (строка 953: `"Execute: " + e.getMessage()`). Сообщение `"not an error (code 0)"` — стандартное для Android SQLite, когда `execSQL` не может выполнить statement.
+- **Лечение:** проверять существование индекса через `sqlite_master` перед `DROP INDEX`:
+  ```typescript
+  const indexExists = await sqlite.get(
+    `SELECT 1 AS one FROM sqlite_master WHERE type='index' AND name='erp_engine_assembly_bom_engine_version_uq'`,
+  );
+  if (indexExists) {
+    await sqlite.exec(`DROP INDEX erp_engine_assembly_bom_engine_version_uq;`);
+  }
+  ```
+- **Правило:** на Android `DROP INDEX IF EXISTS` через `execSQL` не работает как тихий no-op — проверять существование объекта перед удалением.
+- **Поймано:** 2026-09-28, жалоба владельца на планшете после установки свежей версии.

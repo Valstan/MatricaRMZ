@@ -79,6 +79,16 @@ describe('android clientSchemaCompatible', () => {
     await adapter.close();
   });
 
+  it('повторный migrateSqliteAsync на свежей БД не падает (DROP INDEX без индекса)', async () => {
+    // Android: DROP INDEX IF EXISTS через execSQL бросает SQLiteException, если индекс
+    // не существует. Проверяем, что повторная миграция на свежей БД (где индекса нет)
+    // проходит без ошибок.
+    const adapter = createBetterSqlite3AsyncAdapter(':memory:');
+    await migrateSqliteAsync(adapter);
+    await migrateSqliteAsync(adapter);
+    await adapter.close();
+  });
+
   it('смена server-hash НЕ даёт rebuild (v3.5.0), downgrade даёт', async () => {
     const adapter = createBetterSqlite3AsyncAdapter(':memory:');
     await migrateSqliteAsync(adapter);

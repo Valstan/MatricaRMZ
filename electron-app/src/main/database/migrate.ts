@@ -342,7 +342,14 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     // на той же колонке так же валил pull у всего парка (см. комментарий к пересборке выше).
     // Общее правило — ограничение на клиенте не может быть строже серверного: сервер решает,
     // какие строки законны, клиент обязан суметь их принять (GOTCHAS M142).
-    sqlite.exec(`DROP INDEX IF EXISTS erp_engine_assembly_bom_engine_version_uq;`);
+    // Android: DROP INDEX IF EXISTS через execSQL бросает SQLiteException, если индекс
+    // не существует — проверяем через sqlite_master перед удалением.
+    const indexExists = sqlite.prepare(
+      `SELECT 1 FROM sqlite_master WHERE type='index' AND name='erp_engine_assembly_bom_engine_version_uq'`,
+    ).get();
+    if (indexExists) {
+      sqlite.exec(`DROP INDEX erp_engine_assembly_bom_engine_version_uq;`);
+    }
   }
 
   // erp_nomenclature.directory_kind / directory_ref_id — добавлены через clientSchemaMigrations 7->8.
