@@ -89,6 +89,7 @@
     "workshop:add-employees:apply": "tsx src/scripts/addWorkshopEmployees.ts --apply",
     "engine-inventory:migrate": "tsx src/scripts/migrateChecklistToEngineInventory.ts",
     "engine-inventory:backfill-lines": "tsx src/scripts/backfillEngineInventoryLines.ts",
+    "stages:backfill": "tsx src/scripts/backfillRepairStages.ts",
     "engine-act:fix-header-number": "tsx src/scripts/fixEngineActHeaderNumber20260914.ts",
     "engine-act:fix-header-number:apply": "tsx src/scripts/fixEngineActHeaderNumber20260914.ts --apply",
     "ledger:import-release-registry": "tsx src/scripts/importReleaseRegistryFromProjection.ts",
