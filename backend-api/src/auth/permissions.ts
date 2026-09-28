@@ -52,6 +52,7 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
   // `user`; персональное разрешение в админке (override `allowed=true`) их выдаёт.
   all[PermissionCode.WorkSheetsEdit] = r === 'superadmin';
   all[PermissionCode.WorkSheetTypesEdit] = r === 'superadmin';
+  all[PermissionCode.RepairStageTemplatesEdit] = r === 'superadmin';
   return all;
 }
 

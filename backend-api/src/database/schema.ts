@@ -1085,6 +1085,27 @@ export const workSheetTypes = pgTable(
   }),
 );
 
+// Шаблон единого списка этапов ремонта (план unified-repair-stages, шаг 5).
+// Живёт только на сервере, как work_sheet_types: клиент ходит по REST
+// /repair-stage-templates, в контракт синхронизации не входит.
+export const repairStageTemplates = pgTable(
+  'repair_stage_templates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    autoFrom: text('auto_from'),
+    sideBranch: boolean('side_branch').notNull().default(false),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    updatedBy: text('updated_by'),
+    archivedAt: bigint('archived_at', { mode: 'number' }),
+  },
+  (t) => ({
+    codeUq: uniqueIndex('repair_stage_templates_code_uq').on(t.code).where(sql`${t.archivedAt} is null`),
+  }),
+);
+
 // Именованные шаблоны актов по марке двигателя (editable-engine-acts PR4).
 // payload — JSON «шапки» акта (комиссия / гриф / пункты состояния), text как в work_order_templates.
 export const engineActTemplates = pgTable(

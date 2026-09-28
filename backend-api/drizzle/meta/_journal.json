@@ -694,6 +694,13 @@
       "when": 1790035200000,
       "tag": "0099_engine_inventory_lines_has_own_number",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1790121600000,
+      "tag": "0100_repair_stage_templates",
+      "breakpoints": true
     }
   ]
 }
