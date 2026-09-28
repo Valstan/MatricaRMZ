@@ -37,6 +37,19 @@ function warnUnparsed(sql: string): void {
   console.warn(`[capacitor-sqlite] проекция не разобрана, порядок колонок берётся из объекта: ${key}`);
 }
 
+// Экран падения на планшете показывал голое «Execute: not an error (code 0)» —
+// по нему не понять, какой оператор упал (M145). Подписываем каждую ошибку
+// плагина текстом SQL: диагностика едет вместе с сообщением, а не гадается.
+function sqlSnippet(sql: string): string {
+  return sql.replace(/\s+/g, ' ').trim().slice(0, 160);
+}
+
+function withSql(err: unknown, sql: string): Error {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.error(`[capacitor-sqlite] оператор не прошёл: ${sqlSnippet(sql)}`, err);
+  return new Error(`${msg} :: ${sqlSnippet(sql)}`);
+}
+
 export function createCapacitorAsyncSqlite(conn: CapacitorDbConnection): AsyncSqlite {
   // transaction:false обязателен во ВСЕХ вызовах: плагин иначе оборачивает
   // statement'ы в собственную транзакцию, а мы ведём их сами
@@ -44,8 +57,12 @@ export function createCapacitorAsyncSqlite(conn: CapacitorDbConnection): AsyncSq
   // и миграция 0007 c `PRAGMA foreign_keys=OFF/ON` внутри транзакции стала бы
   // тихим no-op (см. db/migrations/drizzleChain.ts).
   const objectRows = async (sql: string, params?: SqlValue[]): Promise<Array<Record<string, SqlValue>>> => {
-    const res = await conn.query(sql, bind(params));
-    return (res.values ?? []) as Array<Record<string, SqlValue>>;
+    try {
+      const res = await conn.query(sql, bind(params));
+      return (res.values ?? []) as Array<Record<string, SqlValue>>;
+    } catch (e) {
+      throw withSql(e, sql);
+    }
   };
 
   const self: AsyncSqlite = {
@@ -61,12 +78,20 @@ export function createCapacitorAsyncSqlite(conn: CapacitorDbConnection): AsyncSq
         await objectRows(sql);
         return;
       }
-      await conn.execute(sql, false);
+      try {
+        await conn.execute(sql, false);
+      } catch (e) {
+        throw withSql(e, sql);
+      }
     },
 
     async run(sql: string, params: SqlValue[] = []): Promise<RunResult> {
-      const res = await conn.run(sql, bind(params), false);
-      return { changes: res.changes?.changes ?? 0 };
+      try {
+        const res = await conn.run(sql, bind(params), false);
+        return { changes: res.changes?.changes ?? 0 };
+      } catch (e) {
+        throw withSql(e, sql);
+      }
     },
 
     async all<T>(sql: string, params: SqlValue[] = []): Promise<T[]> {
