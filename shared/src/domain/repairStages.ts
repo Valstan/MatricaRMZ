@@ -5,6 +5,8 @@
 // дата этапа обязана быть не раньше дат всех нижележащих (субординация),
 // возврат на нижележащий этап разрешён, но помечается (дальше — новый проход).
 
+import type { WorkSheetDuplicateRef } from './workSheetDuplicates.js';
+
 export const REPAIR_STAGE_CODES = [
   'arrival',
   'disassembly_defect',
@@ -106,14 +108,49 @@ export function isStageBackwardMove(stages: DatedStage[], code: RepairStageCode)
   return rank < max;
 }
 
-/** Сортировка списка для показа: по дате, бездатые — в конец, затем по приоритету. */
-export function sortStagesByDate<T extends DatedStage>(stages: T[]): T[] {
+/** Строка единого списка для экранов и IPC-контракта. */
+export type RepairStageRow = {
+  id: string;
+  code: string;
+  name: string;
+  /** ms epoch; null — дата не проставлена. */
+  at: number | null;
+  /** Номер прохода (1 — первый, без пометки). */
+  pass: number;
+  note: string;
+};
+
+export type SaveRepairStageInput = {
+  id: string;
+  engineId: string;
+  code: string;
+  atMs: number;
+  note?: string;
+  /** Осознанный повторный проход (ответ на гейт дублей), начиная с 2. */
+  repeatPass?: number;
+  repeatReason?: string;
+};
+
+export type SaveRepairStageResult =
+  | { ok: true; id: string; created: boolean; backward: boolean; pass: number }
+  | {
+      ok: false;
+      error: string;
+      duplicate?: { refs: WorkSheetDuplicateRef[]; nextPass: number; typeName: string; atMs: number };
+    };
+
+/**
+ * Сортировка списка для показа: по дате, бездатые — в конец, затем по приоритету.
+ * Коды строковые намеренно: читатели (экраны) несут строки, которых может не быть
+ * в реестре, — неизвестный код сортируется как боковая ветка, а не бросает.
+ */
+export function sortStagesByDate<T extends { code: string; at: number | null }>(stages: T[]): T[] {
   return [...stages].sort((a, b) => {
     const atA = typeof a.at === 'number' && Number.isFinite(a.at) && a.at > 0 ? a.at : null;
     const atB = typeof b.at === 'number' && Number.isFinite(b.at) && b.at > 0 ? b.at : null;
     if (atA !== null && atB !== null && atA !== atB) return atA - atB;
     if (atA !== null && atB === null) return -1;
     if (atA === null && atB !== null) return 1;
-    return repairStageTemplate(a.code).sortOrder - repairStageTemplate(b.code).sortOrder;
+    return repairStageRank(a.code) - repairStageRank(b.code);
   });
 }

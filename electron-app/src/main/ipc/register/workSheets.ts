@@ -1,5 +1,7 @@
 import { ipcMain } from 'electron';
 
+import { DEFAULT_REPAIR_STAGE_TEMPLATES, type SaveRepairStageInput } from '@matricarmz/shared';
+
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { httpAuthed } from '../../services/httpClient.js';
@@ -11,6 +13,7 @@ import {
   searchWorkSheetRows,
   type SaveWorkSheetRowInput,
 } from '../../services/workSheetService.js';
+import { deleteRepairStageRow, listRepairStageRows, saveRepairStageRow } from '../../services/repairStageService.js';
 
 type Ok<T> = { ok: true } & T;
 type Err = { ok: false; error: string };
@@ -135,6 +138,46 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
     if (!gate.ok) return gate as Err;
     try {
       return await deleteWorkSheetRow(ctx.dataDb(), id, opts ?? {}, await ctx.currentActor());
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
+  // Строки единого списка этапов (план unified-repair-stages, шаг 4): та же семья
+  // прав, что у строк работ, — `work_sheets.edit`; шаблон пока статика шага 1.
+  ipcMain.handle('workSheets:stages:templates', async () => {
+    const gate = await requirePermOrResult(ctx, 'operations.view');
+    if (!gate.ok) return gate as Err;
+    return { ok: true as const, templates: DEFAULT_REPAIR_STAGE_TEMPLATES };
+  });
+
+  ipcMain.handle('workSheets:stages:list', async (_e, engineId: string) => {
+    const gate = await requirePermOrResult(ctx, 'operations.view');
+    if (!gate.ok) return gate as Err;
+    try {
+      return { ok: true as const, rows: await listRepairStageRows(ctx.dataDb(), engineId) };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('workSheets:stages:save', async (_e, args: SaveRepairStageInput) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'work_sheets.edit');
+    if (!gate.ok) return gate as Err;
+    try {
+      return await saveRepairStageRow(ctx.dataDb(), args, await ctx.currentActor(), DEFAULT_REPAIR_STAGE_TEMPLATES);
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('workSheets:stages:remove', async (_e, id: string) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'work_sheets.edit');
+    if (!gate.ok) return gate as Err;
+    try {
+      return await deleteRepairStageRow(ctx.dataDb(), id);
     } catch (e) {
       return { ok: false as const, error: String(e) };
     }

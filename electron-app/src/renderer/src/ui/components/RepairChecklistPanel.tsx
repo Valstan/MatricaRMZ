@@ -797,6 +797,26 @@ export function RepairChecklistPanel(props: {
             `${synced?.error ? `: ${synced.error}` : ''}. Личные номера экземпляров появятся после синхронизации.`,
         );
       }
+      // Этап «Разборка, дефектовка» проставляется сам (план unified-repair-stages,
+      // шаг 4) — но вручную отмеченный важнее автоматического и не перезаписывается.
+      // Этап не должен валить проведение: ошибки здесь только дописываются в статус.
+      try {
+        const stages = await window.matrica.workSheets.stages.list(props.engineId);
+        const rows = stages.ok ? stages.rows : [];
+        if (!rows.some((r) => r.code === 'disassembly_defect')) {
+          const saved = await window.matrica.workSheets.stages.save({
+            id: crypto.randomUUID(),
+            engineId: props.engineId,
+            code: 'disassembly_defect',
+            atMs: Date.now(),
+          });
+          if (saved.ok) {
+            setStatus((s) => `${s} Этап «Разборка, дефектовка» отмечен.`);
+          }
+        }
+      } catch {
+        /* этап — довесок, проведение уже состоялось */
+      }
       setDefectHistoryOpen(true);
     } catch (error) {
       setStatus(`Ошибка проведения: ${String(error)}`);
