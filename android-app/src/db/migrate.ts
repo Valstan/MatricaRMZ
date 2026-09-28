@@ -192,7 +192,14 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     // (engine_nomenclature_id, version) на сервере НЕ уникальны — в PG такого ограничения
     // нет вообще, колонка устарела. Клиентский UNIQUE делал законные серверные строки
     // непринимаемыми, и pull падал целиком у всего парка (инцидент 18.09.2026, GOTCHAS M142).
-    await sqlite.exec(`DROP INDEX IF EXISTS erp_engine_assembly_bom_engine_version_uq;`);
+    // Android: DROP INDEX IF EXISTS через execSQL бросает SQLiteException, если индекс
+    // не существует — проверяем через sqlite_master перед удалением.
+    const indexExists = await sqlite.get(
+      `SELECT 1 AS one FROM sqlite_master WHERE type='index' AND name='erp_engine_assembly_bom_engine_version_uq'`,
+    );
+    if (indexExists) {
+      await sqlite.exec(`DROP INDEX erp_engine_assembly_bom_engine_version_uq;`);
+    }
   }
 
   // erp_nomenclature.directory_kind / directory_ref_id — clientSchemaMigrations 7->8.
