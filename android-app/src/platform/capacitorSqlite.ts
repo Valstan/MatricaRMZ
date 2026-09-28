@@ -7,7 +7,7 @@
 // Плагин не умеет отдавать строки массивами, поэтому values() ходит через
 // переписывание проекции (db/selectAliasing.ts) — см. подробности там.
 import type { AsyncSqlite, RunResult, SqlValue } from '../db/asyncSqlite.js';
-import { planQuery } from '../db/selectAliasing.js';
+import { planQuery, stripSqlLineComments } from '../db/selectAliasing.js';
 
 /** Ровно та часть SQLiteDBConnection, которой пользуется адаптер. */
 export type CapacitorDbConnection = {
@@ -67,6 +67,9 @@ export function createCapacitorAsyncSqlite(conn: CapacitorDbConnection): AsyncSq
 
   const self: AsyncSqlite = {
     async exec(sql: string): Promise<void> {
+      // Пустой/комментарийный оператор в плагин не шлём вовсе: после снятия
+      // комментариев он стал бы `execSQL(";")` — `not an error (code 0)` (M145).
+      if (!stripSqlLineComments(sql).trim()) return;
       const plan = planQuery(sql);
       // Android: execute() не умеет statements, возвращающие строки, — execSQL
       // бросает «Queries can be performed using SQLiteDatabase query or rawQuery

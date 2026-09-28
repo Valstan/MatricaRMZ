@@ -306,3 +306,30 @@ describe('маршрутизация exec (Android-ограничение пла
     await expect(db.all('SELECT a FROM t')).rejects.toThrow(/not an error.*FROM t/);
   });
 });
+
+describe('пустые и комментарийные операторы (M145)', () => {
+  it('exec комментарийного куска не зовёт плагин вовсе', async () => {
+    let calls = 0;
+    const raw = new Database(':memory:');
+    const conn: CapacitorDbConnection = {
+      async execute() {
+        calls++;
+        return {};
+      },
+      async run(statement: string, values: unknown[] = []) {
+        const info = raw.prepare(statement).run(...values);
+        return { changes: { changes: info.changes } };
+      },
+      async query(statement: string, values: unknown[] = []) {
+        return { values: [] };
+      },
+      async close() {
+        raw.close();
+      },
+    };
+    const db = createCapacitorAsyncSqlite(conn);
+    await db.exec('-- шапка;\n-- хвост;\n');
+    await db.exec('   \n  ');
+    expect(calls).toBe(0);
+  });
+});

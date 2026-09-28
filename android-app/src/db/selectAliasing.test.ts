@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 
-import { planQuery } from './selectAliasing.js';
+import { planQuery, stripSqlLineComments } from './selectAliasing.js';
 
 function aliased(sql: string): { sql: string; aliases: string[] } {
   const plan = planQuery(sql);
@@ -129,5 +129,23 @@ describe('переписанный SQL остаётся валидным для 
     const raw = db.prepare(original).raw(true).get() as unknown[];
     const row = db.prepare(plan.sql).get() as Record<string, unknown>;
     expect(plan.aliases.map((a) => row[a])).toEqual(raw);
+  });
+});
+
+describe('stripSqlLineComments (M145)', () => {
+  it('убирает точку с запятой внутри комментария: фантомной границы для плагина нет', () => {
+    const sql = '-- шапка;\n-- ещё строка;\n\nALTER TABLE `t` ADD `c` integer;';
+    const stripped = stripSqlLineComments(sql);
+    expect(stripped).not.toContain(';\n');
+    expect(stripped.trim()).toBe('ALTER TABLE `t` ADD `c` integer;');
+  });
+
+  it('кусок из одних комментариев становится пустым — exec его пропустит', () => {
+    expect(stripSqlLineComments('-- раз;\n-- два;\n').trim()).toBe('');
+  });
+
+  it('дефисы внутри строковых литералов не трогает', () => {
+    const sql = "INSERT INTO t (a) VALUES ('a--b');";
+    expect(stripSqlLineComments(sql)).toBe(sql);
   });
 });
