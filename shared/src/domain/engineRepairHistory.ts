@@ -164,6 +164,8 @@ export type RepairHistoryEntry = {
   entryType: RepairHistoryEntryType;
   sheet: RepairHistorySheet | null;
   stage: RepairHistoryStage | null;
+  /** Номер прохода (1 — первый, без пометки): возврат пишется позже и побеждает при равной дате. */
+  pass: number;
 };
 
 /** Форма строки `operations`, которой достаточно истории (без завязки на ipc/types). */
@@ -388,6 +390,7 @@ export function repairHistoryFromOperations(rows: readonly RepairHistorySourceRo
         entryType: repairHistoryEntryType(meta, row.operationType),
         sheet: meta.sheet ?? null,
         stage: meta.stage ?? null,
+        pass: meta.repeat?.pass ?? 1,
       });
       continue;
     }
@@ -408,6 +411,7 @@ export function repairHistoryFromOperations(rows: readonly RepairHistorySourceRo
         entryType: 'transfer',
         sheet: null,
         stage: null,
+        pass: 1,
       });
     }
   }

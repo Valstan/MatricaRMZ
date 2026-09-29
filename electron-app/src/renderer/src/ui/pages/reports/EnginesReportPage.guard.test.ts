@@ -48,7 +48,7 @@ describe('отчёт-список «Двигатели»', () => {
     expect(PAGE).toContain('props.engines.map((e) =>');
     expect(PAGE).toContain('engineStateLabel(e)');
     expect(PAGE).toContain('engineDaysOnSite(e, now)');
-    expect(PAGE).toContain('engineFacets(types) as readonly FacetDescriptor<Row>[]');
+    expect(PAGE).toContain('engineFacets(types, stageTemplates) as readonly FacetDescriptor<Row>[]');
   });
 
   it('страница — на общей обвязке списка: колонки, счётчик, «№», группировка, печать с заголовками', () => {

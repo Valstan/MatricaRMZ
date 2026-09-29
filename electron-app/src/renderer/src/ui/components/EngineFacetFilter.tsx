@@ -8,13 +8,17 @@ import {
   type EngineListItem,
   type FacetDescriptor,
   type FacetSelection,
+  type RepairStageTemplate,
 } from '@matricarmz/shared';
 
 import { FacetFilter, FacetToggleButton } from './FacetFilter.js';
 
-/** Ступени со справочником видов работ: ряд этапов полный, а не «что встретилось». */
-function useEngineFacetDescriptors(types: readonly EngineFactoryStageTypeRef[] | undefined) {
-  return useMemo(() => engineFacets(types) as readonly FacetDescriptor<EngineListItem>[], [types]);
+/** Ступени со справочниками: ряд этапов полный, а не «что встретилось». */
+function useEngineFacetDescriptors(
+  types: readonly EngineFactoryStageTypeRef[] | undefined,
+  stageTemplates: readonly RepairStageTemplate[] | undefined,
+) {
+  return useMemo(() => engineFacets(types, stageTemplates) as readonly FacetDescriptor<EngineListItem>[], [types, stageTemplates]);
 }
 
 /** Кнопка «Фильтры» списка двигателей — живёт в тулбаре рядом с поиском. */
@@ -23,8 +27,9 @@ export function EngineFacetToggleButton(props: {
   open: boolean;
   onToggle: () => void;
   types?: readonly EngineFactoryStageTypeRef[];
+  stageTemplates?: readonly RepairStageTemplate[];
 }) {
-  const facets = useEngineFacetDescriptors(props.types);
+  const facets = useEngineFacetDescriptors(props.types, props.stageTemplates);
   return (
     <FacetToggleButton<EngineListItem>
       facets={facets}
@@ -45,11 +50,12 @@ export function EngineFacetFilter(props: {
   fields: EngineFacetId[];
   open: boolean;
   types?: readonly EngineFactoryStageTypeRef[];
+  stageTemplates?: readonly RepairStageTemplate[];
   onChangeSelection: (next: EngineFacetSelection) => void;
   onChangeFields: (next: EngineFacetId[]) => void;
   onReset: () => void;
 }) {
-  const facets = useEngineFacetDescriptors(props.types);
+  const facets = useEngineFacetDescriptors(props.types, props.stageTemplates);
   return (
     <FacetFilter<EngineListItem>
       facets={facets}

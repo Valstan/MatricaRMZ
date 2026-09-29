@@ -32,6 +32,7 @@ import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
 import { useListUiState, usePersistedScrollTop } from '../hooks/useListBehavior.js';
 import { useWorkSheetTypeRefs } from '../hooks/useWorkSheetTypeRefs.js';
+import { useRepairStageTemplateRefs } from '../hooks/useRepairStageTemplateRefs.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
@@ -422,7 +423,11 @@ export function EnginesPage(props: {
 
   /** Ступенчатый фильтр применяется последним: его варианты считаются по уже отобранному. */
   const sheetTypes = useWorkSheetTypeRefs();
-  const facetFiltered = useMemo(() => applyEngineFacets(facetRows, facets, sheetTypes), [facetRows, facets, sheetTypes]);
+  const stageTemplates = useRepairStageTemplateRefs();
+  const facetFiltered = useMemo(
+    () => applyEngineFacets(facetRows, facets, sheetTypes, stageTemplates),
+    [facetRows, facets, sheetTypes, stageTemplates],
+  );
 
 
   // Этикетка клеится на тару с деталями двигателя: в QR — полный внутренний номер
@@ -848,7 +853,7 @@ export function EnginesPage(props: {
           <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar, page: 0 })} />
         </ToolbarPin>
         <ToolbarPin>
-          <EngineFacetToggleButton selection={facets} open={facetsOpen} onToggle={() => patchState({ facetsOpen: !facetsOpen })} />
+          <EngineFacetToggleButton selection={facets} open={facetsOpen} onToggle={() => patchState({ facetsOpen: !facetsOpen })} types={sheetTypes} stageTemplates={stageTemplates} />
         </ToolbarPin>
         <ColumnSettingsButton
           label="Колонки списка"
@@ -898,6 +903,7 @@ export function EnginesPage(props: {
           fields={facetFields}
           open={facetsOpen}
           types={sheetTypes}
+          stageTemplates={stageTemplates}
           onChangeSelection={(next) => patchState({ facets: next, page: 0 })}
           onChangeFields={(next) => patchState({ facetFields: next, page: 0 })}
           onReset={() =>

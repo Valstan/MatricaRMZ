@@ -467,6 +467,9 @@ type EngineRepairHistorySummary = {
   lastSheetNode: string;
   lastSheetAt: number | null;
   lastSheetTypeCode: string;
+  lastStageCode: string;
+  lastStageName: string;
+  lastStageAt: number | null;
 };
 
 /**
@@ -529,6 +532,23 @@ async function getEngineRepairHistoryMap(
     const last = entries[0];
     if (!last) continue;
     const sheet = lastSheetEntry(entries);
+    // Последний этап единого списка — по дате, при равной дате — старший проход:
+    // возврат пишется позже, и «где двигатель» — это он, а не первый проход дня.
+    // Этапы без даты (на будущее) место не определяют.
+    let stageAt = 0;
+    let stagePass = 0;
+    let stageCode = '';
+    let stageName = '';
+    for (const entry of entries) {
+      if (entry.entryType !== 'stage' || !entry.stage) continue;
+      if (typeof entry.at !== 'number' || !Number.isFinite(entry.at) || entry.at <= 0) continue;
+      if (entry.at > stageAt || (entry.at === stageAt && entry.pass > stagePass)) {
+        stageAt = entry.at;
+        stagePass = entry.pass;
+        stageCode = entry.stage.code;
+        stageName = entry.stage.name;
+      }
+    }
     result.set(engineId, {
       lastAction: last.action,
       lastAt: last.at,
@@ -536,6 +556,9 @@ async function getEngineRepairHistoryMap(
       lastSheetNode: sheet?.sheet?.typeName ?? '',
       lastSheetAt: sheet?.at ?? null,
       lastSheetTypeCode: sheet?.sheet?.typeCode ?? '',
+      lastStageCode: stageCode,
+      lastStageName: stageName,
+      lastStageAt: stageAt > 0 ? stageAt : null,
     });
   }
   return result;
@@ -1029,6 +1052,9 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       ...(history?.lastSheetNode ? { lastSheetNode: history.lastSheetNode } : {}),
       ...(history?.lastSheetAt != null ? { lastSheetAt: history.lastSheetAt } : {}),
       ...(history?.lastSheetTypeCode ? { lastSheetTypeCode: history.lastSheetTypeCode } : {}),
+      ...(history?.lastStageCode ? { lastStageCode: history.lastStageCode } : {}),
+      ...(history?.lastStageName ? { lastStageName: history.lastStageName } : {}),
+      ...(history?.lastStageAt != null ? { lastStageAt: history.lastStageAt } : {}),
       ...(lastActivityAt > 0 ? { lastActivityAt } : {}),
       ...(isReclamation ? { isReclamation: true } : {}),
       ...(isRepeatArrival ? { isRepeatArrival: true } : {}),

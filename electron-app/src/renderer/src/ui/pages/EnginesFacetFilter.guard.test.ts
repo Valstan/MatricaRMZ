@@ -20,7 +20,7 @@ const TOOLBAR = src('../components/PageToolbar.tsx');
 
 describe('ступенчатый фильтр доезжает до строк списка', () => {
   it('таблица строится по отфильтрованному ступенями массиву', () => {
-    expect(PAGE).toContain('const facetFiltered = useMemo(() => applyEngineFacets(facetRows, facets, sheetTypes)');
+    expect(PAGE).toContain('applyEngineFacets(facetRows, facets, sheetTypes, stageTemplates)');
     expect(PAGE, 'сортировка снова берёт список до ступеней').toContain('const items = [...facetFiltered];');
     expect(PAGE).toContain("if (String(query ?? '').trim()) return facetFiltered;");
   });
@@ -116,17 +116,23 @@ describe('ступенчатый фильтр доезжает до строк �
   it('свёрнутая панель не занимает места, а отбор продолжает работать', () => {
     expect(FILTER, 'свёрнутая панель обязана исчезать целиком').toContain('if (!props.open) return null;');
     // Отбор живёт в `selection`, а не в раскрытости панели: сворачивание фильтры не снимает.
-    expect(PAGE).toContain('const facetFiltered = useMemo(() => applyEngineFacets(facetRows, facets, sheetTypes)');
+    expect(PAGE).toContain('applyEngineFacets(facetRows, facets, sheetTypes, stageTemplates)');
     expect(PAGE).toContain('open={facetsOpen}');
   });
 
   it('обёртка двигателей подставляет в общий фильтр именно свои ступени — со справочником видов работ', () => {
     // Владелец 16.09.2026: «обкатки нет в фильтре» — ряд этапов должен сеяться справочником,
     // а не собираться из строк; справочник доезжает до ступеней и до отбора одним и тем же путём.
-    expect(WRAPPER).toContain('engineFacets(types) as readonly FacetDescriptor<EngineListItem>[]');
+    expect(WRAPPER).toContain('engineFacets(types, stageTemplates) as readonly FacetDescriptor<EngineListItem>[]');
     expect(WRAPPER).toContain('rows={props.engines}');
     expect(PAGE).toContain('const sheetTypes = useWorkSheetTypeRefs();');
     expect(PAGE).toContain('types={sheetTypes}');
+  });
+
+  it('шаблон этапов доезжает до ступеней тем же путём, что виды работ', () => {
+    expect(WRAPPER).toContain('stageTemplates?: readonly RepairStageTemplate[]');
+    expect(PAGE).toContain('const stageTemplates = useRepairStageTemplateRefs();');
+    expect(PAGE).toContain('stageTemplates={stageTemplates}');
   });
 
   it('ступень по датам рисует две границы, а не список значений', () => {

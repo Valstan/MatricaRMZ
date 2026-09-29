@@ -119,9 +119,30 @@ describe('engineFactoryStage — побеждает поздний призна�
 });
 
 describe('engineFactoryStageOrder — ряд групп от позднего к раннему', () => {
-  it('утиль, отремонтирован, виды работ (поздние выше), дефектовка, комплектовка, начат, пришёл', () => {
+  it('утиль, отремонтирован, единый список (поздние выше), виды работ, дефектовка, комплектовка, начат, пришёл', () => {
     const keys = engineFactoryStageOrder(TYPES).map((g) => g.key);
-    expect(keys).toEqual(['scrap', 'repaired', 'sheet:obkatka', 'sheet:sborka', 'sheet:val', 'sheet:ukladka', 'defect_act', 'completeness_act', 'repair_started', 'arrived']);
+    expect(keys).toEqual([
+      'scrap',
+      'repaired',
+      'stage:accepted',
+      'stage:shipped',
+      'stage:otk',
+      'stage:obkatka',
+      'stage:sborka',
+      'stage:ukladka',
+      'stage:kitting_done',
+      'stage:disassembly_defect',
+      'stage:arrival',
+      'sheet:obkatka',
+      'sheet:sborka',
+      'sheet:val',
+      'sheet:ukladka',
+      'defect_act',
+      'completeness_act',
+      'repair_started',
+      'stage:scrap_branch',
+      'arrived',
+    ]);
     const ranks = engineFactoryStageOrder(TYPES).map((g) => g.rank);
     expect([...ranks].sort((a, b) => b - a)).toEqual(ranks);
   });
@@ -146,5 +167,46 @@ describe('engineStateLabel / engineDaysOnSite — отчёт «Двигател�
     expect(engineDaysOnSite({ arrivalDate: T0 }, T0 + 3 * DAY)).toBe(3);
     expect(engineDaysOnSite({ shippingDate: T0 }, T0)).toBeNull();
     expect(engineDaysOnSite({ arrivalDate: null }, T0)).toBeNull();
+  });
+});
+
+describe('engineFactoryStage — строки единого списка (шаг 6 плана)', () => {
+  it('датированный этап бьёт узел, дефектовку и комплектовку', () => {
+    const s = engineFactoryStage(
+      engine({ hasDefectAct: true, lastSheetTypeCode: 'sborka', lastStageCode: 'otk', lastStageName: 'Выходной контроль ОТК', lastStageAt: 20 * DAY }),
+      TYPES,
+    );
+    expect(s.key).toBe('stage:otk');
+    expect(s.label).toBe('Выходной контроль ОТК');
+  });
+
+  it('этап бьёт и взведённый «Отремонтирован» — возврат виден местом, а не готовностью', () => {
+    const s = engineFactoryStage(
+      engine({ statusFlags: { status_repaired: true }, lastStageCode: 'sborka', lastStageName: 'Сборка', lastStageAt: 21 * DAY }),
+      TYPES,
+    );
+    expect(s.key).toBe('stage:sborka');
+  });
+
+  it('утиль выше этапа — флаг решает', () => {
+    const s = engineFactoryStage(
+      engine({ isScrap: true, lastStageCode: 'sborka', lastStageName: 'Сборка', lastStageAt: 21 * DAY }),
+      TYPES,
+    );
+    expect(s.key).toBe('scrap');
+  });
+
+  it('этап без даты место не определяет — падает на узел', () => {
+    const s = engineFactoryStage(
+      engine({ lastSheetTypeCode: 'sborka', lastStageCode: 'otk', lastStageName: 'Выходной контроль ОТК', lastStageAt: null }),
+      TYPES,
+    );
+    expect(s.key).toBe('sheet:sborka');
+  });
+
+  it('ряд групп содержит этапы шаблона после готового', () => {
+    const keys = engineFactoryStageOrder(TYPES).map((g) => g.key);
+    expect(keys.indexOf('stage:otk')).toBeGreaterThan(keys.indexOf('repaired'));
+    expect(keys).toContain('stage:scrap_branch');
   });
 });

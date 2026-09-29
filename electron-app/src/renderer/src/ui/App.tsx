@@ -417,6 +417,8 @@ function engineRowSignature(e: EngineListItem): string {
     e.lastHistoryAt ?? '',
     e.lastSheetNode ?? '',
     e.lastSheetAt ?? '',
+    e.lastStageCode ?? '',
+    e.lastStageAt ?? '',
     Object.entries(e.statusDates ?? {})
       .map(([code, ms]) => `${code}=${ms}`)
       .join(','),

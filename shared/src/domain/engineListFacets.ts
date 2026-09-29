@@ -1,6 +1,7 @@
 import type { EngineListItem } from '../ipc/types.js';
 import { STATUS_LABELS, type StatusCode } from './contract.js';
 import { engineFactoryStage, engineFactoryStageOrder, engineStatusDate, type EngineFactoryStageTypeRef } from './engineFactoryStage.js';
+import type { RepairStageTemplate } from './repairStages.js';
 import { COUNTDOWN_STALE_DAYS, countdownThresholds, isEngineRepairedForCountdown } from './payments.js';
 import {
   activeFacetCount,
@@ -160,9 +161,12 @@ function repairDeadlineKey(e: EngineListItem, now = Date.now()): RepairDeadlineK
  * сам, даже пока в нём нет ни одного двигателя (владелец 16.09). Без справочника ступени живут
  * на том, что несут строки.
  */
-export function engineFacets(types?: readonly EngineFactoryStageTypeRef[]): readonly EngineFacetDescriptor[] {
+export function engineFacets(
+  types?: readonly EngineFactoryStageTypeRef[],
+  stageTemplates?: readonly RepairStageTemplate[],
+): readonly EngineFacetDescriptor[] {
   // Виды работ в порядке справочника (ранний → поздний); в ряду этапов они идут наоборот.
-  const sheetTypes = engineFactoryStageOrder(types).filter((s) => s.key.startsWith('sheet:')).reverse();
+  const sheetTypes = engineFactoryStageOrder(types, stageTemplates).filter((s) => s.key.startsWith('sheet:')).reverse();
   return [
     {
       kind: 'values',
@@ -370,10 +374,10 @@ export function engineFacets(types?: readonly EngineFactoryStageTypeRef[]): read
       // строки) сходится с ключом отчёта только через него, а полный ряд этапов — из него же.
       label: 'Этап на заводе',
       valueOf: (e) => {
-        const s = engineFactoryStage(e, types);
+        const s = engineFactoryStage(e, types, stageTemplates);
         return { value: s.key, label: s.label };
       },
-      options: engineFactoryStageOrder(types).map((s) => ({ value: s.key, label: s.label })),
+      options: engineFactoryStageOrder(types, stageTemplates).map((s) => ({ value: s.key, label: s.label })),
     },
   ];
 }
@@ -399,8 +403,9 @@ export function applyEngineFacets(
   engines: readonly EngineListItem[],
   selection: EngineFacetSelection,
   types?: readonly EngineFactoryStageTypeRef[],
+  stageTemplates?: readonly RepairStageTemplate[],
 ): EngineListItem[] {
-  return applyFacets(types ? engineFacets(types) : ENGINE_FACETS, engines, SELECTION(selection));
+  return applyFacets(types || stageTemplates ? engineFacets(types, stageTemplates) : ENGINE_FACETS, engines, SELECTION(selection));
 }
 
 export function engineFacetOptions(
@@ -408,8 +413,14 @@ export function engineFacetOptions(
   selection: EngineFacetSelection,
   facetId: EngineFacetId,
   types?: readonly EngineFactoryStageTypeRef[],
+  stageTemplates?: readonly RepairStageTemplate[],
 ): EngineFacetOption[] {
-  return facetOptions(types ? engineFacets(types) : ENGINE_FACETS, engines, SELECTION(selection), facetId);
+  return facetOptions(
+    types || stageTemplates ? engineFacets(types, stageTemplates) : ENGINE_FACETS,
+    engines,
+    SELECTION(selection),
+    facetId,
+  );
 }
 
 export function toggleEngineFacetValue(
