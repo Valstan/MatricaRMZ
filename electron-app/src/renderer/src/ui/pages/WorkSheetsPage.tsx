@@ -5,9 +5,8 @@ import {
   HUMAN_LABEL_NO_NUMBER,
   applyFacets,
   workSheetFacets,
-  workSheetFieldsSummary,
-  type EngineListItem,
-  type FacetDescriptor,
+  workSheetFieldsSummary,
+  type FacetDescriptor,
   type FacetSelection,
   type WorkSheetRow,
   type WorkSheetType,

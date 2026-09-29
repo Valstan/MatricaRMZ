@@ -67,17 +67,24 @@ describe('отчёт-список «этапы на заводе» и рамка
 
   // Этап на заводе считается по последнему этапу работ, а каталог двигателей App перечитывался
   // только при заходе на «Двигатели»: сохранённый этап работ не менял отчёт (стенд, 15.09.2026).
-  it('сохранение и удаление этапа работ заставляют App перечитать каталог двигателей', () => {
+  // Шаг 8 плана unified-repair-stages: список этапов работ — read-only сводка, записи из него
+  // убраны вместе с инлайн-редактором. Писать там нечему — и оповещать нечего: вернулась бы
+  // запись, dispatch обязан вернуться вместе с ней, иначе отчёт молчит о вчерашней стадии.
+  it('список read-only не пишет и не оповещает; пишут карточки — и они будят каталог', () => {
     const SHEETS = src('../WorkSheetsPage.tsx');
     const CARD = src('../WorkSheetDetailsPage.tsx');
+    const HISTORY = src('../../components/EngineRepairHistoryPanel.tsx');
+    const ENGINE_PAGE = src('../EngineDetailsPage.tsx');
     expect(APP).toContain("window.addEventListener('matrica:engines-changed', onEnginesChanged);");
-    // Счётом, а не `toContain`: у списка один путь записи (создание и правка строки — один
-    // `rows.save`), значит и оповещение ровно одно. Появился второй путь без dispatch — отчёт
-    // «Двигатели на заводе» показывает вчерашнюю стадию, и молча.
+    expect(SHEETS, 'список не пишет этапы').not.toMatch(/stages\.(save|delete)/);
     expect(
       SHEETS.split("window.dispatchEvent(new Event('matrica:engines-changed'));").length - 1,
-      'список: один путь сохранения — один dispatch',
-    ).toBe(1);
+      'список: писать нечему — dispatch не должно быть',
+    ).toBe(0);
     expect(CARD.split("window.dispatchEvent(new Event('matrica:engines-changed'));").length - 1, 'карточка: после сохранения и после удаления').toBe(2);
+    // Главный путь записи этапов — секция в карточке двигателя: её onChanged доходит до App.
+    expect(HISTORY, 'секция этапов внутри ленты истории').toContain('<RepairStagesSection');
+    expect(HISTORY, 'onChanged секции пробрасывается наружу').toContain('onChanged: props.onChanged');
+    expect(ENGINE_PAGE, 'панель истории будит каталог двигателей').toContain('onChanged={() => void props.onEngineUpdated()}');
   });
 });
