@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   sortStagesByDate,
@@ -7,8 +7,10 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { useConfirmOptional } from './ConfirmContext.js';
 import { Input } from './Input.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
+import { confirmShipmentWithOpenAssembly } from '../utils/shipmentAssemblyGate.js';
 
 // Единый список этапов ремонта (план unified-repair-stages, шаг 4): дата, этап,
 // правка дат, новые этапы из шаблона. Ручная галочка дефектовки — это же место:
@@ -26,7 +28,13 @@ function fromInputDate(v: string): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-export function RepairStagesSection(props: { engineId: string; canEdit: boolean; onChanged?: () => void }) {
+export function RepairStagesSection(props: {
+  engineId: string;
+  canEdit: boolean;
+  onChanged?: () => void;
+  /** Подпись для гейта отгрузки («Д6 123», не uuid) — без неё гейт молчит. */
+  engineLabel?: string;
+}) {
   const [templates, setTemplates] = useState<RepairStageTemplate[]>([]);
   const [rows, setRows] = useState<RepairStageRow[]>([]);
   const [status, setStatus] = useState('');
@@ -35,6 +43,9 @@ export function RepairStagesSection(props: { engineId: string; canEdit: boolean;
   const [addingNote, setAddingNote] = useState('');
   const [pendingPass, setPendingPass] = useState<{ pass: number; id: string; code: string; atMs: number; note: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const confirmCtx = useConfirmOptional();
+  // Гейт отгрузки в полёте: повторный клик не должен открыть второй гейт поверх первого.
+  const shipmentGateBusy = useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -198,7 +209,26 @@ export function RepairStagesSection(props: { engineId: string; canEdit: boolean;
                 setStatus('Выберите этап и дату');
                 return;
               }
-              void writeStage({ id: crypto.randomUUID(), code: addingCode, atMs, ...(addingNote.trim() ? { note: addingNote.trim() } : {}) });
+              void (async () => {
+                // Гейт отгрузки (шаг 8/3: наследник галки «Отправлен заказчику»):
+                // отметка «Отправлен/Принят заказчиком» при незакрытом сборочном
+                // наряде сначала предлагает закрыть наряды; отмена — отметка
+                // не встаёт вовсе. Без провайдера диалогов гейт молчит.
+                if ((addingCode === 'shipped' || addingCode === 'accepted') && confirmCtx && !shipmentGateBusy.current) {
+                  shipmentGateBusy.current = true;
+                  try {
+                    const decision = await confirmShipmentWithOpenAssembly({
+                      engineId: props.engineId,
+                      engineLabel: props.engineLabel ?? props.engineId,
+                      pickChoice: confirmCtx.pickChoice,
+                    });
+                    if (decision.action !== 'proceed') return;
+                  } finally {
+                    shipmentGateBusy.current = false;
+                  }
+                }
+                void writeStage({ id: crypto.randomUUID(), code: addingCode, atMs, ...(addingNote.trim() ? { note: addingNote.trim() } : {}) });
+              })();
             }}
           >
             Отметить этап

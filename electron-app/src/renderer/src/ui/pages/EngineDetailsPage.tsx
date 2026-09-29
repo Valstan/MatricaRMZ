@@ -1,13 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { EngineDetails, EngineDuplicateMatches, EngineInternalNumberDuplicate, FileRef, SupplyRequestItem } from '@matricarmz/shared';
-import { REPAIR_HISTORY_OPERATION_TYPE, repairHistoryMetaForStatus, repairHistoryNoteLine, looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, DEFAULT_CONTRACT_REPAIR_DAYS, effectiveRepairDays, buildContractSectionOptions, contractSectionAddonToken, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, planSlotForEngine, attachEngineToSlot, applyStatusFlagChange, isEavFlagSet, isEngineDoneForCountdown, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, arrivalPlacements, arrivalPlacementLabel, type ArrivalListItem, type ArrivalPlacement, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
+import { looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, DEFAULT_CONTRACT_REPAIR_DAYS, effectiveRepairDays, buildContractSectionOptions, contractSectionAddonToken, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, planSlotForEngine, attachEngineToSlot, isEavFlagSet, isEngineDoneForCountdown, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, arrivalPlacements, arrivalPlacementLabel, type ArrivalListItem, type ArrivalPlacement, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
 import { SectionCard } from '../components/SectionCard.js';
-import { CollapsibleSection } from '../components/CollapsibleSection.js';
 import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { EngineRepairHistoryPanel } from '../components/EngineRepairHistoryPanel.js';
 import { EngineTimelinePanel } from '../components/EngineTimelinePanel.js';
@@ -35,7 +34,6 @@ import { EngineDismantlePreviewDialog } from '../components/EngineDismantlePrevi
 import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
 import { isAndroidPlatform } from '../platform.js';
 import { useConfirm } from '../components/ConfirmContext.js';
-import { confirmShipmentWithOpenAssembly } from '../utils/shipmentAssemblyGate.js';
 import { formatEngineGateLabel } from '../utils/assemblyDuplicateGate.js';
 
 // Заморожено 2026-05-26: «Разборка двигателя» отключена, поскольку бизнес отказался
@@ -80,10 +78,6 @@ const ENGINE_CARD_TABS: { key: EngineCardTab; label: string }[] = [
 
 function normalizeForMatch(s: string) {
   return String(s ?? '').trim().toLowerCase();
-}
-
-function getStatusLabel(code: StatusCode) {
-  return code === 'status_customer_sent' ? 'Дата отгрузки' : STATUS_LABELS[code];
 }
 
 /** Proactive «похожий двигатель уже есть» hint under the engine_number field (#317).
@@ -278,10 +272,10 @@ function EngineDuplicateHint(props: {
   );
 }
 
-// D-#9: ручная галка «Забракован» (status_rejected) убрана из карточки — брак теперь
-// авто-определяется по детали-картеру в утиле (см. listEngines). Сам статус остаётся в
-// STATUS_CODES (shared): сохраняется/читается/идёт в отчёты и прогресс контракта как раньше,
-// просто больше не редактируется вручную здесь.
+// Шаг 8/3: ручные галки статусов убраны из карточки целиком (единый список этапов —
+// теперь единственный ввод; старые значения лежат замороженными в EAV и читаются
+// печатью). Порядок ниже оставлен ради ensureAttributeDefs (дефы нужны чтениям)
+// и замороженной печати.
 const STATUS_DISPLAY_ORDER: StatusCode[] = [
   'status_storage_received',
   'status_repair_started',
@@ -1083,61 +1077,6 @@ export function EngineDetailsPage(props: {
     }
   }
 
-  const REPAIR_STARTED_CODE: StatusCode = 'status_repair_started';
-
-  /** Взаимоисключение флагов статусов: «Начат ремонт» ↔ остальные; дата начала ремонта при снятии через другой статус не трогаем. */
-  function applyStatusCheckboxChange(code: StatusCode, next: boolean) {
-    setSessionChanged(true);
-    // Взаимоисключение флагов — общий `applyStatusFlagChange` (тот же, что у авто-перехода
-    // из наряда сборки), чтобы ручной и авто-путь не разъезжались.
-    setStatusFlags((prev) => applyStatusFlagChange(prev, code, next));
-    setStatusDates((prev) => {
-      if (code === REPAIR_STARTED_CODE && next) {
-        return { ...prev, [REPAIR_STARTED_CODE]: prev[REPAIR_STARTED_CODE] ?? Date.now() };
-      }
-      if (code !== REPAIR_STARTED_CODE && next) {
-        return { ...prev, [code]: prev[code] ?? Date.now() };
-      }
-      return { ...prev, [code]: next ? prev[code] ?? Date.now() : null };
-    });
-  }
-
-  // Гейт отгрузки в полёте: чекбокс не задизейблен на время модалки, повторный клик
-  // не должен открыть второй гейт поверх первого.
-  const shipmentGateBusy = useRef(false);
-
-  /**
-   * Асинхронная обёртка над applyStatusCheckboxChange для onChange чекбоксов:
-   * «Отправлен заказчику» при незакрытом сборочном наряде проходит через модалку
-   * (отмена — галка не встаёт; закрытие наряда — заодно встаёт «Отремонтирован»).
-   * Остальные коды идут прежним синхронным путём.
-   */
-  async function handleStatusCheckboxChange(code: StatusCode, next: boolean) {
-    if (code !== 'status_customer_sent' || !next) {
-      applyStatusCheckboxChange(code, next);
-      return;
-    }
-    if (shipmentGateBusy.current) return;
-    shipmentGateBusy.current = true;
-    try {
-      const decision = await confirmShipmentWithOpenAssembly({
-        engineId: props.engineId,
-        engineLabel: formatEngineGateLabel({ engineBrand, engineNumber, internalNumberFull }),
-        pickChoice,
-      });
-      if (decision.action !== 'proceed') return;
-      // Закрытие сборочного наряда = двигатель отремонтирован (владелец 2026-07-29).
-      // Ставим через ЛОКАЛЬНЫЙ state, не engines.advanceStatus: прямая запись в БД
-      // разошлась бы с несохранённой карточкой и перезатёрлась бы в saveAllAndClose.
-      if (decision.closedWorkOrders > 0 && !statusFlags.status_repaired) {
-        applyStatusCheckboxChange('status_repaired', true);
-      }
-      applyStatusCheckboxChange(code, next);
-    } finally {
-      shipmentGateBusy.current = false;
-    }
-  }
-
   /**
    * Посадить двигатель в слот ЕГО марки внутри выбранного контракта.
    *
@@ -1243,10 +1182,6 @@ export function EngineDetailsPage(props: {
         contract_section_number: asNullableText(resolvedSectionKey),
         workshop_id: asNullableText(workshopId),
       };
-      for (const c of STATUS_CODES) {
-        nextValues[c] = Boolean(statusFlags[c]);
-        nextValues[statusDateCode(c)] = statusDates[c] ?? null;
-      }
       nextValues.reclamation_flag = reclFlag;
       nextValues.reclamation_accepted_date = fromInputDate(reclAcceptedDate);
       nextValues.reclamation_customer_reason = asNullableText(reclCustomerReason);
@@ -1282,10 +1217,6 @@ export function EngineDetailsPage(props: {
         contract_section_number: asNullableText(attrs.contract_section_number),
         workshop_id: asNullableText(attrs.workshop_id),
       };
-      for (const c of STATUS_CODES) {
-        currentValues[c] = isEavFlagSet(attrs[c]);
-        currentValues[statusDateCode(c)] = normalizeDateInput(attrs[statusDateCode(c)]);
-      }
       currentValues.reclamation_flag = isEavFlagSet(attrs.reclamation_flag);
       currentValues.reclamation_accepted_date = normalizeDateInput(attrs.reclamation_accepted_date);
       currentValues.reclamation_customer_reason = asNullableText(attrs.reclamation_customer_reason);
@@ -1327,24 +1258,9 @@ export function EngineDetailsPage(props: {
               /* передача — аудиторская запись, не валим сохранение карточки */
             }
           }
-          // История ремонта: стадия, выставленная в этом сохранении, становится строкой истории.
-          // Пишем только ВЗВЕДЁННЫЕ флаги — снятая галочка означает «поставили по ошибке», и
-          // событие «двигатель перестал быть отремонтированным» истории не принадлежит.
-          for (const [code, value] of changedEntries) {
-            if (value !== true || !STATUS_CODES.includes(code as StatusCode)) continue;
-            const meta = repairHistoryMetaForStatus(code as StatusCode);
-            try {
-              await window.matrica.operations.add(
-                props.engineId,
-                REPAIR_HISTORY_OPERATION_TYPE,
-                'done',
-                repairHistoryNoteLine(meta),
-                JSON.stringify(meta),
-              );
-            } catch {
-              /* история — аудиторская запись, не валим сохранение карточки */
-            }
-          }
+          // История ремонта: стадиями теперь владеет единый список этапов
+          // (вкладка «История ремонта»); карточка флаги больше не пишет (шаг 8/3).
+          // Замороженные значения остаются в EAV как история — их читает печать ниже.
           await props.onEngineUpdated();
           setSaveStatus(overPlanNote || 'Сохранено');
           setTimeout(() => setSaveStatus(''), overPlanNote ? 8000 : 700);
@@ -2124,66 +2040,12 @@ export function EngineDetailsPage(props: {
           ),
         }
       : null,
-    ...STATUS_DISPLAY_ORDER.map((code) => {
-      const dateValue = toInputDate(statusDates[code] ?? null);
-      return {
-        code,
-        defaultOrder: 60 + STATUS_DISPLAY_ORDER.indexOf(code) * 2,
-        label: getStatusLabel(code),
-        value: statusFlags[code] ? 'да' : 'нет',
-        render: (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input
-                type="checkbox"
-                checked={!!statusFlags[code]}
-                disabled={!canEditEnginesEff}
-                onChange={(e) => {
-                  void handleStatusCheckboxChange(code, e.target.checked);
-                }}
-              />
-              <span>{statusFlags[code] ? 'Да' : 'Нет'}</span>
-            </label>
-            <Input
-              type="date"
-              value={dateValue}
-              disabled={!canEditEnginesEff}
-              style={{ width: 168, minWidth: 168 }}
-              onChange={(e) => {
-                setSessionChanged(true);
-                setStatusDates((prev) => ({ ...prev, [code]: fromInputDate(e.target.value) }));
-              }}
-            />
-            {(code === 'status_scrap_confirmed' || code === 'status_rework_sent') && statusFlags[code] ? (
-              <Input
-                type="text"
-                value={scrapReason}
-                disabled={!canEditEnginesEff}
-                placeholder="почему утиль?"
-                title="Причина отправки двигателя в утиль — видна в печати карточки и отчётах"
-                style={{
-                  minWidth: 200,
-                  flex: 1,
-                  ...(scrapReason.trim() ? {} : { border: '1px solid rgba(220, 38, 38, 0.55)' }),
-                }}
-                onChange={(e) => {
-                  setSessionChanged(true);
-                  setScrapReason(e.target.value);
-                }}
-              />
-            ) : null}
-          </div>
-        ),
-      };
-    }),
+    // Шаг 8/3: галочки статусов и их даты убраны (единый список этапов — теперь
+    // единственный ввод; старые значения лежат замороженными в EAV и читаются
+    // печатью ниже). Сам блок STATUS_DISPLAY_ORDER в ensureAttributeDefs выше
+    // оставлен: дефы нужны чтениям.
   ].filter(Boolean);
   const mainFields = orderFieldsByDefs(mainFieldItems as any[], engineDefs);
-  // Фаза E (ui-themes-ergonomics): статусные строки уходят в отдельный сворачиваемый блок —
-  // основные реквизиты не тонут среди чекбоксов статусов.
-  const statusCodeSet = new Set<string>(STATUS_DISPLAY_ORDER as readonly string[]);
-  const mainBaseFields = mainFields.filter((f: { code: string }) => !statusCodeSet.has(String(f.code)));
-  const mainStatusFields = mainFields.filter((f: { code: string }) => statusCodeSet.has(String(f.code)));
-  const activeStatusCount = STATUS_DISPLAY_ORDER.filter((c) => statusFlags[c]).length;
 
   const orderedPrintRows: Array<[string, string]> = [
     ['Номер двигателя', engineNumber],
@@ -2534,14 +2396,13 @@ export function EngineDetailsPage(props: {
         <div className="entity-card-span-full" data-card-tab="main" hidden={activeTab !== 'main'} style={{ maxWidth: 820, width: '100%', margin: '0 auto' }}>
         <SectionCard style={{ padding: 12, background: 'rgba(59, 130, 246, 0.08)' }}>
         <DraggableFieldList
-          items={mainBaseFields}
+          items={mainFields}
           getKey={(f) => f.code}
           canDrag={props.canEditMasterData}
           onReorder={(next) => {
             if (!engineTypeId) return;
-            // Статусные коды дописываем в конец — их порядок фиксирован STATUS_DISPLAY_ORDER.
             void persistFieldOrder(
-              [...next.map((f) => f.code), ...mainStatusFields.map((f: { code: string }) => f.code)],
+              next.map((f) => f.code),
               engineDefs,
               { entityTypeId: engineTypeId },
             ).then(() => setEngineDefs([...engineDefs]));
@@ -2565,29 +2426,6 @@ export function EngineDetailsPage(props: {
             </div>
           )}
         />
-        <div style={{ marginTop: 10 }}>
-          <CollapsibleSection title="Статусы ремонта" count={activeStatusCount} defaultOpen={activeStatusCount > 0}>
-            <div style={{ display: 'grid', gap: 'var(--card-row-gap)' }}>
-              {mainStatusFields.map((field: { code: string; label: string; render: React.ReactNode }) => (
-                <div
-                  key={field.code}
-                  className="card-row"
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'minmax(140px, 180px) 1fr',
-                    gap: 8,
-                    alignItems: 'center',
-                    padding: '4px 6px',
-                    border: '1px solid var(--card-row-border)',
-                  }}
-                >
-                  <div style={{ color: 'var(--subtle)' }}>{field.label}</div>
-                  {field.render}
-                </div>
-              ))}
-            </div>
-          </CollapsibleSection>
-        </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
           <Button
             variant="ghost"
@@ -2738,10 +2576,11 @@ export function EngineDetailsPage(props: {
             engineId={props.engineId}
             canEdit={canEditEnginesEff}
             workshopOptions={workshopOptions}
+            engineLabel={formatEngineGateLabel({ engineBrand, engineNumber, internalNumberFull })}
             onChanged={() => {
-            void props.onEngineUpdated();
-            void reloadLastStage();
-          }}
+              void props.onEngineUpdated();
+              void reloadLastStage();
+            }}
             {...(props.onOpenWorkSheet ? { onOpenWorkSheet: props.onOpenWorkSheet } : {})}
           />
           <EngineTimelinePanel engineId={props.engineId} />

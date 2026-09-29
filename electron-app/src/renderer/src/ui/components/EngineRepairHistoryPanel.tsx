@@ -32,6 +32,8 @@ export function EngineRepairHistoryPanel(props: {
   workshopOptions: Array<{ id: string; label: string }>;
   /** Перерисовать карточку после записи — история влияет на строку списка (цех, действие). */
   onChanged?: () => void;
+  /** Подпись двигателя для гейта отгрузки в секции этапов («Д6 123», не uuid). */
+  engineLabel?: string;
   /**
    * Открыть карточку этапа работ, породившего запись. Запись этапа работ правится не здесь, и
    * до появления карточки оператору оставалось только идти искать её в списке руками.
@@ -120,6 +122,7 @@ export function EngineRepairHistoryPanel(props: {
         engineId={props.engineId}
         canEdit={props.canEdit}
         {...(props.onChanged ? { onChanged: props.onChanged } : {})}
+        {...(props.engineLabel ? { engineLabel: props.engineLabel } : {})}
       />
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontWeight: 700 }}>История ремонта</span>

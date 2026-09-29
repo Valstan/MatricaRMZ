@@ -1090,14 +1090,14 @@ export function WorkOrderDetailsPage(props: {
         return;
       }
       setPayload(recalcLocally(issued.payload));
-      // Регресс #320: обещанный баннером авто-переход двигателя в «Начат ремонт» потерялся
-      // при переводе выдачи на серверное резервирование (#133 → #320). Возвращаем: статус —
+      // Регресс #320: обещанная баннером авто-метка «Сборка» потерялась
+      // при переводе выдачи на серверное резервирование (#133 → #320). Возвращаем: этап —
       // побочный эффект best-effort, ошибку показываем, но выдачу не откатываем.
       const issuedEngineId = resolveAssemblyEngineId(issued.payload);
       if (issuedEngineId) {
         void window.matrica.engines
           .advanceStatus({ engineId: issuedEngineId, target: 'status_repair_started', dateMs: Date.now() })
-          .catch((err) => setStatus(`Наряд выдан, но статус двигателя не обновился: ${String(err)}`));
+          .catch((err) => setStatus(`Наряд выдан, но этап «Сборка» не отмечен: ${String(err)}`));
       }
       setStatus(issued.state === 'issued_with_shortage'
         ? 'Наряд выдан с согласованным дефицитом; резерв и списание не созданы.'
@@ -2529,14 +2529,14 @@ export function WorkOrderDetailsPage(props: {
                 if (ms) next.completedDate = ms;
                 else delete next.completedDate;
                 patch(next);
-                // Ф2: дата выполнения сборочного наряда → двигателю статус «Отремонтирован»
-                // (только вперёд; очистка даты статус не откатывает). Побочный эффект, best-effort.
+                // Ф2: дата выполнения сборочного наряда → двигателю этап «Сборка»
+                // (только вперёд; очистка даты отметку не откатывает). Побочный эффект, best-effort.
                 if (ms && next.workOrderKind === WorkOrderKind.Assembly) {
                   const engineId = resolveAssemblyEngineId(next);
                   if (engineId) {
                     void window.matrica.engines
                       .advanceStatus({ engineId, target: 'status_repaired', dateMs: ms })
-                      .catch((err) => setStatus(`Дата выполнения сохранена, но статус двигателя не обновился: ${String(err)}`));
+                      .catch((err) => setStatus(`Дата выполнения сохранена, но этап «Сборка» не отмечен: ${String(err)}`));
                   }
                 }
               }}
@@ -2582,13 +2582,13 @@ export function WorkOrderDetailsPage(props: {
                         return;
                       }
                       setOperationStatus('closed');
-                      // Закрытие сборки = двигатель отремонтирован (запрос владельца 2026-07-29):
-                      // авто-переход best-effort, «только вперёд» — отгруженные не откатывает.
+                      // Закрытие сборки отмечает этап «Сборка» (запрос владельца 2026-07-29):
+                      // авто-метка best-effort, «только вперёд» — ушедшие дальше не трогает.
                       const closedEngineId = resolveAssemblyEngineId(payload);
                       if (closedEngineId) {
                         void window.matrica.engines
                           .advanceStatus({ engineId: closedEngineId, target: 'status_repaired', dateMs: Date.now() })
-                          .catch((err) => setStatus(`Проведено, но статус двигателя не обновился: ${String(err)}`));
+                          .catch((err) => setStatus(`Проведено, но этап «Сборка» не отмечен: ${String(err)}`));
                       }
                       setStatus(`Проведено. Документ ${r.documentId} списан.`);
                     } catch (e) {
@@ -2792,13 +2792,13 @@ export function WorkOrderDetailsPage(props: {
                     if (isRegular) setClosedLocally(true);
                     // Заблокировать редактирование всей карточки немедленно.
                     setOperationStatus('closed');
-                    // Закрытие сборочного наряда = двигатель отремонтирован (владелец 2026-07-29).
+                    // Закрытие сборочного наряда отмечает этап «Сборка» (владелец 2026-07-29).
                     if (payload.workOrderKind === WorkOrderKind.Assembly) {
                       const closedEngineId = resolveAssemblyEngineId(payload);
                       if (closedEngineId) {
                         void window.matrica.engines
                           .advanceStatus({ engineId: closedEngineId, target: 'status_repaired', dateMs: Date.now() })
-                          .catch((err) => setStatus(`Закрыто, но статус двигателя не обновился: ${String(err)}`));
+                          .catch((err) => setStatus(`Закрыто, но этап «Сборка» не отмечен: ${String(err)}`));
                       }
                     }
                     setStatus(

@@ -33,11 +33,11 @@ describe('история ремонта пишется', () => {
     expect(PANEL).toContain('<datalist id="repair-history-actions">');
   });
 
-  it('карточка пишет автозапись при взведённой стадии — и только при взведённой', () => {
-    expect(CARD).toContain('repairHistoryMetaForStatus(code as StatusCode)');
-    expect(CARD, 'снятая галочка — это исправление ошибки, а не событие истории').toContain(
-      "if (value !== true || !STATUS_CODES.includes(code as StatusCode)) continue;",
-    );
+  it('карточка галочки статусов больше не пишет — ввод только из единого списка (шаг 8/3)', () => {
+    expect(CARD).not.toContain('repairHistoryMetaForStatus(code as StatusCode)');
+    expect(CARD).not.toContain('applyStatusCheckboxChange(code, next)');
+    expect(CARD).not.toContain('handleStatusCheckboxChange(');
+    expect(CARD).not.toContain('Статусы ремонта');
   });
 
   it('автоматические записи помечены — оператор не должен принимать их за свои', () => {
@@ -119,5 +119,12 @@ describe('единый список этапов в карточке (план u
     const CHECKLIST = src('./RepairChecklistPanel.tsx');
     expect(CHECKLIST).toContain("code: 'kitting_done'");
     expect(CHECKLIST).toContain('Этап «Комплектовка сделана» отмечен.');
+  });
+
+  it('гейт отгрузки живёт в секции этапов: shipped/accepted без закрытых нарядов не встают (шаг 8/3)', () => {
+    const SECTION = src('./RepairStagesSection.tsx');
+    expect(SECTION).toContain('confirmShipmentWithOpenAssembly');
+    expect(SECTION).toContain("addingCode === 'shipped' || addingCode === 'accepted'");
+    expect(SECTION).toContain('engineLabel');
   });
 });
