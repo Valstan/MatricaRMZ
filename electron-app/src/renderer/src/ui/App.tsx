@@ -5529,7 +5529,6 @@ export function App() {
             этапа, кнопка «Добавить» прячется, редактор не открывается. */}
         {t === 'work_sheets' && (
           <WorkSheetsPage
-            canEdit={false}
             canManageTypes={caps.canEditWorkSheetTypes}
             canManageStageTemplates={caps.canEditRepairStageTemplates}
             engines={engines}
