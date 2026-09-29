@@ -148,7 +148,7 @@
 | M141 | Переезд закрыл одну проблему — и вместе с ней унёс гарантию, которой никто не записывал: откат, копия, ожидание. Симптом виден только в день отказа | [M141](#m141--переезд-уносит-гарантию-которая-держалась-на-прежнем-устройстве-а-не-на-требовании) |
 | M142 | Синхронизация встала у ВСЕХ клиентов разом: `UNIQUE`/`NOT NULL constraint failed` в `applyPulledChanges`, при этом на сервере данные законны | [M142](#m142--ограничение-на-клиенте-строже-серверного-весь-парк-теряет-синхронизацию-из-за-двух-строк) |
 | M143 | Смоук ставит значение в пикер — подсказка не открывается, опций `div[data-idx]` нет, форма отказывает «Выберите …». Было зелёным до переезда всплывающих слоёв в портал | [M143](#m143--подсказка-пикера-рисуется-порталом-и-не-открывается-установкой-значения) |
-| M145 | Android: `Execute: not an error (code 0)` при запуске — `DROP INDEX IF EXISTS` через `execSQL` бросает `SQLiteException`, если индекс не существует | [M145](#m145--android-drop-index-if-exists-через-execsql-бросает-sqliteexception-если-индекс-не-существует) |
+| M145 | Android: `Execute: not an error (code 0)` при запуске: `;` в конце комментария миграции — плагин режет скрипт до снятия комментариев → пустой оператор → `execSQL(";")` (теория про `DROP INDEX IF EXISTS` опровергнута) | [M145](#m145--android-execute-not-an-error-code-0-при-запуске--в-комментарии-миграции-даёт-пустой-оператор) |
 
 ---
 
@@ -1357,12 +1357,12 @@ await send(ws, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: r.x, y: r
 
 **Сторож класса:** `.claude/skills/verifier-electron/scripts/cdp-owner-batch-work-orders.mjs` — все три приёма записаны в нём комментариями.
 
-## M145 — Android: `Execute: not an error (code 0)` при запуске — `DROP INDEX IF EXISTS` через `execSQL` бросает `SQLiteException`, если индекс не существует
+## M145 — Android: `Execute: not an error (code 0)` при запуске: `;` в комментарии миграции даёт пустой оператор
 
 - **Симтом:** планшетный клиент после установки не запускается: красный экран `reportBootFailure` с текстом `Не удалось запустить приложение: Execute: not an error (code 0)`. На десктопе и в unit-тестах всё зелёное.
-- **Корень:** `DROP INDEX IF EXISTS` через `execSQL` (Capacitor SQLite плагин) бросает `SQLiteException` с сообщением `"not an error (code 0)"`, если индекс не существует. На десктопе (better-sqlite3) `IF EXISTS` делает тихий no-op. Коммит `02661970` (18.09) добавил `DROP INDEX IF EXISTS erp_engine_assembly_bom_engine_version_uq;` в `ensureClientSchemaParity` — и на планшете boot стал падать на первом же старте.
+- **Корень (версия 28.09, опровергнута — см. амендмент ниже):** `DROP INDEX IF EXISTS` через `execSQL` (Capacitor SQLite плагин) якобы бросает `SQLiteException` с сообщением `"not an error (code 0)"`, если индекс не существует. На десктопе (better-sqlite3) `IF EXISTS` делает тихий no-op. Коммит `02661970` (18.09) добавил `DROP INDEX IF EXISTS erp_engine_assembly_bom_engine_version_uq;` в `ensureClientSchemaParity` — и на планшете boot стал падать на первом же старте.
 - **Диагностика:** текст ошибки на экране `reportBootFailure` содержит `Execute: ` — это префикс из `CapacitorSQLitePlugin.java` (строка 953: `"Execute: " + e.getMessage()`). Сообщение `"not an error (code 0)"` — стандартное для Android SQLite, когда `execSQL` не может выполнить statement.
-- **Лечение:** проверять существование индекса через `sqlite_master` перед `DROP INDEX`:
+- **Лечение (ошибочное — ушло в 3.48.0 и приёмку не прошло):** проверять существование индекса через `sqlite_master` перед `DROP INDEX`:
   ```typescript
   const indexExists = await sqlite.get(
     `SELECT 1 AS one FROM sqlite_master WHERE type='index' AND name='erp_engine_assembly_bom_engine_version_uq'`,
@@ -1371,7 +1371,7 @@ await send(ws, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: r.x, y: r
     await sqlite.exec(`DROP INDEX erp_engine_assembly_bom_engine_version_uq;`);
   }
   ```
-- **Правило:** на Android `DROP INDEX IF EXISTS` через `execSQL` не работает как тихий no-op — проверять существование объекта перед удалением.
+- **Правило (опровергнуто device-доказательством):** утверждение «на Android `DROP INDEX IF EXISTS` через `execSQL` падает» неверно — на недостающем индексе оно тихо успешно. Правило живёт в амендменте ниже.
 - **Поймано:** 2026-09-28, жалоба владельца на планшете после установки свежей версии.
 - **Амендмент 28.09:** фикс в 3.48.0 приёмку не прошёл — та же строка на экране. Теория про `DROP INDEX` была неверной (на недостающем индексе `DROP INDEX IF EXISTS` тихо успешен — устройство это доказало). Настоящий виновник — `;` в конце комментария в `0026_inventory_lines_has_own_number.sql:3` («…под её собственный номер;»): плагин режет скрипт по `;\n` ДО снятия комментариев → фантомная граница → кусок из одних комментариев → после их снятия пусто → `execSQL(";")` → `not an error (code 0)`. Доказано симуляцией `getStatementsArray` на точном чанке (элементы `""` и `ALTER…`) и экраном 3.49.0 с текстом SQL.
 - **Лечение (3.50.0):** `stripSqlLineComments` (`selectAliasing.ts`) — чистка полно-строчных комментариев в `drizzleChain` до `exec` + пропуск пустых чанков; сторож пустых операторов в `capacitorSqlite.exec`. Регресс: юнит чистки + сторож всего корпуса миграций (каждый чанк каждого `.sql` после чистки не даёт пустых элементов) + `exec комментарийного куска не зовёт плагин`. Урок: теория без device-доказательства — это догадка; экран падения с версией и SQL (3.49.0) окупился за один запуск.
