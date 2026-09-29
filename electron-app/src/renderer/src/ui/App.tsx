@@ -5523,9 +5523,13 @@ export function App() {
           />
         )}
 
+        {/* Единый список этапов (план unified-repair-stages, шаг 7): страница — сводка
+            для просмотра/фильтров/печати, заполнение — только в карточке двигателя.
+            read-only режим страницы уже умеет всё нужное: щелчок открывает карточку
+            этапа, кнопка «Добавить» прячется, редактор не открывается. */}
         {t === 'work_sheets' && (
           <WorkSheetsPage
-            canEdit={caps.canEditWorkSheets}
+            canEdit={false}
             canManageTypes={caps.canEditWorkSheetTypes}
             canManageStageTemplates={caps.canEditRepairStageTemplates}
             engines={engines}

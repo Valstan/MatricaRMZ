@@ -879,6 +879,11 @@ export function WorkSheetsPage(props: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }} data-work-sheets-page>
+      {!props.canEdit && (
+        <div className="ui-muted" style={{ fontSize: 12, padding: '2px 8px' }}>
+          Сводка для просмотра и печати — этапы отмечаются в карточке двигателя (вкладка «История ремонта» → «Этапы ремонта»)
+        </div>
+      )}
       <PageToolbar>
         {props.canEdit && (
           <Button ref={addButtonRef} onClick={() => void openNewRow()} disabled={editor !== null || types.length === 0} data-work-sheet-add-row>
