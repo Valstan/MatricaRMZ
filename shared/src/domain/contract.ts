@@ -248,7 +248,23 @@ export const STATUS_ADVANCE_RANK: Record<StatusCode, number> = {
 export type ProgressLinkedItem = {
   contractId?: string | null;
   statusFlags?: Partial<Record<StatusCode, boolean>> | null;
+  /** Последний этап единого списка (шаг 8 плана) — бьёт замороженный флаг. */
+  lastStageCode?: string | null;
+  /** Дата этапа: без неё этап — план, а не факт, и в счёт не идёт. */
+  lastStageAt?: number | null;
 };
+
+/** Датированный этап — факт, а не план (бездатые в порядок не входят). */
+function datedStageAt(item: Pick<ProgressLinkedItem, 'lastStageAt'>): number | null {
+  const at = item.lastStageAt;
+  return typeof at === 'number' && Number.isFinite(at) && at > 0 ? at : null;
+}
+
+/** Принят заказчиком: флагом (старые двигатели) или датированным этапом. */
+function isAcceptedStage(item: Pick<ProgressLinkedItem, 'statusFlags' | 'lastStageCode' | 'lastStageAt'>): boolean {
+  if (item.statusFlags?.status_customer_accepted) return true;
+  return String(item.lastStageCode ?? '').trim().toLowerCase() === 'accepted' && datedStageAt(item) !== null;
+}
 
 export type ProgressAggregate = {
   shippedCount: number;
@@ -364,12 +380,14 @@ export function contractExecutionPartsCompletedCount(
 }
 
 export function aggregateProgressWithPlan(
-  items: Array<Pick<ProgressLinkedItem, 'statusFlags'>>,
+  items: Array<Pick<ProgressLinkedItem, 'statusFlags' | 'lastStageCode' | 'lastStageAt'>>,
   plannedTotalCount?: number | null,
 ): ProgressAggregate {
   let shippedCount = 0;
   for (const item of items) {
-    if (item.statusFlags?.status_customer_accepted) shippedCount += 1;
+    // Шаг 8 плана: «Принят заказчиком» ставит этап, а не флаг; замороженный флаг —
+    // верная история старых двигателей. Отправлен-но-не-принят по-прежнему не в счёт.
+    if (isAcceptedStage(item)) shippedCount += 1;
   }
 
   const hasPlannedTotal = Number.isFinite(plannedTotalCount) && Number(plannedTotalCount) > 0;
@@ -384,17 +402,17 @@ export function aggregateProgressWithPlan(
   };
 }
 
-export function aggregateProgress(items: Array<Pick<ProgressLinkedItem, 'statusFlags'>>): ProgressAggregate {
+export function aggregateProgress(items: Array<Pick<ProgressLinkedItem, 'statusFlags' | 'lastStageCode' | 'lastStageAt'>>): ProgressAggregate {
   return aggregateProgressWithPlan(items, null);
 }
 
 export function aggregateProgressByContract(items: ProgressLinkedItem[]): Record<string, ProgressAggregate> {
-  const grouped: Record<string, Array<Pick<ProgressLinkedItem, 'statusFlags'>>> = {};
+  const grouped: Record<string, Array<Pick<ProgressLinkedItem, 'statusFlags' | 'lastStageCode' | 'lastStageAt'>>> = {};
   for (const item of items) {
     const contractId = item.contractId ? String(item.contractId) : '';
     if (!contractId) continue;
     if (!grouped[contractId]) grouped[contractId] = [];
-    grouped[contractId].push({ statusFlags: item.statusFlags ?? null });
+    grouped[contractId].push({ statusFlags: item.statusFlags ?? null, lastStageCode: item.lastStageCode ?? null, lastStageAt: item.lastStageAt ?? null });
   }
 
   const out: Record<string, ProgressAggregate> = {};
@@ -406,7 +424,7 @@ export function aggregateProgressByContract(items: ProgressLinkedItem[]): Record
 
 export function aggregateContractExecutionProgress(args: {
   sections: ContractSections | null | undefined;
-  engineItems: Array<Pick<ProgressLinkedItem, 'statusFlags'>>;
+  engineItems: Array<Pick<ProgressLinkedItem, 'statusFlags' | 'lastStageCode' | 'lastStageAt'>>;
   executionParts: ContractExecutionPartRow[] | null | undefined;
 }): ContractExecutionProgressAggregate {
   const engineAcceptedCount = aggregateProgress(args.engineItems).completedCount;

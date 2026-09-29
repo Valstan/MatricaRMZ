@@ -22,7 +22,7 @@ import {
   PRIMARY_CONTRACT_SECTION_KEY,
   countdownStatus,
   effectiveRepairDays,
-  isEngineRepairedForCountdown,
+  isEngineDoneForCountdown,
   isEavFlagSet,
   arrivalPlacements,
   engineInternalNumberDuplicateMessage,
@@ -1003,9 +1003,10 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     const repairDueDate = arrivalMs != null ? arrivalMs + repairDays * DAY_MS : null;
     // Остаток дней считает `countdownStatus`: он же гасит отсчёт по факту ремонта и он же
     // красит карточку — двух правил «сколько осталось» в проекте быть не должно.
+    // Шаг 8/2: гашение смотрит и в единый список (история уже посчитана выше).
     const repairCountdown =
       arrivalMs != null
-        ? countdownStatus(COUNTDOWN_SLOT_STUB, listTodayIso, isEngineRepairedForCountdown(statusFlags), {
+        ? countdownStatus(COUNTDOWN_SLOT_STUB, listTodayIso, isEngineDoneForCountdown({ statusFlags, lastStageCode: history?.lastStageCode, lastStageAt: history?.lastStageAt }), {
             arrivalIso: isoDayKey(arrivalMs),
             // На сам остаток дней это не влияет (у забытой карточки `daysLeft` тот же), но
             // передаём: иначе единственный вызов без даты работ стал бы образцом для следующего.
@@ -1038,7 +1039,8 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       // Прямой legacy-атрибут is_scrap (замороженный февральский импорт, карточкой не правится)
       // намеренно НЕ читаем: его OR делал импортное true неисправимым из карточки — та же
       // dual-source-ловушка, что у shipping_date. На проде было лишь 2 таких, оба уже status_rejected.
-      isScrap: statusRejected || statusScrapMarked || crankcaseScrapped,
+      // Шаг 8/2: плюс отметка боковой ветки единого списка (её с 8/1 ставит рука вместо галочки).
+      isScrap: statusRejected || statusScrapMarked || crankcaseScrapped || history?.lastStageCode === 'scrap_branch',
       ...(scrapReason ? { scrapReason } : {}),
       ...(inventoryFlags?.actStarted === true ? { hasCompletenessAct: true } : {}),
       completenessActDate: inventoryFlags?.completenessInspectionAt ?? null,

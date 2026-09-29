@@ -2,9 +2,9 @@ import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { describe, expect, it } from 'vitest';
 
-import { DEFAULT_REPAIR_STAGE_TEMPLATES } from '@matricarmz/shared';
+import { DEFAULT_REPAIR_STAGE_TEMPLATES, buildRepairHistoryMeta } from '@matricarmz/shared';
 
-import { ensureRepairStageRow, listRepairStageRows, saveRepairStageRow } from './repairStageService.js';
+import { ensureRepairStageRow, listRepairStageRows, loadEngineStageMarks, saveRepairStageRow } from './repairStageService.js';
 
 // Строки единого списка этапов (шаг 2 плана): субординация дат, пометка
 // возврата новым проходом, гейт дублей «тот же этап в тот же день».
@@ -199,5 +199,47 @@ describe('ensureRepairStageRow', () => {
     await ensureRepairStageRow(db, 'eng-1', 'sborka', DAY1, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES);
     const r = await ensureRepairStageRow(db, 'eng-1', 'arrival', DAY2, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES);
     expect(r).toMatchObject({ ok: true, marked: true, pass: 2 });
+  });
+});
+
+// Шаг 8/2: место и утиль пачкой для читателей поверх EAV-снапшотов (отчёты).
+describe('loadEngineStageMarks', () => {
+  function stageRow(sqlite: Database.Database, id: string, engineId: string, code: string, at: number | null, pass = 1) {
+    const meta = buildRepairHistoryMeta({
+      action: code,
+      ...(at !== null ? { at } : {}),
+      entryType: 'stage',
+      stage: { code, name: code },
+      ...(pass >= 2 ? { repeat: { pass } } : {}),
+    });
+    sqlite
+      .prepare(
+        `INSERT INTO operations (id,engine_entity_id,operation_type,status,meta_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
+      )
+      .run(id, engineId, 'repair_history_entry', 'done', JSON.stringify(meta), 1, 1);
+  }
+
+  it('последнее датированное место, при равной дате — старший проход; утиль виден и без даты', async () => {
+    const { sqlite, db } = makeDb();
+    stageRow(sqlite, 's1', 'eng-1', 'sborka', DAY1);
+    stageRow(sqlite, 's2', 'eng-1', 'arrival', DAY2, 2);
+    stageRow(sqlite, 's3', 'eng-1', 'arrival', DAY2, 3);
+    stageRow(sqlite, 's4', 'eng-1', 'scrap_branch', null);
+    stageRow(sqlite, 's5', 'eng-2', 'otk', DAY1);
+    const marks = await loadEngineStageMarks(db, ['eng-1', 'eng-2', 'eng-3']);
+    expect(marks.get('eng-1')).toEqual({ lastStageCode: 'arrival', lastStageAt: DAY2, hasScrapBranch: true });
+    expect(marks.get('eng-2')).toEqual({ lastStageCode: 'otk', lastStageAt: DAY1, hasScrapBranch: false });
+    expect(marks.has('eng-3')).toBe(false);
+  });
+
+  it('не stage-строки и пустой список — мимо', async () => {
+    const { sqlite, db } = makeDb();
+    sqlite
+      .prepare(
+        `INSERT INTO operations (id,engine_entity_id,operation_type,status,meta_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
+      )
+      .run('m1', 'eng-1', 'repair_history_entry', 'done', JSON.stringify({ kind: 'repair_history', action: 'Своё' }), 1, 1);
+    expect((await loadEngineStageMarks(db, ['eng-1'])).has('eng-1')).toBe(false);
+    expect((await loadEngineStageMarks(db, [])).size).toBe(0);
   });
 });

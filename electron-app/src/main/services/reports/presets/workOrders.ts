@@ -36,6 +36,7 @@ import { formatMoscowDate } from '../../../utils/dateUtils.js';
 
 
 import { resolveEngineShippingState } from '../../reportEngineShippingState.js';
+import { loadEngineStageMarks } from '../../repairStageService.js';
 
 import { safeJsonParse, toNumber, normalizeText, asArray, asNumberOrNull, readPeriod, msToDate } from '../format.js';
 import { getPreset, getWorkshops, loadSnapshot, getIdsByType, buildContractCounterpartyIndex, resolveEngineCounterpartyId, buildBrandFilterMatcher, resolveEngineBrandRef, type ReportBuildContext } from '../context.js';
@@ -301,6 +302,8 @@ export async function buildWorkOrdersReport(
   const summaryByBrand = filters?.summaryByBrand === true;
 
   const snapshot = await loadSnapshot(db);
+  // Шаг 8/2: отгрузка этапом единого списка (флаги с 8/1 больше не пишутся).
+  const stageMarks = await loadEngineStageMarks(db, getIdsByType(snapshot, 'engine'));
   const employeeNames = new Map(buildOptions(snapshot, 'employee').map((o) => [o.value, o.label] as const));
   const departmentNames = new Map(buildOptions(snapshot, 'department').map((o) => [o.value, o.label] as const));
   const workshopNames = new Map((await getWorkshops(ctx)).map((row) => [row.id, row.name] as const));
@@ -436,8 +439,14 @@ export async function buildWorkOrdersReport(
     const { id: counterpartyId, label: counterparty } = resolveCounterparty(engineId);
     if (counterpartyFilter.length > 0 && (!counterpartyId || !counterpartyFilter.includes(counterpartyId))) continue;
     // «Отгружен»: дата отправки двигателя заказчику + флаги для сводки подвала.
+    // Шаг 8/2: плюс датированный этап отгрузки из единого списка.
     const engineAttrsForShipping = engineId ? (snapshot.attrsByEntity.get(engineId) ?? {}) : {};
     const shippingState = resolveEngineShippingState(engineAttrsForShipping as Record<string, unknown>);
+    const shipMarks = engineId ? stageMarks.get(engineId) : undefined;
+    const shipStageAt =
+      shipMarks?.lastStageAt != null && (shipMarks.lastStageCode === 'shipped' || shipMarks.lastStageCode === 'accepted')
+        ? shipMarks.lastStageAt
+        : null;
     const workType = firstWorkType || resolveWorkOrderTargetLabel(payload) || '';
     const workOrderNumber = toNumber(payload.workOrderNumber);
 
@@ -482,9 +491,9 @@ export async function buildWorkOrdersReport(
       crewCount: crew.length,
       responsible,
       amountRub: Math.max(0, toNumber(payload.totalAmountRub)),
-      shippedDate: shippingState.shippingDate ?? null,
-      customerSent: shippingState.customerSent,
-      customerAccepted: shippingState.customerAccepted,
+      shippedDate: shippingState.shippingDate ?? shipStageAt,
+      customerSent: shippingState.customerSent || shipMarks?.lastStageCode === 'shipped',
+      customerAccepted: shippingState.customerAccepted || shipMarks?.lastStageCode === 'accepted',
     });
   }
 

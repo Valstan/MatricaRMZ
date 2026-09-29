@@ -85,6 +85,7 @@ describe('отчёт-список «этапы на заводе» и рамка
     // Главный путь записи этапов — секция в карточке двигателя: её onChanged доходит до App.
     expect(HISTORY, 'секция этапов внутри ленты истории').toContain('<RepairStagesSection');
     expect(HISTORY, 'onChanged секции пробрасывается наружу').toContain('onChanged: props.onChanged');
-    expect(ENGINE_PAGE, 'панель истории будит каталог двигателей').toContain('onChanged={() => void props.onEngineUpdated()}');
+    expect(ENGINE_PAGE, 'панель истории будит каталог двигателей').toContain('void props.onEngineUpdated();');
+    expect(ENGINE_PAGE, 'панель истории освежает место двигателя в карточке').toContain('void reloadLastStage();');
   });
 });

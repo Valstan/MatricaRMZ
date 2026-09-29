@@ -6,10 +6,14 @@ import { isScrapEngine, type StatusCode } from '@matricarmz/shared';
 // До 2026-07-23 список видел только «Забракован» + картер в утиле, а отчёты — «Признан утильным»
 // / «Утиль — отправлен заказчику»: двигатель, помеченный утильным, в списке выглядел обычным.
 
-function listIsScrap(flags: Partial<Record<StatusCode, boolean>>, crankcaseScrapped = false): boolean {
+function listIsScrap(
+  flags: Partial<Record<StatusCode, boolean>>,
+  crankcaseScrapped = false,
+  lastStageCode?: string | null,
+): boolean {
   const statusRejected = flags.status_rejected === true;
   const statusScrapMarked = isScrapEngine(flags);
-  return statusRejected || statusScrapMarked || crankcaseScrapped;
+  return statusRejected || statusScrapMarked || crankcaseScrapped || lastStageCode === 'scrap_branch';
 }
 
 describe('признак утиля в списке двигателей', () => {
@@ -29,6 +33,11 @@ describe('признак утиля в списке двигателей', () =>
   it('обычный двигатель не подсвечивается', () => {
     expect(listIsScrap({ status_repair_started: true, status_repaired: true })).toBe(false);
     expect(listIsScrap({})).toBe(false);
+  });
+
+  it('отметка боковой ветки подсвечивает и без галочки (шаг 8/2)', () => {
+    expect(listIsScrap({}, false, 'scrap_branch')).toBe(true);
+    expect(listIsScrap({}, false, 'sborka')).toBe(false);
   });
 
   it('совпадает с тем, что считает утилем shared (отчёты и гейт наряда)', () => {

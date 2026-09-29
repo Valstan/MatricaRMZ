@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { EngineDetails, EngineDuplicateMatches, EngineInternalNumberDuplicate, FileRef, SupplyRequestItem } from '@matricarmz/shared';
-import { REPAIR_HISTORY_OPERATION_TYPE, repairHistoryMetaForStatus, repairHistoryNoteLine, looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, DEFAULT_CONTRACT_REPAIR_DAYS, effectiveRepairDays, buildContractSectionOptions, contractSectionAddonToken, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, planSlotForEngine, attachEngineToSlot, applyStatusFlagChange, isEavFlagSet, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, arrivalPlacements, arrivalPlacementLabel, type ArrivalListItem, type ArrivalPlacement, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
+import { REPAIR_HISTORY_OPERATION_TYPE, repairHistoryMetaForStatus, repairHistoryNoteLine, looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, DEFAULT_CONTRACT_REPAIR_DAYS, effectiveRepairDays, buildContractSectionOptions, contractSectionAddonToken, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, planSlotForEngine, attachEngineToSlot, applyStatusFlagChange, isEavFlagSet, isEngineDoneForCountdown, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, arrivalPlacements, arrivalPlacementLabel, type ArrivalListItem, type ArrivalPlacement, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -563,6 +563,27 @@ export function EngineDetailsPage(props: {
     }
     return out;
   });
+  // Последнее датированное место в едином списке — для гашения отсчёта во вкладке
+  // платежей (шаг 8/2; замороженные флаги выше — история, а не факт). Обновляется
+  // при записи истории (onChanged панели ниже) и при фоновом reload/sync.
+  const [lastStage, setLastStage] = useState<{ code: string; at: number | null } | null>(null);
+  const reloadLastStage = useCallback(async () => {
+    try {
+      const r = await window.matrica.workSheets.stages.list(props.engineId);
+      if (!r.ok) return;
+      let best: { code: string; at: number | null } | null = null;
+      for (const row of r.rows) {
+        if (typeof row.at !== 'number' || !Number.isFinite(row.at) || row.at <= 0) continue;
+        if (!best || (best.at ?? 0) < row.at) best = { code: row.code, at: row.at };
+      }
+      setLastStage(best);
+    } catch {
+      // этапы недоступны — countdown идёт по флагам, как раньше
+    }
+  }, [props.engineId]);
+  useEffect(() => {
+    void reloadLastStage();
+  }, [reloadLastStage, props.engine.updatedAt]);
 
   // Рекламация (EAV, план reclamation-mvp-2026-07 Ф1) — редактируется на вкладке
   // «Рекламация», сохраняется тем же батчем saveAllAndClose.
@@ -2717,7 +2738,10 @@ export function EngineDetailsPage(props: {
             engineId={props.engineId}
             canEdit={canEditEnginesEff}
             workshopOptions={workshopOptions}
-            onChanged={() => void props.onEngineUpdated()}
+            onChanged={() => {
+            void props.onEngineUpdated();
+            void reloadLastStage();
+          }}
             {...(props.onOpenWorkSheet ? { onOpenWorkSheet: props.onOpenWorkSheet } : {})}
           />
           <EngineTimelinePanel engineId={props.engineId} />
@@ -2824,12 +2848,11 @@ export function EngineDetailsPage(props: {
           {...(engineBrandId ? { engineBrandId } : {})}
           arrivalIso={toInputDate(props.engine.attributes?.arrival_date as number | null | undefined)}
           lastActivityIso={toInputDate(lastActivityAt)}
-          engineRepaired={Boolean(
-            statusFlags.status_repaired ||
-              statusFlags.status_customer_sent ||
-              statusFlags.status_customer_accepted ||
-              statusFlags.status_rework_sent,
-          )}
+          engineRepaired={isEngineDoneForCountdown({
+            statusFlags,
+            lastStageCode: lastStage?.code ?? null,
+            lastStageAt: lastStage?.at ?? null,
+          })}
           canEdit={Boolean(props.canEditMasterData)}
           {...(props.onOpenContract ? { onOpenContract: props.onOpenContract } : {})}
         />

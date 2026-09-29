@@ -12,6 +12,7 @@ import {
   emptyContractPayments,
   findSlotForEngine,
   formatKopMoney,
+  isEngineDoneForCountdown,
   parseContractPayments,
   parseMoneyToKop,
   paymentRowLabel,
@@ -37,6 +38,28 @@ function slot(partial: Partial<PaymentSlot> = {}): PaymentSlot {
 function isoPlusDays(fromIso: string, days: number): string {
   return new Date(Date.parse(`${fromIso}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 }
+
+// Шаг 8 плана: гашение отсчёта смотрит и в единый список этапов.
+describe('isEngineDoneForCountdown', () => {
+  it('замороженные флаги по-прежнему гасят', () => {
+    expect(isEngineDoneForCountdown({ statusFlags: { status_repaired: true } })).toBe(true);
+    expect(isEngineDoneForCountdown({ statusFlags: { status_rework_sent: true } })).toBe(true);
+    expect(isEngineDoneForCountdown({ statusFlags: { status_repair_started: true } })).toBe(false);
+    expect(isEngineDoneForCountdown({})).toBe(false);
+  });
+
+  it('датированная «Обкатка» и дальше гасят, «Сборка» — нет', () => {
+    expect(isEngineDoneForCountdown({ lastStageCode: 'obkatka', lastStageAt: 100 })).toBe(true);
+    expect(isEngineDoneForCountdown({ lastStageCode: 'accepted', lastStageAt: 100 })).toBe(true);
+    expect(isEngineDoneForCountdown({ lastStageCode: 'sborka', lastStageAt: 100 })).toBe(false);
+    expect(isEngineDoneForCountdown({ lastStageCode: 'arrival', lastStageAt: 100 })).toBe(false);
+  });
+
+  it('этап без даты место не определяет, утиль гасит всегда', () => {
+    expect(isEngineDoneForCountdown({ lastStageCode: 'obkatka', lastStageAt: null })).toBe(false);
+    expect(isEngineDoneForCountdown({ lastStageCode: 'scrap_branch', lastStageAt: null })).toBe(true);
+  });
+});
 
 describe('parseContractPayments', () => {
   it('tolerates garbage', () => {

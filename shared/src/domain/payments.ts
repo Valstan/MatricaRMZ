@@ -5,6 +5,7 @@
 // Никакого DDL: едет существующим EAV-sync.
 
 import { canonicalContractSectionKey } from './contract.js';
+import { repairStageRank } from './repairStages.js';
 
 export const CONTRACT_PAYMENTS_ATTR_CODE = 'contract_payments';
 
@@ -599,6 +600,28 @@ export function isEngineRepairedForCountdown(flags: Partial<Record<string, boole
   return Boolean(
     flags.status_repaired || flags.status_customer_sent || flags.status_customer_accepted || flags.status_rework_sent,
   );
+}
+
+/**
+ * То же правило, но поверх единого списка этапов (шаг 8 плана): замороженные
+ * флаги — верная история старых двигателей, а у новых решает последний
+ * датированный этап. Порог — «Обкатка»: собран (сборочный наряд закрыт), но не
+ * обкатан — ещё горит; это честно (собран ≠ отремонтирован) и не даёт выдаче
+ * наряда досрочно гасить отсчёт. Ветка утиля гасит всегда, дате не смотрим —
+ * отметка утиля и есть решение.
+ */
+export function isEngineDoneForCountdown(e: {
+  statusFlags?: Partial<Record<string, boolean>> | null;
+  lastStageCode?: string | null | undefined;
+  lastStageAt?: number | null | undefined;
+}): boolean {
+  if (isEngineRepairedForCountdown(e.statusFlags)) return true;
+  const code = String(e.lastStageCode ?? '').trim().toLowerCase();
+  if (!code) return false;
+  if (code === 'scrap_branch') return true;
+  const at = typeof e.lastStageAt === 'number' && Number.isFinite(e.lastStageAt) && e.lastStageAt > 0 ? e.lastStageAt : null;
+  if (at === null) return false;
+  return repairStageRank(code) >= repairStageRank('obkatka');
 }
 
 /**
