@@ -23,6 +23,7 @@ import {
   } from '@matricarmz/shared';
 
 import { resolveEngineShippingState } from '../../reportEngineShippingState.js';
+import { loadEngineStageMarks } from '../../repairStageService.js';
 
 import { normalizeText, asArray, asNumberOrNull, entityLabel, toNumber } from '../format.js';
 import { getPreset, loadSnapshot, getIdsByType, buildContractCounterpartyIndex, resolveEngineCounterpartyId } from '../context.js';
@@ -148,6 +149,9 @@ export async function buildEngineFlowByCounterpartyReport(
   const byYear = new Map<string, YearNode>();
   const grand = emptyFlowAgg();
 
+  // Шаг 8/2: место и утиль из единого списка — одной пачкой на все двигатели.
+  const stageMarks = await loadEngineStageMarks(db, getIdsByType(snapshot, 'engine'));
+
   for (const engineId of getIdsByType(snapshot, 'engine')) {
     const attrs = snapshot.attrsByEntity.get(engineId) ?? {};
     const brandId = normalizeText(attrs.engine_brand_id, '');
@@ -160,11 +164,19 @@ export async function buildEngineFlowByCounterpartyReport(
 
     const statusFlags: Partial<Record<StatusCode, boolean>> = {};
     for (const code of STATUS_CODES) statusFlags[code] = isEavFlagSet(attrs[code]);
-    const scrap = isScrapEngine(statusFlags);
-    const { onSite: baseOnSite, shippingDate } = resolveEngineShippingState(attrs);
+    // Шаг 8/2: утиль — и отметкой боковой ветки (её с 8/1 ставит рука вместо
+    // галочки), выбытие — и датированным этапом отгрузки; замороженные флаги —
+    // верная история старых двигателей.
+    const marks = stageMarks.get(engineId);
+    const stageCode = marks?.lastStageCode ?? null;
+    const stageAt = marks?.lastStageAt ?? null;
+    const stageShipped = stageAt !== null && (stageCode === 'shipped' || stageCode === 'accepted');
+    const scrap = isScrapEngine(statusFlags) || marks?.hasScrapBranch === true;
+    const { onSite: baseOnSite, shippingDate: attrShippingDate } = resolveEngineShippingState(attrs);
+    const shippingDate = attrShippingDate ?? (stageShipped ? stageAt : null);
     // «Утиль — отправлен заказчику» — выбытие само по себе: дат отгрузки у возврата
     // без ремонта обычно не проставляют, а завод он покинул.
-    const leftFactory = !baseOnSite || statusFlags.status_rework_sent === true;
+    const leftFactory = !baseOnSite || statusFlags.status_rework_sent === true || stageShipped;
     const atFactory = !leftFactory;
     const scrapSent = scrap && leftFactory;
     const shipped = !scrap && leftFactory;
@@ -181,7 +193,9 @@ export async function buildEngineFlowByCounterpartyReport(
     if (onSiteFilter === 'yes' && !atFactory) continue;
     if (onSiteFilter === 'no' && atFactory) continue;
 
-    const repairActive = statusFlags.status_repair_started === true;
+    const repairActive =
+      statusFlags.status_repair_started === true ||
+      (stageAt !== null && stageCode !== null && stageCode !== 'shipped' && stageCode !== 'accepted' && stageCode !== 'arrival');
     if (repairActiveFilter === 'yes' && !repairActive) continue;
     if (repairActiveFilter === 'no' && repairActive) continue;
 

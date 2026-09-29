@@ -1,7 +1,7 @@
 import { renderEngineFlowPrintHtml } from '@matricarmz/shared';
 import { describe, expect, it } from 'vitest';
 
-import { attributeDefs, attributeValues, entities, entityTypes } from '../../../database/schema.js';
+import { attributeDefs, attributeValues, entities, entityTypes, operations } from '../../../database/schema.js';
 import { buildEngineFlowByCounterpartyReport } from './engineFlowByCounterparty.js';
 
 // Синтетический снапшот: loadSnapshot — единственное обращение билдера к БД.
@@ -91,7 +91,7 @@ for (const [entityId, attrs] of Object.entries(attrData)) {
   }
 }
 
-function stubDb(): any {
+function stubDb(opsRows: Row[] = []): any {
   return {
     select() {
       return {
@@ -105,7 +105,9 @@ function stubDb(): any {
                   ? defRows
                   : table === attributeValues
                     ? valueRows
-                    : [];
+                    : table === operations
+                      ? opsRows
+                      : [];
           const chain: any = {
             where() {
               return chain;
@@ -215,6 +217,27 @@ describe('buildEngineFlowByCounterpartyReport', () => {
     if (!report.ok) return;
     expect(report.rows.every((r) => r.engineBrand === 'ЯМЗ-238')).toBe(true);
     expect(report.totals?.arrivedQty).toBe(2); // E5, E7
+  });
+
+  it('отметка боковой ветки работает как галочка утиля (шаг 8/2)', async () => {
+    const stageRow = {
+      engineEntityId: 'E5',
+      metaJson: JSON.stringify({
+        kind: 'repair_history',
+        action: 'Утиль и брак',
+        at: ARRIVAL,
+        entryType: 'stage',
+        stage: { code: 'scrap_branch', name: 'Утиль и брак' },
+      }),
+    };
+    const report = await buildEngineFlowByCounterpartyReport(stubDb([stageRow]), { brandIds: ['BR2'] });
+    expect(report.ok).toBe(true);
+    if (!report.ok) return;
+    const row = findRow(report.rows, '*125', 'ЯМЗ-238');
+    expect(row?.scrapTotalQty).toBe(1);
+    expect(row?.scrapAtFactoryQty).toBe(1);
+    expect(row?.inRepairQty).toBe(0);
+    expect(row?.atFactoryQty).toBe(1);
   });
 });
 

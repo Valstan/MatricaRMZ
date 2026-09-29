@@ -52,7 +52,7 @@ import {
   emptyContractPayments,
   findSlotForEngine,
   formatKopMoney,
-  isEngineRepairedForCountdown,
+  isEngineDoneForCountdown,
   parseContractPayments,
   parseMoneyToKop,
   planSlotForEngine,
@@ -1210,7 +1210,7 @@ function SectionBlock(props: {
                         {group.rows.map((row, idx) => {
                           const { slot, engine } = row;
                           const totals = slotTotals(slot);
-                          const repaired = engine ? isEngineRepairedForCountdown(engine.statusFlags) : false;
+                          const repaired = engine ? isEngineDoneForCountdown(engine) : false;
                           // Отсчёт идёт от приезда двигателя на завод: пока слот пуст или дата
                           // прихода не проставлена, считать не от чего — статус будет «none».
                           // Дата последней работы гасит тревогу у забытых карточек: без неё
@@ -2135,7 +2135,7 @@ export function ContractDetailsPage(props: {
       const totals = slot ? slotTotals(slot) : null;
       const visual = paymentCountdownVisual(
         slot
-          ? countdownStatus(slot, today, isEngineRepairedForCountdown(e.statusFlags), {
+          ? countdownStatus(slot, today, isEngineDoneForCountdown(e), {
               arrivalIso: toInputDate(e.arrivalDate ?? null),
               lastActivityIso: toInputDate(e.lastActivityAt ?? null),
               days: repairDays,

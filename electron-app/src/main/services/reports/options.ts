@@ -22,6 +22,7 @@ import {
   } from '../../database/schema.js';
 
 import { httpAuthed } from '../httpClient.js';
+import { loadEngineStageMarks } from '../repairStageService.js';
 
 
 
@@ -186,8 +187,9 @@ export function buildOptions(snapshot: Snapshot, typeCode: string): ReportFilter
 
 /** Двигатели для селектора «Комплектование двигателя»: № · внутр. № · марка; утильные исключены.
  * Первая опция — пустой плейсхолдер: generic select-фильтр показывает первую опцию как выбранную,
- * не записывая её в filters, — без плейсхолдера UI показывал бы двигатель, а билдер получал бы пустой id. */
-export function buildEngineOptions(snapshot: Snapshot): ReportFilterOption[] {
+ * не записывая её в filters, — без плейсхолдера UI показывал бы двигатель, а билдер получал бы пустой id.
+ * Шаг 8/2: `scrapEngineIds` — двигатели с отметкой боковой ветки (рука вместо галочки с 8/1). */
+export function buildEngineOptions(snapshot: Snapshot, scrapEngineIds?: ReadonlySet<string>): ReportFilterOption[] {
   const engines = getIdsByType(snapshot, 'engine')
     .map((id) => {
       const attrs = snapshot.attrsByEntity.get(id) ?? {};
@@ -197,6 +199,7 @@ export function buildEngineOptions(snapshot: Snapshot): ReportFilterOption[] {
       // то есть истинная. Из списка выпадал каждый двигатель, у которого метку утиля
       // когда-либо ставили и сняли: на проде 147 живых двигателей из 378 с такой отметкой.
       if (isScrapEngine(statusFlagsFromAttrs(attrs))) return null;
+      if (scrapEngineIds?.has(id)) return null;
       const engineNumber = normalizeText(attrs.engine_number, '');
       const internalNumber = formatEngineInternalNumber(
         normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
@@ -541,7 +544,7 @@ export async function getReportPresetList(db: BetterSQLite3Database, ctx?: Repor
         assemblyBrands: await buildAssemblyBomEngineOptions(db, snapshot, ctx),
         assemblySleeves: buildAssemblySleeveOptions(snapshot),
         assembly_forecast_contracts: buildAssemblyForecastContractOptions(snapshot),
-        engines: buildEngineOptions(snapshot),
+        engines: buildEngineOptions(snapshot, await loadScrapStageEngineIds(db, getIdsByType(snapshot, 'engine'))),
         counterparties: buildCounterpartyOptions(snapshot),
         employees: buildOptions(snapshot, 'employee'),
         departments: buildOptions(snapshot, 'department'),
@@ -555,6 +558,14 @@ export async function getReportPresetList(db: BetterSQLite3Database, ctx?: Repor
     console.error('[reports] getReportPresetList failed', e);
     return { ok: false, error: 'Не удалось загрузить список отчётов' };
   }
+}
+
+async function loadScrapStageEngineIds(db: BetterSQLite3Database, engineIds: string[]): Promise<Set<string>> {
+  // Шаг 8/2: утиль из единого списка для селекторов (флаги читает сам builder).
+  const marks = await loadEngineStageMarks(db, engineIds);
+  const out = new Set<string>();
+  for (const [id, m] of marks) if (m.hasScrapBranch) out.add(id);
+  return out;
 }
 
 /**

@@ -1,6 +1,6 @@
 import type { EngineListItem } from '../ipc/types.js';
 import type { StatusCode } from './contract.js';
-import { DEFAULT_REPAIR_STAGE_TEMPLATES, type RepairStageTemplate } from './repairStages.js';
+import { DEFAULT_REPAIR_STAGE_TEMPLATES, repairStageRank, type RepairStageTemplate } from './repairStages.js';
 
 /**
  * «Где двигатель на заводе» — этап ремонта по данным карточки и строк этапов работ (владелец
@@ -139,14 +139,32 @@ export function engineScrapDate(e: Pick<EngineListItem, 'statusDates'>): number 
  * заводе): побеждает поздний признак — утиль, отгружен, готов и не отгружен, в ремонте,
  * принят, на заводе; без даты прихода — «Заведён». Подписи те же, что были у пресетного
  * отчёта до B3 программы осень-2026, чтобы оператор не переучивался.
+ *
+ * Шаг 8 плана: последнее датированное место в едином списке бьёт замороженные флаги
+ * (их с 8/1 никто не пишет). Пороги те же, что у countdown: готов — «Обкатка» и дальше,
+ * в ремонте — любой датированный этап ниже; «Принят» — этап прибытия (наследник
+ * «Принят на хранение» для новых двигателей).
  */
-export function engineStateLabel(e: Pick<EngineListItem, 'isScrap' | 'arrivalDate' | 'shippingDate' | 'statusFlags'>): string {
+export function engineStateLabel(
+  e: Pick<EngineListItem, 'isScrap' | 'arrivalDate' | 'shippingDate' | 'statusFlags' | 'lastStageCode' | 'lastStageAt'>,
+): string {
   const flags = e.statusFlags ?? {};
   if (e.isScrap) return 'Утиль';
-  if (dateMs(e.shippingDate) != null || flags.status_customer_sent || flags.status_customer_accepted) return 'Отгружен';
-  if (flags.status_repaired) return 'Готов, не отгружен';
-  if (flags.status_repair_started) return 'В ремонте';
-  if (flags.status_storage_received) return 'Принят';
+  const stageCode = String(e.lastStageCode ?? '').trim().toLowerCase();
+  const stageAt =
+    typeof e.lastStageAt === 'number' && Number.isFinite(e.lastStageAt) && e.lastStageAt > 0 ? e.lastStageAt : null;
+  const stageRank = stageAt !== null ? repairStageRank(stageCode) : 0;
+  if (
+    dateMs(e.shippingDate) != null ||
+    flags.status_customer_sent ||
+    flags.status_customer_accepted ||
+    (stageAt !== null && (stageCode === 'shipped' || stageCode === 'accepted'))
+  ) {
+    return 'Отгружен';
+  }
+  if (flags.status_repaired || (stageAt !== null && stageRank >= repairStageRank('obkatka'))) return 'Готов, не отгружен';
+  if (flags.status_repair_started || (stageAt !== null && stageRank > repairStageRank('arrival'))) return 'В ремонте';
+  if (flags.status_storage_received || (stageAt !== null && stageCode === 'arrival')) return 'Принят';
   return dateMs(e.arrivalDate) != null ? 'На заводе' : 'Заведён';
 }
 

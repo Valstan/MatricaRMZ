@@ -78,6 +78,22 @@ describe('contract domain regressions', () => {
     expect(result.progressPct).toBe(100);
   });
 
+  it('этап «Принят заказчиком» считается отгрузкой наравне с флагом (шаг 8)', () => {
+    const result = aggregateContractExecutionProgress({
+      sections: null,
+      engineItems: [
+        { lastStageCode: 'accepted', lastStageAt: 100 },
+        { lastStageCode: 'sborka', lastStageAt: 100 },
+        { lastStageCode: 'accepted', lastStageAt: null },
+        {},
+      ],
+      executionParts: [],
+    });
+    expect(result.engineAcceptedCount).toBe(1);
+    expect(result.completedCount).toBe(1);
+    expect(result.totalCount).toBe(4);
+  });
+
   it('linear schedule expected progress is halfway at midpoint', () => {
     const signedAt = 1_000_000;
     const dueAt = signedAt + 100 * 24 * 60 * 60 * 1000;

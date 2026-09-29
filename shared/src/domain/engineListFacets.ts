@@ -2,7 +2,7 @@ import type { EngineListItem } from '../ipc/types.js';
 import { STATUS_LABELS, type StatusCode } from './contract.js';
 import { engineFactoryStage, engineFactoryStageOrder, engineStatusDate, type EngineFactoryStageTypeRef } from './engineFactoryStage.js';
 import type { RepairStageTemplate } from './repairStages.js';
-import { COUNTDOWN_STALE_DAYS, countdownThresholds, isEngineRepairedForCountdown } from './payments.js';
+import { COUNTDOWN_STALE_DAYS, countdownThresholds, isEngineDoneForCountdown } from './payments.js';
 import {
   activeFacetCount,
   applyFacets,
@@ -132,7 +132,7 @@ const REPAIR_DEADLINE_ORDER: readonly RepairDeadlineKey[] = ['danger', 'warning'
  */
 function repairDeadlineKey(e: EngineListItem, now = Date.now()): RepairDeadlineKey {
   // Ремонт закончен (или двигатель уехал) — отсчёт погашен тем же правилом, что в карточке.
-  if (isEngineRepairedForCountdown(e.statusFlags)) return 'done';
+  if (isEngineDoneForCountdown(e)) return 'done';
   const arrival = dateMs(e.arrivalDate);
   const due = dateMs(e.repairDueDate);
   if (arrival == null || due == null) return 'no_arrival';

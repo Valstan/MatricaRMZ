@@ -325,19 +325,22 @@ const deadlineRows = [
   { id: 'w6' },
   // Ремонт закончен — отсчёт погашен, даже если день уже вышел.
   { id: 'w7', arrivalDate: DEADLINE_ARRIVAL, repairDueDate: due(90), statusFlags: { status_repaired: true } },
+  // Этап «Обкатка» гасит отсчёт и без флага (шаг 8), «Сборка» — нет.
+  { id: 'w8', arrivalDate: DEADLINE_ARRIVAL, repairDueDate: due(90), lastStageCode: 'obkatka', lastStageAt: DEADLINE_ARRIVAL },
+  { id: 'w9', arrivalDate: DEADLINE_ARRIVAL, repairDueDate: due(90), daysLeftForRepair: -5, lastStageCode: 'sborka', lastStageAt: DEADLINE_ARRIVAL },
 ] as unknown as EngineListItem[];
 
 describe('ступень «Срок ремонта»', () => {
   it('раскладывает горящие, близкие к сроку и спокойные двигатели', () => {
     expect(engineFacetById('repairDeadline')?.label).toBe('Срок ремонта');
-    expect(ids(applyEngineFacets(deadlineRows, { repairDeadline: ['danger'] }))).toEqual(['w2', 'w3']);
+    expect(ids(applyEngineFacets(deadlineRows, { repairDeadline: ['danger'] }))).toEqual(['w2', 'w3', 'w9']);
     expect(ids(applyEngineFacets(deadlineRows, { repairDeadline: ['warning'] }))).toEqual(['w1']);
     expect(ids(applyEngineFacets(deadlineRows, { repairDeadline: ['ok'] }))).toEqual(['w4', 'w5']);
   });
 
   it('двигатель без даты поступления и законченный ремонт стоят отдельно', () => {
     expect(ids(applyEngineFacets(deadlineRows, { repairDeadline: ['no_arrival'] }))).toEqual(['w6']);
-    expect(ids(applyEngineFacets(deadlineRows, { repairDeadline: ['done'] }))).toEqual(['w7']);
+    expect(ids(applyEngineFacets(deadlineRows, { repairDeadline: ['done'] }))).toEqual(['w7', 'w8']);
   });
 
   it('ряд значений полный и идёт от срочного к спокойному', () => {
@@ -346,7 +349,7 @@ describe('ступень «Срок ремонта»', () => {
     expect(options.map((o) => o.label)).toEqual(['горит', 'скоро', 'в сроке', 'без движения', 'без даты поступления', 'ремонт закончен']);
     // «Без движения» пуст: ни у одной строки выше нет даты последней работы, и это прежнее
     // поведение — без сведений о работах карточку забытой не объявляем.
-    expect(options.map((o) => o.count)).toEqual([2, 1, 2, 0, 1, 1]);
+    expect(options.map((o) => o.count)).toEqual([3, 1, 2, 0, 1, 2]);
   });
 });
 

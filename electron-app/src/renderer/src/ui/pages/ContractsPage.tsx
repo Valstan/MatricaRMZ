@@ -27,7 +27,7 @@ import {
   contractFacetIsActive,
   effectiveContractDueAt,
   effectiveRepairDays,
-  isEngineRepairedForCountdown,
+  isEngineDoneForCountdown,
   parseContractPayments,
   sanitizeContractFacetSelection,
   type ContractFacetSelection,
@@ -336,7 +336,7 @@ export function ContractsPage(props: {
       }
 
       const engines = await window.matrica.engines.list();
-      const linkedItemsByContractId = new Map<string, Array<Pick<ProgressLinkedItem, 'statusFlags'>>>();
+      const linkedItemsByContractId = new Map<string, Array<Pick<ProgressLinkedItem, 'statusFlags' | 'lastStageCode' | 'lastStageAt'>>>();
       const repairedEngineIds = new Set<string>();
       // Точка отсчёта срока ремонта — дата поступления двигателя на завод, а она лежит
       // в карточке двигателя, не в слоте платежей. Карту строим один раз на весь список:
@@ -348,7 +348,7 @@ export function ContractsPage(props: {
       const lastActivityIsoByEngineId = new Map<string, string>();
       for (const item of Array.isArray(engines) ? engines : []) {
         const engineId = String(item.id);
-        if (isEngineRepairedForCountdown(item.statusFlags)) repairedEngineIds.add(engineId);
+        if (isEngineDoneForCountdown(item)) repairedEngineIds.add(engineId);
         const arrivalMs = typeof item.arrivalDate === 'number' && Number.isFinite(item.arrivalDate) ? item.arrivalDate : null;
         if (arrivalMs != null && arrivalMs > 0) arrivalIsoByEngineId.set(engineId, isoDayKey(arrivalMs));
         const lastActivityMs =
@@ -357,7 +357,7 @@ export function ContractsPage(props: {
         const contractId = String(item.contractId ?? '');
         if (!contractId) continue;
         const bucket = linkedItemsByContractId.get(contractId) ?? [];
-        bucket.push({ statusFlags: item.statusFlags ?? null });
+        bucket.push({ statusFlags: item.statusFlags ?? null, lastStageCode: item.lastStageCode ?? null, lastStageAt: item.lastStageAt ?? null });
         linkedItemsByContractId.set(contractId, bucket);
       }
       const todayIso = isoDayKey(Date.now());
@@ -400,7 +400,7 @@ export function ContractsPage(props: {
               if (!byNumber) continue;
               for (const relatedId of byNumber) relatedContractIds.add(relatedId);
             }
-            const relatedItems: Array<Pick<ProgressLinkedItem, 'statusFlags'>> = [];
+            const relatedItems: Array<Pick<ProgressLinkedItem, 'statusFlags' | 'lastStageCode' | 'lastStageAt'>> = [];
             for (const relatedId of relatedContractIds) {
               const bucket = linkedItemsByContractId.get(relatedId);
               if (bucket?.length) relatedItems.push(...bucket);
@@ -416,12 +416,20 @@ export function ContractsPage(props: {
             let enginesAtFactory = 0;
             for (const item of relatedItems) {
               const flags = item.statusFlags ?? {};
+              const stageCode = String(item.lastStageCode ?? '').trim().toLowerCase();
+              const stageAt = typeof item.lastStageAt === 'number' && Number.isFinite(item.lastStageAt) && item.lastStageAt > 0 ? item.lastStageAt : null;
+              // Шаг 8/2: место из единого списка бьёт замороженные флаги, но только
+              // датированное (бездатый этап — план, а не факт). На заводе и в работе —
+              // этап до отгрузки; отгружен — shipped/accepted.
               const arrivedAtFactory =
                 flags.status_storage_received === true ||
                 flags.status_repair_started === true ||
-                flags.status_repaired === true;
+                flags.status_repaired === true ||
+                (stageAt !== null && stageCode !== '' && stageCode !== 'shipped' && stageCode !== 'accepted');
               const shippedOut =
-                flags.status_customer_sent === true || flags.status_customer_accepted === true;
+                flags.status_customer_sent === true ||
+                flags.status_customer_accepted === true ||
+                (stageAt !== null && (stageCode === 'shipped' || stageCode === 'accepted'));
               if (arrivedAtFactory && !shippedOut) enginesAtFactory += 1;
             }
 

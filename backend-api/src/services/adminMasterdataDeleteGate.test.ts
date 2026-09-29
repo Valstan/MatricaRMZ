@@ -38,10 +38,10 @@ vi.mock('./sync/syncChangeService.js', () => ({
   recordSyncChanges: vi.fn(async () => undefined),
 }));
 
-const { attributeDefs, attributeValues, directoryParts, entities, erpEngineAssemblyBomBrandLinks, operations } = await import(
+const { attributeDefs, attributeValues, directoryParts, entities, entityTypes, erpEngineAssemblyBomBrandLinks, operations } = await import(
   '../database/schema.js'
 );
-const { setEntityAttribute, softDeleteEntity } = await import('./adminMasterdataService.js');
+const { setEntityAttribute, softDeleteEntity, getEntityDetails } = await import('./adminMasterdataService.js');
 
 const ACTOR = { id: 'u1', username: 'test-admin', role: 'admin' };
 const TARGET = 'aaaaaaaa-0000-0000-0000-000000000001';
@@ -210,5 +210,34 @@ describe('setEntityAttribute — backstop служебных атрибутов'
   it('обычные атрибуты не задеты', async () => {
     const r = await setEntityAttribute(ACTOR, TARGET, 'full_name', 'Иванова Мария Петровна');
     expect(String((r as { error: string }).error)).toBe('Сущность не найдена');
+  });
+});
+
+// Шаг 8/2: отметка боковой ветки единого списка работает на гейт как галочка утиля.
+describe('getEntityDetails — утиль из этапов', () => {
+  it('scrap_branch без флагов даёт isScrap', async () => {
+    state.selectByTable.set(entities, [[{ id: TARGET, typeId: TYPE_ID, createdAt: 1, updatedAt: 1, deletedAt: null }]]);
+    state.selectByTable.set(attributeDefs, [[{ id: 'def-scrap', code: 'is_scrap' }, { id: 'def-rej', code: 'status_rejected' }]]);
+    state.selectByTable.set(entityTypes, [[{ code: 'engine' }]]);
+    state.selectByTable.set(attributeValues, [[], []]);
+    state.selectByTable.set(operations, [
+      [], // дефект-чеклист: утиля нет
+      [{ engineEntityId: TARGET }], // боковая ветка: есть
+    ]);
+
+    const d = await getEntityDetails(TARGET);
+    expect(d.isScrap).toBe(true);
+    expect(d.isStatusRejected).toBe(false);
+  });
+
+  it('без ветки и флагов утиля нет', async () => {
+    state.selectByTable.set(entities, [[{ id: TARGET, typeId: TYPE_ID, createdAt: 1, updatedAt: 1, deletedAt: null }]]);
+    state.selectByTable.set(attributeDefs, [[{ id: 'def-scrap', code: 'is_scrap' }, { id: 'def-rej', code: 'status_rejected' }]]);
+    state.selectByTable.set(entityTypes, [[{ code: 'engine' }]]);
+    state.selectByTable.set(attributeValues, [[], []]);
+    state.selectByTable.set(operations, [[], []]);
+
+    const d = await getEntityDetails(TARGET);
+    expect(d.isScrap).toBe(false);
   });
 });

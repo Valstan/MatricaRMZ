@@ -29,6 +29,18 @@ function src(rel: string): string {
 const CARD = src('./EngineDetailsPage.tsx');
 const APP = src('../App.tsx');
 
+describe('вкладка платежей карточки: отсчёт гасится и этапом, не только флагом (шаг 8/2)', () => {
+  it('карточка подтягивает последнее место из единого списка и обновляет при записи истории', () => {
+    expect(CARD).toContain('window.matrica.workSheets.stages.list(props.engineId)');
+    expect(CARD).toContain('void reloadLastStage();');
+  });
+
+  it('гашение — общим правилом с остальными экранами', () => {
+    expect(CARD).toContain('isEngineDoneForCountdown({');
+    expect(CARD).toContain('lastStageCode: lastStage?.code ?? null');
+  });
+});
+
 describe('акт-вкладки карточки двигателя: одна панель, скрытие вместо размонтирования', () => {
   it('панель ремонтного листа на карточке ровно одна', () => {
     // Главный риск D1. Лист деталей общий для обоих актов, а сохранение идёт полной

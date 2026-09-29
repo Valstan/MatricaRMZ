@@ -332,6 +332,33 @@ async function getDefectChecklistScrapMap(engineIds: string[]): Promise<Map<stri
   return out;
 }
 
+/**
+ * Отметка боковой ветки единого списка (шаг 8/2: её с 8/1 ставит рука вместо
+ * галочки «Признан утильным»). Замороженные флаги читает вызывающий — здесь
+ * только свежий след.
+ */
+async function getStageScrapBranchMap(engineIds: string[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (engineIds.length === 0) return out;
+  const rows = await db
+    .select({ engineEntityId: operations.engineEntityId })
+    .from(operations)
+    .where(
+      and(
+        inArray(operations.engineEntityId, engineIds as any),
+        eq(operations.operationType, 'repair_history_entry'),
+        isNull(operations.deletedAt),
+        like(operations.metaJson, '%"stage":{"code":"scrap_branch"%'),
+      ),
+    )
+    .limit(20000);
+  for (const row of rows as any[]) {
+    const engineId = String(row?.engineEntityId ?? '').trim();
+    if (engineId) out.add(engineId);
+  }
+  return out;
+}
+
 function toValueJson(value: unknown): string | null {
   const json = JSON.stringify(value);
   if (json === undefined) return null;
@@ -1021,6 +1048,8 @@ export async function listEntitiesByType(entityTypeId: string) {
     for (const [engineId, isDefectScrap] of scrapRows) {
       isDefectScrapByEntity.set(engineId, isDefectScrap);
     }
+    // Шаг 8/2: утиль из единого списка — в тот же гейт, что флаги.
+    const stageScrap = await getStageScrapBranchMap(entityIds);
 
     for (const row of rows) {
       const entityId = String(row.id);
@@ -1028,7 +1057,7 @@ export async function listEntitiesByType(entityTypeId: string) {
       const isScrapAttr = toBooleanJson(scrapDefId ? attrs.get(scrapDefId) : null);
       const isStatusRejected = toBooleanJson(statusRejectedDefId ? attrs.get(statusRejectedDefId) : null);
       const isDefectScrap = isDefectScrapByEntity.get(entityId) === true;
-      isScrapByEntity.set(entityId, isScrapAttr || isStatusRejected || isDefectScrap);
+      isScrapByEntity.set(entityId, isScrapAttr || isStatusRejected || isDefectScrap || stageScrap.has(entityId));
       isStatusRejectedByEntity.set(entityId, isStatusRejected);
       isDefectScrapByEntity.set(entityId, isDefectScrap);
     }
@@ -1133,7 +1162,9 @@ export async function getEntityDetails(entityId: string) {
     isStatusRejected = toBooleanValue(attrs.status_rejected);
     const scrapRows = await getDefectChecklistScrapMap([String(e[0].id)]);
     isDefectScrap = scrapRows.get(String(e[0].id)) === true;
-    isScrap = isScrap || isStatusRejected || isDefectScrap;
+    // Шаг 8/2: отметка боковой ветки — туда же, куда флаги.
+    const stageScrap = await getStageScrapBranchMap([String(e[0].id)]);
+    isScrap = isScrap || isStatusRejected || isDefectScrap || stageScrap.has(String(e[0].id));
   }
 
   return {

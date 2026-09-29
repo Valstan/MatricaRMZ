@@ -6,7 +6,7 @@ import {
   PAYMENT_KIND_LABELS,
   countdownStatus,
   effectiveRepairDays,
-  isEngineRepairedForCountdown,
+  isEngineDoneForCountdown,
   parseContractPayments,
   parseContractSections,
   slotTotals,
@@ -24,6 +24,7 @@ import {
 import { resolveContractLabel, normalizeText, asArray, readPeriod, msToDate, toNumber } from '../format.js';
 import { getPreset, loadSnapshot, getIdsByType } from '../context.js';
 import { operations } from '../../../database/schema.js';
+import { loadEngineStageMarks } from '../../repairStageService.js';
 import {
   buildOptions,
   buildCounterpartyOptions,
@@ -134,6 +135,12 @@ export async function buildContractPaymentsMatrixReport(
   const slots = sectionToken
     ? cp.slots.filter((s) => s.sectionKey === sectionToken || sectionLabel(s.sectionKey) === sectionToken)
     : cp.slots;
+  // Шаг 8/2: гашение отсчёта смотрит и в единый список (слоты несут только id —
+  // место тянем пачкой из операций, а не из EAV-снапшота).
+  const stageMarks = await loadEngineStageMarks(
+    db,
+    slots.map((s) => String(s.engineId ?? '')).filter(Boolean),
+  );
   for (const slot of slots) {
     const engineAttrs = slot.engineId ? snapshot.attrsByEntity.get(slot.engineId) ?? {} : {};
     const engineNumber = slot.engineId ? normalizeText(engineAttrs.engine_number, '') : '';
@@ -143,7 +150,14 @@ export async function buildContractPaymentsMatrixReport(
       : `слот №${emptySlotIndex} (без двигателя)`;
     const brandId = slot.engineBrandId ?? (slot.engineId ? normalizeText(engineAttrs.engine_brand_id, '') : '');
     const totals = slotTotals(slot);
-    const repaired = slot.engineId ? isEngineRepairedForCountdown(engineRepairedFlags(engineAttrs)) : false;
+    const marks = slot.engineId ? stageMarks.get(String(slot.engineId)) : undefined;
+    const repaired = slot.engineId
+      ? isEngineDoneForCountdown({
+        statusFlags: engineRepairedFlags(engineAttrs),
+        lastStageCode: marks?.lastStageCode ?? null,
+        lastStageAt: marks?.lastStageAt ?? null,
+      })
+      : false;
     // Точка отсчёта — приезд двигателя на завод, а не аванс (владелец 22.09.2026).
     const arrivalIso = slot.engineId ? isoDayKey(toNumber(engineAttrs.arrival_date)) : '';
     const lastActivityIso = slot.engineId ? lastActivityIsoByEngine.get(slot.engineId) ?? '' : '';

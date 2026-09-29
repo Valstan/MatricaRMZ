@@ -80,4 +80,15 @@ describe('buildEngineOptions: утиль прячем по факту, а не �
     expect(values).not.toContain('E_REWORK');
     expect(values).toHaveLength(3);
   });
+
+  it('отметка боковой ветки (шаг 8/2) исключает и без галочки', async () => {
+    const snapshot = await loadSnapshot(stubDb());
+    const values = buildEngineOptions(snapshot, new Set(['E_PLAIN']))
+      .map((o) => String(o.value))
+      .filter(Boolean);
+
+    expect(values).not.toContain('E_PLAIN');
+    expect(values).toContain('E_UNMARKED');
+    expect(values).toHaveLength(2);
+  });
 });

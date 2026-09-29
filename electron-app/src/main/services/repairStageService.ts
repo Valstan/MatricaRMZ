@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { randomUUID } from 'node:crypto';
 
@@ -26,6 +26,7 @@ import {
 import { operations } from '../database/schema.js';
 import { httpAuthed } from './httpClient.js';
 import { getOperation, softDeleteOperation, upsertOperation } from './operationService.js';
+import { collectChunked } from '../utils/sqlChunks.js';
 
 // Строки единого списка этапов (план unified-repair-stages, шаг 2: хранилище).
 // Писатель чистый: статусы карточки не трогает (их смерть — шаг 8 плана после
@@ -265,4 +266,69 @@ export async function deleteRepairStageRow(
   }
   await softDeleteOperation(db, rowId);
   return { ok: true };
+}
+
+export type EngineStageMarks = {
+  /** Последний датированный этап (место двигателя); пусто — этапов с датой нет. */
+  lastStageCode: string | null;
+  lastStageAt: number | null;
+  /** Отметка боковой ветки утиля (с датой или без — решение принято в любом виде). */
+  hasScrapBranch: boolean;
+};
+
+/**
+ * Место и утиль пачкой для читателей поверх EAV-снапшотов (отчёты): у них нет
+ * истории операций, а бегать за каждым двигателем — значит убить отчёт на
+ * парке (~2500 двигателей). Одним запросом по чанкам, читает только stage-строки
+ * (`meta_json` с `"stage":` — тот же паттерн, что у серверного бэкфилла).
+ */
+export async function loadEngineStageMarks(
+  db: BetterSQLite3Database,
+  engineIds: string[],
+): Promise<Map<string, EngineStageMarks>> {
+  const out = new Map<string, EngineStageMarks>();
+  const ids = [...new Set(engineIds.map((id) => String(id ?? '').trim()).filter(Boolean))];
+  if (ids.length === 0) return out;
+  const rows = await collectChunked(ids, (chunk) =>
+    db
+      .select({ engineEntityId: operations.engineEntityId, metaJson: operations.metaJson })
+      .from(operations)
+      .where(
+        and(
+          inArray(operations.engineEntityId, chunk),
+          eq(operations.operationType, REPAIR_HISTORY_OPERATION_TYPE),
+          isNull(operations.deletedAt),
+        ),
+      )
+      .limit(20000),
+  );
+  // Как у списка двигателей: позже датой, при равной — старшим проходом.
+  const best = new Map<string, { code: string; at: number; pass: number }>();
+  for (const row of rows as Array<{ engineEntityId: unknown; metaJson: unknown }>) {
+    const engineId = String(row.engineEntityId ?? '').trim();
+    if (!engineId) continue;
+    const meta = parseRepairHistoryMeta(typeof row.metaJson === 'string' ? row.metaJson : null);
+    if (!meta || repairHistoryEntryType(meta, REPAIR_HISTORY_OPERATION_TYPE) !== 'stage' || !meta.stage) continue;
+    const code = text(meta.stage.code).toLowerCase();
+    if (!code) continue;
+    let marks = out.get(engineId);
+    if (!marks) {
+      marks = { lastStageCode: null, lastStageAt: null, hasScrapBranch: false };
+      out.set(engineId, marks);
+    }
+    if (code === 'scrap_branch') marks.hasScrapBranch = true;
+    const at = typeof meta.at === 'number' && Number.isFinite(meta.at) && meta.at > 0 ? meta.at : null;
+    if (at === null) continue;
+    const pass = meta.repeat?.pass ?? 1;
+    const cur = best.get(engineId);
+    if (!cur || at > cur.at || (at === cur.at && pass > cur.pass)) best.set(engineId, { code, at, pass });
+  }
+  for (const [engineId, b] of best) {
+    const marks = out.get(engineId);
+    if (marks) {
+      marks.lastStageCode = b.code;
+      marks.lastStageAt = b.at;
+    }
+  }
+  return out;
 }

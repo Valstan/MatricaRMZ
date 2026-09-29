@@ -162,6 +162,21 @@ describe('engineStateLabel / engineDaysOnSite — отчёт «Двигател�
     expect(engineStateLabel({ arrivalDate: T0 })).toBe('На заводе');
     expect(engineStateLabel({})).toBe('Заведён');
   });
+  it('состояние — единый список бьёт замороженные флаги (шаг 8)', () => {
+    expect(engineStateLabel({ arrivalDate: T0, lastStageCode: 'accepted', lastStageAt: T0 })).toBe('Отгружен');
+    expect(engineStateLabel({ arrivalDate: T0, lastStageCode: 'obkatka', lastStageAt: T0 })).toBe('Готов, не отгружен');
+    expect(engineStateLabel({ arrivalDate: T0, lastStageCode: 'sborka', lastStageAt: T0 })).toBe('В ремонте');
+    expect(engineStateLabel({ arrivalDate: T0, lastStageCode: 'arrival', lastStageAt: T0 })).toBe('Принят');
+    expect(engineStateLabel({ arrivalDate: T0, lastStageCode: 'obkatka', lastStageAt: null })).toBe('На заводе');
+    expect(
+      engineStateLabel({
+        arrivalDate: T0,
+        statusFlags: { status_repair_started: true },
+        lastStageCode: 'otk',
+        lastStageAt: T0,
+      }),
+    ).toBe('Готов, не отгружен');
+  });
   it('дней на заводе: до отгрузки — по ней, иначе по сегодняшнему дню; без прихода — нет', () => {
     expect(engineDaysOnSite({ arrivalDate: T0, shippingDate: T0 + 10 * DAY }, T0 + 100 * DAY)).toBe(10);
     expect(engineDaysOnSite({ arrivalDate: T0 }, T0 + 3 * DAY)).toBe(3);

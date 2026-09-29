@@ -164,11 +164,22 @@ export async function getEngineOutputAnalytics(args?: {
           select av.entity_id from attribute_values av
           where av.attribute_def_id = (select id from defs where code = 'status_customer_sent')
             and av.deleted_at is null and av.value_json = 'true'
+          union
+          -- Шаг 8/2: отгрузка этапом единого списка (флаг с 8/1 больше не пишется).
+          select o.engine_entity_id from operations o
+          where o.deleted_at is null and o.operation_type = 'repair_history_entry'
+            and (o.meta_json like '%"stage":{"code":"shipped"%' or o.meta_json like '%"stage":{"code":"accepted"%')
         ),
         rep as (
           select av.entity_id from attribute_values av
           where av.attribute_def_id = (select id from defs where code = 'status_repaired')
             and av.deleted_at is null and av.value_json = 'true'
+          union
+          -- Шаг 8/2: «Обкатка» и дальше вместо флага «Отремонтирован».
+          select o.engine_entity_id from operations o
+          where o.deleted_at is null and o.operation_type = 'repair_history_entry'
+            and (o.meta_json like '%"stage":{"code":"obkatka"%' or o.meta_json like '%"stage":{"code":"otk"%'
+              or o.meta_json like '%"stage":{"code":"shipped"%' or o.meta_json like '%"stage":{"code":"accepted"%')
         )
         select
           count(*) filter (where s.ts between ${fromMs} and ${toMs})::int as shipped_in_window,
