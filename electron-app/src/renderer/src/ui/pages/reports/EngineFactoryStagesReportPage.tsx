@@ -33,6 +33,7 @@ import { formatMoscowDate } from '../../utils/dateUtils.js';
 import { listCellKindProps, listHeaderKindProps, type ListColumnKind } from '../../utils/listColumnKinds.js';
 import { buildListPrintColumns } from '../../utils/listPrintColumns.js';
 import { useWorkSheetTypeRefs } from '../../hooks/useWorkSheetTypeRefs.js';
+import { useRepairStageTemplateRefs } from '../../hooks/useRepairStageTemplateRefs.js';
 import { isAndroidPlatform } from '../../platform.js';
 import type { ListReportPageProps } from './listReportPages.js';
 
@@ -96,6 +97,7 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
   // Справочник видов работ задаёт порядок групп-этапов и полный ряд ступени «Этап»;
   // без него (офлайн, нет кэша) этап всё равно узнаётся по самой записи этапа работ.
   const types = useWorkSheetTypeRefs();
+  const stageTemplates = useRepairStageTemplateRefs();
   const [printOpen, setPrintOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -111,8 +113,8 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
   });
 
   const rows = useMemo<Row[]>(
-    () => props.engines.filter(isEngineAtPlant).map((e) => ({ ...e, stage: engineFactoryStage(e, types) })),
-    [props.engines, types],
+    () => props.engines.filter(isEngineAtPlant).map((e) => ({ ...e, stage: engineFactoryStage(e, types, stageTemplates) })),
+    [props.engines, types, stageTemplates],
   );
 
   const columns = useMemo<Column[]>(
@@ -149,9 +151,9 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
   );
 
   const facets = useMemo(() => {
-    const all = engineFacets(types);
+    const all = engineFacets(types, stageTemplates);
     return FACET_IDS.map((id) => all.find((f) => f.id === id)).filter(Boolean) as FacetDescriptor<Row>[];
-  }, [types]);
+  }, [types, stageTemplates]);
 
   const deep = useListDeepFilter(
     rows,

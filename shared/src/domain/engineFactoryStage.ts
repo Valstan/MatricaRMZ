@@ -1,5 +1,6 @@
 import type { EngineListItem } from '../ipc/types.js';
 import type { StatusCode } from './contract.js';
+import { DEFAULT_REPAIR_STAGE_TEMPLATES, type RepairStageTemplate } from './repairStages.js';
 
 /**
  * «Где двигатель на заводе» — этап ремонта по данным карточки и строк этапов работ (владелец
@@ -35,6 +36,8 @@ export const ENGINE_FACTORY_STAGE_RANK = {
   defectAct: 3,
   /** База для этапов работ: `10 + индекс вида по sortOrder`. */
   sheetBase: 10,
+  /** База для строк единого списка: `50 + индекс этапа по шаблону`. Выше узлов — строка ведётся оператором сейчас. */
+  stageBase: 50,
   repaired: 100,
   scrap: 1000,
 } as const;
@@ -64,6 +67,41 @@ export function isEngineAtPlant(e: Pick<EngineListItem, 'arrivalDate' | 'shippin
 /** Виды работ по порядку справочника — ранг этапа работ растёт с индексом. */
 function orderedTypes(types: readonly EngineFactoryStageTypeRef[] | undefined): EngineFactoryStageTypeRef[] {
   return [...(types ?? [])].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name, 'ru'));
+}
+
+/** Шаблон этапов по порядку: линейка по приоритету, боковая ветка — в конец. */
+function orderedStageTemplates(
+  templates: readonly RepairStageTemplate[] | undefined,
+): RepairStageTemplate[] {
+  const list = [...(templates ?? DEFAULT_REPAIR_STAGE_TEMPLATES)];
+  const line = list.filter((t) => t.sideBranch !== true).sort((a, b) => a.sortOrder - b.sortOrder);
+  const side = list.filter((t) => t.sideBranch === true);
+  return [...line, ...side];
+}
+
+/**
+ * Последний датированный этап единого списка из строки списка. Этапы без даты
+ * место не определяют — по ним нельзя сказать, где двигатель.
+ */
+function stageRow(
+  e: Pick<EngineListItem, 'lastStageCode' | 'lastStageName' | 'lastStageAt'>,
+  templates: readonly RepairStageTemplate[] | undefined,
+): EngineFactoryStage | null {
+  const code = String(e.lastStageCode ?? '').trim().toLowerCase();
+  const at = dateMs(e.lastStageAt);
+  if (!code || at == null) return null;
+  const ordered = orderedStageTemplates(templates);
+  const idx = ordered.findIndex((t) => t.code === code);
+  const template = idx >= 0 ? ordered[idx]! : null;
+  if (template?.sideBranch === true) {
+    return { key: `stage:${code}`, label: String(e.lastStageName ?? '').trim() || template.name, rank: ENGINE_FACTORY_STAGE_RANK.repairStarted, at };
+  }
+  return {
+    key: `stage:${code}`,
+    label: String(e.lastStageName ?? '').trim() || template?.name || code,
+    rank: ENGINE_FACTORY_STAGE_RANK.stageBase + Math.max(0, idx),
+    at,
+  };
 }
 
 function sheetStage(
@@ -120,11 +158,20 @@ export function engineDaysOnSite(e: Pick<EngineListItem, 'arrivalDate' | 'shippi
   return Math.max(0, Math.round((end - arrival) / 86_400_000));
 }
 
-export function engineFactoryStage(e: EngineListItem, types?: readonly EngineFactoryStageTypeRef[]): EngineFactoryStage {
+export function engineFactoryStage(
+  e: EngineListItem,
+  types?: readonly EngineFactoryStageTypeRef[],
+  stageTemplates?: readonly RepairStageTemplate[],
+): EngineFactoryStage {
   const flags = e.statusFlags ?? {};
   if (e.isScrap === true) {
     return { key: 'scrap', label: ENGINE_FACTORY_STAGE_LABELS.scrap, rank: ENGINE_FACTORY_STAGE_RANK.scrap, at: engineScrapDate(e) };
   }
+  // Датированная строка единого списка — текущее место: бьёт и готовый флаг, и узлы,
+  // и акты. Возврат (сборка после обкатки при взведённом «Отремонтирован») — это она:
+  // место — сборка, а не готовый. Утиль выше — его решает флаг, а не строка.
+  const stage = stageRow(e, stageTemplates);
+  if (stage) return stage;
   if (flags.status_repaired === true) {
     return { key: 'repaired', label: ENGINE_FACTORY_STAGE_LABELS.repaired, rank: ENGINE_FACTORY_STAGE_RANK.repaired, at: engineStatusDate(e, 'status_repaired') };
   }
@@ -153,18 +200,33 @@ export function engineFactoryStage(e: EngineListItem, types?: readonly EngineFac
 
 /**
  * Полный ряд групп отчёта от позднего к раннему (для порядка групп и пустых групп в шапке):
- * утиль, отремонтирован, этапы работ по видам (поздние выше), дефектовка, комплектовка,
- * ремонт начат, пришёл.
+ * утиль, отремонтирован, единый список по шаблону (поздние выше), этапы работ по видам,
+ * дефектовка, комплектовка, ремонт начат, пришёл.
  */
-export function engineFactoryStageOrder(types?: readonly EngineFactoryStageTypeRef[]): Array<Pick<EngineFactoryStage, 'key' | 'label' | 'rank'>> {
+export function engineFactoryStageOrder(
+  types?: readonly EngineFactoryStageTypeRef[],
+  stageTemplates?: readonly RepairStageTemplate[],
+): Array<Pick<EngineFactoryStage, 'key' | 'label' | 'rank'>> {
   const sheets = orderedTypes(types).map((t, idx) => ({ key: `sheet:${t.code}`, label: t.name, rank: ENGINE_FACTORY_STAGE_RANK.sheetBase + idx }));
+  const ordered = orderedStageTemplates(stageTemplates);
+  const lineStages = ordered
+    .filter((t) => t.sideBranch !== true)
+    .map((t, idx) => ({ key: `stage:${t.code}`, label: t.name, rank: ENGINE_FACTORY_STAGE_RANK.stageBase + idx }))
+    .reverse();
+  // Боковая ветка — сразу после «Ремонт начат», с тем же рангом: вне линейки,
+  // но не вперемешку с ней. Равные соседние ранги stable-сортировка не двигает.
+  const sideStages = ordered
+    .filter((t) => t.sideBranch === true)
+    .map((t) => ({ key: `stage:${t.code}`, label: t.name, rank: ENGINE_FACTORY_STAGE_RANK.repairStarted }));
   return [
     { key: 'scrap', label: ENGINE_FACTORY_STAGE_LABELS.scrap, rank: ENGINE_FACTORY_STAGE_RANK.scrap },
     { key: 'repaired', label: ENGINE_FACTORY_STAGE_LABELS.repaired, rank: ENGINE_FACTORY_STAGE_RANK.repaired },
+    ...lineStages,
     ...sheets.reverse(),
     { key: 'defect_act', label: ENGINE_FACTORY_STAGE_LABELS.defectAct, rank: ENGINE_FACTORY_STAGE_RANK.defectAct },
     { key: 'completeness_act', label: ENGINE_FACTORY_STAGE_LABELS.completenessAct, rank: ENGINE_FACTORY_STAGE_RANK.completenessAct },
     { key: 'repair_started', label: ENGINE_FACTORY_STAGE_LABELS.repairStarted, rank: ENGINE_FACTORY_STAGE_RANK.repairStarted },
+    ...sideStages,
     { key: 'arrived', label: ENGINE_FACTORY_STAGE_LABELS.arrived, rank: ENGINE_FACTORY_STAGE_RANK.arrived },
   ];
 }

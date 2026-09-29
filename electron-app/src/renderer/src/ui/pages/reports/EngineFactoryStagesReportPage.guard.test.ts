@@ -60,7 +60,7 @@ describe('отчёт-список «этапы на заводе» и рамка
     expect(PAGE).toContain('rowGroupLabel={(r) => groupLabelByRow.get(r.id) || null}');
     expect(PRINT).toContain('rowGroupLabel?: (row: T) => string | null;');
     expect(PAGE, 'только двигатели на заводе').toContain('props.engines.filter(isEngineAtPlant)');
-    expect(PAGE, 'этап считает домен, не страница').toContain('engineFactoryStage(e, types)');
+    expect(PAGE, 'этап считает домен, не страница').toContain('engineFactoryStage(e, types, stageTemplates)');
     expect(PAGE, 'щелчок по строке — карточка двигателя').toContain('onClick: () => props.onOpenEngine(it.row.id)');
     expect(PAGE, 'отступ вложенной группы — span, не paddingLeft у td (!important в global.css)').toContain('data-report-group-depth={it.depth}');
   });

@@ -81,7 +81,7 @@ describe('история доезжает до списка', () => {
   // правки самой сущности (операции!), обязаны быть в подписи — иначе свежий список признаётся
   // тем же самым и отбрасывается, а оператор видит «событий нет» сразу после записи события.
   it('поля ступеней входят в подпись строки списка', () => {
-    for (const field of ['e.hasDefectAct', 'e.defectDate', 'e.workshopId', 'e.lastHistoryAction', 'e.lastHistoryAt', 'e.lastSheetNode', 'e.lastSheetAt']) {
+    for (const field of ['e.hasDefectAct', 'e.defectDate', 'e.workshopId', 'e.lastHistoryAction', 'e.lastHistoryAt', 'e.lastSheetNode', 'e.lastSheetAt', 'e.lastStageCode', 'e.lastStageAt']) {
       expect(APP, `${field} нет в engineRowSignature — свежий список будет отброшен`).toContain(field);
     }
   });

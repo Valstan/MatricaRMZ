@@ -31,6 +31,7 @@ import { useColumnLayout } from '../../hooks/useColumnLayout.js';
 import { useListDeepFilter } from '../../hooks/useListDeepFilter.js';
 import { useListUiState } from '../../hooks/useListBehavior.js';
 import { useWorkSheetTypeRefs } from '../../hooks/useWorkSheetTypeRefs.js';
+import { useRepairStageTemplateRefs } from '../../hooks/useRepairStageTemplateRefs.js';
 import { isAndroidPlatform } from '../../platform.js';
 import { formatMoscowDate } from '../../utils/dateUtils.js';
 import { listCellKindProps, listHeaderKindProps, type ListColumnKind } from '../../utils/listColumnKinds.js';
@@ -94,6 +95,7 @@ function yesNo(v: boolean | undefined): string {
 
 export function EnginesReportPage(props: ListReportPageProps) {
   const types = useWorkSheetTypeRefs();
+  const stageTemplates = useRepairStageTemplateRefs();
   const [printOpen, setPrintOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -110,8 +112,8 @@ export function EnginesReportPage(props: ListReportPageProps) {
 
   const rows = useMemo<Row[]>(() => {
     const now = Date.now();
-    return props.engines.map((e) => ({ ...e, stage: engineFactoryStage(e, types), state: engineStateLabel(e), daysOnSite: engineDaysOnSite(e, now) }));
-  }, [props.engines, types]);
+    return props.engines.map((e) => ({ ...e, stage: engineFactoryStage(e, types, stageTemplates), state: engineStateLabel(e), daysOnSite: engineDaysOnSite(e, now) }));
+  }, [props.engines, types, stageTemplates]);
 
   const columns = useMemo<Column[]>(
     () => [
@@ -154,7 +156,7 @@ export function EnginesReportPage(props: ListReportPageProps) {
   );
 
   // Полный набор ступеней списка двигателей — отчёт универсальный, и отбор у него тот же.
-  const facets = useMemo(() => engineFacets(types) as readonly FacetDescriptor<Row>[], [types]);
+  const facets = useMemo(() => engineFacets(types, stageTemplates) as readonly FacetDescriptor<Row>[], [types, stageTemplates]);
 
   const deep = useListDeepFilter(
     rows,

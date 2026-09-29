@@ -3,8 +3,8 @@
 > Sticky-note для непрерывности разработки между сессиями и компьютерами. Обновляется в PR каждого шага нитки (D-066); `/close_session` — страховка. История — через `git log -- docs/SESSION_HANDOFF.md`.
 
 **Status:** ACTIVE
-**Updated:** 2026-09-29 (Muse Spark, машина `PC79`) — единый список этапов: шаг 5b (экран справочника + CDP-смоук PASS) в PR
-**Branch:** `feat/unified-repair-stages-5b-template-ui`
+**Updated:** 2026-09-29 (Muse Spark, машина `PC79`) — единый список этапов: шаг 6 (текущее место по этапу + CDP-смоук PASS) в PR
+**Branch:** `feat/unified-repair-stages-6-filters`
 **Last released version:** **v3.50.0**, выкачено 28.09 (бэкенд, инсталлятор, APK — см. ниже)
 
 ## Текущая нитка

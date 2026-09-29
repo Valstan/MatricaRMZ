@@ -254,12 +254,22 @@ describe('ступень «Этап на заводе» со справочни�
     expect(options.map((o) => o.value)).toEqual([
       'scrap',
       'repaired',
+      'stage:accepted',
+      'stage:shipped',
+      'stage:otk',
+      'stage:obkatka',
+      'stage:sborka',
+      'stage:ukladka',
+      'stage:kitting_done',
+      'stage:disassembly_defect',
+      'stage:arrival',
       'sheet:obkatka',
       'sheet:sborka',
       'sheet:ukladka',
       'defect_act',
       'completeness_act',
       'repair_started',
+      'stage:scrap_branch',
       'arrived',
     ]);
     expect(options.find((o) => o.value === 'sheet:obkatka')).toMatchObject({ label: 'Обкатка', count: 0 });
@@ -284,9 +294,11 @@ describe('ступень «Этап на заводе» со справочни�
 
   it('без справочника постоянные этапы всё равно в ряду, этапы работ — по строкам', () => {
     const values = engineFacetOptions(stageRows, {}, 'factoryStage').map((o) => o.value);
-    expect(values.slice(0, 6)).toEqual(['scrap', 'repaired', 'defect_act', 'completeness_act', 'repair_started', 'arrived']);
+    expect(values.slice(0, 2)).toEqual(['scrap', 'repaired']);
+    expect(values).toContain('stage:sborka');
+    expect(values).toContain('stage:scrap_branch');
     // Этап работ без кода получает ключ по имени — со справочником он стал бы `sheet:sborka`.
-    expect(values.slice(6).sort()).toEqual(['sheet:ukladka', 'sheet:сборка']);
+    expect(values.filter((v) => v.startsWith('sheet:')).sort()).toEqual(['sheet:ukladka', 'sheet:сборка']);
   });
 });
 
