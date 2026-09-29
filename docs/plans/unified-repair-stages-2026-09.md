@@ -78,10 +78,11 @@
    - **8/2 — читатели → этапы:** `engineStateLabel`, `isEngineRepairedForCountdown`,
      прогресс контрактов (`customer_accepted` → `accepted`), `isScrapEngine`
      (→ `scrap_branch`), аналитика цехов (SQL), delete-gate брака; везде fallback
-     на замороженные флаги для старых двигателей. ⏳ в работе.
+     на замороженные флаги для старых двигателей. ✅ PR [#1050](https://github.com/Valstan/MatricaRMZ/pull/1050).
    - **8/3 — снос UI:** галочки+даты из карточки (путь сохранения, принтер читает
-     замороженное — без редизайна печатной формы), `confirmShipmentWithOpenAssembly`.
-     Карточка этапа работ (часы обкатки) — НЕ старый ввод, остаётся.
+     замороженное — без редизайна печатной формы), `confirmShipmentWithOpenAssembly`
+     переехал на отметку «Отправлен/Принят» в секции этапов. Дата отгрузки в списке —
+     из этапа. Карточка этапа работ (часы обкатки) — НЕ старый ввод, остаётся. ⏳ в работе.
    - **8/4 — мёртвый код + паритет:** `applyStatusFlagChange`, `STATUS_ADVANCE_RANK`,
      `repairHistoryMetaForStatus`, `RepairStatusStamp`-механика; синк-паритет строк
      этапов (таблица `operations` уже в контракте) + android (статусного UI там нет —

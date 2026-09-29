@@ -952,15 +952,24 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       }
     }
     // Дата отгрузки в списке = статус-дата «Отправлен заказчику» (status_customer_sent) —
-    // ровно то, что правит карточка. Прямой атрибут shipping_date — замороженный февральский
+    // ровно то, что правила карточка. Прямой атрибут shipping_date — замороженный февральский
     // импорт-legacy (ни одной записи после 2026-02-26); читаем его ТОЛЬКО как исторический
     // фолбэк, когда статус-даты нет. Раньше список предпочитал legacy → навсегда показывал
     // импортное значение и игнорировал правки карточки (баг 2Ж03АТ0479; 172 расхождения на проде).
+    // Шаг 8/3: галочки больше не ставятся — новые отгрузки датирует этап «Отправлен/Принят
+    // заказчиком» из единого списка (его ставит рука вместо галки с 8/1).
+    const history = historyByEngineId.get(e.id);
+    const stageShippedAt =
+      history?.lastStageAt != null && (history.lastStageCode === 'shipped' || history.lastStageCode === 'accepted')
+        ? history.lastStageAt
+        : null;
     if (statusDateByCode.status_customer_sent != null) {
       shippingDate = statusDateByCode.status_customer_sent;
     } else if (statusDateByCode.status_customer_accepted != null) {
       // Some historical cards have only the final customer acceptance date.
       shippingDate = statusDateByCode.status_customer_accepted;
+    } else if (stageShippedAt != null) {
+      shippingDate = stageShippedAt;
     } else {
       shippingDate = legacyShippingDate;
     }
@@ -978,7 +987,6 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     const statusScrapMarked = isScrapEngine(statusFlags);
     // D-#9: авто-брак по детали-картеру в утиле (источник — engine_inventory, см. выше).
     const inventoryFlags = inventoryFlagsByEngineId.get(e.id);
-    const history = historyByEngineId.get(e.id);
     const crankcaseScrapped = inventoryFlags?.crankcaseScrapped === true;
     // Максимум из операций и уже посчитанных дат истории/этапа: если операция почему-то не
     // попала в выборку (удалённая строка, рассинхрон реплики), строка не должна выглядеть
