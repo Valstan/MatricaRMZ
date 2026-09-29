@@ -15,7 +15,10 @@ type Result<T> = Ok<T> | Err;
  * Код у существующего этапа не меняется (на него ссылаются stage-строки).
  */
 
-const AUTO_FROM = ['defectAct', 'kittingAct', 'obkatkaRow'] as const;
+// Шаг 8 плана: 'obkatkaRow' убран — создание строк этапов работ закрыто, и
+// источник «Строка обкатки» не может сработать (миграция 0101 гасит badge в БД).
+// Остались кнопки, чья автоматика проведена кодом: дефектовка и комплектность.
+const AUTO_FROM = ['defectAct', 'kittingAct'] as const;
 
 function text(value: unknown): string {
   return String(value ?? '').trim();

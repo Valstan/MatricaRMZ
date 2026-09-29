@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_REPAIR_STAGE_TEMPLATES } from '@matricarmz/shared';
 
-import { listRepairStageRows, saveRepairStageRow } from './repairStageService.js';
+import { ensureRepairStageRow, listRepairStageRows, saveRepairStageRow } from './repairStageService.js';
 
 // Строки единого списка этапов (шаг 2 плана): субординация дат, пометка
 // возврата новым проходом, гейт дублей «тот же этап в тот же день».
@@ -150,5 +150,54 @@ describe('читатель', () => {
     expect(rows).toHaveLength(2);
     expect(rows.find((r) => r.code === 'sborka')).toMatchObject({ name: 'Сборка', pass: 1 });
     expect(await listRepairStageRows(db, 'eng-2')).toEqual([]);
+  });
+});
+
+// Шаг 8 плана unified-repair-stages: авто-простановка этапов (наследник
+// авто-переходов статусов). Идемпотентна, гейты записи — те же, что у ручного
+// ввода (субординация дат, пометка возврата).
+describe('ensureRepairStageRow', () => {
+  function liveCount(sqlite: Database.Database): number {
+    return (sqlite.prepare(`SELECT count(*) AS n FROM operations WHERE deleted_at IS NULL`).get() as { n: number }).n;
+  }
+
+  it('отмечает отсутствующий этап датой вызова', async () => {
+    const { db } = makeDb();
+    const r = await ensureRepairStageRow(db, 'eng-1', 'sborka', DAY1, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES);
+    expect(r).toMatchObject({ ok: true, marked: true, pass: 1 });
+    expect(typeof (r as { rowId: string }).rowId).toBe('string');
+    const rows = await listRepairStageRows(db, 'eng-1');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ code: 'sborka', at: DAY1, pass: 1 });
+  });
+
+  it('повтор по тому же коду — уже отмечено, дубля нет', async () => {
+    const { sqlite, db } = makeDb();
+    const first = await ensureRepairStageRow(db, 'eng-1', 'sborka', DAY1, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES);
+    const second = await ensureRepairStageRow(db, 'eng-1', 'sborka', DAY2, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES);
+    expect(second).toMatchObject({ ok: true, marked: false, rowId: (first as { rowId: string }).rowId });
+    expect(liveCount(sqlite)).toBe(1);
+  });
+
+  it('неизвестный код и пустой двигатель — честный отказ', async () => {
+    const { sqlite, db } = makeDb();
+    expect(await ensureRepairStageRow(db, 'eng-1', 'nope', DAY1, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES)).toMatchObject({ ok: false });
+    expect(await ensureRepairStageRow(db, '', 'sborka', DAY1, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES)).toMatchObject({ ok: false });
+    expect(liveCount(sqlite)).toBe(0);
+  });
+
+  it('наследует субординацию дат ручного ввода', async () => {
+    const { sqlite, db } = makeDb();
+    await ensureRepairStageRow(db, 'eng-1', 'sborka', DAY1, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES);
+    const r = await ensureRepairStageRow(db, 'eng-1', 'otk', DAY1 - 1000, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES);
+    expect(r.ok).toBe(false);
+    expect(liveCount(sqlite)).toBe(1);
+  });
+
+  it('возврат помечается новым проходом сам', async () => {
+    const { db } = makeDb();
+    await ensureRepairStageRow(db, 'eng-1', 'sborka', DAY1, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES);
+    const r = await ensureRepairStageRow(db, 'eng-1', 'arrival', DAY2, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES);
+    expect(r).toMatchObject({ ok: true, marked: true, pass: 2 });
   });
 });

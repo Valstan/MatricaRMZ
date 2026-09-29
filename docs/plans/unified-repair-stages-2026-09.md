@@ -67,7 +67,25 @@
    новом источнике).
 7. **Страница «Этапы работ»:** перевод в read-only сводку (ввод только из карточки). ✅ 29.09: `canEdit={false}` + подсказка; мёртвый инлайн-редактор снесён [#1046](https://github.com/Valstan/MatricaRMZ/pull/1046) (guard: список не пишет и не оповещает `matrica:engines-changed`).
 8. **Удаление старого:** статусы-галочки и старый ввод — после приёмки владельцем
-   (отдельным OK, как G4). Синк-паритет + планшет (android-порт того же). ⏳ ждёт приёмки.
+   (отдельным OK, как G4; OK дан 29.09). Синк-паритет + планшет (android-порт того же).
+   Нарезка (статусы читают countdown/прогресс/печать/утиль — сносить в лоб нельзя):
+   - **8/1 — авто-писатели → этапы:** `ensureRepairStageRow` (mark-if-absent);
+     `advanceEngineStatusForWorkOrder` пишет «Сборку» (контракт IPC не тронут);
+     defect-data из акта → `disassembly_defect`; обкатка-строка → «Обкатка»
+     (вместо флага; след — id авто-строки, откат гасит её); комплектность →
+     `kitting_done` (пара к autoFrom); `obkatkaRow` из allowlist вон (создание
+     строк закрыто, миграция `0101` гасит badge в БД). ⏳ в работе.
+   - **8/2 — читатели → этапы:** `engineStateLabel`, `isEngineRepairedForCountdown`,
+     прогресс контрактов (`customer_accepted` → `accepted`), `isScrapEngine`
+     (→ `scrap_branch`), аналитика цехов (SQL), delete-gate брака; везде fallback
+     на замороженные флаги для старых двигателей.
+   - **8/3 — снос UI:** галочки+даты из карточки (путь сохранения, принтер читает
+     замороженное — без редизайна печатной формы), `confirmShipmentWithOpenAssembly`.
+     Карточка этапа работ (часы обкатки) — НЕ старый ввод, остаётся.
+   - **8/4 — мёртвый код + паритет:** `applyStatusFlagChange`, `STATUS_ADVANCE_RANK`,
+     `repairHistoryMetaForStatus`, `RepairStatusStamp`-механика; синк-паритет строк
+     этапов (таблица `operations` уже в контракте) + android (статусного UI там нет —
+     проверить, отметить).
 9. Каждый шаг — свой PR с гейтами (typecheck/lint/test + CDP-смоук вкладки).
 
 ## Что НЕ входит

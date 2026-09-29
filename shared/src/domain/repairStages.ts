@@ -28,8 +28,8 @@ export type RepairStageTemplate = {
   name: string;
   /** Приоритет: чем больше, тем выше этап. Линейка идёт 10, 20, … */
   sortOrder: number;
-  /** Этап-автомат: проставляется кнопкой (дефектовка), но и вручную. */
-  autoFrom?: 'defectAct' | 'kittingAct' | 'obkatkaRow';
+  /** Этап-автомат: проставляется кнопкой (дефектовка, комплектность), но и вручную. */
+  autoFrom?: 'defectAct' | 'kittingAct';
   /** Боковая ветка (утиль/брак): в порядок по датам не входит. */
   sideBranch?: boolean;
   /** Серверный id и версия (есть у строк справочника, нет у статики шага 1). */
@@ -44,7 +44,7 @@ export const DEFAULT_REPAIR_STAGE_TEMPLATES: ReadonlyArray<RepairStageTemplate> 
   { code: 'kitting_done', name: 'Комплектовка сделана', sortOrder: 30, autoFrom: 'kittingAct' },
   { code: 'ukladka', name: 'Укладка', sortOrder: 40 },
   { code: 'sborka', name: 'Сборка', sortOrder: 50 },
-  { code: 'obkatka', name: 'Обкатка', sortOrder: 60, autoFrom: 'obkatkaRow' },
+  { code: 'obkatka', name: 'Обкатка', sortOrder: 60 },
   { code: 'otk', name: 'Выходной контроль ОТК', sortOrder: 70 },
   { code: 'shipped', name: 'Отправлен заказчику', sortOrder: 80 },
   { code: 'accepted', name: 'Принят заказчиком', sortOrder: 90 },

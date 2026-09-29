@@ -9,7 +9,6 @@ import { RowReorderButtons } from './RowReorderButtons.js';
 const AUTO_FROM_LABELS: Record<string, string> = {
   defectAct: 'Кнопка «Провести дефектовку»',
   kittingAct: 'Кнопка «Провести комплектность»',
-  obkatkaRow: 'Строка обкатки',
 };
 
 type Draft = { id: string | null; code: string; name: string; autoFrom: string; sideBranch: boolean; updatedAt: number | null };

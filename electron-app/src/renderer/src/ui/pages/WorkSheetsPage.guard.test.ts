@@ -203,11 +203,10 @@ describe('этапы работ — экран', () => {
     expect(CARD).toContain('props.onOpenEngine(engineId)');
   });
 
-  it('завершение ремонта — один раз при добавлении, той же формой автозаписи, что у карточки', () => {
+  it('завершение ремонта — отметка «Обкатки» в едином списке, один раз при добавлении', () => {
     expect(SERVICE).toContain("if (created && input.type.completesRepair === true)");
-    expect(SERVICE).toContain("advanceEngineStatusForWorkOrder(db, engineId, 'status_repaired', atMs, actor)");
-    expect(SERVICE).toContain("repairHistoryMetaForStatus('status_repaired', atMs)");
-    expect(SERVICE).toContain("if (current.status_repaired) return { applied: false, reason: 'already-repaired' };");
+    expect(SERVICE).toContain("ensureRepairStageRow(db, engineId, 'obkatka', atMs, actor)");
+    expect(SERVICE).toContain("if (legacy.status_repaired) return { applied: false, reason: 'already-repaired' };");
   });
 
   // Идентификатор не заменяет подпись: огрызок uuid в колонке «Двигатель» и голый uuid в
@@ -236,17 +235,17 @@ describe('этапы работ — экран', () => {
     );
   });
 
-  // Откат без штампа — угадывание: историю стадий пишут не все пути, а карточка не помнит,
-  // кто поставил статус. И спрашивать оператора можно только там, где откатывать есть что.
-  it('откат «Отремонтирован» опирается на штамп строки и на второе подтверждение', () => {
-    expect(SERVICE, 'строка запоминает свой след в карточке').toContain('repairStamp: done.stamp');
+  // Откат без следа — угадывание: строку правит оператор, а единому списку нужен
+  // автор отметки. И спрашивать оператора можно только там, где откатывать есть что.
+  it('откат «Обкатки» опирается на след строки и на второе подтверждение', () => {
+    expect(SERVICE, 'строка запоминает свой след в едином списке').toContain('repairStage: { rowId: done.stageRowId');
     expect(SERVICE, 'откатываем только то, что с тех пор не меняли').toContain(
-      'if (isEavFlagSet(attrs[flag.code]) !== flag.to) {',
+      "if (meta.stage.code !== mark.code || meta.at !== mark.atMs) return { applied: false, reason: 'changed-elsewhere' };",
     );
-    expect(SERVICE, 'автозапись стадии гаснет вместе со статусом').toContain(
-      'await softDeleteOperation(db, stamp.statusEntryId);',
+    expect(SERVICE, 'авто-отметка гаснет вместе со строкой').toContain(
+      'await softDeleteOperation(db, mark.rowId);',
     );
-    expect(CARD, 'второй вопрос — только когда откатывать есть что').toContain('row.repairStamped && window.confirm(');
+    expect(CARD, 'второй вопрос — только когда откатывать есть что').toContain('row.repairStageRowId != null &&');
   });
 
   it('архив узла обратим из того же окна — иначе это дверь в одну сторону', () => {

@@ -1923,6 +1923,27 @@ export function RepairChecklistPanel(props: {
       const written = await save(next);
       if (!written) return;
       setStatus(`Комплектность проведена: дата осмотра — ${formatMoscowDate(today)}. Двигатель на этапе «Комплектовка сделана».`);
+      // Этап «Комплектовка сделана» проставляется сам (шаг 8 плана: пара к
+      // autoFrom kittingAct, зеркало блока дефектовки ниже) — но вручную
+      // отмеченный важнее автоматического и не перезаписывается.
+      // Этап не должен валить проведение: ошибки здесь только дописываются в статус.
+      try {
+        const stages = await window.matrica.workSheets.stages.list(props.engineId);
+        const rows = stages.ok ? stages.rows : [];
+        if (!rows.some((r) => r.code === 'kitting_done')) {
+          const saved = await window.matrica.workSheets.stages.save({
+            id: crypto.randomUUID(),
+            engineId: props.engineId,
+            code: 'kitting_done',
+            atMs: today,
+          });
+          if (saved.ok) {
+            setStatus((s) => `${s} Этап «Комплектовка сделана» отмечен.`);
+          }
+        }
+      } catch {
+        /* этап — довесок, проведение уже состоялось */
+      }
     } finally {
       setCompletenessBusy(false);
     }

@@ -1,8 +1,10 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+import { randomUUID } from 'node:crypto';
 
 import {
   buildRepairHistoryMeta,
+  DEFAULT_REPAIR_STAGE_TEMPLATES,
   findStageDateConflict,
   isStageBackwardMove,
   isSameWorkSheetDay,
@@ -22,6 +24,7 @@ import {
 } from '@matricarmz/shared';
 
 import { operations } from '../database/schema.js';
+import { httpAuthed } from './httpClient.js';
 import { getOperation, softDeleteOperation, upsertOperation } from './operationService.js';
 
 // Строки единого списка этапов (план unified-repair-stages, шаг 2: хранилище).
@@ -184,6 +187,68 @@ export async function saveRepairStageRow(
 /** Ранг кода для читателей вне шаблона (неизвестный — боковая ветка). */
 export function stageRank(code: string): number {
   return repairStageRank(code);
+}
+
+/**
+ * Серверный справочник шаблонов с fallback на статику шага 1 (та же философия,
+ * что у IPC `workSheets:stages:save`: без сервера экран честно говорит fallback).
+ * Общая для IPC-регистров — чтобы авто-простановки не тащили каждая свой fetch.
+ */
+export async function loadRepairStageTemplates(
+  sysDb: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args?: { includeArchived?: boolean },
+): Promise<{ templates: RepairStageTemplate[]; source: 'server' | 'fallback' }> {
+  try {
+    const qs = args?.includeArchived ? '?includeArchived=1' : '';
+    const res = await httpAuthed(sysDb, apiBaseUrl, `/repair-stage-templates${qs}`, { method: 'GET' });
+    const json = (res.ok ? res.json : null) as { ok?: boolean; rows?: RepairStageTemplate[] } | null;
+    if (res.ok && json?.ok && Array.isArray(json.rows) && json.rows.length > 0) {
+      return { templates: json.rows, source: 'server' };
+    }
+  } catch {
+    /* офлайн — статика */
+  }
+  return { templates: [...DEFAULT_REPAIR_STAGE_TEMPLATES], source: 'fallback' };
+}
+
+/**
+ * Авто-простановка этапа «если ещё не отмечен» (шаг 8 плана: замена
+ * авто-переходам статусов `advanceEngineStatusForWorkOrder`). Идемпотентна:
+ * повтор по тому же коду — `{marked:false}`, а не дубль и не вопрос оператору
+ * (автомат не спрашивает — спрашивает только ручной ввод через save).
+ * Гейты записи те же, что у ручного ввода (субординация дат): отказ автомата —
+ * честная `{ok:false}`, вызывающий решает (обычно best-effort).
+ */
+export async function ensureRepairStageRow(
+  db: BetterSQLite3Database,
+  engineId: string,
+  code: string,
+  atMs: number,
+  actor: string,
+  templates: ReadonlyArray<RepairStageTemplate> = DEFAULT_REPAIR_STAGE_TEMPLATES,
+): Promise<
+  | { ok: true; marked: boolean; rowId: string | null; pass: number | null }
+  | { ok: false; error: string }
+> {
+  const id = text(engineId);
+  const stageCode = text(code).toLowerCase();
+  if (!id) return { ok: false, error: 'Укажите двигатель' };
+  if (!stageCode) return { ok: false, error: 'Укажите этап' };
+  if (templateByCode(templates, stageCode) === null) {
+    return { ok: false, error: `Неизвестный этап: ${stageCode}` };
+  }
+  const rows = await listRepairStageRows(db, id);
+  const existing = rows.find((r) => r.code === stageCode) ?? null;
+  if (existing) return { ok: true, marked: false, rowId: existing.id, pass: existing.pass };
+  const saved = await saveRepairStageRow(
+    db,
+    { id: randomUUID(), engineId: id, code: stageCode, atMs },
+    actor,
+    templates,
+  );
+  if (!saved.ok) return saved;
+  return { ok: true, marked: true, rowId: saved.id, pass: saved.pass };
 }
 
 /** Мягкое удаление строки этапа (синк погасит её у остальных клиентов). */

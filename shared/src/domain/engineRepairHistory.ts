@@ -85,6 +85,19 @@ export type RepairHistoryRepeat = {
   reason?: string;
 };
 
+/**
+ * След строки этапа работ в едином списке (шаг 8 плана unified-repair-stages:
+ * наследник `RepairStatusStamp`). Строка обкатки при создании отмечает этап
+ * «Обкатка»; удаление строки по подтверждению гасит и эту отметку — но только
+ * если её с тех пор никто не правил (чужое решение не трогаем, как и раньше).
+ */
+export type RepairHistoryStageMark = {
+  /** id авто-строки этапа в `operations`. */
+  rowId: string;
+  code: string;
+  atMs: number;
+};
+
 export type RepairHistoryMeta = {
   kind: typeof REPAIR_HISTORY_META_KIND;
   action: string;
@@ -110,6 +123,11 @@ export type RepairHistoryMeta = {
   stage?: RepairHistoryStage;
   /** След этой строки в карточке двигателя — основание для отката при удалении. */
   repairStamp?: RepairStatusStamp;
+  /**
+   * След строки этапа работ в едином списке (шаг 8 плана; наследник `repairStamp`,
+   * который больше не пишется, но остался в старых строках и парсер его терпит).
+   */
+  repairStage?: RepairHistoryStageMark | null;
   /**
    * Осознанный повторный проход: двигатель вернулся на ТОТ ЖЕ этап в тот же день.
    * Ставится только когда оператор ответил на гейт дублей «это повторный проход» —
@@ -246,6 +264,16 @@ function parseRepairStamp(raw: unknown): RepairStatusStamp | null {
   };
 }
 
+function parseRepairStageMark(raw: unknown): RepairHistoryStageMark | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const rowId = text(obj.rowId).slice(0, 80);
+  const code = text(obj.code).toLowerCase().slice(0, 40);
+  const atMs = typeof obj.atMs === 'number' && Number.isFinite(obj.atMs) && obj.atMs > 0 ? obj.atMs : null;
+  if (!rowId || !code || atMs === null) return null;
+  return { rowId, code, atMs };
+}
+
 function parseSheet(raw: unknown): RepairHistorySheet | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const obj = raw as Record<string, unknown>;
@@ -309,6 +337,7 @@ export function parseRepairHistoryMeta(metaJson: string | null): RepairHistoryMe
     ...(parseSheet(obj.sheet) ? { sheet: parseSheet(obj.sheet)! } : {}),
     ...(parseStage(obj.stage) ? { stage: parseStage(obj.stage)! } : {}),
     ...(parseRepairStamp(obj.repairStamp) ? { repairStamp: parseRepairStamp(obj.repairStamp)! } : {}),
+    ...(parseRepairStageMark(obj.repairStage) ? { repairStage: parseRepairStageMark(obj.repairStage)! } : {}),
     ...(parseRepeat(obj.repeat) ? { repeat: parseRepeat(obj.repeat)! } : {}),
   };
 }
@@ -331,6 +360,7 @@ export function buildRepairHistoryMeta(input: {
   sheet?: RepairHistorySheet | null;
   stage?: RepairHistoryStage | null;
   repairStamp?: RepairStatusStamp | null;
+  repairStage?: RepairHistoryStageMark | null;
   repeat?: RepairHistoryRepeat | null;
 }): RepairHistoryMeta {
   const sheet = parseSheet(input.sheet);
@@ -349,6 +379,7 @@ export function buildRepairHistoryMeta(input: {
     ...(sheet ? { sheet } : {}),
     ...(stage ? { stage } : {}),
     ...(parseRepairStamp(input.repairStamp) ? { repairStamp: parseRepairStamp(input.repairStamp)! } : {}),
+    ...(parseRepairStageMark(input.repairStage) ? { repairStage: parseRepairStageMark(input.repairStage)! } : {}),
     ...(parseRepeat(input.repeat) ? { repeat: parseRepeat(input.repeat)! } : {}),
   };
 }

@@ -24,7 +24,6 @@ import {
   effectiveRepairDays,
   isEngineRepairedForCountdown,
   isEavFlagSet,
-  applyStatusFlagChange,
   arrivalPlacements,
   engineInternalNumberDuplicateMessage,
   engineInternalNumberKey,
@@ -44,6 +43,7 @@ import { attributeDefs, attributeValues, entities, entityTypes, operations } fro
 import { collectChunked } from '../utils/sqlChunks.js';
 import { payloadWithInventoryRows, readInventoryRowsForOperations } from './engineInventoryLinesReplica.js';
 import { listEntitiesByType, listEntitiesByTypeWithAttrs } from './entityService.js';
+import { ensureRepairStageRow, listRepairStageRows, stageRank } from './repairStageService.js';
 import type {
   RepairHistorySourceRow,
   EngineDetails,
@@ -1534,11 +1534,18 @@ export async function setEngineAttribute(
 export type AssemblyEngineStatusTarget = 'status_repair_started' | 'status_repaired';
 
 /**
- * Ф2: авто-переход статуса двигателя из сборочного наряда. «Только вперёд» —
- * `status_repair_started` не ставится, если двигатель уже отремонтирован/отгружен/принят
- * заказчиком (не откатываем более поздний статус назад). Взаимоисключение флагов —
- * через общий `applyStatusFlagChange` (тот же, что у ручного тумблера карточки).
- * Пишет только изменившиеся флаги + дату целевого статуса. Идемпотентно.
+ * Ф2: авто-переход двигателя из сборочного наряда (шаг 8 плана
+ * unified-repair-stages: пишет СТРОКУ единого списка этапов, а не галочку).
+ *
+ * Контракт IPC (`engine:advanceStatus`, цели 'status_repair_started' |
+ * 'status_repaired') и зов нарядов НЕ меняем: перевод целей в этапы — здесь:
+ * - 'status_repair_started' (выдача сборочного наряда) → этап «Сборка»;
+ * - 'status_repaired' (дата выполнения / проведение сборки) → этап «Сборка»
+ *   (собран — не значит обкатан; «Отремонтирован» как флаг больше не пишется,
+ *   его наследник — «Обкатка»: её ставит строка обкатки либо рука).
+ * Идемпотентно (ensure: повтор — «уже отмечено», не дубль). Только вперёд:
+ * при датированном этапе старше «Сборки» (обкатка и дальше) — пропуск
+ * 'already-advanced', как раньше пропускал продвинутые флаги. Утиль не трогаем.
  */
 export async function advanceEngineStatusForWorkOrder(
   db: BetterSQLite3Database,
@@ -1549,33 +1556,29 @@ export async function advanceEngineStatusForWorkOrder(
 ): Promise<{ applied: boolean; reason?: string }> {
   const id = String(engineId ?? '').trim();
   if (!id) return { applied: false, reason: 'no-engine' };
+  void target;
 
+  // Утиль: как раньше — ни строки, ни снятия меток. Флаги заморожены шагом 8
+  // (больше не пишутся), но для старых двигателей они — верная история.
   const details = await getEngineDetails(db, id);
   const attrs = details.attributes ?? {};
   const current: Partial<Record<StatusCode, boolean>> = {};
   for (const code of STATUS_CODES) current[code] = isEavFlagSet(attrs[code]);
-
-  // Утильный двигатель: сборочный наряд (собрать обратно перед возвратом заказчику)
-  // не должен переводить его в «Начат ремонт»/«Отремонтирован» и гасить метки утиля.
   if (isScrapEngine(current)) return { applied: false, reason: 'scrap-engine' };
 
-  if (target === 'status_repair_started') {
-    if (current.status_repaired || current.status_customer_sent || current.status_customer_accepted) {
-      return { applied: false, reason: 'already-advanced' };
-    }
-    if (current.status_repair_started) return { applied: false, reason: 'already-set' };
-  }
+  // Только вперёд: двигатель уже дальше сборки (обкатка и далее) — не двигаем.
+  const rows = await listRepairStageRows(db, id);
+  const pastAssembly = rows.some(
+    (r) => typeof r.at === 'number' && Number.isFinite(r.at) && r.at > 0 && stageRank(r.code) > stageRank('sborka'),
+  );
+  if (pastAssembly) return { applied: false, reason: 'already-advanced' };
 
-  const nextFlags = applyStatusFlagChange(current, target, true);
-  for (const code of STATUS_CODES) {
-    if ((current[code] ?? false) !== (nextFlags[code] ?? false)) {
-      await setEngineAttribute(db, id, code, nextFlags[code] === true, actor);
-    }
-  }
   const validDate = Number.isFinite(dateMs) && dateMs > 0 ? dateMs : nowMs();
-  await setEngineAttribute(db, id, statusDateCode(target), validDate, actor);
-
-  return { applied: true };
+  // Шаблон — статика шага 1: у main нет серверного контекста, а fallback-философия
+  // та же, что у IPC (свежих правок названий может не быть — код линейки точен).
+  const ensured = await ensureRepairStageRow(db, id, 'sborka', validDate, actor ?? 'local');
+  if (!ensured.ok) return { applied: false, reason: ensured.error };
+  return ensured.marked ? { applied: true } : { applied: false, reason: 'already-marked' };
 }
 
 function safeJsonParse(s: string): unknown {

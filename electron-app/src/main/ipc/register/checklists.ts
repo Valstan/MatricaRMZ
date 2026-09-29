@@ -6,7 +6,7 @@ import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcConte
 import type { EngineActType } from '@matricarmz/shared';
 import { ENGINE_INVENTORY_STAGE, engineInventoryHasDefectData } from '@matricarmz/shared';
 
-import { advanceEngineStatusForWorkOrder } from '../../services/engineService.js';
+import { ensureRepairStageRow, loadRepairStageTemplates } from '../../services/repairStageService.js';
 import {
   getRepairChecklistForEngine,
   listEngineActVersions,
@@ -80,15 +80,18 @@ export function registerChecklistsIpc(ctx: IpcContext) {
         actor,
         ...(args.auto === true ? { auto: true } : {}),
       });
-      // Начало дефектовки = двигатель в работе: авто-переход в «Начат ремонт»
-      // (запрос владельца 2026-07-29). Best-effort побочный эффект — сохранение листа
-      // не роняем; гейт «только вперёд» внутри не трогает утильные/продвинутые статусы.
-      // Голая приёмка (комплектность без решений по деталям) переход не даёт.
+      // Начало дефектовки = двигатель в работе: авто-метка этапа «Разборка,
+      // дефектовка» в едином списке (шаг 8 плана: наследник авто-перехода в
+      // «Начат ремонт» по запросу владельца 2026-07-29). Best-effort побочный
+      // эффект — сохранение листа не роняем; уже отмеченное не дублируем
+      // (ensure идемпотентен). Голая приёмка (комплектность без решений по
+      // деталям) переход не даёт.
       if (saved.ok && saved.operationId && args.stage === ENGINE_INVENTORY_STAGE && engineInventoryHasDefectData(payload)) {
         try {
-          await advanceEngineStatusForWorkOrder(ctx.dataDb(), args.engineId, 'status_repair_started', Date.now(), actor || undefined);
+          const { templates } = await loadRepairStageTemplates(ctx.sysDb, ctx.mgr.getApiBaseUrl());
+          await ensureRepairStageRow(ctx.dataDb(), args.engineId, 'disassembly_defect', Date.now(), actor || 'local', templates);
         } catch {
-          // статус двигателя — не причина терять сохранённую дефектовку
+          // этап двигателя — не причина терять сохранённую дефектовку
         }
       }
       return saved;

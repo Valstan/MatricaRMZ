@@ -195,6 +195,26 @@ describe('классификация записей и строки этапов
     expect(meta.entryType).toBe('status');
     expect(meta.at).toBe(777);
   });
+
+  it('след строки в едином списке переживает круг сборки и разбора (шаг 8)', () => {
+    const meta = buildRepairHistoryMeta({
+      action: 'Обкатка',
+      at: 500,
+      sheet: { typeId: 't1', typeCode: 'obkatka', typeName: 'Обкатка', fields: [] },
+      repairStage: { rowId: 'stage-1', code: 'obkatka', atMs: 500 },
+    });
+    expect(meta.repairStage).toEqual({ rowId: 'stage-1', code: 'obkatka', atMs: 500 });
+    const parsed = parseRepairHistoryMeta(JSON.stringify(meta));
+    expect(parsed?.repairStage).toEqual({ rowId: 'stage-1', code: 'obkatka', atMs: 500 });
+  });
+
+  it('битый след отбрасывается, остальное читается', () => {
+    const meta = buildRepairHistoryMeta({
+      action: 'Обкатка',
+      repairStage: { rowId: '', code: 'obkatka', atMs: 500 } as never,
+    });
+    expect(meta.repairStage).toBeUndefined();
+  });
 });
 
 describe('строки единого списка этапов (шаг 2 плана)', () => {

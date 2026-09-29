@@ -62,6 +62,10 @@ describe('шаблон этапа', () => {
     expect((await upsertRepairStageTemplate({ code: 'ok_code', name: 'X', autoFrom: 'nope' })).ok).toBe(false);
   });
 
+  it('мёртвый источник «Строка обкатки» отбивается (шаг 8: создание строк закрыто)', async () => {
+    expect((await upsertRepairStageTemplate({ code: 'ok_code', name: 'X', autoFrom: 'obkatkaRow' })).ok).toBe(false);
+  });
+
   it('дубль кода отбивается, архивный код не освобождается', async () => {
     state.selects.push([{ id: 'T9', archivedAt: 123 }]);
     const r = await upsertRepairStageTemplate({ code: 'sborka', name: 'Сборка 2' });

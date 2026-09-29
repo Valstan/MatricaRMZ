@@ -25,6 +25,11 @@ describe('шаблон этапов (состав 28.09.2026)', () => {
   it('дефектовка — этап-автомат (кнопка + вручную)', () => {
     expect(repairStageTemplate('disassembly_defect').autoFrom).toBe('defectAct');
   });
+
+  it('обкатка — только вручную (шаг 8: создание строк закрыто, автомат мёртв)', () => {
+    expect(repairStageTemplate('obkatka').autoFrom).toBeUndefined();
+    expect(repairStageTemplate('kitting_done').autoFrom).toBe('kittingAct');
+  });
 });
 
 describe('субординация дат', () => {
