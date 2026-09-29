@@ -221,9 +221,10 @@ export function WorkSheetDetailsPage(props: {
   const remove = async () => {
     if (props.isNew || !row) return;
     if (!window.confirm(`Удалить этап работ «${row.typeName}» от ${formatWorkSheetValue({ type: 'date', value: row.at })}?`)) return;
-    // Второй вопрос — только если откатывать ЕСТЬ ЧТО: статус поставил этот этап работ.
+    // Второй вопрос — только если откатывать ЕСТЬ ЧТО: строка отметила этап в едином списке.
     const rollbackRepair =
-      row.repairStamped && window.confirm('Этот этап работ поставил двигателю «Отремонтирован». Снять отметку вместе с ним?');
+      row.repairStageRowId != null &&
+      window.confirm('Этот этап работ отметил этап в списке этапов двигателя. Снять отметку вместе с ним?');
     setBusy(true);
     try {
       const r = await window.matrica.workSheets.rows.delete(row.id, { rollbackRepair });
@@ -418,7 +419,7 @@ export function WorkSheetDetailsPage(props: {
             <>
               <span />
               <span className="ui-muted" style={{ fontSize: 12 }} data-work-sheet-completes-hint>
-                Этап работ «{type.name}» завершает ремонт: в карточке двигателя встанет «Отремонтирован» датой этапа работ.
+                Этап работ «{type.name}» завершает ремонт: в этапах двигателя отметится «Обкатка» датой этапа работ.
               </span>
             </>
           ) : null}

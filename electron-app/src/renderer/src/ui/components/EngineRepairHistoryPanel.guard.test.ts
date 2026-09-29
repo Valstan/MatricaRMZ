@@ -114,4 +114,10 @@ describe('единый список этапов в карточке (план u
     expect(CHECKLIST).toContain("code: 'disassembly_defect'");
     expect(CHECKLIST).toContain('!rows.some((r) => r.code ===');
   });
+
+  it('кнопка «Провести комплектность» отмечает этап сама (шаг 8: пара к autoFrom kittingAct)', () => {
+    const CHECKLIST = src('./RepairChecklistPanel.tsx');
+    expect(CHECKLIST).toContain("code: 'kitting_done'");
+    expect(CHECKLIST).toContain('Этап «Комплектовка сделана» отмечен.');
+  });
 });

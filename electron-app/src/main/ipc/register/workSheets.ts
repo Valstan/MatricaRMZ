@@ -1,7 +1,6 @@
 import { ipcMain } from 'electron';
 
 import {
-  DEFAULT_REPAIR_STAGE_TEMPLATES,
   type RepairStageTemplate,
   type SaveRepairStageInput,
 } from '@matricarmz/shared';
@@ -17,7 +16,7 @@ import {
   searchWorkSheetRows,
   type SaveWorkSheetRowInput,
 } from '../../services/workSheetService.js';
-import { deleteRepairStageRow, listRepairStageRows, saveRepairStageRow } from '../../services/repairStageService.js';
+import { deleteRepairStageRow, listRepairStageRows, loadRepairStageTemplates, saveRepairStageRow } from '../../services/repairStageService.js';
 
 type Ok<T> = { ok: true } & T;
 type Err = { ok: false; error: string };
@@ -141,7 +140,7 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'work_sheets.edit');
     if (!gate.ok) return gate as Err;
     try {
-      return await deleteWorkSheetRow(ctx.dataDb(), id, opts ?? {}, await ctx.currentActor());
+      return await deleteWorkSheetRow(ctx.dataDb(), id, opts ?? {});
     } catch (e) {
       return { ok: false as const, error: String(e) };
     }
@@ -150,21 +149,12 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
   // Строки единого списка этапов (план unified-repair-stages, шаг 4): та же семья
   // прав, что у строк работ, — `work_sheets.edit`. Шаблон — серверный справочник
   // (шаг 5); без сервера — статика шага 1, экран честно говорит `fallback`.
+  // Загрузка шаблона — общая (`repairStageService.loadRepairStageTemplates`), чтобы
+  // авто-простановки (шаг 8) не тащили каждая свой fetch.
   const loadStageTemplates = async (args?: {
     includeArchived?: boolean;
-  }): Promise<{ templates: RepairStageTemplate[]; source: 'server' | 'fallback' }> => {
-    try {
-      const qs = args?.includeArchived ? '?includeArchived=1' : '';
-      const res = await httpAuthed(ctx.sysDb, base(), `/repair-stage-templates${qs}`, { method: 'GET' });
-      const json = (res.ok ? res.json : null) as { ok?: boolean; rows?: RepairStageTemplate[] } | null;
-      if (res.ok && json?.ok && Array.isArray(json.rows) && json.rows.length > 0) {
-        return { templates: json.rows, source: 'server' };
-      }
-    } catch {
-      /* офлайн — статика */
-    }
-    return { templates: [...DEFAULT_REPAIR_STAGE_TEMPLATES], source: 'fallback' };
-  };
+  }): Promise<{ templates: RepairStageTemplate[]; source: 'server' | 'fallback' }> =>
+    loadRepairStageTemplates(ctx.sysDb, base(), args ?? {});
 
   ipcMain.handle('workSheets:stages:templates', async (_e, args?: { includeArchived?: boolean }) => {
     const gate = await requirePermOrResult(ctx, 'operations.view');
