@@ -132,7 +132,7 @@ export function RepairStagesSection(props: {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                {['Дата', 'Этап', ''].map((h) => (
+                {['Дата', 'Этап', 'Кто', ''].map((h) => (
                   <th key={h} style={{ textAlign: 'left', padding: '4px 6px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>
                     {h}
                   </th>
@@ -163,6 +163,9 @@ export function RepairStagesSection(props: {
                     {row.name}
                     {row.pass >= 2 && <span className="ui-muted"> · проход № {row.pass} (возврат)</span>}
                     {row.note && <div className="ui-muted">{row.note}</div>}
+                  </td>
+                  <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }} data-repair-stage-by={row.id}>
+                    {row.by ? <span className="ui-muted">{row.by}</span> : null}
                   </td>
                   <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }}>
                     {props.canEdit && (

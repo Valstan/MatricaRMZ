@@ -738,6 +738,35 @@ export function applyWorkOrderIssue(payload: WorkOrderPayload, args: { at: numbe
   return next;
 }
 
+/**
+ * Авторство наряда для шапки карточки (H1): кто создал — навсегда, кто менял —
+ * последняя запись trail, если она не создание. Служебный `local` и пусто — null.
+ */
+export function workOrderAuthorship(trail: ReadonlyArray<WorkOrderAuditTrailItem> | undefined | null): {
+  createdBy: string | null;
+  createdAt: number | null;
+  updatedBy: string | null;
+  updatedAt: number | null;
+} {
+  const items = (Array.isArray(trail) ? trail : []).filter(
+    (t) => t && typeof t === 'object' && Number.isFinite(Number(t.at)) && Number(t.at) > 0,
+  );
+  if (items.length === 0) return { createdBy: null, createdAt: null, updatedBy: null, updatedAt: null };
+  const clean = (v: unknown) => {
+    const s = String(v ?? '').trim();
+    return !s || s === 'local' ? null : s;
+  };
+  const created = items.find((t) => t.action === 'create') ?? items[0]!;
+  const last = items[items.length - 1]!;
+  const sameEntry = last === created;
+  return {
+    createdBy: clean(created.by),
+    createdAt: Number(created.at),
+    updatedBy: sameEntry ? null : clean(last.by),
+    updatedAt: sameEntry ? null : Number(last.at),
+  };
+}
+
 /* -------------------------------------------------------------------------- *
  * Гейт дублей сборочных нарядов: на один двигатель — один действующий наряд на
  * сборку. Классификация и текст сообщения — pure, чтобы одинаково считали обе

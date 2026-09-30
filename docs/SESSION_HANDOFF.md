@@ -3,7 +3,7 @@
 > Sticky-note для непрерывности разработки между сессиями и компьютерами. Обновляется в PR каждого шага нитки (D-066); `/close_session` — страховка. История — через `git log -- docs/SESSION_HANDOFF.md`.
 
 **Status:** ACTIVE
-**Updated:** 2026-09-30 (Muse Spark, машина `PC79`) — **H1-срез-1 готов** (ветка `feat/h1-row-author-and-history`: `upsertOperation` хранит автора + `GET /ledger/row-history`; разведка блока H записана в план; PR ещё не открыт). Дальше: PR → показ истории/автора в UI (H2) → релиз с E3/G4 → apply скриптов под OK
+**Updated:** 2026-09-30 (Muse Spark, машина `PC79`) — **H2-срез-1 готов** (ветка `feat/h2-author-display`: H1 #1058 смержен; колонка «Кто» в этапах + «создал/изменил» в шапке наряда; CDP-смоук 14/14, стенд убран; PR ещё не открыт). Дальше: PR → релиз с E3/G4/H (осознанный шаг) → apply скриптов под OK
 **Branch:** `main`
 **Last released version:** **v3.52.0**, выкачено 30.09
 

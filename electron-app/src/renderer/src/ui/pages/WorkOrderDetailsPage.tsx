@@ -9,6 +9,7 @@ import {
   WORK_ORDER_KIND_ORDER,
   WORK_ORDER_SIGNATURE_CAPTION_SUGGESTIONS,
   WORK_ORDER_STATUS_LABELS,
+  workOrderAuthorship,
   WorkOrderKind,
   deriveWorkOrderStatusCode,
   ENGINE_INVENTORY_STAGE,
@@ -258,6 +259,29 @@ function recalcLocally(payload: WorkOrderPayload): WorkOrderPayload {
   };
   delete result.partName;
   return result;
+}
+
+// H1: авторство наряда в шапке — кто создал (навсегда) и кто менял последним.
+// Логины как есть (соответствия логин→ФИО в карточке нет), даты — московские.
+function authorshipLine(payload: WorkOrderPayload) {
+  const a = workOrderAuthorship(payload.auditTrail);
+  if (!a.createdBy && !a.updatedBy) return null;
+  return (
+    <>
+      {a.createdBy ? (
+        <span>
+          · создал {a.createdBy}
+          {a.createdAt ? ` ${formatMoscowDate(a.createdAt)}` : ''}
+        </span>
+      ) : null}
+      {a.updatedBy ? (
+        <span>
+          · изменил {a.updatedBy}
+          {a.updatedAt ? ` ${formatMoscowDate(a.updatedAt)}` : ''}
+        </span>
+      ) : null}
+    </>
+  );
 }
 
 export function WorkOrderDetailsPage(props: {
@@ -2123,6 +2147,7 @@ export function WorkOrderDetailsPage(props: {
             <span>Наряд № {Number(payload.workOrderNumber) > 0 ? payload.workOrderNumber : 'новый'}</span>
             {payload.workOrderKind ? <span>· {WORK_ORDER_KIND_LABELS[payload.workOrderKind] ?? payload.workOrderKind}</span> : null}
             {isClosed ? <span>· закрыт</span> : payload.repairIssued ? <span>· выдан в работу</span> : null}
+            {authorshipLine(payload)}
           </div>
           <CardTabs tabs={WORK_ORDER_CARD_TABS} active={activeTab} onChange={setActiveTab} className="" />
         </div>

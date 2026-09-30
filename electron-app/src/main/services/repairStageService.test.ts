@@ -39,8 +39,23 @@ async function seed(db: never, rows: Array<{ id: string; code: string; at: numbe
   }
 }
 
-describe('субординация дат', () => {
-  it('ОТК раньше сборки — отказ с названием нижележащего этапа', async () => {
+describe('автор строки (H1: автор навсегда)', () => {
+  it('list отдаёт автора внесения; правка даты другим его не меняет', async () => {
+    const { db } = makeDb();
+    await seed(db, [{ id: 's1', code: 'sborka', at: DAY1 }]);
+    expect((await listRepairStageRows(db, 'eng-1')).find((r) => r.id === 's1')?.by).toBe('tester');
+    const res = await saveRepairStageRow(
+      db,
+      { id: 's1', engineId: 'eng-1', code: 'sborka', atMs: DAY2 },
+      'petrov',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(res.ok).toBe(true);
+    expect((await listRepairStageRows(db, 'eng-1')).find((r) => r.id === 's1')?.by).toBe('tester');
+  });
+});
+
+describe('субординация дат', () => {  it('ОТК раньше сборки — отказ с названием нижележащего этапа', async () => {
     const { db } = makeDb();
     await seed(db, [{ id: 's1', code: 'sborka', at: DAY1 }]);
     const res = await saveRepairStageRow(
