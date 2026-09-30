@@ -5,11 +5,13 @@ import type { RepairChecklistPayload, RepairChecklistTemplate } from '@matricarm
 import {
   ENGINE_INVENTORY_STAGE,
   SyncTableName,
+  inventoryRowsFromLines,
 } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
 import { operations, rowOwners } from '../database/schema.js';
 import { getEntityDetails, listEntitiesByType, listEntityTypes } from './adminMasterdataService.js';
+import { readExistingLines } from './engineInventoryLinesService.js';
 import { recordSyncChanges } from './sync/syncChangeService.js';
 
 type Actor = { id: string; username: string };
@@ -268,6 +270,23 @@ export async function getRepairChecklistForEngine(
       if (!raw) continue;
       const parsed = safeJsonParse(raw) as any;
       if (parsed && typeof parsed === 'object' && parsed.kind === 'repair_checklist') {
+        // E3: строки списка живут в строгой таблице — подмешиваем их в payload, как
+        // клиентский E2.2 (`withReplicaInventoryRows`), иначе web-admin видел бы пустой
+        // список у помеченных листов. Нет строк в таблице — payload как есть (JSON-источник).
+        if (stage === ENGINE_INVENTORY_STAGE) {
+          const lines = (await readExistingLines([String(r.id)])).get(String(r.id)) ?? [];
+          const live = lines.filter((l) => l.deleted_at == null);
+          if (live.length > 0 && parsed.answers && typeof parsed.answers === 'object') {
+            const table = (parsed.answers as Record<string, unknown>).engine_inventory_items;
+            if (table && typeof table === 'object') {
+              (parsed.answers as Record<string, unknown>).engine_inventory_items = {
+                ...(table as Record<string, unknown>),
+                kind: 'table',
+                rows: inventoryRowsFromLines(live),
+              };
+            }
+          }
+        }
         return { ok: true as const, operationId: String(r.id), payload: parsed as RepairChecklistPayload };
       }
     }

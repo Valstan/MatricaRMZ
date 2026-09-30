@@ -41,7 +41,7 @@ import {
 
 import { attributeDefs, attributeValues, entities, entityTypes, operations } from '../database/schema.js';
 import { collectChunked } from '../utils/sqlChunks.js';
-import { payloadWithInventoryRows, readInventoryRowsForOperations } from './engineInventoryLinesReplica.js';
+import { payloadWithInventoryRows, readInventoryRowsForOperations, readInventoryLinesVersions } from './engineInventoryLinesReplica.js';
 import { listEntitiesByType, listEntitiesByTypeWithAttrs } from './entityService.js';
 import { ensureRepairStageRow, listRepairStageRows, stageRank } from './repairStageService.js';
 import type {
@@ -386,12 +386,14 @@ export function computeEngineInventoryFlags(payload: unknown): EngineInventoryFl
  * на каждый вызов `listEngines` — в том числе из списка нарядов, то есть на каждую букву в поиске.
  * Флаги зависят только от содержимого акта, поэтому разбор кэшируется до следующей правки строки.
  */
-const inventoryFlagsCache = new Map<string, { updatedAt: number; flags: EngineInventoryFlags }>();
+const inventoryFlagsCache = new Map<string, { version: string; flags: EngineInventoryFlags }>();
 
 /**
  * Флаги строятся по ПОСЛЕДНЕМУ акту каждого двигателя, поэтому `meta_json` остальных читать не за чем.
  * Сначала берём «головы» строк (id + updated_at, без blob), выбираем нужные, и только по ним лезем
- * за содержимым — и то лишь если акт изменился с прошлого раза.
+ * за содержимым — и то лишь если акт изменился с прошлого раза. E3: версия кэша включает и
+ * строки таблицы (`count:maxUpdatedAt` живых строк листа) — строки меняются, не трогая
+ * `operations.updated_at`, и ключ по одному штампу листа после E3 врал бы.
  */
 async function getEngineInventoryFlagsMap(db: BetterSQLite3Database, engineIds: string[]): Promise<Map<string, EngineInventoryFlags>> {
   const result = new Map<string, EngineInventoryFlags>();
@@ -421,35 +423,49 @@ async function getEngineInventoryFlagsMap(db: BetterSQLite3Database, engineIds: 
     seen.add(engineId);
     const id = String(head.id);
     const updatedAt = Number(head.updatedAt ?? 0);
-    const hit = inventoryFlagsCache.get(id);
-    if (hit && hit.updatedAt === updatedAt) {
-      result.set(engineId, hit.flags);
-      continue;
-    }
     stale.push({ id, engineId, updatedAt });
   }
 
   if (stale.length > 0) {
-    const bodies = await collectChunked(stale.map((s) => s.id), (idsChunk) =>
-      db
-        .select({ id: operations.id, metaJson: operations.metaJson })
-        .from(operations)
-        .where(inArray(operations.id, idsChunk)),
-    );
-    const metaById = new Map(bodies.map((b) => [String(b.id), b.metaJson == null ? null : String(b.metaJson)]));
-    // E2.2: строки списка — из реплики строгой таблицы, где она знает лист. Кэш ниже ключуется
-    // `updated_at` листа: до E3 строки и лист меняются вместе (клиент пишет оба), после E3
-    // ключ кэша обязан учитывать и строки.
-    const payloadById = new Map(stale.map((s) => [s.id, safeJsonParse(metaById.get(s.id) ?? '')]));
-    const rowsById = await readInventoryRowsForOperations(
+    // Версия строк — одним батчем по всем головам, до чтения тел: чей ключ сошёлся —
+    // тот свежий, тела не читаем.
+    const versions = await readInventoryLinesVersions(
       db,
-      stale.map((s) => ({ id: s.id, payload: payloadById.get(s.id) })),
+      stale.map((s) => s.id),
     );
-    for (const item of stale) {
-      const payload = payloadWithInventoryRows(payloadById.get(item.id), rowsById.get(item.id) ?? []);
-      const flags = computeEngineInventoryFlags(payload);
-      inventoryFlagsCache.set(item.id, { updatedAt: item.updatedAt, flags });
-      result.set(item.engineId, flags);
+    const versionOf = (id: string, updatedAt: number) => {
+      const v = versions.get(id);
+      return `${updatedAt}:${v ? `${v.count}:${v.maxUpdatedAt}` : 'x'}`;
+    };
+    const fresh = stale.filter((s) => {
+      const hit = inventoryFlagsCache.get(s.id);
+      if (hit && hit.version === versionOf(s.id, s.updatedAt)) {
+        result.set(s.engineId, hit.flags);
+        return false;
+      }
+      return true;
+    });
+
+    if (fresh.length > 0) {
+      const bodies = await collectChunked(fresh.map((s) => s.id), (idsChunk) =>
+        db
+          .select({ id: operations.id, metaJson: operations.metaJson })
+          .from(operations)
+          .where(inArray(operations.id, idsChunk)),
+      );
+      const metaById = new Map(bodies.map((b) => [String(b.id), b.metaJson == null ? null : String(b.metaJson)]));
+      // E2.2: строки списка — из реплики строгой таблицы, где она знает лист.
+      const payloadById = new Map(fresh.map((s) => [s.id, safeJsonParse(metaById.get(s.id) ?? '')]));
+      const rowsById = await readInventoryRowsForOperations(
+        db,
+        fresh.map((s) => ({ id: s.id, payload: payloadById.get(s.id) })),
+      );
+      for (const item of fresh) {
+        const payload = payloadWithInventoryRows(payloadById.get(item.id), rowsById.get(item.id) ?? []);
+        const flags = computeEngineInventoryFlags(payload);
+        inventoryFlagsCache.set(item.id, { version: versionOf(item.id, item.updatedAt), flags });
+        result.set(item.engineId, flags);
+      }
     }
   }
 

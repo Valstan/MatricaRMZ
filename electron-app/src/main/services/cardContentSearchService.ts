@@ -4,6 +4,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { ENGINE_INVENTORY_STAGE, type GlobalSearchHit } from '@matricarmz/shared';
 
 import { attributeValues, operations } from '../database/schema.js';
+import { readInventoryRowsForOperations } from './engineInventoryLinesReplica.js';
 
 // Bottom list filter, tier-2 (docs/plans/list-bottom-filter-and-global-search-2026-07.md):
 // given the entity ids a list page currently displays, return the subset whose card
@@ -86,22 +87,21 @@ export async function searchEnginesByStampedPartNumber(
     };
 
     const rows = await db
-      .select({ engineEntityId: operations.engineEntityId, metaJson: operations.metaJson })
+      .select({ id: operations.id, engineEntityId: operations.engineEntityId, metaJson: operations.metaJson })
       .from(operations)
       .where(and(eq(operations.operationType, ENGINE_INVENTORY_STAGE), isNull(operations.deletedAt)))
       .orderBy(desc(operations.updatedAt))
       .limit(ENGINE_STAMP_MAX_OPS);
 
-    const byEngine = new Map<string, GlobalSearchHit>();
+    // E3: клейма живут в строгой таблице, в `meta_json` помеченных листов их нет — строки
+    // берём через реплику (она сама откатывается на JSON у непомеченных листов). На
+    // двигатель смотрим только новейший лист (порядок — updated_at desc, как раньше).
+    const sheets: Array<{ opId: string; engineId: string; payload: any }> = [];
+    const seenEngines = new Set<string>();
     for (const r of rows) {
       const engineId = String(r.engineEntityId ?? '').trim();
-      if (!engineId || byEngine.has(engineId)) continue;
       const raw = r.metaJson ? String(r.metaJson) : '';
-      if (!raw) continue;
-      // Дешёвый префильтр до JSON.parse: запрос обязан встретиться в тексте мета
-      // (в исходном или в «сжатом» без разделителей — чтобы «2401» находил «240-1»).
-      const rawLower = raw.toLowerCase();
-      if (!rawLower.includes(qLower) && !(qCompact.length > 0 && compact(rawLower).includes(qCompact))) continue;
+      if (!engineId || seenEngines.has(engineId) || !raw) continue;
       let parsed: any;
       try {
         parsed = JSON.parse(raw);
@@ -109,9 +109,17 @@ export async function searchEnginesByStampedPartNumber(
         continue;
       }
       if (!parsed || parsed.kind !== 'repair_checklist') continue;
-      const answers = parsed.answers ?? {};
-      const table = answers.engine_inventory_items;
-      const invRows: any[] = table && Array.isArray(table.rows) ? table.rows : [];
+      seenEngines.add(engineId);
+      sheets.push({ opId: String(r.id), engineId, payload: parsed });
+    }
+    const rowsByOp = await readInventoryRowsForOperations(
+      db,
+      sheets.map((s) => ({ id: s.opId, payload: s.payload })),
+    );
+    const byEngine = new Map<string, GlobalSearchHit>();
+    for (const s of sheets) {
+      const answers = s.payload.answers ?? {};
+      const invRows = rowsByOp.get(s.opId) ?? [];
       let matchedStamp: string | null = null;
       for (const rr of invRows) {
         if (matchStamp(rr?.stamped_number)) {
@@ -124,10 +132,10 @@ export async function searchEnginesByStampedPartNumber(
       const brand = String(answers.engine_brand?.value ?? '').trim();
       const internalNo = String(answers.engine_internal_number?.value ?? '').trim();
       const label =
-        [brand, engNo].filter(Boolean).join(' ') + (internalNo ? ` (внутр. ${internalNo})` : '') || engNo || engineId;
-      byEngine.set(engineId, {
+        [brand, engNo].filter(Boolean).join(' ') + (internalNo ? ` (внутр. ${internalNo})` : '') || engNo || s.engineId;
+      byEngine.set(s.engineId, {
         kind: 'engine',
-        id: engineId,
+        id: s.engineId,
         label,
         code: matchedStamp,
         sublabel: '№ на детали',

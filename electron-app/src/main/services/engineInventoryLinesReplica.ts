@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, count, eq, inArray, isNull, max } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
@@ -23,11 +23,11 @@ import { collectChunked } from '../utils/sqlChunks.js';
  * из `answers.engine_inventory_items.rows` в `meta_json` (двигатели, которых бэкфилл не
  * коснулся, и офлайн-клиенты до первого pull).
  *
- * До E3 `meta_json` листа продолжает нести те же строки, что и таблица (серверный вывод
- * строк из листа + клиент пишет оба), поэтому оба источника обязаны давать один результат —
- * это держит сторож паритета `engineInventoryLinesReplica.guard.test.ts`. После E3 строки
- * живут только здесь, и потребитель, читающий `meta_json` мимо этого модуля, увидит пустой
- * список.
+ * E3 (план engine-inventory-lines-2026-09): `meta_json` листа несёт пустой список с
+ * маркером `rowsIn`, те же строки — только здесь. Потребитель, читающий `meta_json`
+ * мимо этого модуля, увидит пустой список. Fallback на `meta_json` остаётся честным и
+ * после E3: у помеченного листа в JSON пусто (и это правда — строки в таблице), у
+ * непомеченного JSON по-прежнему источник.
  */
 
 let warned = false;
@@ -54,9 +54,9 @@ export async function readInventoryLinesByOperations(
         .where(and(inArray(erpEngineInventoryLines.operationId, chunk), isNull(erpEngineInventoryLines.deletedAt))),
     );
   } catch (e) {
-    // Реплика недоступна (таблицы ещё нет на старой базе, битый файл) — читатель листа не
-    // должен из-за этого падать: до E3 строки есть и в meta_json, fallback честный. После E3
-    // это место обязано стать ошибкой, а не тишиной.
+    // Реплика недоступна (битый файл и т.п.) — читатель листа не должен из-за этого
+    // падать: fallback на meta_json честен и после E3 (у помеченного листа там пусто,
+    // у непомеченного — строки).
     warnOnce(`engine inventory lines replica unavailable, falling back to meta_json: ${String(e)}`);
     return out;
   }
@@ -99,6 +99,38 @@ export async function withReplicaInventoryRows<T>(db: BetterSQLite3Database, ope
 }
 
 export type InventoryLinesWriteResult = { insert: number; update: number; tombstone: number; unchanged: number };
+
+/**
+ * Лёгкая версия строк по листам: число живых строк + max(updated_at). E3: строки таблицы
+ * меняются, не трогая `operations.updated_at` (push строк и push листа — разные пачки),
+ * поэтому кэш, ключующийся только штампом листа, после E3 врал бы. Пустая карта при
+ * недоступной реплике — вызывающий считает строки неизменными (как fallback выше).
+ */
+export async function readInventoryLinesVersions(
+  db: BetterSQLite3Database,
+  operationIds: readonly string[],
+): Promise<Map<string, { count: number; maxUpdatedAt: number }>> {
+  const out = new Map<string, { count: number; maxUpdatedAt: number }>();
+  const ids = [...new Set(operationIds.map((s) => String(s ?? '').trim()).filter(Boolean))];
+  if (ids.length === 0) return out;
+  let rows: Array<{ opId: unknown; n: unknown; m: unknown }>;
+  try {
+    rows = (await collectChunked(ids, (chunk) =>
+      db
+        .select({ opId: erpEngineInventoryLines.operationId, n: count(), m: max(erpEngineInventoryLines.updatedAt) })
+        .from(erpEngineInventoryLines)
+        .where(and(inArray(erpEngineInventoryLines.operationId, chunk), isNull(erpEngineInventoryLines.deletedAt)))
+        .groupBy(erpEngineInventoryLines.operationId),
+    )) as Array<{ opId: unknown; n: unknown; m: unknown }>;
+  } catch (e) {
+    warnOnce(`engine inventory lines versions unavailable: ${String(e)}`);
+    return out;
+  }
+  for (const r of rows) {
+    out.set(String(r.opId ?? ''), { count: Number(r.n ?? 0), maxUpdatedAt: Number(r.m ?? 0) });
+  }
+  return out;
+}
 
 /**
  * E2.3: строки листа — в реплику с `sync_status='pending'`, чтобы штатный push отвёз их
