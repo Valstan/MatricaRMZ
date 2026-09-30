@@ -628,7 +628,10 @@ async function defectDateInputs(
         status: 'completed',
         note: null,
         performed_by: null,
-        performed_at: row.performed_at,
+        // `pg` отдаёт bigint СТРОКОЙ, а `operationRowSchema` требует число: без приведения
+        // весь пакет отвергается как sync_invalid_row — и отвергается ЦЕЛИКОМ, то есть эта
+        // правка не применяется вовсе (ни строки этапа, ни атрибута карточки).
+        performed_at: row.performed_at == null ? null : Number(row.performed_at),
         created_at: Number(row.created_at),
         updated_at: Date.now(),
         deleted_at: null,
