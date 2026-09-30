@@ -93,6 +93,7 @@
     "engine-inventory:dedup-sheets": "tsx src/scripts/dedupEngineInventorySheets.ts",
     "engine-inventory:fix-defect-stage-dates": "tsx src/scripts/fixDefectStageDates.ts",
     "stages:backfill": "tsx src/scripts/backfillRepairStages.ts",
+    "stages:review-order": "tsx src/scripts/reviewRepairStageOrder.ts",
     "engine-act:fix-header-number": "tsx src/scripts/fixEngineActHeaderNumber20260914.ts",
     "engine-act:fix-header-number:apply": "tsx src/scripts/fixEngineActHeaderNumber20260914.ts --apply",
     "ledger:import-release-registry": "tsx src/scripts/importReleaseRegistryFromProjection.ts",
