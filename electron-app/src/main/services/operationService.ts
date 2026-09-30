@@ -78,7 +78,9 @@ export async function getOperation(db: BetterSQLite3Database, id: string) {
 /**
  * Вставить или обновить операцию по id — ключ идемпотентности строки этапа работ: клиент
  * генерирует id при создании, правка бьёт в ту же строку, дублей не возникает. `performed_at`
- * остаётся моментом первой записи, дата события живёт в meta (`at`).
+ * остаётся моментом первой записи, дата события живёт в meta (`at`). H1: `performed_by`
+ * тоже автор навсегда — правка его не переписывает (пустой/`local` при создании лечится
+ * первым настоящим логином).
  */
 export async function upsertOperation(
   db: BetterSQLite3Database,
@@ -96,6 +98,10 @@ export async function upsertOperation(
   const existing = await getOperation(db, input.id);
   const actor = input.performedBy?.trim() ? input.performedBy.trim() : 'local';
   if (existing) {
+    const prevBy = String((existing as any).performedBy ?? '').trim();
+    // Автор первой записи сохраняется: правщик «Кто» не становится. Пустой/`local`
+    // след офлайн-создания — лечится первым настоящим логином.
+    const keptBy = !prevBy || prevBy === 'local' ? actor : prevBy;
     await db
       .update(operations)
       .set({
@@ -104,7 +110,7 @@ export async function upsertOperation(
         status: input.status,
         note: input.note ?? null,
         metaJson: input.metaJson ?? null,
-        performedBy: actor,
+        performedBy: keptBy,
         updatedAt: ts,
         deletedAt: null,
         syncStatus: 'pending',

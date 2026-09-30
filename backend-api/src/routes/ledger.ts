@@ -17,6 +17,7 @@ import {
   getOwnedNoteIds,
 } from '../services/sync/syncPrivacy.js';
 import { idempotencyCache } from '../services/sync/idempotencyCache.js';
+import { listRowHistory } from '../services/rowHistoryService.js';
 import { waitForLedgerSeqAbove } from '../services/sync/ledgerSeqWatch.js';
 import type { AuthenticatedRequest } from '../auth/middleware.js';
 import { db } from '../database/db.js';
@@ -553,6 +554,35 @@ ledgerRouter.get('/state/wait', async (req, res) => {
 // The former /state/restricted-purge endpoint was removed: clients now keep the full
 // database and never delete synced rows. Work-order visibility is a display-time filter
 // (shared workOrderAccess) applied against the authenticated user.
+
+// H1: история правок одного объекта из журнала. Читает те же данные, что инкрементальный
+// pull, поэтому видимость — ровно как у pull: таблица целиком (isPullTableAllowedForRole)
+// плюс построчный предикат (makePullReadFilter). Интерфейс показа — блок H2.
+ledgerRouter.get('/row-history', async (req, res) => {
+  const actor = (req as AuthenticatedRequest).user;
+  if (!actor) return res.status(401).json({ ok: false, error: 'требуется авторизация' });
+  try {
+    const parsed = z
+      .object({
+        table: z.string().min(1).max(200),
+        row_id: z.string().uuid(),
+        limit: z.coerce.number().int().min(1).max(200).optional(),
+      })
+      .safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+    const entry = SyncTableRegistry.getByLedgerName(parsed.data.table);
+    if (!entry) return res.status(400).json({ ok: false, error: `неизвестная таблица: ${parsed.data.table}` });
+    if (!isPullTableAllowedForRole(entry.syncName, actor.role)) {
+      return res.status(403).json({ ok: false, error: 'таблица недоступна роли' });
+    }
+    const versions = await listRowHistory(parsed.data.table, parsed.data.row_id, parsed.data.limit ?? 50);
+    const filter = await makePullReadFilter({ id: actor.id, role: actor.role });
+    const visible = versions.filter((v) => v.row && typeof v.row === 'object' && filter(entry.syncName, v.row as Record<string, unknown>));
+    return res.json({ ok: true, table: parsed.data.table, row_id: parsed.data.row_id, versions: visible });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
 
 // Цепочка блоков, подписанные чекпоинты и проекция сняты (план ledger-journal-in-pg,
 // 2026-09): история — ledger_tx_index в PostgreSQL. Клиенты эти маршруты не звали;
