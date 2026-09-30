@@ -8,11 +8,11 @@ import {
   inventoryRowsLocation,
   stripInventoryRowsForStorage,
 } from '@matricarmz/shared';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { db, pool } from '../database/db.js';
 import { operations } from '../database/schema.js';
-import { readExistingLines } from '../services/engineInventoryLinesService.js';
+import { countLiveLinesByOperations } from '../services/engineInventoryLinesService.js';
 import { writeSyncChanges } from '../services/sync/syncWriteService.js';
 
 // engine-inventory:strip-rows — разово убирает строки списка деталей из `operations.meta_json`
@@ -62,35 +62,42 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   console.log(`engine-inventory:strip-rows — ${args.apply ? 'ЗАПИСЬ' : 'dry-run, ничего не меняет'}`);
 
+  // Листы грузятся страницами: весь набор (2447 листов по 48–255 КБ meta_json) в памяти
+  // роняет V8 на боксе (OOM dry-run 30.09). Страница — 200 листов.
+  const PAGE = 200;
   const conds = [eq(operations.operationType, ENGINE_INVENTORY_STAGE as any), isNull(operations.deletedAt)];
   if (args.engine) conds.push(eq(operations.engineEntityId, args.engine as any));
-  const sheets = (await db.select().from(operations).where(and(...conds))) as any[];
-  console.log(`  живых листов: ${sheets.length}`);
-
   const candidates: Array<{ id: string; meta: string; payload: unknown }> = [];
+  let sheetTotal = 0;
   let alreadyMarked = 0;
   let noRows = 0;
   let broken = 0;
-  for (const s of sheets) {
-    const meta = s.metaJson == null ? null : String(s.metaJson);
-    const payload = safeParse(meta);
-    if (!payload || typeof payload !== 'object' || (payload as any).kind !== 'repair_checklist') {
-      broken++;
-      continue;
+  for (let offset = 0; ; offset += PAGE) {
+    const page = (await db.select().from(operations).where(and(...conds)).limit(PAGE).offset(offset)) as any[];
+    if (page.length === 0) break;
+    sheetTotal += page.length;
+    for (const s of page) {
+      const meta = s.metaJson == null ? null : String(s.metaJson);
+      const payload = safeParse(meta);
+      if (!payload || typeof payload !== 'object' || (payload as any).kind !== 'repair_checklist') {
+        broken++;
+        continue;
+      }
+      if (inventoryRowsLocation(payload) === 'table') {
+        alreadyMarked++;
+        continue;
+      }
+      if (inventoryRawRowsFromPayload(payload).length === 0) {
+        noRows++;
+        continue;
+      }
+      candidates.push({ id: String(s.id), meta: meta ?? '', payload });
     }
-    if (inventoryRowsLocation(payload) === 'table') {
-      alreadyMarked++;
-      continue;
-    }
-    if (inventoryRawRowsFromPayload(payload).length === 0) {
-      noRows++;
-      continue;
-    }
-    candidates.push({ id: String(s.id), meta: meta ?? '', payload });
   }
+  console.log(`  живых листов: ${sheetTotal}`);
 
-  const liveByOp = await readExistingLines(candidates.map((c) => c.id));
-  const strippable = candidates.filter((c) => (liveByOp.get(c.id) ?? []).some((l) => l.deleted_at == null));
+  const liveCounts = await countLiveLinesByOperations(candidates.map((c) => c.id));
+  const strippable = candidates.filter((c) => (liveCounts.get(c.id) ?? 0) > 0);
   const noLines = candidates.length - strippable.length;
 
   let bytesBefore = 0;
@@ -123,8 +130,14 @@ async function main(): Promise<void> {
   let done = 0;
   for (let i = 0; i < strippable.length; i += BATCH) {
     const chunk = strippable.slice(i, i + BATCH);
+    // Строки пачки дочитываем из PG здесь же — весь набор в памяти не держим (см. выше).
+    const batchRows = (await db
+      .select()
+      .from(operations)
+      .where(inArray(operations.id, chunk.map((c) => c.id) as any))) as any[];
+    const batchById = new Map(batchRows.map((s) => [String(s.id), s]));
     const rows = chunk.map((c) => {
-      const dto = SyncTableRegistry.toSyncRow(SyncTableName.Operations, sheets.find((s) => String(s.id) === c.id)) as Record<string, unknown>;
+      const dto = SyncTableRegistry.toSyncRow(SyncTableName.Operations, batchById.get(c.id)) as Record<string, unknown>;
       return {
         type: 'upsert' as const,
         table: SyncTableName.Operations,

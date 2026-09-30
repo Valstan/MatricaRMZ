@@ -1,4 +1,4 @@
-import { eq, inArray } from 'drizzle-orm';
+import { and, count, eq, inArray, isNull } from 'drizzle-orm';
 
 import {
   ENGINE_INVENTORY_STAGE,
@@ -147,8 +147,7 @@ export function planEngineInventoryLines(
   };
 }
 
-export async function readExistingLines(operationIds: string[]): Promise<Map<string, EngineInventoryLineRow[]>> {
-  const out = new Map<string, EngineInventoryLineRow[]>();
+export async function readExistingLines(operationIds: string[]): Promise<Map<string, EngineInventoryLineRow[]>> {  const out = new Map<string, EngineInventoryLineRow[]>();
   if (operationIds.length === 0) return out;
   const rows = await db
     .select()
@@ -159,6 +158,32 @@ export async function readExistingLines(operationIds: string[]): Promise<Map<str
     const arr = out.get(dto.operation_id) ?? [];
     arr.push(dto);
     out.set(dto.operation_id, arr);
+  }
+  return out;
+}
+
+/**
+ * Лёгкий подсчёт живых строк по листам (для dry-run скриптов на боксе с 1.5 ГБ RAM:
+ * полный `readExistingLines` на 290 тыс. строк роняет V8, как и paged-select листов —
+ * см. OOM dry-run strip 30.09). Только counts, без DTO.
+ */
+export async function countLiveLinesByOperations(operationIds: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const ids = [...new Set(operationIds.map((s) => String(s ?? '').trim()).filter(Boolean))];
+  const CHUNK = 500;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK);
+    const rows = (await db
+      .select({ operationId: erpEngineInventoryLines.operationId, n: count() })
+      .from(erpEngineInventoryLines)
+      .where(
+        and(
+          inArray(erpEngineInventoryLines.operationId, chunk as any),
+          isNull(erpEngineInventoryLines.deletedAt),
+        ),
+      )
+      .groupBy(erpEngineInventoryLines.operationId)) as Array<{ operationId: unknown; n: unknown }>;
+    for (const r of rows) out.set(String(r.operationId ?? ''), Number(r.n ?? 0));
   }
   return out;
 }
