@@ -640,11 +640,12 @@ async function defectDateInputs(
   return out;
 }
 
-function parseArgs(argv: string[]): { apply: boolean; engine: string | null; emit: string | null; decisions: string | null } {
-  const out = { apply: false, engine: null as string | null, emit: null as string | null, decisions: null as string | null };
+function parseArgs(argv: string[]): { apply: boolean; check: boolean; engine: string | null; emit: string | null; decisions: string | null } {
+  const out = { apply: false, check: false, engine: null as string | null, emit: null as string | null, decisions: null as string | null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === '--apply') out.apply = true;
+    else if (a === '--check') out.check = true;
     else if (a === '--engine') out.engine = String(argv[++i] ?? '').trim() || null;
     else if (a === '--emit') out.emit = String(argv[++i] ?? '').trim() || null;
     else if (a === '--decisions') out.decisions = String(argv[++i] ?? '').trim() || null;
@@ -654,7 +655,7 @@ function parseArgs(argv: string[]): { apply: boolean; engine: string | null; emi
   return out;
 }
 
-async function applyDecisions(path: string): Promise<void> {
+async function applyDecisions(path: string, args: { check: boolean }): Promise<void> {
   const raw = JSON.parse(readFileSync(resolve(path), 'utf8')) as { decisions?: unknown };
   if (!Array.isArray(raw.decisions)) throw new Error('файл решений: нет массива decisions');
   const decisions = raw.decisions as StageOrderDecision[];
@@ -663,6 +664,28 @@ async function applyDecisions(path: string): Promise<void> {
   // «двигатель исчез из разбора».
   const engineIds = [...new Set(decisions.map((d) => d.engine_id))];
   const snap = await loadStageSnapshot({ engineIds });
+  // `--check` — настоящий пробный прогон: решение разбирается тем же гейтом, что и при записи,
+  // но ничего не пишется. Без него «пробный прогон» без `--apply` не проверял НИЧЕГО: файл
+  // просто пересчитывался, и первая настоящая проверка случалась бы уже на записи.
+  if (args.check) {
+    let ok = 0;
+    const refused: string[] = [];
+    for (const d of decisions) {
+      const label = `${d.engine_number} ${d.stage_code ?? d.attribute_code ?? 'дата дефектовки'}`;
+      const check = evaluateDecision(d, stateFor(d, snap));
+      if (!check.ok) {
+        refused.push(`${label}: ${check.reason}`);
+        continue;
+      }
+      ok += 1;
+      const writes = d.target === 'defect-date' ? (stateFor(d, snap).sheetAt != null ? 3 : 2) : 1;
+      console.log(`  ✓ ${label}: ${check.action}${check.at != null ? ` → ${formatStageDay(check.at)}` : ''} (записей: ${writes})`);
+    }
+    console.log(`\nПРОБА: принято ${ok}, отказано ${refused.length}. Записи не было.`);
+    for (const r of refused) console.log(`  ! ${r}`);
+    if (refused.length > 0) process.exitCode = 2;
+    return;
+  }
   let applied = 0;
   const skipped: string[] = [];
   for (const d of decisions) {
@@ -693,15 +716,15 @@ async function applyDecisions(path: string): Promise<void> {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  console.log(`stages:review-order — ${args.apply ? 'ЗАПИСЬ по решениям владельца' : 'разбор, ничего не меняет'}`);
+  console.log(`stages:review-order — ${args.apply ? 'ЗАПИСЬ по решениям владельца' : args.check ? 'ПРОБА решений, записи не будет' : 'разбор, ничего не меняет'}`);
 
   if (args.decisions) {
-    if (!args.apply) {
+    if (!args.apply && !args.check) {
       const raw = JSON.parse(readFileSync(resolve(args.decisions), 'utf8')) as { decisions?: unknown };
       console.log(`файл решений: ${args.decisions} (${Array.isArray(raw.decisions) ? raw.decisions.length : 0} решений). Без --apply запись не выполняется.`);
       return;
     }
-    await applyDecisions(args.decisions);
+    await applyDecisions(args.decisions, args);
     return;
   }
 
