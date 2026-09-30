@@ -5,6 +5,7 @@ import {
   isServerOnlyAttrCode,
   isSuperadminOnlyAttrCode,
   isWorkSheetRowWrite,
+  isRepairStageRowWrite,
   ledgerWriteRequirement,
   operatorMeetsRequirement,
 } from './ledgerAuthz.js';
@@ -106,6 +107,25 @@ describe('ledgerWriteRequirement — operations & tables', () => {
     // meta этапа работ на другом типе операции — не этап работ.
     expect(isWorkSheetRowWrite({ table: OPS, operationType: 'work_order', operationMetaJson: sheetMeta })).toBe(false);
     expect(isWorkSheetRowWrite({ table: ENTITIES, operationType: 'repair_history_entry', operationMetaJson: sheetMeta })).toBe(false);
+  });
+
+  // Строка единого списка этапов (шаг 8/4): своё требование — `open`, потому что
+  // настоящий гейт (дизъюнкция work_sheets.edit ИЛИ operations.edit) живёт в
+  // backstop'е гарда и строже для всех ролей, кроме суперадмина. Ни одно
+  // одиночное право обе половины (ручные метки круга + авто-метки мастеров)
+  // не покрывает — смотри комментарий в ledgerWriteRequirement.
+  it('строка этапа распознаётся, требование — open (гейт выше, в backstop)', () => {
+    const stageMeta = JSON.stringify({
+      kind: 'repair_history',
+      action: 'Сборка',
+      entryType: 'stage',
+      stage: { code: 'sborka', name: 'Сборка' },
+    });
+    const base = { table: OPS, operationType: 'repair_history_entry' };
+    expect(isRepairStageRowWrite({ ...base, operationMetaJson: stageMeta })).toBe(true);
+    expect(isWorkSheetRowWrite({ ...base, operationMetaJson: stageMeta })).toBe(false);
+    expect(ledgerWriteRequirement({ ...base, operationMetaJson: stageMeta })).toEqual({ kind: 'open' });
+    expect(isRepairStageRowWrite({ table: OPS, operationType: 'work_order', operationMetaJson: stageMeta })).toBe(false);
   });
 
   it('social / schema tables are open (владелец строки проверяется построчно или сервером)', () => {

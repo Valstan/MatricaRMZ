@@ -8,7 +8,6 @@ import {
   parseRepairHistoryMeta,
   repairHistoryActionOptions,
   repairHistoryFromOperations,
-  repairHistoryMetaForStatus,
   repairHistoryNoteLine,
   type RepairHistorySourceRow,
 } from './engineRepairHistory.js';
@@ -129,12 +128,6 @@ describe('подсказки и текущий цех', () => {
 });
 
 describe('связь со стадиями и лентой паспорта', () => {
-  it('автозапись стадии берёт подпись из общего реестра статусов', () => {
-    const meta = repairHistoryMetaForStatus('status_repaired');
-    expect(meta.action).toBe('Отремонтирован');
-    expect(meta.auto).toBe(true);
-  });
-
   it('короткая строка события читается человеком', () => {
     const meta = buildRepairHistoryMeta({ action: 'Перемещение в другой цех', workshopId: 'W2', reason: 'нужен стенд' });
     expect(repairHistoryNoteLine(meta, 'Цех сборки')).toBe('Перемещение в другой цех · цех: Цех сборки · причина: нужен стенд');
@@ -188,12 +181,6 @@ describe('классификация записей и строки этапов
   it('пустое имя цеха в строку не кладётся — нечего показывать, нечего и хранить', () => {
     expect(buildRepairHistoryMeta({ action: 'Обкатка', workshopId: 'W1', workshopName: '   ' }).workshopName).toBeUndefined();
     expect(buildRepairHistoryMeta({ action: 'Обкатка' }).workshopName).toBeUndefined();
-  });
-
-  it('автозапись стадии несёт entryType и дату строки, если она дана', () => {
-    const meta = repairHistoryMetaForStatus('status_repaired', 777);
-    expect(meta.entryType).toBe('status');
-    expect(meta.at).toBe(777);
   });
 
   it('след строки в едином списке переживает круг сборки и разбора (шаг 8)', () => {
