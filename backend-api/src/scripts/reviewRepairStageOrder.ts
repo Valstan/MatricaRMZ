@@ -81,7 +81,13 @@ const ACTOR: SyncWriteActor = { id: 'server', username: 'stages:review-order', r
 // ────────────────────────────────────────────────────────────
 
 export type StageOrderDecision = {
-  target: 'stage' | 'card';
+  /**
+   * `stage` — строка этапа; `card` — атрибут карточки; `defect-date` — дата этапа дефектовки
+   * **везде сразу** (строка этапа + карточка + вкладка дефектовки). Последний отдельный
+   * потому, что у этой даты три источника, и правка одного из них оставляет расхождение:
+   * следующая проводка дефектовки или запасной источник вернут прежнюю дату (GOTCHAS M146).
+   */
+  target: 'stage' | 'card' | 'defect-date';
   engine_number: string;
   engine_id: string;
   /** Мишень `stage`: id строки истории. */
@@ -89,6 +95,12 @@ export type StageOrderDecision = {
   stage_code?: string;
   /** Мишень `card`: код атрибута. */
   attribute_code?: string;
+  /** Мишень `defect-date`: id строки этапа дефектовки (в `stage` не берётся — ради защиты). */
+  defect_row_id?: string;
+  /** Мишень `defect-date`: что сейчас лежит в карточке (`defect_date`), мс или null. */
+  expect_card_at?: number | null;
+  /** Мишень `defect-date`: что сейчас в вкладке дефектовки (`defect_start_date`), мс или null. */
+  expect_sheet_at?: number | null;
   /** Дата, которую видели при разборе: `meta.at` строки либо значение атрибута карточки. */
   expect_at?: number | null;
   /** Дата дефектовки на момент разбора — решение «про порядок» без неё недействительно. */
@@ -112,6 +124,12 @@ export type DecisionTargetState = {
   defectAt: number | null;
   /** Строка этапа не была помечена конфликтной при разборе — её решение не может быть применено. */
   inConflict: boolean;
+  /** Мишень `defect-date`: id строки этапа дефектовки. */
+  rowId?: string;
+  /** Мишень `defect-date`: текущее значение `defect_date` карточки. */
+  cardAt?: number | null;
+  /** Мишень `defect-date`: текущее `answers.defect_start_date` вкладки дефектовки. */
+  sheetAt?: number | null;
 };
 
 export type DecisionCheck =
@@ -130,6 +148,9 @@ export function evaluateDecision(decision: StageOrderDecision, state: DecisionTa
   if (decision.target === 'stage') {
     if (decision.action === 'clear-date') return { ok: false, reason: 'action_target_mismatch' };
     if (!decision.row_id || !decision.stage_code) return { ok: false, reason: 'incomplete_decision' };
+  } else if (decision.target === 'defect-date') {
+    if (decision.action !== 'set-date') return { ok: false, reason: 'action_target_mismatch' };
+    if (!decision.defect_row_id) return { ok: false, reason: 'incomplete_decision' };
   } else {
     if (decision.action === 'delete-row') return { ok: false, reason: 'action_target_mismatch' };
     if (!decision.attribute_code) return { ok: false, reason: 'incomplete_decision' };
@@ -142,17 +163,31 @@ export function evaluateDecision(decision: StageOrderDecision, state: DecisionTa
   }
   if (decision.target === 'stage') {
     if (!state.inConflict) return { ok: false, reason: 'row_not_in_conflict' };
+    // Дата этапа дефектовки через общую мишень недоступна ЛЮБЫМ действием: её ставит вкладка
+    // дефектовки, и одиночная правка строки оставила бы карточку с прежней датой. Единственный
+    // путь — мишень `defect-date`, которая правит все источники разом.
+    if (state.stageCode === DEFECT_STAGE_CODE) return { ok: false, reason: 'defect_stage_protected' };
     if (state.stageCode !== decision.stage_code) return { ok: false, reason: 'stage_code_changed' };
     if ((state.at ?? null) !== (decision.expect_at ?? null)) return { ok: false, reason: 'date_changed' };
-    if (decision.action === 'delete-row' && state.stageCode === DEFECT_STAGE_CODE) {
-      return { ok: false, reason: 'defect_stage_protected' };
-    }
+  } else if (decision.target === 'defect-date') {
+    // Меняем дату дефектовки в одном решении и сразу во всех трёх местах, где она живёт.
+    // Мишень `stage` сюда не пробрасывается намеренно: одиночная правка строки оставила бы
+    // карточку и вкладку дефектовки с прежней датой, и расхождение вернулось бы при первом же
+    // повторном заполнении (тот же класс, что «починено ровно там, где никто не читает»).
+    if (state.stageCode !== DEFECT_STAGE_CODE) return { ok: false, reason: 'not_a_defect_stage' };
+    if (state.rowId !== decision.defect_row_id) return { ok: false, reason: 'row_changed' };
+    if ((state.at ?? null) !== (decision.expect_at ?? null)) return { ok: false, reason: 'date_changed' };
+    if ((state.cardAt ?? null) !== (decision.expect_card_at ?? null)) return { ok: false, reason: 'card_changed' };
+    if ((state.sheetAt ?? null) !== (decision.expect_sheet_at ?? null)) return { ok: false, reason: 'sheet_changed' };
   } else if ((state.at ?? null) !== (decision.expect_at ?? null)) {
     return { ok: false, reason: 'attr_changed' };
   }
   if ((state.defectAt ?? null) !== (decision.expect_defect_at ?? null)) return { ok: false, reason: 'defect_date_moved' };
+  // Проверка «не раньше дефектовки» — про ПОЗДНИЕ этапы. Для мишени `defect-date` она неприменима:
+  // там сама дата дефектовки и есть предмет решения, и вердикт владельца может двигать её назад.
   if (
     decision.action === 'set-date' &&
+    decision.target !== 'defect-date' &&
     state.defectAt != null &&
     (decision.at ?? 0) < state.defectAt &&
     !decision.allow_out_of_order
@@ -189,6 +224,8 @@ type StageRow = {
   engine_number: string;
   brand: string;
   card: Record<string, string | null>;
+  /** Дата «начала дефектовки» из вкладки дефектовки — третий источник, заполнен у единиц. */
+  defect_start_at: number | null;
 };
 
 type Snapshot = { defectAt: Map<string, number>; rows: StageRow[] };
@@ -270,9 +307,22 @@ async function loadStageSnapshot(opts: { engineFilter?: string | null; engineIds
     select st.id, st.eng as engine_id, st.at, st.code, st.sname as name, st.pass,
            coalesce(attrs.a->>'engine_number', '') as engine_number,
            coalesce(attrs.a->>'engine_brand', '') as brand,
-           coalesce(attrs.a, '{}'::jsonb) as card
+           coalesce(attrs.a, '{}'::jsonb) as card,
+           sheet.defect_start_at
       from st
       join scope on scope.eng = st.eng
+      left join lateral (
+        -- Вкладка дефектовки — третий источник даты дефектовки. На проде заполнена у единиц
+        -- двигателей, но когда заполнена — она первая по приоритету, и править её нужно вместе
+        -- со строкой этапа, иначе следующая проводка вернёт прежнюю дату.
+        select nullif(o2.meta_json::jsonb->'answers'->'defect_start_date'->>'value', '')::bigint as defect_start_at
+          from operations o2
+         where o2.engine_entity_id = st.eng::uuid
+           and o2.operation_type = 'engine_inventory'
+           and o2.deleted_at is null
+         order by o2.updated_at desc
+         limit 1
+      ) sheet on true
       left join lateral (
         -- Привязка av.entity_id = st.eng обязательна рядом с привязкой к типу: без неё агрегат
         -- сворачивал значения ВСЕХ двигателей этого типа, и карточка в отчёте досталась бы
@@ -292,7 +342,11 @@ async function loadStageSnapshot(opts: { engineFilter?: string | null; engineIds
   const defectAt = new Map<string, number>();
   // pg отдаёт bigint (в т.ч. `at`) СТРОКОЙ: без приведения `new Date("1756051200000")`
   // бросает Invalid time value, а сравнение дат уезжает на лексикографику.
-  const rows: StageRow[] = result.rows.map((r) => ({ ...r, at: numOrNull(r.at) }));
+  const rows: StageRow[] = result.rows.map((r) => ({
+    ...r,
+    at: numOrNull(r.at),
+    defect_start_at: numOrNull(r.defect_start_at),
+  }));
   for (const r of rows) {
     if (r.code === DEFECT_STAGE_CODE && r.at != null && !defectAt.has(r.engine_id)) defectAt.set(r.engine_id, r.at);
   }
@@ -347,7 +401,9 @@ function printReport(snap: Snapshot): void {
       .filter(([, v]) => v != null)
       .map(([code, v]) => `${code}=${formatStageDay(v)}`)
       .join(' ');
-    console.log(`  карточка: ${card || '(дат нет)'}\n`);
+    console.log(`  карточка: ${card || '(дат нет)'}`);
+    if (head.defect_start_at != null) console.log(`  вкладка дефектовки: ${formatStageDay(head.defect_start_at).trim()}`);
+    console.log('');
   }
 }
 
@@ -391,6 +447,7 @@ function buildTemplate(snap: Snapshot): unknown {
     generated_by: 'stages:review-order',
     how_to_use: [
       'action: "set-date" (+ at в мс) | "clear-date" (только для card) | "delete-row" (только для stage) | null — решение не принято.',
+      'Дата дефектовки — отдельной мишенью "defect-date": ставится сразу в строке этапа, в карточке и вкладке дефектовки, потому что источников три (расхождение вернулось бы при следующей проводке).',
       'Дату из DD.MM.YYYY перевести в мс: node -e "console.log(Date.parse(\'2026-03-11\'))".',
       'Новая дата, остающаяся раньше дефектовки, требует allow_out_of_order: true — иначе отказ out_of_order_without_ack.',
       'expect_* — то, что было на экране при разборе. Расхождение с текущим состоянием = отказ поимённо, перезапустите разбор.',
@@ -423,6 +480,22 @@ function stateFor(decision: StageOrderDecision, snap: Snapshot): DecisionTargetS
     };
   }
   const row = list.find((r) => r.id === decision.row_id) ?? null;
+  if (decision.target === 'defect-date') {
+    const defectRow = list.find((r) => r.code === DEFECT_STAGE_CODE) ?? null;
+    const card = cardDatesOf(head ?? ({ card: {} } as StageRow));
+    return {
+      exists: defectRow != null,
+      engineId: decision.engine_id,
+      engineNumber: head?.engine_number || decision.engine_number,
+      stageCode: defectRow?.code ?? null,
+      at: defectRow?.at ?? null,
+      defectAt: defectRow?.at ?? null,
+      inConflict: false,
+      ...(defectRow?.id ? { rowId: defectRow.id } : {}),
+      cardAt: card['defect_date'] ?? null,
+      sheetAt: head?.defect_start_at ?? null,
+    };
+  }
   return {
     exists: row != null,
     engineId: decision.engine_id,
@@ -496,6 +569,62 @@ async function cardInput(d: StageOrderDecision, check: Extract<DecisionCheck, { 
   };
 }
 
+/**
+ * Дата дефектовки в трёх местах одной вердикт-строкой: строка этапа, атрибут карточки и — если
+ * она заполнена — вкладка дефектовки. Пустую вкладку НЕ заполняем: там ответ оператора, и
+ * выдумывать его — значит подложить дату, которой в заводском учёте не было.
+ */
+async function defectDateInputs(
+  d: StageOrderDecision,
+  check: Extract<DecisionCheck, { ok: true }>,
+  state: DecisionTargetState,
+): Promise<SyncWriteInput[]> {
+  const at = check.at ?? null;
+  const out: SyncWriteInput[] = [];
+  out.push(
+    await stageInput(
+      { ...d, target: 'stage', row_id: d.defect_row_id ?? '', stage_code: DEFECT_STAGE_CODE, action: 'set-date' },
+      check,
+    ),
+  );
+  out.push(await cardInput({ ...d, attribute_code: 'defect_date', action: 'set-date' }, check));
+  if (state.sheetAt != null) {
+    const sheet = (await pool.query(
+      `select id::text, meta_json, performed_at, created_at, updated_at
+         from operations
+        where engine_entity_id = $1 and operation_type = 'engine_inventory' and deleted_at is null
+        order by updated_at desc
+        limit 1`,
+      [d.engine_id],
+    )) as { rows: Array<{ id: string; meta_json: string | null; performed_at: number | null; created_at: number; updated_at: number }> };
+    const row = sheet.rows[0];
+    if (!row) throw new Error(`лист engine_inventory не найден — решение устарело`);
+    const meta = JSON.parse(String(row.meta_json ?? '{}')) as { answers?: Record<string, unknown> };
+    const answers = { ...(meta.answers ?? {}) };
+    answers['defect_start_date'] = { kind: 'date', value: at };
+    out.push({
+      type: 'upsert',
+      table: SyncTableName.Operations,
+      row_id: row.id,
+      row: {
+        id: row.id,
+        engine_entity_id: d.engine_id,
+        operation_type: 'engine_inventory',
+        status: 'completed',
+        note: null,
+        performed_by: null,
+        performed_at: row.performed_at,
+        created_at: Number(row.created_at),
+        updated_at: Date.now(),
+        deleted_at: null,
+        sync_status: 'synced',
+        meta_json: JSON.stringify({ ...meta, answers }),
+      },
+    });
+  }
+  return out;
+}
+
 function parseArgs(argv: string[]): { apply: boolean; engine: string | null; emit: string | null; decisions: string | null } {
   const out = { apply: false, engine: null as string | null, emit: null as string | null, decisions: null as string | null };
   for (let i = 0; i < argv.length; i++) {
@@ -522,16 +651,19 @@ async function applyDecisions(path: string): Promise<void> {
   let applied = 0;
   const skipped: string[] = [];
   for (const d of decisions) {
-    const label = `${d.engine_number} ${d.stage_code ?? d.attribute_code ?? ''}`;
-    const check = evaluateDecision(d, stateFor(d, snap));
+    const label = `${d.engine_number} ${d.stage_code ?? d.attribute_code ?? 'дата дефектовки'}`;
+    const state = stateFor(d, snap);
+    const check = evaluateDecision(d, state);
     if (!check.ok) {
       skipped.push(`${label}: ${check.reason}`);
       continue;
     }
-    const input = d.target === 'stage' ? await stageInput(d, check) : await cardInput(d, check);
-    const res = await writeSyncChanges([input], ACTOR, { allowSyncConflicts: true });
+    const inputs =
+      d.target === 'defect-date' ? await defectDateInputs(d, check, state) : [await (d.target === 'stage' ? stageInput(d, check) : cardInput(d, check))];
+    const res = await writeSyncChanges(inputs, ACTOR, { allowSyncConflicts: true });
     applied += 1;
-    console.log(`  ✓ ${label}: ${check.action}${check.at != null ? ` → ${formatStageDay(check.at)}` : ''} (seq ${res.lastSeq})`);
+    const where = d.target === 'defect-date' ? `, записей: ${inputs.length}` : '';
+    console.log(`  ✓ ${label}: ${check.action}${check.at != null ? ` → ${formatStageDay(check.at)}` : ''}${where} (seq ${res.lastSeq})`);
   }
   console.log(`\nприменено: ${applied}, отказано: ${skipped.length}`);
   for (const s of skipped) console.log(`  ! ${s}`);
