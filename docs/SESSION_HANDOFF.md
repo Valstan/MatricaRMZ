@@ -3,8 +3,8 @@
 > Sticky-note для непрерывности разработки между сессиями и компьютерами. Обновляется в PR каждого шага нитки (D-066); `/close_session` — страховка. История — через `git log -- docs/SESSION_HANDOFF.md`.
 
 **Status:** ACTIVE
-**Updated:** 2026-09-30 (Muse Spark, машина `PC79`) — PR 8/4 (мёртвый код + паритет) готов: снесены `applyStatusFlagChange`/`STATUS_ADVANCE_RANK`/`RepairStatusStamp`, парсер `repairStamp` больше не терпит; синк-паритет строк этапов (`work_sheets.edit` ИЛИ `operations.edit`); гейты зелёные (shared 1242, backend 898, typecheck/lint)
-**Branch:** `feat/stage8-dead-code-parity`
+**Updated:** 2026-09-30 (Muse Spark, машина `PC79`) — PR 8/4 смержен [#1052](https://github.com/Valstan/MatricaRMZ/pull/1052) (мёртвый код + паритет); шаг 8 плана закрыт кодом целиком, дальше приёмка/релиз
+**Branch:** `main`
 **Last released version:** **v3.51.0**, выкачено 29.09 (бэкенд, инсталлятор, APK, бэкфилл — см. ниже)
 
 ## Текущая нитка
