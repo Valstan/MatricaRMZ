@@ -122,7 +122,7 @@ corepack pnpm run dev:electron
 
 Комната `matricarmz`: читающий токен — на боксе в `/etc/matricarmz/matricarmz.env` как `SECRETS_TOKEN`, адрес там же как `SECRETS_VAULT_URL`. **Пишущий токен на бокс не кладём** и держим на машине владельца (`%USERPROFILE%\.matricarmz-keys\karman-token`): комната — это то, чем восстанавливают бокс, и право записи туда с самого бокса расширяет радиус поражения без нужды. Что и как — `brain_matrica/docs/KARMAN_ROOM.md`.
 
-В комнате лежат (22.09.2026): `SSH_PORT__matricarmz`, `BACKUP_PRIVATE_KEY_PEM`, `KEYS_BUNDLE_PASSPHRASE`, `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, `DEEPSEEK_API_KEY`.
+В комнате лежат (22.09.2026): `SSH_PORT__matricarmz`, `BACKUP_PRIVATE_KEY_PEM`, `KEYS_BUNDLE_PASSPHRASE`, `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, `DEEPSEEK_API_KEY`. **Перепроверено вживую 30.09.2026** с бокса (только имена, значения не читались в вывод): комната отдаёт ровно эти **8** ключей, а токен бокса — `canWrite: false`, то есть read-only, как и задумано. Строка канона продублирована в `AGENTS.md` §Prod server (мандат brain D-102 закрыт 30.09).
 
 **После каждой ротации секрета — класть новое значение в комнату тем же шагом.** Отставшее зеркало хуже отсутствующего: оно молча восстановит старое.
 
