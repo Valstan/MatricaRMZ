@@ -122,6 +122,8 @@ export type RepairStageRow = {
   /** Номер прохода (1 — первый, без пометки). */
   pass: number;
   note: string;
+  /** Автор внесения (логин); null — неизвестен/служебная запись. H1: автор навсегда. */
+  by: string | null;
 };
 
 export type SaveRepairStageInput = {

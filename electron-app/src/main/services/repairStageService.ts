@@ -36,6 +36,12 @@ function text(value: unknown): string {
   return String(value ?? '').trim();
 }
 
+/** Автор строки для экранов: пусто и служебный `local` — null («неизвестно»). */
+export function normalizeStageAuthor(value: unknown): string | null {
+  const s = String(value ?? '').trim();
+  return !s || s === 'local' ? null : s;
+}
+
 function templateByCode(
   templates: ReadonlyArray<RepairStageTemplate>,
   code: string,
@@ -80,6 +86,8 @@ export async function listRepairStageRows(
       at,
       pass: meta.repeat?.pass ?? 1,
       note: meta.note ?? '',
+      // H1: кто внёс этап. Служебный `local` и пусто — «неизвестно», не показываем.
+      by: normalizeStageAuthor(row.performedBy),
     });
   }
   return out;

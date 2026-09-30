@@ -19,6 +19,7 @@ import {
   WORK_ORDER_KIND_LABELS,
   WORK_ORDER_KIND_ORDER,
   WorkOrderKind,
+  workOrderAuthorship,
   type WorkOrderPayload,
 } from './workOrder.js';
 
@@ -609,5 +610,41 @@ describe('гейт отгрузки при незакрытом сборочно
   it('пустой label заменяется на «этот двигатель»', () => {
     const msg = buildShipmentOpenAssemblyMessage({ engineLabel: '  ', refs: [ref()] });
     expect(msg?.text).toContain('этот двигатель');
+  });
+});
+
+describe('workOrderAuthorship — автор навсегда, правка отдельно (H1)', () => {
+  it('пустой trail — везде null', () => {
+    expect(workOrderAuthorship(undefined)).toEqual({ createdBy: null, createdAt: null, updatedBy: null, updatedAt: null });
+    expect(workOrderAuthorship([])).toEqual({ createdBy: null, createdAt: null, updatedBy: null, updatedAt: null });
+  });
+
+  it('только создание — изменившего нет', () => {
+    expect(workOrderAuthorship([{ at: 100, by: 'ivanov', action: 'create' }])).toEqual({
+      createdBy: 'ivanov',
+      createdAt: 100,
+      updatedBy: null,
+      updatedAt: null,
+    });
+  });
+
+  it('правка другим — автор прежний, изменивший последний', () => {
+    expect(
+      workOrderAuthorship([
+        { at: 100, by: 'ivanov', action: 'create' },
+        { at: 200, by: 'petrov', action: 'update' },
+        { at: 300, by: 'sidorov', action: 'issue' },
+      ]),
+    ).toEqual({ createdBy: 'ivanov', createdAt: 100, updatedBy: 'sidorov', updatedAt: 300 });
+  });
+
+  it('служебный local и мусор — null, битые записи пропускаются', () => {
+    expect(
+      workOrderAuthorship([
+        { at: 100, by: 'local', action: 'create' },
+        { at: NaN, by: 'x', action: 'update' },
+        { at: 200, by: '  ', action: 'update' },
+      ]),
+    ).toEqual({ createdBy: null, createdAt: 100, updatedBy: null, updatedAt: 200 });
   });
 });

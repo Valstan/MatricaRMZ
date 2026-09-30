@@ -127,4 +127,11 @@ describe('единый список этапов в карточке (план u
     expect(SECTION).toContain("addingCode === 'shipped' || addingCode === 'accepted'");
     expect(SECTION).toContain('engineLabel');
   });
+
+  it('у строки этапа виден автор внесения (H1: автор навсегда, не правщик)', () => {
+    const SECTION = src('./RepairStagesSection.tsx');
+    expect(SECTION).toContain("'Кто'");
+    expect(SECTION).toContain('data-repair-stage-by={row.id}');
+    expect(SECTION).toContain('{row.by ?');
+  });
 });
