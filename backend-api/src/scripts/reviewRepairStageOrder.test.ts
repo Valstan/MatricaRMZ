@@ -85,9 +85,15 @@ describe('evaluateDecision', () => {
 
   it('дата дефектовки неприкосновенна: её ставит вкладка дефектовки, а не этот проход', () => {
     // Сценарий недостижим из `--emit` (строка дефектовки не эмитится) — гвард держит на случай
-    // правки файла решений руками.
+    // правки файла решений руками. Любое действие, не только удаление: одиночная правка даты
+    // оставила бы карточку с прежним значением.
     const del = decision({ action: 'delete-row', stage_code: 'disassembly_defect' });
     expect(evaluateDecision(del, state({ stageCode: 'disassembly_defect' }))).toEqual({
+      ok: false,
+      reason: 'defect_stage_protected',
+    });
+    const set = decision({ action: 'set-date', stage_code: 'disassembly_defect' });
+    expect(evaluateDecision(set, state({ stageCode: 'disassembly_defect' }))).toEqual({
       ok: false,
       reason: 'defect_stage_protected',
     });
@@ -161,6 +167,96 @@ describe('cardSourceOf', () => {
 
   it('отсутствие даты на карточке не выдаётся за копию', () => {
     expect(cardSourceOf('shipped', LATER_AT, {})).toEqual({ attr: 'status_customer_sent_date', exact: false });
+  });
+});
+
+describe('мишень defect-date: дата дефектовки правится во всех трёх местах сразу', () => {
+  const defectState = (over: Partial<DecisionTargetState> = {}): DecisionTargetState => ({
+    exists: true,
+    engineId: 'engine-1',
+    engineNumber: 'Т04АТ6880',
+    stageCode: 'disassembly_defect',
+    at: DEFECT_AT,
+    defectAt: DEFECT_AT,
+    inConflict: false,
+    rowId: 'defect-row',
+    cardAt: DEFECT_AT,
+    sheetAt: null,
+    ...over,
+  });
+
+  const defectDecision = (over: Partial<StageOrderDecision> = {}): StageOrderDecision => ({
+    target: 'defect-date',
+    engine_number: 'Т04АТ6880',
+    engine_id: 'engine-1',
+    defect_row_id: 'defect-row',
+    expect_at: DEFECT_AT,
+    expect_defect_at: DEFECT_AT,
+    expect_card_at: DEFECT_AT,
+    expect_sheet_at: null,
+    action: 'set-date',
+    at: Date.parse('2025-07-15'),
+    ...over,
+  });
+
+  it('решение, сошедшееся по всем трём источникам, применяется', () => {
+    expect(evaluateDecision(defectDecision(), defectState())).toEqual({
+      ok: true,
+      action: 'set-date',
+      at: Date.parse('2025-07-15'),
+    });
+  });
+
+  it('расхождение в карточке или во вкладке дефектовки — отказ: их правили бы отдельно', () => {
+    expect(evaluateDecision(defectDecision(), defectState({ cardAt: DEFECT_AT + 1 }))).toEqual({
+      ok: false,
+      reason: 'card_changed',
+    });
+    expect(evaluateDecision(defectDecision(), defectState({ sheetAt: Date.parse('2025-08-20') }))).toEqual({
+      ok: false,
+      reason: 'sheet_changed',
+    });
+  });
+
+  it('вкладка дефектовки пуста — решение всё равно принимается и вкладку НЕ заполняет', () => {
+    // Заполнять пустую вкладку значит выдумать ответ оператора: источника нет — и не будет.
+    const check = evaluateDecision(defectDecision(), defectState({ sheetAt: null }));
+    expect(check.ok).toBe(true);
+  });
+
+  it('это не лазейка: через мишень stage строка дефектовки по-прежнему защищена', () => {
+    const viaStage = decision({ stage_code: 'disassembly_defect', action: 'set-date' });
+    expect(evaluateDecision(viaStage, state({ stageCode: 'disassembly_defect' }))).toEqual({
+      ok: false,
+      reason: 'defect_stage_protected',
+    });
+    const viaCard = decision({ target: 'card', attribute_code: 'defect_date', action: 'set-date' });
+    expect(evaluateDecision(viaCard, state({ stageCode: null, at: DEFECT_AT }))).toEqual({
+      ok: false,
+      reason: 'attr_changed',
+    });
+  });
+
+  it('не та строка и не тот этап — отказ', () => {
+    expect(evaluateDecision(defectDecision(), defectState({ rowId: 'other-row' }))).toEqual({
+      ok: false,
+      reason: 'row_changed',
+    });
+    expect(evaluateDecision(defectDecision(), defectState({ stageCode: 'shipped' }))).toEqual({
+      ok: false,
+      reason: 'not_a_defect_stage',
+    });
+  });
+
+  it('только set-date: удалить или очистить дату дефектовки этой мишенью нельзя', () => {
+    expect(evaluateDecision(defectDecision({ action: 'delete-row' }), defectState())).toEqual({
+      ok: false,
+      reason: 'action_target_mismatch',
+    });
+    expect(evaluateDecision(defectDecision({ action: 'clear-date' }), defectState())).toEqual({
+      ok: false,
+      reason: 'action_target_mismatch',
+    });
   });
 });
 
