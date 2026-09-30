@@ -91,6 +91,7 @@
     "engine-inventory:backfill-lines": "tsx src/scripts/backfillEngineInventoryLines.ts",
     "engine-inventory:strip-rows": "tsx src/scripts/stripEngineInventoryRows.ts",
     "engine-inventory:dedup-sheets": "tsx src/scripts/dedupEngineInventorySheets.ts",
+    "engine-inventory:fix-defect-stage-dates": "tsx src/scripts/fixDefectStageDates.ts",
     "stages:backfill": "tsx src/scripts/backfillRepairStages.ts",
     "engine-act:fix-header-number": "tsx src/scripts/fixEngineActHeaderNumber20260914.ts",
     "engine-act:fix-header-number:apply": "tsx src/scripts/fixEngineActHeaderNumber20260914.ts --apply",
