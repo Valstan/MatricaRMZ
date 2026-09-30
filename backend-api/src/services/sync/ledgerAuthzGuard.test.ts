@@ -208,6 +208,62 @@ describe('partitionLedgerInputsByAuthz', () => {
     });
   });
 
+  // Строки единого списка этапов (шаг 8/4): дизъюнкция — ручные метки узкого
+  // круга (`work_sheets.edit`, шлюз IPC) и авто-метки мастеров (`operations.edit`,
+  // наряды/обкатка/акты идут как текущий пользователь). Конъюнкция роняла бы
+  // чужую половину: у мастера без именного права вставали бы авто-метки, у
+  // круга без мастерской роли — ручные.
+  describe('строки этапов — work_sheets.edit ИЛИ operations.edit', () => {
+    const stageMeta = JSON.stringify({
+      kind: 'repair_history',
+      action: 'Сборка',
+      entryType: 'stage',
+      stage: { code: 'sborka', name: 'Сборка' },
+    });
+    const stageInputs = () => [
+      { type: 'upsert' as const, table: 'operations', row: { id: 'op-stage', operation_type: 'repair_history_entry', engine_entity_id: 'eng-1', meta_json: stageMeta, updated_at: Date.now() }, row_id: 'op-stage' },
+    ];
+
+    it('инженер с operations.edit без work_sheets.edit: авто-метка проходит', async () => {
+      seedTypes();
+      vi.mocked(getEffectivePermissionsForUser).mockResolvedValueOnce({ [PermissionCode.OperationsEdit]: true });
+      const { allowed, denied } = await partitionLedgerInputsByAuthz(stageInputs() as any, ENGINEER);
+      expect(allowed.map((i) => i.row_id)).toEqual(['op-stage']);
+      expect(denied).toHaveLength(0);
+    });
+
+    it('инженер с work_sheets.edit без operations.edit: ручная метка проходит', async () => {
+      seedTypes();
+      vi.mocked(getEffectivePermissionsForUser).mockResolvedValueOnce({ [PermissionCode.WorkSheetsEdit]: true });
+      const { allowed, denied } = await partitionLedgerInputsByAuthz(stageInputs() as any, ENGINEER);
+      expect(allowed.map((i) => i.row_id)).toEqual(['op-stage']);
+      expect(denied).toHaveLength(0);
+    });
+
+    it('инженер без обоих прав: отказ с именованной причиной', async () => {
+      seedTypes();
+      vi.mocked(getEffectivePermissionsForUser).mockResolvedValueOnce({});
+      const { allowed, denied } = await partitionLedgerInputsByAuthz(stageInputs() as any, ENGINEER);
+      expect(allowed).toHaveLength(0);
+      expect(denied.map((d) => d.reason)).toEqual(['forbidden:repair_stage_row']);
+    });
+
+    it('admin без обоих прав — тоже отказ: backstop для всех ролей, кроме суперадмина', async () => {
+      seedTypes();
+      vi.mocked(getEffectivePermissionsForUser).mockResolvedValueOnce({});
+      const { allowed, denied } = await partitionLedgerInputsByAuthz(stageInputs() as any, { id: 'u', username: 'u', role: 'admin' });
+      expect(allowed).toHaveLength(0);
+      expect(denied.map((d) => d.reason)).toEqual(['forbidden:repair_stage_row']);
+    });
+
+    it('суперадмин проходит без прав', async () => {
+      seedTypes();
+      const { allowed, denied } = await partitionLedgerInputsByAuthz(stageInputs() as any, { id: 'root', username: 'root', role: 'superadmin' });
+      expect(denied).toHaveLength(0);
+      expect(allowed.map((i) => i.row_id)).toEqual(['op-stage']);
+    });
+  });
+
   // C2 backstop: server-managed employee auth attrs are never writable via a
   // client ledger tx, regardless of role (closes the own_employee → set own
   // system_role=superadmin escalation, and the legacy-user bypass of it).

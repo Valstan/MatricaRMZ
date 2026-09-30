@@ -18,7 +18,7 @@
 
 Источник правды — `shared/src/domain/ledgerAuthz.ts` (`SYNC_TABLE_OWNERSHIP`, `TABLE_REQUIREMENT`, `ENTITY_TYPE_REQUIREMENT`, `OPERATION_TYPE_REQUIREMENT`). Таблица ниже — снимок 21.09; расхождение снимка с кодом ловят сторожа `syncTableOwnership.guard.test.ts` (shared: карта ↔ requirement ↔ backstop; backend: карта ↔ проверки в `applyPushBatch`).
 
-Порядок гейтов на пути одной строки: `ensureSyncTable` (имя вне 25 → отказ всего батча) → backstop server-managed (любая роль, включая суперадмина) → backstop строки этапа работ → backstop защищённых атрибутов → advisory-резерв двигателя → закрытые наряды → editor-уровень раздела → **обход для не-операторских ролей** → requirement по типу/таблице для операторов → подпись в журнал → построчные проверки в `applyPushBatch`.
+Порядок гейтов на пути одной строки: `ensureSyncTable` (имя вне 25 → отказ всего батча) → backstop server-managed (любая роль, включая суперадмина) → backstop строки этапа работ → backstop строки единого списка этапов (шаг 8/4: `work_sheets.edit` ИЛИ `operations.edit`) → backstop защищённых атрибутов → advisory-резерв двигателя → закрытые наряды → editor-уровень раздела → **обход для не-операторских ролей** → requirement по типу/таблице для операторов → подпись в журнал → построчные проверки в `applyPushBatch`.
 
 | Таблица | Владение | Кто проверяет | Что клиент может |
 |---|---|---|---|
@@ -26,7 +26,7 @@
 | `attribute_defs` | schema | `open` + backstop по коду (`system_role`, `login`, …) | регистрировать атрибуты; защищённые коды режутся |
 | `entities` | type (entity_type) | `ENTITY_TYPE_REQUIREMENT` для операторов; резерв, разделы | по праву типа |
 | `attribute_values` | type (entity_type) | то же + backstop защищённых кодов, `section_access` — суперадмин | по праву типа |
-| `operations` | type (operation_type) | `OPERATION_TYPE_REQUIREMENT`, строка этапа работ — `work_sheets.edit` для всех ролей, закрытые наряды — владелец | по праву типа |
+| `operations` | type (operation_type) | `OPERATION_TYPE_REQUIREMENT`, строка этапа работ — `work_sheets.edit` для всех ролей, строка единого списка этапов — `work_sheets.edit` ИЛИ `operations.edit` для всех ролей, закрытые наряды — владелец | по праву типа |
 | `audit_log` | **append_only** (с 21.09) | `applyPushBatch`: актор из сессии, `deleted_at` не принимается, существующая строка не перезаписывается | только добавить запись |
 | `chat_messages` | row `sender_user_id` | `sync_policy_denied: chat_message_sender` | свои сообщения |
 | `chat_reads` | row `user_id` | `sync_policy_denied: chat_room_member` | свои отметки |

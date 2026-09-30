@@ -32,6 +32,7 @@ import {
   isServerManagedSyncTable,
   isSuperadminOnlyAttrCode,
   isWorkSheetRowWrite,
+  isRepairStageRowWrite,
   ledgerWriteRequirement,
   PermissionCode,
   operatorMeetsRequirement,
@@ -196,7 +197,19 @@ export async function partitionLedgerInputsByAuthz(
         operationMetaJson: str(i.row?.['meta_json']) || null,
       }),
     );
-  const perms = operatorScoped || hasWorkSheetRows ? await getEffectivePermissionsForUser(actor.id) : {};
+  // Строки единого списка этапов (шаг 8/4): дизъюнкция `work_sheets.edit` (ручные
+  // метки узкого круга) ИЛИ `operations.edit` (авто-метки мастеров) — тоже для
+  // всех ролей, кроме суперадмина. Конъюнкция роняла бы чужую половину.
+  const hasRepairStageRows =
+    role !== 'superadmin' &&
+    inputs.some((i) =>
+      isRepairStageRowWrite({
+        table: i.table,
+        operationType: str(i.row?.['operation_type']),
+        operationMetaJson: str(i.row?.['meta_json']) || null,
+      }),
+    );
+  const perms = operatorScoped || hasWorkSheetRows || hasRepairStageRows ? await getEffectivePermissionsForUser(actor.id) : {};
 
   // Restricted work-order write isolation (Phase 3): map of restricted order id ->
   // owner login. A restricted order may be edited only by its owner or the superadmin,
@@ -263,6 +276,21 @@ export async function partitionLedgerInputsByAuthz(
       perms[PermissionCode.WorkSheetsEdit] !== true
     ) {
       denied.push({ table: inp.table, row_id: inp.row_id, reason: 'forbidden:work_sheet_row' });
+      continue;
+    }
+
+    // Universal backstop: строка единого списка этапов пишется держателем
+    // `work_sheets.edit` (ручные метки узкого круга) ЛИБО `operations.edit`
+    // (авто-метки мастеров: наряды, обкатка, проведение актов) — для ЛЮБОЙ роли,
+    // кроме суперадмина. Ни у кого нет обоих прав сразу по построению, поэтому
+    // здесь дизъюнкция, а не два отдельных требования.
+    if (
+      role !== 'superadmin' &&
+      isRepairStageRowWrite({ table: inp.table, operationType, operationMetaJson }) &&
+      perms[PermissionCode.WorkSheetsEdit] !== true &&
+      perms[PermissionCode.OperationsEdit] !== true
+    ) {
+      denied.push({ table: inp.table, row_id: inp.row_id, reason: 'forbidden:repair_stage_row' });
       continue;
     }
 

@@ -249,6 +249,31 @@ const TABLE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
 };
 
 /**
+ * Строка единого списка этапов в батче синка: `operations` типа `repair_history_entry`,
+ * чья meta классифицируется как `stage` (шаг 8/2+ плана unified-repair-stages).
+ *
+ * Права — шире, чем у строк этапов работ: отметку ставит и узкий круг вручную
+ * (`work_sheets.edit`, шлюз IPC `workSheets:stages:save`), и мастера автоматами
+ * (`advanceEngineStatusForWorkOrder`, обкатка, проведение актов — идут как текущий
+ * пользователь с `operations.edit`). Конъюнкция здесь роняла бы чужую половину:
+ * требовать только `work_sheets.edit` — глушить авто-метки мастеров без именного
+ * права; требовать только `operations.edit` — глушить ручные метки круга без
+ * мастерской роли. Поэтому дизъюнкция — в backstop'е гарда, см.
+ * `partitionLedgerInputsByAuthz`.
+ */
+export function isRepairStageRowWrite(args: {
+  table: string;
+  operationType?: string | null;
+  operationMetaJson?: string | null;
+}): boolean {
+  if (args.table !== SyncTableName.Operations) return false;
+  const op = (args.operationType ?? '').trim();
+  if (op !== REPAIR_HISTORY_OPERATION_TYPE) return false;
+  const meta = parseRepairHistoryMeta(args.operationMetaJson ?? null);
+  return meta != null && repairHistoryEntryType(meta, op) === 'stage';
+}
+
+/**
  * Строка этапа работ в батче синка: `operations` типа `repair_history_entry`, чья meta
  * классифицируется как `sheet`. Этапы работ заполняет поимённый круг (`work_sheets.edit`),
  * а `operations.edit` есть у мастеров — поэтому у этих строк своё требование, и гейд
@@ -301,6 +326,12 @@ export function ledgerWriteRequirement(args: {
 
   if (table === SyncTableName.Operations) {
     if (isWorkSheetRowWrite(args)) return { kind: 'permission', code: PermissionCode.WorkSheetsEdit };
+    // Строка единого списка этапов (шаг 8/4): дизъюнкцию прав (`work_sheets.edit`
+    // ИЛИ `operations.edit`) держит backstop в `partitionLedgerInputsByAuthz` — он
+    // строже и работает для всех ролей, кроме суперадмина. Здесь `open`, чтобы
+    // прошедших backstop не резало второе требование: ни одно одиночное право
+    // обе половины (ручные метки узкого круга + авто-метки мастеров) не покрывает.
+    if (isRepairStageRowWrite(args)) return { kind: 'open' };
     const op = (args.operationType ?? '').trim();
     return OPERATION_TYPE_REQUIREMENT[op] ?? { kind: 'permission', code: PermissionCode.OperationsEdit };
   }

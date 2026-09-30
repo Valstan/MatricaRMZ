@@ -1,4 +1,3 @@
-import { STATUS_LABELS, type StatusCode } from './contract.js';
 import { parseWorkSheetFields, type WorkSheetField } from './workSheets.js';
 
 /**
@@ -55,27 +54,6 @@ export type RepairHistorySheet = {
 };
 
 /**
- * След строки в карточке двигателя: что именно она изменила, когда поставила «Отремонтирован».
- *
- * Без штампа откат — угадывание. История стадий неполна по построению (карточка пишет
- * автозапись только для ВЗВЕДЁННЫХ флагов, путь наряда не пишет её вовсе), в самой карточке
- * не записано, КТО поставил статус, а прежнее значение даты после перехода нигде не хранится.
- * Поэтому строка запоминает свой след сама — и удаление возвращает ровно его, не трогая
- * «Отремонтирован», поставленный карточкой или сборочным нарядом.
- *
- * `to` хранится рядом с `from` не для симметрии: по нему видно, держится ли ещё наша правка.
- * Если с тех пор значение изменил кто-то другой, откатывать его нельзя — это уже чужое решение.
- */
-export type RepairStatusStamp = {
-  /** Автозапись стадии, написанная вместе со статусом: при откате гаснет вместе с ним. */
-  statusEntryId: string;
-  flags: Array<{ code: string; from: boolean; to: boolean }>;
-  dateCode: string;
-  dateFrom: number | null;
-  dateTo: number;
-};
-
-/**
  * Повторный проход этапа. `pass` — номер прохода, начиная с 2: первый проход поля не несёт
  * вовсе, поэтому «есть `repeat`» и означает «это возврат». `reason` необязателен — заставлять
  * оператора объяснять возврат в момент, когда он просто вносит факт, значит получить отписку.
@@ -86,10 +64,10 @@ export type RepairHistoryRepeat = {
 };
 
 /**
- * След строки этапа работ в едином списке (шаг 8 плана unified-repair-stages:
- * наследник `RepairStatusStamp`). Строка обкатки при создании отмечает этап
- * «Обкатка»; удаление строки по подтверждению гасит и эту отметку — но только
- * если её с тех пор никто не правил (чужое решение не трогаем, как и раньше).
+ * След строки этапа работ в едином списке (шаг 8 плана unified-repair-stages).
+ * Строка обкатки при создании отмечает этап «Обкатка»; удаление строки по
+ * подтверждению гасит и эту отметку — но только если её с тех пор никто не
+ * правил (чужое решение не трогаем).
  */
 export type RepairHistoryStageMark = {
   /** id авто-строки этапа в `operations`. */
@@ -121,12 +99,7 @@ export type RepairHistoryMeta = {
   sheet?: RepairHistorySheet;
   /** Строка единого списка этапов (план unified-repair-stages, шаг 2). */
   stage?: RepairHistoryStage;
-  /** След этой строки в карточке двигателя — основание для отката при удалении. */
-  repairStamp?: RepairStatusStamp;
-  /**
-   * След строки этапа работ в едином списке (шаг 8 плана; наследник `repairStamp`,
-   * который больше не пишется, но остался в старых строках и парсер его терпит).
-   */
+  /** След строки этапа работ в едином списке — основание для отката при удалении. */
   repairStage?: RepairHistoryStageMark | null;
   /**
    * Осознанный повторный проход: двигатель вернулся на ТОТ ЖЕ этап в тот же день.
@@ -239,31 +212,6 @@ function parseRepeat(raw: unknown): RepairHistoryRepeat | null {
   return { pass: Math.min(pass, 99), ...(reason ? { reason } : {}) };
 }
 
-function parseRepairStamp(raw: unknown): RepairStatusStamp | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const obj = raw as Record<string, unknown>;
-  const statusEntryId = text(obj.statusEntryId).slice(0, 80);
-  const dateCode = text(obj.dateCode).slice(0, 80);
-  const dateTo = typeof obj.dateTo === 'number' && Number.isFinite(obj.dateTo) ? obj.dateTo : null;
-  if (!statusEntryId || !dateCode || dateTo === null) return null;
-  const flags: RepairStatusStamp['flags'] = [];
-  for (const item of Array.isArray(obj.flags) ? obj.flags : []) {
-    if (!item || typeof item !== 'object') continue;
-    const f = item as Record<string, unknown>;
-    const code = text(f.code).slice(0, 80);
-    if (!code || typeof f.from !== 'boolean' || typeof f.to !== 'boolean') continue;
-    flags.push({ code, from: f.from, to: f.to });
-  }
-  if (flags.length === 0) return null;
-  return {
-    statusEntryId,
-    flags,
-    dateCode,
-    dateFrom: typeof obj.dateFrom === 'number' && Number.isFinite(obj.dateFrom) ? obj.dateFrom : null,
-    dateTo,
-  };
-}
-
 function parseRepairStageMark(raw: unknown): RepairHistoryStageMark | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const obj = raw as Record<string, unknown>;
@@ -336,7 +284,6 @@ export function parseRepairHistoryMeta(metaJson: string | null): RepairHistoryMe
     ...(parseEntryType(obj.entryType) ? { entryType: parseEntryType(obj.entryType)! } : {}),
     ...(parseSheet(obj.sheet) ? { sheet: parseSheet(obj.sheet)! } : {}),
     ...(parseStage(obj.stage) ? { stage: parseStage(obj.stage)! } : {}),
-    ...(parseRepairStamp(obj.repairStamp) ? { repairStamp: parseRepairStamp(obj.repairStamp)! } : {}),
     ...(parseRepairStageMark(obj.repairStage) ? { repairStage: parseRepairStageMark(obj.repairStage)! } : {}),
     ...(parseRepeat(obj.repeat) ? { repeat: parseRepeat(obj.repeat)! } : {}),
   };
@@ -359,7 +306,6 @@ export function buildRepairHistoryMeta(input: {
   entryType?: RepairHistoryEntryType;
   sheet?: RepairHistorySheet | null;
   stage?: RepairHistoryStage | null;
-  repairStamp?: RepairStatusStamp | null;
   repairStage?: RepairHistoryStageMark | null;
   repeat?: RepairHistoryRepeat | null;
 }): RepairHistoryMeta {
@@ -378,7 +324,6 @@ export function buildRepairHistoryMeta(input: {
     ...(input.entryType ? { entryType: input.entryType } : {}),
     ...(sheet ? { sheet } : {}),
     ...(stage ? { stage } : {}),
-    ...(parseRepairStamp(input.repairStamp) ? { repairStamp: parseRepairStamp(input.repairStamp)! } : {}),
     ...(parseRepairStageMark(input.repairStage) ? { repairStage: parseRepairStageMark(input.repairStage)! } : {}),
     ...(parseRepeat(input.repeat) ? { repeat: parseRepeat(input.repeat)! } : {}),
   };
@@ -468,11 +413,6 @@ export function currentWorkshopFromHistory(entries: readonly RepairHistoryEntry[
     if (entry.workshopId) return entry.workshopId;
   }
   return null;
-}
-
-/** Автозапись смены стадии ремонта — подпись берём из того же реестра, что и карточка. */
-export function repairHistoryMetaForStatus(code: StatusCode, at?: number): RepairHistoryMeta {
-  return buildRepairHistoryMeta({ action: STATUS_LABELS[code] ?? code, auto: true, entryType: 'status', ...(at ? { at } : {}) });
 }
 
 /** Последняя строка этапа работ в ленте — «на каком узле двигатель» для списка и отчётов. */
