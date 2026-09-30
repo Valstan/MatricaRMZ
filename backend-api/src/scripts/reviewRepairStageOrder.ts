@@ -4,7 +4,7 @@ import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { REPAIR_HISTORY_OPERATION_TYPE, SyncTableName, SyncTableRegistry } from '@matricarmz/shared';
+import { moscowDayKey, REPAIR_HISTORY_OPERATION_TYPE, SyncTableName, SyncTableRegistry } from '@matricarmz/shared';
 import { and, eq } from 'drizzle-orm';
 
 import { db, pool } from '../database/db.js';
@@ -193,8 +193,16 @@ type StageRow = {
 
 type Snapshot = { defectAt: Map<string, number>; rows: StageRow[] };
 
-function dayKey(ms: number | null): string {
-  return ms == null ? '—'.padEnd(10) : new Date(ms).toISOString().slice(0, 10);
+/**
+ * Дата строки для отчёта — **по московскому времени**, доменным `moscowDayKey`.
+ *
+ * Дата этапа хранится как полночь локальной машины оператора, то есть в ms это 21:00 UTC
+ * предыдущих суток. Форматтер по UTC печатал каждую строку на сутки раньше той даты, которую
+ * видит оператор в программе, — отчёт тогда противоречит экрану, и вердикт владельца принимается
+ * не по тому дню. Приватную копию форматтера заводить нельзя (см. комментарий у `moscowDayKey`).
+ */
+export function formatStageDay(ms: number | null): string {
+  return ms == null ? '—'.padEnd(10) : moscowDayKey(ms).padEnd(10);
 }
 
 /**
@@ -320,21 +328,24 @@ function printReport(snap: Snapshot): void {
     const head = list[0]!;
     const defectAt = snap.defectAt.get(engineId) ?? null;
     const cardDates = cardDatesOf(head);
-    console.log(`${head.engine_number || '(без номера)'} · ${head.brand || '—'} · дефектовка ${dayKey(defectAt)}`);
+    console.log(`${head.engine_number || '(без номера)'} · ${head.brand || '—'} · дефектовка ${formatStageDay(defectAt)}`);
     for (const r of list) {
       const src = cardSourceOf(r.code, r.at, cardDates);
       const tail = src
-        ? `   ← карточка ${src.attr}${src.exact ? ' (точная копия)' : ` = ${dayKey(cardDates[src.attr] ?? null)}`}`
+        ? `   ← карточка ${src.attr}${src.exact ? ' (точная копия)' : ` = ${formatStageDay(cardDates[src.attr] ?? null)}`}`
         : '';
       const pass = r.pass && r.pass > 1 ? ` (проход ${r.pass})` : '';
-      console.log(`  ${dayKey(r.at)}  ${r.code.padEnd(19)} ${r.name}${pass}${tail}`);
-      if (defectAt != null && r.at != null && r.at < defectAt && r.code !== DEFECT_STAGE_CODE) {
+      console.log(`  ${formatStageDay(r.at)}  ${r.code.padEnd(19)} ${r.name}${pass}${tail}`);
+      if (defectAt != null && r.at != null && r.at < defectAt && (LATER_STAGE_CODES as readonly string[]).includes(r.code)) {
+        // Только поздние этапы: «Принят на завод» до дефектовки — это и есть порядок, а не
+        // аномалия. Без этой оговорки предупреждение стояло на каждой строке и мешало видеть
+        // настоящие (на проде так и вышло — ⚠ был на всех строках, включая arrival).
         console.log(`  ${' '.repeat(12)}⚠ раньше дефектовки — предмет решения владельца`);
       }
     }
     const card = Object.entries(cardDates)
       .filter(([, v]) => v != null)
-      .map(([code, v]) => `${code}=${dayKey(v)}`)
+      .map(([code, v]) => `${code}=${formatStageDay(v)}`)
       .join(' ');
     console.log(`  карточка: ${card || '(дат нет)'}\n`);
   }
@@ -520,7 +531,7 @@ async function applyDecisions(path: string): Promise<void> {
     const input = d.target === 'stage' ? await stageInput(d, check) : await cardInput(d, check);
     const res = await writeSyncChanges([input], ACTOR, { allowSyncConflicts: true });
     applied += 1;
-    console.log(`  ✓ ${label}: ${check.action}${check.at != null ? ` → ${dayKey(check.at)}` : ''} (seq ${res.lastSeq})`);
+    console.log(`  ✓ ${label}: ${check.action}${check.at != null ? ` → ${formatStageDay(check.at)}` : ''} (seq ${res.lastSeq})`);
   }
   console.log(`\nприменено: ${applied}, отказано: ${skipped.length}`);
   for (const s of skipped) console.log(`  ! ${s}`);
