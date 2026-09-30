@@ -1,6 +1,6 @@
 import 'dotenv/config';
 
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { db, pool } from '../database/db.js';
 import { operations, attributeValues, attributeDefs } from '../database/schema.js';
@@ -8,14 +8,29 @@ import { operations, attributeValues, attributeDefs } from '../database/schema.j
 async function main(): Promise<void> {
   console.log('Fixing disassembly_defect stage dates...');
 
-  // 1. Get all disassembly_defect stages
-  const stages = await db
-    .select()
-    .from(operations)
-    .where(and(eq(operations.operationType, 'disassembly_defect'), isNull(operations.deletedAt)))
-    .orderBy(desc(operations.createdAt));
-
-  console.log(`Found ${stages.length} disassembly_defect stages`);
+  // 1. Get all disassembly_defect stages (stored as repair_history_entry with meta containing stage.code)
+  // Using raw SQL because Drizzle's like() doesn't work as expected with % patterns
+  process.stdout.write('Executing raw SQL query...\n');
+  let stagesResult: any;
+  try {
+    stagesResult = await pool.query(`
+      select id, engine_entity_id, operation_type, meta_json, performed_at, created_at
+      from operations
+      where operation_type = 'repair_history_entry'
+        and deleted_at is null
+        and meta_json like '%disassembly_defect%'
+      order by created_at desc
+    `);
+    process.stdout.write(`Query executed successfully, rowCount: ${stagesResult.rowCount}, rows: ${stagesResult.rows?.length ?? 0}\n`);
+  } catch (e) {
+    process.stderr.write(`Query failed: ${String(e)}\n`);
+    throw e;
+  }
+  const stages = stagesResult.rows as any[];
+  process.stdout.write(`Found ${stages.length} disassembly_defect stages\n`);
+  if (stages.length > 0) {
+    process.stdout.write(`First stage: id=${stages[0].id}, engineId=${stages[0].engine_entity_id}, performedAt=${stages[0].performed_at}, meta=${String(stages[0].meta_json).slice(0, 200)}\n`);
+  }
 
   if (stages.length === 0) {
     console.log('No stages to fix');
