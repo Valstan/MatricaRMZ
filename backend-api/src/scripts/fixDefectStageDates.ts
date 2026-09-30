@@ -4,7 +4,7 @@ import { ENGINE_INVENTORY_STAGE, REPAIR_HISTORY_OPERATION_TYPE, SyncTableName, S
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { db, pool } from '../database/db.js';
-import { operations } from '../database/schema.js';
+import { attributeDefs, attributeValues, operations } from '../database/schema.js';
 import { writeSyncChanges } from '../services/sync/syncWriteService.js';
 
 // engine-inventory:fix-defect-stage-dates — дата этапа «Разборка, дефектовка» = «Дата начала
@@ -20,9 +20,11 @@ import { writeSyncChanges } from '../services/sync/syncWriteService.js';
 // инкрементальным pull. Прямой UPDATE в PG этого не делает: строка меняется, а `last_server_seq`
 // прежний — парк бы увидел старое значение до полного pull.
 //
-// Пропускаем (и считаем): лист без `defect_start_date` или без числа в нём — даты не из чего
-// взять, выдумывать её нельзя; этап с пометкой возврата (pass ≥ 2) — это сознательная вторая
-// отметка, её не трогаем.
+// Источник даты — по очереди: 1) `answers.defect_start_date` («Дата начала дефектовки»
+// вкладки дефектовки — то, что просил владелец); 2) EAV-атрибут двигателя `defect_date`
+// («Дата дефектовки» карточки) — на проде заполнен у 710 из 712 двигателей, тогда как поле
+// вкладки почти пустое, а брать дату из чего-то надо; 3) ничего — дату не выдумываем.
+// Этап с пометкой возврата (pass ≥ 2) — сознательная вторая отметка, её не трогаем.
 //
 // Usage:
 //   corepack pnpm -F @matricarmz/backend-api engine-inventory:fix-defect-stage-dates            # dry-run
@@ -32,6 +34,7 @@ import { writeSyncChanges } from '../services/sync/syncWriteService.js';
 // явный OK владельца в том же ходе (#025).
 
 const DEFECT_STAGE_CODE = 'disassembly_defect';
+const DEFECT_DATE_ATTR_CODE = 'defect_date';
 /** Коды этапов, которые по смыслу идут ПОЗЖЕ дефектовки — для отчёта о порядке. */
 const LATER_STAGE_CODES = ['obkatka', 'sborka', 'otk', 'shipped', 'accepted'] as const;
 
@@ -110,13 +113,37 @@ async function main(): Promise<void> {
     const cur = sheetByEngine.get(id);
     if (!cur || Number(s.updatedAt ?? 0) > Number(cur.updatedAt ?? 0)) sheetByEngine.set(id, s);
   }
-  const defectStartByEngine = new Map<string, number>();
+  const sheetDateByEngine = new Map<string, number>();
   for (const [engineId, sheet] of sheetByEngine) {
     const answers = (parseMeta(sheet.metaJson) as { answers?: Record<string, unknown> } | null)?.answers;
     const raw = (answers?.defect_start_date ?? null) as { kind?: unknown; value?: unknown } | null;
     if (raw && String(raw.kind) === 'date') {
       const ms = toMs(raw.value);
-      if (ms != null) defectStartByEngine.set(engineId, ms);
+      if (ms != null) sheetDateByEngine.set(engineId, ms);
+    }
+  }
+
+  // Запасной источник — EAV «Дата дефектовки» карточки двигателя.
+  const attrDef = (await db
+    .select({ id: attributeDefs.id })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.code, DEFECT_DATE_ATTR_CODE), isNull(attributeDefs.deletedAt)))
+    .limit(1))[0];
+  const eavDateByEngine = new Map<string, number>();
+  if (attrDef) {
+    const values = (await db
+      .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
+      .from(attributeValues)
+      .where(
+        and(
+          eq(attributeValues.attributeDefId, attrDef.id),
+          isNull(attributeValues.deletedAt),
+          inArray(attributeValues.entityId, engineIds as any),
+        ),
+      )) as any[];
+    for (const v of values) {
+      const ms = toMs(v.valueJson);
+      if (ms != null) eavDateByEngine.set(String(v.entityId), ms);
     }
   }
 
@@ -135,11 +162,11 @@ async function main(): Promise<void> {
   }
 
   let noSheet = 0;
-  let noDate = 0;
+  let noDateAtAll = 0;
   let repeatSkipped = 0;
   let same = 0;
   let outOfOrder = 0;
-  const todo: Array<{ row: any; meta: Meta; date: number }> = [];
+  const todo: Array<{ row: any; meta: Meta; date: number; source: 'sheet' | 'eav' }> = [];
 
   for (const row of defectStages) {
     const engineId = String(row.engineEntityId);
@@ -150,13 +177,15 @@ async function main(): Promise<void> {
     }
     if (!sheetByEngine.has(engineId)) {
       noSheet++;
+    }
+    const sheetDate = sheetDateByEngine.get(engineId) ?? null;
+    const eavDate = eavDateByEngine.get(engineId) ?? null;
+    if (sheetDate == null && eavDate == null) {
+      noDateAtAll++;
       continue;
     }
-    const date = defectStartByEngine.get(engineId);
-    if (date == null) {
-      noDate++;
-      continue;
-    }
+    const source: 'sheet' | 'eav' = sheetDate != null ? 'sheet' : 'eav';
+    const date = sheetDate ?? eavDate!;
     if (toMs(meta.at) === date) {
       same++;
       continue;
@@ -164,18 +193,22 @@ async function main(): Promise<void> {
     const earliestLater = (laterByEngine.get(engineId) ?? []).sort((a, b) => a - b)[0];
     if (earliestLater != null && date > earliestLater) {
       outOfOrder++;
-      console.log(
-        `  ! ${engineId}: «Дата начала дефектовки» ${new Date(date).toISOString().slice(0, 10)} позже ближайшего позднего этапа ` +
-          `${new Date(earliestLater).toISOString().slice(0, 10)} — этап останется после него, это к вопросу владельца`,
-      );
+      if (outOfOrder <= 20) {
+        console.log(
+          `  ! ${engineId}: дата дефектовки ${new Date(date).toISOString().slice(0, 10)} (${source}) позже ближайшего позднего этапа ` +
+            `${new Date(earliestLater).toISOString().slice(0, 10)} — этап останется после него, это к вопросу владельца`,
+        );
+      }
     }
-    todo.push({ row, meta, date });
+    todo.push({ row, meta, date, source });
   }
 
+  const fromSheet = todo.filter((t) => t.source === 'sheet').length;
   console.log(
-    `  без листа engine_inventory: ${noSheet}, без заполненной defect_start_date: ${noDate}, ` +
+    `  нет листа engine_inventory: ${noSheet}, нет ни одной даты дефектовки: ${noDateAtAll}, ` +
       `возвраты (pass ≥ 2) не трогаем: ${repeatSkipped}, уже верная дата: ${same}\n` +
-      `  к записи: ${todo.length} (из них предупреждений о порядке: ${outOfOrder})`,
+      `  к записи: ${todo.length} (из поля вкладки дефектовки: ${fromSheet}, из EAV «Дата дефектовки»: ${todo.length - fromSheet}; ` +
+      `предупреждений о порядке: ${outOfOrder})`,
   );
   if (todo.length === 0) {
     console.log('Менять нечего.');
