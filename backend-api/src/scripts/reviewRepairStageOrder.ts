@@ -197,6 +197,19 @@ export function evaluateDecision(decision: StageOrderDecision, state: DecisionTa
   return { ok: true, action: decision.action, at: decision.action === 'set-date' ? (decision.at ?? null) : null };
 }
 
+/**
+ * Строка, которую вообще можно предлагать к удалению: **поздний этап**, стоящий раньше
+ * дефектовки. Всё остальное — не аномалия: `arrival` раньше дефектовки и должен быть
+ * (он и означает начало текущего цикла), а дефектовку не трогают вовсе.
+ *
+ * ⚠️ Сначала сюда попадал и `arrival`, потому что правило звучало как «дата раньше дефектовки».
+ * На проде это вылезло в шаблоне решений: 13 движков, у каждого в шаблоне стоял `arrival` с
+ * действием на удаление — то есть буквально готовый файл, который снёс бы дату прихода.
+ */
+export function isRemovableStageCode(code: string): boolean {
+  return (LATER_STAGE_CODES as readonly string[]).includes(code);
+}
+
 /** Отметка для отчёта: строка этапа — копия даты статуса карточки. */
 export function cardSourceOf(
   stageCode: string,
@@ -390,15 +403,17 @@ function printReport(snap: Snapshot): void {
         : '';
       const pass = r.pass && r.pass > 1 ? ` (проход ${r.pass})` : '';
       console.log(`  ${formatStageDay(r.at)}  ${r.code.padEnd(19)} ${r.name}${pass}${tail}`);
-      if (defectAt != null && r.at != null && r.at < defectAt && (LATER_STAGE_CODES as readonly string[]).includes(r.code)) {
+      if (defectAt != null && r.at != null && r.at < defectAt && isRemovableStageCode(r.code)) {
         // Только поздние этапы: «Принят на завод» до дефектовки — это и есть порядок, а не
         // аномалия. Без этой оговорки предупреждение стояло на каждой строке и мешало видеть
         // настоящие (на проде так и вышло — ⚠ был на всех строках, включая arrival).
         console.log(`  ${' '.repeat(12)}⚠ раньше дефектовки — предмет решения владельца`);
       }
     }
+    // Только атрибуты-источники дат. Строка «карточка» — это даты, и Anything-число, попавшее
+    // в неё, печатается как дата: номер двигателя «833909» выходил как «01.01.1970».
     const card = Object.entries(cardDates)
-      .filter(([, v]) => v != null)
+      .filter(([code, v]) => v != null && (ALLOWED_CARD_ATTRS.has(code) || code === 'shipping_date'))
       .map(([code, v]) => `${code}=${formatStageDay(v)}`)
       .join(' ');
     console.log(`  карточка: ${card || '(дат нет)'}`);
@@ -415,7 +430,7 @@ function buildTemplate(snap: Snapshot): unknown {
     const defectAt = snap.defectAt.get(engineId) ?? null;
     const cardDates = cardDatesOf(head);
     for (const r of list) {
-      if (r.code === DEFECT_STAGE_CODE || defectAt == null || r.at == null || r.at >= defectAt) continue;
+      if (!isRemovableStageCode(r.code) || defectAt == null || r.at == null || r.at >= defectAt) continue;
       const src = cardSourceOf(r.code, r.at, cardDates);
       decisions.push({
         target: 'stage',

@@ -3,7 +3,14 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { cardSourceOf, evaluateDecision, formatStageDay, type DecisionTargetState, type StageOrderDecision } from './reviewRepairStageOrder.js';
+import {
+  cardSourceOf,
+  evaluateDecision,
+  formatStageDay,
+  isRemovableStageCode,
+  type DecisionTargetState,
+  type StageOrderDecision,
+} from './reviewRepairStageOrder.js';
 
 const DEFECT_AT = Date.parse('2025-08-26');
 const LATER_AT = Date.parse('2025-08-23');
@@ -257,6 +264,23 @@ describe('мишень defect-date: дата дефектовки правитс
       ok: false,
       reason: 'action_target_mismatch',
     });
+  });
+});
+
+describe('isRemovableStageCode', () => {
+  it('к удалению предлагаются только поздние этапы', () => {
+    expect(isRemovableStageCode('shipped')).toBe(true);
+    expect(isRemovableStageCode('accepted')).toBe(true);
+    expect(isRemovableStageCode('obkatka')).toBe(true);
+  });
+
+  it('приход на завод и дефектовка — не аномалия, их удалять нельзя', () => {
+    // На проде в шаблон решений попадал `arrival` (он по определению раньше дефектовки), то
+    // есть готовый файл, который снёс бы дату прихода. Раньше дефектовки стоит не значит
+    // «лишнее»: значит «не тот цикл» — а это решает владелец, а не фильтр по дате.
+    expect(isRemovableStageCode('arrival')).toBe(false);
+    expect(isRemovableStageCode('disassembly_defect')).toBe(false);
+    expect(isRemovableStageCode('obkatka')).toBe(true);
   });
 });
 
