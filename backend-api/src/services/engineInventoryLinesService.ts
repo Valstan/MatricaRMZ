@@ -166,6 +166,42 @@ export async function readExistingLines(operationIds: string[]): Promise<Map<str
 export type DeriveResult = { operations: number; insert: number; update: number; tombstone: number; unchanged: number; skipped: number; skippedMarked: number; skippedEmptyGuard: number };
 
 /**
+ * G4: выбор выжившего среди дублей листов одного двигателя. Живым считается лист,
+ * который показывает клиент — самый свежий по `updated_at` (`getRepairChecklistForEngine`
+ * берёт первый по `updated_at desc`); остальные — кандидаты на мягкое удаление.
+ * Ничья по штампу решается детерминированно по id (клиентский порядок при равенстве
+ * не определён, но второй такой лист — уже баг, а не выбор).
+ */
+export type SheetDedupeHead = {
+  id: string;
+  engine_entity_id: string;
+  created_at: number;
+  updated_at: number;
+  /** Строк в JSON листа (сколько спрячется при удалении, если их нет в таблице). */
+  json_rows: number;
+  /** Живых строк таблицы у листа (удаление листа гасит и их — через вывод). */
+  live_lines: number;
+};
+
+export type SheetDedupePlan = { engine_entity_id: string; keep_id: string; delete_ids: string[] };
+
+export function pickSheetDedupeSurvivors(heads: ReadonlyArray<SheetDedupeHead>): SheetDedupePlan[] {
+  const byEngine = new Map<string, SheetDedupeHead[]>();
+  for (const h of heads) {
+    const arr = byEngine.get(h.engine_entity_id) ?? [];
+    arr.push(h);
+    byEngine.set(h.engine_entity_id, arr);
+  }
+  const out: SheetDedupePlan[] = [];
+  for (const [engineId, group] of byEngine) {
+    if (group.length < 2) continue;
+    const sorted = [...group].sort((a, b) => b.updated_at - a.updated_at || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+    out.push({ engine_entity_id: engineId, keep_id: sorted[0]!.id, delete_ids: sorted.slice(1).map((s) => s.id) });
+  }
+  return out;
+}
+
+/**
  * Вывести строки для набора листов и записать разницу через writeSyncChanges (ledger →
  * index → PG, как любая серверная запись). Пачка на один вызов ограничена, чтобы блок
  * ledger'а не раздувался: один лист — до 659 строк, бэкфилл — сотни тысяч.
