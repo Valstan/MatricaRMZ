@@ -23,8 +23,9 @@ import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
-import { WorkSheetTypeEditorDialog, type WorkshopOption } from '../components/WorkSheetTypeEditorDialog.js';
-import { RepairStageTemplateDialog } from '../components/RepairStageTemplateDialog.js';
+import { WorkSheetTypeEditorDialog, type WorkshopOption } from '../components/WorkSheetTypeEditorDialog.js';
+import { RepairStageTemplateDialog } from '../components/RepairStageTemplateDialog.js';
+import { BulkStageAddDialog } from '../components/BulkStageAddDialog.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { useListDeepFilter } from '../hooks/useListDeepFilter.js';
 import { useListUiState } from '../hooks/useListBehavior.js';
@@ -118,9 +119,10 @@ export function WorkSheetsPage(props: {
   const [status, setStatus] = useState('');
   const [allTime, setAllTime] = useState(false);
   const [workshops, setWorkshops] = useState<WorkshopOption[]>([]);
-  const [typeEditorOpen, setTypeEditorOpen] = useState(false);
-  const [stageTemplateEditorOpen, setStageTemplateEditorOpen] = useState(false);
-  const [printOpen, setPrintOpen] = useState(false);
+  const [typeEditorOpen, setTypeEditorOpen] = useState(false);
+  const [stageTemplateEditorOpen, setStageTemplateEditorOpen] = useState(false);
+  const [bulkAddOpen, setBulkAddOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const { state: ui, patchState } = useListUiState<ListUiState>('list:workSheets:ui', {
@@ -335,11 +337,14 @@ export function WorkSheetsPage(props: {
             Виды работ
           </Button>
         )}
-        {props.canManageStageTemplates && (
-          <Button variant="ghost" onClick={() => setStageTemplateEditorOpen(true)} title="Шаблон этапов ремонта: названия и порядок" data-repair-stage-edit-templates>
-            Шаблон этапов
-          </Button>
-        )}
+        {props.canManageStageTemplates && (
+          <Button variant="ghost" onClick={() => setStageTemplateEditorOpen(true)} title="Шаблон этапов ремонта: названия и порядок" data-repair-stage-edit-templates>
+            Шаблон этапов
+          </Button>
+        )}
+        <Button variant="ghost" onClick={() => setBulkAddOpen(true)} title="Добавить этап на несколько двигателей сразу" data-bulk-stage-add-open>
+          Добавить этап на движки
+        </Button>
         <Button variant="ghost" onClick={() => setAllTime((v) => !v)} title="По умолчанию показаны этапы работ с датой за последний год">
           {allTime ? 'За год' : 'За всё время'}
         </Button>
@@ -435,9 +440,20 @@ export function WorkSheetsPage(props: {
         />
       ) : null}
 
-      {stageTemplateEditorOpen ? (
-        <RepairStageTemplateDialog onClose={() => setStageTemplateEditorOpen(false)} onChanged={async () => {}} />
-      ) : null}
+      {stageTemplateEditorOpen ? (
+        <RepairStageTemplateDialog onClose={() => setStageTemplateEditorOpen(false)} onChanged={async () => {}} />
+      ) : null}
+
+      {bulkAddOpen ? (
+        <BulkStageAddDialog
+          templates={types.filter((t) => t.archivedAt == null).map((t) => ({ code: t.code, name: t.name }))}
+          workshops={workshops}
+          onClose={() => setBulkAddOpen(false)}
+          onAdded={async () => {
+            await refreshRows();
+          }}
+        />
+      ) : null}
     </div>
   );
 }
