@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { cardSourceOf, evaluateDecision, type DecisionTargetState, type StageOrderDecision } from './reviewRepairStageOrder.js';
+import { cardSourceOf, evaluateDecision, formatStageDay, type DecisionTargetState, type StageOrderDecision } from './reviewRepairStageOrder.js';
 
 const DEFECT_AT = Date.parse('2025-08-26');
 const LATER_AT = Date.parse('2025-08-23');
@@ -161,6 +161,21 @@ describe('cardSourceOf', () => {
 
   it('отсутствие даты на карточке не выдаётся за копию', () => {
     expect(cardSourceOf('shipped', LATER_AT, {})).toEqual({ attr: 'status_customer_sent_date', exact: false });
+  });
+});
+
+describe('formatStageDay', () => {
+  it('дата этапа печатается по Москве, а не по UTC', () => {
+    // Дата этапа = полночь локальной машины оператора: в ms это 21:00 UTC предыдущих суток.
+    // Форматтер по UTC печатал на сутки раньше, и отчёт противоречил экрану (поймано на проде
+    // 30.09 — вердикт владельца принимался бы не по тому дню).
+    const mskMidnight = Date.UTC(2026, 8, 14, 21, 0, 0);
+    expect(new Date(mskMidnight).toISOString().slice(0, 10)).toBe('2026-09-14');
+    expect(formatStageDay(mskMidnight).trim()).toBe('15.09.2026');
+  });
+
+  it('без даты печатает прочерк, а не 1970', () => {
+    expect(formatStageDay(null).trim()).toBe('—');
   });
 });
 
