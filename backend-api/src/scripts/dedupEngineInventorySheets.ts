@@ -6,13 +6,13 @@ import {
   SyncTableRegistry,
   inventoryRawRowsFromPayload,
 } from '@matricarmz/shared';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { db, pool } from '../database/db.js';
 import { operations } from '../database/schema.js';
 import {
+  countLiveLinesByOperations,
   pickSheetDedupeSurvivors,
-  readExistingLines,
   type SheetDedupeHead,
 } from '../services/engineInventoryLinesService.js';
 import { writeSyncChanges } from '../services/sync/syncWriteService.js';
@@ -65,29 +65,41 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   console.log(`engine-inventory:dedup-sheets — ${args.apply ? 'ЗАПИСЬ' : 'dry-run, ничего не меняет'}`);
 
+  // Страницами: полный select 2447 листов по 48–255 КБ + readExistingLines на 290 тыс.
+  // строк роняют V8 на боксе (OOM dry-run strip 30.09). Лёгкие heads копим, payload
+  // после подсчёта json_rows отпускаем.
+  const PAGE = 200;
   const conds = [eq(operations.operationType, ENGINE_INVENTORY_STAGE as any), isNull(operations.deletedAt)];
   if (args.engine) conds.push(eq(operations.engineEntityId, args.engine as any));
-  const sheets = (await db.select().from(operations).where(and(...conds))) as any[];
-  const liveByOp = await readExistingLines(sheets.map((s) => String(s.id)));
-
-  const heads: SheetDedupeHead[] = sheets.map((s) => {
-    const meta = s.metaJson == null ? null : String(s.metaJson);
-    const payload = safeParse(meta);
-    const live = (liveByOp.get(String(s.id)) ?? []).filter((l) => l.deleted_at == null).length;
-    return {
-      id: String(s.id),
-      engine_entity_id: String(s.engineEntityId),
-      created_at: Number(s.createdAt ?? 0),
-      updated_at: Number(s.updatedAt ?? 0),
-      json_rows: payload && typeof payload === 'object' ? inventoryRawRowsFromPayload(payload).length : -1,
-      live_lines: live,
-    };
-  });
+  const heads: SheetDedupeHead[] = [];
+  const allIds: string[] = [];
+  let sheetTotal = 0;
+  for (let offset = 0; ; offset += PAGE) {
+    const page = (await db.select().from(operations).where(and(...conds)).limit(PAGE).offset(offset)) as any[];
+    if (page.length === 0) break;
+    sheetTotal += page.length;
+    for (const s of page) {
+      const meta = s.metaJson == null ? null : String(s.metaJson);
+      const payload = safeParse(meta);
+      const id = String(s.id);
+      allIds.push(id);
+      heads.push({
+        id,
+        engine_entity_id: String(s.engineEntityId),
+        created_at: Number(s.createdAt ?? 0),
+        updated_at: Number(s.updatedAt ?? 0),
+        json_rows: payload && typeof payload === 'object' ? inventoryRawRowsFromPayload(payload).length : -1,
+        live_lines: 0,
+      });
+    }
+  }
+  const liveCounts = await countLiveLinesByOperations(allIds);
+  for (const h of heads) h.live_lines = liveCounts.get(h.id) ?? 0;
   const byId = new Map(heads.map((h) => [h.id, h]));
   const plans = pickSheetDedupeSurvivors(heads);
   const deleteIds = plans.flatMap((p) => p.delete_ids);
 
-  console.log(`  живых листов: ${sheets.length}, двигателей с дублями: ${plans.length}, кандидатов на удаление: ${deleteIds.length}`);
+  console.log(`  живых листов: ${sheetTotal}, двигателей с дублями: ${plans.length}, кандидатов на удаление: ${deleteIds.length}`);
   let post325 = 0;
   for (const p of plans) {
     for (const id of p.delete_ids) {
@@ -114,11 +126,13 @@ async function main(): Promise<void> {
   let done = 0;
   for (let i = 0; i < deleteIds.length; i += BATCH) {
     const chunk = deleteIds.slice(i, i + BATCH);
+    const batchRows = (await db
+      .select()
+      .from(operations)
+      .where(inArray(operations.id, chunk as any))) as any[];
+    const batchById = new Map(batchRows.map((s) => [String(s.id), s]));
     const rows = chunk.map((id) => {
-      const dto = SyncTableRegistry.toSyncRow(
-        SyncTableName.Operations,
-        sheets.find((s) => String(s.id) === id),
-      ) as Record<string, unknown>;
+      const dto = SyncTableRegistry.toSyncRow(SyncTableName.Operations, batchById.get(id)) as Record<string, unknown>;
       return {
         type: 'delete' as const,
         table: SyncTableName.Operations,
