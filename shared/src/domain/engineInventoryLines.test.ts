@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 import {
   diffInventoryLines,
+  INVENTORY_ROWS_IN_TABLE,
   inventoryLineKeys,
   inventoryRawRowsFromPayload,
   inventoryRowFromLine,
   inventoryRowsFromLines,
+  inventoryRowsLocation,
   lineFromInventoryRow,
   sameLineContent,
+  stripInventoryRowsForStorage,
   type EngineInventoryLineRow,
 } from './engineInventoryLines.js';
 import { buildSupplyRequestItemsFromInventory, normalizeEngineInventoryRow } from './repairChecklist.js';
@@ -185,5 +188,35 @@ describe('diffInventoryLines — одна галочка = одна транза
     // «Свой номер» — содержательное поле строки: его правка обязана дать update.
     expect(sameLineContent(a!, { ...a!, has_own_number: true })).toBe(false);
     expect(sameLineContent(a!, { ...a!, has_own_number_override: true })).toBe(false);
+  });
+});
+
+describe('E3 — маркер таблицы и strip строк из meta_json', () => {
+  const sheet = (items: unknown, extraAnswers: Record<string, unknown> = {}) => ({
+    kind: 'repair_checklist',
+    answers: { engine_number: { kind: 'text', value: '41/26' }, engine_inventory_items: items, ...extraAnswers },
+  });
+
+  it('strip убирает rows и ставит маркер, остальные ответы не трогает', () => {
+    const src = sheet({ kind: 'grid', rows: [{ part_name: 'Картер' }, { part_name: 'Поршень' }], custom: 1 });
+    const out = stripInventoryRowsForStorage(src) as any;
+    expect(out.answers.engine_inventory_items).toEqual({ kind: 'table', rows: [], rowsIn: INVENTORY_ROWS_IN_TABLE, custom: 1 });
+    expect(out.answers.engine_number).toEqual({ kind: 'text', value: '41/26' });
+    // Исходник не мутирует.
+    expect((src.answers.engine_inventory_items as any).rows).toHaveLength(2);
+    expect(inventoryRowsLocation(out)).toBe('table');
+  });
+
+  it('location: без маркера — json, мусор — json', () => {
+    expect(inventoryRowsLocation(sheet({ kind: 'table', rows: [] }))).toBe('json');
+    expect(inventoryRowsLocation(sheet({ kind: 'table', rows: [], rowsIn: 'elsewhere' }))).toBe('json');
+    expect(inventoryRowsLocation(null)).toBe('json');
+    expect(inventoryRowsLocation({ answers: {} })).toBe('json');
+  });
+
+  it('strip не-листа и payload без секции — без изменений', () => {
+    const plain = { kind: 'other', answers: { a: 1 } };
+    expect(stripInventoryRowsForStorage(plain)).toBe(plain);
+    expect(stripInventoryRowsForStorage(null)).toBe(null);
   });
 });

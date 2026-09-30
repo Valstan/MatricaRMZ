@@ -203,6 +203,46 @@ export function inventoryRawRowsFromPayload(payload: unknown): Array<Record<stri
   return rows.filter((r): r is Record<string, unknown> => !!r && typeof r === 'object');
 }
 
+/**
+ * Маркер «строки живут в строгой таблице» (E3 плана engine-inventory-lines-2026-09).
+ * E3-клиент хранит в `meta_json` пустой список с этим маркером, а сами строки — только
+ * в `erp_engine_inventory_lines`. Серверный вывод строк (`planEngineInventoryLines`) такой
+ * лист пропускает: пустой `rows` у помеченного листа — норма, а не «список стёрли».
+ */
+export const INVENTORY_ROWS_IN_TABLE = 'erp_engine_inventory_lines';
+const ROWS_IN_KEY = 'rowsIn';
+
+/** Где лежат строки листа: в строгой таблице (маркер E3) или по-старому в `meta_json`. */
+export function inventoryRowsLocation(payload: unknown): 'table' | 'json' {
+  if (!payload || typeof payload !== 'object') return 'json';
+  const answers = (payload as Record<string, unknown>).answers;
+  if (!answers || typeof answers !== 'object') return 'json';
+  const table = (answers as Record<string, unknown>).engine_inventory_items;
+  if (!table || typeof table !== 'object') return 'json';
+  return (table as Record<string, unknown>)[ROWS_IN_KEY] === INVENTORY_ROWS_IN_TABLE ? 'table' : 'json';
+}
+
+/**
+ * Копия payload, в которой строки списка убраны из `meta_json` (E3): остаётся пустой
+ * список с маркером таблицы. Остальные ответы листа не трогаются. Не-листы и payload
+ * без секции строк возвращаются без изменений.
+ */
+export function stripInventoryRowsForStorage<T>(payload: T): T {
+  if (!payload || typeof payload !== 'object') return payload;
+  const p = payload as Record<string, unknown>;
+  const answers = p.answers;
+  if (!answers || typeof answers !== 'object') return payload;
+  const table = (answers as Record<string, unknown>).engine_inventory_items;
+  if (!table || typeof table !== 'object') return payload;
+  return {
+    ...p,
+    answers: {
+      ...(answers as Record<string, unknown>),
+      engine_inventory_items: { ...(table as Record<string, unknown>), kind: 'table', rows: [], [ROWS_IN_KEY]: INVENTORY_ROWS_IN_TABLE },
+    },
+  } as T;
+}
+
 /** Живые строки таблицы → raw-строки списка в порядке `sort_order`. */
 export function inventoryRowsFromLines(lines: ReadonlyArray<EngineInventoryLineRow>): Array<Record<string, unknown>> {
   return [...lines]

@@ -8,6 +8,7 @@ import {
   engineInventoryLineId,
   inventoryLineKeys,
   inventoryRawRowsFromPayload,
+  inventoryRowsLocation,
   lineFromInventoryRow,
   type EngineInventoryLineRow,
 } from '@matricarmz/shared';
@@ -19,11 +20,12 @@ import { writeSyncChanges, type SyncWriteActor, type SyncWriteInput } from './sy
 /**
  * Вывод строк `erp_engine_inventory_lines` из листа `operations(engine_inventory)`.
  *
- * Пока клиенты пишут список только в meta_json (до E2 плана engine-inventory-lines), строки
- * таблицы держит в актуальном состоянии сервер: после каждой записи листа (push с клиента,
- * web-admin, скрипты — все идут через writeSyncChanges) лист сверяется с таблицей по
- * `line_key`, и в ledger уходят ТОЛЬКО изменившиеся строки. Тот же код гоняет разовый
- * бэкфилл (`engine-inventory:backfill-lines`).
+ * E3 плана engine-inventory-lines-2026-09: клиенты шлют строки только таблицей, а в
+ * `meta_json` лежит пустой список с маркером `rowsIn` — такие листы вывод пропускает.
+ * Из JSON выводятся только непомеченные листы (старые сборки, web-admin, импорты):
+ * после каждой записи листа (push с клиента, web-admin, скрипты — все идут через
+ * writeSyncChanges) лист сверяется с таблицей по `line_key`, и в ledger уходят ТОЛЬКО
+ * изменившиеся строки. Тот же код гоняет разовый бэкфилл (`engine-inventory:backfill-lines`).
  *
  * Чистая половина — `planEngineInventoryLines` (под тестом), запись — `deriveEngineInventoryLines`.
  */
@@ -49,6 +51,17 @@ export type LinesPlan = {
   unchanged: number;
   /** Лист не engine_inventory или без таблицы строк — строк не выводим, но и не гасим. */
   skipped: boolean;
+  /**
+   * E3: лист помечен «строки в таблице» — вывод из JSON пропущен, источник строк только
+   * прямой push таблицы. Пустой `rows` у помеченного листа — норма, а не «список стёрли».
+   */
+  skippedMarked: boolean;
+  /**
+   * E3-сторож отставших сборок: пустой `rows` без маркера при живых строках в таблице —
+   * слепой клиент сохранил увиденный пустым список. Строки не гасим, ждём прямого push.
+   * Осознанно пустой список новый клиент выражает тумстоунами строк, а не пустым JSON.
+   */
+  skippedEmptyGuard: boolean;
 };
 
 function safeParse(s: string | null): unknown {
@@ -61,16 +74,28 @@ function safeParse(s: string | null): unknown {
 }
 
 /**
+ * Помеченный лист с НЕпустым списком в JSON — писал слепой писатель (старый клиент,
+ * сохранивший маркер, или web-admin): строкам таблицы неоткуда взяться, кроме этого
+ * JSON, поэтому вывод разрешён. E3-клиент пустые списки шлёт всегда, непустые — никогда.
+ */
+function hasNonEmptyRows(payload: Record<string, unknown>): boolean {
+  const answers = payload.answers as Record<string, unknown> | undefined;
+  const table = answers?.engine_inventory_items as { rows?: unknown } | undefined;
+  return !!table && Array.isArray(table.rows) && table.rows.length > 0;
+}
+
+/**
  * План записи для одного листа. Удалённый лист гасит все свои живые строки; лист без
  * секции строк (payload не repair_checklist, нет таблицы) пропускается — пустой список
- * от поломанного payload не должен стереть 130 строк.
+ * от поломанного payload не должен стереть 130 строк. E3 добавляет два пропуска:
+ * помеченный лист (строки едут таблицей) и пустой JSON при живых строках (слепой клиент).
  */
 export function planEngineInventoryLines(
   op: InventoryOperationRow,
   existing: ReadonlyArray<EngineInventoryLineRow>,
   ts: number,
 ): LinesPlan {
-  const empty: LinesPlan = { operationId: op.id, inputs: [], insert: 0, update: 0, tombstone: 0, unchanged: 0, skipped: false };
+  const empty: LinesPlan = { operationId: op.id, inputs: [], insert: 0, update: 0, tombstone: 0, unchanged: 0, skipped: false, skippedMarked: false, skippedEmptyGuard: false };
   if (op.operation_type !== ENGINE_INVENTORY_STAGE) return { ...empty, skipped: true };
 
   let desired: EngineInventoryLineRow[];
@@ -79,9 +104,14 @@ export function planEngineInventoryLines(
   } else {
     const payload = safeParse(op.meta_json) as Record<string, unknown> | null;
     if (!payload || payload.kind !== 'repair_checklist') return { ...empty, skipped: true };
-    const answers = payload.answers as Record<string, unknown> | undefined;
-    const table = answers?.engine_inventory_items as { rows?: unknown } | undefined;
+    if (inventoryRowsLocation(payload) === 'table' && !hasNonEmptyRows(payload)) {
+      return { ...empty, skippedMarked: true };
+    }
+    const table = (payload.answers as Record<string, unknown> | undefined)?.engine_inventory_items as { rows?: unknown } | undefined;
     if (!table || !Array.isArray(table.rows)) return { ...empty, skipped: true };
+    if (table.rows.length === 0 && existing.some((l) => l.deleted_at == null)) {
+      return { ...empty, skippedEmptyGuard: true };
+    }
     const raw = inventoryRawRowsFromPayload(payload);
     const keys = inventoryLineKeys(raw);
     desired = raw.map((row, i) =>
@@ -112,6 +142,8 @@ export function planEngineInventoryLines(
     tombstone: diff.tombstone.length,
     unchanged: diff.unchanged,
     skipped: false,
+    skippedMarked: false,
+    skippedEmptyGuard: false,
   };
 }
 
@@ -131,7 +163,7 @@ export async function readExistingLines(operationIds: string[]): Promise<Map<str
   return out;
 }
 
-export type DeriveResult = { operations: number; insert: number; update: number; tombstone: number; unchanged: number; skipped: number };
+export type DeriveResult = { operations: number; insert: number; update: number; tombstone: number; unchanged: number; skipped: number; skippedMarked: number; skippedEmptyGuard: number };
 
 /**
  * Вывести строки для набора листов и записать разницу через writeSyncChanges (ledger →
@@ -143,7 +175,7 @@ export async function deriveEngineInventoryLines(
   actor: SyncWriteActor,
   opts: { batchRows?: number; dryRun?: boolean; ts?: number } = {},
 ): Promise<DeriveResult> {
-  const result: DeriveResult = { operations: 0, insert: 0, update: 0, tombstone: 0, unchanged: 0, skipped: 0 };
+  const result: DeriveResult = { operations: 0, insert: 0, update: 0, tombstone: 0, unchanged: 0, skipped: 0, skippedMarked: 0, skippedEmptyGuard: 0 };
   const inventoryOps = ops.filter((o) => o.operation_type === ENGINE_INVENTORY_STAGE);
   if (inventoryOps.length === 0) return result;
   const ts = opts.ts ?? Date.now();
@@ -158,8 +190,10 @@ export async function deriveEngineInventoryLines(
   };
   for (const op of inventoryOps) {
     const plan = planEngineInventoryLines(op, existing.get(op.id) ?? [], ts);
-    if (plan.skipped) {
+    if (plan.skipped || plan.skippedMarked || plan.skippedEmptyGuard) {
       result.skipped += 1;
+      if (plan.skippedMarked) result.skippedMarked += 1;
+      if (plan.skippedEmptyGuard) result.skippedEmptyGuard += 1;
       continue;
     }
     result.operations += 1;

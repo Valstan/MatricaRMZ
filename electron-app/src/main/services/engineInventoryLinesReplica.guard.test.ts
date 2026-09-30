@@ -17,13 +17,16 @@ import { fileURLToPath } from 'node:url';
 
 import { getRepairChecklistForEngine, saveRepairChecklistForEngine } from './checklistService.js';
 import { computeEngineInventoryFlags } from './engineService.js';
-import { readInventoryRowsForOperations, withReplicaInventoryRows } from './engineInventoryLinesReplica.js';
+import { readInventoryRowsForOperations, readInventoryLinesVersions, withReplicaInventoryRows } from './engineInventoryLinesReplica.js';
 
 // Сторож паритета E2.2 (план engine-inventory-lines-2026-09, G1): пока строки живут и в
 // `meta_json`, и в строгой таблице, читатель обязан получать ОДИН и тот же список независимо
 // от источника. Строки таблицы здесь выводятся из листа ровно так, как это делает сервер
 // (`lineFromInventoryRow` + `inventoryLineKeys`), — то есть тест проверяет, что дорога
 // «лист → таблица → реплика → читатель» не теряет и не искажает ни одного значения.
+// E3: новые сохранения кладут в `meta_json` пустой список с маркером (см. блок E3 внизу);
+// паритет выше держится для непомеченных листов (парк до обновления, бэкфилл). Помеченный
+// лист читается только из реплики, JSON-источник у него пуст осознанно.
 
 function makeDb() {
   const sqlite = new Database(':memory:');
@@ -272,7 +275,7 @@ async function saveSheet(db: any, sqlite: Database.Database, rows: Array<Record<
 }
 
 describe('E2.3 — сохранение листа пишет строки в реплику pending, по одной на изменение', () => {
-  it('первое сохранение: все строки pending, id — тот же, что считает сервер, meta_json по-прежнему несёт rows', async () => {
+  it('первое сохранение: все строки pending, id — тот же, что считает сервер, meta_json несёт пустой список с маркером (E3)', async () => {
     const { sqlite, db } = makeDb();
     const opId = await saveSheet(db, sqlite, RAW_ROWS);
     const lines = linesInDb(sqlite);
@@ -281,7 +284,11 @@ describe('E2.3 — сохранение листа пишет строки в р
     const keys = inventoryLineKeys(RAW_ROWS);
     expect(lines.map((l) => l.id)).toEqual(keys.map((k) => engineInventoryLineId(opId, k)));
     const meta = JSON.parse(sqlite.prepare(`SELECT meta_json FROM operations WHERE id = ?`).get(opId)!['meta_json' as never] as string);
-    expect(inventoryRawRowsFromPayload(meta).length).toBe(3);
+    expect(inventoryRawRowsFromPayload(meta)).toEqual([]);
+    expect((meta.answers.engine_inventory_items as any).rowsIn).toBe('erp_engine_inventory_lines');
+    // Читатель при этом видит полный список — из реплики.
+    const r = await getRepairChecklistForEngine(db, ENGINE, ENGINE_INVENTORY_STAGE);
+    expect(r.ok && inventoryRawRowsFromPayload(r.payload).length).toBe(3);
   });
 
   it('одна изменённая ячейка → ровно одна pending-строка, остальные остаются synced', async () => {
@@ -325,8 +332,27 @@ describe('E2.3 — сохранение листа пишет строки в р
   });
 });
 
-describe('E2.3 — push-обвязка знает таблицу строк (сторож по исходнику syncService)', () => {
-  const sync = readFileSync(fileURLToPath(new URL('./syncService.ts', import.meta.url)), 'utf8');
+describe('E3 — лёгкая версия строк для ключа кэша флагов', () => {
+  it('без строк — пустая карта; со строками — count и maxUpdatedAt по листу', async () => {
+    const { sqlite, db } = makeDb();
+    expect((await readInventoryLinesVersions(db, [OP])).size).toBe(0);
+    insertSheet(sqlite, sheetPayload(RAW_ROWS));
+    insertLines(sqlite, linesFromSheet(sheetPayload(RAW_ROWS)));
+    const v = await readInventoryLinesVersions(db, [OP, 'nope']);
+    expect(v.get(OP)).toEqual({ count: 3, maxUpdatedAt: 100 });
+    expect(v.has('nope')).toBe(false);
+  });
+
+  it('погашенные строки в версию не входят', async () => {
+    const { sqlite, db } = makeDb();
+    insertSheet(sqlite, sheetPayload(RAW_ROWS));
+    insertLines(sqlite, linesFromSheet(sheetPayload(RAW_ROWS)), 200);
+    const v = await readInventoryLinesVersions(db, [OP]);
+    expect(v.has(OP)).toBe(false);
+  });
+});
+
+describe('E2.3 — push-обвязка знает таблицу строк (сторож по исходнику syncService)', () => {  const sync = readFileSync(fileURLToPath(new URL('./syncService.ts', import.meta.url)), 'utf8');
   const recovery = readFileSync(fileURLToPath(new URL('./sync/errorRecovery.ts', import.meta.url)), 'utf8');
   it('секция push, лимит пачки, подтверждение synced и recovery — все четыре', () => {
     expect(sync).toContain('await add(SyncTableName.ErpEngineInventoryLines, valid)');

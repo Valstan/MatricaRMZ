@@ -20,6 +20,7 @@ import {
   type RepairFundInstancePayload,
   type RepairFundRequirementSnapshotPayload,
   type RepairFundRequirementVersionRecord,
+  stripInventoryRowsForStorage,
 } from '@matricarmz/shared';
 import { entities, operations } from '../database/schema.js';
 import { withReplicaInventoryRows, writeInventoryLinesForSheet } from './engineInventoryLinesReplica.js';
@@ -263,7 +264,13 @@ export async function saveRepairChecklistForEngine(
 ): Promise<{ ok: true; operationId: string } | { ok: true; operationId: null; deferred: true } | { ok: false; error: string }> {
   try {
     const ts = nowMs();
-    const metaJson = JSON.stringify(args.payload);
+    // E3: строки списка деталей хранятся только в строгой таблице (`writeSheetLines`
+    // ниже), а в `meta_json` листа едет пустой список с маркером — иначе каждая галочка
+    // тащила бы весь лист (48–255 КБ) новой версией в ledger. Полный payload живёт в
+    // памяти панели и в реплике; читатели добирают строки через `withReplicaInventoryRows`.
+    const storablePayload =
+      args.stage === ENGINE_INVENTORY_STAGE ? stripInventoryRowsForStorage(args.payload) : args.payload;
+    const metaJson = JSON.stringify(storablePayload);
 
     // Новая карточка получает id двигателя без строки в базе (deferred create). Лист под
     // таким id уезжал на сервер раньше двигателя: сервер его отбивал, клиент клал в карантин
@@ -321,8 +328,10 @@ export async function saveRepairChecklistForEngine(
   }
 }
 
-// E2.3: список деталей едет на сервер и строками строгой таблицы (pending → push), и по-прежнему
-// целиком в meta_json листа — до E3 это держит старые клиенты и серверный вывод согласованными.
+// E3: список деталей едет на сервер только строками строгой таблицы (pending → push);
+// в `meta_json` листа лежит пустой список с маркером `rowsIn`. Серверный вывод строк из
+// JSON для помеченных листов выключен (`skippedMarked`), пустой JSON без маркера при
+// живых строках строк не гасит (`skippedEmptyGuard` — сторож отставших сборок).
 async function writeSheetLines(
   db: BetterSQLite3Database,
   operationId: string,
