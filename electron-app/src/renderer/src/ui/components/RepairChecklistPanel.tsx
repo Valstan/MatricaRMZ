@@ -800,15 +800,28 @@ export function RepairChecklistPanel(props: {
       // Этап «Разборка, дефектовка» проставляется сам (план unified-repair-stages,
       // шаг 4) — но вручную отмеченный важнее автоматического и не перезаписывается.
       // Этап не должен валить проведение: ошибки здесь только дописываются в статус.
+      // Исправление: дата этапа берётся из атрибута двигателя defect_date (Дата начала дефектовки),
+      // а не из времени нажатия кнопки «Провести дефектовку».
       try {
         const stages = await window.matrica.workSheets.stages.list(props.engineId);
         const rows = stages.ok ? stages.rows : [];
         if (!rows.some((r) => r.code === 'disassembly_defect')) {
+          // Получаем дату начала дефектовки из атрибутов двигателя (defect_date)
+          const engineDetails = await window.matrica.engines.get(props.engineId);
+          let defectDateMs: number | null = null;
+          const attrs = (engineDetails as unknown as { attributes?: Record<string, unknown> })?.attributes;
+          if (attrs?.defect_date) {
+            const val = attrs.defect_date;
+            const parsed = typeof val === 'number' ? val : (typeof val === 'string' ? Number(val) : null);
+            if (parsed && Number.isFinite(parsed) && parsed > 0) {
+              defectDateMs = parsed;
+            }
+          }
           const saved = await window.matrica.workSheets.stages.save({
             id: crypto.randomUUID(),
             engineId: props.engineId,
             code: 'disassembly_defect',
-            atMs: Date.now(),
+            atMs: defectDateMs ?? Date.now(),
           });
           if (saved.ok) {
             setStatus((s) => `${s} Этап «Разборка, дефектовка» отмечен.`);
