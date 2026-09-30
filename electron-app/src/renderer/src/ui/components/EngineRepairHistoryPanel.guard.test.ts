@@ -115,6 +115,18 @@ describe('единый список этапов в карточке (план u
     expect(CHECKLIST).toContain('!rows.some((r) => r.code ===');
   });
 
+  // Дефектовка 30.09.2026: этап вставал датой НАЖАТИЯ кнопки, а не «Дата начала дефектовки»
+  // из вкладки дефектовки. Повторная проводка двигала этап вперёд, и он оказывался ПОСЛЕ
+  // обкатки/сборки — по смыслу невозможно. Сторож держит правило, а не разовое исправление:
+  // дата этапа = `defect_start_date`, а `Date.now()` живёт только в ветке «поле не заполнено».
+  it('дата этапа дефектовки — из поля «Дата начала дефектовки», не из момента нажатия', () => {
+    const CHECKLIST = src('./RepairChecklistPanel.tsx');
+    expect(CHECKLIST).toContain('answers as any)?.defect_start_date');
+    expect(CHECKLIST).toContain('atMs: defectStartMs');
+    const stageBlock = CHECKLIST.slice(CHECKLIST.indexOf("code: 'disassembly_defect'") - 1200, CHECKLIST.indexOf("code: 'disassembly_defect'") + 200);
+    expect(stageBlock).not.toContain('atMs: Date.now()');
+  });
+
   it('кнопка «Провести комплектность» отмечает этап сама (шаг 8: пара к autoFrom kittingAct)', () => {
     const CHECKLIST = src('./RepairChecklistPanel.tsx');
     expect(CHECKLIST).toContain("code: 'kitting_done'");
