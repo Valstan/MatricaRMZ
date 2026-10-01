@@ -1,9 +1,11 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { StatusCode } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { Input } from './Input.js';
 import { useListUiState } from '../hooks/useListBehavior.js';
+import { useTagPrintQueue, type TagQueueItem } from '../hooks/useTagPrintQueue.js';
 import {
   ENGINE_TAG_PER_SHEET_OPTIONS,
   buildEngineTagsHtml,
@@ -13,10 +15,14 @@ import {
 } from '../utils/engineTagPrint.js';
 
 /**
- * Печать бирок на двигатель (владелец 22.09.2026). Оператор выбирает раскладку —
- * 6 / 4 / 2 бирки на лист A4 — и видит готовый лист до печати. Разметку листа и подбор
- * кеглей делает `engineTagPrint`; диалог отвечает только за выбор раскладки и за то,
- * откуда берутся поля бирки.
+ * Печать бирок на двигатель (владелец 22.09.2026, очередь — 01.10.2026).
+ * Один диалог на два входа: оператор набирает двигатели галочками в списке и
+ * кнопкой «Бирка» в карточках, а печатает одним заходом. Набор (очередь) живёт
+ * в sessionStorage — закрытие диалога и hopping по карточкам его не убивают.
+ *
+ * Верх секции — очередь (галочка = в печать, снята = только в наборе, ✕ = вон)
+ * и добор поиском по номеру; низ — раскладка и превью. Разметку листа и подбор
+ * кеглей делает `engineTagPrint`; диалог отвечает за набор и раскладку.
  */
 
 /** A4 портрет в px @96dpi: лист рисуется в полную величину и ужимается `zoom` (как в диалогах наряда и табеля). */
@@ -40,6 +46,7 @@ const PER_SHEET_HINT: Record<EngineTagsPerSheet, string> = {
 /**
  * Откуда диалог берёт бирку. Структурный тип, а не `Pick<EngineListItem>`: карточка
  * двигателя строки списка не имеет и собирает те же поля из своего состояния.
+ * `engineId` — только для очереди (дедуп и снятие); в бирку не печатается.
  */
 export type EngineTagSource = {
   engineBrand?: string;
@@ -52,6 +59,8 @@ export type EngineTagSource = {
   repairDueDate?: number | null;
   statusDates?: Partial<Record<StatusCode, number | null>>;
 };
+
+export type EngineTagInitial = EngineTagSource & { engineId: string };
 
 /**
  * Поля бирки — из того, что уже есть в строке списка. Отдельного запроса на каждый
@@ -77,21 +86,70 @@ function normalizePerSheet(v: unknown): EngineTagsPerSheet {
   return ENGINE_TAG_PER_SHEET_OPTIONS.find((o) => o === n) ?? ENGINE_TAG_PER_SHEET_OPTIONS[0] ?? 6;
 }
 
+function queueLabel(item: TagQueueItem): string {
+  const brand = String(item.engineBrand ?? '').trim();
+  const number = String(item.engineNumber ?? '').trim();
+  const name = [brand, number].filter(Boolean).join(' ').trim();
+  return name || `Без номера (${item.engineId.slice(0, 8)})`;
+}
+
 export function EngineTagPrintDialog(props: {
   open: boolean;
   title?: string;
-  engines: ReadonlyArray<EngineTagSource>;
+  /** Набор, с которым диалог открывают (выделение списка / карточка). Добирается в очередь без дублей. */
+  initial: ReadonlyArray<EngineTagInitial>;
   onClose: () => void;
 }) {
   // Раскладку помним между вызовами: бирки печатают пачками, и каждый раз оператор
   // выбирал бы один и тот же вариант заново. Ключ общий для списка и карточки.
   const { state, patchState } = useListUiState<{ perSheet: number }>('print:engineTags:ui', { perSheet: 6 });
   const perSheet = normalizePerSheet(state.perSheet);
+  const queue = useTagPrintQueue();
+  const [query, setQuery] = useState('');
+  const [catalog, setCatalog] = useState<EngineTagInitial[]>([]);
+  const [catalogError, setCatalogError] = useState('');
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
+  // Открытие добирает входной набор в очередь (без дублей) и подтягивает каталог
+  // для добора поиском. Закрытый диалог ничего не грузит и не считает.
+  useEffect(() => {
+    if (!props.open) return;
+    if (props.initial.length > 0) queue.enqueue([...props.initial]);
+    setQuery('');
+    setCatalogError('');
+    let alive = true;
+    void (async () => {
+      try {
+        const rows = await window.matrica.engines.list();
+        const list = (Array.isArray(rows) ? rows : []) as Array<Record<string, unknown>>;
+        if (!alive) return;
+        setCatalog(
+          list.map((e) => ({ ...(e as EngineTagSource), engineId: String(e.id ?? e.engineId ?? '') })).filter((e) => e.engineId),
+        );
+      } catch (e) {
+        if (alive) setCatalogError(`Каталог не загрузился: ${String(e)}`);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- enqueue читает актуальную очередь сам; initial — снимок открытия
+  }, [props.open]);
+
+  const queuedIds = useMemo(() => new Set(queue.items.map((i) => i.engineId)), [queue.items]);
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return catalog
+      .filter((e) => !queuedIds.has(e.engineId))
+      .filter((e) => queueLabel({ ...e, checked: true }).toLowerCase().includes(q))
+      .slice(0, 30);
+  }, [query, catalog, queuedIds]);
+
+  const checked = useMemo(() => queue.items.filter((i) => i.checked), [queue.items]);
   // Закрытый диалог лист не собирает: он висит смонтированным рядом со списком, и
-  // перебирать выделение на каждый его рендер незачем.
-  const tags = useMemo(() => (props.open ? props.engines.map(buildEngineTagData) : []), [props.open, props.engines]);
+  // перебирать очередь на каждый его рендер незачем.
+  const tags = useMemo(() => (props.open ? checked.map(buildEngineTagData) : []), [props.open, checked]);
   const html = useMemo(() => (props.open ? buildEngineTagsHtml(tags, { perSheet }) : ''), [props.open, tags, perSheet]);
   const sheets = tags.length > 0 ? Math.ceil(tags.length / perSheet) : 0;
 
@@ -146,6 +204,46 @@ export function EngineTagPrintDialog(props: {
         <div style={{ flex: '0 0 250px', width: 250, display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto' }}>
           <div style={{ fontWeight: 700, fontSize: 15 }}>{props.title ?? 'Печать бирок на двигатели'}</div>
 
+          <div data-tag-queue>
+            <div style={{ fontSize: 12, color: 'var(--subtle)', marginBottom: 4 }}>
+              В очереди: <b>{queue.items.length}</b>, в печать: <b>{checked.length}</b>
+            </div>
+            {queue.items.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--subtle)' }}>Пусто — отметьте двигатели в списке или кнопкой «Бирка» в карточке.</div>
+            ) : (
+              <div style={{ display: 'grid', gap: 4, maxHeight: 180, overflowY: 'auto' }}>
+                {queue.items.map((item) => (
+                  <label key={item.engineId} data-tag-row={item.engineId} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
+                    <input type="checkbox" checked={item.checked} data-tag-check={item.engineId} onChange={(e) => queue.setChecked(item.engineId, e.target.checked)} />
+                    <span style={{ flex: 1 }}>{queueLabel(item)}</span>
+                    <Button variant="ghost" title="Убрать из очереди" data-tag-remove={item.engineId} onClick={() => queue.remove(item.engineId)}>
+                      ✕
+                    </Button>
+                  </label>
+                ))}
+              </div>
+            )}
+            <div style={{ marginTop: 6 }}>
+              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Номер для добора…" data-tag-search />
+            </div>
+            {catalogError ? <div style={{ fontSize: 11, color: 'var(--danger)' }}>{catalogError}</div> : null}
+            {matches.length > 0 && (
+              <div style={{ display: 'grid', gap: 4, marginTop: 4, maxHeight: 140, overflowY: 'auto' }}>
+                {matches.map((m) => (
+                  <div key={m.engineId} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
+                    <span style={{ flex: 1 }}>{queueLabel({ ...m, checked: true })}</span>
+                    <Button variant="ghost" title="Добавить в очередь" data-tag-add={m.engineId} onClick={() => queue.enqueue([m])}>
+                      +
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: 'var(--subtle)', marginTop: 4 }}>
+              Можно закрыть, добрать двигатели и вернуться — набор сохранится.
+            </div>
+          </div>
+
           <div>
             <div style={{ fontSize: 12, color: 'var(--subtle)', marginBottom: 4 }}>Бирок на лист A4</div>
             <div style={{ display: 'flex', border: '1px solid var(--input-border, var(--border))', borderRadius: 8, overflow: 'hidden' }}>
@@ -176,7 +274,7 @@ export function EngineTagPrintDialog(props: {
 
           <div style={{ fontSize: 13, lineHeight: 1.6 }}>
             <div>
-              Двигателей выбрано: <b>{tags.length}</b>
+              Двигателей в печати: <b>{tags.length}</b>
             </div>
             <div>
               Листов к печати: <b>{sheets}</b>
@@ -188,7 +286,7 @@ export function EngineTagPrintDialog(props: {
           </div>
 
           <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <Button variant="primary" onClick={handlePrint} disabled={tags.length === 0}>
+            <Button variant="primary" onClick={handlePrint} disabled={tags.length === 0} data-tag-print>
               {sheets === 1 ? 'Печать (1 лист)' : `Печать (${sheets} л.)`}
             </Button>
             <Button variant="ghost" onClick={props.onClose}>
