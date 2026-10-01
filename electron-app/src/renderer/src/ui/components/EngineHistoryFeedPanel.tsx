@@ -407,7 +407,7 @@ export function EngineHistoryFeedPanel(props: {
       {status && <div className="ui-muted">{status}</div>}
 
       {feed.length > 0 && (
-        <div style={{ width: '100%', maxWidth: 1100, margin: '0 auto' }}>
+        <div style={{ width: '100%', maxWidth: 1400, margin: '0 auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }} data-history-feed-table>
             <colgroup>
               <col style={{ width: 84 }} />

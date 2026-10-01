@@ -2733,8 +2733,10 @@ export function EngineDetailsPage(props: {
         >
           {/* Внутренняя центрированная колонка: наружный span-full растягивает шелл
               V3 (.v3-card-body .entity-card-span-full { max-width: 100% !important }),
-              поэтому компактность задаём обёрткой внутри, а не ему. */}
-          <div data-engine-history-compact style={{ maxWidth: 700, width: '100%', margin: '0 auto', display: 'grid', gap: 12 }}>
+              поэтому компактность задаём обёрткой внутри, а не ему. Широко
+              (владелец 01.10.2026): строки должны читаться в одну строчку, а не
+              переноситься в узкой трети экрана. */}
+          <div data-engine-history-compact style={{ maxWidth: 1400, width: '100%', margin: '0 auto', display: 'grid', gap: 12 }}>
           {/* Одна лента на все события двигателя (этапы, ручные записи, операции) —
               вместо трёх отдельных лент на одних и тех же строках operations. */}
           <EngineHistoryFeedPanel
