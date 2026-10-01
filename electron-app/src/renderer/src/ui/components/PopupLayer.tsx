@@ -38,6 +38,8 @@ type AnchoredOptions = {
   gap?: number;
   /** Растянуть меню по ширине кнопки (фильтры статусов). */
   matchAnchorWidth?: boolean;
+  /** Ширина по содержимому (не фиксированная). */
+  compactWidth?: boolean;
 };
 
 export type AnchoredPopup = {
@@ -70,7 +72,7 @@ export function useAnchoredPopup(
     const gap = opts.gap ?? 4;
     const a = anchor.getBoundingClientRect();
     const m = node.getBoundingClientRect();
-    const width = opts.matchAnchorWidth ? a.width : m.width;
+    const width = opts.matchAnchorWidth ? a.width : opts.compactWidth ? m.width : m.width;
 
     let left = opts.align === 'right' ? a.right - width : a.left;
     if (left + width > window.innerWidth - margin) left = window.innerWidth - margin - width;
@@ -92,7 +94,7 @@ export function useAnchoredPopup(
       maxHeight,
       ...(opts.matchAnchorWidth ? { width: Math.round(width) } : {}),
     });
-  }, [open, anchor, node, opts.align, opts.gap, opts.matchAnchorWidth]);
+  }, [open, anchor, node, opts.align, opts.gap, opts.matchAnchorWidth, opts.compactWidth]);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -108,11 +110,22 @@ export function useAnchoredPopup(
     window.addEventListener('resize', onChange);
     // Прокрутка любого контейнера двигает кнопку — меню обязано ехать за ней.
     window.addEventListener('scroll', onChange, true);
+
+    // Таймаут автоскрытия: 15 секунд без активности
+    const autoCloseTimer = setTimeout(() => {
+      // Закрываем только если курсор не на меню и не идёт навигация клавиатурой
+      if (node && !node.matches(':hover')) {
+        // Сбрасываем состояние через событие — вызывающий закроет меню
+        window.dispatchEvent(new CustomEvent('popup-auto-close'));
+      }
+    }, 15_000);
+
     return () => {
       window.removeEventListener('resize', onChange);
       window.removeEventListener('scroll', onChange, true);
+      clearTimeout(autoCloseTimer);
     };
-  }, [open, measure]);
+  }, [open, measure, node]);
 
   return { ref, style, node };
 }

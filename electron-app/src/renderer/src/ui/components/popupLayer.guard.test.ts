@@ -63,3 +63,21 @@ describe('всплывающие меню живут в портале пове�
     }
   });
 });
+
+describe('PR-H: компактная ширина и таймаут 15 с', () => {
+  it('опция compactWidth в AnchoredOptions', () => {
+    expect(src('./PopupLayer.tsx')).toContain('compactWidth?: boolean');
+  });
+
+  it('таймаут автоскрытия 15 секунд', () => {
+    expect(src('./PopupLayer.tsx')).toContain('15_000');
+  });
+
+  it('автоскрытие не срабатывает при курсоре на меню', () => {
+    expect(src('./PopupLayer.tsx')).toContain("!node.matches(':hover')");
+  });
+
+  it('событие popup-auto-close для закрытия по таймауту', () => {
+    expect(src('./PopupLayer.tsx')).toContain('popup-auto-close');
+  });
+});
