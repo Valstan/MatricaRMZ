@@ -133,8 +133,6 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
       { id: 'scrapAt', label: 'Дата утиля', kind: 'date', render: (e) => fmtDate(engineScrapDate(e)), sortValue: (e) => engineScrapDate(e) ?? 0 },
       { id: 'sheetNode', label: 'Последний этап работ', kind: 'name', render: (e) => text(e.lastSheetNode), sortValue: (e) => text(e.lastSheetNode) },
       { id: 'sheetAt', label: 'Дата этапа работ', kind: 'date', render: (e) => fmtDate(e.lastSheetAt), sortValue: (e) => e.lastSheetAt ?? 0 },
-      { id: 'historyAction', label: 'Последнее событие', kind: 'text', render: (e) => text(e.lastHistoryAction), sortValue: (e) => text(e.lastHistoryAction) },
-      { id: 'historyAt', label: 'Дата события', kind: 'date', render: (e) => fmtDate(e.lastHistoryAt), sortValue: (e) => e.lastHistoryAt ?? 0 },
     ],
     [],
   );
