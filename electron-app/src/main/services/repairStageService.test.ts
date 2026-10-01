@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { describe, expect, it } from 'vitest';
 
-import { DEFAULT_REPAIR_STAGE_TEMPLATES, buildRepairHistoryMeta } from '@matricarmz/shared';
+import { DEFAULT_REPAIR_STAGE_TEMPLATES, buildRepairHistoryMeta, parseRepairHistoryMeta } from '@matricarmz/shared';
 
 import { ensureRepairStageRow, listRepairStageRows, loadEngineStageMarks, saveRepairStageRow } from './repairStageService.js';
 
@@ -159,6 +159,21 @@ describe('гейт дублей', () => {
 });
 
 describe('читатель', () => {
+  it('цех отметки ложится в meta id и снимком имени', async () => {
+    const { sqlite, db } = makeDb();
+    const res = await saveRepairStageRow(
+      db,
+      { id: 's1', engineId: 'eng-1', code: 'sborka', atMs: DAY1, workshopId: 'w-1', workshopName: 'Цех 1' },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(res.ok).toBe(true);
+    const raw = (sqlite.prepare('SELECT meta_json AS m FROM operations WHERE id = ?').get('s1') as { m: string }).m;
+    const meta = parseRepairHistoryMeta(raw);
+    expect(meta?.workshopId).toBe('w-1');
+    expect(meta?.workshopName).toBe('Цех 1');
+  });
+
   it('возвращает строки двигателя с проходом и примечанием', async () => {
     const { db } = makeDb();
     await seed(db, [

@@ -66,7 +66,10 @@ export function EngineHistoryFeedPanel(props: {
   const [busy, setBusy] = useState(false);
 
   // Две формы добавления (владелец 01.10.2026): этап из шаблона и ручная запись.
+  // Обе раскрываются кнопками и прячутся после записи/отмены — инлайн-полей вверху нет.
+  const [addingStage, setAddingStage] = useState(false);
   const [stageCode, setStageCode] = useState('');
+  const [stageWorkshopId, setStageWorkshopId] = useState('');
   const [stageDate, setStageDate] = useState('');
   const [stageNote, setStageNote] = useState('');
   const [pendingPass, setPendingPass] = useState<{ pass: number; id: string; code: string; atMs: number; note: string } | null>(null);
@@ -74,9 +77,7 @@ export function EngineHistoryFeedPanel(props: {
   const [draftDate, setDraftDate] = useState('');
   const [draftAction, setDraftAction] = useState('');
   const [draftWorkshopId, setDraftWorkshopId] = useState('');
-  const [draftReason, setDraftReason] = useState('');
   const [draftNote, setDraftNote] = useState('');
-  const [draftExtra, setDraftExtra] = useState<Array<{ label: string; value: string }>>([]);
 
   // Правка даты уже записанного этапа прямо в строке ленты.
   const [editingDate, setEditingDate] = useState<{ id: string; code: string; value: string } | null>(null);
@@ -119,7 +120,14 @@ export function EngineHistoryFeedPanel(props: {
     [rows],
   );
 
-  async function writeStage(args: { id: string; code: string; atMs: number; note?: string; repeatPass?: number }) {
+  function resetStageForm() {
+    setStageCode('');
+    setStageWorkshopId('');
+    setStageDate('');
+    setStageNote('');
+  }
+
+  async function writeStage(args: { id: string; code: string; atMs: number; note?: string; workshopId?: string; workshopName?: string; repeatPass?: number }) {
     setBusy(true);
     try {
       const r = await window.matrica.workSheets.stages.save({ ...args, engineId: props.engineId });
@@ -133,9 +141,8 @@ export function EngineHistoryFeedPanel(props: {
         return;
       }
       setPendingPass(null);
-      setStageCode('');
-      setStageDate('');
-      setStageNote('');
+      resetStageForm();
+      setAddingStage(false);
       setStatus(r.backward ? `«${templateName(args.code)}» — возврат назад, записан проход № ${r.pass}.` : '');
       await load();
       props.onChanged?.();
@@ -169,9 +176,7 @@ export function EngineHistoryFeedPanel(props: {
     setDraftDate(today());
     setDraftAction('');
     setDraftWorkshopId('');
-    setDraftReason('');
     setDraftNote('');
-    setDraftExtra([]);
   }
 
   async function saveManual() {
@@ -184,9 +189,7 @@ export function EngineHistoryFeedPanel(props: {
     const meta = buildRepairHistoryMeta({
       action,
       workshopId: draftWorkshopId,
-      reason: draftReason,
       note: draftNote,
-      extra: draftExtra,
       ...(Number.isFinite(typed) ? { at: typed } : {}),
     });
     try {
@@ -216,87 +219,120 @@ export function EngineHistoryFeedPanel(props: {
         <span className="ui-muted">{feed.length > 0 ? `${feed.length} событий` : 'событий пока нет'}</span>
         <div style={{ flex: 1 }} />
         {props.canEdit && (
-          <Button
-            variant="ghost"
-            data-repair-history-add
-            onClick={() => {
-              resetDraft();
-              setAddingManual(true);
-            }}
-          >
-            Добавить запись
-          </Button>
+          <>
+            <Button
+              variant="ghost"
+              data-repair-stage-form-open
+              onClick={() => {
+                resetStageForm();
+                setStageDate(today());
+                setAddingManual(false);
+                setAddingStage(true);
+              }}
+            >
+              Добавить этап ремонта
+            </Button>
+            <Button
+              variant="ghost"
+              data-repair-history-add
+              onClick={() => {
+                resetDraft();
+                setAddingStage(false);
+                setAddingManual(true);
+              }}
+            >
+              Добавить запись
+            </Button>
+          </>
         )}
       </div>
 
-      {/* Форма добавления этапа — одна на два пути (владелец 01.10.2026). */}
-      {props.canEdit && (
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <select
-            value={stageCode}
-            disabled={busy}
-            data-repair-stage-pick
-            onChange={(e) => setStageCode(e.target.value)}
-            style={{ minWidth: 220, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)' }}
-          >
-            <option value="">Отметить этап…</option>
-            {templates.map((t) => (
-              <option key={t.code} value={t.code}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-          <div style={{ width: 170 }}>
-            <Input
-              type="date"
-              value={stageDate}
+      {/* Форма добавления этапа: раскрывается кнопкой (владелец 01.10.2026). */}
+      {props.canEdit && addingStage && (
+        <div style={{ display: 'grid', gap: 6, padding: 10, border: '1px solid var(--border)', borderRadius: 10, background: 'var(--surface-2)' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <select
+              value={stageCode}
               disabled={busy}
-              title="Дата этапа"
-              data-repair-stage-add-date
-              onChange={(e) => setStageDate(e.target.value)}
-            />
+              data-repair-stage-pick
+              onChange={(e) => setStageCode(e.target.value)}
+              style={{ minWidth: 220, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)' }}
+            >
+              <option value="">Выберите этап…</option>
+              {templates.map((t) => (
+                <option key={t.code} value={t.code}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            <div style={{ minWidth: 220 }}>
+              <SearchSelect
+                value={stageWorkshopId}
+                options={props.workshopOptions}
+                placeholder="Цех (если применимо)"
+                showAllWhenEmpty
+                onChange={(next) => setStageWorkshopId(String(next ?? ''))}
+              />
+            </div>
+            <div style={{ width: 170 }}>
+              <Input
+                type="date"
+                value={stageDate}
+                disabled={busy}
+                title="Дата этапа"
+                data-repair-stage-add-date
+                onChange={(e) => setStageDate(e.target.value)}
+              />
+            </div>
           </div>
-          <div style={{ minWidth: 200, flex: 1 }}>
-            <Input value={stageNote} disabled={busy} placeholder="Примечание (необязательно)" onChange={(e) => setStageNote(e.target.value)} />
-          </div>
-          <Button
-            disabled={busy || !stageCode || !stageDate}
-            data-repair-stage-add
-            onClick={() => {
-              const atMs = fromInputDate(stageDate);
-              if (!stageCode || atMs === null) {
-                setStatus('Выберите этап и дату');
-                return;
-              }
-              void (async () => {
-                // Гейт отгрузки (план unified-repair-stages, шаг 8/3): отметка
-                // «Отправлен/Принят заказчиком» при незакрытом сборочном наряде сначала
-                // предлагает закрыть наряды; на отмене отметка не встаёт вовсе. Без
-                // провайдера диалогов гейт молчит — как и раньше в секции этапов.
-                if ((stageCode === 'shipped' || stageCode === 'accepted') && confirmCtx && !shipmentGateBusy.current) {
-                  shipmentGateBusy.current = true;
-                  try {
-                    const decision = await confirmShipmentWithOpenAssembly({
-                      engineId: props.engineId,
-                      engineLabel: props.engineLabel ?? props.engineId,
-                      pickChoice: confirmCtx.pickChoice,
-                    });
-                    if (decision.action !== 'proceed') return;
-                  } finally {
-                    shipmentGateBusy.current = false;
-                  }
+          <Input value={stageNote} disabled={busy} placeholder="Примечание (необязательно)" onChange={(e) => setStageNote(e.target.value)} />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ flex: 1 }} />
+            <Button variant="ghost" onClick={() => setAddingStage(false)}>
+              Отмена
+            </Button>
+            <Button
+              disabled={busy || !stageCode || !stageDate}
+              data-repair-stage-add
+              onClick={() => {
+                const atMs = fromInputDate(stageDate);
+                if (!stageCode || atMs === null) {
+                  setStatus('Выберите этап и дату');
+                  return;
                 }
-                await writeStage({
-                  id: crypto.randomUUID(),
-                  code: stageCode,
-                  atMs,
-                  ...(stageNote.trim() ? { note: stageNote.trim() } : {}),
-                });
-              })();
-            }}
-          >
-            Отметить этап
-          </Button>
+                void (async () => {
+                  // Гейт отгрузки (план unified-repair-stages, шаг 8/3): отметка
+                  // «Отправлен/Принят заказчиком» при незакрытом сборочном наряде сначала
+                  // предлагает закрыть наряды; на отмене отметка не встаёт вовсе. Без
+                  // провайдера диалогов гейт молчит — как и раньше в секции этапов.
+                  if ((stageCode === 'shipped' || stageCode === 'accepted') && confirmCtx && !shipmentGateBusy.current) {
+                    shipmentGateBusy.current = true;
+                    try {
+                      const decision = await confirmShipmentWithOpenAssembly({
+                        engineId: props.engineId,
+                        engineLabel: props.engineLabel ?? props.engineId,
+                        pickChoice: confirmCtx.pickChoice,
+                      });
+                      if (decision.action !== 'proceed') return;
+                    } finally {
+                      shipmentGateBusy.current = false;
+                    }
+                  }
+                  const workshopLabel = props.workshopOptions.find((w) => w.id === stageWorkshopId)?.label ?? '';
+                  await writeStage({
+                    id: crypto.randomUUID(),
+                    code: stageCode,
+                    atMs,
+                    ...(stageNote.trim() ? { note: stageNote.trim() } : {}),
+                    ...(stageWorkshopId ? { workshopId: stageWorkshopId } : {}),
+                    ...(stageWorkshopId && workshopLabel ? { workshopName: workshopLabel } : {}),
+                  });
+                })();
+              }}
+            >
+              Применить
+            </Button>
+          </div>
         </div>
       )}
 
@@ -353,35 +389,9 @@ export function EngineHistoryFeedPanel(props: {
               />
             </div>
           </div>
-          <Input value={draftReason} onChange={(e) => setDraftReason(e.target.value)} placeholder="Причина — зачем это сделали" />
-          <Input value={draftNote} onChange={(e) => setDraftNote(e.target.value)} placeholder="Примечание — всё, что важно помнить об этом событии" />
-
-          {draftExtra.map((field, idx) => (
-            <div key={idx} style={{ display: 'flex', gap: 6 }}>
-              <div style={{ width: 220 }}>
-                <Input
-                  value={field.label}
-                  placeholder="Название поля"
-                  onChange={(e) => setDraftExtra((prev) => prev.map((f, i) => (i === idx ? { ...f, label: e.target.value } : f)))}
-                />
-              </div>
-              <div style={{ flex: 1 }}>
-                <Input
-                  value={field.value}
-                  placeholder="Значение"
-                  onChange={(e) => setDraftExtra((prev) => prev.map((f, i) => (i === idx ? { ...f, value: e.target.value } : f)))}
-                />
-              </div>
-              <Button variant="ghost" onClick={() => setDraftExtra((prev) => prev.filter((_, i) => i !== idx))} title="Убрать поле">
-                ✕
-              </Button>
-            </div>
-          ))}
+          <Input value={draftNote} onChange={(e) => setDraftNote(e.target.value)} placeholder="Комментарий — что произошло, всё важное об этом событии" />
 
           <div style={{ display: 'flex', gap: 8 }}>
-            <Button variant="ghost" onClick={() => setDraftExtra((prev) => [...prev, { label: '', value: '' }])}>
-              + поле
-            </Button>
             <div style={{ flex: 1 }} />
             <Button variant="ghost" onClick={() => setAddingManual(false)}>
               Отмена
