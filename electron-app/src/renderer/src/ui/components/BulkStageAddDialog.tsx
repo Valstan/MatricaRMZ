@@ -1,4 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+
+import { repairStageRank } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { Input } from './Input.js';
@@ -6,6 +8,7 @@ import { SearchSelect } from './SearchSelect.js';
 
 type StageTemplate = { code: string; name: string };
 type EngineOption = { id: string; label: string };
+type StageMarks = { lastStageCode: string | null; lastStageAt: number | null; hasScrapBranch: boolean };
 
 function toInputDate(ms: number): string {
   const d = new Date(ms);
@@ -22,6 +25,10 @@ function fromInputDate(v: string): number | null {
  * Массовое добавление этапа на несколько двигателей (PR-D).
  * Оператор выбирает тип этапа, дату, цех и несколько двигателей —
  * этап создаётся у каждого выбранного двигателя.
+ *
+ * Двигатели ищутся по номеру (подстрока, как в остальных списках). Когда выбран
+ * этап, выше остальных показываются двигатели с предыдущего этапа — те, чей
+ * последний этап ниже выбранного по линейке (включая ещё не начатые и без утиля).
  */
 export function BulkStageAddDialog(props: {
   templates: StageTemplate[];
@@ -30,6 +37,9 @@ export function BulkStageAddDialog(props: {
   onAdded: () => Promise<void> | void;
 }) {
   const [engines, setEngines] = useState<EngineOption[]>([]);
+  const [marks, setMarks] = useState<Record<string, StageMarks>>({});
+  const [rankByCode, setRankByCode] = useState<Record<string, number>>({});
+  const [query, setQuery] = useState('');
   const [selectedEngineIds, setSelectedEngineIds] = useState<string[]>([]);
   const [stageCode, setStageCode] = useState('');
   const [date, setDate] = useState(toInputDate(Date.now()));
@@ -42,17 +52,64 @@ export function BulkStageAddDialog(props: {
     void (async () => {
       try {
         const rows = await window.matrica.engines.list();
-        setEngines(
-          rows.map((e) => ({
-            id: String(e.id),
-            label: e.engineNumber || `Без номера (${String(e.id).slice(0, 8)})`,
-          })),
-        );
+        const opts = rows.map((e) => ({
+          id: String(e.id),
+          label: e.engineNumber || `Без номера (${String(e.id).slice(0, 8)})`,
+        }));
+        setEngines(opts);
+        try {
+          const r = await window.matrica.workSheets.stages.lastMarks(opts.map((o) => o.id));
+          if (r.ok) setMarks(r.marks);
+        } catch {
+          // Метки последних этапов не загрузились — приоритет «с предыдущего этапа» не построится
+        }
       } catch {
         // Список двигателей не загрузился — оператор может ввести ID вручную
       }
+      try {
+        const t = await window.matrica.workSheets.stages.templates.list();
+        if (t.ok) {
+          const ranks: Record<string, number> = {};
+          for (const row of t.templates) ranks[String(row.code).trim().toLowerCase()] = Number(row.sortOrder) || 0;
+          setRankByCode(ranks);
+        }
+      } catch {
+        // Ранги линейки не загрузились — откатимся на статичную линейку shared
+      }
     })();
   }, []);
+
+  const rankOf = (code: string): number => {
+    const c = String(code ?? '').trim().toLowerCase();
+    const fromTemplates = rankByCode[c];
+    if (typeof fromTemplates === 'number') return fromTemplates;
+    return repairStageRank(c);
+  };
+  const selectedRank = stageCode ? rankOf(stageCode) : null;
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return engines;
+    return engines.filter((e) => e.label.toLowerCase().includes(q));
+  }, [engines, query]);
+
+  const grouped = useMemo(() => {
+    if (selectedRank === null || selectedRank <= 0) return null;
+    const rankOfCode = (code: string): number => {
+      const c = String(code ?? '').trim().toLowerCase();
+      const r = rankByCode[c];
+      return typeof r === 'number' ? r : repairStageRank(c);
+    };
+    const prev: EngineOption[] = [];
+    const rest: EngineOption[] = [];
+    for (const e of filtered) {
+      const m = marks[e.id];
+      const isPrev =
+        !m || (!m.hasScrapBranch && (m.lastStageCode === null || (rankOfCode(m.lastStageCode) > 0 && rankOfCode(m.lastStageCode) < selectedRank)));
+      (isPrev ? prev : rest).push(e);
+    }
+    return { prev, rest };
+  }, [filtered, selectedRank, marks, rankByCode]);
 
   const toggleEngine = (id: string) => {
     setSelectedEngineIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -81,7 +138,7 @@ export function BulkStageAddDialog(props: {
         if (r.ok) ok++;
         else fail++;
       }
-      setStatus(`Добавлено: ${ok}${fail > 0 ? `, ошибок: ${fail}` : ''}`);
+      setStatus(`Сохранено: ${ok}${fail > 0 ? `, ошибок: ${fail}` : ''}`);
       await props.onAdded();
       if (fail === 0) {
         setSelectedEngineIds([]);
@@ -93,6 +150,13 @@ export function BulkStageAddDialog(props: {
       setBusy(false);
     }
   };
+
+  const renderEngineRow = (e: EngineOption) => (
+    <label key={e.id} data-bulk-stage-engine={e.id} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
+      <input type="checkbox" checked={selectedEngineIds.includes(e.id)} onChange={() => toggleEngine(e.id)} />
+      <span>{e.label}</span>
+    </label>
+  );
 
   return (
     <div
@@ -153,22 +217,35 @@ export function BulkStageAddDialog(props: {
 
           <div style={{ display: 'grid', gap: 4 }}>
             <span className="ui-muted" style={{ fontSize: 12 }}>Двигатели ({selectedEngineIds.length} выбрано)</span>
+            <Input
+              value={query}
+              disabled={busy}
+              placeholder="Поиск по номеру двигателя…"
+              data-bulk-stage-search
+              onChange={(e) => setQuery(e.target.value)}
+            />
             <div style={{ maxHeight: 200, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: 8 }}>
               {engines.length === 0 ? (
                 <div className="ui-muted" style={{ fontSize: 12 }}>Список двигателей не загрузился</div>
-              ) : (
-                <div style={{ display: 'grid', gap: 4 }}>
-                  {engines.map((e) => (
-                    <label key={e.id} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedEngineIds.includes(e.id)}
-                        onChange={() => toggleEngine(e.id)}
-                      />
-                      <span>{e.label}</span>
-                    </label>
-                  ))}
+              ) : filtered.length === 0 ? (
+                <div className="ui-muted" style={{ fontSize: 12 }}>По запросу ничего не найдено</div>
+              ) : grouped ? (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {grouped.prev.length > 0 ? (
+                    <div style={{ display: 'grid', gap: 4 }} data-bulk-stage-priority>
+                      <div className="ui-muted" style={{ fontSize: 12, fontWeight: 700 }}>
+                        С предыдущего этапа ({grouped.prev.length})
+                      </div>
+                      {grouped.prev.map(renderEngineRow)}
+                    </div>
+                  ) : null}
+                  <div style={{ display: 'grid', gap: 4 }} data-bulk-stage-rest>
+                    <div className="ui-muted" style={{ fontSize: 12, fontWeight: 700 }}>Остальные ({grouped.rest.length})</div>
+                    {grouped.rest.map(renderEngineRow)}
+                  </div>
                 </div>
+              ) : (
+                <div style={{ display: 'grid', gap: 4 }}>{filtered.map(renderEngineRow)}</div>
               )}
             </div>
           </div>
@@ -178,7 +255,7 @@ export function BulkStageAddDialog(props: {
 
         <div style={{ display: 'flex', gap: 8 }}>
           <Button onClick={() => void save()} disabled={busy || !stageCode || selectedEngineIds.length === 0} data-bulk-stage-save>
-            {busy ? 'Добавление…' : `Добавить на ${selectedEngineIds.length || ''} двигателей`}
+            {busy ? 'Сохранение…' : `Сохранить этап для выбранных${selectedEngineIds.length > 0 ? ` (${selectedEngineIds.length})` : ''}`}
           </Button>
           <div style={{ flex: 1 }} />
           <Button variant="ghost" onClick={() => props.onClose()} disabled={busy}>

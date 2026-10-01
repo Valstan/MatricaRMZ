@@ -16,7 +16,7 @@ import {
   searchWorkSheetRows,
   type SaveWorkSheetRowInput,
 } from '../../services/workSheetService.js';
-import { deleteRepairStageRow, listRepairStageRows, loadRepairStageTemplates, saveRepairStageRow } from '../../services/repairStageService.js';
+import { deleteRepairStageRow, listRepairStageRows, loadEngineStageMarks, loadRepairStageTemplates, saveRepairStageRow } from '../../services/repairStageService.js';
 
 type Ok<T> = { ok: true } & T;
 type Err = { ok: false; error: string };
@@ -229,6 +229,17 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
     if (!gate.ok) return gate as Err;
     try {
       return { ok: true as const, rows: await listRepairStageRows(ctx.dataDb(), engineId) };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('workSheets:stages:lastMarks', async (_e, engineIds: string[]) => {
+    const gate = await requirePermOrResult(ctx, 'operations.view');
+    if (!gate.ok) return gate as Err;
+    try {
+      const marks = await loadEngineStageMarks(ctx.dataDb(), Array.isArray(engineIds) ? engineIds : []);
+      return { ok: true as const, marks: Object.fromEntries(marks) };
     } catch (e) {
       return { ok: false as const, error: String(e) };
     }

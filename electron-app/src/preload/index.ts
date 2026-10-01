@@ -596,6 +596,7 @@ const matricaApi = {
         remove: async (id: string) => ipcRenderer.invoke('workSheets:stages:templates:remove', id),
       },
       list: async (engineId: string) => ipcRenderer.invoke('workSheets:stages:list', engineId),
+      lastMarks: async (engineIds: string[]) => ipcRenderer.invoke('workSheets:stages:lastMarks', engineIds),
       save: async (args: unknown) => ipcRenderer.invoke('workSheets:stages:save', args),
       remove: async (id: string) => ipcRenderer.invoke('workSheets:stages:remove', id),
     },
