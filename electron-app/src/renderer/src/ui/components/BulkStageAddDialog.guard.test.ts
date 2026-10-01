@@ -13,6 +13,20 @@ describe('BulkStageAddDialog — массовое добавление этап�
     expect(DIALOG).toContain('data-bulk-stage-save');
   });
 
+  it('поиск по номеру двигателя и группы «с предыдущего этапа»', () => {
+    expect(DIALOG).toContain('data-bulk-stage-search');
+    expect(DIALOG).toContain('Поиск по номеру двигателя');
+    expect(DIALOG).toContain('data-bulk-stage-priority');
+    expect(DIALOG).toContain('С предыдущего этапа');
+    expect(DIALOG).toContain('data-bulk-stage-rest');
+    expect(DIALOG).toContain('workSheets.stages.lastMarks');
+  });
+
+  it('кнопка — «Сохранить этап для выбранных», а не «Добавить на двигателей»', () => {
+    expect(DIALOG).toContain('Сохранить этап для выбранных');
+    expect(DIALOG).not.toContain('Добавить на ${');
+  });
+
   it('сохранение идёт по каждому выбранному двигателю', () => {
     expect(DIALOG).toContain('for (const engineId of selectedEngineIds)');
     expect(DIALOG).toContain('window.matrica.workSheets.stages.save');

@@ -2258,6 +2258,17 @@ export type MatricaApi = {
         >;
       };
       list: (engineId: string) => Promise<{ ok: true; rows: RepairStageRow[] } | { ok: false; error: string }>;
+      /**
+       * Последние этапы пачкой для диалога массового добавления: один запрос вместо
+       * `list` на каждый двигатель. Ключ — id двигателя; нет ключа — этапов с датой нет.
+       */
+      lastMarks: (engineIds: string[]) => Promise<
+        | {
+            ok: true;
+            marks: Record<string, { lastStageCode: string | null; lastStageAt: number | null; hasScrapBranch: boolean }>;
+          }
+        | { ok: false; error: string }
+      >;
       save: (args: SaveRepairStageInput) => Promise<SaveRepairStageResult>;
       remove: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
     };
