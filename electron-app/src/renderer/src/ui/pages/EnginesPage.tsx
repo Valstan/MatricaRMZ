@@ -24,7 +24,7 @@ import { useTagPrintQueue } from '../hooks/useTagPrintQueue.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
-import { ColumnResizeHandle, ColumnWidthGroup, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
+import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
 import { Input } from '../components/Input.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { useListDeepFilter } from '../hooks/useListDeepFilter.js';
@@ -731,8 +731,6 @@ export function EnginesPage(props: {
     const allVisibleSelected = displayRows.length > 0 && displayRows.every((e) => selection.isSelected(String(e.id)));
     const someVisibleSelected = displayRows.some((e) => selection.isSelected(String(e.id)));
     return (
-      <>
-      <ColumnWidthGroup columns={visibleColumns} layout={columnLayout} leading={2} />
       <thead>
         <tr style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #7c3aed 120%)', color: '#fff' }}>
           <th
@@ -810,7 +808,6 @@ export function EnginesPage(props: {
           <th className="list-col-filler" aria-hidden="true" />
         </tr>
       </thead>
-      </>
     );
   }
 
