@@ -14,6 +14,10 @@ const DDL = `
     status text NOT NULL, note text, performed_at integer, performed_by text, meta_json text,
     created_at integer NOT NULL, updated_at integer NOT NULL, last_server_seq integer,
     deleted_at integer, sync_status text NOT NULL DEFAULT 'synced');
+  CREATE TABLE attribute_values (id text PRIMARY KEY, entity_id text NOT NULL,
+    attribute_def_id text NOT NULL, value_json text,
+    created_at integer NOT NULL, updated_at integer NOT NULL, last_server_seq integer,
+    deleted_at integer, sync_status text NOT NULL DEFAULT 'synced');
 `;
 
 function makeDb() {

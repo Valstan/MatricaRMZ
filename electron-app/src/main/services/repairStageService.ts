@@ -23,7 +23,7 @@ import {
   type WorkSheetDuplicateRef,
 } from '@matricarmz/shared';
 
-import { operations } from '../database/schema.js';
+import { attributeValues, operations } from '../database/schema.js';
 import { httpAuthed } from './httpClient.js';
 import { getOperation, softDeleteOperation, upsertOperation } from './operationService.js';
 import { collectChunked } from '../utils/sqlChunks.js';
@@ -123,6 +123,10 @@ export async function saveRepairStageRow(
     if (text(existing.engineEntityId) !== engineId) {
       return { ok: false, error: 'Строку нельзя перевесить на другой двигатель — удалите и заведите заново' };
     }
+    // Дефектовка — фиксированная дата: при обновлении листа дефектовки дата не меняется
+    if (template.code === 'disassembly_defect' && existingMeta.at && existingMeta.at !== atMs) {
+      return { ok: false, error: 'Дата дефектовки фиксирована — при обновлении листа она не меняется' };
+    }
   }
 
   const siblings = await listRepairStageRows(db, engineId);
@@ -190,7 +194,39 @@ export async function saveRepairStageRow(
     performedBy: actor,
     metaJson: JSON.stringify(meta),
   });
+
+  // Снятие статуса «утиль» при укладке/сборке и выше
+  if (template.sortOrder >= 40) {
+    await clearEngineScrapFlag(db, engineId);
+  }
+
   return { ok: true, id, created, backward, pass };
+}
+
+/**
+ * Снять глобальный флаг «утиль» с двигателя.
+ * Дефектовка остаётся в истории, но двигатель больше не считается утильным.
+ */
+async function clearEngineScrapFlag(
+  db: BetterSQLite3Database,
+  engineId: string,
+): Promise<void> {
+  const scrapRows = await db
+    .select()
+    .from(attributeValues)
+    .where(
+      and(
+        eq(attributeValues.entityId, engineId),
+        eq(attributeValues.attributeDefId, 'is_scrap'),
+      ),
+    )
+    .limit(1);
+  if (scrapRows[0]) {
+    await db
+      .update(attributeValues)
+      .set({ valueJson: JSON.stringify('0') })
+      .where(eq(attributeValues.id, scrapRows[0].id));
+  }
 }
 
 /** Ранг кода для читателей вне шаблона (неизвестный — боковая ветка). */
