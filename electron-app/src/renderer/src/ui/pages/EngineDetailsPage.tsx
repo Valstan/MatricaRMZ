@@ -360,6 +360,7 @@ function printEngineReport(
     contract?: string;
   },
   orderedRows?: Array<[string, string]>,
+  extraSections?: Array<{ id: string; title: string; html: string }>,
 ) {
   const attrs = engine.attributes ?? {};
   const mainRows: Array<[string, string]> =
@@ -387,6 +388,7 @@ function printEngineReport(
       : {}),
     sections: [
       { id: 'main', title: 'Основное', html: keyValueTable(mainRows) },
+      ...(extraSections ?? []),
       { id: 'files', title: 'Файлы', html: fileListHtml(attrs.attachments) },
     ],
   });
@@ -2112,7 +2114,7 @@ export function EngineDetailsPage(props: {
   // Печать понимает, какая вкладка открыта (решение владельца 2026-08-20):
   // на «Фото и документы» — работа с файлами (выбранные из списка или все),
   // с выбором «список / содержимое / вместе»; на остальных — карточка как раньше.
-  const handlePrint = () => {
+  const handlePrint = async () => {
     if (activeTab === 'files') {
       void handlePrintFilesTab();
       return;
@@ -2122,6 +2124,35 @@ export function EngineDetailsPage(props: {
       return;
     }
     const pickLabel = (key: string, id: string) => (linkLists[key] ?? []).find((o) => o.id === id)?.label ?? id;
+
+    // Дополнительные секции: история ремонта и этапы — если вкладка открыта.
+    const extraSections: Array<{ id: string; title: string; html: string }> = [];
+    if (activeTab === 'history' && props.canViewOperations) {
+      try {
+        const rows = await window.matrica.operations.list(props.engineId);
+        const timeline = buildEngineTimeline(rows);
+        if (timeline.length > 0) {
+          const timelineHtml = timeline
+            .map(
+              (it) => `
+              <tr>
+                <td>${formatMoscowDateTime(it.at)}</td>
+                <td>${escapeHtml(it.label)}</td>
+                <td>${escapeHtml(it.note ?? '')}</td>
+              </tr>`,
+            )
+            .join('');
+          extraSections.push({
+            id: 'history',
+            title: 'История ремонта',
+            html: `<table><thead><tr><th>Дата</th><th>Событие</th><th>Примечание</th></tr></thead><tbody>${timelineHtml}</tbody></table>`,
+          });
+        }
+      } catch {
+        // История не загрузилась — печатаем без неё.
+      }
+    }
+
     printEngineReport(
       props.engine,
       {
@@ -2132,6 +2163,7 @@ export function EngineDetailsPage(props: {
         contract: pickLabel('contract_id', contractId),
       },
       orderedPrintRows,
+      extraSections,
     );
   };
 
@@ -2570,8 +2602,11 @@ export function EngineDetailsPage(props: {
         <div
           className="entity-card-span-full"
           data-card-tab="history" hidden={activeTab !== 'history'}
-          style={{ maxWidth: 820, width: '100%', margin: '0 auto' }}
         >
+          {/* Внутренняя центрированная колонка: наружный span-full растягивает шелл
+              V3 (.v3-card-body .entity-card-span-full { max-width: 100% !important }),
+              поэтому компактность задаём обёрткой внутри, а не ему. */}
+          <div data-engine-history-compact style={{ maxWidth: 700, width: '100%', margin: '0 auto', display: 'grid', gap: 12 }}>
           <EngineRepairHistoryPanel
             engineId={props.engineId}
             canEdit={canEditEnginesEff}
@@ -2585,6 +2620,7 @@ export function EngineDetailsPage(props: {
           />
           <EngineTimelinePanel engineId={props.engineId} />
           <DocumentHistoryPanel entityId={props.engineId} canView={props.canViewAudit === true} />
+          </div>
         </div>
       )}
 

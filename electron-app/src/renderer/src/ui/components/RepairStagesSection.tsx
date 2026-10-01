@@ -43,6 +43,7 @@ export function RepairStagesSection(props: {
   const [addingNote, setAddingNote] = useState('');
   const [pendingPass, setPendingPass] = useState<{ pass: number; id: string; code: string; atMs: number; note: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [editingDate, setEditingDate] = useState<{ id: string; code: string; value: string } | null>(null);
   const confirmCtx = useConfirmOptional();
   // Гейт отгрузки в полёте: повторный клик не должен открыть второй гейт поверх первого.
   const shipmentGateBusy = useRef(false);
@@ -144,17 +145,45 @@ export function RepairStagesSection(props: {
                 <tr key={row.id} data-repair-stage-row={row.code}>
                   <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }}>
                     {props.canEdit ? (
-                      <Input
-                        type="date"
-                        value={toInputDate(row.at)}
-                        disabled={busy}
-                        title="Дата этапа — меняется прямо здесь"
-                        data-repair-stage-date={row.id}
-                        onChange={(e) => {
-                          const atMs = fromInputDate(e.target.value);
-                          if (atMs !== null) void writeStage({ id: row.id, code: row.code, atMs });
-                        }}
-                      />
+                      editingDate?.id === row.id ? (
+                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                          <Input
+                            type="date"
+                            value={editingDate.value}
+                            disabled={busy}
+                            title="Дата этапа"
+                            data-repair-stage-date={row.id}
+                            onChange={(e) => setEditingDate((prev) => prev ? { ...prev, value: e.target.value } : null)}
+                          />
+                          <Button
+                            variant="ghost"
+                            disabled={busy}
+                            data-repair-stage-apply-date={row.id}
+                            onClick={() => {
+                              const atMs = fromInputDate(editingDate.value);
+                              if (atMs !== null) {
+                                void writeStage({ id: row.id, code: row.code, atMs }).then(() => setEditingDate(null));
+                              }
+                            }}
+                          >
+                            Применить
+                          </Button>
+                          <Button variant="ghost" onClick={() => setEditingDate(null)}>✕</Button>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                          <span>{formatMoscowDate(new Date(row.at ?? 0))}</span>
+                          <Button
+                            variant="ghost"
+                            disabled={busy}
+                            title="Изменить дату этапа"
+                            data-repair-stage-edit-date={row.id}
+                            onClick={() => setEditingDate({ id: row.id, code: row.code, value: toInputDate(row.at) })}
+                          >
+                            ✎
+                          </Button>
+                        </div>
+                      )
                     ) : (
                       formatMoscowDate(new Date(row.at ?? 0))
                     )}
