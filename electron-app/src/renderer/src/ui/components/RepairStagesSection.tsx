@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
+  serviceActorLabel,
   sortStagesByDate,
   type RepairStageRow,
   type RepairStageTemplate,
@@ -194,7 +195,10 @@ export function RepairStagesSection(props: {
                     {row.note && <div className="ui-muted">{row.note}</div>}
                   </td>
                   <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }} data-repair-stage-by={row.id}>
-                    {row.by ? <span className="ui-muted">{row.by}</span> : null}
+                    {/* Служебный автор виден по-русски («перенос этапов … (программа)»):
+                        сырой логин скрипта в колонке «Кто» читался как ошибка (владелец 01.10.2026).
+                        Человеческий логин остаётся логином — ФИО разворачивает паспорт. */}
+                    {row.by ? <span className="ui-muted">{serviceActorLabel(row.by)}</span> : null}
                   </td>
                   <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }}>
                     {props.canEdit && (

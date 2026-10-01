@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 
-import { buildEngineTimeline, ENGINE_LIFECYCLE_PHASE_ORDER, type EngineTimelineItem } from '@matricarmz/shared';
+import { buildEngineTimeline, ENGINE_LIFECYCLE_PHASE_ORDER, serviceActorLabel, type EngineTimelineItem } from '@matricarmz/shared';
 
 import { SectionCard } from './SectionCard.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
@@ -64,10 +64,13 @@ export function EngineTimelinePanel(props: { engineId: string; resolveFullName?:
 }
 
 function resolveWho(login: string | null, resolve?: (login: string) => string): string {
-  const raw = String(login ?? '').trim();
-  if (!raw || raw === 'local') return '';
-  const full = resolve ? resolve(raw) : '';
-  return full && full !== raw ? `${full} (${raw})` : raw;
+  // Служебный автор («перенос этапов … (программа)») в ФИО не разворачивается: у скрипта
+  // сотрудника нет, и lookup вернул бы пустоту. Человеческий логин разворачиваем как раньше.
+  const service = serviceActorLabel(login);
+  if (!service) return '';
+  if (service !== String(login ?? '').trim()) return service;
+  const full = resolve ? resolve(service) : '';
+  return full && full !== service ? `${full} (${service})` : service;
 }
 
 function phaseColor(phase: EngineTimelineItem['phase']): string {
