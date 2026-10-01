@@ -164,8 +164,8 @@ describe('ступенчатый фильтр доезжает до строк �
 describe('бирки печатаются по выделенным строкам, а не по фильтру', () => {
   it('набор бирок собирается из выделения списка', () => {
     expect(PAGE).toContain('props.engines.filter((e) => selection.selectedIds.has(String(e.id)))');
-    expect(PAGE, 'диалогу бирок отдаётся выделение, а не отфильтрованный список').toContain('setTagRows(selectedEngines)');
-    expect(PAGE).toContain('engines={tagRows ?? []}');
+    expect(PAGE, 'диалогу бирок отдаётся выделение, а не отфильтрованный список').toContain('setTagInitial(selectedEngines.map(');
+    expect(PAGE).toContain('initial={tagInitial ?? []}');
   });
 
   it('этикетки по-прежнему берут отфильтрованное — источники не перепутаны', () => {
@@ -176,7 +176,7 @@ describe('бирки печатаются по выделенным строка
   });
 
   it('пустое выделение проговаривается словами, а не печатает весь список', () => {
-    expect(PAGE).toContain('if (selectedEngines.length === 0) {');
+    expect(PAGE).toContain('selectedEngines.length === 0 && tagQueue.items.length === 0');
     expect(PAGE).toContain('setTagHintVisible(true);');
     expect(PAGE, 'подсказка должна называть, что делать').toContain('Бирки печатаются на выделенные двигатели');
   });
@@ -185,6 +185,37 @@ describe('бирки печатаются по выделенным строка
     expect(PAGE).toContain('Бирки на выбранные (${menuRows.length})');
     // Раньше меню вовсе не открывалось без onCreateAssemblyOrder — тогда пункт был бы недостижим.
     expect(PAGE).not.toContain('if (!result.openMenu || !props.onCreateAssemblyOrder) return;');
+  });
+});
+
+const TAG_DIALOG = src('../components/EngineTagPrintDialog.tsx');
+const ENGINE_CARD = src('./EngineDetailsPage.tsx');
+
+// Одна форма печати с очередью (владелец 01.10.2026): список и карточка добирают
+// в общий набор, снятие галочки убирает из превью, добор — поиском по номеру.
+describe('очередь печати бирок', () => {
+  it('диалог держит очередь с галочками и добором поиском', () => {
+    expect(TAG_DIALOG).toContain('useTagPrintQueue()');
+    expect(TAG_DIALOG).toContain('data-tag-queue');
+    expect(TAG_DIALOG).toContain('data-tag-search');
+    expect(TAG_DIALOG).toContain('data-tag-check={item.engineId}');
+    expect(TAG_DIALOG).toContain('data-tag-remove={item.engineId}');
+    expect(TAG_DIALOG).toContain('data-tag-add={m.engineId}');
+    expect(TAG_DIALOG).toContain('queue.enqueue([...props.initial])');
+  });
+
+  it('в печать идут только отмеченные — снятые остаются в наборе', () => {
+    expect(TAG_DIALOG).toContain('queue.items.filter((i) => i.checked)');
+  });
+
+  it('карточка добирает себя в очередь по engineId, а не печатает сразу', () => {
+    expect(ENGINE_CARD).toContain('setEngineTagInitial([{ ...engineTagSource, engineId: String(props.engineId) }])');
+    expect(ENGINE_CARD).toContain('initial={engineTagInitial ?? []}');
+  });
+
+  it('пустые список и очередь проговариваются словами, а не печатают парк', () => {
+    expect(PAGE).toContain('selectedEngines.length === 0 && tagQueue.items.length === 0');
+    expect(PAGE).toContain('setTagHintVisible(true);');
   });
 });
 

@@ -11,7 +11,7 @@ import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { EngineHistoryFeedPanel } from '../components/EngineHistoryFeedPanel.js';
 import { AttachmentsModule } from '../components/AttachmentsModule.js';
 import { EngineReclamationTab, type ReclamationDraft } from '../components/EngineReclamationTab.js';
-import { EngineTagPrintDialog, type EngineTagSource } from '../components/EngineTagPrintDialog.js';
+import { EngineTagPrintDialog, type EngineTagInitial, type EngineTagSource } from '../components/EngineTagPrintDialog.js';
 import { buildEngineTimeline, type EngineTimelineItem } from '@matricarmz/shared';
 import { DocumentHistoryPanel } from '../components/DocumentHistoryPanel.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
@@ -451,6 +451,8 @@ export function EngineDetailsPage(props: {
   const [dismantleOpen, setDismantleOpen] = useState(false);
   /** Диалог печати бирки на этот двигатель (раскладку 6/4/2 он помнит сам). */
   const [engineTagOpen, setEngineTagOpen] = useState(false);
+  // Входной набор диалога бирок: эта карточка добирается в общую очередь печати.
+  const [engineTagInitial, setEngineTagInitial] = useState<EngineTagInitial[] | null>(null);
   // Ф2 advisory-резерв. Истечение зависит от ЧАСОВ, а не от прихода данных, поэтому
   // отдельный минутный тик: useLiveDataRefresh (12 с) обновляет только данные.
   const [nowTick, setNowTick] = useState(() => Date.now());
@@ -2262,8 +2264,6 @@ export function EngineDetailsPage(props: {
     contractRepairDays,
     statusDates,
   ]);
-  // Новый массив на каждый рендер перезагружал бы iframe превью — держим ссылку стабильной.
-  const engineTagList = useMemo(() => [engineTagSource], [engineTagSource]);
   // Печать понимает, какая вкладка открыта (решение владельца 2026-08-20):
   // на «Фото и документы» — работа с файлами (выбранные из списка или все),
   // с выбором «список / содержимое / вместе»; на остальных — карточка как раньше.
@@ -2449,7 +2449,10 @@ export function EngineDetailsPage(props: {
                 variant="ghost"
                 tone="info"
                 title="Печать бирки на двигатель: 6 / 4 / 2 бирки на листе A4"
-                onClick={() => setEngineTagOpen(true)}
+                onClick={() => {
+                  setEngineTagInitial([{ ...engineTagSource, engineId: String(props.engineId) }]);
+                  setEngineTagOpen(true);
+                }}
               >
                 Бирка
               </Button>
@@ -2680,8 +2683,11 @@ export function EngineDetailsPage(props: {
       <EngineTagPrintDialog
         open={engineTagOpen}
         title="Бирка на двигатель"
-        engines={engineTagList}
-        onClose={() => setEngineTagOpen(false)}
+        initial={engineTagInitial ?? []}
+        onClose={() => {
+          setEngineTagOpen(false);
+          setEngineTagInitial(null);
+        }}
       />
 
       {/* Обёртка ОДНА на обе акт-вкладки: панель внутри одна, меняется только вид акта.

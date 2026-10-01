@@ -19,7 +19,8 @@ import { EngineFacetFilter, EngineFacetToggleButton } from '../components/Engine
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { Button } from '../components/Button.js';
 import { LabelPrintDialog } from '../components/LabelPrintDialog.js';
-import { EngineTagPrintDialog } from '../components/EngineTagPrintDialog.js';
+import { EngineTagPrintDialog, type EngineTagInitial } from '../components/EngineTagPrintDialog.js';
+import { useTagPrintQueue } from '../hooks/useTagPrintQueue.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
@@ -345,7 +346,8 @@ export function EnginesPage(props: {
   const [printDialogOpen, setPrintDialogOpen] = React.useState(false);
   // Бирки печатаются по строкам, которые оператор выделил (а не по фильтру, как этикетки),
   // поэтому диалог держит свой набор строк: из выделения тулбара или из ПКМ-меню.
-  const [tagRows, setTagRows] = React.useState<EngineListItem[] | null>(null);
+  const [tagInitial, setTagInitial] = React.useState<EngineTagInitial[] | null>(null);
+  const tagQueue = useTagPrintQueue();
   const [tagHintVisible, setTagHintVisible] = React.useState(false);
   const { state: listState, patchState } = useListUiState<EnginesPageUiState>('list:engines', createDefaultEnginesPageUiState());
   const { containerRef, onScroll } = usePersistedScrollTop('list:engines');
@@ -541,7 +543,7 @@ export function EnginesPage(props: {
         label: `🏷️ Бирки на выбранные (${menuRows.length})`,
         onClick: () => {
           setTagHintVisible(false);
-          setTagRows(menuRows);
+          setTagInitial(menuRows.map((e) => ({ ...e, engineId: String(e.id) })));
         },
       });
       return items;
@@ -710,14 +712,15 @@ export function EnginesPage(props: {
   }, [selectedEngines.length]);
 
   function openTagDialog() {
-    // Ничего не выделено — говорим это словами. Напечатать вместо этого весь отфильтрованный
-    // список (как делает печать этикеток) значило бы молча выдать сотни листов.
-    if (selectedEngines.length === 0) {
+    // Ничего не выделено и очередь пуста — говорим это словами. Напечатать вместо
+    // этого весь отфильтрованный список (как делает печать этикеток) значило бы
+    // молча выдать сотни листов.
+    if (selectedEngines.length === 0 && tagQueue.items.length === 0) {
       setTagHintVisible(true);
       return;
     }
     setTagHintVisible(false);
-    setTagRows(selectedEngines);
+    setTagInitial(selectedEngines.map((e) => ({ ...e, engineId: String(e.id) })));
   }
 
   function renderTableHeader() {
@@ -1082,10 +1085,10 @@ export function EnginesPage(props: {
       />
 
       <EngineTagPrintDialog
-        open={tagRows !== null}
+        open={tagInitial !== null}
         title="Бирки на двигатели"
-        engines={tagRows ?? []}
-        onClose={() => setTagRows(null)}
+        initial={tagInitial ?? []}
+        onClose={() => setTagInitial(null)}
       />
 
       {printDialogOpen && (
