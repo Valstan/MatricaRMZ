@@ -71,6 +71,28 @@ export function repairStageRank(code: string): number {
   return t ? t.sortOrder : 0;
 }
 
+/**
+ * Кандидат массового добавления этапа (владелец 01.10.2026): показывают только
+ * двигатели, которые стоят на заводе СЕЙЧАС на предыдущем этапе. Уехавшие
+ * (нет прихода / есть отгрузка), стоящие на этом или более высоком этапе и
+ * ушедшие в боковую ветку утиля скрываются совсем, а не группой «остальные»:
+ * иначе за обкатку список из 991 штуки, где живых — горсть.
+ *
+ * `lastRank`: ранг последнего этапа двигателя (null — этапов ещё не было);
+ * ранг 0 (боковой/неизвестный код) — не «ниже», а «вне линейки», не кандидат.
+ */
+export function isBulkStageCandidate(args: {
+  atPlant: boolean;
+  hasScrapBranch: boolean;
+  lastRank: number | null;
+  selectedRank: number;
+}): boolean {
+  if (!args.atPlant || args.hasScrapBranch) return false;
+  if (args.selectedRank <= 0) return false;
+  if (args.lastRank === null) return true;
+  return args.lastRank > 0 && args.lastRank < args.selectedRank;
+}
+
 export type DatedStage = {
   code: RepairStageCode;
   /** ms epoch; 0/null — дата не проставлена, в порядке не участвует. */
