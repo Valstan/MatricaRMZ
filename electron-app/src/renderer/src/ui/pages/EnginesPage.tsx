@@ -848,7 +848,7 @@ export function EnginesPage(props: {
           <tbody>
             {items.map((e, i) => (
               <tr key={e.id} {...engineRowProps(e)}>
-                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8, textAlign: 'center', width: 32 }}>
+                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8, textAlign: 'center', width: 32 }} onClick={(event) => event.stopPropagation()}>
                   <input
                     type="checkbox"
                     checked={selection.isSelected(String(e.id))}
@@ -1028,7 +1028,10 @@ export function EnginesPage(props: {
               const e = displayRows[i]!;
               return (
                 <>
-                  <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8, textAlign: 'center', width: 32 }}>
+                  <td
+                    style={{ borderBottom: '1px solid #f3f4f6', padding: 8, textAlign: 'center', width: 32 }}
+                    onClick={(event) => event.stopPropagation()}
+                  >
                     <input
                       type="checkbox"
                       checked={selection.isSelected(String(e.id))}

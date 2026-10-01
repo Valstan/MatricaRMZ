@@ -24,6 +24,10 @@ describe('EnginesPage — мультивыбор чекбоксами', () => {
     expect(PAGE).toContain('colSpan={Math.max(1, visibleColumns.length) + 3}');
   });
 
+  it('клик по чекбоксу не открывает карточку (stopPropagation до строки)', () => {
+    expect(PAGE).toContain('onClick={(event) => event.stopPropagation()}');
+  });
+
   it('подсказка упоминает чекбоксы как способ выделения', () => {
     expect(PAGE).toContain('Поставьте галочки');
   });
