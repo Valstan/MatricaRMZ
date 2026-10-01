@@ -163,7 +163,7 @@ describe('ступенчатый фильтр доезжает до строк �
 // стоит перепутать источник — оператор молча получит пачку листов на весь парк.
 describe('бирки печатаются по выделенным строкам, а не по фильтру', () => {
   it('набор бирок собирается из выделения списка', () => {
-    expect(PAGE).toContain('displayRows.filter((e) => selection.selectedIds.has(String(e.id)))');
+    expect(PAGE).toContain('props.engines.filter((e) => selection.selectedIds.has(String(e.id)))');
     expect(PAGE, 'диалогу бирок отдаётся выделение, а не отфильтрованный список').toContain('setTagRows(selectedEngines)');
     expect(PAGE).toContain('engines={tagRows ?? []}');
   });
@@ -185,5 +185,33 @@ describe('бирки печатаются по выделенным строка
     expect(PAGE).toContain('Бирки на выбранные (${menuRows.length})');
     // Раньше меню вовсе не открывалось без onCreateAssemblyOrder — тогда пункт был бы недостижим.
     expect(PAGE).not.toContain('if (!result.openMenu || !props.onCreateAssemblyOrder) return;');
+  });
+});
+
+const SELECTION_HOOK = src('../hooks/useListSelection.ts');
+
+// Выделение обязано переживать поиск и возврат из карточки (владелец 01.10.2026):
+// вторая галочка больше не гасит первую, поиск не выкидывает выбранное из печати.
+describe('выделение списка липнет, а не слетает', () => {
+  it('набор персистится в sessionStorage и читается обратно', () => {
+    expect(PAGE).toContain("persistKey: 'list:engines:selection'");
+    expect(SELECTION_HOOK).toContain('matrica:listSelection:');
+    expect(SELECTION_HOOK).toContain('window.sessionStorage.getItem(storageKey)');
+    expect(SELECTION_HOOK).toContain('window.sessionStorage.setItem(storageKey, JSON.stringify(');
+  });
+
+  it('клик внутри списка и открытие карточки набор не чистят', () => {
+    expect(SELECTION_HOOK).toContain("target.closest('[data-list-root=\"true\"]')");
+    expect(PAGE).toContain('data-list-root="true"');
+    const primary = SELECTION_HOOK.slice(
+      SELECTION_HOOK.indexOf('const onRowPrimaryAction'),
+      SELECTION_HOOK.indexOf('const onRowContextMenu'),
+    );
+    expect(primary, 'открытие карточки гасило весь набор').not.toContain('clearSelection()');
+  });
+
+  it('клавиатура гасит только по Escape, а не любым символом', () => {
+    expect(SELECTION_HOOK).toContain("if (e.key === 'Escape') clearSelection();");
+    expect(SELECTION_HOOK).not.toContain('if (!e.shiftKey) clearSelection();');
   });
 });

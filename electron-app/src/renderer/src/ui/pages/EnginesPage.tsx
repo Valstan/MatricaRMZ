@@ -516,12 +516,17 @@ export function EnginesPage(props: {
 
   // ПКМ-меню строки: пункт «Наряд на сборку» (тема D) для одиночной строки. Печать/копия/
   // удаление двигателей из списка не поддержаны — меню целевое, без общего набора.
-  const selection = useListSelection(displayRows.map((e) => String(e.id)));
+  const selection = useListSelection(
+    displayRows.map((e) => String(e.id)),
+    { persistKey: 'list:engines:selection' },
+  );
   // Бирки — единственное действие списка, которое работает от ВЫДЕЛЕНИЯ: печать этикеток
   // и печать списка берут отфильтрованное, а пачка бирок «на весь фильтр» — это пачка бумаги.
+  // Набор считается по ВСЕМ строкам, а не только видимым: выпавшее из поиска выделение
+  // обязано дождаться оператора, а не молча выпасть из печати.
   const selectedEngines = useMemo(
-    () => displayRows.filter((e) => selection.selectedIds.has(String(e.id))),
-    [displayRows, selection.selectedIds],
+    () => props.engines.filter((e) => selection.selectedIds.has(String(e.id))),
+    [props.engines, selection.selectedIds],
   );
   const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
   const engineById = useMemo(() => new Map(props.engines.map((e) => [String(e.id), e])), [props.engines]);
@@ -875,7 +880,7 @@ export function EnginesPage(props: {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+    <div data-list-root="true" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {/* mx-page-toolbar — на планшете ряд уезжает, когда оператор листает список
           (возврат: язычок 🔍 у левого края, он же ставит курсор в поиск). */}
       <PageToolbar>

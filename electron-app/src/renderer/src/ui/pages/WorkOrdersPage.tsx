@@ -526,7 +526,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
   }, [menu, menuRows, props.canDelete, selection, printRows, copyRows, deleteRows]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+    <div data-list-root="true" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {/* mx-page-toolbar — планшетный режим убирает ряд при прокрутке списка. */}
       <PageToolbar>
         {props.canCreate && (
