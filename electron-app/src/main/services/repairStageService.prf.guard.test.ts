@@ -45,7 +45,7 @@ describe('PR-F: фиксированная дата дефектовки и сн
     );
     expect(second.ok).toBe(false);
     if (second.ok) throw new Error('expected defect date to stay fixed');
-    expect(second.error).toContain('Дата дефектовки фиксирована');
+    expect(second.error).toContain('Дата разборки/дефектовки фиксирована');
   });
 
   it('укладка снимает флаг утиль с двигателя', async () => {

@@ -18,7 +18,6 @@ export type EngineFlatField = {
 /** Вкладка «Основное»: каждое поле стоит рядом со «своей» датой. */
 export const ENGINE_EXTRA_MAIN_FIELDS: readonly EngineFlatField[] = [
   { code: 'arrival_invoice', label: 'Номер накладной (приход)', kind: 'text', order: 51 },
-  { code: 'defect_date', label: 'Дата дефектовки', kind: 'date', order: 52 },
   { code: 'shipment_invoice', label: 'Номер накладной (отгрузка)', kind: 'text', order: 71 },
   { code: 'engine_note', label: 'Примечание', kind: 'text', order: 79 },
 ];

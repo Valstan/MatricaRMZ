@@ -77,8 +77,7 @@ function defaultDefectTemplate(): RepairChecklistTemplate {
       { id: 'engine_number', label: '№ двигателя', kind: 'text', required: true },
       { id: 'engine_internal_number', label: 'Внутренний №', kind: 'text' },
       { id: 'passport_number', label: 'Паспорт двигателя (№)', kind: 'text' },
-      { id: 'defect_start_date', label: 'Дата начала дефектовки', kind: 'date' },
-      { id: 'defect_end_date', label: 'Дата окончания дефектовки', kind: 'date' },
+      { id: 'defect_start_date', label: 'Дата разборки/дефектовки', kind: 'date' },
       { id: 'defect_summary', label: 'Итоги дефектовки', kind: 'text' },
       {
         id: 'defect_items',
@@ -115,8 +114,7 @@ function defaultEngineInventoryTemplate(): RepairChecklistTemplate {
       { id: 'engine_number', label: '№ двигателя', kind: 'text', required: true },
       { id: 'engine_internal_number', label: 'Внутренний №', kind: 'text' },
       { id: 'arrival_date', label: 'Дата приёмки двигателя', kind: 'date' },
-      { id: 'defect_start_date', label: 'Дата начала дефектовки', kind: 'date' },
-      { id: 'defect_end_date', label: 'Дата окончания дефектовки', kind: 'date' },
+      { id: 'defect_start_date', label: 'Дата разборки/дефектовки', kind: 'date' },
       {
         id: 'engine_inventory_items',
         label: 'Список деталей двигателя',
