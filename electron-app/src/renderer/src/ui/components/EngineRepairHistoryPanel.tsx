@@ -4,6 +4,7 @@ import {
   REPAIR_HISTORY_ENTRY_TYPE_LABELS,
   REPAIR_HISTORY_OPERATION_TYPE,
   buildRepairHistoryMeta,
+  serviceActorLabel,
   formatWorkSheetValue,
   repairHistoryActionOptions,
   repairHistoryFromOperations,
@@ -287,7 +288,8 @@ export function EngineRepairHistoryPanel(props: {
                       ) : null;
                     })}
                   </td>
-                  <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }}>{entry.performedBy ?? ''}</td>
+                  {/* Служебный автор по-русски, человеческий — логином (см. serviceActors). */}
+                  <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }}>{serviceActorLabel(entry.performedBy)}</td>
                 </tr>
               ))}
             </tbody>
