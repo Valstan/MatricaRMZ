@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildEngineTagsHtml,
+  splitContractDigits,
   technicalAcceptanceDate,
   TECHNICAL_ACCEPTANCE_LAG_DAYS,
   type EngineTagData,
@@ -37,16 +38,18 @@ function numberPt(html: string): string {
   return html.match(/\.tag-number \{ font-size: ([\d.]+)pt/)?.[1] ?? '';
 }
 
+const PORTRAIT = { orientation: 'portrait' as const };
+
 describe('buildEngineTagsHtml', () => {
   it('режет бирки на листы по выбранной раскладке', () => {
-    expect(sheetCount(buildEngineTagsHtml(tags(6), { perSheet: 6 }))).toBe(1);
-    expect(sheetCount(buildEngineTagsHtml(tags(6), { perSheet: 4 }))).toBe(2);
-    expect(sheetCount(buildEngineTagsHtml(tags(6), { perSheet: 2 }))).toBe(3);
-    expect(sheetCount(buildEngineTagsHtml(tags(7), { perSheet: 6 }))).toBe(2);
+    expect(sheetCount(buildEngineTagsHtml(tags(6), { perSheet: 6, ...PORTRAIT }))).toBe(1);
+    expect(sheetCount(buildEngineTagsHtml(tags(6), { perSheet: 4, ...PORTRAIT }))).toBe(2);
+    expect(sheetCount(buildEngineTagsHtml(tags(6), { perSheet: 2, ...PORTRAIT }))).toBe(3);
+    expect(sheetCount(buildEngineTagsHtml(tags(7), { perSheet: 6, ...PORTRAIT }))).toBe(2);
   });
 
   it('печатает все поля бирки', () => {
-    const html = buildEngineTagsHtml([tag(1)], { perSheet: 4 });
+    const html = buildEngineTagsHtml([tag(1)], { perSheet: 4, ...PORTRAIT });
     expect(html).toContain('6ЧН 21/21');
     expect(html).toContain('Д-001');
     expect(html).toContain('РЖД ТЧЭ-5');
@@ -66,7 +69,7 @@ describe('buildEngineTagsHtml', () => {
   it('пустое значение печатает прочерком', () => {
     const html = buildEngineTagsHtml(
       [{ engineBrand: '', engineNumber: 'Д-009', customerName: '  ', contractNumber: '', arrivalDate: null }],
-      { perSheet: 6 },
+      { perSheet: 6, ...PORTRAIT },
     );
     expect(html).toContain('Д-009');
     // Пустых значений четыре (марка, заказчик, договор, поступление) плюс две несчитаемые даты.
@@ -75,22 +78,63 @@ describe('buildEngineTagsHtml', () => {
   });
 
   it('три раскладки дают разные кегли', () => {
-    const six = numberPt(buildEngineTagsHtml(tags(1), { perSheet: 6 }));
-    const four = numberPt(buildEngineTagsHtml(tags(1), { perSheet: 4 }));
-    const two = numberPt(buildEngineTagsHtml(tags(1), { perSheet: 2 }));
+    const six = numberPt(buildEngineTagsHtml(tags(1), { perSheet: 6, ...PORTRAIT }));
+    const four = numberPt(buildEngineTagsHtml(tags(1), { perSheet: 4, ...PORTRAIT }));
+    const two = numberPt(buildEngineTagsHtml(tags(1), { perSheet: 2, ...PORTRAIT }));
     expect(new Set([six, four, two]).size).toBe(3);
     expect(Number(six)).toBeLessThan(Number(four));
     expect(Number(four)).toBeLessThan(Number(two));
   });
 
   it('раскладка задаёт сетку и высоту ряда от печатной области A4', () => {
-    // 6 на лист: 2 колонки × 3 ряда, высота ряда = (297 − 2×7 − 1 − 2×3) / 3 = 92мм.
-    const html = buildEngineTagsHtml(tags(6), { perSheet: 6 });
+    // 6 на лист: 2 колонки × 3 ряда, высота ряда = (297 − 2×7 − 1 − 2×2) / 3 = 92.67мм.
+    const html = buildEngineTagsHtml(tags(6), { perSheet: 6, ...PORTRAIT });
     expect(html).toContain('grid-template-columns: repeat(2, 1fr)');
-    expect(html).toContain('grid-template-rows: repeat(3, 92mm)');
+    expect(html).toContain('grid-template-rows: repeat(3, 92.67mm)');
     expect(html).toContain('@page { size: A4; margin: 7mm; }');
     // 2 на лист: одна колонка.
-    expect(buildEngineTagsHtml(tags(2), { perSheet: 2 })).toContain('grid-template-columns: repeat(1, 1fr)');
+    expect(buildEngineTagsHtml(tags(2), { perSheet: 2, ...PORTRAIT })).toContain('grid-template-columns: repeat(1, 1fr)');
+  });
+
+  it('альбом: сетка зеркальная, @page landscape', () => {
+    // 4 на альбом: 2 × 2, высота ряда = (210 − 2×7 − 1 − 4) / 2 = 95.5мм.
+    const html = buildEngineTagsHtml(tags(4), { perSheet: 4, orientation: 'landscape' });
+    expect(html).toContain('@page { size: A4 landscape; margin: 7mm; }');
+    expect(html).toContain('grid-template-columns: repeat(2, 1fr)');
+    expect(html).toContain('grid-template-rows: repeat(2, 95.5mm)');
+    expect(sheetCount(html)).toBe(1);
+    // 6 на альбом: 3 колонки.
+    expect(buildEngineTagsHtml(tags(6), { perSheet: 6, orientation: 'landscape' })).toContain(
+      'grid-template-columns: repeat(3, 1fr)',
+    );
+  });
+});
+
+describe('splitContractDigits', () => {
+  it('три последние цифры до слэша — отдельно', () => {
+    expect(splitContractDigits('239/27/ГОЗ-24')).toEqual({ head: '', digits: '239', tail: '/27/ГОЗ-24' });
+    expect(splitContractDigits('2325187913551442245231239/27/ГОЗ-24')).toEqual({
+      head: '2325187913551442245231',
+      digits: '239',
+      tail: '/27/ГОЗ-24',
+    });
+  });
+
+  it('меньше трёх цифр, без цифр и без номера — null, печатается как есть', () => {
+    expect(splitContractDigits('ДГ-12/2026-СЕВ')).toBeNull();
+    expect(splitContractDigits('без цифр вовсе')).toBeNull();
+    expect(splitContractDigits('')).toBeNull();
+    expect(splitContractDigits('12')).toBeNull();
+  });
+
+  it('цифры на бирке жирные и крупные, остальное — как было', () => {
+    const html = buildEngineTagsHtml(
+      [{ ...tag(1), contractNumber: '239/27/ГОЗ-24' }],
+      { perSheet: 4, orientation: 'landscape' },
+    );
+    expect(html).toContain('<span class="tag-contract-digits">239</span>');
+    expect(html).toContain('/27/ГОЗ-24');
+    expect(html).toContain('.tag-contract-digits { font-size: 24pt; font-weight: 800; }');
   });
 });
 
