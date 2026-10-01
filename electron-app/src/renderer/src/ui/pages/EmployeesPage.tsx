@@ -18,6 +18,7 @@ import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
+import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
 import { FacetFilter, FacetToggleButton } from '../components/FacetFilter.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
@@ -420,7 +421,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
             // header — headers stayed wide while the cells under them narrowed.
             if (!visible) return null;
             return (
-              <th key={col.id} {...listHeaderKindProps(col.kind, col.label)} style={col.width ? { ...headerCellStyle, width: col.width, textAlign: col.cellAlign ?? 'left' } : headerCellStyle}>
+              <th key={col.id} {...listHeaderKindProps(col.kind, col.label)} {...manualWidthAttr(columnLayout.widthOf(col.id))} style={{ ...manualThAnchor(), ...headerCellStyle, textAlign: col.cellAlign ?? 'left', ...(col.width ? { width: col.width } : {}), ...manualWidth(columnLayout.widthOf(col.id)) }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
                   <span>{col.sortKey ? renderSortLabel(tabletColumnLabel(col.label, col.tabletLabel), col.sortKey) : tabletColumnLabel(col.label, col.tabletLabel)}</span>
                   <ColumnToggleButton
@@ -430,6 +431,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
                     onToggle={() => columnLayout.setVisible(col.id, false)}
                   />
                 </span>
+                <ColumnResizeHandle columnId={col.id} layout={columnLayout} />
               </th>
             );
           })}
@@ -694,6 +696,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
             rowNumbers
             estimateSize={showPreviews ? 56 : 44}
             emptyState={rows.length === 0 ? 'Нет сотрудников' : 'Не найдено'}
+            columnWidths={visibleColumns.map((c) => ({ id: c.id, width: columnLayout.widthOf(c.id) }))}
           />
         )}
       </div>

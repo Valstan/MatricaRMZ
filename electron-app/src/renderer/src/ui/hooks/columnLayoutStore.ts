@@ -11,9 +11,14 @@
 export type ColumnLayoutState = {
   order: string[];
   hidden: string[];
+  /** Ручные ширины колонок, px (владелец 01.10.2026): тянуть за край шапки. Нет записи — авто. */
+  widths?: Record<string, number>;
 };
 
-export type ColumnLayoutEntry = ColumnLayoutState & { updatedAt: number };
+export type ColumnLayoutEntry = Omit<ColumnLayoutState, 'widths'> & {
+  widths: Record<string, number>;
+  updatedAt: number;
+};
 
 const STORAGE_PREFIX = 'matrica:columnLayout:';
 export const COLUMN_LAYOUT_CHANGE_EVENT = 'matrica:column-layout-changed';
@@ -33,6 +38,18 @@ function legacyKey(layoutId: string): string {
   return `${STORAGE_PREFIX}${layoutId}`;
 }
 
+/** Ручная ширина: 48..1200px, мусор отбрасывается. */
+export function normalizeColumnWidths(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+    const px = Math.round(Number(value));
+    if (!id || !Number.isFinite(px)) continue;
+    out[id] = Math.max(48, Math.min(1200, px));
+  }
+  return out;
+}
+
 function parseEntry(raw: string | null): ColumnLayoutEntry | null {
   if (!raw) return null;
   try {
@@ -41,6 +58,7 @@ function parseEntry(raw: string | null): ColumnLayoutEntry | null {
     return {
       order: Array.isArray(parsed.order) ? parsed.order.map(String) : [],
       hidden: Array.isArray(parsed.hidden) ? parsed.hidden.map(String) : [],
+      widths: normalizeColumnWidths(parsed.widths),
       // Легаси-запись без штампа: 0 — любая серверная копия считается свежее.
       updatedAt: Number.isFinite(updatedAt) && updatedAt > 0 ? updatedAt : 0,
     };
@@ -68,6 +86,7 @@ export function writeColumnLayout(layoutId: string, state: ColumnLayoutState, op
   const entry: ColumnLayoutEntry = {
     order: state.order,
     hidden: state.hidden,
+    widths: normalizeColumnWidths(state.widths),
     updatedAt: opts?.updatedAt ?? Date.now(),
   };
   try {
@@ -117,7 +136,9 @@ export function readAllColumnLayouts(): Record<string, ColumnLayoutEntry> {
  * Применение серверных раскладок: запись принимается, только если её штамп
  * свежее локального (LWW). Возвращает число применённых раскладок.
  */
-export function hydrateColumnLayouts(entries: Record<string, ColumnLayoutEntry> | null | undefined): number {
+export function hydrateColumnLayouts(
+  entries: Record<string, { order?: unknown; hidden?: unknown; widths?: unknown; updatedAt?: unknown }> | null | undefined,
+): number {
   if (!entries || typeof entries !== 'object') return 0;
   let applied = 0;
   for (const [layoutId, raw] of Object.entries(entries)) {
@@ -125,11 +146,12 @@ export function hydrateColumnLayouts(entries: Record<string, ColumnLayoutEntry> 
     const incoming: ColumnLayoutEntry = {
       order: Array.isArray(raw.order) ? raw.order.map(String) : [],
       hidden: Array.isArray(raw.hidden) ? raw.hidden.map(String) : [],
+      widths: normalizeColumnWidths(raw.widths),
       updatedAt: Number(raw.updatedAt) || 0,
     };
     const local = readColumnLayout(layoutId);
     if (local && local.updatedAt >= incoming.updatedAt) continue;
-    writeColumnLayout(layoutId, { order: incoming.order, hidden: incoming.hidden }, { updatedAt: incoming.updatedAt });
+    writeColumnLayout(layoutId, { order: incoming.order, hidden: incoming.hidden, widths: incoming.widths }, { updatedAt: incoming.updatedAt });
     applied += 1;
   }
   return applied;

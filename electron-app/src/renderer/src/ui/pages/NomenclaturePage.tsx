@@ -13,6 +13,7 @@ import { VirtualTable } from '../components/VirtualTable.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
 import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
+import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { NomenclaturePropertyEditModal, type NomenclaturePropertyEditRow } from '../components/NomenclaturePropertyEditModal.js';
@@ -824,10 +825,13 @@ export function NomenclaturePage(props: {
                         <th
                           key={col.id}
                           {...listHeaderKindProps(col.kind, col.label)}
+                          {...manualWidthAttr(columnLayout.widthOf(col.id))}
                           style={{
+                            ...manualThAnchor(),
                             textAlign: 'left',
                             cursor: 'pointer',
                             ...(col.minWidth ? { minWidth: col.minWidth } : { whiteSpace: 'nowrap' }),
+                            ...manualWidth(columnLayout.widthOf(col.id)),
                           }}
                           onClick={() => onSort(col.sortKey)}
                         >
@@ -840,6 +844,7 @@ export function NomenclaturePage(props: {
                               onToggle={() => columnLayout.setVisible(col.id, false)}
                             />
                           </span>
+                          <ColumnResizeHandle columnId={col.id} layout={columnLayout} />
                         </th>
                       ))}
                     </tr>
@@ -916,6 +921,7 @@ export function NomenclaturePage(props: {
                 colCount={Math.max(1, visibleColumns.length)}
                 estimateSize={40}
                 emptyState="Нет данных"
+                columnWidths={visibleColumns.map((c) => ({ id: c.id, width: columnLayout.widthOf(c.id) }))}
               />
             </div>
           </div>

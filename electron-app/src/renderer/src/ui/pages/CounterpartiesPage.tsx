@@ -35,6 +35,7 @@ import {
 import { useCardContentIds } from '../hooks/useListDeepFilter.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
+import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
 import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
@@ -302,7 +303,8 @@ export function CounterpartiesPage(props: {
               <th
                 key={col.id}
                 {...listHeaderKindProps(col.kind, col.label)}
-                style={{ padding: '10px 12px', textAlign: col.cellAlign ?? 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: col.sortKey ? 'pointer' : 'default', ...(col.width ? { width: col.width } : {}) }}
+                {...manualWidthAttr(columnLayout.widthOf(col.id))}
+                style={{ ...manualThAnchor(), padding: '10px 12px', textAlign: col.cellAlign ?? 'left', fontWeight: 700, fontSize: 14, color: '#374151', cursor: col.sortKey ? 'pointer' : 'default', ...(col.width ? { width: col.width } : {}), ...manualWidth(columnLayout.widthOf(col.id)) }}
                 onClick={col.sortKey ? () => onSort(col.sortKey as SortKey) : undefined}
               >
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
@@ -315,6 +317,7 @@ export function CounterpartiesPage(props: {
                   />
                 </span>
                 {col.sortKey ? ` ${sortArrow(listState.sortKey as SortKey, listState.sortDir, col.sortKey)}` : ''}
+                <ColumnResizeHandle columnId={col.id} layout={columnLayout} />
               </th>
             );
           })}
@@ -462,6 +465,7 @@ export function CounterpartiesPage(props: {
             rowNumbers
             estimateSize={showPreviews ? 52 : 44}
             emptyState={rows.length === 0 ? 'Нет контрагентов' : 'Не найдено'}
+            columnWidths={visibleColumns.map((c) => ({ id: c.id, width: columnLayout.widthOf(c.id) }))}
           />
         )}
       </div>

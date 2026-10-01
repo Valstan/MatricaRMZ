@@ -18,6 +18,7 @@ import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
+import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
@@ -425,7 +426,8 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
               <th
                 key={col.id}
                 {...listHeaderKindProps(col.kind, col.label)}
-                style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: col.sortKey ? 'pointer' : 'default', ...(col.width ? { width: col.width } : {}) }}
+                {...manualWidthAttr(columnLayout.widthOf(col.id))}
+                style={{ ...manualThAnchor(), textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, cursor: col.sortKey ? 'pointer' : 'default', ...(col.width ? { width: col.width } : {}), ...manualWidth(columnLayout.widthOf(col.id)) }}
                 onClick={col.sortKey ? () => onSort(col.sortKey as SortKey) : undefined}
               >
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
@@ -438,6 +440,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
                   />
                 </span>
                 {col.sortKey ? ` ${sortArrow(listState.sortKey as SortKey, listState.sortDir, col.sortKey)}` : ''}
+                <ColumnResizeHandle columnId={col.id} layout={columnLayout} />
               </th>
             );
           })}
@@ -630,6 +633,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
             rowNumbers
             estimateSize={44}
             emptyState="Ничего не найдено"
+            columnWidths={visibleColumns.map((c) => ({ id: c.id, width: columnLayout.widthOf(c.id) }))}
           />
         )}
       </div>

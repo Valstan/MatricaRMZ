@@ -9,7 +9,7 @@ describe('layoutFromPersisted — новые колонки и сохранён�
   const all = ['number', 'brand', 'arrival', 'repaired', 'scrap'];
 
   it('без записи — порядок кода, скрытые по умолчанию', () => {
-    expect(layoutFromPersisted(null, all, ['repaired', 'scrap'])).toEqual({ order: all, hidden: ['repaired', 'scrap'] });
+    expect(layoutFromPersisted(null, all, ['repaired', 'scrap'])).toEqual({ order: all, hidden: ['repaired', 'scrap'], widths: {} });
   });
 
   it('колонка, которой нет в записи, берёт видимость из defaultHidden', () => {
@@ -27,6 +27,16 @@ describe('layoutFromPersisted — новые колонки и сохранён�
   it('пропавшие из кода колонки вычищаются из записи', () => {
     const persisted = { order: ['number', 'gone', 'brand'], hidden: ['gone', 'brand'] };
     const out = layoutFromPersisted(persisted, ['number', 'brand'], []);
-    expect(out).toEqual({ order: ['number', 'brand'], hidden: ['brand'] });
+    expect(out).toEqual({ order: ['number', 'brand'], hidden: ['brand'], widths: {} });
+  });
+
+  it('ручные ширины переживают нормализацию, чужие и мусор — нет', () => {
+    const persisted = {
+      order: ['number', 'brand'],
+      hidden: [],
+      widths: { number: 200, gone: 300, junk: 'x', tiny: 5 } as unknown as Record<string, number>,
+    };
+    const out = layoutFromPersisted(persisted, ['number', 'brand'], []);
+    expect(out.widths).toEqual({ number: 200 });
   });
 });
