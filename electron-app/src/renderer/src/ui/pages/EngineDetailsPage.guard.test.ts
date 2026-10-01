@@ -270,9 +270,11 @@ describe('карточка двигателя знает, свежий это з
   });
 });
 
-describe('PR-C: компактная история ремонта — внутренняя центрированная колонка', () => {
-  it('обёртка data-engine-history-compact с maxWidth 700 внутри span-full', () => {
+describe('PR-C: широкая история ремонта — внутренняя центрированная колонка', () => {
+  it('обёртка data-engine-history-compact с maxWidth 1400 внутри span-full', () => {
+    // Было 700 — лента занимала треть экрана и рвала строки (владелец 01.10.2026).
     expect(CARD).toContain('data-engine-history-compact');
-    expect(CARD).toContain('maxWidth: 700');
+    expect(CARD).toContain('maxWidth: 1400');
+    expect(CARD).not.toContain('maxWidth: 700');
   });
 });
