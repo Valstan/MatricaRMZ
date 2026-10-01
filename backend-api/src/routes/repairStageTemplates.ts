@@ -5,7 +5,9 @@ import { requireAuth, requirePermission, type AuthenticatedRequest } from '../au
 import { PermissionCode } from '../auth/permissions.js';
 import {
   archiveRepairStageTemplate,
+  deleteRepairStageTemplate,
   listRepairStageTemplates,
+  mergeRepairStageTemplates,
   reorderRepairStageTemplates,
   restoreRepairStageTemplate,
   upsertRepairStageTemplate,
@@ -64,6 +66,31 @@ repairStageTemplatesRouter.post('/:id/archive', requirePermission(PermissionCode
 repairStageTemplatesRouter.post('/:id/restore', requirePermission(PermissionCode.RepairStageTemplatesEdit), async (req, res) => {
   const actor = (req as AuthenticatedRequest).user?.username ?? null;
   const result = await restoreRepairStageTemplate(String(req.params.id ?? ''), actor);
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+repairStageTemplatesRouter.post('/merge', requirePermission(PermissionCode.RepairStageTemplatesEdit), async (req, res) => {
+  const schema = z.object({
+    sourceId: z.string().min(1).max(100),
+    targetId: z.string().min(1).max(100),
+    dryRun: z.boolean().optional(),
+  });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const user = (req as AuthenticatedRequest).user;
+  const result = await mergeRepairStageTemplates(parsed.data.sourceId, parsed.data.targetId, {
+    id: String(user?.id ?? ''),
+    username: String(user?.username ?? ''),
+    ...(user?.role ? { role: String(user.role) } : {}),
+  }, { ...(parsed.data.dryRun === true ? { dryRun: true as const } : {}) });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+repairStageTemplatesRouter.post('/:id/delete', requirePermission(PermissionCode.RepairStageTemplatesEdit), async (req, res) => {
+  const actor = (req as AuthenticatedRequest).user?.username ?? null;
+  const result = await deleteRepairStageTemplate(String(req.params.id ?? ''), actor);
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });

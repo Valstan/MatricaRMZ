@@ -91,6 +91,74 @@ export function RepairStageTemplateDialog(props: { onClose: () => void; onChange
     void commitOrder(next);
   };
 
+  const [mergeSource, setMergeSource] = useState('');
+  const [mergeTarget, setMergeTarget] = useState('');
+  const [mergeInfo, setMergeInfo] = useState('');
+
+  const dryRunMerge = async () => {
+    if (!mergeSource || !mergeTarget) return setMergeInfo('Выберите оба этапа');
+    if (mergeSource === mergeTarget) return setMergeInfo('Исходный и целевой этапы совпадают');
+    setBusy(true);
+    setMergeInfo('');
+    try {
+      const r = (await window.matrica.workSheets.stages.templates.merge({
+        sourceId: mergeSource,
+        targetId: mergeTarget,
+        dryRun: true,
+      })) as { ok: boolean; moved?: number; error?: string };
+      if (!r.ok) return setMergeInfo(`Ошибка: ${r.error ?? 'unknown'}`);
+      setMergeInfo(`Строк к переезду: ${r.moved ?? 0}. Подтвердите слияние — исходный этап уйдёт в архив.`);
+    } catch (e) {
+      setMergeInfo(`Ошибка: ${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applyMerge = async () => {
+    if (!mergeSource || !mergeTarget || mergeSource === mergeTarget) return;
+    if (!window.confirm('Объединить этапы? Все строки истории переедут на целевой этап, исходный уйдёт в архив.')) return;
+    setBusy(true);
+    setMergeInfo('');
+    try {
+      const r = (await window.matrica.workSheets.stages.templates.merge({
+        sourceId: mergeSource,
+        targetId: mergeTarget,
+      })) as { ok: boolean; moved?: number; error?: string };
+      if (!r.ok) return setMergeInfo(`Ошибка: ${r.error ?? 'unknown'}`);
+      setMergeInfo(`Готово: переехало строк — ${r.moved ?? 0}.`);
+      setMergeSource('');
+      setMergeTarget('');
+      await refresh();
+      await props.onChanged();
+    } catch (e) {
+      setMergeInfo(`Ошибка: ${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeForever = async () => {
+    if (!selected?.id) return;
+    if (!window.confirm(`Удалить этап «${selected.name}» навсегда? Возможно только если у него нет строк в истории.`)) return;
+    setBusy(true);
+    try {
+      const r = (await window.matrica.workSheets.stages.templates.remove(selected.id)) as {
+        ok: boolean;
+        error?: string;
+      };
+      if (!r.ok) return setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
+      await refresh();
+      await props.onChanged();
+      pick(null);
+      setStatus('Этап удалён');
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const save = async () => {
     if (!draft.name.trim()) return setStatus('Название этапа обязательно');
     setBusy(true);
@@ -281,12 +349,69 @@ export function RepairStageTemplateDialog(props: { onClose: () => void; onChange
                 В архив
               </Button>
             )}
+            {draft.id && (
+              <Button variant="ghost" disabled={busy} onClick={() => void removeForever()} title="Удалить навсегда — только если у этапа нет строк в истории">
+                Удалить
+              </Button>
+            )}
             <div style={{ flex: 1 }} />
             <Button variant="ghost" onClick={() => props.onClose()}>
               Закрыть
             </Button>
           </div>
           {status && <div className="ui-muted">{status}</div>}
+
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, display: 'grid', gap: 8 }} data-stage-template-merge>
+            <div style={{ fontWeight: 700 }}>Объединить дубли</div>
+            <div className="ui-muted" style={{ fontSize: 12 }}>
+              Все строки истории исходного этапа переедут на целевой (через журнал — парк получит переезд синком), исходный уйдёт в архив.
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <label style={{ display: 'grid', gap: 4 }}>
+                <span className="ui-muted" style={{ fontSize: 12 }}>Исходный (исчезнет)</span>
+                <select
+                  value={mergeSource}
+                  disabled={busy}
+                  data-stage-merge-source
+                  onChange={(e) => setMergeSource(e.target.value)}
+                  style={{ padding: '6px 8px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)' }}
+                >
+                  <option value="">—</option>
+                  {live.map((t) => (
+                    <option key={t.code} value={t.id ?? ''}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ display: 'grid', gap: 4 }}>
+                <span className="ui-muted" style={{ fontSize: 12 }}>Целевой (останется)</span>
+                <select
+                  value={mergeTarget}
+                  disabled={busy}
+                  data-stage-merge-target
+                  onChange={(e) => setMergeTarget(e.target.value)}
+                  style={{ padding: '6px 8px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)' }}
+                >
+                  <option value="">—</option>
+                  {live.map((t) => (
+                    <option key={t.code} value={t.id ?? ''}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Button variant="ghost" disabled={busy} onClick={() => void dryRunMerge()} data-stage-merge-dry-run>
+                Посчитать строки
+              </Button>
+              <Button disabled={busy} onClick={() => void applyMerge()} data-stage-merge-apply>
+                Объединить
+              </Button>
+            </div>
+            {mergeInfo && <div className="ui-muted">{mergeInfo}</div>}
+          </div>
         </div>
       </div>
     </div>

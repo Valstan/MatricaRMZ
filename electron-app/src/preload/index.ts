@@ -591,6 +591,9 @@ const matricaApi = {
         archive: async (id: string) => ipcRenderer.invoke('workSheets:stages:templates:archive', id),
         restore: async (id: string) => ipcRenderer.invoke('workSheets:stages:templates:restore', id),
         reorder: async (ids: string[]) => ipcRenderer.invoke('workSheets:stages:templates:reorder', ids),
+        merge: async (args: { sourceId: string; targetId: string; dryRun?: boolean }) =>
+          ipcRenderer.invoke('workSheets:stages:templates:merge', args),
+        remove: async (id: string) => ipcRenderer.invoke('workSheets:stages:templates:remove', id),
       },
       list: async (engineId: string) => ipcRenderer.invoke('workSheets:stages:list', engineId),
       save: async (args: unknown) => ipcRenderer.invoke('workSheets:stages:save', args),

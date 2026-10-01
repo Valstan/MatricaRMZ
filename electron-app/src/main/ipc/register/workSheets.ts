@@ -204,6 +204,26 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
     );
   });
 
+  ipcMain.handle('workSheets:stages:templates:merge', async (_e, args: { sourceId: string; targetId: string; dryRun?: boolean }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'repair_stage_templates.edit');
+    if (!gate.ok) return gate as Err;
+    return toResult(
+      await httpAuthed(ctx.sysDb, base(), '/repair-stage-templates/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(args ?? {}),
+      }),
+    );
+  });
+
+  ipcMain.handle('workSheets:stages:templates:remove', async (_e, id: string) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'repair_stage_templates.edit');
+    if (!gate.ok) return gate as Err;
+    return toResult(await httpAuthed(ctx.sysDb, base(), `/repair-stage-templates/${encodeURIComponent(id)}/delete`, { method: 'POST' }));
+  });
+
   ipcMain.handle('workSheets:stages:list', async (_e, engineId: string) => {
     const gate = await requirePermOrResult(ctx, 'operations.view');
     if (!gate.ok) return gate as Err;

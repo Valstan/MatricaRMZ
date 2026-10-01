@@ -2242,6 +2242,20 @@ export type MatricaApi = {
         restore: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
         /** Порядок массива — новый порядок линейки (шаг 5: drag-and-drop). */
         reorder: (ids: string[]) => Promise<{ ok: true; updated: number } | { ok: false; error: string }>;
+        /**
+         * Слияние дублей (PR-J): все stage-строки с кодом source переезжают на target
+         * через журнал (writeSyncChanges), исходный этап уходит в архив.
+         * dryRun — только посчитать строки без записи.
+         */
+        merge: (args: { sourceId: string; targetId: string; dryRun?: boolean }) => Promise<
+          | { ok: true; moved: number; sourceCode: string; targetCode: string; dryRun: boolean }
+          | { ok: false; error: string }
+        >;
+        /** Жёсткое удаление этапа без строк истории (код освобождается). Со строками — отказ. */
+        remove: (id: string) => Promise<
+          | { ok: true; deletedCode: string }
+          | { ok: false; error: string }
+        >;
       };
       list: (engineId: string) => Promise<{ ok: true; rows: RepairStageRow[] } | { ok: false; error: string }>;
       save: (args: SaveRepairStageInput) => Promise<SaveRepairStageResult>;
