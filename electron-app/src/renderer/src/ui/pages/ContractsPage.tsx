@@ -570,6 +570,8 @@ export function ContractsPage(props: {
   type ColumnDef = ColumnDescriptor & {
     printValue?: (row: any) => string;
     printSkip?: boolean;
+    /** Полная подпись для title: короткий label виден, полное — по наведению. */
+    title?: string;
     sortable: boolean;
     sortKey?: SortKey;
     headerAlign?: 'left' | 'right';
@@ -662,7 +664,8 @@ export function ContractsPage(props: {
       },
       {
         id: 'enginesPlanned',
-        label: 'Двигателей по контракту',
+        label: 'План',
+        title: 'Двигателей по контракту',
         tabletLabel: 'Дв.план',
         sortable: true,
         sortKey: 'enginesPlanned',
@@ -674,7 +677,8 @@ export function ContractsPage(props: {
       },
       {
         id: 'enginesAccepted',
-        label: 'Двигателей исполнено',
+        label: 'Исполнено',
+        title: 'Двигателей исполнено',
         tabletLabel: 'Дв.факт',
         sortable: true,
         sortKey: 'enginesAccepted',
@@ -691,7 +695,8 @@ export function ContractsPage(props: {
       },
       {
         id: 'enginesAtFactory',
-        label: 'Двигателей на заводе',
+        label: 'На заводе',
+        title: 'Двигателей на заводе',
         tabletLabel: 'Дв.з-д',
         sortable: true,
         sortKey: 'enginesAtFactory',
@@ -703,7 +708,8 @@ export function ContractsPage(props: {
       },
       {
         id: 'partsCompleted',
-        label: 'Запчасти исполнено',
+        label: 'Запчасти',
+        title: 'Запчасти исполнено',
         tabletLabel: 'Запч.',
         sortable: true,
         sortKey: 'partsCompleted',
@@ -901,7 +907,7 @@ export function ContractsPage(props: {
             return (
               <th
                 key={col.id}
-                {...listHeaderKindProps(col.kind, col.label)}
+                {...{ ...listHeaderKindProps(col.kind, col.label), ...(col.title ? { title: col.title } : {}) }}
                 style={baseStyle}
                 onClick={col.sortable && col.sortKey ? () => onSort(col.sortKey as SortKey) : undefined}
               >

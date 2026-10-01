@@ -2534,7 +2534,7 @@ export function ContractDetailsPage(props: {
               сводка и вложения шли подряд. Разложено по вкладкам; панели НЕ
               размонтируются (hidden) — сохранение при закрытии читает их state. */}
           <CardTabs tabs={CONTRACT_CARD_TABS} active={activeTab} onChange={setActiveTab} />
-          <div data-card-tab="contract" hidden={activeTab !== 'contract'} style={{ display: 'grid', gap: 16, minWidth: 0 }}>
+          <div data-card-tab="contract" hidden={activeTab !== 'contract'} style={{ gap: 16, minWidth: 0, ...(activeTab === 'contract' ? { display: 'grid' } : {}) }}>
           <SectionBlock
             title="Первичный контракт"
             section={sections.primary}
@@ -2618,7 +2618,7 @@ export function ContractDetailsPage(props: {
               секциях не видно — двигатели с contract_id, но без секции. После привязки через
               карточку они не появляются: секция проставляется вместе со слотом. */}
           </div>
-          <div data-card-tab="engines" hidden={activeTab !== 'engines'} style={{ display: 'grid', gap: 16, minWidth: 0 }}>
+          <div data-card-tab="engines" hidden={activeTab !== 'engines'} style={{ gap: 16, minWidth: 0, ...(activeTab === 'engines' ? { display: 'grid' } : {}) }}>
           {enginesWithoutSection.length > 0 || props.canEdit ? (
             <SectionCard className="entity-card-span-full" title="Двигатели без секции" style={{ borderRadius: 0, padding: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -2768,7 +2768,7 @@ export function ContractDetailsPage(props: {
           ) : null}
 
           </div>
-          <div data-card-tab="parts" hidden={activeTab !== 'parts'} style={{ display: 'grid', gap: 16, minWidth: 0 }}>
+          <div data-card-tab="parts" hidden={activeTab !== 'parts'} style={{ gap: 16, minWidth: 0, ...(activeTab === 'parts' ? { display: 'grid' } : {}) }}>
           <SectionCard className="entity-card-span-full" title="Детали" style={{ borderRadius: 0, padding: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
@@ -2910,7 +2910,7 @@ export function ContractDetailsPage(props: {
           </SectionCard>
 
           </div>
-          <div data-card-tab="accounting" hidden={activeTab !== 'accounting'} style={{ display: 'grid', gap: 16, minWidth: 0 }}>
+          <div data-card-tab="accounting" hidden={activeTab !== 'accounting'} style={{ gap: 16, minWidth: 0, ...(activeTab === 'accounting' ? { display: 'grid' } : {}) }}>
           <SectionCard className="entity-card-span-full" title="Реквизиты ГОЗ (бухгалтерия)" style={{ borderRadius: 0, padding: 16 }}>
             <FormGrid columns="repeat(2, minmax(240px, 1fr))" gap={10}>
               <FormField label="Наименование (ГОЗ)" fullWidth>
@@ -3041,7 +3041,7 @@ export function ContractDetailsPage(props: {
           </SectionCard>
 
           </div>
-          <div data-card-tab="files" hidden={activeTab !== 'files'} style={{ display: 'grid', gap: 16, minWidth: 0 }}>
+          <div data-card-tab="files" hidden={activeTab !== 'files'} style={{ gap: 16, minWidth: 0, ...(activeTab === 'files' ? { display: 'grid' } : {}) }}>
           <div className="entity-card-span-full">
             <DocumentHistoryPanel entityId={props.contractId} canView={props.canViewAudit === true} />
             <AttachmentsPanel

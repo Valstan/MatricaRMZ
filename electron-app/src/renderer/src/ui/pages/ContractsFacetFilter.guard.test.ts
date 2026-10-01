@@ -89,3 +89,30 @@ describe('вид контракта в карточке', () => {
     expect(CARD).toContain('on ? null : kind');
   });
 });
+
+describe('вкладки контракта переключаются, шапки короткие (владелец 01.10.2026)', () => {
+  it('панели вкладок прячутся по-настоящему: hidden без безусловного display', () => {
+    // Полотенце 01.10: у каждой панели hidden + инлайн display:grid — инлайн побеждал,
+    // и все 5 панелей были видны всегда. Теперь display только у активной.
+    for (const tab of ['contract', 'engines', 'parts', 'accounting', 'files']) {
+      const at = CARD.indexOf(`data-card-tab="${tab}"`);
+      expect(at, `панели ${tab} нет`).toBeGreaterThan(0);
+      const block = CARD.slice(at, CARD.indexOf('>', CARD.indexOf('style=', at)) + 1);
+      expect(block, `панель ${tab} видна всегда — полотенце вернулось`).not.toContain("style={{ display: 'grid'");
+      expect(block, `панель ${tab} без условного display`).toContain(`activeTab === '${tab}' ? { display: 'grid' }`);
+    }
+  });
+
+  it('шапки двигательных колонок короткие, полные — в подсказке', () => {
+    for (const [id, label, title] of [
+      ['enginesPlanned', 'План', 'Двигателей по контракту'],
+      ['enginesAccepted', 'Исполнено', 'Двигателей исполнено'],
+      ['enginesAtFactory', 'На заводе', 'Двигателей на заводе'],
+      ['partsCompleted', 'Запчасти', 'Запчасти исполнено'],
+    ]) {
+      expect(PAGE, `колонка ${id}`).toContain(`id: '${id}'`);
+      expect(PAGE, `колонка ${id} не укорочена`).toContain(`label: '${label}'`);
+      expect(PAGE, `у колонки ${id} нет полной подсказки`).toContain(`title: '${title}'`);
+    }
+  });
+});
