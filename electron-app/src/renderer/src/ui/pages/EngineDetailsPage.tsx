@@ -276,6 +276,22 @@ function EngineDuplicateHint(props: {
 // теперь единственный ввод; старые значения лежат замороженными в EAV и читаются
 // печатью). Порядок ниже оставлен ради ensureAttributeDefs (дефы нужны чтениям)
 // и замороженной печати.
+/**
+ * Где в развороте статусов стоит дата отгрузки: накладная отгрузки вставляется сразу
+ * после неё, поэтому блок статусов режется пополам (см. desired в карточке).
+ */
+const SHIPMENT_SPLIT = 4;
+
+/** Плоские поля вкладки «Основное», у которых своё место — вплотную к своей дате. */
+const MAIN_FIELD_EXTRA_ORDER = ['arrival_invoice', 'shipment_invoice'];
+
+/**
+ * Порядок этих полей на вкладке «Основное» (`defaultOrder` в mainFieldItems):
+ * приход — 51, сразу за датой прихода (50); отгрузка — 56, сразу за датой отгрузки (55)
+ * и перед датой приёмки заказчиком (57).
+ */
+const MAIN_FIELD_EXTRA_DEFAULT_ORDER: Record<string, number> = { arrival_invoice: 51, shipment_invoice: 56 };
+
 const STATUS_DISPLAY_ORDER: StatusCode[] = [
   'status_storage_received',
   'status_repair_started',
@@ -1570,6 +1586,35 @@ export function EngineDetailsPage(props: {
     void loadLinkLists();
   }, [props.canViewMasterData]);
 
+  // Порядок вкладки «Основное» задаёт массив desired: persistFieldOrder перезаписывает
+  // sortOrder дефов по нему (база 10), и orderFieldsByDefs сортирует поля по нему же. Порядок
+  // из shared (f.order) для УЖЕ заведённого поля не действует — его перебивает запись в БД,
+  // поэтому «накладная у своей даты» держится здесь, а не в ENGINE_EXTRA_MAIN_FIELDS.
+  const statusDefs = (codes: StatusCode[], offset = 0) => {
+    const out: Array<{ code: string; name: string; dataType: 'text' | 'date' | 'boolean'; sortOrder: number }> = [];
+    for (const [i, code] of codes.entries()) {
+      out.push({ code, name: STATUS_LABELS[code], dataType: 'boolean', sortOrder: 60 + (offset + i) * 2 });
+      out.push({ code: statusDateCode(code), name: `Дата ${STATUS_LABELS[code]}`, dataType: 'date', sortOrder: 61 + (offset + i) * 2 });
+    }
+    return out;
+  };
+  const flatFieldDefs = (codes: string[]) => {
+    const out: Array<{ code: string; name: string; dataType: 'text' | 'date' | 'boolean'; sortOrder: number }> = [];
+    for (const code of codes) {
+      const f = ENGINE_FLAT_FIELDS.find((x) => x.code === code);
+      if (!f) continue;
+      out.push({
+        code: f.code,
+        name: f.label,
+        dataType: f.kind === 'date' ? 'date' : f.kind === 'bool' ? 'boolean' : 'text',
+        // У накладных порядок задаёт MAIN_FIELD_EXTRA_DEFAULT_ORDER: он же стоит в
+        // mainFieldItems, и два места обязаны сойтись, иначе первое сохранение разъедется.
+        sortOrder: MAIN_FIELD_EXTRA_DEFAULT_ORDER[f.code] ?? f.order,
+      });
+    }
+    return out;
+  };
+
   useEffect(() => {
     if (!props.canEditMasterData || !engineTypeId || engineDefs.length === 0 || coreDefsReady) return;
     const desired = [
@@ -1606,10 +1651,15 @@ export function EngineDetailsPage(props: {
         metaJson: JSON.stringify({ linkTargetTypeCode: 'workshop' }),
       },
       { code: 'arrival_date', name: 'Дата прихода', dataType: 'date', sortOrder: 50 },
-      ...STATUS_DISPLAY_ORDER.flatMap((code, i) => [
-        { code, name: STATUS_LABELS[code], dataType: 'boolean' as const, sortOrder: 60 + i * 2 },
-        { code: statusDateCode(code), name: `Дата ${STATUS_LABELS[code]}`, dataType: 'date', sortOrder: 61 + i * 2 },
-      ]),
+      // Налкладная прихода — вплотную к дате прихода. Раньше она приезжала в общем
+      // развороте плоских полей в конце и стояла далеко под своей датой (владелец 01.10.2026).
+      ...flatFieldDefs(['arrival_invoice']),
+      // Статусы разрезаны пополам: накладная отгрузки встаёт сразу за датой отгрузки,
+      // поэтому блок идти целиком не может. Нумерация sortOrder сквозная (смещение SHIPMENT_SPLIT),
+      // иначе вторая половина статусов получила бы те же номера, что первая.
+      ...statusDefs(STATUS_DISPLAY_ORDER.slice(0, SHIPMENT_SPLIT)),
+      ...flatFieldDefs(['shipment_invoice']),
+      ...statusDefs(STATUS_DISPLAY_ORDER.slice(SHIPMENT_SPLIT), SHIPMENT_SPLIT),
       // Рекламация (вкладка «Рекламация»; переделка reclamation-tab-redesign-2026-08).
       // Имена — те же, что видит оператор на вкладке: иначе администраторские списки
       // атрибутов и выгрузки зовут поле по-старому.
@@ -1628,12 +1678,7 @@ export function EngineDetailsPage(props: {
       { code: 'repeat_arrival_flag', name: 'Повторный заезд', dataType: 'boolean', sortOrder: 90 },
       { code: 'number_collision_flag', name: 'Коллизия номера', dataType: 'boolean', sortOrder: 91 },
       { code: 'previous_arrival_id', name: 'Прежний заезд (ссылка)', dataType: 'text', sortOrder: 92 },
-      ...ENGINE_FLAT_FIELDS.map((f) => ({
-        code: f.code,
-        name: f.label,
-        dataType: f.kind === 'date' ? ('date' as const) : f.kind === 'bool' ? ('boolean' as const) : ('text' as const),
-        sortOrder: f.order,
-      })),
+      ...flatFieldDefs(ENGINE_FLAT_FIELDS.map((f) => f.code).filter((code) => !MAIN_FIELD_EXTRA_ORDER.includes(code))),
     ];
     void ensureAttributeDefs(engineTypeId, desired, engineDefs).then((next) => {
       const orderedCodes = desired.map((f) => f.code);
@@ -1694,6 +1739,12 @@ export function EngineDetailsPage(props: {
     const text = arrivalPlacementLabel(placement);
     return text.charAt(0).toUpperCase() + text.slice(1);
   };
+
+  // Подписи накладных берём из shared (ENGINE_FLAT_FIELDS), чтобы слово на карточке и в
+  // справочнике атрибутов не разошлось.
+  const mainFieldExtraLabel: Record<string, string> = Object.fromEntries(
+    ENGINE_FLAT_FIELDS.filter((f) => MAIN_FIELD_EXTRA_ORDER.includes(f.code)).map((f) => [f.code, f.label]),
+  );
 
   const mainFieldItems = [
     {
@@ -1936,6 +1987,7 @@ export function EngineDetailsPage(props: {
     {
       code: 'status_customer_sent',
       defaultOrder: 55,
+      // Накладная отгрузки имеет defaultOrder 56 — между датой отгрузки и приёмкой.
       label: 'Дата отгрузки',
       value: toInputDate(statusDates.status_customer_sent),
       render: (
@@ -1953,7 +2005,7 @@ export function EngineDetailsPage(props: {
     },
     {
       code: 'status_customer_accepted',
-      defaultOrder: 56,
+      defaultOrder: 57,
       label: 'Дата приёмки заказчиком',
       value: toInputDate(statusDates.status_customer_accepted),
       render: (
@@ -1969,7 +2021,24 @@ export function EngineDetailsPage(props: {
         />
       ),
     },
-    ...ENGINE_EXTRA_MAIN_FIELDS.map((f) => ({
+    // Налкладные вставляются по местам (рядом со своими датами), остальные плоские поля
+    // идут общим разворотом: их defaultOrder (51/71) тянул бы накладные вниз вкладки.
+    ...MAIN_FIELD_EXTRA_ORDER.map((code) => ({
+      code,
+      defaultOrder: MAIN_FIELD_EXTRA_DEFAULT_ORDER[code],
+      label: mainFieldExtraLabel[code],
+      value: flatValues[code] ?? '',
+      render: (
+        <Input
+          value={flatValues[code] ?? ''}
+          disabled={!canEditEnginesEff}
+          data-autogrow="off"
+          style={{ ...elasticFieldStyle, width: '100%' }}
+          onChange={(e) => setFlatValue(code, e.target.value)}
+        />
+      ),
+    })),
+    ...ENGINE_EXTRA_MAIN_FIELDS.filter((f) => !MAIN_FIELD_EXTRA_ORDER.includes(f.code)).map((f) => ({
       code: f.code,
       defaultOrder: f.order,
       label: f.label,
