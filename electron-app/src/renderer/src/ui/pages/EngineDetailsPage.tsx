@@ -566,11 +566,32 @@ export function EngineDetailsPage(props: {
       const r = await window.matrica.workSheets.stages.list(props.engineId);
       if (!r.ok) return;
       let best: { code: string; at: number | null } | null = null;
+      let shippedAt: number | null = null;
+      let acceptedAt: number | null = null;
       for (const row of r.rows) {
         if (typeof row.at !== 'number' || !Number.isFinite(row.at) || row.at <= 0) continue;
         if (!best || (best.at ?? 0) < row.at) best = { code: row.code, at: row.at };
+        if (row.code === 'shipped' && shippedAt === null) shippedAt = row.at;
+        if (row.code === 'accepted' && acceptedAt === null) acceptedAt = row.at;
       }
       setLastStage(best);
+      // PR-I: этапы → «Основное»: если в EAV дата пуста, а этап есть — показываем дату этапа.
+      // Правки оператора не затираем: только когда сессия чистая.
+      if (!sessionHadChanges.current && (shippedAt !== null || acceptedAt !== null)) {
+        setStatusDates((prev) => {
+          const next = { ...prev };
+          let changed = false;
+          if (shippedAt !== null && !(typeof prev.status_customer_sent === 'number' && prev.status_customer_sent > 0)) {
+            next.status_customer_sent = shippedAt;
+            changed = true;
+          }
+          if (acceptedAt !== null && !(typeof prev.status_customer_accepted === 'number' && prev.status_customer_accepted > 0)) {
+            next.status_customer_accepted = acceptedAt;
+            changed = true;
+          }
+          return changed ? next : prev;
+        });
+      }
     } catch {
       // этапы недоступны — countdown идёт по флагам, как раньше
     }
@@ -1175,6 +1196,8 @@ export function EngineDetailsPage(props: {
         engine_brand_id: asNullableText(engineBrandId),
         engine_brand: asNullableText(brandLabel),
         arrival_date: fromInputDate(arrivalDate),
+        [statusDateCode('status_customer_sent')]: statusDates.status_customer_sent,
+        [statusDateCode('status_customer_accepted')]: statusDates.status_customer_accepted,
         // Заказчик вычисляется из договора — тогда карточку не переписываем: отдаём то же
         // значение, что уже лежит, и диф остаётся пустым. Без договора поле правится как прежде.
         customer_id: contractCustomerId ? asNullableText(props.engine.attributes?.customer_id) : asNullableText(customerId),
@@ -1212,6 +1235,8 @@ export function EngineDetailsPage(props: {
         engine_brand_id: asNullableText(attrs.engine_brand_id),
         engine_brand: asNullableText(attrs.engine_brand),
         arrival_date: normalizeDateInput(attrs.arrival_date),
+        [statusDateCode('status_customer_sent')]: normalizeDateInput(attrs[statusDateCode('status_customer_sent')]),
+        [statusDateCode('status_customer_accepted')]: normalizeDateInput(attrs[statusDateCode('status_customer_accepted')]),
         customer_id: asNullableText(attrs.customer_id),
         contract_id: asNullableText(attrs.contract_id),
         contract_section_number: asNullableText(attrs.contract_section_number),
@@ -1261,6 +1286,29 @@ export function EngineDetailsPage(props: {
           // История ремонта: стадиями теперь владеет единый список этапов
           // (вкладка «История ремонта»); карточка флаги больше не пишет (шаг 8/3).
           // Замороженные значения остаются в EAV как история — их читает печать ниже.
+          // PR-I: дата отгрузки/приёмки из «Основного» — в этапы (только создание,
+          // если этапа ещё нет; даты существующих этапов правит только «История ремонта»).
+          try {
+            const shippedAt = statusDates.status_customer_sent ?? null;
+            const acceptedAt = statusDates.status_customer_accepted ?? null;
+            if (shippedAt || acceptedAt) {
+              const st = await window.matrica.workSheets.stages.list(props.engineId).catch(() => null);
+              const rows = st && st.ok ? st.rows : [];
+              const has = (code: string) => rows.some((r) => r.code === code);
+              if (shippedAt && !has('shipped')) {
+                await window.matrica.workSheets.stages
+                  .save({ id: crypto.randomUUID(), engineId: props.engineId, code: 'shipped', atMs: shippedAt })
+                  .catch(() => undefined);
+              }
+              if (acceptedAt && !has('accepted')) {
+                await window.matrica.workSheets.stages
+                  .save({ id: crypto.randomUUID(), engineId: props.engineId, code: 'accepted', atMs: acceptedAt })
+                  .catch(() => undefined);
+              }
+            }
+          } catch {
+            /* этапы — best-effort, карточку не валим */
+          }
           await props.onEngineUpdated();
           setSaveStatus(overPlanNote || 'Сохранено');
           setTimeout(() => setSaveStatus(''), overPlanNote ? 8000 : 700);
@@ -1883,6 +1931,42 @@ export function EngineDetailsPage(props: {
         />
       ),
     },
+    {
+      code: 'status_customer_sent',
+      defaultOrder: 55,
+      label: 'Дата отгрузки',
+      value: toInputDate(statusDates.status_customer_sent),
+      render: (
+        <Input
+          type="date"
+          value={toInputDate(statusDates.status_customer_sent)}
+          disabled={!canEditEnginesEff}
+          style={elasticFieldStyle}
+          onChange={(e) => {
+            setSessionChanged(true);
+            setStatusDates((prev) => ({ ...prev, status_customer_sent: fromInputDate(e.target.value) }));
+          }}
+        />
+      ),
+    },
+    {
+      code: 'status_customer_accepted',
+      defaultOrder: 56,
+      label: 'Дата приёмки заказчиком',
+      value: toInputDate(statusDates.status_customer_accepted),
+      render: (
+        <Input
+          type="date"
+          value={toInputDate(statusDates.status_customer_accepted)}
+          disabled={!canEditEnginesEff}
+          style={elasticFieldStyle}
+          onChange={(e) => {
+            setSessionChanged(true);
+            setStatusDates((prev) => ({ ...prev, status_customer_accepted: fromInputDate(e.target.value) }));
+          }}
+        />
+      ),
+    },
     ...ENGINE_EXTRA_MAIN_FIELDS.map((f) => ({
       code: f.code,
       defaultOrder: f.order,
@@ -2471,33 +2555,8 @@ export function EngineDetailsPage(props: {
         </div>
       </SectionCard>
 
-      {((FEATURE_ENGINE_DISMANTLE && props.canConfirmEngineDisassemble) || props.canAssemblyReturn) && (
-        <SectionCard style={{ padding: 12, background: 'rgba(168, 85, 247, 0.08)' }}>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <strong style={{ fontSize: 13 }}>Модуль движения деталей:</strong>
-            {FEATURE_ENGINE_DISMANTLE && props.canConfirmEngineDisassemble && (
-              <Button
-                onClick={() => setDismantleOpen(true)}
-                title="Создать и провести документ engine_dismantling: годные детали → ремфонд, утиль → утиль"
-              >
-                Разобрать двигатель
-              </Button>
-            )}
-            {props.canAssemblyReturn && (
-              <Button
-                variant="ghost"
-                onClick={() => setReturnOpen(true)}
-                title="Возврат деталей из «в сборке» в ремфонд (доработка) или утиль"
-              >
-                Возврат из сборки
-              </Button>
-            )}
-            <span style={{ color: 'var(--subtle)', fontSize: 12 }}>
-              Действия создают складские движения с привязкой к этому двигателю; видны в журнале (отчёт «Журнал движений деталей»).
-            </span>
-          </div>
-        </SectionCard>
-      )}
+      {/* Модуль движения деталей скрыт из вкладки «Основное» (PR-I): детали не отслеживаются,
+          модуль на будущее. Секция удалена из рендера; диалоги ниже оставлены. */}
         </div>
 
       {FEATURE_ENGINE_DISMANTLE && (
