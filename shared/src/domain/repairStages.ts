@@ -132,6 +132,9 @@ export type SaveRepairStageInput = {
   code: string;
   atMs: number;
   note?: string;
+  /** Цех отметки (необязательно); имя — снимком, как у ручных записей. */
+  workshopId?: string;
+  workshopName?: string;
   /** Осознанный повторный проход (ответ на гейт дублей), начиная с 2. */
   repeatPass?: number;
   repeatReason?: string;

@@ -180,6 +180,8 @@ export async function saveRepairStageRow(
     action: template.name,
     at: atMs,
     ...(text(input.note) ? { note: text(input.note) } : {}),
+    ...(text(input.workshopId) ? { workshopId: text(input.workshopId) } : {}),
+    ...(text(input.workshopName) ? { workshopName: text(input.workshopName) } : {}),
     entryType: 'stage',
     stage: { code: template.code, name: template.name },
     ...(repeat ? { repeat } : {}),

@@ -314,9 +314,12 @@ export function WorkSheetsPage(props: {
         Сводка для просмотра и печати — этапы отмечаются в карточке двигателя (вкладка «История ремонта» → «Этапы ремонта»)
       </div>
       <PageToolbar>
+        <Button onClick={() => setBulkAddOpen(true)} title="Добавить этап на несколько двигателей сразу" data-bulk-stage-add-open>
+          Добавить этап
+        </Button>
         <ToolbarPin>
-          <Input value={ui.query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по этапам работ…" />
-        </ToolbarPin>
+          <Input value={ui.query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по этапам работ…" />
+        </ToolbarPin>
         <ToolbarPin>
           <SearchModeToggle similar={ui.searchSimilar} onToggle={() => patchState({ searchSimilar: !ui.searchSimilar })} />
         </ToolbarPin>
@@ -342,9 +345,6 @@ export function WorkSheetsPage(props: {
             Шаблон этапов
           </Button>
         )}
-        <Button variant="ghost" onClick={() => setBulkAddOpen(true)} title="Добавить этап на несколько двигателей сразу" data-bulk-stage-add-open>
-          Добавить этап на движки
-        </Button>
         <Button variant="ghost" onClick={() => setAllTime((v) => !v)} title="По умолчанию показаны этапы работ с датой за последний год">
           {allTime ? 'За год' : 'За всё время'}
         </Button>

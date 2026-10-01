@@ -22,6 +22,7 @@ function src(rel: string): string {
 
 const PANEL = src('./EngineHistoryFeedPanel.tsx');
 const CARD = src('../pages/EngineDetailsPage.tsx');
+const WSH = src('../pages/WorkSheetsPage.tsx');
 const SERVICE = src('../../../../main/services/engineService.ts');
 const APP = src('../App.tsx');
 
@@ -156,5 +157,32 @@ describe('лента не потеряла то, ради чего её стро
     expect(CHECKLIST).toContain('atMs: defectStartMs');
     const stageBlock = CHECKLIST.slice(CHECKLIST.indexOf("code: 'disassembly_defect'") - 1200, CHECKLIST.indexOf("code: 'disassembly_defect'") + 200);
     expect(stageBlock).not.toContain('atMs: Date.now()');
+  });
+});
+
+describe('вверху только две кнопки, инлайн-полей нет (владелец 01.10.2026)', () => {
+  it('форма этапа раскрывается кнопкой и несёт цех, дату и Применить/Отмену', () => {
+    expect(PANEL).toContain('data-repair-stage-form-open');
+    expect(PANEL).toContain('Добавить этап ремонта');
+    // Инлайн-форма всегда видимой не должна возвращаться: селект живёт только в раскрытой форме.
+    expect(PANEL).toContain('addingStage && (');
+    expect(PANEL).toContain('stageWorkshopId');
+    expect(PANEL).toContain('Применить');
+  });
+
+  it('ручная запись — дата, действие, цех и комментарий; причины и произвольных полей нет', () => {
+    expect(PANEL).toContain('data-repair-history-add');
+    expect(PANEL).not.toContain('draftReason');
+    expect(PANEL).not.toContain('+ поле');
+    // Уже записанные причины продолжают показываться — резали только ввод.
+    expect(PANEL).toContain('{item.reason && <div>{item.reason}</div>}');
+  });
+
+  it('кнопка списка этапов — первая слева, синяя, короткая', () => {
+    expect(WSH).toContain('data-bulk-stage-add-open');
+    expect(WSH).toContain('Добавить этап');
+    expect(WSH).not.toContain('Добавить этап на движки');
+    // Главная кнопка — primary по умолчанию (без variant="ghost").
+    expect(WSH).toContain('<Button onClick={() => setBulkAddOpen(true)}');
   });
 });
