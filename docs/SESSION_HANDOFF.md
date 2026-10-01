@@ -3,8 +3,8 @@
 > Sticky-note для непрерывности разработки между сессиями и компьютерами. Обновляется в PR каждого шага нитки (D-066); `/close_session` — страховка. История — через `git log -- docs/SESSION_HANDOFF.md`.
 
 **Status:** ACTIVE
-**Updated:** 2026-10-01 (машина `PC79`) — задача владельца от 01.10 в четырёх PR: PR-A (#1092) и PR-B (#1093) влиты, PR-C (единая лента истории ремонта) в работе, дальше PR-D (ступени этапов в отчётах).
-**Branch:** `feat/engine-single-history-feed` (PR-C)
+**Updated:** 2026-10-01 (машина `PC79`) — задача владельца от 01.10 закрыта целиком: #1092 (порядок накладных), #1093 (служебные авторы по-русски), #1094 (единая лента истории) влиты, PR-D (ступени этапов) в работе.
+**Branch:** `refactor/engine-stage-facets` (PR-D)
 **Last released version:** **v3.54.0**, выкачено 01.10 · ledger-токен до 2026-10-28
 
 ## Текущая нитка
@@ -17,16 +17,18 @@
   `f.order` из shared. Сторож `EngineDetailsPage.fieldOrder.guard.test.ts`.
 - **PR-B (#1093) — влит.** Словарь служебных авторов `shared/src/domain/serviceActors.ts`
   (`serviceActorLabel`). Логины скриптов в базе не меняются — словарь назван словами поверх них.
-- **PR-C — в работе.** Три ленты истории → одна: `shared/src/domain/engineHistoryFeed.ts`
+- **PR-C (#1094) — влит.** Три ленты истории → одна: `shared/src/domain/engineHistoryFeed.ts`
   (`buildEngineHistoryFeed`) + панель `EngineHistoryFeedPanel`; удалены
   `EngineRepairHistoryPanel`/`EngineTimelinePanel`/`RepairStagesSection` и их сторожа.
   Колонка «Записано» рядом с датой события — прямое требование владельца.
-- **PR-D.** Ступени этапов: оставить «Есть этап» + «Последний этап» + «Дата этапа», убрать
-  `historyAction`/`historyDate`/`sheetNode`/`sheetDate`. Нужен `stageCodes` в строке списка.
+- **PR-D — в работе.** Ступени этапов: убраны `historyAction`/`historyDate`/`sheetNode`/`sheetDate`,
+  остались «Есть этап» (новое поле `stageCodes` в строке списка + `FacetValue.values` в движке
+  ступеней), «Последний этап» и «Дата этапа». `factoryStage` («Этап на заводе») оставлен —
+  это разрез отчёта, он смешивает этапы с актами.
 
 ## Следующий шаг
 
-Открыть PR для PR-C и смержить; дальше PR-D (ступени этапов в отчётах).
+Открыть PR для PR-D и смержить — нитка закрыта целиком. Релиза не было: на `main` 3.54.0, как на проде.
 
 ## Контекст
 
@@ -34,7 +36,7 @@
 - **Планы:** активный — [`plans/engine-card-order-actor-history-facets-2026-10.md`](plans/engine-card-order-actor-history-facets-2026-10.md) (PR-A..D). Закрытые: [`plans/bulk-stage-dialog-and-defect-dates-2026-10.md`](plans/bulk-stage-dialog-and-defect-dates-2026-10.md) (#1089, #1090), [`plans/_archive/engine-multiselect-stages-print-2026-09.md`](plans/_archive/engine-multiselect-stages-print-2026-09.md).
 - **Открытых PR:** нет. **Локальных веток с неотправленными коммитами:** нет.
 - **Письмо brain:** `mailbox/to-brain/2026-10-01-ask-the-cascade-not-the-files.md` (CDP `CSS.getMatchedStylesForNode` против гадания по файлам).
-- **Драйверы смоука** — в `.verifier-electron/` (gitignored, только `PC79`): `cdp-prs-smoke.mjs`, `cdp-bulk-stage-search.mjs` (диалог этапа), `cdp-engine-defect-dates.mjs` (даты дефектовки), `cdp-engine-main-field-order.mjs` (порядок полей «Основного»), `cdp-history-actor-labels.mjs` (подписи авторов), `cdp-history-single-feed.mjs` (единая лента истории). Ручную запись истории смоук убирает `DELETE` по `operations` через psql стенда (id печатается в `.verifier-electron/cdp-history-single-feed-purge.txt`): удаления в UI нет и не должно быть, запись только правится. Грабли: вкладки карточки — обычные кнопки `CardTabs`, искать по тексту, а НЕ в `.v3-tab-strip`; порядок полей вкладки «Основное» читать по `.card-row` (строка подпись+значение), сортируя по Y.
+- **Драйверы смоука** — в `.verifier-electron/` (gitignored, только `PC79`): `cdp-prs-smoke.mjs`, `cdp-bulk-stage-search.mjs` (диалог этапа), `cdp-engine-defect-dates.mjs` (даты дефектовки), `cdp-engine-main-field-order.mjs` (порядок полей «Основного»), `cdp-history-actor-labels.mjs` (подписи авторов), `cdp-history-single-feed.mjs` (единая лента истории), `cdp-engine-stage-facets.mjs` (ступени этапов). Грабля смоука ступеней: включённость ступени надёжнее проверять по наличию её раздела (`[data-facet-value^="<id>:"]`), а не по галочке в тексте кнопки; ключ варианта несёт id ступени (`hasStage:stage:sborka`). Ручную запись истории смоук убирает `DELETE` по `operations` через psql стенда (id печатается в `.verifier-electron/cdp-history-single-feed-purge.txt`): удаления в UI нет и не должно быть, запись только правится. Грабли: вкладки карточки — обычные кнопки `CardTabs`, искать по тексту, а НЕ в `.v3-tab-strip`; порядок полей вкладки «Основное» читать по `.card-row` (строка подпись+значение), сортируя по Y.
 
 ## Что не сработало
 

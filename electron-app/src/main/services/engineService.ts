@@ -483,6 +483,8 @@ type EngineRepairHistorySummary = {
   lastSheetNode: string;
   lastSheetAt: number | null;
   lastSheetTypeCode: string;
+  /** Все коды этапов двигателя по порядку линейки (ступень «Есть этап»). */
+  stageCodes: string[];
   lastStageCode: string;
   lastStageName: string;
   lastStageAt: number | null;
@@ -555,6 +557,19 @@ async function getEngineRepairHistoryMap(
     let stagePass = 0;
     let stageCode = '';
     let stageName = '';
+    // Все пройденные этапы по порядку линейки: ступени «Есть этап» нужен факт прохождения,
+    // а не только последний (двигатель, дошедший до обкатки и вернувшийся на сборку, прошёл
+    // оба). Порядок — по приоритету этапа, повторы кода схлопываются.
+    const seenCodes = new Set<string>();
+    const stageCodes: string[] = [];
+    for (const entry of entries) {
+      if (entry.entryType !== 'stage' || !entry.stage) continue;
+      const code = String(entry.stage.code ?? '').trim().toLowerCase();
+      if (!code || seenCodes.has(code)) continue;
+      seenCodes.add(code);
+      stageCodes.push(code);
+    }
+    stageCodes.sort((a, b) => stageRank(a) - stageRank(b));
     for (const entry of entries) {
       if (entry.entryType !== 'stage' || !entry.stage) continue;
       if (typeof entry.at !== 'number' || !Number.isFinite(entry.at) || entry.at <= 0) continue;
@@ -572,6 +587,7 @@ async function getEngineRepairHistoryMap(
       lastSheetNode: sheet?.sheet?.typeName ?? '',
       lastSheetAt: sheet?.at ?? null,
       lastSheetTypeCode: sheet?.sheet?.typeCode ?? '',
+      stageCodes,
       lastStageCode: stageCode,
       lastStageName: stageName,
       lastStageAt: stageAt > 0 ? stageAt : null,
@@ -1078,6 +1094,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
       ...(history?.lastSheetNode ? { lastSheetNode: history.lastSheetNode } : {}),
       ...(history?.lastSheetAt != null ? { lastSheetAt: history.lastSheetAt } : {}),
       ...(history?.lastSheetTypeCode ? { lastSheetTypeCode: history.lastSheetTypeCode } : {}),
+      ...(history?.stageCodes.length ? { stageCodes: history.stageCodes } : {}),
       ...(history?.lastStageCode ? { lastStageCode: history.lastStageCode } : {}),
       ...(history?.lastStageName ? { lastStageName: history.lastStageName } : {}),
       ...(history?.lastStageAt != null ? { lastStageAt: history.lastStageAt } : {}),

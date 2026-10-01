@@ -1,7 +1,7 @@
 import type { EngineListItem } from '../ipc/types.js';
 import { STATUS_LABELS, type StatusCode } from './contract.js';
 import { engineFactoryStage, engineFactoryStageOrder, engineStatusDate, type EngineFactoryStageTypeRef } from './engineFactoryStage.js';
-import type { RepairStageTemplate } from './repairStages.js';
+import { DEFAULT_REPAIR_STAGE_TEMPLATES, repairStageTemplate, type RepairStageTemplate } from './repairStages.js';
 import { COUNTDOWN_STALE_DAYS, countdownThresholds, isEngineDoneForCountdown } from './payments.js';
 import {
   activeFacetCount,
@@ -45,10 +45,9 @@ export type EngineFacetId =
   | 'shippingDate'
   | 'repairStartedDate'
   | 'repairedDate'
-  | 'historyAction'
-  | 'historyDate'
-  | 'sheetNode'
-  | 'sheetDate'
+  | 'hasStage'
+  | 'lastStage'
+  | 'stageDate'
   | 'factoryStage';
 
 export type EngineFacetValue = FacetValue;
@@ -130,6 +129,37 @@ const REPAIR_DEADLINE_ORDER: readonly RepairDeadlineKey[] = ['danger', 'warning'
  * от смены суток, а не от пересчёта в `listEngines`. Параметром, а не голым `Date.now()` в теле,
  * чтобы дату можно было задать извне и не зависеть от часов машины.
  */
+/**
+ * Этап по коду строки: сперва серверный шаблон (порядок и названия меняет владелец),
+ * при отсутствии — статичная линейка. Подпись ступени не должна зависеть от того, ответил
+ * ли сервер: иначе один и тот же двигатель попадал бы в разные группы при офлайне.
+ */
+/** Ряд значений ступеней этапов: весь ряд линейки в порядке шаблона, плюс «этапов нет». */
+function engineStageFacetOptions(types?: readonly EngineFactoryStageTypeRef[], stageTemplates?: readonly RepairStageTemplate[]) {
+  return [
+    ...engineFactoryStageOrder(types, stageTemplates)
+      .filter((s) => s.key.startsWith('stage:'))
+      .map((s) => ({ value: s.key, label: s.label })),
+    { value: 'none', label: 'этапов нет' },
+  ];
+}
+
+/**
+ * Этап по коду строки: сперва серверный шаблон (порядок и названия меняет владелец),
+ * при отсутствии — статичная линейка. Подпись ступени не должна зависеть от того, ответил
+ * ли сервер: иначе один и тот же двигатель попадал бы в разные группы при офлайне.
+ */
+function stageByCode(code: string, stageTemplates?: readonly RepairStageTemplate[]) {
+  const c = String(code ?? '').trim().toLowerCase();
+  if (!c) return null;
+  const hit = (stageTemplates ?? DEFAULT_REPAIR_STAGE_TEMPLATES).find((t) => t.code === c);
+  if (hit) return hit;
+  try {
+    return repairStageTemplate(c as RepairStageTemplate['code']);
+  } catch {
+    return null;
+  }
+}
 function repairDeadlineKey(e: EngineListItem, now = Date.now()): RepairDeadlineKey {
   // Ремонт закончен (или двигатель уехал) — отсчёт погашен тем же правилом, что в карточке.
   if (isEngineDoneForCountdown(e)) return 'done';
@@ -166,7 +196,6 @@ export function engineFacets(
   stageTemplates?: readonly RepairStageTemplate[],
 ): readonly EngineFacetDescriptor[] {
   // Виды работ в порядке справочника (ранний → поздний); в ряду этапов они идут наоборот.
-  const sheetTypes = engineFactoryStageOrder(types, stageTemplates).filter((s) => s.key.startsWith('sheet:')).reverse();
   return [
     {
       kind: 'values',
@@ -332,39 +361,49 @@ export function engineFacets(
     },
     {
       kind: 'values',
-      id: 'historyAction',
-      // «Что с двигателем происходило» — последнее событие истории ремонта. По нему видно, где
-      // двигатель застрял: список отбирается по действию, а не по одной лишь стадии из карточки.
-      label: 'Последнее событие',
+      // «Есть этап» — БЕЗ привязки к дате (владелец 01.10.2026): двигатель, у которого
+      // такой этап проходил в любой момент. Прежние четыре ступени («Последнее событие»,
+      // «Дата события», «Последний этап работ», «Дата этапа работ») отвечали на разные
+      // вопросы об одном и том же и взаимоисключали друг друга: движок считает их
+      // независимыми, а оператор выбирал одну и получал пустой список.
+      id: 'hasStage',
+      label: 'Есть этап',
       valueOf: (e) => {
-        const action = text(e.lastHistoryAction);
-        return action ? { value: action.toLowerCase(), label: action } : { value: 'none', label: 'событий нет' };
+        const codes = (e.stageCodes ?? []).filter((c: string) => stageByCode(c, stageTemplates) !== null);
+        const first = codes[0];
+        if (first === undefined) return { value: 'none', label: 'этапов нет' };
+        // Главное значение — первый по порядку линейки (подпись ступени), а `values`
+        // отдаёт ВСЕ этапы двигателя: ступени «есть этап» нужна любая комбинация, иначе
+        // выбор «Сборка» отбирал бы только тех, у кого сборка — последний этап.
+        return {
+          value: 'stage:' + first,
+          label: stageByCode(first, stageTemplates)!.name,
+          values: codes.map((c: string) => 'stage:' + c),
+        };
       },
-    },
-    {
-      kind: 'dateRange',
-      id: 'historyDate',
-      label: 'Дата события',
-      dateOf: (e) => dateMs(e.lastHistoryAt),
+      options: engineStageFacetOptions(types, stageTemplates),
     },
     {
       kind: 'values',
-      id: 'sheetNode',
-      // Вид работ последнего этапа — «на каком участке двигатель»: укладка, вал,
-      // обкатка, сборка. Отдельно от «последнего события», потому что ручные записи и стадии
-      // перебивали бы узел, а вопрос диспетчера — именно про этапы работ.
-      label: 'Последний этап работ',
+      // «Последний этап» — по дате, то есть где двигатель СЕЙЧАС (владелец 01.10.2026):
+      // при равной дате побеждает поздний проход (возврат). Отдельная ступень, а не ветка
+      // factoryStage: та смешивает этапы с актами и утилем, эта — только про линейку этапов.
+      id: 'lastStage',
+      label: 'Последний этап',
       valueOf: (e) => {
-        const node = text(e.lastSheetNode);
-        return node ? { value: node.toLowerCase(), label: node } : { value: 'none', label: 'этапов работ нет' };
+        const code = text(e.lastStageCode).toLowerCase();
+        const stage = stageByCode(code, stageTemplates);
+        if (!stage) return { value: 'none', label: 'этапов нет' };
+        return { value: 'stage:' + code, label: stage.name };
       },
-      options: [...sheetTypes.map((s) => ({ value: s.label.toLowerCase(), label: s.label })), { value: 'none', label: 'этапов работ нет' }],
+      options: engineStageFacetOptions(types, stageTemplates),
     },
     {
       kind: 'dateRange',
-      id: 'sheetDate',
-      label: 'Дата этапа работ',
-      dateOf: (e) => dateMs(e.lastSheetAt),
+      // Дата ПОСЛЕДНЕГО этапа: без неё нельзя отобрать «сборка за сентябрь».
+      id: 'stageDate',
+      label: 'Дата этапа',
+      dateOf: (e) => dateMs(e.lastStageAt),
     },
     {
       kind: 'values',
