@@ -269,3 +269,10 @@ describe('карточка двигателя знает, свежий это з
     expect(arrivalPlacementLabel(placements.get('old'))).not.toContain('повторный');
   });
 });
+
+describe('PR-C: компактная история ремонта — внутренняя центрированная колонка', () => {
+  it('обёртка data-engine-history-compact с maxWidth 700 внутри span-full', () => {
+    expect(CARD).toContain('data-engine-history-compact');
+    expect(CARD).toContain('maxWidth: 700');
+  });
+});

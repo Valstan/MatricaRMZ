@@ -2602,8 +2602,11 @@ export function EngineDetailsPage(props: {
         <div
           className="entity-card-span-full"
           data-card-tab="history" hidden={activeTab !== 'history'}
-          style={{ maxWidth: 700, width: '100%', margin: '0 auto' }}
         >
+          {/* Внутренняя центрированная колонка: наружный span-full растягивает шелл
+              V3 (.v3-card-body .entity-card-span-full { max-width: 100% !important }),
+              поэтому компактность задаём обёрткой внутри, а не ему. */}
+          <div data-engine-history-compact style={{ maxWidth: 700, width: '100%', margin: '0 auto', display: 'grid', gap: 12 }}>
           <EngineRepairHistoryPanel
             engineId={props.engineId}
             canEdit={canEditEnginesEff}
@@ -2617,6 +2620,7 @@ export function EngineDetailsPage(props: {
           />
           <EngineTimelinePanel engineId={props.engineId} />
           <DocumentHistoryPanel entityId={props.engineId} canView={props.canViewAudit === true} />
+          </div>
         </div>
       )}
 
