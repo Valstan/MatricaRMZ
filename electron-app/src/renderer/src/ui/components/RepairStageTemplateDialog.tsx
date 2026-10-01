@@ -264,6 +264,18 @@ export function RepairStageTemplateDialog(props: { onClose: () => void; onChange
             <Button onClick={() => void save()} data-stage-template-save>
               Сохранить
             </Button>
+            <Button
+              variant="ghost"
+              disabled={busy}
+              onClick={() => {
+                // Применить приоритеты — пересохранить порядок на сервере
+                void commitOrder(live);
+              }}
+              title="Сохранить текущий порядок этапов как приоритеты"
+              data-stage-template-apply-priorities
+            >
+              Применить приоритеты
+            </Button>
             {draft.id && (
               <Button variant="ghost" onClick={() => void archive()}>
                 В архив
