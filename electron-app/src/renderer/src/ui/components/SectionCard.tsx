@@ -1,5 +1,7 @@
 import React from 'react';
 
+import { emojiAttrs } from '../utils/labelEmoji.js';
+
 export function SectionCard(props: {
   title?: React.ReactNode;
   actions?: React.ReactNode;
@@ -14,6 +16,8 @@ export function SectionCard(props: {
   const [collapsed, setCollapsed] = React.useState(props.defaultCollapsed === true);
   const canCollapse = props.collapsible === true;
   const showHeader = Boolean(props.title || props.actions || canCollapse);
+  // Значок заголовка секции — тем же словарём, что у полей (владелец 01.10.2026).
+  const titleEmoji = typeof props.title === 'string' ? emojiAttrs(props.title) : {};
   return (
     <div
       className={`card-panel ui-section-card ui-content-block${props.className ? ` ${props.className}` : ''}`}
@@ -42,10 +46,10 @@ export function SectionCard(props: {
               }}
             >
               <span aria-hidden="true" style={{ fontSize: 11, opacity: 0.7, width: 10 }}>{collapsed ? '▸' : '▾'}</span>
-              {props.title ? <strong className="ui-section-title">{props.title}</strong> : null}
+              {props.title ? <strong className="ui-section-title" {...titleEmoji}>{props.title}</strong> : null}
             </button>
           ) : props.title ? (
-            <strong className="ui-section-title">{props.title}</strong>
+            <strong className="ui-section-title" {...titleEmoji}>{props.title}</strong>
           ) : (
             <span />
           )}

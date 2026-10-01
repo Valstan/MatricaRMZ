@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { PopupLayer, useAnchoredPopup } from './PopupLayer.js';
 import { isAndroidPlatform } from '../platform.js';
 import { Button } from './Button.js';
+import { emojiAttrs } from '../utils/labelEmoji.js';
 
 export type ColumnDescriptor = {
   id: string;
@@ -142,7 +143,7 @@ export function ColumnSettingsButton(props: {
                     onChange={(e) => props.onToggleVisible(col.id, e.target.checked)}
                     title={disableHide ? 'Эту колонку нельзя скрыть' : visible ? 'Скрыть колонку' : 'Показать колонку'}
                   />
-                  <span style={{ flex: 1, opacity: visible ? 1 : 0.55 }}>{isAndroidPlatform() ? (col.tabletLabel ?? col.label) : col.label}</span>
+                  <span style={{ flex: 1, opacity: visible ? 1 : 0.55 }} {...emojiAttrs(col.label)}>{isAndroidPlatform() ? (col.tabletLabel ?? col.label) : col.label}</span>
                   <Button
                     variant="ghost"
                     onClick={() => props.onMove(col.id, -1)}

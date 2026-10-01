@@ -12,6 +12,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Input } from './Input.js';
+import { emojiAttrs } from '../utils/labelEmoji.js';
 
 /**
  * Ступенчатый фильтр списка, спрятанный под кнопку «Фильтры» (просьба владельца 08.09.2026:
@@ -143,6 +144,7 @@ export function FacetFilter<Row>(props: {
               data-facet-field={facet.id}
               onClick={() => toggleField(facet.id)}
               title={on ? 'Убрать ступень из фильтра' : 'Добавить ступень в фильтр'}
+              {...emojiAttrs(facet.label)}
               style={{
                 padding: '4px 10px',
                 borderRadius: 999,
@@ -167,7 +169,7 @@ export function FacetFilter<Row>(props: {
           return (
             <div key={fieldId} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{ minWidth: 150, color: 'var(--subtle)' }}>
-                {facet.label}: {range.from || range.to ? `${range.from || '…'} — ${range.to || '…'}` : 'все'}
+                <span {...emojiAttrs(facet.label)}>{facet.label}</span>: {range.from || range.to ? `${range.from || '…'} — ${range.to || '…'}` : 'все'}
               </span>
               <div style={{ width: 170 }}>
                 <Input
@@ -196,7 +198,7 @@ export function FacetFilter<Row>(props: {
         return (
           <div key={fieldId} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             <span style={{ minWidth: 150, color: 'var(--subtle)' }}>
-              {facet.label}: {picked === 0 ? 'все' : `выбрано ${picked}`}
+              <span {...emojiAttrs(facet.label)}>{facet.label}</span>: {picked === 0 ? 'все' : `выбрано ${picked}`}
             </span>
             {options.length === 0 ? (
               <span className="ui-muted">нет значений при текущем отборе</span>

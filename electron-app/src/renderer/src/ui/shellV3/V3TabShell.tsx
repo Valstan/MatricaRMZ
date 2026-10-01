@@ -13,6 +13,7 @@ import type { ShellNotice } from '../shell/shellNotice.js';
 import { TabVisibilityProvider } from '../shell/TabVisibilityContext.js';
 import { matricaPlatform } from '../platform.js';
 import { ShortcutIcon } from '../components/ShortcutIcon.js';
+import { emojiAttrs } from '../utils/labelEmoji.js';
 import { shouldKeepAliveTab } from './keepAlive.js';
 import rmzLogo from '../../assets/logo_rmz.png';
 import './shellV3.css';
@@ -352,6 +353,7 @@ export function V3TabShell(props: {
                   props.onSelectTab(tab.id);
                 }}
                 title={isSecondary ? `${tab.label} — открыта во второй панели` : tab.label}
+                {...(isMenu || isSecondary ? {} : emojiAttrs(tab.label))}
               >
                 {isMenu ? `🧱 ${tab.label}` : isSecondary ? `▐ ${tab.label}` : tab.label}
                 {/* Непрочитанные сообщения видны, даже когда оператор в другой вкладке

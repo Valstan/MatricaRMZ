@@ -1,5 +1,7 @@
 import React from 'react';
 
+import { emojiAttrs } from '../utils/labelEmoji.js';
+
 export function FormField(props: {
   label: string;
   children: React.ReactNode;
@@ -9,7 +11,7 @@ export function FormField(props: {
 }) {
   return (
     <div style={{ minWidth: 0, gridColumn: props.fullWidth ? '1 / -1' : undefined, ...props.style }}>
-      <label style={{ fontSize: 12, color: 'var(--muted)' }}>{props.label}</label>
+      <label style={{ fontSize: 12, color: 'var(--muted)' }} {...emojiAttrs(props.label)}>{props.label}</label>
       <div style={{ marginTop: props.compact ? 4 : 6 }}>{props.children}</div>
     </div>
   );

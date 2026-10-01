@@ -14,6 +14,7 @@ import {
 import { Button } from './Button.js';
 import { Input } from './Input.js';
 import { SearchSelect } from './SearchSelect.js';
+import { emojiAttrs } from '../utils/labelEmoji.js';
 import { useConfirmOptional } from './ConfirmContext.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
 import { confirmShipmentWithOpenAssembly } from '../utils/shipmentAssemblyGate.js';
@@ -215,7 +216,7 @@ export function EngineHistoryFeedPanel(props: {
   return (
     <div data-engine-history-feed style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontWeight: 700 }}>История ремонта</span>
+        <span style={{ fontWeight: 700 }} {...emojiAttrs('История ремонта')}>История ремонта</span>
         <span className="ui-muted">{feed.length > 0 ? `${feed.length} событий` : 'событий пока нет'}</span>
         <div style={{ flex: 1 }} />
         {props.canEdit && (
@@ -421,7 +422,7 @@ export function EngineHistoryFeedPanel(props: {
             <thead>
               <tr>
                 {['Дата', 'Записано', 'Тип', 'Событие', 'Цех', 'Причина и примечание', 'Кто', ''].map((h) => (
-                  <th key={h} style={{ textAlign: 'left', padding: '4px 6px', borderBottom: '1px solid var(--border)' }}>
+                  <th key={h} {...emojiAttrs(h)} style={{ textAlign: 'left', padding: '4px 6px', borderBottom: '1px solid var(--border)' }}>
                     {h}
                   </th>
                 ))}

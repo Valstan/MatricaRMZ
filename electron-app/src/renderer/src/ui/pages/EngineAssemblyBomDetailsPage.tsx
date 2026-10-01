@@ -30,6 +30,7 @@ import {
   type EngineBomDetailsForSnapshot,
 } from '../utils/engineBomCardLogic.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+import { emojiAttrs } from '../utils/labelEmoji.js';
 import { BRAND_LABEL_TEXTS, lookupLabel } from '../utils/lookupLabel.js';
 
 type BomDetails = {
@@ -955,7 +956,7 @@ export function EngineAssemblyBomDetailsPage(props: {
           {warehouseRefsError ? <div style={{ color: 'var(--danger)', fontSize: 12 }}>Справочники склада: {warehouseRefsError}</div> : null}
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) minmax(280px, 1.2fr) minmax(110px, 160px)', gap: 10, alignItems: 'end' }}>
             <label style={{ display: 'grid', gap: 4, minWidth: 0 }}>
-              <span style={{ fontSize: 12, color: 'var(--subtle)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12, color: 'var(--subtle)', display: 'flex', alignItems: 'center', gap: 8 }} {...emojiAttrs('Марки двигателей')}>
                 Марки двигателя (можно несколько)
                 {props.canEdit ? (
                   <select
@@ -1046,7 +1047,7 @@ export function EngineAssemblyBomDetailsPage(props: {
               ) : null}
             </label>
             <label style={{ display: 'grid', gap: 4, minWidth: 0 }}>
-              <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Наименование спецификации</span>
+              <span style={{ fontSize: 12, color: 'var(--subtle)' }} {...emojiAttrs('Наименование спецификации')}>Наименование спецификации</span>
               <Input
                 value={data.header.name}
                 onChange={(e) =>
@@ -1064,7 +1065,7 @@ export function EngineAssemblyBomDetailsPage(props: {
               />
             </label>
             <label style={{ display: 'grid', gap: 4, minWidth: 0 }}>
-              <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Версия</span>
+              <span style={{ fontSize: 12, color: 'var(--subtle)' }} {...emojiAttrs('Версия')}>Версия</span>
               <Input value={String(data.header.version ?? 1)} disabled />
             </label>
           </div>
