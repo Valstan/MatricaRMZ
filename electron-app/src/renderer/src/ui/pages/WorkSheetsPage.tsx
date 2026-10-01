@@ -300,18 +300,26 @@ export function WorkSheetsPage(props: {
       <td className="list-col-filler" aria-hidden="true" style={{ borderBottom: '1px solid #f3f4f6' }} />
     </>
   );
-  const rowProps = (r: WorkSheetRow): VirtualTableRowProps => ({
-    onClick: () => void openRow(r),
-    title: 'Открыть карточку этапа работ',
-    style: { cursor: 'pointer' },
-    'data-work-sheet-row': r.id,
-  });
+  // Строка шаблонного этапа из карточки двигателя (origin 'stage') — только показывается:
+  // своей карточки у неё нет, щелчок ничего не открывает (решение владельца 01.10.2026).
+  const rowProps = (r: WorkSheetRow): VirtualTableRowProps =>
+    r.origin === 'stage'
+      ? {
+          title: 'Этап из карточки двигателя — открывается в карточке',
+          'data-work-sheet-row': r.id,
+        }
+      : {
+          onClick: () => void openRow(r),
+          title: 'Открыть карточку этапа работ',
+          style: { cursor: 'pointer' },
+          'data-work-sheet-row': r.id,
+        };
 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }} data-work-sheets-page>
       <div className="ui-muted" style={{ fontSize: 12, padding: '2px 8px' }}>
-        Сводка для просмотра и печати — этапы отмечаются в карточке двигателя (вкладка «История ремонта» → «Этапы ремонта»)
+        Сводка для просмотра и печати — этапы отмечаются в карточке двигателя (вкладка «История ремонта»)
       </div>
       <PageToolbar>
         <Button onClick={() => setBulkAddOpen(true)} title="Добавить этап на несколько двигателей сразу" data-bulk-stage-add-open>
