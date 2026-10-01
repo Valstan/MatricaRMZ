@@ -16,7 +16,18 @@
  * нечего. Оба вида отбирают вместе и на равных.
  */
 
-export type FacetValue = { value: string; label: string };
+export type FacetValue = {
+  /** Значение, по которому строка попадает в отбор (главное; оно же подпись ступени). */
+  value: string;
+  label: string;
+  /**
+   * Другие значения этой же строки: строки подходит по ЛЮБОМУ из них (движок берёт все,
+   * не только главное). Нужно ступеням вида «есть ли такой этап», где у строки множество
+   * значений, а главное из них — первое по порядку линейки, иначе выбор «Сборка» отбирал
+   * бы только тех, у кого сборка — последний этап.
+   */
+  values?: readonly string[];
+};
 
 /** Диапазон дат ступени: границы включительно, одна дата = «ровно этот день». */
 export type FacetDateRange = { from?: string; to?: string };
@@ -114,7 +125,10 @@ function passes<Row>(row: Row, facet: FacetDescriptor<Row>, selection: FacetSele
   const selected = selectedOf(selection, facet.id);
   if (selected.length === 0) return true;
   const v = facet.valueOf(row);
-  return v != null && selected.includes(v.value);
+  if (v == null) return false;
+  if (selected.includes(v.value)) return true;
+  // Строка с несколькими значениями (например, «есть этап»): подходит по любому из них.
+  return (v.values ?? []).some((x) => selected.includes(x));
 }
 
 /** Отобрать строки по всем ступеням сразу. */
@@ -145,13 +159,18 @@ export function facetOptions<Row>(
   const others = facets.filter((f) => f.id !== facetId && isActive(selection, f));
 
   const counts = new Map<string, { label: string; count: number }>();
+  const labelByValue = new Map((facet.options ?? []).map((o) => [o.value, o.label]));
   for (const row of rows) {
     if (!others.every((f) => passes(row, f, selection))) continue;
     const v = facet.valueOf(row);
     if (!v) continue;
-    const cur = counts.get(v.value);
-    if (cur) cur.count += 1;
-    else counts.set(v.value, { label: v.label, count: 1 });
+    // Строка с несколькими значениями засчитывается под каждым из них: счётчик отвечает
+    // на вопрос «сколько двигателей имеют этап X», а не «сколько строк в списке».
+    for (const key of [v.value, ...(v.values ?? [])]) {
+      const cur = counts.get(key);
+      if (cur) cur.count += 1;
+      else counts.set(key, { label: key === v.value ? v.label : (labelByValue.get(key) ?? key), count: 1 });
+    }
   }
 
   const selected = new Set(selectedOf(selection, facetId));

@@ -81,9 +81,15 @@ type ListUiState = {
 };
 
 /** Ступени отчёта — подмножество ступеней списка двигателей; порядок — как на панели. */
-const FACET_IDS = ['customer', 'contract', 'brand', 'workshop', 'factoryStage', 'sheetNode', 'scrap', 'reclamation', 'arrivalYear', 'arrival', 'arrivalDate', 'sheetDate'] as const;
+/**
+ * Ступени отчёта — подмножество ступеней списка двигателей; порядок — как на панели.
+ * Про этапы: «Есть этап» (проходил ли) + «Последний этап» (где сейчас) + «Дата этапа».
+ * Бывшие тут «Последний этап работ» и «Дата этапа работ» убраны (владелец 01.10.2026):
+ * они отвечали на те же вопросы, но про узлы работ, и пересекались с «Этапом на заводе».
+ */
+const FACET_IDS = ['customer', 'contract', 'brand', 'workshop', 'factoryStage', 'hasStage', 'lastStage', 'stageDate', 'scrap', 'reclamation', 'arrivalYear', 'arrival', 'arrivalDate'] as const;
 
-const REPORT_HIDDEN_BY_DEFAULT = ['contract', 'sheetAt', 'historyAt', 'repairStartedAt', 'repairedAt', 'scrapAt'];
+const REPORT_HIDDEN_BY_DEFAULT = ['contract', 'historyAt', 'repairStartedAt', 'repairedAt', 'scrapAt'];
 
 function text(v: unknown): string {
   return String(v ?? '').trim();
@@ -131,9 +137,9 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
       { id: 'repairStartedAt', label: 'Ремонт начат', kind: 'date', render: (e) => fmtDate(engineStatusDate(e, 'status_repair_started')), sortValue: (e) => engineStatusDate(e, 'status_repair_started') ?? 0 },
       { id: 'repairedAt', label: 'Отремонтирован', kind: 'date', render: (e) => fmtDate(engineStatusDate(e, 'status_repaired')), sortValue: (e) => engineStatusDate(e, 'status_repaired') ?? 0 },
       { id: 'scrapAt', label: 'Дата утиля', kind: 'date', render: (e) => fmtDate(engineScrapDate(e)), sortValue: (e) => engineScrapDate(e) ?? 0 },
-      { id: 'sheetNode', label: 'Последний этап работ', kind: 'name', render: (e) => text(e.lastSheetNode), sortValue: (e) => text(e.lastSheetNode) },
-      { id: 'sheetAt', label: 'Дата этапа работ', kind: 'date', render: (e) => fmtDate(e.lastSheetAt), sortValue: (e) => e.lastSheetAt ?? 0 },
-    ],
+      // Последний этап единого списка: подпись берёт шаблон (порядок и названия меняет владелец),
+      // поэтому колонка не расходится со ступенью «Последний этап».
+      { id: 'lastStage', label: 'Последний этап', kind: 'name', render: (e) => text(e.lastStageName), sortValue: (e) => text(e.lastStageName) },    ],
     [],
   );
 

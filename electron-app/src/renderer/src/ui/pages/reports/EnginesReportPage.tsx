@@ -79,7 +79,13 @@ type ListUiState = {
   groupBy: GroupBy;
 };
 
-const REPORT_HIDDEN_BY_DEFAULT = ['workshop', 'scrapReason', 'scrapAt', 'completenessActDate', 'defectDate', 'sheetNode', 'sheetAt', 'historyAction', 'historyAt'];
+/**
+ * Колонки этапов в этом отчёте — одна, «Последний этап». Прежние «Последний этап работ»,
+ * «Последнее событие» и «Дата этапа работ» убраны (владелец 01.10.2026): четыре колонки
+ * об одном и том же читались как четыре разных факта, а на экране выглядели дублями
+ * ступеней фильтра. Полная картина по этапам — в ступенях «Есть этап» / «Последний этап».
+ */
+const REPORT_HIDDEN_BY_DEFAULT = ['workshop', 'scrapReason', 'scrapAt', 'completenessActDate', 'defectDate', 'lastStageAt'];
 
 function text(v: unknown): string {
   return String(v ?? '').trim();
@@ -136,10 +142,7 @@ export function EnginesReportPage(props: ListReportPageProps) {
       { id: 'completenessAct', label: 'Акт комплектности', kind: 'text', render: (e) => yesNo(e.hasCompletenessAct), sortValue: (e) => (e.hasCompletenessAct ? 1 : 0) },
       { id: 'completenessActDate', label: 'Дата осмотра', kind: 'date', render: (e) => fmtDate(e.completenessActDate), sortValue: (e) => e.completenessActDate ?? 0 },
       { id: 'defectDate', label: 'Дата дефектовки', kind: 'date', render: (e) => fmtDate(e.defectDate), sortValue: (e) => e.defectDate ?? 0 },
-      { id: 'sheetNode', label: 'Последний этап работ', kind: 'name', render: (e) => text(e.lastSheetNode), sortValue: (e) => text(e.lastSheetNode) },
-      { id: 'sheetAt', label: 'Дата этапа работ', kind: 'date', render: (e) => fmtDate(e.lastSheetAt), sortValue: (e) => e.lastSheetAt ?? 0 },
-      { id: 'historyAction', label: 'Последнее событие', kind: 'text', render: (e) => text(e.lastHistoryAction), sortValue: (e) => text(e.lastHistoryAction) },
-      { id: 'historyAt', label: 'Дата события', kind: 'date', render: (e) => fmtDate(e.lastHistoryAt), sortValue: (e) => e.lastHistoryAt ?? 0 },
+
     ],
     [],
   );
@@ -161,7 +164,7 @@ export function EnginesReportPage(props: ListReportPageProps) {
   const deep = useListDeepFilter(
     rows,
     (r) => r.id,
-    (r) => [r.engineNumber, r.internalNumberFull, r.engineBrand, r.customerName, r.contractName, r.workshopName, r.state, r.stage.label, r.scrapReason, r.lastSheetNode, r.lastHistoryAction].map(text).join(' '),
+    (r) => [r.engineNumber, r.internalNumberFull, r.engineBrand, r.customerName, r.contractName, r.workshopName, r.state, r.stage.label, r.scrapReason, r.lastStageName].map(text).join(' '),
     ui.query,
     { entityBacked: false, mode: searchModeOf(ui.searchSimilar) },
   );
