@@ -719,9 +719,43 @@ export function EnginesPage(props: {
     const allInOrder = columnLayout.order
       .map((id) => columnsById.get(id))
       .filter((col): col is EngineColumn => Boolean(col));
+    const allVisibleSelected = displayRows.length > 0 && displayRows.every((e) => selection.isSelected(String(e.id)));
+    const someVisibleSelected = displayRows.some((e) => selection.isSelected(String(e.id)));
     return (
       <thead>
         <tr style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #7c3aed 120%)', color: '#fff' }}>
+          <th
+            style={{
+              padding: 8,
+              position: 'sticky',
+              top: 0,
+              zIndex: 2,
+              borderBottom: '1px solid rgba(255,255,255,0.25)',
+              width: 32,
+              textAlign: 'center',
+              cursor: 'pointer',
+            }}
+            onClick={() => {
+              if (allVisibleSelected) {
+                displayRows.forEach((e) => selection.toggleSelect(String(e.id)));
+              } else {
+                displayRows.forEach((e) => {
+                  if (!selection.isSelected(String(e.id))) selection.toggleSelect(String(e.id));
+                });
+              }
+            }}
+            title={allVisibleSelected ? 'Снять выделение со всех' : 'Выделить все'}
+          >
+            <input
+              type="checkbox"
+              checked={allVisibleSelected}
+              ref={(el) => {
+                if (el) el.indeterminate = !allVisibleSelected && someVisibleSelected;
+              }}
+              onChange={() => {}}
+              style={{ cursor: 'pointer', margin: 0 }}
+            />
+          </th>
           <RowNumberHeaderCell style={{ padding: 8, position: 'sticky', top: 0, zIndex: 2, borderBottom: '1px solid rgba(255,255,255,0.25)' }} />
           {allInOrder.map((col) => {
             const visible = columnLayout.isVisible(col.id);
@@ -814,13 +848,22 @@ export function EnginesPage(props: {
           <tbody>
             {items.map((e, i) => (
               <tr key={e.id} {...engineRowProps(e)}>
+                <td style={{ borderBottom: '1px solid #f3f4f6', padding: 8, textAlign: 'center', width: 32 }} onClick={(event) => event.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={selection.isSelected(String(e.id))}
+                    onChange={() => selection.toggleSelect(String(e.id))}
+                    style={{ cursor: 'pointer', margin: 0 }}
+                    aria-label={`Выделить двигатель ${e.engineNumber ?? e.id}`}
+                  />
+                </td>
                 <RowNumberCell n={startIndex + i + 1} style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }} />
                 {renderEngineCells(e)}
               </tr>
             ))}
             {items.length === 0 && (
               <tr>
-                <td style={{ padding: 10, color: '#6b7280' }} colSpan={Math.max(1, visibleColumns.length) + 2}>
+                <td style={{ padding: 10, color: '#6b7280' }} colSpan={Math.max(1, visibleColumns.length) + 3}>
                   Ничего не найдено
                 </td>
               </tr>
@@ -931,8 +974,8 @@ export function EnginesPage(props: {
             flex: '0 0 auto',
           }}
         >
-          Бирки печатаются на выделенные двигатели — сейчас не выделен ни один. Выделите строки
-          (Shift+клик или Shift+стрелки) и нажмите «Бирки на двигатели» ещё раз.
+          Бирки печатаются на выделенные двигатели — сейчас не выделен ни один. Поставьте галочки
+          в колонке слева (или Shift+клик / Shift+стрелки) и нажмите «Бирки на двигатели» ещё раз.
         </div>
       )}
 
@@ -981,10 +1024,29 @@ export function EnginesPage(props: {
             scrollElementRef={containerRef}
             count={displayRows.length}
             header={renderTableHeader()}
-            renderCells={(i) => renderEngineCells(displayRows[i]!)}
+            renderCells={(i) => {
+              const e = displayRows[i]!;
+              return (
+                <>
+                  <td
+                    style={{ borderBottom: '1px solid #f3f4f6', padding: 8, textAlign: 'center', width: 32 }}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selection.isSelected(String(e.id))}
+                      onChange={() => selection.toggleSelect(String(e.id))}
+                      style={{ cursor: 'pointer', margin: 0 }}
+                      aria-label={`Выделить двигатель ${e.engineNumber ?? e.id}`}
+                    />
+                  </td>
+                  {renderEngineCells(e)}
+                </>
+              );
+            }}
             getRowKey={(i) => String(displayRows[i]!.id)}
             getRowProps={(i) => engineRowProps(displayRows[i]!)}
-            colCount={Math.max(1, visibleColumns.length) + 1}
+            colCount={Math.max(1, visibleColumns.length) + 2}
             rowNumbers
             estimateSize={previewsVisible ? 64 : 40}
             emptyState="Ничего не найдено"
