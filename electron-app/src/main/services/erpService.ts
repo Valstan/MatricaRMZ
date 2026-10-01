@@ -22,6 +22,9 @@ import {
 } from './warehouseCommandOutboxService.js';
 import {
   entityTypes,
+  erpContracts,
+  erpCounterparties,
+  directoryEngineBrands,
   erpDocumentHeaders,
   erpDocumentLines,
   erpNomenclature,
@@ -648,13 +651,14 @@ export async function warehouseNomenclatureGroupCounts(
  * секунд держать её в памяти — всё, дак всё, пусть будет на клиенте»).
  *
  * Всё, из чего сервер собирает эти списки, давно синкается клиенту: EAV-справочники
- * (`entities` + `attribute_values`) и реплика `warehouse_locations`. Читаем их на месте —
+ * (`entities` + `attribute_values`) и реплики `warehouse_locations`,
+ * `erp_counterparties`, `erp_contracts`, `directory_engine_brands`. Читаем их на месте —
  * ответ мгновенный, offline-устойчивый, а свежесть теперь держит сам синк (правка
  * справочника приезжает за секунду, а не за минуту).
  *
- * Контрагенты — EAV-тип `customer`; строгая `erp_counterparties` на сервере лишь его
- * триггерное зеркало, и в контракт синхронизации она не входит (как и `erp_contracts`,
- * `directory_engine_brands`) — поэтому читаем первоисточник, а не зеркало.
+ * Контрагенты, договоры и марки читаются из строгих реплик — тех же таблиц, из которых
+ * их собирает сервер (`listCounterpartyLookup` / `listContractLookup` /
+ * `listEngineBrandLookup` в warehouseService.ts): подпись и фильтры — 1-в-1.
  */
 async function localMasterdataOptions(
   db: BetterSQLite3Database,
@@ -670,6 +674,58 @@ async function localMasterdataOptions(
   if (!typeId) return [];
   const rows = await listEntitiesByTypeWithAttrs(db, typeId);
   return sortLookupOptions(rows.map((row) => toOption(row.id, row.attributes)));
+}
+
+/**
+ * Контрагенты — из строгой реплики (план sync-mirror-dictionaries-2026-10).
+ * Фильтр и подпись — как у сервера (`listCounterpartyLookup`): живые, подпись —
+ * наименование, код — краткое имя.
+ */
+async function localCounterpartyOptions(db: BetterSQLite3Database): Promise<WarehouseLookupOption[]> {
+  const rows = await db
+    .select({ id: erpCounterparties.id, name: erpCounterparties.name, shortName: erpCounterparties.shortName })
+    .from(erpCounterparties)
+    .where(isNull(erpCounterparties.deletedAt));
+  return sortLookupOptions(
+    rows.map((row) => counterpartyLookupOption(String(row.id), { name: row.name, short_name: row.shortName })),
+  );
+}
+
+/**
+ * Договоры — из строгой реплики. Подпись — как у сервера (`listContractLookup`):
+ * внутренний номер → казённый номер → наименование ГОЗ.
+ */
+async function localContractOptions(db: BetterSQLite3Database): Promise<WarehouseLookupOption[]> {
+  const rows = await db
+    .select({
+      id: erpContracts.id,
+      number: erpContracts.number,
+      internalNumber: erpContracts.internalNumber,
+      gozName: erpContracts.gozName,
+    })
+    .from(erpContracts)
+    .where(isNull(erpContracts.deletedAt));
+  return sortLookupOptions(
+    rows.map((row) =>
+      contractLookupOption(String(row.id), {
+        number: row.number,
+        internal_number: row.internalNumber,
+        goz_name: row.gozName,
+      }),
+    ),
+  );
+}
+
+/**
+ * Марки двигателей — из строгой реплики. Фильтр и подпись — как у сервера
+ * (`listEngineBrandLookup`): живые и активные.
+ */
+async function localEngineBrandOptions(db: BetterSQLite3Database): Promise<WarehouseLookupOption[]> {
+  const rows = await db
+    .select({ id: directoryEngineBrands.id, name: directoryEngineBrands.name })
+    .from(directoryEngineBrands)
+    .where(and(isNull(directoryEngineBrands.deletedAt), eq(directoryEngineBrands.isActive, true)));
+  return sortLookupOptions(rows.map((row) => engineBrandLookupOption(String(row.id), { name: row.name })));
 }
 
 async function localWarehouseLookups(db: BetterSQLite3Database): Promise<WarehouseLookups> {
@@ -696,10 +752,10 @@ async function localWarehouseLookups(db: BetterSQLite3Database): Promise<Warehou
     localMasterdataOptions(db, 'nomenclature_group'),
     localMasterdataOptions(db, 'unit'),
     localMasterdataOptions(db, 'stock_write_off_reason'),
-    localMasterdataOptions(db, 'customer', counterpartyLookupOption),
+    localCounterpartyOptions(db),
     localMasterdataOptions(db, 'employee'),
-    localMasterdataOptions(db, 'engine_brand', engineBrandLookupOption),
-    localMasterdataOptions(db, 'contract', contractLookupOption),
+    localEngineBrandOptions(db),
+    localContractOptions(db),
     localMasterdataOptions(db, 'nomenclature_item_type'),
     localMasterdataOptions(db, 'nomenclature_property'),
     localMasterdataOptions(db, 'nomenclature_template'),

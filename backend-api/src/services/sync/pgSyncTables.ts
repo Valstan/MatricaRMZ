@@ -12,6 +12,9 @@ import {
   chatRooms,
   entities,
   entityTypes,
+  erpContracts,
+  erpCounterparties,
+  directoryEngineBrands,
   erpEngineAssemblyBom,
   erpEngineAssemblyBomBrandLinks,
   erpEngineAssemblyBomLines,
@@ -106,6 +109,18 @@ export const PG_SYNC_TABLES: Record<string, PgSyncTableEntry> = {
   [LedgerTableName.WarehouseLocations]: {
     drizzle: warehouseLocations,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.WarehouseLocations, r),
+  },
+  [LedgerTableName.ErpCounterparties]: {
+    drizzle: erpCounterparties,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpCounterparties, r),
+  },
+  [LedgerTableName.ErpContracts]: {
+    drizzle: erpContracts,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpContracts, r),
+  },
+  [LedgerTableName.DirectoryEngineBrands]: {
+    drizzle: directoryEngineBrands,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.DirectoryEngineBrands, r),
   },
   [LedgerTableName.Users]: { drizzle: users, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Users, r) },
   [LedgerTableName.UserSectionAccess]: {

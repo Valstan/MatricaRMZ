@@ -708,6 +708,13 @@
       "when": 1790691640195,
       "tag": "0101_repair_stage_auto_from_cleanup",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1790899200000,
+      "tag": "0102_dictionary_mirrors_sync_columns",
+      "breakpoints": true
     }
   ]
 }

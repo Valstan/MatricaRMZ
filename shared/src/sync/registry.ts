@@ -31,6 +31,9 @@ import {
   userRowSchema,
   userSectionAccessRowSchema,
   warehouseLocationRowSchema,
+  erpCounterpartyRowSchema,
+  erpContractRowSchema,
+  directoryEngineBrandRowSchema,
 } from './dto.js';
 import {
   erpEngineInstanceRowSchema,
@@ -367,6 +370,41 @@ const USER_SECTION_ACCESS_FIELDS = withBase(
   { db: 'level', dto: 'level' },
 );
 
+// Словарные зеркала pull-only (план sync-mirror-dictionaries-2026-10).
+const ERP_COUNTERPARTY_FIELDS = withBase(
+  { db: 'name', dto: 'name' },
+  { db: 'shortName', dto: 'short_name' },
+  { db: 'inn', dto: 'inn' },
+  { db: 'kpp', dto: 'kpp' },
+  { db: 'address', dto: 'address' },
+  { db: 'email', dto: 'email' },
+  { db: 'phone', dto: 'phone' },
+);
+
+const ERP_CONTRACT_FIELDS = withBase(
+  { db: 'number', dto: 'number' },
+  { db: 'internalNumber', dto: 'internal_number' },
+  { db: 'gozName', dto: 'goz_name' },
+  { db: 'gozIgk', dto: 'goz_igk' },
+  { db: 'gozSeparateAccountNumber', dto: 'goz_separate_account_number' },
+  { db: 'gozSeparateAccountBank', dto: 'goz_separate_account_bank' },
+  { db: 'gozSeparateAccount', dto: 'goz_separate_account' },
+  { db: 'signedAt', dto: 'signed_at' },
+  { db: 'dueAt', dto: 'due_at' },
+  { db: 'customerId', dto: 'customer_id' },
+  { db: 'comment', dto: 'comment' },
+  { db: 'sectionsJson', dto: 'sections_json' },
+  { db: 'executionPartsJson', dto: 'execution_parts_json' },
+  { db: 'paymentsJson', dto: 'payments_json' },
+);
+
+const DIRECTORY_ENGINE_BRAND_FIELDS = withBase(
+  { db: 'name', dto: 'name' },
+  { db: 'isActive', dto: 'is_active' },
+  { db: 'metadataJson', dto: 'metadata_json' },
+  { db: 'deprecatedAt', dto: 'deprecated_at' },
+);
+
 // ────────────────────────────────────────────────────────────
 // Registry entries
 // ────────────────────────────────────────────────────────────
@@ -561,6 +599,32 @@ const ENTRIES: readonly SyncTableEntry[] = [
     ledgerName: SyncTableName.WarehouseLocations,
     schema: warehouseLocationRowSchema,
     fields: WAREHOUSE_LOCATION_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [],
+  },
+  // Словарные зеркала pull-only: контракты после контрагентов (FK customer_id) —
+  // тот же приём, что доступы после аккаунтов: иначе чистка FK-сирот снесёт строки.
+  {
+    syncName: SyncTableName.ErpCounterparties,
+    ledgerName: SyncTableName.ErpCounterparties,
+    schema: erpCounterpartyRowSchema,
+    fields: ERP_COUNTERPARTY_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [],
+  },
+  {
+    syncName: SyncTableName.ErpContracts,
+    ledgerName: SyncTableName.ErpContracts,
+    schema: erpContractRowSchema,
+    fields: ERP_CONTRACT_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.ErpCounterparties],
+  },
+  {
+    syncName: SyncTableName.DirectoryEngineBrands,
+    ledgerName: SyncTableName.DirectoryEngineBrands,
+    schema: directoryEngineBrandRowSchema,
+    fields: DIRECTORY_ENGINE_BRAND_FIELDS,
     conflictTarget: ['id'],
     dependsOn: [],
   },

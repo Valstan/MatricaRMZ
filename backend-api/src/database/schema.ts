@@ -827,9 +827,14 @@ export const erpCounterparties = pgTable(
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
+    // Словарь входит в контракт синхронизации (pull-only, миграция 0102): номер журнала
+    // проставляет публикатор через writeSyncChanges, по нему клиенты и отбирают изменения.
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
   },
   (t) => ({
     nameIdx: index('erp_counterparties_name_idx').on(t.name),
+    seqIdx: index('erp_counterparties_seq_idx').on(t.lastServerSeq),
   }),
 );
 
@@ -859,11 +864,15 @@ export const erpContracts = pgTable(
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
+    // Словарь входит в контракт синхронизации (pull-only, миграция 0102) — см. erpCounterparties.
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
   },
   (t) => ({
     numberIdx: index('erp_contracts_number_idx').on(t.number),
     internalNumberIdx: index('erp_contracts_internal_number_idx').on(t.internalNumber),
     customerIdx: index('erp_contracts_customer_idx').on(t.customerId),
+    seqIdx: index('erp_contracts_seq_idx').on(t.lastServerSeq),
   }),
 );
 
@@ -897,9 +906,13 @@ export const directoryEngineBrands = pgTable(
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
+    // Словарь входит в контракт синхронизации (pull-only, миграция 0102) — см. erpCounterparties.
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
   },
   (t) => ({
     nameIdx: index('directory_engine_brands_name_idx').on(t.name),
+    seqIdx: index('directory_engine_brands_seq_idx').on(t.lastServerSeq),
   }),
 );
 

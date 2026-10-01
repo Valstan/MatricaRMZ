@@ -39,6 +39,11 @@ export const SyncTableName = {
   // офлайн (разрез отчётов «по цехам» строится по типу локации), а жил только на сервере —
   // отчёт при отсутствии связи не мог отличить цех от склада и отдавал пустоту (M112).
   WarehouseLocations: 'warehouse_locations',
+  // Словарные зеркала pull-only (план sync-mirror-dictionaries-2026-10): сервер публикует,
+  // клиент читает. EAV остаётся источником правды до cutover.
+  ErpCounterparties: 'erp_counterparties',
+  ErpContracts: 'erp_contracts',
+  DirectoryEngineBrands: 'directory_engine_brands',
   Users: 'users',
   UserSectionAccess: 'user_section_access',
 } as const;

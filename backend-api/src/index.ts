@@ -16,6 +16,7 @@ import { startLogAnalysisAgent } from './services/ai/logAnalysisAgentService.js'
 import { startSyncPipelineSupervisorService } from './services/syncPipelineSupervisorService.js';
 import { startUsersSyncPublisher } from './services/sync/usersSyncPublisherService.js';
 import { startWarehouseLocationsSyncPublisher } from './services/sync/warehouseLocationsSyncPublisherService.js';
+import { startDictionarySyncPublisher } from './services/sync/dictionarySyncPublisherService.js';
 import { startAuditStatisticsScheduler } from './services/statisticsAuditService.js';
 import { startEngineDedupeJob } from './services/engineDedupeService.js';
 import { startCriticalEventsTelegramService } from './services/criticalEventsTelegramService.js';
@@ -103,6 +104,7 @@ async function bootstrap() {
     // строки users/user_section_access не приезжают инкрементальным pull'ом.
     startUsersSyncPublisher();
     startWarehouseLocationsSyncPublisher();
+    startDictionarySyncPublisher();
     startCriticalEventsTelegramService();
     startAiChatHistoryCleanup();
     // D-073: копии вложений на боксе — кэш; протухшие снимаются, когда Я.Диск подтвердил свою.

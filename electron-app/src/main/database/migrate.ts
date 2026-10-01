@@ -249,6 +249,82 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS warehouse_locations_code_idx ON warehouse_locations(code);
   `);
 
+  // erp_counterparties / erp_contracts / directory_engine_brands — реплики словарных
+  // зеркал (pull-only, план sync-mirror-dictionaries-2026-10). Та же причина дубля, что
+  // у таблиц выше: свежая установка идёт мимо версионной цепочки, а холодный full-sync
+  // запросит таблицы. Реплика не строже сервера (0020): повторяем ровно серверную
+  // nullability, без добавок.
+  //
+  // Прототипная 0006 создавала одноимённые erp_counterparties/erp_contracts другой формы
+  // (0021 их не сносила). Сносим только прототип (маркер — колонка `code`, которой нет
+  // в каноне), живую реплику не трогаем: parity гоняется на каждом старте, и безусловный
+  // DROP стирал бы справочник до первого pull'а. Данные терять нечего: прототипные таблицы
+  // никогда не входили в sync-контракт и всегда пусты.
+  {
+    for (const table of ['erp_counterparties', 'erp_contracts'] as const) {
+      if (hasTable(table) && columnNames(table).has('code')) {
+        sqlite.exec(`DROP TABLE IF EXISTS ${table};`);
+      }
+    }
+  }
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS erp_counterparties (
+      id text PRIMARY KEY NOT NULL,
+      name text NOT NULL,
+      short_name text,
+      inn text,
+      kpp text,
+      address text,
+      email text,
+      phone text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS erp_counterparties_name_idx ON erp_counterparties(name);
+
+    CREATE TABLE IF NOT EXISTS erp_contracts (
+      id text PRIMARY KEY NOT NULL,
+      number text,
+      internal_number text,
+      goz_name text,
+      goz_igk text,
+      goz_separate_account_number text,
+      goz_separate_account_bank text,
+      goz_separate_account text,
+      signed_at integer,
+      due_at integer,
+      customer_id text,
+      comment text,
+      sections_json text,
+      execution_parts_json text,
+      payments_json text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS erp_contracts_number_idx ON erp_contracts(number);
+    CREATE INDEX IF NOT EXISTS erp_contracts_customer_idx ON erp_contracts(customer_id);
+
+    CREATE TABLE IF NOT EXISTS directory_engine_brands (
+      id text PRIMARY KEY NOT NULL,
+      name text NOT NULL,
+      is_active integer NOT NULL DEFAULT true,
+      metadata_json text,
+      deprecated_at integer,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS directory_engine_brands_name_idx ON directory_engine_brands(name);
+  `);
+
   // chat_rooms — комнаты чата (владелец 08.09.2026). Та же причина дубля, что у таблиц выше:
   // свежая установка идёт мимо версионной цепочки, а холодный full-sync запросит таблицу.
   sqlite.exec(`

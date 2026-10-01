@@ -320,44 +320,52 @@ export const userPresence = sqliteTable(
 // B0 (client migration 0021): dead /erp prototype replicas dropped — erp_part_templates,
 // erp_part_cards, erp_tool_templates, erp_tool_cards, erp_reg_part_usage,
 // erp_reg_contract_settlement, erp_reg_employee_access (never synced, always empty).
-export const erpCounterparties = sqliteTable(
-  'erp_counterparties',
-  {
-    id: text('id').primaryKey(),
-    code: text('code').notNull(),
-    name: text('name').notNull(),
-    attrsJson: text('attrs_json'),
-    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
-    createdAt: integer('created_at').notNull(),
-    updatedAt: integer('updated_at').notNull(),
-    deletedAt: integer('deleted_at'),
-  },
-  (t) => ({
-    codeUq: uniqueIndex('erp_counterparties_code_uq').on(t.code),
-    nameIdx: index('erp_counterparties_name_idx').on(t.name),
-  }),
-);
+// erp_counterparties / erp_contracts ниже — НЕ прототип, а pull-only реплики словарных
+// зеркал (план sync-mirror-dictionaries-2026-10), форма — канон сервера (0084).
+// Реплика не строже сервера (0020): повторяем ровно серверную nullability, без добавок.
+export const erpCounterparties = sqliteTable('erp_counterparties', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  shortName: text('short_name'),
+  inn: text('inn'),
+  kpp: text('kpp'),
+  address: text('address'),
+  email: text('email'),
+  phone: text('phone'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  nameIdx: index('erp_counterparties_name_idx').on(t.name),
+}));
 
-export const erpContracts = sqliteTable(
-  'erp_contracts',
-  {
-    id: text('id').primaryKey(),
-    code: text('code').notNull(),
-    name: text('name').notNull(),
-    counterpartyId: text('counterparty_id'),
-    startsAt: integer('starts_at'),
-    endsAt: integer('ends_at'),
-    attrsJson: text('attrs_json'),
-    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
-    createdAt: integer('created_at').notNull(),
-    updatedAt: integer('updated_at').notNull(),
-    deletedAt: integer('deleted_at'),
-  },
-  (t) => ({
-    codeUq: uniqueIndex('erp_contracts_code_uq').on(t.code),
-    counterpartyIdx: index('erp_contracts_counterparty_idx').on(t.counterpartyId),
-  }),
-);
+export const erpContracts = sqliteTable('erp_contracts', {
+  id: text('id').primaryKey(),
+  number: text('number'),
+  internalNumber: text('internal_number'),
+  gozName: text('goz_name'),
+  gozIgk: text('goz_igk'),
+  gozSeparateAccountNumber: text('goz_separate_account_number'),
+  gozSeparateAccountBank: text('goz_separate_account_bank'),
+  gozSeparateAccount: text('goz_separate_account'),
+  signedAt: integer('signed_at'),
+  dueAt: integer('due_at'),
+  customerId: text('customer_id'),
+  comment: text('comment'),
+  sectionsJson: text('sections_json'),
+  executionPartsJson: text('execution_parts_json'),
+  paymentsJson: text('payments_json'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  numberIdx: index('erp_contracts_number_idx').on(t.number),
+  customerIdx: index('erp_contracts_customer_idx').on(t.customerId),
+}));
 
 export const erpEmployeeCards = sqliteTable(
   'erp_employee_cards',
@@ -670,6 +678,21 @@ export const warehouseLocations = sqliteTable('warehouse_locations', {
   isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
   metadataJson: text('metadata_json'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+});
+
+// Реплика словаря марок двигателей (pull-only, план sync-mirror-dictionaries-2026-10).
+// Реплика не строже сервера (0020): повторяем ровно серверную nullability, без добавок.
+export const directoryEngineBrands = sqliteTable('directory_engine_brands', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+  metadataJson: text('metadata_json'),
+  deprecatedAt: integer('deprecated_at'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
   lastServerSeq: integer('last_server_seq'),
