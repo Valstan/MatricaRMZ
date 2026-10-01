@@ -1,57 +1,29 @@
+---
+session: main
+status: idle
+updated: 2026-10-01
+---
+
 # Session Handoff
 
-> Sticky-note для непрерывности разработки между сессиями и компьютерами. Обновляется в PR каждого шага нитки (D-066); `/close_session` — страховка. История — через `git log -- docs/SESSION_HANDOFF.md`.
+**Статус: IDLE** — UI-задача владельца 01.10.2026 выполнена и **выпущена как v3.55.0**, релиз **задеплоен на прод** (оба инстанса отвечают `version 3.55.0`, `/updates/status` latest 3.55.0, lastError `null`, blockmap/installer 200, Android-планшеты и Windows-клиенты получают план `update` → 3.55.0, заглушка для древних клиентов цела).
 
-**Status:** IDLE
-**Updated:** 2026-10-01 (машина `PC79`) — релиз **v3.55.0** выкачен: нитка владельца от 01.10 (#1089–#1096) и тихие правки 01.10. Сессия закрыта.
-**Last released version:** **v3.55.0**, выкачено 01.10 · ledger-токен до 2026-10-28
+## Выполнено (5 PR, все смержены)
 
-## Текущая нитка
+Нитка планов: `docs/plans/engine-card-order-actor-history-facets-2026-10.md` (все 5 шагов ✅, файл закрыт).
 
-Задача владельца 01.10 в четырёх PR по плану
-[`plans/engine-card-order-actor-history-facets-2026-10.md`](plans/engine-card-order-actor-history-facets-2026-10.md):
+- **#1092** — номера накладных вплотную к своим датам в «Основное» (`desired`-порядок + `persistFieldOrder`; guard 6 тестов);
+- **#1093** — «Кто» говорит по-русски: `shared/src/domain/serviceActors.ts` словарь логин→метка (человек/служебная запись), во всех трёх лентах (guard 3 + 5);
+- **#1094** — «История ремонта» = **одна лента** (сверху самое свежее, «Дата» + «Записано»), `buildEngineHistoryFeed` в shared, обе кнопки добавления, старые два списка и таблицу этапов удалили (18 + 12 тестов);
+- **#1095** — фасеты в отчётах и списке: убрали дублирующие «действие/дату действия/узел/дату узла», добавили «Есть этап» / «Последний этап» / «Дата этапа», `FacetValue.values` в движке фасетов, `stageCodes` в строках списка, отчёт по этапам без дублей колонок;
+- **#1097** — релиз v3.55.0 (bump, welcome, COMPLETED, PROGRAM_EFFECTS).
 
-- **PR-A (#1092) — влит.** Накладные на вкладке «Основное» вплотную к датам. Корень: порядок
-  задаёт массив `desired` (`persistFieldOrder` перезаписывает `sortOrder` по нему), а не
-  `f.order` из shared. Сторож `EngineDetailsPage.fieldOrder.guard.test.ts`.
-- **PR-B (#1093) — влит.** Словарь служебных авторов `shared/src/domain/serviceActors.ts`
-  (`serviceActorLabel`). Логины скриптов в базе не меняются — словарь назван словами поверх них.
-- **PR-C (#1094) — влит.** Три ленты истории → одна: `shared/src/domain/engineHistoryFeed.ts`
-  (`buildEngineHistoryFeed`) + панель `EngineHistoryFeedPanel`; удалены
-  `EngineRepairHistoryPanel`/`EngineTimelinePanel`/`RepairStagesSection` и их сторожа.
-  Колонка «Записано» рядом с датой события — прямое требование владельца.
-- **PR-D (#1095) — влит.** Ступени этапов: убраны `historyAction`/`historyDate`/`sheetNode`/`sheetDate`,
-  остались «Есть этап» (новое поле `stageCodes` в строке списка + `FacetValue.values` в движке
-  ступеней), «Последний этап» и «Дата этапа». `factoryStage` («Этап на заводе») оставлен —
-  это разрез отчёта, он смешивает этапы с актами.
+Смоуки CDP на каждом UI-PR: 6/6, 10/10, 14/14, 10/10; shared 1268 зелёных.
+
+## Релиз-цикл (v3.55.0)
+
+Теги `v3.55.0` + `android-v3.55.0` запушены, CI-сборки зелёные; на прод: артефакты `.exe`/`.blockmap`/`latest.yml` в `/opt/matricarmz/updates/`, `latest.json` сверен со списком (READY, 136955243), ledger-publish, рестарт → оба порта 3.55.0, APK в `updates/android/`, прогнан `/dispatcher/update-plan` для win32 и android.
 
 ## Следующий шаг
 
-_n/a_ — нитка закрыта и выкачена (v3.55.0). Дежурные хвосты в `PENDING_FOLLOWUPS.md`: календарь ротаций, 145 дублей листов, M148 (run-id в выкате).
-
-## Контекст
-
-- **Прод:** v3.54.0 на обоих инстансах (:3001/:3002 порознь); инсталлятор + blockmap + APK разложены, `latest.json` == `.exe`; `/updates/status` — latest 3.54.0, `lastError: null`; диспетчер предлагает 3.54.0 обеим платформам. Миграций не было.
-- **Планы:** активных нет. Нитка 01.10 закрыта в [`plans/engine-card-order-actor-history-facets-2026-10.md`](plans/engine-card-order-actor-history-facets-2026-10.md) (отметка «закрыто»). Закрытые: [`plans/bulk-stage-dialog-and-defect-dates-2026-10.md`](plans/bulk-stage-dialog-and-defect-dates-2026-10.md) (#1089, #1090), [`plans/_archive/engine-multiselect-stages-print-2026-09.md`](plans/_archive/engine-multiselect-stages-print-2026-09.md).
-- **Открытых PR:** нет. **Локальных веток с неотправленными коммитами:** нет.
-- **Письмо brain:** `mailbox/to-brain/2026-10-01-ask-the-cascade-not-the-files.md` (CDP `CSS.getMatchedStylesForNode` против гадания по файлам).
-- **Драйверы смоука** — в `.verifier-electron/` (gitignored, только `PC79`): `cdp-prs-smoke.mjs`, `cdp-bulk-stage-search.mjs` (диалог этапа), `cdp-engine-defect-dates.mjs` (даты дефектовки), `cdp-engine-main-field-order.mjs` (порядок полей «Основного»), `cdp-history-actor-labels.mjs` (подписи авторов), `cdp-history-single-feed.mjs` (единая лента истории), `cdp-engine-stage-facets.mjs` (ступени этапов). Грабля смоука ступеней: включённость ступени надёжнее проверять по наличию её раздела (`[data-facet-value^="<id>:"]`), а не по галочке в тексте кнопки; ключ варианта несёт id ступени (`hasStage:stage:sborka`). Ручную запись истории смоук убирает `DELETE` по `operations` через psql стенда (id печатается в `.verifier-electron/cdp-history-single-feed-purge.txt`): удаления в UI нет и не должно быть, запись только правится. Грабли: вкладки карточки — обычные кнопки `CardTabs`, искать по тексту, а НЕ в `.v3-tab-strip`; порядок полей вкладки «Основное» читать по `.card-row` (строка подпись+значение), сортируя по Y.
-
-## Что не сработало
-
-- **Guard-тест, записанный поверх существующего файла, молча его заменяет** (дважды за сессию: PR-G и PR-H). Файл дописывается чтением + append, а не `Write` целиком; на Windows регистр имени ненадёжен (`PopupLayer` vs `popupLayer` — один файл).
-- **`typecheck` не покрывает тест-файлы** — красный CI у #1081 поймал то, что локальный `typecheck` не видит. Гейт = `typecheck` + `typecheck:test`.
-- **Кавычки в ssh-команде не доезжают до прода** (только scp-файлом в `/tmp`); `2>/dev/null` и `head`/`tail` в `shell`-туле не работают (PowerShell).
-- **Многострочная правка `Edit` не ищется** (CRLF рабочей копии — и в markdown, и в `.tsx`): замена с двумя строками внутри файла не матчится, пока не сократишь до одной. Надёжно — правка скриптом на Node с `replaceOnce` по фактическому EOL файла (`readFileSync` → `.replace` → `writeFileSync`); `flatMap` в `.tsx` при вставке в массив литерaлов даёт вложенный массив и роняет `tsc` — писать через `for` + `push`.
-
-## Открытые вопросы для пользователя
-
-- 145 расходящихся дублей — нужен взгляд владельца (см. `PENDING_FOLLOWUPS.md` §E1).
-- Офлайн-копии свёртка ключей (сейф + вне здания) — не сделано.
-- Обход машин для «Раздачи соседям» (`PC76`, `PC19`, `PC20`, запасная `PC36`) — ждёт утверждения.
-
-## Не забыть (low-priority)
-
-- Перемер роста диска — срок в календаре `PENDING_FOLLOWUPS`.
-- Свежей суточной цифры 409 нет (последний замер 07.09).
-- Опрос Telegram не отменяется на `SIGTERM` (рестартовые 409 при выкате).
+**Ничего активного.** Рабочего хвоста нет; открытые хвосты владельца — в `docs/PENDING_FOLLOWUPS.md` (перезамер диска 2026-11-02, 145 дублей листов, M148 в деплое).
