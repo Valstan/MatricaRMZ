@@ -89,3 +89,20 @@ describe('отчёт-список «этапы на заводе» и рамка
     expect(ENGINE_PAGE, 'панель истории освежает место двигателя в карточке').toContain('void reloadLastStage();');
   });
 });
+
+describe('PR-G: отчёт без дублей колонок + Android-синк', () => {
+  it('нет дублирующихся колонок «Последнее событие» / «Дата события»', () => {
+    expect(PAGE).not.toContain('Последнее событие');
+    expect(PAGE).not.toContain('Дата события');
+  });
+
+  it('колонка «Последний этап работ» на месте', () => {
+    expect(PAGE).toContain('Последний этап работ');
+    expect(PAGE).toContain('lastSheetNode');
+  });
+
+  it('Android: интервал автосинка — 15 секунд', () => {
+    const BOOT = src('../../../../../../../android-app/src/core/boot.ts');
+    expect(BOOT).toContain('startAuto(15_000)');
+  });
+});

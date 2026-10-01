@@ -67,7 +67,8 @@ export async function bootAndroidCore(cfg: AndroidCoreConfig): Promise<AndroidCo
   );
   // Страховочный тик: доставку держат пробуждение сервером и сторож своих правок
   // (внутри SyncManager), интервал — на случай, когда они недоступны.
-  syncManager.startAuto(60_000);
+  // На Android интервал уменьшен до 15 секунд для более быстрой синхронизации.
+  syncManager.startAuto(15_000);
 
   const startHeartbeat = () =>
     startClientSettingsPolling({
