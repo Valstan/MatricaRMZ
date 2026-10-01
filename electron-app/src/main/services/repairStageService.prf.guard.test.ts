@@ -44,12 +44,12 @@ describe('PR-F: фиксированная дата дефектовки и сн
       DEFAULT_REPAIR_STAGE_TEMPLATES,
     );
     expect(second.ok).toBe(false);
+    if (second.ok) throw new Error('expected defect date to stay fixed');
     expect(second.error).toContain('Дата дефектовки фиксирована');
   });
 
   it('укладка снимает флаг утиль с двигателя', async () => {
-    const { db } = makeDb();
-    const sqlite = (db as never as { $client: Database }).$client;
+    const { sqlite, db } = makeDb();
     sqlite.prepare(
       `INSERT INTO attribute_values (id, entity_id, attribute_def_id, value_json, created_at, updated_at, sync_status)
        VALUES ('av-1', 'eng-1', 'is_scrap', '1', 0, 0, 'synced')`,
