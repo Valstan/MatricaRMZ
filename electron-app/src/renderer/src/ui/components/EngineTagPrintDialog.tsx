@@ -7,10 +7,12 @@ import { Input } from './Input.js';
 import { useListUiState } from '../hooks/useListBehavior.js';
 import { useTagPrintQueue, type TagQueueItem } from '../hooks/useTagPrintQueue.js';
 import {
+  ENGINE_TAG_ORIENTATION_OPTIONS,
   ENGINE_TAG_PER_SHEET_OPTIONS,
   buildEngineTagsHtml,
   openEngineTagsPrint,
   type EngineTagData,
+  type EngineTagOrientation,
   type EngineTagsPerSheet,
 } from '../utils/engineTagPrint.js';
 
@@ -25,9 +27,9 @@ import {
  * кеглей делает `engineTagPrint`; диалог отвечает за набор и раскладку.
  */
 
-/** A4 портрет в px @96dpi: лист рисуется в полную величину и ужимается `zoom` (как в диалогах наряда и табеля). */
-const A4_WIDTH_PX = Math.round((210 * 96) / 25.4); // ≈ 794
-const A4_HEIGHT_PX = Math.round((297 * 96) / 25.4); // ≈ 1123
+/** A4 в px @96dpi: лист рисуется в полную величину и ужимается `zoom` (как в диалогах наряда и табеля). */
+const A4_PORTRAIT_PX = { width: Math.round((210 * 96) / 25.4), height: Math.round((297 * 96) / 25.4) };
+const A4_LANDSCAPE_PX = { width: A4_PORTRAIT_PX.height, height: A4_PORTRAIT_PX.width };
 const PREVIEW_SCALE = 0.56;
 
 /**
@@ -81,9 +83,18 @@ export function buildEngineTagData(e: EngineTagSource): EngineTagData {
   };
 }
 
+const ORIENTATION_LABEL: Record<EngineTagOrientation, string> = {
+  landscape: 'Альбом',
+  portrait: 'Портрет',
+};
+
 function normalizePerSheet(v: unknown): EngineTagsPerSheet {
   const n = Number(v);
   return ENGINE_TAG_PER_SHEET_OPTIONS.find((o) => o === n) ?? ENGINE_TAG_PER_SHEET_OPTIONS[0] ?? 6;
+}
+
+function normalizeOrientation(v: unknown): EngineTagOrientation {
+  return ENGINE_TAG_ORIENTATION_OPTIONS.find((o) => o === v) ?? 'landscape';
 }
 
 function queueLabel(item: TagQueueItem): string {
@@ -102,8 +113,14 @@ export function EngineTagPrintDialog(props: {
 }) {
   // Раскладку помним между вызовами: бирки печатают пачками, и каждый раз оператор
   // выбирал бы один и тот же вариант заново. Ключ общий для списка и карточки.
-  const { state, patchState } = useListUiState<{ perSheet: number }>('print:engineTags:ui', { perSheet: 6 });
+  // По умолчанию — альбом и 4 бирки (владелец 01.10.2026).
+  const { state, patchState } = useListUiState<{ perSheet: number; orientation: EngineTagOrientation }>(
+    'print:engineTags:ui',
+    { perSheet: 4, orientation: 'landscape' },
+  );
   const perSheet = normalizePerSheet(state.perSheet);
+  const orientation = normalizeOrientation(state.orientation);
+  const previewPx = orientation === 'landscape' ? A4_LANDSCAPE_PX : A4_PORTRAIT_PX;
   const queue = useTagPrintQueue();
   const [query, setQuery] = useState('');
   const [catalog, setCatalog] = useState<EngineTagInitial[]>([]);
@@ -150,7 +167,10 @@ export function EngineTagPrintDialog(props: {
   // Закрытый диалог лист не собирает: он висит смонтированным рядом со списком, и
   // перебирать очередь на каждый его рендер незачем.
   const tags = useMemo(() => (props.open ? checked.map(buildEngineTagData) : []), [props.open, checked]);
-  const html = useMemo(() => (props.open ? buildEngineTagsHtml(tags, { perSheet }) : ''), [props.open, tags, perSheet]);
+  const html = useMemo(
+    () => (props.open ? buildEngineTagsHtml(tags, { perSheet, orientation }) : ''),
+    [props.open, tags, perSheet, orientation],
+  );
   const sheets = tags.length > 0 ? Math.ceil(tags.length / perSheet) : 0;
 
   // Превью грузится через srcDoc асинхронно — высоту iframe подгоняем после загрузки,
@@ -159,16 +179,16 @@ export function EngineTagPrintDialog(props: {
     const t = setTimeout(() => {
       const doc = iframeRef.current?.contentWindow?.document;
       const h = doc?.body?.scrollHeight ?? 0;
-      if (iframeRef.current) iframeRef.current.style.height = `${Math.max(h, A4_HEIGHT_PX) + 8}px`;
+      if (iframeRef.current) iframeRef.current.style.height = `${Math.max(h, previewPx.height) + 8}px`;
     }, 120);
     return () => clearTimeout(t);
-  }, [html]);
+  }, [html, previewPx.height]);
 
   if (!props.open) return null;
 
   function handlePrint() {
     if (tags.length === 0) return;
-    openEngineTagsPrint(tags, { perSheet });
+    openEngineTagsPrint(tags, { perSheet, orientation });
     props.onClose();
   }
 
@@ -245,6 +265,33 @@ export function EngineTagPrintDialog(props: {
           </div>
 
           <div>
+            <div style={{ fontSize: 12, color: 'var(--subtle)', marginBottom: 4 }}>Ориентация листа</div>
+            <div style={{ display: 'flex', border: '1px solid var(--input-border, var(--border))', borderRadius: 8, overflow: 'hidden' }}>
+              {ENGINE_TAG_ORIENTATION_OPTIONS.map((o, i) => (
+                <button
+                  key={o}
+                  type="button"
+                  data-engine-tags-orientation={o}
+                  onClick={() => patchState({ orientation: o })}
+                  style={{
+                    flex: 1,
+                    padding: '7px 0',
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    border: 'none',
+                    borderLeft: i === 0 ? 'none' : '1px solid var(--input-border, var(--border))',
+                    background: orientation === o ? 'var(--tone-info-bg, #dbeafe)' : 'transparent',
+                    color: orientation === o ? 'var(--tone-info-text, #1d4ed8)' : 'inherit',
+                    fontWeight: orientation === o ? 700 : 400,
+                  }}
+                >
+                  {ORIENTATION_LABEL[o]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
             <div style={{ fontSize: 12, color: 'var(--subtle)', marginBottom: 4 }}>Бирок на лист A4</div>
             <div style={{ display: 'flex', border: '1px solid var(--input-border, var(--border))', borderRadius: 8, overflow: 'hidden' }}>
               {ENGINE_TAG_PER_SHEET_OPTIONS.map((n, i) => (
@@ -296,12 +343,12 @@ export function EngineTagPrintDialog(props: {
         </div>
 
         <div style={{ flex: 1, minWidth: 0, overflow: 'auto', background: '#e7e9ef', borderRadius: 8, padding: 8 }}>
-          <div style={{ width: A4_WIDTH_PX * PREVIEW_SCALE }}>
+          <div style={{ width: previewPx.width * PREVIEW_SCALE }}>
             <iframe
               ref={iframeRef}
               title="Превью листа с бирками"
               srcDoc={html + PREVIEW_CHROME_CSS}
-              style={{ width: A4_WIDTH_PX, height: A4_HEIGHT_PX, border: 'none', zoom: PREVIEW_SCALE, background: 'transparent' }}
+              style={{ width: previewPx.width, height: previewPx.height, border: 'none', zoom: PREVIEW_SCALE, background: 'transparent' }}
             />
           </div>
         </div>

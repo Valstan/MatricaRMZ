@@ -217,6 +217,12 @@ describe('очередь печати бирок', () => {
     expect(PAGE).toContain('selectedEngines.length === 0 && tagQueue.items.length === 0');
     expect(PAGE).toContain('setTagHintVisible(true);');
   });
+
+  it('по умолчанию — альбом и 4 бирки, ориентация переключается', () => {
+    expect(TAG_DIALOG).toContain('data-engine-tags-orientation={o}');
+    expect(TAG_DIALOG).toContain("orientation: 'landscape'");
+    expect(TAG_DIALOG).toContain('{ perSheet: 4, orientation: ');
+  });
 });
 
 const SELECTION_HOOK = src('../hooks/useListSelection.ts');
