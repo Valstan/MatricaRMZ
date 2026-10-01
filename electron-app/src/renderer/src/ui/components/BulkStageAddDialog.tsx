@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
-import { repairStageRank } from '@matricarmz/shared';
+import { isBulkStageCandidate, isEngineAtPlant, repairStageRank } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { Input } from './Input.js';
 import { SearchSelect } from './SearchSelect.js';
 
 type StageTemplate = { code: string; name: string };
-type EngineOption = { id: string; label: string };
+type EngineOption = { id: string; label: string; atPlant: boolean };
 type StageMarks = { lastStageCode: string | null; lastStageAt: number | null; hasScrapBranch: boolean };
 
 function toInputDate(ms: number): string {
@@ -27,8 +27,8 @@ function fromInputDate(v: string): number | null {
  * этап создаётся у каждого выбранного двигателя.
  *
  * Двигатели ищутся по номеру (подстрока, как в остальных списках). Когда выбран
- * этап, выше остальных показываются двигатели с предыдущего этапа — те, чей
- * последний этап ниже выбранного по линейке (включая ещё не начатые и без утиля).
+ * этап, показываются ТОЛЬКО кандидаты — двигатели, которые стоят на заводе сейчас
+ * на предыдущем этапе (владелец 01.10.2026). Уехавшие, стоящие выше и утиль скрыты.
  */
 export function BulkStageAddDialog(props: {
   templates: StageTemplate[];
@@ -55,6 +55,7 @@ export function BulkStageAddDialog(props: {
         const opts = rows.map((e) => ({
           id: String(e.id),
           label: e.engineNumber || `Без номера (${String(e.id).slice(0, 8)})`,
+          atPlant: isEngineAtPlant({ arrivalDate: e.arrivalDate ?? null, shippingDate: e.shippingDate ?? null }),
         }));
         setEngines(opts);
         try {
@@ -93,22 +94,33 @@ export function BulkStageAddDialog(props: {
     return engines.filter((e) => e.label.toLowerCase().includes(q));
   }, [engines, query]);
 
-  const grouped = useMemo(() => {
+  // При выбранном этапе показывают ТОЛЬКО кандидатов (владелец 01.10.2026): двигатели,
+  // которые стоят на заводе сейчас на предыдущем этапе. Уехавшие, стоящие выше и утиль
+  // скрываются совсем — иначе за обкатку список из сотен штук, где живых горсть.
+  // Без выбранного этапа — все со строкой поиска, как раньше.
+  const candidates = useMemo(() => {
     if (selectedRank === null || selectedRank <= 0) return null;
     const rankOfCode = (code: string): number => {
       const c = String(code ?? '').trim().toLowerCase();
       const r = rankByCode[c];
       return typeof r === 'number' ? r : repairStageRank(c);
     };
-    const prev: EngineOption[] = [];
-    const rest: EngineOption[] = [];
+    const out: EngineOption[] = [];
     for (const e of filtered) {
       const m = marks[e.id];
-      const isPrev =
-        !m || (!m.hasScrapBranch && (m.lastStageCode === null || (rankOfCode(m.lastStageCode) > 0 && rankOfCode(m.lastStageCode) < selectedRank)));
-      (isPrev ? prev : rest).push(e);
+      const lastRank = !m || m.lastStageCode === null ? null : rankOfCode(m.lastStageCode);
+      if (
+        isBulkStageCandidate({
+          atPlant: e.atPlant,
+          hasScrapBranch: m?.hasScrapBranch === true,
+          lastRank,
+          selectedRank,
+        })
+      ) {
+        out.push(e);
+      }
     }
-    return { prev, rest };
+    return out;
   }, [filtered, selectedRank, marks, rankByCode]);
 
   const toggleEngine = (id: string) => {
@@ -229,21 +241,19 @@ export function BulkStageAddDialog(props: {
                 <div className="ui-muted" style={{ fontSize: 12 }}>Список двигателей не загрузился</div>
               ) : filtered.length === 0 ? (
                 <div className="ui-muted" style={{ fontSize: 12 }}>По запросу ничего не найдено</div>
-              ) : grouped ? (
-                <div style={{ display: 'grid', gap: 8 }}>
-                  {grouped.prev.length > 0 ? (
-                    <div style={{ display: 'grid', gap: 4 }} data-bulk-stage-priority>
-                      <div className="ui-muted" style={{ fontSize: 12, fontWeight: 700 }}>
-                        С предыдущего этапа ({grouped.prev.length})
-                      </div>
-                      {grouped.prev.map(renderEngineRow)}
-                    </div>
-                  ) : null}
-                  <div style={{ display: 'grid', gap: 4 }} data-bulk-stage-rest>
-                    <div className="ui-muted" style={{ fontSize: 12, fontWeight: 700 }}>Остальные ({grouped.rest.length})</div>
-                    {grouped.rest.map(renderEngineRow)}
+              ) : candidates ? (
+                candidates.length === 0 ? (
+                  <div className="ui-muted" style={{ fontSize: 12 }}>
+                    На предыдущих этапах никого нет — все либо стоят выше, либо уже уехали с завода
                   </div>
-                </div>
+                ) : (
+                  <div style={{ display: 'grid', gap: 4 }} data-bulk-stage-priority>
+                    <div className="ui-muted" style={{ fontSize: 12, fontWeight: 700 }}>
+                      На заводе на предыдущем этапе ({candidates.length})
+                    </div>
+                    {candidates.map(renderEngineRow)}
+                  </div>
+                )
               ) : (
                 <div style={{ display: 'grid', gap: 4 }}>{filtered.map(renderEngineRow)}</div>
               )}

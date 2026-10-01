@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_REPAIR_STAGE_TEMPLATES,
   findStageDateConflict,
+  isBulkStageCandidate,
   isStageBackwardMove,
   repairStageTemplate,
   sortStagesByDate,
@@ -78,5 +79,31 @@ describe('сортировка для показа', () => {
       { code: 'arrival' as const, at: 100 },
     ];
     expect(sortStagesByDate(stages).map((s) => s.code)).toEqual(['arrival', 'otk', 'sborka']);
+  });
+});
+
+describe('кандидат массового добавления (владелец 01.10.2026)', () => {
+  const base = { atPlant: true, hasScrapBranch: false, lastRank: 30, selectedRank: 60 };
+  it('на заводе на предыдущем этапе — кандидат', () => {
+    expect(isBulkStageCandidate(base)).toBe(true);
+  });
+  it('без этапов, но на заводе — кандидат', () => {
+    expect(isBulkStageCandidate({ ...base, lastRank: null })).toBe(true);
+  });
+  it('не на заводе (уехал / не приходил) — скрыт', () => {
+    expect(isBulkStageCandidate({ ...base, atPlant: false })).toBe(false);
+  });
+  it('боковая ветка утиля — скрыта', () => {
+    expect(isBulkStageCandidate({ ...base, hasScrapBranch: true })).toBe(false);
+  });
+  it('на этом же или более высоком этапе — скрыт', () => {
+    expect(isBulkStageCandidate({ ...base, lastRank: 60 })).toBe(false);
+    expect(isBulkStageCandidate({ ...base, lastRank: 90 })).toBe(false);
+  });
+  it('ранг вне линейки (0) — не «ниже», а «мимо», скрыт', () => {
+    expect(isBulkStageCandidate({ ...base, lastRank: 0 })).toBe(false);
+  });
+  it('этап не выбран — не кандидат', () => {
+    expect(isBulkStageCandidate({ ...base, selectedRank: 0 })).toBe(false);
   });
 });
