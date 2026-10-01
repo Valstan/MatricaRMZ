@@ -39,6 +39,13 @@ export function VirtualTable(props: {
   /** Сколько строк рендерить за пределами окна с каждой стороны. По умолчанию 12. */
   overscan?: number;
   tableClassName?: string;
+  /**
+   * Ширины колонок для `<colgroup>` (владелец 01.10.2026, ресайз мышью): в
+   * automatic-раскладке это надёжный способ прибить ширину. `leadingColumns` —
+   * число служебных колонок перед данными (чекбокс + «№» у двигателей, иначе 1).
+   */
+  columnWidths?: ReadonlyArray<{ id: string; width: number | null }>;
+  leadingColumns?: number;
   /** Что показать, когда строк нет. */
   emptyState?: React.ReactNode;
   /**
@@ -91,6 +98,16 @@ export function VirtualTable(props: {
   return (
     <div style={{ border: '1px solid #e5e7eb' }}>
       <table className={tableClassName}>
+        {props.columnWidths ? (
+          <colgroup>
+            {Array.from({ length: props.leadingColumns ?? 1 }, (_, i) => (
+              <col key={`__lead${i}`} />
+            ))}
+            {props.columnWidths.map((col) =>
+              col.width ? <col key={col.id} style={{ width: col.width }} /> : <col key={col.id} />,
+            )}
+          </colgroup>
+        ) : null}
         {header}
         <tbody>
           {count === 0 ? (

@@ -24,6 +24,7 @@ import { useTagPrintQueue } from '../hooks/useTagPrintQueue.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
+import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
 import { Input } from '../components/Input.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { useListDeepFilter } from '../hooks/useListDeepFilter.js';
@@ -775,7 +776,9 @@ export function EnginesPage(props: {
               <th
                 key={col.id}
                 {...listHeaderKindProps(col.kind, col.label)}
+                {...manualWidthAttr(columnLayout.widthOf(col.id))}
                 style={{
+                  ...manualThAnchor(),
                   textAlign: col.headerAlign ?? 'left',
                   borderBottom: '1px solid rgba(255,255,255,0.25)',
                   padding: 8,
@@ -784,6 +787,7 @@ export function EnginesPage(props: {
                   zIndex: 2,
                   cursor: col.sortable ? 'pointer' : 'default',
                   ...(col.width ? { width: col.width } : {}),
+                  ...manualWidth(columnLayout.widthOf(col.id)),
                 }}
                 onClick={col.sortable && col.sortKey ? () => toggleSort(col.sortKey as typeof sortKey) : undefined}
               >
@@ -797,6 +801,7 @@ export function EnginesPage(props: {
                   />
                 </span>
                 {col.sortable && col.sortKey && sortArrow(col.sortKey as typeof sortKey) ? ` ${sortArrow(col.sortKey as typeof sortKey)}` : ''}
+                <ColumnResizeHandle columnId={col.id} layout={columnLayout} />
               </th>
             );
           })}
@@ -1058,6 +1063,8 @@ export function EnginesPage(props: {
             rowNumbers
             estimateSize={previewsVisible ? 64 : 40}
             emptyState="Ничего не найдено"
+            columnWidths={visibleColumns.map((c) => ({ id: c.id, width: columnLayout.widthOf(c.id) }))}
+            leadingColumns={2}
           />
         )}
       </div>

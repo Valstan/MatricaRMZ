@@ -14,7 +14,8 @@ import {
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
-import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
+import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
+import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
 import { FacetFilter, FacetToggleButton } from '../components/FacetFilter.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
@@ -266,37 +267,39 @@ export function WorkSheetsPage(props: {
     patchState(ui.sortKey === id ? { sortDir: ui.sortDir === 'asc' ? 'desc' : 'asc' } : { sortKey: id, sortDir: id === 'at' ? 'desc' : 'asc' });
 
   const thStyle: React.CSSProperties = { textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 8, position: 'sticky', top: 0, zIndex: 2 };
-  const header = (
-    <thead>
-      <tr style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #7c3aed 120%)', color: '#fff' }}>
+  const header = (
+    <thead>
+      <tr style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #7c3aed 120%)', color: '#fff' }}>
         <RowNumberHeaderCell style={thStyle} />
         {visibleColumns.map((col) => (
-          <th
-            key={col.id}
-            {...listHeaderKindProps(col.kind, col.label)}
-            style={{ ...thStyle, cursor: col.sortValue ? 'pointer' : 'default' }}
-            onClick={col.sortValue ? () => toggleSort(col.id) : undefined}
-          >
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-              <span>{col.label}</span>
-              <ColumnToggleButton colId={col.id} visible alwaysVisible={col.alwaysVisible} onToggle={() => columnLayout.setVisible(col.id, false)} />
-            </span>
-            {ui.sortKey === col.id ? (ui.sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
-          </th>
+          <th
+            key={col.id}
+            {...listHeaderKindProps(col.kind, col.label)}
+            {...manualWidthAttr(columnLayout.widthOf(col.id))}
+            style={{ ...manualThAnchor(), ...thStyle, cursor: col.sortValue ? 'pointer' : 'default', ...manualWidth(columnLayout.widthOf(col.id)) }}
+            onClick={col.sortValue ? () => toggleSort(col.id) : undefined}
+          >
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              <span>{col.label}</span>
+              <ColumnToggleButton colId={col.id} visible alwaysVisible={col.alwaysVisible} onToggle={() => columnLayout.setVisible(col.id, false)} />
+            </span>
+            <ColumnResizeHandle columnId={col.id} layout={columnLayout} />
+            {ui.sortKey === col.id ? (ui.sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
+          </th>
         ))}
-        <th className="list-col-filler" aria-hidden="true" />
-      </tr>
-    </thead>
-  );
+        <th className="list-col-filler" aria-hidden="true" />
+      </tr>
+    </thead>
+  );
 
   const cells = (r: WorkSheetRow) => (
     <>
-      {visibleColumns.map((col) => (
-        // `data-col-id` — чтобы щелчок по ячейке ставил курсор в ту же колонку в редакторе.
-        <td key={col.id} data-col-id={col.id} {...listCellKindProps(col.kind)} style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }}>
-          {col.render(r)}
-        </td>
-      ))}
+      {visibleColumns.map((col) => (
+        // `data-col-id` — чтобы щелчок по ячейке ставил курсор в ту же колонку в редакторе.
+        <td key={col.id} data-col-id={col.id} {...listCellKindProps(col.kind)} style={{ borderBottom: '1px solid #f3f4f6', padding: 8 }}>
+          {col.render(r)}
+        </td>
+      ))}
       <td className="list-col-filler" aria-hidden="true" style={{ borderBottom: '1px solid #f3f4f6' }} />
     </>
   );
@@ -419,6 +422,7 @@ export function WorkSheetsPage(props: {
           rowNumbers
           estimateSize={40}
           emptyState={rows.length === 0 ? 'Этапов работ пока нет' : 'Ничего не найдено'}
+          columnWidths={visibleColumns.map((c) => ({ id: c.id, width: columnLayout.widthOf(c.id) }))}
         />
       </div>
 

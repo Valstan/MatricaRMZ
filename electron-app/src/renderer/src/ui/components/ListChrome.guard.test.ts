@@ -205,3 +205,42 @@ describe('счётчик и нумерация — подтаблицы карт
     expect(SUBTABLE_PAGES.find(([n]) => n === 'ServicesByBrandPage')![1]).not.toContain('Услуг в списке:');
   });
 });
+
+const HANDLE = src('./ColumnResizeHandle.tsx');
+const LAYOUT_STORE = src('../hooks/columnLayoutStore.ts');
+const LAYOUT_HOOK = src('../hooks/useColumnLayout.ts');
+
+// Ресайз колонок мышью (владелец 01.10.2026): тянуть за правый край шапки.
+// Ручка одна на всех, ширины — в том же LWW-хранилище, что порядок и скрытые.
+describe('ширина колонки тянется мышью', () => {
+  it('ручка: drag пишет ширину, клик после drag не тогглит сортировку, двойной клик — авто', () => {
+    expect(HANDLE).toContain('data-col-resize={props.columnId}');
+    expect(HANDLE).toContain("cursor: 'col-resize'");
+    expect(HANDLE).toContain('setPointerCapture');
+    expect(HANDLE).toContain('props.layout.setWidthLive(props.columnId, d.startW + dx)');
+    expect(HANDLE).toContain('props.layout.commitWidths()');
+    expect(HANDLE).toContain('props.layout.clearWidth(props.columnId)');
+    expect(HANDLE).toContain('swallowNextClick');
+  });
+
+  it('хранилище и хук несут ширины: нормализация, персист, сброс', () => {
+    expect(LAYOUT_STORE).toContain('widths: normalizeColumnWidths(');
+    expect(LAYOUT_STORE).toContain('widths: Record<string, number>');
+    expect(LAYOUT_HOOK).toContain('widthOf');
+    expect(LAYOUT_HOOK).toContain('setWidthLive');
+    expect(LAYOUT_HOOK).toContain('commitWidths');
+    expect(LAYOUT_HOOK).toContain('clearWidth');
+  });
+
+  it('все списки рисуют ручку и отдают ширины в таблицу', () => {
+    for (const [name, text] of PAGES) {
+      expect(text, `${name}: нет ручки ресайза в шапке`).toContain('<ColumnResizeHandle columnId={col.id} layout={columnLayout} />');
+      expect(text, `${name}: шапка не якорь для ручки`).toContain('manualThAnchor()');
+      // Ширина прибивается <col> внутри таблицы: в automatic-раскладке min/max
+      // на ячейках резина игнорирует (поймано смоуком: 339px рисовались как 512),
+      // а fixed делит остаток поровну и уродует соседей — поэтому auto + colgroup.
+      expect(text, `${name}: ширины не едут в таблицу`).toContain('columnLayout.widthOf(col.id)');
+    }
+  });
+});
+

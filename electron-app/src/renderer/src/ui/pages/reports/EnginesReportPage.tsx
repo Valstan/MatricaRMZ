@@ -19,6 +19,7 @@ import {
 import { Button } from '../../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../../components/ColumnSettingsButton.js';
 import { ColumnToggleButton } from '../../components/ColumnToggleButton.js';
+import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../../components/ColumnResizeHandle.js';
 import { FacetFilter, FacetToggleButton } from '../../components/FacetFilter.js';
 import { Input } from '../../components/Input.js';
 import { ListCount } from '../../components/ListCount.js';
@@ -228,11 +229,12 @@ export function EnginesReportPage(props: ListReportPageProps) {
       <tr style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #7c3aed 120%)', color: '#fff' }}>
         <RowNumberHeaderCell style={thStyle} />
         {visibleColumns.map((col) => (
-          <th key={col.id} {...listHeaderKindProps(col.kind, col.label)} style={{ ...thStyle, cursor: col.sortValue ? 'pointer' : 'default' }} onClick={col.sortValue ? () => toggleSort(col.id) : undefined}>
+          <th key={col.id} {...listHeaderKindProps(col.kind, col.label)} {...manualWidthAttr(columnLayout.widthOf(col.id))} style={{ ...manualThAnchor(), ...thStyle, cursor: col.sortValue ? 'pointer' : 'default', ...manualWidth(columnLayout.widthOf(col.id)) }} onClick={col.sortValue ? () => toggleSort(col.id) : undefined}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
               <span>{col.label}</span>
               <ColumnToggleButton colId={col.id} visible alwaysVisible={col.alwaysVisible} onToggle={() => columnLayout.setVisible(col.id, false)} />
             </span>
+            <ColumnResizeHandle columnId={col.id} layout={columnLayout} />
             {ui.sortKey === col.id ? (ui.sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
           </th>
         ))}
@@ -259,7 +261,7 @@ export function EnginesReportPage(props: ListReportPageProps) {
     return (
       <>
         {visibleColumns.map((col) => (
-          <td key={col.id} {...listCellKindProps(col.kind)} style={cellStyle}>
+          <td key={col.id} {...listCellKindProps(col.kind)} style={{ ...cellStyle }}>
             {col.render(it.row)}
           </td>
         ))}
@@ -349,6 +351,7 @@ export function EnginesReportPage(props: ListReportPageProps) {
           rowNumbers
           estimateSize={40}
           emptyState={rows.length === 0 ? 'В каталоге пока нет двигателей' : 'Ничего не найдено'}
+          columnWidths={visibleColumns.map((c) => ({ id: c.id, width: columnLayout.widthOf(c.id) }))}
         />
       </div>
 

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   COLUMN_LAYOUT_CHANGE_EVENT,
   clearColumnLayout,
+  normalizeColumnWidths,
   readColumnLayout,
   writeColumnLayout,
   type ColumnLayoutState,
@@ -37,12 +38,13 @@ export function layoutFromPersisted(
   allColumnIds: string[],
   defaultHidden: string[],
 ): ColumnLayoutState {
-  if (!persisted) return { order: [...allColumnIds], hidden: [...defaultHidden] };
+  if (!persisted) return { order: [...allColumnIds], hidden: [...defaultHidden], widths: {} };
   const known = new Set(allColumnIds);
   const seenBefore = new Set(persisted.order);
   const hidden = new Set(persisted.hidden.filter((id) => known.has(id)));
   for (const id of defaultHidden) if (known.has(id) && !seenBefore.has(id)) hidden.add(id);
-  return { order: normalizeOrder(persisted.order, allColumnIds), hidden: Array.from(hidden) };
+  const widths = normalizeColumnWidths(Object.fromEntries(Object.entries(persisted.widths ?? {}).filter(([id]) => known.has(id))));
+  return { order: normalizeOrder(persisted.order, allColumnIds), hidden: Array.from(hidden), widths };
 }
 
 export type UseColumnLayoutResult = {
@@ -52,6 +54,14 @@ export type UseColumnLayoutResult = {
   setVisible: (id: string, visible: boolean) => void;
   moveColumn: (id: string, direction: -1 | 1) => void;
   resetToDefault: () => void;
+  /** Ручная ширина колонки, px; null — авто (замер хука ширин). */
+  widthOf: (id: string) => number | null;
+  /** Живое значение во время drag — стейт, без записи. */
+  setWidthLive: (id: string, px: number) => void;
+  /** Зафиксировать живые ширины (конец drag). */
+  commitWidths: () => void;
+  /** Сбросить одну колонку на авто (двойной клик по ручке). */
+  clearWidth: (id: string) => void;
 };
 
 export function useColumnLayout(
@@ -123,8 +133,36 @@ export function useColumnLayout(
 
   const resetToDefault = useCallback(() => {
     clearColumnLayout(layoutId);
-    setState({ order: [...allColumnIds], hidden: [...defaultHidden] });
+    setState({ order: [...allColumnIds], hidden: [...defaultHidden], widths: {} });
   }, [layoutId, allColumnIds, defaultHidden]);
+
+  const widthOf = useCallback((id: string) => state.widths?.[id] ?? null, [state.widths]);
+
+  const setWidthLive = useCallback((id: string, px: number) => {
+    const w = Math.max(48, Math.min(1200, Math.round(px)));
+    setState((prev) => (prev.widths?.[id] === w ? prev : { ...prev, widths: { ...prev.widths, [id]: w } }));
+  }, []);
+
+  const commitWidths = useCallback(() => {
+    setState((prev) => {
+      writeColumnLayout(layoutId, prev);
+      return prev;
+    });
+  }, [layoutId]);
+
+  const clearWidth = useCallback(
+    (id: string) => {
+      setState((prev) => {
+        if (!(prev.widths && id in prev.widths)) return prev;
+        const widths = { ...prev.widths };
+        delete widths[id];
+        const next = { ...prev, widths };
+        writeColumnLayout(layoutId, next);
+        return next;
+      });
+    },
+    [layoutId],
+  );
 
   return {
     order: state.order,
@@ -133,5 +171,9 @@ export function useColumnLayout(
     setVisible,
     moveColumn,
     resetToDefault,
+    widthOf,
+    setWidthLive,
+    commitWidths,
+    clearWidth,
   };
 }

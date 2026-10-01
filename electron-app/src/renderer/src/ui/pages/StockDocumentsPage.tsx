@@ -8,6 +8,7 @@ import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
+import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
 import { Stock1cImportDialog } from '../components/Stock1cImportDialog.js';
 import { WarehouseDocumentStatusFilterDropdown } from '../components/WarehouseDocumentStatusFilterDropdown.js';
 import { Input } from '../components/Input.js';
@@ -233,7 +234,7 @@ export function StockDocumentsPage(props: {
             // header — headers stayed wide while the cells under them narrowed.
             if (!visible) return null;
             return (
-              <th key={col.id} {...listHeaderKindProps(col.kind, col.label)} style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => onSort(col.sortKey)}>
+              <th key={col.id} {...listHeaderKindProps(col.kind, col.label)} {...manualWidthAttr(columnLayout.widthOf(col.id))} style={{ ...manualThAnchor(), textAlign: 'left', cursor: 'pointer', ...manualWidth(columnLayout.widthOf(col.id)) }} onClick={() => onSort(col.sortKey)}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
                   <span>{sortLabel(tabletColumnLabel(col.label, col.tabletLabel), col.sortKey)}</span>
                   <ColumnToggleButton
@@ -243,6 +244,7 @@ export function StockDocumentsPage(props: {
                     onToggle={() => columnLayout.setVisible(col.id, false)}
                   />
                 </span>
+                <ColumnResizeHandle columnId={col.id} layout={columnLayout} />
               </th>
             );
           })}
@@ -426,6 +428,7 @@ export function StockDocumentsPage(props: {
             rowNumbers
             estimateSize={40}
             emptyState={includedStatuses.length === 0 ? 'Выберите статусы в фильтре выше' : 'Нет документов'}
+            columnWidths={visibleColumns.map((c) => ({ id: c.id, width: columnLayout.widthOf(c.id) }))}
           />
         )}
       </div>

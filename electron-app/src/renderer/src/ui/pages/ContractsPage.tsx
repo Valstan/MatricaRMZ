@@ -7,6 +7,7 @@ import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
+import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
@@ -898,16 +899,19 @@ export function ContractsPage(props: {
             if (!visible) return null;
             const align = col.headerAlign ?? 'left';
             const baseStyle: React.CSSProperties = {
+              ...manualThAnchor(),
               ...headerThBase,
               textAlign: align,
               cursor: col.sortable ? 'pointer' : 'default',
               ...(col.width ? { width: col.width } : {}),
+              ...manualWidth(columnLayout.widthOf(col.id)),
             };
             const arrow = col.sortable && col.sortKey ? sortArrow(listState.sortKey as SortKey, listState.sortDir, col.sortKey) : '';
             return (
               <th
                 key={col.id}
                 {...{ ...listHeaderKindProps(col.kind, col.label), ...(col.title ? { title: col.title } : {}) }}
+                {...manualWidthAttr(columnLayout.widthOf(col.id))}
                 style={baseStyle}
                 onClick={col.sortable && col.sortKey ? () => onSort(col.sortKey as SortKey) : undefined}
               >
@@ -921,6 +925,7 @@ export function ContractsPage(props: {
                   />
                 </span>
                 {arrow ? ` ${arrow}` : ''}
+                <ColumnResizeHandle columnId={col.id} layout={columnLayout} />
               </th>
             );
           })}
@@ -979,8 +984,15 @@ export function ContractsPage(props: {
 
   function renderTable(items: Row[], startIndex = 0) {
     return (
-      <div style={{ border: '1px solid #e5e7eb', overflow: 'clip' }}>
+      <div style={{ border: '1px solid #e5e7eb', overflow: 'auto' }}>
         <table className="list-table">
+          <colgroup>
+            <col key="__lead" />
+            {visibleColumns.map((col) => {
+              const w = columnLayout.widthOf(col.id);
+              return w ? <col key={col.id} style={{ width: w }} /> : <col key={col.id} />;
+            })}
+          </colgroup>
           {renderTableHeader()}
           <tbody>
             {items.map((row, i) => renderContractRow(row, startIndex + i + 1))}

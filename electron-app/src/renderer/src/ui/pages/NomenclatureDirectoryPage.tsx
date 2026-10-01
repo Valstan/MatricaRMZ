@@ -7,6 +7,7 @@ import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
+import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
 import { Input } from '../components/Input.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
@@ -549,7 +550,8 @@ export function NomenclatureDirectoryPage(props: {
               <th
                 key={col.id}
                 {...listHeaderKindProps(col.kind, col.label)}
-                style={{ textAlign: col.align ?? 'left', cursor: 'pointer' }}
+                {...manualWidthAttr(columnLayout.widthOf(col.id))}
+                style={{ ...manualThAnchor(), textAlign: col.align ?? 'left', cursor: 'pointer', ...manualWidth(columnLayout.widthOf(col.id)) }}
                 onClick={() => onSort(col.sortKey)}
               >
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
@@ -561,6 +563,7 @@ export function NomenclatureDirectoryPage(props: {
                     onToggle={() => columnLayout.setVisible(col.id, false)}
                   />
                 </span>
+                <ColumnResizeHandle columnId={col.id} layout={columnLayout} />
               </th>
             );
           })}
@@ -595,8 +598,15 @@ export function NomenclatureDirectoryPage(props: {
 
   function renderTable(items: WarehouseNomenclatureListItem[], startIndex = 0) {
     return (
-      <div style={{ border: '1px solid #e5e7eb', overflow: 'clip' }}>
+      <div style={{ border: '1px solid #e5e7eb', overflow: 'auto' }}>
         <table className="list-table">
+          <colgroup>
+            <col key="__lead" />
+            {visibleColumns.map((col) => {
+              const w = columnLayout.widthOf(col.id);
+              return w ? <col key={col.id} style={{ width: w }} /> : <col key={col.id} />;
+            })}
+          </colgroup>
           {tableHeader}
           <tbody>
             {items.map((row, i) => (
@@ -740,6 +750,7 @@ export function NomenclatureDirectoryPage(props: {
             rowNumbers
             estimateSize={40}
             emptyState={props.emptyText}
+            columnWidths={visibleColumns.map((c) => ({ id: c.id, width: columnLayout.widthOf(c.id) }))}
           />
         )}
       </div>

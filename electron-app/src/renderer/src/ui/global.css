@@ -581,6 +581,15 @@ table.list-table--single-mode td[colspan] {
   white-space: normal;
 }
 
+/* Ручная ширина колонки (ресайз мышью, владелец 01.10.2026): бьёт и авто-замер,
+ * и `width: auto !important` single-mode выше. Значок рисует ручка в шапке. */
+table.list-table th[data-manual-w],
+table.list-table td[data-manual-w] {
+  width: var(--col-manual-w) !important;
+  min-width: var(--col-manual-w) !important;
+  max-width: var(--col-manual-w) !important;
+}
+
 table.list-table th,
 table.list-table td {
   white-space: nowrap;

@@ -2088,7 +2088,9 @@ export function App() {
           // Раскладки колонок применяются сразу (у каждой свой updatedAt — LWW
           // по-раскладочно, локально более свежие не затираются). Открытые
           // страницы перечитывают состояние по событию из hydrate.
-          const layouts = p.columnLayouts as Record<string, { order: string[]; hidden: string[]; updatedAt: number }> | undefined;
+          const layouts = p.columnLayouts as
+            | Record<string, { order: string[]; hidden: string[]; widths?: Record<string, number>; updatedAt: number }>
+            | undefined;
           if (layouts) {
             const applied = hydrateColumnLayouts(layouts);
             uiProfileKeySigsRef.current.columnLayouts = JSON.stringify(readAllColumnLayouts());
