@@ -406,12 +406,22 @@ export function EngineHistoryFeedPanel(props: {
       {status && <div className="ui-muted">{status}</div>}
 
       {feed.length > 0 && (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }} data-history-feed-table>
+        <div style={{ width: '100%', maxWidth: 1100, margin: '0 auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }} data-history-feed-table>
+            <colgroup>
+              <col style={{ width: 84 }} />
+              <col style={{ width: 84 }} />
+              <col style={{ width: 100 }} />
+              <col style={{ width: 120 }} />
+              <col style={{ width: 80 }} />
+              <col />
+              <col style={{ width: 70 }} />
+              <col style={{ width: 36 }} />
+            </colgroup>
             <thead>
               <tr>
                 {['Дата', 'Записано', 'Тип', 'Событие', 'Цех', 'Причина и примечание', 'Кто', ''].map((h) => (
-                  <th key={h} style={{ textAlign: 'left', padding: '4px 6px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>
+                  <th key={h} style={{ textAlign: 'left', padding: '4px 6px', borderBottom: '1px solid var(--border)' }}>
                     {h}
                   </th>
                 ))}
@@ -437,7 +447,7 @@ export function EngineHistoryFeedPanel(props: {
                         {item.icon} {item.kindLabel}
                       </span>
                     </td>
-                    <td style={{ padding: '4px 6px' }}>
+                    <td style={{ padding: '4px 6px', overflowWrap: 'break-word' }}>
                       {item.sheetRowId && props.onOpenWorkSheet ? (
                         <button
                           type="button"
@@ -445,12 +455,12 @@ export function EngineHistoryFeedPanel(props: {
                           title="Открыть карточку этапа работ"
                           data-repair-history-open-sheet={item.id}
                           onClick={() => props.onOpenWorkSheet?.(item.sheetRowId as string, item.title)}
-                          style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 4, padding: '0 4px', whiteSpace: 'nowrap', background: 'transparent', cursor: 'pointer', textDecoration: 'underline' }}
+                          style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 4, padding: '0 4px', background: 'transparent', cursor: 'pointer', textDecoration: 'underline' }}
                         >
                           {`${item.title} ↗`}
                         </button>
                       ) : item.editable && props.canEdit ? (
-                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                        <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
                           {editingDate?.id === item.id ? (
                             <>
                               <Input
@@ -496,8 +506,8 @@ export function EngineHistoryFeedPanel(props: {
                       )}
                       {item.statusLabel && <div className="ui-muted">{item.statusLabel}</div>}
                     </td>
-                    <td style={{ padding: '4px 6px' }}>{item.workshopId ? workshopName(item.workshopId, item.workshopName) : ''}</td>
-                    <td style={{ padding: '4px 6px' }}>
+                    <td style={{ padding: '4px 6px', overflowWrap: 'break-word' }}>{item.workshopId ? workshopName(item.workshopId, item.workshopName) : ''}</td>
+                    <td style={{ padding: '4px 6px', overflowWrap: 'break-word' }}>
                       {item.reason && <div>{item.reason}</div>}
                       {item.note && <div>{item.note}</div>}
                       {details.map((line) => (
@@ -506,7 +516,7 @@ export function EngineHistoryFeedPanel(props: {
                         </div>
                       ))}
                     </td>
-                    <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }} data-history-feed-by={item.id}>
+                    <td style={{ padding: '4px 6px', overflowWrap: 'break-word' }} data-history-feed-by={item.id}>
                       {item.by ? <span className="ui-muted">{item.by}</span> : null}
                     </td>
                     <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }}>

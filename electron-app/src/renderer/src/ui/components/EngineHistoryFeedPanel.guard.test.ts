@@ -185,4 +185,13 @@ describe('вверху только две кнопки, инлайн-полей
     // Главная кнопка — primary по умолчанию (без variant="ghost").
     expect(WSH).toContain('<Button onClick={() => setBulkAddOpen(true)}');
   });
+
+  it('лента входит в окно: фикс-раскладка, переносы, без горизонтального скролла', () => {
+    // Полоса прокрутки у ленты была главной жалобой: длинные примечания и «Кто»
+    // уезжали за край, и оператор крутил скролл ради каждой строки.
+    expect(PANEL).not.toContain("overflowX: 'auto'");
+    expect(PANEL).toContain("tableLayout: 'fixed'");
+    expect(PANEL).toContain('<colgroup>');
+    expect(PANEL).toContain('overflowWrap');
+  });
 });
