@@ -2,9 +2,10 @@ import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { describe, expect, it } from 'vitest';
 
-import { parseRepairHistoryMeta, type WorkSheetType } from '@matricarmz/shared';
+import { DEFAULT_REPAIR_STAGE_TEMPLATES, parseRepairHistoryMeta, type WorkSheetType } from '@matricarmz/shared';
 
 import { deleteWorkSheetRow, listWorkSheetRows, saveWorkSheetRow } from './workSheetService.js';
+import { deleteRepairStageRow, saveRepairStageRow } from './repairStageService.js';
 
 // Этапы работ (15.09.2026): строка = запись истории ремонта, id даёт клиент, правка бьёт в
 // ту же строку. Узел «завершает ремонт» при ДОБАВЛЕНИИ отмечает этап «Обкатка» в едином
@@ -128,9 +129,9 @@ describe('строка этапа работ', () => {
     const r = await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: OBKATKA, atMs: AT, values: { hours: '6' } }, 'ivanov');
     expect(r).toMatchObject({ ok: true, created: false });
     const { rows } = await listWorkSheetRows(db);
-    expect(rows.filter((x) => x.typeCode === 'obkatka')).toHaveLength(1);
-    expect(rows[0]?.fields).toEqual([{ code: 'hours', label: 'Часы', type: 'number', value: 6 }]);
-    expect(rows[0]?.engineNumber).toBe('ДВ-1');
+    expect(rows.filter((x) => x.origin === 'sheet' && x.typeCode === 'obkatka')).toHaveLength(1);
+    expect(rows.find((x) => x.id === 'row-1')?.fields).toEqual([{ code: 'hours', label: 'Часы', type: 'number', value: 6 }]);
+    expect(rows.find((x) => x.id === 'row-1')?.engineNumber).toBe('ДВ-1');
   });
 
   it('обкатка отмечает «Обкатку» в едином списке датой строки — один раз, флаги не пишутся', async () => {
@@ -160,7 +161,7 @@ describe('строка этапа работ', () => {
     const { sqlite, db } = makeDb();
     await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: OBKATKA, atMs: AT, values: { hours: 4 } }, 'ivanov');
     const listed = await listWorkSheetRows(db);
-    expect(listed.rows[0]?.repairStageRowId, 'строка знает, что ей есть что откатывать').toEqual(expect.any(String));
+    expect(listed.rows.find((r) => r.id === 'row-1')?.repairStageRowId, 'строка знает, что ей есть что откатывать').toEqual(expect.any(String));
 
     const r = await deleteWorkSheetRow(db, 'row-1', { rollbackRepair: true });
     expect(r).toMatchObject({ ok: true, repairRolledBack: true });
@@ -175,7 +176,7 @@ describe('строка этапа работ', () => {
     await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: OBKATKA, atMs: AT, values: { hours: 4 } }, 'ivanov');
     await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: OBKATKA, atMs: AT, values: { hours: 6 } }, 'ivanov');
     const { rows } = await listWorkSheetRows(db);
-    expect(rows[0]?.repairStageRowId, 'после правки строка всё ещё знает свой след').toEqual(expect.any(String));
+    expect(rows.find((r) => r.id === 'row-1')?.repairStageRowId, 'после правки строка всё ещё знает свой след').toEqual(expect.any(String));
 
     const r = await deleteWorkSheetRow(db, 'row-1', { rollbackRepair: true });
     expect(r).toMatchObject({ ok: true, repairRolledBack: true });
@@ -319,6 +320,49 @@ describe('строка этапа работ', () => {
     expect((await deleteWorkSheetRow(db, 'row-1')).ok).toBe(true);
     expect((await listWorkSheetRows(db)).rows).toHaveLength(0);
     expect((sqlite.prepare(`SELECT deleted_at FROM operations WHERE id = 'row-1'`).get() as any).deleted_at).toBeTruthy();
+  });
+});
+
+/**
+ * Шаблонные этапы из карточек двигателей в списке (владелец 01.10.2026): этап,
+ * отмеченный в карточке, виден и в общем списке — своей карточки у него нет,
+ * открывается он из карточки двигателя, а не отсюда.
+ */
+describe('шаблонный этап из карточки в списке', () => {
+  it('этап виден как stage без полей, строка этапа работ — как sheet', async () => {
+    const { db } = makeDb();
+    await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');
+    const s = await saveRepairStageRow(
+      db,
+      { id: 'st-1', engineId: 'eng-1', code: 'sborka', atMs: AT },
+      'petrov',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(s.ok).toBe(true);
+    const { rows } = await listWorkSheetRows(db);
+    expect(rows).toHaveLength(2);
+    expect(rows.find((r) => r.id === 'st-1')).toMatchObject({
+      origin: 'stage',
+      typeCode: 'sborka',
+      typeName: 'Сборка',
+      fields: [],
+      engineNumber: 'ДВ-1',
+    });
+    expect(rows.find((r) => r.id === 'row-1')).toMatchObject({ origin: 'sheet' });
+  });
+
+  it('погашенный этап из списка уходит', async () => {
+    const { db } = makeDb();
+    const s = await saveRepairStageRow(
+      db,
+      { id: 'st-1', engineId: 'eng-1', code: 'sborka', atMs: AT },
+      'petrov',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(s.ok).toBe(true);
+    expect((await listWorkSheetRows(db)).rows).toHaveLength(1);
+    expect((await deleteRepairStageRow(db, 'st-1')).ok).toBe(true);
+    expect((await listWorkSheetRows(db)).rows).toHaveLength(0);
   });
 });
 

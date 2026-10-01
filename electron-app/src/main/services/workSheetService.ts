@@ -333,6 +333,7 @@ export async function getWorkSheetRow(db: BetterSQLite3Database, id: string): Pr
     typeId: meta.sheet.typeId,
     typeCode: meta.sheet.typeCode,
     typeName: meta.sheet.typeName,
+    origin: 'sheet',
     workshopId: meta.workshopId ?? '',
     workshopName: meta.workshopName ?? '',
     performedBy: text(existing.performedBy) === 'local' ? '' : text(existing.performedBy),
@@ -366,6 +367,11 @@ export async function deleteWorkSheetRow(
  * Строки всех этапов работ с подписями двигателей — новые сверху. Имя цеха отдаётся снимком из
  * самой строки: рендерер сначала спросит справочник (там свежее) и возьмёт снимок, только если
  * справочник недоступен — прав нет, офлайн, цех деактивирован.
+ *
+ * Сюда же попадают шаблонные этапы из карточек двигателей (владелец 01.10.2026): они пишутся
+ * другим путём (`stages.save`, `meta.stage` без `meta.sheet`), и без этой ветки список их
+ * не видел вовсе. У них нет карточки этапа работ — в списке они только показываются
+ * (`origin: 'stage'`), открывать нечего.
  */
 const WORK_SHEET_ROWS_LIMIT = 20_000;
 
@@ -383,8 +389,18 @@ export async function listWorkSheetRows(
   const picked: Array<{ op: (typeof ops)[number]; meta: NonNullable<ReturnType<typeof parseRepairHistoryMeta>> }> = [];
   for (const op of ops) {
     const meta = parseRepairHistoryMeta(op.metaJson ?? null);
-    if (!meta?.sheet) continue;
-    if (opts.typeCode && meta.sheet.typeCode !== text(opts.typeCode).toLowerCase()) continue;
+    if (!meta) continue;
+    const entryType = repairHistoryEntryType(meta, String(op.operationType));
+    if (entryType === 'sheet' && meta.sheet) {
+      if (opts.typeCode && meta.sheet.typeCode !== text(opts.typeCode).toLowerCase()) continue;
+    } else if (entryType === 'stage' && meta.stage) {
+      // Шаблонный этап из карточки: фильтр по виду работ его не касается (у него нет
+      // typeCode вида) — при заданном фильтре такие строки скрываются. Окно дат
+      // режет как всех — ниже, по дате события.
+      if (opts.typeCode) continue;
+    } else {
+      continue;
+    }
     // Окно — по ДАТЕ СТРОКИ, а не по времени правки: строку заводят задним числом, и запись,
     // сделанную вчера о событии двухлетней давности, «за последний год» показывать нельзя.
     // SQL-окно по updated_at остаётся дешёвым предфильтром и ничего лишнего не отсекает:
@@ -395,7 +411,7 @@ export async function listWorkSheetRows(
   const labels = await resolveEngineLabels(db, picked.map((p) => String(p.op.engineEntityId)), { withCounterparty: true });
   const rows: WorkSheetRow[] = picked.map(({ op, meta }) => {
     const label = labels.get(String(op.engineEntityId));
-    return {
+    const base = {
       id: String(op.id),
       engineId: String(op.engineEntityId),
       engineNumber: label?.engineNumber ?? '',
@@ -406,16 +422,30 @@ export async function listWorkSheetRows(
       contractNumber: label?.contractNumber ?? '',
       contractShortLabel: label?.contractShortLabel ?? '',
       at: meta.at ?? Number(op.performedAt ?? op.updatedAt),
-      typeId: meta.sheet!.typeId,
-      typeCode: meta.sheet!.typeCode,
-      typeName: meta.sheet!.typeName,
       workshopId: meta.workshopId ?? '',
       workshopName: meta.workshopName ?? '',
       performedBy: text(op.performedBy) === 'local' ? '' : text(op.performedBy),
       note: meta.note ?? '',
-      fields: meta.sheet!.fields,
       repairStageRowId: meta.repairStage?.rowId ?? null,
       repeatPass: meta.repeat?.pass ?? 1,
+    };
+    if (meta.sheet && repairHistoryEntryType(meta, String(op.operationType)) === 'sheet') {
+      return {
+        ...base,
+        typeId: meta.sheet.typeId,
+        typeCode: meta.sheet.typeCode,
+        typeName: meta.sheet.typeName,
+        origin: 'sheet' as const,
+        fields: meta.sheet.fields,
+      };
+    }
+    return {
+      ...base,
+      typeId: '',
+      typeCode: meta.stage?.code ?? '',
+      typeName: meta.stage?.name ?? meta.action,
+      origin: 'stage' as const,
+      fields: [],
     };
   });
   return { rows: rows.sort((a, b) => b.at - a.at || a.id.localeCompare(b.id)), truncated };

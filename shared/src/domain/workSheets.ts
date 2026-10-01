@@ -306,6 +306,12 @@ export type WorkSheetRow = {
   typeId: string;
   typeCode: string;
   typeName: string;
+  /**
+   * Откуда строка: `sheet` — строка этапа работ (у неё есть карточка, открывается
+   * щелчком), `stage` — шаблонный этап из карточки двигателя (карточки нет,
+   * в списке только показывается — решение владельца 01.10.2026).
+   */
+  origin: 'sheet' | 'stage';
   workshopId: string;
   workshopName: string;
   performedBy: string;
