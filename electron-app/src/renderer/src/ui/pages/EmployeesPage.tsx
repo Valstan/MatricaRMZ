@@ -572,7 +572,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+    <div data-list-root="true" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <PageToolbar>
         {props.canCreate && (
           <Button

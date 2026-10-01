@@ -10,12 +10,44 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
 }
 
-export function useListSelection(orderedIds: string[]) {
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+const PERSISTED_IDS_CAP = 1000;
+
+function readPersistedIds(storageKey: string | null): Set<string> {
+  if (!storageKey) return new Set();
+  try {
+    const raw = window.sessionStorage.getItem(storageKey);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((v): v is string => typeof v === 'string' && v.length > 0).slice(0, PERSISTED_IDS_CAP));
+  } catch {
+    return new Set();
+  }
+}
+
+function writePersistedIds(storageKey: string | null, ids: Set<string>): void {
+  if (!storageKey) return;
+  try {
+    window.sessionStorage.setItem(storageKey, JSON.stringify([...ids].slice(0, PERSISTED_IDS_CAP)));
+  } catch {
+    // ignore persistence errors
+  }
+}
+
+export function useListSelection(orderedIds: string[], opts?: { persistKey?: string }) {
+  // Выделение обязано переживать поиск и возврат из карточки (владелец 01.10.2026):
+  // ids живут в sessionStorage, а не только в useState. Якорь/курсор — нет, они
+  // про текущий вид, а не про набор.
+  const persistKey = opts?.persistKey ? `matrica:listSelection:${opts.persistKey}` : null;
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => readPersistedIds(persistKey));
   const [anchorId, setAnchorId] = useState<string | null>(null);
   const [cursorId, setCursorId] = useState<string | null>(null);
 
   const selectedCount = selectedIds.size;
+
+  useEffect(() => {
+    writePersistedIds(persistKey, selectedIds);
+  }, [persistKey, selectedIds]);
 
   const selectedInOrder = useMemo(() => orderedIds.filter((id) => selectedIds.has(id)), [orderedIds, selectedIds]);
 
@@ -74,9 +106,10 @@ export function useListSelection(orderedIds: string[]) {
     return true;
   };
 
+  // Открытие карточки выделению не враг: набор живёт в sessionStorage и обязан
+  // дождаться возврата оператора, а не гаснуть от клика по невыделенной строке.
   const onRowPrimaryAction = (id: string) => {
     setCursorId(id);
-    if (selectedCount > 0 && !selectedIds.has(id)) clearSelection();
   };
 
   const onRowContextMenu = (e: ReactMouseEvent, id: string) => {
@@ -104,6 +137,10 @@ export function useListSelection(orderedIds: string[]) {
       if (!target) return;
       if (target.closest('[data-list-context-menu="true"]')) return;
       if (target.closest('[data-list-selected="true"]')) return;
+      // Клик внутри списка решает сам список (чекбокс — через onChange, строка —
+      // через onRowPrimaryAction): глобальная зачистка здесь гасила вторую галочку,
+      // потому что mousedown приходит раньше onChange чекбокса.
+      if (target.closest('[data-list-root="true"]')) return;
       // Уход на другую вкладку — не «клик мимо списка»: с keep-alive список остаётся
       // жив, и выделение обязано дождаться возврата оператора.
       if (target.closest('.v3-tab-strip')) return;
@@ -130,7 +167,8 @@ export function useListSelection(orderedIds: string[]) {
         return;
       }
       if (e.key === 'Shift') return;
-      if (!e.shiftKey) clearSelection();
+      // Гасит только Escape: Ctrl+P, пробел на кнопке и прочие клавиши набору не враги.
+      if (e.key === 'Escape') clearSelection();
     };
     document.addEventListener('keydown', onKeyDown, true);
     return () => {
