@@ -125,7 +125,7 @@ export async function saveRepairStageRow(
     }
     // Дефектовка — фиксированная дата: при обновлении листа дефектовки дата не меняется
     if (template.code === 'disassembly_defect' && existingMeta.at && existingMeta.at !== atMs) {
-      return { ok: false, error: 'Дата дефектовки фиксирована — при обновлении листа она не меняется' };
+      return { ok: false, error: 'Дата разборки/дефектовки фиксирована — при обновлении листа она не меняется' };
     }
   }
 

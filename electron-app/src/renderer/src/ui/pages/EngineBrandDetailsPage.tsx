@@ -43,7 +43,7 @@ type PropagateMerge = 'add-missing' | 'overwrite' | 'replace';
 const BRAND_PARTS_VIEWS: Array<{ id: BrandPartsView; label: string; title: string }> = [
   { id: 'all', label: 'Все', title: 'Все детали марки' },
   { id: 'completeness', label: 'Комплектовка', title: 'Только детали акта комплектности' },
-  { id: 'defect', label: 'Дефектовка', title: 'Только детали акта дефектовки' },
+  { id: 'defect', label: 'Разборка/дефектовка', title: 'Только детали акта разборки/дефектовки' },
   { id: 'units', label: 'По узлам', title: 'Группировка по узлам (артикул / № сборочной единицы)' },
 ];
 

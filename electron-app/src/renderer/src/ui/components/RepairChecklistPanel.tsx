@@ -411,7 +411,7 @@ const COMPLETENESS_ONLY_ITEM_IDS = new Set([
   'commission_otk_head',
   'customer_representative',
 ]);
-const DEFECT_ONLY_ITEM_IDS = new Set(['defect_start_date', 'defect_end_date', 'defect_signed_by']);
+const DEFECT_ONLY_ITEM_IDS = new Set(['defect_start_date', 'defect_signed_by']);
 
 // Легаси фикс-слоты, заменённые bespoke-редакторами: комиссия → «Комиссия в составе»
 // (commission_members), утверждающий → гриф «Утверждаю» (approver_grif).
@@ -800,7 +800,7 @@ export function RepairChecklistPanel(props: {
       // Этап «Разборка, дефектовка» проставляется сам (план unified-repair-stages,
       // шаг 4) — но вручную отмеченный важнее автоматического и не перезаписывается.
       // Этап не должен валить проведение: ошибки здесь только дописываются в статус.
-      // Дата этапа — «Дата начала дефектовка» из вкладки дефектовки (`defect_start_date`),
+      // Дата этапа — «Дата разборки/дефектовки» из вкладки акта (`defect_start_date`),
       // а не момент нажатия кнопки: иначе этап уезжает за обкатку/сборку и прыгает при
       // каждой повторной проводке. Поле пустое — падаем на «сегодня», как раньше.
       try {

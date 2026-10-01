@@ -412,7 +412,6 @@ function renderDefectBlankHalf(rows: EngineInventoryRow[], startIndex: number): 
 export function buildInventoryDefectBlankHtml(ctx: EngineInventoryPrintContext): string {
   const title = 'Акт дефектовки двигателя (бланк)';
   const startDate = getDate(ctx.answers, 'defect_start_date');
-  const endDate = getDate(ctx.answers, 'defect_end_date');
   const contractNumber = (ctx.contractNumber || getText(ctx.answers, 'contract_number')).trim();
   const brand = ctx.engineBrand || getText(ctx.answers, 'engine_brand');
   const number = ctx.engineNumber || getText(ctx.answers, 'engine_number');
@@ -424,8 +423,7 @@ export function buildInventoryDefectBlankHtml(ctx: EngineInventoryPrintContext):
       ${renderHeaderRow('№ двигателя', number || '—')}
       ${internalNumber ? renderHeaderRow('Внутренний №', internalNumber) : ''}
       ${renderHeaderRow('Договор / заказчик', contractNumber || '')}
-      ${renderHeaderRow('Дата начала дефектовки', dateOrFillIn(startDate))}
-      ${renderHeaderRow('Дата окончания дефектовки', dateOrFillIn(endDate))}
+      ${renderHeaderRow('Дата разборки/дефектовки', dateOrFillIn(startDate))}
     </div>`;
 
   // Два столбца сделаны двумя таблицами рядом, а не CSS-columns на одну таблицу: разрыв строк
@@ -455,7 +453,6 @@ export function buildInventoryDefectHtml(ctx: EngineInventoryPrintContext): stri
   if (blank) return buildInventoryDefectBlankHtml(ctx);
   const title = blank ? 'Акт дефектовки двигателя (бланк)' : 'Акт дефектовки двигателя';
   const startDate = getDate(ctx.answers, 'defect_start_date');
-  const endDate = getDate(ctx.answers, 'defect_end_date');
   const contractNumber = (ctx.contractNumber || getText(ctx.answers, 'contract_number')).trim();
   const brand = ctx.engineBrand || getText(ctx.answers, 'engine_brand');
   const number = ctx.engineNumber || getText(ctx.answers, 'engine_number');
@@ -482,8 +479,7 @@ export function buildInventoryDefectHtml(ctx: EngineInventoryPrintContext): stri
       ${internalNumber ? renderHeaderRow('Внутренний №', internalNumber) : ''}
       ${renderHeaderRow('Договор / заказчик', contractNumber || '')}
       ${renderHeaderRow('Разборку двигателя произвёл', dismantledNames || '____________________')}
-      ${renderHeaderRow('Дата начала дефектовки', dateOrFillIn(startDate))}
-      ${renderHeaderRow('Дата окончания дефектовки', dateOrFillIn(endDate))}
+      ${renderHeaderRow('Дата разборки/дефектовки', dateOrFillIn(startDate))}
     </div>`;
 
   // Решение владельца (2026-06-12): колонки те же, что в акте комплектности —
