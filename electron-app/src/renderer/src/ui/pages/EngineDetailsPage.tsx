@@ -8,8 +8,7 @@ import { Input } from '../components/Input.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
-import { EngineRepairHistoryPanel } from '../components/EngineRepairHistoryPanel.js';
-import { EngineTimelinePanel } from '../components/EngineTimelinePanel.js';
+import { EngineHistoryFeedPanel } from '../components/EngineHistoryFeedPanel.js';
 import { AttachmentsModule } from '../components/AttachmentsModule.js';
 import { EngineReclamationTab, type ReclamationDraft } from '../components/EngineReclamationTab.js';
 import { EngineTagPrintDialog, type EngineTagSource } from '../components/EngineTagPrintDialog.js';
@@ -2735,7 +2734,9 @@ export function EngineDetailsPage(props: {
               V3 (.v3-card-body .entity-card-span-full { max-width: 100% !important }),
               поэтому компактность задаём обёрткой внутри, а не ему. */}
           <div data-engine-history-compact style={{ maxWidth: 700, width: '100%', margin: '0 auto', display: 'grid', gap: 12 }}>
-          <EngineRepairHistoryPanel
+          {/* Одна лента на все события двигателя (этапы, ручные записи, операции) —
+              вместо трёх отдельных лент на одних и тех же строках operations. */}
+          <EngineHistoryFeedPanel
             engineId={props.engineId}
             canEdit={canEditEnginesEff}
             workshopOptions={workshopOptions}
@@ -2746,7 +2747,6 @@ export function EngineDetailsPage(props: {
             }}
             {...(props.onOpenWorkSheet ? { onOpenWorkSheet: props.onOpenWorkSheet } : {})}
           />
-          <EngineTimelinePanel engineId={props.engineId} />
           <DocumentHistoryPanel entityId={props.engineId} canView={props.canViewAudit === true} />
           </div>
         </div>

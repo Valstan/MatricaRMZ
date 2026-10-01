@@ -73,7 +73,7 @@ describe('отчёт-список «этапы на заводе» и рамка
   it('список read-only не пишет и не оповещает; пишут карточки — и они будят каталог', () => {
     const SHEETS = src('../WorkSheetsPage.tsx');
     const CARD = src('../WorkSheetDetailsPage.tsx');
-    const HISTORY = src('../../components/EngineRepairHistoryPanel.tsx');
+    const HISTORY = src('../../components/EngineHistoryFeedPanel.tsx');
     const ENGINE_PAGE = src('../EngineDetailsPage.tsx');
     expect(APP).toContain("window.addEventListener('matrica:engines-changed', onEnginesChanged);");
     expect(SHEETS, 'список не пишет этапы').not.toMatch(/stages\.(save|delete)/);
@@ -83,8 +83,8 @@ describe('отчёт-список «этапы на заводе» и рамка
     ).toBe(0);
     expect(CARD.split("window.dispatchEvent(new Event('matrica:engines-changed'));").length - 1, 'карточка: после сохранения и после удаления').toBe(2);
     // Главный путь записи этапов — секция в карточке двигателя: её onChanged доходит до App.
-    expect(HISTORY, 'секция этапов внутри ленты истории').toContain('<RepairStagesSection');
-    expect(HISTORY, 'onChanged секции пробрасывается наружу').toContain('onChanged: props.onChanged');
+    expect(HISTORY, 'этапы пишутся из ленты истории').toContain('window.matrica.workSheets.stages.save(');
+    expect(HISTORY, 'onChanged ленты пробрасывается наружу').toContain('props.onChanged?.()');
     expect(ENGINE_PAGE, 'панель истории будит каталог двигателей').toContain('void props.onEngineUpdated();');
     expect(ENGINE_PAGE, 'панель истории освежает место двигателя в карточке').toContain('void reloadLastStage();');
   });
