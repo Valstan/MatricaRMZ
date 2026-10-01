@@ -1,9 +1,10 @@
-import { and, asc, eq, isNull, ne } from 'drizzle-orm';
+import { and, asc, eq, isNull, like, ne } from 'drizzle-orm';
 
-import { WORK_SHEET_CODE_RE, type RepairStageTemplate } from '@matricarmz/shared';
+import { SyncTableName, WORK_SHEET_CODE_RE, type RepairStageTemplate } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
-import { repairStageTemplates } from '../database/schema.js';
+import { operations, repairStageTemplates } from '../database/schema.js';
+import { recordSyncChanges } from './sync/syncChangeService.js';
 
 type Ok<T> = { ok: true } & T;
 type Err = { ok: false; error: string };
@@ -222,6 +223,179 @@ export async function reorderRepairStageTemplates(
       order += 10;
     }
     return { ok: true, updated };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/** Сколько живых stage-строк ссылается на код этапа. */
+export async function countRepairStageRows(code: string): Promise<number> {
+  const c = text(code);
+  if (!c) return 0;
+  try {
+    const rows = await db
+      .select({ id: operations.id })
+      .from(operations)
+      .where(
+        and(
+          eq(operations.operationType, 'repair_history_entry'),
+          isNull(operations.deletedAt),
+          like(operations.metaJson, `%"stage":{"code":"${c}"%`),
+        ),
+      )
+      .limit(20000);
+    return rows.length;
+  } catch {
+    return 0;
+  }
+}
+
+function operationPayload(row: {
+  id: unknown;
+  engineEntityId: unknown;
+  operationType: unknown;
+  status: unknown;
+  note: unknown;
+  performedAt: unknown;
+  performedBy: unknown;
+  metaJson: unknown;
+  createdAt: unknown;
+  updatedAt: unknown;
+  deletedAt: unknown;
+  syncStatus: unknown;
+}) {
+  return {
+    id: String(row.id),
+    engine_entity_id: String(row.engineEntityId),
+    operation_type: String(row.operationType),
+    status: String(row.status),
+    note: (row.note ?? null) as string | null,
+    performed_at: (row.performedAt ?? null) as number | null,
+    performed_by: (row.performedBy ?? null) as string | null,
+    meta_json: (row.metaJson ?? null) as string | null,
+    created_at: Number(row.createdAt),
+    updated_at: Number(row.updatedAt),
+    deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
+    sync_status: String(row.syncStatus ?? 'synced'),
+  };
+}
+
+/**
+ * Слияние дублей этапов (PR-J): все живые stage-строки с кодом source переезжают
+ * на target. Запись идёт через журнал (recordSyncChanges), парк получает
+ * переезд инкрементальным pull. Исходный этап уходит в архив, код остаётся занят.
+ * dryRun — только посчитать строки без записи.
+ */
+export async function mergeRepairStageTemplates(
+  sourceId: string,
+  targetId: string,
+  actor: { id: string; username: string; role?: string },
+  opts: { dryRun?: boolean } = {},
+): Promise<Result<{ moved: number; sourceCode: string; targetCode: string; dryRun: boolean }>> {
+  const sourceKey = text(sourceId);
+  const targetKey = text(targetId);
+  if (!sourceKey || !targetKey) return { ok: false, error: 'Укажите оба этапа' };
+  if (sourceKey === targetKey) return { ok: false, error: 'Исходный и целевой этапы совпадают' };
+  try {
+    const [source] = await db.select().from(repairStageTemplates).where(eq(repairStageTemplates.id, sourceKey)).limit(1);
+    const [target] = await db.select().from(repairStageTemplates).where(eq(repairStageTemplates.id, targetKey)).limit(1);
+    if (!source || source.archivedAt != null) return { ok: false, error: 'Исходный этап не найден или в архиве' };
+    if (!target || target.archivedAt != null) return { ok: false, error: 'Целевой этап не найден или в архиве' };
+    if (Boolean(source.sideBranch) !== Boolean(target.sideBranch)) {
+      return { ok: false, error: 'Линейный этап и боковую ветку объединять нельзя' };
+    }
+    const sourceCode = String(source.code);
+    const targetCode = String(target.code);
+    const sourceName = String(source.name);
+    const targetName = String(target.name);
+
+    const stageRows = await db
+      .select()
+      .from(operations)
+      .where(
+        and(
+          eq(operations.operationType, 'repair_history_entry'),
+          isNull(operations.deletedAt),
+          like(operations.metaJson, `%"stage":{"code":"${sourceCode}"%`),
+        ),
+      )
+      .limit(20000);
+
+    const moved: Array<Record<string, unknown>> = [];
+    const now = Date.now();
+    for (const row of stageRows as Array<Record<string, unknown>>) {
+      let meta: any = null;
+      try {
+        meta = JSON.parse(String(row.metaJson ?? 'null'));
+      } catch {
+        continue;
+      }
+      if (!meta || typeof meta !== 'object' || String(meta?.stage?.code ?? '') !== sourceCode) continue;
+      meta.stage = { ...(meta.stage ?? {}), code: targetCode, name: targetName };
+      if (String(meta.action ?? '') === sourceName) meta.action = targetName;
+      let note = row.note == null ? null : String(row.note);
+      const prefix = `Этап: ${sourceName}`;
+      if (note === prefix) note = `Этап: ${targetName}`;
+      else if (note && note.startsWith(`${prefix} · `)) note = `Этап: ${targetName} · ${note.slice(prefix.length + 3)}`;
+      moved.push(
+        operationPayload({
+          id: row.id,
+          engineEntityId: row.engineEntityId,
+          operationType: row.operationType,
+          status: row.status,
+          note,
+          performedAt: row.performedAt,
+          performedBy: row.performedBy,
+          metaJson: JSON.stringify(meta),
+          createdAt: row.createdAt,
+          updatedAt: now,
+          deletedAt: row.deletedAt,
+          syncStatus: row.syncStatus,
+        }),
+      );
+    }
+
+    if (opts.dryRun === true) {
+      return { ok: true, moved: moved.length, sourceCode, targetCode, dryRun: true };
+    }
+    if (moved.length > 0) {
+      await recordSyncChanges(
+        { id: actor.id, username: actor.username, ...(actor.role ? { role: actor.role } : {}) },
+        moved.map((payload) => ({ tableName: SyncTableName.Operations, rowId: String(payload.id), op: 'upsert' as const, payload, ts: now })),
+        { allowSyncConflicts: true },
+      );
+    }
+    await db
+      .update(repairStageTemplates)
+      .set({ archivedAt: now, updatedAt: now, updatedBy: text(actor.username) || null })
+      .where(and(eq(repairStageTemplates.id, sourceKey), isNull(repairStageTemplates.archivedAt)));
+    return { ok: true, moved: moved.length, sourceCode, targetCode, dryRun: false };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/**
+ * Жёсткое удаление этапа, заведённого по ошибке. Со строками истории — отказ
+ * (тогда только слияние или архив): код при удалении освобождается.
+ */
+export async function deleteRepairStageTemplate(
+  id: string,
+  actor?: string | null,
+): Promise<Result<{ deletedCode: string }>> {
+  const key = text(id);
+  if (!key) return { ok: false, error: 'id обязателен' };
+  try {
+    const [target] = await db.select().from(repairStageTemplates).where(eq(repairStageTemplates.id, key)).limit(1);
+    if (!target) return { ok: false, error: 'Этап не найден' };
+    const refs = await countRepairStageRows(String(target.code));
+    if (refs > 0) {
+      return { ok: false, error: `У этапа ${refs} строк в истории — сначала объедините его или уберите в архив` };
+    }
+    const deleted = await db.delete(repairStageTemplates).where(eq(repairStageTemplates.id, key)).returning({ id: repairStageTemplates.id });
+    if (deleted.length === 0) return { ok: false, error: 'Этап не найден' };
+    void actor;
+    return { ok: true, deletedCode: String(target.code) };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
