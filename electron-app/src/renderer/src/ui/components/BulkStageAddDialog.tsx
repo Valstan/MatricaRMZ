@@ -5,6 +5,7 @@ import { isBulkStageCandidate, isEngineAtPlant, repairStageRank } from '@matrica
 import { Button } from './Button.js';
 import { Input } from './Input.js';
 import { SearchSelect } from './SearchSelect.js';
+import { emojiAttrs } from '../utils/labelEmoji.js';
 
 type StageTemplate = { code: string; name: string };
 type EngineOption = { id: string; label: string; atPlant: boolean };
@@ -188,7 +189,7 @@ export function BulkStageAddDialog(props: {
 
         <div style={{ display: 'grid', gap: 8 }}>
           <label style={{ display: 'grid', gap: 4 }}>
-            <span className="ui-muted" style={{ fontSize: 12 }}>Этап</span>
+            <span className="ui-muted" style={{ fontSize: 12 }} {...emojiAttrs('Этап')}>Этап</span>
             <select
               value={stageCode}
               disabled={busy}
@@ -207,11 +208,11 @@ export function BulkStageAddDialog(props: {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <label style={{ display: 'grid', gap: 4 }}>
-              <span className="ui-muted" style={{ fontSize: 12 }}>Дата</span>
+              <span className="ui-muted" style={{ fontSize: 12 }} {...emojiAttrs('Дата')}>Дата</span>
               <Input type="date" value={date} disabled={busy} data-bulk-stage-date onChange={(e) => setDate(e.target.value)} />
             </label>
             <label style={{ display: 'grid', gap: 4 }}>
-              <span className="ui-muted" style={{ fontSize: 12 }}>Цех (необязательно)</span>
+              <span className="ui-muted" style={{ fontSize: 12 }} {...emojiAttrs('Цех (необязательно)')}>Цех (необязательно)</span>
               <SearchSelect
                 value={workshopId}
                 options={props.workshops}
@@ -223,12 +224,12 @@ export function BulkStageAddDialog(props: {
           </div>
 
           <label style={{ display: 'grid', gap: 4 }}>
-            <span className="ui-muted" style={{ fontSize: 12 }}>Примечание (необязательно)</span>
+            <span className="ui-muted" style={{ fontSize: 12 }} {...emojiAttrs('Примечание (необязательно)')}>Примечание (необязательно)</span>
             <Input value={note} disabled={busy} placeholder="Примечание к этапу" onChange={(e) => setNote(e.target.value)} />
           </label>
 
           <div style={{ display: 'grid', gap: 4 }}>
-            <span className="ui-muted" style={{ fontSize: 12 }}>Двигатели ({selectedEngineIds.length} выбрано)</span>
+            <span className="ui-muted" style={{ fontSize: 12 }} {...emojiAttrs('Двигатели')}>Двигатели ({selectedEngineIds.length} выбрано)</span>
             <Input
               value={query}
               disabled={busy}

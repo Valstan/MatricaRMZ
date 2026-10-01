@@ -2915,3 +2915,10 @@ table.list-table.list-table--catalog {
 .ivanych-thinking-dot:nth-child(3) {
   animation-delay: 0.32s;
 }
+
+/* Эмодзи подписей (владелец 01.10.2026): значок рисует CSS, сам текст подписи
+ * не меняется — точные совпадения в тестах, драйверах и поиске целы. */
+[data-emoji]::before {
+  content: attr(data-emoji);
+  margin-right: 4px;
+}

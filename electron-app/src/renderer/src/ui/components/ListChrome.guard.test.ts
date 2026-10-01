@@ -118,7 +118,8 @@ describe('шапка колонки — одна строка', () => {
   });
 
   it('полная подпись доступна по наведению у любой колонки', () => {
-    expect(KINDS).toContain("return kind ? { 'data-col-kind': kind, title: label } : { title: label };");
+    // title у ЛЮБОГО вида колонки (значок data-emoji — рядом, подпись не трогает).
+    expect(KINDS).toContain("const base = kind ? { 'data-col-kind': kind, title: label } : { title: label };");
   });
 });
 

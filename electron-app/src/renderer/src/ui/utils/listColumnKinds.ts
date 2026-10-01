@@ -10,7 +10,9 @@
 // `rownum` — служебная колонка «№» (components/RowNumberCell.tsx): не меряется хуком ширин.
 export type ListColumnKind = 'flag' | 'num' | 'date' | 'name' | 'text' | 'thumbs' | 'rownum';
 
-export type ListHeaderKindProps = { 'data-col-kind'?: ListColumnKind; title?: string };
+import { labelEmoji } from '@matricarmz/shared';
+
+export type ListHeaderKindProps = { 'data-col-kind'?: ListColumnKind; title?: string; 'data-emoji'?: string };
 export type ListCellKindProps = { 'data-col-kind'?: ListColumnKind };
 
 /**
@@ -19,7 +21,11 @@ export type ListCellKindProps = { 'data-col-kind'?: ListColumnKind };
  * заголовок любой ширины.
  */
 export function listHeaderKindProps(kind: ListColumnKind | undefined, label: string): ListHeaderKindProps {
-  return kind ? { 'data-col-kind': kind, title: label } : { title: label };
+  // Значок подписи — тем же механизмом, что у полей и вкладок (владелец 01.10.2026):
+  // рисует CSS, текст заголовка не меняется.
+  const emoji = labelEmoji(label);
+  const base = kind ? { 'data-col-kind': kind, title: label } : { title: label };
+  return emoji ? { ...base, 'data-emoji': emoji } : base;
 }
 
 export function listCellKindProps(kind: ListColumnKind | undefined): ListCellKindProps {

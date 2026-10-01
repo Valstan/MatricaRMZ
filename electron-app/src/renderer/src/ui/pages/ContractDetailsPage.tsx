@@ -85,6 +85,7 @@ import { ensureAttributeDefs, type AttributeDefRow } from '../utils/fieldOrder.j
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { invalidateListAllPartSpecsCache, listAllPartSpecs } from '../utils/partsPagination.js';
 import { getContractProgressVisual } from '../utils/contractProgressVisual.js';
+import { emojiAttrs } from '../utils/labelEmoji.js';
 import { mutateContractPayments, readContractPayments } from '../utils/contractPaymentsStore.js';
 import { paymentCountdownVisual } from '../utils/paymentCountdownVisual.js';
 import { buildServiceMemoSections } from '../utils/serviceMemo.js';
@@ -886,7 +887,7 @@ function SectionBlock(props: {
         {hasBrands && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <label className="ui-muted">Марки двигателей</label>
+            <label className="ui-muted" {...emojiAttrs('Марки двигателей')}>Марки двигателей</label>
             {canEdit && (
               <Button variant="ghost" size="sm" onClick={addEngineBrand}>
                 + Добавить марку двигателя
@@ -993,7 +994,7 @@ function SectionBlock(props: {
         {hasParts && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <label className="ui-muted">Детали</label>
+            <label className="ui-muted" {...emojiAttrs('Детали')}>Детали</label>
             {canEdit && (
               <Button variant="ghost" size="sm" onClick={addPart}>
                 + Строка

@@ -1,5 +1,7 @@
 import React from 'react';
 
+import { emojiAttrs } from '../utils/labelEmoji.js';
+
 /**
  * Полоса вкладок карточки. Только шапка: панели рендерит вызывающий и держит их
  * СМОНТИРОВАННЫМИ (скрытие через hidden) — сохранение при закрытии, черновики и печать
@@ -30,6 +32,7 @@ export function CardTabs<T extends string>(props: {
             key={t.key}
             type="button"
             onClick={() => props.onChange(t.key)}
+            {...emojiAttrs(t.label)}
             style={{
               padding: '7px 14px',
               borderRadius: '10px 10px 0 0',

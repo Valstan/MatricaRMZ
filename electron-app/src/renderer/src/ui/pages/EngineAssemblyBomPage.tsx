@@ -11,6 +11,7 @@ import { formatListDateTime } from '../utils/dateUtils.js';
 import { componentTypeLabelsFromSchema } from '../utils/componentTypeLabels.js';
 import { BOM_COMPARE_PRINT_CSS, buildAllBomsPrintHtml, buildBomComparisonSections, type BomPrintDoc } from '../utils/bomPrint.js';
 import { BRAND_LABEL_TEXTS, lookupLabel } from '../utils/lookupLabel.js';
+import { emojiAttrs } from '../utils/labelEmoji.js';
 
 type BomListRow = {
   id: string;
@@ -268,7 +269,7 @@ export function EngineAssemblyBomPage(props: {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
       <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(320px, 1fr) auto auto auto', alignItems: 'end' }}>
         <label style={{ display: 'grid', gap: 4 }}>
-          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Марка двигателя (фильтр списка)</span>
+          <span style={{ fontSize: 12, color: 'var(--subtle)' }} {...emojiAttrs('Марка двигателя')}>Марка двигателя (фильтр списка)</span>
           <MultiSearchSelect
             values={engineBrandIdFilter}
             options={engineBrandOptions}

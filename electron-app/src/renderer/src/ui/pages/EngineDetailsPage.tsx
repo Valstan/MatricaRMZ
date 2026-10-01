@@ -34,6 +34,7 @@ import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
 import { isAndroidPlatform } from '../platform.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { formatEngineGateLabel } from '../utils/assemblyDuplicateGate.js';
+import { emojiAttrs } from '../utils/labelEmoji.js';
 
 // Заморожено 2026-05-26: «Разборка двигателя» отключена, поскольку бизнес отказался
 // от потока «разборка → repair_fund → Repair-наряд» (списки деталей по маркам не актуальны,
@@ -2605,7 +2606,7 @@ export function EngineDetailsPage(props: {
                 background: state.isDragging ? 'var(--card-row-drag-bg)' : undefined,
               }}
             >
-              <div style={{ color: 'var(--subtle)' }}>{field.label}</div>
+              <div style={{ color: 'var(--subtle)' }} {...emojiAttrs(String(field.label ?? ''))}>{field.label}</div>
               {field.render}
             </div>
           )}
@@ -2775,7 +2776,7 @@ export function EngineDetailsPage(props: {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {ENGINE_DOC_FIELDS.map((f) => (
               <div key={f.code} style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 260px) 1fr', gap: 8, alignItems: 'center' }}>
-                <div style={{ color: 'var(--subtle)' }}>{f.label}</div>
+                <div style={{ color: 'var(--subtle)' }} {...emojiAttrs(String(f.label ?? ''))}>{f.label}</div>
                 {f.kind === 'bool' ? (
                   <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                     <input
