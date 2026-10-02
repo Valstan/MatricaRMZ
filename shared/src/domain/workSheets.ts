@@ -1,5 +1,8 @@
 import { HUMAN_LABEL_DASH } from './humanLabels.js';
 import type { FacetDescriptor } from './listFacets.js';
+import { engineStageFacetOptions, stageByCode } from './engineListFacets.js';
+import type { EngineFactoryStageTypeRef } from './engineFactoryStage.js';
+import type { RepairStageTemplate } from './repairStages.js';
 
 /**
  * Этапы работ (владелец 15.09.2026): общий журнал движений двигателя по заводу.
@@ -328,6 +331,14 @@ export type WorkSheetRow = {
    * ради этого различия гейт и заводился.
    */
   repeatPass: number;
+  /**
+   * Этапы двигателя строки — для движковых ступеней списка («Есть этап»,
+   * «Последний этап»): та же история, что в списке двигателей (sheet + stage +
+   * авто-строки), поэтому отборы в обоих списках показывают одно и то же.
+   * Кладутся чтением, не снимком (см. customerName выше).
+   */
+  engineLastStageCode: string;
+  engineStageCodes: string[];
 };
 
 /**
@@ -348,8 +359,20 @@ export const WORK_SHEET_ROW_FACET_IDS = ['type', 'engineBrand', 'workshop', 'per
  * Ступени фильтра вкладки этапов работ: общие (узел, марка, цех, исполнитель, дата) плюс
  * по одной на каждую колонку узла — списком значений либо диапазоном дат по типу колонки.
  * Ступени колонок получают id `f:<code>`, чтобы не пересечься с общими.
+ *
+ * Плюс движковые ступени («Есть этап», «Последний этап») — те же смыслы, что в списке
+ * двигателей: считаются по строке через этапы ЕЁ двигателя (вся история, включая
+ * авто-строки из других документов), поэтому отбор «последний этап = Сборка» здесь и
+ * там показывает одни и те же двигатели. Для ряда значений нужны справочники —
+ * без них ряд пустой, отбор молчит, а не врёт.
  */
-export function workSheetFacets(columns: readonly WorkSheetColumn[]): FacetDescriptor<WorkSheetRow>[] {
+export function workSheetFacets(
+  columns: readonly WorkSheetColumn[],
+  refs?: {
+    types?: readonly EngineFactoryStageTypeRef[];
+    stageTemplates?: readonly RepairStageTemplate[];
+  },
+): FacetDescriptor<WorkSheetRow>[] {
   const val = (value: string, label = value) => (value ? { value, label } : null);
   const facets: FacetDescriptor<WorkSheetRow>[] = [
     { kind: 'values', id: 'type', label: 'Вид работ', valueOf: (r) => val(r.typeCode, r.typeName || r.typeCode) },
@@ -363,6 +386,35 @@ export function workSheetFacets(columns: readonly WorkSheetColumn[]): FacetDescr
     { kind: 'values', id: 'workshop', label: 'Цех', valueOf: (r) => val(r.workshopId, r.workshopName || HUMAN_LABEL_DASH) },
     { kind: 'values', id: 'performedBy', label: 'Исполнитель', valueOf: (r) => val(text(r.performedBy)) },
     { kind: 'dateRange', id: 'date', label: 'Дата', dateOf: (r) => (Number.isFinite(r.at) && r.at > 0 ? r.at : null) },
+    {
+      kind: 'values',
+      id: 'engineHasStage',
+      // Та же подпись, что в списке двигателей: ступень отвечает на тот же вопрос.
+      label: 'Есть этап',
+      valueOf: (r) => {
+        const codes = (r.engineStageCodes ?? []).filter((c) => stageByCode(c, refs?.stageTemplates) !== null);
+        const first = codes[0];
+        if (first === undefined) return { value: 'none', label: 'этапов нет' };
+        return {
+          value: 'stage:' + first,
+          label: stageByCode(first, refs?.stageTemplates)!.name,
+          values: codes.map((c) => 'stage:' + c),
+        };
+      },
+      options: engineStageFacetOptions(refs?.types, refs?.stageTemplates),
+    },
+    {
+      kind: 'values',
+      id: 'engineLastStage',
+      label: 'Последний этап',
+      valueOf: (r) => {
+        const code = text(r.engineLastStageCode).toLowerCase();
+        const stage = stageByCode(code, refs?.stageTemplates);
+        if (!stage) return { value: 'none', label: 'этапов нет' };
+        return { value: 'stage:' + code, label: stage.name };
+      },
+      options: engineStageFacetOptions(refs?.types, refs?.stageTemplates),
+    },
   ];
   for (const col of columns) {
     const id = `f:${col.code}`;

@@ -28,7 +28,7 @@ import {
 } from '@matricarmz/shared';
 
 import { operations } from '../database/schema.js';
-import { getEngineDetails, resolveEngineLabels } from './engineService.js';
+import { getEngineDetails, getEngineRepairHistoryMap, resolveEngineLabels } from './engineService.js';
 import { getOperation, listOperationsByType, softDeleteOperation, upsertOperation } from './operationService.js';
 import { ensureRepairStageRow, listRepairStageRows, stageRank } from './repairStageService.js';
 
@@ -319,6 +319,9 @@ export async function getWorkSheetRow(db: BetterSQLite3Database, id: string): Pr
   if (!meta?.sheet || repairHistoryEntryType(meta, existing.operationType) !== 'sheet') return null;
   const labels = await resolveEngineLabels(db, [String(existing.engineEntityId)], { withCounterparty: true });
   const label = labels.get(String(existing.engineEntityId));
+  const history = (
+    await getEngineRepairHistoryMap(db, [String(existing.engineEntityId)])
+  ).get(String(existing.engineEntityId));
   return {
     id: String(existing.id),
     engineId: String(existing.engineEntityId),
@@ -341,6 +344,8 @@ export async function getWorkSheetRow(db: BetterSQLite3Database, id: string): Pr
     fields: meta.sheet.fields,
     repairStageRowId: meta.repairStage?.rowId ?? null,
     repeatPass: meta.repeat?.pass ?? 1,
+    engineLastStageCode: history?.lastStageCode ?? '',
+    engineStageCodes: history?.stageCodes ?? [],
   };
 }
 
@@ -409,8 +414,16 @@ export async function listWorkSheetRows(
     picked.push({ op, meta });
   }
   const labels = await resolveEngineLabels(db, picked.map((p) => String(p.op.engineEntityId)), { withCounterparty: true });
+  // Этапы двигателей строк — той же историей, что список двигателей: отбор
+  // «последний этап» здесь и там показывает одно и то же. Только двигатели
+  // выборки, не весь каталог.
+  const historyByEngineId = await getEngineRepairHistoryMap(
+    db,
+    [...new Set(picked.map((p) => String(p.op.engineEntityId)))],
+  );
   const rows: WorkSheetRow[] = picked.map(({ op, meta }) => {
     const label = labels.get(String(op.engineEntityId));
+    const history = historyByEngineId.get(String(op.engineEntityId));
     const base = {
       id: String(op.id),
       engineId: String(op.engineEntityId),
@@ -428,6 +441,8 @@ export async function listWorkSheetRows(
       note: meta.note ?? '',
       repairStageRowId: meta.repairStage?.rowId ?? null,
       repeatPass: meta.repeat?.pass ?? 1,
+      engineLastStageCode: history?.lastStageCode ?? '',
+      engineStageCodes: history?.stageCodes ?? [],
     };
     if (meta.sheet && repairHistoryEntryType(meta, String(op.operationType)) === 'sheet') {
       return {

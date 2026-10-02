@@ -28,10 +28,12 @@ import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTa
 import { WorkSheetTypeEditorDialog, type WorkshopOption } from '../components/WorkSheetTypeEditorDialog.js';
 import { RepairStageTemplateDialog } from '../components/RepairStageTemplateDialog.js';
 import { BulkStageAddDialog } from '../components/BulkStageAddDialog.js';
-import { useColumnLayout } from '../hooks/useColumnLayout.js';
-import { useListDeepFilter } from '../hooks/useListDeepFilter.js';
-import { useListUiState } from '../hooks/useListBehavior.js';
-import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { useColumnLayout } from '../hooks/useColumnLayout.js';
+import { useListDeepFilter } from '../hooks/useListDeepFilter.js';
+import { useListUiState } from '../hooks/useListBehavior.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { useRepairStageTemplateRefs } from '../hooks/useRepairStageTemplateRefs.js';
+import { useWorkSheetTypeRefs } from '../hooks/useWorkSheetTypeRefs.js';
 import { listCellKindProps, listHeaderKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { loadWorkSheetTypes, type WorkSheetTypesSource } from '../utils/workSheetTypesCache.js';
@@ -269,9 +271,15 @@ export function WorkSheetsPage(props: {
     [columnLayout, columnsById],
   );
 
-  // Ступени — общие для всего списка: полей вида работ здесь нет (у каждого вида свои),
-  // зато есть сам вид работ, заказчик, договор, цех, исполнитель и дата.
-  const facets = useMemo(() => workSheetFacets([]) as FacetDescriptor<WorkSheetRow>[], []);
+  // Ступени — общие для всего списка: полей вида работ здесь нет (у каждого вида свои),
+  // зато есть сам вид работ, заказчик, договор, цех, исполнитель и дата. Плюс движковые
+  // («Есть этап», «Последний этап») — те же смыслы, что в списке двигателей.
+  const sheetTypes = useWorkSheetTypeRefs();
+  const stageTemplates = useRepairStageTemplateRefs();
+  const facets = useMemo(
+    () => workSheetFacets([], { types: sheetTypes, stageTemplates }) as FacetDescriptor<WorkSheetRow>[],
+    [sheetTypes, stageTemplates],
+  );
 
   const deep = useListDeepFilter(
     rows,

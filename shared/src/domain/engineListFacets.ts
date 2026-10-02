@@ -135,7 +135,7 @@ const REPAIR_DEADLINE_ORDER: readonly RepairDeadlineKey[] = ['danger', 'warning'
  * ли сервер: иначе один и тот же двигатель попадал бы в разные группы при офлайне.
  */
 /** Ряд значений ступеней этапов: весь ряд линейки в порядке шаблона, плюс «этапов нет». */
-function engineStageFacetOptions(types?: readonly EngineFactoryStageTypeRef[], stageTemplates?: readonly RepairStageTemplate[]) {
+export function engineStageFacetOptions(types?: readonly EngineFactoryStageTypeRef[], stageTemplates?: readonly RepairStageTemplate[]) {
   return [
     ...engineFactoryStageOrder(types, stageTemplates)
       .filter((s) => s.key.startsWith('stage:'))
@@ -149,7 +149,7 @@ function engineStageFacetOptions(types?: readonly EngineFactoryStageTypeRef[], s
  * при отсутствии — статичная линейка. Подпись ступени не должна зависеть от того, ответил
  * ли сервер: иначе один и тот же двигатель попадал бы в разные группы при офлайне.
  */
-function stageByCode(code: string, stageTemplates?: readonly RepairStageTemplate[]) {
+export function stageByCode(code: string, stageTemplates?: readonly RepairStageTemplate[]) {
   const c = String(code ?? '').trim().toLowerCase();
   if (!c) return null;
   const hit = (stageTemplates ?? DEFAULT_REPAIR_STAGE_TEMPLATES).find((t) => t.code === c);
@@ -200,7 +200,9 @@ export function engineFacets(
     {
       kind: 'values',
       id: 'customer',
-      label: 'Контрагент',
+      // Владелец 02.10.2026: в фильтрах одно слово — «Заказчик» (сущность
+      // и колонки при этом называются как раньше).
+      label: 'Заказчик',
       valueOf: (e) => {
         const id = text(e.customerId);
         const label = text(e.customerName);

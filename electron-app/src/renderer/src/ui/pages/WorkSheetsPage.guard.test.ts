@@ -107,7 +107,8 @@ describe('этапы работ — экран', () => {
   it('список ОДИН: вкладок нет, вид работ — колонка и ступень', () => {
     expect(PAGE, 'вкладки сняты').not.toContain('<CardTabs');
     expect(PAGE, 'вид работ — колонка списка').toContain("id: 'type', label: 'Вид работ'");
-    expect(PAGE, 'ступени общие для всего списка, без полей отдельного вида').toContain('workSheetFacets([])');
+    expect(PAGE, 'ступени общие для всего списка, без полей отдельного вида').toContain('workSheetFacets([], { types: sheetTypes, stageTemplates })');
+    expect(PAGE, 'движковые ступени — те же смыслы, что в списке двигателей').toContain('const stageTemplates = useRepairStageTemplateRefs();');
     expect(PAGE, 'раскладка колонок одна на список, а не на вид').toContain("useColumnLayout('list:workSheets:columns'");
   });
 

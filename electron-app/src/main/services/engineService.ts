@@ -476,7 +476,7 @@ async function getEngineInventoryFlagsMap(db: BetterSQLite3Database, engineIds: 
   return result;
 }
 
-type EngineRepairHistorySummary = {
+export type EngineRepairHistorySummary = {
   lastAction: string;
   lastAt: number | null;
   workshopId: string;
@@ -497,7 +497,7 @@ type EngineRepairHistorySummary = {
  * Берём только строки истории и межцеховые передачи: остальные операции (акты, наряды,
  * движения склада) к этому вопросу отношения не имеют, а их у двигателя больше всего.
  */
-async function getEngineRepairHistoryMap(
+export async function getEngineRepairHistoryMap(
   db: BetterSQLite3Database,
   engineIds: string[],
 ): Promise<Map<string, EngineRepairHistorySummary>> {
