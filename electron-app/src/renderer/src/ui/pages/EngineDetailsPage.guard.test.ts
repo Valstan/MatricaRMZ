@@ -278,3 +278,14 @@ describe('PR-C: широкая история ремонта — внутрен�
     expect(CARD).not.toContain('maxWidth: 700');
   });
 });
+
+// Passport tab (owner 02.10.2026)
+describe('passport tab', () => {
+  it('tab registered, panel kept mounted, own attachments attr', () => {
+    expect(CARD).toContain("{ key: 'passport', label: 'Паспорт' }");
+    expect(CARD).toContain(`data-card-tab="passport" hidden={activeTab !== 'passport'}`);
+    expect(CARD).toContain("saveAttr('passport_attachments'");
+    expect(CARD).toContain("code: 'passport_attachments'");
+    expect(CARD).toContain("category: 'passport'");
+  });
+});
