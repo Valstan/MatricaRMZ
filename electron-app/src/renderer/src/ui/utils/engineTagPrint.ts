@@ -44,21 +44,6 @@ export const ENGINE_TAG_PER_SHEET_OPTIONS: ReadonlyArray<EngineTagsPerSheet> = [
 /** Варианты ориентации для выбора оператором в печатной форме. */
 export const ENGINE_TAG_ORIENTATION_OPTIONS: ReadonlyArray<EngineTagOrientation> = ['landscape', 'portrait'];
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-/**
- * Насколько окончательная техническая приёмка позже договорного срока ремонта.
- * Отдельная именованная константа в одном месте: в базе такой даты нет, она целиком
- * вычисляемая, и владелец меняет этот запас одним движением — без правки шаблона бирки.
- */
-export const TECHNICAL_ACCEPTANCE_LAG_DAYS = 10;
-
-/** Дата окончательной технической приёмки: срок ремонта по договору плюс запас. */
-export function technicalAcceptanceDate(repairDueDate: number | null | undefined): number | null {
-  if (!Number.isFinite(repairDueDate as number)) return null;
-  return Number(repairDueDate) + TECHNICAL_ACCEPTANCE_LAG_DAYS * DAY_MS;
-}
-
 /** Пустое место на бирке читается как «забыли заполнить», прочерк — как «данных нет». */
 const DASH = '—';
 
@@ -90,28 +75,30 @@ type TagLayout = {
   numberPt: number;
   valuePt: number;
   labelPt: number;
-  /** Сторона QR в шапке бирки — растёт вместе с биркой. */
+  /** Сторона QR в правом нижнем углу бирки. */
   qrMm: number;
 };
 
 /**
  * Наборы размеров под раскладки — одной таблицей, чтобы подбор кегля жил
  * в одном месте: чем меньше бирок на листе, тем крупнее шрифт и шире поля.
- * Компактно (владелец 01.10.2026): зазоры ужаты, кегли подняты — лист
- * заполняется текстом, а не воздухом.
+ * Компактно (владелец 01.10.2026, дожато 02.10.2026): зазоры ужаты, кегли подняты —
+ * лист заполняется текстом, а не воздухом. Альбомные ячейки короче портретных,
+ * поэтому их кегли подобраны под высоту ячейки, а не под портретный ряд: крупный
+ * портретный кегль в альбом не влезает и молча режется (`overflow: hidden`).
  */
 const TAG_LAYOUTS: Record<EngineTagsPerSheet, Record<EngineTagOrientation, TagLayout>> = {
   6: {
-    portrait: { columns: 2, rows: 3, gapMm: 2, padMm: 3, brandPt: 20, numberPt: 28, valuePt: 12, labelPt: 7, qrMm: 18 },
-    landscape: { columns: 3, rows: 2, gapMm: 3, padMm: 5, brandPt: 24, numberPt: 32, valuePt: 13, labelPt: 8, qrMm: 18 },
+    portrait: { columns: 2, rows: 3, gapMm: 2, padMm: 3, brandPt: 22, numberPt: 32, valuePt: 13, labelPt: 8, qrMm: 28 },
+    landscape: { columns: 3, rows: 2, gapMm: 3, padMm: 4, brandPt: 24, numberPt: 32, valuePt: 13, labelPt: 8, qrMm: 28 },
   },
   4: {
-    portrait: { columns: 2, rows: 2, gapMm: 3, padMm: 5, brandPt: 30, numberPt: 40, valuePt: 16, labelPt: 9, qrMm: 24 },
-    landscape: { columns: 2, rows: 2, gapMm: 4, padMm: 6, brandPt: 32, numberPt: 44, valuePt: 18, labelPt: 10, qrMm: 24 },
+    portrait: { columns: 2, rows: 2, gapMm: 3, padMm: 4, brandPt: 34, numberPt: 50, valuePt: 19, labelPt: 10, qrMm: 36 },
+    landscape: { columns: 2, rows: 2, gapMm: 4, padMm: 5, brandPt: 28, numberPt: 38, valuePt: 16, labelPt: 9, qrMm: 36 },
   },
   2: {
-    portrait: { columns: 1, rows: 2, gapMm: 4, padMm: 7, brandPt: 40, numberPt: 54, valuePt: 22, labelPt: 12, qrMm: 32 },
-    landscape: { columns: 2, rows: 1, gapMm: 5, padMm: 8, brandPt: 44, numberPt: 60, valuePt: 24, labelPt: 13, qrMm: 32 },
+    portrait: { columns: 1, rows: 2, gapMm: 4, padMm: 6, brandPt: 42, numberPt: 56, valuePt: 23, labelPt: 12, qrMm: 52 },
+    landscape: { columns: 2, rows: 1, gapMm: 5, padMm: 7, brandPt: 48, numberPt: 66, valuePt: 26, labelPt: 14, qrMm: 52 },
   },
 };
 
@@ -177,25 +164,51 @@ async function generateTagQrSvg(value: string): Promise<string> {
   return QRCode.toString(value, { type: 'svg', margin: 0, errorCorrectionLevel: 'M' });
 }
 
-function renderTag(tag: EngineTagData, qrSvg?: string): string {
-  const qr = qrSvg
-    ? `<div class="tag-qr">${qrSvg}</div>`
-    : '';
+/**
+ * Кегль номера под ширину шапки: максимально крупный, но строго в одну строку —
+ * индивидуально под каждый двигатель. Измерение — canvas в окне renderer; в печати
+ * скрипты не исполняются, поэтому считаем заранее здесь (тот же проход, что QR).
+ * Без canvas (тесты) — null, берётся кегль раскладки.
+ */
+const NUMBER_FIT_MIN_RATIO = 0.5;
+
+function fitNumberPt(text: string, maxPt: number, availableMm: number): number | null {
+  if (typeof document === 'undefined') return null;
+  const label = String(text ?? '').trim();
+  if (!label) return null;
+  let canvas: HTMLCanvasElement | null = null;
+  try {
+    canvas = document.createElement('canvas');
+  } catch {
+    return null;
+  }
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  const minPt = Math.max(1, Math.floor(maxPt * NUMBER_FIT_MIN_RATIO));
+  let pt = Math.floor(maxPt);
+  for (; pt > minPt; pt -= 1) {
+    ctx.font = `800 ${((pt * 96) / 72).toFixed(2)}px system-ui, Arial, sans-serif`;
+    const widthMm = (ctx.measureText(label).width * 25.4) / 96;
+    if (widthMm <= availableMm * 0.98) return pt;
+  }
+  return minPt;
+}
+
+function renderTag(tag: EngineTagData, qrSvg?: string, numberPt?: number): string {
+  const numberStyle = numberPt != null ? ` style="font-size: ${numberPt}pt"` : '';
+  const qr = qrSvg ? `<div class="tag-qr">${qrSvg}</div>` : '';
   return `<div class="tag">
     <div class="tag-head">
-      <div class="tag-head-text">
-        <div class="tag-brand">${textOrDash(tag.engineBrand)}</div>
-        <div class="tag-number">${textOrDash(tag.engineNumber)}</div>
-      </div>${qr}
+      <div class="tag-brand">${textOrDash(tag.engineBrand)}</div>
+      <div class="tag-number"${numberStyle}>${textOrDash(tag.engineNumber)}</div>
     </div>
     <div class="tag-body">
       ${renderField('Заказчик', textOrDash(tag.customerName))}
       ${renderField('Договор', contractValue(tag.contractNumber))}
       ${renderField('Поступил на завод', dateOrDash(tag.arrivalDate))}
       ${renderField('Начало ремонта', dateOrDash(tag.repairStartDate))}
-      ${renderField('Окончание ремонта по договору', dateOrDash(tag.repairDueDate))}
-      ${renderField('Окончательная техническая приёмка', dateOrDash(technicalAcceptanceDate(tag.repairDueDate)))}
-    </div>
+      ${renderField('План сдачи', dateOrDash(tag.repairDueDate))}
+    </div>${qr}
   </div>`;
 }
 
@@ -226,6 +239,7 @@ function buildCss(layout: TagLayout, orientation: EngineTagOrientation): string 
   }
   .sheet:last-child { margin-bottom: 0; }
   .tag {
+    position: relative;
     border: 1px dashed #94a3b8;
     padding: ${mm(layout.padMm)};
     display: flex;
@@ -235,13 +249,12 @@ function buildCss(layout: TagLayout, orientation: EngineTagOrientation): string 
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  .tag-head { border-bottom: 1px solid #0b1220; padding-bottom: ${mm(layout.padMm / 2)}; display: flex; gap: ${mm(layout.padMm)}; align-items: center; }
-  .tag-head-text { flex: 1 1 auto; min-width: 0; }
-  .tag-qr { flex: 0 0 auto; width: ${mm(layout.qrMm)}; height: ${mm(layout.qrMm)}; }
-  .tag-qr svg { width: 100%; height: 100%; display: block; }
+  .tag-head { border-bottom: 1px solid #0b1220; padding-bottom: ${mm(layout.padMm / 2)}; }
   .tag-brand { font-size: ${layout.brandPt}pt; font-weight: 700; line-height: 1.1; word-break: break-word; }
   .tag-number { font-size: ${layout.numberPt}pt; font-weight: 800; line-height: 1.1; word-break: break-word; font-variant-numeric: tabular-nums; }
   .tag-body { display: flex; flex-direction: column; justify-content: space-between; flex: 1 1 auto; min-height: 0; }
+  .tag-qr { position: absolute; right: ${mm(layout.padMm)}; bottom: ${mm(layout.padMm)}; width: ${mm(layout.qrMm)}; height: ${mm(layout.qrMm)}; }
+  .tag-qr svg { width: 100%; height: 100%; display: block; }
   .tag-field { min-width: 0; }
   .tag-label { font-size: ${layout.labelPt}pt; color: #6b7280; line-height: 1.1; text-transform: uppercase; letter-spacing: 0.2px; }
   .tag-value { font-size: ${layout.valuePt}pt; font-weight: 700; line-height: 1.15; word-break: break-word; }
@@ -271,11 +284,18 @@ export function buildEngineTagsHtml(
   const perSheet = opts.perSheet;
   const orientation = opts.orientation;
   const layout = resolveLayout(perSheet, orientation);
+  const { width: sheetWidth } = sheetSize(orientation);
+  const contentWidth = sheetWidth - 2 * PAGE_MARGIN_MM;
+  const cellWidth = (contentWidth - layout.gapMm * (layout.columns - 1)) / layout.columns;
+  const numberAvailMm = cellWidth - 2 * layout.padMm;
   const sheets: string[] = [];
   for (let i = 0; i < tags.length; i += perSheet) {
     const chunk = tags
       .slice(i, i + perSheet)
-      .map((t) => renderTag(t, qrByEngineId?.get(t.engineId)))
+      .map((t) => {
+        const fitted = fitNumberPt(t.engineNumber, layout.numberPt, numberAvailMm);
+        return renderTag(t, qrByEngineId?.get(t.engineId), fitted ?? undefined);
+      })
       .join('\n');
     sheets.push(`<div class="sheet">${chunk}</div>`);
   }
