@@ -218,9 +218,9 @@ describe('очередь печати бирок', () => {
     expect(PAGE).toContain('setTagHintVisible(true);');
   });
 
-  it('по умолчанию — альбом и 4 бирки, ориентация переключается', () => {
+  it('по умолчанию — портрет и 4 бирки, ориентация переключается', () => {
     expect(TAG_DIALOG).toContain('data-engine-tags-orientation={o}');
-    expect(TAG_DIALOG).toContain("orientation: 'landscape'");
+    expect(TAG_DIALOG).toContain("orientation: 'portrait'");
     expect(TAG_DIALOG).toContain('{ perSheet: 4, orientation: ');
   });
 });

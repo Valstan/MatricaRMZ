@@ -1,3 +1,5 @@
+import QRCode from 'qrcode';
+
 import { formatMoscowDate } from './dateUtils.js';
 import { escapeHtml } from './printPreview.js';
 
@@ -16,6 +18,8 @@ export type EngineTagData = {
   /** Марка двигателя — вместе с номером самая крупная строка бирки. */
   engineBrand: string;
   engineNumber: string;
+  /** Стабильный id сущности — кодируется в QR (`engine:<id>`), в текст не печатается. */
+  engineId: string;
   customerName: string;
   /** Номер договора целиком — владелец просил не сокращать. */
   contractNumber: string;
@@ -31,7 +35,7 @@ export type EngineTagData = {
 
 export type EngineTagsPerSheet = 6 | 4 | 2;
 
-/** Ориентация листа (владелец 01.10.2026): бирки печатают на альбомном по умолчанию. */
+/** Ориентация листа (владелец 02.10.2026): бирки печатают на портрете по умолчанию. */
 export type EngineTagOrientation = 'portrait' | 'landscape';
 
 /** Варианты раскладки для выбора оператором в печатной форме. */
@@ -86,6 +90,8 @@ type TagLayout = {
   numberPt: number;
   valuePt: number;
   labelPt: number;
+  /** Сторона QR в шапке бирки — растёт вместе с биркой. */
+  qrMm: number;
 };
 
 /**
@@ -96,16 +102,16 @@ type TagLayout = {
  */
 const TAG_LAYOUTS: Record<EngineTagsPerSheet, Record<EngineTagOrientation, TagLayout>> = {
   6: {
-    portrait: { columns: 2, rows: 3, gapMm: 2, padMm: 3, brandPt: 20, numberPt: 28, valuePt: 12, labelPt: 7 },
-    landscape: { columns: 3, rows: 2, gapMm: 3, padMm: 5, brandPt: 24, numberPt: 32, valuePt: 13, labelPt: 8 },
+    portrait: { columns: 2, rows: 3, gapMm: 2, padMm: 3, brandPt: 20, numberPt: 28, valuePt: 12, labelPt: 7, qrMm: 18 },
+    landscape: { columns: 3, rows: 2, gapMm: 3, padMm: 5, brandPt: 24, numberPt: 32, valuePt: 13, labelPt: 8, qrMm: 18 },
   },
   4: {
-    portrait: { columns: 2, rows: 2, gapMm: 3, padMm: 5, brandPt: 30, numberPt: 40, valuePt: 16, labelPt: 9 },
-    landscape: { columns: 2, rows: 2, gapMm: 4, padMm: 6, brandPt: 32, numberPt: 44, valuePt: 18, labelPt: 10 },
+    portrait: { columns: 2, rows: 2, gapMm: 3, padMm: 5, brandPt: 30, numberPt: 40, valuePt: 16, labelPt: 9, qrMm: 24 },
+    landscape: { columns: 2, rows: 2, gapMm: 4, padMm: 6, brandPt: 32, numberPt: 44, valuePt: 18, labelPt: 10, qrMm: 24 },
   },
   2: {
-    portrait: { columns: 1, rows: 2, gapMm: 4, padMm: 7, brandPt: 40, numberPt: 54, valuePt: 22, labelPt: 12 },
-    landscape: { columns: 2, rows: 1, gapMm: 5, padMm: 8, brandPt: 44, numberPt: 60, valuePt: 24, labelPt: 13 },
+    portrait: { columns: 1, rows: 2, gapMm: 4, padMm: 7, brandPt: 40, numberPt: 54, valuePt: 22, labelPt: 12, qrMm: 32 },
+    landscape: { columns: 2, rows: 1, gapMm: 5, padMm: 8, brandPt: 44, numberPt: 60, valuePt: 24, labelPt: 13, qrMm: 32 },
   },
 };
 
@@ -156,11 +162,31 @@ function contractValue(raw: string): string {
   return `${escapeHtml(parts.head)}<span class="tag-contract-digits">${escapeHtml(parts.digits)}</span>${escapeHtml(parts.tail)}`;
 }
 
-function renderTag(tag: EngineTagData): string {
+/**
+ * Значение QR бирки. Формат — как ключ ярлыка приложения (`engine:<id>`,
+ * `desktopShortcutLinkKey`): номер двигателя для навигации не годится (повторный
+ * заезд даёт тот же номер дважды), а голый uuid неотличим от QR номенклатуры.
+ * Сканера в клиенте пока нет — QR задел под него: значение резолвится в
+ * карточку через `openEngine(id)`.
+ */
+export function engineTagQrValue(engineId: string): string {
+  return `engine:${String(engineId ?? '').trim()}`;
+}
+
+async function generateTagQrSvg(value: string): Promise<string> {
+  return QRCode.toString(value, { type: 'svg', margin: 0, errorCorrectionLevel: 'M' });
+}
+
+function renderTag(tag: EngineTagData, qrSvg?: string): string {
+  const qr = qrSvg
+    ? `<div class="tag-qr">${qrSvg}</div>`
+    : '';
   return `<div class="tag">
     <div class="tag-head">
-      <div class="tag-brand">${textOrDash(tag.engineBrand)}</div>
-      <div class="tag-number">${textOrDash(tag.engineNumber)}</div>
+      <div class="tag-head-text">
+        <div class="tag-brand">${textOrDash(tag.engineBrand)}</div>
+        <div class="tag-number">${textOrDash(tag.engineNumber)}</div>
+      </div>${qr}
     </div>
     <div class="tag-body">
       ${renderField('Заказчик', textOrDash(tag.customerName))}
@@ -209,7 +235,10 @@ function buildCss(layout: TagLayout, orientation: EngineTagOrientation): string 
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  .tag-head { border-bottom: 1px solid #0b1220; padding-bottom: ${mm(layout.padMm / 2)}; }
+  .tag-head { border-bottom: 1px solid #0b1220; padding-bottom: ${mm(layout.padMm / 2)}; display: flex; gap: ${mm(layout.padMm)}; align-items: center; }
+  .tag-head-text { flex: 1 1 auto; min-width: 0; }
+  .tag-qr { flex: 0 0 auto; width: ${mm(layout.qrMm)}; height: ${mm(layout.qrMm)}; }
+  .tag-qr svg { width: 100%; height: 100%; display: block; }
   .tag-brand { font-size: ${layout.brandPt}pt; font-weight: 700; line-height: 1.1; word-break: break-word; }
   .tag-number { font-size: ${layout.numberPt}pt; font-weight: 800; line-height: 1.1; word-break: break-word; font-variant-numeric: tabular-nums; }
   .tag-body { display: flex; flex-direction: column; justify-content: space-between; flex: 1 1 auto; min-height: 0; }
@@ -230,17 +259,24 @@ function buildCss(layout: TagLayout, orientation: EngineTagOrientation): string 
  * Собирает печатный HTML бирок. Бирки режутся на листы ПО РАСКЛАДКЕ (по perSheet штук
  * в блоке `.sheet`), а не отдаются одной лентой: так число листов детерминировано и
  * не зависит от того, как браузер посчитает перенос сетки.
+ *
+ * QR отдаётся готовым SVG (`qrByEngineId`): в окне печати скрипты не исполняются,
+ * рисовать там нечему. Бирка без SVG в карте печатается без QR — молча, не дыркой.
  */
 export function buildEngineTagsHtml(
   tags: ReadonlyArray<EngineTagData>,
   opts: { perSheet: EngineTagsPerSheet; orientation: EngineTagOrientation },
+  qrByEngineId?: ReadonlyMap<string, string>,
 ): string {
   const perSheet = opts.perSheet;
   const orientation = opts.orientation;
   const layout = resolveLayout(perSheet, orientation);
   const sheets: string[] = [];
   for (let i = 0; i < tags.length; i += perSheet) {
-    const chunk = tags.slice(i, i + perSheet).map(renderTag).join('\n');
+    const chunk = tags
+      .slice(i, i + perSheet)
+      .map((t) => renderTag(t, qrByEngineId?.get(t.engineId)))
+      .join('\n');
     sheets.push(`<div class="sheet">${chunk}</div>`);
   }
 
@@ -265,15 +301,35 @@ export function buildEngineTagsHtml(
 </html>`;
 }
 
-/** Открывает окно печати бирок. Возвращает число напечатанных бирок. */
-export function openEngineTagsPrint(
+/**
+ * HTML бирок с QR: генерирует SVG на каждый двигатель (одинаковые значения — один
+ * раз) и подставляет в синхронный сборщик. Асинхронность — только здесь: и превью,
+ * и окно печати получают готовый HTML.
+ */
+export async function buildEngineTagsHtmlWithQr(
   tags: ReadonlyArray<EngineTagData>,
   opts: { perSheet: EngineTagsPerSheet; orientation: EngineTagOrientation },
-): number {
-  if (tags.length === 0) return 0;
-  const html = buildEngineTagsHtml(tags, opts);
+): Promise<string> {
+  const svgCache = new Map<string, string>();
+  const qrByEngineId = new Map<string, string>();
+  for (const t of tags) {
+    const id = String(t.engineId ?? '').trim();
+    if (!id) continue;
+    let svg = svgCache.get(id);
+    if (!svg) {
+      svg = await generateTagQrSvg(engineTagQrValue(id));
+      svgCache.set(id, svg);
+    }
+    qrByEngineId.set(id, svg);
+  }
+  return buildEngineTagsHtml(tags, opts, qrByEngineId);
+}
+
+/** Открывает окно печати по готовому HTML. Возвращает, открыто ли окно. */
+export function openEngineTagsPrintHtml(html: string): boolean {
+  if (!html) return false;
   const w = window.open('', '_blank');
-  if (!w) return 0;
+  if (!w) return false;
   w.document.open();
   w.document.write(html);
   w.document.close();
@@ -282,5 +338,5 @@ export function openEngineTagsPrint(
     if (printBtn) printBtn.addEventListener('click', () => w.print());
     w.focus();
   }, 200);
-  return tags.length;
+  return true;
 }
