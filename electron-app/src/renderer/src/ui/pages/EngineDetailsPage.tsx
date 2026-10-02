@@ -54,7 +54,7 @@ const FEATURE_ENGINE_DISMANTLE = false;
 type LinkOpt = SearchSelectOption;
 
 /** Вкладки карточки двигателя (реорганизация «полотенца», план reclamation-mvp-2026-07). */
-export type EngineCardTab = 'main' | 'completeness' | 'defect' | 'history' | 'files' | 'reclamation' | 'payments' | 'docs';
+export type EngineCardTab = 'main' | 'completeness' | 'defect' | 'history' | 'files' | 'passport' | 'reclamation' | 'payments' | 'docs';
 
 /** Вкладки, которые показываются только с правом на операции. Список, а не перечисление
  * ключей в фильтре: забытый ключ открывал бы акты тому, кому их видеть нельзя. */
@@ -69,6 +69,8 @@ const ENGINE_CARD_TABS: { key: EngineCardTab; label: string }[] = [
   { key: 'defect', label: 'Акт разборки/дефектовки' },
   { key: 'history', label: 'История ремонта' },
   { key: 'files', label: 'Фото и документы' },
+  // Паспорт двигателя (владелец 02.10.2026): пока только скан-файлы, поля и печать — позже.
+  { key: 'passport', label: 'Паспорт' },
   // Платежи остаются вне цеховой рамки планшета.
   ...(isAndroidPlatform() ? [] : ([{ key: 'payments', label: 'Платежи' }] as { key: EngineCardTab; label: string }[])),
   { key: 'reclamation', label: 'Рекламация' },
@@ -1484,6 +1486,20 @@ export function EngineDetailsPage(props: {
     }
   }
 
+  // Вложения паспорта — отдельным списком от «Фото и документов»: скан паспорта
+  // изделия — не то же самое, что снимки узлов. Хранение — EAV-атрибут
+  // `passport_attachments` (файлы в file_assets, в атрибуте только ссылки — как у
+  // остальных вложений). Это осознанное исключение из EAV-freeze: раздел вложений
+  // мигрирует на B6 одним доменом со своими соседями, отдельный учёт не нужен.
+  async function savePassportAttachments(next: any[]) {
+    try {
+      await saveAttr('passport_attachments', next);
+      return { ok: true as const };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  }
+
   // Состояние вкладки «Рекламация» остаётся здесь (панель не размонтируется, от этого
   // зависят сохранение при закрытии, черновик и печать), а компонент шлёт сюда патчи.
   function applyReclamationPatch(patch: Partial<ReclamationDraft>) {
@@ -1675,6 +1691,7 @@ export function EngineDetailsPage(props: {
       { code: 'reclamation_shipped_date', name: 'Дата отправки после рекламации', dataType: 'date', sortOrder: 87 },
       { code: 'reclamation_comment', name: 'Комментарий по рекламации', dataType: 'text', sortOrder: 88 },
       { code: 'reclamation_attachments', name: 'Вложения рекламации', dataType: 'json', sortOrder: 89 },
+      { code: 'passport_attachments', name: 'Вложения паспорта', dataType: 'json', sortOrder: 93 },
       { code: 'scrap_reason', name: 'Причина утиля', dataType: 'text', sortOrder: 78 },
       // Повторный заезд / коллизия номера (Ф2)
       { code: 'repeat_arrival_flag', name: 'Повторный заезд', dataType: 'boolean', sortOrder: 90 },
@@ -2776,6 +2793,21 @@ export function EngineDetailsPage(props: {
           scope={{ ownerType: 'engine', ownerId: String(props.engineId), category: 'attachments' }}
           onSelectionChange={(ids) => { filesSelectedIdsRef.current = ids; }}
           onChange={saveAttachments}
+        />
+      </div>
+
+      <div className="entity-card-span-full" data-card-tab="passport" hidden={activeTab !== 'passport'}>
+        {/* Паспорт изделия: пока только скан-файлы. Поля и печать — следующим шагом;
+            панель отдельной секцией, чтобы легли рядом. */}
+        <AttachmentsModule
+          title="Паспорт двигателя"
+          objectLabel={`Двигатель ${String(engineNumber || props.engineId).trim()}`}
+          value={props.engine.attributes?.passport_attachments}
+          canView={props.canViewFiles}
+          canUpload={props.canUploadFiles && canEditEnginesEff}
+          canDelete={props.canUploadFiles && canEditEnginesEff}
+          scope={{ ownerType: 'engine', ownerId: String(props.engineId), category: 'passport' }}
+          onChange={savePassportAttachments}
         />
       </div>
 
