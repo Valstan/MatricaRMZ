@@ -135,6 +135,21 @@ describe('этапы работ — экран', () => {
     expect(APP, 'приложение не просит правку у сводки').not.toMatch(/<WorkSheetsPage[^>]*canEdit=/);
   });
 
+  // Владелец 02.10.2026: каждая строка кликабельна. Строка работ открывает свою
+  // карточку, строка шаблонного этапа (своей карточки нет) — карточку двигателя;
+  // номер двигателя в колонке — тоже ссылка, клик по ней карточку этапа не открывает.
+  it('номер двигателя — ссылка в карточку, клик не всплывает в строку', () => {
+    expect(PAGE, 'ссылка с якорем для смоука').toContain('data-work-sheet-open-engine={engineId}');
+    expect(PAGE, 'вложенная ссылка гасит всплытие').toContain('e.stopPropagation();');
+    expect(PAGE, 'без двигателя или колбэка — plain-текст').toContain('if (!r.engineId || !props.onOpenEngine) return label;');
+  });
+
+  it('строка шаблонного этапа ведёт в карточку двигателя, а не в никуда', () => {
+    expect(PAGE, 'щелчок шаблонной строки открывает двигатель').toContain("title: 'Открыть карточку двигателя',");
+    expect(PAGE, 'проводка в приложение принята').toContain('onOpenEngine?: (id: string) => void;');
+    expect(APP, 'приложение отдаёт открывалку двигателя').toContain('onOpenEngine={(id: string) => void openEngine(id)}');
+  });
+
   it('печать списка — общим механизмом и вне тулбара', () => {
     expect(PAGE).toContain('<ListPrintDialog');
     expect(PAGE).toContain('buildListPrintColumns(columns)');

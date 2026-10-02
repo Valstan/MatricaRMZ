@@ -105,14 +105,16 @@ function workshopLabel(r: WorkSheetRow, fromDirectory: (id: string) => string): 
   return fromDirectory(r.workshopId) || r.workshopName || HUMAN_LABEL_DASH;
 }
 
-export function WorkSheetsPage(props: {
-  canManageTypes: boolean;
-  canManageStageTemplates: boolean;
-  /** Открыть карточку этапа работ. */
-  onOpenSheet: (id: string, opts?: { isNew?: boolean; typeCode?: string | null; title?: string }) => void;
-  /** Справочник цехов нужен и карточке — грузим один раз здесь и отдаём наверх. */
-  onWorkshopsLoaded?: (rows: WorkshopOption[]) => void;
-}) {
+export function WorkSheetsPage(props: {
+  canManageTypes: boolean;
+  canManageStageTemplates: boolean;
+  /** Открыть карточку этапа работ. */
+  onOpenSheet: (id: string, opts?: { isNew?: boolean; typeCode?: string | null; title?: string }) => void;
+  /** Открыть карточку двигателя строки (номер в колонке + щелчок по строке-шаблону). */
+  onOpenEngine?: (id: string) => void;
+  /** Справочник цехов нужен и карточке — грузим один раз здесь и отдаём наверх. */
+  onWorkshopsLoaded?: (rows: WorkshopOption[]) => void;
+}) {
   const [types, setTypes] = useState<WorkSheetType[]>([]);
   const [typesSource, setTypesSource] = useState<WorkSheetTypesSource>('server');
   const [rows, setRows] = useState<WorkSheetRow[]>([]);
@@ -198,11 +200,39 @@ export function WorkSheetsPage(props: {
   const openRow = (row: WorkSheetRow) =>
     props.onOpenSheet(row.id, { title: `${row.typeName}${row.engineNumber ? ` · ${row.engineNumber}` : ''}` });
 
+  const openEngineOf = (row: WorkSheetRow) => {
+    if (row.engineId && props.onOpenEngine) props.onOpenEngine(row.engineId);
+  };
+
+  const renderEngineCell = useCallback(
+    (r: WorkSheetRow) => {
+      const label = engineLabel(r);
+      if (!r.engineId || !props.onOpenEngine) return label;
+      const openEngine = props.onOpenEngine;
+      const engineId = r.engineId;
+      return (
+        <button
+          type="button"
+          title="Открыть карточку двигателя"
+          data-work-sheet-open-engine={engineId}
+          onClick={(e) => {
+            e.stopPropagation();
+            openEngine(engineId);
+          }}
+          style={{ background: 'transparent', border: 0, padding: 0, color: 'var(--info)', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}
+        >
+          {label}
+        </button>
+      );
+    },
+    [props.onOpenEngine],
+  );
+
   const columns = useMemo<Column[]>(
     () => [
       { id: 'at', label: 'Дата', kind: 'date', render: (r) => formatMoscowDate(new Date(r.at)), sortValue: (r) => r.at, alwaysVisible: true },
       { id: 'type', label: 'Вид работ', kind: 'name', render: typeCellLabel, sortValue: (r) => r.typeName, alwaysVisible: true },
-      { id: 'engine', label: 'Двигатель', kind: 'name', render: (r) => engineLabel(r), sortValue: (r) => engineLabel(r), alwaysVisible: true },
+      { id: 'engine', label: 'Двигатель', kind: 'name', render: (r) => renderEngineCell(r), sortValue: (r) => engineLabel(r), alwaysVisible: true },
       { id: 'brand', label: 'Марка', kind: 'name', render: (r) => r.engineBrand, sortValue: (r) => r.engineBrand },
       { id: 'internal', label: 'Внутр. №', kind: 'num', render: (r) => r.internalNumber, sortValue: (r) => r.internalNumber },
       {
@@ -225,11 +255,11 @@ export function WorkSheetsPage(props: {
       // Поля вида работ — одной сводной колонкой: у каждого вида свой набор, и разворачивать
       // их в общем списке значило бы плодить пустые колонки. Сами поля — в строке этапа работ.
       { id: 'fields', label: 'Поля', kind: 'text', render: (r) => workSheetFieldsSummary(r.fields) },
-      { id: 'performedBy', label: 'Кто', kind: 'name', render: (r) => r.performedBy, sortValue: (r) => r.performedBy },
-      { id: 'note', label: 'Примечание', kind: 'text', render: (r) => r.note },
-    ],
-    [workshopFromDirectory],
-  );
+      { id: 'performedBy', label: 'Кто', kind: 'name', render: (r) => r.performedBy, sortValue: (r) => r.performedBy },
+      { id: 'note', label: 'Примечание', kind: 'text', render: (r) => r.note },
+    ],
+    [workshopFromDirectory, renderEngineCell],
+  );
 
   const columnLayout = useColumnLayout('list:workSheets:columns', columns.map((c) => c.id));
   const columnsById = useMemo(() => new Map(columns.map((c) => [c.id, c])), [columns]);
@@ -303,20 +333,31 @@ export function WorkSheetsPage(props: {
       <td className="list-col-filler" aria-hidden="true" style={{ borderBottom: '1px solid #f3f4f6' }} />
     </>
   );
-  // Строка шаблонного этапа из карточки двигателя (origin 'stage') — только показывается:
-  // своей карточки у неё нет, щелчок ничего не открывает (решение владельца 01.10.2026).
-  const rowProps = (r: WorkSheetRow): VirtualTableRowProps =>
-    r.origin === 'stage'
-      ? {
-          title: 'Этап из карточки двигателя — открывается в карточке',
-          'data-work-sheet-row': r.id,
-        }
-      : {
-          onClick: () => void openRow(r),
-          title: 'Открыть карточку этапа работ',
-          style: { cursor: 'pointer' },
-          'data-work-sheet-row': r.id,
-        };
+  // Каждая строка кликабельна: строка работ открывает свою карточку (правка, удаление,
+  // смена даты), а строка шаблонного этапа из карточки двигателя (origin 'stage') своей
+  // карточки не имеет — её щелчок ведёт в карточку двигателя (решение владельца: обе
+  // ссылки из списка, номер — тоже ссылка, чтобы не целиться).
+  const rowProps = (r: WorkSheetRow): VirtualTableRowProps => {
+    if (r.origin === 'stage') {
+      return r.engineId && props.onOpenEngine
+        ? {
+            onClick: () => void openEngineOf(r),
+            title: 'Открыть карточку двигателя',
+            style: { cursor: 'pointer' },
+            'data-work-sheet-row': r.id,
+          }
+        : {
+            title: 'Этап из карточки двигателя — открывается в карточке',
+            'data-work-sheet-row': r.id,
+          };
+    }
+    return {
+      onClick: () => void openRow(r),
+      title: 'Открыть карточку этапа работ',
+      style: { cursor: 'pointer' },
+      'data-work-sheet-row': r.id,
+    };
+  };
 
 
   return (
