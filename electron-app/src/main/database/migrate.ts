@@ -329,20 +329,12 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
   // свежая установка идёт мимо версионной цепочки, а холодный full-sync запросит таблицу.
   // Горячий путь синка и списков: ежесекундная проба COUNT по sync_status и полный скан
   // списка двигателей. Базы, прошедшие старые цепочки миграций мимо этих индексов,
-  // платили full-scan'ом на каждый тик — чиним здесь, идемпотентно. Колонку проверяем:
-  // таблица без sync_status индекс не примет, а уронить старт клиента нельзя.
-  const ensureSyncIndex = (table: string, name: string, ddl: string) => {
-    if (!hasTable(table) || !columnNames(table).has('sync_status')) return;
-    sqlite.exec(`CREATE INDEX IF NOT EXISTS ${name} ON ${table}(${ddl});`);
-  };
+  // платили full-scan'ом на каждый тик — чиним ниже динамическим проходом по всем
+  // таблицам с колонкой sync_status, идемпотентно. Колонку проверяем: таблица без
+  // sync_status индекс не примет, а уронить старт клиента нельзя.
   // entity_types.code читается точечно по маленькой таблице — полный скан там не больно.
   // Уникальные не трогаем вовсе: в диких базах встречались дубли (entity, attr) —
   // CREATE UNIQUE уронил бы старт клиента, а для скорости важен только sync_status.
-  ensureSyncIndex('entity_types', 'entity_types_sync_status_idx', 'sync_status');
-  ensureSyncIndex('entities', 'entities_sync_status_idx', 'sync_status');
-  ensureSyncIndex('attribute_defs', 'attribute_defs_sync_status_idx', 'sync_status');
-  ensureSyncIndex('attribute_values', 'attribute_values_sync_status_idx', 'sync_status');
-  ensureSyncIndex('operations', 'operations_sync_status_idx', 'sync_status');
   if (hasTable('operations')) {
     sqlite.exec(
       `CREATE INDEX IF NOT EXISTS operations_type_deleted_updated_idx ON operations(operation_type, deleted_at, updated_at);`,
@@ -351,12 +343,6 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
       `CREATE INDEX IF NOT EXISTS operations_engine_type_idx ON operations(engine_entity_id, operation_type);`,
     );
   }
-  ensureSyncIndex('audit_log', 'audit_log_sync_status_idx', 'sync_status');
-  ensureSyncIndex('chat_messages', 'chat_messages_sync_status_idx', 'sync_status');
-  ensureSyncIndex('chat_reads', 'chat_reads_sync_status_idx', 'sync_status');
-  ensureSyncIndex('notes', 'notes_sync_status_idx', 'sync_status');
-  ensureSyncIndex('note_shares', 'note_shares_sync_status_idx', 'sync_status');
-  ensureSyncIndex('user_presence', 'user_presence_sync_status_idx', 'sync_status');
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS chat_rooms (
       id text PRIMARY KEY NOT NULL,
@@ -478,5 +464,22 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     sqlite.exec(
       `CREATE INDEX IF NOT EXISTS erp_nomenclature_parent_idx ON erp_nomenclature(parent_nomenclature_id);`,
     );
+  }
+
+  // Ежесекундная проба COUNT по sync_status (SyncManager.localWatchTick) full-scan'ила
+  // таблицы реплики без индекса — поймано живьём 02.10.2026: erp_engine_inventory_lines
+  // давал 400+мс на каждый тик у всего парка, а better-sqlite3 синхронный, то есть main
+  // стоял. Перечислением не покрыть — новые таблицы снова приедут без индекса; идём по
+  // факту: всем таблицам с колонкой sync_status. Имена те же, что давались вручную
+  // раньше, — существующие индексы переиспользуются, а не дублируются. Стоит последним:
+  // выше есть пересборки таблиц (erp_engine_assembly_bom), которые сносят индексы.
+  const syncStatusTables = (
+    sqlite.prepare(
+      `SELECT m.name AS name FROM sqlite_master m WHERE m.type='table' AND m.name NOT LIKE 'sqlite_%' AND EXISTS (SELECT 1 FROM pragma_table_info(m.name) p WHERE p.name='sync_status') ORDER BY m.name`,
+    ).all() as Array<{ name: string }>
+  ).map((r) => String(r.name));
+  for (const table of syncStatusTables) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(table)) continue;
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS ${table}_sync_status_idx ON ${table}(sync_status);`);
   }
 }

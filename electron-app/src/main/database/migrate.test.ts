@@ -160,3 +160,51 @@ describe('ensureClientSchemaParity — клиентское ограничени
     sqlite.close();
   });
 });
+
+describe('ensureClientSchemaParity — sync_status-индекс у каждой таблицы реплики', () => {
+  // Живой прод 02.10.2026: erp_engine_inventory_lines без индекса давала 400+мс COUNT
+  // на каждый тик ежесекундной пробы localWatch — main стоял. Класс закрыт проходом по
+  // факту (все таблицы с колонкой sync_status), а не перечислением вручную.
+  function probeDb() {
+    const sqlite = new Database(':memory:');
+    sqlite.exec(`
+      CREATE TABLE probe_big (id text PRIMARY KEY NOT NULL, sync_status text NOT NULL DEFAULT 'synced');
+      CREATE TABLE probe_small (id text PRIMARY KEY NOT NULL, sync_status text NOT NULL DEFAULT 'synced');
+      CREATE TABLE no_sync_here (id text PRIMARY KEY NOT NULL);
+      INSERT INTO probe_big (id, sync_status) VALUES ('l1', 'pending'), ('l2', 'synced');
+    `);
+    return sqlite;
+  }
+
+  const hasSyncIdx = (sqlite: Database.Database, table: string): boolean =>
+    !!sqlite
+      .prepare(`SELECT 1 FROM sqlite_master WHERE type='index' AND name=?`)
+      .get(`${table}_sync_status_idx`);
+
+  it('индекс появляется у всех таблиц с sync_status, у остальных — нет', () => {
+    const sqlite = probeDb();
+    ensureClientSchemaParity(sqlite);
+    expect(hasSyncIdx(sqlite, 'probe_big')).toBe(true);
+    expect(hasSyncIdx(sqlite, 'probe_small')).toBe(true);
+    expect(hasSyncIdx(sqlite, 'no_sync_here')).toBe(false);
+    sqlite.close();
+  });
+
+  it('проба COUNT идёт по индексу, а не full-scan’ом', () => {
+    const sqlite = probeDb();
+    ensureClientSchemaParity(sqlite);
+    const plan = (
+      sqlite.prepare(`EXPLAIN QUERY PLAN SELECT COUNT(*) FROM probe_big WHERE sync_status IN ('pending','error')`).all() as Array<{ detail: string }>
+    ).map((r) => r.detail).join(' | ');
+    expect(plan).toMatch(/USING (COVERING )?INDEX probe_big_sync_status_idx/);
+    sqlite.close();
+  });
+
+  it('идемпотентно: повторный прогон ничего не меняет', () => {
+    const sqlite = probeDb();
+    ensureClientSchemaParity(sqlite);
+    expect(() => ensureClientSchemaParity(sqlite)).not.toThrow();
+    expect(hasSyncIdx(sqlite, 'probe_big')).toBe(true);
+    sqlite.close();
+  });
+});
