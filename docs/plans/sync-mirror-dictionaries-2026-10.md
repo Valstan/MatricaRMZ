@@ -85,8 +85,20 @@
   изменение → `pending`; soft-delete → тумбстоун `pending` (проба S1, 6/6).
 - [x] Живой прогон публикатора (02.10): 3 `pending`-строки → `writeSyncChanges` →
   seq в журнале → `pullChangesSince` отдаёт все 3 с `last_server_seq`; строк без seq — 0.
-- [ ] S6 (на релизе, отдельным релизом): `db:migrate` (0102) → рестарт →
-  `dictionary sync publisher started` + `dictionaries published` →
-  `... where last_server_seq is null` → 0 по трём таблицам → новый клиент
-  (реплики налиты, лукапы без сети) → старый клиент (незнакомые таблицы не мешают).
+- [x] S6 ВЫПОЛНЕНА на проде 02.10 (релиз v3.57.0): артефакты положены до рестарта
+  (`.exe` 136959786 Б, `.blockmap`, `latest.yml`, APK `MatricaRMZ-3.57.0.apk`);
+  M40 — файл=манифест с первой пробы; `db:migrate` (0102, аддитивная);
+  по пути поймана и снята procedural-ошибка (миграция до `git pull` ушла не в ту
+  ревизию — лечится порядком pull→migrate, см. урок ниже);
+  `release:ledger-publish 3.57.0`; `deploy-backend.sh` с явным run-id
+  (совпал с HEAD, deps на месте, backup-снимок, primary+secondary за 6с+6с, health 3.57.0).
+  Приёмка: `:3001`/`:3002`/nginx — все 3.57.0; `/updates/status` latest 3.57.0,
+  `lastError: null`, size совпал; blockmap 200; паблишер за тик разобрал всё —
+  `pending=0, nullseq=0` (контрагентов 97, договоров 110, марок 93);
+  android `update-plan` 3.56.0→3.57.0 с sha256; прод-репозиторий чист.
+- Урок выката (в процедуру, не в код): строки `publisher started/published` в прод-журнале
+  искать бесполезно — prod-логгер роняет INFO без `critical:true` (см. PENDING §аудит
+  Telegram, п.1: счётчик молчащих отказов). Живой сигнал публикатора — не лог, а
+  `pending/nullseq`-счётчики по таблицам. Чек-лист «в логе primary … started» из R3-поры
+  этому противоречит — проверять счетами, не логами.
 - Попутно вычищен протухший подпункт PENDING «реплика складов ждёт релиза» (выпущена в v3.41.0).
