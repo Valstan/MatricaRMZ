@@ -252,3 +252,15 @@ describe('выделение списка липнет, а не слетает',
     expect(SELECTION_HOOK).not.toContain('if (!e.shiftKey) clearSelection();');
   });
 });
+
+// Поиск по значениям ступени (владелец 02.10.2026: 50 заказчиков глазами не найти).
+describe('ступень с кучей значений ищется вводом', () => {
+  it('поле поиска, выбранное не прячется, пустой результат проговаривается', () => {
+    expect(FILTER).toContain('data-facet-value-search={fieldId}');
+    expect(FILTER).toContain('FACET_VALUE_SEARCH_THRESHOLD');
+    expect(FILTER, 'выбранное видно всегда — иначе снять его можно только сбросом').toContain(
+      'if (option.selected) return true;',
+    );
+    expect(FILTER).toContain('по запросу ничего нет');
+  });
+});
