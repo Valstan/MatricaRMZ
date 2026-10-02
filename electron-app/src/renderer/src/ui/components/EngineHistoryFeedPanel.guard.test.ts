@@ -186,12 +186,23 @@ describe('вверху только две кнопки, инлайн-полей
     expect(WSH).toContain('<Button onClick={() => setBulkAddOpen(true)}');
   });
 
-  it('лента входит в окно: фикс-раскладка, переносы, без горизонтального скролла', () => {
-    // Полоса прокрутки у ленты была главной жалобой: длинные примечания и «Кто»
-    // уезжали за край, и оператор крутил скролл ради каждой строки.
+  it('лента резиновая по контенту и по центру: без фикс-раскладки и без горизонтального скролла', () => {
+    // Жалоба владельца 02.10.2026: фикс-ширины рвали «Событие» и «Кто» в несколько строк,
+    // а пустая «Причина» забирала полэкрана. Ширина теперь по содержимому, короткие
+    // колонки в одну строку (nowrap), таблица ужата по контенту и отцентрирована.
     expect(PANEL).not.toContain("overflowX: 'auto'");
-    expect(PANEL).toContain("tableLayout: 'fixed'");
-    expect(PANEL).toContain('<colgroup>');
-    expect(PANEL).toContain('overflowWrap');
+    expect(PANEL).not.toContain("tableLayout: 'fixed'");
+    expect(PANEL).not.toContain('<colgroup>');
+    expect(PANEL).toContain("width: 'max-content'");
+    expect(PANEL).toContain('justifyContent: \'center\'');
+    expect(PANEL).toContain("whiteSpace: 'nowrap'");
+  });
+
+  it('правка даты — крайняя слева, удаление — крайнее справа (владелец 02.10.2026)', () => {
+    // Кнопка ✎ жила внутри ячейки события и уезжала под название; ✕ сидел в безымянной
+    // колонке. Теперь у таблицы пустые крайние заголовки, а кнопки несут data-атрибуты.
+    expect(PANEL).toContain("['', 'Дата'");
+    expect(PANEL).toContain('data-repair-stage-edit-date={item.id}');
+    expect(PANEL).toContain('data-repair-stage-remove={item.id}');
   });
 });

@@ -407,22 +407,16 @@ export function EngineHistoryFeedPanel(props: {
       {status && <div className="ui-muted">{status}</div>}
 
       {feed.length > 0 && (
-        <div style={{ width: '100%', maxWidth: 1400, margin: '0 auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }} data-history-feed-table>
-            <colgroup>
-              <col style={{ width: 84 }} />
-              <col style={{ width: 84 }} />
-              <col style={{ width: 100 }} />
-              <col style={{ width: 120 }} />
-              <col style={{ width: 80 }} />
-              <col />
-              <col style={{ width: 70 }} />
-              <col style={{ width: 36 }} />
-            </colgroup>
+        <div style={{ width: '100%', maxWidth: 1400, margin: '0 auto', display: 'flex', justifyContent: 'center' }}>
+          <table style={{ borderCollapse: 'collapse', width: 'max-content', maxWidth: '100%' }} data-history-feed-table>
             <thead>
               <tr>
-                {['Дата', 'Записано', 'Тип', 'Событие', 'Цех', 'Причина и примечание', 'Кто', ''].map((h) => (
-                  <th key={h} {...emojiAttrs(h)} style={{ textAlign: 'left', padding: '4px 6px', borderBottom: '1px solid var(--border)' }}>
+                {['', 'Дата', 'Записано', 'Тип', 'Событие', 'Цех', 'Причина и примечание', 'Кто', ''].map((h, i) => (
+                  <th
+                    key={`${i}-${h}`}
+                    {...emojiAttrs(h)}
+                    style={{ textAlign: 'left', padding: '4px 6px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}
+                  >
                     {h}
                   </th>
                 ))}
@@ -431,8 +425,27 @@ export function EngineHistoryFeedPanel(props: {
             <tbody>
               {feed.map((item) => {
                 const details = detailLines(item);
+                const canFixDate = props.canEdit && item.editable && !(item.sheetRowId && props.onOpenWorkSheet);
                 return (
                   <tr key={item.id} data-history-feed-row={item.id} data-history-feed-kind={item.kind}>
+                    <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }}>
+                      {canFixDate &&
+                        (editingDate?.id === item.id ? (
+                          <Button variant="ghost" title="Отмена" onClick={() => setEditingDate(null)}>
+                            ✕
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            disabled={busy}
+                            title="Изменить дату этапа"
+                            data-repair-stage-edit-date={item.id}
+                            onClick={() => setEditingDate({ id: item.id, code: item.stageCode, value: toInputDate(item.at) })}
+                          >
+                            ✎
+                          </Button>
+                        ))}
+                    </td>
                     <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }}>
                       {item.at > 0 ? formatMoscowDate(new Date(item.at)) : '—'}
                       {item.pass >= 2 && <div className="ui-muted">проход № {item.pass} (возврат)</div>}
@@ -448,7 +461,7 @@ export function EngineHistoryFeedPanel(props: {
                         {item.icon} {item.kindLabel}
                       </span>
                     </td>
-                    <td style={{ padding: '4px 6px', overflowWrap: 'break-word' }}>
+                    <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }}>
                       {item.sheetRowId && props.onOpenWorkSheet ? (
                         <button
                           type="button"
@@ -460,54 +473,36 @@ export function EngineHistoryFeedPanel(props: {
                         >
                           {`${item.title} ↗`}
                         </button>
-                      ) : item.editable && props.canEdit ? (
-                        <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-                          {editingDate?.id === item.id ? (
-                            <>
-                              <Input
-                                type="date"
-                                value={editingDate.value}
-                                disabled={busy}
-                                title="Дата этапа"
-                                data-repair-stage-date={item.id}
-                                onChange={(e) => setEditingDate((prev) => (prev ? { ...prev, value: e.target.value } : null))}
-                              />
-                              <Button
-                                variant="ghost"
-                                disabled={busy}
-                                data-repair-stage-apply-date={item.id}
-                                onClick={() => {
-                                  const atMs = fromInputDate(editingDate.value);
-                                  if (atMs !== null) {
-                                    void writeStage({ id: item.id, code: editingDate.code, atMs }).then(() => setEditingDate(null));
-                                  }
-                                }}
-                              >
-                                Применить
-                              </Button>
-                              <Button variant="ghost" onClick={() => setEditingDate(null)}>✕</Button>
-                            </>
-                          ) : (
-                            <>
-                              <span>{item.title}</span>
-                              <Button
-                                variant="ghost"
-                                disabled={busy}
-                                title="Изменить дату этапа"
-                                data-repair-stage-edit-date={item.id}
-                                onClick={() => setEditingDate({ id: item.id, code: item.stageCode, value: toInputDate(item.at) })}
-                              >
-                                ✎
-                              </Button>
-                            </>
-                          )}
-                        </div>
+                      ) : editingDate?.id === item.id ? (
+                        <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                          <Input
+                            type="date"
+                            value={editingDate.value}
+                            disabled={busy}
+                            title="Дата этапа"
+                            data-repair-stage-date={item.id}
+                            onChange={(e) => setEditingDate((prev) => (prev ? { ...prev, value: e.target.value } : null))}
+                          />
+                          <Button
+                            variant="ghost"
+                            disabled={busy}
+                            data-repair-stage-apply-date={item.id}
+                            onClick={() => {
+                              const atMs = fromInputDate(editingDate.value);
+                              if (atMs !== null) {
+                                void writeStage({ id: item.id, code: editingDate.code, atMs }).then(() => setEditingDate(null));
+                              }
+                            }}
+                          >
+                            Применить
+                          </Button>
+                        </span>
                       ) : (
                         <span>{item.title}</span>
                       )}
                       {item.statusLabel && <div className="ui-muted">{item.statusLabel}</div>}
                     </td>
-                    <td style={{ padding: '4px 6px', overflowWrap: 'break-word' }}>{item.workshopId ? workshopName(item.workshopId, item.workshopName) : ''}</td>
+                    <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }}>{item.workshopId ? workshopName(item.workshopId, item.workshopName) : ''}</td>
                     <td style={{ padding: '4px 6px', overflowWrap: 'break-word' }}>
                       {item.reason && <div>{item.reason}</div>}
                       {item.note && <div>{item.note}</div>}
@@ -517,12 +512,12 @@ export function EngineHistoryFeedPanel(props: {
                         </div>
                       ))}
                     </td>
-                    <td style={{ padding: '4px 6px', overflowWrap: 'break-word' }} data-history-feed-by={item.id}>
+                    <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }} data-history-feed-by={item.id}>
                       {item.by ? <span className="ui-muted">{item.by}</span> : null}
                     </td>
                     <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }}>
                       {props.canEdit && item.editable && (
-                        <Button variant="ghost" disabled={busy} title="Убрать этап" onClick={() => void removeStage(item.id, item.title)}>
+                        <Button variant="ghost" disabled={busy} title="Убрать этап" data-repair-stage-remove={item.id} onClick={() => void removeStage(item.id, item.title)}>
                           ✕
                         </Button>
                       )}
