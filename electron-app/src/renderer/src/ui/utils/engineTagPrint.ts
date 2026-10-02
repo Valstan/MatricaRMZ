@@ -97,21 +97,23 @@ type TagLayout = {
 /**
  * Наборы размеров под раскладки — одной таблицей, чтобы подбор кегля жил
  * в одном месте: чем меньше бирок на листе, тем крупнее шрифт и шире поля.
- * Компактно (владелец 01.10.2026): зазоры ужаты, кегли подняты — лист
- * заполняется текстом, а не воздухом.
+ * Компактно (владелец 01.10.2026, дожато 02.10.2026): зазоры ужаты, кегли подняты —
+ * лист заполняется текстом, а не воздухом. Альбомные ячейки короче портретных,
+ * поэтому их кегли подобраны под высоту ячейки, а не под портретный ряд: крупный
+ * портретный кегль в альбом не влезает и молча режется (`overflow: hidden`).
  */
 const TAG_LAYOUTS: Record<EngineTagsPerSheet, Record<EngineTagOrientation, TagLayout>> = {
   6: {
-    portrait: { columns: 2, rows: 3, gapMm: 2, padMm: 3, brandPt: 20, numberPt: 28, valuePt: 12, labelPt: 7, qrMm: 16 },
-    landscape: { columns: 3, rows: 2, gapMm: 3, padMm: 5, brandPt: 24, numberPt: 32, valuePt: 13, labelPt: 8, qrMm: 16 },
+    portrait: { columns: 2, rows: 3, gapMm: 2, padMm: 3, brandPt: 22, numberPt: 32, valuePt: 13, labelPt: 8, qrMm: 18 },
+    landscape: { columns: 3, rows: 2, gapMm: 3, padMm: 4, brandPt: 24, numberPt: 32, valuePt: 13, labelPt: 8, qrMm: 18 },
   },
   4: {
-    portrait: { columns: 2, rows: 2, gapMm: 3, padMm: 5, brandPt: 30, numberPt: 40, valuePt: 16, labelPt: 9, qrMm: 20 },
-    landscape: { columns: 2, rows: 2, gapMm: 4, padMm: 6, brandPt: 32, numberPt: 44, valuePt: 18, labelPt: 10, qrMm: 20 },
+    portrait: { columns: 2, rows: 2, gapMm: 3, padMm: 4, brandPt: 34, numberPt: 50, valuePt: 19, labelPt: 10, qrMm: 26 },
+    landscape: { columns: 2, rows: 2, gapMm: 4, padMm: 5, brandPt: 28, numberPt: 38, valuePt: 16, labelPt: 9, qrMm: 20 },
   },
   2: {
-    portrait: { columns: 1, rows: 2, gapMm: 4, padMm: 7, brandPt: 40, numberPt: 54, valuePt: 22, labelPt: 12, qrMm: 28 },
-    landscape: { columns: 2, rows: 1, gapMm: 5, padMm: 8, brandPt: 44, numberPt: 60, valuePt: 24, labelPt: 13, qrMm: 28 },
+    portrait: { columns: 1, rows: 2, gapMm: 4, padMm: 6, brandPt: 42, numberPt: 56, valuePt: 23, labelPt: 12, qrMm: 30 },
+    landscape: { columns: 2, rows: 1, gapMm: 5, padMm: 7, brandPt: 48, numberPt: 66, valuePt: 26, labelPt: 14, qrMm: 36 },
   },
 };
 

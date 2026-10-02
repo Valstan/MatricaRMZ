@@ -161,7 +161,7 @@ describe('splitContractDigits', () => {
     );
     expect(html).toContain('<span class="tag-contract-digits">239</span>');
     expect(html).toContain('/27/ГОЗ-24');
-    expect(html).toContain('.tag-contract-digits { font-size: 24pt; font-weight: 800; }');
+    expect(html).toContain('.tag-contract-digits { font-size: 22pt; font-weight: 800; }');
   });
 });
 
