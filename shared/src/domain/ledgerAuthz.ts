@@ -116,6 +116,11 @@ export const SYNC_TABLE_OWNERSHIP: Readonly<Record<SyncTableName, SyncTableOwner
   // его читает. Без этой строки любой авторизованный клиент мог бы крафтить строку локации
   // и, например, переименовать цех у всего парка.
   [SyncTableName.WarehouseLocations]: { owner: 'server', why: 'warehouseLocationsService + публикатор зеркала' },
+  // Словарные зеркала pull-only: пишут их только триггеры EAV-зеркал (0083/0084 + pending-гард
+  // 0102), клиент читает реплику. Без этих строк крафт строки договора с клиента ушёл бы в журнал.
+  [SyncTableName.ErpCounterparties]: { owner: 'server', why: 'триггер rebuild_erp_counterparty + публикатор словарей' },
+  [SyncTableName.ErpContracts]: { owner: 'server', why: 'триггер rebuild_erp_contract + публикатор словарей' },
+  [SyncTableName.DirectoryEngineBrands]: { owner: 'server', why: 'триггеры mirror_engine_brand_* + публикатор словарей' },
   [SyncTableName.Users]: { owner: 'server', why: 'setEmployeeAuth + публикатор зеркала (B3/R3)' },
   [SyncTableName.UserSectionAccess]: { owner: 'server', why: 'setEmployeeSectionAccess + публикатор зеркала (B3/R3)' },
 };
@@ -244,6 +249,9 @@ const TABLE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
   // оставляет верный ответ, если backstop когда-нибудь снимут: fail-open от
   // `?? { kind: 'open' }` для этих таблиц недопустим.
   [SyncTableName.WarehouseLocations]: { kind: 'superadmin' },
+  [SyncTableName.ErpCounterparties]: { kind: 'superadmin' },
+  [SyncTableName.ErpContracts]: { kind: 'superadmin' },
+  [SyncTableName.DirectoryEngineBrands]: { kind: 'superadmin' },
   [SyncTableName.Users]: { kind: 'superadmin' },
   [SyncTableName.UserSectionAccess]: { kind: 'superadmin' },
 };

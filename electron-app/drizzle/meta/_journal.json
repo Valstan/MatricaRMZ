@@ -190,6 +190,27 @@
       "when": 1790035200000,
       "tag": "0026_inventory_lines_has_own_number",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1790899200000,
+      "tag": "0027_erp_counterparties_replica",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1790899200001,
+      "tag": "0028_erp_contracts_replica",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1790899200002,
+      "tag": "0029_directory_engine_brands_replica",
+      "breakpoints": true
     }
   ]
 }

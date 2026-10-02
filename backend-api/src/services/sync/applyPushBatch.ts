@@ -14,6 +14,9 @@ import {
   aiChatRequestRowSchema,
   entityRowSchema,
   entityTypeRowSchema,
+  erpContractRowSchema,
+  erpCounterpartyRowSchema,
+  directoryEngineBrandRowSchema,
   erpEngineInventoryLineRowSchema,
   operationRowSchema,
   userRowSchema,
@@ -40,6 +43,9 @@ import {
   diagnosticsSnapshots,
   entities,
   entityTypes,
+  erpContracts,
+  erpCounterparties,
+  directoryEngineBrands,
   erpEngineInventoryLines,
   notes,
   noteShares,
@@ -2063,7 +2069,7 @@ export async function applyPushBatch(
     {
       const trustedServerWrite = isReplayClient || applyOpts.allowSyncConflicts === true;
 
-      for (const tableName of [SyncTableName.Users, SyncTableName.UserSectionAccess, SyncTableName.WarehouseLocations] as const) {
+      for (const tableName of [SyncTableName.Users, SyncTableName.UserSectionAccess, SyncTableName.WarehouseLocations, SyncTableName.ErpCounterparties, SyncTableName.ErpContracts, SyncTableName.DirectoryEngineBrands] as const) {
         const raw = grouped.get(tableName) ?? [];
         if (raw.length === 0 || trustedServerWrite) continue;
         addSkipMetric('conflict', tableName, raw.length, 'server_managed_table');
@@ -2235,6 +2241,168 @@ export async function applyPushBatch(
               const writtenIds = new Set((written as Array<{ id: string }>).map((w) => String(w.id)));
               const stamped = rows.filter((r) => writtenIds.has(String(r.id)));
               await updateSeqAndCollect(warehouseLocations, SyncTableName.WarehouseLocations, stamped);
+              applied += stamped.length;
+            }
+          }
+        }
+
+        // Словарные зеркала pull-only (0102). Пишут их только триггеры EAV-зеркал,
+        // сюда строки приводит публикатор словарей — та же форма, что у складов выше.
+        // Порядок: контрагенты раньше договоров (FK customer_id).
+        {
+          const raw = grouped.get(SyncTableName.ErpCounterparties) ?? [];
+          const parsedAll = parseRows(SyncTableName.ErpCounterparties, raw, erpCounterpartyRowSchema);
+          if (parsedAll.length > 0) {
+            const rows = await filterStaleBySeqOrUpdatedAt(erpCounterparties, parsedAll, SyncTableName.ErpCounterparties, {
+              allowSyncConflicts: true,
+            });
+            if (rows.length > 0) {
+              const written = await tx
+                .insert(erpCounterparties)
+                .values(
+                  rows.map((r) => ({
+                    id: r.id as any,
+                    name: r.name,
+                    shortName: r.short_name ?? null,
+                    inn: r.inn ?? null,
+                    kpp: r.kpp ?? null,
+                    address: r.address ?? null,
+                    email: r.email ?? null,
+                    phone: r.phone ?? null,
+                    createdAt: r.created_at,
+                    updatedAt: r.updated_at,
+                    deletedAt: r.deleted_at ?? null,
+                    syncStatus: 'synced',
+                  })),
+                )
+                .onConflictDoUpdate({
+                  target: erpCounterparties.id,
+                  setWhere: sql`${erpCounterparties.updatedAt} <= excluded.updated_at`,
+                  set: {
+                    name: sql`excluded.name`,
+                    shortName: sql`excluded.short_name`,
+                    inn: sql`excluded.inn`,
+                    kpp: sql`excluded.kpp`,
+                    address: sql`excluded.address`,
+                    email: sql`excluded.email`,
+                    phone: sql`excluded.phone`,
+                    updatedAt: sql`excluded.updated_at`,
+                    deletedAt: sql`excluded.deleted_at`,
+                    syncStatus: 'synced',
+                  },
+                })
+                .returning({ id: erpCounterparties.id });
+              const writtenIds = new Set((written as Array<{ id: string }>).map((w) => String(w.id)));
+              const stamped = rows.filter((r) => writtenIds.has(String(r.id)));
+              await updateSeqAndCollect(erpCounterparties, SyncTableName.ErpCounterparties, stamped);
+              applied += stamped.length;
+            }
+          }
+        }
+        {
+          const raw = grouped.get(SyncTableName.ErpContracts) ?? [];
+          const parsedAll = parseRows(SyncTableName.ErpContracts, raw, erpContractRowSchema);
+          if (parsedAll.length > 0) {
+            const rows = await filterStaleBySeqOrUpdatedAt(erpContracts, parsedAll, SyncTableName.ErpContracts, {
+              allowSyncConflicts: true,
+            });
+            if (rows.length > 0) {
+              const written = await tx
+                .insert(erpContracts)
+                .values(
+                  rows.map((r) => ({
+                    id: r.id as any,
+                    number: r.number ?? null,
+                    internalNumber: r.internal_number ?? null,
+                    gozName: r.goz_name ?? null,
+                    gozIgk: r.goz_igk ?? null,
+                    gozSeparateAccountNumber: r.goz_separate_account_number ?? null,
+                    gozSeparateAccountBank: r.goz_separate_account_bank ?? null,
+                    gozSeparateAccount: r.goz_separate_account ?? null,
+                    signedAt: r.signed_at ?? null,
+                    dueAt: r.due_at ?? null,
+                    customerId: (r.customer_id ?? null) as any,
+                    comment: r.comment ?? null,
+                    sectionsJson: r.sections_json ?? null,
+                    executionPartsJson: r.execution_parts_json ?? null,
+                    paymentsJson: r.payments_json ?? null,
+                    createdAt: r.created_at,
+                    updatedAt: r.updated_at,
+                    deletedAt: r.deleted_at ?? null,
+                    syncStatus: 'synced',
+                  })),
+                )
+                .onConflictDoUpdate({
+                  target: erpContracts.id,
+                  setWhere: sql`${erpContracts.updatedAt} <= excluded.updated_at`,
+                  set: {
+                    number: sql`excluded.number`,
+                    internalNumber: sql`excluded.internal_number`,
+                    gozName: sql`excluded.goz_name`,
+                    gozIgk: sql`excluded.goz_igk`,
+                    gozSeparateAccountNumber: sql`excluded.goz_separate_account_number`,
+                    gozSeparateAccountBank: sql`excluded.goz_separate_account_bank`,
+                    gozSeparateAccount: sql`excluded.goz_separate_account`,
+                    signedAt: sql`excluded.signed_at`,
+                    dueAt: sql`excluded.due_at`,
+                    customerId: sql`excluded.customer_id`,
+                    comment: sql`excluded.comment`,
+                    sectionsJson: sql`excluded.sections_json`,
+                    executionPartsJson: sql`excluded.execution_parts_json`,
+                    paymentsJson: sql`excluded.payments_json`,
+                    updatedAt: sql`excluded.updated_at`,
+                    deletedAt: sql`excluded.deleted_at`,
+                    syncStatus: 'synced',
+                  },
+                })
+                .returning({ id: erpContracts.id });
+              const writtenIds = new Set((written as Array<{ id: string }>).map((w) => String(w.id)));
+              const stamped = rows.filter((r) => writtenIds.has(String(r.id)));
+              await updateSeqAndCollect(erpContracts, SyncTableName.ErpContracts, stamped);
+              applied += stamped.length;
+            }
+          }
+        }
+        {
+          const raw = grouped.get(SyncTableName.DirectoryEngineBrands) ?? [];
+          const parsedAll = parseRows(SyncTableName.DirectoryEngineBrands, raw, directoryEngineBrandRowSchema);
+          if (parsedAll.length > 0) {
+            const rows = await filterStaleBySeqOrUpdatedAt(directoryEngineBrands, parsedAll, SyncTableName.DirectoryEngineBrands, {
+              allowSyncConflicts: true,
+            });
+            if (rows.length > 0) {
+              const written = await tx
+                .insert(directoryEngineBrands)
+                .values(
+                  rows.map((r) => ({
+                    id: r.id as any,
+                    name: r.name,
+                    isActive: r.is_active,
+                    metadataJson: r.metadata_json ?? null,
+                    deprecatedAt: r.deprecated_at ?? null,
+                    createdAt: r.created_at,
+                    updatedAt: r.updated_at,
+                    deletedAt: r.deleted_at ?? null,
+                    syncStatus: 'synced',
+                  })),
+                )
+                .onConflictDoUpdate({
+                  target: directoryEngineBrands.id,
+                  setWhere: sql`${directoryEngineBrands.updatedAt} <= excluded.updated_at`,
+                  set: {
+                    name: sql`excluded.name`,
+                    isActive: sql`excluded.is_active`,
+                    metadataJson: sql`excluded.metadata_json`,
+                    deprecatedAt: sql`excluded.deprecated_at`,
+                    updatedAt: sql`excluded.updated_at`,
+                    deletedAt: sql`excluded.deleted_at`,
+                    syncStatus: 'synced',
+                  },
+                })
+                .returning({ id: directoryEngineBrands.id });
+              const writtenIds = new Set((written as Array<{ id: string }>).map((w) => String(w.id)));
+              const stamped = rows.filter((r) => writtenIds.has(String(r.id)));
+              await updateSeqAndCollect(directoryEngineBrands, SyncTableName.DirectoryEngineBrands, stamped);
               applied += stamped.length;
             }
           }

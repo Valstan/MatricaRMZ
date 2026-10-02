@@ -46,6 +46,9 @@ import {
   erpRegStockMovements,
   entities,
   entityTypes,
+  erpContracts,
+  erpCounterparties,
+  directoryEngineBrands,
   noteShares,
   notes,
   cardDrafts,
@@ -1928,6 +1931,9 @@ async function applyPulledChanges(
     [SyncTableName.ErpRegStockMovements]: [],
     [SyncTableName.ErpEngineInventoryLines]: [],
     [SyncTableName.WarehouseLocations]: [],
+    [SyncTableName.ErpCounterparties]: [],
+    [SyncTableName.ErpContracts]: [],
+    [SyncTableName.DirectoryEngineBrands]: [],
     [SyncTableName.Users]: [],
     [SyncTableName.UserSectionAccess]: [],
   };
@@ -2218,6 +2224,73 @@ async function applyPulledChanges(
             isActive: payload.is_active === true || payload.is_active === 1,
             sortOrder: Number(payload.sort_order ?? 0),
             metadataJson: payload.metadata_json ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      // Словарные зеркала pull-only (план sync-mirror-dictionaries-2026-10).
+      // Контрагенты раньше договоров — клиентская чистка FK-сирот не должна снести
+      // договор, чей заказчик едет тем же батчем (порядок применения — ниже).
+      case SyncTableName.ErpCounterparties:
+        {
+          const payload = payloadRaw;
+          groups.erp_counterparties.push({
+            id: payload.id,
+            name: payload.name,
+            shortName: payload.short_name ?? null,
+            inn: payload.inn ?? null,
+            kpp: payload.kpp ?? null,
+            address: payload.address ?? null,
+            email: payload.email ?? null,
+            phone: payload.phone ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.ErpContracts:
+        {
+          const payload = payloadRaw;
+          groups.erp_contracts.push({
+            id: payload.id,
+            number: payload.number ?? null,
+            internalNumber: payload.internal_number ?? null,
+            gozName: payload.goz_name ?? null,
+            gozIgk: payload.goz_igk ?? null,
+            gozSeparateAccountNumber: payload.goz_separate_account_number ?? null,
+            gozSeparateAccountBank: payload.goz_separate_account_bank ?? null,
+            gozSeparateAccount: payload.goz_separate_account ?? null,
+            signedAt: payload.signed_at ?? null,
+            dueAt: payload.due_at ?? null,
+            customerId: payload.customer_id ?? null,
+            comment: payload.comment ?? null,
+            sectionsJson: payload.sections_json ?? null,
+            executionPartsJson: payload.execution_parts_json ?? null,
+            paymentsJson: payload.payments_json ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.DirectoryEngineBrands:
+        {
+          const payload = payloadRaw;
+          groups.directory_engine_brands.push({
+            id: payload.id,
+            name: payload.name,
+            isActive: payload.is_active === true || payload.is_active === 1,
+            metadataJson: payload.metadata_json ?? null,
+            deprecatedAt: payload.deprecated_at ?? null,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
             lastServerSeq: payload.last_server_seq ?? null,
@@ -3049,6 +3122,62 @@ async function applyPulledChanges(
       isActive: sql`excluded.is_active`,
       sortOrder: sql`excluded.sort_order`,
       metadataJson: sql`excluded.metadata_json`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  // Словарные зеркала: контрагенты раньше договоров (FK customer_id).
+  if (groups.erp_counterparties.length > 0) {
+    emitApply(SyncTableName.ErpCounterparties, groups.erp_counterparties.length);
+    await upsertPulledRowsInChunks(db, erpCounterparties, groups.erp_counterparties, erpCounterparties.id, {
+      name: sql`excluded.name`,
+      shortName: sql`excluded.short_name`,
+      inn: sql`excluded.inn`,
+      kpp: sql`excluded.kpp`,
+      address: sql`excluded.address`,
+      email: sql`excluded.email`,
+      phone: sql`excluded.phone`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  if (groups.erp_contracts.length > 0) {
+    emitApply(SyncTableName.ErpContracts, groups.erp_contracts.length);
+    await upsertPulledRowsInChunks(db, erpContracts, groups.erp_contracts, erpContracts.id, {
+      number: sql`excluded.number`,
+      internalNumber: sql`excluded.internal_number`,
+      gozName: sql`excluded.goz_name`,
+      gozIgk: sql`excluded.goz_igk`,
+      gozSeparateAccountNumber: sql`excluded.goz_separate_account_number`,
+      gozSeparateAccountBank: sql`excluded.goz_separate_account_bank`,
+      gozSeparateAccount: sql`excluded.goz_separate_account`,
+      signedAt: sql`excluded.signed_at`,
+      dueAt: sql`excluded.due_at`,
+      customerId: sql`excluded.customer_id`,
+      comment: sql`excluded.comment`,
+      sectionsJson: sql`excluded.sections_json`,
+      executionPartsJson: sql`excluded.execution_parts_json`,
+      paymentsJson: sql`excluded.payments_json`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  if (groups.directory_engine_brands.length > 0) {
+    emitApply(SyncTableName.DirectoryEngineBrands, groups.directory_engine_brands.length);
+    await upsertPulledRowsInChunks(db, directoryEngineBrands, groups.directory_engine_brands, directoryEngineBrands.id, {
+      name: sql`excluded.name`,
+      isActive: sql`excluded.is_active`,
+      metadataJson: sql`excluded.metadata_json`,
+      deprecatedAt: sql`excluded.deprecated_at`,
       updatedAt: sql`excluded.updated_at`,
       lastServerSeq: sql`excluded.last_server_seq`,
       deletedAt: sql`excluded.deleted_at`,

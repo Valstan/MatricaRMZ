@@ -26,6 +26,9 @@ import {
   clientSettings,
   entities,
   entityTypes,
+  erpContracts,
+  erpCounterparties,
+  directoryEngineBrands,
   erpEngineInstances,
   erpEngineInventoryLines,
   erpEngineAssemblyBom,
@@ -97,6 +100,22 @@ const PG_SYNC_TABLES: Record<
   [SyncTableName.WarehouseLocations]: {
     drizzle: warehouseLocations,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.WarehouseLocations, r),
+  },
+  // Словарные зеркала pull-only. Видимость — паритет с сегодняшним днём, а не расширение:
+  // имена/номера контрагентов, договоров и марок уже сейчас уезжают на каждую машину парка
+  // через attribute_values (вне HR_SENSITIVE_CODES). Строгая форма тех же значений новым
+  // читателем не является.
+  [SyncTableName.ErpCounterparties]: {
+    drizzle: erpCounterparties,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpCounterparties, r),
+  },
+  [SyncTableName.ErpContracts]: {
+    drizzle: erpContracts,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpContracts, r),
+  },
+  [SyncTableName.DirectoryEngineBrands]: {
+    drizzle: directoryEngineBrands,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.DirectoryEngineBrands, r),
   },
   [SyncTableName.Users]: { drizzle: users, toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.Users, r) },
   [SyncTableName.UserSectionAccess]: {

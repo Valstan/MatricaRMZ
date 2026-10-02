@@ -6,7 +6,7 @@
 
 | Дверь | Всего | Разобрано | Статус |
 |---|---|---|---|
-| **Ledger push** (`POST /ledger/tx/submit` → `applyLedgerTxs` → `partitionLedgerInputsByAuthz` → `writeSyncChanges`) | 25 таблиц контракта | **25** | ✅ таблица ниже, механизм `SYNC_TABLE_OWNERSHIP` + два сторожа |
+| **Ledger push** (`POST /ledger/tx/submit` → `applyLedgerTxs` → `partitionLedgerInputsByAuthz` → `writeSyncChanges`) | 28 таблиц контракта | **28** | ✅ таблица ниже, механизм `SYNC_TABLE_OWNERSHIP` + два сторожа |
 | **`/changes/:id/apply`** (та же цепочка через `applyLedgerTxs`) | 1 | 1 | ✅ тот же гейт (`changesApplyAuthz.test.ts`) |
 | **REST-ручки записи** (`router.post/put/patch/delete` в `backend-api/src/routes/`) | 171 обработчик в 33 файлах | **0** | ⏳ к 16.10 |
 | **Скрипты-импортёры / обслуживание** (`backend-api/src/scripts/`) | 94 файла; 18 пишут через `writeSyncChanges`, 14 — прямым `db.insert/update/delete` | **0** | ⏳ к 16.10; прямые записи в sync-таблицы — кандидаты на M6/M15 |
@@ -14,11 +14,11 @@
 
 Не смотрели и почему: три нижних строки — отдельный проход по каждому обработчику с вопросом «какой actor, какой гейт, идёт ли через `writeSyncChanges`»; за один день 21.09 закрыт механизм ledger-двери, потому что именно она принимает строки от всего парка без участия человека.
 
-## Ledger push — 25 таблиц контракта
+## Ledger push — 28 таблиц контракта
 
 Источник правды — `shared/src/domain/ledgerAuthz.ts` (`SYNC_TABLE_OWNERSHIP`, `TABLE_REQUIREMENT`, `ENTITY_TYPE_REQUIREMENT`, `OPERATION_TYPE_REQUIREMENT`). Таблица ниже — снимок 21.09; расхождение снимка с кодом ловят сторожа `syncTableOwnership.guard.test.ts` (shared: карта ↔ requirement ↔ backstop; backend: карта ↔ проверки в `applyPushBatch`).
 
-Порядок гейтов на пути одной строки: `ensureSyncTable` (имя вне 25 → отказ всего батча) → backstop server-managed (любая роль, включая суперадмина) → backstop строки этапа работ → backstop строки единого списка этапов (шаг 8/4: `work_sheets.edit` ИЛИ `operations.edit`) → backstop защищённых атрибутов → advisory-резерв двигателя → закрытые наряды → editor-уровень раздела → **обход для не-операторских ролей** → requirement по типу/таблице для операторов → подпись в журнал → построчные проверки в `applyPushBatch`.
+Порядок гейтов на пути одной строки: `ensureSyncTable` (имя вне 28 → отказ всего батча) → backstop server-managed (любая роль, включая суперадмина) → backstop строки этапа работ → backstop строки единого списка этапов (шаг 8/4: `work_sheets.edit` ИЛИ `operations.edit`) → backstop защищённых атрибутов → advisory-резерв двигателя → закрытые наряды → editor-уровень раздела → **обход для не-операторских ролей** → requirement по типу/таблице для операторов → подпись в журнал → построчные проверки в `applyPushBatch`.
 
 | Таблица | Владение | Кто проверяет | Что клиент может |
 |---|---|---|---|
@@ -43,6 +43,9 @@
 | `erp_reg_stock_balance` | **server** (с 21.09) | backstop server-managed | ничего |
 | `erp_reg_stock_movements` | **server** (с 21.09) | backstop server-managed | ничего |
 | `warehouse_locations` | server | backstop server-managed | ничего |
+| `erp_counterparties` | server | backstop server-managed | ничего |
+| `erp_contracts` | server | backstop server-managed | ничего |
+| `directory_engine_brands` | server | backstop server-managed | ничего |
 | `users` | server | backstop server-managed | ничего |
 | `user_section_access` | server | backstop server-managed | ничего |
 

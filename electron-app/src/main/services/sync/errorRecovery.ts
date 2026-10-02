@@ -69,6 +69,9 @@ const DRIZZLE_TABLE_MAP: Record<SyncTableName, any> = {
   // ошибочные pending-строки собственного пуша). undefined здесь — решение, а не
   // забывчивость: карта объявлена Record<SyncTableName, …>, пропуск не собрался бы.
   [SyncTableName.WarehouseLocations]: undefined,
+  [SyncTableName.ErpCounterparties]: undefined,
+  [SyncTableName.ErpContracts]: undefined,
+  [SyncTableName.DirectoryEngineBrands]: undefined,
   [SyncTableName.Users]: undefined,
   [SyncTableName.UserSectionAccess]: undefined,
   [SyncTableName.ErpNomenclature]: undefined,

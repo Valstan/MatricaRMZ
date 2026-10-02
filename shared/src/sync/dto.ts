@@ -198,6 +198,49 @@ export const warehouseLocationRowSchema = z.object({
   metadata_json: z.string().nullable().optional(),
 });
 
+// Словарные зеркала pull-only (план sync-mirror-dictionaries-2026-10).
+//
+// Строгость — как у остальных схем: повторяет ровно форму БД, не строже, иначе строка,
+// не прошедшая zod в /ledger/state/changes, исчезнет из pull молча. Поэтому имена —
+// plain string без min(1) (в БД нет CHECK на непустоту; зеркало подставляет
+// 'Без названия', но схема дублировать эту гарантию не должна).
+export const erpCounterpartyRowSchema = z.object({
+  ...baseRowFields,
+  name: z.string(),
+  short_name: z.string().nullable().optional(),
+  inn: z.string().nullable().optional(),
+  kpp: z.string().nullable().optional(),
+  address: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+});
+
+export const erpContractRowSchema = z.object({
+  ...baseRowFields,
+  number: z.string().nullable().optional(),
+  internal_number: z.string().nullable().optional(),
+  goz_name: z.string().nullable().optional(),
+  goz_igk: z.string().nullable().optional(),
+  goz_separate_account_number: z.string().nullable().optional(),
+  goz_separate_account_bank: z.string().nullable().optional(),
+  goz_separate_account: z.string().nullable().optional(),
+  signed_at: z.number().int().nullable().optional(),
+  due_at: z.number().int().nullable().optional(),
+  customer_id: z.string().uuid().nullable().optional(),
+  comment: z.string().nullable().optional(),
+  sections_json: z.string().nullable().optional(),
+  execution_parts_json: z.string().nullable().optional(),
+  payments_json: z.string().nullable().optional(),
+});
+
+export const directoryEngineBrandRowSchema = z.object({
+  ...baseRowFields,
+  name: z.string(),
+  is_active: z.boolean(),
+  metadata_json: z.string().nullable().optional(),
+  deprecated_at: z.number().int().nullable().optional(),
+});
+
 export const syncRowSchemaByTable = {
   [SyncTableName.EntityTypes]: entityTypeRowSchema,
   [SyncTableName.Entities]: entityRowSchema,
@@ -222,6 +265,9 @@ export const syncRowSchemaByTable = {
   [SyncTableName.ErpRegStockMovements]: erpRegisterStockMovementRowSchema,
   [SyncTableName.ErpEngineInventoryLines]: erpEngineInventoryLineRowSchema,
   [SyncTableName.WarehouseLocations]: warehouseLocationRowSchema,
+  [SyncTableName.ErpCounterparties]: erpCounterpartyRowSchema,
+  [SyncTableName.ErpContracts]: erpContractRowSchema,
+  [SyncTableName.DirectoryEngineBrands]: directoryEngineBrandRowSchema,
   [SyncTableName.Users]: userRowSchema,
   [SyncTableName.UserSectionAccess]: userSectionAccessRowSchema,
 } as const;

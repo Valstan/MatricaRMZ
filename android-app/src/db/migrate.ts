@@ -142,6 +142,77 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     CREATE INDEX IF NOT EXISTS user_section_access_user_idx ON user_section_access(user_id);
   `);
 
+  // erp_counterparties / erp_contracts / directory_engine_brands — реплики словарных
+  // зеркал (pull-only, план sync-mirror-dictionaries-2026-10).
+  // Зеркало electron-app/src/main/database/migrate.ts: дампы sqlite_master свежей
+  // БД по обоим путям сверяет drizzleChain.test.ts.
+  //
+  // Прототипная 0006 создавала одноимённые erp_counterparties/erp_contracts другой формы
+  // (0021 их не сносила). Сносим только прототип (маркер — колонка `code`, которой нет
+  // в каноне), живую реплику не трогаем: parity гоняется на каждом старте.
+  for (const table of ['erp_counterparties', 'erp_contracts'] as const) {
+    if ((await hasTable(sqlite, table)) && (await columnNames(table)).has('code')) {
+      await sqlite.exec(`DROP TABLE IF EXISTS ${table};`);
+    }
+  }
+  await sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS erp_counterparties (
+      id text PRIMARY KEY NOT NULL,
+      name text NOT NULL,
+      short_name text,
+      inn text,
+      kpp text,
+      address text,
+      email text,
+      phone text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS erp_counterparties_name_idx ON erp_counterparties(name);
+
+    CREATE TABLE IF NOT EXISTS erp_contracts (
+      id text PRIMARY KEY NOT NULL,
+      number text,
+      internal_number text,
+      goz_name text,
+      goz_igk text,
+      goz_separate_account_number text,
+      goz_separate_account_bank text,
+      goz_separate_account text,
+      signed_at integer,
+      due_at integer,
+      customer_id text,
+      comment text,
+      sections_json text,
+      execution_parts_json text,
+      payments_json text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS erp_contracts_number_idx ON erp_contracts(number);
+    CREATE INDEX IF NOT EXISTS erp_contracts_customer_idx ON erp_contracts(customer_id);
+
+    CREATE TABLE IF NOT EXISTS directory_engine_brands (
+      id text PRIMARY KEY NOT NULL,
+      name text NOT NULL,
+      is_active integer NOT NULL DEFAULT true,
+      metadata_json text,
+      deprecated_at integer,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS directory_engine_brands_name_idx ON directory_engine_brands(name);
+  `);
+
   // erp_document_lines.nomenclature_id — добавлен через clientSchemaMigrations 3->4.
   if (await hasTable(sqlite, 'erp_document_lines')) {
     if (!(await columnNames('erp_document_lines')).has('nomenclature_id')) {
