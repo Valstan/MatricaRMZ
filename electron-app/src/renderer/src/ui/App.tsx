@@ -445,6 +445,28 @@ type EnginesRefreshReason = 'sync_done' | 'live_pulse' | 'manual';
 /** Окно схлопывания повторных перечитываний списка: 'done' синка и импульс живых данных. */
 const ENGINES_REFRESH_WINDOW_MS = 3000;
 
+/**
+ * Таблицы, от которых зависит строка списка двигателей. Чат, аудит и прочий шум
+ * синка список не меняют — полный EAV-скан на каждый такой тик и есть «тяжесть»
+ * на слабых машинах. Без потаблички (старый прогон) или с пустой — обновляем,
+ * как раньше: пропуск только при явном «двигательных таблиц нет».
+ */
+const ENGINE_SYNC_TABLES = new Set([
+  'entities',
+  'attribute_defs',
+  'attribute_values',
+  'operations',
+  'erp_engine_inventory_lines',
+]);
+
+function syncPulledEngineTables(evt: { counts?: { tables?: Record<string, number> } | undefined }): boolean {
+  const tables = evt.counts?.tables;
+  if (!tables) return true;
+  const names = Object.keys(tables);
+  if (names.length === 0) return true;
+  return names.some((t) => ENGINE_SYNC_TABLES.has(t));
+}
+
 function quickStartRatingsStorageKey(userId: string) {
   return `matrica:history:quick-start-ratings:${userId}`;
 }
@@ -1814,8 +1836,10 @@ export function App() {
           const pulled = Number(evt.pulled ?? 0);
           if (pulled > 0) {
             setSyncIndicator({ state: 'done', progress: null, summary: `Обновилось ${pulled} док.` });
-            requestEnginesRefresh('sync_done');
-            if (tabRef.current === 'engine' && !isEditingAField()) void reloadEngineRef.current();
+            if (syncPulledEngineTables(evt)) {
+              requestEnginesRefresh('sync_done');
+              if (tabRef.current === 'engine' && !isEditingAField()) void reloadEngineRef.current();
+            }
             setTimeout(() => setSyncIndicator({ state: 'idle', progress: null, summary: null }), 4000);
           } else {
             // Ничего не приехало — и сообщать не о чем: «Синхронизировано» на каждом
@@ -1860,7 +1884,7 @@ export function App() {
         return;
       }
       if (evt.state === 'done') {
-        if (Number(evt.pulled ?? 0) > 0) {
+        if (Number(evt.pulled ?? 0) > 0 && syncPulledEngineTables(evt)) {
           requestEnginesRefresh('sync_done');
           if (tabRef.current === 'engine' && !isEditingAField()) void reloadEngineRef.current();
         }
@@ -4739,7 +4763,10 @@ export function App() {
     useCallback(async () => {
       // Через коалесер: импульс приходит и сразу после 'done' синка, и по фокусу окна —
       // без него список сканировался бы дважды подряд.
-      requestEnginesRefresh('live_pulse');
+      // Список при открытой карточке не виден, а скан стоит секунд на слабой машине:
+      // его перечитывание здесь — чистый прогрев main-потока. На возврат во вкладку
+      // списка срабатывает переходный refresh ниже, свежесть не теряется.
+      if (tab !== 'engine') requestEnginesRefresh('live_pulse');
       if (tab === 'engine') await reloadEngine();
     }, [requestEnginesRefresh, reloadEngine, tab]),
     {

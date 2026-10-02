@@ -401,6 +401,8 @@ export type SyncProgressEvent = {
   counts?: {
     total?: number;
     batch?: number;
+    /** Потабличные счётчики pulled за весь прогон — рендерер пропускает лишние перечитки. */
+    tables?: Record<string, number>;
   };
   breakdown?: {
     entityTypes?: Record<string, number>;

@@ -73,7 +73,7 @@ import {
   type BlockedRowInput,
 } from './sync/blockedRows.js';
 import { SettingsKey, settingsGetNumber, settingsGetString, settingsSetNumber, settingsSetString } from './settingsStore.js';
-import { logMessage } from './logService.js';
+import { logMessage, logPerfWarn } from './logService.js';
 import { encryptRowSensitive, decryptRowSensitive, getE2eKeys } from './sync/e2eCrypto.js';
 import { getSyncSqlLimits, nextUpsertChunkEnd } from './sync/upsertChunks.js';
 import {
@@ -89,13 +89,15 @@ import {
 } from './sync/errorRecovery.js';
 import { sendDiagnosticsSnapshot as sendDiagnosticsSnapshotImpl } from './sync/diagnosticsReporter.js';
 import { isOfflineSyncError } from './sync/syncErrorClassifier.js';
-import { countPendingLocalRows } from './sync/localPending.js';
+import { countPendingLocalRows, countPendingLocalRowsByTable } from './sync/localPending.js';
 import { nowMs, yieldToEventLoop } from './sync/progressEmitter.js';
 import { fetchWithRetry } from './netFetch.js';
 // getKeyRing/keyRingToBuffers now imported in sync/e2eCrypto.ts
 
 const PUSH_TIMEOUT_MS = 180_000;
 const PULL_TIMEOUT_MS = 180_000;
+/** Прогон дольше — с разбивкой по фазам в серверный лог (тот же порог, что у сторожа). */
+const SYNC_SLOW_WARN_MS = 30_000;
 const PULL_PAGE_SIZE = 2000;
 const FULL_STATE_PAGE_SIZE = 2000;
 const MAX_TOTAL_ROWS_PER_PUSH = 1200;
@@ -3730,6 +3732,13 @@ export async function countPendingLocalChanges(): Promise<number> {
   return await countPendingLocalRows(exec);
 }
 
+/** Потабличная разбивка пробы — только для диагностики медленного COUNT. */
+export async function countPendingLocalChangesByTable(): Promise<Array<{ table: string; ms: number; n: number }>> {
+  const exec = getSqlExecutor();
+  if (!exec) return [];
+  return await countPendingLocalRowsByTable(exec);
+}
+
 type RunSyncOptions = {
   fullPull?: {
     reason: 'force_full_pull';
@@ -4101,9 +4110,14 @@ export async function runSync(
         let sinceCursor = sinceValue;
         let totalPulled = 0;
         let last: SyncPullResponse | null = null;
+        const pulledByTable = new Map<string, number>();
         for (let i = 0; i < 2000; i += 1) {
           const res = await pullOnce(sinceCursor);
           totalPulled += res.changes.length;
+          for (const ch of res.changes ?? []) {
+            const t = String((ch as { table?: unknown }).table ?? '').trim();
+            if (t) pulledByTable.set(t, (pulledByTable.get(t) ?? 0) + 1);
+          }
           last = res;
           const serverLastSeq = Number((res as any).server_last_seq ?? res.server_cursor ?? 0);
           const cursor = Number(res.server_cursor ?? 0);
@@ -4117,9 +4131,13 @@ export async function runSync(
           }
           sinceCursor = res.server_cursor;
         }
-        return { last, totalPulled };
+        return { last, totalPulled, pulledByTable };
       };
+      const prepareMs = nowMs() - startedAt;
+      const collectStartedAt = nowMs();
       let upserts = await collectPending(db);
+      const collectMs = nowMs() - collectStartedAt;
+      const pushStartedAt = nowMs();
       let pushed = 0;
       let pushError: string | null = null;
       // Ф2: строки, отбитые чужим резервом двигателя. Причина ВРЕМЕННАЯ — строка
@@ -4476,6 +4494,8 @@ export async function runSync(
       }
 
       if (coldStart && !fullPull) logSync('cold start: pulling full state snapshot instead of changelog walk');
+      const pushMs = nowMs() - pushStartedAt;
+      const pullStartedAt = nowMs();
       const pullRes = fullPull || coldStart
         ? await pullFullState()
         : await pullAll(since).then((r) => ({
@@ -4485,12 +4505,16 @@ export async function runSync(
           }));
       const pullJson = pullRes.pullJson;
       const pulled = pullRes.totalPulled;
+      const pullMs = nowMs() - pullStartedAt;
+      const pulledByTable = (pullRes as { pulledByTable?: Map<string, number> }).pulledByTable;
+      const pulledTables = pulledByTable ? Object.fromEntries(pulledByTable) : null;
 
       const finalError = pushError ? `push failed: ${pushError}` : null;
       logSync(
         `ok pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}${finalError ? ` pushError=${finalError}` : ''}`,
       );
       emitStage('finalize', 'отправка диагностики', { service: 'diagnostics', progress: 0.85 });
+      const diagStartedAt = nowMs();
       await sendDiagnosticsSnapshotImpl(
         db,
         currentApiBaseUrl,
@@ -4504,14 +4528,17 @@ export async function runSync(
             label: optsArg.label === 'push' ? 'push' : 'pull',
           }),
       ).catch(() => {});
+      const diagMs = nowMs() - diagStartedAt;
       // Ledger block sync is skipped: blocks are never read on the client and
       // downloading ~44k blocks takes ~7 minutes of network time with no benefit.
       emitStage('finalize', 'завершение синхронизации', { service: 'sync', progress: 0.98 });
       // Rows exported before a DB rebuild are replayed as pending now that the
       // fresh DB is populated; the next sync cycle pushes them.
+      const replayStartedAt = nowMs();
       await replayPendingExports(db, currentApiBaseUrl).catch((e) => {
         logSync(`pending replay error: ${formatError(e)}`);
       });
+      const replayMs = nowMs() - replayStartedAt;
       if (fullPull) {
         const durationMs = Math.max(0, nowMs() - fullPull.startedAt);
         await settingsSetNumber(db, SettingsKey.LastFullPullDurationMs, durationMs).catch(() => {});
@@ -4526,8 +4553,23 @@ export async function runSync(
         dependencySkippedCount > 0
           ? { dependencySkipped: dependencySkippedCount }
           : {};
-      emitSyncProgress('done', { progress: 1, pulled, detail: 'синхронизация завершена', counts: { total: pulled }, etaMs: 0 });
+      emitSyncProgress('done', { progress: 1, pulled, detail: 'синхронизация завершена', counts: { total: pulled, ...(pulledTables ? { tables: pulledTables } : {}) }, etaMs: 0 });
       logSync(`sync.run.done id=${syncRunId} ok=${finalError ? 0 : 1} pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}`);
+      const totalMs = nowMs() - startedAt;
+      if (totalMs >= SYNC_SLOW_WARN_MS) {
+        logPerfWarn(db, currentApiBaseUrl, 'sync-phases', `slow sync phases total=${totalMs}ms`, {
+          action: 'run-phases',
+          ms: totalMs,
+          prepareMs,
+          collectMs,
+          pushMs,
+          pullMs,
+          diagMs,
+          replayMs,
+          pushed,
+          pulled,
+        });
+      }
       if (finalError) {
         return {
           ok: false,

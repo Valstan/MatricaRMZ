@@ -92,3 +92,27 @@ export async function countPendingLocalRows(exec: SqlExecutor): Promise<number> 
     return -1;
   }
 }
+
+/**
+ * Та же проба, но потаблично с замером времени — только для диагностики медленной
+ * пробы (сторона SyncManager зовёт лишь когда общий COUNT уже превысил порог).
+ */
+export async function countPendingLocalRowsByTable(
+  exec: SqlExecutor,
+): Promise<Array<{ table: string; ms: number; n: number }>> {
+  const tables = cachedTables ?? (await listPendingProbeTables(exec));
+  const out: Array<{ table: string; ms: number; n: number }> = [];
+  for (const t of tables) {
+    const name = String(t).replace(/"/g, '""');
+    const startedAt = Date.now();
+    try {
+      const row = await exec.get<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM "${name}" WHERE sync_status IN ('pending','error')`,
+      );
+      out.push({ table: String(t), ms: Date.now() - startedAt, n: Math.max(0, Number(row?.n ?? 0) || 0) });
+    } catch {
+      out.push({ table: String(t), ms: -1, n: -1 });
+    }
+  }
+  return out;
+}
