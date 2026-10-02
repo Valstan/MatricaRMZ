@@ -23,7 +23,7 @@ import {
   type WorkSheetDuplicateRef,
 } from '@matricarmz/shared';
 
-import { attributeValues, operations } from '../database/schema.js';
+import { attributeDefs, attributeValues, operations } from '../database/schema.js';
 import { httpAuthed } from './httpClient.js';
 import { getOperation, softDeleteOperation, upsertOperation } from './operationService.js';
 import { collectChunked } from '../utils/sqlChunks.js';
@@ -206,28 +206,53 @@ export async function saveRepairStageRow(
 }
 
 /**
- * Снять глобальный флаг «утиль» с двигателя.
- * Дефектовка остаётся в истории, но двигатель больше не считается утильным.
+ * Снять метки «утиль» с двигателя при старте сборки (укладка и выше).
+ * Дефектовка и строка боковой ветки остаются в истории — чистятся только
+ * флаги карточки, из-за которых список красит строку розовым:
+ * живой `status_rejected`, обе метки `isScrapEngine` (`status_scrap_confirmed`,
+ * `status_rework_sent`) и legacy `is_scrap`. Пишем тем же путём, что карточка
+ * (`syncStatus pending` + свежий `updatedAt`), иначе снятие не уедет на сервер
+ * и розовый вернётся следующим пулом. Отсутствующая строка = флаг уже снят.
  */
+const SCRAP_FLAG_CODES = ['is_scrap', 'status_rejected', 'status_scrap_confirmed', 'status_rework_sent'] as const;
+
 async function clearEngineScrapFlag(
   db: BetterSQLite3Database,
   engineId: string,
 ): Promise<void> {
-  const scrapRows = await db
-    .select()
+  const id = text(engineId);
+  if (!id) return;
+  const defs = (await db
+    .select({ id: attributeDefs.id, code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(inArray(attributeDefs.code, [...SCRAP_FLAG_CODES]), isNull(attributeDefs.deletedAt)))) as Array<{
+    id: unknown;
+    code: unknown;
+  }>;
+  if (defs.length === 0) return;
+  const ts = Date.now();
+  const rows = (await db
+    .select({ id: attributeValues.id, attributeDefId: attributeValues.attributeDefId })
     .from(attributeValues)
     .where(
       and(
-        eq(attributeValues.entityId, engineId),
-        eq(attributeValues.attributeDefId, 'is_scrap'),
+        eq(attributeValues.entityId, id),
+        inArray(
+          attributeValues.attributeDefId,
+          defs.map((d) => String(d.id)),
+        ),
+        isNull(attributeValues.deletedAt),
       ),
-    )
-    .limit(1);
-  if (scrapRows[0]) {
+    )) as Array<{ id: unknown; attributeDefId: unknown }>;
+  for (const row of rows) {
+    const code = defs.find((d) => String(d.id) === String(row.attributeDefId))?.code;
+    // is_scrap хранит снятие строкой "0" (так исторически, сервер читает false);
+    // статусы карточка пишет булевым — снятие тоже булево.
+    const cleared = String(code) === 'is_scrap' ? JSON.stringify('0') : JSON.stringify(false);
     await db
       .update(attributeValues)
-      .set({ valueJson: JSON.stringify('0') })
-      .where(eq(attributeValues.id, scrapRows[0].id));
+      .set({ valueJson: cleared, updatedAt: ts, deletedAt: null, syncStatus: 'pending' })
+      .where(eq(attributeValues.id, String(row.id)));
   }
 }
 
