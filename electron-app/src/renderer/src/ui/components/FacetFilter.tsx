@@ -5,6 +5,7 @@ import {
   clearFacet,
   facetOptions,
   facetRangeOf,
+  normalizeLookupCompact,
   setFacetDateBound,
   toggleFacetValue,
   type FacetDescriptor,
@@ -14,6 +15,9 @@ import {
 
 import { Input } from './Input.js';
 import { emojiAttrs } from '../utils/labelEmoji.js';
+
+/** Значений больше — у ступени появляется поле «Найти…». */
+const FACET_VALUE_SEARCH_THRESHOLD = 10;
 
 /**
  * Ступенчатый фильтр списка, спрятанный под кнопку «Фильтры» (просьба владельца 08.09.2026:
@@ -88,6 +92,12 @@ export function FacetFilter<Row>(props: {
       props.onChangeFields(props.fields.filter((x) => x !== id));
       // Снятое поле не должно продолжать отбирать втихую.
       props.onChangeSelection(clearFacet(props.selection, id));
+      setValueQuery((prev) => {
+        if (!(id in prev)) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
     } else {
       props.onChangeFields([...props.fields, id]);
     }
@@ -98,6 +108,18 @@ export function FacetFilter<Row>(props: {
     if (Array.isArray(raw)) return raw.length;
     return facetRangeOf(props.selection, id) == null ? 0 : 1;
   };
+
+  // Поиск по значениям ступени (владелец 02.10.2026: 50 заказчиков глазами не
+  // найти). Локально в панели, в отбор и роуминг не едет. Выбранные значения
+  // видны всегда — иначе выбор снимался бы только сбросом всего фильтра.
+  const [valueQuery, setValueQuery] = React.useState<Record<string, string>>({});
+
+  function matchValueOption(option: FacetOption, query: string): boolean {
+    if (option.selected) return true;
+    const q = normalizeLookupCompact(query);
+    if (!q) return true;
+    return normalizeLookupCompact(option.label).includes(q);
+  }
 
   // Варианты всех раскрытых ступеней — одним мемо: раньше каждая ступень сканировала
   // весь список прямо в рендере, и любой чих родителя (индикатор синка, часы)
@@ -210,15 +232,28 @@ export function FacetFilter<Row>(props: {
         }
         const options = optionsByField.get(fieldId) ?? [];
         const picked = pickedCount(fieldId);
+        const query = valueQuery[fieldId] ?? '';
+        const shown = options.filter((option) => matchValueOption(option, query));
         return (
           <div key={fieldId} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             <span style={{ minWidth: 150, color: 'var(--subtle)' }}>
               <span {...emojiAttrs(facet.label)}>{facet.label}</span>: {picked === 0 ? 'все' : `выбрано ${picked}`}
             </span>
+            {options.length > FACET_VALUE_SEARCH_THRESHOLD ? (
+              <Input
+                value={query}
+                onChange={(e) => setValueQuery((prev) => ({ ...prev, [fieldId]: e.target.value }))}
+                placeholder="Найти…"
+                title={`Найти значение: ${facet.label}`}
+                data-facet-value-search={fieldId}
+              />
+            ) : null}
             {options.length === 0 ? (
               <span className="ui-muted">нет значений при текущем отборе</span>
+            ) : shown.length === 0 ? (
+              <span className="ui-muted">по запросу ничего нет</span>
             ) : (
-              options.map((option) => (
+              shown.map((option) => (
                 <button
                   key={option.value}
                   type="button"
