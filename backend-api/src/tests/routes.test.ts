@@ -101,17 +101,16 @@ describe('backend routes', () => {
     expect(res.body.ok).toBe(true);
   });
 
-  // B3/R2: у section_access появилась своя дверь вместо generic setAttr через
-  // синк, и она суперадминская (решение владельца 2026-07-26 «управление
-  // доступами в одних руках»). Мок middleware выдаёт роль admin — то есть
-  // второй по старшинству тир, который по прочим админским роутам проходит.
-  it('POST /admin/users/:id/section-access: администратору — 403', async () => {
+  // B3/R4b: дверь полного набора закрыта ГРОМКО для всех ролей (410): клиент
+  // строит набор из своей (замороженной) EAV-реплики, и один такой набор молча
+  // откатил бы всё выданное после cutover. Живая форма — дельта-дверь `/one`.
+  it('POST /admin/users/:id/section-access: всем — 410 «обновите программу»', async () => {
     const app = createApp();
     const res = await request(app)
       .post('/admin/users/emp-1/section-access')
       .send({ membership: { warehouse: 'editor' } });
-    expect(res.status).toBe(403);
-    expect(String(res.body?.error ?? '')).toContain('супер-админ');
+    expect(res.status).toBe(410);
+    expect(String(res.body?.error ?? '')).toContain('обновите программу');
   });
 
   it('GET /admin/users returns users list', async () => {

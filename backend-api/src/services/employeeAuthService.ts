@@ -1,11 +1,10 @@
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { mergeUserUiProfiles, sanitizeUiControlSettings, sanitizeUserUiProfile, type UserUiProfile } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
-import { attributeDefs, attributeValues, entities, entityTypes, refreshTokens, userCredentials, userSettings, users } from '../database/schema.js';
+import { attributeDefs, attributeValues, entities, entityTypes, refreshTokens, userCredentials, userSectionAccess, userSettings, users } from '../database/schema.js';
 import {
-  SECTION_ACCESS_ATTR,
   SyncTableName,
   attributeDefRowSchema,
   attributeValueRowSchema,
@@ -554,35 +553,6 @@ export async function getEmployeeChatDisplayNameDefId() {
   return rows[0]?.id ? String(rows[0].id) : null;
 }
 
-async function getEmployeeLoggingDefIds() {
-  await ensureEmployeeAuthDefs().catch(() => null);
-  const employeeTypeId = await getEmployeeTypeId();
-  if (!employeeTypeId) return null;
-  const defs = await db
-    .select({ id: attributeDefs.id, code: attributeDefs.code })
-    .from(attributeDefs)
-    .where(and(eq(attributeDefs.entityTypeId, employeeTypeId), isNull(attributeDefs.deletedAt)))
-    .limit(5000);
-  const byCode: Record<string, string> = {};
-  for (const d of defs as any[]) byCode[String(d.code)] = String(d.id);
-  const loggingEnabledDefId = byCode[AUTH_CODES.loggingEnabled];
-  const loggingModeDefId = byCode[AUTH_CODES.loggingMode];
-  if (!loggingEnabledDefId || !loggingModeDefId) return null;
-  return { loggingEnabledDefId, loggingModeDefId };
-}
-
-async function getEmployeeUiSettingsDefId() {
-  await ensureEmployeeAuthDefs().catch(() => null);
-  const employeeTypeId = await getEmployeeTypeId();
-  if (!employeeTypeId) return null;
-  const rows = await db
-    .select({ id: attributeDefs.id })
-    .from(attributeDefs)
-    .where(and(eq(attributeDefs.entityTypeId, employeeTypeId), eq(attributeDefs.code, AUTH_CODES.uiSettingsJson), isNull(attributeDefs.deletedAt)))
-    .limit(1);
-  return rows[0]?.id ? String(rows[0].id) : null;
-}
-
 /**
  * B3/R4a: настройки читаются из `user_settings`.
  *
@@ -624,15 +594,14 @@ export async function setEmployeeLoggingSettings(
   employeeId: string,
   args: { loggingEnabled?: boolean | null; loggingMode?: 'dev' | 'prod' | null },
 ) {
-  const defs = await getEmployeeLoggingDefIds();
-  if (!defs) return { ok: false as const, error: 'настройки логирования не найдены' };
-  if (args.loggingEnabled !== undefined) {
-    await upsertAttrValue(employeeId, defs.loggingEnabledDefId, args.loggingEnabled === true);
+  // B3/R4b: пишем в `user_settings` (шестой писатель той же строки).
+  if (!(await usersRowExists(employeeId))) {
+    return { ok: false as const, error: 'учётной записи нет — настройки хранить негде' };
   }
-  if (args.loggingMode !== undefined) {
-    const mode = args.loggingMode === 'dev' ? 'dev' : 'prod';
-    await upsertAttrValue(employeeId, defs.loggingModeDefId, mode);
-  }
+  const patch: { loggingEnabled?: boolean | null; loggingMode?: string | null } = {};
+  if (args.loggingEnabled !== undefined) patch.loggingEnabled = args.loggingEnabled === true;
+  if (args.loggingMode !== undefined) patch.loggingMode = args.loggingMode === 'dev' ? 'dev' : 'prod';
+  if (Object.keys(patch).length > 0) await writeUserSettings(employeeId, patch);
   return { ok: true as const };
 }
 
@@ -657,25 +626,12 @@ export async function getEmployeeUiProfile(employeeId: string): Promise<UserUiPr
   }
 }
 
-/** База LWW-мерджа профиля — из EAV, куда пишет `setEmployeeUiProfile`. Почему не из strict — см. коммент там же. */
-async function readEavUiProfile(employeeId: string): Promise<UserUiProfile | null> {
-  const defId = await getEmployeeAttrDefId(AUTH_CODES.uiProfileJson);
-  if (!defId) return null;
-  const rows = await db
-    .select({ valueJson: attributeValues.valueJson })
-    .from(attributeValues)
-    .where(
-      and(
-        eq(attributeValues.entityId, employeeId as any),
-        eq(attributeValues.attributeDefId, defId as any),
-        isNull(attributeValues.deletedAt),
-      ),
-    )
-    .limit(1);
-  const raw = rows[0]?.valueJson ? String(rows[0].valueJson) : null;
-  if (!raw) return null;
+/** База LWW-мерджа профиля — из strict (`user_settings`), куда пишет `setEmployeeUiProfile`. */
+async function readCanonUiProfile(employeeId: string): Promise<UserUiProfile | null> {
+  const row = await readUserSettings(employeeId);
+  if (row?.uiProfile == null) return null;
   try {
-    const profile = sanitizeUserUiProfile(JSON.parse(raw));
+    const profile = sanitizeUserUiProfile(row.uiProfile);
     return profile.updatedAt > 0 ? profile : null;
   } catch {
     return null;
@@ -683,36 +639,73 @@ async function readEavUiProfile(employeeId: string): Promise<UserUiProfile | nul
 }
 
 export async function setEmployeeUiProfile(employeeId: string, rawProfile: unknown) {
-  await ensureEmployeeAuthDefs().catch(() => null);
-  const defId = await getEmployeeAttrDefId(AUTH_CODES.uiProfileJson);
-  if (!defId) return { ok: false as const, error: 'определение ui_profile не найдено' };
+  // B3/R4b: пишем в `user_settings` (вне синка — гард не нужен, только гигиена
+  // бампов: identical content — пропуск записи). База мерджа — оттуда же.
+  if (!(await usersRowExists(employeeId))) {
+    return { ok: false as const, error: 'учётной записи нет — профиль хранить негде' };
+  }
   const incoming = sanitizeUserUiProfile(rawProfile);
   if (!(incoming.updatedAt > 0)) return { ok: false as const, error: 'updatedAt обязателен' };
   // Merge с per-key LWW (v3.5.0): секция применяется, только если её штамп не
   // старше сохранённого; отсутствующие в PATCH секции не трогаются. Раньше PATCH
   // заменял профиль целиком — клиент, пушащий 4 ключа из 5, молча стирал пятый
   // (aiChatTemplates), а пуш пустого снапшота после неудачного GET стирал пины.
-  //
-  // База мерджа читается ИЗ EAV, то есть из того же хранилища, куда идёт upsert
-  // ниже, — а не из `user_settings`, откуда читает GET. Разница видна только при
-  // отказе зеркала (барьер `EXCEPTION WHEN others` в rebuild_user, 0088), и она
-  // несимметрична: пустая база у GET значит «показали пустой стол», пустая база
-  // у МЕРДЖА значит, что этим же PATCH'ем в КАНОН запишется усечённый профиль —
-  // вкладки, пины «Моего круга» и раскладки колонок исчезнут безвозвратно. На
-  // R4b переезжает на strict вместе с писателем.
-  const existing = await readEavUiProfile(employeeId);
+  const existing = await readCanonUiProfile(employeeId);
   const { profile, stale } = mergeUserUiProfiles(existing, rawProfile);
-  await upsertAttrValue(employeeId, defId, profile);
+  const cur = await readUserSettings(employeeId);
+  if (JSON.stringify(cur?.uiProfile ?? null) !== JSON.stringify(profile)) {
+    await writeUserSettings(employeeId, { uiProfile: profile });
+  }
   return { ok: true as const, profile, stale };
 }
 
 export async function setEmployeeUiSettings(employeeId: string, rawSettings: unknown) {
-  const defId = await getEmployeeUiSettingsDefId();
-  if (!defId) return { ok: false as const, error: 'определение UI settings не найдено' };
+  if (!(await usersRowExists(employeeId))) {
+    return { ok: false as const, error: 'учётной записи нет — настройки хранить негде' };
+  }
   const safeSettings = sanitizeUiControlSettings(rawSettings);
   const safeJson = JSON.stringify(safeSettings);
-  await upsertAttrValue(employeeId, defId, safeSettings);
+  const cur = await readUserSettings(employeeId);
+  if (JSON.stringify(cur?.uiSettings ?? null) !== safeJson) {
+    await writeUserSettings(employeeId, { uiSettings: safeSettings });
+  }
   return { ok: true as const, uiSettingsJson: safeJson };
+}
+
+/** Точечная запись `user_settings`: только изменённые колонки, без холостых бампов. */
+async function writeUserSettings(
+  employeeId: string,
+  patch: { uiSettings?: unknown; uiProfile?: unknown; loggingEnabled?: boolean | null; loggingMode?: string | null },
+): Promise<void> {
+  const ts = nowMs();
+  const cur = await readUserSettings(employeeId);
+  const next = {
+    uiSettings: patch.uiSettings !== undefined ? (patch.uiSettings as any) : (cur?.uiSettings ?? null),
+    uiProfile: patch.uiProfile !== undefined ? (patch.uiProfile as any) : (cur?.uiProfile ?? null),
+    loggingEnabled: patch.loggingEnabled !== undefined ? (patch.loggingEnabled as any) : (cur?.loggingEnabled ?? null),
+    loggingMode: patch.loggingMode !== undefined ? (patch.loggingMode as any) : (cur?.loggingMode ?? null),
+  };
+  if (!cur) {
+    await db.insert(userSettings).values({
+      userId: employeeId as any,
+      ...next,
+      createdAt: ts,
+      updatedAt: ts,
+    });
+    return;
+  }
+  if (
+    JSON.stringify(cur.uiSettings ?? null) === JSON.stringify(next.uiSettings ?? null) &&
+    JSON.stringify(cur.uiProfile ?? null) === JSON.stringify(next.uiProfile ?? null) &&
+    (cur.loggingEnabled ?? null) === (next.loggingEnabled ?? null) &&
+    (cur.loggingMode ?? null) === (next.loggingMode ?? null)
+  ) {
+    return;
+  }
+  await db
+    .update(userSettings)
+    .set({ ...next, updatedAt: ts })
+    .where(eq(userSettings.userId, employeeId as any));
 }
 
 async function getEmployeeAttrDefId(code: string) {
@@ -1040,6 +1033,132 @@ async function upsertAttrValue(entityId: string, defId: string, value: unknown) 
   }
 }
 
+// ────────────────────────────────────────────────────────────
+// B3/R4b — прямые писатели строгих таблиц (cutover с EAV).
+//
+// Правило инварианта 1 (разбор R4a): прямой писатель несёт WHERE ... IS DISTINCT
+// FROM на самой записи. Холостой бамп updated_at без изменения данных иначе терял
+// бы строку: паблишер читает её вне транзакции записи, публикует протухшее
+// содержимое, apply отбрасывает его как stale — а ack снимает заявку безусловно,
+// и строка не уезжает никогда. Триггерный WHEN-гард (0103) закрывает шторм, но не
+// это окно: бамп без заявки проходит мимо обоих.
+// ────────────────────────────────────────────────────────────
+
+type UsersPatch = {
+  login?: string;
+  systemRole?: string;
+  accessEnabled?: boolean;
+  deleteRequestedAt?: number | null;
+  deleteRequestedBy?: string | null;
+};
+
+/** Нормализация ровно как rebuild_user (0088) и normalizeRole: без дрейфа по построению. */
+function strictRoleFor(login: string, rawRole: string | null | undefined): string {
+  return normalizeRole(login, rawRole ?? 'employee');
+}
+
+function strictDeleteRequest(
+  requestedAt: number | null | undefined,
+  requestedBy: string | null | undefined,
+): { at: number | null; by: string | null } {
+  const num = requestedAt == null ? null : Number(requestedAt);
+  const at = num != null && Number.isFinite(num) ? num : null;
+  // Асимметричный CHECK (как rebuild_user): инициатор без даты невозможен.
+  const by = at == null ? null : (requestedBy ?? null);
+  return { at, by };
+}
+
+async function usersRowExists(employeeId: string): Promise<boolean> {
+  const rows = await db.select({ id: users.id }).from(users).where(eq(users.id, employeeId as any)).limit(1);
+  return rows.length > 0;
+}
+
+export async function hasUsersRow(employeeId: string): Promise<boolean> {
+  return usersRowExists(employeeId);
+}
+
+/**
+ * Upsert строки users: вставка для новой учётки, обновление с DISTINCT-гардом для
+ * существующей. Возвращает false, если писать нечего (строка уже такая).
+ * FK-страховка и асимметричный CHECK — как в rebuild_user: инициатор без своей
+ * строки или дата без инициатора не проходят.
+ */
+async function upsertUsersStrict(
+  employeeId: string,
+  patch: Required<Pick<UsersPatch, 'login' | 'systemRole' | 'accessEnabled'>> & Pick<UsersPatch, 'deleteRequestedAt' | 'deleteRequestedBy'>,
+): Promise<{ ok: true; written: boolean } | { ok: false; error: string }> {
+  const ts = nowMs();
+  const login = normalizeLogin(patch.login);
+  if (!login) return { ok: false, error: 'логин не задан' };
+  const role = strictRoleFor(login, patch.systemRole);
+  const access = patch.accessEnabled === true;
+  const req = strictDeleteRequest(patch.deleteRequestedAt ?? null, patch.deleteRequestedBy ?? null);
+  // FK-страховка (как rebuild_user): инициатор без своей строки — в NULL.
+  let reqBy: string | null = req.by;
+  if (reqBy != null && !(await usersRowExists(reqBy))) reqBy = null;
+  const reqAt: number | null = req.at;
+
+  const existing = await db.select().from(users).where(eq(users.id, employeeId as any)).limit(1);
+  const cur = existing[0] as typeof users.$inferSelect | undefined;
+  if (cur?.deletedAt != null) {
+    // Отозванная учётка не воскресает обычной правкой: иначе правка любого поля
+    // на старой карточке молча включала бы вход уволенному. Повторное
+    // предоставление доступа — осознанным путём (новая карточка / снятие отзыва).
+    return { ok: false as const, error: 'учётная запись отозвана' };
+  }
+  if (!cur) {
+    if (await isLoginTaken(login, employeeId)) return { ok: false, error: 'логин занят' };
+    await db.insert(users).values({
+      id: employeeId as any,
+      login,
+      systemRole: role as any,
+      accessEnabled: access,
+      deleteRequestedAt: reqAt,
+      deleteRequestedBy: reqBy as any,
+      createdAt: ts,
+      updatedAt: ts,
+      deletedAt: null,
+    });
+    return { ok: true, written: true };
+  }
+  if (
+    cur.login === login &&
+    cur.systemRole === role &&
+    cur.accessEnabled === access &&
+    (cur.deleteRequestedAt ?? null) === reqAt &&
+    (cur.deleteRequestedBy ?? null) === (reqBy as any)
+  ) {
+    return { ok: true, written: false };
+  }
+  await db
+    .update(users)
+    .set({ login, systemRole: role as any, accessEnabled: access, deleteRequestedAt: reqAt, deleteRequestedBy: reqBy as any, updatedAt: ts })
+    .where(
+      and(
+        eq(users.id, employeeId as any),
+        sql`(${users.login}, ${users.systemRole}, ${users.accessEnabled}, ${users.deleteRequestedAt}, ${users.deleteRequestedBy}) is distinct from (${login}, ${role}, ${access}, ${reqAt}, ${reqBy})`,
+      ),
+    );
+  return { ok: true, written: true };
+}
+
+/** Кред: пустой хэш — DELETE (как rebuild_user), иначе upsert. Вне синка — гард не нужен. */
+async function writeCredentialStrict(employeeId: string, passwordHash: string | null): Promise<void> {
+  const ts = nowMs();
+  const hash = String(passwordHash ?? '').trim();
+  if (!hash) {
+    await db.delete(userCredentials).where(eq(userCredentials.userId, employeeId as any));
+    return;
+  }
+  await db
+    .insert(userCredentials)
+    .values({ userId: employeeId as any, passwordHash: hash, createdAt: ts, updatedAt: ts })
+    .onConflictDoUpdate({
+      target: userCredentials.userId,
+      set: { passwordHash: hash, updatedAt: ts },
+    });
+}
+
 async function getSectionNameById(sectionId: string | null) {
   if (!sectionId) return null;
   const sectionTypeId = await getEntityTypeIdByCode('section');
@@ -1075,13 +1194,22 @@ export async function setEmployeeAuth(
   employeeId: string,
   args: { login?: string | null; passwordHash?: string | null; systemRole?: string | null; accessEnabled?: boolean | null },
 ) {
-  const defs = await getEmployeeAuthDefIds();
-  if (!defs) return { ok: false as const, error: 'тип сотрудника не найден' };
-
-  if (args.login !== undefined) await upsertAttrValue(employeeId, defs.loginDefId, args.login ? normalizeLogin(args.login) : null);
-  if (args.passwordHash !== undefined) await upsertAttrValue(employeeId, defs.passwordDefId, args.passwordHash ?? null);
-  if (args.systemRole !== undefined) await upsertAttrValue(employeeId, defs.roleDefId, args.systemRole ?? 'employee');
-  if (args.accessEnabled !== undefined) await upsertAttrValue(employeeId, defs.accessDefId, args.accessEnabled === true);
+  // B3/R4b: пишем в strict (users + user_credentials), EAV-зеркало удерживает
+  // только HR-хвост. Частичное обновление достраивается текущей строкой —
+  // семантика полного rebuild, как у rebuild_user.
+  const current = (
+    await db.select().from(users).where(eq(users.id, employeeId as any)).limit(1)
+  )[0] as typeof users.$inferSelect | undefined;
+  const login = args.login !== undefined ? (args.login ? normalizeLogin(args.login) : '') : (current?.login ?? '');
+  const r = await upsertUsersStrict(employeeId, {
+    login,
+    systemRole: args.systemRole !== undefined ? (args.systemRole ?? 'employee') : (current?.systemRole ?? 'employee'),
+    accessEnabled: args.accessEnabled !== undefined ? args.accessEnabled === true : (current?.accessEnabled ?? false),
+    deleteRequestedAt: current?.deleteRequestedAt ?? null,
+    deleteRequestedBy: (current?.deleteRequestedBy as string | null) ?? null,
+  });
+  if (!r.ok) return r;
+  if (args.passwordHash !== undefined) await writeCredentialStrict(employeeId, args.passwordHash);
 
   // For a brand-new user this is a harmless no-op (no tokens yet).
   if (shouldRevokeRefreshTokensOnAuthChange(args)) {
@@ -1159,11 +1287,50 @@ export async function setEmployeeSectionAccess(employeeId: string, rawMembership
     };
   }
 
-  const defId = await getAttributeDefId(employeeTypeId, SECTION_ACCESS_ATTR);
-  if (!defId) return { ok: false as const, error: 'модель разделов не инициализирована' };
-  // Форма хранения та же, что писал клиент (строка с JSON внутри), — иначе
-  // разъедется и санитайзер, и SQL-разбор в rebuild_user_sections.
-  await upsertAttrValue(employeeId, defId, serializeSectionMembership(membership));
+  // B3/R4b: пишем в user_section_access. Семантика та же, что у rebuild_user_sections:
+  // живые строки — upsert, всё, чего в желаемом наборе нет, — тумбстоун. Пишем только
+  // дельту (инвариант 1 R4b: холостой бамп без изменения данных теряет строку).
+  if (!(await usersRowExists(employeeId))) {
+    return { ok: false as const, error: 'учётной записи нет — сначала задайте логин' };
+  }
+  const ts = nowMs();
+  const current = await db
+    .select({ id: userSectionAccess.id, sectionId: userSectionAccess.sectionId, level: userSectionAccess.level })
+    .from(userSectionAccess)
+    .where(and(eq(userSectionAccess.userId, employeeId as any), isNull(userSectionAccess.deletedAt)));
+  const curBySection = new Map(current.map((r) => [String(r.sectionId), r]));
+  for (const [sectionId, level] of Object.entries(membership)) {
+    const cur = curBySection.get(sectionId);
+    if (cur && String(cur.level) === String(level)) continue;
+    if (cur) {
+      await db
+        .update(userSectionAccess)
+        .set({ level: String(level), updatedAt: ts, deletedAt: null })
+        .where(
+          and(
+            eq(userSectionAccess.id, cur.id as any),
+            sql`(${userSectionAccess.level}, ${userSectionAccess.deletedAt}) is distinct from (${String(level)}, ${null})`,
+          ),
+        );
+    } else {
+      await db.insert(userSectionAccess).values({
+        id: randomUUID(),
+        userId: employeeId as any,
+        sectionId,
+        level: String(level),
+        createdAt: ts,
+        updatedAt: ts,
+        deletedAt: null,
+      });
+    }
+  }
+  for (const cur of current) {
+    if (String(cur.sectionId) in membership) continue;
+    await db
+      .update(userSectionAccess)
+      .set({ deletedAt: ts, updatedAt: ts })
+      .where(and(eq(userSectionAccess.id, cur.id as any), isNull(userSectionAccess.deletedAt)));
+  }
   return { ok: true as const, membership };
 }
 
@@ -1188,24 +1355,19 @@ export async function setEmployeeSectionAccess(employeeId: string, rawMembership
  *
  * На R4b переезжает на `user_section_access` — одновременно с писателем и
  * сносом триггеров, не раньше и не позже.
+ * B3/R4b: ПЕРЕЕХАЛО. База читается из `user_section_access` — из того же
+ * хранилища, куда идёт запись (писатель — setEmployeeSectionAccess выше).
+ * Свойство двери сохранено: база читается НА СЕРВЕРЕ, протухший клиент откатить
+ * ничего не может.
  */
-async function readCanonSectionMembership(employeeId: string): Promise<unknown> {
-  const employeeTypeId = await getEmployeeTypeId();
-  if (!employeeTypeId) return null;
-  const defId = await getAttributeDefId(employeeTypeId, SECTION_ACCESS_ATTR);
-  if (!defId) return null;
+async function readCanonSectionMembership(employeeId: string): Promise<Record<string, string>> {
   const rows = await db
-    .select({ valueJson: attributeValues.valueJson })
-    .from(attributeValues)
-    .where(
-      and(
-        eq(attributeValues.entityId, employeeId as any),
-        eq(attributeValues.attributeDefId, defId as any),
-        isNull(attributeValues.deletedAt),
-      ),
-    )
-    .limit(1);
-  return rows[0]?.valueJson ? safeJsonParse(String(rows[0].valueJson)) : null;
+    .select({ sectionId: userSectionAccess.sectionId, level: userSectionAccess.level })
+    .from(userSectionAccess)
+    .where(and(eq(userSectionAccess.userId, employeeId as any), isNull(userSectionAccess.deletedAt)));
+  const membership: Record<string, string> = {};
+  for (const r of rows) membership[String(r.sectionId)] = String(r.level);
+  return membership;
 }
 
 /**
@@ -1269,39 +1431,71 @@ export function applySectionAccessDelta(
 }
 
 export async function seedSectionAccessIfMissing(employeeId: string, role: string) {
-  const employeeTypeId = await getEmployeeTypeId();
-  if (!employeeTypeId) return { ok: false as const, seeded: false };
-  const defId = await getAttributeDefId(employeeTypeId, SECTION_ACCESS_ATTR);
-  // No def = the section model is not initialized in this DB — nothing to seed.
-  if (!defId) return { ok: true as const, seeded: false };
-  // Решение «засеивать?» — по канону, из того же хранилища, куда пойдёт запись
-  // (см. док readCanonSectionMembership). Через засев проходит смена роли пятью
-  // путями, и решение по пустому зеркалу обнулило бы вручную настроенную
-  // матрицу доступов до дефолтной.
+  // B3/R4b: решение «засеивать?» — по канону из strict (см. док readCanonSectionMembership).
+  // Через засев проходит смена роли пятью путями, и решение по пустому хранилищу
+  // обнулило бы вручную настроенную матрицу доступов до дефолтной.
   const existingRaw = await readCanonSectionMembership(employeeId);
   const value = sectionAccessSeedValue(existingRaw, role);
   if (value == null) return { ok: true as const, seeded: false };
-  await upsertAttrValue(employeeId, defId, value);
-  return { ok: true as const, seeded: true };
+  const r = await setEmployeeSectionAccess(employeeId, JSON.parse(value));
+  return r.ok ? { ok: true as const, seeded: true } : { ok: false as const, seeded: false };
 }
 
 export async function setEmployeeDeleteRequest(
   employeeId: string,
   args: { requestedAt?: number | null; requestedById?: string | null; requestedByUsername?: string | null },
 ) {
-  const defs = await getEmployeeAuthDefIds();
-  if (!defs) return { ok: false as const, error: 'тип сотрудника не найден' };
-  if (args.requestedAt !== undefined && defs.deleteRequestedAtDefId) {
-    const ts = args.requestedAt == null ? null : Number(args.requestedAt);
-    await upsertAttrValue(employeeId, defs.deleteRequestedAtDefId, Number.isFinite(ts as number) ? ts : null);
+  // B3/R4b: пишем в `users`. `requestedByUsername` больше не пишется никуда:
+  // копия логина инициатора умерла на R4a, имя резолвится из `users.delete_requested_by`
+  // при чтении. Параметр оставлен в сигнатуре, чтобы вызывающие не переписывались.
+  const cur = (
+    await db.select().from(users).where(eq(users.id, employeeId as any)).limit(1)
+  )[0] as typeof users.$inferSelect | undefined;
+  if (!cur) return { ok: false as const, error: 'учётной записи нет' };
+  const at =
+    args.requestedAt !== undefined
+      ? (args.requestedAt == null || !Number.isFinite(Number(args.requestedAt)) ? null : Number(args.requestedAt))
+      : (cur.deleteRequestedAt ?? null);
+  let by =
+    args.requestedById !== undefined ? (args.requestedById ?? null) : ((cur.deleteRequestedBy as string | null) ?? null);
+  if (at == null) by = null;
+  else if (by != null && !(await usersRowExists(by))) by = null;
+  const r = await upsertUsersStrict(employeeId, {
+    login: cur.login,
+    systemRole: cur.systemRole,
+    accessEnabled: cur.accessEnabled === true,
+    deleteRequestedAt: at,
+    deleteRequestedBy: by,
+  });
+  return r.ok ? { ok: true as const } : { ok: false as const, error: 'запись не удалась' };
+}
+
+/**
+ * B3/R4b: именованный отзыв аккаунта (ex-merge-flow). Soft-delete строки + гашение
+ * доступа + явное удаление секрета и настроек (каскада на soft-delete нет).
+ * Тумбстоун публикуется обычным путём (триггер 0103) — снятый логин освобождается,
+ * а в репликах парка строка гаснет, а не застревает живой.
+ */
+export async function revokeAccount(employeeId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const ts = nowMs();
+  const cur = (
+    await db.select().from(users).where(eq(users.id, employeeId as any)).limit(1)
+  )[0] as typeof users.$inferSelect | undefined;
+  if (!cur) return { ok: false as const, error: 'учётной записи нет' };
+  if (cur.deletedAt == null || cur.accessEnabled === true) {
+    await db
+      .update(users)
+      .set({ deletedAt: cur.deletedAt ?? ts, accessEnabled: false, updatedAt: ts })
+      .where(
+        and(
+          eq(users.id, employeeId as any),
+          sql`(${users.deletedAt}, ${users.accessEnabled}) is distinct from (${cur.deletedAt ?? ts}, ${false})`,
+        ),
+      );
   }
-  if (args.requestedById !== undefined && defs.deleteRequestedByIdDefId) {
-    await upsertAttrValue(employeeId, defs.deleteRequestedByIdDefId, args.requestedById ?? null);
-  }
-  // `requestedByUsername` больше не пишется: копия логина инициатора умерла на
-  // R4a, имя резолвится из `users.delete_requested_by` при чтении. Параметр
-  // оставлен в сигнатуре, чтобы вызывающие не переписывались дважды — на R4b
-  // вся эта функция уходит в строгую запись.
+  await db.delete(userCredentials).where(eq(userCredentials.userId, employeeId as any));
+  await db.delete(userSettings).where(eq(userSettings.userId, employeeId as any));
+  await db.delete(refreshTokens).where(eq(refreshTokens.userId, employeeId));
   return { ok: true as const };
 }
 

@@ -28,6 +28,7 @@ import {
 import { db } from '../database/db.js';
 import { attributeDefs, attributeValues, directoryParts, entities, entityTypes, erpEngineAssemblyBomBrandLinks, operations, rowOwners } from '../database/schema.js';
 import { findContractInternalNumberDuplicate } from './contractNumberGuard.js';
+import { hasUsersRow, revokeAccount } from './employeeAuthService.js';
 import {
   engineHasDuplicateBypassFlag,
   findEngineDuplicateByNumber,
@@ -1534,6 +1535,32 @@ export async function detachIncomingLinksAndSoftDeleteEntity(actor: Actor, entit
 
     const del = await softDeleteEntity(actor, entityId);
     if (!del.ok) return { ok: false as const, error: del.error ?? 'delete failed' };
+    // B3/R4b: снос EAV-триггеров убрал автоматический отзыв входа при удалении
+    // карточки сотрудника (раньше триггер гасил users.deleted_at сам). Без этой
+    // связки удаление карточки любым общим путём оставляло бы живой логин.
+    // Отзыв терминален: восстановление карточки вход не возвращает.
+    try {
+      const ent = await db
+        .select({ typeId: entities.typeId })
+        .from(entities)
+        .where(eq(entities.id, entityId as any))
+        .limit(1);
+      const typeCode =
+        ent[0] == null
+          ? null
+          : await db
+              .select({ code: entityTypes.code })
+              .from(entityTypes)
+              .where(eq(entityTypes.id, ent[0].typeId as any))
+              .limit(1)
+              .then((r) => (r[0] ? String(r[0].code) : null));
+      if (typeCode === 'employee' && (await hasUsersRow(entityId))) {
+        const revoked = await revokeAccount(entityId);
+        if (!revoked.ok) return { ok: false as const, error: revoked.error };
+      }
+    } catch (e) {
+      return { ok: false as const, error: `карточка удалена, отзыв входа не удался: ${String(e)}` };
+    }
     return { ok: true as const, detached: rows.length };
   } catch (e) {
     return { ok: false as const, error: String(e) };

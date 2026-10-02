@@ -429,10 +429,9 @@ export async function mergeEmployees(args: {
     const tomb = await setEntityAttribute(args.actor, loserId, MERGED_INTO_CODE, survivorId, { allowSyncConflicts: true });
     if (!tomb.ok) return { ok: false as const, error: `не удалось пометить вторичную запись: ${tomb.error}` };
 
-    // Доступ вторичного выключаем через EAV, а не прямым UPDATE по `users`: строку `users`
-    // собирает триггер из EAV и публикует очередь (`usersSyncPublisherService`). Прямая правка
-    // до клиентов не доехала бы — номер журнала у строки уже есть, а страховочный проход берёт
-    // только строки без номера, — и её стёрла бы следующая пересборка из EAV.
+    // Доступ вторичного выключаем дверью setEmployeeAuth: строка users правится
+    // напрямую, а триггер публикации (0103) кладёт заявку в outbox той же
+    // транзакцией — до клиентов изменение доезжает обычным pull'ом с номером.
     await setEmployeeAuth(loserId, { accessEnabled: false });
 
     const del = await softDeleteEntity(args.actor, loserId, { allowSyncConflicts: true, skipReferenceCheck: true });

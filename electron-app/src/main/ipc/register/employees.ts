@@ -6,7 +6,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { getEntityDetails, listEntitiesByType, setEntityAttribute, softDeleteEntity } from '../../services/entityService.js';
-import { analyzeEmployeeDuplicatesRemote, deleteEmployeeRemote, getSectionMembershipByLogin, listEmployeeAttributeDefs, listEmployeesSummary, mergeEmployeeDuplicatesRemote, mergeEmployeesToServer } from '../../services/employeeService.js';
+import { analyzeEmployeeDuplicatesRemote, deleteEmployeeRemote, getSectionMembershipByLogin, getSectionMembershipByUserId, listEmployeeAttributeDefs, listEmployeesSummary, mergeEmployeeDuplicatesRemote, mergeEmployeesToServer } from '../../services/employeeService.js';
 import { adminResyncEmployees, viewUserPermissions } from '../../services/adminUsersService.js';
 import { entityTypes } from '../../database/schema.js';
 
@@ -137,5 +137,14 @@ export function registerEmployeesIpc(ctx: IpcContext) {
     const gate = await requirePermOrResult(ctx, 'employees.view');
     if (!gate.ok) return { ok: false as const, error: gate.error };
     return viewUserPermissions(ctx.sysDb, ctx.mgr.getApiBaseUrl(), userId);
+  });
+
+  // B3/R4b: membership ОДНОГО сотрудника из локальной реплики — показ зеркала
+  // в карточке. Гейт тот же, что у permissionsGet (employees.view).
+  ipcMain.handle('employees:sectionMembershipGet', async (_e, userId: string) => {
+    const gate = await requirePermOrResult(ctx, 'employees.view');
+    if (!gate.ok) return { ok: false as const, error: gate.error };
+    const membership = await getSectionMembershipByUserId(ctx.dataDb(), String(userId ?? ''));
+    return { ok: true as const, membership };
   });
 }

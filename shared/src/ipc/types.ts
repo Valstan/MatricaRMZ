@@ -1628,6 +1628,11 @@ export type MatricaApi = {
         }
       | { ok: false; error: string }
     >;
+    /** Membership одного сотрудника из локальной реплики (R4b); null = реплика не налита. */
+    sectionMembershipGet: (userId: string) => Promise<
+      | { ok: true; membership: Record<string, 'viewer' | 'editor'> | null }
+      | { ok: false; error: string }
+    >;
   };
   timesheets: {
     codes: () => Promise<{ ok: true; codes: TimesheetCodeDef[] } | { ok: false; error: string }>;
