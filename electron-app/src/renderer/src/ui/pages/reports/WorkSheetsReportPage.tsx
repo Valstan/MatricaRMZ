@@ -32,6 +32,8 @@ import { useColumnLayout } from '../../hooks/useColumnLayout.js';
 import { useListDeepFilter } from '../../hooks/useListDeepFilter.js';
 import { useListUiState } from '../../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../../hooks/useLiveDataRefresh.js';
+import { useRepairStageTemplateRefs } from '../../hooks/useRepairStageTemplateRefs.js';
+import { useWorkSheetTypeRefs } from '../../hooks/useWorkSheetTypeRefs.js';
 import { isAndroidPlatform } from '../../platform.js';
 import { formatMoscowDate } from '../../utils/dateUtils.js';
 import { listCellKindProps, listHeaderKindProps, type ListColumnKind } from '../../utils/listColumnKinds.js';
@@ -200,8 +202,14 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
     [columnLayout, columnsById],
   );
 
-  // Ступени — общие плюс по одной на каждое поле вида работ (по справочнику).
-  const facets = useMemo(() => workSheetFacets(fieldColumns) as FacetDescriptor<WorkSheetRow>[], [fieldColumns]);
+  // Ступени — общие плюс по одной на каждое поле вида работ (по справочнику),
+  // плюс движковые («Есть этап», «Последний этап») — те же смыслы, что в списках.
+  const sheetTypes = useWorkSheetTypeRefs();
+  const stageTemplates = useRepairStageTemplateRefs();
+  const facets = useMemo(
+    () => workSheetFacets(fieldColumns, { types: sheetTypes, stageTemplates }) as FacetDescriptor<WorkSheetRow>[],
+    [fieldColumns, sheetTypes, stageTemplates],
+  );
 
   const deep = useListDeepFilter(
     rows,

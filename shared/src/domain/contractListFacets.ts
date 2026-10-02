@@ -99,7 +99,9 @@ export const CONTRACT_FACETS: readonly ContractFacetDescriptor[] = [
   {
     kind: 'values',
     id: 'counterparty',
-    label: 'Контрагент',
+    // Владелец 02.10.2026: в фильтрах одно слово — «Заказчик» (сущность
+    // и колонки при этом называются как раньше).
+    label: 'Заказчик',
     valueOf: (r) => {
       const id = text(r.customerId);
       const label = text(r.counterparty);

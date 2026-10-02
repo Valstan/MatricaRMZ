@@ -38,7 +38,8 @@ describe('отчёт-список «Этапы работ»', () => {
     expect(PAGE).toContain('window.matrica.workSheets.rows.list({ sinceMs: null })');
     expect(PAGE).toContain('useLiveDataRefresh(refreshRows)');
     expect(PAGE, 'поля видов работ — по справочнику, объединением').toContain('unionWorkSheetColumns(res.rows)');
-    expect(PAGE).toContain('workSheetFacets(fieldColumns)');
+    expect(PAGE).toContain('workSheetFacets(fieldColumns, { types: sheetTypes, stageTemplates })');
+    expect(PAGE, 'движковые ступени — те же смыслы, что в списках').toContain('const stageTemplates = useRepairStageTemplateRefs();');
   });
 
   it('страница — на общей обвязке списка: колонки, счётчик, «№», группировка с итогами, печать с заголовками', () => {
