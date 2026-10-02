@@ -294,4 +294,17 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
       `CREATE INDEX IF NOT EXISTS erp_nomenclature_parent_idx ON erp_nomenclature(parent_nomenclature_id);`,
     );
   }
+
+  // Зеркало electron-app/src/main/database/migrate.ts: ежесекундная проба COUNT по
+  // sync_status full-scan'ила таблицы реплики без индекса (живой прод 02.10.2026:
+  // erp_engine_inventory_lines — 400+мс на каждый тик). Проход по факту — всем таблицам
+  // с колонкой sync_status, а не перечислением вручную.
+  const syncTables = await sqlite.all<{ name: string }>(
+    `SELECT m.name AS name FROM sqlite_master m WHERE m.type='table' AND m.name NOT LIKE 'sqlite_%' AND EXISTS (SELECT 1 FROM pragma_table_info(m.name) p WHERE p.name='sync_status') ORDER BY m.name`,
+  );
+  for (const row of syncTables) {
+    const table = String(row?.name ?? '');
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(table)) continue;
+    await sqlite.exec(`CREATE INDEX IF NOT EXISTS ${table}_sync_status_idx ON ${table}(sync_status);`);
+  }
 }

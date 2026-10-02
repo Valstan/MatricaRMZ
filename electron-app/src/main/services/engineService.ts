@@ -760,7 +760,22 @@ async function getCustomerNameMap(db: BetterSQLite3Database): Promise<Map<string
   return out;
 }
 
-export async function listEngines(db: BetterSQLite3Database): Promise<EngineListItem[]> {
+export async function listEngines(
+  db: BetterSQLite3Database,
+  opts?: { onPhase?: (phase: string, ms: number) => void },
+): Promise<EngineListItem[]> {
+  // Фазовые метки для замера engine:list на границе IPC (02.10.2026: весь парк
+  // стабильно дольше 1.5 с, p50 2.3 с — а где именно, общий замер не говорит).
+  let lastMark = Date.now();
+  const mark = (phase: string) => {
+    const now = Date.now();
+    try {
+      opts?.onPhase?.(phase, Math.max(0, now - lastMark));
+    } catch {
+      // ignore
+    }
+    lastMark = now;
+  };
   const engineTypeId = await getEngineTypeId(db);
   const engines = await db
     .select()
@@ -798,6 +813,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
   const inventoryFlagsByEngineId = await getEngineInventoryFlagsMap(db, engineIds);
   const historyByEngineId = await getEngineRepairHistoryMap(db, engineIds);
   const lastActivityByEngineId = await getEngineLastActivityMap(db, engineIds);
+  mark('maps');
   const baseDefIds = [
     numberDefId,
     internalNumberDefId,
@@ -845,6 +861,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
         )
       : [];
 
+  mark('eavScan');
   const valuesByEntity = new Map<string, Map<string, string | null>>();
   for (const row of valueRows) {
     const entityId = String(row.entityId);
@@ -1127,6 +1144,7 @@ export async function listEngines(db: BetterSQLite3Database): Promise<EngineList
     const placement = placements.get(row.id);
     if (placement) row.arrival = placement;
   }
+  mark('assemble');
   return result.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 

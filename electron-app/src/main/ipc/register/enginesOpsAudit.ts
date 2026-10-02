@@ -30,13 +30,19 @@ export function registerEnginesOpsAuditIpc(ctx: IpcContext) {
   ipcMain.handle('engine:list', async () => {
     await requirePermOrThrow(ctx, 'engines.view');
     const startedAt = Date.now();
-    const rows = await listEngines(ctx.dataDb());
+    const phases: Record<string, number> = {};
+    const rows = await listEngines(ctx.dataDb(), {
+      onPhase: (phase, ms) => {
+        phases[phase] = Math.round(ms);
+      },
+    });
     const ms = Date.now() - startedAt;
     if (ms >= 1500) {
       logPerfWarn(ctx.sysDb, ctx.mgr.getApiBaseUrl(), 'engine:list', `slow engine:list: ${ms}ms`, {
         action: 'engine:list',
         ms,
         rows: Array.isArray(rows) ? rows.length : -1,
+        phases,
       });
     }
     return rows;
