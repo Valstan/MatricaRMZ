@@ -390,6 +390,36 @@ async function replicaMembershipRows(
 }
 
 /**
+ * Membership доступов ОДНОГО сотрудника — из локальной реплики `user_section_access`.
+ * B3/R4b: показ зеркала в карточке (SectionAccessMirror) после cutover читает отсюда,
+ * а не из EAV-атрибутов карточки (те замерзают). null = реплика не налита (свежая
+ * установка до первого pull'а) — вызывающий показывает EAV-карточку как раньше.
+ */
+export async function getSectionMembershipByUserId(
+  dataDb: BetterSQLite3Database,
+  userId: string,
+): Promise<Record<string, 'viewer' | 'editor'> | null> {
+  try {
+    const seeded = await dataDb.select({ id: users.id }).from(users).limit(1);
+    if (seeded.length === 0) return null;
+    const rows = await dataDb
+      .select({ sectionId: userSectionAccess.sectionId, level: userSectionAccess.level })
+      .from(userSectionAccess)
+      .where(and(eq(userSectionAccess.userId, userId as any), isNull(userSectionAccess.deletedAt)));
+    const membership: Record<string, 'viewer' | 'editor'> = {};
+    for (const r of rows) {
+      const level = String(r.level ?? '');
+      if (level !== 'viewer' && level !== 'editor') continue;
+      membership[String(r.sectionId)] = level;
+    }
+    return membership;
+  } catch {
+    // Нет таблицы на очень старой БД, повреждение — уходим в EAV, а не в пустоту.
+    return null;
+  }
+}
+
+/**
  * Membership «доступа по разделам» текущего пользователя — по логину из локальной БД.
  * null = атрибут не засеян (legacy) → вызывающий обязан работать fail-open (меню как сейчас).
  */

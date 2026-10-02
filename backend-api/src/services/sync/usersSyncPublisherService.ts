@@ -82,6 +82,13 @@ function toSectionInput(r: Record<string, unknown>): SyncWriteInput {
  * такие строки возвращаются в очередь независимо от заявок. Закрывает случай
  * проглоченной заявки (mirror_enqueue не имеет права ронять писателя, поэтому
  * своё исключение он гасит) и любой ручной правки в обход триггеров.
+ *
+ * B3/R4b, вторая сеть (инвариант 2): «строка новее своей публикации». Прямой
+ * писатель после cutover — тоже вне пути записи приложения, и его триггер тоже
+ * глотает отказ заявки барьером. Тогда у строки ЕСТЬ seq, но он старше её
+ * содержимого: паблишер прочитал строку вне транзакции записи, опубликовал
+ * протухшее, apply отбросил как stale, а ack снял заявку безусловно. Ловим
+ * сравнением `updated_at` строки со штампом времени её же seq в журнале.
  */
 async function enqueueSeqlessRows(): Promise<void> {
   await db.execute(sql`
@@ -94,6 +101,22 @@ async function enqueueSeqlessRows(): Promise<void> {
     insert into users_sync_outbox (row_id, table_name, enqueued_at)
     select id, 'user_section_access', (extract(epoch from clock_timestamp()) * 1000)::bigint
       from user_section_access where last_server_seq is null
+    on conflict (row_id, table_name) do nothing
+  `);
+  await db.execute(sql`
+    insert into users_sync_outbox (row_id, table_name, enqueued_at)
+    select u.id, 'users', (extract(epoch from clock_timestamp()) * 1000)::bigint
+      from users u
+      join ledger_tx_index j on j.server_seq = u.last_server_seq
+     where u.last_server_seq is not null and u.updated_at > j.created_at
+    on conflict (row_id, table_name) do nothing
+  `);
+  await db.execute(sql`
+    insert into users_sync_outbox (row_id, table_name, enqueued_at)
+    select s.id, 'user_section_access', (extract(epoch from clock_timestamp()) * 1000)::bigint
+      from user_section_access s
+      join ledger_tx_index j on j.server_seq = s.last_server_seq
+     where s.last_server_seq is not null and s.updated_at > j.created_at
     on conflict (row_id, table_name) do nothing
   `);
 }

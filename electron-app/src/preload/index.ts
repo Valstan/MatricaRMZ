@@ -326,6 +326,7 @@ const matricaApi = {
     departmentsList: async () => ipcRenderer.invoke('employees:departments:list'),
     defs: async () => ipcRenderer.invoke('employees:defs'),
     permissionsGet: async (userId: string) => ipcRenderer.invoke('employees:permissionsGet', userId),
+    sectionMembershipGet: async (userId: string) => ipcRenderer.invoke('employees:sectionMembershipGet', userId),
   },
   timesheets: {
     codes: async () => ipcRenderer.invoke('timesheets:codes'),

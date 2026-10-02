@@ -15,7 +15,6 @@ import {
   emitEmployeesSyncSnapshotAll,
   ensureEmployeeAuthDefs,
   getEmployeeAuthById,
-  setEmployeeSectionAccess,
   setEmployeeSectionAccessOne,
   getEmployeeProfileById,
   getEmployeeTypeId,
@@ -24,6 +23,7 @@ import {
   isSuperadminLogin,
   listEmployeesAuth,
   normalizeRole,
+  revokeAccount,
   seedSectionAccessIfMissing,
   setEmployeeAuth,
   setEmployeeDeleteRequest,
@@ -150,42 +150,22 @@ async function confirmUserDelete(args: { actor: AuthenticatedRequest['user']; ta
 
   const r = await detachIncomingLinksAndSoftDeleteEntity({ id: actor.id, username: actor.username, role: actor.role ?? 'superadmin' }, args.targetId);
   if (!r.ok) return r;
+  // Отзыв входа — внутри detach (связка «карточки нет ⇒ входа нет»): soft-delete
+  // строки users, снятие логина с уникальности, удаление секрета и настроек.
   return { ok: true as const, mode: 'deleted' as const };
 }
 
 /**
- * B3/R2: доступы по разделам пишутся ТОЛЬКО этим роутом.
+ * B3/R4b: дверь полного набора ЗАКРЫТА ГРОМКО.
  *
- * Прежде их писали две страницы клиента generic-вызовом setAttr через синк —
- * то есть атрибут суперадминского уровня ехал по общему пути записи, а
- * защищала его лишь backstop-проверка в ledger-гейте. Запрет вместо
- * отсутствия канала. Здесь канал закрывается: у записи появляется своя дверь
- * с проверкой старшинства и громкой валидацией формы.
- *
- * Только суперадмин — решение владельца 2026-07-26 «управление доступами в
- * одних руках»; тот же инвариант держит SUPERADMIN_ONLY_EMPLOYEE_ATTR_CODES.
- * Онлайн-требование приемлемо: это админское действие, не цеховая работа.
+ * До cutover это была легальная форма для сборок, не знающих о дельте. После
+ * cutover клиент строит набор из своей (замороженной) EAV-реплики — один клик
+ * молча откатывал бы всё выданное после заморозки. Поэтому отказ с требованием
+ * обновить программу, а не тихий откат и не запись. Единственная живая форма —
+ * дельта-дверь `/users/:id/section-access/one` (базу считает сервер).
  */
-adminUsersRouter.post('/users/:id/section-access', async (req, res) => {
-  try {
-    const actor = (req as unknown as AuthenticatedRequest).user;
-    const actorRole = String(actor?.role ?? '').toLowerCase();
-    if (actorRole !== 'superadmin') {
-      return res.status(403).json({ ok: false, error: 'доступами по разделам управляет только супер-админ' });
-    }
-    const id = String(req.params.id || '');
-    if (!id) return res.status(400).json({ ok: false, error: 'id не указан' });
-
-    const parsed = z.object({ membership: z.record(z.string(), z.unknown()) }).safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
-
-    const r = await setEmployeeSectionAccess(id, parsed.data.membership);
-    if (!r.ok) return res.status(400).json(r);
-    await emitEmployeeSyncSnapshot(id);
-    return res.json({ ok: true, membership: r.membership });
-  } catch (e) {
-    return res.status(500).json({ ok: false, error: String(e) });
-  }
+adminUsersRouter.post('/users/:id/section-access', async (_req, res) => {
+  return res.status(410).json({ ok: false, error: 'обновите программу: полный набор доступов больше не принимается, выдавайте доступы по одному разделу' });
 });
 
 /**
@@ -515,7 +495,11 @@ adminUsersRouter.post('/users/pending/approve', async (req, res) => {
       }
     }
 
-    await setEmployeeAuth(pendingId, { systemRole: 'merged', accessEnabled: false });
+    // B3/R4b: merge-поток гасит поглощённую учётку отзывом, а не ролью 'merged':
+    // CHECK каталога ролей её бы отверг, а EAV-маркер после cutover всё равно никто
+    // не читает (писатели strict, читатели strict/EAV-сырец для roleReport).
+    const revoked = await revokeAccount(pendingId);
+    if (!revoked.ok) return res.status(500).json({ ok: false, error: revoked.error });
     return res.json({ ok: true });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });

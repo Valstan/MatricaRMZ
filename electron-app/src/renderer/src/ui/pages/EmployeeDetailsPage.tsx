@@ -412,6 +412,9 @@ export function EmployeeDetailsPage(props: {
   const [createPassword, setCreatePassword] = useState('');
   const [createRole, setCreateRole] = useState('viewer');
   const [createActive, setCreateActive] = useState(true);
+  // B3/R4b: показ зеркала доступов — из реплики (EAV замерзает). null = реплика не
+  // налита: показываем EAV-карточку как раньше (фолбэк до первого pull'а).
+  const [replicaMembership, setReplicaMembership] = useState<Record<string, 'viewer' | 'editor'> | null>(null);
 
   const meRole = String(props.me?.role ?? '').toLowerCase();
   // Assignable role list comes from the shared catalog — the legacy full-access
@@ -614,6 +617,12 @@ export function EmployeeDetailsPage(props: {
     }
     setAccountPerms(r);
     setAccountStatus('');
+    try {
+      const m = await window.matrica.employees.sectionMembershipGet(props.employeeId);
+      setReplicaMembership(m && m.ok ? (m.membership ?? null) : null);
+    } catch {
+      setReplicaMembership(null);
+    }
   }
 
   async function saveAttr(code: string, value: unknown) {
@@ -1980,10 +1989,13 @@ export function EmployeeDetailsPage(props: {
 
               <SectionAccessMirror
                 employeeId={props.employeeId}
-                membership={parseSectionMembership((employee?.attributes ?? {})[SECTION_ACCESS_ATTR])}
+                membership={replicaMembership ?? parseSectionMembership((employee?.attributes ?? {})[SECTION_ACCESS_ATTR])}
                 employeeRole={String((employee?.attributes ?? {})['system_role'] ?? '')}
                 canEdit={meRole === 'superadmin'}
-                onSaved={() => void loadEmployee()}
+                onSaved={() => {
+                  void loadEmployee();
+                  void loadAccountPerms();
+                }}
               />
 
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>

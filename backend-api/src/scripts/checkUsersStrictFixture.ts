@@ -118,6 +118,29 @@ async function main() {
       ts,
     ]);
   }
+  // B3/R4b: EAV-триггеры зеркала снесены миграцией 0103 — EAV-запись сама по себе
+  // строгие таблицы больше не меняет. Rebuild-функции живы (их зовёт догонка 0103),
+  // поэтому фикстура вызывает их ЯВНО там, где раньше срабатывал триггер.
+  async function rebuild(id: string) {
+    await pool.query(`SELECT rebuild_user($1)`, [id]);
+    await pool.query(`SELECT rebuild_user_sections($1)`, [id]);
+  }
+
+  console.log('\n== 0. Cutover: EAV-запись без rebuild строгие таблицы не трогает ==');
+  const emp0 = await mkEmployee();
+  await setAttr(emp0, 'login', 'cutover0');
+  await setAttr(emp0, 'system_role', 'viewer');
+  check(
+    'без rebuild строки users нет (триггеры EAV снесены 0103)',
+    (await one<{ n: string }>(`SELECT count(*)::text AS n FROM users WHERE id=$1`, [emp0]))?.n,
+    '0',
+  );
+  await rebuild(emp0);
+  check(
+    'явный rebuild собирает строку',
+    (await one<{ login: string }>(`SELECT login FROM users WHERE id=$1`, [emp0]))?.login,
+    'cutover0',
+  );
 
   console.log('\n== 1. Обычный аккаунт ==');
   const emp1 = await mkEmployee();
@@ -126,6 +149,7 @@ async function main() {
   await setAttr(emp1, 'password_hash', '$2b$10$fixturehashvalue');
   await setAttr(emp1, 'access_enabled', true);
   await setAttr(emp1, 'section_access', { work_orders: 'editor', production: 'viewer' });
+  await rebuild(emp1);
   let u = await one<{ login: string; system_role: string; access_enabled: boolean }>(
     `SELECT login, system_role, access_enabled FROM users WHERE id=$1`,
     [emp1],
@@ -148,6 +172,7 @@ async function main() {
   const emp2 = await mkEmployee();
   await setAttr(emp2, 'full_name', 'Иванова Мария Петровна');
   await setAttr(emp2, 'system_role', 'admin'); // роль есть, логина нет
+  await rebuild(emp2);
   check(
     'строки users нет',
     (await one<{ n: string }>(`SELECT count(*)::text AS n FROM users WHERE id=$1`, [emp2]))?.n,
@@ -158,6 +183,7 @@ async function main() {
   const emp3 = await mkEmployee();
   await setAttr(emp3, 'login', 'valstan');
   await setAttr(emp3, 'system_role', 'employee'); // роль говорит «без доступа»
+  await rebuild(emp3);
   check(
     'login=valstan даёт superadmin',
     (await one<{ system_role: string }>(`SELECT system_role FROM users WHERE id=$1`, [emp3]))?.system_role,
@@ -168,6 +194,7 @@ async function main() {
   const emp4 = await mkEmployee();
   await setAttr(emp4, 'login', 'merged1');
   await setAttr(emp4, 'system_role', 'merged');
+  await rebuild(emp4);
   check(
     'merged → employee',
     (await one<{ system_role: string }>(`SELECT system_role FROM users WHERE id=$1`, [emp4]))?.system_role,
@@ -176,6 +203,7 @@ async function main() {
   const emp5 = await mkEmployee();
   await setAttr(emp5, 'login', 'typo1');
   await setAttr(emp5, 'system_role', 'suparadmin');
+  await rebuild(emp5);
   check(
     'опечатка → employee, а не superadmin',
     (await one<{ system_role: string }>(`SELECT system_role FROM users WHERE id=$1`, [emp5]))?.system_role,
@@ -186,6 +214,7 @@ async function main() {
   const emp6 = await mkEmployee(ts + 5);
   await setAttr(emp6, 'login', 'gone1');
   await setAttr(emp6, 'system_role', 'viewer');
+  await rebuild(emp6);
   check(
     'deleted_at зеркалится',
     (await one<{ d: string | null }>(`SELECT deleted_at::text AS d FROM users WHERE id=$1`, [emp6]))?.d,
@@ -195,6 +224,7 @@ async function main() {
   console.log('\n== 6. Логин отозванного можно занять заново (частичный UNIQUE) ==');
   const emp7 = await mkEmployee();
   await setAttr(emp7, 'login', 'gone1'); // тот же логин, но живой
+  await rebuild(emp7);
   check(
     'дубль логина с отозванным разрешён',
     (await one<{ n: string }>(`SELECT count(*)::text AS n FROM users WHERE login='gone1'`))?.n,
@@ -206,6 +236,7 @@ async function main() {
   await setAttr(emp8, 'login', 'junk1');
   await setAttr(emp8, 'system_role', 'viewer');
   await setAttr(emp8, 'section_access', { warehouse: 'editor', nosuchsection: 'viewer', reports: 'owner' });
+  await rebuild(emp8);
   await pool.query(
     `INSERT INTO attribute_values (id, entity_id, attribute_def_id, value_json, created_at, updated_at)
      VALUES ($1,$2,$3,$4,$5,$5)`,
@@ -229,12 +260,14 @@ async function main() {
   const emp8b = await mkEmployee();
   await setAttr(emp8b, 'login', 'nulllvl1');
   await setAttr(emp8b, 'system_role', 'viewer');
+  await rebuild(emp8b);
   let nullLevelThrew = false;
   try {
     await setAttr(emp8b, 'section_access', { warehouse: 'editor', reports: null });
   } catch {
     nullLevelThrew = true;
   }
+  await rebuild(emp8b);
   check('запись с null-уровнем не бросает исключение', nullLevelThrew, false);
   check(
     'валидный раздел взят, null-уровень пропущен',
@@ -250,6 +283,7 @@ async function main() {
   await setAttr(emp8c, 'login', 'strictbool1');
   await setAttr(emp8c, 'system_role', 'viewer');
   await setAttr(emp8c, 'access_enabled', '1');
+  await rebuild(emp8c);
   check(
     'строка «1» доступом НЕ считается',
     (await one<{ a: boolean }>(`SELECT access_enabled AS a FROM users WHERE id=$1`, [emp8c]))?.a,
@@ -262,6 +296,7 @@ async function main() {
     false,
   );
   await setAttr(emp8c, 'access_enabled', true);
+  await rebuild(emp8c);
   check(
     'булев true доступом считается',
     (await one<{ a: boolean }>(`SELECT access_enabled AS a FROM users WHERE id=$1`, [emp8c]))?.a,
@@ -270,6 +305,7 @@ async function main() {
 
   console.log('\n== 8. Снятие раздела = soft-delete, а не исчезновение строки ==');
   await setAttr(emp1, 'section_access', { work_orders: 'editor' }); // production снят
+  await rebuild(emp1);
   check(
     'живой раздел остался один',
     (await one<{ n: string }>(`SELECT count(*)::text AS n FROM user_section_access WHERE user_id=$1 AND deleted_at IS NULL`, [emp1]))?.n,
@@ -284,6 +320,7 @@ async function main() {
     '1',
   );
   await setAttr(emp1, 'section_access', { work_orders: 'editor', production: 'editor' }); // вернули
+  await rebuild(emp1);
   check(
     'повторная выдача оживляет ТУ ЖЕ строку с новым уровнем',
     await one<{ level: string; deleted_at: string | null }>(
@@ -296,18 +333,21 @@ async function main() {
   console.log('\n== 9. Заявка на удаление: FK на инициатора ==');
   await setAttr(emp1, 'delete_requested_at', ts + 9);
   await setAttr(emp1, 'delete_requested_by_id', emp3); // у emp3 есть аккаунт
+  await rebuild(emp1);
   check(
     'инициатор с аккаунтом проставлен',
     (await one<{ b: string | null }>(`SELECT delete_requested_by::text AS b FROM users WHERE id=$1`, [emp1]))?.b,
     emp3,
   );
   await setAttr(emp1, 'delete_requested_by_id', emp2); // у emp2 аккаунта нет (нет логина)
+  await rebuild(emp1);
   check(
     'инициатор без аккаунта → NULL, FK не падает',
     (await one<{ b: string | null }>(`SELECT delete_requested_by::text AS b FROM users WHERE id=$1`, [emp1]))?.b,
     null,
   );
   await dropAttr(emp1, 'delete_requested_at');
+  await rebuild(emp1);
   check(
     'без даты инициатор тоже NULL (асимметричный CHECK)',
     await one<{ a: string | null; b: string | null }>(
@@ -323,6 +363,7 @@ async function main() {
   // апсертами и строку, исчезнувшую на сервере, у себя НЕ удаляет; снятый
   // аккаунт жил бы в реплике каждой машины с access_enabled=true.
   await dropAttr(emp1, 'login');
+  await rebuild(emp1);
   check(
     'строка осталась и помечена удалённой',
     (await one<{ n: string }>(
@@ -357,6 +398,7 @@ async function main() {
   console.log('\n== 11. Возврат логина восстанавливает аккаунт ==');
   await setAttr(emp1, 'login', 'oper1');
   await setAttr(emp1, 'system_role', 'master');
+  await rebuild(emp1);
   check(
     'аккаунт снова есть',
     (await one<{ login: string }>(`SELECT login FROM users WHERE id=$1`, [emp1]))?.login,
@@ -369,11 +411,13 @@ async function main() {
   const partIdForSectionProbe = partId;
   await pool.query(`INSERT INTO entities (id, type_id, created_at, updated_at) VALUES ($1,$2,$3,$3)`, [partId, partTypeRow!.id, ts]);
   // Пишем employee-шный login-def на деталь — ровно тот сценарий, который до
-  // релиза v3.16.0 заводил скрытый аккаунт (аудит 2026-08-29).
+  // релиза v3.16.0 заводил скрытый аккаунт (аудит 2026-08-29). Rebuild вызываем
+  // явно: отсутствие триггеров — тоже утверждение (cutover).
   await pool.query(
     `INSERT INTO attribute_values (id, entity_id, attribute_def_id, value_json, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$5)`,
     [randomUUID(), partId, defId.get('login'), JSON.stringify('sneaky'), ts],
   );
+  await pool.query(`SELECT rebuild_user($1)`, [partId]);
   check(
     'аккаунта на детали не появилось',
     (await one<{ n: string }>(`SELECT count(*)::text AS n FROM users WHERE id=$1`, [partId]))?.n,
@@ -392,6 +436,7 @@ async function main() {
   await setAttr(empAuth, 'password_hash', '$2b$10$authprobehash');
   await setAttr(empAuth, 'access_enabled', true);
   await setAttr(empAuth, 'full_name', 'Иванова Мария Петровна');
+  await rebuild(empAuth);
 
   const found = await getEmployeeAuthByLogin('authprobe');
   check('найден по логину', found?.id, empAuth);
@@ -402,11 +447,46 @@ async function main() {
   check('поиск нечувствителен к регистру', (await getEmployeeAuthByLogin('AUTHPROBE'))?.id, empAuth);
 
   await pool.query(`UPDATE entities SET deleted_at = $2 WHERE id = $1`, [empAuth, ts + 100]);
+  check(
+    'мягкое удаление КАРТОЧКИ само по себе вход не закрывает (R4b: триггера EAV→strict больше нет)',
+    (await getEmployeeAuthByLogin('authprobe'))?.id,
+    empAuth,
+  );
+  const { revokeAccount } = await import('../services/employeeAuthService.js');
+  check('отзыв проходит', (await revokeAccount(empAuth)).ok, true);
   check('отозванный НЕ находится по логину', await getEmployeeAuthByLogin('authprobe'), null);
   check('отозванный НЕ находится по id', await getEmployeeAuthById(empAuth), null);
+  check(
+    'секрет и настройки снесены явно',
+    (await one<{ n: string }>(
+      `SELECT (SELECT count(*) FROM user_credentials WHERE user_id=$1) + (SELECT count(*) FROM user_settings WHERE user_id=$1) AS n`,
+      [empAuth],
+    ))?.n,
+    '0',
+  );
 
   await pool.query(`UPDATE entities SET deleted_at = NULL WHERE id = $1`, [empAuth]);
-  check('восстановленный снова находится', (await getEmployeeAuthByLogin('authprobe'))?.id, empAuth);
+  check(
+    'отзыв терминален: восстановление карточки вход НЕ возвращает',
+    await getEmployeeAuthByLogin('authprobe'),
+    null,
+  );
+
+  console.log('\n== 12c. Общий путь удаления карточки тоже отзывает вход ==');
+  // До R4b это делал триггер EAV→strict: удаление карточки любым путём гасило
+  // users.deleted_at. После сноса триггеров связку держит
+  // detachIncomingLinksAndSoftDeleteEntity — иначе общий путь оставлял бы живой логин.
+  const empDel = await mkEmployee();
+  await setAttr(empDel, 'login', 'tobedeleted');
+  await setAttr(empDel, 'system_role', 'viewer');
+  await rebuild(empDel);
+  const { detachIncomingLinksAndSoftDeleteEntity } = await import('../services/adminMasterdataService.js');
+  const delRes = await detachIncomingLinksAndSoftDeleteEntity(
+    { id: empDel, username: 'fixture', role: 'superadmin' },
+    empDel,
+  );
+  check('удаление прошло', delRes.ok, true);
+  check('вход закрыт удалением карточки', await getEmployeeAuthByLogin('tobedeleted'), null);
 
   console.log('\n== 12b. Санкционированная запись доступов отвергает мусор громко ==');
   // B3/R2: у section_access появилась своя дверь вместо generic setAttr через
@@ -416,11 +496,12 @@ async function main() {
   const empSec = await mkEmployee();
   await setAttr(empSec, 'login', 'secwriter');
   await setAttr(empSec, 'system_role', 'viewer');
+  await rebuild(empSec); // учётка для двери: секции пишутся только при строке users
 
   const okWrite = await setEmployeeSectionAccess(empSec, { warehouse: 'editor', reports: 'viewer' });
   check('корректный набор принят', okWrite.ok, true);
   check(
-    'зеркало пересобрано триггером',
+    'строка собрана прямой записью (R4b: триггеров EAV больше нет)',
     (await one<{ n: string }>(`SELECT count(*)::text AS n FROM user_section_access WHERE user_id=$1 AND deleted_at IS NULL`, [empSec]))?.n,
     '2',
   );
@@ -467,6 +548,23 @@ async function main() {
     }
     check(`отвергнут: ${label}`, rejected, true);
   }
+
+  console.log('\n== 14. Уборка strict-сторонних следов для следующих шагов ==');
+  // §12a/§12b/§12c писали мимо EAV (отзыв, прямая запись секций, detach-отзыв) —
+  // у этих действий нет EAV-следа, поэтому ни бэкфилл 0086, ни parity их не
+  // воспроизведут: сравнение «бэкфилл == текущее» и «EAV == strict» на них
+  // ложно-красное. Их поведение уже проверено выше своими утверждениями;
+  // здесь следы сносятся, чтобы следующие шаги CI видели чистый EAV-мир.
+  for (const id of [empAuth, empSec, empDel]) {
+    await pool.query(`DELETE FROM user_section_access WHERE user_id=$1`, [id]);
+    await pool.query(`DELETE FROM user_credentials WHERE user_id=$1`, [id]);
+    await pool.query(`DELETE FROM user_settings WHERE user_id=$1`, [id]);
+    await pool.query(`DELETE FROM user_presence WHERE user_id=$1`, [id]);
+    await pool.query(`DELETE FROM attribute_values WHERE entity_id=$1`, [id]);
+    await pool.query(`DELETE FROM users WHERE id=$1`, [id]);
+    await pool.query(`DELETE FROM entities WHERE id=$1`, [id]);
+  }
+  check('следы убраны', (await one<{ n: string }>(`SELECT count(*)::text AS n FROM users WHERE login IN ('authprobe','secwriter','tobedeleted')`))?.n, '0');
 
   console.log(`\n${failures === 0 ? '✓ Все проверки фикстуры пройдены.' : `✗ Провалено проверок: ${failures}`}`);
   await pool.end();

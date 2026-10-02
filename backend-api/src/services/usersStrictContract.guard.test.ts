@@ -172,33 +172,23 @@ describe('B3/R4a: настройки пользователя читаются �
     },
   );
 
-  // Писатели остаются на EAV до R4b — и это НЕ недоделка, а условие
-  // безопасности: пока триггеры вооружены, `rebuild_user` перезаписывает
-  // user_settings из EAV, и прямая запись была бы затёрта следующей же правкой
-  // любого атрибута сотрудника.
+  // B3/R4b СОСТОЯЛСЯ: писатели пишут в strict (триггеры EAV снесены миграцией
+  // 0103 — вооружённого перезаписывателя больше нет). Возврат к upsertAttrValue
+  // здесь означал бы правку, которую никто не читает: читатели строгие.
   it.each(['setEmployeeLoggingSettings', 'setEmployeeUiSettings', 'setEmployeeUiProfile'])(
-    '%s пока пишет в EAV (переезд писателей — R4b, вместе со сносом триггеров)',
+    '%s пишет в strict, а не в EAV (R4b состоялся)',
     (name) => {
-      expect(bodyOf(name)).toContain('upsertAttrValue');
+      expect(bodyOf(name)).not.toContain('upsertAttrValue');
     },
   );
 });
 
-describe('B3/R4a: база записи читается из того же хранилища, куда идёт запись', () => {
-  // ГЛАВНЫЙ инвариант этого релиза, и единственный, нарушение которого портит
-  // ДАННЫЕ, а не картинку.
-  //
-  // Зеркало имеет право не собраться: барьеры `EXCEPTION WHEN others` в
-  // rebuild_user / rebuild_user_sections (0088) глотают отказ, пишут его в
-  // users_mirror_failures (0087) и НЕ роняют писателя. Значит возможно
-  // состояние «EAV полон, strict пуст». Для читателя, который ПОКАЗЫВАЕТ, это
-  // стоит устаревшего экрана. Для читателя, который служит БАЗОЙ ЗАПИСИ, — это
-  // стоит канона: дельта на пустой базе soft-delete'ит все реальные доступы
-  // человека, а LWW-мердж на пустой базе стирает вкладки, пины и раскладки
-  // колонок. Необратимо и молча.
-  //
-  // Поэтому: показываешь — можно из strict; пишешь — база строго оттуда же,
-  // куда пишешь. На R4b обе базы переезжают в strict ВМЕСТЕ с писателями.
+describe('B3/R4b: база записи читается из того же хранилища, куда идёт запись', () => {
+  // R4b СОСТОЯЛСЯ: писатели и обе базы — в strict. Инвариант прежний, полюса
+  // сменились: показываешь — можно откуда угодно; пишешь — база строго оттуда же,
+  // куда пишешь. Возврат любой из баз в EAV после сноса триггеров означал бы базу
+  // из заморозки: дельта на ней soft-delete'ит все реальные доступы человека, а
+  // LWW-мердж стирает вкладки, пины и раскладки. Необратимо и молча.
   const source = readFileSync(new URL('./employeeAuthService.ts', import.meta.url), 'utf8');
   const bodyOf = (name: string) => {
     const start = source.indexOf(`async function ${name}(`);
@@ -217,18 +207,20 @@ describe('B3/R4a: база записи читается из того же хр
     expect(bodyOf('seedSectionAccessIfMissing')).toContain('readCanonSectionMembership');
   });
 
-  it('канон разделов сегодня — это EAV (пока писатель пишет туда же)', () => {
-    expect(bodyOf('readCanonSectionMembership')).toContain('attributeValues');
-    expect(bodyOf('readCanonSectionMembership')).not.toContain('userSectionAccess');
+  it('канон разделов — строгая таблица (писатель пишет туда же)', () => {
+    expect(bodyOf('readCanonSectionMembership')).toContain('userSectionAccess');
+    expect(bodyOf('readCanonSectionMembership')).not.toContain('attributeValues');
   });
 
-  it('база LWW-мерджа профиля читается из EAV, а не из user_settings', () => {
+  it('база LWW-мерджа профиля читается из user_settings, а не из EAV', () => {
     const body = bodyOf('setEmployeeUiProfile');
-    expect(body).toContain('readEavUiProfile');
-    expect(body).not.toContain('await getEmployeeUiProfile(');
+    expect(body).toContain('readCanonUiProfile');
+    expect(body).not.toContain('readEavUiProfile');
   });
 
-  it('readEavUiProfile действительно читает EAV', () => {
-    expect(bodyOf('readEavUiProfile')).toContain('attributeValues');
+  it('readCanonUiProfile идёт через readUserSettings (а та — из user_settings)', () => {
+    expect(bodyOf('readCanonUiProfile')).toContain('readUserSettings');
+    expect(bodyOf('readCanonUiProfile')).not.toContain('attributeValues');
+    expect(bodyOf('readUserSettings')).toContain('userSettings');
   });
 });

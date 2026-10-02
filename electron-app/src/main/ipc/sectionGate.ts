@@ -48,6 +48,7 @@ const PREFIX_RULES: ReadonlyArray<readonly [string, AccessSection]> = [
   ['employees:delete', 'people'],
   ['employees:merge', 'people'],
   ['employees:permissionsGet', 'people'],
+  ['employees:sectionMembershipGet', 'people'],
   ['employees:resyncFromServer', 'people'],
   ['timesheets:', 'people'],
   ['reports:', 'reports'],
