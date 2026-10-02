@@ -4,6 +4,7 @@ import type { PartMetadata } from '@matricarmz/shared';
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult } from '../ipcContext.js';
 import { searchEntityCardContent, searchEnginesByStampedPartNumber } from '../../services/cardContentSearchService.js';
+import { logPerfWarn } from '../../services/logService.js';
 import {
   warehouseEngineInstanceDelete,
   warehouseEngineInstancesList,
@@ -135,7 +136,16 @@ export function registerErpIpc(ctx: IpcContext) {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode: warehouse lookups are not available' };
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as any;
-    return warehouseLookupsGet(ctx.dataDb(), ctx.mgr.getApiBaseUrl());
+    const startedAt = Date.now();
+    const res = await warehouseLookupsGet(ctx.dataDb(), ctx.mgr.getApiBaseUrl());
+    const ms = Date.now() - startedAt;
+    if (ms >= 1500) {
+      logPerfWarn(ctx.sysDb, ctx.mgr.getApiBaseUrl(), 'warehouse:lookups:get', `slow warehouse:lookups:get: ${ms}ms`, {
+        action: 'warehouse:lookups:get',
+        ms,
+      });
+    }
+    return res;
   });
 
   ipcMain.handle('warehouse:nomenclature:itemTypes:list', async () => {
