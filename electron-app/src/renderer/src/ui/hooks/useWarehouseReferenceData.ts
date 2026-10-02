@@ -15,6 +15,9 @@ const EMPTY_LOOKUPS: WarehouseLookups = {
   nomenclatureTemplates: [],
 };
 
+// Дедуп параллельных запросов справочников (см. refresh ниже).
+let inflightLookups: Promise<unknown> | null = null;
+
 export function useWarehouseReferenceData(options?: { loadNomenclature?: boolean }) {
   const [lookups, setLookups] = useState<WarehouseLookups>(EMPTY_LOOKUPS);
   const [nomenclature, setNomenclature] = useState<WarehouseNomenclatureListItem[]>([]);
@@ -25,8 +28,19 @@ export function useWarehouseReferenceData(options?: { loadNomenclature?: boolean
     setLoading(true);
     setError('');
     try {
-      const lookupsRes = await window.matrica.warehouse.lookupsGet();
-      if (!lookupsRes?.ok) {
+      // Параллельные маунты складских карточек слали одинаковые IPC-штормы:
+      // попутчики цепляются к одному запросу, свежий идёт только без попутчиков.
+      if (!inflightLookups) {
+        inflightLookups = window.matrica.warehouse.lookupsGet().finally(() => {
+          inflightLookups = null;
+        });
+      }
+      const lookupsRes = (await inflightLookups) as {
+        ok?: boolean;
+        lookups?: WarehouseLookups;
+        error?: unknown;
+      };
+      if (!lookupsRes?.ok || !lookupsRes.lookups) {
         setError(String(lookupsRes?.error ?? 'Не удалось загрузить складские справочники'));
         return;
       }

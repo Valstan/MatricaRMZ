@@ -8,6 +8,7 @@ import {
   setFacetDateBound,
   toggleFacetValue,
   type FacetDescriptor,
+  type FacetOption,
   type FacetSelection,
 } from '@matricarmz/shared';
 
@@ -97,6 +98,20 @@ export function FacetFilter<Row>(props: {
     if (Array.isArray(raw)) return raw.length;
     return facetRangeOf(props.selection, id) == null ? 0 : 1;
   };
+
+  // Варианты всех раскрытых ступеней — одним мемо: раньше каждая ступень сканировала
+  // весь список прямо в рендере, и любой чих родителя (индикатор синка, часы)
+  // пересчитывал всё заново. Содержимое то же, платит только смена входа.
+  const optionsByField = React.useMemo(() => {
+    const out = new Map<string, FacetOption[]>();
+    if (!props.open) return out;
+    for (const fieldId of props.fields) {
+      const facet = props.facets.find((f) => f.id === fieldId);
+      if (!facet || facet.kind !== 'values') continue;
+      out.set(fieldId, facetOptions(props.facets, props.rows, props.selection, fieldId));
+    }
+    return out;
+  }, [props.open, props.facets, props.rows, props.selection, props.fields]);
 
   // Свёрнутая панель не занимает НИЧЕГО: кнопка живёт в тулбаре рядом с поиском.
   if (!props.open) return null;
@@ -193,7 +208,7 @@ export function FacetFilter<Row>(props: {
             </div>
           );
         }
-        const options = facetOptions(props.facets, props.rows, props.selection, fieldId);
+        const options = optionsByField.get(fieldId) ?? [];
         const picked = pickedCount(fieldId);
         return (
           <div key={fieldId} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>

@@ -153,3 +153,25 @@ export async function logMessageGetMode(db: BetterSQLite3Database): Promise<Logg
 export async function logMessageSetMode(db: BetterSQLite3Database, mode: LoggingMode): Promise<void> {
   await setLoggingMode(db, mode);
 }
+
+// Медленная операция клиента — warn с троттлом (не чаще раза в 10 минут на ключ).
+// В prod-режиме warn долетает до серверных `client-*.log`, то есть тормоза слабых
+// машин становятся видны без ручного сбора логов. Вызывать fire-and-forget.
+const perfWarnAtByKey = new Map<string, number>();
+const PERF_WARN_MIN_GAP_MS = 10 * 60 * 1000;
+
+export function logPerfWarn(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  key: string,
+  message: string,
+  metadata?: Record<string, unknown>,
+): void {
+  const now = Date.now();
+  if (now - (perfWarnAtByKey.get(key) ?? 0) < PERF_WARN_MIN_GAP_MS) return;
+  perfWarnAtByKey.set(key, now);
+  void logMessage(db, apiBaseUrl, 'warn', message, {
+    component: 'perf',
+    ...(metadata ?? {}),
+  }).catch(() => undefined);
+}

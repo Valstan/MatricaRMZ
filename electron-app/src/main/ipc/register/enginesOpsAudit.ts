@@ -20,6 +20,7 @@ import {
   releaseEngineReservation,
 } from '../../services/engineReservationClient.js';
 import { engineDedupeAnalyze, engineDedupeMerge } from '../../services/erpService.js';
+import { logPerfWarn } from '../../services/logService.js';
 import { listOperations, addOperation } from '../../services/operationService.js';
 import { addAudit, listAudit } from '../../services/auditService.js';
 import { softDeleteEntity } from '../../services/entityService.js';
@@ -28,7 +29,17 @@ export function registerEnginesOpsAuditIpc(ctx: IpcContext) {
   // Engines (read)
   ipcMain.handle('engine:list', async () => {
     await requirePermOrThrow(ctx, 'engines.view');
-    return listEngines(ctx.dataDb());
+    const startedAt = Date.now();
+    const rows = await listEngines(ctx.dataDb());
+    const ms = Date.now() - startedAt;
+    if (ms >= 1500) {
+      logPerfWarn(ctx.sysDb, ctx.mgr.getApiBaseUrl(), 'engine:list', `slow engine:list: ${ms}ms`, {
+        action: 'engine:list',
+        ms,
+        rows: Array.isArray(rows) ? rows.length : -1,
+      });
+    }
+    return rows;
   });
   ipcMain.handle('engine:get', async (_e, id: string) => {
     await requirePermOrThrow(ctx, 'engines.view');

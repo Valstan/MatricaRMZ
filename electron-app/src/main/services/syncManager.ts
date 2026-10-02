@@ -12,6 +12,7 @@ import {
 } from './syncService.js';
 import { isOfflineSyncError } from './sync/syncErrorClassifier.js';
 import { computeLocalDirtyAction, computeNextSyncDelayMs, computeWakeIdlePauseMs } from './sync/syncScheduling.js';
+import { logPerfWarn } from './logService.js';
 import { SettingsKey, settingsGetString } from './settingsStore.js';
 
 type RunSyncOpts = Parameters<typeof runSync>[3];
@@ -35,6 +36,10 @@ const WAKE_MIN_GAP_MS = 1_000;
 const WAKE_STALL_PAUSE_MS = 5_000;
 /** Как часто сторож смотрит, не появилось ли своей несинканной работы. */
 const LOCAL_WATCH_MS = 1_000;
+/** Проба COUNT каждую секунду обязана быть миллисекундной — иначе сторож сам вешает цикл. */
+const SLOW_PROBE_MS = 500;
+/** Полный прогон дольше этого — аномалия, достойная серверного лога. */
+const SLOW_RUN_MS = 30_000;
 const LOCAL_RETRY_MIN_MS = 5_000;
 const LOCAL_RETRY_MAX_MS = 60_000;
 
@@ -233,7 +238,15 @@ export class SyncManager {
     if (this.localBusy || this.inFlight) return;
     this.localBusy = true;
     try {
+      const probeStartedAt = nowMs();
       const pendingRows = await countPendingLocalChanges();
+      const probeMs = nowMs() - probeStartedAt;
+      if (probeMs >= SLOW_PROBE_MS) {
+        logPerfWarn(this.db, this.apiBaseUrl, 'local-probe', `slow local pending probe: ${probeMs}ms`, {
+          action: 'localWatch',
+          ms: probeMs,
+        });
+      }
       const action = computeLocalDirtyAction({
         pendingRows,
         lastPendingRows: this.lastPendingRows,
@@ -310,7 +323,17 @@ export class SyncManager {
       // UI читает apiBaseUrl из SQLite, а менеджер живёт в памяти.
       // Перед каждым синком подхватываем актуальную конфигурацию.
       await this.refreshApiBaseUrlFromDb();
+      const runStartedAt = nowMs();
       const r = await runSync(this.db, this.clientId, this.apiBaseUrl, opts);
+      const runMs = nowMs() - runStartedAt;
+      if (runMs >= SLOW_RUN_MS) {
+        logPerfWarn(this.db, this.apiBaseUrl, 'sync-run', `slow sync run: ${runMs}ms`, {
+          action: 'run',
+          ms: runMs,
+          pulled: Number(r.pulled ?? 0),
+          pushed: Number(r.pushed ?? 0),
+        });
+      }
       const offline = !r.ok && isOfflineSyncError(r.error ?? '');
       this.lastResult = r;
       if (r.ok) this.lastSyncAt = nowMs();

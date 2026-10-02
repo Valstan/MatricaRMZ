@@ -3,6 +3,11 @@ import { join } from 'node:path';
 import type { App } from 'electron';
 
 const MAX_LOG_AGE_MS = 10 * 24 * 60 * 60 * 1000;
+// Ротация — не чаще раза в 6 часов: раньше она шла на КАЖДОЙ строке лога
+// (чтение + разбор + перезапись всего 10-дневного файла в main-потоке),
+// и во время синка с его частым `logSync` это конкурировало с SQLite за цикл.
+const PRUNE_MIN_GAP_MS = 6 * 60 * 60 * 1000;
+let lastPruneAtMs = 0;
 
 // UTF-8 BOM. Without it, Windows tools that read by locale (Блокнот,
 // PowerShell `Get-Content` without `-Encoding utf8`) interpret the file
@@ -57,7 +62,11 @@ export function appendMainLogLine(app: App, message: string): void {
     const dir = app.getPath('userData');
     mkdirSync(dir, { recursive: true });
     const path = join(dir, 'matricarmz.log');
-    pruneLogFile(path);
+    const now = Date.now();
+    if (now - lastPruneAtMs >= PRUNE_MIN_GAP_MS) {
+      lastPruneAtMs = now;
+      pruneLogFile(path);
+    }
     const line = `[${new Date().toISOString()}] ${message}\n`;
     const prefix = fileExists(path) ? '' : BOM;
     appendFileSync(path, prefix + line);
