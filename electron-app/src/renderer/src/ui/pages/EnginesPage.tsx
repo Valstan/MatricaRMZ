@@ -16,6 +16,7 @@ import {
 import type { EngineFacetId, EngineFacetSelection, EngineListItem } from '@matricarmz/shared';
 
 import { EngineFacetFilter, EngineFacetToggleButton } from '../components/EngineFacetFilter.js';
+import { EngineQrScanButton } from '../components/EngineQrScanButton.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { Button } from '../components/Button.js';
 import { LabelPrintDialog } from '../components/LabelPrintDialog.js';
@@ -904,6 +905,9 @@ export function EnginesPage(props: {
             onChange={(e) => patchState({ query: e.target.value, page: 0 })}
             placeholder="Поиск по всем данным двигателя (и внутри карточек)…"
           />
+        </ToolbarPin>
+        <ToolbarPin>
+          <EngineQrScanButton onEngineNumber={(n) => patchState({ query: n, page: 0 })} />
         </ToolbarPin>
         <ToolbarPin>
           <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar, page: 0 })} />

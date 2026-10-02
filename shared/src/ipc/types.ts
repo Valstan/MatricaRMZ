@@ -1024,6 +1024,15 @@ export type MatricaApi = {
       { ok: true; hits: GlobalSearchHit[] } | { ok: false; error: string }
     >;
   };
+  scan: {
+    /** Есть ли сканирование QR на этой платформе (только планшет с камерой). */
+    qrSupported: () => Promise<{ ok: true; supported: boolean }>;
+    /**
+     * Открыть сканер и вернуть текст первого кода. Отмена оператором —
+     * ok:false + cancelled (молчим, это не ошибка). Десктоп: всегда ok:false.
+     */
+    qrScan: () => Promise<{ ok: true; text: string } | { ok: false; error: string; cancelled?: boolean }>;
+  };
   activity: {
     report: (args: { activeDate: string; activeMs: number }) => void;
   };

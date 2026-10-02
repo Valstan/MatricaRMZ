@@ -47,4 +47,9 @@
          (ApkUpdaterPlugin). Разовое согласие пользователь даёт на системном
          экране «Установка из неизвестных источников». -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Сканер QR бирок (@capacitor-mlkit/barcode-scanning): системный UI сканера
+         Google, запрос во время использования показывает сам плагин. Камера как
+         железо необязательна, чтобы отсутствие камеры не резало установку. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>

@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { globalSearchKindLabel, type GlobalSearchHit, type GlobalSearchKind } from '@matricarmz/shared';
 
 import { SearchModeToggle, searchModeOf } from './SearchModeToggle.js';
+import { EngineQrScanButton } from './EngineQrScanButton.js';
 import { useGlobalSearchScope } from '../context/globalSearchScope.js';
 import { L2_SOURCES, loadAllL2, pickL2Label, type L2Row } from '../services/globalSearchSources.js';
 import { KIND_PATH, UI_SEARCH_ENTRIES, type UiSearchEntry } from '../services/uiSearchRegistry.js';
@@ -492,27 +493,37 @@ export function GlobalSearchOverlay(props: {
         }}
       >
         <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
-          <input
-            ref={inputRef}
-            data-testid="global-search-input"
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setActiveIndex(0);
-            }}
-            placeholder="Поиск по всему: детали, двигатели, наряды, кнопки и разделы…"
-            style={{
-              width: '100%',
-              boxSizing: 'border-box',
-              padding: '10px 12px',
-              fontSize: 16,
-              color: 'var(--text)',
-              background: 'var(--input-bg, var(--surface2))',
-              border: '1px solid var(--input-border, var(--border))',
-              borderRadius: 8,
-              outline: 'none',
-            }}
-          />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <input
+                ref={inputRef}
+                data-testid="global-search-input"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setActiveIndex(0);
+                }}
+                placeholder="Поиск по всему: детали, двигатели, наряды, кнопки и разделы…"
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  padding: '10px 12px',
+                  fontSize: 16,
+                  color: 'var(--text)',
+                  background: 'var(--input-bg, var(--surface2))',
+                  border: '1px solid var(--input-border, var(--border))',
+                  borderRadius: 8,
+                  outline: 'none',
+                }}
+              />
+            </div>
+            <EngineQrScanButton
+              onEngineNumber={(n) => {
+                setQuery(n);
+                setActiveIndex(0);
+              }}
+            />
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10 }}>
             {LEVELS.map((lvl) => {
               const activeLevel = lvl.mode === mode;

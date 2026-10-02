@@ -4,6 +4,7 @@ import { isBulkStageCandidate, isEngineAtPlant, repairStageRank } from '@matrica
 
 import { Button } from './Button.js';
 import { Input } from './Input.js';
+import { EngineQrScanButton } from './EngineQrScanButton.js';
 import { SearchSelect } from './SearchSelect.js';
 import { emojiAttrs } from '../utils/labelEmoji.js';
 
@@ -230,13 +231,18 @@ export function BulkStageAddDialog(props: {
 
           <div style={{ display: 'grid', gap: 4 }}>
             <span className="ui-muted" style={{ fontSize: 12 }} {...emojiAttrs('Двигатели')}>Двигатели ({selectedEngineIds.length} выбрано)</span>
-            <Input
-              value={query}
-              disabled={busy}
-              placeholder="Поиск по номеру двигателя…"
-              data-bulk-stage-search
-              onChange={(e) => setQuery(e.target.value)}
-            />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <Input
+                  value={query}
+                  disabled={busy}
+                  placeholder="Поиск по номеру двигателя…"
+                  data-bulk-stage-search
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </div>
+              <EngineQrScanButton onEngineNumber={(n) => setQuery(n)} />
+            </div>
             <div style={{ maxHeight: 200, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: 8 }}>
               {engines.length === 0 ? (
                 <div className="ui-muted" style={{ fontSize: 12 }}>Список двигателей не загрузился</div>

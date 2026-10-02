@@ -16,7 +16,8 @@ import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
-import { FacetFilter, FacetToggleButton } from '../components/FacetFilter.js';
+import { FacetFilter, FacetToggleButton } from '../components/FacetFilter.js';
+import { EngineQrScanButton } from '../components/EngineQrScanButton.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
@@ -371,6 +372,9 @@ export function WorkSheetsPage(props: {
         </Button>
         <ToolbarPin>
           <Input value={ui.query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по этапам работ…" />
+        </ToolbarPin>
+        <ToolbarPin>
+          <EngineQrScanButton onEngineNumber={(n) => patchState({ query: n })} />
         </ToolbarPin>
         <ToolbarPin>
           <SearchModeToggle similar={ui.searchSimilar} onToggle={() => patchState({ searchSimilar: !ui.searchSimilar })} />

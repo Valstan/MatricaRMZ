@@ -38,6 +38,7 @@ export * from './domain/reportLinkMarker.js';
 export * from './domain/reportTaskPeriod.js';
 export * from './domain/reportTaskFilters.js';
 export * from './domain/engineInternalNumber.js';
+export * from './domain/engineQr.js';
 export * from './domain/engineReservation.js';
 export * from './domain/engineFlatFields.js';
 export * from './domain/engineTimeline.js';
