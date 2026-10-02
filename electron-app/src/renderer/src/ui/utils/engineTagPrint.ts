@@ -90,7 +90,7 @@ type TagLayout = {
   numberPt: number;
   valuePt: number;
   labelPt: number;
-  /** Сторона QR в шапке бирки — растёт вместе с биркой. */
+  /** Сторона QR в середине бирки — высотой примерно в две строки полей. */
   qrMm: number;
 };
 
@@ -102,16 +102,16 @@ type TagLayout = {
  */
 const TAG_LAYOUTS: Record<EngineTagsPerSheet, Record<EngineTagOrientation, TagLayout>> = {
   6: {
-    portrait: { columns: 2, rows: 3, gapMm: 2, padMm: 3, brandPt: 20, numberPt: 28, valuePt: 12, labelPt: 7, qrMm: 18 },
-    landscape: { columns: 3, rows: 2, gapMm: 3, padMm: 5, brandPt: 24, numberPt: 32, valuePt: 13, labelPt: 8, qrMm: 18 },
+    portrait: { columns: 2, rows: 3, gapMm: 2, padMm: 3, brandPt: 20, numberPt: 28, valuePt: 12, labelPt: 7, qrMm: 16 },
+    landscape: { columns: 3, rows: 2, gapMm: 3, padMm: 5, brandPt: 24, numberPt: 32, valuePt: 13, labelPt: 8, qrMm: 16 },
   },
   4: {
-    portrait: { columns: 2, rows: 2, gapMm: 3, padMm: 5, brandPt: 30, numberPt: 40, valuePt: 16, labelPt: 9, qrMm: 24 },
-    landscape: { columns: 2, rows: 2, gapMm: 4, padMm: 6, brandPt: 32, numberPt: 44, valuePt: 18, labelPt: 10, qrMm: 24 },
+    portrait: { columns: 2, rows: 2, gapMm: 3, padMm: 5, brandPt: 30, numberPt: 40, valuePt: 16, labelPt: 9, qrMm: 20 },
+    landscape: { columns: 2, rows: 2, gapMm: 4, padMm: 6, brandPt: 32, numberPt: 44, valuePt: 18, labelPt: 10, qrMm: 20 },
   },
   2: {
-    portrait: { columns: 1, rows: 2, gapMm: 4, padMm: 7, brandPt: 40, numberPt: 54, valuePt: 22, labelPt: 12, qrMm: 32 },
-    landscape: { columns: 2, rows: 1, gapMm: 5, padMm: 8, brandPt: 44, numberPt: 60, valuePt: 24, labelPt: 13, qrMm: 32 },
+    portrait: { columns: 1, rows: 2, gapMm: 4, padMm: 7, brandPt: 40, numberPt: 54, valuePt: 22, labelPt: 12, qrMm: 28 },
+    landscape: { columns: 2, rows: 1, gapMm: 5, padMm: 8, brandPt: 44, numberPt: 60, valuePt: 24, labelPt: 13, qrMm: 28 },
   },
 };
 
@@ -178,21 +178,21 @@ async function generateTagQrSvg(value: string): Promise<string> {
 }
 
 function renderTag(tag: EngineTagData, qrSvg?: string): string {
-  const qr = qrSvg
-    ? `<div class="tag-qr">${qrSvg}</div>`
-    : '';
+  const qr = qrSvg ? `<div class="tag-qr">${qrSvg}</div>` : '';
   return `<div class="tag">
     <div class="tag-head">
-      <div class="tag-head-text">
-        <div class="tag-brand">${textOrDash(tag.engineBrand)}</div>
-        <div class="tag-number">${textOrDash(tag.engineNumber)}</div>
-      </div>${qr}
+      <div class="tag-brand">${textOrDash(tag.engineBrand)}</div>
+      <div class="tag-number">${textOrDash(tag.engineNumber)}</div>
     </div>
     <div class="tag-body">
       ${renderField('Заказчик', textOrDash(tag.customerName))}
       ${renderField('Договор', contractValue(tag.contractNumber))}
-      ${renderField('Поступил на завод', dateOrDash(tag.arrivalDate))}
-      ${renderField('Начало ремонта', dateOrDash(tag.repairStartDate))}
+      <div class="tag-mid">
+        <div class="tag-mid-fields">
+          ${renderField('Поступил на завод', dateOrDash(tag.arrivalDate))}
+          ${renderField('Начало ремонта', dateOrDash(tag.repairStartDate))}
+        </div>${qr}
+      </div>
       ${renderField('Окончание ремонта по договору', dateOrDash(tag.repairDueDate))}
       ${renderField('Окончательная техническая приёмка', dateOrDash(technicalAcceptanceDate(tag.repairDueDate)))}
     </div>
@@ -235,13 +235,14 @@ function buildCss(layout: TagLayout, orientation: EngineTagOrientation): string 
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  .tag-head { border-bottom: 1px solid #0b1220; padding-bottom: ${mm(layout.padMm / 2)}; display: flex; gap: ${mm(layout.padMm)}; align-items: center; }
-  .tag-head-text { flex: 1 1 auto; min-width: 0; }
-  .tag-qr { flex: 0 0 auto; width: ${mm(layout.qrMm)}; height: ${mm(layout.qrMm)}; }
-  .tag-qr svg { width: 100%; height: 100%; display: block; }
+  .tag-head { border-bottom: 1px solid #0b1220; padding-bottom: ${mm(layout.padMm / 2)}; }
   .tag-brand { font-size: ${layout.brandPt}pt; font-weight: 700; line-height: 1.1; word-break: break-word; }
   .tag-number { font-size: ${layout.numberPt}pt; font-weight: 800; line-height: 1.1; word-break: break-word; font-variant-numeric: tabular-nums; }
   .tag-body { display: flex; flex-direction: column; justify-content: space-between; flex: 1 1 auto; min-height: 0; }
+  .tag-mid { display: flex; gap: ${mm(layout.padMm)}; align-items: center; }
+  .tag-mid-fields { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: ${mm(layout.padMm / 2)}; }
+  .tag-qr { flex: 0 0 auto; width: ${mm(layout.qrMm)}; height: ${mm(layout.qrMm)}; }
+  .tag-qr svg { width: 100%; height: 100%; display: block; }
   .tag-field { min-width: 0; }
   .tag-label { font-size: ${layout.labelPt}pt; color: #6b7280; line-height: 1.1; text-transform: uppercase; letter-spacing: 0.2px; }
   .tag-value { font-size: ${layout.valuePt}pt; font-weight: 700; line-height: 1.15; word-break: break-word; }

@@ -112,10 +112,11 @@ describe('buildEngineTagsHtml', () => {
     );
   });
 
-  it('QR: значение — engine:<id>, svg в шапке справа от номера', () => {
+  it('QR: значение — engine:<id>, svg в середине рядом с датами', () => {
     expect(engineTagQrValue('abc-123')).toBe('engine:abc-123');
     const qr = new Map([['eng-1', '<svg>qr</svg>']]);
     const html = buildEngineTagsHtml([tag(1)], { perSheet: 4, ...PORTRAIT }, qr);
+    expect(html).toContain('<div class="tag-mid">');
     expect(html).toContain('<div class="tag-qr"><svg>qr</svg></div>');
     expect(html).toContain('.tag-qr {');
   });
