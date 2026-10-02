@@ -327,6 +327,36 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
 
   // chat_rooms — комнаты чата (владелец 08.09.2026). Та же причина дубля, что у таблиц выше:
   // свежая установка идёт мимо версионной цепочки, а холодный full-sync запросит таблицу.
+  // Горячий путь синка и списков: ежесекундная проба COUNT по sync_status и полный скан
+  // списка двигателей. Базы, прошедшие старые цепочки миграций мимо этих индексов,
+  // платили full-scan'ом на каждый тик — чиним здесь, идемпотентно. Колонку проверяем:
+  // таблица без sync_status индекс не примет, а уронить старт клиента нельзя.
+  const ensureSyncIndex = (table: string, name: string, ddl: string) => {
+    if (!hasTable(table) || !columnNames(table).has('sync_status')) return;
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS ${name} ON ${table}(${ddl});`);
+  };
+  // entity_types.code читается точечно по маленькой таблице — полный скан там не больно.
+  // Уникальные не трогаем вовсе: в диких базах встречались дубли (entity, attr) —
+  // CREATE UNIQUE уронил бы старт клиента, а для скорости важен только sync_status.
+  ensureSyncIndex('entity_types', 'entity_types_sync_status_idx', 'sync_status');
+  ensureSyncIndex('entities', 'entities_sync_status_idx', 'sync_status');
+  ensureSyncIndex('attribute_defs', 'attribute_defs_sync_status_idx', 'sync_status');
+  ensureSyncIndex('attribute_values', 'attribute_values_sync_status_idx', 'sync_status');
+  ensureSyncIndex('operations', 'operations_sync_status_idx', 'sync_status');
+  if (hasTable('operations')) {
+    sqlite.exec(
+      `CREATE INDEX IF NOT EXISTS operations_type_deleted_updated_idx ON operations(operation_type, deleted_at, updated_at);`,
+    );
+    sqlite.exec(
+      `CREATE INDEX IF NOT EXISTS operations_engine_type_idx ON operations(engine_entity_id, operation_type);`,
+    );
+  }
+  ensureSyncIndex('audit_log', 'audit_log_sync_status_idx', 'sync_status');
+  ensureSyncIndex('chat_messages', 'chat_messages_sync_status_idx', 'sync_status');
+  ensureSyncIndex('chat_reads', 'chat_reads_sync_status_idx', 'sync_status');
+  ensureSyncIndex('notes', 'notes_sync_status_idx', 'sync_status');
+  ensureSyncIndex('note_shares', 'note_shares_sync_status_idx', 'sync_status');
+  ensureSyncIndex('user_presence', 'user_presence_sync_status_idx', 'sync_status');
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS chat_rooms (
       id text PRIMARY KEY NOT NULL,

@@ -47,6 +47,21 @@ describe('ветки обработчика синка в App.tsx', () => {
   it('на done список перечитывается через коалесер, а не напрямую', () => {
     expect(doneBranch).toContain("requestEnginesRefresh('sync_done')");
   });
+
+  it('на done с чужими таблицами список не перечитывают', () => {
+    // Чат и прочий шум синка список двигателей не меняют, а полный EAV-скан на
+    // каждый такой тик и есть тяжесть на слабых машинах. Пропуск — только при
+    // явной потабличке без двигательных таблиц, иначе обновляем как раньше.
+    expect(doneBranch).toContain('syncPulledEngineTables(evt)');
+    expect(APP).toContain("'erp_engine_inventory_lines',");
+    expect(APP).toContain('if (!tables) return true;');
+  });
+
+  it('импульс живых данных не греет список при открытой карточке', () => {
+    // Список при открытой карточке не виден, а скан стоит секунд: на возврат во
+    // вкладку срабатывает переходный refresh, свежесть не теряется.
+    expect(APP).toContain("if (tab !== 'engine') requestEnginesRefresh('live_pulse');");
+  });
 });
 
 describe('стабильность обновления списка двигателей', () => {

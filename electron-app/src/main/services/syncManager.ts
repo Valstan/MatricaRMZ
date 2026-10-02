@@ -5,6 +5,7 @@ import type { SyncRunResult, SyncStatus } from '@matricarmz/shared';
 import { flushPendingEngineReservationReleases } from './engineReservationClient.js';
 import {
   countPendingLocalChanges,
+  countPendingLocalChangesByTable,
   hasActiveSession,
   readLastPulledServerSeq,
   runSync,
@@ -242,9 +243,12 @@ export class SyncManager {
       const pendingRows = await countPendingLocalChanges();
       const probeMs = nowMs() - probeStartedAt;
       if (probeMs >= SLOW_PROBE_MS) {
+        const byTable = await countPendingLocalChangesByTable().catch(() => []);
+        const slowest = [...byTable].sort((a, b) => b.ms - a.ms).slice(0, 3);
         logPerfWarn(this.db, this.apiBaseUrl, 'local-probe', `slow local pending probe: ${probeMs}ms`, {
           action: 'localWatch',
           ms: probeMs,
+          slowest: slowest.map((s) => `${s.table}=${s.ms}ms/${s.n}`),
         });
       }
       const action = computeLocalDirtyAction({
