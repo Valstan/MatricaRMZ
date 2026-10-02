@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildEngineTagsHtml,
+  buildEngineTagsHtmlWithQr,
+  engineTagQrValue,
   splitContractDigits,
   technicalAcceptanceDate,
   TECHNICAL_ACCEPTANCE_LAG_DAYS,
@@ -17,6 +19,7 @@ function tag(n: number): EngineTagData {
   return {
     engineBrand: '6ЧН 21/21',
     engineNumber: `Д-00${n}`,
+    engineId: `eng-${n}`,
     customerName: 'РЖД ТЧЭ-5',
     contractNumber: 'ДГ-12/2026-СЕВ',
     arrivalDate: ARRIVAL,
@@ -68,7 +71,7 @@ describe('buildEngineTagsHtml', () => {
 
   it('пустое значение печатает прочерком', () => {
     const html = buildEngineTagsHtml(
-      [{ engineBrand: '', engineNumber: 'Д-009', customerName: '  ', contractNumber: '', arrivalDate: null }],
+      [{ engineBrand: '', engineNumber: 'Д-009', engineId: 'eng-9', customerName: '  ', contractNumber: '', arrivalDate: null }],
       { perSheet: 6, ...PORTRAIT },
     );
     expect(html).toContain('Д-009');
@@ -107,6 +110,29 @@ describe('buildEngineTagsHtml', () => {
     expect(buildEngineTagsHtml(tags(6), { perSheet: 6, orientation: 'landscape' })).toContain(
       'grid-template-columns: repeat(3, 1fr)',
     );
+  });
+
+  it('QR: значение — engine:<id>, svg в шапке справа от номера', () => {
+    expect(engineTagQrValue('abc-123')).toBe('engine:abc-123');
+    const qr = new Map([['eng-1', '<svg>qr</svg>']]);
+    const html = buildEngineTagsHtml([tag(1)], { perSheet: 4, ...PORTRAIT }, qr);
+    expect(html).toContain('<div class="tag-qr"><svg>qr</svg></div>');
+    expect(html).toContain('.tag-qr {');
+  });
+
+  it('QR: бирка без svg в карте печатается без квадрата, а не дыркой', () => {
+    const html = buildEngineTagsHtml([tag(1)], { perSheet: 4, ...PORTRAIT }, new Map());
+    expect(html).not.toContain('<div class="tag-qr">');
+    expect(html).toContain('Д-001');
+  });
+
+  it('асинхронная сборка генерирует настоящий QR на каждый двигатель', async () => {
+    const html = await buildEngineTagsHtmlWithQr(tags(2), { perSheet: 4, ...PORTRAIT });
+    // Два разных двигателя — два разных svg в шапках.
+    expect(html.match(/<div class="tag-qr">/g)?.length ?? 0).toBe(2);
+    expect(html).toContain('<svg');
+    expect(html).toContain('Д-001');
+    expect(html).toContain('Д-002');
   });
 });
 

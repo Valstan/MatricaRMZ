@@ -9,8 +9,8 @@ import { useTagPrintQueue, type TagQueueItem } from '../hooks/useTagPrintQueue.j
 import {
   ENGINE_TAG_ORIENTATION_OPTIONS,
   ENGINE_TAG_PER_SHEET_OPTIONS,
-  buildEngineTagsHtml,
-  openEngineTagsPrint,
+  buildEngineTagsHtmlWithQr,
+  openEngineTagsPrintHtml,
   type EngineTagData,
   type EngineTagOrientation,
   type EngineTagsPerSheet,
@@ -48,7 +48,7 @@ const PER_SHEET_HINT: Record<EngineTagsPerSheet, string> = {
 /**
  * Откуда диалог берёт бирку. Структурный тип, а не `Pick<EngineListItem>`: карточка
  * двигателя строки списка не имеет и собирает те же поля из своего состояния.
- * `engineId` — только для очереди (дедуп и снятие); в бирку не печатается.
+ * `engineId` — для очереди (дедуп и снятие) и QR бирки (`engine:<id>`).
  */
 export type EngineTagSource = {
   engineBrand?: string;
@@ -68,13 +68,14 @@ export type EngineTagInitial = EngineTagSource & { engineId: string };
  * Поля бирки — из того, что уже есть в строке списка. Отдельного запроса на каждый
  * двигатель здесь нет: чего в строке нет, генератор напечатает прочерком.
  */
-export function buildEngineTagData(e: EngineTagSource): EngineTagData {
+export function buildEngineTagData(e: EngineTagSource & { engineId?: string }): EngineTagData {
   // Дата начала ремонта — статусная дата стадии `status_repair_started` (в EAV она лежит
   // под `status_repair_started_date`, см. STATUS_DATE_CODES; в строке списка карта уже
   // разобрана по кодам стадий).
   return {
     engineBrand: String(e.engineBrand ?? ''),
     engineNumber: String(e.engineNumber ?? ''),
+    engineId: String(e.engineId ?? ''),
     customerName: String(e.customerName ?? ''),
     contractNumber: String(e.contractName ?? ''),
     arrivalDate: e.arrivalDate ?? null,
@@ -94,7 +95,7 @@ function normalizePerSheet(v: unknown): EngineTagsPerSheet {
 }
 
 function normalizeOrientation(v: unknown): EngineTagOrientation {
-  return ENGINE_TAG_ORIENTATION_OPTIONS.find((o) => o === v) ?? 'landscape';
+  return ENGINE_TAG_ORIENTATION_OPTIONS.find((o) => o === v) ?? 'portrait';
 }
 
 function queueLabel(item: TagQueueItem): string {
@@ -113,10 +114,11 @@ export function EngineTagPrintDialog(props: {
 }) {
   // Раскладку помним между вызовами: бирки печатают пачками, и каждый раз оператор
   // выбирал бы один и тот же вариант заново. Ключ общий для списка и карточки.
-  // По умолчанию — альбом и 4 бирки (владелец 01.10.2026).
+  // По умолчанию — портрет и 4 бирки (владелец 02.10.2026). Ключ новый (ui2):
+  // у старого лежит сохранённый альбом-дефолт, неотличимый от осознанного выбора.
   const { state, patchState } = useListUiState<{ perSheet: number; orientation: EngineTagOrientation }>(
-    'print:engineTags:ui',
-    { perSheet: 4, orientation: 'landscape' },
+    'print:engineTags:ui2',
+    { perSheet: 4, orientation: 'portrait' },
   );
   const perSheet = normalizePerSheet(state.perSheet);
   const orientation = normalizeOrientation(state.orientation);
@@ -167,10 +169,25 @@ export function EngineTagPrintDialog(props: {
   // Закрытый диалог лист не собирает: он висит смонтированным рядом со списком, и
   // перебирать очередь на каждый его рендер незачем.
   const tags = useMemo(() => (props.open ? checked.map(buildEngineTagData) : []), [props.open, checked]);
-  const html = useMemo(
-    () => (props.open ? buildEngineTagsHtml(tags, { perSheet, orientation }) : ''),
-    [props.open, tags, perSheet, orientation],
-  );
+  // QR генерируется асинхронно (генератор — промис): превью и печать берут готовый HTML.
+  const [html, setHtml] = useState('');
+  useEffect(() => {
+    if (!props.open || tags.length === 0) {
+      setHtml('');
+      return;
+    }
+    let alive = true;
+    void buildEngineTagsHtmlWithQr(tags, { perSheet, orientation })
+      .then((h) => {
+        if (alive) setHtml(h);
+      })
+      .catch(() => {
+        if (alive) setHtml('');
+      });
+    return () => {
+      alive = false;
+    };
+  }, [props.open, tags, perSheet, orientation]);
   const sheets = tags.length > 0 ? Math.ceil(tags.length / perSheet) : 0;
 
   // Превью грузится через srcDoc асинхронно — высоту iframe подгоняем после загрузки,
@@ -186,9 +203,13 @@ export function EngineTagPrintDialog(props: {
 
   if (!props.open) return null;
 
-  function handlePrint() {
+  async function handlePrint() {
     if (tags.length === 0) return;
-    openEngineTagsPrint(tags, { perSheet, orientation });
+    const h =
+      html ||
+      (await buildEngineTagsHtmlWithQr(tags, { perSheet, orientation }).catch(() => ''));
+    if (!h) return;
+    openEngineTagsPrintHtml(h);
     props.onClose();
   }
 
