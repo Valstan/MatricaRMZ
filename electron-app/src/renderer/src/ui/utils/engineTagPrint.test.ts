@@ -5,12 +5,9 @@ import {
   buildEngineTagsHtmlWithQr,
   engineTagQrValue,
   splitContractDigits,
-  technicalAcceptanceDate,
-  TECHNICAL_ACCEPTANCE_LAG_DAYS,
   type EngineTagData,
 } from './engineTagPrint.js';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const ARRIVAL = Date.UTC(2026, 0, 12, 9, 0, 0);
 const REPAIR_START = Date.UTC(2026, 0, 20, 9, 0, 0);
 const REPAIR_DUE = Date.UTC(2026, 3, 12, 9, 0, 0);
@@ -60,13 +57,11 @@ describe('buildEngineTagsHtml', () => {
     expect(html).toContain('Заказчик');
     expect(html).toContain('Поступил на завод');
     expect(html).toContain('Начало ремонта');
-    expect(html).toContain('Окончание ремонта по договору');
-    expect(html).toContain('Окончательная техническая приёмка');
+    expect(html).toContain('План окончания ремонта');
     expect(html).toContain('12.01.2026');
     expect(html).toContain('20.01.2026');
     expect(html).toContain('12.04.2026');
-    // Техприёмка = срок ремонта + запас (10 дней).
-    expect(html).toContain('22.04.2026');
+    expect(html).not.toContain('Окончательная техническая приёмка');
   });
 
   it('пустое значение печатает прочерком', () => {
@@ -112,13 +107,12 @@ describe('buildEngineTagsHtml', () => {
     );
   });
 
-  it('QR: значение — engine:<id>, svg в середине рядом с датами', () => {
+  it('QR: значение — engine:<id>, квадрат в правом нижнем углу', () => {
     expect(engineTagQrValue('abc-123')).toBe('engine:abc-123');
     const qr = new Map([['eng-1', '<svg>qr</svg>']]);
     const html = buildEngineTagsHtml([tag(1)], { perSheet: 4, ...PORTRAIT }, qr);
-    expect(html).toContain('<div class="tag-mid">');
     expect(html).toContain('<div class="tag-qr"><svg>qr</svg></div>');
-    expect(html).toContain('.tag-qr {');
+    expect(html).toContain('.tag-qr { position: absolute;');
   });
 
   it('QR: бирка без svg в карте печатается без квадрата, а не дыркой', () => {
@@ -129,11 +123,62 @@ describe('buildEngineTagsHtml', () => {
 
   it('асинхронная сборка генерирует настоящий QR на каждый двигатель', async () => {
     const html = await buildEngineTagsHtmlWithQr(tags(2), { perSheet: 4, ...PORTRAIT });
-    // Два разных двигателя — два разных svg в шапках.
+    // Два разных двигателя — два разных svg в углах.
     expect(html.match(/<div class="tag-qr">/g)?.length ?? 0).toBe(2);
     expect(html).toContain('<svg');
     expect(html).toContain('Д-001');
     expect(html).toContain('Д-002');
+  });
+
+  it('автоподбор кегля номера без canvas не трогает вёрстку', () => {
+    // В node canvas нет — fit отдаёт null и номер идёт классом раскладки.
+    const html = buildEngineTagsHtml([tag(1)], { perSheet: 4, ...PORTRAIT }, new Map());
+    expect(html).toContain('<div class="tag-number">Д-001</div>');
+  });
+
+  it('автоподбор жмёт длинный номер в одну строку, короткий оставляет крупным', () => {
+    // Стаб canvas: ширина пропорциональна длине × кегль — проверяем сам цикл
+    // (ужимка длинного, максимум короткого, пол на минимуме), не рендер шрифта.
+    const g = globalThis as Record<string, unknown>;
+    const realDocument = g.document;
+    let fontPt = 0;
+    g.document = {
+      createElement: () => ({
+        getContext: () => ({
+          set font(v: string) {
+            fontPt = Number(/([\d.]+)px/.exec(v)?.[1] ?? 0) * 0.75;
+          },
+          measureText: (s: string) => ({ width: s.length * ((fontPt * 96) / 72) * 0.6 }),
+        }),
+      }),
+    };
+    try {
+      // 15 знаков в ячейку 88.5мм: влезает ровно на 27pt.
+      const long = buildEngineTagsHtml(
+        [{ ...tag(1), engineId: 'eng-long', engineNumber: 'X'.repeat(15) }],
+        { perSheet: 4, ...PORTRAIT },
+        new Map(),
+      );
+      const longPt = Number(/<div class="tag-number" style="font-size: ([\d.]+)pt">/.exec(long)?.[1] ?? 0);
+      expect(longPt, 'длинный номер ужался ниже максимума').toBe(27);
+      // 16 знаков уже не влезают и на полу — пол честный, переносу быть.
+      const longer = buildEngineTagsHtml(
+        [{ ...tag(1), engineId: 'eng-longer', engineNumber: 'X'.repeat(16) }],
+        { perSheet: 4, ...PORTRAIT },
+        new Map(),
+      );
+      const longerPt = Number(/<div class="tag-number" style="font-size: ([\d.]+)pt">/.exec(longer)?.[1] ?? 0);
+      expect(longerPt, 'ниже пола не уходим').toBe(25);
+      const short = buildEngineTagsHtml(
+        [{ ...tag(1), engineId: 'eng-short', engineNumber: 'Д-1' }],
+        { perSheet: 4, ...PORTRAIT },
+        new Map(),
+      );
+      expect(short).toContain('<div class="tag-number" style="font-size: 50pt">Д-1</div>');
+    } finally {
+      if (realDocument === undefined) delete g.document;
+      else g.document = realDocument;
+    }
   });
 });
 
@@ -162,16 +207,5 @@ describe('splitContractDigits', () => {
     expect(html).toContain('<span class="tag-contract-digits">239</span>');
     expect(html).toContain('/27/ГОЗ-24');
     expect(html).toContain('.tag-contract-digits { font-size: 22pt; font-weight: 800; }');
-  });
-});
-
-describe('technicalAcceptanceDate', () => {
-  it('отодвигает срок ремонта на запас технической приёмки', () => {
-    expect(technicalAcceptanceDate(REPAIR_DUE)).toBe(REPAIR_DUE + TECHNICAL_ACCEPTANCE_LAG_DAYS * DAY_MS);
-  });
-
-  it('без срока ремонта считать не от чего', () => {
-    expect(technicalAcceptanceDate(null)).toBeNull();
-    expect(technicalAcceptanceDate(undefined)).toBeNull();
   });
 });
