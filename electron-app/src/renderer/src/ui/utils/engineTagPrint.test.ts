@@ -57,7 +57,7 @@ describe('buildEngineTagsHtml', () => {
     expect(html).toContain('Заказчик');
     expect(html).toContain('Поступил на завод');
     expect(html).toContain('Начало ремонта');
-    expect(html).toContain('План окончания ремонта');
+    expect(html).toContain('План сдачи');
     expect(html).toContain('12.01.2026');
     expect(html).toContain('20.01.2026');
     expect(html).toContain('12.04.2026');

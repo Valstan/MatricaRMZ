@@ -89,16 +89,16 @@ type TagLayout = {
  */
 const TAG_LAYOUTS: Record<EngineTagsPerSheet, Record<EngineTagOrientation, TagLayout>> = {
   6: {
-    portrait: { columns: 2, rows: 3, gapMm: 2, padMm: 3, brandPt: 22, numberPt: 32, valuePt: 13, labelPt: 8, qrMm: 24 },
-    landscape: { columns: 3, rows: 2, gapMm: 3, padMm: 4, brandPt: 24, numberPt: 32, valuePt: 13, labelPt: 8, qrMm: 24 },
+    portrait: { columns: 2, rows: 3, gapMm: 2, padMm: 3, brandPt: 22, numberPt: 32, valuePt: 13, labelPt: 8, qrMm: 28 },
+    landscape: { columns: 3, rows: 2, gapMm: 3, padMm: 4, brandPt: 24, numberPt: 32, valuePt: 13, labelPt: 8, qrMm: 28 },
   },
   4: {
-    portrait: { columns: 2, rows: 2, gapMm: 3, padMm: 4, brandPt: 34, numberPt: 50, valuePt: 19, labelPt: 10, qrMm: 32 },
-    landscape: { columns: 2, rows: 2, gapMm: 4, padMm: 5, brandPt: 28, numberPt: 38, valuePt: 16, labelPt: 9, qrMm: 32 },
+    portrait: { columns: 2, rows: 2, gapMm: 3, padMm: 4, brandPt: 34, numberPt: 50, valuePt: 19, labelPt: 10, qrMm: 36 },
+    landscape: { columns: 2, rows: 2, gapMm: 4, padMm: 5, brandPt: 28, numberPt: 38, valuePt: 16, labelPt: 9, qrMm: 36 },
   },
   2: {
-    portrait: { columns: 1, rows: 2, gapMm: 4, padMm: 6, brandPt: 42, numberPt: 56, valuePt: 23, labelPt: 12, qrMm: 44 },
-    landscape: { columns: 2, rows: 1, gapMm: 5, padMm: 7, brandPt: 48, numberPt: 66, valuePt: 26, labelPt: 14, qrMm: 44 },
+    portrait: { columns: 1, rows: 2, gapMm: 4, padMm: 6, brandPt: 42, numberPt: 56, valuePt: 23, labelPt: 12, qrMm: 52 },
+    landscape: { columns: 2, rows: 1, gapMm: 5, padMm: 7, brandPt: 48, numberPt: 66, valuePt: 26, labelPt: 14, qrMm: 52 },
   },
 };
 
@@ -207,7 +207,7 @@ function renderTag(tag: EngineTagData, qrSvg?: string, numberPt?: number): strin
       ${renderField('Договор', contractValue(tag.contractNumber))}
       ${renderField('Поступил на завод', dateOrDash(tag.arrivalDate))}
       ${renderField('Начало ремонта', dateOrDash(tag.repairStartDate))}
-      ${renderField('План окончания ремонта', dateOrDash(tag.repairDueDate))}
+      ${renderField('План сдачи', dateOrDash(tag.repairDueDate))}
     </div>${qr}
   </div>`;
 }
