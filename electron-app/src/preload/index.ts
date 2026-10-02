@@ -1,6 +1,17 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { ChatDeepLinkPayload, PartMetadata } from '@matricarmz/shared';
 
+// Нативный сканер QR ставит сюда планшет (android-app/src/platform/qrScan.ts) до
+// загрузки renderer. На десктопе хука нет — мост честно отвечает unsupported,
+// кнопка скана в поиске не рисуется.
+type NativeQrScanFn = () => Promise<
+  { ok: true; text: string } | { ok: false; error: string; cancelled?: boolean }
+>;
+function nativeQrScanHook(): NativeQrScanFn | undefined {
+  const fn = (globalThis as Record<string, unknown>).__matricarmzQrScan;
+  return typeof fn === 'function' ? (fn as NativeQrScanFn) : undefined;
+}
+
 // API, доступный в renderer. Дальше будем расширять CRUD и синхронизацию.
 const matricaApi = {
   ping: async () => ipcRenderer.invoke('app:ping'),
@@ -26,6 +37,18 @@ const matricaApi = {
     cardContent: async (args: { entityIds: string[]; q: string }) => ipcRenderer.invoke('search:cardContent', args),
     enginesByStampedNumber: async (args: { q: string; limit?: number }) =>
       ipcRenderer.invoke('search:enginesByStampedNumber', args),
+  },
+  scan: {
+    qrSupported: async () => ({ ok: true as const, supported: typeof nativeQrScanHook() === 'function' }),
+    qrScan: async () => {
+      const fn = nativeQrScanHook();
+      if (typeof fn !== 'function') return { ok: false as const, error: 'Сканирование QR доступно только на планшете' };
+      try {
+        return await fn();
+      } catch (e) {
+        return { ok: false as const, error: e instanceof Error ? e.message : String(e ?? 'Не удалось отсканировать') };
+      }
+    },
   },
   activity: {
     report: (args: { activeDate: string; activeMs: number }) => ipcRenderer.send('activity:report', args),

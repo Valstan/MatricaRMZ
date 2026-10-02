@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { EntityReferenceTarget, QuickCreateRequest, QuickCreateResult } from '@matricarmz/shared';
 
 import { useConfirmOptional } from './ConfirmContext.js';
+import { EngineQrScanButton } from './EngineQrScanButton.js';
 import { SearchSelect, type SearchSelectOption } from './SearchSelect.js';
 import { QuickCreateDialog } from './QuickCreateDialog.js';
 import { normalizeLookupCompact, rankLookupOptions } from '../utils/searchMatching.js';
@@ -290,8 +291,14 @@ export function EntityReferenceField(props: EntityReferenceFieldProps) {
     resolve?.(result);
   }
 
+  // Скан QR бирки — только для двигателя: номер подставляется текстом, дальше
+  // работает штатный разбор (точное совпадение → выбор, иначе диалог «не найдено»).
+  // Кнопка сама прячется без моста сканера; ошибки показывает сама.
+  const showEngineScan = props.target === 'engine' && props.disabled !== true;
+  const actionColumns = `${props.onOpen ? ' auto' : ''}${showEngineScan ? ' auto' : ''}`;
+
   return (
-    <div ref={rootRef} style={{ display: 'grid', gridTemplateColumns: props.onOpen ? 'minmax(0, 1fr) auto' : 'minmax(0, 1fr)', gap: 6 }}>
+    <div ref={rootRef} style={{ display: 'grid', gridTemplateColumns: `minmax(0, 1fr)${actionColumns}`, gap: 6 }}>
       {dangling && (
         <div
           style={{
@@ -347,6 +354,14 @@ export function EntityReferenceField(props: EntityReferenceFieldProps) {
         >
           ↗
         </button>
+      ) : null}
+      {showEngineScan ? (
+        <EngineQrScanButton
+          onEngineNumber={(number) => {
+            setQuery(number);
+            void resolveOnBlur(number);
+          }}
+        />
       ) : null}
       {quickCreateLabel !== null && props.onQuickCreate ? (
         <QuickCreateDialog

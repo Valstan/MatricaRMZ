@@ -4,6 +4,7 @@
 // (bridge/shim.ts), который остаётся только для браузерного просмотра.
 import { BrowserWindow } from '../shims/electron.js';
 import { setAndroidPlatformHooks } from '../shims/platform.js';
+import { installEngineQrScanHook } from './qrScan.js';
 import { bootAndroidCore, type AndroidCore } from '../core/boot.js';
 import { installAndroidBridge } from '../core/ipcWiring.js';
 import { openAndroidReplica } from './replica.js';
@@ -14,6 +15,9 @@ declare const __MATRICA_DEFAULT_API_BASE_URL__: string;
 
 export async function bootCapacitorClient(): Promise<AndroidCore> {
   const replica = await openAndroidReplica();
+
+  // Скан QR бирок — до моста и renderer: preload читает хук при первом запросе.
+  installEngineQrScanHook();
 
   setAndroidPlatformHooks({
     encryptionAvailable: () => replica.encrypted,

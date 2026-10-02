@@ -4,6 +4,7 @@ import type { StatusCode } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { Input } from './Input.js';
+import { EngineQrScanButton } from './EngineQrScanButton.js';
 import { useListUiState } from '../hooks/useListBehavior.js';
 import { useTagPrintQueue, type TagQueueItem } from '../hooks/useTagPrintQueue.js';
 import {
@@ -264,8 +265,11 @@ export function EngineTagPrintDialog(props: {
                 ))}
               </div>
             )}
-            <div style={{ marginTop: 6 }}>
-              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Номер для добора…" data-tag-search />
+            <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Номер для добора…" data-tag-search />
+              </div>
+              <EngineQrScanButton onEngineNumber={(n) => setQuery(n)} />
             </div>
             {catalogError ? <div style={{ fontSize: 11, color: 'var(--danger)' }}>{catalogError}</div> : null}
             {matches.length > 0 && (
