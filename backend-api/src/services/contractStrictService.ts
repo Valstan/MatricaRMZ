@@ -60,7 +60,6 @@ const counterpartyPatchSchema = z.object({
 });
 
 type ContractPatch = z.infer<typeof contractPatchSchema>;
-type CounterpartyPatch = z.infer<typeof counterpartyPatchSchema>;
 
 const CONTRACT_PATCH_KEYS = new Set(Object.keys(contractPatchSchema.shape));
 const COUNTERPARTY_PATCH_KEYS = new Set(Object.keys(counterpartyPatchSchema.shape));
@@ -206,7 +205,6 @@ async function createContractRow(id: string, patch: ContractPatch, actor: Publis
 export async function patchContractStrict(
   id: string,
   raw: unknown,
-  actor: PublishActor,
 ): Promise<Result<{ row: Record<string, unknown>; changed: boolean }>> {
   const contractId = String(id ?? '').trim();
   if (!uuid.safeParse(contractId).success) return { ok: false, error: 'неверный id договора' };
@@ -323,7 +321,6 @@ export async function createCounterpartyStrict(raw: unknown, actor: PublishActor
 export async function patchCounterpartyStrict(
   id: string,
   raw: unknown,
-  actor: PublishActor,
 ): Promise<Result<{ row: Record<string, unknown>; changed: boolean }>> {
   const counterpartyId = String(id ?? '').trim();
   if (!uuid.safeParse(counterpartyId).success) return { ok: false, error: 'неверный id контрагента' };
