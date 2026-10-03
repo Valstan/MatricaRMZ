@@ -34,7 +34,7 @@ import { randomUUID } from 'node:crypto';
 
 import { db } from '../../database/db.js';
 import { applyAiChatPushPolicy } from './aiChatPushPolicy.js';
-import { diffEngineCardPushTrail, writeEngineCardEavTrail } from '../engineStrictService.js';
+import { diffEngineCardPushTrail } from '../engineStrictService.js';
 import { logInfo, logWarn } from '../../utils/logger.js';
 import { listEmployeesAuth } from '../employeeAuthService.js';
 import { formatTelegramMessage, sendTelegramMessage } from '../telegramBotService.js';
