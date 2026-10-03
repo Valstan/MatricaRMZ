@@ -18,6 +18,7 @@ import {
   erpEngineInventoryLineRowSchema,
   erpContractPaymentSlotRowSchema,
   erpContractPaymentRowSchema,
+  erpEngineCardRowSchema,
   type SyncPullResponse,
   type SyncPushRequest,
 } from '@matricarmz/shared';
@@ -1202,6 +1203,7 @@ async function collectPending(db: BetterSQLite3Database) {
   await recoverErroredRows(erpEngineInventoryLines, erpEngineInventoryLineRowSchema, SyncTableName.ErpEngineInventoryLines);
   await recoverErroredRows(erpContractPaymentSlots, erpContractPaymentSlotRowSchema, SyncTableName.ErpContractPaymentSlots);
   await recoverErroredRows(erpContractPayments, erpContractPaymentRowSchema, SyncTableName.ErpContractPaymentPayments);
+  await recoverErroredRows(erpEngineCards, erpEngineCardRowSchema, SyncTableName.ErpEngineCards);
 
   async function add(table: SyncTableName, rows: unknown[]) {
     if (rows.length === 0) return;
@@ -1623,6 +1625,29 @@ async function collectPending(db: BetterSQLite3Database) {
       logSync(`push drop invalid erp_contract_payments count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')}`);
     }
     await add(SyncTableName.ErpContractPaymentPayments, valid);
+  }
+  {
+    // Карточки двигателей (план engine-cards-strict-2026-10, E3b): клиент пишет
+    // push-ом (цех с планшета, офлайн). Гейты дублей — серверной pre-sign
+    // партицией; отбитая строка остаётся pending и гасится в error ниже
+    // (см. обработку skipped), карточка показывает баннер при открытии.
+    const pendingCards = await db
+      .select()
+      .from(erpEngineCards)
+      .where(eq(erpEngineCards.syncStatus, pending))
+      .limit(limitFor(SyncTableName.ErpEngineCards));
+    const valid: typeof pendingCards = [];
+    const invalidIds: string[] = [];
+    for (const row of pendingCards) {
+      const parsed = erpEngineCardRowSchema.safeParse(toSyncRow(SyncTableName.ErpEngineCards, row));
+      if (parsed.success) valid.push(row);
+      else invalidIds.push(String(row.id));
+    }
+    if (invalidIds.length > 0) {
+      await markPendingError(db, SyncTableName.ErpEngineCards, invalidIds);
+      logSync(`push drop invalid erp_engine_cards count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')}`);
+    }
+    await add(SyncTableName.ErpEngineCards, valid);
   }
 
   return packs;
@@ -4640,6 +4665,7 @@ export async function runSync(
               .map((row: NonNullable<LedgerPushSubmitResponse['skipped']>[number]) => `${row.table}:${row.row_id}:${row.reason}`)
               .join(', ');
             logSync(`push skipped rows count=${json.skipped.length} sample=${sample}`);
+            const engineGateIds: string[] = [];
             for (const row of json.skipped) {
               const reserved = parseEngineReservationSkipReason(String(row?.reason ?? ''));
               if (reserved) {
@@ -4648,6 +4674,20 @@ export async function runSync(
               } else {
                 dependencySkippedCount += 1;
               }
+              // Гейты карточек двигателей (engine_number_dup / engine_pair_dup):
+              // повтор слать бессмысленно — номер не освободится сам. Гасим в error,
+              // карточка покажет баннер при открытии, оператор правит и сохраняет.
+              if (
+                String(row?.table ?? '') === SyncTableName.ErpEngineCards &&
+                String(row?.reason ?? '').startsWith('engine_') &&
+                String(row?.row_id ?? '')
+              ) {
+                engineGateIds.push(String(row.row_id));
+              }
+            }
+            if (engineGateIds.length > 0) {
+              await markPendingError(db, SyncTableName.ErpEngineCards, engineGateIds);
+              logSync(`push engine card gate rejections marked error count=${engineGateIds.length}`);
             }
             await healSkippedDependencies(db, json.skipped as SkippedRowLike[]).catch((e) => {
               logSync(`push dependency heal failed err=${formatError(e)}`);

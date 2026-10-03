@@ -106,6 +106,7 @@ const WRITE_CHANNELS = new Set([
   'engine:delete',
   'engine:setAttr',
   'engine:dedupe:merge',
+  'engines:card:save',
   'ops:add',
   'parts:create',
   'parts:delete',

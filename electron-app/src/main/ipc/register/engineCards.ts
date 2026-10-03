@@ -1,9 +1,23 @@
 import { ipcMain } from 'electron';
 import { eq } from 'drizzle-orm';
 
+import { engineInternalNumberDuplicateMessage, engineInternalNumberKey, normalizeLookupCompact } from '@matricarmz/shared';
+
 import type { IpcContext } from '../ipcContext.js';
-import { requirePermOrResult } from '../ipcContext.js';
+import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { erpEngineCards } from '../../database/schema.js';
+import {
+  engineHasDuplicateBypassFlag,
+  ensureEngineRow,
+  findEngineDuplicateByNumber,
+  findEngineInternalNumberDuplicate,
+  getEngineAttrDefs,
+} from '../../services/engineService.js';
+import {
+  isKnownEngineCardCode,
+  readEngineCardStrict,
+  saveEngineCardStrict,
+} from '../../services/engineCardsReplica.js';
 
 type Err = { ok: false; error: string };
 
@@ -27,8 +41,7 @@ export function registerEngineCardsIpc(ctx: IpcContext) {
         .limit(1);
       const row = rows[0] as Record<string, unknown> | undefined;
       if (!row || row.deletedAt != null) return { ok: true as const, row: null };
-      const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-      const txt = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+      const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);      const txt = (v: unknown): string | null => (typeof v === 'string' ? v : null);
       const flg = (v: unknown): boolean => v === true || v === 1;
       return {
         ok: true as const,
@@ -92,8 +105,82 @@ export function registerEngineCardsIpc(ctx: IpcContext) {
           docs_return_original_date: num(row.docsReturnOriginalDate),
           docs_note: txt(row.docsNote),
           updated_at: Number(row.updatedAt ?? 0),
+          sync_status: String((row as { syncStatus?: unknown }).syncStatus ?? 'synced'),
         },
       };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
+  /**
+   * Запись карточки (E3b): клиентские гейты дублей + локальная реплика pending.
+   * Уход в push забирает collectPending; подтверждение — pull'ом. Гейты читают
+   * локальные EAV (с лагом pull'а после E3b) — гонки ловит серверная pre-sign
+   * партиция, отбитая строка гасится в error и показывается баннером.
+   */
+  ipcMain.handle('engines:card:save', async (_e, args: { id: string; fields: Record<string, unknown> }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'engines.edit');
+    if (!gate.ok) return gate as Err;
+    try {
+      const id = String(args?.id ?? '').trim();
+      if (!id) return { ok: false as const, error: 'пустой id двигателя' };
+      const fields = (args?.fields ?? {}) as Record<string, unknown>;
+      if (!fields || typeof fields !== 'object' || Array.isArray(fields)) {
+        return { ok: false as const, error: 'ожидался объект полей карточки' };
+      }
+      const bad = Object.keys(fields).filter((k) => !isKnownEngineCardCode(k));
+      if (bad.length > 0) return { ok: false as const, error: `неизвестные поля карточки двигателя: ${bad.join(', ')}` };
+      const db = ctx.dataDb();
+      const replica = await readEngineCardStrict(db, id);
+      if (fields.engine_number !== undefined && fields.engine_number !== null) {
+        const next = String(fields.engine_number ?? '');
+        const key = normalizeLookupCompact(next);
+        if (key) {
+          const dup = await findEngineDuplicateByNumber(db, next, id);
+          if (dup) {
+            const explicit =
+              fields.repeat_arrival_flag !== undefined || fields.number_collision_flag !== undefined;
+            const bypass = explicit
+              ? fields.repeat_arrival_flag === true || fields.number_collision_flag === true
+              : Boolean(replica?.repeatArrivalFlag || replica?.numberCollisionFlag) ||
+                (await engineHasDuplicateBypassFlag(db, id, await getEngineAttrDefs(db)));
+            if (!bypass) {
+              return {
+                ok: false as const,
+                error: `Двигатель с номером «${dup.engineNumber}» уже существует. Откройте его карточку вместо создания дубля.`,
+              };
+            }
+          }
+        }
+      }
+      if (fields.engine_internal_number !== undefined || fields.engine_internal_number_year !== undefined) {
+        const rep = replica as Record<string, unknown> | null;
+        const num =
+          fields.engine_internal_number !== undefined && fields.engine_internal_number !== null
+            ? String(fields.engine_internal_number ?? '')
+            : rep?.engineInternalNumber != null
+              ? String(rep.engineInternalNumber)
+              : null;
+        const year =
+          fields.engine_internal_number_year !== undefined && fields.engine_internal_number_year !== null
+            ? (fields.engine_internal_number_year as number)
+            : (rep?.engineInternalNumberYear as number | null) ?? null;
+        if (num !== null) {
+          const key = engineInternalNumberKey(num, year);
+          if (key) {
+            const dup = await findEngineInternalNumberDuplicate(db, num, year, id);
+            if (dup) return { ok: false as const, error: engineInternalNumberDuplicateMessage(dup) };
+          }
+        }
+      }
+      // Deferred-create (как setAttr): сущность материализуется первой реальной
+      // записью — брошенная пустая карточка призрака не оставляет. Строго после
+      // гейтов: отбитая запись не должна создавать сущность.
+      await ensureEngineRow(db, id, Date.now());
+      const saved = await saveEngineCardStrict(db, id, fields, Date.now());
+      return { ok: true as const, changed: saved.changed };
     } catch (e) {
       return { ok: false as const, error: String(e) };
     }

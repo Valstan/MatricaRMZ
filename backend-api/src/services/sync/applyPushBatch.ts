@@ -1530,10 +1530,13 @@ export async function applyPushBatch(
     // push-ом (цех с планшета, офлайн). Гейты уникальности — pre-sign партицией
     // выше (сюда доезжают только разрешённые); ссылки хранятся как присланы
     // (справочная строка может не доехать раньше карточки — в UI прочерк).
+    // Нормализация текстов (''→null) — здесь, в единственной точке choke point:
+    // зеркало читает '' как NULL, и ненормализованная строка разъехалась бы с EAV.
     {
       const raw = grouped.get(SyncTableName.ErpEngineCards) ?? [];
       const parsed = parseRows(SyncTableName.ErpEngineCards, raw, erpEngineCardRowSchema);
       const rows = await filterStaleBySeqOrUpdatedAt(erpEngineCards, parsed, SyncTableName.ErpEngineCards);
+      const t = (v: unknown): string | null => (v == null || v === '' ? null : String(v));
       if (rows.length > 0) {
         const ids = Array.from(new Set(rows.map((r) => String(r.id))));
         const currentRows = await tx
@@ -1552,15 +1555,15 @@ export async function applyPushBatch(
           .values(
             rows.map((r) => ({
               id: r.id as any,
-              engineNumber: (r.engine_number as string | null) ?? null,
-              engineInternalNumber: (r.engine_internal_number as string | null) ?? null,
+              engineNumber: t(r.engine_number),
+              engineInternalNumber: t(r.engine_internal_number),
               engineInternalNumberYear: (r.engine_internal_number_year as number | null) ?? null,
               engineBrandId: (r.engine_brand_id ?? null) as any,
-              engineBrand: (r.engine_brand as string | null) ?? null,
+              engineBrand: t(r.engine_brand),
               arrivalDate: (r.arrival_date as number | null) ?? null,
               customerId: (r.customer_id ?? null) as any,
               contractId: (r.contract_id ?? null) as any,
-              contractSectionNumber: (r.contract_section_number as string | null) ?? null,
+              contractSectionNumber: t(r.contract_section_number),
               workshopId: (r.workshop_id ?? null) as any,
               statusReworkSent: (r.status_rework_sent as boolean | null) ?? false,
               statusReworkSentDate: (r.status_rework_sent_date as number | null) ?? null,
@@ -1578,37 +1581,37 @@ export async function applyPushBatch(
               statusStorageReceivedDate: (r.status_storage_received_date as number | null) ?? null,
               statusRejected: (r.status_rejected as boolean | null) ?? false,
               statusRejectedDate: (r.status_rejected_date as number | null) ?? null,
-              scrapReason: (r.scrap_reason as string | null) ?? null,
+              scrapReason: t(r.scrap_reason),
               reclamationFlag: (r.reclamation_flag as boolean | null) ?? false,
               reclamationAcceptedDate: (r.reclamation_accepted_date as number | null) ?? null,
-              reclamationCustomerReason: (r.reclamation_customer_reason as string | null) ?? null,
-              reclamationActualDefect: (r.reclamation_actual_defect as string | null) ?? null,
-              reclamationDefectNature: (r.reclamation_defect_nature as string | null) ?? null,
-              reclamationActNumber: (r.reclamation_act_number as string | null) ?? null,
+              reclamationCustomerReason: t(r.reclamation_customer_reason),
+              reclamationActualDefect: t(r.reclamation_actual_defect),
+              reclamationDefectNature: t(r.reclamation_defect_nature),
+              reclamationActNumber: t(r.reclamation_act_number),
               reclamationVerdictDate: (r.reclamation_verdict_date as number | null) ?? null,
               reclamationShippedDate: (r.reclamation_shipped_date as number | null) ?? null,
-              reclamationComment: (r.reclamation_comment as string | null) ?? null,
-              reclamationVerdict: (r.reclamation_verdict as string | null) ?? null,
-              reclamationRepairStatus: (r.reclamation_repair_status as string | null) ?? null,
+              reclamationComment: t(r.reclamation_comment),
+              reclamationVerdict: t(r.reclamation_verdict),
+              reclamationRepairStatus: t(r.reclamation_repair_status),
               repeatArrivalFlag: (r.repeat_arrival_flag as boolean | null) ?? false,
               numberCollisionFlag: (r.number_collision_flag as boolean | null) ?? false,
               previousArrivalId: (r.previous_arrival_id ?? null) as any,
               mergedInto: (r.merged_into ?? null) as any,
-              arrivalInvoice: (r.arrival_invoice as string | null) ?? null,
-              shipmentInvoice: (r.shipment_invoice as string | null) ?? null,
-              engineNote: (r.engine_note as string | null) ?? null,
-              docsState: (r.docs_state as string | null) ?? null,
+              arrivalInvoice: t(r.arrival_invoice),
+              shipmentInvoice: t(r.shipment_invoice),
+              engineNote: t(r.engine_note),
+              docsState: t(r.docs_state),
               docsAspvrContractorDate: (r.docs_aspvr_contractor_date as number | null) ?? null,
               docsVpSentDate: (r.docs_vp_sent_date as number | null) ?? null,
               docsVpReturnedDate: (r.docs_vp_returned_date as number | null) ?? null,
               docsAspvrCustomerScanDate: (r.docs_aspvr_customer_scan_date as number | null) ?? null,
               docsAspvrCustomerOriginalDate: (r.docs_aspvr_customer_original_date as number | null) ?? null,
-              docsTrackOrAct: (r.docs_track_or_act as string | null) ?? null,
+              docsTrackOrAct: t(r.docs_track_or_act),
               docsAspvrSignedCustomerDate: (r.docs_aspvr_signed_customer_date as number | null) ?? null,
               docsAspvrCustomerReceived: (r.docs_aspvr_customer_received as boolean | null) ?? false,
               docsReturnScanDate: (r.docs_return_scan_date as number | null) ?? null,
               docsReturnOriginalDate: (r.docs_return_original_date as number | null) ?? null,
-              docsNote: (r.docs_note as string | null) ?? null,
+              docsNote: t(r.docs_note),
               createdAt: r.created_at,
               updatedAt: r.updated_at,
               deletedAt: r.deleted_at ?? null,
