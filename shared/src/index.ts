@@ -1,7 +1,6 @@
 export * from './sync/dto.js';
 export * from './sync/tables.js';
 export * from './sync/registry.js';
-export * from './sync/erpTables.js';
 export * from './sync/erpDto.js';
 export * from './domain/enums.js';
 export * from './domain/entityReference.js';

@@ -11,8 +11,7 @@ import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
 import {
-  entities,
-  entityTypes,
+  directoryEngineBrands,
   erpNomenclature,
   repairNormLines,
   repairNormSetBrandLinks,
@@ -32,17 +31,17 @@ function parseJsonObject(value: string | null): Record<string, unknown> | null {
 }
 
 async function validateReferences(engineBrandIds: string[], nomenclatureIds: string[]): Promise<string | null> {
+  // Марки — по строгому зеркалу (B1): id-тождественно EAV, триггеры держат синхронно.
   const uniqueBrands = [...new Set(engineBrandIds)];
   const brandRows = uniqueBrands.length
     ? await db
-        .select({ id: entities.id, typeCode: entityTypes.code })
-        .from(entities)
-        .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
-        .where(and(inArray(entities.id, uniqueBrands as any), isNull(entities.deletedAt), isNull(entityTypes.deletedAt)))
+        .select({ id: directoryEngineBrands.id })
+        .from(directoryEngineBrands)
+        .where(and(inArray(directoryEngineBrands.id, uniqueBrands as any), isNull(directoryEngineBrands.deletedAt)))
     : [];
-  const validBrands = new Set(brandRows.filter((row) => row.typeCode === 'engine_brand').map((row) => String(row.id)));
+  const validBrands = new Set(brandRows.map((row) => String(row.id)));
   const invalidBrand = uniqueBrands.find((id) => !validBrands.has(id));
-  if (invalidBrand) return `engineBrandIds: ссылка ${invalidBrand} не существует или имеет тип, отличный от engine_brand`;
+  if (invalidBrand) return `engineBrandIds: ссылка ${invalidBrand} не существует или удалена`;
 
   const uniqueNomenclature = [...new Set(nomenclatureIds)];
   const nomenclatureRows = uniqueNomenclature.length

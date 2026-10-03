@@ -355,21 +355,33 @@ async function getReclamations(input: Record<string, unknown>): Promise<ToolResu
   }
   const names = new Map<string, string>();
   if (counterpartyIds.size > 0) {
-    // Имя заказчика — атрибут name EAV-сущности customer; фолбэк на ERP-справочник.
+    // B2: имя заказчика — из строгого зеркала erp_counterparties (id-тождественно EAV,
+    // триггеры держат синхронно); EAV — только фолбэк для строк, не попавших в зеркало.
     const r = await pool.query(
-      'select av.entity_id as id, av.value_json as name from attribute_values av ' +
-        'join attribute_defs d on d.id = av.attribute_def_id ' +
-        "where av.entity_id = ANY($1::uuid[]) and av.deleted_at is null and d.code in ('name', 'full_name', 'short_name')",
+      'select id, name from erp_counterparties where id = ANY($1::uuid[]) and deleted_at is null',
       [[...counterpartyIds]],
     );
     for (const row of r.rows ?? []) {
-      let value = String(row.name ?? '');
-      try {
-        value = String(JSON.parse(value));
-      } catch {
-        /* не-JSON — как есть */
-      }
+      const value = String(row.name ?? '').trim();
       if (value && !names.has(row.id)) names.set(row.id, value);
+    }
+    const missing = [...counterpartyIds].filter((id) => !names.has(id));
+    if (missing.length > 0) {
+      const eav = await pool.query(
+        'select av.entity_id as id, av.value_json as name from attribute_values av ' +
+          'join attribute_defs d on d.id = av.attribute_def_id ' +
+          "where av.entity_id = ANY($1::uuid[]) and av.deleted_at is null and d.code in ('name', 'full_name', 'short_name')",
+        [missing],
+      );
+      for (const row of eav.rows ?? []) {
+        let value = String(row.name ?? '');
+        try {
+          value = String(JSON.parse(value));
+        } catch {
+          /* не-JSON — как есть */
+        }
+        if (value && !names.has(row.id)) names.set(row.id, value);
+      }
     }
   }
   const contractNames = new Map<string, string>();

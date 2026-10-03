@@ -92,7 +92,7 @@
 - Для `stock_transfer` склады отправителя и получателя не могут совпадать.
 - Инвентаризация может формировать движения при `actualQty - bookQty != 0` даже если строковое `qty` равно `0`.
 - Отрицательные остатки при проведении не допускаются.
-- Остатки и движения синхронизируются через ledger-only контур; warehouse DTO в `shared/src/sync/erpDto.ts` и перечень таблиц в `shared/src/sync/erpTables.ts` должны оставаться согласованными с backend schema.
+- Остатки и движения синхронизируются через ledger-only контур; warehouse DTO в `shared/src/sync/erpDto.ts` должны оставаться согласованными с backend schema (перечень таблиц — `shared/src/sync/tables.ts`, мёртвый `erpTables.ts` снесён 2026-10-03).
 
 ## Базовая проверка после изменений
 ```bash
