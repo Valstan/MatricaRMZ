@@ -110,15 +110,16 @@ async function main() {
   }
 
   const mismatches: Mismatch[] = [];
+  const strictOnly: Array<{ contractId: string; slotId: string; paymentId?: string }> = [];
   let withEav = 0;
   let withStrict = 0;
   for (const row of eav.rows as Array<{ contract_id: string; raw: unknown }>) {
     const cid = String(row.contract_id);
     const raw = typeof row.raw === 'string' ? row.raw : row.raw == null ? null : String(row.raw);
-    const expected = mirrorForm(raw);
+    const expected = JSON.parse(mirrorForm(raw)) as { slots: Array<{ id: string; payments: Array<{ id: string }> } & Record<string, unknown>> };
     const liveSlots = (slotsByContract.get(cid) ?? []).filter((s) => s.deleted_at == null);
     if (liveSlots.length > 0) withStrict += 1;
-    const actual = norm({
+    const actual = JSON.parse(norm({
       version: 1,
       slots: liveSlots.map((s) => ({
         id: String(s.id),
@@ -135,14 +136,39 @@ async function main() {
           ...(p.countdown_start ? { countdownStart: true } : {}),
         })),
       })),
-    });
-    if (expected !== norm(null)) withEav += 1;
-    if (expected !== actual) {
+    })) as { slots: Array<{ id: string; payments: Array<Record<string, unknown> & { id: string }> } & Record<string, unknown>> };
+    if (JSON.stringify(expected) !== norm(null)) withEav += 1;
+    // Strict-extra — LEGAL post-cutover: правки новых клиентов идут только в strict,
+    // EAV-следа у них нет. Считаем отдельно, не валим гейт.
+    const expectedSlotIds = new Set(expected.slots.map((s) => s.id));
+    for (const s of actual.slots) {
+      if (!expectedSlotIds.has(s.id)) {
+        strictOnly.push({ contractId: cid, slotId: s.id });
+        continue;
+      }
+      const expSlot = expected.slots.find((e) => e.id === s.id)!;
+      const expectedPayIds = new Set(expSlot.payments.map((p) => p.id));
+      for (const p of s.payments) {
+        if (!expectedPayIds.has(p.id)) strictOnly.push({ contractId: cid, slotId: s.id, paymentId: p.id });
+      }
+    }
+    // Сравнение — только по EAV-покрытому множеству: лишнее strict не маскирует
+    // недостачу и наоборот.
+    const actualCovered = actual.slots
+      .filter((s) => expectedSlotIds.has(s.id))
+      .map((s) => {
+        const expSlot = expected.slots.find((e) => e.id === s.id)!;
+        const expectedPayIds = new Set(expSlot.payments.map((p) => p.id));
+        return { ...s, payments: s.payments.filter((p) => expectedPayIds.has(p.id)) };
+      });
+    const expNorm = JSON.stringify({ version: 1 as const, slots: expected.slots });
+    const actNorm = JSON.stringify({ version: 1 as const, slots: actualCovered });
+    if (expNorm !== actNorm) {
       mismatches.push({
         contractId: cid,
-        kind: liveSlots.length === 0 && expected !== norm(null) ? 'есть EAV, нет strict' : 'состав отличается',
-        expected: JSON.parse(expected),
-        actual: JSON.parse(actual),
+        kind: actual.slots.length === 0 && expNorm !== norm(null) ? 'есть EAV, нет strict' : 'состав отличается',
+        expected: JSON.parse(expNorm),
+        actual: JSON.parse(actNorm),
       });
     }
   }
@@ -155,9 +181,9 @@ async function main() {
 
   const ok = mismatches.length === 0;
   if (asJson) {
-    console.log(JSON.stringify({ ok, contracts: eav.rows.length, withEav, withStrict, mismatches }, null, 2));
+    console.log(JSON.stringify({ ok, contracts: eav.rows.length, withEav, withStrict, strictOnly: strictOnly.length, mismatches }, null, 2));
   } else {
-    console.log(`Контрактов: ${eav.rows.length}; с EAV-платежами: ${withEav}; со strict-слотами: ${withStrict}`);
+    console.log(`Контрактов: ${eav.rows.length}; с EAV-платежами: ${withEav}; со strict-слотами: ${withStrict}; только в strict (правки новых клиентов): ${strictOnly.length}`);
     if (ok) {
       console.log('\n✓ Расхождений EAV ↔ строгие таблицы платежей нет.');
     } else {

@@ -81,6 +81,13 @@ describe('двери записи договоров/контрагентов (C
     if (!r.ok) expect(r.error).toContain('занят');
   });
 
+  it('пересохранение неизменного номера не блокируется (тройка 20/ГОЗ-25)', async () => {
+    // Строка уже несёт тот же ключ — гейт дублей пропускает без запроса к журналу.
+    selectQueue.push([{ id: CID, internalNumber: '20/ГОЗ-25', deletedAt: null }]);
+    const r = await patchContractStrict(CID, { internal_number: '20/ГОЗ-25', comment: 'x' }, ACTOR);
+    expect(r.ok).toBe(true);
+  });
+
   it('патч несуществующего договора — 404-семантика', async () => {
     selectQueue.push([]); // existing: пусто
     const r = await patchContractStrict(CID, { comment: 'hi' }, ACTOR);
