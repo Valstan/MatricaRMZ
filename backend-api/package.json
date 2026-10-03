@@ -118,7 +118,8 @@
     "warehouse:backfill-units": "tsx src/scripts/backfillNomenclatureUnits.ts",
     "warehouse:backfill-units:apply": "tsx src/scripts/backfillNomenclatureUnits.ts --apply",
     "ai:rules": "tsx src/scripts/aiChatRules.ts",
-    "payments:parity": "tsx src/scripts/checkPaymentsParity.ts"
+    "payments:parity": "tsx src/scripts/checkPaymentsParity.ts",
+    "engines:parity": "tsx src/scripts/checkEnginesParity.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
