@@ -15,6 +15,7 @@ import {
   collectSupplyRequestEntityReferences,
   collectWorkOrderEntityReferences,
   contractInternalNumberDuplicateMessage,
+  contractInternalNumberKey,
   engineInternalNumberDuplicateMessage,
   entityRowSchema,
   entityTypeRowSchema,
@@ -1299,14 +1300,18 @@ export async function setEntityAttribute(
       return { ok: false as const, error: engineInternalNumberDuplicateMessage(dup) };
     }
   }
-  // Внутренний номер ДОГОВОРА («20/ГОЗ-25») тоже обязан быть уникальным — он
-  // означает «20-й договор ГОЗ-25», двух таких быть не может. Гейта не было, и
-  // на проде накопились три живых договора с одним номером (2026-08-17).
-  // Здесь ключ — сама строка, а не пара с годом: год уже внутри неё.
+  // Внутренний номер договора («20/ГОЗ-25»): новые дубли блокируются, а пересохранение
+  // неизменного номера разрешено. На проде живут три РАЗНЫХ договора с одним номером
+  // (решение владельца 2026-10-03: так надо бухгалтерии, не дубли) — без этого послабления
+  // их карточки вообще не сохранялись: гейт срабатывал на каждую запись того же значения.
   if (code === CONTRACT_INTERNAL_NUMBER_CODE && (await isContractEntityType(String(e[0].typeId)))) {
-    const dup = await findContractInternalNumberDuplicate(value, entityId);
-    if (dup) {
-      return { ok: false as const, error: contractInternalNumberDuplicateMessage(dup) };
+    const prevKey = contractInternalNumberKey(safeJsonParse(String(existing[0]?.valueJson ?? '')));
+    const nextKey = contractInternalNumberKey(value);
+    if (nextKey && nextKey !== prevKey) {
+      const dup = await findContractInternalNumberDuplicate(value, entityId);
+      if (dup) {
+        return { ok: false as const, error: contractInternalNumberDuplicateMessage(dup) };
+      }
     }
   }
   if (existing[0]) {

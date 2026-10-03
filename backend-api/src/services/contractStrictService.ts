@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
-import { SyncTableName } from '@matricarmz/shared';
+import { SyncTableName, contractInternalNumberKey } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
 import { entities, entityTypes, erpContracts, erpCounterparties } from '../database/schema.js';
@@ -301,8 +301,15 @@ export async function patchContractStrict(
   const cur = existing[0];
   if (!cur || cur.deletedAt != null) return { ok: false, error: 'договор не найден' };
   if (patch.internal_number !== undefined) {
-    const dup = await findContractInternalNumberDuplicate(patch.internal_number, contractId);
-    if (dup) return { ok: false, error: `внутренний номер занят договором ${dup.contractNumber || dup.id}` };
+    // Пересохранение неизменного номера разрешено: на проде живут три разных
+    // договора с одним номером (решение владельца 2026-10-03), иначе их карточки
+    // не сохранялись бы вовсе. Новые дубли по-прежнему блокируются.
+    const prevKey = contractInternalNumberKey(cur.internalNumber);
+    const nextKey = contractInternalNumberKey(patch.internal_number);
+    if (nextKey && nextKey !== prevKey) {
+      const dup = await findContractInternalNumberDuplicate(patch.internal_number, contractId);
+      if (dup) return { ok: false, error: `внутренний номер занят договором ${dup.contractNumber || dup.id}` };
+    }
   }
   if (patch.customer_id !== undefined && patch.customer_id !== null) {
     const cust = await db
