@@ -3,6 +3,9 @@ import type { QuickCreateRequest, QuickCreateResult } from '@matricarmz/shared';
 import { normalizeLookupText } from './searchMatching.js';
 
 export async function quickCreateEntity(request: QuickCreateRequest): Promise<QuickCreateResult | null> {
+  // Заказчики создаются серверной дверью в strict (план contract-cutover-2026-10, C2):
+  // EAV-путь ниже их бы писал мимо канона, а триггер плодил бы shell-дубли.
+  if (request.target === 'customer') return quickCreateCounterparty(request);
   const types = await window.matrica.admin.entityTypes.list();
   const type = types.find((entry) => String(entry.code) === request.target);
   if (!type?.id) throw new Error(`Справочник «${request.target}» не найден`);
@@ -56,4 +59,14 @@ export async function quickCreateEntity(request: QuickCreateRequest): Promise<Qu
     throw error;
   }
   return { id: created.id, label: request.label, existing: false };
+}
+
+async function quickCreateCounterparty(request: QuickCreateRequest): Promise<QuickCreateResult> {
+  const r = (await window.matrica.contracts.counterparty.create({
+    fields: { name: request.label },
+  })) as { ok: boolean; row?: { id: string; name: string }; existing?: boolean; error?: string } | null;
+  if (!r?.ok || !r.row) {
+    throw new Error(String((r as { error?: string } | null)?.error ?? 'Не удалось создать контрагента'));
+  }
+  return { id: String(r.row.id), label: String(r.row.name || request.label), existing: r.existing === true };
 }
