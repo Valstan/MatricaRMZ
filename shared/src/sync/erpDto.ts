@@ -1,6 +1,5 @@
 import { z } from 'zod';
 
-import { ErpSyncTableName } from './erpTables.js';
 
 const baseErpFields = {
   id: z.string().uuid(),
@@ -208,25 +207,3 @@ export const erpJournalDocumentRowSchema = z.object({
   event_payload_json: z.string().nullable().optional(),
   event_at: z.number().int(),
 });
-
-export const erpSyncRowSchemaByTable = {
-  [ErpSyncTableName.Nomenclature]: erpNomenclatureRowSchema,
-  [ErpSyncTableName.EngineAssemblyBom]: erpEngineAssemblyBomRowSchema,
-  [ErpSyncTableName.EngineAssemblyBomLines]: erpEngineAssemblyBomLineRowSchema,
-  [ErpSyncTableName.EngineInstances]: erpEngineInstanceRowSchema,
-  [ErpSyncTableName.PartTemplates]: erpPartTemplateRowSchema,
-  [ErpSyncTableName.PartCards]: erpPartCardRowSchema,
-  [ErpSyncTableName.ToolTemplates]: erpPartTemplateRowSchema,
-  [ErpSyncTableName.ToolCards]: erpPartCardRowSchema,
-  [ErpSyncTableName.Counterparties]: erpPartTemplateRowSchema,
-  [ErpSyncTableName.Contracts]: erpPartTemplateRowSchema,
-  [ErpSyncTableName.EmployeeCards]: erpPartTemplateRowSchema,
-  [ErpSyncTableName.DocumentHeaders]: erpDocumentHeaderRowSchema,
-  [ErpSyncTableName.DocumentLines]: erpDocumentLineRowSchema,
-  [ErpSyncTableName.RegisterStockBalance]: erpRegisterStockBalanceRowSchema,
-  [ErpSyncTableName.RegisterStockMovements]: erpRegisterStockMovementRowSchema,
-  [ErpSyncTableName.RegisterPartUsage]: erpJournalDocumentRowSchema,
-  [ErpSyncTableName.RegisterContractSettlement]: erpJournalDocumentRowSchema,
-  [ErpSyncTableName.RegisterEmployeeAccess]: erpJournalDocumentRowSchema,
-  [ErpSyncTableName.JournalDocuments]: erpJournalDocumentRowSchema,
-} as const;
