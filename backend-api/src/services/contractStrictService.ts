@@ -1,13 +1,15 @@
 import { z } from 'zod';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { SyncTableName } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
 import { entities, entityTypes, erpContracts, erpCounterparties } from '../database/schema.js';
+import { setEntityAttribute } from './adminMasterdataService.js';
 import { findContractInternalNumberDuplicate } from './contractNumberGuard.js';
 import { recordSyncChanges } from './sync/syncChangeService.js';
+import { logWarn } from '../utils/logger.js';
 
 /**
  * Серверные двери записи договоров/контрагентов в строгие таблицы (план
@@ -105,6 +107,59 @@ function toContractRow(r: typeof erpContracts.$inferSelect): Record<string, unkn
   };
 }
 
+/**
+ * EAV-след двери (переходный период): старые клиенты читают EAV, и правка
+ * нового клиента обязана быть видна им сразу, а не после их обновления.
+ * Пишем те же значения теми же кодами, что карточка писала всегда; сериализация
+ * — тот же JSON.stringify того же объекта, поэтому триггер зеркала видит
+ * равенство и не устраивает шторм перезаписей. Отказ следа — только warn:
+ * канон уже записан выше, EAV догонит следующим pull/push.
+ */
+async function writeEavTrail(
+  actor: PublishActor,
+  entityId: string,
+  entries: Array<[code: string, value: unknown]>,
+): Promise<void> {
+  for (const [code, value] of entries) {
+    try {
+      const r = await setEntityAttribute(
+        { id: actor.id, username: actor.username },
+        entityId,
+        code,
+        value,
+        { allowSyncConflicts: true },
+      );
+      if (!r.ok) logWarn('contract door EAV trail rejected', { entityId, code, error: r.error });
+    } catch (e) {
+      logWarn('contract door EAV trail failed', { entityId, code, error: String(e) });
+    }
+  }
+}
+
+function parseJsonObject(raw: string | null | undefined): Record<string, unknown> | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Канонический текст JSON — ровно тот, что положит зеркало: `eav_attr_text`
+ * нормализует через `::jsonb #>> '{}'` (сортировка ключей, пробелы). Дверь обязана
+ * писать strict в той же сериализации, иначе триггер увидит «изменение» на каждой
+ * правке и перепишет строку штормом (проверено вживую). Реимплементация нормализации
+ * в TS хрупка — спрашиваем сам PG (один дешёвый запрос).
+ */
+async function jsonbCanonicalText(obj: Record<string, unknown>): Promise<string> {
+  const res = await db.execute(sql`select ${JSON.stringify(obj)}::jsonb #>> '{}' as t`);
+  const rows = res.rows as Array<{ t: string }>;
+  if (!rows[0]) throw new Error('jsonb normalize returned no rows');
+  return String(rows[0].t);
+}
+
 function toCounterpartyRow(r: typeof erpCounterparties.$inferSelect): Record<string, unknown> {
   return {
     id: String(r.id),
@@ -144,6 +199,14 @@ async function createContractRow(id: string, patch: ContractPatch, actor: Publis
       .limit(1);
     if (cust.length === 0) return { ok: false, error: 'заказчик не найден в справочнике' };
   }
+  // Канонические JSON: один объект — одна сериализация и в strict, и в EAV-след,
+  // иначе триггер зеркала увидит «изменение» и перепишет strict штормом.
+  const sections = patch.sections_json != null ? parseJsonObject(patch.sections_json) : null;
+  if (patch.sections_json != null && !sections) return { ok: false, error: 'неверный sections_json' };
+  const execParts = patch.execution_parts_json != null ? parseJsonObject(patch.execution_parts_json) : null;
+  if (patch.execution_parts_json != null && !execParts) return { ok: false, error: 'неверный execution_parts_json' };
+  const sectionsText = sections ? await jsonbCanonicalText(sections) : null;
+  const execPartsText = execParts ? await jsonbCanonicalText(execParts) : null;
   const contractTypeId = await typeIdOf('contract');
   if (!contractTypeId) return { ok: false, error: 'тип contract не найден' };
   const ts = nowMs();
@@ -166,8 +229,8 @@ async function createContractRow(id: string, patch: ContractPatch, actor: Publis
       dueAt: patch.due_at ?? null,
       customerId: (patch.customer_id ?? null) as any,
       comment: patch.comment ?? null,
-      sectionsJson: patch.sections_json ?? null,
-      executionPartsJson: patch.execution_parts_json ?? null,
+      sectionsJson: sectionsText,
+      executionPartsJson: execPartsText,
       paymentsJson: null,
       createdAt: ts,
       updatedAt: ts,
@@ -198,6 +261,24 @@ async function createContractRow(id: string, patch: ContractPatch, actor: Publis
     .returning();
   const row = inserted[0];
   if (!row) return { ok: false, error: 'не удалось создать договор' };
+  // След — только по присланным полям: отсутствующее поле в EAV означает «нет
+  // значения», а не null-строку (иначе каждая карточка обрастала бы дюжиной
+  // пустых атрибутов).
+  const trail: Array<[string, unknown]> = [];
+  if (patch.number !== undefined) trail.push(['number', patch.number ?? null]);
+  if (patch.internal_number !== undefined) trail.push(['internal_number', patch.internal_number ?? null]);
+  if (patch.goz_name !== undefined) trail.push(['goz_name', patch.goz_name ?? null]);
+  if (patch.goz_igk !== undefined) trail.push(['goz_igk', patch.goz_igk ?? null]);
+  if (patch.goz_separate_account_number !== undefined) trail.push(['goz_separate_account_number', patch.goz_separate_account_number ?? null]);
+  if (patch.goz_separate_account_bank !== undefined) trail.push(['goz_separate_account_bank', patch.goz_separate_account_bank ?? null]);
+  if (patch.goz_separate_account !== undefined) trail.push(['goz_separate_account', patch.goz_separate_account ?? null]);
+  if (patch.signed_at !== undefined) trail.push(['date', patch.signed_at ?? null]);
+  if (patch.due_at !== undefined) trail.push(['due_date', patch.due_at ?? null]);
+  if (patch.customer_id !== undefined) trail.push(['customer_id', patch.customer_id ?? null]);
+  if (patch.comment !== undefined) trail.push(['comment', patch.comment ?? null]);
+  if (sections) trail.push(['contract_sections', sections]);
+  if (execParts) trail.push(['contract_execution_parts', execParts]);
+  await writeEavTrail(actor, id, trail);
   return { ok: true, row: toContractRow(row) };
 }
 
@@ -205,6 +286,7 @@ async function createContractRow(id: string, patch: ContractPatch, actor: Publis
 export async function patchContractStrict(
   id: string,
   raw: unknown,
+  actor: PublishActor,
 ): Promise<Result<{ row: Record<string, unknown>; changed: boolean }>> {
   const contractId = String(id ?? '').trim();
   if (!uuid.safeParse(contractId).success) return { ok: false, error: 'неверный id договора' };
@@ -231,6 +313,20 @@ export async function patchContractStrict(
     if (cust.length === 0) return { ok: false, error: 'заказчик не найден в справочнике' };
   }
   const ts = nowMs();
+  const sections = patch.sections_json !== undefined
+    ? patch.sections_json == null ? null : parseJsonObject(patch.sections_json)
+    : undefined;
+  if (patch.sections_json !== undefined && patch.sections_json != null && !sections) {
+    return { ok: false, error: 'неверный sections_json' };
+  }
+  const execParts = patch.execution_parts_json !== undefined
+    ? patch.execution_parts_json == null ? null : parseJsonObject(patch.execution_parts_json)
+    : undefined;
+  if (patch.execution_parts_json !== undefined && patch.execution_parts_json != null && !execParts) {
+    return { ok: false, error: 'неверный execution_parts_json' };
+  }
+  const sectionsText = sections ? await jsonbCanonicalText(sections) : sections === null ? null : undefined;
+  const execPartsText = execParts ? await jsonbCanonicalText(execParts) : execParts === null ? null : undefined;
   const set = {
     ...(patch.number !== undefined ? { number: patch.number ?? null } : {}),
     ...(patch.internal_number !== undefined ? { internalNumber: patch.internal_number ?? null } : {}),
@@ -243,8 +339,8 @@ export async function patchContractStrict(
     ...(patch.due_at !== undefined ? { dueAt: patch.due_at ?? null } : {}),
     ...(patch.customer_id !== undefined ? { customerId: (patch.customer_id ?? null) as any } : {}),
     ...(patch.comment !== undefined ? { comment: patch.comment ?? null } : {}),
-    ...(patch.sections_json !== undefined ? { sectionsJson: patch.sections_json ?? null } : {}),
-    ...(patch.execution_parts_json !== undefined ? { executionPartsJson: patch.execution_parts_json ?? null } : {}),
+    ...(sectionsText !== undefined ? { sectionsJson: sectionsText } : {}),
+    ...(execPartsText !== undefined ? { executionPartsJson: execPartsText } : {}),
   };
   if (Object.keys(set).length === 0) return { ok: true, row: toContractRow(cur), changed: false };
   const updated = await db
@@ -254,7 +350,31 @@ export async function patchContractStrict(
     .returning();
   const row = updated[0];
   if (!row) return { ok: false, error: 'не удалось сохранить договор' };
+  await writeEavTrail(actor, contractId, trailOf(patch, sections, execParts));
   return { ok: true, row: toContractRow(row), changed: true };
+}
+
+/** EAV-след полевого патча: те же коды, что карточка писала всегда. */
+function trailOf(
+  patch: ContractPatch,
+  sections: Record<string, unknown> | null | undefined,
+  execParts: Record<string, unknown> | null | undefined,
+): Array<[string, unknown]> {
+  const trail: Array<[string, unknown]> = [];
+  if (patch.number !== undefined) trail.push(['number', patch.number ?? null]);
+  if (patch.internal_number !== undefined) trail.push(['internal_number', patch.internal_number ?? null]);
+  if (patch.goz_name !== undefined) trail.push(['goz_name', patch.goz_name ?? null]);
+  if (patch.goz_igk !== undefined) trail.push(['goz_igk', patch.goz_igk ?? null]);
+  if (patch.goz_separate_account_number !== undefined) trail.push(['goz_separate_account_number', patch.goz_separate_account_number ?? null]);
+  if (patch.goz_separate_account_bank !== undefined) trail.push(['goz_separate_account_bank', patch.goz_separate_account_bank ?? null]);
+  if (patch.goz_separate_account !== undefined) trail.push(['goz_separate_account', patch.goz_separate_account ?? null]);
+  if (patch.signed_at !== undefined) trail.push(['date', patch.signed_at ?? null]);
+  if (patch.due_at !== undefined) trail.push(['due_date', patch.due_at ?? null]);
+  if (patch.customer_id !== undefined) trail.push(['customer_id', patch.customer_id ?? null]);
+  if (patch.comment !== undefined) trail.push(['comment', patch.comment ?? null]);
+  if (sections !== undefined) trail.push(['contract_sections', sections]);
+  if (execParts !== undefined) trail.push(['contract_execution_parts', execParts]);
+  return trail;
 }
 
 export async function getContractStrict(id: string): Promise<Result<{ row: Record<string, unknown> }>> {
@@ -315,12 +435,22 @@ export async function createCounterpartyStrict(raw: unknown, actor: PublishActor
     .returning();
   const row = inserted[0];
   if (!row) return { ok: false, error: 'не удалось создать контрагента' };
+  await writeEavTrail(actor, id, [
+    ['name', parsed.data.name],
+    ...(parsed.data.short_name !== undefined ? [['short_name', parsed.data.short_name ?? null] as [string, unknown]] : []),
+    ...(parsed.data.inn !== undefined ? [['inn', parsed.data.inn ?? null] as [string, unknown]] : []),
+    ...(parsed.data.kpp !== undefined ? [['kpp', parsed.data.kpp ?? null] as [string, unknown]] : []),
+    ...(parsed.data.address !== undefined ? [['address', parsed.data.address ?? null] as [string, unknown]] : []),
+    ...(parsed.data.email !== undefined ? [['email', parsed.data.email ?? null] as [string, unknown]] : []),
+    ...(parsed.data.phone !== undefined ? [['phone', parsed.data.phone ?? null] as [string, unknown]] : []),
+  ]);
   return { ok: true, row: toCounterpartyRow(row) };
 }
 
 export async function patchCounterpartyStrict(
   id: string,
   raw: unknown,
+  actor: PublishActor,
 ): Promise<Result<{ row: Record<string, unknown>; changed: boolean }>> {
   const counterpartyId = String(id ?? '').trim();
   if (!uuid.safeParse(counterpartyId).success) return { ok: false, error: 'неверный id контрагента' };
@@ -354,6 +484,15 @@ export async function patchCounterpartyStrict(
     .returning();
   const row = updated[0];
   if (!row) return { ok: false, error: 'не удалось сохранить контрагента' };
+  const trail: Array<[string, unknown]> = [];
+  if (patch.name !== undefined) trail.push(['name', patch.name]);
+  if (patch.short_name !== undefined) trail.push(['short_name', patch.short_name ?? null]);
+  if (patch.inn !== undefined) trail.push(['inn', patch.inn ?? null]);
+  if (patch.kpp !== undefined) trail.push(['kpp', patch.kpp ?? null]);
+  if (patch.address !== undefined) trail.push(['address', patch.address ?? null]);
+  if (patch.email !== undefined) trail.push(['email', patch.email ?? null]);
+  if (patch.phone !== undefined) trail.push(['phone', patch.phone ?? null]);
+  await writeEavTrail(actor, counterpartyId, trail);
   return { ok: true, row: toCounterpartyRow(row), changed: true };
 }
 

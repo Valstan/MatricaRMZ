@@ -34,7 +34,7 @@ contractsRouter.get('/contracts/:id', async (req, res) => {
 });
 
 contractsRouter.post('/contracts/:id/patch', async (req, res) => {
-  const r = await patchContractStrict(String(req.params.id ?? ''), req.body);
+  const r = await patchContractStrict(String(req.params.id ?? ''), req.body, actorOf(req));
   if (!r.ok) return res.status(400).json({ ok: false, error: r.error });
   return res.json({ ok: true, row: r.row, changed: r.changed });
 });
@@ -52,7 +52,7 @@ contractsRouter.get('/counterparties/:id', async (req, res) => {
 });
 
 contractsRouter.post('/counterparties/:id/patch', async (req, res) => {
-  const r = await patchCounterpartyStrict(String(req.params.id ?? ''), req.body);
+  const r = await patchCounterpartyStrict(String(req.params.id ?? ''), req.body, actorOf(req));
   if (!r.ok) return res.status(400).json({ ok: false, error: r.error });
   return res.json({ ok: true, row: r.row, changed: r.changed });
 });
