@@ -40,6 +40,7 @@ const PREFIX_RULES: ReadonlyArray<readonly [string, AccessSection]> = [
   ['supplyRequests:', 'supply'],
   ['warehouse:contracts:', 'contracts'],
   ['contractPayments:', 'contracts'],
+  ['contracts:', 'contracts'],
   ['warehouse:', 'warehouse'],
   ['warehouseLocations:', 'warehouse'],
   // employees:list/get/defs/departments — сквозные lookup'ы (наряды, чат, табель,
@@ -145,6 +146,8 @@ const WRITE_CHANNELS = new Set([
   'supplyRequests:transition',
   // contracts
   'contractPayments:save',
+  'contracts:counterparty:save',
+  'contracts:counterparty:create',
   // warehouse
   'warehouse:directoryPart:create',
   'warehouse:documents:create',

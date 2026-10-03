@@ -9,6 +9,11 @@ import { SectionCard } from '../components/SectionCard.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
+import type { CounterpartyStrictRow } from '@matricarmz/shared';
+
+// Ядро карточки — строгая реплика/двери (план contract-cutover-2026-10, C2).
+// Вложения остаются в EAV (в strict-зеркале их нет).
+const COUNTERPARTY_CORE_CODES = new Set(['name', 'short_name', 'inn', 'kpp', 'address', 'phone', 'email']);
 
 type CounterpartyEntity = {
   id: string;
@@ -28,6 +33,7 @@ export function CounterpartyDetailsPage(props: {
   requestClose?: () => void;
 }) {
   const [entity, setEntity] = useState<CounterpartyEntity | null>(null);
+  const [strict, setStrict] = useState<CounterpartyStrictRow | null>(null);
   const [defs, setDefs] = useState<AttributeDefRow[]>([]);
   const [status, setStatus] = useState<string>('');
   const [typeId, setTypeId] = useState<string>('');
@@ -130,6 +136,16 @@ export function CounterpartyDetailsPage(props: {
       // card so it opens instead of throwing. For existing entities the fallback is ignored.
       const details = await window.matrica.admin.entities.get(props.counterpartyId, String(type.id));
       setEntity(details as any);
+      // Ядро — из строгой реплики; если её нет (холодный pull / запись старого
+      // клиента ещё не дозеркалена) — из EAV. Вложения всегда из EAV.
+      try {
+        const s = (await window.matrica.contracts.counterparty.get(props.counterpartyId)) as
+          | { ok: boolean; row?: CounterpartyStrictRow | null }
+          | null;
+        setStrict(s && s.ok ? (s.row ?? null) : null);
+      } catch {
+        setStrict(null);
+      }
       const defsList = await window.matrica.admin.attributeDefs.listByEntityType(String(type.id));
       setDefs(defsList as AttributeDefRow[]);
       setCoreDefsReady(false);
@@ -174,13 +190,15 @@ export function CounterpartyDetailsPage(props: {
   useEffect(() => {
     if (!entity) return;
     const attrs = entity.attributes ?? {};
-    setName(String(attrs.name ?? ''));
-    setShortName(String(attrs.short_name ?? ''));
-    setInn(String(attrs.inn ?? ''));
-    setKpp(String(attrs.kpp ?? ''));
-    setAddress(String(attrs.address ?? ''));
-    setPhone(String(attrs.phone ?? ''));
-    setEmail(String(attrs.email ?? ''));
+    // Ядро предпочитает strict; EAV — переходный фолбэк. Вложения всегда из EAV.
+    const core = (strict ?? attrs) as Record<string, unknown>;
+    setName(String(core.name ?? ''));
+    setShortName(String(core.short_name ?? ''));
+    setInn(String(core.inn ?? ''));
+    setKpp(String(core.kpp ?? ''));
+    setAddress(String(core.address ?? ''));
+    setPhone(String(core.phone ?? ''));
+    setEmail(String(core.email ?? ''));
     setAttachments(attrs.attachments ?? []);
     dirtyRef.current = false;
     // Phase 3d: несохранённый снимок (крах / «оставить черновик») побеждает committed-копию.
@@ -201,8 +219,8 @@ export function CounterpartyDetailsPage(props: {
         }
       })();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- field hydration is deliberately keyed on the loaded entity version; re-running on the `entity` object identity, on canEdit, or on the per-render `applyDraftSnapshot` would overwrite the user's in-progress edits
-  }, [entity?.id, entity?.updatedAt]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- field hydration is deliberately keyed on the loaded entity version and the strict row version; re-running on the `entity` object identity, on canEdit, or on the per-render `applyDraftSnapshot` would overwrite the user's in-progress edits
+  }, [entity?.id, entity?.updatedAt, strict?.updated_at]);
 
   // Phase 3d: debounced recovery-автосейв (~1.5с после последней правки, пока карточка dirty).
   useEffect(() => {
@@ -241,16 +259,18 @@ export function CounterpartyDetailsPage(props: {
       },
       copyToNew: async () => {
         if (!typeId) return;
-        const created = await window.matrica.admin.entities.create(typeId);
-        if (created?.ok && 'id' in created) {
-          await window.matrica.admin.entities.setAttr(created.id, 'name', name.trim() + ' (копия)');
-          await window.matrica.admin.entities.setAttr(created.id, 'short_name', shortName.trim() || null);
-          await window.matrica.admin.entities.setAttr(created.id, 'inn', inn.trim() || null);
-          await window.matrica.admin.entities.setAttr(created.id, 'kpp', kpp.trim() || null);
-          await window.matrica.admin.entities.setAttr(created.id, 'address', address.trim() || null);
-          await window.matrica.admin.entities.setAttr(created.id, 'phone', phone.trim() || null);
-          await window.matrica.admin.entities.setAttr(created.id, 'email', email.trim() || null);
-        }
+        const r = (await window.matrica.contracts.counterparty.create({
+          fields: {
+            name: name.trim() + ' (копия)',
+            short_name: shortName.trim() || null,
+            inn: inn.trim() || null,
+            kpp: kpp.trim() || null,
+            address: address.trim() || null,
+            phone: phone.trim() || null,
+            email: email.trim() || null,
+          },
+        })) as { ok: boolean; error?: string } | null;
+        if (!r?.ok) setStatus(`Ошибка: ${(r as { error?: string } | null)?.error ?? 'unknown'}`);
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
@@ -263,7 +283,25 @@ export function CounterpartyDetailsPage(props: {
     if (!props.canEdit) return;
     try {
       setStatus('Сохранение…');
+      // Ядро — серверной дверью в strict; остальное (вложения) — прежним EAV-путём.
       // fallbackTypeId materializes the row on the first write for a deferred card.
+      if (COUNTERPARTY_CORE_CODES.has(code)) {
+        const r = (await window.matrica.contracts.counterparty.save({
+          id: props.counterpartyId,
+          fields: { [code]: value },
+        })) as { ok: boolean; row?: CounterpartyStrictRow; error?: string } | null;
+        if (!r?.ok) {
+          setStatus(`Ошибка: ${(r as { error?: string } | null)?.error ?? 'unknown'}`);
+          return;
+        }
+        if (r.row) {
+          setStrict(r.row);
+          applyStrictRow(r.row);
+        }
+        setStatus('Сохранено');
+        setTimeout(() => setStatus(''), 900);
+        return;
+      }
       const r = await window.matrica.admin.entities.setAttr(props.counterpartyId, code, value, typeId || undefined);
       if (!r?.ok) {
         setStatus(`Ошибка: ${r?.error ?? 'unknown'}`);
@@ -277,20 +315,46 @@ export function CounterpartyDetailsPage(props: {
     }
   }
 
+  function applyStrictRow(row: CounterpartyStrictRow) {
+    setName(String(row.name ?? ''));
+    setShortName(String(row.short_name ?? ''));
+    setInn(String(row.inn ?? ''));
+    setKpp(String(row.kpp ?? ''));
+    setAddress(String(row.address ?? ''));
+    setPhone(String(row.phone ?? ''));
+    setEmail(String(row.email ?? ''));
+  }
+
   async function saveAllAndClose() {
     if (props.canEdit) {
-      await saveAttr('name', name.trim());
-      await saveAttr('short_name', shortName.trim() || null);
-      await saveAttr('inn', inn.trim() || null);
-      await saveAttr('kpp', kpp.trim() || null);
-      await saveAttr('address', address.trim() || null);
-      await saveAttr('phone', phone.trim() || null);
-      await saveAttr('email', email.trim() || null);
+      // Ядро — одним патчем в дверь (не семью round-trip), вложения — прежним путём.
+      const r = (await window.matrica.contracts.counterparty.save({
+        id: props.counterpartyId,
+        fields: {
+          name: name.trim(),
+          short_name: shortName.trim() || null,
+          inn: inn.trim() || null,
+          kpp: kpp.trim() || null,
+          address: address.trim() || null,
+          phone: phone.trim() || null,
+          email: email.trim() || null,
+        },
+      })) as { ok: boolean; row?: CounterpartyStrictRow; error?: string } | null;
+      if (!r?.ok) {
+        setStatus(`Ошибка: ${(r as { error?: string } | null)?.error ?? 'unknown'}`);
+        return;
+      }
+      if (r.row) {
+        setStrict(r.row);
+        applyStrictRow(r.row);
+      }
       await saveAttr('attachments', attachments);
       // Полный коммит вытесняет recovery-снимок; отменяем отложенный автосейв,
       // чтобы он не переписал черновик после очистки.
       cancelPendingDraftSave();
       await clearDraft();
+      setStatus('Сохранено');
+      setTimeout(() => setStatus(''), 900);
     }
     dirtyRef.current = false;
   }

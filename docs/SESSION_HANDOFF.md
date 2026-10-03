@@ -1,6 +1,6 @@
 ---
 
-session: chore/b2-b1-leftovers
+session: feat/contract-cutover-c1
 status: active
 updated: 2026-10-03
 ---
@@ -10,26 +10,28 @@ updated: 2026-10-03
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`.
 
 **Status:** ACTIVE
-**Updated:** 2026-10-03 (мелкие хвосты B1/B2 в работе, PR не открыт)
-**Branch:** chore/b2-b1-leftovers
-**Last released version:** v3.60.0 на проде (платежи строгие смержены как #1136)
+**Updated:** 2026-10-03 (cutover договоров C1+C2 готовы, PR не открыт)
+**Branch:** feat/contract-cutover-c1
+**Last released version:** v3.60.0 на проде (#1136 платежи и #1137 хвосты смержены)
 
 ## Текущая нитка
 
-Мелкие хвосты B1/B2 из плана `matrica-v4-kickoff-2026-08.md`: снос мёртвых `ErpSyncTableName`/`erpSyncRowSchemaByTable`, снос `backfillDirectoryEngineBrands.ts`, `repairNormService` на строгое зеркало, AI `getReclamations` на зеркало с EAV-фолбэком. assemblyPlanning оставлен осознанно (читает карточку двигателя = домен B4).
+Cutover договоров/контрагентов (план `docs/plans/contract-cutover-2026-10.md`): C1 (серверные двери, доказаны вживую) + C2 (карточка контрагента → двери, тесты IPC 5/5). Гейты: backend 967, shared 1281; electron полный: 1393 зелёных + 1 известный флейк clientOpsArchive (в одиночку зелёный).
 
 ## Контекст
 
-- PR #1136 (платежи) смержен squash'ем e64c3ef7, ветка удалена
-- Дальше по B2: cutover CRUD договоров (REST-дверь по образцу section_access?) и уникальность number (ждёт решения владельца); затем B4 двигатели (XL)
+- C1: `contractStrictService` + `routes/contracts` (create/patch/get ×2), гейт `contracts.edit`, гейт дублей, entities публикуются сразу, strict — pending под публикатор
+- C2: `register/contracts` IPC + preload + MatricaApi + карточка + quickCreate; write-through synced в реплику
+- Дальше: C3 карточка договора → двери (самая большая часть), C4 скрипты + parity, C5 freeze после обновления парка
 
 ## Открытые вопросы для пользователя
 
-- Нет
+- Уникальность `erp_contracts.number`: дубли «20/ГОЗ-25» — какой канонический, решение владельца
+- Открывать PR на C1+C2 сейчас или вместе с C3?
 
 ## Не забыть (low-priority)
 
 - `user_settings`/`user_credentials` сознательно вне sync-контракта (сторож в CI); не предлагать их «досинкать».
 - `listEmployeesAuth` остаётся на EAV (сырая роль для roleReport) — не «забытый хвост», а решение.
-- Freeze EAV-платежей и снос триггера зеркала — после обновления парка (предусловия как у R4b).
+- Freeze EAV-платежей и снос триггера зеркала — после обновления парка.
 - CDP-смоук правки платежа — перед релизом с платежами.

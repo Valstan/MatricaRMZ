@@ -12,6 +12,19 @@ import type { SupportContact } from '../domain/supportContact.js';
 import type { ServicePriceHistoryDto, ServicePriceOrderDto } from '../domain/servicePriceOrders.js';
 import type { WorkSheetRow, WorkSheetType } from '../domain/workSheets.js';
 import type { ContractPayments } from '../domain/payments.js';
+
+/** Строка контрагента строгой реплики/двери — snake_case, как отдаёт сервер. */
+export type CounterpartyStrictRow = {
+  id: string;
+  name: string;
+  short_name: string | null;
+  inn: string | null;
+  kpp: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  updated_at: number;
+};
 import type { RepairStageRow, RepairStageTemplate, SaveRepairStageInput, SaveRepairStageResult } from '../domain/repairStages.js';
 import type { WorkSheetDuplicateRef } from '../domain/workSheetDuplicates.js';
 import type { ArrivalPlacement } from '../domain/repeatArrival.js';
@@ -2307,6 +2320,24 @@ export type MatricaApi = {
     save: (args: { contractId: string; next: ContractPayments }) => Promise<
       { ok: true; payments: ContractPayments } | { ok: false; error: string }
     >;
+  };
+  /**
+   * Контрагенты — строгая реплика + REST-двери (план contract-cutover-2026-10, C2).
+   * Строка в snake_case — форма серверной двери; updated_at — для фолбэка на EAV.
+   */
+  contracts: {
+    counterparty: {
+      get: (id: string) => Promise<
+        | { ok: true; row: CounterpartyStrictRow | null }
+        | { ok: false; error: string }
+      >;
+      save: (args: { id: string; fields: Record<string, unknown> }) => Promise<
+        { ok: true; row: CounterpartyStrictRow } | { ok: false; error: string }
+      >;
+      create: (args: { id?: string; fields: Record<string, unknown> }) => Promise<
+        { ok: true; row: CounterpartyStrictRow; existing?: boolean } | { ok: false; error: string }
+      >;
+    };
   };
   tools: {
     list: (args?: { q?: string }) => Promise<{ ok: true; tools: ToolListItem[] } | { ok: false; error: string }>;
