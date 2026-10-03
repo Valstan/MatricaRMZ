@@ -123,6 +123,10 @@ export const SYNC_TABLE_OWNERSHIP: Readonly<Record<SyncTableName, SyncTableOwner
   [SyncTableName.DirectoryEngineBrands]: { owner: 'server', why: 'триггеры mirror_engine_brand_* + публикатор словарей' },
   [SyncTableName.Users]: { owner: 'server', why: 'setEmployeeAuth + публикатор зеркала (B3/R3)' },
   [SyncTableName.UserSectionAccess]: { owner: 'server', why: 'setEmployeeSectionAccess + публикатор зеркала (B3/R3)' },
+  // Платежи контрактов (contract-payments-strict-2026-10): клиенты пишут push-ом
+  // (бухгалтерия и планшет в цеху — офлайн как был у EAV), требование — в TABLE_REQUIREMENT.
+  [SyncTableName.ErpContractPaymentSlots]: { owner: 'permission' },
+  [SyncTableName.ErpContractPaymentPayments]: { owner: 'permission' },
 };
 
 // Таблицы, которые клиент не пишет никогда, — по ТАБЛИЦЕ, а не по коду атрибута (B3/R3).
@@ -254,6 +258,9 @@ const TABLE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
   [SyncTableName.DirectoryEngineBrands]: { kind: 'superadmin' },
   [SyncTableName.Users]: { kind: 'superadmin' },
   [SyncTableName.UserSectionAccess]: { kind: 'superadmin' },
+  // Платежи контрактов пишут те же роли, что правят договоры (бухгалтерия/офис).
+  [SyncTableName.ErpContractPaymentSlots]: { kind: 'permission', code: PermissionCode.ContractsEdit },
+  [SyncTableName.ErpContractPaymentPayments]: { kind: 'permission', code: PermissionCode.ContractsEdit },
 };
 
 /**

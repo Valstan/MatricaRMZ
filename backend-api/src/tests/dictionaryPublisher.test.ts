@@ -5,6 +5,8 @@ import {
   toContractInput,
   toCounterpartyInput,
   toEngineBrandInput,
+  toPaymentInput,
+  toPaymentSlotInput,
 } from '../services/sync/dictionarySyncPublisherService.js';
 
 // Словарные зеркала ведут триггеры EAV (0083/0084) мимо пути записи синхронизации —
@@ -67,6 +69,41 @@ const cases = [
   { table: SyncTableName.ErpCounterparties, convert: toCounterpartyInput, row: counterpartyRow },
   { table: SyncTableName.ErpContracts, convert: toContractInput, row: contractRow },
   { table: SyncTableName.DirectoryEngineBrands, convert: toEngineBrandInput, row: brandRow },
+  {
+    table: SyncTableName.ErpContractPaymentSlots,
+    convert: toPaymentSlotInput,
+    row: {
+      id: '44444444-4444-4444-8444-444444444444',
+      contractId: '22222222-2222-4222-8222-222222222222',
+      sectionKey: 'primary',
+      engineBrandId: null,
+      engineId: null,
+      contractPriceKop: 5_000_000,
+      createdAt: 1_700_000_000_000,
+      updatedAt: 1_700_000_001_000,
+      deletedAt: null,
+      syncStatus: 'pending',
+      lastServerSeq: null,
+    },
+  },
+  {
+    table: SyncTableName.ErpContractPaymentPayments,
+    convert: toPaymentInput,
+    row: {
+      id: '55555555-5555-4555-8555-555555555555',
+      slotId: '44444444-4444-4444-8444-444444444444',
+      date: '2026-09-01',
+      amountKop: 1_000_000,
+      kind: 'advance',
+      note: null,
+      countdownStart: true,
+      createdAt: 1_700_000_000_000,
+      updatedAt: 1_700_000_001_000,
+      deletedAt: null,
+      syncStatus: 'pending',
+      lastServerSeq: null,
+    },
+  },
 ] as const;
 
 describe('публикация словарных зеркал', () => {

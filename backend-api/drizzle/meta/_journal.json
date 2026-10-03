@@ -722,6 +722,13 @@
       "when": 1790899200003,
       "tag": "0103_users_auth_cutover",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1790899200004,
+      "tag": "0104_contract_payments_strict",
+      "breakpoints": true
     }
   ]
 }

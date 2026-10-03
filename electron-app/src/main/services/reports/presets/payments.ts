@@ -2,12 +2,10 @@ import { isNull, max } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
-  CONTRACT_PAYMENTS_ATTR_CODE,
   PAYMENT_KIND_LABELS,
   countdownStatus,
   effectiveRepairDays,
   isEngineDoneForCountdown,
-  parseContractPayments,
   parseContractSections,
   slotTotals,
   type ContractPayments,
@@ -31,9 +29,10 @@ import {
   resolveCounterpartyLabel,
   UNKNOWN_ENGINE_NUMBER_LABEL,
 } from '../options.js';
+import { readContractPaymentsStrict } from '../../contractPaymentsReplica.js';
 
 // Отчёты по платежам за двигатели (план engine-payments-2026-07, этап 5).
-// Источник — контрактный EAV-атрибут contract_payments (слоты + платежи в копейках).
+// Источник — строгие таблицы платежей (план contract-payments-strict-2026-10).
 
 // Мс → ключ суток «yyyy-mm-dd», как того ждёт `countdownStatus`. Геттеры локальные, а не
 // UTC-срез: `arrival_date` карточка пишет локальной полуночью, и `toISOString()` сдвинул бы
@@ -122,7 +121,7 @@ export async function buildContractPaymentsMatrixReport(
   const brandOptions = new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const));
   const attrs = snapshot.attrsByEntity.get(contractId) ?? {};
   const sections = parseContractSections(attrs);
-  const cp: ContractPayments = parseContractPayments(attrs[CONTRACT_PAYMENTS_ATTR_CODE]);
+  const cp: ContractPayments = await readContractPaymentsStrict(db, contractId);
   const today = todayIso();
   // Срок ремонта — из этого контракта: у каждого он свой (владелец 22.09.2026).
   const repairDays = effectiveRepairDays(sections);
@@ -245,7 +244,7 @@ export async function buildPaymentsOverviewReport(
   for (const contractId of getIdsByType(snapshot, 'contract')) {
     if (contractFilter.length > 0 && !contractFilter.includes(contractId)) continue;
     const attrs = snapshot.attrsByEntity.get(contractId) ?? {};
-    const cp = parseContractPayments(attrs[CONTRACT_PAYMENTS_ATTR_CODE]);
+    const cp = await readContractPaymentsStrict(db, contractId);
     if (cp.slots.length === 0) continue;
     const sections = parseContractSections(attrs);
     const counterpartyId = normalizeText(sections.primary.customerId ?? attrs.customer_id, '');

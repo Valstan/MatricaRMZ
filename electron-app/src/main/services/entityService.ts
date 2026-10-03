@@ -18,7 +18,7 @@ import {
 } from '@matricarmz/shared';
 import type { DuplicateBlockReason } from '@matricarmz/shared';
 
-import { attributeDefs, attributeValues, entities, entityTypes, operations, erpEngineAssemblyBomBrandLinks } from '../database/schema.js';
+import { attributeDefs, attributeValues, entities, entityTypes, operations, erpContractPaymentSlots, erpEngineAssemblyBomBrandLinks } from '../database/schema.js';
 import type { EntityDetails, EntityListItem, IncomingReferenceGroup } from '@matricarmz/shared';
 
 function nowMs() {
@@ -678,43 +678,63 @@ export async function findAllIncomingReferences(
       }
     }
 
-    // 2.5. Контракты (contract_payments JSON — engineId слотов).
-    const paymentsDefs = await db
-      .select({ id: attributeDefs.id })
-      .from(attributeDefs)
-      .where(and(eq(attributeDefs.code, CONTRACT_PAYMENTS_ATTR_CODE), isNull(attributeDefs.deletedAt)));
-    const paymentsDefIds = paymentsDefs.map((d) => String(d.id));
-    if (paymentsDefIds.length > 0) {
-      const paymentRows = await db
-        .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
-        .from(attributeValues)
-        .innerJoin(entities, eq(attributeValues.entityId, entities.id))
-        .where(
-          and(
-            inArray(attributeValues.attributeDefId, paymentsDefIds),
-            isNull(attributeValues.deletedAt),
-            isNull(entities.deletedAt),
-            like(attributeValues.valueJson, `%${jsonId}%`),
-          ),
-        )
+    // 2.5. Слоты платежей договоров (строгая таблица — engineId слота).
+    // EAV-фолбэк — только для контрактов, у которых strict пуст: зеркало EAV→strict
+    // догоняет с задержкой публикатора, а гейт обязан видеть свежую привязку.
+    {
+      const slotRows = await db
+        .select({ slotId: erpContractPaymentSlots.id, contractId: erpContractPaymentSlots.contractId })
+        .from(erpContractPaymentSlots)
+        .where(and(eq(erpContractPaymentSlots.engineId, entityId as any), isNull(erpContractPaymentSlots.deletedAt)))
         .limit(10_000);
-      for (const r of paymentRows) {
-        const cp = parseContractPayments(r.valueJson ? String(r.valueJson) : null);
-        const paths = collectContractPaymentsEngineIds(cp)
-          .filter((c) => c.engineId === entityId)
-          .map((c) => `contract_payments.${c.path}`);
-        if (paths.length === 0) continue;
+      const withStrict = new Set(slotRows.map((r) => String(r.contractId)));
+      for (const r of slotRows) {
         groups.push({
           sourceKind: 'contract',
-          sourceId: String(r.entityId),
-          sourceLabel: shortId(String(r.entityId)),
+          sourceId: String(r.contractId),
+          sourceLabel: shortId(String(r.contractId)),
           sourceTypeLabel: 'Контракт (платежи)',
-          paths,
+          paths: [`payment_slot:${String(r.slotId)}`],
         });
+      }
+      const paymentsDefs = await db
+        .select({ id: attributeDefs.id })
+        .from(attributeDefs)
+        .where(and(eq(attributeDefs.code, CONTRACT_PAYMENTS_ATTR_CODE), isNull(attributeDefs.deletedAt)));
+      const paymentsDefIds = paymentsDefs.map((d) => String(d.id));
+      if (paymentsDefIds.length > 0) {
+        const paymentRows = await db
+          .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
+          .from(attributeValues)
+          .innerJoin(entities, eq(attributeValues.entityId, entities.id))
+          .where(
+            and(
+              inArray(attributeValues.attributeDefId, paymentsDefIds),
+              isNull(attributeValues.deletedAt),
+              isNull(entities.deletedAt),
+              like(attributeValues.valueJson, `%${jsonId}%`),
+            ),
+          )
+          .limit(10_000);
+        for (const r of paymentRows) {
+          if (withStrict.has(String(r.entityId))) continue;
+          const cp = parseContractPayments(r.valueJson ? String(r.valueJson) : null);
+          const paths = collectContractPaymentsEngineIds(cp)
+            .filter((c) => c.engineId === entityId)
+            .map((c) => `contract_payments.${c.path}`);
+          if (paths.length === 0) continue;
+          groups.push({
+            sourceKind: 'contract',
+            sourceId: String(r.entityId),
+            sourceLabel: shortId(String(r.entityId)),
+            sourceTypeLabel: 'Контракт (платежи)',
+            paths,
+          });
+        }
       }
     }
 
-    // 3. Наряды + заявки (operations.meta_json). Ограничиваемся этими типами — акты
+// 3. Наряды + заявки (operations.meta_json). Ограничиваемся этими типами — акты
     //    дефектовки (тяжёлые блобы) сюда не попадают.
     const opRows = await db
       .select({ id: operations.id, operationType: operations.operationType, metaJson: operations.metaJson })

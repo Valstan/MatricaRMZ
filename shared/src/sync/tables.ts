@@ -46,6 +46,11 @@ export const SyncTableName = {
   DirectoryEngineBrands: 'directory_engine_brands',
   Users: 'users',
   UserSectionAccess: 'user_section_access',
+  // Платежи контрактов (план contract-payments-strict-2026-10): строгие нормализованные
+  // таблицы вместо EAV JSON `contract_payments`. Клиенты пишут push-ом (бухгалтерия
+  // и планшет в цеху — офлайн-запись как была у EAV), сервер публикует.
+  ErpContractPaymentSlots: 'erp_contract_payment_slots',
+  ErpContractPaymentPayments: 'erp_contract_payments',
 } as const;
 
 export type SyncTableName = (typeof SyncTableName)[keyof typeof SyncTableName];

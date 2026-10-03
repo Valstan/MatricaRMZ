@@ -11,10 +11,7 @@ import {
   SyncTableName,
   attributeDefRowSchema,
   attributeValueRowSchema,
-  CONTRACT_PAYMENTS_ATTR_CODE,
   collectContractEntityReferences,
-  collectContractPaymentsEngineIds,
-  parseContractPayments,
   collectSupplyRequestEntityReferences,
   collectWorkOrderEntityReferences,
   contractInternalNumberDuplicateMessage,
@@ -26,7 +23,7 @@ import {
   type StatusCode,
 } from '@matricarmz/shared';
 import { db } from '../database/db.js';
-import { attributeDefs, attributeValues, directoryParts, entities, entityTypes, erpEngineAssemblyBomBrandLinks, operations, rowOwners } from '../database/schema.js';
+import { attributeDefs, attributeValues, directoryParts, entities, entityTypes, erpContractPaymentSlots, erpEngineAssemblyBomBrandLinks, operations, rowOwners } from '../database/schema.js';
 import { findContractInternalNumberDuplicate } from './contractNumberGuard.js';
 import { hasUsersRow, revokeAccount } from './employeeAuthService.js';
 import {
@@ -599,30 +596,16 @@ async function countExtendedIncomingReferences(entityId: string): Promise<Map<st
     }
   }
 
-  // 2.5. Контракты (contract_payments JSON — engineId слотов).
-  const paymentsDefs = await db
-    .select({ id: attributeDefs.id })
-    .from(attributeDefs)
-    .where(and(eq(attributeDefs.code, CONTRACT_PAYMENTS_ATTR_CODE), isNull(attributeDefs.deletedAt)));
-  const paymentsDefIds = paymentsDefs.map((d) => String(d.id));
-  if (paymentsDefIds.length > 0) {
-    const paymentRows = await db
-      .select({ valueJson: attributeValues.valueJson })
-      .from(attributeValues)
-      .innerJoin(entities, eq(attributeValues.entityId, entities.id))
-      .where(
-        and(
-          inArray(attributeValues.attributeDefId, paymentsDefIds),
-          isNull(attributeValues.deletedAt),
-          isNull(entities.deletedAt),
-          like(attributeValues.valueJson, `%${jsonId}%`),
-        ),
-      )
+  // 2.5. Слоты платежей договоров (строгая таблица — engineId слота).
+  // Зеркало EAV→strict синхронно (триггер в той же транзакции), поэтому EAV-фолбэк
+  // не нужен: strict всегда свеж.
+  {
+    const slotRows = await db
+      .select({ id: erpContractPaymentSlots.id })
+      .from(erpContractPaymentSlots)
+      .where(and(eq(erpContractPaymentSlots.engineId, entityId as any), isNull(erpContractPaymentSlots.deletedAt)))
       .limit(10_000);
-    for (const r of paymentRows) {
-      const cp = parseContractPayments(r.valueJson ? String(r.valueJson) : null);
-      if (collectContractPaymentsEngineIds(cp).some((c) => c.engineId === entityId)) bump('Контракты (платежи)');
-    }
+    if (slotRows.length > 0) bump('Контракты (платежи)', slotRows.length);
   }
 
   // 3. Наряды + заявки (operations.meta_json).

@@ -16,6 +16,8 @@ import {
   parseEngineReservationSkipReason,
   userPresenceRowSchema,
   erpEngineInventoryLineRowSchema,
+  erpContractPaymentSlotRowSchema,
+  erpContractPaymentRowSchema,
   type SyncPullResponse,
   type SyncPushRequest,
 } from '@matricarmz/shared';
@@ -48,6 +50,8 @@ import {
   entityTypes,
   erpContracts,
   erpCounterparties,
+  erpContractPaymentSlots,
+  erpContractPayments,
   directoryEngineBrands,
   noteShares,
   notes,
@@ -1195,6 +1199,8 @@ async function collectPending(db: BetterSQLite3Database) {
   await recoverErroredRows(aiChatRequests, aiChatRequestRowSchema, SyncTableName.AiChatRequests);
   await recoverErroredRows(userPresence, userPresenceRowSchema, SyncTableName.UserPresence);
   await recoverErroredRows(erpEngineInventoryLines, erpEngineInventoryLineRowSchema, SyncTableName.ErpEngineInventoryLines);
+  await recoverErroredRows(erpContractPaymentSlots, erpContractPaymentSlotRowSchema, SyncTableName.ErpContractPaymentSlots);
+  await recoverErroredRows(erpContractPayments, erpContractPaymentRowSchema, SyncTableName.ErpContractPaymentPayments);
 
   async function add(table: SyncTableName, rows: unknown[]) {
     if (rows.length === 0) return;
@@ -1576,6 +1582,47 @@ async function collectPending(db: BetterSQLite3Database) {
     }
     await add(SyncTableName.ErpEngineInventoryLines, valid);
   }
+  {
+    // Слоты/платежи договоров (contract-payments-strict-2026-10): клиент пишет push-ом
+    // (бухгалтерия и планшет в цеху). Слоты раньше платежей — сервер скипает строки
+    // без родителя, а healSkippedDependencies вернёт их в очередь следующим пушем.
+    const pendingSlots = await db
+      .select()
+      .from(erpContractPaymentSlots)
+      .where(eq(erpContractPaymentSlots.syncStatus, pending))
+      .limit(limitFor(SyncTableName.ErpContractPaymentSlots));
+    const valid: typeof pendingSlots = [];
+    const invalidIds: string[] = [];
+    for (const row of pendingSlots) {
+      const parsed = erpContractPaymentSlotRowSchema.safeParse(toSyncRow(SyncTableName.ErpContractPaymentSlots, row));
+      if (parsed.success) valid.push(row);
+      else invalidIds.push(String(row.id));
+    }
+    if (invalidIds.length > 0) {
+      await markPendingError(db, SyncTableName.ErpContractPaymentSlots, invalidIds);
+      logSync(`push drop invalid erp_contract_payment_slots count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')}`);
+    }
+    await add(SyncTableName.ErpContractPaymentSlots, valid);
+  }
+  {
+    const pendingPayments = await db
+      .select()
+      .from(erpContractPayments)
+      .where(eq(erpContractPayments.syncStatus, pending))
+      .limit(limitFor(SyncTableName.ErpContractPaymentPayments));
+    const valid: typeof pendingPayments = [];
+    const invalidIds: string[] = [];
+    for (const row of pendingPayments) {
+      const parsed = erpContractPaymentRowSchema.safeParse(toSyncRow(SyncTableName.ErpContractPaymentPayments, row));
+      if (parsed.success) valid.push(row);
+      else invalidIds.push(String(row.id));
+    }
+    if (invalidIds.length > 0) {
+      await markPendingError(db, SyncTableName.ErpContractPaymentPayments, invalidIds);
+      logSync(`push drop invalid erp_contract_payments count=${invalidIds.length} ids=${invalidIds.slice(0, 5).join(',')}`);
+    }
+    await add(SyncTableName.ErpContractPaymentPayments, valid);
+  }
 
   return packs;
 }
@@ -1787,6 +1834,12 @@ async function markAllSynced(db: BetterSQLite3Database, table: SyncTableName, id
       case SyncTableName.ErpEngineInventoryLines:
         await db.update(erpEngineInventoryLines).set({ syncStatus: 'synced' }).where(inArray(erpEngineInventoryLines.id, chunk));
         break;
+      case SyncTableName.ErpContractPaymentSlots:
+        await db.update(erpContractPaymentSlots).set({ syncStatus: 'synced' }).where(inArray(erpContractPaymentSlots.id, chunk));
+        break;
+      case SyncTableName.ErpContractPaymentPayments:
+        await db.update(erpContractPayments).set({ syncStatus: 'synced' }).where(inArray(erpContractPayments.id, chunk));
+        break;
     }
   }
 }
@@ -1936,6 +1989,8 @@ async function applyPulledChanges(
     [SyncTableName.ErpCounterparties]: [],
     [SyncTableName.ErpContracts]: [],
     [SyncTableName.DirectoryEngineBrands]: [],
+    [SyncTableName.ErpContractPaymentSlots]: [],
+    [SyncTableName.ErpContractPaymentPayments]: [],
     [SyncTableName.Users]: [],
     [SyncTableName.UserSectionAccess]: [],
   };
@@ -2293,6 +2348,43 @@ async function applyPulledChanges(
             isActive: payload.is_active === true || payload.is_active === 1,
             metadataJson: payload.metadata_json ?? null,
             deprecatedAt: payload.deprecated_at ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.ErpContractPaymentSlots:
+        {
+          const payload = payloadRaw;
+          groups.erp_contract_payment_slots.push({
+            id: payload.id,
+            contractId: payload.contract_id,
+            sectionKey: payload.section_key,
+            engineBrandId: payload.engine_brand_id ?? null,
+            engineId: payload.engine_id ?? null,
+            contractPriceKop: payload.contract_price_kop ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.ErpContractPaymentPayments:
+        {
+          const payload = payloadRaw;
+          groups.erp_contract_payments.push({
+            id: payload.id,
+            slotId: payload.slot_id,
+            date: payload.date,
+            amountKop: payload.amount_kop,
+            kind: payload.kind,
+            note: payload.note ?? null,
+            countdownStart: payload.countdown_start === true || payload.countdown_start === 1,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
             lastServerSeq: payload.last_server_seq ?? null,
@@ -3166,6 +3258,39 @@ async function applyPulledChanges(
       sectionsJson: sql`excluded.sections_json`,
       executionPartsJson: sql`excluded.execution_parts_json`,
       paymentsJson: sql`excluded.payments_json`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  // Слоты/платежи договоров — строго после договоров (родитель): холодный full-state
+  // чистит FK-сирот, и слот без договора снесло бы до применения договоров.
+  if (groups.erp_contract_payment_slots.length > 0) {
+    emitApply(SyncTableName.ErpContractPaymentSlots, groups.erp_contract_payment_slots.length);
+    await upsertPulledRowsInChunks(db, erpContractPaymentSlots, groups.erp_contract_payment_slots, erpContractPaymentSlots.id, {
+      contractId: sql`excluded.contract_id`,
+      sectionKey: sql`excluded.section_key`,
+      engineBrandId: sql`excluded.engine_brand_id`,
+      engineId: sql`excluded.engine_id`,
+      contractPriceKop: sql`excluded.contract_price_kop`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  if (groups.erp_contract_payments.length > 0) {
+    emitApply(SyncTableName.ErpContractPaymentPayments, groups.erp_contract_payments.length);
+    await upsertPulledRowsInChunks(db, erpContractPayments, groups.erp_contract_payments, erpContractPayments.id, {
+      slotId: sql`excluded.slot_id`,
+      date: sql`excluded.date`,
+      amountKop: sql`excluded.amount_kop`,
+      kind: sql`excluded.kind`,
+      note: sql`excluded.note`,
+      countdownStart: sql`excluded.countdown_start`,
       updatedAt: sql`excluded.updated_at`,
       lastServerSeq: sql`excluded.last_server_seq`,
       deletedAt: sql`excluded.deleted_at`,

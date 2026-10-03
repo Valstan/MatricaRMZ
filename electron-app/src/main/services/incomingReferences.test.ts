@@ -31,6 +31,14 @@ function makeDb() {
       engine_brand_id text NOT NULL, is_primary integer NOT NULL DEFAULT 0,
       is_default_for_brand integer NOT NULL DEFAULT 0, created_at integer NOT NULL, updated_at integer NOT NULL,
       deleted_at integer, sync_status text NOT NULL DEFAULT 'synced', last_server_seq integer);
+    CREATE TABLE erp_contract_payment_slots (id text PRIMARY KEY NOT NULL, contract_id text NOT NULL,
+      section_key text NOT NULL, engine_brand_id text, engine_id text, contract_price_kop integer,
+      created_at integer NOT NULL, updated_at integer NOT NULL, last_server_seq integer,
+      deleted_at integer, sync_status text NOT NULL DEFAULT 'synced');
+    CREATE TABLE erp_contract_payments (id text PRIMARY KEY NOT NULL, slot_id text NOT NULL,
+      date text NOT NULL, amount_kop integer NOT NULL, kind text NOT NULL, note text,
+      countdown_start integer NOT NULL DEFAULT 0, created_at integer NOT NULL, updated_at integer NOT NULL,
+      last_server_seq integer, deleted_at integer, sync_status text NOT NULL DEFAULT 'synced');
   `);
   const db = drizzle(sqlite);
   const t = 1;
@@ -79,6 +87,28 @@ describe('findAllIncomingReferences', () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.groups).toEqual([]);
+  });
+
+  it('находит привязку двигателя в строгом слоте платежей и в EAV при пустом strict', async () => {
+    const { db, sqlite, t } = makeDb();
+    const target = 'engine-1';
+    // Строгий слот с engineId.
+    sqlite.prepare(`INSERT INTO erp_contract_payment_slots (id,contract_id,section_key,engine_id,created_at,updated_at) VALUES (?,?,?,?,?,?)`)
+      .run('slot-1', 'con-1', 'primary', target, t, t);
+    // Второй контракт: strict пуст, ссылка только в EAV (зеркало ещё не догоняло).
+    sqlite.prepare(`INSERT INTO entities (id,type_id,created_at,updated_at) VALUES (?,?,?,?)`).run('con-2', 'et-con', t, t);
+    sqlite.prepare(`INSERT INTO attribute_defs (id,entity_type_id,code,name,data_type,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`)
+      .run('ad-pay', 'et-con', 'contract_payments', 'Платежи', 'json', t, t);
+    sqlite.prepare(`INSERT INTO attribute_values (id,entity_id,attribute_def_id,value_json,created_at,updated_at) VALUES (?,?,?,?,?,?)`)
+      .run('av-pay', 'con-2', 'ad-pay', JSON.stringify({ version: 1, slots: [{ id: 'slot-9', sectionKey: 'primary', engineId: target, payments: [] }] }), t, t);
+
+    const res = await findAllIncomingReferences(db, target);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const contracts = res.groups.filter((g) => g.sourceKind === 'contract');
+    expect(contracts.map((g) => g.sourceId).sort()).toEqual(['con-1', 'con-2']);
+    expect(contracts.find((g) => g.sourceId === 'con-1')?.paths).toContain('payment_slot:slot-1');
+    expect(contracts.find((g) => g.sourceId === 'con-2')?.paths).toContain('contract_payments.slots[0].engineId');
   });
 });
 

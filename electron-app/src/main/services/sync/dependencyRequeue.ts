@@ -27,12 +27,16 @@ export type SkippedRowLike = {
 
 // Какая таблица держит зависимость с таким именем (имена — из applyPushBatch на сервере).
 // Зависимости на аккаунты (recipient_user, note_recipient) сюда не входят: аккаунт
-// клиент не создаёт, вернуть его в очередь нечем — только error.
+// клиент не создаёт, вернуть его в очередь нечем — только error. То же с 'contract':
+// договоры пишет только сервер (pull-only), а отсутствие договора при живом слоте —
+// не транзиент (порядок публикации и pull идут от родителя к детям), а настоящее
+// расхождение: строка уходит в error и становится видна в диагностике.
 export const DEPENDENCY_TABLE: Readonly<Record<string, SyncTableName>> = {
   entity_type: SyncTableName.EntityTypes,
   attribute_def: SyncTableName.AttributeDefs,
   entity: SyncTableName.Entities,
   engine_entity: SyncTableName.Entities,
+  slot: SyncTableName.ErpContractPaymentSlots,
 };
 
 export type DependencyRequeuePlan = {

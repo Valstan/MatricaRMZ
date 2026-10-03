@@ -67,6 +67,8 @@ import {
   erpEngineAssemblyBom,
   erpEngineAssemblyBomBrandLinks,
   erpEngineAssemblyBomLines,
+  erpContractPaymentSlots,
+  erpContractPayments,
   erpNomenclature,
   erpRegStockBalance,
   erpRegStockMovements,
@@ -421,6 +423,43 @@ function operationRows(shape: FixtureShape): Row[] {
   ];
 }
 
+function paymentRows(shape: FixtureShape) {
+  // Строгая реплика платежей — то же содержимое, что EAV contract_payments выше:
+  // отчёты читают strict, EAV остаётся только переходным фолбэком по свежести.
+  const slots: Row[] = [
+    {
+      id: 'slot-1',
+      contractId: ID.contract,
+      sectionKey: 'primary',
+      engineBrandId: shape.leaky ? ID.brandMissing : ID.brand,
+      engineId: ID.engine,
+      contractPriceKop: 15_000_000,
+      createdAt: T0,
+      updatedAt: T0,
+      lastServerSeq: null,
+      deletedAt: null,
+      syncStatus: 'synced',
+    },
+  ];
+  const pays: Row[] = [
+    {
+      id: 'p1',
+      slotId: 'slot-1',
+      date: '2026-05-12',
+      amountKop: 5_000_000,
+      kind: 'advance',
+      note: null,
+      countdownStart: true,
+      createdAt: T0,
+      updatedAt: T0,
+      lastServerSeq: null,
+      deletedAt: null,
+      syncStatus: 'synced',
+    },
+  ];
+  return { slots, pays };
+}
+
 function erpRows(shape: FixtureShape) {
   const nomenclature: Row[] = [
     {
@@ -595,6 +634,8 @@ function stubDb(shape: FixtureShape): any {
     [erpEngineAssemblyBom, erp.bomHeaders],
     [erpEngineAssemblyBomBrandLinks, erp.bomBrandLinks],
     [erpEngineAssemblyBomLines, erp.bomLines],
+    [erpContractPaymentSlots, paymentRows(shape).slots],
+    [erpContractPayments, paymentRows(shape).pays],
   ]);
 
   return {

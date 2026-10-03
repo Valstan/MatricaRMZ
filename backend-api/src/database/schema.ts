@@ -876,6 +876,58 @@ export const erpContracts = pgTable(
   }),
 );
 
+// Платежи контрактов (план contract-payments-strict-2026-10): нормализованные строгие
+// таблицы вместо EAV JSON `contract_payments`. id строк = uuid из прежнего JSON
+// (бэкфилл 1:1 без remap). Клиенты пишут push-ом (бухгалтерия и планшет в цеху),
+// сервер публикует через writeSyncChanges; номер журнала — lastServerSeq.
+export const erpContractPaymentSlots = pgTable(
+  'erp_contract_payment_slots',
+  {
+    id: uuid('id').primaryKey(),
+    contractId: uuid('contract_id')
+      .references(() => erpContracts.id)
+      .notNull(),
+    sectionKey: text('section_key').notNull(),
+    engineBrandId: uuid('engine_brand_id'),
+    engineId: uuid('engine_id'),
+    contractPriceKop: bigint('contract_price_kop', { mode: 'number' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    contractIdx: index('erp_contract_payment_slots_contract_idx').on(t.contractId),
+    engineIdx: index('erp_contract_payment_slots_engine_idx').on(t.engineId),
+    seqIdx: index('erp_contract_payment_slots_seq_idx').on(t.lastServerSeq),
+  }),
+);
+
+export const erpContractPayments = pgTable(
+  'erp_contract_payments',
+  {
+    id: uuid('id').primaryKey(),
+    slotId: uuid('slot_id')
+      .references(() => erpContractPaymentSlots.id)
+      .notNull(),
+    date: text('date').notNull(),
+    amountKop: bigint('amount_kop', { mode: 'number' }).notNull(),
+    kind: text('kind').notNull(),
+    note: text('note'),
+    countdownStart: boolean('countdown_start').notNull().default(false),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    slotIdx: index('erp_contract_payments_slot_idx').on(t.slotId),
+    seqIdx: index('erp_contract_payments_seq_idx').on(t.lastServerSeq),
+  }),
+);
+
 export const erpEmployeeCards = pgTable(
   'erp_employee_cards',
   {

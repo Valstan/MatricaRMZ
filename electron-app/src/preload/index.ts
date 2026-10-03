@@ -625,6 +625,10 @@ const matricaApi = {
       remove: async (id: string) => ipcRenderer.invoke('workSheets:stages:remove', id),
     },
   },
+  contractPayments: {
+    get: async (contractId: string) => ipcRenderer.invoke('contractPayments:get', contractId),
+    save: async (args: { contractId: string; next: unknown }) => ipcRenderer.invoke('contractPayments:save', args),
+  },
   tools: {
     list: async (args?: { q?: string }) => ipcRenderer.invoke('tools:list', args),
     get: async (id: string) => ipcRenderer.invoke('tools:get', id),

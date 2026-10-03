@@ -11,6 +11,7 @@ import type { SectionMembership } from '../domain/sectionAccess.js';
 import type { SupportContact } from '../domain/supportContact.js';
 import type { ServicePriceHistoryDto, ServicePriceOrderDto } from '../domain/servicePriceOrders.js';
 import type { WorkSheetRow, WorkSheetType } from '../domain/workSheets.js';
+import type { ContractPayments } from '../domain/payments.js';
 import type { RepairStageRow, RepairStageTemplate, SaveRepairStageInput, SaveRepairStageResult } from '../domain/repairStages.js';
 import type { WorkSheetDuplicateRef } from '../domain/workSheetDuplicates.js';
 import type { ArrivalPlacement } from '../domain/repeatArrival.js';
@@ -2295,6 +2296,17 @@ export type MatricaApi = {
       save: (args: SaveRepairStageInput) => Promise<SaveRepairStageResult>;
       remove: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
     };
+  };
+  /**
+   * Платежи договоров — строгая реплика (план contract-payments-strict-2026-10).
+   * Канал живёт в namespace `contractPayments:`, секционный гейт «Договоры»
+   * приезжает префиксом (sectionGate), запись требует editor.
+   */
+  contractPayments: {
+    get: (contractId: string) => Promise<{ ok: true; payments: ContractPayments } | { ok: false; error: string }>;
+    save: (args: { contractId: string; next: ContractPayments }) => Promise<
+      { ok: true; payments: ContractPayments } | { ok: false; error: string }
+    >;
   };
   tools: {
     list: (args?: { q?: string }) => Promise<{ ok: true; tools: ToolListItem[] } | { ok: false; error: string }>;

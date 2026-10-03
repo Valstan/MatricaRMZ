@@ -16,6 +16,8 @@ import {
   entityTypeRowSchema,
   erpContractRowSchema,
   erpCounterpartyRowSchema,
+  erpContractPaymentSlotRowSchema,
+  erpContractPaymentRowSchema,
   directoryEngineBrandRowSchema,
   erpEngineInventoryLineRowSchema,
   operationRowSchema,
@@ -45,6 +47,8 @@ import {
   entityTypes,
   erpContracts,
   erpCounterparties,
+  erpContractPaymentSlots,
+  erpContractPayments,
   directoryEngineBrands,
   erpEngineInventoryLines,
   notes,
@@ -1347,6 +1351,162 @@ export async function applyPushBatch(
         const writtenIds = new Set((written as Array<{ id: string }>).map((w) => String(w.id)));
         const stamped = rows.filter((r) => writtenIds.has(String(r.id)));
         await updateSeqAndCollect(erpEngineInventoryLines, SyncTableName.ErpEngineInventoryLines, stamped);
+        applied += stamped.length;
+      }
+    }
+
+    // Слоты платежей контрактов (contract-payments-strict-2026-10). Клиент пишет push-ом
+    // (бухгалтерия и планшет в цеху — офлайн как был у EAV). Строго ПОСЛЕ erp_contracts:
+    // строка со ссылкой на несуществующий договор скипается как dependency (как листы
+    // без operation выше). Soft-delete слотов каскадом не гасит строки платежей: клиент
+    // шлёт и слот, и его строки одним пушем, и порядок применения — слоты раньше платежей.
+    {
+      const raw = grouped.get(SyncTableName.ErpContractPaymentSlots) ?? [];
+      const parsed = parseRows(SyncTableName.ErpContractPaymentSlots, raw, erpContractPaymentSlotRowSchema);
+      let rows = await filterStaleBySeqOrUpdatedAt(erpContractPaymentSlots, parsed, SyncTableName.ErpContractPaymentSlots);
+      if (rows.length > 0) {
+        const contractIds = Array.from(new Set(rows.map((r) => String(r.contract_id))));
+        const existing = await tx
+          .select({ id: erpContracts.id })
+          .from(erpContracts)
+          .where(inArray(erpContracts.id, contractIds as any))
+          .limit(50_000);
+        const known = new Set<string>((existing as any[]).map((r) => String(r.id)));
+        const missing = rows.filter((r) => !known.has(String(r.contract_id)));
+        if (missing.length > 0) {
+          addSkipMetric('dependency', SyncTableName.ErpContractPaymentSlots, missing.length, 'contract');
+          addDependencySkippedRows(
+            SyncTableName.ErpContractPaymentSlots,
+            missing as Array<Record<string, unknown>>,
+            'contract',
+            'contract_id',
+          );
+          logSkip('sync dependency rows skipped', {
+            table: SyncTableName.ErpContractPaymentSlots,
+            dependency: 'contract',
+            missing: missing.length,
+            missing_ids: missingIdSample(missing as Array<Record<string, unknown>>, 'contract_id'),
+            row_ids: missingIdSample(missing as Array<Record<string, unknown>>, 'id'),
+            client_id: req.client_id,
+            user: actor.username,
+          });
+          const missingIds = new Set(missing.map((r) => String(r.id)));
+          rows = rows.filter((r) => !missingIds.has(String(r.id)));
+        }
+      }
+      if (rows.length > 0) {
+        const written = await tx
+          .insert(erpContractPaymentSlots)
+          .values(
+            rows.map((r) => ({
+              id: r.id as any,
+              contractId: r.contract_id as any,
+              sectionKey: r.section_key,
+              engineBrandId: (r.engine_brand_id ?? null) as any,
+              engineId: (r.engine_id ?? null) as any,
+              contractPriceKop: r.contract_price_kop ?? null,
+              createdAt: r.created_at,
+              updatedAt: r.updated_at,
+              deletedAt: r.deleted_at ?? null,
+              syncStatus: 'synced',
+            })),
+          )
+          .onConflictDoUpdate({
+            target: erpContractPaymentSlots.id,
+            setWhere: sql`${erpContractPaymentSlots.updatedAt} <= excluded.updated_at`,
+            set: {
+              contractId: sql`excluded.contract_id`,
+              sectionKey: sql`excluded.section_key`,
+              engineBrandId: sql`excluded.engine_brand_id`,
+              engineId: sql`excluded.engine_id`,
+              contractPriceKop: sql`excluded.contract_price_kop`,
+              updatedAt: sql`excluded.updated_at`,
+              deletedAt: sql`excluded.deleted_at`,
+              syncStatus: 'synced',
+            },
+          })
+          .returning({ id: erpContractPaymentSlots.id });
+        const writtenIds = new Set((written as Array<{ id: string }>).map((w) => String(w.id)));
+        const stamped = rows.filter((r) => writtenIds.has(String(r.id)));
+        await updateSeqAndCollect(erpContractPaymentSlots, SyncTableName.ErpContractPaymentSlots, stamped);
+        applied += stamped.length;
+      }
+    }
+
+    // Строки платежей — строго ПОСЛЕ слотов (FK slot_id; слоты этого же пуша уже записаны
+    // выше в той же транзакции и видны проверке). Удаление слота строк не гасит: клиент
+    // шлёт delete и по слоту, и по его строкам.
+    {
+      const raw = grouped.get(SyncTableName.ErpContractPaymentPayments) ?? [];
+      const parsed = parseRows(SyncTableName.ErpContractPaymentPayments, raw, erpContractPaymentRowSchema);
+      let rows = await filterStaleBySeqOrUpdatedAt(erpContractPayments, parsed, SyncTableName.ErpContractPaymentPayments);
+      if (rows.length > 0) {
+        const slotIds = Array.from(new Set(rows.map((r) => String(r.slot_id))));
+        const existing = await tx
+          .select({ id: erpContractPaymentSlots.id })
+          .from(erpContractPaymentSlots)
+          .where(inArray(erpContractPaymentSlots.id, slotIds as any))
+          .limit(50_000);
+        const known = new Set<string>((existing as any[]).map((r) => String(r.id)));
+        const missing = rows.filter((r) => !known.has(String(r.slot_id)));
+        if (missing.length > 0) {
+          addSkipMetric('dependency', SyncTableName.ErpContractPaymentPayments, missing.length, 'slot');
+          addDependencySkippedRows(
+            SyncTableName.ErpContractPaymentPayments,
+            missing as Array<Record<string, unknown>>,
+            'slot',
+            'slot_id',
+          );
+          logSkip('sync dependency rows skipped', {
+            table: SyncTableName.ErpContractPaymentPayments,
+            dependency: 'slot',
+            missing: missing.length,
+            missing_ids: missingIdSample(missing as Array<Record<string, unknown>>, 'slot_id'),
+            row_ids: missingIdSample(missing as Array<Record<string, unknown>>, 'id'),
+            client_id: req.client_id,
+            user: actor.username,
+          });
+          const missingIds = new Set(missing.map((r) => String(r.id)));
+          rows = rows.filter((r) => !missingIds.has(String(r.id)));
+        }
+      }
+      if (rows.length > 0) {
+        const written = await tx
+          .insert(erpContractPayments)
+          .values(
+            rows.map((r) => ({
+              id: r.id as any,
+              slotId: r.slot_id as any,
+              date: r.date,
+              amountKop: r.amount_kop,
+              kind: r.kind,
+              note: r.note ?? null,
+              countdownStart: r.countdown_start ?? false,
+              createdAt: r.created_at,
+              updatedAt: r.updated_at,
+              deletedAt: r.deleted_at ?? null,
+              syncStatus: 'synced',
+            })),
+          )
+          .onConflictDoUpdate({
+            target: erpContractPayments.id,
+            setWhere: sql`${erpContractPayments.updatedAt} <= excluded.updated_at`,
+            set: {
+              slotId: sql`excluded.slot_id`,
+              date: sql`excluded.date`,
+              amountKop: sql`excluded.amount_kop`,
+              kind: sql`excluded.kind`,
+              note: sql`excluded.note`,
+              countdownStart: sql`excluded.countdown_start`,
+              updatedAt: sql`excluded.updated_at`,
+              deletedAt: sql`excluded.deleted_at`,
+              syncStatus: 'synced',
+            },
+          })
+          .returning({ id: erpContractPayments.id });
+        const writtenIds = new Set((written as Array<{ id: string }>).map((w) => String(w.id)));
+        const stamped = rows.filter((r) => writtenIds.has(String(r.id)));
+        await updateSeqAndCollect(erpContractPayments, SyncTableName.ErpContractPaymentPayments, stamped);
         applied += stamped.length;
       }
     }
