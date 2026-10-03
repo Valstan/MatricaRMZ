@@ -10,7 +10,8 @@ import { db } from '../database/db.js';
 import { attributeDefs, attributeValues, entities } from '../database/schema.js';
 import type { AuthUser } from '../auth/jwt.js';
 import { getSuperadminUserId } from '../services/employeeAuthService.js';
-import { createEntity, setEntityAttribute, upsertAttributeDef, upsertEntityType } from '../services/adminMasterdataService.js';
+import { setEntityAttribute, upsertAttributeDef, upsertEntityType } from '../services/adminMasterdataService.js';
+import { createContractStrict, getContractStrict, patchContractStrict } from '../services/contractStrictService.js';
 
 type ParsedContractRow = {
   sourceFile: string;
@@ -456,6 +457,13 @@ function pickContractIdForRow(
   return { id: null, ambiguous: false };
 }
 
+function doorCode(field: string): string {
+  if (field === 'signed_at') return 'date';
+  if (field === 'due_at') return 'due_date';
+  if (field === 'sections_json') return 'contract_sections';
+  return field;
+}
+
 async function setIfChanged(actor: AuthUser, contract: ExistingContract, code: string, value: unknown): Promise<void> {
   const prev = contract.attrs[code];
   if (jsonComparable(prev) === jsonComparable(value)) return;
@@ -513,41 +521,15 @@ async function main() {
         continue;
       }
 
-      let contract = picked.id ? existing.get(picked.id) ?? null : null;
-      if (!contract) {
-        const created = await createEntity(actor, contractTypeId);
-        if (!created.ok || !created.id) {
-          skippedRows += 1;
-          unresolved.push(`${row.contractNumber} (не удалось создать)`);
-          continue;
-        }
-        contract = { id: created.id, createdAt: Date.now(), attrs: {} };
-        existing.set(contract.id, contract);
-        createdContracts += 1;
-      }
-
-      await setIfChanged(actor, contract, 'number', row.contractNumber);
-      await setIfChanged(actor, contract, 'goz_igk', row.igk);
-      await setIfChanged(actor, contract, 'goz_name', row.name);
-      await setIfChanged(actor, contract, 'has_files', row.hasFiles);
-
-      if (row.signedAt != null) await setIfChanged(actor, contract, 'date', row.signedAt);
-      if (row.dueAt != null) await setIfChanged(actor, contract, 'due_date', row.dueAt);
-      if (row.separateAccountRaw) await setIfChanged(actor, contract, 'goz_separate_account', row.separateAccountRaw);
-      if (row.separateAccountNumber) await setIfChanged(actor, contract, 'goz_separate_account_number', row.separateAccountNumber);
-      if (row.separateAccountBank) await setIfChanged(actor, contract, 'goz_separate_account_bank', row.separateAccountBank);
-      if (row.comment) await setIfChanged(actor, contract, 'comment', row.comment);
-
-      const existingInternal = cleanCell(contract.attrs.internal_number);
-      if (!existingInternal) {
-        await setIfChanged(actor, contract, 'internal_number', row.contractNumber);
-      }
-
-      const sections = parseContractSections(contract.attrs);
+      // Запись — серверной дверью (C4): один патч вместо россыпи setAttr.
+      // has_files в strict-зеркале нет — остаётся в EAV.
+      const baseAttrs = (picked.id ? existing.get(picked.id)?.attrs : null) ?? {};
+      const wantInternal = cleanCell((baseAttrs as Record<string, unknown>).internal_number) || row.contractNumber;
+      const sections = parseContractSections(baseAttrs);
       const primaryNumber = cleanCell(sections.primary.number) || row.contractNumber;
       const primarySignedAt = row.signedAt ?? sections.primary.signedAt;
       const primaryDueAt = row.dueAt ?? sections.primary.dueAt;
-      const primaryInternal = cleanCell(sections.primary.internalNumber) || cleanCell(contract.attrs.internal_number) || row.contractNumber;
+      const primaryInternal = cleanCell(sections.primary.internalNumber) || wantInternal;
       const nextSections = {
         ...sections,
         primary: {
@@ -558,7 +540,44 @@ async function main() {
           internalNumber: primaryInternal,
         },
       };
-      await setIfChanged(actor, contract, 'contract_sections', nextSections);
+      const doorFields: Record<string, unknown> = {
+        number: row.contractNumber,
+        goz_igk: row.igk,
+        goz_name: row.name,
+        internal_number: wantInternal,
+        sections_json: JSON.stringify(nextSections),
+      };
+      if (row.signedAt != null) doorFields.signed_at = row.signedAt;
+      if (row.dueAt != null) doorFields.due_at = row.dueAt;
+      if (row.separateAccountRaw) doorFields.goz_separate_account = row.separateAccountRaw;
+      if (row.separateAccountNumber) doorFields.goz_separate_account_number = row.separateAccountNumber;
+      if (row.separateAccountBank) doorFields.goz_separate_account_bank = row.separateAccountBank;
+      if (row.comment) doorFields.comment = row.comment;
+      let contract = picked.id ? existing.get(picked.id) ?? null : null;
+      if (!contract) {
+        const created = await createContractStrict(doorFields, actor);
+        if (!created.ok) {
+          skippedRows += 1;
+          unresolved.push(`${row.contractNumber} (не удалось создать): ${created.error}`);
+          continue;
+        }
+        contract = { id: String((created.row as Record<string, unknown>).id), createdAt: Date.now(), attrs: {} };
+        existing.set(contract.id, contract);
+        createdContracts += 1;
+      } else {
+        const cur = await getContractStrict(contract.id);
+        const have = cur.ok ? (cur.row as Record<string, unknown>) : {};
+        const diff: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(doorFields)) {
+          if (jsonComparable((have as Record<string, unknown>)[k]) !== jsonComparable(v)) diff[k] = v;
+        }
+        if (Object.keys(diff).length > 0) {
+          const patched = await patchContractStrict(contract.id, diff, actor);
+          if (!patched.ok) throw new Error("Не удалось обновить контракт " + contract.id + ": " + (patched.error ?? "неизвестная ошибка"));
+        }
+        for (const [k, v] of Object.entries(diff)) contract.attrs[doorCode(k)] = v;
+      }
+      await setIfChanged(actor, contract, "has_files", row.hasFiles);
 
       updatedContracts += 1;
     } catch (e) {

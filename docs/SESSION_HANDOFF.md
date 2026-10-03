@@ -1,6 +1,6 @@
 ---
 
-session: feat/contract-cutover-c3
+session: feat/contract-cutover-c4
 status: active
 updated: 2026-10-03
 ---
@@ -10,19 +10,19 @@ updated: 2026-10-03
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`.
 
 **Status:** ACTIVE
-**Updated:** 2026-10-03 (cutover договоров C3 готов, стек-PR не открыт)
-**Branch:** feat/contract-cutover-c3 (стеком на feat/contract-cutover-c1 = PR #1138)
+**Updated:** 2026-10-03 (C4 готов, стек-PR не открыт)
+**Branch:** feat/contract-cutover-c4 (стеком на feat/contract-cutover-c3 = PR #1140)
 **Last released version:** v3.60.0 на проде
 
 ## Текущая нитка
 
-Cutover договоров/контрагентов (план `docs/plans/contract-cutover-2026-10.md`): C3 — карточка договора → двери. IPC `contracts:contract:*`, синтезированные атрибуты (downstream цел), saveSections одним патчем, платежи из стора, copyToNew ×2 и createMasterDataItem через двери. В EAV остались только вложения/has_files/произвольные дефы. Dual-write ушёл в #1138. Гейты: electron 1396 зелёных, lint/typecheck чистые.
+Cutover договоров/контрагентов (план `docs/plans/contract-cutover-2026-10.md`): C4 — `contracts:parity` (обе стороны вживую), `payments:parity` strict-extra → info, `importContractsGoz` на дверях. Одноразовые скрипты оставлены на EAV осознанно (разбор на C5). Гейты: backend typecheck/lint чистые.
 
 ## Контекст
 
-- C1+C2 + dual-write — в PR #1138 (CI чинился: неиспользуемые actor/type; локально гонять `pnpm -r lint` целиком)
-- Дальше: C4 скрипты + contracts:parity, C5 freeze после обновления парка
-- Латентный вайп strict-платежей устаревшим EAV в сверке слотов — закрыт чтением из стора
+- #1138 смержен (C1+C2+dual-write), #1140 открыт (C3)
+- Стек чинился руками после мержа #1138 (rebase-конфликт + закрытый PR; правило: после мержа базы стек пересобирать cherry-pick, PR открывать заново)
+- Дальше: C5 freeze после обновления парка; уникальность number ждёт владельца
 
 ## Открытые вопросы для пользователя
 
@@ -33,4 +33,4 @@ Cutover договоров/контрагентов (план `docs/plans/contra
 - `user_settings`/`user_credentials` сознательно вне sync-контракта (сторож в CI); не предлагать их «досинкать».
 - `listEmployeesAuth` остаётся на EAV (сырая роль для roleReport) — не «забытый хвост», а решение.
 - Freeze EAV-платежей и снос триггера зеркала — после обновления парка.
-- CDP-смоук правки платежа и карточки договора — перед релизом с cutover.
+- CDP-смоук карточки договора и правки платежа — перед релизом с cutover.
