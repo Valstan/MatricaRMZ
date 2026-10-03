@@ -9,6 +9,7 @@ import { ENGINE_INVENTORY_STAGE, SyncTableName, SyncTableRegistry, syncRowSchema
 
 import { signAndAppendDetailed } from '../../ledger/ledgerService.js';
 import type { InventoryOperationRow } from '../engineInventoryLinesService.js';
+import { writeEngineCardEavTrail } from '../engineStrictService.js';
 import { resolveWarehouseLocationIdsByCodes } from '../warehouseLocationsService.js';
 import { applyPushBatch, type AppliedSyncChange, type SyncIdRemaps, type SyncSkippedRow } from './applyPushBatch.js';
 
@@ -295,6 +296,15 @@ export async function writeSyncChanges(
     pushActor,
     pushOpts,
   );
+
+  // EAV-след карточек двигателей (E3a): исполняется ПОСЛЕ коммита apply-транзакции.
+  // След идёт отдельным коннектом через setEntityAttribute и дёргает триггер
+  // зеркала на тех же strict-строках — внутри транзакции это кросс-коннект
+  // deadlock с ней самой (поймано вживую на стенде). Отказ следа — warn: канон
+  // (strict) уже записан, EAV догонит следующим проходом.
+  for (const trail of dbResult.engineTrails ?? []) {
+    await writeEngineCardEavTrail(pushActor, trail.id, trail.entries);
+  }
 
   // (Прежний шаг 3 — проекция в ledger_tx_index — не нужен: журнал в PG пишет сам
   // signAndAppendDetailed, со штампом seq и актором.)

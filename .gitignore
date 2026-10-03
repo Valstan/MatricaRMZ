@@ -58,6 +58,9 @@ backend-api/uploads
 backend-api/ledger
 backend-api/ledger.bak-*
 backend-api/logs
+# Корневые logs/ — тот же рантайм при запуске с корня (tsx-скрипты живых проверок
+# пишут logs/critical-events.ndjson в CWD). Не коммитить.
+logs/
 
 # Stray runtime data created when backend is launched with the wrong CWD
 # (e.g. `cd backend-api && pnpm dev` writes ./ledger/blocks/ inside that dir,

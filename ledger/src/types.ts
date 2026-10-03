@@ -47,6 +47,7 @@ export const LedgerTableName = {
   UserSectionAccess: 'user_section_access',
   ErpContractPaymentSlots: 'erp_contract_payment_slots',
   ErpContractPaymentPayments: 'erp_contract_payments',
+  ErpEngineCards: 'erp_engine_cards',
   Permissions: 'permissions',
   UserPermissions: 'user_permissions',
   PermissionDelegations: 'permission_delegations',

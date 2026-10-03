@@ -29,6 +29,7 @@ import {
   erpContractPayments,
   erpContracts,
   erpCounterparties,
+  erpEngineCards,
 } from '../../database/schema.js';
 import { logError, logInfo } from '../../utils/logger.js';
 import { writeSyncChanges, type SyncWriteInput } from './syncWriteService.js';
@@ -141,6 +142,85 @@ export function toPaymentInput(r: Record<string, unknown>): SyncWriteInput {
   }));
 }
 
+const textOrNullIn = (row: Record<string, unknown>, key: string): string | null => {
+  const v = row[key];
+  return v == null || v === '' ? null : String(v);
+};
+const msOrNullIn = (row: Record<string, unknown>, key: string): number | null => {
+  const v = row[key];
+  return v == null ? null : Number(v);
+};
+const uuidOrNullIn = (row: Record<string, unknown>, key: string): string | null => {
+  const v = row[key];
+  return v == null ? null : String(v);
+};
+
+export function toEngineCardInput(r: Record<string, unknown>): SyncWriteInput {
+  return toInput(SyncTableName.ErpEngineCards, r, (row) => ({
+    id: String(row['id']),
+    engine_number: textOrNullIn(row, 'engineNumber'),
+    engine_internal_number: textOrNullIn(row, 'engineInternalNumber'),
+    engine_internal_number_year: msOrNullIn(row, 'engineInternalNumberYear'),
+    engine_brand_id: uuidOrNullIn(row, 'engineBrandId'),
+    engine_brand: textOrNullIn(row, 'engineBrand'),
+    arrival_date: msOrNullIn(row, 'arrivalDate'),
+    customer_id: uuidOrNullIn(row, 'customerId'),
+    contract_id: uuidOrNullIn(row, 'contractId'),
+    contract_section_number: textOrNullIn(row, 'contractSectionNumber'),
+    workshop_id: uuidOrNullIn(row, 'workshopId'),
+    status_rework_sent: Boolean(row['statusReworkSent']),
+    status_rework_sent_date: msOrNullIn(row, 'statusReworkSentDate'),
+    status_scrap_confirmed: Boolean(row['statusScrapConfirmed']),
+    status_scrap_confirmed_date: msOrNullIn(row, 'statusScrapConfirmedDate'),
+    status_repair_started: Boolean(row['statusRepairStarted']),
+    status_repair_started_date: msOrNullIn(row, 'statusRepairStartedDate'),
+    status_repaired: Boolean(row['statusRepaired']),
+    status_repaired_date: msOrNullIn(row, 'statusRepairedDate'),
+    status_customer_sent: Boolean(row['statusCustomerSent']),
+    status_customer_sent_date: msOrNullIn(row, 'statusCustomerSentDate'),
+    status_customer_accepted: Boolean(row['statusCustomerAccepted']),
+    status_customer_accepted_date: msOrNullIn(row, 'statusCustomerAcceptedDate'),
+    status_storage_received: Boolean(row['statusStorageReceived']),
+    status_storage_received_date: msOrNullIn(row, 'statusStorageReceivedDate'),
+    status_rejected: Boolean(row['statusRejected']),
+    status_rejected_date: msOrNullIn(row, 'statusRejectedDate'),
+    scrap_reason: textOrNullIn(row, 'scrapReason'),
+    reclamation_flag: Boolean(row['reclamationFlag']),
+    reclamation_accepted_date: msOrNullIn(row, 'reclamationAcceptedDate'),
+    reclamation_customer_reason: textOrNullIn(row, 'reclamationCustomerReason'),
+    reclamation_actual_defect: textOrNullIn(row, 'reclamationActualDefect'),
+    reclamation_defect_nature: textOrNullIn(row, 'reclamationDefectNature'),
+    reclamation_act_number: textOrNullIn(row, 'reclamationActNumber'),
+    reclamation_verdict_date: msOrNullIn(row, 'reclamationVerdictDate'),
+    reclamation_shipped_date: msOrNullIn(row, 'reclamationShippedDate'),
+    reclamation_comment: textOrNullIn(row, 'reclamationComment'),
+    reclamation_verdict: textOrNullIn(row, 'reclamationVerdict'),
+    reclamation_repair_status: textOrNullIn(row, 'reclamationRepairStatus'),
+    repeat_arrival_flag: Boolean(row['repeatArrivalFlag']),
+    number_collision_flag: Boolean(row['numberCollisionFlag']),
+    previous_arrival_id: uuidOrNullIn(row, 'previousArrivalId'),
+    merged_into: uuidOrNullIn(row, 'mergedInto'),
+    arrival_invoice: textOrNullIn(row, 'arrivalInvoice'),
+    shipment_invoice: textOrNullIn(row, 'shipmentInvoice'),
+    engine_note: textOrNullIn(row, 'engineNote'),
+    docs_state: textOrNullIn(row, 'docsState'),
+    docs_aspvr_contractor_date: msOrNullIn(row, 'docsAspvrContractorDate'),
+    docs_vp_sent_date: msOrNullIn(row, 'docsVpSentDate'),
+    docs_vp_returned_date: msOrNullIn(row, 'docsVpReturnedDate'),
+    docs_aspvr_customer_scan_date: msOrNullIn(row, 'docsAspvrCustomerScanDate'),
+    docs_aspvr_customer_original_date: msOrNullIn(row, 'docsAspvrCustomerOriginalDate'),
+    docs_track_or_act: textOrNullIn(row, 'docsTrackOrAct'),
+    docs_aspvr_signed_customer_date: msOrNullIn(row, 'docsAspvrSignedCustomerDate'),
+    docs_aspvr_customer_received: Boolean(row['docsAspvrCustomerReceived']),
+    docs_return_scan_date: msOrNullIn(row, 'docsReturnScanDate'),
+    docs_return_original_date: msOrNullIn(row, 'docsReturnOriginalDate'),
+    docs_note: textOrNullIn(row, 'docsNote'),
+    created_at: Number(row['createdAt']),
+    updated_at: Number(row['updatedAt']),
+    deleted_at: row['deletedAt'] == null ? null : Number(row['deletedAt']),
+  }));
+}
+
 /** Один проход: опубликовать строки, помеченные `pending`. Возвращает число опубликованных. */
 export async function publishPendingDictionaries(): Promise<number> {
   let total = 0;
@@ -152,6 +232,9 @@ export async function publishPendingDictionaries(): Promise<number> {
     // (FK contract_id), платежи после слотов — тот же приём, что договоры после заказчиков.
     { table: erpContractPaymentSlots, toInput: toPaymentSlotInput },
     { table: erpContractPayments, toInput: toPaymentInput },
+    // Карточки двигателей (план engine-cards-strict-2026-10, E3a): ссылки без FK,
+    // порядок не важен — в конце, после всех справочников.
+    { table: erpEngineCards, toInput: toEngineCardInput },
   ] as const;
   for (const { table, toInput: convert } of pending) {
     const rows = await db

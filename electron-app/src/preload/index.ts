@@ -107,6 +107,9 @@ const matricaApi = {
     },
     dedupeAnalyze: async () => ipcRenderer.invoke('engine:dedupe:analyze'),
     dedupeMerge: async (args: { survivorId: string; loserIds: string[] }) => ipcRenderer.invoke('engine:dedupe:merge', args),
+    card: {
+      get: async (id: string) => ipcRenderer.invoke('engines:card:get', id),
+    },
   },
   desktopTransfer: {
     sendToColleague: async (args: { fileId: string; recipientUserId: string }) => ipcRenderer.invoke('desktopTransfer:send', args),

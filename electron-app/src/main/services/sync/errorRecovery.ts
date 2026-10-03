@@ -16,6 +16,7 @@ import {
   entityTypes,
   erpContractPaymentSlots,
   erpContractPayments,
+  erpEngineCards,
   noteShares,
   notes,
   cardDrafts,
@@ -88,6 +89,10 @@ const DRIZZLE_TABLE_MAP: Record<SyncTableName, any> = {
   // Платежи договоров (contract-payments-strict-2026-10): клиент пишет сам — чинятся так же.
   [SyncTableName.ErpContractPaymentSlots]: erpContractPaymentSlots,
   [SyncTableName.ErpContractPaymentPayments]: erpContractPayments,
+  // Карточки двигателей (план engine-cards-strict-2026-10, E3): клиент пишет сам
+  // push-ом с E3b — ошибочные pending-строки чинятся так же. В E3a пуша ещё нет,
+  // запись здесь — только чтобы карта была полной к моменту E3b.
+  [SyncTableName.ErpEngineCards]: erpEngineCards,
 };
 const IN_ARRAY_CHUNK = 400;
 

@@ -51,6 +51,10 @@ export const SyncTableName = {
   // и планшет в цеху — офлайн-запись как была у EAV), сервер публикует.
   ErpContractPaymentSlots: 'erp_contract_payment_slots',
   ErpContractPaymentPayments: 'erp_contract_payments',
+  // Карточки двигателей (план engine-cards-strict-2026-10, E3): одна широкая таблица
+  // на карточку (id = entities.id). Клиенты пишут push-ом (цех с планшета, офлайн),
+  // сервер публикует; EAV-след пишет сервер при apply (старые клиенты читают EAV).
+  ErpEngineCards: 'erp_engine_cards',
 } as const;
 
 export type SyncTableName = (typeof SyncTableName)[keyof typeof SyncTableName];

@@ -127,6 +127,10 @@ export const SYNC_TABLE_OWNERSHIP: Readonly<Record<SyncTableName, SyncTableOwner
   // (бухгалтерия и планшет в цеху — офлайн как был у EAV), требование — в TABLE_REQUIREMENT.
   [SyncTableName.ErpContractPaymentSlots]: { owner: 'permission' },
   [SyncTableName.ErpContractPaymentPayments]: { owner: 'permission' },
+  // Карточки двигателей (план engine-cards-strict-2026-10, E3): клиенты пишут push-ом
+  // (цех с планшета, офлайн-запись как была у EAV), требование — в TABLE_REQUIREMENT.
+  // EAV-след пишет сервер при apply (старые клиенты читают EAV до E5-freeze).
+  [SyncTableName.ErpEngineCards]: { owner: 'permission' },
 };
 
 // Таблицы, которые клиент не пишет никогда, — по ТАБЛИЦЕ, а не по коду атрибута (B3/R3).
@@ -261,6 +265,10 @@ const TABLE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
   // Платежи контрактов пишут те же роли, что правят договоры (бухгалтерия/офис).
   [SyncTableName.ErpContractPaymentSlots]: { kind: 'permission', code: PermissionCode.ContractsEdit },
   [SyncTableName.ErpContractPaymentPayments]: { kind: 'permission', code: PermissionCode.ContractsEdit },
+  // Карточки двигателей (план engine-cards-strict-2026-10, E3): те же роли, что
+  // правят двигатели (цех с планшета, офлайн-push). Гейты дублей — не здесь, а в
+  // pre-sign партиции push (engineCardPushGuard): requirement видит только права.
+  [SyncTableName.ErpEngineCards]: { kind: 'permission', code: PermissionCode.EnginesEdit },
 };
 
 /**
