@@ -680,6 +680,44 @@ export function EngineDetailsPage(props: {
   const [coreDefsReady, setCoreDefsReady] = useState(false);
 
   const [saveStatus, setSaveStatus] = useState<string>('');
+  // Строгая реплика карточки (план engine-cards-strict-2026-10, E3b): ядро поверх
+  // EAV-снапшота списка. Реплики может не быть (холодный pull) — тогда чистый EAV.
+  // sync_status реплики несёт гейт-отказ сервера (error): показываем баннер, значения
+  // оператора при этом целы (лежат в state) — правит и сохраняет заново.
+  const [strictOverlay, setStrictOverlay] = useState<Record<string, unknown> | null>(null);
+  const [strictSyncStatus, setStrictSyncStatus] = useState<string>('synced');
+  useEffect(() => {
+    setStrictOverlay(null);
+    setStrictSyncStatus('synced');
+    let live = true;
+    void (async () => {
+      try {
+        const api = (window as unknown as { matrica?: { engines?: { card?: { get?: (id: string) => Promise<unknown> } } } }).matrica;
+        const r = (await api?.engines?.card?.get?.(props.engineId)) as {
+          ok?: boolean;
+          row?: Record<string, unknown> | null;
+        } | null;
+        if (!live || !r?.ok) return;
+        if (r.row) setStrictSyncStatus(String((r.row as { sync_status?: unknown }).sync_status ?? 'synced'));
+        if (!r.row) return;
+        // Не перетираем набранное: оверлей состояний — только пока сессия чистая.
+        // Статусsync при этом нужен всегда (баннер гейт-отказа).
+        if (sessionHadChanges.current) return;
+        if (!live) return;
+        const { sync_status: _drop, ...rest } = r.row;
+        setStrictOverlay(rest);
+      } catch {
+        // мост/реплика недоступны — остаёмся на EAV
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [props.engineId]);
+  const committedAttributes = useMemo<Record<string, unknown>>(
+    () => ({ ...(props.engine.attributes ?? {}), ...(strictOverlay ?? {}) }),
+    [props.engine.attributes, strictOverlay],
+  );
   // Выборка файлов на вкладке «Фото и документы» — для карточной печати
   // (модуль владеет выборкой, карточка получает снимок через onSelectionChange).
   const filesSelectedIdsRef = useRef<string[]>([]);
@@ -945,17 +983,19 @@ export function EngineDetailsPage(props: {
     // Phase 3d: восстановленный черновик не перетираем фоновым reload/sync — иначе
     // снимок теряется, а автосейв перештамповал бы его committed-значениями.
     if (draftRestoredRef.current && sessionHadChanges.current) return;
-    setInternalNumber(String(props.engine.attributes?.[ENGINE_INTERNAL_NUMBER_CODE] ?? ''));
-    setInternalNumberYear(String(props.engine.attributes?.[ENGINE_INTERNAL_NUMBER_YEAR_CODE] ?? ''));
-    setEngineNumber(String(props.engine.attributes?.engine_number ?? ''));
-    setEngineBrand(String(props.engine.attributes?.engine_brand ?? ''));
-    setEngineBrandId(String(props.engine.attributes?.engine_brand_id ?? ''));
-    setArrivalDate(toInputDate(props.engine.attributes?.arrival_date as number | null | undefined));
-    setCustomerId(String(props.engine.attributes?.customer_id ?? ''));
-    setContractId(String(props.engine.attributes?.contract_id ?? ''));
-    setContractSectionNumber(canonicalContractSectionKey(props.engine.attributes?.contract_section_number as string | null | undefined));
-    setWorkshopId(String(props.engine.attributes?.workshop_id ?? ''));
-    const attrs = props.engine.attributes ?? {};
+    // E3b: committed-копия = EAV-снапшот + оверлей строгой реплики (свежий канон).
+    const committed = committedAttributes;
+    setInternalNumber(String(committed[ENGINE_INTERNAL_NUMBER_CODE] ?? ''));
+    setInternalNumberYear(String(committed[ENGINE_INTERNAL_NUMBER_YEAR_CODE] ?? ''));
+    setEngineNumber(String(committed.engine_number ?? ''));
+    setEngineBrand(String(committed.engine_brand ?? ''));
+    setEngineBrandId(String(committed.engine_brand_id ?? ''));
+    setArrivalDate(toInputDate(committed.arrival_date as number | null | undefined));
+    setCustomerId(String(committed.customer_id ?? ''));
+    setContractId(String(committed.contract_id ?? ''));
+    setContractSectionNumber(canonicalContractSectionKey(committed.contract_section_number as string | null | undefined));
+    setWorkshopId(String(committed.workshop_id ?? ''));
+    const attrs = committed;
     const flags: Partial<Record<StatusCode, boolean>> = {};
     for (const c of STATUS_CODES) flags[c] = isEavFlagSet(attrs[c]);
     setStatusFlags(flags);
@@ -997,8 +1037,8 @@ export function EngineDetailsPage(props: {
         }
       })();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- DB-sync intentionally keyed on engineId/updatedAt only; re-running on attributes object identity or applyDraftSnapshot would clobber operator edits with committed values on unrelated renders
-  }, [props.engineId, props.engine.updatedAt]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- DB-sync intentionally keyed on engineId/updatedAt/overlay only; re-running on attributes object identity or applyDraftSnapshot would clobber operator edits with committed values on unrelated renders
+  }, [props.engineId, props.engine.updatedAt, strictOverlay]);
 
   // Phase 3d: debounced recovery-автосейв (~1.5с после последней правки, пока карточка dirty).
   useEffect(() => {
@@ -1178,13 +1218,16 @@ export function EngineDetailsPage(props: {
     // (резерв перехватил другой оператор, админ отозвал доступ). Молча резолвиться
     // нельзя: App считает успешный промис за сохранение и закрывает вкладку — правки
     // исчезли бы без следа, ровно как в дефекте, который эта ветка и чинит.
+    let didSaveStrict = false;
     if (!canEditEnginesEff && sessionHadChanges.current) {
       const msg = 'Карточку занял другой оператор — правки НЕ сохранены. Скопируйте их и откройте карточку заново.';
       setSaveStatus(msg);
       throw new Error(msg);
     }
     if (canEditEnginesEff) {
-      const attrs = props.engine.attributes ?? {};
+      // E3b: база диффа — committed-копия (EAV + оверлей реплики), иначе свежие
+      // значения реплики читались бы «изменениями» и уходили бы фантомной записью.
+      const attrs = committedAttributes;
       const labelById = (id: string) => (linkLists.engine_brand ?? []).find((o) => o.id === id)?.label ?? '';
       const brandLabel = engineBrandId ? labelById(engineBrandId) || engineBrand : engineBrand;
 
@@ -1222,7 +1265,7 @@ export function EngineDetailsPage(props: {
         [statusDateCode('status_customer_accepted')]: statusDates.status_customer_accepted,
         // Заказчик вычисляется из договора — тогда карточку не переписываем: отдаём то же
         // значение, что уже лежит, и диф остаётся пустым. Без договора поле правится как прежде.
-        customer_id: contractCustomerId ? asNullableText(props.engine.attributes?.customer_id) : asNullableText(customerId),
+        customer_id: contractCustomerId ? asNullableText(attrs.customer_id) : asNullableText(customerId),
         contract_id: asNullableText(contractId),
         contract_section_number: asNullableText(resolvedSectionKey),
         workshop_id: asNullableText(workshopId),
@@ -1281,13 +1324,30 @@ export function EngineDetailsPage(props: {
           : asNullableText(attrs[f.code]);
       }
 
-      const changedEntries = Object.entries(nextValues).filter(([code, nextValue]) => !sameValue(currentValues[code], nextValue));
+      const changedEntries = Object.entries(nextValues).filter(([code, nextValue]) => {
+        if (sameValue(currentValues[code], nextValue)) return false;
+        // E3b: значение уже несёт оверлей реплики (чужое свежее или своё с прошлого
+        // сейва) — переписывать его тем же нет смысла, только очередь дёргаем.
+        if (strictOverlay && sameValue((strictOverlay as Record<string, unknown>)[code], nextValue)) return false;
+        return true;
+      });
       if (changedEntries.length > 0) {
         try {
           setSaveStatus('Сохраняю...');
-          for (const [code, value] of changedEntries) {
-            await window.matrica.engines.setAttr(props.engineId, code, value);
+          const api = (
+            window as unknown as {
+              matrica?: { engines?: { card?: { save?: (a: unknown) => Promise<unknown>; writeThrough?: (id: string) => Promise<unknown> } } };
+            }
+          ).matrica;
+          const r = (await api?.engines?.card?.save?.({
+            id: props.engineId,
+            fields: Object.fromEntries(changedEntries),
+          })) as { ok?: boolean; changed?: boolean; error?: string } | null;
+          if (!r?.ok) {
+            setSaveStatus(`Ошибка сохранения: ${String(r?.error ?? 'неизвестно')}`);
+            throw new Error(String(r?.error ?? 'неизвестно'));
           }
+          didSaveStrict = true;
           // Межцеховая передача («отдал»): цех сменился с одного реального на другой →
           // фиксируем операцию workshop_transfer (from → to) для per-цех учёта C3.
           const prevWorkshop = asNullableText(attrs.workshop_id);
@@ -1349,6 +1409,30 @@ export function EngineDetailsPage(props: {
       await auditEditDone();
     }
     setSessionChanged(false);
+    // E3b: освежить оверлей из ЛОКАЛЬНОЙ реплики (только что записанные значения).
+    // Именно локальной, а не серверной: push ещё в пути, а серверный GET вернул бы
+    // досейвовое и заткнул бы собственную правку (поймано смоуком). Подтверждение
+    // сервера приезжает pull'ом. Сессия уже чистая, оверлей кладётся безусловно.
+    if (didSaveStrict) {
+      try {
+        const api = (
+          window as unknown as {
+            matrica?: { engines?: { card?: { get?: (id: string) => Promise<unknown> } } };
+          }
+        ).matrica;
+        const r = (await api?.engines?.card?.get?.(props.engineId)) as {
+          ok?: boolean;
+          row?: Record<string, unknown> | null;
+        } | null;
+        if (r?.ok && r.row) {
+          const { sync_status, ...rest } = r.row as Record<string, unknown> & { sync_status?: unknown };
+          setStrictSyncStatus(String(sync_status ?? 'pending'));
+          setStrictOverlay(rest);
+        }
+      } catch {
+        // остаёмся на текущем экране, pull догонит
+      }
+    }
     // Продление резерва — СОБЫТИЙНОЕ (при сохранении) и не чаще половины TTL.
     // Продление по таймеру = heartbeat в durable-ledger, это прод-инцидент M28.
     if (shouldRenewEngineReservation(reservation, { nowMs: Date.now(), viewerUserId: props.currentUserId })) {
@@ -2526,7 +2610,15 @@ export function EngineDetailsPage(props: {
           onClose={() => props.requestClose?.()}
         />
       }
-      status={saveStatus ? <div style={{ color: saveStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{saveStatus}</div> : null}
+      status={
+        strictSyncStatus === 'error' ? (
+          <div style={{ color: 'var(--danger)', fontSize: 12 }}>
+            Сервер не принял карточку (номер занят?) — исправьте и сохраните заново. Значения на экране целы.
+          </div>
+        ) : saveStatus ? (
+          <div style={{ color: saveStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{saveStatus}</div>
+        ) : null
+      }
     >
         {/* Вкладки карточки (план reclamation-mvp-2026-07 Ф0). Панели НЕ размонтируются
             (скрытие через hidden) — save-on-close/черновики/печать работают по state как раньше. */}

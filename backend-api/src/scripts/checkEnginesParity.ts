@@ -171,8 +171,13 @@ async function main() {
   }
 
   const knownIds = new Set(byEntity.keys());
-  for (const [id] of cardsById) {
-    if (!knownIds.has(id)) mismatches.push({ id, kind: 'strict без EAV-сущности', expected: null, actual: 'erp_engine_cards' });
+  for (const [id, s] of cardsById) {
+    if (knownIds.has(id)) continue;
+    // Тумстоун карточки без живой EAV-сущности — сошедшееся удаление (сущность
+    // снесена, зеркало погасило карточку), а не расхождение. Живая strict-строка
+    // без сущности — наоборот, настоящее расхождение (след не доехал).
+    if ((s as { deleted_at: unknown }).deleted_at != null) continue;
+    mismatches.push({ id, kind: 'strict без EAV-сущности', expected: null, actual: 'erp_engine_cards' });
   }
 
   const ok = mismatches.length === 0;

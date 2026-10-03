@@ -82,7 +82,7 @@ async function getEngineTypeId(db: BetterSQLite3Database): Promise<string> {
   return rows[0].id;
 }
 
-async function getEngineAttrDefs(db: BetterSQLite3Database): Promise<Record<string, string>> {
+export async function getEngineAttrDefs(db: BetterSQLite3Database): Promise<Record<string, string>> {
   const engineTypeId = await getEngineTypeId(db);
   const defs = await db.select().from(attributeDefs).where(eq(attributeDefs.entityTypeId, engineTypeId));
   const byCode: Record<string, string> = {};

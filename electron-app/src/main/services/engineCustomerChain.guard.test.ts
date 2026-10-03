@@ -33,7 +33,7 @@ describe('заказчик двигателя считается из догов
   it('карточка двигателя: при выбранном договоре заказчик показывается вычисленным и не пишется', () => {
     expect(ENGINE_CARD).toContain('const effectiveCustomerId = contractCustomerId || customerId;');
     expect(ENGINE_CARD, 'сохранение снова переписывает карточку договорным значением').toContain(
-      'customer_id: contractCustomerId ? asNullableText(props.engine.attributes?.customer_id) : asNullableText(customerId),',
+      'customer_id: contractCustomerId ? asNullableText(attrs.customer_id) : asNullableText(customerId),',
     );
     expect(ENGINE_CARD, 'оператору не сказано, откуда значение — поле выглядит сломанным').toContain(
       'из договора — меняется вместе с ним',
