@@ -211,6 +211,20 @@
       "when": 1790899200002,
       "tag": "0029_directory_engine_brands_replica",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1790899200003,
+      "tag": "0030_erp_contract_payment_slots_replica",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790899200004,
+      "tag": "0031_erp_contract_payments_replica",
+      "breakpoints": true
     }
   ]
 }

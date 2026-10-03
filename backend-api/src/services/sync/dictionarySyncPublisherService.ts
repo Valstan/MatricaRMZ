@@ -23,7 +23,13 @@ import { SyncTableName } from '@matricarmz/shared';
 import { ne } from 'drizzle-orm';
 
 import { db } from '../../database/db.js';
-import { directoryEngineBrands, erpContracts, erpCounterparties } from '../../database/schema.js';
+import {
+  directoryEngineBrands,
+  erpContractPaymentSlots,
+  erpContractPayments,
+  erpContracts,
+  erpCounterparties,
+} from '../../database/schema.js';
 import { logError, logInfo } from '../../utils/logger.js';
 import { writeSyncChanges, type SyncWriteInput } from './syncWriteService.js';
 
@@ -106,6 +112,35 @@ export function toEngineBrandInput(r: Record<string, unknown>): SyncWriteInput {
   }));
 }
 
+export function toPaymentSlotInput(r: Record<string, unknown>): SyncWriteInput {
+  return toInput(SyncTableName.ErpContractPaymentSlots, r, (row) => ({
+    id: String(row['id']),
+    contract_id: String(row['contractId']),
+    section_key: String(row['sectionKey']),
+    engine_brand_id: row['engineBrandId'] == null ? null : String(row['engineBrandId']),
+    engine_id: row['engineId'] == null ? null : String(row['engineId']),
+    contract_price_kop: row['contractPriceKop'] == null ? null : Number(row['contractPriceKop']),
+    created_at: Number(row['createdAt']),
+    updated_at: Number(row['updatedAt']),
+    deleted_at: row['deletedAt'] == null ? null : Number(row['deletedAt']),
+  }));
+}
+
+export function toPaymentInput(r: Record<string, unknown>): SyncWriteInput {
+  return toInput(SyncTableName.ErpContractPaymentPayments, r, (row) => ({
+    id: String(row['id']),
+    slot_id: String(row['slotId']),
+    date: String(row['date']),
+    amount_kop: Number(row['amountKop']),
+    kind: String(row['kind']),
+    note: row['note'] == null ? null : String(row['note']),
+    countdown_start: row['countdownStart'] == null ? null : Boolean(row['countdownStart']),
+    created_at: Number(row['createdAt']),
+    updated_at: Number(row['updatedAt']),
+    deleted_at: row['deletedAt'] == null ? null : Number(row['deletedAt']),
+  }));
+}
+
 /** Один проход: опубликовать строки, помеченные `pending`. Возвращает число опубликованных. */
 export async function publishPendingDictionaries(): Promise<number> {
   let total = 0;
@@ -113,6 +148,10 @@ export async function publishPendingDictionaries(): Promise<number> {
     { table: erpCounterparties, toInput: toCounterpartyInput },
     { table: erpContracts, toInput: toContractInput },
     { table: directoryEngineBrands, toInput: toEngineBrandInput },
+    // Слоты/платежи договоров (contract-payments-strict-2026-10): слоты после договоров
+    // (FK contract_id), платежи после слотов — тот же приём, что договоры после заказчиков.
+    { table: erpContractPaymentSlots, toInput: toPaymentSlotInput },
+    { table: erpContractPayments, toInput: toPaymentInput },
   ] as const;
   for (const { table, toInput: convert } of pending) {
     const rows = await db

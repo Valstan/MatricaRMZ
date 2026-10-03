@@ -45,6 +45,8 @@ export const LedgerTableName = {
   // enum'е окажутся два имени одной таблицы).
   Users: 'users',
   UserSectionAccess: 'user_section_access',
+  ErpContractPaymentSlots: 'erp_contract_payment_slots',
+  ErpContractPaymentPayments: 'erp_contract_payments',
   Permissions: 'permissions',
   UserPermissions: 'user_permissions',
   PermissionDelegations: 'permission_delegations',

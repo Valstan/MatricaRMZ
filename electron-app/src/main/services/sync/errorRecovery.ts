@@ -14,6 +14,8 @@ import {
   chatRooms,
   entities,
   entityTypes,
+  erpContractPaymentSlots,
+  erpContractPayments,
   noteShares,
   notes,
   cardDrafts,
@@ -83,6 +85,9 @@ const DRIZZLE_TABLE_MAP: Record<SyncTableName, any> = {
   [SyncTableName.ErpRegStockMovements]: undefined,
   // E2.3 (21.09): клиент пишет строки списка деталей сам — ошибочные pending-строки чинятся.
   [SyncTableName.ErpEngineInventoryLines]: erpEngineInventoryLines,
+  // Платежи договоров (contract-payments-strict-2026-10): клиент пишет сам — чинятся так же.
+  [SyncTableName.ErpContractPaymentSlots]: erpContractPaymentSlots,
+  [SyncTableName.ErpContractPaymentPayments]: erpContractPayments,
 };
 const IN_ARRAY_CHUNK = 400;
 

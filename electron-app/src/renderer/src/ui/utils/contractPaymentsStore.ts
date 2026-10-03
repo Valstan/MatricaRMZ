@@ -1,18 +1,16 @@
 /**
- * Единственная точка записи контрактного атрибута `contract_payments`.
+ * Единственная точка чтения/записи платежей договора.
  *
- * Атрибут крупный (все слоты и все платежи контракта в одном JSON), а пишут в него из двух
- * мест: карточка контракта и вкладка «Платежи» карточки двигателя. Карточка контракта до
- * 2026-07-31 писала весь атрибут из React-стейта БЕЗ пере-чтения — два бухгалтера (или даже
- * контракт и двигатель в одной сессии) затирали друг другу деньги. План подсистемы этого
- * требовал (`docs/plans/_archive/engine-payments-2026-07.md` §Сквозные предосторожности),
- * но в карточке контракта требование выполнено не было.
+ * Источник правды — строгие таблицы `erp_contract_payment_slots` /
+ * `erp_contract_payments` (план contract-payments-strict-2026-10): чтение и запись идут
+ * мостом `contractPayments:*` в локальную SQLite, дальше штатный синк. EAV-атрибут
+ * `contract_payments` больше не пишется отсюда (запись закрыта).
  *
- * Правило: мутация формулируется функцией от СВЕЖЕПРОЧИТАННОГО состояния, а не готовым
- * объектом из стейта. Тогда правка, приехавшая между рендером и кликом, не теряется.
+ * Правило пере-чтения сохранено: мутация формулируется функцией от
+ * СВЕЖЕПРОЧИТАННОГО состояния, а не готовым объектом из стейта.
  */
 
-import { CONTRACT_PAYMENTS_ATTR_CODE, parseContractPayments, type ContractPayments } from '@matricarmz/shared';
+import { parseContractPayments, type ContractPayments } from '@matricarmz/shared';
 
 export type ContractPaymentsMutation = (current: ContractPayments) => ContractPayments;
 
@@ -20,16 +18,13 @@ export type ContractPaymentsWriteResult =
   | { ok: true; next: ContractPayments; changed: boolean }
   | { ok: false; error: string };
 
-async function readEntity(contractId: string): Promise<Record<string, unknown> | null> {
-  const entity = (await window.matrica.admin.entities.get(contractId)) as
-    | { attributes?: Record<string, unknown> }
-    | null;
-  return entity?.attributes ?? null;
-}
-
 /** Свежие платежи контракта (минуя React-стейт). */
 export async function readContractPayments(contractId: string): Promise<ContractPayments> {
-  return parseContractPayments((await readEntity(contractId))?.[CONTRACT_PAYMENTS_ATTR_CODE]);
+  const r = (await window.matrica.contractPayments.get(contractId)) as
+    | { ok: boolean; payments?: unknown; error?: string }
+    | null;
+  if (!r || r.ok !== true) return parseContractPayments(null);
+  return parseContractPayments(r.payments);
 }
 
 /**
@@ -39,20 +34,17 @@ export async function readContractPayments(contractId: string): Promise<Contract
 export async function mutateContractPayments(
   contractId: string,
   mutate: ContractPaymentsMutation,
-  fallbackTypeId?: string,
+  _fallbackTypeId?: string,
 ): Promise<ContractPaymentsWriteResult> {
   try {
     const current = await readContractPayments(contractId);
     const next = mutate(current);
     if (JSON.stringify(next) === JSON.stringify(current)) return { ok: true, next: current, changed: false };
-    const r = (await window.matrica.admin.entities.setAttr(
-      contractId,
-      CONTRACT_PAYMENTS_ATTR_CODE,
-      next,
-      fallbackTypeId || undefined,
-    )) as { ok?: boolean; error?: string } | undefined;
-    if (r && r.ok === false) return { ok: false, error: r.error ?? 'не удалось сохранить платежи' };
-    return { ok: true, next, changed: true };
+    const r = (await window.matrica.contractPayments.save({ contractId, next })) as
+      | { ok: boolean; payments?: unknown; error?: string }
+      | undefined;
+    if (!r || r.ok !== true) return { ok: false, error: String(r?.error ?? 'не удалось сохранить платежи') };
+    return { ok: true, next: parseContractPayments(r.payments), changed: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

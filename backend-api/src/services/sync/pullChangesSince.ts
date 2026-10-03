@@ -28,6 +28,8 @@ import {
   entityTypes,
   erpContracts,
   erpCounterparties,
+  erpContractPaymentSlots,
+  erpContractPayments,
   directoryEngineBrands,
   erpEngineInstances,
   erpEngineInventoryLines,
@@ -121,6 +123,16 @@ const PG_SYNC_TABLES: Record<
   [SyncTableName.UserSectionAccess]: {
     drizzle: userSectionAccess,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.UserSectionAccess, r),
+  },
+  // Платежи контрактов (contract-payments-strict-2026-10): видимость — паритет с договорами,
+  // суммы платежей уже сегодня уезжают на каждую машину через EAV contract_payments.
+  [SyncTableName.ErpContractPaymentSlots]: {
+    drizzle: erpContractPaymentSlots,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpContractPaymentSlots, r),
+  },
+  [SyncTableName.ErpContractPaymentPayments]: {
+    drizzle: erpContractPayments,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpContractPaymentPayments, r),
   },
 };
 

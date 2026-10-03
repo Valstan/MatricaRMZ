@@ -14,6 +14,8 @@ import {
   entityTypes,
   erpContracts,
   erpCounterparties,
+  erpContractPaymentSlots,
+  erpContractPayments,
   directoryEngineBrands,
   erpEngineAssemblyBom,
   erpEngineAssemblyBomBrandLinks,
@@ -117,6 +119,14 @@ export const PG_SYNC_TABLES: Record<string, PgSyncTableEntry> = {
   [LedgerTableName.ErpContracts]: {
     drizzle: erpContracts,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpContracts, r),
+  },
+  [LedgerTableName.ErpContractPaymentSlots]: {
+    drizzle: erpContractPaymentSlots,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpContractPaymentSlots, r),
+  },
+  [LedgerTableName.ErpContractPaymentPayments]: {
+    drizzle: erpContractPayments,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpContractPaymentPayments, r),
   },
   [LedgerTableName.DirectoryEngineBrands]: {
     drizzle: directoryEngineBrands,

@@ -291,6 +291,8 @@ changesRouter.get('/', async (req, res) => {
       [SyncTableName.ErpEngineInventoryLines]: 'Список деталей двигателя',
       [SyncTableName.Users]: 'Учётные записи',
       [SyncTableName.UserSectionAccess]: 'Доступы по разделам',
+      [SyncTableName.ErpContractPaymentSlots]: 'Слоты платежей договоров',
+      [SyncTableName.ErpContractPaymentPayments]: 'Платежи договоров',
       file_assets: 'Файлы',
     };
 

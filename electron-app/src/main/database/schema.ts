@@ -367,6 +367,43 @@ export const erpContracts = sqliteTable('erp_contracts', {
   customerIdx: index('erp_contracts_customer_idx').on(t.customerId),
 }));
 
+// Слоты и строки платежей договоров (план contract-payments-strict-2026-10).
+// В отличие от словарей выше — клиент ПИШЕТ (бухгалтерия и планшет в цеху), push-ом.
+// countdownStart — boolean-режим integer, как isActive у соседних таблиц.
+export const erpContractPaymentSlots = sqliteTable('erp_contract_payment_slots', {
+  id: text('id').primaryKey(),
+  contractId: text('contract_id').notNull(),
+  sectionKey: text('section_key').notNull(),
+  engineBrandId: text('engine_brand_id'),
+  engineId: text('engine_id'),
+  contractPriceKop: integer('contract_price_kop'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  contractIdx: index('erp_contract_payment_slots_contract_idx').on(t.contractId),
+  engineIdx: index('erp_contract_payment_slots_engine_idx').on(t.engineId),
+}));
+
+export const erpContractPayments = sqliteTable('erp_contract_payments', {
+  id: text('id').primaryKey(),
+  slotId: text('slot_id').notNull(),
+  date: text('date').notNull(),
+  amountKop: integer('amount_kop').notNull(),
+  kind: text('kind').notNull(),
+  note: text('note'),
+  countdownStart: integer('countdown_start', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  slotIdx: index('erp_contract_payments_slot_idx').on(t.slotId),
+}));
+
 export const erpEmployeeCards = sqliteTable(
   'erp_employee_cards',
   {

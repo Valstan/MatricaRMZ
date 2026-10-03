@@ -33,6 +33,8 @@ import {
   warehouseLocationRowSchema,
   erpCounterpartyRowSchema,
   erpContractRowSchema,
+  erpContractPaymentSlotRowSchema,
+  erpContractPaymentRowSchema,
   directoryEngineBrandRowSchema,
 } from './dto.js';
 import {
@@ -405,6 +407,23 @@ const DIRECTORY_ENGINE_BRAND_FIELDS = withBase(
   { db: 'deprecatedAt', dto: 'deprecated_at' },
 );
 
+const ERP_CONTRACT_PAYMENT_SLOT_FIELDS = withBase(
+  { db: 'contractId', dto: 'contract_id' },
+  { db: 'sectionKey', dto: 'section_key' },
+  { db: 'engineBrandId', dto: 'engine_brand_id' },
+  { db: 'engineId', dto: 'engine_id' },
+  { db: 'contractPriceKop', dto: 'contract_price_kop' },
+);
+
+const ERP_CONTRACT_PAYMENT_FIELDS = withBase(
+  { db: 'slotId', dto: 'slot_id' },
+  { db: 'date', dto: 'date' },
+  { db: 'amountKop', dto: 'amount_kop' },
+  { db: 'kind', dto: 'kind' },
+  { db: 'note', dto: 'note' },
+  { db: 'countdownStart', dto: 'countdown_start' },
+);
+
 // ────────────────────────────────────────────────────────────
 // Registry entries
 // ────────────────────────────────────────────────────────────
@@ -643,6 +662,24 @@ const ENTRIES: readonly SyncTableEntry[] = [
     fields: USER_SECTION_ACCESS_FIELDS,
     conflictTarget: ['id'],
     dependsOn: [SyncTableName.Users],
+  },
+  // Платежи контрактов (contract-payments-strict-2026-10): слоты после контрактов
+  // (FK contract_id), строки платежей после слотов — порядок холодного full-state.
+  {
+    syncName: SyncTableName.ErpContractPaymentSlots,
+    ledgerName: SyncTableName.ErpContractPaymentSlots,
+    schema: erpContractPaymentSlotRowSchema,
+    fields: ERP_CONTRACT_PAYMENT_SLOT_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.ErpContracts],
+  },
+  {
+    syncName: SyncTableName.ErpContractPaymentPayments,
+    ledgerName: SyncTableName.ErpContractPaymentPayments,
+    schema: erpContractPaymentRowSchema,
+    fields: ERP_CONTRACT_PAYMENT_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.ErpContractPaymentSlots],
   },
 ] as const;
 

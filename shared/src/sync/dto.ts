@@ -241,6 +241,25 @@ export const directoryEngineBrandRowSchema = z.object({
   deprecated_at: z.number().int().nullable().optional(),
 });
 
+export const erpContractPaymentSlotRowSchema = z.object({
+  ...baseRowFields,
+  contract_id: z.string().uuid(),
+  section_key: z.string().min(1),
+  engine_brand_id: z.string().uuid().nullable().optional(),
+  engine_id: z.string().uuid().nullable().optional(),
+  contract_price_kop: z.number().int().nullable().optional(),
+});
+
+export const erpContractPaymentRowSchema = z.object({
+  ...baseRowFields,
+  slot_id: z.string().uuid(),
+  date: z.string(),
+  amount_kop: z.number().int(),
+  kind: z.enum(['contract_price', 'advance', 'extra_advance', 'final']),
+  note: z.string().nullable().optional(),
+  countdown_start: z.boolean().nullable().optional(),
+});
+
 export const syncRowSchemaByTable = {
   [SyncTableName.EntityTypes]: entityTypeRowSchema,
   [SyncTableName.Entities]: entityRowSchema,
@@ -270,6 +289,8 @@ export const syncRowSchemaByTable = {
   [SyncTableName.DirectoryEngineBrands]: directoryEngineBrandRowSchema,
   [SyncTableName.Users]: userRowSchema,
   [SyncTableName.UserSectionAccess]: userSectionAccessRowSchema,
+  [SyncTableName.ErpContractPaymentSlots]: erpContractPaymentSlotRowSchema,
+  [SyncTableName.ErpContractPaymentPayments]: erpContractPaymentRowSchema,
 } as const;
 
 export const syncTableUpsertSchema = z.object({
