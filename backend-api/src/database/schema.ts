@@ -839,10 +839,11 @@ export const erpCounterparties = pgTable(
 );
 
 // B2 (migration 0084): canon shape, id = EAV entity id. No unique on
-// number/internal_number yet — live data holds historic duplicates («20/ГОЗ-25»);
-// new duplicates are blocked by gate #612, constraint lands after the cleanup.
-// sections/execution_parts/payments stay JSON until CRUD cutover (offline clients
-// mutate the whole attribute via sync).
+// number/internal_number — live data holds three different contracts sharing
+// «20/ГОЗ-25» (owner decision 2026-10-03: not duplicates, accounting needs it).
+// New duplicates are blocked by gate #612; re-saving an unchanged number is
+// allowed so the three cards stay editable. Sections/payments JSON migrate
+// out on CRUD cutover (plan contract-cutover-2026-10).
 export const erpContracts = pgTable(
   'erp_contracts',
   {
