@@ -729,6 +729,13 @@
       "when": 1790899200004,
       "tag": "0104_contract_payments_strict",
       "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1790899200005,
+      "tag": "0105_engine_cards_strict",
+      "breakpoints": true
     }
   ]
 }

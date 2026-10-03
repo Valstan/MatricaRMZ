@@ -22,7 +22,12 @@ const DEFAULT_SCHEMA = 'public';
  */
 // Пусто с B3/R3: users и user_section_access вошли в контракт, и их записи
 // отсюда сняты тем же PR. Ожидающих таблиц сейчас нет.
-export const SYNC_COLUMNS_PENDING_CONTRACT: Readonly<Record<string, string>> = {};
+export const SYNC_COLUMNS_PENDING_CONTRACT: Readonly<Record<string, string>> = {
+  // B4/E1 (план engine-cards-strict-2026-10): зеркало карточек двигателей.
+  // В контракт войдёт шагом E2/E3 вместе с репликами и дверями; до тех пор
+  // sync-колонки — запланированное состояние, а не дрейф.
+  erp_engine_cards: 'B4/E1 mirror, sync contract entry lands with E2/E3 replicas and doors',
+};
 
 function guardMode() {
   const raw = String(process.env.MATRICA_SYNC_GUARD ?? 'warn').toLowerCase();
