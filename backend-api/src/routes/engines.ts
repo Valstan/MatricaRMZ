@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { requireAuth, requirePermission } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
 import { analyzeEngineDuplicates, mergeEngineGroup } from '../services/engineDedupeService.js';
+import { getEngineCardStrict, patchEngineCardStrict } from '../services/engineStrictService.js';
 import {
   acquireEngineReservation,
   getEngineReservation,
@@ -84,6 +85,23 @@ enginesRouter.post('/dedupe/merge', requireAuth, requirePermission(PermissionCod
     loserIds: parsed.data.loserIds,
     actor: { id: String(user?.id ?? ''), username: String(user?.username ?? 'unknown'), role: String(user?.role ?? 'user') },
   });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+// Серверные двери карточки двигателя в строгую таблицу (план
+// engine-cards-strict-2026-10, шаг E2). Чтение — engines.view, запись —
+// engines.edit. Клиент перейдёт на них на E3; EAV-след двери держит старые
+// клиенты в курсе уже сейчас.
+enginesRouter.get('/cards/:id', requireAuth, requirePermission(PermissionCode.EnginesView), async (req, res) => {
+  const result = await getEngineCardStrict(String(req.params.id ?? ''));
+  if (!result.ok) return res.status(404).json(result);
+  return res.json(result);
+});
+
+enginesRouter.post('/cards/:id/patch', requireAuth, requirePermission(PermissionCode.EnginesEdit), async (req, res) => {
+  const actor = reservationActor(req);
+  const result = await patchEngineCardStrict(String(req.params.id ?? ''), req.body, { id: actor.id, username: actor.username });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });
