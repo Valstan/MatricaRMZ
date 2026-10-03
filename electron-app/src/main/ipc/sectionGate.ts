@@ -148,6 +148,8 @@ const WRITE_CHANNELS = new Set([
   'contractPayments:save',
   'contracts:counterparty:save',
   'contracts:counterparty:create',
+  'contracts:contract:save',
+  'contracts:contract:create',
   // warehouse
   'warehouse:directoryPart:create',
   'warehouse:documents:create',

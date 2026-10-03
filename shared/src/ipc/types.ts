@@ -25,6 +25,25 @@ export type CounterpartyStrictRow = {
   email: string | null;
   updated_at: number;
 };
+
+/** Строка договора строгой реплики/двери — snake_case, как отдаёт сервер. */
+export type ContractStrictRow = {
+  id: string;
+  number: string | null;
+  internal_number: string | null;
+  goz_name: string | null;
+  goz_igk: string | null;
+  goz_separate_account_number: string | null;
+  goz_separate_account_bank: string | null;
+  goz_separate_account: string | null;
+  signed_at: number | null;
+  due_at: number | null;
+  customer_id: string | null;
+  comment: string | null;
+  sections_json: string | null;
+  execution_parts_json: string | null;
+  updated_at: number;
+};
 import type { RepairStageRow, RepairStageTemplate, SaveRepairStageInput, SaveRepairStageResult } from '../domain/repairStages.js';
 import type { WorkSheetDuplicateRef } from '../domain/workSheetDuplicates.js';
 import type { ArrivalPlacement } from '../domain/repeatArrival.js';
@@ -2336,6 +2355,18 @@ export type MatricaApi = {
       >;
       create: (args: { id?: string; fields: Record<string, unknown> }) => Promise<
         { ok: true; row: CounterpartyStrictRow; existing?: boolean } | { ok: false; error: string }
+      >;
+    };
+    contract: {
+      get: (id: string) => Promise<
+        | { ok: true; row: ContractStrictRow | null }
+        | { ok: false; error: string }
+      >;
+      save: (args: { id: string; fields: Record<string, unknown> }) => Promise<
+        { ok: true; row: ContractStrictRow } | { ok: false; error: string }
+      >;
+      create: (args: { id?: string; fields: Record<string, unknown> }) => Promise<
+        { ok: true; row: ContractStrictRow } | { ok: false; error: string }
       >;
     };
   };
