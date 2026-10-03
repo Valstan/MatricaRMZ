@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { httpAuthed } from '../../services/httpClient.js';
-import { erpCounterparties } from '../../database/schema.js';
+import { erpCounterparties, erpContracts } from '../../database/schema.js';
 
 type Err = { ok: false; error: string };
 
@@ -29,6 +29,25 @@ type StrictRow = {
   address: string | null;
   phone: string | null;
   email: string | null;
+  created_at?: number;
+  updated_at?: number;
+};
+
+type ContractStrictRow = {
+  id: string;
+  number: string | null;
+  internal_number: string | null;
+  goz_name: string | null;
+  goz_igk: string | null;
+  goz_separate_account_number: string | null;
+  goz_separate_account_bank: string | null;
+  goz_separate_account: string | null;
+  signed_at: number | null;
+  due_at: number | null;
+  customer_id: string | null;
+  comment: string | null;
+  sections_json: string | null;
+  execution_parts_json: string | null;
   created_at?: number;
   updated_at?: number;
 };
@@ -85,14 +104,161 @@ async function upsertLocal(
     });
 }
 
+async function upsertLocalContract(ctx: IpcContext, row: ContractStrictRow): Promise<void> {
+  const now = Date.now();
+  const values = {
+    id: String(row.id),
+    number: row.number ?? null,
+    internalNumber: row.internal_number ?? null,
+    gozName: row.goz_name ?? null,
+    gozIgk: row.goz_igk ?? null,
+    gozSeparateAccountNumber: row.goz_separate_account_number ?? null,
+    gozSeparateAccountBank: row.goz_separate_account_bank ?? null,
+    gozSeparateAccount: row.goz_separate_account ?? null,
+    signedAt: row.signed_at ?? null,
+    dueAt: row.due_at ?? null,
+    customerId: row.customer_id ?? null,
+    comment: row.comment ?? null,
+    sectionsJson: row.sections_json ?? null,
+    executionPartsJson: row.execution_parts_json ?? null,
+    paymentsJson: null,
+    createdAt: Number(row.created_at ?? now),
+    updatedAt: Number(row.updated_at ?? now),
+    lastServerSeq: null,
+    deletedAt: null,
+    syncStatus: 'synced',
+  };
+  await ctx
+    .dataDb()
+    .insert(erpContracts)
+    .values(values)
+    .onConflictDoUpdate({
+      target: erpContracts.id,
+      // paymentsJson намеренно не трогаем: его привозит pull зеркала, а дверь
+      // платежей не касается — запись null стёрла бы его до следующего pull.
+      set: {
+        number: values.number,
+        internalNumber: values.internalNumber,
+        gozName: values.gozName,
+        gozIgk: values.gozIgk,
+        gozSeparateAccountNumber: values.gozSeparateAccountNumber,
+        gozSeparateAccountBank: values.gozSeparateAccountBank,
+        gozSeparateAccount: values.gozSeparateAccount,
+        signedAt: values.signedAt,
+        dueAt: values.dueAt,
+        customerId: values.customerId,
+        comment: values.comment,
+        sectionsJson: values.sectionsJson,
+        executionPartsJson: values.executionPartsJson,
+        updatedAt: values.updatedAt,
+        lastServerSeq: values.lastServerSeq,
+        deletedAt: values.deletedAt,
+        syncStatus: values.syncStatus,
+      },
+    });
+}
+
 /**
- * Контрагенты — строгая реплика + REST-двери (план contract-cutover-2026-10, C2).
+ * Договоры и контрагенты — строгая реплика + REST-двери (план contract-cutover-2026-10).
  * Чтение — локальная реплика (офлайн работает), запись — серверная дверь
  * (офис по сети; офлайн-правка отклоняется честной ошибкой, как у доступов R2).
  * Гейты — те же, что у прежнего пути через карточку (`masterdata.view/edit`);
  * сервер требует `contracts.edit`. Секция «Договоры» — префиксом `contracts:`.
  */
 export function registerContractsIpc(ctx: IpcContext) {
+  ipcMain.handle('contracts:contract:get', async (_e, id: string) => {
+    const gate = await requirePermOrResult(ctx, 'masterdata.view');
+    if (!gate.ok) return gate as Err;
+    try {
+      const rows = await ctx
+        .dataDb()
+        .select()
+        .from(erpContracts)
+        .where(eq(erpContracts.id, String(id ?? '')))
+        .limit(1);
+      const row = rows[0] as Record<string, unknown> | undefined;
+      if (!row || row.deletedAt != null) return { ok: true as const, row: null };
+      return {
+        ok: true as const,
+        row: {
+          id: String(row.id),
+          number: (row.number as string | null) ?? null,
+          internal_number: (row.internalNumber as string | null) ?? null,
+          goz_name: (row.gozName as string | null) ?? null,
+          goz_igk: (row.gozIgk as string | null) ?? null,
+          goz_separate_account_number: (row.gozSeparateAccountNumber as string | null) ?? null,
+          goz_separate_account_bank: (row.gozSeparateAccountBank as string | null) ?? null,
+          goz_separate_account: (row.gozSeparateAccount as string | null) ?? null,
+          signed_at: (row.signedAt as number | null) ?? null,
+          due_at: (row.dueAt as number | null) ?? null,
+          customer_id: (row.customerId as string | null) ?? null,
+          comment: (row.comment as string | null) ?? null,
+          sections_json: (row.sectionsJson as string | null) ?? null,
+          execution_parts_json: (row.executionPartsJson as string | null) ?? null,
+          updated_at: Number(row.updatedAt ?? 0),
+        },
+      };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('contracts:contract:save', async (_e, args: { id: string; fields: Record<string, unknown> }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'masterdata.edit');
+    if (!gate.ok) return gate as Err;
+    try {
+      const id = String(args?.id ?? '').trim();
+      if (!id) return { ok: false as const, error: 'пустой id договора' };
+      const fields = (args?.fields ?? {}) as Record<string, unknown>;
+      const existing = await toResult<{ ok: boolean; row?: unknown }>(
+        await httpAuthed(ctx.sysDb, base(ctx), `/contracts/${encodeURIComponent(id)}`, { method: 'GET' }),
+      );
+      let saved: { ok: boolean; row?: ContractStrictRow; error?: string };
+      if ((existing as { ok?: boolean }).ok) {
+        saved = (await toResult(
+          await httpAuthed(ctx.sysDb, base(ctx), `/contracts/${encodeURIComponent(id)}/patch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(fields),
+          }),
+        )) as typeof saved;
+      } else {
+        saved = (await toResult(
+          await httpAuthed(ctx.sysDb, base(ctx), '/contracts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, ...fields }),
+          }),
+        )) as typeof saved;
+      }
+      if (saved.ok && saved.row) await upsertLocalContract(ctx, saved.row);
+      return saved;
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('contracts:contract:create', async (_e, args: { id?: string; fields: Record<string, unknown> }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'masterdata.edit');
+    if (!gate.ok) return gate as Err;
+    try {
+      const body = { ...(args?.fields ?? {}), ...(args?.id ? { id: String(args.id) } : {}) };
+      const saved = (await toResult(
+        await httpAuthed(ctx.sysDb, base(ctx), '/contracts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }),
+      )) as { ok: boolean; row?: ContractStrictRow; error?: string };
+      if (saved.ok && saved.row) await upsertLocalContract(ctx, saved.row);
+      return saved;
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
   ipcMain.handle('contracts:counterparty:get', async (_e, id: string) => {
     const gate = await requirePermOrResult(ctx, 'masterdata.view');
     if (!gate.ok) return gate as Err;

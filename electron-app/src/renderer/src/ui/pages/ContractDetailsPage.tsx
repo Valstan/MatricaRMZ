@@ -53,7 +53,6 @@ import {
   findSlotForEngine,
   formatKopMoney,
   isEngineDoneForCountdown,
-  parseContractPayments,
   parseMoneyToKop,
   planSlotForEngine,
   removePayment,
@@ -77,6 +76,7 @@ import {
   type EngineListItem,
   type QuickCreateRequest,
   type QuickCreateResult,
+  type ContractStrictRow,
 } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDateTime, formatRuMoney, formatRuNumber } from '../utils/dateUtils.js';
@@ -1509,11 +1509,97 @@ export function ContractDetailsPage(props: {
   const contractTypeId = useMemo(() => entityTypes.find((t) => String(t.code) === 'contract')?.id ?? '', [entityTypes]);
   // Deferred-create: pass the contract type as fallbackTypeId so the first write to a
   // not-yet-saved card materializes the row. For an existing contract it is ignored.
+  // Ядро — серверной дверью (create-or-patch по id, deferred покрыт); остальное —
+  // прежним EAV-путём (вложения, произвольные дефы).
   const setContractAttr = React.useCallback(
-    async (code: string, value: unknown) =>
-      window.matrica.admin.entities.setAttr(props.contractId, code, value, contractTypeId || undefined),
+    async (code: string, value: unknown) => {
+      const mapped = doorFieldFor(code, value);
+      if (mapped) {
+        const r = await saveContractFields({ [mapped[0]]: mapped[1] });
+        if (!r.ok) return { ok: false as const, error: r.error };
+        return { ok: true as const };
+      }
+      return window.matrica.admin.entities.setAttr(props.contractId, code, value, contractTypeId || undefined);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- saveContractFields/doorFieldFor are recreated every render; depending on them would recreate the callback (and its consumers) each render
     [props.contractId, contractTypeId],
   );
+
+  /** Строгая строка → EAV-коды атрибутов: downstream карточки не трогаем. */
+  function strictToAttrs(row: ContractStrictRow): Record<string, unknown> {
+    const out: Record<string, unknown> = {
+      number: row.number ?? null,
+      internal_number: row.internal_number ?? null,
+      date: row.signed_at ?? null,
+      due_date: row.due_at ?? null,
+      goz_name: row.goz_name ?? null,
+      goz_igk: row.goz_igk ?? null,
+      goz_separate_account: row.goz_separate_account ?? null,
+      goz_separate_account_number: row.goz_separate_account_number ?? null,
+      goz_separate_account_bank: row.goz_separate_account_bank ?? null,
+      comment: row.comment ?? null,
+      customer_id: row.customer_id ?? null,
+    };
+    for (const [code, raw] of [
+      ['contract_sections', row.sections_json],
+      [CONTRACT_EXECUTION_PARTS_ATTR_CODE, row.execution_parts_json],
+    ] as const) {
+      if (raw == null) continue;
+      try {
+        out[code] = JSON.parse(String(raw));
+      } catch {
+        // битый JSON зеркала — карточка покажет пусто, а не упадёт
+      }
+    }
+    return out;
+  }
+
+  /** Код атрибута → поле двери. null = не ядро, пишется прежним EAV-путём. */
+  function doorFieldFor(code: string, value: unknown): [string, unknown] | null {
+    switch (code) {
+      case 'number':
+      case 'internal_number':
+      case 'goz_name':
+      case 'goz_igk':
+      case 'goz_separate_account':
+      case 'goz_separate_account_number':
+      case 'goz_separate_account_bank':
+      case 'comment':
+      case 'customer_id':
+        return [code, value];
+      case 'date':
+        return ['signed_at', value];
+      case 'due_date':
+        return ['due_at', value];
+      case 'contract_sections':
+        return ['sections_json', JSON.stringify(value ?? null)];
+      default:
+        if (code === CONTRACT_EXECUTION_PARTS_ATTR_CODE) return ['execution_parts_json', JSON.stringify(value ?? null)];
+        return null;
+    }
+  }
+
+  async function saveContractFields(fields: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
+    const r = (await window.matrica.contracts.contract.save({ id: props.contractId, fields })) as {
+      ok: boolean;
+      row?: ContractStrictRow;
+      error?: string;
+    } | null;
+    if (!r?.ok) return { ok: false, error: String((r as { error?: string } | null)?.error ?? 'unknown') };
+    if (r.row) applyStrictContractRow(r.row);
+    return { ok: true };
+  }
+
+  /** Применить ответ двери к стейту без перезагрузки (реплика уже write-through). */
+  function applyStrictContractRow(row: ContractStrictRow) {
+    setContract((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, attributes: { ...prev.attributes, ...strictToAttrs(row) }, updatedAt: Date.now() };
+      setSections(parseContractSections(next.attributes));
+      setExecutionParts(parseContractExecutionParts(next.attributes));
+      return next;
+    });
+  }
 
   async function loadContract() {
     try {
@@ -1530,10 +1616,23 @@ export function ContractDetailsPage(props: {
       // fallbackTypeId: a not-yet-saved (deferred-create) contract has no row — synthesize an
       // empty card so it opens instead of throwing.
       const d = (await window.matrica.admin.entities.get(props.contractId, contractType.id)) as ContractEntity;
-      setContract(d);
-      setSections(parseContractSections(d.attributes ?? {}));
-      setExecutionParts(parseContractExecutionParts(d.attributes ?? {}));
-      setContractPayments(parseContractPayments(d.attributes?.[CONTRACT_PAYMENTS_ATTR_CODE]));
+      // Ядро — из строгой реплики; если её нет (холодный pull / запись старого
+      // клиента ещё не дозеркалена) — из EAV. Вложения и произвольные дефы из EAV.
+      let attrs = d.attributes ?? {};
+      try {
+        const s = (await window.matrica.contracts.contract.get(props.contractId)) as {
+          ok: boolean;
+          row?: ContractStrictRow | null;
+        } | null;
+        if (s?.ok && s.row) attrs = { ...attrs, ...strictToAttrs(s.row) };
+      } catch {
+        // мост недоступен — остаёмся на EAV
+      }
+      const merged = { ...d, attributes: attrs };
+      setContract(merged);
+      setSections(parseContractSections(attrs));
+      setExecutionParts(parseContractExecutionParts(attrs));
+      setContractPayments(await readContractPayments(props.contractId));
       let defsList = (await window.matrica.admin.attributeDefs.listByEntityType(contractType.id)) as AttributeDef[];
       defsList = (await ensureAttributeDefs(contractType.id, CONTRACT_ACCOUNTING_FIELDS, defsList as AttributeDefRow[])) as AttributeDef[];
       setDefs(defsList);
@@ -1734,13 +1833,16 @@ export function ContractDetailsPage(props: {
         dirtyRef.current = false;
       },
       copyToNew: async () => {
-        const contractTypeId = entityTypes.find((t) => t.code === 'contract')?.id;
-        if (!contractTypeId) return;
-        const created = await window.matrica.admin.entities.create(contractTypeId);
-        if (created?.ok && 'id' in created && sections) {
-          await window.matrica.admin.entities.setAttr(created.id, 'contract_sections', { ...sections, primary: { ...sections.primary, number: (sections.primary.number ?? '') + ' (копия)' } });
-          await window.matrica.admin.entities.setAttr(created.id, CONTRACT_EXECUTION_PARTS_ATTR_CODE, normalizeContractExecutionParts(executionParts));
-        }
+        if (!sections) return;
+        const copied = { ...sections, primary: { ...sections.primary, number: `${sections.primary.number ?? ''} (копия)` } };
+        const r = (await window.matrica.contracts.contract.create({
+          fields: {
+            sections_json: JSON.stringify(copied),
+            execution_parts_json: JSON.stringify(normalizeContractExecutionParts(executionParts)),
+            number: `${sections.primary.number ?? ''} (копия)`,
+          },
+        })) as { ok: boolean; error?: string } | null;
+        if (!r?.ok) setStatus(`Ошибка: ${(r as { error?: string } | null)?.error ?? 'unknown'}`);
       },
     });
     return () => { props.registerCardCloseActions?.(null); };
@@ -1759,6 +1861,18 @@ export function ContractDetailsPage(props: {
       invalidateListAllPartSpecsCache();
       await loadParts();
       return created.part.id;
+    }
+    if (typeCode === 'customer') {
+      const created = (await window.matrica.contracts.counterparty.create({ fields: { name: label } })) as {
+        ok: boolean;
+        row?: { id: string };
+        error?: string;
+      } | null;
+      if (!created?.ok || !created?.row?.id) {
+        throw new Error(String((created as { error?: string } | null)?.error ?? 'Не удалось создать контрагента'));
+      }
+      await loadCustomers();
+      return String(created.row.id);
     }
     const typeId = entityTypes.find((t) => String(t.code) === typeCode)?.id ?? null;
     if (!typeId) throw new Error(`Не найден справочник ${typeCode}`);
@@ -1826,16 +1940,25 @@ export function ContractDetailsPage(props: {
         ...sections,
         addons: sections.addons.map((addon) => ({ ...addon, number: sections.primary.number })),
       };
-      await setContractAttr('contract_sections', normalizedSections);
-      await setContractAttr(CONTRACT_EXECUTION_PARTS_ATTR_CODE, normalizeContractExecutionParts(executionParts));
       const legacy = contractSectionsToLegacy(normalizedSections);
-      await setContractAttr('number', legacy.number);
-      await setContractAttr('internal_number', legacy.internal_number);
-      await setContractAttr('date', legacy.date);
-      await setContractAttr('due_date', legacy.due_date);
+      // Один патч в дверь вместо семи setAttr: секции, детали исполнения и
+      // legacy-зеркала уезжают атомарно (раньше обрыв между записями оставлял
+      // карточку в полусостоянии). EAV-след пишет сама дверь.
+      const r = await saveContractFields({
+        sections_json: JSON.stringify(normalizedSections),
+        execution_parts_json: JSON.stringify(normalizeContractExecutionParts(executionParts)),
+        number: legacy.number,
+        internal_number: legacy.internal_number,
+        signed_at: legacy.date,
+        due_at: legacy.due_date,
+        customer_id: normalizedSections.primary.customerId ?? null,
+      });
+      if (!r.ok) {
+        setStatus(`Ошибка: ${r.error}`);
+        return;
+      }
       setStatus('Сохранено');
       setTimeout(() => setStatus(''), 1200);
-      void loadContract();
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
@@ -2060,21 +2183,24 @@ export function ContractDetailsPage(props: {
     const syncKey = `${contract.id}:${contract.updatedAt}:${attached.map((a) => `${a.engineId}@${a.sectionKey}`).sort().join(',')}`;
     if (paymentsSyncKeyRef.current === syncKey) return;
     paymentsSyncKeyRef.current = syncKey;
-    const current = parseContractPayments(contract.attributes?.[CONTRACT_PAYMENTS_ATTR_CODE]);
-    const next = syncSlotsWithPlan(current, planned, attached, () => crypto.randomUUID());
-    setContractPayments(next);
-    // Сверка идемпотентна, поэтому её можно (и нужно) прогонять по свежепрочитанному
-    // состоянию: mutateContractPayments сам увидит «ничего не изменилось» и не запишет.
-    if (props.canEdit && JSON.stringify(next) !== JSON.stringify(current)) {
-      void mutateContractPayments(
-        props.contractId,
-        (fresh) => syncSlotsWithPlan(fresh, planned, attached, () => crypto.randomUUID()),
-        contractTypeId || undefined,
-      ).then((r) => {
-        if (!r.ok) setStatus(`Ошибка сохранения платежей: ${r.error}`);
-        else setContractPayments(r.next);
-      });
-    }
+    // База сверки — свежепрочитанное strict-состояние, а не EAV-атрибут: EAV-копия
+    // платежей отстаёт от strict-правок (зеркала strict→EAV нет).
+    void readContractPayments(props.contractId).then((current) => {
+      const next = syncSlotsWithPlan(current, planned, attached, () => crypto.randomUUID());
+      setContractPayments(next);
+      // Сверка идемпотентна, поэтому её можно (и нужно) прогонять по свежепрочитанному
+      // состоянию: mutateContractPayments сам увидит «ничего не изменилось» и не запишет.
+      if (props.canEdit && JSON.stringify(next) !== JSON.stringify(current)) {
+        void mutateContractPayments(
+          props.contractId,
+          (fresh) => syncSlotsWithPlan(fresh, planned, attached, () => crypto.randomUUID()),
+          contractTypeId || undefined,
+        ).then((r) => {
+          if (!r.ok) setStatus(`Ошибка сохранения платежей: ${r.error}`);
+          else setContractPayments(r.next);
+        });
+      }
+    });
     // syncKey-гард выше делает лишние прогоны no-op — деп на пересоздаваемый contractTypeId безопасен.
   }, [contract, relatedEngines, props.canEdit, props.contractId, contractTypeId]);
 
@@ -2232,13 +2358,20 @@ export function ContractDetailsPage(props: {
       const nextRaw = buildSeparateAccountRaw(accountingForm);
       const nextAccount = parseSeparateAccount(nextRaw);
 
-      await setContractAttr('goz_name', toTextValue(accountingForm.gozName).trim());
-      await setContractAttr('goz_igk', toTextValue(accountingForm.igk).trim());
+      const r = await saveContractFields({
+        goz_name: toTextValue(accountingForm.gozName).trim(),
+        goz_igk: toTextValue(accountingForm.igk).trim(),
+        goz_separate_account: nextRaw,
+        goz_separate_account_number: nextAccount.number,
+        goz_separate_account_bank: nextAccount.bank,
+        comment: toTextValue(accountingForm.comment).trim(),
+      });
+      if (!r.ok) {
+        setStatus(`Ошибка: ${r.error}`);
+        return;
+      }
+      // has_files в strict-зеркале нет — остаётся в EAV.
       await setContractAttr('has_files', Boolean(accountingForm.hasFiles));
-      await setContractAttr('goz_separate_account', nextRaw);
-      await setContractAttr('goz_separate_account_number', nextAccount.number);
-      await setContractAttr('goz_separate_account_bank', nextAccount.bank);
-      await setContractAttr('comment', toTextValue(accountingForm.comment).trim());
 
       if (!silent) {
         setStatus('Реквизиты ГОЗ сохранены');
@@ -2470,13 +2603,16 @@ export function ContractDetailsPage(props: {
           cardLabel="Контракт"
           onCopyToNew={() => {
             void (async () => {
-              const contractTypeId = entityTypes.find((t) => t.code === 'contract')?.id;
-              if (!contractTypeId) return;
-              const created = await window.matrica.admin.entities.create(contractTypeId);
-              if (created?.ok && 'id' in created && sections) {
-                await window.matrica.admin.entities.setAttr(created.id, 'contract_sections', { ...sections, primary: { ...sections.primary, number: (sections.primary.number ?? '') + ' (копия)' } });
-                await window.matrica.admin.entities.setAttr(created.id, CONTRACT_EXECUTION_PARTS_ATTR_CODE, normalizeContractExecutionParts(executionParts));
-              }
+              if (!sections) return;
+              const copied = { ...sections, primary: { ...sections.primary, number: `${sections.primary.number ?? ''} (копия)` } };
+              const r = (await window.matrica.contracts.contract.create({
+                fields: {
+                  sections_json: JSON.stringify(copied),
+                  execution_parts_json: JSON.stringify(normalizeContractExecutionParts(executionParts)),
+                  number: `${sections.primary.number ?? ''} (копия)`,
+                },
+              })) as { ok: boolean; error?: string } | null;
+              if (!r?.ok) setStatus(`Ошибка: ${(r as { error?: string } | null)?.error ?? 'unknown'}`);
             })();
           }}
           onSave={() => { void saveAllAndClose().catch(() => undefined); }}
