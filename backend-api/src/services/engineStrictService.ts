@@ -202,8 +202,104 @@ function toEngineCardRow(r: typeof erpEngineCards.$inferSelect): Record<string, 
  * Только присланные поля, те же коды и те же значения, что strict. Отказ
  * следа — только warn: канон уже записан, EAV догонит. Аудит статусов
  * срабатывает внутри setEntityAttribute сам.
+ *
+ * Порядок — флаги осознанного дубля первыми: гейт номера в следе читает их из
+ * EAV, и флаг обязан лечь раньше номера (та же дисциплина «флаги первыми»,
+ * что у карточки). Тот же порядок использует след push-apply (E3a).
  */
-async function writeEavTrail(
+export const ENGINE_CARD_TRAIL_ORDER: readonly string[] = [
+  'repeat_arrival_flag',
+  'number_collision_flag',
+  'engine_number',
+  'engine_internal_number',
+  'engine_internal_number_year',
+  'engine_brand_id',
+  'engine_brand',
+  'arrival_date',
+  'customer_id',
+  'contract_id',
+  'contract_section_number',
+  'workshop_id',
+  'status_rework_sent',
+  'status_rework_sent_date',
+  'status_scrap_confirmed',
+  'status_scrap_confirmed_date',
+  'status_repair_started',
+  'status_repair_started_date',
+  'status_repaired',
+  'status_repaired_date',
+  'status_customer_sent',
+  'status_customer_sent_date',
+  'status_customer_accepted',
+  'status_customer_accepted_date',
+  'status_storage_received',
+  'status_storage_received_date',
+  'status_rejected',
+  'status_rejected_date',
+  'scrap_reason',
+  'reclamation_accepted_date',
+  'reclamation_customer_reason',
+  'reclamation_actual_defect',
+  'reclamation_defect_nature',
+  'reclamation_act_number',
+  'reclamation_verdict_date',
+  'reclamation_shipped_date',
+  'reclamation_comment',
+  'reclamation_verdict',
+  'reclamation_repair_status',
+  'reclamation_flag',
+  'previous_arrival_id',
+  'merged_into',
+  'arrival_invoice',
+  'shipment_invoice',
+  'engine_note',
+  'docs_state',
+  'docs_aspvr_contractor_date',
+  'docs_vp_sent_date',
+  'docs_vp_returned_date',
+  'docs_aspvr_customer_scan_date',
+  'docs_aspvr_customer_original_date',
+  'docs_track_or_act',
+  'docs_aspvr_signed_customer_date',
+  'docs_aspvr_customer_received',
+  'docs_return_scan_date',
+  'docs_return_original_date',
+  'docs_note',
+];
+
+const ENGINE_CARD_TEXT_CODES: ReadonlySet<string> = new Set([
+  'engine_number',
+  'engine_internal_number',
+  'engine_brand',
+  'contract_section_number',
+  'scrap_reason',
+  'reclamation_customer_reason',
+  'reclamation_actual_defect',
+  'reclamation_defect_nature',
+  'reclamation_act_number',
+  'reclamation_comment',
+  'reclamation_verdict',
+  'reclamation_repair_status',
+  'arrival_invoice',
+  'shipment_invoice',
+  'engine_note',
+  'docs_state',
+  'docs_track_or_act',
+  'docs_note',
+]);
+
+/**
+ * Зеркально-совместимая нормализация значения следа: пустая строка текста —
+ * NULL (`eav_attr_text` делает `nullif(v,'')`), остальное как есть. Флаги идут
+ * boolean/null без преобразования (снятие атрибута зеркало читает как false).
+ */
+export function normalizeEngineCardTrailValue(code: string, value: unknown): unknown {
+  if (value === undefined) return undefined;
+  if (ENGINE_CARD_TEXT_CODES.has(code) && value === '') return null;
+  return value;
+}
+
+export async function writeEngineCardEavTrail(
   actor: DoorActor,
   entityId: string,
   entries: Array<[code: string, value: unknown]>,
@@ -224,84 +320,47 @@ async function writeEavTrail(
   }
 }
 
+/**
+ * Diff следа для push-apply (E3a): строка push полная, а след пишет только
+ * изменившиеся коды — иначе каждая карточка стоила бы 57 подписей в журнал.
+ * Обе стороны нормализованы одинаково (`''→null` у текстов), поэтому
+ * повторно присланное равное значение след не дёргает. Новая строка (current
+ * null) — след по всем присланным кодам.
+ */
+export function diffEngineCardPushTrail(
+  currentSnake: Record<string, unknown> | null,
+  incomingSnake: Record<string, unknown>,
+): Array<[code: string, value: unknown]> {
+  const trail: Array<[string, unknown]> = [];
+  for (const code of ENGINE_CARD_TRAIL_ORDER) {
+    const nv = normalizeEngineCardTrailValue(code, incomingSnake[code]);
+    if (nv === undefined) continue;
+    if (currentSnake) {
+      const cv = normalizeEngineCardTrailValue(code, currentSnake[code]);
+      if (stableTrailValue(cv) === stableTrailValue(nv)) continue;
+    }
+    trail.push([code, nv]);
+  }
+  return trail;
+}
+
+function stableTrailValue(v: unknown): string {
+  if (v === null || v === undefined) return 'null';
+  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  return String(v);
+}
+
 /** След полевого патча: те же коды, что карточка писала всегда. Флаги осознанного
  * дубля — первыми: гейт номера в следе читает их из EAV, и флаг обязан лечь
  * раньше номера (та же дисциплина «флаги первыми», что у карточки). */
 function trailOf(patch: EngineCardPatch): Array<[string, unknown]> {
   const trail: Array<[string, unknown]> = [];
-  const text = (code: keyof EngineCardPatch & string) => {
-    const v = patch[code];
-    if (v !== undefined) trail.push([code, textOrNullDb(v as string | null) ?? null]);
-  };
-  const ms = (code: keyof EngineCardPatch & string) => {
-    const v = patch[code];
-    if (v !== undefined) trail.push([code, (v as number | null) ?? null]);
-  };
-  const fl = (code: keyof EngineCardPatch & string) => {
-    const v = patch[code];
-    if (v !== undefined) trail.push([code, v as boolean]);
-  };
-  const ref = (code: keyof EngineCardPatch & string) => {
-    const v = patch[code];
-    if (v !== undefined) trail.push([code, (v as string | null) ?? null]);
-  };
-  fl('repeat_arrival_flag');
-  fl('number_collision_flag');
-  text('engine_number');
-  text('engine_internal_number');
-  ms('engine_internal_number_year');
-  ref('engine_brand_id');
-  text('engine_brand');
-  ms('arrival_date');
-  ref('customer_id');
-  ref('contract_id');
-  text('contract_section_number');
-  ref('workshop_id');
-  fl('status_rework_sent');
-  ms('status_rework_sent_date');
-  fl('status_scrap_confirmed');
-  ms('status_scrap_confirmed_date');
-  fl('status_repair_started');
-  ms('status_repair_started_date');
-  fl('status_repaired');
-  ms('status_repaired_date');
-  fl('status_customer_sent');
-  ms('status_customer_sent_date');
-  fl('status_customer_accepted');
-  ms('status_customer_accepted_date');
-  fl('status_storage_received');
-  ms('status_storage_received_date');
-  fl('status_rejected');
-  ms('status_rejected_date');
-  text('scrap_reason');
-  ms('reclamation_accepted_date');
-  text('reclamation_customer_reason');
-  text('reclamation_actual_defect');
-  text('reclamation_defect_nature');
-  text('reclamation_act_number');
-  ms('reclamation_verdict_date');
-  ms('reclamation_shipped_date');
-  text('reclamation_comment');
-  text('reclamation_verdict');
-  text('reclamation_repair_status');
-  fl('reclamation_flag');
-  ref('previous_arrival_id');
-  ref('merged_into');
-  text('arrival_invoice');
-  text('shipment_invoice');
-  text('engine_note');
-  text('docs_state');
-  ms('docs_aspvr_contractor_date');
-  ms('docs_vp_sent_date');
-  ms('docs_vp_returned_date');
-  ms('docs_aspvr_customer_scan_date');
-  ms('docs_aspvr_customer_original_date');
-  text('docs_track_or_act');
-  ms('docs_aspvr_signed_customer_date');
-  fl('docs_aspvr_customer_received');
-  ms('docs_return_scan_date');
-  ms('docs_return_original_date');
-  text('docs_note');
+  for (const code of ENGINE_CARD_TRAIL_ORDER) {
+    const v = (patch as Record<string, unknown>)[code];
+    if (v === undefined) continue;
+    const norm = normalizeEngineCardTrailValue(code, v);
+    if (norm !== undefined) trail.push([code, norm]);
+  }
   return trail;
 }
 
@@ -445,7 +504,7 @@ export async function patchEngineCardStrict(
     .returning();
   const row = updated[0];
   if (!row) return { ok: false, error: 'не удалось сохранить карточку' };
-  await writeEavTrail(actor, engineId, trailOf(patch));
+  await writeEngineCardEavTrail(actor, engineId, trailOf(patch));
   // Ответ — перечитанная строка, а не returning update: след идёт через те же
   // гейты и триггер зеркала пересобирает строку из EAV следом. Если след
   // согласился не со всем (гейт EAV-пути отбил часть), зеркало уже привело

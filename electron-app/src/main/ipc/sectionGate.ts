@@ -27,6 +27,7 @@ import { entities, entityTypes } from '../database/schema.js';
 // Longest-prefix wins (порядок не важен — выбираем самое длинное совпадение).
 const PREFIX_RULES: ReadonlyArray<readonly [string, AccessSection]> = [
   ['engine:', 'production'],
+  ['engines:', 'production'],
   ['ops:', 'production'],
   ['workSheets:', 'production'],
   ['parts:', 'production'],

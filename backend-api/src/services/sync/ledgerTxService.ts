@@ -7,6 +7,7 @@ import { SyncTableName } from '@matricarmz/shared';
 import type { LedgerTableName } from '@matricarmz/ledger';
 
 import { recordLedgerAuthzDenial, recordLedgerReferenceDenial } from '../authzDenialLog.js';
+import { partitionEngineCardGates } from './engineCardPushGuard.js';
 import { partitionLedgerInputsByAuthz } from './ledgerAuthzGuard.js';
 import { partitionByReferenceIntegrity } from './entityReferenceGuard.js';
 import { enforceWorkOrderNumberImmutability, reportWorkOrderNumberHeals } from './workOrderNumberGuard.js';
@@ -59,12 +60,16 @@ export async function applyLedgerTxs(txs: LedgerTxInput[], actor: SyncActor) {
   // иначе ledger и PG разъедутся, и replay вернул бы неправильный номер.
   const numberHeals = await enforceWorkOrderNumberImmutability(allowed, writeActor);
   reportWorkOrderNumberHeals(writeActor, numberHeals);
+  // Гейты уникальности карточек двигателей — тоже до подписи: отбитую строку в PG
+  // не будет, а подписанная разъехалась бы с базой (то же правило, что у номеров
+  // нарядов выше). Отказ — per-row skip, очередь клиента не отравляется.
+  const engineGate = await partitionEngineCardGates(allowed);
   // Ссылочная целостность — тоже per-row (не throw): одна невалидная ссылка не
   // должна блокировать push всей машины (инцидент Я01АТ7829, см. entityReferenceGuard).
-  let writable = allowed;
+  let writable = engineGate.allowed;
   let referenceDenied: typeof denied = [];
   if (actor.username !== 'ledger-replay') {
-    const partition = await partitionByReferenceIntegrity(allowed);
+    const partition = await partitionByReferenceIntegrity(engineGate.allowed);
     writable = partition.allowed;
     referenceDenied = partition.denied;
     if (referenceDenied.length > 0) recordLedgerReferenceDenial(writeActor, referenceDenied);
@@ -83,6 +88,6 @@ export async function applyLedgerTxs(txs: LedgerTxInput[], actor: SyncActor) {
       op: r.op,
     })),
     idRemaps: result.idRemaps,
-    skipped: [...result.skipped, ...denied, ...referenceDenied],
+    skipped: [...result.skipped, ...denied, ...engineGate.skipped, ...referenceDenied],
   };
 }

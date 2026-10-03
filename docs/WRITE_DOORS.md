@@ -50,6 +50,7 @@
 | `user_section_access` | server | backstop server-managed | ничего |
 | `erp_contract_payment_slots` | permission | `contracts.edit` | по праву (бухгалтерия и планшет в цеху, офлайн) |
 | `erp_contract_payments` | permission | `contracts.edit` | по праву |
+| `erp_engine_cards` | permission | `engines.edit` | по праву (цех с планшета, офлайн); гейты дублей — pre-sign партицией, не правом |
 
 ## Что в ledger-двери ещё открыто
 

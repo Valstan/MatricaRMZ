@@ -18,6 +18,7 @@ import {
   erpCounterpartyRowSchema,
   erpContractPaymentSlotRowSchema,
   erpContractPaymentRowSchema,
+  erpEngineCardRowSchema,
   directoryEngineBrandRowSchema,
   erpEngineInventoryLineRowSchema,
   operationRowSchema,
@@ -25,6 +26,7 @@ import {
   warehouseLocationRowSchema,
   userSectionAccessRowSchema,
   SyncTableRegistry,
+  toSyncRow,
   type SyncPushRequest,
 } from '@matricarmz/shared';
 import { and, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
@@ -32,6 +34,7 @@ import { randomUUID } from 'node:crypto';
 
 import { db } from '../../database/db.js';
 import { applyAiChatPushPolicy } from './aiChatPushPolicy.js';
+import { diffEngineCardPushTrail, writeEngineCardEavTrail } from '../engineStrictService.js';
 import { logInfo, logWarn } from '../../utils/logger.js';
 import { listEmployeesAuth } from '../employeeAuthService.js';
 import { formatTelegramMessage, sendTelegramMessage } from '../telegramBotService.js';
@@ -49,6 +52,7 @@ import {
   erpCounterparties,
   erpContractPaymentSlots,
   erpContractPayments,
+  erpEngineCards,
   directoryEngineBrands,
   erpEngineInventoryLines,
   notes,
@@ -150,7 +154,13 @@ export async function applyPushBatch(
   req: SyncPushRequest,
   actorRaw: SyncActor,
   applyOpts: ApplyPushOptions = {},
-): Promise<{ applied: number; changes?: AppliedSyncChange[]; idRemaps: SyncIdRemaps; skipped: SyncSkippedRow[] }> {
+): Promise<{
+  applied: number;
+  changes?: AppliedSyncChange[];
+  idRemaps: SyncIdRemaps;
+  skipped: SyncSkippedRow[];
+  engineTrails: Array<{ id: string; entries: Array<[code: string, value: unknown]> }>;
+}> {
   const appliedAt = nowMs();
   const actor = safeActor(actorRaw);
   const actorId = isUuid(actor.id) ? actor.id : '';
@@ -259,6 +269,11 @@ export async function applyPushBatch(
       });
 
     let applied = 0;
+
+    // Заявки EAV-следа карточек двигателей (E3a): копятся в ветке erp_engine_cards,
+    // исполняются ПОСЛЕ коммита транзакции (writeSyncChanges) — след идёт отдельным
+    // коннектом через триггер зеркала и внутри транзакции встал бы в deadlock с ней.
+    const engineTrails: Array<{ id: string; entries: Array<[code: string, value: unknown]> }> = [];
 
     // Presence heartbeat: treat every push as "user is active now".
     // We do it server-side (do not trust client-provided presence payloads).
@@ -1511,6 +1526,183 @@ export async function applyPushBatch(
       }
     }
 
+    // Карточки двигателей (план engine-cards-strict-2026-10, E3a). Клиент пишет
+    // push-ом (цех с планшета, офлайн). Гейты уникальности — pre-sign партицией
+    // выше (сюда доезжают только разрешённые); ссылки хранятся как присланы
+    // (справочная строка может не доехать раньше карточки — в UI прочерк).
+    {
+      const raw = grouped.get(SyncTableName.ErpEngineCards) ?? [];
+      const parsed = parseRows(SyncTableName.ErpEngineCards, raw, erpEngineCardRowSchema);
+      const rows = await filterStaleBySeqOrUpdatedAt(erpEngineCards, parsed, SyncTableName.ErpEngineCards);
+      if (rows.length > 0) {
+        const ids = Array.from(new Set(rows.map((r) => String(r.id))));
+        const currentRows = await tx
+          .select()
+          .from(erpEngineCards)
+          .where(inArray(erpEngineCards.id, ids as any))
+          .limit(50_000);
+        const currentById = new Map(
+          (currentRows as Array<Record<string, unknown>>).map((r) => [
+            String(r['id']),
+            toSyncRow(SyncTableName.ErpEngineCards, r),
+          ]),
+        );
+        const written = await tx
+          .insert(erpEngineCards)
+          .values(
+            rows.map((r) => ({
+              id: r.id as any,
+              engineNumber: (r.engine_number as string | null) ?? null,
+              engineInternalNumber: (r.engine_internal_number as string | null) ?? null,
+              engineInternalNumberYear: (r.engine_internal_number_year as number | null) ?? null,
+              engineBrandId: (r.engine_brand_id ?? null) as any,
+              engineBrand: (r.engine_brand as string | null) ?? null,
+              arrivalDate: (r.arrival_date as number | null) ?? null,
+              customerId: (r.customer_id ?? null) as any,
+              contractId: (r.contract_id ?? null) as any,
+              contractSectionNumber: (r.contract_section_number as string | null) ?? null,
+              workshopId: (r.workshop_id ?? null) as any,
+              statusReworkSent: (r.status_rework_sent as boolean | null) ?? false,
+              statusReworkSentDate: (r.status_rework_sent_date as number | null) ?? null,
+              statusScrapConfirmed: (r.status_scrap_confirmed as boolean | null) ?? false,
+              statusScrapConfirmedDate: (r.status_scrap_confirmed_date as number | null) ?? null,
+              statusRepairStarted: (r.status_repair_started as boolean | null) ?? false,
+              statusRepairStartedDate: (r.status_repair_started_date as number | null) ?? null,
+              statusRepaired: (r.status_repaired as boolean | null) ?? false,
+              statusRepairedDate: (r.status_repaired_date as number | null) ?? null,
+              statusCustomerSent: (r.status_customer_sent as boolean | null) ?? false,
+              statusCustomerSentDate: (r.status_customer_sent_date as number | null) ?? null,
+              statusCustomerAccepted: (r.status_customer_accepted as boolean | null) ?? false,
+              statusCustomerAcceptedDate: (r.status_customer_accepted_date as number | null) ?? null,
+              statusStorageReceived: (r.status_storage_received as boolean | null) ?? false,
+              statusStorageReceivedDate: (r.status_storage_received_date as number | null) ?? null,
+              statusRejected: (r.status_rejected as boolean | null) ?? false,
+              statusRejectedDate: (r.status_rejected_date as number | null) ?? null,
+              scrapReason: (r.scrap_reason as string | null) ?? null,
+              reclamationFlag: (r.reclamation_flag as boolean | null) ?? false,
+              reclamationAcceptedDate: (r.reclamation_accepted_date as number | null) ?? null,
+              reclamationCustomerReason: (r.reclamation_customer_reason as string | null) ?? null,
+              reclamationActualDefect: (r.reclamation_actual_defect as string | null) ?? null,
+              reclamationDefectNature: (r.reclamation_defect_nature as string | null) ?? null,
+              reclamationActNumber: (r.reclamation_act_number as string | null) ?? null,
+              reclamationVerdictDate: (r.reclamation_verdict_date as number | null) ?? null,
+              reclamationShippedDate: (r.reclamation_shipped_date as number | null) ?? null,
+              reclamationComment: (r.reclamation_comment as string | null) ?? null,
+              reclamationVerdict: (r.reclamation_verdict as string | null) ?? null,
+              reclamationRepairStatus: (r.reclamation_repair_status as string | null) ?? null,
+              repeatArrivalFlag: (r.repeat_arrival_flag as boolean | null) ?? false,
+              numberCollisionFlag: (r.number_collision_flag as boolean | null) ?? false,
+              previousArrivalId: (r.previous_arrival_id ?? null) as any,
+              mergedInto: (r.merged_into ?? null) as any,
+              arrivalInvoice: (r.arrival_invoice as string | null) ?? null,
+              shipmentInvoice: (r.shipment_invoice as string | null) ?? null,
+              engineNote: (r.engine_note as string | null) ?? null,
+              docsState: (r.docs_state as string | null) ?? null,
+              docsAspvrContractorDate: (r.docs_aspvr_contractor_date as number | null) ?? null,
+              docsVpSentDate: (r.docs_vp_sent_date as number | null) ?? null,
+              docsVpReturnedDate: (r.docs_vp_returned_date as number | null) ?? null,
+              docsAspvrCustomerScanDate: (r.docs_aspvr_customer_scan_date as number | null) ?? null,
+              docsAspvrCustomerOriginalDate: (r.docs_aspvr_customer_original_date as number | null) ?? null,
+              docsTrackOrAct: (r.docs_track_or_act as string | null) ?? null,
+              docsAspvrSignedCustomerDate: (r.docs_aspvr_signed_customer_date as number | null) ?? null,
+              docsAspvrCustomerReceived: (r.docs_aspvr_customer_received as boolean | null) ?? false,
+              docsReturnScanDate: (r.docs_return_scan_date as number | null) ?? null,
+              docsReturnOriginalDate: (r.docs_return_original_date as number | null) ?? null,
+              docsNote: (r.docs_note as string | null) ?? null,
+              createdAt: r.created_at,
+              updatedAt: r.updated_at,
+              deletedAt: r.deleted_at ?? null,
+              syncStatus: 'synced',
+            })),
+          )
+          .onConflictDoUpdate({
+            target: erpEngineCards.id,
+            setWhere: sql`${erpEngineCards.updatedAt} <= excluded.updated_at`,
+            set: {
+              engineNumber: sql`excluded.engine_number`,
+              engineInternalNumber: sql`excluded.engine_internal_number`,
+              engineInternalNumberYear: sql`excluded.engine_internal_number_year`,
+              engineBrandId: sql`excluded.engine_brand_id`,
+              engineBrand: sql`excluded.engine_brand`,
+              arrivalDate: sql`excluded.arrival_date`,
+              customerId: sql`excluded.customer_id`,
+              contractId: sql`excluded.contract_id`,
+              contractSectionNumber: sql`excluded.contract_section_number`,
+              workshopId: sql`excluded.workshop_id`,
+              statusReworkSent: sql`excluded.status_rework_sent`,
+              statusReworkSentDate: sql`excluded.status_rework_sent_date`,
+              statusScrapConfirmed: sql`excluded.status_scrap_confirmed`,
+              statusScrapConfirmedDate: sql`excluded.status_scrap_confirmed_date`,
+              statusRepairStarted: sql`excluded.status_repair_started`,
+              statusRepairStartedDate: sql`excluded.status_repair_started_date`,
+              statusRepaired: sql`excluded.status_repaired`,
+              statusRepairedDate: sql`excluded.status_repaired_date`,
+              statusCustomerSent: sql`excluded.status_customer_sent`,
+              statusCustomerSentDate: sql`excluded.status_customer_sent_date`,
+              statusCustomerAccepted: sql`excluded.status_customer_accepted`,
+              statusCustomerAcceptedDate: sql`excluded.status_customer_accepted_date`,
+              statusStorageReceived: sql`excluded.status_storage_received`,
+              statusStorageReceivedDate: sql`excluded.status_storage_received_date`,
+              statusRejected: sql`excluded.status_rejected`,
+              statusRejectedDate: sql`excluded.status_rejected_date`,
+              scrapReason: sql`excluded.scrap_reason`,
+              reclamationFlag: sql`excluded.reclamation_flag`,
+              reclamationAcceptedDate: sql`excluded.reclamation_accepted_date`,
+              reclamationCustomerReason: sql`excluded.reclamation_customer_reason`,
+              reclamationActualDefect: sql`excluded.reclamation_actual_defect`,
+              reclamationDefectNature: sql`excluded.reclamation_defect_nature`,
+              reclamationActNumber: sql`excluded.reclamation_act_number`,
+              reclamationVerdictDate: sql`excluded.reclamation_verdict_date`,
+              reclamationShippedDate: sql`excluded.reclamation_shipped_date`,
+              reclamationComment: sql`excluded.reclamation_comment`,
+              reclamationVerdict: sql`excluded.reclamation_verdict`,
+              reclamationRepairStatus: sql`excluded.reclamation_repair_status`,
+              repeatArrivalFlag: sql`excluded.repeat_arrival_flag`,
+              numberCollisionFlag: sql`excluded.number_collision_flag`,
+              previousArrivalId: sql`excluded.previous_arrival_id`,
+              mergedInto: sql`excluded.merged_into`,
+              arrivalInvoice: sql`excluded.arrival_invoice`,
+              shipmentInvoice: sql`excluded.shipment_invoice`,
+              engineNote: sql`excluded.engine_note`,
+              docsState: sql`excluded.docs_state`,
+              docsAspvrContractorDate: sql`excluded.docs_aspvr_contractor_date`,
+              docsVpSentDate: sql`excluded.docs_vp_sent_date`,
+              docsVpReturnedDate: sql`excluded.docs_vp_returned_date`,
+              docsAspvrCustomerScanDate: sql`excluded.docs_aspvr_customer_scan_date`,
+              docsAspvrCustomerOriginalDate: sql`excluded.docs_aspvr_customer_original_date`,
+              docsTrackOrAct: sql`excluded.docs_track_or_act`,
+              docsAspvrSignedCustomerDate: sql`excluded.docs_aspvr_signed_customer_date`,
+              docsAspvrCustomerReceived: sql`excluded.docs_aspvr_customer_received`,
+              docsReturnScanDate: sql`excluded.docs_return_scan_date`,
+              docsReturnOriginalDate: sql`excluded.docs_return_original_date`,
+              docsNote: sql`excluded.docs_note`,
+              updatedAt: sql`excluded.updated_at`,
+              deletedAt: sql`excluded.deleted_at`,
+              syncStatus: 'synced',
+            },
+          })
+          .returning({ id: erpEngineCards.id });
+        const writtenIds = new Set((written as Array<{ id: string }>).map((w) => String(w.id)));
+        const stamped = rows.filter((r) => writtenIds.has(String(r.id)));
+        await updateSeqAndCollect(erpEngineCards, SyncTableName.ErpEngineCards, stamped);
+        applied += stamped.length;
+        // EAV-след (старые клиенты читают EAV до E5-freeze): только изменившиеся
+        // коды. Тумстоуны не следываем — удаление едет tombstone entities и
+        // триггером зеркала. След НЕ пишем здесь: весь apply — одна транзакция,
+        // а setEntityAttribute идёт отдельным коннектом и дёргает триггер зеркала
+        // на тех же strict-строках — кросс-коннект deadlock с самой транзакцией.
+        // Заявки копятся и исполняются после коммита (writeSyncChanges ниже).
+        for (const r of stamped) {
+          if (r.deleted_at != null) continue;
+          const entries = diffEngineCardPushTrail(
+            currentById.get(String(r.id)) ?? null,
+            r as Record<string, unknown>,
+          );
+          if (entries.length > 0) engineTrails.push({ id: String(r.id), entries });
+        }
+      }
+    }
+
     // AuditLog — append-only (SYNC_TABLE_OWNERSHIP: owner 'append_only', brain #015, 21.09).
     // Журнал, по которому ловят злоупотребление, нельзя править той же дверью, что и данные:
     // до 21.09 клиент апсертил строку по id и мог принести `deleted_at` — запись гасилась.
@@ -2619,7 +2811,13 @@ export async function applyPushBatch(
       entity_types: Object.fromEntries(entityTypeIdRemap.entries()),
       attribute_defs: Object.fromEntries(attributeDefIdRemap.entries()),
     };
-    return { applied, ...(collected ? { changes: collected } : {}), idRemaps, skipped: skippedRows };
+    return {
+      applied,
+      ...(collected ? { changes: collected } : {}),
+      idRemaps,
+      skipped: skippedRows,
+      engineTrails,
+    };
   });
 
   if (telegramNotifications.length > 0) {

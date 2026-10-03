@@ -35,6 +35,7 @@ import {
   erpContractRowSchema,
   erpContractPaymentSlotRowSchema,
   erpContractPaymentRowSchema,
+  erpEngineCardRowSchema,
   directoryEngineBrandRowSchema,
 } from './dto.js';
 import {
@@ -424,6 +425,68 @@ const ERP_CONTRACT_PAYMENT_FIELDS = withBase(
   { db: 'countdownStart', dto: 'countdown_start' },
 );
 
+// Карточки двигателей (план engine-cards-strict-2026-10, E3). withBase добавляет
+// id/created_at/updated_at/deleted_at/last_server_seq/sync_status сам.
+const ERP_ENGINE_CARD_FIELDS = withBase(
+  { db: 'engineNumber', dto: 'engine_number' },
+  { db: 'engineInternalNumber', dto: 'engine_internal_number' },
+  { db: 'engineInternalNumberYear', dto: 'engine_internal_number_year' },
+  { db: 'engineBrandId', dto: 'engine_brand_id' },
+  { db: 'engineBrand', dto: 'engine_brand' },
+  { db: 'arrivalDate', dto: 'arrival_date' },
+  { db: 'customerId', dto: 'customer_id' },
+  { db: 'contractId', dto: 'contract_id' },
+  { db: 'contractSectionNumber', dto: 'contract_section_number' },
+  { db: 'workshopId', dto: 'workshop_id' },
+  { db: 'statusReworkSent', dto: 'status_rework_sent' },
+  { db: 'statusReworkSentDate', dto: 'status_rework_sent_date' },
+  { db: 'statusScrapConfirmed', dto: 'status_scrap_confirmed' },
+  { db: 'statusScrapConfirmedDate', dto: 'status_scrap_confirmed_date' },
+  { db: 'statusRepairStarted', dto: 'status_repair_started' },
+  { db: 'statusRepairStartedDate', dto: 'status_repair_started_date' },
+  { db: 'statusRepaired', dto: 'status_repaired' },
+  { db: 'statusRepairedDate', dto: 'status_repaired_date' },
+  { db: 'statusCustomerSent', dto: 'status_customer_sent' },
+  { db: 'statusCustomerSentDate', dto: 'status_customer_sent_date' },
+  { db: 'statusCustomerAccepted', dto: 'status_customer_accepted' },
+  { db: 'statusCustomerAcceptedDate', dto: 'status_customer_accepted_date' },
+  { db: 'statusStorageReceived', dto: 'status_storage_received' },
+  { db: 'statusStorageReceivedDate', dto: 'status_storage_received_date' },
+  { db: 'statusRejected', dto: 'status_rejected' },
+  { db: 'statusRejectedDate', dto: 'status_rejected_date' },
+  { db: 'scrapReason', dto: 'scrap_reason' },
+  { db: 'reclamationFlag', dto: 'reclamation_flag' },
+  { db: 'reclamationAcceptedDate', dto: 'reclamation_accepted_date' },
+  { db: 'reclamationCustomerReason', dto: 'reclamation_customer_reason' },
+  { db: 'reclamationActualDefect', dto: 'reclamation_actual_defect' },
+  { db: 'reclamationDefectNature', dto: 'reclamation_defect_nature' },
+  { db: 'reclamationActNumber', dto: 'reclamation_act_number' },
+  { db: 'reclamationVerdictDate', dto: 'reclamation_verdict_date' },
+  { db: 'reclamationShippedDate', dto: 'reclamation_shipped_date' },
+  { db: 'reclamationComment', dto: 'reclamation_comment' },
+  { db: 'reclamationVerdict', dto: 'reclamation_verdict' },
+  { db: 'reclamationRepairStatus', dto: 'reclamation_repair_status' },
+  { db: 'repeatArrivalFlag', dto: 'repeat_arrival_flag' },
+  { db: 'numberCollisionFlag', dto: 'number_collision_flag' },
+  { db: 'previousArrivalId', dto: 'previous_arrival_id' },
+  { db: 'mergedInto', dto: 'merged_into' },
+  { db: 'arrivalInvoice', dto: 'arrival_invoice' },
+  { db: 'shipmentInvoice', dto: 'shipment_invoice' },
+  { db: 'engineNote', dto: 'engine_note' },
+  { db: 'docsState', dto: 'docs_state' },
+  { db: 'docsAspvrContractorDate', dto: 'docs_aspvr_contractor_date' },
+  { db: 'docsVpSentDate', dto: 'docs_vp_sent_date' },
+  { db: 'docsVpReturnedDate', dto: 'docs_vp_returned_date' },
+  { db: 'docsAspvrCustomerScanDate', dto: 'docs_aspvr_customer_scan_date' },
+  { db: 'docsAspvrCustomerOriginalDate', dto: 'docs_aspvr_customer_original_date' },
+  { db: 'docsTrackOrAct', dto: 'docs_track_or_act' },
+  { db: 'docsAspvrSignedCustomerDate', dto: 'docs_aspvr_signed_customer_date' },
+  { db: 'docsAspvrCustomerReceived', dto: 'docs_aspvr_customer_received' },
+  { db: 'docsReturnScanDate', dto: 'docs_return_scan_date' },
+  { db: 'docsReturnOriginalDate', dto: 'docs_return_original_date' },
+  { db: 'docsNote', dto: 'docs_note' },
+);
+
 // ────────────────────────────────────────────────────────────
 // Registry entries
 // ────────────────────────────────────────────────────────────
@@ -680,6 +743,17 @@ const ENTRIES: readonly SyncTableEntry[] = [
     fields: ERP_CONTRACT_PAYMENT_FIELDS,
     conflictTarget: ['id'],
     dependsOn: [SyncTableName.ErpContractPaymentSlots],
+  },
+  // Карточки двигателей (план engine-cards-strict-2026-10, E3). Ссылки — uuid без
+  // жёстких FK (наследие E1): dependsOn пуст, сирот не чистим, отсутствующий
+  // справочник — прочерк в UI, а не снос строки.
+  {
+    syncName: SyncTableName.ErpEngineCards,
+    ledgerName: SyncTableName.ErpEngineCards,
+    schema: erpEngineCardRowSchema,
+    fields: ERP_ENGINE_CARD_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [],
   },
 ] as const;
 
