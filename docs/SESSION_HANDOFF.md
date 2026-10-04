@@ -9,14 +9,24 @@ updated: 2026-10-03
 
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`.
 
-**Status:** IDLE
-**Updated:** 2026-10-04 (релиз v3.63.0 выкачен и принят)
-**Branch:** main
+**Status:** ACTIVE
+**Updated:** 2026-10-05 (мост ИИваныч ↔ Телефон: план + реализация B1–B4, гейты backend зелёные)
+**Branch:** feat/iivanych-hotline-bridge
 **Last released version:** v3.63.0 на проде ✅
 **Branch:** main
 **Last released version:** v3.62.0 на проде ✅
 
 ## Текущая нитка
+
+Мост ИИваныч ↔ Телефон (мандат brain 2026-10-05, D-111, срок 12.10, X=30 мин подтверждён).
+План: `docs/plans/iivanych-hotline-bridge-2026-10.md`. Реализовано B1–B4 одним PR:
+relay-клиент (`backend-api/src/services/ai/hotlineRelayClient.ts`), воркер моста
+(`aiChatHotlineBridgeService.ts`, claim строкой в `aiChatMeta` без миграций),
+фильтр claim'ов в `listPending` движка, старт в `index.ts`, 18 тестов.
+Гейты backend зелёные: typecheck + lint + test 116 файлов / 1010 тестов.
+Осталось вне кода (критический путь): accept гранта `HOTLINE_RELAY_SECRET`
+(наш прод-токен read-only → за владельцем) → секрет в прод-env + рестарт primary
+→ dry-прогон с живой сессией → `ack: report` письмом (`ref: 2026-10-05-iivanych-hotline-bridge`).
 
 Релиз v3.63.0 на проде и принят (renderer-only, без миграций: тихая синхронизация #1163 + фоновый прогрев списка двигателей #1164; окно «Что нового» 3.63.0). CDP-смоук карточки договора и правки платежа PASS 11/11 — предусловие C5-cutover закрыто. Разбор обновления парка: механизм здоров, когорта 3.58/3.59 подхватит 3.63 в понедельник; E5-старт после перепроверки версий <3.61.
 
@@ -24,7 +34,9 @@ updated: 2026-10-03
 
 ## Следующий шаг
 
-По запросу владельца (E5-freeze, новые фичи, или разбор дрейфа `0ec302da`).
+1. Push ветки + PR, дождаться зелёного CI, merge.
+2. Владелец: accept гранта `HOTLINE_RELAY_SECRET` → секрет+URL в прод-env → рестарт primary.
+3. Dry-прогон с живой сессией (вопрос → релей → ответ → `answered` + живой TG-алерт + GET presence 200) → `ack: report` письмом brain.
 
 ## Текущая нитка
 

@@ -71,6 +71,10 @@ corepack pnpm run dev:electron
 - `MATRICA_SYNC_AUTOHEAL_COOLDOWN_MS`
 - `MATRICA_SYNC_DRIFT_THRESHOLD`
 - `MATRICA_SYNC_PULL_ADAPTIVE_ENABLED`
+- Мост ИИваныч ↔ Телефон (D-111, план `docs/plans/iivanych-hotline-bridge-2026-10.md`):
+  `HOTLINE_RELAY_SECRET`, `HOTLINE_RELAY_URL` (без них мост — честный no-op),
+  `AI_CHAT_BRIDGE_ENABLED`, `AI_CHAT_BRIDGE_TICK_MS`, `AI_CHAT_BRIDGE_TIMEOUT_MS`,
+  `AI_CHAT_BRIDGE_BATCH`
 
 ### Client / Update
 - `MATRICA_API_URL`

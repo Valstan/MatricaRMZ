@@ -51,7 +51,7 @@ function normalizeLogin(raw: string | null | undefined) {
   return value.startsWith('@') ? value : `@${value}`;
 }
 
-async function resolveAlertTarget(): Promise<{ kind: 'chat'; value: string } | { kind: 'login'; value: string } | null> {
+export async function resolveAlertTarget(): Promise<{ kind: 'chat'; value: string } | { kind: 'login'; value: string } | null> {
   const chatId = String(process.env.MATRICA_TELEGRAM_ALERT_CHAT_ID ?? '').trim();
   if (chatId) return { kind: 'chat', value: chatId };
 
