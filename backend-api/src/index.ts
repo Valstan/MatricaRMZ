@@ -11,6 +11,7 @@ import { startAiChatHistoryCleanup } from './services/ai/aiChatHistoryService.js
 import { startFileCacheEvictionJob } from './services/fileCache.js';
 import { startDiagnosticsRetentionJob } from './services/diagnosticsRetentionService.js';
 import { startAiChatDirectWorker } from './services/ai/aiChatAnswerService.js';
+import { startAiChatHotlineBridge } from './services/ai/aiChatHotlineBridgeService.js';
 import { startAiUsageDigestScheduler } from './services/ai/aiUsageDigestService.js';
 import { startLogAnalysisAgent } from './services/ai/logAnalysisAgentService.js';
 import { startSyncPipelineSupervisorService } from './services/syncPipelineSupervisorService.js';
@@ -112,6 +113,8 @@ async function bootstrap() {
     // Решение владельца 04.09: diagnostics_snapshots (server/client/ai_agent_event) — 90 дней.
     startDiagnosticsRetentionJob();
     startAiChatDirectWorker();
+    // D-111: мост очереди ИИваныча в Телефон (живая сессия отвечает, пока DeepSeek не оплачен).
+    startAiChatHotlineBridge();
     startAiUsageDigestScheduler();
     startLogAnalysisAgent();
   }

@@ -34,6 +34,7 @@ import {
   type SystemBlock,
 } from './llmProvider.js';
 import { FULL_TOOL_NAMES, executeTool, getToolDefinitions, type ToolContext } from './llmTools.js';
+import { listBridgedRequestIds } from './aiChatHotlineBridgeService.js';
 import { buildAnswerWorkbook, type AnswerTable } from './answerWorkbook.js';
 import { buildAnswerDocx } from './answerDocument.js';
 import { appendLearningNote, getLearningNotes } from './aiChatLearningNotes.js';
@@ -418,7 +419,7 @@ async function reclaimStale(actor: AiChatActor): Promise<void> {
 
 /** Новые вопросы + эскалированные, по которым суперадмин уже дал вердикт. */
 async function listPending(): Promise<any[]> {
-  return (await db
+  const rows = (await db
     .select()
     .from(aiChatRequests)
     .where(
@@ -432,6 +433,10 @@ async function listPending(): Promise<any[]> {
     )
     .orderBy(asc(aiChatRequests.createdAt))
     .limit(20)) as any[];
+  // Строки, забранные мостом в Телефон (D-111), отвечает живая сессия — движок их не трогает.
+  const bridged = await listBridgedRequestIds().catch(() => new Set<string>());
+  if (bridged.size === 0) return rows;
+  return rows.filter((r) => !bridged.has(String(r.id)));
 }
 
 /** Один проход очереди. Экспортируется для тестов и ручного прогона. */
