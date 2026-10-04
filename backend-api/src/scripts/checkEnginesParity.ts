@@ -36,7 +36,22 @@ function asText(v: unknown): string | null {
 
 function asMs(v: unknown): number | null {
   if (v == null || v === '') return null;
-  const n = typeof v === 'number' ? v : Number(String(v).trim());
+  // Как eav_attr_ms: значение может лежать двойным JSON (строка с цифрами —
+  // такой след оставляют старые писатели); разворачиваем один слой, как #>>.
+  let s: unknown = v;
+  if (typeof s === 'string') {
+    const t = s.trim();
+    if (t === '') return null;
+    try {
+      const parsed = JSON.parse(t);
+      if (typeof parsed === 'string' || typeof parsed === 'number') s = parsed;
+      else return null;
+    } catch {
+      s = t;
+    }
+  }
+  if (typeof s === 'boolean') return null;
+  const n = typeof s === 'number' ? s : Number(String(s).trim());
   if (!Number.isFinite(n)) return null;
   return Math.round(n);
 }
