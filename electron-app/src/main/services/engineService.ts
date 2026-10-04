@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, inArray, isNull, max } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, max } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
@@ -497,12 +497,32 @@ export type EngineRepairHistorySummary = {
  * Берём только строки истории и межцеховые передачи: остальные операции (акты, наряды,
  * движения склада) к этому вопросу отношения не имеют, а их у двигателя больше всего.
  */
+// История ремонта — самая тяжёлая из карт списка (читает и разбирает meta_json всех
+// операций истории), а меняется редко. Кэш версионируется по count+max(updated_at)
+// строк истории: новое событие в истории → новый штамп → пересчёт; иначе пересчёт не нужен.
+let repairHistoryCache: { stamp: string; map: Map<string, EngineRepairHistorySummary> } | null = null;
+
 export async function getEngineRepairHistoryMap(
   db: BetterSQLite3Database,
   engineIds: string[],
 ): Promise<Map<string, EngineRepairHistorySummary>> {
   const result = new Map<string, EngineRepairHistorySummary>();
   if (engineIds.length === 0) return result;
+
+  const stampQuery = await db
+    .select({ maxAt: max(operations.updatedAt), n: count() })
+    .from(operations)
+    .where(
+      and(
+        inArray(operations.operationType, [REPAIR_HISTORY_OPERATION_TYPE, 'workshop_transfer']),
+        isNull(operations.deletedAt),
+      ),
+    );
+  const stamp = `${stampQuery[0]?.maxAt ?? 0}:${stampQuery[0]?.n ?? 0}`;
+  if (repairHistoryCache && repairHistoryCache.stamp === stamp) {
+    for (const [k, v] of repairHistoryCache.map) result.set(k, v);
+    return result;
+  }
 
   const rows = await collectChunked(engineIds, (idsChunk) =>
     db
@@ -593,6 +613,7 @@ export async function getEngineRepairHistoryMap(
       lastStageAt: stageAt > 0 ? stageAt : null,
     });
   }
+  repairHistoryCache = { stamp, map: new Map(result) };
   return result;
 }
 
@@ -804,16 +825,30 @@ export async function listEngines(
   const reservationDefId = defs[ENGINE_RESERVATION_CODE];
   const statusDefIds = STATUS_CODES.map((c) => defs[c]).filter(Boolean) as string[];
 
+  const mapsStartedAt = Date.now();
   const customerNameById = await getDisplayNameMap(db, EntityTypeCode.Customer);
+  mark('maps.customerNames');
   const contractNameById = await getDisplayNameMap(db, EntityTypeCode.Contract);
+  mark('maps.contractNames');
   const contractSignedAtById = await getContractSignedAtMap(db);
+  mark('maps.contractSignedAt');
   const contractCustomerById = await getContractCustomerMap(db);
+  mark('maps.contractCustomer');
   const contractRepairDaysById = await getContractRepairDaysMap(db);
+  mark('maps.contractRepairDays');
   const engineIds = engines.map((e) => e.id);
   const inventoryFlagsByEngineId = await getEngineInventoryFlagsMap(db, engineIds);
+  mark('maps.inventoryFlags');
   const historyByEngineId = await getEngineRepairHistoryMap(db, engineIds);
+  mark('maps.repairHistory');
   const lastActivityByEngineId = await getEngineLastActivityMap(db, engineIds);
-  mark('maps');
+  mark('maps.lastActivity');
+  try {
+    opts?.onPhase?.('maps', Date.now() - mapsStartedAt);
+  } catch {
+    // ignore
+  }
+  lastMark = Date.now();
   const baseDefIds = [
     numberDefId,
     internalNumberDefId,
