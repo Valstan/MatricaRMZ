@@ -59,6 +59,12 @@ describe('проба несинканных правок', () => {
     await expect(listPendingProbeTables(exec)).resolves.toEqual(['chat_messages', 'entities']);
   });
 
+  it('телеметрия ui.* из audit_log в пробу не входит — не торопим синк на каждый визит', () => {
+    const sql = buildPendingCountSql(['audit_log', 'chat_messages']);
+    expect(sql).toContain(`action NOT LIKE 'ui.%'`);
+    expect(sql.match(/action NOT LIKE/g)).toHaveLength(1);
+  });
+
   it('есть запасной путь для SQLite без pragma_table_info', async () => {
     const exec = fakeExec({ tables: ['entities'], failPragma: true });
     await expect(listPendingProbeTables(exec)).resolves.toEqual(['entities']);

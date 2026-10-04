@@ -49,9 +49,21 @@ const PROBE_TABLES_FALLBACK_SQL = `
  */
 const DEFERRED_TABLES = new Set(['card_drafts']);
 
+/**
+ * Строки, которые «не повод торопить синк» ВНУТРИ таблицы: телеметрия интерфейса
+ * (`ui.visit`/`ui.card_open`/…) — строка на визит вкладки, на каждое открытие
+ * карточки. Если её считать мгновенно-pending, любой щелчок оператора будил бы
+ * синк и крутил спиннер «N документов». Бизнес-журналы (`work_order.*` и пр.)
+ * сюда НЕ входят — они важны и должны уезжать сразу. Телеметрия доезжает
+ * попутным синком: плановым тиком (~5 мин), пробуждением или любой другой правкой.
+ */
+function deferredRowFilter(table: string): string {
+  return table === 'audit_log' ? ` AND action NOT LIKE 'ui.%'` : '';
+}
+
 export function buildPendingCountSql(tables: readonly string[]): string {
   if (tables.length === 0) return 'SELECT 0 AS n';
-  const parts = tables.map((t) => `(SELECT COUNT(*) FROM "${String(t).replace(/"/g, '""')}" WHERE sync_status IN ('pending','error'))`);
+  const parts = tables.map((t) => `(SELECT COUNT(*) FROM "${String(t).replace(/"/g, '""')}" WHERE sync_status IN ('pending','error')${deferredRowFilter(String(t))})`);
   return `SELECT ${parts.join(' + ')} AS n`;
 }
 
@@ -107,7 +119,7 @@ export async function countPendingLocalRowsByTable(
     const startedAt = Date.now();
     try {
       const row = await exec.get<{ n: number }>(
-        `SELECT COUNT(*) AS n FROM "${name}" WHERE sync_status IN ('pending','error')`,
+        `SELECT COUNT(*) AS n FROM "${name}" WHERE sync_status IN ('pending','error')${deferredRowFilter(name)}`,
       );
       out.push({ table: String(t), ms: Date.now() - startedAt, n: Math.max(0, Number(row?.n ?? 0) || 0) });
     } catch {
