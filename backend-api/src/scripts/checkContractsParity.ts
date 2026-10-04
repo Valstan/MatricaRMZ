@@ -25,22 +25,40 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 type Mismatch = { id: string; kind: string; expected: unknown; actual: unknown };
 
 function asText(v: unknown): string | null {
+  // Дословно, как eav_attr_text: JSON разворачивается ОДИН слой, трима НЕТ
+  // (зеркало данные не чинит), пустое даёт NULL, JSON-null даёт NULL.
   if (v == null) return null;
   if (typeof v === 'string') {
+    let out: string;
     try {
       const parsed = JSON.parse(v);
-      if (typeof parsed === 'string') return parsed.trim() || null;
-      return v.trim() || null;
+      if (parsed == null) return null;
+      out = typeof parsed === 'string' ? parsed : v;
     } catch {
-      return v.trim() || null;
+      out = v;
     }
+    return out === '' ? null : out;
   }
   return String(v);
 }
 
 function asMs(v: unknown): number | null {
   if (v == null || v === '') return null;
-  const n = typeof v === 'number' ? v : Number(String(v).trim());
+  // Как eav_attr_ms: двойной JSON (строка с цифрами) разворачивается.
+  let s: unknown = v;
+  if (typeof s === 'string') {
+    const t = s.trim();
+    if (t === '') return null;
+    try {
+      const parsed = JSON.parse(t);
+      if (typeof parsed === 'string' || typeof parsed === 'number') s = parsed;
+      else return null;
+    } catch {
+      s = t;
+    }
+  }
+  if (typeof s === 'boolean') return null;
+  const n = typeof s === 'number' ? s : Number(String(s).trim());
   if (!Number.isFinite(n)) return null;
   return Math.round(n);
 }
@@ -193,13 +211,18 @@ async function main() {
   }
 
   // Строгие строки без EAV-сущности: дверь всегда пишет EAV-след, зеркало без EAV
-  // не создаёт — такая строка означает порванный след.
+  // не создаёт — такая строка означает порванный след. Исключение — тумстоуны:
+  // снесённая сущность + погашенная strict-строка есть сошедшееся удаление.
   const knownIds = new Set(byEntity.keys());
-  for (const [id] of contractsById) {
-    if (!knownIds.has(id)) mismatches.push({ id, kind: 'strict без EAV-сущности', expected: null, actual: 'erp_contracts' });
+  for (const [id, s] of contractsById) {
+    if (knownIds.has(id)) continue;
+    if ((s as { deleted_at: unknown }).deleted_at != null) continue;
+    mismatches.push({ id, kind: 'strict без EAV-сущности', expected: null, actual: 'erp_contracts' });
   }
-  for (const [id] of partiesById) {
-    if (!knownIds.has(id)) mismatches.push({ id, kind: 'strict без EAV-сущности', expected: null, actual: 'erp_counterparties' });
+  for (const [id, s] of partiesById) {
+    if (knownIds.has(id)) continue;
+    if ((s as { deleted_at: unknown }).deleted_at != null) continue;
+    mismatches.push({ id, kind: 'strict без EAV-сущности', expected: null, actual: 'erp_counterparties' });
   }
 
   const ok = mismatches.length === 0;

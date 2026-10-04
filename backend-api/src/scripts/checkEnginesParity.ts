@@ -20,11 +20,12 @@ type Mismatch = { id: string; kind: string; expected: unknown; actual: unknown }
 
 function asText(v: unknown): string | null {
   // Дословно, как eav_attr_text (без трима — зеркало данные не чинит):
-  // JSON-строка разворачивается, пустое даёт NULL.
+  // JSON-строка разворачивается, пустое даёт NULL, JSON-null даёт NULL.
   if (v == null) return null;
   if (typeof v === 'string') {
     try {
       const parsed = JSON.parse(v);
+      if (parsed == null) return null;
       if (typeof parsed === 'string') return parsed === '' ? null : parsed;
       return v === '' ? null : v;
     } catch {
