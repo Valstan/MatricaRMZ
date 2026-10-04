@@ -1536,9 +1536,21 @@ export function EngineDetailsPage(props: {
     copyToNew: async () => {
       const r = await window.matrica.engines.create();
       if (r?.id) {
-        await window.matrica.engines.setAttr(r.id, 'engine_number', engineNumber + ' (копия)');
-        await window.matrica.engines.setAttr(r.id, 'engine_brand', engineBrand || null);
-        await window.matrica.engines.setAttr(r.id, 'engine_brand_id', engineBrandId || null);
+        // E4: копия пишется strict-путём (реплика + push), а не тремя setAttr:
+        // setAttr ушёл из записи карточки в E3b, EAV-путь для полей закрыт.
+        const api = (
+          window as unknown as {
+            matrica?: { engines?: { card?: { save?: (a: unknown) => Promise<unknown> } } };
+          }
+        ).matrica;
+        await api?.engines?.card?.save?.({
+          id: r.id,
+          fields: {
+            engine_number: engineNumber + ' (копия)',
+            engine_brand: engineBrand || null,
+            engine_brand_id: engineBrandId || null,
+          },
+        });
       }
     },
   };
@@ -2582,9 +2594,20 @@ export function EngineDetailsPage(props: {
             void (async () => {
               const r = await window.matrica.engines.create();
               if (r?.id) {
-                await window.matrica.engines.setAttr(r.id, 'engine_number', engineNumber + ' (копия)');
-                await window.matrica.engines.setAttr(r.id, 'engine_brand', engineBrand || null);
-                await window.matrica.engines.setAttr(r.id, 'engine_brand_id', engineBrandId || null);
+                // E4: копия пишется strict-путём (реплика + push).
+                const api = (
+                  window as unknown as {
+                    matrica?: { engines?: { card?: { save?: (a: unknown) => Promise<unknown> } } };
+                  }
+                ).matrica;
+                await api?.engines?.card?.save?.({
+                  id: r.id,
+                  fields: {
+                    engine_number: engineNumber + ' (копия)',
+                    engine_brand: engineBrand || null,
+                    engine_brand_id: engineBrandId || null,
+                  },
+                });
               }
             })();
           }}

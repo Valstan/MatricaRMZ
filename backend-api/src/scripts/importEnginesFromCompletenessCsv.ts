@@ -11,6 +11,7 @@ import { db } from '../database/db.js';
 import { attributeDefs, attributeValues, entities } from '../database/schema.js';
 import type { AuthUser } from '../auth/jwt.js';
 import { getSuperadminUserId } from '../services/employeeAuthService.js';
+import { getEngineCardStrict, patchEngineCardStrict } from '../services/engineStrictService.js';
 import {
   createEntity,
   detachIncomingLinksAndSoftDeleteEntity,
@@ -953,7 +954,38 @@ async function main() {
     if (supplierId && !engineAttributeEquals(supplierId, existingEngineAttrs.get('customer_id'))) {
       changed.push(['customer_id', supplierId]);
     }
-    for (const [code, value] of changed) {
+    // E4 (план engine-cards-strict-2026-10): поля строгой карточки — одной дверью
+    // patchEngineCardStrict (strict + EAV-след одним проходом вместо N setAttr).
+    // Фолбэк — когда strict-строки нет (прод без миграции 0105): тогда старый
+    // поатрибутный путь. Убрать фолбэк на E5-freeze.
+    const STRICT_DOOR_CODES = new Set([
+      'engine_number',
+      'engine_brand',
+      'engine_brand_id',
+      'arrival_date',
+      'customer_id',
+    ]);
+    const strictEntries = changed.filter(([code]) => STRICT_DOOR_CODES.has(code));
+    const restEntries = changed.filter(([code]) => !STRICT_DOOR_CODES.has(code));
+    let doorUsed = false;
+    if (strictEntries.length > 0) {
+      const existing = await getEngineCardStrict(engineId);
+      if (existing.ok) {
+        const patchResult = await patchEngineCardStrict(engineId, Object.fromEntries(strictEntries), {
+          id: actor.id,
+          username: actor.username,
+        });
+        if (!patchResult.ok) throw new Error(`Не удалось сохранить карточку двигателя ${number}: ${patchResult.error}`);
+        for (const [code, value] of strictEntries) {
+          existingEngineAttrs.set(code, value);
+          engineAttributeWrites += 1;
+        }
+        doorUsed = true;
+      } else {
+        logStage('engine-door-fallback-legacy', { engineNumber: number, engineId, reason: existing.error });
+      }
+    }
+    for (const [code, value] of doorUsed ? restEntries : changed) {
       let res: { ok: boolean; error?: string } | null = null;
       let recoveredFromConflict = false;
       try {
