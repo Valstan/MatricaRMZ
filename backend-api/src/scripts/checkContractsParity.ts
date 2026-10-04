@@ -216,12 +216,12 @@ async function main() {
   const knownIds = new Set(byEntity.keys());
   for (const [id, s] of contractsById) {
     if (knownIds.has(id)) continue;
-    if ((s as { deleted_at: unknown }).deleted_at != null) continue;
+    if ((s as unknown as { deleted_at: unknown }).deleted_at != null) continue;
     mismatches.push({ id, kind: 'strict без EAV-сущности', expected: null, actual: 'erp_contracts' });
   }
   for (const [id, s] of partiesById) {
     if (knownIds.has(id)) continue;
-    if ((s as { deleted_at: unknown }).deleted_at != null) continue;
+    if ((s as unknown as { deleted_at: unknown }).deleted_at != null) continue;
     mismatches.push({ id, kind: 'strict без EAV-сущности', expected: null, actual: 'erp_counterparties' });
   }
 
