@@ -47,6 +47,7 @@ import { registerContractPaymentsIpc } from './register/contractPayments.js';
 import { registerContractsIpc } from './register/contracts.js';
 import { registerEngineCardsIpc } from './register/engineCards.js';
 import { registerUpdateIpc } from './register/update.js';
+import { warmEngineListCaches } from '../services/engineService.js';
 import { registerE2eKeysIpc } from './register/e2eKeys.js';
 import { registerToolsIpc } from './register/tools.js';
 import { registerErpIpc } from './register/erp.js';
@@ -150,6 +151,13 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     // runSync may run alongside the scheduled one (refresh races, double pulls).
     runSyncGate: (o) => mgr.runOnce(o),
   });
+
+  // Прогрев кэшей списка двигателей в фоне: тяжёлая сборка флагов актов и
+  // истории ремонта (~3 с холодно) уходит со старта приложения, а не на первое
+  // открытие списка. Best-effort: любая ошибка — молчим, кэш построит обычный вызов.
+  setTimeout(() => {
+    void warmEngineListCaches(ctx.dataDb()).catch(() => undefined);
+  }, 5_000);
 
   // Register IPC domains. Section-гейт (Ф2 «доступа по разделам») оборачивает все
   // регистрируемые ниже хэндлеры: чтение данных раздела, где пользователя нет в

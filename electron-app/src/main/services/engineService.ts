@@ -476,6 +476,19 @@ async function getEngineInventoryFlagsMap(db: BetterSQLite3Database, engineIds: 
   return result;
 }
 
+export async function warmEngineListCaches(db: BetterSQLite3Database): Promise<void> {
+  const engineTypeId = await getEngineTypeId(db);
+  const engineIds = (
+    await db
+      .select({ id: entities.id })
+      .from(entities)
+      .where(and(eq(entities.typeId, engineTypeId), isNull(entities.deletedAt)))
+  ).map((r) => r.id);
+  if (engineIds.length === 0) return;
+  await getEngineInventoryFlagsMap(db, engineIds);
+  await getEngineRepairHistoryMap(db, engineIds);
+}
+
 export type EngineRepairHistorySummary = {
   lastAction: string;
   lastAt: number | null;
