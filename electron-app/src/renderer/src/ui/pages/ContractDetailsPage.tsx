@@ -2086,9 +2086,23 @@ export function ContractDetailsPage(props: {
         setEngineAttachStatus('');
         return;
       }
-      await window.matrica.engines.setAttr(normalizedId, 'contract_id', props.contractId);
-      if (placed.sectionKey) {
-        await window.matrica.engines.setAttr(normalizedId, 'contract_section_number', placed.sectionKey);
+      // E4: привязка пишется strict-путём (реплика + push), setAttr для полей
+      // карточки закрыт в E3b.
+      const cardApi = (
+        window as unknown as {
+          matrica?: { engines?: { card?: { save?: (a: unknown) => Promise<unknown> } } };
+        }
+      ).matrica;
+      const saved = (await cardApi?.engines?.card?.save?.({
+        id: normalizedId,
+        fields: {
+          contract_id: props.contractId,
+          ...(placed.sectionKey ? { contract_section_number: placed.sectionKey } : {}),
+        },
+      })) as { ok?: boolean; error?: string } | null;
+      if (!saved?.ok) {
+        setEngineAttachStatus(`Ошибка: ${String(saved?.error ?? 'неизвестно')}`);
+        return;
       }
       await loadProgress();
       setEngineAttachStatus(
@@ -2121,10 +2135,25 @@ export function ContractDetailsPage(props: {
         setEngineAttachStatus('');
         return;
       }
+      // E4: перенос пишется strict-путём (реплика + push), setAttr для полей
+      // карточки закрыт в E3b.
+      const cardApi = (
+        window as unknown as {
+          matrica?: { engines?: { card?: { save?: (a: unknown) => Promise<unknown> } } };
+        }
+      ).matrica;
+      const moveFields: Record<string, unknown> = { contract_section_number: placed.sectionKey };
       if (String(engine?.contractId ?? '') !== String(props.contractId)) {
-        await window.matrica.engines.setAttr(normalizedId, 'contract_id', props.contractId);
+        moveFields.contract_id = props.contractId;
       }
-      await window.matrica.engines.setAttr(normalizedId, 'contract_section_number', placed.sectionKey);
+      const moved = (await cardApi?.engines?.card?.save?.({
+        id: normalizedId,
+        fields: moveFields,
+      })) as { ok?: boolean; error?: string } | null;
+      if (!moved?.ok) {
+        setEngineAttachStatus(`Ошибка: ${String(moved?.error ?? 'неизвестно')}`);
+        return;
+      }
       await loadProgress();
       const message = [
         placed.overPlan
@@ -2295,8 +2324,22 @@ export function ContractDetailsPage(props: {
       setEngineAttachStatus('Создание двигателя…');
       const created = await window.matrica.engines.create();
       if (!created?.id) return null;
-      await window.matrica.engines.setAttr(created.id, 'contract_id', props.contractId);
-      if (nextLabel) await window.matrica.engines.setAttr(created.id, 'engine_number', nextLabel);
+      // E4: создание пишется strict-путём (реплика + push).
+      const cardApi = (
+        window as unknown as {
+          matrica?: { engines?: { card?: { save?: (a: unknown) => Promise<unknown> } } };
+        }
+      ).matrica;
+      const createdFields: Record<string, unknown> = { contract_id: props.contractId };
+      if (nextLabel) createdFields.engine_number = nextLabel;
+      const createdSaved = (await cardApi?.engines?.card?.save?.({
+        id: created.id,
+        fields: createdFields,
+      })) as { ok?: boolean; error?: string } | null;
+      if (!createdSaved?.ok) {
+        setEngineAttachStatus(`Ошибка: ${String(createdSaved?.error ?? 'неизвестно')}`);
+        return null;
+      }
       await loadProgress();
       setAddEngineOpen(false);
       setEngineAttachStatus('Двигатель создан.');
