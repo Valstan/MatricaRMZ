@@ -143,7 +143,7 @@ async function main(): Promise<void> {
         row_id: row.id,
         row: {
           ...dto,
-          meta_json: buildConvertedMetaJson(String(dto.meta_json ?? row.metaJson)),
+          meta_json: buildConvertedMetaJson(String(dto.meta_json ?? row.meta_json)),
           updated_at: ts,
           deleted_at: null,
           sync_status: 'synced',
