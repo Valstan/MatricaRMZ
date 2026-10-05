@@ -7,6 +7,7 @@ import {
 import { pool } from '../database/db.js';
 import { writeSyncChanges, type SyncWriteActor, type SyncWriteInput } from '../services/sync/syncWriteService.js';
 import { pr3CanonicalName } from './pr3StageNames.js';
+import { camelOperationRowForSync } from './pr3SyncRow.js';
 
 // stages:merge-kitting — снос `kitting_done` слиянием в `arrival`
 // (таблица этапов 05.10.2026, решение владельца).
@@ -122,7 +123,10 @@ async function main(): Promise<void> {
         skipped += 1;
         continue;
       }
-      const dto = SyncTableRegistry.toSyncRow(SyncTableName.Operations, current as never) as Record<string, unknown>;
+      const dto = SyncTableRegistry.toSyncRow(
+        SyncTableName.Operations,
+        camelOperationRowForSync(current),
+      ) as Record<string, unknown>;
       pending.push({
         type: 'delete',
         table: SyncTableName.Operations,
@@ -137,7 +141,10 @@ async function main(): Promise<void> {
         skipped += 1;
         continue;
       }
-      const dto = SyncTableRegistry.toSyncRow(SyncTableName.Operations, current as never) as Record<string, unknown>;
+      const dto = SyncTableRegistry.toSyncRow(
+      SyncTableName.Operations,
+      camelOperationRowForSync(current),
+    ) as Record<string, unknown>;
       pending.push({
         type: 'upsert',
         table: SyncTableName.Operations,
@@ -160,9 +167,12 @@ async function main(): Promise<void> {
   if (!args.apply) console.log('Без --apply запись не выполняется.');
 }
 
-main()
-  .catch((e: unknown) => {
-    console.error(String((e as Error)?.message ?? e));
-    process.exitCode = 2;
-  })
-  .finally(() => void pool.end().catch(() => {}));
+const invokedDirectly = typeof process.argv[1] === 'string' && process.argv[1].endsWith('.ts');
+if (invokedDirectly) {
+  main()
+    .catch((e: unknown) => {
+      console.error(String((e as Error)?.message ?? e));
+      process.exitCode = 2;
+    })
+    .finally(() => void pool.end().catch(() => {}));
+}
