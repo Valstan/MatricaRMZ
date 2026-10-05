@@ -29,7 +29,7 @@ import { writeSyncChanges, type SyncWriteActor, type SyncWriteInput } from '../s
 
 const ACTOR: SyncWriteActor = { id: 'server', username: 'stages:merge-kitting', role: 'system' };
 
-type KittingRow = { id: string; engineId: string; metaJson: string };
+type KittingRow = { id: string; engineId: string; meta_json: string };
 
 export type KittingDecision = 'delete' | 'convert';
 
@@ -105,7 +105,7 @@ async function main(): Promise<void> {
   };
 
   for (const row of kitting.rows) {
-    const meta = parseRepairHistoryMeta(row.metaJson);
+    const meta = parseRepairHistoryMeta(row.meta_json);
     if (!meta?.stage || meta.stage.code !== 'kitting_done') {
       skipped += 1;
       continue;
