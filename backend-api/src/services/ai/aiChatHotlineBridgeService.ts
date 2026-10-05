@@ -7,6 +7,9 @@
 // docs/plans/iivanych-hotline-bridge-2026-10.md): вставка по PK атомарна,
 // статус строки всё время `pending`, снятие claim'а = возврат в очередь
 // без единой записи в ledger. Мета не синкается — маркер серверный.
+// Claim-first: мост забирает свежие pending до того, как их сможет
+// забрать DeepSeek — иначе 2-секундный тик движка всегда выигрывает
+// гонку и мост не успевает (поймано dry-run'ом v3.64.0).
 
 import { and, asc, eq, isNull } from 'drizzle-orm';
 
@@ -131,6 +134,7 @@ export async function listBridgedRequestIds(): Promise<Set<string>> {
   return ids;
 }
 
+
 /** Атомарный claim: вставка по PK — конфликт значит, что строку забрали раньше нас. */
 export async function tryClaim(id: string, now: number): Promise<boolean> {
   const value = JSON.stringify({ claimedAt: now, postedAt: null, relayMsgId: null, pagedAt: null });
@@ -245,20 +249,31 @@ export async function aiChatBridgeTick(now = nowMs()): Promise<BridgeTickSummary
   const byId = new Map(pending.map((r) => [String(r.id).toLowerCase(), r]));
   const meta = await readMeta().catch(() => new Map<string, string>());
 
+  // 0. Claim-first: свежие pending берёт мост, движок потом фильтрует
+  // (listBridgedRequestIds) — иначе гоночка двух воркеров 2 с vs 30 с.
+  for (const row of pending) {
+    const id = String(row.id);
+    if (meta.has(claimKey(id))) continue;
+    if (!(await tryClaim(id, now).catch(() => false))) continue;
+    meta.set(claimKey(id), JSON.stringify({ claimedAt: now, postedAt: null, relayMsgId: null, pagedAt: null }));
+  }
+
   // 1. Новые вопросы → релей.
   let posted = 0;
   for (const row of pending) {
     if (posted >= BATCH) break;
     const id = String(row.id);
-    if (meta.has(claimKey(id))) continue;
-    if (!(await tryClaim(id, now).catch(() => false))) continue;
+    const existingClaimRaw = meta.get(claimKey(id));
+    if (!existingClaimRaw) continue;
+    const existingClaim = parseClaim(existingClaimRaw) ?? { claimedAt: now, postedAt: null, relayMsgId: null, pagedAt: null };
+    if (existingClaim.postedAt) continue; // уже в relay
     const res = await relayPost({
       room: BRIDGE_ROOM,
       kind: 'question',
       text: buildBridgeText(row.questionText, id, !!row.questionFileJson),
     });
     if (res.ok) {
-      const claim: BridgeClaim = { claimedAt: now, postedAt: now, relayMsgId: res.id, pagedAt: null };
+      const claim: BridgeClaim = { claimedAt: existingClaim.claimedAt, postedAt: now, relayMsgId: res.id, pagedAt: null };
       await writeClaim(id, claim, now).catch(() => undefined);
       meta.set(claimKey(id), JSON.stringify(claim));
       summary.posted += 1;
@@ -295,6 +310,7 @@ export async function aiChatBridgeTick(now = nowMs()): Promise<BridgeTickSummary
         logError('ai chat bridge: close failed', { id: ref, error: String(e) });
       });
       await deleteClaim(ref).catch(() => undefined);
+      meta.delete(claimKey(ref));
       byId.delete(ref);
       summary.answered += 1;
       logInfo('ai chat bridge: answered by session', { id: ref });
@@ -314,7 +330,8 @@ export async function aiChatBridgeTick(now = nowMs()): Promise<BridgeTickSummary
       continue;
     }
     const ageFrom = claim.postedAt ?? claim.claimedAt;
-    if (now - ageFrom <= CLAIM_TIMEOUT_MS) continue;
+    const age = now - ageFrom;
+    if (age <= CLAIM_TIMEOUT_MS) continue;
     await deleteClaim(id).catch(() => undefined);
     summary.released += 1;
     logInfo('ai chat bridge: claim expired, back to pending', { id });
@@ -323,12 +340,13 @@ export async function aiChatBridgeTick(now = nowMs()): Promise<BridgeTickSummary
   // 4. Пейджинг: заявленные без ответа и без свежего присутствия — один алерт.
   const waiting: string[] = [];
   const claimsNow = await readMeta().catch(() => new Map<string, string>());
+  const pendingIds = new Set(byId.keys());
   for (const [key, raw] of claimsNow) {
     if (!key.startsWith(CLAIM_PREFIX)) continue;
     const id = key.slice(CLAIM_PREFIX.length);
     const claim = parseClaim(raw);
     if (!claim || claim.pagedAt) continue;
-    if (!byId.has(id.toLowerCase())) {
+    if (!pendingIds.has(id.toLowerCase())) {
       await deleteClaim(id).catch(() => undefined);
       continue;
     }
