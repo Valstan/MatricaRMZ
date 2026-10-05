@@ -275,6 +275,7 @@ describe('ступень «Этап на заводе» со справочни�
     const options = engineFacetOptions(stageRows, {}, 'factoryStage', STAGE_TYPES);
     expect(options.map((o) => o.value)).toEqual([
       'scrap',
+      'returns',
       'repaired',
       'stage:accepted',
       'stage:shipped',
@@ -312,7 +313,7 @@ describe('ступень «Этап на заводе» со справочни�
 
   it('без справочника постоянные этапы всё равно в ряду, этапы работ — по строкам', () => {
     const values = engineFacetOptions(stageRows, {}, 'factoryStage').map((o) => o.value);
-    expect(values.slice(0, 2)).toEqual(['scrap', 'repaired']);
+    expect(values.slice(0, 3)).toEqual(['scrap', 'returns', 'repaired']);
     expect(values).toContain('stage:sborka');
     expect(values).toContain('stage:scrap_branch');
     // Этап работ без кода получает ключ по имени — со справочником он стал бы `sheet:sborka`.
