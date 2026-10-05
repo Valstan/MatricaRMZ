@@ -619,9 +619,16 @@ export function listScrapPartNames(payload: unknown): string[] {
 
 /**
  * Начата ли дефектовка по payload листа (stage `engine_inventory`): есть хотя бы одна
- * строка с заполненными дефектовочными полями (repairable/scrap/replace > 0). Голая
- * приёмка (галочки комплектности без решений по деталям) — ещё не дефектовка.
+ * строка с РЕШЕНИЕМ оператора (утиль/замена > 0). Голая приёмка (галочки
+ * комплектности без решений по деталям) — ещё не дефектовка.
  * Используется авто-переходом двигателя в «Начат ремонт» при сохранении листа.
+ *
+ * Сырые поля, не normalizeEngineInventoryRow — но БЕЗ repairable_qty: нормализация
+ * выводит его из наличия (`quantity - scrap - replace`), поэтому выведенное значение
+ * лежит и в сыром поле сохранённой строки, и голая приёмка выглядела бы «начатой
+ * дефектовкой». Потерянных решений нет: сохранённый repairable всегда выведен
+ * (нормалайзер не читает ввод, а считает), осознанные решения живут в
+ * scrap_qty/replace_qty.
  */
 export function engineInventoryHasDefectData(payload: unknown): boolean {
   if (!payload || typeof payload !== 'object') return false;
@@ -633,11 +640,8 @@ export function engineInventoryHasDefectData(payload: unknown): boolean {
   if (!Array.isArray(rows)) return false;
   for (const raw of rows) {
     if (!raw || typeof raw !== 'object') continue;
-    // СЫРЫЕ поля, не normalizeEngineInventoryRow: нормализация выводит
-    // repairable_qty = quantity из одного лишь present=true, и голая приёмка
-    // выглядела бы «начатой дефектовкой».
     const rec = raw as Record<string, unknown>;
-    if (Number(rec.repairable_qty) > 0 || Number(rec.scrap_qty) > 0 || Number(rec.replace_qty) > 0) return true;
+    if (Number(rec.scrap_qty) > 0 || Number(rec.replace_qty) > 0) return true;
   }
   return false;
 }

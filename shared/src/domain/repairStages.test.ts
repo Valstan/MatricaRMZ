@@ -68,22 +68,33 @@ describe('снесённые коды читаются как преемники
   });
 
   it('субординация не бросает на старых строках', () => {
-    const stages = [{ code: 'kitting_done' as never, at: 100 }];
-    expect(findStageDateConflict(stages, 'otk', 50)).toBe('kitting_done');
+    const DAY1 = Date.UTC(2026, 8, 28);
+    const stages = [{ code: 'kitting_done' as never, at: DAY1 }];
+    expect(findStageDateConflict(stages, 'otk', DAY1 - 86_400_000)).toBe('kitting_done');
     expect(isStageBackwardMove(stages, 'sborka')).toBe(false);
   });
 });
 
-describe('текущее место — последний этап по времени', () => {
-  it('побеждает максимальная дата, прошлое обнуляется', () => {
+describe('текущее место — последний этап по времени (день, внутри дня — приоритет)', () => {
+  const DAY1 = Date.UTC(2026, 8, 27, 21, 0, 0);
+  const DAY2 = Date.UTC(2026, 8, 28, 21, 0, 0);
+  it('побеждает позднейший день, прошлое обнуляется', () => {
     const rows = [
-      { code: 'obkatka', at: 100 },
-      { code: 'sborka', at: 200 },
+      { code: 'obkatka', at: DAY1 },
+      { code: 'sborka', at: DAY2 },
     ];
-    expect(currentDatedStage(rows)).toEqual({ code: 'sborka', at: 200 });
+    expect(currentDatedStage(rows)).toEqual({ code: 'sborka', at: DAY2 });
   });
 
-  it('при равной дате — больший приоритет', () => {
+  it('внутри одного дня время не различаем — побеждает приоритет', () => {
+    const rows = [
+      { code: 'card_created', at: DAY1 + 54_000_000 },
+      { code: 'arrival', at: DAY1 },
+    ];
+    expect(currentDatedStage(rows)).toEqual({ code: 'arrival', at: DAY1 });
+  });
+
+  it('при равной секунде — больший приоритет', () => {
     const rows = [
       { code: 'otk', at: 100 },
       { code: 'sborka', at: 100 },
@@ -102,25 +113,36 @@ describe('текущее место — последний этап по вре�
   });
 });
 
-describe('субординация дат', () => {
-  it('ОТК раньше сборки — отказ с кодом сборки', () => {
-    const stages = [{ code: 'sborka' as const, at: 100 }];
-    expect(findStageDateConflict(stages, 'otk', 50)).toBe('sborka');
+describe('субординация дат (сравнение по дням, Москва)', () => {
+  // Полночь UTC — это 03:00 МСК тех же суток; константы выбраны с запасом,
+  // чтобы полночь/вечер точно лежали в нужных московских сутках.
+  const DAY1 = Date.UTC(2026, 8, 27, 21, 0, 0);
+  const DAY2 = Date.UTC(2026, 8, 28, 21, 0, 0);
+  const DAY1_LATE = Date.UTC(2026, 8, 28, 17, 0, 0);
+  it('ОТК днём раньше сборки — отказ с кодом сборки', () => {
+    const stages = [{ code: 'sborka' as const, at: DAY2 }];
+    expect(findStageDateConflict(stages, 'otk', DAY1)).toBe('sborka');
   });
 
   it('ОТК позже сборки — можно', () => {
-    const stages = [{ code: 'sborka' as const, at: 100 }];
-    expect(findStageDateConflict(stages, 'otk', 150)).toBeNull();
+    const stages = [{ code: 'sborka' as const, at: DAY1 }];
+    expect(findStageDateConflict(stages, 'otk', DAY2)).toBeNull();
+  });
+
+  it('внутри одного дня время не различаем (полночь vs момент нажатия — не нарушение)', () => {
+    const stages = [{ code: 'sborka' as const, at: DAY1_LATE }];
+    expect(findStageDateConflict(stages, 'otk', DAY1)).toBeNull();
+    expect(findStageDateConflict(stages, 'card_created', DAY1)).toBeNull();
   });
 
   it('боковая ветка в порядке не участвует', () => {
-    const stages = [{ code: 'scrap_branch' as const, at: 999 }];
-    expect(findStageDateConflict(stages, 'otk', 10)).toBeNull();
-    expect(findStageDateConflict([{ code: 'sborka' as const, at: 100 }], 'scrap_branch', 10)).toBeNull();
+    const stages = [{ code: 'scrap_branch' as const, at: DAY2 }];
+    expect(findStageDateConflict(stages, 'otk', DAY1)).toBeNull();
+    expect(findStageDateConflict([{ code: 'sborka' as const, at: DAY1 }], 'scrap_branch', DAY1)).toBeNull();
   });
 
   it('этапы без даты не участвуют', () => {
-    expect(findStageDateConflict([{ code: 'sborka' as const, at: null }], 'otk', 10)).toBeNull();
+    expect(findStageDateConflict([{ code: 'sborka' as const, at: null }], 'otk', DAY2)).toBeNull();
   });
 });
 

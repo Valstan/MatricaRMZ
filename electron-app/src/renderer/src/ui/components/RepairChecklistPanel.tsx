@@ -819,7 +819,7 @@ export function RepairChecklistPanel(props: {
             atMs: defectStartMs,
           });
           if (saved.ok) {
-            setStatus((s) => `${s} Этап «Разборка, дефектовка» отмечен.`);
+            setStatus((s) => `${s} Этап «Разборка/Дефектовка» отмечен.`);
           }
         }
       } catch {
@@ -1931,8 +1931,8 @@ export function RepairChecklistPanel(props: {
       const written = await save(next);
       if (!written) return;
       setStatus(`Комплектность проведена: дата осмотра — ${formatMoscowDate(today)}. Двигатель на этапе «Приемка».`);
-      // Этап «Приемка» проставляется сам (состав 05.10.2026: kitting_done снесён
-      // слиянием в arrival, пара к autoFrom kittingAct) — но вручную
+      // Этап «Приемка» проставляется сам (состав 05.10.2026: отдельный этап
+      // комплектности снесён слиянием в arrival, пара к autoFrom kittingAct) — но вручную
       // отмеченный важнее автоматического и не перезаписывается.
       // Этап не должен валить проведение: ошибки здесь только дописываются в статус.
       try {
@@ -2801,7 +2801,7 @@ export function RepairChecklistPanel(props: {
         {!collapsed && isInventoryStage && isCompletenessView && props.canEdit && (
           <Button
             disabled={completenessBusy}
-            title="Фиксирует акт комплектности: ставит дату осмотра (если она не заполнена — сегодняшнюю). По этой дате двигатель встаёт на этап «Комплектовка сделана» в отчёте «Двигатели на заводе: этапы ремонта»."
+            title="Фиксирует акт комплектности: ставит дату осмотра (если она не заполнена — сегодняшнюю). По этой дате двигатель встаёт на этап «Приемка» в отчёте «Двигатели на заводе: этапы ремонта»."
             onClick={() => void conductCompleteness()}
           >
             {completenessBusy ? 'Проводим…' : 'Провести комплектность'}

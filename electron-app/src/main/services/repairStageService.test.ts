@@ -66,7 +66,8 @@ describe('субординация дат', () => {  it('ОТК раньше с�
     await seed(db, [{ id: 's1', code: 'sborka', at: DAY1 }]);
     const res = await saveRepairStageRow(
       db,
-      { id: 's2', engineId: 'eng-1', code: 'otk', atMs: DAY1 - 1000 },
+      // Днём раньше по Москве: внутри одних суток время не различаем.
+      { id: 's2', engineId: 'eng-1', code: 'otk', atMs: DAY1 - 86_400_000 },
       'tester',
       DEFAULT_REPAIR_STAGE_TEMPLATES,
     );
@@ -225,7 +226,8 @@ describe('ensureRepairStageRow', () => {
   it('наследует субординацию дат ручного ввода', async () => {
     const { sqlite, db } = makeDb();
     await ensureRepairStageRow(db, 'eng-1', 'sborka', DAY1, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES);
-    const r = await ensureRepairStageRow(db, 'eng-1', 'otk', DAY1 - 1000, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES);
+    // Днём раньше по Москве: внутри одних суток время не различаем.
+    const r = await ensureRepairStageRow(db, 'eng-1', 'otk', DAY1 - 86_400_000, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES);
     expect(r.ok).toBe(false);
     expect(liveCount(sqlite)).toBe(1);
   });

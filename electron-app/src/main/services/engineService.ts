@@ -1206,9 +1206,15 @@ export async function createEngine(_db: BetterSQLite3Database, _actor?: string):
 
 // Deferred create (Phase 2): the entity row is materialized on the first real write to the
 // card — createEngine no longer inserts, so an empty card that's never edited leaves no ghost.
-export async function ensureEngineRow(db: BetterSQLite3Database, engineId: string, ts = nowMs()): Promise<void> {
+// Возвращает, создана ли строка сейчас: по ней пишется авто-этап №1 (ниже).
+export async function ensureEngineRow(
+  db: BetterSQLite3Database,
+  engineId: string,
+  ts = nowMs(),
+  actor?: string,
+): Promise<boolean> {
   const ent = await db.select({ id: entities.id }).from(entities).where(eq(entities.id, engineId)).limit(1);
-  if (ent[0]) return;
+  if (ent[0]) return false;
   await db.insert(entities).values({
     id: engineId,
     typeId: await getEngineTypeId(db),
@@ -1217,6 +1223,16 @@ export async function ensureEngineRow(db: BetterSQLite3Database, engineId: strin
     deletedAt: null,
     syncStatus: 'pending',
   });
+  // Создание карточки — этап №1 «Создание карточки двигателя» (таблица 05.10.2026):
+  // дата отметки = создание сущности. Best-effort, как остальные авто-метки, —
+  // карточка обязана сохраниться, даже если отметка не ляжет. Субординация не
+  // грозит (ранг 5 — нижний в линейке), дедуп — mark-if-absent.
+  try {
+    await ensureRepairStageRow(db, engineId, 'card_created', ts, actor?.trim() ? actor : 'local');
+  } catch {
+    /* авто-метка — не причина терять карточку */
+  }
+  return true;
 }
 
 export async function getEngineDetails(db: BetterSQLite3Database, id: string): Promise<EngineDetails> {
@@ -1554,7 +1570,7 @@ export async function setEngineAttribute(
   engineId: string,
   code: string,
   value: unknown,
-  _actor?: string,
+  actor?: string,
 ) {
   const ts = nowMs();
   const defs = await getEngineAttrDefs(db);
@@ -1590,7 +1606,7 @@ export async function setEngineAttribute(
     }
   }
 
-  await ensureEngineRow(db, engineId, ts);
+  await ensureEngineRow(db, engineId, ts, actor);
 
   // Update the NEWEST non-deleted row and collapse any other active duplicates so a
   // single active value remains (mirrors setEntityAttribute). The old code matched by
@@ -1636,6 +1652,19 @@ export async function setEngineAttribute(
 
   // Обновляем updated_at у сущности.
   await db.update(entities).set({ updatedAt: ts, syncStatus: 'pending' }).where(eq(entities.id, engineId));
+  // Дата прихода — в этап «Приемка» (таблица 05.10.2026): mark-if-absent, дату
+  // существующих строк правит только «История ремонта». Best-effort: правка
+  // поля уже легла выше, отметку её отсутствие не отменяет.
+  if (code === 'arrival_date') {
+    const at = typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.trunc(value) : null;
+    if (at !== null) {
+      try {
+        await ensureRepairStageRow(db, engineId, 'arrival', at, actor?.trim() ? actor : 'local');
+      } catch {
+        /* авто-метка — не причина терять правку */
+      }
+    }
+  }
   // IMPORTANT: do NOT write audit_log on each attribute change.
   // EngineDetailsPage saves many fields; high-level audit is recorded when the user finishes editing.
 }
