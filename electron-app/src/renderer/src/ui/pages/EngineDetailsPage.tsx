@@ -2017,7 +2017,10 @@ export function EngineDetailsPage(props: {
               </span>
             )}
           </div>
-          {internalDup ? (
+          {/* Дубль держим (красная строка — единственное, что здесь нужно оператору),
+              а пояснительный текст про журнал дефектовки снят: подсказка про клеймо
+              уже висит на вкладке дефектовки, где её и читают. */}
+          {internalDup && (
             <div style={{ marginTop: 4, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12, color: '#b91c1c' }}>{engineInternalNumberDuplicateMessage(internalDup)}</span>
               {props.onOpenEngine && (
@@ -2029,10 +2032,6 @@ export function EngineDetailsPage(props: {
                   открыть занявший →
                 </button>
               )}
-            </div>
-          ) : (
-            <div style={{ marginTop: 4, fontSize: 11, color: 'var(--subtle)' }}>
-              Номер из журнала дефектовки — его набивают на безымянные детали двигателя.
             </div>
           )}
         </>
@@ -2351,7 +2350,12 @@ export function EngineDetailsPage(props: {
       ? `Двигатель: внутр. ${internalNumberFull}`
       : 'Карточка двигателя';
   const contractLabelForChecklist = ((linkLists.contract_id ?? []).find((o) => o.id === contractId)?.label ?? '').trim();
-  const arrivalDateMsForChecklist = fromInputDate(arrivalDate);
+  // Акт комплектности и панель дефектовки получают СОХРАНЁННУЮ дату прихода
+  // (как вкладка «Платежи»), а не черновик поля: дата прихода — один источник
+  // для карточки, акта и этапа «Приемка», и незаписанный черновик в акт не должен
+  // попадать (иначе акт печатает дату, которой в базе нет).
+  const arrivalDateMsForChecklist =
+    fromInputDate(toInputDate(normalizeDateInput(props.engine.attributes?.arrival_date))) ?? fromInputDate(arrivalDate);
   // Бирка на один двигатель — те же поля, что у бирок из списка, но собранные из состояния
   // карточки: крайний день ремонта считаем сами (поступление + срок ремонта его договора),
   // в списке это же значение приезжает готовым из listEngines.

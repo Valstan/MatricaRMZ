@@ -370,6 +370,50 @@ describe('RepairChecklistPanel: проводка комплектности пи
   });
 });
 
+// Дата прихода = дата приёмки = дата акта комплектности (таблица 05.10.2026, PR4).
+// Замер прода 05.10: 1878 карточек с датой прихода, у 655 листов своя `arrival_date`,
+// у 100 — своя дата осмотра, и 60 движков с расхождением между карточкой и актом.
+// Пока лист тянет свою дату, это два носителя одной даты и они расходятся.
+describe('RepairChecklistPanel: дата приёма — из карточки, а не второй носитель', () => {
+  it('дата осмотра НЕ автозаполняется — иначе акт «проведён» без кнопки', () => {
+    // Ключевой вывод первого прогона смоука: автозаполнение `completeness_inspection_date`
+    // означало, что печатный акт уезжает с датой осмотра, которую никто не проводил.
+    // Единство даты достигается ЗНАЧЕНИЕМ (кнопка берёт дату карточки), а не автозаполнением.
+    const AUTOFILL = PANEL.slice(
+      PANEL.indexOf('const fillText'),
+      PANEL.indexOf('const fillText') + 4200,
+    );
+    expect(
+      AUTOFILL,
+      'дата осмотра снова заполняется из карточки — акт будет печатать несостоявшуюся проверку',
+    ).not.toContain("'completeness_inspection_date']");
+  });
+
+  it('проведение комплектности берёт дату карточки, а не «сегодня»', () => {
+    const CONDUCT = PANEL.slice(PANEL.indexOf('async function conductCompleteness()'));
+    expect(
+      CONDUCT.slice(0, 3000),
+      'кнопка снова пишет свою дату (Date.now) — это ровно тот второй носитель, который сняли',
+    ).toContain('cardArrival');
+    expect(CONDUCT.slice(0, 3000), 'дата приёма должна приходить из карточки').toContain('props.arrivalDate');
+    // Значение, которым пишут И лист, И этап, — одно: прежде этап уезжал на момент нажатия.
+    expect(CONDUCT.slice(0, 6000), 'лист и этап должны писаться одной датой').toContain(
+      'atMs: inspectionAt',
+    );
+  });
+
+  it('пустую дату прихода кнопка дописывает в карточку тем же путём, что и поле карточки', () => {
+    const CONDUCT = PANEL.slice(PANEL.indexOf('async function conductCompleteness()'));
+    expect(
+      CONDUCT.slice(0, 3600),
+      'дата осмотра в акте без даты прихода в карточке снова заводит второй носитель',
+    ).toContain("window.matrica.engines.setAttr(props.engineId, 'arrival_date', inspectionAt)");
+    // Право у этого вызова — engines.edit, а панель гейтится operations.edit: отказ
+    // обязан быть виден словами, иначе «мастер» увидит «проведено» при пустой карточке.
+    expect(CONDUCT.slice(0, 4200)).toContain('Дата прихода в карточке не заполнилась');
+  });
+});
+
 describe('RepairChecklistPanel: блок «Базовые детали» раскрыт с первого захода (D5, владелец 17.09.2026)', () => {
   it('базовые детали открыты по умолчанию, остальные — свёрнуты', () => {
     expect(PANEL).toContain('const [baseGroupOpen, setBaseGroupOpen] = useState(true);');

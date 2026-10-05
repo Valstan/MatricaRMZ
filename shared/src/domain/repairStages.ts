@@ -224,6 +224,13 @@ export type SaveRepairStageInput = {
   /** Осознанный повторный проход (ответ на гейт дублей), начиная с 2. */
   repeatPass?: number;
   repeatReason?: string;
+  /**
+   * Ответ на вопрос про смену даты дефектовки (dual-entry, PR4). Без него запись
+   * с другой датой у уже существующей строки `disassembly_defect` не проходит —
+   * возвращается `defectDateChange`, экран спрашивает и повторяет с этим флагом.
+   * Автоматы флаг не передают (им mark-if-absent, гейт не касается).
+   */
+  confirmDefectDate?: boolean;
 };
 
 export type SaveRepairStageResult =
@@ -232,6 +239,8 @@ export type SaveRepairStageResult =
       ok: false;
       error: string;
       duplicate?: { refs: WorkSheetDuplicateRef[]; nextPass: number; typeName: string; atMs: number };
+      /** Смена даты дефектовки требует подтверждения: сейчас в базе `currentAtMs`. */
+      defectDateChange?: { currentAtMs: number; nextAtMs: number; typeName: string };
     };
 
 /**

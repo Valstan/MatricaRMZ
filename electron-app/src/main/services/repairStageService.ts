@@ -124,9 +124,24 @@ export async function saveRepairStageRow(
     if (text(existing.engineEntityId) !== engineId) {
       return { ok: false, error: 'Строку нельзя перевесить на другой двигатель — удалите и заведите заново' };
     }
-    // Дефектовка — фиксированная дата: при обновлении листа дефектовки дата не меняется
-    if (template.code === 'disassembly_defect' && existingMeta.at && existingMeta.at !== atMs) {
-      return { ok: false, error: 'Дата разборки/дефектовки фиксирована — при обновлении листа она не меняется' };
+    // Dual-entry дефектовки (PR4): этап ставится и кнопкой «Провести дефектовку»,
+    // и вручную с датой. Прежде это был жёсткий отказ — ручной ввод оказывался
+    // невозможен, стоило авто-метке создать строку первой. Теперь это вопрос:
+    // несохранённая дата листа не должна молча перетираться, но и запрещать
+    // оператору поставить дату нельзя. Без `confirmDefectDate` — отказ с данными
+    // для вопроса; с ним запись идёт. Автоматы флаг не передают: `ensure`
+    // mark-if-absent и в этот гейт не попадает.
+    if (
+      template.code === 'disassembly_defect' &&
+      existingMeta.at &&
+      existingMeta.at !== atMs &&
+      input.confirmDefectDate !== true
+    ) {
+      return {
+        ok: false,
+        error: `Дата разборки/дефектовки уже стоит: ${moscowDayKey(existingMeta.at)}`,
+        defectDateChange: { currentAtMs: existingMeta.at, nextAtMs: atMs, typeName: template.name },
+      };
     }
   }
 
