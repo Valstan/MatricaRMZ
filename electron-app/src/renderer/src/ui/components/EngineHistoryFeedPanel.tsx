@@ -74,6 +74,17 @@ export function EngineHistoryFeedPanel(props: {
   const [stageDate, setStageDate] = useState('');
   const [stageNote, setStageNote] = useState('');
   const [pendingPass, setPendingPass] = useState<{ pass: number; id: string; code: string; atMs: number; note: string } | null>(null);
+  // Смена даты дефектовки (dual-entry, PR4): сервис спрашивает, лента переспрашивает
+  // оператора и повторяет запись с `confirmDefectDate`.
+  const [pendingDefectDate, setPendingDefectDate] = useState<{
+    id: string;
+    code: string;
+    atMs: number;
+    note?: string;
+    workshopId?: string;
+    workshopName?: string;
+    currentAtMs: number;
+  } | null>(null);
   const [addingManual, setAddingManual] = useState(false);
   const [draftDate, setDraftDate] = useState('');
   const [draftAction, setDraftAction] = useState('');
@@ -128,7 +139,18 @@ export function EngineHistoryFeedPanel(props: {
     setStageNote('');
   }
 
-  async function writeStage(args: { id: string; code: string; atMs: number; note?: string; workshopId?: string; workshopName?: string; repeatPass?: number }) {
+  async function writeStage(
+    args: {
+      id: string;
+      code: string;
+      atMs: number;
+      note?: string;
+      workshopId?: string;
+      workshopName?: string;
+      repeatPass?: number;
+      confirmDefectDate?: boolean;
+    },
+  ) {
     setBusy(true);
     try {
       const r = await window.matrica.workSheets.stages.save({ ...args, engineId: props.engineId });
@@ -137,11 +159,27 @@ export function EngineHistoryFeedPanel(props: {
         setStatus(`Такой этап за этот день уже есть — записать проходом № ${r.duplicate.nextPass}?`);
         return;
       }
+      if (!r.ok && r.defectDateChange) {
+        setPendingDefectDate({
+          id: args.id,
+          code: args.code,
+          atMs: args.atMs,
+          ...(args.note ? { note: args.note } : {}),
+          ...(args.workshopId ? { workshopId: args.workshopId } : {}),
+          ...(args.workshopName ? { workshopName: args.workshopName } : {}),
+          currentAtMs: r.defectDateChange.currentAtMs,
+        });
+        setStatus(
+          `Дата разборки/дефектовки уже стоит: ${formatMoscowDate(new Date(r.defectDateChange.currentAtMs))}. Поставить ${formatMoscowDate(new Date(r.defectDateChange.nextAtMs))}? Лист дефектовки свою дату не поменяет.`,
+        );
+        return;
+      }
       if (!r.ok) {
         setStatus(`Ошибка: ${r.error}`);
         return;
       }
       setPendingPass(null);
+      setPendingDefectDate(null);
       resetStageForm();
       setAddingStage(false);
       setStatus(r.backward ? `«${templateName(args.code)}» — возврат назад, записан проход № ${r.pass}.` : '');
@@ -354,6 +392,32 @@ export function EngineHistoryFeedPanel(props: {
             Записать проходом № {pendingPass.pass}
           </Button>
           <Button variant="ghost" onClick={() => { setPendingPass(null); setStatus(''); }}>
+            Отмена
+          </Button>
+        </div>
+      )}
+
+      {/* Смена даты дефектовки вручную (dual-entry): авто-метка могла поставить дату
+          раньше оператора — его дату спрашиваем, а не отказываем. */}
+      {pendingDefectDate && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Button
+            data-repair-stage-confirm-defect-date
+            onClick={() =>
+              void writeStage({
+                id: pendingDefectDate.id,
+                code: pendingDefectDate.code,
+                atMs: pendingDefectDate.atMs,
+                ...(pendingDefectDate.note ? { note: pendingDefectDate.note } : {}),
+                ...(pendingDefectDate.workshopId ? { workshopId: pendingDefectDate.workshopId } : {}),
+                ...(pendingDefectDate.workshopName ? { workshopName: pendingDefectDate.workshopName } : {}),
+                confirmDefectDate: true,
+              })
+            }
+          >
+            Поставить {formatMoscowDate(new Date(pendingDefectDate.atMs))}
+          </Button>
+          <Button variant="ghost" onClick={() => { setPendingDefectDate(null); setStatus(''); }}>
             Отмена
           </Button>
         </div>

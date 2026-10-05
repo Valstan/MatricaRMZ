@@ -53,8 +53,8 @@ function makeDb() {
 const DAY1 = Date.UTC(2026, 8, 28, 9, 0, 0);
 const DAY2 = Date.UTC(2026, 8, 29, 9, 0, 0);
 
-describe('PR-F: фиксированная дата дефектовки и снятие утиля', () => {
-  it('дефектовка не меняет дату при обновлении', async () => {
+describe('PR-F: dual-entry даты дефектовки и снятие утиля', () => {
+  it('смена даты дефектовки спрашивает, а не запрещает (PR4)', async () => {
     const { db } = makeDb();
     const first = await saveRepairStageRow(
       db,
@@ -64,15 +64,60 @@ describe('PR-F: фиксированная дата дефектовки и сн
     );
     expect(first.ok).toBe(true);
 
-    const second = await saveRepairStageRow(
+    const asked = await saveRepairStageRow(
       db,
       { id: 'd1', engineId: 'eng-1', code: 'disassembly_defect', atMs: DAY2 },
       'tester',
       DEFAULT_REPAIR_STAGE_TEMPLATES,
     );
-    expect(second.ok).toBe(false);
-    if (second.ok) throw new Error('expected defect date to stay fixed');
-    expect(second.error).toContain('Дата разборки/дефектовки фиксирована');
+    expect(asked.ok).toBe(false);
+    if (asked.ok) throw new Error('expected a question, not a silent overwrite');
+    expect(asked.defectDateChange).toEqual({ currentAtMs: DAY1, nextAtMs: DAY2, typeName: 'Разборка/Дефектовка' });
+  });
+
+  it('после подтверждения дату меняет (тот же день — без вопроса)', async () => {
+    const { db } = makeDb();
+    await saveRepairStageRow(
+      db,
+      { id: 'd1', engineId: 'eng-1', code: 'disassembly_defect', atMs: DAY1 },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+
+    const confirmed = await saveRepairStageRow(
+      db,
+      { id: 'd1', engineId: 'eng-1', code: 'disassembly_defect', atMs: DAY2, confirmDefectDate: true },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(confirmed.ok).toBe(true);
+
+    // Тот же день спрашивать незачем — экономим вопрос на каждое автосохранение листа.
+    const sameDay = await saveRepairStageRow(
+      db,
+      { id: 'd1', engineId: 'eng-1', code: 'disassembly_defect', atMs: DAY2 },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(sameDay.ok).toBe(true);
+  });
+
+  it('остальным этапам вопрос не касается', async () => {
+    const { db } = makeDb();
+    await saveRepairStageRow(
+      db,
+      { id: 'u1', engineId: 'eng-1', code: 'ukladka', atMs: DAY1 },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    const moved = await saveRepairStageRow(
+      db,
+      { id: 'u1', engineId: 'eng-1', code: 'ukladka', atMs: DAY2 },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(moved.ok).toBe(true);
+    expect(moved, 'укладка не должна попадать под вопрос о дате дефектовки').not.toHaveProperty('defectDateChange');
   });
 
   it('укладка снимает все метки утиля и ставит их в очередь синка', async () => {

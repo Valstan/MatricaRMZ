@@ -5,9 +5,13 @@
  *  [1] Каждая акт-вкладка показывает проводку СВОЕГО акта: на «Акте комплектности» в шапке
  *      панели стоит «Провести комплектность» и нет «Провести дефектовку», на «Акте
  *      дефектовки» — наоборот. Кнопки взаимоисключающие по виду акта, а не по правам.
- *  [2] Первое нажатие ставит СЕГОДНЯШНЮЮ дату в поле «Дата осмотра (акт комплектности)»
+ *  [2] Первое нажатие ставит ДАТУ ПРИЁМА в поле «Дата осмотра (акт комплектности)»
  *      блока «Оформление» и говорит об этом строкой статуса. Кнопка — ярлык к полю: она
  *      пишет ровно то, что оператор написал бы руками, и поле немедленно это показывает.
+ *      Источник даты — карточка, а не «сегодня» (PR4: дата прихода = дата приёмки = дата
+ *      акта комплектности; второй носитель той же даты разводил акт с этапом — на проде
+ *      было 60 движков с расхождением). У движка без даты прихода кнопка дописывает её в
+ *      карточку, поэтому ожидаемая дата = дата прихода, если она есть, иначе сегодня.
  *  [3] Ответ проводки ПЕРЕЖИВАЕТ «Сохранено». Сохранение гасит свою строку через 700 мс;
  *      до D2 этот таймер стирал ЛЮБОЙ статус, и сообщение проводки исчезало на глазах.
  *      Поэтому статус проверяется дважды: сразу и через две секунды.
@@ -25,8 +29,8 @@
  *      кнопка не уходит за правый край панели.
  *  [7] Дата доезжает до отчёта: в «Двигатели на заводе: этапы ремонта» двигатель стоит в
  *      группе «Приемка двигателя на завод» (состав 05.10.2026: kitting_done снесён
- *      слиянием в arrival), и в колонке «Дата этапа» — сегодняшний день. Раньше
- *      эта группа была единственной без даты этапа.
+ *      слиянием в arrival), и в колонке «Дата этапа» — дата приёма. Раньше эта группа
+ *      была единственной без даты этапа.
  *
  * Двигатель для прогона выбирается НЕ «первый попавшийся»: у него не должно быть признаков
  * ВЫШЕ комплектовки (утиль, «отремонтирован», этап работ, акт дефектовки) — иначе отчёт
@@ -107,7 +111,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** Ожидание — снаружи страницы: цикл внутри одного evaluate висел бы до таймаута CDP. */
 async function waitFor(expr, label, timeout = 25000) {
   const t0 = Date.now();
-  while (Date.now() - t0 < timeout) { if (await ev(expr)) return true; await sleep(300); }
+  // Ошибку evaluate глотаем и ждём дальше: страница в это время может быть В ПЕРЕХОДЕ
+  // (список открыт только что), и `window.matrica`/`window.__cb` на пару секунд исчезают.
+  // Раньше первое же исключение вылетало наружу, и шаг краснел мгновенно — не дожидаясь
+  // данных, которых он ждал, и не отличив «ещё едет» от «сломано».
+  while (Date.now() - t0 < timeout) {
+    try { if (await ev(expr)) return true; } catch { /* страница переехала — пробуем снова */ }
+    await sleep(300);
+  }
   throw new Error('timeout: ' + label);
 }
 const steps = [];
@@ -258,6 +269,17 @@ window.__cb = {
       ru: new Date(ms).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }),
     };
   },
+  // То же, что today(), но для произвольной даты (дата прихода движка может быть не сегодня).
+  day(ms){
+    const n = new Date(ms);
+    const p = (x) => String(x).padStart(2, '0');
+    return {
+      ms: ms,
+      dmy: p(n.getDate()) + '.' + p(n.getMonth() + 1) + '.' + n.getFullYear(),
+      ymd: n.getFullYear() + '-' + p(n.getMonth() + 1) + '-' + p(n.getDate()),
+      ru: new Date(ms).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }),
+    };
+  },
   ymd(ms){
     if (!ms) return '';
     const d = new Date(ms);
@@ -280,8 +302,27 @@ window.__cb = {
       filledAt: payload && payload.filledAt ? Number(payload.filledAt) : null,
       completenessMs: Number.isFinite(ms) && ms > 0 ? ms : null,
       completeness: window.__cb.ymd(Number.isFinite(ms) && ms > 0 ? ms : null),
+      // Дата прихода карточки — источник даты приёма (PR4). Читаем её мостом: без неё
+      // шаг [2] ждал бы «сегодня» у движка, который приехал вчера, и падал бы впустую.
+      cardArrivalMs: await window.__cb.cardArrival(engineId),
       rows: ((a.engine_inventory_items && a.engine_inventory_items.rows) || []).length,
     };
+  },
+  /** Снимает строку этапа «Приемка» у двигателя (разбор прогона: см. вызов). */
+  async clearArrivalStage(engineId){
+    const r = await window.matrica.workSheets.stages.list(engineId);
+    const rows = r && r.ok && Array.isArray(r.rows) ? r.rows : [];
+    const hit = rows.find((x) => x.code === 'arrival');
+    if (!hit) return { ok: true, removed: 0 };
+    const del = await window.matrica.workSheets.stages.remove(hit.id);
+    return { ok: !!(del && del.ok), removed: del && del.ok ? 1 : 0, at: hit.at };
+  },
+  /** Сохранённая дата прихода двигателя (ms) или null. */
+  async cardArrival(engineId){
+    const e = await window.matrica.engines.get(engineId);
+    const v = e && e.attributes ? e.attributes.arrival_date : null;
+    const n = typeof v === 'number' ? v : Number(v);
+    return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
   },
   /**
    * Фикстура строки деталей: кнопка проводки честно отказывает на пустом акте («акт без строк —
@@ -470,11 +511,31 @@ const ENG = JSON.stringify(eng.id);
 const today = await ev(`window.__cb.today()`);
 warn(`сегодня: поле «${today.dmy}», статус и отчёт «${today.ru}»`);
 
+// Ожидаемая дата приёма = дата прихода карточки, а у движка без неё — сегодня (кнопка
+// допишет её). Считаем ДО прогона: шаг [2] сверяет лист и поле именно с этим числом.
+const arrivalAtStart = await ev(`window.__cb.cardArrival(${ENG})`);
+const expectMs = arrivalAtStart ?? today.ms;
+const expect = expectMs === today.ms ? today : await ev(`window.__cb.day(${expectMs})`);
+warn(`дата прихода движка: ${arrivalAtStart ? expect.ru : 'нет'} → ждём дату приёма «${expect.ru}»`);
+
+// Этап «Приемка» снимаем: он ставится mark-if-absent, и уже стоящая строка (в т.ч. от
+// прежних прогонов этого драйвера, когда кнопка писала «сегодня») не переписывается никогда —
+// шаг [7] тогда проверял бы старую дату, а не результат проводки. Вернём этап в уборке
+// тем же путём, что и карточка: `setAttr(arrival_date)` сам отметит его заново.
+const arrivalStageCleared = await ev(`window.__cb.clearArrivalStage(${ENG})`);
+step(
+  'этап «Приемка» снят перед прогоном (mark-if-absent иначе проверил бы старые данные)',
+  arrivalStageCleared?.ok === true,
+  JSON.stringify(arrivalStageCleared),
+);
+
 const before = await ev(`window.__cb.read(${ENG})`);
 warn(`исходно: дата осмотра «${before?.completeness || '—'}», строк в листе ${before?.rows ?? 0}, лист ${before?.hasPayload ? 'есть' : 'ещё не создан'}`);
 
 // Чистый старт: проводка пишет только в ПУСТОЕ поле, иначе первое же нажатие ответит
-// «уже проведена» и шаг [2] нечего было бы проверять. Прежнее значение вернём в уборке.
+// «уже проведена» и шаг [2] нечего было бы проверять. Чистим ДО входа в карточку:
+// панель читает лист один раз при монтировании, и очистка после открытия осталась бы
+// в еёuseState-снимке (мост пишет мимо React). Прежнее значение вернём в уборке.
 if (before?.completenessMs) {
   const cleared = await ev(`window.__cb.setCompleteness(${ENG}, null)`);
   const now = await ev(`window.__cb.read(${ENG})`);
@@ -570,7 +631,7 @@ await shot('1-completeness-head');
 
 /* ── 4. [2][3] Первое нажатие: дата в поле, ответ строкой статуса и он не гаснет ───────── */
 
-console.log('\n[2] Нажатие ставит сегодняшнюю дату в поле и говорит об этом');
+console.log('\n[2] Нажатие ставит дату приёма в поле и говорит об этом');
 const clicked = await ev(`(() => {
   const row = window.__cb.headRow(${ENG});
   const b = row ? [...row.querySelectorAll('button')].find((x) => window.__cb.txt(x) === ${JSON.stringify(CONDUCT_COMPLETENESS)}) : null;
@@ -580,25 +641,25 @@ step(`«${CONDUCT_COMPLETENESS}» нажата`, clicked === true);
 
 let wroteToSheet = false;
 try {
-  await waitFor(`window.__cb.read(${ENG}).then(r => r.completenessMs === ${today.ms})`, 'дата осмотра легла в лист', 20000);
+  await waitFor(`window.__cb.read(${ENG}).then(r => r.completeness === ${JSON.stringify(expect.ymd)})`, 'дата осмотра легла в лист', 20000);
   wroteToSheet = true;
 } catch { /* ассерт ниже скажет, чего не хватило */ }
 const afterFirst = await ev(`window.__cb.read(${ENG})`);
 step(
   'дата осмотра доехала до листа мостом (пишется тем же путём, что любая правка акта)',
-  wroteToSheet && afterFirst?.completenessMs === today.ms,
-  `в листе «${afterFirst?.completeness || '—'}», ждали ${today.ms}`,
+  wroteToSheet && afterFirst?.completeness === expect.ymd,
+  `в листе «${afterFirst?.completeness || '—'}», ждали ${expect.ymd}`,
 );
 
 let fieldFilled = false;
 try {
-  await waitFor(`window.__cb.fieldValue('Оформление', ${JSON.stringify(COMPLETENESS_LABEL)}) === ${JSON.stringify(today.dmy)}`, 'поле показало сегодняшнюю дату', 15000);
+  await waitFor(`window.__cb.fieldValue('Оформление', ${JSON.stringify(COMPLETENESS_LABEL)}) === ${JSON.stringify(expect.dmy)}`, 'поле показало дату приёма', 15000);
   fieldFilled = true;
 } catch { /* ниже */ }
 step(
-  `поле «${COMPLETENESS_LABEL}» показывает сегодняшний день (кнопка — ярлык к полю)`,
+  `поле «${COMPLETENESS_LABEL}» показывает дату приёма (кнопка — ярлык к полю)`,
   fieldFilled,
-  `в поле «${await ev(`window.__cb.fieldValue('Оформление', ${JSON.stringify(COMPLETENESS_LABEL)})`)}», ждали «${today.dmy}»`,
+  `в поле «${await ev(`window.__cb.fieldValue('Оформление', ${JSON.stringify(COMPLETENESS_LABEL)})`)}», ждали «${expect.dmy}»`,
 );
 
 let statusSeen = '';
@@ -608,7 +669,7 @@ try {
 statusSeen = await ev(`window.__cb.statusText(${ENG})`);
 step(
   'статус называет проводку и дату',
-  String(statusSeen || '').startsWith('Комплектность проведена') && String(statusSeen || '').includes(today.ru),
+  String(statusSeen || '').startsWith('Комплектность проведена') && String(statusSeen || '').includes(expect.ru),
   `«${statusSeen || '—'}»`,
 );
 await shot('2-conducted');
@@ -640,7 +701,7 @@ try {
 const statusRepeat = await ev(`window.__cb.statusText(${ENG})`);
 step(
   'панель отвечает «уже проведена» и называет ту же дату',
-  String(statusRepeat || '').startsWith('Комплектность уже проведена') && String(statusRepeat || '').includes(today.ru),
+  String(statusRepeat || '').startsWith('Комплектность уже проведена') && String(statusRepeat || '').includes(expect.ru),
   `«${statusRepeat || '—'}»`,
 );
 // Даём фору на круг сохранения: если бы запись пошла, filledAt к этому моменту сменился бы.
@@ -652,8 +713,8 @@ step(
   `было ${beforeSecond?.filledAt ?? '—'}, стало ${afterSecond?.filledAt ?? '—'}`,
 );
 step(
-  'дата осмотра не изменилась вторым нажатием',
-  afterSecond?.completenessMs === today.ms,
+  'дата осмотра не изменилась вторым нажатием (тот же день)',
+  afterSecond?.completeness === expect.ymd,
   `в листе «${afterSecond?.completeness || '—'}»`,
 );
 
@@ -786,16 +847,31 @@ console.log('\n[7] Отчёт показывает у двигателя эта�
 await closeAllTabs();
 await sleep(1000);
 step('список «Двигатели» открыт (он перечитывает каталог для отчёта)', await openSection('Производство', 'Двигатели'));
-let listSawDate = false;
+let listDateSeen = '';
 try {
+  // Ждём появления значения и сравниваем ДЕНЬ в Node: `window.__cb` живёт только в
+  // странице, а на этом шаге она как раз в переходе после смены вкладки — ждать
+  // на помощнике значит ждать на том, чего нет (и падать по таймауту, а не по данным).
   await waitFor(
-    `window.matrica.engines.list().then(r => (r?.items ?? r?.rows ?? r ?? []).some(e => String(e.id) === ${ENG} && Number(e.completenessActDate) === ${today.ms}))`,
+    `window.matrica.engines.list().then(r => {
+      const rows = (r && (r.items || r.rows || r)) || [];
+      const e = rows.filter((x) => String(x.id) === ${ENG})[0];
+      return e && e.completenessActDate ? String(e.completenessActDate) : "";
+    })`,
     'строка списка несёт дату комплектности',
-    20000,
+    45000,
   );
-  listSawDate = true;
-} catch { /* ниже */ }
-step('main отдаёт дату осмотра строкой списка (`completenessActDate`)', listSawDate);
+  listDateSeen = await ev(`window.matrica.engines.list().then(r => {
+    const rows = (r && (r.items || r.rows || r)) || [];
+    const e = rows.filter((x) => String(x.id) === ${ENG})[0];
+    return e && e.completenessActDate ? String(e.completenessActDate) : "";
+  })`);
+} catch (e) {
+  warn(`waitFor упал: ${String((e && e.message) || e)}`);
+}
+const listDay = listDateSeen ? new Date(Number(listDateSeen)).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' }) : '';
+warn(`список отдаёт дату осмотра «${listDay || '—'}», ждали «${expect.ru}»`);
+step('main отдаёт дату осмотра строкой списка (`completenessActDate`), и это день прихода', listDay === expect.ru);
 await sleep(1500);
 await ensureHelpers();
 
@@ -846,9 +922,9 @@ if (reportRow && reportRow.stageAt == null) {
   );
 } else {
   step(
-    'в колонке «Дата этапа» — сегодняшний день (раньше у этой группы дата была пуста всегда)',
-    reportRow?.stageAt === today.ru,
-    `в ячейке «${reportRow?.stageAt ?? '—'}», ждали «${today.ru}»`,
+    'в колонке «Дата этапа» — дата приёма (раньше у этой группы дата была пуста всегда)',
+    reportRow?.stageAt === expect.ru,
+    `в ячейке «${reportRow?.stageAt ?? '—'}», ждали «${expect.ru}»`,
   );
 }
 if (reportRow?.group) {
@@ -881,6 +957,24 @@ step(
   restored?.ok !== false && (back?.completenessMs ?? null) === (before?.completenessMs ?? null),
   JSON.stringify({ стало: back?.completeness || '—', было: before?.completeness || '—', save: restored?.error ?? 'ok' }),
 );
+// Этап «Приемка» возвращаем тем же путём, что и карточка: `setAttr(arrival_date)`
+// сам ставит его mark-if-absent. Без этого стенд остался бы без arrival-строки.
+if (arrivalAtStart) {
+  await ev(`window.matrica.engines.setAttr(${ENG}, 'arrival_date', ${arrivalAtStart})`);
+  await sleep(1200);
+  // setAttr возвращает void — судим по факту: этап стоит снова и с прежней датой.
+  const stagesAfter = await ev(`window.matrica.workSheets.stages.list(${ENG})`);
+  const arr = (stagesAfter && stagesAfter.ok && Array.isArray(stagesAfter.rows)
+    ? stagesAfter.rows.find((x) => x.code === 'arrival')
+    : null);
+  const arrDay = arr ? await ev(`window.__cb.ymd(Number(${JSON.stringify(arr.at)}))`) : '';
+  step(
+    'этап «Приемка» возвращён на прежнюю дату прихода (setAttr отметил его mark-if-absent)',
+    arrDay === expect.ymd,
+    `в этапе «${arrDay || '—'}», ждали ${expect.ymd}`,
+  );
+}
+
 // Свёрнутость «Оформления» — привычка оператора: вернём, как было до прогона.
 if (formWasOpen === false) {
   try {
