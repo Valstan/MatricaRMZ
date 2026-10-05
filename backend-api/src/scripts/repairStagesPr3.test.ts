@@ -3,13 +3,42 @@ import { describe, expect, it } from 'vitest';
 import { buildConvertedMetaJson, decideKittingRow } from './mergeKittingToArrival.js';
 import { canonicalStageMetaJson } from './refreshStageNames.js';
 import { PR3_CANONICAL_STAGE_NAMES } from './pr3StageNames.js';
-import { buildRepairHistoryMeta, REPAIR_STAGE_CODES } from '@matricarmz/shared';
+import { camelOperationRowForSync } from './pr3SyncRow.js';
+import {
+  buildRepairHistoryMeta,
+  REPAIR_STAGE_CODES,
+  SyncTableName,
+  SyncTableRegistry,
+  syncRowSchemaByTable,
+} from '@matricarmz/shared';
 
 // PR3 данные: слияние kitting→arrival и обновление имён (чистые функции).
 
 describe('frozen canonical map', () => {
   it('покрывает ровно реестр (kitting снесён — его здесь нет)', () => {
     expect(Object.keys(PR3_CANONICAL_STAGE_NAMES).sort()).toEqual([...REPAIR_STAGE_CODES].sort());
+  });
+});
+
+describe('camelOperationRowForSync', () => {
+  it('сырая pg-строка (snake, bigint строкой) через toSyncRow проходит валидатор операций', () => {
+    const raw = {
+      id: '11111111-1111-4111-8111-111111111111',
+      engine_entity_id: '22222222-2222-4222-8222-222222222222',
+      operation_type: 'repair_history_entry',
+      status: 'done',
+      note: 'Этап: Сборка',
+      performed_at: '1791147600000',
+      performed_by: 'tester',
+      meta_json: '{"kind":"repair_history"}',
+      created_at: '1791147600001',
+      updated_at: '1791147600002',
+      last_server_seq: null,
+      deleted_at: null,
+      sync_status: 'synced',
+    };
+    const dto = SyncTableRegistry.toSyncRow(SyncTableName.Operations, camelOperationRowForSync(raw));
+    expect(syncRowSchemaByTable[SyncTableName.Operations].safeParse(dto).success).toBe(true);
   });
 });
 
