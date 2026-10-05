@@ -2,9 +2,16 @@ import { describe, expect, it } from 'vitest';
 
 import { buildConvertedMetaJson, decideKittingRow } from './mergeKittingToArrival.js';
 import { canonicalStageMetaJson } from './refreshStageNames.js';
-import { buildRepairHistoryMeta } from '@matricarmz/shared';
+import { PR3_CANONICAL_STAGE_NAMES } from './pr3StageNames.js';
+import { buildRepairHistoryMeta, REPAIR_STAGE_CODES } from '@matricarmz/shared';
 
 // PR3 данные: слияние kitting→arrival и обновление имён (чистые функции).
+
+describe('frozen canonical map', () => {
+  it('покрывает ровно реестр (kitting снесён — его здесь нет)', () => {
+    expect(Object.keys(PR3_CANONICAL_STAGE_NAMES).sort()).toEqual([...REPAIR_STAGE_CODES].sort());
+  });
+});
 
 describe('decideKittingRow', () => {
   it('есть arrival — гасим kitting (дубль)', () => {
