@@ -1,13 +1,13 @@
 import {
   parseRepairHistoryMeta,
   REPAIR_STAGE_CODES,
-  repairStageTemplate,
   SyncTableName,
   SyncTableRegistry,
 } from '@matricarmz/shared';
 
 import { pool } from '../database/db.js';
 import { writeSyncChanges, type SyncWriteActor, type SyncWriteInput } from '../services/sync/syncWriteService.js';
+import { pr3CanonicalName } from './pr3StageNames.js';
 
 // stages:refresh-names — перевод подписей stage-строк на канонические имена
 // реестра (таблица этапов 05.10.2026, единый источник имён).
@@ -39,7 +39,8 @@ const KNOWN = new Set<string>(REPAIR_STAGE_CODES);
 export function canonicalStageMetaJson(metaJson: string): string | null {
   const meta = parseRepairHistoryMeta(metaJson);
   if (!meta?.stage || !KNOWN.has(meta.stage.code)) return null;
-  const name = repairStageTemplate(meta.stage.code as (typeof REPAIR_STAGE_CODES)[number]).name;
+  const name = pr3CanonicalName(meta.stage.code);
+  if (!name) return null;
   if (meta.stage.name === name && meta.action === name) return null;
   return JSON.stringify({ ...meta, action: name, stage: { code: meta.stage.code, name } });
 }

@@ -1,12 +1,12 @@
 import {
   parseRepairHistoryMeta,
-  repairStageTemplate,
   SyncTableName,
   SyncTableRegistry,
 } from '@matricarmz/shared';
 
 import { pool } from '../database/db.js';
 import { writeSyncChanges, type SyncWriteActor, type SyncWriteInput } from '../services/sync/syncWriteService.js';
+import { pr3CanonicalName } from './pr3StageNames.js';
 
 // stages:merge-kitting — снос `kitting_done` слиянием в `arrival`
 // (таблица этапов 05.10.2026, решение владельца).
@@ -43,7 +43,8 @@ export function buildConvertedMetaJson(metaJson: string): string {
   if (!meta?.stage || meta.stage.code !== 'kitting_done') {
     throw new Error('не kitting-строка — решение устарело');
   }
-  const name = repairStageTemplate('arrival').name;
+  const name = pr3CanonicalName('arrival');
+  if (!name) throw new Error('нет канона arrival — решение устарело');
   const at = typeof meta.at === 'number' && Number.isFinite(meta.at) && meta.at > 0 ? meta.at : undefined;
   return JSON.stringify({
     ...meta,

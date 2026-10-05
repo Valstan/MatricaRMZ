@@ -14,6 +14,7 @@ import {
 
 import { pool } from '../database/db.js';
 import { writeSyncChanges, type SyncWriteActor, type SyncWriteInput } from '../services/sync/syncWriteService.js';
+import { pr3CanonicalName } from './pr3StageNames.js';
 
 // stages:backfill — разовый перенос ранее введённых этапов в строки единого
 // списка (план unified-repair-stages-2026-09, шаг 3).
@@ -61,7 +62,7 @@ const STATUS_TO_STAGE: Array<{ flag: string; date: string; stage: RepairStageCod
 const SKIPPED_STATUS_FLAGS = ['status_repair_started', 'status_repaired', 'status_storage_received'];
 
 const templateName = (code: RepairStageCode): string =>
-  DEFAULT_REPAIR_STAGE_TEMPLATES.find((t) => t.code === code)?.name ?? code;
+  pr3CanonicalName(code) ?? DEFAULT_REPAIR_STAGE_TEMPLATES.find((t) => t.code === code)?.name ?? code;
 
 /** Детерминированный uuid строки переноса: повтор не плодит. */
 function stageRowId(engineId: string, code: string, dayKey: string): string {
