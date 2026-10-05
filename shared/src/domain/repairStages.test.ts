@@ -1,35 +1,104 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  currentDatedStage,
   DEFAULT_REPAIR_STAGE_TEMPLATES,
   findStageDateConflict,
   isBulkStageCandidate,
   isStageBackwardMove,
+  repairStageRank,
   repairStageTemplate,
+  resolveStageCode,
   sortStagesByDate,
 } from './repairStages.js';
 
-describe('шаблон этапов (состав 28.09.2026)', () => {
+describe('шаблон этапов (состав 05.10.2026)', () => {
   it('линейка из 9 + боковая ветка, приоритеты строго растут', () => {
     expect(DEFAULT_REPAIR_STAGE_TEMPLATES).toHaveLength(10);
     const line = DEFAULT_REPAIR_STAGE_TEMPLATES.filter((t) => !t.sideBranch).map((t) => t.sortOrder);
-    expect(line).toEqual([10, 20, 30, 40, 50, 60, 70, 80, 90]);
+    expect(line).toEqual([5, 10, 20, 40, 50, 60, 70, 80, 90]);
   });
 
-  it('«Вал» не этап, «Отправлен» и «Принят» — разные этапы', () => {
+  it('«Вал» не этап, «Отгрузка» и «Приемка заказчиком» — разные этапы', () => {
     const codes = DEFAULT_REPAIR_STAGE_TEMPLATES.map((t) => t.code);
     expect(codes).not.toContain('val');
     expect(codes).toContain('shipped');
     expect(codes).toContain('accepted');
   });
 
+  it('kitting_done снесён слиянием в arrival — в реестре его нет', () => {
+    const codes = DEFAULT_REPAIR_STAGE_TEMPLATES.map((t) => t.code);
+    expect(codes).not.toContain('kitting_done');
+    expect(codes).toContain('arrival');
+    expect(codes).toContain('card_created');
+  });
+
   it('дефектовка — этап-автомат (кнопка + вручную)', () => {
     expect(repairStageTemplate('disassembly_defect').autoFrom).toBe('defectAct');
   });
 
-  it('обкатка — только вручную (шаг 8: создание строк закрыто, автомат мёртв)', () => {
+  it('приемка — этап-автомат акта комплектности (бывший kitting_done)', () => {
+    expect(repairStageTemplate('arrival').autoFrom).toBe('kittingAct');
+  });
+
+  it('обкатка и карточка — только вручную', () => {
     expect(repairStageTemplate('obkatka').autoFrom).toBeUndefined();
-    expect(repairStageTemplate('kitting_done').autoFrom).toBe('kittingAct');
+    expect(repairStageTemplate('card_created').autoFrom).toBeUndefined();
+  });
+
+  it('имена линейки — по таблице этапов 05.10 (единый источник)', () => {
+    const names = new Map(DEFAULT_REPAIR_STAGE_TEMPLATES.map((t) => [t.code, t.name]));
+    expect(names.get('card_created')).toBe('Создание карточки двигателя');
+    expect(names.get('arrival')).toBe('Приемка двигателя на завод');
+    expect(names.get('disassembly_defect')).toBe('Разборка/Дефектовка');
+    expect(names.get('ukladka')).toBe('Укладка вала');
+    expect(names.get('sborka')).toBe('Сборка двигателя');
+    expect(names.get('obkatka')).toBe('Обкатка двигателя');
+    expect(names.get('shipped')).toBe('Отгрузка двигателя заказчику');
+    expect(names.get('accepted')).toBe('Приемка двигателя заказчиком');
+  });
+});
+
+describe('снесённые коды читаются как преемники (до миграции строк)', () => {
+  it('kitting_done резолвится в arrival везде', () => {
+    expect(resolveStageCode('kitting_done')).toBe('arrival');
+    expect(resolveStageCode('KITTING_DONE')).toBe('arrival');
+    expect(repairStageRank('kitting_done')).toBe(10);
+    expect(repairStageTemplate('kitting_done').code).toBe('arrival');
+  });
+
+  it('субординация не бросает на старых строках', () => {
+    const stages = [{ code: 'kitting_done' as never, at: 100 }];
+    expect(findStageDateConflict(stages, 'otk', 50)).toBe('kitting_done');
+    expect(isStageBackwardMove(stages, 'sborka')).toBe(false);
+  });
+});
+
+describe('текущее место — последний этап по времени', () => {
+  it('побеждает максимальная дата, прошлое обнуляется', () => {
+    const rows = [
+      { code: 'obkatka', at: 100 },
+      { code: 'sborka', at: 200 },
+    ];
+    expect(currentDatedStage(rows)).toEqual({ code: 'sborka', at: 200 });
+  });
+
+  it('при равной дате — больший приоритет', () => {
+    const rows = [
+      { code: 'otk', at: 100 },
+      { code: 'sborka', at: 100 },
+    ];
+    expect(currentDatedStage(rows)).toEqual({ code: 'otk', at: 100 });
+  });
+
+  it('бездатые и пусто — места нет', () => {
+    expect(currentDatedStage([{ code: 'sborka', at: null }])).toBeNull();
+    expect(currentDatedStage([])).toBeNull();
+  });
+
+  it('старая строка kitting_done читается как приемка', () => {
+    const rows = [{ code: 'kitting_done', at: 50 }];
+    expect(currentDatedStage(rows)).toEqual({ code: 'arrival', at: 50 });
   });
 });
 

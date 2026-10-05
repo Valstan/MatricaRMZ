@@ -146,7 +146,7 @@ describe('лента не потеряла то, ради чего её стро
     expect(CHECKLIST).toContain("window.matrica.workSheets.stages.save({");
     expect(CHECKLIST).toContain("code: 'disassembly_defect'");
     expect(CHECKLIST).toContain('!rows.some((r) => r.code ===');
-    expect(CHECKLIST).toContain("code: 'kitting_done'");
+    expect(CHECKLIST).toContain("code: 'arrival'");
   });
 
   // Дефектовка 30.09.2026: этап вставал датой НАЖАТИЯ кнопки, а не «Дата разборки/дефектовки»

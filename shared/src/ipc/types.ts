@@ -120,7 +120,8 @@ export type EngineListItem = {
   hasCompletenessAct?: boolean;
   /**
    * Дата осмотра из акта комплектности (`answers.completeness_inspection_date`) — ею
-   * датируется этап «Комплектовка сделана» в отчёте. `hasCompletenessAct` отвечает на другой
+   * датируется этап «Приемка» в отчёте (состав 05.10.2026: kitting_done снесён
+   * слиянием в arrival). `hasCompletenessAct` отвечает на другой
    * вопрос — «акт начали заполнять» (хотя бы одна деталь отмечена «на месте»).
    */
   completenessActDate?: number | null;

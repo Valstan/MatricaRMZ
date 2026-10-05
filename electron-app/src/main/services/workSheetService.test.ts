@@ -344,7 +344,7 @@ describe('шаблонный этап из карточки в списке', ()
     expect(rows.find((r) => r.id === 'st-1')).toMatchObject({
       origin: 'stage',
       typeCode: 'sborka',
-      typeName: 'Сборка',
+      typeName: 'Сборка двигателя',
       fields: [],
       engineNumber: 'ДВ-1',
     });

@@ -23,7 +23,8 @@ import { writeSyncChanges, type SyncWriteActor, type SyncWriteInput } from '../s
 //     ukladka/sborka/obkatka → этапы тех же кодов, дата и проход сохраняются;
 //     val и свои узлы пропускаются (не этапы) — счётчик skipped-unknown-node;
 //   - EAV arrival_date → arrival; defect_date → disassembly_defect;
-//   - листы engine_inventory (answers.completeness_inspection_date) → kitting_done;
+//   - листы engine_inventory (answers.completeness_inspection_date) → arrival
+//     (состав 05.10.2026: kitting_done снесён слиянием в arrival);
 //   - EAV-статусы с датами: customer_sent → shipped, customer_accepted → accepted,
 //     scrap_confirmed/rework_sent/rejected → scrap_branch.
 // Не переносятся осознанно (счётчики): repair_started и storage_received (нет
@@ -103,7 +104,7 @@ async function main(): Promise<void> {
     'sheet→stage': 0,
     'arrival_date→arrival': 0,
     'defect_date→disassembly_defect': 0,
-    'kitting→kitting_done': 0,
+    'kitting→arrival': 0,
     'status→stage': 0,
     'skipped-unknown-node': 0,
     'skipped-no-date': 0,
@@ -209,7 +210,7 @@ async function main(): Promise<void> {
       | undefined;
     const at = field?.kind === 'date' && typeof field.value === 'number' ? num(field.value) : null;
     if (at === null) continue;
-    candidates.push({ engineId: String(r.engine_entity_id), code: 'kitting_done', at, pass: 1, source: 'kitting→kitting_done' });
+    candidates.push({ engineId: String(r.engine_entity_id), code: 'arrival', at, pass: 1, source: 'kitting→arrival' });
   }
 
   // Уже имеющиеся stage-строки — дедуп-опора.

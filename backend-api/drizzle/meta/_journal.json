@@ -736,6 +736,13 @@
       "when": 1790899200005,
       "tag": "0105_engine_cards_strict",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1791199233394,
+      "tag": "0106_repair_stage_registry",
+      "breakpoints": true
     }
   ]
 }
