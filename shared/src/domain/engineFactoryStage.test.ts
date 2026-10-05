@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import type { EngineListItem } from '../ipc/types.js';
-import { engineFactoryStage, engineFactoryStageOrder, isEngineAtPlant } from './engineFactoryStage.js';
+import {
+  ENGINE_FACTORY_STAGE_LABELS,
+  engineFactoryStage,
+  engineFactoryStageOrder,
+  isEngineAtPlant,
+} from './engineFactoryStage.js';
 
 const TYPES = [
   { code: 'ukladka', name: 'Укладка', sortOrder: 10 },
@@ -119,10 +124,11 @@ describe('engineFactoryStage — побеждает поздний призна�
 });
 
 describe('engineFactoryStageOrder — ряд групп от позднего к раннему', () => {
-  it('утиль, отремонтирован, единый список (поздние выше), виды работ, дефектовка, комплектовка, начат, пришёл', () => {
+  it('утиль, возвраты, отремонтирован, единый список (поздние выше), виды работ, дефектовка, комплектовка, начат, пришёл', () => {
     const keys = engineFactoryStageOrder(TYPES).map((g) => g.key);
     expect(keys).toEqual([
       'scrap',
+      'returns',
       'repaired',
       'stage:accepted',
       'stage:shipped',
@@ -206,6 +212,33 @@ describe('engineFactoryStage — строки единого списка (ша�
   it('утиль выше этапа — флаг решает', () => {
     const s = engineFactoryStage(
       engine({ isScrap: true, lastStageCode: 'sborka', lastStageName: 'Сборка', lastStageAt: 21 * DAY }),
+      TYPES,
+    );
+    expect(s.key).toBe('scrap');
+  });
+
+  // Решение владельца 05.10.2026: проход ≥ 2 — отдельная строка «Возвраты».
+  it('возврат назад (проход ≥ 2) уходит из группы этапа в строку «Возвраты»', () => {
+    const s = engineFactoryStage(
+      engine({ lastStageCode: 'sborka', lastStageName: 'Сборка', lastStageAt: 21 * DAY, lastStagePass: 2 }),
+      TYPES,
+    );
+    expect(s).toMatchObject({ key: 'returns', at: 21 * DAY });
+    // Дата этапа сохраняется: видно, на каком этапе движок стоит, даже вынутого из группы.
+    expect(s.label).toBe(ENGINE_FACTORY_STAGE_LABELS.returns);
+  });
+
+  it('первый проход остаётся в группе своего этапа (возвратов нет)', () => {
+    expect(engineFactoryStage(engine({ lastStageCode: 'sborka', lastStageAt: 21 * DAY, lastStagePass: 1 }), TYPES).key).toBe(
+      'stage:sborka',
+    );
+    // Старая реплика поля не знает — отсутствие это первый проход, а не «неизвестно».
+    expect(engineFactoryStage(engine({ lastStageCode: 'sborka', lastStageAt: 21 * DAY }), TYPES).key).toBe('stage:sborka');
+  });
+
+  it('утиль бьёт возврат: уход в брак важнее повторного прохода', () => {
+    const s = engineFactoryStage(
+      engine({ isScrap: true, lastStageCode: 'sborka', lastStageAt: 21 * DAY, lastStagePass: 3 }),
       TYPES,
     );
     expect(s.key).toBe('scrap');

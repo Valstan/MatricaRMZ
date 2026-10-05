@@ -501,6 +501,8 @@ export type EngineRepairHistorySummary = {
   lastStageCode: string;
   lastStageName: string;
   lastStageAt: number | null;
+  /** Проход последнего этапа; нет — первый (возвраты в отчёте считаются отдельной строкой). */
+  lastStagePass?: number;
 };
 
 /**
@@ -624,6 +626,10 @@ export async function getEngineRepairHistoryMap(
       lastStageCode: stageCode,
       lastStageName: stageName,
       lastStageAt: stageAt > 0 ? stageAt : null,
+      // Проход последнего этапа: ≥2 — возврат назад по линейке. Отчёту нужна отдельная
+      // строка «Возвраты» (решение владельца 05.10.2026), а по коду и дате повторный
+      // заход от обычного прохода не отличить.
+      ...(stagePass > 1 ? { lastStagePass: stagePass } : {}),
     });
   }
   repairHistoryCache = { stamp, map: new Map(result) };
@@ -1163,6 +1169,7 @@ export async function listEngines(
       ...(history?.lastStageCode ? { lastStageCode: history.lastStageCode } : {}),
       ...(history?.lastStageName ? { lastStageName: history.lastStageName } : {}),
       ...(history?.lastStageAt != null ? { lastStageAt: history.lastStageAt } : {}),
+      ...(history?.lastStagePass != null ? { lastStagePass: history.lastStagePass } : {}),
       ...(lastActivityAt > 0 ? { lastActivityAt } : {}),
       ...(isReclamation ? { isReclamation: true } : {}),
       ...(isRepeatArrival ? { isRepeatArrival: true } : {}),

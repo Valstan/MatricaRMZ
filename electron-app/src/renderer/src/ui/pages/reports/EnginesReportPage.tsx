@@ -136,7 +136,10 @@ export function EnginesReportPage(props: ListReportPageProps) {
       { id: 'shippingDate', label: 'Дата отгрузки', kind: 'date', render: (e) => fmtDate(e.shippingDate), sortValue: (e) => e.shippingDate ?? 0 },
       { id: 'daysOnSite', label: 'Дней на заводе', kind: 'num', render: (e) => (e.daysOnSite == null ? HUMAN_LABEL_DASH : String(e.daysOnSite)), sortValue: (e) => e.daysOnSite ?? -1 },
       { id: 'state', label: 'Состояние', kind: 'name', render: (e) => e.state, sortValue: (e) => e.state, alwaysVisible: true },
-      { id: 'stage', label: 'Этап на заводе', kind: 'name', render: (e) => e.stage.label, sortValue: (e) => e.stage.rank },
+      // У строки «Возвраты» `stage.label` занят названием группы, поэтому этап берём из
+      // `stageLabel`: колонка зовётся «Этап на заводе» и должна называть этап, а не видеться
+      // признаком повтора (он виден в отчёте по этапам и в ступени «Этап на заводе»).
+      { id: 'stage', label: 'Этап на заводе', kind: 'name', render: (e) => e.stage.stageLabel ?? e.stage.label, sortValue: (e) => e.stage.rank },
       { id: 'scrap', label: 'Утиль', kind: 'text', render: (e) => yesNo(e.isScrap), sortValue: (e) => (e.isScrap ? 1 : 0) },
       { id: 'scrapReason', label: 'Причина утиля', kind: 'text', render: (e) => text(e.scrapReason), sortValue: (e) => text(e.scrapReason) },
       { id: 'scrapAt', label: 'Дата утиля', kind: 'date', render: (e) => fmtDate(engineScrapDate(e)), sortValue: (e) => engineScrapDate(e) ?? 0 },
@@ -165,7 +168,7 @@ export function EnginesReportPage(props: ListReportPageProps) {
   const deep = useListDeepFilter(
     rows,
     (r) => r.id,
-    (r) => [r.engineNumber, r.internalNumberFull, r.engineBrand, r.customerName, r.contractName, r.workshopName, r.state, r.stage.label, r.scrapReason, r.lastStageName].map(text).join(' '),
+    (r) => [r.engineNumber, r.internalNumberFull, r.engineBrand, r.customerName, r.contractName, r.workshopName, r.state, r.stage.label, r.stage.stageLabel ?? '', r.scrapReason, r.lastStageName].map(text).join(' '),
     ui.query,
     { entityBacked: false, mode: searchModeOf(ui.searchSimilar) },
   );

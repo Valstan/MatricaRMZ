@@ -25,6 +25,12 @@ export type EngineFactoryStage = {
   rank: number;
   /** Дата этапа, когда она есть у строки списка (приход, дефектовка, этап работ). */
   at: number | null;
+  /**
+   * Настоящий этап строки, когда `label` занят группой. У строки «Возвраты» `label` —
+   * это про повторный проход, а колонке «Этап на заводе» нужно, на каком этапе движок
+   * стоит («Сборка»). Есть только у возвратов; для остальных `label` уже называет этап.
+   */
+  stageLabel?: string;
 };
 
 export type EngineFactoryStageTypeRef = { code: string; name: string; sortOrder?: number };
@@ -39,6 +45,8 @@ export const ENGINE_FACTORY_STAGE_RANK = {
   /** База для строк единого списка: `50 + индекс этапа по шаблону`. Выше узлов — строка ведётся оператором сейчас. */
   stageBase: 50,
   repaired: 100,
+  /** Возвраты — выше готового и ниже утиля: повторный заход виден сразу, но это не отказ. */
+  returns: 900,
   scrap: 1000,
 } as const;
 
@@ -48,6 +56,7 @@ export const ENGINE_FACTORY_STAGE_LABELS = {
   completenessAct: 'Комплектовка сделана',
   defectAct: 'Дефектовка сделана',
   repaired: 'Отремонтирован',
+  returns: 'Возвраты (повторный проход)',
   scrap: 'Утиль',
 } as const;
 
@@ -124,6 +133,15 @@ function sheetStage(
   };
 }
 
+/**
+ * Проход последнего этапа из строки списка: 1 — первый, ≥2 — возврат назад.
+ * Поле необязательное (старые реплики его не знают), поэтому отсутствие = первый проход.
+ */
+export function returnsPass(e: Pick<EngineListItem, 'lastStagePass'>): number {
+  const n = Number(e.lastStagePass);
+  return Number.isFinite(n) && n > 1 ? Math.floor(n) : 1;
+}
+
 /** Дата стадии карточки из строки списка (`status_<code>_date`); нет — `null`. */
 export function engineStatusDate(e: Pick<EngineListItem, 'statusDates'>, code: StatusCode): number | null {
   return dateMs(e.statusDates?.[code]);
@@ -189,7 +207,25 @@ export function engineFactoryStage(
   // и акты. Возврат (сборка после обкатки при взведённом «Отремонтирован») — это она:
   // место — сборка, а не готовый. Утиль выше — его решает флаг, а не строка.
   const stage = stageRow(e, stageTemplates);
-  if (stage) return stage;
+  if (stage) {
+    // Возврат назад по линейке (проход ≥ 2) — ОТДЕЛЬНОЙ строкой (решение владельца
+    // 05.10.2026). Не «ещё один этап»: двигатель, который гоняли второй раз, в группе
+    // своего этапа неотличим от never-возвращавшегося, а это ровно то, что цеху видеть.
+    // Поэтому такие двигатели уходят из групп этапов — иначе строка «Возвраты» была бы
+    // пустой, а счётчики этапов врали бы. Утиль выше: уход в брак важнее повтора.
+    if (returnsPass(e) >= 2) {
+      return {
+        key: 'returns',
+        label: ENGINE_FACTORY_STAGE_LABELS.returns,
+        // Этап, на котором движок стоит, — иначе строка «Возвраты» была бы списком
+        // без указания, что там с двигателем, а колонка «Этап на заводе» врала бы.
+        stageLabel: stage.label,
+        rank: ENGINE_FACTORY_STAGE_RANK.returns,
+        at: stage.at,
+      };
+    }
+    return stage;
+  }
   if (flags.status_repaired === true) {
     return { key: 'repaired', label: ENGINE_FACTORY_STAGE_LABELS.repaired, rank: ENGINE_FACTORY_STAGE_RANK.repaired, at: engineStatusDate(e, 'status_repaired') };
   }
@@ -218,8 +254,8 @@ export function engineFactoryStage(
 
 /**
  * Полный ряд групп отчёта от позднего к раннему (для порядка групп и пустых групп в шапке):
- * утиль, отремонтирован, единый список по шаблону (поздние выше), этапы работ по видам,
- * дефектовка, комплектовка, ремонт начат, пришёл.
+ * утиль, возвраты, отремонтирован, единый список по шаблону (поздние выше), этапы работ
+ * по видам, дефектовка, комплектовка, ремонт начат, пришёл.
  */
 export function engineFactoryStageOrder(
   types?: readonly EngineFactoryStageTypeRef[],
@@ -238,6 +274,7 @@ export function engineFactoryStageOrder(
     .map((t) => ({ key: `stage:${t.code}`, label: t.name, rank: ENGINE_FACTORY_STAGE_RANK.repairStarted }));
   return [
     { key: 'scrap', label: ENGINE_FACTORY_STAGE_LABELS.scrap, rank: ENGINE_FACTORY_STAGE_RANK.scrap },
+    { key: 'returns', label: ENGINE_FACTORY_STAGE_LABELS.returns, rank: ENGINE_FACTORY_STAGE_RANK.returns },
     { key: 'repaired', label: ENGINE_FACTORY_STAGE_LABELS.repaired, rank: ENGINE_FACTORY_STAGE_RANK.repaired },
     ...lineStages,
     ...sheets.reverse(),
