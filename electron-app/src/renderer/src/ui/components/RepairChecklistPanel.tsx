@@ -797,7 +797,7 @@ export function RepairChecklistPanel(props: {
             `${synced?.error ? `: ${synced.error}` : ''}. Личные номера экземпляров появятся после синхронизации.`,
         );
       }
-      // Этап «Разборка, дефектовка» проставляется сам (план unified-repair-stages,
+      // Этап «Разборка/Дефектовка» проставляется сам (план unified-repair-stages,
       // шаг 4) — но вручную отмеченный важнее автоматического и не перезаписывается.
       // Этап не должен валить проведение: ошибки здесь только дописываются в статус.
       // Дата этапа — «Дата разборки/дефектовки» из вкладки акта (`defect_start_date`),
@@ -1894,7 +1894,7 @@ export function RepairChecklistPanel(props: {
 
   /**
    * «Провести комплектность» — ярлык к полю «Дата осмотра (акт комплектности)»: ставит
-   * сегодняшний день, если дата пуста. По ней двигатель встаёт на этап «Комплектовка сделана»
+   * сегодняшний день, если дата пуста. По ней двигатель встаёт на этап «Приемка»
    * в отчёте, и у этапа появляется дата — раньше эта группа была единственной без неё.
    *
    * Серверной транзакции нет намеренно: в отличие от дефектовки, здесь не двигаются ни остатки,
@@ -1930,23 +1930,23 @@ export function RepairChecklistPanel(props: {
     try {
       const written = await save(next);
       if (!written) return;
-      setStatus(`Комплектность проведена: дата осмотра — ${formatMoscowDate(today)}. Двигатель на этапе «Комплектовка сделана».`);
-      // Этап «Комплектовка сделана» проставляется сам (шаг 8 плана: пара к
-      // autoFrom kittingAct, зеркало блока дефектовки ниже) — но вручную
+      setStatus(`Комплектность проведена: дата осмотра — ${formatMoscowDate(today)}. Двигатель на этапе «Приемка».`);
+      // Этап «Приемка» проставляется сам (состав 05.10.2026: kitting_done снесён
+      // слиянием в arrival, пара к autoFrom kittingAct) — но вручную
       // отмеченный важнее автоматического и не перезаписывается.
       // Этап не должен валить проведение: ошибки здесь только дописываются в статус.
       try {
         const stages = await window.matrica.workSheets.stages.list(props.engineId);
         const rows = stages.ok ? stages.rows : [];
-        if (!rows.some((r) => r.code === 'kitting_done')) {
+        if (!rows.some((r) => r.code === 'arrival')) {
           const saved = await window.matrica.workSheets.stages.save({
             id: crypto.randomUUID(),
             engineId: props.engineId,
-            code: 'kitting_done',
+            code: 'arrival',
             atMs: today,
           });
           if (saved.ok) {
-            setStatus((s) => `${s} Этап «Комплектовка сделана» отмечен.`);
+            setStatus((s) => `${s} Этап «Приемка» отмечен.`);
           }
         }
       } catch {

@@ -184,7 +184,7 @@ describe('читатель', () => {
     ]);
     const rows = await listRepairStageRows(db, 'eng-1');
     expect(rows).toHaveLength(2);
-    expect(rows.find((r) => r.code === 'sborka')).toMatchObject({ name: 'Сборка', pass: 1 });
+    expect(rows.find((r) => r.code === 'sborka')).toMatchObject({ name: 'Сборка двигателя', pass: 1 });
     expect(await listRepairStageRows(db, 'eng-2')).toEqual([]);
   });
 });

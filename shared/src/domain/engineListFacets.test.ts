@@ -227,13 +227,13 @@ describe('ступени этапов: «Есть этап» и «Последн
   it('ряд ступеней полный и в порядке шаблона: новый этап виден до того, как в нём никого нет', () => {
     const options = engineFacetOptions(stageCodeRows, {}, 'hasStage');
     expect(options[0]?.value).toBe('stage:accepted');
-    expect(options.find((o) => o.value === 'stage:sborka')).toMatchObject({ label: 'Сборка' });
+    expect(options.find((o) => o.value === 'stage:sborka')).toMatchObject({ label: 'Сборка двигателя' });
     expect(options[options.length - 1]).toMatchObject({ value: 'none', label: 'этапов нет' });
   });
 
   it('подпись берётся из шаблона, а не из сырого кода', () => {
     const options = engineFacetOptions(stageCodeRows, {}, 'lastStage');
-    expect(options.find((o) => o.value === 'stage:obkatka')?.label).toBe('Обкатка');
+    expect(options.find((o) => o.value === 'stage:obkatka')?.label).toBe('Обкатка двигателя');
   });
 
   it('счётчик «Есть этап» считает двигатели по каждому их этапу', () => {
@@ -282,9 +282,9 @@ describe('ступень «Этап на заводе» со справочни�
       'stage:obkatka',
       'stage:sborka',
       'stage:ukladka',
-      'stage:kitting_done',
       'stage:disassembly_defect',
       'stage:arrival',
+      'stage:card_created',
       'sheet:obkatka',
       'sheet:sborka',
       'sheet:ukladka',

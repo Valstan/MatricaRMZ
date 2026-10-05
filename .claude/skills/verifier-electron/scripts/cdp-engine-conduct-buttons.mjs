@@ -24,7 +24,8 @@
  *      действие, которое молчит). Плюс узкое окно 1024 px: ряд шапки переносится и ни одна
  *      кнопка не уходит за правый край панели.
  *  [7] Дата доезжает до отчёта: в «Двигатели на заводе: этапы ремонта» двигатель стоит в
- *      группе «Комплектовка сделана», и в колонке «Дата этапа» — сегодняшний день. Раньше
+ *      группе «Приемка двигателя на завод» (состав 05.10.2026: kitting_done снесён
+ *      слиянием в arrival), и в колонке «Дата этапа» — сегодняшний день. Раньше
  *      эта группа была единственной без даты этапа.
  *
  * Двигатель для прогона выбирается НЕ «первый попавшийся»: у него не должно быть признаков
@@ -63,7 +64,7 @@ const COMPLETENESS_LABEL = 'Дата осмотра (акт комплектно
 const CONDUCT_COMPLETENESS = 'Провести комплектность';
 const CONDUCT_DEFECT = 'Провести дефектовку';
 const REPORT_TITLE = 'Двигатели на заводе: этапы ремонта';
-const COMPLETENESS_STAGE_LABEL = 'Комплектовка сделана';
+const COMPLETENESS_STAGE_LABEL = 'Приемка двигателя на завод';
 const NARROW_WIDTH = 1024;
 // Метка строки-фикстуры: по ней уборка снимает ровно свою строку и не трогает чужие.
 const SEED_MARK = 'СМОУК D2 — строка фикстуры';
@@ -433,7 +434,7 @@ await waitFor(`!!document.querySelector('.v3-tab-strip')`, 'оболочка v3'
 await closeAllTabs();
 await ensureHelpers();
 
-/* ── 1. Двигатель стенда: годный для этапа «Комплектовка сделана» ──────────────────────── */
+/* ── 1. Двигатель стенда: годный для этапа «Приемка двигателя на завод» ──────────────────────── */
 
 const eng = await ev(`(async () => {
   const r = await window.matrica.engines.list();
@@ -659,15 +660,15 @@ step(
 /* ── 6. [5] «Провести дефектовку» переехала, а не раздвоилась ──────────────────────────── */
 
 console.log('\n[5] Дефектовка: кнопка в шапке, рамка хвоста без кнопки');
-step('вкладка «Акт дефектовки» открылась', await openActTab('Акт дефектовки'));
+step('вкладка «Акт разборки/дефектовки» открылась', await openActTab('Акт разборки/дефектовки'));
 const headDefect = await ev(`window.__cb.headButtons(${ENG})`);
 step(
-  `в шапке «Акта дефектовки» есть «${CONDUCT_DEFECT}»`,
+  `в шапке «Акта разборки/дефектовки» есть «${CONDUCT_DEFECT}»`,
   Array.isArray(headDefect) && headDefect.includes(CONDUCT_DEFECT),
   JSON.stringify(headDefect),
 );
 step(
-  `на дефектовке НЕТ «${CONDUCT_COMPLETENESS}»`,
+  `на разборке/дефектовке НЕТ «${CONDUCT_COMPLETENESS}»`,
   Array.isArray(headDefect) && !headDefect.includes(CONDUCT_COMPLETENESS),
   JSON.stringify(headDefect),
 );
@@ -718,7 +719,7 @@ async function toggleCollapse(label) {
     return window.__cb.click(b);
   })()`);
 }
-for (const [tab, label] of [['Акт дефектовки', CONDUCT_DEFECT], ['Акт комплектности', CONDUCT_COMPLETENESS]]) {
+for (const [tab, label] of [['Акт разборки/дефектовки', CONDUCT_DEFECT], ['Акт комплектности', CONDUCT_COMPLETENESS]]) {
   if (!(await openActTab(tab))) { step(`вкладка «${tab}» открылась для проверки свёрнутости`, false); continue; }
   await toggleCollapse('Свернуть');
   await sleep(700);
@@ -779,7 +780,7 @@ if (!narrowApplied) {
 
 /* ── 8. [7] Отчёт «Двигатели на заводе: этапы ремонта» ─────────────────────────────────── */
 
-console.log('\n[7] Отчёт показывает у двигателя этап «Комплектовка сделана» с датой');
+console.log('\n[7] Отчёт показывает у двигателя этап «Приемка двигателя на завод» с датой');
 // Каталог двигателей приложения перечитывается при входе в список «Двигатели» — оттуда же
 // строки берёт отчёт. Без этого захода отчёт нарисовал бы список, загруженный до проводки.
 await closeAllTabs();
