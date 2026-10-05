@@ -2,7 +2,6 @@ import {
   parseRepairHistoryMeta,
   SyncTableName,
   SyncTableRegistry,
-  type SyncWriteInput,
 } from '@matricarmz/shared';
 
 import { pool } from '../database/db.js';
