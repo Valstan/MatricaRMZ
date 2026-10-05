@@ -71,7 +71,7 @@ async function main(): Promise<void> {
 
   const params: unknown[] = args.engine ? [args.engine] : [];
   const kitting = (await pool.query(
-    `SELECT o.id::text AS id, o.engine_entity_id::text AS engine_id, o.meta_json
+    `SELECT o.id::text AS id, o.engine_entity_id::text AS "engineId", o.meta_json
        FROM operations o
       WHERE o.operation_type = 'repair_history_entry' AND o.deleted_at IS NULL
         AND o.meta_json::json->'stage'->>'code' = 'kitting_done'
@@ -83,14 +83,14 @@ async function main(): Promise<void> {
   const withArrival = new Set<string>();
   if (engineIds.length > 0) {
     const arr = (await pool.query(
-      `SELECT DISTINCT o.engine_entity_id::text AS engine_id
+      `SELECT DISTINCT o.engine_entity_id::text AS "engineId"
          FROM operations o
         WHERE o.operation_type = 'repair_history_entry' AND o.deleted_at IS NULL
           AND o.meta_json::json->'stage'->>'code' = 'arrival'
           AND o.engine_entity_id = ANY($1)`,
       [engineIds],
-    )) as { rows: Array<{ engine_id: string }> };
-    for (const r of arr.rows) withArrival.add(r.engine_id);
+    )) as { rows: Array<{ engineId: string }> };
+    for (const r of arr.rows) withArrival.add(r.engineId);
   }
 
   const ts = Date.now();
@@ -106,7 +106,7 @@ async function main(): Promise<void> {
 
   for (const row of kitting.rows) {
     const meta = parseRepairHistoryMeta(row.meta_json);
-    if (!meta?.stage || meta.stage.code !== 'kitting_done') {
+    if (!meta?.stage || meta.stage.code !== 'kitting_done' || !row.engineId) {
       skipped += 1;
       continue;
     }
