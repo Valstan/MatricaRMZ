@@ -10,23 +10,22 @@ updated: 2026-10-03
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`.
 
 **Status:** ACTIVE
-**Updated:** 2026-10-05 (мост ИИваныч ↔ Телефон: план + реализация B1–B4, гейты backend зелёные)
-**Branch:** feat/iivanych-hotline-bridge
-**Last released version:** v3.63.0 на проде ✅
+**Updated:** 2026-10-05 (релиз v3.64.0 в работе: мост на прод выкатывается релизом)
+**Branch:** release/v3.64.0
+**Last released version:** v3.63.0 на проде ✅ (3.64.0 в пути)
 **Branch:** main
 **Last released version:** v3.62.0 на проде ✅
 
 ## Текущая нитка
 
-Мост ИИваныч ↔ Телефон (мандат brain 2026-10-05, D-111, срок 12.10, X=30 мин подтверждён).
-План: `docs/plans/iivanych-hotline-bridge-2026-10.md`. Реализовано B1–B4 одним PR:
-relay-клиент (`backend-api/src/services/ai/hotlineRelayClient.ts`), воркер моста
-(`aiChatHotlineBridgeService.ts`, claim строкой в `aiChatMeta` без миграций),
-фильтр claim'ов в `listPending` движка, старт в `index.ts`, 18 тестов.
-Гейты backend зелёные: typecheck + lint + test 116 файлов / 1010 тестов.
-Осталось вне кода (критический путь): accept гранта `HOTLINE_RELAY_SECRET`
-(наш прод-токен read-only → за владельцем) → секрет в прод-env + рестарт primary
-→ dry-прогон с живой сессией → `ack: report` письмом (`ref: 2026-10-05-iivanych-hotline-bridge`).
+Релиз v3.64.0 (мост ИИваныч ↔ Телефон едет на прод релизом; мандат brain 2026-10-05,
+D-111, срок 12.10). Грант 20 active, секрет уже в прод-env (бэкап
+`.bak-bridge-20261005`), primary рестартовал — но в логах моста нет: на проде
+артефакт 3.63.0 без кода моста. В релизе: bump 3.63.0→3.64.0 + окно «Что нового»
++ closeout-доки. Миграций нет, UI не тронут. Дальше по /reliz: PR → CI → теги
+(v + android-v) → артефакты → ledger-publish → deploy-backend → рестарт обоих →
+health/updates/blockmap → dry-прогон с живой сессией → `ack: report` письмом
+(`ref: 2026-10-05-iivanych-hotline-bridge`).
 
 Релиз v3.63.0 на проде и принят (renderer-only, без миграций: тихая синхронизация #1163 + фоновый прогрев списка двигателей #1164; окно «Что нового» 3.63.0). CDP-смоук карточки договора и правки платежа PASS 11/11 — предусловие C5-cutover закрыто. Разбор обновления парка: механизм здоров, когорта 3.58/3.59 подхватит 3.63 в понедельник; E5-старт после перепроверки версий <3.61.
 
