@@ -23,6 +23,7 @@ import { writeSyncChanges, type SyncWriteActor, type SyncWriteInput } from '../s
 //     ukladka/sborka/obkatka → этапы тех же кодов, дата и проход сохраняются;
 //     val и свои узлы пропускаются (не этапы) — счётчик skipped-unknown-node;
 //   - EAV arrival_date → arrival; defect_date → disassembly_defect;
+//   - entities.created_at двигателей → card_created (этап №1, таблица 05.10.2026);
 //   - листы engine_inventory (answers.completeness_inspection_date) → arrival
 //     (состав 05.10.2026: kitting_done снесён слиянием в arrival);
 //   - EAV-статусы с датами: customer_sent → shipped, customer_accepted → accepted,
@@ -105,6 +106,7 @@ async function main(): Promise<void> {
     'arrival_date→arrival': 0,
     'defect_date→disassembly_defect': 0,
     'kitting→arrival': 0,
+    'entity→card_created': 0,
     'status→stage': 0,
     'skipped-unknown-node': 0,
     'skipped-no-date': 0,
@@ -189,6 +191,27 @@ async function main(): Promise<void> {
     for (const flag of SKIPPED_STATUS_FLAGS) {
       if (isEavFlagSet(attrs.get(flag))) counts['skipped-unmapped-status'] = (counts['skipped-unmapped-status'] ?? 0) + 1;
     }
+  }
+
+  // 2b. Создание карточки (таблица 05.10.2026, этап №1): живые двигатели без
+  // строки card_created получают её датой создания сущности. Дедуп — через
+  // taken (существующие stage-строки), как у остальных источников: повторный
+  // прогон и двигатели, заведённые уже с отметкой, ничего не добавляют.
+  const createdRows = await pool.query(
+    `SELECT e.id, e.created_at FROM entities e
+       JOIN entity_types t ON t.id = e.type_id
+      WHERE t.code = 'engine' AND e.deleted_at IS NULL${
+        args.engine ? ' AND e.id = $1' : ''
+      }`,
+    args.engine ? [args.engine] : [],
+  );
+  for (const r of createdRows.rows as Array<{ id: unknown; created_at: unknown }>) {
+    const at = num(r.created_at);
+    if (at === null) {
+      counts['skipped-no-date'] = (counts['skipped-no-date'] ?? 0) + 1;
+      continue;
+    }
+    candidates.push({ engineId: String(r.id), code: 'card_created', at, pass: 1, source: 'entity→card_created' });
   }
 
   // 4. Даты осмотра из листов (все листы, дедуп по дню схлопнет повторы).
