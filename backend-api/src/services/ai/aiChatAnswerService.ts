@@ -125,6 +125,40 @@ const SAVE_LEARNING_NOTE_TOOL: LlmToolDef = {
 
 const MAX_ATTEMPTS = Math.max(1, Number(process.env.AI_CHAT_ANSWER_MAX_ATTEMPTS ?? 3));
 
+/**
+ * Гафф на 402 (счёт закончен у DeepSeek): каждый следующий запрос всё равно
+ * ошибки копит, а вопросам логичнее уехать в Телефон (D-111). Вместо эскалации
+ * — отпускаем строку в pending и замолкаем до пробы.
+ */
+function isCreditExhausted(e: unknown): boolean {
+  const s = String(e ?? '');
+  return /402|Insufficient Balance|invalid_request_error/.test(s) && /balance|402|Insufficient/i.test(s);
+}
+let creditExhaustedAt = 0;
+/** Периодическая проба LLM, чтобы вернуть движок в строй после пополнения. */
+const CREDIT_PROBE_INTERVAL_MS = 5 * 60_000;
+async function probeCredit(): Promise<boolean> {
+  const now = nowMs();
+  if (creditExhaustedAt > 0 && now - creditExhaustedAt < CREDIT_PROBE_INTERVAL_MS) return false;
+  try {
+    const { callLlm } = await import('./llmProvider.js');
+    await callLlm({
+      model: AI_MODEL_ANALYTICS,
+      system: 'ping',
+      user: 'ping',
+      scope: 'creditProbe',
+      options: { maxTokens: 1, timeoutMs: 15_000 },
+    });
+    creditExhaustedAt = 0;
+    logInfo('ai chat direct: credit probe ok', {});
+    return true;
+  } catch (e) {
+    creditExhaustedAt = now;
+    logError('ai chat direct: credit probe failed', { error: String(e) });
+    return false;
+  }
+}
+
 let running = false;
 let timer: NodeJS.Timeout | null = null;
 const inFlight = new Set<string>();
@@ -446,6 +480,11 @@ export async function aiChatDirectTick(): Promise<{ processed: number }> {
   await reclaimStale(actor).catch((e) => logError('ai chat direct: reclaim failed', { error: String(e) }));
 
   let processed = 0;
+  // До пробы — не трогаем pending: всё равно пустим в 402 и зажжём эскалации.
+  if (creditExhaustedAt > 0) {
+    const alive = await probeCredit();
+    if (!alive) return { processed: 0 };
+  }
   for (const row of await listPending()) {
     const id = String(row.id);
     if (inFlight.has(id)) continue;
@@ -457,6 +496,14 @@ export async function aiChatDirectTick(): Promise<{ processed: number }> {
       processed += 1;
     } catch (e) {
       const misconfigured = isLlmMisconfigured(e);
+      // Счёт у LLM закончился — не эскалировать, а отпустить строку и тикать в спячке.
+      if (isCreditExhausted(e)) {
+        attempts.delete(id);
+        creditExhaustedAt = Date.now();
+        logError('ai chat direct: credit exhausted — routing to bridge until top-up', { id, error: String(e) });
+        await writeAiChatRow(actor as any, { ...row, status: 'pending', updatedAt: nowMs() }).catch(() => undefined);
+        break;
+      }
       const failed = (attempts.get(id) ?? 0) + 1;
       attempts.set(id, failed);
       logError('ai chat direct: answer failed', { id, attempt: failed, error: String(e), misconfigured });
