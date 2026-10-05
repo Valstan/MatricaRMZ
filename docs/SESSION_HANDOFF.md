@@ -9,54 +9,29 @@ updated: 2026-10-03
 
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`.
 
-**Status:** ACTIVE
-**Updated:** 2026-10-05 (сессия закрыта владельцем; мандат НЕ закрыт — dry-run красный, загадка dist)
-**Branch:** main
-**Last released version:** v3.65.0 на проде (deploy ok, приёмка НЕ пройдена)
-**Branch:** main
-**Last released version:** v3.62.0 на проде ✅
+**Status:** IDLE
+**Updated:** 2026-10-05 (мандат D-111 ЗАКРЫТ: dry-прогон зелёный, ack ушёл)
+**Branch:** chore/bridge-mandate-close
+**Last released version:** v3.65.0 на проде (перевыкат 12:56 корректным артефактом, ledger-publish выполнен)
 
 ## Текущая нитка
 
-Мост ИИваныч ↔ Телефон, мандат brain 2026-10-05 (D-111, срок 12.10) — НЕ ЗАКРЫТ.
-Сделано 05.10: PR #1167 (мост B1–B4) → релиз v3.64.0 (#1172, грант 20 active,
-секрет в прод-env) → dry-run КРАСНЫЙ (402, CLAIMS 0) → PR #1173 (claim-first) →
-релиз v3.65.0 (#1174, deploy ok 10:35) → PR #1175 (гафф на 402: движок отпускает
-строку в pending + проба раз в 5 мин; deploy ok 11:02) → dry-run СНОВА КРАСНЫЙ
-(402→escalated, CLAIMS 0, RELAY_NOT_GOT).
-
-🔴 Загадка dist (первый вопрос следующей сессии): journal 10:34 показывает
-`ai chat bridge worker started` (tickMs 30000 — новый код), /health отдаёт
-3.65.0, но `grep -c bridge|hotline` по
-`/home/valstan/MatricaRMZ/backend-api/dist/index.js` (mtime Oct 4 10:59!) даёт 0,
-и `aiChatAnswerService.js` в dist не знает `creditExhaustedAt` (фикс #1175).
-При этом процессы (PID 1203926/1203956, старт 11:01) работают с cwd
-`/home/valstan/MatricaRMZ/backend-api` — тем же путём, что в unit'е. Гипотезы:
-(а) deploy-backend раскладывает артефакт мимо пути из unit'а (сверить
-`scripts/prod-ops/deploy-backend.sh`: куда именно «раскладываю» + сравнить
-md5 dist до/после); (б) journal-строки 10:34 — от процесса, стартовавшего ДО
-подмены dist, а 11:01-процессы унаследовали старый fd/код (проверить `ls -l
-/proc/<pid>/exe` + `sudo journalctl ... --since` именно за 11:01+ с фильтром
-bridge/credit); (в) mtime врёт (cp -a из артефакта) — тогда сверить СОДЕРЖИМОЕ,
-а не даты. Пока не разрешено — dry-run бессмысленен: неизвестно, какой код
-исполняется.
-
-Открытое по мандату (после разгадки dist): живой dry-прогон
-(вопрос → релей → ответ → `answered`), TG-алерт живьём, ledger-publish
-(токена нет — минт через web-admin), `ack: report` письмом
-(`ref: 2026-10-05-iivanych-hotline-bridge`). Временная forge-строка dry-run в
-прод-БД висит `escalated` (поле `escalation_note` с 402) — не трогать руками,
-это след прогона.
-
-Предыстория: релиз v3.64.0 (мост) → v3.65.0 (claim-first, #1174) → фикс гаффа на
-402 (#1175, задеплоен 11:02). Прод отвечает 3.65.0, оба инстанса живы.
+Мост ИИваныч ↔ Телефон, мандат brain 2026-10-05 (D-111) — ЗАКРЫТ 05.10.
+Загадка dist разгадана: выкат 11:01 положил артефакт v3.61.0 (явный старый
+run-id 37187430570; md5 живого dist == снепшот 09:48, ctime 11:01:23, файлов
+моста не было вовсе — отсюда красные dry-run'ы). Перевыкат 12:56 прогоном
+37280935779 (#1175): оба инстанса здоровы порознь, мост в dist, journal
+`bridge worker started`. Dry-прогон зелёный: вопрос → claim → relay-копия →
+тестовый ответ → `answered` (claim снят, курсор 15); движок 402-нул и уступил
+мосту без траты счёта; TG-пейджер получен живьём; релиз 3.65.0 подписан в
+леджер. Ack brain — `mailbox/to-brain/2026-10-05-bridge-mandate-closed.md`.
+Предохранители в бэклог (PENDING): sha-mismatch жёстким отказом, sha dist в /health.
 
 ## Следующий шаг
 
-1. Разгадать загадку dist (гипотезы а/б/в выше) — без этого dry-run слепой.
-2. Повторить forge dry-run: вопрос → `hotline_bridge_claim` в мета → relay-копия
-   → ответ → `answered`; TG-алерт живьём.
-3. Ledger-publish (нужен токен из web-admin) → `ack: report` brain → закрыть мандат.
+По запросу владельца: E5-freeze после обновления парка / новые фичи / разбор
+следующего тормоза по подзамерам `maps.*`. Не забыть: CDP-смоук карточки
+договора и правки платежа перед релизом с cutover.
 
 ## Текущая нитка
 
