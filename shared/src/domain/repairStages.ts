@@ -10,6 +10,7 @@
 // датой (tie — больший ранг): повторный заход обнуляет прошлые этапы.
 
 import type { WorkSheetDuplicateRef } from './workSheetDuplicates.js';
+import { moscowDayKey } from './workSheetDuplicates.js';
 
 export const REPAIR_STAGE_CODES = [
   'card_created',
@@ -97,6 +98,40 @@ function sortOrderOf(code: string): number {
 }
 
 /**
+ * Календарный день (Москва) в сортируемом виде `ГГГГ-ММ-ДД`. Даты этапов —
+ * дневной гранулярности (ввод датой без времени; полночь — артефакт ввода,
+ * `Date.now()` — артефакт кнопки), поэтому порядок и субординация считаются
+ * ПО ДНЯМ: внутри одного дня время не различаем, побеждает приоритет.
+ */
+export function moscowDaySortKey(ts: number): string {
+  if (typeof ts !== 'number' || !Number.isFinite(ts) || ts <= 0) return '';
+  const dmy = moscowDayKey(ts);
+  if (!dmy) return '';
+  const parts = dmy.split('.');
+  if (parts.length !== 3) return '';
+  const [d, m, y] = parts as [string, string, string];
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Давность этапа для правила «текущий = последний по времени»: сначала день,
+ * затем приоритет. Возвращает 0 при равенстве, >0 когда a позже b.
+ * Этапы без даты и вне линейки (ранг 0) в сравнении проигрывают датированным.
+ */
+export function compareStageRecency(
+  a: { code: string; at: number | null },
+  b: { code: string; at: number | null },
+): number {
+  const dayA = typeof a.at === 'number' ? moscowDaySortKey(a.at) : '';
+  const dayB = typeof b.at === 'number' ? moscowDaySortKey(b.at) : '';
+  if (!dayA && !dayB) return 0;
+  if (!dayA) return -1;
+  if (!dayB) return 1;
+  if (dayA !== dayB) return dayA < dayB ? -1 : 1;
+  return sortOrderOf(a.code) - sortOrderOf(b.code);
+}
+
+/**
  * Кандидат массового добавления этапа (владелец 01.10.2026): показывают только
  * двигатели, которые стоят на заводе СЕЙЧАС на предыдущем этапе. Уехавшие
  * (нет прихода / есть отгрузка), стоящие на этом или более высоком этапе и
@@ -128,16 +163,20 @@ export type DatedStage = {
 
 /**
  * Субординация дат: дата этапа — не раньше дат всех нижележащих этапов
- * (ОТК раньше сборки — отказ). Боковая ветка и этапы без даты не участвуют.
- * Возвращает код конфликтного нижележащего этапа или null.
+ * (ОТК раньше сборки — отказ). Сравнение ПО ДНЯМ (Москва): время внутри дня —
+ * артефакты ввода (полночь у ручной даты, момент нажатия у кнопки), нарушением
+ * считается только более ранний календарный день. Боковая ветка и этапы без
+ * даты не участвуют. Возвращает код конфликтного нижележащего этапа или null.
  */
 export function findStageDateConflict(stages: DatedStage[], code: RepairStageCode, at: number): RepairStageCode | null {
   const rank = sortOrderOf(code);
-  if (rank === 0 || !Number.isFinite(at) || at <= 0) return null;
+  const day = moscowDaySortKey(at);
+  if (rank === 0 || !day) return null;
   for (const s of stages) {
     const r = sortOrderOf(s.code);
     if (r === 0 || r >= rank) continue;
-    if (typeof s.at === 'number' && Number.isFinite(s.at) && s.at > 0 && at < s.at) return s.code;
+    const sDay = typeof s.at === 'number' ? moscowDaySortKey(s.at) : '';
+    if (sDay && sDay > day) return s.code;
   }
   return null;
 }
@@ -212,26 +251,24 @@ export function sortStagesByDate<T extends { code: string; at: number | null }>(
 }
 
 /**
- * Текущее место двигателя (решение владельца 05.10.2026): этап с максимальной
- * датой среди датированных; при равной дате — больший приоритет. Всё, что раньше
- * по времени, на место не влияет: повторный заход обнуляет приоритеты прошлых
- * этапов, отсчёт идёт от последнего этапа по времени. Этапы без даты и боковая
- * ветка место не определяют. Отчёты и фильтры кладут двигатель ровно в одну
- * группу — по этому этапу; возвраты (`pass ≥ 2`) считаются отдельной строкой.
+ * Текущее место двигателя (решение владельца 05.10.2026): последний этап по
+ * времени — сначала календарный день (Москва), внутри дня — приоритет.
+ * Всё, что раньше по времени, на место не влияет: повторный заход обнуляет
+ * приоритеты прошлых этапов, отсчёт идёт от последнего этапа по времени.
+ * Этапы без даты место не определяют. Отчёты и фильтры кладут двигатель ровно
+ * в одну группу — по этому этапу; возвраты (`pass ≥ 2`) считаются отдельной
+ * строкой (проход читается из строки, здесь его нет — только день и ранг).
  */
 export function currentDatedStage(
   rows: ReadonlyArray<{ code: string; at: number | null }>,
 ): { code: string; at: number } | null {
   let best: { code: string; at: number } | null = null;
-  let bestRank = -1;
   for (const r of rows) {
     const at = typeof r.at === 'number' && Number.isFinite(r.at) && r.at > 0 ? r.at : null;
     if (at === null) continue;
     const code = resolveStageCode(String(r.code ?? ''));
-    const rank = sortOrderOf(code);
-    if (best === null || at > best.at || (at === best.at && rank > bestRank)) {
+    if (best === null || compareStageRecency({ code, at }, { code: best.code, at: best.at }) > 0) {
       best = { code, at };
-      bestRank = rank;
     }
   }
   return best;

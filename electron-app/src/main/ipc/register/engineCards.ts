@@ -18,6 +18,7 @@ import {
   readEngineCardStrict,
   saveEngineCardStrict,
 } from '../../services/engineCardsReplica.js';
+import { ensureRepairStageRow } from '../../services/repairStageService.js';
 
 type Err = { ok: false; error: string };
 
@@ -178,8 +179,19 @@ export function registerEngineCardsIpc(ctx: IpcContext) {
       // Deferred-create (как setAttr): сущность материализуется первой реальной
       // записью — брошенная пустая карточка призрака не оставляет. Строго после
       // гейтов: отбитая запись не должна создавать сущность.
-      await ensureEngineRow(db, id, Date.now());
+      await ensureEngineRow(db, id, Date.now(), await ctx.currentActor());
       const saved = await saveEngineCardStrict(db, id, fields, Date.now());
+      // Дата прихода — в этап «Приемка» (таблица 05.10.2026, тот же mark-if-absent,
+      // что у setEngineAttribute выше: EAV- и strict-пути карточки дублируют друг
+      // друга, ensure идемпотентен). Best-effort: карточка уже сохранена.
+      const arrivalAt = fields.arrival_date;
+      if (typeof arrivalAt === 'number' && Number.isFinite(arrivalAt) && arrivalAt > 0) {
+        try {
+          await ensureRepairStageRow(db, id, 'arrival', Math.trunc(arrivalAt), (await ctx.currentActor()) || 'local');
+        } catch {
+          /* авто-метка — не причина терять карточку */
+        }
+      }
       return { ok: true as const, changed: saved.changed };
     } catch (e) {
       return { ok: false as const, error: String(e) };

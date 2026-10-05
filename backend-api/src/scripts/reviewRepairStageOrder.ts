@@ -52,7 +52,6 @@ const CARD_SOURCE_ATTR: Record<string, string> = {
   shipped: 'status_customer_sent_date',
   accepted: 'status_customer_accepted_date',
   repaired: 'status_repaired_date',
-  kitting_done: '',
   obkatka: '',
   sborka: '',
   otk: '',

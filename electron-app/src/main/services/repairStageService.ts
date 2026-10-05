@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   buildRepairHistoryMeta,
+  compareStageRecency,
   DEFAULT_REPAIR_STAGE_TEMPLATES,
   findStageDateConflict,
   isStageBackwardMove,
@@ -373,7 +374,8 @@ export async function loadEngineStageMarks(
       )
       .limit(20000),
   );
-  // Как у списка двигателей: позже датой, при равной — старшим проходом.
+  // Как у списка двигателей: позже днём (Москва), внутри дня — старшим приоритетом,
+  // при полном равенстве — старшим проходом. Время внутри дня — артефакты ввода.
   const best = new Map<string, { code: string; at: number; pass: number }>();
   for (const row of rows as Array<{ engineEntityId: unknown; metaJson: unknown }>) {
     const engineId = String(row.engineEntityId ?? '').trim();
@@ -392,7 +394,8 @@ export async function loadEngineStageMarks(
     if (at === null) continue;
     const pass = meta.repeat?.pass ?? 1;
     const cur = best.get(engineId);
-    if (!cur || at > cur.at || (at === cur.at && pass > cur.pass)) best.set(engineId, { code, at, pass });
+    const cmp = cur ? compareStageRecency({ code, at }, { code: cur.code, at: cur.at }) : 1;
+    if (!cur || cmp > 0 || (cmp === 0 && pass > cur.pass)) best.set(engineId, { code, at, pass });
   }
   for (const [engineId, b] of best) {
     const marks = out.get(engineId);

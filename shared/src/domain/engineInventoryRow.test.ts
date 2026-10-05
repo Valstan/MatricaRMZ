@@ -471,9 +471,11 @@ describe('engineInventoryHasDefectData (авто-переход «Начат р�
     expect(engineInventoryHasDefectData({})).toBe(false);
   });
 
-  it('любое дефектовочное поле > 0 — true (repairable / scrap / replace)', () => {
-    expect(engineInventoryHasDefectData(payloadWith([{ part_name: 'Гильза', quantity: 2, present: true, repairable_qty: 2 }]))).toBe(true);
+  it('только решения оператора — true (scrap / replace); выведенный repairable — false', () => {
     expect(engineInventoryHasDefectData(payloadWith([{ part_name: 'Картер', quantity: 1, present: true, scrap_qty: 1 }]))).toBe(true);
     expect(engineInventoryHasDefectData(payloadWith([{ part_name: 'Поршень', quantity: 6, present: true, replace_qty: 1 }]))).toBe(true);
+    // repairable выводится нормализацией из наличия (qty - scrap - replace) и лежит
+    // в сохранённой строке всегда — сам по себе решением не является.
+    expect(engineInventoryHasDefectData(payloadWith([{ part_name: 'Гильза', quantity: 2, present: true, repairable_qty: 2 }]))).toBe(false);
   });
 });

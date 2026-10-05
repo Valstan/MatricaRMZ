@@ -277,7 +277,7 @@ export async function saveRepairChecklistForEngine(
     const engineRow = await db.select({ id: entities.id }).from(entities).where(eq(entities.id, args.engineId)).limit(1);
     if (!engineRow[0]) {
       if (args.auto) return { ok: true as const, operationId: null, deferred: true as const };
-      await ensureEngineRow(db, args.engineId, ts);
+      await ensureEngineRow(db, args.engineId, ts, args.actor);
     }
 
     // Два автосохранения подряд оба видели «листа ещё нет» и создавали по листу — отсюда
