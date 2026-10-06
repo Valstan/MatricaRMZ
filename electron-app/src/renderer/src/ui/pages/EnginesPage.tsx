@@ -9,6 +9,7 @@ import {
   engineInternalNumberSortKey,
   engineScrapDate,
   engineStatusDate,
+  repairStageRank,
   arrivalPlacementLabel,
   formatEngineInternalNumber,
   formatEngineReservationUntil,
@@ -139,6 +140,7 @@ export type EnginesPageUiState = {
     | 'repairedDate'
     | 'scrapDate'
     | 'completenessAct'
+    | 'engineStage'
     | 'updatedAt';
   sortDir: 'asc' | 'desc';
   page: number;
@@ -493,6 +495,14 @@ export function EnginesPage(props: {
           const r = (bindingRank(a) - bindingRank(b)) * dir;
           return r !== 0 ? r : String(a.engineNumber ?? '').localeCompare(String(b.engineNumber ?? ''), 'ru');
         }
+        case 'engineStage': {
+          // Сортировка — по линейке этапов, а не по алфавиту: «Сборка» обязана стоять
+          // позже «Укладки» независимо от букв. Без этапа — раньше всех (как без даты).
+          const r = (repairStageRank(a.lastStageCode ?? '') - repairStageRank(b.lastStageCode ?? '')) * dir;
+          if (r !== 0) return r;
+          const d = byDate(a.lastStageAt ?? null, b.lastStageAt ?? null);
+          return d !== 0 ? d : String(a.engineNumber ?? '').localeCompare(String(b.engineNumber ?? ''), 'ru');
+        }
         case 'arrivalDate':
           return byDate(a.arrivalDate ?? null, b.arrivalDate ?? null);
         case 'shippingDate':
@@ -657,6 +667,23 @@ export function EnginesPage(props: {
               —
             </span>
           ),
+      },
+      // Пилот PR6: «где двигатель сейчас» прямо в списке. Этап уже есть в строке
+      // (`lastStageName`), отдельных запросов не надо — колонка только показывает.
+      // Возврат (проход ≥ 2) виден суффиксом: иначе второй заход выглядел бы как первый,
+      // ровно та слепота, которую PR5 снял в отчёте.
+      {
+        id: 'engineStage',
+        label: 'Этап',
+        tabletLabel: 'Этап',
+        sortable: true,
+        sortKey: 'engineStage',
+        kind: 'name',
+        render: (e) => {
+          const name = String(e.lastStageName ?? '').trim();
+          if (!name) return '-';
+          return e.lastStagePass != null && e.lastStagePass >= 2 ? `${name} · возврат` : name;
+        },
       },
       { id: 'arrivalDate', label: 'Дата прихода', tabletLabel: 'Приход', sortable: true, sortKey: 'arrivalDate', kind: 'date', render: (e) => toDateLabel(e.arrivalDate) || '-' },
       { id: 'shippingDate', label: 'Дата отгрузки', tabletLabel: 'Отгр.', sortable: true, sortKey: 'shippingDate', kind: 'date', render: (e) => toDateLabel(e.shippingDate) || '-' },
