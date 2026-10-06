@@ -97,6 +97,7 @@
     "stages:refresh-names": "tsx src/scripts/refreshStageNames.ts",
     "stages:delete-phantom": "tsx src/scripts/deletePhantomStages.ts",
     "stages:dedupe-duplicates": "tsx src/scripts/dedupeWorkStageDuplicates.ts",
+    "stages:cleanup-duplicates": "tsx src/scripts/cleanupStageDuplicates.ts",
     "engine-act:fix-header-number": "tsx src/scripts/fixEngineActHeaderNumber20260914.ts",
     "engine-act:fix-header-number:apply": "tsx src/scripts/fixEngineActHeaderNumber20260914.ts --apply",
     "ledger:import-release-registry": "tsx src/scripts/importReleaseRegistryFromProjection.ts",

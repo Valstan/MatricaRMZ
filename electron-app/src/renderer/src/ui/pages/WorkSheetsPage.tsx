@@ -510,8 +510,10 @@ export function WorkSheetsPage(props: {
       ) : null}
 
       {bulkAddOpen ? (
+        // Та же дверь, что «Добавить этап ремонта» в карточке двигателя: список этапов —
+        // реестр (одни имена в обеих точках). Виды работ ввод этапов не определяют.
         <BulkStageAddDialog
-          templates={types.filter((t) => t.archivedAt == null).map((t) => ({ code: t.code, name: t.name }))}
+          templates={stageTemplates.filter((t) => t.archivedAt == null).map((t) => ({ code: t.code, name: t.name }))}
           workshops={workshops}
           onClose={() => setBulkAddOpen(false)}
           onAdded={async () => {
