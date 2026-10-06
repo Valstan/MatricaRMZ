@@ -21,7 +21,7 @@ import {
 } from '../../services/engineReservationClient.js';
 import { engineDedupeAnalyze, engineDedupeMerge } from '../../services/erpService.js';
 import { logPerfWarn } from '../../services/logService.js';
-import { listOperations, addOperation } from '../../services/operationService.js';
+import { getOperation, isManualHistoryRow, listOperations, addOperation, softDeleteOperation, updateManualEntry } from '../../services/operationService.js';
 import { addAudit, listAudit } from '../../services/auditService.js';
 import { softDeleteEntity } from '../../services/entityService.js';
 
@@ -149,6 +149,24 @@ export function registerEnginesOpsAuditIpc(ctx: IpcContext) {
     if (isViewMode(ctx)) return viewModeWriteError();
     await requirePermOrThrow(ctx, 'operations.edit');
     return addOperation(ctx.dataDb(), engineId, operationType, status, note, await ctx.currentActor(), metaJson);
+  });
+  ipcMain.handle('ops:delete', async (_e, id: string) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    await requirePermOrThrow(ctx, 'operations.edit');
+    // Удаляем только ручную запись: этап снимается через stages:remove (своя логика),
+    // строку работ — на её экране. Общий канал чужое не трогает.
+    const row = await getOperation(ctx.dataDb(), id);
+    if (!row || row.deletedAt || !isManualHistoryRow(row)) {
+      return { ok: false as const, error: 'Удалять можно только ручную запись' };
+    }
+    const ok = await softDeleteOperation(ctx.dataDb(), id);
+    return ok ? { ok: true as const } : { ok: false as const, error: 'Запись не найдена' };
+  });
+  ipcMain.handle('ops:updateManual', async (_e, _engineId: string, id: string, patch: { action?: string; at?: number; note?: string }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    await requirePermOrThrow(ctx, 'operations.edit');
+    const ok = await updateManualEntry(ctx.dataDb(), id, patch);
+    return ok ? { ok: true as const } : { ok: false as const, error: 'Запись не найдена' };
   });
 
   // Audit

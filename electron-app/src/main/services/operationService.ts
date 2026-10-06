@@ -25,10 +25,11 @@ export async function addOperation(
   note?: string,
   performedBy?: string,
   metaJson?: string | null,
-) {
+): Promise<{ id: string }> {
   const ts = nowMs();
+  const id = randomUUID();
   await db.insert(operations).values({
-    id: randomUUID(),
+    id,
     engineEntityId: engineId,
     operationType,
     status,
@@ -41,6 +42,7 @@ export async function addOperation(
     deletedAt: null,
     syncStatus: 'pending',
   });
+  return { id };
 }
 
 
@@ -135,11 +137,81 @@ export async function upsertOperation(
   return { created: true };
 }
 
+/**
+ * Ручная запись ленты истории (то, что оператор внёс «Добавить запись»): без этапа
+ * (`stage`), без строки работ (`sheet`), без авто-статуса и без переезда в другой цех.
+ * Этапы правятся датой и снимаются в той же ленте, акты — кнопками проводки; общий
+ * канал `ops:*` их не трогает, чтобы одна дверь не обошла логику другой.
+ */
+export function isManualHistoryRow(existing: {
+  metaJson?: unknown;
+  operationType?: unknown;
+}): boolean {
+  // Без разборчивой меты строка неопознана — закрываем, а не доверяем: ручную запись
+  // всегда пишет `buildRepairHistoryMeta`, и меты у неё не может не быть.
+  if (typeof existing.metaJson !== 'string' || !existing.metaJson.trim().startsWith('{')) return false;
+  let meta: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(existing.metaJson);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+    meta = parsed as Record<string, unknown>;
+  } catch {
+    return false;
+  }
+  const entryType = typeof meta.entryType === 'string' ? meta.entryType : '';
+  if (meta.stage != null || meta.sheet != null || meta.auto === true) return false;
+  if (entryType !== '' && entryType !== 'manual') return false;
+  if (String(existing.operationType ?? '') === 'workshop_transfer') return false;
+  return true;
+}
+
 /** Мягкое удаление: строка уезжает синком как delete, история других клиентов её погасит. */
 export async function softDeleteOperation(db: BetterSQLite3Database, id: string): Promise<boolean> {
   const existing = await getOperation(db, id);
   if (!existing || existing.deletedAt) return false;
   const ts = nowMs();
   await db.update(operations).set({ deletedAt: ts, updatedAt: ts, syncStatus: 'pending' }).where(eq(operations.id, id));
+  return true;
+}
+
+/**
+ * Правка ручной записи в ленте истории: меняет текст действия (`meta.action`), дату
+ * (`meta.at`) и/или примечание (`meta.note`) в строке `operations`. Пустое действие
+ * отклоняем — строка без него ничего не говорит. `performed_at` (момент ввода) и
+ * автора не меняем: правка не переписывает, кто и когда внёс.
+ */
+export async function updateManualEntry(
+  db: BetterSQLite3Database,
+  id: string,
+  patch: { action?: string; at?: number; note?: string },
+): Promise<boolean> {
+  const existing = await getOperation(db, id);
+  if (!existing || existing.deletedAt) return false;
+  let meta: Record<string, unknown> = {};
+  try {
+    const parsed = typeof existing.metaJson === 'string' && existing.metaJson.trim().startsWith('{')
+      ? JSON.parse(existing.metaJson)
+      : {};
+    meta = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    meta = {};
+  }
+  // Только ручная запись: этап (`stage`), строку работ (`sheet`), переезд в другой цех
+  // и авто-статус этим каналом править нельзя — у каждого своя дверь со своей логикой
+  // (этапы правятся датой в той же ленте, акты — кнопками проводки).
+  if (!isManualHistoryRow(existing)) return false;
+  const ts = nowMs();
+  const action = typeof patch.action === 'string' ? patch.action.trim().slice(0, 200) : '';
+  if (patch.action !== undefined && !action) return false;
+  const next = {
+    ...meta,
+    ...(action ? { action } : {}),
+    ...(patch.at !== undefined && Number.isFinite(patch.at) && patch.at > 0 ? { at: Math.trunc(patch.at) } : {}),
+    ...(patch.note !== undefined ? { note: patch.note } : {}),
+  };
+  await db
+    .update(operations)
+    .set({ metaJson: JSON.stringify(next), updatedAt: ts, syncStatus: 'pending' })
+    .where(eq(operations.id, id));
   return true;
 }

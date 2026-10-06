@@ -120,6 +120,24 @@ describe('лента пишется так же, как писалась ран�
     expect(PANEL).toContain('repeatPass: pendingPass.pass');
   });
 
+  it('ручная запись правится и удаляется в ленте (текст, дата, примечание)', () => {
+    expect(PANEL, 'у ручной записи нет кнопки правки — поправить опечатку негде').toContain('data-manual-edit={item.id}');
+    expect(PANEL, 'у ручной записи нет кнопки удаления — убрать неверную строку негде').toContain('data-manual-remove={item.id}');
+    expect(PANEL).toContain('window.matrica.operations.updateManual(');
+    expect(PANEL).toContain('window.matrica.operations.remove(');
+  });
+
+  it('правка даты этапа не стирает примечание (писатель собирает строку заново)', () => {
+    // writeStage пересоздаёт meta из входа: вызов без note уронил бы примечание,
+    // и смена даты молча съедала бы текст. Передаём note из строки.
+    expect(PANEL, 'правка даты этапа вызывается без примечания — оно сотрётся').toContain('...(item.note ? { note: item.note } : {})');
+  });
+
+  it('последнее действие в ленте откатывается кнопкой «Отменить»', () => {
+    expect(PANEL, 'кнопки отката нет — неправильно добавленное/удалённое не вернуть').toContain('data-history-undo');
+    expect(PANEL).toContain('runUndo');
+  });
+
   it('гейт отгрузки при незакрытом сборочном наряде остался на отметке этапа', () => {
     expect(PANEL).toContain('confirmShipmentWithOpenAssembly');
     expect(PANEL).toContain("stageCode === 'shipped' || stageCode === 'accepted'");
