@@ -10,8 +10,8 @@ updated: 2026-10-05
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
 **Status:** ACTIVE
-**Updated:** 2026-10-06 (релиз v3.66.0 в работе — ветка release/v3.66.0)
-**Branch:** release/v3.66.0
+**Updated:** 2026-10-06 (релиз v3.66.0 ВЫКАЧЕН на прод, леджер не подписан — нет токена)
+**Branch:** main
 **Branch:** main
 **Last released version:** v3.65.0 на проде
 
