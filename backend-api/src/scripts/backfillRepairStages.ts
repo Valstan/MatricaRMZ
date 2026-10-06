@@ -75,6 +75,18 @@ function num(value: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/**
+ * Дата этапа не может быть в будущем (факт ремонта — уже случившееся). На проде были
+ * случаи, когда EAV-дата `defect_date` содержала дату в будущем, и `stages:backfill`
+ * честно переносил её в строку этапа «Разборка/Дефектовка» с той же будущей датой
+ * (т.н. фантом 30.10.2026). Бэкфилл не должен создавать этапы с датой в будущем —
+ * такой кандидат пропускается счётчиком `skipped-future-date`.
+ */
+const MS_PER_DAY = 86400000;
+function isFutureDate(at: number): boolean {
+  return at - Date.now() > MS_PER_DAY;
+}
+
 function parseJsonValue(valueJson: unknown): unknown {
   if (typeof valueJson !== 'string') return valueJson;
   try {
@@ -113,6 +125,7 @@ async function main(): Promise<void> {
     'skipped-no-date': 0,
     'skipped-unmapped-status': 0,
     'skipped-duplicate-day': 0,
+    'skipped-future-date': 0,
     insert: 0,
   };
   const candidates: Candidate[] = [];
@@ -236,6 +249,20 @@ async function main(): Promise<void> {
     if (at === null) continue;
     candidates.push({ engineId: String(r.engine_entity_id), code: 'arrival', at, pass: 1, source: 'kitting→arrival' });
   }
+
+  // Этапы с датой в будущем не создаём: факт ремонта — случившееся. Прежние прогоны
+  // брали дату из EAV `defect_date`, и если та дата была в будущем, этап
+  // «Разборка/Дефектовка» получал эту же будущую дату (см. фантом 30.10.2026).
+  const dedupedFuture: Candidate[] = [];
+  for (const c of candidates) {
+    if (isFutureDate(c.at)) {
+      counts['skipped-future-date'] = (counts['skipped-future-date'] ?? 0) + 1;
+      continue;
+    }
+    dedupedFuture.push(c);
+  }
+  candidates.length = 0;
+  candidates.push(...dedupedFuture);
 
   // Уже имеющиеся stage-строки — дедуп-опора.
   const taken = new Set<string>();
