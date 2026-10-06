@@ -417,7 +417,7 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
 
       {printOpen ? (
         <ListPrintDialog
-          title="Этапы работ"
+          title="Этапы ремонта"
           unitLabel="Этапов работ"
           columns={buildListPrintColumns(columns)}
           visibleColumnIds={visibleColumns.map((c) => c.id)}

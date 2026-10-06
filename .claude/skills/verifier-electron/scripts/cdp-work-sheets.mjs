@@ -247,7 +247,7 @@ async function main() {
   const wasRepaired = engine.repaired === true || engine.repaired === 'true';
 
   // 1. Экран этапов работ.
-  await openSection(ws, 'Производство', 'Этапы работ');
+  await openSection(ws, 'Производство', 'Этапы ремонта');
   await waitFor(ws, `PAGE() && counter() && addBtn()`, 'экран этапов работ со счётчиком и кнопкой добавления');
   await sleep(1200);
   await evaluate(ws, `await dismissModals(); return true;`);

@@ -28,10 +28,45 @@ const STAGE_REST_ROUTE = src('../../../../../../backend-api/src/routes/repairSta
 const SYNC_GUARD = src('../../../../../../backend-api/src/services/sync/ledgerAuthzGuard.ts');
 const OVERLAY = src('../components/GlobalSearchOverlay.tsx');
 const GLOBAL_SEARCH = src('../../../../../../shared/src/domain/globalSearch.ts');
+const UI_SEARCH = src('../services/uiSearchRegistry.ts');
+const REPORT = src('./reports/WorkSheetsReportPage.tsx');
 
 describe('этапы работ — экран', () => {
+  // Подпись раздела живёт в нескольких копиях одной карты: реестр разделов, три карты
+  // в App (заголовок вкладки, меню, подпись открытой панели), словарь поиска и палитра
+  // Ctrl+K. При переименовании 06.10 («Этапы работ» → «Этапы ремонта») их пришлось править
+  // все; одна забытая копия означала бы, что в меню «Этапы ремонта», а в заголовке вкладки
+  // и в палитре — старое имя. Скрепляем копии ЗНАЧЕНИЕМ, а не написанием.
+  it('подпись раздела одна во всех копиях карты', () => {
+    const copies: Array<[string, string]> = [
+      ['реестр разделов', SECTIONS],
+      ['приложение', APP],
+      ['страница списка', PAGE],
+      ['отчёт', REPORT],
+      ['словарь поиска', UI_SEARCH],
+      ['палитра Ctrl+K', GLOBAL_SEARCH],
+    ];
+    const found = copies
+      .map(([where, text]) => {
+        const hit = /work_sheets: '([^']+)'/.exec(text) ?? /work_sheet: '([^']+)'/.exec(text) ?? /title="(Этапы[^"]*)"/.exec(text) ?? /\['(Этапы [^']+)', 'Производство'/.exec(text);
+        return [where, hit?.[1] ?? null] as const;
+      })
+      .filter(([, label]) => label != null);
+    const uniq = [...new Set(found.map(([, label]) => label))];
+    expect(
+      uniq,
+      `подписи раздела разошлись: ${found.map(([w, l]) => `${w} = «${l}»`).join('; ')} — переименование надо довести до всех копий`,
+    ).toHaveLength(1);
+  });
+
+  it('старое имя остаётся синонимом поиска — иначе переименование отнимает привычный запрос', () => {
+    // «этапы работ» — куда оператор привык и что он вводит. Словарь держит оба.
+    expect(UI_SEARCH).toContain("'этапы работ'");
+    expect(UI_SEARCH).toContain("'этапы ремонта'");
+  });
+
   it('вкладка заведена в реестре разделов, меню и приложении под правом на операции', () => {
-    expect(SECTIONS).toContain("work_sheets: 'Этапы работ'");
+    expect(SECTIONS).toContain("work_sheets: 'Этапы ремонта'");
     expect(SECTIONS).toContain("production: ['engines', 'work_sheets'");
     expect(ACCESS).toContain("menuTabs: ['engines', 'work_sheets'");
     expect(APP).toContain("...(caps.canViewOperations ? (['work_sheets'] as const) : [])");
@@ -300,14 +335,17 @@ describe('этапы работ — Ctrl+K', () => {
 
   // Словарь C1: голое «этап» в программе занято тремя другими смыслами (стадия двигателя,
   // шаг мастера, ступень фильтра). Сторожим свойство — подпись группы называет сущность
-  // целиком, — а не строку: «Этапы работ по двигателям» тест переживёт, «Этапы» нет.
-  it('группа в палитре названа по словарю: «этапы работ», а не голое «Этапы»', () => {
+  // целиком, — а не строку: смена словаря (06.10: «Этапы работ» → «Этапы ремонта»)
+  // тест переживёт, голое «Этапы» — нет.
+  it('группа в палитре названа по словарю: сущность целиком, а не голое «Этапы»', () => {
     const at = GLOBAL_SEARCH.indexOf('const KIND_LABELS');
     expect(at, 'подписи видов глобального поиска на месте').toBeGreaterThan(0);
     const block = GLOBAL_SEARCH.slice(at, GLOBAL_SEARCH.indexOf('};', at));
     const label = /work_sheet: '([^']*)'/.exec(block)?.[1] ?? '';
     expect(label, 'у вида work_sheet нет подписи — заголовком группы стал бы код вида').not.toBe('');
-    expect(label, 'заголовок группы обязан называть сущность целиком — «этап работ»').toMatch(/этап(ы)? работ/i);
+    expect(label, 'заголовок группы обязан называть сущность целиком — «этап работ», «этап ремонта»').toMatch(
+      /этап(ы)? (работ|ремонта)/i,
+    );
   });
 
   // Цена одной буквы. `listWorkSheetRows` поднимает ВСЕ колонки до 20 000 строк (включая

@@ -592,7 +592,7 @@ async function main() {
   const expectedLabel = `${prep.typeName} · ${prep.engineNumber}`;
 
   // ---- 1. Незаписанный этап работ: печатать нечего. -----------------------------------
-  await openSection(ws, 'Производство', 'Этапы работ');
+  await openSection(ws, 'Производство', 'Этапы ремонта');
   await waitUntil(ws, `Boolean(PAGE() && addBtn())`, 'экран этапов работ с кнопкой добавления');
   const draft = await evaluate(
     ws,
