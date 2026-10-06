@@ -51,7 +51,7 @@ export type GlobalSearchResponse = {
 
 const KIND_LABELS: Record<GlobalSearchKind, string> = {
   engine: 'Двигатели',
-  work_sheet: 'Этапы работ',
+  work_sheet: 'Этапы ремонта',
   engine_brand: 'Марки двигателей',
   nomenclature: 'Детали / номенклатура',
   contract: 'Контракты',

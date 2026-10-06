@@ -482,7 +482,7 @@ export function WorkSheetsPage(props: {
       {/* Диалоги — ВНЕ тулбара: внутри они уехали бы в меню переполнения вместе с кнопкой. */}
       {printOpen ? (
         <ListPrintDialog
-          title="Этапы работ"
+          title="Этапы ремонта"
           unitLabel="Этапов работ"
           columns={buildListPrintColumns(columns)}
           visibleColumnIds={visibleColumns.map((c) => c.id)}
