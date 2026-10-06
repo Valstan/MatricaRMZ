@@ -1279,7 +1279,21 @@ export type MatricaApi = {
   };
   operations: {
     list: (engineId: string) => Promise<OperationItem[]>;
-    add: (engineId: string, operationType: string, status: string, note?: string, metaJson?: string | null) => Promise<void>;
+    add: (engineId: string, operationType: string, status: string, note?: string, metaJson?: string | null) => Promise<{ id: string }>;
+    /**
+     * Удаление ручной записи ленты истории. Только ручная запись: этап снимается
+     * через `workSheets.stages.remove`, строку работ — на её экране.
+     */
+    remove: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+    /**
+     * Правка ручной записи ленты истории: текст действия (`action`), дата (`at`)
+     * и/или примечание (`note`). Только ручная запись — этапы, акты, переезды
+     * и авто-статусы этим каналом не правятся.
+     */
+    updateManual: (engineId: string, id: string, patch: { action?: string; at?: number; note?: string }) => Promise<
+      | { ok: true }
+      | { ok: false; error: string }
+    >;
   };
   audit: {
     list: () => Promise<AuditItem[]>;

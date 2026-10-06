@@ -93,6 +93,30 @@ export function EngineHistoryFeedPanel(props: {
 
   // Правка даты уже записанного этапа прямо в строке ленты.
   const [editingDate, setEditingDate] = useState<{ id: string; code: string; value: string } | null>(null);
+  // Правка ручной записи прямо в строке: текст действия, дата, примечание.
+  const [editingManual, setEditingManual] = useState<{ id: string; action: string; date: string; note: string } | null>(null);
+  // Разовый откат последнего действия в ленте (добавил/удалил/поправил не то —
+  // жмёшь «Отменить», и строка возвращается). Одношаговый: новое действие стирает кнопку.
+  const [undo, setUndo] = useState<
+    | { label: string; kind: 'remove-stage'; id: string }
+    | {
+        label: string;
+        kind: 'restore-stage';
+        snapshot: { id: string; code: string; atMs: number; note?: string; workshopId?: string; workshopName?: string; pass: number };
+      }
+    | { label: string; kind: 'remove-manual'; id: string }
+    | {
+        label: string;
+        kind: 'restore-manual';
+        snapshot: { id: string; action: string; atMs: number; note: string };
+      }
+    | {
+        label: string;
+        kind: 'readd-manual';
+        snapshot: { action: string; atMs: number; note: string; workshopId: string };
+      }
+    | null
+  >(null);
   const confirmCtx = useConfirmOptional();
   // Гейт отгрузки в полёте: повторный клик не должен открыть второй гейт поверх первого.
   const shipmentGateBusy = useRef(false);
@@ -139,6 +163,86 @@ export function EngineHistoryFeedPanel(props: {
     setStageNote('');
   }
 
+  /** Снимок строки этапа из текущей ленты — для отката: вернуть как было. */
+  function stageSnapshot(id: string):
+    | { id: string; code: string; atMs: number; note?: string; workshopId?: string; workshopName?: string; pass: number }
+    | null {
+    const item = feed.find((i) => i.id === id && i.stageCode);
+    if (!item || !(item.at > 0)) return null;
+    return {
+      id: item.id,
+      code: item.stageCode,
+      atMs: item.at,
+      ...(item.note ? { note: item.note } : {}),
+      ...(item.workshopId ? { workshopId: item.workshopId } : {}),
+      ...(item.workshopName ? { workshopName: item.workshopName } : {}),
+      pass: item.pass,
+    };
+  }
+
+  async function runUndo() {
+    const u = undo;
+    if (!u || busy) return;
+    setUndo(null);
+    setBusy(true);
+    try {
+      if (u.kind === 'remove-stage' || u.kind === 'remove-manual') {
+        const r =
+          u.kind === 'remove-stage'
+            ? await window.matrica.workSheets.stages.remove(u.id)
+            : await window.matrica.operations.remove(u.id);
+        if (!r.ok) {
+          setStatus(`Ошибка: ${r.error}`);
+          return;
+        }
+      } else if (u.kind === 'restore-stage') {
+        const s = u.snapshot;
+        const r = await window.matrica.workSheets.stages.save({
+          id: s.id,
+          code: s.code,
+          atMs: s.atMs,
+          ...(s.note ? { note: s.note } : {}),
+          ...(s.workshopId ? { workshopId: s.workshopId } : {}),
+          ...(s.workshopName ? { workshopName: s.workshopName } : {}),
+          ...(s.pass >= 2 ? { repeatPass: s.pass } : {}),
+          // Откат — сам по себе подтверждение: оператор уже отвечал на вопрос один раз,
+          // второй раз спрашивать про ту же дату незачем.
+          ...(s.code === 'disassembly_defect' ? { confirmDefectDate: true } : {}),
+          engineId: props.engineId,
+        });
+        if (!r.ok) {
+          setStatus(`Ошибка: ${r.error}`);
+          return;
+        }
+      } else if (u.kind === 'restore-manual') {
+        const r = await window.matrica.operations.updateManual(props.engineId, u.snapshot.id, {
+          action: u.snapshot.action,
+          at: u.snapshot.atMs,
+          note: u.snapshot.note,
+        });
+        if (!r.ok) {
+          setStatus(`Ошибка: ${r.error}`);
+          return;
+        }
+      } else {
+        const meta = buildRepairHistoryMeta({
+          action: u.snapshot.action,
+          workshopId: u.snapshot.workshopId,
+          note: u.snapshot.note,
+          at: u.snapshot.atMs,
+        });
+        await window.matrica.operations.add(props.engineId, REPAIR_HISTORY_OPERATION_TYPE, 'done', meta.action, JSON.stringify(meta));
+      }
+      setStatus('');
+      await load();
+      props.onChanged?.();
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function writeStage(
     args: {
       id: string;
@@ -151,6 +255,8 @@ export function EngineHistoryFeedPanel(props: {
       confirmDefectDate?: boolean;
     },
   ) {
+    // Снимок ДО записи: если строка уже есть — откат вернёт её, если новая — откат её снимет.
+    const before = stageSnapshot(args.id);
     setBusy(true);
     try {
       const r = await window.matrica.workSheets.stages.save({ ...args, engineId: props.engineId });
@@ -182,6 +288,11 @@ export function EngineHistoryFeedPanel(props: {
       setPendingDefectDate(null);
       resetStageForm();
       setAddingStage(false);
+      setUndo(
+        before
+          ? { label: `«${templateName(args.code)}»`, kind: 'restore-stage', snapshot: before }
+          : { label: `«${templateName(args.code)}»`, kind: 'remove-stage', id: args.id },
+      );
       setStatus(r.backward ? `«${templateName(args.code)}» — возврат назад, записан проход № ${r.pass}.` : '');
       await load();
       props.onChanged?.();
@@ -194,6 +305,8 @@ export function EngineHistoryFeedPanel(props: {
 
   async function removeStage(id: string, name: string) {
     if (!confirm(`Убрать этап «${name}» из истории? (строка погасится, не удалится)`)) return;
+    // Снимок ДО снятия: откат запишет строку тем же id заново (upsert воскрешает).
+    const before = stageSnapshot(id);
     setBusy(true);
     try {
       const r = await window.matrica.workSheets.stages.remove(id);
@@ -201,6 +314,7 @@ export function EngineHistoryFeedPanel(props: {
         setStatus(`Ошибка: ${r.error}`);
         return;
       }
+      setUndo(before ? { label: `«${name}»`, kind: 'restore-stage', snapshot: before } : null);
       setStatus('');
       await load();
       props.onChanged?.();
@@ -233,14 +347,85 @@ export function EngineHistoryFeedPanel(props: {
     });
     try {
       setStatus('Сохраняю…');
-      await window.matrica.operations.add(props.engineId, REPAIR_HISTORY_OPERATION_TYPE, 'done', meta.action, JSON.stringify(meta));
+      const created = await window.matrica.operations.add(props.engineId, REPAIR_HISTORY_OPERATION_TYPE, 'done', meta.action, JSON.stringify(meta));
       setAddingManual(false);
       resetDraft();
+      setUndo({ label: `запись «${action}»`, kind: 'remove-manual', id: created.id });
       setStatus('');
       await load();
       props.onChanged?.();
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
+  async function removeManual(id: string, title: string) {
+    if (!confirm(`Убрать запись «${title}» из истории? (строка погасится, не удалится)`)) return;
+    const item = feed.find((i) => i.id === id);
+    setBusy(true);
+    try {
+      const r = await window.matrica.operations.remove(id);
+      if (!r.ok) {
+        setStatus(`Ошибка: ${r.error}`);
+        return;
+      }
+      // Откат удаления — та же запись новой строкой (автор и момент ввода станут
+      // текущими, дата события и текст — прежние). Говорим об этом прямо в подписи.
+      setUndo(
+        item
+          ? {
+              label: `запись «${item.title}»`,
+              kind: 'readd-manual',
+              snapshot: { action: item.title, atMs: item.at > 0 ? item.at : Date.now(), note: item.note, workshopId: item.workshopId },
+            }
+          : null,
+      );
+      setStatus('');
+      await load();
+      props.onChanged?.();
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applyManualEdit(id: string, action: string, dateValue: string, note: string) {
+    const trimmed = action.trim();
+    if (!trimmed) {
+      setStatus('Укажите действие — без него строка ничего не говорит');
+      return;
+    }
+    const item = feed.find((i) => i.id === id);
+    const parsed = dateValue ? Date.parse(`${dateValue}T12:00:00`) : Number.NaN;
+    setBusy(true);
+    try {
+      const r = await window.matrica.operations.updateManual(props.engineId, id, {
+        action: trimmed,
+        ...(Number.isFinite(parsed) ? { at: parsed } : {}),
+        note,
+      });
+      if (!r.ok) {
+        setStatus(`Ошибка: ${r.error}`);
+        return;
+      }
+      setEditingManual(null);
+      setUndo(
+        item
+          ? {
+              label: `запись «${item.title}»`,
+              kind: 'restore-manual',
+              snapshot: { id, action: item.title, atMs: item.at > 0 ? item.at : Date.now(), note: item.note },
+            }
+          : null,
+      );
+      setStatus('');
+      await load();
+      props.onChanged?.();
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -468,7 +653,16 @@ export function EngineHistoryFeedPanel(props: {
         </div>
       )}
 
-      {status && <div className="ui-muted">{status}</div>}
+      {(status || undo) && (
+        <div className="ui-muted" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {status && <span>{status}</span>}
+          {undo && (
+            <Button variant="ghost" disabled={busy} title="Вернуть как было до последнего действия" data-history-undo onClick={() => void runUndo()}>
+              ↩ Отменить: {undo.label}
+            </Button>
+          )}
+        </div>
+      )}
 
       {feed.length > 0 && (
         <div style={{ width: '100%', maxWidth: 1400, margin: '0 auto', display: 'flex', justifyContent: 'center' }}>
@@ -537,6 +731,37 @@ export function EngineHistoryFeedPanel(props: {
                         >
                           {`${item.title} ↗`}
                         </button>
+                      ) : editingManual?.id === item.id && item.kind === 'manual' ? (
+                        <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <Input
+                            value={editingManual.action}
+                            disabled={busy}
+                            title="Текст записи"
+                            placeholder="Действие"
+                            data-manual-action={item.id}
+                            onChange={(e) => setEditingManual((prev) => (prev ? { ...prev, action: e.target.value } : null))}
+                          />
+                          <Input
+                            type="date"
+                            value={editingManual.date}
+                            disabled={busy}
+                            title="Дата события"
+                            data-manual-date={item.id}
+                            onChange={(e) => setEditingManual((prev) => (prev ? { ...prev, date: e.target.value } : null))}
+                          />
+                          <Button
+                            variant="ghost"
+                            disabled={busy}
+                            title="Сохранить правку записи"
+                            data-manual-apply={item.id}
+                            onClick={() => void applyManualEdit(item.id, editingManual.action, editingManual.date, editingManual.note)}
+                          >
+                            Применить
+                          </Button>
+                          <Button variant="ghost" title="Отмена" onClick={() => setEditingManual(null)}>
+                            ✕
+                          </Button>
+                        </span>
                       ) : editingDate?.id === item.id ? (
                         <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
                           <Input
@@ -554,7 +779,14 @@ export function EngineHistoryFeedPanel(props: {
                             onClick={() => {
                               const atMs = fromInputDate(editingDate.value);
                               if (atMs !== null) {
-                                void writeStage({ id: item.id, code: editingDate.code, atMs }).then(() => setEditingDate(null));
+                                // Примечание сохраняем как было: иначе смена даты молча стирала бы его
+                                // (писатель собирает строку заново из входа, а не правит дату в строке).
+                                void writeStage({
+                                  id: item.id,
+                                  code: editingDate.code,
+                                  atMs,
+                                  ...(item.note ? { note: item.note } : {}),
+                                }).then(() => setEditingDate(null));
                               }
                             }}
                           >
@@ -568,13 +800,26 @@ export function EngineHistoryFeedPanel(props: {
                     </td>
                     <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }}>{item.workshopId ? workshopName(item.workshopId, item.workshopName) : ''}</td>
                     <td style={{ padding: '4px 6px', overflowWrap: 'break-word' }}>
-                      {item.reason && <div>{item.reason}</div>}
-                      {item.note && <div>{item.note}</div>}
-                      {details.map((line) => (
-                        <div key={line} className="ui-muted">
-                          {line}
-                        </div>
-                      ))}
+                      {editingManual?.id === item.id && item.kind === 'manual' ? (
+                        <Input
+                          value={editingManual.note}
+                          disabled={busy}
+                          title="Примечание"
+                          placeholder="Комментарий — что произошло, всё важное об этом событии"
+                          data-manual-note={item.id}
+                          onChange={(e) => setEditingManual((prev) => (prev ? { ...prev, note: e.target.value } : null))}
+                        />
+                      ) : (
+                        <>
+                          {item.reason && <div>{item.reason}</div>}
+                          {item.note && <div>{item.note}</div>}
+                          {details.map((line) => (
+                            <div key={line} className="ui-muted">
+                              {line}
+                            </div>
+                          ))}
+                        </>
+                      )}
                     </td>
                     <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }} data-history-feed-by={item.id}>
                       {item.by ? <span className="ui-muted">{item.by}</span> : null}
@@ -584,6 +829,24 @@ export function EngineHistoryFeedPanel(props: {
                         <Button variant="ghost" disabled={busy} title="Убрать этап" data-repair-stage-remove={item.id} onClick={() => void removeStage(item.id, item.title)}>
                           ✕
                         </Button>
+                      )}
+                      {props.canEdit && item.kind === 'manual' && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            disabled={busy}
+                            title="Править запись"
+                            data-manual-edit={item.id}
+                            onClick={() =>
+                              setEditingManual({ id: item.id, action: item.title, date: toInputDate(item.at > 0 ? item.at : null), note: item.note })
+                            }
+                          >
+                            ✎
+                          </Button>
+                          <Button variant="ghost" disabled={busy} title="Убрать запись" data-manual-remove={item.id} onClick={() => void removeManual(item.id, item.title)}>
+                            ✕
+                          </Button>
+                        </>
                       )}
                     </td>
                   </tr>
