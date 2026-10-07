@@ -90,7 +90,7 @@ type ListUiState = {
 /** Ступени отчёта — те же смыслы, что в списке двигателей; полный ряд — «Этап на заводе». */
 const FACET_IDS = ['customer', 'contract', 'brand', 'workshop', 'factoryStage', 'hasStage', 'lastStage', 'stageDate', 'scrap', 'reclamation', 'arrivalYear', 'arrival', 'arrivalDate'] as const;
 
-const REPORT_HIDDEN_BY_DEFAULT = ['contract', 'state'];
+const REPORT_HIDDEN_BY_DEFAULT = ['state'];
 
 function text(v: unknown): string {
   return String(v ?? '').trim();
