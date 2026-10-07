@@ -8,11 +8,14 @@
 //      shippingDate нет);
 //  [3] каждая группировка (stage/customer/arrival/days/scrap/none) рисуется, сумма
 //      счётчиков групп = числу строк;
-//  [4] ступень «Последний этап» сужает список ровно до двигателей этого этапа
-//      (сверка с мостом), сброс возвращает всё;
+//  [4] ступени: «Последнего этапа» в панели НЕТ (снят 07.10.2026 — брал одну последнюю
+//      строку этапов и путал), «Этап на заводе» сужает ровно до своего счётчика, сброс
+//      возвращает всё;
 //  [5] клик по строке открывает карточку двигателя;
 //  [6] «Дней на заводе» у строки совпадает с расчётом по дате прихода;
-//  [7] диалог «Печать списка» открывается.
+//  [7] диалог «Печать списка» открывается;
+//  [8] список «Двигатели»: в панели фильтров «Последнего этапа» тоже нет
+//      (снят во всех фильтрах), «Есть этап» и «Этап на заводе» на месте.
 //
 // Самодостаточен: ничего не пишет (только чтение), убирать нечего.
 //
@@ -198,10 +201,8 @@ async function main() {
     `const rows = await call(window.matrica.engines.list());
      const list = Array.isArray(rows) ? rows : (rows?.rows ?? []);
      const atPlant = list.filter((e) => typeof e.arrivalDate === 'number' && e.arrivalDate > 0 && !(typeof e.shippingDate === 'number' && e.shippingDate > 0));
-     const byCode = {};
-     for (const e of atPlant) { const c = String(e.lastStageCode ?? '').trim().toLowerCase() || 'none'; byCode[c] = (byCode[c] ?? 0) + 1; }
-     const test = atPlant[0] ? { id: String(atPlant[0].id), number: String(atPlant[0].engineNumber ?? ''), arrivalDate: atPlant[0].arrivalDate, lastStageCode: String(atPlant[0].lastStageCode ?? '') } : null;
-     return { total: atPlant.length, byCode, test };`,
+     const test = atPlant[0] ? { id: String(atPlant[0].id), number: String(atPlant[0].engineNumber ?? ''), arrivalDate: atPlant[0].arrivalDate } : null;
+     return { total: atPlant.length, test };`,
   );
   note(bridge.total > 0, 'мост: двигатели на заводе есть', { total: bridge.total });
   if (!bridge.total) throw new Error('стенд пуст — нечего проверять');
@@ -271,26 +272,31 @@ async function main() {
   await shot(ws, '3-scrap');
   await evaluate(ws, `const sel = vis('select[data-report-group-by]', REPORT())[0]; setVal(sel, 'stage'); await wait(600); return true;`);
 
-  /* ── [4] Ступень «Последний этап» сужает ровно до своих ─────────────────────────── */
-  const code = String(bridge.test.lastStageCode || 'arrival');
+  /* ── [4] Ступени: «Последнего этапа» нет, «Этап на заводе» сужает по счётчику ────── */
   const s4 = await evaluate(
     ws,
     `const R = REPORT();
-     let opts = vis('[data-facet-value^="lastStage:"]', R);
-     const fieldBtn = vis('[data-facet-field="lastStage"]', R)[0];
-     if (opts.length === 0 && fieldBtn) { click(fieldBtn); await wait(600); opts = vis('[data-facet-value^="lastStage:"]', R); }
-     const opt = opts.find((o) => o.getAttribute('data-facet-value') === ('lastStage:stage:' + ${JSON.stringify(code)}));
-     if (!opt) return { ok: false, reason: 'значения нет', opts: opts.map((o) => o.getAttribute('data-facet-value')) };
-     click(opt); await wait(800);
-     const rows = tableRows().filter((r) => r.kind === 'row');
-     const countText = [...R.querySelectorAll('div,span')].map(txt).find((t) => t.startsWith('Всего')) ?? null;
+     const fieldIds = vis('[data-facet-field]', R).map((b) => b.getAttribute('data-facet-field'));
+     const gone = !fieldIds.includes('lastStage') && vis('[data-facet-value^="lastStage:"]', R).length === 0;
+     // «Этап на заводе» включён по умолчанию — берём первое значение, где есть строки,
+     // и сверяем: после выбора остаётся ровно его счётчик.
+     let opts = vis('[data-facet-value^="factoryStage:"]', R);
+     const fieldBtn = vis('[data-facet-field="factoryStage"]', R)[0];
+     if (opts.length === 0 && fieldBtn) { click(fieldBtn); await wait(600); opts = vis('[data-facet-value^="factoryStage:"]', R); }
+     const withCount = opts.map((o) => { const m = /(\\d+)\\s*$/.exec(txt(o)); return { o, count: m ? Number(m[1]) : 0 }; }).filter((x) => x.count > 0);
+     if (withCount.length === 0) return { ok: false, gone, fieldIds, reason: 'нет значений со строками', opts: opts.map((o) => txt(o)).slice(0, 30) };
+     const pick = withCount[0];
+     click(pick.o); await wait(800);
+     const rows = tableRows().filter((r) => r.kind === 'row').length;
      const reset = vis('[data-facet-reset]', R)[0] ?? null;
      if (reset) { click(reset); await wait(800); }
      const afterReset = tableRows().filter((r) => r.kind === 'row').length;
-     return { ok: true, picked: 'lastStage:' + ${JSON.stringify(code)}, rows: rows.length, countText, afterReset };`,
+     return { ok: true, gone, fieldIds, hasFactory: fieldIds.includes('factoryStage'), hasHasStage: fieldIds.includes('hasStage'),
+       picked: txt(pick.o), pickedCount: pick.count, rows, afterReset };`,
   );
-  const expectedNarrow = bridge.byCode[code] ?? 0;
-  note(s4.ok === true && s4.rows === expectedNarrow, `ступень «Последний этап»: осталось ровно ${expectedNarrow} (по мосту)`, s4);
+  note(s4.gone === true && s4.hasFactory === true && s4.hasHasStage === true,
+    'панель ступеней: «Последнего этапа» нет, «Есть этап» и «Этап на заводе» на месте', { fieldIds: s4.fieldIds, gone: s4.gone });
+  note(s4.ok === true && s4.rows === s4.pickedCount, `ступень «Этап на заводе»: выбор «${s4.picked}» оставил ровно счётчик (${s4.pickedCount})`, { rows: s4.rows, pickedCount: s4.pickedCount, picked: s4.picked });
   note(s4.afterReset === bridge.total, 'сброс ступени вернул все строки', { afterReset: s4.afterReset, total: bridge.total });
 
   /* ── [5] Клик по строке → карточка ──────────────────────────────────────────────── */
@@ -345,6 +351,21 @@ async function main() {
   );
   note(s7.ok === true, 'диалог «Печать списка» открылся с заголовком отчёта', s7);
   await shot(ws, '5-done');
+
+  /* ── [8] Список «Двигатели»: тот же фильтр тоже без «Последнего этапа» ──────────── */
+  await openSection(ws, 'Производство', 'Двигатели');
+  const s8 = await evaluate(
+    ws,
+    `const pane = activePane();
+     const panel = vis('[data-engine-facets]', pane)[0] ?? null;
+     if (!panel) { const toggle = vis('[data-facet-toggle]', pane)[0]; if (toggle) { click(toggle); await wait(800); } }
+     const ids = vis('[data-facet-field]', pane).map((b) => b.getAttribute('data-facet-field'));
+     const reset = vis('[data-facet-reset]', pane)[0] ?? null;
+     if (reset) { click(reset); await wait(400); }
+     return { ok: !ids.includes('lastStage') && ids.includes('factoryStage') && ids.includes('hasStage'), ids };`,
+  );
+  note(s8.ok === true, 'список «Двигатели»: в фильтрах «Последнего этапа» нет, «Есть этап»/«Этап на заводе» на месте', { ids: s8.ids });
+  await shot(ws, '6-engines-filters');
 
   const failed = steps.filter((s) => !s.ok);
   const report = { ok: failed.length === 0, steps, bridgeTotal: bridge.total };

@@ -46,7 +46,6 @@ export type EngineFacetId =
   | 'repairStartedDate'
   | 'repairedDate'
   | 'hasStage'
-  | 'lastStage'
   | 'stageDate'
   | 'factoryStage';
 
@@ -385,21 +384,11 @@ export function engineFacets(
       },
       options: engineStageFacetOptions(types, stageTemplates),
     },
-    {
-      kind: 'values',
-      // «Последний этап» — по дате, то есть где двигатель СЕЙЧАС (владелец 01.10.2026):
-      // при равной дате побеждает поздний проход (возврат). Отдельная ступень, а не ветка
-      // factoryStage: та смешивает этапы с актами и утилем, эта — только про линейку этапов.
-      id: 'lastStage',
-      label: 'Последний этап',
-      valueOf: (e) => {
-        const code = text(e.lastStageCode).toLowerCase();
-        const stage = stageByCode(code, stageTemplates);
-        if (!stage) return { value: 'none', label: 'этапов нет' };
-        return { value: 'stage:' + code, label: stage.name };
-      },
-      options: engineStageFacetOptions(types, stageTemplates),
-    },
+    // Ступени «Последний этап» (по `lastStageCode`) здесь больше нет — снята 07.10.2026
+    // решением владельца: она отвечала «где двигатель» одной последней строкой этапов и
+    // рядом с «Этапом на заводе» (ниже) читалась как второй ответ на тот же вопрос, причём
+    // молча другой (не видит ни утиль, ни возвраты, ни акты). Полное движение — «Этап на
+    // заводе»; отбор по прохождению этапов когда-либо — «Есть этап».
     {
       kind: 'dateRange',
       // Дата ПОСЛЕДНЕГО этапа: без неё нельзя отобрать «сборка за сентябрь».

@@ -172,7 +172,6 @@ describe('ступени фильтра этапов работ', () => {
     performedBy: 'Иванов',
     note: '',
     fields: [],
-    engineLastStageCode: '',
     engineStageCodes: [],
     ...over,
   });
@@ -191,23 +190,22 @@ describe('ступени фильтра этапов работ', () => {
       'performedBy',
       'date',
       'engineHasStage',
-      'engineLastStage',
       'f:hours',
       'f:stand_date',
     ]);
     expect(facets.find((f) => f.id === 'f:stand_date')?.kind).toBe('dateRange');
   });
 
-  it('движковые ступени читают этапы двигателя строки теми же подписями', () => {
+  it('движковая ступень читает этапы двигателя строки теми же подписями; «Последнего этапа» нет', () => {
     const facets = workSheetFacets([]);
     expect(facets.find((f) => f.id === 'engineHasStage')?.label).toBe('Есть этап');
-    expect(facets.find((f) => f.id === 'engineLastStage')?.label).toBe('Последний этап');
+    // Снята 07.10.2026 (владелец: берёт один последний этап и путает) — как в списке двигателей.
+    expect(facets.find((f) => f.id === 'engineLastStage')).toBeUndefined();
     const rows = [
-      row({ id: 'a', engineLastStageCode: 'sborka', engineStageCodes: ['ukladka', 'sborka'] }),
-      row({ id: 'b', engineLastStageCode: 'obkatka', engineStageCodes: ['ukladka', 'sborka', 'obkatka'] }),
-      row({ id: 'c', engineLastStageCode: '', engineStageCodes: [] }),
+      row({ id: 'a', engineStageCodes: ['ukladka', 'sborka'] }),
+      row({ id: 'b', engineStageCodes: ['ukladka', 'sborka', 'obkatka'] }),
+      row({ id: 'c', engineStageCodes: [] }),
     ];
-    expect(applyFacets(facets, rows, { engineLastStage: ['stage:sborka'] }).map((r) => r.id)).toEqual(['a']);
     expect(applyFacets(facets, rows, { engineHasStage: ['stage:obkatka'] }).map((r) => r.id)).toEqual(['b']);
     expect(applyFacets(facets, rows, { engineHasStage: ['none'] }).map((r) => r.id)).toEqual(['c']);
   });

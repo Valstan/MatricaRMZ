@@ -185,15 +185,16 @@ describe('стадия ремонта, цех и акт дефектовки', (
 
 // Этапы единого списка (владелец 01.10.2026). Было четыре ступени об одном и том же —
 // «Последнее событие», «Дата события», «Последний этап работ», «Дата этапа работ» — плюс
-// «Этап на заводе». Осталось три: «Есть этап» (проходил ли, без привязки к дате),
-// «Последний этап» (где сейчас, по дате) и «Дата этапа».
+// «Этап на заводе». Осталось две: «Есть этап» (проходил ли, без привязки к дате) и
+// «Дата этапа». Ступень «Последний этап» снята 07.10.2026 (владелец: она берёт один
+// последний этап и вводит в заблуждение — разрез по всему движению даёт «Этап на заводе»).
 const stageCodeRows = [
   { id: 'c1', stageCodes: ['arrival', 'disassembly_defect', 'sborka'], lastStageCode: 'sborka', lastStageName: 'Сборка', lastStageAt: DAY_09 },
   { id: 'c2', stageCodes: ['arrival', 'disassembly_defect', 'sborka', 'obkatka'], lastStageCode: 'obkatka', lastStageName: 'Обкатка', lastStageAt: DAY_09 },
   { id: 'c3', stageCodes: [] },
 ] as unknown as EngineListItem[];
 
-describe('ступени этапов: «Есть этап» и «Последний этап»', () => {
+describe('ступени этапов: «Есть этап» и «Дата этапа»', () => {
   it('«Есть этап» находит двигатель по ЛЮБОМУ пройденному этапу, а не только по последнему', () => {
     // Ключевая разница с прежней ступенью «Последний этап работ»: двигатель c2 дошёл до обкатки,
     // но и сборку проходил — «есть сборка» должно находить обоих, а «последний этап = сборка»
@@ -207,9 +208,10 @@ describe('ступени этапов: «Есть этап» и «Последн
     expect(ids(applyEngineFacets(stageCodeRows, { hasStage: ['stage:sborka', 'none'] }))).toEqual(['c1', 'c2', 'c3']);
   });
 
-  it('«Последний этап» — по дате: где двигатель сейчас', () => {
-    expect(ids(applyEngineFacets(stageCodeRows, { lastStage: ['stage:obkatka'] }))).toEqual(['c2']);
-    expect(ids(applyEngineFacets(stageCodeRows, { lastStage: ['stage:sborka'] }))).toEqual(['c1']);
+  it('фильтра «Последний этап» больше нет — снят 07.10.2026 (берёт один последний этап, путает)', () => {
+    expect(engineFacetById('lastStage')).toBeUndefined();
+    // Старое состояние списка роумится: выбор снятой ступени не должен оживать и отбирать.
+    expect(sanitizeEngineFacetSelection({ lastStage: ['stage:sborka'] })).toEqual({});
   });
 
   it('«Дата этапа» отбирается диапазоном по дате ПОСЛЕДНЕГО этапа', () => {
@@ -218,10 +220,10 @@ describe('ступени этапов: «Есть этап» и «Последн
     expect(ids(applyEngineFacets(stageCodeRows, { stageDate: { from: '2026-01-01' } }))).toEqual(['c1', 'c2']);
   });
 
-  it('«Есть этап» и «Последний этап» не исключают друг друга — это разные вопросы', () => {
+  it('«Есть этап» и «Этап на заводе» не исключают друг друга — это разные вопросы', () => {
     // Прежние четыре ступени отвечали на почти один вопрос и пересекались; здесь оператор
     // может спросить «кто проходил сборку» и «где сейчас» одним отбором.
-    expect(ids(applyEngineFacets(stageCodeRows, { hasStage: ['stage:sborka'], lastStage: ['stage:obkatka'] }))).toEqual(['c2']);
+    expect(ids(applyEngineFacets(stageCodeRows, { hasStage: ['stage:sborka'], factoryStage: ['stage:obkatka'] }))).toEqual(['c2']);
   });
 
   it('ряд ступеней полный и в порядке шаблона: новый этап виден до того, как в нём никого нет', () => {
@@ -229,11 +231,6 @@ describe('ступени этапов: «Есть этап» и «Последн
     expect(options[0]?.value).toBe('stage:accepted');
     expect(options.find((o) => o.value === 'stage:sborka')).toMatchObject({ label: 'Сборка двигателя' });
     expect(options[options.length - 1]).toMatchObject({ value: 'none', label: 'этапов нет' });
-  });
-
-  it('подпись берётся из шаблона, а не из сырого кода', () => {
-    const options = engineFacetOptions(stageCodeRows, {}, 'lastStage');
-    expect(options.find((o) => o.value === 'stage:obkatka')?.label).toBe('Обкатка двигателя');
   });
 
   it('счётчик «Есть этап» считает двигатели по каждому их этапу', () => {

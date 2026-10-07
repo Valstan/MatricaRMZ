@@ -344,7 +344,6 @@ export async function getWorkSheetRow(db: BetterSQLite3Database, id: string): Pr
     fields: meta.sheet.fields,
     repairStageRowId: meta.repairStage?.rowId ?? null,
     repeatPass: meta.repeat?.pass ?? 1,
-    engineLastStageCode: history?.lastStageCode ?? '',
     engineStageCodes: history?.stageCodes ?? [],
   };
 }
@@ -441,7 +440,6 @@ export async function listWorkSheetRows(
       note: meta.note ?? '',
       repairStageRowId: meta.repairStage?.rowId ?? null,
       repeatPass: meta.repeat?.pass ?? 1,
-      engineLastStageCode: history?.lastStageCode ?? '',
       engineStageCodes: history?.stageCodes ?? [],
     };
     if (meta.sheet && repairHistoryEntryType(meta, String(op.operationType)) === 'sheet') {
