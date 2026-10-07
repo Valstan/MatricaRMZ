@@ -583,6 +583,11 @@ export function EngineDetailsPage(props: {
   // платежей (шаг 8/2; замороженные флаги выше — история, а не факт). Обновляется
   // при записи истории (onChanged панели ниже) и при фоновом reload/sync.
   const [lastStage, setLastStage] = useState<{ code: string; at: number | null } | null>(null);
+  // Дата этапа «Разборка/Дефектовка» из единого списка — подставляется в поле
+  // «Дата разборки/дефектовки» акта, если поле пусто (решение владельца 07.10.2026:
+  // «если где-то введён этап разборки/дефектовки кроме акта, дата подставляется и в
+  // Акт»). Акт от этого НЕ считается проведённым: проведение — отдельная кнопка.
+  const [defectStageAt, setDefectStageAt] = useState<number | null>(null);
   const reloadLastStage = useCallback(async () => {
     try {
       const r = await window.matrica.workSheets.stages.list(props.engineId);
@@ -590,13 +595,16 @@ export function EngineDetailsPage(props: {
       let best: { code: string; at: number | null } | null = null;
       let shippedAt: number | null = null;
       let acceptedAt: number | null = null;
+      let defectAt: number | null = null;
       for (const row of r.rows) {
         if (typeof row.at !== 'number' || !Number.isFinite(row.at) || row.at <= 0) continue;
         if (!best || (best.at ?? 0) < row.at) best = { code: row.code, at: row.at };
         if (row.code === 'shipped' && shippedAt === null) shippedAt = row.at;
         if (row.code === 'accepted' && acceptedAt === null) acceptedAt = row.at;
+        if (row.code === 'disassembly_defect' && defectAt === null) defectAt = row.at;
       }
       setLastStage(best);
+      setDefectStageAt(defectAt);
       // PR-I: этапы → «Основное»: если в EAV дата пуста, а этап есть — показываем дату этапа.
       // Правки оператора не затираем: только когда сессия чистая.
       if (!sessionHadChanges.current && (shippedAt !== null || acceptedAt !== null)) {
@@ -2337,6 +2345,11 @@ export function EngineDetailsPage(props: {
   // попадать (иначе акт печатает дату, которой в базе нет).
   const arrivalDateMsForChecklist =
     fromInputDate(toInputDate(normalizeDateInput(props.engine.attributes?.arrival_date))) ?? fromInputDate(arrivalDate);
+  // Номер накладной прихода — в акт комплектности (решение владельца 07.10.2026):
+  // накладная живёт полем карточки, но печатный акт её не называл. Берём СОХРАНЁННОЕ
+  // значение (EAV + оверлей реплики, как дату прихода), а не черновик поля: акт не
+  // должен печатать номер, которого в базе нет.
+  const arrivalInvoiceForChecklist = String(committedAttributes.arrival_invoice ?? '').trim();
   // Бирка на один двигатель — те же поля, что у бирок из списка, но собранные из состояния
   // карточки: крайний день ремонта считаем сами (поступление + срок ремонта его договора),
   // в списке это же значение приезжает готовым из listEngines.
@@ -2832,6 +2845,8 @@ export function EngineDetailsPage(props: {
             engineBrand={engineBrand}
             contractNumber={contractLabelForChecklist}
             arrivalDate={arrivalDateMsForChecklist}
+            {...(arrivalInvoiceForChecklist ? { arrivalInvoice: arrivalInvoiceForChecklist } : {})}
+            {...(defectStageAt != null ? { defectStageDate: defectStageAt } : {})}
             {...(engineBrandId ? { engineBrandId } : {})}
             {...(() => {
               const name = workshopOptions.find((o) => o.id === workshopId)?.label ?? '';

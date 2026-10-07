@@ -1,7 +1,7 @@
 import type { EngineInventoryRow } from '@matricarmz/shared';
 import { describe, expect, it } from 'vitest';
 
-import { buildInventoryDefectBlankHtml, buildInventoryDefectHtml } from './engineInventoryPrintHtml.js';
+import { buildInventoryActHtml, buildInventoryDefectBlankHtml, buildInventoryDefectHtml } from './engineInventoryPrintHtml.js';
 
 function row(part_name: string, quantity: number, hasOwnNumber: boolean): EngineInventoryRow {
   const r: EngineInventoryRow = {
@@ -118,5 +118,36 @@ describe('акт дефектовки — подписной документ н
     expect(act).not.toContain('blank-table');
     expect(act).toContain('Причина утиля');
     expect(act).toContain('№ сборочной единицы');
+  });
+});
+
+// П.2 таблицы 05.10.2026: «накладная приемки» входит в этап приёмки наравне с датой
+// и актом, но печатный акт её не называл (решение владельца 07.10.2026).
+describe('акт комплектности — номер накладной прихода', () => {
+  function actCtx(extra: Record<string, unknown> = {}) {
+    return {
+      engineBrand: '6ЧН 21/21',
+      engineNumber: 'Д-001',
+      contractNumber: 'ДГ-12',
+      rows: ROWS,
+      answers: {},
+      ...extra,
+    };
+  }
+
+  it('печатает номер накладной строкой шапки', () => {
+    const html = buildInventoryActHtml(actCtx({ arrivalInvoice: 'НК-777' }));
+    expect(html).toContain('Номер накладной (приход)');
+    expect(html).toContain('НК-777');
+  });
+
+  it('без накладной строка остаётся пустой клеткой — не исчезает из бланка', () => {
+    const html = buildInventoryActHtml(actCtx());
+    expect(html).toContain('Номер накладной (приход)');
+  });
+
+  it('бланк тоже несёт строку накладной — под запись от руки', () => {
+    const html = buildInventoryActHtml(actCtx({ blank: true }));
+    expect(html).toContain('Номер накладной (приход)');
   });
 });

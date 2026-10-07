@@ -414,8 +414,32 @@ describe('RepairChecklistPanel: дата приёма — из карточки,
   });
 });
 
-describe('RepairChecklistPanel: блок «Базовые детали» раскрыт с первого захода (D5, владелец 17.09.2026)', () => {
-  it('базовые детали открыты по умолчанию, остальные — свёрнуты', () => {
+// Пп. 2–3 таблицы 05.10.2026 (решения владельца 07.10.2026).
+describe('RepairChecklistPanel: накладная прихода и дата этапа дефектовки', () => {
+  it('номер накладной прихода из карточки уезжает в печать акта комплектности', () => {
+    expect(PANEL, 'проп накладной не заведён').toContain('arrivalInvoice?: string');
+    expect(PANEL, 'накладная не доезжает до печатного контекста').toContain(
+      "...(props.arrivalInvoice ? { arrivalInvoice: String(props.arrivalInvoice) } : {}),",
+    );
+  });
+
+  it('дата этапа «Разборка/Дефектовка» подставляется в поле листа — только в пустое', () => {
+    const AUTOFILL = PANEL.slice(PANEL.indexOf('const fillText'), PANEL.indexOf('const fillText') + 5200);
+    expect(AUTOFILL, 'подстановка даты этапа дефектовки пропала').toContain("hasItem('defect_start_date')");
+    expect(AUTOFILL, 'подстановка должна уважать введённое оператором').toContain('current == null');
+  });
+
+  it('подстановка даты НЕ проводит акт: проведение остаётся отдельной кнопкой', () => {
+    // Дата — факт события, а не факт проверки: `completeness_inspection_date` по-прежнему
+    // ставится только кнопкой, а дефектовка проводится `conductDefect`/версией на сервере.
+    const AUTOFILL = PANEL.slice(PANEL.indexOf('const fillText'), PANEL.indexOf('const fillText') + 5200);
+    expect(AUTOFILL, 'дата осмотра снова автозаполняется — акт «проведён» без кнопки').not.toContain(
+      "'completeness_inspection_date']",
+    );
+  });
+});
+
+describe('RepairChecklistPanel: блок «Базовые детали» раскрыт с первого захода (D5, владелец 17.09.2026)', () => {  it('базовые детали открыты по умолчанию, остальные — свёрнуты', () => {
     expect(PANEL).toContain('const [baseGroupOpen, setBaseGroupOpen] = useState(true);');
     expect(PANEL).toContain('const [otherGroupOpen, setOtherGroupOpen] = useState(false);');
   });

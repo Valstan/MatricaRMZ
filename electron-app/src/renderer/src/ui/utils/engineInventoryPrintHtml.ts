@@ -23,6 +23,13 @@ export type EngineInventoryPrintContext = {
    */
   engineInternalNumber?: string;
   contractNumber: string;
+  /**
+   * Номер накладной прихода (`arrival_invoice` карточки) — печатается строкой шапки
+   * акта комплектности (решение владельца 07.10.2026: «накладная приемки» входит
+   * в один этап приёмки вместе с датой и актом; накладная живёт полем карточки,
+   * акт обязан её называть). Пусто — строка печатается пустой клеткой.
+   */
+  arrivalInvoice?: string;
   rows: EngineInventoryRow[];
   answers: RepairChecklistAnswers;
   /** Цех двигателя — печатается в шапке акта («Цех: …»). */
@@ -255,6 +262,9 @@ export function buildInventoryActHtml(ctx: EngineInventoryPrintContext): string 
   }
   const acceptance = getSignature(ctx.answers, 'acceptance_signed_by');
   const customerRep = getSignature(ctx.answers, 'customer_representative');
+  // Накладная прихода — из карточки (ctx): в шаблоне листа своего поля у неё нет,
+  // карточка — единственный носитель (решение владельца 07.10.2026).
+  const arrivalInvoice = String(ctx.arrivalInvoice ?? '').trim();
 
   const identity = renderActIdentity({
     actKind: 'комплектности',
@@ -270,6 +280,7 @@ export function buildInventoryActHtml(ctx: EngineInventoryPrintContext): string 
       ${renderHeaderRow('№ двигателя', number || '—')}
       ${internalNumber ? renderHeaderRow('Внутренний №', internalNumber) : ''}
       ${renderHeaderRow('Договор / заказчик', contractNumber || '')}
+      ${renderHeaderRow('Номер накладной (приход)', arrivalInvoice || '')}
       ${renderHeaderRow('Дата приёмки', dateOrFillIn(arrivalDate))}
     </div>`;
 
