@@ -49,14 +49,22 @@ describe('воронка этапов: все писатели через save/e
     }
   });
 
-  it('карта писателей: arrival — setAttr и strict-save карточки (main, не renderer)', () => {
+  it('карта писателей: arrival/shipped/accepted — strict-save карточки (main, не renderer)', () => {
     expect(ENGINE_SERVICE).toContain("code === 'arrival_date'");
-    expect(ENGINE_CARDS_IPC).toContain("ensureRepairStageRow(db, id, 'arrival'");
+    expect(ENGINE_CARDS_IPC).toContain("stageFromDate('arrival'");
+    expect(ENGINE_CARDS_IPC).toContain("stageFromDate('shipped'");
+    expect(ENGINE_CARDS_IPC).toContain("stageFromDate('accepted'");
   });
 
-  it('карта писателей: shipped/accepted из карточки — mark-if-absent', () => {
-    expect(CARD).toContain("code: 'shipped'");
-    expect(CARD).toContain("code: 'accepted'");
+  it('даты «Основного» → этапы пишет main, а не рендерер (дефект 07.10.2026)', () => {
+    // Прежде рендерер звал `workSheets:stages:save` под правом `work_sheets.edit` —
+    // у ролей без него (инженер, админ) этап молча не появлялся. Сторож держит
+    // место записи: main-путь + check права-дизъюнкции (и сервер её требует).
+    expect(ENGINE_CARDS_IPC).toContain('canWriteStageRow');
+    expect(ENGINE_CARDS_IPC).toContain("stageWritePerms['work_sheets.edit']");
+    expect(ENGINE_CARDS_IPC).toContain("stageWritePerms['operations.edit']");
+    expect(CARD, 'рендерер снова пишет этапы мимо main').not.toContain("code: 'shipped'");
+    expect(CARD, 'рендерер снова пишет этапы мимо main').not.toContain("code: 'accepted'");
   });
 
   it('карта писателей: дефектовка — проведение, карточка — материализация сущности', () => {

@@ -16,10 +16,16 @@ describe('EngineDetailsPage — вкладка «Основное» (PR-I)', () 
     expect(PAGE).toContain('Модуль движения деталей скрыт');
   });
 
-  it('даты из «Основного» создаются этапами при сохранении', () => {
-    expect(PAGE).toContain("code: 'shipped'");
-    expect(PAGE).toContain("code: 'accepted'");
-    expect(PAGE).toContain('workSheets.stages');
+  it('даты из «Основного» пишутся этапами — теперь в main (дефект 07.10.2026)', () => {
+    // Прежде здесь искали `code: 'shipped'` в странице: рендерер звал
+    // `workSheets:stages:save` под поимённым `work_sheets.edit` — у ролей без него
+    // этап молча не появлялся. Запись переехала в `engines:card:save` (main);
+    // сторож места — `repairStageFunnel.guard.test.ts`. Здесь держим обратное:
+    // рендерер этапы не пишет (save/ensure — не его дверь).
+    expect(PAGE).not.toContain('workSheets.stages\n');
+    expect(PAGE).not.toMatch(/workSheets\.stages\s*\.\s*save/);
+    expect(PAGE).not.toContain("code: 'shipped'");
+    expect(PAGE).not.toContain("code: 'accepted'");
   });
 
   it('этапы подтягиваются в «Основное», если дата пуста', () => {
