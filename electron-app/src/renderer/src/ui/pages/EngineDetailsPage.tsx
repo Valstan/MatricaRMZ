@@ -1365,32 +1365,13 @@ export function EngineDetailsPage(props: {
               /* передача — аудиторская запись, не валим сохранение карточки */
             }
           }
-          // История ремонта: стадиями теперь владеет единый список этапов
-          // (вкладка «История ремонта»); карточка флаги больше не пишет (шаг 8/3).
+          // История ремонта: стадиями владеет единый список этапов (вкладка
+          // «История ремонта»); карточка флаги больше не пишет (шаг 8/3).
           // Замороженные значения остаются в EAV как история — их читает печать ниже.
-          // PR-I: дата отгрузки/приёмки из «Основного» — в этапы (только создание,
-          // если этапа ещё нет; даты существующих этапов правит только «История ремонта»).
-          try {
-            const shippedAt = statusDates.status_customer_sent ?? null;
-            const acceptedAt = statusDates.status_customer_accepted ?? null;
-            if (shippedAt || acceptedAt) {
-              const st = await window.matrica.workSheets.stages.list(props.engineId).catch(() => null);
-              const rows = st && st.ok ? st.rows : [];
-              const has = (code: string) => rows.some((r) => r.code === code);
-              if (shippedAt && !has('shipped')) {
-                await window.matrica.workSheets.stages
-                  .save({ id: crypto.randomUUID(), engineId: props.engineId, code: 'shipped', atMs: shippedAt })
-                  .catch(() => undefined);
-              }
-              if (acceptedAt && !has('accepted')) {
-                await window.matrica.workSheets.stages
-                  .save({ id: crypto.randomUUID(), engineId: props.engineId, code: 'accepted', atMs: acceptedAt })
-                  .catch(() => undefined);
-              }
-            }
-          } catch {
-            /* этапы — best-effort, карточку не валим */
-          }
+          // Даты «Основного» → этапы (shipped/accepted) создаёт MAIN-процесс в
+          // `engines:card:save` (там же, где arrival): прежде это делал рендерер через
+          // `workSheets:stages:save`, и у ролей без поимённого `work_sheets.edit`
+          // (инженер, админ) этап молча не появлялся (дефект 07.10.2026).
           await props.onEngineUpdated();
           setSaveStatus(overPlanNote || 'Сохранено');
           setTimeout(() => setSaveStatus(''), overPlanNote ? 8000 : 700);

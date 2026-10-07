@@ -181,16 +181,38 @@ export function registerEngineCardsIpc(ctx: IpcContext) {
       // гейтов: отбитая запись не должна создавать сущность.
       await ensureEngineRow(db, id, Date.now(), await ctx.currentActor());
       const saved = await saveEngineCardStrict(db, id, fields, Date.now());
-      // Дата прихода — в этап «Приемка» (таблица 05.10.2026, тот же mark-if-absent,
-      // что у setEngineAttribute выше: EAV- и strict-пути карточки дублируют друг
-      // друга, ensure идемпотентен). Best-effort: карточка уже сохранена.
-      const arrivalAt = fields.arrival_date;
-      if (typeof arrivalAt === 'number' && Number.isFinite(arrivalAt) && arrivalAt > 0) {
-        try {
-          await ensureRepairStageRow(db, id, 'arrival', Math.trunc(arrivalAt), (await ctx.currentActor()) || 'local');
-        } catch {
-          /* авто-метка — не причина терять карточку */
-        }
+      // Даты «Основного» — в этапы единого списка (таблица 05.10.2026). В main, а не
+      // в рендерере: там запись шла через `workSheets:stages:save` под правом
+      // `work_sheets.edit` (поимённое, у производственных ролей его нет) — дату
+      // сохраняли, а этап молча не появлялся (замер 07.10: 70 записей от инженера
+      // за утро без единого этапа). Здесь гейт уже взят выше — `engines.edit`,
+      // а авто-метки — тот же класс, что arrival/sborka/obkatka (их пишут main-сервисы).
+      // На сервере строку этапа примет дизъюнкция `work_sheets.edit` ИЛИ
+      // `operations.edit` (ledgerAuthz); роль без обоих прав (technolog) строку не
+      // получит — сверяемся заранее, чтобы не создавать её в реплике и не гонять
+      // отклонённый push. Даты берём из СВЕЖЕЙ строки реплики, а не из присланных
+      // полей: тогда любой сейв карточки долечивает недостающий этап, даже если саму
+      // дату не трогали (иначе 78 старых движков ждали бы ручной правки даты).
+      // Тот же mark-if-absent, что у EAV-пути (`setEngineAttribute`): идемпотентно,
+      // дату существующей строки правит только «История ремонта». Best-effort:
+      // карточка уже сохранена.
+      const stageWritePerms = await ctx.currentPermissions();
+      const canWriteStageRow =
+        stageWritePerms['work_sheets.edit'] === true || stageWritePerms['operations.edit'] === true;
+      if (canWriteStageRow) {
+        const fresh = await readEngineCardStrict(db, id);
+        const actor = (await ctx.currentActor()) || 'local';
+        const stageFromDate = async (code: string, raw: unknown): Promise<void> => {
+          if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return;
+          try {
+            await ensureRepairStageRow(db, id, code, Math.trunc(raw), actor);
+          } catch {
+            /* авто-метка — не причина терять карточку */
+          }
+        };
+        await stageFromDate('arrival', fresh?.arrivalDate);
+        await stageFromDate('shipped', fresh?.statusCustomerSentDate);
+        await stageFromDate('accepted', fresh?.statusCustomerAcceptedDate);
       }
       return { ok: true as const, changed: saved.changed };
     } catch (e) {
