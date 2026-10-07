@@ -123,6 +123,7 @@ async function dispatchReportPreset(
       case 'payments_overview':
         return buildPaymentsOverviewReport(db, args.filters);
       case 'engine_factory_stages':
+      case 'engines_at_plant':
         // Отчёт-список (`presentation: 'list'`): строится на экране из каталога двигателей
         // приложения, сервис его не собирает. Сюда попадают только старые ярлыки/CSV-пути.
         return { ok: false, error: 'Этот отчёт строится на экране как список — откройте его из каталога отчётов' };

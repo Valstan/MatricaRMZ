@@ -119,6 +119,13 @@ export const HUMAN_LABEL_GUARD_UNCOVERED_PRESETS: HumanLabelGuardUncoveredPreset
       'отвечает отказом по замыслу. Подписи этапов держит `engineFactoryStage.test.ts` в shared.',
   },
   {
+    presetId: 'engines_at_plant',
+    reason:
+      'Отчёт-список (presentation: list): строится на экране из каталога двигателей, сервис ' +
+      'отвечает отказом по замыслу. Подписи этапов держит `engineFactoryStage.test.ts` в shared, ' +
+      'разрезы — `engineAtPlantGroups.test.ts`, рамку — `EnginesAtPlantReportPage.guard.test.ts`.',
+  },
+  {
     presetId: 'engines',
     reason:
       'Отчёт-список (presentation: list, B3 программы осень-2026): строится на экране из каталога ' +
