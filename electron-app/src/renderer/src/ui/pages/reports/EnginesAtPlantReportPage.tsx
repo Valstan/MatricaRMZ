@@ -48,8 +48,9 @@ import type { ListReportPageProps } from './listReportPages.js';
  *
  * Группировки — переключатель «Группировать»: по этапу (где двигатель сейчас),
  * по заказчику, по дате прихода (месяц), по дням на заводе (сколько уже стоит),
- * по утилю (сколько лежит и не уехало). Выбор этапов для показа — ступень
- * «Последний этап» / «Этап на заводе» панели фильтров.
+ * по утилю (сколько лежит и не уехало). Выбор этапов для показа — ступени
+ * «Есть этап» (проходил ли) / «Этап на заводе» (где сейчас, по всему движению);
+ * «Последний этап» снята 07.10.2026 решением владельца — см. `engineListFacets.ts`.
  *
  * Родственник — «Двигатели на заводе: этапы ремонта» (`engine_factory_stages`): та же
  * рамка и те же ступени, но разрезы другие (там — этап / заказчик / заказчик → этап).
@@ -88,7 +89,7 @@ type ListUiState = {
 };
 
 /** Ступени отчёта — те же смыслы, что в списке двигателей; полный ряд — «Этап на заводе». */
-const FACET_IDS = ['customer', 'contract', 'brand', 'workshop', 'factoryStage', 'hasStage', 'lastStage', 'stageDate', 'scrap', 'reclamation', 'arrivalYear', 'arrival', 'arrivalDate'] as const;
+const FACET_IDS = ['customer', 'contract', 'brand', 'workshop', 'factoryStage', 'hasStage', 'stageDate', 'scrap', 'reclamation', 'arrivalYear', 'arrival', 'arrivalDate'] as const;
 
 const REPORT_HIDDEN_BY_DEFAULT = ['state'];
 

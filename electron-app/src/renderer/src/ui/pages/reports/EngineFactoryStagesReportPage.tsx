@@ -81,14 +81,14 @@ type ListUiState = {
   groupBy: GroupBy;
 };
 
-/** Ступени отчёта — подмножество ступеней списка двигателей; порядок — как на панели. */
 /**
  * Ступени отчёта — подмножество ступеней списка двигателей; порядок — как на панели.
- * Про этапы: «Есть этап» (проходил ли) + «Последний этап» (где сейчас) + «Дата этапа».
- * Бывшие тут «Последний этап работ» и «Дата этапа работ» убраны (владелец 01.10.2026):
- * они отвечали на те же вопросы, но про узлы работ, и пересекались с «Этапом на заводе».
+ * Про этапы: «Есть этап» (проходил ли) + «Дата этапа» + «Этап на заводе». Ступень
+ * «Последний этап» снята 07.10.2026 решением владельца — как в списке двигателей
+ * (см. `engineListFacets.ts`). Бывшие тут «Последний этап работ» и «Дата этапа работ»
+ * убраны раньше (владелец 01.10.2026): они отвечали на те же вопросы, но про узлы работ.
  */
-const FACET_IDS = ['customer', 'contract', 'brand', 'workshop', 'factoryStage', 'hasStage', 'lastStage', 'stageDate', 'scrap', 'reclamation', 'arrivalYear', 'arrival', 'arrivalDate'] as const;
+const FACET_IDS = ['customer', 'contract', 'brand', 'workshop', 'factoryStage', 'hasStage', 'stageDate', 'scrap', 'reclamation', 'arrivalYear', 'arrival', 'arrivalDate'] as const;
 
 const REPORT_HIDDEN_BY_DEFAULT = ['contract', 'historyAt', 'repairStartedAt', 'repairedAt', 'scrapAt'];
 
@@ -140,8 +140,9 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
       { id: 'repairStartedAt', label: 'Ремонт начат', kind: 'date', render: (e) => fmtDate(engineStatusDate(e, 'status_repair_started')), sortValue: (e) => engineStatusDate(e, 'status_repair_started') ?? 0 },
       { id: 'repairedAt', label: 'Отремонтирован', kind: 'date', render: (e) => fmtDate(engineStatusDate(e, 'status_repaired')), sortValue: (e) => engineStatusDate(e, 'status_repaired') ?? 0 },
       { id: 'scrapAt', label: 'Дата утиля', kind: 'date', render: (e) => fmtDate(engineScrapDate(e)), sortValue: (e) => engineScrapDate(e) ?? 0 },
-      // Последний этап единого списка: подпись берёт шаблон (порядок и названия меняет владелец),
-      // поэтому колонка не расходится со ступенью «Последний этап».
+      // Последний ЗАПИСАННЫЙ этап единого списка — журнальный срез рядом с «Этапом на заводе»
+      // (тот считает место по всему движению: утиль, возвраты, акты). Подпись берёт шаблон
+      // (порядок и названия меняет владелец), поэтому колонка не расходится с рядами ступеней.
       { id: 'lastStage', label: 'Последний этап', kind: 'name', render: (e) => text(e.lastStageName), sortValue: (e) => text(e.lastStageName) },    ],
     [],
   );

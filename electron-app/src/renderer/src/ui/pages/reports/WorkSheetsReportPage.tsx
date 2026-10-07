@@ -203,7 +203,7 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
   );
 
   // Ступени — общие плюс по одной на каждое поле вида работ (по справочнику),
-  // плюс движковые («Есть этап», «Последний этап») — те же смыслы, что в списках.
+  // плюс движковая («Есть этап») — тот же смысл, что в списках.
   const sheetTypes = useWorkSheetTypeRefs();
   const stageTemplates = useRepairStageTemplateRefs();
   const facets = useMemo(

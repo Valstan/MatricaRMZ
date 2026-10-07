@@ -127,6 +127,17 @@ describe('PR-G: отчёт без дублей колонок + Android-синк
     expect(PAGE).toContain('lastSheetNode');
   });
 
+  // Владелец 07.10.2026: ступень «Последний этап» снята во всех фильтрах и отчётах —
+  // на панели она рядом с «Этапом на заводе» читалась вторым ответом на тот же вопрос,
+  // причём молча другим (не видит ни утиль, ни возвраты, ни акты). Отбор по прохождению
+  // этапов остаётся у «Есть этап», место двигателя — у «Этапа на заводе».
+  it('ступени «Последний этап» в отчёте нет — снята везде (см. engineListFacets.ts)', () => {
+    const facetIds = PAGE.match(/const FACET_IDS = \[([^\]]*)\]/)?.[1] ?? '';
+    expect(facetIds, 'ступень вернулась — оператор снова выберет неверный отбор').not.toContain('lastStage');
+    expect(facetIds).toContain("'factoryStage'");
+    expect(facetIds).toContain("'hasStage'");
+  });
+
   it('Android: интервал автосинка — 15 секунд', () => {
     const BOOT = src('../../../../../../../android-app/src/core/boot.ts');
     expect(BOOT).toContain('startAuto(15_000)');
