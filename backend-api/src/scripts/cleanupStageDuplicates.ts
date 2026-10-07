@@ -22,9 +22,10 @@ import { camelOperationRowForSync } from './pr3SyncRow.js';
 //      на живую: иначе в ленте остаётся автор «перенос этапов (скрипт)», а работа
 //      человека теряется вместе со старой строкой;
 //   C. старая «Приёмка ОТК» (priemka_otk) без пары → та же строка переписывается в
-//      этап «Выходной контроль ОТК» (id/дата/автор сохраняются), дубль не заводится;
-//      если у двигателя уже есть ОТК другой датой — строка не трогается, случай
-//      печатается отдельно (решение владельца);
+//      этап «Выходной контроль ОТК» (id/дата/автор сохраняются), дубль не заводится.
+//      У двигателя уже есть ОТК другой датой — всё равно переводим: решение владельца
+//      07.10.2026, две отметки ОТК на разные даты допустимы (реальный осмотр в один
+//      день и повторный выходной контроль — разные события);
 //   B. две строки «Приемка двигателя на завод» с разными датами (перенос 29.09 взял
 //      дату карточки, 05.10 — дату акта; замер: у 53 движков карточка в первой строке,
 //      у 7 — во второй) → остаётся строка с датой КАРТОЧКИ (канон владельца 06.10.2026),
@@ -223,7 +224,6 @@ async function main(): Promise<void> {
   let aSkippedRepeat = 0;
   let aSkippedNoTwin = 0;
   let cConverted = 0;
-  let cSkippedOtkExists = 0;
   console.log('\n== A/C. старые «этапы работ» ==');
   for (const sh of sheets.sort((a, b) => a.engineId.localeCompare(b.engineId) || a.day.localeCompare(b.day))) {
     const stageCode = sheetTwinStageCode(sh.code);
@@ -243,14 +243,11 @@ async function main(): Promise<void> {
         aSkippedNoTwin += 1;
         continue;
       }
-      if (otkEngines.has(sh.engineId)) {
-        console.log(
-          `  SKIP ${sh.engineId} ${sh.day} priemka_otk — у двигателя уже есть «Выходной контроль ОТК» другой датой: решает владелец`,
-        );
-        cSkippedOtkExists += 1;
-        continue;
-      }
-      console.log(`  CONVERT ${sh.engineId} ${sh.day} priemka_otk → otk (id/автор сохраняются)`);
+      // ОТК уже есть другой датой — всё равно переводим (решение владельца 07.10.2026):
+      // две отметки ОТК на разные даты — разные события, не дубль.
+      console.log(
+        `  CONVERT ${sh.engineId} ${sh.day} priemka_otk → otk (id/автор сохраняются${otkEngines.has(sh.engineId) ? '; у двигателя есть ОТК другой датой — будет вторая отметка' : ''})`,
+      );
       if (args.apply) {
         const cur = await reload(sh.id);
         if (cur) {
@@ -390,7 +387,7 @@ async function main(): Promise<void> {
   console.log(
     `\nкласс A: удалено старых ${aDeleted}, пропущено повторов ${aSkippedRepeat}, без пары/вне карты ${aSkippedNoTwin}`,
   );
-  console.log(`класс C: переведено в «Выходной контроль ОТК» ${cConverted}, отложено (есть ОТК другой датой) ${cSkippedOtkExists}`);
+  console.log(`класс C: переведено в «Выходной контроль ОТК» ${cConverted}`);
   console.log(`класс B: удалено лишних «Приемка» ${bDeleted}, пропущено без даты карточки ${bSkipped}`);
   console.log(`пропущено без мета: ${skippedNoMeta}`);
   if (!args.apply) console.log('Без --apply запись не выполняется.');
