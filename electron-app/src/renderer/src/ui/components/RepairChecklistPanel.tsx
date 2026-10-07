@@ -474,6 +474,15 @@ export function RepairChecklistPanel(props: {
   engineBrand?: string;
   engineBrandId?: string;
   contractNumber?: string;
+  /** Номер накладной прихода из карточки — печатается в шапке акта комплектности. */
+  arrivalInvoice?: string;
+  /**
+   * Дата этапа «Разборка/Дефектовка» из единого списка карточки. Если оператор
+   * поставил этап вне акта (лента истории, список этапов), дата должна доехать
+   * до поля «Дата разборки/дефектовки» листа — но акт от этого НЕ считается
+   * проведённым: проведение остаётся отдельным действием (решение владельца 07.10.2026).
+   */
+  defectStageDate?: number | null;
   arrivalDate?: number | null;
   canViewFiles?: boolean;
   canUploadFiles?: boolean;
@@ -934,6 +943,7 @@ export function RepairChecklistPanel(props: {
       engineNumber: String(props.engineNumber ?? ''),
       ...(props.engineInternalNumber ? { engineInternalNumber: String(props.engineInternalNumber) } : {}),
       contractNumber: String(props.contractNumber ?? ''),
+      ...(props.arrivalInvoice ? { arrivalInvoice: String(props.arrivalInvoice) } : {}),
       rows,
       answers: ans,
       ...(props.workshopName ? { workshopName: props.workshopName } : {}),
@@ -1138,12 +1148,29 @@ export function RepairChecklistPanel(props: {
         changed = true;
       }
     }
+    // Этап «Разборка/Дефектовка», поставленный ВНЕ акта (лента истории / список этапов),
+    // доносит свою дату до поля листа — только в пустое (решение владельца 07.10.2026:
+    // «дата подставляется и в Акт»). Проведение это НЕ включает: акт остаётся
+    // непроведённым, пока оператор не заполнит и не проведёт его отдельно (у печатной
+    // формы и версий свой гейт); подставляется факт даты, а не факт проверки.
+    const defectStageDate =
+      typeof props.defectStageDate === 'number' && Number.isFinite(props.defectStageDate) && props.defectStageDate > 0
+        ? props.defectStageDate
+        : null;
+    if (isInventory && hasItem('defect_start_date') && defectStageDate != null) {
+      const a: any = (answers as any).defect_start_date;
+      const current = a?.kind === 'date' && Number.isFinite(a.value) ? Number(a.value) : null;
+      if (current == null) {
+        (next as any).defect_start_date = { kind: 'date', value: defectStageDate };
+        changed = true;
+      }
+    }
 
     if (!changed) return;
     setAnswers(next);
     if (props.canEdit) void save(next, { auto: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the ONLY omitted dep is `save`: a plain function declared later in the body and recreated every render, so listing it would re-run this effect on every render. `answers` IS in the deps, so this runs on every answer edit; a field the operator has touched fails the ownership check in `fillText`, so the `if (!changed) return` guard keeps it a no-op
-  }, [activeTemplate?.id, answers, props.arrivalDate, props.canEdit, props.contractNumber, props.engineBrand, props.engineNumber, props.engineInternalNumber, props.stage]);
+  }, [activeTemplate?.id, answers, props.arrivalDate, props.canEdit, props.contractNumber, props.engineBrand, props.engineNumber, props.engineInternalNumber, props.defectStageDate, props.stage]);
 
   useEffect(() => {
     if (!activeTemplate) return;
