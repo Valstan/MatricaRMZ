@@ -32,6 +32,7 @@ const PAGES = [
   'NomenclatureDirectoryPage',
   'WorkSheetsPage',
   'reports/EngineFactoryStagesReportPage',
+  'reports/EnginesAtPlantReportPage',
   'reports/EnginesReportPage',
   'reports/WorkSheetsReportPage',
 ].map((name) => [name, src(`../pages/${name}.tsx`)] as const);

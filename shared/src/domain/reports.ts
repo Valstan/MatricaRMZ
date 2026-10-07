@@ -27,6 +27,7 @@ export type ReportPresetId =
   | 'engines'
   | 'engine_flow_by_counterparty'
   | 'engine_factory_stages'
+  | 'engines_at_plant'
   | 'warehouse_stock_path_audit'
   | 'assembly_forecast_7d'
   | 'part_movement_journal'
@@ -348,6 +349,7 @@ export const REPORT_PRESET_THEMES: Record<ReportPresetId, readonly [ReportThemeI
   engines: ['engines', 'contracts'],
   engine_flow_by_counterparty: ['engines', 'contracts'],
   engine_factory_stages: ['engines', 'contracts'],
+  engines_at_plant: ['engines', 'contracts'],
   warehouse_stock_path_audit: ['audit', 'warehouse'],
   assembly_forecast_7d: ['engines', 'supply'],
   part_movement_journal: ['warehouse'],
@@ -1127,6 +1129,15 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     title: 'Двигатели на заводе: этапы ремонта',
     description:
       'Кто пришёл и ещё не отгружен — где каждый сейчас: пришёл и не начат, ремонт начат, комплектовка, дефектовка, по последнему этапу работ (укладка, вал, сборка, обкатка), отремонтирован, утиль. Список с панелью ступеней (заказчик, договор, марка, цех, этап), настройкой колонок, группировкой по этапу / заказчику / заказчик → этап и печатью.',
+    filters: [],
+    columns: [],
+    presentation: 'list',
+  },
+  {
+    id: 'engines_at_plant',
+    title: 'Двигатели на заводе',
+    description:
+      'Обстановка по заводу на сегодня: кто пришёл и ещё не отгружен. Группировки — по этапу (где двигатель сейчас, с выбором этапов), заказчику, дате прихода, дням на заводе и утилю (сколько лежит и не уехало). Ступени — заказчик, договор, марка, цех, этапы, утиль.',
     filters: [],
     columns: [],
     presentation: 'list',

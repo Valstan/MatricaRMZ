@@ -3,6 +3,7 @@ import type React from 'react';
 import type { EngineListItem, ReportPresetId } from '@matricarmz/shared';
 
 import { EngineFactoryStagesReportPage } from './EngineFactoryStagesReportPage.js';
+import { EnginesAtPlantReportPage } from './EnginesAtPlantReportPage.js';
 import { EnginesReportPage } from './EnginesReportPage.js';
 import { WorkSheetsReportPage } from './WorkSheetsReportPage.js';
 
@@ -26,6 +27,7 @@ export type ListReportPageProps = {
 
 export const LIST_REPORT_PAGES: Partial<Record<ReportPresetId, React.ComponentType<ListReportPageProps>>> = {
   engine_factory_stages: EngineFactoryStagesReportPage,
+  engines_at_plant: EnginesAtPlantReportPage,
   engines: EnginesReportPage,
   work_sheets: WorkSheetsReportPage,
 };
