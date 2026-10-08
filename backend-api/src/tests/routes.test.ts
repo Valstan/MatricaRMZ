@@ -80,6 +80,17 @@ vi.mock('../database/db.js', () => ({
   },
 }));
 
+// Двери договоров мокаются на уровне сервиса: сторож держит ПУТЬ (см. describe
+// в конце файла), а не поведение strict-записи — её держат свои тесты.
+vi.mock('../services/contractStrictService.js', () => ({
+  createContractStrict: vi.fn(async () => ({ ok: false, error: 'тест-дверь договора' })),
+  patchContractStrict: vi.fn(async () => ({ ok: false, error: 'тест-дверь договора' })),
+  getContractStrict: vi.fn(async () => ({ ok: false, error: 'тест-дверь договора' })),
+  createCounterpartyStrict: vi.fn(async () => ({ ok: false, error: 'тест-дверь контрагента' })),
+  patchCounterpartyStrict: vi.fn(async () => ({ ok: false, error: 'тест-дверь контрагента' })),
+  getCounterpartyStrict: vi.fn(async () => ({ ok: false, error: 'тест-дверь контрагента' })),
+}));
+
 import { createApp } from '../app.js';
 
 describe('backend routes', () => {
@@ -277,5 +288,39 @@ describe('POST /admin/users/pending/approve — safe role defaults', () => {
     expect(res.status).toBe(403);
     const { setEmployeeAuth } = await import('../services/employeeAuthService.js');
     expect(vi.mocked(setEmployeeAuth)).not.toHaveBeenCalled();
+  });
+});
+
+// Двери договоров/контрагентов: путь — часть контракта. 04–08.10.2026 оператор не мог
+// сохранить договор: клиент звал POST /contracts, сервер отвечал 404 — роутер был смонтирован
+// дважды (/contracts снаружи и /contracts внутри), и дверь жила по /contracts/contracts.
+// Урок: «сервис написан и покрыт тестами» не значит «маршрут существует»; тест на путь дешевле.
+describe('двери договоров и контрагентов смонтированы по путям клиента', () => {
+  it('POST /contracts и POST /counterparties доходят до сервиса, а не в 404', async () => {
+    const app = createApp();
+    const contract = await request(app).post('/contracts').send({ number: 'x' });
+    expect(contract.status).toBe(400);
+    expect(String(contract.body?.error ?? '')).toContain('тест-дверь договора');
+    const counterparty = await request(app).post('/counterparties').send({ name: 'x' });
+    expect(counterparty.status).toBe(400);
+    expect(String(counterparty.body?.error ?? '')).toContain('тест-дверь контрагента');
+  });
+
+  it('GET /contracts/:id и POST /contracts/:id/patch — те же двери', async () => {
+    const app = createApp();
+    const id = '11111111-1111-4111-8111-111111111111';
+    // Отвечает дверь (её текст), а не фреймворк: голый 404 Express не несёт error-поля.
+    const get = await request(app).get(`/contracts/${id}`);
+    expect(String(get.body?.error ?? '')).toContain('тест-дверь договора');
+    const patch = await request(app).post(`/contracts/${id}/patch`).send({ comment: 'x' });
+    expect(String(patch.body?.error ?? '')).toContain('тест-дверь договора');
+    const cp = await request(app).post(`/counterparties/${id}/patch`).send({ name: 'x' });
+    expect(String(cp.body?.error ?? '')).toContain('тест-дверь контрагента');
+  });
+
+  it('фантомный двойной префикс /contracts/contracts больше не отвечает — иначе вернулся бы раздвоенный путь', async () => {
+    const app = createApp();
+    const res = await request(app).post('/contracts/contracts').send({ number: 'x' });
+    expect(res.status).toBe(404);
   });
 });
