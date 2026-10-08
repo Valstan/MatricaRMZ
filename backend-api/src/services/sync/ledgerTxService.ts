@@ -22,6 +22,19 @@ type LedgerTxInput = {
 
 type SyncActor = { id: string; username: string; role?: string };
 
+/**
+ * Постоянный отказ (09.10.2026): ретрай не поможет — клиент такие строки больше не шлёт.
+ * `reserved:` — временный замок, не permanent. `forbidden:*` — права ретраем не появляются.
+ * `invalid_reference` — только на удалённое (`"reason":"deleted"`): отсутствующее ещё
+ * может дозреть и приехать pull'ом.
+ */
+export function isPermanentSkipReason(reason: string): boolean {
+  const text = String(reason ?? '');
+  if (text.startsWith('reserved:')) return false;
+  if (text.startsWith('forbidden:')) return true;
+  return text.includes('"reason":"deleted"');
+}
+
 function ensureSyncTable(table: LedgerTableName): SyncTableName | null {
   return Object.values(SyncTableName).includes(table as SyncTableName) ? (table as SyncTableName) : null;
 }
@@ -88,6 +101,11 @@ export async function applyLedgerTxs(txs: LedgerTxInput[], actor: SyncActor) {
       op: r.op,
     })),
     idRemaps: result.idRemaps,
-    skipped: [...result.skipped, ...denied, ...engineGate.skipped, ...referenceDenied],
+    skipped: [
+      ...result.skipped,
+      ...denied.map((r) => (isPermanentSkipReason(r.reason) ? { ...r, permanent: true as const } : r)),
+      ...engineGate.skipped,
+      ...referenceDenied.map((r) => (isPermanentSkipReason(r.reason) ? { ...r, permanent: true as const } : r)),
+    ],
   };
 }

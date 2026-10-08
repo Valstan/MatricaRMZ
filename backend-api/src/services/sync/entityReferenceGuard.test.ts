@@ -108,4 +108,17 @@ describe('partitionByReferenceIntegrity', () => {
     expect(denied).toHaveLength(0);
     expect(allowed).toEqual([bystander]);
   });
+
+  it('ссылка на удалённое — deleted, а не not_found (permanent, 09.10.2026)', async () => {
+    const DEAD = 'aaaaaaaa-0000-4000-8000-000000000000';
+    state.selectByTable.set(attributeValues, [[]]);
+    state.selectByTable.set(attributeDefs, [
+      [{ id: 'def-workshop', dataType: 'link', metaJson: JSON.stringify({ linkTargetTypeCode: 'workshop' }) }],
+    ]);
+    // Живых нет (первый select), удалённый есть (второй select по entities).
+    state.selectByTable.set(entities, [[], [{ id: DEAD }]]);
+    const { denied } = await partitionByReferenceIntegrity([linkAttrInput(AV_ID, DEAD)]);
+    expect(denied).toHaveLength(1);
+    expect(denied[0]!.reason).toContain('"reason":"deleted"');
+  });
 });

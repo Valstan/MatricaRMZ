@@ -384,6 +384,9 @@ export const syncSkippedRowSchema = z.object({
   reason: z.string().min(1),
   dependency: z.string().optional(),
   missing_id: z.string().optional(),
+  // Постоянный отказ: ретрай не поможет (нет прав / ссылка на удалённое).
+  // Клиент такие строки больше не шлёт, а показывает однократно. Отсутствие = временный.
+  permanent: z.boolean().optional(),
 });
 
 export const syncPushSubmitResponseSchema = z.object({

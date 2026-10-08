@@ -47,7 +47,7 @@ export type InvalidReferenceIssue = {
   path: string;
   expectedType: EntityReferenceTarget;
   referenceId: string | null;
-  reason: 'missing_id' | 'not_found' | 'wrong_type' | 'not_allowed' | 'unresolved_text';
+  reason: 'missing_id' | 'not_found' | 'wrong_type' | 'not_allowed' | 'unresolved_text' | 'deleted';
 };
 
 export type EntityReferenceCandidate = {

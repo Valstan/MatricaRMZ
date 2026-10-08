@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 
 import {
   SyncTableName,
@@ -141,7 +141,7 @@ const CATALOG_TYPES = new Set<EntityReferenceTarget>(['part', 'nomenclature', 'p
 type ReferenceResolver = {
   /** true, если ссылка (id, expectedType) валидна. */
   ok(id: string, expectedType: EntityReferenceTarget | ''): boolean;
-  reason(id: string, expectedType: EntityReferenceTarget | ''): 'not_found' | 'wrong_type';
+  reason(id: string, expectedType: EntityReferenceTarget | ''): 'not_found' | 'wrong_type' | 'deleted';
 };
 
 /**
@@ -166,6 +166,17 @@ async function buildReferenceResolver(ids: string[]): Promise<ReferenceResolver>
     db.select({ id: directoryParts.id }).from(directoryParts).where(and(inArray(directoryParts.id, unique), isNull(directoryParts.deletedAt))),
     db.select({ id: directoryWorkshops.id }).from(directoryWorkshops).where(and(inArray(directoryWorkshops.id, unique), isNull(directoryWorkshops.deletedAt))),
   ]);
+  // Мягко удалённые цели (09.10.2026): ссылка на них не «дозреет» никогда — клиент
+  // такие строки больше не ретраит (permanent), а показывает однократно.
+  const [deletedEntityRows, deletedNomenRows, deletedPartRows, deletedWorkshopRows] = await Promise.all([
+    db.select({ id: entities.id }).from(entities).where(and(inArray(entities.id, unique), isNotNull(entities.deletedAt))),
+    db.select({ id: erpNomenclature.id }).from(erpNomenclature).where(and(inArray(erpNomenclature.id, unique), isNotNull(erpNomenclature.deletedAt))),
+    db.select({ id: directoryParts.id }).from(directoryParts).where(and(inArray(directoryParts.id, unique), isNotNull(directoryParts.deletedAt))),
+    db.select({ id: directoryWorkshops.id }).from(directoryWorkshops).where(and(inArray(directoryWorkshops.id, unique), isNotNull(directoryWorkshops.deletedAt))),
+  ]);
+  const deletedIds = new Set<string>(
+    [...deletedEntityRows, ...deletedNomenRows, ...deletedPartRows, ...deletedWorkshopRows].map((r) => String(r.id)),
+  );
   const typeById = new Map(entityRows.map((row) => [String(row.id), String(row.typeCode)]));
   const catalogIds = new Set<string>([...nomenRows, ...partRows].map((r) => String(r.id)));
   for (const entry of entityRows) {
@@ -179,8 +190,8 @@ async function buildReferenceResolver(ids: string[]): Promise<ReferenceResolver>
     if (expectedType === 'workshop') return workshopIds.has(id) || typeById.get(id) === 'workshop';
     return typeById.get(id) === expectedType;
   };
-  const reason = (id: string, _expectedType: EntityReferenceTarget | ''): 'not_found' | 'wrong_type' =>
-    typeById.has(id) || catalogIds.has(id) || workshopIds.has(id) ? 'wrong_type' : 'not_found';
+  const reason = (id: string, _expectedType: EntityReferenceTarget | ''): 'not_found' | 'wrong_type' | 'deleted' =>
+    deletedIds.has(id) ? 'deleted' : typeById.has(id) || catalogIds.has(id) || workshopIds.has(id) ? 'wrong_type' : 'not_found';
   return { ok, reason };
 }
 

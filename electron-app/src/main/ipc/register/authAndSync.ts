@@ -1,5 +1,7 @@
 import { BrowserWindow, app, ipcMain, net } from 'electron';
 
+import { SyncTableName } from '@matricarmz/shared';
+
 import type { IpcContext } from '../ipcContext.js';
 import {
   authChangePassword,
@@ -16,7 +18,9 @@ import {
   presenceMe,
 } from '../../services/authService.js';
 import { loginMruRecent, loginMruRecord } from '../../services/loginMruService.js';
+import { softDeleteOperation } from '../../services/operationService.js';
 import { SettingsKey, settingsGetNumber, settingsGetString, settingsSetString } from '../../services/settingsStore.js';
+import { parseBlockedRows, serializeBlockedRows } from '../../services/sync/blockedRows.js';
 import { resetLocalDatabase, resetSyncState } from '../../services/syncService.js';
 import { isViewMode } from '../ipcContext.js';
 
@@ -99,6 +103,28 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
     });
   });
   ipcMain.handle('sync:status', async () => ctx.mgr.getStatus());
+  // Отбросить локальную rejected-строку (09.10.2026): сервер её никогда не примет
+  // (permanent), оператор выбрал не чинить, а убрать. Пока только operations:
+  // надгробие уезжает штатным push; остальным — отказ с объяснением, не молча.
+  ipcMain.handle('sync:dropRejectedRow', async (_e, args: { table: string; rowId: string }) => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'view mode' };
+    const table = String(args?.table ?? '');
+    const rowId = String(args?.rowId ?? '').trim();
+    if (!rowId) return { ok: false as const, error: 'Нет id строки' };
+    if (table !== SyncTableName.Operations) {
+      return { ok: false as const, error: 'Отбросить можно только строку операций (этапы, записи истории)' };
+    }
+    try {
+      const dropped = await softDeleteOperation(ctx.dataDb(), rowId);
+      if (!dropped) return { ok: false as const, error: 'Строка не найдена или уже удалена' };
+      const raw = await settingsGetString(ctx.dataDb(), SettingsKey.SyncBlockedRows).catch(() => null);
+      const rest = parseBlockedRows(raw).filter((r) => !(r.table === table && r.id === rowId));
+      await settingsSetString(ctx.dataDb(), SettingsKey.SyncBlockedRows, serializeBlockedRows(rest)).catch(() => {});
+      return { ok: true as const };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
   ipcMain.handle('sync:reset', async () => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode' };
     await resetSyncState(ctx.sysDb);

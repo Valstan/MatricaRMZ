@@ -90,3 +90,20 @@ describe('стабильность обновления списка двига�
     expect(safeRefreshDeps, 'refresh вернулся в зависимости safeRefresh').not.toContain('refresh,');
   });
 });
+
+describe('баннер rejected-строк синка (09.10.2026)', () => {
+  it('баннер показывает строки с разбором и кнопкой «Отбросить», а не только счётчик', () => {
+    expect(APP, 'баннер снова только считает — оператор не знает, что отбито').toContain('lastResult?.rejectedRows');
+    expect(APP).toContain('describeRejectedRow(r)');
+    expect(APP).toContain('dropRejectedRow(r.table, r.rowId)');
+  });
+
+  it('сброс — двухкликом, а не случайным нажатием', () => {
+    expect(APP).toContain('Точно отбросить?');
+    expect(APP).toContain('dropConfirmId');
+  });
+
+  it('после сброса пинаем синк, чтобы надгробие ушло и баннер погас', () => {
+    expect(APP).toContain('window.matrica.sync.run()');
+  });
+});

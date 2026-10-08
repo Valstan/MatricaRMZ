@@ -121,6 +121,7 @@ export type SyncSkippedRow = {
   reason: string;
   dependency?: string;
   missing_id?: string;
+  permanent?: boolean;
 };
 
 type ApplyPushOptions = {

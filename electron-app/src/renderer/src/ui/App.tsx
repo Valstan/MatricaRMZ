@@ -138,6 +138,7 @@ import { coalesceCalls } from './utils/coalesceCalls.js';
 import { perfTrace } from './utils/perfTrace.js';
 import { resolveDeepLinkRoute, searchHitToRoute, type DeepLinkRoute } from './utils/deepLinkRouting.js';
 import { pollWhenVisible } from './utils/pollWhenVisible.js';
+import { describeRejectedRow } from './utils/syncRejected.js';
 import { logUiUsage } from './utils/uiUsageLog.js';
 import { resolveQuickStartTile } from './utils/favoriteShortcut.js';
 import type { MenuButtonDescriptor } from './shellV2/v2ButtonCatalog.js';
@@ -829,6 +830,30 @@ export function App() {
   const [fatalError, setFatalError] = useState<{ message: string; stack?: string | null } | null>(null);
   const [fatalOpen, setFatalOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  // Двухклик-подтверждение «Отбросить» у rejected-строки (09.10.2026): снос локальной
+  // работы — осознанное действие, а не случайный клик по баннеру.
+  const [dropConfirmId, setDropConfirmId] = useState<string | null>(null);
+
+  async function dropRejectedRow(table: string, rowId: string) {
+    const key = `${table}:${rowId}`;
+    if (dropConfirmId !== key) {
+      setDropConfirmId(key);
+      return;
+    }
+    setDropConfirmId(null);
+    const r = await window.matrica.sync.dropRejectedRow({ table, rowId }).catch(() => null);
+    if (!r?.ok) {
+      notifyOperator(`Не вышло отбросить строку: ${(r as { error?: string } | null)?.error ?? 'unknown'}`, 'error');
+      return;
+    }
+    // Надгробие уезжает ближайшим синком — пинаем его сразу, чтобы баннер погас.
+    await window.matrica.sync.run().catch(() => null);
+    try {
+      setSyncStatus(await window.matrica.sync.status());
+    } catch {
+      // ignore
+    }
+  }
   const [fullSyncUi, setFullSyncUi] = useState<{
     open: boolean;
     progress: number | null;
@@ -6694,11 +6719,36 @@ export function App() {
               {`Двигатель занят (${syncStatus.lastResult.reservedSkipped.holders.join(", ") || "другой сотрудник"}): ${syncStatus.lastResult.reservedSkipped.count} изменений пока не приняты — уйдут, когда резерв снимут.`}
             </div>
           ) : null}
-          {syncStatus?.lastResult?.dependencySkipped ? (
-            <div style={{ marginBottom: 10, padding: 10, borderRadius: 12, border: "1px solid #fca5a5", background: "#fef2f2", color: "#991b1b" }}>
-              {`${syncStatus.lastResult.dependencySkipped} ${syncStatus.lastResult.dependencySkipped === 1 ? "строка не принята" : "строк не принято"} сервером — проверьте данные (возможно, операция ссылается на удалённый двигатель). При следующей синхронизации попробуем снова.`}
-            </div>
-          ) : null}
+          {(() => {
+            const rejected = syncStatus?.lastResult?.rejectedRows ?? [];
+            const skipped = syncStatus?.lastResult?.dependencySkipped ?? 0;
+            if (!(skipped > 0) && rejected.length === 0) return null;
+            const total = skipped > 0 ? skipped : rejected.length;
+            return (
+              <div style={{ marginBottom: 10, padding: 10, borderRadius: 12, border: "1px solid #fca5a5", background: "#fef2f2", color: "#991b1b" }}>
+                <div>{`${total} ${total === 1 ? "строка не принята" : "строк не принято"} сервером — повтор не поможет, исправьте данные или отбросьте строку.`}</div>
+                {rejected.map((r) => {
+                  const key = `${r.table}:${r.rowId}`;
+                  const armed = dropConfirmId === key;
+                  return (
+                    <div key={key} style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
+                      <span style={{ flex: 1 }}>{describeRejectedRow(r)}</span>
+                      {r.table === 'operations' ? (
+                        <button
+                          type="button"
+                          title="Убрать строку из очереди (надгробие уедет серверу)"
+                          onClick={() => void dropRejectedRow(r.table, r.rowId)}
+                          style={{ background: "transparent", border: "1px solid #fca5a5", borderRadius: 8, padding: "2px 10px", color: "#991b1b", cursor: "pointer", fontWeight: armed ? 800 : 400 }}
+                        >
+                          {armed ? "Точно отбросить?" : "Отбросить"}
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
           {isV3 ? (
             <V3TabShell
               chatUnread={chatUnreadTotal}
