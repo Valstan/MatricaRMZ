@@ -241,17 +241,27 @@ async function main() {
      const rows = tableRows();
      const dataRows = rows.filter((r) => r.kind === 'row');
      const groups = rows.filter((r) => r.kind === 'group');
+     // Подписи колонок — по title заголовков (текст ячейки дополняет кнопка «×»).
+     const heads = vis('th', R).map((t) => t.getAttribute('title')).filter(Boolean);
+     const hasRownum = heads.includes('Номер строки в списке');
      return { selValue: sel?.value ?? null, selOptions: sel ? [...sel.options].map((o) => o.value) : [], countText,
        rowCount: dataRows.length, groupCount: groups.length,
        firstIsGroup: rows[0] ? rows[0].kind : null,
        groupSum: groupSum(rows),
-       hasStageCol: R.innerHTML.includes('Этап на заводе'),
-       hasDaysCol: R.innerHTML.includes('Дней на заводе') };`,
+       heads,
+       hasStageCol: heads.includes('Этап на заводе'),
+       hasDaysCol: heads.includes('Дней на заводе'),
+       hasOpDateCol: heads.includes('Дата операции'),
+       hasStageDateCol: heads.includes('Дата этапа'),
+       hasRownum };`,
   );
   note(s2.rowCount === bridge.total, 'число строк = числу двигателей на заводе по мосту', { rowCount: s2.rowCount, total: bridge.total });
   note(s2.selValue === 'stage' && s2.firstIsGroup === 'group', 'группировка по умолчанию — по этапу, первая строка — группа', { selValue: s2.selValue });
   note(s2.groupSum === s2.rowCount, 'сумма счётчиков групп = числу строк', { groupSum: s2.groupSum, rowCount: s2.rowCount });
   note(s2.hasStageCol && s2.hasDaysCol, 'колонки «Этап на заводе» и «Дней на заводе» на месте', { hasStageCol: s2.hasStageCol, hasDaysCol: s2.hasDaysCol });
+  // Владелец 08.10.2026: колонка даты зовётся «Дата операции» (дата события, которым двигатель
+  // пришёл в группу), «Дата этапа» осталась СТУПЕНЬЮ — одно имя меряло разное.
+  note(s2.hasOpDateCol === true && s2.hasStageDateCol === false, 'колонка даты — «Дата операции», подписи «Дата этапа» в шапке нет', { heads: s2.heads });
   await shot(ws, '1-stage');
 
   /* ── [3] Остальные разрезы ──────────────────────────────────────────────────────── */
@@ -317,9 +327,10 @@ async function main() {
   /* ── [6] Дни на заводе у строки = расчёту ────────────────────────────────────────── */
   const back = await evaluate(
     ws,
-    `const tabs = vis('.v3-tab-strip button, [role="tab"]');
+    `// Вкладка отчёта могла остаться с прошлого прогона: у соседа («…этапы ремонта») в имени
+     // тоже есть «Двигатели на заводе», и поиск по вхождению без этой отсечки уводил в него.
      let b = vis('button').find((x) => txt(x) === ${JSON.stringify(TITLE)});
-     if (!b) b = vis('button').find((x) => txt(x).includes('Двигатели на заводе') && !REPORT()?.contains(x));
+     if (!b) b = vis('button').find((x) => { const t = txt(x); return t.includes(${JSON.stringify(TITLE)}) && !t.includes('этапы ремонта'); });
      if (!b) return { ok: false, tabs: vis('button').map(txt).filter((t) => t.length > 2).slice(0, 30) };
      click(b); await wait(1200);
      return { ok: Boolean(REPORT()) };`,

@@ -49,7 +49,10 @@ import type { ListReportPageProps } from './listReportPages.js';
  *
  * Данные — каталог двигателей приложения, тот же, что у списка «Двигатели»: ничего не
  * строится сервисом, сортировка и ступени считаются на экране. Даты стадий «отремонтирован»,
- * «утиль», «ремонт начат» строка несёт в `statusDates` (с 16.09) — «Дата этапа» заполнена у всех.
+ * «утиль», «ремонт начат» строка несёт в `statusDates` (с 16.09) — «Дата операции» заполнена у всех.
+ * Колонка зовётся «Дата операции», а не «Дата этапа» (владелец 08.10.2026): она показывает дату
+ * того события, которым двигатель пришёл в текущую группу (это может быть дата акта, прихода,
+ * утиля — не только этапа); ступень «Дата этапа» (по последней строке этапов) — другой вопрос.
  */
 
 type Column = ColumnDescriptor & {
@@ -136,7 +139,7 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
       // У строки «Возвраты» `stage.label` занят названием группы, поэтому этап берём из
       // `stageLabel`: иначе колонка врала бы — весь раздел выглядел бы как «Возвраты».
       { id: 'stage', label: 'Этап на заводе', kind: 'name', render: (e) => e.stage.stageLabel ?? e.stage.label, sortValue: (e) => e.stage.rank, alwaysVisible: true },
-      { id: 'stageAt', label: 'Дата этапа', kind: 'date', render: (e) => fmtDate(e.stage.at), sortValue: (e) => e.stage.at ?? 0 },
+      { id: 'stageAt', label: 'Дата операции', kind: 'date', render: (e) => fmtDate(e.stage.at), sortValue: (e) => e.stage.at ?? 0 },
       { id: 'repairStartedAt', label: 'Ремонт начат', kind: 'date', render: (e) => fmtDate(engineStatusDate(e, 'status_repair_started')), sortValue: (e) => engineStatusDate(e, 'status_repair_started') ?? 0 },
       { id: 'repairedAt', label: 'Отремонтирован', kind: 'date', render: (e) => fmtDate(engineStatusDate(e, 'status_repaired')), sortValue: (e) => engineStatusDate(e, 'status_repaired') ?? 0 },
       { id: 'scrapAt', label: 'Дата утиля', kind: 'date', render: (e) => fmtDate(engineScrapDate(e)), sortValue: (e) => engineScrapDate(e) ?? 0 },

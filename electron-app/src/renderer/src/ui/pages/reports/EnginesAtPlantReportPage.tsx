@@ -140,7 +140,7 @@ export function EnginesAtPlantReportPage(props: ListReportPageProps) {
       // `stageLabel` — как в отчёте «Двигатели на заводе: этапы ремонта», иначе колонка
       // называла бы группу, а не место двигателя.
       { id: 'stage', label: 'Этап на заводе', kind: 'name', render: (e) => e.stage.stageLabel ?? e.stage.label, sortValue: (e) => e.stage.rank, alwaysVisible: true },
-      { id: 'stageAt', label: 'Дата этапа', kind: 'date', render: (e) => fmtDate(e.stage.at), sortValue: (e) => e.stage.at ?? 0 },
+      { id: 'stageAt', label: 'Дата операции', kind: 'date', render: (e) => fmtDate(e.stage.at), sortValue: (e) => e.stage.at ?? 0 },
       { id: 'daysOnSite', label: 'Дней на заводе', kind: 'num', render: (e) => (e.daysOnSite == null ? HUMAN_LABEL_DASH : String(e.daysOnSite)), sortValue: (e) => e.daysOnSite ?? -1 },
       { id: 'scrap', label: 'Утиль', kind: 'text', render: (e) => yesNo(e.isScrap), sortValue: (e) => (e.isScrap ? 1 : 0) },
       { id: 'state', label: 'Состояние', kind: 'name', render: (e) => e.state, sortValue: (e) => e.state },
