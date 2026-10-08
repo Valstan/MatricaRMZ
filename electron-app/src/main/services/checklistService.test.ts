@@ -2,10 +2,9 @@ import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { describe, expect, it } from 'vitest';
 
-import { ENGINE_INVENTORY_STAGE, DEFAULT_REPAIR_STAGE_TEMPLATES, type RepairChecklistPayload } from '@matricarmz/shared';
+import { ENGINE_INVENTORY_STAGE, type RepairChecklistPayload } from '@matricarmz/shared';
 
-import { hasDefectActData, saveRepairChecklistForEngine, setChecklistAnswerDate } from './checklistService.js';
-import { deleteRepairStageRow, saveRepairStageRow } from './repairStageService.js';
+import { assertRepairStageDeletable, hasDefectActData, saveRepairChecklistForEngine, setChecklistAnswerDate } from './checklistService.js';
 
 // Лист деталей новой карточки двигателя (10.09.2026). Карточка получает id двигателя без строки
 // в базе, а панель сама сохраняет автозаполненный лист — дважды подряд. Итог: у двигателя два
@@ -126,6 +125,22 @@ describe('двусторонняя связь акта и этапа (09.10.2026
     return (leaf.payload.answers as any)?.defect_start_date;
   }
 
+  function seedStageRow(sqlite: Database.Database, id: string, engineId: string) {
+    const meta = JSON.stringify({
+      kind: 'repair_history',
+      action: 'Разборка/Дефектовка',
+      entryType: 'stage',
+      stage: { code: 'disassembly_defect', name: 'Разборка/Дефектовка' },
+      at: NOW,
+    });
+    sqlite
+      .prepare(
+        `INSERT INTO operations (id, engine_entity_id, operation_type, status, performed_at, meta_json, created_at, updated_at)
+         VALUES (?, ?, 'repair_history_entry', 'done', ?, ?, ?, ?)`,
+      )
+      .run(id, engineId, NOW, meta, NOW, NOW);
+  }
+
   it('hasDefectActData видит вердикты листа', async () => {
     const { db } = makeDb();
     await saveLeaf(db, 'eng-1', defectAnswers());
@@ -153,29 +168,22 @@ describe('двусторонняя связь акта и этапа (09.10.2026
   });
 
   it('снос disassembly_defect при живом акте — отказ', async () => {
-    const { db } = makeDb();
+    const { sqlite, db } = makeDb();
     await saveLeaf(db, 'eng-1', defectAnswers());
-    const s = await saveRepairStageRow(
-      db,
-      { id: 'st-1', engineId: 'eng-1', code: 'disassembly_defect', atMs: NOW },
-      'tester',
-      DEFAULT_REPAIR_STAGE_TEMPLATES,
-    );
-    expect(s.ok, `save: ${JSON.stringify(s)}`).toBe(true);
-    const r = await deleteRepairStageRow(db, 'st-1');
+    seedStageRow(sqlite, 'st-1', 'eng-1');
+    const r = await assertRepairStageDeletable(db, 'st-1');
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain('акту');
   });
 
   it('без акта строка дефектовки сносится свободно', async () => {
+    const { sqlite, db } = makeDb();
+    seedStageRow(sqlite, 'st-1', 'eng-1');
+    expect((await assertRepairStageDeletable(db, 'st-1')).ok).toBe(true);
+  });
+
+  it('не строки и чужих записей сторож не касается', async () => {
     const { db } = makeDb();
-    const s = await saveRepairStageRow(
-      db,
-      { id: 'st-1', engineId: 'eng-1', code: 'disassembly_defect', atMs: 1000 },
-      'tester',
-      DEFAULT_REPAIR_STAGE_TEMPLATES,
-    );
-    expect(s.ok).toBe(true);
-    expect((await deleteRepairStageRow(db, 'st-1')).ok).toBe(true);
+    expect((await assertRepairStageDeletable(db, 'nope')).ok).toBe(false);
   });
 });

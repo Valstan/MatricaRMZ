@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { EngineDetails, EngineDuplicateMatches, EngineInternalNumberDuplicate, FileRef, SupplyRequestItem } from '@matricarmz/shared';
-import { looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, DEFAULT_CONTRACT_REPAIR_DAYS, effectiveRepairDays, buildContractSectionOptions, contractSectionAddonToken, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, planSlotForEngine, attachEngineToSlot, isEavFlagSet, isEngineDoneForCountdown, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, arrivalPlacements, arrivalPlacementLabel, type ArrivalListItem, type ArrivalPlacement, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
+import { looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, DEFAULT_CONTRACT_REPAIR_DAYS, effectiveRepairDays, buildContractSectionOptions, contractSectionAddonToken, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, planSlotForEngine, attachEngineToSlot, isEavFlagSet, isEngineDoneForCountdown, compareStageRecency, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, arrivalPlacements, arrivalPlacementLabel, type ArrivalListItem, type ArrivalPlacement, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -598,7 +598,9 @@ export function EngineDetailsPage(props: {
       let defectAt: number | null = null;
       for (const row of r.rows) {
         if (typeof row.at !== 'number' || !Number.isFinite(row.at) || row.at <= 0) continue;
-        if (!best || (best.at ?? 0) < row.at) best = { code: row.code, at: row.at };
+        // Одна правда с отчётами и фильтрами (09.10.2026): день, внутри дня — приоритет,
+        // а не голый max ms (полночь ручной даты проигрывала моменту нажатия того же дня).
+        if (!best || compareStageRecency({ code: row.code, at: row.at }, best) > 0) best = { code: row.code, at: row.at };
         if (row.code === 'shipped' && shippedAt === null) shippedAt = row.at;
         if (row.code === 'accepted' && acceptedAt === null) acceptedAt = row.at;
         if (row.code === 'disassembly_defect' && defectAt === null) defectAt = row.at;

@@ -25,7 +25,6 @@ import {
 } from '@matricarmz/shared';
 
 import { attributeDefs, attributeValues, operations } from '../database/schema.js';
-import { hasDefectActData } from './checklistService.js';
 import { httpAuthed } from './httpClient.js';
 import { getOperation, softDeleteOperation, upsertOperation } from './operationService.js';
 import { collectChunked } from '../utils/sqlChunks.js';
@@ -352,11 +351,6 @@ export async function deleteRepairStageRow(
   const meta = existing ? parseRepairHistoryMeta(existing.metaJson ?? null) : null;
   if (!existing || !meta || repairHistoryEntryType(meta, existing.operationType) !== 'stage') {
     return { ok: false, error: 'Строка этапа не найдена' };
-  }
-  // Двусторонняя связь акта и этапа (09.10.2026): строка «Разборка/Дефектовка» при живом
-  // акте не сносится из истории — сначала удалите акт, иначе этап и акт разойдутся молча.
-  if (meta.stage?.code === 'disassembly_defect' && (await hasDefectActData(db, text(existing.engineEntityId)))) {
-    return { ok: false, error: 'Этап «Разборка/Дефектовка» привязан к акту дефектовки — сначала удалите акт' };
   }
   await softDeleteOperation(db, rowId);
   return { ok: true };

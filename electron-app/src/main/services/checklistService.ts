@@ -13,8 +13,10 @@ import {
   type EngineActVersionRecord,
   type EngineInventoryRow,
   parseRepairFundRequirementPayload,
+  parseRepairHistoryMeta,
   REPAIR_FUND_REQUIREMENT_TYPE,
   repairFundRequirementSignature,
+  repairHistoryEntryType,
   type RepairChecklistAnswers,
   type RepairChecklistPayload,
   type RepairChecklistTemplate,
@@ -24,6 +26,7 @@ import {
   stripInventoryRowsForStorage,
 } from '@matricarmz/shared';
 import { entities, erpEngineInventoryLines, operations } from '../database/schema.js';
+import { getOperation } from './operationService.js';
 import { withReplicaInventoryRows, writeInventoryLinesForSheet } from './engineInventoryLinesReplica.js';
 import { getEntityDetails, listEntitiesByType } from './entityService.js';
 import { listEntityTypes } from './adminService.js';
@@ -380,6 +383,37 @@ export async function listEngineActVersions(
 ): Promise<{ ok: true; versions: EngineActVersionRecord[] } | { ok: false; error: string }> {
   try {
     return { ok: true as const, versions: await readEngineActVersions(db, engineId, actType) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+/**
+ * Можно ли снести stage-строку (09.10.2026): «Разборка/Дефектовка» при живом акте
+ * не сносится — сначала удалите акт, иначе этап и акт разойдутся молча. Живёт
+ * здесь, а не в repairStageService: обратный импорт замкнул бы цикл
+ * engineService → repairStageService → checklistService → engineService.
+ * Вызывает IPC `workSheets:stages:remove` до `deleteRepairStageRow`.
+ */
+export async function assertRepairStageDeletable(
+  db: BetterSQLite3Database,
+  rowId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const id = String(rowId ?? '').trim();
+    if (!id) return { ok: false as const, error: 'Нет id строки' };
+    const existing = await getOperation(db, id);
+    const meta = existing ? parseRepairHistoryMeta(existing.metaJson ?? null) : null;
+    if (!existing || !meta || repairHistoryEntryType(meta, existing.operationType) !== 'stage') {
+      return { ok: false as const, error: 'Строка этапа не найдена' };
+    }
+    if (
+      meta.stage?.code === 'disassembly_defect' &&
+      (await hasDefectActData(db, String(existing.engineEntityId ?? '')))
+    ) {
+      return { ok: false as const, error: 'Этап «Разборка/Дефектовка» привязан к акту дефектовки — сначала удалите акт' };
+    }
+    return { ok: true as const };
   } catch (e) {
     return { ok: false as const, error: String(e) };
   }
