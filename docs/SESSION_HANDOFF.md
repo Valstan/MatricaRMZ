@@ -10,18 +10,18 @@ updated: 2026-10-08
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
 **Status:** ACTIVE
-**Updated:** 2026-10-09 (PR-3 #1225 смержен; PR-4 синк — в работе)
-**Branch:** fix/sync-stuck-rows
+**Updated:** 2026-10-09 (PR-4 #1226 смержен; PR-5 тормоза ввода — в работе)
+**Branch:** perf/contract-input-lag
 **Last released version:** v3.67.0 на проде (леджер подписан)
 
 ## Текущая нитка
 
-План `docs/plans/stage-history-contract-fixes-2026-10.md`: PR-4 — постоянный признак отказов
-(permanent), баннер с разбором + кнопка «Отбросить», ретрай вечных строк снят.
+План `docs/plans/stage-history-contract-fixes-2026-10.md`: PR-5 — NumericField с черновиком
+(коммит на blur), каталог двигателей для прогресса грузится редко, setState по смене состава.
 
 ## Следующий шаг
 
-Гейты → PR-4 → merge → PR-5 тормоза ввода.
+Гейты → PR-5 → merge → PR-6 история/фильтры.
 
 ## Открытые вопросы для пользователя
 
