@@ -12,6 +12,7 @@ describe('эмодзи подписей (владелец 01.10.2026)', () => {
     expect(labelEmoji('Дата прихода')).toBe('📥');
     expect(labelEmoji('Номер накладной (приход)')).toBe('🧾');
     expect(labelEmoji('Дата отгрузки')).toBe('📤');
+    expect(labelEmoji('Дата операции')).toBe('📅');
   });
 
   it('регистр и пробелы не важны', () => {
