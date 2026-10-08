@@ -155,6 +155,8 @@ const matricaApi = {
     reset: async () => ipcRenderer.invoke('sync:reset'),
     fullPull: async () => ipcRenderer.invoke('sync:fullPull'),
     resetLocalDb: async () => ipcRenderer.invoke('sync:resetLocalDb'),
+    dropRejectedRow: async (args: { table: string; rowId: string }) =>
+      ipcRenderer.invoke('sync:dropRejectedRow', args),
     onProgress: (handler: (event: any) => void) => {
       const wrapped = (_e: Electron.IpcRendererEvent, payload: any) => handler(payload);
       ipcRenderer.on('sync:progress', wrapped);

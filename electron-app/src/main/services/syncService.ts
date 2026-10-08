@@ -393,6 +393,7 @@ type LedgerPushSubmitResponse = {
     table: SyncTableName;
     row_id: string;
     reason: string;
+    permanent?: boolean;
   }>;
 };
 
@@ -4441,6 +4442,8 @@ export async function runSync(
       let reservedSkippedCount = 0;
       const reservedSkippedHolders = new Set<string>();
       let dependencySkippedCount = 0;
+      // Постоянно отбитые строки (09.10.2026): для баннера с разбором и кнопкой «Отбросить».
+      const rejectedRows: Array<{ table: string; rowId: string; reason: string }> = [];
 
       if (upserts.length > 0) {
         try {
@@ -4666,13 +4669,26 @@ export async function runSync(
               .join(', ');
             logSync(`push skipped rows count=${json.skipped.length} sample=${sample}`);
             const engineGateIds: string[] = [];
+            const permanentByTable = new Map<SyncTableName, string[]>();
             for (const row of json.skipped) {
-              const reserved = parseEngineReservationSkipReason(String(row?.reason ?? ''));
+              const table = String(row?.table ?? '');
+              const rowId = String(row?.row_id ?? '');
+              const reason = String(row?.reason ?? '');
+              const reserved = parseEngineReservationSkipReason(reason);
               if (reserved) {
                 reservedSkippedCount += 1;
                 if (reserved.holderLogin) reservedSkippedHolders.add(reserved.holderLogin);
+              } else if (row?.permanent === true && table && rowId) {
+                // Постоянный отказ (09.10.2026): ретрай не поможет — в error и карантин,
+                // оператор решает (баннер): чинить данные или отбросить строку.
+                const arr = permanentByTable.get(table as SyncTableName) ?? [];
+                arr.push(rowId);
+                permanentByTable.set(table as SyncTableName, arr);
               } else {
                 dependencySkippedCount += 1;
+              }
+              if (table && rowId && rejectedRows.length < 10) {
+                rejectedRows.push({ table, rowId, reason: reason.slice(0, 300) });
               }
               // Гейты карточек двигателей (engine_number_dup / engine_pair_dup):
               // повтор слать бессмысленно — номер не освободится сам. Гасим в error,
@@ -4688,6 +4704,29 @@ export async function runSync(
             if (engineGateIds.length > 0) {
               await markPendingError(db, SyncTableName.ErpEngineCards, engineGateIds);
               logSync(`push engine card gate rejections marked error count=${engineGateIds.length}`);
+            }
+            if (permanentByTable.size > 0) {
+              const validTables = new Set<string>(Object.values(SyncTableName));
+              const blockedInputs: BlockedRowInput[] = [];
+              for (const [table, ids] of permanentByTable) {
+                if (!validTables.has(table)) continue;
+                await markPendingError(db, table, ids);
+                for (const id of ids) blockedInputs.push({ table, id, dependency: '', missingId: '' });
+              }
+              if (blockedInputs.length > 0) {
+                const { added, total } = await quarantineRows(db, blockedInputs);
+                logSync(`push permanent rejections quarantined added=${added.length} total=${total}`);
+                if (added.length > 0 && lastKnownApiBaseUrl) {
+                  void logMessage(db, lastKnownApiBaseUrl, 'error', `sync permanent rejections: ${added.length} row(s) will never be accepted, operator action needed`, {
+                    component: 'sync',
+                    action: 'blocked_rows',
+                    critical: true,
+                    added: added.length,
+                    total,
+                    sample: added.slice(0, 5).map((r) => `${r.table}:${r.id}`),
+                  }).catch(() => {});
+                }
+              }
             }
             await healSkippedDependencies(db, json.skipped as SkippedRowLike[]).catch((e) => {
               logSync(`push dependency heal failed err=${formatError(e)}`);
@@ -4863,6 +4902,8 @@ export async function runSync(
         dependencySkippedCount > 0
           ? { dependencySkipped: dependencySkippedCount }
           : {};
+      // exactOptionalPropertyTypes: присваивать undefined опциональному полю нельзя — условный спред.
+      const rejectedRowsField = rejectedRows.length > 0 ? { rejectedRows } : {};
       emitSyncProgress('done', { progress: 1, pulled, detail: 'синхронизация завершена', counts: { total: pulled, ...(pulledTables ? { tables: pulledTables } : {}) }, etaMs: 0 });
       logSync(`sync.run.done id=${syncRunId} ok=${finalError ? 0 : 1} pushed=${pushed} pulled=${pulled} cursor=${pullJson.server_cursor}`);
       const totalMs = nowMs() - startedAt;
@@ -4890,6 +4931,7 @@ export async function runSync(
           error: finalError,
           ...reservedSkippedField,
           ...dependencySkippedField,
+          ...rejectedRowsField,
         };
       }
       return {
@@ -4900,6 +4942,7 @@ export async function runSync(
         serverLastSeq,
         ...reservedSkippedField,
         ...dependencySkippedField,
+        ...rejectedRowsField,
       };
     } catch (e) {
       const err = formatError(e);

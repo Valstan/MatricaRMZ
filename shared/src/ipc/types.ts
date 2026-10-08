@@ -414,6 +414,11 @@ export type SyncRunResult = {
   reservedSkipped?: { count: number; holders: string[] };
   /** Строки, отбитые сервером из-за отсутствия зависимости (напр. операция без двигателя). */
   dependencySkipped?: number;
+  /**
+   * Постоянно отбитые строки для баннера (09.10.2026): ретрай не поможет, оператор
+   * решает — чинить данные или отбросить. Пусто/нет — нечего показывать.
+   */
+  rejectedRows?: Array<{ table: string; rowId: string; reason: string }>;
 };
 
 export type SyncStatus = {
@@ -1308,6 +1313,12 @@ export type MatricaApi = {
     reset: () => Promise<{ ok: boolean; error?: string }>;
     resetLocalDb: () => Promise<{ ok: boolean; restarting?: boolean; error?: string }>;
     onProgress: (handler: (event: SyncProgressEvent) => void) => () => void;
+    /**
+     * Отбросить локальную rejected-строку (09.10.2026): сервер её никогда не примет
+     * (permanent), оператор выбрал не чинить, а убрать. Пока только operations —
+     * надгробие уезжает штатным push; остальным — отказ с объяснением.
+     */
+    dropRejectedRow: (args: { table: string; rowId: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
   };
   changes: {
     list: (args?: { status?: string; limit?: number }) => Promise<ChangesListResult>;

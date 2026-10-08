@@ -23,6 +23,8 @@ export type SkippedRowLike = {
   reason?: string | null;
   dependency?: string | null;
   missing_id?: string | null;
+  /** Постоянный отказ сервера (09.10.2026): ретрай не поможет, только error + карантин. */
+  permanent?: boolean | null;
 };
 
 // Какая таблица держит зависимость с таким именем (имена — из applyPushBatch на сервере).
