@@ -99,6 +99,7 @@
     "stages:dedupe-duplicates": "tsx src/scripts/dedupeWorkStageDuplicates.ts",
     "stages:cleanup-duplicates": "tsx src/scripts/cleanupStageDuplicates.ts",
     "stages:backfill-dates": "tsx src/scripts/backfillStageDates.ts",
+    "stages:recount-passes": "tsx src/scripts/recountStagePasses.ts",
     "engine-act:fix-header-number": "tsx src/scripts/fixEngineActHeaderNumber20260914.ts",
     "engine-act:fix-header-number:apply": "tsx src/scripts/fixEngineActHeaderNumber20260914.ts --apply",
     "ledger:import-release-registry": "tsx src/scripts/importReleaseRegistryFromProjection.ts",

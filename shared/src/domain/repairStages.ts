@@ -186,12 +186,22 @@ export function findStageDateConflict(stages: DatedStage[], code: RepairStageCod
  * этапов (обкатка была — снова пишем сборку). История сохраняется, дальше идёт
  * новый проход (механизм `pass` строк этапов). Боковая ветка возвратом не считается.
  */
-export function isStageBackwardMove(stages: DatedStage[], code: RepairStageCode): boolean {
+export function isStageBackwardMove(stages: DatedStage[], code: RepairStageCode, newAtMs?: number): boolean {
   const rank = sortOrderOf(code);
   if (rank === 0) return false;
+  // Дата новой строки: этапы, датированные ПОЗЖЕ неё, её не «обгоняют» — это довнесение
+  // пропущенного, а не возврат (баг 09.10.2026: поздно внесённая сборка с ранней датой
+  // при живом shipped помечалась pass≥2). Сравнение по дням (Москва), как в субординации:
+  // внутри дня время — артефакты ввода. Без даты новой строки — старое поведение.
+  const newDay =
+    typeof newAtMs === 'number' && Number.isFinite(newAtMs) && newAtMs > 0 ? moscowDaySortKey(newAtMs) : '';
   let max = 0;
   for (const s of stages) {
     if (typeof s.at !== 'number' || !Number.isFinite(s.at) || s.at <= 0) continue;
+    if (newDay) {
+      const sDay = moscowDaySortKey(s.at);
+      if (sDay && sDay > newDay) continue;
+    }
     const r = sortOrderOf(s.code);
     if (r > max) max = r;
   }
