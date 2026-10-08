@@ -5,6 +5,7 @@ import {
   ENGINE_FACTORY_STAGE_LABELS,
   engineFactoryStage,
   engineFactoryStageOrder,
+  formatEngineFactoryStageLabel,
   isEngineAtPlant,
 } from './engineFactoryStage.js';
 
@@ -256,5 +257,26 @@ describe('engineFactoryStage — строки единого списка (ша�
     const keys = engineFactoryStageOrder(TYPES).map((g) => g.key);
     expect(keys.indexOf('stage:otk')).toBeGreaterThan(keys.indexOf('repaired'));
     expect(keys).toContain('stage:scrap_branch');
+  });
+});
+
+describe('formatEngineFactoryStageLabel — подпись колонки (раскатка пилота #1195)', () => {
+  it('возврат несёт суффикс и называет этап, а не группу', () => {
+    expect(
+      formatEngineFactoryStageLabel({ key: 'returns', label: ENGINE_FACTORY_STAGE_LABELS.returns, stageLabel: 'Сборка' }),
+    ).toBe('Сборка · возврат');
+  });
+
+  it('остальные называют свой label как есть', () => {
+    expect(formatEngineFactoryStageLabel({ key: 'stage:sborka', label: 'Сборка' })).toBe('Сборка');
+    expect(formatEngineFactoryStageLabel({ key: 'scrap', label: ENGINE_FACTORY_STAGE_LABELS.scrap })).toBe('Утиль');
+  });
+
+  it('сквозной: возврат из engineFactoryStage подписывается с суффиксом', () => {
+    const s = engineFactoryStage(
+      engine({ lastStageCode: 'sborka', lastStageName: 'Сборка', lastStageAt: 21 * DAY, lastStagePass: 2 }),
+      TYPES,
+    );
+    expect(formatEngineFactoryStageLabel(s)).toBe('Сборка · возврат');
   });
 });

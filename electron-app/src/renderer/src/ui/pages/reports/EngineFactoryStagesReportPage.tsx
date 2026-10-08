@@ -8,6 +8,7 @@ import {
   engineScrapDate,
   engineStatusDate,
   flattenGrouped,
+  formatEngineFactoryStageLabel,
   isEngineAtPlant,
   type EngineListItem,
   type FacetDescriptor,
@@ -138,7 +139,8 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
       { id: 'arrivalDate', label: 'Дата прихода', kind: 'date', render: (e) => fmtDate(e.arrivalDate), sortValue: (e) => e.arrivalDate ?? 0 },
       // У строки «Возвраты» `stage.label` занят названием группы, поэтому этап берём из
       // `stageLabel`: иначе колонка врала бы — весь раздел выглядел бы как «Возвраты».
-      { id: 'stage', label: 'Этап на заводе', kind: 'name', render: (e) => e.stage.stageLabel ?? e.stage.label, sortValue: (e) => e.stage.rank, alwaysVisible: true },
+      // Суффикс «· возврат» — решение владельца 09.10.2026 (раскатка пилота #1195).
+      { id: 'stage', label: 'Этап на заводе', kind: 'name', render: (e) => formatEngineFactoryStageLabel(e.stage), sortValue: (e) => e.stage.rank, alwaysVisible: true },
       { id: 'stageAt', label: 'Дата операции', kind: 'date', render: (e) => fmtDate(e.stage.at), sortValue: (e) => e.stage.at ?? 0 },
       { id: 'repairStartedAt', label: 'Ремонт начат', kind: 'date', render: (e) => fmtDate(engineStatusDate(e, 'status_repair_started')), sortValue: (e) => engineStatusDate(e, 'status_repair_started') ?? 0 },
       { id: 'repairedAt', label: 'Отремонтирован', kind: 'date', render: (e) => fmtDate(engineStatusDate(e, 'status_repaired')), sortValue: (e) => engineStatusDate(e, 'status_repaired') ?? 0 },
