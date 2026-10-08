@@ -91,11 +91,13 @@ describe('отчёт-список «этапы на заводе» и рамка
 });
 
 describe('PR5: строка «Возвраты» (проход ≥ 2, решение владельца 05.10.2026)', () => {
-  it('колонка «Этап на заводе» показывает этап, а не название группы', () => {
+  it('колонка «Этап на заводе» показывает этап с суффиксом возврата, а не название группы', () => {
     // У строки «Возвраты» `label` занят группой. Без `stageLabel` весь раздел отчёта
     // выглядел бы одинаково — и колонка перестала бы отвечать на свой вопрос.
+    // Суффикс «· возврат» — решение владельца 09.10.2026 (раскатка пилота #1195);
+    // поведение держит `formatEngineFactoryStageLabel`, здесь только проводка.
     expect(PAGE, 'колонка отдаёт название группы вместо этапа — раздел «Возвраты» не читается').toContain(
-      'e.stage.stageLabel ?? e.stage.label',
+      'formatEngineFactoryStageLabel(e.stage)',
     );
     expect(PAGE, 'группировка по-прежнему по stage.key — иначе возвраты не соберутся в раздел').toContain(
       'keyOf: (r) => ({ key: r.stage.key, label: r.stage.label, rank: r.stage.rank })',
@@ -108,11 +110,14 @@ describe('PR5: строка «Возвраты» (проход ≥ 2, решен
     );
   });
 
-  it('главный отчёт двигателей ведёт себя так же — иначе два отчёта показывают разное', () => {
+  it('все отчёты двигателей ведут себя так же — иначе три списка показывают разное', () => {
     const ENGINES = src('./EnginesReportPage.tsx');
-    expect(ENGINES, 'в отчёте «Двигатели» колонка отдаёт группу вместо этапа').toContain(
-      'e.stage.stageLabel ?? e.stage.label',
-    );
+    const AT_PLANT = src('./EnginesAtPlantReportPage.tsx');
+    for (const [name, text] of [['Двигатели', ENGINES] as const, ['на заводе', AT_PLANT] as const]) {
+      expect(text, `в отчёте «${name}» колонка отдаёт группу вместо этапа с суффиксом`).toContain(
+        'formatEngineFactoryStageLabel(e.stage)',
+      );
+    }
   });
 });
 

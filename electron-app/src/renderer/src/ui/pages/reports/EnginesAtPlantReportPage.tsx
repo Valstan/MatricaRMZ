@@ -10,6 +10,7 @@ import {
   engineFactoryStage,
   engineStateLabel,
   flattenGrouped,
+  formatEngineFactoryStageLabel,
   isEngineAtPlant,
   plantScrapGroup,
   type EngineListItem,
@@ -139,7 +140,8 @@ export function EnginesAtPlantReportPage(props: ListReportPageProps) {
       // У строки «Возвраты» `stage.label` занят названием группы, поэтому этап берём из
       // `stageLabel` — как в отчёте «Двигатели на заводе: этапы ремонта», иначе колонка
       // называла бы группу, а не место двигателя.
-      { id: 'stage', label: 'Этап на заводе', kind: 'name', render: (e) => e.stage.stageLabel ?? e.stage.label, sortValue: (e) => e.stage.rank, alwaysVisible: true },
+      // Суффикс «· возврат» — решение владельца 09.10.2026 (раскатка пилота #1195).
+      { id: 'stage', label: 'Этап на заводе', kind: 'name', render: (e) => formatEngineFactoryStageLabel(e.stage), sortValue: (e) => e.stage.rank, alwaysVisible: true },
       { id: 'stageAt', label: 'Дата операции', kind: 'date', render: (e) => fmtDate(e.stage.at), sortValue: (e) => e.stage.at ?? 0 },
       { id: 'daysOnSite', label: 'Дней на заводе', kind: 'num', render: (e) => (e.daysOnSite == null ? HUMAN_LABEL_DASH : String(e.daysOnSite)), sortValue: (e) => e.daysOnSite ?? -1 },
       { id: 'scrap', label: 'Утиль', kind: 'text', render: (e) => yesNo(e.isScrap), sortValue: (e) => (e.isScrap ? 1 : 0) },

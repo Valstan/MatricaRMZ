@@ -10,6 +10,7 @@ import {
   engineStateLabel,
   engineStatusDate,
   flattenGrouped,
+  formatEngineFactoryStageLabel,
   type EngineListItem,
   type FacetDescriptor,
   type FacetSelection,
@@ -139,7 +140,8 @@ export function EnginesReportPage(props: ListReportPageProps) {
       // У строки «Возвраты» `stage.label` занят названием группы, поэтому этап берём из
       // `stageLabel`: колонка зовётся «Этап на заводе» и должна называть этап, а не видеться
       // признаком повтора (он виден в отчёте по этапам и в ступени «Этап на заводе»).
-      { id: 'stage', label: 'Этап на заводе', kind: 'name', render: (e) => e.stage.stageLabel ?? e.stage.label, sortValue: (e) => e.stage.rank },
+      // Суффикс «· возврат» — решение владельца 09.10.2026 (раскатка пилота #1195).
+      { id: 'stage', label: 'Этап на заводе', kind: 'name', render: (e) => formatEngineFactoryStageLabel(e.stage), sortValue: (e) => e.stage.rank },
       { id: 'scrap', label: 'Утиль', kind: 'text', render: (e) => yesNo(e.isScrap), sortValue: (e) => (e.isScrap ? 1 : 0) },
       { id: 'scrapReason', label: 'Причина утиля', kind: 'text', render: (e) => text(e.scrapReason), sortValue: (e) => text(e.scrapReason) },
       { id: 'scrapAt', label: 'Дата утиля', kind: 'date', render: (e) => fmtDate(engineScrapDate(e)), sortValue: (e) => engineScrapDate(e) ?? 0 },
