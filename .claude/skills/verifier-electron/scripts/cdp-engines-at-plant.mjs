@@ -15,7 +15,9 @@
 //  [6] «Дней на заводе» у строки совпадает с расчётом по дате прихода;
 //  [7] диалог «Печать списка» открывается;
 //  [8] список «Двигатели»: в панели фильтров «Последнего этапа» тоже нет
-//      (снят во всех фильтрах), «Есть этап» и «Этап на заводе» на месте.
+//      (снят во всех фильтрах), «Есть этап» и «Этап на заводе» на месте;
+//  [9] соседний отчёт «…этапы ремонта»: колонки-дубля «Последний этап» в нём нет
+//      (владелец 08.10.2026).
 //
 // Самодостаточен: ничего не пишет (только чтение), убирать нечего.
 //
@@ -366,6 +368,35 @@ async function main() {
   );
   note(s8.ok === true, 'список «Двигатели»: в фильтрах «Последнего этапа» нет, «Есть этап»/«Этап на заводе» на месте', { ids: s8.ids });
   await shot(ws, '6-engines-filters');
+
+  /* ── [9] Соседний отчёт «…этапы ремонта»: колонки-дубля «Последний этап» нет ─────── */
+  await openSection(ws, 'Контроль и аналитика', 'Отчёты');
+  await waitVal(ws, `vis('input').find((i) => (i.placeholder ?? '').startsWith('Поиск по названию'))`, 'каталог отчётов');
+  const s9 = await evaluate(
+    ws,
+    `const q = vis('input').find((i) => (i.placeholder ?? '').startsWith('Поиск по названию'));
+     setVal(q, 'этапы ремонта'); await wait(600);
+     const tile = vis('button').find((b) => txt(b).includes('Двигатели на заводе: этапы ремонта'));
+     if (!tile) return { ok: false, reason: 'плитки нет' };
+     click(tile); await wait(2000);
+     const R = vis('[data-engine-factory-stages-report]')[0] ?? null;
+     if (!R) return { ok: false, reason: 'отчёт не открылся' };
+     // Подпись колонки несёт title заголовка (текст ячейки дополняет кнопка «×»).
+     const heads = vis('th', R).map((t) => t.getAttribute('title')).filter(Boolean);
+     const btn = byText('Колонки списка', R);
+     if (btn) { click(btn); await wait(600); }
+     // Панель колонок уезжает порталом в body — ищем её диалог отдельно от страницы.
+     const dlg = vis('[role="dialog"][aria-label="Настройка колонок"]')[0] ?? null;
+     const labels = dlg ? [...dlg.querySelectorAll('li span')].map(txt) : [];
+     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await wait(300);
+     return { ok: !heads.includes('Последний этап'), heads,
+       goneFromSettings: dlg ? !labels.includes('Последний этап') : null,
+       settingsLabels: labels,
+       hasStage: heads.includes('Этап на заводе') };`,
+  );
+  note(s9.ok === true && s9.hasStage === true, 'соседний отчёт «…этапы ремонта»: колонки «Последний этап» нет, «Этап на заводе» на месте', { heads: s9.heads });
+  note(s9.goneFromSettings === true, 'соседний отчёт: в «Колонках списка» «Последнего этапа» тоже нет', { settingsLabels: s9.settingsLabels });
+  await shot(ws, '7-sibling-report');
 
   const failed = steps.filter((s) => !s.ok);
   const report = { ok: failed.length === 0, steps, bridgeTotal: bridge.total };

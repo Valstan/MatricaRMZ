@@ -140,10 +140,10 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
       { id: 'repairStartedAt', label: 'Ремонт начат', kind: 'date', render: (e) => fmtDate(engineStatusDate(e, 'status_repair_started')), sortValue: (e) => engineStatusDate(e, 'status_repair_started') ?? 0 },
       { id: 'repairedAt', label: 'Отремонтирован', kind: 'date', render: (e) => fmtDate(engineStatusDate(e, 'status_repaired')), sortValue: (e) => engineStatusDate(e, 'status_repaired') ?? 0 },
       { id: 'scrapAt', label: 'Дата утиля', kind: 'date', render: (e) => fmtDate(engineScrapDate(e)), sortValue: (e) => engineScrapDate(e) ?? 0 },
-      // Последний ЗАПИСАННЫЙ этап единого списка — журнальный срез рядом с «Этапом на заводе»
-      // (тот считает место по всему движению: утиль, возвраты, акты). Подпись берёт шаблон
-      // (порядок и названия меняет владелец), поэтому колонка не расходится с рядами ступеней.
-      { id: 'lastStage', label: 'Последний этап', kind: 'name', render: (e) => text(e.lastStageName), sortValue: (e) => text(e.lastStageName) },    ],
+      // Колонки «Последний этап» здесь нет (владелец 08.10.2026): «Этап на заводе» уже
+      // показывает, где двигатель по последней записи (и учитывает больше — утиль, возвраты,
+      // акты); вторая колонка с тем же смыслом читалась вторым фактом.
+    ],
     [],
   );
 
