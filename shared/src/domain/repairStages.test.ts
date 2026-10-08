@@ -160,6 +160,24 @@ describe('возврат назад', () => {
   it('боковая ветка возвратом не считается', () => {
     expect(isStageBackwardMove([{ code: 'obkatka' as const, at: 100 }], 'scrap_branch')).toBe(false);
   });
+
+  it('поздно внесённый этап с ранней датой — не возврат (баг 09.10.2026)', () => {
+    const DAY1 = Date.UTC(2026, 8, 27, 21, 0, 0);
+    const DAY2 = Date.UTC(2026, 8, 28, 21, 0, 0);
+    const stages = [{ code: 'shipped' as const, at: DAY2 }];
+    expect(isStageBackwardMove(stages, 'sborka', DAY1)).toBe(false);
+  });
+
+  it('тот же день ниже по линейке — по-прежнему возврат', () => {
+    const DAY1 = Date.UTC(2026, 8, 27, 21, 0, 0);
+    const stages = [{ code: 'obkatka' as const, at: DAY1 }];
+    expect(isStageBackwardMove(stages, 'sborka', DAY1)).toBe(true);
+  });
+
+  it('без даты новой строки — старое поведение по рангам', () => {
+    const stages = [{ code: 'obkatka' as const, at: 100 }];
+    expect(isStageBackwardMove(stages, 'sborka')).toBe(true);
+  });
 });
 
 describe('сортировка для показа', () => {

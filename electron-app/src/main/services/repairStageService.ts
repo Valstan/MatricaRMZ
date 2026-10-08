@@ -177,9 +177,10 @@ export async function saveRepairStageRow(
   }
 
   // Возврат назад помечается новым проходом сам (решение принято фактом записи),
-  // отдельный вопрос не задаём — пометка и есть сигнал.
+  // отдельный вопрос не задаём — пометка и есть сигнал. Дату новой строки передаём:
+  // этапы позже неё — довнесение пропущенного, а не возврат (баг 09.10.2026).
   const backward =
-    confirmedRepeat === null && !carriedRepeat && isStageBackwardMove(dated, template.code);
+    confirmedRepeat === null && !carriedRepeat && isStageBackwardMove(dated, template.code, atMs);
   let repeat: RepairHistoryRepeat | null = carriedRepeat;
   if (confirmedRepeat !== null) {
     repeat = {

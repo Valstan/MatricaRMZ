@@ -115,6 +115,18 @@ describe('возврат назад', () => {
     expect(rows.find((r) => r.id === 's1')?.pass).toBe(1);
   });
 
+  it('поздно внесённая сборка с ранней датой — не возврат (баг 09.10.2026)', async () => {
+    const { db } = makeDb();
+    await seed(db, [{ id: 's1', code: 'shipped', at: DAY2 }]);
+    const res = await saveRepairStageRow(
+      db,
+      { id: 's2', engineId: 'eng-1', code: 'sborka', atMs: DAY1 },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(res).toMatchObject({ ok: true, backward: false, pass: 1 });
+  });
+
   it('правка примечания проход не разжалует', async () => {
     const { db } = makeDb();
     await seed(db, [{ id: 's1', code: 'obkatka', at: DAY1 }]);
