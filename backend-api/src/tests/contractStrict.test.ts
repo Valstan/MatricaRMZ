@@ -2,8 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const publish = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
-vi.mock('../sync/syncChangeService.js', () => ({
+vi.mock('../services/sync/syncChangeService.js', () => ({
   recordSyncChanges: publish,
+}));
+
+vi.mock('../services/adminMasterdataService.js', () => ({
+  setEntityAttribute: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 // Очередь ответов SELECT: каждый limit() или await цепочки забирает следующий набор.
@@ -93,6 +97,22 @@ describe('двери записи договоров/контрагентов (C
     const r = await patchContractStrict(CID, { comment: 'hi' }, ACTOR);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain('не найден');
+  });
+
+  it('create с id клиента проходит гейт (deferred-create, баг 09.10.2026)', async () => {
+    // Карточка открывается на сгенерированном uuid до первой записи — клиент всегда шлёт id.
+    selectQueue.push([{ id: 'type-contract' }]); // typeIdOf
+    const r = await createContractStrict({ id: CID, number: '7' }, ACTOR);
+    expect(r.ok).toBe(true);
+    selectQueue.push([{ id: 'type-customer' }]); // typeIdOf
+    const r2 = await createCounterpartyStrict({ id: CID, name: 'Завод' }, ACTOR);
+    expect(r2.ok).toBe(true);
+  });
+
+  it('patch с id по-прежнему отвергается — id живёт в URL, не в теле', async () => {
+    const r = await patchContractStrict(CID, { id: CID }, ACTOR);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('id');
   });
 
   it('заказчик вне справочника — громкий отказ', async () => {

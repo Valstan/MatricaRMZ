@@ -66,6 +66,14 @@ type ContractPatch = z.infer<typeof contractPatchSchema>;
 const CONTRACT_PATCH_KEYS = new Set(Object.keys(contractPatchSchema.shape));
 const COUNTERPARTY_PATCH_KEYS = new Set(Object.keys(counterpartyPatchSchema.shape));
 
+// Создание несёт `id` от клиента (deferred-create: карточка открывается на сгенерированном
+// uuid до первой записи), поэтому create-схемы его разрешают — иначе любой create падал
+// на «неизвестные поля» до разбора (баг 09.10.2026). В patch `id` по-прежнему чужой.
+const contractCreateSchema = contractPatchSchema.extend({ id: uuid.optional() });
+const counterpartyCreateSchema = counterpartyPatchSchema.extend({ id: uuid.optional() });
+const CONTRACT_CREATE_KEYS = new Set(Object.keys(contractCreateSchema.shape));
+const COUNTERPARTY_CREATE_KEYS = new Set(Object.keys(counterpartyCreateSchema.shape));
+
 function rejectUnknown(input: Record<string, unknown>, known: Set<string>, what: string): string | null {
   const bad = Object.keys(input).filter((k) => !known.has(k));
   return bad.length > 0 ? `неизвестные поля ${what}: ${bad.join(', ')}` : null;
@@ -180,11 +188,11 @@ function toCounterpartyRow(r: typeof erpCounterparties.$inferSelect): Record<str
 export async function createContractStrict(raw: unknown, actor: PublishActor): Promise<Result<{ row: Record<string, unknown> }>> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: 'ожидался объект полей договора' };
   const input = raw as Record<string, unknown>;
-  const rejected = rejectUnknown(input, CONTRACT_PATCH_KEYS, 'договора');
+  const rejected = rejectUnknown(input, CONTRACT_CREATE_KEYS, 'договора');
   if (rejected) return { ok: false, error: rejected };
-  const parsed = contractPatchSchema.safeParse(input);
+  const parsed = contractCreateSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: `неверные поля договора: ${parsed.error.issues.map((i) => i.path.join('.')).join(', ')}` };
-  const id = typeof input.id === 'string' && uuid.safeParse(input.id).success ? String(input.id) : randomUUID();
+  const id = parsed.data.id ?? randomUUID();
   return createContractRow(id, parsed.data, actor);
 }
 
@@ -397,11 +405,11 @@ export async function getContractStrict(id: string): Promise<Result<{ row: Recor
 export async function createCounterpartyStrict(raw: unknown, actor: PublishActor): Promise<Result<{ row: Record<string, unknown> }>> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: 'ожидался объект полей контрагента' };
   const input = raw as Record<string, unknown>;
-  const rejected = rejectUnknown(input, COUNTERPARTY_PATCH_KEYS, 'контрагента');
+  const rejected = rejectUnknown(input, COUNTERPARTY_CREATE_KEYS, 'контрагента');
   if (rejected) return { ok: false, error: rejected };
-  const parsed = counterpartyPatchSchema.safeParse(input);
+  const parsed = counterpartyCreateSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: `неверные поля контрагента: ${parsed.error.issues.map((i) => i.path.join('.')).join(', ')}` };
-  const id = typeof input.id === 'string' && uuid.safeParse(input.id).success ? String(input.id) : randomUUID();
+  const id = parsed.data.id ?? randomUUID();
   const customerTypeId = await typeIdOf('customer');
   if (!customerTypeId) return { ok: false, error: 'тип customer не найден' };
   const ts = nowMs();

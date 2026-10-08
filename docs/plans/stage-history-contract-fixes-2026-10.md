@@ -1,0 +1,53 @@
+# План: этапы/история/контракты/синк (заявки владельца 09.10.2026)
+
+Решения владельца 09.10.2026: дефектовка без даты — блок; смена даты акт→этап — с подтверждением;
+бэкфилл отгрузок — всем + дата отгрузки пишется в историю как операция; делать весь план, порядок на усмотрение.
+
+## PR-1 — контракты-generally (создание + «Сохранить и выйти»)
+
+- `backend-api/src/services/contractStrictService.ts:183/187` — `rejectUnknown` раньше извлечения `id`,
+  клиент всегда шлёт `id` (`electron-app/src/main/ipc/register/contracts.ts:231,247-248`) → любой create = 400.
+  Фикс: разрешить `id` в create. Тест: `create({id,…})` в `contractStrict.test.ts` (сейчас кейса нет).
+- `ContractDetailsPage.tsx:2429-2439` — при ошибке не чистить черновик и не закрывать панель
+  (образец: `EngineDetailsPage.tsx:1354-1389` + `App.tsx:1489-1500`).
+
+## PR-2 — проход/возврат по дате этапа, а не внесения
+
+- `isStageBackwardMove` (`shared/src/domain/repairStages.ts:189-199`) принимает дату новой строки,
+  учитывает только этапы с датой ≤ неё; вызов `repairStageService.ts:182` передаёт `atMs`.
+- Кейс «поздний внос с ранней датой — pass 1» (`repairStages.test.ts`, `repairStageService.test.ts`).
+- Разовый пересчёт `pass` по датам: dry-run → apply, counts в теле PR.
+
+## PR-3 — дефектовка: блок без даты + двусторонняя связь с этапом
+
+- Блок «Провести дефектовку» без даты (`RepairChecklistPanel.tsx:815-833`).
+- Смена даты в акте двигает `disassembly_defect` **с подтверждением**; правка даты stage-строки
+  двигает акт (убрать «лист свою дату не поменяет», `EngineHistoryFeedPanel.tsx:279`);
+  запрет сноса stage-строки при живом акте.
+- Сторожа + CDP-смоук на стенде (акт → этап → смена даты в обе стороны).
+
+## PR-4 — висящие строки синка
+
+- Раскрытие баннера (`App.tsx:6697-6699`): какая строка, причина + кнопка «отбросить».
+- Серверный признак permanent для `invalid_reference`/части `forbidden`; клиент не ретраит.
+- Разбор случая Сапегин — по данным из нового раскрытия.
+- Тесты: `dependencyRequeue.test.ts`, `blockedRows.test.ts`, `entityReferenceGuard.test.ts`.
+
+## PR-5 — тормоза ввода карточки контракта
+
+- Профилировка на стенде → локальный стейт `NumericField.tsx:21`, `engines.list()` вон из hot-пути
+  (`ContractDetailsPage.tsx:1758-1761`), мемоизация totals. Приёмка — ввод без лагов.
+
+## PR-6 — история/фильтры: отгрузка как операция + единый «лучший»
+
+- Дата отгрузки пишется в историю как операция (новым и бэкфиллом тем, у кого дата есть, а этапа нет;
+  dry-run → apply с counts; прод-бэкфилл только по «давай» владельца в том же ходе).
+- Свести три «лучших» (`getEngineRepairHistoryMap`, `loadEngineStageMarks`, `EngineDetailsPage.tsx:591-607`)
+  к `currentDatedStage` (`repairStages.ts:271`); аудит покрытия операций/флагов списком в PR.
+
+## Контекст разведки (сессия 09.10)
+
+- Pass идёт из `meta.repeat.pass`; `dated = toDated(siblings, id)` дату новой строки не несёт.
+- Акт пишет снимок, этап — отдельно (`checklists.ts:91-94`, `checklistService.ts:387-443`).
+- `repairHistoryFromOperations` пропускает акты/shipment/наряды; EAV-флаги в историю не попадают никогда.
+- Баннер висящих строк — только счётчик; `planDependencyRequeue` лечит лишь `missing_dependency`.
