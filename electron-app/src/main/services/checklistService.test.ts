@@ -2,9 +2,10 @@ import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { describe, expect, it } from 'vitest';
 
-import { ENGINE_INVENTORY_STAGE, type RepairChecklistPayload } from '@matricarmz/shared';
+import { ENGINE_INVENTORY_STAGE, DEFAULT_REPAIR_STAGE_TEMPLATES, type RepairChecklistPayload } from '@matricarmz/shared';
 
-import { saveRepairChecklistForEngine } from './checklistService.js';
+import { hasDefectActData, saveRepairChecklistForEngine, setChecklistAnswerDate } from './checklistService.js';
+import { deleteRepairStageRow, saveRepairStageRow } from './repairStageService.js';
 
 // Лист деталей новой карточки двигателя (10.09.2026). Карточка получает id двигателя без строки
 // в базе, а панель сама сохраняет автозаполненный лист — дважды подряд. Итог: у двигателя два
@@ -97,5 +98,84 @@ describe('saveRepairChecklistForEngine: лист новой карточки д�
     expect((second as any).operationId).toBe((first as any).operationId);
     const meta = JSON.parse((sqlite.prepare(`SELECT meta_json FROM operations`).get() as any).meta_json);
     expect(meta.answers.engine_number.value).toBe('41');
+  });
+});
+
+describe('двусторонняя связь акта и этапа (09.10.2026)', () => {
+  // Карточка двигателя заводится «сейчас» (ensureEngineRow) — дата этапа раньше дня
+  // заведения упирается в субординацию (card_created), поэтому даты тестов — сегодня.
+  const NOW = Date.now();
+
+  function defectAnswers() {
+    return {
+      engine_inventory_items: { rows: [{ part_name: 'Вал', quantity: 2, scrap_qty: 1 }] },
+      defect_start_date: { kind: 'date', value: NOW },
+    };
+  }
+
+  async function saveLeaf(db: any, engineId: string, answers: Record<string, unknown>) {
+    const base = payload(engineId);
+    (base as any).answers = answers;
+    return saveRepairChecklistForEngine(db, { engineId, stage: ENGINE_INVENTORY_STAGE, payload: base, actor: 'tester' });
+  }
+
+  async function leafDate(db: any, engineId: string): Promise<unknown> {
+    const { getRepairChecklistForEngine } = await import('./checklistService.js');
+    const leaf = await getRepairChecklistForEngine(db, engineId, ENGINE_INVENTORY_STAGE);
+    if (!leaf.ok || !leaf.payload) throw new Error('листа нет');
+    return (leaf.payload.answers as any)?.defect_start_date;
+  }
+
+  it('hasDefectActData видит вердикты листа', async () => {
+    const { db } = makeDb();
+    await saveLeaf(db, 'eng-1', defectAnswers());
+    expect(await hasDefectActData(db, 'eng-1')).toBe(true);
+  });
+
+  it('голая приёмка — не дефектный след', async () => {
+    const { db } = makeDb();
+    await saveLeaf(db, 'eng-1', { engine_inventory_items: { rows: [{ scrap_qty: 0, replace_qty: 0 }] } });
+    expect(await hasDefectActData(db, 'eng-1')).toBe(false);
+  });
+
+  it('setChecklistAnswerDate правит дату в листе', async () => {
+    const { db } = makeDb();
+    await saveLeaf(db, 'eng-1', defectAnswers());
+    const r = await setChecklistAnswerDate(db, { engineId: 'eng-1', stage: ENGINE_INVENTORY_STAGE, code: 'defect_start_date', atMs: NOW + 1000 });
+    expect(r).toEqual({ ok: true });
+    expect(await leafDate(db, 'eng-1')).toEqual({ kind: 'date', value: NOW + 1000 });
+  });
+
+  it('setChecklistAnswerDate без листа — отказ', async () => {
+    const { db } = makeDb();
+    const r = await setChecklistAnswerDate(db, { engineId: 'eng-1', stage: ENGINE_INVENTORY_STAGE, code: 'defect_start_date', atMs: 2000 });
+    expect(r.ok).toBe(false);
+  });
+
+  it('снос disassembly_defect при живом акте — отказ', async () => {
+    const { db } = makeDb();
+    await saveLeaf(db, 'eng-1', defectAnswers());
+    const s = await saveRepairStageRow(
+      db,
+      { id: 'st-1', engineId: 'eng-1', code: 'disassembly_defect', atMs: NOW },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(s.ok, `save: ${JSON.stringify(s)}`).toBe(true);
+    const r = await deleteRepairStageRow(db, 'st-1');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('акту');
+  });
+
+  it('без акта строка дефектовки сносится свободно', async () => {
+    const { db } = makeDb();
+    const s = await saveRepairStageRow(
+      db,
+      { id: 'st-1', engineId: 'eng-1', code: 'disassembly_defect', atMs: 1000 },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(s.ok).toBe(true);
+    expect((await deleteRepairStageRow(db, 'st-1')).ok).toBe(true);
   });
 });

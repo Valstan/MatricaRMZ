@@ -439,6 +439,24 @@ describe('RepairChecklistPanel: накладная прихода и дата э
   });
 });
 
+describe('RepairChecklistPanel: проведение дефектовки без даты заблокировано (09.10.2026)', () => {
+  it('conductDefect требует defect_start_date до снимка', () => {
+    expect(PANEL, 'проведение без даты ушло на сервер — этап встанет не на своё место').toContain(
+      'без неё провести дефектовку нельзя.',
+    );
+  });
+
+  it('смена даты в акте двигает этап с подтверждением, фолбэка на «сегодня» нет', () => {
+    expect(PANEL, 'дата акта молча не доходит до этапа — снова две правды').toContain(
+      'Сменить дату этапа «Разборка/Дефектовка»?',
+    );
+    expect(PANEL).toContain('confirmDefectDate: true');
+    expect(PANEL, 'фолбэк на «сегодня» вернулся — этап уедет от факта').not.toContain(
+      'Поле пустое — падаем на «сегодня», как раньше.',
+    );
+  });
+});
+
 describe('RepairChecklistPanel: блок «Базовые детали» раскрыт с первого захода (D5, владелец 17.09.2026)', () => {  it('базовые детали открыты по умолчанию, остальные — свёрнуты', () => {
     expect(PANEL).toContain('const [baseGroupOpen, setBaseGroupOpen] = useState(true);');
     expect(PANEL).toContain('const [otherGroupOpen, setOtherGroupOpen] = useState(false);');

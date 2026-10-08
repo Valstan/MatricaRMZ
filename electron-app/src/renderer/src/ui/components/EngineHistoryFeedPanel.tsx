@@ -4,6 +4,7 @@ import {
   REPAIR_HISTORY_OPERATION_TYPE,
   buildEngineHistoryFeed,
   buildRepairHistoryMeta,
+  ENGINE_INVENTORY_STAGE,
   engineHistoryFeedFieldLines,
   repairHistoryActionOptions,
   type EngineHistoryFeedItem,
@@ -276,7 +277,7 @@ export function EngineHistoryFeedPanel(props: {
           currentAtMs: r.defectDateChange.currentAtMs,
         });
         setStatus(
-          `Дата разборки/дефектовки уже стоит: ${formatMoscowDate(new Date(r.defectDateChange.currentAtMs))}. Поставить ${formatMoscowDate(new Date(r.defectDateChange.nextAtMs))}? Лист дефектовки свою дату не поменяет.`,
+          `Дата разборки/дефектовки уже стоит: ${formatMoscowDate(new Date(r.defectDateChange.currentAtMs))}. Поставить ${formatMoscowDate(new Date(r.defectDateChange.nextAtMs))}? Дата подставится и в лист дефектовки.`,
         );
         return;
       }
@@ -294,6 +295,23 @@ export function EngineHistoryFeedPanel(props: {
           : { label: `«${templateName(args.code)}»`, kind: 'remove-stage', id: args.id },
       );
       setStatus(r.backward ? `«${templateName(args.code)}» — возврат назад, записан проход № ${r.pass}.` : '');
+      // Направление «этап → акт»: дату дефектовки доносим до листа. Довесок —
+      // этап уже записан, его исход не трогаем.
+      if (args.code === 'disassembly_defect') {
+        try {
+          const synced = await window.matrica.checklists.engineSetAnswerDate({
+            engineId: props.engineId,
+            stage: ENGINE_INVENTORY_STAGE,
+            code: 'defect_start_date',
+            atMs: args.atMs,
+          });
+          if (!synced?.ok) {
+            setStatus((s) => `${s} Дату в лист дефектовки донести не вышло: ${synced?.error ?? 'unknown'}.`);
+          }
+        } catch {
+          /* этап записан — довесок */
+        }
+      }
       await load();
       props.onChanged?.();
     } catch (e) {

@@ -15,6 +15,7 @@ import {
   saveEngineActSnapshot,
   saveRepairChecklistForEngine,
   saveRepairFundRequirementSnapshot,
+  setChecklistAnswerDate,
 } from '../../services/checklistService.js';
 import { listEnginePartStatusEvents } from '../../services/partStatusEventService.js';
 import { listEngineStampedInstances } from '../../services/repairFundInstanceService.js';
@@ -91,7 +92,14 @@ export function registerChecklistsIpc(ctx: IpcContext) {
       if (saved.ok && saved.operationId && args.stage === ENGINE_INVENTORY_STAGE && engineInventoryHasDefectData(payload)) {
         try {
           const { templates } = await loadRepairStageTemplates(ctx.sysDb, ctx.mgr.getApiBaseUrl());
-          await ensureRepairStageRow(ctx.dataDb(), args.engineId, 'disassembly_defect', Date.now(), actor || 'local', templates);
+          // Дата авто-метки — из акта, а не момент сохранения: иначе этап уезжает от факта.
+          // Пусто — как раньше «сегодня» (блок без даты — на проведении, здесь best-effort).
+          const actStart = (payload.answers as any)?.defect_start_date;
+          const actStartMs =
+            actStart?.kind === 'date' && Number.isFinite(Number(actStart.value)) && Number(actStart.value) > 0
+              ? Number(actStart.value)
+              : Date.now();
+          await ensureRepairStageRow(ctx.dataDb(), args.engineId, 'disassembly_defect', actStartMs, actor || 'local', templates);
         } catch {
           // этап двигателя — не причина терять сохранённую дефектовку
         }
@@ -119,6 +127,23 @@ export function registerChecklistsIpc(ctx: IpcContext) {
     if (!gate.ok) return gate as any;
     return listEngineActVersions(ctx.dataDb(), args.engineId, args.actType);
   });
+
+  // Направление «этап → акт» (09.10.2026): дату дефектовки, сменённую в истории,
+  // доносим до `defect_start_date` листа. Гейт — как у сохранения листа.
+  ipcMain.handle(
+    'checklists:engine:setAnswerDate',
+    async (_e, args: { engineId: string; stage: string; code: string; atMs: number }) => {
+      if (isViewMode(ctx)) return viewModeWriteError();
+      const gate = await requirePermOrResult(ctx, 'operations.edit');
+      if (!gate.ok) return gate as any;
+      return setChecklistAnswerDate(ctx.dataDb(), {
+        engineId: String(args.engineId ?? ''),
+        stage: String(args.stage ?? ''),
+        code: String(args.code ?? ''),
+        atMs: Number(args.atMs),
+      });
+    },
+  );
 
   ipcMain.handle(
     'checklists:engine:actSnapshot',

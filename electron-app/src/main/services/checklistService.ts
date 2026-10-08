@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, or } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
@@ -7,6 +7,7 @@ import {
   computeInventoryShortage,
   engineActSnapshotSignature,
   ENGINE_INVENTORY_STAGE,
+  engineInventoryHasDefectData,
   type EngineActSnapshotPayload,
   type EngineActType,
   type EngineActVersionRecord,
@@ -22,7 +23,7 @@ import {
   type RepairFundRequirementVersionRecord,
   stripInventoryRowsForStorage,
 } from '@matricarmz/shared';
-import { entities, operations } from '../database/schema.js';
+import { entities, erpEngineInventoryLines, operations } from '../database/schema.js';
 import { withReplicaInventoryRows, writeInventoryLinesForSheet } from './engineInventoryLinesReplica.js';
 import { getEntityDetails, listEntitiesByType } from './entityService.js';
 import { listEntityTypes } from './adminService.js';
@@ -379,6 +380,73 @@ export async function listEngineActVersions(
 ): Promise<{ ok: true; versions: EngineActVersionRecord[] } | { ok: false; error: string }> {
   try {
     return { ok: true as const, versions: await readEngineActVersions(db, engineId, actType) };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+/**
+ * Живой дефектный след двигателя: вердикт в строгой таблице строк, legacy-вердикт
+ * в JSON листа или версия акта. Вердикты живут в `erp_engine_inventory_lines` (E3):
+ * в meta листа после strip — пустой список с маркером, читать ответы бесполезно.
+ * Сторожит снос stage-строки «Разборка/Дефектовка» при живом акте (двусторонняя
+ * связь акта и этапа, 09.10.2026): без акта строка правится и удаляется свободно.
+ */
+export async function hasDefectActData(db: BetterSQLite3Database, engineId: string): Promise<boolean> {
+  try {
+    const id = String(engineId ?? '').trim();
+    if (!id) return false;
+    const lines = await db
+      .select({ id: erpEngineInventoryLines.id })
+      .from(erpEngineInventoryLines)
+      .where(
+        and(
+          eq(erpEngineInventoryLines.engineEntityId, id),
+          isNull(erpEngineInventoryLines.deletedAt),
+          or(gt(erpEngineInventoryLines.scrapQty, 0), gt(erpEngineInventoryLines.replaceQty, 0)),
+        ),
+      )
+      .limit(1);
+    if (lines.length > 0) return true;
+    const leaf = await getRepairChecklistForEngine(db, id, ENGINE_INVENTORY_STAGE);
+    if (leaf.ok && leaf.payload && engineInventoryHasDefectData(leaf.payload)) return true;
+    const versions = await readEngineActVersions(db, id, 'defect');
+    return versions.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Точечная правка даты в ответах листа (направление «этап → акт», 09.10.2026):
+ * дату дефектовки, сменённую в истории, доносим до `defect_start_date` листа.
+ * Строки списка не трогаем — пишем обрезанный payload, как обычное сохранение,
+ * иначе каждая смена даты тащила бы весь лист новой версией в журнал.
+ */
+export async function setChecklistAnswerDate(
+  db: BetterSQLite3Database,
+  args: { engineId: string; stage: string; code: string; atMs: number },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const atMs = Number(args.atMs);
+    if (!Number.isFinite(atMs) || atMs <= 0) return { ok: false as const, error: 'Укажите дату' };
+    const leaf = await getRepairChecklistForEngine(db, args.engineId, args.stage);
+    if (!leaf.ok) return leaf;
+    if (!leaf.payload || !leaf.operationId) return { ok: false as const, error: 'Лист не заведён' };
+    const patched: RepairChecklistPayload = {
+      ...leaf.payload,
+      answers: {
+        ...(leaf.payload.answers as Record<string, unknown>),
+        [args.code]: { kind: 'date', value: atMs },
+      } as RepairChecklistAnswers,
+    };
+    const storable = args.stage === ENGINE_INVENTORY_STAGE ? stripInventoryRowsForStorage(patched) : patched;
+    const ts = nowMs();
+    await db
+      .update(operations)
+      .set({ metaJson: JSON.stringify(storable), updatedAt: ts, syncStatus: 'pending' })
+      .where(and(eq(operations.id, leaf.operationId), isNull(operations.deletedAt)));
+    return { ok: true as const };
   } catch (e) {
     return { ok: false as const, error: String(e) };
   }
