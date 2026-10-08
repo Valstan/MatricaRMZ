@@ -1419,6 +1419,11 @@ export function ContractDetailsPage(props: {
   // relatedEngines, а марка нужна, чтобы посадить его в слот своей марки.
   const engineBrandByIdRef = React.useRef<Map<string, string>>(new Map());
   const [relatedEngines, setRelatedEngines] = useState<EngineListItem[]>([]);
+  // Каталог двигателей для прогресса (09.10.2026): `engines.list()` — тяжёлый IPC на
+  // тысячи строк, а эффект ниже дёргался на каждый keystroke секций. Каталог грузим
+  // редко, прогресс выводим из кэша; setState — только при смене состава, иначе
+  // каждая печать заново будила бы эффект сверки слотов.
+  const [enginesCache, setEnginesCache] = useState<EngineListItem[]>([]);
   const [executionParts, setExecutionParts] = useState<ContractExecutionPartRow[]>([]);
   // Платежи по двигателям (contract_payments) — отдельный от черновика контур: пишется
   // сразу (как привязка двигателей), не через save-on-close.
@@ -1702,39 +1707,58 @@ export function ContractDetailsPage(props: {
     return relatedContractIds;
   }
 
-  async function loadProgress() {
+  const sameEngineIds = (a: ReadonlyArray<{ id: string }>, b: ReadonlyArray<{ id: string }>) =>
+    a.length === b.length && a.every((x, i) => x.id === b[i]?.id);
+
+  async function loadEnginesCatalog(): Promise<EngineListItem[]> {
     try {
-      const relatedContractIds = await resolveRelatedContractIds(sections);
       const engines = await window.matrica.engines.list();
-      const engineItems = Array.isArray(engines)
-        ? engines.filter((e) => relatedContractIds.has(String(e.contractId ?? '')))
-        : [];
+      const next = Array.isArray(engines) ? engines : [];
+      setEnginesCache((prev) => (sameEngineIds(prev, next) ? prev : next));
+      return next;
+    } catch {
+      setEnginesCache([]);
+      return [];
+    }
+  }
+
+  // Свежий каталог + вывод: точки мутаций, рефреш, сброс. На keystroke — только refreshProgress.
+  async function loadProgress() {
+    const fresh = await loadEnginesCatalog();
+    await refreshProgress(fresh);
+  }
+
+  async function refreshProgress(engines?: EngineListItem[]) {
+    try {
+      const catalog = engines ?? enginesCache;
+      const relatedContractIds = await resolveRelatedContractIds(sections);
+      const engineItems = catalog.filter((e) => relatedContractIds.has(String(e.contractId ?? '')));
       const sortedEngineItems = [...engineItems].sort((a, b) => {
         const byNumber = String(a.engineNumber ?? '').localeCompare(String(b.engineNumber ?? ''), 'ru');
         if (byNumber !== 0) return byNumber;
         return b.updatedAt - a.updatedAt;
       });
-      setRelatedEngines(sortedEngineItems);
+      setRelatedEngines((prev) => (sameEngineIds(prev, sortedEngineItems) ? prev : sortedEngineItems));
       engineBrandByIdRef.current = new Map(
-        (Array.isArray(engines) ? engines : []).flatMap((e) =>
+        catalog.flatMap((e) =>
           e.engineBrandId ? [[String(e.id), String(e.engineBrandId)] as const] : [],
         ),
       );
       // Сортируем двигатели, а не готовые подписи: по алфавиту пометка «архивный заезд»
       // встала бы выше «свежего», а первым под пальцем должен быть свежий заезд.
-      const engineOptionSource = Array.isArray(engines) ? [...engines] : [];
+      const engineOptionSource = [...catalog];
       engineOptionSource.sort(compareEngineOptions);
       const engineOpts = engineOptionSource.map((engine) => ({
         id: engine.id,
         label: engineOptionLabel(engine),
       }));
-      setAllEngineOptions(engineOpts);
+      setAllEngineOptions((prev) => (sameEngineIds(prev, engineOpts) ? prev : engineOpts));
       const aggregate = aggregateContractExecutionProgress({
         sections,
         engineItems: sortedEngineItems,
         executionParts,
       });
-      setContractProgress(aggregate);
+      setContractProgress((prev) => (JSON.stringify(prev) === JSON.stringify(aggregate) ? prev : aggregate));
     } catch {
       setContractProgress(null);
       setRelatedEngines([]);
@@ -1756,9 +1780,14 @@ export function ContractDetailsPage(props: {
   }, [entityTypes.length]);
 
   useEffect(() => {
-    if (contract) void loadProgress();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed to contract id/version on purpose; loadProgress is recreated every render and depending on the contract object would refetch on every reload even when nothing changed
-  }, [contract?.id, contract?.updatedAt, sections, executionParts, entityTypes.length]);
+    void loadEnginesCatalog();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- каталог редко: на keystroke вывод идёт из кэша через эффект ниже
+  }, [contract?.id, entityTypes.length]);
+
+  useEffect(() => {
+    if (contract) void refreshProgress();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- вывод из кэша без engines.list; refreshProgress пересоздаётся каждый рендер, в депах только данные
+  }, [contract?.id, contract?.updatedAt, sections, executionParts, enginesCache, entityTypes.length]);
 
   useEffect(() => {
     if (!contract) {
