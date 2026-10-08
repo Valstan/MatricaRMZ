@@ -44,7 +44,7 @@ import { workshopsRouter } from './routes/workshops.js';
 import { timesheetsRouter } from './routes/timesheets.js';
 import { servicePricingRouter } from './routes/servicePricing.js';
 import { workSheetTypesRouter } from './routes/workSheetTypes.js';
-import { contractsRouter } from './routes/contracts.js';
+import { contractsRouter, counterpartiesRouter } from './routes/contracts.js';
 import { repairStageTemplatesRouter } from './routes/repairStageTemplates.js';
 import { noteStatisticsRequestActivity } from './services/statisticsAuditService.js';
 import { requireAuth, requirePermission } from './auth/middleware.js';
@@ -188,6 +188,7 @@ export function createApp() {
   app.use('/work-sheet-types', workSheetTypesRouter);
   app.use('/repair-stage-templates', repairStageTemplatesRouter);
   app.use('/contracts', contractsRouter);
+  app.use('/counterparties', counterpartiesRouter);
 
   // Web admin UI (served as static SPA from /admin-ui)
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
