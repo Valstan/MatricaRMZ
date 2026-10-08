@@ -1816,7 +1816,7 @@ export function ContractDetailsPage(props: {
     props.registerCardCloseActions({
       isDirty: () => dirtyRef.current,
       saveAndClose: async () => {
-        await saveAllAndClose();
+        if (!(await saveAllAndClose())) throw new Error('сохранение не удалось — панель оставлена открытой');
       },
       reset: async () => {
         await loadContract();
@@ -1908,8 +1908,8 @@ export function ContractDetailsPage(props: {
     return result;
   }
 
-  async function saveSections() {
-    if (!props.canEdit || !sections) return;
+  async function saveSections(): Promise<boolean> {
+    if (!props.canEdit || !sections) return true;
     // Номер договора больше не служит ключом привязки (ключ — стабильный `primary`),
     // поэтому здесь ничего не рвётся. Но компьютеры со СТАРОЙ версией программы всё ещё
     // считают ключом сам номер, и до их обновления смена номера спрячет от них двигатели
@@ -1932,7 +1932,7 @@ export function ContractDetailsPage(props: {
           'где программа ещё не обновилась, эти двигатели и платежи временно не будут видны в карточке контракта.',
         confirmLabel: 'Сменить номер',
       });
-      if (!ok) return;
+      if (!ok) return false;
     }
     try {
       setStatus('Сохранение…');
@@ -1955,12 +1955,14 @@ export function ContractDetailsPage(props: {
       });
       if (!r.ok) {
         setStatus(`Ошибка: ${r.error}`);
-        return;
+        return false;
       }
       setStatus('Сохранено');
       setTimeout(() => setStatus(''), 1200);
+      return true;
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
+      return false;
     }
   }
 
@@ -2392,8 +2394,8 @@ export function ContractDetailsPage(props: {
     return number || bank;
   }
 
-  async function saveAccountingFields(opts?: { silent?: boolean; reload?: boolean }) {
-    if (!props.canEdit) return;
+  async function saveAccountingFields(opts?: { silent?: boolean; reload?: boolean }): Promise<boolean> {
+    if (!props.canEdit) return true;
     const silent = opts?.silent === true;
     const shouldReload = opts?.reload !== false;
     try {
@@ -2411,7 +2413,7 @@ export function ContractDetailsPage(props: {
       });
       if (!r.ok) {
         setStatus(`Ошибка: ${r.error}`);
-        return;
+        return false;
       }
       // has_files в strict-зеркале нет — остаётся в EAV.
       await setContractAttr('has_files', Boolean(accountingForm.hasFiles));
@@ -2421,21 +2423,26 @@ export function ContractDetailsPage(props: {
         setTimeout(() => setStatus(''), 1200);
       }
       if (shouldReload) void loadContract();
+      return true;
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
+      return false;
     }
   }
 
-  async function saveAllAndClose() {
+  // Неуспех НЕ чистит черновик и НЕ закрывает панель: введённое живёт только в стейте,
+  // повторное открытие показало бы пустоту (баг 09.10.2026 — «Сохранить и выйти» сбрасывал новое).
+  async function saveAllAndClose(): Promise<boolean> {
     if (props.canEdit) {
-      if (sections) await saveSections();
-      await saveAccountingFields({ silent: true, reload: false });
+      if (sections && !(await saveSections())) return false;
+      if (!(await saveAccountingFields({ silent: true, reload: false }))) return false;
       // Полный коммит вытесняет recovery-снимок; отменяем отложенный автосейв,
       // чтобы он не переписал черновик после очистки.
       cancelPendingDraftSave();
       await clearDraft();
     }
     dirtyRef.current = false;
+    return true;
   }
 
   async function handleDelete() {
@@ -2659,7 +2666,7 @@ export function ContractDetailsPage(props: {
             })();
           }}
           onSave={() => { void saveAllAndClose().catch(() => undefined); }}
-          onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()); }}
+          onSaveAndClose={() => { void saveAllAndClose().then((ok) => { if (ok) props.onClose(); }).catch(() => undefined); }}
           onSaveAsDraft={() => {
             void (async () => {
               // Явная парковка в черновик: без записи в EAV; отменяем отложенный
