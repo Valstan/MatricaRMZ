@@ -82,6 +82,16 @@ describe('getEngineRepairHistoryMap: проход последнего этап�
     expect(row?.lastStagePass).toBe(3);
   });
 
+  it('внутри одного дня побеждает приоритет, а не миллисекунды (09.10.2026)', async () => {
+    // Утренняя сборка (ms позже) против ночной обкатки того же московского дня:
+    // голый max ms ставил сборку, единое правило — обкатку.
+    const { sqlite, db } = makeDb();
+    seedStage(sqlite, { id: 'd1', engineId: 'eng-5', code: 'sborka', name: 'Сборка', atMs: DAY1, updatedAt: 9 });
+    seedStage(sqlite, { id: 'd2', engineId: 'eng-5', code: 'obkatka', name: 'Обкатка', atMs: DAY1 - 9 * 3_600_000, updatedAt: 10 });
+    const row = (await getEngineRepairHistoryMap(db, ['eng-5'])).get('eng-5');
+    expect(row?.lastStageCode).toBe('obkatka');
+  });
+
   it('код без даты место не определяет, проход на нём не выдумывается', async () => {
     const { sqlite, db } = makeDb();
     // Датированный этап раньше, бездатычный — позже: место достаётся датированному,

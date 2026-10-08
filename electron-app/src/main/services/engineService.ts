@@ -21,6 +21,7 @@ import {
   DEFAULT_CONTRACT_REPAIR_DAYS,
   PRIMARY_CONTRACT_SECTION_KEY,
   countdownStatus,
+  compareStageRecency,
   effectiveRepairDays,
   isEngineDoneForCountdown,
   isEavFlagSet,
@@ -585,13 +586,6 @@ export async function getEngineRepairHistoryMap(
     const last = entries[0];
     if (!last) continue;
     const sheet = lastSheetEntry(entries);
-    // Последний этап единого списка — по дате, при равной дате — старший проход:
-    // возврат пишется позже, и «где двигатель» — это он, а не первый проход дня.
-    // Этапы без даты (на будущее) место не определяют.
-    let stageAt = 0;
-    let stagePass = 0;
-    let stageCode = '';
-    let stageName = '';
     // Все пройденные этапы по порядку линейки: ступени «Есть этап» нужен факт прохождения,
     // а не только последний (двигатель, дошедший до обкатки и вернувшийся на сборку, прошёл
     // оба). Порядок — по приоритету этапа, повторы кода схлопываются.
@@ -605,16 +599,28 @@ export async function getEngineRepairHistoryMap(
       stageCodes.push(code);
     }
     stageCodes.sort((a, b) => stageRank(a) - stageRank(b));
+    // Последний этап — одна правда с карточкой и отчётами (09.10.2026): день,
+    // внутри дня — приоритет (`compareStageRecency`), при равенстве — старший проход.
+    // Раньше здесь был голый max ms с приоритетом прохода — полночь ручной даты
+    // проигрывала моменту нажатия того же дня, и фильтры видели другое «где».
+    let best: { at: number; pass: number; code: string; name: string } | null = null;
     for (const entry of entries) {
       if (entry.entryType !== 'stage' || !entry.stage) continue;
       if (typeof entry.at !== 'number' || !Number.isFinite(entry.at) || entry.at <= 0) continue;
-      if (entry.at > stageAt || (entry.at === stageAt && entry.pass > stagePass)) {
-        stageAt = entry.at;
-        stagePass = entry.pass;
-        stageCode = entry.stage.code;
-        stageName = entry.stage.name;
+      const candidate = { at: entry.at, pass: entry.pass, code: entry.stage.code, name: entry.stage.name };
+      if (
+        best === null ||
+        compareStageRecency({ code: candidate.code, at: candidate.at }, { code: best.code, at: best.at }) > 0 ||
+        (compareStageRecency({ code: candidate.code, at: candidate.at }, { code: best.code, at: best.at }) === 0 &&
+          candidate.pass > best.pass)
+      ) {
+        best = candidate;
       }
     }
+    const stageAt = best?.at ?? 0;
+    const stagePass = best?.pass ?? 0;
+    const stageCode = best?.code ?? '';
+    const stageName = best?.name ?? '';
     result.set(engineId, {
       lastAction: last.action,
       lastAt: last.at,
@@ -1667,6 +1673,25 @@ export async function setEngineAttribute(
     if (at !== null) {
       try {
         await ensureRepairStageRow(db, engineId, 'arrival', at, actor?.trim() ? actor : 'local');
+      } catch {
+        /* авто-метка — не причина терять правку */
+      }
+    }
+  }
+  // Дата отгрузки/приёмки — в этап «Отправлен/Принят заказчиком» (09.10.2026, тот же
+  // паттерн): иначе дата в карточке есть, а в истории и фильтрах двигатель числится
+  // на сборке. Mark-if-absent; дату существующего правит «История ремонта».
+  if (code === statusDateCode('status_customer_sent') || code === statusDateCode('status_customer_accepted')) {
+    const at = typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.trunc(value) : null;
+    if (at !== null) {
+      try {
+        await ensureRepairStageRow(
+          db,
+          engineId,
+          code === statusDateCode('status_customer_sent') ? 'shipped' : 'accepted',
+          at,
+          actor?.trim() ? actor : 'local',
+        );
       } catch {
         /* авто-метка — не причина терять правку */
       }
