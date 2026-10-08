@@ -1763,6 +1763,11 @@ export type MatricaApi = {
       | { ok: true; versions: EngineActVersionRecord[] }
       | { ok: false; error: string }
     >;
+    /** Двусторонняя связь акта и этапа (09.10.2026): дату, сменённую в истории, донести до листа. */
+    engineSetAnswerDate: (args: { engineId: string; stage: string; code: string; atMs: number }) => Promise<
+      | { ok: true }
+      | { ok: false; error: string }
+    >;
     /** Ф5 (GAP-6): история статусов деталей двигателя (события part_status_event, новые сверху). */
     enginePartStatusEvents: (args: { engineId: string }) => Promise<
       | { ok: true; events: Array<PartStatusEventPayload & { operationId: string; at: number; by: string }> }

@@ -411,6 +411,8 @@ const matricaApi = {
     }) => ipcRenderer.invoke('checklists:engine:actSnapshot', args),
     engineActVersions: async (args: { engineId: string; actType: 'completeness' | 'defect' | 'claim' }) =>
       ipcRenderer.invoke('checklists:engine:actVersions', args),
+    engineSetAnswerDate: async (args: { engineId: string; stage: string; code: string; atMs: number }) =>
+      ipcRenderer.invoke('checklists:engine:setAnswerDate', args),
     enginePartStatusEvents: async (args: { engineId: string }) =>
       ipcRenderer.invoke('checklists:engine:partStatusEvents', args),
     engineStampedInstances: async (args: { engineId: string }) =>

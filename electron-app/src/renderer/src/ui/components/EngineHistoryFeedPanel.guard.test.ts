@@ -247,3 +247,18 @@ describe('вверху только две кнопки, инлайн-полей
     expect(PANEL).toContain('data-repair-stage-remove={item.id}');
   });
 });
+
+describe('лента: дата дефектовки из истории доносится до листа (09.10.2026)', () => {
+  it('успешная запись disassembly_defect зовёт setAnswerDate', () => {
+    expect(PANEL, 'дата истории не доходит до листа — снова две правды').toContain(
+      'window.matrica.checklists.engineSetAnswerDate(',
+    );
+    expect(PANEL).toContain("code: 'defect_start_date'");
+  });
+
+  it('вопрос о смене даты больше не врёт про лист', () => {
+    expect(PANEL, 'текст вопроса обещает несвязанность — оператор не поверит связке').not.toContain(
+      'Лист дефектовки свою дату не поменяет',
+    );
+  });
+});

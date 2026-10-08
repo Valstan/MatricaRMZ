@@ -776,6 +776,17 @@ export function RepairChecklistPanel(props: {
       setStatus('Ошибка: в дефектовке нет распределённых деталей для проведения.');
       return;
     }
+    // Без даты дефектовку провести нельзя (решение владельца 09.10.2026): молчаливый
+    // «сегодня» плодил этапы не на своих местах, а оператор о пропуске не знал.
+    const defectStart = (answers as any)?.defect_start_date as { kind?: string; value?: unknown } | undefined;
+    const defectStartMs =
+      defectStart?.kind === 'date' && Number.isFinite(Number(defectStart.value)) && Number(defectStart.value) > 0
+        ? Number(defectStart.value)
+        : null;
+    if (defectStartMs == null) {
+      setStatus('Ошибка: укажите «Дату разборки/дефектовки» на вкладке акта — без неё провести дефектовку нельзя.');
+      return;
+    }
     const rawSnapshot = safeJsonStringify(rawRows);
     const operationIdForConduct = conductOperationIdRef.current ?? crypto.randomUUID();
     conductOperationIdRef.current = operationIdForConduct;
@@ -811,16 +822,14 @@ export function RepairChecklistPanel(props: {
       // Этап не должен валить проведение: ошибки здесь только дописываются в статус.
       // Дата этапа — «Дата разборки/дефектовки» из вкладки акта (`defect_start_date`),
       // а не момент нажатия кнопки: иначе этап уезжает за обкатку/сборку и прыгает при
-      // каждой повторной проводке. Поле пустое — падаем на «сегодня», как раньше.
+      // каждой повторной проводке. Дата проверена выше — фолбэка на «сегодня» больше нет.
+      // Смена даты в акте двигает этап С ПОДТВЕРЖДЕНИЕМ (09.10.2026): молчаливая
+      // перезапись уже виденного оператором этапа — та же слепота, что и раньше.
       try {
         const stages = await window.matrica.workSheets.stages.list(props.engineId);
         const rows = stages.ok ? stages.rows : [];
-        if (!rows.some((r) => r.code === 'disassembly_defect')) {
-          const defectStart = (answers as any)?.defect_start_date as { kind?: string; value?: unknown } | undefined;
-          const defectStartMs =
-            defectStart?.kind === 'date' && Number.isFinite(Number(defectStart.value)) && Number(defectStart.value) > 0
-              ? Number(defectStart.value)
-              : Date.now();
+        const existing = rows.find((r) => r.code === 'disassembly_defect') ?? null;
+        if (!existing) {
           const saved = await window.matrica.workSheets.stages.save({
             id: crypto.randomUUID(),
             engineId: props.engineId,
@@ -829,6 +838,26 @@ export function RepairChecklistPanel(props: {
           });
           if (saved.ok) {
             setStatus((s) => `${s} Этап «Разборка/Дефектовка» отмечен.`);
+          }
+        } else if (existing.at !== defectStartMs) {
+          const ok = await confirm({
+            title: 'Сменить дату этапа «Разборка/Дефектовка»?',
+            detail:
+              `В акте стоит ${formatMoscowDate(new Date(defectStartMs))}, а в этапах — ${formatMoscowDate(new Date(existing.at ?? 0))}. ` +
+              'Сменить дату этапа на дату акта?',
+            confirmLabel: 'Сменить дату',
+          });
+          if (ok) {
+            const saved = await window.matrica.workSheets.stages.save({
+              id: existing.id,
+              engineId: props.engineId,
+              code: 'disassembly_defect',
+              atMs: defectStartMs,
+              confirmDefectDate: true,
+            });
+            if (saved.ok) {
+              setStatus((s) => `${s} Дата этапа «Разборка/Дефектовка» обновлена.`);
+            }
           }
         }
       } catch {

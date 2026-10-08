@@ -10,19 +10,18 @@ updated: 2026-10-08
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
 **Status:** ACTIVE
-**Updated:** 2026-10-09 (PR-1 #1223 смержен; PR-2 проход по дате этапа — в работе)
-**Branch:** fix/stage-pass-by-stage-date
+**Updated:** 2026-10-09 (PR-2 #1224 смержен; PR-3 дефектовка — в работе)
+**Branch:** fix/defect-act-stage-link
 **Last released version:** v3.67.0 на проде (леджер подписан)
 
 ## Текущая нитка
 
-План `docs/plans/stage-history-contract-fixes-2026-10.md` (заявки владельца 09.10.2026):
-PR-1 контракты-generally смержен (#1223); PR-2 — `isStageBackwardMove` с датой строки +
-`stages:recount-passes` (снять ложные возвраты, dry-run/apply).
+План `docs/plans/stage-history-contract-fixes-2026-10.md`: PR-3 — блок проведения без даты,
+двусторонняя связь акт↔`disassembly_defect` (подтверждения), сторож сноса при живом акте.
 
 ## Следующий шаг
 
-Гейты → PR-2 → merge → PR-3 дефектовка.
+Гейты → PR-3 → merge + CDP-смоук → PR-4 синк.
 
 ## Открытые вопросы для пользователя
 
