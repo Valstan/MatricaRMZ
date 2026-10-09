@@ -990,9 +990,13 @@ export function EngineDetailsPage(props: {
 
   // Синхронизируем локальные поля с тем, что реально лежит в БД (важно при reload/после sync).
   useEffect(() => {
-    // Phase 3d: восстановленный черновик не перетираем фоновым reload/sync — иначе
-    // снимок теряется, а автосейв перештамповал бы его committed-значениями.
-    if (draftRestoredRef.current && sessionHadChanges.current) return;
+    // Баг 10.10.2026 (= #1240 на карточке контракта): синхронизация затирала
+    // набранное, когда первая половина защиты не выполнялась. Запись с других
+    // панелей (вложения, паспорт, акты) обновляет updatedAt и пересиживает
+    // форму: защита только по черновику+грязи пропускала случай, где черновик
+    // ещё не восстановлен. Достаточно одного гейта — грязная карточка не
+    // трогается фоновой синхронизацией ни при каком состоянии черновика.
+    if (sessionHadChanges.current) return;
     // E3b: committed-копия = EAV-снапшот + оверлей строгой реплики (свежий канон).
     const committed = committedAttributes;
     setInternalNumber(String(committed[ENGINE_INTERNAL_NUMBER_CODE] ?? ''));
@@ -1055,7 +1059,13 @@ export function EngineDetailsPage(props: {
     if (!canEditEnginesEff || !sessionHadChanges.current) return;
     const snapshot = currentDraftSnapshot();
     const timer = window.setTimeout(() => {
-      void saveDraftNow(snapshot);
+      void saveDraftNow(snapshot).then((ok) => {
+        // Recovery-снимок теперь существует на диске: гейт восстановления ниже
+        // (guard по draftRestoredRef) перестаёт ждать стандартного монтирования —
+        // иначе автосейв, случившийся до применения черновика, оставлял защиту
+        // выключенной и первый же фоновый ресид стирал набранное (баг 10.10.2026).
+        if (ok) draftRestoredRef.current = true;
+      });
     }, 1500);
     draftTimerRef.current = timer;
     return () => {
@@ -1500,10 +1510,19 @@ export function EngineDetailsPage(props: {
       setSessionChanged(false);
     },
     reset: async () => {
-      await props.onReload();
+      // Канон сброса (как в карточке контракта, #1240): погасить грязь ДО
+      // перезагрузки, отменить отложенный автосейв, стереть черновик и гейт
+      // восстановления — иначе load подтягивал сброшенное с диска обратно.
       setSessionChanged(false);
+      cancelPendingDraftSave();
+      await clearDraft();
+      draftRestoredRef.current = false;
+      await props.onReload();
     },
     closeWithoutSave: () => {
+      // Отменяем таймер ДО clear: иначе поздний автосейв воскрешает стёртый
+      // черновик и карточка всплывает «несохранённой» на следующем входе.
+      cancelPendingDraftSave();
       setSessionChanged(false);
       void clearDraft();
     },
@@ -2777,6 +2796,23 @@ export function EngineDetailsPage(props: {
               setRepeatArrivalFlag(isEavFlagSet(attrs.repeat_arrival_flag));
               setNumberCollisionFlag(isEavFlagSet(attrs.number_collision_flag));
               setPreviousArrivalId(String(attrs.previous_arrival_id ?? ''));
+              // Баг 10.10.2026: «Отменить» не трогал клеймо, год и цех — их правки
+              // уходили в базу при закрытии дифом, хотя оператор нажал «Отменить»
+              // и считал, что откатил всё. Плоские реквизиты (накладные и пр.)
+              // пересобираем из committed тем же правилом, что и инициализация.
+              setInternalNumber(String(attrs[ENGINE_INTERNAL_NUMBER_CODE] ?? ''));
+              setInternalNumberYear(String(attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE] ?? ''));
+              setWorkshopId(String(attrs.workshop_id ?? ''));
+              setFlatValues(() => {
+                const next: Record<string, string> = {};
+                for (const f of ENGINE_FLAT_FIELDS) {
+                  next[f.code] =
+                    f.kind === 'date' ? toInputDate(attrs[f.code] as number | null | undefined)
+                    : f.kind === 'bool' ? (attrs[f.code] ? '1' : '')
+                    : String(attrs[f.code] ?? '');
+                }
+                return next;
+              });
               setSessionChanged(false);
             }}
           >
