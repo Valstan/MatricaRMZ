@@ -47,16 +47,18 @@ function collectParts(value: unknown, out: string[], seen: WeakSet<object>, dept
 }
 
 /**
- * Single-record search predicate (#035 Ф2). Upgraded from naive substring
- * `includes` to the shared tier-1/2 matcher: exact / prefix / compact-substring
- * (240-1 ≡ 2401) / multi-token AND, with RU<->EN keyboard-layout correction.
+ * Single-record search predicate (#035 Ф2). Shared tier-1/2 matcher: exact /
+ * prefix / compact-substring (240-1 ≡ 2401), with RU<->EN keyboard-layout
+ * correction in similar mode only.
  * The list-filter score floor rejects subsequence noise (so «text-001» can't
  * match via «001» alone). Tier-3 typo fallback is intentionally NOT applied
  * per-record — fuzzy "did you mean" only makes sense across the whole set, so
  * set-level callers use filterPreparedRecords below.
  *
- * Умолчание — ТОЧНЫЙ режим (владелец 22.09.2026): список показывает только то, где
- * совпали все введённые символы подряд, а похожее добавляет кнопка «≈ Похожие».
+ * Умолчание — ТОЧНЫЙ режим (владелец 22.09.2026, уточнено 10.10.2026): список
+ * показывает только то, где все введённые символы идут подряд (с точностью до
+ * разделителей: `240-1` ≡ `2401`); слова из разных мест записи — уже похожее,
+ * его добавляет кнопка «≈ Похожие».
  * Прежнее умолчание `similar` оставляло похожее включённым на каждом экране, который
  * забыли перевести, — и правка «точный по умолчанию» выглядела невыполненной.
  * Выпадающие пикеры сюда не ходят (у них свой `rankLookupOptions`) — они остались
