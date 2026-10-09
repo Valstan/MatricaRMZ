@@ -10,6 +10,9 @@ import { ensureRepairStageRow, listRepairStageRows, loadEngineStageMarks, saveRe
 // возврата новым проходом, гейт дублей «тот же этап в тот же день».
 
 const DDL = `
+  CREATE TABLE entities (id text PRIMARY KEY, type_id text,
+    created_at integer NOT NULL DEFAULT 0, updated_at integer NOT NULL DEFAULT 0,
+    deleted_at integer, sync_status text NOT NULL DEFAULT 'synced');
   CREATE TABLE operations (id text PRIMARY KEY, engine_entity_id text NOT NULL, operation_type text NOT NULL,
     status text NOT NULL, note text, performed_at integer, performed_by text, meta_json text,
     created_at integer NOT NULL, updated_at integer NOT NULL, last_server_seq integer,

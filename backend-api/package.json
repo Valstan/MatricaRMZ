@@ -102,6 +102,8 @@
     "stages:recount-passes": "tsx src/scripts/recountStagePasses.ts",
     "engine-act:fix-header-number": "tsx src/scripts/fixEngineActHeaderNumber20260914.ts",
     "engine-act:fix-header-number:apply": "tsx src/scripts/fixEngineActHeaderNumber20260914.ts --apply",
+    "engines:backfill-card-updated-at": "tsx src/scripts/backfillEngineCardUpdatedAt.ts",
+    "engines:backfill-card-updated-at:apply": "tsx src/scripts/backfillEngineCardUpdatedAt.ts --apply",
     "ledger:import-release-registry": "tsx src/scripts/importReleaseRegistryFromProjection.ts",
     "support:contact": "tsx src/scripts/setSupportContact.ts",
     "ui:tighten-global-density": "tsx src/scripts/tightenGlobalUiDensity.ts",

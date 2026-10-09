@@ -21,6 +21,7 @@ import {
 import { SystemIds } from '@matricarmz/shared';
 import { getRestrictedWorkOrderPolicyLocal } from './employeeService.js';
 import { resolveEngineLabels, type EngineLabel } from './engineService.js';
+import { touchEngineEntity } from './operationService.js';
 
 import { auditLog, entities, entityTypes, erpNomenclature, operations } from '../database/schema.js';
 import { collectChunked } from '../utils/sqlChunks.js';
@@ -989,6 +990,7 @@ export async function updateWorkOrder(
         syncStatus: 'pending',
       });
       await audit(db, args.actor, 'work_order.create', payload);
+      await touchEngineEntity(db, workOrderEngineEntityId(payload), ts);
       return { ok: true as const, workOrderNumber };
     }
 
@@ -1037,6 +1039,7 @@ export async function updateWorkOrder(
         ),
       );
 
+    await touchEngineEntity(db, workOrderEngineEntityId(payload), ts);
     return { ok: true as const, workOrderNumber: Number(payload.workOrderNumber ?? 0) };
   } catch (e) {
     return { ok: false as const, error: String(e) };

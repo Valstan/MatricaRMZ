@@ -11,6 +11,9 @@ import { getOperation, isManualHistoryRow, softDeleteOperation, updateManualEntr
 function makeDb() {
   const sqlite = new Database(':memory:');
   sqlite.exec(`
+    CREATE TABLE entities (id text PRIMARY KEY, type_id text,
+      created_at integer NOT NULL DEFAULT 0, updated_at integer NOT NULL DEFAULT 0,
+      deleted_at integer, sync_status text NOT NULL DEFAULT 'synced');
     CREATE TABLE operations (id text PRIMARY KEY, engine_entity_id text NOT NULL, operation_type text NOT NULL,
       status text NOT NULL, note text, performed_at integer, performed_by text, meta_json text,
       created_at integer NOT NULL, updated_at integer NOT NULL, last_server_seq integer,
