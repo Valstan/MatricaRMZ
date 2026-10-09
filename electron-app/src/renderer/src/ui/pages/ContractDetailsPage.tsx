@@ -1591,22 +1591,76 @@ export function ContractDetailsPage(props: {
       error?: string;
     } | null;
     if (!r?.ok) return { ok: false, error: String((r as { error?: string } | null)?.error ?? 'unknown') };
-    if (r.row) applyStrictContractRow(r.row);
+    if (r.row) applyStrictContractRow(r.row, new Set(Object.keys(fields)));
     return { ok: true };
   }
 
-  /** Применить ответ двери к стейту без перезагрузки (реплика уже write-through). */
-  function applyStrictContractRow(row: ContractStrictRow) {
-    setContract((prev) => {
-      if (!prev) return prev;
-      const next = { ...prev, attributes: { ...prev.attributes, ...strictToAttrs(row) }, updatedAt: Date.now() };
-      setSections(parseContractSections(next.attributes));
-      setExecutionParts(parseContractExecutionParts(next.attributes));
-      return next;
-    });
+  /**
+   * Код атрибута → поле двери, чьей записью он приехал. Нужно, чтобы частичное
+   * сохранение обновляло только свои срезы стейта.
+   */
+  function doorFieldForAttrCode(code: string): string | null {
+    switch (code) {
+      case 'number':
+      case 'internal_number':
+      case 'customer_id':
+      case 'comment':
+        return code;
+      case 'date':
+        return 'signed_at';
+      case 'due_date':
+        return 'due_at';
+      case 'contract_sections':
+        return 'sections_json';
+      default:
+        if (code.startsWith('goz_')) return code;
+        if (code === CONTRACT_EXECUTION_PARTS_ATTR_CODE) return 'execution_parts_json';
+        return null;
+    }
   }
 
-  async function loadContract() {
+  /** Поля двери, обслуживающие вкладку «Бухгалтерия» (её ресид — только по ним). */
+  const ACCOUNTING_DOOR_FIELDS: ReadonlySet<string> = new Set([
+    'goz_name',
+    'goz_igk',
+    'goz_separate_account',
+    'goz_separate_account_number',
+    'goz_separate_account_bank',
+    'comment',
+  ]);
+
+  /**
+   * Применить ответ двери к стейту без перезагрузки (реплика уже write-through).
+   * Только присланные поля: общий ресид всего стейта из строки затирал
+   * несохранённые вкладки (баг 10.10.2026 — «Сохранить реквизиты ГОЗ» стирал
+   * заполненное «Контракт и ДС» у новой карточки, и наоборот).
+   */
+  function applyStrictContractRow(row: ContractStrictRow, sent: ReadonlySet<string>) {
+    const patch = strictToAttrs(row);
+    const keep: Record<string, unknown> = {};
+    for (const [code, value] of Object.entries(patch)) {
+      const doorField = doorFieldForAttrCode(code);
+      if (doorField && sent.has(doorField)) keep[code] = value;
+    }
+    // updatedAt бампим только когда ехала бухгалтерия: иначе эффект-ресид
+    // accountingForm срабатывает на каждое сохранение секций и трёт
+    // несохранённые реквизиты (симметричная половина того же бага).
+    const bump = [...sent].some((k) => ACCOUNTING_DOOR_FIELDS.has(k));
+    setContract((prev) => {
+      if (!prev) return prev;
+      return { ...prev, attributes: { ...prev.attributes, ...keep }, updatedAt: bump ? Date.now() : prev.updatedAt };
+    });
+    if (sent.has('sections_json') && keep.contract_sections !== undefined) {
+      setSections(parseContractSections({ contract_sections: keep.contract_sections }));
+    }
+    if (sent.has('execution_parts_json') && keep[CONTRACT_EXECUTION_PARTS_ATTR_CODE] !== undefined) {
+      setExecutionParts(
+        parseContractExecutionParts({ [CONTRACT_EXECUTION_PARTS_ATTR_CODE]: keep[CONTRACT_EXECUTION_PARTS_ATTR_CODE] }),
+      );
+    }
+  }
+
+  async function loadContract(opts?: { keepUnsavedEdits?: boolean }) {
     try {
       setStatus('Загрузка…');
       const types = (await window.matrica.admin.entityTypes.list()) as Array<{ id: string; code: string; name: string }>;
@@ -1635,8 +1689,12 @@ export function ContractDetailsPage(props: {
       }
       const merged = { ...d, attributes: attrs };
       setContract(merged);
-      setSections(parseContractSections(attrs));
-      setExecutionParts(parseContractExecutionParts(attrs));
+      // Частичная перезагрузка (вложения) поверх грязной карточки несохранённые
+      // срезы не трогает; полный ресид — только чистой карточке и «Сбросу»
+      // (он гасит dirty заранее). Без флага вело к потере введённого.
+      const keepDirtyEdits = opts?.keepUnsavedEdits === true && dirtyRef.current;
+      setSections(keepDirtyEdits && sections ? sections : parseContractSections(attrs));
+      setExecutionParts(keepDirtyEdits ? executionParts : parseContractExecutionParts(attrs));
       setContractPayments(await readContractPayments(props.contractId));
       let defsList = (await window.matrica.admin.attributeDefs.listByEntityType(contractType.id)) as AttributeDef[];
       defsList = (await ensureAttributeDefs(contractType.id, CONTRACT_ACCOUNTING_FIELDS, defsList as AttributeDefRow[])) as AttributeDef[];
@@ -1794,6 +1852,10 @@ export function ContractDetailsPage(props: {
       setAccountingForm(EMPTY_ACCOUNTING_FORM);
       return;
     }
+    // Перезагрузка поверх несохранённых правок запрещена: иначе частичное
+    // сохранение одной вкладки затирало введённое в другой (баг 10.10.2026).
+    // «Сброс» гасит dirty заранее и проходит; черновик применяется ниже.
+    if (dirtyRef.current) return;
     setAccountingForm(buildAccountingForm(contract.attributes ?? {}));
     // Phase 3d: несохранённый снимок (крах / «оставить черновик») побеждает committed-копию.
     // Один раз на маунт (draftRestoredRef) — «Сброс» перезагружает committed. Восстановление
@@ -1848,9 +1910,13 @@ export function ContractDetailsPage(props: {
         if (!(await saveAllAndClose())) throw new Error('сохранение не удалось — панель оставлена открытой');
       },
       reset: async () => {
+        // dirty гасим ДО перезагрузки: иначе guard эффекта сочтёт сброс
+        // «несохранёнными правками» и ресид не произойдёт. Черновик чистим,
+        // чтобы следующий маунт не восстановил сброшенное поверх коммита.
+        dirtyRef.current = false;
+        await clearDraft();
         await loadContract();
         await loadProgress();
-        dirtyRef.current = false;
       },
       closeWithoutSave: () => {
         dirtyRef.current = false;
@@ -2712,9 +2778,10 @@ export function ContractDetailsPage(props: {
           }}
           onReset={() => {
             void (async () => {
+              dirtyRef.current = false;
+              await clearDraft();
               await loadContract();
               await loadProgress();
-              dirtyRef.current = false;
             })();
           }}
           onDelete={() => void handleDelete()}
@@ -3190,7 +3257,7 @@ export function ContractDetailsPage(props: {
             </FormGrid>
             {props.canEdit && (
               <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
-                <Button variant="ghost" tone="success" onClick={() => void saveAccountingFields()}>
+                <Button variant="ghost" tone="success" onClick={() => void saveAccountingFields({ reload: false })}>
                   Сохранить реквизиты ГОЗ
                 </Button>
               </div>
@@ -3266,7 +3333,9 @@ export function ContractDetailsPage(props: {
               canUpload={props.canUploadFiles && props.canEdit}
               scope={{ ownerType: 'contract', ownerId: contract.id, category: 'attachments' }}
               onChange={(next) => {
-                void setContractAttr('attachments', next).then(() => void loadContract());
+                // Перезагрузка — с сохранением несохранённых вкладок: полный
+                // ресид здесь стирал введённое в «Контракт и ДС» (баг 10.10.2026).
+                void setContractAttr('attachments', next).then(() => void loadContract({ keepUnsavedEdits: true }));
               }}
             />
           </div>
@@ -3285,7 +3354,7 @@ export function ContractDetailsPage(props: {
                     canUpload={props.canUploadFiles && props.canEdit}
                     scope={{ ownerType: 'contract', ownerId: contract.id, category }}
                     onChange={(next) => {
-                      void setContractAttr(def.code, next).then(() => void loadContract());
+                      void setContractAttr(def.code, next).then(() => void loadContract({ keepUnsavedEdits: true }));
                     }}
                   />
                 );
