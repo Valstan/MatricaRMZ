@@ -249,6 +249,14 @@ describe('этапы работ — экран', () => {
     expect(APP, 'в шапке вкладки — не огрызок id').toContain("return known ? `📒 ${known}` : '📒 Этап работ';");
   });
 
+  it('после сохранения новой строки режим «новый» гаснет — форма не обнуляется', () => {
+    // Баг 10.10.2026 (жалоба «без Сохранить всё пропадает»): workSheetIsNew
+    // ставился при открытии и никогда не гаснул; после «Сохранить» карточка
+    // перечитывала себя веткой isNew — пустая форма поверх статуса «Сохранено».
+    expect(APP, 'App обязан гасить isNew по факту сохранения').toContain('onSaved={() => setWorkSheetIsNew(false)}');
+    expect(CARD, 'карточка сообщает о сохранении хосту').toContain('props.onSaved?.({ repair: r.repair');
+  });
+
   it('из карточки этапа работ можно уйти в двигатель', () => {
     expect(CARD).toContain('data-work-sheet-open-engine');
     expect(CARD).toContain('props.onOpenEngine(engineId)');
