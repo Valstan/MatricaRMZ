@@ -24,6 +24,10 @@ export function syncRejectReasonLabel(reason: string): string {
   if (text.includes('"reason":"deleted"')) return 'ссылка на удалённое';
   if (text.startsWith('invalid_reference')) return 'битая ссылка — проверьте данные';
   if (text.startsWith('missing_dependency')) return 'ждёт данные (возможно, двигатель)';
+  // Дубль номера/пары клейма (b34e8518, 10.10.2026): строка в карантине, повтор не
+  // поможет — оператору чинить номер в карточке или удалять дубликат штатным UI.
+  if (text === 'engine_number_dup') return 'номер занят другим двигателем — исправьте номер в карточке или удалите дубликат';
+  if (text === 'engine_pair_dup') return 'пара клейма занята другим двигателем — исправьте клеймо в карточке или удалите дубликат';
   if (text.startsWith('engine_')) return 'гейт карточки двигателя';
   return text.length > 120 ? `${text.slice(0, 120)}…` : text;
 }

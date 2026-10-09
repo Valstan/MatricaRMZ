@@ -27,11 +27,15 @@ type SyncActor = { id: string; username: string; role?: string };
  * `reserved:` — временный замок, не permanent. `forbidden:*` — права ретраем не появляются.
  * `invalid_reference` — только на удалённое (`"reason":"deleted"`): отсутствующее ещё
  * может дозреть и приехать pull'ом.
+ * `engine_number_dup` / `engine_pair_dup` (10.10.2026, b34e8518): номер/пара клейма
+ * заняты другим живым двигателем — сами не освободятся; повтор слать бессмысленно,
+ * оператор правит номер в карточке или удаляет дубликат (карантин + баннер).
  */
 export function isPermanentSkipReason(reason: string): boolean {
   const text = String(reason ?? '');
   if (text.startsWith('reserved:')) return false;
   if (text.startsWith('forbidden:')) return true;
+  if (text === 'engine_number_dup' || text === 'engine_pair_dup') return true;
   return text.includes('"reason":"deleted"');
 }
 
@@ -104,7 +108,7 @@ export async function applyLedgerTxs(txs: LedgerTxInput[], actor: SyncActor) {
     skipped: [
       ...result.skipped,
       ...denied.map((r) => (isPermanentSkipReason(r.reason) ? { ...r, permanent: true as const } : r)),
-      ...engineGate.skipped,
+      ...engineGate.skipped.map((r) => (isPermanentSkipReason(r.reason) ? { ...r, permanent: true as const } : r)),
       ...referenceDenied.map((r) => (isPermanentSkipReason(r.reason) ? { ...r, permanent: true as const } : r)),
     ],
   };

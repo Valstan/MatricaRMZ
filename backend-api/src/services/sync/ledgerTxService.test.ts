@@ -16,6 +16,11 @@ describe('isPermanentSkipReason — ретрай бессмыслен (09.10.202
     expect(isPermanentSkipReason('invalid_reference: [{"path":"x","referenceId":"y","reason":"not_found"}]')).toBe(false);
   });
 
+  it('гейты дублей карточки (b34e8518, 10.10.2026) — permanent', () => {
+    expect(isPermanentSkipReason('engine_number_dup')).toBe(true);
+    expect(isPermanentSkipReason('engine_pair_dup')).toBe(true);
+  });
+
   it('прочее (missing_dependency и т.п.) — временное', () => {
     expect(isPermanentSkipReason('missing_dependency')).toBe(false);
     expect(isPermanentSkipReason('')).toBe(false);
