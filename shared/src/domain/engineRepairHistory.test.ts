@@ -4,7 +4,9 @@ import {
   REPAIR_HISTORY_ACTIONS,
   buildRepairHistoryMeta,
   currentWorkshopFromHistory,
+  isScrapResolvedFor,
   lastSheetEntry,
+  latestScrapResolvedAt,
   parseRepairHistoryMeta,
   repairHistoryActionOptions,
   repairHistoryFromOperations,
@@ -55,6 +57,52 @@ describe('разбор и сборка записи истории', () => {
   it('пустые произвольные поля отбрасываются, а не сохраняются мусором', () => {
     const meta = buildRepairHistoryMeta({ action: 'Ремонт закончен', extra: [{ label: '', value: '' }] });
     expect(meta.extra).toBeUndefined();
+  });
+});
+
+describe('снятие утиля (10.10.2026)', () => {
+  it('след снятия утиля строится и переживает круг через парсер', () => {
+    const meta = buildRepairHistoryMeta({
+      action: 'Картер отремонтирован',
+      scrapResolved: { outcome: 'repaired', partLabel: 'Картер 2Ж11АТ1798', atMs: 1000 },
+    });
+    const parsed = parseRepairHistoryMeta(JSON.stringify(meta));
+    expect(parsed?.scrapResolved).toEqual({ outcome: 'repaired', partLabel: 'Картер 2Ж11АТ1798', atMs: 1000 });
+  });
+
+  it('битый/неизвестный исход отбрасывается — молчаливой записи не выйдет', () => {
+    const good = buildRepairHistoryMeta({ action: 'Картер заменён', scrapResolved: { outcome: 'replaced', atMs: 5 } });
+    expect(parseRepairHistoryMeta(JSON.stringify(good))?.scrapResolved?.outcome).toBe('replaced');
+    const noAt = { kind: 'repair_history', action: 'x', scrapResolved: { outcome: 'repaired' } };
+    expect(parseRepairHistoryMeta(JSON.stringify(noAt))?.scrapResolved).toBeUndefined();
+    const badOutcome = { kind: 'repair_history', action: 'x', scrapResolved: { outcome: 'sold', atMs: 5 } };
+    expect(parseRepairHistoryMeta(JSON.stringify(badOutcome))?.scrapResolved).toBeUndefined();
+  });
+
+  it('снятие побеждает утиль-источник того же или более раннего момента', () => {
+    expect(isScrapResolvedFor(1000, 500)).toBe(true);
+    expect(isScrapResolvedFor(1000, 1000)).toBe(true);
+    expect(isScrapResolvedFor(500, 1000)).toBe(false);
+    // Источник без даты (замороженные флаги) — снятие сознательной рукой побеждает.
+    expect(isScrapResolvedFor(500, null)).toBe(true);
+    // Без снятия — никакого влияния.
+    expect(isScrapResolvedFor(null, 500)).toBe(false);
+  });
+
+  it('свежий момент берётся максимумом, а не последней записью', () => {
+    const at = latestScrapResolvedAt([
+      null,
+      { scrapResolved: { outcome: 'repaired', atMs: 1000 } },
+      { scrapResolved: { outcome: 'replaced', atMs: 2500 } },
+      { scrapResolved: { outcome: 'repaired', atMs: 1500 } },
+    ]);
+    expect(at).toBe(2500);
+    expect(latestScrapResolvedAt([null, {}])).toBeNull();
+  });
+
+  it('новые исходы есть в подсказках действий', () => {
+    expect(REPAIR_HISTORY_ACTIONS).toContain('Картер отремонтирован');
+    expect(REPAIR_HISTORY_ACTIONS).toContain('Картер заменён');
   });
 });
 

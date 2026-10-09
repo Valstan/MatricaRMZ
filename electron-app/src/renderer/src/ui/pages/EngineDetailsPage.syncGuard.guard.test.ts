@@ -54,3 +54,19 @@ describe('карточка двигателя — фоновая синхрон�
     expect(CARD).toContain('cancelPendingDraftSave();\n      setSessionChanged(false);\n      void clearDraft();');
   });
 });
+
+describe('вывод из утиля: картер отремонтирован/заменён (10.10.2026)', () => {
+  it('на вкладке дефектовки есть действие с датой, исходом и применением', () => {
+    expect(CARD, 'кнопка открытия').toContain('data-scrap-resolve-open');
+    expect(CARD, 'исход «отремонтирован»').toContain("scrapResolveOutcome === 'repaired'");
+    expect(CARD, 'исход «заменён»').toContain("scrapResolveOutcome === 'replaced'");
+    expect(CARD, 'применение').toContain('data-scrap-resolve-apply');
+  });
+
+  it('действие пишет датированный след в историю ремонта и гасит флаги дверью карточки', () => {
+    expect(CARD, 'след через общий билдер меты истории').toContain('buildRepairHistoryMeta({');
+    expect(CARD, 'снятие утиля носит исход и момент события').toContain('scrapResolved: { outcome: scrapResolveOutcome, partLabel:');
+    expect(CARD, 'запись истории — штатной операцией').toContain('window.matrica.operations.add(props.engineId, REPAIR_HISTORY_OPERATION_TYPE');
+    expect(CARD, 'флаги гасятся через card.save, минуя EAV').toContain('engines?.card?.save?.({ id: props.engineId, fields: flagPatch })');
+  });
+});

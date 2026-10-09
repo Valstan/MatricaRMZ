@@ -115,12 +115,55 @@ export type RepairHistoryMeta = {
    */
   repeat?: RepairHistoryRepeat;
   /**
+   * Снятие утиля по картеру (исход 10.10.2026): картер отремонтирован или заменён —
+   * двигатель перестаёт считаться утильным, но след утиля в акте и в этой записи
+   * остаётся. Ставится действием «Вывести из утиля» / «Отремонтирован» / «Заменён».
+   */
+  scrapResolved?: RepairHistoryScrapResolved;
+  /**
    * Дата события, когда она НЕ совпадает с моментом записи: строку истории часто заводят
    * задним числом. Хранится здесь, потому что запись операции даты не принимает — иначе
    * пришлось бы менять контракт IPC ради одного поля.
    */
   at?: number;
 };
+
+/** Исход снятия утиля по детали: `repaired` — отремонтирован, `replaced` — заменён. */
+export type RepairHistoryScrapResolved = {
+  outcome: 'repaired' | 'replaced';
+  /** Подпись детали строки дефектовки (снимком — строка акта остаётся источником). */
+  partLabel?: string;
+  /** Момент события: по нему решается, какое событие свежее — утиль или его снятие. */
+  atMs: number;
+};
+
+/**
+ * Момент последнего снятия утиля по записям истории; `null` — снятий не было.
+ * След сравнения по моменту события (atMs), не записи: запись задним числом
+ * не должна «побеждать» утиль, внесённый позже по факту.
+ */
+export function latestScrapResolvedAt(
+  metas: ReadonlyArray<{ scrapResolved?: RepairHistoryScrapResolved } | null | undefined>,
+): number | null {
+  let latest: number | null = null;
+  for (const meta of metas) {
+    const at = meta?.scrapResolved?.atMs;
+    if (typeof at === 'number' && Number.isFinite(at) && at > 0 && (latest == null || at > latest)) latest = at;
+  }
+  return latest;
+}
+
+/**
+ * Гасит ли снятие утиля конкретный утиль-источник (акт дефектовки, ветка единого
+ * списка, замороженные флаги). Снятие побеждает, если оно не старше источника;
+ * при неизвестном моменте источника — тоже побеждает: запись заведена осознанно
+ * уже после утиля, а молча игнорировать решение оператора нельзя.
+ */
+export function isScrapResolvedFor(resolvedAt: number | null, sourceAt: number | null): boolean {
+  if (resolvedAt == null) return false;
+  if (sourceAt == null || !(sourceAt > 0)) return true;
+  return resolvedAt >= sourceAt;
+}
 
 /**
  * Действия, предложенные в списке. Список открытый — оператор вправе ввести своё,
@@ -131,6 +174,8 @@ export const REPAIR_HISTORY_ACTIONS: readonly string[] = [
   'Возврат из цеха',
   'Отправлен на сборку',
   'Отправлен на утиль',
+  'Картер отремонтирован',
+  'Картер заменён',
   'Начат ремонт',
   'Ремонт закончен',
   'Отгружен заказчику',
@@ -222,6 +267,17 @@ function parseRepairStageMark(raw: unknown): RepairHistoryStageMark | null {
   return { rowId, code, atMs };
 }
 
+function parseScrapResolved(raw: unknown): RepairHistoryScrapResolved | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const outcome = text(obj.outcome);
+  if (outcome !== 'repaired' && outcome !== 'replaced') return null;
+  const atMs = typeof obj.atMs === 'number' && Number.isFinite(obj.atMs) && obj.atMs > 0 ? obj.atMs : null;
+  if (atMs === null) return null;
+  const partLabel = text(obj.partLabel).slice(0, 200);
+  return { outcome, atMs, ...(partLabel ? { partLabel } : {}) };
+}
+
 function parseSheet(raw: unknown): RepairHistorySheet | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const obj = raw as Record<string, unknown>;
@@ -286,6 +342,7 @@ export function parseRepairHistoryMeta(metaJson: string | null): RepairHistoryMe
     ...(parseStage(obj.stage) ? { stage: parseStage(obj.stage)! } : {}),
     ...(parseRepairStageMark(obj.repairStage) ? { repairStage: parseRepairStageMark(obj.repairStage)! } : {}),
     ...(parseRepeat(obj.repeat) ? { repeat: parseRepeat(obj.repeat)! } : {}),
+    ...(parseScrapResolved(obj.scrapResolved) ? { scrapResolved: parseScrapResolved(obj.scrapResolved)! } : {}),
   };
 }
 
@@ -308,6 +365,7 @@ export function buildRepairHistoryMeta(input: {
   stage?: RepairHistoryStage | null;
   repairStage?: RepairHistoryStageMark | null;
   repeat?: RepairHistoryRepeat | null;
+  scrapResolved?: RepairHistoryScrapResolved | null;
 }): RepairHistoryMeta {
   const sheet = parseSheet(input.sheet);
   const stage = parseStage(input.stage);
@@ -326,6 +384,7 @@ export function buildRepairHistoryMeta(input: {
     ...(stage ? { stage } : {}),
     ...(parseRepairStageMark(input.repairStage) ? { repairStage: parseRepairStageMark(input.repairStage)! } : {}),
     ...(parseRepeat(input.repeat) ? { repeat: parseRepeat(input.repeat)! } : {}),
+    ...(parseScrapResolved(input.scrapResolved) ? { scrapResolved: parseScrapResolved(input.scrapResolved)! } : {}),
   };
 }
 
