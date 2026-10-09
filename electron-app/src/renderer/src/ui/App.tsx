@@ -5602,6 +5602,10 @@ export function App() {
             workshops={workSheetWorkshops}
             onOpenEngine={(id: string) => void openEngine(id)}
             registerCardCloseActions={registerCardCloseActions}
+            // Иначе режим «новый» живёт вечно: после «Сохранить» карточка
+            // перечитывала себя в ветке isNew (= новая пустая форма), и оператор
+            // видел «Сохранено» поверх стёртых полей (жалоба 10.10.2026).
+            onSaved={() => setWorkSheetIsNew(false)}
             onClose={() => {
               setSelectedWorkSheetId(null);
               setTab('work_sheets');
