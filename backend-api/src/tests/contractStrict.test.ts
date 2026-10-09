@@ -39,6 +39,8 @@ vi.mock('../database/db.js', () => ({
         })),
       })),
     })),
+    // Канонизация JSON через PG: в тестах — тождественная (формат проверяет PG вживую).
+    execute: vi.fn(async () => ({ rows: [{ t: '[]' }] })),
   },
   pool: { query: vi.fn(), end: vi.fn() },
 }));
@@ -121,5 +123,30 @@ describe('двери записи договоров/контрагентов (C
     const r = await patchContractStrict(CID, { customer_id: '22222222-2222-4222-8222-222222222222' }, ACTOR);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain('заказчик');
+  });
+
+  it('execution_parts_json — массив: пустой и с строками принимаются (баг 10.10.2026)', async () => {
+    // create нового договора без исполнения: клиент шлёт "[]".
+    selectQueue.push([{ id: 'type-contract' }]); // typeIdOf
+    const r = await createContractStrict({ id: CID, number: '7', execution_parts_json: '[]' }, ACTOR);
+    expect(r.ok).toBe(true);
+    // patch с непустым массивом строк.
+    selectQueue.push([{ id: CID, deletedAt: null }]); // existing contract
+    const r2 = await patchContractStrict(
+      CID,
+      { execution_parts_json: '[{"partId":"p1","plannedQty":5,"completedQty":0}]' },
+      ACTOR,
+    );
+    expect(r2.ok).toBe(true);
+  });
+
+  it('execution_parts_json — не-массив и битый JSON режутся', async () => {
+    // Валидация JSON идёт до typeIdOf: очередь SELECT не трогаем.
+    const bad = ['{broken', '"str"', '42', '{"rows":[]}'];
+    for (const raw of bad) {
+      const r = await createContractStrict({ id: CID, number: '7', execution_parts_json: raw }, ACTOR);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toContain('execution_parts_json');
+    }
   });
 });
