@@ -2,10 +2,29 @@ import { randomUUID } from 'node:crypto';
 import { and, desc, eq, gte, inArray, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
-import { operations } from '../database/schema.js';
+import { SystemIds } from '@matricarmz/shared';
+
+import { entities, operations } from '../database/schema.js';
 
 function nowMs() {
   return Date.now();
+}
+
+/**
+ * История — часть карточки двигателя (владелец 10.10.2026): любая запись, правка
+ * или удаление операции с engineEntityId двигает `entities.updatedAt`, иначе
+ * колонка «дата изменения» списка стоит на месте, хотя история ушла вперёд.
+ * Этапы работ идут через upsertOperation/softDeleteOperation — их покрывают те же
+ * вызовы. Контейнерные pseudo-сущности (заявки/наряды) не трогаем — они не карточки.
+ */
+export async function touchEngineEntity(db: BetterSQLite3Database, engineId: string, ts?: number): Promise<void> {
+  const id = String(engineId ?? '').trim();
+  if (!id) return;
+  if (id === SystemIds.SupplyRequestsContainerEntityId || id === SystemIds.WorkOrdersContainerEntityId) return;
+  await db
+    .update(entities)
+    .set({ updatedAt: ts ?? nowMs(), syncStatus: 'pending' })
+    .where(eq(entities.id, id));
 }
 
 export async function listOperations(db: BetterSQLite3Database, engineId: string) {
@@ -42,6 +61,7 @@ export async function addOperation(
     deletedAt: null,
     syncStatus: 'pending',
   });
+  await touchEngineEntity(db, engineId, ts);
   return { id };
 }
 
@@ -118,6 +138,7 @@ export async function upsertOperation(
         syncStatus: 'pending',
       })
       .where(eq(operations.id, input.id));
+    await touchEngineEntity(db, input.engineId, ts);
     return { created: false };
   }
   await db.insert(operations).values({
@@ -134,6 +155,7 @@ export async function upsertOperation(
     deletedAt: null,
     syncStatus: 'pending',
   });
+  await touchEngineEntity(db, input.engineId, ts);
   return { created: true };
 }
 
@@ -171,6 +193,7 @@ export async function softDeleteOperation(db: BetterSQLite3Database, id: string)
   if (!existing || existing.deletedAt) return false;
   const ts = nowMs();
   await db.update(operations).set({ deletedAt: ts, updatedAt: ts, syncStatus: 'pending' }).where(eq(operations.id, id));
+  await touchEngineEntity(db, String((existing as any).engineEntityId ?? ''), ts);
   return true;
 }
 
@@ -213,5 +236,6 @@ export async function updateManualEntry(
     .update(operations)
     .set({ metaJson: JSON.stringify(next), updatedAt: ts, syncStatus: 'pending' })
     .where(eq(operations.id, id));
+  await touchEngineEntity(db, String((existing as any).engineEntityId ?? ''), ts);
   return true;
 }

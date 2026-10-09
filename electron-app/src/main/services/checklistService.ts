@@ -26,7 +26,7 @@ import {
   stripInventoryRowsForStorage,
 } from '@matricarmz/shared';
 import { entities, erpEngineInventoryLines, operations } from '../database/schema.js';
-import { getOperation } from './operationService.js';
+import { getOperation, touchEngineEntity } from './operationService.js';
 import { withReplicaInventoryRows, writeInventoryLinesForSheet } from './engineInventoryLinesReplica.js';
 import { getEntityDetails, listEntitiesByType } from './entityService.js';
 import { listEntityTypes } from './adminService.js';
@@ -297,6 +297,7 @@ export async function saveRepairChecklistForEngine(
         .set({ metaJson, updatedAt: ts, syncStatus: 'pending' })
         .where(and(eq(operations.id, opId), isNull(operations.deletedAt)));
       await writeSheetLines(db, opId, args.engineId, args.stage, args.payload, ts);
+      await touchEngineEntity(db, args.engineId, ts);
       return { ok: true as const, operationId: opId };
     }
 
@@ -324,6 +325,7 @@ export async function saveRepairChecklistForEngine(
       syncStatus: 'pending',
     });
     await writeSheetLines(db, newId, args.engineId, args.stage, args.payload, ts);
+    await touchEngineEntity(db, args.engineId, ts);
     return { ok: true as const, operationId: newId };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -480,6 +482,7 @@ export async function setChecklistAnswerDate(
       .update(operations)
       .set({ metaJson: JSON.stringify(storable), updatedAt: ts, syncStatus: 'pending' })
       .where(and(eq(operations.id, leaf.operationId), isNull(operations.deletedAt)));
+    await touchEngineEntity(db, args.engineId, ts);
     return { ok: true as const };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -546,6 +549,7 @@ export async function saveEngineActSnapshot(
       deletedAt: null,
       syncStatus: 'pending',
     });
+    await touchEngineEntity(db, args.engineId, ts);
     return { ok: true as const, operationId: newId, version, deduped: false };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -639,6 +643,7 @@ export async function saveRepairFundRequirementSnapshot(
       deletedAt: null,
       syncStatus: 'pending',
     });
+    await touchEngineEntity(db, args.engineId, ts);
     return { ok: true as const, operationId: newId, version, deduped: false };
   } catch (e) {
     return { ok: false as const, error: String(e) };

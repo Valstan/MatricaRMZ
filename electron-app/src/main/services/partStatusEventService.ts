@@ -21,6 +21,7 @@ import {
 } from '@matricarmz/shared';
 
 import { operations } from '../database/schema.js';
+import { touchEngineEntity } from './operationService.js';
 
 const WORK_ORDERS_OPERATION_TYPE = 'work_order';
 
@@ -81,6 +82,7 @@ export async function saveInRepairPartStatusEvents(
         syncStatus: 'pending',
       });
     }
+    await touchEngineEntity(db, args.engineId, ts);
     return { ok: true as const };
   } catch (e) {
     return { ok: false as const, error: String(e) };

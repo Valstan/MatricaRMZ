@@ -1247,6 +1247,49 @@ export async function applyPushBatch(
             queueOwner(SyncTableName.Operations, String(r.id), { userId: actorId || null, username: actor.username });
           }
         }
+
+        // История — часть карточки двигателя (владелец 10.10.2026): двигаем updatedAt
+        // сущностей, иначе «дата изменения» списка у машин, не видевших правку, стоит
+        // на месте. Чинит и старье парка: push операций от сборки без клиентского touch
+        // двигает дату здесь. Подписываем в журнал — иначе инкрементальный pull не увидит.
+        const touchIds = Array.from(
+          new Set(
+            allowed
+              .map((r) => String((r as any).engine_entity_id ?? ''))
+              .filter(
+                (id) =>
+                  id !== '' &&
+                  id !== WORK_ORDERS_CONTAINER_ENTITY_ID &&
+                  id !== SUPPLY_REQUESTS_CONTAINER_ENTITY_ID,
+              ),
+          ),
+        );
+        if (touchIds.length > 0) {
+          const touchRows = await tx
+            .select({ id: entities.id, typeId: entities.typeId, createdAt: entities.createdAt, deletedAt: entities.deletedAt })
+            .from(entities)
+            .where(inArray(entities.id, touchIds as any))
+            .limit(50_000);
+          const live = (touchRows as any[]).filter((r) => r && r.deletedAt == null);
+          if (live.length > 0) {
+            await tx
+              .update(entities)
+              .set({ updatedAt: appliedAt, syncStatus: 'synced' })
+              .where(inArray(entities.id, live.map((r) => String(r.id)) as any));
+            await updateSeqAndCollect(
+              entities,
+              SyncTableName.Entities,
+              live.map((r) => ({
+                id: String(r.id),
+                type_id: String(r.typeId),
+                created_at: Number(r.createdAt),
+                updated_at: appliedAt,
+                deleted_at: null,
+                sync_status: 'synced',
+              })),
+            );
+          }
+        }
       }
     }
 
