@@ -12,6 +12,9 @@ import {
   REPAIR_HISTORY_OPERATION_TYPE,
   currentWorkshopFromHistory,
   lastSheetEntry,
+  latestScrapResolvedAt,
+  isScrapResolvedFor,
+  parseRepairHistoryMeta,
   repairHistoryFromOperations,
   EntityTypeCode,
   formatEngineReservationHolder,
@@ -504,6 +507,12 @@ export type EngineRepairHistorySummary = {
   lastStageAt: number | null;
   /** Проход последнего этапа; нет — первый (возвраты в отчёте считаются отдельной строкой). */
   lastStagePass?: number;
+  /**
+   * Момент последнего снятия утиля («Картер отремонтирован/заменён», 10.10.2026):
+   * след из истории гасит утильные источники того же или более раннего момента —
+   * акт дефектовки не переписываем, история утиля остаётся в нём.
+   */
+  scrapResolvedAt?: number;
 };
 
 /**
@@ -586,6 +595,14 @@ export async function getEngineRepairHistoryMap(
     const last = entries[0];
     if (!last) continue;
     const sheet = lastSheetEntry(entries);
+    // Снятие утиля: максимум моментов событий (atMs), а не момент записи — запись
+    // задним числом не должна «побеждать» утиль, внесённый позже по факту.
+    const scrapResolvedAt = latestScrapResolvedAt(
+      bucket.map((r) => {
+        const resolved = parseRepairHistoryMeta(r.metaJson)?.scrapResolved;
+        return resolved ? { scrapResolved: resolved } : null;
+      }),
+    );
     // Все пройденные этапы по порядку линейки: ступени «Есть этап» нужен факт прохождения,
     // а не только последний (двигатель, дошедший до обкатки и вернувшийся на сборку, прошёл
     // оба). Порядок — по приоритету этапа, повторы кода схлопываются.
@@ -636,6 +653,7 @@ export async function getEngineRepairHistoryMap(
       // строка «Возвраты» (решение владельца 05.10.2026), а по коду и дате повторный
       // заход от обычного прохода не отличить.
       ...(stagePass > 1 ? { lastStagePass: stagePass } : {}),
+      ...(scrapResolvedAt != null ? { scrapResolvedAt } : {}),
     });
   }
   repairHistoryCache = { stamp, map: new Map(result) };
@@ -1135,6 +1153,14 @@ export async function listEngines(
     // оператор узнаёт о замке, только открыв карточку и дойдя до неё по цеху.
     const reservation = reservationDefId ? parseEngineReservation(rowValues.get(reservationDefId)) : null;
     const liveReservation = isEngineReservationLive(reservation, listNow) ? (reservation as NonNullable<typeof reservation>) : null;
+    // Снятие утиля (10.10.2026): «Картер отремонтирован/заменён» гасит источник
+    // того же или более раннего момента — акт не переписываем, след живёт в истории.
+    // Заключённым флагам решает само действие: чистит их дверью карточки.
+    const scrapResolvedAt = history?.scrapResolvedAt ?? null;
+    const crankcaseScrappedLive = crankcaseScrapped && !isScrapResolvedFor(scrapResolvedAt, defectDate);
+    const scrapBranchLive =
+      history?.lastStageCode === 'scrap_branch' &&
+      !isScrapResolvedFor(scrapResolvedAt, history?.lastStageAt ?? null);
     result.push({
       id: e.id,
       engineNumber: engineNumber ?? '',
@@ -1157,7 +1183,7 @@ export async function listEngines(
       // намеренно НЕ читаем: его OR делал импортное true неисправимым из карточки — та же
       // dual-source-ловушка, что у shipping_date. На проде было лишь 2 таких, оба уже status_rejected.
       // Шаг 8/2: плюс отметка боковой ветки единого списка (её с 8/1 ставит рука вместо галочки).
-      isScrap: statusRejected || statusScrapMarked || crankcaseScrapped || history?.lastStageCode === 'scrap_branch',
+      isScrap: statusRejected || statusScrapMarked || crankcaseScrappedLive || scrapBranchLive,
       ...(scrapReason ? { scrapReason } : {}),
       ...(inventoryFlags?.actStarted === true ? { hasCompletenessAct: true } : {}),
       completenessActDate: inventoryFlags?.completenessInspectionAt ?? null,

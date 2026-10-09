@@ -19,6 +19,7 @@ import {
   engineInternalNumberDuplicateMessage,
   entityRowSchema,
   entityTypeRowSchema,
+  isScrapResolvedFor,
   isServerOnlyAttrCode,
   isSuperadminOnlyAttrCode,
   type StatusCode,
@@ -306,11 +307,17 @@ function isDefectItemsFullyScrapped(payload: unknown): boolean {
   return hasRows;
 }
 
-async function getDefectChecklistScrapMap(engineIds: string[]): Promise<Map<string, boolean>> {
-  const out = new Map<string, boolean>();
+/**
+ * Утиль из последней проведённой/черновой дефектовки: ВСЕ строки листа с
+ * количеством имеют repairable_qty === 0 (или scrap_qty >= quantity) — американский
+ * «весь двигатель в утиле». Возвращает признак И момент операции: снятие утиля
+ * сравнивается с ним (10.10.2026).
+ */
+async function getDefectChecklistScrapMap(engineIds: string[]): Promise<Map<string, { scrapped: boolean; at: number }>> {
+  const out = new Map<string, { scrapped: boolean; at: number }>();
   if (engineIds.length === 0) return out;
   const rows = await db
-    .select({ engineEntityId: operations.engineEntityId, metaJson: operations.metaJson })
+    .select({ engineEntityId: operations.engineEntityId, metaJson: operations.metaJson, updatedAt: operations.updatedAt })
     .from(operations)
     .where(
       and(
@@ -326,7 +333,7 @@ async function getDefectChecklistScrapMap(engineIds: string[]): Promise<Map<stri
     if (!engineId || seen.has(engineId)) continue;
     seen.add(engineId);
     const payload = row.metaJson ? safeJsonParse(String(row.metaJson)) : null;
-    out.set(engineId, isDefectItemsFullyScrapped(payload));
+    out.set(engineId, { scrapped: isDefectItemsFullyScrapped(payload), at: Number(row?.updatedAt ?? 0) });
   }
   return out;
 }
@@ -334,13 +341,13 @@ async function getDefectChecklistScrapMap(engineIds: string[]): Promise<Map<stri
 /**
  * Отметка боковой ветки единого списка (шаг 8/2: её с 8/1 ставит рука вместо
  * галочки «Признан утильным»). Замороженные флаги читает вызывающий — здесь
- * только свежий след.
+ * только свежий след. Значение — момент строки: снятие утиля сравнивается с ним.
  */
-async function getStageScrapBranchMap(engineIds: string[]): Promise<Set<string>> {
-  const out = new Set<string>();
+async function getStageScrapBranchMap(engineIds: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
   if (engineIds.length === 0) return out;
   const rows = await db
-    .select({ engineEntityId: operations.engineEntityId })
+    .select({ engineEntityId: operations.engineEntityId, updatedAt: operations.updatedAt })
     .from(operations)
     .where(
       and(
@@ -353,7 +360,42 @@ async function getStageScrapBranchMap(engineIds: string[]): Promise<Set<string>>
     .limit(20000);
   for (const row of rows as any[]) {
     const engineId = String(row?.engineEntityId ?? '').trim();
-    if (engineId) out.add(engineId);
+    if (!engineId) continue;
+    const raw = Number(row?.updatedAt ?? 0);
+    const at = Number.isFinite(raw) && raw > 0 ? raw : 0;
+    if (at >= (out.get(engineId) ?? 0)) out.set(engineId, at);
+  }
+  return out;
+}
+
+/**
+ * Момент последнего снятия утиля («Картер отремонтирован/заменён», 10.10.2026):
+ * максимум `atMs` по метам истории. Сравнение по моменту события, не записи —
+ * запись задним числом не должна побеждать утиль, внесённый позже по факту.
+ */
+async function getScrapResolvedAtMap(engineIds: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (engineIds.length === 0) return out;
+  const rows = await db
+    .select({ engineEntityId: operations.engineEntityId, metaJson: operations.metaJson })
+    .from(operations)
+    .where(
+      and(
+        inArray(operations.engineEntityId, engineIds as any),
+        eq(operations.operationType, 'repair_history_entry'),
+        isNull(operations.deletedAt),
+        like(operations.metaJson, '%"scrapResolved"%'),
+      ),
+    )
+    .limit(20000);
+  for (const row of rows as any[]) {
+    const engineId = String(row?.engineEntityId ?? '').trim();
+    if (!engineId) continue;
+    const payload = safeJsonParse(String(row?.metaJson ?? ''));
+    const resolved = (payload as { scrapResolved?: { atMs?: unknown } } | null)?.scrapResolved;
+    const at = Number(resolved?.atMs ?? 0);
+    if (!Number.isFinite(at) || at <= 0) continue;
+    if (at > (out.get(engineId) ?? 0)) out.set(engineId, at);
   }
   return out;
 }
@@ -1002,6 +1044,7 @@ export async function listEntitiesByType(entityTypeId: string) {
   const isScrapByEntity = new Map<string, boolean>();
   const isStatusRejectedByEntity = new Map<string, boolean>();
   const isDefectScrapByEntity = new Map<string, boolean>();
+  const defectScrapAtByEntity = new Map<string, number>();
   const priceByEntity = new Map<string, number | null>();
 
   if (isEngineType && entityIds.length > 0) {
@@ -1030,19 +1073,27 @@ export async function listEntitiesByType(entityTypeId: string) {
     }
 
     const scrapRows = await getDefectChecklistScrapMap(entityIds);
-    for (const [engineId, isDefectScrap] of scrapRows) {
-      isDefectScrapByEntity.set(engineId, isDefectScrap);
+    for (const [engineId, defectScrap] of scrapRows) {
+      isDefectScrapByEntity.set(engineId, defectScrap.scrapped);
+      defectScrapAtByEntity.set(engineId, defectScrap.at);
     }
     // Шаг 8/2: утиль из единого списка — в тот же гейт, что флаги.
     const stageScrap = await getStageScrapBranchMap(entityIds);
+    // Снятие утиля (10.10.2026): «Картер отремонтирован/заменён» гасит источники
+    // того же или более раннего момента — акт и след утиля не переписываются.
+    const scrapResolved = await getScrapResolvedAtMap(entityIds);
 
     for (const row of rows) {
       const entityId = String(row.id);
       const attrs = valuesByEntity.get(entityId) ?? new Map<string, string | null>();
       const isScrapAttr = toBooleanJson(scrapDefId ? attrs.get(scrapDefId) : null);
       const isStatusRejected = toBooleanJson(statusRejectedDefId ? attrs.get(statusRejectedDefId) : null);
-      const isDefectScrap = isDefectScrapByEntity.get(entityId) === true;
-      isScrapByEntity.set(entityId, isScrapAttr || isStatusRejected || isDefectScrap || stageScrap.has(entityId));
+      const resolvedAt = scrapResolved.get(entityId) ?? null;
+      const isDefectScrap =
+        isDefectScrapByEntity.get(entityId) === true &&
+        !isScrapResolvedFor(resolvedAt, defectScrapAtByEntity.get(entityId) ?? null);
+      const isStageScrap = stageScrap.has(entityId) && !isScrapResolvedFor(resolvedAt, stageScrap.get(entityId) ?? null);
+      isScrapByEntity.set(entityId, isScrapAttr || isStatusRejected || isDefectScrap || isStageScrap);
       isStatusRejectedByEntity.set(entityId, isStatusRejected);
       isDefectScrapByEntity.set(entityId, isDefectScrap);
     }
@@ -1146,10 +1197,15 @@ export async function getEntityDetails(entityId: string) {
     isScrap = toBooleanValue(attrs.is_scrap);
     isStatusRejected = toBooleanValue(attrs.status_rejected);
     const scrapRows = await getDefectChecklistScrapMap([String(e[0].id)]);
-    isDefectScrap = scrapRows.get(String(e[0].id)) === true;
+    const defectScrap = scrapRows.get(String(e[0].id));
     // Шаг 8/2: отметка боковой ветки — туда же, куда флаги.
     const stageScrap = await getStageScrapBranchMap([String(e[0].id)]);
-    isScrap = isScrap || isStatusRejected || isDefectScrap || stageScrap.has(String(e[0].id));
+    // Снятие утиля (10.10.2026) гасит оба живых источника по моменту события.
+    const resolved = await getScrapResolvedAtMap([String(e[0].id)]);
+    const resolvedAt = resolved.get(String(e[0].id)) ?? null;
+    isDefectScrap = defectScrap?.scrapped === true && !isScrapResolvedFor(resolvedAt, defectScrap?.at ?? null);
+    const isStageScrap = stageScrap.has(String(e[0].id)) && !isScrapResolvedFor(resolvedAt, stageScrap.get(String(e[0].id)) ?? null);
+    isScrap = isScrap || isStatusRejected || isDefectScrap || isStageScrap;
   }
 
   return {

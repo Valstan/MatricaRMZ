@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { EngineDetails, EngineDuplicateMatches, EngineInternalNumberDuplicate, FileRef, SupplyRequestItem } from '@matricarmz/shared';
-import { looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, DEFAULT_CONTRACT_REPAIR_DAYS, effectiveRepairDays, buildContractSectionOptions, contractSectionAddonToken, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, planSlotForEngine, attachEngineToSlot, isEavFlagSet, isEngineDoneForCountdown, compareStageRecency, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, arrivalPlacements, arrivalPlacementLabel, type ArrivalListItem, type ArrivalPlacement, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
+import { looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, DEFAULT_CONTRACT_REPAIR_DAYS, effectiveRepairDays, buildContractSectionOptions, contractSectionAddonToken, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, planSlotForEngine, attachEngineToSlot, isEavFlagSet, isEngineDoneForCountdown, compareStageRecency, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, arrivalPlacements, arrivalPlacementLabel, REPAIR_HISTORY_OPERATION_TYPE, buildRepairHistoryMeta, type ArrivalListItem, type ArrivalPlacement, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -654,6 +654,15 @@ export function EngineDetailsPage(props: {
   const [reclComment, setReclComment] = useState(String(props.engine.attributes?.reclamation_comment ?? ''));
   // Причина утиля двигателя (scrap-transparency 2026-07): показывается при утильных статусах.
   const [scrapReason, setScrapReason] = useState(String(props.engine.attributes?.scrap_reason ?? ''));
+
+  // Вывод из утиля (10.10.2026): картер отремонтирован или заменён — двигатель
+  // выходит из утиля во всех списках, но след утиля остаётся в акте и в истории.
+  const [scrapResolveOpen, setScrapResolveOpen] = useState(false);
+  const [scrapResolveOutcome, setScrapResolveOutcome] = useState<'repaired' | 'replaced'>('repaired');
+  const [scrapResolveDate, setScrapResolveDate] = useState(toInputDate(Date.now()));
+  const [scrapResolveNote, setScrapResolveNote] = useState('');
+  const [scrapResolveBusy, setScrapResolveBusy] = useState(false);
+  const [scrapResolveStatus, setScrapResolveStatus] = useState('');
   // Реквизиты накладных/дефектовки/отчётных документов: однотипные поля, поэтому
   // держатся одной картой code -> строка, а не отдельным useState на каждое.
   const [flatValues, setFlatValues] = useState<Record<string, string>>(() => {
@@ -1155,6 +1164,59 @@ export function EngineDetailsPage(props: {
   function asNullableText(v: unknown): string | null {
     const s = String(v ?? '').trim();
     return s ? s : null;
+  }
+
+  /**
+   * Вывод из утиля (10.10.2026): датированная запись истории со следом снятия —
+   * она гасит утиль во всех списках/отчётах, не переписывая акт дефектовки.
+   * Заключённые флаги гасим той же дверью, что и правка карточки: isScrap
+   * считает их наравне с живыми следами, и без записи они бы держали утиль.
+   */
+  async function applyScrapResolve() {
+    if (!canEditEnginesEff) return;
+    const atMs = fromInputDate(scrapResolveDate);
+    if (atMs === null) {
+      setScrapResolveStatus('Укажите дату');
+      return;
+    }
+    const action = scrapResolveOutcome === 'replaced' ? 'Картер заменён' : 'Картер отремонтирован';
+    setScrapResolveBusy(true);
+    setScrapResolveStatus('Записываю…');
+    try {
+      const meta = buildRepairHistoryMeta({
+        action,
+        scrapResolved: { outcome: scrapResolveOutcome, partLabel: 'Картер', atMs },
+        at: atMs,
+        ...(scrapResolveNote.trim() ? { note: scrapResolveNote.trim() } : {}),
+      });
+      await window.matrica.operations.add(props.engineId, REPAIR_HISTORY_OPERATION_TYPE, 'done', action, JSON.stringify(meta));
+      const attrs = props.engine.attributes ?? {};
+      const flagPatch: Record<string, unknown> = {};
+      if (isEavFlagSet(attrs.status_rejected)) {
+        flagPatch.status_rejected = false;
+        flagPatch.status_rejected_date = null;
+      }
+      if (isEavFlagSet(attrs.status_scrap_confirmed)) {
+        flagPatch.status_scrap_confirmed = false;
+        flagPatch.status_scrap_confirmed_date = null;
+      }
+      if (Object.keys(flagPatch).length > 0) {
+        const api = (
+          window as unknown as {
+            matrica?: { engines?: { card?: { save?: (a: unknown) => Promise<unknown> } } };
+          }
+        ).matrica;
+        await api?.engines?.card?.save?.({ id: props.engineId, fields: flagPatch });
+      }
+      setScrapResolveOpen(false);
+      setScrapResolveNote('');
+      setScrapResolveStatus('Готово: двигатель выведен из утиля');
+      await props.onEngineUpdated();
+    } catch (e) {
+      setScrapResolveStatus(`Ошибка: ${String(e)}`);
+    } finally {
+      setScrapResolveBusy(false);
+    }
   }
 
   function sameValue(a: unknown, b: unknown): boolean {
@@ -2860,6 +2922,50 @@ export function EngineDetailsPage(props: {
 
       {/* Обёртка ОДНА на обе акт-вкладки: панель внутри одна, меняется только вид акта.
           Инлайнового `display` на ней нет — иначе он перебил бы `hidden` (грабля M78). */}
+      {canEditEnginesEff && activeTab === 'defect' && (
+        <div
+          className="entity-card-span-full"
+          data-scrap-resolve
+          style={{ background: 'rgba(239, 68, 68, 0.08)', borderRadius: 14, padding: 10, display: 'grid', gap: 8 }}
+        >
+          <div style={{ fontWeight: 600 }}>Вывод из утиля</div>
+          <div style={{ color: 'var(--muted)', fontSize: 12 }}>
+            Картер отремонтирован или заменён — двигатель выходит из утиля во всех списках и отчётах. След утиля остаётся в акте дефектовки и в истории ремонта.
+          </div>
+          {!scrapResolveOpen ? (
+            <div>
+              <Button variant="outline" data-scrap-resolve-open onClick={() => setScrapResolveOpen(true)}>
+                Вывести из утиля…
+              </Button>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                  <input type="radio" checked={scrapResolveOutcome === 'repaired'} onChange={() => setScrapResolveOutcome('repaired')} />
+                  Картер отремонтирован
+                </label>
+                <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                  <input type="radio" checked={scrapResolveOutcome === 'replaced'} onChange={() => setScrapResolveOutcome('replaced')} />
+                  Картер заменён
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>Дата</span>
+                <input type="date" value={scrapResolveDate} onChange={(e: any) => setScrapResolveDate(e.target.value)} style={{ padding: 6, borderRadius: 8, border: '1px solid var(--input-border, #ccc)', background: 'var(--input-bg, #fff)' }} />
+              </div>
+              <div>
+                <Input value={scrapResolveNote} placeholder="Примечание (необязательно)" onChange={(e: any) => setScrapResolveNote(e.target.value)} style={{ width: '100%' }} />
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button variant="ghost" tone="success" data-scrap-resolve-apply disabled={scrapResolveBusy} onClick={() => void applyScrapResolve()}>Применить</Button>
+                <Button variant="ghost" disabled={scrapResolveBusy} onClick={() => setScrapResolveOpen(false)}>Отмена</Button>
+              </div>
+            </div>
+          )}
+          {scrapResolveStatus ? <div style={{ fontSize: 12 }} data-scrap-resolve-status>{scrapResolveStatus}</div> : null}
+        </div>
+      )}
       {props.canViewOperations && (
         <div
           className="entity-card-span-full"
