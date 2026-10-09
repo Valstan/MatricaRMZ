@@ -155,13 +155,30 @@ function parseJsonObject(raw: string | null | undefined): Record<string, unknown
 }
 
 /**
+ * Поле исполнения договора — МАСИВ строк (`ContractExecutionPartRow[]`, клиент шлёт
+ * `JSON.stringify(normalizeContractExecutionParts(...))`, пустой — `"[]"`).
+ * Дверь требовала здесь объект тем же `parseJsonObject` — и резала ЛЮБОЙ
+ * execution_parts_json, то есть не сохранялся ни один новый договор без
+ * исполнения (баг 10.10.2026: «неверный execution_parts_json» на создании).
+ */
+function parseJsonArray(raw: string | null | undefined): unknown[] | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Канонический текст JSON — ровно тот, что положит зеркало: `eav_attr_text`
  * нормализует через `::jsonb #>> '{}'` (сортировка ключей, пробелы). Дверь обязана
  * писать strict в той же сериализации, иначе триггер увидит «изменение» на каждой
  * правке и перепишет строку штормом (проверено вживую). Реимплементация нормализации
  * в TS хрупка — спрашиваем сам PG (один дешёвый запрос).
  */
-async function jsonbCanonicalText(obj: Record<string, unknown>): Promise<string> {
+async function jsonbCanonicalText(obj: Record<string, unknown> | unknown[]): Promise<string> {
   const res = await db.execute(sql`select ${JSON.stringify(obj)}::jsonb #>> '{}' as t`);
   const rows = res.rows as Array<{ t: string }>;
   if (!rows[0]) throw new Error('jsonb normalize returned no rows');
@@ -211,7 +228,7 @@ async function createContractRow(id: string, patch: ContractPatch, actor: Publis
   // иначе триггер зеркала увидит «изменение» и перепишет strict штормом.
   const sections = patch.sections_json != null ? parseJsonObject(patch.sections_json) : null;
   if (patch.sections_json != null && !sections) return { ok: false, error: 'неверный sections_json' };
-  const execParts = patch.execution_parts_json != null ? parseJsonObject(patch.execution_parts_json) : null;
+  const execParts = patch.execution_parts_json != null ? parseJsonArray(patch.execution_parts_json) : null;
   if (patch.execution_parts_json != null && !execParts) return { ok: false, error: 'неверный execution_parts_json' };
   const sectionsText = sections ? await jsonbCanonicalText(sections) : null;
   const execPartsText = execParts ? await jsonbCanonicalText(execParts) : null;
@@ -335,7 +352,7 @@ export async function patchContractStrict(
     return { ok: false, error: 'неверный sections_json' };
   }
   const execParts = patch.execution_parts_json !== undefined
-    ? patch.execution_parts_json == null ? null : parseJsonObject(patch.execution_parts_json)
+    ? patch.execution_parts_json == null ? null : parseJsonArray(patch.execution_parts_json)
     : undefined;
   if (patch.execution_parts_json !== undefined && patch.execution_parts_json != null && !execParts) {
     return { ok: false, error: 'неверный execution_parts_json' };
@@ -373,7 +390,7 @@ export async function patchContractStrict(
 function trailOf(
   patch: ContractPatch,
   sections: Record<string, unknown> | null | undefined,
-  execParts: Record<string, unknown> | null | undefined,
+  execParts: Record<string, unknown> | unknown[] | null | undefined,
 ): Array<[string, unknown]> {
   const trail: Array<[string, unknown]> = [];
   if (patch.number !== undefined) trail.push(['number', patch.number ?? null]);

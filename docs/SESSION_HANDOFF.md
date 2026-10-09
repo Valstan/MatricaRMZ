@@ -10,23 +10,22 @@ updated: 2026-10-08
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
 **Status:** ACTIVE
-**Updated:** 2026-10-10 (A+B смержены #1233/#1234; C на ревью #1235; merge b34e→14d3 выполнен)
-**Branch:** fix/engine-dupe-b34e-harden
+**Updated:** 2026-10-10 (договоры: execution_parts_json-массив резался дверью — фикс в PR)
+**Branch:** fix/contract-execution-parts-array
 **Last released version:** v3.68.0 на проде (леджер подписан)
 
 ## Текущая нитка
 
-План [`docs/plans/engine-search-touch-dupe-2026-10.md`](plans/engine-search-touch-dupe-2026-10.md) —
-три заявки владельца 09–10.10: (A) строгий поиск — ✅ #1233, (B) дата карточки
-от истории — ✅ #1234, (C) зависшая строка b34e8518 у Сопегина
-(`engine_number_dup` → permanent + подписи «что делать») — эта ветка (PR #1235);
-данные — merge b34e→14d3 выполнен 10.10 (явное OK владельца). Разбор проду —
-только чтение 10.10.2026.
+Заявка владельца 10.10: создание нового договора не сохраняется —
+«неверный execution_parts_json». Корень: клиент шлёт массив (`"[]"` у пустого),
+а строгая дверь требовала объект тем же `parseJsonObject` — резался ЛЮБОЙ
+execution_parts. Фикс: `parseJsonArray` в create/patch + каноникализация через
+jsonb (массивы тоже). Эта ветка (PR).
 
 ## Следующий шаг
 
-PR #1235 на ревью/мерж; затем релизный цикл (бэкфилл дат `engines:backfill-card-updated-at --apply`
-— шагом релиза, counts в теле релизного PR).
+PR execution_parts на ревью/мерж; затем релизный цикл (там же бэкфилл дат
+`engines:backfill-card-updated-at --apply` — шагом релиза).
 
 ## Открытые вопросы для пользователя
 
