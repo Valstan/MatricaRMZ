@@ -313,6 +313,7 @@ async function localWarehouseStockList(
       return Number.isFinite(minStock) ? qty <= minStock : false;
     });
   // Похожее (опечатки, часть слова, другая раскладка) подмешивается только по тумблеру на странице.
+  // Без тумблера — строго подряд идущее вхождение (владелец 10.10.2026).
   const searched = filterRowsTiered(
     base,
     search,
@@ -320,7 +321,7 @@ async function localWarehouseStockList(
       label: String(row.nomenclatureName ?? ''),
       searchText: `${String(row.nomenclatureCode ?? '')} ${String(row.warehouseId ?? '')}`,
     }),
-    { fuzzyFallback: args?.similar === true },
+    { fuzzyFallback: args?.similar === true, mode: args?.similar === true ? 'similar' : 'exact' },
   );
   const mapped = searched.rows;
   const limit = args?.limit == null ? null : Math.max(1, Math.min(10_000, Math.trunc(Number(args.limit))));

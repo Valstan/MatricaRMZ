@@ -30,7 +30,6 @@ export async function searchEntityCardContent(
     );
     if (!q || entityIds.length === 0) return { ok: true, ids: [] };
 
-    const tokens = q.split(/\s+/).filter(Boolean);
     const textById = new Map<string, string[]>();
     for (let i = 0; i < entityIds.length; i += CHUNK) {
       const chunk = entityIds.slice(i, i + CHUNK);
@@ -50,7 +49,10 @@ export async function searchEntityCardContent(
     for (const [entityId, parts] of textById) {
       const text = parts.join(' ');
       const textCompact = compact(text);
-      const hit = tokens.every((t) => text.includes(t) || (compact(t).length > 0 && textCompact.includes(compact(t))));
+      // Точный режим (владелец 10.10.2026): только подряд идущее вхождение ВСЕГО
+      // запроса. Потиражный AND («слово тут, слово там») — уже похожее, ему место
+      // за кнопкой «≈ Похожие», а не в выдаче по умолчанию.
+      const hit = text.includes(q) || (compact(q).length > 0 && textCompact.includes(compact(q)));
       if (hit) ids.push(entityId);
     }
     return { ok: true, ids };

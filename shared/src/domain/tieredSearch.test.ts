@@ -167,9 +167,13 @@ describe('режим поиска exact vs similar', () => {
     expect(rankPreparedLookupOptions(prepared, 'двигатель насос', { mode: 'exact' })).toEqual([]);
   });
 
-  it('точный режим находит по всем словам запроса, если нашлись все', () => {
+  it('точный режим — только подряд идущие символы: слова вразброс не находят', () => {
+    // Владелец 10.10.2026: «ямз турбо» лежит в разных местах строки — без кнопки
+    // «≈ Похожие» это не совпадение. А «ямз 240» идёт подряд — совпадение.
     const prepared = prepareLookupOptions([{ id: '1', label: 'Двигатель ЯМЗ 240 турбо' }]);
-    expect(rankPreparedLookupOptions(prepared, 'ямз турбо', { mode: 'exact' }).map((o) => o.id)).toEqual(['1']);
+    expect(rankPreparedLookupOptions(prepared, 'ямз турбо', { mode: 'exact' })).toEqual([]);
+    expect(rankPreparedLookupOptions(prepared, 'ямз 240', { mode: 'exact' }).map((o) => o.id)).toEqual(['1']);
+    expect(rankPreparedLookupOptions(prepared, 'ямз турбо', { mode: 'similar' }).map((o) => o.id)).toEqual(['1']);
   });
 
   it('по умолчанию режим прежний — выпадающие списки этой правкой не меняются', () => {

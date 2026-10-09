@@ -2514,6 +2514,7 @@ export async function listWarehouseStock(args?: {
       return true;
     });
     // Похожее (опечатки, часть слова, другая раскладка) подмешивается только по тумблеру на странице.
+    // Без тумблера — строго подряд идущее вхождение (владелец 10.10.2026).
     const searched = filterRowsTiered(
       baseFiltered,
       search,
@@ -2524,7 +2525,7 @@ export async function listWarehouseStock(args?: {
           searchText: `${String(n?.code ?? '')} ${String(n?.sku ?? '')} ${String(row.warehouseLocationId ?? '')}`,
         };
       },
-      { fuzzyFallback: args?.similar === true },
+      { fuzzyFallback: args?.similar === true, mode: args?.similar === true ? 'similar' : 'exact' },
     );
     const filtered = searched.rows
       .map((row) => {

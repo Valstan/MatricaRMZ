@@ -201,12 +201,14 @@ export const LOOKUP_FILTER_MIN_SCORE = 600;
 
 /**
  * Режим поиска в СПИСКАХ (просьба владельца 08.09.2026: «по умолчанию точное совпадение,
- * а рядом кнопка — показать похожее»).
+ * а рядом кнопка — показать похожее»; уточнено 10.10.2026: точное = ТОЛЬКО подряд
+ * идущие символы запроса).
  *
- * `exact` — только точное вхождение введённого во все поля строки: равенство, начало поля,
- * подстрока без пробелов (`240-1` ≡ `2401`) и «все слова запроса нашлись». Отброшены
- * подпоследовательность, частичное совпадение слов, исправление раскладки и опечатки —
- * они и создают то самое «глаза разбегаются».
+ * `exact` — только подряд идущее вхождение введённого: равенство, начало поля,
+ * подстрока без пробелов (`240-1` ≡ `2401`). «Все слова запроса нашлись вразброс»
+ * сюда НЕ входит: токены из разных мест записи — уже похожее, за кнопкой.
+ * Отброшены подпоследовательность, частичное совпадение слов, исправление раскладки
+ * и опечатки — они и создают то самое «глаза разбегаются».
  * `similar` — прежнее поведение: раскладка, частичные совпадения и опечатки в хвосте.
  *
  * По умолчанию `similar`: выпадающие списки и лукапы этой правкой не меняются, режим
@@ -215,11 +217,13 @@ export const LOOKUP_FILTER_MIN_SCORE = 600;
 export type SearchMode = 'exact' | 'similar';
 
 /**
- * Порог точного режима: равенство (1000-940), начало (920-860), компактная подстрока
- * (840-780) и «все слова нашлись» (760/700). Ниже — частичные слова (560/520) и
- * подпоследовательность (420-360), от которых оператор и просил избавиться.
+ * Порог точного режима: равенство (1000-940), начало (920-860) и компактная подстрока
+ * (840-780) — всё это подряд идущие символы запроса. «Все слова нашлись» (760/700)
+ * сюда НЕ входит: токены могут лежать в разных полях записи, это уже похожее
+ * (владелец 10.10.2026). Ниже — частичные слова (560/520) и подпоследовательность
+ * (420-360), от которых оператор и просил избавиться.
  */
-export const LOOKUP_EXACT_MIN_SCORE = 700;
+export const LOOKUP_EXACT_MIN_SCORE = 780;
 
 export function rankPreparedLookupOptions<T extends LookupOptionLike>(
   prepared: Array<PreparedLookupOption<T>>,
@@ -358,22 +362,25 @@ export type TieredRowsFilterResult<T> = {
  * One-shot tiered filter over a row set (server list endpoints, local
  * fallbacks). Applies the list-filter score floor; preserves input order.
  * Set `fuzzyFallback: false` to keep tiers 1-2 only (e.g. to stay equivalent
- * to a SQL-side search that cannot fuzzy-match).
+ * to a SQL-side search that cannot fuzzy-match). `mode` selects strictness of
+ * tiers 1-2: `'exact'` — только подряд идущее вхождение (владелец 10.10.2026),
+ * default `'similar'` preserves the previous tier set.
  */
 export function filterRowsTiered<T>(
   rows: T[],
   query: string,
   toOption: (row: T) => { label: string; searchText?: string; hintText?: string },
-  opts: { fuzzyFallback?: boolean } = {},
+  opts: { fuzzyFallback?: boolean; mode?: SearchMode } = {},
 ): TieredRowsFilterResult<T> {
   if (!String(query ?? '').trim()) return { rows, similarMode: false };
+  const mode = opts.mode ?? 'similar';
   const prepared = prepareLookupOptions(rows.map((row, index) => ({ ...toOption(row), id: String(index) })));
   if (opts.fuzzyFallback === false) {
-    const primary = rankPreparedLookupOptions(prepared, query, { minScore: LOOKUP_FILTER_MIN_SCORE });
+    const primary = rankPreparedLookupOptions(prepared, query, { minScore: LOOKUP_FILTER_MIN_SCORE, mode });
     const keep = new Set(primary.map((o) => Number(o.id)));
     return { rows: rows.filter((_, index) => keep.has(index)), similarMode: false };
   }
-  const tiered = searchPreparedLookupOptionsTiered(prepared, query, { minScore: LOOKUP_FILTER_MIN_SCORE });
+  const tiered = searchPreparedLookupOptionsTiered(prepared, query, { minScore: LOOKUP_FILTER_MIN_SCORE, mode });
   const picked = tiered.primary.length > 0 ? tiered.primary : tiered.similar;
   const keep = new Set(picked.map((o) => Number(o.id)));
   return {

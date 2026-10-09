@@ -16,9 +16,12 @@ describe('matchesQueryInRecord (#035 Ф2 tiered)', () => {
     expect(matchesQueryInRecord('2401', { num: '240-1' })).toBe(true);
   });
 
-  it('matches multi-token queries by AND, not contiguous substring (upgrade over naive includes)', () => {
-    // Naive `includes('alpha gamma')` would be false (not contiguous); tiered AND matches.
-    expect(matchesQueryInRecord('alpha gamma', { name: 'gamma beta alpha' })).toBe(true);
+  it('не находит слова вразброс без Похожие: только подряд идущие символы (владелец 10.10.2026)', () => {
+    // `alpha gamma` лежат не подряд — в точном режиме это не совпадение;
+    // похожее (similar) их по-прежнему находит.
+    expect(matchesQueryInRecord('alpha gamma', { name: 'gamma beta alpha' })).toBe(false);
+    expect(matchesQueryInRecord('alpha gamma', { name: 'gamma beta alpha' }, undefined, 'similar')).toBe(true);
+    expect(matchesQueryInRecord('gamma beta', { name: 'gamma beta alpha' })).toBe(true);
   });
 
   it('rejects subsequence-only noise (score floor)', () => {
