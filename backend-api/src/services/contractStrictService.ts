@@ -172,6 +172,18 @@ function parseJsonArray(raw: string | null | undefined): unknown[] | null {
 }
 
 /**
+ * Пустое/«null»-строковое JSON-поле — как отсутствующее. Клиенты парка за пусто
+ * шлют `"null"`/`""` (баг 10.10.2026: создание договора упиралось в
+ * «неверный execution_parts_json»); резать их ошибкой — значит блокировать
+ * сохранение из-за ничего.
+ */
+function emptyJsonToNull(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const t = String(raw).trim();
+  return t === '' || t === 'null' ? null : raw;
+}
+
+/**
  * Канонический текст JSON — ровно тот, что положит зеркало: `eav_attr_text`
  * нормализует через `::jsonb #>> '{}'` (сортировка ключей, пробелы). Дверь обязана
  * писать strict в той же сериализации, иначе триггер увидит «изменение» на каждой
@@ -226,10 +238,12 @@ async function createContractRow(id: string, patch: ContractPatch, actor: Publis
   }
   // Канонические JSON: один объект — одна сериализация и в strict, и в EAV-след,
   // иначе триггер зеркала увидит «изменение» и перепишет strict штормом.
-  const sections = patch.sections_json != null ? parseJsonObject(patch.sections_json) : null;
-  if (patch.sections_json != null && !sections) return { ok: false, error: 'неверный sections_json' };
-  const execParts = patch.execution_parts_json != null ? parseJsonArray(patch.execution_parts_json) : null;
-  if (patch.execution_parts_json != null && !execParts) return { ok: false, error: 'неверный execution_parts_json' };
+  const sectionsRaw = emptyJsonToNull(patch.sections_json);
+  const sections = sectionsRaw != null ? parseJsonObject(sectionsRaw) : null;
+  if (sectionsRaw != null && !sections) return { ok: false, error: 'неверный sections_json' };
+  const execPartsRaw = emptyJsonToNull(patch.execution_parts_json);
+  const execParts = execPartsRaw != null ? parseJsonArray(execPartsRaw) : null;
+  if (execPartsRaw != null && !execParts) return { ok: false, error: 'неверный execution_parts_json' };
   const sectionsText = sections ? await jsonbCanonicalText(sections) : null;
   const execPartsText = execParts ? await jsonbCanonicalText(execParts) : null;
   const contractTypeId = await typeIdOf('contract');
@@ -276,8 +290,8 @@ async function createContractRow(id: string, patch: ContractPatch, actor: Publis
         dueAt: patch.due_at ?? null,
         customerId: (patch.customer_id ?? null) as any,
         comment: patch.comment ?? null,
-        sectionsJson: patch.sections_json ?? null,
-        executionPartsJson: patch.execution_parts_json ?? null,
+        sectionsJson: sectionsText,
+        executionPartsJson: execPartsText,
         updatedAt: ts,
         deletedAt: null,
         syncStatus: 'pending',
@@ -345,16 +359,18 @@ export async function patchContractStrict(
     if (cust.length === 0) return { ok: false, error: 'заказчик не найден в справочнике' };
   }
   const ts = nowMs();
-  const sections = patch.sections_json !== undefined
-    ? patch.sections_json == null ? null : parseJsonObject(patch.sections_json)
+  const sectionsRaw = patch.sections_json !== undefined ? emptyJsonToNull(patch.sections_json) : undefined;
+  const sections = sectionsRaw !== undefined
+    ? sectionsRaw == null ? null : parseJsonObject(sectionsRaw)
     : undefined;
-  if (patch.sections_json !== undefined && patch.sections_json != null && !sections) {
+  if (sectionsRaw !== undefined && sectionsRaw != null && !sections) {
     return { ok: false, error: 'неверный sections_json' };
   }
-  const execParts = patch.execution_parts_json !== undefined
-    ? patch.execution_parts_json == null ? null : parseJsonArray(patch.execution_parts_json)
+  const execPartsRaw = patch.execution_parts_json !== undefined ? emptyJsonToNull(patch.execution_parts_json) : undefined;
+  const execParts = execPartsRaw !== undefined
+    ? execPartsRaw == null ? null : parseJsonArray(execPartsRaw)
     : undefined;
-  if (patch.execution_parts_json !== undefined && patch.execution_parts_json != null && !execParts) {
+  if (execPartsRaw !== undefined && execPartsRaw != null && !execParts) {
     return { ok: false, error: 'неверный execution_parts_json' };
   }
   const sectionsText = sections ? await jsonbCanonicalText(sections) : sections === null ? null : undefined;

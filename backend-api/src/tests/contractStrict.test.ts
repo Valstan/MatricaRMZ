@@ -149,4 +149,22 @@ describe('двери записи договоров/контрагентов (C
       if (!r.ok) expect(r.error).toContain('execution_parts_json');
     }
   });
+
+  it('execution_parts_json — пустые строки и "null" как отсутствующее (баг 10.10.2026)', async () => {
+    // Клиенты парка за пусто шлют "null"/""/пробелы: это не ошибка, а отсутствие значения.
+    for (const raw of ['null', '', '   ', ' null ']) {
+      selectQueue.push([{ id: 'type-contract' }]); // typeIdOf
+      const r = await createContractStrict({ id: CID, number: '7', execution_parts_json: raw }, ACTOR);
+      expect(r.ok).toBe(true);
+    }
+    for (const raw of ['null', '']) {
+      selectQueue.push([{ id: CID, deletedAt: null }]); // existing contract
+      const r = await patchContractStrict(CID, { execution_parts_json: raw }, ACTOR);
+      expect(r.ok).toBe(true);
+    }
+    // sections_json — та же норма.
+    selectQueue.push([{ id: 'type-contract' }]); // typeIdOf
+    const rs = await createContractStrict({ id: CID, number: '7', sections_json: 'null' }, ACTOR);
+    expect(rs.ok).toBe(true);
+  });
 });
