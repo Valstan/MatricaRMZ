@@ -15,6 +15,11 @@ describe('syncRejected — подписи rejected-строк для банне�
     expect(syncRejectReasonLabel('reserved:x:1')).toContain('уйдёт само');
   });
 
+  it('гейт дубля карточки говорит что делать (b34e8518, 10.10.2026)', () => {
+    expect(syncRejectReasonLabel('engine_number_dup')).toContain('исправьте номер');
+    expect(syncRejectReasonLabel('engine_pair_dup')).toContain('исправьте клеймо');
+  });
+
   it('строка описывается целиком с коротким id', () => {
     expect(describeRejectedRow({ table: 'operations', rowId: '12345678-aaaa', reason: 'missing_dependency' })).toContain(
       'Операция 12345678…',
