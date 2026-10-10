@@ -55,11 +55,23 @@ export function ToolPropertyDetailsPage(props: {
     });
   }, [props.id]);
 
-  async function saveAttr(code: string, value: unknown) {
-    if (!props.canEdit) return;
+  async function saveAttr(code: string, value: unknown): Promise<boolean> {
+    if (!props.canEdit) return false;
     const r = await window.matrica.tools.properties.setAttr({ id: props.id, code, value });
-    if (!r.ok) setStatus(`Ошибка: ${r.error}`);
-    else setStatus('');
+    if (!r.ok) {
+      setStatus(`Ошибка: ${r.error}`);
+      return false;
+    }
+    setStatus('');
+    return true;
+  }
+
+  /** Оба поля разом; провал первого останавливает коммит (иначе чистим/закрываем мимо ошибки). */
+  async function saveAll(): Promise<boolean> {
+    if (!(await saveAttr('name', name.trim()))) return false;
+    if (!(await saveAttr('params', params.trim()))) return false;
+    dirtyRef.current = false;
+    return true;
   }
 
   useEffect(() => {
@@ -67,9 +79,7 @@ export function ToolPropertyDetailsPage(props: {
     props.registerCardCloseActions({
       isDirty: () => dirtyRef.current,
       saveAndClose: async () => {
-        await saveAttr('name', name.trim());
-        await saveAttr('params', params.trim());
-        dirtyRef.current = false;
+        if (!(await saveAll())) throw new Error('сохранение не удалось — панель оставлена открытой');
       },
       reset: async () => {
         await refresh();
@@ -105,16 +115,12 @@ export function ToolPropertyDetailsPage(props: {
         }}
         onSave={() => {
           void (async () => {
-            await saveAttr('name', name.trim());
-            await saveAttr('params', params.trim());
-            dirtyRef.current = false;
+            await saveAll();
           })();
         }}
         onSaveAndClose={() => {
           void (async () => {
-            await saveAttr('name', name.trim());
-            await saveAttr('params', params.trim());
-            dirtyRef.current = false;
+            if (!(await saveAll())) return;
             props.onBack();
           })();
         }}

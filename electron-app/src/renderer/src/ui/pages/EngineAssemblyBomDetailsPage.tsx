@@ -7,6 +7,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import type { CardCloseActions } from '../cardCloseTypes.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import { GroupedSearchSelect, type GroupedSearchSelectGroup } from '../components/GroupedSearchSelect.js';
@@ -246,6 +247,7 @@ export function EngineAssemblyBomDetailsPage(props: {
   id: string;
   canEdit: boolean;
   onClose: () => void;
+  registerCardCloseActions?: (actions: CardCloseActions | null) => void;
 }) {
   const { confirm } = useConfirm();
   const [status, setStatus] = useState('');
@@ -537,6 +539,29 @@ export function EngineAssemblyBomDetailsPage(props: {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Хост-гард закрытия (аудит кнопок 10.10.2026): без регистрации хост не видел
+  // несохранённую спецификацию и закрывал вкладку молча. Черновиков у BOM нет —
+  // closeWithoutSave просто закрывает, keepDraft отсутствует (фолбэк хоста — save).
+  useEffect(() => {
+    if (!props.registerCardCloseActions) return;
+    const actions: CardCloseActions = {
+      isDirty: () => isBomDirty,
+      saveAndClose: async () => {
+        if (!(await saveBom())) throw new Error('сохранение не удалось — панель оставлена открытой');
+      },
+      reset: async () => {
+        await refresh();
+      },
+      closeWithoutSave: () => undefined,
+      copyToNew: async () => undefined,
+    };
+    props.registerCardCloseActions(actions);
+    return () => {
+      props.registerCardCloseActions?.(null);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- замыкания обязаны видеть свежие data/снапшот, иначе хост сохранит устаревшую спецификацию
+  }, [data, savedBomSnapshot, refresh, props.registerCardCloseActions]);
 
   useEffect(() => {
     let alive = true;

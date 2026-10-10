@@ -238,11 +238,12 @@ export function ToolDetailsPage(props: {
     props.registerCardCloseActions({
       isDirty: () => dirtyRef.current,
       saveAndClose: async () => {
-        await saveAllFields();
+        if (!(await saveAllFields())) throw new Error('сохранение не удалось — панель оставлена открытой');
       },
       reset: async () => {
         await refresh();
         await refreshMovements();
+        clearMoveForm();
         dirtyRef.current = false;
       },
       closeWithoutSave: () => {
@@ -289,26 +290,37 @@ export function ToolDetailsPage(props: {
     setEmployeeOptions((prev) => (prev.length > 0 ? prev : employeeOptionsAll.map((e) => ({ id: e.id, label: e.label }))));
   }, [employeeOptionsAll]);
 
-  async function saveAttribute(code: string, value: unknown) {
-    if (!props.canEdit) return;
+  async function saveAttribute(code: string, value: unknown): Promise<boolean> {
+    if (!props.canEdit) return false;
     const r = await window.matrica.tools.setAttr({ toolId: props.toolId, code, value });
-    if (!r.ok) setStatus(`Ошибка: ${r.error}`);
-    else setStatus('');
+    if (!r.ok) {
+      setStatus(`Ошибка: ${r.error}`);
+      return false;
+    }
+    setStatus('');
+    return true;
   }
 
-  async function saveAllFields() {
-    await saveAttribute('tool_number', toolNumber.trim());
-    await saveAttribute('name', name.trim());
-    await saveAttribute('serial_number', serialNumber.trim());
-    await saveAttribute('description', description.trim());
-    await saveAttribute('department_id', departmentId || null);
-    await saveAttribute('tool_catalog_id', toolCatalogId || null);
-    await saveAttribute('received_at', fromInputDate(receivedAt));
-    await saveAttribute('retired_at', fromInputDate(retiredAt));
-    await saveAttribute('retire_reason', retireReason.trim());
-    await saveAttribute('properties', properties);
-    await saveAttribute('photos', photos);
+  async function saveAllFields(): Promise<boolean> {
+    if (!props.canEdit) return true;
+    const fields: Array<[string, unknown]> = [
+      ['tool_number', toolNumber.trim()],
+      ['name', name.trim()],
+      ['serial_number', serialNumber.trim()],
+      ['description', description.trim()],
+      ['department_id', departmentId || null],
+      ['tool_catalog_id', toolCatalogId || null],
+      ['received_at', fromInputDate(receivedAt)],
+      ['retired_at', fromInputDate(retiredAt)],
+      ['retire_reason', retireReason.trim()],
+      ['properties', properties],
+      ['photos', photos],
+    ];
+    for (const [code, value] of fields) {
+      if (!(await saveAttribute(code, value))) return false;
+    }
     dirtyRef.current = false;
+    return true;
   }
 
   async function updateProperties(next: ToolPropertyRow[]) {
@@ -374,6 +386,22 @@ export function ToolDetailsPage(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- hint loading intentionally keyed on the joined set of propertyIds only; keying on properties/ensureValueHints (recreated each render) would re-run per value keystroke and duplicate in-flight valueHints IPC fetches
   }, [properties.map((p) => p.propertyId).join('|')]);
 
+  /** Очистить форму движения (после записи, отмены и сброса карточки). */
+  function clearMoveForm() {
+    setEditingMovementId(null);
+    setNewMoveDate('');
+    setNewMoveMode('received');
+    setNewMoveEmployeeId('');
+    setNewMoveConfirmed(false);
+    setNewMoveConfirmedById('');
+    setNewMoveComment('');
+  }
+
+  /** Набранное движение — несохранённая работа: сторож закрытия обязан её увидеть. */
+  function markMoveDirty() {
+    dirtyRef.current = true;
+  }
+
   async function addMovement() {
     if (editingMovementId) {
       await updateMovement();
@@ -393,12 +421,7 @@ export function ToolDetailsPage(props: {
       setStatus(`Ошибка: ${r.error}`);
       return;
     }
-    setNewMoveDate('');
-    setNewMoveMode('received');
-    setNewMoveEmployeeId('');
-    setNewMoveConfirmed(false);
-    setNewMoveConfirmedById('');
-    setNewMoveComment('');
+    clearMoveForm();
     await refreshMovements();
   }
 
@@ -419,13 +442,7 @@ export function ToolDetailsPage(props: {
       setStatus(`Ошибка: ${r.error}`);
       return;
     }
-    setEditingMovementId(null);
-    setNewMoveDate('');
-    setNewMoveMode('received');
-    setNewMoveEmployeeId('');
-    setNewMoveConfirmed(false);
-    setNewMoveConfirmedById('');
-    setNewMoveComment('');
+    clearMoveForm();
     await refreshMovements();
   }
 
@@ -450,13 +467,7 @@ export function ToolDetailsPage(props: {
       return;
     }
     if (editingMovementId === m.id) {
-      setEditingMovementId(null);
-      setNewMoveDate('');
-      setNewMoveMode('received');
-      setNewMoveEmployeeId('');
-      setNewMoveConfirmed(false);
-      setNewMoveConfirmedById('');
-      setNewMoveComment('');
+      clearMoveForm();
     }
     await refreshMovements();
   }
@@ -524,11 +535,12 @@ export function ToolDetailsPage(props: {
         })();
       }}
       onSave={() => { void saveAllFields().catch(() => undefined); }}
-      onSaveAndClose={() => { void saveAllFields().then(() => props.onBack()); }}
+      onSaveAndClose={() => { void saveAllFields().then((ok) => { if (ok) props.onBack(); }).catch(() => undefined); }}
       onReset={() => {
         void (async () => {
           await refresh();
           await refreshMovements();
+          clearMoveForm();
           dirtyRef.current = false;
         })();
       }}
@@ -537,7 +549,7 @@ export function ToolDetailsPage(props: {
         void (async () => {
           if (dirtyRef.current) {
             if (window.confirm('Сохранить изменения перед выходом?')) {
-              await saveAllFields();
+              if (!(await saveAllFields())) return;
             } else {
               dirtyRef.current = false;
             }
@@ -801,10 +813,10 @@ export function ToolDetailsPage(props: {
       <SectionCard title="Движение инструмента">
         <div className="card-row" style={{ display: 'grid', gridTemplateColumns: movementPrimaryGridTemplate, gap: 8, padding: '4px 6px' }}>
           <div>Дата</div>
-          <Input type="date" value={newMoveDate} onChange={(e) => setNewMoveDate(e.target.value)} disabled={!props.canEdit} />
+          <Input type="date" value={newMoveDate} onChange={(e) => { setNewMoveDate(e.target.value); markMoveDirty(); }} disabled={!props.canEdit} />
           <select
             value={newMoveMode}
-            onChange={(e) => setNewMoveMode(e.target.value as 'received' | 'returned')}
+            onChange={(e) => { setNewMoveMode(e.target.value as 'received' | 'returned'); markMoveDirty(); }}
             disabled={!props.canEdit}
             style={{ height: 'var(--ui-input-height, 32px)', width: '100%' }}
           >
@@ -822,7 +834,7 @@ export function ToolDetailsPage(props: {
               disabled={!props.canEdit}
               canCreate={props.canCreateEmployees === true}
               createLabel="Новый сотрудник"
-              onChange={(next) => setNewMoveEmployeeId(next ?? '')}
+              onChange={(next) => { setNewMoveEmployeeId(next ?? ''); markMoveDirty(); }}
               onCreate={async (label) => {
                 const id = await createEmployeeOption(label);
                 if (!id) return null;
@@ -835,7 +847,7 @@ export function ToolDetailsPage(props: {
         </div>
         <div className="card-row" style={{ display: 'grid', gridTemplateColumns: movementSecondaryGridTemplate, gap: 8, padding: '4px 6px' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <input type="checkbox" checked={newMoveConfirmed} onChange={(e) => setNewMoveConfirmed(e.target.checked)} disabled={!props.canEdit} />
+            <input type="checkbox" checked={newMoveConfirmed} onChange={(e) => { setNewMoveConfirmed(e.target.checked); markMoveDirty(); }} disabled={!props.canEdit} />
             Подтверждено
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start', minWidth: 0 }}>
@@ -849,7 +861,7 @@ export function ToolDetailsPage(props: {
               disabled={!props.canEdit || !newMoveConfirmed}
               canCreate={props.canCreateEmployees === true}
               createLabel="Новый сотрудник"
-              onChange={(next) => setNewMoveConfirmedById(next ?? '')}
+              onChange={(next) => { setNewMoveConfirmedById(next ?? ''); markMoveDirty(); }}
               onCreate={async (label) => {
                 const id = await createEmployeeOption(label);
                 if (!id) return null;
@@ -861,7 +873,7 @@ export function ToolDetailsPage(props: {
           </div>
           <Input
             value={newMoveComment}
-            onChange={(e) => setNewMoveComment(e.target.value)}
+            onChange={(e) => { setNewMoveComment(e.target.value); markMoveDirty(); }}
             placeholder="Комментарий"
             disabled={!props.canEdit}
           />
@@ -876,13 +888,7 @@ export function ToolDetailsPage(props: {
                 <Button
                   variant="ghost"
                   onClick={() => {
-                    setEditingMovementId(null);
-                    setNewMoveDate('');
-                    setNewMoveMode('received');
-                    setNewMoveEmployeeId('');
-                    setNewMoveConfirmed(false);
-                    setNewMoveConfirmedById('');
-                    setNewMoveComment('');
+                    clearMoveForm();
                   }}
                 >
                   Отмена
