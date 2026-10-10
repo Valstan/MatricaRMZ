@@ -560,32 +560,6 @@ exe/ярлык/окно/таскбар на реально обновлённо�
 
 **Гейт:** `scripts/prod-ops/deploy-backend.test.sh` — 16 проверок на настоящем скрипте с шимами `gh`/`git`/`sudo`/`systemctl`/`curl`/`sleep` (ни сети, ни systemd, ни реального ожидания). Подключён в `lint.yml` job `prod-ops-backup`. **Проверен контролем** (G367 — сторож обязан уметь краснеть): три мутации скрипта в прежнее поведение дают 2, 2 и 4 красных соответственно.
 
-## 🟡 Остаток аудита кнопок карточек (класс #1240 живёт копиями) 🗓 since:2026-10-10
-
-Аудит 12 карточек (10.10.2026, два параллельных прохода). Починено и смержено: контракт #1240 (3.70.0),
-двигатель #1244, этап работ #1245. Осталось 7 карточек — точные места и приоритет сверху вниз:
-
-1. **CounterpartyDetailsPage** — сид-эффект 190-223 без dirty-guard (`void load()` в saveAttr 312 для вложений
-   бампает updatedAt → ресид затирает форму); «Сброс» 514-518 мёртвый; onSave игнорирует результат (498-499);
-   вложения при провале + clearDraft = потеря копии (351-355).
-2. **EmployeeDetailsPage** — guard 1155 конъюнктивен + `customDefs` в deps 1209; SectionAccessMirror.onSaved
-   1995-1998 без dirty-check; reset 1621 без clearDraft; saveAllAndClose (~15 saveAttr без проверки) + безусловный
-   clearDraft 716-717; поля «Права» и форма перевода не помечают dirty.
-3. **SupplyRequestDetailsPage** — переходы статуса 1134-1202 без flush (setPayload(r.payload) теряет грязное);
-   reset 847-850/1075-1079 без clearDraft; подпись «Автосохранение» 1264 врёт.
-4. **WorkOrderDetailsPage** — withdrawFromWork 1141-1147 без flush; reset 619-622 порядок+clearDraft;
-   closeWithoutSave 623-626 без ожидания draftWriteRef.
-5. **Counterparty/Employee saveAllAndClose** — возвращать boolean и не чистить черновик при неудаче (образец #1240).
-6. **EngineAssemblyBomDetailsPage** — registerCardCloseActions не передан (App.tsx:5549, 6256-6265):
-   хост-гард не видит несохранённую спецификацию.
-7. **ToolDetailsPage** — форма «Движение инструмента» 804-867 не помечает dirty; saveAllFields 299-312 не
-   прерывается на ошибке.
-8. **ToolPropertyDetailsPage** — onSaveAndClose 106-120 закрывает карточку при провале записи.
-9. **EngineBrandDetailsPage** — reset 1091-1096 без clearDraft/draftRestoredRef + cancelPendingDraftSave.
-
-**Архитектурный вывод:** инвариант «dirty перед ресидом + канон сброса» живёт копиями и разошёлся —
-вынести общий хук (useCardDraftState или аналог), а не чинить копии по одной.
-
 ## 🟢 Программа владельца (согласованный порядок 10.10.2026) 🗓 since:2026-10-10
 
 1. ~~Контракт: «неверный execution_parts_json» + стирание вкладок~~ — **сделано, v3.70.0 (#1240/#1242)**.
