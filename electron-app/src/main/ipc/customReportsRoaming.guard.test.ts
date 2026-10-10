@@ -49,4 +49,22 @@ describe('роуминг «Моих отчётов»', () => {
     expect(APP).toContain("new Event('matrica:custom-reports-changed')");
     expect(PAGE).toContain("window.addEventListener('matrica:custom-reports-changed'");
   });
+
+  // Удаление обязано уметь отказывать: прежде обработчик искал шаблон в личной
+  // корзине, потом в общей, а не найдя нигде, молча писал неизменённые настройки
+  // и рапортовал успех (успех, ничем не подтверждённый — класс #178). Починено
+  // в #764, здесь скрепа: список со стенки снимается, только если строка реально
+  // удалена, а отказ виден оператору, а не выглядит удалением.
+  it('удаление несуществующего шаблона отказывает, а не рапортует успех', () => {
+    const block = IPC.slice(IPC.indexOf("'reports:customTemplateDelete'"), IPC.indexOf("'reports:historyList'"));
+    expect(block, 'личная корзина переписывается, только если строка реально удалена').toContain('personal.removed');
+    expect(block, 'нет шаблона ни в одной корзине — отказ, а не успех').toMatch(
+      /if\s*\(!target\)\s*return\s*\{\s*ok:\s*false/,
+    );
+  });
+
+  it('экран показывает отказ удаления, а не снимает шаблон со стенки', () => {
+    expect(PAGE).toContain('customTemplateDelete(');
+    expect(PAGE, 'отказ — notify и возврат без обновления списка').toContain('if (!res.ok) {');
+  });
 });
