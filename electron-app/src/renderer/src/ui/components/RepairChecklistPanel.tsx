@@ -817,52 +817,9 @@ export function RepairChecklistPanel(props: {
             `${synced?.error ? `: ${synced.error}` : ''}. Личные номера экземпляров появятся после синхронизации.`,
         );
       }
-      // Этап «Разборка/Дефектовка» проставляется сам (план unified-repair-stages,
-      // шаг 4) — но вручную отмеченный важнее автоматического и не перезаписывается.
-      // Этап не должен валить проведение: ошибки здесь только дописываются в статус.
-      // Дата этапа — «Дата разборки/дефектовки» из вкладки акта (`defect_start_date`),
-      // а не момент нажатия кнопки: иначе этап уезжает за обкатку/сборку и прыгает при
-      // каждой повторной проводке. Дата проверена выше — фолбэка на «сегодня» больше нет.
-      // Смена даты в акте двигает этап С ПОДТВЕРЖДЕНИЕМ (09.10.2026): молчаливая
-      // перезапись уже виденного оператором этапа — та же слепота, что и раньше.
-      try {
-        const stages = await window.matrica.workSheets.stages.list(props.engineId);
-        const rows = stages.ok ? stages.rows : [];
-        const existing = rows.find((r) => r.code === 'disassembly_defect') ?? null;
-        if (!existing) {
-          const saved = await window.matrica.workSheets.stages.save({
-            id: crypto.randomUUID(),
-            engineId: props.engineId,
-            code: 'disassembly_defect',
-            atMs: defectStartMs,
-          });
-          if (saved.ok) {
-            setStatus((s) => `${s} Этап «Разборка/Дефектовка» отмечен.`);
-          }
-        } else if (existing.at !== defectStartMs) {
-          const ok = await confirm({
-            title: 'Сменить дату этапа «Разборка/Дефектовка»?',
-            detail:
-              `В акте стоит ${formatMoscowDate(new Date(defectStartMs))}, а в этапах — ${formatMoscowDate(new Date(existing.at ?? 0))}. ` +
-              'Сменить дату этапа на дату акта?',
-            confirmLabel: 'Сменить дату',
-          });
-          if (ok) {
-            const saved = await window.matrica.workSheets.stages.save({
-              id: existing.id,
-              engineId: props.engineId,
-              code: 'disassembly_defect',
-              atMs: defectStartMs,
-              confirmDefectDate: true,
-            });
-            if (saved.ok) {
-              setStatus((s) => `${s} Дата этапа «Разборка/Дефектовка» обновлена.`);
-            }
-          }
-        }
-      } catch {
-        /* этап — довесок, проведение уже состоялось */
-      }
+      // Этап «Разборка/Дефектовка» выводится из даты акта сам (унификация актов,
+      // шаг 3): отдельная строка больше не пишется, дубли невозможны по построению.
+      // Дата этапа — «Дата разборки/дефектовки» из вкладки акта, её требует проведение выше.
       setDefectHistoryOpen(true);
     } catch (error) {
       setStatus(`Ошибка проведения: ${String(error)}`);
@@ -2024,29 +1981,10 @@ export function RepairChecklistPanel(props: {
         `Комплектность проведена: дата осмотра — ${formatMoscowDate(inspectionAt)}. Двигатель на этапе «Приемка».` +
           (cardFilled ? '' : ' Дата прихода в карточке не заполнилась — задайте её на вкладке «Основное» (нужно право на редактирование двигателей).'),
       );
-      // Этап «Приемка» проставляется сам (состав 05.10.2026: отдельный этап
-      // комплектности снесён слиянием в arrival, пара к autoFrom kittingAct) — но вручную
-      // отмеченный важнее автоматического и не перезаписывается.
-      // Этап не должен валить проведение: ошибки здесь только дописываются в статус.
-      // Дата этапа — ТА ЖЕ, что у акта: прежде здесь стоял момент нажатия, и этап
-      // уезжал на «сегодня» независимо от даты осмотра (тот самый второй носитель).
-      try {
-        const stages = await window.matrica.workSheets.stages.list(props.engineId);
-        const rows = stages.ok ? stages.rows : [];
-        if (!rows.some((r) => r.code === 'arrival')) {
-          const saved = await window.matrica.workSheets.stages.save({
-            id: crypto.randomUUID(),
-            engineId: props.engineId,
-            code: 'arrival',
-            atMs: inspectionAt,
-          });
-          if (saved.ok) {
-            setStatus((s) => `${s} Этап «Приемка» отмечен.`);
-          }
-        }
-      } catch {
-        /* этап — довесок, проведение уже состоялось */
-      }
+      // Этап «Приемка» выводится из даты осмотра сам (унификация актов, шаг 3):
+      // отдельная строка больше не пишется, дубли невозможны по построению.
+      // Ручная отметка при этом никуда не делась — её по-прежнему можно поставить
+      // из вкладки «История ремонта», там же она и правится.
     } finally {
       setCompletenessBusy(false);
     }

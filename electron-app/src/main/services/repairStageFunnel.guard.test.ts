@@ -11,8 +11,9 @@ import { describe, expect, it } from 'vitest';
 //  1) ручной ввод — только IPC `workSheets:stages:save` → `saveRepairStageRow`;
 //  2) снесённый `kitting_done` не пишется нигде в клиенте (алиас — только чтение);
 //  3) карта писателей зафиксирована: arrival/shipped/accepted — карточка,
-//     disassembly_defect — проведение дефектовки, card_created — материализация
-//     сущности, obkatka — строка обкатки, sborka — сборочный наряд;
+//     disassembly_defect — выводится из акта (проведение пишет только акт, шаг 3
+//     унификации 10.10.2026), card_created — материализация сущности,
+//     obkatka — строка обкатки, sborka — сборочный наряд;
 //  4) триггер авто-метки дефектовки — только решения оператора (утиль/замена),
 //     выведенный repairable нормой не считается (иначе голая приёмка метила бы
 //     дефектовку на каждом сохранении листа).
@@ -67,8 +68,10 @@ describe('воронка этапов: все писатели через save/e
     expect(CARD, 'рендерер снова пишет этапы мимо main').not.toContain("code: 'accepted'");
   });
 
-  it('карта писателей: дефектовка — проведение, карточка — материализация сущности', () => {
-    expect(CHECKLIST_PANEL).toContain("code: 'disassembly_defect'");
+  it('карта писателей: дефектовка — вывод из акта, карточка — материализация сущности', () => {
+    // Унификация актов, шаг 3: проведение пишет только акт, этап disassembly_defect
+    // выводится читателями (см. actStages) — прямой записи в панели нет.
+    expect(CHECKLIST_PANEL).not.toContain("code: 'disassembly_defect'");
     expect(ENGINE_SERVICE).toContain("ensureRepairStageRow(db, engineId, 'card_created'");
   });
 
