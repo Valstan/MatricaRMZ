@@ -836,10 +836,13 @@ export function EngineBrandDetailsPage(props: {
     props.registerCardCloseActions({
       isDirty: () => dirtyRef.current,
       saveAndClose: async () => {
-        await saveAllAndClose();
+        if (!(await saveAllAndClose())) throw new Error('сохранение не удалось — панель оставлена открытой');
       },
       reset: async () => {
         dirtyRef.current = false;
+        cancelPendingDraftSave();
+        await clearDraft();
+        draftRestoredRef.current = false;
         draftPartsRestoredRef.current = false;
         await Promise.all([loadBrand(), loadBrandParts({ force: true })]);
       },
@@ -1089,10 +1092,14 @@ export function EngineBrandDetailsPage(props: {
             })();
           }}
           onReset={() => {
-            draftPartsRestoredRef.current = false;
-            void Promise.all([loadBrand(), loadBrandParts({ force: true })]).then(() => {
+            void (async () => {
               dirtyRef.current = false;
-            });
+              cancelPendingDraftSave();
+              await clearDraft();
+              draftRestoredRef.current = false;
+              draftPartsRestoredRef.current = false;
+              await Promise.all([loadBrand(), loadBrandParts({ force: true })]);
+            })();
           }}
           onDelete={() => void handleDelete()}
           deleteConfirmDetail={`Будет удалена марка двигателя «${name.trim() || props.brandId}».`}

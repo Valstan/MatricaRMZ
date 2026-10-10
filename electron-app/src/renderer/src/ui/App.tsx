@@ -5546,7 +5546,7 @@ export function App() {
           <ToolPropertyDetailsPage key={k} id={id} canEdit={caps.canEditMasterData} registerCardCloseActions={reg} requestClose={close} onBack={close} />
         );
       case 'engine_assembly_bom_item':
-        return <EngineAssemblyBomDetailsPage key={k} id={id} canEdit={caps.canEditMasterData} onClose={close} />;
+        return <EngineAssemblyBomDetailsPage key={k} id={id} canEdit={caps.canEditMasterData} onClose={close} registerCardCloseActions={reg} />;
       case 'stock_document':
         return <StockDocumentDetailsPage key={k} id={id} canEdit={caps.canEditWarehouseDocs} canRevert={caps.canRevertMovements} canCreateParts={caps.canCreateParts} onOpenCounterparty={openCounterparty} onOpenEngine={openEngine} onOpenWorkOrder={openWorkOrder} onOpenNomenclature={openNomenclature} onOpenWarehouse={() => setTab('warehouse_locations')} onClose={close} />;
       case 'report_preset':
@@ -6266,6 +6266,7 @@ export function App() {
               setSelectedEngineAssemblyBomId(null);
               setTabState('engine_assembly_bom');
             }}
+            registerCardCloseActions={registerCardCloseActions}
           />
         )}
 
