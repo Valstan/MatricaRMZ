@@ -617,12 +617,24 @@ export function WorkOrderDetailsPage(props: {
         await clearDraft();
       },
       reset: async () => {
-        await refresh();
+        // Канон сброса (#1240): грязь и черновик — ДО перезагрузки, иначе поздний
+        // автосейв воскрешает сброшенное, а ресид поверх грязного затирает форму.
         dirtyRef.current = false;
+        if (draftTimerRef.current != null) {
+          window.clearTimeout(draftTimerRef.current);
+          draftTimerRef.current = null;
+        }
+        await clearDraft();
+        await refresh();
       },
       closeWithoutSave: () => {
         dirtyRef.current = false;
-        void clearDraft();
+        void (async () => {
+          // Дожидаемся in-flight автосейв (draftWriteRef), иначе поздний upsert
+          // воскрешает стёртый черновик призраком «несохранённой» карточки.
+          if (draftWriteRef.current) await draftWriteRef.current.catch(() => undefined);
+          await clearDraft();
+        })();
       },
       copyToNew: async () => {
         if (!payload) return;
@@ -1140,6 +1152,8 @@ export function WorkOrderDetailsPage(props: {
 
   async function withdrawFromWork(reason: string) {
     if (!payload || !canEditNow) return;
+    // Как выдача (строки выше): иначе отзыв поверх несохранённых правок теряет грязное.
+    if (dirtyRef.current) await flushSave(payload);
     const result = await window.matrica.workOrders.setIssuedState({ operationId: props.id, issued: false, reason });
     if (!result.ok) return void setStatus(`Ошибка отзыва: ${result.error}`);
     setPayload(recalcLocally(result.payload));
