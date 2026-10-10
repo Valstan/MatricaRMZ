@@ -9,6 +9,7 @@ import {
   findStageDateConflict,
   isStageBackwardMove,
   isSameWorkSheetDay,
+  isTransferableStageCode,
   moscowDayKey,
   nextWorkSheetPass,
   parseRepairHistoryMeta,
@@ -26,7 +27,7 @@ import {
   type WorkSheetDuplicateRef,
 } from '@matricarmz/shared';
 
-import { attributeDefs, attributeValues, operations } from '../database/schema.js';
+import { attributeDefs, attributeValues, entities, operations } from '../database/schema.js';
 import { httpAuthed } from './httpClient.js';
 import { getOperation, getEngineActDatesMap, softDeleteOperation, upsertOperation } from './operationService.js';
 import { collectChunked } from '../utils/sqlChunks.js';
@@ -356,6 +357,120 @@ export async function deleteRepairStageRow(
   }
   await softDeleteOperation(db, rowId);
   return { ok: true };
+}
+
+export type TransferStagesInput = {
+  sourceEngineId: string;
+  targetEngineId: string;
+  /** Подписи для следов («ДВ-123»); только отображение, не ключи. */
+  sourceLabel: string;
+  targetLabel: string;
+};
+
+export type TransferStagesResult =
+  | {
+      ok: true;
+      moved: Array<{ code: string; name: string; at: number | null }>;
+      sourceMarkerId: string;
+      targetMarkerId: string;
+    }
+  | { ok: false; error: string };
+
+/**
+ * Перенос этапов при перебивке номера (программа владельца, п.4, 10.10.2026):
+ * строки среза «от укладки вала и выше» переезжают на другой двигатель.
+ * Источник гасится (иначе отчёты посчитают работу дважды), цель получает копии
+ * с пометкой происхождения, обе истории — записи о переносе. Номера, платежи
+ * и привязки не трогаются; флаги утиля не чистятся (не просили — только движение
+ * строк). Гейты `save` не применяются: перенос — осознанное решение оператора,
+ * а не ввод факта; дубли по дню гасит вывод.
+ */
+export async function transferRepairStages(
+  db: BetterSQLite3Database,
+  input: TransferStagesInput,
+  actor: string,
+): Promise<TransferStagesResult> {
+  const sourceId = text(input.sourceEngineId);
+  const targetId = text(input.targetEngineId);
+  if (!sourceId || !targetId) return { ok: false, error: 'Укажите оба двигателя' };
+  if (sourceId === targetId) return { ok: false, error: 'Источник и цель совпадают' };
+  const sourceLabel = text(input.sourceLabel) || 'без номера';
+  const targetLabel = text(input.targetLabel) || 'без номера';
+  for (const id of [sourceId, targetId]) {
+    const found = await db
+      .select({ id: entities.id })
+      .from(entities)
+      .where(and(eq(entities.id, id), isNull(entities.deletedAt)))
+      .limit(1);
+    if (found.length === 0) return { ok: false, error: 'Двигатель не найден' };
+  }
+  const moving = (await listRepairStageRows(db, sourceId)).filter((r) => isTransferableStageCode(r.code));
+  if (moving.length === 0) return { ok: false, error: 'Нет этапов от укладки вала и выше' };
+  const atMs = Date.now();
+  const moved: Array<{ code: string; name: string; at: number | null }> = [];
+  for (const row of moving) {
+    const existing = await getOperation(db, row.id);
+    const meta = existing ? parseRepairHistoryMeta(existing.metaJson ?? null) : null;
+    await softDeleteOperation(db, row.id);
+    const note = [`Этап: ${row.name}`, meta?.note, `перенесено с ${sourceLabel}`].filter(Boolean).join(' · ');
+    const nextMeta = buildRepairHistoryMeta({
+      action: meta?.action || row.name,
+      ...(meta?.workshopId ? { workshopId: meta.workshopId } : {}),
+      ...(meta?.workshopName ? { workshopName: meta.workshopName } : {}),
+      ...(meta?.reason ? { reason: meta.reason } : {}),
+      ...(note ? { note } : {}),
+      ...(row.at != null ? { at: row.at } : {}),
+      entryType: 'stage',
+      stage: { code: row.code, name: row.name },
+      ...(meta?.repeat ? { repeat: meta.repeat } : {}),
+    });
+    await upsertOperation(db, {
+      id: randomUUID(),
+      engineId: targetId,
+      operationType: REPAIR_HISTORY_OPERATION_TYPE,
+      status: 'done',
+      note,
+      performedBy: typeof existing?.performedBy === 'string' && existing.performedBy.trim() ? existing.performedBy : actor,
+      metaJson: JSON.stringify(nextMeta),
+    });
+    moved.push({ code: row.code, name: row.name, at: row.at });
+  }
+  const movedNames = moved.map((m) => m.name).join(', ');
+  const sourceMarkerId = randomUUID();
+  await upsertOperation(db, {
+    id: sourceMarkerId,
+    engineId: sourceId,
+    operationType: REPAIR_HISTORY_OPERATION_TYPE,
+    status: 'done',
+    note: `Этапы перенесены в двигатель ${targetLabel}: ${movedNames}`,
+    performedBy: actor,
+    metaJson: JSON.stringify(
+      buildRepairHistoryMeta({
+        action: `Этапы перенесены в двигатель ${targetLabel}`,
+        note: movedNames,
+        at: atMs,
+        entryType: 'transfer',
+      }),
+    ),
+  });
+  const targetMarkerId = randomUUID();
+  await upsertOperation(db, {
+    id: targetMarkerId,
+    engineId: targetId,
+    operationType: REPAIR_HISTORY_OPERATION_TYPE,
+    status: 'done',
+    note: `Этапы приняты с двигателя ${sourceLabel}: ${movedNames}`,
+    performedBy: actor,
+    metaJson: JSON.stringify(
+      buildRepairHistoryMeta({
+        action: `Этапы приняты с двигателя ${sourceLabel}`,
+        note: movedNames,
+        at: atMs,
+        entryType: 'transfer',
+      }),
+    ),
+  });
+  return { ok: true, moved, sourceMarkerId, targetMarkerId };
 }
 
 export type EngineStageMarks = {

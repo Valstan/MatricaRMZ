@@ -262,3 +262,27 @@ describe('лента: дата дефектовки из истории доно
     );
   });
 });
+
+describe('перенос этапов при перебивке номера (программа владельца, п.4)', () => {
+  const WSIPC = src('../../../../main/ipc/register/workSheets.ts');
+
+  it('кнопка переноса — в ряду добавления, за гейтом правки', () => {
+    expect(PANEL).toContain('data-transfer-open');
+    expect(PANEL).toContain('Перенести этапы…');
+    expect(PANEL).toContain('<TransferStagesDialog');
+  });
+
+  it('диалог показывает срез и цель, пишет через stages.transfer', () => {
+    const DIALOG = src('./TransferStagesDialog.tsx');
+    expect(DIALOG).toContain('data-transfer-search');
+    expect(DIALOG).toContain('data-transfer-confirm');
+    expect(DIALOG).toContain('workSheets.stages.transfer');
+    expect(DIALOG).toContain('isTransferableStageCode');
+  });
+
+  it('мост TRANSFER зарегистрирован под правом engines.edit, а не строк работ', () => {
+    expect(WSIPC).toContain("'workSheets:stages:transfer'");
+    expect(WSIPC).toContain("requirePermOrResult(ctx, 'engines.edit')");
+    expect(WSIPC).toContain('transferRepairStages');
+  });
+});
