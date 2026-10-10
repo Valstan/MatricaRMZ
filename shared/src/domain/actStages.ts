@@ -1,5 +1,5 @@
 import { moscowDayKey } from './workSheetDuplicates.js';
-import { repairStageTemplate, resolveStageCode } from './repairStages.js';
+import { compareStageRecency, repairStageTemplate, resolveStageCode } from './repairStages.js';
 
 /**
  * Этапы, выведенные из акта (программа владельца, п.3: унификация актов, 10.10.2026).
@@ -28,6 +28,29 @@ export type ActStageEntry = {
 
 function asEventMs(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/**
+ * Даты акта из ответов листа `engine_inventory`: поля вида `{kind:'date', value}`.
+ * Всё остальное (тексты, пусто, чужие kind) — не даты и игнорируются.
+ * Форма uniform: все три ключа всегда на месте, отсутствующее — `null`.
+ */
+export function actDatesFromAnswers(answers: unknown): ActDates {
+  const none: ActDates = { arrivalDate: null, completenessInspectionDate: null, defectStartDate: null };
+  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) return none;
+  const a = answers as Record<string, unknown>;
+  const dateAnswer = (key: string): number | null => {
+    const field = a[key];
+    if (!field || typeof field !== 'object') return null;
+    const o = field as Record<string, unknown>;
+    if (o.kind !== 'date') return null;
+    return asEventMs(o.value);
+  };
+  return {
+    arrivalDate: dateAnswer('arrival_date'),
+    completenessInspectionDate: dateAnswer('completeness_inspection_date'),
+    defectStartDate: dateAnswer('defect_start_date'),
+  };
 }
 
 /**
@@ -73,4 +96,46 @@ export function mergeActStages<T extends { code: string; atMs: number | null }>(
   }
   for (const entry of derived) out.push({ origin: 'act', entry });
   return out;
+}
+
+/** Лучший (текущий) этап в форме, достаточной для сравнения давности. */
+export type ActStageBest = {
+  code: string;
+  name: string;
+  at: number;
+  pass: number;
+};
+
+/**
+ * Коды для ступени «Есть этап»: объединение хранимых и выведенных (снесённые коды
+ * считаются преемниками — `kitting_done` в базе и выведенная `arrival` не дублируются).
+ */
+export function actStageCodes(codes: readonly string[], derived: readonly ActStageEntry[]): string[] {
+  const resolved = new Set(codes.map((c) => resolveStageCode(c)));
+  const out = [...codes];
+  for (const d of derived) {
+    if (!resolved.has(d.code)) {
+      resolved.add(d.code);
+      out.push(d.code);
+    }
+  }
+  return out;
+}
+
+/**
+ * Лучший этап с учётом выведенных: более поздний днём (внутри дня — старшим приоритетом)
+ * побеждает; при равенстве остаётся хранимый (у него бывают примечание и проход).
+ */
+export function actStageBest(best: ActStageBest | null, derived: readonly ActStageEntry[]): ActStageBest | null {
+  let cur = best;
+  for (const d of derived) {
+    if (!cur) {
+      cur = { code: d.code, name: d.name, at: d.atMs, pass: 1 };
+      continue;
+    }
+    if (compareStageRecency({ code: d.code, at: d.atMs }, { code: cur.code, at: cur.at }) > 0) {
+      cur = { code: d.code, name: d.name, at: d.atMs, pass: 1 };
+    }
+  }
+  return cur;
 }

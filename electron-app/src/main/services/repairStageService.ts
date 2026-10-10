@@ -14,6 +14,8 @@ import {
   parseRepairHistoryMeta,
   repairHistoryEntryType,
   repairStageRank,
+  actStageBest,
+  actStageEntries,
   REPAIR_HISTORY_OPERATION_TYPE,
   type DatedStage,
   type RepairHistoryRepeat,
@@ -26,7 +28,7 @@ import {
 
 import { attributeDefs, attributeValues, operations } from '../database/schema.js';
 import { httpAuthed } from './httpClient.js';
-import { getOperation, softDeleteOperation, upsertOperation } from './operationService.js';
+import { getOperation, getEngineActDatesMap, softDeleteOperation, upsertOperation } from './operationService.js';
 import { collectChunked } from '../utils/sqlChunks.js';
 
 // Строки единого списка этапов (план unified-repair-stages, шаг 2: хранилище).
@@ -418,6 +420,27 @@ export async function loadEngineStageMarks(
     if (marks) {
       marks.lastStageCode = b.code;
       marks.lastStageAt = b.at;
+    }
+  }
+  // Этапы из акта (унификация актов, 10.10.2026): выведенные arrival/disassembly_defect
+  // участвуют в «последнем» наравне с хранимыми.
+  const actDatesByEngine = await getEngineActDatesMap(db, ids);
+  for (const [engineId, dates] of actDatesByEngine) {
+    const derived = actStageEntries(dates);
+    if (derived.length === 0) continue;
+    let marks = out.get(engineId);
+    if (!marks) {
+      marks = { lastStageCode: null, lastStageAt: null, hasScrapBranch: false };
+      out.set(engineId, marks);
+    }
+    const cur =
+      marks.lastStageCode && marks.lastStageAt != null
+        ? { code: marks.lastStageCode, name: '', at: marks.lastStageAt, pass: 1 }
+        : null;
+    const next = actStageBest(cur, derived);
+    if (next && (!cur || next.code !== cur.code || next.at !== cur.at)) {
+      marks.lastStageCode = next.code;
+      marks.lastStageAt = next.at;
     }
   }
   return out;

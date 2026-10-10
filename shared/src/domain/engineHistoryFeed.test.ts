@@ -210,3 +210,67 @@ describe('единая лента событий по двигателю', () =>
     expect(feed[0].workshopId).toBe('w2');
   });
 });
+
+describe('лента выводит этапы arrival/disassembly_defect из акта', () => {
+  const dateAnswer = (ms: number) => ({ kind: 'date', value: ms });
+  const actRow = (id: string, answers: Record<string, unknown>, updatedAt: number): EngineHistoryFeedRow =>
+    row({
+      id,
+      operationType: 'engine_inventory',
+      metaJson: JSON.stringify({ kind: 'repair_checklist', answers }),
+      updatedAt,
+    });
+  const stageRow = (id: string, code: string, at: number): EngineHistoryFeedRow =>
+    row({
+      id,
+      metaJson: repairMeta({ entryType: 'stage', action: code, stage: { code, name: code }, at }),
+    });
+
+  it('даты акта дают две выведенные строки, которые не правятся здесь', () => {
+    const feed = buildEngineHistoryFeed([
+      actRow('act1', { completeness_inspection_date: dateAnswer(T), defect_start_date: dateAnswer(T + DAY) }, T),
+    ]);
+    const arrival = feed.find((i) => i.id === 'act:arrival');
+    const defect = feed.find((i) => i.id === 'act:disassembly_defect');
+    expect(arrival?.at).toBe(T);
+    expect(defect?.at).toBe(T + DAY);
+    for (const item of [arrival, defect]) {
+      expect(item?.kind).toBe('stage');
+      expect(item?.editable).toBe(false);
+      expect(item?.note).toBe('Из акта');
+    }
+  });
+
+  it('хранимая строка того же кода в тот же день скрывается', () => {
+    const feed = buildEngineHistoryFeed([
+      actRow('act1', { defect_start_date: dateAnswer(T) }, T),
+      stageRow('st1', 'disassembly_defect', T + 3600_000),
+    ]);
+    expect(feed.find((i) => i.id === 'st1')).toBeUndefined();
+    expect(feed.find((i) => i.id === 'act:disassembly_defect')).toBeDefined();
+  });
+
+  it('хранимая строка другим днём остаётся', () => {
+    const feed = buildEngineHistoryFeed([
+      actRow('act1', { defect_start_date: dateAnswer(T) }, T),
+      stageRow('st1', 'disassembly_defect', T - DAY),
+    ]);
+    expect(feed.find((i) => i.id === 'st1')).toBeDefined();
+    expect(feed.find((i) => i.id === 'act:disassembly_defect')).toBeDefined();
+  });
+
+  it('без листа вывод не меняется', () => {
+    const feed = buildEngineHistoryFeed([stageRow('st1', 'arrival', T)]);
+    expect(feed.map((i) => i.id)).toEqual(['st1']);
+  });
+
+  it('из нескольких листов берётся последний по записи', () => {
+    const feed = buildEngineHistoryFeed([
+      actRow('act1', { defect_start_date: dateAnswer(T) }, T),
+      actRow('act2', { defect_start_date: dateAnswer(T + DAY) }, T + DAY),
+    ]);
+    const items = feed.filter((i) => i.id === 'act:disassembly_defect');
+    expect(items).toHaveLength(1);
+    expect(items[0]?.at).toBe(T + DAY);
+  });
+});

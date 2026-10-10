@@ -29,6 +29,10 @@ import {
   isEngineDoneForCountdown,
   isEavFlagSet,
   arrivalPlacements,
+  actDatesFromAnswers,
+  actStageBest,
+  actStageCodes,
+  actStageEntries,
   engineInternalNumberDuplicateMessage,
   engineInternalNumberKey,
   formatEngineInternalNumber,
@@ -55,6 +59,7 @@ import type {
   EngineDuplicateMatches,
   EngineInternalNumberDuplicate,
   EngineListItem,
+  ActDates,
 } from '@matricarmz/shared';
 
 function nowMs() {
@@ -322,6 +327,8 @@ type EngineInventoryFlags = {
   defectStarted: boolean;
   /** Дата осмотра из акта комплектности — ею датируется этап «Комплектовка сделана». */
   completenessInspectionAt: number | null;
+  /** Даты акта для вывода этапов (унификация актов, 10.10.2026) — читаются тем же проходом. */
+  actDates: ActDates;
 };
 
 function inventoryRowsOf(payload: unknown): Array<Record<string, unknown>> {
@@ -379,7 +386,14 @@ export function computeEngineInventoryFlags(payload: unknown): EngineInventoryFl
     }
     if (actStarted && crankcaseScrapped && defectStarted) break;
   }
-  return { crankcaseScrapped, actStarted, defectStarted, completenessInspectionAt };
+  const answers = payload && typeof payload === 'object' ? (payload as { answers?: unknown }).answers : null;
+  return {
+    crankcaseScrapped,
+    actStarted,
+    defectStarted,
+    completenessInspectionAt,
+    actDates: actDatesFromAnswers(answers),
+  };
 }
 
 /**
@@ -1115,6 +1129,24 @@ export async function listEngines(
     // D-#9: авто-брак по детали-картеру в утиле (источник — engine_inventory, см. выше).
     const inventoryFlags = inventoryFlagsByEngineId.get(e.id);
     const crankcaseScrapped = inventoryFlags?.crankcaseScrapped === true;
+    // Этапы из акта (унификация актов, 10.10.2026): выведенные arrival/disassembly_defect
+    // складываются с хранимыми без дублей; хранимый объект истории не трогаем (он в кэше).
+    // Стоит после inventoryFlags: даты акта едут из того же прохода по листам.
+    const actDerived = actStageEntries(inventoryFlags?.actDates ?? {});
+    const mergedStageCodes = actStageCodes(history?.stageCodes ?? [], actDerived);
+    const mergedBest = actStageBest(
+      history?.lastStageCode && history.lastStageAt != null
+        ? {
+            code: history.lastStageCode,
+            name: history.lastStageName,
+            at: history.lastStageAt,
+            pass: history.lastStagePass ?? 1,
+          }
+        : null,
+      actDerived,
+    );
+    const lastStageCode = mergedBest?.code ?? null;
+    const lastStageAt = mergedBest?.at ?? null;
     // Максимум из операций и уже посчитанных дат истории/этапа: если операция почему-то не
     // попала в выборку (удалённая строка, рассинхрон реплики), строка не должна выглядеть
     // мертвее, чем есть — по индикатору срока это решает, гореть ей или числиться забытой.
@@ -1141,7 +1173,7 @@ export async function listEngines(
     // Шаг 8/2: гашение смотрит и в единый список (история уже посчитана выше).
     const repairCountdown =
       arrivalMs != null
-        ? countdownStatus(COUNTDOWN_SLOT_STUB, listTodayIso, isEngineDoneForCountdown({ statusFlags, lastStageCode: history?.lastStageCode, lastStageAt: history?.lastStageAt }), {
+        ? countdownStatus(COUNTDOWN_SLOT_STUB, listTodayIso, isEngineDoneForCountdown({ statusFlags, lastStageCode, lastStageAt }), {
             arrivalIso: isoDayKey(arrivalMs),
             // На сам остаток дней это не влияет (у забытой карточки `daysLeft` тот же), но
             // передаём: иначе единственный вызов без даты работ стал бы образцом для следующего.
@@ -1159,8 +1191,7 @@ export async function listEngines(
     const scrapResolvedAt = history?.scrapResolvedAt ?? null;
     const crankcaseScrappedLive = crankcaseScrapped && !isScrapResolvedFor(scrapResolvedAt, defectDate);
     const scrapBranchLive =
-      history?.lastStageCode === 'scrap_branch' &&
-      !isScrapResolvedFor(scrapResolvedAt, history?.lastStageAt ?? null);
+      lastStageCode === 'scrap_branch' && !isScrapResolvedFor(scrapResolvedAt, lastStageAt);
     result.push({
       id: e.id,
       engineNumber: engineNumber ?? '',
@@ -1197,11 +1228,11 @@ export async function listEngines(
       ...(history?.lastSheetNode ? { lastSheetNode: history.lastSheetNode } : {}),
       ...(history?.lastSheetAt != null ? { lastSheetAt: history.lastSheetAt } : {}),
       ...(history?.lastSheetTypeCode ? { lastSheetTypeCode: history.lastSheetTypeCode } : {}),
-      ...(history?.stageCodes.length ? { stageCodes: history.stageCodes } : {}),
-      ...(history?.lastStageCode ? { lastStageCode: history.lastStageCode } : {}),
-      ...(history?.lastStageName ? { lastStageName: history.lastStageName } : {}),
-      ...(history?.lastStageAt != null ? { lastStageAt: history.lastStageAt } : {}),
-      ...(history?.lastStagePass != null ? { lastStagePass: history.lastStagePass } : {}),
+      ...(mergedStageCodes.length ? { stageCodes: mergedStageCodes } : {}),
+      ...(lastStageCode ? { lastStageCode } : {}),
+      ...(mergedBest && mergedBest.name ? { lastStageName: mergedBest.name } : {}),
+      ...(lastStageAt != null ? { lastStageAt } : {}),
+      ...(mergedBest && mergedBest.pass > 1 ? { lastStagePass: mergedBest.pass } : {}),
       ...(lastActivityAt > 0 ? { lastActivityAt } : {}),
       ...(isReclamation ? { isReclamation: true } : {}),
       ...(isRepeatArrival ? { isRepeatArrival: true } : {}),

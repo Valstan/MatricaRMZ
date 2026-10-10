@@ -16,6 +16,7 @@
 //   * `kind` — тип строки: этап ремонта, этап работ, ручная/стадия/переезд или прочая
 //     операция. По нему экран рисует метку и решает, что можно править.
 
+import { actDatesFromAnswers, actStageEntries, mergeActStages, type ActStageEntry } from './actStages.js';
 import { parseRepairHistoryMeta, repairHistoryEntryType, type RepairHistoryEntryType } from './engineRepairHistory.js';
 import { describeOperationType, operationStatusLabel, type EngineLifecyclePhase } from './engineTimeline.js';
 import { serviceActorLabel } from './serviceActors.js';
@@ -208,11 +209,29 @@ export function engineHistoryFeedFieldLines(item: EngineHistoryFeedItem): string
 /**
  * Лента по двигателю, новые сверху. Строки без даты (`at <= 0`) уходят в конец: пустая
  * дата — это «неизвестно когда», а не «самое свежее».
+ *
+ * Этапы `arrival` / `disassembly_defect` выводятся из дат акта (`engine_inventory`):
+ * хранимая строка того же кода в тот же московский день скрывается (акт — источник
+ * правды). Выведенные строки не правятся здесь (править — в акте).
  */
 export function buildEngineHistoryFeed(rows: readonly EngineHistoryFeedRow[]): EngineHistoryFeedItem[] {
   const out: EngineHistoryFeedItem[] = [];
   for (const row of rows) out.push(engineHistoryFeedItem(row));
-  return out.sort((a, b) => {
+  const actDates = latestActDates(rows);
+  if (!actDates) return sortFeedItems(out);
+  const derived = actStageEntries(actDates);
+  if (derived.length === 0) return sortFeedItems(out);
+  const merged = mergeActStages(
+    out.flatMap((item) =>
+      item.kind === 'stage' && item.stageCode ? [{ code: item.stageCode, atMs: item.at > 0 ? item.at : null, item }] : [],
+    ),
+    derived,
+  );
+  return sortFeedItems(merged.map((m) => (m.origin === 'stored' ? m.row.item : actFeedItem(m.entry))));
+}
+
+function sortFeedItems(items: EngineHistoryFeedItem[]): EngineHistoryFeedItem[] {
+  return items.sort((a, b) => {
     const aAt = a.at > 0 ? a.at : null;
     const bAt = b.at > 0 ? b.at : null;
     if (aAt !== null && bAt !== null && aAt !== bAt) return bAt - aAt;
@@ -220,4 +239,55 @@ export function buildEngineHistoryFeed(rows: readonly EngineHistoryFeedRow[]): E
     if (aAt === null && bAt !== null) return 1;
     return b.recordedAt - a.recordedAt || a.id.localeCompare(b.id);
   });
+}
+
+/** Даты акта из последнего листа `engine_inventory` (по моменту записи). */
+function latestActDates(rows: readonly EngineHistoryFeedRow[]) {
+  let best: { updatedAt: number; answers: unknown } | null = null;
+  for (const row of rows) {
+    if (row.operationType !== 'engine_inventory') continue;
+    let answers: unknown = null;
+    try {
+      const payload = JSON.parse(row.metaJson ?? '');
+      answers = payload && typeof payload === 'object' ? (payload as { answers?: unknown }).answers : null;
+    } catch {
+      continue;
+    }
+    if (!answers || typeof answers !== 'object') continue;
+    const updatedAt = Number(row.updatedAt ?? 0);
+    if (!best || updatedAt > best.updatedAt) best = { updatedAt, answers };
+  }
+  return best ? actDatesFromAnswers(best.answers) : null;
+}
+
+const ACT_FEED_PHASE: Record<string, EngineLifecyclePhase> = {
+  arrival: 'acceptance',
+  disassembly_defect: 'defect',
+};
+
+/** Выведенная строка ленты: этап из акта. Не правится здесь — только в акте. */
+function actFeedItem(entry: ActStageEntry): EngineHistoryFeedItem {
+  return {
+    id: `act:${entry.code}`,
+    at: entry.atMs,
+    recordedAt: entry.atMs,
+    kind: 'stage',
+    kindLabel: KIND_LABELS.stage,
+    title: entry.name,
+    icon: '🚩',
+    phase: ACT_FEED_PHASE[entry.code] ?? 'defect',
+    workshopId: '',
+    workshopName: '',
+    reason: '',
+    note: 'Из акта',
+    extra: [],
+    fields: [],
+    by: '',
+    stageCode: entry.code,
+    pass: 1,
+    editable: false,
+    sheetRowId: null,
+    auto: true,
+    statusLabel: '',
+  };
 }

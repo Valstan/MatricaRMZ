@@ -3,9 +3,12 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
   HUMAN_LABEL_NO_NUMBER,
+  ENGINE_INVENTORY_STAGE,
   REPAIR_HISTORY_ENTRY_TYPE_LABELS,
   REPAIR_HISTORY_OPERATION_TYPE,
   STATUS_CODES,
+  actStageCodes,
+  actStageEntries,
   buildRepairHistoryMeta,
   buildWorkSheetFields,
   isEavFlagSet,
@@ -13,6 +16,7 @@ import {
   missingRequiredWorkSheetFields,
   parseRepairHistoryMeta,
   repairHistoryEntryType,
+  resolveStageCode,
   sanitizeWorkSheetColumns,
   workSheetFieldsSummary,
   isSameWorkSheetDay,
@@ -29,7 +33,7 @@ import {
 
 import { operations } from '../database/schema.js';
 import { getEngineDetails, getEngineRepairHistoryMap, resolveEngineLabels } from './engineService.js';
-import { getOperation, listOperationsByType, softDeleteOperation, upsertOperation } from './operationService.js';
+import { getEngineActDatesMap, getOperation, listOperationsByType, softDeleteOperation, upsertOperation } from './operationService.js';
 import { ensureRepairStageRow, listRepairStageRows, stageRank } from './repairStageService.js';
 
 /**
@@ -412,20 +416,53 @@ export async function listWorkSheetRows(
     if (sinceMs !== null && (meta.at ?? Number(op.performedAt ?? op.updatedAt)) < sinceMs) continue;
     picked.push({ op, meta });
   }
-  const labels = await resolveEngineLabels(db, picked.map((p) => String(p.op.engineEntityId)), { withCounterparty: true });
-  // Этапы двигателей строк — той же историей, что список двигателей: отбор
-  // «последний этап» здесь и там показывает одно и то же. Только двигатели
-  // выборки, не весь каталог.
-  const historyByEngineId = await getEngineRepairHistoryMap(
-    db,
-    [...new Set(picked.map((p) => String(p.op.engineEntityId)))],
-  );
-  const rows: WorkSheetRow[] = picked.map(({ op, meta }) => {
+  const pickedEngineIds = [...new Set(picked.map((p) => String(p.op.engineEntityId)))];
+  const historyByEngineId = await getEngineRepairHistoryMap(db, pickedEngineIds);
+  // Двигатели только с актом (без единой строки истории) в выборку выше не попали,
+  // а их этапы из акта список показать обязан — добираем по листам в том же окне.
+  const actOps = await listOperationsByType(db, [ENGINE_INVENTORY_STAGE], {
+    sinceMs: opts.sinceMs ?? null,
+    limit: WORK_SHEET_ROWS_LIMIT,
+  });
+  const actEngineIds = [...new Set(actOps.map((o) => String(o.engineEntityId)))];
+  const actCandidateIds = actEngineIds.filter((id) => !pickedEngineIds.includes(id));
+  const labels = await resolveEngineLabels(db, [...pickedEngineIds, ...actCandidateIds], { withCounterparty: true });
+  // Этапы из акта (унификация актов, 10.10.2026): arrival/disassembly_defect выводятся
+  // из дат листа, хранимые строки того же кода в тот же день их дублируют и скрываются.
+  const actDatesByEngine = await getEngineActDatesMap(db, [...pickedEngineIds, ...actCandidateIds]);
+  const derivedByEngine = new Map<string, ReturnType<typeof actStageEntries>>();
+  const enrichedCodesByEngine = new Map<string, string[]>();
+  for (const engineId of [...pickedEngineIds, ...actCandidateIds]) {
+    const derived = actStageEntries(actDatesByEngine.get(engineId) ?? {});
+    derivedByEngine.set(engineId, derived);
+    enrichedCodesByEngine.set(engineId, actStageCodes(historyByEngineId.get(engineId)?.stageCodes ?? [], derived));
+  }
+  const derivedKeysByEngine = new Map<string, Set<string>>();
+  for (const [engineId, derived] of derivedByEngine) {
+    derivedKeysByEngine.set(
+      engineId,
+      new Set(derived.map((d) => `${d.code}|${moscowDayKey(d.atMs)}`)),
+    );
+  }
+  const rows: WorkSheetRow[] = [];
+  for (const { op, meta } of picked) {
     const label = labels.get(String(op.engineEntityId));
-    const history = historyByEngineId.get(String(op.engineEntityId));
+    const engineId = String(op.engineEntityId);
+    // Хранимая stage-строка того же кода в тот же день, что выведенная из акта,
+    // скрывается (акт — источник правды).
+    if (
+      !meta.sheet &&
+      meta.stage &&
+      repairHistoryEntryType(meta, String(op.operationType)) === 'stage' &&
+      derivedKeysByEngine
+        .get(engineId)
+        ?.has(`${resolveStageCode(meta.stage.code)}|${moscowDayKey(meta.at ?? Number(op.performedAt ?? op.updatedAt))}`)
+    ) {
+      continue;
+    }
     const base = {
       id: String(op.id),
-      engineId: String(op.engineEntityId),
+      engineId,
       engineNumber: label?.engineNumber ?? '',
       engineBrand: label?.engineBrand ?? '',
       internalNumber: label?.internalNumberFull ?? '',
@@ -440,27 +477,62 @@ export async function listWorkSheetRows(
       note: meta.note ?? '',
       repairStageRowId: meta.repairStage?.rowId ?? null,
       repeatPass: meta.repeat?.pass ?? 1,
-      engineStageCodes: history?.stageCodes ?? [],
+      engineStageCodes: enrichedCodesByEngine.get(engineId) ?? [],
     };
     if (meta.sheet && repairHistoryEntryType(meta, String(op.operationType)) === 'sheet') {
-      return {
+      rows.push({
         ...base,
         typeId: meta.sheet.typeId,
         typeCode: meta.sheet.typeCode,
         typeName: meta.sheet.typeName,
         origin: 'sheet' as const,
         fields: meta.sheet.fields,
-      };
+      });
+      continue;
     }
-    return {
+    rows.push({
       ...base,
       typeId: '',
       typeCode: meta.stage?.code ?? '',
       typeName: meta.stage?.name ?? meta.action,
       origin: 'stage' as const,
       fields: [],
-    };
-  });
+    });
+  }
+  // Выведенные строки акта — своей записи нет (id синтетический, правятся в акте).
+  // При фильтре по виду работ скрываются, как хранимые stage-строки: typeCode вида у них нет.
+  if (!opts.typeCode) {
+    for (const [engineId, derived] of derivedByEngine) {
+      const label = labels.get(engineId);
+      for (const entry of derived) {
+        if (sinceMs !== null && entry.atMs < sinceMs) continue;
+        rows.push({
+          id: `act:${engineId}:${entry.code}`,
+          engineId,
+          engineNumber: label?.engineNumber ?? '',
+          engineBrand: label?.engineBrand ?? '',
+          internalNumber: label?.internalNumberFull ?? '',
+          customerName: label?.customerName ?? '',
+          customerFullName: label?.customerFullName ?? '',
+          contractNumber: label?.contractNumber ?? '',
+          contractShortLabel: label?.contractShortLabel ?? '',
+          at: entry.atMs,
+          typeId: '',
+          typeCode: entry.code,
+          typeName: entry.name,
+          origin: 'act' as const,
+          workshopId: '',
+          workshopName: '',
+          performedBy: '',
+          note: 'Из акта',
+          fields: [],
+          repairStageRowId: null,
+          repeatPass: 1,
+          engineStageCodes: enrichedCodesByEngine.get(engineId) ?? [],
+        });
+      }
+    }
+  }
   return { rows: rows.sort((a, b) => b.at - a.at || a.id.localeCompare(b.id)), truncated };
 }
 

@@ -43,7 +43,13 @@ function inspection(value: unknown): Record<string, unknown> {
   return { completeness_inspection_date: { kind: 'date', value } };
 }
 
-const EMPTY = { crankcaseScrapped: false, actStarted: false, defectStarted: false, completenessInspectionAt: null };
+const EMPTY = {
+  crankcaseScrapped: false,
+  actStarted: false,
+  defectStarted: false,
+  completenessInspectionAt: null,
+  actDates: { arrivalDate: null, completenessInspectionDate: null, defectStartDate: null },
+};
 const INSPECTED_AT = Date.UTC(2026, 6, 15);
 
 describe('computeEngineInventoryFlags — дата осмотра', () => {
@@ -147,7 +153,13 @@ describe('computeEngineInventoryFlags — прежние флаги акта', (
         ),
       }),
     );
-    expect(flags).toEqual({ crankcaseScrapped: true, actStarted: true, defectStarted: true, completenessInspectionAt: INSPECTED_AT });
+    expect(flags).toEqual({
+      crankcaseScrapped: true,
+      actStarted: true,
+      defectStarted: true,
+      completenessInspectionAt: INSPECTED_AT,
+      actDates: { arrivalDate: null, completenessInspectionDate: INSPECTED_AT, defectStartDate: null },
+    });
   });
 });
 

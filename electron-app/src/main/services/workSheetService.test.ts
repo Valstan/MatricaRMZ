@@ -459,3 +459,76 @@ describe('гейт дублей этапов работ', () => {
     expect(r).toMatchObject({ ok: true, created: true });
   });
 });
+
+describe('этапы из акта (унификация актов, 10.10.2026)', () => {
+  const dateAnswer = (ms: number) => ({ kind: 'date', value: ms });
+  function seedAct(sqlite: any, id: string, answers: Record<string, unknown>) {
+    sqlite
+      .prepare(
+        `INSERT INTO operations (id,engine_entity_id,operation_type,status,performed_at,performed_by,meta_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+      )
+      .run(
+        id,
+        'eng-1',
+        'engine_inventory',
+        'done',
+        AT,
+        'ivanov',
+        JSON.stringify({ kind: 'repair_checklist', answers }),
+        AT,
+        AT,
+      );
+  }
+
+  it('даты акта дают строки origin act без записи', async () => {
+    const { sqlite, db } = makeDb();
+    seedAct(sqlite, 'act-1', { defect_start_date: dateAnswer(AT) });
+    const { rows } = await listWorkSheetRows(db);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: 'act:eng-1:disassembly_defect',
+      engineId: 'eng-1',
+      typeCode: 'disassembly_defect',
+      origin: 'act',
+      note: 'Из акта',
+      repairStageRowId: null,
+      repeatPass: 1,
+    });
+    expect(rows[0]?.engineStageCodes).toContain('disassembly_defect');
+  });
+
+  it('хранимая строка того же кода в тот же день скрывается', async () => {
+    const { sqlite, db } = makeDb();
+    seedAct(sqlite, 'act-1', { defect_start_date: dateAnswer(AT) });
+    const saved = await saveRepairStageRow(
+      db,
+      { id: 'st-1', engineId: 'eng-1', code: 'disassembly_defect', atMs: AT },
+      'ivanov',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(saved.ok).toBe(true);
+    const { rows } = await listWorkSheetRows(db);
+    expect(rows.map((r) => r.id)).toEqual(['act:eng-1:disassembly_defect']);
+  });
+
+  it('хранимая строка другим днём остаётся рядом', async () => {
+    const { sqlite, db } = makeDb();
+    seedAct(sqlite, 'act-1', { defect_start_date: dateAnswer(AT) });
+    const saved = await saveRepairStageRow(
+      db,
+      { id: 'st-1', engineId: 'eng-1', code: 'disassembly_defect', atMs: AT - 86_400_000 },
+      'ivanov',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(saved.ok).toBe(true);
+    const { rows } = await listWorkSheetRows(db);
+    expect(rows.map((r) => r.id).sort()).toEqual(['act:eng-1:disassembly_defect', 'st-1']);
+  });
+
+  it('фильтр по виду работ скрывает выведенные, как хранимые stage', async () => {
+    const { sqlite, db } = makeDb();
+    seedAct(sqlite, 'act-1', { defect_start_date: dateAnswer(AT) });
+    const { rows } = await listWorkSheetRows(db, { typeCode: 'ukladka' });
+    expect(rows).toHaveLength(0);
+  });
+});
