@@ -6,6 +6,7 @@ import {
   findStageDateConflict,
   isBulkStageCandidate,
   isStageBackwardMove,
+  isTransferableStageCode,
   repairStageRank,
   repairStageTemplate,
   resolveStageCode,
@@ -214,5 +215,19 @@ describe('кандидат массового добавления (владел
   });
   it('этап не выбран — не кандидат', () => {
     expect(isBulkStageCandidate({ ...base, selectedRank: 0 })).toBe(false);
+  });
+});
+
+describe('isTransferableStageCode — срез переноса от укладки вала и выше', () => {
+  it('укладка и выше переносятся', () => {
+    for (const code of ['ukladka', 'sborka', 'obkatka', 'otk', 'shipped', 'accepted']) {
+      expect(isTransferableStageCode(code)).toBe(true);
+    }
+  });
+
+  it('ранние этапы, ветка и мусор не переносятся', () => {
+    for (const code of ['card_created', 'arrival', 'disassembly_defect', 'kitting_done', 'scrap_branch', '', 'что-то']) {
+      expect(isTransferableStageCode(code)).toBe(false);
+    }
   });
 });

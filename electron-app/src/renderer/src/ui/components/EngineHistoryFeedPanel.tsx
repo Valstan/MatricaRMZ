@@ -15,6 +15,7 @@ import {
 import { Button } from './Button.js';
 import { Input } from './Input.js';
 import { SearchSelect } from './SearchSelect.js';
+import { TransferStagesDialog } from './TransferStagesDialog.js';
 import { emojiAttrs } from '../utils/labelEmoji.js';
 import { useConfirmOptional } from './ConfirmContext.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
@@ -96,6 +97,8 @@ export function EngineHistoryFeedPanel(props: {
   const [editingDate, setEditingDate] = useState<{ id: string; code: string; value: string } | null>(null);
   // Правка ручной записи прямо в строке: текст действия, дата, примечание.
   const [editingManual, setEditingManual] = useState<{ id: string; action: string; date: string; note: string } | null>(null);
+  // Перенос этапов при перебивке номера (программа владельца, п.4, 10.10.2026).
+  const [transferOpen, setTransferOpen] = useState(false);
   // Разовый откат последнего действия в ленте (добавил/удалил/поправил не то —
   // жмёшь «Отменить», и строка возвращается). Одношаговый: новое действие стирает кнопку.
   const [undo, setUndo] = useState<
@@ -485,9 +488,31 @@ export function EngineHistoryFeedPanel(props: {
             >
               Добавить запись
             </Button>
+            <Button
+              variant="ghost"
+              data-transfer-open
+              onClick={() => {
+                setAddingStage(false);
+                setAddingManual(false);
+                setTransferOpen(true);
+              }}
+            >
+              Перенести этапы…
+            </Button>
           </>
         )}
       </div>
+
+      {/* Перенос этапов при перебивке номера: срез «от укладки вала и выше» уезжает
+        на выбранный двигатель, обе истории получают записи о переносе. */}
+      {props.canEdit && transferOpen && (
+        <TransferStagesDialog
+          sourceEngineId={props.engineId}
+          sourceLabel={props.engineLabel ?? props.engineId}
+          onClose={() => setTransferOpen(false)}
+          onDone={() => load()}
+        />
+      )}
 
       {/* Форма добавления этапа: раскрывается кнопкой (владелец 01.10.2026). */}
       {props.canEdit && addingStage && (

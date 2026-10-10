@@ -71,6 +71,17 @@ export function resolveStageCode(code: string): string {
   return LEGACY_STAGE_CODE_ALIASES[c] ?? c;
 }
 
+/**
+ * Срез переноса при перебивке номера (программа владельца, п.4, 10.10.2026):
+ * этапы «от укладки вала и выше». Боковая ветка и неизвестные коды не переносятся.
+ */
+export function isTransferableStageCode(code: string): boolean {
+  const c = resolveStageCode(code);
+  if (c === 'scrap_branch') return false;
+  const rank = repairStageRank(c);
+  return rank > 0 && rank >= repairStageRank('ukladka');
+}
+
 const byCode = new Map<RepairStageCode, RepairStageTemplate>(
   DEFAULT_REPAIR_STAGE_TEMPLATES.map((t) => [t.code, t]),
 );

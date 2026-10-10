@@ -635,6 +635,8 @@ const matricaApi = {
       lastMarks: async (engineIds: string[]) => ipcRenderer.invoke('workSheets:stages:lastMarks', engineIds),
       save: async (args: unknown) => ipcRenderer.invoke('workSheets:stages:save', args),
       remove: async (id: string) => ipcRenderer.invoke('workSheets:stages:remove', id),
+      transfer: async (args: { sourceEngineId: string; targetEngineId: string; sourceLabel: string; targetLabel: string }) =>
+        ipcRenderer.invoke('workSheets:stages:transfer', args),
     },
   },
   contractPayments: {

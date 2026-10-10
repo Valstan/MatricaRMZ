@@ -16,7 +16,7 @@ import {
   searchWorkSheetRows,
   type SaveWorkSheetRowInput,
 } from '../../services/workSheetService.js';
-import { deleteRepairStageRow, listRepairStageRows, loadEngineStageMarks, loadRepairStageTemplates, saveRepairStageRow } from '../../services/repairStageService.js';
+import { deleteRepairStageRow, listRepairStageRows, loadEngineStageMarks, loadRepairStageTemplates, saveRepairStageRow, transferRepairStages } from '../../services/repairStageService.js';
 import { assertRepairStageDeletable } from '../../services/checklistService.js';
 
 type Ok<T> = { ok: true } & T;
@@ -270,4 +270,27 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
       return { ok: false as const, error: String(e) };
     }
   });
+
+  ipcMain.handle(
+    'workSheets:stages:transfer',
+    async (_e, args: { sourceEngineId: string; targetEngineId: string; sourceLabel: string; targetLabel: string }) => {
+      if (isViewMode(ctx)) return viewModeWriteError();
+      const gate = await requirePermOrResult(ctx, 'engines.edit');
+      if (!gate.ok) return gate as Err;
+      try {
+        return await transferRepairStages(
+          ctx.dataDb(),
+          {
+            sourceEngineId: String(args?.sourceEngineId ?? ''),
+            targetEngineId: String(args?.targetEngineId ?? ''),
+            sourceLabel: String(args?.sourceLabel ?? ''),
+            targetLabel: String(args?.targetLabel ?? ''),
+          },
+          await ctx.currentActor(),
+        );
+      } catch (e) {
+        return { ok: false as const, error: String(e) };
+      }
+    },
+  );
 }

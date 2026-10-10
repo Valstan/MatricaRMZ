@@ -2364,6 +2364,16 @@ export type MatricaApi = {
       >;
       save: (args: SaveRepairStageInput) => Promise<SaveRepairStageResult>;
       remove: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+      /**
+       * Перенос этапов при перебивке номера (программа владельца, п.4): срез
+       * «от укладки вала и выше» переезжает на другой двигатель, источник гасится,
+       * обе истории получают записи о переносе. Право — `engines.edit` (действие
+       * карточки, а не строки работ).
+       */
+      transfer: (args: { sourceEngineId: string; targetEngineId: string; sourceLabel: string; targetLabel: string }) => Promise<
+        | { ok: true; moved: Array<{ code: string; name: string; at: number | null }>; sourceMarkerId: string; targetMarkerId: string }
+        | { ok: false; error: string }
+      >;
     };
   };
   /**

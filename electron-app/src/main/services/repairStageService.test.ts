@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_REPAIR_STAGE_TEMPLATES, buildRepairHistoryMeta, parseRepairHistoryMeta } from '@matricarmz/shared';
 
-import { ensureRepairStageRow, listRepairStageRows, loadEngineStageMarks, saveRepairStageRow } from './repairStageService.js';
+import { ensureRepairStageRow, listRepairStageRows, loadEngineStageMarks, saveRepairStageRow, transferRepairStages } from './repairStageService.js';
 
 // Строки единого списка этапов (шаг 2 плана): субординация дат, пометка
 // возврата новым проходом, гейт дублей «тот же этап в тот же день».
@@ -330,5 +330,85 @@ describe('метки этапов учитывают выведенные из �
     await seed(db, [{ id: 's1', code: 'obkatka', at: DAY2 }]);
     const marks = await loadEngineStageMarks(db, ['eng-1']);
     expect(marks.get('eng-1')).toMatchObject({ lastStageCode: 'obkatka', lastStageAt: DAY2 });
+  });
+});
+
+describe('transferRepairStages — перенос этапов при перебивке номера (программа, п.4)', () => {
+  const T0 = Date.UTC(2026, 8, 20, 9, 0, 0);
+  const T1 = Date.UTC(2026, 8, 21, 9, 0, 0);
+  const T2 = Date.UTC(2026, 8, 22, 9, 0, 0);
+
+  async function seedSource(db: never) {
+    for (const [id, code, at] of [
+      ['a-arr', 'arrival', T0],
+      ['a-ukl', 'ukladka', T1],
+      ['a-sbo', 'sborka', T2],
+      ['a-scr', 'scrap_branch', T2],
+    ] as Array<[string, string, number]>) {
+      const r = await saveRepairStageRow(
+        db,
+        { id, engineId: 'eng-src', code, atMs: at },
+        'ivanov',
+        DEFAULT_REPAIR_STAGE_TEMPLATES,
+      );
+      expect(r.ok).toBe(true);
+    }
+  }
+
+  function seedEngines(sqlite: any) {
+    sqlite.prepare(`INSERT INTO entities (id,type_id) VALUES ('eng-src','et'),('eng-dst','et')`).run();
+  }
+
+  function codes(rows: Array<{ code: string }>) {
+    return rows.map((r) => r.code).sort();
+  }
+
+  it('срез от укладки двигается, раннее и ветка остаются, маркеры в обеих историях', async () => {
+    const { sqlite, db } = makeDb();
+    seedEngines(sqlite);
+    await seedSource(db);
+    const r = await transferRepairStages(
+      db,
+      { sourceEngineId: 'eng-src', targetEngineId: 'eng-dst', sourceLabel: 'ДВ-1', targetLabel: 'ДВ-2' },
+      'petrov',
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.moved.map((m) => m.code).sort()).toEqual(['sborka', 'ukladka']);
+    expect(codes(await listRepairStageRows(db, 'eng-src'))).toEqual(['arrival', 'scrap_branch']);
+    const dst = await listRepairStageRows(db, 'eng-dst');
+    expect(codes(dst)).toEqual(['sborka', 'ukladka']);
+    expect(dst.find((x) => x.code === 'sborka')?.at).toBe(T2);
+    expect(dst.find((x) => x.code === 'ukladka')?.note).toContain('перенесено с ДВ-1');
+    expect(dst.find((x) => x.code === 'ukladka')?.by).toBe('ivanov');
+    const markers = sqlite
+      .prepare(`SELECT engine_entity_id AS e, meta_json AS m FROM operations WHERE meta_json LIKE '%"entryType":"transfer"%' AND deleted_at IS NULL`)
+      .all() as Array<{ e: string; m: string }>;
+    expect(markers.map((x) => x.e).sort()).toEqual(['eng-dst', 'eng-src']);
+    expect(markers.some((x) => String(x.m).includes('ДВ-2'))).toBe(true);
+    expect(markers.some((x) => String(x.m).includes('ДВ-1'))).toBe(true);
+  });
+
+  it('без среза, себе и в никуда — честные отказы', async () => {
+    const { sqlite, db } = makeDb();
+    seedEngines(sqlite);
+    const noSlice = await transferRepairStages(
+      db,
+      { sourceEngineId: 'eng-src', targetEngineId: 'eng-dst', sourceLabel: 'ДВ-1', targetLabel: 'ДВ-2' },
+      'petrov',
+    );
+    expect(noSlice.ok).toBe(false);
+    const self = await transferRepairStages(
+      db,
+      { sourceEngineId: 'eng-src', targetEngineId: 'eng-src', sourceLabel: 'ДВ-1', targetLabel: 'ДВ-1' },
+      'petrov',
+    );
+    expect(self.ok).toBe(false);
+    const nowhere = await transferRepairStages(
+      db,
+      { sourceEngineId: 'eng-src', targetEngineId: 'eng-nope', sourceLabel: 'ДВ-1', targetLabel: '?' },
+      'petrov',
+    );
+    expect(nowhere.ok).toBe(false);
   });
 });
