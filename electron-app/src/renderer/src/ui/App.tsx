@@ -801,6 +801,7 @@ const CARD_PARENT_TAB: Partial<Record<TabId, TabId>> = {
   engine_assembly_bom_item: 'engine_assembly_bom',
   stock_document: 'stock_documents',
   report_preset: 'reports',
+  work_sheet: 'work_sheets',
   user_screen: 'user_screens',
 };
 
