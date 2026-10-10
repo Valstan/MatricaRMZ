@@ -296,3 +296,39 @@ describe('loadEngineStageMarks', () => {
     expect((await loadEngineStageMarks(db, [])).size).toBe(0);
   });
 });
+
+describe('метки этапов учитывают выведенные из акта (унификация актов, 10.10.2026)', () => {
+  const dateAnswer = (ms: number) => ({ kind: 'date', value: ms });
+  function seedAct(sqlite: any, id: string, answers: Record<string, unknown>, updatedAt: number) {
+    sqlite
+      .prepare(
+        `INSERT INTO operations (id,engine_entity_id,operation_type,status,performed_at,performed_by,meta_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+      )
+      .run(
+        id,
+        'eng-1',
+        'engine_inventory',
+        'done',
+        updatedAt,
+        'ivanov',
+        JSON.stringify({ kind: 'repair_checklist', answers }),
+        updatedAt,
+        updatedAt,
+      );
+  }
+
+  it('приёмка из акта становится последним этапом без записи', async () => {
+    const { sqlite, db } = makeDb();
+    seedAct(sqlite, 'act-1', { completeness_inspection_date: dateAnswer(DAY1) }, DAY1);
+    const marks = await loadEngineStageMarks(db, ['eng-1']);
+    expect(marks.get('eng-1')).toMatchObject({ lastStageCode: 'arrival', lastStageAt: DAY1 });
+  });
+
+  it('более поздний хранимый этап побеждает выведенный', async () => {
+    const { sqlite, db } = makeDb();
+    seedAct(sqlite, 'act-1', { completeness_inspection_date: dateAnswer(DAY1) }, DAY1);
+    await seed(db, [{ id: 's1', code: 'obkatka', at: DAY2 }]);
+    const marks = await loadEngineStageMarks(db, ['eng-1']);
+    expect(marks.get('eng-1')).toMatchObject({ lastStageCode: 'obkatka', lastStageAt: DAY2 });
+  });
+});

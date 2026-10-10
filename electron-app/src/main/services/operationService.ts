@@ -2,9 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { and, desc, eq, gte, inArray, isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
-import { SystemIds } from '@matricarmz/shared';
+import { ENGINE_INVENTORY_STAGE, SystemIds, actDatesFromAnswers, type ActDates } from '@matricarmz/shared';
 
 import { entities, operations } from '../database/schema.js';
+import { collectChunked } from '../utils/sqlChunks.js';
 
 function nowMs() {
   return Date.now();
@@ -95,6 +96,71 @@ export async function listOperationsByType(
 export async function getOperation(db: BetterSQLite3Database, id: string) {
   const rows = await db.select().from(operations).where(eq(operations.id, id)).limit(1);
   return rows[0] ?? null;
+}
+
+/**
+ * Даты акта по двигателям — для вывода этапов `arrival` / `disassembly_defect` из акта
+ * (унификация актов, 10.10.2026). Читает только последний лист `engine_inventory`
+ * каждого двигателя: сначала «головы» без blob, тела — только по ним.
+ *
+ * Без `orderBy`: тестовые стабы БД понимают только цепочку `select→from→where→limit`,
+ * поэтому последний лист выбирается сравнением `updatedAt` здесь, а фильтры типов
+ * дублируются в JS (со стабом `where` — no-op и вернул бы всё).
+ */
+export async function getEngineActDatesMap(
+  db: BetterSQLite3Database,
+  engineIds: string[],
+): Promise<Map<string, ActDates>> {
+  const out = new Map<string, ActDates>();
+  const ids = [...new Set(engineIds.map((id) => String(id ?? '').trim()).filter(Boolean))];
+  if (ids.length === 0) return out;
+  const heads = await collectChunked(ids, (chunk) =>
+    db
+      .select({ id: operations.id, engineEntityId: operations.engineEntityId, operationType: operations.operationType, updatedAt: operations.updatedAt, deletedAt: operations.deletedAt })
+      .from(operations)
+      .where(
+        and(
+          inArray(operations.engineEntityId, chunk),
+          eq(operations.operationType, ENGINE_INVENTORY_STAGE),
+          isNull(operations.deletedAt),
+        ),
+      )
+      .limit(20000),
+  );
+  const latestByEngine = new Map<string, { id: string; updatedAt: number }>();
+  for (const head of heads) {
+    const row = head as { id: unknown; engineEntityId: unknown; operationType: unknown; updatedAt: unknown; deletedAt: unknown };
+    if (String(row.operationType ?? '') !== ENGINE_INVENTORY_STAGE || row.deletedAt != null) continue;
+    const engineId = String(row.engineEntityId ?? '').trim();
+    const id = String(row.id ?? '').trim();
+    if (!engineId || !id || !ids.includes(engineId)) continue;
+    const updatedAt = Number(row.updatedAt ?? 0);
+    const cur = latestByEngine.get(engineId);
+    if (!cur || updatedAt > cur.updatedAt) latestByEngine.set(engineId, { id, updatedAt });
+  }
+  if (latestByEngine.size === 0) return out;
+  const engineOf = new Map<string, string>();
+  for (const [engineId, head] of latestByEngine) engineOf.set(head.id, engineId);
+  const bodies = await collectChunked([...engineOf.keys()], (chunk) =>
+    db
+      .select({ id: operations.id, metaJson: operations.metaJson })
+      .from(operations)
+      .where(inArray(operations.id, chunk))
+      .limit(20000),
+  );
+  for (const body of bodies) {
+    const engineId = engineOf.get(String(body.id));
+    if (!engineId) continue;
+    let answers: unknown = null;
+    try {
+      const payload = JSON.parse(String(body.metaJson ?? ''));
+      answers = payload && typeof payload === 'object' ? (payload as { answers?: unknown }).answers : null;
+    } catch {
+      continue;
+    }
+    out.set(engineId, actDatesFromAnswers(answers));
+  }
+  return out;
 }
 
 /**

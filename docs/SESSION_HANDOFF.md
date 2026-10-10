@@ -10,22 +10,21 @@ updated: 2026-10-08
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
 **Status:** ACTIVE
-**Updated:** 2026-10-10 (унификация актов: план + домен шага 1)
-**Branch:** feat/act-stage-unification
+**Updated:** 2026-10-10 (унификация актов: шаг 2 — читатели выводят этапы из акта, PR открыт, CI+смоук)
+**Branch:** feat/act-stage-readers
 **Last released version:** v3.71.0 на проде (леджер подписан)
 
 ## Текущая нитка
 
-Унификация актов (программа владельца, п.3): этапы `arrival` / `disassembly_defect` выводятся
-из дат акта, а не пишутся вторыми строками. План — `docs/plans/act-stage-unification-2026-10.md`
-(4 шага, один шаг — один PR). Шаг 1 (домен `actStages`: `actStageEntries` + `mergeActStages` +
-13 тестов) готов, PR открыт. Дальше: шаг 2 (читатели main), шаг 3 (убрать вдогонку из проведения),
-шаг 4 (web-admin).
+Унификация актов (программа владельца, п.3). Шаг 1 смержен (#1254, домен `actStages`).
+Шаг 2 готов: лента, список «Этапы работ», `stageCodes`/`lastStage` в списке двигателей и метки
+выводят `arrival`/`disassembly_defect` из дат акта; хранимые дубли того же дня скрываются.
+Дальше: шаг 3 (убрать вдогонку `stages.save` из проведения), шаг 4 (web-admin).
 
 ## Следующий шаг
 
-Шаг 2 (читатели main): применить слияние в `stages:list`, `listWorkSheetRows`,
-`getEngineRepairHistoryMap`, `loadEngineStageMarks`. Затем шаг 3 (убрать вдогонку из проведения).
+Шаг 3 (писатели): убрать вдогонку `stages.save` из `conductDefect`/`conductCompleteness`
+(этап теперь выводится сам). Затем шаг 4 (web-admin) и CDP-смоук полного цикла.
 
 ## Контекст
 
