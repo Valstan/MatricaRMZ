@@ -48,6 +48,9 @@ export function CounterpartyDetailsPage(props: {
   const [email, setEmail] = useState<string>('');
   const [attachments, setAttachments] = useState<unknown>([]);
   const dirtyRef = useRef(false);
+  // Сброс обязан пересевать форму даже когда updatedAt не изменился (иначе ресид-эффект
+  // по тем же deps пропускает перезагрузку и сброс мёртвый): ключ форсирует прогон.
+  const [reseedKey, setReseedKey] = useState(0);
   // Phase 3d: recovery-draft движок пилота (наряды/заявки/товары). Снимок = локальные
   // несохранённые поля (файлы вложений грузятся сразу — в черновик едет только их JSON-список).
   const draftTimerRef = useRef<number | null>(null);
@@ -189,6 +192,9 @@ export function CounterpartyDetailsPage(props: {
 
   useEffect(() => {
     if (!entity) return;
+    // Перезагрузка поверх несохранённых правок запрещена (баг 10.10.2026, #1240):
+    // сохранение вложений бампало updatedAt и ресид затирал форму.
+    if (dirtyRef.current) return;
     const attrs = entity.attributes ?? {};
     // Ядро предпочитает strict; EAV — переходный фолбэк. Вложения всегда из EAV.
     const core = (strict ?? attrs) as Record<string, unknown>;
@@ -220,7 +226,7 @@ export function CounterpartyDetailsPage(props: {
       })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- field hydration is deliberately keyed on the loaded entity version and the strict row version; re-running on the `entity` object identity, on canEdit, or on the per-render `applyDraftSnapshot` would overwrite the user's in-progress edits
-  }, [entity?.id, entity?.updatedAt, strict?.updated_at]);
+  }, [entity?.id, entity?.updatedAt, strict?.updated_at, reseedKey]);
 
   // Phase 3d: debounced recovery-автосейв (~1.5с после последней правки, пока карточка dirty).
   useEffect(() => {
@@ -242,13 +248,20 @@ export function CounterpartyDetailsPage(props: {
     props.registerCardCloseActions({
       isDirty: () => dirtyRef.current,
       saveAndClose: async () => {
-        await saveAllAndClose();
+        if (!(await saveAllAndClose())) throw new Error('сохранение не удалось — панель оставлена открытой');
       },
       reset: async () => {
-        await load();
+        // Канон сброса (#1240, карточка двигателя): грязь и черновик — ДО перезагрузки,
+        // плюс ключ пересева (updatedAt без записи не меняется и ресид иначе пропускается).
         dirtyRef.current = false;
+        cancelPendingDraftSave();
+        await clearDraft();
+        draftRestoredRef.current = false;
+        setReseedKey((k) => k + 1);
+        await load();
       },
       closeWithoutSave: () => {
+        cancelPendingDraftSave();
         dirtyRef.current = false;
         void clearDraft();
       },
@@ -279,8 +292,8 @@ export function CounterpartyDetailsPage(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- re-registration is deliberately keyed on the edited values the close actions capture; clearDraft/currentDraftSnapshot/saveAllAndClose/saveDraftNow and the whole `props` object are re-created every render, so depending on them would unregister+re-register the card close actions on every render
   }, [name, shortName, inn, kpp, address, phone, email, attachments, typeId, props.registerCardCloseActions]);
 
-  async function saveAttr(code: string, value: unknown) {
-    if (!props.canEdit) return;
+  async function saveAttr(code: string, value: unknown): Promise<boolean> {
+    if (!props.canEdit) return false;
     try {
       setStatus('Сохранение…');
       // Ядро — серверной дверью в strict; остальное (вложения) — прежним EAV-путём.
@@ -292,7 +305,7 @@ export function CounterpartyDetailsPage(props: {
         })) as { ok: boolean; row?: CounterpartyStrictRow; error?: string } | null;
         if (!r?.ok) {
           setStatus(`Ошибка: ${(r as { error?: string } | null)?.error ?? 'unknown'}`);
-          return;
+          return false;
         }
         if (r.row) {
           setStrict(r.row);
@@ -300,18 +313,21 @@ export function CounterpartyDetailsPage(props: {
         }
         setStatus('Сохранено');
         setTimeout(() => setStatus(''), 900);
-        return;
+        return true;
       }
       const r = await window.matrica.admin.entities.setAttr(props.counterpartyId, code, value, typeId || undefined);
       if (!r?.ok) {
         setStatus(`Ошибка: ${r?.error ?? 'unknown'}`);
-        return;
+        return false;
       }
+      // Без перезагрузки: стейт уже держит записанное значение, а релоад бампал
+      // updatedAt и ресид-эффект затирал форму поверх несохранённых правок (#1240).
       setStatus('Сохранено');
       setTimeout(() => setStatus(''), 900);
-      void load();
+      return true;
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
+      return false;
     }
   }
 
@@ -325,7 +341,7 @@ export function CounterpartyDetailsPage(props: {
     setEmail(String(row.email ?? ''));
   }
 
-  async function saveAllAndClose() {
+  async function saveAllAndClose(): Promise<boolean> {
     if (props.canEdit) {
       // Ядро — одним патчем в дверь (не семью round-trip), вложения — прежним путём.
       const r = (await window.matrica.contracts.counterparty.save({
@@ -342,13 +358,14 @@ export function CounterpartyDetailsPage(props: {
       })) as { ok: boolean; row?: CounterpartyStrictRow; error?: string } | null;
       if (!r?.ok) {
         setStatus(`Ошибка: ${(r as { error?: string } | null)?.error ?? 'unknown'}`);
-        return;
+        return false;
       }
       if (r.row) {
         setStrict(r.row);
         applyStrictRow(r.row);
       }
-      await saveAttr('attachments', attachments);
+      // Вложения при провале не чистят черновик: иначе теряется копия (#1240).
+      if (!(await saveAttr('attachments', attachments))) return false;
       // Полный коммит вытесняет recovery-снимок; отменяем отложенный автосейв,
       // чтобы он не переписал черновик после очистки.
       cancelPendingDraftSave();
@@ -357,6 +374,7 @@ export function CounterpartyDetailsPage(props: {
       setTimeout(() => setStatus(''), 900);
     }
     dirtyRef.current = false;
+    return true;
   }
 
   async function handleDelete() {
@@ -496,7 +514,7 @@ export function CounterpartyDetailsPage(props: {
             })();
           }}
           onSave={() => { void saveAllAndClose().catch(() => undefined); }}
-          onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()); }}
+          onSaveAndClose={() => { void saveAllAndClose().then((ok) => { if (ok) props.onClose(); }).catch(() => undefined); }}
           onSaveAsDraft={() => {
             void (async () => {
               // Явная парковка в черновик: без записи в EAV; отменяем отложенный
@@ -512,9 +530,14 @@ export function CounterpartyDetailsPage(props: {
             })();
           }}
           onReset={() => {
-            void load().then(() => {
+            void (async () => {
               dirtyRef.current = false;
-            });
+              cancelPendingDraftSave();
+              await clearDraft();
+              draftRestoredRef.current = false;
+              setReseedKey((k) => k + 1);
+              await load();
+            })();
           }}
           onDelete={() => void handleDelete()}
           deleteConfirmDetail={`Будет удалён контрагент «${name.trim() || props.counterpartyId}»${inn.trim() ? ` (ИНН ${inn.trim()})` : ''}.`}

@@ -625,16 +625,17 @@ export function EmployeeDetailsPage(props: {
     }
   }
 
-  async function saveAttr(code: string, value: unknown) {
-    if (!props.canEdit) return;
+  async function saveAttr(code: string, value: unknown): Promise<boolean> {
+    if (!props.canEdit) return false;
     setStatus('Сохранение…');
     const r = await window.matrica.employees.setAttr(props.employeeId, code, value);
     if (!r.ok) {
       setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
-      return;
+      return false;
     }
     setStatus('Сохранено');
     setTimeout(() => setStatus(''), 1200);
+    return true;
   }
 
   async function createDepartment(label: string): Promise<string | null> {
@@ -686,30 +687,36 @@ export function EmployeeDetailsPage(props: {
     await createPosition(clean);
   }
 
-  async function saveAllAndClose() {
+  async function saveAllAndClose(): Promise<boolean> {
     if (props.canEdit) {
-      await saveAttr('last_name', lastName.trim() || null);
-      await saveAttr('first_name', firstName.trim() || null);
-      await saveAttr('middle_name', middleName.trim() || null);
-      await saveAttr('full_name', computedFullName || null);
-      await saveAttr('personnel_number', personnelNumber.trim() || null);
-      await saveAttr('birth_date', fromInputDate(birthDate));
-      await saveAttr('role', position.trim() || null);
+      const attrs: Array<[string, unknown]> = [
+        ['last_name', lastName.trim() || null],
+        ['first_name', firstName.trim() || null],
+        ['middle_name', middleName.trim() || null],
+        ['full_name', computedFullName || null],
+        ['personnel_number', personnelNumber.trim() || null],
+        ['birth_date', fromInputDate(birthDate)],
+        ['role', position.trim() || null],
+        ['employment_status', employmentStatus],
+        ['hire_date', fromInputDate(hireDate)],
+        ['termination_date', fromInputDate(terminationDate)],
+        ['department_id', departmentId || null],
+        ['workshop_id', workshopId || null],
+        ['transfers', transfers],
+        ['attachments', attachments],
+      ];
+      for (const [code, value] of attrs) {
+        if (!(await saveAttr(code, value))) return false;
+      }
       await ensurePositionInDirectory(position);
-      await saveAttr('employment_status', employmentStatus);
-      await saveAttr('hire_date', fromInputDate(hireDate));
-      await saveAttr('termination_date', fromInputDate(terminationDate));
-      await saveAttr('department_id', departmentId || null);
-      await saveAttr('workshop_id', workshopId || null);
-      await saveAttr('transfers', transfers);
-      await saveAttr('attachments', attachments);
       for (const def of customDefs) {
-        await saveAttr(def.code, (customDraftValues as any)[def.code] ?? null);
+        if (!(await saveAttr(def.code, (customDraftValues as any)[def.code] ?? null))) return false;
       }
       if (employmentStatus === 'fired' && canToggleAccess) {
         const r = await window.matrica.admin.users.update(props.employeeId, { accessEnabled: false });
         setAccountStatus(r.ok ? 'Доступ отключён (уволен)' : `Ошибка: ${r.error ?? 'unknown'}`);
         if (r.ok) props.onAccessChanged?.();
+        else return false;
       }
       // Полный коммит вытесняет recovery-снимок; отменяем отложенный автосейв,
       // чтобы он не переписал черновик после очистки.
@@ -717,6 +724,7 @@ export function EmployeeDetailsPage(props: {
       await clearDraft();
     }
     dirtyRef.current = false;
+    return true;
   }
 
   async function handleDelete() {
@@ -1150,9 +1158,10 @@ export function EmployeeDetailsPage(props: {
 
   useEffect(() => {
     if (!employee) return;
-    // Phase 3d: восстановленный черновик не перетираем повторным сидом (эффект перезапускается
-    // при догрузке customDefs и фоновом reload) — иначе снимок теряется.
-    if (draftRestoredRef.current && dirtyRef.current) return;
+    // Перезагрузка поверх несохранённых правок запрещена (канон #1240): фоновая
+    // перезагрузка (customDefs/дolive-refresh) иначе затирала форму — deps несут
+    // объект attributes целиком, и эффект перезапускается на каждый релоад.
+    if (dirtyRef.current) return;
     const attrs = employee.attributes ?? {};
     const vLast = attrs.last_name;
     const vFirst = attrs.first_name;
@@ -1228,14 +1237,18 @@ export function EmployeeDetailsPage(props: {
     props.registerCardCloseActions({
       isDirty: () => dirtyRef.current,
       saveAndClose: async () => {
-        await saveAllAndClose();
+        if (!(await saveAllAndClose())) throw new Error('сохранение не удалось — панель оставлена открытой');
       },
       reset: async () => {
+        dirtyRef.current = false;
+        cancelPendingDraftSave();
+        await clearDraft();
+        draftRestoredRef.current = false;
         await loadEmployee();
         await loadAccountPerms();
-        dirtyRef.current = false;
       },
       closeWithoutSave: () => {
+        cancelPendingDraftSave();
         dirtyRef.current = false;
         void clearDraft();
       },
@@ -1597,7 +1610,7 @@ export function EmployeeDetailsPage(props: {
           }
           onSaveAndClose={
             props.canEdit
-              ? () => void saveAllAndClose().then(() => props.onClose())
+              ? () => void saveAllAndClose().then((ok) => { if (ok) props.onClose(); }).catch(() => undefined)
               : undefined
           }
           onSaveAsDraft={
@@ -1622,9 +1635,12 @@ export function EmployeeDetailsPage(props: {
             props.canEdit
               ? () =>
                   void (async () => {
+                    dirtyRef.current = false;
+                    cancelPendingDraftSave();
+                    await clearDraft();
+                    draftRestoredRef.current = false;
                     await loadEmployee();
                     await loadAccountPerms();
-                    dirtyRef.current = false;
                   })()
               : undefined
           }
@@ -1993,8 +2009,11 @@ export function EmployeeDetailsPage(props: {
                 employeeRole={String((employee?.attributes ?? {})['system_role'] ?? '')}
                 canEdit={meRole === 'superadmin'}
                 onSaved={() => {
-                  void loadEmployee();
+                  // Зеркало сохранило свой раздел само: форму трогаем только когда она чистая,
+                  // иначе ресид затёр бы несохранённые правки; права обновляем всегда.
                   void loadAccountPerms();
+                  if (dirtyRef.current) return;
+                  void loadEmployee();
                 }}
               />
 
