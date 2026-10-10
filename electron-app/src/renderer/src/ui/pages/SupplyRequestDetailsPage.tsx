@@ -703,8 +703,8 @@ export function SupplyRequestDetailsPage(props: {
     scheduleSave({ ...currentPayload, items });
   }
 
-  async function saveNow(next: SupplyRequestPayload) {
-    if (!props.canEdit) return;
+  async function saveNow(next: SupplyRequestPayload): Promise<boolean> {
+    if (!props.canEdit) return false;
     try {
       setSaveStatus('Сохраняю…');
       // Cancel any pending autosave so it can't re-write the draft after the commit clears it.
@@ -715,7 +715,7 @@ export function SupplyRequestDetailsPage(props: {
       const r = await window.matrica.supplyRequests.update({ id: props.id, payload: next });
       if (!r.ok) {
         setSaveStatus(`Ошибка: ${r.error}`);
-        return;
+        return false;
       }
       // A commit supersedes the recovery snapshot — drop it. A later edit re-arms autosave.
       await clearDraft();
@@ -731,15 +731,38 @@ export function SupplyRequestDetailsPage(props: {
       }
       setSaveStatus('Сохранено');
       setTimeout(() => setSaveStatus(''), 700);
+      return true;
     } catch (e) {
       setSaveStatus(`Ошибка: ${String(e)}`);
+      return false;
     }
   }
 
-  async function saveAllAndClose() {
+  async function saveAllAndClose(): Promise<boolean> {
     if (payload) {
-      await saveNow(payload);
+      if (!(await saveNow(payload))) return false;
     }
+    sessionHadChanges.current = false;
+    return true;
+  }
+
+  /**
+   * Смена статуса с flush (аудит кнопок 10.10.2026): setPayload(r.payload) поверх
+   * несохранённых правок терял грязное. Сначала коммитим локальное, потом переходим;
+   * провал коммита — стоп, статус не меняем.
+   */
+  async function transitionWithFlush(action: string) {
+    if (sessionHadChanges.current && payloadRef.current) {
+      if (!(await saveNow(payloadRef.current))) return;
+    }
+    const r = await window.matrica.supplyRequests.transition({ id: props.id, action });
+    if (!r.ok) {
+      setSaveStatus(`Ошибка: ${r.error}`);
+      return;
+    }
+    setPayload(r.payload);
+    payloadRef.current = r.payload;
+    lastSavedJson.current = JSON.stringify(r.payload);
     sessionHadChanges.current = false;
   }
 
@@ -842,11 +865,16 @@ export function SupplyRequestDetailsPage(props: {
     props.registerCardCloseActions({
       isDirty: () => sessionHadChanges.current,
       saveAndClose: async () => {
-        await saveAllAndClose();
+        if (!(await saveAllAndClose())) throw new Error('сохранение не удалось — панель оставлена открытой');
       },
       reset: async () => {
-        await load();
         sessionHadChanges.current = false;
+        if (draftTimerRef.current != null) {
+          window.clearTimeout(draftTimerRef.current);
+          draftTimerRef.current = null;
+        }
+        await clearDraft();
+        await load();
       },
       closeWithoutSave: () => {
         sessionHadChanges.current = false;
@@ -1050,9 +1078,7 @@ export function SupplyRequestDetailsPage(props: {
             void saveAllAndClose().catch(() => undefined);
           }}
           onSaveAndClose={() => {
-            void saveAllAndClose().then(() => {
-              props.onClose();
-            });
+            void saveAllAndClose().then((ok) => { if (ok) props.onClose(); }).catch(() => undefined);
           }}
           onSaveAsDraft={() => {
             void (async () => {
@@ -1073,9 +1099,15 @@ export function SupplyRequestDetailsPage(props: {
             })();
           }}
           onReset={() => {
-            void load().then(() => {
+            void (async () => {
               sessionHadChanges.current = false;
-            });
+              if (draftTimerRef.current != null) {
+                window.clearTimeout(draftTimerRef.current);
+                draftTimerRef.current = null;
+              }
+              await clearDraft();
+              await load();
+            })();
           }}
           onDelete={payload.requestNumber?.trim() ? () => void handleDelete() : undefined}
           deleteConfirmDetail={`Будет удалена заявка на закупку №${String(payload.requestNumber ?? '').trim() || props.id}${payload.title?.trim() ? ` — «${payload.title.trim()}»` : ''}.`}
@@ -1132,13 +1164,8 @@ export function SupplyRequestDetailsPage(props: {
         <div style={{ display: 'flex', gap: 10, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           {canTransitionSign && (
             <Button
-              onClick={async () => {
-                const r = await window.matrica.supplyRequests.transition({ id: props.id, action: 'sign' });
-                if (!r.ok) {
-                  setSaveStatus(`Ошибка: ${r.error}`);
-                  return;
-                }
-                setPayload(r.payload);
+              onClick={() => {
+                void transitionWithFlush('sign');
               }}
             >
               Подписать (начальник)
@@ -1146,13 +1173,8 @@ export function SupplyRequestDetailsPage(props: {
           )}
           {canTransitionApprove && (
             <Button
-              onClick={async () => {
-                const r = await window.matrica.supplyRequests.transition({ id: props.id, action: 'director_approve' });
-                if (!r.ok) {
-                  setSaveStatus(`Ошибка: ${r.error}`);
-                  return;
-                }
-                setPayload(r.payload);
+              onClick={() => {
+                void transitionWithFlush('director_approve');
               }}
             >
               Одобрить (директор)
@@ -1160,13 +1182,8 @@ export function SupplyRequestDetailsPage(props: {
           )}
           {canTransitionAccept && (
             <Button
-              onClick={async () => {
-                const r = await window.matrica.supplyRequests.transition({ id: props.id, action: 'accept' });
-                if (!r.ok) {
-                  setSaveStatus(`Ошибка: ${r.error}`);
-                  return;
-                }
-                setPayload(r.payload);
+              onClick={() => {
+                void transitionWithFlush('accept');
               }}
             >
               Принять к исполнению (снабжение)
@@ -1175,26 +1192,16 @@ export function SupplyRequestDetailsPage(props: {
           {canTransitionFulfill && (
             <>
               <Button
-                onClick={async () => {
-                  const r = await window.matrica.supplyRequests.transition({ id: props.id, action: 'fulfill_full' });
-                  if (!r.ok) {
-                    setSaveStatus(`Ошибка: ${r.error}`);
-                    return;
-                  }
-                  setPayload(r.payload);
+                onClick={() => {
+                  void transitionWithFlush('fulfill_full');
                 }}
               >
                 Исполнена полностью
               </Button>
               <Button
                 variant="ghost"
-                onClick={async () => {
-                  const r = await window.matrica.supplyRequests.transition({ id: props.id, action: 'fulfill_partial' });
-                  if (!r.ok) {
-                    setSaveStatus(`Ошибка: ${r.error}`);
-                    return;
-                  }
-                  setPayload(r.payload);
+                onClick={() => {
+                  void transitionWithFlush('fulfill_partial');
                 }}
               >
                 Исполнена частично
@@ -1261,7 +1268,7 @@ export function SupplyRequestDetailsPage(props: {
             )}
 
           <div style={{ flex: 1 }} />
-          {props.canEdit && <div style={{ color: 'var(--subtle)', fontSize: 12 }}>Автосохранение: изменения сохраняются автоматически.</div>}
+          {props.canEdit && <div style={{ color: 'var(--subtle)', fontSize: 12 }}>Черновик: несохранённое переживёт крах и закроется вопросом, сама заявка пишется кнопкой «Сохранить».</div>}
         </div>
       </SectionCard>
 
