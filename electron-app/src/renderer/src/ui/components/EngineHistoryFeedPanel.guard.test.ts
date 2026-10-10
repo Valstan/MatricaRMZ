@@ -182,22 +182,22 @@ describe('лента не потеряла то, ради чего её стро
     expect(CARD).not.toContain('Статусы ремонта');
   });
 
-  it('кнопка «Провести дефектовку» по-прежнему отмечает этап сама', () => {
+  it('кнопки проведения больше не пишут этапы сами — их выводит акт', () => {
+    // Унификация актов, шаг 3: conduct пишет только акт, этап arrival/disassembly_defect
+    // выводится из его дат читателями (дедуп по построению, второго носителя нет).
     const CHECKLIST = src('./RepairChecklistPanel.tsx');
-    expect(CHECKLIST).toContain("window.matrica.workSheets.stages.save({");
-    expect(CHECKLIST).toContain("code: 'disassembly_defect'");
-    expect(CHECKLIST).toContain('!rows.some((r) => r.code ===');
-    expect(CHECKLIST).toContain("code: 'arrival'");
+    expect(CHECKLIST).not.toContain('workSheets.stages.list');
+    expect(CHECKLIST).not.toContain('workSheets.stages.save');
+    expect(CHECKLIST).not.toContain('Этап «Приемка» отмечен.');
+    expect(CHECKLIST).not.toContain('Этап «Разборка/Дефектовка» отмечен.');
   });
 
-  // Дефектовка 30.09.2026: этап вставал датой НАЖАТИЯ кнопки, а не «Дата разборки/дефектовки»
-  // из вкладки акта — по смыслу этап уезжал за обкатку.
-  it('дата этапа дефектовки — из поля акта, не из момента нажатия', () => {
+  // Дефектовка 30.09.2026 + унификация 10.10.2026: дата нужна проведению, а этап
+  // берёт её из акта сам — поле по-прежнему обязательно, записи этапа здесь нет.
+  it('дата этапа дефектовки — из поля акта, этап отдельно не пишется', () => {
     const CHECKLIST = src('./RepairChecklistPanel.tsx');
     expect(CHECKLIST).toContain('answers as any)?.defect_start_date');
-    expect(CHECKLIST).toContain('atMs: defectStartMs');
-    const stageBlock = CHECKLIST.slice(CHECKLIST.indexOf("code: 'disassembly_defect'") - 1200, CHECKLIST.indexOf("code: 'disassembly_defect'") + 200);
-    expect(stageBlock).not.toContain('atMs: Date.now()');
+    expect(CHECKLIST).toContain('без неё провести дефектовку нельзя');
   });
 });
 
