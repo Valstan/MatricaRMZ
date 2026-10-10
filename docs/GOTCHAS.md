@@ -154,6 +154,7 @@
 | M148 | Выкат «прошёл», а на проде старый код: `deploy-backend.sh` взял **устаревший** прогон `backend-dist`, а `/health` отвечает новой версией, потому что читает `package.json` из клона, а не из артефакта | [M148](#m148--выкат-прошёл-а-на-проде-старый-код-по-health-этого-не-видно) |
 | M149 | «Не могу занести договор — ошибку выдаёт»: сервис написан, тесты зелёные, а дверь отвечает 404 — роутер смонтирован дважды (`/contracts` + `/contracts` внутри) | [M149](#m149--сервис-покрыт-тестами-а-дверь-мёртвая-путь--часть-контракта) |
 | M150 | Merge дублей: move атрибута на другую сущность тем же id — PK-конфликт; fills только новыми uuid | [M150](#m150--merge-дублей-move-атрибута-тем-же-id--pk-конфликт-fills-только-новыми-uuid) |
+| M151 | CI-гейт краснеет от Docker Hub, а не от кода: `migrate-and-verify` и `toomanyrequests`/TLS-timeout на pull `postgres:17` | [M151](#m151--ci-гейт-краснеет-от-docker-hub-а-не-от-кода-migrate-and-verify-и-toomanyrequests) |
 
 ---
 
@@ -1434,3 +1435,10 @@ await send(ws, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: r.x, y: r
 - **Корень:** `attribute_values_entity_attr_uq` — НЕ partial: вторая строка с той же парой запрещена даже потёртой. Upsert чужим id работает только когда НОВАЯ пара уже существует (тогда on-conflict обновляет). Смена сущности = новая пара = чистый INSERT = PK-дубль.
 - **Лечение:** fills — НОВЫМИ uuid (`setEntityAttribute` и `engineDedupeService` делают ровно так: update существующей строки пары либо insert новым id), loser-строки — надгробиями тем же id. Для операций/сущностей/строк move тем же id безопасен (там конфликт идёт по PK).
 - **Правило:** переносишь EAV-значение на другую сущность — всегда новый id + гашение старого; re-point id — только внутри той же пары `(entity, def)`.
+
+## M151 — CI-гейт краснеет от Docker Hub, а не от кода: `migrate-and-verify` и `toomanyrequests`
+
+- **Симптом (10.10.2026, PR #1250/#1251):** `migrate-and-verify` упал 4 прогона подряд с `Error response from daemon: Head "https://registry-1.docker.io/v2/library/postgres/manifests/17": … context deadline exceeded` и `toomanyrequests: You have reached your unauthenticated pull rate limit`. `gh run view --log-failed` — красное только в шаге `Initialize containers`, ни один код-шаг не запускался.
+- **Корень:** workflow поднимает PostgreSQL service-container (`postgres:17`) через Docker Hub; на общих раннерах GitHub анонимный пул лимитирован по IP/токену. Это полностью внешний флейк: дифф мог быть markdown'ом, тесты/typecheck/lint — зелёными.
+- **Лечение:** `gh run rerun <run-id> --failed` — новый раннер = новый IP; обычно проходит за 1–3 попытки (10.10 отпустило на 5-м прогоне). Новый PR с тем же диффом — второй рабочий путь.
+- **Правило (важно):** red гейт ≠ красный код. Сначала смотреть лог упавшего ШАГА: если падение в initialize/pull/docker — это инфраструктура, ретраить, а не чинить «тест». **Branch protection с `enforce_admins=true` корректно блокирует даже `--admin` мерж на красном required-check** — обход защиты (снятие enforce_admins / удаление required check) под флейк НЕ применяем; ждём ретрая. Если флейк за 3+ ретраев не проходит — сообщить владельцу и оставить PR открытым.
