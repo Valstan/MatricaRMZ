@@ -180,7 +180,7 @@ const SUBTABLE_PAGES = [
   'RepairFundAuditPage', 'ReportPresetPage', 'ServicesByBrandPage', 'StockDocumentDetailsPage', 'StockInventoryPage',
   'SuperadminAuditPage', 'SupplyRequestDetailsPage', 'SupplyToolMovementsPage', 'ToolDetailsPage', 'ToolPropertiesPage',
   'WarehouseLocationsAdminPage', 'WarehouseLocationsPage', 'WorkOrderDetailsPage', 'WorkOrderTemplatesPage',
-  'ServicePriceOrdersPage', 'TimesheetsPage',
+  'ServicePriceOrdersPage', 'TimesheetsPage', 'PpeCardsPage', 'PpeNormsPage', 'PpeStockPage',
 ].map((name) => [name, src(`../pages/${name}.tsx`)] as const);
 const SUBTABLE_COMPONENTS = [
   'AssemblyReturnDialog', 'DocumentHistoryPanel', 'EngineDismantlePreviewDialog', 'NomenclatureTemplateCompositionEditor',

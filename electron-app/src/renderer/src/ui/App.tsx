@@ -239,6 +239,8 @@ const SupplyToolMovementsPage = lazyPage('./pages/SupplyToolMovementsPage.tsx', 
 const ServicesPage = lazyPage('./pages/ServicesPage.tsx', 'ServicesPage');
 const ServicePriceOrdersPage = lazyPage('./pages/ServicePriceOrdersPage.tsx', 'ServicePriceOrdersPage');
 const PpeNormsPage = lazyPage('./pages/PpeNormsPage.tsx', 'PpeNormsPage');
+const PpeCardsPage = lazyPage('./pages/PpeCardsPage.tsx', 'PpeCardsPage');
+const PpeStockPage = lazyPage('./pages/PpeStockPage.tsx', 'PpeStockPage');
 const UserScreensPage = lazyPage('./pages/UserScreensPage.tsx', 'UserScreensPage');
 const UserScreenViewPage = lazyPage('./pages/UserScreenViewPage.tsx', 'UserScreenViewPage');
 const ScreenEditorPage = lazyPage('./pages/ScreenEditorPage.tsx', 'ScreenEditorPage');
@@ -2912,7 +2914,7 @@ export function App() {
     ...(caps.canViewEmployees ? (['employees'] as const) : []),
     ...(caps.canViewTimesheets ? (['timesheets'] as const) : []),
     ...(caps.canViewMasterData
-      ? (['nomenclature', 'parts_dedupe', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'repair_fund_audit', 'warehouse_analytics', 'engine_assembly_bom', 'repair_norms', 'ppe_norms'] as const)
+      ? (['nomenclature', 'parts_dedupe', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'repair_fund_audit', 'warehouse_analytics', 'engine_assembly_bom', 'repair_norms', 'ppe_cards', 'ppe_norms', 'ppe_stock'] as const)
       : []),
     ...(caps.canUseUpdates ? (['changes'] as const) : []),
     ...(authStatus.loggedIn ? (['notes'] as const) : []),
@@ -5789,6 +5791,14 @@ export function App() {
 
         {t === 'ppe_norms' && (
           <PpeNormsPage canEdit={caps.canEditNomenclature} />
+        )}
+
+        {t === 'ppe_cards' && (
+          <PpeCardsPage canEdit={caps.canEditNomenclature} canIssue={caps.canPostWarehouseDocs} />
+        )}
+
+        {t === 'ppe_stock' && (
+          <PpeStockPage />
         )}
 
         {t === 'services_by_brand' && (
