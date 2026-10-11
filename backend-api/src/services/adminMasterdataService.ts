@@ -9,6 +9,7 @@ import {
   STATUS_CODES,
   STATUS_LABELS,
   SyncTableName,
+  WorkOrderKind,
   attributeDefRowSchema,
   attributeValueRowSchema,
   collectContractEntityReferences,
@@ -16,13 +17,19 @@ import {
   collectWorkOrderEntityReferences,
   contractInternalNumberDuplicateMessage,
   contractInternalNumberKey,
+  deriveWorkOrderStatusCode,
   engineInternalNumberDuplicateMessage,
   entityRowSchema,
   entityTypeRowSchema,
+  isAssemblyWorkOrderBlocking,
   isScrapResolvedFor,
   isServerOnlyAttrCode,
   isSuperadminOnlyAttrCode,
+  resolveAssemblyEngineId,
+  workOrderWithdrawnAt,
+  type AssemblyEngineWorkOrderRef,
   type StatusCode,
+  type WorkOrderPayload,
 } from '@matricarmz/shared';
 import { db } from '../database/db.js';
 import { attributeDefs, attributeValues, directoryParts, entities, entityTypes, erpContractPaymentSlots, erpEngineAssemblyBomBrandLinks, operations, rowOwners } from '../database/schema.js';
@@ -1277,6 +1284,80 @@ async function recordEngineStatusAudit(args: {
   );
 }
 
+/**
+ * Действующие сборочные наряды двигателя (зеркало клиентского
+ * `listAssemblyWorkOrdersForEngine`): блокируют только наряды в работе
+ * (`issued`/`overdue`), выполненные и отозванные двигатель не держат.
+ */
+export async function listOpenAssemblyWorkOrdersForEngine(engineId: string): Promise<AssemblyEngineWorkOrderRef[]> {
+  const target = String(engineId ?? '').trim();
+  if (!target) return [];
+  const now = nowMs();
+  const rows = await db
+    .select()
+    .from(operations)
+    .where(and(eq(operations.operationType, 'work_order'), isNull(operations.deletedAt)))
+    .orderBy(desc(operations.updatedAt))
+    .limit(5000);
+  const out: AssemblyEngineWorkOrderRef[] = [];
+  for (const row of rows as Array<Record<string, unknown>>) {
+    const parsed = safeJsonParse(String(row.metaJson ?? '')) as Record<string, unknown> | null;
+    if (!parsed || typeof parsed !== 'object' || String(parsed.kind ?? '') !== 'work_order') continue;
+    const payload = parsed as unknown as WorkOrderPayload;
+    if (payload.workOrderKind !== WorkOrderKind.Assembly) continue;
+    if (resolveAssemblyEngineId(payload) !== target) continue;
+    const operationStatus = String(row.status ?? 'open');
+    const statusCode = deriveWorkOrderStatusCode({
+      operationStatus,
+      dueDate: payload.dueDate ?? null,
+      completedAt: operationStatus === 'closed' ? Number(row.updatedAt ?? 0) : null,
+      completedDate: payload.completedDate ?? null,
+      withdrawnAt: workOrderWithdrawnAt(payload as unknown as Record<string, unknown>),
+      now,
+    });
+    const ref: AssemblyEngineWorkOrderRef = {
+      id: String(row.id ?? ''),
+      workOrderNumber: Number(payload.workOrderNumber) > 0 ? Math.trunc(Number(payload.workOrderNumber)) : 0,
+      orderDate: Number(payload.orderDate) > 0 ? Number(payload.orderDate) : Number(row.createdAt ?? 0) || 0,
+      statusCode,
+    };
+    if (isAssemblyWorkOrderBlocking(ref)) out.push(ref);
+  }
+  return out;
+}
+
+/**
+ * Мягкий шаг гейта отгрузки: галку «Отправлен заказчику» ставят и не-UI пути
+ * (sync-push старых клиентов, web-admin, скрипты), которые модалку закрытия
+ * наряда не проходят. Жёсткий блок невозможен (offline-first уже закоммитил),
+ * поэтому только warning-запись в журнал рядом с `recordEngineStatusAudit`.
+ */
+async function auditShipmentWithOpenAssemblyWorkOrders(args: { actor: Actor; entityId: string; ts: number }): Promise<void> {
+  const open = await listOpenAssemblyWorkOrdersForEngine(args.entityId);
+  if (open.length === 0) return;
+  const auditId = randomUUID();
+  await insertChangeLog(
+    SyncTableName.AuditLog,
+    auditId,
+    {
+      id: auditId,
+      actor: args.actor.username,
+      action: 'engine_shipment_with_open_assembly',
+      entity_id: args.entityId,
+      table_name: SyncTableName.Entities,
+      payload_json: JSON.stringify({
+        engineId: args.entityId,
+        openWorkOrders: open.map((ref) => ({ id: ref.id, number: ref.workOrderNumber, status: ref.statusCode })),
+      }),
+      created_at: args.ts,
+      updated_at: args.ts,
+      deleted_at: null,
+      sync_status: 'synced',
+    },
+    args.actor,
+  );
+}
+
 export async function setEntityAttribute(
   actor: Actor,
   entityId: string,
@@ -1450,6 +1531,12 @@ export async function setEntityAttribute(
       toRaw: payloadJson,
       ts,
     });
+    if (code === 'status_customer_sent') {
+      const wasSent = parseBooleanJson(existing[0]?.valueJson == null ? null : String(existing[0].valueJson));
+      if (!wasSent && parseBooleanJson(payloadJson)) {
+        await auditShipmentWithOpenAssemblyWorkOrders({ actor, entityId, ts });
+      }
+    }
   }
 
   return { ok: true as const };

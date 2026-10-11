@@ -10,30 +10,33 @@ updated: 2026-10-11
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
 **Status:** ACTIVE
-**Updated:** 2026-10-11 (нитка: конфликт опроса 409 доходит до владельца)
-**Branch:** fix/poll-conflict-alerts-owner
+**Updated:** 2026-10-11 (нитка: серверный аудит отгрузки при открытом наряде)
+**Branch:** fix/shipment-assembly-server-audit
 **Last released version:** v3.72.0 на проде (леджер подписан)
 
 ## Текущая нитка
 
-Смежный пункт D-096 «409 не доходит до владельца» — в работе, код готов:
-`server.sync.pipeline_poll_conflict` эскалирован с `warn` до `error`
-(категория `network` — нотификатор шлёт такие по умолчанию; transient /
-misconfigured остались `warn` сознательно). Существующий unit-тест
-переписан с `warn` на `error` + категория, новый сторож
-`criticalEventsAlertContract.guard.test.ts` держит шов со стороны
-нотификатора. Подрывные проверки обоих швов пройдены (возврат `warn`
-роняет unit; выпадение `network` из категорий роняет сторож).
-Антифлуд проверен чтением (1 раз на событие, 3 на код за 10 мин).
+PENDING-пункт «Гейт "Отправлен заказчику ↔ открытый сборочный наряд" —
+только UI-вход» — в работе, код готов (backend-only, как и просил пункт):
+`setEntityAttribute` при включении `status_customer_sent` у двигателя
+сканирует открытые сборочные наряды (`listOpenAssemblyWorkOrdersForEngine` —
+зеркало клиентского скана: тот же `deriveWorkOrderStatusCode` +
+`isAssemblyWorkOrderBlocking`) и при blocking пишет warning-запись
+`engine_shipment_with_open_assembly` в `audit_log` рядом с
+`recordEngineStatusAudit`. Жёсткого блока нет сознательно (offline-first).
+Тесты `adminMasterdataShipmentAssembly.test.ts` (5, на мок-БД по образцу
+delete-gate): скан, запись с номером наряда, два негатива, соседство
+со штатным аудитом. Подрыв пройден. PENDING-секция удалена.
 
 ## Следующий шаг
 
 Прогнать гейты → открыть PR → дождаться зелёного CI → squash-merge →
-дописать строку COMPLETED. Отдельного релиза не требует. CDP-смоук
-не гнался: серверная классификация, стенд не требуется.
+дописать строку COMPLETED. Отдельного релиза не требует (backend-only,
+сработает со следующим выкатом). CDP-смоук не гнался: серверный аудит,
+стенд не требуется.
 
 ## Контекст
 
-- Предыдущие шаги: #1266–#1273 смержены в main (строки COMPLETED уже в main).
+- Предыдущие шаги: #1266–#1274 смержены в main (строки COMPLETED уже в main).
 - Прод: 3.72.0, `.deploy-backup/20261011-005047`. В PENDING — только фоновые долги.
 - Локальных веток с un-pushed коммитами: нет. Стенд погашен, Node-ABI возвращён.
