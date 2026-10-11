@@ -124,6 +124,9 @@ function recalcTableColumnPlan(table: HTMLTableElement, textMaxCh: number, plann
     for (let r = 0; r < rowCells.length; r += 1) {
       const cell = rowCells[r]?.[col];
       if (!cell) continue;
+      // Полноширинная ячейка (полка редактора, `colSpan` на всю строку) не принадлежит
+      // ни одной колонке: её кнопки взводили чужой минимум, а текст уходил в чужую выборку.
+      if (cell.colSpan > 1) continue;
       // querySelector по ячейке дороже её текста, поэтому спрашиваем только пока интерактив
       // не найден и только у ячеек, внутри которых вообще есть элементы.
       if (!hasInteractiveContent && cell.firstElementChild) {
@@ -164,6 +167,7 @@ function recalcTableColumnPlan(table: HTMLTableElement, textMaxCh: number, plann
       const cell = rowCells[r]?.[col];
       const text = rowTexts[r]?.[col] ?? '';
       if (!cell || !text) continue;
+      if (cell.colSpan > 1) continue;
       if (text.length > maxCh + 2 && !cell.getAttribute('title')) cell.setAttribute('title', text);
     }
   }
