@@ -743,6 +743,13 @@
       "when": 1791199233394,
       "tag": "0106_repair_stage_registry",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1791280800000,
+      "tag": "0107_ppe_workwear",
+      "breakpoints": true
     }
   ]
 }

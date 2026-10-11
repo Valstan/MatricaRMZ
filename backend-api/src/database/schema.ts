@@ -2128,3 +2128,128 @@ export const userSettings = pgTable('user_settings', {
   createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
 });
+
+/** Кладовщик (СИЗ), MVP: нормы выдачи, личные карточки, факты выдачи. Миграция 0107. */
+export const ppeNormSets = pgTable(
+  'ppe_norm_sets',
+  {
+    id: uuid('id').primaryKey(),
+    name: text('name').notNull(),
+    postTitle: text('post_title'),
+    departmentId: uuid('department_id'),
+    validFrom: bigint('valid_from', { mode: 'number' }).notNull(),
+    validTo: bigint('valid_to', { mode: 'number' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    postIdx: index('ppe_norm_sets_post_idx').on(t.postTitle, t.validFrom),
+    departmentIdx: index('ppe_norm_sets_department_idx').on(t.departmentId),
+  }),
+);
+
+export const ppeNormLines = pgTable(
+  'ppe_norm_lines',
+  {
+    id: uuid('id').primaryKey(),
+    normSetId: uuid('norm_set_id')
+      .notNull()
+      .references(() => ppeNormSets.id),
+    nomenclatureId: uuid('nomenclature_id')
+      .notNull()
+      .references(() => erpNomenclature.id),
+    qty: integer('qty').notNull(),
+    wearMonths: integer('wear_months').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    setNomenclatureUq: uniqueIndex('ppe_norm_lines_set_nomenclature_uq')
+      .on(t.normSetId, t.nomenclatureId)
+      .where(sql`${t.deletedAt} is null`),
+    setIdx: index('ppe_norm_lines_set_idx').on(t.normSetId),
+    nomenclatureIdx: index('ppe_norm_lines_nomenclature_idx').on(t.nomenclatureId),
+  }),
+);
+
+export const ppeIssueCards = pgTable(
+  'ppe_issue_cards',
+  {
+    id: uuid('id').primaryKey(),
+    employeeId: uuid('employee_id')
+      .notNull()
+      .references(() => erpEmployeeCards.id),
+    openedAt: bigint('opened_at', { mode: 'number' }).notNull(),
+    closedAt: bigint('closed_at', { mode: 'number' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    employeeOpenUq: uniqueIndex('ppe_issue_cards_employee_open_uq')
+      .on(t.employeeId)
+      .where(sql`${t.closedAt} is null and ${t.deletedAt} is null`),
+    employeeIdx: index('ppe_issue_cards_employee_idx').on(t.employeeId),
+  }),
+);
+
+export const ppeCardNorms = pgTable(
+  'ppe_card_norms',
+  {
+    id: uuid('id').primaryKey(),
+    cardId: uuid('card_id')
+      .notNull()
+      .references(() => ppeIssueCards.id),
+    normSetId: uuid('norm_set_id')
+      .notNull()
+      .references(() => ppeNormSets.id),
+    assignedAt: bigint('assigned_at', { mode: 'number' }).notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    cardSetUq: uniqueIndex('ppe_card_norms_card_set_uq')
+      .on(t.cardId, t.normSetId)
+      .where(sql`${t.deletedAt} is null`),
+    cardIdx: index('ppe_card_norms_card_idx').on(t.cardId),
+  }),
+);
+
+export const ppeIssueEntries = pgTable(
+  'ppe_issue_entries',
+  {
+    id: uuid('id').primaryKey(),
+    cardId: uuid('card_id')
+      .notNull()
+      .references(() => ppeIssueCards.id),
+    nomenclatureId: uuid('nomenclature_id')
+      .notNull()
+      .references(() => erpNomenclature.id),
+    qty: integer('qty').notNull(),
+    issuedAt: bigint('issued_at', { mode: 'number' }).notNull(),
+    documentId: uuid('document_id')
+      .notNull()
+      .references(() => erpDocumentHeaders.id),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    cardIdx: index('ppe_issue_entries_card_idx').on(t.cardId, t.issuedAt),
+    nomenclatureIdx: index('ppe_issue_entries_nomenclature_idx').on(t.nomenclatureId, t.issuedAt),
+    documentIdx: index('ppe_issue_entries_document_idx').on(t.documentId),
+  }),
+);
