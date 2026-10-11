@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { formatWorkSheetValue, type EngineListItem, type WorkSheetColumn, type WorkSheetRow, type WorkSheetType } from '@matricarmz/shared';
+import { formatWorkSheetValue, mergeWorkSheetColumns, type EngineListItem, type WorkSheetColumn, type WorkSheetRow, type WorkSheetType } from '@matricarmz/shared';
 
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { Button } from '../components/Button.js';
@@ -115,7 +115,13 @@ export function WorkSheetDetailsPage(props: {
     // а это ветка правки — подставлять сюда догадку о чужом виде работ незачем.
     return { id: row.typeId, code: row.typeCode, name: row.typeName, completesRepair: false, columns: rowColumns, workshopId: null };
   }, [type, props.isNew, row, rowColumns]);
-  const columns = effectiveType?.columns ?? [];
+  // Колонки для правки — живой справочник плюс коды, оставшиеся в самой строке:
+  // вид работ могли урезать после записи, и правка примечания не должна стирать
+  // значения удалённых колонок (сервер пересобирает поля строго по присланным).
+  const columns = useMemo<WorkSheetColumn[]>(
+    () => mergeWorkSheetColumns(effectiveType?.columns ?? [], row?.fields ?? []),
+    [effectiveType, row],
+  );
 
   // Смена вида работ у НОВОГО этапа подставляет его цех; поля чужого вида не переносим.
   useEffect(() => {
@@ -166,7 +172,7 @@ export function WorkSheetDetailsPage(props: {
             code: effectiveType.code,
             name: effectiveType.name,
             completesRepair: effectiveType.completesRepair,
-            columns: effectiveType.columns,
+            columns,
             workshopId: effectiveType.workshopId,
           },
           atMs,
@@ -215,7 +221,7 @@ export function WorkSheetDetailsPage(props: {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- props пересоздаётся каждый рендер; зависим от редактируемых значений
-    [effectiveType, engineId, date, workshopId, note, values, props.rowId, load, pickChoice],
+    [effectiveType, columns, engineId, date, workshopId, note, values, props.rowId, load, pickChoice],
   );
 
   const remove = async () => {
