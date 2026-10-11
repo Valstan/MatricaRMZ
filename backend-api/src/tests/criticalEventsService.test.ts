@@ -197,7 +197,7 @@ describe('criticalEventsService alert hygiene', () => {
     expect(events[0]?.severity).toBe('warn');
   });
 
-  it('demotes Telegram getUpdates conflict to warn', () => {
+  it('escalates Telegram getUpdates conflict to error so it reaches the owner', () => {
     ingestServerLogForCriticalEvent({
       level: 'warn',
       message: 'sync pipeline bot poll failed',
@@ -212,7 +212,10 @@ describe('criticalEventsService alert hygiene', () => {
     const events = listCriticalEvents({ days: 1, limit: 20 });
     expect(events).toHaveLength(1);
     expect(events[0]?.eventCode).toBe('server.sync.pipeline_poll_conflict');
-    expect(events[0]?.severity).toBe('warn');
+    // error + network: нотификатор шлёт такие владельцу (дефолтные категории),
+    // warn не доходил бы никогда — в этом и был пункт PENDING.
+    expect(events[0]?.severity).toBe('error');
+    expect(events[0]?.category).toBe('network');
   });
 
   it('demotes poll misconfiguration (401) to warn and config code', () => {
