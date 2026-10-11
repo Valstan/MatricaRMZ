@@ -4662,7 +4662,12 @@ export function App() {
     const r = await window.matrica.chat
       .sendDeepLink({ recipientUserId: chatContext.selectedUserId ?? null, link: currentAppLink as any })
       .catch(() => null);
-    if (r && (r as any).ok && !viewMode) void window.matrica.sync.run().catch(() => {});
+    if ((r as any)?.ok) {
+      notifyOperator('Ссылка на текущий раздел отправлена в чат.');
+      if (!viewMode) void window.matrica.sync.run().catch(() => {});
+    } else {
+      notifyOperator(`Не удалось отправить ссылку: ${String((r as any)?.error ?? 'нет связи')}`, 'error');
+    }
   }
 
   /**
