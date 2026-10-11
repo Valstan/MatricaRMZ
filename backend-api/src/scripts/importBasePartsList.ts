@@ -15,13 +15,13 @@
 //
 // ⚠️-места из data-письма НЕ применяются молча: PENDING-позиции и кандидаты-маппинги
 // секции 2 перечисляются в отчёте и ждут решения владельца (#025).
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { directoryPartIdentityKey, groupDirectoryPartDuplicates } from '@matricarmz/shared';
 import type { PartSpecBrandLink } from '@matricarmz/shared';
 import { randomUUID } from 'node:crypto';
 
 import { db } from '../database/db.js';
-import { attributeValues, entities, entityTypes, attributeDefs } from '../database/schema.js';
+import { attributeValues, entities, entityTypes, attributeDefs, erpNomenclature } from '../database/schema.js';
 import {
   createDirectoryPart,
   getWarehouseNomenclaturePartSpec,
@@ -140,6 +140,8 @@ const SECTION2: string[] = [
 // с НЕСКОЛЬКИМИ — существующей дать первый артикул, остальные создать новыми.
 // Применяется только при точном совпадении нормализованного имени; fuzzy-похожие
 // (опечатки, «Картер» vs «Картер верхний») остаются в отчёте на ручной триаж (модуль Т2).
+// Исключение: строка-родитель (есть варианты) не усыновляется — печатается
+// «родитель пропущен», её артикулы заводятся вариантами под ней вручную.
 
 // ── Импорт ──────────────────────────────────────────────────────────────────────
 
@@ -178,6 +180,70 @@ async function loadBrands(): Promise<Array<{ id: string; name: string }>> {
     }
     return { id: String(r.id), name };
   });
+}
+
+// Обобщённые позиции: id строк, у которых есть варианты (дочерние карточки
+// номенклатуры с parent_nomenclature_id на них). Связка directory_parts ↔
+// erp_nomenclature — по одинаковому id.
+async function loadParentIds(candidateIds: string[]): Promise<Set<string>> {
+  const ids = [...new Set(candidateIds.map((id) => String(id ?? '').trim()).filter(Boolean))];
+  if (ids.length === 0) return new Set();
+  const rows = await db
+    .select({ parentId: erpNomenclature.parentNomenclatureId })
+    .from(erpNomenclature)
+    .where(and(inArray(erpNomenclature.parentNomenclatureId, ids as any), isNull(erpNomenclature.deletedAt)));
+  return new Set(rows.map((r) => String(r.parentId ?? '').trim()).filter(Boolean));
+}
+
+export type ImportAdoption = { existingId: string; name: string; code: string; targetKey: string };
+export type SkippedImportParent = { existingId: string; name: string; codes: string[] };
+
+export function selectAdoptions(args: {
+  targets: Iterable<readonly [string, { name: string; code: string | null }]>;
+  existingByName: ReadonlyMap<string, Array<{ id: string; name: string; code: string | null }>>;
+  existingByKey: ReadonlyMap<string, unknown>;
+  parentIds?: ReadonlySet<string>;
+}): {
+  adoptions: ImportAdoption[];
+  adoptedKeys: Set<string>;
+  skippedParents: SkippedImportParent[];
+} {
+  const adoptions: ImportAdoption[] = [];
+  const adoptedKeys = new Set<string>();
+  const adoptedExistingIds = new Set<string>();
+  const skippedParents: SkippedImportParent[] = [];
+  const namesInOrder: string[] = [];
+  const seenNames = new Set<string>();
+  for (const [, t] of args.targets) {
+    const nk = normName(t.name);
+    if (!seenNames.has(nk)) {
+      seenNames.add(nk);
+      namesInOrder.push(nk);
+    }
+  }
+  for (const nk of namesInOrder) {
+    const nameTargets = [...args.targets].filter(([, t]) => normName(t.name) === nk && t.code != null);
+    if (!nameTargets.length) continue;
+    const emptyCodeExisting = (args.existingByName.get(nk) ?? []).filter(
+      (p) => !String(p.code ?? '').trim() && !adoptedExistingIds.has(p.id),
+    );
+    const candidate = emptyCodeExisting[0];
+    if (!candidate) continue;
+    if (args.parentIds?.has(candidate.id)) {
+      skippedParents.push({
+        existingId: candidate.id,
+        name: candidate.name,
+        codes: nameTargets.map(([, t]) => String(t.code)),
+      });
+      continue;
+    }
+    const [firstKey, firstTarget] = nameTargets.find(([key]) => !args.existingByKey.has(key)) ?? [];
+    if (!firstKey || !firstTarget) continue;
+    adoptions.push({ existingId: candidate.id, name: firstTarget.name, code: String(firstTarget.code), targetKey: firstKey });
+    adoptedKeys.add(firstKey);
+    adoptedExistingIds.add(candidate.id);
+  }
+  return { adoptions, adoptedKeys, skippedParents };
 }
 
 async function main() {
@@ -241,32 +307,16 @@ async function main() {
   // In-place присвоение артикула (решение владельца): существующая деталь с тем же
   // нормализованным именем и ПУСТЫМ артикулом получает ПЕРВЫЙ артикул этого имени
   // из списка; остальные артикулы имени создаются новыми деталями.
-  const adoptions: Array<{ existingId: string; name: string; code: string; targetKey: string }> = [];
-  const adoptedKeys = new Set<string>();
-  const adoptedExistingIds = new Set<string>();
-  const namesInOrder: string[] = [];
-  const seenNames = new Set<string>();
-  for (const t of targets.values()) {
-    const nk = normName(t.name);
-    if (!seenNames.has(nk)) {
-      seenNames.add(nk);
-      namesInOrder.push(nk);
-    }
-  }
-  for (const nk of namesInOrder) {
-    const nameTargets = [...targets.entries()].filter(([, t]) => normName(t.name) === nk && t.code != null);
-    if (!nameTargets.length) continue;
-    const emptyCodeExisting = (existingByName.get(nk) ?? []).filter(
-      (p) => !String(p.code ?? '').trim() && !adoptedExistingIds.has(p.id),
-    );
-    const candidate = emptyCodeExisting[0];
-    if (!candidate) continue;
-    const [firstKey, firstTarget] = nameTargets.find(([key]) => !existingByKey.has(key)) ?? [];
-    if (!firstKey || !firstTarget) continue;
-    adoptions.push({ existingId: candidate.id, name: firstTarget.name, code: String(firstTarget.code), targetKey: firstKey });
-    adoptedKeys.add(firstKey);
-    adoptedExistingIds.add(candidate.id);
-  }
+  // Исключение — строка-родитель (у неё есть варианты): присвоение артикула сняло бы
+  // её родительский статус, поэтому её не усыновляем, а печатаем «родитель пропущен» —
+  // её артикулы заводятся вариантами под ней вручную.
+  const parentIds = await loadParentIds(existing.filter((p) => !String(p.code ?? '').trim()).map((p) => p.id));
+  const { adoptions, adoptedKeys, skippedParents } = selectAdoptions({
+    targets,
+    existingByName,
+    existingByKey,
+    parentIds,
+  });
 
   // Классификация: уже есть / присвоить существующей / создать.
   const toCreate: Target[] = [];
@@ -295,6 +345,7 @@ async function main() {
   console.log(`Целевых позиций списка: ${targets.size}`);
   console.log(`— уже есть (совпала пара название+артикул): ${matched.length}`);
   console.log(`— присвоение артикула существующей детали без артикула: ${adoptions.length}`);
+  console.log(`— родитель пропущен (не усыновлён, артикулы завести вариантами вручную): ${skippedParents.length}`);
   console.log(`— будет создано: ${toCreate.length}${defectOnlyCreates.length ? ` (из них только-дефектовка без артикула: ${defectOnlyCreates.join(', ')})` : ''}`);
   console.log(`Флаги: «акт комплектности» → ${[...targets.values()].filter((t) => t.completeness).length} позиций, «акт дефектовки» → ${[...targets.values()].filter((t) => t.defect).length} позиций; секция 2 дополнительно проставит дефектовку на существующие одноимённые детали.`);
   console.log(`Привязка: каждая позиция → все ${brands.length} марок (существующие привязки и узлы сборки сохраняются).\n`);
@@ -304,6 +355,13 @@ async function main() {
     for (const a of adoptions) {
       const ex = existing.find((p) => p.id === a.existingId)!;
       console.log(`  ± «${ex.name}» ← артикул [${a.code}]`);
+    }
+    console.log('');
+  }
+  if (skippedParents.length) {
+    console.log('Родитель пропущен (артикул НЕ присвоен — снял бы родительский статус):');
+    for (const s of skippedParents) {
+      console.log(`  ⊘ «${s.name}» — артикулы [${s.codes.join(', ')}] завести вариантами под ней вручную`);
     }
     console.log('');
   }
@@ -403,7 +461,10 @@ async function main() {
   console.log(`APPLY готово: создано деталей ${created}, артикул присвоен существующим ${adopted}, обновлено привязок/флагов у ${flagged} деталей.`);
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+const isDirectRun = process.argv[1]?.replace(/\\/g, '/').endsWith('importBasePartsList.ts');
+if (isDirectRun) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}
