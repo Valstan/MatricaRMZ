@@ -212,8 +212,21 @@ export function createApp() {
       res.setHeader('Content-Security-Policy', adminUiCsp);
       next();
     });
-    app.use('/admin-ui', express.static(webAdminDir));
+    // Хэшированные ассеты сборки (vite кладёт контент-хэш в имя) неизменяемы —
+    // обещаем это браузеру, иначе парк перекачивает неизменившееся при каждом
+    // заходе. Точка входа, наоборот, обязана проверяться заново всегда.
+    app.use('/admin-ui/assets', express.static(path.join(webAdminDir, 'assets'), { maxAge: '1y', immutable: true }));
+    app.use(
+      '/admin-ui',
+      express.static(webAdminDir, {
+        maxAge: 0,
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache');
+        },
+      }),
+    );
     app.get('/admin-ui/*', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache');
       res.sendFile(path.join(webAdminDir, 'index.html'));
     });
   }
