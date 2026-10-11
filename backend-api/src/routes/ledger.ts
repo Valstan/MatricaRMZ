@@ -92,6 +92,7 @@ ledgerRouter.post('/tx/submit', async (req, res) => {
       txs: z.array(txSchema).min(1).max(5000),
       idempotency_key: z.string().uuid().optional(),
       schema_fingerprint: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
+      client_id: z.string().min(1).max(200).optional(),
     })
     .safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
@@ -125,7 +126,7 @@ ledgerRouter.post('/tx/submit', async (req, res) => {
       ...(tx.row != null ? { row: tx.row } : {}),
       ...(tx.row_id != null ? { row_id: tx.row_id } : {}),
     }));
-    const result = await applyLedgerTxs(txs, { id: user.id, username: user.username, role: user.role });
+    const result = await applyLedgerTxs(txs, { id: user.id, username: user.username, role: user.role }, parsed.data.client_id ?? null);
     const response = {
       ok: true,
       applied: result.ledgerApplied,

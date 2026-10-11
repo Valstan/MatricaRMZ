@@ -135,6 +135,11 @@ describe('android runSync smoke (полный проход push+pull на async-
     const txs = pushBodies.flatMap((b) => (b.txs as Array<Record<string, unknown>>) ?? []);
     expect(JSON.stringify(txs)).toContain(LOCAL_ENTITY_ID);
 
+    // Push подписан машиной, а не аккаунтом (M102): heartbeat на сервере
+    // ложится в строку машины, у машин не пустеет last_pushed_at.
+    expect(pushBodies.length).toBeGreaterThan(0);
+    for (const b of pushBodies) expect(b.client_id).toBe('android-smoke-client');
+
     // Локальная строка помечена synced.
     const local = await adapter.get<{ sync_status: string }>(`SELECT sync_status FROM entities WHERE id = ?`, [
       LOCAL_ENTITY_ID,

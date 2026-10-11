@@ -43,7 +43,7 @@ function ensureSyncTable(table: LedgerTableName): SyncTableName | null {
   return Object.values(SyncTableName).includes(table as SyncTableName) ? (table as SyncTableName) : null;
 }
 
-export async function applyLedgerTxs(txs: LedgerTxInput[], actor: SyncActor) {
+export async function applyLedgerTxs(txs: LedgerTxInput[], actor: SyncActor, clientId: string | null = null) {
   const inputs: SyncWriteInput[] = [];
   for (const tx of txs) {
     const table = ensureSyncTable(tx.table);
@@ -66,6 +66,7 @@ export async function applyLedgerTxs(txs: LedgerTxInput[], actor: SyncActor) {
     id: actor.id,
     username: actor.username,
     role: actor.role,
+    ...(clientId ? { clientId } : {}),
   };
 
   // RBAC #474: per-operation authz on the ledger write path. Forbidden writes

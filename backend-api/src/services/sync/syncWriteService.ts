@@ -28,6 +28,9 @@ export type SyncWriteActor = {
   id: string;
   username: string;
   role?: string | undefined;
+  /** Машина-отправитель (client_id из тела push). Нет у старых сборок и у
+   * серверных писателей — тогда heartbeat идёт по id аккаунта, как раньше. */
+  clientId?: string | undefined;
 };
 
 export type SyncWriteOptions = {
@@ -292,7 +295,7 @@ export async function writeSyncChanges(
     pushOpts.allowSyncConflicts = opts.allowSyncConflicts;
   }
   const dbResult = await applyPushBatch(
-    { client_id: actor.id || actor.username || 'server', upserts: upsertsWithSeq },
+    { client_id: actor.clientId || actor.id || actor.username || 'server', upserts: upsertsWithSeq },
     pushActor,
     pushOpts,
   );
