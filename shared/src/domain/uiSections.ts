@@ -37,6 +37,11 @@ export type TabId =
   | 'stock_inventory'
   | 'repair_fund_audit'
   | 'warehouse_analytics'
+  | 'ppe_cards'
+  | 'ppe_card'
+  | 'ppe_norms'
+  | 'ppe_stock'
+  | 'ppe_reports'
   | 'workshop_stats'
   | 'custom_reports'
   | 'report_templates'
@@ -91,6 +96,7 @@ export type MenuTabId = Exclude<
   | 'nomenclature_item'
   | 'stock_document'
   | 'counterparty'
+  | 'ppe_card'
   | 'tool'
   | 'tool_property'
   | 'tool_properties'
@@ -121,6 +127,7 @@ const PARENT_TAB: Record<string, MenuTabId> = {
   service: 'nomenclature',
   nomenclature_item: 'nomenclature',
   stock_document: 'stock_documents',
+  ppe_card: 'ppe_cards',
   engine_assembly_bom_item: 'engine_assembly_bom',
   request: 'requests',
   report_preset: 'reports',
@@ -160,6 +167,10 @@ const menuTabSet = new Set<MenuTabId>([
   'stock_inventory',
   'repair_fund_audit',
   'warehouse_analytics',
+  'ppe_cards',
+  'ppe_norms',
+  'ppe_stock',
+  'ppe_reports',
   'workshop_stats',
   'engine_assembly_bom',
   'repair_norms',
@@ -195,6 +206,7 @@ export type MenuGroupId =
   | 'production'
   | 'supply'
   | 'warehouse'
+  | 'workwear'
   | 'business'
   | 'people'
   | 'control';
@@ -204,6 +216,7 @@ export const GROUP_LABELS: Record<MenuGroupId, string> = {
   production: 'Производство',
   supply: 'Снабжение',
   warehouse: 'Склад',
+  workwear: 'Кладовщик',
   business: 'Договоры и контрагенты',
   people: 'Персонал и доступ',
   control: 'Контроль и аналитика',
@@ -243,6 +256,10 @@ export const MENU_TAB_LABELS: Record<MenuTabId, string> = {
   stock_inventory: 'Инвентаризация',
   repair_fund_audit: 'Ревизия ремфонда',
   warehouse_analytics: 'Аналитика выпуска',
+  ppe_cards: 'Карточки СИЗ',
+  ppe_norms: 'Нормы выдачи',
+  ppe_stock: 'Склад СИЗ',
+  ppe_reports: 'Отчёты СИЗ',
   workshop_stats: 'Статистика цехов',
   employees: 'Сотрудники',
   timesheets: 'Табель',
@@ -262,12 +279,13 @@ export const MENU_TAB_LABELS: Record<MenuTabId, string> = {
   warehouse_locations: 'Локации',
 };
 
-export const DEFAULT_GROUP_ORDER: MenuGroupId[] = ['history', 'production', 'supply', 'warehouse', 'business', 'people', 'control'];
+export const DEFAULT_GROUP_ORDER: MenuGroupId[] = ['history', 'production', 'supply', 'warehouse', 'workwear', 'business', 'people', 'control'];
 export const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   history: ['history', 'user_screens'],
   production: ['engines', 'work_sheets', 'assembly_forecast', 'engine_brands', 'engine_brand_groups', 'parts', 'engine_assembly_bom', 'repair_norms', 'tools'],
   supply: ['requests', 'work_orders', 'work_order_templates', 'services', 'services_by_brand', 'service_price_orders', 'tool_accounting'],
   warehouse: ['nomenclature', 'parts_dedupe', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'repair_fund_audit', 'warehouse_analytics'],
+  workwear: ['ppe_cards', 'ppe_norms', 'ppe_stock', 'ppe_reports'],
   business: ['contracts', 'counterparties'],
   people: ['employees', 'timesheets', 'access_sections'],
   control: ['reports', 'custom_reports', 'report_templates', 'changes', 'audit', 'notes', 'masterdata', 'workshops', 'workshop_stats', 'warehouses_admin', 'empty_cards', 'drafts', 'admin'],

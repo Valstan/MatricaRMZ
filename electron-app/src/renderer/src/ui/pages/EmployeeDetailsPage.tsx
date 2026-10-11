@@ -482,6 +482,10 @@ export function EmployeeDetailsPage(props: {
       { code: 'department_id', name: 'Подразделение', dataType: 'link', sortOrder: 100, metaJson: JSON.stringify({ linkTargetTypeCode: 'department' }) },
       // Цех — справочник directory_workshops (не EAV-entity), поэтому text-атрибут с UUID цеха; UI резолвит имя по workshops.list().
       { code: 'workshop_id', name: 'Цех', dataType: 'text', sortOrder: 105 },
+      // Кладовщик (СИЗ), MVP: фактические размеры сотрудника для подбора размера выдачи.
+      { code: 'ppe_size_clothes', name: 'Размер одежды', dataType: 'text', sortOrder: 106 },
+      { code: 'ppe_size_shoes', name: 'Размер обуви', dataType: 'text', sortOrder: 107 },
+      { code: 'ppe_height', name: 'Рост', dataType: 'text', sortOrder: 108 },
     ];
     void ensureAttributeDefs(employeeTypeId, desired, employeeDefs as unknown as AttributeDefRow[]).then((next) => {
       if (next.length !== employeeDefs.length) setEmployeeDefs(next as AttrDef[]);

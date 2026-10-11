@@ -2237,6 +2237,74 @@ export type MatricaApi = {
     };
     current: (nomenclatureId: string) => Promise<{ ok: true; row: ServicePriceHistoryDto | null } | { ok: false; error: string }>;
   };
+  /** Кладовщик (СИЗ): нормы и карточки живут только на сервере (REST `/ppe/*`). */
+  ppe: {
+    norms: {
+      list: (args?: { postTitle?: string }) => Promise<
+        | { ok: true; rows: Array<{ id: string; name: string; postTitle: string | null; validFrom: number; validTo: number | null; linesCount: number }> }
+        | { ok: false; error: string }
+      >;
+      get: (id: string) => Promise<
+        | {
+            ok: true;
+            normSet: {
+              id: string;
+              name: string;
+              postTitle: string | null;
+              validFrom: number;
+              validTo: number | null;
+              lines: Array<{ id: string; nomenclatureId: string; qty: number; wearMonths: number }>;
+            };
+          }
+        | { ok: false; error: string }
+      >;
+      upsert: (args: {
+        id?: string;
+        name: string;
+        postTitle?: string | null;
+        departmentId?: string | null;
+        validFrom?: number;
+        validTo?: number | null;
+        lines: Array<{ nomenclatureId: string; qty: number; wearMonths: number }>;
+      }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    };
+    cards: {
+      open: (args: { employeeId: string }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+      get: (id: string) => Promise<
+        | {
+            ok: true;
+            card: {
+              id: string;
+              employeeId: string;
+              openedAt: number;
+              closedAt: number | null;
+              norms: Array<{ normSetId: string; name: string; assignedAt: number }>;
+              entries: Array<{ id: string; nomenclatureId: string; qty: number; issuedAt: number; documentId: string }>;
+            };
+          }
+        | { ok: false; error: string }
+      >;
+      byEmployee: (employeeId: string) => Promise<
+        | {
+            ok: true;
+            card: {
+              id: string;
+              employeeId: string;
+              openedAt: number;
+              closedAt: number | null;
+              norms: Array<{ normSetId: string; name: string; assignedAt: number }>;
+              entries: Array<{ id: string; nomenclatureId: string; qty: number; issuedAt: number; documentId: string }>;
+            };
+          }
+        | { ok: false; error: string }
+      >;
+      assignNorms: (args: { cardId: string; normSetIds: string[] }) => Promise<{ ok: true; assigned: number } | { ok: false; error: string }>;
+      close: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+      issue: (args: { cardId: string; warehouseId: string; docNo?: string; lines: Array<{ nomenclatureId: string; qty: number }> }) => Promise<
+        { ok: true; documentId: string; entries: number } | { ok: false; error: string }
+      >;
+    };
+  };
   /** Этапы работ: узлы — REST-справочник сервера; строки — записи истории ремонта (`operations`). */
   workSheets: {
     types: {
