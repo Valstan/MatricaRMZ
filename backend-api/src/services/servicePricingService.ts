@@ -1,11 +1,19 @@
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lte } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { resolveEffectiveServicePrice, type ServicePriceHistoryDto, type ServicePriceOrderDto } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
-import { erpNomenclature, servicePriceHistory, servicePriceOrders } from '../database/schema.js';
+import { attributeDefs, attributeValues, erpNomenclature, servicePriceHistory, servicePriceOrders } from '../database/schema.js';
 import { setEntityAttribute } from './adminMasterdataService.js';
+import { getInstanceRole, shouldRunBackgroundJobs } from './instanceRole.js';
+import { logInfo, logWarn } from '../utils/logger.js';
+
+const SYSTEM_ACTOR = { id: 'system', username: 'system', role: 'system' } as const;
+const PRICE_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const PRICE_SWEEP_FIRST_DELAY_MS = 10 * 60 * 1000;
+
+let sweepTimer: NodeJS.Timeout | null = null;
 
 export type ServicePriceOrder = ServicePriceOrderDto;
 export type ServicePriceHistoryRow = ServicePriceHistoryDto & { nomenclatureName: string | null; nomenclatureCode: string | null };
@@ -310,5 +318,87 @@ export async function getCurrentServicePrice(nomenclatureId: string): Promise<Re
     return { ok: true, row: resolveEffectiveServicePrice(rows.map(toHistoryDto), nowMs()) };
   } catch (e) {
     return { ok: false, error: String(e) };
+  }
+}
+
+export type ServicePriceSweepResult = { checked: number; applied: number; skipped: number; failed: number };
+
+/**
+ * Ночной проход: цена «с 1-го числа» попадает в карточку без напоминаний.
+ * Событийный путь (`setServicePriceByOrder`, удаление строки) применяет цену
+ * только в момент правки, поэтому будущая строка, чья дата наступила между
+ * правками, висела бы в карточке старой ценой. Проход трогает только карточки,
+ * чья цена разошлась с действующей, — иначе каждая ночь писала бы весь каталог
+ * в журнал (запись без изменений у `setEntityAttribute` всё равно журналируется).
+ */
+export async function sweepDueServicePrices(now = Date.now()): Promise<ServicePriceSweepResult> {
+  const result: ServicePriceSweepResult = { checked: 0, applied: 0, skipped: 0, failed: 0 };
+  const dueRows = await db
+    .select({ nomenclatureId: servicePriceHistory.nomenclatureId })
+    .from(servicePriceHistory)
+    .where(and(isNull(servicePriceHistory.deletedAt), lte(servicePriceHistory.effectiveFrom, now)));
+  const ids = [...new Set(dueRows.map((r) => String(r.nomenclatureId ?? '').trim()).filter(Boolean))];
+  for (const id of ids) {
+    result.checked += 1;
+    const rows = await db
+      .select()
+      .from(servicePriceHistory)
+      .where(and(eq(servicePriceHistory.nomenclatureId, id), isNull(servicePriceHistory.deletedAt)));
+    const effective = resolveEffectiveServicePrice(rows.map(toHistoryDto), now);
+    if (!effective) {
+      result.skipped += 1;
+      continue;
+    }
+    const current = await db
+      .select({ valueJson: attributeValues.valueJson })
+      .from(attributeValues)
+      .innerJoin(attributeDefs, eq(attributeValues.attributeDefId, attributeDefs.id))
+      .where(and(eq(attributeValues.entityId, id as any), eq(attributeDefs.code, 'price'), isNull(attributeValues.deletedAt)))
+      .limit(1);
+    let currentPrice: number | null = null;
+    try {
+      const parsed = JSON.parse(String(current[0]?.valueJson ?? ''));
+      currentPrice = Number.isFinite(Number(parsed)) ? Number(parsed) : null;
+    } catch {
+      currentPrice = null;
+    }
+    if (currentPrice === effective.price) {
+      result.skipped += 1;
+      continue;
+    }
+    const applied = await applyEffectiveServicePriceToCard(SYSTEM_ACTOR, id, now);
+    if (applied.ok && applied.applied) {
+      result.applied += 1;
+    } else {
+      result.failed += 1;
+      logWarn('service price nightly sweep: card not updated', {
+        nomenclatureId: id,
+        price: effective.price,
+        error: applied.ok ? (applied.reason ?? 'not applied') : applied.error,
+      });
+    }
+  }
+  logInfo('service prices nightly sweep', { ...result });
+  return result;
+}
+
+export function startServicePriceSweepJob() {
+  if (sweepTimer) return;
+  if (!shouldRunBackgroundJobs(getInstanceRole())) {
+    logInfo('service price sweep skipped on non-primary instance');
+    return;
+  }
+  const tick = () => {
+    sweepDueServicePrices().catch((e) => logWarn('service prices sweep failed', { error: String(e) }));
+  };
+  sweepTimer = setInterval(tick, PRICE_SWEEP_INTERVAL_MS);
+  sweepTimer.unref?.();
+  setTimeout(tick, PRICE_SWEEP_FIRST_DELAY_MS).unref?.();
+}
+
+export function stopServicePriceSweepJob() {
+  if (sweepTimer) {
+    clearInterval(sweepTimer);
+    sweepTimer = null;
   }
 }

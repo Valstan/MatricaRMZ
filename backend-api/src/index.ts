@@ -10,6 +10,7 @@ import { startAiAgentChatLearningService } from './services/aiAgentChatLearningS
 import { startAiChatHistoryCleanup } from './services/ai/aiChatHistoryService.js';
 import { startFileCacheEvictionJob } from './services/fileCache.js';
 import { startDiagnosticsRetentionJob } from './services/diagnosticsRetentionService.js';
+import { startServicePriceSweepJob } from './services/servicePricingService.js';
 import { startAiChatDirectWorker } from './services/ai/aiChatAnswerService.js';
 import { startAiChatHotlineBridge } from './services/ai/aiChatHotlineBridgeService.js';
 import { startAiUsageDigestScheduler } from './services/ai/aiUsageDigestService.js';
@@ -112,6 +113,8 @@ async function bootstrap() {
     startFileCacheEvictionJob();
     // Решение владельца 04.09: diagnostics_snapshots (server/client/ai_agent_event) — 90 дней.
     startDiagnosticsRetentionJob();
+    // Цена «с 1-го числа» из приказа — в карточку услуги ночным проходом, без напоминаний.
+    startServicePriceSweepJob();
     startAiChatDirectWorker();
     // D-111: мост очереди ИИваныча в Телефон (живая сессия отвечает, пока DeepSeek не оплачен).
     startAiChatHotlineBridge();
