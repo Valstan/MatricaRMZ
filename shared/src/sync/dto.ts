@@ -323,6 +323,48 @@ export const erpEngineCardRowSchema = z.object({
   docs_note: z.string().nullable().optional(),
 });
 
+// Кладовщик (СИЗ), MVP: мягкие намеренно, как erpEngineCardRowSchema выше, —
+// повторяют ровно форму БД (миграция 0107). Строгость здесь роняла бы строки из pull молча.
+export const ppeNormSetRowSchema = z.object({
+  ...baseRowFields,
+  name: z.string().min(1),
+  post_title: z.string().nullable().optional(),
+  department_id: z.string().uuid().nullable().optional(),
+  valid_from: z.number().int(),
+  valid_to: z.number().int().nullable().optional(),
+});
+
+export const ppeNormLineRowSchema = z.object({
+  ...baseRowFields,
+  norm_set_id: z.string().uuid(),
+  nomenclature_id: z.string().uuid(),
+  qty: z.number().int(),
+  wear_months: z.number().int(),
+});
+
+export const ppeIssueCardRowSchema = z.object({
+  ...baseRowFields,
+  employee_id: z.string().uuid(),
+  opened_at: z.number().int(),
+  closed_at: z.number().int().nullable().optional(),
+});
+
+export const ppeCardNormRowSchema = z.object({
+  ...baseRowFields,
+  card_id: z.string().uuid(),
+  norm_set_id: z.string().uuid(),
+  assigned_at: z.number().int(),
+});
+
+export const ppeIssueEntryRowSchema = z.object({
+  ...baseRowFields,
+  card_id: z.string().uuid(),
+  nomenclature_id: z.string().uuid(),
+  qty: z.number().int(),
+  issued_at: z.number().int(),
+  document_id: z.string().uuid(),
+});
+
 export const syncRowSchemaByTable = {
   [SyncTableName.EntityTypes]: entityTypeRowSchema,
   [SyncTableName.Entities]: entityRowSchema,
@@ -355,6 +397,11 @@ export const syncRowSchemaByTable = {
   [SyncTableName.ErpContractPaymentSlots]: erpContractPaymentSlotRowSchema,
   [SyncTableName.ErpContractPaymentPayments]: erpContractPaymentRowSchema,
   [SyncTableName.ErpEngineCards]: erpEngineCardRowSchema,
+  [SyncTableName.PpeNormSets]: ppeNormSetRowSchema,
+  [SyncTableName.PpeNormLines]: ppeNormLineRowSchema,
+  [SyncTableName.PpeIssueCards]: ppeIssueCardRowSchema,
+  [SyncTableName.PpeCardNorms]: ppeCardNormRowSchema,
+  [SyncTableName.PpeIssueEntries]: ppeIssueEntryRowSchema,
 } as const;
 
 export const syncTableUpsertSchema = z.object({

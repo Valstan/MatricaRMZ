@@ -131,6 +131,13 @@ export const SYNC_TABLE_OWNERSHIP: Readonly<Record<SyncTableName, SyncTableOwner
   // (цех с планшета, офлайн-запись как была у EAV), требование — в TABLE_REQUIREMENT.
   // EAV-след пишет сервер при apply (старые клиенты читают EAV до E5-freeze).
   [SyncTableName.ErpEngineCards]: { owner: 'permission' },
+  // Кладовщик (СИЗ), MVP: ведут только серверные двери (нормы/карточки/выдачи),
+  // клиент читает реплику. Без этих строк крафт строки нормы с клиента ушёл бы в журнал.
+  [SyncTableName.PpeNormSets]: { owner: 'server', why: 'ppeService + публикатор зеркала' },
+  [SyncTableName.PpeNormLines]: { owner: 'server', why: 'ppeService + публикатор зеркала' },
+  [SyncTableName.PpeIssueCards]: { owner: 'server', why: 'ppeService + публикатор зеркала' },
+  [SyncTableName.PpeCardNorms]: { owner: 'server', why: 'ppeService + публикатор зеркала' },
+  [SyncTableName.PpeIssueEntries]: { owner: 'server', why: 'ppeService + публикатор зеркала' },
 };
 
 // Таблицы, которые клиент не пишет никогда, — по ТАБЛИЦЕ, а не по коду атрибута (B3/R3).
@@ -269,6 +276,12 @@ const TABLE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
   // правят двигатели (цех с планшета, офлайн-push). Гейты дублей — не здесь, а в
   // pre-sign партиции push (engineCardPushGuard): requirement видит только права.
   [SyncTableName.ErpEngineCards]: { kind: 'permission', code: PermissionCode.EnginesEdit },
+  // Кладовщик (СИЗ), MVP — вторая линия к безусловному табличному backstop'у выше.
+  [SyncTableName.PpeNormSets]: { kind: 'superadmin' },
+  [SyncTableName.PpeNormLines]: { kind: 'superadmin' },
+  [SyncTableName.PpeIssueCards]: { kind: 'superadmin' },
+  [SyncTableName.PpeCardNorms]: { kind: 'superadmin' },
+  [SyncTableName.PpeIssueEntries]: { kind: 'superadmin' },
 };
 
 /**

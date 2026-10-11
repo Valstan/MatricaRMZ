@@ -18,6 +18,7 @@ import { startLogAnalysisAgent } from './services/ai/logAnalysisAgentService.js'
 import { startSyncPipelineSupervisorService, stopSyncPipelineSupervisorService } from './services/syncPipelineSupervisorService.js';
 import { startUsersSyncPublisher } from './services/sync/usersSyncPublisherService.js';
 import { startWarehouseLocationsSyncPublisher } from './services/sync/warehouseLocationsSyncPublisherService.js';
+import { startPpeSyncPublisher } from './services/sync/ppeSyncPublisherService.js';
 import { startDictionarySyncPublisher } from './services/sync/dictionarySyncPublisherService.js';
 import { startAuditStatisticsScheduler } from './services/statisticsAuditService.js';
 import { startEngineDedupeJob } from './services/engineDedupeService.js';
@@ -106,6 +107,7 @@ async function bootstrap() {
     // строки users/user_section_access не приезжают инкрементальным pull'ом.
     startUsersSyncPublisher();
     startWarehouseLocationsSyncPublisher();
+    startPpeSyncPublisher();
     startDictionarySyncPublisher();
     startCriticalEventsTelegramService();
     startAiChatHistoryCleanup();

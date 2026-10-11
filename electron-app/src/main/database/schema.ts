@@ -476,6 +476,86 @@ export const erpEngineCards = sqliteTable('erp_engine_cards', {
   contractIdx: index('erp_engine_cards_contract_idx').on(t.contractId),
 }));
 
+// Кладовщик (СИЗ), MVP: реплики строгих таблиц (миграция 0107).
+// Nullability — ровно как сервер, иначе pull уронит checkReplicaStrictness.
+export const ppeNormSets = sqliteTable('ppe_norm_sets', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  postTitle: text('post_title'),
+  departmentId: text('department_id'),
+  validFrom: integer('valid_from').notNull(),
+  validTo: integer('valid_to'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  postIdx: index('ppe_norm_sets_post_idx').on(t.postTitle, t.validFrom),
+}));
+
+export const ppeNormLines = sqliteTable('ppe_norm_lines', {
+  id: text('id').primaryKey(),
+  normSetId: text('norm_set_id').notNull(),
+  nomenclatureId: text('nomenclature_id').notNull(),
+  qty: integer('qty').notNull(),
+  wearMonths: integer('wear_months').notNull(),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  setIdx: index('ppe_norm_lines_set_idx').on(t.normSetId),
+  nomenclatureIdx: index('ppe_norm_lines_nomenclature_idx').on(t.nomenclatureId),
+}));
+
+export const ppeIssueCards = sqliteTable('ppe_issue_cards', {
+  id: text('id').primaryKey(),
+  employeeId: text('employee_id').notNull(),
+  openedAt: integer('opened_at').notNull(),
+  closedAt: integer('closed_at'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  employeeIdx: index('ppe_issue_cards_employee_idx').on(t.employeeId),
+}));
+
+export const ppeCardNorms = sqliteTable('ppe_card_norms', {
+  id: text('id').primaryKey(),
+  cardId: text('card_id').notNull(),
+  normSetId: text('norm_set_id').notNull(),
+  assignedAt: integer('assigned_at').notNull(),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  cardIdx: index('ppe_card_norms_card_idx').on(t.cardId),
+}));
+
+export const ppeIssueEntries = sqliteTable('ppe_issue_entries', {
+  id: text('id').primaryKey(),
+  cardId: text('card_id').notNull(),
+  nomenclatureId: text('nomenclature_id').notNull(),
+  qty: integer('qty').notNull(),
+  issuedAt: integer('issued_at').notNull(),
+  documentId: text('document_id').notNull(),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  cardIdx: index('ppe_issue_entries_card_idx').on(t.cardId, t.issuedAt),
+  nomenclatureIdx: index('ppe_issue_entries_nomenclature_idx').on(t.nomenclatureId, t.issuedAt),
+  documentIdx: index('ppe_issue_entries_document_idx').on(t.documentId),
+}));
+
 export const erpEmployeeCards = sqliteTable(
   'erp_employee_cards',
   {
