@@ -491,7 +491,10 @@ export function ingestServerLogForCriticalEvent(args: {
         code: 'server.sync.pipeline_poll_conflict',
         title: 'Конфликт опроса Telegram-бота sync pipeline',
         category: 'network',
-        severity: 'warn',
+        // error, а не warn: 409 означает второго потребителя (или нахлёст при
+        // рестарте) — владельцу это надо видеть; нотификатор шлёт error/network
+        // по умолчанию, warn — никогда. Шум режется антифлудом (3 на код за 10 мин).
+        severity: 'error',
       };
     } else if (pollErrorKind === 'misconfigured') {
       info = {
