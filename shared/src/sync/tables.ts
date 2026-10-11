@@ -55,6 +55,14 @@ export const SyncTableName = {
   // на карточку (id = entities.id). Клиенты пишут push-ом (цех с планшета, офлайн),
   // сервер публикует; EAV-след пишет сервер при apply (старые клиенты читают EAV).
   ErpEngineCards: 'erp_engine_cards',
+  // Кладовщик (СИЗ), MVP: нормы выдачи, личные карточки, факты выдачи.
+  // Server-write / pull-only, как WarehouseLocations: ведут серверные двери,
+  // клиент читает реплику. Выдачи едут складскими документами, здесь — учётный след.
+  PpeNormSets: 'ppe_norm_sets',
+  PpeNormLines: 'ppe_norm_lines',
+  PpeIssueCards: 'ppe_issue_cards',
+  PpeCardNorms: 'ppe_card_norms',
+  PpeIssueEntries: 'ppe_issue_entries',
 } as const;
 
 export type SyncTableName = (typeof SyncTableName)[keyof typeof SyncTableName];

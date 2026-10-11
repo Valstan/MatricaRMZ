@@ -55,6 +55,11 @@ import {
   erpContractPayments,
   erpEngineCards,
   directoryEngineBrands,
+  ppeNormSets,
+  ppeNormLines,
+  ppeIssueCards,
+  ppeCardNorms,
+  ppeIssueEntries,
   noteShares,
   notes,
   cardDrafts,
@@ -2022,6 +2027,11 @@ async function applyPulledChanges(
     [SyncTableName.ErpContractPaymentSlots]: [],
     [SyncTableName.ErpContractPaymentPayments]: [],
     [SyncTableName.ErpEngineCards]: [],
+    [SyncTableName.PpeNormSets]: [],
+    [SyncTableName.PpeNormLines]: [],
+    [SyncTableName.PpeIssueCards]: [],
+    [SyncTableName.PpeCardNorms]: [],
+    [SyncTableName.PpeIssueEntries]: [],
     [SyncTableName.Users]: [],
     [SyncTableName.UserSectionAccess]: [],
   };
@@ -2489,6 +2499,93 @@ async function applyPulledChanges(
             docsReturnScanDate: num(payload.docs_return_scan_date),
             docsReturnOriginalDate: num(payload.docs_return_original_date),
             docsNote: txt(payload.docs_note),
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      // Кладовщик (СИЗ), MVP: pull-only реплики. Без веток строки исчезли бы:
+      // у switch нет `default` (см. комментарий у WarehouseLocations выше).
+      case SyncTableName.PpeNormSets:
+        {
+          const payload = payloadRaw;
+          groups.ppe_norm_sets.push({
+            id: payload.id,
+            name: payload.name,
+            postTitle: payload.post_title ?? null,
+            departmentId: payload.department_id ?? null,
+            validFrom: payload.valid_from,
+            validTo: payload.valid_to ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.PpeNormLines:
+        {
+          const payload = payloadRaw;
+          groups.ppe_norm_lines.push({
+            id: payload.id,
+            normSetId: payload.norm_set_id,
+            nomenclatureId: payload.nomenclature_id,
+            qty: Number(payload.qty ?? 0),
+            wearMonths: Number(payload.wear_months ?? 0),
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.PpeIssueCards:
+        {
+          const payload = payloadRaw;
+          groups.ppe_issue_cards.push({
+            id: payload.id,
+            employeeId: payload.employee_id,
+            openedAt: payload.opened_at,
+            closedAt: payload.closed_at ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.PpeCardNorms:
+        {
+          const payload = payloadRaw;
+          groups.ppe_card_norms.push({
+            id: payload.id,
+            cardId: payload.card_id,
+            normSetId: payload.norm_set_id,
+            assignedAt: payload.assigned_at,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.PpeIssueEntries:
+        {
+          const payload = payloadRaw;
+          groups.ppe_issue_entries.push({
+            id: payload.id,
+            cardId: payload.card_id,
+            nomenclatureId: payload.nomenclature_id,
+            qty: Number(payload.qty ?? 0),
+            issuedAt: payload.issued_at,
+            documentId: payload.document_id,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
             lastServerSeq: payload.last_server_seq ?? null,
@@ -3462,6 +3559,77 @@ async function applyPulledChanges(
       docsReturnScanDate: sql`excluded.docs_return_scan_date`,
       docsReturnOriginalDate: sql`excluded.docs_return_original_date`,
       docsNote: sql`excluded.docs_note`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  // Кладовщик (СИЗ), MVP: наборы раньше строк, карточки раньше привязок и выдач.
+  if (groups.ppe_norm_sets.length > 0) {
+    emitApply(SyncTableName.PpeNormSets, groups.ppe_norm_sets.length);
+    await upsertPulledRowsInChunks(db, ppeNormSets, groups.ppe_norm_sets, ppeNormSets.id, {
+      name: sql`excluded.name`,
+      postTitle: sql`excluded.post_title`,
+      departmentId: sql`excluded.department_id`,
+      validFrom: sql`excluded.valid_from`,
+      validTo: sql`excluded.valid_to`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  if (groups.ppe_issue_cards.length > 0) {
+    emitApply(SyncTableName.PpeIssueCards, groups.ppe_issue_cards.length);
+    await upsertPulledRowsInChunks(db, ppeIssueCards, groups.ppe_issue_cards, ppeIssueCards.id, {
+      employeeId: sql`excluded.employee_id`,
+      openedAt: sql`excluded.opened_at`,
+      closedAt: sql`excluded.closed_at`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  if (groups.ppe_norm_lines.length > 0) {
+    emitApply(SyncTableName.PpeNormLines, groups.ppe_norm_lines.length);
+    await upsertPulledRowsInChunks(db, ppeNormLines, groups.ppe_norm_lines, ppeNormLines.id, {
+      normSetId: sql`excluded.norm_set_id`,
+      nomenclatureId: sql`excluded.nomenclature_id`,
+      qty: sql`excluded.qty`,
+      wearMonths: sql`excluded.wear_months`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  if (groups.ppe_card_norms.length > 0) {
+    emitApply(SyncTableName.PpeCardNorms, groups.ppe_card_norms.length);
+    await upsertPulledRowsInChunks(db, ppeCardNorms, groups.ppe_card_norms, ppeCardNorms.id, {
+      cardId: sql`excluded.card_id`,
+      normSetId: sql`excluded.norm_set_id`,
+      assignedAt: sql`excluded.assigned_at`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  if (groups.ppe_issue_entries.length > 0) {
+    emitApply(SyncTableName.PpeIssueEntries, groups.ppe_issue_entries.length);
+    await upsertPulledRowsInChunks(db, ppeIssueEntries, groups.ppe_issue_entries, ppeIssueEntries.id, {
+      cardId: sql`excluded.card_id`,
+      nomenclatureId: sql`excluded.nomenclature_id`,
+      qty: sql`excluded.qty`,
+      issuedAt: sql`excluded.issued_at`,
+      documentId: sql`excluded.document_id`,
       updatedAt: sql`excluded.updated_at`,
       lastServerSeq: sql`excluded.last_server_seq`,
       deletedAt: sql`excluded.deleted_at`,

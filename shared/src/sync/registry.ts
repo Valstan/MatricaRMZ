@@ -36,6 +36,11 @@ import {
   erpContractPaymentSlotRowSchema,
   erpContractPaymentRowSchema,
   erpEngineCardRowSchema,
+  ppeNormSetRowSchema,
+  ppeNormLineRowSchema,
+  ppeIssueCardRowSchema,
+  ppeCardNormRowSchema,
+  ppeIssueEntryRowSchema,
   directoryEngineBrandRowSchema,
 } from './dto.js';
 import {
@@ -487,6 +492,43 @@ const ERP_ENGINE_CARD_FIELDS = withBase(
   { db: 'docsNote', dto: 'docs_note' },
 );
 
+// Кладовщик (СИЗ), MVP. withBase добавляет
+// id/created_at/updated_at/deleted_at/last_server_seq/sync_status сам.
+const PPE_NORM_SET_FIELDS = withBase(
+  { db: 'name', dto: 'name' },
+  { db: 'postTitle', dto: 'post_title' },
+  { db: 'departmentId', dto: 'department_id' },
+  { db: 'validFrom', dto: 'valid_from' },
+  { db: 'validTo', dto: 'valid_to' },
+);
+
+const PPE_NORM_LINE_FIELDS = withBase(
+  { db: 'normSetId', dto: 'norm_set_id' },
+  { db: 'nomenclatureId', dto: 'nomenclature_id' },
+  { db: 'qty', dto: 'qty' },
+  { db: 'wearMonths', dto: 'wear_months' },
+);
+
+const PPE_ISSUE_CARD_FIELDS = withBase(
+  { db: 'employeeId', dto: 'employee_id' },
+  { db: 'openedAt', dto: 'opened_at' },
+  { db: 'closedAt', dto: 'closed_at' },
+);
+
+const PPE_CARD_NORM_FIELDS = withBase(
+  { db: 'cardId', dto: 'card_id' },
+  { db: 'normSetId', dto: 'norm_set_id' },
+  { db: 'assignedAt', dto: 'assigned_at' },
+);
+
+const PPE_ISSUE_ENTRY_FIELDS = withBase(
+  { db: 'cardId', dto: 'card_id' },
+  { db: 'nomenclatureId', dto: 'nomenclature_id' },
+  { db: 'qty', dto: 'qty' },
+  { db: 'issuedAt', dto: 'issued_at' },
+  { db: 'documentId', dto: 'document_id' },
+);
+
 // ────────────────────────────────────────────────────────────
 // Registry entries
 // ────────────────────────────────────────────────────────────
@@ -754,6 +796,48 @@ const ENTRIES: readonly SyncTableEntry[] = [
     fields: ERP_ENGINE_CARD_FIELDS,
     conflictTarget: ['id'],
     dependsOn: [],
+  },
+  // Кладовщик (СИЗ), MVP. Порядок холодного full-state: строки после наборов,
+  // привязки после карточек и наборов, факты выдачи после карточек.
+  {
+    syncName: SyncTableName.PpeNormSets,
+    ledgerName: SyncTableName.PpeNormSets,
+    schema: ppeNormSetRowSchema,
+    fields: PPE_NORM_SET_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [],
+  },
+  {
+    syncName: SyncTableName.PpeNormLines,
+    ledgerName: SyncTableName.PpeNormLines,
+    schema: ppeNormLineRowSchema,
+    fields: PPE_NORM_LINE_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.PpeNormSets],
+  },
+  {
+    syncName: SyncTableName.PpeIssueCards,
+    ledgerName: SyncTableName.PpeIssueCards,
+    schema: ppeIssueCardRowSchema,
+    fields: PPE_ISSUE_CARD_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [],
+  },
+  {
+    syncName: SyncTableName.PpeCardNorms,
+    ledgerName: SyncTableName.PpeCardNorms,
+    schema: ppeCardNormRowSchema,
+    fields: PPE_CARD_NORM_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.PpeIssueCards, SyncTableName.PpeNormSets],
+  },
+  {
+    syncName: SyncTableName.PpeIssueEntries,
+    ledgerName: SyncTableName.PpeIssueEntries,
+    schema: ppeIssueEntryRowSchema,
+    fields: PPE_ISSUE_ENTRY_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.PpeIssueCards],
   },
 ] as const;
 
