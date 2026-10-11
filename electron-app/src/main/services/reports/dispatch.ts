@@ -21,6 +21,7 @@ import { buildEmployeesRosterReport, buildOrganizationStructureReport, buildTool
 import { buildEngineFlowByCounterpartyReport } from './presets/engineFlowByCounterparty.js';
 import { buildAssemblyForecast7dReport } from './presets/assemblyForecast.js';
 import { buildContractPaymentsMatrixReport, buildPaymentsOverviewReport } from './presets/payments.js';
+import { buildPpeBySizeReport, buildPpeStockListReport, buildPpeSummarySheetReport, buildPpeUnissuedReport } from './presets/ppe.js';
 import { app } from 'electron';
 
 import { appendMainLogLine } from '../../utils/logger.js';
@@ -122,6 +123,14 @@ async function dispatchReportPreset(
         return buildContractPaymentsMatrixReport(db, args.filters);
       case 'payments_overview':
         return buildPaymentsOverviewReport(db, args.filters);
+      case 'ppe_summary_sheet':
+        return buildPpeSummarySheetReport(db, args.filters);
+      case 'ppe_by_size':
+        return buildPpeBySizeReport(db, args.filters);
+      case 'ppe_unissued':
+        return buildPpeUnissuedReport(db, args.filters);
+      case 'ppe_stock_list':
+        return buildPpeStockListReport(db, args.filters, ctx);
       case 'engine_factory_stages':
       case 'engines_at_plant':
         // Отчёт-список (`presentation: 'list'`): строится на экране из каталога двигателей

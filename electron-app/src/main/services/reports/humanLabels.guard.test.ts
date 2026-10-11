@@ -64,6 +64,7 @@ import {
   entities,
   entityTypes,
   erpDocumentHeaders,
+  erpEmployeeCards,
   erpEngineAssemblyBom,
   erpEngineAssemblyBomBrandLinks,
   erpEngineAssemblyBomLines,
@@ -73,6 +74,11 @@ import {
   erpRegStockBalance,
   erpRegStockMovements,
   operations,
+  ppeCardNorms,
+  ppeIssueCards,
+  ppeIssueEntries,
+  ppeNormLines,
+  ppeNormSets,
 } from '../../database/schema.js';
 
 import { buildReportByPreset } from './dispatch.js';
@@ -116,6 +122,14 @@ const ID = {
   partCard: 'c3990000-0000-4000-8000-00000000000a',
   nomenclature: 'e5bb0000-0000-4000-8000-000000000001',
   nomenclatureMissing: 'e5bb0000-0000-4000-8000-000000000002',
+  /** Спецодежда: базовая модель и размер-вариант для отчётов Кладовщика. */
+  ppeNomBase: 'e5bb0000-0000-4000-8000-000000000011',
+  ppeNomSize: 'e5bb0000-0000-4000-8000-000000000012',
+  ppeNormSet: 'aa770000-0000-4000-8000-000000000001',
+  ppeCard: '9c880000-0000-4000-8000-000000000001',
+  ppeEmployee: 'ee550000-0000-4000-8000-000000000007',
+  /** Сотрудника с таким id в реплике нет — висячая ссылка в карточке СИЗ. */
+  ppeEmployeeMissing: 'ee550000-0000-4000-8000-000000000008',
   warehouse: 'f6cc0000-0000-4000-8000-000000000001',
   docHeader: '07dd0000-0000-4000-8000-000000000001',
   docHeaderDrifted: '07dd0000-0000-4000-8000-000000000002',
@@ -474,6 +488,28 @@ function erpRows(shape: FixtureShape) {
       createdAt: T0,
       updatedAt: T0,
     },
+    // Кладовщик: базовая модель и размер-вариант (parent_nomenclature_id, category workwear).
+    {
+      id: ID.ppeNomBase,
+      code: 'СИЗ-КУРТ',
+      name: 'Куртка зимняя утеплённая',
+      itemType: 'material',
+      category: 'workwear',
+      isActive: true,
+      createdAt: T0,
+      updatedAt: T0,
+    },
+    {
+      id: ID.ppeNomSize,
+      code: 'СИЗ-КУРТ-52',
+      name: 'Куртка зимняя утеплённая, р.52-54',
+      itemType: 'material',
+      category: 'workwear',
+      parentNomenclatureId: ID.ppeNomBase,
+      isActive: true,
+      createdAt: T0,
+      updatedAt: T0,
+    },
   ];
   const headers: Row[] = [
     {
@@ -608,8 +644,40 @@ function erpRows(shape: FixtureShape) {
       reservedQty: 0,
       updatedAt: T0,
     },
+    // Кладовщик: остаток размера спецодежды.
+    {
+      id: 'b3',
+      nomenclatureId: ID.ppeNomSize,
+      partCardId: null,
+      warehouseLocationId: ID.warehouse,
+      qty: 5,
+      reservedQty: 1,
+      updatedAt: T0,
+    },
   ];
   return { nomenclature, headers, movements, balances, bomHeaders, bomBrandLinks, bomLines };
+}
+
+/**
+ * Кладовщик (СИЗ): набор норм, карточка сотрудника, выдача 13-месячной давности
+ * при сроке носки 12 мес — строка «просрочено». В дырявой форме строка нормы
+ * ссылается на отсутствующую номенклатуру — билдеры обязаны показать прочерк, а не id.
+ */
+function ppeRows(shape: FixtureShape) {
+  const employees = [{ id: ID.ppeEmployee, personnelNo: 'ТН-207', fullName: 'Петров Иван Сидорович', createdAt: T0, updatedAt: T0 }];
+  const sets = [{ id: ID.ppeNormSet, name: 'Слесарь РМЦ', postTitle: 'Слесарь', validFrom: T0 - 30 * DAY, validTo: null, createdAt: T0, updatedAt: T0 }];
+  const lines: Array<{ id: string; normSetId: string; nomenclatureId: string; qty: number; wearMonths: number; createdAt: number; updatedAt: number }> = [
+    { id: 'ppenl1', normSetId: ID.ppeNormSet, nomenclatureId: ID.ppeNomSize, qty: 2, wearMonths: 12, createdAt: T0, updatedAt: T0 },
+  ];
+  if (shape.leaky) {
+    lines.push({ id: 'ppenl2', normSetId: ID.ppeNormSet, nomenclatureId: ID.nomenclatureMissing, qty: 1, wearMonths: 6, createdAt: T0, updatedAt: T0 });
+  }
+  const cards = [{ id: ID.ppeCard, employeeId: shape.leaky ? ID.ppeEmployeeMissing : ID.ppeEmployee, openedAt: T0 - 400 * DAY, closedAt: null, createdAt: T0, updatedAt: T0 }];
+  const cardNorms = [{ id: 'ppencn1', cardId: ID.ppeCard, normSetId: ID.ppeNormSet, assignedAt: T0 - 400 * DAY, createdAt: T0, updatedAt: T0 }];
+  const entries = [
+    { id: 'ppene1', cardId: ID.ppeCard, nomenclatureId: ID.ppeNomSize, qty: 2, issuedAt: T0 - 400 * DAY, documentId: ID.docHeader, createdAt: T0, updatedAt: T0 },
+  ];
+  return { employees, sets, lines, cards, cardNorms, entries };
 }
 
 /**
@@ -621,6 +689,7 @@ function erpRows(shape: FixtureShape) {
 function stubDb(shape: FixtureShape): any {
   const eav = eavRows(shape);
   const erp = erpRows(shape);
+  const ppe = ppeRows(shape);
   const byTable = new Map<unknown, Row[]>([
     [entityTypes, eav.types],
     [entities, eav.entityRows],
@@ -636,6 +705,12 @@ function stubDb(shape: FixtureShape): any {
     [erpEngineAssemblyBomLines, erp.bomLines],
     [erpContractPaymentSlots, paymentRows(shape).slots],
     [erpContractPayments, paymentRows(shape).pays],
+    [erpEmployeeCards, ppe.employees],
+    [ppeNormSets, ppe.sets],
+    [ppeNormLines, ppe.lines],
+    [ppeIssueCards, ppe.cards],
+    [ppeCardNorms, ppe.cardNorms],
+    [ppeIssueEntries, ppe.entries],
   ]);
 
   return {
@@ -754,6 +829,10 @@ const COVERED_PRESETS: Array<{ presetId: string; filters?: Record<string, unknow
   // Матрица платежей строится по одному контракту — id контракта тут разрез, а не фильтр-удобство.
   { presetId: 'contract_payments_matrix', filters: { contractId: ID.contract } },
   { presetId: 'payments_overview' },
+  { presetId: 'ppe_summary_sheet' },
+  { presetId: 'ppe_by_size' },
+  { presetId: 'ppe_unissued' },
+  { presetId: 'ppe_stock_list' },
 ];
 
 async function runPreset(presetId: string, shape: FixtureShape, filters?: Record<string, unknown>) {

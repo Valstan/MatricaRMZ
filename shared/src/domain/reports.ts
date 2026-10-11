@@ -42,7 +42,11 @@ export type ReportPresetId =
   | 'norms_purchase_plan'
   | 'repair_fund_reconciliation'
   | 'contract_payments_matrix'
-  | 'payments_overview';
+  | 'payments_overview'
+  | 'ppe_summary_sheet'
+  | 'ppe_by_size'
+  | 'ppe_unissued'
+  | 'ppe_stock_list';
 
 export type ReportFilterOption = {
   value: string;
@@ -365,6 +369,10 @@ export const REPORT_PRESET_THEMES: Record<ReportPresetId, readonly [ReportThemeI
   repair_fund_reconciliation: ['warehouse', 'audit'],
   contract_payments_matrix: ['contracts'],
   payments_overview: ['contracts'],
+  ppe_summary_sheet: ['warehouse', 'catalogs'],
+  ppe_by_size: ['warehouse', 'catalogs'],
+  ppe_unissued: ['warehouse', 'catalogs'],
+  ppe_stock_list: ['warehouse'],
 };
 
 export function reportPresetThemes(presetId: ReportPresetId): readonly ReportThemeId[] {
@@ -1813,6 +1821,71 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'deliveredQty', label: 'Привезено', kind: 'number', align: 'right' },
       { key: 'receiptDocNo', label: 'Документ прихода' },
       { key: 'receiptStatusLabel', label: 'Статус документа' },
+    ],
+  },
+  {
+    id: 'ppe_summary_sheet',
+    title: 'Сводная ведомость СИЗ',
+    description: 'Сотрудник → позиция СИЗ: норма, срок носки, выдано всего, последняя и следующая выдачи.',
+    filters: [
+      { type: 'text', key: 'nameQuery', label: 'Сотрудник или позиция', placeholder: 'часть имени или названия' },
+    ],
+    columns: [
+      { key: 'employee', label: 'Сотрудник' },
+      { key: 'nomenclature', label: 'Позиция СИЗ' },
+      { key: 'normQty', label: 'Норма (шт)', kind: 'number', align: 'right' },
+      { key: 'wearMonths', label: 'Носка (мес)', kind: 'number', align: 'right' },
+      { key: 'issuedQty', label: 'Выдано всего (шт)', kind: 'number', align: 'right' },
+      { key: 'lastIssued', label: 'Последняя выдача', kind: 'date' },
+      { key: 'nextDue', label: 'Следующая выдача', kind: 'date' },
+      { key: 'status', label: 'Состояние' },
+    ],
+  },
+  {
+    id: 'ppe_by_size',
+    title: 'Список СИЗ по размерам',
+    description: 'Модель → размеры: сколько сотрудников нуждается, сколько выдано всего.',
+    filters: [
+      { type: 'text', key: 'nameQuery', label: 'Модель или размер', placeholder: 'часть названия' },
+    ],
+    columns: [
+      { key: 'base', label: 'Модель' },
+      { key: 'size', label: 'Размер' },
+      { key: 'employeesCount', label: 'Сотрудников', kind: 'number', align: 'right' },
+      { key: 'issuedQty', label: 'Выдано всего (шт)', kind: 'number', align: 'right' },
+    ],
+  },
+  {
+    id: 'ppe_unissued',
+    title: 'Справка по невыданному СИЗ',
+    description: 'Кому и что пора выдавать: просрочка и позиции без единой выдачи.',
+    filters: [
+      { type: 'text', key: 'nameQuery', label: 'Сотрудник или позиция', placeholder: 'часть имени или названия' },
+      { type: 'checkbox', key: 'onlyOverdue', label: 'Только невыданное' },
+    ],
+    columns: [
+      { key: 'employee', label: 'Сотрудник' },
+      { key: 'nomenclature', label: 'Позиция СИЗ' },
+      { key: 'normQty', label: 'Норма (шт)', kind: 'number', align: 'right' },
+      { key: 'lastIssued', label: 'Последняя выдача', kind: 'date' },
+      { key: 'nextDue', label: 'Срок выдачи', kind: 'date' },
+      { key: 'overdueDays', label: 'Дней просрочки', kind: 'number', align: 'right' },
+      { key: 'status', label: 'Состояние' },
+    ],
+  },
+  {
+    id: 'ppe_stock_list',
+    title: 'Складская ведомость СИЗ',
+    description: 'Остатки спецодежды по складам: только номенклатура спецодежды.',
+    filters: [
+      { type: 'text', key: 'nameQuery', label: 'Позиция', placeholder: 'часть названия' },
+      { type: 'multi_select', key: 'warehouseIds', label: 'Склады (пусто = все)', optionsSource: 'warehouses' },
+    ],
+    columns: [
+      { key: 'nomenclature', label: 'Позиция СИЗ' },
+      { key: 'warehouse', label: 'Склад' },
+      { key: 'qty', label: 'Остаток', kind: 'number', align: 'right' },
+      { key: 'reservedQty', label: 'Резерв', kind: 'number', align: 'right' },
     ],
   },
 ];
