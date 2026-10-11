@@ -238,6 +238,7 @@ const WarehouseLocationsAdminPage = lazyPage('./pages/WarehouseLocationsAdminPag
 const SupplyToolMovementsPage = lazyPage('./pages/SupplyToolMovementsPage.tsx', 'SupplyToolMovementsPage');
 const ServicesPage = lazyPage('./pages/ServicesPage.tsx', 'ServicesPage');
 const ServicePriceOrdersPage = lazyPage('./pages/ServicePriceOrdersPage.tsx', 'ServicePriceOrdersPage');
+const PpeNormsPage = lazyPage('./pages/PpeNormsPage.tsx', 'PpeNormsPage');
 const UserScreensPage = lazyPage('./pages/UserScreensPage.tsx', 'UserScreensPage');
 const UserScreenViewPage = lazyPage('./pages/UserScreenViewPage.tsx', 'UserScreenViewPage');
 const ScreenEditorPage = lazyPage('./pages/ScreenEditorPage.tsx', 'ScreenEditorPage');
@@ -652,6 +653,11 @@ function appTabTitle(tab: string): string {
     services_by_brand: 'Услуги по маркам',
     service_price_orders: 'Приказы о ценах',
     service: 'Карточка услуги',
+    ppe_cards: 'Карточки СИЗ',
+    ppe_card: 'Карточка выдачи СИЗ',
+    ppe_norms: 'Нормы выдачи',
+    ppe_stock: 'Склад СИЗ',
+    ppe_reports: 'Отчёты СИЗ',
     nomenclature: 'Номенклатура',
     parts_dedupe: 'Дубли номенклатуры',
     empty_cards: 'Пустые карточки',
@@ -703,6 +709,10 @@ const MENU_LABELS: Record<MenuTabId, string> = {
   services: 'Услуги',
   services_by_brand: 'Услуги по маркам',
   service_price_orders: 'Приказы о ценах',
+  ppe_cards: 'Карточки СИЗ',
+  ppe_norms: 'Нормы выдачи',
+  ppe_stock: 'Склад СИЗ',
+  ppe_reports: 'Отчёты СИЗ',
   nomenclature: 'Номенклатура',
   parts_dedupe: 'Дубли номенклатуры',
   empty_cards: 'Пустые карточки',
@@ -2902,7 +2912,7 @@ export function App() {
     ...(caps.canViewEmployees ? (['employees'] as const) : []),
     ...(caps.canViewTimesheets ? (['timesheets'] as const) : []),
     ...(caps.canViewMasterData
-      ? (['nomenclature', 'parts_dedupe', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'repair_fund_audit', 'warehouse_analytics', 'engine_assembly_bom', 'repair_norms'] as const)
+      ? (['nomenclature', 'parts_dedupe', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'repair_fund_audit', 'warehouse_analytics', 'engine_assembly_bom', 'repair_norms', 'ppe_norms'] as const)
       : []),
     ...(caps.canUseUpdates ? (['changes'] as const) : []),
     ...(authStatus.loggedIn ? (['notes'] as const) : []),
@@ -5775,6 +5785,10 @@ export function App() {
 
         {t === 'service_price_orders' && (
           <ServicePriceOrdersPage canEdit={caps.canEditNomenclature} onOpenService={(id: string) => openService(id, { from: 'service_price_orders' })} />
+        )}
+
+        {t === 'ppe_norms' && (
+          <PpeNormsPage canEdit={caps.canEditNomenclature} />
         )}
 
         {t === 'services_by_brand' && (

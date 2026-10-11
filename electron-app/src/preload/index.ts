@@ -598,6 +598,30 @@ const matricaApi = {
     },
     current: async (nomenclatureId: string) => ipcRenderer.invoke('servicePricing:current', nomenclatureId),
   },
+  ppe: {
+    norms: {
+      list: async (args?: { postTitle?: string }) => ipcRenderer.invoke('ppe:norms:list', args),
+      get: async (id: string) => ipcRenderer.invoke('ppe:norms:get', id),
+      upsert: async (args: {
+        id?: string;
+        name: string;
+        postTitle?: string | null;
+        departmentId?: string | null;
+        validFrom?: number;
+        validTo?: number | null;
+        lines: Array<{ nomenclatureId: string; qty: number; wearMonths: number }>;
+      }) => ipcRenderer.invoke('ppe:norms:upsert', args),
+    },
+    cards: {
+      open: async (args: { employeeId: string }) => ipcRenderer.invoke('ppe:cards:open', args),
+      get: async (id: string) => ipcRenderer.invoke('ppe:cards:get', id),
+      byEmployee: async (employeeId: string) => ipcRenderer.invoke('ppe:cards:byEmployee', employeeId),
+      assignNorms: async (args: { cardId: string; normSetIds: string[] }) => ipcRenderer.invoke('ppe:cards:assignNorms', args),
+      close: async (id: string) => ipcRenderer.invoke('ppe:cards:close', id),
+      issue: async (args: { cardId: string; warehouseId: string; docNo?: string; lines: Array<{ nomenclatureId: string; qty: number }> }) =>
+        ipcRenderer.invoke('ppe:cards:issue', args),
+    },
+  },
   workSheets: {
     types: {
       list: async (args?: { includeArchived?: boolean }) => ipcRenderer.invoke('workSheets:types:list', args),
