@@ -26,6 +26,17 @@ const BOT_POLL_ERROR_LOG_STREAK = 3;
 const BOT_POLL_SILENT_COUNTER_LOG_MS = 10 * 60_000;
 let knownSuperadminChatId: string | null = null;
 
+// Останов супервизора для graceful shutdown (`SIGTERM` при рестарте сервисов):
+// уходящий процесс обязан оборвать свой `getUpdates`, иначе запрос пересекается
+// с запросом поднявшегося и даёт «рестартовый» 409 при каждом выкате.
+// `start…` кладёт сюда останов, `stop…` дёргает его из `index.ts`.
+let supervisorStop: (() => void) | null = null;
+
+export function stopSyncPipelineSupervisorService(): void {
+  supervisorStop?.();
+  supervisorStop = null;
+}
+
 /**
  * Тик, который не имеет права наложиться сам на себя.
  *
@@ -290,6 +301,21 @@ export function startSyncPipelineSupervisorService() {
   let lastMetricsOther = 0;
   let noSuperadminLoginLogged = false;
   const tracedSenders = new Set<string>();
+  let stopped = false;
+  let botPollAbort: AbortController | null = null;
+  const timers: Array<ReturnType<typeof setInterval>> = [];
+
+  // Опрос одного прохода под своим контроллером: останов на `SIGTERM` обрывает
+  // именно висящий `getUpdates`, а не ждёт его таймаутов (до ~10 с).
+  const fetchBotUpdatesOnce = async () => {
+    const controller = new AbortController();
+    botPollAbort = controller;
+    try {
+      return await fetchTelegramUpdates({ offset: updateOffset, limit: 25, timeoutSec: 0, signal: controller.signal });
+    } finally {
+      if (botPollAbort === controller) botPollAbort = null;
+    }
+  };
 
   const logUpdateTrace = (trace: BotUpdateTrace) => {
     if (trace.kind === 'membership') {
@@ -405,7 +431,7 @@ export function startSyncPipelineSupervisorService() {
   };
 
   const processBotUpdates = async () => {
-    if (!actionsEnabled) return;
+    if (!actionsEnabled || stopped) return;
     const token = String(process.env.MATRICA_TELEGRAM_BOT_TOKEN ?? '').trim();
     if (!token) {
       if (!botPollingDisabledLogged) {
@@ -421,8 +447,9 @@ export function startSyncPipelineSupervisorService() {
     // растягивали проход до ~155 с при периоде 15 с; тик съедал сам себя, а Telegram видел в этом
     // второго потребителя (M108). Отказ прохода ничего не теряет: `updateOffset` не сдвигается,
     // те же обновления приедут через 15 с.
-    const updatesRes = await fetchTelegramUpdates({ offset: updateOffset, limit: 25, timeoutSec: 0 });
+    const updatesRes = await fetchBotUpdatesOnce();
     if (!updatesRes.ok) {
+      if (updatesRes.aborted) return;
       botPollFailureStreak += 1;
       const err = String(updatesRes.error ?? '');
       const changedError = err !== lastBotPollError;
@@ -509,8 +536,8 @@ export function startSyncPipelineSupervisorService() {
   };
 
   void tickNightly();
-  setInterval(() => void tickNightly(), CHECK_TICK_MS);
-  setInterval(() => logBotPollSilentCounter(false), CHECK_TICK_MS);
+  timers.push(setInterval(() => void tickNightly(), CHECK_TICK_MS));
+  timers.push(setInterval(() => logBotPollSilentCounter(false), CHECK_TICK_MS));
   if (actionsEnabled) {
     const tickBotUpdates = createSingleFlightTick(
       () =>
@@ -529,8 +556,17 @@ export function startSyncPipelineSupervisorService() {
         });
       },
     );
-    setInterval(tickBotUpdates, BOT_POLL_MS);
+    timers.push(setInterval(tickBotUpdates, BOT_POLL_MS));
   }
+
+  supervisorStop = () => {
+    stopped = true;
+    for (const t of timers) clearInterval(t);
+    timers.length = 0;
+    botPollAbort?.abort();
+    botPollAbort = null;
+    logInfo('sync pipeline supervisor stopped', { component: 'sync' }, { critical: true });
+  };
 
   logInfo('sync pipeline supervisor started', {
     timeZone,
