@@ -12,7 +12,10 @@ export default defineConfig({
   base: '/admin-ui/',
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    // Карт кода в проде нет: dist раздаётся публично через express.static, а URL
+    // карты угадывается из имени JS-файла (`app-<hash>.js` → `app-<hash>.js.map`),
+    // поэтому и `hidden` не лечит — только не выпускать. Для отладки собрать локально.
+    sourcemap: false,
     rollupOptions: {
       output: {
         manualChunks(id) {
