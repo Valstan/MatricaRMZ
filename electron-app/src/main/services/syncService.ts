@@ -4477,6 +4477,10 @@ export async function runSync(
           const pushBody = {
             txs: ledgerTxs,
             idempotency_key: idempotencyKey,
+            // Машина, а не аккаунт: иначе сервер кладёт heartbeat в строку аккаунта
+            // (M102 — у машин last_pushed_at всегда NULL, а «аккаунты» выглядят
+            // машинами-призраками). Старые сборки поле не шлют — сервер откатывается на id.
+            client_id: clientId,
             ...(schemaFingerprint ? { schema_fingerprint: schemaFingerprint } : {}),
           };
           const pushUrl = `${currentApiBaseUrl}/ledger/tx/submit`;
