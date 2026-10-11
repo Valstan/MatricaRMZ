@@ -48,15 +48,18 @@ async function telegramFetch(
   init?: RequestInit,
   extraTimeoutMs = 0,
   budget: 'send' | 'poll' = 'send',
+  externalSignal?: AbortSignal,
 ): Promise<Response> {
   const { attempts, timeoutMs: baseTimeoutMs } = telegramAttemptBudget(budget);
   const timeoutMs = baseTimeoutMs + extraTimeoutMs;
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+      const timeout = AbortSignal.timeout(timeoutMs);
+      return await fetch(url, { ...init, signal: externalSignal ? AbortSignal.any([timeout, externalSignal]) : timeout });
     } catch (e) {
       lastError = e;
+      if (externalSignal?.aborted) throw e;
       if (attempt < attempts) await new Promise((r) => setTimeout(r, 250 * attempt));
     }
   }
@@ -116,7 +119,10 @@ function normalizeUserLogin(raw: string): string {
   return value.startsWith('@') ? value : `@${value}`;
 }
 
-async function fetchUpdatesInternal(args?: { offset?: number; limit?: number; timeoutSec?: number }) {
+export type TelegramUpdatesResult = { ok: true; updates: any[] } | { ok: false; error: string; aborted?: boolean };
+
+async function fetchUpdatesInternal(args?: { offset?: number; limit?: number; timeoutSec?: number; signal?: AbortSignal }): Promise<TelegramUpdatesResult> {
+  if (args?.signal?.aborted) return { ok: false as const, error: 'telegram poll aborted on shutdown', aborted: true };
   if (!isTelegramIntegrationEnabled()) {
     return { ok: true as const, updates: [] as any[] };
   }
@@ -136,6 +142,7 @@ async function fetchUpdatesInternal(args?: { offset?: number; limit?: number; ti
       undefined,
       timeoutSec * 1000,
       'poll',
+      args?.signal,
     );
     if (!r.ok) {
       const t = await r.text().catch(() => '');
@@ -147,6 +154,7 @@ async function fetchUpdatesInternal(args?: { offset?: number; limit?: number; ti
     }
     return { ok: true as const, updates: json.result as any[] };
   } catch (e) {
+    if (args?.signal?.aborted) return { ok: false as const, error: 'telegram poll aborted on shutdown', aborted: true };
     return { ok: false as const, error: String(e) };
   }
 }
@@ -292,7 +300,12 @@ export async function answerTelegramCallbackQuery(args: { callbackQueryId: strin
   }
 }
 
-export async function fetchTelegramUpdates(args?: { offset?: number; limit?: number; timeoutSec?: number }) {
+export async function fetchTelegramUpdates(args?: {
+  offset?: number;
+  limit?: number;
+  timeoutSec?: number;
+  signal?: AbortSignal;
+}): Promise<TelegramUpdatesResult> {
   const res = await fetchUpdatesInternal(args);
   if (res.ok) hydrateLoginCacheFromUpdates(res.updates);
   return res;

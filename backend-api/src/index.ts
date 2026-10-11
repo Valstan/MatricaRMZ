@@ -14,7 +14,7 @@ import { startAiChatDirectWorker } from './services/ai/aiChatAnswerService.js';
 import { startAiChatHotlineBridge } from './services/ai/aiChatHotlineBridgeService.js';
 import { startAiUsageDigestScheduler } from './services/ai/aiUsageDigestService.js';
 import { startLogAnalysisAgent } from './services/ai/logAnalysisAgentService.js';
-import { startSyncPipelineSupervisorService } from './services/syncPipelineSupervisorService.js';
+import { startSyncPipelineSupervisorService, stopSyncPipelineSupervisorService } from './services/syncPipelineSupervisorService.js';
 import { startUsersSyncPublisher } from './services/sync/usersSyncPublisherService.js';
 import { startWarehouseLocationsSyncPublisher } from './services/sync/warehouseLocationsSyncPublisherService.js';
 import { startDictionarySyncPublisher } from './services/sync/dictionarySyncPublisherService.js';
@@ -135,6 +135,9 @@ async function bootstrap() {
     if (shuttingDown) return;
     shuttingDown = true;
     logInfo('graceful shutdown: draining in-flight requests', { signal }, { critical: true });
+    // Опрос Telegram — наружу, `server.close` его не видит: уходящий `getUpdates`
+    // пересёкся бы с опросом поднявшегося (рестартовый 409). Обрываем первым делом.
+    stopSyncPipelineSupervisorService();
     const force = setTimeout(() => {
       logError('graceful shutdown: drain timed out, exiting', { signal });
       process.exit(0);
