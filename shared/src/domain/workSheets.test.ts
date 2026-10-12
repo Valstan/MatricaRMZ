@@ -189,25 +189,18 @@ describe('ступени фильтра этапов работ', () => {
       'workshop',
       'performedBy',
       'date',
-      'engineHasStage',
       'f:hours',
       'f:stand_date',
     ]);
     expect(facets.find((f) => f.id === 'f:stand_date')?.kind).toBe('dateRange');
   });
 
-  it('движковая ступень читает этапы двигателя строки теми же подписями; «Последнего этапа» нет', () => {
+  it('движковой ступени прохождения этапов здесь нет — 12.10.2026 (дубль «Вид работ», снята решением владельца)', () => {
     const facets = workSheetFacets([]);
-    expect(facets.find((f) => f.id === 'engineHasStage')?.label).toBe('Есть этап');
-    // Снята 07.10.2026 (владелец: берёт один последний этап и путает) — как в списке двигателей.
-    expect(facets.find((f) => f.id === 'engineLastStage')).toBeUndefined();
-    const rows = [
-      row({ id: 'a', engineStageCodes: ['ukladka', 'sborka'] }),
-      row({ id: 'b', engineStageCodes: ['ukladka', 'sborka', 'obkatka'] }),
-      row({ id: 'c', engineStageCodes: [] }),
-    ];
-    expect(applyFacets(facets, rows, { engineHasStage: ['stage:obkatka'] }).map((r) => r.id)).toEqual(['b']);
-    expect(applyFacets(facets, rows, { engineHasStage: ['none'] }).map((r) => r.id)).toEqual(['c']);
+    expect(facets.find((f) => f.id === 'engineHasStage')).toBeUndefined();
+    // Снятая ступень не должна оживать из роумившегося состояния списка/отчёта.
+    const rows = [row({ id: 'a', engineStageCodes: ['obkatka'] })];
+    expect(applyFacets(facets, rows, { engineHasStage: ['stage:obkatka'] }).map((r) => r.id)).toEqual(['a']);
   });
 
   it('значения колонки отбирают строки и считаются словами', () => {
