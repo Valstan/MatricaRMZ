@@ -578,6 +578,11 @@ const matricaApi = {
     }) => ipcRenderer.invoke('warehouseLocations:upsert', args),
     delete: async (id: string) => ipcRenderer.invoke('warehouseLocations:delete', id),
   },
+  opencodeNodes: {
+    list: async () => ipcRenderer.invoke('opencodeNodes:list'),
+    save: async (args: { nodes: Array<{ name: string; url: string }> }) => ipcRenderer.invoke('opencodeNodes:save', args),
+    probe: async () => ipcRenderer.invoke('opencodeNodes:probe'),
+  },
   servicePricing: {
     orders: {
       list: async (args?: { status?: string }) => ipcRenderer.invoke('servicePricing:orders:list', args),

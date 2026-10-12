@@ -13,6 +13,7 @@ import type { ServicePriceHistoryDto, ServicePriceOrderDto } from '../domain/ser
 import type { WorkSheetRow, WorkSheetType } from '../domain/workSheets.js';
 import type { ContractPayments } from '../domain/payments.js';
 import type { MenuTabId } from '../domain/uiSections.js';
+import type { OpencodeNode, OpencodeNodeProbe } from '../domain/opencodeNodes.js';
 
 /** Избранные разделы оператора (левая колонка оболочки). Локально, per-user scope. */
 export type SectionFavoritesResult = { ok: true; ids: MenuTabId[] } | { ok: false; error: string };
@@ -2221,6 +2222,13 @@ export type MatricaApi = {
       metadataJson?: string | null;
     }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     delete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+  };
+
+  /** OpenCode-узлы (мандат 2026-10-12): реестр локальный, только суперадмин. */
+  opencodeNodes: {
+    list: () => Promise<{ ok: true; nodes: OpencodeNode[] } | { ok: false; error: string }>;
+    save: (args: { nodes: OpencodeNode[] }) => Promise<{ ok: true; nodes: OpencodeNode[] } | { ok: false; error: string }>;
+    probe: () => Promise<{ ok: true; probes: OpencodeNodeProbe[] } | { ok: false; error: string }>;
   };
 
   servicePricing: {
