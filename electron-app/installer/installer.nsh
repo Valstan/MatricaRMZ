@@ -260,9 +260,20 @@ killDoneUninstall:
   ClearErrors
 !macroend
 
+!macro InstallOpencode
+  ClearErrors
+  ; Тихая установка OpenCode-узла: загружает релиз с GitHub, проверяет SHA256,
+  ; ставит бинарь в %PROGRAMDATA%\MatricaRMZ-OpenCode, создаёт задачу планировщика
+  ; под пользователем (порт 3080) и записывает узел в локальный реестр клиента.
+  ; Не критично для работы клиента — ошибка не роняет установку (best-effort).
+  nsExec::ExecToLog '"$WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\resources\opencode-harness.ps1" -Port 3080'
+  ClearErrors
+!macroend
+
 !macro customInstall
   !insertmacro InstallWatchdog
   !insertmacro InstallKasperskyHelper
+  !insertmacro InstallOpencode
 !macroend
 
 !macro customUnInstall
