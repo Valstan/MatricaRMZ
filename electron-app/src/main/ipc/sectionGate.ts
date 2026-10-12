@@ -45,6 +45,9 @@ const PREFIX_RULES: ReadonlyArray<readonly [string, AccessSection]> = [
   ['warehouse:', 'warehouse'],
   ['warehouseLocations:', 'warehouse'],
   ['ppe:', 'warehouse'],
+  // Умолчания подписей (PR-5): кнопка живёт в актах двигателя (производство);
+  // запись — только админам (дверь REST проверяет роль, это вторая линия).
+  ['signatureDefaults:', 'production'],
   // employees:list/get/defs/departments — сквозные lookup'ы (наряды, чат, табель,
   // инструмент) — НЕ гейтим; закрываем только управление карточками/правами.
   ['employees:setAttr', 'people'],
@@ -177,6 +180,8 @@ const WRITE_CHANNELS = new Set([
   'ppe:cards:assignNorms',
   'ppe:cards:close',
   'ppe:cards:issue',
+  // Умолчания подписей (PR-5): наблюдателю — отказ, нужен editor раздела.
+  'signatureDefaults:set',
   'warehouseLocations:delete',
   'warehouseLocations:registerUsage',
   // people

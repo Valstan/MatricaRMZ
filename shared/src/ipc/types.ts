@@ -13,6 +13,7 @@ import type { ServicePriceHistoryDto, ServicePriceOrderDto } from '../domain/ser
 import type { WorkSheetRow, WorkSheetType } from '../domain/workSheets.js';
 import type { ContractPayments } from '../domain/payments.js';
 import type { MenuTabId } from '../domain/uiSections.js';
+import type { OpencodeNode, OpencodeNodeProbe } from '../domain/opencodeNodes.js';
 
 /** Избранные разделы оператора (левая колонка оболочки). Локально, per-user scope. */
 export type SectionFavoritesResult = { ok: true; ids: MenuTabId[] } | { ok: false; error: string };
@@ -84,7 +85,7 @@ export type ClientOpsBundleInfo = {
 };
 
 /** Вкладка окна обслуживания, с которой его открыть. Значения совпадают с -Tab у matrica-ops.ps1. */
-export type ClientOpsTab = 'kaspersky' | 'lan' | 'guide';
+export type ClientOpsTab = 'kaspersky' | 'lan' | 'opencode' | 'guide';
 
 export type EngineListItem = {
   id: string;
@@ -2223,6 +2224,13 @@ export type MatricaApi = {
     delete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
   };
 
+  /** OpenCode-узлы (мандат 2026-10-12): реестр локальный, только суперадмин. */
+  opencodeNodes: {
+    list: () => Promise<{ ok: true; nodes: OpencodeNode[] } | { ok: false; error: string }>;
+    save: (args: { nodes: OpencodeNode[] }) => Promise<{ ok: true; nodes: OpencodeNode[] } | { ok: false; error: string }>;
+    probe: () => Promise<{ ok: true; probes: OpencodeNodeProbe[] } | { ok: false; error: string }>;
+  };
+
   servicePricing: {
     orders: {
       list: (args?: { status?: string }) => Promise<
@@ -2320,6 +2328,16 @@ export type MatricaApi = {
         { ok: true; documentId: string; entries: number } | { ok: false; error: string }
       >;
     };
+  };
+  /**
+   * Умолчания подписей (PR-5): чтение — из локальной pull-only реплики
+   * (офлайн-подстановка в актах), запись — админской дверью REST.
+   */
+  signatureDefaults: {
+    list: () => Promise<
+      { ok: true; rows: Array<{ fieldKey: string; employeeId: string | null }> } | { ok: false; error: string }
+    >;
+    set: (args: { fieldKey: string; employeeId: string | null }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
   };
   /** Этапы работ: узлы — REST-справочник сервера; строки — записи истории ремонта (`operations`). */
   workSheets: {

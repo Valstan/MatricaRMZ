@@ -138,6 +138,9 @@ export const SYNC_TABLE_OWNERSHIP: Readonly<Record<SyncTableName, SyncTableOwner
   [SyncTableName.PpeIssueCards]: { owner: 'server', why: 'ppeService + публикатор зеркала' },
   [SyncTableName.PpeCardNorms]: { owner: 'server', why: 'ppeService + публикатор зеркала' },
   [SyncTableName.PpeIssueEntries]: { owner: 'server', why: 'ppeService + публикатор зеркала' },
+  // Умолчания подписей (PR-5): ведёт только админская дверь (REST), клиент читает
+  // реплику. Без строки крафт умолчания с клиента ушёл бы в журнал.
+  [SyncTableName.SignatureDefaults]: { owner: 'server', why: 'signatureDefaultsService + публикатор зеркала' },
 };
 
 // Таблицы, которые клиент не пишет никогда, — по ТАБЛИЦЕ, а не по коду атрибута (B3/R3).
@@ -282,6 +285,8 @@ const TABLE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
   [SyncTableName.PpeIssueCards]: { kind: 'superadmin' },
   [SyncTableName.PpeCardNorms]: { kind: 'superadmin' },
   [SyncTableName.PpeIssueEntries]: { kind: 'superadmin' },
+  // Умолчания подписей (PR-5) — вторая линия к безусловному табличному backstop'у выше.
+  [SyncTableName.SignatureDefaults]: { kind: 'superadmin' },
 };
 
 /**

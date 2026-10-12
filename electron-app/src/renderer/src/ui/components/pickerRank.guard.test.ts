@@ -144,3 +144,22 @@ describe('§D4: подстановка своего имени одноразо�
     expect(effect.indexOf('withSignaturePrefillMark(next, offeredNow)'), 'отметка ставится ДО сохранения').toBeLessThan(effect.indexOf('void save(next, { auto: true });'));
   });
 });
+
+describe('§PR-5: умолчания подписей (общие, не «себя»)', () => {
+  const PANEL = src('components/RepairChecklistPanel.tsx');
+
+  it('кнопка «по умолчанию» — только у админа, пишет id работника, пустое — очищает', () => {
+    expect(PANEL).toContain('canManageSignatureDefaults');
+    expect(PANEL).toContain('data-signature-default={it.id}');
+    expect(PANEL).toContain('window.matrica.signatureDefaults.set({ fieldKey: it.id, employeeId: empId })');
+    // Произвольный текст запомнить нельзя — умолчание хранит id, а не ФИО.
+    expect(PANEL).toContain('Умолчание ставится только на работника из списка');
+  });
+
+  it('подстановка предпочитает умолчание, без него — как раньше, себя', () => {
+    expect(PANEL).toContain('window.matrica.signatureDefaults');
+    expect(PANEL).toContain('setSignatureDefaults(map)');
+    expect(PANEL).toContain('const def = defaultSignatureFor(item.id);');
+    expect(PANEL).toContain('const fio = def ? def.fio : fullName;');
+  });
+});

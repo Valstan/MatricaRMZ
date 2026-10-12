@@ -60,6 +60,7 @@ import {
   ppeIssueCards,
   ppeCardNorms,
   ppeIssueEntries,
+  signatureDefaults,
   noteShares,
   notes,
   cardDrafts,
@@ -2032,6 +2033,7 @@ async function applyPulledChanges(
     [SyncTableName.PpeIssueCards]: [],
     [SyncTableName.PpeCardNorms]: [],
     [SyncTableName.PpeIssueEntries]: [],
+    [SyncTableName.SignatureDefaults]: [],
     [SyncTableName.Users]: [],
     [SyncTableName.UserSectionAccess]: [],
   };
@@ -2586,6 +2588,23 @@ async function applyPulledChanges(
             qty: Number(payload.qty ?? 0),
             issuedAt: payload.issued_at,
             documentId: payload.document_id,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      // Умолчания подписей (PR-5): pull-only реплика. Без ветки строки исчезли бы:
+      // у switch нет `default` (см. комментарий у WarehouseLocations выше).
+      case SyncTableName.SignatureDefaults:
+        {
+          const payload = payloadRaw;
+          groups.signature_defaults.push({
+            id: payload.id,
+            fieldKey: payload.field_key,
+            employeeId: payload.employee_id ?? null,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
             lastServerSeq: payload.last_server_seq ?? null,
@@ -3630,6 +3649,19 @@ async function applyPulledChanges(
       qty: sql`excluded.qty`,
       issuedAt: sql`excluded.issued_at`,
       documentId: sql`excluded.document_id`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  // Умолчания подписей (PR-5): порядок не важен, зависимостей нет.
+  if (groups.signature_defaults.length > 0) {
+    emitApply(SyncTableName.SignatureDefaults, groups.signature_defaults.length);
+    await upsertPulledRowsInChunks(db, signatureDefaults, groups.signature_defaults, signatureDefaults.id, {
+      fieldKey: sql`excluded.field_key`,
+      employeeId: sql`excluded.employee_id`,
       updatedAt: sql`excluded.updated_at`,
       lastServerSeq: sql`excluded.last_server_seq`,
       deletedAt: sql`excluded.deleted_at`,

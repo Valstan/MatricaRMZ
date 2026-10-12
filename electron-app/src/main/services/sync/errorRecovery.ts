@@ -99,6 +99,8 @@ const DRIZZLE_TABLE_MAP: Record<SyncTableName, any> = {
   [SyncTableName.PpeIssueCards]: undefined,
   [SyncTableName.PpeCardNorms]: undefined,
   [SyncTableName.PpeIssueEntries]: undefined,
+  // Умолчания подписей (PR-5) — pull-only: клиент в них не пишет, чинить нечего.
+  [SyncTableName.SignatureDefaults]: undefined,
 };
 const IN_ARRAY_CHUNK = 400;
 
