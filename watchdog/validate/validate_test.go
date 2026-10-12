@@ -1,4 +1,4 @@
-package main
+package validate
 
 import (
 	"crypto/sha256"
@@ -31,7 +31,7 @@ func buildFakeExe(t *testing.T, dir, name string, size int) (string, string) {
 func TestValidateInstallerFinalExe(t *testing.T) {
 	dir := t.TempDir()
 	path, sha := buildFakeExe(t, dir, "MatricaRMZ-Setup-3.73.0.exe", 1024)
-	if err := validateInstaller(path, 1024, sha); err != nil {
+	if err := ValidateInstaller(path, 1024, sha); err != nil {
 		t.Fatalf("valid installer rejected: %v", err)
 	}
 }
@@ -42,7 +42,7 @@ func TestValidateInstallerStagingPartName(t *testing.T) {
 	// while the bytes are read from the staging path itself.
 	dir := t.TempDir()
 	path, sha := buildFakeExe(t, dir, "matricarmz-watchdog-3.73.0.exe.part", 1024)
-	if err := validateInstaller(path, 1024, sha); err != nil {
+	if err := ValidateInstaller(path, 1024, sha); err != nil {
 		t.Fatalf("staged download rejected: %v", err)
 	}
 }
@@ -51,7 +51,7 @@ func TestValidateInstallerRejectsNonExe(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"installer.txt", "installer.part", "installer.exe.bak", ".part"} {
 		path, sha := buildFakeExe(t, dir, name, 64)
-		if err := validateInstaller(path, 64, sha); err == nil {
+		if err := ValidateInstaller(path, 64, sha); err == nil {
 			t.Fatalf("%s accepted, want rejection", name)
 		} else if !strings.Contains(err.Error(), "not an .exe") {
 			t.Fatalf("%s rejected with unexpected error: %v", name, err)
@@ -63,10 +63,10 @@ func TestValidateInstallerContentChecks(t *testing.T) {
 	dir := t.TempDir()
 
 	path, sha := buildFakeExe(t, dir, "good-3.73.0.exe.part", 512)
-	if err := validateInstaller(path, 999, sha); err == nil {
+	if err := ValidateInstaller(path, 999, sha); err == nil {
 		t.Fatal("size mismatch accepted")
 	}
-	if err := validateInstaller(path, 512, strings.Repeat("0", 64)); err == nil {
+	if err := ValidateInstaller(path, 512, strings.Repeat("0", 64)); err == nil {
 		t.Fatal("sha mismatch accepted")
 	}
 
@@ -74,7 +74,7 @@ func TestValidateInstallerContentChecks(t *testing.T) {
 	if err := os.WriteFile(empty, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateInstaller(empty, 0, ""); err == nil {
+	if err := ValidateInstaller(empty, 0, ""); err == nil {
 		t.Fatal("empty installer accepted")
 	}
 
@@ -82,19 +82,19 @@ func TestValidateInstallerContentChecks(t *testing.T) {
 	if err := os.WriteFile(plain, []byte("not a PE file at all"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateInstaller(plain, 0, ""); err == nil {
+	if err := ValidateInstaller(plain, 0, ""); err == nil {
 		t.Fatal("non-MZ file accepted")
 	}
 }
 
 func TestBackoffForGrowsAndCaps(t *testing.T) {
-	if got := backoffFor(1); got != 30*time.Minute {
-		t.Fatalf("backoffFor(1) = %v, want 30m", got)
+	if got := BackoffFor(1); got != 30*time.Minute {
+		t.Fatalf("BackoffFor(1) = %v, want 30m", got)
 	}
-	if got := backoffFor(2); got != time.Hour {
-		t.Fatalf("backoffFor(2) = %v, want 1h", got)
+	if got := BackoffFor(2); got != time.Hour {
+		t.Fatalf("BackoffFor(2) = %v, want 1h", got)
 	}
-	if got := backoffFor(100); got != 24*time.Hour {
-		t.Fatalf("backoffFor(100) = %v, want cap 24h", got)
+	if got := BackoffFor(100); got != 24*time.Hour {
+		t.Fatalf("BackoffFor(100) = %v, want cap 24h", got)
 	}
 }
