@@ -76,6 +76,7 @@ export type TabId =
   | 'warehouse_locations'
   | 'admin'
   | 'audit'
+  | 'opencode_nodes'
   | 'notes'
   | 'settings'
   | 'user_screens'
@@ -186,6 +187,7 @@ const menuTabSet = new Set<MenuTabId>([
   'empty_cards',
   'drafts',
   'admin',
+  'opencode_nodes',
   'auth',
   'notes',
   'settings',
@@ -271,6 +273,7 @@ export const MENU_TAB_LABELS: Record<MenuTabId, string> = {
   empty_cards: 'Пустые карточки',
   drafts: 'Черновики',
   admin: 'Админ',
+  opencode_nodes: 'OpenCode-узлы',
   auth: 'Вход',
   notes: 'Заметки',
   settings: 'Настройки',
@@ -288,7 +291,7 @@ export const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   workwear: ['ppe_cards', 'ppe_norms', 'ppe_stock', 'ppe_reports'],
   business: ['contracts', 'counterparties'],
   people: ['employees', 'timesheets', 'access_sections'],
-  control: ['reports', 'custom_reports', 'report_templates', 'changes', 'audit', 'notes', 'masterdata', 'workshops', 'workshop_stats', 'warehouses_admin', 'empty_cards', 'drafts', 'admin'],
+  control: ['reports', 'custom_reports', 'report_templates', 'changes', 'audit', 'notes', 'masterdata', 'workshops', 'workshop_stats', 'warehouses_admin', 'empty_cards', 'drafts', 'admin', 'opencode_nodes'],
 };
 
 export function groupForTab(tab: MenuTabId): MenuGroupId {
