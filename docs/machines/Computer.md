@@ -25,8 +25,10 @@
   живой Electron-стек не поднять; бэкенд стенда (чистый Node) — можно.
   (2026-10-12 вечером: Build Tools 2022 встали в `C:\BuildTools`, MSVC 14.44 +
   Windows SDK — `install-app-deps` проходит, CDP-смоук `cdp-opencode-nodes.mjs`
-  PASS. После `install-app-deps` vitest нужен Node-ABI: `corepack pnpm rebuild
-  better-sqlite3` — иначе тесты падают на загрузке `.node`.)
+  PASS. После `install-app-deps` vitest краснеет ABI (148 vs 137); чинит НЕ
+  `pnpm rebuild`/`pnpm install` (молчат), а прямой `node-gyp rebuild` в каталоге
+  пакета: `node <node-gyp@12.4.0>/bin/node-gyp.js rebuild` в обоих
+  `better-sqlite3*` — проверено, сьют зелёный.)
 - **SSH `matricarmz` — работает** (BatchMode да). Канал после вывода виснет:
   почти каждый вызов завершается клиентским таймаутом, хотя команда на проде
   отработала — вывод, успевший прийти, достоверен; «timed out» ≠ «не выполнено».

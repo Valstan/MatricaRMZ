@@ -16,7 +16,7 @@
 [CmdletBinding()]
 param(
     # Какую вкладку открыть первой.
-    [ValidateSet('kaspersky', 'lan', 'guide')]
+    [ValidateSet('kaspersky', 'lan', 'opencode', 'guide')]
     [string]$Tab = 'kaspersky',
     # Путь к .exe клиента и к его папке данных — их знает сама Матрица и передаёт сюда.
     # Своими силами их пришлось бы искать по профилю ТЕКУЩЕГО пользователя, а после подъёма
@@ -85,6 +85,7 @@ if (-not (Test-OpsAdmin) -and -not $NoElevate) {
 
 . (Join-Path $OpsDir 'kaspersky-matrica.ps1') -AsLibrary
 . (Join-Path $OpsDir 'lan-share-firewall.ps1') -AsLibrary
+. (Join-Path $OpsDir 'opencode-harness.ps1') -AsLibrary
 
 $OpsIsAdmin = Test-OpsAdmin
 # Подъём прав на НЕадминской учётке идёт через ввод ЧУЖИХ данных, и поднятый процесс живёт в
@@ -179,6 +180,12 @@ $tabLan.Tag = 'lan'
 $tabLan.UseVisualStyleBackColor = $true
 $tabLan.Controls.Add((New-LanSharePanel -RulePort $OpsPort -ExePath $OpsClientExe))
 
+$tabOpencode = New-Object System.Windows.Forms.TabPage
+$tabOpencode.Text = 'OpenCode-узел'
+$tabOpencode.Tag = 'opencode'
+$tabOpencode.UseVisualStyleBackColor = $true
+$tabOpencode.Controls.Add((New-OpencodePanel -ServePort 3080 -DataDir $OpsUserDataDir))
+
 $tabGuide = New-Object System.Windows.Forms.TabPage
 $tabGuide.Text = 'Памятка'
 $tabGuide.Tag = 'guide'
@@ -218,10 +225,12 @@ $tabGuide.Controls.Add($guideBar)
 
 [void]$tabs.TabPages.Add($tabKav)
 [void]$tabs.TabPages.Add($tabLan)
+[void]$tabs.TabPages.Add($tabOpencode)
 [void]$tabs.TabPages.Add($tabGuide)
 
 switch ($OpsTab) {
     'lan' { $tabs.SelectedTab = $tabLan }
+    'opencode' { $tabs.SelectedTab = $tabOpencode }
     'guide' { $tabs.SelectedTab = $tabGuide }
     default { $tabs.SelectedTab = $tabKav }
 }
