@@ -12,6 +12,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 
 import { PopupLayer } from '../components/PopupLayer.js';
+import { FavoriteStarButton } from '../components/FavoriteStarButton.js';
 import type { MenuTabId } from '../layout/Tabs.js';
 import { isAndroidPlatform } from '../platform.js';
 import type { ActionButtonId } from './menuActions.js';
@@ -25,6 +26,8 @@ function SortableMenuButton(props: {
   active: boolean;
   listOpen: boolean;
   pinned: boolean;
+  isFavorite: boolean;
+  onToggleFavorite: (() => void) | null;
   onClick: () => void;
   onTogglePin: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
@@ -64,6 +67,15 @@ function SortableMenuButton(props: {
       >
         📌
       </button>
+      {props.onToggleFavorite != null && props.btn.kind === 'nav' && (
+        <FavoriteStarButton
+          favorite={props.isFavorite}
+          dataId={props.btn.id}
+          title={props.isFavorite ? 'Убрать из избранного' : 'Добавить в избранное'}
+          onToggle={props.onToggleFavorite}
+          size={30}
+        />
+      )}
     </div>
   );
 }
@@ -78,6 +90,9 @@ export function ButtonPanel(props: {
   listOpenTab: MenuTabId | null;
   onTab: (id: MenuTabId) => void;
   onAction: (id: ActionButtonId) => void;
+  /** Звёздочки избранного (только nav-кнопки разделов). Пусто — звёздочек нет. */
+  favoriteTabs?: readonly MenuTabId[];
+  onToggleFavoriteTab?: (id: MenuTabId) => void;
   /**
    * «Добавить на Верстак» для кнопки раздела (этап B): ярлык кладётся на ту кнопку,
    * по которой щёлкнули, а не на текущую позицию. Закреп сверху тоже кладёт ярлык
@@ -197,6 +212,10 @@ export function ButtonPanel(props: {
       active={btn.kind === 'nav' && props.activeMenuTab === btn.id}
       listOpen={btn.kind === 'nav' && props.listOpenTab === btn.id}
       pinned={pinned}
+      isFavorite={btn.kind === 'nav' && (props.favoriteTabs ?? []).includes(btn.id as MenuTabId)}
+      onToggleFavorite={
+        btn.kind === 'nav' && props.onToggleFavoriteTab ? () => props.onToggleFavoriteTab?.(btn.id as MenuTabId) : null
+      }
       onClick={() => {
         if (btn.kind === 'nav') props.onTab(btn.id as MenuTabId);
         else props.onAction(btn.id as ActionButtonId);

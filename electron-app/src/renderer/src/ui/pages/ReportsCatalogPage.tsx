@@ -10,6 +10,7 @@ import type {
 import { REPORT_PRESET_THEMES, REPORT_THEMES, formatReportFiltersSummary } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { FAVORITE_STAR_GOLD } from '../components/FavoriteStarButton.js';
 import { Input } from '../components/Input.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { POPUP_Z_INDEX, PopupLayer } from '../components/PopupLayer.js';
@@ -280,8 +281,8 @@ export function ReportsCatalogPage(props: {
               width: 34,
               minWidth: 34,
               height: 34,
-              background: isFavorite ? 'rgba(245, 158, 11, 0.12)' : 'transparent',
-              color: isFavorite ? '#b45309' : 'var(--muted)',
+              background: isFavorite ? 'rgba(201, 147, 10, 0.12)' : 'transparent',
+              color: isFavorite ? FAVORITE_STAR_GOLD : 'var(--muted)',
               cursor: 'pointer',
               fontSize: 18,
               lineHeight: 1,
