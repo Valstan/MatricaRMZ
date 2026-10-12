@@ -495,6 +495,19 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS ppe_issue_entries_card_idx ON ppe_issue_entries(card_id, issued_at);
     CREATE INDEX IF NOT EXISTS ppe_issue_entries_nomenclature_idx ON ppe_issue_entries(nomenclature_id, issued_at);
     CREATE INDEX IF NOT EXISTS ppe_issue_entries_document_idx ON ppe_issue_entries(document_id);
+
+    CREATE TABLE IF NOT EXISTS signature_defaults (
+      id text PRIMARY KEY NOT NULL,
+      field_key text NOT NULL,
+      employee_id text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS signature_defaults_field_key_uq ON signature_defaults(field_key) WHERE deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS signature_defaults_employee_idx ON signature_defaults(employee_id);
   `);
 
   // chat_rooms — комнаты чата (владелец 08.09.2026). Та же причина дубля, что у таблиц выше:

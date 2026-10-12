@@ -19,6 +19,7 @@ import { startSyncPipelineSupervisorService, stopSyncPipelineSupervisorService }
 import { startUsersSyncPublisher } from './services/sync/usersSyncPublisherService.js';
 import { startWarehouseLocationsSyncPublisher } from './services/sync/warehouseLocationsSyncPublisherService.js';
 import { startPpeSyncPublisher } from './services/sync/ppeSyncPublisherService.js';
+import { startSignatureDefaultsSyncPublisher } from './services/sync/signatureDefaultsSyncPublisherService.js';
 import { startDictionarySyncPublisher } from './services/sync/dictionarySyncPublisherService.js';
 import { startAuditStatisticsScheduler } from './services/statisticsAuditService.js';
 import { startEngineDedupeJob } from './services/engineDedupeService.js';
@@ -108,6 +109,7 @@ async function bootstrap() {
     startUsersSyncPublisher();
     startWarehouseLocationsSyncPublisher();
     startPpeSyncPublisher();
+    startSignatureDefaultsSyncPublisher();
     startDictionarySyncPublisher();
     startCriticalEventsTelegramService();
     startAiChatHistoryCleanup();

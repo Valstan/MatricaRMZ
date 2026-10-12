@@ -556,6 +556,22 @@ export const ppeIssueEntries = sqliteTable('ppe_issue_entries', {
   documentIdx: index('ppe_issue_entries_document_idx').on(t.documentId),
 }));
 
+// Умолчания подписей (PR-5): реплика строгой таблицы (миграция 0108).
+// Nullability — ровно как сервер, иначе pull уронит checkReplicaStrictness.
+export const signatureDefaults = sqliteTable('signature_defaults', {
+  id: text('id').primaryKey(),
+  fieldKey: text('field_key').notNull(),
+  employeeId: text('employee_id'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  fieldKeyUq: index('signature_defaults_field_key_uq').on(t.fieldKey),
+  employeeIdx: index('signature_defaults_employee_idx').on(t.employeeId),
+}));
+
 export const erpEmployeeCards = sqliteTable(
   'erp_employee_cards',
   {

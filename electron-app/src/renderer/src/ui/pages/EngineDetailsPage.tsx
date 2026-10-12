@@ -2999,6 +2999,7 @@ export function EngineDetailsPage(props: {
             canViewFiles={props.canViewFiles}
             canUploadFiles={props.canUploadFiles}
             currentUserProfile={props.currentUserProfile ?? null}
+            canManageSignatureDefaults={isAdminViewer}
             {...(props.canCreateSupplyRequest && props.onOpenSupplyRequest && !reservedByOther
               ? { onCreateSupplyRequestFromDefects: handleCreateSupplyRequestFromDefects }
               : {})}

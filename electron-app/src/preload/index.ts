@@ -626,6 +626,10 @@ const matricaApi = {
         ipcRenderer.invoke('ppe:cards:issue', args),
     },
   },
+  signatureDefaults: {
+    list: async () => ipcRenderer.invoke('signatureDefaults:list'),
+    set: async (args: { fieldKey: string; employeeId: string | null }) => ipcRenderer.invoke('signatureDefaults:set', args),
+  },
   workSheets: {
     types: {
       list: async (args?: { includeArchived?: boolean }) => ipcRenderer.invoke('workSheets:types:list', args),

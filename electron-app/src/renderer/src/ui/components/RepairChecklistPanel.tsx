@@ -488,6 +488,11 @@ export function RepairChecklistPanel(props: {
   canUploadFiles?: boolean;
   defaultCollapsed?: boolean;
   currentUserProfile?: { fullName: string; position: string } | null;
+  /**
+   * Умолчания подписей (PR-5): админ видит у поля подписи кнопку «по умолчанию»
+   * (запомнить/очистить дефолт). Подстановка дефолта в пустые подписи — всем.
+   */
+  canManageSignatureDefaults?: boolean;
   /** Имя цеха двигателя (workshop_id → directory_workshops.name) для автоподстановки комиссии акта комплектности. */
   workshopName?: string;
   /** engine_inventory: build a draft supply request from rows marked «заказать новую» (replace_qty>0).
@@ -559,6 +564,9 @@ export function RepairChecklistPanel(props: {
   // одноразовая, иначе она возвращала бы себя в поле, которое оператор только что стёр.
   const prefilledSignaturesRef = useRef<{ sheetKey: string; ids: Set<string> }>({ sheetKey: '', ids: new Set<string>() });
   const [employeeOptions, setEmployeeOptions] = useState<Array<{ id: string; label: string; position?: string | null }>>([]);
+  // Умолчания подписей (PR-5): ключ поля → id сотрудника. Читаются из локальной
+  // pull-only реплики (офлайн), поэтому подстановка работает и без связи.
+  const [signatureDefaults, setSignatureDefaults] = useState<Record<string, string>>({});
   // Полные записи работников для автоподстановки комиссии (нужны departmentName/employmentStatus).
   const [employeeRows, setEmployeeRows] = useState<any[]>([]);
   const [defectOptions, setDefectOptions] = useState<Array<{ id: string; label: string; hintText?: string; searchText?: string }>>([]);
@@ -1051,6 +1059,25 @@ export function RepairChecklistPanel(props: {
   }, []);
 
   useEffect(() => {
+    let alive = true;
+    window.matrica.signatureDefaults
+      .list()
+      .then((r) => {
+        if (!alive) return;
+        if (!r || !(r as { ok: boolean }).ok || !Array.isArray((r as { rows?: unknown }).rows)) return;
+        const map: Record<string, string> = {};
+        for (const row of (r as { rows: Array<{ fieldKey: string; employeeId: string | null }> }).rows) {
+          if (row?.fieldKey && row?.employeeId) map[String(row.fieldKey)] = String(row.employeeId);
+        }
+        setSignatureDefaults(map);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
     // При смене шаблона: если нет payload — инициализируем ответы под шаблон.
     if (!activeTemplate) return;
     if (payload?.templateId) return;
@@ -1162,7 +1189,17 @@ export function RepairChecklistPanel(props: {
     if (!activeTemplate) return;
     const fullName = String(props.currentUserProfile?.fullName ?? '').trim();
     const position = String(props.currentUserProfile?.position ?? '').trim();
-    if (!fullName && !position) return;
+    // Умолчание поля (PR-5): общий дефолт важнее «себя» — кто работу делает обычно,
+    // тот и подставляется. ФИО резолвится из работников здесь, на чтении.
+    const defaultSignatureFor = (fieldKey: string): { fio: string; position: string } | null => {
+      const empId = signatureDefaults[fieldKey];
+      if (!empId) return null;
+      const emp = employeeOptions.find((o) => o.id === empId);
+      if (!emp) return null;
+      return { fio: String(emp.label ?? '').trim(), position: String(emp.position ?? '').trim() };
+    };
+    const hasAnyDefault = Object.values(signatureDefaults).some((v) => !!v);
+    if (!fullName && !position && !hasAnyDefault) return;
     // Подстановка своего имени — ОДИН раз на подпись, а не «всегда, пока пусто» (§D4).
     // Пустая подпись бывает двух разных видов: «ещё не заполняли» и «оператор СТЁР, чтобы
     // выбрать другого». Эффект висит на `answers` и срабатывал на второй вид тоже — человек
@@ -1207,7 +1244,16 @@ export function RepairChecklistPanel(props: {
         continue;
       }
       const signedAt = current?.kind === 'signature' ? (current.signedAt ?? null) : null;
-      (next as any)[item.id] = { kind: 'signature', fio: fullName, position, signedAt };
+      const def = defaultSignatureFor(item.id);
+      const fio = def ? def.fio : fullName;
+      const pos = def ? def.position : position;
+      // Подставлять нечего ни из дефолта, ни из себя — помечаем пройденной, иначе
+      // эффект будет возвращаться к ней на каждое изменение ответов.
+      if (!fio && !pos) {
+        alreadyPrefilled.add(item.id);
+        continue;
+      }
+      (next as any)[item.id] = { kind: 'signature', fio, position: pos, signedAt };
       alreadyPrefilled.add(item.id);
       offeredNow.push(item.id);
       changed = true;
@@ -1228,6 +1274,8 @@ export function RepairChecklistPanel(props: {
     props.currentUserProfile?.position,
     props.engineId,
     props.stage,
+    signatureDefaults,
+    employeeOptions,
   ]);
 
   // Хвост Т6: автоподстановка комиссии акта комплектности по цеху двигателя (динамический список).
@@ -2289,6 +2337,8 @@ export function RepairChecklistPanel(props: {
                         ? employeeOptions.find((opt) => opt.label === fioValue || opt.id === fioValue)?.id ?? fioValue
                         : fioValue || null;
                     return (
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center', minWidth: 0 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
                   <SearchSelect
                     value={valueId}
                     options={options}
@@ -2309,6 +2359,52 @@ export function RepairChecklistPanel(props: {
                       void save(nextAnswers);
                     }}
                   />
+                        </div>
+                        {props.canManageSignatureDefaults === true ? (
+                          <button
+                            type="button"
+                            disabled={!props.canEdit}
+                            title="По умолчанию: с заполненным полем — запомнить работника, с пустым — очистить"
+                            data-signature-default={it.id}
+                            onClick={() =>
+                              void (async () => {
+                                // Умолчание хранит id работника: произвольный текст запомнить
+                                // нельзя — его не к чему привязать при смене ФИО.
+                                const empId = valueId && employeeOptions.some((o) => o.id === valueId) ? valueId : null;
+                                if (fioValue && !empId) {
+                                  setStatus('Умолчание ставится только на работника из списка');
+                                  return;
+                                }
+                                const r = await window.matrica.signatureDefaults.set({ fieldKey: it.id, employeeId: empId });
+                                if (!r || !(r as { ok: boolean }).ok) {
+                                  setStatus(`Умолчание не сохранилось: ${(r as { error?: string }).error ?? 'unknown'}`);
+                                  return;
+                                }
+                                setSignatureDefaults((prev) => {
+                                  if (empId) return { ...prev, [it.id]: empId };
+                                  const next = { ...prev };
+                                  delete next[it.id];
+                                  return next;
+                                });
+                                setStatus(empId ? `Умолчание «${it.label}»: ${fioValue}` : `Умолчание «${it.label}» очищено`);
+                              })()
+                            }
+                            style={{
+                              flexShrink: 0,
+                              padding: '6px 8px',
+                              borderRadius: 8,
+                              border: '1px solid var(--button-ghost-border)',
+                              background: 'var(--button-ghost-bg)',
+                              color: 'var(--muted)',
+                              cursor: props.canEdit ? 'pointer' : 'default',
+                              fontSize: 11,
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            По умолч.
+                          </button>
+                        ) : null}
+                      </div>
                     );
                   })()}
                   <OverflowTooltipInput

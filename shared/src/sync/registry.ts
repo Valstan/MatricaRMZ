@@ -41,6 +41,7 @@ import {
   ppeIssueCardRowSchema,
   ppeCardNormRowSchema,
   ppeIssueEntryRowSchema,
+  signatureDefaultRowSchema,
   directoryEngineBrandRowSchema,
 } from './dto.js';
 import {
@@ -529,6 +530,13 @@ const PPE_ISSUE_ENTRY_FIELDS = withBase(
   { db: 'documentId', dto: 'document_id' },
 );
 
+// Умолчания подписей (PR-5). withBase добавляет
+// id/created_at/updated_at/deleted_at/last_server_seq/sync_status сам.
+const SIGNATURE_DEFAULT_FIELDS = withBase(
+  { db: 'fieldKey', dto: 'field_key' },
+  { db: 'employeeId', dto: 'employee_id' },
+);
+
 // ────────────────────────────────────────────────────────────
 // Registry entries
 // ────────────────────────────────────────────────────────────
@@ -838,6 +846,16 @@ const ENTRIES: readonly SyncTableEntry[] = [
     fields: PPE_ISSUE_ENTRY_FIELDS,
     conflictTarget: ['id'],
     dependsOn: [SyncTableName.PpeIssueCards],
+  },
+  // Умолчания подписей (план favorites-work-stages-defaults-2026-10, PR-5):
+  // ни на что не ссылаются жёстко (сотрудник — uuid без FK), сирот не чистим.
+  {
+    syncName: SyncTableName.SignatureDefaults,
+    ledgerName: SyncTableName.SignatureDefaults,
+    schema: signatureDefaultRowSchema,
+    fields: SIGNATURE_DEFAULT_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [],
   },
 ] as const;
 
