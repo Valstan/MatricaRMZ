@@ -15,7 +15,7 @@
 //  [6] «Дней на заводе» у строки совпадает с расчётом по дате прихода;
 //  [7] диалог «Печать списка» открывается;
 //  [8] список «Двигатели»: в панели фильтров «Последнего этапа» тоже нет
-//      (снят во всех фильтрах), «Есть этап» и «Этап на заводе» на месте;
+//      «Все этапы» (подпись с 12.10.2026) и «Этап на заводе» на месте;
 //  [9] соседний отчёт «…этапы ремонта»: колонки-дубля «Последний этап» в нём нет
 //      (владелец 08.10.2026).
 //
@@ -307,7 +307,7 @@ async function main() {
        picked: txt(pick.o), pickedCount: pick.count, rows, afterReset };`,
   );
   note(s4.gone === true && s4.hasFactory === true && s4.hasHasStage === true,
-    'панель ступеней: «Последнего этапа» нет, «Есть этап» и «Этап на заводе» на месте', { fieldIds: s4.fieldIds, gone: s4.gone });
+    'панель ступеней: «Последнего этапа» нет, «Все этапы» и «Этап на заводе» на месте', { fieldIds: s4.fieldIds, gone: s4.gone });
   note(s4.ok === true && s4.rows === s4.pickedCount, `ступень «Этап на заводе»: выбор «${s4.picked}» оставил ровно счётчик (${s4.pickedCount})`, { rows: s4.rows, pickedCount: s4.pickedCount, picked: s4.picked });
   note(s4.afterReset === bridge.total, 'сброс ступени вернул все строки', { afterReset: s4.afterReset, total: bridge.total });
 
@@ -377,7 +377,7 @@ async function main() {
      if (reset) { click(reset); await wait(400); }
      return { ok: !ids.includes('lastStage') && ids.includes('factoryStage') && ids.includes('hasStage'), ids };`,
   );
-  note(s8.ok === true, 'список «Двигатели»: в фильтрах «Последнего этапа» нет, «Есть этап»/«Этап на заводе» на месте', { ids: s8.ids });
+  note(s8.ok === true, 'список «Двигатели»: в фильтрах «Последнего этапа» нет, «Все этапы»/«Этап на заводе» на месте', { ids: s8.ids });
   await shot(ws, '6-engines-filters');
 
   /* ── [9] Соседний отчёт «…этапы ремонта»: колонки-дубля «Последний этап» нет ─────── */

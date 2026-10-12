@@ -1,6 +1,5 @@
 import { HUMAN_LABEL_DASH } from './humanLabels.js';
 import type { FacetDescriptor } from './listFacets.js';
-import { engineStageFacetOptions, stageByCode } from './engineListFacets.js';
 import type { EngineFactoryStageTypeRef } from './engineFactoryStage.js';
 import type { RepairStageTemplate } from './repairStages.js';
 
@@ -359,11 +358,10 @@ export const WORK_SHEET_ROW_FACET_IDS = ['type', 'engineBrand', 'workshop', 'per
  * по одной на каждую колонку узла — списком значений либо диапазоном дат по типу колонки.
  * Ступени колонок получают id `f:<code>`, чтобы не пересечься с общими.
  *
- * Плюс движковая ступень «Есть этап» — тот же смысл, что в списке двигателей: считается
- * по строке через этапы ЕЁ двигателя (вся история, включая авто-строки из других
- * документов), поэтому отбор «есть этап = Сборка» здесь и там показывает одни и те же
- * двигатели. Для ряда значений нужны справочники — без них ряд пустой, отбор молчит,
- * а не врёт.
+ * Движковой ступени «двигатель проходил этап» здесь больше нет — снята 12.10.2026
+ * решением владельца (дублировала «Вид работ»: два ответа на один вопрос, оператор
+ * выбирал один и получал пустой список; см. `engineListFacets.ts`). Отбор по истории
+ * этапов — только в списке двигателей («Все этапы»).
  */
 export function workSheetFacets(
   columns: readonly WorkSheetColumn[],
@@ -385,23 +383,6 @@ export function workSheetFacets(
     { kind: 'values', id: 'workshop', label: 'Цех', valueOf: (r) => val(r.workshopId, r.workshopName || HUMAN_LABEL_DASH) },
     { kind: 'values', id: 'performedBy', label: 'Исполнитель', valueOf: (r) => val(text(r.performedBy)) },
     { kind: 'dateRange', id: 'date', label: 'Дата', dateOf: (r) => (Number.isFinite(r.at) && r.at > 0 ? r.at : null) },
-    {
-      kind: 'values',
-      id: 'engineHasStage',
-      // Та же подпись, что в списке двигателей: ступень отвечает на тот же вопрос.
-      label: 'Есть этап',
-      valueOf: (r) => {
-        const codes = (r.engineStageCodes ?? []).filter((c) => stageByCode(c, refs?.stageTemplates) !== null);
-        const first = codes[0];
-        if (first === undefined) return { value: 'none', label: 'этапов нет' };
-        return {
-          value: 'stage:' + first,
-          label: stageByCode(first, refs?.stageTemplates)!.name,
-          values: codes.map((c) => 'stage:' + c),
-        };
-      },
-      options: engineStageFacetOptions(refs?.types, refs?.stageTemplates),
-    },
     // Ступени «Последний этап» здесь больше нет — снята 07.10.2026 решением владельца
     // (та же причина, что в списке двигателей: берёт один последний этап и путает;
     // см. `engineListFacets.ts`).

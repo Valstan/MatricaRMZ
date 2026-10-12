@@ -4,6 +4,7 @@ import {
   ENGINE_FACETS,
   applyEngineFacets,
   engineFacetIsActive,
+  engineStageFacetOptions,
   sanitizeEngineFacetSelection,
   classifyEngineContractBinding,
   engineInternalNumberSortKey,
@@ -141,6 +142,8 @@ export type EnginesPageUiState = {
     | 'scrapDate'
     | 'completenessAct'
     | 'engineStage'
+    /** Дата прохождения выбранного в фильтре «Все этапы» этапа (12.10.2026). */
+    | 'stageDate'
     | 'updatedAt';
   sortDir: 'asc' | 'desc';
   page: number;
@@ -170,7 +173,20 @@ export function createDefaultEnginesPageUiState(): EnginesPageUiState {
 }
 
 /** Даты стадий (16.09) — скрыты, пока оператор сам не включит их в «Колонках списка». */
-const ENGINE_LIST_HIDDEN_BY_DEFAULT = ['repairStartedDate', 'repairedDate', 'scrapDate'];
+const ENGINE_LIST_HIDDEN_BY_DEFAULT = ['repairStartedDate', 'repairedDate', 'scrapDate', 'stageDate'];
+
+/**
+ * Выбранный в фильтре «Все этапы» этап — ровно один (или ни одного). Возвращает
+ * КОД этапа (без префикса `stage:`); `'none'` («этапов нет») не код — колонка молчит.
+ */
+export function selectedStageCodeFromSelection(selection: EngineFacetSelection): string | null {
+  const values = selection?.hasStage;
+  if (!Array.isArray(values) || values.length !== 1) return null;
+  const [only] = values;
+  if (typeof only !== 'string' || !only.startsWith('stage:')) return null;
+  const code = only.slice('stage:'.length).trim();
+  return code || null;
+}
 
 function toDateLabel(ms?: number | null) {
   if (!ms) return '';
@@ -382,6 +398,18 @@ export function EnginesPage(props: {
     return Array.from(new Set([...known, ...active]));
   }, [listState.facetFields, facets]);
   const facetsOpen = listState.facetsOpen === true;
+
+  // Выбранный этап фильтра «Все этапы»: колонка «Дата этапа» отвечает по НЕМУ «когда
+  // проходили», а не по последнему этапу (решение владельца 12.10.2026).
+  const selectedStageCode = React.useMemo(() => selectedStageCodeFromSelection(facets), [facets]);
+  const selectedStageDateOf = React.useCallback(
+    (e: EngineListItem): number | null => {
+      if (!selectedStageCode) return null;
+      const at = e.stageDates?.[selectedStageCode];
+      return typeof at === 'number' && Number.isFinite(at) && at > 0 ? at : null;
+    },
+    [selectedStageCode],
+  );
   const searchSimilar = listState.searchSimilar === true;
   const width = useWindowWidth();
   const { isMultiColumn } = useListColumnsMode();
@@ -513,6 +541,9 @@ export function EnginesPage(props: {
           return byDate(engineStatusDate(a, 'status_repaired'), engineStatusDate(b, 'status_repaired'));
         case 'scrapDate':
           return byDate(engineScrapDate(a), engineScrapDate(b));
+        // Дата прохождения выбранного этапа: без выбора у всех «—», всё равно сортируется.
+        case 'stageDate':
+          return byDate(a.stageDates?.[selectedStageCode ?? ''] ?? null, b.stageDates?.[selectedStageCode ?? ''] ?? null);
         case 'updatedAt':
           return byDate(a.updatedAt ?? null, b.updatedAt ?? null);
         case 'completenessAct': {
@@ -524,9 +555,19 @@ export function EnginesPage(props: {
       }
     });
     return items;
-  }, [facetFiltered, sortDir, sortKey, query]);
+  }, [facetFiltered, sortDir, sortKey, query, selectedStageCode]);
 
   const displayRows = sorted;
+
+  // Заголовок печати (владелец 12.10.2026): при выбранном этапе фильтра «Все этапы»
+  // печать отвечает тем же вопросом, что и экран — «эти двигатели прошли этап X».
+  // Имя берём из того же справочника, что варианты ступени: подпись этапа одна на все места.
+  const printTitle = React.useMemo(() => {
+    const code = selectedStageCode;
+    if (!code) return 'Список двигателей';
+    const option = engineStageFacetOptions(sheetTypes, stageTemplates).find((o) => o.value === `stage:${code}`);
+    return option?.label ? `Двигатели, прошедшие этап: ${option.label}` : `Двигатели, прошедшие этап: ${code}`;
+  }, [selectedStageCode, sheetTypes, stageTemplates]);
 
   // ПКМ-меню строки: пункт «Наряд на сборку» (тема D) для одиночной строки. Печать/копия/
   // удаление двигателей из списка не поддержаны — меню целевое, без общего набора.
@@ -686,6 +727,22 @@ export function EnginesPage(props: {
         },
       },
       { id: 'arrivalDate', label: 'Дата прихода', tabletLabel: 'Приход', sortable: true, sortKey: 'arrivalDate', kind: 'date', render: (e) => toDateLabel(e.arrivalDate) || '-' },
+      // «Дата этапа» (владелец 12.10.2026): когда двигатель прошёл ЭТАП, выбранный в фильтре
+      // «Все этапы». Без выбора она показывала бы дату последнего этапа и отвечала бы не на тот
+      // вопрос, поэтому в этом случае молчит «—»: врать хуже, чем промолчать.
+      {
+        id: 'stageDate',
+        label: 'Дата этапа',
+        tabletLabel: 'Дата эт.',
+        sortable: true,
+        sortKey: 'stageDate',
+        kind: 'date',
+        printValue: (e) => toDateLabel(selectedStageDateOf(e)),
+        render: (e) => {
+          const ms = selectedStageDateOf(e);
+          return ms == null ? '-' : toDateLabel(ms) || '-';
+        },
+      },
       { id: 'shippingDate', label: 'Дата отгрузки', tabletLabel: 'Отгр.', sortable: true, sortKey: 'shippingDate', kind: 'date', render: (e) => toDateLabel(e.shippingDate) || '-' },
       // Даты стадий карточки (владелец 16.09) — скрыты по умолчанию, включаются в «Колонках списка».
       { id: 'repairStartedDate', label: 'Ремонт начат', tabletLabel: 'Рем. нач.', sortable: true, sortKey: 'repairStartedDate', kind: 'date', render: (e) => toDateLabel(engineStatusDate(e, 'status_repair_started')) || '-' },
@@ -711,7 +768,7 @@ export function EnginesPage(props: {
         render: (e) => <ListRowThumbs files={(e as EngineRow).attachmentPreviews ?? []} />,
       },
     ],
-    [],
+    [selectedStageDateOf],
   );
   const allColumnIds = useMemo(() => allColumns.map((c) => c.id), [allColumns]);
   const columnsById = useMemo(() => new Map(allColumns.map((c) => [c.id, c])), [allColumns]);
@@ -1131,7 +1188,7 @@ export function EnginesPage(props: {
 
       {printDialogOpen && (
         <ListPrintDialog
-          title="Список двигателей"
+          title={printTitle}
           unitLabel="Двигателей"
           columns={printColumns}
           visibleColumnIds={visibleColumns.map((c) => c.id)}

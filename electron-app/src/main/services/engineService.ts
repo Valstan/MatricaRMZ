@@ -514,8 +514,10 @@ export type EngineRepairHistorySummary = {
   lastSheetNode: string;
   lastSheetAt: number | null;
   lastSheetTypeCode: string;
-  /** Все коды этапов двигателя по порядку линейки (ступень «Есть этап»). */
+  /** Все коды этапов двигателя по порядку линейки (ступень «Все этапы»). */
   stageCodes: string[];
+  /** Дата последнего прохождения КАЖДОГО этапа: колонка «Дата этапа» при выбранном в фильтре. */
+  stageDates?: Record<string, number>;
   lastStageCode: string;
   lastStageName: string;
   lastStageAt: number | null;
@@ -617,17 +619,29 @@ export async function getEngineRepairHistoryMap(
         return resolved ? { scrapResolved: resolved } : null;
       }),
     );
-    // Все пройденные этапы по порядку линейки: ступени «Есть этап» нужен факт прохождения,
+    // Все пройденные этапы по порядку линейки: ступени «Все этапы» нужен факт прохождения,
     // а не только последний (двигатель, дошедший до обкатки и вернувшийся на сборку, прошёл
     // оба). Порядок — по приоритету этапа, повторы кода схлопываются.
+    // Рядом — дата последнего прохождения каждого этапа: колонка «Дата этапа» показывает,
+    // КОГДА двигатель прошёл именно выбранный в фильтре этап (решение владельца 12.10.2026).
     const seenCodes = new Set<string>();
     const stageCodes: string[] = [];
+    const stageDates: Record<string, number> = {};
     for (const entry of entries) {
       if (entry.entryType !== 'stage' || !entry.stage) continue;
       const code = String(entry.stage.code ?? '').trim().toLowerCase();
       if (!code || seenCodes.has(code)) continue;
       seenCodes.add(code);
       stageCodes.push(code);
+    }
+    for (const entry of entries) {
+      if (entry.entryType !== 'stage' || !entry.stage) continue;
+      const code = String(entry.stage.code ?? '').trim().toLowerCase();
+      if (!code || typeof entry.at !== 'number' || !Number.isFinite(entry.at) || entry.at <= 0) continue;
+      const prev = stageDates[code];
+      // Поздний признак — тот же смысл, что у «последнего этапа»: запись задним числом
+      // (ручная дата) не должна побеждать фактически более поздний проход того же этапа.
+      if (prev === undefined || entry.at > prev) stageDates[code] = entry.at;
     }
     stageCodes.sort((a, b) => stageRank(a) - stageRank(b));
     // Последний этап — одна правда с карточкой и отчётами (09.10.2026): день,
@@ -660,6 +674,7 @@ export async function getEngineRepairHistoryMap(
       lastSheetAt: sheet?.at ?? null,
       lastSheetTypeCode: sheet?.sheet?.typeCode ?? '',
       stageCodes,
+      ...(Object.keys(stageDates).length ? { stageDates } : {}),
       lastStageCode: stageCode,
       lastStageName: stageName,
       lastStageAt: stageAt > 0 ? stageAt : null,
@@ -1134,6 +1149,16 @@ export async function listEngines(
     // Стоит после inventoryFlags: даты акта едут из того же прохода по листам.
     const actDerived = actStageEntries(inventoryFlags?.actDates ?? {});
     const mergedStageCodes = actStageCodes(history?.stageCodes ?? [], actDerived);
+    // Даты: актовые этапы выведены из дат листа, поэтому свой момент known для обоих
+    // источников; при коллизии побеждает более поздний (тот же «поздний признак»).
+    const mergedStageDates: Record<string, number> = { ...(history?.stageDates ?? {}) };
+    for (const stage of actDerived) {
+      const code = String(stage.code ?? '').trim().toLowerCase();
+      const at = Number(stage.atMs ?? 0);
+      if (!code || !Number.isFinite(at) || at <= 0) continue;
+      const prev = mergedStageDates[code];
+      if (prev === undefined || at > prev) mergedStageDates[code] = at;
+    }
     const mergedBest = actStageBest(
       history?.lastStageCode && history.lastStageAt != null
         ? {
@@ -1229,6 +1254,9 @@ export async function listEngines(
       ...(history?.lastSheetAt != null ? { lastSheetAt: history.lastSheetAt } : {}),
       ...(history?.lastSheetTypeCode ? { lastSheetTypeCode: history.lastSheetTypeCode } : {}),
       ...(mergedStageCodes.length ? { stageCodes: mergedStageCodes } : {}),
+      // Даты прохождения актовых этапов складываются с датами истории: у двигателя без
+      // истории, но с актом, колонка всё равно должна ответить «когда» (решение 12.10.2026).
+      ...(mergedStageDates && Object.keys(mergedStageDates).length ? { stageDates: mergedStageDates } : {}),
       ...(lastStageCode ? { lastStageCode } : {}),
       ...(mergedBest && mergedBest.name ? { lastStageName: mergedBest.name } : {}),
       ...(lastStageAt != null ? { lastStageAt } : {}),
