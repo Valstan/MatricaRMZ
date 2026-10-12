@@ -16,6 +16,20 @@ export type OpencodeNodeProbe = {
   error: string | null;
 };
 
+/** Состояние встроенного харнесса (читает раздел «OpenCode-узлы», только суперадмин). */
+export type OpencodeHarnessStatus = {
+  installed: boolean;
+  installedVersion: string;
+  latestKnown: string;
+  updateAvailable: boolean;
+  running: boolean;
+  serveVersion: string;
+  firewallRulePresent: boolean;
+  exePath: string;
+  lastCheckAt: number | null;
+  lastError: string | null;
+};
+
 /** Фиксированный порт `opencode serve` (решение владельца 12.10). */
 export const OPENCODE_DEFAULT_PORT = 3080;
 

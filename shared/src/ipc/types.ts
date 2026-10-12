@@ -13,7 +13,7 @@ import type { ServicePriceHistoryDto, ServicePriceOrderDto } from '../domain/ser
 import type { WorkSheetRow, WorkSheetType } from '../domain/workSheets.js';
 import type { ContractPayments } from '../domain/payments.js';
 import type { MenuTabId } from '../domain/uiSections.js';
-import type { OpencodeNode, OpencodeNodeProbe } from '../domain/opencodeNodes.js';
+import type { OpencodeHarnessStatus, OpencodeNode, OpencodeNodeProbe } from '../domain/opencodeNodes.js';
 
 /** Избранные разделы оператора (левая колонка оболочки). Локально, per-user scope. */
 export type SectionFavoritesResult = { ok: true; ids: MenuTabId[] } | { ok: false; error: string };
@@ -85,7 +85,7 @@ export type ClientOpsBundleInfo = {
 };
 
 /** Вкладка окна обслуживания, с которой его открыть. Значения совпадают с -Tab у matrica-ops.ps1. */
-export type ClientOpsTab = 'kaspersky' | 'lan' | 'opencode' | 'guide';
+export type ClientOpsTab = 'kaspersky' | 'lan' | 'guide';
 
 export type EngineListItem = {
   id: string;
@@ -2229,6 +2229,8 @@ export type MatricaApi = {
     list: () => Promise<{ ok: true; nodes: OpencodeNode[] } | { ok: false; error: string }>;
     save: (args: { nodes: OpencodeNode[] }) => Promise<{ ok: true; nodes: OpencodeNode[] } | { ok: false; error: string }>;
     probe: () => Promise<{ ok: true; probes: OpencodeNodeProbe[] } | { ok: false; error: string }>;
+    harnessStatus: () => Promise<{ ok: true; status: OpencodeHarnessStatus } | { ok: false; error: string }>;
+    harnessStop: () => Promise<{ ok: true; stopped: boolean } | { ok: false; error: string }>;
   };
 
   servicePricing: {

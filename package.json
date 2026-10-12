@@ -2,6 +2,9 @@
   "name": "matricarmz",
   "private": true,
   "packageManager": "pnpm@10.26.1",
+  "pnpm": {
+    "neverBuiltDependencies": ["better-sqlite3", "better-sqlite3-multiple-ciphers"]
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/Valstan/MatricaRMZ.git"
@@ -62,5 +65,8 @@
       "ws@<8.21.3": "8.21.3",
       "shell-quote@<1.10.0": "1.10.0"
     }
+  },
+  "dependencies": {
+    "better-sqlite3-multiple-ciphers": "12.11.1"
   }
 }

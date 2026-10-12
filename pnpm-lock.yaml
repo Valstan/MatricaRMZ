@@ -20,6 +20,10 @@ overrides:
 importers:
 
   .:
+    dependencies:
+      better-sqlite3-multiple-ciphers:
+        specifier: 12.11.1
+        version: 12.11.1
     devDependencies:
       '@eslint/js':
         specifier: ^9.39.2
@@ -69,6 +73,9 @@ importers:
       '@matricarmz/shared':
         specifier: workspace:*
         version: link:../shared
+      better-sqlite3-multiple-ciphers:
+        specifier: 12.11.1
+        version: 12.11.1
       buffer:
         specifier: ^6.0.3
         version: 6.0.3
@@ -8677,7 +8684,7 @@ snapshots:
       es6-error: 4.1.1
       matcher: 3.0.0
       roarr: 2.15.4
-      semver: 7.7.3
+      semver: 7.8.5
       serialize-error: 7.0.1
     optional: true
 
@@ -9302,18 +9309,18 @@ snapshots:
 
   node-abi@3.85.0:
     dependencies:
-      semver: 7.7.3
+      semver: 7.8.5
 
   node-abi@4.31.0:
     dependencies:
-      semver: 7.7.3
+      semver: 7.8.5
 
   node-addon-api@1.7.2:
     optional: true
 
   node-api-version@0.2.1:
     dependencies:
-      semver: 7.7.3
+      semver: 7.8.5
 
   node-datachannel@0.32.0:
     dependencies:
@@ -9337,7 +9344,7 @@ snapshots:
       graceful-fs: 4.2.11
       nopt: 9.0.0
       proc-log: 6.1.0
-      semver: 7.7.3
+      semver: 7.8.5
       tar: 7.5.16
       tinyglobby: 0.2.15
       undici: 6.26.0

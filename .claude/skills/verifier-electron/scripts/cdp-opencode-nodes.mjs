@@ -110,27 +110,44 @@ const HELPERS = `
 `;
 
 async function openSection(ws, group, item) {
-  const r = await evaluate(
+  // Вкладка могла пережить рестарт (сессия восстанавливается) — тогда идём сразу в неё.
+  const already = await evaluate(
     ws,
     `await dismissModals();
-     if (!document.querySelector('.v3-menu-overlay')) {
-       const el = document.elementFromPoint(75, 17); const b = el && el.closest('button');
-       if (!b) return { ok: false, reason: 'кнопка МЕНЮ не найдена в точке (75,17)' };
-       b.click(); await wait(1000);
-     }
-     const ov = document.querySelector('.v3-menu-overlay');
-     if (!ov) return { ok: false, reason: 'оверлей меню не открылся' };
-     const groups = [...ov.querySelectorAll('button')];
-     const g = groups.find((x) => txt(x).replace(/^▸|^▾/, '').replace(/\\d+$/, '').trim().startsWith(${JSON.stringify(group)}));
-     if (!g) return { ok: false, reason: 'группа не найдена', have: groups.map(txt).slice(0, 40) };
-     if (txt(g).startsWith('▸')) { g.click(); await wait(900); }
-     const it = [...ov.querySelectorAll('button')].find((x) => txt(x).endsWith(${JSON.stringify(item)}) && x !== g);
-     if (!it) return { ok: false, reason: 'пункт не найден', have: [...ov.querySelectorAll('button')].map(txt).slice(0, 60) };
-     it.click(); await wait(1500);
-     return { ok: true };`,
+     const h2 = [...PANE().querySelectorAll('h2')].filter(visible).map(txt);
+     return { open: h2.includes(${JSON.stringify(item)}) };`,
   );
-  note(r.ok, `меню: ${group} → ${item}`, r.ok ? undefined : r);
-  if (!r.ok) throw new Error(`навигация: ${r.reason}`);
+  if (!already.open) {
+    // Оверлей ищу кнопкой по тексту, а не точкой: точка ломается, когда оверлей
+    // уже открыт (перекрывает) или окно ещё не в фокусе.
+    await evaluate(
+      ws,
+      `await dismissModals();
+       if (!document.querySelector('.v3-menu-overlay')) {
+         const menuBtn = [...document.querySelectorAll('button')].filter(visible).find((b) => txt(b).includes('МЕНЮ'));
+         if (!menuBtn) return { ok: false, reason: 'кнопки «МЕНЮ» нет среди видимых' };
+         click(menuBtn); await wait(1200);
+       }
+       return { ok: true };`,
+    );
+    const r = await evaluate(
+      ws,
+      `const ov = document.querySelector('.v3-menu-overlay');
+      if (!ov) return { ok: false, reason: 'оверлей меню не открылся' };
+      const groups = [...ov.querySelectorAll('button')];
+      const g = groups.find((x) => txt(x).replace(/^▸|^▾/, '').replace(/\\d+$/, '').trim().startsWith(${JSON.stringify(group)}));
+      if (!g) return { ok: false, reason: 'группа не найдена', have: groups.map(txt).slice(0, 40) };
+      if (txt(g).startsWith('▸')) { g.click(); await wait(900); }
+      const it = [...ov.querySelectorAll('button')].find((x) => txt(x).endsWith(${JSON.stringify(item)}) && x !== g);
+      if (!it) return { ok: false, reason: 'пункт не найден', have: [...ov.querySelectorAll('button')].map(txt).slice(0, 60) };
+      it.click(); await wait(1500);
+      return { ok: true };`,
+    );
+    note(r.ok, `меню: ${group} → ${item}`, r.ok ? undefined : r);
+    if (!r.ok) throw new Error(`навигация: ${r.reason}`);
+  } else {
+    note(true, `меню: ${group} → ${item} (вкладка уже открыта)`);
+  }
   await waitFor(ws, `PANE().querySelector('[data-list-count]')`, `счётчик на экране «${item}»`);
   await sleep(700);
 }
@@ -165,8 +182,10 @@ async function main() {
   await sleep(1500);
   await evaluate(ws, `await dismissModals(); return true;`);
 
-  // 2. Раздел виден и рендерится.
+  // 2. Раздел виден и рендерится. Вкладка могла пережить рестарт со стейлом —
+  // жмём «Обновить», чтобы состояние пришло мостом, а не из памяти окна.
   await openSection(ws, 'Контроль и аналитика', 'OpenCode-узлы');
+  await evaluate(ws, `const b = byText('Обновить'); if (b) { click(b); await wait(2500); } return true;`);
   const page = await evaluate(
     ws,
     `const h2 = [...PANE().querySelectorAll('h2')].filter(visible).map(txt);
@@ -219,6 +238,18 @@ async function main() {
   note(txt_includes(probeFacts.paneText, 'Живых: 0 из 1'), 'счётчик «Живых: 0 из 1»', { paneText: probeFacts.paneText.slice(0, 120) });
   const shots = [await shot(ws, 'nodes-dead')];
 
+  // 5b. Встроенный харнесс: служба ставится и поднимается сама при старте клиента.
+  // Первая загрузка тянет ~60 МБ с GitHub — ждём с запасом.
+  await waitFor(ws, `txt(PANE()).includes('Служба на этой машине')`, 'блок службы в разделе', 120000);
+  await waitFor(ws, `/установлена \\(\\d+\\.\\d+\\.\\d+\\)/.test(txt(PANE()))`, 'бинарь установлен (версия)', 480000);
+  const harnessFacts = await evaluate(
+    ws,
+    `return { pane: txt(PANE()).slice(0, 600) };`,
+  );
+  note(/serve отвечает/.test(harnessFacts.pane), 'serve поднят клиентом сам', { pane: harnessFacts.pane.slice(0, 200) });
+  note(/брандмауэра нет/.test(harnessFacts.pane), 'блок честно показывает отсутствие правила', {});
+  shots.push(await shot(ws, 'nodes-harness'));
+
   // 6. Уборка мостом, проверка пустоты.
   const cleaned = await evaluate(
     ws,
@@ -229,6 +260,15 @@ async function main() {
      return { ok: s.ok === true, left: s.ok ? s.nodes.length : l.nodes.length };`,
   );
   note(cleaned.ok && cleaned.left === 0, 'уборка: реестр пуст', cleaned);
+  // Гасим serve, поднятый харнессом на смоук-машине (при следующем старте клиента встанет сам).
+  const stopped = await evaluate(
+    ws,
+    `const s = await window.matrica.opencodeNodes.harnessStop();
+     await wait(1500);
+     const h = await window.matrica.opencodeNodes.harnessStatus();
+     return { ok: s.ok === true && s.stopped === true, running: h.ok ? h.status.running : '?' };`,
+  );
+  note(stopped.ok && stopped.running === false, 'уборка: serve остановлен', stopped);
   shots.push(await shot(ws, 'nodes-clean'));
 
   const failed = steps.filter((s) => !s.ok);

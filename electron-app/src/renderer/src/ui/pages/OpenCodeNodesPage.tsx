@@ -8,11 +8,23 @@ import { useConfirm } from '../components/ConfirmContext.js';
 
 type NodeRow = { name: string; url: string };
 type ProbeRow = { url: string; live: boolean; httpStatus: number | null; ms: number; error: string | null };
+type HarnessState = {
+  installed: boolean;
+  installedVersion: string;
+  latestKnown: string;
+  updateAvailable: boolean;
+  running: boolean;
+  serveVersion: string;
+  firewallRulePresent: boolean;
+  exePath: string;
+  lastError: string | null;
+};
 
 /** OpenCode-узлы (мандат brain 2026-10-12): таблица `opencode serve` в LAN. Только суперадмин. */
 export function OpenCodeNodesPage() {
   const [rows, setRows] = useState<NodeRow[]>([]);
   const [probes, setProbes] = useState<Record<string, ProbeRow>>({});
+  const [harness, setHarness] = useState<HarnessState | null>(null);
   const [status, setStatus] = useState('');
   const [probing, setProbing] = useState(false);
   const [newName, setNewName] = useState('');
@@ -23,12 +35,16 @@ export function OpenCodeNodesPage() {
   const refresh = useCallback(async (withProbe: boolean) => {
     setStatus('Загрузка...');
     try {
-      const listRes = await window.matrica.opencodeNodes.list();
+      const [listRes, harnessRes] = await Promise.all([
+        window.matrica.opencodeNodes.list(),
+        window.matrica.opencodeNodes.harnessStatus(),
+      ]);
       if (!listRes.ok) {
         setStatus(`Ошибка: ${listRes.error}`);
         return;
       }
       setRows(listRes.nodes);
+      if (harnessRes.ok) setHarness(harnessRes.status);
       setStatus('');
       if (withProbe) await runProbe(listRes.nodes.length > 0);
     } catch (e) {
@@ -92,6 +108,26 @@ export function OpenCodeNodesPage() {
     setNewUrl('');
   }
 
+  async function stopHarness() {
+    const ok = await confirm({
+      title: 'Остановить serve?',
+      detail: 'Фоновый serve на этой машине остановится; при следующем запуске клиента он поднимется сам. Узел покажет «мёртв».',
+      confirmLabel: 'Остановить',
+    });
+    if (!ok) return;
+    setStatus('Останавливаю...');
+    try {
+      const res = await window.matrica.opencodeNodes.harnessStop();
+      if (!res.ok) {
+        setStatus(`Ошибка: ${res.error}`);
+        return;
+      }
+      await refresh(true);
+    } catch (e) {
+      setStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
   async function deleteNode(row: NodeRow) {
     const ok = await confirm({
       title: 'Убрать узел?',
@@ -119,6 +155,34 @@ export function OpenCodeNodesPage() {
         Бесплатные модели узлов ротируются, лимиты не публикуются, данные могут идти в обучение —
         для чувствительного — Claude Code или ключ OpenRouter. Порт serve — 3080.
       </div>
+
+      {harness ? (
+        <div style={{ padding: 8, border: '1px solid var(--border)', borderRadius: 4, fontSize: 12 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <strong>Служба на этой машине:</strong>
+            <span>
+              {harness.installed ? `установлена (${harness.installedVersion || 'версия?'})` : 'не установлена — встанет сама при запуске клиента'}
+            </span>
+            <span>{harness.running ? `· serve отвечает${harness.serveVersion ? ` (${harness.serveVersion})` : ''}` : '· serve молчит'}</span>
+            {harness.updateAvailable ? <span>· доступно обновление ({harness.latestKnown}) — подтянется само</span> : null}
+            <Button variant="ghost" onClick={() => void stopHarness()} disabled={!harness.running}>
+              Остановить serve
+            </Button>
+          </div>
+          {!harness.firewallRulePresent ? (
+            <div style={{ marginTop: 6, color: 'var(--subtle)' }}>
+              Правила брандмауэра нет — с соседних машин узел недоступен (клиент не может создать
+              его без прав администратора). Разовая команда администратора на этой машине:
+              <code style={{ display: 'block', marginTop: 4, whiteSpace: 'pre-wrap' }}>
+                {`netsh advfirewall firewall add rule name="MatricaRMZ - OpenCode serve (входящий, LAN)" dir=in action=allow protocol=TCP localport=3080 remoteip=localsubnet program="${harness.exePath}" profile=domain,private`}
+              </code>
+            </div>
+          ) : null}
+          {harness.lastError ? (
+            <div style={{ marginTop: 6, color: 'var(--danger)' }}>Служба: {harness.lastError}</div>
+          ) : null}
+        </div>
+      ) : null}
 
       {status ? (
         <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div>

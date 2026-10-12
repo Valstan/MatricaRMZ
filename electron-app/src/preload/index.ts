@@ -582,6 +582,8 @@ const matricaApi = {
     list: async () => ipcRenderer.invoke('opencodeNodes:list'),
     save: async (args: { nodes: Array<{ name: string; url: string }> }) => ipcRenderer.invoke('opencodeNodes:save', args),
     probe: async () => ipcRenderer.invoke('opencodeNodes:probe'),
+    harnessStatus: async () => ipcRenderer.invoke('opencodeNodes:harnessStatus'),
+    harnessStop: async () => ipcRenderer.invoke('opencodeNodes:harnessStop'),
   },
   servicePricing: {
     orders: {

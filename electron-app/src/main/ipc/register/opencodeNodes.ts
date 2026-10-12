@@ -5,6 +5,7 @@ import { normalizeOpencodeNodes } from '@matricarmz/shared';
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, viewModeWriteError } from '../ipcContext.js';
 import { opencodeNodesList, opencodeNodesSave, probeOpencodeNodes } from '../../services/opencodeNodesStore.js';
+import { opencodeHarnessStatus, opencodeHarnessStop } from '../../services/opencodeHarnessService.js';
 
 // OpenCode-узлы (мандат brain 2026-10-12): реестр локальный (userData, вне git),
 // раздел виден только суперадмину — гейт ролью прямо здесь, второй линией после UI.
@@ -37,5 +38,18 @@ export function registerOpencodeNodesIpc(ctx: IpcContext) {
     const denied = await superadminOrDenied(ctx);
     if (denied) return denied;
     return { ok: true as const, probes: await probeOpencodeNodes() };
+  });
+
+  ipcMain.handle('opencodeNodes:harnessStatus', async () => {
+    const denied = await superadminOrDenied(ctx);
+    if (denied) return denied;
+    return { ok: true as const, status: await opencodeHarnessStatus() };
+  });
+
+  ipcMain.handle('opencodeNodes:harnessStop', async () => {
+    const denied = await superadminOrDenied(ctx);
+    if (denied) return denied;
+    if (isViewMode(ctx)) return viewModeWriteError();
+    return { ok: true as const, ...(await opencodeHarnessStop()) };
   });
 }

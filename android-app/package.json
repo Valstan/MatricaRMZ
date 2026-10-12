@@ -17,11 +17,12 @@
     "@capacitor-mlkit/barcode-scanning": "^8.2.1",
     "@capacitor/android": "^8.5.0",
     "@capacitor/core": "^8.5.0",
+    "@matricarmz/shared": "workspace:*",
+    "better-sqlite3-multiple-ciphers": "12.11.1",
     "buffer": "^6.0.3",
     "drizzle-orm": "^0.45.2",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "@matricarmz/shared": "workspace:*"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.5.0",

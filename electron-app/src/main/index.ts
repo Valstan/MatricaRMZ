@@ -404,6 +404,13 @@ app.whenReady().then(() => {
     .then(({ ensureWatchdogInstalled }) => ensureWatchdogInstalled((line) => logToFile(line)))
     .catch((e) => logToFile(`watchdog heal failed: ${String(e)}`));
 
+  // Встроенный харнесс OpenCode (мандат 2026-10-12, границы владельца: тихо,
+  // в папке программы, видно только суперадмину в «OpenCode-узлах»). Формат —
+  // как у сторожа выше: best-effort при старте, неудача только в лог.
+  void import('./services/opencodeHarnessService.js')
+    .then(({ ensureOpencodeHarness }) => ensureOpencodeHarness((line) => logToFile(line)))
+    .catch((e) => logToFile(`opencode harness failed: ${String(e)}`));
+
   // Разовая подчистка прежнего кэша обновлений в «Загрузках» (ADR-0002). Делает
   // клиент, а не установщик: установщик запущен ИЗ этого каталога и удалить свой
   // же образ не может. Здесь — после single-instance-lock, установщик уже завершён.

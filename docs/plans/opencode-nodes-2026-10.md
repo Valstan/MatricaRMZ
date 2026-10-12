@@ -46,19 +46,53 @@
 Гейты: `typecheck` (shared+electron), `lint`, `vitest` touched-пакеты,
 CDP e2e-smoke (локальный PG 17.5 теперь есть — гнать живо; UI-правка).
 
-## PR-2 — silent-install (следующий, ветка `feat/opencode-silent-install`)
+## PR-2 — заменён: харнесс переписан в клиент на Electron (PR-3)
 
-Новый `scripts/client-ops/opencode-harness.ps1` (`-AsLibrary`, `New-OpencodePanel`,
-`-Quiet/-Verify`, по README §«Как добавить третью утилиту»): проверка наличия,
-загрузка релиза + SHA256 (winget нет на PC79), конфиг
-`%USERPROFILE%\.config\opencode\opencode.jsonc` (без `model`), Task Scheduler на
-`opencode serve --port 3080`, запись узла в локальный `opencode-nodes.json`
-этой машины. + `FILES` в `build-kaspersky-zip.mjs`, вкладка в `matrica-ops.ps1`,
-сторож в `clientOpsBundle.guard.test.ts`. Пилот на PC79.
+Границы владельца (12.10, после PR-2): ни слова о харнессе в программе кроме
+раздела суперадмина; всё тихо и автоматически; жить в папке программы
+(`userData/@matricarmz` — уже в исключениях Касперского); самообновление
+в составе Матрицы.
+
+Старый `scripts/client-ops/opencode-harness.ps1` (вкладка окна обслуживания,
+видимая любому оператору) **удалён**, его публичные следы откачены
+(matrica-ops, архив, `ClientOpsTab`, README). Вместо него —
+`electron-app/src/main/services/opencodeHarnessService.ts`, стартующий
+молча при запуске клиента (main/index.ts, рядом с watchdog heal):
+
+- бинарь `userData/opencode/opencode.exe` (релиз GitHub API + размер/SHA256,
+  распаковка штатным `tar.exe`, без powershell);
+- конфиг оператора (не затираем, без `model`);
+- serve дочерним процессом (`detached`, `windowsHide`, переживает клиент;
+  singleton — проба `/global/health`, pid-файл, `taskkill` по порту);
+- запись узла в локальный реестр (дедуп по url);
+- самообновление: проверка latest не чаще раза в сутки → замена + рестарт.
+- `opencodeNodes:harnessStatus/harnessStop` (тот же superadmin-гейт),
+  блок статуса в разделе + кнопка «Остановить».
+
+Почему не задача планировщика: schtasks без админа logon-задачу не даёт
+(замер rmz4val 2026-08, см. watchdogHandshakeService) — а дочерний процесс
+клиента не требует ни прав, ни окон.
+
+## Единственный ручной шаг (не автоматизируется без админа)
+
+**Правило брандмауэра** (входящий TCP 3080, иначе узел виден только локально).
+Разовая команда администратора на машине узла (точный путь подставляет раздел):
+
+```
+netsh advfirewall firewall add rule name="MatricaRMZ - OpenCode serve (входящий, LAN)" dir=in action=allow protocol=TCP localport=3080 remoteip=localsubnet program="<userData>\opencode\opencode.exe" profile=domain,private
+```
+
+Касперскому — **ничего**: бинарь внутри `@matricarmz`, исключение уже есть.
+Устанавливать вручную — **ничего**: клиент ставит и обновляет сам.
+Провайдеров логинит владелец под учёткой оператора (`opencode auth login`).
+Пилот: любая машина парка после обновления клиента + правило выше.
 
 ## Не делаем (решения)
 
 - MatricaRMZ на VPS-боксы не ставим; serve там — руками/позже, не этим планом.
 - Реестр узлов в git не кладём (адреса LAN в публичном репо).
 - Авторизацию serve не вводим (решение владельца; вопрос про лёгкий token
-  задан Мозгу в ack — если даст указатель, опция в PR-2).
+  задан Мозгу в ack).
+- Вкладку установщика в окне обслуживания не делаем (видна операторам —
+  против границ); установкой занимается сам клиент.
+- Правило брандмауэра кодом не создаём (нужен админ — только ручная команда).
