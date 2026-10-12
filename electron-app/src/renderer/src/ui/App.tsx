@@ -141,6 +141,7 @@ import { pollWhenVisible } from './utils/pollWhenVisible.js';
 import { describeRejectedRow } from './utils/syncRejected.js';
 import { logUiUsage } from './utils/uiUsageLog.js';
 import { resolveQuickStartTile } from './utils/favoriteShortcut.js';
+import { sanitizeSectionFavoriteIds, toggleSectionFavoriteId } from './utils/sectionFavorites.js';
 import type { MenuButtonDescriptor } from './shellV2/v2ButtonCatalog.js';
 import type { CardCloseActions } from './cardCloseTypes.js';
 // Только тип: страница грузится лениво, и обычный импорт утянул бы её в стартовый бандл.
@@ -1168,6 +1169,8 @@ export function App() {
     };
   }, [authStatus.loggedIn, authStatus.user?.username]);
   const [pinnedShortcuts, setPinnedShortcuts] = useState<string[]>([]);
+  /** Избранные разделы (золотые звёздочки, левая рельса). Локально, per-user scope. */
+  const [sectionFavorites, setSectionFavorites] = useState<MenuTabId[]>([]);
   /** Сбрасывает применение устаревшего ответа `shortcuts:get`, если за время запроса уже меняли закрепления локально. */
   const shortcutsMutationEpochRef = useRef(0);
   // Workspace-профиль: для какого userId серверный профиль применён (push разрешён) и
@@ -2056,6 +2059,14 @@ export function App() {
               : [];
           setPinnedShortcuts(ids);
         }
+      })
+      .catch(() => {});
+    // Избранные разделы — тем же путём (локальный sysDb, per-user scope).
+    void window.matrica.sections
+      .favoritesGet({ userId })
+      .then((r) => {
+        if (!alive) return;
+        if (r?.ok) setSectionFavorites(sanitizeSectionFavoriteIds(r.ids));
       })
       .catch(() => {});
     return () => {
@@ -3349,6 +3360,22 @@ export function App() {
     setDesktopUi(r.desktop);
     if (r.outcome === 'added') seedDesktopUsage(r.desktop, link);
     announceDesktopOutcome(r.outcome, openTab.label);
+  }
+
+  /** Звёздочка раздела: оптимистично + откат при отказе моста (приём отчётов). */
+  function toggleSectionFavorite(id: MenuTabId) {
+    const userId = authStatus.loggedIn ? String(authStatus.user?.id ?? '').trim() : '';
+    if (!userId) return;
+    const prev = sectionFavorites;
+    const next = toggleSectionFavoriteId(prev, id);
+    setSectionFavorites(next);
+    void window.matrica.sections
+      .favoritesSet({ userId, ids: next })
+      .then((r) => {
+        if (r?.ok) setSectionFavorites(sanitizeSectionFavoriteIds(r.ids));
+        else setSectionFavorites(prev);
+      })
+      .catch(() => setSectionFavorites(prev));
   }
 
   /** Ярлык кнопки МЕНЮ — на ту кнопку, по которой щёлкнули (контекстное меню и закреп). */
@@ -6806,6 +6833,8 @@ export function App() {
               onCollapsedSectionsChange={setCollapsedSections}
               onMenuTab={handleMenuTab}
               onAction={handleMenuAction}
+              sectionFavorites={sectionFavorites}
+              onToggleSectionFavorite={toggleSectionFavorite}
               activeSectionTabId={tab}
               openTabs={tabList}
               activeTabId={activeTabKey}

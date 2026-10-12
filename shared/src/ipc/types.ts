@@ -12,6 +12,10 @@ import type { SupportContact } from '../domain/supportContact.js';
 import type { ServicePriceHistoryDto, ServicePriceOrderDto } from '../domain/servicePriceOrders.js';
 import type { WorkSheetRow, WorkSheetType } from '../domain/workSheets.js';
 import type { ContractPayments } from '../domain/payments.js';
+import type { MenuTabId } from '../domain/uiSections.js';
+
+/** Избранные разделы оператора (левая колонка оболочки). Локально, per-user scope. */
+export type SectionFavoritesResult = { ok: true; ids: MenuTabId[] } | { ok: false; error: string };
 
 /** Строка контрагента строгой реплики/двери — snake_case, как отдаёт сервер. */
 export type CounterpartyStrictRow = {
@@ -1424,6 +1428,11 @@ export type MatricaApi = {
       | { ok: true }
       | { ok: false; error: string }
     >;
+  };
+  /** Избранные разделы оператора: звёздочки на вкладках и в МЕНЮ, большие карточки левой колонки. */
+  sections: {
+    favoritesGet: (args?: { userId?: string }) => Promise<SectionFavoritesResult>;
+    favoritesSet: (args: { userId?: string; ids: string[] }) => Promise<SectionFavoritesResult>;
   };
   reportsBuilder: {
     preview: (args: ReportBuilderPreviewRequest) => Promise<ReportBuilderPreviewResult>;

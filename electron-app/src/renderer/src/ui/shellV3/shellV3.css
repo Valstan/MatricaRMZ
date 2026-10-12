@@ -505,3 +505,64 @@
   position: relative;
   z-index: 1;
 }
+
+/* Левая рельса избранного (владелец 12.10.2026): постоянная колонка больших
+   карточек разделов со звёздочкой. МЕНЮ-оверлей живёт внутри .v3-tab-body
+   и рельсу не накрывает — переключение доступно всегда. */
+.v3-body-row {
+  display: flex;
+  flex-direction: row;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+.v3-fav-rail {
+  flex: 0 0 148px;
+  width: 148px;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 8px;
+  background: var(--surface, #fff);
+  border-right: 1px solid var(--border);
+}
+
+.v3-fav-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+}
+
+.v3-fav-card[data-fav-active='1'] {
+  border-color: var(--accent, #2563eb);
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.v3-fav-card-icon {
+  font-size: 26px;
+  line-height: 1;
+}
+
+.v3-fav-card-label {
+  font-size: 12px;
+  line-height: 1.25;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.v3-fav-rail-hint {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+  padding: 8px 4px;
+}

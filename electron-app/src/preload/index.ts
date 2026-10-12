@@ -252,6 +252,10 @@ const matricaApi = {
     }) =>
       ipcRenderer.invoke('reports:defectSupplyPrint', args),
   },
+  sections: {
+    favoritesGet: async (args?: { userId?: string }) => ipcRenderer.invoke('sections:favoritesGet', args),
+    favoritesSet: async (args: { userId?: string; ids: string[] }) => ipcRenderer.invoke('sections:favoritesSet', args),
+  },
   reportsBuilder: {
     meta: async () => ipcRenderer.invoke('reportsBuilder:meta'),
     preview: async (args: any) => ipcRenderer.invoke('reportsBuilder:preview', args),

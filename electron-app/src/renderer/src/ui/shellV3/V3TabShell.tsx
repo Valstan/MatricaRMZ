@@ -13,6 +13,7 @@ import type { ShellNotice } from '../shell/shellNotice.js';
 import { TabVisibilityProvider } from '../shell/TabVisibilityContext.js';
 import { matricaPlatform } from '../platform.js';
 import { ShortcutIcon } from '../components/ShortcutIcon.js';
+import { FavoriteStarButton } from '../components/FavoriteStarButton.js';
 import { emojiAttrs } from '../utils/labelEmoji.js';
 import { shouldKeepAliveTab } from './keepAlive.js';
 import rmzLogo from '../../assets/logo_rmz.png';
@@ -66,6 +67,9 @@ export function V3TabShell(props: {
   onCollapsedSectionsChange: (next: string[]) => void;
   onMenuTab: (t: MenuTabId) => void;
   onAction: (id: ActionButtonId) => void;
+  /** Избранные разделы (золотые звёздочки): рельса слева + звёзды в МЕНЮ и на вкладках. */
+  sectionFavorites: readonly MenuTabId[];
+  onToggleSectionFavorite: (id: MenuTabId) => void;
   /** Ярлык кнопки МЕНЮ на Верстак (контекстное меню и закреп сверху). */
   onMenuButtonDesktopShortcut?: (btn: MenuButtonDescriptor) => void;
   /** Непрочитанные сообщения чата — бейдж на вкладке Верстака (владелец 08.09.2026). */
@@ -185,9 +189,24 @@ export function V3TabShell(props: {
         setMenuOverlayOpen(false);
         props.onAction(id);
       }}
+      favoriteTabs={props.sectionFavorites}
+      onToggleFavoriteTab={props.onToggleSectionFavorite}
       {...(props.onMenuButtonDesktopShortcut ? { onDesktopShortcut: props.onMenuButtonDesktopShortcut } : {})}
     />
   );
+
+  // Большие карточки избранных разделов для левой рельсы — в порядке меню,
+  // только nav-разделы из доступных (уже с учётом прав: availableTabs).
+  const favoriteCards = useMemo(() => {
+    const fav = new Set<string>(props.sectionFavorites);
+    const out: MenuButtonDescriptor[] = [];
+    for (const section of buttons.sections) {
+      for (const btn of section.items) {
+        if (btn.kind === 'nav' && fav.has(btn.id)) out.push(btn);
+      }
+    }
+    return out;
+  }, [buttons, props.sectionFavorites]);
 
   const secondary = props.secondaryCard;
 
@@ -410,6 +429,21 @@ export function V3TabShell(props: {
                   ✕
                 </button>
               )}
+              {/* Золотая звёздочка избранного — только у вкладок разделов-списков. */}
+              {tab.kind === 'list' && tab.tabId != null && (() => {
+                const menuId = resolveMenuTab(tab.tabId as string);
+                if (menuId == null) return null;
+                const fav = props.sectionFavorites.includes(menuId);
+                return (
+                  <FavoriteStarButton
+                    favorite={fav}
+                    dataId={menuId}
+                    size={26}
+                    title={fav ? `Убрать «${tab.label}» из избранного` : `Добавить «${tab.label}» в избранное`}
+                    onToggle={() => props.onToggleSectionFavorite(menuId)}
+                  />
+                );
+              })()}
             </div>
           );
         })}
@@ -459,6 +493,29 @@ export function V3TabShell(props: {
           )}
         </div>
       </div>
+      {/* Левая рельса избранного (владелец 12.10.2026): большие карточки разделов
+          со звёздочкой — переключение в один клик. МЕНЮ-оверлей живёт внутри
+          .v3-tab-body и рельсу не накрывает. */}
+      <div className="v3-body-row">
+        <div className="v3-fav-rail" data-fav-rail="1" title="Избранные разделы">
+          {favoriteCards.map((btn) => (
+            <button
+              key={btn.id}
+              type="button"
+              className="v3-fav-card"
+              data-fav-card={btn.id}
+              data-fav-active={activeMenuTab === btn.id ? '1' : undefined}
+              title={btn.label}
+              onClick={() => { setMenuOverlayOpen(false); props.onMenuTab(btn.id as MenuTabId); }}
+            >
+              <span className="v3-fav-card-icon" aria-hidden="true">{btn.icon}</span>
+              <span className="v3-fav-card-label">{btn.label}</span>
+            </button>
+          ))}
+          {favoriteCards.length === 0 && (
+            <div className="v3-fav-rail-hint">Поставьте ★ в МЕНЮ — раздел появится здесь</div>
+          )}
+        </div>
       {/* Сравнение живёт ВНУТРИ общего контейнера: будь оно другой веткой тернарника,
           включение «2 рядом» размонтировало бы все живые панели разом. */}
       <div className="v3-tab-body">
@@ -518,6 +575,7 @@ export function V3TabShell(props: {
             {props.notice.text}
           </div>
         )}
+        </div>
       </div>
     </div>
   );

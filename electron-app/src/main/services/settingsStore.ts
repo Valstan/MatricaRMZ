@@ -49,6 +49,8 @@ export const SettingsKey = {
   UiTabsLayout: 'ui.tabs.layout',
   UiShellPrefs: 'ui.shell.prefs',
   UiPinnedShortcuts: 'ui.pinnedShortcuts',
+  /** Избранные разделы оператора (звёздочки, левая колонка). Локально, per-user scope. */
+  SectionFavorites: 'ui.sectionFavorites',
   ReportPresetFavorites: 'reports.presetFavorites',
   ReportPresetHistory: 'reports.presetHistory',
   ReportPresetFilterTemplates: 'reports.presetFilterTemplates',
