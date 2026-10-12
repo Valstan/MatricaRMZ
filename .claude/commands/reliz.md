@@ -30,17 +30,22 @@ description: Выпусти новый релиз согласно инстру�
 
 ## Прод-деплой — авто (без «явного да», кроме #025)
 
-Выполняй подряд по разделу Release process в AGENTS.md (шаги 4-10). Помни: на проде собираются **только** серверные пакеты (`shared`/`backend-api`/`web-admin`), клиент `.exe` приходит готовым артефактом из GitHub Actions.
+Выполняй подряд по разделу Release process в AGENTS.md (шаги 4–11). Канон: **прод ничего не собирает и ничего не ставит** — серверные `dist` приезжают готовым CI-артефактом `backend-dist`, клиент `.exe` — готовым артефактом из GitHub Actions. Ручная сборка на боксе запрещена (2026-10-12: `tsc` убит OOM-киллом, exit 137, на 1.5 ГБ RAM — см. `docs/machines/Computer.md`).
 
-8. `git pull --ff-only && corepack pnpm install && corepack pnpm -F @matricarmz/shared -F @matricarmz/backend-api -F @matricarmz/web-admin build` (renderer-only релиз без смены lockfile — install/build можно пропустить, только swap артефактов).
-9. Миграции: если релиз везёт `backend-api/drizzle/*.sql` — `corepack pnpm -F @matricarmz/backend-api db:migrate` (между build и restart) + backfill-скрипты. ⚠️ **Деструктивная миграция/backfill → гейт #025** (стоп, спросить). Аддитивная → авто.
-10. **До рестарта** — артефакты в `/opt/matricarmz/updates/` (blockmap **отдельным** вызовом, GOTCHAS M18):
-    - `gh release download vX.Y.Z --pattern "*.exe" --pattern "latest.yml" -D /opt/matricarmz/updates --clobber`
-    - `gh release download vX.Y.Z --pattern "*.blockmap" -D /opt/matricarmz/updates --clobber`
+8. На проде: `git pull --ff-only` (подтянуть релизный коммит и миграции).
+9. Миграции: если релиз везёт `backend-api/drizzle/*.sql` — `corepack pnpm -F @matricarmz/backend-api db:migrate` (+ backfill-скрипты релиза, dry-run затем `--apply`, row counts в отчёт). Аддитивная (`CREATE`/`ADD COLUMN`/индексы) — до деплоя, старому коду она безвредна. ⚠️ **Деструктивная миграция/backfill → гейт #025** (стоп, спросить).
+10. Деплой штатным скриптом (он сам: проверяет артефакт во временном каталоге, кладёт откат-копию в `.deploy-backup/<стамп>/`, раскладывает `dist` + миграции + `web-admin/dist`, рестартит primary → health → secondary):
+    `bash scripts/prod-ops/deploy-backend.sh`
+    Откат при нужде: `bash scripts/prod-ops/deploy-backend.sh rollback [<стамп>]`.
+11. **До рестарта скриптом** — артефакты обновлений. Качать **локально** (с прода к GitHub CDN — TLS-таймауты), класть на прод через `scp` (каталог принадлежит сервисному пользователю). Blockmap — **отдельным** вызовом (GOTCHAS M18):
+    - `gh release download vX.Y.Z --pattern "*.exe" --pattern "latest.yml" -D <tmp> --clobber` (локально)
+    - `gh release download vX.Y.Z --pattern "*.blockmap" -D <tmp> --clobber` (локально, отдельно)
+    - `scp <tmp>/MatricaRMZ-Setup-X.Y.Z.exe <tmp>/latest.yml <tmp>/*.blockmap matricarmz:/opt/matricarmz/updates/`
     - проверить, что легли все 3 (`.exe`, `.exe.blockmap`, `latest.yml`).
-11. **До рестарта** — `corepack pnpm release:ledger-publish X.Y.Z`.
-12. Рестарт: `sudo systemctl restart matricarmz-backend-primary.service matricarmz-backend-secondary.service`.
-13. Health-check: `curl -fsk https://127.0.0.1/health` (новый номер) + `curl -fsSk https://127.0.0.1/updates/status` (`latest.version` = новый номер) + blockmap 200.
+    - дождаться согласия `latest.json` с `.exe` на диске (GOTCHAS M40 — иначе poisoned manifest): сверять размер из файла с `size` в `latest.json`, не на глаз.
+12. `corepack pnpm release:ledger-publish X.Y.Z` (на проде — нужен доступ к БД; сам `latest.json` не переписывает, это дело рескана).
+13. Приёмка по каждому порту раздельно, не через nginx (GOTCHAS M100 — общий `/health` зелёный, пока жив хоть один инстанс):
+    `http://127.0.0.1:3001/health` и `http://127.0.0.1:3002/health` (новый номер; primary биндится ~50 с, окно ≥90 с) + `https://127.0.0.1/updates/status` (`latest.version` = новый номер, `lastError: null`) + `/updates/file/<exe>.blockmap` → `200`. APK планшета — шагом 7a (проверка: `/dispatcher/update-plan?platform=android` ведёт на новый номер).
 
 ## Закрытие сессии (fusion — не вызывать /close_session отдельно)
 
