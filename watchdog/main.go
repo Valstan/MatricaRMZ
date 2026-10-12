@@ -269,6 +269,11 @@ func main() {
 
 	installer, src, err := findInstaller(hs)
 	if err != nil {
+		// A failed pass counts toward the backoff above: otherwise a download
+		// failure re-downloads ~137 MB every pass forever (M152).
+		st.FailCount++
+		st.LastFailMs = time.Now().UnixMilli()
+		writeState(st)
 		logf("no valid installer found: %v", err)
 		report(hs, "failed", fmt.Sprintf("no valid installer: %v", err), 0)
 		if forced {
@@ -791,8 +796,14 @@ func downloadInstaller(hs *handshake) (string, error) {
 
 // validateInstaller mirrors the app's validateInstallerBeforeLaunch: .exe size
 // match (when known), an MZ PE header, and a sha256 match (when known).
+// The name check tolerates the download staging suffix: downloadInstaller
+// fetches into `<final>.exe.part` and validates BEFORE rename, so the suffix
+// is judged on the final name, the bytes on the passed path. (M152: judging
+// the staging path itself rejected every download with "not an .exe".)
 func validateInstaller(path string, expectedSize int64, expectedSha string) error {
-	if !strings.HasSuffix(strings.ToLower(path), ".exe") {
+	name := strings.ToLower(path)
+	name = strings.TrimSuffix(name, ".part")
+	if !strings.HasSuffix(name, ".exe") {
 		return fmt.Errorf("not an .exe: %s", path)
 	}
 	st, err := os.Stat(path)

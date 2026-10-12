@@ -29,6 +29,11 @@ jobs:
         # (HideWindow) — vetting under the linux host GOOS fails to compile.
         run: cd watchdog && GOOS=windows go vet ./...
 
+      - name: go test
+        # Same GOOS reason as vet. Regression cover for M152 (validateInstaller
+        # must accept the `<final>.exe.part` staging name downloads use).
+        run: cd watchdog && GOOS=windows go test ./...
+
       - name: Build (windows/amd64)
         # -H=windowsgui → GUI-subsystem binary: no console window when the Scheduled
         # Task runs it (operators must not see a terminal). File log is unaffected.
