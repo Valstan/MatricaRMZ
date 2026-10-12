@@ -75,7 +75,7 @@ export function EngineHistoryFeedPanel(props: {
   const [stageWorkshopId, setStageWorkshopId] = useState('');
   const [stageDate, setStageDate] = useState('');
   const [stageNote, setStageNote] = useState('');
-  const [pendingPass, setPendingPass] = useState<{ pass: number; id: string; code: string; atMs: number; note: string } | null>(null);
+  const [pendingPass, setPendingPass] = useState<{ pass: number; id: string; code: string; atMs: number; note: string; workshopId: string; workshopName: string } | null>(null);
   // Смена даты дефектовки (dual-entry, PR4): сервис спрашивает, лента переспрашивает
   // оператора и повторяет запись с `confirmDefectDate`.
   const [pendingDefectDate, setPendingDefectDate] = useState<{
@@ -93,8 +93,10 @@ export function EngineHistoryFeedPanel(props: {
   const [draftWorkshopId, setDraftWorkshopId] = useState('');
   const [draftNote, setDraftNote] = useState('');
 
-  // Правка даты уже записанного этапа прямо в строке ленты.
-  const [editingDate, setEditingDate] = useState<{ id: string; code: string; value: string } | null>(null);
+  // Правка уже записанного этапа прямо в строке ленты: дата, цех, примечание
+  // (PR-4 плана 10-2026 — раньше правилась только дата, а смена даты молча
+  // стирала цех: писатель собирает строку заново из входа).
+  const [editingDate, setEditingDate] = useState<{ id: string; code: string; value: string; workshopId: string; note: string } | null>(null);
   // Правка ручной записи прямо в строке: текст действия, дата, примечание.
   const [editingManual, setEditingManual] = useState<{ id: string; action: string; date: string; note: string } | null>(null);
   // Перенос этапов при перебивке номера (программа владельца, п.4, 10.10.2026).
@@ -265,7 +267,15 @@ export function EngineHistoryFeedPanel(props: {
     try {
       const r = await window.matrica.workSheets.stages.save({ ...args, engineId: props.engineId });
       if (!r.ok && r.duplicate) {
-        setPendingPass({ pass: r.duplicate.nextPass, id: args.id, code: args.code, atMs: args.atMs, note: args.note ?? '' });
+        setPendingPass({
+          pass: r.duplicate.nextPass,
+          id: args.id,
+          code: args.code,
+          atMs: args.atMs,
+          note: args.note ?? '',
+          workshopId: args.workshopId ?? '',
+          workshopName: args.workshopName ?? '',
+        });
         setStatus(`Такой этап за этот день уже есть — записать проходом № ${r.duplicate.nextPass}?`);
         return;
       }
@@ -612,8 +622,12 @@ export function EngineHistoryFeedPanel(props: {
                 id: pendingPass.id,
                 code: pendingPass.code,
                 atMs: pendingPass.atMs,
-                ...(pendingPass.note ? { note: pendingPass.note } : {}),
                 repeatPass: pendingPass.pass,
+                // Подтверждение прохода — та же строка, а не новая: цех и примечание
+                // несутся как были, иначе запись проходом молча стирала бы их.
+                ...(pendingPass.note ? { note: pendingPass.note } : {}),
+                ...(pendingPass.workshopId ? { workshopId: pendingPass.workshopId } : {}),
+                ...(pendingPass.workshopId && pendingPass.workshopName ? { workshopName: pendingPass.workshopName } : {}),
               })
             }
           >
@@ -739,9 +753,9 @@ export function EngineHistoryFeedPanel(props: {
                           <Button
                             variant="ghost"
                             disabled={busy}
-                            title="Изменить дату этапа"
+                            title="Править этап: дата, цех, примечание"
                             data-repair-stage-edit-date={item.id}
-                            onClick={() => setEditingDate({ id: item.id, code: item.stageCode, value: toInputDate(item.at) })}
+                            onClick={() => setEditingDate({ id: item.id, code: item.stageCode, value: toInputDate(item.at), workshopId: item.workshopId, note: item.note })}
                           >
                             ✎
                           </Button>
@@ -806,7 +820,7 @@ export function EngineHistoryFeedPanel(props: {
                           </Button>
                         </span>
                       ) : editingDate?.id === item.id ? (
-                        <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                        <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
                           <Input
                             type="date"
                             value={editingDate.value}
@@ -815,6 +829,23 @@ export function EngineHistoryFeedPanel(props: {
                             data-repair-stage-date={item.id}
                             onChange={(e) => setEditingDate((prev) => (prev ? { ...prev, value: e.target.value } : null))}
                           />
+                          <span data-repair-stage-workshop={item.id} style={{ minWidth: 140 }}>
+                            <SearchSelect
+                              value={editingDate.workshopId || null}
+                              options={props.workshopOptions}
+                              placeholder="Цех"
+                              showAllWhenEmpty
+                              onChange={(next) => setEditingDate((prev) => (prev ? { ...prev, workshopId: String(next ?? '') } : null))}
+                            />
+                          </span>
+                          <Input
+                            value={editingDate.note}
+                            disabled={busy}
+                            title="Примечание"
+                            placeholder="Примечание"
+                            data-repair-stage-note={item.id}
+                            onChange={(e) => setEditingDate((prev) => (prev ? { ...prev, note: e.target.value } : null))}
+                          />
                           <Button
                             variant="ghost"
                             disabled={busy}
@@ -822,13 +853,17 @@ export function EngineHistoryFeedPanel(props: {
                             onClick={() => {
                               const atMs = fromInputDate(editingDate.value);
                               if (atMs !== null) {
-                                // Примечание сохраняем как было: иначе смена даты молча стирала бы его
-                                // (писатель собирает строку заново из входа, а не правит дату в строке).
+                                // Правка несёт все три поля: писатель пересобирает строку
+                                // целиком, и непереданное стиралось бы (цех — вживую,
+                                // примечание — тот же класс, закрыт раньше отдельно).
+                                const wsLabel = props.workshopOptions.find((w) => w.id === editingDate.workshopId)?.label ?? '';
                                 void writeStage({
                                   id: item.id,
                                   code: editingDate.code,
                                   atMs,
-                                  ...(item.note ? { note: item.note } : {}),
+                                  ...(editingDate.note.trim() ? { note: editingDate.note.trim() } : {}),
+                                  ...(editingDate.workshopId ? { workshopId: editingDate.workshopId } : {}),
+                                  ...(editingDate.workshopId && wsLabel ? { workshopName: wsLabel } : {}),
                                 }).then(() => setEditingDate(null));
                               }
                             }}

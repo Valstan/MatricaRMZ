@@ -94,7 +94,7 @@ describe('лента: смена даты дефектовки спрашива�
 });
 
 describe('лента пишется так же, как писалась раньше', () => {
-  it('этап добавляется, правится датой и снимается прямо в ленте', () => {
+  it('этап добавляется, правится (дата, цех, примечание) и снимается прямо в ленте', () => {
     expect(PANEL).toContain('window.matrica.workSheets.stages.save({ ...args, engineId: props.engineId })');
     expect(PANEL).toContain('data-repair-stage-add');
     expect(PANEL).toContain('data-repair-stage-date={item.id}');
@@ -127,10 +127,18 @@ describe('лента пишется так же, как писалась ран�
     expect(PANEL).toContain('window.matrica.operations.remove(');
   });
 
-  it('правка даты этапа не стирает примечание (писатель собирает строку заново)', () => {
-    // writeStage пересоздаёт meta из входа: вызов без note уронил бы примечание,
-    // и смена даты молча съедала бы текст. Передаём note из строки.
-    expect(PANEL, 'правка даты этапа вызывается без примечания — оно сотрётся').toContain('...(item.note ? { note: item.note } : {})');
+  it('правка этапа несёт дату, цех и примечание — писатель пересобирает строку целиком', () => {
+    // writeStage пересоздаёт meta из входа: вызов без полей уронил бы их, и правка
+    // молча съедала бы текст и цех (цех — вживую, примечание — тот же класс).
+    expect(PANEL, 'правка вызывается без цеха — он сотрётся').toContain('...(editingDate.workshopId ? { workshopId: editingDate.workshopId } : {})');
+    expect(PANEL, 'правка вызывается без примечания — оно сотрётся').toContain('...(editingDate.note.trim() ? { note: editingDate.note.trim() } : {})');
+    expect(PANEL, 'в форме правки нет цеха').toContain('data-repair-stage-workshop={item.id}');
+    expect(PANEL, 'в форме правки нет примечания').toContain('data-repair-stage-note={item.id}');
+  });
+
+  it('подтверждение прохода несёт цех и примечание, а не только дату', () => {
+    expect(PANEL, 'запись проходом стирает цех').toContain('...(pendingPass.workshopId ? { workshopId: pendingPass.workshopId } : {})');
+    expect(PANEL, 'запись проходом стирает примечание').toContain('...(pendingPass.note ? { note: pendingPass.note } : {})');
   });
 
   it('последнее действие в ленте откатывается кнопкой «Отменить»', () => {
