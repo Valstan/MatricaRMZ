@@ -53,6 +53,8 @@ export const LedgerTableName = {
   PpeIssueCards: 'ppe_issue_cards',
   PpeCardNorms: 'ppe_card_norms',
   PpeIssueEntries: 'ppe_issue_entries',
+  // Умолчания подписей (PR-5): ключ поля подписи → сотрудник.
+  SignatureDefaults: 'signature_defaults',
   Permissions: 'permissions',
   UserPermissions: 'user_permissions',
   PermissionDelegations: 'permission_delegations',
