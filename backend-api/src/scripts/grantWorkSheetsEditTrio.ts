@@ -2,10 +2,10 @@ import 'dotenv/config';
 
 import { randomUUID } from 'node:crypto';
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull, lte } from 'drizzle-orm';
 
 import { db, pool } from '../database/db.js';
-import { userPermissions } from '../database/schema.js';
+import { permissionDelegations, userPermissions } from '../database/schema.js';
 import { PermissionCode } from '../auth/permissions.js';
 import { isSuperadminLogin, listEmployeesAuth } from '../services/employeeAuthService.js';
 
@@ -83,6 +83,29 @@ async function main() {
     `[этапы: доступ] ${apply ? 'записано' : 'dry-run, будет записано'}: выдать=${granted}, отобрать=${revoked}, уже верно=${alreadyOk} ` +
       `(суперадмин мимо overrides: ${superadmins.join(', ') || '—'})${apply ? '' : ' — запуск с --apply пишет'}`,
   );
+
+  // Временные делегирования — второй путь к праву, мимо overrides. Только отчёт:
+  // замещение на время отпуска авто-отзывом ломать нельзя, решение — за владельцем.
+  const activeDelegations = await db
+    .select({ toUserId: permissionDelegations.toUserId, endsAt: permissionDelegations.endsAt })
+    .from(permissionDelegations)
+    .where(
+      and(
+        eq(permissionDelegations.permCode, PermissionCode.WorkSheetsEdit as any),
+        isNull(permissionDelegations.revokedAt),
+        lte(permissionDelegations.startsAt, ts as any),
+      ),
+    );
+  const loginById = new Map(rows.map((r) => [String((r as { id: unknown }).id ?? ''), String((r as { login: unknown }).login ?? '')]));
+  const live = activeDelegations.filter((d) => Number(d.endsAt) >= ts);
+  if (live.length === 0) {
+    console.log('[этапы: доступ] активных делегирований work_sheets.edit нет');
+  } else {
+    for (const d of live) {
+      const login = loginById.get(String(d.toUserId)) || String(d.toUserId).slice(0, 8);
+      console.log(`[этапы: доступ] ДЕЛЕГИРОВАНО: ${login} до ${new Date(Number(d.endsAt)).toISOString().slice(0, 10)}`);
+    }
+  }
 }
 
 main()
