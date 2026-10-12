@@ -2,29 +2,30 @@
 
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
-**Status:** ACTIVE (мандат brain opencode-silent-deploy: PR-1 готов, смоук PASS, PR открывается)
+**Status:** ACTIVE (мандат brain opencode-silent-deploy: PR-1 merged, PR-2 в работе)
 **Updated:** 2026-10-12 (opencode session, машина `Computer`)
-**Branch:** feat/opencode-nodes-section (main = origin/main, релиз 3.74.0 на проде)
+**Branch:** feat/opencode-silent-install (main = origin/main)
 **Last released version:** **v3.74.0** на проде (+ android-v3.74.0).
 
 ## Текущая нитка
 
-Мандат brain `2026-10-12-opencode-silent-deploy-plan` (mandate, GitHub-канал;
-локальный план: `docs/plans/opencode-nodes-2026-10.md`; ack:
-`mailbox/to-brain/2026-10-12-opencode-mandate-accepted.md`).
+PR-1 merged (#1307, `34a1cc43`): раздел «OpenCode-узлы» на проде кода (не релиз).
 
-PR-1 (эта ветка): раздел «OpenCode-узлы» (суперадмин-only, зеркало
-`access_sections`) — реестр `userData/opencode-nodes.json` + HTTP-проба
-live/dead + страница. Код готов, гейты зелёные (typecheck -r, lint,
-shared 1370 / electron 1590 тестов, CDP-смоук `cdp-opencode-nodes.mjs` —
-PASS 9/9 живьём: вход суперадмином, меню, рендер, добавление, «мёртв»,
-уборка). Стек погашен. Дальше: коммит → push → PR → CI → merge.
+PR-2 (эта ветка): silent-install `scripts/client-ops/opencode-harness.ps1`
+(релиз GitHub + SHA256, задача планировщика от имени оператора, брандмауэр
+LocalSubnet, запись в реестр узлов) + вкладка «OpenCode-узел» в окне
+обслуживания + архив + типы. Флаги serve сверены с веб-доками 12.10
+(`--port/--hostname`, `/global/health`). Код готов, гейты зелёные
+(typecheck -r, typecheck:test, lint, shared 1370 / electron 1590, сторож 6/6,
+парсер PS 5.1 обоих .ps1 чист, `-Verify` живьём: «не стоит», exit 0, сборщик
+архива: 8 файлов). Дальше: коммит → push → PR → CI → merge → пилот на PC79
+(руками владельца: исключение → окно → вкладка → «Установить»).
 
 ## Следующий шаг
 
-1. PR-1: push → `gh pr create` → дождаться CI → squash-merge → pull main.
-2. PR-2 (новая ветка): silent-install `scripts/client-ops/opencode-harness.ps1`
-   + пилот на PC79 (см. локальный план §PR-2).
+1. PR-2: push → `gh pr create` → CI → squash-merge → pull main.
+2. Пилот на PC79 — ход владельца (см. README §opencode-harness).
+3. Ответ Мозга про лёгкий token для serve (не блокер; ack уже у него).
 
 ## Контекст
 
@@ -40,6 +41,10 @@ PASS 9/9 живьём: вход суперадмином, меню, рендер
   показала «писем нет», файл `2026-10-12-opencode-silent-deploy-plan.md`
   появился в GitHub-канале минутами позже. Урок: при «Мозг говорит отправил,
   а у меня нет» — перечитать GitHub-канал напрямую, не спорить.
+- **После `install-app-deps` electron-тесты краснеют ABI-конфликтом (148 vs 137).**
+  Чинят НЕ `pnpm rebuild`/`pnpm install` (молчат и ничего не делают), а прямой
+  `node-gyp rebuild` в каталоге пакета (MSVC теперь есть): оба
+  better-sqlite3*. Проверено: `mc-node-abi-ok`, сьют 1590 зелёный.
 - **`python3`/`pnpm exec pnpm` в PowerShell этой машины отсутствуют.**
   `python` есть; бинари — `.\node_modules\.bin\*.CMD` с workdir пакета.
   Записано в профиль Computer.

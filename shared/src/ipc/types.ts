@@ -85,7 +85,7 @@ export type ClientOpsBundleInfo = {
 };
 
 /** Вкладка окна обслуживания, с которой его открыть. Значения совпадают с -Tab у matrica-ops.ps1. */
-export type ClientOpsTab = 'kaspersky' | 'lan' | 'guide';
+export type ClientOpsTab = 'kaspersky' | 'lan' | 'opencode' | 'guide';
 
 export type EngineListItem = {
   id: string;
