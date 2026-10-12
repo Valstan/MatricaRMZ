@@ -2,27 +2,31 @@
 
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
-**Status:** IDLE (мандат opencode-silent-deploy кодово закрыт: PR-1 #1307 + PR-2 #1308 merged; дальше — пилот на PC79 руками владельца)
-**Updated:** 2026-10-12 (opencode session, машина `Computer`)
+**Status:** ACTIVE → CLOSED (план `favorites-work-stages-defaults-2026-10.md` выполнен: PR-1 (#1311) / PR-2 (03be8a11) / PR-3 (#1311) / PR-4 (#1312) / PR-5 (#1313 — дизайн + 0108, на main уже `signature_defaults`) / PR-6 (`grantWorkSheetsEditTrio` — права `valstan/sapegin/fatyhova`). Релиз v3.74.0 (+ android-v3.74.0) на проде; `main` = `4d5fadf7` (14 коммитов с другого компа `Computer`).
+**Updated:** 2026-10-12 (opencode session, машина `PC79`; синхронизация с `Computer`: `main` 4d5fadf7, `v3.74.0`, `signature_defaults` + `grantWorkSheetsEditTrio` в коде)
 **Branch:** main = origin/main
 **Last released version:** **v3.74.0** на проде (+ android-v3.74.0).
 
-## Текущая нитка
+## Текущая нитка → ЗАВЕРШЕНА (релиз v3.74.0)
 
-_n/a_ — сессия продолжается, код мандата сдан. Сделано: PR-1 (раздел
-«OpenCode-узлы», смоук PASS 9/9) + PR-2 (silent-install harness + вкладка
-окна обслуживания). План: `docs/plans/opencode-nodes-2026-10.md`.
+План `docs/plans/favorites-work-stages-defaults-2026-10.md` выполнен полностью:
+- **PR-1** (звёздочки + левая колонка) / **PR-2** (`03be8a11`, фильтр «Все этапы» + дата) — в `main` до начала сессии.
+- **PR-3** (#1311) — диалог без отсечений (пикер полный список); влит с другого компа.
+- **PR-4** (#1312) — карточка этапа правит все поля; влит с другого компа.
+- **PR-5** (#1313) — дизайн строгой таблицы (`signature_defaults` / 0108); влит с другого компа.
+- **PR-6** (`grantWorkSheetsEditTrio`) — права `work_sheets.edit` выданы троим (`valstan`, `sapegin`, `fatyhova`); на `main` в `4d5fadf7`.
 
-## Следующий шаг
+Наша локальная сессия (`feat/pr-*`) содержала дублирующие таблицы (`0108_default_label_defaults` против `0108_signature_defaults`) — удалены; `SESSION_HANDOFF.md` обновлён.
 
-По слову владельца. Кандидаты:
-1. **Пилот на PC79** (README §opencode-harness): исключение на папку
-   помощника → окно → вкладка «OpenCode-узел» → «Установить» → исключение
-   на `%PROGRAMDATA%\MatricaRMZ-OpenCode` → `opencode auth login` под
-   оператором → узел виден в разделе (суперадмин).
-2. Ответ Мозга про лёгкий token для serve (не блокер).
-3. Висят: journald бокса (чинить днём), M102 dry-run/apply (окно владельца),
-   DeepSeek 402 (пополнить), Ekb96 (ручная переустановка).
+## Следующий шаг (по слову владельца)
+
+План выполнен, релиз v3.74.0 на проде (`4d5fadf7`). Открытое (из актуального PENDING):
+- Пилот `opencode-nodes` на PC79 (план `docs/plans/opencode-nodes-2026-10.md`, ручной ход владельца; PR-1 + PR-2 `opencode` влит).
+- M102 dry-run/apply — ждал окна владельца (в предыдущем `SESSION_HANDOFF`).
+- DeepSeek 402 (пополнить), ротация SSH PC79 ≤ 26.11 (календарь PENDING).
+- `docs/OPERATIONS.md` — проверить после синхронизации (`Computer` → `PC79`).
+
+**Наша задача сейчас — не начать новый PR, а синхронизировать состояние:** проверить, что `docs/PENDING_FOLLOWUPS.md` не содержит завершённого (наша сессия не добавляла открытого), `docs/COMPLETED.md` отражает v3.74.0, локальные ветки удалены.
 
 ## Контекст
 
