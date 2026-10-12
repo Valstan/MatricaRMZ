@@ -48,6 +48,8 @@
     "perm:fix-chat": "tsx src/scripts/fixChatPermissions.ts",
     "perm:revoke-work-sheets": "tsx src/scripts/revokeWorkSheetPermissions.ts",
     "perm:revoke-work-sheets:apply": "tsx src/scripts/revokeWorkSheetPermissions.ts --apply",
+    "perm:grant-worksheets-trio": "tsx src/scripts/grantWorkSheetsEditTrio.ts",
+    "perm:grant-worksheets-trio:apply": "tsx src/scripts/grantWorkSheetsEditTrio.ts --apply",
     "security:role-report": "tsx src/scripts/roleReport.ts",
     "masterdata:seed-nomenclature-groups": "tsx src/scripts/seedNomenclatureGroups.ts",
     "masterdata:migrate-directories-to-nomenclature": "tsx src/scripts/migrateDirectoriesToNomenclature.ts",
