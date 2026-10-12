@@ -2,30 +2,27 @@
 
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
-**Status:** ACTIVE (мандат brain opencode-silent-deploy: PR-1 merged, PR-2 в работе)
+**Status:** IDLE (мандат opencode-silent-deploy кодово закрыт: PR-1 #1307 + PR-2 #1308 merged; дальше — пилот на PC79 руками владельца)
 **Updated:** 2026-10-12 (opencode session, машина `Computer`)
-**Branch:** feat/opencode-silent-install (main = origin/main)
+**Branch:** main = origin/main
 **Last released version:** **v3.74.0** на проде (+ android-v3.74.0).
 
 ## Текущая нитка
 
-PR-1 merged (#1307, `34a1cc43`): раздел «OpenCode-узлы» на проде кода (не релиз).
-
-PR-2 (эта ветка): silent-install `scripts/client-ops/opencode-harness.ps1`
-(релиз GitHub + SHA256, задача планировщика от имени оператора, брандмауэр
-LocalSubnet, запись в реестр узлов) + вкладка «OpenCode-узел» в окне
-обслуживания + архив + типы. Флаги serve сверены с веб-доками 12.10
-(`--port/--hostname`, `/global/health`). Код готов, гейты зелёные
-(typecheck -r, typecheck:test, lint, shared 1370 / electron 1590, сторож 6/6,
-парсер PS 5.1 обоих .ps1 чист, `-Verify` живьём: «не стоит», exit 0, сборщик
-архива: 8 файлов). Дальше: коммит → push → PR → CI → merge → пилот на PC79
-(руками владельца: исключение → окно → вкладка → «Установить»).
+_n/a_ — сессия продолжается, код мандата сдан. Сделано: PR-1 (раздел
+«OpenCode-узлы», смоук PASS 9/9) + PR-2 (silent-install harness + вкладка
+окна обслуживания). План: `docs/plans/opencode-nodes-2026-10.md`.
 
 ## Следующий шаг
 
-1. PR-2: push → `gh pr create` → CI → squash-merge → pull main.
-2. Пилот на PC79 — ход владельца (см. README §opencode-harness).
-3. Ответ Мозга про лёгкий token для serve (не блокер; ack уже у него).
+По слову владельца. Кандидаты:
+1. **Пилот на PC79** (README §opencode-harness): исключение на папку
+   помощника → окно → вкладка «OpenCode-узел» → «Установить» → исключение
+   на `%PROGRAMDATA%\MatricaRMZ-OpenCode` → `opencode auth login` под
+   оператором → узел виден в разделе (суперадмин).
+2. Ответ Мозга про лёгкий token для serve (не блокер).
+3. Висят: journald бокса (чинить днём), M102 dry-run/apply (окно владельца),
+   DeepSeek 402 (пополнить), Ekb96 (ручная переустановка).
 
 ## Контекст
 
