@@ -2,29 +2,30 @@
 
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
-**Status:** ACTIVE (нитка: чиню сторожа M152 + разбор критсобытий 12.10)
-**Updated:** 2026-10-12 (opencode session, машина `PC79`; ветка `fix/watchdog-part-validation`, не смержено)
-**Branch:** fix/watchdog-part-validation (от main = origin/main @ 7c70d32c)
-**Last released version:** **v3.73.0** на проде (+ android-v3.73.0).
+**Status:** IDLE (нитка закрыта: M152 смержен в main; ждём релиз + действия владельца/оператора)
+**Updated:** 2026-10-12 (opencode session, машина `PC79`; PR #1291 смержен, дерево чистое)
+**Branch:** main = origin/main
+**Last released version:** **v3.73.0** на проде (+ android-v3.73.0); фикс сторожа уедет следующим релизом.
 
 ## Текущая нитка
 
-Разбор дампа критсобытий 09–12.10 + фикс сторожа. Найдено: (1) **M152** — watchdog с 04.08 (#469) режет каждую свою закачку (`validateInstaller(tmp)` видит `.part`, требует `.exe`) + провал закачки мимо backoff (~137 МБ каждые 15 мин); фикс + `watchdog/main_test.go` + шаг `go test` в CI — в этой ветке. (2) Окно 00:18–00:28 12.10: рестарт 3.73.0 раньше `db:migrate` 0107 → `ppe mirror publish failed` ×6, само прошло (~00:28). (3) Сервер здоров: обе ноды 3.73.0, `/updates/status` без ошибок, размер exe = манифесту. (4) Шум без кода: Telegram-опрос флакает (успехи сбрасывают streak — каждый варнинг `streak: 3`), DeepSeek 402 (баланс пуст — пополнить), `service_price_*` вне контракта (PENDING 🟡 с 22.09, решение за владельцем), `blocked_rows erp_engine_cards:882c…` у mubvera (карантин + баннер в карточке — оператору открыть карточку и править по баннеру).
+_n/a_ — сессия продолжается, шаг закрыт. Смержено: `e9cb313b` fix(watchdog) M152 (суффикс по финальному имени, провал закачки в backoff, portable-подпакет `watchdog/validate` + тест, шаг `go test ./validate/` в CI) + GOTCHAS M152 + PENDING §Watchdog + этот handoff. Все гейты PR #1291 зелёные (включая watchdog-build; первый прогон поймал `exec format error` — windows-тестбинарь на линукс-раннере, вылечено подпакетом).
 
 ## Следующий шаг
 
-1. Добить PR: гейты (watchdog-build с новым `go test` + стандартные), мерж.
-2. `/reliz` по слову владельца — фикс сторожа доезжает до парка только с релизом клиента.
-3. Ekb96 (3.64.0, приложение снесено) — только ручная переустановка свежим инсталлятором, сторож там старый.
-4. Владелец: пополнить DeepSeek; окно на M102 dry-run/apply и починку journald — из прошлого handoff, всё ещё ждут.
-5. Отзыв кладовщика по MVP → фаза 2 (план [`plans/ppe-kladovshik-phase2.md`](plans/ppe-kladovshik-phase2.md)) — ворота фазы, не этой нитки.
+По слову владельца:
+1. `/reliz` — фикс сторожа доезжает до парка только с обновлением клиента.
+2. Ekb96 (3.64.0, приложение снесено) — ручная переустановка свежим инсталлятором.
+3. Владелец: пополнить DeepSeek (402); окно на M102 dry-run/apply и починку journald.
+4. Отзыв кладовщика по MVP → фаза 2 (план [`plans/ppe-kladovshik-phase2.md`](plans/ppe-kladovshik-phase2.md)).
+5. `blocked_rows erp_engine_cards:882c…` (mubvera) — оператору открыть карточку, править по баннеру.
 
 ## Контекст
 
-- Ветка `fix/watchdog-part-validation`: `watchdog/main.go` (суффикс по финальному имени + провал закачки в backoff), `watchdog/main_test.go` (новый), `.github/workflows/watchdog-build.yml` (шаг `go test`), `docs/GOTCHAS.md` (M152), `docs/PENDING_FOLLOWUPS.md` (§Watchdog: инцидент 12.10 + окно migrate-после-рестарта), этот handoff.
+- Смержено в main: `e9cb313b` fix(watchdog) M152 (PR #1291, все гейты зелёные).
 - Прошлое (закрыто, в main): планы [`plans/ppe-kladovshik-mvp.md`](plans/ppe-kladovshik-mvp.md) / [`plans/ppe-kladovshik-phase2.md`](plans/ppe-kladovshik-phase2.md), релиз 3.73.0 (#1281–#1290).
 - Прод (проверено read-only 12.10): 3.73.0, оба инстанса active + `/health` порознь, рестарт 00:18:11/18, `/ppe` смонтирован, updates/status без ошибок, blockmap на месте, APK раздаётся.
-- Открытых PR: нет (этот будет первым). Локальные ветки: fix/android-ci-debug-apk-non-tag,
+- Открытых PR: нет (этот handoff-PR будет единственным). Локальные ветки: fix/android-ci-debug-apk-non-tag,
   release/v3.8.0, release/v3.9.0 (чужие остатки прошлых сессий, не трогал).
 - Письмо мозгу: нет (инцидент разобран локально; M152 уже указателем в GOTCHAS — письмо при переносе в парк, не сейчас).
 
