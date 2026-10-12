@@ -2,9 +2,9 @@
 
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
-**Status:** ACTIVE (нитка: план favorites-work-stages-defaults-2026-10, сделано PR-1–PR-5)
-**Updated:** 2026-10-12 (opencode session, машина `Computer`; PR-5 готов, ждёт ревью/мерж)
-**Branch:** feat/signature-defaults (PR-5), main = origin/main
+**Status:** ACTIVE (нитка: план favorites-work-stages-defaults-2026-10, PR-1–PR-5 смержены; PR-6: скрипт готов, прод-прогон ждёт слова)
+**Updated:** 2026-10-12 (opencode session, машина `Computer`)
+**Branch:** feat/grant-worksheets-trio (PR-6), main = origin/main
 **Last released version:** **v3.73.0** на проде (+ android-v3.73.0). M152 + PR-1 + PR-2 в `main`, но ещё НЕ выпущены релизом — уедут следующим релизным циклом.
 
 ## Текущая нитка
@@ -39,12 +39,15 @@
   админская дверь REST, читают все pull'ом в реплику 0034). Кнопка «По умолч.»
   у поля подписи (только админам): с заполненным — запомнить, с пустым —
   очистить. Подстановка предпочитает умолчание, без него — себя, как раньше.
-  Ветка `feat/signature-defaults`.
+  Смержен (#1299).
+- **PR-6** — скрипт выдачи `work_sheets.edit` троим (см. «Следующий шаг»).
 
 ## Следующий шаг
 
-**PR-6: права `work_sheets.edit` троим** (`valstan`, `sapegin`, `fatyhova`) —
-прод-действие, только по явному слову владельца в том же ходе.
+**PR-6: права `work_sheets.edit` троим** — скрипт `grantWorkSheetsEditTrio.ts`
+(`perm:grant-worksheets-trio`, dry-run + `--apply`) в PR; прод-прогон
+(dry-run → показ → apply) — только по явному слову владельца в том же ходе
+(#025: UPDATE живой БД). valstan — суперадмин (право по роли, строка не пишется).
 
 ## Контекст
 
