@@ -29,6 +29,13 @@ jobs:
         # (HideWindow) — vetting under the linux host GOOS fails to compile.
         run: cd watchdog && GOOS=windows go vet ./...
 
+      - name: go test
+        # Portable subpackage only (./validate): package main needs GOOS=windows
+        # to compile (windows-only syscalls), and a windows test binary cannot
+        # execute on the linux host. Regression cover for M152 gates here; the
+        # full module is covered by vet + build with GOOS=windows below.
+        run: cd watchdog && go test ./validate/...
+
       - name: Build (windows/amd64)
         # -H=windowsgui → GUI-subsystem binary: no console window when the Scheduled
         # Task runs it (operators must not see a terminal). File log is unaffected.

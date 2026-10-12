@@ -32,8 +32,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -48,6 +46,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"github.com/Valstan/MatricaRMZ/watchdog/validate"
 )
 
 // hiddenCmd builds an exec.Cmd that never flashes a console window. The
@@ -235,7 +235,7 @@ func main() {
 	// operator-launched --repair bypasses it.
 	st := readState()
 	if !forced && !repair && st.FailCount > 0 {
-		wait := backoffFor(st.FailCount)
+		wait := validate.BackoffFor(st.FailCount)
 		since := time.Since(time.UnixMilli(st.LastFailMs))
 		if since < wait {
 			logf("backoff after %d failed attempts — next try in %s", st.FailCount, (wait - since).Round(time.Minute))
@@ -269,6 +269,11 @@ func main() {
 
 	installer, src, err := findInstaller(hs)
 	if err != nil {
+		// A failed pass counts toward the backoff above: otherwise a download
+		// failure re-downloads ~137 MB every pass forever (M152).
+		st.FailCount++
+		st.LastFailMs = time.Now().UnixMilli()
+		writeState(st)
 		logf("no valid installer found: %v", err)
 		report(hs, "failed", fmt.Sprintf("no valid installer: %v", err), 0)
 		if forced {
@@ -381,18 +386,6 @@ func acquirePassLock() bool {
 
 func releasePassLock() {
 	_ = os.Remove(passLockPath())
-}
-
-// backoffFor: 30m after the first failure, doubling per failure, capped at 24h.
-func backoffFor(failCount int) time.Duration {
-	d := 30 * time.Minute
-	for i := 1; i < failCount && d < 24*time.Hour; i++ {
-		d *= 2
-	}
-	if d > 24*time.Hour {
-		d = 24 * time.Hour
-	}
-	return d
 }
 
 // --- liveness / shortcuts ---------------------------------------------------
@@ -558,7 +551,7 @@ func appPresent(hs *handshake) bool {
 // appClearlyBroken checks that the exe is actually launchable, not merely a file
 // with size>0: the owner's machine lost the whole install to (likely) antivirus
 // quarantine and a zero-knowledge stat check called it healthy. Two probes: the
-// MZ header of the exe (same check validateInstaller applies to installers) and
+// MZ header of the exe (same check ValidateInstaller applies to installers) and
 // the sibling resources\app.asar an electron-builder layout always has.
 //
 // Conservative on purpose — a false «corrupt» verdict costs a ~116-MB reinstall
@@ -652,7 +645,7 @@ func installerFromPending(hs *handshake) (string, string, bool) {
 	if pu.ExpectedSize != nil {
 		size = *pu.ExpectedSize
 	}
-	if validateInstaller(pu.InstallerPath, size, pu.ExpectedSha) == nil {
+	if validate.ValidateInstaller(pu.InstallerPath, size, pu.ExpectedSha) == nil {
 		return pu.InstallerPath, strings.TrimSpace(pu.Version), true
 	}
 	return "", "", false
@@ -690,7 +683,7 @@ func installerFromUpdatesDir(hs *handshake, latestVersion string) (string, bool)
 	sort.Slice(cands, func(i, j int) bool { return cands[i].modTime.After(cands[j].modTime) })
 	for _, c := range cands {
 		// No expected size/sha here — accept any well-formed PE executable.
-		if validateInstaller(c.path, 0, "") == nil {
+		if validate.ValidateInstaller(c.path, 0, "") == nil {
 			return c.path, true
 		}
 	}
@@ -776,7 +769,7 @@ func downloadInstaller(hs *handshake) (string, error) {
 		return "", fmt.Errorf("write installer: %w", err)
 	}
 	out.Close()
-	if err := validateInstaller(tmp, meta.Size, meta.Sha256); err != nil {
+	if err := validate.ValidateInstaller(tmp, meta.Size, meta.Sha256); err != nil {
 		_ = os.Remove(tmp)
 		return "", fmt.Errorf("downloaded installer invalid: %w", err)
 	}
@@ -787,50 +780,6 @@ func downloadInstaller(hs *handshake) (string, error) {
 		return "", fmt.Errorf("publish installer: %w", err)
 	}
 	return dst, nil
-}
-
-// validateInstaller mirrors the app's validateInstallerBeforeLaunch: .exe size
-// match (when known), an MZ PE header, and a sha256 match (when known).
-func validateInstaller(path string, expectedSize int64, expectedSha string) error {
-	if !strings.HasSuffix(strings.ToLower(path), ".exe") {
-		return fmt.Errorf("not an .exe: %s", path)
-	}
-	st, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	if !st.Mode().IsRegular() || st.Size() == 0 {
-		return fmt.Errorf("installer empty or not a file")
-	}
-	if expectedSize > 0 && st.Size() != expectedSize {
-		return fmt.Errorf("size mismatch: got=%d want=%d", st.Size(), expectedSize)
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	head := make([]byte, 2)
-	if _, err := io.ReadFull(f, head); err != nil {
-		return fmt.Errorf("read header: %w", err)
-	}
-	if head[0] != 0x4D || head[1] != 0x5A { // "MZ"
-		return fmt.Errorf("missing MZ header")
-	}
-	if strings.TrimSpace(expectedSha) != "" {
-		if _, err := f.Seek(0, io.SeekStart); err != nil {
-			return err
-		}
-		h := sha256.New()
-		if _, err := io.Copy(h, f); err != nil {
-			return err
-		}
-		got := hex.EncodeToString(h.Sum(nil))
-		if !strings.EqualFold(got, strings.TrimSpace(expectedSha)) {
-			return fmt.Errorf("sha256 mismatch")
-		}
-	}
-	return nil
 }
 
 func runSilentInstaller(path string) (int, error) {
