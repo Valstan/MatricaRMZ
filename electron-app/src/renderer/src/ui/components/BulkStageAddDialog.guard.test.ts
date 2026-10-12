@@ -13,13 +13,13 @@ describe('BulkStageAddDialog — массовое добавление этап�
     expect(DIALOG).toContain('data-bulk-stage-save');
   });
 
-  it('при выбранном этапе — только кандидаты с завода, остальных нет вовсе', () => {
+  it('при выбранном этапе — кандидаты сверху, остальные ниже, без отсечений (PR-3)', () => {
     expect(DIALOG).toContain('data-bulk-stage-search');
     expect(DIALOG).toContain('Поиск по номеру двигателя');
     expect(DIALOG).toContain('data-bulk-stage-priority');
-    expect(DIALOG).not.toContain('data-bulk-stage-rest');
+    expect(DIALOG).toContain('data-bulk-stage-rest');
     expect(DIALOG).toContain('workSheets.stages.lastMarks');
-    // Правило отбора — в домене и покрыто юнитами, а не глазом.
+    // Правило отбора кандидатов — в домене и покрыто юнитами, а не глазом.
     expect(DIALOG).toContain('isBulkStageCandidate(');
     expect(DIALOG).toContain('isEngineAtPlant(');
   });

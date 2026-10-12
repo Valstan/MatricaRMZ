@@ -29,8 +29,9 @@ function fromInputDate(v: string): number | null {
  * этап создаётся у каждого выбранного двигателя.
  *
  * Двигатели ищутся по номеру (подстрока, как в остальных списках). Когда выбран
- * этап, показываются ТОЛЬКО кандидаты — двигатели, которые стоят на заводе сейчас
- * на предыдущем этапе (владелец 01.10.2026). Уехавшие, стоящие выше и утиль скрыты.
+ * этап, кандидаты — двигатели, которые стоят на заводе сейчас на предыдущем
+ * этапе (владелец 01.10.2026) — идут первыми; ниже — все остальные из поиска,
+ * без отсечений: нужно для внесения этапов задним числом, вперемешку (PR-3).
  */
 export function BulkStageAddDialog(props: {
   templates: StageTemplate[];
@@ -96,9 +97,9 @@ export function BulkStageAddDialog(props: {
     return engines.filter((e) => e.label.toLowerCase().includes(q));
   }, [engines, query]);
 
-  // При выбранном этапе показывают ТОЛЬКО кандидатов (владелец 01.10.2026): двигатели,
-  // которые стоят на заводе сейчас на предыдущем этапе. Уехавшие, стоящие выше и утиль
-  // скрываются совсем — иначе за обкатку список из сотен штук, где живых горсть.
+  // При выбранном этапе кандидаты (владелец 01.10.2026): двигатели, которые стоят
+  // на заводе сейчас на предыдущем этапе. Остальные не скрываются, а идут ниже
+  // отдельным списком — иначе этапы задним числом, вперемешку, внести нельзя (PR-3).
   // Без выбранного этапа — все со строкой поиска, как раньше.
   const candidates = useMemo(() => {
     if (selectedRank === null || selectedRank <= 0) return null;
@@ -124,6 +125,13 @@ export function BulkStageAddDialog(props: {
     }
     return out;
   }, [filtered, selectedRank, marks, rankByCode]);
+
+  // Остальные из поиска — всё, что не попало в кандидаты. Пустой поиск = весь каталог.
+  const rest = useMemo(() => {
+    if (!candidates) return null;
+    const ids = new Set(candidates.map((e) => e.id));
+    return filtered.filter((e) => !ids.has(e.id));
+  }, [candidates, filtered]);
 
   const toggleEngine = (id: string) => {
     setSelectedEngineIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -248,19 +256,27 @@ export function BulkStageAddDialog(props: {
                 <div className="ui-muted" style={{ fontSize: 12 }}>Список двигателей не загрузился</div>
               ) : filtered.length === 0 ? (
                 <div className="ui-muted" style={{ fontSize: 12 }}>По запросу ничего не найдено</div>
-              ) : candidates ? (
-                candidates.length === 0 ? (
-                  <div className="ui-muted" style={{ fontSize: 12 }}>
-                    На предыдущих этапах никого нет — все либо стоят выше, либо уже уехали с завода
-                  </div>
-                ) : (
-                  <div style={{ display: 'grid', gap: 4 }} data-bulk-stage-priority>
-                    <div className="ui-muted" style={{ fontSize: 12, fontWeight: 700 }}>
-                      На заводе на предыдущем этапе ({candidates.length})
+              ) : candidates && rest ? (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {candidates.length === 0 ? (
+                    <div className="ui-muted" style={{ fontSize: 12 }}>
+                      На предыдущих этапах никого нет — все либо стоят выше, либо уже уехали с завода
                     </div>
-                    {candidates.map(renderEngineRow)}
+                  ) : (
+                    <div style={{ display: 'grid', gap: 4 }} data-bulk-stage-priority>
+                      <div className="ui-muted" style={{ fontSize: 12, fontWeight: 700 }}>
+                        На заводе на предыдущем этапе ({candidates.length})
+                      </div>
+                      {candidates.map(renderEngineRow)}
+                    </div>
+                  )}
+                  <div style={{ display: 'grid', gap: 4 }} data-bulk-stage-rest>
+                    <div className="ui-muted" style={{ fontSize: 12, fontWeight: 700 }}>
+                      Остальные ({rest.length}) — в т.ч. для внесения задним числом
+                    </div>
+                    {rest.map(renderEngineRow)}
                   </div>
-                )
+                </div>
               ) : (
                 <div style={{ display: 'grid', gap: 4 }}>{filtered.map(renderEngineRow)}</div>
               )}
