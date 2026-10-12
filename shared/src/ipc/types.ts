@@ -2321,6 +2321,16 @@ export type MatricaApi = {
       >;
     };
   };
+  /**
+   * Умолчания подписей (PR-5): чтение — из локальной pull-only реплики
+   * (офлайн-подстановка в актах), запись — админской дверью REST.
+   */
+  signatureDefaults: {
+    list: () => Promise<
+      { ok: true; rows: Array<{ fieldKey: string; employeeId: string | null }> } | { ok: false; error: string }
+    >;
+    set: (args: { fieldKey: string; employeeId: string | null }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+  };
   /** Этапы работ: узлы — REST-справочник сервера; строки — записи истории ремонта (`operations`). */
   workSheets: {
     types: {

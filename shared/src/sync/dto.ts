@@ -365,6 +365,14 @@ export const ppeIssueEntryRowSchema = z.object({
   document_id: z.string().uuid(),
 });
 
+// Умолчания подписей (PR-5): ключ поля подписи (id пункта акта, напр.
+// 'defect_signed_by') → сотрудник. Храним id, ФИО резолвится на чтении.
+export const signatureDefaultRowSchema = z.object({
+  ...baseRowFields,
+  field_key: z.string().min(1),
+  employee_id: z.string().uuid().nullable().optional(),
+});
+
 export const syncRowSchemaByTable = {
   [SyncTableName.EntityTypes]: entityTypeRowSchema,
   [SyncTableName.Entities]: entityRowSchema,
@@ -402,6 +410,7 @@ export const syncRowSchemaByTable = {
   [SyncTableName.PpeIssueCards]: ppeIssueCardRowSchema,
   [SyncTableName.PpeCardNorms]: ppeCardNormRowSchema,
   [SyncTableName.PpeIssueEntries]: ppeIssueEntryRowSchema,
+  [SyncTableName.SignatureDefaults]: signatureDefaultRowSchema,
 } as const;
 
 export const syncTableUpsertSchema = z.object({

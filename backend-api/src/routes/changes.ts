@@ -299,6 +299,7 @@ changesRouter.get('/', async (req, res) => {
       [SyncTableName.PpeIssueCards]: 'Карточки выдачи СИЗ',
       [SyncTableName.PpeCardNorms]: 'Нормы карточек выдачи СИЗ',
       [SyncTableName.PpeIssueEntries]: 'Выдачи СИЗ',
+      [SyncTableName.SignatureDefaults]: 'Умолчания подписей',
       file_assets: 'Файлы',
     };
 

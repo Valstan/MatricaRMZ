@@ -63,6 +63,10 @@ export const SyncTableName = {
   PpeIssueCards: 'ppe_issue_cards',
   PpeCardNorms: 'ppe_card_norms',
   PpeIssueEntries: 'ppe_issue_entries',
+  // Умолчания подписей (план favorites-work-stages-defaults-2026-10, PR-5):
+  // ключ поля подписи → сотрудник. Server-write / pull-only, как PPE:
+  // пишет админская дверь, клиент читает реплику.
+  SignatureDefaults: 'signature_defaults',
 } as const;
 
 export type SyncTableName = (typeof SyncTableName)[keyof typeof SyncTableName];

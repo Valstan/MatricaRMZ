@@ -2253,3 +2253,24 @@ export const ppeIssueEntries = pgTable(
     documentIdx: index('ppe_issue_entries_document_idx').on(t.documentId),
   }),
 );
+
+/** Умолчания подписей (PR-5): ключ поля подписи → сотрудник. Миграция 0108. */
+export const signatureDefaults = pgTable(
+  'signature_defaults',
+  {
+    id: uuid('id').primaryKey(),
+    fieldKey: text('field_key').notNull(),
+    employeeId: uuid('employee_id'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    fieldKeyUq: uniqueIndex('signature_defaults_field_key_uq')
+      .on(t.fieldKey)
+      .where(sql`${t.deletedAt} is null`),
+    employeeIdx: index('signature_defaults_employee_idx').on(t.employeeId),
+  }),
+);
