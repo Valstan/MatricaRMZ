@@ -2253,3 +2253,16 @@ export const ppeIssueEntries = pgTable(
     documentIdx: index('ppe_issue_entries_document_idx').on(t.documentId),
   }),
 );
+
+export const defaultLabelDefaults = pgTable(
+  'default_label_defaults',
+  {
+    id: serial('id').primaryKey(),
+    fieldKey: varchar('field_key', { length: 64 }).notNull().unique(),
+    employeeId: integer('employee_id').notNull().references(() => employees.id),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({
+    keyIdx: index('default_label_key_idx').on(t.fieldKey),
+  }),
+);
