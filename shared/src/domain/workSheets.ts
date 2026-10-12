@@ -1,7 +1,5 @@
 import { HUMAN_LABEL_DASH } from './humanLabels.js';
 import type { FacetDescriptor } from './listFacets.js';
-import type { EngineFactoryStageTypeRef } from './engineFactoryStage.js';
-import type { RepairStageTemplate } from './repairStages.js';
 
 /**
  * Этапы работ (владелец 15.09.2026): общий журнал движений двигателя по заводу.
@@ -365,10 +363,6 @@ export const WORK_SHEET_ROW_FACET_IDS = ['type', 'engineBrand', 'workshop', 'per
  */
 export function workSheetFacets(
   columns: readonly WorkSheetColumn[],
-  refs?: {
-    types?: readonly EngineFactoryStageTypeRef[];
-    stageTemplates?: readonly RepairStageTemplate[];
-  },
 ): FacetDescriptor<WorkSheetRow>[] {
   const val = (value: string, label = value) => (value ? { value, label } : null);
   const facets: FacetDescriptor<WorkSheetRow>[] = [

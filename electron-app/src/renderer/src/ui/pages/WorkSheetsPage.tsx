@@ -33,7 +33,6 @@ import { useListDeepFilter } from '../hooks/useListDeepFilter.js';
 import { useListUiState } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { useRepairStageTemplateRefs } from '../hooks/useRepairStageTemplateRefs.js';
-import { useWorkSheetTypeRefs } from '../hooks/useWorkSheetTypeRefs.js';
 import { listCellKindProps, listHeaderKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { loadWorkSheetTypes, type WorkSheetTypesSource } from '../utils/workSheetTypesCache.js';
@@ -272,14 +271,10 @@ export function WorkSheetsPage(props: {
   );
 
   // Ступени — общие для всего списка: полей вида работ здесь нет (у каждого вида свои),
-  // зато есть сам вид работ, заказчик, договор, цех, исполнитель и дата. Плюс движковая
-  // («Есть этап») — тот же смысл, что в списке двигателей.
-  const sheetTypes = useWorkSheetTypeRefs();
+  // зато есть сам вид работ, заказчик, договор, цех, исполнитель и дата. Движковой ступени
+  // «проходил этап» здесь нет с 12.10.2026 — отбор по истории только в списке двигателей.
   const stageTemplates = useRepairStageTemplateRefs();
-  const facets = useMemo(
-    () => workSheetFacets([], { types: sheetTypes, stageTemplates }) as FacetDescriptor<WorkSheetRow>[],
-    [sheetTypes, stageTemplates],
-  );
+  const facets = useMemo(() => workSheetFacets([]) as FacetDescriptor<WorkSheetRow>[], []);
 
   const deep = useListDeepFilter(
     rows,

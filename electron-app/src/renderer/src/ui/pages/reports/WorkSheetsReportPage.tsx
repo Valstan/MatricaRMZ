@@ -32,8 +32,6 @@ import { useColumnLayout } from '../../hooks/useColumnLayout.js';
 import { useListDeepFilter } from '../../hooks/useListDeepFilter.js';
 import { useListUiState } from '../../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../../hooks/useLiveDataRefresh.js';
-import { useRepairStageTemplateRefs } from '../../hooks/useRepairStageTemplateRefs.js';
-import { useWorkSheetTypeRefs } from '../../hooks/useWorkSheetTypeRefs.js';
 import { isAndroidPlatform } from '../../platform.js';
 import { formatMoscowDate } from '../../utils/dateUtils.js';
 import { listCellKindProps, listHeaderKindProps, type ListColumnKind } from '../../utils/listColumnKinds.js';
@@ -202,14 +200,9 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
     [columnLayout, columnsById],
   );
 
-  // Ступени — общие плюс по одной на каждое поле вида работ (по справочнику),
-  // плюс движковая («Есть этап») — тот же смысл, что в списках.
-  const sheetTypes = useWorkSheetTypeRefs();
-  const stageTemplates = useRepairStageTemplateRefs();
-  const facets = useMemo(
-    () => workSheetFacets(fieldColumns, { types: sheetTypes, stageTemplates }) as FacetDescriptor<WorkSheetRow>[],
-    [fieldColumns, sheetTypes, stageTemplates],
-  );
+  // Ступени — общие плюс по одной на каждое поле вида работ (по справочнику).
+  // Движковой ступени «проходил этап» здесь нет с 12.10.2026 (дубль «Вид работ»).
+  const facets = useMemo(() => workSheetFacets(fieldColumns) as FacetDescriptor<WorkSheetRow>[], [fieldColumns]);
 
   const deep = useListDeepFilter(
     rows,
