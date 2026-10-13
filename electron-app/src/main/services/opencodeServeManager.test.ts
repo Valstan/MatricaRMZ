@@ -65,8 +65,13 @@ describe('per-user paths', () => {
   it('имя узла — имя машины, каталог — без админа', () => {
     expect(localNodeName().length).toBeGreaterThan(0);
     const dir = opencodeInstallDir();
-    expect(dir).toContain('MatricaRMZ-OpenCode');
-    // Per-user, не машино-широко: установщик без UAC в PROGRAMDATA не пишет.
-    expect(dir.toLowerCase().startsWith(String(process.env.PROGRAMDATA ?? ':\\').toLowerCase())).toBe(false);
+    if (process.platform === 'win32') {
+      // Per-user, не машино-широко: установщик без UAC в PROGRAMDATA не пишет.
+      expect(dir).toContain('MatricaRMZ-OpenCode');
+      expect(dir.toLowerCase().startsWith(String(process.env.PROGRAMDATA ?? ':\\').toLowerCase())).toBe(false);
+    } else {
+      // Вне Windows ассета нет — только userData-заглушка, узел unsupported.
+      expect(dir).toContain('opencode-node');
+    }
   });
 });

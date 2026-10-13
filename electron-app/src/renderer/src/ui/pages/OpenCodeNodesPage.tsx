@@ -143,12 +143,14 @@ export function OpenCodeNodesPage() {
       <div style={{ color: 'var(--subtle)', fontSize: 12 }}>
         Бесплатные модели узлов ротируются, лимиты не публикуются, данные могут идти в обучение —
         для чувствительного — Claude Code или ключ OpenRouter. Порт serve — 3080.
+        Логиниться нигде не надо: бесплатные модели работают без авторизации; вход
+        (`opencode auth login` под учёткой оператора) нужен только платным провайдерам
+        вроде OpenRouter — вручную, один раз.
       </div>
 
       {local && localNodeLabel(local) ? (
         <div style={{ color: 'var(--subtle)', fontSize: 12 }} data-opencode-local-status>
           🖥 {localNodeLabel(local)}
-          {local.state === 'error' ? ' Провайдеров логиньте под учёткой оператора (opencode auth login) — вручную, один раз.' : ''}
         </div>
       ) : null}
 
