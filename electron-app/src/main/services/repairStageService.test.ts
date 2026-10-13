@@ -287,6 +287,14 @@ describe('ensureRepairStageRow', () => {
     const r = await ensureRepairStageRow(db, 'eng-1', 'arrival', DAY2, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES);
     expect(r).toMatchObject({ ok: true, marked: true, pass: 2 });
   });
+
+  it('новые этапы линейки известны реестру (входной контроль и ремонт деталей, 14.10.2026)', async () => {
+    const { db } = makeDb();
+    const incoming = await ensureRepairStageRow(db, 'eng-1', 'incoming_otk', DAY1, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES);
+    expect(incoming).toMatchObject({ ok: true, marked: true, pass: 1 });
+    const parts = await ensureRepairStageRow(db, 'eng-1', 'parts_repair', DAY1, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES);
+    expect(parts).toMatchObject({ ok: true, marked: true, pass: 1 });
+  });
 });
 
 // Шаг 8/2: место и утиль пачкой для читателей поверх EAV-снапшотов (отчёты).

@@ -12,7 +12,8 @@ import { describe, expect, it } from 'vitest';
 //  2) снесённый `kitting_done` не пишется нигде в клиенте (алиас — только чтение);
 //  3) карта писателей зафиксирована: arrival/shipped/accepted — карточка,
 //     disassembly_defect — выводится из акта (проведение пишет только акт, шаг 3
-//     унификации 10.10.2026), card_created — материализация сущности,
+//     унификации 10.10.2026), incoming_otk — проведение комплектности
+//     (слово владельца 14.10.2026), card_created — материализация сущности,
 //     obkatka — строка обкатки, sborka — сборочный наряд;
 //  4) триггер авто-метки дефектовки — только решения оператора (утиль/замена),
 //     выведенный repairable нормой не считается (иначе голая приёмка метила бы
@@ -78,6 +79,15 @@ describe('воронка этапов: все писатели через save/e
   it('карта писателей: обкатка — строка обкатки, сборка — сборочный наряд', () => {
     expect(WORKSHEET_SERVICE).toContain("ensureRepairStageRow(db, engineId, 'obkatka'");
     expect(ENGINE_SERVICE).toContain("ensureRepairStageRow(db, id, 'sborka'");
+  });
+
+  it('карта писателей: входной контроль — проведение комплектности (акт, не карточка)', () => {
+    // Слово владельца 14.10.2026: проведение акта комплектности означает и приёмку,
+    // и входной контроль ОТК. Триггер — дата осмотра в акте (кнопка «Провести
+    // комплектность» — лишь ярлык к этому полю), запись — ensure mark-if-absent.
+    expect(CHECKLISTS_IPC).toContain("ensureRepairStageRow(ctx.dataDb(), args.engineId, 'incoming_otk'");
+    expect(CHECKLISTS_IPC).toContain('completeness_inspection_date');
+    expect(CHECKLIST_PANEL).not.toContain("code: 'incoming_otk'");
   });
 
   it('триггер авто-метки — решения (утиль/замена), не выведенный repairable', () => {

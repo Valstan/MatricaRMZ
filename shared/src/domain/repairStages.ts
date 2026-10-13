@@ -8,6 +8,11 @@
 // (субординация), возврат на нижележащий этап разрешён, но помечается
 // (дальше — новый проход). Текущее место двигателя — этап с максимальной
 // датой (tie — больший ранг): повторный заход обнуляет прошлые этапы.
+//
+// Дополнение 14.10.2026 (слово владельца: канонический порядок этапов):
+// `incoming_otk` («Входной контроль ОТК», автомат акта комплектности —
+// проводится вместе с приёмкой, рангом сразу за ней) и `parts_repair`
+// («Ремонт деталей», между разборкой и укладкой, только вручную).
 
 import type { WorkSheetDuplicateRef } from './workSheetDuplicates.js';
 import { moscowDayKey } from './workSheetDuplicates.js';
@@ -15,7 +20,9 @@ import { moscowDayKey } from './workSheetDuplicates.js';
 export const REPAIR_STAGE_CODES = [
   'card_created',
   'arrival',
+  'incoming_otk',
   'disassembly_defect',
+  'parts_repair',
   'ukladka',
   'sborka',
   'obkatka',
@@ -46,7 +53,9 @@ export type RepairStageTemplate = {
 export const DEFAULT_REPAIR_STAGE_TEMPLATES: ReadonlyArray<RepairStageTemplate> = [
   { code: 'card_created', name: 'Создание карточки двигателя', sortOrder: 5 },
   { code: 'arrival', name: 'Приемка двигателя на завод', sortOrder: 10, autoFrom: 'kittingAct' },
+  { code: 'incoming_otk', name: 'Входной контроль ОТК', sortOrder: 15, autoFrom: 'kittingAct' },
   { code: 'disassembly_defect', name: 'Разборка/Дефектовка', sortOrder: 20, autoFrom: 'defectAct' },
+  { code: 'parts_repair', name: 'Ремонт деталей', sortOrder: 30 },
   { code: 'ukladka', name: 'Укладка вала', sortOrder: 40 },
   { code: 'sborka', name: 'Сборка двигателя', sortOrder: 50 },
   { code: 'obkatka', name: 'Обкатка двигателя', sortOrder: 60 },

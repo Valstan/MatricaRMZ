@@ -13,7 +13,9 @@ describe('DEFAULT_REPAIR_STAGE_TEMPLATES — один единый список'
     for (const code of [
       'card_created',
       'arrival',
+      'incoming_otk',
       'disassembly_defect',
+      'parts_repair',
       'ukladka',
       'sborka',
       'obkatka',
