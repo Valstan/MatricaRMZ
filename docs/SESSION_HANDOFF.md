@@ -2,20 +2,20 @@
 
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
-**Status:** ACTIVE (нитка: план client-stability-and-ai-2026-10, A1 — вис ресайза колонок)
+**Status:** ACTIVE (нитка: план client-stability-and-ai-2026-10, A2 — вис дропдауна этапов)
 **Updated:** 2026-10-13 (opencode session, машина `Computer`)
-**Branch:** feat/a1-column-resize-no-hang (от origin/main afdefd56)
+**Branch:** feat/a2-stage-dialog-no-hang (от origin/main 051d9135)
 **Last released version:** **v3.76.0** на проде (+ android-v3.76.0).
 
 ## Текущая нитка
 
-A1 (план `docs/plans/client-stability-and-ai-2026-10.md`): вис ресайза колонок
-в списке двигателей. Точного цикла статикой не найдено (хук/стор/localStorage
-чисты, sendSync нет) — сделано hardening-устранение класса: чистая машина тяги
-(`ui/utils/columnResizeDrag.ts`, unit 7 тестов), rAF-дроссель живых ширин,
-единый конец тяги (up/cancel/lostcapture/blur), явный release capture,
-try/catch взятия capture; сторож расширен. Дальше по плану: A2 (вис диалога
-этапа), A3 (сохранение двигателя с 1 раза).
+A2 (план `docs/plans/client-stability-and-ai-2026-10.md`): вис открытого
+дропдауна этапов — найден настоящий бесконечный цикл (в отличие от A1):
+эффект позиционирования безусловно звал setPopupRect свежим объектом, а при
+инлайн-options `filtered` новый каждый рендер → эффект→setState→рендер→…,
+на каждой итерации замер canvas. Лечение: чистая `computeSuggestPlacement` +
+`samePlacement`, хук пишет стейт только при смене значений (unit 5 + сторож).
+Дальше по плану: A3 (сохранение двигателя с 1 раза).
 
 ## Следующий шаг
 
