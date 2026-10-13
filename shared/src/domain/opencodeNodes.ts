@@ -19,6 +19,27 @@ export type OpencodeNodeProbe = {
 /** Фиксированный порт `opencode serve` (решение владельца 12.10). */
 export const OPENCODE_DEFAULT_PORT = 3080;
 
+/** Serve слушает только loopback: наружу узел виден релеем exe Матрицы (план opencode-native). */
+export const OPENCODE_LOOPBACK_HOST = '127.0.0.1';
+
+/** Локальный URL узла, который клиент ведёт сам. */
+export function localOpencodeNodeUrl(): string {
+  return `http://${OPENCODE_LOOPBACK_HOST}:${OPENCODE_DEFAULT_PORT}`;
+}
+
+/** Состояние локального узла для раздела (кроме реестра и проб). */
+export type OpencodeNodeState = 'unsupported' | 'missing' | 'downloading' | 'ready' | 'running' | 'error';
+
+export type OpencodeNodeStatus = {
+  state: OpencodeNodeState;
+  /** Версия бинаря из маркера установки (null — не ставился). */
+  version: string | null;
+  /** Прогресс скачивания 0–1 (только в downloading). */
+  progress: number | null;
+  /** Человекочитаемая причина (только в error). */
+  error: string | null;
+};
+
 /** Таймаут одной HTTP-пробы узла (LAN — долго ждать нечего). */
 export const OPENCODE_PROBE_TIMEOUT_MS = 5000;
 

@@ -13,7 +13,7 @@ import type { ServicePriceHistoryDto, ServicePriceOrderDto } from '../domain/ser
 import type { WorkSheetRow, WorkSheetType } from '../domain/workSheets.js';
 import type { ContractPayments } from '../domain/payments.js';
 import type { MenuTabId } from '../domain/uiSections.js';
-import type { OpencodeNode, OpencodeNodeProbe } from '../domain/opencodeNodes.js';
+import type { OpencodeNode, OpencodeNodeProbe, OpencodeNodeStatus } from '../domain/opencodeNodes.js';
 
 /** Избранные разделы оператора (левая колонка оболочки). Локально, per-user scope. */
 export type SectionFavoritesResult = { ok: true; ids: MenuTabId[] } | { ok: false; error: string };
@@ -2229,6 +2229,8 @@ export type MatricaApi = {
     list: () => Promise<{ ok: true; nodes: OpencodeNode[] } | { ok: false; error: string }>;
     save: (args: { nodes: OpencodeNode[] }) => Promise<{ ok: true; nodes: OpencodeNode[] } | { ok: false; error: string }>;
     probe: () => Promise<{ ok: true; probes: OpencodeNodeProbe[] } | { ok: false; error: string }>;
+    /** Состояние локального узла, который ведёт сам клиент (нативно, без админа). */
+    status: () => Promise<{ ok: true; status: OpencodeNodeStatus } | { ok: false; error: string }>;
   };
 
   servicePricing: {
