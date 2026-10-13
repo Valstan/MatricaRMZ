@@ -162,7 +162,7 @@ export function registerEnginesOpsAuditIpc(ctx: IpcContext) {
     const ok = await softDeleteOperation(ctx.dataDb(), id);
     return ok ? { ok: true as const } : { ok: false as const, error: 'Запись не найдена' };
   });
-  ipcMain.handle('ops:updateManual', async (_e, _engineId: string, id: string, patch: { action?: string; at?: number; note?: string }) => {
+  ipcMain.handle('ops:updateManual', async (_e, _engineId: string, id: string, patch: { action?: string; at?: number; note?: string; workshopId?: string; workshopName?: string }) => {
     if (isViewMode(ctx)) return viewModeWriteError();
     await requirePermOrThrow(ctx, 'operations.edit');
     const ok = await updateManualEntry(ctx.dataDb(), id, patch);

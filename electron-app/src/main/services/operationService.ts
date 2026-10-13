@@ -11,6 +11,10 @@ function nowMs() {
   return Date.now();
 }
 
+function text(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
 /**
  * История — часть карточки двигателя (владелец 10.10.2026): любая запись, правка
  * или удаление операции с engineEntityId двигает `entities.updatedAt`, иначе
@@ -265,14 +269,17 @@ export async function softDeleteOperation(db: BetterSQLite3Database, id: string)
 
 /**
  * Правка ручной записи в ленте истории: меняет текст действия (`meta.action`), дату
- * (`meta.at`) и/или примечание (`meta.note`) в строке `operations`. Пустое действие
- * отклоняем — строка без него ничего не говорит. `performed_at` (момент ввода) и
- * автора не меняем: правка не переписывает, кто и когда внёс.
+ * (`meta.at`), примечание (`meta.note`) и/или цех (`meta.workshopId` + снимок
+ * `meta.workshopName`) в строке `operations`. Пустое действие отклоняем — строка без
+ * него ничего не говорит. `performed_at` (момент ввода) и автора не меняем: правка не
+ * переписывает, кто и когда внёс. Цех `''` — снять (чистим и снимок имени); поле
+ * отсутствует — не трогаем. Имя без id не кладём; id без имени — только когда он и был
+ * тем же (снимок переживает правку), иначе stale-имя стираем.
  */
 export async function updateManualEntry(
   db: BetterSQLite3Database,
   id: string,
-  patch: { action?: string; at?: number; note?: string },
+  patch: { action?: string; at?: number; note?: string; workshopId?: string; workshopName?: string },
 ): Promise<boolean> {
   const existing = await getOperation(db, id);
   if (!existing || existing.deletedAt) return false;
@@ -298,6 +305,18 @@ export async function updateManualEntry(
     ...(patch.at !== undefined && Number.isFinite(patch.at) && patch.at > 0 ? { at: Math.trunc(patch.at) } : {}),
     ...(patch.note !== undefined ? { note: patch.note } : {}),
   };
+  if (patch.workshopId !== undefined) {
+    const wsId = text(patch.workshopId);
+    if (wsId) {
+      (next as Record<string, unknown>).workshopId = wsId;
+      if (text(patch.workshopName)) (next as Record<string, unknown>).workshopName = text(patch.workshopName);
+      // Имя не прислали, а цех сменился — чужой снимок стираем, иначе строка соврёт.
+      else if (text(meta.workshopId) !== wsId) delete (next as Record<string, unknown>).workshopName;
+    } else {
+      delete (next as Record<string, unknown>).workshopId;
+      delete (next as Record<string, unknown>).workshopName;
+    }
+  }
   await db
     .update(operations)
     .set({ metaJson: JSON.stringify(next), updatedAt: ts, syncStatus: 'pending' })

@@ -289,8 +289,13 @@ describe('этапы работ — экран', () => {
     expect(CARD).toContain('const rowColumns = useMemo<WorkSheetColumn[]>(');
     expect(CARD, 'форма рисует восстановленный набор, а не только колонки вида').toContain('{columns.map((col) => (');
     expect(CARD, 'статус при правке не ставится — подставлять чужой completesRepair нельзя').toContain('completesRepair: false');
+    // Имя цеха уезжает снимком вместе с этапом работ; цех вне справочника держит снимок
+    // из самой строки (13.10.2026) — иначе правка примечания роняла бы имя.
     expect(CARD, 'имя цеха уезжает снимком вместе с этапом работ').toContain(
-      'workshopName: props.workshops.find((w) => w.id === workshopId)?.label ?? null,',
+      'props.workshops.find((w) => w.id === workshopId)?.label ??',
+    );
+    expect(CARD, 'снимок неактивного цеха теряется при сохранении').toContain(
+      'row.workshopId === workshopId ? row.workshopName || null : null',
     );
   });
 

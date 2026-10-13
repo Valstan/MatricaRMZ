@@ -96,9 +96,9 @@ export function EngineHistoryFeedPanel(props: {
   // Правка уже записанного этапа прямо в строке ленты: дата, цех, примечание
   // (PR-4 плана 10-2026 — раньше правилась только дата, а смена даты молча
   // стирала цех: писатель собирает строку заново из входа).
-  const [editingDate, setEditingDate] = useState<{ id: string; code: string; value: string; workshopId: string; note: string } | null>(null);
-  // Правка ручной записи прямо в строке: текст действия, дата, примечание.
-  const [editingManual, setEditingManual] = useState<{ id: string; action: string; date: string; note: string } | null>(null);
+  const [editingDate, setEditingDate] = useState<{ id: string; code: string; value: string; workshopId: string; workshopName: string; note: string } | null>(null);
+  // Правка ручной записи прямо в строке: текст действия, дата, цех, примечание.
+  const [editingManual, setEditingManual] = useState<{ id: string; action: string; date: string; workshopId: string; workshopName: string; note: string } | null>(null);
   // Перенос этапов при перебивке номера (программа владельца, п.4, 10.10.2026).
   const [transferOpen, setTransferOpen] = useState(false);
   // Разовый откат последнего действия в ленте (добавил/удалил/поправил не то —
@@ -114,12 +114,12 @@ export function EngineHistoryFeedPanel(props: {
     | {
         label: string;
         kind: 'restore-manual';
-        snapshot: { id: string; action: string; atMs: number; note: string };
+        snapshot: { id: string; action: string; atMs: number; note: string; workshopId?: string; workshopName?: string };
       }
     | {
         label: string;
         kind: 'readd-manual';
-        snapshot: { action: string; atMs: number; note: string; workshopId: string };
+        snapshot: { action: string; atMs: number; note: string; workshopId: string; workshopName?: string };
       }
     | null
   >(null);
@@ -225,6 +225,8 @@ export function EngineHistoryFeedPanel(props: {
           action: u.snapshot.action,
           at: u.snapshot.atMs,
           note: u.snapshot.note,
+          ...(u.snapshot.workshopId !== undefined ? { workshopId: u.snapshot.workshopId } : {}),
+          ...(u.snapshot.workshopName !== undefined ? { workshopName: u.snapshot.workshopName } : {}),
         });
         if (!r.ok) {
           setStatus(`Ошибка: ${r.error}`);
@@ -234,6 +236,7 @@ export function EngineHistoryFeedPanel(props: {
         const meta = buildRepairHistoryMeta({
           action: u.snapshot.action,
           workshopId: u.snapshot.workshopId,
+          ...(u.snapshot.workshopName ? { workshopName: u.snapshot.workshopName } : {}),
           note: u.snapshot.note,
           at: u.snapshot.atMs,
         });
@@ -370,9 +373,12 @@ export function EngineHistoryFeedPanel(props: {
       return;
     }
     const typed = draftDate ? Date.parse(`${draftDate}T12:00:00`) : Number.NaN;
+    // Имя цеха — снимком из справочника сразу: строка обязана читаться без него.
+    const wsLabel = props.workshopOptions.find((w) => w.id === draftWorkshopId)?.label ?? '';
     const meta = buildRepairHistoryMeta({
       action,
       workshopId: draftWorkshopId,
+      ...(wsLabel ? { workshopName: wsLabel } : {}),
       note: draftNote,
       ...(Number.isFinite(typed) ? { at: typed } : {}),
     });
@@ -407,7 +413,7 @@ export function EngineHistoryFeedPanel(props: {
           ? {
               label: `запись «${item.title}»`,
               kind: 'readd-manual',
-              snapshot: { action: item.title, atMs: item.at > 0 ? item.at : Date.now(), note: item.note, workshopId: item.workshopId },
+              snapshot: { action: item.title, atMs: item.at > 0 ? item.at : Date.now(), note: item.note, workshopId: item.workshopId, ...(item.workshopName ? { workshopName: item.workshopName } : {}) },
             }
           : null,
       );
@@ -421,7 +427,7 @@ export function EngineHistoryFeedPanel(props: {
     }
   }
 
-  async function applyManualEdit(id: string, action: string, dateValue: string, note: string) {
+  async function applyManualEdit(id: string, action: string, dateValue: string, workshopId: string, workshopName: string, note: string) {
     const trimmed = action.trim();
     if (!trimmed) {
       setStatus('Укажите действие — без него строка ничего не говорит');
@@ -435,6 +441,8 @@ export function EngineHistoryFeedPanel(props: {
         action: trimmed,
         ...(Number.isFinite(parsed) ? { at: parsed } : {}),
         note,
+        workshopId,
+        ...(workshopName ? { workshopName } : {}),
       });
       if (!r.ok) {
         setStatus(`Ошибка: ${r.error}`);
@@ -446,7 +454,7 @@ export function EngineHistoryFeedPanel(props: {
           ? {
               label: `запись «${item.title}»`,
               kind: 'restore-manual',
-              snapshot: { id, action: item.title, atMs: item.at > 0 ? item.at : Date.now(), note: item.note },
+              snapshot: { id, action: item.title, atMs: item.at > 0 ? item.at : Date.now(), note: item.note, workshopId: item.workshopId, ...(item.workshopName ? { workshopName: item.workshopName } : {}) },
             }
           : null,
       );
@@ -755,7 +763,7 @@ export function EngineHistoryFeedPanel(props: {
                             disabled={busy}
                             title="Править этап: дата, цех, примечание"
                             data-repair-stage-edit-date={item.id}
-                            onClick={() => setEditingDate({ id: item.id, code: item.stageCode, value: toInputDate(item.at), workshopId: item.workshopId, note: item.note })}
+                            onClick={() => setEditingDate({ id: item.id, code: item.stageCode, value: toInputDate(item.at), workshopId: item.workshopId, workshopName: item.workshopName ?? '', note: item.note })}
                           >
                             ✎
                           </Button>
@@ -806,12 +814,27 @@ export function EngineHistoryFeedPanel(props: {
                             data-manual-date={item.id}
                             onChange={(e) => setEditingManual((prev) => (prev ? { ...prev, date: e.target.value } : null))}
                           />
+                          <span style={{ minWidth: 140 }}>
+                            <SearchSelect
+                              value={editingManual.workshopId || null}
+                              options={props.workshopOptions}
+                              placeholder="Цех"
+                              showAllWhenEmpty
+                              onChange={(next) =>
+                                setEditingManual((prev) => {
+                                  if (!prev) return prev;
+                                  const id = String(next ?? '');
+                                  return { ...prev, workshopId: id, workshopName: props.workshopOptions.find((w) => w.id === id)?.label ?? '' };
+                                })
+                              }
+                            />
+                          </span>
                           <Button
                             variant="ghost"
                             disabled={busy}
                             title="Сохранить правку записи"
                             data-manual-apply={item.id}
-                            onClick={() => void applyManualEdit(item.id, editingManual.action, editingManual.date, editingManual.note)}
+                            onClick={() => void applyManualEdit(item.id, editingManual.action, editingManual.date, editingManual.workshopId, editingManual.workshopName, editingManual.note)}
                           >
                             Применить
                           </Button>
@@ -835,7 +858,15 @@ export function EngineHistoryFeedPanel(props: {
                               options={props.workshopOptions}
                               placeholder="Цех"
                               showAllWhenEmpty
-                              onChange={(next) => setEditingDate((prev) => (prev ? { ...prev, workshopId: String(next ?? '') } : null))}
+                              onChange={(next) =>
+                                setEditingDate((prev) => {
+                                  if (!prev) return prev;
+                                  // Имя — снимком из справочника сразу: писатель пересобирает
+                                  // строку из входа, и id без имени уронил бы подпись.
+                                  const id = String(next ?? '');
+                                  return { ...prev, workshopId: id, workshopName: props.workshopOptions.find((w) => w.id === id)?.label ?? '' };
+                                })
+                              }
                             />
                           </span>
                           <Input
@@ -856,14 +887,16 @@ export function EngineHistoryFeedPanel(props: {
                                 // Правка несёт все три поля: писатель пересобирает строку
                                 // целиком, и непереданное стиралось бы (цех — вживую,
                                 // примечание — тот же класс, закрыт раньше отдельно).
-                                const wsLabel = props.workshopOptions.find((w) => w.id === editingDate.workshopId)?.label ?? '';
+                                // Имя — свежее из справочника, иначе снимок из формы
+                                // (цех мог уйти из справочника после записи).
+                                const wsLabel = props.workshopOptions.find((w) => w.id === editingDate.workshopId)?.label ?? editingDate.workshopName;
                                 void writeStage({
                                   id: item.id,
                                   code: editingDate.code,
                                   atMs,
                                   ...(editingDate.note.trim() ? { note: editingDate.note.trim() } : {}),
                                   ...(editingDate.workshopId ? { workshopId: editingDate.workshopId } : {}),
-                                  ...(editingDate.workshopId && wsLabel ? { workshopName: wsLabel } : {}),
+                                  ...(wsLabel ? { workshopName: wsLabel } : {}),
                                 }).then(() => setEditingDate(null));
                               }
                             }}
@@ -916,7 +949,7 @@ export function EngineHistoryFeedPanel(props: {
                             title="Править запись"
                             data-manual-edit={item.id}
                             onClick={() =>
-                              setEditingManual({ id: item.id, action: item.title, date: toInputDate(item.at > 0 ? item.at : null), note: item.note })
+                              setEditingManual({ id: item.id, action: item.title, date: toInputDate(item.at > 0 ? item.at : null), workshopId: item.workshopId, workshopName: item.workshopName ?? '', note: item.note })
                             }
                           >
                             ✎

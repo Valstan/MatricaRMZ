@@ -1303,11 +1303,11 @@ export type MatricaApi = {
      */
     remove: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>;
     /**
-     * Правка ручной записи ленты истории: текст действия (`action`), дата (`at`)
-     * и/или примечание (`note`). Только ручная запись — этапы, акты, переезды
-     * и авто-статусы этим каналом не правятся.
+     * Правка ручной записи ленты истории: текст действия (`action`), дата (`at`),
+     * примечание (`note`) и/или цех (`workshopId` + снимок `workshopName`; `''` — снять).
+     * Только ручная запись — этапы, акты, переезды и авто-статусы этим каналом не правятся.
      */
-    updateManual: (engineId: string, id: string, patch: { action?: string; at?: number; note?: string }) => Promise<
+    updateManual: (engineId: string, id: string, patch: { action?: string; at?: number; note?: string; workshopId?: string; workshopName?: string }) => Promise<
       | { ok: true }
       | { ok: false; error: string }
     >;

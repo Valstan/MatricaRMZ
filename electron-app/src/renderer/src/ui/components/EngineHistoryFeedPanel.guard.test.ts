@@ -257,6 +257,7 @@ describe('вверху только две кнопки, инлайн-полей
 });
 
 describe('лента: дата дефектовки из истории доносится до листа (09.10.2026)', () => {
+
   it('успешная запись disassembly_defect зовёт setAnswerDate', () => {
     expect(PANEL, 'дата истории не доходит до листа — снова две правды').toContain(
       'window.matrica.checklists.engineSetAnswerDate(',
@@ -292,5 +293,22 @@ describe('перенос этапов при перебивке номера (п
     expect(WSIPC).toContain("'workSheets:stages:transfer'");
     expect(WSIPC).toContain("requirePermOrResult(ctx, 'engines.edit')");
     expect(WSIPC).toContain('transferRepairStages');
+  });
+});
+
+describe('лента: цех правится везде и снимок имени не теряется (владелец 13.10.2026)', () => {
+  it('правка этапа несёт имя цеха из формы, а не только id', () => {
+    // Писатель пересобирает строку из входа: id без имени уронил бы подпись, а вход
+    // несёт имя только из справочника — у неактивного цеха его нет.
+    expect(PANEL, 'правка вызывается без цеха — он сотрётся').toContain('...(editingDate.workshopId ? { workshopId: editingDate.workshopId } : {})');
+    expect(PANEL, 'правка роняет снимок имени неактивного цеха').toContain('?? editingDate.workshopName');
+    expect(PANEL, 'форма правит id без имени').toContain('workshopName: props.workshopOptions.find((w) => w.id === id)?.label ??');
+  });
+
+  it('ручная запись создаётся и правится с цехом, откат его возвращает', () => {
+    expect(PANEL, 'создание ручной записи без снимка имени').toContain("props.workshopOptions.find((w) => w.id === draftWorkshopId)?.label ?? ''");
+    expect(PANEL, 'в форме правки ручной записи нет цеха').toContain('value={editingManual.workshopId || null}');
+    expect(PANEL, 'правка ручной записи не несёт цех').toContain('applyManualEdit(item.id, editingManual.action, editingManual.date, editingManual.workshopId, editingManual.workshopName, editingManual.note)');
+    expect(PANEL, 'откат правки не возвращает цех').toContain('workshopId: item.workshopId');
   });
 });

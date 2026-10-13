@@ -204,8 +204,12 @@ export async function saveWorkSheetRow(db: BetterSQLite3Database, input: SaveWor
 
   const workshopId = text(input.workshopId) || text(input.type.workshopId) || null;
   // Имя цеха кладём снимком: справочник цехов живёт на сервере и требует `masterdata.view`,
-  // а строка обязана читаться без него — иначе на экран уезжает uuid.
-  const workshopName = text(input.workshopName) || null;
+  // а строка обязана читаться без него — иначе на экран уезжает uuid. Снимок переживает
+  // правку, когда цех не менялся (тот же класс потери, что у строк этапов, 13.10.2026).
+  const prevWsId = text(existingMeta?.workshopId);
+  const prevWsName = text(existingMeta?.workshopName);
+  const workshopName =
+    text(input.workshopName) || (workshopId && workshopId === prevWsId && prevWsName ? prevWsName : null);
   const summary = workSheetFieldsSummary(fields);
   const meta = buildRepairHistoryMeta({
     action: typeName,

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_REPAIR_STAGE_TEMPLATES, buildRepairHistoryMeta, parseRepairHistoryMeta } from '@matricarmz/shared';
 
 import { ensureRepairStageRow, listRepairStageRows, loadEngineStageMarks, saveRepairStageRow, transferRepairStages } from './repairStageService.js';
+import { getOperation } from './operationService.js';
 
 // Строки единого списка этапов (шаг 2 плана): субординация дат, пометка
 // возврата новым проходом, гейт дублей «тот же этап в тот же день».
@@ -61,6 +62,39 @@ describe('автор строки (H1: автор навсегда)', () => {
     );
     expect(res.ok).toBe(true);
     expect((await listRepairStageRows(db, 'eng-1')).find((r) => r.id === 's1')?.by).toBe('tester');
+  });
+});
+
+describe('снимок цеха переживает правку (13.10.2026)', () => {
+  const metaOf = async (db: never, id: string) =>
+    parseRepairHistoryMeta(String((await getOperation(db, id))?.metaJson ?? 'null'));
+  it('правка даты без имени не роняет снимок того же цеха; смена цеха без имени — роняет', async () => {
+    const { db } = makeDb();
+    const first = await saveRepairStageRow(
+      db,
+      { id: 's1', engineId: 'eng-1', code: 'sborka', atMs: DAY1, workshopId: 'w1', workshopName: 'Цех № 1' },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(first.ok).toBe(true);
+    const second = await saveRepairStageRow(
+      db,
+      { id: 's1', engineId: 'eng-1', code: 'sborka', atMs: DAY2, workshopId: 'w1' },
+      'petrov',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(second.ok).toBe(true);
+    expect((await metaOf(db, 's1'))?.workshopId).toBe('w1');
+    expect((await metaOf(db, 's1'))?.workshopName).toBe('Цех № 1');
+    const third = await saveRepairStageRow(
+      db,
+      { id: 's1', engineId: 'eng-1', code: 'sborka', atMs: DAY2, workshopId: 'w2' },
+      'petrov',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(third.ok).toBe(true);
+    expect((await metaOf(db, 's1'))?.workshopId).toBe('w2');
+    expect((await metaOf(db, 's1'))?.workshopName).toBeUndefined();
   });
 });
 
