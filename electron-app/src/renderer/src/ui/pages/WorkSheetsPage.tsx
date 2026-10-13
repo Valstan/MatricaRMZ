@@ -1,16 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import {
-  HUMAN_LABEL_DASH,
-  HUMAN_LABEL_NO_NUMBER,
-  applyFacets,
-  workSheetFacets,
+import {
+  HUMAN_LABEL_DASH,
+  HUMAN_LABEL_NO_NUMBER,
+  applyFacets,
+  flattenGrouped,
+  workSheetFacets,
   workSheetFieldsSummary,
   type FacetDescriptor,
-  type FacetSelection,
-  type WorkSheetRow,
-  type WorkSheetType,
-} from '@matricarmz/shared';
+  type FacetSelection,
+  type GroupLevel,
+  type WorkSheetRow,
+  type WorkSheetType,
+} from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
@@ -65,15 +67,32 @@ type Column = ColumnDescriptor & {
   printValue?: (r: WorkSheetRow) => string;
 };
 
-type ListUiState = {
-  query: string;
-  searchSimilar: boolean;
-  facets: FacetSelection;
-  facetFields: string[];
-  facetsOpen: boolean;
-  sortKey: string;
-  sortDir: 'asc' | 'desc';
-};
+type ListUiState = {
+  query: string;
+  searchSimilar: boolean;
+  facets: FacetSelection;
+  facetFields: string[];
+  facetsOpen: boolean;
+  sortKey: string;
+  sortDir: 'asc' | 'desc';
+  /** Группировка списка (B6): те же разрезы, что в отчёте «Этапы работ». */
+  groupBy: WorkSheetListGroupBy;
+};
+
+type WorkSheetListGroupBy = 'type' | 'contract' | 'workshop' | 'customer' | 'customer_type' | 'none';
+
+const WORK_SHEET_LIST_GROUP_BY_LABELS: Record<WorkSheetListGroupBy, string> = {
+  type: 'По виду работ',
+  contract: 'По договору',
+  workshop: 'По цеху',
+  customer: 'По заказчику',
+  customer_type: 'Заказчик → вид работ',
+  none: 'Без группировки',
+};
+
+function groupText(v: unknown): string {
+  return String(v ?? '').trim();
+}
 
 const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
@@ -130,15 +149,16 @@ export function WorkSheetsPage(props: {
   const [printOpen, setPrintOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const { state: ui, patchState } = useListUiState<ListUiState>('list:workSheets:ui', {
-    query: '',
-    searchSimilar: false,
-    facets: {},
-    facetFields: [],
-    facetsOpen: false,
-    sortKey: 'at',
-    sortDir: 'desc',
-  });
+  const { state: ui, patchState } = useListUiState<ListUiState>('list:workSheets:ui', {
+    query: '',
+    searchSimilar: false,
+    facets: {},
+    facetFields: [],
+    facetsOpen: false,
+    sortKey: 'at',
+    sortDir: 'desc',
+    groupBy: 'none',
+  });
 
   const refreshTypes = useCallback(async () => {
     const res = await loadWorkSheetTypes();
@@ -295,7 +315,49 @@ export function WorkSheetsPage(props: {
       const cmp = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'ru');
       return cmp * dir || b.at - a.at;
     });
-  }, [faceted, columnsById, ui.sortKey, ui.sortDir]);
+  }, [faceted, columnsById, ui.sortKey, ui.sortDir]);
+
+  // Группировка списка (B6): те же разрезы, что в отчёте «Этапы работ».
+  const groupLevels = useMemo<GroupLevel<WorkSheetRow>[]>(() => {
+    const byLabel = (keyOf: (r: WorkSheetRow) => string, labelOf: (r: WorkSheetRow) => string, empty: string): GroupLevel<WorkSheetRow> => ({
+      keyOf: (r) => {
+        const label = groupText(labelOf(r));
+        return { key: groupText(keyOf(r)) || `name:${label.toLowerCase()}` || 'none', label: label || empty };
+      },
+    });
+    const byType = byLabel((r) => r.typeCode, (r) => r.typeName || r.typeCode, 'Без вида работ');
+    const byContract = byLabel((r) => r.contractNumber, (r) => r.contractShortLabel || r.contractNumber, 'Без договора');
+    const byWorkshop = byLabel((r) => r.workshopId, (r) => workshopLabel(r, workshopFromDirectory), 'Без цеха');
+    const byCustomer = byLabel((r) => r.customerName, (r) => r.customerName, 'Без заказчика');
+    switch (ui.groupBy) {
+      case 'type':
+        return [byType];
+      case 'contract':
+        return [byContract];
+      case 'workshop':
+        return [byWorkshop];
+      case 'customer':
+        return [byCustomer];
+      case 'customer_type':
+        return [byCustomer, byType];
+      default:
+        return [];
+    }
+  }, [ui.groupBy, workshopFromDirectory]);
+  const groupedItems = useMemo(() => flattenGrouped(sorted, groupLevels), [sorted, groupLevels]);
+
+  // Подпись группы для печати: путь заголовков над строкой, как на экране.
+  const groupLabelByRow = useMemo(() => {
+    const map = new Map<string, string>();
+    const path: string[] = [];
+    for (const it of groupedItems) {
+      if (it.kind === 'group') {
+        path.length = it.depth;
+        path[it.depth] = it.label;
+      } else map.set(it.row.id, path.join(' › '));
+    }
+    return map;
+  }, [groupedItems]);
 
   const toggleSort = (id: string) =>
     patchState(ui.sortKey === id ? { sortDir: ui.sortDir === 'asc' ? 'desc' : 'asc' } : { sortKey: id, sortDir: id === 'at' ? 'desc' : 'asc' });
@@ -385,9 +447,21 @@ export function WorkSheetsPage(props: {
         <ToolbarPin>
           <SearchModeToggle similar={ui.searchSimilar} onToggle={() => patchState({ searchSimilar: !ui.searchSimilar })} />
         </ToolbarPin>
-        <ToolbarPin>
-          <FacetToggleButton<WorkSheetRow> facets={facets} selection={ui.facets} open={ui.facetsOpen} onToggle={() => patchState({ facetsOpen: !ui.facetsOpen })} />
-        </ToolbarPin>
+        <ToolbarPin>
+          <FacetToggleButton<WorkSheetRow> facets={facets} selection={ui.facets} open={ui.facetsOpen} onToggle={() => patchState({ facetsOpen: !ui.facetsOpen })} />
+        </ToolbarPin>
+        <ToolbarPin>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+            <span className="ui-muted">Группировать</span>
+            <select value={ui.groupBy} onChange={(e) => patchState({ groupBy: e.target.value as WorkSheetListGroupBy })} data-work-sheets-group-by>
+              {(Object.keys(WORK_SHEET_LIST_GROUP_BY_LABELS) as WorkSheetListGroupBy[]).map((k) => (
+                <option key={k} value={k}>
+                  {WORK_SHEET_LIST_GROUP_BY_LABELS[k]}
+                </option>
+              ))}
+            </select>
+          </label>
+        </ToolbarPin>
         <ColumnSettingsButton
           label="Колонки списка"
           columns={columns}
@@ -454,21 +528,39 @@ export function WorkSheetsPage(props: {
       <div ref={containerRef} style={{ marginTop: 2, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         <VirtualTable
           scrollElementRef={containerRef}
-          count={sorted.length}
+          count={groupedItems.length}
           header={header}
           renderCells={(i) => {
-            const r = sorted[i];
-            if (!r) return null;
-            return cells(r);
+            const it = groupedItems[i];
+            if (!it) return null;
+            if (it.kind === 'group') {
+              return (
+                <td colSpan={visibleColumns.length + 1} style={{ borderBottom: '1px solid #f3f4f6', padding: 8, fontWeight: 600, background: it.depth === 0 ? '#eef2ff' : '#f8fafc' }} data-work-sheet-group={it.key} data-work-sheet-group-depth={it.depth}>
+                  <span style={{ display: 'inline-block', paddingLeft: it.depth * 18 }}>
+                    {it.depth > 0 ? '↳ ' : ''}
+                    {it.label} <span className="ui-muted" style={{ fontWeight: 400 }}>· {it.count}</span>
+                  </span>
+                </td>
+              );
+            }
+            return cells(it.row);
           }}
-          getRowKey={(i) => sorted[i]?.id ?? `gap:${i}`}
+          getRowKey={(i) => {
+            const it = groupedItems[i];
+            if (!it) return `gap:${i}`;
+            return it.kind === 'group' ? `g:${it.key}` : it.row.id;
+          }}
           getRowProps={(i) => {
-            const r = sorted[i];
-            if (!r) return {};
-            return rowProps(r);
+            const it = groupedItems[i];
+            if (!it) return {};
+            return it.kind === 'group' ? { 'data-work-sheet-group': it.key } : rowProps(it.row);
           }}
-          // Номера сквозные 1..N: служебных рядов больше нет.
-          rowNumberOf={(i) => (sorted[i] ? i + 1 : null)}
+          // Номера сквозные по строкам данных: заголовки групп получают пустую ячейку.
+          rowNumberOf={(i) => {
+            const it = groupedItems[i];
+            if (!it || it.kind === 'group') return null;
+            return it.number;
+          }}
           colCount={Math.max(1, visibleColumns.length) + 1}
           rowNumbers
           estimateSize={40}
@@ -484,10 +576,11 @@ export function WorkSheetsPage(props: {
           unitLabel="Этапов работ"
           columns={buildListPrintColumns(columns)}
           visibleColumnIds={visibleColumns.map((c) => c.id)}
-          rows={sorted}
-          selectedRows={[]}
-          storageKey="list:workSheets:printFields"
-          onClose={() => setPrintOpen(false)}
+          rows={sorted}
+          selectedRows={[]}
+          storageKey="list:workSheets:printFields"
+          rowGroupLabel={(r) => groupLabelByRow.get(r.id) || null}
+          onClose={() => setPrintOpen(false)}
         />
       ) : null}
 
