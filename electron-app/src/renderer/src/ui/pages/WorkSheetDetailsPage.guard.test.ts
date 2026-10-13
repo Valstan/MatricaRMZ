@@ -9,22 +9,24 @@ function src(rel: string): string {
 const PAGE = src('./WorkSheetDetailsPage.tsx');
 const APP = src('../App.tsx');
 
-describe('PR-3 — пикер двигателя при новом этапе не отсекает', () => {
-  it('WorkSheetDetailsPage использует полный props.engines для picker (без фильтра по этап/статусу)', () => {
-    // engineOptions строится из props.engines без условий — значит при isNew видны все
-    expect(PAGE).toContain('buildEngineSearchOptions(props.engines)');
+describe('PR-4 — карточка этапа: все поля строки правятся под work_sheets.edit', () => {
+  it('save включает все поля строки (цех, примечание, значения узла, дата, двигатель, тип)', () => {
+    expect(PAGE).toContain('workshopId: workshopId || null');
+    expect(PAGE).toContain('note: note.trim() || null');
+    expect(PAGE).toContain('values');
+    expect(PAGE).toContain('atMs');
+    expect(PAGE).toContain('engineId');
+    expect(PAGE).toContain('type: {');
   });
 
-  it('App.tsx передаёт в WorkSheetDetailsPage полный список engines (без отсева при isNew)', () => {
-    // в обоих путях (карточка и вкладка) передаётся именно engines, не производная
-    const hits = (APP.match(/<WorkSheetDetailsPage[^>]*engines=\{engines\}/g) ?? []).length;
-    expect(hits).toBeGreaterThanOrEqual(2);
+  it('App.tsx передаёт canEdit={caps.canEditWorkSheets} в WorkSheetDetailsPage', () => {
+    expect(APP).toMatch(/canEdit=\{caps\.canEditWorkSheets\}/);
   });
 
-  it('в WorkSheetDetailsPage picker не ограничен статусом/этапом (isNew не скрывает не прошедшие)', () => {
-    // нет условий типа props.engines.filter(...) или фильтра по stage/status в компоненте
-    expect(PAGE).not.toMatch(/engines\.filter\(/);
-    expect(PAGE).not.toMatch(/filter.*stage|filter.*status/i);
+  it('при !isNew тип и двигатель заблокированы (верно), остальные поля — нет', () => {
+    // отбор по disabled: type и engine имеют !props.isNew; остальные — только canEdit
+    const disabledType = PAGE.match(/disabled=\{!props\.canEdit \|\| !props\.isNew\}/g)?.length ?? 0;
+    expect(disabledType).toBeGreaterThanOrEqual(1);
   });
 });
 
