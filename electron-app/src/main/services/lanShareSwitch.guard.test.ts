@@ -9,7 +9,10 @@ vi.mock('electron', () => ({
 
 import {
   DEFAULT_LAN_SHARE_PORT,
+  OPENCODE_RELAY_HOST,
+  OPENCODE_RELAY_PORT,
   isLanUpdateEnabled,
+  opencodeRelayTarget,
   resolveLanShareBinding,
   setLanShareEnabled,
 } from './lanUpdateService.js';
@@ -74,5 +77,20 @@ describe('выключатель раздачи между машинами', ()
 
     process.env.MATRICA_UPDATE_LAN_PORT = '99999';
     expect(resolveLanShareBinding().port).toBe(DEFAULT_LAN_SHARE_PORT);
+  });
+});
+
+// OpenCode-узел наружу виден релеем через этот же сокет и это же правило firewall:
+// нового порта в LAN не появляется, serve слушает только loopback.
+describe('релей opencode — тем же сокетом, без нового порта', () => {
+  it('цель релея — serve на loopback, порт 3080', () => {
+    expect(OPENCODE_RELAY_HOST).toBe('127.0.0.1');
+    expect(OPENCODE_RELAY_PORT).toBe(3080);
+    expect(opencodeRelayTarget()).toBe('http://127.0.0.1:3080');
+  });
+
+  it('порт релея не совпадает с портом раздачи — порт в LAN один', () => {
+    // Иначе оператору пришлось бы открывать второй порт и писать второе правило.
+    expect(OPENCODE_RELAY_PORT).not.toBe(DEFAULT_LAN_SHARE_PORT);
   });
 });
