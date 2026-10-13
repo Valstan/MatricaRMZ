@@ -104,6 +104,25 @@ export function registerChecklistsIpc(ctx: IpcContext) {
           // этап двигателя — не причина терять сохранённую дефектовку
         }
       }
+      // Проведение комплектности = входной контроль ОТК (слово владельца 14.10.2026):
+      // авто-метка этапа в едином списке, mark-if-absent. Триггер — дата осмотра
+      // в акте (кнопка «Провести комплектность» — лишь ярлык к этому полю; ручная
+      // дата означает то же «акт проведён»). Дату берём из акта, как у дефектовки.
+      if (saved.ok && saved.operationId && args.stage === ENGINE_INVENTORY_STAGE) {
+        const inspection = (payload.answers as any)?.completeness_inspection_date;
+        const inspectionMs =
+          inspection?.kind === 'date' && Number.isFinite(Number(inspection.value)) && Number(inspection.value) > 0
+            ? Number(inspection.value)
+            : null;
+        if (inspectionMs !== null) {
+          try {
+            const { templates } = await loadRepairStageTemplates(ctx.sysDb, ctx.mgr.getApiBaseUrl());
+            await ensureRepairStageRow(ctx.dataDb(), args.engineId, 'incoming_otk', inspectionMs, actor || 'local', templates);
+          } catch {
+            // этап двигателя — не причина терять сохранённый акт
+          }
+        }
+      }
       return saved;
     },
   );

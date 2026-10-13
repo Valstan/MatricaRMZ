@@ -26,7 +26,8 @@ import { pr3CanonicalName } from './pr3StageNames.js';
 //   - EAV arrival_date → arrival; defect_date → disassembly_defect;
 //   - entities.created_at двигателей → card_created (этап №1, таблица 05.10.2026);
 //   - листы engine_inventory (answers.completeness_inspection_date) → arrival
-//     (состав 05.10.2026: kitting_done снесён слиянием в arrival);
+//     (состав 05.10.2026: kitting_done снесён слиянием в arrival) и → incoming_otk
+//     (состав 14.10.2026: проведение комплектности = входной контроль ОТК);
 //   - EAV-статусы с датами: customer_sent → shipped, customer_accepted → accepted,
 //     scrap_confirmed/rework_sent/rejected → scrap_branch.
 // Не переносятся осознанно (счётчики): repair_started и storage_received (нет
@@ -119,6 +120,7 @@ async function main(): Promise<void> {
     'arrival_date→arrival': 0,
     'defect_date→disassembly_defect': 0,
     'kitting→arrival': 0,
+    'kitting→incoming_otk': 0,
     'entity→card_created': 0,
     'status→stage': 0,
     'skipped-unknown-node': 0,
@@ -248,6 +250,9 @@ async function main(): Promise<void> {
     const at = field?.kind === 'date' && typeof field.value === 'number' ? num(field.value) : null;
     if (at === null) continue;
     candidates.push({ engineId: String(r.engine_entity_id), code: 'arrival', at, pass: 1, source: 'kitting→arrival' });
+    // Входной контроль — тот же акт (состав 14.10.2026): проведение комплектности
+    // означает и приёмку, и входной контроль ОТК одной датой.
+    candidates.push({ engineId: String(r.engine_entity_id), code: 'incoming_otk', at, pass: 1, source: 'kitting→incoming_otk' });
   }
 
   // Этапы с датой в будущем не создаём: факт ремонта — случившееся. Прежние прогоны

@@ -13,11 +13,11 @@ import {
   sortStagesByDate,
 } from './repairStages.js';
 
-describe('шаблон этапов (состав 05.10.2026)', () => {
-  it('линейка из 9 + боковая ветка, приоритеты строго растут', () => {
-    expect(DEFAULT_REPAIR_STAGE_TEMPLATES).toHaveLength(10);
+describe('шаблон этапов (состав 05.10.2026 + входной контроль и ремонт деталей 14.10.2026)', () => {
+  it('линейка из 11 + боковая ветка, приоритеты строго растут', () => {
+    expect(DEFAULT_REPAIR_STAGE_TEMPLATES).toHaveLength(12);
     const line = DEFAULT_REPAIR_STAGE_TEMPLATES.filter((t) => !t.sideBranch).map((t) => t.sortOrder);
-    expect(line).toEqual([5, 10, 20, 40, 50, 60, 70, 80, 90]);
+    expect(line).toEqual([5, 10, 15, 20, 30, 40, 50, 60, 70, 80, 90]);
   });
 
   it('«Вал» не этап, «Отгрузка» и «Приемка заказчиком» — разные этапы', () => {
@@ -42,16 +42,23 @@ describe('шаблон этапов (состав 05.10.2026)', () => {
     expect(repairStageTemplate('arrival').autoFrom).toBe('kittingAct');
   });
 
-  it('обкатка и карточка — только вручную', () => {
+  it('входной контроль — этап-автомат акта комплектности (слово владельца 14.10.2026)', () => {
+    expect(repairStageTemplate('incoming_otk').autoFrom).toBe('kittingAct');
+  });
+
+  it('обкатка, карточка и ремонт деталей — только вручную', () => {
     expect(repairStageTemplate('obkatka').autoFrom).toBeUndefined();
     expect(repairStageTemplate('card_created').autoFrom).toBeUndefined();
+    expect(repairStageTemplate('parts_repair').autoFrom).toBeUndefined();
   });
 
   it('имена линейки — по таблице этапов 05.10 (единый источник)', () => {
     const names = new Map(DEFAULT_REPAIR_STAGE_TEMPLATES.map((t) => [t.code, t.name]));
     expect(names.get('card_created')).toBe('Создание карточки двигателя');
     expect(names.get('arrival')).toBe('Приемка двигателя на завод');
+    expect(names.get('incoming_otk')).toBe('Входной контроль ОТК');
     expect(names.get('disassembly_defect')).toBe('Разборка/Дефектовка');
+    expect(names.get('parts_repair')).toBe('Ремонт деталей');
     expect(names.get('ukladka')).toBe('Укладка вала');
     expect(names.get('sborka')).toBe('Сборка двигателя');
     expect(names.get('obkatka')).toBe('Обкатка двигателя');
@@ -236,7 +243,9 @@ describe('isTransferableStageCode — срез переноса от уклад�
   });
 
   it('ранние этапы, ветка и мусор не переносятся', () => {
-    for (const code of ['card_created', 'arrival', 'disassembly_defect', 'kitting_done', 'scrap_branch', '', 'что-то']) {
+    // Входной контроль и ремонт деталей — до укладки: срез «от укладки и выше»
+    // (программа владельца 10.10.2026) их не забирает.
+    for (const code of ['card_created', 'arrival', 'incoming_otk', 'disassembly_defect', 'parts_repair', 'kitting_done', 'scrap_branch', '', 'что-то']) {
       expect(isTransferableStageCode(code)).toBe(false);
     }
   });

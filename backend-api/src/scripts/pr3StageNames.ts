@@ -4,10 +4,14 @@
 // едут на прод отдельно от релиза, и shared/dist на боксе может быть старше
 // (тогда каноном стали бы прежние имена, и миграция ничего бы не нашла).
 // Сверено с DEFAULT_REPAIR_STAGE_TEMPLATES на момент PR3.
+// Дополнение 14.10.2026 — только новые ключи (существующие не трогаем):
+// `incoming_otk` и `parts_repair` с именами из реестра.
 export const PR3_CANONICAL_STAGE_NAMES: Readonly<Record<string, string>> = {
   card_created: 'Создание карточки двигателя',
   arrival: 'Приемка двигателя на завод',
+  incoming_otk: 'Входной контроль ОТК',
   disassembly_defect: 'Разборка/Дефектовка',
+  parts_repair: 'Ремонт деталей',
   ukladka: 'Укладка вала',
   sborka: 'Сборка двигателя',
   obkatka: 'Обкатка двигателя',

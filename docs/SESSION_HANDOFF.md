@@ -2,22 +2,29 @@
 
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
-**Status:** IDLE (B6+B7 влиты; дальше — B8 звезда, затем C9/D10)
-**Updated:** 2026-10-13 (opencode session, машина `PC79`)
-**Branch:** main = origin/main
+**Status:** ACTIVE (нитка: новые этапы линейки — входной контроль ОТК + ремонт деталей, ветка `feat/repair-stage-new-codes`)
+**Updated:** 2026-10-14 (opencode session, машина `PC79`)
+**Branch:** feat/repair-stage-new-codes (влить в main отдельным PR)
 **Last released version:** **v3.76.0** на проде (+ android-v3.76.0).
 
 ## Текущая нитка
 
-_n/a_ — B6 (группировка списков, #1333) и B7 (авто-приоритет этапов в одни сутки,
-#1335) влиты в `main`. Открытое по плану `docs/plans/client-stability-and-ai-2026-10.md`:
-B8 (звезда вместо прикреплялок), C9 (автозапуск), D10 (ИИ-узел). Известные задачи:
-пилот узла на PC79; M102 dry-run/apply; DeepSeek 402; ротация SSH PC79 ≤ 26.11;
-Yandex-зеркало 3.75.0 без blockmap.
+Новые этапы линейки (слово владельца 14.10.2026): `incoming_otk` («Входной
+контроль ОТК», ранг 15, автомат акта комплектности) и `parts_repair` («Ремонт
+деталей», ранг 30, только вручную). Состав: реестр shared + миграция 0109 +
+авто-метка в `checklists:engine:save` (дата осмотра из акта, mark-if-absent) +
+`kitting→incoming_otk` в `stages:backfill` + замороженная карта PR3 дополнена.
+Гейты локально: shared 1381, electron-app 1650, backend-api 1140, typecheck ×2,
+lint ×3 — чисто; 0109 проверена накатом на стенд-БД; живой CDP-смоук
+(`cdp-stage-new-codes.mjs`) — SMOKE PASS (шаблоны с сервера, строка из акта
+той же датой, уборка). Грабли M153 (when журнала) — в GOTCHAS.
+Открытое дальше: B8 → C9 → D10 + известные задачи (пилот узла PC79; M102;
+DeepSeek 402; SSH ≤ 26.11; Yandex-blockmap 3.75.0).
 
 ## Следующий шаг
 
-По слову владельца: B8 → C9 → D10.
+Влить PR новых этапов. На релизе с этим PR: `db:migrate` (0109) +
+`stages:backfill` dry-run/apply (покрывает историю). Затем B8.
 
 ## Следующий шаг
 
