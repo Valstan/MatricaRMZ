@@ -162,7 +162,11 @@ describe('этапы работ — экран', () => {
     expect(PAGE, 'кнопки «Добавить» нет').not.toContain('data-work-sheet-add-row');
     expect(PAGE, 'состояния редактора нет').not.toContain('SheetEditor');
     expect((PAGE.match(/<VirtualTable/g) ?? []).length, 'таблица одна: две разъехались бы по ширинам').toBe(1);
-    expect(PAGE, 'номера сквозные 1..N — служебных рядов больше нет').toContain('rowNumberOf={(i) => (sorted[i] ? i + 1 : null)}');
+    // B6 (план client-stability-and-ai-2026-10): заголовки групп — служебные ряды
+    // нового вида: номера сквозные по строкам данных, заголовок получает пустую ячейку.
+    expect(PAGE, 'номера сквозные по строкам данных, заголовок группы — пустая ячейка').toContain(
+      "if (!it || it.kind === 'group') return null;",
+    );
     expect(PAGE, 'строка кликабельна в карточку').toContain("'data-work-sheet-row': r.id,");
     expect(PAGE, 'карточка открывается вкладкой приложения').toContain('props.onOpenSheet(');
     expect(PAGE, 'служебных рядов нет: счётчик и печать берут выборку').toContain(

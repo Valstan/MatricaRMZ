@@ -7,15 +7,17 @@ import {
   engineStageFacetOptions,
   sanitizeEngineFacetSelection,
   classifyEngineContractBinding,
+  engineFactoryStage,
   engineInternalNumberSortKey,
   engineScrapDate,
   engineStatusDate,
+  flattenGrouped,
   repairStageRank,
   arrivalPlacementLabel,
   formatEngineInternalNumber,
   formatEngineReservationUntil,
 } from '@matricarmz/shared';
-import type { EngineFacetId, EngineFacetSelection, EngineListItem } from '@matricarmz/shared';
+import type { EngineFacetId, EngineFacetSelection, EngineListItem, GroupLevel } from '@matricarmz/shared';
 
 import { EngineFacetFilter, EngineFacetToggleButton } from '../components/EngineFacetFilter.js';
 import { EngineQrScanButton } from '../components/EngineQrScanButton.js';
@@ -164,6 +166,17 @@ export type EnginesPageUiState = {
   facetsOpen?: boolean;
   /** Поиск показывает и похожее (опечатки, часть слова, раскладка). По умолчанию — только точное. */
   searchSimilar?: boolean;
+  /** Группировка списка (B6): те же разрезы, что в отчёте «Двигатели на заводе». */
+  groupBy?: EngineListGroupBy;
+};
+
+export type EngineListGroupBy = 'stage' | 'customer' | 'customer_stage' | 'none';
+
+const ENGINE_LIST_GROUP_BY_LABELS: Record<EngineListGroupBy, string> = {
+  stage: 'По этапу на заводе',
+  customer: 'По заказчику',
+  customer_stage: 'Заказчик → этап',
+  none: 'Без группировки',
 };
 
 export function createDefaultEnginesPageUiState(): EnginesPageUiState {
@@ -545,6 +558,50 @@ export function EnginesPage(props: {
   }, [facetFiltered, sortDir, sortKey, query, selectedStageCode]);
 
   const displayRows = sorted;
+
+  // Группировка списка (B6): те же разрезы, что в отчёте «Двигатели на заводе»
+  // (этап несёт ранг из engineFactoryStage, заказчик — по подписи). Повторы
+  // двигателей в группах допустимы (решение владельца). В двухколоночном режиме
+  // группировка не раскладывается — список показывается одной колонкой.
+  const groupBy: EngineListGroupBy = listState.groupBy ?? 'none';
+  const groupLevels = useMemo<GroupLevel<EngineListItem>[]>(() => {
+    const byStage: GroupLevel<EngineListItem> = {
+      keyOf: (e) => {
+        const s = engineFactoryStage(e, sheetTypes, stageTemplates);
+        return { key: s.key, label: s.label, rank: s.rank };
+      },
+    };
+    const byCustomer: GroupLevel<EngineListItem> = {
+      keyOf: (e) => {
+        const label = String(e.customerName ?? '').trim();
+        return { key: String(e.customerId ?? '').trim() || `name:${label.toLowerCase()}` || 'none', label: label || 'Без заказчика' };
+      },
+    };
+    switch (groupBy) {
+      case 'stage':
+        return [byStage];
+      case 'customer':
+        return [byCustomer];
+      case 'customer_stage':
+        return [byCustomer, byStage];
+      default:
+        return [];
+    }
+  }, [groupBy, sheetTypes, stageTemplates]);
+  const groupedItems = useMemo(() => flattenGrouped(sorted, groupLevels), [sorted, groupLevels]);
+
+  // Подпись группы для печати: путь заголовков над строкой, как на экране.
+  const groupLabelByRow = useMemo(() => {
+    const map = new Map<string, string>();
+    const path: string[] = [];
+    for (const it of groupedItems) {
+      if (it.kind === 'group') {
+        path.length = it.depth;
+        path[it.depth] = it.label;
+      } else map.set(String(it.row.id), path.join(' › '));
+    }
+    return map;
+  }, [groupedItems]);
 
   // Заголовок печати (владелец 12.10.2026): при выбранном этапе фильтра «Все этапы»
   // печать отвечает тем же вопросом, что и экран — «эти двигатели прошли этап X».
@@ -999,6 +1056,18 @@ export function EnginesPage(props: {
         <ToolbarPin>
           <EngineFacetToggleButton selection={facets} open={facetsOpen} onToggle={() => patchState({ facetsOpen: !facetsOpen })} types={sheetTypes} stageTemplates={stageTemplates} />
         </ToolbarPin>
+        <ToolbarPin>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+            <span className="ui-muted">Группировать</span>
+            <select value={groupBy} onChange={(e) => patchState({ groupBy: e.target.value as EngineListGroupBy, page: 0 })} data-engines-group-by>
+              {(Object.keys(ENGINE_LIST_GROUP_BY_LABELS) as EngineListGroupBy[]).map((k) => (
+                <option key={k} value={k}>
+                  {ENGINE_LIST_GROUP_BY_LABELS[k]}
+                </option>
+              ))}
+            </select>
+          </label>
+        </ToolbarPin>
         <ColumnSettingsButton
           label="Колонки списка"
           columns={columnDescriptors}
@@ -1118,15 +1187,26 @@ export function EnginesPage(props: {
         style={{ marginTop: 2, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}
         onScroll={onScroll}
       >
-        {twoCol ? (
+        {twoCol && groupBy === 'none' ? (
           <TwoColumnList items={displayRows} enabled renderColumn={(items, _c, _n, startIndex) => renderTable(items, startIndex)} />
         ) : (
           <VirtualTable
             scrollElementRef={containerRef}
-            count={displayRows.length}
+            count={groupedItems.length}
             header={renderTableHeader()}
             renderCells={(i) => {
-              const e = displayRows[i]!;
+              const it = groupedItems[i]!;
+              if (it.kind === 'group') {
+                return (
+                  <td colSpan={visibleColumns.length + 2} style={{ borderBottom: '1px solid #f3f4f6', padding: 8, fontWeight: 600, background: it.depth === 0 ? '#eef2ff' : '#f8fafc' }} data-engine-group={it.key} data-engine-group-depth={it.depth}>
+                    <span style={{ display: 'inline-block', paddingLeft: it.depth * 18 }}>
+                      {it.depth > 0 ? '↳ ' : ''}
+                      {it.label} <span className="ui-muted" style={{ fontWeight: 400 }}>· {it.count}</span>
+                    </span>
+                  </td>
+                );
+              }
+              const e = it.row;
               return (
                 <>
                   <td
@@ -1145,8 +1225,18 @@ export function EnginesPage(props: {
                 </>
               );
             }}
-            getRowKey={(i) => String(displayRows[i]!.id)}
-            getRowProps={(i) => engineRowProps(displayRows[i]!)}
+            getRowKey={(i) => {
+              const it = groupedItems[i]!;
+              return it.kind === 'group' ? `g:${it.key}` : String(it.row.id);
+            }}
+            getRowProps={(i) => {
+              const it = groupedItems[i]!;
+              return it.kind === 'group' ? { 'data-engine-group': it.key } : engineRowProps(it.row);
+            }}
+            rowNumberOf={(i) => {
+              const it = groupedItems[i]!;
+              return it.kind === 'group' ? null : it.number;
+            }}
             colCount={Math.max(1, visibleColumns.length) + 2}
             rowNumbers
             estimateSize={previewsVisible ? 64 : 40}
@@ -1195,6 +1285,7 @@ export function EnginesPage(props: {
           rows={displayRows}
           selectedRows={displayRows.filter((e) => selection.isSelected(String(e.id)))}
           storageKey="list:engines:printFields"
+          rowGroupLabel={(e) => groupLabelByRow.get(String(e.id)) || null}
           onClose={() => setPrintDialogOpen(false)}
         />
       )}
