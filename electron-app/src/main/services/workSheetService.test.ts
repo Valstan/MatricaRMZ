@@ -314,6 +314,33 @@ describe('строка этапа работ', () => {
     expect(rows[0]?.workshopName).toBe('Цех № 4');
   });
 
+  it('правка без имени не роняет снимок того же цеха; смена цеха без имени — роняет', async () => {
+    const { db } = makeDb();
+    await saveWorkSheetRow(
+      db,
+      { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, workshopId: 'W9', workshopName: 'Цех № 9', values: {} },
+      'ivanov',
+    );
+    // Правка примечания тем же цехом, имя не прислали — снимок цел.
+    await saveWorkSheetRow(
+      db,
+      { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, workshopId: 'W9', note: 'уточнили', values: {} },
+      'petrov',
+    );
+    let rows = (await listWorkSheetRows(db)).rows;
+    expect(rows[0]?.workshopId).toBe('W9');
+    expect(rows[0]?.workshopName).toBe('Цех № 9');
+    // Смена цеха без имени — чужой снимок стёрт, а не приклеен к новому цеху.
+    await saveWorkSheetRow(
+      db,
+      { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, workshopId: 'W8', values: {} },
+      'petrov',
+    );
+    rows = (await listWorkSheetRows(db)).rows;
+    expect(rows[0]?.workshopId).toBe('W8');
+    expect(rows[0]?.workshopName).toBe('');
+  });
+
   it('удаление — мягкое, строка уходит из списка', async () => {
     const { sqlite, db } = makeDb();
     await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');

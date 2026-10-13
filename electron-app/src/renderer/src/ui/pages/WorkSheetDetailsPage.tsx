@@ -178,7 +178,11 @@ export function WorkSheetDetailsPage(props: {
           atMs,
           workshopId: workshopId || null,
           // Имя цеха — снимком в этап работ: без него читатель без прав на справочник видит uuid.
-          workshopName: props.workshops.find((w) => w.id === workshopId)?.label ?? null,
+          // Цех мог уйти из справочника после записи — тогда держим снимок из самой строки,
+          // иначе правка примечания молча роняла бы имя в «без названия».
+          workshopName:
+            props.workshops.find((w) => w.id === workshopId)?.label ??
+            (!props.isNew && row && row.workshopId === workshopId ? row.workshopName || null : null),
           note: note.trim() || null,
           values,
         };
@@ -393,6 +397,11 @@ export function WorkSheetDetailsPage(props: {
                 {w.label}
               </option>
             ))}
+            {/* Цех строки мог уйти из справочника: без этой опции селект показывал бы «—»
+                при записанном цехе, а сохранение роняло бы его снимок. */}
+            {workshopId && !props.workshops.some((w) => w.id === workshopId) ? (
+              <option value={workshopId}>{row?.workshopName || workshopId}</option>
+            ) : null}
           </select>
 
           {/* Справочно, только чтение: сервер сам ставит сюда того, кто записал строку

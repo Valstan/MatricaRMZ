@@ -196,12 +196,22 @@ export async function saveRepairStageRow(
   }
   const pass = repeat?.pass ?? 1;
 
+  // Снимок имени цеха переживает правку, когда цех не менялся: писатель пересобирает
+  // meta из входа, а вход несёт имя только из справочника — у неактивного цеха его нет,
+  // и правка даты молча роняла бы имя в «без названия» (13.10.2026).
+  const prevWsId = text(existingMeta?.workshopId);
+  const nextWsId = text(input.workshopId);
+  const prevWsName = text(existingMeta?.workshopName);
   const meta = buildRepairHistoryMeta({
     action: template.name,
     at: atMs,
     ...(text(input.note) ? { note: text(input.note) } : {}),
-    ...(text(input.workshopId) ? { workshopId: text(input.workshopId) } : {}),
-    ...(text(input.workshopName) ? { workshopName: text(input.workshopName) } : {}),
+    ...(nextWsId ? { workshopId: nextWsId } : {}),
+    ...(text(input.workshopName)
+      ? { workshopName: text(input.workshopName) }
+      : nextWsId && nextWsId === prevWsId && prevWsName
+        ? { workshopName: prevWsName }
+        : {}),
     entryType: 'stage',
     stage: { code: template.code, name: template.name },
     ...(repeat ? { repeat } : {}),

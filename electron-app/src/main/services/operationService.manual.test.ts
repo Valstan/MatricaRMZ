@@ -88,6 +88,41 @@ describe('updateManualEntry — только ручная запись', () => {
     const { db } = makeDb();
     expect(await updateManualEntry(db, 'nope', { note: 'x' })).toBe(false);
   });
+
+  it('цех ставится с именем, меняется с новым именем, снимается пустым', async () => {
+    const { db } = makeDb();
+    await seed(db);
+    expect(await updateManualEntry(db, 'op1', { workshopId: 'w1', workshopName: 'Цех № 1' })).toBe(true);
+    let meta = JSON.parse(String(((await getOperation(db, 'op1')) as any).metaJson));
+    expect(meta.workshopId).toBe('w1');
+    expect(meta.workshopName).toBe('Цех № 1');
+
+    expect(await updateManualEntry(db, 'op1', { workshopId: 'w2', workshopName: 'Цех № 2' })).toBe(true);
+    meta = JSON.parse(String(((await getOperation(db, 'op1')) as any).metaJson));
+    expect(meta.workshopId).toBe('w2');
+    expect(meta.workshopName).toBe('Цех № 2');
+
+    expect(await updateManualEntry(db, 'op1', { workshopId: '' })).toBe(true);
+    meta = JSON.parse(String(((await getOperation(db, 'op1')) as any).metaJson));
+    expect(meta.workshopId).toBeUndefined();
+    expect(meta.workshopName).toBeUndefined();
+  });
+
+  it('смена цеха без имени стирает чужой снимок, тот же цех без имени — хранит свой', async () => {
+    const { db } = makeDb();
+    await seed(db, { metaJson: manualMeta({ workshopId: 'w1', workshopName: 'Цех № 1' }) });
+    expect(await updateManualEntry(db, 'op1', { workshopId: 'w2' })).toBe(true);
+    let meta = JSON.parse(String(((await getOperation(db, 'op1')) as any).metaJson));
+    expect(meta.workshopId).toBe('w2');
+    expect(meta.workshopName).toBeUndefined();
+
+    const { db: db2 } = makeDb();
+    await seed(db2, { metaJson: manualMeta({ workshopId: 'w1', workshopName: 'Цех № 1' }) });
+    expect(await updateManualEntry(db2, 'op1', { workshopId: 'w1', note: 'уточнили' })).toBe(true);
+    meta = JSON.parse(String(((await getOperation(db2, 'op1')) as any).metaJson));
+    expect(meta.workshopId).toBe('w1');
+    expect(meta.workshopName).toBe('Цех № 1');
+  });
 });
 
 describe('isManualHistoryRow — гейт общего канала', () => {

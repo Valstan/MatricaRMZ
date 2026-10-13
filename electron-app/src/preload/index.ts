@@ -139,7 +139,7 @@ const matricaApi = {
     add: async (engineId: string, operationType: string, status: string, note?: string, metaJson?: string | null) =>
       ipcRenderer.invoke('ops:add', engineId, operationType, status, note, metaJson),
     remove: async (id: string) => ipcRenderer.invoke('ops:delete', id),
-    updateManual: async (engineId: string, id: string, patch: { action?: string; at?: number; note?: string }) =>
+    updateManual: async (engineId: string, id: string, patch: { action?: string; at?: number; note?: string; workshopId?: string; workshopName?: string }) =>
       ipcRenderer.invoke('ops:updateManual', engineId, id, patch),
   },
   audit: {

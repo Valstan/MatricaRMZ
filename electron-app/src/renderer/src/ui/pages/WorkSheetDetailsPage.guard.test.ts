@@ -27,3 +27,20 @@ describe('PR-3 — пикер двигателя при новом этапе н
     expect(PAGE).not.toMatch(/filter.*stage|filter.*status/i);
   });
 });
+
+describe('цех строки правится и снимок имени не теряется (владелец 13.10.2026)', () => {
+  it('селект цеха доступен на существующей строке под canEdit, а не только на новой', () => {
+    const at = PAGE.indexOf("{label('Цех')}");
+    expect(at, 'подпись «Цех» потеряна').toBeGreaterThan(-1);
+    const block = PAGE.slice(at, at + 600);
+    expect(block, 'цех существующего этапа не правится').toContain('disabled={!props.canEdit}');
+    expect(block, 'цех закрыт на существующей строке — задним числом не проставить').not.toContain('!props.isNew');
+  });
+
+  it('цех вне справочника виден опцией и его снимок переживает сохранение', () => {
+    // Справочник грузят с activeOnly:true — неактивный цех строки в нём нет: без опции
+    // селект показал бы «—», а сохранение уронило бы имя в «без названия».
+    expect(PAGE, 'цех вне справочника не виден').toContain('{row?.workshopName || workshopId}');
+    expect(PAGE, 'сохранение роняет снимок неактивного цеха').toContain('row.workshopId === workshopId ? row.workshopName || null : null');
+  });
+});
