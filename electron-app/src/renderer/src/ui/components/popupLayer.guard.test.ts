@@ -29,7 +29,6 @@ const PORTALED = [
   ['./WarehouseDocumentStatusFilterDropdown.tsx', 'отбор статусов документов'],
   ['../shellV2/ButtonPanel.tsx', 'меню кнопки в панели МЕНЮ'],
   ['../pages/HistoryPage.tsx', 'меню ярлыка «Моего круга»'],
-  ['../pages/ReportsCatalogPage.tsx', 'меню отчёта в каталоге'],
 ] as const;
 
 describe('всплывающие меню живут в портале поверх окна', () => {

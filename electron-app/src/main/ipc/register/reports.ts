@@ -103,6 +103,20 @@ function sanitizePresetIds(ids: unknown): string[] {
   return out;
 }
 
+/** Id шаблонов «Моих отчётов» — uuid из их же хранилища; форма та же, что у пресетов. */
+const TEMPLATE_FAVORITE_IDS_LIMIT = 100;
+function sanitizeTemplateIds(ids: unknown): string[] {
+  if (!Array.isArray(ids)) return [];
+  const out: string[] = [];
+  for (const value of ids) {
+    const id = String(value ?? '').trim().slice(0, 80);
+    if (!id || out.includes(id)) continue;
+    out.push(id);
+    if (out.length >= TEMPLATE_FAVORITE_IDS_LIMIT) break;
+  }
+  return out;
+}
+
 const FILTER_TEMPLATES_LIMIT = 20;
 
 // Общие (для всех операторов) шаблоны «Моих отчётов» живут в том же блобе под
@@ -254,6 +268,28 @@ export function registerReportsIpc(ctx: IpcContext) {
     const ids = sanitizePresetIds(args?.ids ?? []);
     byScope[scope] = ids;
     await settingsSetString(ctx.sysDb, SettingsKey.ReportPresetFavorites, JSON.stringify(byScope));
+    return { ok: true as const, ids };
+  });
+
+  // Избранные шаблоны «Моих отчётов» (B8): та же per-user схема, что у пресетов.
+  ipcMain.handle('reports:templateFavoritesGet', async (_e, args?: { userId?: string }) => {
+    const gate = await requirePermOrResult(ctx, 'reports.view');
+    if (!gate.ok) return gate as any;
+    const scope = resolveUserScope(args?.userId);
+    const raw = await settingsGetString(ctx.sysDb, SettingsKey.ReportTemplateFavorites);
+    const byScope = parseByScope<unknown>(raw);
+    return { ok: true as const, ids: sanitizeTemplateIds(byScope[scope]) };
+  });
+
+  ipcMain.handle('reports:templateFavoritesSet', async (_e, args?: { userId?: string; ids?: string[] }) => {
+    const gate = await requirePermOrResult(ctx, 'reports.view');
+    if (!gate.ok) return gate as any;
+    const scope = resolveUserScope(args?.userId);
+    const raw = await settingsGetString(ctx.sysDb, SettingsKey.ReportTemplateFavorites);
+    const byScope = parseByScope<unknown>(raw);
+    const ids = sanitizeTemplateIds(args?.ids ?? []);
+    byScope[scope] = ids;
+    await settingsSetString(ctx.sysDb, SettingsKey.ReportTemplateFavorites, JSON.stringify(byScope));
     return { ok: true as const, ids };
   });
 

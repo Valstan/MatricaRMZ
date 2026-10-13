@@ -23,6 +23,8 @@ export type DeepLinkRoute =
   | { kind: 'work_order'; id: string }
   | { kind: 'engine_brand'; id: string }
   | { kind: 'report_preset'; id: string }
+  /** Ярлык шаблона «Моих отчётов» (B8): конструктор открывается сразу на шаблоне. */
+  | { kind: 'custom_report'; id: string }
   | { kind: 'tab'; id: string };
 
 function asId(value: unknown): string | null {
@@ -49,6 +51,7 @@ export function resolveDeepLinkRoute(link: ChatDeepLinkPayload): DeepLinkRoute {
     ['work_order', asId(link?.workOrderId)],
     ['engine_brand', asId(link?.engineBrandId)],
     ['report_preset', asId(link?.reportPresetId)],
+    ['custom_report', asId(link?.customReportTemplateId)],
   ];
   for (const [kind, id] of pairs) {
     if (id) return { kind, id } as DeepLinkRoute;

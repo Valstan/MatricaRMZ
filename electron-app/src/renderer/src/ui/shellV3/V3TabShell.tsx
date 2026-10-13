@@ -12,8 +12,8 @@ import { useChromeVisibility } from '../shell/ChromeVisibilityContext.js';
 import type { ShellNotice } from '../shell/shellNotice.js';
 import { TabVisibilityProvider } from '../shell/TabVisibilityContext.js';
 import { matricaPlatform } from '../platform.js';
-import { ShortcutIcon } from '../components/ShortcutIcon.js';
 import { FavoriteStarButton } from '../components/FavoriteStarButton.js';
+import { ListContextMenu } from '../components/ListContextMenu.js';
 import { emojiAttrs } from '../utils/labelEmoji.js';
 import { shouldKeepAliveTab } from './keepAlive.js';
 import rmzLogo from '../../assets/logo_rmz.png';
@@ -70,8 +70,6 @@ export function V3TabShell(props: {
   /** Избранные разделы (золотые звёздочки): рельса слева + звёзды в МЕНЮ и на вкладках. */
   sectionFavorites: readonly MenuTabId[];
   onToggleSectionFavorite: (id: MenuTabId) => void;
-  /** Ярлык кнопки МЕНЮ на Верстак (контекстное меню и закреп сверху). */
-  onMenuButtonDesktopShortcut?: (btn: MenuButtonDescriptor) => void;
   /** Непрочитанные сообщения чата — бейдж на вкладке Верстака (владелец 08.09.2026). */
   chatUnread?: number;
   /** Прогресс фоновой загрузки обновления: заливка под вкладками. `null` — ничего не качается. */
@@ -129,6 +127,8 @@ export function V3TabShell(props: {
   // закрыта последняя вкладка), оверлей раскрывается сам, и CDP-смоуки по-прежнему
   // видят span.v2-menu-btn-label сразу после загрузки.
   const [menuOverlayOpen, setMenuOverlayOpen] = React.useState(false);
+  // Контекстное меню вкладки (B8): ярлык на Верстак живёт здесь, а не булавкой.
+  const [tabMenu, setTabMenu] = React.useState<{ x: number; y: number; tabId: string } | null>(null);
   const activeForOverlay = props.openTabs.find((t) => t.id === props.activeTabId);
   const activeKindForOverlay = activeForOverlay?.kind;
   React.useEffect(() => {
@@ -191,7 +191,6 @@ export function V3TabShell(props: {
       }}
       favoriteTabs={props.sectionFavorites}
       onToggleFavoriteTab={props.onToggleSectionFavorite}
-      {...(props.onMenuButtonDesktopShortcut ? { onDesktopShortcut: props.onMenuButtonDesktopShortcut } : {})}
     />
   );
 
@@ -357,7 +356,20 @@ export function V3TabShell(props: {
             props.onSplitCard != null &&
             (props.canSplitCard?.(tab) ?? true);
           return (
-            <div key={tab.id} className={`v3-tab ${isMenu ? 'v3-tab-menu' : ''}`} data-active={isActive ? '1' : undefined}>
+            <div
+              key={tab.id}
+              className={`v3-tab ${isMenu ? 'v3-tab-menu' : ''}`}
+              data-active={isActive ? '1' : undefined}
+              onContextMenu={
+                (tab.kind === 'card' || tab.kind === 'list') && props.onToggleDesktop && !isAndroid
+                  ? (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setTabMenu({ x: e.clientX, y: e.clientY, tabId: tab.id });
+                    }
+                  : undefined
+              }
+            >
               <button
                 type="button"
                 className="v3-tab-label"
@@ -393,32 +405,26 @@ export function V3TabShell(props: {
                   ⑃
                 </button>
               )}
-              {/* На Android Верстака нет (он живёт на экране чата) — галстук не показываем,
-                  как и действие «На Верстак» в МЕНЮ (v2ButtonCatalog ANDROID_HIDDEN_ACTIONS). */}
-              {(tab.kind === 'card' || tab.kind === 'list') && props.onToggleDesktop && !isAndroid && (() => {
-                // Подсказка не должна врать: пока заголовок карточки — фолбэк («Вид · id6»),
-                // ярлык получил бы техническое имя, поэтому кнопка гаснет с пояснением.
-                const pending = tab.kind === 'card' && tab.titleIsFallback;
-                const onDesktop = !pending && (props.isOnDesktop?.(tab) ?? false);
-                const title = pending
-                  ? 'Название ещё загружается — ярлык появится, когда карточка назовёт себя'
-                  : onDesktop
-                    ? `Убрать с Верстака ярлык «${tab.label}»`
-                    : `Добавить на Верстак ярлык «${tab.label}»`;
-                return (
-                  <button
-                    type="button"
-                    className="v3-tab-desktop"
-                    data-active={onDesktop ? '1' : undefined}
-                    disabled={pending}
-                    title={title}
-                    aria-label={title}
-                    onClick={(e) => { e.stopPropagation(); props.onToggleDesktop?.(tab); }}
-                  >
-                    <ShortcutIcon active={onDesktop} />
-                  </button>
-                );
-              })()}
+              {/* Золотая звёздочка избранного — ДО кнопки закрытия (B8). У списков —
+                  звезда своего раздела; у карточек — звезда родительского раздела
+                  (все карточки двигателей делят звезду «Двигатели»). Булавки-ярлыки
+                  сняты: ярлык вкладки — через её контекстное меню. */}
+              {(tab.kind === 'list' || tab.kind === 'card') &&
+                (tab.kind === 'list' ? tab.tabId : tab.cardKind) != null &&
+                (() => {
+                  const menuId = resolveMenuTab(String(tab.kind === 'list' ? tab.tabId : tab.cardKind));
+                  if (menuId == null) return null;
+                  const fav = props.sectionFavorites.includes(menuId);
+                  return (
+                    <FavoriteStarButton
+                      favorite={fav}
+                      dataId={menuId}
+                      size={26}
+                      title={fav ? `Убрать «${tab.label}» из избранного` : `Добавить «${tab.label}» в избранное`}
+                      onToggle={() => props.onToggleSectionFavorite(menuId)}
+                    />
+                  );
+                })()}
               {tab.canClose && (
                 <button
                   type="button"
@@ -429,21 +435,6 @@ export function V3TabShell(props: {
                   ✕
                 </button>
               )}
-              {/* Золотая звёздочка избранного — только у вкладок разделов-списков. */}
-              {tab.kind === 'list' && tab.tabId != null && (() => {
-                const menuId = resolveMenuTab(tab.tabId as string);
-                if (menuId == null) return null;
-                const fav = props.sectionFavorites.includes(menuId);
-                return (
-                  <FavoriteStarButton
-                    favorite={fav}
-                    dataId={menuId}
-                    size={26}
-                    title={fav ? `Убрать «${tab.label}» из избранного` : `Добавить «${tab.label}» в избранное`}
-                    onToggle={() => props.onToggleSectionFavorite(menuId)}
-                  />
-                );
-              })()}
             </div>
           );
         })}
@@ -493,6 +484,32 @@ export function V3TabShell(props: {
           )}
         </div>
       </div>
+      {tabMenu &&
+        (() => {
+          const target = props.openTabs.find((t) => t.id === tabMenu.tabId);
+          if (!target || (target.kind !== 'card' && target.kind !== 'list') || props.onToggleDesktop == null) return null;
+          // Ярлык с техническим именем не обещаем: пока заголовок карточки — фолбэк,
+          // пункт меню гаснет (та же честность, что была у булавки).
+          const pending = target.kind === 'card' && target.titleIsFallback;
+          const onDesktop = !pending && (props.isOnDesktop?.(target) ?? false);
+          return (
+            <ListContextMenu
+              x={tabMenu.x}
+              y={tabMenu.y}
+              items={[
+                {
+                  id: 'desktop',
+                  label: onDesktop ? `Убрать с Верстака «${target.label}»` : `Добавить на Верстак «${target.label}»`,
+                  ...(pending ? { disabled: true as const } : {}),
+                  onClick: () => {
+                    props.onToggleDesktop?.(target);
+                  },
+                },
+              ]}
+              onClose={() => setTabMenu(null)}
+            />
+          );
+        })()}
       {/* Левая рельса избранного (владелец 12.10.2026): большие карточки разделов
           со звёздочкой — переключение в один клик. МЕНЮ-оверлей живёт внутри
           .v3-tab-body и рельсу не накрывает. */}

@@ -142,7 +142,6 @@ import { describeRejectedRow } from './utils/syncRejected.js';
 import { logUiUsage } from './utils/uiUsageLog.js';
 import { resolveQuickStartTile } from './utils/favoriteShortcut.js';
 import { sanitizeSectionFavoriteIds, toggleSectionFavoriteId } from './utils/sectionFavorites.js';
-import type { MenuButtonDescriptor } from './shellV2/v2ButtonCatalog.js';
 import type { CardCloseActions } from './cardCloseTypes.js';
 // Только тип: страница грузится лениво, и обычный импорт утянул бы её в стартовый бандл.
 import type { EngineCardTab } from './pages/EngineDetailsPage.js';
@@ -2646,9 +2645,6 @@ export function App() {
       case 'notes_link':
         void saveCurrentPositionToNotes();
         break;
-      case 'desktop_shortcut':
-        addCurrentPositionToDesktop();
-        break;
       case 'client_ops':
         setClientOpsOpen(true);
         break;
@@ -3366,32 +3362,47 @@ export function App() {
     announceDesktopOutcome(r.outcome, openTab.label);
   }
 
-  /** Звёздочка раздела: оптимистично + откат при отказе моста (приём отчётов). */
+  /**
+   * Звёздочка раздела (B8): одна звезда — три поверхности. Включение кладёт раздел
+   * в избранное (рельса + звёзды), в «Закреплённые» наверху МЕНЮ и ярлыком на Верстак;
+   * выключение снимает со всех трёх. Верстак догоняет после подтверждения моста
+   * (оптимистичный ярлык при откате записи избранного остался бы сиротой).
+   */
   function toggleSectionFavorite(id: MenuTabId) {
     const userId = authStatus.loggedIn ? String(authStatus.user?.id ?? '').trim() : '';
     if (!userId) return;
     const prev = sectionFavorites;
     const next = toggleSectionFavoriteId(prev, id);
+    const willBeFav = next.includes(id);
+    // Ярлык звезды — той же формы, что клался закрепом (assembly_forecast ведёт
+    // в пресет прогноза, а не во вкладку): снятие обязано найти тот же ключ.
+    const starLink: ChatDeepLinkPayload =
+      id === 'assembly_forecast'
+        ? { kind: 'app_link', tab: 'report_preset', reportPresetId: 'assembly_forecast_7d', breadcrumbs: [menuLabels[id] ?? id] }
+        : { kind: 'app_link', tab: id as ChatDeepLinkPayload['tab'], breadcrumbs: [menuLabels[id] ?? id] };
     setSectionFavorites(next);
     void window.matrica.sections
       .favoritesSet({ userId, ids: next })
       .then((r) => {
-        if (r?.ok) setSectionFavorites(sanitizeSectionFavoriteIds(r.ids));
-        else setSectionFavorites(prev);
+        if (!r?.ok) {
+          setSectionFavorites(prev);
+          return;
+        }
+        setSectionFavorites(sanitizeSectionFavoriteIds(r.ids));
+        if (willBeFav) {
+          const put = desktopPutShortcut(
+            desktopUiRef.current,
+            { id: crypto.randomUUID(), label: menuLabels[id] ?? id, icon: desktopIconForTab(id), link: starLink },
+            Date.now(),
+          );
+          setDesktopUi(put.desktop);
+          if (put.outcome === 'added') seedDesktopUsage(put.desktop, starLink);
+          announceDesktopOutcome(put.outcome, menuLabels[id] ?? id);
+        } else {
+          removeLinkFromDesktop(starLink);
+        }
       })
       .catch(() => setSectionFavorites(prev));
-  }
-
-  /** Ярлык кнопки МЕНЮ — на ту кнопку, по которой щёлкнули (контекстное меню и закреп). */
-  function addMenuButtonToDesktop(btn: MenuButtonDescriptor) {
-    const link: ChatDeepLinkPayload =
-      btn.id === 'assembly_forecast'
-        ? { kind: 'app_link', tab: 'report_preset', reportPresetId: 'assembly_forecast_7d', breadcrumbs: [btn.label] }
-        : { kind: 'app_link', tab: btn.id as ChatDeepLinkPayload['tab'], breadcrumbs: [btn.label] };
-    const r = desktopPutShortcut(desktopUiRef.current, { id: crypto.randomUUID(), label: btn.label, icon: btn.icon, link }, Date.now());
-    setDesktopUi(r.desktop);
-    if (r.outcome === 'added') seedDesktopUsage(r.desktop, link);
-    announceDesktopOutcome(r.outcome, btn.label);
   }
 
   function addReportPresetToDesktop(presetId: string, title: string) {
@@ -3400,6 +3411,25 @@ export function App() {
     setDesktopUi(r.desktop);
     if (r.outcome === 'added') seedDesktopUsage(r.desktop, link);
     announceDesktopOutcome(r.outcome, title);
+  }
+
+  /** Звезда пресета (B8) = избранное + ярлык. Зовётся страницей после успешной записи. */
+  function syncReportPresetDesktop(presetId: string, title: string, favorite: boolean) {
+    if (favorite) addReportPresetToDesktop(presetId, title);
+    else removeLinkFromDesktop({ kind: 'app_link', tab: 'report_preset', reportPresetId: presetId });
+  }
+
+  /** Звезда шаблона «Моих отчётов» (B8) = избранное + ярлык. Зовётся страницей после успешной записи. */
+  function syncCustomReportDesktop(templateId: string, title: string, favorite: boolean) {
+    if (favorite) {
+      const link: ChatDeepLinkPayload = { kind: 'app_link', tab: 'custom_reports', customReportTemplateId: templateId, breadcrumbs: [title] };
+      const r = desktopPutShortcut(desktopUiRef.current, { id: crypto.randomUUID(), label: title, icon: '📝', link }, Date.now());
+      setDesktopUi(r.desktop);
+      if (r.outcome === 'added') seedDesktopUsage(r.desktop, link);
+      announceDesktopOutcome(r.outcome, title);
+    } else {
+      removeLinkFromDesktop({ kind: 'app_link', tab: 'custom_reports', customReportTemplateId: templateId });
+    }
   }
 
   function removeLinkFromDesktop(link: unknown) {
@@ -3426,14 +3456,6 @@ export function App() {
         Date.now(),
       ),
     [desktopUsage, liveDesktopShortcuts],
-  );
-  const desktopReportPresetIds = useMemo(
-    () =>
-      liveDesktopShortcuts
-        .map((s) => desktopShortcutLinkKey(s.link))
-        .filter((k): k is string => k != null && k.startsWith('report_preset:'))
-        .map((k) => k.slice('report_preset:'.length)),
-    [liveDesktopShortcuts],
   );
 
   async function _persistChatSide(next: 'left' | 'right') {
@@ -3757,6 +3779,14 @@ export function App() {
       setSelectedReportPresetId(presetId);
       setTab('report_preset');
     });
+  }
+
+  /** Открытие шаблона «Моих отчётов» (B8): конструктор сразу на шаблоне. */
+  function openCustomReport(templateId: string) {
+    const id = String(templateId ?? '').trim();
+    if (!id) return;
+    setCustomReportInitialTemplateId(id);
+    setTab('custom_reports');
   }
 
   /** Набор настроек для конкретного пресета — только если открывали именно его. */
@@ -4289,6 +4319,7 @@ export function App() {
     if (route.kind === 'work_order') return await openWorkOrder(route.id);
     if (route.kind === 'engine_brand') return await openEngineBrand(route.id);
     if (route.kind === 'report_preset') return openReportPreset(route.id as ReportPresetId);
+    if (route.kind === 'custom_report') return openCustomReport(route.id);
     setTab(route.id as TabId);
   }
 
@@ -4735,17 +4766,6 @@ export function App() {
   }
 
   /** «На Верстак» из меню действий: ярлык текущего раздела/карточки, без ухода со страницы. */
-  function addCurrentPositionToDesktop() {
-    if (!authStatus.loggedIn) return;
-    const link = currentAppLink as ChatDeepLinkPayload;
-    const label = buildChatBreadcrumbs().join(' / ').trim() || 'Раздел';
-    const icon = TAB_VISUALS[String(link?.tab ?? '') as MenuTabId]?.icon ?? '🔗';
-    const r = desktopPutShortcut(desktopUiRef.current, { id: crypto.randomUUID(), label, icon, link }, Date.now());
-    setDesktopUi(r.desktop);
-    if (r.outcome === 'added') seedDesktopUsage(r.desktop, link);
-    announceDesktopOutcome(r.outcome, label);
-  }
-
   async function saveCurrentPositionToNotes() {
     if (!authStatus.loggedIn || viewMode) return;
     const title = buildChatBreadcrumbs().join(' / ').trim() || 'Ссылка на раздел';
@@ -6142,7 +6162,14 @@ export function App() {
         {t === 'warehouse_analytics' && <WarehouseAnalyticsPage />}
 
         {t === 'workshop_stats' && <WorkshopStatsPage />}
-        {t === 'custom_reports' && <CustomReportsPage initialTemplateId={customReportInitialTemplateId} />}
+        {t === 'custom_reports' && (
+          <CustomReportsPage
+            initialTemplateId={customReportInitialTemplateId}
+            onFavoriteChange={(templateId: string, title: string, favorite: boolean) =>
+              syncCustomReportDesktop(templateId, title, favorite)
+            }
+          />
+        )}
 
         {t === 'report_templates' && (
           <ReportTemplatesShowcasePage
@@ -6157,6 +6184,7 @@ export function App() {
             }}
           />
         )}
+        {t === 'access_sections' && <AccessSectionsPage onOpenEmployee={openEmployee} />}
 
         {t === 'access_sections' && <AccessSectionsPage onOpenEmployee={openEmployee} />}
 
@@ -6421,10 +6449,8 @@ export function App() {
             ) => openReportPreset(presetId, opts)}
             themeId={reportsThemeId}
             onThemeChange={setReportsThemeId}
-            desktopPresetIds={desktopReportPresetIds}
-            onAddToDesktop={(presetId: ReportPresetId, title: string) => addReportPresetToDesktop(presetId, title)}
-            onRemoveFromDesktop={(presetId: ReportPresetId) =>
-              removeLinkFromDesktop({ kind: 'app_link', tab: 'report_preset', reportPresetId: presetId })
+            onFavoriteChange={(presetId: ReportPresetId, title: string, favorite: boolean) =>
+              syncReportPresetDesktop(presetId, title, favorite)
             }
           />
         )}
@@ -6848,7 +6874,6 @@ export function App() {
               onCloseTab={closeTabById}
               isOnDesktop={isOpenTabOnDesktop}
               onToggleDesktop={toggleOpenTabDesktop}
-              onMenuButtonDesktopShortcut={addMenuButtonToDesktop}
               notice={shellNotice}
               secondaryCard={secondaryCardTab}
               renderSecondaryCard={renderSecondaryCard}

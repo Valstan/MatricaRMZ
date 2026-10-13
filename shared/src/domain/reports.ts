@@ -568,6 +568,8 @@ export type ReportPresetFilterTemplateSaveResult =
   | { ok: false; error: string };
 
 export type ReportPresetFavoritesResult = { ok: true; ids: ReportPresetId[] } | { ok: false; error: string };
+/** Избранные шаблоны «Моих отчётов» (B8): id шаблонов, порядок — порядок starring. */
+export type ReportTemplateFavoritesResult = { ok: true; ids: string[] } | { ok: false; error: string };
 export type ReportPresetHistoryListResult = { ok: true; entries: ReportPresetHistoryEntry[] } | { ok: false; error: string };
 export type ReportPresetHistoryAddResult = { ok: true } | { ok: false; error: string };
 

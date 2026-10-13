@@ -19,17 +19,15 @@ import type { ActionButtonId } from './menuActions.js';
 import type { MenuButtonDescriptor, MenuSection, V2Buttons } from './v2ButtonCatalog.js';
 import './buttonPanel.css';
 
-type ButtonMenuState = { btn: MenuButtonDescriptor; x: number; y: number; pinned: boolean } | null;
+type ButtonMenuState = { btn: MenuButtonDescriptor; x: number; y: number } | null;
 
 function SortableMenuButton(props: {
   btn: MenuButtonDescriptor;
   active: boolean;
   listOpen: boolean;
-  pinned: boolean;
   isFavorite: boolean;
   onToggleFavorite: (() => void) | null;
   onClick: () => void;
-  onTogglePin: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.btn.id });
@@ -58,15 +56,6 @@ function SortableMenuButton(props: {
         <span className="v2-menu-btn-icon">{props.btn.icon}</span>
         <span className="v2-menu-btn-label">{props.btn.label}</span>
       </button>
-      <button
-        type="button"
-        className="v2-menu-pin"
-        data-pinned={props.pinned ? '1' : undefined}
-        title={props.pinned ? 'Открепить' : 'Закрепить наверху'}
-        onClick={props.onTogglePin}
-      >
-        📌
-      </button>
       {props.onToggleFavorite != null && props.btn.kind === 'nav' && (
         <FavoriteStarButton
           favorite={props.isFavorite}
@@ -93,13 +82,6 @@ export function ButtonPanel(props: {
   /** Звёздочки избранного (только nav-кнопки разделов). Пусто — звёздочек нет. */
   favoriteTabs?: readonly MenuTabId[];
   onToggleFavoriteTab?: (id: MenuTabId) => void;
-  /**
-   * «Добавить на Верстак» для кнопки раздела (этап B): ярлык кладётся на ту кнопку,
-   * по которой щёлкнули, а не на текущую позицию. Закреп сверху тоже кладёт ярлык
-   * (требование владельца); открепление ярлык НЕ снимает — это два разных действия.
-   * На Android не показывается: там нет Верстака.
-   */
-  onDesktopShortcut?: (btn: MenuButtonDescriptor) => void;
 }) {
   const [menu, setMenu] = useState<ButtonMenuState>(null);
   const [restoreOpen, setRestoreOpen] = useState(false);
@@ -123,8 +105,6 @@ export function ButtonPanel(props: {
   const pointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 6 } });
   const sensors = useSensors(...(isAndroidPlatform() ? [] : [pointerSensor]));
 
-  const pinnedIds = useMemo(() => props.buttons.pinned.map((b) => b.id), [props.buttons.pinned]);
-
   const closeMenu = () => setMenu(null);
 
   function reorder<T>(ids: T[], activeId: T, overId: T): T[] | null {
@@ -138,45 +118,13 @@ export function ButtonPanel(props: {
     return next;
   }
 
-  function isPinnedId(id: string): boolean {
-    return props.layout.pinned.includes(id);
-  }
-
-  const desktopShortcutAvailable = Boolean(props.onDesktopShortcut) && !isAndroidPlatform();
-
-  function togglePin(btn: MenuButtonDescriptor) {
-    const wasPinned = props.layout.pinned.includes(btn.id);
-    const pinned = wasPinned ? props.layout.pinned.filter((x) => x !== btn.id) : [...props.layout.pinned, btn.id];
-    props.onLayoutChange({ ...props.layout, pinned });
-    if (!wasPinned && btn.kind === 'nav' && desktopShortcutAvailable) props.onDesktopShortcut?.(btn);
-  }
-
   function hideButton(id: string) {
     if (props.layout.hidden.includes(id)) return;
-    props.onLayoutChange({
-      ...props.layout,
-      hidden: [...props.layout.hidden, id],
-      pinned: props.layout.pinned.filter((x) => x !== id),
-    });
+    props.onLayoutChange({ ...props.layout, hidden: [...props.layout.hidden, id] });
   }
 
   function restoreButton(id: string) {
     props.onLayoutChange({ ...props.layout, hidden: props.layout.hidden.filter((x) => x !== id) });
-  }
-
-  function onPinnedDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const next = reorder(pinnedIds, active.id as string, over.id as string);
-    if (!next) return;
-    // Пере-упорядочиваем только ВИДИМЫЕ id, не выбрасывая скрытые/недоступные в
-    // этом релизе: раньше запись отфильтрованного списка молча стирала пины при
-    // id-чурне между релизами — они обязаны вернуться вместе со своим id.
-    const visible = new Set(pinnedIds);
-    let k = 0;
-    const merged = props.layout.pinned.map((id) => (visible.has(id) ? next[k++]! : id));
-    for (; k < next.length; k += 1) merged.push(next[k]!);
-    props.onLayoutChange({ ...props.layout, pinned: merged });
   }
 
   function onSectionDragEnd(sectionId: string) {
@@ -205,13 +153,22 @@ export function ButtonPanel(props: {
     props.onCollapsedSectionsChange(next);
   }
 
-  const renderButton = (btn: MenuButtonDescriptor, pinned: boolean) => (
+  // Закреплённые сверху (B8) — это избранное: отдельных пинов больше нет, блок
+  // показывает разделы со звёздочкой в порядке избранного. Порядок DnD не правится —
+  // он живёт в самом избранном.
+  const starredButtons = useMemo(() => {
+    const byId = new Map<string, MenuButtonDescriptor>();
+    for (const section of props.buttons.sections) for (const btn of section.items) byId.set(btn.id, btn);
+    for (const btn of props.buttons.pinned) if (!byId.has(btn.id)) byId.set(btn.id, btn);
+    return (props.favoriteTabs ?? []).map((id) => byId.get(id)).filter((b): b is MenuButtonDescriptor => Boolean(b));
+  }, [props.buttons.sections, props.buttons.pinned, props.favoriteTabs]);
+
+  const renderButton = (btn: MenuButtonDescriptor) => (
     <SortableMenuButton
       key={btn.id}
       btn={btn}
       active={btn.kind === 'nav' && props.activeMenuTab === btn.id}
       listOpen={btn.kind === 'nav' && props.listOpenTab === btn.id}
-      pinned={pinned}
       isFavorite={btn.kind === 'nav' && (props.favoriteTabs ?? []).includes(btn.id as MenuTabId)}
       onToggleFavorite={
         btn.kind === 'nav' && props.onToggleFavoriteTab ? () => props.onToggleFavoriteTab?.(btn.id as MenuTabId) : null
@@ -220,10 +177,9 @@ export function ButtonPanel(props: {
         if (btn.kind === 'nav') props.onTab(btn.id as MenuTabId);
         else props.onAction(btn.id as ActionButtonId);
       }}
-      onTogglePin={() => togglePin(btn)}
       onContextMenu={(e) => {
         e.preventDefault();
-        setMenu({ btn, x: e.clientX, y: e.clientY, pinned: isPinnedId(btn.id) });
+        setMenu({ btn, x: e.clientX, y: e.clientY });
       }}
     />
   );
@@ -236,19 +192,16 @@ export function ButtonPanel(props: {
         {appVersionLabel || 'Версия: —'}
       </div>
       {/* Закреплённая область — всегда видна и развёрнута, живёт ВНЕ скролла:
-          при прокрутке остальных секций остаётся наверху (владелец 2026-08-11). */}
-      {props.buttons.pinned.length > 0 && (
+          при прокрутке остальных секций остаётся наверху (владелец 2026-08-11).
+          Состав — избранное (B8), без DnD: порядок правится самим избранным. */}
+      {starredButtons.length > 0 && (
         <div className="v2-button-panel-fixed">
           <div className="v2-section-header v2-section-pinned-header" data-pinned="1">
             <span className="v2-section-header-label">Закреплённые</span>
           </div>
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onPinnedDragEnd}>
-            <SortableContext items={pinnedIds} strategy={verticalListSortingStrategy}>
-              <div className="v2-button-section v2-button-section-pinned">
-                {props.buttons.pinned.map((btn) => renderButton(btn, true))}
-              </div>
-            </SortableContext>
-          </DndContext>
+          <div className="v2-button-section v2-button-section-pinned">
+            {starredButtons.map((btn) => renderButton(btn))}
+          </div>
           <div className="v2-button-divider" />
         </div>
       )}
@@ -274,7 +227,7 @@ export function ButtonPanel(props: {
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onSectionDragEnd(section.id)}>
                 <SortableContext items={sectionIds} strategy={verticalListSortingStrategy}>
                   <div className="v2-button-section">
-                    {section.items.map((btn) => renderButton(btn, isPinnedId(btn.id)))}
+                    {section.items.map((btn) => renderButton(btn))}
                   </div>
                 </SortableContext>
               </DndContext>
@@ -303,30 +256,9 @@ export function ButtonPanel(props: {
       {menu && (
         // Портал в body: панель МЕНЮ — это `.v3-menu-overlay` со своим `z-index`,
         // и меню кнопки внутри него выше ЭТОГО слоя подняться не может (PopupLayer).
+        // Пинов здесь больше нет (B8): звезда — в самой строке, ярлык — звездой.
         <PopupLayer>
           <div className="v2-context-menu" style={{ left: menu.x, top: menu.y }} onClick={(e) => e.stopPropagation()}>
-            <button
-              type="button"
-              className="v2-footer-btn"
-              onClick={() => {
-                togglePin(menu.btn);
-                closeMenu();
-              }}
-            >
-              {menu.pinned ? 'Открепить' : '📌 Закрепить сверху'}
-            </button>
-            {menu.btn.kind === 'nav' && desktopShortcutAvailable && (
-              <button
-                type="button"
-                className="v2-footer-btn"
-                onClick={() => {
-                  props.onDesktopShortcut?.(menu.btn);
-                  closeMenu();
-                }}
-              >
-                🧣 Добавить на Верстак
-              </button>
-            )}
             <button
               type="button"
               className="v2-footer-btn"

@@ -131,47 +131,6 @@
   text-overflow: ellipsis;
 }
 
-/* 📌 проявляется на наведении; у закреплённых виден всегда. */
-.v2-menu-pin {
-  position: absolute;
-  top: 3px;
-  right: 4px;
-  bottom: 3px;
-  width: 22px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  padding: 0;
-  font-size: 12px;
-  line-height: 1;
-  cursor: pointer;
-  opacity: 0;
-  filter: grayscale(1);
-}
-
-.v2-menu-row:hover .v2-menu-pin {
-  opacity: 0.55;
-}
-
-/* На сенсорном экране наведения нет — скрепка так и осталась бы невидимой, и
-   закрепить кнопку на планшете было нечем. Показываем её постоянно. */
-@media (hover: none) {
-  .v2-menu-pin {
-    opacity: 0.55;
-  }
-}
-
-.v2-menu-pin[data-pinned='1'] {
-  opacity: 1;
-  filter: none;
-}
-
-.v2-menu-pin:hover {
-  opacity: 1;
-  filter: none;
-  background: rgba(148, 163, 184, 0.22);
-}
-
 .v2-button-footer {
   margin-top: auto;
   padding-top: 8px;

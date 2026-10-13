@@ -670,6 +670,7 @@ export type ChatDeepLinkPayload = {
     | 'stock_inventory'
     | 'reports'
     | 'report_preset'
+    | 'custom_reports'
     | 'admin'
     | 'audit'
     | 'notes'
@@ -690,6 +691,8 @@ export type ChatDeepLinkPayload = {
   stockDocumentId?: string | null;
   workOrderId?: string | null;
   reportPresetId?: string | null;
+  /** Ярлык шаблона «Моих отчётов» (B8): открывает конструктор сразу на шаблоне. */
+  customReportTemplateId?: string | null;
   /** Универсальная ссылка на карточку для персонального избранного. */
   cardKind?: string | null;
   entityId?: string | null;
@@ -893,6 +896,7 @@ import type {
   ReportPresetPreviewRequest,
   ReportPresetPreviewResult,
   ReportPresetPrintResult,
+  ReportTemplateFavoritesResult,
 } from '../domain/reports.js';
 import type { ReportCellValue, ReportColumn, ReportTotals } from '../domain/reports.js';
 import type { CustomReportAgg, CustomReportGroup, CustomReportSpecV1, CustomReportTemplate } from '../domain/customReport.js';
@@ -1371,6 +1375,9 @@ export type MatricaApi = {
     presetPrint: (args: ReportPresetPreviewRequest) => Promise<ReportPresetPrintResult>;
     favoritesGet: (args?: { userId?: string }) => Promise<ReportPresetFavoritesResult>;
     favoritesSet: (args: { userId?: string; ids: string[] }) => Promise<ReportPresetFavoritesResult>;
+    /** Избранные шаблоны «Моих отчётов» (B8): звезда = избранное + ярлык на Верстак. */
+    templateFavoritesGet: (args?: { userId?: string }) => Promise<ReportTemplateFavoritesResult>;
+    templateFavoritesSet: (args: { userId?: string; ids: string[] }) => Promise<ReportTemplateFavoritesResult>;
     historyList: (args?: { userId?: string; limit?: number }) => Promise<ReportPresetHistoryListResult>;
     historyAdd: (args: { userId?: string; entry: ReportPresetHistoryEntry }) => Promise<ReportPresetHistoryAddResult>;
     /** Выгрузка личных шаблонов «Моих отчётов» для секции профиля (общие не роумятся). */
