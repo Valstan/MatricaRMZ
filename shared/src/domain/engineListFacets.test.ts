@@ -241,6 +241,21 @@ describe('ступени этапов: «Все этапы» и «Дата эт�
     expect(options.find((o) => o.value === 'stage:sborka')?.count).toBe(2);
   });
 
+  it('B4: ступень «Повторный заход» считает повторы, не забирая двигатели из этапов', () => {
+    const rows = [
+      { id: 'd1', lastStageCode: 'obkatka', lastStageName: 'Обкатка', lastStageAt: DAY_09, lastStagePass: 1 },
+      { id: 'd2', lastStageCode: 'obkatka', lastStageName: 'Обкатка', lastStageAt: DAY_09, lastStagePass: 2 },
+    ] as unknown as EngineListItem[];
+    // Этапный отбор показывает все обкатки, включая повторную.
+    expect(ids(applyEngineFacets(rows, { factoryStage: ['stage:obkatka'] }))).toEqual(['d1', 'd2']);
+    // Отдельный счётчик повторов — по всем этапам сразу.
+    expect(ids(applyEngineFacets(rows, { hasRepeatPass: ['repeat'] }))).toEqual(['d2']);
+    expect(ids(applyEngineFacets(rows, { hasRepeatPass: ['first'] }))).toEqual(['d1']);
+    const options = engineFacetOptions(rows, {}, 'hasRepeatPass');
+    expect(options.find((o) => o.value === 'repeat')).toMatchObject({ label: 'повторный', count: 1 });
+    expect(options.find((o) => o.value === 'first')).toMatchObject({ label: 'первый проход', count: 1 });
+  });
+
   it('у шаблона, заданного сервером, ряд и подписи берутся из него', () => {
     // Название этапа меняет владелец; ступень не должна показывать статичное имя шаблона.
     const custom = [{ code: 'sborka', name: 'Сборка узла', sortOrder: 50, sideBranch: false }] as unknown as RepairStageTemplate[];
@@ -272,7 +287,6 @@ describe('ступень «Этап на заводе» со справочни�
     const options = engineFacetOptions(stageRows, {}, 'factoryStage', STAGE_TYPES);
     expect(options.map((o) => o.value)).toEqual([
       'scrap',
-      'returns',
       'repaired',
       'stage:accepted',
       'stage:shipped',
@@ -310,7 +324,7 @@ describe('ступень «Этап на заводе» со справочни�
 
   it('без справочника постоянные этапы всё равно в ряду, этапы работ — по строкам', () => {
     const values = engineFacetOptions(stageRows, {}, 'factoryStage').map((o) => o.value);
-    expect(values.slice(0, 3)).toEqual(['scrap', 'returns', 'repaired']);
+    expect(values.slice(0, 2)).toEqual(['scrap', 'repaired']);
     expect(values).toContain('stage:sborka');
     expect(values).toContain('stage:scrap_branch');
     // Этап работ без кода получает ключ по имени — со справочником он стал бы `sheet:sborka`.

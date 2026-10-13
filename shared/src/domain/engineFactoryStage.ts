@@ -26,11 +26,13 @@ export type EngineFactoryStage = {
   /** Дата этапа, когда она есть у строки списка (приход, дефектовка, этап работ). */
   at: number | null;
   /**
-   * Настоящий этап строки, когда `label` занят группой. У строки «Возвраты» `label` —
-   * это про повторный проход, а колонке «Этап на заводе» нужно, на каком этапе движок
-   * стоит («Сборка»). Есть только у возвратов; для остальных `label` уже называет этап.
+   * Номер прохода этапа (B4): 1 — первый, ≥2 — повторный заход. Повтор НЕ уводит
+   * двигатель из группы своего этапа (решение владельца 13.10.2026 — раньше
+   * повторы уходили в отдельную строку «Возвраты» и этапный отбор их терял):
+   * отбор «Обкатка» показывает все обкатки, а счётчик повторов — отдельная
+   * ступень «Повторный заход». Отсутствие у старых строк = первый проход.
    */
-  stageLabel?: string;
+  repeatPass: number;
 };
 
 export type EngineFactoryStageTypeRef = { code: string; name: string; sortOrder?: number };
@@ -45,8 +47,6 @@ export const ENGINE_FACTORY_STAGE_RANK = {
   /** База для строк единого списка: `50 + индекс этапа по шаблону`. Выше узлов — строка ведётся оператором сейчас. */
   stageBase: 50,
   repaired: 100,
-  /** Возвраты — выше готового и ниже утиля: повторный заход виден сразу, но это не отказ. */
-  returns: 900,
   scrap: 1000,
 } as const;
 
@@ -56,7 +56,6 @@ export const ENGINE_FACTORY_STAGE_LABELS = {
   completenessAct: 'Комплектовка сделана',
   defectAct: 'Дефектовка сделана',
   repaired: 'Отремонтирован',
-  returns: 'Возвраты (повторный проход)',
   scrap: 'Утиль',
 } as const;
 
@@ -103,13 +102,14 @@ function stageRow(
   const idx = ordered.findIndex((t) => t.code === code);
   const template = idx >= 0 ? ordered[idx]! : null;
   if (template?.sideBranch === true) {
-    return { key: `stage:${code}`, label: String(e.lastStageName ?? '').trim() || template.name, rank: ENGINE_FACTORY_STAGE_RANK.repairStarted, at };
+    return { key: `stage:${code}`, label: String(e.lastStageName ?? '').trim() || template.name, rank: ENGINE_FACTORY_STAGE_RANK.repairStarted, at, repeatPass: 1 };
   }
   return {
     key: `stage:${code}`,
     label: String(e.lastStageName ?? '').trim() || template?.name || code,
     rank: ENGINE_FACTORY_STAGE_RANK.stageBase + Math.max(0, idx),
     at,
+    repeatPass: 1,
   };
 }
 
@@ -130,6 +130,7 @@ function sheetStage(
     label: type?.name || node || code,
     rank: ENGINE_FACTORY_STAGE_RANK.sheetBase + Math.max(0, idx),
     at: dateMs(e.lastSheetAt),
+    repeatPass: 1,
   };
 }
 
@@ -201,38 +202,27 @@ export function engineFactoryStage(
 ): EngineFactoryStage {
   const flags = e.statusFlags ?? {};
   if (e.isScrap === true) {
-    return { key: 'scrap', label: ENGINE_FACTORY_STAGE_LABELS.scrap, rank: ENGINE_FACTORY_STAGE_RANK.scrap, at: engineScrapDate(e) };
+    return { key: 'scrap', label: ENGINE_FACTORY_STAGE_LABELS.scrap, rank: ENGINE_FACTORY_STAGE_RANK.scrap, at: engineScrapDate(e), repeatPass: 1 };
   }
   // Датированная строка единого списка — текущее место: бьёт и готовый флаг, и узлы,
   // и акты. Возврат (сборка после обкатки при взведённом «Отремонтирован») — это она:
   // место — сборка, а не готовый. Утиль выше — его решает флаг, а не строка.
   const stage = stageRow(e, stageTemplates);
   if (stage) {
-    // Возврат назад по линейке (проход ≥ 2) — ОТДЕЛЬНОЙ строкой (решение владельца
-    // 05.10.2026). Не «ещё один этап»: двигатель, который гоняли второй раз, в группе
-    // своего этапа неотличим от never-возвращавшегося, а это ровно то, что цеху видеть.
-    // Поэтому такие двигатели уходят из групп этапов — иначе строка «Возвраты» была бы
-    // пустой, а счётчики этапов врали бы. Утиль выше: уход в брак важнее повтора.
-    if (returnsPass(e) >= 2) {
-      return {
-        key: 'returns',
-        label: ENGINE_FACTORY_STAGE_LABELS.returns,
-        // Этап, на котором движок стоит, — иначе строка «Возвраты» была бы списком
-        // без указания, что там с двигателем, а колонка «Этап на заводе» врала бы.
-        stageLabel: stage.label,
-        rank: ENGINE_FACTORY_STAGE_RANK.returns,
-        at: stage.at,
-      };
-    }
-    return stage;
+    // B4 (решение владельца 13.10.2026): повторный заход остаётся в группе своего
+    // этапа — отбор «Обкатка» показывает все обкатки. Раньше (05.10.2026) повторы
+    // уходили в отдельную строку «Возвраты» и этапный отбор их терял. Счётчик
+    // повторов — отдельная ступень «Повторный заход», а не группа.
+    const pass = returnsPass(e);
+    return pass >= 2 ? { ...stage, repeatPass: pass } : stage;
   }
   if (flags.status_repaired === true) {
-    return { key: 'repaired', label: ENGINE_FACTORY_STAGE_LABELS.repaired, rank: ENGINE_FACTORY_STAGE_RANK.repaired, at: engineStatusDate(e, 'status_repaired') };
+    return { key: 'repaired', label: ENGINE_FACTORY_STAGE_LABELS.repaired, rank: ENGINE_FACTORY_STAGE_RANK.repaired, at: engineStatusDate(e, 'status_repaired'), repeatPass: 1 };
   }
   const sheet = sheetStage(e, types);
   if (sheet) return sheet;
   if (e.hasDefectAct === true) {
-    return { key: 'defect_act', label: ENGINE_FACTORY_STAGE_LABELS.defectAct, rank: ENGINE_FACTORY_STAGE_RANK.defectAct, at: dateMs(e.defectDate) };
+    return { key: 'defect_act', label: ENGINE_FACTORY_STAGE_LABELS.defectAct, rank: ENGINE_FACTORY_STAGE_RANK.defectAct, at: dateMs(e.defectDate), repeatPass: 1 };
   }
   // Дата берётся из акта («Провести комплектность» её и ставит): до этого группа была
   // единственной без «Даты этапа». Признак «акт начали заполнять» пока оставлен вторым
@@ -244,29 +234,29 @@ export function engineFactoryStage(
       label: ENGINE_FACTORY_STAGE_LABELS.completenessAct,
       rank: ENGINE_FACTORY_STAGE_RANK.completenessAct,
       at: dateMs(e.completenessActDate),
+      repeatPass: 1,
     };
   }
   if (flags.status_repair_started === true) {
-    return { key: 'repair_started', label: ENGINE_FACTORY_STAGE_LABELS.repairStarted, rank: ENGINE_FACTORY_STAGE_RANK.repairStarted, at: engineStatusDate(e, 'status_repair_started') };
+    return { key: 'repair_started', label: ENGINE_FACTORY_STAGE_LABELS.repairStarted, rank: ENGINE_FACTORY_STAGE_RANK.repairStarted, at: engineStatusDate(e, 'status_repair_started'), repeatPass: 1 };
   }
-  return { key: 'arrived', label: ENGINE_FACTORY_STAGE_LABELS.arrived, rank: ENGINE_FACTORY_STAGE_RANK.arrived, at: dateMs(e.arrivalDate) };
+  return { key: 'arrived', label: ENGINE_FACTORY_STAGE_LABELS.arrived, rank: ENGINE_FACTORY_STAGE_RANK.arrived, at: dateMs(e.arrivalDate), repeatPass: 1 };
 }
 
 /**
- * Подпись колонки «Этап / Этап на заводе» (раскатка пилота #1195, решение
- * владельца 09.10.2026): этап строкой, у повторного прохода — с суффиксом
- * «· возврат», как в списке двигателей. Группировка и сортировка идут по
- * `key`/`rank` — сюда только текст (печать берёт его же из `render`).
+ * Подпись колонки «Этап / Этап на заводе» (B4): этап строкой, у повторного
+ * прохода — с суффиксом «· возврат», как в списке двигателей. Группировка
+ * и сортировка идут по `key`/`rank` — сюда только текст (печать берёт его же).
  */
-export function formatEngineFactoryStageLabel(stage: Pick<EngineFactoryStage, 'key' | 'label' | 'stageLabel'>): string {
-  const base = stage.stageLabel ?? stage.label;
-  return stage.key === 'returns' ? `${base} · возврат` : base;
+export function formatEngineFactoryStageLabel(stage: Pick<EngineFactoryStage, 'key' | 'label' | 'repeatPass'>): string {
+  return stage.repeatPass >= 2 ? `${stage.label} · возврат` : stage.label;
 }
 
 /**
  * Полный ряд групп отчёта от позднего к раннему (для порядка групп и пустых групп в шапке):
- * утиль, возвраты, отремонтирован, единый список по шаблону (поздние выше), этапы работ
- * по видам, дефектовка, комплектовка, ремонт начат, пришёл.
+ * утиль, отремонтирован, единый список по шаблону (поздние выше), этапы работ
+ * по видам, дефектовка, комплектовка, ремонт начат, пришёл. Повторы — внутри групп
+ * своих этапов (B4), отдельной строки «Возвраты» больше нет.
  */
 export function engineFactoryStageOrder(
   types?: readonly EngineFactoryStageTypeRef[],
@@ -285,7 +275,6 @@ export function engineFactoryStageOrder(
     .map((t) => ({ key: `stage:${t.code}`, label: t.name, rank: ENGINE_FACTORY_STAGE_RANK.repairStarted }));
   return [
     { key: 'scrap', label: ENGINE_FACTORY_STAGE_LABELS.scrap, rank: ENGINE_FACTORY_STAGE_RANK.scrap },
-    { key: 'returns', label: ENGINE_FACTORY_STAGE_LABELS.returns, rank: ENGINE_FACTORY_STAGE_RANK.returns },
     { key: 'repaired', label: ENGINE_FACTORY_STAGE_LABELS.repaired, rank: ENGINE_FACTORY_STAGE_RANK.repaired },
     ...lineStages,
     ...sheets.reverse(),
