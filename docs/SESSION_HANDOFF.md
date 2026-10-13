@@ -2,10 +2,23 @@
 
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
-**Status:** ACTIVE → CLOSED (план `favorites-work-stages-defaults-2026-10.md` выполнен: PR-1 (#1311) / PR-2 (03be8a11) / PR-3 (#1311) / PR-4 (#1312) / PR-5 (#1313 — дизайн + 0108, на main уже `signature_defaults`) / PR-6 (`grantWorkSheetsEditTrio` — права `valstan/sapegin/fatyhova`). Релиз v3.74.0 (+ android-v3.74.0) на проде; `main` = `4d5fadf7` (14 коммитов с другого компа `Computer`).
-**Updated:** 2026-10-12 (opencode session, машина `PC79`; синхронизация с `Computer`: `main` 4d5fadf7, `v3.74.0`, `signature_defaults` + `grantWorkSheetsEditTrio` в коде)
-**Branch:** main = origin/main
+**Status:** ACTIVE (нитка: план `workshop-stage-2026-10.md`, PR-1 открыт #1314, CI в работе)
+**Updated:** 2026-10-13 (opencode session, машина `PC79`)
+**Branch:** feat/workshop-stage-2026-10 (PR #1314) ← main = origin/main (4d5fadf7 + локальный 02b39571 про opencode-установщик)
 **Last released version:** **v3.74.0** на проде (+ android-v3.74.0).
+
+## Текущая нитка
+
+План владельца 13.10.2026 — [`docs/plans/workshop-stage-2026-10.md`](plans/workshop-stage-2026-10.md):
+цех — атрибут этапа ремонта, не двигателя (двигатель принадлежит заводу).
+
+- **PR-1** (#1314, ветка `feat/workshop-stage-2026-10`): карточка без `workshop_id`;
+  снимок `workshopName` в ленте → строке списка; хук `useWorkshopNames`; колонка
+  «Цех» в списке двигателей; колонка/ступень «Цех» в отчёте «Двигатели на заводе».
+  Локальные гейты зелёные (shared 1371, main 39, guards, typecheck×3, eslint).
+  CDP-смоук не гонялся — честно в теле PR. CI в работе, мерж после зелёного.
+- Дальше: PR-2 (аудит правки цеха в этапах), PR-3 (бэкфилл сборка→цех 1,
+  обкатка→цех 2 — прод-мутация, по слову владельца в том же ходе).
 
 ## Текущая нитка → ЗАВЕРШЕНА (релиз v3.74.0)
 
