@@ -46,8 +46,9 @@ import {
   type StatusCode,
 } from '@matricarmz/shared';
 
-import { attributeDefs, attributeValues, entities, entityTypes, operations } from '../database/schema.js';
+import { attributeDefs, attributeValues, entities, entityTypes, erpEngineCards, operations } from '../database/schema.js';
 import { collectChunked } from '../utils/sqlChunks.js';
+import { mergeStrictCardAttrs, readEngineCardStrict, strictRowToSnake, type EavCardAttr } from './engineCardsReplica.js';
 import { payloadWithInventoryRows, readInventoryRowsForOperations, readInventoryLinesVersions } from './engineInventoryLinesReplica.js';
 import { listEntitiesByType, listEntitiesByTypeWithAttrs } from './entityService.js';
 import { ensureRepairStageRow, listRepairStageRows, stageRank } from './repairStageService.js';
@@ -958,6 +959,7 @@ export async function listEngines(
               entityId: attributeValues.entityId,
               attributeDefId: attributeValues.attributeDefId,
               valueJson: attributeValues.valueJson,
+              updatedAt: attributeValues.updatedAt,
             })
             .from(attributeValues)
             .where(
@@ -974,16 +976,30 @@ export async function listEngines(
       : [];
 
   mark('eavScan');
-  const valuesByEntity = new Map<string, Map<string, string | null>>();
+  const valuesByEntity = new Map<string, Map<string, { json: string | null; updatedAt: number }>>();
   for (const row of valueRows) {
     const entityId = String(row.entityId);
     let map = valuesByEntity.get(entityId);
     if (!map) {
-      map = new Map<string, string | null>();
+      map = new Map<string, { json: string | null; updatedAt: number }>();
       valuesByEntity.set(entityId, map);
     }
-    map.set(String(row.attributeDefId), row.valueJson == null ? null : String(row.valueJson));
+    map.set(String(row.attributeDefId), {
+      json: row.valueJson == null ? null : String(row.valueJson),
+      updatedAt: Number(row.updatedAt ?? 0),
+    });
   }
+
+  // A3: строгая реплика поверх EAV одним батчем. Запись карточки (E3b) идёт только
+  // в реплику — без этого новая карточка в списке пустая до синк-круга.
+  const strictByEngineId = new Map<string, typeof erpEngineCards.$inferSelect>();
+  if (engineIds.length > 0) {
+    const strictRows = await collectChunked(engineIds, (idsChunk) =>
+      db.select().from(erpEngineCards).where(inArray(erpEngineCards.id, idsChunk)),
+    );
+    for (const r of strictRows) strictByEngineId.set(String(r.id), r);
+  }
+  mark('strictCards');
 
   const statusDefById: Record<string, string> = {};
   for (const c of STATUS_CODES) {
@@ -1000,7 +1016,38 @@ export async function listEngines(
   const listNow = nowMs();
   const listTodayIso = isoDayKey(listNow);
   for (const e of engines) {
-    const rowValues = valuesByEntity.get(e.id) ?? new Map<string, string | null>();
+    const rowValues = valuesByEntity.get(e.id) ?? new Map<string, { json: string | null; updatedAt: number }>();
+    // A3: identity-блок из строгой реплики (посвежее побеждает). Запись карточки
+    // (E3b) идёт только в реплику — без этого новая карточка в списке пустая до
+    // синк-круга. Значения возвращаем через JSON round-trip: нижележащий код
+    // парсит ровно тот же формат, что кладёт EAV.
+    {
+      const strict = strictByEngineId.get(e.id);
+      if (strict && strict.deletedAt == null) {
+        const strictTs = Number(strict.updatedAt ?? 0);
+        const snake = strictRowToSnake(strict);
+        const pairs: Array<[string | undefined, string]> = [
+          [numberDefId, 'engine_number'],
+          [internalNumberDefId, 'engine_internal_number'],
+          [internalNumberYearDefId, 'engine_internal_number_year'],
+          [brandDefId, 'engine_brand'],
+          [brandIdDefId, 'engine_brand_id'],
+          [customerIdDefId, 'customer_id'],
+          [contractIdDefId, 'contract_id'],
+          [contractSectionDefId, 'contract_section_number'],
+          [arrivalDateDefId, 'arrival_date'],
+        ];
+        for (const [defId, code] of pairs) {
+          if (!defId) continue;
+          const s = snake[code];
+          if (s === undefined || s === null) continue;
+          const cur = rowValues.get(defId);
+          if (!cur || cur.json == null || strictTs >= cur.updatedAt) {
+            rowValues.set(defId, { json: JSON.stringify(s), updatedAt: strictTs });
+          }
+        }
+      }
+    }
     let engineNumber: string | undefined;
     let internalNumber: string | undefined;
     let internalNumberYear: number | undefined;
@@ -1015,85 +1062,85 @@ export async function listEngines(
     const statusDateByCode: Partial<Record<StatusCode, number | null>> = {};
 
     if (numberDefId) {
-      const v = rowValues.get(numberDefId);
+      const v = (rowValues.get(numberDefId)?.json ?? null);
       engineNumber = v != null ? safeStringFromJson(v) : undefined;
     }
     if (internalNumberDefId) {
-      const v = rowValues.get(internalNumberDefId);
+      const v = (rowValues.get(internalNumberDefId)?.json ?? null);
       internalNumber = v != null ? safeStringFromJson(v) : undefined;
     }
     if (internalNumberYearDefId) {
-      const v = rowValues.get(internalNumberYearDefId);
+      const v = (rowValues.get(internalNumberYearDefId)?.json ?? null);
       const parsed = v != null ? Number(safeStringFromJson(v)) : NaN;
       if (isValidEngineInternalNumberYear(parsed)) internalNumberYear = parsed;
     }
     if (brandDefId) {
-      const v = rowValues.get(brandDefId);
+      const v = (rowValues.get(brandDefId)?.json ?? null);
       engineBrand = v != null ? safeStringFromJson(v) : undefined;
     }
     if (brandIdDefId) {
-      const v = rowValues.get(brandIdDefId);
+      const v = (rowValues.get(brandIdDefId)?.json ?? null);
       engineBrandId = v != null ? safeStringFromJson(v) : undefined;
     }
     if (customerIdDefId) {
-      const v = rowValues.get(customerIdDefId);
+      const v = (rowValues.get(customerIdDefId)?.json ?? null);
       customerId = v != null ? safeStringFromJson(v) : undefined;
     }
     if (contractIdDefId) {
-      const v = rowValues.get(contractIdDefId);
+      const v = (rowValues.get(contractIdDefId)?.json ?? null);
       contractId = v != null ? safeStringFromJson(v) : undefined;
     }
     if (contractSectionDefId) {
-      const v = rowValues.get(contractSectionDefId);
+      const v = (rowValues.get(contractSectionDefId)?.json ?? null);
       contractSectionNumber = v != null ? safeStringFromJson(v) : undefined;
     }
     if (arrivalDateDefId) {
-      const v = rowValues.get(arrivalDateDefId);
+      const v = (rowValues.get(arrivalDateDefId)?.json ?? null);
       const raw = v != null ? safeJsonParse(v) : null;
       arrivalDate = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
     }
     let legacyShippingDate: number | null = null;
     if (shippingDateDefId) {
-      const v = rowValues.get(shippingDateDefId);
+      const v = (rowValues.get(shippingDateDefId)?.json ?? null);
       const raw = v != null ? safeJsonParse(v) : null;
       legacyShippingDate = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
     }
     let defectDate: number | null = null;
     if (defectDateDefId) {
-      const v = rowValues.get(defectDateDefId);
+      const v = (rowValues.get(defectDateDefId)?.json ?? null);
       const raw = v != null ? safeJsonParse(v) : null;
       const parsed = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
       defectDate = typeof parsed === 'number' && Number.isFinite(parsed) ? parsed : null;
     }
     let workshopId = '';
     if (workshopIdDefId) {
-      const v = rowValues.get(workshopIdDefId);
+      const v = (rowValues.get(workshopIdDefId)?.json ?? null);
       const raw = v != null ? safeJsonParse(v) : null;
       workshopId = String(raw ?? '').trim();
     }
     let scrapReason = '';
     if (scrapReasonDefId) {
-      const v = rowValues.get(scrapReasonDefId);
+      const v = (rowValues.get(scrapReasonDefId)?.json ?? null);
       const raw = v != null ? safeJsonParse(v) : null;
       scrapReason = String(raw ?? '').trim();
     }
     for (const statusDateDefId of statusDateDefIds) {
       const code = (statusDateDefById as Record<string, StatusCode | undefined>)[statusDateDefId];
       if (!code) continue;
-      const rawValue = rowValues.get(statusDateDefId);
+      const rawValue = (rowValues.get(statusDateDefId)?.json ?? null);
       const raw = rawValue != null ? safeJsonParse(rawValue) : null;
       const parsed = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
       if (typeof parsed === 'number' && Number.isFinite(parsed)) statusDateByCode[code] = parsed;
       else statusDateByCode[code] = null;
     }
     if (attachmentsDefId) {
-      const v = rowValues.get(attachmentsDefId);
+      const v = (rowValues.get(attachmentsDefId)?.json ?? null);
       const raw = v != null ? safeJsonParse(v) : null;
       attachmentPreviews = toAttachmentPreviews(raw);
     }
     const boolAttr = (defIdMaybe: string | undefined): boolean => {
       if (!defIdMaybe) return false;
-      const v = rowValues.get(defIdMaybe);
+      const v = (rowValues.get(defIdMaybe)?.json ?? null);
       const raw = v != null ? safeJsonParse(v) : null;
       return raw === true || raw === 'true' || raw === 1;
     };
@@ -1106,7 +1153,7 @@ export async function listEngines(
       for (const statusDefId of statusDefIds) {
         const code = (statusDefById as Record<string, StatusCode | undefined>)[statusDefId];
         if (code) {
-          const rawValue = rowValues.get(statusDefId);
+          const rawValue = (rowValues.get(statusDefId)?.json ?? null);
           const raw = rawValue != null ? safeJsonParse(rawValue) : null;
           statusFlags[code] = isEavFlagSet(raw);
         }
@@ -1213,7 +1260,7 @@ export async function listEngines(
         : null;
     // Ф2: бейдж «занят» в списке — стартовом экране планшетного режима. Без него
     // оператор узнаёт о замке, только открыв карточку и дойдя до неё по цеху.
-    const reservation = reservationDefId ? parseEngineReservation(rowValues.get(reservationDefId)) : null;
+    const reservation = reservationDefId ? parseEngineReservation((rowValues.get(reservationDefId)?.json ?? null)) : null;
     const liveReservation = isEngineReservationLive(reservation, listNow) ? (reservation as NonNullable<typeof reservation>) : null;
     // Снятие утиля (10.10.2026): «Картер отремонтирован/заменён» гасит источник
     // того же или более раннего момента — акт не переписываем, след живёт в истории.
@@ -1345,6 +1392,10 @@ export async function getEngineDetails(db: BetterSQLite3Database, id: string): P
   if (!e[0]) {
     // Deferred create (Phase 2): no row yet for a freshly-created, not-yet-saved engine —
     // synthesize an empty card so it opens; the row is materialized on the first attribute write.
+    // A3: строгая реплика могла уже лечь раньше entities-шелла — атрибуты добираем из неё,
+    // иначе свеженаписанная карточка выглядит пустой до синк-круга.
+    const strict = await readEngineCardStrict(db, id).catch(() => null);
+    const attr = mergeStrictCardAttrs({}, strict, Number(strict?.updatedAt ?? 0));
     const ts = nowMs();
     return {
       id,
@@ -1353,20 +1404,28 @@ export async function getEngineDetails(db: BetterSQLite3Database, id: string): P
       updatedAt: ts,
       deletedAt: null,
       syncStatus: 'pending',
-      attributes: {},
+      attributes: attr,
     };
   }
 
   const defs = await getEngineAttrDefs(db);
-  const attr: Record<string, unknown> = {};
+  const eav: Record<string, EavCardAttr> = {};
   for (const [code, defId] of Object.entries(defs)) {
     const v = await db
       .select()
       .from(attributeValues)
       .where(and(eq(attributeValues.entityId, id), eq(attributeValues.attributeDefId, defId)))
+      .orderBy(desc(attributeValues.updatedAt))
       .limit(1);
-    if (v[0]?.valueJson) attr[code] = safeJsonParse(v[0].valueJson);
+    if (v[0]?.valueJson) {
+      eav[code] = { value: safeJsonParse(v[0].valueJson), updatedAt: Number(v[0].updatedAt ?? 0) };
+    }
   }
+  // A3: запись карточки (E3b) идёт только в строгую реплику, а чтение — из EAV.
+  // Свежесохранённое merge'им поверх (посвежее побеждает), иначе новая карточка
+  // выглядит пустой до возвращения серверного EAV-следа pull'ом.
+  const strict = await readEngineCardStrict(db, id).catch(() => null);
+  const merged = mergeStrictCardAttrs(eav, strict, Number(strict?.updatedAt ?? 0));
 
   return {
     id: e[0].id,
@@ -1375,7 +1434,7 @@ export async function getEngineDetails(db: BetterSQLite3Database, id: string): P
     updatedAt: e[0].updatedAt,
     deletedAt: e[0].deletedAt ?? null,
     syncStatus: e[0].syncStatus,
-    attributes: attr,
+    attributes: merged,
   };
 }
 

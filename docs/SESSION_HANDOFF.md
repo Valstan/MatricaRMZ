@@ -2,20 +2,21 @@
 
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
-**Status:** ACTIVE (нитка: план client-stability-and-ai-2026-10, A2 — вис дропдауна этапов)
+**Status:** ACTIVE (нитка: план client-stability-and-ai-2026-10, A3 — первый сейв двигателя)
 **Updated:** 2026-10-13 (opencode session, машина `Computer`)
-**Branch:** feat/a2-stage-dialog-no-hang (от origin/main 051d9135)
+**Branch:** feat/a3-engine-create-first-save (от origin/main 3fc2feaa)
 **Last released version:** **v3.76.0** на проде (+ android-v3.76.0).
 
 ## Текущая нитка
 
-A2 (план `docs/plans/client-stability-and-ai-2026-10.md`): вис открытого
-дропдауна этапов — найден настоящий бесконечный цикл (в отличие от A1):
-эффект позиционирования безусловно звал setPopupRect свежим объектом, а при
-инлайн-options `filtered` новый каждый рендер → эффект→setState→рендер→…,
-на каждой итерации замер canvas. Лечение: чистая `computeSuggestPlacement` +
-`samePlacement`, хук пишет стейт только при смене значений (unit 5 + сторож).
-Дальше по плану: A3 (сохранение двигателя с 1 раза).
+A3 (план `docs/plans/client-stability-and-ai-2026-10.md`): новая карточка
+выглядела пустой после первого сейва. Корень: запись (E3b) идёт только в
+строгую реплику, а читатели (`getEngineDetails`, `listEngines`) — из EAV;
+своё же видно лишь после синк-круга (серверный EAV-след возвращается pull'ом).
+Лечение: слияние реплики поверх EAV в обоих читателях (посвежее побеждает,
+`mergeStrictCardAttrs` + `strictRowToSnake`; маппинг `card:get` переиспользован,
+форма pinned тестом). Регрессия: первый сейв свежей карточки виден сразу.
+Дальше по плану: фаза B (B4 — префиксы повторов в фильтрах).
 
 ## Следующий шаг
 
