@@ -10,7 +10,6 @@ import {
   RECLAMATION_DEFECT_NATURE,
   ENGINE_RESERVATION_CODE,
   REPAIR_HISTORY_OPERATION_TYPE,
-  currentWorkshopFromHistory,
   lastSheetEntry,
   latestScrapResolvedAt,
   isScrapResolvedFor,
@@ -511,6 +510,8 @@ export type EngineRepairHistorySummary = {
   lastAction: string;
   lastAt: number | null;
   workshopId: string;
+  /** Снимок имени цеха из той же записи истории (fallback, когда справочник недоступен). */
+  workshopName?: string;
   lastSheetNode: string;
   lastSheetAt: number | null;
   lastSheetTypeCode: string;
@@ -666,10 +667,14 @@ export async function getEngineRepairHistoryMap(
     const stagePass = best?.pass ?? 0;
     const stageCode = best?.code ?? '';
     const stageName = best?.name ?? '';
+    // Цех последнего события истории + снимок его имени: справочник цехов живёт на
+    // сервере, а строка списка обязана читаться без него (тот же приём, что typeName).
+    const wsEntry = entries.find((e) => e.workshopId) ?? null;
     result.set(engineId, {
       lastAction: last.action,
       lastAt: last.at,
-      workshopId: currentWorkshopFromHistory(entries) ?? '',
+      workshopId: wsEntry?.workshopId ?? '',
+      ...(wsEntry?.workshopName ? { workshopName: wsEntry.workshopName } : {}),
       lastSheetNode: sheet?.sheet?.typeName ?? '',
       lastSheetAt: sheet?.at ?? null,
       lastSheetTypeCode: sheet?.sheet?.typeCode ?? '',
@@ -1246,8 +1251,10 @@ export async function listEngines(
       ...(inventoryFlags?.defectStarted === true ? { hasDefectAct: true } : {}),
       defectDate,
       // Цех истории важнее атрибута карточки: переезд фиксируется событием, и список должен
-      // показывать то же, что вкладка «История ремонта».
+      // показывать то же, что вкладка «История ремонта». Имя — снимок из той же записи,
+      // когда справочник недоступен (справочник подставляет свежее имя поверх — в списке).
       ...(history?.workshopId || workshopId ? { workshopId: history?.workshopId || workshopId } : {}),
+      ...(history?.workshopName ? { workshopName: history.workshopName } : {}),
       ...(history?.lastAction ? { lastHistoryAction: history.lastAction } : {}),
       ...(history?.lastAt != null ? { lastHistoryAt: history.lastAt } : {}),
       ...(history?.lastSheetNode ? { lastSheetNode: history.lastSheetNode } : {}),

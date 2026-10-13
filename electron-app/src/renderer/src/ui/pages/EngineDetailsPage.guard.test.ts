@@ -289,3 +289,18 @@ describe('passport tab', () => {
     expect(CARD).toContain("category: 'passport'");
   });
 });
+
+// Цех — атрибут этапа, не двигателя (владелец 13.10.2026): поле «Цех» убрано из
+// «Основного» карточки. Справочник цехов в карточке остаётся — он нужен панели
+// истории для цехов строк этапов, а не двигателю.
+describe('цеха нет в «Основном» карточки двигателя', () => {
+  it('поле workshop_id не определяется и не пишется карточкой', () => {
+    expect(CARD).not.toContain("code: 'workshop_id'");
+    expect(CARD).not.toContain('workshop_id: asNullableText(workshopId)');
+    expect(CARD).not.toContain('setWorkshopId(');
+  });
+
+  it('справочник цехов грузится для строк истории, а не для двигателя', () => {
+    expect(CARD).toContain('workshopOptions={workshopOptions}');
+  });
+});

@@ -37,6 +37,7 @@ import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
 import { useListUiState, usePersistedScrollTop } from '../hooks/useListBehavior.js';
 import { useWorkSheetTypeRefs } from '../hooks/useWorkSheetTypeRefs.js';
+import { resolveWorkshopName, useWorkshopNames } from '../hooks/useWorkshopNames.js';
 import { useRepairStageTemplateRefs } from '../hooks/useRepairStageTemplateRefs.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
@@ -142,6 +143,8 @@ export type EnginesPageUiState = {
     | 'scrapDate'
     | 'completenessAct'
     | 'engineStage'
+    /** Цех последнего события истории (13.10.2026). */
+    | 'workshop'
     /** Дата прохождения выбранного в фильтре «Все этапы» этапа (12.10.2026). */
     | 'stageDate'
     | 'updatedAt';
@@ -424,34 +427,16 @@ export function EnginesPage(props: {
   // прихода стали ступенями и применяются одним проходом ниже.
   const filtered = deepFilter.filtered;
 
-  // Цех у строки списка приходит идентификатором: справочник живёт на сервере, локальной
-  // реплики у него нет. Имя подставляем здесь — ступени «Цех» нужно показать оператору
-  // название, а не UUID. Нет связи или справочник пуст — ступень честно скажет «без названия».
-  const [workshopNameById, setWorkshopNameById] = useState<Record<string, string>>({});
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      try {
-        const r = await window.matrica.workshops.list({ activeOnly: false });
-        if (!alive || !r?.ok) return;
-        const map: Record<string, string> = {};
-        for (const w of r.rows) map[String(w.id)] = String(w.name ?? '');
-        setWorkshopNameById(map);
-      } catch {
-        /* ignore — ступень «Цех» покажет значения без названий */
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
+  // Цех у строки списка приходит идентификатором (последнее событие истории), имя —
+  // из серверного справочника без локальной реплики. Нет связи — читатель показывает
+  // снимок имени из самой строки. Тот же хук — в отчёте «Двигатели на заводе».
+  const workshopNameById = useWorkshopNames();
 
   const facetRows = useMemo(() => {
     if (Object.keys(workshopNameById).length === 0) return filtered;
     return filtered.map((engine) => {
-      const id = String(engine.workshopId ?? '');
-      const name = id ? workshopNameById[id] : '';
-      return name ? { ...engine, workshopName: name } : engine;
+      const name = resolveWorkshopName(workshopNameById, engine.workshopId, engine.workshopName);
+      return name && name !== engine.workshopName ? { ...engine, workshopName: name } : engine;
     });
   }, [filtered, workshopNameById]);
 
@@ -531,6 +516,8 @@ export function EnginesPage(props: {
           const d = byDate(a.lastStageAt ?? null, b.lastStageAt ?? null);
           return d !== 0 ? d : String(a.engineNumber ?? '').localeCompare(String(b.engineNumber ?? ''), 'ru');
         }
+        case 'workshop':
+          return byText(String(a.workshopName ?? ''), String(b.workshopName ?? ''));
         case 'arrivalDate':
           return byDate(a.arrivalDate ?? null, b.arrivalDate ?? null);
         case 'shippingDate':
@@ -725,6 +712,19 @@ export function EnginesPage(props: {
           if (!name) return '-';
           return e.lastStagePass != null && e.lastStagePass >= 2 ? `${name} · возврат` : name;
         },
+      },
+      // Цех последнего события истории (владелец 13.10.2026): двигатель принадлежит
+      // заводу, а цех — этапу. Имя уже подставлено в `workshopName` (справочник поверх
+      // снимка строки) — колонка только показывает.
+      {
+        id: 'workshop',
+        label: 'Цех',
+        tabletLabel: 'Цех',
+        sortable: true,
+        sortKey: 'workshop',
+        kind: 'name',
+        printValue: (e) => String(e.workshopName ?? '').trim() || '—',
+        render: (e) => String(e.workshopName ?? '').trim() || '—',
       },
       { id: 'arrivalDate', label: 'Дата прихода', tabletLabel: 'Приход', sortable: true, sortKey: 'arrivalDate', kind: 'date', render: (e) => toDateLabel(e.arrivalDate) || '-' },
       // «Дата этапа» (владелец 12.10.2026): когда двигатель прошёл ЭТАП, выбранный в фильтре

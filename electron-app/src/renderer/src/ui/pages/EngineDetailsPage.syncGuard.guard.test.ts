@@ -8,8 +8,9 @@ import { describe, expect, it } from 'vitest';
 // операции — все обновляют updatedAt), потому что защита стояла на конъюнкции
 // «черновик восстановлен И грязь»: снимок, созданный автосейвом уже в сессии
 // (draftRestoredRef остаётся false), защиты не получал вовсе. Плюс отстали
-// канон «Сброса» (dirty→clearDraft→load) и полнота «Отменить» (клеймо/цех/плоские
-// поля уезжали в базу дифом при закрытии).
+// канон «Сброса» (dirty→clearDraft→load) и полнота «Отменить» (клеймо/плоские
+// поля уезжали в базу дифом при закрытии; цех из «Основного» убран 13.10.2026 —
+// он атрибут этапа, и «Отменить» его больше не трогает).
 function src(rel: string): string {
   return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8').replace(/\r\n/g, '\n');
 }
@@ -31,11 +32,13 @@ describe('карточка двигателя — фоновая синхрон�
     );
   });
 
-  it('«Отменить» добирает клеймо, год, цех и плоские реквизиты', () => {
+  it('«Отменить» добирает клеймо, год и плоские реквизиты (цех убран из карточки 13.10.2026)', () => {
     const norm = CARD;
     expect(norm, 'клеймо').toContain("setInternalNumber(String(attrs[ENGINE_INTERNAL_NUMBER_CODE] ?? ''));");
     expect(norm, 'год клейма').toContain('setInternalNumberYear(String(attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE]');
-    expect(norm, 'цех').toContain("setWorkshopId(String(attrs.workshop_id ?? ''));");
+    // Цех — атрибут этапа, не двигателя: «Отменить» его больше не трогает, иначе источник
+    // цеха снова разъедется с этапами.
+    expect(norm, 'цех вернулся в карточку').not.toContain('setWorkshopId(');
     expect(norm, 'плоские реквизиты пересобираются из committed').toContain('setFlatValues(() => {');
   });
 

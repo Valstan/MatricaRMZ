@@ -35,6 +35,7 @@ import { formatMoscowDate } from '../../utils/dateUtils.js';
 import { listCellKindProps, listHeaderKindProps, type ListColumnKind } from '../../utils/listColumnKinds.js';
 import { buildListPrintColumns } from '../../utils/listPrintColumns.js';
 import { useWorkSheetTypeRefs } from '../../hooks/useWorkSheetTypeRefs.js';
+import { resolveWorkshopName, useWorkshopNames } from '../../hooks/useWorkshopNames.js';
 import { useRepairStageTemplateRefs } from '../../hooks/useRepairStageTemplateRefs.js';
 import { isAndroidPlatform } from '../../platform.js';
 import type { ListReportPageProps } from './listReportPages.js';
@@ -109,6 +110,10 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
   // без него (офлайн, нет кэша) этап всё равно узнаётся по самой записи этапа работ.
   const types = useWorkSheetTypeRefs();
   const stageTemplates = useRepairStageTemplateRefs();
+  // Цех — из того же справочника, что список двигателей: строка несёт id последнего
+  // события истории, имя подставляем здесь (справочник поверх снимка строки).
+  // Без этого колонка «Цех» была пустой, а ступень «Цех» — «без названия».
+  const workshopNameById = useWorkshopNames();
   const [printOpen, setPrintOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -124,8 +129,15 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
   });
 
   const rows = useMemo<Row[]>(
-    () => props.engines.filter(isEngineAtPlant).map((e) => ({ ...e, stage: engineFactoryStage(e, types, stageTemplates) })),
-    [props.engines, types, stageTemplates],
+    () =>
+      props.engines
+        .filter(isEngineAtPlant)
+        .map((e) => {
+          const name = resolveWorkshopName(workshopNameById, e.workshopId, e.workshopName);
+          const withName = name && name !== e.workshopName ? { ...e, workshopName: name } : e;
+          return { ...withName, stage: engineFactoryStage(withName, types, stageTemplates) };
+        }),
+    [props.engines, types, stageTemplates, workshopNameById],
   );
 
   const columns = useMemo<Column[]>(
@@ -135,7 +147,7 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
       { id: 'brand', label: 'Марка', kind: 'name', render: (e) => text(e.engineBrand), sortValue: (e) => text(e.engineBrand) },
       { id: 'customer', label: 'Заказчик', kind: 'name', render: (e) => text(e.customerName), sortValue: (e) => text(e.customerName) },
       { id: 'contract', label: 'Договор', kind: 'name', render: (e) => text(e.contractName), sortValue: (e) => text(e.contractName) },
-      { id: 'workshop', label: 'Цех', kind: 'name', render: (e) => text(e.workshopName), sortValue: (e) => text(e.workshopName) },
+      { id: 'workshop', label: 'Цех', kind: 'name', render: (e) => text(e.workshopName) || HUMAN_LABEL_DASH, sortValue: (e) => text(e.workshopName) },
       { id: 'arrivalDate', label: 'Дата прихода', kind: 'date', render: (e) => fmtDate(e.arrivalDate), sortValue: (e) => e.arrivalDate ?? 0 },
       // У строки «Возвраты» `stage.label` занят названием группы, поэтому этап берём из
       // `stageLabel`: иначе колонка врала бы — весь раздел выглядел бы как «Возвраты».

@@ -59,8 +59,8 @@ describe('отчёт-список «этапы на заводе» и рамка
     expect(PAGE).toContain('data-report-group-by');
     expect(PAGE).toContain('rowGroupLabel={(r) => groupLabelByRow.get(r.id) || null}');
     expect(PRINT).toContain('rowGroupLabel?: (row: T) => string | null;');
-    expect(PAGE, 'только двигатели на заводе').toContain('props.engines.filter(isEngineAtPlant)');
-    expect(PAGE, 'этап считает домен, не страница').toContain('engineFactoryStage(e, types, stageTemplates)');
+    expect(PAGE, 'только двигатели на заводе').toContain('.filter(isEngineAtPlant)');
+    expect(PAGE, 'этап считает домен, не страница').toMatch(/engineFactoryStage\(\w+, types, stageTemplates\)/);
     expect(PAGE, 'щелчок по строке — карточка двигателя').toContain('onClick: () => props.onOpenEngine(it.row.id)');
     expect(PAGE, 'отступ вложенной группы — span, не paddingLeft у td (!important в global.css)').toContain('data-report-group-depth={it.depth}');
   });
@@ -154,5 +154,19 @@ describe('PR-G: отчёт без дублей колонок + Android-синк
   it('Android: интервал автосинка — 15 секунд', () => {
     const BOOT = src('../../../../../../../android-app/src/core/boot.ts');
     expect(BOOT).toContain('startAuto(15_000)');
+  });
+});
+
+describe('цех из этапов (владелец 13.10.2026): двигатель принадлежит заводу, цех — этапу', () => {
+  it('имена цехов резолвятся тем же справочником, что список двигателей — иначе колонка пустая', () => {
+    // Колонка «Цех» была пустой, а ступень «Цех» — «без названия»: отчёт не спрашивал
+    // справочник, а строка несёт только id последнего события истории.
+    expect(PAGE, 'отчёт не резолвит цеха — колонка снова пустая').toContain('useWorkshopNames()');
+    expect(PAGE).toContain('resolveWorkshopName(workshopNameById, e.workshopId, e.workshopName)');
+  });
+
+  it('колонка «Цех» показывает имя, а не пустоту', () => {
+    expect(PAGE).toContain("{ id: 'workshop', label: 'Цех'");
+    expect(PAGE, 'пустой цех снова невидим').toContain("render: (e) => text(e.workshopName) || HUMAN_LABEL_DASH");
   });
 });
