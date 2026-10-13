@@ -104,6 +104,7 @@
     "stages:cleanup-duplicates": "tsx src/scripts/cleanupStageDuplicates.ts",
     "stages:backfill-dates": "tsx src/scripts/backfillStageDates.ts",
     "stages:recount-passes": "tsx src/scripts/recountStagePasses.ts",
+    "workshops:backfill-stage-workshops": "tsx src/scripts/backfillStageWorkshops.ts",
     "engine-act:fix-header-number": "tsx src/scripts/fixEngineActHeaderNumber20260914.ts",
     "engine-act:fix-header-number:apply": "tsx src/scripts/fixEngineActHeaderNumber20260914.ts --apply",
     "engines:backfill-card-updated-at": "tsx src/scripts/backfillEngineCardUpdatedAt.ts",
