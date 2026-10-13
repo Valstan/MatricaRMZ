@@ -5,6 +5,7 @@ import {
   applyFacets,
   engineFacets,
   engineFactoryStage,
+  engineFactoryStageOrder,
   engineScrapDate,
   engineStatusDate,
   flattenGrouped,
@@ -132,10 +133,34 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
     () =>
       props.engines
         .filter(isEngineAtPlant)
-        .map((e) => {
+        .flatMap((e) => {
           const name = resolveWorkshopName(workshopNameById, e.workshopId, e.workshopName);
           const withName = name && name !== e.workshopName ? { ...e, workshopName: name } : e;
-          return { ...withName, stage: engineFactoryStage(withName, types, stageTemplates) };
+          const stage = engineFactoryStage(withName, types, stageTemplates);
+          // base для раскрытия: гарантируем наличие stageCodes/stageDates для типизации
+          const base = { ...withName, stage, stageCodes: withName.stageCodes ?? [], stageDates: withName.stageDates ?? {} };
+
+          // B5: если у двигателя есть stageEntries — раскрываем каждую запись в отдельную строку.
+          // Это включается фильтром «Все этапы» (facet hasStage), но данные готовим всегда —
+          // фасетирование само решит, что показывать.
+          const entries = withName.stageEntries ?? [];
+          if (entries.length > 0) {
+            return entries.map((entry) => ({
+              ...base,
+              stageCodes: base.stageCodes, // для фасета hasStage
+              stageDates: base.stageDates, // для фасета stageDate
+              lastStageAt: entry.at, // для фасета stageDate (дата конкретного прохождения)
+              id: `${withName.id}::${entry.code}::${entry.at}::${entry.pass}`,
+              stage: {
+                key: `stage:${entry.code}`,
+                label: entry.name,
+                rank: engineFactoryStageOrder(types, stageTemplates).find((s) => s.key === `stage:${entry.code}`)?.rank ?? 10,
+                at: entry.at,
+                repeatPass: entry.pass,
+              },
+            }));
+          }
+          return [base];
         }),
     [props.engines, types, stageTemplates, workshopNameById],
   );
@@ -182,7 +207,7 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
   const deep = useListDeepFilter(
     rows,
     (r) => r.id,
-    (r) => [r.engineNumber, r.internalNumberFull, r.engineBrand, r.customerName, r.contractName, r.workshopName, r.stage.label, r.stage.repeatPass >= 2 ? 'возврат' : '', r.lastSheetNode, r.lastHistoryAction].map(text).join(' '),
+    (r) => [r.engineNumber, r.internalNumberFull, r.engineBrand, r.customerName, r.contractName, r.workshopName, r.stage.label, r.stage.repeatPass >= 2 ? 'возврат' : '', r.stage.label, r.lastSheetNode, r.lastHistoryAction].map(text).join(' '),
     ui.query,
     { entityBacked: false, mode: searchModeOf(ui.searchSimilar) },
   );

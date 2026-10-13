@@ -44,6 +44,7 @@ import {
   searchLookupOptionsTiered,
   statusDateCode,
   type StatusCode,
+  type EngineStageEntry,
 } from '@matricarmz/shared';
 
 import { attributeDefs, attributeValues, entities, entityTypes, erpEngineCards, operations } from '../database/schema.js';
@@ -520,6 +521,8 @@ export type EngineRepairHistorySummary = {
   stageCodes: string[];
   /** Дата последнего прохождения КАЖДОГО этапа: колонка «Дата этапа» при выбранном в фильтре. */
   stageDates?: Record<string, number>;
+  /** B5: все прохождения этапов (повторы допустимы) для отчёта «Все этапы». */
+  stageEntries?: EngineStageEntry[];
   lastStageCode: string;
   lastStageName: string;
   lastStageAt: number | null;
@@ -689,6 +692,26 @@ export async function getEngineRepairHistoryMap(
       // заход от обычного прохода не отличить.
       ...(stagePass > 1 ? { lastStagePass: stagePass } : {}),
       ...(scrapResolvedAt != null ? { scrapResolvedAt } : {}),
+      // B5: все прохождения этапов для отчёта «Все этапы» — каждая запись = один проход.
+      // Дубликаты кода допустимы (повторные заходы); каждая запись несёт свою дату и проход.
+      ...(entries
+        .filter((e) => e.entryType === 'stage' && e.stage && typeof e.at === 'number' && e.at > 0)
+        .map((e) => ({
+          code: String(e.stage!.code ?? '').trim().toLowerCase(),
+          name: String(e.stage!.name ?? '').trim(),
+          at: e.at,
+          pass: e.pass ?? 1,
+        })) satisfies EngineStageEntry[]
+        ? { stageEntries: entries
+            .filter((e) => e.entryType === 'stage' && e.stage && typeof e.at === 'number' && e.at > 0)
+            .map((e) => ({
+              code: String(e.stage!.code ?? '').trim().toLowerCase(),
+              name: String(e.stage!.name ?? '').trim(),
+              at: e.at,
+              pass: e.pass ?? 1,
+            }))
+        }
+        : {}),
     });
   }
   repairHistoryCache = { stamp, map: new Map(result) };
@@ -1311,6 +1334,9 @@ export async function listEngines(
       // Даты прохождения актовых этапов складываются с датами истории: у двигателя без
       // истории, но с актом, колонка всё равно должна ответить «когда» (решение 12.10.2026).
       ...(mergedStageDates && Object.keys(mergedStageDates).length ? { stageDates: mergedStageDates } : {}),
+      // B5: строки прохождений этапов для отчёта «Все этапы» — двигатель показывается в каждой
+      // группе этапа, который он проходил (повторы допустимы, работа видна вся).
+      ...(history?.stageEntries ? { stageEntries: history.stageEntries } : {}),
       ...(lastStageCode ? { lastStageCode } : {}),
       ...(mergedBest && mergedBest.name ? { lastStageName: mergedBest.name } : {}),
       ...(lastStageAt != null ? { lastStageAt } : {}),
