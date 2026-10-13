@@ -28,6 +28,7 @@ import {
 } from './services/updateService.js';
 import { applyRemoteClientSettings, getCachedClientSettings, setReportedActivity } from './services/clientAdminService.js';
 import { setLanShareEnabled } from './services/lanUpdateService.js';
+import { ensureOpencodeNode, stopOpencodeNode } from './services/opencodeServeManager.js';
 import { readSidecarClientId, writeSidecarClientId } from './services/clientIdStore.js';
 import { isSameMigrationFailure } from './services/dbSelfHealLoopDetector.js';
 import { tryEmergencyUpdate } from './services/emergencyUpdate.js';
@@ -669,6 +670,9 @@ app.whenReady().then(() => {
       // Создаём окно только после завершения update-flow.
       await setStartupStage('Загружаю окно');
       createWindow();
+      // Локальный узел opencode ведём сами (нативно, без админа): фоном, окно не ждёт.
+      // Скачивание ~60 МБ — только если бинаря нет; повторные запуски стартуют сразу.
+      void ensureOpencodeNode().catch(() => {});
       const delay = updatesEnabled ? 800 : 0;
       scheduleShowMainWindow(delay);
     } catch (e) {
@@ -698,6 +702,8 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', (event) => {
+  // Локальный узел opencode гасим сразу, не задерживая выход (best-effort).
+  void stopOpencodeNode();
   if (!stopAuditWritten) {
     stopAuditWritten = true;
     if (writeSessionAuditEvent) void writeSessionAuditEvent('app.session.stop');

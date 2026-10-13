@@ -8,6 +8,26 @@ import { useConfirm } from '../components/ConfirmContext.js';
 
 type NodeRow = { name: string; url: string };
 type ProbeRow = { url: string; live: boolean; httpStatus: number | null; ms: number; error: string | null };
+type LocalState = { state: string; version: string | null; progress: number | null; error: string | null };
+
+function localNodeLabel(s: LocalState): string {
+  switch (s.state) {
+    case 'running':
+      return `Узел этой машины работает${s.version ? ` (opencode ${s.version})` : ''} — serve на loopback, наружу через Матрицу.`;
+    case 'ready':
+      return 'Узел этой машины готов, запускается…';
+    case 'downloading':
+      return s.progress != null ? `Узел этой машины скачивается: ${Math.round(s.progress * 100)}%…` : 'Узел этой машины скачивается…';
+    case 'missing':
+      return 'Узел этой машины ставится в фоне…';
+    case 'unsupported':
+      return 'Узел этой машины: эта платформа не поддерживается.';
+    case 'error':
+      return `Узел этой машины: ошибка — ${s.error ?? 'неизвестно'}`;
+    default:
+      return '';
+  }
+}
 
 /** OpenCode-узлы (мандат brain 2026-10-12): таблица `opencode serve` в LAN. Только суперадмин. */
 export function OpenCodeNodesPage() {
@@ -15,6 +35,7 @@ export function OpenCodeNodesPage() {
   const [probes, setProbes] = useState<Record<string, ProbeRow>>({});
   const [status, setStatus] = useState('');
   const [probing, setProbing] = useState(false);
+  const [local, setLocal] = useState<LocalState | null>(null);
   const [newName, setNewName] = useState('');
   const [newUrl, setNewUrl] = useState('');
 
@@ -23,7 +44,11 @@ export function OpenCodeNodesPage() {
   const refresh = useCallback(async (withProbe: boolean) => {
     setStatus('Загрузка...');
     try {
-      const listRes = await window.matrica.opencodeNodes.list();
+      const [listRes, localRes] = await Promise.all([
+        window.matrica.opencodeNodes.list(),
+        window.matrica.opencodeNodes.status().catch(() => null),
+      ]);
+      if (localRes?.ok) setLocal(localRes.status as LocalState);
       if (!listRes.ok) {
         setStatus(`Ошибка: ${listRes.error}`);
         return;
@@ -119,6 +144,13 @@ export function OpenCodeNodesPage() {
         Бесплатные модели узлов ротируются, лимиты не публикуются, данные могут идти в обучение —
         для чувствительного — Claude Code или ключ OpenRouter. Порт serve — 3080.
       </div>
+
+      {local && localNodeLabel(local) ? (
+        <div style={{ color: 'var(--subtle)', fontSize: 12 }} data-opencode-local-status>
+          🖥 {localNodeLabel(local)}
+          {local.state === 'error' ? ' Провайдеров логиньте под учёткой оператора (opencode auth login) — вручную, один раз.' : ''}
+        </div>
+      ) : null}
 
       {status ? (
         <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div>

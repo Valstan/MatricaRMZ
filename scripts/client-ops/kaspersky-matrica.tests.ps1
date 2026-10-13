@@ -184,6 +184,7 @@ try {
         HandshakeFound = $false; HandshakePath = ''; HandshakeAgeHours = $null
         AppExe = 'C:\a\MatricaRMZ.exe'; AppDir = ''; AppVersion = ''
         WatchdogExe = ''; WatchdogDir = ''
+        OpencodeDir = ''
         DataDir = 'D:\PROGRAMMING'; UserDataDir = ''; UpdatesDir = ''
         UpdaterCacheDir = ''; LegacyDataDir = ''; DesktopDir = ''
         FilesDir = ''; LegacyDirs = @(); TempMasks = @()

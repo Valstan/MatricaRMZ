@@ -447,6 +447,7 @@ function Get-MatricaInfo {
         HandshakeFound = $false; HandshakePath = ''; HandshakeAgeHours = $null
         AppExe = ''; AppDir = ''; AppVersion = ''
         WatchdogExe = ''; WatchdogDir = ''
+        OpencodeDir = ''
         DataDir = ''; UserDataDir = ''; UpdatesDir = ''
         UpdaterCacheDir = ''; LegacyDataDir = ''; DesktopDir = ''
         FilesDir = ''; LegacyDirs = @(); TempMasks = @()
@@ -502,6 +503,10 @@ function Get-MatricaInfo {
     $wdExe = Join-Path $wdDir 'matricarmz-watchdog.exe'
     $info.WatchdogDir = $wdDir
     if (Test-Path -LiteralPath $wdExe) { $info.WatchdogExe = $wdExe }
+
+    # OpenCode-узел ведёт сам клиент (per-user, без админа): бинарь и serve живут
+    # здесь. Папка — в план исключений, сам exe покрыт доверием дочерних программ.
+    $info.OpencodeDir = Join-Path $localAppData 'Programs\MatricaRMZ-OpenCode'
 
     $dataDir = Join-Path $appData 'MatricaRMZ'
     if (Test-Path -LiteralPath $dataDir) { $info.DataDir = $dataDir } else { $info.DataDir = $dataDir }
@@ -657,7 +662,7 @@ function Get-ExclusionPlan {
     # UpdaterCacheDir — туда качается установщик обновления, самое частое место, где
     # антивирус забирает файл прямо из-под обновлятора.
     $folders = @()
-    foreach ($raw in (@($Matrica.AppDir, $Matrica.WatchdogDir, $Matrica.DataDir,
+    foreach ($raw in (@($Matrica.AppDir, $Matrica.WatchdogDir, $Matrica.OpencodeDir, $Matrica.DataDir,
                         $Matrica.UserDataDir, $Matrica.UpdatesDir,
                         $Matrica.UpdaterCacheDir, $Matrica.LegacyDataDir,
                         $Matrica.FilesDir) + @($Matrica.LegacyDirs))) {
