@@ -154,6 +154,56 @@ describe('лента истории', () => {
   });
 });
 
+describe('лента истории — этапы одних суток (B7)', () => {
+  // Московские сутки 13.10.2026: сборка внесена вечером, обкатка — утром того же
+  // дня (время внутри дня — артефакты ввода). Раскладываются сами: обкатка выше.
+  const DAY = Date.UTC(2026, 9, 13, 6, 0, 0);
+  const stageRow = (id: string, code: string, name: string, at: number) =>
+    row({
+      id,
+      performedAt: at,
+      metaJson: JSON.stringify(buildRepairHistoryMeta({ action: name, stage: { code, name }, at })),
+    });
+
+  it('сборка и обкатка одной датой — обкатка выше, хотя внесена раньше по часам', () => {
+    const list = repairHistoryFromOperations([
+      stageRow('sborka', 'sborka', 'Сборка двигателя', DAY + 12 * 3_600_000),
+      stageRow('obkatka', 'obkatka', 'Обкатка двигателя', DAY + 4 * 3_600_000),
+    ]);
+    expect(list.map((e) => e.id)).toEqual(['obkatka', 'sborka']);
+  });
+
+  it('разные сутки — сначала поздний день, приоритет не перебивает день', () => {
+    const list = repairHistoryFromOperations([
+      stageRow('obkatka', 'obkatka', 'Обкатка двигателя', DAY),
+      stageRow('sborka', 'sborka', 'Сборка двигателя', DAY + 24 * 3_600_000),
+    ]);
+    expect(list.map((e) => e.id)).toEqual(['sborka', 'obkatka']);
+  });
+
+  it('ручная запись тех же суток с этапом не переставляется: приоритета у неё нет', () => {
+    const list = repairHistoryFromOperations([
+      stageRow('sborka', 'sborka', 'Сборка двигателя', DAY + 2 * 3_600_000),
+      row({
+        id: 'manual',
+        performedAt: DAY + 6 * 3_600_000,
+        metaJson: JSON.stringify(buildRepairHistoryMeta({ action: 'Позвонили заказчику' })),
+      }),
+    ]);
+    expect(list.map((e) => e.id)).toEqual(['manual', 'sborka']);
+  });
+
+  it('полный канонический порядок держится внутри дня (владелец 13.10.2026)', () => {
+    const list = repairHistoryFromOperations([
+      stageRow('shipped', 'shipped', 'Отгрузка двигателя заказчику', DAY + 1 * 3_600_000),
+      stageRow('arrival', 'arrival', 'Приемка двигателя на завод', DAY + 8 * 3_600_000),
+      stageRow('otk', 'otk', 'Выходной контроль ОТК', DAY + 2 * 3_600_000),
+      stageRow('ukladka', 'ukladka', 'Укладка вала', DAY + 7 * 3_600_000),
+    ]);
+    expect(list.map((e) => e.id)).toEqual(['shipped', 'otk', 'ukladka', 'arrival']);
+  });
+});
+
 describe('подсказки и текущий цех', () => {
   it('подсказки — предустановленные плюс введённые операторами', () => {
     const entries = repairHistoryFromOperations([

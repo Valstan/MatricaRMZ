@@ -19,6 +19,7 @@
 import { actDatesFromAnswers, actStageEntries, mergeActStages, type ActStageEntry } from './actStages.js';
 import { parseRepairHistoryMeta, repairHistoryEntryType, type RepairHistoryEntryType } from './engineRepairHistory.js';
 import { describeOperationType, operationStatusLabel, type EngineLifecyclePhase } from './engineTimeline.js';
+import { moscowDaySortKey, repairStageRank } from './repairStages.js';
 import { serviceActorLabel } from './serviceActors.js';
 import { WORK_SHEET_COLUMN_TYPES, formatWorkSheetValue, type WorkSheetField } from './workSheets.js';
 
@@ -234,7 +235,19 @@ function sortFeedItems(items: EngineHistoryFeedItem[]): EngineHistoryFeedItem[] 
   return items.sort((a, b) => {
     const aAt = a.at > 0 ? a.at : null;
     const bAt = b.at > 0 ? b.at : null;
-    if (aAt !== null && bAt !== null && aAt !== bAt) return bAt - aAt;
+    if (aAt !== null && bAt !== null) {
+      // B7: этапы одних суток раскладываются сами — по каноническому порядку
+      // (sortOrder repairStages.ts), время внутри дня — артефакты ввода.
+      const dayA = moscowDaySortKey(aAt);
+      const dayB = moscowDaySortKey(bAt);
+      if (dayA !== dayB) return dayA < dayB ? 1 : -1;
+      if (dayA) {
+        const rankA = repairStageRank(a.stageCode);
+        const rankB = repairStageRank(b.stageCode);
+        if (rankA > 0 && rankB > 0 && rankA !== rankB) return rankB - rankA;
+      }
+      if (aAt !== bAt) return bAt - aAt;
+    }
     if (aAt !== null && bAt === null) return -1;
     if (aAt === null && bAt !== null) return 1;
     return b.recordedAt - a.recordedAt || a.id.localeCompare(b.id);

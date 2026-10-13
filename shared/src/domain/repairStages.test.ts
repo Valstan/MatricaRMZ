@@ -190,6 +190,16 @@ describe('сортировка для показа', () => {
     ];
     expect(sortStagesByDate(stages).map((s) => s.code)).toEqual(['arrival', 'otk', 'sborka']);
   });
+
+  it('внутри одних суток время не различаем — раскладывает приоритет (B7)', () => {
+    const DAY = Date.UTC(2026, 9, 13, 6, 0, 0);
+    const stages = [
+      { code: 'sborka' as const, at: DAY + 12 * 3_600_000 },
+      { code: 'obkatka' as const, at: DAY + 4 * 3_600_000 },
+      { code: 'arrival' as const, at: DAY + 8 * 3_600_000 },
+    ];
+    expect(sortStagesByDate(stages).map((s) => s.code)).toEqual(['arrival', 'sborka', 'obkatka']);
+  });
 });
 
 describe('кандидат массового добавления (владелец 01.10.2026)', () => {
