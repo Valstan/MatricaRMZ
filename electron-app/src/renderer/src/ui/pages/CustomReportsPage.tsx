@@ -57,9 +57,15 @@ function downloadText(content: string, fileName: string, mime: string) {
 export function CustomReportsPage(props: {
   /** Шаблон, выбранный в витрине заготовок: конструктор открывается сразу на нём. */
   initialTemplateId?: string | null;
+  /**
+   * Звезда шаблона (B8) = избранное + ярлык на Верстак. Вызывается после успешной
+   * записи избранного (на откате не зовём — Верстак не должен пережить избранное).
+   */
+  onFavoriteChange?: (templateId: string, title: string, favorite: boolean) => void;
 } = {}) {
   const [sources, setSources] = useState<Array<{ presetId: string; title: string }>>([]);
   const [templates, setTemplates] = useState<CustomReportTemplate[]>([]);
+  const [favoriteTemplateIds, setFavoriteTemplateIds] = useState<string[]>([]);
   const [userId, setUserId] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
 
@@ -100,6 +106,8 @@ export function CustomReportsPage(props: {
       setIsAdmin(role === 'admin' || role === 'superadmin');
       const tpl = await window.matrica.reports.customTemplatesList({ userId: uid });
       if (alive && tpl.ok) setTemplates(tpl.templates);
+      const fav = await window.matrica.reports.templateFavoritesGet({ userId: uid });
+      if (alive && fav.ok) setFavoriteTemplateIds(fav.ids);
     })();
     return () => {
       alive = false;
@@ -279,6 +287,19 @@ export function CustomReportsPage(props: {
     window.dispatchEvent(new Event('matrica:custom-reports-changed'));
   }
 
+  async function toggleTemplateFavorite(tpl: CustomReportTemplate) {
+    const willBeFav = !favoriteTemplateIds.includes(tpl.id);
+    const next = willBeFav ? [...favoriteTemplateIds, tpl.id] : favoriteTemplateIds.filter((id) => id !== tpl.id);
+    setFavoriteTemplateIds(next);
+    const res = await window.matrica.reports.templateFavoritesSet({ userId, ids: next });
+    if (!res.ok) {
+      notify(res.error);
+      setFavoriteTemplateIds(favoriteTemplateIds);
+      return;
+    }
+    props.onFavoriteChange?.(tpl.id, tpl.name, willBeFav);
+  }
+
   function toggleColumn(key: string) {
     setPickedColumns((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
   }
@@ -356,6 +377,27 @@ export function CustomReportsPage(props: {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       {s.list.map((tpl) => (
                         <div key={tpl.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <button
+                            type="button"
+                            onClick={() => void toggleTemplateFavorite(tpl)}
+                            title={favoriteTemplateIds.includes(tpl.id) ? 'Убрать из избранного' : 'Добавить в избранное (и ярлыком на Верстак)'}
+                            aria-label={favoriteTemplateIds.includes(tpl.id) ? 'Убрать из избранного' : 'Добавить в избранное'}
+                            style={{
+                              border: '1px solid var(--border)',
+                              borderRadius: 6,
+                              width: 26,
+                              minWidth: 26,
+                              height: 26,
+                              background: favoriteTemplateIds.includes(tpl.id) ? 'rgba(201, 147, 10, 0.12)' : 'transparent',
+                              color: favoriteTemplateIds.includes(tpl.id) ? '#c9930a' : 'var(--muted)',
+                              cursor: 'pointer',
+                              fontSize: 15,
+                              lineHeight: 1,
+                            }}
+                            data-template-favorite={tpl.id}
+                          >
+                            {favoriteTemplateIds.includes(tpl.id) ? '★' : '☆'}
+                          </button>
                           <a
                             style={{ fontSize: 13, cursor: 'pointer', flex: 1, color: theme.colors.text, textDecoration: 'underline' }}
                             onClick={() => void applyTemplate(tpl)}

@@ -185,6 +185,9 @@ const matricaApi = {
     presetPrint: async (args: { presetId: string; filters?: Record<string, unknown> }) => ipcRenderer.invoke('reports:presetPrint', args),
     favoritesGet: async (args?: { userId?: string }) => ipcRenderer.invoke('reports:favoritesGet', args),
     favoritesSet: async (args: { userId?: string; ids: string[] }) => ipcRenderer.invoke('reports:favoritesSet', args),
+    templateFavoritesGet: async (args?: { userId?: string }) => ipcRenderer.invoke('reports:templateFavoritesGet', args),
+    templateFavoritesSet: async (args: { userId?: string; ids: string[] }) =>
+      ipcRenderer.invoke('reports:templateFavoritesSet', args),
     historyList: async (args?: { userId?: string; limit?: number }) => ipcRenderer.invoke('reports:historyList', args),
     historyAdd: async (args: {
       userId?: string;

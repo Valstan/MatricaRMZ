@@ -52,6 +52,8 @@ export const SettingsKey = {
   /** Избранные разделы оператора (звёздочки, левая колонка). Локально, per-user scope. */
   SectionFavorites: 'ui.sectionFavorites',
   ReportPresetFavorites: 'reports.presetFavorites',
+  /** Избранные шаблоны «Моих отчётов» (B8): id шаблонов, per-user scope. */
+  ReportTemplateFavorites: 'reports.templateFavorites',
   ReportPresetHistory: 'reports.presetHistory',
   ReportPresetFilterTemplates: 'reports.presetFilterTemplates',
   CustomReportTemplates: 'reports.customReportTemplates',

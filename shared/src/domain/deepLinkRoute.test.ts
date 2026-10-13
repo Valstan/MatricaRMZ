@@ -41,6 +41,16 @@ describe('resolveDeepLinkRoute', () => {
     expect(route).toEqual({ kind: 'nomenclature', id: 'p-1' });
   });
 
+  it('routes a custom report template link to custom_report (B8)', () => {
+    const route = resolveDeepLinkRoute({
+      kind: 'app_link',
+      tab: 'custom_reports',
+      customReportTemplateId: 'tpl-1',
+    });
+
+    expect(route).toEqual({ kind: 'custom_report', id: 'tpl-1' });
+  });
+
   it('falls back to tab when entity IDs are missing', () => {
     const route = resolveDeepLinkRoute({
       kind: 'app_link',

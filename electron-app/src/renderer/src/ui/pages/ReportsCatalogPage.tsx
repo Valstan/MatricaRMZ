@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   ReportFilterOption,
   ReportOptionSource,
@@ -13,7 +13,6 @@ import { Button } from '../components/Button.js';
 import { FAVORITE_STAR_GOLD } from '../components/FavoriteStarButton.js';
 import { Input } from '../components/Input.js';
 import { SectionCard } from '../components/SectionCard.js';
-import { POPUP_Z_INDEX, PopupLayer } from '../components/PopupLayer.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
 
 function presetThemes(presetId: ReportPresetId): readonly ReportThemeId[] {
@@ -40,10 +39,11 @@ export function ReportsCatalogPage(props: {
   ) => void;
   themeId: ReportThemeId | null;
   onThemeChange: (themeId: ReportThemeId | null) => void;
-  /** Пресеты, ярлыки которых лежат на Верстаке (этап B: «Мой круг» и Верстак — одна модель). */
-  desktopPresetIds?: string[];
-  onAddToDesktop?: (presetId: ReportPresetId, title: string) => void;
-  onRemoveFromDesktop?: (presetId: ReportPresetId) => void;
+  /**
+   * Звезда пресета (B8) = избранное + ярлык на Верстак. Вызывается после успешной
+   * записи избранного (на откате не зовём — Верстак не должен пережить избранное).
+   */
+  onFavoriteChange?: (presetId: ReportPresetId, title: string, favorite: boolean) => void;
 }) {
   const [presets, setPresets] = useState<ReportPresetDefinition[]>([]);
   // Варианты фильтров нужны, чтобы показывать настройки именами, а не идентификаторами.
@@ -52,9 +52,7 @@ export function ReportsCatalogPage(props: {
   const [history, setHistory] = useState<ReportPresetHistoryEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; presetId: ReportPresetId } | null>(null);
   const [query, setQuery] = useState('');
-  const ctxMenuRef = useRef<HTMLDivElement | null>(null);
 
   const activeTheme = useMemo(
     () => REPORT_THEMES.find((theme) => theme.id === props.themeId) ?? null,
@@ -197,23 +195,9 @@ export function ReportsCatalogPage(props: {
     void loadAll();
   }, [loadAll]);
 
-  useEffect(() => {
-    if (!ctxMenu) return;
-    const handler = (e: MouseEvent) => {
-      if (ctxMenuRef.current?.contains(e.target as Node)) return;
-      setCtxMenu(null);
-    };
-    const keyHandler = (e: KeyboardEvent) => { if (e.key === 'Escape') setCtxMenu(null); };
-    window.addEventListener('mousedown', handler, true);
-    window.addEventListener('keydown', keyHandler, true);
-    return () => {
-      window.removeEventListener('mousedown', handler, true);
-      window.removeEventListener('keydown', keyHandler, true);
-    };
-  }, [ctxMenu]);
-
   async function toggleFavorite(presetId: ReportPresetId) {
-    const next = favoriteIds.includes(presetId) ? favoriteIds.filter((id) => id !== presetId) : [...favoriteIds, presetId];
+    const willBeFav = !favoriteIds.includes(presetId);
+    const next = willBeFav ? [...favoriteIds, presetId] : favoriteIds.filter((id) => id !== presetId);
     setFavoriteIds(next);
     const result = await window.matrica.reports.favoritesSet({
       userId: props.userId,
@@ -222,13 +206,9 @@ export function ReportsCatalogPage(props: {
     if (!result?.ok) {
       setStatus(`Ошибка: ${result?.error ?? 'unknown'}`);
       setFavoriteIds(favoriteIds);
+      return;
     }
-  }
-
-  function openCardContextMenu(e: React.MouseEvent, presetId: ReportPresetId) {
-    e.preventDefault();
-    e.stopPropagation();
-    setCtxMenu({ x: e.clientX, y: e.clientY, presetId });
+    props.onFavoriteChange?.(presetId, presetById.get(presetId)?.title ?? presetId, willBeFav);
   }
 
   function backToThemes() {
@@ -240,7 +220,7 @@ export function ReportsCatalogPage(props: {
   // списков, пока оператор работает в других колонках, и window-слушатель молча сбрасывал бы тему
   // на каждый чужой Escape (закрытие лайтбокса, модалки карточки).
   function onCatalogKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
-    if (e.key !== 'Escape' || ctxMenu) return;
+    if (e.key !== 'Escape') return;
     if (!props.themeId && !searching) return;
     const target = e.target as HTMLElement | null;
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
@@ -260,7 +240,6 @@ export function ReportsCatalogPage(props: {
           gap: 4,
           background: 'var(--surface-1, #fff)',
         }}
-        onContextMenu={(e) => openCardContextMenu(e, preset.id)}
       >
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
           <Button
@@ -309,7 +288,6 @@ export function ReportsCatalogPage(props: {
                   key={`favorite-${preset.id}`}
                   variant="primary"
                   onClick={() => props.onOpenPreset(preset.id)}
-                  onContextMenu={(e) => openCardContextMenu(e, preset.id)}
                   style={{ textAlign: 'left', display: 'grid', gap: 2, justifyItems: 'start' }}
                 >
                   <span style={{ fontWeight: 800 }}>{preset.title}</span>
@@ -358,7 +336,7 @@ export function ReportsCatalogPage(props: {
             </>
           ) : activeTheme ? (
             <>
-              <div className="ui-muted">{activeTheme.description}. Правый клик — добавить в Мой круг.</div>
+              <div className="ui-muted">{activeTheme.description}. Звезда — в избранное и ярлыком на Верстак.</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))', gap: 8 }}>
                 {visiblePresets.map(renderPresetCard)}
               </div>
@@ -430,54 +408,6 @@ export function ReportsCatalogPage(props: {
           </div>
         )}
       </SectionCard>
-      )}
-
-      {ctxMenu && (
-        // Портал в body: меню не должно зависеть от контекста наложения страницы.
-        <PopupLayer>
-        <div
-          ref={ctxMenuRef}
-          style={{
-            position: 'fixed',
-            left: ctxMenu.x,
-            top: ctxMenu.y,
-            zIndex: POPUP_Z_INDEX,
-            minWidth: 220,
-            background: 'var(--surface, #fff)',
-            border: '1px solid var(--border)',
-            boxShadow: '0 16px 40px rgba(15,23,42,0.18)',
-            borderRadius: 10,
-            padding: 6,
-          }}
-        >
-          {(() => {
-            const isPinned = (props.desktopPresetIds ?? []).includes(ctxMenu.presetId);
-            return (
-              <button
-                type="button"
-                onClick={() => {
-                  if (isPinned) props.onRemoveFromDesktop?.(ctxMenu.presetId);
-                  else props.onAddToDesktop?.(ctxMenu.presetId, presetById.get(ctxMenu.presetId)?.title ?? ctxMenu.presetId);
-                  setCtxMenu(null);
-                }}
-                style={{
-                  width: '100%',
-                  textAlign: 'left',
-                  border: '1px solid transparent',
-                  background: 'transparent',
-                  color: isPinned ? 'var(--danger, #dc2626)' : 'var(--text)',
-                  padding: '8px 10px',
-                  cursor: 'pointer',
-                  fontSize: 13,
-                  borderRadius: 6,
-                }}
-              >
-                {isPinned ? 'Убрать с Верстака' : '🧣 Добавить на Верстак'}
-              </button>
-            );
-          })()}
-        </div>
-        </PopupLayer>
       )}
     </div>
   );
