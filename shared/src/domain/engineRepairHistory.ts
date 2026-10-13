@@ -191,6 +191,12 @@ export type RepairHistoryEntry = {
   action: string;
   source: RepairHistorySource;
   workshopId: string;
+  /**
+   * Снимок имени цеха на момент записи (`meta.workshopName`). Справочник цехов живёт на
+   * сервере (`directory_workshops`): читатель сначала спрашивает его, и только если id
+   * там нет (legacy-текст, деактивирован, офлайн, нет прав) — показывает это.
+   */
+  workshopName?: string;
   reason: string;
   note: string;
   extra: RepairHistoryExtraField[];
@@ -417,6 +423,9 @@ export function repairHistoryFromOperations(rows: readonly RepairHistorySourceRo
         action: meta.action,
         source: meta.auto === true ? 'auto' : 'manual',
         workshopId: meta.workshopId ?? '',
+        // Снимок имени цеха едет в ленту вместе с id: иначе читатель без справочника
+        // (отчёт, список) видел uuid или «без названия», хотя имя лежало рядом в meta.
+        ...(text(meta.workshopName) ? { workshopName: text(meta.workshopName) } : {}),
         reason: meta.reason ?? '',
         note: meta.note ?? '',
         extra: meta.extra ?? [],

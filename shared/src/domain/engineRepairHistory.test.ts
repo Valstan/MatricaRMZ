@@ -231,6 +231,13 @@ describe('классификация записей и строки этапов
     expect(buildRepairHistoryMeta({ action: 'Обкатка' }).workshopName).toBeUndefined();
   });
 
+  it('запись ленты несёт снимок имени цеха — список и отчёт читают его без справочника', () => {
+    const meta = buildRepairHistoryMeta({ action: 'Сборка', workshopId: 'W1', workshopName: 'Цех № 1', at: 100 });
+    const [entry] = repairHistoryFromOperations([row({ id: 's', metaJson: JSON.stringify(meta) })]);
+    expect(entry?.workshopId).toBe('W1');
+    expect(entry?.workshopName).toBe('Цех № 1');
+  });
+
   it('след строки в едином списке переживает круг сборки и разбора (шаг 8)', () => {
     const meta = buildRepairHistoryMeta({
       action: 'Обкатка',

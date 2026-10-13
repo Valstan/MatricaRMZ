@@ -559,9 +559,8 @@ export function EngineDetailsPage(props: {
   // ради разделов; без договора остаётся общее умолчание.
   const [contractRepairDays, setContractRepairDays] = useState<number>(DEFAULT_CONTRACT_REPAIR_DAYS);
   const [lastActivityAt, setLastActivityAt] = useState<number | null>(null);
-  // Цех, выполнивший ремонт (захват цех-измерения, warehouse-analytics C2). Id из
-  // канонного справочника directory_workshops (как наряды/склад), не workshop_ref.
-  const [workshopId, setWorkshopId] = useState(String(props.engine.attributes?.workshop_id ?? ''));
+  // Справочник цехов для этапов ремонта (EngineHistoryFeedPanel правит цех строк
+  // истории). Сам двигатель к цеху не привязан (2026-10): workshop_id убран из «Основного».
   const [workshopOptions, setWorkshopOptions] = useState<LinkOpt[]>([]);
   const [statusFlags, setStatusFlags] = useState<Partial<Record<StatusCode, boolean>>>(() => {
     const attrs = props.engine.attributes ?? {};
@@ -774,7 +773,6 @@ export function EngineDetailsPage(props: {
     customerId: string;
     contractId: string;
     contractSectionNumber: string;
-    workshopId: string;
     statusFlags: Partial<Record<StatusCode, boolean>>;
     statusDates: Partial<Record<StatusCode, number | null>>;
     reclFlag: boolean;
@@ -794,7 +792,7 @@ export function EngineDetailsPage(props: {
   function currentDraftSnapshot(): EngineDraftSnapshot {
     return {
       engineNumber, engineBrand, engineBrandId, arrivalDate, customerId, contractId,
-      contractSectionNumber, workshopId, statusFlags, statusDates,
+      contractSectionNumber, statusFlags, statusDates,
       reclFlag, reclAcceptedDate, reclCustomerReason, reclActualDefect, reclDefectNature,
       reclActNumber, reclVerdictDate, reclShippedDate, reclComment,
       repeatArrivalFlag, numberCollisionFlag, previousArrivalId,
@@ -849,7 +847,6 @@ export function EngineDetailsPage(props: {
     setCustomerId(String(s.customerId ?? ''));
     setContractId(String(s.contractId ?? ''));
     setContractSectionNumber(canonicalContractSectionKey(s.contractSectionNumber));
-    setWorkshopId(String(s.workshopId ?? ''));
     if (s.statusFlags && typeof s.statusFlags === 'object') setStatusFlags(s.statusFlags);
     if (s.statusDates && typeof s.statusDates === 'object') setStatusDates(s.statusDates);
     setReclFlag(Boolean(s.reclFlag));
@@ -1017,7 +1014,6 @@ export function EngineDetailsPage(props: {
     setCustomerId(String(committed.customer_id ?? ''));
     setContractId(String(committed.contract_id ?? ''));
     setContractSectionNumber(canonicalContractSectionKey(committed.contract_section_number as string | null | undefined));
-    setWorkshopId(String(committed.workshop_id ?? ''));
     const attrs = committed;
     const flags: Partial<Record<StatusCode, boolean>> = {};
     for (const c of STATUS_CODES) flags[c] = isEavFlagSet(attrs[c]);
@@ -1082,7 +1078,7 @@ export function EngineDetailsPage(props: {
       if (draftTimerRef.current === timer) draftTimerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce is keyed on the edited field values; currentDraftSnapshot/saveDraftNow are redefined every render, adding them would restart the 1.5s timer on every render
-  }, [engineNumber, engineBrand, engineBrandId, arrivalDate, customerId, contractId, contractSectionNumber, workshopId, statusFlags, statusDates, reclFlag, reclAcceptedDate, reclCustomerReason, reclActualDefect, reclDefectNature, reclActNumber, reclVerdictDate, reclShippedDate, reclComment, repeatArrivalFlag, numberCollisionFlag, previousArrivalId, canEditEnginesEff]);
+  }, [engineNumber, engineBrand, engineBrandId, arrivalDate, customerId, contractId, contractSectionNumber, statusFlags, statusDates, reclFlag, reclAcceptedDate, reclCustomerReason, reclActualDefect, reclDefectNature, reclActNumber, reclVerdictDate, reclShippedDate, reclComment, repeatArrivalFlag, numberCollisionFlag, previousArrivalId, canEditEnginesEff]);
 
   useEffect(() => {
     if (!engineBrandId || engineBrand) return;
@@ -1350,7 +1346,6 @@ export function EngineDetailsPage(props: {
         customer_id: contractCustomerId ? asNullableText(attrs.customer_id) : asNullableText(customerId),
         contract_id: asNullableText(contractId),
         contract_section_number: asNullableText(resolvedSectionKey),
-        workshop_id: asNullableText(workshopId),
       };
       nextValues.reclamation_flag = reclFlag;
       nextValues.reclamation_accepted_date = fromInputDate(reclAcceptedDate);
@@ -1387,7 +1382,6 @@ export function EngineDetailsPage(props: {
         customer_id: asNullableText(attrs.customer_id),
         contract_id: asNullableText(attrs.contract_id),
         contract_section_number: asNullableText(attrs.contract_section_number),
-        workshop_id: asNullableText(attrs.workshop_id),
       };
       currentValues.reclamation_flag = isEavFlagSet(attrs.reclamation_flag);
       currentValues.reclamation_accepted_date = normalizeDateInput(attrs.reclamation_accepted_date);
@@ -1430,23 +1424,9 @@ export function EngineDetailsPage(props: {
             throw new Error(String(r?.error ?? 'неизвестно'));
           }
           didSaveStrict = true;
-          // Межцеховая передача («отдал»): цех сменился с одного реального на другой →
-          // фиксируем операцию workshop_transfer (from → to) для per-цех учёта C3.
-          const prevWorkshop = asNullableText(attrs.workshop_id);
-          if (prevWorkshop && workshopId && prevWorkshop !== workshopId) {
-            const label = (id: string) => workshopOptions.find((o) => o.id === id)?.label ?? id;
-            try {
-              await window.matrica.operations.add(
-                props.engineId,
-                'workshop_transfer',
-                'transferred',
-                `Цех: ${label(prevWorkshop)} → ${label(workshopId)}`,
-                JSON.stringify({ fromWorkshopId: prevWorkshop, toWorkshopId: workshopId }),
-              );
-            } catch {
-              /* передача — аудиторская запись, не валим сохранение карточки */
-            }
-          }
+          // Межцеховая передача удалена вместе с цехом из «Основного» карточки (2026-10):
+          // двигатель не привязан к цеху; цех — атрибут этапа ремонта (work_sheets),
+          // отображается в отчётах и фильтрах через workSheet.workshopId.
           // История ремонта: стадиями владеет единый список этапов (вкладка
           // «История ремонта»); карточка флаги больше не пишет (шаг 8/3).
           // Замороженные значения остаются в EAV как история — их читает печать ниже.
@@ -1829,13 +1809,6 @@ export function EngineDetailsPage(props: {
         metaJson: JSON.stringify({ linkTargetTypeCode: 'contract' }),
       },
       { code: 'contract_section_number', name: 'ДС контракта', dataType: 'text', sortOrder: 45 },
-      {
-        code: 'workshop_id',
-        name: 'Цех',
-        dataType: 'link',
-        sortOrder: 47,
-        metaJson: JSON.stringify({ linkTargetTypeCode: 'workshop' }),
-      },
       { code: 'arrival_date', name: 'Дата прихода', dataType: 'date', sortOrder: 50 },
       // Налкладная прихода — вплотную к дате прихода. Раньше она приезжала в общем
       // развороте плоских полей в конце и стояла далеко под своей датой (владелец 01.10.2026).
@@ -2358,29 +2331,9 @@ export function EngineDetailsPage(props: {
           ),
         }
       : null,
-    props.canViewMasterData
-      ? {
-          code: 'workshop_id',
-          defaultOrder: 47,
-          label: 'Цех',
-          value: workshopOptions.find((o) => o.id === workshopId)?.label ?? '',
-          render: (
-            <EntityReferenceField
-              target="workshop"
-              targetLabel="Цех"
-              value={workshopId || null}
-              options={workshopOptions}
-              placeholder="Выберите цех"
-              disabled={!canEditEnginesEff || workshopOptions.length === 0}
-              showAllWhenEmpty
-              onChange={(next) => {
-                setSessionChanged(true);
-                setWorkshopId(next ?? '');
-              }}
-            />
-          ),
-        }
-      : null,
+    // Цех (workshop_id) удалён из «Основного» карточки двигателя (план 2026-10):
+    // двигатель не привязан к цеху; цех — атрибут этапа ремонта (work_sheets),
+    // отображается в списках и отчёте «Двигатели на заводе» из workSheet.workshopId.
     // Шаг 8/3: галочки статусов и их даты убраны (единый список этапов — теперь
     // единственный ввод; старые значения лежат замороженными в EAV и читаются
     // печатью ниже). Сам блок STATUS_DISPLAY_ORDER в ensureAttributeDefs выше
@@ -2858,13 +2811,12 @@ export function EngineDetailsPage(props: {
               setRepeatArrivalFlag(isEavFlagSet(attrs.repeat_arrival_flag));
               setNumberCollisionFlag(isEavFlagSet(attrs.number_collision_flag));
               setPreviousArrivalId(String(attrs.previous_arrival_id ?? ''));
-              // Баг 10.10.2026: «Отменить» не трогал клеймо, год и цех — их правки
+              // Баг 10.10.2026: «Отменить» не трогал клеймо и год — их правки
               // уходили в базу при закрытии дифом, хотя оператор нажал «Отменить»
-              // и считал, что откатил всё. Плоские реквизиты (накладные и пр.)
+              // и считал, что откатил всё. (Цех из «Основного» убран в 2026-10.) Плоские реквизиты (накладные и пр.)
               // пересобираем из committed тем же правилом, что и инициализация.
               setInternalNumber(String(attrs[ENGINE_INTERNAL_NUMBER_CODE] ?? ''));
               setInternalNumberYear(String(attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE] ?? ''));
-              setWorkshopId(String(attrs.workshop_id ?? ''));
               setFlatValues(() => {
                 const next: Record<string, string> = {};
                 for (const f of ENGINE_FLAT_FIELDS) {
@@ -2993,8 +2945,8 @@ export function EngineDetailsPage(props: {
             {...(defectStageAt != null ? { defectStageDate: defectStageAt } : {})}
             {...(engineBrandId ? { engineBrandId } : {})}
             {...(() => {
-              const name = workshopOptions.find((o) => o.id === workshopId)?.label ?? '';
-              return name ? { workshopName: name } : {};
+              // Цех из карточки удалён (2026-10); цех этапа читается из workSheet.
+              return {};
             })()}
             canViewFiles={props.canViewFiles}
             canUploadFiles={props.canUploadFiles}

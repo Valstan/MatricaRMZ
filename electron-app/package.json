@@ -98,6 +98,10 @@
         {
           "from": "installer/kaspersky-desktop-readme.txt",
           "to": "kaspersky-desktop-readme.txt"
+        },
+        {
+          "from": "../scripts/client-ops/opencode-harness.ps1",
+          "to": "opencode-harness.ps1"
         }
       ],
       "target": [
