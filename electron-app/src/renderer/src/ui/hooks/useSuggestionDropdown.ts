@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { rankLookupOptions } from '../utils/searchMatching.js';
+import { computeSuggestPlacement, samePlacement, type SuggestPlacement } from './suggestPlacement.js';
 import { useTabVisible } from '../shell/TabVisibilityContext.js';
 
 /** Автоскрытие выпадашки после паузы без взаимодействия (решение владельца: как на экране входа — везде). */
@@ -56,6 +57,10 @@ export function useSuggestionDropdown<T extends SuggestOption>(
   const rootRef = useRef<HTMLDivElement | null>(null);
   const popupRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  // Последнее применённое размещение: setState только при смене значений.
+  // Без этого открытая выпадашка с инлайн-options (новый массив каждый рендер)
+  // уходила в вечный цикл (A2): эффект → свежий объект → рендер → эффект…
+  const placedRef = useRef<SuggestPlacement | null>(null);
   // Scroll the active row into view ONLY for keyboard navigation. Mouse hover also
   // sets activeIdx (for highlight), but scrolling on hover makes the row jump out
   // from under the cursor → another hover → scroll → jitter. Keyboard nav sets this
@@ -83,40 +88,23 @@ export function useSuggestionDropdown<T extends SuggestOption>(
   }, [open]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      placedRef.current = null;
+      return;
+    }
     let rafId = 0;
     const update = () => {
       const rect = rootRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const gap = 6;
-      const padding = 8;
-      const viewportW = window.innerWidth;
-      const viewportH = window.innerHeight;
-      const contentW = estimateSuggestListContentWidth(filtered);
-      const width = Math.min(Math.max(rect.width, contentW, 160), viewportW - padding * 2);
-
-      let left = rect.left;
-      if (left + width > viewportW - padding) left = viewportW - padding - width;
-      if (left < padding) left = padding;
-
-      // Рассчитываем доступное пространство сверху и снизу
-      const spaceBelow = Math.max(0, viewportH - rect.bottom - gap - padding);
-      const spaceAbove = Math.max(0, rect.top - gap - padding);
-
-      // Если до нижнего края viewport мало места (< 250px), а сверху больше — якорим попап сверху поля
-      const preferTop = spaceBelow < 250 && spaceAbove > spaceBelow;
-
-      const maxAvailable = preferTop ? spaceAbove : spaceBelow;
-      const effectiveMaxHeight = Math.max(120, maxAvailable);
-
-      if (preferTop) {
-        const bottom = viewportH - rect.top + gap;
-        setPopupRect({ left, width, maxHeight: effectiveMaxHeight, placement: 'above', bottom });
-      } else {
-        let top = rect.bottom + gap;
-        if (top < padding) top = padding;
-        setPopupRect({ left, width, maxHeight: effectiveMaxHeight, placement: 'below', top });
-      }
+      const next = computeSuggestPlacement(
+        window.innerWidth,
+        window.innerHeight,
+        { left: rect.left, top: rect.top, bottom: rect.bottom, width: rect.width },
+        estimateSuggestListContentWidth(filtered),
+      );
+      if (samePlacement(placedRef.current, next)) return;
+      placedRef.current = next;
+      setPopupRect(next);
     };
     update();
     rafId = requestAnimationFrame(update);
