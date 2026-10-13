@@ -1,6 +1,7 @@
 import React from 'react';
 
 import type { UseColumnLayoutResult } from '../hooks/useColumnLayout.js';
+import { createResizeDrag, type ResizeDrag } from '../utils/columnResizeDrag.js';
 
 /**
  * Ручка ширины колонки (владелец 01.10.2026): потянуть за правый край шапки —
@@ -10,6 +11,12 @@ import type { UseColumnLayoutResult } from '../hooks/useColumnLayout.js';
  *
  * Клик после drag не должен тогглить сортировку шапки: движение гасится
  * одноразовым перехватчиком (шапка свой onClick не меняет).
+ *
+ * A1: тяга больше не может повесить программу. Живые ширины идут через
+ * rAF-дроссель (не чаще одного setState на кадр, «туда-сюда» не громоздит
+ * очередь рендеров), а конец тяги один на все пути: pointerup, pointercancel,
+ * потеря capture и blur окна. Повторный finish — noop (машина пуста), поэтому
+ * двойное завершение (up + lostpointercapture) безопасно.
  */
 /**
  * Якорь для ручки ресайза. Раскладывать ПЕРВЫМ в стиле th: собственный
@@ -38,11 +45,84 @@ export function manualWidthAttr(width: number | null): { 'data-manual-w'?: numbe
   return width === null ? {} : { 'data-manual-w': width };
 }
 
+type LayoutApi = Pick<UseColumnLayoutResult, 'setWidthLive' | 'commitWidths' | 'clearWidth'>;
+
 export function ColumnResizeHandle(props: {
   columnId: string;
-  layout: Pick<UseColumnLayoutResult, 'setWidthLive' | 'commitWidths' | 'clearWidth'>;
+  layout: LayoutApi;
 }) {
-  const drag = React.useRef<{ startX: number; startW: number; moved: boolean } | null>(null);
+  const dragRef = React.useRef<ResizeDrag | null>(null);
+  const layoutRef = React.useRef(props.layout);
+  layoutRef.current = props.layout;
+  const columnIdRef = React.useRef(props.columnId);
+  columnIdRef.current = props.columnId;
+  const rafRef = React.useRef(0);
+  const pendingRef = React.useRef<number | null>(null);
+
+  function drag(): ResizeDrag {
+    if (!dragRef.current) dragRef.current = createResizeDrag();
+    return dragRef.current;
+  }
+
+  function scheduleLive(width: number) {
+    pendingRef.current = width;
+    if (rafRef.current) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = 0;
+      const w = pendingRef.current;
+      pendingRef.current = null;
+      if (w !== null) layoutRef.current.setWidthLive(columnIdRef.current, w);
+    });
+  }
+
+  function releaseCapture(el: HTMLElement | null, pointerId: number | undefined) {
+    try {
+      if (el && pointerId !== undefined && el.hasPointerCapture?.(pointerId)) el.releasePointerCapture(pointerId);
+    } catch {
+      // capture уже нет — завершаем как обычно
+    }
+  }
+
+  // Стабильная реализация конца тяги в ref: blur-слушатель и unmount-эффект
+  // снимают ровно ту функцию, что ставили (иначе слушатель висит).
+  const finishDragRef = React.useRef<(el: HTMLElement | null, pointerId: number | undefined) => void>(() => {});
+
+  const onWindowBlur = React.useCallback(() => {
+    // Alt-Tab посреди тяги: фиксируем наработанное, залипшего drag нет.
+    finishDragRef.current(null, undefined);
+  }, []);
+
+  finishDragRef.current = (el, pointerId) => {
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+    }
+    const pending = pendingRef.current;
+    pendingRef.current = null;
+    const moved = drag().finish();
+    window.removeEventListener('blur', onWindowBlur);
+    if (pending !== null) layoutRef.current.setWidthLive(columnIdRef.current, pending);
+    if (moved) {
+      layoutRef.current.commitWidths();
+      swallowNextClick();
+    }
+    releaseCapture(el, pointerId);
+  };
+
+  function finishDrag(el: HTMLElement | null, pointerId: number | undefined) {
+    finishDragRef.current(el, pointerId);
+  }
+
+  // Размонтирование посреди тяги: кадров, тяги и слушателей не оставляем.
+  React.useEffect(
+    () => () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      pendingRef.current = null;
+      dragRef.current?.abort();
+      window.removeEventListener('blur', onWindowBlur);
+    },
+    [onWindowBlur],
+  );
 
   function swallowNextClick() {
     const swallow = (e: MouseEvent) => {
@@ -68,28 +148,21 @@ export function ColumnResizeHandle(props: {
         if (e.button !== 0) return;
         e.stopPropagation();
         const th = (e.currentTarget as HTMLElement).parentElement;
-        drag.current = { startX: e.clientX, startW: th ? th.getBoundingClientRect().width : 0, moved: false };
-        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        if (!drag().start(e.clientX, th ? th.getBoundingClientRect().width : 0)) return;
+        try {
+          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        } catch {
+          // pointer уже отпущен (перо/тач-грань) — тяга идёт без capture до первого up/cancel
+        }
+        window.addEventListener('blur', onWindowBlur);
       }}
       onPointerMove={(e) => {
-        const d = drag.current;
-        if (!d) return;
-        const dx = e.clientX - d.startX;
-        if (Math.abs(dx) > 3) d.moved = true;
-        if (d.moved) props.layout.setWidthLive(props.columnId, d.startW + dx);
+        const w = drag().move(e.clientX);
+        if (w !== null) scheduleLive(w);
       }}
-      onPointerUp={() => {
-        const d = drag.current;
-        drag.current = null;
-        if (!d) return;
-        if (d.moved) {
-          props.layout.commitWidths();
-          swallowNextClick();
-        }
-      }}
-      onPointerCancel={() => {
-        drag.current = null;
-      }}
+      onPointerUp={(e) => finishDrag(e.currentTarget as HTMLElement, e.pointerId)}
+      onPointerCancel={(e) => finishDrag(e.currentTarget as HTMLElement, e.pointerId)}
+      onLostPointerCapture={() => finishDrag(null, undefined)}
       style={{
         position: 'absolute',
         top: 0,

@@ -218,10 +218,26 @@ describe('ширина колонки тянется мышью', () => {
     expect(HANDLE).toContain('data-col-resize={props.columnId}');
     expect(HANDLE).toContain("cursor: 'col-resize'");
     expect(HANDLE).toContain('setPointerCapture');
-    expect(HANDLE).toContain('props.layout.setWidthLive(props.columnId, d.startW + dx)');
-    expect(HANDLE).toContain('props.layout.commitWidths()');
+    expect(HANDLE).toContain('commitWidths()');
     expect(HANDLE).toContain('props.layout.clearWidth(props.columnId)');
     expect(HANDLE).toContain('swallowNextClick');
+  });
+
+  it('ручка A1: тяга не вешает программу — дроссель и конец по всем путям', () => {
+    // Живые ширины — не чаще кадра (шторм pointermove не громоздит рендеры).
+    expect(HANDLE).toContain('requestAnimationFrame');
+    expect(HANDLE).toContain('cancelAnimationFrame');
+    // Чистая машина тяги: порог, идемпотентный finish, пусто после конца.
+    expect(HANDLE).toContain('columnResizeDrag');
+    expect(HANDLE).toContain('drag().finish()');
+    // Конец тяги един на все пути: up, cancel, потеря capture, blur окна.
+    expect(HANDLE).toContain('onPointerCancel=');
+    expect(HANDLE).toContain('onLostPointerCapture=');
+    expect(HANDLE).toContain("addEventListener('blur'");
+    expect(HANDLE).toContain("removeEventListener('blur'");
+    // Capture отпускается явно, взятие — под страховкой от бросающего pointer.
+    expect(HANDLE).toContain('releasePointerCapture');
+    expect(HANDLE).toContain('hasPointerCapture');
   });
 
   it('хранилище и хук несут ширины: нормализация, персист, сброс', () => {
