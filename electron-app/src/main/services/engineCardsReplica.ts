@@ -97,6 +97,102 @@ export function isKnownEngineCardCode(code: string): boolean {
   return Object.prototype.hasOwnProperty.call(CODE_TO_COL, code);
 }
 
+/** Строка реплики → snake-ключи карточки (те же txt/num/flg-правила, что отдаёт `card:get`). */
+export function strictRowToSnake(row: CardRow): Record<string, unknown> {
+  const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const txt = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+  const flg = (v: unknown): boolean => v === true || v === 1;
+  const r = row as unknown as Record<string, unknown>;
+  return {
+    engine_number: txt(r.engineNumber),
+    engine_internal_number: txt(r.engineInternalNumber),
+    engine_internal_number_year: num(r.engineInternalNumberYear),
+    engine_brand_id: txt(r.engineBrandId),
+    engine_brand: txt(r.engineBrand),
+    arrival_date: num(r.arrivalDate),
+    customer_id: txt(r.customerId),
+    contract_id: txt(r.contractId),
+    contract_section_number: txt(r.contractSectionNumber),
+    workshop_id: txt(r.workshopId),
+    status_rework_sent: flg(r.statusReworkSent),
+    status_rework_sent_date: num(r.statusReworkSentDate),
+    status_scrap_confirmed: flg(r.statusScrapConfirmed),
+    status_scrap_confirmed_date: num(r.statusScrapConfirmedDate),
+    status_repair_started: flg(r.statusRepairStarted),
+    status_repair_started_date: num(r.statusRepairStartedDate),
+    status_repaired: flg(r.statusRepaired),
+    status_repaired_date: num(r.statusRepairedDate),
+    status_customer_sent: flg(r.statusCustomerSent),
+    status_customer_sent_date: num(r.statusCustomerSentDate),
+    status_customer_accepted: flg(r.statusCustomerAccepted),
+    status_customer_accepted_date: num(r.statusCustomerAcceptedDate),
+    status_storage_received: flg(r.statusStorageReceived),
+    status_storage_received_date: num(r.statusStorageReceivedDate),
+    status_rejected: flg(r.statusRejected),
+    status_rejected_date: num(r.statusRejectedDate),
+    scrap_reason: txt(r.scrapReason),
+    reclamation_flag: flg(r.reclamationFlag),
+    reclamation_accepted_date: num(r.reclamationAcceptedDate),
+    reclamation_customer_reason: txt(r.reclamationCustomerReason),
+    reclamation_actual_defect: txt(r.reclamationActualDefect),
+    reclamation_defect_nature: txt(r.reclamationDefectNature),
+    reclamation_act_number: txt(r.reclamationActNumber),
+    reclamation_verdict_date: num(r.reclamationVerdictDate),
+    reclamation_shipped_date: num(r.reclamationShippedDate),
+    reclamation_comment: txt(r.reclamationComment),
+    reclamation_verdict: txt(r.reclamationVerdict),
+    reclamation_repair_status: txt(r.reclamationRepairStatus),
+    repeat_arrival_flag: flg(r.repeatArrivalFlag),
+    number_collision_flag: flg(r.numberCollisionFlag),
+    previous_arrival_id: txt(r.previousArrivalId),
+    merged_into: txt(r.mergedInto),
+    arrival_invoice: txt(r.arrivalInvoice),
+    shipment_invoice: txt(r.shipmentInvoice),
+    engine_note: txt(r.engineNote),
+    docs_state: txt(r.docsState),
+    docs_aspvr_contractor_date: num(r.docsAspvrContractorDate),
+    docs_vp_sent_date: num(r.docsVpSentDate),
+    docs_vp_returned_date: num(r.docsVpReturnedDate),
+    docs_aspvr_customer_scan_date: num(r.docsAspvrCustomerScanDate),
+    docs_aspvr_customer_original_date: num(r.docsAspvrCustomerOriginalDate),
+    docs_track_or_act: txt(r.docsTrackOrAct),
+    docs_aspvr_signed_customer_date: num(r.docsAspvrSignedCustomerDate),
+    docs_aspvr_customer_received: flg(r.docsAspvrCustomerReceived),
+    docs_return_scan_date: num(r.docsReturnScanDate),
+    docs_return_original_date: num(r.docsReturnOriginalDate),
+    docs_note: txt(r.docsNote),
+  };
+}
+
+export type EavCardAttr = { value: unknown; updatedAt: number };
+
+/**
+ * Слияние строгой реплики поверх EAV для ЧТЕНИЯ (A3).
+ *
+ * Запись карточки (E3b) идёт только в строгую реплику, а читатели
+ * (`getEngineDetails`, `listEngines`) — из EAV. Без слияния свеженаписанное
+ * видно лишь после синк-круга (серверный EAV-след возвращается pull'ом):
+ * новая карточка после первого сейва выглядит пустой. Правило — посвежее
+ * побеждает: поле берётся из реплики, если её updatedAt не старше EAV-строки;
+ * EAV-строки нет вовсе (новый двигатель) — всегда из реплики. Снятая реплика
+ * (deletedAt) — как нет её.
+ */
+export function mergeStrictCardAttrs(
+  eav: Record<string, EavCardAttr>,
+  strict: (CardRow & { syncStatus?: string }) | null,
+  strictUpdatedAt: number,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [code, entry] of Object.entries(eav)) out[code] = entry.value;
+  if (!strict || (strict as { deletedAt?: number | null }).deletedAt != null) return out;
+  const snake = strictRowToSnake(strict);
+  for (const [code, value] of Object.entries(snake)) {
+    const entry = eav[code];
+    if (!entry || strictUpdatedAt >= entry.updatedAt) out[code] = value;
+  }
+  return out;
+}
+
 export async function readEngineCardStrict(
   db: BetterSQLite3Database,
   id: string,
