@@ -87,6 +87,16 @@ export type ClientOpsBundleInfo = {
 /** Вкладка окна обслуживания, с которой его открыть. Значения совпадают с -Tab у matrica-ops.ps1. */
 export type ClientOpsTab = 'kaspersky' | 'lan' | 'opencode' | 'guide';
 
+/** Прохождение этапа единого списка (B5): одна запись = один проход с датой. */
+export type EngineStageEntry = {
+  code: string;
+  name: string;
+  /** Дата этапа (ms); 0 — без даты, такая запись место в отчёте не определяет. */
+  at: number;
+  /** Номер прохода: 1 — первый, ≥2 — повторный заход. */
+  pass: number;
+};
+
 export type EngineListItem = {
   id: string;
   engineNumber?: string;
@@ -159,6 +169,13 @@ export type EngineListItem = {
    * этапа, и вопрос «когда укладывали вал» получал бы ответ про другое событие.
    */
   stageDates?: Record<string, number>;
+  /**
+   * Каждое прохождение этапа единого списка строкой (B5): код, название, дата, проход.
+   * Нужно отчёту «Двигатели на заводе» в режиме «Все этапы» — двигатель, прошедший за день
+   * сборку и обкатку, показывается в обеих группах (повторы допустимы: работа видна вся,
+   * а не одна точка «где сейчас»). `stageCodes`/`lastStageCode` на этот вопрос не отвечают.
+   */
+  stageEntries?: EngineStageEntry[];
   /** Последний этап единого списка (код/название/дата) — «где двигатель» по нему, а не по узлам (план unified-repair-stages, шаг 6). */
   lastStageCode?: string;
   lastStageName?: string;
