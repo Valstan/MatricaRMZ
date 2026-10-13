@@ -189,10 +189,24 @@ describe('ступени фильтра этапов работ', () => {
       'workshop',
       'performedBy',
       'date',
+      'hasRepeat',
       'f:hours',
       'f:stand_date',
     ]);
     expect(facets.find((f) => f.id === 'f:stand_date')?.kind).toBe('dateRange');
+  });
+
+  it('B4: фильтр вида работ не делит повторы, «Повторный заход» считает их отдельно', () => {
+    const facets = workSheetFacets([]);
+    const rows = [
+      row({ id: 'a', typeCode: 'ukladka', typeName: 'Укладка вала', repeatPass: 1 }),
+      row({ id: 'b', typeCode: 'ukladka', typeName: 'Укладка вала', repeatPass: 2 }),
+      row({ id: 'c', typeCode: 'ukladka', typeName: 'Укладка вала', repeatPass: 3 }),
+    ];
+    // «Укладка вала» показывает все три захода, а не только первый.
+    expect(applyFacets(facets, rows, { type: ['ukladka'] }).map((r) => r.id)).toEqual(['a', 'b', 'c']);
+    expect(applyFacets(facets, rows, { hasRepeat: ['repeat'] }).map((r) => r.id)).toEqual(['b', 'c']);
+    expect(applyFacets(facets, rows, { hasRepeat: ['first'] }).map((r) => r.id)).toEqual(['a']);
   });
 
   it('движковой ступени прохождения этапов здесь нет — 12.10.2026 (дубль «Вид работ», снята решением владельца)', () => {

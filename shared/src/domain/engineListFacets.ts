@@ -1,6 +1,12 @@
 import type { EngineListItem } from '../ipc/types.js';
 import { STATUS_LABELS, type StatusCode } from './contract.js';
-import { engineFactoryStage, engineFactoryStageOrder, engineStatusDate, type EngineFactoryStageTypeRef } from './engineFactoryStage.js';
+import {
+  engineFactoryStage,
+  engineFactoryStageOrder,
+  engineStatusDate,
+  returnsPass,
+  type EngineFactoryStageTypeRef,
+} from './engineFactoryStage.js';
 import { DEFAULT_REPAIR_STAGE_TEMPLATES, repairStageTemplate, type RepairStageTemplate } from './repairStages.js';
 import { COUNTDOWN_STALE_DAYS, countdownThresholds, isEngineDoneForCountdown } from './payments.js';
 import {
@@ -47,7 +53,8 @@ export type EngineFacetId =
   | 'repairedDate'
   | 'hasStage'
   | 'stageDate'
-  | 'factoryStage';
+  | 'factoryStage'
+  | 'hasRepeatPass';
 
 export type EngineFacetValue = FacetValue;
 export type EngineFacetDateRange = FacetDateRange;
@@ -408,6 +415,15 @@ export function engineFacets(
         return { value: s.key, label: s.label };
       },
       options: engineFactoryStageOrder(types, stageTemplates).map((s) => ({ value: s.key, label: s.label })),
+    },
+    {
+      kind: 'values',
+      // B4: отдельный счётчик повторных заходов — НЕ группа. Повторы остаются в группах
+      // своих этапов (иначе этапный отбор их терял бы), а сколько их — отвечает эта ступень.
+      id: 'hasRepeatPass',
+      label: 'Повторный заход',
+      valueOf: (e) =>
+        returnsPass(e) >= 2 ? { value: 'repeat', label: 'повторный' } : { value: 'first', label: 'первый проход' },
     },
   ];
 }

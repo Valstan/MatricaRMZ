@@ -8,6 +8,9 @@ import {
   formatEngineFactoryStageLabel,
   isEngineAtPlant,
 } from './engineFactoryStage.js';
+import { applyEngineFacets } from './engineListFacets.js';
+
+const ids = (rows: readonly EngineListItem[]): string[] => rows.map((r) => String(r.id));
 
 const TYPES = [
   { code: 'ukladka', name: 'Укладка', sortOrder: 10 },
@@ -125,11 +128,10 @@ describe('engineFactoryStage — побеждает поздний призна�
 });
 
 describe('engineFactoryStageOrder — ряд групп от позднего к раннему', () => {
-  it('утиль, возвраты, отремонтирован, единый список (поздние выше), виды работ, дефектовка, комплектовка, начат, пришёл', () => {
+  it('утиль, отремонтирован, единый список (поздние выше), виды работ, дефектовка, комплектовка, начат, пришёл (B4: строки «Возвраты» нет — повторы в группах этапов)', () => {
     const keys = engineFactoryStageOrder(TYPES).map((g) => g.key);
     expect(keys).toEqual([
       'scrap',
-      'returns',
       'repaired',
       'stage:accepted',
       'stage:shipped',
@@ -218,15 +220,14 @@ describe('engineFactoryStage — строки единого списка (ша�
     expect(s.key).toBe('scrap');
   });
 
-  // Решение владельца 05.10.2026: проход ≥ 2 — отдельная строка «Возвраты».
-  it('возврат назад (проход ≥ 2) уходит из группы этапа в строку «Возвраты»', () => {
+  // B4 (решение владельца 13.10.2026): повтор остаётся в группе своего этапа —
+  // отбор «Обкатка» показывает все обкатки. Отдельной строки «Возвраты» больше нет.
+  it('возврат (проход ≥ 2) остаётся в группе своего этапа с пометкой прохода', () => {
     const s = engineFactoryStage(
       engine({ lastStageCode: 'sborka', lastStageName: 'Сборка', lastStageAt: 21 * DAY, lastStagePass: 2 }),
       TYPES,
     );
-    expect(s).toMatchObject({ key: 'returns', at: 21 * DAY });
-    // Дата этапа сохраняется: видно, на каком этапе движок стоит, даже вынутого из группы.
-    expect(s.label).toBe(ENGINE_FACTORY_STAGE_LABELS.returns);
+    expect(s).toMatchObject({ key: 'stage:sborka', label: 'Сборка', at: 21 * DAY, repeatPass: 2 });
   });
 
   it('первый проход остаётся в группе своего этапа (возвратов нет)', () => {
@@ -260,16 +261,14 @@ describe('engineFactoryStage — строки единого списка (ша�
   });
 });
 
-describe('formatEngineFactoryStageLabel — подпись колонки (раскатка пилота #1195)', () => {
-  it('возврат несёт суффикс и называет этап, а не группу', () => {
-    expect(
-      formatEngineFactoryStageLabel({ key: 'returns', label: ENGINE_FACTORY_STAGE_LABELS.returns, stageLabel: 'Сборка' }),
-    ).toBe('Сборка · возврат');
+describe('formatEngineFactoryStageLabel — подпись колонки (B4)', () => {
+  it('возврат несёт суффикс и называет этап', () => {
+    expect(formatEngineFactoryStageLabel({ key: 'stage:sborka', label: 'Сборка', repeatPass: 2 })).toBe('Сборка · возврат');
   });
 
   it('остальные называют свой label как есть', () => {
-    expect(formatEngineFactoryStageLabel({ key: 'stage:sborka', label: 'Сборка' })).toBe('Сборка');
-    expect(formatEngineFactoryStageLabel({ key: 'scrap', label: ENGINE_FACTORY_STAGE_LABELS.scrap })).toBe('Утиль');
+    expect(formatEngineFactoryStageLabel({ key: 'stage:sborka', label: 'Сборка', repeatPass: 1 })).toBe('Сборка');
+    expect(formatEngineFactoryStageLabel({ key: 'scrap', label: ENGINE_FACTORY_STAGE_LABELS.scrap, repeatPass: 1 })).toBe('Утиль');
   });
 
   it('сквозной: возврат из engineFactoryStage подписывается с суффиксом', () => {
@@ -278,5 +277,13 @@ describe('formatEngineFactoryStageLabel — подпись колонки (ра�
       TYPES,
     );
     expect(formatEngineFactoryStageLabel(s)).toBe('Сборка · возврат');
+  });
+
+  it('ступень «Повторный заход» считает повторы, не забирая двигатели из этапов', () => {
+    const first = engine({ id: 'a', lastStageCode: 'obkatka', lastStageAt: 21 * DAY, lastStagePass: 1 });
+    const repeat = engine({ id: 'b', lastStageCode: 'obkatka', lastStageAt: 21 * DAY, lastStagePass: 2 });
+    expect(ids(applyEngineFacets([first, repeat], { factoryStage: ['stage:obkatka'] }, TYPES))).toEqual(['a', 'b']);
+    expect(ids(applyEngineFacets([first, repeat], { hasRepeatPass: ['repeat'] }, TYPES))).toEqual(['b']);
+    expect(ids(applyEngineFacets([first, repeat], { hasRepeatPass: ['first'] }, TYPES))).toEqual(['a']);
   });
 });
