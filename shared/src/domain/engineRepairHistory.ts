@@ -1,3 +1,4 @@
+import { moscowDaySortKey, repairStageRank } from './repairStages.js';
 import { parseWorkSheetFields, type WorkSheetField } from './workSheets.js';
 
 /**
@@ -459,7 +460,30 @@ export function repairHistoryFromOperations(rows: readonly RepairHistorySourceRo
       });
     }
   }
-  return out.sort((a, b) => b.at - a.at || a.id.localeCompare(b.id));
+  // B7 (план client-stability-and-ai-2026-10): этапы одних суток раскладываются
+  // сами — по каноническому порядку (владелец 13.10.2026: приход → входной
+  // контроль → разборка/дефектовка → ремонт деталей → укладка → сборка →
+  // обкатка → выходной контроль → отгрузка → приемка; в реестре этому порядку
+  // соответствует sortOrder из repairStages.ts). Время внутри дня — артефакты
+  // ввода (полночь ручной даты, момент нажатия кнопки), поэтому сначала день
+  // (Москва, новые сверху), затем приоритет этапа, затем момент и id.
+  // Неэтапные записи (ручные, переезды, строки работ) приоритета не несут —
+  // между собой и с этапами идут по моменту, как раньше.
+  return out.sort((a, b) => {
+    const dayA = moscowDaySortKey(a.at);
+    const dayB = moscowDaySortKey(b.at);
+    if (dayA !== dayB) {
+      if (!dayA) return 1;
+      if (!dayB) return -1;
+      return dayA < dayB ? 1 : -1;
+    }
+    if (dayA) {
+      const rankA = a.stage ? repairStageRank(String(a.stage.code ?? '')) : 0;
+      const rankB = b.stage ? repairStageRank(String(b.stage.code ?? '')) : 0;
+      if (rankA > 0 && rankB > 0 && rankA !== rankB) return rankB - rankA;
+    }
+    return b.at - a.at || a.id.localeCompare(b.id);
+  });
 }
 
 /** Подсказки действий: предустановленные плюс всё, что операторы уже вводили руками. */

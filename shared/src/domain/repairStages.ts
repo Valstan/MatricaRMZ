@@ -265,17 +265,21 @@ export type SaveRepairStageResult =
     };
 
 /**
- * Сортировка списка для показа: по дате, бездатые — в конец, затем по приоритету.
- * Коды строковые намеренно: читатели (экраны) несут строки, которых может не быть
- * в реестре, — неизвестный код сортируется как боковая ветка, а не бросает.
+ * Сортировка списка для показа: по календарному дню (Москва, старые раньше),
+ * внутри дня — по приоритету (время внутри дня — артефакты ввода, B7),
+ * бездатые — в конец. Коды строковые намеренно: читатели (экраны) несут
+ * строки, которых может не быть в реестре, — неизвестный код сортируется как
+ * боковая ветка, а не бросает.
  */
 export function sortStagesByDate<T extends { code: string; at: number | null }>(stages: T[]): T[] {
   return [...stages].sort((a, b) => {
-    const atA = typeof a.at === 'number' && Number.isFinite(a.at) && a.at > 0 ? a.at : null;
-    const atB = typeof b.at === 'number' && Number.isFinite(b.at) && b.at > 0 ? b.at : null;
-    if (atA !== null && atB !== null && atA !== atB) return atA - atB;
-    if (atA !== null && atB === null) return -1;
-    if (atA === null && atB !== null) return 1;
+    const dayA = typeof a.at === 'number' ? moscowDaySortKey(a.at) : '';
+    const dayB = typeof b.at === 'number' ? moscowDaySortKey(b.at) : '';
+    if (dayA !== dayB) {
+      if (!dayA) return 1;
+      if (!dayB) return -1;
+      return dayA < dayB ? -1 : 1;
+    }
     return repairStageRank(a.code) - repairStageRank(b.code);
   });
 }

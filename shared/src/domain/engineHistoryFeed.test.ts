@@ -101,6 +101,24 @@ describe('единая лента событий по двигателю', () =>
     expect(feed.map((i) => i.id)).toEqual(['new', 'old', 'undated']);
   });
 
+  it('этапы одних суток раскладываются сами — по приоритету, а не по часам (B7)', () => {
+    // Московские сутки 13.10.2026: сборка внесена днём, обкатка — утром того же дня.
+    const day = Date.UTC(2026, 9, 13, 0, 0, 0);
+    const feed = buildEngineHistoryFeed([
+      row({
+        id: 'sborka',
+        performedAt: day + 12 * 3_600_000,
+        metaJson: repairMeta({ entryType: 'stage', action: 'Сборка', stage: { code: 'sborka', name: 'Сборка' }, at: day + 12 * 3_600_000 }),
+      }),
+      row({
+        id: 'obkatka',
+        performedAt: day + 4 * 3_600_000,
+        metaJson: repairMeta({ entryType: 'stage', action: 'Обкатка', stage: { code: 'obkatka', name: 'Обкатка' }, at: day + 4 * 3_600_000 }),
+      }),
+    ]);
+    expect(feed.map((i) => i.id)).toEqual(['obkatka', 'sborka']);
+  });
+
   it('автор служебного скрипта назван словами, человека — логином', () => {
     const feed = buildEngineHistoryFeed([
       row({ id: 'op1', performedBy: 'stages:backfill' }),
