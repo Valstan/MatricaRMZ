@@ -2,28 +2,22 @@
 
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
-**Status:** ACTIVE (нитка: план `client-stability-and-ai-2026-10.md`, B7 готов локально, ветка `feat/stage-same-day-priority-b7`)
+**Status:** IDLE (B6+B7 влиты; дальше — B8 звезда, затем C9/D10)
 **Updated:** 2026-10-13 (opencode session, машина `PC79`)
-**Branch:** feat/stage-same-day-priority-b7 (B7; влить в main отдельным PR)
+**Branch:** main = origin/main
 **Last released version:** **v3.76.0** на проде (+ android-v3.76.0).
 
 ## Текущая нитка
 
-B7 готов локально (план `docs/plans/client-stability-and-ai-2026-10.md`):
-авто-приоритет этапов в одни сутки. Порядок от владельца 13.10.2026
-(приход → входной контроль → разборка/дефектовка → ремонт деталей → укладка →
-сборка → обкатка → выходной контроль → отгрузка → приемка) = sortOrder реестра.
-Чинены три сортировки, шедшие по голым мс внутри дня: лента истории
-(`repairHistoryFromOperations`), единая лента карточки (`buildEngineHistoryFeed`
-→ `sortFeedItems`) и `sortStagesByDate`. Неэтапные записи — по-прежнему по моменту.
-Тесты: +4 в shared (лента, фид, сортировка). Гейты локально: shared 1380,
-electron-app 1648, backend-api 1140, typecheck electron-app чисто.
-Открытое дальше: B8 (звезда), C9 (автозапуск), D10 (ИИ-узел) + известные задачи
-(пилот узла PC79; M102; DeepSeek 402; SSH ≤ 26.11; Yandex-blockmap 3.75.0).
+_n/a_ — B6 (группировка списков, #1333) и B7 (авто-приоритет этапов в одни сутки,
+#1335) влиты в `main`. Открытое по плану `docs/plans/client-stability-and-ai-2026-10.md`:
+B8 (звезда вместо прикреплялок), C9 (автозапуск), D10 (ИИ-узел). Известные задачи:
+пилот узла на PC79; M102 dry-run/apply; DeepSeek 402; ротация SSH PC79 ≤ 26.11;
+Yandex-зеркало 3.75.0 без blockmap.
 
 ## Следующий шаг
 
-Влить PR B7 (после merge: `git checkout main && git pull`). Затем B8.
+По слову владельца: B8 → C9 → D10.
 
 ## Следующий шаг
 
