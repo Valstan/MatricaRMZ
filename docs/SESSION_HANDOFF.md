@@ -2,28 +2,21 @@
 
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
-**Status:** ACTIVE (нитка: D10 слайс 2 — клиент сессий, ветка `feat/opencode-agent-session-2`)
+**Status:** IDLE (D10: слайсы 1–2 влиты; слайс 3 ждёт решения по правам агента)
 **Updated:** 2026-10-14 (opencode session, машина `PC79`)
-**Branch:** feat/opencode-agent-session-2 (влить в main отдельным PR)
+**Branch:** main = origin/main
 **Last released version:** **v3.76.0** на проде (+ android-v3.76.0).
 
 ## Текущая нитка
 
-D10 слайс 2 готов локально: клиент сессий serve (`opencodeSessionClient`:
-create/get/delete/prompt/messages/interrupt — формы с живого v1.19.0) +
-персист фоновой агентской сессии (`opencodeAgentSession`: userData-файл,
-валидация, ensure без дублей) + IPC `opencodeSession:ensure/status/remove`
-(суперадмин, мост, контракт). Гейты: shared 1382, electron-app 1697 — зелёные;
-живой смоук (`cdp-opencode-session.mjs`) — SMOKE PASS (11 шагов: жизненный цикл,
-идемпотентность, location-разведка, переживание рестарта serve, уборка).
-Находки serve для слайса 3: DELETE — no-op; GET-by-id 500 на несуществующем
-каталоге location (каталог создавать заранее); location — объект {directory}.
-Дальше: слайс 3 (стрим в ИИваныча). Известные задачи: пилот узла PC79; M102;
-DeepSeek 402; SSH ≤ 26.11; Yandex-blockmap 3.75.0.
+D10 слайсы 1 (#1343) и 2 (#1344) влиты: изоляция+вотчер, клиент сессий
++ персист. Спек слайса 3 дописан в `docs/plans/opencode-ai-node-2026-10.md`
+(события SSE, политика прав — блокер кодирования). Известные задачи: пилот
+узла PC79; M102; DeepSeek 402; SSH ≤ 26.11; Yandex-blockmap 3.75.0.
 
 ## Следующий шаг
 
-Влить PR слайса 2. Затем слайс 3.
+По слову владельца: политика прав агента → код слайса 3.
 
 ## Что не сработало
 
