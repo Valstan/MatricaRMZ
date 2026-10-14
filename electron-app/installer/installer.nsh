@@ -143,6 +143,11 @@ killDoneUninstall:
   !insertmacro KillClientProcesses
   DetailPrint "Режим установки: Автоматическая переустановка"
   !insertmacro CleanupMatricaFiles
+  ; Чистка аварийной кнопки у существующих машин (C9): customInit выполняется
+  ; и при обновлении, Delete отсутствующего файла — no-op для новых установок.
+  ; (Инлайн, а не макросом: NSIS раскрывает !insertmacro на месте, и макрос обязан
+  ; быть объявлен выше по файлу.)
+  Delete "$DESKTOP\Восстановить Матрицу РМЗ.lnk"
 !macroend
 
 !macro customCheckAppRunning
@@ -192,12 +197,21 @@ killDoneUninstall:
   ; было ни у кого, проверено на rmz4val 2026-08-26. Папка автозагрузки прав не
   ; требует, а сторож собран GUI-подсистемой, поэтому окно консоли не мелькнёт.
   CreateShortCut "$SMSTARTUP\MatricaRMZ Watchdog.lnk" "$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog\matricarmz-watchdog.exe" "" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0
-  ; Аварийная кнопка оператора: ярлык на `matricarmz-watchdog.exe --repair` —
-  ; принудительный проход сторожа без ожидания расписания (15 мин). Иконка — от
-  ; клиента: Go-бинарь сторожа собственной не несёт. Клиент поддерживает ярлык и
-  ; сам (restoreShortcutsHeadless), поэтому удалённый оператором ярлык вернётся.
-  CreateShortCut "$DESKTOP\Восстановить Матрицу РМЗ.lnk" "$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog\matricarmz-watchdog.exe" "--repair" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0
 !macroend
+
+; --- Автозапуск клиента (C9) --------------------------------------------------
+; Матрица стартует вместе с компьютером, свёрнуто в трей (`--minimized`). Та же
+; папка автозагрузки, что у сторожа: per-user, без админа. CreateShortCut и так
+; перезаписывает, поэтому отдельный /F не нужен. Клиент на каждом упакованном
+; старте сам чинит отсутствующую/сломанную запись — здесь только первичное создание.
+!macro InstallClientAutostart
+  CreateShortCut "$SMSTARTUP\MatricaRMZ.lnk" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" "--minimized" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0
+!macroend
+
+; --- Аварийная кнопка «Восстановить Матрицу РМЗ» СНЯТА (C9) --------------------
+; Ярлык на `watchdog --repair` больше не создаётся. У существующих машин его
+; сносит Delete в customInit выше (он выполняется и при обновлении).
+; Клиент его и сам не возвращает (restoreShortcutsHeadless этого больше не делает).
 
 ; ⚠️ Вызывается из customUnInstall, а он выполняется и при ОБНОВЛЕНИИ: одноклик-апдейт
 ; сперва гоняет старый деинсталлятор и только потом распаковывает новую версию. Снимать
@@ -216,6 +230,8 @@ killDoneUninstall:
     nsExec::ExecToLog '"$SYSDIR\schtasks.exe" /Delete /F /TN "MatricaRMZ\Watchdog Logon"'
     nsExec::ExecToLog '"$SYSDIR\schtasks.exe" /Delete /F /TN "MatricaRMZ\Watchdog Periodic"'
     Delete "$SMSTARTUP\MatricaRMZ Watchdog.lnk"
+    ; Автозапуск клиента (C9): при настоящем удалении снимаем и его.
+    Delete "$SMSTARTUP\MatricaRMZ.lnk"
     ; Only the watchdog binary — never its data dir (handshake/log/state) and never
     ; the app's userData. The Roaming path is the pre-2026-08 home.
     Delete "$LOCALAPPDATA\Programs\MatricaRMZ-Watchdog\matricarmz-watchdog.exe"
@@ -266,6 +282,7 @@ killDoneUninstall:
 !macro customInstall
   !insertmacro InstallWatchdog
   !insertmacro InstallKasperskyHelper
+  !insertmacro InstallClientAutostart
 !macroend
 
 !macro customUnInstall

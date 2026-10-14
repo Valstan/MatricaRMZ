@@ -92,6 +92,10 @@
           "to": "matricarmz-watchdog.exe"
         },
         {
+          "from": "build/icon.ico",
+          "to": "tray-icon.ico"
+        },
+        {
           "from": "build/kaspersky/kaspersky-matrica.zip",
           "to": "kaspersky-matrica.zip"
         },
