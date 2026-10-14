@@ -2265,6 +2265,14 @@ export type MatricaApi = {
     status: () => Promise<{ ok: true; sessionId: string | null; valid: boolean } | { ok: false; error: string }>;
     /** Удалить сессию на serve и забыть id. */
     remove: () => Promise<{ ok: true } | { ok: false; error: string }>;
+    /** Вопрос узлу (D10, слайс 3): промпт в песочнице, ответ — поллингом poll. */
+    ask: (args: { text: string }) => Promise<{ ok: true; askId: string } | { ok: false; error: string }>;
+    /** Шаг опроса ответа: растущий текст + готовность. */
+    poll: (args: { askId: string }) => Promise<
+      { ok: true; text: string; done: boolean; timedOut: boolean } | { ok: false; error: string }
+    >;
+    /** Остановить вопрос (interrupt + done). */
+    stop: (args: { askId: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
   };
 
   servicePricing: {

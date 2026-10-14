@@ -44,7 +44,10 @@ table», а файл держал живой инструмент владель
 `GET /api/session/active` · `GET|DELETE /api/session/:id` · `POST
 /api/session/:id/{fork,agent,model,rename,move,prompt,command,skill,synthetic,shell}`
 · `GET /event` (SSE, проверен `server.connected`) · `GET /global/health`.
-Промпт: `POST /api/session/:id/prompt {id?,text,files?,agents?,metadata?,delivery?,resume?}`.
+Промпт: `POST /session/:id/message {parts: [{type: 'text', text}]}` (форма v0 —
+та, что шлёт сам TUI бинаря; `/api/.../prompt` с плоским text отвечает 400).
+Сообщения: `GET /session/:id/message` (массив `{info:{id,role}, parts}`,
+`/api`-вариант в 1.19.0 пуст).
 Открыто на слайс 2: семантика DELETE (вернул 200, строка осталась в списке);
 какой `agent`/`model` — дефолт serve (бесплатная облачная модель раздачи,
 решение владельца) или явный; `delivery`/`resume` — по чтению клиента из бандла.
@@ -56,8 +59,12 @@ table», а файл держал живой инструмент владель
 2. **Клиент сессий** (#1344, влит): `opencodeSessionClient` (create/get/delete/
    prompt/messages/interrupt), персист id, IPC ensure/status/remove, смоук
    жизненного цикла + переживания рестарта.
-3. **Стрим в ИИваныча** (следующий PR): вопрос → prompt → SSE `/event` →
-   прогрессивный рендер окна; DeepSeek — запасной контур при мёртвом узле.
+3. **Стрим в ИИваныча** (влит): вопрос → prompt → поллинг messages →
+   прогрессивный рендер окна; DeepSeek — запасной контур при мёртвом узле
+   (с пометкой). Политика прав: песочница-каталог + дефолт (решение владельца).
+   Транспорт поллингом, не SSE-соединением: тишина 20 с после текста = done,
+   кап 5 мин + interrupt. Формы v0 (не `/api/prompt`): промпт —
+   `POST /session/:id/message {parts}`, список — массив `{info,parts}`.
 
 ## Открытое (спек слайса 3 — детали реализации, сверены 14.10.2026)
 

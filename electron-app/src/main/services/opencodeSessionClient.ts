@@ -55,12 +55,13 @@ function asSessionRef(json: unknown): OpencodeSessionRef | null {
 
 /** Создать сессию (агент/модель — дефолт serve, бесплатная облачная модель раздачи). */
 export async function createOpencodeSession(
-  opts: { baseUrl?: string; agent?: string; model?: string; fetchImpl?: FetchImpl } = {},
+  opts: { baseUrl?: string; agent?: string; model?: string; location?: { directory: string }; fetchImpl?: FetchImpl } = {},
 ): Promise<{ ok: true; session: OpencodeSessionRef } | { ok: false; error: string }> {
   const fetchImpl = opts.fetchImpl ?? defaultFetch;
   const body: Record<string, unknown> = {};
   if (opts.agent) body.agent = opts.agent;
   if (opts.model) body.model = opts.model;
+  if (opts.location?.directory) body.location = { directory: opts.location.directory };
   const r = await callJson(fetchImpl, opts.baseUrl, 'POST', '/api/session', body);
   if (!r.ok) return r;
   const session = asSessionRef(r.json);
@@ -95,27 +96,32 @@ export async function deleteOpencodeSession(
 }
 
 /**
- * Вопрос в сессию (форма — из веб-клиента бинаря). Ответ приходит асинхронно
- * (обработка — дальше, чтение — messages/event): здесь возвращается только
- * принятое сообщение. Живой прогон с моделью — слайс 3.
+ * Вопрос в сессию (форма v0 — та, что шлёт сам TUI бинаря; проверена живьём
+ * 14.10.2026: `/api/.../prompt` с плоским text отвечает 400 «Missing key»).
+ * Ответ приходит асинхронно (обработка — дальше, чтение — messages): здесь
+ * возвращается только принятое сообщение. Живой прогон с моделью — слайс 3.
  */
 export async function promptOpencodeSession(
   sessionId: string,
   text: string,
   opts: { baseUrl?: string; fetchImpl?: FetchImpl } = {},
-): Promise<{ ok: true; message: unknown } | { ok: false; error: string }> {
+): Promise<{ ok: true; message: OpencodeMessage } | { ok: false; error: string }> {
   const id = String(sessionId ?? '').trim();
   const body = String(text ?? '').trim();
   if (!id) return { ok: false, error: 'Укажите id сессии' };
   if (!body) return { ok: false, error: 'Пустой вопрос' };
-  const r = await callJson(opts.fetchImpl ?? defaultFetch, opts.baseUrl, 'POST', `/api/session/${encodeURIComponent(id)}/prompt`, {
-    text: body,
+  const r = await callJson(opts.fetchImpl ?? defaultFetch, opts.baseUrl, 'POST', `/session/${encodeURIComponent(id)}/message`, {
+    parts: [{ type: 'text', text: body }],
   });
   if (!r.ok) return r;
-  return { ok: true, message: (r.json as { data?: unknown })?.data ?? r.json };
+  const message = (r.json as { data?: unknown })?.data ?? r.json;
+  return { ok: true, message: message as OpencodeMessage };
 }
 
-/** Сообщения сессии (ответы читаются отсюда; стриминга здесь нет — он в /event). */
+/**
+ * Сообщения сессии (форма v0: массив `{info:{id,role,...}, parts:[...]}` —
+ * `/api`-вариант в 1.19.0 отдаёт пустой data). Ответы читаются отсюда.
+ */
 export async function listOpencodeMessages(
   sessionId: string,
   opts: { baseUrl?: string; limit?: number; fetchImpl?: FetchImpl } = {},
@@ -127,7 +133,7 @@ export async function listOpencodeMessages(
     opts.fetchImpl ?? defaultFetch,
     opts.baseUrl,
     'GET',
-    `/api/session/${encodeURIComponent(id)}/message${limit}`,
+    `/session/${encodeURIComponent(id)}/message${limit}`,
   );
   if (!r.ok) return r;
   const data = (r.json as { data?: unknown })?.data ?? r.json;

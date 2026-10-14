@@ -54,22 +54,25 @@ describe('opencodeSessionClient (D10 слайс 2)', () => {
     expect(await deleteOpencodeSession('ses_x', { fetchImpl })).toEqual({ ok: true });
   });
 
-  it('prompt шлёт текст в /prompt, пустой вопрос не уходит', async () => {
-    const { calls, fetchImpl } = stubFetch(() => ({ status: 200, json: { data: { id: 'msg_1' } } }));
+  it('prompt шлёт parts в /message (форма v0 бинаря), пустой вопрос не уходит', async () => {
+    const { calls, fetchImpl } = stubFetch(() => ({ status: 200, json: { info: { id: 'msg_1' }, parts: [] } }));
     const r = await promptOpencodeSession('ses_1', 'привет', { fetchImpl });
-    expect(r).toEqual({ ok: true, message: { id: 'msg_1' } });
-    expect(calls[0]?.url).toBe('http://127.0.0.1:3080/api/session/ses_1/prompt');
-    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({ text: 'привет' });
+    expect(r).toEqual({ ok: true, message: { info: { id: 'msg_1' }, parts: [] } });
+    expect(calls[0]?.url).toBe('http://127.0.0.1:3080/session/ses_1/message');
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({ parts: [{ type: 'text', text: 'привет' }] });
     expect(await promptOpencodeSession('ses_1', '   ', { fetchImpl })).toMatchObject({ ok: false });
     expect(calls).toHaveLength(1);
   });
 
-  it('messages читаются списком, interrupt — без тела', async () => {
+  it('messages читаются массивом v0, interrupt — без тела', async () => {
     const { calls, fetchImpl } = stubFetch((url) => {
-      if (url.includes('/message')) return { status: 200, json: { data: [{ id: 'm1' }] } };
+      if (url.includes('/message')) return { status: 200, json: [{ info: { id: 'm1' }, parts: [{ type: 'text', text: 'a' }] }] };
       return { status: 204, json: null };
     });
-    expect(await listOpencodeMessages('ses_1', { fetchImpl })).toEqual({ ok: true, messages: [{ id: 'm1' }] });
+    expect(await listOpencodeMessages('ses_1', { fetchImpl })).toEqual({
+      ok: true,
+      messages: [{ info: { id: 'm1' }, parts: [{ type: 'text', text: 'a' }] }],
+    });
     expect(await interruptOpencodeSession('ses_1', { fetchImpl })).toEqual({ ok: true });
     expect(calls[1]?.method).toBe('POST');
     expect(calls[1]?.body).toBeUndefined();
