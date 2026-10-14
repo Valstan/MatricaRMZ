@@ -199,6 +199,18 @@ export function stripStageDateWhenWhereNow(selection: EngineFacetSelection): Eng
 }
 
 /**
+ * Раскрывать ли двигатели в строки-проходы (владелец 14.10.2026): только вопрос про
+ * движение — выбранные «Все этапы» или период «Даты этапа». Иначе (и при активном
+ * «Где сейчас?») — одна строка на двигатель с текущим местом: обстановка, а не лента.
+ */
+export function isStageEntriesActive(selection: EngineFacetSelection): boolean {
+  if (isFactoryStageActive(selection)) return false;
+  const picked = selection?.hasStage;
+  if (Array.isArray(picked) && picked.length > 0) return true;
+  return facetRangeOf(SELECTION(selection), 'stageDate') != null;
+}
+
+/**
  * Этап по коду строки: сперва серверный шаблон (порядок и названия меняет владелец),
  * при отсутствии — статичная линейка. Подпись ступени не должна зависеть от того, ответил
  * ли сервер: иначе один и тот же двигатель попадал бы в разные группы при офлайне.

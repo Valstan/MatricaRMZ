@@ -19,7 +19,7 @@ describe('группировка списка двигателей', () => {
     expect(ENGINES).toContain('Группировать');
   });
 
-  it('разрезы — те же, что в отчёте «Двигатели на заводе»', () => {
+  it('разрезы — те же, что в отчёте «Сейчас на заводе»', () => {
     expect(ENGINES).toContain('engineFactoryStage(e, sheetTypes, stageTemplates)');
     expect(ENGINES).toContain("case 'customer_stage':");
   });

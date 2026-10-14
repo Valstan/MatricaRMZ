@@ -54,6 +54,8 @@ export function WorkSheetTypeEditorDialog(props: {
   workshops: WorkshopOption[];
   onClose: () => void;
   onChanged: () => Promise<void> | void;
+  /** Встроить в чужую обёртку («Карта этапов»): без затемнения и своей панели. */
+  bare?: boolean;
 }) {
   const [selectedCode, setSelectedCode] = useState<string | null>(props.initialTypeCode ?? props.types[0]?.code ?? null);
   const selected = useMemo(() => props.types.find((t) => t.code === selectedCode) ?? null, [props.types, selectedCode]);
@@ -169,20 +171,16 @@ export function WorkSheetTypeEditorDialog(props: {
     }
   };
 
-  return (
+  const body = (
     <div
-      role="dialog"
-      aria-label="Виды работ"
-      data-work-sheet-type-editor
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-      onClick={() => {
-        if (!busy) props.onClose();
-      }}
+      onClick={(e) => e.stopPropagation()}
+      style={
+        props.bare
+          ? // В «Карте этапов» панель и прокрутка — у оболочки, здесь только внутренняя сетка.
+            { display: 'grid', gridTemplateColumns: '220px 1fr', gap: 14 }
+          : { background: 'var(--surface)', borderRadius: 10, padding: 16, width: 'min(900px, 96vw)', maxHeight: '90vh', overflow: 'auto', display: 'grid', gridTemplateColumns: '220px 1fr', gap: 14 }
+      }
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{ background: 'var(--surface)', borderRadius: 10, padding: 16, width: 'min(900px, 96vw)', maxHeight: '90vh', overflow: 'auto', display: 'grid', gridTemplateColumns: '220px 1fr', gap: 14 }}
-      >
         <div style={{ display: 'grid', gap: 6, alignContent: 'start' }}>
           <div style={{ fontWeight: 700 }}>Виды работ</div>
           {props.types.map((t) => (
@@ -304,7 +302,21 @@ export function WorkSheetTypeEditorDialog(props: {
             </Button>
           </div>
         </div>
-      </div>
+    </div>
+  );
+
+  if (props.bare) return body;
+  return (
+    <div
+      role="dialog"
+      aria-label="Виды работ"
+      data-work-sheet-type-editor
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+      onClick={() => {
+        if (!busy) props.onClose();
+      }}
+    >
+      {body}
     </div>
   );
 }

@@ -26,8 +26,7 @@ export type ReportPresetId =
   | 'engines_contracts_overview'
   | 'engines'
   | 'engine_flow_by_counterparty'
-  | 'engine_factory_stages'
-  | 'engines_at_plant'
+  | 'engines_now_at_plant'
   | 'warehouse_stock_path_audit'
   | 'assembly_forecast_7d'
   | 'part_movement_journal'
@@ -202,6 +201,8 @@ export const ENGINE_FLOW_DEFAULT_PRINT_LAYOUT: ReportPrintLayout = {
 export const REPORT_PRESET_ALIASES: Partial<Record<string, ReportPresetId>> = {
   engines_list: 'engines',
   engines_contracts_overview: 'engines',
+  engine_factory_stages: 'engines_now_at_plant',
+  engines_at_plant: 'engines_now_at_plant',
 };
 
 /** Канонический id пресета: алиас → цель, прочее — как есть. */
@@ -352,8 +353,7 @@ export const REPORT_PRESET_THEMES: Record<ReportPresetId, readonly [ReportThemeI
   engines_contracts_overview: ['engines', 'contracts'],
   engines: ['engines', 'contracts'],
   engine_flow_by_counterparty: ['engines', 'contracts'],
-  engine_factory_stages: ['engines', 'contracts'],
-  engines_at_plant: ['engines', 'contracts'],
+  engines_now_at_plant: ['engines', 'contracts'],
   warehouse_stock_path_audit: ['audit', 'warehouse'],
   assembly_forecast_7d: ['engines', 'supply'],
   part_movement_journal: ['warehouse'],
@@ -1135,19 +1135,10 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     presentation: 'list',
   },
   {
-    id: 'engine_factory_stages',
-    title: 'Двигатели на заводе: этапы ремонта',
+    id: 'engines_now_at_plant',
+    title: 'Сейчас на заводе',
     description:
-      'Кто пришёл и ещё не отгружен — где каждый сейчас: пришёл и не начат, ремонт начат, комплектовка, дефектовка, по последнему этапу работ (укладка, вал, сборка, обкатка), отремонтирован, утиль. Список с панелью ступеней (заказчик, договор, марка, цех, этап), настройкой колонок, группировкой по этапу / заказчику / заказчик → этап и печатью.',
-    filters: [],
-    columns: [],
-    presentation: 'list',
-  },
-  {
-    id: 'engines_at_plant',
-    title: 'Двигатели на заводе',
-    description:
-      'Обстановка по заводу на сегодня: кто пришёл и ещё не отгружен. Группировки — по этапу (где двигатель сейчас, с выбором этапов), заказчику, дате прихода, дням на заводе и утилю (сколько лежит и не уехало). Ступени — заказчик, договор, марка, цех, этапы, утиль.',
+      'Обстановка по заводу на сегодня: кто пришёл и ещё не отгружен — где каждый сейчас. По умолчанию каждый двигатель — одна строка с текущим местом; вопрос про движение («Все этапы», «Дата этапа») раскрывает точные срезы проходов. Список с панелью ступеней (заказчик, договор, марка, цех, этапы), настройкой колонок, группировкой по этапу / заказчику / заказчик → этап / дате прихода / дням на заводе / утилю и печатью.',
     filters: [],
     columns: [],
     presentation: 'list',

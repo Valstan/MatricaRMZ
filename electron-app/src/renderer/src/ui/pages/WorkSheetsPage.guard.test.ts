@@ -67,7 +67,7 @@ describe('этапы работ — экран', () => {
 
   it('вкладка заведена в реестре разделов, меню и приложении под правом на операции', () => {
     expect(SECTIONS).toContain("work_sheets: 'Этапы ремонта'");
-    expect(SECTIONS).toContain("production: ['engines', 'work_sheets'");
+    expect(SECTIONS).toContain("production: ['engines', 'now_at_plant', 'work_sheets'");
     expect(ACCESS).toContain("menuTabs: ['engines', 'work_sheets'");
     expect(APP).toContain("...(caps.canViewOperations ? (['work_sheets'] as const) : [])");
     expect(APP).toContain("{t === 'work_sheets' && (");
@@ -121,6 +121,20 @@ describe('этапы работ — экран', () => {
     expect(ANDROID_WIRING).toContain('registerWorkSheetsIpc(ctx);');
   });
 
+  // Карта этапов (владелец 14.10.2026): одна кнопка вместо «Виды работ» + «Шаблон
+  // этапов» — это одна карта ремонта. Сущности живут (строки ссылаются на виды,
+  // единый список — на шаблон), гейты прав — те же, по одному на вкладку.
+  it('карта этапов — одна кнопка с двумя вкладками, а не две кнопки', () => {
+    expect(PAGE, 'две кнопки справочников вернулись').not.toContain('data-work-sheet-edit-types');
+    expect(PAGE, 'две кнопки справочников вернулись').not.toContain('data-repair-stage-edit-templates');
+    expect(PAGE, 'кнопки «Карта этапов» нет').toContain('data-stage-map-open');
+    expect(PAGE, 'кнопка видна хоть с одним из прав').toContain('props.canManageTypes || props.canManageStageTemplates');
+    const MAP = src('../components/StageMapDialog.tsx');
+    expect(MAP, 'вкладки карты не заведены').toContain('data-stage-map-tab="stages"');
+    expect(MAP, 'вкладки карты не заведены').toContain('data-stage-map-tab="types"');
+    expect(MAP, 'редакторы грузятся оба сразу').toContain("active === 'stages' ? (");
+  });
+
   // Шаблон единого списка этапов (план unified-repair-stages, шаг 5b): своё поимённое
   // право, свой REST, приоритет — порядком (мышь или стрелки), код после создания frozen.
   it('шаблон этапов — отдельное право и отдельный REST, приоритет двигается порядком', () => {
@@ -128,7 +142,6 @@ describe('этапы работ — экран', () => {
     expect(IPC, 'запись шаблона — repair_stage_templates.edit').toContain("requirePermOrResult(ctx, 'repair_stage_templates.edit')");
     expect(STAGE_REST_ROUTE, 'серверный роут шаблона — то же право').toContain('requirePermission(PermissionCode.RepairStageTemplatesEdit)');
     expect(BACKEND_PERMS).toContain("all[PermissionCode.RepairStageTemplatesEdit] = r === 'superadmin';");
-    expect(PAGE).toContain('data-repair-stage-edit-templates');
     expect(STAGE_DIALOG).toContain('data-stage-template-row={t.code}');
     expect(STAGE_DIALOG).toContain('data-stage-template-new');
     expect(STAGE_DIALOG).toContain('data-stage-template-save');

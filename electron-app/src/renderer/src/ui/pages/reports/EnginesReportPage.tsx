@@ -177,7 +177,6 @@ export function EnginesReportPage(props: ListReportPageProps) {
   const facets = useMemo(() => {
     const all = engineFacets(types, stageTemplates) as readonly FacetDescriptor<Row>[];
     return whereNowActive ? all.filter((f) => f.id !== 'stageDate') : all;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- whereNowActive выведен из ui.facets
   }, [types, stageTemplates, whereNowActive]);
 
   const deep = useListDeepFilter(

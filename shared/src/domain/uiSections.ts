@@ -7,6 +7,7 @@
 export type TabId =
   | 'history'
   | 'engines'
+  | 'now_at_plant'
   | 'work_sheets'
   | 'work_sheet'
   | 'assembly_forecast'
@@ -143,6 +144,7 @@ const menuTabSet = new Set<MenuTabId>([
   'contracts',
   'changes',
   'engines',
+  'now_at_plant',
   'work_sheets',
   'assembly_forecast',
   'engine_brands',
@@ -231,6 +233,7 @@ export const MENU_TAB_LABELS: Record<MenuTabId, string> = {
   contracts: 'Контракты',
   changes: 'Изменения',
   engines: 'Двигатели',
+  now_at_plant: 'Сейчас на заводе',
   work_sheets: 'Этапы ремонта',
   assembly_forecast: 'Прогноз сборки',
   engine_brands: 'Марки двигателей',
@@ -285,7 +288,7 @@ export const MENU_TAB_LABELS: Record<MenuTabId, string> = {
 export const DEFAULT_GROUP_ORDER: MenuGroupId[] = ['history', 'production', 'supply', 'warehouse', 'workwear', 'business', 'people', 'control'];
 export const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   history: ['history', 'user_screens'],
-  production: ['engines', 'work_sheets', 'assembly_forecast', 'engine_brands', 'engine_brand_groups', 'parts', 'engine_assembly_bom', 'repair_norms', 'tools'],
+  production: ['engines', 'now_at_plant', 'work_sheets', 'assembly_forecast', 'engine_brands', 'engine_brand_groups', 'parts', 'engine_assembly_bom', 'repair_norms', 'tools'],
   supply: ['requests', 'work_orders', 'work_order_templates', 'services', 'services_by_brand', 'service_price_orders', 'tool_accounting'],
   warehouse: ['nomenclature', 'parts_dedupe', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'repair_fund_audit', 'warehouse_analytics'],
   workwear: ['ppe_cards', 'ppe_norms', 'ppe_stock', 'ppe_reports'],

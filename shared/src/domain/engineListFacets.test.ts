@@ -10,6 +10,7 @@ import {
   engineFacetById,
   engineFacetOptions,
   isFactoryStageActive,
+  isStageEntriesActive,
   setEngineFacetDateBound,
   sanitizeEngineFacetSelection,
   stripStageDateWhenWhereNow,
@@ -292,6 +293,14 @@ describe('«Где сейчас?» гасит «Дату этапа» (влад�
     // Без «Где сейчас?» период живёт.
     const sel = { stageDate: { from: '2026-10-01' } };
     expect(stripStageDateWhenWhereNow(sel)).toBe(sel);
+  });
+
+  it('раскрытие в проходы — только вопрос про движение (этапы или период), не «где»', () => {
+    expect(isStageEntriesActive({})).toBe(false);
+    expect(isStageEntriesActive({ factoryStage: ['stage:ukladka'] })).toBe(false);
+    expect(isStageEntriesActive({ factoryStage: ['stage:ukladka'], hasStage: ['stage:sborka'] })).toBe(false);
+    expect(isStageEntriesActive({ hasStage: ['stage:sborka'] })).toBe(true);
+    expect(isStageEntriesActive({ stageDate: { from: '2026-10-01' } })).toBe(true);
   });
 });
 // Владелец 16.09.2026: «в фильтре этапа нет обкатки» — ни один двигатель в ней не стоял, а ряд

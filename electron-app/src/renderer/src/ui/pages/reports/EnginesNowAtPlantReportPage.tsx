@@ -3,15 +3,21 @@ import React, { useMemo, useRef, useState } from 'react';
 import {
   HUMAN_LABEL_DASH,
   applyFacets,
+  arrivalMonthGroup,
+  daysOnSiteGroup,
+  engineDaysOnSite,
   engineFacets,
   engineFactoryStage,
   engineFactoryStageOrder,
   engineScrapDate,
+  engineStateLabel,
   engineStatusDate,
   flattenGrouped,
   formatEngineFactoryStageLabel,
   isEngineAtPlant,
   isFactoryStageActive,
+  isStageEntriesActive,
+  plantScrapGroup,
   stripStageDateWhenWhereNow,
   type EngineFacetSelection,
   type EngineListItem,
@@ -45,20 +51,23 @@ import { isAndroidPlatform } from '../../platform.js';
 import type { ListReportPageProps } from './listReportPages.js';
 
 /**
- * Отчёт «Двигатели на заводе: этапы ремонта» (владелец 15.09.2026, вечер) — первый отчёт
- * в укладе списка: вверху панель ступеней, ниже список, который можно разложить по группам.
+ * Отчёт «Сейчас на заводе» (владелец 14.10.2026) — обстановка по заводу в укладе списка:
+ * вверху панель ступеней, ниже список, который можно разложить по группам. Объединяет
+ * прежние «Двигатели на заводе» и «Двигатели на заводе: этапы ремонта» (оба остались
+ * алиасами — ярлыки, избранное и история открывают по старым id).
  *
  * Строки — двигатели, что числятся пришедшими и ещё не отправленными (`isEngineAtPlant`).
- * Этап — `engineFactoryStage`: побеждает поздний признак из карточки и этапов работ (утиль,
- * отремонтирован, последний этап работ по виду, дефектовка, комплектовка, ремонт начат,
- * пришёл). Группировка: по этапу / по заказчику / заказчик → этап / без.
+ * По умолчанию каждый двигатель — одна строка с текущим местом («Где сейчас?»,
+ * `engineFactoryStage`: побеждает поздний признак). Вопрос про движение раскрывает
+ * двигатель в строки-проходы: выбранные «Все этапы» или период «Даты этапа» показывают
+ * точные срезы (строка-проход несёт только свой этап), дубли двигателя в разных группах
+ * допускаются. «Где сейчас?» раскрытия не даёт и гасит период.
  *
- * Данные — каталог двигателей приложения, тот же, что у списка «Двигатели»: ничего не
- * строится сервисом, сортировка и ступени считаются на экране. Даты стадий «отремонтирован»,
- * «утиль», «ремонт начат» строка несёт в `statusDates` (с 16.09) — «Дата операции» заполнена у всех.
- * Колонка зовётся «Дата операции», а не «Дата этапа» (владелец 08.10.2026): она показывает дату
- * того события, которым двигатель пришёл в текущую группу (это может быть дата акта, прихода,
- * утиля — не только этапа); ступень «Дата этапа» (по последней строке этапов) — другой вопрос.
+ * Группировка: по этапу / по заказчику / заказчик → этап / по дате прихода (месяц) /
+ * по дням на заводе / по утилю / без. Данные — каталог двигателей приложения, тот же,
+ * что у списка «Двигатели»: ничего не строится сервисом, сортировка и ступени считаются
+ * на экране. Колонка зовётся «Дата операции», а не «Дата этапа» (владелец 08.10.2026):
+ * она показывает дату того события, которым двигатель пришёл в текущую группу.
  */
 
 type Column = ColumnDescriptor & {
@@ -68,14 +77,17 @@ type Column = ColumnDescriptor & {
   printValue?: (e: Row) => string;
 };
 
-type Row = EngineListItem & { stage: ReturnType<typeof engineFactoryStage> };
+type Row = EngineListItem & { stage: ReturnType<typeof engineFactoryStage>; state: string; daysOnSite: number | null };
 
-type GroupBy = 'stage' | 'customer' | 'customer_stage' | 'none';
+type GroupBy = 'stage' | 'customer' | 'customer_stage' | 'arrival' | 'days' | 'scrap' | 'none';
 
 const GROUP_BY_LABELS: Record<GroupBy, string> = {
   stage: 'По этапу',
   customer: 'По заказчику',
   customer_stage: 'Заказчик → этап',
+  arrival: 'По дате прихода',
+  days: 'По дням на заводе',
+  scrap: 'По утилю',
   none: 'Без группировки',
 };
 
@@ -99,7 +111,7 @@ type ListUiState = {
  */
 const FACET_IDS = ['customer', 'contract', 'brand', 'workshop', 'factoryStage', 'hasRepeatPass', 'hasStage', 'stageDate', 'scrap', 'reclamation', 'arrivalYear', 'arrival', 'arrivalDate'] as const;
 
-const REPORT_HIDDEN_BY_DEFAULT = ['contract', 'historyAt', 'repairStartedAt', 'repairedAt', 'scrapAt'];
+const REPORT_HIDDEN_BY_DEFAULT = ['state', 'contract', 'historyAt', 'repairStartedAt', 'repairedAt', 'scrapAt'];
 
 function text(v: unknown): string {
   return String(v ?? '').trim();
@@ -109,8 +121,12 @@ function fmtDate(ms: number | null | undefined): string {
   return typeof ms === 'number' && Number.isFinite(ms) && ms > 0 ? formatMoscowDate(ms) : HUMAN_LABEL_DASH;
 }
 
-export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
-  // Справочник видов работ задаёт порядок групп-этапов и полный ряд ступени «Этап»;
+function yesNo(v: boolean | undefined): string {
+  return v ? 'Да' : 'Нет';
+}
+
+export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
+  // Справочник видов работ задаёт порядок групп-этапов и полный ряд ступени «Где сейчас?»;
   // без него (офлайн, нет кэша) этап всё равно узнаётся по самой записи этапа работ.
   const types = useWorkSheetTypeRefs();
   const stageTemplates = useRepairStageTemplateRefs();
@@ -121,7 +137,7 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
   const [printOpen, setPrintOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const { state: ui, patchState } = useListUiState<ListUiState>('report:engineFactoryStages:ui', {
+  const { state: ui, patchState } = useListUiState<ListUiState>('report:enginesNowAtPlant:ui', {
     query: '',
     searchSimilar: false,
     facets: {},
@@ -138,14 +154,14 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
     () => stripStageDateWhenWhereNow(ui.facets as EngineFacetSelection) as FacetSelection,
     [ui.facets],
   );
-  // «Где сейчас?» спрашивает текущее место двигателя — раскрытие в проходы при нём
-  // не строится: каждый двигатель виден одной строкой со своим последним этапом
-  // (владелец 14.10.2026). Иначе один двигатель стоял бы в нескольких группах сразу.
   const whereNowActive = isFactoryStageActive(activeFacets as EngineFacetSelection);
+  // Раскрытие в проходы — только вопрос про движение («Все этапы» / «Дата этапа»).
+  const entriesActive = isStageEntriesActive(activeFacets as EngineFacetSelection);
 
   const rows = useMemo<Row[]>(
     () => {
-      const whereNow = whereNowActive;
+      const now = Date.now();
+      const expand = entriesActive;
       return props.engines
         .filter(isEngineAtPlant)
         .flatMap((e) => {
@@ -153,15 +169,21 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
           const withName = name && name !== e.workshopName ? { ...e, workshopName: name } : e;
           const stage = engineFactoryStage(withName, types, stageTemplates);
           // base для раскрытия: гарантируем наличие stageCodes/stageDates для типизации
-          const base = { ...withName, stage, stageCodes: withName.stageCodes ?? [], stageDates: withName.stageDates ?? {} };
+          const base = {
+            ...withName,
+            stage,
+            state: engineStateLabel(withName),
+            daysOnSite: engineDaysOnSite(withName, now),
+            stageCodes: withName.stageCodes ?? [],
+            stageDates: withName.stageDates ?? {},
+          };
 
-          // B5: если у двигателя есть stageEntries — раскрываем каждую запись в отдельную строку.
           // Строка-проход несёт ТОЛЬКО свой этап (`stageCodes: [code]`): выбор «Укладка вала»
           // в «Всех этапах» показывает один этот срез, а не все проходы двигателей, у которых
           // укладка когда-то была (владелец 14.10.2026 — «фильтры должны быть точными»).
           // Несколько выбранных этапов — несколько срезов; дубли двигателя в разных группах
-          // допускаются. Без выбора этапов раскрытие тоже строится — фасетирование само решит.
-          const entries = whereNow ? [] : (withName.stageEntries ?? []);
+          // допускаются. Без вопроса про движение — одна строка на двигатель с текущим местом.
+          const entries = expand ? (withName.stageEntries ?? []) : [];
           if (entries.length > 0) {
             return entries.map((entry) => ({
               ...base,
@@ -181,8 +203,7 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
           return [base];
         });
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- ui.facets целиком: раскрытие зависит от активности «Где сейчас?»
-    [props.engines, types, stageTemplates, workshopNameById, whereNowActive],
+    [props.engines, types, stageTemplates, workshopNameById, entriesActive],
   );
 
   const columns = useMemo<Column[]>(
@@ -198,6 +219,9 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
       // добавляем слово явно, иначе по «возврат» повторные строки не найдутся.
       { id: 'stage', label: 'Где сейчас?', kind: 'name', render: (e) => formatEngineFactoryStageLabel(e.stage), sortValue: (e) => e.stage.rank, alwaysVisible: true },
       { id: 'stageAt', label: 'Дата операции', kind: 'date', render: (e) => fmtDate(e.stage.at), sortValue: (e) => e.stage.at ?? 0 },
+      { id: 'daysOnSite', label: 'Дней на заводе', kind: 'num', render: (e) => (e.daysOnSite == null ? HUMAN_LABEL_DASH : String(e.daysOnSite)), sortValue: (e) => e.daysOnSite ?? -1 },
+      { id: 'scrap', label: 'Утиль', kind: 'text', render: (e) => yesNo(e.isScrap), sortValue: (e) => (e.isScrap ? 1 : 0) },
+      { id: 'state', label: 'Состояние', kind: 'name', render: (e) => e.state, sortValue: (e) => e.state },
       { id: 'repairStartedAt', label: 'Ремонт начат', kind: 'date', render: (e) => fmtDate(engineStatusDate(e, 'status_repair_started')), sortValue: (e) => engineStatusDate(e, 'status_repair_started') ?? 0 },
       { id: 'repairedAt', label: 'Отремонтирован', kind: 'date', render: (e) => fmtDate(engineStatusDate(e, 'status_repaired')), sortValue: (e) => engineStatusDate(e, 'status_repaired') ?? 0 },
       { id: 'scrapAt', label: 'Дата утиля', kind: 'date', render: (e) => fmtDate(engineScrapDate(e)), sortValue: (e) => engineScrapDate(e) ?? 0 },
@@ -209,7 +233,7 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
   );
 
   const columnLayout = useColumnLayout(
-    'report:engineFactoryStages:columns',
+    'report:enginesNowAtPlant:columns',
     columns.map((c) => c.id),
     REPORT_HIDDEN_BY_DEFAULT,
   );
@@ -229,13 +253,12 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
     const all = engineFacets(types, stageTemplates);
     const ids = whereNowActive ? FACET_IDS.filter((id) => id !== 'stageDate') : FACET_IDS;
     return ids.map((id) => all.find((f) => f.id === id)).filter(Boolean) as FacetDescriptor<Row>[];
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- whereNowActive выведен из ui.facets
   }, [types, stageTemplates, whereNowActive]);
 
   const deep = useListDeepFilter(
     rows,
     (r) => r.id,
-    (r) => [r.engineNumber, r.internalNumberFull, r.engineBrand, r.customerName, r.contractName, r.workshopName, r.stage.label, r.stage.repeatPass >= 2 ? 'возврат' : '', r.stage.label, r.lastSheetNode, r.lastHistoryAction].map(text).join(' '),
+    (r) => [r.engineNumber, r.internalNumberFull, r.engineBrand, r.customerName, r.contractName, r.workshopName, r.stage.label, r.stage.repeatPass >= 2 ? 'возврат' : '', r.state, r.lastSheetNode, r.lastHistoryAction].map(text).join(' '),
     ui.query,
     { entityBacked: false, mode: searchModeOf(ui.searchSimilar) },
   );
@@ -252,7 +275,8 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
     });
   }, [faceted, columnsById, ui.sortKey, ui.sortDir]);
 
-  // Уровни группировки: этап несёт ранг (поздние выше), заказчик — по подписи.
+  // Уровни группировки: этап несёт ранг (поздние выше), заказчик — по подписи,
+  // месяц прихода и корзины дней — из домена (`engineAtPlantGroups`), утиль — флагом.
   const levels = useMemo<GroupLevel<Row>[]>(() => {
     const byStage: GroupLevel<Row> = { keyOf: (r) => ({ key: r.stage.key, label: r.stage.label, rank: r.stage.rank }) };
     const byCustomer: GroupLevel<Row> = {
@@ -261,6 +285,9 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
         return { key: text(r.customerId) || `name:${label.toLowerCase()}` || 'none', label: label || 'Без заказчика' };
       },
     };
+    const byArrival: GroupLevel<Row> = { keyOf: (r) => arrivalMonthGroup(r.arrivalDate) };
+    const byDays: GroupLevel<Row> = { keyOf: (r) => daysOnSiteGroup(r.daysOnSite) };
+    const byScrap: GroupLevel<Row> = { keyOf: (r) => plantScrapGroup(r.isScrap === true) };
     switch (ui.groupBy) {
       case 'stage':
         return [byStage];
@@ -268,6 +295,12 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
         return [byCustomer];
       case 'customer_stage':
         return [byCustomer, byStage];
+      case 'arrival':
+        return [byArrival];
+      case 'days':
+        return [byDays];
+      case 'scrap':
+        return [byScrap];
       default:
         return [];
     }
@@ -343,7 +376,7 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }} data-engine-factory-stages-report>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }} data-engines-now-at-plant-report>
       <PageToolbar>
         <Button variant="ghost" onClick={props.onBack}>
           К списку Отчётов
@@ -429,13 +462,13 @@ export function EngineFactoryStagesReportPage(props: ListReportPageProps) {
 
       {printOpen ? (
         <ListPrintDialog
-          title="Двигатели на заводе: этапы ремонта"
+          title="Сейчас на заводе"
           unitLabel="Двигателей"
           columns={buildListPrintColumns(columns)}
           visibleColumnIds={visibleColumns.map((c) => c.id)}
           rows={sorted.length > 0 ? items.filter((it) => it.kind === 'row').map((it) => (it.kind === 'row' ? it.row : null)!).filter(Boolean) : []}
           selectedRows={[]}
-          storageKey="report:engineFactoryStages:printFields"
+          storageKey="report:enginesNowAtPlant:printFields"
           rowGroupLabel={(r) => groupLabelByRow.get(r.id) || null}
           onClose={() => setPrintOpen(false)}
         />

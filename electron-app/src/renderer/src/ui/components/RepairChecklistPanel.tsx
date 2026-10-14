@@ -2930,7 +2930,7 @@ export function RepairChecklistPanel(props: {
         {!collapsed && isInventoryStage && isCompletenessView && props.canEdit && (
           <Button
             disabled={completenessBusy}
-            title="Фиксирует акт комплектности: ставит дату осмотра (если она не заполнена — сегодняшнюю). По этой дате двигатель встаёт на этап «Приемка» в отчёте «Двигатели на заводе: этапы ремонта»."
+            title="Фиксирует акт комплектности: ставит дату осмотра (если она не заполнена — сегодняшнюю). По этой дате двигатель встаёт на этап «Приемка» в отчёте «Сейчас на заводе»."
             onClick={() => void conductCompleteness()}
           >
             {completenessBusy ? 'Проводим…' : 'Провести комплектность'}

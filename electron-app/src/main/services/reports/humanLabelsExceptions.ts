@@ -113,17 +113,11 @@ export const HUMAN_LABEL_GUARD_UNCOVERED_PRESETS: HumanLabelGuardUncoveredPreset
       'до построения строк. Как и нормам, нужен стаб HTTP-слоя.',
   },
   {
-    presetId: 'engine_factory_stages',
-    reason:
-      'Отчёт-список (presentation: list): строится на экране из каталога двигателей, сервис ' +
-      'отвечает отказом по замыслу. Подписи этапов держит `engineFactoryStage.test.ts` в shared.',
-  },
-  {
-    presetId: 'engines_at_plant',
+    presetId: 'engines_now_at_plant',
     reason:
       'Отчёт-список (presentation: list): строится на экране из каталога двигателей, сервис ' +
       'отвечает отказом по замыслу. Подписи этапов держит `engineFactoryStage.test.ts` в shared, ' +
-      'разрезы — `engineAtPlantGroups.test.ts`, рамку — `EnginesAtPlantReportPage.guard.test.ts`.',
+      'разрезы — `engineAtPlantGroups.test.ts`, рамку — `EnginesNowAtPlantReportPage.guard.test.ts`.',
   },
   {
     presetId: 'engines',

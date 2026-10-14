@@ -27,8 +27,8 @@ import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
-import { WorkSheetTypeEditorDialog, type WorkshopOption } from '../components/WorkSheetTypeEditorDialog.js';
-import { RepairStageTemplateDialog } from '../components/RepairStageTemplateDialog.js';
+import type { WorkshopOption } from '../components/WorkSheetTypeEditorDialog.js';
+import { StageMapDialog } from '../components/StageMapDialog.js';
 import { BulkStageAddDialog } from '../components/BulkStageAddDialog.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { useListDeepFilter } from '../hooks/useListDeepFilter.js';
@@ -142,9 +142,8 @@ export function WorkSheetsPage(props: {
   const [truncated, setTruncated] = useState(false);
   const [status, setStatus] = useState('');
   const [allTime, setAllTime] = useState(false);
-  const [workshops, setWorkshops] = useState<WorkshopOption[]>([]);
-  const [typeEditorOpen, setTypeEditorOpen] = useState(false);
-  const [stageTemplateEditorOpen, setStageTemplateEditorOpen] = useState(false);
+  const [workshops, setWorkshops] = useState<WorkshopOption[]>([]);
+  const [stageMapOpen, setStageMapOpen] = useState(false);
   const [bulkAddOpen, setBulkAddOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -471,14 +470,9 @@ export function WorkSheetsPage(props: {
           onMove={columnLayout.moveColumn}
           onReset={columnLayout.resetToDefault}
         />
-        {props.canManageTypes && (
-          <Button variant="ghost" onClick={() => setTypeEditorOpen(true)} title="Виды работ: названия, цеха, колонки" data-work-sheet-edit-types>
-            Виды работ
-          </Button>
-        )}
-        {props.canManageStageTemplates && (
-          <Button variant="ghost" onClick={() => setStageTemplateEditorOpen(true)} title="Шаблон этапов ремонта: названия и порядок" data-repair-stage-edit-templates>
-            Шаблон этапов
+        {(props.canManageTypes || props.canManageStageTemplates) && (
+          <Button variant="ghost" onClick={() => setStageMapOpen(true)} title="Карта этапов: этапы ремонта (названия, порядок) и этапы работ (цеха, колонки)" data-stage-map-open>
+            Карта этапов
           </Button>
         )}
         <Button variant="ghost" onClick={() => setAllTime((v) => !v)} title="По умолчанию показаны этапы работ с датой за последний год">
@@ -584,20 +578,18 @@ export function WorkSheetsPage(props: {
         />
       ) : null}
 
-      {typeEditorOpen ? (
-        <WorkSheetTypeEditorDialog
-          types={types}
-          initialTypeCode={initialTypeCode}
-          workshops={workshops}
-          onClose={() => setTypeEditorOpen(false)}
-          onChanged={async () => {
-            await refreshTypes();
-          }}
-        />
-      ) : null}
-
-      {stageTemplateEditorOpen ? (
-        <RepairStageTemplateDialog onClose={() => setStageTemplateEditorOpen(false)} onChanged={async () => {}} />
+      {stageMapOpen ? (
+        <StageMapDialog
+          canManageTypes={props.canManageTypes}
+          canManageStageTemplates={props.canManageStageTemplates}
+          types={types}
+          initialTypeCode={initialTypeCode}
+          workshops={workshops}
+          onTypesChanged={async () => {
+            await refreshTypes();
+          }}
+          onClose={() => setStageMapOpen(false)}
+        />
       ) : null}
 
       {bulkAddOpen ? (
