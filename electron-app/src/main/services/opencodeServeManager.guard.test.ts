@@ -42,4 +42,18 @@ describe('opencode-узел нативно в клиенте', () => {
   it('папка узла — в плане исключений Касперского (та же процедура импорта)', () => {
     expect(KASPERSKY, 'папка узла не в исключениях — эвристика съест exe').toContain('OpencodeDir');
   });
+
+  it('данные узла изолированы от десктопного CLI (D10 слайс 1)', () => {
+    // Общий %USERPROFILE%\\.local\\share\\opencode делят CLI другой версии:
+    // его миграция роняет наш serve («нет таблицы session», 14.10.2026).
+    expect(MANAGER).toContain('XDG_DATA_HOME');
+    expect(MANAGER).toContain('opencodeDataDir');
+  });
+
+  it('упавший serve переподнимается вотчером, стоп его гасит (D10 слайс 1)', () => {
+    expect(MANAGER).toContain('OPENCODE_WATCH_MS');
+    expect(MANAGER).toContain('watchBackoffMs');
+    expect(MANAGER).toContain('startWatch(dir)');
+    expect(MANAGER).toContain('stopWatch()');
+  });
 });

@@ -32,6 +32,9 @@ const PID_FILE = 'serve.pid';
 const HEALTH_PATH = '/global/health';
 const RECHECK_MS = 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 30_000;
+/** Вотчер живности: тихий health-poll, переподъём при смерти (D10, слайс 1). */
+export const OPENCODE_WATCH_MS = 15_000;
+const WATCH_BACKOFF_CAP_MS = 300_000;
 
 export type ReleaseAsset = { tag: string; version: string; name: string; url: string; size: number; sha256: string };
 
@@ -80,6 +83,35 @@ export function localNodeName(): string {
 export function opencodeInstallDir(): string {
   if (process.platform === 'win32' && process.env.LOCALAPPDATA) return join(process.env.LOCALAPPDATA, 'Programs', 'MatricaRMZ-OpenCode');
   return join(app.getPath('userData'), 'opencode-node');
+}
+
+/**
+ * Каталог ДАННЫХ узла (D10, слайс 1): serve читает его через XDG_DATA_HOME
+ * вместо общего `%USERPROFILE%\\.local\\share\\opencode`. Общий каталог делят
+ * десктопный CLI другой версии — его миграция роняет наш serve («нет таблицы
+ * session», 14.10.2026). Конфиг и auth при этом остаются общими: split ровно
+ * «общее — конфиг, своё — база».
+ */
+export function opencodeDataDir(
+  installDir: string,
+  opts?: { platform?: string; userData?: string },
+): string {
+  if ((opts?.platform ?? process.platform) === 'win32') return join(installDir, 'data');
+  return join(opts?.userData ?? app.getPath('userData'), 'opencode-node-data');
+}
+
+/** Env для спауна serve: изолированный XDG_DATA_HOME, остальное — как было. */
+export function serveSpawnEnv(dataDir: string, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return { ...env, XDG_DATA_HOME: dataDir };
+}
+
+/**
+ * Бэкофф переподъёма при consecutive-ошибках спауна: 30 с → 60 с → … → 5 мин.
+ * Горячий цикл по падающему serve не нужен; сброс — при первом успехе.
+ */
+export function watchBackoffMs(failures: number): number {
+  const step = Math.max(0, Math.floor(failures));
+  return Math.min(OPENCODE_WATCH_MS * 2 ** Math.min(step, 5), WATCH_BACKOFF_CAP_MS);
 }
 
 const exePathOf = (dir: string) => join(dir, EXE_NAME);
@@ -173,10 +205,13 @@ function pidAlive(pid: number): boolean {
 
 async function spawnServe(dir: string): Promise<void> {
   const exe = exePathOf(dir);
+  const dataDir = opencodeDataDir(dir);
+  await mkdir(dataDir, { recursive: true });
   const proc = spawn(exe, ['serve', '--port', String(OPENCODE_DEFAULT_PORT), '--hostname', OPENCODE_LOOPBACK_HOST], {
     windowsHide: true,
     stdio: 'ignore',
     detached: false,
+    env: serveSpawnEnv(dataDir),
   });
   proc.unref();
   proc.on('error', () => {
@@ -234,6 +269,7 @@ async function refreshInBackground(dir: string, current: string): Promise<void> 
       setStatus({ version: asset.version });
       await spawnServe(dir);
       setStatus({ state: 'running', error: null });
+      startWatch(dir);
     }
   } catch {
     // Фоновое обновление молча: узел работает на прежней версии.
@@ -246,6 +282,66 @@ async function registerLocalNode(): Promise<void> {
     await opencodeNodesSave(mergeLocalNodeUrl(nodes, { name: localNodeName(), url: localOpencodeNodeUrl() }));
   } catch {
     // best-effort
+  }
+}
+
+// --- Вотчер живности (D10, слайс 1): переподъём при смерти -------------------
+// Раньше `exit`-handler только обнулял child: упавший serve лежал мёртвым до
+// перезапуска клиента. Теперь тихий интервал проверяет health и поднимает
+// заново; consecutive-ошибки спауна уходят в бэкофф. Ручной стоп и выход
+// вотчер гасят (stopOpencodeNode).
+let watchTimer: NodeJS.Timeout | null = null;
+let watchStopped = false;
+let respawnFailures = 0;
+let nextRespawnAt = 0;
+
+function killStaleChild(): void {
+  if (child) {
+    const proc = child;
+    child = null;
+    try {
+      proc.kill();
+    } catch {
+      // уже нет
+    }
+  }
+}
+
+async function watchTick(dir: string): Promise<void> {
+  if (watchStopped) return;
+  try {
+    if (await healthOk()) {
+      respawnFailures = 0;
+      return;
+    }
+  } catch {
+    // считаем мёртвым
+  }
+  if (Date.now() < nextRespawnAt) return;
+  killStaleChild();
+  try {
+    await spawnServe(dir);
+    respawnFailures = 0;
+    setStatus({ state: 'running', error: null });
+  } catch (e) {
+    respawnFailures += 1;
+    nextRespawnAt = Date.now() + watchBackoffMs(respawnFailures);
+    setStatus({ state: 'error', error: `watch: ${String((e as Error)?.message ?? e)}` });
+  }
+}
+
+function startWatch(dir: string): void {
+  if (watchTimer) return;
+  watchStopped = false;
+  watchTimer = setInterval(() => void watchTick(dir), OPENCODE_WATCH_MS);
+  if (typeof watchTimer.unref === 'function') watchTimer.unref();
+}
+
+function stopWatch(): void {
+  watchStopped = true;
+  if (watchTimer) {
+    clearInterval(watchTimer);
+    watchTimer = null;
   }
 }
 
@@ -267,6 +363,7 @@ export function ensureOpencodeNode(): Promise<void> {
       if (await healthOk()) {
         setStatus({ state: 'running', version: (await readMarker(dir, VERSION_FILE)) || null, error: null });
         await registerLocalNode();
+        startWatch(dir);
         const v = status.version;
         if (v) void refreshInBackground(dir, v);
         return;
@@ -276,6 +373,7 @@ export function ensureOpencodeNode(): Promise<void> {
       if (Number.isFinite(pid) && pid > 0 && pidAlive(pid)) {
         setStatus({ state: 'running', version: (await readMarker(dir, VERSION_FILE)) || null, error: null });
         await registerLocalNode();
+        startWatch(dir);
         return;
       }
       const version = await ensureBinary(dir);
@@ -283,6 +381,7 @@ export function ensureOpencodeNode(): Promise<void> {
       await spawnServe(dir);
       setStatus({ state: 'running', error: null });
       await registerLocalNode();
+      startWatch(dir);
       void refreshInBackground(dir, version);
     } catch (e) {
       setStatus({ state: 'error', error: String((e as Error)?.message ?? e) });
@@ -295,6 +394,7 @@ export function ensureOpencodeNode(): Promise<void> {
 
 /** Остановить serve при выходе (best-effort, выход не задерживаем). */
 export async function stopOpencodeNode(): Promise<void> {
+  stopWatch();
   try {
     if (child) {
       const proc = child;
