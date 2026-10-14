@@ -12,7 +12,10 @@ import {
   flattenGrouped,
   formatEngineFactoryStageLabel,
   isEngineAtPlant,
+  isFactoryStageActive,
   plantScrapGroup,
+  stripStageDateWhenWhereNow,
+  type EngineFacetSelection,
   type EngineListItem,
   type FacetDescriptor,
   type FacetSelection,
@@ -50,7 +53,7 @@ import type { ListReportPageProps } from './listReportPages.js';
  * Группировки — переключатель «Группировать»: по этапу (где двигатель сейчас),
  * по заказчику, по дате прихода (месяц), по дням на заводе (сколько уже стоит),
  * по утилю (сколько лежит и не уехало). Выбор этапов для показа — ступени
- * «Есть этап» (проходил ли) / «Этап на заводе» (где сейчас, по всему движению);
+ * «Все этапы» (проходил ли) / «Где сейчас?» (где сейчас, по всему движению);
  * «Последний этап» снята 07.10.2026 решением владельца — см. `engineListFacets.ts`.
  *
  * Родственник — «Двигатели на заводе: этапы ремонта» (`engine_factory_stages`): та же
@@ -89,7 +92,7 @@ type ListUiState = {
   groupBy: GroupBy;
 };
 
-/** Ступени отчёта — те же смыслы, что в списке двигателей; полный ряд — «Этап на заводе». */
+/** Ступени отчёта — те же смыслы, что в списке двигателей; полный ряд — «Где сейчас?». */
 const FACET_IDS = ['customer', 'contract', 'brand', 'workshop', 'factoryStage', 'hasRepeatPass', 'hasStage', 'stageDate', 'scrap', 'reclamation', 'arrivalYear', 'arrival', 'arrivalDate'] as const;
 
 const REPORT_HIDDEN_BY_DEFAULT = ['state'];
@@ -138,7 +141,7 @@ export function EnginesAtPlantReportPage(props: ListReportPageProps) {
       { id: 'workshop', label: 'Цех', kind: 'name', render: (e) => text(e.workshopName), sortValue: (e) => text(e.workshopName) },
       { id: 'arrivalDate', label: 'Дата прихода', kind: 'date', render: (e) => fmtDate(e.arrivalDate), sortValue: (e) => e.arrivalDate ?? 0 },
       // Повторный заход виден суффиксом «· возврат» в подписи (B4).
-      { id: 'stage', label: 'Этап на заводе', kind: 'name', render: (e) => formatEngineFactoryStageLabel(e.stage), sortValue: (e) => e.stage.rank, alwaysVisible: true },
+      { id: 'stage', label: 'Где сейчас?', kind: 'name', render: (e) => formatEngineFactoryStageLabel(e.stage), sortValue: (e) => e.stage.rank, alwaysVisible: true },
       { id: 'stageAt', label: 'Дата операции', kind: 'date', render: (e) => fmtDate(e.stage.at), sortValue: (e) => e.stage.at ?? 0 },
       { id: 'daysOnSite', label: 'Дней на заводе', kind: 'num', render: (e) => (e.daysOnSite == null ? HUMAN_LABEL_DASH : String(e.daysOnSite)), sortValue: (e) => e.daysOnSite ?? -1 },
       { id: 'scrap', label: 'Утиль', kind: 'text', render: (e) => yesNo(e.isScrap), sortValue: (e) => (e.isScrap ? 1 : 0) },
@@ -158,10 +161,25 @@ export function EnginesAtPlantReportPage(props: ListReportPageProps) {
     [columnLayout, columnsById],
   );
 
+  // Отбор с учётом гейта «Где сейчас?»: старое сохранённое состояние могло держать
+  // период вместе с «где» — чистим при чтении, а не только при смене выбора.
+  const activeFacets = useMemo(
+    () => stripStageDateWhenWhereNow(ui.facets as EngineFacetSelection) as FacetSelection,
+    [ui.facets],
+  );
+
+  // «Где сейчас?» гасит «Дату этапа» (владелец 14.10.2026) — как в соседнем отчёте.
+  const whereNowActive = isFactoryStageActive(activeFacets as EngineFacetSelection);
+  const onChangeFacets = (next: FacetSelection) =>
+    patchState({ facets: stripStageDateWhenWhereNow(next as EngineFacetSelection) as FacetSelection });
+  const visibleFacetFields = whereNowActive ? ui.facetFields.filter((f) => f !== 'stageDate') : ui.facetFields;
+
   const facets = useMemo(() => {
     const all = engineFacets(types, stageTemplates);
-    return FACET_IDS.map((id) => all.find((f) => f.id === id)).filter(Boolean) as FacetDescriptor<Row>[];
-  }, [types, stageTemplates]);
+    const ids = whereNowActive ? FACET_IDS.filter((id) => id !== 'stageDate') : FACET_IDS;
+    return ids.map((id) => all.find((f) => f.id === id)).filter(Boolean) as FacetDescriptor<Row>[];
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- whereNowActive выведен из ui.facets
+  }, [types, stageTemplates, whereNowActive]);
 
   const deep = useListDeepFilter(
     rows,
@@ -170,7 +188,7 @@ export function EnginesAtPlantReportPage(props: ListReportPageProps) {
     ui.query,
     { entityBacked: false, mode: searchModeOf(ui.searchSimilar) },
   );
-  const faceted = useMemo(() => applyFacets(facets, deep.filtered, ui.facets), [facets, deep.filtered, ui.facets]);
+  const faceted = useMemo(() => applyFacets(facets, deep.filtered, activeFacets), [facets, deep.filtered, activeFacets]);
   const sorted = useMemo(() => {
     const col = columnsById.get(ui.sortKey) ?? columnsById.get('engineNumber')!;
     const sv = col.sortValue ?? ((r: Row) => text(r.engineNumber));
@@ -294,7 +312,7 @@ export function EnginesAtPlantReportPage(props: ListReportPageProps) {
           <SearchModeToggle similar={ui.searchSimilar} onToggle={() => patchState({ searchSimilar: !ui.searchSimilar })} />
         </ToolbarPin>
         <ToolbarPin>
-          <FacetToggleButton<Row> facets={facets} selection={ui.facets} open={ui.facetsOpen} onToggle={() => patchState({ facetsOpen: !ui.facetsOpen })} />
+          <FacetToggleButton<Row> facets={facets} selection={activeFacets} open={ui.facetsOpen} onToggle={() => patchState({ facetsOpen: !ui.facetsOpen })} />
         </ToolbarPin>
         <ColumnSettingsButton
           label="Колонки списка"
@@ -328,13 +346,18 @@ export function EnginesAtPlantReportPage(props: ListReportPageProps) {
         <FacetFilter<Row>
           facets={facets}
           rows={deep.filtered}
-          selection={ui.facets}
-          fields={ui.facetFields}
+          selection={activeFacets}
+          fields={visibleFacetFields}
           open={ui.facetsOpen}
-          onChangeSelection={(next) => patchState({ facets: next })}
+          onChangeSelection={onChangeFacets}
           onChangeFields={(next) => patchState({ facetFields: next })}
           onReset={() => patchState({ facets: {}, facetFields: [] })}
         />
+        {whereNowActive ? (
+          <div className="ui-muted" style={{ fontSize: 12, marginTop: 4 }}>
+            «Где сейчас?» показывает текущее место каждого двигателя — период («Дата этапа») при нём не нужен и скрыт.
+          </div>
+        ) : null}
       </div>
 
       <ListCount total={rows.length} shown={sorted.length} extra="на заводе на сегодня" style={{ marginTop: 6 }} />

@@ -5,7 +5,9 @@ import {
   applyEngineFacets,
   engineFacetIsActive,
   engineStageFacetOptions,
+  isFactoryStageActive,
   sanitizeEngineFacetSelection,
+  stripStageDateWhenWhereNow,
   classifyEngineContractBinding,
   engineFactoryStage,
   engineInternalNumberSortKey,
@@ -404,7 +406,8 @@ export function EnginesPage(props: {
     if (customerFilter && !engineFacetIsActive(base, 'customer')) out.customer = [customerFilter];
     if (onlyReclamation && !engineFacetIsActive(base, 'reclamation')) out.reclamation = ['yes'];
     if (completenessFilter !== 'all' && !engineFacetIsActive(base, 'completenessAct')) out.completenessAct = [completenessFilter];
-    return out;
+    // Старый сохранённый отбор мог держать период вместе с «Где сейчас?» — чистим при чтении.
+    return stripStageDateWhenWhereNow(out);
   }, [listState.facets, customerFilter, onlyReclamation, completenessFilter]);
   const facetFields = useMemo<EngineFacetId[]>(() => {
     const raw = Array.isArray(listState.facetFields) ? listState.facetFields : [];
@@ -414,6 +417,11 @@ export function EnginesPage(props: {
     return Array.from(new Set([...known, ...active]));
   }, [listState.facetFields, facets]);
   const facetsOpen = listState.facetsOpen === true;
+
+  // «Где сейчас?» гасит «Дату этапа» (владелец 14.10.2026): текущее место двигателя
+  // и период — разные вопросы. Ступень периода прячется из ряда кнопок и чистится из отбора.
+  const whereNowActive = isFactoryStageActive(facets);
+  const visibleFacetFields = whereNowActive ? facetFields.filter((id) => id !== 'stageDate') : facetFields;
 
   // Выбранный этап фильтра «Все этапы»: колонка «Дата этапа» отвечает по НЕМУ «когда
   // проходили», а не по последнему этапу (решение владельца 12.10.2026).
@@ -1113,11 +1121,12 @@ export function EnginesPage(props: {
         <EngineFacetFilter
           engines={facetRows}
           selection={facets}
-          fields={facetFields}
+          fields={visibleFacetFields}
           open={facetsOpen}
           types={sheetTypes}
           stageTemplates={stageTemplates}
-          onChangeSelection={(next) => patchState({ facets: next, page: 0 })}
+          {...(whereNowActive ? { hiddenFields: ['stageDate' as const] } : {})}
+          onChangeSelection={(next) => patchState({ facets: stripStageDateWhenWhereNow(next), page: 0 })}
           onChangeFields={(next) => patchState({ facetFields: next, page: 0 })}
           onReset={() =>
             patchState({
@@ -1130,6 +1139,11 @@ export function EnginesPage(props: {
             })
           }
         />
+        {whereNowActive ? (
+          <div className="ui-muted" style={{ fontSize: 12, marginTop: 4 }}>
+            «Где сейчас?» показывает текущее место каждого двигателя — период («Дата этапа») при нём не нужен и скрыт.
+          </div>
+        ) : null}
       </div>
 
       {tagHintVisible && (

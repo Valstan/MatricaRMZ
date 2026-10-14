@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { DEFAULT_REPAIR_STAGE_TEMPLATES, type RepairStageTemplate } from '@matricarmz/shared';
 
 /**
- * Шаблон единого списка этапов для ступеней «Этап на заводе» и отчётов.
+ * Шаблон единого списка этапов для ступени «Где сейчас?» и отчётов.
  * Сервер, при отказе — статика (тот же уклад, что у видов работ): ступень живёт
  * на том, что несут сами строки.
  */

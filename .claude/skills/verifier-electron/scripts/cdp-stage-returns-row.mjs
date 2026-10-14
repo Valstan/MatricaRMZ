@@ -8,8 +8,8 @@
  *      и доезжает до строки списка как `lastStagePass` — по коду и дате он неотличим от
  *      первого прохода, поэтому проверяем именно поле.
  *  [2] В отчёте такой двигатель собирается в группу СВОЕГО этапа (а не в «Возвраты»),
- *      а ячейка «Этап на заводе» несёт суффикс «· возврат».
- *  [3] Колонка «Этап на заводе» продолжает называть ЭТАП («Укладка вала»), а не
+ *      а ячейка «Где сейчас?» несёт суффикс «· возврат».
+ *  [3] Колонка «Где сейчас?» продолжает называть ЭТАП («Укладка вала»), а не
  *      что-то ещё: иначе колонка перестала бы отвечать на свой вопрос.
  *  [4] Первый проход суффикса не несёт — иначе пометка ничего не значит.
  *
@@ -325,7 +325,7 @@ await shot('1-report');
 const view = await ev(`(() => {
   const tr = document.querySelector('tr[data-report-engine-row="' + ${ENG} + '"]');
   if (!tr) return null;
-  return { group: window.__cb.groupOf(tr), stage: window.__cb.cell(tr, 'Этап на заводе'), heads: window.__cb.heads(tr) };
+  return { group: window.__cb.groupOf(tr), stage: window.__cb.cell(tr, 'Где сейчас?'), heads: window.__cb.heads(tr) };
 })()`);
 step(
   `[2] двигатель в группе своего этапа «${LOW_STAGE.name}», а не в отдельной группе возвратов`,
@@ -333,7 +333,7 @@ step(
   `заголовок группы «${view?.group ?? '—'}»`,
 );
 step(
-  `[2] ячейка «Этап на заводе» — «${LOW_STAGE.name} ${RETURN_SUFFIX}»`,
+  `[2] ячейка «Где сейчас?» — «${LOW_STAGE.name} ${RETURN_SUFFIX}»`,
   view?.stage === `${LOW_STAGE.name} ${RETURN_SUFFIX}`,
   `в ячейке «${view?.stage ?? '—'}»`,
 );
@@ -386,7 +386,7 @@ await sleep(1800);
 const after = await ev(`(() => {
   const tr = document.querySelector('tr[data-report-engine-row="' + ${ENG} + '"]');
   if (!tr) return null;
-  return { group: window.__cb.groupOf(tr), stage: window.__cb.cell(tr, 'Этап на заводе') };
+  return { group: window.__cb.groupOf(tr), stage: window.__cb.cell(tr, 'Где сейчас?') };
 })()`);
 step(
   '[4] после снятия возврата двигатель без суффикса, в той же группе этапа',

@@ -9,13 +9,13 @@
 //  [3] каждая группировка (stage/customer/arrival/days/scrap/none) рисуется, сумма
 //      счётчиков групп = числу строк;
 //  [4] ступени: «Последнего этапа» в панели НЕТ (снят 07.10.2026 — брал одну последнюю
-//      строку этапов и путал), «Этап на заводе» сужает ровно до своего счётчика, сброс
+//      строку этапов и путал), «Где сейчас?» сужает ровно до своего счётчика, сброс
 //      возвращает всё;
 //  [5] клик по строке открывает карточку двигателя;
 //  [6] «Дней на заводе» у строки совпадает с расчётом по дате прихода;
 //  [7] диалог «Печать списка» открывается;
 //  [8] список «Двигатели»: в панели фильтров «Последнего этапа» тоже нет
-//      «Все этапы» (подпись с 12.10.2026) и «Этап на заводе» на месте;
+//      «Все этапы» (подпись с 12.10.2026) и «Где сейчас?» на месте;
 //  [9] соседний отчёт «…этапы ремонта»: колонки-дубля «Последний этап» в нём нет
 //      (владелец 08.10.2026).
 //
@@ -249,7 +249,7 @@ async function main() {
        firstIsGroup: rows[0] ? rows[0].kind : null,
        groupSum: groupSum(rows),
        heads,
-       hasStageCol: heads.includes('Этап на заводе'),
+       hasStageCol: heads.includes('Где сейчас?'),
        hasDaysCol: heads.includes('Дней на заводе'),
        hasOpDateCol: heads.includes('Дата операции'),
        hasStageDateCol: heads.includes('Дата этапа'),
@@ -258,7 +258,7 @@ async function main() {
   note(s2.rowCount === bridge.total, 'число строк = числу двигателей на заводе по мосту', { rowCount: s2.rowCount, total: bridge.total });
   note(s2.selValue === 'stage' && s2.firstIsGroup === 'group', 'группировка по умолчанию — по этапу, первая строка — группа', { selValue: s2.selValue });
   note(s2.groupSum === s2.rowCount, 'сумма счётчиков групп = числу строк', { groupSum: s2.groupSum, rowCount: s2.rowCount });
-  note(s2.hasStageCol && s2.hasDaysCol, 'колонки «Этап на заводе» и «Дней на заводе» на месте', { hasStageCol: s2.hasStageCol, hasDaysCol: s2.hasDaysCol });
+  note(s2.hasStageCol && s2.hasDaysCol, 'колонки «Где сейчас?» и «Дней на заводе» на месте', { hasStageCol: s2.hasStageCol, hasDaysCol: s2.hasDaysCol });
   // Владелец 08.10.2026: колонка даты зовётся «Дата операции» (дата события, которым двигатель
   // пришёл в группу), «Дата этапа» осталась СТУПЕНЬЮ — одно имя меряло разное.
   note(s2.hasOpDateCol === true && s2.hasStageDateCol === false, 'колонка даты — «Дата операции», подписи «Дата этапа» в шапке нет', { heads: s2.heads });
@@ -284,13 +284,13 @@ async function main() {
   await shot(ws, '3-scrap');
   await evaluate(ws, `const sel = vis('select[data-report-group-by]', REPORT())[0]; setVal(sel, 'stage'); await wait(600); return true;`);
 
-  /* ── [4] Ступени: «Последнего этапа» нет, «Этап на заводе» сужает по счётчику ────── */
+  /* ── [4] Ступени: «Последнего этапа» нет, «Где сейчас?» сужает по счётчику ────── */
   const s4 = await evaluate(
     ws,
     `const R = REPORT();
      const fieldIds = vis('[data-facet-field]', R).map((b) => b.getAttribute('data-facet-field'));
      const gone = !fieldIds.includes('lastStage') && vis('[data-facet-value^="lastStage:"]', R).length === 0;
-     // «Этап на заводе» включён по умолчанию — берём первое значение, где есть строки,
+     // «Где сейчас?» включён по умолчанию — берём первое значение, где есть строки,
      // и сверяем: после выбора остаётся ровно его счётчик.
      let opts = vis('[data-facet-value^="factoryStage:"]', R);
      const fieldBtn = vis('[data-facet-field="factoryStage"]', R)[0];
@@ -307,8 +307,8 @@ async function main() {
        picked: txt(pick.o), pickedCount: pick.count, rows, afterReset };`,
   );
   note(s4.gone === true && s4.hasFactory === true && s4.hasHasStage === true,
-    'панель ступеней: «Последнего этапа» нет, «Все этапы» и «Этап на заводе» на месте', { fieldIds: s4.fieldIds, gone: s4.gone });
-  note(s4.ok === true && s4.rows === s4.pickedCount, `ступень «Этап на заводе»: выбор «${s4.picked}» оставил ровно счётчик (${s4.pickedCount})`, { rows: s4.rows, pickedCount: s4.pickedCount, picked: s4.picked });
+    'панель ступеней: «Последнего этапа» нет, «Все этапы» и «Где сейчас?» на месте', { fieldIds: s4.fieldIds, gone: s4.gone });
+  note(s4.ok === true && s4.rows === s4.pickedCount, `ступень «Где сейчас?»: выбор «${s4.picked}» оставил ровно счётчик (${s4.pickedCount})`, { rows: s4.rows, pickedCount: s4.pickedCount, picked: s4.picked });
   note(s4.afterReset === bridge.total, 'сброс ступени вернул все строки', { afterReset: s4.afterReset, total: bridge.total });
 
   /* ── [5] Клик по строке → карточка ──────────────────────────────────────────────── */
@@ -377,7 +377,7 @@ async function main() {
      if (reset) { click(reset); await wait(400); }
      return { ok: !ids.includes('lastStage') && ids.includes('factoryStage') && ids.includes('hasStage'), ids };`,
   );
-  note(s8.ok === true, 'список «Двигатели»: в фильтрах «Последнего этапа» нет, «Все этапы»/«Этап на заводе» на месте', { ids: s8.ids });
+  note(s8.ok === true, 'список «Двигатели»: в фильтрах «Последнего этапа» нет, «Все этапы»/«Где сейчас?» на месте', { ids: s8.ids });
   await shot(ws, '6-engines-filters');
 
   /* ── [9] Соседний отчёт «…этапы ремонта»: колонки-дубля «Последний этап» нет ─────── */
@@ -403,9 +403,9 @@ async function main() {
      return { ok: !heads.includes('Последний этап'), heads,
        goneFromSettings: dlg ? !labels.includes('Последний этап') : null,
        settingsLabels: labels,
-       hasStage: heads.includes('Этап на заводе') };`,
+       hasStage: heads.includes('Где сейчас?') };`,
   );
-  note(s9.ok === true && s9.hasStage === true, 'соседний отчёт «…этапы ремонта»: колонки «Последний этап» нет, «Этап на заводе» на месте', { heads: s9.heads });
+  note(s9.ok === true && s9.hasStage === true, 'соседний отчёт «…этапы ремонта»: колонки «Последний этап» нет, «Где сейчас?» на месте', { heads: s9.heads });
   note(s9.goneFromSettings === true, 'соседний отчёт: в «Колонках списка» «Последнего этапа» тоже нет', { settingsLabels: s9.settingsLabels });
   await shot(ws, '7-sibling-report');
 

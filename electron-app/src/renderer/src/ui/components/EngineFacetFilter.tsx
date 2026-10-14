@@ -51,14 +51,20 @@ export function EngineFacetFilter(props: {
   open: boolean;
   types?: readonly EngineFactoryStageTypeRef[];
   stageTemplates?: readonly RepairStageTemplate[];
+  /** Ступени, спрятанные целиком (нет в ряду кнопок и в панелях): «Дата этапа» при активном «Где сейчас?». */
+  hiddenFields?: readonly EngineFacetId[];
   onChangeSelection: (next: EngineFacetSelection) => void;
   onChangeFields: (next: EngineFacetId[]) => void;
   onReset: () => void;
 }) {
   const facets = useEngineFacetDescriptors(props.types, props.stageTemplates);
+  const visible = React.useMemo(
+    () => (props.hiddenFields && props.hiddenFields.length > 0 ? facets.filter((f) => !(props.hiddenFields as readonly string[]).includes(f.id)) : facets),
+    [facets, props.hiddenFields],
+  );
   return (
     <FacetFilter<EngineListItem>
-      facets={facets}
+      facets={visible}
       rows={props.engines}
       selection={props.selection as FacetSelection}
       fields={props.fields}
