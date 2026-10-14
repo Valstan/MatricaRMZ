@@ -2257,6 +2257,16 @@ export type MatricaApi = {
     status: () => Promise<{ ok: true; status: OpencodeNodeStatus } | { ok: false; error: string }>;
   };
 
+  /** Фоновая агентская сессия своего узла (D10, слайс 2): одна на клиент. */
+  opencodeSession: {
+    /** Создать при отсутствии / переиспользовать живую; id персистится. */
+    ensure: () => Promise<{ ok: true; sessionId: string; created: boolean } | { ok: false; error: string }>;
+    /** Жива ли persisted-сессия прямо сейчас. */
+    status: () => Promise<{ ok: true; sessionId: string | null; valid: boolean } | { ok: false; error: string }>;
+    /** Удалить сессию на serve и забыть id. */
+    remove: () => Promise<{ ok: true } | { ok: false; error: string }>;
+  };
+
   servicePricing: {
     orders: {
       list: (args?: { status?: string }) => Promise<

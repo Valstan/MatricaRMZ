@@ -587,6 +587,11 @@ const matricaApi = {
     probe: async () => ipcRenderer.invoke('opencodeNodes:probe'),
     status: async () => ipcRenderer.invoke('opencodeNodes:status'),
   },
+  opencodeSession: {
+    ensure: async () => ipcRenderer.invoke('opencodeSession:ensure'),
+    status: async () => ipcRenderer.invoke('opencodeSession:status'),
+    remove: async () => ipcRenderer.invoke('opencodeSession:remove'),
+  },
   servicePricing: {
     orders: {
       list: async (args?: { status?: string }) => ipcRenderer.invoke('servicePricing:orders:list', args),
