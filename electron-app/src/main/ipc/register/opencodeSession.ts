@@ -3,6 +3,7 @@ import { ipcMain } from 'electron';
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, viewModeWriteError } from '../ipcContext.js';
 import { clearAgentSessionRef, ensureAgentSession, loadAgentSessionRef } from '../../services/opencodeAgentSession.js';
+import { pollNodeAsk, startNodeAsk, stopNodeAsk } from '../../services/opencodeNodeAsk.js';
 import { deleteOpencodeSession, getOpencodeSession } from '../../services/opencodeSessionClient.js';
 
 // Фоновая агентская сессия своего узла (D10, слайс 2): одна на клиент.
@@ -46,5 +47,25 @@ export function registerOpencodeSessionIpc(ctx: IpcContext) {
       await clearAgentSessionRef();
     }
     return { ok: true as const };
+  });
+
+  ipcMain.handle('opencodeSession:ask', async (_e, args: { text?: unknown }) => {
+    const denied = await superadminOrDenied(ctx);
+    if (denied) return denied;
+    if (isViewMode(ctx)) return viewModeWriteError();
+    return startNodeAsk(String(args?.text ?? ''));
+  });
+
+  ipcMain.handle('opencodeSession:poll', async (_e, args: { askId?: unknown }) => {
+    const denied = await superadminOrDenied(ctx);
+    if (denied) return denied;
+    return pollNodeAsk(String(args?.askId ?? ''));
+  });
+
+  ipcMain.handle('opencodeSession:stop', async (_e, args: { askId?: unknown }) => {
+    const denied = await superadminOrDenied(ctx);
+    if (denied) return denied;
+    if (isViewMode(ctx)) return viewModeWriteError();
+    return stopNodeAsk(String(args?.askId ?? ''));
   });
 }

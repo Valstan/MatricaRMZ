@@ -14,6 +14,7 @@ const IPC = src('./opencodeSession.ts');
 const REGISTER = src('../registerIpc.ts');
 const PRELOAD = src('../../../preload/index.ts');
 const CONTRACT = src('../../../../../shared/src/ipc/types.ts');
+const CHAT = src('../../../renderer/src/ui/components/AiAgentChat.tsx');
 
 describe('opencodeSession IPC (D10 слайс 2)', () => {
   it('каналы ensure/status/remove зарегистрированы и за гейтом суперадмина', () => {
@@ -34,5 +35,25 @@ describe('opencodeSession IPC (D10 слайс 2)', () => {
     }
     expect(CONTRACT).toContain('opencodeSession: {');
     expect(CONTRACT).toContain('ensure: () => Promise<');
+  });
+
+  it('вопрос/опрос/стоп: каналы, мост и контракт (D10 слайс 3)', () => {
+    for (const ch of ['opencodeSession:ask', 'opencodeSession:poll', 'opencodeSession:stop']) {
+      expect(IPC, `канал ${ch} не зарегистрирован`).toContain(`ipcMain.handle('${ch}'`);
+      expect(PRELOAD, `в мосте нет ${ch}`).toContain(ch);
+    }
+    expect(CONTRACT).toContain('ask: (args: { text: string })');
+    expect(CONTRACT).toContain('poll: (args: { askId: string })');
+    expect(CONTRACT).toContain('stop: (args: { askId: string })');
+  });
+
+  it('окно чата спрашивает узел первым, DeepSeek — запасным (D10 слайс 3)', () => {
+    expect(CHAT).toContain('opencodeSession');
+    expect(CHAT).toContain('.ask({ text: q })');
+    expect(CHAT).toContain('opencodeSession.poll');
+    expect(CHAT).toContain('opencodeSession.stop');
+    expect(CHAT).toContain('data-node-answer');
+    expect(CHAT).toContain('Ответ узла');
+    expect(CHAT).toContain('спросил ИИваныча (DeepSeek)');
   });
 });
