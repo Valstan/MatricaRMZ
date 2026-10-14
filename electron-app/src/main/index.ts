@@ -1,7 +1,7 @@
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage } from 'electron';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { rename, rm } from 'node:fs/promises';
 import type { ChatDeepLinkPayload } from '@matricarmz/shared';
 import { formatAppVersionLabel } from '@matricarmz/shared';
@@ -40,12 +40,78 @@ import {
   showStartupStatus,
 } from './services/startupStatusWindow.js';
 import { appDirname, resolvePreloadPath, resolveRendererIndex } from './utils/appPaths.js';
+import { ensureClientAutostart, isMinimizedLaunch, resolveStartupDir } from './services/clientAutostartService.js';
 import { createFileLogger } from './utils/logger.js';
 import { setupMenu } from './utils/menu.js';
 import { registerInputContextMenu } from './utils/contextMenu.js';
 
 let mainWindow: BrowserWindow | null = null;
 let mainWindowReady = false;
+let tray: Tray | null = null;
+/**
+ * Запуск свёрнуто в трей (C9): флаг `--minimized` ставит ярлык автозапуска,
+ * env `MATRICA_START_MINIMIZED=1` — dev/стенд. Окно не показывается, пока оператор
+ * сам не попросит (трей, повторный запуск, dock-активация).
+ */
+const minimizedLaunch = isMinimizedLaunch(process.argv);
+let userRequestedShow = false;
+
+/** Показать главное окно по просьбе оператора (трей, повторный запуск, dock). */
+function requestMainWindowShow(): void {
+  userRequestedShow = true;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  } else {
+    maybeShowMainWindow();
+  }
+}
+
+/** Иконка трея: в сборке — из ресурсов, в dev — коммиченная иконка окна. */
+function trayIconPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'tray-icon.ico')
+    : join(app.getAppPath(), 'build', 'icon.ico');
+}
+
+/**
+ * Трей свёрнутого запуска (C9, только Windows): «Открыть» показывает окно,
+ * «Выход» гасит приложение. Без иконки трея нет — тогда окно показываем сразу,
+ * иначе оператор получит невидимую программу без ручки.
+ */
+function ensureTray(): void {
+  if (tray || process.platform !== 'win32') return;
+  try {
+    const image = nativeImage.createFromPath(trayIconPath());
+    if (image.isEmpty()) {
+      logToFile('tray: no icon, showing window instead');
+      userRequestedShow = true;
+      maybeShowMainWindow();
+      return;
+    }
+    tray = new Tray(image);
+    tray.setToolTip(APP_TITLE());
+    tray.setContextMenu(
+      Menu.buildFromTemplate([
+        { label: 'Открыть Матрицу', click: () => requestMainWindowShow() },
+        { type: 'separator' },
+        {
+          label: 'Выход',
+          click: () => {
+            forceQuit = true;
+            app.quit();
+          },
+        },
+      ]),
+    );
+    tray.on('click', () => requestMainWindowShow());
+    logToFile('tray: created for minimized launch');
+  } catch (e) {
+    logToFile(`tray failed: ${String(e)}`);
+    tray = null;
+  }
+}
 let allowMainWindowShow = false;
 let forceQuit = false;
 let writeSessionAuditEvent:
@@ -97,6 +163,11 @@ export function setForceQuit(value: boolean) {
 function maybeShowMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (!mainWindowReady || !allowMainWindowShow) return;
+  // Свёрнутый запуск молчит, пока оператор сам не попросит окно.
+  if (minimizedLaunch && !userRequestedShow) {
+    logToFile('startup: window stays hidden (minimized launch, tray holds the app)');
+    return;
+  }
   mainWindow.maximize();
   mainWindow.show();
   finishStartupStatus();
@@ -302,29 +373,8 @@ function restoreShortcutsHeadless(): boolean {
       logToFile(`restore-shortcuts: ${shortcutPath} failed: ${String(e)}`);
     }
   }
-  // «Восстановить Матрицу РМЗ» → watchdog --repair: the installer creates this
-  // desktop shortcut, but shortcut restoration must keep the emergency button
-  // alive too (best-effort; not counted into ok — the app shortcuts are the
-  // contract of this mode).
-  const localAppData = String(process.env.LOCALAPPDATA ?? '').trim();
-  if (localAppData) {
-    const watchdogExe = join(localAppData, 'Programs', 'MatricaRMZ-Watchdog', 'matricarmz-watchdog.exe');
-    if (existsSync(watchdogExe)) {
-      try {
-        shell.writeShortcutLink(join(app.getPath('desktop'), 'Восстановить Матрицу РМЗ.lnk'), 'create', {
-          target: watchdogExe,
-          args: '--repair',
-          cwd: dirname(watchdogExe),
-          // The watchdog exe carries no icon resource (plain Go binary) — borrow
-          // the client's own icon so the shortcut is recognizable.
-          icon: exe,
-          iconIndex: 0,
-        });
-      } catch (e) {
-        logToFile(`restore-shortcuts: repair shortcut failed: ${String(e)}`);
-      }
-    }
-  }
+  // Аварийная кнопка «Восстановить Матрицу РМЗ» снята (C9): ярлык больше не
+  // создаётся установщиком и чисткой при обновлении, клиент его не возвращает.
   return ok;
 }
 
@@ -376,6 +426,7 @@ app.whenReady().then(() => {
     return;
   }
   app.on('second-instance', () => {
+    userRequestedShow = true;
     // allowMainWindowShow, а не isVisible(): у свёрнутого окна isVisible() отдаёт false,
     // и самый частый повторный клик («свернул и щёлкнул ярлык») уводило бы в ветку
     // окна статуса вместо разворота главного окна.
@@ -405,6 +456,20 @@ app.whenReady().then(() => {
     .then(({ ensureWatchdogInstalled }) => ensureWatchdogInstalled((line) => logToFile(line)))
     .catch((e) => logToFile(`watchdog heal failed: ${String(e)}`));
 
+  // Автозапуск клиента (C9): только primary-инстанс, только упакованный Windows.
+  // Чинит отсутствующую/сломанную запись (требование владельца). Dev-стенд и тесты
+  // сюда не ходят: isPackaged=false. Никогда не бросает.
+  try {
+    const healed = ensureClientAutostart({
+      isPackaged: app.isPackaged,
+      execPath: process.execPath,
+      startupDir: resolveStartupDir(app.getPath('appData')),
+    });
+    if (healed) logToFile('client-autostart: shortcut ensured');
+  } catch (e) {
+    logToFile(`client-autostart failed: ${String(e)}`);
+  }
+
   // Разовая подчистка прежнего кэша обновлений в «Загрузках» (ADR-0002). Делает
   // клиент, а не установщик: установщик запущен ИЗ этого каталога и удалить свой
   // же образ не может. Здесь — после single-instance-lock, установщик уже завершён.
@@ -425,7 +490,8 @@ app.whenReady().then(() => {
   void (async () => {
     // Взводим окно ПЕРЕД первой тяжёлой работой: нативный SQLite и ключ базы уже
     // могут занять секунды. Само окно всплывёт только если старт затянется.
-    showStartupStatus('Запускаю программу');
+    // Свёрнутый запуск (C9) молчит целиком: ни сплэша, ни окна — только трей.
+    if (!minimizedLaunch) showStartupStatus('Запускаю программу');
     try {
       const { loadRuntimeInitDeps } = await import('./bootstrap/runtimeInitDeps.js');
       const {
@@ -670,6 +736,8 @@ app.whenReady().then(() => {
       // Создаём окно только после завершения update-flow.
       await setStartupStage('Загружаю окно');
       createWindow();
+      // Свёрнутый запуск живёт треем (окно создано скрытым и молчит).
+      if (minimizedLaunch) ensureTray();
       // Локальный узел opencode ведём сами (нативно, без админа): фоном, окно не ждёт.
       // Скачивание ~60 МБ — только если бинаря нет; повторные запуски стартуют сразу.
       void ensureOpencodeNode().catch(() => {});
@@ -695,6 +763,8 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform === 'darwin') return;
+  // Живой трей держит приложение: закрытые окна при свёрнутом запуске — штат.
+  if (tray) return;
   // During startup update flow, the update window can be the only window.
   // Prevent quitting before the main window is ready.
   if (!allowMainWindowShow) return;
@@ -702,6 +772,10 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', (event) => {
+  if (tray) {
+    tray.destroy();
+    tray = null;
+  }
   // Локальный узел opencode гасим сразу, не задерживая выход (best-effort).
   void stopOpencodeNode();
   if (!stopAuditWritten) {
