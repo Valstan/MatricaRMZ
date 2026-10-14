@@ -8,7 +8,7 @@ vi.mock('electron', () => ({
   app: { getPath: () => '/userData' },
 }));
 
-const { localNodeName, mergeLocalNodeUrl, opencodeInstallDir, pickReleaseAsset } = await import(
+const { localNodeName, mergeLocalNodeUrl, opencodeDataDir, opencodeInstallDir, pickReleaseAsset, serveSpawnEnv, watchBackoffMs, OPENCODE_WATCH_MS } = await import(
   './opencodeServeManager.js'
 );
 
@@ -73,5 +73,40 @@ describe('per-user paths', () => {
       // Вне Windows ассета нет — только userData-заглушка, узел unsupported.
       expect(dir).toContain('opencode-node');
     }
+  });
+});
+
+describe('D10 слайс 1: изоляция данных', () => {
+  it('данные узла — подкаталог установки (win32) или userData (иначе)', async () => {
+    const { join } = await import('node:path');
+    expect(opencodeDataDir('C:\\n\\MatricaRMZ-OpenCode', { platform: 'win32' })).toBe(
+      join('C:\\n\\MatricaRMZ-OpenCode', 'data'),
+    );
+    expect(opencodeDataDir('C:\\n\\MatricaRMZ-OpenCode', { platform: 'linux', userData: '/u' })).toBe(
+      join('/u', 'opencode-node-data'),
+    );
+  });
+
+  it('spawn несёт изолированный XDG_DATA_HOME, остальное env — как было', async () => {
+    const env = serveSpawnEnv('D:\\node-data', { PATH: '/x', HOME: '/h' });
+    expect(env.XDG_DATA_HOME).toBe('D:\\node-data');
+    expect(env.PATH).toBe('/x');
+    expect(env.HOME).toBe('/h');
+  });
+});
+
+describe('D10 слайс 1: бэкофф вотчера', () => {
+  it('интервал вотчера — 15 с', () => {
+    expect(OPENCODE_WATCH_MS).toBe(15_000);
+  });
+
+  it('первый повтор быстро, дальше реже, потолок 5 мин', () => {
+    expect(watchBackoffMs(1)).toBe(30_000);
+    expect(watchBackoffMs(2)).toBe(60_000);
+    expect(watchBackoffMs(3)).toBe(120_000);
+    expect(watchBackoffMs(4)).toBe(240_000);
+    expect(watchBackoffMs(5)).toBe(300_000);
+    expect(watchBackoffMs(99)).toBe(300_000);
+    expect(watchBackoffMs(0)).toBe(15_000);
   });
 });
