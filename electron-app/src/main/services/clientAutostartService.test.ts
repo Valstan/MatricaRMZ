@@ -5,6 +5,8 @@ vi.mock('electron', () => ({
   app: { getPath: () => '' },
 }));
 
+import { join } from 'node:path';
+
 import {
   CLIENT_AUTOSTART_ARGS,
   CLIENT_AUTOSTART_SHORTCUT_NAME,
@@ -17,7 +19,7 @@ import {
 describe('clientAutostartService (C9)', () => {
   it('каталог автозагрузки — Startup профиля, override — для dev/стенда', () => {
     expect(resolveStartupDir('C:\\Users\\op\\AppData\\Roaming', {})).toBe(
-      'C:\\Users\\op\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup',
+      join('C:\\Users\\op\\AppData\\Roaming', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup'),
     );
     expect(resolveStartupDir('C:\\x', { MATRICA_AUTOSTART_DIR: 'D:\\stage-startup' })).toBe('D:\\stage-startup');
   });
@@ -25,7 +27,7 @@ describe('clientAutostartService (C9)', () => {
   it('имя ярлыка и флаг свёрнутого запуска', () => {
     expect(CLIENT_AUTOSTART_SHORTCUT_NAME).toBe('MatricaRMZ.lnk');
     expect(CLIENT_AUTOSTART_ARGS).toBe('--minimized');
-    expect(clientAutostartShortcutPath('D:\\stage-startup')).toBe('D:\\stage-startup\\MatricaRMZ.lnk');
+    expect(clientAutostartShortcutPath('D:\\stage-startup')).toBe(join('D:\\stage-startup', 'MatricaRMZ.lnk'));
   });
 
   it('свёрнутый запуск — по флагу ярлыка или env', () => {
@@ -49,7 +51,7 @@ describe('clientAutostartService (C9)', () => {
     expect(ok).toBe(true);
     expect(write).toHaveBeenCalledTimes(1);
     expect(write).toHaveBeenCalledWith(
-      'D:\\stage-startup\\MatricaRMZ.lnk',
+      join('D:\\stage-startup', 'MatricaRMZ.lnk'),
       'create',
       expect.objectContaining({
         target: 'C:\\Prog\\MatricaRMZ\\MatricaRMZ.exe',
