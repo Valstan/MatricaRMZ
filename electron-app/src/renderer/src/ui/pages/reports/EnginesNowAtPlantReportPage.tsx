@@ -18,6 +18,8 @@ import {
   isFactoryStageActive,
   isStageEntriesActive,
   plantScrapGroup,
+  returnsPass,
+  stageByCode,
   stripStageDateWhenWhereNow,
   type EngineFacetSelection,
   type EngineListItem,
@@ -162,6 +164,14 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
     () => {
       const now = Date.now();
       const expand = entriesActive;
+      // Выбранные срезы «Всех этапов» (без префикса, без «этапов нет»): строка обязана
+      // показать РОВНО их — иначе в срез «Укладка» попадают двигатели с чужим текущим
+      // этапом (жалоба владельца 14.10.2026).
+      const picked = activeFacets as EngineFacetSelection;
+      const pickedCodes = (Array.isArray(picked.hasStage) ? picked.hasStage : [])
+        .filter((v): v is string => typeof v === 'string' && v.startsWith('stage:'))
+        .map((v) => v.slice('stage:'.length).trim().toLowerCase())
+        .filter(Boolean);
       return props.engines
         .filter(isEngineAtPlant)
         .flatMap((e) => {
@@ -200,10 +210,39 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
               },
             }));
           }
+          // Проходов в едином списке нет (старая история, актовые этапы), но двигатель этап
+          // проходил: показываем его ОДНОЙ строкой НА ВЫБРАННЫЙ этап с датой прохождения —
+          // а не с текущим местом, которое к срезу отношения не имеет. Проход последнего
+          // этапа помечаем возвратом, как в раскрытых строках.
+          if (expand && pickedCodes.length > 0) {
+            const passed = new Set((withName.stageCodes ?? []).map((c) => String(c).trim().toLowerCase()));
+            const lastCode = String(withName.lastStageCode ?? '').trim().toLowerCase();
+            const slices = pickedCodes
+              .filter((code) => passed.has(code))
+              .map((code) => {
+                const at = withName.stageDates?.[code] ?? null;
+                const atMs = typeof at === 'number' && at > 0 ? at : null;
+                const sliceAt = atMs ?? withName.lastStageAt;
+                return {
+                  ...base,
+                  stageCodes: [code], // для фасета hasStage — точный срез
+                  ...(sliceAt != null ? { lastStageAt: sliceAt } : {}),
+                  id: `${withName.id}::${code}`,
+                  stage: {
+                    key: `stage:${code}`,
+                    label: stageByCode(code, stageTemplates)?.name ?? code,
+                    rank: engineFactoryStageOrder(types, stageTemplates).find((s) => s.key === `stage:${code}`)?.rank ?? 10,
+                    at: atMs,
+                    repeatPass: code === lastCode ? returnsPass(withName) : 1,
+                  },
+                };
+              });
+            if (slices.length > 0) return slices;
+          }
           return [base];
         });
     },
-    [props.engines, types, stageTemplates, workshopNameById, entriesActive],
+    [props.engines, types, stageTemplates, workshopNameById, entriesActive, activeFacets],
   );
 
   const columns = useMemo<Column[]>(

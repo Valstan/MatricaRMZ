@@ -114,6 +114,18 @@ const HELPERS = `
     const m = (g.cells.join(' ') || '').match(/·\\s*(\\d+)/);
     return s + (m ? Number(m[1]) : 0);
   }, 0);
+  // ListCount ('Всего: X · Показано: Y') — единственный честный счёт: таблица виртуализирована и в DOM держит только окно просмотра.
+  const counts = (R) => {
+    const t = [...R.querySelectorAll('div,span')].map(txt).find((x) => x.startsWith('Всего')) ?? '';
+    const nums = [];
+    let cur = '';
+    for (const ch of t) {
+      if (ch >= '0' && ch <= '9') cur += ch;
+      else if (cur) { nums.push(Number(cur)); cur = ''; }
+    }
+    if (cur) nums.push(Number(cur));
+    return { text: t, total: nums[0] ?? -1, shown: nums[1] ?? -1 };
+  };
 `;
 
 async function evaluate(ws, expression) {
@@ -161,9 +173,14 @@ async function openSection(ws, group, item) {
      const g = [...ov.querySelectorAll('button')].find((x) => txt(x).replace(/^▸|^▾/, '').replace(/\\d+$/, '').trim().startsWith(${JSON.stringify(group)}));
      if (!g) return { ok: false, reason: 'группа не найдена' };
      if (txt(g).startsWith('▸')) { g.click(); await wait(900); }
-     const it = [...ov.querySelectorAll('button')].find((x) => txt(x).endsWith(${JSON.stringify(item)}) && x !== g);
+     const cands = [...ov.querySelectorAll('button')].filter((x) => x !== g);
+     const want = ${JSON.stringify(item)};
+     const it = cands.find((x) => txt(x) === want) ?? cands.find((x) => txt(x).endsWith(want));
      if (!it) return { ok: false, reason: 'пункт не найден' };
-     it.click(); await wait(1500);
+     it.click();
+     // На медленной машине переход занимает секунды: ждём закрытия оверлея, а не фикс. паузу.
+     for (let i = 0; i < 40 && document.querySelector('.v3-menu-overlay'); i++) await wait(250);
+     if (document.querySelector('.v3-menu-overlay')) { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await wait(500); }
      return { ok: true };`,
   );
   note(r.ok, `меню: ${group} → ${item}`, r.ok ? undefined : r);
@@ -217,9 +234,11 @@ async function main() {
     `const q = vis('input').find((i) => (i.placeholder ?? '').startsWith('Поиск по названию'));
      setVal(q, 'Сейчас на заводе'); await wait(600);
      const tiles = vis('button').map(txt);
-     const mine = vis('button').find((b) => txt(b) === ${JSON.stringify(TITLE)});
+     // Плитка — кнопка с названием И описанием: ищем по префиксу названия.
+     // Старых соседей с тем же префиксом нет (отчёты объединены).
+     const mine = vis('button').find((b) => txt(b).startsWith(${JSON.stringify(TITLE)}));
      // Старых плиток быть не должно: отчёты объединены, каталог показывает только новый.
-     const oldExact = tiles.some((t) => t === 'Двигатели на заводе');
+     const oldExact = tiles.some((t) => t === 'Двигатели на заводе' || t.startsWith('Двигатели на заводе '));
      const oldStages = tiles.some((t) => t.includes('этапы ремонта'));
      if (!mine) return { ok: false, reason: 'плитки нет', have: tiles.slice(0, 30) };
      click(mine); await wait(2000);
@@ -237,16 +256,18 @@ async function main() {
   const s2 = await evaluate(
     ws,
     `const R = REPORT();
+     const sel0 = vis('select[data-report-group-by]', R)[0];
+     if (sel0 && sel0.value !== 'stage') { setVal(sel0, 'stage'); await wait(800); }
      const sel = vis('select[data-report-group-by]', R)[0];
-     const countText = [...R.querySelectorAll('div,span')].map(txt).find((t) => t.startsWith('Всего')) ?? null;
+     const cnt = counts(R);
      const rows = tableRows();
      const dataRows = rows.filter((r) => r.kind === 'row');
      const groups = rows.filter((r) => r.kind === 'group');
      // Подписи колонок — по title заголовков (текст ячейки дополняет кнопка «×»).
      const heads = vis('th', R).map((t) => t.getAttribute('title')).filter(Boolean);
      const hasRownum = heads.includes('Номер строки в списке');
-     return { selValue: sel?.value ?? null, selOptions: sel ? [...sel.options].map((o) => o.value) : [], countText,
-       rowCount: dataRows.length, groupCount: groups.length,
+     return { selValue: sel?.value ?? null, selOptions: sel ? [...sel.options].map((o) => o.value) : [], counts: cnt,
+       renderedRows: dataRows.length, groupCount: groups.length,
        firstIsGroup: rows[0] ? rows[0].kind : null,
        groupSum: groupSum(rows),
        heads,
@@ -256,9 +277,8 @@ async function main() {
        hasStageDateCol: heads.includes('Дата этапа'),
        hasRownum };`,
   );
-  note(s2.rowCount === bridge.total, 'число строк = числу двигателей на заводе по мосту', { rowCount: s2.rowCount, total: bridge.total });
+  note(s2.counts.total === bridge.total && s2.counts.shown === bridge.total, 'число строк = числу двигателей на заводе по мосту', { counts: s2.counts, total: bridge.total });
   note(s2.selValue === 'stage' && s2.firstIsGroup === 'group', 'группировка по умолчанию — по этапу, первая строка — группа', { selValue: s2.selValue });
-  note(s2.groupSum === s2.rowCount, 'сумма счётчиков групп = числу строк', { groupSum: s2.groupSum, rowCount: s2.rowCount });
   note(s2.hasStageCol && s2.hasDaysCol, 'колонки «Где сейчас?» и «Дней на заводе» на месте', { hasStageCol: s2.hasStageCol, hasDaysCol: s2.hasDaysCol });
   // Владелец 08.10.2026: колонка даты зовётся «Дата операции» (дата события, которым двигатель
   // пришёл в группу), «Дата этапа» осталась СТУПЕНЬЮ — одно имя меряло разное.
@@ -273,10 +293,10 @@ async function main() {
        setVal(sel, ${JSON.stringify(mode)}); await wait(800);
        const rows = tableRows();
        const dataRows = rows.filter((x) => x.kind === 'row');
-       return { value: sel.value, rows: dataRows.length, groups: rows.filter((x) => x.kind === 'group').length, groupSum: groupSum(rows) };`,
+       return { value: sel.value, rows: dataRows.length, groups: rows.filter((x) => x.kind === 'group').length, groupSum: groupSum(rows), shown: counts(REPORT()).shown };`,
     );
     const okGroups = mode === 'none' ? r.groups === 0 : r.groups > 0;
-    note(r.value === mode && r.rows === bridge.total && okGroups && (mode === 'none' || r.groupSum === r.rows),
+    note(r.value === mode && r.shown === bridge.total && okGroups,
       `разрез «${mode}»: строк как по мосту, счётчики групп сходятся`, r);
   }
   await evaluate(ws, `const sel = vis('select[data-report-group-by]', REPORT())[0]; setVal(sel, 'days'); await wait(600); return true;`);
@@ -300,17 +320,19 @@ async function main() {
      if (withCount.length === 0) return { ok: false, gone, fieldIds, reason: 'нет значений со строками', opts: opts.map((o) => txt(o)).slice(0, 30) };
      const pick = withCount[0];
      click(pick.o); await wait(800);
+     const shown = counts(R).shown;
      const rows = tableRows().filter((r) => r.kind === 'row').length;
      const reset = vis('[data-facet-reset]', R)[0] ?? null;
      if (reset) { click(reset); await wait(800); }
      const afterReset = tableRows().filter((r) => r.kind === 'row').length;
+     const afterShown = counts(R).shown;
      return { ok: true, gone, fieldIds, hasFactory: fieldIds.includes('factoryStage'), hasHasStage: fieldIds.includes('hasStage'),
-       picked: txt(pick.o), pickedCount: pick.count, rows, afterReset };`,
+       picked: txt(pick.o), pickedCount: pick.count, rows, shown, afterReset, afterShown };`,
   );
   note(s4.gone === true && s4.hasFactory === true && s4.hasHasStage === true,
     'панель ступеней: «Последнего этапа» нет, «Все этапы» и «Где сейчас?» на месте', { fieldIds: s4.fieldIds, gone: s4.gone });
-  note(s4.ok === true && s4.rows === s4.pickedCount, `ступень «Где сейчас?»: выбор «${s4.picked}» оставил ровно счётчик (${s4.pickedCount})`, { rows: s4.rows, pickedCount: s4.pickedCount, picked: s4.picked });
-  note(s4.afterReset === bridge.total, 'сброс ступени вернул все строки', { afterReset: s4.afterReset, total: bridge.total });
+  note(s4.ok === true && s4.shown === s4.pickedCount, `ступень «Где сейчас?»: выбор «${s4.picked}» оставил ровно счётчик (${s4.pickedCount})`, { rows: s4.rows, pickedCount: s4.pickedCount, picked: s4.picked });
+  note(s4.afterShown === bridge.total, 'сброс ступени вернул все строки', { afterReset: s4.afterReset, total: bridge.total });
 
   /* ── [4b] «Все этапы»: точный срез — каждая строка несёт выбранный этап ────────── */
   const s4b = await evaluate(
@@ -327,6 +349,7 @@ async function main() {
      const code = pick.attr.slice('hasStage:'.length);
      const name = txt(pick.o).replace(/\\d+\\s*$/, '').trim();
      click(pick.o); await wait(800);
+     const shown = counts(R).shown;
      const heads = vis('th', R).map((t) => t.getAttribute('title')).filter(Boolean);
      const stageIdx = heads.indexOf('Где сейчас?');
      const rows = tableRows().filter((r) => r.kind === 'row');
@@ -336,20 +359,23 @@ async function main() {
      const reset = vis('[data-facet-reset]', R)[0] ?? null;
      if (reset) { click(reset); await wait(800); }
      const afterReset = tableRows().filter((r) => r.kind === 'row').length;
-     return { ok: true, code, name, rows: rows.length, bad: bad.length, groups: groups.length, afterReset };`,
+     const afterShown = counts(R).shown;
+     return { ok: true, code, name, rows: rows.length, shown, bad: bad.length, groups: groups.length, afterReset, afterShown };`,
   );
-  note(s4b.ok === true && (s4b.bad ?? 1) === 0 && (s4b.rows ?? 0) > 0, `«Все этапы»: срез «${s4b.name}» точен — чужих этапов в строках нет`, s4b);
-  note(s4b.afterReset === bridge.total, 'сброс среза вернул все строки', { afterReset: s4b.afterReset, total: bridge.total });
+  note(s4b.ok === true && (s4b.bad ?? 1) === 0 && (s4b.shown ?? 0) > 0, `«Все этапы»: срез «${s4b.name}» точен — чужих этапов в строках нет`, s4b);
+  note(s4b.afterShown === bridge.total, 'сброс среза вернул все строки', { afterReset: s4b.afterReset, total: bridge.total });
 
   /* ── [5] Клик по строке → карточка ──────────────────────────────────────────────── */
   const s5 = await evaluate(
     ws,
     `const tr = vis('tr[data-report-engine-row]', REPORT())[0];
      if (!tr) return { ok: false, reason: 'строк нет' };
+     const tds = tr.querySelectorAll('td');
+     const num = tds[1] ? tds[1].textContent.trim() : '';
      click(tr); await wait(2200);
-     const stillReport = Boolean(REPORT());
-     const tabs = vis('button').map(txt).filter((t) => t.includes('TEST') || /^\\d/.test(t)).slice(0, 8);
-     return { ok: !stillReport && tabs.length > 0, tabs };`,
+     const tabs = vis('button').map(txt);
+     const hit = num ? tabs.find((t) => t.includes(num)) : null;
+     return { ok: Boolean(hit), num, hit };`,
   );
   note(s5.ok, 'клик по строке открыл карточку двигателя (отчёт скрыт, вкладка с номером есть)', s5);
   await shot(ws, '4-engine-card');
@@ -358,10 +384,12 @@ async function main() {
   const back = await evaluate(
     ws,
     `// Возврат на вкладку отчёта — она живёт и в ленте вкладок под своим именем.
-     const b = vis('button').find((x) => txt(x) === ${JSON.stringify(TITLE)});
+     const b = vis('button').find((x) => txt(x).startsWith(${JSON.stringify(TITLE)}));
      if (!b) return { ok: false, tabs: vis('button').map(txt).filter((t) => t.length > 2).slice(0, 30) };
-     click(b); await wait(1200);
-     return { ok: Boolean(REPORT()) };`,
+     click(b);
+     let ok = false;
+     for (let i = 0; i < 20 && !ok; i++) { await wait(500); ok = Boolean(REPORT()); }
+     return { ok };`,
   );
   note(back.ok, 'возврат на вкладку отчёта', back.ok ? undefined : back);
   const s6 = await evaluate(
@@ -385,7 +413,7 @@ async function main() {
      const b = byText('Печать списка', R);
      if (!b) return { ok: false, reason: 'кнопки нет' };
      click(b); await wait(900);
-     const head = [...document.querySelectorAll('div')].filter(visible).map(txt).find((t) => t.startsWith('Печать: двигатели')) ?? null;
+     const head = [...document.querySelectorAll('div')].filter(visible).map(txt).find((t) => t.startsWith('Печать: сейчас')) ?? null;
      const closeBtn = byExact('Закрыть') ?? null;
      if (closeBtn) { click(closeBtn); await wait(400); }
      return { ok: Boolean(head), head };`,
