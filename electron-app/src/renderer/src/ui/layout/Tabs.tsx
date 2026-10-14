@@ -69,6 +69,7 @@ type TabVisualMeta = { icon: string; subtitle: string; gradient: string };
 export const TAB_VISUALS: Partial<Record<MenuTabId, TabVisualMeta>> = {
   history: { icon: '🎯', subtitle: '', gradient: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)' },
   engines: { icon: '⚙️', subtitle: 'Список и карточки двигателей', gradient: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)' },
+  now_at_plant: { icon: '🏭', subtitle: 'Кто на заводе и где каждый', gradient: 'linear-gradient(135deg, #1d4ed8 0%, #7c3aed 100%)' },
   assembly_forecast: { icon: '🔮', subtitle: 'Прогноз сборки двигателей', gradient: 'linear-gradient(135deg, #4338ca 0%, #6366f1 100%)' },
   engine_brands: { icon: '🏷️', subtitle: 'Марки двигателей и нормы', gradient: 'linear-gradient(135deg, #2563eb 0%, #60a5fa 100%)' },
   engine_brand_groups: { icon: '🗂️', subtitle: 'Группы марок для привязки деталей', gradient: 'linear-gradient(135deg, #1d4ed8 0%, #38bdf8 100%)' },

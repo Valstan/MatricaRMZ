@@ -1,9 +1,10 @@
 import type { EngineListItem } from '../ipc/types.js';
 import { STATUS_LABELS, type StatusCode } from './contract.js';
 import {
+  ENGINE_FACTORY_STAGE_LABELS,
   engineFactoryStage,
-  engineFactoryStageOrder,
   engineStatusDate,
+  orderedStageTemplates,
   returnsPass,
   type EngineFactoryStageTypeRef,
 } from './engineFactoryStage.js';
@@ -140,14 +141,73 @@ const REPAIR_DEADLINE_ORDER: readonly RepairDeadlineKey[] = ['danger', 'warning'
  * при отсутствии — статичная линейка. Подпись ступени не должна зависеть от того, ответил
  * ли сервер: иначе один и тот же двигатель попадал бы в разные группы при офлайне.
  */
-/** Ряд значений ступеней этапов: весь ряд линейки в порядке шаблона, плюс «этапов нет». */
+/** Ряд значений ступеней этапов — в порядке шаблона (приоритет линейки, боковая ветка в конце), плюс «этапов нет». */
 export function engineStageFacetOptions(types?: readonly EngineFactoryStageTypeRef[], stageTemplates?: readonly RepairStageTemplate[]) {
+  void types;
   return [
-    ...engineFactoryStageOrder(types, stageTemplates)
-      .filter((s) => s.key.startsWith('stage:'))
-      .map((s) => ({ value: s.key, label: s.label })),
+    ...orderedStageTemplates(stageTemplates).map((s) => ({ value: `stage:${s.code}`, label: s.name })),
     { value: 'none', label: 'этапов нет' },
   ];
+}
+
+/**
+ * Полный ряд ступени «Где сейчас?»: состояния карточки по своим местам, этапы —
+ * в порядке шаблона (приоритет линейки, боковая ветка в конце), виды работ — в порядке
+ * справочника. Порядок показа групп в списках задаёт ранг (`flattenGrouped`), а не этот
+ * ряд: здесь только значения фильтра (владелец 14.10.2026 — «по приоритету программы»).
+ */
+function factoryStageFilterOptions(
+  types?: readonly EngineFactoryStageTypeRef[],
+  stageTemplates?: readonly RepairStageTemplate[],
+): Array<{ value: string; label: string }> {
+  const ordered = orderedStageTemplates(stageTemplates);
+  const line = ordered.filter((t) => t.sideBranch !== true).map((t) => ({ value: `stage:${t.code}`, label: t.name }));
+  const side = ordered.filter((t) => t.sideBranch === true).map((t) => ({ value: `stage:${t.code}`, label: t.name }));
+  const sheets = [...(types ?? [])]
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name, 'ru'))
+    .map((t) => ({ value: `sheet:${t.code}`, label: t.name }));
+  return [
+    { value: 'scrap', label: ENGINE_FACTORY_STAGE_LABELS.scrap },
+    { value: 'repaired', label: ENGINE_FACTORY_STAGE_LABELS.repaired },
+    ...line,
+    ...sheets,
+    { value: 'defect_act', label: ENGINE_FACTORY_STAGE_LABELS.defectAct },
+    { value: 'completeness_act', label: ENGINE_FACTORY_STAGE_LABELS.completenessAct },
+    { value: 'repair_started', label: ENGINE_FACTORY_STAGE_LABELS.repairStarted },
+    ...side,
+    { value: 'arrived', label: ENGINE_FACTORY_STAGE_LABELS.arrived },
+  ];
+}
+
+/** Выбран ли фильтр «Где сейчас?»: тогда «Дата этапа» недоступна — смотрим текущее место, а не период. */
+export function isFactoryStageActive(selection: EngineFacetSelection): boolean {
+  const picked = selection?.factoryStage;
+  return Array.isArray(picked) && picked.length > 0;
+}
+
+/**
+ * Гасит «Дату этапа», когда активен «Где сейчас?» (владелец 14.10.2026): период при
+ * вопросе «где двигатель сейчас» не отвечает ни на что — ступень чистится, а не прячется
+ * с включённым отбором.
+ */
+export function stripStageDateWhenWhereNow(selection: EngineFacetSelection): EngineFacetSelection {
+  if (!isFactoryStageActive(selection)) return selection;
+  if (selection.stageDate == null) return selection;
+  const next = { ...selection };
+  delete next.stageDate;
+  return next;
+}
+
+/**
+ * Раскрывать ли двигатели в строки-проходы (владелец 14.10.2026): только вопрос про
+ * движение — выбранные «Все этапы» или период «Даты этапа». Иначе (и при активном
+ * «Где сейчас?») — одна строка на двигатель с текущим местом: обстановка, а не лента.
+ */
+export function isStageEntriesActive(selection: EngineFacetSelection): boolean {
+  if (isFactoryStageActive(selection)) return false;
+  const picked = selection?.hasStage;
+  if (Array.isArray(picked) && picked.length > 0) return true;
+  return facetRangeOf(SELECTION(selection), 'stageDate') != null;
 }
 
 /**
@@ -192,8 +252,8 @@ function repairDeadlineKey(e: EngineListItem, now = Date.now()): RepairDeadlineK
 }
 
 /**
- * Ступени списка двигателей. Справочник видов работ (`types`) даёт ступеням «Этап на заводе» и
- * «Вид работ» полный ряд значений в порядке справочника — новый вид работ появляется в фильтре
+ * Ступени списка двигателей. Справочник видов работ (`types`) даёт ступени «Где сейчас?»,
+ * полный ряд значений в порядке справочника — новый вид работ появляется в фильтре
  * сам, даже пока в нём нет ни одного двигателя (владелец 16.09). Без справочника ступени живут
  * на том, что несут строки.
  */
@@ -406,15 +466,16 @@ export function engineFacets(
     {
       kind: 'values',
       id: 'factoryStage',
-      // «Этап на заводе» — один ответ из карточки и этапов работ разом (`engineFactoryStage`):
-      // побеждает поздний признак. Справочник нужен и здесь: ключ этапа работ без кода (старые
-      // строки) сходится с ключом отчёта только через него, а полный ряд этапов — из него же.
-      label: 'Этап на заводе',
+      // «Где сейчас?» (бывш. «Этап на заводе», переименование 14.10.2026) — один ответ
+      // из карточки и этапов работ разом (`engineFactoryStage`): побеждает поздний признак.
+      // Справочник нужен и здесь: ключ этапа работ без кода (старые строки) сходится с
+      // ключом отчёта только через него, а полный ряд этапов — из него же.
+      label: 'Где сейчас?',
       valueOf: (e) => {
         const s = engineFactoryStage(e, types, stageTemplates);
         return { value: s.key, label: s.label };
       },
-      options: engineFactoryStageOrder(types, stageTemplates).map((s) => ({ value: s.key, label: s.label })),
+      options: factoryStageFilterOptions(types, stageTemplates),
     },
     {
       kind: 'values',

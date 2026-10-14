@@ -34,4 +34,10 @@ describe('uiSections', () => {
       expect(GROUP_LABELS[groupForTab(key)]).toBeTruthy();
     }
   });
+
+  it('«Сейчас на заводе» — кнопка Производства сразу за двигателями (владелец 14.10.2026)', () => {
+    expect(MENU_TAB_LABELS.now_at_plant).toBe('Сейчас на заводе');
+    expect(groupForTab('now_at_plant')).toBe('production');
+    expect(resolveMenuTab('now_at_plant')).toBe('now_at_plant');
+  });
 });

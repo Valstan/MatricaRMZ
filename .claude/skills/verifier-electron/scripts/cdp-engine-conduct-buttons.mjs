@@ -402,7 +402,7 @@ window.__cb = {
     for (let node = tr.previousElementSibling; node; node = node.previousElementSibling) {
       if (node.hasAttribute && node.hasAttribute('data-report-group')) { group = window.__cb.txt(node); break; }
     }
-    return { heads: heads, stage: at('Этап на заводе'), stageAt: at('Дата операции'), group: group };
+    return { heads: heads, stage: at('Где сейчас?'), stageAt: at('Дата операции'), group: group };
   },
   setInput(el, value){
     if (!el) return false;

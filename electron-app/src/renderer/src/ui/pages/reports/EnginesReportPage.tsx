@@ -11,6 +11,9 @@ import {
   engineStatusDate,
   flattenGrouped,
   formatEngineFactoryStageLabel,
+  isFactoryStageActive,
+  stripStageDateWhenWhereNow,
+  type EngineFacetSelection,
   type EngineListItem,
   type FacetDescriptor,
   type FacetSelection,
@@ -85,7 +88,7 @@ type ListUiState = {
  * Колонки этапов в этом отчёте — одна, «Последний этап». Прежние «Последний этап работ»,
  * «Последнее событие» и «Дата этапа работ» убраны (владелец 01.10.2026): четыре колонки
  * об одном и том же читались как четыре разных факта, а на экране выглядели дублями
- * ступеней фильтра. Полная картина по этапам — в ступенях «Есть этап» / «Этап на заводе».
+ * ступеней фильтра. Полная картина по этапам — в ступенях «Все этапы» / «Где сейчас?».
  */
 const REPORT_HIDDEN_BY_DEFAULT = ['workshop', 'scrapReason', 'scrapAt', 'completenessActDate', 'defectDate', 'lastStageAt'];
 
@@ -138,7 +141,7 @@ export function EnginesReportPage(props: ListReportPageProps) {
       { id: 'daysOnSite', label: 'Дней на заводе', kind: 'num', render: (e) => (e.daysOnSite == null ? HUMAN_LABEL_DASH : String(e.daysOnSite)), sortValue: (e) => e.daysOnSite ?? -1 },
       { id: 'state', label: 'Состояние', kind: 'name', render: (e) => e.state, sortValue: (e) => e.state, alwaysVisible: true },
       // Повторный заход виден суффиксом «· возврат» в подписи (B4).
-      { id: 'stage', label: 'Этап на заводе', kind: 'name', render: (e) => formatEngineFactoryStageLabel(e.stage), sortValue: (e) => e.stage.rank },
+      { id: 'stage', label: 'Где сейчас?', kind: 'name', render: (e) => formatEngineFactoryStageLabel(e.stage), sortValue: (e) => e.stage.rank },
       { id: 'scrap', label: 'Утиль', kind: 'text', render: (e) => yesNo(e.isScrap), sortValue: (e) => (e.isScrap ? 1 : 0) },
       { id: 'scrapReason', label: 'Причина утиля', kind: 'text', render: (e) => text(e.scrapReason), sortValue: (e) => text(e.scrapReason) },
       { id: 'scrapAt', label: 'Дата утиля', kind: 'date', render: (e) => fmtDate(engineScrapDate(e)), sortValue: (e) => engineScrapDate(e) ?? 0 },
@@ -162,7 +165,19 @@ export function EnginesReportPage(props: ListReportPageProps) {
   );
 
   // Полный набор ступеней списка двигателей — отчёт универсальный, и отбор у него тот же.
-  const facets = useMemo(() => engineFacets(types, stageTemplates) as readonly FacetDescriptor<Row>[], [types, stageTemplates]);
+  // «Где сейчас?» гасит «Дату этапа» (владелец 14.10.2026) — как в заводских отчётах.
+  const activeFacets = useMemo(
+    () => stripStageDateWhenWhereNow(ui.facets as EngineFacetSelection) as FacetSelection,
+    [ui.facets],
+  );
+  const whereNowActive = isFactoryStageActive(activeFacets as EngineFacetSelection);
+  const onChangeFacets = (next: FacetSelection) =>
+    patchState({ facets: stripStageDateWhenWhereNow(next as EngineFacetSelection) as FacetSelection });
+  const visibleFacetFields = whereNowActive ? ui.facetFields.filter((f) => f !== 'stageDate') : ui.facetFields;
+  const facets = useMemo(() => {
+    const all = engineFacets(types, stageTemplates) as readonly FacetDescriptor<Row>[];
+    return whereNowActive ? all.filter((f) => f.id !== 'stageDate') : all;
+  }, [types, stageTemplates, whereNowActive]);
 
   const deep = useListDeepFilter(
     rows,
@@ -171,7 +186,7 @@ export function EnginesReportPage(props: ListReportPageProps) {
     ui.query,
     { entityBacked: false, mode: searchModeOf(ui.searchSimilar) },
   );
-  const faceted = useMemo(() => applyFacets(facets, deep.filtered, ui.facets), [facets, deep.filtered, ui.facets]);
+  const faceted = useMemo(() => applyFacets(facets, deep.filtered, activeFacets), [facets, deep.filtered, activeFacets]);
   const sorted = useMemo(() => {
     const col = columnsById.get(ui.sortKey) ?? columnsById.get('engineNumber')!;
     const sv = col.sortValue ?? ((r: Row) => text(r.engineNumber));
@@ -290,7 +305,7 @@ export function EnginesReportPage(props: ListReportPageProps) {
           <SearchModeToggle similar={ui.searchSimilar} onToggle={() => patchState({ searchSimilar: !ui.searchSimilar })} />
         </ToolbarPin>
         <ToolbarPin>
-          <FacetToggleButton<Row> facets={facets} selection={ui.facets} open={ui.facetsOpen} onToggle={() => patchState({ facetsOpen: !ui.facetsOpen })} />
+          <FacetToggleButton<Row> facets={facets} selection={activeFacets} open={ui.facetsOpen} onToggle={() => patchState({ facetsOpen: !ui.facetsOpen })} />
         </ToolbarPin>
         <ColumnSettingsButton
           label="Колонки списка"
@@ -324,13 +339,18 @@ export function EnginesReportPage(props: ListReportPageProps) {
         <FacetFilter<Row>
           facets={facets}
           rows={deep.filtered}
-          selection={ui.facets}
-          fields={ui.facetFields}
+          selection={activeFacets}
+          fields={visibleFacetFields}
           open={ui.facetsOpen}
-          onChangeSelection={(next) => patchState({ facets: next })}
+          onChangeSelection={onChangeFacets}
           onChangeFields={(next) => patchState({ facetFields: next })}
           onReset={() => patchState({ facets: {}, facetFields: [] })}
         />
+        {whereNowActive ? (
+          <div className="ui-muted" style={{ fontSize: 12, marginTop: 4 }}>
+            «Где сейчас?» показывает текущее место каждого двигателя — период («Дата этапа») при нём не нужен и скрыт.
+          </div>
+        ) : null}
       </div>
 
       <ListCount total={rows.length} shown={sorted.length} style={{ marginTop: 6 }} />

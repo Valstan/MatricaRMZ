@@ -5,7 +5,9 @@ import {
   applyEngineFacets,
   engineFacetIsActive,
   engineStageFacetOptions,
+  isFactoryStageActive,
   sanitizeEngineFacetSelection,
+  stripStageDateWhenWhereNow,
   classifyEngineContractBinding,
   engineFactoryStage,
   engineInternalNumberSortKey,
@@ -166,7 +168,7 @@ export type EnginesPageUiState = {
   facetsOpen?: boolean;
   /** Поиск показывает и похожее (опечатки, часть слова, раскладка). По умолчанию — только точное. */
   searchSimilar?: boolean;
-  /** Группировка списка (B6): те же разрезы, что в отчёте «Двигатели на заводе». */
+  /** Группировка списка (B6): те же разрезы, что в отчёте «Сейчас на заводе». */
   groupBy?: EngineListGroupBy;
 };
 
@@ -404,7 +406,8 @@ export function EnginesPage(props: {
     if (customerFilter && !engineFacetIsActive(base, 'customer')) out.customer = [customerFilter];
     if (onlyReclamation && !engineFacetIsActive(base, 'reclamation')) out.reclamation = ['yes'];
     if (completenessFilter !== 'all' && !engineFacetIsActive(base, 'completenessAct')) out.completenessAct = [completenessFilter];
-    return out;
+    // Старый сохранённый отбор мог держать период вместе с «Где сейчас?» — чистим при чтении.
+    return stripStageDateWhenWhereNow(out);
   }, [listState.facets, customerFilter, onlyReclamation, completenessFilter]);
   const facetFields = useMemo<EngineFacetId[]>(() => {
     const raw = Array.isArray(listState.facetFields) ? listState.facetFields : [];
@@ -414,6 +417,11 @@ export function EnginesPage(props: {
     return Array.from(new Set([...known, ...active]));
   }, [listState.facetFields, facets]);
   const facetsOpen = listState.facetsOpen === true;
+
+  // «Где сейчас?» гасит «Дату этапа» (владелец 14.10.2026): текущее место двигателя
+  // и период — разные вопросы. Ступень периода прячется из ряда кнопок и чистится из отбора.
+  const whereNowActive = isFactoryStageActive(facets);
+  const visibleFacetFields = whereNowActive ? facetFields.filter((id) => id !== 'stageDate') : facetFields;
 
   // Выбранный этап фильтра «Все этапы»: колонка «Дата этапа» отвечает по НЕМУ «когда
   // проходили», а не по последнему этапу (решение владельца 12.10.2026).
@@ -442,7 +450,7 @@ export function EnginesPage(props: {
 
   // Цех у строки списка приходит идентификатором (последнее событие истории), имя —
   // из серверного справочника без локальной реплики. Нет связи — читатель показывает
-  // снимок имени из самой строки. Тот же хук — в отчёте «Двигатели на заводе».
+  // снимок имени из самой строки. Тот же хук — в отчёте «Сейчас на заводе».
   const workshopNameById = useWorkshopNames();
 
   const facetRows = useMemo(() => {
@@ -559,7 +567,7 @@ export function EnginesPage(props: {
 
   const displayRows = sorted;
 
-  // Группировка списка (B6): те же разрезы, что в отчёте «Двигатели на заводе»
+  // Группировка списка (B6): те же разрезы, что в отчёте «Сейчас на заводе»
   // (этап несёт ранг из engineFactoryStage, заказчик — по подписи). Повторы
   // двигателей в группах допустимы (решение владельца). В двухколоночном режиме
   // группировка не раскладывается — список показывается одной колонкой.
@@ -1113,11 +1121,12 @@ export function EnginesPage(props: {
         <EngineFacetFilter
           engines={facetRows}
           selection={facets}
-          fields={facetFields}
+          fields={visibleFacetFields}
           open={facetsOpen}
           types={sheetTypes}
           stageTemplates={stageTemplates}
-          onChangeSelection={(next) => patchState({ facets: next, page: 0 })}
+          {...(whereNowActive ? { hiddenFields: ['stageDate' as const] } : {})}
+          onChangeSelection={(next) => patchState({ facets: stripStageDateWhenWhereNow(next), page: 0 })}
           onChangeFields={(next) => patchState({ facetFields: next, page: 0 })}
           onReset={() =>
             patchState({
@@ -1130,6 +1139,11 @@ export function EnginesPage(props: {
             })
           }
         />
+        {whereNowActive ? (
+          <div className="ui-muted" style={{ fontSize: 12, marginTop: 4 }}>
+            «Где сейчас?» показывает текущее место каждого двигателя — период («Дата этапа») при нём не нужен и скрыт.
+          </div>
+        ) : null}
       </div>
 
       {tagHintVisible && (

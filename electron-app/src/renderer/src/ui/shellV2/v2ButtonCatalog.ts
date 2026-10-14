@@ -31,6 +31,7 @@ function actionVisibleOnPlatform(id: ActionButtonId): boolean {
 
 export const V2_LIST_TABS: ReadonlySet<TabId> = new Set<TabId>([
   'engines',
+  'now_at_plant',
   'engine_brands',
   'engine_brand_groups',
   'parts',

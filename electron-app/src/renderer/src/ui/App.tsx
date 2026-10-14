@@ -626,6 +626,7 @@ function appTabTitle(tab: string): string {
   const labels: Record<string, string> = {
     history: 'История',
     engines: 'Двигатели',
+    now_at_plant: 'Сейчас на заводе',
     work_sheets: 'Этапы ремонта',
     assembly_forecast: 'Прогноз сборки',
     engine: 'Карточка двигателя',
@@ -698,6 +699,7 @@ const MENU_LABELS: Record<MenuTabId, string> = {
   contracts: 'Контракты',
   changes: 'Изменения',
   engines: 'Двигатели',
+  now_at_plant: 'Сейчас на заводе',
   work_sheets: 'Этапы ремонта',
   assembly_forecast: 'Прогноз сборки',
   engine_brands: 'Марки двигателей',
@@ -2371,7 +2373,7 @@ export function App() {
   }, []);
 
   // Этап работ сохранён/удалён → каталог двигателей приложения обязан перечитаться:
-  // «Этап на заводе» в списке «Двигатели» и в отчёте считается по последнему этапу работ, а
+  // «Где сейчас?» в списке «Двигатели» и в отчёте считается по последнему этапу работ, а
   // без этого он менялся только после захода на вкладку «Двигатели» (стенд, 15.09.2026).
   useEffect(() => {
     function onEnginesChanged() {
@@ -2906,6 +2908,8 @@ export function App() {
     ...(authStatus.loggedIn ? (['user_screens'] as const) : []),
     ...(caps.canViewMasterData ? (['contracts'] as const) : []),
     ...(caps.canViewEngines ? (['engines'] as const) : []),
+    // Обстановка по заводу — тем же, кто видит двигатели (владелец 14.10.2026: «чтобы все сразу могли попасть»).
+    ...(caps.canViewEngines ? (['now_at_plant'] as const) : []),
     // Этапы работ — строки истории ремонта, право то же, что у истории.
     ...(caps.canViewOperations ? (['work_sheets'] as const) : []),
     ...(caps.canViewReports ? (['assembly_forecast'] as const) : []),
@@ -6460,6 +6464,22 @@ export function App() {
             canExport={caps.canExportReports}
             userId={authStatus.user?.id ?? ''}
             initialFilters={initialFiltersFor(selectedReportPresetId)}
+            onBack={() => setTab('reports')}
+            onOpenWorkOrder={openWorkOrder}
+            onOpenSupplyRequest={(id: string, payload: unknown) => void openRequest(id, { initialPayload: payload as SupplyRequestPayload })}
+            engines={engines}
+            onOpenEngine={(id: string) => void openEngine(id)}
+          />
+        )}
+
+        {/* Кнопка левого меню «Сейчас на заводе» (владелец 14.10.2026): тот же отчёт-список,
+            что пресет engines_now_at_plant, но в один щелчок мимо каталога. */}
+        {t === 'now_at_plant' && (
+          <ReportPresetPage
+            presetId="engines_now_at_plant"
+            canExport={caps.canExportReports}
+            userId={authStatus.user?.id ?? ''}
+            initialFilters={null}
             onBack={() => setTab('reports')}
             onOpenWorkOrder={openWorkOrder}
             onOpenSupplyRequest={(id: string, payload: unknown) => void openRequest(id, { initialPayload: payload as SupplyRequestPayload })}

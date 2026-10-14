@@ -78,7 +78,7 @@ function orderedTypes(types: readonly EngineFactoryStageTypeRef[] | undefined): 
 }
 
 /** Шаблон этапов по порядку: линейка по приоритету, боковая ветка — в конец. */
-function orderedStageTemplates(
+export function orderedStageTemplates(
   templates: readonly RepairStageTemplate[] | undefined,
 ): RepairStageTemplate[] {
   const list = [...(templates ?? DEFAULT_REPAIR_STAGE_TEMPLATES)];
@@ -244,7 +244,7 @@ export function engineFactoryStage(
 }
 
 /**
- * Подпись колонки «Этап / Этап на заводе» (B4): этап строкой, у повторного
+ * Подпись колонки «Где сейчас?» (B4): этап строкой, у повторного
  * прохода — с суффиксом «· возврат», как в списке двигателей. Группировка
  * и сортировка идут по `key`/`rank` — сюда только текст (печать берёт его же).
  */

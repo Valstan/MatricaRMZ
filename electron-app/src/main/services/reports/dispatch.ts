@@ -2,6 +2,7 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
+  resolveReportPresetId,
   type ReportPresetPreviewRequest,
   type ReportPresetPreviewResult,
   } from '@matricarmz/shared';
@@ -131,12 +132,16 @@ async function dispatchReportPreset(
         return buildPpeUnissuedReport(db, args.filters);
       case 'ppe_stock_list':
         return buildPpeStockListReport(db, args.filters, ctx);
-      case 'engine_factory_stages':
-      case 'engines_at_plant':
+      case 'engines_now_at_plant':
         // Отчёт-список (`presentation: 'list'`): строится на экране из каталога двигателей
         // приложения, сервис его не собирает. Сюда попадают только старые ярлыки/CSV-пути.
-        return { ok: false, error: 'Этот отчёт строится на экране как список — откройте его из каталога отчётов' };
+        return { ok: false, error: 'Этот отчёт строится на экране как список «Сейчас на заводе» — откройте его из каталога отчётов' };
       default:
+        // Снятые id (`engine_factory_stages`, `engines_at_plant`) резолвятся в новый отчёт —
+        // старые ярлыки ведут на него же, а не в «больше не выпускается».
+        if (resolveReportPresetId(String(args.presetId)) === 'engines_now_at_plant') {
+          return { ok: false, error: 'Этот отчёт строится на экране как список «Сейчас на заводе» — откройте его из каталога отчётов' };
+        }
         // Оператор мог прийти сюда по ярлыку на снятый отчёт. Называть конкретную замену
         // нельзя — пресет мог быть складским или платёжным; отправляем в каталог.
         appendMainLogLine(app, `reports: запрошен неизвестный пресет ${String(args.presetId)}`);

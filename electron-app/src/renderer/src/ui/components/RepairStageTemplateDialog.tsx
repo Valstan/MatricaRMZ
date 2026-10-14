@@ -25,7 +25,12 @@ function draftFrom(t: RepairStageTemplate | null): Draft {
  * (drag-and-drop) или стрелками — на планшете перетаскивания нет, поэтому
  * стрелки остаются всегда. Сервер перенумеровывает 10/20/… одним вызовом.
  */
-export function RepairStageTemplateDialog(props: { onClose: () => void; onChanged: () => Promise<void> | void }) {
+export function RepairStageTemplateDialog(props: {
+  onClose: () => void;
+  onChanged: () => Promise<void> | void;
+  /** Встроить в чужую обёртку («Карта этапов»): без затемнения и своей панели. */
+  bare?: boolean;
+}) {
   const [rows, setRows] = useState<RepairStageTemplate[]>([]);
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(draftFrom(null));
@@ -217,20 +222,16 @@ export function RepairStageTemplateDialog(props: { onClose: () => void; onChange
     }
   };
 
-  return (
+  const body = (
     <div
-      role="dialog"
-      aria-label="Шаблон этапов ремонта"
-      data-stage-template-editor
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-      onClick={() => {
-        if (!busy) props.onClose();
-      }}
+      onClick={(e) => e.stopPropagation()}
+      style={
+        props.bare
+          ? // В «Карте этапов» панель и прокрутка — у оболочки, здесь только внутренняя сетка.
+            { display: 'grid', gridTemplateColumns: '280px 1fr', gap: 14 }
+          : { background: 'var(--surface)', borderRadius: 10, padding: 16, width: 'min(900px, 96vw)', maxHeight: '90vh', overflow: 'auto', display: 'grid', gridTemplateColumns: '280px 1fr', gap: 14 }
+      }
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{ background: 'var(--surface)', borderRadius: 10, padding: 16, width: 'min(900px, 96vw)', maxHeight: '90vh', overflow: 'auto', display: 'grid', gridTemplateColumns: '280px 1fr', gap: 14 }}
-      >
         <div style={{ display: 'grid', gap: 6, alignContent: 'start' }}>
           <div style={{ fontWeight: 700 }}>Шаблон этапов</div>
           <div className="ui-muted" style={{ fontSize: 12 }}>Порядок — приоритет: тяните мышкой или стрелками</div>
@@ -413,7 +414,21 @@ export function RepairStageTemplateDialog(props: { onClose: () => void; onChange
             {mergeInfo && <div className="ui-muted">{mergeInfo}</div>}
           </div>
         </div>
-      </div>
+    </div>
+  );
+
+  if (props.bare) return body;
+  return (
+    <div
+      role="dialog"
+      aria-label="Шаблон этапов ремонта"
+      data-stage-template-editor
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+      onClick={() => {
+        if (!busy) props.onClose();
+      }}
+    >
+      {body}
     </div>
   );
 }
