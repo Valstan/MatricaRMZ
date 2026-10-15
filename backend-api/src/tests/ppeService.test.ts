@@ -68,25 +68,32 @@ vi.mock('../services/warehouseService.js', () => ({
 
 import {
   assignCardNorms,
+  closeCollective,
   closePpeCard,
   createPpeAbsence,
   createPpeGroup,
   deletePpeAbsence,
   deletePpeGroup,
+  distributeCollective,
   getPpeCard,
+  getPpeCollective,
   getPpeGroupMembers,
   getPpeGroupNorms,
   getPpeNormSet,
+  issueDutyPpe,
   issuePpe,
   listPpeAbsences,
+  listPpeCollectives,
   listPpeGroups,
   listPpeNormSets,
+  openCollective,
   openPpeCard,
   resolveEmployeeNormSetIds,
   setPpeGroupMembers,
   setPpeGroupNorms,
   upsertPpeNormSet,
 } from '../services/ppeService.js';
+import { createWarehouseDocument } from '../services/warehouseService.js';
 
 const ACTOR = { id: 'u-1', username: 'klad', role: 'storekeeper' };
 
@@ -384,5 +391,219 @@ describe('ppeService фаза 2: транзитивные нормы', () => {
     const r = await resolveEmployeeNormSetIds(NOM);
     expect(r.ok).toBe(true);
     if (r.ok) expect(r).toEqual({ ok: true, personal: [], group: [] });
+  });
+});
+
+describe('ppeService PR-3: коллективная выдача', () => {
+  const DEP = 'dddddddd-dddd-4ddd-dddd-dddddddddddd';
+  const EMP2 = 'eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee';
+  const NOM2 = 'ffffffff-ffff-4fff-ffff-ffffffffffff';
+  const line = { employeeId: CARD, nomenclatureId: NOM, qty: 2 };
+
+  function lastCreateCall() {
+    const calls = vi.mocked(createWarehouseDocument).mock.calls;
+    return calls[calls.length - 1]?.[0] as
+      | { docType?: string; departmentId?: string; header?: unknown; lines?: unknown[] }
+      | undefined;
+  }
+
+  it('пустые шапка/строки — отказ до базы', async () => {
+    expect((await openCollective({ departmentId: '', warehouseId: 'w' })).ok).toBe(false);
+    expect((await openCollective({ departmentId: DEP, warehouseId: '' })).ok).toBe(false);
+    expect((await openCollective({ departmentId: DEP, warehouseId: 'w', lines: [{ ...line, qty: 0 }] })).ok).toBe(false);
+    expect((await openCollective({ departmentId: DEP, warehouseId: 'w', lines: [{ ...line, employeeId: ' ' }] })).ok).toBe(false);
+  });
+
+  it('битая номенклатура и чужой сотрудник — отказ', async () => {
+    state.queue.push([]); // validateNomenclatureIds: пусто
+    const badNom = await openCollective({ departmentId: DEP, warehouseId: 'w', lines: [line] });
+    expect(badNom.ok).toBe(false);
+    if (!badNom.ok) expect(badNom.error).toContain('не существует');
+    state.queue.push([{ id: NOM }]); // номенклатура есть
+    state.queue.push([]); // сотрудник: нет
+    const badEmp = await openCollective({ departmentId: DEP, warehouseId: 'w', lines: [line] });
+    expect(badEmp.ok).toBe(false);
+    if (!badEmp.ok) expect(badEmp.error).toContain('Сотрудник');
+  });
+
+  it('черновик создаётся и редактируется, проведённый не правится', async () => {
+    state.queue.push([{ id: NOM }]);
+    state.queue.push([{ id: CARD }]);
+    state.queue.push([]); // existing: нет
+    const created = await openCollective({ departmentId: DEP, warehouseId: 'w', lines: [line] });
+    expect(created.ok).toBe(true);
+
+    state.queue.push([{ id: NOM }]);
+    state.queue.push([{ id: CARD }]);
+    state.queue.push([{ id: 'c-1', documentId: null }]); // черновик
+    const edited = await openCollective({ id: 'c-1', departmentId: DEP, warehouseId: 'w', lines: [line] });
+    expect(edited.ok).toBe(true);
+
+    state.queue.push([{ id: NOM }]);
+    state.queue.push([{ id: CARD }]);
+    state.queue.push([{ id: 'c-1', documentId: DOC }]); // уже проведён
+    const locked = await openCollective({ id: 'c-1', departmentId: DEP, warehouseId: 'w', lines: [line] });
+    expect(locked.ok).toBe(false);
+    if (!locked.ok) expect(locked.error).toContain('проведена');
+  });
+
+  it('список и карточка отдают строки и счётчики', async () => {
+    state.queue.push([{ id: 'c-1', departmentId: DEP, warehouseId: 'w', documentId: null, distributedAt: null }]);
+    state.queue.push([
+      { collectiveId: 'c-1', employeeId: CARD },
+      { collectiveId: 'c-1', employeeId: CARD },
+      { collectiveId: 'c-1', employeeId: EMP2 },
+    ]);
+    const listed = await listPpeCollectives({ departmentId: DEP });
+    expect(listed.ok).toBe(true);
+    if (listed.ok) {
+      expect(listed.rows[0]).toMatchObject({ id: 'c-1', linesCount: 3, employeesCount: 2, documentId: null });
+    }
+
+    state.queue.push([]); // пустая база
+    const empty = await listPpeCollectives();
+    expect(empty.ok).toBe(true);
+    if (empty.ok) expect(empty.rows).toEqual([]);
+
+    state.queue.push([{ id: 'c-1', departmentId: DEP, warehouseId: 'w', documentId: null, distributedAt: 5 }]);
+    state.queue.push([{ id: 'l-1', employeeId: CARD, nomenclatureId: NOM, qty: 1 }]);
+    const card = await getPpeCollective('c-1');
+    expect(card.ok).toBe(true);
+    if (card.ok) {
+      expect(card.collective.lines).toHaveLength(1);
+      expect(card.collective.distributedAt).toBe(5);
+    }
+    state.queue.push([]); // нет коллектива
+    expect((await getPpeCollective('c-9')).ok).toBe(false);
+  });
+
+  it('проведение: документ агрегирован по позиции, следы — по строкам', async () => {
+    state.queue.push([{ id: 'c-1', departmentId: DEP, warehouseId: 'w', documentId: null }]);
+    state.queue.push([
+      { id: 'l-1', employeeId: CARD, nomenclatureId: NOM, qty: 2 },
+      { id: 'l-2', employeeId: EMP2, nomenclatureId: NOM, qty: 1 },
+      { id: 'l-3', employeeId: EMP2, nomenclatureId: NOM2, qty: 4 },
+    ]);
+    state.queue.push([{ id: NOM }, { id: NOM2 }]); // validateNomenclatureIds
+    state.queue.push([{ id: 'card-2', employeeId: EMP2 }]); // открытая карточка только у EMP2
+    const r = await distributeCollective({ collectiveId: 'c-1', actor: ACTOR });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.documentId).toBe(DOC);
+      expect(r.entries).toBe(3);
+      expect(r.employees).toBe(2);
+      expect(r.alreadyDistributed).toBe(false);
+    }
+    expect(lastCreateCall()).toMatchObject({
+      docType: 'stock_issue',
+      departmentId: DEP,
+      header: { warehouseId: 'w' },
+      lines: [
+        { nomenclatureId: NOM, qty: 3, warehouseId: 'w' },
+        { nomenclatureId: NOM2, qty: 4, warehouseId: 'w' },
+      ],
+    });
+  });
+
+  it('проведение: отсутствующая карточка открывается, гонка перечитывает открытую', async () => {
+    state.queue.push([{ id: 'c-2', departmentId: DEP, warehouseId: 'w', documentId: null }]);
+    state.queue.push([{ id: 'l-1', employeeId: CARD, nomenclatureId: NOM, qty: 1 }]);
+    state.queue.push([{ id: NOM }]);
+    state.queue.push([]); // открытых карточек нет
+    state.failInsert = true; // вставка карточки падает — гонка
+    state.queue.push([{ id: 'card-race' }]); // перечитали открытую
+    const r = await distributeCollective({ collectiveId: 'c-2', actor: ACTOR });
+    expect(r.ok).toBe(true);
+  });
+
+  it('повторное проведение второй документ не создаёт', async () => {
+    state.queue.push([{ id: 'c-1', departmentId: DEP, warehouseId: 'w', documentId: DOC }]);
+    state.queue.push([{ id: 'l-1', employeeId: CARD, nomenclatureId: NOM, qty: 1 }]);
+    const r = await distributeCollective({ collectiveId: 'c-1', actor: ACTOR });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.documentId).toBe(DOC);
+      expect(r.alreadyDistributed).toBe(true);
+    }
+    expect(vi.mocked(createWarehouseDocument)).not.toHaveBeenCalled();
+  });
+
+  it('пустые строки, сбой создания и сбой проводки — отказ', async () => {
+    state.queue.push([{ id: 'c-1', departmentId: DEP, warehouseId: 'w', documentId: null }]);
+    state.queue.push([]);
+    expect((await distributeCollective({ collectiveId: 'c-1', actor: ACTOR })).ok).toBe(false);
+
+    state.queue.push([{ id: 'c-1', departmentId: DEP, warehouseId: 'w', documentId: null }]);
+    state.queue.push([{ id: 'l-1', employeeId: CARD, nomenclatureId: NOM, qty: 1 }]);
+    state.queue.push([{ id: NOM }]);
+    state.createdDoc = { ok: false, error: 'склад не найден' };
+    const noDoc = await distributeCollective({ collectiveId: 'c-1', actor: ACTOR });
+    expect(noDoc.ok).toBe(false);
+    if (!noDoc.ok) expect(noDoc.error).toContain('склад не найден');
+
+    state.queue.push([{ id: 'c-1', departmentId: DEP, warehouseId: 'w', documentId: null }]);
+    state.queue.push([{ id: 'l-1', employeeId: CARD, nomenclatureId: NOM, qty: 1 }]);
+    state.queue.push([{ id: NOM }]);
+    state.createdDoc = { ok: true, id: DOC };
+    state.postedDoc = { ok: false, error: 'нет остатка' };
+    const notPosted = await distributeCollective({ collectiveId: 'c-1', actor: ACTOR });
+    expect(notPosted.ok).toBe(false);
+    if (!notPosted.ok) expect(notPosted.error).toContain('черновиком');
+  });
+
+  it('отмена: черновик закрывается, проведённый — нет', async () => {
+    state.queue.push([{ id: 'c-1', documentId: null }]);
+    expect((await closeCollective('c-1')).ok).toBe(true);
+    state.queue.push([{ id: 'c-1', documentId: DOC }]);
+    const done = await closeCollective('c-1');
+    expect(done.ok).toBe(false);
+    if (!done.ok) expect(done.error).toContain('сторнируйте');
+    state.queue.push([]);
+    expect((await closeCollective('c-9')).ok).toBe(false);
+  });
+});
+
+describe('ppeService PR-3: дежурные', () => {
+  const DEP = 'dddddddd-dddd-4ddd-dddd-dddddddddddd';
+
+  it('пустые входы и не-дежурный набор — отказ', async () => {
+    expect((await issueDutyPpe({ normSetId: '', warehouseId: 'w', actor: ACTOR })).ok).toBe(false);
+    expect((await issueDutyPpe({ normSetId: NOM, warehouseId: '', actor: ACTOR })).ok).toBe(false);
+    state.queue.push([{ id: NOM, isDuty: false, departmentId: DEP }]);
+    const notDuty = await issueDutyPpe({ normSetId: NOM, warehouseId: 'w', actor: ACTOR });
+    expect(notDuty.ok).toBe(false);
+    if (!notDuty.ok) expect(notDuty.error).toContain('дежурн');
+  });
+
+  it('дежурному набору нужны подразделение и строки', async () => {
+    state.queue.push([{ id: NOM, isDuty: true, departmentId: null }]);
+    expect((await issueDutyPpe({ normSetId: NOM, warehouseId: 'w', actor: ACTOR })).ok).toBe(false);
+    state.queue.push([{ id: NOM, isDuty: true, departmentId: DEP }]);
+    state.queue.push([]); // строк нет
+    expect((await issueDutyPpe({ normSetId: NOM, warehouseId: 'w', actor: ACTOR })).ok).toBe(false);
+  });
+
+  it('выдача: документ на подразделение набора, без персональных следов', async () => {
+    state.queue.push([{ id: NOM, isDuty: true, departmentId: DEP }]);
+    state.queue.push([{ nomenclatureId: NOM, qty: 5 }]);
+    const r = await issueDutyPpe({ normSetId: NOM, warehouseId: 'w', actor: ACTOR });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.documentId).toBe(DOC);
+    const calls = vi.mocked(createWarehouseDocument).mock.calls;
+    expect(calls[calls.length - 1]?.[0]).toMatchObject({
+      docType: 'stock_issue',
+      departmentId: DEP,
+      header: { warehouseId: 'w' },
+      lines: [{ nomenclatureId: NOM, qty: 5, warehouseId: 'w' }],
+    });
+  });
+
+  it('проводка упала — черновик без следа', async () => {
+    state.queue.push([{ id: NOM, isDuty: true, departmentId: DEP }]);
+    state.queue.push([{ nomenclatureId: NOM, qty: 5 }]);
+    state.postedDoc = { ok: false, error: 'склад пуст' };
+    const r = await issueDutyPpe({ normSetId: NOM, warehouseId: 'w', actor: ACTOR });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('черновиком');
   });
 });

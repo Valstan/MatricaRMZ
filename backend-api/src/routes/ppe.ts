@@ -6,19 +6,25 @@ import { PermissionCode } from '../auth/permissions.js';
 import { getIdempotentCommandResult, saveIdempotentCommandResult } from '../services/commandIdempotencyService.js';
 import {
   assignCardNorms,
+  closeCollective,
   closePpeCard,
   createPpeAbsence,
   createPpeGroup,
   deletePpeAbsence,
   deletePpeGroup,
+  distributeCollective,
   getPpeCard,
+  getPpeCollective,
   getPpeGroupMembers,
   getPpeGroupNorms,
   getPpeNormSet,
+  issueDutyPpe,
   issuePpe,
   listPpeAbsences,
+  listPpeCollectives,
   listPpeGroups,
   listPpeNormSets,
+  openCollective,
   openPpeCard,
   resolveEmployeeNormSetIds,
   setPpeGroupMembers,
@@ -328,6 +334,125 @@ ppeRouter.get('/employees/:id/norm-sets', requirePermission(PermissionCode.ErpDi
   const result = await resolveEmployeeNormSetIds(id);
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
+});
+
+// ────────────────────────────────────────────────────────────
+// PR-3: коллективная выдача и дежурные.
+// ────────────────────────────────────────────────────────────
+
+ppeRouter.get('/collectives', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
+  const parsed = z.object({ departmentId: z.string().uuid().optional() }).safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await listPpeCollectives({
+    ...(parsed.data.departmentId ? { departmentId: parsed.data.departmentId } : {}),
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+ppeRouter.get('/collectives/:id', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
+  const id = String(req.params.id ?? '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const result = await getPpeCollective(id);
+  if (!result.ok) return res.status(404).json(result);
+  return res.json(result);
+});
+
+ppeRouter.post('/collectives', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const parsed = z
+    .object({
+      id: z.string().uuid().optional(),
+      departmentId: z.string().uuid(),
+      warehouseId: z.string().min(1),
+      clientOperationId: z.string().uuid().optional(),
+      lines: z
+        .array(
+          z.object({
+            employeeId: z.string().uuid(),
+            nomenclatureId: z.string().uuid(),
+            qty: z.coerce.number().int().positive(),
+          }),
+        )
+        .max(5000)
+        .optional(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  return idempotent(
+    req,
+    res,
+    parsed.data.clientOperationId ? String(parsed.data.clientOperationId) : '',
+    'ppe_collective_upsert',
+    parsed.data.id ?? 'new',
+    () =>
+      openCollective({
+        ...(parsed.data.id ? { id: parsed.data.id } : {}),
+        departmentId: parsed.data.departmentId,
+        warehouseId: parsed.data.warehouseId,
+        ...(parsed.data.lines ? { lines: parsed.data.lines } : {}),
+      }),
+  );
+});
+
+// «Провести»: черновик → stock_issue на подразделение (агрегат по позициям) +
+// персональные следы на тот же документ. Повтор не двоит (documentId на коллективе).
+ppeRouter.post('/collectives/:id/distribute', requirePermission(PermissionCode.ErpDocumentsPost), async (req, res) => {
+  const id = String(req.params.id ?? '').trim();
+  const parsed = z
+    .object({ docNo: z.string().trim().min(1).optional(), clientOperationId: z.string().uuid().optional() })
+    .safeParse(req.body ?? {});
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  return idempotent(
+    req,
+    res,
+    parsed.data.clientOperationId ? String(parsed.data.clientOperationId) : '',
+    'ppe_collective_distribute',
+    id,
+    () =>
+      distributeCollective({
+        collectiveId: id,
+        ...(parsed.data.docNo ? { docNo: parsed.data.docNo } : {}),
+        actor: actorOf(req),
+      }),
+  );
+});
+
+// Отмена черновика; проведённая выдача не отменяется — только сторно документа склада.
+ppeRouter.post('/collectives/:id/close', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const id = String(req.params.id ?? '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const result = await closeCollective(id);
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+// Дежурные: документ расхода на подразделение набора без персональных следов;
+// возврат — сторно документа склада (существующая операция).
+ppeRouter.post('/duty/issue', requirePermission(PermissionCode.ErpDocumentsPost), async (req, res) => {
+  const parsed = z
+    .object({
+      normSetId: z.string().uuid(),
+      warehouseId: z.string().min(1),
+      docNo: z.string().trim().min(1).optional(),
+      clientOperationId: z.string().uuid().optional(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  return idempotent(
+    req,
+    res,
+    parsed.data.clientOperationId ? String(parsed.data.clientOperationId) : '',
+    'ppe_duty_issue',
+    parsed.data.normSetId,
+    () =>
+      issueDutyPpe({
+        normSetId: parsed.data.normSetId,
+        warehouseId: parsed.data.warehouseId,
+        ...(parsed.data.docNo ? { docNo: parsed.data.docNo } : {}),
+        actor: actorOf(req),
+      }),
+  );
 });
 
 // Импорт Excel/1С: файл едет base64 в JSON (multipart на бэкенде нет,

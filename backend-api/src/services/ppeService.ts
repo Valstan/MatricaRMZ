@@ -9,6 +9,8 @@ import {
   erpNomenclature,
   ppeAbsences,
   ppeCardNorms,
+  ppeCollectiveLines,
+  ppeCollectives,
   ppeGroupMembers,
   ppeGroupNorms,
   ppeGroups,
@@ -732,6 +734,400 @@ export async function resolveEmployeeNormSetIds(employeeId: string): Promise<Res
         ).map((r) => String(r.normSetId))
         : [];
     return { ok: true, personal: [...new Set(personal)], group: [...new Set(group)] };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+// Фаза 2, PR-3: коллективная выдача и дежурные.
+// Коллективная — двухшаговая: черновик плана (шапка + строки сотрудник × позиция),
+// затем проведение: один stock_issue на подразделение (строки — агрегат по позициям)
+// + персональные следы (ppe_issue_entries) на тот же документ.
+// ────────────────────────────────────────────────────────────
+
+export type PpeCollectiveLineInput = {
+  employeeId: string;
+  nomenclatureId: string;
+  qty: number;
+};
+
+export async function openCollective(args: {
+  id?: string;
+  departmentId: string;
+  warehouseId: string;
+  lines?: PpeCollectiveLineInput[];
+}): Promise<Result<{ id: string }>> {
+  try {
+    const id = String(args.id ?? randomUUID()).trim();
+    const departmentId = String(args.departmentId ?? '').trim();
+    const warehouseId = String(args.warehouseId ?? '').trim();
+    if (!departmentId) return { ok: false, error: 'departmentId обязателен (подразделение-МОЛ)' };
+    if (!warehouseId) return { ok: false, error: 'warehouseId обязателен (склад выдачи)' };
+    const lines = args.lines ?? [];
+    for (const [i, line] of lines.entries()) {
+      if (!String(line.employeeId ?? '').trim()) return { ok: false, error: `lines[${i}].employeeId обязателен` };
+      if (!String(line.nomenclatureId ?? '').trim()) return { ok: false, error: `lines[${i}].nomenclatureId обязателен` };
+      if (!Number.isInteger(line.qty) || line.qty <= 0) return { ok: false, error: `lines[${i}].qty должен быть целым больше нуля` };
+    }
+    const refError = await validateNomenclatureIds(lines.map((l) => l.nomenclatureId));
+    if (refError) return { ok: false, error: refError };
+    for (const employeeId of [...new Set(lines.map((l) => String(l.employeeId).trim()))]) {
+      if (!(await employeeExistsStrict(employeeId))) {
+        return { ok: false, error: `Сотрудник ${employeeId} не найден в карточках СИЗ (сначала импорт)` };
+      }
+    }
+    const existing = await db
+      .select({ id: ppeCollectives.id, documentId: ppeCollectives.documentId })
+      .from(ppeCollectives)
+      .where(and(eq(ppeCollectives.id, id as any), isNull(ppeCollectives.deletedAt)))
+      .limit(1);
+    if (existing[0]?.documentId != null) {
+      return { ok: false, error: 'Коллективная выдача уже проведена — правка невозможна' };
+    }
+    const now = Date.now();
+    await db.transaction(async (tx) => {
+      if (existing.length > 0) {
+        await tx
+          .update(ppeCollectives)
+          .set({ departmentId, warehouseId, updatedAt: now, syncStatus: 'pending' })
+          .where(eq(ppeCollectives.id, id as any));
+        await tx
+          .update(ppeCollectiveLines)
+          .set({ deletedAt: now, updatedAt: now, syncStatus: 'pending' })
+          .where(eq(ppeCollectiveLines.collectiveId, id as any));
+      } else {
+        await tx.insert(ppeCollectives).values({
+          id,
+          departmentId,
+          warehouseId,
+          documentId: null,
+          distributedAt: null,
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null,
+          syncStatus: 'pending',
+        });
+      }
+      if (lines.length > 0) {
+        await tx.insert(ppeCollectiveLines).values(
+          lines.map((l) => ({
+            id: randomUUID(),
+            collectiveId: id,
+            employeeId: String(l.employeeId).trim(),
+            nomenclatureId: String(l.nomenclatureId).trim(),
+            qty: l.qty,
+            createdAt: now,
+            updatedAt: now,
+            deletedAt: null,
+            syncStatus: 'pending',
+          })),
+        );
+      }
+    });
+    return { ok: true, id };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function getPpeCollective(id: string): Promise<
+  Result<{
+    collective: {
+      id: string;
+      departmentId: string;
+      warehouseId: string;
+      documentId: string | null;
+      distributedAt: number | null;
+      lines: Array<{ id: string; employeeId: string; nomenclatureId: string; qty: number }>;
+    };
+  }>
+> {
+  try {
+    const key = String(id ?? '').trim();
+    if (!key) return { ok: false, error: 'id обязателен' };
+    const rows = await db
+      .select()
+      .from(ppeCollectives)
+      .where(and(eq(ppeCollectives.id, key as any), isNull(ppeCollectives.deletedAt)))
+      .limit(1);
+    const collective = rows[0];
+    if (!collective) return { ok: false, error: 'Коллективная выдача не найдена' };
+    const lines = await db
+      .select()
+      .from(ppeCollectiveLines)
+      .where(and(eq(ppeCollectiveLines.collectiveId, key as any), isNull(ppeCollectiveLines.deletedAt)));
+    return {
+      ok: true,
+      collective: {
+        id: String(collective.id),
+        departmentId: String(collective.departmentId),
+        warehouseId: String(collective.warehouseId),
+        documentId: collective.documentId == null ? null : String(collective.documentId),
+        distributedAt: collective.distributedAt == null ? null : Number(collective.distributedAt),
+        lines: lines.map((l) => ({
+          id: String(l.id),
+          employeeId: String(l.employeeId),
+          nomenclatureId: String(l.nomenclatureId),
+          qty: Number(l.qty),
+        })),
+      },
+    };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function listPpeCollectives(args: { departmentId?: string } = {}): Promise<
+  Result<{
+    rows: Array<{
+      id: string;
+      departmentId: string;
+      warehouseId: string;
+      documentId: string | null;
+      distributedAt: number | null;
+      linesCount: number;
+      employeesCount: number;
+    }>;
+  }>
+> {
+  try {
+    const conditions = [isNull(ppeCollectives.deletedAt)];
+    if (args.departmentId) conditions.push(eq(ppeCollectives.departmentId, args.departmentId));
+    const rows = await db.select().from(ppeCollectives).where(and(...conditions));
+    const ids = rows.map((r) => String(r.id));
+    const lines = ids.length
+      ? await db
+          .select({ collectiveId: ppeCollectiveLines.collectiveId, employeeId: ppeCollectiveLines.employeeId })
+          .from(ppeCollectiveLines)
+          .where(and(inArray(ppeCollectiveLines.collectiveId, ids as any), isNull(ppeCollectiveLines.deletedAt)))
+      : [];
+    const linesBy = new Map<string, number>();
+    const employeesBy = new Map<string, Set<string>>();
+    for (const l of lines) {
+      const key = String(l.collectiveId);
+      linesBy.set(key, (linesBy.get(key) ?? 0) + 1);
+      const set = employeesBy.get(key) ?? new Set<string>();
+      set.add(String(l.employeeId));
+      employeesBy.set(key, set);
+    }
+    return {
+      ok: true,
+      rows: rows.map((r) => ({
+        id: String(r.id),
+        departmentId: String(r.departmentId),
+        warehouseId: String(r.warehouseId),
+        documentId: r.documentId == null ? null : String(r.documentId),
+        distributedAt: r.distributedAt == null ? null : Number(r.distributedAt),
+        linesCount: linesBy.get(String(r.id)) ?? 0,
+        employeesCount: employeesBy.get(String(r.id))?.size ?? 0,
+      })),
+    };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/**
+ * Проведение коллективной выдачи. Идемпотентно по collective_id: повторный вызов
+ * (двойной клик, ретрай) второй документ не создаёт. Проведение фиксируется на
+ * коллективе ДО записи следов — чтобы сбой в персональных entries не приводил к
+ * повторному списанию склада; расхождение сверяется по documentId (приём issuePpe).
+ */
+export async function distributeCollective(args: {
+  collectiveId: string;
+  docNo?: string;
+  actor: Actor;
+}): Promise<Result<{ documentId: string; entries: number; employees: number; alreadyDistributed: boolean }>> {
+  try {
+    const collectiveId = String(args.collectiveId ?? '').trim();
+    if (!collectiveId) return { ok: false, error: 'collectiveId обязателен' };
+    const rows = await db
+      .select()
+      .from(ppeCollectives)
+      .where(and(eq(ppeCollectives.id, collectiveId as any), isNull(ppeCollectives.deletedAt)))
+      .limit(1);
+    const collective = rows[0];
+    if (!collective) return { ok: false, error: 'Коллективная выдача не найдена' };
+    const lines = await db
+      .select()
+      .from(ppeCollectiveLines)
+      .where(and(eq(ppeCollectiveLines.collectiveId, collectiveId as any), isNull(ppeCollectiveLines.deletedAt)));
+    const employeeIds = [...new Set(lines.map((l) => String(l.employeeId)))];
+    if (collective.documentId != null) {
+      return {
+        ok: true,
+        documentId: String(collective.documentId),
+        entries: lines.length,
+        employees: employeeIds.length,
+        alreadyDistributed: true,
+      };
+    }
+    if (lines.length === 0) return { ok: false, error: 'Нет строк распределения — сначала заполните состав выдачи' };
+    const refError = await validateNomenclatureIds(lines.map((l) => String(l.nomenclatureId)));
+    if (refError) return { ok: false, error: refError };
+
+    const warehouseId = String(collective.warehouseId);
+    const aggregated = new Map<string, number>();
+    for (const l of lines) {
+      const nomenclatureId = String(l.nomenclatureId);
+      aggregated.set(nomenclatureId, (aggregated.get(nomenclatureId) ?? 0) + Number(l.qty));
+    }
+    const now = Date.now();
+    const docNo = String(args.docNo ?? '').trim() || makePpeDocNo(now);
+    const created = await createWarehouseDocument({
+      docType: 'stock_issue',
+      docNo,
+      docDate: now,
+      departmentId: String(collective.departmentId),
+      header: { warehouseId },
+      lines: [...aggregated].map(([nomenclatureId, qty]) => ({ nomenclatureId, qty, warehouseId })),
+      actor: args.actor,
+    });
+    if (!created.ok) return { ok: false, error: created.error };
+    const posted = await postWarehouseDocument({ documentId: created.id, actor: args.actor });
+    if (!posted.ok) return { ok: false, error: `Документ ${docNo} создан черновиком, но не проведён: ${posted.error}` };
+    await db
+      .update(ppeCollectives)
+      .set({ documentId: created.id, distributedAt: now, updatedAt: now, syncStatus: 'pending' })
+      .where(eq(ppeCollectives.id, collectiveId as any));
+    try {
+      const cardByEmployee = new Map<string, string>();
+      const cards = await db
+        .select({ id: ppeIssueCards.id, employeeId: ppeIssueCards.employeeId })
+        .from(ppeIssueCards)
+        .where(and(inArray(ppeIssueCards.employeeId, employeeIds as any), isNull(ppeIssueCards.closedAt), isNull(ppeIssueCards.deletedAt)));
+      for (const c of cards) cardByEmployee.set(String(c.employeeId), String(c.id));
+      for (const employeeId of employeeIds) {
+        if (cardByEmployee.has(employeeId)) continue;
+        const cardId = randomUUID();
+        try {
+          await db.insert(ppeIssueCards).values({
+            id: cardId,
+            employeeId,
+            openedAt: now,
+            closedAt: null,
+            createdAt: now,
+            updatedAt: now,
+            deletedAt: null,
+            syncStatus: 'pending',
+          });
+          cardByEmployee.set(employeeId, cardId);
+        } catch {
+          // Гонка: карточку успел открыть другой запрос — берём открытую.
+          const again = await db
+            .select({ id: ppeIssueCards.id })
+            .from(ppeIssueCards)
+            .where(and(eq(ppeIssueCards.employeeId, employeeId as any), isNull(ppeIssueCards.closedAt), isNull(ppeIssueCards.deletedAt)))
+            .limit(1);
+          if (again[0]) cardByEmployee.set(employeeId, String(again[0].id));
+        }
+      }
+      const noCard = employeeIds.filter((e) => !cardByEmployee.has(e));
+      if (noCard.length > 0) throw new Error(`карточка выдачи не открыта: ${noCard.join(', ')}`);
+      await db.insert(ppeIssueEntries).values(
+        lines.map((l) => ({
+          id: randomUUID(),
+          cardId: cardByEmployee.get(String(l.employeeId))!,
+          nomenclatureId: String(l.nomenclatureId),
+          qty: Number(l.qty),
+          issuedAt: now,
+          documentId: created.id,
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null,
+          syncStatus: 'pending',
+        })),
+      );
+    } catch (e) {
+      // Склад уже списан проводкой выше; персональные следы дописываются отдельно
+      // (тот же приём, что в issuePpe): ошибка учёта не откатывает деньги склада.
+      return {
+        ok: false,
+        error: `Документ ${docNo} проведён, но персональные следы записаны не полностью (documentId ${created.id}): ${String(e)}`,
+      };
+    }
+    return { ok: true, documentId: created.id, entries: lines.length, employees: employeeIds.length, alreadyDistributed: false };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function closeCollective(id: string): Promise<Result<{ id: string }>> {
+  try {
+    const key = String(id ?? '').trim();
+    if (!key) return { ok: false, error: 'id обязателен' };
+    const rows = await db
+      .select({ id: ppeCollectives.id, documentId: ppeCollectives.documentId })
+      .from(ppeCollectives)
+      .where(and(eq(ppeCollectives.id, key as any), isNull(ppeCollectives.deletedAt)))
+      .limit(1);
+    const collective = rows[0];
+    if (!collective) return { ok: false, error: 'Коллективная выдача не найдена' };
+    if (collective.documentId != null) {
+      return { ok: false, error: 'Выдача уже проведена — отмена невозможна, сторнируйте документ склада' };
+    }
+    const now = Date.now();
+    await db
+      .update(ppeCollectives)
+      .set({ deletedAt: now, updatedAt: now, syncStatus: 'pending' })
+      .where(eq(ppeCollectives.id, key as any));
+    await db
+      .update(ppeCollectiveLines)
+      .set({ deletedAt: now, updatedAt: now, syncStatus: 'pending' })
+      .where(and(eq(ppeCollectiveLines.collectiveId, key as any), isNull(ppeCollectiveLines.deletedAt)));
+    return { ok: true, id: key };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/**
+ * Дежурные СИЗ: выдача документом расхода на подразделение набора, без персональных
+ * следов (флаг is_duty + department_id в наборе — решение §1.7 плана фазы 2).
+ * Возврат — сторно документа склада (существующая операция `reverseWarehouseDocument`),
+ * отдельного кода не требует.
+ */
+export async function issueDutyPpe(args: {
+  normSetId: string;
+  warehouseId: string;
+  docNo?: string;
+  actor: Actor;
+}): Promise<Result<{ documentId: string }>> {
+  try {
+    const normSetId = String(args.normSetId ?? '').trim();
+    const warehouseId = String(args.warehouseId ?? '').trim();
+    if (!normSetId) return { ok: false, error: 'normSetId обязателен' };
+    if (!warehouseId) return { ok: false, error: 'warehouseId обязателен (склад выдачи)' };
+    const sets = await db
+      .select()
+      .from(ppeNormSets)
+      .where(and(eq(ppeNormSets.id, normSetId as any), isNull(ppeNormSets.deletedAt)))
+      .limit(1);
+    const set = sets[0];
+    if (!set) return { ok: false, error: 'Набор норм не найден' };
+    if (set.isDuty !== true) return { ok: false, error: 'Набор не помечен как дежурный' };
+    if (set.departmentId == null) return { ok: false, error: 'У дежурного набора не задано подразделение' };
+    const lines = await db
+      .select()
+      .from(ppeNormLines)
+      .where(and(eq(ppeNormLines.normSetId, normSetId as any), isNull(ppeNormLines.deletedAt)));
+    if (lines.length === 0) return { ok: false, error: 'У дежурного набора нет строк' };
+    const now = Date.now();
+    const docNo = String(args.docNo ?? '').trim() || makePpeDocNo(now);
+    const created = await createWarehouseDocument({
+      docType: 'stock_issue',
+      docNo,
+      docDate: now,
+      departmentId: String(set.departmentId),
+      header: { warehouseId },
+      lines: lines.map((l) => ({ nomenclatureId: String(l.nomenclatureId), qty: Number(l.qty), warehouseId })),
+      actor: args.actor,
+    });
+    if (!created.ok) return { ok: false, error: created.error };
+    const posted = await postWarehouseDocument({ documentId: created.id, actor: args.actor });
+    if (!posted.ok) return { ok: false, error: `Документ ${docNo} создан черновиком, но не проведён: ${posted.error}` };
+    return { ok: true, documentId: created.id };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
