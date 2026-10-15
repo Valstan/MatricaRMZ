@@ -7,13 +7,25 @@ import { getIdempotentCommandResult, saveIdempotentCommandResult } from '../serv
 import {
   assignCardNorms,
   closePpeCard,
+  createPpeAbsence,
+  createPpeGroup,
+  deletePpeAbsence,
+  deletePpeGroup,
   getPpeCard,
+  getPpeGroupMembers,
+  getPpeGroupNorms,
   getPpeNormSet,
   issuePpe,
+  listPpeAbsences,
+  listPpeGroups,
   listPpeNormSets,
   openPpeCard,
+  resolveEmployeeNormSetIds,
+  setPpeGroupMembers,
+  setPpeGroupNorms,
   upsertPpeNormSet,
 } from '../services/ppeService.js';
+import { applyPpeImportPreview, previewPpeImport } from '../services/ppeImportService.js';
 
 export const ppeRouter = Router();
 ppeRouter.use(requireAuth);
@@ -63,10 +75,14 @@ async function idempotent<T extends Record<string, unknown>>(
 }
 
 ppeRouter.get('/norms', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
-  const parsed = z.object({ postTitle: z.string().trim().min(1).optional() }).safeParse(req.query);
+  const parsed = z
+    .object({ postTitle: z.string().trim().min(1).optional(), gender: z.enum(['M', 'F']).optional(), season: z.enum(['winter', 'summer']).optional() })
+    .safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
   const result = await listPpeNormSets({
     ...(parsed.data.postTitle ? { postTitle: parsed.data.postTitle } : {}),
+    ...(parsed.data.gender ? { gender: parsed.data.gender } : {}),
+    ...(parsed.data.season ? { season: parsed.data.season } : {}),
   });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
@@ -87,6 +103,9 @@ ppeRouter.post('/norms', requirePermission(PermissionCode.ErpDictionaryEdit), as
       name: z.string().trim().min(1),
       postTitle: z.string().trim().min(1).nullable().optional(),
       departmentId: z.string().uuid().nullable().optional(),
+      gender: z.enum(['M', 'F']).nullable().optional(),
+      season: z.enum(['winter', 'summer']).nullable().optional(),
+      isDuty: z.boolean().optional(),
       validFrom: z.coerce.number().int().positive().optional(),
       validTo: z.coerce.number().int().positive().nullable().optional(),
       clientOperationId: z.string().uuid().optional(),
@@ -114,6 +133,9 @@ ppeRouter.post('/norms', requirePermission(PermissionCode.ErpDictionaryEdit), as
         name: parsed.data.name,
         ...(parsed.data.postTitle !== undefined ? { postTitle: parsed.data.postTitle } : {}),
         ...(parsed.data.departmentId !== undefined ? { departmentId: parsed.data.departmentId } : {}),
+        ...(parsed.data.gender !== undefined ? { gender: parsed.data.gender } : {}),
+        ...(parsed.data.season !== undefined ? { season: parsed.data.season } : {}),
+        ...(parsed.data.isDuty !== undefined ? { isDuty: parsed.data.isDuty } : {}),
         ...(parsed.data.validFrom !== undefined ? { validFrom: parsed.data.validFrom } : {}),
         ...(parsed.data.validTo !== undefined ? { validTo: parsed.data.validTo } : {}),
         lines: parsed.data.lines,
@@ -165,8 +187,7 @@ ppeRouter.post('/cards/:id/close', requirePermission(PermissionCode.ErpDictionar
 
 // Выдача создаёт и СРАЗУ проводит stock_issue (один клик в карточке),
 // поэтому гейт — по проведению, а не по черновику.
-ppeRouter.post('/cards/:id/issue', requirePermission(PermissionCode.ErpDocumentsPost), async (req, res) => {
-  const id = String(req.params.id ?? '').trim();
+ppeRouter.post('/cards/:id/issue', requirePermission(PermissionCode.ErpDocumentsPost), async (req, res) => {  const id = String(req.params.id ?? '').trim();
   const parsed = z
     .object({
       warehouseId: z.string().min(1),
@@ -199,4 +220,139 @@ ppeRouter.post('/cards/:id/issue', requirePermission(PermissionCode.ErpDocuments
         actor: actorOf(req),
       }),
   );
+});
+
+// ────────────────────────────────────────────────────────────
+// Фаза 2: отпуска, группы, транзитивные нормы, импорт Excel/1С.
+// ────────────────────────────────────────────────────────────
+
+ppeRouter.get('/absences', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
+  const parsed = z.object({ employeeId: z.string().uuid().optional() }).safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await listPpeAbsences({
+    ...(parsed.data.employeeId ? { employeeId: parsed.data.employeeId } : {}),
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+ppeRouter.post('/absences', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const parsed = z
+    .object({
+      employeeId: z.string().uuid(),
+      fromMs: z.coerce.number().int().positive(),
+      toMs: z.coerce.number().int().positive(),
+      kind: z.string().trim().min(1).max(32).optional(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await createPpeAbsence({
+    employeeId: parsed.data.employeeId,
+    fromMs: parsed.data.fromMs,
+    toMs: parsed.data.toMs,
+    ...(parsed.data.kind ? { kind: parsed.data.kind } : {}),
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+ppeRouter.delete('/absences/:id', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const id = String(req.params.id ?? '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const result = await deletePpeAbsence(id);
+  if (!result.ok) return res.status(404).json(result);
+  return res.json(result);
+});
+
+ppeRouter.get('/groups', requirePermission(PermissionCode.ErpDictionaryView), async (_req, res) => {
+  const result = await listPpeGroups();
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+ppeRouter.post('/groups', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const parsed = z.object({ name: z.string().trim().min(1).max(200) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await createPpeGroup({ name: parsed.data.name });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+ppeRouter.delete('/groups/:id', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const id = String(req.params.id ?? '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const result = await deletePpeGroup(id);
+  if (!result.ok) return res.status(404).json(result);
+  return res.json(result);
+});
+
+ppeRouter.get('/groups/:id/members', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
+  const id = String(req.params.id ?? '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const result = await getPpeGroupMembers(id);
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+ppeRouter.put('/groups/:id/members', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const id = String(req.params.id ?? '').trim();
+  const parsed = z.object({ employeeIds: z.array(z.string().uuid()).max(5000) }).safeParse(req.body);
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await setPpeGroupMembers({ groupId: id, employeeIds: parsed.data.employeeIds });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+ppeRouter.get('/groups/:id/norms', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
+  const id = String(req.params.id ?? '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const result = await getPpeGroupNorms(id);
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+ppeRouter.put('/groups/:id/norms', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const id = String(req.params.id ?? '').trim();
+  const parsed = z.object({ normSetIds: z.array(z.string().uuid()).max(500) }).safeParse(req.body);
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await setPpeGroupNorms({ groupId: id, normSetIds: parsed.data.normSetIds });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+ppeRouter.get('/employees/:id/norm-sets', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
+  const id = String(req.params.id ?? '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const result = await resolveEmployeeNormSetIds(id);
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+// Импорт Excel/1С: файл едет base64 в JSON (multipart на бэкенде нет,
+// лимит express.json 20мб покрывает выгрузки с запасом; кап сервиса — 10мб).
+ppeRouter.post('/import/preview', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const parsed = z
+    .object({ filename: z.string().trim().min(1).max(256), contentBase64: z.string().min(1) })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await previewPpeImport({ filename: parsed.data.filename, contentBase64: parsed.data.contentBase64 });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+ppeRouter.post('/import/apply', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const parsed = z
+    .object({ previewId: z.string().min(1), contentBase64: z.string().min(1), dryRun: z.boolean().optional() })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await applyPpeImportPreview({
+    previewId: parsed.data.previewId,
+    contentBase64: parsed.data.contentBase64,
+    ...(parsed.data.dryRun === true ? { dryRun: true as const } : {}),
+    actor: actorOf(req),
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
 });
