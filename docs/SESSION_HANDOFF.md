@@ -2,25 +2,26 @@
 
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
-**Status:** ACTIVE (нитка «Кладовщик» фаза 2: PR-1 готов, ждёт CI/мерж)
+**Status:** ACTIVE (нитка «Кладовщик» фаза 2: PR-2 готов, ждёт CI/мерж)
 **Updated:** 2026-10-15 (dev-сессия, машина `PC79`)
-**Branch:** `feat/ppe-phase2-pr1-contract-core` (от main 905110b5)
+**Branch:** `feat/ppe-phase2-pr2-service-rest` (от main 9605e465)
 **Last released version:** **v3.78.0** на проде (+ android-v3.78.0).
 
 ## Текущая нитка
 
-Фаза 2 «Кладовщика» (`docs/plans/ppe-kladovshik-phase2.md`). PR-1 готов в ветке:
-контракт 6 таблиц (tables/registry/dto/ledger/ownership=server/requirement) +
-обновлённые ряды наборов/выдач + паблишер в порядке плана + ядро
-(условия, `shiftByAbsences`, `resolveGroupNorms`) + тесты. Гейты локально зелёные
-(typecheck/lint/checkSyncContract; полный `-r test` exit 0 — 1701 electron,
-1166 backend, 83 shared; `clientOpsArchive` в этот раз зелёный и в пакете).
-Следующий шаг после мержа: PR-2 (сервис+REST: отпуска, группы, импорт preview/apply;
-перед ним показать владельцу список колонок ЗУП §4 на утверждение — риск 1).
+Фаза 2 «Кладовщика» (`docs/plans/ppe-kladovshik-phase2.md`, колонки ЗУП утверждены
+владельцем 2026-10-15). PR-2 готов в ветке: сервис (условия норм, отпуска CRUD,
+группы CRUD + состав + нормы групп, транзитивные нормы, EAV-фолбэк открытия
+карточки) + REST + импорт Excel/1С (preview/apply, stateless HMAC preview-id
+30 мин, идемпотентный apply, те же валидаторы — гейт-тест дрейфом) + тесты
+(29 сервис + 13 импорт). Гейты локально зелёные (typecheck/lint/checkSyncContract;
+полный `-r test`: всё зелёное кроме `clientOpsArchive` в пакете — одиночно
+зелёный 7/7, перегруз, гейт пройден).
+Следующий шаг после мержа: PR-3 (коллективная + дежурные; сценарий в теле PR).
 
 ## Следующий шаг
 
-Открыть PR ветки `feat/ppe-phase2-pr1-contract-core`, дождаться CI, squash-merge.
+Открыть PR ветки `feat/ppe-phase2-pr2-service-rest`, дождаться CI, squash-merge.
 
 ## Контекст
 

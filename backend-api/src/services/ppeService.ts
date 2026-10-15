@@ -4,9 +4,14 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
 import {
+  entities,
   erpEmployeeCards,
   erpNomenclature,
+  ppeAbsences,
   ppeCardNorms,
+  ppeGroupMembers,
+  ppeGroupNorms,
+  ppeGroups,
   ppeIssueCards,
   ppeIssueEntries,
   ppeNormLines,
@@ -28,6 +33,9 @@ export type PpeNormSetUpsert = {
   name: string;
   postTitle?: string | null;
   departmentId?: string | null;
+  gender?: 'M' | 'F' | null;
+  season?: 'winter' | 'summer' | null;
+  isDuty?: boolean;
   validFrom?: number;
   validTo?: number | null;
   lines: PpeNormLineInput[];
@@ -45,17 +53,22 @@ async function validateNomenclatureIds(ids: string[]): Promise<string | null> {
   return bad ? `nomenclatureId: ссылка ${bad} не существует или удалена` : null;
 }
 
-export async function listPpeNormSets(args: { postTitle?: string } = {}): Promise<
-  Result<{ rows: Array<{ id: string; name: string; postTitle: string | null; validFrom: number; validTo: number | null; linesCount: number }> }>
+export async function listPpeNormSets(args: { postTitle?: string; gender?: string; season?: string } = {}): Promise<
+  Result<{ rows: Array<{ id: string; name: string; postTitle: string | null; gender: string | null; season: string | null; isDuty: boolean; validFrom: number; validTo: number | null; linesCount: number }> }>
 > {
   try {
     const conditions = [isNull(ppeNormSets.deletedAt)];
     if (args.postTitle) conditions.push(eq(ppeNormSets.postTitle, args.postTitle));
+    if (args.gender) conditions.push(eq(ppeNormSets.gender, args.gender));
+    if (args.season) conditions.push(eq(ppeNormSets.season, args.season));
     const sets = await db
       .select({
         id: ppeNormSets.id,
         name: ppeNormSets.name,
         postTitle: ppeNormSets.postTitle,
+        gender: ppeNormSets.gender,
+        season: ppeNormSets.season,
+        isDuty: ppeNormSets.isDuty,
         validFrom: ppeNormSets.validFrom,
         validTo: ppeNormSets.validTo,
       })
@@ -75,6 +88,9 @@ export async function listPpeNormSets(args: { postTitle?: string } = {}): Promis
         id: String(s.id),
         name: String(s.name),
         postTitle: s.postTitle == null ? null : String(s.postTitle),
+        gender: s.gender == null ? null : String(s.gender),
+        season: s.season == null ? null : String(s.season),
+        isDuty: s.isDuty === true,
         validFrom: Number(s.validFrom),
         validTo: s.validTo == null ? null : Number(s.validTo),
         linesCount: countBySet.get(String(s.id)) ?? 0,
@@ -86,7 +102,7 @@ export async function listPpeNormSets(args: { postTitle?: string } = {}): Promis
 }
 
 export async function getPpeNormSet(id: string): Promise<
-  Result<{ normSet: { id: string; name: string; postTitle: string | null; validFrom: number; validTo: number | null; lines: Array<{ id: string; nomenclatureId: string; qty: number; wearMonths: number }> } }>
+  Result<{ normSet: { id: string; name: string; postTitle: string | null; gender: string | null; season: string | null; isDuty: boolean; validFrom: number; validTo: number | null; lines: Array<{ id: string; nomenclatureId: string; qty: number; wearMonths: number }> } }>
 > {
   try {
     const rows = await db.select().from(ppeNormSets).where(and(eq(ppeNormSets.id, id as any), isNull(ppeNormSets.deletedAt))).limit(1);
@@ -102,6 +118,9 @@ export async function getPpeNormSet(id: string): Promise<
         id: String(set.id),
         name: String(set.name),
         postTitle: set.postTitle == null ? null : String(set.postTitle),
+        gender: set.gender == null ? null : String(set.gender),
+        season: set.season == null ? null : String(set.season),
+        isDuty: set.isDuty === true,
         validFrom: Number(set.validFrom),
         validTo: set.validTo == null ? null : Number(set.validTo),
         lines: lines.map((l) => ({
@@ -138,6 +157,9 @@ export async function upsertPpeNormSet(input: PpeNormSetUpsert): Promise<Result<
         name,
         postTitle: input.postTitle ?? null,
         departmentId: input.departmentId ?? null,
+        gender: input.gender ?? null,
+        season: input.season ?? null,
+        isDuty: input.isDuty === true,
         validFrom: input.validFrom ?? now,
         validTo: input.validTo ?? null,
         updatedAt: now,
@@ -174,12 +196,22 @@ export async function openPpeCard(args: { employeeId: string }): Promise<Result<
   try {
     const employeeId = String(args.employeeId ?? '').trim();
     if (!employeeId) return { ok: false, error: 'employeeId обязателен' };
-    const emp = await db
+    // Сотрудник обязан существовать: строгое erp_employee_cards, иначе EAV-сущность
+    // employee (тот же приём, что в signatureDefaultsService: строгая таблица
+    // пишется только импортом СИЗ, а люди живут в EAV).
+    const strict = await db
       .select({ id: erpEmployeeCards.id })
       .from(erpEmployeeCards)
       .where(and(eq(erpEmployeeCards.id, employeeId as any), isNull(erpEmployeeCards.deletedAt)))
       .limit(1);
-    if (!emp[0]) return { ok: false, error: 'Сотрудник не найден' };
+    if (!strict[0]) {
+      const eav = await db
+        .select({ id: entities.id })
+        .from(entities)
+        .where(and(eq(entities.id, employeeId as any), isNull(entities.deletedAt)))
+        .limit(1);
+      if (!eav[0]) return { ok: false, error: 'Сотрудник не найден' };
+    }
     const now = Date.now();
     const id = randomUUID();
     try {
@@ -393,6 +425,313 @@ export async function issuePpe(args: {
       return { ok: false, error: `Документ ${docNo} проведён, но след выдачи не записан (documentId ${created.id}): ${String(e)}` };
     }
     return { ok: true, documentId: created.id, entries: args.lines.length };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+// Фаза 2: отпуска, группы, транзитивные нормы.
+// ────────────────────────────────────────────────────────────
+
+export async function createPpeAbsence(args: { employeeId: string; fromMs: number; toMs: number; kind?: string }): Promise<
+  Result<{ id: string }>
+> {
+  try {
+    const employeeId = String(args.employeeId ?? '').trim();
+    if (!employeeId) return { ok: false, error: 'employeeId обязателен' };
+    const fromMs = Number(args.fromMs);
+    const toMs = Number(args.toMs);
+    if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return { ok: false, error: 'fromMs/toMs обязаны быть числами (Unix-ms)' };
+    if (fromMs >= toMs) return { ok: false, error: 'fromMs обязан быть раньше toMs' };
+    const emp = await db
+      .select({ id: erpEmployeeCards.id })
+      .from(erpEmployeeCards)
+      .where(and(eq(erpEmployeeCards.id, employeeId as any), isNull(erpEmployeeCards.deletedAt)))
+      .limit(1);
+    if (!emp[0]) return { ok: false, error: 'Сотрудник не найден в карточках СИЗ (сначала импорт)' };
+    const now = Date.now();
+    const id = randomUUID();
+    await db.insert(ppeAbsences).values({
+      id,
+      employeeId,
+      fromMs,
+      toMs,
+      kind: String(args.kind ?? 'vacation').trim() || 'vacation',
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+      syncStatus: 'pending',
+    });
+    return { ok: true, id };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function listPpeAbsences(args: { employeeId?: string } = {}): Promise<
+  Result<{ rows: Array<{ id: string; employeeId: string; fromMs: number; toMs: number; kind: string }> }>
+> {
+  try {
+    const conditions = [isNull(ppeAbsences.deletedAt)];
+    if (args.employeeId) conditions.push(eq(ppeAbsences.employeeId, args.employeeId));
+    const rows = await db.select().from(ppeAbsences).where(and(...conditions));
+    return {
+      ok: true,
+      rows: rows.map((r) => ({
+        id: String(r.id),
+        employeeId: String(r.employeeId),
+        fromMs: Number(r.fromMs),
+        toMs: Number(r.toMs),
+        kind: String(r.kind),
+      })),
+    };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function deletePpeAbsence(id: string): Promise<Result<{ id: string }>> {
+  try {
+    const key = String(id ?? '').trim();
+    if (!key) return { ok: false, error: 'id обязателен' };
+    const now = Date.now();
+    const updated = await db
+      .update(ppeAbsences)
+      .set({ deletedAt: now, updatedAt: now, syncStatus: 'pending' })
+      .where(and(eq(ppeAbsences.id, key as any), isNull(ppeAbsences.deletedAt)))
+      .returning({ id: ppeAbsences.id });
+    if (updated.length === 0) return { ok: false, error: 'Отсутствие не найдено' };
+    return { ok: true, id: key };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function createPpeGroup(args: { name: string }): Promise<Result<{ id: string }>> {
+  try {
+    const name = String(args.name ?? '').trim();
+    if (!name) return { ok: false, error: 'name обязателен' };
+    const now = Date.now();
+    const id = randomUUID();
+    await db.insert(ppeGroups).values({ id, name, createdAt: now, updatedAt: now, deletedAt: null, syncStatus: 'pending' });
+    return { ok: true, id };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function listPpeGroups(): Promise<Result<{ rows: Array<{ id: string; name: string; membersCount: number; normsCount: number }> }>> {
+  try {
+    const groups = await db.select().from(ppeGroups).where(isNull(ppeGroups.deletedAt));
+    const ids = groups.map((g) => String(g.id));
+    const members = ids.length
+      ? await db
+        .select({ groupId: ppeGroupMembers.groupId })
+        .from(ppeGroupMembers)
+        .where(and(inArray(ppeGroupMembers.groupId, ids as any), isNull(ppeGroupMembers.deletedAt)))
+      : [];
+    const norms = ids.length
+      ? await db
+        .select({ groupId: ppeGroupNorms.groupId })
+        .from(ppeGroupNorms)
+        .where(and(inArray(ppeGroupNorms.groupId, ids as any), isNull(ppeGroupNorms.deletedAt)))
+      : [];
+    const countBy = (rows: Array<{ groupId: unknown }>) => {
+      const m = new Map<string, number>();
+      for (const r of rows) m.set(String(r.groupId), (m.get(String(r.groupId)) ?? 0) + 1);
+      return m;
+    };
+    const membersBy = countBy(members);
+    const normsBy = countBy(norms);
+    return {
+      ok: true,
+      rows: groups.map((g) => ({
+        id: String(g.id),
+        name: String(g.name),
+        membersCount: membersBy.get(String(g.id)) ?? 0,
+        normsCount: normsBy.get(String(g.id)) ?? 0,
+      })),
+    };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function deletePpeGroup(id: string): Promise<Result<{ id: string }>> {
+  try {
+    const key = String(id ?? '').trim();
+    if (!key) return { ok: false, error: 'id обязателен' };
+    const now = Date.now();
+    const updated = await db
+      .update(ppeGroups)
+      .set({ deletedAt: now, updatedAt: now, syncStatus: 'pending' })
+      .where(and(eq(ppeGroups.id, key as any), isNull(ppeGroups.deletedAt)))
+      .returning({ id: ppeGroups.id });
+    if (updated.length === 0) return { ok: false, error: 'Группа не найдена' };
+    return { ok: true, id: key };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+async function employeeExistsStrict(employeeId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: erpEmployeeCards.id })
+    .from(erpEmployeeCards)
+    .where(and(eq(erpEmployeeCards.id, employeeId as any), isNull(erpEmployeeCards.deletedAt)))
+    .limit(1);
+  return rows.length > 0;
+}
+
+export async function setPpeGroupMembers(args: { groupId: string; employeeIds: string[] }): Promise<Result<{ members: number }>> {
+  try {
+    const groupId = String(args.groupId ?? '').trim();
+    if (!groupId) return { ok: false, error: 'groupId обязателен' };
+    const group = await db
+      .select({ id: ppeGroups.id })
+      .from(ppeGroups)
+      .where(and(eq(ppeGroups.id, groupId as any), isNull(ppeGroups.deletedAt)))
+      .limit(1);
+    if (!group[0]) return { ok: false, error: 'Группа не найдена' };
+    const employeeIds = [...new Set((args.employeeIds ?? []).map((v) => String(v).trim()).filter(Boolean))];
+    for (const employeeId of employeeIds) {
+      if (!(await employeeExistsStrict(employeeId))) return { ok: false, error: `Сотрудник ${employeeId} не найден в карточках СИЗ (сначала импорт)` };
+    }
+    const now = Date.now();
+    await db
+      .update(ppeGroupMembers)
+      .set({ deletedAt: now, updatedAt: now, syncStatus: 'pending' })
+      .where(and(eq(ppeGroupMembers.groupId, groupId as any), isNull(ppeGroupMembers.deletedAt)));
+    if (employeeIds.length > 0) {
+      await db.insert(ppeGroupMembers).values(
+        employeeIds.map((employeeId) => ({
+          id: randomUUID(),
+          groupId,
+          employeeId,
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null,
+          syncStatus: 'pending',
+        })),
+      );
+    }
+    return { ok: true, members: employeeIds.length };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function getPpeGroupMembers(groupId: string): Promise<Result<{ employeeIds: string[] }>> {
+  try {
+    const key = String(groupId ?? '').trim();
+    if (!key) return { ok: false, error: 'groupId обязателен' };
+    const rows = await db
+      .select({ employeeId: ppeGroupMembers.employeeId })
+      .from(ppeGroupMembers)
+      .where(and(eq(ppeGroupMembers.groupId, key as any), isNull(ppeGroupMembers.deletedAt)));
+    return { ok: true, employeeIds: rows.map((r) => String(r.employeeId)) };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function setPpeGroupNorms(args: { groupId: string; normSetIds: string[] }): Promise<Result<{ norms: number }>> {
+  try {
+    const groupId = String(args.groupId ?? '').trim();
+    if (!groupId) return { ok: false, error: 'groupId обязателен' };
+    const group = await db
+      .select({ id: ppeGroups.id })
+      .from(ppeGroups)
+      .where(and(eq(ppeGroups.id, groupId as any), isNull(ppeGroups.deletedAt)))
+      .limit(1);
+    if (!group[0]) return { ok: false, error: 'Группа не найдена' };
+    const normSetIds = [...new Set((args.normSetIds ?? []).map((v) => String(v).trim()).filter(Boolean))];
+    if (normSetIds.length > 0) {
+      const sets = await db
+        .select({ id: ppeNormSets.id })
+        .from(ppeNormSets)
+        .where(and(inArray(ppeNormSets.id, normSetIds as any), isNull(ppeNormSets.deletedAt)));
+      const valid = new Set(sets.map((s) => String(s.id)));
+      const bad = normSetIds.find((v) => !valid.has(v));
+      if (bad) return { ok: false, error: `Набор норм ${bad} не существует или удалён` };
+    }
+    const now = Date.now();
+    await db
+      .update(ppeGroupNorms)
+      .set({ deletedAt: now, updatedAt: now, syncStatus: 'pending' })
+      .where(and(eq(ppeGroupNorms.groupId, groupId as any), isNull(ppeGroupNorms.deletedAt)));
+    if (normSetIds.length > 0) {
+      await db.insert(ppeGroupNorms).values(
+        normSetIds.map((normSetId) => ({
+          id: randomUUID(),
+          groupId,
+          normSetId,
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null,
+          syncStatus: 'pending',
+        })),
+      );
+    }
+    return { ok: true, norms: normSetIds.length };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function getPpeGroupNorms(groupId: string): Promise<Result<{ normSetIds: string[] }>> {
+  try {
+    const key = String(groupId ?? '').trim();
+    if (!key) return { ok: false, error: 'groupId обязателен' };
+    const rows = await db
+      .select({ normSetId: ppeGroupNorms.normSetId })
+      .from(ppeGroupNorms)
+      .where(and(eq(ppeGroupNorms.groupId, key as any), isNull(ppeGroupNorms.deletedAt)));
+    return { ok: true, normSetIds: rows.map((r) => String(r.normSetId)) };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/**
+ * Нормы сотрудника транзитивно: личные привязки открытой карточки +
+ * привязки групп, в которых он состоит. Связь группа→норма хранится отдельно
+ * (ppe_group_norms), поэтому отзыв нормы у группы отзывает её у людей.
+ * Чистое чтение для PR-4 (карточка показывает групповые с пометкой источника).
+ */
+export async function resolveEmployeeNormSetIds(employeeId: string): Promise<Result<{ personal: string[]; group: string[] }>> {
+  try {
+    const key = String(employeeId ?? '').trim();
+    if (!key) return { ok: false, error: 'employeeId обязателен' };
+    const cards = await db
+      .select({ id: ppeIssueCards.id })
+      .from(ppeIssueCards)
+      .where(and(eq(ppeIssueCards.employeeId, key as any), isNull(ppeIssueCards.closedAt), isNull(ppeIssueCards.deletedAt)))
+      .limit(1);
+    const personal = cards[0]
+      ? (
+        await db
+          .select({ normSetId: ppeCardNorms.normSetId })
+          .from(ppeCardNorms)
+          .where(and(eq(ppeCardNorms.cardId, String(cards[0].id) as any), isNull(ppeCardNorms.deletedAt)))
+      ).map((r) => String(r.normSetId))
+      : [];
+    const memberships = await db
+      .select({ groupId: ppeGroupMembers.groupId })
+      .from(ppeGroupMembers)
+      .where(and(eq(ppeGroupMembers.employeeId, key as any), isNull(ppeGroupMembers.deletedAt)));
+    const groupIds = [...new Set(memberships.map((r) => String(r.groupId)))];
+    const group =
+      groupIds.length > 0
+        ? (
+          await db
+            .select({ normSetId: ppeGroupNorms.normSetId })
+            .from(ppeGroupNorms)
+            .where(and(inArray(ppeGroupNorms.groupId, groupIds as any), isNull(ppeGroupNorms.deletedAt)))
+        ).map((r) => String(r.normSetId))
+        : [];
+    return { ok: true, personal: [...new Set(personal)], group: [...new Set(group)] };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
