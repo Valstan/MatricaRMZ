@@ -138,6 +138,12 @@ export const SYNC_TABLE_OWNERSHIP: Readonly<Record<SyncTableName, SyncTableOwner
   [SyncTableName.PpeIssueCards]: { owner: 'server', why: 'ppeService + публикатор зеркала' },
   [SyncTableName.PpeCardNorms]: { owner: 'server', why: 'ppeService + публикатор зеркала' },
   [SyncTableName.PpeIssueEntries]: { owner: 'server', why: 'ppeService + публикатор зеркала' },
+  [SyncTableName.PpeAbsences]: { owner: 'server', why: 'ppeService + публикатор зеркала (фаза 2)' },
+  [SyncTableName.PpeGroups]: { owner: 'server', why: 'ppeService + публикатор зеркала (фаза 2)' },
+  [SyncTableName.PpeGroupMembers]: { owner: 'server', why: 'ppeService + публикатор зеркала (фаза 2)' },
+  [SyncTableName.PpeGroupNorms]: { owner: 'server', why: 'ppeService + публикатор зеркала (фаза 2)' },
+  [SyncTableName.PpeCollectives]: { owner: 'server', why: 'ppeService + публикатор зеркала (фаза 2)' },
+  [SyncTableName.PpeCollectiveLines]: { owner: 'server', why: 'ppeService + публикатор зеркала (фаза 2)' },
   // Умолчания подписей (PR-5): ведёт только админская дверь (REST), клиент читает
   // реплику. Без строки крафт умолчания с клиента ушёл бы в журнал.
   [SyncTableName.SignatureDefaults]: { owner: 'server', why: 'signatureDefaultsService + публикатор зеркала' },
@@ -285,6 +291,12 @@ const TABLE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
   [SyncTableName.PpeIssueCards]: { kind: 'superadmin' },
   [SyncTableName.PpeCardNorms]: { kind: 'superadmin' },
   [SyncTableName.PpeIssueEntries]: { kind: 'superadmin' },
+  [SyncTableName.PpeAbsences]: { kind: 'superadmin' },
+  [SyncTableName.PpeGroups]: { kind: 'superadmin' },
+  [SyncTableName.PpeGroupMembers]: { kind: 'superadmin' },
+  [SyncTableName.PpeGroupNorms]: { kind: 'superadmin' },
+  [SyncTableName.PpeCollectives]: { kind: 'superadmin' },
+  [SyncTableName.PpeCollectiveLines]: { kind: 'superadmin' },
   // Умолчания подписей (PR-5) — вторая линия к безусловному табличному backstop'у выше.
   [SyncTableName.SignatureDefaults]: { kind: 'superadmin' },
 };

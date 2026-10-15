@@ -330,6 +330,11 @@ export const ppeNormSetRowSchema = z.object({
   name: z.string().min(1),
   post_title: z.string().nullable().optional(),
   department_id: z.string().uuid().nullable().optional(),
+  gender: z.enum(['M', 'F']).nullable().optional(),
+  season: z.enum(['winter', 'summer']).nullable().optional(),
+  // is_duty мягко-опционален: строки журнала, записанные до фазы 2, его не несут —
+  // строгость роняла бы их из pull молча. Отсутствие читается как «не дежурная».
+  is_duty: z.boolean().nullable().optional(),
   valid_from: z.number().int(),
   valid_to: z.number().int().nullable().optional(),
 });
@@ -362,7 +367,49 @@ export const ppeIssueEntryRowSchema = z.object({
   nomenclature_id: z.string().uuid(),
   qty: z.number().int(),
   issued_at: z.number().int(),
-  document_id: z.string().uuid(),
+  document_id: z.string().uuid().nullable().optional(),
+});
+
+// Кладовщик (СИЗ), фаза 2: повторяют ровно форму БД (миграция 0110).
+export const ppeAbsenceRowSchema = z.object({
+  ...baseRowFields,
+  employee_id: z.string().uuid(),
+  from_ms: z.number().int(),
+  to_ms: z.number().int(),
+  kind: z.string().min(1),
+});
+
+export const ppeGroupRowSchema = z.object({
+  ...baseRowFields,
+  name: z.string().min(1),
+});
+
+export const ppeGroupMemberRowSchema = z.object({
+  ...baseRowFields,
+  group_id: z.string().uuid(),
+  employee_id: z.string().uuid(),
+});
+
+export const ppeGroupNormRowSchema = z.object({
+  ...baseRowFields,
+  group_id: z.string().uuid(),
+  norm_set_id: z.string().uuid(),
+});
+
+export const ppeCollectiveRowSchema = z.object({
+  ...baseRowFields,
+  department_id: z.string().uuid(),
+  warehouse_id: z.string().uuid(),
+  document_id: z.string().uuid().nullable().optional(),
+  distributed_at: z.number().int().nullable().optional(),
+});
+
+export const ppeCollectiveLineRowSchema = z.object({
+  ...baseRowFields,
+  collective_id: z.string().uuid(),
+  employee_id: z.string().uuid(),
+  nomenclature_id: z.string().uuid(),
+  qty: z.number().int(),
 });
 
 // Умолчания подписей (PR-5): ключ поля подписи (id пункта акта, напр.
@@ -410,6 +457,12 @@ export const syncRowSchemaByTable = {
   [SyncTableName.PpeIssueCards]: ppeIssueCardRowSchema,
   [SyncTableName.PpeCardNorms]: ppeCardNormRowSchema,
   [SyncTableName.PpeIssueEntries]: ppeIssueEntryRowSchema,
+  [SyncTableName.PpeAbsences]: ppeAbsenceRowSchema,
+  [SyncTableName.PpeGroups]: ppeGroupRowSchema,
+  [SyncTableName.PpeGroupMembers]: ppeGroupMemberRowSchema,
+  [SyncTableName.PpeGroupNorms]: ppeGroupNormRowSchema,
+  [SyncTableName.PpeCollectives]: ppeCollectiveRowSchema,
+  [SyncTableName.PpeCollectiveLines]: ppeCollectiveLineRowSchema,
   [SyncTableName.SignatureDefaults]: signatureDefaultRowSchema,
 } as const;
 

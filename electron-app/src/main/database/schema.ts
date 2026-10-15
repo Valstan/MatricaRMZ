@@ -560,6 +560,89 @@ export const ppeIssueEntries = sqliteTable('ppe_issue_entries', {
   documentIdx: index('ppe_issue_entries_document_idx').on(t.documentId),
 }));
 
+// Кладовщик (СИЗ), фаза 2: отпуска, группы, коллективная выдача (миграция 0110).
+// Nullability — ровно как сервер, иначе pull уронит checkReplicaStrictness.
+export const ppeAbsences = sqliteTable('ppe_absences', {
+  id: text('id').primaryKey(),
+  employeeId: text('employee_id').notNull(),
+  fromMs: integer('from_ms').notNull(),
+  toMs: integer('to_ms').notNull(),
+  kind: text('kind').notNull().default('vacation'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  employeeFromIdx: index('ppe_absences_employee_from_idx').on(t.employeeId, t.fromMs),
+}));
+
+export const ppeGroups = sqliteTable('ppe_groups', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+});
+
+export const ppeGroupMembers = sqliteTable('ppe_group_members', {
+  id: text('id').primaryKey(),
+  groupId: text('group_id').notNull(),
+  employeeId: text('employee_id').notNull(),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  groupIdx: index('ppe_group_members_group_idx').on(t.groupId),
+}));
+
+export const ppeGroupNorms = sqliteTable('ppe_group_norms', {
+  id: text('id').primaryKey(),
+  groupId: text('group_id').notNull(),
+  normSetId: text('norm_set_id').notNull(),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  groupIdx: index('ppe_group_norms_group_idx').on(t.groupId),
+}));
+
+export const ppeCollectives = sqliteTable('ppe_collectives', {
+  id: text('id').primaryKey(),
+  departmentId: text('department_id').notNull(),
+  warehouseId: text('warehouse_id').notNull(),
+  documentId: text('document_id'),
+  distributedAt: integer('distributed_at'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  departmentIdx: index('ppe_collectives_department_idx').on(t.departmentId),
+}));
+
+export const ppeCollectiveLines = sqliteTable('ppe_collective_lines', {
+  id: text('id').primaryKey(),
+  collectiveId: text('collective_id').notNull(),
+  employeeId: text('employee_id').notNull(),
+  nomenclatureId: text('nomenclature_id').notNull(),
+  qty: integer('qty').notNull(),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  collectiveIdx: index('ppe_collective_lines_collective_idx').on(t.collectiveId),
+}));
+
 // Умолчания подписей (PR-5): реплика строгой таблицы (миграция 0108).
 // Nullability — ровно как сервер, иначе pull уронит checkReplicaStrictness.
 export const signatureDefaults = sqliteTable('signature_defaults', {

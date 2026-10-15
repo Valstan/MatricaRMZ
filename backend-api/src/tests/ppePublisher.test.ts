@@ -2,7 +2,13 @@ import { SyncTableName, SyncTableRegistry, syncRowSchemaByTable } from '@matrica
 import { describe, expect, it } from 'vitest';
 
 import {
+  toPpeAbsenceInput,
   toPpeCardNormInput,
+  toPpeCollectiveInput,
+  toPpeCollectiveLineInput,
+  toPpeGroupInput,
+  toPpeGroupMemberInput,
+  toPpeGroupNormInput,
   toPpeIssueCardInput,
   toPpeIssueEntryInput,
   toPpeNormLineInput,
@@ -19,7 +25,7 @@ const CASES = [
   {
     table: SyncTableName.PpeNormSets,
     map: toPpeNormSetInput,
-    row: { ...BASE, name: 'Слесарь РМЦ', postTitle: 'Слесарь', departmentId: null, validFrom: 1_700_000_000_000, validTo: null },
+    row: { ...BASE, name: 'Слесарь РМЦ', postTitle: 'Слесарь', departmentId: null, gender: 'M', season: 'winter', isDuty: false, validFrom: 1_700_000_000_000, validTo: null },
   },
   {
     table: SyncTableName.PpeNormLines,
@@ -40,6 +46,42 @@ const CASES = [
     table: SyncTableName.PpeIssueEntries,
     map: toPpeIssueEntryInput,
     row: { ...BASE, cardId: UID, nomenclatureId: UID, qty: 1, issuedAt: 1_700_000_000_000, documentId: UID },
+  },
+  // Фаза 2, PR-1. NULL-документ доввода истории тоже проходит схему.
+  {
+    table: SyncTableName.PpeIssueEntries,
+    map: toPpeIssueEntryInput,
+    row: { ...BASE, cardId: UID, nomenclatureId: UID, qty: 1, issuedAt: 1_700_000_000_000, documentId: null },
+  },
+  {
+    table: SyncTableName.PpeAbsences,
+    map: toPpeAbsenceInput,
+    row: { ...BASE, employeeId: UID, fromMs: 1_700_000_000_000, toMs: 1_700_010_000_000, kind: 'vacation' },
+  },
+  {
+    table: SyncTableName.PpeGroups,
+    map: toPpeGroupInput,
+    row: { ...BASE, name: 'Зимники' },
+  },
+  {
+    table: SyncTableName.PpeGroupMembers,
+    map: toPpeGroupMemberInput,
+    row: { ...BASE, groupId: UID, employeeId: UID },
+  },
+  {
+    table: SyncTableName.PpeGroupNorms,
+    map: toPpeGroupNormInput,
+    row: { ...BASE, groupId: UID, normSetId: UID },
+  },
+  {
+    table: SyncTableName.PpeCollectives,
+    map: toPpeCollectiveInput,
+    row: { ...BASE, departmentId: UID, warehouseId: UID, documentId: null, distributedAt: null },
+  },
+  {
+    table: SyncTableName.PpeCollectiveLines,
+    map: toPpeCollectiveLineInput,
+    row: { ...BASE, collectiveId: UID, employeeId: UID, nomenclatureId: UID, qty: 3 },
   },
 ] as const;
 

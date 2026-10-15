@@ -60,6 +60,12 @@ import {
   ppeIssueCards,
   ppeCardNorms,
   ppeIssueEntries,
+  ppeAbsences,
+  ppeGroups,
+  ppeGroupMembers,
+  ppeGroupNorms,
+  ppeCollectives,
+  ppeCollectiveLines,
   signatureDefaults,
   noteShares,
   notes,
@@ -2033,6 +2039,13 @@ async function applyPulledChanges(
     [SyncTableName.PpeIssueCards]: [],
     [SyncTableName.PpeCardNorms]: [],
     [SyncTableName.PpeIssueEntries]: [],
+    // Кладовщик (СИЗ), фаза 2: отпуска, группы, коллективная выдача.
+    [SyncTableName.PpeAbsences]: [],
+    [SyncTableName.PpeGroups]: [],
+    [SyncTableName.PpeGroupMembers]: [],
+    [SyncTableName.PpeGroupNorms]: [],
+    [SyncTableName.PpeCollectives]: [],
+    [SyncTableName.PpeCollectiveLines]: [],
     [SyncTableName.SignatureDefaults]: [],
     [SyncTableName.Users]: [],
     [SyncTableName.UserSectionAccess]: [],
@@ -2519,6 +2532,9 @@ async function applyPulledChanges(
             name: payload.name,
             postTitle: payload.post_title ?? null,
             departmentId: payload.department_id ?? null,
+            gender: payload.gender ?? null,
+            season: payload.season ?? null,
+            isDuty: payload.is_duty === true ? 1 : 0,
             validFrom: payload.valid_from,
             validTo: payload.valid_to ?? null,
             createdAt: payload.created_at,
@@ -2588,6 +2604,102 @@ async function applyPulledChanges(
             qty: Number(payload.qty ?? 0),
             issuedAt: payload.issued_at,
             documentId: payload.document_id,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      // Кладовщик (СИЗ), фаза 2: pull-only реплики (отпуска, группы, коллектив).
+      case SyncTableName.PpeAbsences:
+        {
+          const payload = payloadRaw;
+          groups.ppe_absences.push({
+            id: payload.id,
+            employeeId: payload.employee_id,
+            fromMs: payload.from_ms,
+            toMs: payload.to_ms,
+            kind: payload.kind ?? 'vacation',
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.PpeGroups:
+        {
+          const payload = payloadRaw;
+          groups.ppe_groups.push({
+            id: payload.id,
+            name: payload.name,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.PpeGroupMembers:
+        {
+          const payload = payloadRaw;
+          groups.ppe_group_members.push({
+            id: payload.id,
+            groupId: payload.group_id,
+            employeeId: payload.employee_id,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.PpeGroupNorms:
+        {
+          const payload = payloadRaw;
+          groups.ppe_group_norms.push({
+            id: payload.id,
+            groupId: payload.group_id,
+            normSetId: payload.norm_set_id,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.PpeCollectives:
+        {
+          const payload = payloadRaw;
+          groups.ppe_collectives.push({
+            id: payload.id,
+            departmentId: payload.department_id,
+            warehouseId: payload.warehouse_id,
+            documentId: payload.document_id ?? null,
+            distributedAt: payload.distributed_at ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.PpeCollectiveLines:
+        {
+          const payload = payloadRaw;
+          groups.ppe_collective_lines.push({
+            id: payload.id,
+            collectiveId: payload.collective_id,
+            employeeId: payload.employee_id,
+            nomenclatureId: payload.nomenclature_id,
+            qty: Number(payload.qty ?? 0),
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
             lastServerSeq: payload.last_server_seq ?? null,
@@ -3592,6 +3704,9 @@ async function applyPulledChanges(
       name: sql`excluded.name`,
       postTitle: sql`excluded.post_title`,
       departmentId: sql`excluded.department_id`,
+      gender: sql`excluded.gender`,
+      season: sql`excluded.season`,
+      isDuty: sql`excluded.is_duty`,
       validFrom: sql`excluded.valid_from`,
       validTo: sql`excluded.valid_to`,
       updatedAt: sql`excluded.updated_at`,
@@ -3649,6 +3764,85 @@ async function applyPulledChanges(
       qty: sql`excluded.qty`,
       issuedAt: sql`excluded.issued_at`,
       documentId: sql`excluded.document_id`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  // Кладовщик (СИЗ), фаза 2: шапки раньше строк (группы раньше членов
+  // и привязок, коллективы раньше строк распределения).
+  if (groups.ppe_absences.length > 0) {
+    emitApply(SyncTableName.PpeAbsences, groups.ppe_absences.length);
+    await upsertPulledRowsInChunks(db, ppeAbsences, groups.ppe_absences, ppeAbsences.id, {
+      employeeId: sql`excluded.employee_id`,
+      fromMs: sql`excluded.from_ms`,
+      toMs: sql`excluded.to_ms`,
+      kind: sql`excluded.kind`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  if (groups.ppe_groups.length > 0) {
+    emitApply(SyncTableName.PpeGroups, groups.ppe_groups.length);
+    await upsertPulledRowsInChunks(db, ppeGroups, groups.ppe_groups, ppeGroups.id, {
+      name: sql`excluded.name`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  if (groups.ppe_group_members.length > 0) {
+    emitApply(SyncTableName.PpeGroupMembers, groups.ppe_group_members.length);
+    await upsertPulledRowsInChunks(db, ppeGroupMembers, groups.ppe_group_members, ppeGroupMembers.id, {
+      groupId: sql`excluded.group_id`,
+      employeeId: sql`excluded.employee_id`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  if (groups.ppe_group_norms.length > 0) {
+    emitApply(SyncTableName.PpeGroupNorms, groups.ppe_group_norms.length);
+    await upsertPulledRowsInChunks(db, ppeGroupNorms, groups.ppe_group_norms, ppeGroupNorms.id, {
+      groupId: sql`excluded.group_id`,
+      normSetId: sql`excluded.norm_set_id`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  if (groups.ppe_collectives.length > 0) {
+    emitApply(SyncTableName.PpeCollectives, groups.ppe_collectives.length);
+    await upsertPulledRowsInChunks(db, ppeCollectives, groups.ppe_collectives, ppeCollectives.id, {
+      departmentId: sql`excluded.department_id`,
+      warehouseId: sql`excluded.warehouse_id`,
+      documentId: sql`excluded.document_id`,
+      distributedAt: sql`excluded.distributed_at`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  if (groups.ppe_collective_lines.length > 0) {
+    emitApply(SyncTableName.PpeCollectiveLines, groups.ppe_collective_lines.length);
+    await upsertPulledRowsInChunks(db, ppeCollectiveLines, groups.ppe_collective_lines, ppeCollectiveLines.id, {
+      collectiveId: sql`excluded.collective_id`,
+      employeeId: sql`excluded.employee_id`,
+      nomenclatureId: sql`excluded.nomenclature_id`,
+      qty: sql`excluded.qty`,
       updatedAt: sql`excluded.updated_at`,
       lastServerSeq: sql`excluded.last_server_seq`,
       deletedAt: sql`excluded.deleted_at`,

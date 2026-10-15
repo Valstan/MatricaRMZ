@@ -5,6 +5,8 @@ import {
   nextIssueDates,
   PPE_DAY_MS,
   resolveEmployeeNorms,
+  resolveGroupNorms,
+  shiftByAbsences,
   upcomingIssues,
 } from './ppe.js';
 
@@ -117,5 +119,105 @@ describe('ppe: ближайшие выдачи', () => {
       30,
     );
     expect(rows).toEqual([]);
+  });
+});
+
+describe('ppe фаза 2: фильтр норм по условиям', () => {
+  const lines = [
+    { normSetId: 'ns-m-win', nomenclatureId: NOM_A, qty: 1, wearMonths: 12, setGender: 'M', setSeason: 'winter' },
+    { normSetId: 'ns-all', nomenclatureId: NOM_B, qty: 2, wearMonths: 6, setGender: null, setSeason: null },
+    { normSetId: 'ns-f', nomenclatureId: NOM_A, qty: 1, wearMonths: 24, setGender: 'F', setSeason: null },
+  ];
+
+  it('мужчина зимой: мужской зимний + всесезонный, женский отрезан', () => {
+    const merged = resolveEmployeeNorms(lines, { gender: 'M', season: 'winter' });
+    expect(merged).toEqual([
+      { nomenclatureId: NOM_A, qty: 1, wearMonths: 12 },
+      { nomenclatureId: NOM_B, qty: 2, wearMonths: 6 },
+    ]);
+  });
+
+  it('женщина летом: женский всесезонный + общий, зимний отрезан', () => {
+    const merged = resolveEmployeeNorms(lines, { gender: 'F', season: 'summer' });
+    expect(merged).toEqual([
+      { nomenclatureId: NOM_A, qty: 1, wearMonths: 24 },
+      { nomenclatureId: NOM_B, qty: 2, wearMonths: 6 },
+    ]);
+  });
+
+  it('без второго аргумента — ровно поведение MVP (ничего не режется)', () => {
+    const merged = resolveEmployeeNorms(lines);
+    expect(merged).toEqual([
+      { nomenclatureId: NOM_A, qty: 2, wearMonths: 12 },
+      { nomenclatureId: NOM_B, qty: 2, wearMonths: 6 },
+    ]);
+  });
+
+  it('строки без условий (старые данные) проходят любой контекст', () => {
+    const merged = resolveEmployeeNorms(
+      [{ normSetId: 'ns-old', nomenclatureId: NOM_A, qty: 1, wearMonths: 12 }],
+      { gender: 'F', season: 'winter' },
+    );
+    expect(merged).toEqual([{ nomenclatureId: NOM_A, qty: 1, wearMonths: 12 }]);
+  });
+});
+
+describe('ppe фаза 2: сдвиг срока на отпуска', () => {
+  const DUE = Date.UTC(2026, 9, 11);
+
+  it('отпуск целиком до срока сдвигает на его длину', () => {
+    expect(shiftByAbsences(DUE, [{ fromMs: DUE - 10 * PPE_DAY_MS, toMs: DUE - 3 * PPE_DAY_MS }])).toBe(
+      DUE + 7 * PPE_DAY_MS,
+    );
+  });
+
+  it('пересекающиеся отпуска считаются по объединению, а не дважды', () => {
+    expect(
+      shiftByAbsences(DUE, [
+        { fromMs: DUE - 10 * PPE_DAY_MS, toMs: DUE - 3 * PPE_DAY_MS },
+        { fromMs: DUE - 5 * PPE_DAY_MS, toMs: DUE - 1 * PPE_DAY_MS },
+      ]),
+    ).toBe(DUE + 9 * PPE_DAY_MS);
+  });
+
+  it('отпуск после срока и пустой список ничего не сдвигают', () => {
+    expect(shiftByAbsences(DUE, [{ fromMs: DUE + PPE_DAY_MS, toMs: DUE + 10 * PPE_DAY_MS }])).toBe(DUE);
+    expect(shiftByAbsences(DUE, [])).toBe(DUE);
+  });
+
+  it('nextIssueDates принимает отсутствия пятым аргументом', () => {
+    const issued = Date.UTC(2025, 9, 11);
+    const [plain] = nextIssueDates([{ nomenclatureId: NOM_A, qty: 1, wearMonths: 12 }], [
+      { nomenclatureId: NOM_A, qty: 1, issuedAt: issued },
+    ], T0);
+    expect(plain.nextDueAt).toBe(Date.UTC(2026, 9, 11));
+    const [shifted] = nextIssueDates(
+      [{ nomenclatureId: NOM_A, qty: 1, wearMonths: 12 }],
+      [{ nomenclatureId: NOM_A, qty: 1, issuedAt: issued }],
+      T0,
+      14,
+      [{ fromMs: Date.UTC(2026, 5, 1), toMs: Date.UTC(2026, 5, 11) }],
+    );
+    expect(shifted.nextDueAt).toBe(Date.UTC(2026, 9, 11) + 10 * PPE_DAY_MS);
+  });
+});
+
+describe('ppe фаза 2: групповые нормы', () => {
+  it('личные + нормы своих групп, дедуп, чужие группы мимо', () => {
+    expect(
+      resolveGroupNorms({
+        personalNormSetIds: ['ns-1', 'ns-2'],
+        memberGroupIds: ['g-1'],
+        groupNorms: [
+          { groupId: 'g-1', normSetId: 'ns-2' },
+          { groupId: 'g-1', normSetId: 'ns-3' },
+          { groupId: 'g-9', normSetId: 'ns-4' },
+        ],
+      }),
+    ).toEqual(['ns-1', 'ns-2', 'ns-3']);
+  });
+
+  it('без групп — только личные', () => {
+    expect(resolveGroupNorms({ personalNormSetIds: ['ns-1'], memberGroupIds: [], groupNorms: [] })).toEqual(['ns-1']);
   });
 });
