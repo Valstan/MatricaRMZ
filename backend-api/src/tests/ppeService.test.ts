@@ -544,6 +544,7 @@ describe('ppeService PR-3: коллективная выдача', () => {
     state.queue.push([{ id: 'c-1', departmentId: DEP, warehouseId: 'w', documentId: null }]);
     state.queue.push([{ id: 'l-1', employeeId: CARD, nomenclatureId: NOM, qty: 1 }]);
     state.queue.push([{ id: NOM }]);
+    state.createdDoc = { ok: true, id: DOC };
     state.postedDoc = { ok: false, error: 'нет остатка' };
     const notPosted = await distributeCollective({ collectiveId: 'c-1', actor: ACTOR });
     expect(notPosted.ok).toBe(false);
