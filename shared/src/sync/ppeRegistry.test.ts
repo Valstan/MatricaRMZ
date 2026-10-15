@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  ppeAbsenceRowSchema,
   ppeCardNormRowSchema,
+  ppeCollectiveLineRowSchema,
+  ppeCollectiveRowSchema,
+  ppeGroupMemberRowSchema,
+  ppeGroupNormRowSchema,
+  ppeGroupRowSchema,
   ppeIssueCardRowSchema,
   ppeIssueEntryRowSchema,
   ppeNormLineRowSchema,
@@ -19,6 +25,13 @@ const CASES = [
   { table: SyncTableName.PpeIssueCards, schema: ppeIssueCardRowSchema },
   { table: SyncTableName.PpeCardNorms, schema: ppeCardNormRowSchema },
   { table: SyncTableName.PpeIssueEntries, schema: ppeIssueEntryRowSchema },
+  // Фаза 2, PR-1.
+  { table: SyncTableName.PpeAbsences, schema: ppeAbsenceRowSchema },
+  { table: SyncTableName.PpeGroups, schema: ppeGroupRowSchema },
+  { table: SyncTableName.PpeGroupMembers, schema: ppeGroupMemberRowSchema },
+  { table: SyncTableName.PpeGroupNorms, schema: ppeGroupNormRowSchema },
+  { table: SyncTableName.PpeCollectives, schema: ppeCollectiveRowSchema },
+  { table: SyncTableName.PpeCollectiveLines, schema: ppeCollectiveLineRowSchema },
 ] as const;
 
 describe('PPE: реестр покрывает ровно схему DTO', () => {
@@ -43,6 +56,29 @@ describe('PPE: реестр покрывает ровно схему DTO', () =>
     expect(
       ppeIssueEntryRowSchema.safeParse({ id, created_at: 1, updated_at: 2, card_id: id, nomenclature_id: id, qty: 1, issued_at: 3, document_id: id }).success,
     ).toBe(true);
+    // Фаза 2: условия норм и NULL-документ доввода истории проходят.
+    expect(
+      ppeNormSetRowSchema.safeParse({ id, created_at: 1, updated_at: 2, name: 'Зима', valid_from: 3, gender: 'M', season: 'winter', is_duty: false }).success,
+    ).toBe(true);
+    expect(
+      ppeIssueEntryRowSchema.safeParse({ id, created_at: 1, updated_at: 2, card_id: id, nomenclature_id: id, qty: 1, issued_at: 3, document_id: null }).success,
+    ).toBe(true);
+    expect(
+      ppeAbsenceRowSchema.safeParse({ id, created_at: 1, updated_at: 2, employee_id: id, from_ms: 3, to_ms: 4, kind: 'vacation' }).success,
+    ).toBe(true);
+    expect(ppeGroupRowSchema.safeParse({ id, created_at: 1, updated_at: 2, name: 'Зимники' }).success).toBe(true);
+    expect(
+      ppeGroupMemberRowSchema.safeParse({ id, created_at: 1, updated_at: 2, group_id: id, employee_id: id }).success,
+    ).toBe(true);
+    expect(
+      ppeGroupNormRowSchema.safeParse({ id, created_at: 1, updated_at: 2, group_id: id, norm_set_id: id }).success,
+    ).toBe(true);
+    expect(
+      ppeCollectiveRowSchema.safeParse({ id, created_at: 1, updated_at: 2, department_id: id, warehouse_id: id }).success,
+    ).toBe(true);
+    expect(
+      ppeCollectiveLineRowSchema.safeParse({ id, created_at: 1, updated_at: 2, collective_id: id, employee_id: id, nomenclature_id: id, qty: 1 }).success,
+    ).toBe(true);
   });
 
   it('битая строка (пустое имя нормы, не-uuid ссылка) не проходит', () => {
@@ -50,6 +86,10 @@ describe('PPE: реестр покрывает ровно схему DTO', () =>
     expect(
       ppeIssueEntryRowSchema.safeParse({ id: 'x', created_at: 1, updated_at: 2, card_id: 'x', nomenclature_id: 'x', qty: 1, issued_at: 3, document_id: 'x' })
         .success,
+    ).toBe(false);
+    // Фаза 2: чужой пол/сезон в норме — не строка контракта.
+    expect(
+      ppeNormSetRowSchema.safeParse({ id: '11111111-1111-4111-8111-111111111111', created_at: 1, updated_at: 2, name: 'Норма', valid_from: 3, gender: 'X' }).success,
     ).toBe(false);
   });
 });

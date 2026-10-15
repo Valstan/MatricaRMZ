@@ -41,6 +41,12 @@ import {
   ppeIssueCardRowSchema,
   ppeCardNormRowSchema,
   ppeIssueEntryRowSchema,
+  ppeAbsenceRowSchema,
+  ppeGroupRowSchema,
+  ppeGroupMemberRowSchema,
+  ppeGroupNormRowSchema,
+  ppeCollectiveRowSchema,
+  ppeCollectiveLineRowSchema,
   signatureDefaultRowSchema,
   directoryEngineBrandRowSchema,
 } from './dto.js';
@@ -499,6 +505,9 @@ const PPE_NORM_SET_FIELDS = withBase(
   { db: 'name', dto: 'name' },
   { db: 'postTitle', dto: 'post_title' },
   { db: 'departmentId', dto: 'department_id' },
+  { db: 'gender', dto: 'gender' },
+  { db: 'season', dto: 'season' },
+  { db: 'isDuty', dto: 'is_duty' },
   { db: 'validFrom', dto: 'valid_from' },
   { db: 'validTo', dto: 'valid_to' },
 );
@@ -528,6 +537,40 @@ const PPE_ISSUE_ENTRY_FIELDS = withBase(
   { db: 'qty', dto: 'qty' },
   { db: 'issuedAt', dto: 'issued_at' },
   { db: 'documentId', dto: 'document_id' },
+);
+
+// Кладовщик (СИЗ), фаза 2.
+const PPE_ABSENCE_FIELDS = withBase(
+  { db: 'employeeId', dto: 'employee_id' },
+  { db: 'fromMs', dto: 'from_ms' },
+  { db: 'toMs', dto: 'to_ms' },
+  { db: 'kind', dto: 'kind' },
+);
+
+const PPE_GROUP_FIELDS = withBase({ db: 'name', dto: 'name' });
+
+const PPE_GROUP_MEMBER_FIELDS = withBase(
+  { db: 'groupId', dto: 'group_id' },
+  { db: 'employeeId', dto: 'employee_id' },
+);
+
+const PPE_GROUP_NORM_FIELDS = withBase(
+  { db: 'groupId', dto: 'group_id' },
+  { db: 'normSetId', dto: 'norm_set_id' },
+);
+
+const PPE_COLLECTIVE_FIELDS = withBase(
+  { db: 'departmentId', dto: 'department_id' },
+  { db: 'warehouseId', dto: 'warehouse_id' },
+  { db: 'documentId', dto: 'document_id' },
+  { db: 'distributedAt', dto: 'distributed_at' },
+);
+
+const PPE_COLLECTIVE_LINE_FIELDS = withBase(
+  { db: 'collectiveId', dto: 'collective_id' },
+  { db: 'employeeId', dto: 'employee_id' },
+  { db: 'nomenclatureId', dto: 'nomenclature_id' },
+  { db: 'qty', dto: 'qty' },
 );
 
 // Умолчания подписей (PR-5). withBase добавляет
@@ -846,6 +889,56 @@ const ENTRIES: readonly SyncTableEntry[] = [
     fields: PPE_ISSUE_ENTRY_FIELDS,
     conflictTarget: ['id'],
     dependsOn: [SyncTableName.PpeIssueCards],
+  },
+  // Кладовщик (СИЗ), фаза 2. Порядок холодного full-state: члены и привязки
+  // после групп, строки распределения после шапок коллективов.
+  {
+    syncName: SyncTableName.PpeAbsences,
+    ledgerName: SyncTableName.PpeAbsences,
+    schema: ppeAbsenceRowSchema,
+    fields: PPE_ABSENCE_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [],
+  },
+  {
+    syncName: SyncTableName.PpeGroups,
+    ledgerName: SyncTableName.PpeGroups,
+    schema: ppeGroupRowSchema,
+    fields: PPE_GROUP_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [],
+  },
+  {
+    syncName: SyncTableName.PpeGroupMembers,
+    ledgerName: SyncTableName.PpeGroupMembers,
+    schema: ppeGroupMemberRowSchema,
+    fields: PPE_GROUP_MEMBER_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.PpeGroups],
+  },
+  {
+    syncName: SyncTableName.PpeGroupNorms,
+    ledgerName: SyncTableName.PpeGroupNorms,
+    schema: ppeGroupNormRowSchema,
+    fields: PPE_GROUP_NORM_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.PpeGroups, SyncTableName.PpeNormSets],
+  },
+  {
+    syncName: SyncTableName.PpeCollectives,
+    ledgerName: SyncTableName.PpeCollectives,
+    schema: ppeCollectiveRowSchema,
+    fields: PPE_COLLECTIVE_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [],
+  },
+  {
+    syncName: SyncTableName.PpeCollectiveLines,
+    ledgerName: SyncTableName.PpeCollectiveLines,
+    schema: ppeCollectiveLineRowSchema,
+    fields: PPE_COLLECTIVE_LINE_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.PpeCollectives],
   },
   // Умолчания подписей (план favorites-work-stages-defaults-2026-10, PR-5):
   // ни на что не ссылаются жёстко (сотрудник — uuid без FK), сирот не чистим.

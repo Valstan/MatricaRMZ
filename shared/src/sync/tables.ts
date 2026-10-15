@@ -63,6 +63,15 @@ export const SyncTableName = {
   PpeIssueCards: 'ppe_issue_cards',
   PpeCardNorms: 'ppe_card_norms',
   PpeIssueEntries: 'ppe_issue_entries',
+  // Кладовщик (СИЗ), фаза 2: отпуска, группы, коллективная выдача.
+  // Server-write / pull-only, как MVP: ведут серверные двери + публикатор,
+  // клиент читает реплику.
+  PpeAbsences: 'ppe_absences',
+  PpeGroups: 'ppe_groups',
+  PpeGroupMembers: 'ppe_group_members',
+  PpeGroupNorms: 'ppe_group_norms',
+  PpeCollectives: 'ppe_collectives',
+  PpeCollectiveLines: 'ppe_collective_lines',
   // Умолчания подписей (план favorites-work-stages-defaults-2026-10, PR-5):
   // ключ поля подписи → сотрудник. Server-write / pull-only, как PPE:
   // пишет админская дверь, клиент читает реплику.

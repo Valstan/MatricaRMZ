@@ -99,6 +99,13 @@ const DRIZZLE_TABLE_MAP: Record<SyncTableName, any> = {
   [SyncTableName.PpeIssueCards]: undefined,
   [SyncTableName.PpeCardNorms]: undefined,
   [SyncTableName.PpeIssueEntries]: undefined,
+  // Кладовщик (СИЗ), фаза 2 — pull-only: клиент в них не пишет, чинить нечего.
+  [SyncTableName.PpeAbsences]: undefined,
+  [SyncTableName.PpeGroups]: undefined,
+  [SyncTableName.PpeGroupMembers]: undefined,
+  [SyncTableName.PpeGroupNorms]: undefined,
+  [SyncTableName.PpeCollectives]: undefined,
+  [SyncTableName.PpeCollectiveLines]: undefined,
   // Умолчания подписей (PR-5) — pull-only: клиент в них не пишет, чинить нечего.
   [SyncTableName.SignatureDefaults]: undefined,
 };

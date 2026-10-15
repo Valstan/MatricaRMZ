@@ -2,28 +2,25 @@
 
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
-**Status:** ACTIVE (нитка «Кладовщик» фаза 2: PR-0 готов, ждёт PR)
+**Status:** ACTIVE (нитка «Кладовщик» фаза 2: PR-1 готов, ждёт CI/мерж)
 **Updated:** 2026-10-15 (dev-сессия, машина `PC79`)
-**Branch:** `feat/ppe-phase2-pr0-schema` (от main 03d3ba54)
+**Branch:** `feat/ppe-phase2-pr1-contract-core` (от main 905110b5)
 **Last released version:** **v3.78.0** на проде (+ android-v3.78.0).
 
 ## Текущая нитка
 
-Фаза 2 «Кладовщика» (`docs/plans/ppe-kladovshik-phase2.md`, скоуп утверждён
-владельцем 2026-10-12). PR-0 (схема `0110` + журнал idx 109 + `schema.ts` обеих
-сторон + реплика `0035` + паритет ×3 + guard-тесты + NULL-чинки `documentId`)
-готов в ветке, гейты зелёные (typecheck/lint/checkSyncContract; тесты 1700/1701 —
-единственный красный `clientOpsArchive` висит и на чистом main, 7za `-mcu=on`
-виснет на этой машине, не регресс). Отклонения от плана: номера `0110`/`0035`
-(0108–0109/0034 заняты), индекс `ppe_collectives_department_idx` сверх плана.
-Следующий шаг после мержа: PR-1 (контракт + паблишер + ядро).
+Фаза 2 «Кладовщика» (`docs/plans/ppe-kladovshik-phase2.md`). PR-1 готов в ветке:
+контракт 6 таблиц (tables/registry/dto/ledger/ownership=server/requirement) +
+обновлённые ряды наборов/выдач + паблишер в порядке плана + ядро
+(условия, `shiftByAbsences`, `resolveGroupNorms`) + тесты. Гейты локально зелёные
+(typecheck/lint/checkSyncContract; полный `-r test` exit 0 — 1701 electron,
+1166 backend, 83 shared; `clientOpsArchive` в этот раз зелёный и в пакете).
+Следующий шаг после мержа: PR-2 (сервис+REST: отпуска, группы, импорт preview/apply;
+перед ним показать владельцу список колонок ЗУП §4 на утверждение — риск 1).
 
 ## Следующий шаг
 
-PR #1355 открыт. Дождаться зелёного CI и сделать squash-merge
-(`gh pr merge --squash --delete-branch`), затем PR-1. На 2026-10-15 ~09:05
-api.github.com перестал отвечать с этой машины (TLS handshake timeout,
-push и первый опрос CI до этого проходили) — опросы не долбить, повторить позже.
+Открыть PR ветки `feat/ppe-phase2-pr1-contract-core`, дождаться CI, squash-merge.
 
 ## Контекст
 

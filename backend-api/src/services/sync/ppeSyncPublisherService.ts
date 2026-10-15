@@ -22,7 +22,13 @@ import { ne } from 'drizzle-orm';
 
 import { db } from '../../database/db.js';
 import {
+  ppeAbsences,
   ppeCardNorms,
+  ppeCollectiveLines,
+  ppeCollectives,
+  ppeGroupMembers,
+  ppeGroupNorms,
+  ppeGroups,
   ppeIssueCards,
   ppeIssueEntries,
   ppeNormLines,
@@ -56,6 +62,9 @@ export function toPpeNormSetInput(r: DbRow): SyncWriteInput {
     name: String(r['name']),
     post_title: r['postTitle'] == null ? null : String(r['postTitle']),
     department_id: r['departmentId'] == null ? null : String(r['departmentId']),
+    gender: r['gender'] == null ? null : String(r['gender']),
+    season: r['season'] == null ? null : String(r['season']),
+    is_duty: r['isDuty'] === true,
     valid_from: Number(r['validFrom']),
     valid_to: r['validTo'] == null ? null : Number(r['validTo']),
     created_at: Number(r['createdAt']),
@@ -109,8 +118,81 @@ export function toPpeIssueEntryInput(r: DbRow): SyncWriteInput {
     qty: Number(r['qty']),
     issued_at: Number(r['issuedAt']),
     // document_id nullable с фазы 2 (доввод истории без документа): честный null,
-    // а не мусорная строка "null" — клиентский zod-ряд подтянут в PR-1 (контракт).
+    // а не мусорная строка "null" (zod-ряд контракта принимает null).
     document_id: r['documentId'] == null ? null : String(r['documentId']),
+    created_at: Number(r['createdAt']),
+    updated_at: Number(r['updatedAt']),
+    deleted_at: r['deletedAt'] == null ? null : Number(r['deletedAt']),
+  });
+}
+
+// Фаза 2: отпуска, группы, коллективная выдача. Форма строк — ровно под схемы
+// контракта (проверяет ppePublisher.test.ts через syncRowSchemaByTable).
+export function toPpeAbsenceInput(r: DbRow): SyncWriteInput {
+  return toRowInput(SyncTableName.PpeAbsences, r, {
+    id: String(r['id']),
+    employee_id: String(r['employeeId']),
+    from_ms: Number(r['fromMs']),
+    to_ms: Number(r['toMs']),
+    kind: String(r['kind']),
+    created_at: Number(r['createdAt']),
+    updated_at: Number(r['updatedAt']),
+    deleted_at: r['deletedAt'] == null ? null : Number(r['deletedAt']),
+  });
+}
+
+export function toPpeGroupInput(r: DbRow): SyncWriteInput {
+  return toRowInput(SyncTableName.PpeGroups, r, {
+    id: String(r['id']),
+    name: String(r['name']),
+    created_at: Number(r['createdAt']),
+    updated_at: Number(r['updatedAt']),
+    deleted_at: r['deletedAt'] == null ? null : Number(r['deletedAt']),
+  });
+}
+
+export function toPpeGroupMemberInput(r: DbRow): SyncWriteInput {
+  return toRowInput(SyncTableName.PpeGroupMembers, r, {
+    id: String(r['id']),
+    group_id: String(r['groupId']),
+    employee_id: String(r['employeeId']),
+    created_at: Number(r['createdAt']),
+    updated_at: Number(r['updatedAt']),
+    deleted_at: r['deletedAt'] == null ? null : Number(r['deletedAt']),
+  });
+}
+
+export function toPpeGroupNormInput(r: DbRow): SyncWriteInput {
+  return toRowInput(SyncTableName.PpeGroupNorms, r, {
+    id: String(r['id']),
+    group_id: String(r['groupId']),
+    norm_set_id: String(r['normSetId']),
+    created_at: Number(r['createdAt']),
+    updated_at: Number(r['updatedAt']),
+    deleted_at: r['deletedAt'] == null ? null : Number(r['deletedAt']),
+  });
+}
+
+export function toPpeCollectiveInput(r: DbRow): SyncWriteInput {
+  return toRowInput(SyncTableName.PpeCollectives, r, {
+    id: String(r['id']),
+    department_id: String(r['departmentId']),
+    warehouse_id: String(r['warehouseId']),
+    document_id: r['documentId'] == null ? null : String(r['documentId']),
+    distributed_at: r['distributedAt'] == null ? null : Number(r['distributedAt']),
+    created_at: Number(r['createdAt']),
+    updated_at: Number(r['updatedAt']),
+    deleted_at: r['deletedAt'] == null ? null : Number(r['deletedAt']),
+  });
+}
+
+export function toPpeCollectiveLineInput(r: DbRow): SyncWriteInput {
+  return toRowInput(SyncTableName.PpeCollectiveLines, r, {
+    id: String(r['id']),
+    collective_id: String(r['collectiveId']),
+    employee_id: String(r['employeeId']),
+    nomenclature_id: String(r['nomenclatureId']),
+    qty: Number(r['qty']),
     created_at: Number(r['createdAt']),
     updated_at: Number(r['updatedAt']),
     deleted_at: r['deletedAt'] == null ? null : Number(r['deletedAt']),
@@ -123,6 +205,14 @@ const TABLES_IN_ORDER = [
   { table: ppeNormLines, map: toPpeNormLineInput },
   { table: ppeCardNorms, map: toPpeCardNormInput },
   { table: ppeIssueEntries, map: toPpeIssueEntryInput },
+  // Фаза 2: отпуска и группы ни от кого не зависят; привязки — после групп
+  // и наборов; строки распределения — после шапок коллективов.
+  { table: ppeAbsences, map: toPpeAbsenceInput },
+  { table: ppeGroups, map: toPpeGroupInput },
+  { table: ppeGroupMembers, map: toPpeGroupMemberInput },
+  { table: ppeGroupNorms, map: toPpeGroupNormInput },
+  { table: ppeCollectives, map: toPpeCollectiveInput },
+  { table: ppeCollectiveLines, map: toPpeCollectiveLineInput },
 ] as const;
 
 /** Один проход: опубликовать строки, помеченные `pending`. Возвращает число опубликованных. */
