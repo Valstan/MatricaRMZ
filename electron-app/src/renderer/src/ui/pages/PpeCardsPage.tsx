@@ -18,7 +18,7 @@ type CardDto = {
   openedAt: number;
   closedAt: number | null;
   norms: Array<{ normSetId: string; name: string; assignedAt: number }>;
-  entries: Array<{ id: string; nomenclatureId: string; qty: number; issuedAt: number; documentId: string }>;
+  entries: Array<{ id: string; nomenclatureId: string; qty: number; issuedAt: number; documentId: string | null }>;
 };
 
 type NormOption = { id: string; name: string; postTitle: string | null };

@@ -258,7 +258,7 @@ export async function getPpeCard(args: { cardId?: string; employeeId?: string })
       openedAt: number;
       closedAt: number | null;
       norms: Array<{ normSetId: string; name: string; assignedAt: number }>;
-      entries: Array<{ id: string; nomenclatureId: string; qty: number; issuedAt: number; documentId: string }>;
+      entries: Array<{ id: string; nomenclatureId: string; qty: number; issuedAt: number; documentId: string | null }>;
     };
   }>
 > {
@@ -297,7 +297,9 @@ export async function getPpeCard(args: { cardId?: string; employeeId?: string })
           nomenclatureId: String(v.nomenclatureId),
           qty: Number(v.qty),
           issuedAt: Number(v.issuedAt),
-          documentId: String(v.documentId),
+          // document_id nullable с фазы 2 (доввод истории без документа): String(null)
+          // дал бы мусорную строку "null" — отдаём честный null.
+          documentId: v.documentId == null ? null : String(v.documentId),
         })),
       },
     };
