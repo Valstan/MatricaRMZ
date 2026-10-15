@@ -56,7 +56,7 @@ async function validateNomenclatureIds(ids: string[]): Promise<string | null> {
 }
 
 export async function listPpeNormSets(args: { postTitle?: string; gender?: string; season?: string } = {}): Promise<
-  Result<{ rows: Array<{ id: string; name: string; postTitle: string | null; gender: string | null; season: string | null; isDuty: boolean; validFrom: number; validTo: number | null; linesCount: number }> }>
+  Result<{ rows: Array<{ id: string; name: string; postTitle: string | null; departmentId: string | null; gender: string | null; season: string | null; isDuty: boolean; validFrom: number; validTo: number | null; linesCount: number }> }>
 > {
   try {
     const conditions = [isNull(ppeNormSets.deletedAt)];
@@ -68,6 +68,7 @@ export async function listPpeNormSets(args: { postTitle?: string; gender?: strin
         id: ppeNormSets.id,
         name: ppeNormSets.name,
         postTitle: ppeNormSets.postTitle,
+        departmentId: ppeNormSets.departmentId,
         gender: ppeNormSets.gender,
         season: ppeNormSets.season,
         isDuty: ppeNormSets.isDuty,
@@ -90,6 +91,7 @@ export async function listPpeNormSets(args: { postTitle?: string; gender?: strin
         id: String(s.id),
         name: String(s.name),
         postTitle: s.postTitle == null ? null : String(s.postTitle),
+        departmentId: s.departmentId == null ? null : String(s.departmentId),
         gender: s.gender == null ? null : String(s.gender),
         season: s.season == null ? null : String(s.season),
         isDuty: s.isDuty === true,
@@ -104,7 +106,7 @@ export async function listPpeNormSets(args: { postTitle?: string; gender?: strin
 }
 
 export async function getPpeNormSet(id: string): Promise<
-  Result<{ normSet: { id: string; name: string; postTitle: string | null; gender: string | null; season: string | null; isDuty: boolean; validFrom: number; validTo: number | null; lines: Array<{ id: string; nomenclatureId: string; qty: number; wearMonths: number }> } }>
+  Result<{ normSet: { id: string; name: string; postTitle: string | null; departmentId: string | null; gender: string | null; season: string | null; isDuty: boolean; validFrom: number; validTo: number | null; lines: Array<{ id: string; nomenclatureId: string; qty: number; wearMonths: number }> } }>
 > {
   try {
     const rows = await db.select().from(ppeNormSets).where(and(eq(ppeNormSets.id, id as any), isNull(ppeNormSets.deletedAt))).limit(1);
@@ -120,6 +122,7 @@ export async function getPpeNormSet(id: string): Promise<
         id: String(set.id),
         name: String(set.name),
         postTitle: set.postTitle == null ? null : String(set.postTitle),
+        departmentId: set.departmentId == null ? null : String(set.departmentId),
         gender: set.gender == null ? null : String(set.gender),
         season: set.season == null ? null : String(set.season),
         isDuty: set.isDuty === true,

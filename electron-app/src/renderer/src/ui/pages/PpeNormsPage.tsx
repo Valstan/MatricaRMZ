@@ -10,10 +10,17 @@ import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { SectionCard } from '../components/SectionCard.js';
 
+type PpeGender = 'M' | 'F';
+type PpeSeason = 'winter' | 'summer';
+
 type NormRow = {
   id: string;
   name: string;
   postTitle: string | null;
+  departmentId: string | null;
+  gender: PpeGender | null;
+  season: PpeSeason | null;
+  isDuty: boolean;
   validFrom: number;
   validTo: number | null;
   linesCount: number;
@@ -21,6 +28,9 @@ type NormRow = {
 
 type NormLine = { id: string; nomenclatureId: string; qty: number; wearMonths: number };
 type LineDraft = { nomenclatureId: string | null; qty: string; wearMonths: string };
+
+const GENDER_RU: Record<PpeGender, string> = { M: 'мужской', F: 'женский' };
+const SEASON_RU: Record<PpeSeason, string> = { winter: 'зима', summer: 'лето' };
 
 const ROWNUM_STYLE: React.CSSProperties = { width: '1%', whiteSpace: 'nowrap', textAlign: 'right', color: '#6b7280' };
 
@@ -56,14 +66,20 @@ export function PpeNormsPage(props: { canEdit: boolean }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [postTitle, setPostTitle] = useState('');
+  const [gender, setGender] = useState<PpeGender | ''>('');
+  const [season, setSeason] = useState<PpeSeason | ''>('');
+  const [isDuty, setIsDuty] = useState(false);
+  const [departmentId, setDepartmentId] = useState<string | null>(null);
   const [validFrom, setValidFrom] = useState(toInputDate(Date.now()));
   const [isNew, setIsNew] = useState(false);
   const [lines, setLines] = useState<NormLine[]>([]);
   const [lineDraft, setLineDraft] = useState<LineDraft>(EMPTY_LINE);
   const [nomenclature, setNomenclature] = useState<SearchSelectOption[]>([]);
+  const [departments, setDepartments] = useState<SearchSelectOption[]>([]);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState('');
+  const [seasonFilter, setSeasonFilter] = useState<PpeSeason | ''>('');
 
   const { confirm } = useConfirm();
   const canEdit = props.canEdit;
@@ -111,6 +127,13 @@ export function PpeNormsPage(props: { canEdit: boolean }) {
           })),
         );
       }
+      const deps = await window.matrica.employees.departmentsList().catch(() => []);
+      setDepartments(
+        (Array.isArray(deps) ? deps : []).map((d: any) => ({
+          id: String(d.id),
+          label: String(d.displayName ?? d.id),
+        })),
+      );
     })();
   }, []);
 
@@ -126,6 +149,10 @@ export function PpeNormsPage(props: { canEdit: boolean }) {
     setIsNew(false);
     setName(row.name);
     setPostTitle(row.postTitle ?? '');
+    setGender(row.gender ?? '');
+    setSeason(row.season ?? '');
+    setIsDuty(row.isDuty);
+    setDepartmentId(row.departmentId);
     setValidFrom(toInputDate(row.validFrom));
     setLineDraft(EMPTY_LINE);
     void refreshLines(row.id);
@@ -136,13 +163,29 @@ export function PpeNormsPage(props: { canEdit: boolean }) {
     setIsNew(true);
     setName('');
     setPostTitle('');
+    setGender('');
+    setSeason('');
+    setIsDuty(false);
+    setDepartmentId(null);
     setValidFrom(toInputDate(Date.now()));
     setLines([]);
     setLineDraft(EMPTY_LINE);
   }
 
+  // Условия набора (фаза 2): NULL = подходит всем. Дежурный набор обязан нести
+  // подразделение — выдача дежурных идёт документом на него, без людей.
+  function conditionFields() {
+    return {
+      gender: gender || null,
+      season: season || null,
+      isDuty,
+      departmentId: isDuty ? departmentId : null,
+    };
+  }
+
   async function save() {
     if (!name.trim()) return setStatus('Укажите название набора');
+    if (isDuty && !departmentId) return setStatus('Укажите подразделение дежурного набора');
     const vf = fromInputDate(validFrom);
     if (vf == null) return setStatus('Укажите дату начала действия');
     setBusy(true);
@@ -154,6 +197,7 @@ export function PpeNormsPage(props: { canEdit: boolean }) {
         ...(selectedId ? { id: selectedId } : {}),
         name: name.trim(),
         ...(postTitle.trim() ? { postTitle: postTitle.trim() } : { postTitle: null }),
+        ...conditionFields(),
         validFrom: vf,
         lines: lines.map((l) => ({ nomenclatureId: l.nomenclatureId, qty: l.qty, wearMonths: l.wearMonths })),
       });
@@ -190,6 +234,7 @@ export function PpeNormsPage(props: { canEdit: boolean }) {
         id: selectedId,
         name: name.trim() || (selected?.name ?? 'Набор'),
         ...(postTitle.trim() ? { postTitle: postTitle.trim() } : { postTitle: null }),
+        ...conditionFields(),
         validFrom: fromInputDate(validFrom) ?? Date.now(),
         lines: next,
       });
@@ -221,6 +266,7 @@ export function PpeNormsPage(props: { canEdit: boolean }) {
         id: selectedId,
         name: name.trim() || (selected?.name ?? 'Набор'),
         ...(postTitle.trim() ? { postTitle: postTitle.trim() } : { postTitle: null }),
+        ...conditionFields(),
         validFrom: fromInputDate(validFrom) ?? Date.now(),
         lines: next,
       });
@@ -238,9 +284,10 @@ export function PpeNormsPage(props: { canEdit: boolean }) {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) => `${r.name} ${r.postTitle ?? ''}`.toLowerCase().includes(q));
-  }, [rows, query]);
+    const bySeason = seasonFilter ? rows.filter((r) => r.season === seasonFilter) : rows;
+    if (!q) return bySeason;
+    return bySeason.filter((r) => `${r.name} ${r.postTitle ?? ''}`.toLowerCase().includes(q));
+  }, [rows, query, seasonFilter]);
 
   const canEditLines = canEdit && !!selectedId && !isNew;
 
@@ -249,6 +296,16 @@ export function PpeNormsPage(props: { canEdit: boolean }) {
       <SectionCard title="Наборы норм">
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по названию" style={{ flex: 1 }} />
+          <select
+            value={seasonFilter}
+            onChange={(e) => setSeasonFilter(e.target.value as PpeSeason | '')}
+            style={{ padding: '4px 6px' }}
+            title="Фильтр по сезону"
+          >
+            <option value="">Все сезоны</option>
+            <option value="winter">Зима</option>
+            <option value="summer">Лето</option>
+          </select>
           {canEdit ? (
             <Button variant="primary" onClick={startNew} disabled={busy}>
               + Набор
@@ -279,7 +336,15 @@ export function PpeNormsPage(props: { canEdit: boolean }) {
                     <td>
                       <div>{r.name}</div>
                       <div style={{ color: 'var(--muted)', fontSize: 12 }}>
-                        {[r.postTitle, `с ${fmtDate(r.validFrom)}`].filter(Boolean).join(' · ')}
+                        {[
+                          r.postTitle,
+                          r.isDuty ? 'дежурная' : null,
+                          r.season ? SEASON_RU[r.season] : null,
+                          r.gender ? GENDER_RU[r.gender] : null,
+                          `с ${fmtDate(r.validFrom)}`,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
                       </div>
                     </td>
                     <td style={{ textAlign: 'right' }}>{r.linesCount}</td>
@@ -308,9 +373,50 @@ export function PpeNormsPage(props: { canEdit: boolean }) {
               <FormField label="Должность">
                 <Input value={postTitle} disabled={!canEdit} onChange={(e) => setPostTitle(e.target.value)} placeholder="Слесарь" />
               </FormField>
+              <FormField label="Пол">
+                <select
+                  value={gender}
+                  disabled={!canEdit}
+                  onChange={(e) => setGender(e.target.value as PpeGender | '')}
+                  style={{ width: '100%', padding: '4px 6px' }}
+                >
+                  <option value="">Для всех</option>
+                  <option value="M">Мужской</option>
+                  <option value="F">Женский</option>
+                </select>
+              </FormField>
+              <FormField label="Сезон">
+                <select
+                  value={season}
+                  disabled={!canEdit}
+                  onChange={(e) => setSeason(e.target.value as PpeSeason | '')}
+                  style={{ width: '100%', padding: '4px 6px' }}
+                >
+                  <option value="">Для всех</option>
+                  <option value="winter">Зима</option>
+                  <option value="summer">Лето</option>
+                </select>
+              </FormField>
               <FormField label="Действует с">
                 <Input type="date" value={validFrom} disabled={!canEdit} onChange={(e) => setValidFrom(e.target.value)} />
               </FormField>
+              <FormField label="Дежурный набор">
+                <label style={{ display: 'flex', gap: 8, alignItems: 'center', paddingTop: 4 }}>
+                  <input type="checkbox" checked={isDuty} disabled={!canEdit} onChange={(e) => setIsDuty(e.target.checked)} />
+                  Комплект на участок, без личных следов
+                </label>
+              </FormField>
+              {isDuty ? (
+                <FormField label="Подразделение (получатель дежурных)">
+                  <SearchSelect
+                    value={departmentId}
+                    options={departments}
+                    placeholder="Подразделение"
+                    showAllWhenEmpty
+                    onChange={setDepartmentId}
+                  />
+                </FormField>
+              ) : null}
             </FormGrid>
             {canEdit ? (
               <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>

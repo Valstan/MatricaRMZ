@@ -621,13 +621,16 @@ const matricaApi = {
   },
   ppe: {
     norms: {
-      list: async (args?: { postTitle?: string }) => ipcRenderer.invoke('ppe:norms:list', args),
+      list: async (args?: { postTitle?: string; gender?: 'M' | 'F'; season?: 'winter' | 'summer' }) => ipcRenderer.invoke('ppe:norms:list', args),
       get: async (id: string) => ipcRenderer.invoke('ppe:norms:get', id),
       upsert: async (args: {
         id?: string;
         name: string;
         postTitle?: string | null;
         departmentId?: string | null;
+        gender?: 'M' | 'F' | null;
+        season?: 'winter' | 'summer' | null;
+        isDuty?: boolean;
         validFrom?: number;
         validTo?: number | null;
         lines: Array<{ nomenclatureId: string; qty: number; wearMonths: number }>;
@@ -641,6 +644,42 @@ const matricaApi = {
       close: async (id: string) => ipcRenderer.invoke('ppe:cards:close', id),
       issue: async (args: { cardId: string; warehouseId: string; docNo?: string; lines: Array<{ nomenclatureId: string; qty: number }> }) =>
         ipcRenderer.invoke('ppe:cards:issue', args),
+    },
+    absences: {
+      list: async (args?: { employeeId?: string }) => ipcRenderer.invoke('ppe:absences:list', args),
+      create: async (args: { employeeId: string; fromMs: number; toMs: number; kind?: string }) => ipcRenderer.invoke('ppe:absences:create', args),
+      delete: async (id: string) => ipcRenderer.invoke('ppe:absences:delete', id),
+    },
+    groups: {
+      list: async () => ipcRenderer.invoke('ppe:groups:list'),
+      create: async (args: { name: string }) => ipcRenderer.invoke('ppe:groups:create', args),
+      delete: async (id: string) => ipcRenderer.invoke('ppe:groups:delete', id),
+      members: {
+        get: async (groupId: string) => ipcRenderer.invoke('ppe:groups:members:get', groupId),
+        set: async (args: { groupId: string; employeeIds: string[] }) => ipcRenderer.invoke('ppe:groups:members:set', args),
+      },
+      norms: {
+        get: async (groupId: string) => ipcRenderer.invoke('ppe:groups:norms:get', groupId),
+        set: async (args: { groupId: string; normSetIds: string[] }) => ipcRenderer.invoke('ppe:groups:norms:set', args),
+      },
+    },
+    employees: {
+      normSets: async (employeeId: string) => ipcRenderer.invoke('ppe:employees:normSets', employeeId),
+    },
+    collectives: {
+      list: async (args?: { departmentId?: string }) => ipcRenderer.invoke('ppe:collectives:list', args),
+      get: async (id: string) => ipcRenderer.invoke('ppe:collectives:get', id),
+      open: async (args: { id?: string; departmentId: string; warehouseId: string; lines?: Array<{ employeeId: string; nomenclatureId: string; qty: number }> }) =>
+        ipcRenderer.invoke('ppe:collectives:open', args),
+      distribute: async (args: { collectiveId: string; docNo?: string }) => ipcRenderer.invoke('ppe:collectives:distribute', args),
+      close: async (id: string) => ipcRenderer.invoke('ppe:collectives:close', id),
+    },
+    duty: {
+      issue: async (args: { normSetId: string; warehouseId: string; docNo?: string }) => ipcRenderer.invoke('ppe:duty:issue', args),
+    },
+    import: {
+      preview: async (args: { filename: string; contentBase64: string }) => ipcRenderer.invoke('ppe:import:preview', args),
+      apply: async (args: { previewId: string; contentBase64: string; dryRun?: boolean }) => ipcRenderer.invoke('ppe:import:apply', args),
     },
   },
   signatureDefaults: {

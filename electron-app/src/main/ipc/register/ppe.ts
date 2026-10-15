@@ -25,10 +25,14 @@ function toResult<T>(r: { ok: boolean; status: number; json?: unknown; text?: st
 export function registerPpeIpc(ctx: IpcContext) {
   const base = () => ctx.mgr.getApiBaseUrl();
 
-  ipcMain.handle('ppe:norms:list', async (_e, args?: { postTitle?: string }) => {
+  ipcMain.handle('ppe:norms:list', async (_e, args?: { postTitle?: string; gender?: string; season?: string }) => {
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as Err;
-    const qs = args?.postTitle ? `?postTitle=${encodeURIComponent(args.postTitle)}` : '';
+    const params = new URLSearchParams();
+    if (args?.postTitle) params.set('postTitle', args.postTitle);
+    if (args?.gender) params.set('gender', args.gender);
+    if (args?.season) params.set('season', args.season);
+    const qs = params.size > 0 ? `?${params.toString()}` : '';
     return toResult(await httpAuthed(ctx.sysDb, base(), `/ppe/norms${qs}`, { method: 'GET' }));
   });
 
@@ -47,6 +51,9 @@ export function registerPpeIpc(ctx: IpcContext) {
         name: string;
         postTitle?: string | null;
         departmentId?: string | null;
+        gender?: 'M' | 'F' | null;
+        season?: 'winter' | 'summer' | null;
+        isDuty?: boolean;
         validFrom?: number;
         validTo?: number | null;
         lines: Array<{ nomenclatureId: string; qty: number; wearMonths: number }>;
@@ -129,4 +136,152 @@ export function registerPpeIpc(ctx: IpcContext) {
       );
     },
   );
+
+  // ────────────────────────────────────────────────────────────
+  // Фаза 2: отпуска, группы, коллективная выдача, дежурные, импорт.
+  // Гейты повторяют REST-роуты: чтение — view справочников, правка — edit,
+  // выдача документом — проведение документов.
+  // ────────────────────────────────────────────────────────────
+
+  function postJson(path: string, body: unknown, method: 'POST' | 'PUT' = 'POST') {
+    return httpAuthed(ctx.sysDb, base(), path, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  ipcMain.handle('ppe:absences:list', async (_e, args?: { employeeId?: string }) => {
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as Err;
+    const qs = args?.employeeId ? `?employeeId=${encodeURIComponent(args.employeeId)}` : '';
+    return toResult(await httpAuthed(ctx.sysDb, base(), `/ppe/absences${qs}`, { method: 'GET' }));
+  });
+
+  ipcMain.handle('ppe:absences:create', async (_e, args: { employeeId: string; fromMs: number; toMs: number; kind?: string }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as Err;
+    return toResult(await postJson('/ppe/absences', args));
+  });
+
+  ipcMain.handle('ppe:absences:delete', async (_e, id: string) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as Err;
+    return toResult(await httpAuthed(ctx.sysDb, base(), `/ppe/absences/${encodeURIComponent(String(id || ''))}`, { method: 'DELETE' }));
+  });
+
+  ipcMain.handle('ppe:groups:list', async () => {
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as Err;
+    return toResult(await httpAuthed(ctx.sysDb, base(), '/ppe/groups', { method: 'GET' }));
+  });
+
+  ipcMain.handle('ppe:groups:create', async (_e, args: { name: string }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as Err;
+    return toResult(await postJson('/ppe/groups', args));
+  });
+
+  ipcMain.handle('ppe:groups:delete', async (_e, id: string) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as Err;
+    return toResult(await httpAuthed(ctx.sysDb, base(), `/ppe/groups/${encodeURIComponent(String(id || ''))}`, { method: 'DELETE' }));
+  });
+
+  ipcMain.handle('ppe:groups:members:get', async (_e, groupId: string) => {
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as Err;
+    return toResult(await httpAuthed(ctx.sysDb, base(), `/ppe/groups/${encodeURIComponent(String(groupId || ''))}/members`, { method: 'GET' }));
+  });
+
+  ipcMain.handle('ppe:groups:members:set', async (_e, args: { groupId: string; employeeIds: string[] }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as Err;
+    return toResult(await postJson(`/ppe/groups/${encodeURIComponent(String(args?.groupId || ''))}/members`, { employeeIds: args?.employeeIds ?? [] }, 'PUT'));
+  });
+
+  ipcMain.handle('ppe:groups:norms:get', async (_e, groupId: string) => {
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as Err;
+    return toResult(await httpAuthed(ctx.sysDb, base(), `/ppe/groups/${encodeURIComponent(String(groupId || ''))}/norms`, { method: 'GET' }));
+  });
+
+  ipcMain.handle('ppe:groups:norms:set', async (_e, args: { groupId: string; normSetIds: string[] }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as Err;
+    return toResult(await postJson(`/ppe/groups/${encodeURIComponent(String(args?.groupId || ''))}/norms`, { normSetIds: args?.normSetIds ?? [] }, 'PUT'));
+  });
+
+  ipcMain.handle('ppe:employees:normSets', async (_e, employeeId: string) => {
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as Err;
+    return toResult(await httpAuthed(ctx.sysDb, base(), `/ppe/employees/${encodeURIComponent(String(employeeId || ''))}/norm-sets`, { method: 'GET' }));
+  });
+
+  ipcMain.handle('ppe:collectives:list', async (_e, args?: { departmentId?: string }) => {
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as Err;
+    const qs = args?.departmentId ? `?departmentId=${encodeURIComponent(args.departmentId)}` : '';
+    return toResult(await httpAuthed(ctx.sysDb, base(), `/ppe/collectives${qs}`, { method: 'GET' }));
+  });
+
+  ipcMain.handle('ppe:collectives:get', async (_e, id: string) => {
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as Err;
+    return toResult(await httpAuthed(ctx.sysDb, base(), `/ppe/collectives/${encodeURIComponent(String(id || ''))}`, { method: 'GET' }));
+  });
+
+  ipcMain.handle(
+    'ppe:collectives:open',
+    async (
+      _e,
+      args: { id?: string; departmentId: string; warehouseId: string; lines?: Array<{ employeeId: string; nomenclatureId: string; qty: number }> },
+    ) => {
+      if (isViewMode(ctx)) return viewModeWriteError();
+      const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+      if (!gate.ok) return gate as Err;
+      return toResult(await postJson('/ppe/collectives', args));
+    },
+  );
+
+  ipcMain.handle('ppe:collectives:distribute', async (_e, args: { collectiveId: string; docNo?: string }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'erp.documents.post');
+    if (!gate.ok) return gate as Err;
+    return toResult(await postJson(`/ppe/collectives/${encodeURIComponent(String(args?.collectiveId || ''))}/distribute`, { docNo: args?.docNo }));
+  });
+
+  ipcMain.handle('ppe:collectives:close', async (_e, id: string) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as Err;
+    return toResult(await postJson(`/ppe/collectives/${encodeURIComponent(String(id || ''))}/close`, {}));
+  });
+
+  ipcMain.handle('ppe:duty:issue', async (_e, args: { normSetId: string; warehouseId: string; docNo?: string }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'erp.documents.post');
+    if (!gate.ok) return gate as Err;
+    return toResult(await postJson('/ppe/duty/issue', args));
+  });
+
+  ipcMain.handle('ppe:import:preview', async (_e, args: { filename: string; contentBase64: string }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as Err;
+    return toResult(await postJson('/ppe/import/preview', args));
+  });
+
+  ipcMain.handle('ppe:import:apply', async (_e, args: { previewId: string; contentBase64: string; dryRun?: boolean }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as Err;
+    return toResult(await postJson('/ppe/import/apply', args));
+  });
 }
