@@ -108,7 +108,9 @@ export function toPpeIssueEntryInput(r: DbRow): SyncWriteInput {
     nomenclature_id: String(r['nomenclatureId']),
     qty: Number(r['qty']),
     issued_at: Number(r['issuedAt']),
-    document_id: String(r['documentId']),
+    // document_id nullable с фазы 2 (доввод истории без документа): честный null,
+    // а не мусорная строка "null" — клиентский zod-ряд подтянут в PR-1 (контракт).
+    document_id: r['documentId'] == null ? null : String(r['documentId']),
     created_at: Number(r['createdAt']),
     updated_at: Number(r['updatedAt']),
     deleted_at: r['deletedAt'] == null ? null : Number(r['deletedAt']),

@@ -317,6 +317,9 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
       name text NOT NULL,
       post_title text,
       department_id text,
+      gender text,
+      season text,
+      is_duty integer NOT NULL DEFAULT 0,
       valid_from integer NOT NULL,
       valid_to integer,
       created_at integer NOT NULL,
@@ -365,7 +368,7 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
       nomenclature_id text NOT NULL,
       qty integer NOT NULL,
       issued_at integer NOT NULL,
-      document_id text NOT NULL,
+      document_id text,
       created_at integer NOT NULL,
       updated_at integer NOT NULL,
       last_server_seq integer,
@@ -383,6 +386,83 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     CREATE INDEX IF NOT EXISTS ppe_issue_entries_card_idx ON ppe_issue_entries(card_id, issued_at);
     CREATE INDEX IF NOT EXISTS ppe_issue_entries_nomenclature_idx ON ppe_issue_entries(nomenclature_id, issued_at);
     CREATE INDEX IF NOT EXISTS ppe_issue_entries_document_idx ON ppe_issue_entries(document_id);
+
+    -- Кладовщик, фаза 2 (0110/0035): новые таблицы (зеркало electron-app/migrate.ts).
+    -- Условная доводка долгоживущих БД — JS-блоком после закрытия этого exec.
+    CREATE TABLE IF NOT EXISTS ppe_absences (
+      id text PRIMARY KEY NOT NULL,
+      employee_id text NOT NULL,
+      from_ms integer NOT NULL,
+      to_ms integer NOT NULL,
+      kind text NOT NULL DEFAULT 'vacation',
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS ppe_absences_employee_from_idx ON ppe_absences(employee_id, from_ms);
+    CREATE TABLE IF NOT EXISTS ppe_groups (
+      id text PRIMARY KEY NOT NULL,
+      name text NOT NULL,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE TABLE IF NOT EXISTS ppe_group_members (
+      id text PRIMARY KEY NOT NULL,
+      group_id text NOT NULL,
+      employee_id text NOT NULL,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS ppe_group_members_group_employee_uq ON ppe_group_members(group_id, employee_id) WHERE deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS ppe_group_members_group_idx ON ppe_group_members(group_id);
+    CREATE TABLE IF NOT EXISTS ppe_group_norms (
+      id text PRIMARY KEY NOT NULL,
+      group_id text NOT NULL,
+      norm_set_id text NOT NULL,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS ppe_group_norms_group_set_uq ON ppe_group_norms(group_id, norm_set_id) WHERE deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS ppe_group_norms_group_idx ON ppe_group_norms(group_id);
+    CREATE TABLE IF NOT EXISTS ppe_collectives (
+      id text PRIMARY KEY NOT NULL,
+      department_id text NOT NULL,
+      warehouse_id text NOT NULL,
+      document_id text,
+      distributed_at integer,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS ppe_collectives_department_idx ON ppe_collectives(department_id);
+    CREATE TABLE IF NOT EXISTS ppe_collective_lines (
+      id text PRIMARY KEY NOT NULL,
+      collective_id text NOT NULL,
+      employee_id text NOT NULL,
+      nomenclature_id text NOT NULL,
+      qty integer NOT NULL,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS ppe_collective_lines_collective_idx ON ppe_collective_lines(collective_id);
+    -- Конец блока фазы 2. Условная доводка (ADD COLUMN, снос старого индекса,
+    -- пересборка entries) — JS-блоком после закрытия этого exec.
     CREATE TABLE IF NOT EXISTS signature_defaults (
       id text PRIMARY KEY NOT NULL,
       field_key text NOT NULL,
@@ -396,6 +476,64 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     CREATE UNIQUE INDEX IF NOT EXISTS signature_defaults_field_key_uq ON signature_defaults(field_key) WHERE deleted_at IS NULL;
     CREATE INDEX IF NOT EXISTS signature_defaults_employee_idx ON signature_defaults(employee_id);
   `);
+
+  // Кладовщик, фаза 2 (0110/0035): условная доводка долгоживущих БД
+  // (зеркало electron-app/src/main/database/migrate.ts).
+  if (await hasTable(sqlite, 'ppe_norm_sets')) {
+    const ppeCols = await columnNames('ppe_norm_sets');
+    if (!ppeCols.has('gender')) {
+      await sqlite.exec(`ALTER TABLE ppe_norm_sets ADD COLUMN gender text;`);
+    }
+    if (!ppeCols.has('season')) {
+      await sqlite.exec(`ALTER TABLE ppe_norm_sets ADD COLUMN season text;`);
+    }
+    if (!ppeCols.has('is_duty')) {
+      await sqlite.exec(`ALTER TABLE ppe_norm_sets ADD COLUMN is_duty integer NOT NULL DEFAULT 0;`);
+    }
+    // DROP INDEX IF EXISTS через execSQL бросает, если индекса нет, — проверяем
+    // через sqlite_master (тот же приём, что ниже у engine_version_uq).
+    const oldPostIdx = await sqlite.get(
+      `SELECT 1 AS one FROM sqlite_master WHERE type='index' AND name='ppe_norm_sets_post_idx'`,
+    );
+    if (oldPostIdx) {
+      await sqlite.exec(`DROP INDEX ppe_norm_sets_post_idx;`);
+    }
+    await sqlite.exec(
+      `CREATE INDEX IF NOT EXISTS ppe_norm_sets_post_gender_season_idx ON ppe_norm_sets(post_title, gender, season, valid_from);`,
+    );
+  }
+  // ppe_issue_entries.document_id nullable с 0110 — пересборка тем же составом
+  // колонок (зеркало десктопа; срабатывает один раз).
+  if (await hasTable(sqlite, 'ppe_issue_entries')) {
+    const entryInfo = await sqlite.all<{ name: string; notnull: number }>(`PRAGMA table_info(ppe_issue_entries)`);
+    const entryDocumentCol = entryInfo.find((c) => c.name === 'document_id');
+    if (entryDocumentCol && Number(entryDocumentCol.notnull) === 1) {
+      const entryCols = entryInfo.map((c) => c.name).join(', ');
+      await sqlite.exec(`
+      BEGIN;
+      CREATE TABLE ppe_issue_entries_new (
+        id text PRIMARY KEY NOT NULL,
+        card_id text NOT NULL,
+        nomenclature_id text NOT NULL,
+        qty integer NOT NULL,
+        issued_at integer NOT NULL,
+        document_id text,
+        created_at integer NOT NULL,
+        updated_at integer NOT NULL,
+        last_server_seq integer,
+        deleted_at integer,
+        sync_status text NOT NULL DEFAULT 'synced'
+      );
+      INSERT INTO ppe_issue_entries_new (${entryCols}) SELECT ${entryCols} FROM ppe_issue_entries;
+      DROP TABLE ppe_issue_entries;
+      ALTER TABLE ppe_issue_entries_new RENAME TO ppe_issue_entries;
+      CREATE INDEX IF NOT EXISTS ppe_issue_entries_card_idx ON ppe_issue_entries(card_id, issued_at);
+      CREATE INDEX IF NOT EXISTS ppe_issue_entries_nomenclature_idx ON ppe_issue_entries(nomenclature_id, issued_at);
+      CREATE INDEX IF NOT EXISTS ppe_issue_entries_document_idx ON ppe_issue_entries(document_id);
+      COMMIT;
+      `);
+    }
+  }
 
   // erp_document_lines.nomenclature_id — добавлен через clientSchemaMigrations 3->4.
   if (await hasTable(sqlite, 'erp_document_lines')) {

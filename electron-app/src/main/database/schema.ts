@@ -477,12 +477,16 @@ export const erpEngineCards = sqliteTable('erp_engine_cards', {
 }));
 
 // Кладовщик (СИЗ), MVP: реплики строгих таблиц (миграция 0107).
+// Фаза 2: условия норм + nullable document_id (миграция 0110).
 // Nullability — ровно как сервер, иначе pull уронит checkReplicaStrictness.
 export const ppeNormSets = sqliteTable('ppe_norm_sets', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   postTitle: text('post_title'),
   departmentId: text('department_id'),
+  gender: text('gender'),
+  season: text('season'),
+  isDuty: integer('is_duty').notNull().default(0),
   validFrom: integer('valid_from').notNull(),
   validTo: integer('valid_to'),
   createdAt: integer('created_at').notNull(),
@@ -491,7 +495,7 @@ export const ppeNormSets = sqliteTable('ppe_norm_sets', {
   deletedAt: integer('deleted_at'),
   syncStatus: text('sync_status').notNull().default('synced'),
 }, (t) => ({
-  postIdx: index('ppe_norm_sets_post_idx').on(t.postTitle, t.validFrom),
+  postGenderSeasonIdx: index('ppe_norm_sets_post_gender_season_idx').on(t.postTitle, t.gender, t.season, t.validFrom),
 }));
 
 export const ppeNormLines = sqliteTable('ppe_norm_lines', {
@@ -544,7 +548,7 @@ export const ppeIssueEntries = sqliteTable('ppe_issue_entries', {
   nomenclatureId: text('nomenclature_id').notNull(),
   qty: integer('qty').notNull(),
   issuedAt: integer('issued_at').notNull(),
-  documentId: text('document_id').notNull(),
+  documentId: text('document_id'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
   lastServerSeq: integer('last_server_seq'),

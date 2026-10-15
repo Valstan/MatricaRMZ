@@ -429,6 +429,9 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
       name text NOT NULL,
       post_title text,
       department_id text,
+      gender text,
+      season text,
+      is_duty integer NOT NULL DEFAULT 0,
       valid_from integer NOT NULL,
       valid_to integer,
       created_at integer NOT NULL,
@@ -477,7 +480,7 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
       nomenclature_id text NOT NULL,
       qty integer NOT NULL,
       issued_at integer NOT NULL,
-      document_id text NOT NULL,
+      document_id text,
       created_at integer NOT NULL,
       updated_at integer NOT NULL,
       last_server_seq integer,
@@ -496,6 +499,87 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS ppe_issue_entries_nomenclature_idx ON ppe_issue_entries(nomenclature_id, issued_at);
     CREATE INDEX IF NOT EXISTS ppe_issue_entries_document_idx ON ppe_issue_entries(document_id);
 
+    -- Кладовщик, фаза 2 (0110/0035): новые таблицы. Условия норм — колонками
+    -- gender/season/is_duty прямо в CREATE TABLE ppe_norm_sets выше; долгоживущие
+    -- БД доводятся условным JS-блоком после этого exec (ADD COLUMN под
+    -- PRAGMA-проверкой, снос старого индекса наборов, пересборка entries под
+    -- nullable document_id — SQLite не умеет снимать NOT NULL через ALTER).
+    CREATE TABLE IF NOT EXISTS ppe_absences (
+        id text PRIMARY KEY NOT NULL,
+        employee_id text NOT NULL,
+        from_ms integer NOT NULL,
+        to_ms integer NOT NULL,
+        kind text NOT NULL DEFAULT 'vacation',
+        created_at integer NOT NULL,
+        updated_at integer NOT NULL,
+        last_server_seq integer,
+        deleted_at integer,
+        sync_status text NOT NULL DEFAULT 'synced'
+      );
+      CREATE INDEX IF NOT EXISTS ppe_absences_employee_from_idx ON ppe_absences(employee_id, from_ms);
+      CREATE TABLE IF NOT EXISTS ppe_groups (
+        id text PRIMARY KEY NOT NULL,
+        name text NOT NULL,
+        created_at integer NOT NULL,
+        updated_at integer NOT NULL,
+        last_server_seq integer,
+        deleted_at integer,
+        sync_status text NOT NULL DEFAULT 'synced'
+      );
+      CREATE TABLE IF NOT EXISTS ppe_group_members (
+        id text PRIMARY KEY NOT NULL,
+        group_id text NOT NULL,
+        employee_id text NOT NULL,
+        created_at integer NOT NULL,
+        updated_at integer NOT NULL,
+        last_server_seq integer,
+        deleted_at integer,
+        sync_status text NOT NULL DEFAULT 'synced'
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS ppe_group_members_group_employee_uq ON ppe_group_members(group_id, employee_id) WHERE deleted_at IS NULL;
+      CREATE INDEX IF NOT EXISTS ppe_group_members_group_idx ON ppe_group_members(group_id);
+      CREATE TABLE IF NOT EXISTS ppe_group_norms (
+        id text PRIMARY KEY NOT NULL,
+        group_id text NOT NULL,
+        norm_set_id text NOT NULL,
+        created_at integer NOT NULL,
+        updated_at integer NOT NULL,
+        last_server_seq integer,
+        deleted_at integer,
+        sync_status text NOT NULL DEFAULT 'synced'
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS ppe_group_norms_group_set_uq ON ppe_group_norms(group_id, norm_set_id) WHERE deleted_at IS NULL;
+      CREATE INDEX IF NOT EXISTS ppe_group_norms_group_idx ON ppe_group_norms(group_id);
+      CREATE TABLE IF NOT EXISTS ppe_collectives (
+        id text PRIMARY KEY NOT NULL,
+        department_id text NOT NULL,
+        warehouse_id text NOT NULL,
+        document_id text,
+        distributed_at integer,
+        created_at integer NOT NULL,
+        updated_at integer NOT NULL,
+        last_server_seq integer,
+        deleted_at integer,
+        sync_status text NOT NULL DEFAULT 'synced'
+      );
+      CREATE INDEX IF NOT EXISTS ppe_collectives_department_idx ON ppe_collectives(department_id);
+      CREATE TABLE IF NOT EXISTS ppe_collective_lines (
+        id text PRIMARY KEY NOT NULL,
+        collective_id text NOT NULL,
+        employee_id text NOT NULL,
+        nomenclature_id text NOT NULL,
+        qty integer NOT NULL,
+        created_at integer NOT NULL,
+        updated_at integer NOT NULL,
+        last_server_seq integer,
+        deleted_at integer,
+        sync_status text NOT NULL DEFAULT 'synced'
+      );
+      CREATE INDEX IF NOT EXISTS ppe_collective_lines_collective_idx ON ppe_collective_lines(collective_id);
+    -- Конец блока фазы 2. Условная доводка долгоживущих БД (ADD COLUMN,
+    -- снос старого индекса наборов, пересборка entries) — JS-блоком после
+    -- закрытия этого exec: внутри литерала ей не место.
+
     CREATE TABLE IF NOT EXISTS signature_defaults (
       id text PRIMARY KEY NOT NULL,
       field_key text NOT NULL,
@@ -509,6 +593,71 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     CREATE UNIQUE INDEX IF NOT EXISTS signature_defaults_field_key_uq ON signature_defaults(field_key) WHERE deleted_at IS NULL;
     CREATE INDEX IF NOT EXISTS signature_defaults_employee_idx ON signature_defaults(employee_id);
   `);
+
+  // Кладовщик, фаза 2 (0110/0035): условная доводка долгоживущих БД.
+  // Свежие БД уже в норме (CREATE выше), поэтому каждая ветка под проверкой факта.
+  if (hasTable('ppe_norm_sets')) {
+    const cols = columnNames('ppe_norm_sets');
+    if (!cols.has('gender')) {
+      sqlite.exec(`ALTER TABLE ppe_norm_sets ADD COLUMN gender text;`);
+    }
+    if (!cols.has('season')) {
+      sqlite.exec(`ALTER TABLE ppe_norm_sets ADD COLUMN season text;`);
+    }
+    if (!cols.has('is_duty')) {
+      sqlite.exec(`ALTER TABLE ppe_norm_sets ADD COLUMN is_duty integer NOT NULL DEFAULT 0;`);
+    }
+    // Составной индекс вытесняет старый (post_title, valid_from): снос через
+    // sqlite_master — тот же приём, что у erp_engine_assembly_bom ниже
+    // (голый DROP INDEX IF EXISTS на планшете бросает, см. комментарий там).
+    const oldPostIdx = sqlite.prepare(
+      `SELECT 1 FROM sqlite_master WHERE type='index' AND name='ppe_norm_sets_post_idx'`,
+    ).get();
+    if (oldPostIdx) {
+      sqlite.exec(`DROP INDEX ppe_norm_sets_post_idx;`);
+    }
+    sqlite.exec(
+      `CREATE INDEX IF NOT EXISTS ppe_norm_sets_post_gender_season_idx ON ppe_norm_sets(post_title, gender, season, valid_from);`,
+    );
+  }
+  // ppe_issue_entries.document_id — на сервере nullable с 0110 (доввод истории
+  // без документа), а клиентский drizzle 0033 создал NOT NULL. Живые серверные
+  // строки с NULL валили бы pull (SQLITE_CONSTRAINT_NOTNULL, класс M43).
+  // ALTER не умеет снять NOT NULL → пересборка таблицы тем же составом колонок
+  // (приём erp_engine_assembly_bom выше). Срабатывает один раз: после пересборки
+  // PRAGMA видит nullable и блок пропускается.
+  if (hasTable('ppe_issue_entries')) {
+    const info = sqlite
+      .prepare(`PRAGMA table_info(ppe_issue_entries)`)
+      .all() as Array<{ name: string; notnull: number }>;
+    const documentCol = info.find((c) => c.name === 'document_id');
+    if (documentCol && documentCol.notnull === 1) {
+      const cols = info.map((c) => c.name).join(', ');
+      sqlite.exec(`
+        BEGIN;
+        CREATE TABLE ppe_issue_entries_new (
+          id text PRIMARY KEY NOT NULL,
+          card_id text NOT NULL,
+          nomenclature_id text NOT NULL,
+          qty integer NOT NULL,
+          issued_at integer NOT NULL,
+          document_id text,
+          created_at integer NOT NULL,
+          updated_at integer NOT NULL,
+          last_server_seq integer,
+          deleted_at integer,
+          sync_status text NOT NULL DEFAULT 'synced'
+        );
+        INSERT INTO ppe_issue_entries_new (${cols}) SELECT ${cols} FROM ppe_issue_entries;
+        DROP TABLE ppe_issue_entries;
+        ALTER TABLE ppe_issue_entries_new RENAME TO ppe_issue_entries;
+        CREATE INDEX IF NOT EXISTS ppe_issue_entries_card_idx ON ppe_issue_entries(card_id, issued_at);
+        CREATE INDEX IF NOT EXISTS ppe_issue_entries_nomenclature_idx ON ppe_issue_entries(nomenclature_id, issued_at);
+        CREATE INDEX IF NOT EXISTS ppe_issue_entries_document_idx ON ppe_issue_entries(document_id);
+        COMMIT;
+      `);
+    }
+  }
 
   // chat_rooms — комнаты чата (владелец 08.09.2026). Та же причина дубля, что у таблиц выше:
   // свежая установка идёт мимо версионной цепочки, а холодный full-sync запросит таблицу.

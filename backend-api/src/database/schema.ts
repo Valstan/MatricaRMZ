@@ -2129,7 +2129,8 @@ export const userSettings = pgTable('user_settings', {
   updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
 });
 
-/** Кладовщик (СИЗ), MVP: нормы выдачи, личные карточки, факты выдачи. Миграция 0107. */
+/** Кладовщик (СИЗ), MVP: нормы выдачи, личные карточки, факты выдачи. Миграция 0107.
+ * Фаза 2: условия норм (пол/сезон/дежурные), отпуска, группы, коллективная выдача. Миграция 0110. */
 export const ppeNormSets = pgTable(
   'ppe_norm_sets',
   {
@@ -2137,6 +2138,9 @@ export const ppeNormSets = pgTable(
     name: text('name').notNull(),
     postTitle: text('post_title'),
     departmentId: uuid('department_id'),
+    gender: text('gender'),
+    season: text('season'),
+    isDuty: boolean('is_duty').notNull().default(false),
     validFrom: bigint('valid_from', { mode: 'number' }).notNull(),
     validTo: bigint('valid_to', { mode: 'number' }),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
@@ -2146,7 +2150,7 @@ export const ppeNormSets = pgTable(
     lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
   },
   (t) => ({
-    postIdx: index('ppe_norm_sets_post_idx').on(t.postTitle, t.validFrom),
+    postGenderSeasonIdx: index('ppe_norm_sets_post_gender_season_idx').on(t.postTitle, t.gender, t.season, t.validFrom),
     departmentIdx: index('ppe_norm_sets_department_idx').on(t.departmentId),
   }),
 );
@@ -2238,9 +2242,7 @@ export const ppeIssueEntries = pgTable(
       .references(() => erpNomenclature.id),
     qty: integer('qty').notNull(),
     issuedAt: bigint('issued_at', { mode: 'number' }).notNull(),
-    documentId: uuid('document_id')
-      .notNull()
-      .references(() => erpDocumentHeaders.id),
+    documentId: uuid('document_id').references(() => erpDocumentHeaders.id),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
@@ -2251,6 +2253,131 @@ export const ppeIssueEntries = pgTable(
     cardIdx: index('ppe_issue_entries_card_idx').on(t.cardId, t.issuedAt),
     nomenclatureIdx: index('ppe_issue_entries_nomenclature_idx').on(t.nomenclatureId, t.issuedAt),
     documentIdx: index('ppe_issue_entries_document_idx').on(t.documentId),
+  }),
+);
+
+/** Кладовщик (СИЗ), фаза 2: отпуска (строгая таблица — по ним идёт расчёт),
+ * группы (поперечные подразделениям), коллективная выдача. Миграция 0110. */
+export const ppeAbsences = pgTable(
+  'ppe_absences',
+  {
+    id: uuid('id').primaryKey(),
+    employeeId: uuid('employee_id')
+      .notNull()
+      .references(() => erpEmployeeCards.id),
+    fromMs: bigint('from_ms', { mode: 'number' }).notNull(),
+    toMs: bigint('to_ms', { mode: 'number' }).notNull(),
+    kind: text('kind').notNull().default('vacation'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    employeeFromIdx: index('ppe_absences_employee_from_idx').on(t.employeeId, t.fromMs),
+  }),
+);
+
+export const ppeGroups = pgTable('ppe_groups', {
+  id: uuid('id').primaryKey(),
+  name: text('name').notNull(),
+  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+  deletedAt: bigint('deleted_at', { mode: 'number' }),
+  syncStatus: text('sync_status').notNull().default('synced'),
+  lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+});
+
+export const ppeGroupMembers = pgTable(
+  'ppe_group_members',
+  {
+    id: uuid('id').primaryKey(),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => ppeGroups.id),
+    employeeId: uuid('employee_id')
+      .notNull()
+      .references(() => erpEmployeeCards.id),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    groupEmployeeUq: uniqueIndex('ppe_group_members_group_employee_uq')
+      .on(t.groupId, t.employeeId)
+      .where(sql`${t.deletedAt} is null`),
+    groupIdx: index('ppe_group_members_group_idx').on(t.groupId),
+  }),
+);
+
+export const ppeGroupNorms = pgTable(
+  'ppe_group_norms',
+  {
+    id: uuid('id').primaryKey(),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => ppeGroups.id),
+    normSetId: uuid('norm_set_id')
+      .notNull()
+      .references(() => ppeNormSets.id),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    groupSetUq: uniqueIndex('ppe_group_norms_group_set_uq')
+      .on(t.groupId, t.normSetId)
+      .where(sql`${t.deletedAt} is null`),
+    groupIdx: index('ppe_group_norms_group_idx').on(t.groupId),
+  }),
+);
+
+export const ppeCollectives = pgTable(
+  'ppe_collectives',
+  {
+    id: uuid('id').primaryKey(),
+    departmentId: uuid('department_id').notNull(),
+    warehouseId: uuid('warehouse_id').notNull(),
+    documentId: uuid('document_id'),
+    distributedAt: bigint('distributed_at', { mode: 'number' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    departmentIdx: index('ppe_collectives_department_idx').on(t.departmentId),
+  }),
+);
+
+export const ppeCollectiveLines = pgTable(
+  'ppe_collective_lines',
+  {
+    id: uuid('id').primaryKey(),
+    collectiveId: uuid('collective_id')
+      .notNull()
+      .references(() => ppeCollectives.id),
+    employeeId: uuid('employee_id')
+      .notNull()
+      .references(() => erpEmployeeCards.id),
+    nomenclatureId: uuid('nomenclature_id')
+      .notNull()
+      .references(() => erpNomenclature.id),
+    qty: integer('qty').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    collectiveIdx: index('ppe_collective_lines_collective_idx').on(t.collectiveId),
   }),
 );
 
