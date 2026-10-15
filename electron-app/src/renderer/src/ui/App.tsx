@@ -239,6 +239,9 @@ const SupplyToolMovementsPage = lazyPage('./pages/SupplyToolMovementsPage.tsx', 
 const ServicesPage = lazyPage('./pages/ServicesPage.tsx', 'ServicesPage');
 const ServicePriceOrdersPage = lazyPage('./pages/ServicePriceOrdersPage.tsx', 'ServicePriceOrdersPage');
 const PpeNormsPage = lazyPage('./pages/PpeNormsPage.tsx', 'PpeNormsPage');
+const PpeGroupsPage = lazyPage('./pages/PpeGroupsPage.tsx', 'PpeGroupsPage');
+const PpeCollectivePage = lazyPage('./pages/PpeCollectivePage.tsx', 'PpeCollectivePage');
+const PpeImportPage = lazyPage('./pages/PpeImportPage.tsx', 'PpeImportPage');
 const PpeCardsPage = lazyPage('./pages/PpeCardsPage.tsx', 'PpeCardsPage');
 const PpeStockPage = lazyPage('./pages/PpeStockPage.tsx', 'PpeStockPage');
 const PpeReportsPage = lazyPage('./pages/PpeReportsPage.tsx', 'PpeReportsPage');
@@ -661,6 +664,9 @@ function appTabTitle(tab: string): string {
     ppe_cards: 'Карточки СИЗ',
     ppe_card: 'Карточка выдачи СИЗ',
     ppe_norms: 'Нормы выдачи',
+    ppe_groups: 'Группы',
+    ppe_collective: 'Коллективная выдача',
+    ppe_import: 'Импорт СИЗ',
     ppe_stock: 'Склад СИЗ',
     ppe_reports: 'Отчёты СИЗ',
     nomenclature: 'Номенклатура',
@@ -717,6 +723,9 @@ const MENU_LABELS: Record<MenuTabId, string> = {
   service_price_orders: 'Приказы о ценах',
   ppe_cards: 'Карточки СИЗ',
   ppe_norms: 'Нормы выдачи',
+  ppe_groups: 'Группы',
+  ppe_collective: 'Коллективная выдача',
+  ppe_import: 'Импорт СИЗ',
   ppe_stock: 'Склад СИЗ',
   ppe_reports: 'Отчёты СИЗ',
   nomenclature: 'Номенклатура',
@@ -2928,7 +2937,7 @@ export function App() {
     ...(caps.canViewEmployees ? (['employees'] as const) : []),
     ...(caps.canViewTimesheets ? (['timesheets'] as const) : []),
     ...(caps.canViewMasterData
-      ? (['nomenclature', 'parts_dedupe', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'repair_fund_audit', 'warehouse_analytics', 'engine_assembly_bom', 'repair_norms', 'ppe_cards', 'ppe_norms', 'ppe_stock', 'ppe_reports'] as const)
+      ? (['nomenclature', 'parts_dedupe', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'repair_fund_audit', 'warehouse_analytics', 'engine_assembly_bom', 'repair_norms', 'ppe_cards', 'ppe_norms', 'ppe_groups', 'ppe_collective', 'ppe_import', 'ppe_stock', 'ppe_reports'] as const)
       : []),
     ...(caps.canUseUpdates ? (['changes'] as const) : []),
     ...(authStatus.loggedIn ? (['notes'] as const) : []),
@@ -5847,6 +5856,18 @@ export function App() {
 
         {t === 'ppe_norms' && (
           <PpeNormsPage canEdit={caps.canEditNomenclature} />
+        )}
+
+        {t === 'ppe_groups' && (
+          <PpeGroupsPage canEdit={caps.canEditNomenclature} />
+        )}
+
+        {t === 'ppe_collective' && (
+          <PpeCollectivePage canEdit={caps.canEditNomenclature} canIssue={caps.canPostWarehouseDocs} />
+        )}
+
+        {t === 'ppe_import' && (
+          <PpeImportPage canEdit={caps.canEditNomenclature} />
         )}
 
         {t === 'ppe_cards' && (

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { nextIssueDates, resolveEmployeeNorms, type PpeNextIssue } from '@matricarmz/shared';
+import { addWearMonths, nextIssueDates, resolveEmployeeNorms, PPE_DAY_MS, type PpeNextIssue } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
@@ -23,6 +23,13 @@ type CardDto = {
 
 type NormOption = { id: string; name: string; postTitle: string | null };
 type IssueLine = { nomenclatureId: string; qty: string };
+type AbsenceRow = { id: string; employeeId: string; fromMs: number; toMs: number; kind: string };
+
+const ABSENCE_KIND_RU: Record<string, string> = {
+  vacation: 'отпуск',
+  sick: 'больничный',
+  unpaid: 'без сохранения',
+};
 
 const ROWNUM_STYLE: React.CSSProperties = { width: '1%', whiteSpace: 'nowrap', textAlign: 'right', color: '#6b7280' };
 
@@ -30,6 +37,13 @@ function fmtDate(ms: number | null): string {
   if (ms == null || !Number.isFinite(ms) || ms <= 0) return '—';
   const d = new Date(ms);
   return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+}
+
+function fromInputDate(v: string): number | null {
+  if (!v) return null;
+  const [y, m, d] = v.split('-').map((x) => Number(x));
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
 }
 
 const STATUS_RU: Record<PpeNextIssue['status'], string> = {
@@ -52,6 +66,10 @@ export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
   const [normOptions, setNormOptions] = useState<NormOption[]>([]);
   const [normToAssign, setNormToAssign] = useState<string | null>(null);
   const [normLines, setNormLines] = useState<Array<{ nomenclatureId: string; qty: number; wearMonths: number }>>([]);
+  const [groupNormIds, setGroupNormIds] = useState<string[]>([]);
+  const [absences, setAbsences] = useState<AbsenceRow[]>([]);
+  const [absenceFrom, setAbsenceFrom] = useState('');
+  const [absenceTo, setAbsenceTo] = useState('');
   const [nomNames, setNomNames] = useState<Map<string, string>>(new Map());
   const [warehouses, setWarehouses] = useState<SearchSelectOption[]>([]);
   const [issueOpen, setIssueOpen] = useState(false);
@@ -105,9 +123,17 @@ export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
       return;
     }
     setCard(res.card);
+    const abs = await window.matrica.ppe.absences.list({ employeeId: res.card.employeeId }).catch(() => null);
+    setAbsences(abs?.ok ? abs.rows : []);
+    // Нормы сотрудника = личные привязки + нормы его групп (ядро сливает с дедупом
+    // и минимальным сроком) — групповые строки видны и учитываются здесь же.
+    const resolved = await window.matrica.ppe.employees.normSets(res.card.employeeId).catch(() => null);
+    const groupIds = resolved?.ok ? resolved.group : [];
+    setGroupNormIds(groupIds);
+    const setIds = [...new Set([...res.card.norms.map((n) => n.normSetId), ...groupIds])];
     const allLines: Array<{ nomenclatureId: string; qty: number; wearMonths: number }> = [];
-    for (const n of res.card.norms) {
-      const det = await window.matrica.ppe.norms.get(n.normSetId).catch(() => null);
+    for (const setId of setIds) {
+      const det = await window.matrica.ppe.norms.get(setId).catch(() => null);
       if (det?.ok) allLines.push(...det.normSet.lines);
     }
     setNormLines(allLines);
@@ -122,8 +148,8 @@ export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
         // Уже есть открытая — покажем её вместо ошибки.
         const existing = await window.matrica.ppe.cards.byEmployee(employeeId).catch(() => null);
         if (existing?.ok) {
-          setCard(existing.card);
           setStatus('');
+          await loadCard(existing.card.id);
           return;
         }
         setStatus(`Ошибка: ${res.error}`);
@@ -144,6 +170,8 @@ export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
       if (!res.ok) {
         setStatus(`Карточки нет: ${res.error}`);
         setCard(null);
+        setAbsences([]);
+        setGroupNormIds([]);
         return;
       }
       setCard(res.card);
@@ -193,13 +221,64 @@ export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
     }
   }
 
+  async function addAbsence() {
+    if (!card) return;
+    const fromMs = fromInputDate(absenceFrom);
+    const toMs = fromInputDate(absenceTo);
+    if (fromMs == null || toMs == null) return setStatus('Заполните период отпуска: с и по');
+    if (toMs <= fromMs) return setStatus('Дата «По» должна быть позже даты «С»');
+    setBusy(true);
+    try {
+      const res = await window.matrica.ppe.absences.create({ employeeId: card.employeeId, fromMs, toMs });
+      if (!res.ok) {
+        setStatus(`Ошибка: ${res.error}`);
+        return;
+      }
+      setAbsenceFrom('');
+      setAbsenceTo('');
+      setStatus('Отпуск добавлен — сроки носки сдвинуты');
+      await loadCard(card.id);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeAbsence(row: AbsenceRow) {
+    if (!card) return;
+    const ok = await confirm({
+      title: 'Убрать отпуск?',
+      detail: `${fmtDate(row.fromMs)} — ${fmtDate(row.toMs)} (${ABSENCE_KIND_RU[row.kind] ?? row.kind}). Сроки вернутся назад.`,
+      confirmLabel: 'Убрать',
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const res = await window.matrica.ppe.absences.delete(row.id);
+      if (!res.ok) {
+        setStatus(`Ошибка: ${res.error}`);
+        return;
+      }
+      setStatus('Отпуск убран');
+      await loadCard(card.id);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const merged = useMemo(
     () => resolveEmployeeNorms(normLines.map((l) => ({ normSetId: '', nomenclatureId: l.nomenclatureId, qty: l.qty, wearMonths: l.wearMonths }))),
     [normLines],
   );
   const upcoming = useMemo(
-    () => nextIssueDates(merged, card?.entries ?? [], Date.now()),
-    [merged, card],
+    () =>
+      nextIssueDates(
+        merged,
+        card?.entries ?? [],
+        Date.now(),
+        undefined,
+        absences.map((a) => ({ fromMs: a.fromMs, toMs: a.toMs })),
+      ),
+    [merged, card, absences],
   );
 
   async function doIssue() {
@@ -239,6 +318,9 @@ export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
   }, [employees, query]);
 
   const closed = card?.closedAt != null;
+  const personalNormIds = new Set((card?.norms ?? []).map((n) => n.normSetId));
+  const groupOnlyNormIds = groupNormIds.filter((id) => !personalNormIds.has(id));
+  const hasAnyNorms = (card?.norms.length ?? 0) + groupOnlyNormIds.length > 0;
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 380px) 1fr', gap: 16, alignItems: 'start' }}>
@@ -273,7 +355,7 @@ export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
           <>
             <SectionCard title={`Карточка: ${empName(card.employeeId)}${closed ? ' (закрыта)' : ''}`}>
               <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>Открыта {fmtDate(card.openedAt)}</div>
-              {card.norms.length === 0 ? (
+              {!hasAnyNorms ? (
                 <div style={{ color: 'var(--muted)' }}>Нормы не назначены.</div>
               ) : (
                 <table className="table" style={{ width: '100%' }}>
@@ -290,6 +372,16 @@ export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
                         <RowNumberCell n={i + 1} style={ROWNUM_STYLE} />
                         <td>{n.name}</td>
                         <td>{fmtDate(n.assignedAt)}</td>
+                      </tr>
+                    ))}
+                    {groupOnlyNormIds.map((id, gi) => (
+                      <tr key={id}>
+                        <RowNumberCell n={card.norms.length + gi + 1} style={ROWNUM_STYLE} />
+                        <td>
+                          {normOptions.find((o) => o.id === id)?.name ?? id}
+                          <span style={{ color: 'var(--muted)', fontSize: 12 }}> · от группы</span>
+                        </td>
+                        <td>—</td>
                       </tr>
                     ))}
                   </tbody>
@@ -345,7 +437,17 @@ export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
                         <td>{nomName(u.nomenclatureId)}</td>
                         <td style={{ textAlign: 'right' }}>{u.qty}</td>
                         <td>{fmtDate(u.lastIssuedAt)}</td>
-                        <td>{fmtDate(u.nextDueAt)}</td>
+                        <td>
+                          {fmtDate(u.nextDueAt)}
+                          {u.lastIssuedAt != null && u.nextDueAt != null
+                            ? (() => {
+                                const days = Math.round((u.nextDueAt - addWearMonths(u.lastIssuedAt, u.wearMonths)) / PPE_DAY_MS);
+                                return days > 0 ? (
+                                  <div style={{ color: 'var(--muted)', fontSize: 12 }}>+{days} дн. отпуск</div>
+                                ) : null;
+                              })()
+                            : null}
+                        </td>
                         <td>{STATUS_RU[u.status]}</td>
                       </tr>
                     ))}
@@ -356,6 +458,54 @@ export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
                 <div style={{ marginTop: 8 }}>
                   <Button variant="primary" onClick={() => setIssueOpen(true)} disabled={busy}>
                     Выдать СИЗ
+                  </Button>
+                </div>
+              ) : null}
+            </SectionCard>
+
+            <SectionCard title="Отпуска (сдвигают сроки носки)">
+              {absences.length === 0 ? (
+                <div style={{ color: 'var(--muted)' }}>Отпусков нет.</div>
+              ) : (
+                <table className="table" style={{ width: '100%' }}>
+                  <thead>
+                    <tr>
+                      <RowNumberHeaderCell style={ROWNUM_STYLE} />
+                      <th>Период</th>
+                      <th>Вид</th>
+                      {canEdit && !closed ? <th /> : null}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...absences].sort((a, b) => b.fromMs - a.fromMs).map((a, i) => (
+                      <tr key={a.id}>
+                        <RowNumberCell n={i + 1} style={ROWNUM_STYLE} />
+                        <td>
+                          {fmtDate(a.fromMs)} — {fmtDate(a.toMs)}
+                        </td>
+                        <td>{ABSENCE_KIND_RU[a.kind] ?? a.kind}</td>
+                        {canEdit && !closed ? (
+                          <td style={{ textAlign: 'right' }}>
+                            <Button variant="ghost" onClick={() => void removeAbsence(a)} disabled={busy}>
+                              Убрать
+                            </Button>
+                          </td>
+                        ) : null}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {canEdit && !closed ? (
+                <div style={{ display: 'grid', gridTemplateColumns: '160px 160px auto', gap: 8, alignItems: 'end', marginTop: 8 }}>
+                  <FormField label="С">
+                    <Input type="date" value={absenceFrom} onChange={(e) => setAbsenceFrom(e.target.value)} />
+                  </FormField>
+                  <FormField label="По">
+                    <Input type="date" value={absenceTo} onChange={(e) => setAbsenceTo(e.target.value)} />
+                  </FormField>
+                  <Button variant="primary" onClick={() => void addAbsence()} disabled={busy}>
+                    Добавить отпуск
                   </Button>
                 </div>
               ) : null}

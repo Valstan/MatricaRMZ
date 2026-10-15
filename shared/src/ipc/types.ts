@@ -2305,11 +2305,25 @@ export type MatricaApi = {
     };
     current: (nomenclatureId: string) => Promise<{ ok: true; row: ServicePriceHistoryDto | null } | { ok: false; error: string }>;
   };
-  /** Кладовщик (СИЗ): нормы и карточки живут только на сервере (REST `/ppe/*`). */
+  /** Кладовщик (СИЗ): нормы, карточки, группы, отпуска, коллективные — только на сервере (REST `/ppe/*`). */
   ppe: {
     norms: {
-      list: (args?: { postTitle?: string }) => Promise<
-        | { ok: true; rows: Array<{ id: string; name: string; postTitle: string | null; validFrom: number; validTo: number | null; linesCount: number }> }
+      list: (args?: { postTitle?: string; gender?: 'M' | 'F'; season?: 'winter' | 'summer' }) => Promise<
+        | {
+            ok: true;
+            rows: Array<{
+              id: string;
+              name: string;
+              postTitle: string | null;
+              departmentId: string | null;
+              gender: 'M' | 'F' | null;
+              season: 'winter' | 'summer' | null;
+              isDuty: boolean;
+              validFrom: number;
+              validTo: number | null;
+              linesCount: number;
+            }>;
+          }
         | { ok: false; error: string }
       >;
       get: (id: string) => Promise<
@@ -2319,6 +2333,10 @@ export type MatricaApi = {
               id: string;
               name: string;
               postTitle: string | null;
+              departmentId: string | null;
+              gender: 'M' | 'F' | null;
+              season: 'winter' | 'summer' | null;
+              isDuty: boolean;
               validFrom: number;
               validTo: number | null;
               lines: Array<{ id: string; nomenclatureId: string; qty: number; wearMonths: number }>;
@@ -2331,6 +2349,9 @@ export type MatricaApi = {
         name: string;
         postTitle?: string | null;
         departmentId?: string | null;
+        gender?: 'M' | 'F' | null;
+        season?: 'winter' | 'summer' | null;
+        isDuty?: boolean;
         validFrom?: number;
         validTo?: number | null;
         lines: Array<{ nomenclatureId: string; qty: number; wearMonths: number }>;
@@ -2370,6 +2391,128 @@ export type MatricaApi = {
       close: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
       issue: (args: { cardId: string; warehouseId: string; docNo?: string; lines: Array<{ nomenclatureId: string; qty: number }> }) => Promise<
         { ok: true; documentId: string; entries: number } | { ok: false; error: string }
+      >;
+    };
+    /** Отпуска сотрудника (фаза 2): источник сдвига сроков носки. */
+    absences: {
+      list: (args?: { employeeId?: string }) => Promise<
+        { ok: true; rows: Array<{ id: string; employeeId: string; fromMs: number; toMs: number; kind: string }> } | { ok: false; error: string }
+      >;
+      create: (args: { employeeId: string; fromMs: number; toMs: number; kind?: string }) => Promise<
+        { ok: true; id: string } | { ok: false; error: string }
+      >;
+      delete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    };
+    /** Группы должностей (фаза 2): нормы группы транзитивно видны её людям. */
+    groups: {
+      list: () => Promise<
+        { ok: true; rows: Array<{ id: string; name: string; membersCount: number; normsCount: number }> } | { ok: false; error: string }
+      >;
+      create: (args: { name: string }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+      delete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+      members: {
+        get: (groupId: string) => Promise<{ ok: true; employeeIds: string[] } | { ok: false; error: string }>;
+        set: (args: { groupId: string; employeeIds: string[] }) => Promise<{ ok: true; members: number } | { ok: false; error: string }>;
+      };
+      norms: {
+        get: (groupId: string) => Promise<{ ok: true; normSetIds: string[] } | { ok: false; error: string }>;
+        set: (args: { groupId: string; normSetIds: string[] }) => Promise<{ ok: true; norms: number } | { ok: false; error: string }>;
+      };
+    };
+    /** Нормы сотрудника на сервере: личные и от групп (для показа «от группы»). */
+    employees: {
+      normSets: (employeeId: string) => Promise<{ ok: true; personal: string[]; group: string[] } | { ok: false; error: string }>;
+    };
+    /** Коллективная выдача (PR-3): черновик → распределение. */
+    collectives: {
+      list: (args?: { departmentId?: string }) => Promise<
+        | {
+            ok: true;
+            rows: Array<{
+              id: string;
+              departmentId: string;
+              warehouseId: string;
+              documentId: string | null;
+              distributedAt: number | null;
+              linesCount: number;
+              employeesCount: number;
+            }>;
+          }
+        | { ok: false; error: string }
+      >;
+      get: (id: string) => Promise<
+        | {
+            ok: true;
+            collective: {
+              id: string;
+              departmentId: string;
+              warehouseId: string;
+              documentId: string | null;
+              distributedAt: number | null;
+              lines: Array<{ id: string; employeeId: string; nomenclatureId: string; qty: number }>;
+            };
+          }
+        | { ok: false; error: string }
+      >;
+      open: (args: {
+        id?: string;
+        departmentId: string;
+        warehouseId: string;
+        lines?: Array<{ employeeId: string; nomenclatureId: string; qty: number }>;
+      }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+      distribute: (args: { collectiveId: string; docNo?: string }) => Promise<
+        | { ok: true; documentId: string; entries: number; employees: number; alreadyDistributed: boolean }
+        | { ok: false; error: string }
+      >;
+      close: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    };
+    /** Дежурные СИЗ: документ на подразделение набора, без персональных следов. */
+    duty: {
+      issue: (args: { normSetId: string; warehouseId: string; docNo?: string }) => Promise<
+        { ok: true; documentId: string } | { ok: false; error: string }
+      >;
+    };
+    /** Импорт Excel/1С (фаза 2): preview → apply; файл едет base64 внутри JSON. */
+    import: {
+      preview: (args: { filename: string; contentBase64: string }) => Promise<
+        | {
+            ok: true;
+            previewId: string;
+            expiresAt: number;
+            sheets: { employees: string | null; issues: string | null };
+            preview: {
+              rows: Array<{
+                line: number;
+                sheet: string;
+                kind: 'employee' | 'department' | 'absence' | 'issue';
+                action: 'create' | 'update' | 'match' | 'exists' | 'conflict';
+                ref: string;
+                warnings: string[];
+                error?: string;
+              }>;
+              summary: {
+                employees: { create: number; update: number; match: number; conflict: number };
+                departments: { create: number; match: number };
+                absences: { create: number; skip: number; conflict: number };
+                issues: { create: number; skip: number; conflict: number };
+              };
+            };
+          }
+        | { ok: false; error: string }
+      >;
+      apply: (args: { previewId: string; contentBase64: string; dryRun?: boolean }) => Promise<
+        | {
+            ok: true;
+            report: {
+              dryRun: boolean;
+              employees: { created: string[]; updated: string[]; matched: number };
+              departments: { created: string[]; matched: number };
+              absences: { created: number; skipped: number };
+              cards: { opened: number };
+              entries: { created: number; skipped: number };
+            };
+          }
+        | { ok: false; error: string }
       >;
     };
   };

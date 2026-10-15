@@ -96,9 +96,12 @@ export const ACCESS_SECTION_CATALOG: readonly AccessSectionMeta[] = [
       'stock_inventory',
       'repair_fund_audit',
       'warehouse_analytics',
-      // Кладовщик (СИЗ), MVP: инструмент кладовщика, доступ — складской.
+      // Кладовщик (СИЗ): инструмент кладовщика, доступ — складской.
       'ppe_cards',
       'ppe_norms',
+      'ppe_groups',
+      'ppe_collective',
+      'ppe_import',
       'ppe_stock',
       'ppe_reports',
     ],
