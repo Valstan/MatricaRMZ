@@ -20,7 +20,10 @@
 
 ## Следующий шаг
 
-Открыть PR ветки `feat/ppe-phase2-pr0-schema`, дождаться CI, squash-merge.
+PR #1355 открыт. Дождаться зелёного CI и сделать squash-merge
+(`gh pr merge --squash --delete-branch`), затем PR-1. На 2026-10-15 ~09:05
+api.github.com перестал отвечать с этой машины (TLS handshake timeout,
+push и первый опрос CI до этого проходили) — опросы не долбить, повторить позже.
 
 ## Контекст
 
