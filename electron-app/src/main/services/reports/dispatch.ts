@@ -22,7 +22,19 @@ import { buildEmployeesRosterReport, buildOrganizationStructureReport, buildTool
 import { buildEngineFlowByCounterpartyReport } from './presets/engineFlowByCounterparty.js';
 import { buildAssemblyForecast7dReport } from './presets/assemblyForecast.js';
 import { buildContractPaymentsMatrixReport, buildPaymentsOverviewReport } from './presets/payments.js';
-import { buildPpeBySizeReport, buildPpeStockListReport, buildPpeSummarySheetReport, buildPpeUnissuedReport } from './presets/ppe.js';
+import {
+  buildPpeAnnualNeedReport,
+  buildPpeBySizeReport,
+  buildPpeCoverageReport,
+  buildPpeIssuedReport,
+  buildPpeOperationsReport,
+  buildPpeRecipientsReport,
+  buildPpeRequestSheetReport,
+  buildPpeStockListReport,
+  buildPpeSummarySheetReport,
+  buildPpeUnissuedReport,
+  buildPpeWriteoffsReport,
+} from './presets/ppe.js';
 import { app } from 'electron';
 
 import { appendMainLogLine } from '../../utils/logger.js';
@@ -132,6 +144,20 @@ async function dispatchReportPreset(
         return buildPpeUnissuedReport(db, args.filters);
       case 'ppe_stock_list':
         return buildPpeStockListReport(db, args.filters, ctx);
+      case 'ppe_request_sheet':
+        return buildPpeRequestSheetReport(db, args.filters);
+      case 'ppe_issued':
+        return buildPpeIssuedReport(db, args.filters);
+      case 'ppe_writeoffs':
+        return buildPpeWriteoffsReport(db, args.filters, ctx);
+      case 'ppe_operations':
+        return buildPpeOperationsReport(db, args.filters, ctx);
+      case 'ppe_recipients':
+        return buildPpeRecipientsReport(db, args.filters);
+      case 'ppe_coverage':
+        return buildPpeCoverageReport(db, args.filters);
+      case 'ppe_annual_need':
+        return buildPpeAnnualNeedReport(db, args.filters);
       case 'engines_now_at_plant':
         // Отчёт-список (`presentation: 'list'`): строится на экране из каталога двигателей
         // приложения, сервис его не собирает. Сюда попадают только старые ярлыки/CSV-пути.

@@ -45,7 +45,14 @@ export type ReportPresetId =
   | 'ppe_summary_sheet'
   | 'ppe_by_size'
   | 'ppe_unissued'
-  | 'ppe_stock_list';
+  | 'ppe_stock_list'
+  | 'ppe_request_sheet'
+  | 'ppe_issued'
+  | 'ppe_writeoffs'
+  | 'ppe_operations'
+  | 'ppe_recipients'
+  | 'ppe_coverage'
+  | 'ppe_annual_need';
 
 export type ReportFilterOption = {
   value: string;
@@ -373,6 +380,13 @@ export const REPORT_PRESET_THEMES: Record<ReportPresetId, readonly [ReportThemeI
   ppe_by_size: ['warehouse', 'catalogs'],
   ppe_unissued: ['warehouse', 'catalogs'],
   ppe_stock_list: ['warehouse'],
+  ppe_request_sheet: ['supply', 'warehouse'],
+  ppe_issued: ['warehouse', 'catalogs'],
+  ppe_writeoffs: ['warehouse'],
+  ppe_operations: ['warehouse'],
+  ppe_recipients: ['warehouse', 'catalogs'],
+  ppe_coverage: ['warehouse', 'catalogs'],
+  ppe_annual_need: ['supply', 'warehouse'],
 };
 
 export function reportPresetThemes(presetId: ReportPresetId): readonly ReportThemeId[] {
@@ -1879,6 +1893,124 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'warehouse', label: 'Склад' },
       { key: 'qty', label: 'Остаток', kind: 'number', align: 'right' },
       { key: 'reservedQty', label: 'Резерв', kind: 'number', align: 'right' },
+    ],
+  },
+  {
+    id: 'ppe_request_sheet',
+    title: 'Заявка на СИЗ',
+    description: 'Что и сколько закупить на ближайшие 90 дней: потребность по нормам минус остатки. Сумма — только там, где у позиции известна цена.',
+    filters: [
+      { type: 'text', key: 'nameQuery', label: 'Позиция', placeholder: 'часть названия' },
+      { type: 'multi_select', key: 'warehouseIds', label: 'Склады учёта остатков (пусто = все)', optionsSource: 'warehouses' },
+    ],
+    columns: [
+      { key: 'nomenclature', label: 'Позиция СИЗ' },
+      { key: 'needQty', label: 'Нужно (шт)', kind: 'number', align: 'right' },
+      { key: 'stockQty', label: 'На складе (шт)', kind: 'number', align: 'right' },
+      { key: 'deficitQty', label: 'Дефицит (шт)', kind: 'number', align: 'right' },
+      { key: 'priceRub', label: 'Цена, руб', kind: 'number', align: 'right' },
+      { key: 'amountRub', label: 'Сумма, руб', kind: 'number', align: 'right' },
+    ],
+  },
+  {
+    id: 'ppe_issued',
+    title: 'По выданному СИЗ',
+    description: 'Каждая выдача СИЗ за период: кому, что, сколько и по какому документу.',
+    filters: [
+      { type: 'date_range', key: 'period', label: 'Период выдачи', startKey: 'startMs', endKey: 'endMs', unboundedByDefault: true },
+      { type: 'text', key: 'nameQuery', label: 'Сотрудник или позиция', placeholder: 'часть имени или названия' },
+      { type: 'multi_select', key: 'employeeIds', label: 'Сотрудники (пусто = все)', optionsSource: 'employees' },
+    ],
+    columns: [
+      { key: 'issuedAt', label: 'Дата выдачи', kind: 'date' },
+      { key: 'employee', label: 'Сотрудник' },
+      { key: 'nomenclature', label: 'Позиция СИЗ' },
+      { key: 'qty', label: 'Кол-во', kind: 'number', align: 'right' },
+      { key: 'documentNo', label: 'Документ' },
+    ],
+  },
+  {
+    id: 'ppe_writeoffs',
+    title: 'Списания СИЗ',
+    description: 'Списания спецодежды за период; сторно показано со знаком минус, итог — чистое списание.',
+    filters: [
+      { type: 'date_range', key: 'period', label: 'Период', startKey: 'startMs', endKey: 'endMs', unboundedByDefault: true },
+      { type: 'multi_select', key: 'warehouseIds', label: 'Склады (пусто = все)', optionsSource: 'warehouses' },
+      { type: 'text', key: 'nameQuery', label: 'Позиция', placeholder: 'часть названия' },
+    ],
+    columns: [
+      { key: 'performedAt', label: 'Дата', kind: 'date' },
+      { key: 'operation', label: 'Операция' },
+      { key: 'warehouse', label: 'Склад' },
+      { key: 'nomenclature', label: 'Позиция СИЗ' },
+      { key: 'qty', label: 'Кол-во', kind: 'number', align: 'right' },
+      { key: 'documentNo', label: 'Документ' },
+      { key: 'reason', label: 'Причина' },
+    ],
+  },
+  {
+    id: 'ppe_operations',
+    title: 'Складские операции СИЗ',
+    description: 'Все движения по номенклатуре спецодежды: приход, выдача, списание, перемещения — с документом и направлением.',
+    filters: [
+      { type: 'date_range', key: 'period', label: 'Период', startKey: 'startMs', endKey: 'endMs', unboundedByDefault: true },
+      { type: 'multi_select', key: 'warehouseIds', label: 'Склады (пусто = все)', optionsSource: 'warehouses' },
+      { type: 'text', key: 'nameQuery', label: 'Позиция', placeholder: 'часть названия' },
+    ],
+    columns: [
+      { key: 'performedAt', label: 'Дата', kind: 'date' },
+      { key: 'operation', label: 'Операция' },
+      { key: 'direction', label: 'Направление' },
+      { key: 'warehouse', label: 'Склад' },
+      { key: 'nomenclature', label: 'Позиция СИЗ' },
+      { key: 'qty', label: 'Кол-во', kind: 'number', align: 'right' },
+      { key: 'documentNo', label: 'Документ' },
+    ],
+  },
+  {
+    id: 'ppe_recipients',
+    title: 'Получившие СИЗ за период',
+    description: 'Сотрудники, которым выдавали СИЗ в выбранном периоде: сколько выдач, позиций и штук.',
+    filters: [
+      { type: 'date_range', key: 'period', label: 'Период выдачи', startKey: 'startMs', endKey: 'endMs', unboundedByDefault: true },
+      { type: 'text', key: 'nameQuery', label: 'Сотрудник', placeholder: 'часть имени' },
+    ],
+    columns: [
+      { key: 'employee', label: 'Сотрудник' },
+      { key: 'entriesCount', label: 'Выдач', kind: 'number', align: 'right' },
+      { key: 'nomenclaturesCount', label: 'Позиций', kind: 'number', align: 'right' },
+      { key: 'totalQty', label: 'Всего (шт)', kind: 'number', align: 'right' },
+    ],
+  },
+  {
+    id: 'ppe_coverage',
+    title: 'Обеспеченность СИЗ',
+    description: 'Формула: сотрудник обеспечен, если по всем позициям его норм есть выдача в срок (нет просроченных и ни разу не выданных). Обеспеченность — доля таких среди сотрудников с карточками.',
+    filters: [
+      { type: 'text', key: 'nameQuery', label: 'Сотрудник', placeholder: 'часть имени' },
+    ],
+    columns: [
+      { key: 'employee', label: 'Сотрудник' },
+      { key: 'normPositions', label: 'Позиций в норме', kind: 'number', align: 'right' },
+      { key: 'inTimeCount', label: 'В сроке', kind: 'number', align: 'right' },
+      { key: 'overdueCount', label: 'Просрочено', kind: 'number', align: 'right' },
+      { key: 'state', label: 'Состояние' },
+    ],
+  },
+  {
+    id: 'ppe_annual_need',
+    title: 'Среднегодовая потребность в СИЗ',
+    description: 'Потребность в год из норм: норма × 12 / срок носки, по каждому сотруднику. Считается из норм, а не из истории выдач.',
+    filters: [
+      { type: 'text', key: 'nameQuery', label: 'Позиция', placeholder: 'часть названия' },
+    ],
+    columns: [
+      { key: 'nomenclature', label: 'Позиция СИЗ' },
+      { key: 'employeesCount', label: 'Сотрудников', kind: 'number', align: 'right' },
+      { key: 'perEmployeeQty', label: 'В год на человека (шт)', kind: 'number', align: 'right' },
+      { key: 'annualQty', label: 'Итого в год (шт)', kind: 'number', align: 'right' },
+      { key: 'priceRub', label: 'Цена, руб', kind: 'number', align: 'right' },
+      { key: 'annualAmountRub', label: 'Сумма в год, руб', kind: 'number', align: 'right' },
     ],
   },
 ];

@@ -74,7 +74,13 @@ import {
   erpRegStockBalance,
   erpRegStockMovements,
   operations,
+  ppeAbsences,
   ppeCardNorms,
+  ppeCollectiveLines,
+  ppeCollectives,
+  ppeGroupMembers,
+  ppeGroupNorms,
+  ppeGroups,
   ppeIssueCards,
   ppeIssueEntries,
   ppeNormLines,
@@ -126,6 +132,9 @@ const ID = {
   ppeNomBase: 'e5bb0000-0000-4000-8000-000000000011',
   ppeNomSize: 'e5bb0000-0000-4000-8000-000000000012',
   ppeNormSet: 'aa770000-0000-4000-8000-000000000001',
+  ppeGroupNormSet: 'aa770000-0000-4000-8000-000000000002',
+  ppeGroup: 'aa770000-0000-4000-8000-000000000003',
+  ppeCollective: 'aa770000-0000-4000-8000-000000000004',
   ppeCard: '9c880000-0000-4000-8000-000000000001',
   ppeEmployee: 'ee550000-0000-4000-8000-000000000007',
   /** Сотрудника с таким id в реплике нет — висячая ссылка в карточке СИЗ. */
@@ -196,6 +205,7 @@ function eavRows(shape: FixtureShape) {
     'product',
     'part',
     'part_engine_brand',
+    'nomenclature',
   ].map((code) => ({ id: `T_${code}`, code }));
 
   const entityRows: Row[] = [
@@ -213,6 +223,9 @@ function eavRows(shape: FixtureShape) {
     { id: ID.product, typeId: 'T_product' },
     { id: ID.part, typeId: 'T_part' },
     { id: ID.partLink, typeId: 'T_part_engine_brand' },
+    // Номенклатура спецодежды как EAV-сущность: цена для «Заявки» и «Потребности в год»
+    // берётся из атрибута `price`, как у услуг. Дырявая — без цены, деньги обязаны стать прочерком.
+    { id: ID.ppeNomSize, typeId: 'T_nomenclature' },
   ];
 
   const attrs: Record<string, Record<string, unknown>> = {
@@ -303,6 +316,10 @@ function eavRows(shape: FixtureShape) {
     },
     // Дырявая: связка «деталь ↔ марка» указывает на марку, которой в справочнике нет вовсе.
     [ID.partLink]: { part_id: ID.part, engine_brand_id: shape.leaky ? ID.brandMissing : ID.brand },
+    [ID.ppeNomSize]: {
+      name: 'Куртка зимняя утеплённая, р.52-54',
+      ...(shape.leaky ? {} : { price: 1200 }),
+    },
   };
 
   const codes = new Set<string>();
@@ -582,6 +599,35 @@ function erpRows(shape: FixtureShape) {
     performedBy: 'ivanov',
     createdAt: T0,
   });
+  movements.push(
+    {
+      // Кладовщик, фаза 2: списание спецодежды — «Списания СИЗ» и «Складские операции СИЗ»
+      // отбирают строки именно по типу движения и категории номенклатуры.
+      id: 'm5',
+      nomenclatureId: ID.ppeNomSize,
+      warehouseLocationId: ID.warehouse,
+      documentHeaderId: ID.docHeader,
+      movementType: StockMovementType.Writeoff,
+      qty: 1,
+      direction: 'out',
+      reason: 'Износ',
+      performedAt: T0 + 5 * DAY,
+      performedBy: 'ivanov',
+      createdAt: T0,
+    },
+    {
+      id: 'm6',
+      nomenclatureId: shape.leaky ? ID.nomenclatureMissing : ID.ppeNomSize,
+      warehouseLocationId: ID.warehouse,
+      documentHeaderId: ID.docHeader,
+      movementType: StockMovementType.Receipt,
+      qty: 3,
+      direction: 'in',
+      performedAt: T0 + 6 * DAY,
+      performedBy: 'ivanov',
+      createdAt: T0,
+    },
+  );
   if (shape.leaky) {
     // Движение с кодом, которого клиентский словарь ещё не знает. Отдельной строкой, а не
     // подменой типа у `m2`: сводка возвратов брака отбирает строки ИМЕННО по типу, и подмена
@@ -665,9 +711,15 @@ function erpRows(shape: FixtureShape) {
  */
 function ppeRows(shape: FixtureShape) {
   const employees = [{ id: ID.ppeEmployee, personnelNo: 'ТН-207', fullName: 'Петров Иван Сидорович', createdAt: T0, updatedAt: T0 }];
-  const sets = [{ id: ID.ppeNormSet, name: 'Слесарь РМЦ', postTitle: 'Слесарь', validFrom: T0 - 30 * DAY, validTo: null, createdAt: T0, updatedAt: T0 }];
+  const sets = [
+    // Фаза 2: у набора есть условия (пол/сезон/дежурная) и подразделение — отчёты их не печатают,
+    // но карточка и группы живут с ними, и фикстура обязана повторять форму данных.
+    { id: ID.ppeNormSet, name: 'Слесарь РМЦ', postTitle: 'Слесарь', gender: 'M', season: 'winter', isDuty: false, departmentId: null, validFrom: T0 - 30 * DAY, validTo: null, createdAt: T0, updatedAt: T0 },
+    { id: ID.ppeGroupNormSet, name: 'Зимний комплект группы', postTitle: null, gender: 'M', season: 'winter', isDuty: false, departmentId: null, validFrom: T0 - 30 * DAY, validTo: null, createdAt: T0, updatedAt: T0 },
+  ];
   const lines: Array<{ id: string; normSetId: string; nomenclatureId: string; qty: number; wearMonths: number; createdAt: number; updatedAt: number }> = [
     { id: 'ppenl1', normSetId: ID.ppeNormSet, nomenclatureId: ID.ppeNomSize, qty: 2, wearMonths: 12, createdAt: T0, updatedAt: T0 },
+    { id: 'ppenl3', normSetId: ID.ppeGroupNormSet, nomenclatureId: shape.leaky ? ID.nomenclatureMissing : ID.ppeNomBase, qty: 1, wearMonths: 24, createdAt: T0, updatedAt: T0 },
   ];
   if (shape.leaky) {
     lines.push({ id: 'ppenl2', normSetId: ID.ppeNormSet, nomenclatureId: ID.nomenclatureMissing, qty: 1, wearMonths: 6, createdAt: T0, updatedAt: T0 });
@@ -677,7 +729,19 @@ function ppeRows(shape: FixtureShape) {
   const entries = [
     { id: 'ppene1', cardId: ID.ppeCard, nomenclatureId: ID.ppeNomSize, qty: 2, issuedAt: T0 - 400 * DAY, documentId: ID.docHeader, createdAt: T0, updatedAt: T0 },
   ];
-  return { employees, sets, lines, cards, cardNorms, entries };
+  const groups = [{ id: ID.ppeGroup, name: 'Слесари участка', createdAt: T0, updatedAt: T0 }];
+  const groupMembers = [{ id: 'ppegm1', groupId: ID.ppeGroup, employeeId: ID.ppeEmployee, createdAt: T0, updatedAt: T0 }];
+  const groupNorms = [{ id: 'ppegn1', groupId: ID.ppeGroup, normSetId: ID.ppeGroupNormSet, createdAt: T0, updatedAt: T0 }];
+  const absences = [
+    { id: 'ppeab1', employeeId: ID.ppeEmployee, fromMs: T0 - 500 * DAY, toMs: T0 - 480 * DAY, kind: 'vacation', createdAt: T0, updatedAt: T0 },
+  ];
+  const collectives = [
+    { id: ID.ppeCollective, departmentId: ID.department, warehouseId: ID.warehouse, documentId: null, distributedAt: null, createdAt: T0, updatedAt: T0 },
+  ];
+  const collectiveLines = [
+    { id: 'ppecoll1', collectiveId: ID.ppeCollective, employeeId: ID.ppeEmployee, nomenclatureId: ID.ppeNomSize, qty: 1, createdAt: T0, updatedAt: T0 },
+  ];
+  return { employees, sets, lines, cards, cardNorms, entries, groups, groupMembers, groupNorms, absences, collectives, collectiveLines };
 }
 
 /**
@@ -711,6 +775,12 @@ function stubDb(shape: FixtureShape): any {
     [ppeIssueCards, ppe.cards],
     [ppeCardNorms, ppe.cardNorms],
     [ppeIssueEntries, ppe.entries],
+    [ppeGroups, ppe.groups],
+    [ppeGroupMembers, ppe.groupMembers],
+    [ppeGroupNorms, ppe.groupNorms],
+    [ppeAbsences, ppe.absences],
+    [ppeCollectives, ppe.collectives],
+    [ppeCollectiveLines, ppe.collectiveLines],
   ]);
 
   return {
@@ -833,6 +903,13 @@ const COVERED_PRESETS: Array<{ presetId: string; filters?: Record<string, unknow
   { presetId: 'ppe_by_size' },
   { presetId: 'ppe_unissued' },
   { presetId: 'ppe_stock_list' },
+  { presetId: 'ppe_request_sheet' },
+  { presetId: 'ppe_issued' },
+  { presetId: 'ppe_writeoffs' },
+  { presetId: 'ppe_operations' },
+  { presetId: 'ppe_recipients' },
+  { presetId: 'ppe_coverage' },
+  { presetId: 'ppe_annual_need' },
 ];
 
 async function runPreset(presetId: string, shape: FixtureShape, filters?: Record<string, unknown>) {
