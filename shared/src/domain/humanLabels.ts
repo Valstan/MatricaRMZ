@@ -196,6 +196,11 @@ export const REPORT_TOTAL_LABELS: Record<string, string> = {
   totalFundQty: 'Остаток ремфонда, шт.',
   mismatchPositions: 'Позиций с расхождением, шт.',
   orders: 'Нарядов, шт.',
+  deficitQty: 'Дефицит, шт.',
+  annualQty: 'В год, шт.',
+  annualAmountRub: 'В год, ₽',
+  covered: 'Обеспечены, чел.',
+  coveragePct: 'Обеспеченность, %',
 };
 
 const OPERATION_TYPE_LABELS: Record<string, string> = Object.fromEntries(
