@@ -4,7 +4,6 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
 import {
-  entities,
   erpEmployeeCards,
   erpNomenclature,
   ppeAbsences,
@@ -201,21 +200,12 @@ export async function openPpeCard(args: { employeeId: string }): Promise<Result<
   try {
     const employeeId = String(args.employeeId ?? '').trim();
     if (!employeeId) return { ok: false, error: 'employeeId обязателен' };
-    // Сотрудник обязан существовать: строгое erp_employee_cards, иначе EAV-сущность
-    // employee (тот же приём, что в signatureDefaultsService: строгая таблица
-    // пишется только импортом СИЗ, а люди живут в EAV).
-    const strict = await db
-      .select({ id: erpEmployeeCards.id })
-      .from(erpEmployeeCards)
-      .where(and(eq(erpEmployeeCards.id, employeeId as any), isNull(erpEmployeeCards.deletedAt)))
-      .limit(1);
-    if (!strict[0]) {
-      const eav = await db
-        .select({ id: entities.id })
-        .from(entities)
-        .where(and(eq(entities.id, employeeId as any), isNull(entities.deletedAt)))
-        .limit(1);
-      if (!eav[0]) return { ok: false, error: 'Сотрудник не найден' };
+    // Сотрудник обязан существовать в строгой таблице: она — единственный субъект модуля
+    // (импорт ЗУП), и вся дальнейшая нитка (нормы, выдачи, распределение) знает только
+    // эти id. EAV-сущность employee здесь пропуском быть не может: карточка, открытая
+    // на ней, падала бы «не найден» уже на первой выдаче, где оператор ничего не исправит.
+    if (!(await employeeExistsStrict(employeeId))) {
+      return { ok: false, error: 'Сотрудник не найден в карточках СИЗ (сначала импорт)' };
     }
     const now = Date.now();
     const id = randomUUID();

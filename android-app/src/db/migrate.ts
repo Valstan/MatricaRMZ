@@ -535,6 +535,19 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     }
   }
 
+  // Сотрудники СИЗ (0111/PR-6): erp_employee_cards вошла в sync-контракт зеркалом
+  // (server-write / pull-only). Таблица приходит из drizzle-цепочки, а sync-хвоста в ней
+  // нет — доводим здесь (зеркало десктопа; парити свежей схемы держит drizzleChain.test).
+  if (await hasTable(sqlite, 'erp_employee_cards')) {
+    const empCols = await columnNames('erp_employee_cards');
+    if (!empCols.has('last_server_seq')) {
+      await sqlite.exec(`ALTER TABLE erp_employee_cards ADD COLUMN last_server_seq integer;`);
+    }
+    if (!empCols.has('sync_status')) {
+      await sqlite.exec(`ALTER TABLE erp_employee_cards ADD COLUMN sync_status text NOT NULL DEFAULT 'synced';`);
+    }
+  }
+
   // erp_document_lines.nomenclature_id — добавлен через clientSchemaMigrations 3->4.
   if (await hasTable(sqlite, 'erp_document_lines')) {
     if (!(await columnNames('erp_document_lines')).has('nomenclature_id')) {

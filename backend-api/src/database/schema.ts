@@ -1017,6 +1017,10 @@ export const erpEmployeeCards = pgTable(
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
+    // Транспорт зеркала (0111, PR-6): пишет импорт ЗУП, публикатор доводит
+    // строку до журнала (образец — signature_defaults/0108).
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
   },
   (t) => ({
     personnelNoUq: uniqueIndex('erp_employee_cards_personnel_no_uq').on(t.personnelNo),

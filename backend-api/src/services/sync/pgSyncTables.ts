@@ -16,6 +16,7 @@ import {
   erpCounterparties,
   erpContractPaymentSlots,
   erpContractPayments,
+  erpEmployeeCards,
   directoryEngineBrands,
   erpEngineAssemblyBom,
   erpEngineAssemblyBomBrandLinks,
@@ -25,6 +26,18 @@ import {
   erpNomenclature,
   erpRegStockBalance,
   erpRegStockMovements,
+  ppeAbsences,
+  ppeCardNorms,
+  ppeCollectiveLines,
+  ppeCollectives,
+  ppeGroupMembers,
+  ppeGroupNorms,
+  ppeGroups,
+  ppeIssueCards,
+  ppeIssueEntries,
+  ppeNormLines,
+  ppeNormSets,
+  signatureDefaults,
   notes,
   noteShares,
   operations,
@@ -136,5 +149,68 @@ export const PG_SYNC_TABLES: Record<string, PgSyncTableEntry> = {
   [LedgerTableName.UserSectionAccess]: {
     drizzle: userSectionAccess,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.UserSectionAccess, r),
+  },
+
+  // ── Серверные зеркала Кладовщика (СИЗ), умолчаний подписей и сотрудников ──
+  // Строки ведут серверные двери обычными insert/update, а публикаторы зеркал
+  // (ppeSyncPublisherService, signatureDefaultsSyncPublisherService) доводят
+  // их до журнала. В этой карте они обязаны быть — иначе: (а) холодный снапшот
+  // отдаёт пусто и реплика клиента остаётся без модуля целиком (тем же путём
+  // проект уже терял erp_engine_instances — сторож usersContractDrift), (б)
+  // stampRowSeq не ставит last_server_seq, и источник-табличный pull строку
+  // не видит вовсе (`NULL > since` в SQL не TRUE).
+  // Форму строки держит реестр: у сотрудников attrs_json срезан — в зеркало
+  // едут только ФИО/табельный/должность/активность.
+  [LedgerTableName.ErpEmployeeCards]: {
+    drizzle: erpEmployeeCards,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEmployeeCards, r),
+  },
+  [LedgerTableName.PpeNormSets]: {
+    drizzle: ppeNormSets,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeNormSets, r),
+  },
+  [LedgerTableName.PpeNormLines]: {
+    drizzle: ppeNormLines,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeNormLines, r),
+  },
+  [LedgerTableName.PpeIssueCards]: {
+    drizzle: ppeIssueCards,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeIssueCards, r),
+  },
+  [LedgerTableName.PpeCardNorms]: {
+    drizzle: ppeCardNorms,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeCardNorms, r),
+  },
+  [LedgerTableName.PpeIssueEntries]: {
+    drizzle: ppeIssueEntries,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeIssueEntries, r),
+  },
+  [LedgerTableName.PpeAbsences]: {
+    drizzle: ppeAbsences,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeAbsences, r),
+  },
+  [LedgerTableName.PpeGroups]: {
+    drizzle: ppeGroups,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeGroups, r),
+  },
+  [LedgerTableName.PpeGroupMembers]: {
+    drizzle: ppeGroupMembers,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeGroupMembers, r),
+  },
+  [LedgerTableName.PpeGroupNorms]: {
+    drizzle: ppeGroupNorms,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeGroupNorms, r),
+  },
+  [LedgerTableName.PpeCollectives]: {
+    drizzle: ppeCollectives,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeCollectives, r),
+  },
+  [LedgerTableName.PpeCollectiveLines]: {
+    drizzle: ppeCollectiveLines,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeCollectiveLines, r),
+  },
+  [LedgerTableName.SignatureDefaults]: {
+    drizzle: signatureDefaults,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.SignatureDefaults, r),
   },
 };

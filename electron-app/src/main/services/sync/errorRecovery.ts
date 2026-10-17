@@ -108,6 +108,8 @@ const DRIZZLE_TABLE_MAP: Record<SyncTableName, any> = {
   [SyncTableName.PpeCollectiveLines]: undefined,
   // Умолчания подписей (PR-5) — pull-only: клиент в них не пишет, чинить нечего.
   [SyncTableName.SignatureDefaults]: undefined,
+  // Сотрудники СИЗ (PR-6) — pull-only зеркало двери импорта ЗУП.
+  [SyncTableName.ErpEmployeeCards]: undefined,
 };
 const IN_ARRAY_CHUNK = 400;
 

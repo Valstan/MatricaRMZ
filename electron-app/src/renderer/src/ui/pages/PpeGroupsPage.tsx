@@ -47,15 +47,17 @@ export function PpeGroupsPage(props: { canEdit: boolean }) {
       await refresh();
       setStatus('');
       const [emp, nrm] = await Promise.all([
-        window.matrica.employees.list().catch(() => []),
+        window.matrica.ppe.employees.list().catch(() => null),
         window.matrica.ppe.norms.list().catch(() => null),
       ]);
+      // Пикер — из реплики СИЗ (`erp_employee_cards`), не из EAV-списка: состав группы
+      // сервер принимает только по этим id (см. ppe:employees:list).
       setEmployees(
-        (Array.isArray(emp) ? emp : []).map((e: any) => ({
-          id: String(e.id),
-          label: String(e.fullName ?? '').trim() || String(e.id),
-          ...(e.position ? { hintText: String(e.position) } : {}),
-          searchText: `${e.fullName ?? ''} ${e.position ?? ''}`,
+        (emp?.ok ? emp.employees : []).map((e) => ({
+          id: e.id,
+          label: e.fullName.trim() || e.id,
+          ...(e.roleCode ? { hintText: e.roleCode } : {}),
+          searchText: `${e.fullName} ${e.personnelNo ?? ''} ${e.roleCode ?? ''}`,
         })),
       );
       if (nrm?.ok) {

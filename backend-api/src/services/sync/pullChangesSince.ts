@@ -30,6 +30,7 @@ import {
   erpCounterparties,
   erpContractPaymentSlots,
   erpContractPayments,
+  erpEmployeeCards,
   directoryEngineBrands,
   erpEngineInstances,
   erpEngineInventoryLines,
@@ -37,6 +38,18 @@ import {
   erpEngineAssemblyBomBrandLinks,
   erpEngineAssemblyBomLines,
   erpNomenclature,
+  ppeAbsences,
+  ppeCardNorms,
+  ppeCollectiveLines,
+  ppeCollectives,
+  ppeGroupMembers,
+  ppeGroupNorms,
+  ppeGroups,
+  ppeIssueCards,
+  ppeIssueEntries,
+  ppeNormLines,
+  ppeNormSets,
+  signatureDefaults,
   ledgerTxIndex,
   notes,
   noteShares,
@@ -133,6 +146,63 @@ const PG_SYNC_TABLES: Record<
   [SyncTableName.ErpContractPaymentPayments]: {
     drizzle: erpContractPayments,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpContractPaymentPayments, r),
+  },
+  // Зеркала Кладовщика (СИЗ), умолчаний подписей и сотрудников (PR-6). Строки ведут
+  // серверные двери, а публикаторы зеркал доводят их до журнала. Без записей здесь
+  // инкрементальный pull отдавал таблицы только payload'ами ledger_tx_index, а
+  // холодный снапшот — пустотой: реплика свежей машины оставалась без модуля целиком.
+  // Карты обязаны ходить парой — за этим следит сторож usersContractDrift.guard.test.
+  [SyncTableName.ErpEmployeeCards]: {
+    drizzle: erpEmployeeCards,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEmployeeCards, r),
+  },
+  [SyncTableName.PpeNormSets]: {
+    drizzle: ppeNormSets,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeNormSets, r),
+  },
+  [SyncTableName.PpeNormLines]: {
+    drizzle: ppeNormLines,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeNormLines, r),
+  },
+  [SyncTableName.PpeIssueCards]: {
+    drizzle: ppeIssueCards,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeIssueCards, r),
+  },
+  [SyncTableName.PpeCardNorms]: {
+    drizzle: ppeCardNorms,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeCardNorms, r),
+  },
+  [SyncTableName.PpeIssueEntries]: {
+    drizzle: ppeIssueEntries,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeIssueEntries, r),
+  },
+  [SyncTableName.PpeAbsences]: {
+    drizzle: ppeAbsences,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeAbsences, r),
+  },
+  [SyncTableName.PpeGroups]: {
+    drizzle: ppeGroups,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeGroups, r),
+  },
+  [SyncTableName.PpeGroupMembers]: {
+    drizzle: ppeGroupMembers,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeGroupMembers, r),
+  },
+  [SyncTableName.PpeGroupNorms]: {
+    drizzle: ppeGroupNorms,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeGroupNorms, r),
+  },
+  [SyncTableName.PpeCollectives]: {
+    drizzle: ppeCollectives,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeCollectives, r),
+  },
+  [SyncTableName.PpeCollectiveLines]: {
+    drizzle: ppeCollectiveLines,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeCollectiveLines, r),
+  },
+  [SyncTableName.SignatureDefaults]: {
+    drizzle: signatureDefaults,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.SignatureDefaults, r),
   },
 };
 

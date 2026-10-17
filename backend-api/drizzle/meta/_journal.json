@@ -771,6 +771,13 @@
       "when": 1792042733518,
       "tag": "0110_ppe_phase2",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1792222191041,
+      "tag": "0111_erp_employee_cards_sync",
+      "breakpoints": true
     }
   ]
 }

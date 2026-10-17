@@ -1,8 +1,10 @@
 import { ipcMain } from 'electron';
+import { isNull } from 'drizzle-orm';
 
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { httpAuthed } from '../../services/httpClient.js';
+import { erpEmployeeCards } from '../../database/schema.js';
 
 type Ok<T> = { ok: true } & T;
 type Err = { ok: false; error: string };
@@ -224,6 +226,32 @@ export function registerPpeIpc(ctx: IpcContext) {
     return toResult(await httpAuthed(ctx.sysDb, base(), `/ppe/employees/${encodeURIComponent(String(employeeId || ''))}/norm-sets`, { method: 'GET' }));
   });
 
+  // Сотрудники СИЗ (PR-6) — из реплики `erp_employee_cards`, не из EAV-списка
+  // `employees:list`: строгая серверная дверь модуля знает только эти id, и карточка,
+  // открытая на EAV-сотруднике, падала бы «Сотрудник не найден» уже при выдаче.
+  // Реплика — тот же источник, что у отчётов СИЗ: имя в отчёте и в пикере совпадает.
+  ipcMain.handle('ppe:employees:list', async () => {
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as Err;
+    try {
+      const rows = await ctx
+        .dataDb()
+        .select({
+          id: erpEmployeeCards.id,
+          fullName: erpEmployeeCards.fullName,
+          personnelNo: erpEmployeeCards.personnelNo,
+          roleCode: erpEmployeeCards.roleCode,
+          isActive: erpEmployeeCards.isActive,
+        })
+        .from(erpEmployeeCards)
+        .where(isNull(erpEmployeeCards.deletedAt))
+        .orderBy(erpEmployeeCards.fullName);
+      return { ok: true as const, employees: rows.map((r) => ({ ...r, id: String(r.id), fullName: String(r.fullName) })) };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
   ipcMain.handle('ppe:collectives:list', async (_e, args?: { departmentId?: string }) => {
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as Err;
@@ -282,6 +310,12 @@ export function registerPpeIpc(ctx: IpcContext) {
     if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
     if (!gate.ok) return gate as Err;
-    return toResult(await postJson('/ppe/import/apply', args));
+    const result = await toResult<{ imported?: number; created?: number; updated?: number }>(await postJson('/ppe/import/apply', args));
+    // Импорт ЗУП заводит сотрудников; primary доводит их до журнала пинком публикатора,
+    // а клиент ждёт прогон сразу — иначе страницы СИЗ до ближайшего тика видели бы пустые
+    // пикеры. Ждём, а не запускаем в фоне (образец — afterNomenclatureWrite в erp.ts);
+    // ошибка синка не отменяет удавшийся импорт.
+    if (result.ok && args?.dryRun !== true) await ctx.mgr.runOnce().catch(() => undefined);
+    return result;
   });
 }

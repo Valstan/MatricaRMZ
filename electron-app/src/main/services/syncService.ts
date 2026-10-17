@@ -54,6 +54,7 @@ import {
   erpContractPaymentSlots,
   erpContractPayments,
   erpEngineCards,
+  erpEmployeeCards,
   directoryEngineBrands,
   ppeNormSets,
   ppeNormLines,
@@ -2046,6 +2047,8 @@ async function applyPulledChanges(
     [SyncTableName.PpeGroupNorms]: [],
     [SyncTableName.PpeCollectives]: [],
     [SyncTableName.PpeCollectiveLines]: [],
+    // Сотрудники СИЗ (PR-6): зеркало карточек — реплика для пикеров и отчётов.
+    [SyncTableName.ErpEmployeeCards]: [],
     [SyncTableName.SignatureDefaults]: [],
     [SyncTableName.Users]: [],
     [SyncTableName.UserSectionAccess]: [],
@@ -2700,6 +2703,26 @@ async function applyPulledChanges(
             employeeId: payload.employee_id,
             nomenclatureId: payload.nomenclature_id,
             qty: Number(payload.qty ?? 0),
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      // Сотрудники СИЗ (PR-6): pull-only зеркало серверной двери импорта ЗУП.
+      // В зеркало не едет attrs_json — PII (даты рождения/приёма) остаётся на сервере.
+      // Без ветки строки исчезли бы: у switch нет `default` (см. комментарий выше).
+      case SyncTableName.ErpEmployeeCards:
+        {
+          const payload = payloadRaw;
+          groups.erp_employee_cards.push({
+            id: payload.id,
+            personnelNo: payload.personnel_no ?? null,
+            fullName: payload.full_name,
+            roleCode: payload.role_code ?? null,
+            isActive: payload.is_active === true || payload.is_active === 1,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
             lastServerSeq: payload.last_server_seq ?? null,
@@ -3843,6 +3866,21 @@ async function applyPulledChanges(
       employeeId: sql`excluded.employee_id`,
       nomenclatureId: sql`excluded.nomenclature_id`,
       qty: sql`excluded.qty`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  // Сотрудники СИЗ (PR-6): зеркало серверной двери, порядок не важен.
+  if (groups.erp_employee_cards.length > 0) {
+    emitApply(SyncTableName.ErpEmployeeCards, groups.erp_employee_cards.length);
+    await upsertPulledRowsInChunks(db, erpEmployeeCards, groups.erp_employee_cards, erpEmployeeCards.id, {
+      personnelNo: sql`excluded.personnel_no`,
+      fullName: sql`excluded.full_name`,
+      roleCode: sql`excluded.role_code`,
+      isActive: sql`excluded.is_active`,
       updatedAt: sql`excluded.updated_at`,
       lastServerSeq: sql`excluded.last_server_seq`,
       deletedAt: sql`excluded.deleted_at`,

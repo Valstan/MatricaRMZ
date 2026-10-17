@@ -665,6 +665,7 @@ const matricaApi = {
     },
     employees: {
       normSets: async (employeeId: string) => ipcRenderer.invoke('ppe:employees:normSets', employeeId),
+      list: async () => ipcRenderer.invoke('ppe:employees:list'),
     },
     collectives: {
       list: async (args?: { departmentId?: string }) => ipcRenderer.invoke('ppe:collectives:list', args),

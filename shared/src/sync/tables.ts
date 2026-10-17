@@ -72,6 +72,13 @@ export const SyncTableName = {
   PpeGroupNorms: 'ppe_group_norms',
   PpeCollectives: 'ppe_collectives',
   PpeCollectiveLines: 'ppe_collective_lines',
+  // Сотрудники СИЗ (план ppe-kladovshik-phase2, PR-6): строгие карточки
+  // erp_employee_cards — единственный вход модуля (импорт ЗУП), им же валидируют
+  // отпуска/группы/коллективные выдачи. Server-write / pull-only: пишет импорт,
+  // публикатор доводит до журнала, клиент читает реплику (пикеры СИЗ и отчёты
+  // резолвят ФИО одним источником). attrs_json в зеркало НЕ входит — там
+  // birth/hire-даты, которые pull-фильтр скрывает от операторов.
+  ErpEmployeeCards: 'erp_employee_cards',
   // Умолчания подписей (план favorites-work-stages-defaults-2026-10, PR-5):
   // ключ поля подписи → сотрудник. Server-write / pull-only, как PPE:
   // пишет админская дверь, клиент читает реплику.

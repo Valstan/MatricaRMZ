@@ -276,19 +276,21 @@ describe('ppeService фаза 2: условия норм', () => {
   });
 });
 
-describe('ppeService фаза 2: открытие через EAV', () => {
-  it('строгой карточки нет, EAV-сущность есть — открывается', async () => {
-    state.queue.push([]); // strict: нет
-    state.queue.push([{ id: NOM }]); // eav: есть
-    const r = await openPpeCard({ employeeId: NOM });
-    expect(r.ok).toBe(true);
-  });
-
-  it('нет ни строгой, ни EAV — отказ', async () => {
-    state.queue.push([]); // strict: нет
-    state.queue.push([]); // eav: нет
+describe('ppeService: открытие только по строгим карточкам (PR-6)', () => {
+  // EAV-фолбэк убран: субъект модуля — `erp_employee_cards` (импорт ЗУП). Карточка,
+  // открытая на EAV-сущности, доходила до первой выдачи и падала «не найден» там,
+  // где оператор уже ничего не исправит, — отказ должен случаться на входе.
+  it('строгой карточки нет — отказ «сначала импорт», EAV не спасает', async () => {
+    state.queue.push([]); // strict: нет (второй запрос EAV-фолбэка не делается)
     const r = await openPpeCard({ employeeId: NOM });
     expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('сначала импорт');
+  });
+
+  it('строгая карточка есть — открывается', async () => {
+    state.queue.push([{ id: NOM }]);
+    const r = await openPpeCard({ employeeId: NOM });
+    expect(r.ok).toBe(true);
   });
 });
 
