@@ -6,6 +6,7 @@ import {
   parseImportGender,
   parsePpeImportWorkbook,
   PPE_IMPORT_PREVIEW_TTL_MS,
+  resolveIssueNomenclature,
   signPpePreviewToken,
   validatePpeImport,
   verifyPpePreviewToken,
@@ -214,6 +215,53 @@ describe('ppeImport: валидация выдач', () => {
     );
     expect(ok).toBe(true);
     expect(preview.summary.issues.create).toBe(1);
+  });
+});
+
+// Правило размера у preview и apply — одно (resolveIssueNomenclature), но проверки
+// держим здесь же, чистым файлом: расхождение «обещали создать, а применили пропуск»
+// приходило именно отсюда (размер указан, а ряда у позиции нет — перчатки, очки).
+describe('ppeImport: правило размера (общее для preview и apply)', () => {
+  const base = { baseName: 'Ботинки рабочие', baseId: 'n-9' };
+  const child = (id: string, name: string) => ({ id, name });
+
+  it('размер указан, размерного ряда нет — базовая позиция и предупреждение', () => {
+    const r = resolveIssueNomenclature({ ...base, size: '42', children: [] });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.nomId).toBe('n-9');
+      expect(r.warning).toContain('нет размерного ряда');
+    }
+  });
+
+  it('размер указан, точный вариант один — берём вариант', () => {
+    const r = resolveIssueNomenclature({ ...base, size: '44', children: [child('n-44', 'Ботинки рабочие 44'), child('n-46', 'Ботинки рабочие 46')] });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.nomId).toBe('n-44');
+      expect(r.warning).toBeNull();
+    }
+  });
+
+  it('размер указан, совпадений несколько — конфликт «неоднозначен»', () => {
+    const r = resolveIssueNomenclature({ ...base, size: '4', children: [child('n-44', 'Ботинки рабочие 44'), child('n-46', 'Ботинки рабочие 46')] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('неоднозначен');
+  });
+
+  it('размер не указан, а ряд есть — конфликт «укажите размер»', () => {
+    const r = resolveIssueNomenclature({ ...base, size: '', children: [child('n-44', 'Ботинки рабочие 44')] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('укажите размер');
+  });
+
+  it('размер не указан и ряда нет — базовая позиция без предупреждений', () => {
+    const r = resolveIssueNomenclature({ ...base, size: null, children: [] });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.nomId).toBe('n-9');
+      expect(r.warning).toBeNull();
+    }
   });
 });
 

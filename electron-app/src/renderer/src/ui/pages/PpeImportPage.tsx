@@ -132,9 +132,19 @@ export function PpeImportPage(props: { canEdit: boolean }) {
   async function runApply() {
     if (!file || !preview) return;
     const s = preview.preview.summary;
+    // Импорт применяется только целиком: сервер перед записью перепроверяет файл и
+    // отказывает при любом конфликте (страховка от «данные изменились после проверки»).
+    // Сказать это здесь честно — значит не обещать пропуск конфликтных строк, которого
+    // нет: оператор исправит файл и проверит его заново.
+    const conflictRows = preview.preview.rows.filter((r) => r.action === 'conflict');
+    if (conflictRows.length > 0) {
+      const lines = conflictRows.slice(0, 10).map((r) => `стр. ${r.line}`).join(', ');
+      setStatus(`Ошибка: в файле ${conflictRows.length} конфликтных строк (${lines}) — исправьте файл и проверьте снова; импорт применяется только целиком.`);
+      return;
+    }
     const ok = await confirm({
       title: 'Применить импорт?',
-      detail: `Сотрудники: создать ${s.employees.create}, обновить ${s.employees.update}, конфликтов ${s.employees.conflict}. Отпуска: +${s.absences.create}. Выдачи: +${s.issues.create}. Строки с конфликтом пропускаются — их видно в проверке.`,
+      detail: `Сотрудники: создать ${s.employees.create}, обновить ${s.employees.update}. Отпуска: +${s.absences.create}. Выдачи: +${s.issues.create}. Файл применяется целиком — если данные успеют измениться между проверкой и применением, откажем и попросим проверить заново.`,
       confirmLabel: 'Применить',
     });
     if (!ok) return;

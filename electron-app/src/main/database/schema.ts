@@ -670,7 +670,9 @@ export const erpEmployeeCards = sqliteTable(
     isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
+    lastServerSeq: integer('last_server_seq'),
     deletedAt: integer('deleted_at'),
+    syncStatus: text('sync_status').notNull().default('synced'),
   },
   (t) => ({
     personnelNoUq: uniqueIndex('erp_employee_cards_personnel_no_uq').on(t.personnelNo),

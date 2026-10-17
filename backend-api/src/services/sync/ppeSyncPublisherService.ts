@@ -7,13 +7,17 @@
  * `last_server_seq > since`: в SQL `NULL > n` не TRUE, то есть строка не приезжает
  * клиенту НИКОГДА (тот же разрыв, что закрывают публикаторы складов и аккаунтов).
  *
+ * PR-6: тем же путём зеркалится `erp_employee_cards` (строгие сотрудники импорта
+ * ЗУП) — вход модуля, без него пикеры и отчёты СИЗ остаются пустыми.
+ *
  * Очередь не нужна: строки собирает наш же код, и признак «не опубликовано» несёт
  * сама строка (`sync_status = 'pending'`). Ставит его дверь при записи, снимает
  * `applyPushBatch`, когда строка реально записана и проштампована seq.
  *
- * Порядок прохода — по зависимостям (наборы → карточки → строки → привязки → выдачи),
- * внутри таблицы — стабильно по времени и id. Частичные unique-индексы живут только
- * среди неудалённых/открытых, поэтому сортировки тумбстоунов как у аккаунтов не надо.
+ * Порядок прохода — по зависимостям (сотрудники → наборы → карточки → строки →
+ * привязки → выдачи), внутри таблицы — стабильно по времени и id. Частичные
+ * unique-индексы живут только среди неудалённых/открытых, поэтому сортировки
+ * тумбстоунов как у аккаунтов не надо.
  *
  * Живёт только на primary (singleton): ledger-append не должен идти с двух инстансов сразу.
  */
@@ -22,6 +26,7 @@ import { ne } from 'drizzle-orm';
 
 import { db } from '../../database/db.js';
 import {
+  erpEmployeeCards,
   ppeAbsences,
   ppeCardNorms,
   ppeCollectiveLines,
@@ -54,6 +59,23 @@ function toRowInput(table: SyncTableName, r: DbRow, row: Record<string, unknown>
     row_id: String(r['id']),
     row,
   };
+}
+
+// Сотрудники СИЗ (PR-6): строгая карточка erp_employee_cards — вход модуля
+// (импорт ЗУП). attrs_json в строку НЕ едет: в зеркало уходят только поля, которые
+// EAV-политика видимости и так держит открытыми (ФИО/должность/табельный), а в
+// attrs_json — birth/hire-даты, скрытые pull-фильтром от операторов.
+export function toErpEmployeeCardInput(r: DbRow): SyncWriteInput {
+  return toRowInput(SyncTableName.ErpEmployeeCards, r, {
+    id: String(r['id']),
+    personnel_no: r['personnelNo'] == null ? null : String(r['personnelNo']),
+    full_name: String(r['fullName']),
+    role_code: r['roleCode'] == null ? null : String(r['roleCode']),
+    is_active: r['isActive'] === true,
+    created_at: Number(r['createdAt']),
+    updated_at: Number(r['updatedAt']),
+    deleted_at: r['deletedAt'] == null ? null : Number(r['deletedAt']),
+  });
 }
 
 export function toPpeNormSetInput(r: DbRow): SyncWriteInput {
@@ -200,6 +222,8 @@ export function toPpeCollectiveLineInput(r: DbRow): SyncWriteInput {
 }
 
 const TABLES_IN_ORDER = [
+  // PR-6: сотрудники первыми — карточки/отпуска/строки ссылаются на employee_id.
+  { table: erpEmployeeCards, map: toErpEmployeeCardInput },
   { table: ppeNormSets, map: toPpeNormSetInput },
   { table: ppeIssueCards, map: toPpeIssueCardInput },
   { table: ppeNormLines, map: toPpeNormLineInput },
@@ -226,6 +250,17 @@ export async function publishPendingPpe(): Promise<number> {
     total += inputs.length;
   }
   return total;
+}
+
+/**
+ * Немедленный проход после записи двери (импорт ЗУП): оператор идёт к пикерам сразу
+ * после «Применить» и ждать тика до 60 секунд ему нечего. Идёт через тот же `tick`,
+ * что и интервал, — два прохода не пойдут внахлёст (встречный вернётся тихо, строки
+ * подхватит следующий: они всё ещё `pending`). Пинок — ускорение, а не гарантия:
+ * штатный тик остаётся страховкой, поэтому ошибка не летит в ответ маршрута.
+ */
+export async function kickPpeSyncPublisher(): Promise<void> {
+  await tick();
 }
 
 async function tick(): Promise<void> {

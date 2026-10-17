@@ -305,6 +305,7 @@ changesRouter.get('/', async (req, res) => {
       [SyncTableName.PpeGroupNorms]: 'Нормы групп СИЗ',
       [SyncTableName.PpeCollectives]: 'Коллективные выдачи СИЗ',
       [SyncTableName.PpeCollectiveLines]: 'Строки коллективных выдач СИЗ',
+      [SyncTableName.ErpEmployeeCards]: 'Сотрудники СИЗ',
       [SyncTableName.SignatureDefaults]: 'Умолчания подписей',
       file_assets: 'Файлы',
     };

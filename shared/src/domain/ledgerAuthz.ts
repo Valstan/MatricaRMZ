@@ -144,6 +144,9 @@ export const SYNC_TABLE_OWNERSHIP: Readonly<Record<SyncTableName, SyncTableOwner
   [SyncTableName.PpeGroupNorms]: { owner: 'server', why: 'ppeService + публикатор зеркала (фаза 2)' },
   [SyncTableName.PpeCollectives]: { owner: 'server', why: 'ppeService + публикатор зеркала (фаза 2)' },
   [SyncTableName.PpeCollectiveLines]: { owner: 'server', why: 'ppeService + публикатор зеркала (фаза 2)' },
+  // Сотрудники СИЗ (PR-6): пишет только импорт ЗУП (серверная дверь REST),
+  // клиент читает реплику. Без строки крафт карточки сотрудника ушёл бы в журнал.
+  [SyncTableName.ErpEmployeeCards]: { owner: 'server', why: 'ppeImportService + публикатор зеркала' },
   // Умолчания подписей (PR-5): ведёт только админская дверь (REST), клиент читает
   // реплику. Без строки крафт умолчания с клиента ушёл бы в журнал.
   [SyncTableName.SignatureDefaults]: { owner: 'server', why: 'signatureDefaultsService + публикатор зеркала' },
@@ -297,6 +300,8 @@ const TABLE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
   [SyncTableName.PpeGroupNorms]: { kind: 'superadmin' },
   [SyncTableName.PpeCollectives]: { kind: 'superadmin' },
   [SyncTableName.PpeCollectiveLines]: { kind: 'superadmin' },
+  // Сотрудники СИЗ (PR-6) — вторая линия к безусловному табличному backstop'у выше.
+  [SyncTableName.ErpEmployeeCards]: { kind: 'superadmin' },
   // Умолчания подписей (PR-5) — вторая линия к безусловному табличному backstop'у выше.
   [SyncTableName.SignatureDefaults]: { kind: 'superadmin' },
 };

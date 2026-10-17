@@ -2422,6 +2422,20 @@ export type MatricaApi = {
     /** Нормы сотрудника на сервере: личные и от групп (для показа «от группы»). */
     employees: {
       normSets: (employeeId: string) => Promise<{ ok: true; personal: string[]; group: string[] } | { ok: false; error: string }>;
+      /** Сотрудники СИЗ (PR-6): пикер читает реплику `erp_employee_cards` — тот же источник, что у отчётов. */
+      list: () => Promise<
+        | {
+            ok: true;
+            employees: Array<{
+              id: string;
+              fullName: string;
+              personnelNo: string | null;
+              roleCode: string | null;
+              isActive: boolean;
+            }>;
+          }
+        | { ok: false; error: string }
+      >;
     };
     /** Коллективная выдача (PR-3): черновик → распределение. */
     collectives: {

@@ -34,6 +34,7 @@ import { randomUUID } from 'node:crypto';
 
 import { db } from '../../database/db.js';
 import { applyAiChatPushPolicy } from './aiChatPushPolicy.js';
+import { PG_SYNC_TABLES } from './pgSyncTables.js';
 import { diffEngineCardPushTrail } from '../engineStrictService.js';
 import { logInfo, logWarn } from '../../utils/logger.js';
 import { listEmployeesAuth } from '../employeeAuthService.js';
@@ -72,6 +73,36 @@ import {
 // здоровье конвейера считает различные строки за сутки. Реальные значения —
 // единицы; потолок нужен, чтобы разовый мусорный батч не раздул payload.
 const SKIPPED_ROW_IDS_CAP = 200;
+
+/**
+ * Таблицы-зеркала серверных дверей: Кладовщик (СИЗ), умолчания подписей, сотрудники СИЗ.
+ *
+ * Строки этих таблиц ведут серверные двери обычными insert/update, а публикаторы зеркал
+ * доводят их до журнала через `writeSyncChanges` — то есть через этот же путь применения.
+ * Обработчик им нужен ровно ради двух вещей: снять `sync_status='pending'` и собрать seq.
+ * Без первого публикатор переотправляет те же строки каждый тик (журнал пухнет: 29 записей
+ * на одну строку за полчаса — поймано смоуком PR-6, 2026-10-17), без второго инкрементальный
+ * pull (`last_server_seq > since`) не отдаёт строку вовсе.
+ *
+ * Вторая половина механизма — эти же таблицы в карте `PG_SYNC_TABLES` (штамп `stampRowSeq`
+ * в журнале + холодный снапшот). Новую таблицу зеркала заводить сразу в двух местах:
+ * здесь и в pgSyncTables.ts (сторож — mirrorTables.guard.test.ts).
+ */
+export const SERVER_MIRROR_TABLES = [
+  SyncTableName.ErpEmployeeCards,
+  SyncTableName.PpeNormSets,
+  SyncTableName.PpeNormLines,
+  SyncTableName.PpeIssueCards,
+  SyncTableName.PpeCardNorms,
+  SyncTableName.PpeIssueEntries,
+  SyncTableName.PpeAbsences,
+  SyncTableName.PpeGroups,
+  SyncTableName.PpeGroupMembers,
+  SyncTableName.PpeGroupNorms,
+  SyncTableName.PpeCollectives,
+  SyncTableName.PpeCollectiveLines,
+  SyncTableName.SignatureDefaults,
+] as const;
 
 // Специальный “контейнер” для операций заявок в снабжение.
 // Клиент использует этот UUID как operations.engine_entity_id для supply_request.
@@ -2468,7 +2499,7 @@ export async function applyPushBatch(
     {
       const trustedServerWrite = isReplayClient || applyOpts.allowSyncConflicts === true;
 
-      for (const tableName of [SyncTableName.Users, SyncTableName.UserSectionAccess, SyncTableName.WarehouseLocations, SyncTableName.ErpCounterparties, SyncTableName.ErpContracts, SyncTableName.DirectoryEngineBrands] as const) {
+      for (const tableName of [SyncTableName.Users, SyncTableName.UserSectionAccess, SyncTableName.WarehouseLocations, SyncTableName.ErpCounterparties, SyncTableName.ErpContracts, SyncTableName.DirectoryEngineBrands, ...SERVER_MIRROR_TABLES] as const) {
         const raw = grouped.get(tableName) ?? [];
         if (raw.length === 0 || trustedServerWrite) continue;
         addSkipMetric('conflict', tableName, raw.length, 'server_managed_table');
@@ -2480,6 +2511,41 @@ export async function applyPushBatch(
         });
         for (const r of raw as Array<Record<string, unknown>>) {
           addSkippedRow({ table: tableName, row_id: String(r?.['id'] ?? ''), reason: 'forbidden' });
+        }
+      }
+
+      // Зеркала серверных дверей (СИЗ/умолчания подписей/сотрудники). Строка уже лежит
+      // в PG — её записала дверь; здесь только снимается `pending` и собирается seq.
+      // Содержимое сознательно НЕ перезаписывается снимком публикатора: источник строки —
+      // дверь, а `setWhere` защищает от гонки «публикатор прочитал, дверь переписала».
+      // Устаревший снимок не гасит свежий `pending` — строка уедет следующим тиком,
+      // уже верным составом; seq при этом штампуется только реально записанным строкам
+      // (тем же правилом, что у users: номер журнала не должен ложиться на чужое содержимое).
+      if (trustedServerWrite) {
+        for (const tableName of SERVER_MIRROR_TABLES) {
+          const raw = grouped.get(tableName) ?? [];
+          if (raw.length === 0) continue;
+          const entry = PG_SYNC_TABLES[tableName];
+          if (!entry) continue;
+          const rows = raw as Array<Record<string, unknown>>;
+          const written = await tx
+            .insert(entry.drizzle)
+            .values(
+              rows.map((r) => ({
+                ...SyncTableRegistry.toDbRow(tableName, r),
+                syncStatus: 'synced',
+              })) as any,
+            )
+            .onConflictDoUpdate({
+              target: entry.drizzle.id,
+              setWhere: sql`${entry.drizzle.updatedAt} <= excluded.updated_at`,
+              set: { syncStatus: 'synced' },
+            })
+            .returning({ id: entry.drizzle.id });
+          const writtenIds = new Set((written as Array<{ id: string }>).map((w) => String(w.id)));
+          const stamped = rows.filter((r) => writtenIds.has(String(r.id)));
+          await updateSeqAndCollect(entry.drizzle, tableName, stamped);
+          applied += stamped.length;
         }
       }
 

@@ -76,7 +76,7 @@ export function PpeCollectivePage(props: { canEdit: boolean; canIssue: boolean }
       const [deps, wh, emp, noms, nrm] = await Promise.all([
         window.matrica.employees.departmentsList().catch(() => []),
         window.matrica.warehouseLocations.list({ activeOnly: true }).catch(() => null),
-        window.matrica.employees.list().catch(() => []),
+        window.matrica.ppe.employees.list().catch(() => null),
         window.matrica.warehouse.nomenclatureList({ limit: 2000, offset: 0 }).catch(() => null),
         window.matrica.ppe.norms.list().catch(() => null),
       ]);
@@ -84,12 +84,14 @@ export function PpeCollectivePage(props: { canEdit: boolean; canIssue: boolean }
         (Array.isArray(deps) ? deps : []).map((d: any) => ({ id: String(d.id), label: String(d.displayName ?? d.id) })),
       );
       if (wh?.ok) setWarehouses((wh.rows ?? []).map((w: any) => ({ id: String(w.id), label: String(w.name ?? w.code ?? w.id) })));
+      // Пикер — из реплики СИЗ (`erp_employee_cards`): распределение сервер принимает
+      // только по этим id (см. ppe:employees:list).
       setEmployees(
-        (Array.isArray(emp) ? emp : []).map((e: any) => ({
-          id: String(e.id),
-          label: String(e.fullName ?? '').trim() || String(e.id),
-          ...(e.position ? { hintText: String(e.position) } : {}),
-          searchText: `${e.fullName ?? ''} ${e.position ?? ''}`,
+        (emp?.ok ? emp.employees : []).map((e) => ({
+          id: e.id,
+          label: e.fullName.trim() || e.id,
+          ...(e.roleCode ? { hintText: e.roleCode } : {}),
+          searchText: `${e.fullName} ${e.personnelNo ?? ''} ${e.roleCode ?? ''}`,
         })),
       );
       if (noms?.ok) setNomenclature((noms.rows ?? []).map((r: any) => ({ id: String(r.id), label: String(r.name ?? r.id) })));

@@ -659,6 +659,20 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     }
   }
 
+  // Сотрудники СИЗ (0111/PR-6): erp_employee_cards вошла в sync-контракт зеркалом
+  // (server-write / pull-only). Таблица приходит из drizzle 0006, а sync-хвоста в ней
+  // нет ни у свежих БД, ни у долгоживущих — доводим здесь (не drizzle-миграцией: ALTER
+  // без IF NOT EXISTS упал бы на «duplicate column name», см. шапку функции).
+  if (hasTable('erp_employee_cards')) {
+    const cols = columnNames('erp_employee_cards');
+    if (!cols.has('last_server_seq')) {
+      sqlite.exec(`ALTER TABLE erp_employee_cards ADD COLUMN last_server_seq integer;`);
+    }
+    if (!cols.has('sync_status')) {
+      sqlite.exec(`ALTER TABLE erp_employee_cards ADD COLUMN sync_status text NOT NULL DEFAULT 'synced';`);
+    }
+  }
+
   // chat_rooms — комнаты чата (владелец 08.09.2026). Та же причина дубля, что у таблиц выше:
   // свежая установка идёт мимо версионной цепочки, а холодный full-sync запросит таблицу.
   // Горячий путь синка и списков: ежесекундная проба COUNT по sync_status и полный скан

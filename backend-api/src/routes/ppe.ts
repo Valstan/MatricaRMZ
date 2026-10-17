@@ -32,6 +32,9 @@ import {
   upsertPpeNormSet,
 } from '../services/ppeService.js';
 import { applyPpeImportPreview, previewPpeImport } from '../services/ppeImportService.js';
+import { shouldRunBackgroundJobs } from '../services/instanceRole.js';
+import { kickPpeSyncPublisher } from '../services/sync/ppeSyncPublisherService.js';
+import { logWarn } from '../utils/logger.js';
 
 export const ppeRouter = Router();
 ppeRouter.use(requireAuth);
@@ -479,5 +482,13 @@ ppeRouter.post('/import/apply', requirePermission(PermissionCode.ErpDictionaryEd
     actor: actorOf(req),
   });
   if (!result.ok) return res.status(400).json(result);
+  // Импорт ЗУП заводит сотрудников `pending`, и до журнала их доводит публикатор зеркала.
+  // Пинок только с primary (журнал не должен писаться с двух инстансов сразу); на secondary
+  // строки догонит ближайший тик. Ждём проход, а не запускаем в фоне: оператор после
+  // «Применить» сразу открывает пикеры сотрудников, и клиентский runOnce должен застать
+  // строки в журнале. Ошибку глушим в лог — штатный тик остаётся страховкой.
+  if (parsed.data.dryRun !== true && shouldRunBackgroundJobs()) {
+    await kickPpeSyncPublisher().catch((e) => logWarn('ppe import kick failed', { error: String(e) }));
+  }
   return res.json(result);
 });

@@ -345,6 +345,38 @@ function safeJsonParseAttrs(raw: string | null): Record<string, unknown> {
   }
 }
 
+/**
+ * Размер и номенклатура строки выдачи — ОДНО правило для preview и apply.
+ *
+ * Пока это правило жило в двух местах, оно разъехалось: предпросмотр обещал
+ * «создастся» с базовой позицией и предупреждением (размер указан, а ряда у
+ * позиции нет — обычное дело для перчаток и очков), а применение молча
+ * пропускало такую строку. Оператор видел расход обещания и итога и не знал,
+ * почему. Оба конца зовут этот хелпер — разъехаться снова не смогут.
+ */
+export function resolveIssueNomenclature(args: {
+  baseName: string;
+  baseId: string;
+  size: string | null;
+  children: Array<{ id: string; name: string }>;
+}): { ok: true; nomId: string; warning: string | null } | { ok: false; error: string } {
+  const sizeKey = normalizeLookupCompact(args.size ?? '');
+  if (!sizeKey) {
+    if (args.children.length > 0) return { ok: false, error: `у «${args.baseName}» есть размеры — укажите размер` };
+    return { ok: true, nomId: args.baseId, warning: null };
+  }
+  if (args.children.length === 0) {
+    return { ok: true, nomId: args.baseId, warning: `размер «${args.size}» указан, но у позиции нет размерного ряда — взята базовая` };
+  }
+  const exact = args.children.filter((c) => normalizeLookupCompact(c.name) === sizeKey);
+  const containing = exact.length > 0 ? exact : args.children.filter((c) => normalizeLookupCompact(c.name).includes(sizeKey));
+  if (containing.length === 1) return { ok: true, nomId: containing[0]!.id, warning: null };
+  return {
+    ok: false,
+    error: `размер «${args.size}» ${containing.length === 0 ? 'не найден' : 'неоднозначен'} среди вариантов «${args.baseName}»`,
+  };
+}
+
 export function validatePpeImport(parsed: ParsedPpeImport, snapshot: PpeImportSnapshot): { ok: boolean; preview: PpeImportPreview } {
   const rows: PpeImportPreviewRow[] = [];
   const summary: PpeImportPreview['summary'] = {
@@ -530,26 +562,19 @@ export function validatePpeImport(parsed: ParsedPpeImport, snapshot: PpeImportSn
       continue;
     }
     const base = snapshot.noms.find((n) => n.id === matched.matched[0]!.nom.id)!;
-    let nomId = base.id;
-    const sizeKey = normalizeLookupCompact(iss.size);
     const children = childrenByParent.get(base.id) ?? [];
-    if (sizeKey) {
-      if (children.length === 0) {
-        warnings.push(`размер «${iss.size}» указан, но у позиции нет размерного ряда — взята базовая`);
-      } else {
-        const exact = children.filter((c) => normalizeLookupCompact(c.name) === sizeKey);
-        const containing = exact.length > 0 ? exact : children.filter((c) => normalizeLookupCompact(c.name).includes(sizeKey));
-        if (containing.length === 1) {
-          nomId = containing[0]!.id;
-        } else {
-          conflict(`размер «${iss.size}» ${containing.length === 0 ? 'не найден' : 'неоднозначен'} среди вариантов «${base.name}»`);
-          continue;
-        }
-      }
-    } else if (children.length > 0) {
-      conflict(`у «${base.name}» есть размеры — укажите размер`);
+    const resolved = resolveIssueNomenclature({
+      baseName: base.name,
+      baseId: base.id,
+      size: iss.size,
+      children: children.map((c) => ({ id: c.id, name: c.name })),
+    });
+    if (!resolved.ok) {
+      conflict(resolved.error);
       continue;
     }
+    if (resolved.warning) warnings.push(resolved.warning);
+    const nomId = resolved.nomId;
     const nom = snapshot.noms.find((n) => n.id === nomId)!;
     if (nom.category != null && nom.category !== 'workwear') warnings.push(`«${nom.name}» не из спецодежды (категория ${nom.category})`);
     else if (nom.category == null) warnings.push(`у «${nom.name}» не указана категория`);
@@ -838,6 +863,8 @@ export async function applyPpeImportPreview(args: {
         if ((strict.attrsJson == null ? null : String(strict.attrsJson)) !== attrsJson) patch.attrsJson = attrsJson;
         if (strict.isActive !== isActive) patch.isActive = isActive;
         if (Object.keys(patch).length > 0) {
+          // PR-6: правка карточки — тоже новость для зеркала клиента.
+          patch.syncStatus = 'pending';
           await db.update(erpEmployeeCards).set({ ...patch, updatedAt: now }).where(eq(erpEmployeeCards.id, id as never));
           report.employees.updated.push(emp.fullName);
         } else {
@@ -856,6 +883,9 @@ export async function applyPpeImportPreview(args: {
           createdAt: now,
           updatedAt: now,
           deletedAt: null,
+          // PR-6: строка входит в sync-контракт — публикатор зеркала доведёт её
+          // до журнала (пикеры СИЗ и отчёты читают реплику клиента).
+          syncStatus: 'pending',
         });
         report.employees.created.push(emp.fullName);
         cardIdByEmployee.set(id, id);
@@ -905,18 +935,19 @@ export async function applyPpeImportPreview(args: {
       if (matched.matched.length !== 1 || matched.ambiguous.length > 0) continue;
       const base = nomById.get(matched.matched[0]!.nom.id);
       if (!base) continue;
-      let nomId = base.id;
-      const sizeKey = normalizeLookupCompact(iss.size);
-      if (sizeKey) {
-        const children = snapshot.noms.filter((n) => n.parentId === base.id);
-        const exact = children.filter((c) => normalizeLookupCompact(c.name) === sizeKey);
-        const containing = exact.length > 0 ? exact : children.filter((c) => normalizeLookupCompact(c.name).includes(sizeKey));
-        if (containing.length !== 1) continue;
-        nomId = containing[0]!.id;
-      } else {
-        if (snapshot.noms.some((n) => n.parentId === base.id)) continue;
-      }
+      const resolved = resolveIssueNomenclature({
+        baseName: base.name,
+        baseId: base.id,
+        size: iss.size,
+        children: snapshot.noms.filter((n) => n.parentId === base.id).map((c) => ({ id: c.id, name: c.name })),
+      });
+      
+      // Тот же хелпер, что у предпросмотра: строка придёт ровно в том виде, как её
+      // обещал preview (в т.ч. «размер без размерного ряда» → базовая позиция).
+      if (!resolved.ok) continue;
+      const nomId = resolved.nomId;
       const cardId = await ensureOpenCardId(employeeId);
+      
       if (!cardIdByEmployee.has(cardId)) {
         cardIdByEmployee.set(cardId, cardId);
         report.cards.opened++;
@@ -934,6 +965,7 @@ export async function applyPpeImportPreview(args: {
           ),
         )
         .limit(1);
+      
       if (dup[0]) {
         report.entries.skipped++;
         continue;
@@ -951,6 +983,7 @@ export async function applyPpeImportPreview(args: {
         syncStatus: 'pending',
       });
       report.entries.created++;
+      
     }
     return { ok: true, report };
   } catch (e) {

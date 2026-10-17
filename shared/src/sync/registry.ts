@@ -47,6 +47,7 @@ import {
   ppeGroupNormRowSchema,
   ppeCollectiveRowSchema,
   ppeCollectiveLineRowSchema,
+  erpEmployeeCardRowSchema,
   signatureDefaultRowSchema,
   directoryEngineBrandRowSchema,
 } from './dto.js';
@@ -573,6 +574,17 @@ const PPE_COLLECTIVE_LINE_FIELDS = withBase(
   { db: 'qty', dto: 'qty' },
 );
 
+// Сотрудники СИЗ (PR-6). withBase добавляет
+// id/created_at/updated_at/deleted_at/last_server_seq/sync_status сам.
+// attrs_json намеренно НЕ мапится: в зеркало едут только поля, которые EAV-политика
+// видимости и так держит открытыми (ФИО/должность/табельный).
+const ERP_EMPLOYEE_CARD_FIELDS = withBase(
+  { db: 'personnelNo', dto: 'personnel_no' },
+  { db: 'fullName', dto: 'full_name' },
+  { db: 'roleCode', dto: 'role_code' },
+  { db: 'isActive', dto: 'is_active' },
+);
+
 // Умолчания подписей (PR-5). withBase добавляет
 // id/created_at/updated_at/deleted_at/last_server_seq/sync_status сам.
 const SIGNATURE_DEFAULT_FIELDS = withBase(
@@ -939,6 +951,17 @@ const ENTRIES: readonly SyncTableEntry[] = [
     fields: PPE_COLLECTIVE_LINE_FIELDS,
     conflictTarget: ['id'],
     dependsOn: [SyncTableName.PpeCollectives],
+  },
+  // Сотрудники СИЗ (PR-6): строгие карточки erp_employee_cards. dependsOn пуст —
+  // id — собственный uuid-корень таблицы, жёстких FK нет; строки СИЗ ссылаются
+  // на сотрудника по uuid без FK (как signature_defaults.employee_id).
+  {
+    syncName: SyncTableName.ErpEmployeeCards,
+    ledgerName: SyncTableName.ErpEmployeeCards,
+    schema: erpEmployeeCardRowSchema,
+    fields: ERP_EMPLOYEE_CARD_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [],
   },
   // Умолчания подписей (план favorites-work-stages-defaults-2026-10, PR-5):
   // ни на что не ссылаются жёстко (сотрудник — uuid без FK), сирот не чистим.

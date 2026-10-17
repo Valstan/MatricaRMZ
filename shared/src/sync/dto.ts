@@ -420,6 +420,17 @@ export const signatureDefaultRowSchema = z.object({
   employee_id: z.string().uuid().nullable().optional(),
 });
 
+// Сотрудники СИЗ (PR-6): строгая карточка erp_employee_cards, её заводит импорт ЗУП.
+// Мягкие nullables повторяют форму БД: personnel_no/role_code в выгрузке бывают
+// пустыми, строгость роняла бы такие строки из pull молча.
+export const erpEmployeeCardRowSchema = z.object({
+  ...baseRowFields,
+  full_name: z.string().min(1),
+  personnel_no: z.string().nullable().optional(),
+  role_code: z.string().nullable().optional(),
+  is_active: z.boolean().nullable().optional(),
+});
+
 export const syncRowSchemaByTable = {
   [SyncTableName.EntityTypes]: entityTypeRowSchema,
   [SyncTableName.Entities]: entityRowSchema,
@@ -463,6 +474,7 @@ export const syncRowSchemaByTable = {
   [SyncTableName.PpeGroupNorms]: ppeGroupNormRowSchema,
   [SyncTableName.PpeCollectives]: ppeCollectiveRowSchema,
   [SyncTableName.PpeCollectiveLines]: ppeCollectiveLineRowSchema,
+  [SyncTableName.ErpEmployeeCards]: erpEmployeeCardRowSchema,
   [SyncTableName.SignatureDefaults]: signatureDefaultRowSchema,
 } as const;
 
