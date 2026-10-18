@@ -8,6 +8,7 @@ import { SyncManager } from '../services/syncManager.js';
 import { logMessageGetEnabled, startLogSender } from '../services/logService.js';
 import { reportPendingUpdateTelemetry } from '../services/updateService.js';
 import { startClientSettingsPolling } from '../services/clientAdminService.js';
+import { startGpuDiagnostics } from '../services/gpuDiagnostics.js';
 import { appendMainLogLine } from '../utils/logger.js';
 
 import type { IpcContext } from './ipcContext.js';
@@ -156,6 +157,11 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     // runSync may run alongside the scheduled one (refresh races, double pulls).
     runSyncGate: (o) => mgr.runOnce(o),
   });
+
+  // Аппаратное ускорение: сводка — в локальный `matricarmz.log`, программный
+  // рендеринг (SwiftShader) — ещё и warn'ом на сервер, чтобы слабые машины парка
+  // были видны в `client-*.log` без обхода по цеху.
+  startGpuDiagnostics({ db: sysDb, apiBaseUrl: mgr.getApiBaseUrl(), log: logToFile });
 
   // Прогрев кэшей списка двигателей в фоне: тяжёлая сборка флагов актов и
   // истории ремонта (~3 с холодно) уходит со старта приложения, а не на первое
