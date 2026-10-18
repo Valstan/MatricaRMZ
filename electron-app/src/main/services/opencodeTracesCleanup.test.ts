@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { removeOpencodeTraces } from './opencodeTracesCleanup.js';
@@ -36,7 +37,7 @@ describe('removeOpencodeTraces', () => {
     writeFileSync(join(userDataDir, 'opencode-sandbox', 'ask.txt'), 'x');
     mkdirSync(join(tempDirRoot, 'matricarmz-opencode'), { recursive: true });
 
-    // Чужое: личный каталог CLI и обычные файлы профиля.
+    // Чужое: личный каталог CLI, обычные файлы профиля, соседняя папка Матрицы.
     mkdirSync(join(userDataDir, '.config', 'opencode'), { recursive: true });
     writeFileSync(join(userDataDir, 'login-mru.json'), '{}');
     mkdirSync(join(localAppData, 'Programs', 'MatricaRMZ-Watchdog'), { recursive: true });
@@ -47,10 +48,17 @@ describe('removeOpencodeTraces', () => {
       tempDir: tempDirRoot,
     });
 
-    expect(removed).toContain(installDir);
+    expect([...removed].sort()).toEqual(
+      [
+        installDir,
+        join(userDataDir, 'opencode-nodes.json'),
+        join(userDataDir, 'opencode-agent-session.json'),
+        join(userDataDir, 'opencode-sandbox'),
+        join(tempDirRoot, 'matricarmz-opencode'),
+      ].sort(),
+    );
     expect(existsSync(installDir)).toBe(false);
     expect(existsSync(join(userDataDir, 'opencode-nodes.json'))).toBe(false);
-    expect(existsSync(join(userDataDir, 'opencode-agent-session.json'))).toBe(false);
     expect(existsSync(join(userDataDir, 'opencode-sandbox'))).toBe(false);
     expect(existsSync(join(tempDirRoot, 'matricarmz-opencode'))).toBe(false);
     expect(existsSync(join(userDataDir, '.config', 'opencode'))).toBe(true);
@@ -75,13 +83,32 @@ describe('removeOpencodeTraces', () => {
     expect(existsSync(installDir)).toBe(false);
   });
 
-  it('чистый профиль не роняет уборку', async () => {
+  it('чистый профиль: молчит и ничего не возвращает', async () => {
     const localAppData = tempDir('mrz-local-');
     const userDataDir = tempDir('mrz-userdata-');
     const tempDirRoot = tempDir('mrz-temp-');
 
     await expect(
       removeOpencodeTraces({ localAppData, userDataDir, tempDir: tempDirRoot }),
-    ).resolves.toContain(join(localAppData, 'Programs', 'MatricaRMZ-OpenCode'));
+    ).resolves.toEqual([]);
+  });
+});
+
+// Проводка рвётся молча: пропадёт вызов в index.ts — тесты сервиса останутся
+// зелёными, а следы узла останутся на всём парке.
+describe('проводка уборки', () => {
+  function src(rel: string): string {
+    return readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8').replace(/\r\n/g, '\n');
+  }
+
+  it('клиент зовёт уборку на старте (рядом с подчисткой прежних каталогов)', () => {
+    const index = src('../index.ts');
+    expect(index).toContain("import('./services/opencodeTracesCleanup.js')");
+    expect(index).toContain('removeOpencodeTraces()');
+  });
+
+  it('модуль миграций в уборку не ходит: android-бандл не тянет node:child_process', () => {
+    const migrations = src('./migrations/clientSchemaMigrations.ts');
+    expect(migrations).not.toContain('opencodeTracesCleanup');
   });
 });

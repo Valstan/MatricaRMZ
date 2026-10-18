@@ -158,6 +158,7 @@
 | M152 | Watchdog «not an .exe» на каждой закачке: валидация суффикса смотрит staging-путь `.exe.part`, а не финальное имя; провал закачки не считался в backoff — ~137 МБ каждые 15 мин вхолостую | [M152](#m152--watchdog-not-an-exe-на-каждой-закачке-валидация-смотрит-staging-путь-а-не-финальное-имя) |
 | M153 | `db:migrate` рапортует «applied» с exit 0, а строк новой миграции в таблице нет: `when` ручной записи `_journal.json` старше прошлой — migrator сравнивает даты и молча пропускает | [M153](#m153--когда-when-старше-прошлой-записи-migrator-молча-пропускает-миграцию) |
 | M154 | Gitleaks-гейт PR красный после удаления секрета следующим коммитом: сканит все коммиты ветки, а не HEAD | CI / gitleaks |
+| M155 | `build-apk` падает: `execFile is not exported by __vite-browser-external` — android-сборка втянула electron main-модуль с `node:child_process` | android / vite-shims |
 
 ---
 
@@ -1468,3 +1469,12 @@ await send(ws, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: r.x, y: r
 - **Диагностика:** gh run view <id> --log, строки RuleID / File: / Line: / Commit: — коммит из середины ветки, а не HEAD.
 - **Лечение:** схлопнуть ветку в один чистый коммит (git reset --soft origin/main + один коммит + git push --force-with-lease; force-push в feature-ветку разрешён, в main — запрещён) — секрет буквально никогда не существовал в истории ветки. Финальный squash-merge и так дал бы чистый коммит, но сам PR-гейт смотрит на ветку, а не на результат squash. Прецедент: 2026-10-15, PR-2 фазы Кладовщика (#1357) — фейковый HMAC-секрет в тесте (ppeImport.test.ts:223).
 - **Правило:** тестовые секреты собирать из кусков ([...parts, ...parts].join), чтобы литерал с энтропией вообще не попадал в историю. Реальный секрет в истории — отзыв + чистка, это другая процедура.
+
+## M155 — `build-apk` падает: `execFile is not exported by __vite-browser-external`
+
+- **Симптом:** CI-джоб `build-apk` красный через секунды после пуша: `"execFile" is not exported by "__vite-browser-external", imported by electron-app/src/main/services/<модуль>.ts`; выше по логу — предупреждение `Module "node:child_process" has been externalized for browser compatibility`. Локально то же самое: `corepack pnpm -C android-app build`.
+- **Корень:** android-сборка — браузерный бандл, но она напрямую импортирует electron main-модули (`syncService`, `settingsStore`, `clientSchemaMigrations`, …) и подменяет платформенное через `androidShims` (`android-app/shimsPlugin.ts`). В списке подмен — `electron`, `node:crypto`, `node:fs/promises`, `node:path`, `node:os`; `node:child_process` там нет, а vite-заглушка `__vite-browser-external` не экспортирует ни одного имени — статический импорт из `node:child_process` роняет rollup.
+- **Диагностика:** в логе назван модуль-виновник; дальше по графу — `clientSchemaMigrations` → `syncService` → `boot.ts` планшета. Быстрая локальная проверка: `corepack pnpm -C android-app build` (~7 с) — дешевле, чем ждать CI.
+- **Лечение:** не тянуть node-станционные модули в граф android-бандла. Клиентскую уборку следов OpenCode-узла из шага миграции 13→14 вынесли в разовую подчистку при старте (`main/index.ts`, рядом с `sweepLegacyInstallDir`) — модуль миграций остался чистым. Если подмена действительно нужна — добавить шим в `androidShims` через `resolve(shimsDir, '...')`; по умолчанию дешевле не пущать.
+- **Правило:** новый модуль в `electron-app/src/main/services` проверять на попадание в граф планшета (импорт из `syncService`/`settingsStore`/`clientSchemaMigrations` = попадает): статический `node:child_process` там запрещён, `node:fs/promises`/`node:os`/`node:path`/`node:crypto` — только через шимы.
+- **Прецедент:** 2026-10-19, PR #1379 (P2, уборка следов узла) — первая редакция делала уборку шагом миграции.

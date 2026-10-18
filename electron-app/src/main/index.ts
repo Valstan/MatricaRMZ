@@ -490,6 +490,18 @@ app.whenReady().then(() => {
     })
     .catch((e) => logToFile(`legacy updates cache sweep failed: ${String(e)}`));
 
+  // Следы вырезанного OpenCode-узла (19.10.2026): код модуля снесён, а его файлы
+  // в профиле оператора остались от прежних версий. Убирает клиент — тем же
+  // порядком, что и кэш выше: тихо, best-effort, в лог — только когда что-то
+  // действительно нашлось. Подчистка идемпотентна, на чистой машине молчит.
+  void import('./services/opencodeTracesCleanup.js')
+    .then(({ removeOpencodeTraces }) =>
+      removeOpencodeTraces().then((removed) => {
+        for (const target of removed) logToFile(`opencode cleanup: removed ${target}`);
+      }),
+    )
+    .catch((e) => logToFile(`opencode cleanup failed: ${String(e)}`));
+
   // По умолчанию — адрес вашего VPS (чтобы Windows-клиент сразу мог синхронизироваться).
   // Можно переопределить переменной окружения MATRICА_API_URL при запуске.
   // В проде обычно ходим через reverse-proxy (nginx) на 80/443, поэтому порт 3001 не указываем.
