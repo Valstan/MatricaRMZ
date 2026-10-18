@@ -13,7 +13,6 @@ import type { ServicePriceHistoryDto, ServicePriceOrderDto } from '../domain/ser
 import type { WorkSheetRow, WorkSheetType } from '../domain/workSheets.js';
 import type { ContractPayments } from '../domain/payments.js';
 import type { MenuTabId } from '../domain/uiSections.js';
-import type { OpencodeNode, OpencodeNodeProbe, OpencodeNodeStatus } from '../domain/opencodeNodes.js';
 
 /** Избранные разделы оператора (левая колонка оболочки). Локально, per-user scope. */
 export type SectionFavoritesResult = { ok: true; ids: MenuTabId[] } | { ok: false; error: string };
@@ -85,7 +84,7 @@ export type ClientOpsBundleInfo = {
 };
 
 /** Вкладка окна обслуживания, с которой его открыть. Значения совпадают с -Tab у matrica-ops.ps1. */
-export type ClientOpsTab = 'kaspersky' | 'lan' | 'opencode' | 'guide';
+export type ClientOpsTab = 'kaspersky' | 'lan' | 'guide';
 
 /** Прохождение этапа единого списка (B5): одна запись = один проход с датой. */
 export type EngineStageEntry = {
@@ -2246,33 +2245,6 @@ export type MatricaApi = {
       metadataJson?: string | null;
     }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     delete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
-  };
-
-  /** OpenCode-узлы (мандат 2026-10-12): реестр локальный, только суперадмин. */
-  opencodeNodes: {
-    list: () => Promise<{ ok: true; nodes: OpencodeNode[] } | { ok: false; error: string }>;
-    save: (args: { nodes: OpencodeNode[] }) => Promise<{ ok: true; nodes: OpencodeNode[] } | { ok: false; error: string }>;
-    probe: () => Promise<{ ok: true; probes: OpencodeNodeProbe[] } | { ok: false; error: string }>;
-    /** Состояние локального узла, который ведёт сам клиент (нативно, без админа). */
-    status: () => Promise<{ ok: true; status: OpencodeNodeStatus } | { ok: false; error: string }>;
-  };
-
-  /** Фоновая агентская сессия своего узла (D10, слайс 2): одна на клиент. */
-  opencodeSession: {
-    /** Создать при отсутствии / переиспользовать живую; id персистится. */
-    ensure: () => Promise<{ ok: true; sessionId: string; created: boolean } | { ok: false; error: string }>;
-    /** Жива ли persisted-сессия прямо сейчас. */
-    status: () => Promise<{ ok: true; sessionId: string | null; valid: boolean } | { ok: false; error: string }>;
-    /** Удалить сессию на serve и забыть id. */
-    remove: () => Promise<{ ok: true } | { ok: false; error: string }>;
-    /** Вопрос узлу (D10, слайс 3): промпт в песочнице, ответ — поллингом poll. */
-    ask: (args: { text: string }) => Promise<{ ok: true; askId: string } | { ok: false; error: string }>;
-    /** Шаг опроса ответа: растущий текст + готовность. */
-    poll: (args: { askId: string }) => Promise<
-      { ok: true; text: string; done: boolean; timedOut: boolean } | { ok: false; error: string }
-    >;
-    /** Остановить вопрос (interrupt + done). */
-    stop: (args: { askId: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
   };
 
   servicePricing: {

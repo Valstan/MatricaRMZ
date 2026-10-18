@@ -138,17 +138,6 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [engineReady, setEngineReady] = useState<boolean | null>(null);
-  // Ответ встроенного узла (D10, слайс 3): вопрос → промпт в песочнице → текст
-  // растёт поллингом. DeepSeek — запасной контур при мёртвом узле (ниже).
-  const [nodeAsk, setNodeAsk] = useState<{
-    askId: string;
-    question: string;
-    text: string;
-    done: boolean;
-    timedOut: boolean;
-    startedAt: number;
-  } | null>(null);
-  const [nodeNotice, setNodeNotice] = useState<string | null>(null);
   const [me, setMe] = useState<{ id: string; role: string } | null>(null);
   const [now, setNow] = useState<number>(Date.now());
   const [activeHints, setActiveHints] = useState<string[]>([]);
@@ -303,26 +292,6 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   async function send() {
     const q = composeQuestion();
     if (!q || busy) return;
-    // Файл умеет только серверный контур: с вложением — сразу в DeepSeek.
-    if (attach) {
-      await sendDeepSeek(q);
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setNodeNotice(null);
-    const asked = await window.matrica.opencodeSession
-      .ask({ text: q })
-      .catch((e) => ({ ok: false as const, error: String(e) }));
-    if (asked.ok) {
-      setNodeAsk({ askId: asked.askId, question: q, text: '', done: false, timedOut: false, startedAt: Date.now() });
-      setText('');
-      setActiveHints([]);
-      // busy остаётся до готовности ответа (снимают поллинг и стоп).
-      return;
-    }
-    // Узел мёртв — запасной контур (DeepSeek), честно называем.
-    setNodeNotice('Встроенный узел недоступен — спросил ИИваныча (DeepSeek).');
     await sendDeepSeek(q);
   }
 
@@ -343,40 +312,6 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
       setBusy(false);
     }
   }
-
-  async function stopNodeAnswer() {
-    if (!nodeAsk || nodeAsk.done) return;
-    try {
-      await window.matrica.opencodeSession.stop({ askId: nodeAsk.askId });
-    } catch {
-      // best-effort — локально всё равно считаем остановленным
-    }
-    setNodeAsk({ ...nodeAsk, done: true });
-    setBusy(false);
-  }
-
-  // Поллинг ответа узла, пока не готов: 1.5 с, только на активной вкладке.
-  useEffect(() => {
-    if (!active || !nodeAsk || nodeAsk.done) return;
-    const timer = window.setInterval(() => {
-      void (async () => {
-        try {
-          const r = await window.matrica.opencodeSession.poll({ askId: nodeAsk.askId });
-          if (!r.ok) {
-            setNodeAsk({ ...nodeAsk, done: true });
-            setError(r.error);
-            setBusy(false);
-            return;
-          }
-          setNodeAsk({ ...nodeAsk, text: r.text, done: r.done, timedOut: r.timedOut });
-          if (r.done) setBusy(false);
-        } catch {
-          // следующий тик повторит
-        }
-      })();
-    }, 1500);
-    return () => window.clearInterval(timer);
-  }, [active, nodeAsk]);
 
   async function saveAsTemplate(item: AiChatRequestItem) {
     const exists = templates.some((t) => normalizeQuestionKey(t.text) === normalizeQuestionKey(item.questionText));
@@ -708,63 +643,12 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
           </div>
         )}
         {myItems.map((i) => renderCard(i, false))}
-        {nodeAsk && (
-          <div
-            key={`node-${nodeAsk.askId}`}
-            data-node-answer="1"
-            style={{
-              marginBottom: 12,
-              border: `1px solid ${theme.colors.border}`,
-              borderRadius: 10,
-              overflow: 'hidden',
-            }}
-          >
-            <div style={{ padding: '8px 10px', background: theme.colors.chatMineBg }}>
-              <div style={{ fontSize: 11, color: theme.colors.muted, marginBottom: 4 }}>
-                {formatMoscowTime(nodeAsk.startedAt)} · {nodeAsk.question.slice(0, 120)}
-              </div>
-            </div>
-            <div style={{ padding: '8px 10px', background: theme.colors.chatOtherBg }}>
-              <div
-                style={{ fontSize: 11, color: theme.colors.muted, marginBottom: 4 }}
-                title="Ответ собран встроенным узлом: лимиты не публикуются, данные могут идти в обучение"
-              >
-                🔧 Ответ узла{nodeAsk.done ? '' : ' · пишется…'}
-              </div>
-              {nodeAsk.text ? (
-                <div
-                  style={{ fontSize: 13, lineHeight: 1.45 }}
-                  dangerouslySetInnerHTML={{ __html: renderMarkdown(stripAiReportMarkers(nodeAsk.text)) }} // nosemgrep: typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml
-                />
-              ) : (
-                <div style={{ fontSize: 12, color: theme.colors.muted }}>Узел думает…</div>
-              )}
-              {!nodeAsk.done ? (
-                <div style={{ marginTop: 6 }}>
-                  <Button variant="ghost" onClick={() => void stopNodeAnswer()} data-node-stop="1" title="Остановить ответ узла">
-                    ⏹ Остановить
-                  </Button>
-                </div>
-              ) : null}
-              {nodeAsk.done && nodeAsk.timedOut ? (
-                <div style={{ fontSize: 11, color: theme.colors.muted, marginTop: 4 }}>
-                  Узел не уложился в 5 минут — остановлен. Спросите короче или повторите.
-                </div>
-              ) : null}
-            </div>
-          </div>
-        )}
       </div>
 
       <div style={{ padding: 10, borderTop: `1px solid ${theme.colors.border}`, display: 'flex', flexDirection: 'column', gap: 8 }}>
         {error && (
           <div style={{ fontSize: 12, color: theme.colors.danger ?? '#dc2626' }}>
             {error.includes('rate_limit') ? 'Лимит: не больше 5 вопросов в час.' : error}
-          </div>
-        )}
-        {nodeNotice && (
-          <div style={{ fontSize: 12, color: theme.colors.muted }} data-node-fallback="1">
-            {nodeNotice}
           </div>
         )}
         {(templates.length > 0 || frequentQuestions.length > 0) && (
