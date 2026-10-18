@@ -51,6 +51,10 @@ const SKIP_DIRS = new Set([
   '.idea',
   '.vite',
   'release',
+  // Артефакты CDP-смоука: каталог в .gitignore, пишется прогонами (в т.ч. через
+  // PowerShell, который по умолчанию кладёт UTF-16) — к исходникам репозитория
+  // отношения не имеет, а сторож ронял из-за него локальный `-r test`.
+  '.verifier-electron',
 ]);
 
 function repoRoot(): string {
