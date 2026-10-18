@@ -366,6 +366,44 @@ async function main() {
   });
   if (!fix?.normId) throw new Error('фикстуры не построились');
 
+  // ── [1b] EAV-карточка сотрудника с размерами (подсказка при выдаче) ─────────
+  // Карточка СИЗ знает строгого сотрудника (erp_employee_cards), а размеры живут в
+  // EAV-карточке employee; общий ключ — табельный номер. Страница карточек читает
+  // размеры на монтировании, поэтому карточку заводим ДО её первого открытия.
+  const sizesFixture = await evaluate(
+    ws,
+    `const types = await call(window.matrica.admin.entityTypes.list());
+     const empType = (types ?? []).find((t) => String(t.code ?? '') === 'employee');
+     if (!empType) return { ok: false, reason: 'нет типа employee' };
+     for (const f of [
+       { code: 'ppe_size_clothes', name: 'Размер одежды', sortOrder: 106 },
+       { code: 'ppe_size_shoes', name: 'Размер обуви', sortOrder: 107 },
+     ]) {
+       await call(window.matrica.admin.attributeDefs.upsert({
+         entityTypeId: String(empType.id), code: f.code, name: f.name, dataType: 'text',
+         isRequired: false, sortOrder: f.sortOrder, metaJson: null,
+       }));
+     }
+     const created = await call(window.matrica.admin.entities.create(String(empType.id)));
+     if (!created?.ok || !created?.id) return { ok: false, reason: 'EAV-сотрудник не создан: ' + String(created?.error ?? created) };
+     const entityId = String(created.id);
+     const set = async (code, value) => {
+       const r = await call(window.matrica.admin.entities.setAttr(entityId, code, value));
+       if (!r?.ok) throw new Error('setAttr ' + code + ': ' + String(r?.error ?? r));
+     };
+     await set('full_name', ${JSON.stringify(EMP[0].fio)});
+     await set('personnel_number', '90991');
+     await set('ppe_size_shoes', '44');
+     const read = await call(window.matrica.admin.entities.listByEntityTypeWithAttrs(String(empType.id)));
+     const mine = (read ?? []).filter((e) => String(e.attributes?.personnel_number ?? '') === '90991');
+     return { ok: mine.length >= 1, entityId, sizes: (mine.find((e) => e.attributes?.ppe_size_shoes) ?? mine[0])?.attributes ?? null };`,
+  );
+  note(
+    sizesFixture?.ok === true,
+    'фикстура: EAV-карточка сотрудника 90991 с размером обуви 44 (источник подсказки при выдаче)',
+    sizesFixture?.ok ? { entityId: sizesFixture.entityId } : sizesFixture,
+  );
+
   // ── [2] Импорт ЗУП через страницу ──────────────────────────────────────────
   const fixturePath = await buildFixture(fix.подразделение, fix);
   await openSection(ws, 'Кладовщик', 'Импорт СИЗ');
@@ -687,6 +725,44 @@ async function main() {
      };`,
   );
   note(broken.ok === true, 'конфликтная строка: файл применён, строка пропущена и названа в итоге', broken);
+
+  // ── [11] Подсказка размера при выдаче ──────────────────────────────────────
+  await openSection(ws, 'Кладовщик', 'Карточки СИЗ');
+  const hint = await evaluate(
+    ws,
+    `const openBtn = byExact('Открыть карточку');
+     if (openBtn) { click(openBtn); await wait(1500); }
+     const issueBtn = byText('Выдать СИЗ');
+     if (!issueBtn) return { ok: false, reason: 'нет кнопки «Выдать СИЗ»' };
+     click(issueBtn); await wait(900);
+     const pane = activePane();
+     const sizesLine = (txt(pane).match(/Размер сотрудника:[^|]{0,80}/) ?? [''])[0].trim();
+     const posInput = vis('input[placeholder="Позиция из норм"]', pane)[0];
+     if (!posInput) return { ok: false, reason: 'нет поля позиции', sizesLine };
+     click(posInput); await wait(900);
+     const popup = vis('[data-entity-lookup-popup]')[0];
+     if (!popup) return { ok: false, reason: 'список позиций не открылся', sizesLine };
+     const rows = vis('[data-idx]', popup).map((el) => txt(el));
+     return { ok: true, sizesLine, rows };`,
+  );
+  const rowWithHint = (hint?.rows ?? []).find((r) => r.includes('размер сотрудника'));
+  note(
+    hint?.ok === true && /обувь 44/.test(hint?.sizesLine ?? ''),
+    'выдача: показаны размеры сотрудника (обувь 44) — из EAV-карточки по табельному',
+    hint?.ok ? { строка: hint.sizesLine } : hint,
+  );
+  note(
+    Boolean(rowWithHint && rowWithHint.includes('SMK Ботинки рабочие 44')),
+    'выдача: позиция «Ботинки 44» помечена «размер сотрудника» (подсветка совпала)',
+    rowWithHint ? { строка: rowWithHint.slice(0, 140) } : hint,
+  );
+  note(
+    !(hint?.rows ?? []).some((r) => r.includes('Перчатки') && r.includes('размер сотрудника')),
+    'выдача: у позиции без своего размера (перчатки) пометки нет',
+    (hint?.rows ?? []).filter((r) => r.includes('Перчатки')).map((r) => r.slice(0, 140)),
+  );
+  await shot(ws, '8-size-hint');
+  await evaluate(ws, `const c = vis('button').find((b) => txt(b) === 'Отмена'); if (c) { click(c); await wait(400); } return true;`);
 
   const failed = steps.filter((s) => !s.ok);
   const report = {
