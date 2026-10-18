@@ -276,9 +276,6 @@ killDoneUninstall:
   ClearErrors
 !macroend
 
-; OpenCode-узел установщик НЕ ставит: он per-user без UAC, а задача планировщика /
-; правило брандмауэра / PROGRAMDATA требуют админа. Узел ведёт сам клиент на первом
-; запуске (per-user каталог, serve только на loopback — см. opencodeServeManager).
 !macro customInstall
   !insertmacro InstallWatchdog
   !insertmacro InstallKasperskyHelper

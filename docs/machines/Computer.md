@@ -24,8 +24,8 @@
   --includeRecommended`, тихо, в фоне 12.10). До готовности —
   живой Electron-стек не поднять; бэкенд стенда (чистый Node) — можно.
   (2026-10-12 вечером: Build Tools 2022 встали в `C:\BuildTools`, MSVC 14.44 +
-  Windows SDK — `install-app-deps` проходит, CDP-смоук `cdp-opencode-nodes.mjs`
-  PASS. После `install-app-deps` vitest краснеет ABI (148 vs 137); чинит НЕ
+  Windows SDK — `install-app-deps` проходит, CDP-смоук раздела OpenCode-узлов
+  (`cdp-opencode-nodes.mjs`; драйвер снят вместе с модулем 19.10) PASS. После `install-app-deps` vitest краснеет ABI (148 vs 137); чинит НЕ
   `pnpm rebuild`/`pnpm install` (молчат), а прямой `node-gyp rebuild` в каталоге
   пакета: `node <node-gyp@12.4.0>/bin/node-gyp.js rebuild` в обоих
   `better-sqlite3*` — проверено, сьют зелёный.)
