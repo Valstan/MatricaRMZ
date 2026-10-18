@@ -1,5 +1,9 @@
 # OpenCode-узлы в MatricaRMZ — локальный план реализации (PR-1–PR-2)
 
+> **Закрыт 19.10.2026**: модуль вырезан из программы решением владельца — раздел, процессы
+> узла и вся раскладка снесены ([`../batch-pain-print-and-filters-2026-10.md`](../batch-pain-print-and-filters-2026-10.md) §P2).
+> План оставлен как запись о том, как это строилось и почему свернулось.
+
 > Мандат brain: `mailboxes/MatricaRMZ/from-brain/2026-10-12-opencode-silent-deploy-plan.md`
 > (канал GitHub; полный дизайн у Мозга: `docs/plans/opencode-silent-deploy.md`).
 > Ответ-ack: `mailbox/to-brain/2026-10-12-opencode-mandate-accepted.md`.
