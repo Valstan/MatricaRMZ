@@ -156,6 +156,16 @@ if (cdpPort && app.isPackaged) {
   logToFile(`CDP enabled: remote-debugging-port=${cdpPort}, isolated userData=${isolatedUserData}`);
 }
 
+// Reproduction/measurement hook for the "тормозит на слабой машине" thread: when
+// MATRICA_FORCE_SOFTWARE_GPU=1 the dev client drops hardware acceleration entirely
+// (SwiftShader), so the same screen can be measured on the same hardware with and
+// without a GPU. Packaged builds ignore the var — prod behaviour is unchanged.
+const forceSoftwareGpu = process.env.MATRICA_FORCE_SOFTWARE_GPU?.trim();
+if (forceSoftwareGpu === '1' && !app.isPackaged) {
+  app.commandLine.appendSwitch('disable-gpu');
+  logToFile('GPU disabled via MATRICA_FORCE_SOFTWARE_GPU=1 (software rendering)');
+}
+
 export function setForceQuit(value: boolean) {
   forceQuit = value;
 }
