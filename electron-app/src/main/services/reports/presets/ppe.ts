@@ -4,6 +4,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import {
   StockMovementType,
   nextIssueDates,
+  pickHumanText,
   resolveEmployeeNorms,
   resolveGroupNorms,
   reversalMovementType,
@@ -31,7 +32,7 @@ import {
   ppeNormSets,
 } from '../../../database/schema.js';
 import { getPreset, getWarehouseLocationsForReport, loadSnapshot, type ReportBuildContext } from '../context.js';
-import { readPeriod } from '../format.js';
+import { normalizeText, readPeriod } from '../format.js';
 import { movementTypeLabel } from './warehouse.js';
 
 const HUMAN_DASH = '—';
@@ -60,7 +61,7 @@ type PpeSnapshot = {
 };
 
 async function loadPpeSnapshot(db: BetterSQLite3Database): Promise<PpeSnapshot> {
-  const [noms, emps, sets, lines, cards, cardNorms, entries, groupRows, members, groupNorms, absences] = await Promise.all([
+  const [noms, emps, sets, lines, cards, cardNorms, entries, groupRows, members, groupNorms, absences, eav] = await Promise.all([
     db.select().from(erpNomenclature).where(isNull(erpNomenclature.deletedAt)).limit(60_000),
     db.select().from(erpEmployeeCards).where(isNull(erpEmployeeCards.deletedAt)).limit(20_000),
     db.select().from(ppeNormSets).where(isNull(ppeNormSets.deletedAt)).limit(5_000),
@@ -72,6 +73,7 @@ async function loadPpeSnapshot(db: BetterSQLite3Database): Promise<PpeSnapshot> 
     db.select().from(ppeGroupMembers).where(isNull(ppeGroupMembers.deletedAt)).limit(50_000),
     db.select().from(ppeGroupNorms).where(isNull(ppeGroupNorms.deletedAt)).limit(20_000),
     db.select().from(ppeAbsences).where(isNull(ppeAbsences.deletedAt)).limit(50_000),
+    loadSnapshot(db),
   ]);
   const nomName = new Map<string, string>();
   const nomParent = new Map<string, string | null>();
@@ -82,7 +84,26 @@ async function loadPpeSnapshot(db: BetterSQLite3Database): Promise<PpeSnapshot> 
     nomCategory.set(String(n.id), String(n.category ?? ''));
   }
   const empName = new Map<string, string>();
-  for (const e of emps as any[]) empName.set(String(e.id), String(e.fullName ?? e.id));
+  // Имена — из двух источников. Строгий `erp_employee_cards` заполняет импорт ЗУП, а карточки
+  // в UI заводят по справочнику клиента (EAV `employee`): без второго источника у карточки
+  // живого человека в колонке «Сотрудник» стоял прочерк, а не ФИО.
+  for (const e of emps as any[]) {
+    const name = pickHumanText(e.fullName);
+    if (name) empName.set(String(e.id), name);
+  }
+  const employeeTypeId = eav.entityTypeIdByCode.get('employee');
+  if (employeeTypeId) {
+    for (const [entityId, entity] of eav.entitiesById) {
+      if (entity.typeId !== employeeTypeId || empName.has(entityId)) continue;
+      const attrs = eav.attrsByEntity.get(entityId) ?? {};
+      const parts = [normalizeText(attrs.last_name), normalizeText(attrs.first_name), normalizeText(attrs.middle_name)]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      const name = pickHumanText(attrs.full_name, parts);
+      if (name) empName.set(entityId, name);
+    }
+  }
   const linesBySet = new Map<string, Array<{ nomenclatureId: string; qty: number; wearMonths: number }>>();
   for (const l of lines as any[]) {
     const arr = linesBySet.get(String(l.normSetId)) ?? [];

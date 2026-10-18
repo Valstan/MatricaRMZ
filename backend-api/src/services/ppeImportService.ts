@@ -715,12 +715,38 @@ function safeJsonString(v: unknown): string {
 
 export type PpeImportApplyReport = {
   dryRun: boolean;
-  employees: { created: string[]; updated: string[]; matched: number };
+  employees: { created: string[]; updated: string[]; matched: number; conflict: number };
   departments: { created: string[]; matched: number };
-  absences: { created: number; skipped: number };
+  absences: { created: number; skipped: number; conflict: number };
   cards: { opened: number };
-  entries: { created: number; skipped: number };
+  entries: { created: number; skipped: number; conflict: number };
 };
+
+/**
+ * Номера строк книги, которые проверка признала конфликтами.
+ *
+ * Apply пропускает ровно их. Без этого невалидная строка сотрудника заводила
+ * карточку с пустым табельным, а неоднозначное совпадение правила не того человека.
+ * До 16.10.2026 любая такая строка отменяла весь файл («данные изменились после
+ * preview»), и выгрузку ЗУП с одной незнакомой позицией нельзя было применить
+ * вовсе — стену поймал живой прогон PR-6.
+ */
+export function ppeImportConflictLines(preview: PpeImportPreview): {
+  employee: Set<number>;
+  absence: Set<number>;
+  issue: Set<number>;
+} {
+  const employee = new Set<number>();
+  const absence = new Set<number>();
+  const issue = new Set<number>();
+  for (const row of preview.rows) {
+    if (row.action !== 'conflict') continue;
+    if (row.kind === 'employee') employee.add(row.line);
+    else if (row.kind === 'absence') absence.add(row.line);
+    else if (row.kind === 'issue') issue.add(row.line);
+  }
+  return { employee, absence, issue };
+}
 
 async function ensureDepartmentByName(name: string, actor: Actor): Promise<{ id: string; created: boolean } | null> {
   const typeRows = await db.select({ id: entityTypes.id }).from(entityTypes).where(and(eq(entityTypes.code, 'department'), isNull(entityTypes.deletedAt))).limit(1);
@@ -748,21 +774,21 @@ async function ensureDepartmentByName(name: string, actor: Actor): Promise<{ id:
   return { id: created.id, created: true };
 }
 
-async function ensureOpenCardId(employeeId: string): Promise<string> {
+async function ensureOpenCardId(employeeId: string): Promise<{ id: string; created: boolean }> {
   const open = await db
     .select({ id: ppeIssueCards.id })
     .from(ppeIssueCards)
     .where(and(eq(ppeIssueCards.employeeId, employeeId as never), isNull(ppeIssueCards.closedAt), isNull(ppeIssueCards.deletedAt)))
     .limit(1);
-  if (open[0]) return String(open[0].id);
+  if (open[0]) return { id: String(open[0].id), created: false };
   const created = await openPpeCard({ employeeId });
-  if (created.ok) return created.id;
+  if (created.ok) return { id: created.id, created: true };
   const retry = await db
     .select({ id: ppeIssueCards.id })
     .from(ppeIssueCards)
     .where(and(eq(ppeIssueCards.employeeId, employeeId as never), isNull(ppeIssueCards.closedAt), isNull(ppeIssueCards.deletedAt)))
     .limit(1);
-  if (retry[0]) return String(retry[0].id);
+  if (retry[0]) return { id: String(retry[0].id), created: false };
   throw new Error(`не удалось открыть карточку: ${created.error}`);
 }
 
@@ -788,22 +814,18 @@ export async function applyPpeImportPreview(args: {
     const parsed = await parsePpeImportWorkbook(buffer);
     if (!parsed.ok) return parsed;
     const snapshot = await loadPpeImportSnapshot();
-    const { ok, preview } = validatePpeImport(parsed.parsed, snapshot);
-    if (!ok) {
-      const first = preview.rows.filter((r) => r.action === 'conflict').slice(0, 10);
-      return {
-        ok: false,
-        error: `данные изменились после preview — обновите preview (${preview.rows.filter((r) => r.action === 'conflict').length} конфликтов): ${first.map((r) => `строка ${r.line}: ${r.error ?? r.ref}`).join('; ')}`,
-      };
-    }
+    const { preview } = validatePpeImport(parsed.parsed, snapshot);
+    // Конфликтные строки не отменяют файл: их место — таблица проверки, которую
+    // оператор уже видел. Пропускаем ровно эти строки и считаем их в отчёте.
+    const conflictLines = ppeImportConflictLines(preview);
     const dryRun = args.dryRun === true;
     const report: PpeImportApplyReport = {
       dryRun,
-      employees: { created: [], updated: [], matched: 0 },
+      employees: { created: [], updated: [], matched: 0, conflict: conflictLines.employee.size },
       departments: { created: [], matched: 0 },
-      absences: { created: 0, skipped: 0 },
+      absences: { created: 0, skipped: 0, conflict: conflictLines.absence.size },
       cards: { opened: 0 },
-      entries: { created: 0, skipped: 0 },
+      entries: { created: 0, skipped: 0, conflict: conflictLines.issue.size },
     };
     if (dryRun) {
       for (const row of preview.rows) {
@@ -823,9 +845,9 @@ export async function applyPpeImportPreview(args: {
     const now = Date.now();
     const deptIdByNorm = new Map<string, string>();
     for (const d of snapshot.departments) deptIdByNorm.set(deptNorm(d.name), d.id);
-    const cardIdByEmployee = new Map<string, string>();
     // Фаза 1: подразделения и сотрудники (идемпотентно: повторный прогон находит созданное).
     for (const emp of parsed.parsed.employees) {
+      if (conflictLines.employee.has(emp.line)) continue;
       if (emp.department && !deptIdByNorm.has(deptNorm(emp.department))) {
         const ensured = await ensureDepartmentByName(emp.department, args.actor);
         if (ensured) {
@@ -870,7 +892,6 @@ export async function applyPpeImportPreview(args: {
         } else {
           report.employees.matched++;
         }
-        cardIdByEmployee.set(id, id);
       } else {
         const id = randomUUID();
         await db.insert(erpEmployeeCards).values({
@@ -888,11 +909,11 @@ export async function applyPpeImportPreview(args: {
           syncStatus: 'pending',
         });
         report.employees.created.push(emp.fullName);
-        cardIdByEmployee.set(id, id);
       }
     }
     // Фаза 2: отпуска (пропуск существующих того же диапазона).
     for (const emp of parsed.parsed.employees) {
+      if (conflictLines.absence.has(emp.line)) continue;
       const vacFrom = emp.vacFromRaw == null || cellText(emp.vacFromRaw) === '' ? null : parseImportDateCell(emp.vacFromRaw);
       const vacTo = emp.vacToRaw == null || cellText(emp.vacToRaw) === '' ? null : parseImportDateCell(emp.vacToRaw);
       if (vacFrom == null || vacTo == null || vacFrom >= vacTo) continue;
@@ -924,6 +945,7 @@ export async function applyPpeImportPreview(args: {
     // Фаза 3: прошлые выдачи (entries с document_id NULL; карточки дооткрываются).
     const nomById = new Map(snapshot.noms.map((n) => [n.id, n]));
     for (const iss of parsed.parsed.issues) {
+      if (conflictLines.issue.has(iss.line)) continue;
       const qty = parseImportQty(iss.qtyRaw);
       const issuedAt = parseImportDateCell(iss.dateRaw);
       if (qty == null || issuedAt == null) continue;
@@ -941,17 +963,16 @@ export async function applyPpeImportPreview(args: {
         size: iss.size,
         children: snapshot.noms.filter((n) => n.parentId === base.id).map((c) => ({ id: c.id, name: c.name })),
       });
-      
+
       // Тот же хелпер, что у предпросмотра: строка придёт ровно в том виде, как её
       // обещал preview (в т.ч. «размер без размерного ряда» → базовая позиция).
       if (!resolved.ok) continue;
       const nomId = resolved.nomId;
-      const cardId = await ensureOpenCardId(employeeId);
-      
-      if (!cardIdByEmployee.has(cardId)) {
-        cardIdByEmployee.set(cardId, cardId);
-        report.cards.opened++;
-      }
+      const card = await ensureOpenCardId(employeeId);
+      // «Открыто» считаем только по-настоящему заведённые: повторный прогон ничего
+      // не открывает, и отчёт не имеет права говорить иначе (правка PR-6).
+      if (card.created) report.cards.opened++;
+      const cardId = card.id;
       const dup = await db
         .select({ id: ppeIssueEntries.id })
         .from(ppeIssueEntries)

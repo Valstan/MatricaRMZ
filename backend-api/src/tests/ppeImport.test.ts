@@ -6,6 +6,7 @@ import {
   parseImportGender,
   parsePpeImportWorkbook,
   PPE_IMPORT_PREVIEW_TTL_MS,
+  ppeImportConflictLines,
   resolveIssueNomenclature,
   signPpePreviewToken,
   validatePpeImport,
@@ -296,5 +297,50 @@ describe('ppeImport: preview-id', () => {
     const re = validatePpeImport(parsed, drifted);
     expect(re.ok).toBe(false);
     expect(re.preview.summary.issues.conflict).toBe(1);
+  });
+});
+
+describe('ppeImport: конфликтные строки не отменяют файл', () => {
+  const snap = snapshot();
+
+  it('конфликты собираются по строкам своего вида (сотрудник/отпуск/выдача)', () => {
+    const { preview } = validatePpeImport(
+      {
+        employeeSheet: 'К',
+        issueSheet: 'В',
+        employees: [
+          { line: 2, personnelNo: '', fullName: 'Безымянный Безымянный Безымяннович', position: '', department: '', genderRaw: '', birthRaw: null, hireRaw: null, fireRaw: null, vacFromRaw: null, vacToRaw: null },
+          { line: 3, personnelNo: '103', fullName: 'Сидоров Сидор Сидорович', position: '', department: '', genderRaw: '', birthRaw: null, hireRaw: null, fireRaw: null, vacFromRaw: '20.03.2026', vacToRaw: '10.03.2026' },
+        ],
+        issues: [{ line: 2, personnelNo: '101', nomName: 'Неведома зверушка', article: 'ZZ-00', size: '', qtyRaw: 1, dateRaw: '10.03.2026' }],
+      },
+      snap,
+    );
+    expect(preview.summary.employees.conflict).toBe(1);
+    expect(preview.summary.absences.conflict).toBe(1);
+    expect(preview.summary.issues.conflict).toBe(1);
+
+    const lines = ppeImportConflictLines(preview);
+    // Сотрудник без табельного не должен создаться; перевёрнутый отпуск — не
+    // записаться, но сам сотрудник (строка 3) при этом остаётся годным.
+    expect([...lines.employee]).toEqual([2]);
+    expect([...lines.absence]).toEqual([3]);
+    expect([...lines.issue]).toEqual([2]);
+  });
+
+  it('в чистом файле конфликтных строк нет', () => {
+    const { preview } = validatePpeImport(
+      {
+        employeeSheet: 'К',
+        issueSheet: null,
+        employees: [
+          { line: 2, personnelNo: '103', fullName: 'Сидоров Сидор Сидорович', position: '', department: '', genderRaw: '', birthRaw: null, hireRaw: null, fireRaw: null, vacFromRaw: null, vacToRaw: null },
+        ],
+        issues: [],
+      },
+      snap,
+    );
+    const lines = ppeImportConflictLines(preview);
+    expect(lines.employee.size + lines.absence.size + lines.issue.size).toBe(0);
   });
 });

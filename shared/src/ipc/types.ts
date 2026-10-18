@@ -2519,11 +2519,11 @@ export type MatricaApi = {
             ok: true;
             report: {
               dryRun: boolean;
-              employees: { created: string[]; updated: string[]; matched: number };
+              employees: { created: string[]; updated: string[]; matched: number; conflict: number };
               departments: { created: string[]; matched: number };
-              absences: { created: number; skipped: number };
+              absences: { created: number; skipped: number; conflict: number };
               cards: { opened: number };
-              entries: { created: number; skipped: number };
+              entries: { created: number; skipped: number; conflict: number };
             };
           }
         | { ok: false; error: string }

@@ -180,6 +180,24 @@ const WRITE_CHANNELS = new Set([
   'ppe:cards:assignNorms',
   'ppe:cards:close',
   'ppe:cards:issue',
+  // Кладовщик фаза 2 (финальный проход #166, 2026-10-16): каналы новой половины
+  // модуля в список не попали, и наблюдатель раздела правил отпуска/группы/
+  // коллективные/импорт мимо гейта, тогда как фаза 1 была закрыта. Список
+  // держит `sectionGateWriteChannels.guard.test.ts` — он сканирует регистрацию.
+  'ppe:absences:create',
+  'ppe:absences:delete',
+  'ppe:groups:create',
+  'ppe:groups:delete',
+  'ppe:groups:members:set',
+  'ppe:groups:norms:set',
+  'ppe:collectives:open',
+  'ppe:collectives:distribute',
+  'ppe:collectives:close',
+  'ppe:duty:issue',
+  // preview не пишет, но открывает 30-минутное окно применения и на сервере
+  // уже требует права правки — наблюдателю он незачем.
+  'ppe:import:preview',
+  'ppe:import:apply',
   // Умолчания подписей (PR-5): наблюдателю — отказ, нужен editor раздела.
   'signatureDefaults:set',
   'warehouseLocations:delete',
@@ -231,6 +249,11 @@ export function matchPrefixRule(channel: string): AccessSection | null {
     if (channel.startsWith(rule[0]) && (!best || rule[0].length > best[0].length)) best = rule;
   }
   return best ? best[1] : null;
+}
+
+/** Канал требует права редактора раздела (мутирующий). Экспорт — для сторожа регистрации. */
+export function isWriteGatedChannel(channel: string): boolean {
+  return WRITE_CHANNELS.has(channel) || ADMIN_WRITE_CHANNELS.has(channel);
 }
 
 export function createSectionIpcGate(ctx: IpcContext) {
@@ -302,8 +325,7 @@ export function createSectionIpcGate(ctx: IpcContext) {
     const prefixSection = matchPrefixRule(channel);
     const entityGated = TYPE_ARG_CHANNELS.has(channel) || ENTITY_ARG_CHANNELS.has(channel);
     if (!prefixSection && !entityGated) return handler;
-    const level: 'viewer' | 'editor' =
-      WRITE_CHANNELS.has(channel) || ADMIN_WRITE_CHANNELS.has(channel) ? 'editor' : 'viewer';
+    const level: 'viewer' | 'editor' = isWriteGatedChannel(channel) ? 'editor' : 'viewer';
     return async (event: unknown, ...args: unknown[]) => {
       const sectionId = prefixSection ?? (await sectionForEntityArgs(channel, args));
       if (sectionId && !(await isAllowed(sectionId, level))) {

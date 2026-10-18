@@ -136,6 +136,8 @@ const ID = {
   ppeGroup: 'aa770000-0000-4000-8000-000000000003',
   ppeCollective: 'aa770000-0000-4000-8000-000000000004',
   ppeCard: '9c880000-0000-4000-8000-000000000001',
+  /** Вторая карточка — на сотрудника из справочника клиента (EAV), не из импорта ЗУП. */
+  ppeEavCard: '9c880000-0000-4000-8000-000000000002',
   ppeEmployee: 'ee550000-0000-4000-8000-000000000007',
   /** Сотрудника с таким id в реплике нет — висячая ссылка в карточке СИЗ. */
   ppeEmployeeMissing: 'ee550000-0000-4000-8000-000000000008',
@@ -724,10 +726,20 @@ function ppeRows(shape: FixtureShape) {
   if (shape.leaky) {
     lines.push({ id: 'ppenl2', normSetId: ID.ppeNormSet, nomenclatureId: ID.nomenclatureMissing, qty: 1, wearMonths: 6, createdAt: T0, updatedAt: T0 });
   }
-  const cards = [{ id: ID.ppeCard, employeeId: shape.leaky ? ID.ppeEmployeeMissing : ID.ppeEmployee, openedAt: T0 - 400 * DAY, closedAt: null, createdAt: T0, updatedAt: T0 }];
-  const cardNorms = [{ id: 'ppencn1', cardId: ID.ppeCard, normSetId: ID.ppeNormSet, assignedAt: T0 - 400 * DAY, createdAt: T0, updatedAt: T0 }];
+  const cards = [
+    { id: ID.ppeCard, employeeId: shape.leaky ? ID.ppeEmployeeMissing : ID.ppeEmployee, openedAt: T0 - 400 * DAY, closedAt: null, createdAt: T0, updatedAt: T0 },
+    // Карточка на сотрудника из справочника клиента (EAV): живые люди лежат там, а строгая
+    // `erp_employee_cards` приезжает только импортом ЗУП. Имя обязано находиться в обоих случаях.
+    { id: ID.ppeEavCard, employeeId: ID.employee, openedAt: T0 - 200 * DAY, closedAt: null, createdAt: T0, updatedAt: T0 },
+  ];
+  const cardNorms = [
+    { id: 'ppencn1', cardId: ID.ppeCard, normSetId: ID.ppeNormSet, assignedAt: T0 - 400 * DAY, createdAt: T0, updatedAt: T0 },
+    { id: 'ppencn2', cardId: ID.ppeEavCard, normSetId: ID.ppeNormSet, assignedAt: T0 - 200 * DAY, createdAt: T0, updatedAt: T0 },
+  ];
   const entries = [
     { id: 'ppene1', cardId: ID.ppeCard, nomenclatureId: ID.ppeNomSize, qty: 2, issuedAt: T0 - 400 * DAY, documentId: ID.docHeader, createdAt: T0, updatedAt: T0 },
+    // Выдача без документа склада (фаза 2: импортная история, `document_id = NULL`).
+    { id: 'ppene2', cardId: ID.ppeEavCard, nomenclatureId: ID.ppeNomSize, qty: 1, issuedAt: T0 - 200 * DAY, documentId: null, createdAt: T0, updatedAt: T0 },
   ];
   const groups = [{ id: ID.ppeGroup, name: 'Слесари участка', createdAt: T0, updatedAt: T0 }];
   const groupMembers = [{ id: 'ppegm1', groupId: ID.ppeGroup, employeeId: ID.ppeEmployee, createdAt: T0, updatedAt: T0 }];
@@ -996,6 +1008,17 @@ describe('сторож человеко-понятных названий: ни 
       });
     }
   }
+
+  // Люди живут в справочнике клиента (EAV), а строгая `erp_employee_cards` приезжает только
+  // импортом ЗУП: колонка «Сотрудник» обязана называть человека из любого из двух источников.
+  it('сотрудник находится по обоим источникам: импорт ЗУП и справочник клиента', async () => {
+    const report = await runPreset('ppe_summary_sheet', { leaky: false });
+    expect(report.ok, `отчёт не построился: ${report.ok ? '' : report.error}`).toBe(true);
+    if (!report.ok) return;
+    const names = new Set(report.rows.map((row) => String(row.employee)));
+    expect(names, 'карточка из строгой таблицы (импорт ЗУП)').toContain('Петров Иван Сидорович');
+    expect(names, 'карточка на сотрудника из справочника клиента').toContain('Иванов Иван Иванович');
+  });
 
   // Прогоняется по ВСЕМУ каталогу, а не только по покрытым: объект итогов билдеры формируют
   // и на пустом наборе строк, поэтому подписи проверяются даже там, где фикстура строк не даёт.

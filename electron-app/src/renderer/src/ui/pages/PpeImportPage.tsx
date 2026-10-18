@@ -33,11 +33,11 @@ type Preview = {
 
 type ApplyReport = {
   dryRun: boolean;
-  employees: { created: string[]; updated: string[]; matched: number };
+  employees: { created: string[]; updated: string[]; matched: number; conflict: number };
   departments: { created: string[]; matched: number };
-  absences: { created: number; skipped: number };
+  absences: { created: number; skipped: number; conflict: number };
   cards: { opened: number };
-  entries: { created: number; skipped: number };
+  entries: { created: number; skipped: number; conflict: number };
 };
 
 const ROWNUM_STYLE: React.CSSProperties = { width: '1%', whiteSpace: 'nowrap', textAlign: 'right', color: '#6b7280' };
@@ -132,19 +132,16 @@ export function PpeImportPage(props: { canEdit: boolean }) {
   async function runApply() {
     if (!file || !preview) return;
     const s = preview.preview.summary;
-    // Импорт применяется только целиком: сервер перед записью перепроверяет файл и
-    // отказывает при любом конфликте (страховка от «данные изменились после проверки»).
-    // Сказать это здесь честно — значит не обещать пропуск конфликтных строк, которого
-    // нет: оператор исправит файл и проверит его заново.
+    // Конфликтные строки файл не отменяют: сервер пропускает ровно их и называет число
+    // в отчёте. Оператору говорим это ДО применения — молчаливая пропажа строк хуже отказа.
     const conflictRows = preview.preview.rows.filter((r) => r.action === 'conflict');
-    if (conflictRows.length > 0) {
-      const lines = conflictRows.slice(0, 10).map((r) => `стр. ${r.line}`).join(', ');
-      setStatus(`Ошибка: в файле ${conflictRows.length} конфликтных строк (${lines}) — исправьте файл и проверьте снова; импорт применяется только целиком.`);
-      return;
-    }
+    const conflictNote =
+      conflictRows.length > 0
+        ? ` Строки с проблемами (${conflictRows.length}: ${conflictRows.slice(0, 10).map((r) => `стр. ${r.line}`).join(', ')}${conflictRows.length > 10 ? ' и др.' : ''}) не будут импортированы — смотрите таблицу проверки.`
+        : '';
     const ok = await confirm({
       title: 'Применить импорт?',
-      detail: `Сотрудники: создать ${s.employees.create}, обновить ${s.employees.update}. Отпуска: +${s.absences.create}. Выдачи: +${s.issues.create}. Файл применяется целиком — если данные успеют измениться между проверкой и применением, откажем и попросим проверить заново.`,
+      detail: `Сотрудники: создать ${s.employees.create}, обновить ${s.employees.update}. Отпуска: +${s.absences.create}. Выдачи: +${s.issues.create}.${conflictNote} Остальные строки будут применены; проверка действует 30 минут.`,
       confirmLabel: 'Применить',
     });
     if (!ok) return;
@@ -167,6 +164,9 @@ export function PpeImportPage(props: { canEdit: boolean }) {
     () => (preview ? preview.preview.rows.filter((r) => r.action === 'conflict' || r.error) : []),
     [preview],
   );
+
+  /** Конфликтные строки не импортируются — итог обязан назвать их число, иначе пропажа незаметна. */
+  const reportConflicts = report ? report.employees.conflict + report.absences.conflict + report.entries.conflict : 0;
 
   return (
     <div style={{ display: 'grid', gap: 16, maxWidth: 1100 }}>
@@ -201,6 +201,7 @@ export function PpeImportPage(props: { canEdit: boolean }) {
               Итог: сотрудники — создано {report.employees.created.length}, обновлено {report.employees.updated.length}, совпало{' '}
               {report.employees.matched}; подразделения — создано {report.departments.created.length}; отпуска — +{report.absences.created};
               карточки — открыто {report.cards.opened}; выдачи — +{report.entries.created}, пропущено {report.entries.skipped}.
+              {reportConflicts > 0 ? ` Строк с проблемами не импортировано: ${reportConflicts} — смотрите таблицу проверки.` : ''}
             </div>
           </div>
         ) : null}
