@@ -43,7 +43,7 @@ describe('архив со скриптами обслуживания везёт
 
   it('окно обслуживания подключает утилиты, и все едут вместе с ним', () => {
     const files = builderFiles();
-    for (const util of ['kaspersky-matrica.ps1', 'lan-share-firewall.ps1', 'opencode-harness.ps1']) {
+    for (const util of ['kaspersky-matrica.ps1', 'lan-share-firewall.ps1', 'opencode-cleanup.ps1']) {
       expect(LAUNCHER, `окно не подключает ${util}`).toContain(util);
       expect(files, `${util} не попадёт в архив — вкладка откроется с ошибкой`).toContain(util);
     }
@@ -58,7 +58,7 @@ describe('архив со скриптами обслуживания везёт
   });
 
   it('утилиты умеют подключаться точкой — иначе дот-сорсинг откроет вторые окна', () => {
-    for (const util of ['kaspersky-matrica.ps1', 'lan-share-firewall.ps1', 'opencode-harness.ps1']) {
+    for (const util of ['kaspersky-matrica.ps1', 'lan-share-firewall.ps1', 'opencode-cleanup.ps1']) {
       const text = readFileSync(path.join(srcDir, util), 'utf8');
       expect(text, `${util} потерял ключ -AsLibrary`).toContain('[switch]$AsLibrary');
       expect(text, `${util} не обрывает главный поток при -AsLibrary`).toContain('if ($AsLibrary) { return }');

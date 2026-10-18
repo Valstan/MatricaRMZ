@@ -36,7 +36,7 @@ const FILES = [
   'matrica-ops.ps1',
   'kaspersky-matrica.ps1',
   'lan-share-firewall.ps1',
-  'opencode-harness.ps1',
+  'opencode-cleanup.ps1',
   'guide.ru.md',
   'README.md',
   'Запустить.cmd',
