@@ -4,7 +4,7 @@
 
 **Status:** ACTIVE (нитка «Кладовщик» фаза 2: финальный проход #166 сделан, дальше — релиз)
 **Updated:** 2026-10-18 (opencode session, машина `PC79`)
-**Branch:** `fix/ppe-phase2-166-seams` (PR открыт) · main = origin/main `be8c0b8f`
+**Branch:** `fix/ppe-phase2-166-seams` → PR [#1366](https://github.com/Valstan/MatricaRMZ/pull/1366) · main = origin/main `be8c0b8f`
 **Last released version:** **v3.78.0** на проде (+ android-v3.78.0).
 
 ## Текущая нитка
