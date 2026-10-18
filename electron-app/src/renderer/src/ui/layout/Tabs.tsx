@@ -99,7 +99,6 @@ export const TAB_VISUALS: Partial<Record<MenuTabId, TabVisualMeta>> = {
   employees: { icon: '👥', subtitle: 'Сотрудники и профили', gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)' },
   timesheets: { icon: '🗓️', subtitle: 'Табель учёта рабочего времени (Т-13)', gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)' },
   access_sections: { icon: '🔐', subtitle: 'Кто видит и правит каждый раздел', gradient: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)' },
-  opencode_nodes: { icon: '🖥️', subtitle: 'Узлы opencode serve в локальной сети', gradient: 'linear-gradient(135deg, #0f766e 0%, #0ea5e9 100%)' },
   reports: { icon: '📊', subtitle: 'Аналитика и выгрузки', gradient: 'linear-gradient(135deg, #be185d 0%, #ec4899 100%)' },
   custom_reports: { icon: '🧩', subtitle: 'Свои отчёты: фильтры, колонки, шаблоны', gradient: 'linear-gradient(135deg, #be185d 0%, #f472b6 100%)' },
   report_templates: { icon: '🗃️', subtitle: 'Всё, что уже настроено: открыть отчёт готовым', gradient: 'linear-gradient(135deg, #be185d 0%, #fb7185 100%)' },

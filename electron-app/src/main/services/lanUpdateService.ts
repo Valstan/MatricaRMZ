@@ -24,14 +24,6 @@ let currentServer: LanServerState | null = null;
 export const DEFAULT_LAN_SHARE_PORT = 38080;
 
 /**
- * Куда релей шлёт `/opencode/*`: локальный serve на loopback (он слушает только его,
- * новых портов в LAN не появляется — наружу узел виден через exe Матрицы, этим же
- * сокетом и этим же правилом).
- */
-export const OPENCODE_RELAY_HOST = '127.0.0.1';
-export const OPENCODE_RELAY_PORT = 3080;
-
-/**
  * Единственная ручка раздачи между машинами.
  *
  * Раньше их было четыре, и ни одна не работала: три переменных окружения, которых на упакованном
@@ -144,16 +136,6 @@ export async function startLanUpdateServer(filePath: string, fileName: string): 
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       const parts = url.pathname.split('/').filter(Boolean);
 
-      // Релей локального opencode serve (план opencode-native, PR-B): наружу узел
-      // виден через exe Матрицы — этим же сокетом и правилом, новых портов нет.
-      // Сервер поднимается только при включённой раздаче, значит и релей под тем
-      // же выключателем. Стрим в обе стороны: SSE и генерации не буферизуем.
-      if (parts[0] === 'opencode') {
-        const rest = `/${parts.slice(1).map(encodeURIComponent).join('/')}`;
-        await relayToOpencode(req, res, rest, url.search);
-        return;
-      }
-
       if (req.method !== 'GET') {
         res.writeHead(405);
         res.end('method not allowed');
@@ -233,74 +215,6 @@ export function getLocalLanPeers(port: number): Array<{ ip: string; port: number
   if (resolveLanShareBinding().host !== '0.0.0.0') return [];
   const ips = getLocalLanIps();
   return ips.map((ip) => ({ ip, port }));
-}
-
-/**
- * URL локального serve как цель релея: слушаем мы на порту LAN-раздачи, serve —
- * на loopback. Роут один, цель одна.
- */
-export function opencodeRelayTarget(): string {
-  return `http://${OPENCODE_RELAY_HOST}:${OPENCODE_RELAY_PORT}`;
-}
-
-/** Допустимые методы релея: serve читает и POST, и SSE-поток. */
-const RELAY_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
-
-/** Заголовки, которые нельзя проксировать как есть (хоп-пер-хоп + длина чужого ответа). */
-const HOP_HEADERS = new Set([
-  'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
-  'te', 'trailer', 'transfer-encoding', 'upgrade', 'content-length', 'host',
-]);
-
-async function relayToOpencode(req: http.IncomingMessage, res: http.ServerResponse, rest: string, search: string): Promise<void> {
-  const method = String(req.method ?? 'GET').toUpperCase();
-  if (!RELAY_METHODS.has(method)) {
-    res.writeHead(405);
-    res.end('method not allowed');
-    return;
-  }
-  const target = `${opencodeRelayTarget()}${rest}${search}`;
-  const headers: Record<string, string> = {};
-  for (const [k, v] of Object.entries(req.headers)) {
-    if (HOP_HEADERS.has(k.toLowerCase())) continue;
-    if (Array.isArray(v)) continue;
-    if (typeof v === 'string') headers[k] = v;
-  }
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 5 * 60 * 1000);
-  try {
-    const upstream = await fetch(target, {
-      method,
-      headers,
-      ...(method === 'GET' || method === 'HEAD'
-        ? {}
-        : { body: req as unknown as ReadableStream<Uint8Array>, duplex: 'half' as const }),
-      signal: ctl.signal,
-    });
-    const out: Record<string, string> = {};
-    upstream.headers.forEach((value, key) => {
-      if (HOP_HEADERS.has(key.toLowerCase())) return;
-      out[key] = value;
-    });
-    res.writeHead(upstream.status, out);
-    if (!upstream.body) {
-      res.end();
-      return;
-    }
-    // Стрим в обе стороны без буферизации: SSE и долгие генерации не копятся в памяти.
-    const reader = (upstream.body as unknown as ReadableStream<Uint8Array>).getReader();
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) res.write(Buffer.from(value));
-    }
-    res.end();
-  } catch {
-    if (!res.headersSent) res.writeHead(502);
-    res.end('opencode relay error');
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 function joinUrl(base: string, path: string) {

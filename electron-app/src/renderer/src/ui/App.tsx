@@ -264,7 +264,6 @@ const WorkshopStatsPage = lazyPage('./pages/WorkshopStatsPage.tsx', 'WorkshopSta
 const CustomReportsPage = lazyPage('./pages/CustomReportsPage.tsx', 'CustomReportsPage');
 const ReportTemplatesShowcasePage = lazyPage('./pages/ReportTemplatesShowcasePage.tsx', 'ReportTemplatesShowcasePage');
 const AccessSectionsPage = lazyPage('./pages/AccessSectionsPage.tsx', 'AccessSectionsPage');
-const OpenCodeNodesPage = lazyPage('./pages/OpenCodeNodesPage.tsx', 'OpenCodeNodesPage');
 const EngineAssemblyBomPage = lazyPage('./pages/EngineAssemblyBomPage.tsx', 'EngineAssemblyBomPage');
 const RepairNormsPage = lazyPage('./pages/RepairNormsPage.tsx', 'RepairNormsPage');
 const EngineAssemblyBomDetailsPage = lazyPage('./pages/EngineAssemblyBomDetailsPage.tsx', 'EngineAssemblyBomDetailsPage');
@@ -2949,8 +2948,6 @@ export function App() {
     ...(caps.canViewWarehouseLocations || caps.canManageWarehouseLocations ? (['warehouses_admin'] as const) : []),
     ...(canViewAudit ? (['audit'] as const) : []),
     ...(String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' ? (['access_sections'] as const) : []),
-    // OpenCode-узлы (мандат brain 2026-10-12): только суперадмин, как доступы по разделам.
-    ...(String(authStatus.user?.role ?? '').toLowerCase() === 'superadmin' ? (['opencode_nodes'] as const) : []),
   ];
   const sectionGatedTabsFull = sectionMembership
     ? availableTabs.filter((t) => {
@@ -6212,8 +6209,6 @@ export function App() {
         {t === 'access_sections' && <AccessSectionsPage onOpenEmployee={openEmployee} />}
 
         {t === 'access_sections' && <AccessSectionsPage onOpenEmployee={openEmployee} />}
-
-        {t === 'opencode_nodes' && <OpenCodeNodesPage />}
 
         {t === 'tool' && selectedToolId && (
           <ToolDetailsPage

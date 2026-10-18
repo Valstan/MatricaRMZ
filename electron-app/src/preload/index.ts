@@ -581,20 +581,6 @@ const matricaApi = {
     }) => ipcRenderer.invoke('warehouseLocations:upsert', args),
     delete: async (id: string) => ipcRenderer.invoke('warehouseLocations:delete', id),
   },
-  opencodeNodes: {
-    list: async () => ipcRenderer.invoke('opencodeNodes:list'),
-    save: async (args: { nodes: Array<{ name: string; url: string }> }) => ipcRenderer.invoke('opencodeNodes:save', args),
-    probe: async () => ipcRenderer.invoke('opencodeNodes:probe'),
-    status: async () => ipcRenderer.invoke('opencodeNodes:status'),
-  },
-  opencodeSession: {
-    ensure: async () => ipcRenderer.invoke('opencodeSession:ensure'),
-    status: async () => ipcRenderer.invoke('opencodeSession:status'),
-    remove: async () => ipcRenderer.invoke('opencodeSession:remove'),
-    ask: async (args: { text: string }) => ipcRenderer.invoke('opencodeSession:ask', args),
-    poll: async (args: { askId: string }) => ipcRenderer.invoke('opencodeSession:poll', args),
-    stop: async (args: { askId: string }) => ipcRenderer.invoke('opencodeSession:stop', args),
-  },
   servicePricing: {
     orders: {
       list: async (args?: { status?: string }) => ipcRenderer.invoke('servicePricing:orders:list', args),

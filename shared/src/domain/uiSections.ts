@@ -80,6 +80,9 @@ export type TabId =
   | 'warehouse_locations'
   | 'admin'
   | 'audit'
+  // `opencode_nodes` — вырезанный раздел (модуль удалён 19.10.2026), ключ остаётся ради
+  // старых строк истории визитов: без него оператор увидел бы «opencode_nodes» вместо названия.
+  // В меню раздела нет — он убран из DEFAULT_GROUP_TABS.
   | 'opencode_nodes'
   | 'notes'
   | 'settings'
@@ -303,7 +306,7 @@ export const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   workwear: ['ppe_cards', 'ppe_norms', 'ppe_groups', 'ppe_collective', 'ppe_import', 'ppe_stock', 'ppe_reports'],
   business: ['contracts', 'counterparties'],
   people: ['employees', 'timesheets', 'access_sections'],
-  control: ['reports', 'custom_reports', 'report_templates', 'changes', 'audit', 'notes', 'masterdata', 'workshops', 'workshop_stats', 'warehouses_admin', 'empty_cards', 'drafts', 'admin', 'opencode_nodes'],
+  control: ['reports', 'custom_reports', 'report_templates', 'changes', 'audit', 'notes', 'masterdata', 'workshops', 'workshop_stats', 'warehouses_admin', 'empty_cards', 'drafts', 'admin'],
 };
 
 export function groupForTab(tab: MenuTabId): MenuGroupId {

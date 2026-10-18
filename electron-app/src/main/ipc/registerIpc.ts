@@ -43,8 +43,6 @@ import { registerWorkOrderSignatureCaptionsIpc } from './register/workOrderSigna
 import { registerWorkshopsIpc } from './register/workshops.js';
 import { registerTimesheetsIpc } from './register/timesheets.js';
 import { registerWarehouseLocationsIpc } from './register/warehouseLocations.js';
-import { registerOpencodeNodesIpc } from './register/opencodeNodes.js';
-import { registerOpencodeSessionIpc } from './register/opencodeSession.js';
 import { registerServicePricingIpc } from './register/servicePricing.js';
 import { registerPpeIpc } from './register/ppe.js';
 import { registerSignatureDefaultsIpc } from './register/signatureDefaults.js';
@@ -202,8 +200,6 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   registerWorkshopsIpc(ctx);
   registerTimesheetsIpc(ctx);
   registerWarehouseLocationsIpc(ctx);
-  registerOpencodeNodesIpc(ctx);
-  registerOpencodeSessionIpc(ctx);
   registerServicePricingIpc(ctx);
   registerPpeIpc(ctx);
   registerSignatureDefaultsIpc(ctx);

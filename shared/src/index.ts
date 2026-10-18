@@ -101,7 +101,6 @@ export * from './domain/repeatArrival.js';
 export * from './domain/ppe.js';
 export * from './domain/defectLifecycle.js';
 export * from './domain/uiSections.js';
-export * from './domain/opencodeNodes.js';
 export * from './ipc/types.js';
 // keep exports sorted manually
 
