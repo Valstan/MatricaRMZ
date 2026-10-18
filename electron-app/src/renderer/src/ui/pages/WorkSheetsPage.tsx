@@ -146,7 +146,11 @@ export function WorkSheetsPage(props: {
   const [stageMapOpen, setStageMapOpen] = useState(false);
   const [bulkAddOpen, setBulkAddOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  // Диалог добавления этапа закрывает список собой: обновлять его после каждой
+  // записи — работа в никуда (весь парк строк, синхронно в main). Копим и обновляем
+  // один раз на закрытии диалога.
+  const bulkRefreshPendingRef = useRef(false);
 
   const { state: ui, patchState } = useListUiState<ListUiState>('list:workSheets:ui', {
     query: '',
@@ -187,7 +191,10 @@ export function WorkSheetsPage(props: {
   useEffect(() => {
     void refresh();
   }, [refresh]);
-  useLiveDataRefresh(refreshRows, { enabled: true });
+  // Пока открыт модальный диалог добавления этапа, живое обновление списка молчит:
+  // список всё равно закрыт диалогом, а перерисовка тысяч строк — та самая тяжесть,
+  // что читается оператором как «программа зависла» (владелец 19.10.2026).
+  useLiveDataRefresh(refreshRows, { enabled: !bulkAddOpen });
 
   // Цеха — подписи для колонки и карточки; прав на справочник может не быть — тогда снимок строки.
   const onWorkshopsLoaded = props.onWorkshopsLoaded;
@@ -598,9 +605,15 @@ export function WorkSheetsPage(props: {
         <BulkStageAddDialog
           templates={stageTemplates.filter((t) => t.archivedAt == null).map((t) => ({ code: t.code, name: t.name }))}
           workshops={workshops}
-          onClose={() => setBulkAddOpen(false)}
-          onAdded={async () => {
-            await refreshRows();
+          onClose={() => {
+            setBulkAddOpen(false);
+            if (bulkRefreshPendingRef.current) {
+              bulkRefreshPendingRef.current = false;
+              void refreshRows();
+            }
+          }}
+          onAdded={() => {
+            bulkRefreshPendingRef.current = true;
           }}
         />
       ) : null}

@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { isBulkStageCandidate, isEngineAtPlant, repairStageRank } from '@matricarmz/shared';
+import { useVirtualizer } from '@tanstack/react-virtual';
 
 import { Button } from './Button.js';
 import { Input } from './Input.js';
@@ -11,6 +12,61 @@ import { emojiAttrs } from '../utils/labelEmoji.js';
 type StageTemplate = { code: string; name: string };
 type EngineOption = { id: string; label: string; atPlant: boolean };
 type StageMarks = { lastStageCode: string | null; lastStageAt: number | null; hasScrapBranch: boolean };
+
+/** Строка списка двигателей: разделитель или сам двигатель. */
+type ListRow =
+  | { kind: 'header'; key: string; text: string; section?: 'priority' | 'rest' }
+  | { kind: 'engine'; key: string; engine: EngineOption };
+
+type EngineCatalog = {
+  engines: EngineOption[];
+  marks: Record<string, StageMarks>;
+  ranks: Record<string, number>;
+  loadedAt: number;
+};
+
+/**
+ * Каталог двигателей и метки последних этапов — дорогая часть двери «Добавить этап»:
+ * `engine:list` и `lastMarks` читают весь парк синхронно в main (журнал признаёт это
+ * сам — `slow engine:list` пишется от 1.5 с), и повторять её на каждое открытие диалога
+ * незачем. Кэш живёт на модуле: диалог размонтируется при закрытии, а состояние — нет.
+ * Своя запись этапа меняет метки, поэтому после неё кэш сбрасывается.
+ */
+const CATALOG_TTL_MS = 30_000;
+let catalogCache: EngineCatalog | null = null;
+
+export function invalidateEngineCatalogCache(): void {
+  catalogCache = null;
+}
+
+async function loadEngineCatalog(): Promise<EngineCatalog> {
+  if (catalogCache && Date.now() - catalogCache.loadedAt < CATALOG_TTL_MS) return catalogCache;
+  const rows = await window.matrica.engines.list();
+  const engines: EngineOption[] = rows.map((e) => ({
+    id: String(e.id),
+    label: e.engineNumber || `Без номера (${String(e.id).slice(0, 8)})`,
+    atPlant: isEngineAtPlant({ arrivalDate: e.arrivalDate ?? null, shippingDate: e.shippingDate ?? null }),
+  }));
+  let marks: Record<string, StageMarks> = {};
+  try {
+    const r = await window.matrica.workSheets.stages.lastMarks(engines.map((o) => o.id));
+    if (r.ok) marks = r.marks;
+  } catch {
+    // Метки последних этапов не загрузились — приоритет «с предыдущего этапа» не построится
+  }
+  const ranks: Record<string, number> = {};
+  try {
+    const t = await window.matrica.workSheets.stages.templates.list();
+    if (t.ok) {
+      for (const row of t.templates) ranks[String(row.code).trim().toLowerCase()] = Number(row.sortOrder) || 0;
+    }
+  } catch {
+    // Ранги линейки не загрузились — откатимся на статичную линейку shared
+  }
+  const catalog: EngineCatalog = { engines, marks, ranks, loadedAt: Date.now() };
+  catalogCache = catalog;
+  return catalog;
+}
 
 function toInputDate(ms: number): string {
   const d = new Date(ms);
@@ -24,6 +80,26 @@ function fromInputDate(v: string): number | null {
 }
 
 /**
+ * Строка-галочка двигателя отдельным компонентом под `React.memo`: без этого клик
+ * по одному двигателю перерисовывал весь длинный список.
+ */
+const EngineCheckboxRow = React.memo(function EngineCheckboxRow(props: {
+  engine: EngineOption;
+  selected: boolean;
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <label
+      data-bulk-stage-engine={props.engine.id}
+      style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}
+    >
+      <input type="checkbox" checked={props.selected} onChange={() => props.onToggle(props.engine.id)} />
+      <span>{props.engine.label}</span>
+    </label>
+  );
+});
+
+/**
  * Массовое добавление этапа на несколько двигателей (PR-D).
  * Оператор выбирает тип этапа, дату, цех и несколько двигателей —
  * этап создаётся у каждого выбранного двигателя.
@@ -32,6 +108,12 @@ function fromInputDate(v: string): number | null {
  * этап, кандидаты — двигатели, которые стоят на заводе сейчас на предыдущем
  * этапе (владелец 01.10.2026) — идут первыми; ниже — все остальные из поиска,
  * без отсечений: нужно для внесения этапов задним числом, вперемешку (PR-3).
+ *
+ * Список рисуется окном (`useVirtualizer`), а не целиком: «остальные» — это весь
+ * каталог парка, и после PR-3 диалог отдавал в DOM тысячи галочек. На каждой
+ * перерисовке (клик по галочке, статус сохранения, обновление списка за диалогом)
+ * браузер пересобирал их заново — на слабой машине это и читалось как «программа
+ * зависла» (владелец 19.10.2026, вис на 3–4-м добавленном этапе).
  */
 export function BulkStageAddDialog(props: {
   templates: StageTemplate[];
@@ -42,6 +124,7 @@ export function BulkStageAddDialog(props: {
   const [engines, setEngines] = useState<EngineOption[]>([]);
   const [marks, setMarks] = useState<Record<string, StageMarks>>({});
   const [rankByCode, setRankByCode] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [selectedEngineIds, setSelectedEngineIds] = useState<string[]>([]);
   const [stageCode, setStageCode] = useState('');
@@ -50,37 +133,26 @@ export function BulkStageAddDialog(props: {
   const [note, setNote] = useState('');
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
+  const listRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    let alive = true;
     void (async () => {
       try {
-        const rows = await window.matrica.engines.list();
-        const opts = rows.map((e) => ({
-          id: String(e.id),
-          label: e.engineNumber || `Без номера (${String(e.id).slice(0, 8)})`,
-          atPlant: isEngineAtPlant({ arrivalDate: e.arrivalDate ?? null, shippingDate: e.shippingDate ?? null }),
-        }));
-        setEngines(opts);
-        try {
-          const r = await window.matrica.workSheets.stages.lastMarks(opts.map((o) => o.id));
-          if (r.ok) setMarks(r.marks);
-        } catch {
-          // Метки последних этапов не загрузились — приоритет «с предыдущего этапа» не построится
-        }
+        const catalog = await loadEngineCatalog();
+        if (!alive) return;
+        setEngines(catalog.engines);
+        setMarks(catalog.marks);
+        setRankByCode(catalog.ranks);
       } catch {
         // Список двигателей не загрузился — оператор может ввести ID вручную
-      }
-      try {
-        const t = await window.matrica.workSheets.stages.templates.list();
-        if (t.ok) {
-          const ranks: Record<string, number> = {};
-          for (const row of t.templates) ranks[String(row.code).trim().toLowerCase()] = Number(row.sortOrder) || 0;
-          setRankByCode(ranks);
-        }
-      } catch {
-        // Ранги линейки не загрузились — откатимся на статичную линейку shared
+      } finally {
+        if (alive) setLoading(false);
       }
     })();
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const rankOf = (code: string): number => {
@@ -133,9 +205,56 @@ export function BulkStageAddDialog(props: {
     return filtered.filter((e) => !ids.has(e.id));
   }, [candidates, filtered]);
 
-  const toggleEngine = (id: string) => {
+  // Плоский список строк окна: разделители живут в том же потоке, что двигатели, —
+  // так «кандидаты сверху, остальные ниже» сохраняется без двух прокруток.
+  const listRows = useMemo<ListRow[]>(() => {
+    const rows: ListRow[] = [];
+    if (!candidates || !rest) {
+      for (const e of filtered) rows.push({ kind: 'engine', key: e.id, engine: e });
+      return rows;
+    }
+    rows.push({
+      kind: 'header',
+      key: '__candidates',
+      section: 'priority',
+      text:
+        candidates.length === 0
+          ? 'На предыдущих этапах никого нет — все либо стоят выше, либо уже уехали с завода'
+          : `На заводе на предыдущем этапе (${candidates.length})`,
+    });
+    for (const e of candidates) rows.push({ kind: 'engine', key: e.id, engine: e });
+    rows.push({
+      kind: 'header',
+      key: '__rest',
+      section: 'rest',
+      text: `Остальные (${rest.length}) — в т.ч. для внесения задним числом`,
+    });
+    for (const e of rest) rows.push({ kind: 'engine', key: e.id, engine: e });
+    return rows;
+  }, [filtered, candidates, rest]);
+
+  const toggleEngine = useCallback((id: string) => {
     setSelectedEngineIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  };
+  }, []);
+  const selectedSet = useMemo(() => new Set(selectedEngineIds), [selectedEngineIds]);
+
+  const virtualizer = useVirtualizer({
+    count: listRows.length,
+    getScrollElement: () => listRef.current,
+    estimateSize: () => 24,
+    overscan: 10,
+  });
+  const virtualItems = virtualizer.getVirtualItems();
+  const totalSize = virtualizer.getTotalSize();
+  const paddingTop = virtualItems.length > 0 ? virtualItems[0]!.start : 0;
+  const paddingBottom =
+    virtualItems.length > 0 ? totalSize - virtualItems[virtualItems.length - 1]!.end : 0;
+
+  // Поиск и смена этапа перекраивают список — оставляем оператора у его начала,
+  // а не на высоте прежней прокрутки (иначе окно показывает середину нового списка).
+  useEffect(() => {
+    listRef.current?.scrollTo({ top: 0 });
+  }, [query, stageCode]);
 
   const save = async () => {
     if (!stageCode) return setStatus('Выберите этап');
@@ -161,6 +280,8 @@ export function BulkStageAddDialog(props: {
         else fail++;
       }
       setStatus(`Сохранено: ${ok}${fail > 0 ? `, ошибок: ${fail}` : ''}`);
+      // Записанный этап сдвинул метки «последнего этапа» — кэш каталога устарел.
+      if (ok > 0) invalidateEngineCatalogCache();
       await props.onAdded();
       if (fail === 0) {
         setSelectedEngineIds([]);
@@ -172,13 +293,6 @@ export function BulkStageAddDialog(props: {
       setBusy(false);
     }
   };
-
-  const renderEngineRow = (e: EngineOption) => (
-    <label key={e.id} data-bulk-stage-engine={e.id} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
-      <input type="checkbox" checked={selectedEngineIds.includes(e.id)} onChange={() => toggleEngine(e.id)} />
-      <span>{e.label}</span>
-    </label>
-  );
 
   return (
     <div
@@ -251,34 +365,54 @@ export function BulkStageAddDialog(props: {
               </div>
               <EngineQrScanButton onEngineNumber={(n) => setQuery(n)} />
             </div>
-            <div style={{ maxHeight: 200, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: 8 }}>
-              {engines.length === 0 ? (
+            <div
+              ref={listRef}
+              data-bulk-stage-list
+              style={{ maxHeight: 220, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 8px' }}
+            >
+              {loading ? (
+                <div className="ui-muted" style={{ fontSize: 12 }}>Загрузка списка двигателей…</div>
+              ) : engines.length === 0 ? (
                 <div className="ui-muted" style={{ fontSize: 12 }}>Список двигателей не загрузился</div>
               ) : filtered.length === 0 ? (
                 <div className="ui-muted" style={{ fontSize: 12 }}>По запросу ничего не найдено</div>
-              ) : candidates && rest ? (
-                <div style={{ display: 'grid', gap: 8 }}>
-                  {candidates.length === 0 ? (
-                    <div className="ui-muted" style={{ fontSize: 12 }}>
-                      На предыдущих этапах никого нет — все либо стоят выше, либо уже уехали с завода
-                    </div>
-                  ) : (
-                    <div style={{ display: 'grid', gap: 4 }} data-bulk-stage-priority>
-                      <div className="ui-muted" style={{ fontSize: 12, fontWeight: 700 }}>
-                        На заводе на предыдущем этапе ({candidates.length})
-                      </div>
-                      {candidates.map(renderEngineRow)}
-                    </div>
-                  )}
-                  <div style={{ display: 'grid', gap: 4 }} data-bulk-stage-rest>
-                    <div className="ui-muted" style={{ fontSize: 12, fontWeight: 700 }}>
-                      Остальные ({rest.length}) — в т.ч. для внесения задним числом
-                    </div>
-                    {rest.map(renderEngineRow)}
-                  </div>
-                </div>
               ) : (
-                <div style={{ display: 'grid', gap: 4 }}>{filtered.map(renderEngineRow)}</div>
+                <div style={{ position: 'relative' }}>
+                  {paddingTop > 0 ? <div style={{ height: paddingTop }} /> : null}
+                  {virtualItems.map((vi) => {
+                    const row = listRows[vi.index];
+                    if (!row) return null;
+                    return (
+                      <div
+                        key={row.key}
+                        data-index={vi.index}
+                        ref={virtualizer.measureElement}
+                        style={{ paddingTop: 2, paddingBottom: 2 }}
+                      >
+                        {row.kind === 'header' ? (
+                          <div
+                            className="ui-muted"
+                            style={{ fontSize: 12, fontWeight: 700 }}
+                            {...(row.section === 'priority'
+                              ? { 'data-bulk-stage-priority': '' }
+                              : row.section === 'rest'
+                                ? { 'data-bulk-stage-rest': '' }
+                                : {})}
+                          >
+                            {row.text}
+                          </div>
+                        ) : (
+                          <EngineCheckboxRow
+                            engine={row.engine}
+                            selected={selectedSet.has(row.engine.id)}
+                            onToggle={toggleEngine}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                  {paddingBottom > 0 ? <div style={{ height: paddingBottom }} /> : null}
+                </div>
               )}
             </div>
           </div>

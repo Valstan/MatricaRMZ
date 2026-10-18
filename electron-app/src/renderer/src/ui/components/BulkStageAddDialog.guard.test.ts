@@ -39,6 +39,31 @@ describe('BulkStageAddDialog — массовое добавление этап�
     expect(PAGE).toContain('BulkStageAddDialog');
   });
 
+  // Владелец 19.10.2026: «заполнишь два-три этапа — и программа зависает».
+  // Причина — диалог рисовал ВЕСЬ каталог парка галочками: на каждую перерисовку
+  // (клик по галочке, статус сохранения, обновление списка за диалогом) браузер
+  // пересобирал тысячи узлов. Список рисуется окном; каталог — из кэша; список
+  // за диалогом обновляется один раз, на закрытии.
+  it('список двигателей рисуется окном, а не целиком', () => {
+    expect(DIALOG).toContain('useVirtualizer(');
+    expect(DIALOG).toContain('virtualItems.map(');
+    expect(DIALOG).not.toContain('filtered.map(renderEngineRow)');
+    expect(DIALOG).not.toContain('rest.map(renderEngineRow)');
+    expect(DIALOG).not.toContain('candidates.map(renderEngineRow)');
+  });
+
+  it('каталог двигателей берётся из кэша, а запись этапа кэш сбрасывает', () => {
+    expect(DIALOG).toContain('catalogCache');
+    expect(DIALOG).toContain('invalidateEngineCatalogCache()');
+    expect(DIALOG).toContain('CATALOG_TTL_MS');
+  });
+
+  it('список за диалогом обновляется на закрытии, а не после каждой записи', () => {
+    expect(PAGE).toContain('bulkRefreshPendingRef');
+    expect(PAGE).toContain('enabled: !bulkAddOpen');
+    expect(PAGE).not.toContain('await refreshRows();');
+  });
+
   // Владелец 06.10.2026: «одни и те же этапы во всех местах». Прежде список давал
   // справочник видов работ («Укладка вала в картер», «Приёмка ОТК») — два имени одного
   // действия и отказ сервера на кодах, которых нет в реестре. Теперь обе двери (эта
