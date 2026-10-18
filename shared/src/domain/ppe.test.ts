@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   addWearMonths,
+  matchEmployeeSizePosition,
   nextIssueDates,
   PPE_DAY_MS,
+  ppeSizeKindForName,
   resolveEmployeeNorms,
   resolveGroupNorms,
   shiftByAbsences,
@@ -219,5 +221,52 @@ describe('ppe фаза 2: групповые нормы', () => {
 
   it('без групп — только личные', () => {
     expect(resolveGroupNorms({ personalNormSetIds: ['ns-1'], memberGroupIds: [], groupNorms: [] })).toEqual(['ns-1']);
+  });
+});
+
+describe('ppe: подсказка размера сотрудника при выдаче', () => {
+  const row = (id: string, name: string) => ({ id, name });
+  const костюм = [row('n-46', 'Костюм зимний р.46'), row('n-48', 'Костюм зимний р.48'), row('n-50', 'Костюм зимний р.50')];
+
+  it('размер совпадает целым словом в имени позиции', () => {
+    expect(matchEmployeeSizePosition({ children: костюм, size: '48' })).toBe('n-48');
+  });
+
+  it('однозначная цифра не совпадает с чужим числом: «8» — это не «р. 48»', () => {
+    expect(matchEmployeeSizePosition({ children: костюм, size: '8' })).toBeNull();
+  });
+
+  it('размер из карточки может быть записан как «р. 48» — берём числовую часть', () => {
+    expect(matchEmployeeSizePosition({ children: [row('n-48', 'Костюм зимний р.48')], size: 'р. 48' })).toBe('n-48');
+  });
+
+  it('два совпадения по размеру — неоднозначно, подсказки нет', () => {
+    expect(
+      matchEmployeeSizePosition({
+        children: [row('n-176', 'Брюки 48/176'), row('n-182', 'Брюки 48/182')],
+        size: '48',
+      }),
+    ).toBeNull();
+  });
+
+  it('рост разводит «размер + рост» у брюк и комбинезонов', () => {
+    expect(
+      matchEmployeeSizePosition({
+        children: [row('n-176', 'Брюки 48/176'), row('n-182', 'Брюки 48/182')],
+        size: '48',
+        height: '182',
+      }),
+    ).toBe('n-182');
+  });
+
+  it('пустой размер — без подсказки', () => {
+    expect(matchEmployeeSizePosition({ children: [row('n-48', 'Костюм р.48')], size: '' })).toBeNull();
+  });
+
+  it('обувь и одежда опознаются по названию, прочее — нет', () => {
+    expect(ppeSizeKindForName('Ботинки рабочие 42')).toBe('shoes');
+    expect(ppeSizeKindForName('Костюм зимний р.48')).toBe('clothes');
+    expect(ppeSizeKindForName('Перчатки комбинированные р.9')).toBeNull();
+    expect(ppeSizeKindForName('Каска защитная')).toBeNull();
   });
 });

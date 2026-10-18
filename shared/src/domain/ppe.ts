@@ -1,6 +1,8 @@
 // Кладовщик (СИЗ), MVP: ядро расчёта норм и сроков выдачи.
 // Одно на всех: карточка сотрудника, отчёты и будущий прогноз считают через него,
 // иначе «невыданное» в ведомости и «просрочка» в карточке разъедутся (два калькулятора).
+import { normalizeLookupCompact, normalizeLookupText } from './lookupNormalize.js';
+
 export const PPE_DAY_MS = 86_400_000;
 /** За сколько дней до срока позиция попадает в «скоро выдавать». */
 export const PPE_DUE_SOON_DAYS = 14;
@@ -173,4 +175,81 @@ export function upcomingIssues(
   return nextIssueDates(merged, entries, now)
     .filter((n) => n.nextDueAt != null && n.nextDueAt <= horizon)
     .sort((a, b) => (a.nextDueAt ?? 0) - (b.nextDueAt ?? 0) || (a.nomenclatureId < b.nomenclatureId ? -1 : 1));
+}
+
+// ── Размеры сотрудника и подсказка позиции при выдаче ───────────────────────
+// Фактические размеры живут в EAV-карточке сотрудника (коды те же, что регистрирует
+// карточка сотрудника — ensureAttributeDefs). При выдаче кладовщик выбирает позицию
+// размерного ряда руками; подсказка — подсветка той позиции, что совпала с его размером.
+
+/** EAV-коды фактических размеров сотрудника (карточка `employee`). */
+export const PPE_SIZE_ATTRIBUTE_CODES = {
+  clothes: 'ppe_size_clothes',
+  shoes: 'ppe_size_shoes',
+  height: 'ppe_height',
+} as const;
+
+/** Размеры, которые у сотрудника бывают свои (рост — отдельно: он не вид одежды). */
+export type PpeSizeKind = 'clothes' | 'shoes';
+
+/**
+ * Чей это размер — по названию позиции (в нём обычно и имя модели, и размер:
+ * «Костюм зимний, р. 48»). Виды без размерного ряда сотрудника (перчатки, очки,
+ * каски) не определяем: подсветка «8» на «р. 48» хуже, чем отсутствие подсказки.
+ */
+const PPE_SIZE_KIND_KEYWORDS: ReadonlyArray<readonly [RegExp, PpeSizeKind]> = [
+  [/сапог|ботинк|полуботинк|туфл|обув|бахил/i, 'shoes'],
+  [/костюм|куртк|брюк|комбинезон|полукомбинезон|халат|жилет|фартук|ветровк|плащ|рубашк/i, 'clothes'],
+];
+
+export function ppeSizeKindForName(name: string): PpeSizeKind | null {
+  const haystack = normalizeLookupText(String(name ?? ''));
+  for (const [re, kind] of PPE_SIZE_KIND_KEYWORDS) {
+    if (re.test(haystack)) return kind;
+  }
+  return null;
+}
+
+/** Размер — числовая часть введённого («р. 48» → «48»; «XXL» остаётся собой). */
+function sizeMatchKey(raw: string): string | null {
+  const compact = normalizeLookupCompact(String(raw ?? ''));
+  if (!compact) return null;
+  return compact.match(/\d+/)?.[0] ?? compact;
+}
+
+function sizeWordTokens(name: string): string[] {
+  return normalizeLookupText(String(name ?? ''))
+    .split(/[^0-9a-zа-яё]+/i)
+    .map(normalizeLookupCompact)
+    .filter(Boolean);
+}
+
+/**
+ * Позиция размерного ряда, соответствующая размеру сотрудника: точное совпадение
+ * имени, иначе размер целым словом («48» в «Костюм р. 48»). Слово, а не подстрока:
+ * «8» не должно совпасть с «р. 48», иначе подсказка соврёт. Несколько совпадений —
+ * неоднозначно, молчим; рост, если задан, разводит «размер + рост» у брюк и
+ * комбинезонов. Импорт ЗУП живёт своим, более широким правилом (там размер приходит
+ * из файла — «р. 42», «42-43» — и не найденная строка обязана быть названа, а не
+ * принята за чужую позицию).
+ */
+export function matchEmployeeSizePosition(args: {
+  children: ReadonlyArray<{ id: string; name: string }>;
+  size: string;
+  height?: string | null;
+}): string | null {
+  const key = sizeMatchKey(args.size);
+  if (!key) return null;
+  const exact = args.children.filter((c) => normalizeLookupCompact(c.name) === key);
+  if (exact.length === 1) return exact[0]!.id;
+  const byWord = args.children.filter((c) => sizeWordTokens(c.name).includes(key));
+  if (byWord.length === 1) return byWord[0]!.id;
+  if (byWord.length > 1) {
+    const heightKey = sizeMatchKey(String(args.height ?? ''));
+    if (heightKey) {
+      const byHeight = byWord.filter((c) => sizeWordTokens(c.name).includes(heightKey));
+      if (byHeight.length === 1) return byHeight[0]!.id;
+    }
+  }
+  return null;
 }

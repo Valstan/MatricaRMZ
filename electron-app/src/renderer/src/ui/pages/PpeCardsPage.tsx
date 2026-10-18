@@ -1,6 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { addWearMonths, nextIssueDates, resolveEmployeeNorms, PPE_DAY_MS, type PpeNextIssue } from '@matricarmz/shared';
+import {
+  addWearMonths,
+  nextIssueDates,
+  normalizeLookupCompact,
+  normalizeLookupText,
+  PPE_DAY_MS,
+  PPE_SIZE_ATTRIBUTE_CODES,
+  ppeSizeKindForName,
+  resolveEmployeeNorms,
+  type PpeSizeKind,
+  type PpeNextIssue,
+} from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
@@ -24,6 +35,42 @@ type CardDto = {
 type NormOption = { id: string; name: string; postTitle: string | null };
 type IssueLine = { nomenclatureId: string; qty: string };
 type AbsenceRow = { id: string; employeeId: string; fromMs: number; toMs: number; kind: string };
+
+/** Фактические размеры сотрудника — из EAV-карточки employee (та же, где их правит оператор). */
+type EmployeeSizes = { clothes: string; shoes: string; height: string };
+const EMPTY_SIZES: EmployeeSizes = { clothes: '', shoes: '', height: '' };
+function sizeMatchKey(raw: string): string {
+  const compact = normalizeLookupCompact(String(raw ?? ''));
+  return compact.match(/\d+/)?.[0] ?? compact;
+}
+function sizeWordTokens(name: string): string[] {
+  return normalizeLookupText(String(name ?? ''))
+    .split(/[^0-9a-zа-яё]+/i)
+    .map(normalizeLookupCompact)
+    .filter(Boolean);
+}
+const SIZE_LABEL_RU: Array<[PpeSizeKind, string]> = [
+  ['clothes', 'одежда'],
+  ['shoes', 'обувь'],
+];
+
+function readEmployeeSizes(attributes: Record<string, unknown> | null | undefined): EmployeeSizes {
+  const text = (code: string): string => {
+    const raw = attributes?.[code];
+    return raw == null || typeof raw === 'object' ? '' : String(raw).trim();
+  };
+  return {
+    clothes: text(PPE_SIZE_ATTRIBUTE_CODES.clothes),
+    shoes: text(PPE_SIZE_ATTRIBUTE_CODES.shoes),
+    height: text(PPE_SIZE_ATTRIBUTE_CODES.height),
+  };
+}
+
+function sizesSummary(sizes: EmployeeSizes): string {
+  const parts = SIZE_LABEL_RU.filter(([kind]) => sizes[kind]).map(([kind, label]) => `${label} ${sizes[kind]}`);
+  if (sizes.height) parts.push(`рост ${sizes.height}`);
+  return parts.join(' · ');
+}
 
 const ABSENCE_KIND_RU: Record<string, string> = {
   vacation: 'отпуск',
@@ -71,6 +118,11 @@ export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
   const [absenceFrom, setAbsenceFrom] = useState('');
   const [absenceTo, setAbsenceTo] = useState('');
   const [nomNames, setNomNames] = useState<Map<string, string>>(new Map());
+  const [personnelByEmployee, setPersonnelByEmployee] = useState<Map<string, string>>(new Map());
+  // Размеры по табельному номеру: карточка СИЗ знает строгого сотрудника (id из
+  // erp_employee_cards), а размеры живут в EAV-карточке employee — общий ключ один.
+  const [sizesByPersonnel, setSizesByPersonnel] = useState<Map<string, EmployeeSizes>>(new Map());
+  const [sizes, setSizes] = useState<EmployeeSizes>(EMPTY_SIZES);
   const [warehouses, setWarehouses] = useState<SearchSelectOption[]>([]);
   const [issueOpen, setIssueOpen] = useState(false);
   const [issueWarehouse, setIssueWarehouse] = useState<string | null>(null);
@@ -81,6 +133,28 @@ export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
 
   const { confirm } = useConfirm();
   const canEdit = props.canEdit;
+
+  /**
+   * Размеры сотрудников — из EAV-карточек `employee` (поля «Размер одежды», «Размер
+   * обуви», «Рост»). Карточка СИЗ и EAV-карточка живут разными id, поэтому размеры
+   * кладём в карту по табельному номеру — единственному общему ключу. Читаем тем же
+   * правом `masterdata.view`, что и справочник сотрудников (оно в базе роли оператора).
+   */
+  const loadEmployeeSizes = useCallback(async () => {
+    const types = await window.matrica.admin.entityTypes.list().catch(() => null as any);
+    const employeeType = (types ?? []).find((t: any) => String(t.code ?? '') === 'employee');
+    if (!employeeType) return;
+    const rows = await window.matrica.admin.entities
+      .listByEntityTypeWithAttrs(String(employeeType.id))
+      .catch(() => [] as Array<{ id: string; attributes: Record<string, unknown> }>);
+    const byPersonnel = new Map<string, EmployeeSizes>();
+    for (const row of rows) {
+      const personnelNo = String(row.attributes?.personnel_number ?? '').trim();
+      if (!personnelNo) continue;
+      byPersonnel.set(personnelNo, readEmployeeSizes(row.attributes));
+    }
+    setSizesByPersonnel(byPersonnel);
+  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -99,6 +173,9 @@ export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
           searchText: `${e.fullName} ${e.personnelNo ?? ''} ${e.roleCode ?? ''}`,
         })),
       );
+      const empRows = emp?.ok ? emp.employees : [];
+      setPersonnelByEmployee(new Map(empRows.map((e) => [String(e.id), String(e.personnelNo ?? '')])));
+      await loadEmployeeSizes();
       if (norms?.ok) setNormOptions(norms.rows);
       if (wh?.ok) {
         setWarehouses(
@@ -107,10 +184,11 @@ export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
       }
       const noms = await window.matrica.warehouse.nomenclatureList({ limit: 2000, offset: 0 }).catch(() => null);
       if (noms?.ok) {
-        setNomNames(new Map((noms.rows ?? []).map((r: any) => [String(r.id), String(r.name ?? r.id)])));
+        const rows = (noms.rows ?? []) as any[];
+        setNomNames(new Map(rows.map((r) => [String(r.id), String(r.name ?? r.id)])));
       }
     })();
-  }, []);
+  }, [loadEmployeeSizes]);
 
   const nomName = useCallback((id: string) => nomNames.get(id) ?? id, [nomNames]);
   const empName = useCallback(
@@ -118,6 +196,11 @@ export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
     [employees],
   );
 
+  /**
+   * Пометка для позиции выдачи: та, что совпала с размером сотрудника. Это подсказка,
+   * а не выбор — кладовщик подтверждает сам. Неоднозначно (два размера в ряду) или
+   * размер не заполнен — пометки нет.
+   */
   const loadCard = useCallback(async (id: string) => {
     const res = await window.matrica.ppe.cards.get(id);
     if (!res.ok) {
@@ -139,7 +222,10 @@ export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
       if (det?.ok) allLines.push(...det.normSet.lines);
     }
     setNormLines(allLines);
-  }, []);
+    // Размеры — по табельному номеру сотрудника карточки.
+    const personnelNo = personnelByEmployee.get(res.card.employeeId) ?? '';
+    setSizes(personnelNo ? (sizesByPersonnel.get(personnelNo) ?? EMPTY_SIZES) : EMPTY_SIZES);
+  }, [personnelByEmployee, sizesByPersonnel]);
 
   async function openCard() {
     if (!employeeId) return setStatus('Выберите сотрудника');
@@ -271,6 +357,30 @@ export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
     () => resolveEmployeeNorms(normLines.map((l) => ({ normSetId: '', nomenclatureId: l.nomenclatureId, qty: l.qty, wearMonths: l.wearMonths }))),
     [normLines],
   );
+
+  // Позиции размерного ряда, совпавшие с размером сотрудника (подсказка при выдаче).
+  // Сравниваем внутри набора норм карточки, по целому слову: «8» ≠ «р. 48».
+  // Пометка ставится только при однозначном совпадении по виду размера.
+  const hintedIds = useMemo(() => {
+    const result = new Set<string>();
+    const byKind = new Map<PpeSizeKind, string[]>();
+    for (const m of merged) {
+      const kind = ppeSizeKindForName(nomName(m.nomenclatureId));
+      if (!kind) continue;
+      const size = sizes[kind];
+      if (!size) continue;
+      const sizeKey = sizeMatchKey(size);
+      if (!sizeWordTokens(nomName(m.nomenclatureId)).includes(sizeKey)) continue;
+      const arr = byKind.get(kind) ?? [];
+      arr.push(m.nomenclatureId);
+      byKind.set(kind, arr);
+    }
+    for (const ids of byKind.values()) {
+      if (ids.length === 1) result.add(ids[0]!);
+    }
+    return result;
+  }, [merged, nomName, sizes]);
+
   const upcoming = useMemo(
     () =>
       nextIssueDates(
@@ -515,6 +625,11 @@ export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
 
             {issueOpen ? (
               <SectionCard title="Выдача">
+                {sizesSummary(sizes) ? (
+                  <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>
+                    Размер сотрудника: {sizesSummary(sizes)}
+                  </div>
+                ) : null}
                 <FormGrid>
                   <FormField label="Склад выдачи">
                     <SearchSelect value={issueWarehouse} options={warehouses} placeholder="Склад" showAllWhenEmpty onChange={setIssueWarehouse} />
@@ -525,7 +640,12 @@ export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
                     <FormField label={i === 0 ? 'Позиция' : ''}>
                       <SearchSelect
                         value={l.nomenclatureId || null}
-                        options={merged.map((m) => ({ id: m.nomenclatureId, label: nomName(m.nomenclatureId), searchText: nomName(m.nomenclatureId) }))}
+                        options={merged.map((m) => ({
+                          id: m.nomenclatureId,
+                          label: nomName(m.nomenclatureId),
+                          searchText: nomName(m.nomenclatureId),
+                          ...(hintedIds.has(m.nomenclatureId) ? { hintText: 'размер сотрудника' } : {}),
+                        }))}
                         placeholder="Позиция из норм"
                         showAllWhenEmpty
                         onChange={(next) => setIssueLines((prev) => prev.map((p, j) => (j === i ? { ...p, nomenclatureId: next ?? '' } : p)))}
