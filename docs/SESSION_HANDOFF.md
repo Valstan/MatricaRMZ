@@ -2,9 +2,9 @@
 
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
-**Status:** ACTIVE (нитка «Кладовщик» фаза 2: финальный проход #166 сделан, дальше — релиз)
+**Status:** ACTIVE (нитка «Кладовщик» фаза 2: проход #166 влит в main; релиз отложен словом владельца)
 **Updated:** 2026-10-18 (opencode session, машина `PC79`)
-**Branch:** `fix/ppe-phase2-166-seams` → PR [#1366](https://github.com/Valstan/MatricaRMZ/pull/1366) · main = origin/main `be8c0b8f`
+**Branch:** `main` — всё слито (#1366, #1367), дерево чистое · main = origin/main `071b75ca`
 **Last released version:** **v3.78.0** на проде (+ android-v3.78.0).
 
 ## Текущая нитка
@@ -13,9 +13,8 @@
 
 ## Следующий шаг
 
-1. Дождаться зелёного CI на PR `fix/ppe-phase2-166-seams` → squash-merge → `git checkout main && git pull`.
-2. Отдельный релиз (выпуск фазы 2): `node scripts/bump-version.mjs` → запись в `shared/src/domain/releaseWelcome.ts` → PR → теги `vX.Y.Z` **и** `android-vX.Y.Z` → `deploy-backend.sh` → **`db:migrate` на проде явно** (едут `0110` и `0111`, до сих пор не накатаны) → артефакты апдейтера (`latest.json` сверить размером) → APK через `scp` → `release:ledger-publish` → рестарт → `/health` по каждому порту + `/updates/status`.
-3. Почта brain отложена владельцем — по его слову (`2026-10-12-local-postgres-for-smoke`, `2026-10-13-sidecar-pooled-368`).
+1. **Релиз фазы 2 — по слову владельца** (2026-10-18 сказано: «не сейчас, только держи main»; без его слова не начинать). Когда слово будет: `node scripts/bump-version.mjs` → запись в `shared/src/domain/releaseWelcome.ts` → PR → теги `vX.Y.Z` **и** `android-vX.Y.Z` → `deploy-backend.sh` → **`db:migrate` на проде явно** (едут `0110` и `0111`, до сих пор не накатаны) → артефакты апдейтера (`latest.json` сверить размером) → APK через `scp` → `release:ledger-publish` → рестарт → `/health` по каждому порту + `/updates/status`.
+2. Почта brain отложена владельцем — по его слову (`2026-10-12-local-postgres-for-smoke`, `2026-10-13-sidecar-pooled-368`).
 
 ## Контекст
 
@@ -34,4 +33,5 @@
 
 - Почта brain отложена владельцем («письма потом»): `2026-10-12-local-postgres-for-smoke` (строка-указатель про локальный PG в `AGENTS.md`) и `2026-10-13-sidecar-pooled-368` (ссылка #368 в `docs/plans/opencode-native-2026-10.md`, ack не отправлен).
 - `clientOpsArchive.test.ts` («архив с UTF-8») на PC79: в пакете красный (7za висит), одиночно зелёный — перегруз; на чистом main так же. Записано в `docs/machines/PC79.md`. CI на Linux зелёный.
-- Ветка `feat/pr-5-default-labels` (PR #1313 закрыт, содержимого в main нет) — по слову владельца удалить. Ветка `chore/ppe-166-pass-wip` удалена 2026-10-18: её содержимое влито PR #1366.
+- Ветки MatricaRMZ вычищены 2026-10-18: `chore/ppe-166-pass-wip` (влита PR #1366) и `feat/pr-5-default-labels` (PR #1313 закрыт, содержимого в main нет) удалены — локально и на origin остался один `main`.
+- Воркауты OpenCode сняты (все четыре); работа из них сохранена ветками — чужие незапушенные: `sarafan` `wip/task2b-docs` (1 коммит), `brain_matrica` `docs/pc79-wsl-removal-d131` (2 коммита). Пуш — дело сессий тех проектов; из MatricaRMZ чужое не пушим. Подробности — `docs/machines/PC79.md`.
