@@ -4,7 +4,7 @@
 
 **Status:** IN PROGRESS — нитка «видимость GPU на клиентах»: код и замер готовы, PR в работе.
 **Updated:** 2026-10-18 (opencode session, машина `PC79`)
-**Branch:** `feat/client-gpu-diagnostics`
+**Branch:** `feat/client-gpu-diagnostics` (PR #1372)
 **Last released version:** **v3.79.0** на проде (+ android-v3.79.0).
 
 ## Куда идём
