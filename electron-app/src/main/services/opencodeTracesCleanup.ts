@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { readFile, rm } from 'node:fs/promises';
+import { readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -9,7 +9,11 @@ import { join } from 'node:path';
  * Узел жил в профиле оператора: папка бинаря (`%LOCALAPPDATA%\Programs\
  * MatricaRMZ-OpenCode`), реестр узлов, сессия агента и песочница вопросов в
  * userData, каталог загрузки релиза в TEMP. Код модуля снесён, файлы остались —
- * их снимает шаг клиентской миграции, один раз на машину.
+ * их снимает разовая подчистка при старте клиента (рядом с `sweepLegacyInstallDir`).
+ *
+ * Шагом миграции такую уборку делать нельзя: electron-модуль миграций попадает
+ * в браузерный бандл планшета, а `node:child_process` там не шимится (на этом
+ * упал `build-apk` в PR #1379).
  *
  * Личный каталог CLI (`%USERPROFILE%\.config\opencode` и `.local\share\opencode`)
  * — чужое, его не трогаем.
@@ -25,9 +29,9 @@ const NODE_EXE_NAME = 'opencode.exe';
 const PID_FILE_NAME = 'serve.pid';
 
 /**
- * Каталог данных клиента спрашиваем у Electron лениво и терпимо к отказу: файл
- * миграций читает android-тест паритета версий (electron там нет), и шаг уборки
- * должен остаться безвредным в таком окружении.
+ * Каталог данных клиента спрашиваем у Electron лениво: модуль читают и юниты
+ * (в них корни подставляются аргументом, Electron не нужен), а статический
+ * `import 'electron'` вне приложения отдаёт не API, а путь к бинарю.
  */
 async function electronUserDataDir(): Promise<string | undefined> {
   try {
@@ -80,9 +84,18 @@ function unique(paths: Array<string | undefined>): string[] {
   return [...new Set(paths.filter((p): p is string => Boolean(p)))];
 }
 
+async function pathExists(target: string): Promise<boolean> {
+  try {
+    await stat(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Снимает следы узла и возвращает пути, которые убраны. Ошибки глушатся: уборка
- * не должна ронять цепочку миграций клиента (сорванный шаг дал бы rebuild).
+ * Снимает следы узла и возвращает пути, которые реально убраны. Ошибки глушатся:
+ * уборка не должна ронять старт клиента (её зовут fire-and-forget).
  */
 export async function removeOpencodeTraces(roots: OpencodeCleanupRoots = {}): Promise<string[]> {
   const localAppData = roots.localAppData ?? process.env.LOCALAPPDATA;
@@ -103,8 +116,15 @@ export async function removeOpencodeTraces(roots: OpencodeCleanupRoots = {}): Pr
     userDataDir ? join(userDataDir, 'opencode-sandbox') : undefined,
     join(tempDir, 'matricarmz-opencode'),
   ]);
+  const removed: string[] = [];
   for (const target of targets) {
-    await rm(target, { recursive: true, force: true }).catch(() => {});
+    if (!(await pathExists(target))) continue;
+    try {
+      await rm(target, { recursive: true, force: true });
+      removed.push(target);
+    } catch {
+      // Не убралось (занято, нет прав) — молчим: уборка не повод шуметь в логе.
+    }
   }
-  return targets;
+  return removed;
 }

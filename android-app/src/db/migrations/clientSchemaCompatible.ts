@@ -28,7 +28,7 @@ import type { AsyncDrizzleDb } from '../drizzleAsync.js';
 
 // Должна совпадать с electron-app (гейт — тест рядом). Не импортируем значение
 // напрямую: electron-файл тянет better-sqlite3/node:crypto и в браузерный бандл не годится.
-export const CURRENT_CLIENT_SCHEMA_VERSION = 14;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 13;
 
 type Migration = {
   from: number;
@@ -52,16 +52,6 @@ const MIGRATIONS: Migration[] = [
       await sqlite.exec(
         `CREATE INDEX IF NOT EXISTS erp_nomenclature_parent_idx ON erp_nomenclature(parent_nomenclature_id);`,
       );
-    },
-  },
-  {
-    from: 13,
-    to: 14,
-    name: 'уборка следов OpenCode-узла (на планшете узла не было)',
-    up: async () => {
-      // Узел жил только на десктопе (папка бинаря и serve в профиле оператора).
-      // Шаг пустой, но обязательный: без него цепочка версий не сойдётся и
-      // планшет ушёл бы в rebuild с холодным pull на ровном месте.
     },
   },
 ];

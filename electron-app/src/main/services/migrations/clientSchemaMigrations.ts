@@ -4,7 +4,6 @@ import type Database from 'better-sqlite3';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import { getSqliteHandle } from '../../database/db.js';
-import { removeOpencodeTraces } from '../opencodeTracesCleanup.js';
 import { SettingsKey, settingsGetNumber, settingsGetString, settingsSetNumber, settingsSetString } from '../settingsStore.js';
 
 export type SyncSchemaColumn = {
@@ -48,7 +47,7 @@ type Migration = {
 // ⚠️ Android-клиент держит порт этого механизма
 // (android-app/src/db/migrations/clientSchemaCompatible.ts): при добавлении шага
 // НОВЕЕ 12 зеркаль его туда (константу версии сверяет тест android-app).
-export const CURRENT_CLIENT_SCHEMA_VERSION = 14;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 13;
 
 const MIGRATIONS: Migration[] = [
   {
@@ -495,20 +494,6 @@ const MIGRATIONS: Migration[] = [
         sqlite.exec(`ALTER TABLE erp_nomenclature ADD COLUMN parent_nomenclature_id text;`);
       }
       sqlite.exec(`CREATE INDEX IF NOT EXISTS erp_nomenclature_parent_idx ON erp_nomenclature(parent_nomenclature_id);`);
-    },
-  },
-  {
-    from: 13,
-    to: 14,
-    name: 'уборка следов OpenCode-узла (модуль вырезан)',
-    up: async () => {
-      // Шаг не про схему: модуль узла снесён из программы (19.10.2026), а его
-      // файлы в профиле оператора остались от прежних версий. Уборка
-      // best-effort — её отказ не должен ломать цепочку (сорванный шаг отправил
-      // бы клиента в rebuild). В юнитах профиль настоящий, поэтому уборку
-      // запускаем только внутри приложения.
-      if (!process.versions.electron) return;
-      await removeOpencodeTraces().catch(() => {});
     },
   },
 ];
