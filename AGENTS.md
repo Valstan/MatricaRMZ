@@ -215,6 +215,8 @@ Monorepo structure:
 
 Порты dev-стенда и особенности запуска зависят от машины — см. `docs/machines/<hostname>.md`. При изменении типов сначала пересобирается `@matricarmz/shared`, иначе зависимые пакеты типизируются по старому `dist`.
 
+**Локальный PostgreSQL для разработки и смоука:** на машине владельца `COMPUTER` поднят PG 17.5 — база `matricarmz`, слушает только localhost, пароль в `%USERPROFILE%\pg-local-credentials.json` (вне git), подробности — `../brain_matrica/docs/machines/COMPUTER.md`. Подключение: `postgresql://matricarmz:<пароль>@127.0.0.1:5432/matricarmz`. Это **не прод**: прод-БД Матрицы своя, локальный PG — только для стенда и смоука.
+
 ## TypeScript config
 `exactOptionalPropertyTypes: true` is enabled. **Never assign `undefined` to optional fields.**
 Use conditional spread instead: `...(x.val ? { field: String(x.val) } : {})`
