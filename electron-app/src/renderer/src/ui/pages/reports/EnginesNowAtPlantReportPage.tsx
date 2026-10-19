@@ -445,7 +445,7 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }} data-engines-now-at-plant-report>
       <PageToolbar>
         <Button variant="ghost" onClick={props.onBack}>
-          К списку Отчётов
+          {props.backLabel ?? 'К списку Отчётов'}
         </Button>
         <ToolbarPin>
           <Input value={ui.query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по двигателям на заводе…" />

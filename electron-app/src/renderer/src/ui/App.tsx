@@ -912,6 +912,9 @@ export function App() {
   const [accountSwitchOpen, setAccountSwitchOpen] = useState(false);
   const [currentUserProfile, setCurrentUserProfile] = useState<CurrentUserProfile | null>(null);
   const [tab, setTabRaw] = useState<TabId>('history');
+  // P9 19.10.2026: «Сейчас на заводе» открывают и из меню, и кнопкой из «Этапов ремонта» —
+  // «Назад» ведёт туда, откуда пришли, и подпись кнопки называет это место.
+  const [nowAtPlantBack, setNowAtPlantBack] = useState<TabId>('reports');
   // Полоса вкладок — явное состояние (shared/src/domain/tabsModel.ts). Раньше она
   // выводилась из шести независимых стейтов и расходилась с активным ключом.
   const [tabsState, dispatchTabs] = useReducer(tabsReducer, undefined, () => createTabsState('МЕНЮ'));
@@ -3251,6 +3254,14 @@ export function App() {
     void persistShellPrefs({ ...shellPrefs, v3: { ...shellPrefs.v3, ...patch } });
   }
 
+  // Связка «Этапы ремонта» ↔ «Сейчас на заводе» (P9 19.10.2026): отчёт открывается кнопкой
+  // из списка этапов или из меню; запоминаем, куда вернуть, — кнопка «Назад» в отчёте
+  // называет это место, а не глухое «Назад» (см. `backLabel` в `listReportPages`).
+  function openNowAtPlant(backTo: TabId) {
+    setNowAtPlantBack(backTo);
+    openSectionTab('now_at_plant');
+  }
+
   // Общий обработчик кнопок меню (v1 Tabs и v2 ButtonPanel): auth-гейт, спец-ярлык
   // «Прогноз сборки» (открывает пресет отчёта), проверка видимости.
   function handleMenuTab(t: MenuTabId) {
@@ -3265,6 +3276,10 @@ export function App() {
     if (!sectionGatedTabs.includes(t) && !isUserTab) return;
     if (t === 'assembly_forecast') {
       openReportPreset('assembly_forecast_7d');
+      return;
+    }
+    if (t === 'now_at_plant') {
+      openNowAtPlant('reports');
       return;
     }
     openSectionTab(t);
@@ -4330,6 +4345,7 @@ export function App() {
     if (route.kind === 'engine_brand') return await openEngineBrand(route.id);
     if (route.kind === 'report_preset') return openReportPreset(route.id as ReportPresetId);
     if (route.kind === 'custom_report') return openCustomReport(route.id);
+    if (route.id === 'now_at_plant') setNowAtPlantBack('reports');
     setTab(route.id as TabId);
   }
 
@@ -5669,6 +5685,7 @@ export function App() {
             onOpenEngine={(id: string) => void openEngine(id)}
             onOpenSheet={(id: string, opts?: { isNew?: boolean; typeCode?: string | null; title?: string }) => void openWorkSheet(id, opts)}
             onWorkshopsLoaded={setWorkSheetWorkshops}
+            {...(sectionGatedTabs.includes('now_at_plant') ? { onOpenNowAtPlant: () => openNowAtPlant('work_sheets') } : {})}
           />
         )}
         {t === 'work_sheet' && selectedWorkSheetId && (
@@ -6454,6 +6471,7 @@ export function App() {
               screenId={selectedUserScreenId}
               onEdit={(id: string) => editUserScreen(id)}
               onNavigateTab={(tabId: string) => {
+                if (tabId === 'now_at_plant') setNowAtPlantBack('reports');
                 if ((sectionGatedTabs as string[]).includes(tabId)) setTab(tabId as TabId);
               }}
             />
@@ -6496,7 +6514,8 @@ export function App() {
             canExport={caps.canExportReports}
             userId={authStatus.user?.id ?? ''}
             initialFilters={null}
-            onBack={() => setTab('reports')}
+            onBack={() => setTab(nowAtPlantBack)}
+            {...(nowAtPlantBack === 'work_sheets' ? { backLabel: 'К этапам ремонта' } : {})}
             onOpenWorkOrder={openWorkOrder}
             onOpenSupplyRequest={(id: string, payload: unknown) => void openRequest(id, { initialPayload: payload as SupplyRequestPayload })}
             engines={engines}

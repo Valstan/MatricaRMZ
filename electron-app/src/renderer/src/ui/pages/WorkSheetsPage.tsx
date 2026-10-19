@@ -8,6 +8,7 @@ import {
   flattenGrouped,
   workSheetFacets,
   workSheetFieldsSummary,
+  unionWorkSheetColumns,
   type FacetDescriptor,
   type FacetSelection,
   type GroupLevel,
@@ -137,6 +138,11 @@ export function WorkSheetsPage(props: {
   onOpenEngine?: (id: string) => void;
   /** Справочник цехов нужен и карточке — грузим один раз здесь и отдаём наверх. */
   onWorkshopsLoaded?: (rows: WorkshopOption[]) => void;
+  /**
+   * Открыть отчёт-список «Сейчас на заводе» (P9 19.10.2026): вопрос «где двигатель сейчас»
+   * продолжает список этапов, а не живёт отдельной дверью. Колбэка нет — кнопки нет.
+   */
+  onOpenNowAtPlant?: () => void;
 }) {
   const [types, setTypes] = useState<WorkSheetType[]>([]);
   const [typesSource, setTypesSource] = useState<WorkSheetTypesSource>('server');
@@ -328,11 +334,13 @@ export function WorkSheetsPage(props: {
     [columnLayout, columnsById],
   );
 
-  // Ступени — общие для всего списка: полей вида работ здесь нет (у каждого вида свои),
-  // зато есть сам вид работ, заказчик, договор, цех, исполнитель и дата. Движковой ступени
-  // «проходил этап» здесь нет с 12.10.2026 — отбор по истории только в списке двигателей.
+  // Ступени — общие плюс по колонке на каждый вид работ (`f:<code>`, как в отчёте
+  // «Этапы ремонта»): «покажи дефектовки с таким-то дефектом» спрашивают и здесь, а поле
+  // чужого вида просто не даёт значений. Движковой ступени «проходил этап» здесь нет
+  // с 12.10.2026 — отбор по истории только в списке двигателей.
   const stageTemplates = useRepairStageTemplateRefs();
-  const facets = useMemo(() => workSheetFacets([]) as FacetDescriptor<WorkSheetRow>[], []);
+  const fieldColumns = useMemo(() => unionWorkSheetColumns(types), [types]);
+  const facets = useMemo(() => workSheetFacets(fieldColumns) as FacetDescriptor<WorkSheetRow>[], [fieldColumns]);
 
   const deep = useListDeepFilter(
     rows,
@@ -512,6 +520,16 @@ export function WorkSheetsPage(props: {
         {(props.canManageTypes || props.canManageStageTemplates) && (
           <Button variant="ghost" onClick={() => setStageMapOpen(true)} title="Карта этапов: этапы ремонта (названия, порядок) и этапы работ (цеха, колонки)" data-stage-map-open>
             Карта этапов
+          </Button>
+        )}
+        {props.onOpenNowAtPlant && (
+          <Button
+            variant="ghost"
+            onClick={props.onOpenNowAtPlant}
+            title="Отчёт-список «Сейчас на заводе»: где каждый двигатель сейчас"
+            data-now-at-plant-open
+          >
+            Сейчас на заводе
           </Button>
         )}
         <Button variant="ghost" onClick={() => setAllTime((v) => !v)} title="По умолчанию показаны этапы работ с датой за последний год">
