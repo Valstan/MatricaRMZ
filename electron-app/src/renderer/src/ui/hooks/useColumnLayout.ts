@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   COLUMN_LAYOUT_CHANGE_EVENT,
+  applyHideOnce,
   clearColumnLayout,
   normalizeColumnWidths,
   readColumnLayout,
@@ -47,6 +48,19 @@ export function layoutFromPersisted(
   return { order: normalizeOrder(persisted.order, allColumnIds), hidden: Array.from(hidden), widths };
 }
 
+/**
+ * Стартовая раскладка: запись + смена умолчаний задним числом (если для этого списка она
+ * объявлена и ещё не применялась этому оператору). Результат миграции сразу ложится в
+ * хранилище — иначе при следующем открытии списка колонка вернулась бы на экран.
+ */
+function initialState(layoutId: string, allColumnIds: string[], defaultHidden: string[]): ColumnLayoutState {
+  const base = layoutFromPersisted(readColumnLayout(layoutId), allColumnIds, defaultHidden);
+  const migrated = applyHideOnce(layoutId, allColumnIds, base);
+  if (!migrated) return base;
+  writeColumnLayout(layoutId, migrated);
+  return migrated;
+}
+
 export type UseColumnLayoutResult = {
   order: string[];
   hidden: Set<string>;
@@ -69,7 +83,7 @@ export function useColumnLayout(
   allColumnIds: string[],
   defaultHidden: string[] = [],
 ): UseColumnLayoutResult {
-  const [state, setState] = useState<ColumnLayoutState>(() => layoutFromPersisted(readColumnLayout(layoutId), allColumnIds, defaultHidden));
+  const [state, setState] = useState<ColumnLayoutState>(() => initialState(layoutId, allColumnIds, defaultHidden));
 
   // Re-normalize if the set of columns changes (e.g. new column added in code).
   useEffect(() => {

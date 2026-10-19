@@ -4,11 +4,11 @@ import { dirname, join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-// PR-2 «Все этапы» (владелец 12.10.2026): один фильтр прохождения этапа в списке
-// двигателей, колонка даты ИМЕННО выбранного этапа, этап в заголовке печати,
-// и снятие движковой ступени из этапов ремонта (дубль «Вид работ»).
+// PR-2 «Все этапы» (владелец 12.10.2026; с 19.10.2026 ступень зовётся «История»): один
+// фильтр прохождения этапа в списке двигателей, колонка даты ИМЕННО выбранного этапа,
+// этап в заголовке печати, и снятие движковой ступени из этапов ремонта (дубль «Вид работ»).
 // Цепочка рвётся молча: id ступеней совпадают, типы довольны, а подпись и данные
-// расходятся — оператор выбирает «Все этапы = Укладка» и видит дату другого события.
+// расходятся — оператор выбирает «История = Укладка» и видит дату другого события.
 
 function repoRoot(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
@@ -27,10 +27,11 @@ const FACETS = src('shared/src/domain/engineListFacets.ts');
 const WORKSHEETS = src('shared/src/domain/workSheets.ts');
 const SERVICE = src('electron-app/src/main/services/engineService.ts');
 
-describe('фильтр «Все этапы»: подпись, данные, колонка, печать', () => {
-  it('ступень называется «Все этапы» в списке двигателей', () => {
-    expect(FACETS).toContain("id: 'hasStage',\n      label: 'Все этапы',");
+describe('фильтр «История»: подпись, данные, колонка, печать', () => {
+  it('ступень называется «История» в списке двигателей (бывш. «Все этапы»)', () => {
+    expect(FACETS).toContain("id: 'hasStage',\n      label: 'История',");
     expect(FACETS).not.toContain("label: 'Есть этап',");
+    expect(FACETS).not.toContain("label: 'Все этапы',");
     // id выбранного этапа остаётся прежним: роумившееся состояние не должно обесцениваться.
     expect(FACETS).toContain("id: 'hasStage'");
   });
@@ -53,9 +54,25 @@ describe('фильтр «Все этапы»: подпись, данные, ко
     expect(PAGE).toContain('export function selectedStageCodeFromSelection');
     // Ровно один выбранный этап — иначе колонка молчит («—»): три ответа хуже, чем ни одного.
     expect(PAGE).toContain('if (!Array.isArray(values) || values.length !== 1) return null;');
-    expect(PAGE).toContain('a.stageDates?.[selectedStageCode ??');
-    // Скрыта по умолчанию, как остальные даты стадий.
-    expect(PAGE).toContain("'scrapDate', 'stageDate'");
+    // Скрыта по умолчанию, как остальные даты стадий; «Дата изменения» — тоже (P6, 19.10.2026).
+    expect(PAGE).toContain("'scrapDate', 'stageDate', 'updatedAt'");
+  });
+
+  it('«Дата этапа» при активном периоде показывает дату ПОПАВШЕГО прохода', () => {
+    // Владелец 19.10.2026: у этапа, пройденного дважды, колонка отвечает датой того прохода,
+    // который прошёл отбор, — иначе экран показывал бы чужой день рядом с отбором по дню.
+    expect(PAGE).toContain('facetRangeOf(facets, \'stageDate\')');
+    expect(PAGE).toContain('for (const entry of e.stageEntries ?? [])');
+    expect(PAGE).toContain("String(entry.code ?? '').trim().toLowerCase() !== selectedStageCode");
+  });
+
+  it('дата изменения скрыта по умолчанию, но остаётся в настройках колонок', () => {
+    // Владелец 19.10.2026: «дата внесения — убрать из показа по умолчанию, оставить в
+    // настройках колонок (аудит)». Колонка объявлена в allColumns, значит в «Колонках списка» есть.
+    expect(PAGE).toContain("id: 'updatedAt',");
+    expect(PAGE).toContain("label: 'Дата изменения',");
+    const hidden = PAGE.slice(PAGE.indexOf('ENGINE_LIST_HIDDEN_BY_DEFAULT ='));
+    expect(hidden.slice(0, hidden.indexOf('];'))).toContain("'updatedAt'");
   });
 
   it('заголовок печати называет фильтруемый этап', () => {

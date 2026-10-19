@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { applyHideOnce, setColumnLayoutUser } from './columnLayoutStore.js';
 import { layoutFromPersisted } from './useColumnLayout.js';
 
 // Смоук 16.09.2026: колонки дат, добавленные в код скрытыми по умолчанию, у оператора с уже
@@ -38,5 +39,64 @@ describe('layoutFromPersisted — новые колонки и сохранён�
     };
     const out = layoutFromPersisted(persisted, ['number', 'brand'], []);
     expect(out.widths).toEqual({ number: 200 });
+  });
+});
+
+// Владелец 19.10.2026 (P6): «дата внесения» ушла из показа по умолчанию, но сохранённые
+// раскладки её знают — `layoutFromPersisted` их намеренно не трогает («оператор её видел»).
+// Поэтому смена умолчания для жившей колонки объявлена отдельно и срабатывает один раз.
+describe('applyHideOnce — разовая миграция умолчаний', () => {
+  const LAYOUT = 'list:engines:columns';
+  const all = ['arrival', 'stageDate', 'updatedAt'];
+
+  const store = new Map<string, string>();
+  const localStorageStub = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => void store.set(key, String(value)),
+    removeItem: (key: string) => void store.delete(key),
+  };
+
+  beforeEach(() => {
+    store.clear();
+    setColumnLayoutUser('operator1');
+    vi.stubGlobal('window', { localStorage: localStorageStub });
+  });
+
+  afterEach(() => {
+    setColumnLayoutUser('');
+    vi.unstubAllGlobals();
+  });
+
+  it('прячет жившую колонку, но не переписывает уже скрытую', () => {
+    expect(applyHideOnce(LAYOUT, all, { order: all, hidden: ['stageDate'] })).toEqual({
+      order: all,
+      hidden: ['stageDate', 'updatedAt'],
+    });
+    expect(applyHideOnce(LAYOUT, all, { order: all, hidden: [] })).toBeNull();
+  });
+
+  it('отметка ставится и тогда, когда колонка уже была скрыта', () => {
+    // Свежая раскладка уже получает `updatedAt` из defaultHidden — миграции делать нечего,
+    // но второй раз ей тоже нечего: отметка хранится отдельно от раскладки.
+    expect(applyHideOnce(LAYOUT, all, { order: all, hidden: ['updatedAt'] })).toBeNull();
+    expect(applyHideOnce(LAYOUT, all, { order: all, hidden: [] })).toBeNull();
+  });
+
+  it('включил колонку обратно — второй раз не прячем (человек решил явно)', () => {
+    expect(applyHideOnce(LAYOUT, all, { order: all, hidden: [] })).not.toBeNull();
+    // Оператор вернул «Дату изменения» в «Колонках списка»: состояние перечитается, а
+    // миграция уже отработала — иначе колонка пропадала бы после каждого входа в список.
+    expect(applyHideOnce(LAYOUT, all, { order: all, hidden: [] })).toBeNull();
+  });
+
+  it('неизвестную раскладку и неизвестную колонку не трогает', () => {
+    expect(applyHideOnce('list:parts:columns', all, { order: all, hidden: [] })).toBeNull();
+    expect(applyHideOnce(LAYOUT, ['arrival'], { order: ['arrival'], hidden: [] })).toBeNull();
+  });
+
+  it('отметка у каждого оператора своя: на общей станции прячет и второму', () => {
+    expect(applyHideOnce(LAYOUT, all, { order: all, hidden: [] })).not.toBeNull();
+    setColumnLayoutUser('operator2');
+    expect(applyHideOnce(LAYOUT, all, { order: all, hidden: [] })).not.toBeNull();
   });
 });

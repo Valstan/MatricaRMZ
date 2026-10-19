@@ -17,8 +17,12 @@ import { FacetFilter, FacetToggleButton } from './FacetFilter.js';
 function useEngineFacetDescriptors(
   types: readonly EngineFactoryStageTypeRef[] | undefined,
   stageTemplates: readonly RepairStageTemplate[] | undefined,
+  selection: EngineFacetSelection,
 ) {
-  return useMemo(() => engineFacets(types, stageTemplates) as readonly FacetDescriptor<EngineListItem>[], [types, stageTemplates]);
+  return useMemo(
+    () => engineFacets(types, stageTemplates, selection) as readonly FacetDescriptor<EngineListItem>[],
+    [types, stageTemplates, selection],
+  );
 }
 
 /** Кнопка «Фильтры» списка двигателей — живёт в тулбаре рядом с поиском. */
@@ -29,7 +33,7 @@ export function EngineFacetToggleButton(props: {
   types?: readonly EngineFactoryStageTypeRef[];
   stageTemplates?: readonly RepairStageTemplate[];
 }) {
-  const facets = useEngineFacetDescriptors(props.types, props.stageTemplates);
+  const facets = useEngineFacetDescriptors(props.types, props.stageTemplates, props.selection);
   return (
     <FacetToggleButton<EngineListItem>
       facets={facets}
@@ -51,13 +55,13 @@ export function EngineFacetFilter(props: {
   open: boolean;
   types?: readonly EngineFactoryStageTypeRef[];
   stageTemplates?: readonly RepairStageTemplate[];
-  /** Ступени, спрятанные целиком (нет в ряду кнопок и в панелях): «Дата этапа» при активном «Где сейчас?». */
+  /** Ступени, спрятанные целиком (нет в ряду кнопок и в панелях): «Дата этапа» при активном «Текущем состоянии». */
   hiddenFields?: readonly EngineFacetId[];
   onChangeSelection: (next: EngineFacetSelection) => void;
   onChangeFields: (next: EngineFacetId[]) => void;
   onReset: () => void;
 }) {
-  const facets = useEngineFacetDescriptors(props.types, props.stageTemplates);
+  const facets = useEngineFacetDescriptors(props.types, props.stageTemplates, props.selection);
   const visible = React.useMemo(
     () => (props.hiddenFields && props.hiddenFields.length > 0 ? facets.filter((f) => !(props.hiddenFields as readonly string[]).includes(f.id)) : facets),
     [facets, props.hiddenFields],

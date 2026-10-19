@@ -54,6 +54,12 @@ export type FacetDescriptor<Row> =
       label: string;
       /** Дата строки в мс; `null` — даты нет (в отбор по диапазону не попадёт). */
       dateOf: (row: Row) => number | null;
+      /**
+       * Все даты строки, когда их несколько (двигатель проходил этапы в разные дни): строка
+       * подходит, если ЛЮБАЯ попала в диапазон. Без него отбор идёт по одной `dateOf`
+       * (владелец 19.10.2026: «двигатель попадает в день D, если любой его этап был в D»).
+       */
+      datesOf?: (row: Row) => readonly (number | null | undefined)[];
     };
 
 /**
@@ -114,13 +120,12 @@ function passes<Row>(row: Row, facet: FacetDescriptor<Row>, selection: FacetSele
   if (facet.kind === 'dateRange') {
     const range = facetRangeOf(selection, facet.id);
     if (range == null) return true;
-    const ms = facet.dateOf(row);
-    if (ms == null) return false;
+    const dates = facet.datesOf ? facet.datesOf(row) : [facet.dateOf(row)];
+    const known = dates.filter((ms): ms is number => typeof ms === 'number' && Number.isFinite(ms) && ms > 0);
+    if (known.length === 0) return false;
     const from = facetDateBound(range.from, 'from');
     const to = facetDateBound(range.to, 'to');
-    if (from != null && ms < from) return false;
-    if (to != null && ms > to) return false;
-    return true;
+    return known.some((ms) => (from == null || ms >= from) && (to == null || ms <= to));
   }
   const selected = selectedOf(selection, facet.id);
   if (selected.length === 0) return true;
@@ -230,6 +235,19 @@ export function setFacetDateBound(
   const out: FacetSelection = { ...selection };
   if (!from && !to) delete out[facetId];
   else out[facetId] = { ...(from ? { from } : {}), ...(to ? { to } : {}) };
+  return out;
+}
+
+/**
+ * Ровно один день: обе границы разом (владелец 19.10.2026 — быстрый выбор одного дня поверх
+ * диапазона). Пусто — ступень уходит из выбора. Вид записи тот же `{from, to}`, своего
+ * поля у диапазона нет: иначе список пришлось бы учить второму способу отбора по датам.
+ */
+export function setFacetDay(selection: FacetSelection, facetId: string, day: string): FacetSelection {
+  const value = text(day);
+  const out: FacetSelection = { ...selection };
+  if (!value) delete out[facetId];
+  else out[facetId] = { from: value, to: value };
   return out;
 }
 

@@ -151,7 +151,7 @@ export function engineStageFacetOptions(types?: readonly EngineFactoryStageTypeR
 }
 
 /**
- * Полный ряд ступени «Где сейчас?»: состояния карточки по своим местам, этапы —
+ * Полный ряд ступени «Текущее состояние»: состояния карточки по своим местам, этапы —
  * в порядке шаблона (приоритет линейки, боковая ветка в конце), виды работ — в порядке
  * справочника. Порядок показа групп в списках задаёт ранг (`flattenGrouped`), а не этот
  * ряд: здесь только значения фильтра (владелец 14.10.2026 — «по приоритету программы»).
@@ -179,14 +179,14 @@ function factoryStageFilterOptions(
   ];
 }
 
-/** Выбран ли фильтр «Где сейчас?»: тогда «Дата этапа» недоступна — смотрим текущее место, а не период. */
+/** Выбран ли фильтр «Текущее состояние»: тогда «Дата этапа» недоступна — смотрим текущее место, а не период. */
 export function isFactoryStageActive(selection: EngineFacetSelection): boolean {
   const picked = selection?.factoryStage;
   return Array.isArray(picked) && picked.length > 0;
 }
 
 /**
- * Гасит «Дату этапа», когда активен «Где сейчас?» (владелец 14.10.2026): период при
+ * Гасит «Дату этапа», когда активен «Текущее состояние» (владелец 14.10.2026): период при
  * вопросе «где двигатель сейчас» не отвечает ни на что — ступень чистится, а не прячется
  * с включённым отбором.
  */
@@ -200,8 +200,8 @@ export function stripStageDateWhenWhereNow(selection: EngineFacetSelection): Eng
 
 /**
  * Раскрывать ли двигатели в строки-проходы (владелец 14.10.2026): только вопрос про
- * движение — выбранные «Все этапы» или период «Даты этапа». Иначе (и при активном
- * «Где сейчас?») — одна строка на двигатель с текущим местом: обстановка, а не лента.
+ * движение — выбранные «История» или период «Даты этапа». Иначе (и при активном
+ * «Текущем состоянии») — одна строка на двигатель с текущим местом: обстановка, а не лента.
  */
 export function isStageEntriesActive(selection: EngineFacetSelection): boolean {
   if (isFactoryStageActive(selection)) return false;
@@ -252,15 +252,65 @@ function repairDeadlineKey(e: EngineListItem, now = Date.now()): RepairDeadlineK
 }
 
 /**
- * Ступени списка двигателей. Справочник видов работ (`types`) даёт ступени «Где сейчас?»,
+ * Коды этапов, выбранные в ступени «История» (значения вида `stage:<код>`), — в нижнем
+ * регистре, как они лежат в строках проходов. «этапов нет» кодом не является.
+ */
+function pickedStageCodes(selection?: EngineFacetSelection): string[] {
+  const raw = selection?.hasStage;
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const value of raw) {
+    const s = text(value);
+    if (!s.startsWith('stage:')) continue;
+    const code = s.slice('stage:'.length).trim().toLowerCase();
+    if (code && !out.includes(code)) out.push(code);
+  }
+  return out;
+}
+
+/**
+ * Даты проходов этапов строки — все, а не только последняя (владелец 19.10.2026).
+ * Основа — строки проходов единого списка; у двигателя со старой историей и актовыми этапами
+ * их нет, и тогда работают даты по кодам, а в крайнем случае — последний этап.
+ */
+function stagePassageDates(e: EngineListItem, picked: readonly string[]): number[] {
+  const out: number[] = [];
+  const push = (ms: number | null) => {
+    if (ms != null && !out.includes(ms)) out.push(ms);
+  };
+  for (const entry of e.stageEntries ?? []) {
+    const code = text(entry.code).toLowerCase();
+    if (picked.length > 0 && !picked.includes(code)) continue;
+    push(dateMs(entry.at));
+  }
+  if (out.length === 0) {
+    const entries = Object.entries(e.stageDates ?? {});
+    for (const [code, at] of entries) {
+      if (picked.length > 0 && !picked.includes(code.toLowerCase())) continue;
+      push(dateMs(at));
+    }
+  }
+  // Выбранные этапы без дат день не подтверждают: пусть лучше строка промолчит, чем попадёт
+  // в чужой день по последнему этапу.
+  if (out.length === 0 && picked.length === 0) push(dateMs(e.lastStageAt));
+  return out;
+}
+
+/**
+ * Ступени списка двигателей. Справочник видов работ (`types`) даёт ступени «Текущее состояние»,
  * полный ряд значений в порядке справочника — новый вид работ появляется в фильтре
  * сам, даже пока в нём нет ни одного двигателя (владелец 16.09). Без справочника ступени живут
- * на том, что несут строки.
+ * на том, что несут строки. `selection` нужен только ступени «Дата этапа»: она считает даты
+ * в границах выбранных этапов.
  */
 export function engineFacets(
   types?: readonly EngineFactoryStageTypeRef[],
   stageTemplates?: readonly RepairStageTemplate[],
+  selection?: EngineFacetSelection,
 ): readonly EngineFacetDescriptor[] {
+  // Выбранные в «Истории» этапы сужают набор дат ступени «Дата этапа»: «Сборка» + день —
+  // это «прошёл сборку в этот день», а не «когда-то прошёл сборку и в этот день был где-то ещё».
+  const pickedCodes = pickedStageCodes(selection);
   // Виды работ в порядке справочника (ранний → поздний); в ряду этапов они идут наоборот.
   return [
     {
@@ -429,13 +479,13 @@ export function engineFacets(
     },
     {
       kind: 'values',
-      // «Все этапы» — БЕЗ привязки к дате (владелец 01.10.2026, подпись «Все этапы» с 12.10.2026):
-      // двигатель, у которого такой этап проходил в любой момент. Прежние четыре ступени («Последнее событие»,
-      // «Дата события», «Последний этап работ», «Дата этапа работ») отвечали на разные
-      // вопросы об одном и том же и взаимоисключали друг друга: движок считает их
-      // независимыми, а оператор выбирал одну и получал пустой список.
+      // «История» — БЕЗ привязки к дате (владелец 01.10.2026, подписи «Все этапы» с 12.10.2026
+      // и «История» с 19.10.2026): двигатель, у которого такой этап проходил в любой момент.
+      // Прежние четыре ступени («Последнее событие», «Дата события», «Последний этап работ»,
+      // «Дата этапа работ») отвечали на разные вопросы об одном и том же и взаимоисключали друг
+      // друга: движок считает их независимыми, а оператор выбирал одну и получал пустой список.
       id: 'hasStage',
-      label: 'Все этапы',
+      label: 'История',
       valueOf: (e) => {
         const codes = (e.stageCodes ?? []).filter((c: string) => stageByCode(c, stageTemplates) !== null);
         const first = codes[0];
@@ -455,22 +505,27 @@ export function engineFacets(
     // решением владельца: она отвечала «где двигатель» одной последней строкой этапов и
     // рядом с «Этапом на заводе» (ниже) читалась как второй ответ на тот же вопрос, причём
     // молча другой (не видит ни утиль, ни возвраты, ни акты). Полное движение — «Этап на
-    // заводе»; отбор по прохождению этапов когда-либо — «Все этапы».
+    // заводе»; отбор по прохождению этапов когда-либо — «История».
     {
       kind: 'dateRange',
-      // Дата ПОСЛЕДНЕГО этапа: без неё нельзя отобрать «сборка за сентябрь».
+      // Дата КОНКРЕТНОГО прохода (владелец 19.10.2026): двигатель попадает в день D, если
+      // любой его этап был в D, — а не только последний. Отбор по `lastStageAt` отвечал
+      // «где он сейчас», и двигатель, прошедший укладку в понедельник и обкатку в среду,
+      // на вопрос «кто укладывал в понедельник» не находился.
       id: 'stageDate',
       label: 'Дата этапа',
       dateOf: (e) => dateMs(e.lastStageAt),
+      datesOf: (e) => stagePassageDates(e, pickedCodes),
     },
     {
       kind: 'values',
       id: 'factoryStage',
-      // «Где сейчас?» (бывш. «Этап на заводе», переименование 14.10.2026) — один ответ
-      // из карточки и этапов работ разом (`engineFactoryStage`): побеждает поздний признак.
+      // «Текущее состояние» (бывш. «Этап на заводе» → «Где сейчас?» с 14.10.2026,
+      // переименование 19.10.2026) — один ответ из карточки и этапов работ разом
+      // (`engineFactoryStage`): побеждает поздний признак.
       // Справочник нужен и здесь: ключ этапа работ без кода (старые строки) сходится с
       // ключом отчёта только через него, а полный ряд этапов — из него же.
-      label: 'Где сейчас?',
+      label: 'Текущее состояние',
       valueOf: (e) => {
         const s = engineFactoryStage(e, types, stageTemplates);
         return { value: s.key, label: s.label };
@@ -512,7 +567,7 @@ export function applyEngineFacets(
   types?: readonly EngineFactoryStageTypeRef[],
   stageTemplates?: readonly RepairStageTemplate[],
 ): EngineListItem[] {
-  return applyFacets(types || stageTemplates ? engineFacets(types, stageTemplates) : ENGINE_FACETS, engines, SELECTION(selection));
+  return applyFacets(engineFacets(types, stageTemplates, selection), engines, SELECTION(selection));
 }
 
 export function engineFacetOptions(
@@ -523,7 +578,7 @@ export function engineFacetOptions(
   stageTemplates?: readonly RepairStageTemplate[],
 ): EngineFacetOption[] {
   return facetOptions(
-    types || stageTemplates ? engineFacets(types, stageTemplates) : ENGINE_FACETS,
+    engineFacets(types, stageTemplates, selection),
     engines,
     SELECTION(selection),
     facetId,

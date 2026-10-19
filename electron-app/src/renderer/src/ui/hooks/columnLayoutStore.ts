@@ -21,7 +21,20 @@ export type ColumnLayoutEntry = Omit<ColumnLayoutState, 'widths'> & {
 };
 
 const STORAGE_PREFIX = 'matrica:columnLayout:';
+const HIDE_ONCE_PREFIX = 'matrica:columnLayout:hideOnce:';
 export const COLUMN_LAYOUT_CHANGE_EVENT = 'matrica:column-layout-changed';
+
+/**
+ * Колонки, спрятанные задним числом у уже сохранённых раскладок (владелец 19.10.2026, P6:
+ * «дата внесения — убрать из показа по умолчанию, оставить в настройках колонок»). Обычное
+ * правило `defaultHidden` такие колонки не трогает: сохранённая запись их знает, а «оператор
+ * уже видел» (см. `layoutFromPersisted`). Поэтому смена умолчания для жившей колонки названа
+ * здесь явно и срабатывает один раз на пользователя: включил обратно в «Колонках списка» —
+ * значит, так и надо, второй раз прятать не станем.
+ */
+const HIDE_ONCE: Record<string, readonly string[]> = {
+  'list:engines:columns': ['updatedAt'],
+};
 
 let currentUserId = '';
 
@@ -110,6 +123,33 @@ export function clearColumnLayout(layoutId: string): void {
   } catch {
     // ignore
   }
+}
+
+/**
+ * Раскладка после разовой миграции умолчаний; `null` — менять нечего либо миграция этому
+ * пользователю уже применялась. Отметка локальная (не едет в профиль): на другой машине
+ * раскладка обычно приходит уже с этой колонкой скрытой, и прятать нечего; если там колонку
+ * включали руками, новое умолчание сработает один раз и там — дальше решает оператор.
+ */
+export function applyHideOnce(layoutId: string, knownIds: readonly string[], state: ColumnLayoutState): ColumnLayoutState | null {
+  const ids = HIDE_ONCE[layoutId];
+  if (!ids || ids.length === 0) return null;
+  const key = `${HIDE_ONCE_PREFIX}${currentUserId}:${layoutId}`;
+  try {
+    if (window.localStorage.getItem(key)) return null;
+    window.localStorage.setItem(key, '1');
+  } catch {
+    return null;
+  }
+  const known = new Set(knownIds);
+  const hidden = new Set(state.hidden);
+  let changed = false;
+  for (const id of ids) {
+    if (!known.has(id) || hidden.has(id)) continue;
+    hidden.add(id);
+    changed = true;
+  }
+  return changed ? { ...state, hidden: Array.from(hidden) } : null;
 }
 
 /** Все раскладки текущего пользователя — сырьё для пуша в профиль. */
