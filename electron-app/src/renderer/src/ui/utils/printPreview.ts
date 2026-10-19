@@ -90,6 +90,12 @@ export function escapeHtml(s: string) {
     .replaceAll("'", '&#039;');
 }
 
+/** Момент для шапки листа и файла: «19.10.2026 05:12». Общий у печати и выгрузки. */
+export function formatMomentLabel(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 /** Базовый CSS печатной формы — общий для окна печати и живого A4-превью (iframe). */
 export const PRINT_BASE_CSS = `
     body { font-family: system-ui, Arial, sans-serif; margin: 24px; color: #0b1220; }

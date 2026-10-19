@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { Button } from './Button.js';
+import { resolvePrintColumnIds } from '../utils/listColumnSelection.js';
 import { planListPrintLayout, printableHeightMm, type PrintColumnSpec, type PrintLayoutPlan, type PrintOrientationChoice } from '../utils/listPrintLayout.js';
-import { escapeHtml, openPrintPreview, type PrintPreviewState } from '../utils/printPreview.js';
+import { escapeHtml, formatMomentLabel, openPrintPreview, type PrintPreviewState } from '../utils/printPreview.js';
 
 export type ListPrintColumn<T> = {
   id: string;
@@ -38,11 +39,6 @@ const ORIENTATION_OPTIONS: Array<{ value: PrintOrientationChoice; label: string 
   { value: 'landscape', label: 'Альбомная' },
 ];
 
-function formatPrintedAt(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
 function pluralPages(n: number): string {
   const mod10 = n % 10;
   const mod100 = n % 100;
@@ -67,19 +63,6 @@ function listPrintCss(plan: PrintLayoutPlan): string {
     table.list-print th { white-space: normal; overflow-wrap: anywhere; }
     table.list-print td { overflow-wrap: anywhere; }
     ${clippedCss}`;
-}
-
-function loadColumnIds(storageKey: string, fallback: string[], known: Set<string>): string[] {
-  try {
-    const raw = window.localStorage.getItem(storageKey);
-    if (!raw) return fallback;
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return fallback;
-    const ids = parsed.map((v) => String(v)).filter((id) => known.has(id));
-    return ids.length > 0 ? ids : fallback;
-  } catch {
-    return fallback;
-  }
 }
 
 /**
@@ -111,13 +94,9 @@ export function ListPrintDialog<T>(props: {
    */
   filtersSummary?: string[];
 }) {
-  const knownIds = useMemo(() => new Set(props.columns.map((c) => c.id)), [props.columns]);
-  const defaultIds = useMemo(() => {
-    const visible = props.visibleColumnIds.filter((id) => knownIds.has(id));
-    return visible.length > 0 ? visible : props.columns.slice(0, 5).map((c) => c.id);
-  }, [props.visibleColumnIds, props.columns, knownIds]);
-
-  const [columnIds, setColumnIds] = useState<string[]>(() => loadColumnIds(props.storageKey, defaultIds, knownIds));
+  const [columnIds, setColumnIds] = useState<string[]>(() =>
+    resolvePrintColumnIds({ storageKey: props.storageKey, columns: props.columns, visibleColumnIds: props.visibleColumnIds }),
+  );
   const hasSelection = props.selectedRows.length > 0;
   const [scope, setScope] = useState<'selected' | 'all'>(hasSelection ? 'selected' : 'all');
   const [limitEnabled, setLimitEnabled] = useState(false);
@@ -219,7 +198,7 @@ export function ListPrintDialog<T>(props: {
               ? [`Не поместились колонки: ${plan.clippedLabels.join(', ')}`]
               : []),
           ],
-          meta: `Печать: ${formatPrintedAt(new Date())}${printedBy ? ` · ${printedBy}` : ''}`,
+          meta: `Печать: ${formatMomentLabel(new Date())}${printedBy ? ` · ${printedBy}` : ''}`,
         };
       },
       orientation: layout.orientation,

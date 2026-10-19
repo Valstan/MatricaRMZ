@@ -3173,6 +3173,16 @@ export type MatricaApi = {
     downloadDirGet: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
     downloadDirPick: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
   };
+  exports: {
+    // Список в файл Word/Excel. Файл собирает main-процесс (там живут сборщики), папку
+    // выбирает оператор в «Сохранить как»; выбранная папка запоминается. `cancelled` —
+    // оператор закрыл диалог: это не ошибка, ругаться на неё не надо. Что дальше делать
+    // с файлом (открыть, показать в папке), main спрашивает сам — путь наружу не уходит.
+    list: (args: {
+      format: import('../domain/listExport.js').ListExportFormat;
+      spec: import('../domain/listExport.js').ListExportSpec;
+    }) => Promise<{ ok: true; path: string; name: string } | { ok: false; error: string; cancelled?: true }>;
+  };
   chat: {
     usersList: () => Promise<ChatUsersListResult>;
     list: (args: {

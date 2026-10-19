@@ -36,6 +36,8 @@ export const SettingsKey = {
 
   // Files
   FilesDownloadDir: 'files.downloadDir',
+  /** Папка последней выгрузки списка в Word/Excel — «Сохранить как» начинает с неё. */
+  ExportsDir: 'files.exportsDir',
 
   // Client identity (stable per workstation)
   ClientId: 'clientId',

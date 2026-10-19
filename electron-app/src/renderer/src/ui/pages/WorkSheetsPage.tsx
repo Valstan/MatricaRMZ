@@ -23,6 +23,7 @@ import { FacetFilter, FacetToggleButton } from '../components/FacetFilter.js';
 import { EngineQrScanButton } from '../components/EngineQrScanButton.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
+import { ListExportButtons } from '../components/ListExportButtons.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { RowNumberHeaderCell } from '../components/RowNumberCell.js';
@@ -491,6 +492,19 @@ export function WorkSheetsPage(props: {
             Печать списка
           </Button>
         )}
+        <ListExportButtons
+          title="Этапы ремонта"
+          columns={buildListPrintColumns(columns)}
+          visibleColumnIds={visibleColumns.map((c) => c.id)}
+          rows={sorted}
+          selectedRows={[]}
+          storageKey="list:workSheets:printFields"
+          filtersSummary={describeFacetSelection(facets, ui.facets as FacetSelection, {
+            search: ui.query,
+            period: allTime ? 'всё время' : 'за последний год',
+            grouping: ui.groupBy === 'none' ? '' : WORK_SHEET_LIST_GROUP_BY_LABELS[ui.groupBy],
+          })}
+        />
         <Button variant="ghost" onClick={() => void refresh()}>
           Обновить
         </Button>

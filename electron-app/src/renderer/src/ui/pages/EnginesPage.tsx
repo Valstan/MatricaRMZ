@@ -51,6 +51,7 @@ import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
 import { useListSelection } from '../hooks/useListSelection.js';
 import { ListContextMenu, type ListContextMenuItem } from '../components/ListContextMenu.js';
 import { resolveMenuRows } from '../utils/listContextActions.js';
+import { ListExportButtons } from '../components/ListExportButtons.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
@@ -1117,6 +1118,18 @@ export function EnginesPage(props: {
             Печать списка
           </Button>
         )}
+        <ListExportButtons
+          title={printTitle}
+          columns={printColumns}
+          visibleColumnIds={visibleColumns.map((c) => c.id)}
+          rows={displayRows}
+          selectedRows={displayRows.filter((e) => selection.isSelected(String(e.id)))}
+          storageKey="list:engines:printFields"
+          filtersSummary={describeFacetSelection(ENGINE_FACETS, facets as FacetSelection, {
+            search: query,
+            grouping: groupBy === 'none' ? '' : ENGINE_LIST_GROUP_BY_LABELS[groupBy],
+          })}
+        />
       </PageToolbar>
 
       <div style={{ marginTop: 8, flex: '0 0 auto' }}>

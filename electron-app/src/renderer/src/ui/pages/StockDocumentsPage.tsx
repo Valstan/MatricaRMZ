@@ -5,6 +5,7 @@ import { WAREHOUSE_DOCUMENT_STATUS_FILTER_ORDER, describeFacetSelection, formatD
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
+import { ListExportButtons } from '../components/ListExportButtons.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
@@ -380,6 +381,29 @@ export function StockDocumentsPage(props: {
             Печать списка
           </Button>
         )}
+        <ListExportButtons
+          title="Документы склада"
+          columns={printColumns}
+          visibleColumnIds={visibleColumns.map((c) => c.id)}
+          rows={displayRows}
+          selectedRows={[]}
+          storageKey="list:stock-documents:printFields"
+          filtersSummary={describeFacetSelection([], {}, {
+            search: query,
+            extra: [
+              docType ? `Тип: ${warehouseDocTypeLabel(docType)}` : '',
+              includedStatuses.length < WAREHOUSE_DOCUMENT_STATUS_FILTER_ORDER.length
+                ? `Статусы: ${includedStatuses.map((id) => warehouseDocumentStatusLabel(id)).join(', ') || 'ни один'}`
+                : '',
+              fromDate || toDate
+                ? `Дата: ${[fromDate ? `с ${formatDayLabel(fromDate)}` : '', toDate ? `по ${formatDayLabel(toDate)}` : '']
+                    .filter(Boolean)
+                    .join(' ')}`
+                : '',
+              warehouseId ? `Склад: ${lookupLabelById(lookups.warehouses, warehouseId) || warehouseId}` : '',
+            ],
+          })}
+        />
         <ColumnSettingsButton
           label="Колонки списка"
           columns={columnDescriptors}

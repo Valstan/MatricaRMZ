@@ -321,3 +321,63 @@ describe('печать списка', () => {
   });
 });
 
+const EXPORT_BUTTONS = src('./ListExportButtons.tsx');
+
+// Выгрузка списка в Word и Excel (владелец 19.10.2026, план batch-pain-print-and-filters-2026-10):
+// файл собирается из ТОГО ЖЕ модельного слоя, что печать, — колонки, строки и отбор одни и те же,
+// иначе Excel расходится с листом, который владелец только что настроил. Проверяем по исходникам:
+// разъехавшиеся пропсы видно только глазами, а в списке выгрузка «работает» — просто не с теми
+// колонками, и обнаружится это у оператора в файле.
+describe('выгрузка списка в Word и Excel', () => {
+  it('кнопки стоят на всех списках, где есть печать', () => {
+    for (const [name, text] of PAGES) {
+      expect(text, `${name}: нет кнопок выгрузки`).toContain('<ListExportButtons');
+    }
+  });
+
+  it('печать и выгрузка помнят один и тот же набор колонок', () => {
+    for (const [name, text] of PAGES) {
+      const keys = [...text.matchAll(/storageKey=(\{[^}]*\}?"[^"]*"|\{[^}]*\}|"[^"]*")/g)].map((m) => m[1]);
+      expect(keys.length, `${name}: ключей памяти колонок не два`).toBe(2);
+      expect(new Set(keys).size, `${name}: печать и выгрузка помнят колонки порознь`).toBe(1);
+    }
+  });
+
+  it('строки, колонки и отбор выгрузка берёт те же, что печать', () => {
+    for (const [name, text] of PAGES) {
+      const exportBlock = text.slice(text.indexOf('<ListExportButtons'));
+      const block = exportBlock.slice(0, exportBlock.indexOf('/>') + 2);
+      expect(block, `${name}: колонки выгрузки собраны мимо модельного слоя печати`).toMatch(
+        /columns=\{(?:printColumns|buildListPrintColumns\(columns\))\}/,
+      );
+      expect(block, `${name}: выгрузка не знает, какие строки выгружать`).toContain('rows={');
+      expect(block, `${name}: выгрузка игнорирует выделение, а печать его уважает`).toContain('selectedRows={');
+      expect(block, `${name}: колонки на экране у выгрузки свои`).toContain('visibleColumnIds=');
+      expect(block, `${name}: выгрузка не называет отбор`).toContain('filtersSummary={describeFacetSelection');
+    }
+  });
+
+  it('на страницах отчётов выгрузка под тем же правом, что печать', () => {
+    for (const [name, text] of PAGES) {
+      if (!name.startsWith('reports/')) continue;
+      expect(text, `${name}: выгрузка отчёта без права reports.export`).toContain('enabled={props.canExport}');
+    }
+  });
+
+  it('кнопки не показываются там, где выгрузка не работает', () => {
+    expect(EXPORT_BUTTONS).toContain('isAndroidPlatform()');
+    expect(EXPORT_BUTTONS).toContain('props.enabled === false');
+  });
+
+  it('файл собирает main, а рендерер отдаёт только спецификацию', () => {
+    // Сборщики (exceljs, docx) живут в main: их место у файловой системы, а не в окне.
+    expect(EXPORT_BUTTONS).toContain('window.matrica.exports.list');
+    expect(EXPORT_BUTTONS).toContain('buildListExportSpec');
+  });
+
+  it('о большом файле спрашивают до сборки', () => {
+    expect(EXPORT_BUTTONS).toContain('BIG_EXPORT_ROWS');
+    expect(EXPORT_BUTTONS).toContain('Всё равно выгрузить');
+  });
+});
+
