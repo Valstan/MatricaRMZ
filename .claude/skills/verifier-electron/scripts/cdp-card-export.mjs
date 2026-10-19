@@ -1,11 +1,19 @@
-// Смоук выгрузки печатной формы КАРТОЧКИ в Word (план batch-pain-print-and-filters-2026-10, P5b-1).
-// Что проверяем живьём — то, чего не видит ни один юнит:
+// Смоук выгрузки печатных форм КАРТОЧЕК в Word (план batch-pain-print-and-filters-2026-10, P5b).
+// Прогоняет живьём то, чего не видит ни один юнит:
 //  [1] кнопка «Распечатать» в карточке наряда открывает диалог печати;
 //  [2] в диалоге рядом с «Печать / PDF» стоит «В Word»;
 //  [3] клик доводит дело до файла НА ДИСКЕ (сборка формы в main + запись); при
 //      MATRICA_EXPORT_AUTOSAVE_DIR нативные диалоги не показываются — иначе «Сохранить как» из CDP не нажать;
 //  [4] файл — настоящий docx (zip с word/document.xml), в нём есть текст формы, нет управляющих символов,
 //      и он не пустой: абзацы и таблицы на месте.
+//  [5] акт комплектности: дверь «Акт в Word» в панели карточки двигателя (P5b-2) выгружает ТУ ЖЕ
+//      форму, что печать, но НЕ создаёт версию-снимок — журнал версий акта (по API) до и после
+//      выгрузки обязан совпасть, а маркера версии «(в. N)» в документе быть не должно; из целого
+//      печатного листа в документ не попадают ни CSS-текст, ни кнопка «Печать / PDF», а ширины
+//      колонок берутся из процентов формы.
+//  [6] за собой смоук подчищает: карточки («Наряд № N», «⚙ <номер>») закрываются и метлой при
+//      старте, и в конце — полоса вкладок не должна копиться (владелец, 19.10.2026). Чужую
+//      несохранённую работу не трогаем: всплыл dirty-guard — закрытие отменяется.
 //
 // Запуск: MATRICA_EXPORT_AUTOSAVE_DIR=<абсолютный путь> в env Electron (start-electron.ps1 пробрасывает
 // env текущей сессии), затем node .claude/skills/verifier-electron/scripts/cdp-card-export.mjs
@@ -197,6 +205,68 @@ async function openSection(ws, group, item) {
   if (!r.ok) throw new Error(`навигация: ${r.reason}`);
 }
 
+async function tabLabels(ws) {
+  return evaluate(
+    ws,
+    `return [...document.querySelectorAll('.v3-tab')].map((t) => ((t.querySelector('.v3-tab-label') ?? t).textContent ?? '').trim());`,
+  );
+}
+/* Смоук обязан убирать за собой: стенд живёт между прогонами, и каждая оставленная карточка
+   копится в полосе вкладок (владелец закрыл их руками 19.10.2026 — «надо научиться подчищать
+   свою работу»). Чужую работу не трогаем: всплыл dirty-guard — закрытие отменяем. */
+async function closeTabs(ws, re, label) {
+  const r = await evaluate(
+    ws,
+    `const re = new RegExp(${JSON.stringify(re)});
+     const strip = document.querySelector('.v3-tab-strip');
+     const mine = (strip ? [...strip.querySelectorAll('.v3-tab')] : []).filter((t) => re.test(((t.querySelector('.v3-tab-label') ?? t).textContent ?? '').trim()));
+     let closed = 0;
+     const skipped = [];
+     for (const t of mine) {
+       const x = t.querySelector('button.v3-tab-close');
+       if (!x) { skipped.push('нет кнопки закрытия'); continue; }
+       x.click();
+       await wait(700);
+       const guard = [...document.querySelectorAll('button')].find((b) => ['Не сохранять', 'Не сохранять все'].includes((b.textContent ?? '').trim()));
+       if (guard) {
+         const back = [...document.querySelectorAll('button')].find((b) => (b.textContent ?? '').trim() === 'Перейти в карточку');
+         if (back) { back.click(); await wait(500); }
+         skipped.push('вкладка с несохранёнными правками');
+         continue;
+       }
+       closed++;
+     }
+     return { закрыто: closed, было: mine.length, пропущено: skipped, подписи: mine.map((t) => ((t.querySelector('.v3-tab-label') ?? t).textContent ?? '').trim()) };`,
+  );
+  note(
+    r.было === 0 || r.закрыто === r.было,
+    `${label}: закрыто вкладок ${r.закрыто} из ${r.было}${r.пропущено.length ? ` (оставлены: ${r.пропущено.join('; ')})` : ''}`,
+    r.было ? r.подписи : undefined,
+  );
+  return r;
+}
+/* Карточка открывается новой вкладкой и штатно становится активной. Если между кликом и
+   проверкой активной оказалась другая вкладка (владелец работает в том же окне), активируем
+   свою: дальше все проверки ходят по активной панели. */
+async function activateNewTab(ws, before, timeout = 8000) {
+  const deadline = Date.now() + timeout;
+  let fresh = null;
+  while (fresh === null && Date.now() < deadline) {
+    fresh = await evaluate(
+      ws,
+      `const before = ${JSON.stringify(before)};
+       const strip = document.querySelector('.v3-tab-strip');
+       if (!strip) return null;
+       const t = [...strip.querySelectorAll('.v3-tab')].find((x) => !before.includes(((x.querySelector('.v3-tab-label') ?? x).textContent ?? '').trim()));
+       if (!t) return null;
+       if (t.getAttribute('data-active') !== '1') { click(t.querySelector('.v3-tab-label') ?? t); await wait(600); }
+       return ((t.querySelector('.v3-tab-label') ?? t).textContent ?? '').trim();`,
+    );
+    if (fresh === null) await sleep(400);
+  }
+  return fresh;
+}
+
 async function waitForFile(ext, sinceMs, timeoutMs = 60000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -254,6 +324,12 @@ async function main() {
   if (!login.ok) throw new Error('логин не прошёл');
   await evaluate(ws, `await dismissModals(); await closePrintDialog(); return true;`);
 
+  /* Метла прошлых прогонов: карточки копятся в полосе, и стенд начинает «не открывать»
+     очередную (владелец закрывал их руками 19.10.2026). Чужие правки не трогаем — при
+     несохранённых closeTabs отменяет закрытие (dirty-guard). */
+  await closeTabs(ws, 'Наряд\\s*№\\s*\\d+', 'подчистка при старте: карточки нарядов');
+  await closeTabs(ws, '^⚙', 'подчистка при старте: карточки двигателей');
+
   /* [0] Фикстура: на стенде наряда нет, а дверь выгрузки надо где-то проверять. Создаём его
      штатным путём приложения (тот же `workOrders.create` + `update`, что у формы оператора) —
      строка по услуге и бригада не для красоты: с ними в форме есть и таблица работ, и роспись. */
@@ -301,18 +377,24 @@ async function main() {
   note(listInfo.всего !== null && listInfo.всего >= 1, 'в списке есть наряд — дверь есть где проверять', listInfo);
   if (!listInfo.всего) throw new Error('в списке нарядов пусто: дверь выгрузки проверить не на чем');
 
-  /* [2] Карточка наряда: клик по строке открывает карточку */
-  const opened = await evaluate(ws, `const rows = vis('tbody tr', activePane()).filter((r) => r.querySelectorAll('td').length > 3);
+  /* [2] Карточка наряда: клик по строке открывает карточку. Клик — DOM-событием по самой
+     строке: инъекция мыши CDP (`Input.dispatchMouseEvent`) на этом стенде до React-обработчика
+     строки не доходит — проверено 19.10.2026 (тот же клик, отправленный событием, карточку
+     открывает; мышь — нет). Сути проверки это не меняет: срабатывает тот же onClick списка. */
+  const tabsBeforeNaryad = await tabLabels(ws);
+  const clickedRow = await evaluate(
+    ws,
+    `const rows = vis('tbody tr', activePane()).filter((r) => r.querySelectorAll('td').length > 3);
      if (!rows.length) return { ok: false, reason: 'нет строк с данными' };
-     const r = rows[0].getBoundingClientRect();
-     return { ok: true, x: Math.round(r.x + r.width / 4), y: Math.round(r.y + r.height / 2), текст: txt(rows[0]).slice(0, 60) };`);
-  note(opened.ok, 'в списке найдена строка наряда', opened);
-  if (!opened.ok) throw new Error(opened.reason);
-  await send(ws, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: opened.x, y: opened.y, button: 'left', clickCount: 1 });
-  await send(ws, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: opened.x, y: opened.y, button: 'left', clickCount: 1 });
+     for (const type of ['mousedown', 'mouseup', 'click']) rows[0].dispatchEvent(new MouseEvent(type, { bubbles: true }));
+     return { ok: true, текст: txt(rows[0]).slice(0, 60) };`,
+  );
+  note(clickedRow.ok, 'клик по строке списка нарядов отправлен', clickedRow);
+  if (!clickedRow.ok) throw new Error(clickedRow.reason);
   await sleep(2500);
+  const naryadCard = await activateNewTab(ws, tabsBeforeNaryad);
   const cardReady = await waitVal(ws, `Boolean(byExact('Распечатать'))`, 'кнопка «Распечатать» в карточке наряда');
-  note(Boolean(cardReady), 'карточка наряда открыта (кнопка «Распечатать» на месте)');
+  note(Boolean(cardReady), 'карточка наряда открыта (кнопка «Распечатать» на месте)', naryadCard ? { вкладка: naryadCard } : undefined);
   if (!cardReady) throw new Error('карточка наряда не открылась');
   await shot(ws, '1-card');
 
@@ -356,6 +438,133 @@ async function main() {
   const tables = (docXml.match(/<w:tbl>/g) ?? []).length;
   note(paragraphs >= 4, 'документ не пустой: абзацы формы на месте', { абзацев: paragraphs, таблиц: tables });
   copyFileSync(file.path, join(OUT_DIR, 'card-export-naryad.docx'));
+
+  /* Диалог печати модален: пока он открыт, клик по «МЕНЮ» мимо него не проходит. */
+  await evaluate(ws, `await closePrintDialog(); return true;`);
+
+  /* ── [6] Акт комплектности в Word (P5b-2) ──
+     Дверь выгрузки акта — панель на вкладке «Акт комплектности» карточки двигателя: та же
+     кнопка-пара «печать / выгрузка», что у наряда. Двигаемся путём из cdp-engine-act-number:
+     список → поиск → строка → вкладка. */
+  await openSection(ws, 'Производство', 'Двигатели');
+  const eng = await evaluate(
+    ws,
+    `const r = await window.matrica.engines.list();
+     const rows = r?.items ?? r?.rows ?? r ?? [];
+     const mine = rows.find((e) => String(e.engineNumber ?? '').startsWith('TEST-')) ?? rows.find((e) => String(e.engineNumber ?? '').trim());
+     return mine ? { id: String(mine.id), number: String(mine.engineNumber ?? '') } : null;`,
+  );
+  note(Boolean(eng), 'двигатель для выгрузки акта найден', eng);
+  if (!eng) throw new Error('список двигателей пуст');
+  /* Вкладка «Двигатели» активной не предполагается — включаем её, и дальше ВСЁ ищем в активной
+     панели: скрытые панели прежних экранов остаются в DOM (у них свои поля поиска и строки). */
+  const engTab = await evaluate(
+    ws,
+    `const strip = document.querySelector('.v3-tab-strip');
+     if (!strip) return { ok: false, reason: 'нет ленты вкладок' };
+     const tab = [...strip.querySelectorAll('.v3-tab')].find((t) => txt(t.querySelector('.v3-tab-label') ?? t).startsWith('Двигатели'));
+     if (!tab) return { ok: false, reason: 'вкладка «Двигатели» не найдена' };
+     click(tab.querySelector('.v3-tab-label') ?? tab); await wait(700);
+     return { ok: true, active: tab.getAttribute('data-active') === '1' };`,
+  );
+  note(engTab.ok, 'вкладка «Двигатели» активна', engTab);
+  if (!engTab.ok) throw new Error(engTab.reason);
+  const engSearch = await evaluate(
+    ws,
+    `const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+     const s = [...activePane().querySelectorAll('input')].find((i) => /поиск/i.test(i.placeholder || ''));
+     if (!s) return { ok: false, reason: 'поле поиска двигателей не найдено' };
+     set.call(s, ${JSON.stringify(eng.number)});
+     s.dispatchEvent(new Event('input', { bubbles: true }));
+     return { ok: true };`,
+  );
+  note(engSearch.ok, 'список двигателей отобран по номеру', engSearch);
+  await sleep(1500);
+  const engRowReady = await waitVal(
+    ws,
+    `[...activePane().querySelectorAll('tr')].some((r) => (r.textContent || '').includes(${JSON.stringify(eng.number)}))`,
+    'строка двигателя в списке',
+  );
+  const tabsBeforeEngine = await tabLabels(ws);
+  const rowOpened = await evaluate(
+    ws,
+    `const tr = [...activePane().querySelectorAll('tr')].find((r) => (r.textContent || '').includes(${JSON.stringify(eng.number)}));
+     if (!tr) return { ok: false, reason: 'строка двигателя не найдена' };
+     for (const type of ['mousedown', 'mouseup', 'click']) tr.dispatchEvent(new MouseEvent(type, { bubbles: true }));
+     return { ok: true, текст: txt(tr).slice(0, 60) };`,
+  );
+  note(rowOpened.ok && Boolean(engRowReady), 'карточка двигателя открыта', rowOpened);
+  if (!rowOpened.ok) throw new Error(rowOpened.reason);
+  await sleep(2500);
+  await activateNewTab(ws, tabsBeforeEngine);
+  const actTab = await evaluate(
+    ws,
+    `const b = [...activePane().querySelectorAll('button')].find((x) => txt(x) === 'Акт комплектности');
+     if (!b) return { ok: false, reason: 'вкладка «Акт комплектности» не найдена' };
+     click(b); return { ok: true };`,
+  );
+  const actDoor = await waitVal(ws, `Boolean(byExact('Печать акта комплектности', activePane()))`, 'панель актов в карточке');
+  note(Boolean(actDoor), 'панель актов открыта («Печать акта комплектности» на месте)', actTab);
+  if (!actDoor) throw new Error('панель актов не открылась');
+  await shot(ws, '3-act-tab');
+
+  /* [7] Снимок версий: печать акта пишет версию (`engineActSnapshot`), выгрузка — обязана пройти
+     мимо. Считаем журнал версий по ВСЕМ трём актам через API (кнопка «История версий» появляется
+     только при ненулевой истории — по ней ноль версий не отличить от «кнопки нет»): выгрузка
+     не создаёт версию. */
+  const versionCount = `(async () => { let n = 0;
+     for (const actType of ['completeness', 'defect', 'claim']) {
+       const r = await window.matrica.checklists.engineActVersions({ engineId: ${JSON.stringify(eng.id)}, actType });
+       n += r && r.ok && Array.isArray(r.versions) ? r.versions.length : 0;
+     }
+     return n; })()`;
+  const versionsBefore = await evaluate(ws, `return ${versionCount}`);
+  const startedAct = Date.now();
+  const wordClicked = await evaluate(
+    ws,
+    `const b = byExact('Акт в Word', activePane()); if (!b) return { ok: false, reason: 'нет кнопки «Акт в Word»' };
+     b.setAttribute('data-smoke-pick', 'act-word'); click(b); return { ok: true };`,
+  );
+  note(wordClicked.ok, 'рядом с «Печать акта комплектности» стоит «Акт в Word»');
+  if (!wordClicked.ok) throw new Error(wordClicked.reason);
+  const actFile = await waitForFile('.docx', startedAct);
+  note(Boolean(actFile), 'файл акта записан на диск', actFile ?? { dir: AUTO_DIR });
+  if (!actFile) throw new Error('файл акта не появился');
+  const versionsAfter = await evaluate(ws, `return ${versionCount}`);
+  note(
+    versionsBefore === versionsAfter,
+    versionsBefore === 0
+      ? 'выгрузка НЕ создала версию-снимок (журнал версий пуст и после выгрузки)'
+      : 'выгрузка НЕ создала версию-снимок (в журнале акта было и осталось)',
+    { до: versionsBefore, после: versionsAfter },
+  );
+  await shot(ws, '4-act-exported');
+
+  /* [8] Файл акта — документ Word с той же формой: заголовок, таблица комплектности,
+     номер двигателя, ширины колонок из формы и никакого CSS-мусора от целого листа. */
+  const actZip = await JSZip.loadAsync(readFileSync(actFile.path));
+  const actXml = actZip.file('word/document.xml') ? await actZip.file('word/document.xml').async('string') : '';
+  const actText = actXml.replace(/<[^>]+>/g, '');
+  note(actXml !== '', 'акт — документ Word (word/document.xml на месте)');
+  note(/^Акт комплектности /.test(actFile.name), 'файл назван по форме («Акт комплектности …»)', { имя: actFile.name });
+  note(actText.includes('Акт комплектности двигателя'), 'в документе заголовок акта');
+  note(actText.includes('Наименование детали'), 'в документе таблица комплектности — колонки на месте');
+  note(actText.includes(String(eng.number)), 'в документе номер двигателя', { номер: eng.number });
+  note(actXml.includes('<w:gridCol'), 'ширины колонок взяты из формы — пропорции листа держатся');
+  note(actXml.includes('w:tblLayout w:type="fixed"'), 'раскладка таблицы зафиксирована, а не «на усмотрение Word»');
+  note(!actXml.includes('font-family'), 'CSS-текст стилей не попал в документ');
+  note(!actXml.includes('Печать / PDF'), 'экранная кнопка печати не попала в документ');
+  note(!actText.includes('(в. '), 'в акте нет маркера версии «(в. N)» — выгрузка отдаёт текущую форму, а не снимок');
+  note(!/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(actXml), 'управляющих символов в акте нет (Word такие файлы отвергает)');
+  const actParagraphs = (actXml.match(/<w:p[ >]/g) ?? []).length;
+  const actTables = (actXml.match(/<w:tbl>/g) ?? []).length;
+  note(actParagraphs >= 4 && actTables >= 1, 'акт не пустой: абзацы и таблица на месте', { абзацев: actParagraphs, таблиц: actTables });
+  copyFileSync(actFile.path, join(OUT_DIR, 'card-export-act.docx'));
+
+  /* Подчищаем за собой: вкладки, которые открыл прогон. Чужое не трогаем — при несохранённых
+     правках dirty-guard закрытие отменяет (см. closeTabs). */
+  await closeTabs(ws, 'Наряд\\s*№\\s*\\d+', 'подчистка: карточки нарядов');
+  await closeTabs(ws, '^⚙', 'подчистка: карточки двигателей');
 
   /* Убираем за собой: диалог закрываем, чтобы следующий прогон начинался с чистого экрана */
   await evaluate(ws, `await dismissModals(); await closePrintDialog(); return true;`);
