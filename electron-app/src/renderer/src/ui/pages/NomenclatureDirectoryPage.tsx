@@ -1,5 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { tryParseWarehousePartNomenclatureMirror, type NomenclatureItemType, type WarehouseNomenclatureListItem } from '@matricarmz/shared';
+import {
+  describeFacetSelection,
+  tryParseWarehousePartNomenclatureMirror,
+  type NomenclatureItemType,
+  type WarehouseNomenclatureListItem,
+} from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
@@ -697,12 +702,12 @@ export function NomenclatureDirectoryPage(props: {
       {printDialogOpen && (
         <ListPrintDialog
           title={`Справочник: ${directoryLabel}`}
-          unitLabel="Строк"
           columns={printColumns}
           visibleColumnIds={visibleColumns.map((c) => c.id)}
           rows={sortedRows}
           selectedRows={[]}
           storageKey={`${layoutId}:printFields`}
+          filtersSummary={describeFacetSelection([], {}, { search: query })}
           onClose={() => setPrintDialogOpen(false)}
         />
       )}

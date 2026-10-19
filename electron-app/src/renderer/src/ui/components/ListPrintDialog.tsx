@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import { Button } from './Button.js';
-import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+import { planListPrintLayout, printableHeightMm, type PrintColumnSpec, type PrintLayoutPlan, type PrintOrientationChoice } from '../utils/listPrintLayout.js';
+import { escapeHtml, openPrintPreview, type PrintPreviewState } from '../utils/printPreview.js';
 
 export type ListPrintColumn<T> = {
   id: string;
@@ -11,15 +12,36 @@ export type ListPrintColumn<T> = {
 };
 
 /**
- * Печатная область A4 при полях 12мм — 273мм ≈ 1032px, строка таблицы при кегле 12px и
- * отступах 6px ≈ 28px (см. PRINT_BASE_CSS). На первой странице ещё уходит заголовок с шапкой.
+ * Строк на лист: считается по кеглю и ориентации, потому что от них зависит высота строки.
  * Число приблизительное и подписано таковым: браузер разложит по-своему, но порядок величины
  * («две страницы» против «шестидесяти») оно передаёт честно, а именно это и нужно оператору.
+ * 24мм — шапка документа и строка итогов, которые уходят с первой страницы.
  */
-const ROWS_PER_PAGE = 34;
+function rowsPerPage(plan: PrintLayoutPlan): number {
+  const rowMm = plan.fontSizePt * 0.3528 * 1.25 + 4.2;
+  return Math.max(1, Math.floor((printableHeightMm(plan.orientation) - 24) / rowMm));
+}
 
 /** Больше этого — спрашиваем подтверждение: дальше начинается лоток бумаги, а не список. */
 const PAGES_WARN_THRESHOLD = 10;
+
+/**
+ * Сколько строк просматриваем, чтобы понять «сколько знаков в колонке». Список бывает в
+ * тысячи строк, а решение «влезает ли колонка» от хвоста не зависит: длинные значения
+ * встречаются в первых же записях, и запас по ширине это учитывает.
+ */
+const PRINT_SAMPLE_ROWS = 200;
+
+const ORIENTATION_OPTIONS: Array<{ value: PrintOrientationChoice; label: string }> = [
+  { value: 'auto', label: 'Авто' },
+  { value: 'portrait', label: 'Книжная' },
+  { value: 'landscape', label: 'Альбомная' },
+];
+
+function formatPrintedAt(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 function pluralPages(n: number): string {
   const mod10 = n % 10;
@@ -27,6 +49,24 @@ function pluralPages(n: number): string {
   if (mod10 === 1 && mod100 !== 11) return 'лист';
   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'листа';
   return 'листов';
+}
+
+/**
+ * Разметка печатной таблицы: `table-layout: fixed` плюс ширины из `<colgroup>` делают результат
+ * предсказуемым — сумма ширин равна печатной области, поэтому уезжать за правый край нечему.
+ * Колонкам, которым места не хватило, режем содержимое многоточием: оператор предупреждён в
+ * шапке, а наложение текста на соседнюю колонку хуже обрезки.
+ */
+function listPrintCss(plan: PrintLayoutPlan): string {
+  const clippedCss =
+    plan.clippedLabels.length > 0
+      ? 'table.list-print td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }'
+      : '';
+  return `table.list-print { table-layout: fixed; width: ${plan.tableWidthMm}mm; }
+    table.list-print th, table.list-print td { font-size: ${plan.fontSizePt}pt; }
+    table.list-print th { white-space: normal; overflow-wrap: anywhere; }
+    table.list-print td { overflow-wrap: anywhere; }
+    ${clippedCss}`;
 }
 
 function loadColumnIds(storageKey: string, fallback: string[], known: Set<string>): string[] {
@@ -52,8 +92,6 @@ function loadColumnIds(storageKey: string, fallback: string[], known: Set<string
  */
 export function ListPrintDialog<T>(props: {
   title: string;
-  /** Родительный падеж для счётчика: «двигателей», «нарядов». */
-  unitLabel: string;
   columns: ListPrintColumn<T>[];
   visibleColumnIds: string[];
   rows: T[];
@@ -66,6 +104,12 @@ export function ListPrintDialog<T>(props: {
    * строка-заголовок на всю ширину. Нумерация сквозная, заголовки её не сбивают.
    */
   rowGroupLabel?: (row: T) => string | null;
+  /**
+   * Строки отбора для шапки печати — человеческим языком (`describeFacetSelection`
+   * плюс поиск/период страницы). Пустой список означает «отбора нет»: шапка тогда
+   * честно молчит, а не пишет «Фильтры: нет».
+   */
+  filtersSummary?: string[];
 }) {
   const knownIds = useMemo(() => new Set(props.columns.map((c) => c.id)), [props.columns]);
   const defaultIds = useMemo(() => {
@@ -79,13 +123,38 @@ export function ListPrintDialog<T>(props: {
   const [limitEnabled, setLimitEnabled] = useState(false);
   const [limitText, setLimitText] = useState('100');
   const [pendingConfirm, setPendingConfirm] = useState<number | null>(null);
+  const [orientation, setOrientation] = useState<PrintOrientationChoice>('auto');
+  const [printedBy, setPrintedBy] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    void window.matrica.auth
+      .profileGet()
+      .then((result) => {
+        if (!alive || !result.ok) return;
+        const name = String(result.profile.fullName ?? '').trim();
+        if (name) setPrintedBy(name);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const scopeRows = scope === 'selected' && hasSelection ? props.selectedRows : props.rows;
   const limit = Math.max(1, Math.trunc(Number(limitText) || 0));
   const rows = limitEnabled && Number.isFinite(limit) ? scopeRows.slice(0, limit) : scopeRows;
 
   const fields = props.columns.filter((c) => columnIds.includes(c.id));
-  const pages = Math.max(1, Math.ceil(rows.length / ROWS_PER_PAGE));
+  const columnSpecs: PrintColumnSpec[] = fields.map((field) => {
+    let valueChars = 0;
+    for (const row of rows.slice(0, PRINT_SAMPLE_ROWS)) {
+      valueChars = Math.max(valueChars, field.printValue(row).length);
+    }
+    return { label: field.label, valueChars };
+  });
+  const layout = planListPrintLayout({ columns: columnSpecs, orientation });
+  const pages = Math.max(1, Math.ceil(rows.length / rowsPerPage(layout)));
   const canPrint = fields.length > 0 && rows.length > 0;
 
   const toggleColumn = (id: string) => {
@@ -101,30 +170,70 @@ export function ListPrintDialog<T>(props: {
   };
 
   const emit = () => {
-    // Колонка «№» идёт на печать первой — как на экране (владелец 15.09.2026).
-    const thead = `<th style="text-align:right">№</th>${fields.map((f) => `<th>${escapeHtml(f.label)}</th>`).join('')}`;
-    let lastGroup: string | null = null;
-    const tbody = rows
-      .map((row, i) => {
-        const group = props.rowGroupLabel ? props.rowGroupLabel(row) : null;
-        const head =
-          group != null && group !== lastGroup
-            ? `<tr><td colspan="${fields.length + 1}" style="font-weight:600;background:#f3f4f6">${escapeHtml(group)}</td></tr>`
-            : '';
-        lastGroup = group;
-        return `${head}<tr><td style="text-align:right">${i + 1}</td>${fields.map((f) => `<td>${escapeHtml(f.printValue(row) || '—')}</td>`).join('')}</tr>`;
-      })
-      .join('');
+    const summary = props.filtersSummary ?? [];
+    const planFor = (state: PrintPreviewState): PrintLayoutPlan =>
+      planListPrintLayout({
+        columns: columnSpecs,
+        orientation: state.orientation,
+        // Пока оператор не тронул переключатель кегля, его подбирает раскладка под выбранный
+        // лист: иначе на книжном листе остались бы колонки от альбомных 12 pt и все обрезались.
+        ...(state.fontSizePinned ? { fontSizePt: state.fontSizePt } : {}),
+      });
+    // Таблица собирается на каждую перерисовку: переключатели в окне предпросмотра меняют
+    // ширины колонок, поэтому `<col>` из старого плана («книжный» на альбомном листе оставил
+    // бы узкую полосу) на новом листе были бы неправдой.
+    const tableHtml = (plan: PrintLayoutPlan): string => {
+      // Колонка «№» идёт на печать первой — как на экране (владелец 15.09.2026).
+      const thead = `<th style="text-align:right">№</th>${fields.map((f) => `<th>${escapeHtml(f.label)}</th>`).join('')}`;
+      let lastGroup: string | null = null;
+      const tbody = rows
+        .map((row, i) => {
+          const group = props.rowGroupLabel ? props.rowGroupLabel(row) : null;
+          const head =
+            group != null && group !== lastGroup
+              ? `<tr><td colspan="${fields.length + 1}" style="font-weight:600;background:#f3f4f6">${escapeHtml(group)}</td></tr>`
+              : '';
+          lastGroup = group;
+          return `${head}<tr><td style="text-align:right">${i + 1}</td>${fields.map((f) => `<td>${escapeHtml(f.printValue(row) || '—')}</td>`).join('')}</tr>`;
+        })
+        .join('');
+      const colgroup = `<colgroup><col style="width:${plan.widthsMm[0]}mm"/>${plan.widthsMm
+        .slice(1)
+        .map((w) => `<col style="width:${w}mm"/>`)
+        .join('')}</colgroup>`;
+      return `<table class="list-print">${colgroup}<thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>
+<div class="muted" style="margin-top:8px">Итого: ${rows.length}</div>`;
+    };
+
     openPrintPreview({
       title: props.title,
-      subtitle: `${props.unitLabel}: ${rows.length}${rows.length < scopeRows.length ? ` из ${scopeRows.length}` : ''}`,
-      sections: [
+      printHeader: (state) => {
+        const plan = planFor(state);
+        return {
+          title: props.title,
+          lines: [
+            ...summary,
+            // Кегль в окне предпросмотра оператор может увеличить: тогда часть колонок
+            // перестаёт помещаться, и шапка обязана назвать их — иначе лист обрежет молча.
+            ...(plan.clippedLabels.length > 0
+              ? [`Не поместились колонки: ${plan.clippedLabels.join(', ')}`]
+              : []),
+          ],
+          meta: `Печать: ${formatPrintedAt(new Date())}${printedBy ? ` · ${printedBy}` : ''}`,
+        };
+      },
+      orientation: layout.orientation,
+      orientationSwitch: true,
+      fontSizePt: layout.fontSizePt,
+      fontSizeSwitch: true,
+      plan: planFor,
+      extraCss: (state) => listPrintCss(planFor(state)),
+      sections: (state) => [
         {
           id: 'list',
           title: props.title,
           hideTitle: true,
-          html: `<table><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>
-<div class="muted" style="margin-top:8px">Итого: ${rows.length}</div>`,
+          html: tableHtml(planFor(state)),
         },
       ],
     });
@@ -218,6 +327,32 @@ export function ListPrintDialog<T>(props: {
                 style={{ width: 90, padding: '4px 6px' }}
               />
               <span style={{ fontSize: 13 }}>строк — в том порядке, что на экране</span>
+            </div>
+          ) : null}
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ fontWeight: 600 }}>Лист</div>
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+            {ORIENTATION_OPTIONS.map((option) => (
+              <label key={option.value} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                <input
+                  type="radio"
+                  checked={orientation === option.value}
+                  onChange={() => setOrientation(option.value)}
+                />
+                {option.label}
+              </label>
+            ))}
+          </div>
+          <div className="muted" style={{ fontSize: 12 }}>
+            {layout.orientation === 'landscape' ? 'Альбомная' : 'Книжная'} · кегль {layout.fontSizePt} pt ·{' '}
+            {fields.length} колонок на {layout.tableWidthMm} мм
+          </div>
+          {layout.clippedLabels.length > 0 ? (
+            <div style={{ fontSize: 12, color: '#b91c1c', lineHeight: 1.45 }}>
+              Не хватает места колонкам: {layout.clippedLabels.join(', ')}. Снимите лишние колонки или выберите
+              альбомную — иначе их содержимое напечатается обрезанным.
             </div>
           ) : null}
         </div>

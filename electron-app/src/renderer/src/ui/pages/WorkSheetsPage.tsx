@@ -4,6 +4,7 @@ import {
   HUMAN_LABEL_DASH,
   HUMAN_LABEL_NO_NUMBER,
   applyFacets,
+  describeFacetSelection,
   flattenGrouped,
   workSheetFacets,
   workSheetFieldsSummary,
@@ -574,13 +575,17 @@ export function WorkSheetsPage(props: {
       {printOpen ? (
         <ListPrintDialog
           title="Этапы ремонта"
-          unitLabel="Этапов работ"
           columns={buildListPrintColumns(columns)}
           visibleColumnIds={visibleColumns.map((c) => c.id)}
           rows={sorted}
           selectedRows={[]}
           storageKey="list:workSheets:printFields"
           rowGroupLabel={(r) => groupLabelByRow.get(r.id) || null}
+          filtersSummary={describeFacetSelection(facets, ui.facets as FacetSelection, {
+            search: ui.query,
+            period: allTime ? 'всё время' : 'за последний год',
+            grouping: ui.groupBy === 'none' ? '' : WORK_SHEET_LIST_GROUP_BY_LABELS[ui.groupBy],
+          })}
           onClose={() => setPrintOpen(false)}
         />
       ) : null}

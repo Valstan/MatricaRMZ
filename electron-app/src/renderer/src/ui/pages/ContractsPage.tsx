@@ -26,6 +26,7 @@ import {
   applyContractFacets,
   burningEnginesCount,
   contractFacetIsActive,
+  describeFacetSelection,
   effectiveContractDueAt,
   effectiveRepairDays,
   isEngineDoneForCountdown,
@@ -1074,12 +1075,12 @@ export function ContractsPage(props: {
       {printDialogOpen && (
         <ListPrintDialog
           title="Список договоров"
-          unitLabel="Договоров"
           columns={printColumns}
           visibleColumnIds={visibleColumns.map((c) => c.id)}
           rows={sorted}
           selectedRows={sorted.filter((row: any) => selection.isSelected(String(row.id)))}
           storageKey="list:contracts:printFields"
+          filtersSummary={describeFacetSelection(CONTRACT_FACETS, facets as FacetSelection, { search: query })}
           onClose={() => setPrintDialogOpen(false)}
         />
       )}

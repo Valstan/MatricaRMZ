@@ -39,6 +39,7 @@ import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from
 import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
+import { describeFacetSelection } from '@matricarmz/shared';
 
 type Row = {
   id: string;
@@ -438,12 +439,12 @@ export function CounterpartiesPage(props: {
       {printDialogOpen && (
         <ListPrintDialog
           title="Список контрагентов"
-          unitLabel="Контрагентов"
           columns={printColumns}
           visibleColumnIds={visibleColumns.map((c) => c.id)}
           rows={sorted}
           selectedRows={sorted.filter((row: any) => selection.isSelected(String(row.id)))}
           storageKey="list:counterparties:printFields"
+          filtersSummary={describeFacetSelection([], {}, { search: query })}
           onClose={() => setPrintDialogOpen(false)}
         />
       )}

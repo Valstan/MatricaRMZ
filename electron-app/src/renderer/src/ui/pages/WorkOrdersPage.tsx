@@ -3,7 +3,9 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
 import {
   WORK_ORDER_KIND_LABELS,
+  describeFacetSelection,
   engineInternalNumberSortKeyFromFull,
+  formatMonthLabel,
   WORK_ORDER_KIND_ORDER,
   WORK_ORDER_STATUS_LABELS,
   WorkOrderKind,
@@ -606,12 +608,18 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
       {printDialogOpen && (
         <ListPrintDialog
           title="Список нарядов"
-          unitLabel="Нарядов"
           columns={printColumns}
           visibleColumnIds={visibleColumns.map((c) => c.id)}
           rows={displayRows}
           selectedRows={displayRows.filter((row: any) => selection.isSelected(String(row.id)))}
           storageKey="list:work-orders:printFields"
+          filtersSummary={describeFacetSelection([], {}, {
+            search: query,
+            extra: [
+              month ? `Месяц: ${formatMonthLabel(month) || month}` : '',
+              typeKind ? `Тип: ${WORK_ORDER_KIND_LABELS[typeKind as WorkOrderKind] ?? typeKind}` : '',
+            ],
+          })}
           onClose={() => setPrintDialogOpen(false)}
         />
       )}

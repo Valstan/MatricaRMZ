@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   EMPLOYEE_FACETS,
   applyEmployeeFacets,
+  describeFacetSelection,
   employeeFacetIsActive,
   employmentStatusLabelRu,
   resolveEmploymentStatusCode,
@@ -656,12 +657,12 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
       {printDialogOpen && (
         <ListPrintDialog
           title="Список сотрудников"
-          unitLabel="Сотрудников"
           columns={printColumns}
           visibleColumnIds={visibleColumns.map((c) => c.id)}
           rows={displayRows}
           selectedRows={displayRows.filter((row: any) => selection.isSelected(String(row.id)))}
           storageKey="list:employees:printFields"
+          filtersSummary={describeFacetSelection(EMPLOYEE_FACETS, facets as FacetSelection, { search: query })}
           onClose={() => setPrintDialogOpen(false)}
         />
       )}

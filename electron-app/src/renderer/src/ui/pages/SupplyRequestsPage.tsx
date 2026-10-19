@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { humanLabel, type SupplyRequestPayload } from '@matricarmz/shared';
+import { describeFacetSelection, formatMonthLabel, humanLabel, type SupplyRequestPayload } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
@@ -308,12 +308,15 @@ export function SupplyRequestsPage(props: {
       {printDialogOpen && (
         <ListPrintDialog
           title="Заявки в снабжение"
-          unitLabel="Заявок"
           columns={printColumns}
           visibleColumnIds={visibleColumns.map((c) => c.id)}
           rows={displayRows}
           selectedRows={[]}
           storageKey="list:supply-requests:printFields"
+          filtersSummary={describeFacetSelection([], {}, {
+            search: query,
+            extra: [month ? `Месяц: ${formatMonthLabel(month) || month}` : ''],
+          })}
           onClose={() => setPrintDialogOpen(false)}
         />
       )}

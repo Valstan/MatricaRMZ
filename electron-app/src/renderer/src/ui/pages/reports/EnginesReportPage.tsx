@@ -3,6 +3,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import {
   HUMAN_LABEL_DASH,
   applyFacets,
+  describeFacetSelection,
   engineDaysOnSite,
   engineFacets,
   engineFactoryStage,
@@ -380,13 +381,16 @@ export function EnginesReportPage(props: ListReportPageProps) {
       {printOpen ? (
         <ListPrintDialog
           title="Двигатели"
-          unitLabel="Двигателей"
           columns={buildListPrintColumns(columns)}
           visibleColumnIds={visibleColumns.map((c) => c.id)}
           rows={sorted.length > 0 ? items.filter((it) => it.kind === 'row').map((it) => (it.kind === 'row' ? it.row : null)!).filter(Boolean) : []}
           selectedRows={[]}
           storageKey="report:engines:printFields"
           rowGroupLabel={(r) => groupLabelByRow.get(r.id) || null}
+          filtersSummary={describeFacetSelection(facets, activeFacets, {
+            search: ui.query,
+            grouping: ui.groupBy === 'none' ? '' : GROUP_BY_LABELS[ui.groupBy],
+          })}
           onClose={() => setPrintOpen(false)}
         />
       ) : null}
