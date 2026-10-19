@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { arrivalMonthGroup, daysOnSiteGroup, plantScrapGroup } from './engineAtPlantGroups.js';
+import { arrivalMonthGroup, daysOnSiteGroup, plantScrapGroup, reclamationMonthGroup } from './engineAtPlantGroups.js';
 
 // Группировки отчёта «Двигатели на заводе» (заявка владельца 07.10.2026).
 // Границы и порядок групп — правило, поэтому считает тест, а не глаз.
@@ -25,6 +25,19 @@ describe('arrivalMonthGroup — по дате прихода', () => {
     expect(arrivalMonthGroup(null)).toEqual({ key: 'arrival:none', label: 'Без даты прихода', rank: Number.MIN_SAFE_INTEGER });
     expect(arrivalMonthGroup(undefined)).toEqual({ key: 'arrival:none', label: 'Без даты прихода', rank: Number.MIN_SAFE_INTEGER });
     expect(arrivalMonthGroup(-5)).toEqual({ key: 'arrival:none', label: 'Без даты прихода', rank: Number.MIN_SAFE_INTEGER });
+  });
+});
+
+describe('reclamationMonthGroup — по месяцу приёмки рекламации', () => {
+  const OCT_6_MSK = Date.UTC(2026, 9, 5, 21, 0, 0);
+
+  it('месяц и год, свой префикс ключа', () => {
+    expect(reclamationMonthGroup(OCT_6_MSK)).toEqual({ key: 'reclamation:2026-10', label: 'Октябрь 2026', rank: -(2026 * 12 + 10) });
+  });
+
+  it('без даты приёмки — отдельная группа в конце', () => {
+    expect(reclamationMonthGroup(null)).toEqual({ key: 'reclamation:none', label: 'Без даты рекламации', rank: Number.MIN_SAFE_INTEGER });
+    expect(reclamationMonthGroup(undefined)).toEqual({ key: 'reclamation:none', label: 'Без даты рекламации', rank: Number.MIN_SAFE_INTEGER });
   });
 });
 

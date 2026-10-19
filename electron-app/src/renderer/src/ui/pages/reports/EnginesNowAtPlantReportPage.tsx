@@ -113,7 +113,7 @@ type ListUiState = {
  * (см. `engineListFacets.ts`). Бывшие тут «Последний этап работ» и «Дата этапа работ»
  * убраны раньше (владелец 01.10.2026): они отвечали на те же вопросы, но про узлы работ.
  */
-const FACET_IDS = ['customer', 'contract', 'brand', 'workshop', 'factoryStage', 'hasRepeatPass', 'hasStage', 'stageDate', 'scrap', 'reclamation', 'arrivalYear', 'arrival', 'arrivalDate'] as const;
+const FACET_IDS = ['customer', 'contract', 'brand', 'workshop', 'factoryStage', 'hasRepeatPass', 'hasStage', 'stageDate', 'scrap', 'reclamation', 'reclamationAccepted', 'arrivalYear', 'arrival', 'arrivalDate'] as const;
 
 const REPORT_HIDDEN_BY_DEFAULT = ['state', 'contract', 'historyAt', 'repairStartedAt', 'repairedAt', 'scrapAt'];
 
@@ -263,6 +263,20 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
       { id: 'engineNumber', label: 'Номер', kind: 'name', render: (e) => text(e.engineNumber) || HUMAN_LABEL_DASH, sortValue: (e) => text(e.engineNumber), alwaysVisible: true },
       { id: 'internal', label: 'Внутр. №', kind: 'num', render: (e) => text(e.internalNumberFull), sortValue: (e) => text(e.internalNumberFull) },
       { id: 'brand', label: 'Марка', kind: 'name', render: (e) => text(e.engineBrand), sortValue: (e) => text(e.engineBrand) },
+      {
+        id: 'reclamation',
+        label: 'Рекламация',
+        kind: 'text',
+        render: (e) =>
+          e.isReclamation ? (
+            <span title="Рекламационный двигатель" style={{ color: '#1d4ed8', fontWeight: 600 }}>
+              Да
+            </span>
+          ) : (
+            yesNo(false)
+          ),
+        sortValue: (e) => (e.isReclamation ? 1 : 0),
+      },
       { id: 'customer', label: 'Заказчик', kind: 'name', render: (e) => text(e.customerName), sortValue: (e) => text(e.customerName) },
       { id: 'contract', label: 'Договор', kind: 'name', render: (e) => text(e.contractName), sortValue: (e) => text(e.contractName) },
       { id: 'workshop', label: 'Цех', kind: 'name', render: (e) => text(e.workshopName) || HUMAN_LABEL_DASH, sortValue: (e) => text(e.workshopName) },

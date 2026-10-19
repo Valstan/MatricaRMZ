@@ -13,6 +13,7 @@ import {
   flattenGrouped,
   formatEngineFactoryStageLabel,
   isFactoryStageActive,
+  reclamationMonthGroup,
   stripStageDateWhenWhereNow,
   type EngineFacetSelection,
   type EngineListItem,
@@ -65,7 +66,7 @@ type Column = ColumnDescriptor & {
 
 type Row = EngineListItem & { stage: ReturnType<typeof engineFactoryStage>; state: string; daysOnSite: number | null };
 
-type GroupBy = 'contract' | 'brand' | 'customer' | 'customer_contract' | 'none';
+type GroupBy = 'contract' | 'brand' | 'customer' | 'customer_contract' | 'reclamation' | 'none';
 
 const GROUP_BY_LABELS: Record<GroupBy, string> = {
   none: 'Без группировки',
@@ -73,6 +74,7 @@ const GROUP_BY_LABELS: Record<GroupBy, string> = {
   brand: 'По марке',
   customer: 'По заказчику',
   customer_contract: 'Заказчик → договор',
+  reclamation: 'По месяцу рекламации',
 };
 
 type ListUiState = {
@@ -135,6 +137,22 @@ export function EnginesReportPage(props: ListReportPageProps) {
       { id: 'brand', label: 'Марка', kind: 'name', render: (e) => text(e.engineBrand), sortValue: (e) => text(e.engineBrand) },
       { id: 'contract', label: 'Договор', kind: 'name', render: (e) => text(e.contractName), sortValue: (e) => text(e.contractName) },
       { id: 'customer', label: 'Заказчик', kind: 'name', render: (e) => text(e.customerName), sortValue: (e) => text(e.customerName) },
+      {
+        id: 'reclamation',
+        label: 'Рекламация',
+        kind: 'text',
+        render: (e) =>
+          e.isReclamation ? (
+            <span title="Рекламационный двигатель">
+              <span style={{ color: '#1d4ed8', fontWeight: 600 }}>Да</span>
+              {e.reclamationAcceptedDate ? <span className="ui-muted"> · {fmtDate(e.reclamationAcceptedDate)}</span> : null}
+            </span>
+          ) : (
+            yesNo(false)
+          ),
+        sortValue: (e) => (e.isReclamation ? (e.reclamationAcceptedDate ?? 1) : 0),
+        printValue: (e) => (e.isReclamation ? `Да${e.reclamationAcceptedDate ? ` · ${fmtDate(e.reclamationAcceptedDate)}` : ''}` : 'Нет'),
+      },
       { id: 'workshop', label: 'Цех', kind: 'name', render: (e) => text(e.workshopName), sortValue: (e) => text(e.workshopName) },
       { id: 'arrivalDate', label: 'Дата прихода', kind: 'date', render: (e) => fmtDate(e.arrivalDate), sortValue: (e) => e.arrivalDate ?? 0 },
       { id: 'repairStartedAt', label: 'Начало ремонта', kind: 'date', render: (e) => fmtDate(engineStatusDate(e, 'status_repair_started')), sortValue: (e) => engineStatusDate(e, 'status_repair_started') ?? 0 },
@@ -184,7 +202,7 @@ export function EnginesReportPage(props: ListReportPageProps) {
   const deep = useListDeepFilter(
     rows,
     (r) => r.id,
-    (r) => [r.engineNumber, r.internalNumberFull, r.engineBrand, r.customerName, r.contractName, r.workshopName, r.state, r.stage.label, r.stage.repeatPass >= 2 ? 'возврат' : '', r.scrapReason, r.lastStageName].map(text).join(' '),
+    (r) => [r.engineNumber, r.internalNumberFull, r.engineBrand, r.customerName, r.contractName, r.workshopName, r.state, r.stage.label, r.stage.repeatPass >= 2 ? 'возврат' : '', r.scrapReason, r.lastStageName, r.isReclamation ? 'рекламация' : ''].map(text).join(' '),
     ui.query,
     { entityBacked: false, mode: searchModeOf(ui.searchSimilar) },
   );
@@ -220,6 +238,8 @@ export function EnginesReportPage(props: ListReportPageProps) {
         return [byCustomer];
       case 'customer_contract':
         return [byCustomer, byContract];
+      case 'reclamation':
+        return [{ keyOf: (r) => reclamationMonthGroup(r.reclamationAcceptedDate) }];
       default:
         return [];
     }

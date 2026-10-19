@@ -262,7 +262,22 @@ export function WorkSheetsPage(props: {
     () => [
       { id: 'at', label: 'Дата', kind: 'date', render: (r) => formatMoscowDate(new Date(r.at)), sortValue: (r) => r.at, alwaysVisible: true },
       { id: 'type', label: 'Вид работ', kind: 'name', render: typeCellLabel, sortValue: (r) => r.typeName, alwaysVisible: true },
-      { id: 'engine', label: 'Двигатель', kind: 'name', render: (r) => renderEngineCell(r), sortValue: (r) => engineLabel(r), alwaysVisible: true },
+      { id: 'engine', label: 'Двигатель', kind: 'name', render: (r) => renderEngineCell(r), sortValue: (r) => engineLabel(r), alwaysVisible: true },
+      {
+        id: 'reclamation',
+        label: 'Рекламация',
+        kind: 'name',
+        render: (r) =>
+          r.engineIsReclamation ? (
+            <span title="Рекламационный двигатель" style={{ color: '#1d4ed8', fontWeight: 600 }}>
+              Да
+            </span>
+          ) : (
+            <span className="ui-muted">Нет</span>
+          ),
+        sortValue: (r) => (r.engineIsReclamation ? 1 : 0),
+        printValue: (r) => (r.engineIsReclamation ? 'Да' : 'Нет'),
+      },
       { id: 'brand', label: 'Марка', kind: 'name', render: (r) => r.engineBrand, sortValue: (r) => r.engineBrand },
       { id: 'internal', label: 'Внутр. №', kind: 'num', render: (r) => r.internalNumber, sortValue: (r) => r.internalNumber },
       {
@@ -308,7 +323,7 @@ export function WorkSheetsPage(props: {
     rows,
     (r) => r.id,
     (r) =>
-      [engineLabel(r), r.engineBrand, r.internalNumber, r.typeName, r.customerName, r.contractNumber, r.note, r.performedBy, workSheetFieldsSummary(r.fields)].join(' '),
+      [engineLabel(r), r.engineBrand, r.internalNumber, r.typeName, r.customerName, r.contractNumber, r.note, r.performedBy, r.engineIsReclamation ? 'рекламация' : '', workSheetFieldsSummary(r.fields)].join(' '),
     ui.query,
     { entityBacked: false, mode: searchModeOf(ui.searchSimilar) },
   );

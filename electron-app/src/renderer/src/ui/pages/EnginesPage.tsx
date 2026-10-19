@@ -151,6 +151,7 @@ export type EnginesPageUiState = {
     | 'repairedDate'
     | 'scrapDate'
     | 'completenessAct'
+    | 'reclamation'
     | 'engineStage'
     /** Цех последнего события истории (13.10.2026). */
     | 'workshop'
@@ -584,6 +585,10 @@ export function EnginesPage(props: {
           const r = ((a.hasCompletenessAct ? 0 : 1) - (b.hasCompletenessAct ? 0 : 1)) * dir;
           return r !== 0 ? r : String(a.engineNumber ?? '').localeCompare(String(b.engineNumber ?? ''), 'ru');
         }
+        case 'reclamation': {
+          const r = ((a.isReclamation ? 0 : 1) - (b.isReclamation ? 0 : 1)) * dir;
+          return r !== 0 ? r : String(a.engineNumber ?? '').localeCompare(String(b.engineNumber ?? ''), 'ru');
+        }
         default:
           return 0;
       }
@@ -759,6 +764,23 @@ export function EnginesPage(props: {
         render: (e) => formatEngineInternalNumber(e.internalNumber ?? '', e.internalNumberYear) || '-',
       },
       { id: 'engineBrand', label: 'Марка', sortable: true, sortKey: 'engineBrand', kind: 'name', render: (e) => e.engineBrand ?? '-' },
+      {
+        id: 'reclamation',
+        label: 'Рекламация',
+        tabletLabel: 'Рекл.',
+        sortable: true,
+        sortKey: 'reclamation',
+        kind: 'name',
+        printValue: (e) => (e.isReclamation ? 'Да' : 'Нет'),
+        render: (e) =>
+          e.isReclamation ? (
+            <span title="Рекламационный двигатель" style={{ color: '#1d4ed8', fontWeight: 600 }}>
+              Да
+            </span>
+          ) : (
+            <span className="ui-muted">Нет</span>
+          ),
+      },
       { id: 'customerName', label: 'Контрагент', sortable: true, sortKey: 'customerName', kind: 'name', render: (e) => e.customerName ?? '-' },
       {
         id: 'binding',
