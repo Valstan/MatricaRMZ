@@ -985,6 +985,43 @@ export function RepairChecklistPanel(props: {
   function printActVersion(v: EngineActVersionRecord) {
     openEngineInventoryPrintWindow(actHtml(v.actType, v.rows, v.answers, { version: v.version }));
   }
+
+  /** Подпись двигателя для имени файла: «6ЧН 21/21 Д-001». */
+  const engineFileLabel = [String(props.engineBrand ?? '').trim(), String(props.engineNumber ?? '').trim()]
+    .filter(Boolean)
+    .join(' ');
+
+  /**
+   * Выгрузка акта в Word: форма берётся у печати (`actHtml`), но **без версии-снимка** —
+   * выгрузка не фиксирует документ, а отдаёт копию текущей формы. Печать версию пишет
+   * (`engineActSnapshot`), и это её работа: она фиксирует, что именно ушло заказчику.
+   */
+  async function exportActToWord(actType: EngineActType) {
+    const rows = extractInventoryRowsForPrint(answers, actType);
+    const label = actType === 'claim' ? 'Претензия' : actType === 'completeness' ? 'Акт комплектности' : 'Акт дефектовки';
+    await window.matrica.exports.card({
+      title: label,
+      fileBaseName: engineFileLabel ? `${label} ${engineFileLabel}` : label,
+      sections: [{ id: actType, title: label, html: actHtml(actType, rows, answers), hideTitle: true }],
+    });
+  }
+
+  /** Требование в Word — тем же путём, что акты: та же форма, снимок не пишется. */
+  async function exportRequirementToWord() {
+    const title = 'Требование к заказчику';
+    await window.matrica.exports.card({
+      title,
+      fileBaseName: engineFileLabel ? `${title} ${engineFileLabel}` : title,
+      sections: [
+        {
+          id: 'requirement',
+          title,
+          html: buildEngineRequirementHtml({ ...requirementHeader(), instances: requirementInstances }),
+          hideTitle: true,
+        },
+      ],
+    });
+  }
   const attachmentsTitle = isInventoryStage
     ? 'Вложения к списку деталей двигателя'
     : props.stage === 'defect'
@@ -2889,6 +2926,13 @@ export function RepairChecklistPanel(props: {
                 </Button>
                 <Button
                   variant="ghost"
+                  title="Выгрузить акт комплектности в Word — форма та же, что у печати; версия акта при выгрузке не создаётся"
+                  onClick={() => void exportActToWord('completeness')}
+                >
+                  Акт в Word
+                </Button>
+                <Button
+                  variant="ghost"
                   title="Пустой бланк акта комплектности с перечнем деталей — для заполнения комиссией на месте от руки"
                   onClick={() => printBlankAct('completeness')}
                 >
@@ -2899,6 +2943,13 @@ export function RepairChecklistPanel(props: {
               <>
                 <Button variant="ghost" onClick={() => void printAct('defect')}>
                   Печать акта дефектовки
+                </Button>
+                <Button
+                  variant="ghost"
+                  title="Выгрузить акт дефектовки в Word — форма та же, что у печати; версия акта при выгрузке не создаётся"
+                  onClick={() => void exportActToWord('defect')}
+                >
+                  Акт в Word
                 </Button>
                 <Button
                   variant="ghost"
@@ -2914,6 +2965,14 @@ export function RepairChecklistPanel(props: {
                   onClick={() => void printAct('claim')}
                 >
                   {`Печать претензии${customerClaim && customerClaim.total > 0 ? ` (${customerClaim.total})` : ''}`}
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={(customerClaim?.total ?? 0) === 0 && (inventoryShortage?.total ?? 0) === 0}
+                  title="Выгрузить претензию в Word — форма та же, что у печати; версия акта при выгрузке не создаётся"
+                  onClick={() => void exportActToWord('claim')}
+                >
+                  Претензия в Word
                 </Button>
               </>
             )}
@@ -3657,14 +3716,24 @@ export function RepairChecklistPanel(props: {
         <div style={{ marginTop: 10, padding: 10, border: '1px solid #6366f1', borderRadius: 8, background: '#eef2ff' }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             {canPrint && requirementInstances.length > 0 ? (
-              <Button
-                size="sm"
-                variant="outline"
-                title="Печать требования по конкретным номерным деталям, признанным утильными или требующим замены."
-                onClick={() => void printRequirement()}
-              >
-                {`Печать требования (${requirementInstances.length})`}
-              </Button>
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  title="Печать требования по конкретным номерным деталям, признанным утильными или требующим замены."
+                  onClick={() => void printRequirement()}
+                >
+                  {`Печать требования (${requirementInstances.length})`}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  title="Выгрузить требование в Word — форма та же, что у печати; снимок требования при выгрузке не создаётся"
+                  onClick={() => void exportRequirementToWord()}
+                >
+                  Требование в Word
+                </Button>
+              </>
             ) : null}
             {conductedVersions[0] ? (
               <span style={{ color: '#4338ca', fontSize: 12, fontWeight: 600 }}>

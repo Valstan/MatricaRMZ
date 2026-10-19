@@ -5,12 +5,17 @@
  * поэтому файл собирается из них, а не из второго описания формы: разъехавшийся с листом
  * второй сборщик пришлось бы чинить дважды (и он бы разошёлся — проверено на списках).
  * HTML здесь разбирается крохотным подмножеством: `div/p/h*`, таблицы `table/tr/th/td`,
- * `span`, `br` и подсказки инлайновых стилей (кегль, жирность, выравнивание, подчёркивание
- * подписной линии). Незнакомые теги не ломают разбор — их текст остаётся, тег отбрасывается.
+ * `span`, `br`, сущности (`&nbsp;`) и подсказки стилей — инлайновых (кегль, жирность, выравнивание,
+ * подчёркивание подписной линии, ширина колонки) и классовых там, где класс называет смысл,
+ * а не оформление (`num` — числа вправо, `ctr` — по центру, `muted`). Незнакомые теги не ломают
+ * разбор — их текст остаётся, тег отбрасывается. Содержимое `style`/`script`/`head`/`title`/`button`
+ * отбрасывается целиком: у актов на выгрузку приходит **целый печатный лист**, а CSS-тексту
+ * и экранной кнопке «Печать» в документе места нет.
  *
- * Чего избегаем сознательно: точной копии печатного листа. Word не понимает CSS-классов,
- * из которых у форм берутся ширины колонок, поэтому таблицы отдаются ему на автораскладку —
- * содержимое и порядок блоков те же, геометрия может отличаться.
+ * Геометрия: ширины колонок берём из процентов, объявленных самой формой
+ * (`<th style="width:34%">` — это пропорции листа), таблицы без единой ширины отдаются Word
+ * на автораскладку. Полной копии листа не обещаем: Word не понимает CSS-классов, поэтому кегль
+ * и отступы блоков, оформленные только классом, могут отличаться.
  */
 
 import {
@@ -39,11 +44,11 @@ const SIGNATURE_LINE = '\u00A0'.repeat(20);
 type Align = 'left' | 'center' | 'right';
 type Run = { text: string; bold: boolean; sizePx: number | null; underline: boolean };
 type ParagraphBlock = { kind: 'paragraph'; runs: Run[]; align: Align; muted: boolean; bold: boolean; sizePx: number | null };
-type Cell = { runs: Run[]; bold: boolean };
-type TableBlock = { kind: 'table'; head: Cell[][]; body: Cell[][]; bordered: boolean };
+type Cell = { runs: Run[]; bold: boolean; colspan: number; align: Align | null };
+type TableBlock = { kind: 'table'; head: Cell[][]; body: Cell[][]; bordered: boolean; widths: number[] };
 type Block = ParagraphBlock | TableBlock;
 
-type InlineStyle = { bold: boolean; sizePx: number | null; underline: boolean };
+type InlineStyle = { bold: boolean; sizePx: number | null; underline: boolean; text: boolean; line: boolean };
 
 const TAG_RE = /<\/?([a-zA-Z][a-zA-Z0-9]*)((?:"[^"]*"|'[^']*'|[^>])*)>/g;
 
@@ -74,14 +79,94 @@ function boldOf(style: Record<string, string>): boolean {
   return /^(bold|[6-9]00)$/.test(String(style['font-weight'] ?? ''));
 }
 
-function alignOf(style: Record<string, string>, tag: string, isHeaderCell: boolean): Align {
+function alignOf(style: Record<string, string>, tag: string): Align {
   const v = String(style['text-align'] ?? '');
   if (v === 'center' || v === 'right') return v;
-  if (isHeaderCell || tag === 'th') return 'center';
-  return 'left';
+  // Заголовок печатных форм центрируется классом — в документе центр задаём тегом.
+  return tag === 'h1' ? 'center' : 'left';
+}
+
+/** Выравнивание ячейки: инлайн важнее классовой подсказки, дальше — шапка по центру. */
+function cellAlignOf(style: Record<string, string>, isHeader: boolean, className: string): Align | null {
+  const v = String(style['text-align'] ?? '');
+  if (v === 'center' || v === 'right' || v === 'left') return v;
+  const tokens = className.split(/\s+/);
+  if (tokens.includes('num')) return 'right';
+  if (tokens.includes('ctr')) return 'center';
+  return isHeader ? 'center' : null;
 }
 
 const HEADINGS = new Set(['h1', 'h2', 'h3', 'h4']);
+
+/**
+ * Теги, содержимое которых в документ не переносим. У актов на выгрузку приходит целый печатный
+ * лист: `<head><style>` со стилями, `<title>` и кнопка «Печать / PDF» в теле. Текст оттуда —
+ * не содержимое формы, и в Word он попал бы мусором (это и была первая поломка актов).
+ */
+const SKIP_CONTAINERS = new Set(['style', 'script', 'head', 'title', 'button']);
+
+const ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: '\u00A0',
+  laquo: '«',
+  raquo: '»',
+  mdash: '—',
+  ndash: '–',
+  deg: '°',
+};
+
+/** Разметку форм пишет `escapeHtml`, поэтому в тексте живут сущности (`&#039;`, `&nbsp;`).
+ *  В Word они должны прийти символами: второй сборщик текста, который бы их разворачивал,
+ *  расходился бы с этим. Неизвестную сущность оставляем как есть — молча портить её хуже. */
+function decodeEntities(text: string): string {
+  return text.replace(/&(#\d+|#x[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/g, (whole, body: string) => {
+    if (body.startsWith('#')) {
+      const hex = body.startsWith('#x') || body.startsWith('#X');
+      const code = Number.parseInt(hex ? body.slice(2) : body.slice(1), hex ? 16 : 10);
+      if (!Number.isFinite(code)) return whole;
+      try {
+        return String.fromCodePoint(code);
+      } catch {
+        return whole;
+      }
+    }
+    return ENTITIES[body.toLowerCase()] ?? whole;
+  });
+}
+
+/** Кегль заголовка, когда форма задала его только классом: у печатных актов `h1` — 17px. */
+function headingPx(tag: string): number {
+  return tag === 'h1' ? 17 : tag === 'h2' ? 15 : 14;
+}
+
+/** Доля ширины из инлайнового `width:N%`: так формы объявляют пропорции колонок для печати. */
+function percentOf(style: Record<string, string>): number | null {
+  const m = /^([\d.]+)%$/.exec(String(style.width ?? '').trim());
+  const v = m ? Number.parseFloat(m[1]!) : Number.NaN;
+  return Number.isFinite(v) && v > 0 ? v : null;
+}
+
+/**
+ * Ширины колонок таблицы в процентах. Объявленные формы приводятся к 100% (пропорции листа
+ * сохраняются), недостающие колонки делят остаток; если не объявлено ни одной — таблица уходит
+ * Word на автораскладку (`null`).
+ */
+function resolveColumnWidths(declared: readonly (number | null)[], columns: number): number[] | null {
+  const widths = Array.from({ length: columns }, (_, i) => declared[i] ?? null);
+  const known = widths.filter((v): v is number => v !== null && v > 0);
+  if (known.length === 0) return null;
+  const sum = known.reduce((a, b) => a + b, 0);
+  const missing = widths.length - known.length;
+  if (missing === 0) return widths.map((v) => ((v as number) * 100) / sum);
+  const rest = 100 - sum;
+  if (rest <= 0) return null;
+  const share = rest / missing;
+  return widths.map((v) => (v !== null && v > 0 ? v : share));
+}
 
 /** Разбор подмножества HTML: линейный проход по тегам, текст складывается в абзацы или ячейки. */
 export function parseCardHtml(html: string): Block[] {
@@ -94,27 +179,52 @@ export function parseCardHtml(html: string): Block[] {
     head: Cell[][];
     body: Cell[][];
     bordered: boolean;
+    widths: (number | null)[];
     row: Cell[] | null;
     cell: Cell | null;
     inHead: boolean;
   } | null = null;
+  /** Глубина отброшенного контейнера: внутри него не читаем ни теги, ни текст. */
+  let skipDepth = 0;
 
-  const inlineStyle = (): InlineStyle => inline[inline.length - 1] ?? { bold: false, sizePx: null, underline: false };
+  const emptyInline = (): InlineStyle => ({ bold: false, sizePx: null, underline: false, text: false, line: false });
+  const inlineStyle = (): InlineStyle => inline[inline.length - 1] ?? emptyInline();
 
   const flushParagraph = () => {
     if (paragraph && paragraph.runs.length > 0) blocks.push(paragraph);
     paragraph = null;
   };
 
-  const pushText = (text: string, raw = false) => {
+  const newCell = (bold: boolean): Cell => ({ runs: [], bold, colspan: 1, align: null });
+
+  const flushTable = () => {
+    if (!table) return;
+    if (table.row && table.row.length > 0) (table.inHead ? table.head : table.body).push(table.row);
+    const { head, body } = table;
+    if (head.length > 0 || body.length > 0) {
+      const columns = Math.max(...[...head, ...body].map((row) => row.reduce((n, c) => n + Math.max(1, c.colspan), 0)));
+      blocks.push({
+        kind: 'table',
+        head,
+        body,
+        bordered: table.bordered,
+        widths: resolveColumnWidths(table.widths, columns) ?? [],
+      });
+    }
+    table = null;
+  };
+
+  const pushText = (text: string, raw = false, forced?: InlineStyle) => {
     // Синтетическую подписную линию нельзя ни схлопывать, ни считать пустым текстом:
-    // она и есть текст — неразрывные пробелы с подчёркиванием.
-    const clean = raw ? text : text.replace(/\s+/g, ' ');
+    // она и есть текст — неразрывные пробелы с подчёркиванием. Сущности разворачиваются
+    // после схлопывания пробелов, чтобы `&nbsp;` не стал обычным пробелом.
+    const clean = raw ? text : decodeEntities(text.replace(/\s+/g, ' '));
     if (!raw && clean.trim() === '') return;
-    const st = inlineStyle();
+    const st = forced ?? inlineStyle();
+    for (const frame of inline) frame.text = true;
     if (table) {
       if (!table.row) table.row = [];
-      table.cell ??= { runs: [], bold: false };
+      table.cell ??= newCell(false);
       table.cell.runs.push({ text: clean, bold: st.bold, sizePx: st.sizePx, underline: st.underline });
       return;
     }
@@ -131,18 +241,27 @@ export function parseCardHtml(html: string): Block[] {
   let m: RegExpExecArray | null;
   TAG_RE.lastIndex = 0;
   while ((m = TAG_RE.exec(source)) !== null) {
-    if (m.index > lastIndex) pushText(source.slice(lastIndex, m.index));
-    lastIndex = m.index + m[0].length;
-
     const closing = m[0].startsWith('</');
     const tag = m[1]!.toLowerCase();
+    const skipping = skipDepth > 0;
+    if (!skipping && m.index > lastIndex) pushText(source.slice(lastIndex, m.index));
+    lastIndex = m.index + m[0].length;
+
+    if (skipping || SKIP_CONTAINERS.has(tag)) {
+      if (SKIP_CONTAINERS.has(tag)) skipDepth = Math.max(0, skipDepth + (closing ? -1 : 1));
+      // Отбрасываемый контейнер обрывает абзац: текст до кнопки и после неё — разные абзацы.
+      if (!skipping && !closing) flushParagraph();
+      continue;
+    }
+
     const attrs = closing ? {} : attrsOf(m[2] ?? '');
     const style = closing ? {} : styleOf(attrs);
+    const isInlineTag = tag === 'span' || tag === 'b' || tag === 'strong' || tag === 'u' || tag === 'i' || tag === 'em';
 
     if (closing) {
       if (tag === 'td' || tag === 'th') {
         if (table && table.row) {
-          table.row.push(table.cell ?? { runs: [], bold: tag === 'th' });
+          table.row.push(table.cell ?? newCell(tag === 'th'));
           table.cell = null;
         }
       } else if (tag === 'tr') {
@@ -153,17 +272,15 @@ export function parseCardHtml(html: string): Block[] {
       } else if (tag === 'thead' || tag === 'tbody') {
         if (table) table.inHead = false;
       } else if (tag === 'table') {
-        if (table) {
-          if (table.row && table.row.length > 0) (table.inHead ? table.head : table.body).push(table.row);
-          if (table.head.length > 0 || table.body.length > 0) {
-            blocks.push({ kind: 'table', head: table.head, body: table.body, bordered: table.bordered });
-          }
-          table = null;
-        }
+        flushTable();
       } else if (tag === 'div' || tag === 'p' || HEADINGS.has(tag)) {
         flushParagraph();
-      } else if (tag === 'span' || tag === 'b' || tag === 'strong' || tag === 'u' || tag === 'i' || tag === 'em') {
-        inline.pop();
+      } else if (isInlineTag) {
+        const frame = inline.pop();
+        // Подписную линию в Word рисует только подчёркнутый текст: у пустого span с нижней
+        // границей появляется заполнитель, а у заполненного (ФИО, дата) значение в строке
+        // уже есть — линии поверх него не место.
+        if (frame?.line && !frame.text) pushText(SIGNATURE_LINE, true, { ...frame, underline: true });
       }
       continue;
     }
@@ -172,7 +289,7 @@ export function parseCardHtml(html: string): Block[] {
       flushParagraph();
     } else if (tag === 'table') {
       flushParagraph();
-      table = { head: [], body: [], bordered: true, row: null, cell: null, inHead: false };
+      table = { head: [], body: [], bordered: true, widths: [], row: null, cell: null, inHead: false };
     } else if (tag === 'thead') {
       if (table) table.inHead = true;
     } else if (tag === 'tbody') {
@@ -180,37 +297,44 @@ export function parseCardHtml(html: string): Block[] {
     } else if (tag === 'tr') {
       if (table) table.row = [];
     } else if (tag === 'td' || tag === 'th') {
-      if (table && table.row) table.cell = { runs: [], bold: tag === 'th' };
+      if (table && table.row) {
+        const isHeader = tag === 'th';
+        table.cell = {
+          runs: [],
+          bold: isHeader,
+          colspan: Math.max(1, Number.parseInt(String(attrs.colspan ?? '1'), 10) || 1),
+          align: cellAlignOf(style, isHeader, String(attrs.class ?? '')),
+        };
+        const pct = percentOf(style);
+        if (pct !== null && table.widths[table.row.length] == null) table.widths[table.row.length] = pct;
+      }
     } else if (tag === 'div' || tag === 'p' || HEADINGS.has(tag)) {
       flushParagraph();
       const isHeading = HEADINGS.has(tag);
       paragraph = {
         kind: 'paragraph',
         runs: [],
-        align: alignOf(style, tag, false),
+        align: alignOf(style, tag),
         muted: String(attrs.class ?? '').includes('muted'),
         bold: isHeading || boldOf(style),
-        sizePx: sizeOf(style),
+        sizePx: sizeOf(style) ?? (isHeading ? headingPx(tag) : null),
       };
-    } else if (tag === 'span' || tag === 'b' || tag === 'strong' || tag === 'u' || tag === 'i' || tag === 'em') {
+    } else if (isInlineTag) {
       const parent = inlineStyle();
+      const borderBottom =
+        String(style['border-bottom'] ?? '') !== '' || String(style['border-bottom-width'] ?? '') !== '';
       inline.push({
         bold: parent.bold || tag === 'b' || tag === 'strong' || boldOf(style),
         sizePx: sizeOf(style) ?? parent.sizePx,
-        underline: parent.underline || tag === 'u' || String(style['border-bottom'] ?? '') !== '',
+        underline: parent.underline || tag === 'u' || borderBottom,
+        text: false,
+        line: borderBottom,
       });
-      // Подписная линия — пустой span с нижней границей: без текста её в Word не нарисовать.
-      if (String(style['border-bottom'] ?? '') !== '') pushText(SIGNATURE_LINE, true);
     }
   }
   if (lastIndex < source.length) pushText(source.slice(lastIndex));
   flushParagraph();
-  if (table) {
-    if (table.row && table.row.length > 0) (table.inHead ? table.head : table.body).push(table.row);
-    if (table.head.length > 0 || table.body.length > 0) {
-      blocks.push({ kind: 'table', head: table.head, body: table.body, bordered: table.bordered });
-    }
-  }
+  flushTable();
   return blocks;
 }
 
@@ -235,15 +359,39 @@ function textRuns(runs: readonly Run[], muted: boolean): TextRun[] {
   );
 }
 
-function cellOf(cell: Cell): TableCell {
+/** Ширины колонок таблицы в twips: проценты форм переводятся в печатную область A4 портрет. */
+function columnTwips(block: TableBlock): number[] | null {
+  const widths = block.widths;
+  if (widths.length === 0) return null;
+  const total = widths.reduce((a, b) => a + b, 0);
+  if (!(total > 0)) return null;
+  // Нижний порог — чтобы вырожденное объявление (`width:0.1%`) не дало невидимую колонку.
+  return widths.map((p) => Math.max(240, Math.round((CONTENT_TWIPS * p) / total)));
+}
+
+function alignmentOf(align: Align) {
+  return align === 'center' ? AlignmentType.CENTER : align === 'right' ? AlignmentType.RIGHT : AlignmentType.LEFT;
+}
+
+function cellOf(cell: Cell, widthTwips: number | null): TableCell {
+  const align = cell.align ?? (cell.bold ? 'center' : 'left');
   return new TableCell({
-    children: [
-      new Paragraph({
-        children: textRuns(cell.runs, false).map((run) => run),
-        ...(cell.bold ? { alignment: AlignmentType.CENTER } : {}),
-      }),
-    ],
+    ...(widthTwips ? { width: { size: widthTwips, type: WidthType.DXA } } : {}),
+    ...(cell.colspan > 1 ? { columnSpan: cell.colspan } : {}),
+    children: [new Paragraph({ children: textRuns(cell.runs, false), alignment: alignmentOf(align) })],
   });
+}
+
+/** Строка таблицы: ширина ячейки — сумма колонок, которые она накрывает (`colspan`). */
+function tableRowOf(cells: Cell[], widths: number[] | null, header: boolean): TableRow {
+  const children: TableCell[] = [];
+  let column = 0;
+  for (const cell of cells) {
+    const span = Math.max(1, cell.colspan);
+    children.push(cellOf(cell, widths ? widths.slice(column, column + span).reduce((a, b) => a + b, 0) : null));
+    column += span;
+  }
+  return new TableRow({ ...(header ? { tableHeader: true } : {}), children });
 }
 
 const BORDERED = {
@@ -259,18 +407,21 @@ function documentChild(block: Block): Paragraph | Table {
   if (block.kind === 'paragraph') {
     return new Paragraph({
       children: textRuns(block.runs, block.muted),
-      alignment:
-        block.align === 'center' ? AlignmentType.CENTER : block.align === 'right' ? AlignmentType.RIGHT : AlignmentType.LEFT,
+      alignment: alignmentOf(block.align),
       spacing: { after: 60 },
     });
   }
+  // Ширины объявила сама форма (пропорции листа) — держим их жёстко; иначе таблица
+  // уходит Word на автораскладку, как и раньше.
+  const widths = columnTwips(block);
   const rows = [
-    ...block.head.map((cells) => new TableRow({ tableHeader: true, children: cells.map(cellOf) })),
-    ...block.body.map((cells) => new TableRow({ children: cells.map(cellOf) })),
+    ...block.head.map((cells) => tableRowOf(cells, widths, true)),
+    ...block.body.map((cells) => tableRowOf(cells, widths, false)),
   ];
   return new Table({
     width: { size: CONTENT_TWIPS, type: WidthType.DXA },
-    layout: TableLayoutType.AUTOFIT,
+    layout: widths ? TableLayoutType.FIXED : TableLayoutType.AUTOFIT,
+    ...(widths ? { columnWidths: widths } : {}),
     ...(block.bordered ? { borders: BORDERED } : {}),
     rows,
   });

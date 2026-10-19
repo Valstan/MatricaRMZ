@@ -458,3 +458,49 @@ describe('RepairChecklistPanel: блок «Базовые детали» рас�
     expect(PANEL).toContain('const [otherGroupOpen, setOtherGroupOpen] = useState(false);');
   });
 });
+
+// Выгрузка в Word ≠ печать (P5b-2, 19.10.2026): обе двери ведут к ОДНОЙ печатной форме
+// (`actHtml` / `buildEngineRequirementHtml`), но версию-снимок фиксирует только печать — она
+// отмечает, что именно ушло заказчику. Уедь снимок в выгрузку — каждое «Акт в Word» плодило бы
+// версию в истории актов, ничего никому не отправив, и «История версий» перестала бы что-либо
+// значить. Смоук этого не поймает там, где версий ещё нет (0 до = 0 после), поэтому граница
+// сторожится по исходнику.
+describe('RepairChecklistPanel: выгрузка в Word не создаёт версию-снимок', () => {
+  function fn(from: string, to: string): string {
+    const at = PANEL.indexOf(from);
+    const end = PANEL.indexOf(to, at);
+    expect(at, `«${from}» не найдена — сторож ослеп`).toBeGreaterThan(-1);
+    expect(end, `конец «${from}» не найден — срез захватил бы пол-панели`).toBeGreaterThan(at);
+    return PANEL.slice(at, end);
+  }
+
+  const ACT_EXPORT = fn('async function exportActToWord', 'async function exportRequirementToWord');
+  const REQ_EXPORT = fn('async function exportRequirementToWord', 'const attachmentsTitle');
+
+  it('акт и требование выгружаются через IPC выгрузки, а форму берут у печати', () => {
+    expect(ACT_EXPORT, 'форма акта в выгрузке собирается не тем сборщиком, что в печати — формы разъедутся').toContain(
+      'actHtml(',
+    );
+    expect(ACT_EXPORT, 'выгрузка акта больше не идёт каналом выгрузки').toContain('window.matrica.exports.card(');
+    expect(REQ_EXPORT, 'требование в Word снова собирается своим сборщиком').toContain(
+      'buildEngineRequirementHtml(',
+    );
+    expect(REQ_EXPORT, 'выгрузка требования больше не идёт каналом выгрузки').toContain(
+      'window.matrica.exports.card(',
+    );
+  });
+
+  it('снимок версии пишет печать, а не выгрузка', () => {
+    const actPrint = fn('async function printAct(', 'function printBlankAct');
+    const reqPrint = fn('async function printRequirement(', 'function printDefectHistoryAttachment');
+    expect(actPrint, 'печать акта перестала фиксировать версию — история актов опустеет').toContain(
+      'engineActSnapshot',
+    );
+    expect(reqPrint, 'печать требования перестала фиксировать версию').toContain('requirementSnapshot');
+    expect(
+      ACT_EXPORT,
+      'выгрузка акта начала писать версию-снимок — история версий наполнится выгрузками',
+    ).not.toContain('engineActSnapshot');
+    expect(REQ_EXPORT, 'выгрузка требования начала писать версию-снимок').not.toContain('requirementSnapshot');
+  });
+});

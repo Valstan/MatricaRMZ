@@ -83,8 +83,13 @@ function getEmployees(answers: RepairChecklistAnswers, id: string): Array<{ empl
     .filter((e: { fio: string }) => e.fio.trim().length > 0);
 }
 
+// Инлайн-дубли оформления (жирность подписи строки, линии для росписи): печать рисует их
+// и по классу, а выгрузка в Word классы не читает — линию и жирность она видит только инлайном.
+const INLINE_LABEL_BOLD = ' style="font-weight:700"';
+const INLINE_FILL_LINE = ' style="border-bottom:1px solid #111827"';
+
 function renderHeaderRow(label: string, value: string): string {
-  return `<div class="hdr-row"><span class="hdr-label">${escapeHtml(label)}:</span> <span class="hdr-value">${escapeHtml(
+  return `<div class="hdr-row"><span class="hdr-label"${INLINE_LABEL_BOLD}>${escapeHtml(label)}:</span> <span class="hdr-value">${escapeHtml(
     value,
   )}</span></div>`;
 }
@@ -96,10 +101,10 @@ function renderSignature(
   const date = sig.signedAt ? escapeHtml(formatMoscowDate(sig.signedAt)) : '';
   return `<div class="sig">
   <div class="sig-label">${escapeHtml(label)}</div>
-  <div class="sig-row"><span class="sig-key">ФИО:</span> <span class="sig-line">${escapeHtml(sig.fio)}</span></div>
-  <div class="sig-row"><span class="sig-key">Должность:</span> <span class="sig-line">${escapeHtml(sig.position)}</span></div>
-  <div class="sig-row"><span class="sig-key">Подпись:</span> <span class="sig-line"></span></div>
-  <div class="sig-row"><span class="sig-key">Дата:</span> <span class="sig-line">${date}</span></div>
+  <div class="sig-row"><span class="sig-key">ФИО:</span> <span class="sig-line"${INLINE_FILL_LINE}>${escapeHtml(sig.fio)}</span></div>
+  <div class="sig-row"><span class="sig-key">Должность:</span> <span class="sig-line"${INLINE_FILL_LINE}>${escapeHtml(sig.position)}</span></div>
+  <div class="sig-row"><span class="sig-key">Подпись:</span> <span class="sig-line"${INLINE_FILL_LINE}></span></div>
+  <div class="sig-row"><span class="sig-key">Дата:</span> <span class="sig-line"${INLINE_FILL_LINE}>${date}</span></div>
 </div>`;
 }
 
@@ -130,7 +135,7 @@ function renderReceiptCondition(answers: RepairChecklistAnswers, blank: boolean)
   const rows = readConditionItems(answers)
     .map((it) => {
       const val = blank ? '' : it.value.trim();
-      return `<div class="hdr-row"><span class="hdr-label">${escapeHtml(it.label)}:</span> <span class="rc-line">${escapeHtml(val)}</span></div>`;
+      return `<div class="hdr-row"><span class="hdr-label"${INLINE_LABEL_BOLD}>${escapeHtml(it.label)}:</span> <span class="rc-line"${INLINE_FILL_LINE}>${escapeHtml(val)}</span></div>`;
     })
     .join('');
   return `<div class="meta rc-block"><div class="rc-title">Состояние при поступлении</div>${rows}</div>`;
@@ -140,7 +145,7 @@ function renderReceiptCondition(answers: RepairChecklistAnswers, blank: boolean)
 // резолвленный пресет (должность/ФИО идентифицируют утверждающего), место подписи — прочерк.
 function renderApproverGrif(answers: RepairChecklistAnswers): string {
   const { position, name } = resolveEngineActApprover(readApproverGrif(answers));
-  return `<div class="grif"><div class="grif-title">Утверждаю</div><div>${escapeHtml(position)}</div><div class="grif-sign"><span class="grif-line"></span>&nbsp;${escapeHtml(
+  return `<div class="grif"><div class="grif-title">Утверждаю</div><div>${escapeHtml(position)}</div><div class="grif-sign"><span class="grif-line"${INLINE_FILL_LINE}></span>&nbsp;${escapeHtml(
     name,
   )}</div></div>`;
 }
