@@ -45,6 +45,7 @@ function makeDb() {
     'contract_id',
     'customer_id',
     'contract_section_number',
+    'reclamation_flag',
   ];
   for (const [i, code] of codes.entries()) {
     sqlite
@@ -109,6 +110,16 @@ function seedContract(sqlite: any, opts: { number: string; section?: string; sho
 }
 
 describe('строка этапа работ', () => {
+  it('признак рекламации приезжает из карточки двигателя в строку', async () => {
+    const { sqlite, db } = makeDb();
+    await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');
+    let listed = await listWorkSheetRows(db);
+    expect(listed.rows[0]?.engineIsReclamation).toBe(false);
+    setFlag(sqlite, 'eng-1', 'reclamation_flag', true);
+    listed = await listWorkSheetRows(db);
+    expect(listed.rows[0]?.engineIsReclamation).toBe(true);
+  });
+
   it('ложится записью истории с полями узла и датой строки', async () => {
     const { sqlite, db } = makeDb();
     const r = await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');

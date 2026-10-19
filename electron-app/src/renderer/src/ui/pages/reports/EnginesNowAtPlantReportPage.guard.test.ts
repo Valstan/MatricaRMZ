@@ -79,6 +79,7 @@ describe('отчёт-список «сейчас на заводе»', () => {
     expect(PAGE).toContain("label: 'Где сейчас?'");
     expect(PAGE).toContain("{ id: 'daysOnSite', label: 'Дней на заводе'");
     expect(PAGE).toContain("{ id: 'scrap', label: 'Утиль'");
+    expect(PAGE, 'метка «Рекламация» потеряна — признак виден только ступенью').toContain("id: 'reclamation'");
     expect(PAGE).toContain("{ id: 'state', label: 'Состояние'");
     expect(PAGE).toContain("{ id: 'stageAt', label: 'Дата операции'");
     expect(PAGE, 'колонка и ступень снова меряют разное под одним именем').not.toContain("label: 'Дата этапа'");
@@ -90,6 +91,7 @@ describe('отчёт-список «сейчас на заводе»', () => {
     expect(facetIds).toContain("'factoryStage'");
     expect(facetIds, 'ступень «История» потеряна — отбор по прохождению этапов не сделать').toContain("'hasStage'");
     expect(PAGE).toContain("'scrap'");
+    expect(PAGE, 'ступень «Дата приёмки рекламации» потеряна').toContain("'reclamationAccepted'");
   });
 
   it('точные срезы «Истории»; «Текущее состояние» гасит период (владелец 14.10.2026)', () => {

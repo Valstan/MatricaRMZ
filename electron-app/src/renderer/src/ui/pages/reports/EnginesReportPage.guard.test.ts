@@ -61,6 +61,17 @@ describe('отчёт-список «Двигатели»', () => {
     expect(PAGE).toContain('data-report-group-by');
     expect(PAGE).toContain('rowGroupLabel={(r) => groupLabelByRow.get(r.id) || null}');
     expect(PAGE, 'щелчок по строке — карточка двигателя').toContain('onClick: () => props.onOpenEngine(it.row.id)');
-    for (const g of ["case 'contract':", "case 'brand':", "case 'customer':", "case 'customer_contract':"]) expect(PAGE).toContain(g);
+    for (const g of ["case 'contract':", "case 'brand':", "case 'customer':", "case 'customer_contract':", "case 'reclamation':"]) expect(PAGE).toContain(g);
+  });
+
+  it('рекламация: метка с датой приёмки, месяцы в группировке', () => {
+    // Признак живёт на карточке двигателя; отчёт показывает его сразу, а не только ступенью.
+    expect(PAGE).toContain("id: 'reclamation'");
+    expect(PAGE).toContain("label: 'Рекламация'");
+    expect(PAGE).toContain('e.reclamationAcceptedDate');
+    expect(PAGE, 'статистика по месяцам не заведена на доменную сетку').toContain(
+      'reclamationMonthGroup(r.reclamationAcceptedDate)',
+    );
+    expect(PAGE).toContain('По месяцу рекламации');
   });
 });

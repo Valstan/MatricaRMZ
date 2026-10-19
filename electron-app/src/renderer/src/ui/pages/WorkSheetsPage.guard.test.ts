@@ -65,6 +65,13 @@ describe('этапы работ — экран', () => {
     expect(UI_SEARCH).toContain("'этапы ремонта'");
   });
 
+  it('видит рекламационные двигатели: метка-колонка, признак строки и ступень', () => {
+    expect(PAGE).toContain("id: 'reclamation'");
+    expect(PAGE).toContain("label: 'Рекламация'");
+    expect(PAGE).toContain('r.engineIsReclamation');
+    expect(SERVICE, 'признак не читается из карточки при чтении строк').toContain('getEngineReclamationFlags');
+  });
+
   it('вкладка заведена в реестре разделов, меню и приложении под правом на операции', () => {
     expect(SECTIONS).toContain("work_sheets: 'Этапы ремонта'");
     expect(SECTIONS).toContain("production: ['engines', 'now_at_plant', 'work_sheets'");

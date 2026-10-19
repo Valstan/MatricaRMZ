@@ -34,6 +34,20 @@ function parseMonth(dayKey: string): { year: number; month: number } | null {
   return { year, month };
 }
 
+function monthGroup(atMs: number | null | undefined, prefix: string, emptyLabel: string, emptyRank: number): GroupKey {
+  if (typeof atMs !== 'number' || !Number.isFinite(atMs) || atMs <= 0) {
+    return { key: `${prefix}:none`, label: emptyLabel, rank: emptyRank };
+  }
+  const parsed = parseMonth(moscowDayKey(atMs));
+  if (!parsed) return { key: `${prefix}:none`, label: emptyLabel, rank: emptyRank };
+  const { year, month } = parsed;
+  return {
+    key: `${prefix}:${year}-${String(month).padStart(2, '0')}`,
+    label: `${MONTH_NAMES[month - 1]} ${year}`,
+    rank: -(year * 12 + month),
+  };
+}
+
 /**
  * Группа «по дате прихода»: календарный месяц прихода («Октябрь 2026»).
  * Порядок — хронологический, старые месяцы выше: отчёт читается как лента времени.
@@ -41,17 +55,16 @@ function parseMonth(dayKey: string): { year: number; month: number } | null {
  * но молча терять такую строку хуже, чем показать её отдельно).
  */
 export function arrivalMonthGroup(atMs: number | null | undefined): GroupKey {
-  if (typeof atMs !== 'number' || !Number.isFinite(atMs) || atMs <= 0) {
-    return { key: 'arrival:none', label: 'Без даты прихода', rank: Number.MIN_SAFE_INTEGER };
-  }
-  const parsed = parseMonth(moscowDayKey(atMs));
-  if (!parsed) return { key: 'arrival:none', label: 'Без даты прихода', rank: Number.MIN_SAFE_INTEGER };
-  const { year, month } = parsed;
-  return {
-    key: `arrival:${year}-${String(month).padStart(2, '0')}`,
-    label: `${MONTH_NAMES[month - 1]} ${year}`,
-    rank: -(year * 12 + month),
-  };
+  return monthGroup(atMs, 'arrival', 'Без даты прихода', Number.MIN_SAFE_INTEGER);
+}
+
+/**
+ * Группа «по месяцу приёмки рекламации»: та же календарная сетка, что у прихода
+ * («Октябрь 2026»), но свой префикс ключа — иначе группы двух разрезов слиплись бы.
+ * Рекламация без даты приёмки — отдельная группа в конце, а не молчаливая потеря.
+ */
+export function reclamationMonthGroup(atMs: number | null | undefined): GroupKey {
+  return monthGroup(atMs, 'reclamation', 'Без даты рекламации', Number.MIN_SAFE_INTEGER);
 }
 
 /**

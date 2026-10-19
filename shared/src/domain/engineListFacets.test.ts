@@ -140,6 +140,17 @@ describe('ступени по датам', () => {
     expect(ids(applyEngineFacets(dated, { defectDate: { from: '2026-09-01' } }))).toEqual(['d1', 'd2']);
   });
 
+  it('рекламация: отбор по дате приёмки, а не по флагу', () => {
+    const rows = [
+      { id: 'r1', isReclamation: true, reclamationAcceptedDate: DAY_05 },
+      { id: 'r2', isReclamation: true, reclamationAcceptedDate: DAY_09 },
+      { id: 'r3' },
+    ] as unknown as EngineListItem[];
+    expect(ids(applyEngineFacets(rows, { reclamationAccepted: { from: '2026-09-05', to: '2026-09-07' } }))).toEqual(['r1']);
+    expect(ids(applyEngineFacets(rows, { reclamationAccepted: { from: '2026-09-09' } }))).toEqual(['r2']);
+    expect(engineFacetById('reclamationAccepted')?.label).toBe('Дата приёмки рекламации');
+  });
+
   it('пустой диапазон не отбирает и не считается активной ступенью', () => {
     expect(ids(applyEngineFacets(dated, { arrivalDate: {} }))).toEqual(['d1', 'd2', 'd3']);
     expect(activeEngineFacetCount({ arrivalDate: {} })).toBe(0);

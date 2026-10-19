@@ -57,4 +57,10 @@ describe('отчёт-список «Этапы работ»', () => {
     expect(PAGE, 'щелчок по строке — карточка двигателя').toContain('onClick: () => props.onOpenEngine(it.row.engineId)');
     for (const g of ["case 'type':", "case 'contract':", "case 'workshop':", "case 'customer':", "case 'customer_type':"]) expect(PAGE).toContain(g);
   });
+
+  it('видит рекламационные двигатели: метка-колонка и признак строки', () => {
+    expect(PAGE).toContain("id: 'reclamation'");
+    expect(PAGE).toContain("label: 'Рекламация'");
+    expect(PAGE).toContain('r.engineIsReclamation');
+  });
 });

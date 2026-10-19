@@ -47,6 +47,7 @@ export type EngineFacetId =
   | 'workshop'
   | 'scrap'
   | 'reclamation'
+  | 'reclamationAccepted'
   | 'arrivalDate'
   | 'defectDate'
   | 'shippingDate'
@@ -462,6 +463,14 @@ export function engineFacets(
       id: 'shippingDate',
       label: 'Дата отгрузки',
       dateOf: (e) => dateMs(e.shippingDate),
+    },
+    // Приёмка по рекламации — отдельная дата карточки (не стадия ремонта): по ней считают,
+    // сколько рекламаций приняли за месяц и какие именно.
+    {
+      kind: 'dateRange',
+      id: 'reclamationAccepted',
+      label: 'Дата приёмки рекламации',
+      dateOf: (e) => dateMs(e.reclamationAcceptedDate),
     },
     // Даты стадий карточки (B2 программы осень-2026): отчёт «Двигатели» отбирает по ним
     // «ремонт начат в периоде» и «отремонтированы в периоде» — исторически, включая отгруженные.

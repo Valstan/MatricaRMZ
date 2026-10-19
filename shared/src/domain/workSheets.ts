@@ -335,6 +335,12 @@ export type WorkSheetRow = {
    * показывают одно и то же. Кладутся чтением, не снимком (см. customerName выше).
    */
   engineStageCodes: string[];
+  /**
+   * Рекламационный ли двигатель строки — EAV-флаг карточки (`reclamation_flag`), читается
+   * при чтении строк тем же правилом, что в списке двигателей. Нужен для ступени и колонки
+   * «Рекламация» в списке этапов: иначе признак виден только в каталоге двигателей.
+   */
+  engineIsReclamation?: boolean;
 };
 
 /**
@@ -368,6 +374,15 @@ export function workSheetFacets(
   const facets: FacetDescriptor<WorkSheetRow>[] = [
     { kind: 'values', id: 'type', label: 'Вид работ', valueOf: (r) => val(r.typeCode, r.typeName || r.typeCode) },
     { kind: 'values', id: 'engineBrand', label: 'Марка', valueOf: (r) => val(text(r.engineBrand)) },
+    // Признак живёт на карточке двигателя, но спрашивают его в списке этапов: «покажи всё,
+    // что делали по рекламационным». Значения — как в списке двигателей, чтобы отборы
+    // в обоих списках читались одинаково.
+    {
+      kind: 'values',
+      id: 'engineReclamation',
+      label: 'Рекламация',
+      valueOf: (r) => (r.engineIsReclamation === true ? { value: 'yes', label: 'рекламационный' } : { value: 'no', label: 'обычный' }),
+    },
     { kind: 'values', id: 'customer', label: 'Заказчик', valueOf: (r) => val(text(r.customerName)) },
     // Отбираем по КОРОТКОЙ метке: именно ею договор называют в цеху, и именно она стоит
     // в колонке. Ступень, отбирающая по невидимому значению, читается как сломанная.

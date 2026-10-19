@@ -184,6 +184,7 @@ describe('ступени фильтра этапов работ', () => {
     expect(facets.map((f) => f.id)).toEqual([
       'type',
       'engineBrand',
+      'engineReclamation',
       'customer',
       'contract',
       'workshop',
@@ -207,6 +208,13 @@ describe('ступени фильтра этапов работ', () => {
     expect(applyFacets(facets, rows, { type: ['ukladka'] }).map((r) => r.id)).toEqual(['a', 'b', 'c']);
     expect(applyFacets(facets, rows, { hasRepeat: ['repeat'] }).map((r) => r.id)).toEqual(['b', 'c']);
     expect(applyFacets(facets, rows, { hasRepeat: ['first'] }).map((r) => r.id)).toEqual(['a']);
+  });
+
+  it('«Рекламация» — признак двигателя строки, а не вид работ', () => {
+    const facets = workSheetFacets([]);
+    const rows = [row({ id: 'a', engineIsReclamation: true }), row({ id: 'b' })];
+    expect(applyFacets(facets, rows, { engineReclamation: ['yes'] }).map((r) => r.id)).toEqual(['a']);
+    expect(applyFacets(facets, rows, { engineReclamation: ['no'] }).map((r) => r.id)).toEqual(['b']);
   });
 
   it('движковой ступени прохождения этапов здесь нет — 12.10.2026 (дубль «Вид работ», снята решением владельца)', () => {

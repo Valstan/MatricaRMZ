@@ -195,6 +195,8 @@ export type EngineListItem = {
    */
   lastActivityAt?: number;
   isReclamation?: boolean;
+  /** Дата приёмки по рекламации (`reclamation_accepted_date`) — для отбора и статистики по месяцам. */
+  reclamationAcceptedDate?: number;
   isRepeatArrival?: boolean;
   isNumberCollision?: boolean;
   /**

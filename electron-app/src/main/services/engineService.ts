@@ -864,6 +864,41 @@ export async function resolveEngineLabels(
 }
 
 /**
+ * Признак «рекламационный» по горстке двигателей — одним пакетным чтением EAV-флага
+ * (`reclamation_flag`). Список этапов спрашивает его у каждой строки, поэтому построчные
+ * `getEngineDetails` не годятся: это был бы запрос на строку. Правило разбора — то же,
+ * что в `listEngines` (флаг хранится в EAV; strict-реплика его ещё не отдаёт).
+ */
+export async function getEngineReclamationFlags(
+  db: BetterSQLite3Database,
+  engineIds: readonly string[],
+): Promise<Map<string, boolean>> {
+  const out = new Map<string, boolean>();
+  const ids = [...new Set(engineIds.map((id) => String(id ?? '').trim()).filter(Boolean))];
+  if (ids.length === 0) return out;
+  const defs = await getEngineAttrDefs(db);
+  const defId = defs['reclamation_flag'];
+  if (!defId) return out;
+  const rows = await collectChunked(ids, (idsChunk) =>
+    db
+      .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
+      .from(attributeValues)
+      .where(
+        and(
+          inArray(attributeValues.entityId, idsChunk),
+          eq(attributeValues.attributeDefId, defId),
+          isNull(attributeValues.deletedAt),
+        ),
+      ),
+  );
+  for (const row of rows) {
+    const raw = row.valueJson == null ? null : safeJsonParse(String(row.valueJson));
+    out.set(String(row.entityId), isEavFlagSet(raw));
+  }
+  return out;
+}
+
+/**
  * Имена контрагентов: краткое и полное. Краткое (`short_name`) — то, чем контрагента
  * называют в наряде и в цеху; полное остаётся для подсказки и бумаги. Без краткого
  * возвращается полное — пустой ячейки быть не должно.
@@ -921,6 +956,7 @@ export async function listEngines(
   const statusDateDefIds = STATUS_CODES.map((c) => defs[statusDateCode(c)]).filter(Boolean) as string[];
   const attachmentsDefId = defs['attachments'];
   const reclamationFlagDefId = defs['reclamation_flag'];
+  const reclamationAcceptedDefId = defs['reclamation_accepted_date'];
   const repeatArrivalDefId = defs['repeat_arrival_flag'];
   const numberCollisionDefId = defs['number_collision_flag'];
   const reservationDefId = defs[ENGINE_RESERVATION_CODE];
@@ -966,6 +1002,7 @@ export async function listEngines(
     scrapReasonDefId,
     attachmentsDefId,
     reclamationFlagDefId,
+    reclamationAcceptedDefId,
     repeatArrivalDefId,
     numberCollisionDefId,
     reservationDefId,
@@ -1121,6 +1158,13 @@ export async function listEngines(
       const v = (rowValues.get(arrivalDateDefId)?.json ?? null);
       const raw = v != null ? safeJsonParse(v) : null;
       arrivalDate = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
+    }
+    let reclamationAcceptedDate: number | null = null;
+    if (reclamationAcceptedDefId) {
+      const v = (rowValues.get(reclamationAcceptedDefId)?.json ?? null);
+      const raw = v != null ? safeJsonParse(v) : null;
+      const parsed = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
+      reclamationAcceptedDate = typeof parsed === 'number' && Number.isFinite(parsed) && parsed > 0 ? parsed : null;
     }
     let legacyShippingDate: number | null = null;
     if (shippingDateDefId) {
@@ -1343,6 +1387,7 @@ export async function listEngines(
       ...(mergedBest && mergedBest.pass > 1 ? { lastStagePass: mergedBest.pass } : {}),
       ...(lastActivityAt > 0 ? { lastActivityAt } : {}),
       ...(isReclamation ? { isReclamation: true } : {}),
+      ...(reclamationAcceptedDate != null ? { reclamationAcceptedDate } : {}),
       ...(isRepeatArrival ? { isRepeatArrival: true } : {}),
       ...(isNumberCollision ? { isNumberCollision: true } : {}),
       ...(liveReservation

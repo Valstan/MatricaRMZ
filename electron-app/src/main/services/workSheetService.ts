@@ -32,7 +32,7 @@ import {
 } from '@matricarmz/shared';
 
 import { operations } from '../database/schema.js';
-import { getEngineDetails, getEngineRepairHistoryMap, resolveEngineLabels } from './engineService.js';
+import { getEngineDetails, getEngineReclamationFlags, getEngineRepairHistoryMap, resolveEngineLabels } from './engineService.js';
 import { getEngineActDatesMap, getOperation, listOperationsByType, softDeleteOperation, upsertOperation } from './operationService.js';
 import { ensureRepairStageRow, listRepairStageRows, stageRank } from './repairStageService.js';
 
@@ -431,6 +431,7 @@ export async function listWorkSheetRows(
   const actEngineIds = [...new Set(actOps.map((o) => String(o.engineEntityId)))];
   const actCandidateIds = actEngineIds.filter((id) => !pickedEngineIds.includes(id));
   const labels = await resolveEngineLabels(db, [...pickedEngineIds, ...actCandidateIds], { withCounterparty: true });
+  const reclamationByEngineId = await getEngineReclamationFlags(db, [...pickedEngineIds, ...actCandidateIds]);
   // Этапы из акта (унификация актов, 10.10.2026): arrival/disassembly_defect выводятся
   // из дат листа, хранимые строки того же кода в тот же день их дублируют и скрываются.
   const actDatesByEngine = await getEngineActDatesMap(db, [...pickedEngineIds, ...actCandidateIds]);
@@ -482,6 +483,7 @@ export async function listWorkSheetRows(
       repairStageRowId: meta.repairStage?.rowId ?? null,
       repeatPass: meta.repeat?.pass ?? 1,
       engineStageCodes: enrichedCodesByEngine.get(engineId) ?? [],
+      engineIsReclamation: reclamationByEngineId.get(engineId) === true,
     };
     if (meta.sheet && repairHistoryEntryType(meta, String(op.operationType)) === 'sheet') {
       rows.push({
@@ -533,6 +535,7 @@ export async function listWorkSheetRows(
           repairStageRowId: null,
           repeatPass: 1,
           engineStageCodes: enrichedCodesByEngine.get(engineId) ?? [],
+          engineIsReclamation: reclamationByEngineId.get(engineId) === true,
         });
       }
     }
