@@ -5,6 +5,7 @@ import { DeletionIntentDialog } from '../components/DeletionIntentDialog.js';
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
+import { ListExportButtons } from '../components/ListExportButtons.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
@@ -423,6 +424,15 @@ export function CounterpartiesPage(props: {
             Печать списка
           </Button>
         )}
+        <ListExportButtons
+          title="Список контрагентов"
+          columns={printColumns}
+          visibleColumnIds={visibleColumns.map((c) => c.id)}
+          rows={sorted}
+          selectedRows={sorted.filter((row: any) => selection.isSelected(String(row.id)))}
+          storageKey="list:counterparties:printFields"
+          filtersSummary={describeFacetSelection([], {}, { search: query })}
+        />
         <ColumnSettingsButton
           label="Колонки списка"
           columns={columnDescriptors}

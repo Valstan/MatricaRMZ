@@ -28,6 +28,7 @@ import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from
 import { FacetFilter, FacetToggleButton } from '../../components/FacetFilter.js';
 import { Input } from '../../components/Input.js';
 import { ListCount } from '../../components/ListCount.js';
+import { ListExportButtons } from '../../components/ListExportButtons.js';
 import { ListPrintDialog } from '../../components/ListPrintDialog.js';
 import { PageToolbar, ToolbarPin } from '../../components/PageToolbar.js';
 import { RowNumberHeaderCell } from '../../components/RowNumberCell.js';
@@ -334,6 +335,19 @@ export function EnginesReportPage(props: ListReportPageProps) {
             Печать списка
           </Button>
         )}
+        <ListExportButtons
+          enabled={props.canExport}
+          title="Двигатели"
+          columns={buildListPrintColumns(columns)}
+          visibleColumnIds={visibleColumns.map((c) => c.id)}
+          rows={sorted.length > 0 ? items.filter((it) => it.kind === 'row').map((it) => (it.kind === 'row' ? it.row : null)!).filter(Boolean) : []}
+          selectedRows={[]}
+          storageKey="report:engines:printFields"
+          filtersSummary={describeFacetSelection(facets, activeFacets, {
+            search: ui.query,
+            grouping: ui.groupBy === 'none' ? '' : GROUP_BY_LABELS[ui.groupBy],
+          })}
+        />
       </PageToolbar>
 
       <div style={{ marginTop: 8, flex: '0 0 auto' }}>

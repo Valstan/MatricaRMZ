@@ -17,6 +17,7 @@ import {
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
+import { ListExportButtons } from '../components/ListExportButtons.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
@@ -592,6 +593,21 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
             Печать списка
           </Button>
         )}
+        <ListExportButtons
+          title="Список нарядов"
+          columns={printColumns}
+          visibleColumnIds={visibleColumns.map((c) => c.id)}
+          rows={displayRows}
+          selectedRows={displayRows.filter((row: any) => selection.isSelected(String(row.id)))}
+          storageKey="list:work-orders:printFields"
+          filtersSummary={describeFacetSelection([], {}, {
+            search: query,
+            extra: [
+              month ? `Месяц: ${formatMonthLabel(month) || month}` : '',
+              typeKind ? `Тип: ${WORK_ORDER_KIND_LABELS[typeKind as WorkOrderKind] ?? typeKind}` : '',
+            ],
+          })}
+        />
         <ColumnSettingsButton
           label="Колонки списка"
           columns={columnDescriptors}

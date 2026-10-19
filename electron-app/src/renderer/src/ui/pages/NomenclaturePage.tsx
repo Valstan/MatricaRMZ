@@ -9,6 +9,7 @@ import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { Input } from '../components/Input.js';
+import { ListExportButtons } from '../components/ListExportButtons.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
@@ -778,6 +779,25 @@ export function NomenclaturePage(props: {
                   Печать списка
                 </Button>
               )}
+              <ListExportButtons
+                title="Склад · Номенклатура"
+                columns={printColumns}
+                visibleColumnIds={visibleColumns.map((c) => c.id)}
+                rows={printRows}
+                selectedRows={[]}
+                storageKey="list:nomenclature:columns:printFields"
+                filtersSummary={describeFacetSelection([], {}, {
+                  search: query,
+                  extra: [
+                    itemType ? `Тип: ${itemTypeOptions.find((item) => item.id === itemType)?.label ?? itemType}` : '',
+                    directoryKind
+                      ? `Источник: ${DIRECTORY_KIND_OPTIONS.find((option) => option.value === directoryKind)?.label ?? directoryKind}`
+                      : '',
+                    groupId ? `Группа: ${lookupLabelById(lookups.nomenclatureGroups, groupId) || groupId}` : '',
+                    collapseVariants ? 'Артикульные варианты свёрнуты' : '',
+                  ],
+                })}
+              />
               <ColumnSettingsButton
                 label="Колонки списка"
                 columns={columnDescriptors}

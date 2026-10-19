@@ -16,6 +16,7 @@ import {
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
+import { ListExportButtons } from '../components/ListExportButtons.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
@@ -650,6 +651,15 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
             Печать списка
           </Button>
         )}
+        <ListExportButtons
+          title="Список сотрудников"
+          columns={printColumns}
+          visibleColumnIds={visibleColumns.map((c) => c.id)}
+          rows={displayRows}
+          selectedRows={displayRows.filter((row: any) => selection.isSelected(String(row.id)))}
+          storageKey="list:employees:printFields"
+          filtersSummary={describeFacetSelection(EMPLOYEE_FACETS, facets as FacetSelection, { search: query })}
+        />
       </PageToolbar>
 
       {/* Диалог печати вне ряда кнопок: в ряду он уехал бы в меню переполнения вместе со своей
