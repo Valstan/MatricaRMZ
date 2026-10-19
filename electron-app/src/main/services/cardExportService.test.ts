@@ -44,9 +44,9 @@ describe('разбор формы карточки', () => {
     const blocks = parseCardHtml(NARYAD_HTML);
     const tables = blocks.filter((b) => b.kind === 'table');
     expect(tables).toHaveLength(2);
-    const crew = tables[1] as { head: Array<Array<{ runs: Array<{ text: string }>; bold: boolean }>>; body: unknown[] };
-    expect(crew.head[0]!.map((c) => c.runs[0]!.text)).toEqual(['Сотрудник', 'КТУ', 'Подпись']);
-    expect(crew.head[0]!.every((c) => c.bold)).toBe(true);
+    const crew = tables[1] as { head: Array<{ cells: Array<{ runs: Array<{ text: string }>; bold: boolean }> }>; body: unknown[] };
+    expect(crew.head[0]!.cells.map((c) => c.runs[0]!.text)).toEqual(['Сотрудник', 'КТУ', 'Подпись']);
+    expect(crew.head[0]!.cells.every((c) => c.bold)).toBe(true);
     expect(crew.body).toHaveLength(1);
   });
 
@@ -124,10 +124,10 @@ describe('целый печатный лист акта', () => {
       '<table><tbody><tr><td>a</td><td class="num">1</td><td class="ctr">да</td></tr>' +
         '<tr><td colspan="3">Нет данных</td></tr></tbody></table>',
     );
-    const body = (blocks[0] as { body: Array<Array<{ colspan: number; align: string | null }>> }).body;
-    expect(body[0]![1]).toMatchObject({ align: 'right' });
-    expect(body[0]![2]).toMatchObject({ align: 'center' });
-    expect(body[1]![0]!.colspan).toBe(3);
+    const body = (blocks[0] as { body: Array<{ cells: Array<{ colspan: number; align: string | null }> }> }).body;
+    expect(body[0]!.cells[1]).toMatchObject({ align: 'right' });
+    expect(body[0]!.cells[2]).toMatchObject({ align: 'center' });
+    expect(body[1]!.cells[0]!.colspan).toBe(3);
   });
 
   it('подписная линия появляется только у пустого span — значение в строке не дублируется линией', () => {
@@ -298,5 +298,98 @@ describe('форма требования к заказчику', () => {
     expect(xml).not.toContain('font-family');
     // eslint-disable-next-line no-control-regex -- ровно эти символы и запрещены в XML
     expect(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(xml)).toBe(false);
+  });
+});
+
+// Табель Т-13 (P5b-3, 19.10.2026) — самая сложная из форм выгрузки: альбомный лист, сетка дней
+// с высотой строк под запись ручкой, переносы в шапке, список комментариев отдельным листом.
+describe('печатный лист табеля', () => {
+  const LANDSCAPE_CONTENT = 16838 - 2 * 680;
+
+  const GRID =
+    '<table style="table-layout:auto;width:100%">' +
+    '<thead><tr><th style="text-align:center;width:1%">№</th><th style="text-align:left;width:1%">ФИО</th>' +
+    '<th style="text-align:center;width:3%">1<br/><span>пн</span></th><th style="text-align:center;width:3%">2<br/><span>вт</span></th></tr></thead>' +
+    '<tbody><tr style="height:40px">' +
+    '<td style="text-align:center;width:1%">1</td>' +
+    '<td style="text-align:left;width:1%"><span style="font-size:13px;font-weight:700">Иванов И.И.</span></td>' +
+    '<td style="text-align:center;width:3%"><div style="font-size:14px;font-weight:800">8</div></td>' +
+    '<td style="text-align:center;width:3%"><div style="font-size:12px">в</div></td>' +
+    '</tr></tbody></table>';
+
+  const DECODE =
+    '<div style="page-break-before:always">' +
+    '<div style="margin-bottom:8px;font-size:12px"><b>Иванов И.И.</b><ul>' +
+    '<li>15 Июль — был в отпуске</li><li>16 Июль — цех</li></ul></div></div>';
+
+  it('высота строки берётся из формы, перенос внутри ячейки не склеивает текст', () => {
+    const blocks = parseCardHtml('<table><tbody><tr style="height:40px"><td>1<br/>пн</td></tr></tbody></table>');
+    const table = blocks[0] as { body: Array<{ heightPx: number | null; cells: Array<{ runs: Array<{ text: string; br?: true }> }> }> };
+    expect(table.body[0]!.heightPx).toBe(40);
+    expect(table.body[0]!.cells[0]!.runs.map((r) => (r.br ? '|' : r.text)).join('')).toBe('1|пн');
+  });
+
+  it('пункт списка становится своим абзацем с маркером, а не приклеивается к строке ФИО', () => {
+    const blocks = parseCardHtml('<div style="font-size:12px"><b>Иванов И.И.</b><ul><li>15 Июль — был в отпуске</li></ul></div>');
+    expect(blocks.map((b) => (b.kind === 'paragraph' ? b.bullet : null))).toEqual([false, true]);
+    const bullet = blocks[1] as { runs: Array<{ text: string }>; sizePx: number | null };
+    expect(bullet.runs[0]!.text).toBe('15 Июль — был в отпуске');
+    // Кегль абзаца-обёртки доживает до пункта: иначе расшифровка уехала бы кеглем страницы.
+    expect(bullet.sizePx).toBe(12);
+  });
+
+  it('табель уходит в Word альбомом: разрыв листа, высота строк, переносы шапки и маркеры на месте', async () => {
+    const buffer = await buildCardDocument({
+      title: 'Табель учёта рабочего времени за Июль 2026',
+      fileBaseName: 'Табель Июль 2026',
+      orientation: 'landscape',
+      sections: [
+        { id: 'grid', title: 'Табель', html: GRID, hideTitle: true },
+        { id: 'decode', title: 'Комментарии по сотрудникам', html: DECODE, hideTitle: true },
+      ],
+    });
+    const xml = await documentXml(buffer);
+    // Лист — альбом (сетка 31 дня в книжную ширину не влезает).
+    expect(/<w:pgSz[^>]*w:w="16838"[^>]*w:h="11906"/.test(xml)).toBe(true);
+    // Высота строки сетки — данные формы (40px = 600 твипов): клетки под запись ручкой.
+    expect(xml).toContain('w:trHeight');
+    expect(xml).toContain('w:val="600"');
+    // «1» и «пн» в шапке — разные строки, а не слипшийся текст.
+    expect(xml).toContain('<w:br/>');
+    // Комментарии начинаются с нового листа.
+    expect(xml).toContain('w:pageBreakBefore');
+    const breakAt = xml.indexOf('pageBreakBefore');
+    expect(xml.slice(breakAt, breakAt + 400)).toContain('Иванов И.И.');
+    // Комментарии — список, в Word это маркированные абзацы.
+    expect(xml).toContain('w:numPr');
+    expect(xml).toContain('был в отпуске');
+    expect(xml).not.toContain('font-family');
+  });
+
+  it('«сжатые по содержимому» колонки держат нижний порог, а лишнее снимается со свободных: сетка влезает в лист', async () => {
+    const html =
+      '<table><tr><th style="width:1%">№</th><th style="width:1%">ФИО</th><th style="width:92%">дни</th></tr>' +
+      '<tr><td>1</td><td>Иванов И.И.</td><td></td></tr></table>';
+    const buffer = await buildCardDocument({
+      title: 'Табель',
+      fileBaseName: 'Табель',
+      orientation: 'landscape',
+      sections: [{ id: 'grid', title: 'Табель', html, hideTitle: true }],
+    });
+    const xml = await documentXml(buffer);
+    const cols = [...xml.matchAll(/<w:gridCol w:w="(\d+)"/g)].map((m) => Number(m[1]));
+    expect(cols).toHaveLength(3);
+    expect(Math.min(...cols)).toBeGreaterThanOrEqual(240);
+    expect(cols.reduce((a, b) => a + b, 0)).toBe(LANDSCAPE_CONTENT);
+  });
+
+  it('без ориентации табель ушёл бы книжным листом — умолчание остаётся портретным', async () => {
+    const buffer = await buildCardDocument({
+      title: 'Акт комплектности',
+      fileBaseName: 'Акт',
+      sections: [{ id: 'act', title: 'Акт', html: '<div>Поршень</div>', hideTitle: true }],
+    });
+    const xml = await documentXml(buffer);
+    expect(/<w:pgSz[^>]*w:w="11906"[^>]*w:h="16838"/.test(xml)).toBe(true);
   });
 });

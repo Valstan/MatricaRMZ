@@ -616,13 +616,18 @@ export function StockDocumentDetailsPage(props: {
 
   // Ф3 (G11): печать требования-накладной (расход) / акта списания из карточки — печатается
   // текущее состояние экрана (для непроведённого — черновик как пикинг-лист, это осознанно).
-  function printIssueDocument() {
+  // Форма описывается один раз — её же берёт выгрузка в Word, иначе сборщики разъедутся.
+  function buildIssueDocumentForm() {
     const nomenclatureById = new Map(nomenclature.map((item) => [String(item.id), item]));
     const warehouseLabel = warehouseOptions.find((o) => o.id === warehouseId)?.label ?? '';
     const counterpartyLabel = counterpartyOptions.find((o) => o.id === counterpartyId)?.label ?? '';
     const engineLabel = engineOptions.find((o) => o.id === engineId)?.label ?? '';
     const reasonText = isWriteoff ? (writeoffReasonOptions.find((o) => o.id === reason)?.label ?? reason) : reason;
     const title = isWriteoff ? `Акт списания № ${docNo}` : `Требование-накладная № ${docNo}`;
+    // Заголовок листа печатается секцией, а не живёт шапкой окна: в окне печати h1 — в зоне
+    // `.no-print`, и без этой секции ни бумага, ни файл Word не носят номера документа.
+    // Тот же приём у наряда («Заголовок») и табеля («Шапка листа»).
+    const titleHtml = `<div style="text-align:center;font-size:18px;font-weight:700;line-height:1.25;">${escapeHtml(title)}</div>`;
     const docDateMs = docDate ? new Date(`${docDate}T00:00:00`).getTime() : null;
 
     const mainRows: Array<[string, string]> = [
@@ -667,14 +672,32 @@ export function StockDocumentDetailsPage(props: {
   <div style="margin-top:10px;"><b>Получил:</b> ______________________ (Ф.И.О., подпись)</div>
 </div>`;
 
-    openPrintPreview({
+    return {
       title,
       ...(docDateMs ? { subtitle: `Дата: ${formatMoscowDate(docDateMs)}` } : {}),
       sections: [
+        { id: 'title', title: 'Заголовок', html: titleHtml, hideTitle: true },
         { id: 'main', title: 'Основное', html: mainHtml },
         { id: 'lines', title: 'Позиции', html: linesHtml },
         { id: 'sign', title: 'Подписи', html: signHtml },
       ],
+    };
+  }
+
+  function printIssueDocument() {
+    openPrintPreview(buildIssueDocumentForm());
+  }
+
+  /**
+   * Выгрузка накладной в Word: секции берутся у печати (`buildIssueDocumentForm`), поэтому файл
+   * повторяет лист; собирает файл main-процесс, он же ведёт «Сохранить как…».
+   */
+  async function exportIssueDocumentToWord() {
+    const form = buildIssueDocumentForm();
+    await window.matrica.exports.card({
+      title: form.title,
+      fileBaseName: form.title,
+      sections: form.sections,
     });
   }
 
@@ -743,6 +766,16 @@ export function StockDocumentDetailsPage(props: {
         {isAddressable ? (
           <Button variant="ghost" onClick={() => printIssueDocument()}>
             {isWriteoff ? 'Печать: акт списания' : 'Печать: требование-накладная'}
+          </Button>
+        ) : null}
+        {isAddressable ? (
+          <Button
+            variant="ghost"
+            data-stock-print-export="word"
+            title="Сохранить форму в Word: те же разделы, что у печати"
+            onClick={() => void exportIssueDocumentToWord()}
+          >
+            В Word
           </Button>
         ) : null}
         <Button variant="ghost" onClick={() => void refreshRefs()}>
