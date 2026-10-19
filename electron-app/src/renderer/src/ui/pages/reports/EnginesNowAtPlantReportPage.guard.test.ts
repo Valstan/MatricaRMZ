@@ -16,6 +16,7 @@ function src(rel: string): string {
 
 const PAGE = src('./EnginesNowAtPlantReportPage.tsx');
 const PRESET_PAGE = src('../ReportPresetPage.tsx');
+const LIST_PAGES = src('./listReportPages.ts');
 const DISPATCH = src('../../../../../main/services/reports/dispatch.ts');
 
 describe('отчёт-список «сейчас на заводе»', () => {
@@ -49,6 +50,14 @@ describe('отчёт-список «сейчас на заводе»', () => {
   it('сервис отчёт не строит — только экран (как у остальных списков)', () => {
     expect(DISPATCH).toContain("case 'engines_now_at_plant':");
     expect(PRESET_PAGE).toContain('const ListPage = LIST_REPORT_PAGES[');
+  });
+
+  // P9 (19.10.2026): отчёт открывают и кнопкой из «Этапов ремонта» — тогда возврат
+  // называется по месту («К этапам ремонта»); из меню и каталога остаётся прежнее.
+  it('возврат называет место: из этапов — к этапам, из меню — к каталогу', () => {
+    expect(LIST_PAGES, 'подписи возврата нет в рамке отчётов-списков').toContain('backLabel?: string;');
+    expect(PAGE).toContain("props.backLabel ?? 'К списку Отчётов'");
+    expect(PRESET_PAGE, 'подпись возврата не доходит до страницы-списка').toContain('{...(props.backLabel ? { backLabel: props.backLabel } : {})}');
   });
 
   it('страница — на общей обвязке списка: ступени, колонки, счётчик, «№», группировка, печать с заголовками', () => {

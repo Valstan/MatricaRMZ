@@ -162,9 +162,22 @@ describe('этапы работ — экран', () => {
   it('список ОДИН: вкладок нет, вид работ — колонка и ступень', () => {
     expect(PAGE, 'вкладки сняты').not.toContain('<CardTabs');
     expect(PAGE, 'вид работ — колонка списка').toContain("id: 'type', label: 'Вид работ'");
-    expect(PAGE, 'ступени общие для всего списка, без полей отдельного вида').toContain('workSheetFacets([])');
+    expect(PAGE, 'ступени колонок вида работ подключены — как в отчёте (P9 19.10.2026)').toContain('workSheetFacets(fieldColumns)');
+    expect(PAGE, 'колонки видов работ берутся из справочника, а не выдуманы').toContain('unionWorkSheetColumns(types)');
     expect(PAGE, 'движковые ступени — те же смыслы, что в списке двигателей').toContain('const stageTemplates = useRepairStageTemplateRefs();');
     expect(PAGE, 'раскладка колонок одна на список, а не на вид').toContain("useColumnLayout('list:workSheets:columns'");
+  });
+
+  // P9 (19.10.2026): «Этапы ремонта» и «Сейчас на заводе» — две двери одного вопроса
+  // «где двигатель сейчас». Кнопка в тулбаре этапов ведёт в отчёт-список, а «Назад» в
+  // отчёте называет место возврата: из меню он по-прежнему ведёт в каталог отчётов.
+  it('кнопка «Сейчас на заводе» ведёт в отчёт, возврат — к этапам', () => {
+    expect(PAGE).toContain('data-now-at-plant-open');
+    expect(PAGE, 'колбэк не подключён — кнопка глухая').toContain('props.onOpenNowAtPlant');
+    expect(APP, 'кнопка видна без права видеть отчёт').toContain("sectionGatedTabs.includes('now_at_plant') ? { onOpenNowAtPlant: () => openNowAtPlant('work_sheets') } : {}");
+    expect(APP, 'запоминаем место возврата не на всех входах').toContain("if (t === 'now_at_plant') {");
+    expect(APP, 'возврат из отчёта не контекстный').toContain('onBack={() => setTab(nowAtPlantBack)}');
+    expect(APP, 'подпись возврата не называет место').toContain("{ backLabel: 'К этапам ремонта' }");
   });
 
   it('новый этап работ берёт вид из фильтра, а не первый из справочника', () => {

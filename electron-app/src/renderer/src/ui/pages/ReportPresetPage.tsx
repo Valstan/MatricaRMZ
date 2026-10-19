@@ -130,13 +130,23 @@ export function ReportPresetPage(props: {
   /** Для отчётов-списков (`presentation: 'list'`): каталог двигателей приложения и переход в карточку. */
   engines?: EngineListItem[];
   onOpenEngine?: (id: string) => void;
+  /** Подпись кнопки возврата отчёта-списка: называет место возврата (см. `listReportPages`). */
+  backLabel?: string;
 }) {
   // Отчёт-список рисуется своим компонентом целиком: панель ступеней, колонки, группировка
   // (рамка «отчёт как список», см. `reports/listReportPages.ts`). Пресетная механика ниже —
   // фильтры, авто-сборка, экспорт — к нему не относится.
   const ListPage = LIST_REPORT_PAGES[resolveReportPresetId(String(props.presetId)) as ReportPresetId];
   if (ListPage) {
-    return <ListPage engines={props.engines ?? []} canExport={props.canExport} onOpenEngine={props.onOpenEngine ?? (() => {})} onBack={props.onBack} />;
+    return (
+      <ListPage
+        engines={props.engines ?? []}
+        canExport={props.canExport}
+        onOpenEngine={props.onOpenEngine ?? (() => {})}
+        onBack={props.onBack}
+        {...(props.backLabel ? { backLabel: props.backLabel } : {})}
+      />
+    );
   }
   return <ReportPresetTablePage {...props} />;
 }

@@ -26,6 +26,12 @@ export type ListReportPageProps = {
   canExport: boolean;
   onOpenEngine: (id: string) => void;
   onBack: () => void;
+  /**
+   * Подпись кнопки возврата. Отчёт-список открывают и из меню, и кнопкой из соседнего
+   * списка (P9 19.10.2026: «Сейчас на заводе» ↔ «Этапы ремонта»), поэтому кнопка называет
+   * место возврата, а не глухое «Назад». Не задана — страница берёт свою подпись.
+   */
+  backLabel?: string;
 };
 
 export const LIST_REPORT_PAGES: Partial<Record<string, React.ComponentType<ListReportPageProps>>> = {
