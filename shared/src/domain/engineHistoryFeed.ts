@@ -66,6 +66,8 @@ export type EngineHistoryFeedItem = {
   stageCode: string;
   /** Номер прохода этапа (2+ = осознанный возврат). */
   pass: number;
+  /** Причина возврата (пусто — не заполнена). */
+  repeatReason: string;
   /** Запись можно править здесь (этап ремонта: дата и снятие). */
   editable: boolean;
   /** Строка этапа работ: её правят на экране «Этапы работ», отсюда — только переход. */
@@ -160,6 +162,7 @@ export function engineHistoryFeedItem(row: EngineHistoryFeedRow): EngineHistoryF
       by,
       stageCode: text(meta.stage?.code),
       pass: meta.repeat?.pass ?? 1,
+      repeatReason: meta.repeat?.reason ?? '',
       // Дату и снятие этапа ремонта правим прямо здесь; строку этапа работ — на её
       // экране («Этапы работ»), из ленты на неё только переход.
       editable: kind === 'stage',
@@ -190,6 +193,7 @@ export function engineHistoryFeedItem(row: EngineHistoryFeedRow): EngineHistoryF
     by,
     stageCode: '',
     pass: 1,
+    repeatReason: '',
     editable: false,
     sheetRowId: null,
     auto: false,
@@ -298,6 +302,7 @@ function actFeedItem(entry: ActStageEntry): EngineHistoryFeedItem {
     by: '',
     stageCode: entry.code,
     pass: 1,
+    repeatReason: '',
     editable: false,
     sheetRowId: null,
     auto: true,

@@ -30,6 +30,7 @@ import {
 import { attributeDefs, attributeValues, entities, operations } from '../database/schema.js';
 import { httpAuthed } from './httpClient.js';
 import { getOperation, getEngineActDatesMap, softDeleteOperation, upsertOperation } from './operationService.js';
+import { renumberRepeatPasses } from './repeatPassService.js';
 import { collectChunked } from '../utils/sqlChunks.js';
 
 // Строки единого списка этапов (план unified-repair-stages, шаг 2: хранилище).
@@ -164,8 +165,9 @@ export async function saveRepairStageRow(
   // Гейт дублей — тот же этап в тот же день: спрашиваем, как у строк работ.
   const explicitPass = Number(input.repeatPass);
   const confirmedRepeat = Number.isFinite(explicitPass) && explicitPass >= 2 ? Math.floor(explicitPass) : null;
+  const explicitRepeat = typeof input.repeat === 'boolean' ? input.repeat : null;
   const carriedRepeat = existingMeta?.repeat ?? null;
-  if (confirmedRepeat === null && !carriedRepeat) {
+  if (confirmedRepeat === null && explicitRepeat !== true && !carriedRepeat) {
     const refs: WorkSheetDuplicateRef[] = siblings
       .filter((r) => r.id !== id && r.code === template.code && r.at !== null && isSameWorkSheetDay(r.at, atMs))
       .map((r) => ({ id: r.id, typeName: r.name, at: r.at as number, pass: r.pass, performedBy: null }))
@@ -184,17 +186,25 @@ export async function saveRepairStageRow(
   // этапы позже неё — довнесение пропущенного, а не возврат (баг 09.10.2026).
   const backward =
     confirmedRepeat === null && !carriedRepeat && isStageBackwardMove(dated, template.code, atMs);
+  const repeatReason =
+    input.repeatReason !== undefined ? text(input.repeatReason) : text(carriedRepeat?.reason);
   let repeat: RepairHistoryRepeat | null = carriedRepeat;
-  if (confirmedRepeat !== null) {
+  if (explicitRepeat === false) {
+    repeat = null;
+  } else if (confirmedRepeat !== null || explicitRepeat === true) {
     repeat = {
-      pass: Math.min(confirmedRepeat, 99),
-      ...(text(input.repeatReason) ? { reason: text(input.repeatReason).slice(0, 500) } : {}),
+      pass: Math.min(confirmedRepeat ?? carriedRepeat?.pass ?? 2, 99),
+      ...(repeatReason ? { reason: repeatReason.slice(0, 500) } : {}),
+    };
+  } else if (carriedRepeat) {
+    repeat = {
+      pass: carriedRepeat.pass,
+      ...(repeatReason ? { reason: repeatReason.slice(0, 500) } : {}),
     };
   } else if (backward) {
     const maxPass = siblings.reduce((m, r) => (r.code === template.code && r.pass > m ? r.pass : m), 1);
     repeat = { pass: Math.min(maxPass + 1, 99) };
   }
-  const pass = repeat?.pass ?? 1;
 
   // Снимок имени цеха переживает правку, когда цех не менялся: писатель пересобирает
   // meta из входа, а вход несёт имя только из справочника — у неактивного цеха его нет,
@@ -232,7 +242,11 @@ export async function saveRepairStageRow(
     await clearEngineScrapFlag(db, engineId);
   }
 
-  return { ok: true, id, created, backward, pass };
+  // Номер прохода — производная от порядка записей с флагом (см. repeatPassService):
+  // снятая галочка у ранней записи сдвигает следующие, поставленная — встаёт по дате.
+  const assigned = await renumberRepeatPasses(db, { engineId, kind: 'stage', key: template.code });
+
+  return { ok: true, id, created, backward, pass: assigned.get(String(id)) ?? repeat?.pass ?? 1 };
 }
 
 /**

@@ -173,6 +173,8 @@ describe('ступени фильтра этапов работ', () => {
     note: '',
     fields: [],
     engineStageCodes: [],
+    repeatPass: 1,
+    repeatReason: '',
     ...over,
   });
 
@@ -191,13 +193,14 @@ describe('ступени фильтра этапов работ', () => {
       'performedBy',
       'date',
       'hasRepeat',
+      'repeatReason',
       'f:hours',
       'f:stand_date',
     ]);
     expect(facets.find((f) => f.id === 'f:stand_date')?.kind).toBe('dateRange');
   });
 
-  it('B4: фильтр вида работ не делит повторы, «Повторный заход» считает их отдельно', () => {
+  it('B4: фильтр вида работ не делит повторы, «Возврат» считает их отдельно', () => {
     const facets = workSheetFacets([]);
     const rows = [
       row({ id: 'a', typeCode: 'ukladka', typeName: 'Укладка вала', repeatPass: 1 }),
@@ -208,6 +211,19 @@ describe('ступени фильтра этапов работ', () => {
     expect(applyFacets(facets, rows, { type: ['ukladka'] }).map((r) => r.id)).toEqual(['a', 'b', 'c']);
     expect(applyFacets(facets, rows, { hasRepeat: ['repeat'] }).map((r) => r.id)).toEqual(['b', 'c']);
     expect(applyFacets(facets, rows, { hasRepeat: ['first'] }).map((r) => r.id)).toEqual(['a']);
+  });
+
+  it('«Возврат» и «Причина возврата»: причина — только у возврата, пустая не значение', () => {
+    const facets = workSheetFacets([]);
+    const rows = [
+      row({ id: 'a', repeatPass: 1, repeatReason: '' }),
+      row({ id: 'b', repeatPass: 2, repeatReason: 'ОТК вернул' }),
+      row({ id: 'c', repeatPass: 3, repeatReason: 'ОТК вернул' }),
+      row({ id: 'd', repeatPass: 2, repeatReason: '' }),
+    ];
+    expect(applyFacets(facets, rows, { hasRepeat: ['repeat'] }).map((r) => r.id)).toEqual(['b', 'c', 'd']);
+    expect(applyFacets(facets, rows, { repeatReason: ['ОТК вернул'] }).map((r) => r.id)).toEqual(['b', 'c']);
+    expect(facetOptions(facets, rows, {}, 'repeatReason').map((o) => o.value)).toEqual(['ОТК вернул']);
   });
 
   it('«Рекламация» — признак двигателя строки, а не вид работ', () => {

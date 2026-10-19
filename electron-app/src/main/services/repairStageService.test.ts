@@ -208,6 +208,60 @@ describe('гейт дублей', () => {
     );
     expect(confirmed).toMatchObject({ ok: true, pass: 2 });
   });
+  it('галочка «Возврат»: флаг и причина без гейта, снятие чистит флаг', async () => {
+    const { db } = makeDb();
+    await seed(db, [{ id: 's1', code: 'sborka', at: DAY1 }]);
+
+    const marked = await saveRepairStageRow(
+      db,
+      { id: 's2', engineId: 'eng-1', code: 'sborka', atMs: DAY1_LATER, repeat: true, repeatReason: 'ОТК вернул' },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(marked).toMatchObject({ ok: true, pass: 2 });
+    const markedMeta = parseRepairHistoryMeta(String((await getOperation(db, 's2'))?.metaJson ?? 'null'));
+    expect(markedMeta?.repeat).toMatchObject({ pass: 2, reason: 'ОТК вернул' });
+
+    const cleared = await saveRepairStageRow(
+      db,
+      { id: 's2', engineId: 'eng-1', code: 'sborka', atMs: DAY1_LATER, repeat: false },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(cleared).toMatchObject({ ok: true, pass: 1 });
+    const clearedMeta = parseRepairHistoryMeta(String((await getOperation(db, 's2'))?.metaJson ?? 'null'));
+    expect(clearedMeta?.repeat).toBeUndefined();
+  });
+
+  it('снятие раннего возврата перенумеровывает следующие проходы', async () => {
+    const { db } = makeDb();
+    await seed(db, [{ id: 's1', code: 'sborka', at: DAY1 }]);
+    await saveRepairStageRow(
+      db,
+      { id: 's2', engineId: 'eng-1', code: 'sborka', atMs: DAY1_LATER, repeat: true },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    const third = await saveRepairStageRow(
+      db,
+      { id: 's3', engineId: 'eng-1', code: 'sborka', atMs: DAY1_LATER + 60 * 60 * 1000, repeat: true },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(third).toMatchObject({ ok: true, pass: 3 });
+    expect((await listRepairStageRows(db, 'eng-1')).find((r) => r.id === 's3')?.pass).toBe(3);
+
+    await saveRepairStageRow(
+      db,
+      { id: 's2', engineId: 'eng-1', code: 'sborka', atMs: DAY1_LATER, repeat: false },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+
+    const rows = await listRepairStageRows(db, 'eng-1');
+    expect(rows.find((r) => r.id === 's2')?.pass).toBe(1);
+    expect(rows.find((r) => r.id === 's3')?.pass).toBe(2);
+  });
 });
 
 describe('читатель', () => {

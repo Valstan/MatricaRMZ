@@ -46,3 +46,21 @@ describe('цех строки правится и снимок имени не �
     expect(PAGE, 'сохранение роняет снимок неактивного цеха').toContain('row.workshopId === workshopId ? row.workshopName || null : null');
   });
 });
+
+// P8 (19.10.2026): возврат — это галочка и причина, а не номер, который оператор
+// подбирает вручную. Номер считает main; карточка шлёт явный флаг, чтобы галочку
+// можно было и снять (иначе «это больше не возврат» сохранить было бы нечем).
+describe('возврат в карточке этапа', () => {
+  it('галочка и причина правятся и уезжают явным флагом', () => {
+    expect(PAGE).toContain('data-work-sheet-repeat');
+    expect(PAGE).toContain('data-work-sheet-repeat-reason');
+    expect(PAGE).toContain('repeat: repeat || Boolean(repeatPass)');
+    expect(PAGE).toContain('repeatReason: repeat || repeatPass ? repeatReason.trim() || null : null');
+    expect(PAGE, 'снятая галочка оставляет причину висеть').toContain('if (!e.target.checked) setRepeatReason');
+  });
+
+  it('загруженный возврат открывается с галочкой и причиной', () => {
+    expect(PAGE).toContain('setRepeat(res.row.repeatPass >= 2)');
+    expect(PAGE).toContain('setRepeatReason(res.row.repeatReason)');
+  });
+});

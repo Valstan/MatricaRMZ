@@ -108,14 +108,14 @@ function engineLabel(r: WorkSheetRow): string {
   return r.engineNumber || HUMAN_LABEL_NO_NUMBER;
 }
 
-/**
- * Подпись вида работ в списке. Осознанный возврат подписывается прямо здесь: две одинаковые
- * строки за один день законны ТОЛЬКО когда вторая — повторный проход, и это должно быть видно
- * глазом в списке. Иначе отличие, ради которого заведён гейт дублей, существует лишь в базе.
- */
-function typeCellLabel(r: WorkSheetRow): string {
-  return r.repeatPass >= 2 ? `${r.typeName} · проход ${r.repeatPass}` : r.typeName;
-}
+/**
+ * Подпись вида работ в списке — без суффикса «· проход N»: возврат с 19.10.2026 живёт своей
+ * колонкой (галочка + номер), и вид работ должен читаться как вид работ. Раньше отличие,
+ * ради которого заведён гейт дублей, приклеивалось к названию и мешало сортировке/поиску.
+ */
+function typeCellLabel(r: WorkSheetRow): string {
+  return r.typeName;
+}
 
 /**
  * Имя цеха: справочник → снимок в строке → прочерк. Справочник спрашивается первым (там имя
@@ -261,7 +261,22 @@ export function WorkSheetsPage(props: {
   const columns = useMemo<Column[]>(
     () => [
       { id: 'at', label: 'Дата', kind: 'date', render: (r) => formatMoscowDate(new Date(r.at)), sortValue: (r) => r.at, alwaysVisible: true },
-      { id: 'type', label: 'Вид работ', kind: 'name', render: typeCellLabel, sortValue: (r) => r.typeName, alwaysVisible: true },
+      { id: 'type', label: 'Вид работ', kind: 'name', render: typeCellLabel, sortValue: (r) => r.typeName, alwaysVisible: true },
+      {
+        id: 'repeat',
+        label: 'Возврат',
+        kind: 'name',
+        render: (r) =>
+          r.repeatPass >= 2 ? (
+            <span title={r.repeatReason || 'Повторный проход'} style={{ color: '#1d4ed8', fontWeight: 600 }}>
+              ✓ проход {r.repeatPass}
+            </span>
+          ) : (
+            <span className="ui-muted">—</span>
+          ),
+        sortValue: (r) => r.repeatPass,
+        printValue: (r) => (r.repeatPass >= 2 ? `Да · проход ${r.repeatPass}` : 'Нет'),
+      },
       { id: 'engine', label: 'Двигатель', kind: 'name', render: (r) => renderEngineCell(r), sortValue: (r) => engineLabel(r), alwaysVisible: true },
       {
         id: 'reclamation',
@@ -323,7 +338,7 @@ export function WorkSheetsPage(props: {
     rows,
     (r) => r.id,
     (r) =>
-      [engineLabel(r), r.engineBrand, r.internalNumber, r.typeName, r.customerName, r.contractNumber, r.note, r.performedBy, r.engineIsReclamation ? 'рекламация' : '', workSheetFieldsSummary(r.fields)].join(' '),
+      [engineLabel(r), r.engineBrand, r.internalNumber, r.typeName, r.customerName, r.contractNumber, r.note, r.performedBy, r.engineIsReclamation ? 'рекламация' : '', r.repeatPass >= 2 ? `возврат проход ${r.repeatPass}` : '', r.repeatReason, workSheetFieldsSummary(r.fields)].join(' '),
     ui.query,
     { entityBacked: false, mode: searchModeOf(ui.searchSimilar) },
   );

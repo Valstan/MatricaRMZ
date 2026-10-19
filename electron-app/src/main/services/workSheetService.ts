@@ -24,6 +24,7 @@ import {
   nextWorkSheetPass,
   repeatForPass,
   type GlobalSearchHit,
+  type RepairHistoryRepeat,
   type StatusCode,
   type WorkSheetDuplicateRef,
   type WorkSheetField,
@@ -35,6 +36,7 @@ import { operations } from '../database/schema.js';
 import { getEngineDetails, getEngineReclamationFlags, getEngineRepairHistoryMap, resolveEngineLabels } from './engineService.js';
 import { getEngineActDatesMap, getOperation, listOperationsByType, softDeleteOperation, upsertOperation } from './operationService.js';
 import { ensureRepairStageRow, listRepairStageRows, stageRank } from './repairStageService.js';
+import { renumberRepeatPasses } from './repeatPassService.js';
 
 /**
  * Строки этапов работ (владелец 15.09.2026).
@@ -74,6 +76,12 @@ export type SaveWorkSheetRowInput = {
    */
   repeatPass?: number | null;
   repeatReason?: string | null;
+  /**
+   * Галочка «Возврат» из карточки. `true` — пометить (номер прохода посчитает main),
+   * `false` — снять пометку, `undefined` — не трогать: правка даты/примечания не
+   * разжаловывает уже подтверждённый возврат.
+   */
+  repeat?: boolean;
 };
 
 export type SaveWorkSheetRowResult =
@@ -188,8 +196,9 @@ export async function saveWorkSheetRow(db: BetterSQLite3Database, input: SaveWor
   // решение по ней принято, и правка примечания не повод спрашивать заново.
   const explicitPass = Number(input.repeatPass);
   const confirmedRepeat = Number.isFinite(explicitPass) && explicitPass >= 2 ? Math.floor(explicitPass) : null;
+  const explicitRepeat = typeof input.repeat === 'boolean' ? input.repeat : null;
   const carriedRepeat = existingMeta?.repeat ?? null;
-  if (confirmedRepeat === null && !carriedRepeat) {
+  if (confirmedRepeat === null && explicitRepeat !== true && !carriedRepeat) {
     const refs = await listWorkSheetDuplicates(db, { engineId, typeCode, atMs, excludeId: id });
     if (refs.length > 0) {
       const nextPass = nextWorkSheetPass(refs);
@@ -200,7 +209,18 @@ export async function saveWorkSheetRow(db: BetterSQLite3Database, input: SaveWor
       };
     }
   }
-  const repeat = confirmedRepeat !== null ? repeatForPass(confirmedRepeat, text(input.repeatReason)) : carriedRepeat;
+  // Причина живёт вместе с флагом: снятая галочка стирает и её, иначе в базе остался бы
+  // «возврат, которого нет» и ступень «Причина возврата» показывала бы фантом.
+  const repeatReason =
+    input.repeatReason !== undefined ? text(input.repeatReason) : text(carriedRepeat?.reason);
+  const repeat: RepairHistoryRepeat | null =
+    explicitRepeat === false
+      ? null
+      : explicitRepeat === true || confirmedRepeat !== null
+        ? repeatForPass(confirmedRepeat ?? carriedRepeat?.pass ?? 2, repeatReason)
+        : carriedRepeat
+          ? repeatForPass(carriedRepeat.pass, repeatReason)
+          : null;
 
   const workshopId = text(input.workshopId) || text(input.type.workshopId) || null;
   // Имя цеха кладём снимком: справочник цехов живёт на сервере и требует `masterdata.view`,
@@ -258,6 +278,15 @@ export async function saveWorkSheetRow(db: BetterSQLite3Database, input: SaveWor
         metaJson: JSON.stringify({ ...meta, repairStage: { rowId: done.stageRowId, code: 'obkatka', atMs } }),
       });
     }
+  }
+  // Номер прохода — производная от порядка записей с флагом, а не введённое число: после
+  // записи/снятия галочки пересчитываем группу, иначе «проход 3» остался бы висеть после
+  // разжалованного «прохода 2». Пересчёт идёт последним проходом — второй upsert выше
+  // пересобирает мету и затёр бы уже поправленный номер.
+  await renumberRepeatPasses(db, { engineId, kind: 'sheet', key: typeCode });
+  const prevTypeCode = text(existingMeta?.sheet?.typeCode).toLowerCase();
+  if (prevTypeCode && prevTypeCode !== typeCode) {
+    await renumberRepeatPasses(db, { engineId, kind: 'sheet', key: prevTypeCode });
   }
   return { ok: true, id, created, repair };
 }
@@ -352,6 +381,7 @@ export async function getWorkSheetRow(db: BetterSQLite3Database, id: string): Pr
     fields: meta.sheet.fields,
     repairStageRowId: meta.repairStage?.rowId ?? null,
     repeatPass: meta.repeat?.pass ?? 1,
+    repeatReason: meta.repeat?.reason ?? '',
     engineStageCodes: history?.stageCodes ?? [],
   };
 }
@@ -482,6 +512,7 @@ export async function listWorkSheetRows(
       note: meta.note ?? '',
       repairStageRowId: meta.repairStage?.rowId ?? null,
       repeatPass: meta.repeat?.pass ?? 1,
+      repeatReason: meta.repeat?.reason ?? '',
       engineStageCodes: enrichedCodesByEngine.get(engineId) ?? [],
       engineIsReclamation: reclamationByEngineId.get(engineId) === true,
     };
@@ -534,6 +565,7 @@ export async function listWorkSheetRows(
           fields: [],
           repairStageRowId: null,
           repeatPass: 1,
+          repeatReason: '',
           engineStageCodes: enrichedCodesByEngine.get(engineId) ?? [],
           engineIsReclamation: reclamationByEngineId.get(engineId) === true,
         });

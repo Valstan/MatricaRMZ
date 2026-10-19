@@ -61,7 +61,7 @@ type Column = ColumnDescriptor & {
   printValue?: (r: WorkSheetRow) => string;
 };
 
-type GroupBy = 'type' | 'contract' | 'workshop' | 'customer' | 'customer_type' | 'none';
+type GroupBy = 'type' | 'contract' | 'workshop' | 'customer' | 'customer_type' | 'repeat' | 'repeatReason' | 'none';
 
 const GROUP_BY_LABELS: Record<GroupBy, string> = {
   type: 'По виду работ',
@@ -69,6 +69,8 @@ const GROUP_BY_LABELS: Record<GroupBy, string> = {
   workshop: 'По цеху',
   customer: 'По заказчику',
   customer_type: 'Заказчик → вид работ',
+  repeat: 'По возвратам',
+  repeatReason: 'По причине возврата',
   none: 'Без группировки',
 };
 
@@ -150,6 +152,21 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
     () => [
       { id: 'at', label: 'Дата', kind: 'date', render: (r) => formatMoscowDate(new Date(r.at)), sortValue: (r) => r.at, alwaysVisible: true },
       { id: 'type', label: 'Вид работ', kind: 'name', render: (r) => r.typeName || r.typeCode, sortValue: (r) => r.typeName, alwaysVisible: true },
+      {
+        id: 'repeat',
+        label: 'Возврат',
+        kind: 'name',
+        render: (r) =>
+          r.repeatPass >= 2 ? (
+            <span title={r.repeatReason || 'Повторный проход'} style={{ color: '#1d4ed8', fontWeight: 600 }}>
+              ✓ проход {r.repeatPass}
+            </span>
+          ) : (
+            <span className="ui-muted">—</span>
+          ),
+        sortValue: (r) => r.repeatPass,
+        printValue: (r) => (r.repeatPass >= 2 ? `Да · проход ${r.repeatPass}` : 'Нет'),
+      },
       { id: 'engine', label: 'Двигатель', kind: 'name', render: (r) => r.engineNumber || HUMAN_LABEL_NO_NUMBER, sortValue: (r) => r.engineNumber, alwaysVisible: true },
       {
         id: 'reclamation',
@@ -224,7 +241,7 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
   const deep = useListDeepFilter(
     rows,
     (r) => r.id,
-    (r) => [r.engineNumber, r.engineBrand, r.internalNumber, r.typeName, r.customerName, r.contractNumber, r.contractShortLabel, workshopLabel(r), r.note, r.performedBy, r.engineIsReclamation ? 'рекламация' : '', workSheetFieldsSummary(r.fields)].join(' '),
+    (r) => [r.engineNumber, r.engineBrand, r.internalNumber, r.typeName, r.customerName, r.contractNumber, r.contractShortLabel, workshopLabel(r), r.note, r.performedBy, r.engineIsReclamation ? 'рекламация' : '', r.repeatPass >= 2 ? `возврат проход ${r.repeatPass}` : '', r.repeatReason, workSheetFieldsSummary(r.fields)].join(' '),
     ui.query,
     { entityBacked: false, mode: searchModeOf(ui.searchSimilar) },
   );
@@ -252,6 +269,21 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
     const byContract = byLabel((r) => r.contractNumber, (r) => r.contractShortLabel || r.contractNumber, 'Без договора');
     const byWorkshop = byLabel((r) => r.workshopId, workshopLabel, 'Без цеха');
     const byCustomer = byLabel((r) => r.customerName, (r) => r.customerName, 'Без заказчика');
+    // Статистика возвратов живёт здесь, а не отдельным отчётом: группа показывает счётчик,
+    // а «Причина возврата» раскладывает его по причинам. Не возврат — отдельная группа,
+    // чтобы «Без причины» не смешивала обычные проходы с возвратами без объяснения.
+    const byRepeat: GroupLevel<WorkSheetRow> = {
+      keyOf: (r) => ({ key: r.repeatPass >= 2 ? 'repeat' : 'first', label: r.repeatPass >= 2 ? 'Возврат' : 'Первый проход' }),
+    };
+    const byRepeatReason: GroupLevel<WorkSheetRow> = {
+      keyOf: (r) => {
+        if (r.repeatPass < 2) return { key: 'repeat:not', label: 'Не возврат' };
+        const reason = text(r.repeatReason);
+        return reason
+          ? { key: `repeat:${reason.toLowerCase()}`, label: reason }
+          : { key: 'repeat:no-reason', label: 'Без причины' };
+      },
+    };
     switch (ui.groupBy) {
       case 'type':
         return [byType];
@@ -263,6 +295,10 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
         return [byCustomer];
       case 'customer_type':
         return [byCustomer, byType];
+      case 'repeat':
+        return [byRepeat];
+      case 'repeatReason':
+        return [byRepeatReason];
       default:
         return [];
     }

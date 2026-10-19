@@ -472,6 +472,61 @@ describe('гейт дублей этапов работ', () => {
     expect(rows.find((x) => x.id === 'row-2')?.repeatPass).toBe(2);
   });
 
+  it('галочка «Возврат» пишет флаг и причину, номер прохода считает main', async () => {
+    const { db } = makeDb();
+    await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');
+
+    const r = await saveWorkSheetRow(
+      db,
+      { id: 'row-2', engineId: 'eng-1', type: UKLADKA, atMs: AT, repeat: true, repeatReason: 'ОТК вернул', values: {} },
+      'petrov',
+    );
+
+    expect(r).toMatchObject({ ok: true, created: true });
+    const { rows } = await listWorkSheetRows(db);
+    expect(rows.find((x) => x.id === 'row-2')).toMatchObject({ repeatPass: 2, repeatReason: 'ОТК вернул' });
+  });
+
+  it('снятая галочка возврата сдвигает нумерацию следующих проходов', async () => {
+    const { db } = makeDb();
+    await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');
+    await saveWorkSheetRow(db, { id: 'row-2', engineId: 'eng-1', type: UKLADKA, atMs: AT, repeat: true, values: {} }, 'petrov');
+    await saveWorkSheetRow(db, { id: 'row-3', engineId: 'eng-1', type: UKLADKA, atMs: AT, repeat: true, values: {} }, 'petrov');
+
+    let rows = (await listWorkSheetRows(db)).rows;
+    expect(rows.find((x) => x.id === 'row-3')?.repeatPass).toBe(3);
+
+    const r = await saveWorkSheetRow(
+      db,
+      { id: 'row-2', engineId: 'eng-1', type: UKLADKA, atMs: AT, repeat: false, values: {} },
+      'petrov',
+    );
+
+    expect(r).toMatchObject({ ok: true });
+    rows = (await listWorkSheetRows(db)).rows;
+    expect(rows.find((x) => x.id === 'row-2')).toMatchObject({ repeatPass: 1, repeatReason: '' });
+    expect(rows.find((x) => x.id === 'row-3')).toMatchObject({ repeatPass: 2, repeatReason: '' });
+  });
+
+  it('правка причины возврата без повторного номера сохраняет флаг', async () => {
+    const { db } = makeDb();
+    await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');
+    await saveWorkSheetRow(
+      db,
+      { id: 'row-2', engineId: 'eng-1', type: UKLADKA, atMs: AT, repeat: true, repeatReason: 'ОТК вернул', values: {} },
+      'petrov',
+    );
+
+    await saveWorkSheetRow(
+      db,
+      { id: 'row-2', engineId: 'eng-1', type: UKLADKA, atMs: AT, repeatReason: 'Заменили сальник', values: {} },
+      'petrov',
+    );
+
+    const { rows } = await listWorkSheetRows(db);
+    expect(rows.find((x) => x.id === 'row-2')).toMatchObject({ repeatPass: 2, repeatReason: 'Заменили сальник' });
+  });
+
   it('другой день и другой вид работ гейт не трогает', async () => {
     const { db } = makeDb();
     await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');

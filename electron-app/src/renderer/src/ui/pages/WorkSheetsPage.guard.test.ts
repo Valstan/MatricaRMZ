@@ -482,7 +482,14 @@ describe('этапы работ — Ctrl+K', () => {
     expect(CARD, 'карточка: гейт дублей поднимается').toContain('askWorkSheetDuplicate(');
     expect(CARD, 'карточка: подтверждённый возврат уходит номером прохода').toContain('writeRow(decision.pass)');
     expect(PAGE, 'список не пишет — гейта дублей в нём нет').not.toContain('askWorkSheetDuplicate(');
-    expect(PAGE, 'возврат подписан в списке — иначе отличие живёт только в базе').toContain('проход ${r.repeatPass}');
+    // P8 (19.10.2026): возврат больше не приклеен суффиксом к виду работ — у него своя
+    // колонка с галочкой и номером, а причина видна в подсказке.
+    expect(PAGE, 'вид работ очищен от суффикса «· проход N»').toContain(
+      'function typeCellLabel(r: WorkSheetRow): string {\n  return r.typeName;\n}',
+    );
+    expect(PAGE, 'колонки возврата нет — отличие снова живёт только в базе').toContain("id: 'repeat'");
+    expect(PAGE).toContain("label: 'Возврат'");
+    expect(PAGE, 'причина возврата не читается').toContain('r.repeatReason');
   });
 });
 
