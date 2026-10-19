@@ -28,6 +28,16 @@ let showTimer: NodeJS.Timeout | null = null;
 let state: StartupStatusState = { stage: 'Запускаю программу', note: '' };
 let disposed = false;
 let dismissedByUser = false;
+/**
+ * Тихий старт (автозапуск с Windows): окно этапов не показывается само — только
+ * трей. Явная просьба оператора (повторный клик по ярлыку) снимает тишину.
+ */
+let silent = false;
+
+/** Включить/выключить тихий режим. Снимается сам, когда окно попросили явно. */
+export function setStartupStatusSilent(value: boolean): void {
+  silent = value;
+}
 
 // Выход из приложения важнее окна статуса: оно не должно ни задерживать закрытие,
 // ни всплыть уже после него по сработавшему таймеру.
@@ -141,6 +151,7 @@ function armShowTimer() {
 export function showStartupStatus(stage: string, note?: string): void {
   if (disposed) return;
   state = { stage, note: note ?? '' };
+  if (silent) return;
   ensureWindow();
   push();
   armShowTimer();
@@ -156,9 +167,11 @@ export function showStartupStatus(stage: string, note?: string): void {
 export async function setStartupStage(stage: string, note?: string): Promise<void> {
   if (disposed) return;
   state = { stage, note: note ?? '' };
-  ensureWindow();
-  push();
-  armShowTimer();
+  if (!silent) {
+    ensureWindow();
+    push();
+    armShowTimer();
+  }
   await new Promise<void>((resolve) => setTimeout(resolve, SIMULATED_STAGE_DELAY_MS));
 }
 
@@ -198,7 +211,9 @@ export function raiseStartupStatus(): void {
     clearTimeout(showTimer);
     showTimer = null;
   }
-  // Человек сам просит показать — снимаем его же прежний отказ.
+  // Человек сам просит показать — снимаем его же прежний отказ и тишину:
+  // дальше окно ведёт себя как обычно (этапы в нём обновляются).
   dismissedByUser = false;
+  silent = false;
   reveal(true);
 }
