@@ -966,14 +966,20 @@ async function applyServerIdRemaps(db: BetterSQLite3Database, idRemaps: LedgerPu
 export async function alignSchemaWithServer(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  opts?: { allowUnauthenticated?: boolean },
+  opts?: { allowUnauthenticated?: boolean; attempts?: number; timeoutMs?: number },
 ) {
   const baseUrl = normalizeApiBaseUrl(apiBaseUrl);
   if (!baseUrl) return { ok: false as const, reason: 'empty_api_base' };
   const url = `${baseUrl}/ledger/schema/snapshot`;
-  const res = await fetchAuthed(db, baseUrl, url, { method: 'GET' }, { attempts: 2, timeoutMs: 20_000, label: 'pull' }).catch(
-    () => null,
-  );
+  // Старт клиента зовёт сверку с коротким бюджетом (одна попытка, секунды):
+  // иначе мёртвая сеть держит запуск минутой. Синк оставляет прежние 2×20 с.
+  const res = await fetchAuthed(
+    db,
+    baseUrl,
+    url,
+    { method: 'GET' },
+    { attempts: opts?.attempts ?? 2, timeoutMs: opts?.timeoutMs ?? 20_000, label: 'pull' },
+  ).catch(() => null);
   if (!res) return { ok: false as const, reason: 'network_error' };
   if (!res.ok) {
     if ((res.status === 401 || res.status === 403) && opts?.allowUnauthenticated) {

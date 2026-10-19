@@ -11,7 +11,7 @@
 | # | Симптом | Область |
 |---|---|---|
 | M1 | `ssh matricarmz` — `Connection timed out` / banner-таймаут (а `ping` отвечает) | SSH / прод |
-| M2 | `corepack pnpm -F electron-app test` падает `NODE_MODULE_VERSION 145 vs 137` | local / better-sqlite3 |
+| M2 | `corepack pnpm -F electron-app test` падает `NODE_MODULE_VERSION 145 vs 137`; Electron не грузит базу («Could not locate the bindings file») | local / better-sqlite3 |
 | M3 | `pnpm -r typecheck` даёт ложный `TS2305` на `@matricarmz/shared` | monorepo / typecheck |
 | M4 | `dev:seed-fixtures` даёт ложный `exit 1` (на `console.warn`-stderr) | verify / PowerShell |
 | M5 | `gh release download` с мульти-`--pattern` не качает `.blockmap` | релиз / updater |
@@ -168,9 +168,14 @@
 - **Диагностика → лечение:** проверять в порядке **порт → ключ/`IdentitiesOnly` → fail2ban**. `~/.ssh/config` блок `Host matricarmz`: `Port <внешний>` + `IdentitiesOnly yes` + dedicated key. Бан снимается в консоли панели хостера (`fail2ban-client unban <IP>`). **Не долбить** логином при ошибке. Всегда `-o ConnectTimeout=15`. Транзиентный TCP-таймаут (после успешных вызовов) — одна повторная попытка, не цикл.
 
 ## M2 — better-sqlite3 ABI mismatch в локальных тестах
-- **Симптом:** `corepack pnpm -F @matricarmz/electron-app test` роняет тесты, грузящие `new Database()`, с `NODE_MODULE_VERSION 145 vs 137`.
+- **Симптом:** `corepack pnpm -F @matricarmz/electron-app test` роняет тесты, грузящие `new Database()`, с `NODE_MODULE_VERSION 145 vs 137` (числа зависят от версий Node/Electron).
 - **Корень:** нативный `better-sqlite3` собран под другую версию Node, чем у локального раннера. Окружение машины, **не баг кода**. В CI не воспроизводится (нативка пересобирается).
 - **Лечение:** `pnpm rebuild better-sqlite3` (или переустановка) на этой машине.
+
+**Две стороны одной медали (P3, 19.10.2026):** vitest и живой Electron требуют РАЗНЫХ ABI, и переключение идёт в обе стороны. Node→Electron: удалить `build/Release/.forge-meta` **и** `build/Release/better_sqlite3.node` в обоих пакетах (`better-sqlite3`, `better-sqlite3-multiple-ciphers`), затем `corepack pnpm -F @matricarmz/electron-app exec electron-builder install-app-deps`; обратно — вернуть сохранённые Node-бинарники (`.verifier-electron/abi-node-*/`).
+
+- **Грабля внутри граблей:** `.forge-meta` лежит в `build/Release/`, а не в корне пакета. Снесёшь только `.node` — `@electron/rebuild` увидит метку «уже собрано», отчитается `preparing/finished` за две секунды, бинаря не создаст, и приложение упадёт с `Could not locate the bindings file`. Признак: «сборка» короче секунд и `Get-ChildItem -Recurse -Filter *.node` пусто.
+- Живой прогон стенда — это Electron-ABI; после него тесты снова требуют Node-ABI. Планировать порядок: смоук → вернуть Node → гейты.
 
 ## M3 — ложный TS2305 на @matricarmz/shared
 - **Симптом:** `corepack pnpm -r typecheck` выдаёт `TS2305` (нет экспорта) на `@matricarmz/shared`, хотя экспорт есть.

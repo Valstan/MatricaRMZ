@@ -36,6 +36,7 @@ import {
   hideStartupStatus,
   raiseStartupStatus,
   setStartupStage,
+  setStartupStatusSilent,
   showStartupStatus,
 } from './services/startupStatusWindow.js';
 import { appDirname, resolvePreloadPath, resolveRendererIndex } from './utils/appPaths.js';
@@ -75,9 +76,10 @@ function trayIconPath(): string {
 }
 
 /**
- * Трей свёрнутого запуска (C9, только Windows): «Открыть» показывает окно,
- * «Выход» гасит приложение. Без иконки трея нет — тогда окно показываем сразу,
- * иначе оператор получит невидимую программу без ручки.
+ * Трей живёт у ВСЕХ клиентов (P3): «Открыть» показывает окно, «Выход» — единственный
+ * способ действительно закрыть программу, крестик окна прячет её сюда. Без иконки
+ * трея нет — тогда закрытие работает по-старому (подтверждение и выход), иначе
+ * оператор получил бы невидимую программу без ручки.
  */
 function ensureTray(): void {
   if (tray || process.platform !== 'win32') return;
@@ -95,17 +97,11 @@ function ensureTray(): void {
       Menu.buildFromTemplate([
         { label: 'Открыть Матрицу', click: () => requestMainWindowShow() },
         { type: 'separator' },
-        {
-          label: 'Выход',
-          click: () => {
-            forceQuit = true;
-            app.quit();
-          },
-        },
+        { label: 'Выход', click: () => requestAppQuit('tray menu') },
       ]),
     );
     tray.on('click', () => requestMainWindowShow());
-    logToFile('tray: created for minimized launch');
+    logToFile('tray: created');
   } catch (e) {
     logToFile(`tray failed: ${String(e)}`);
     tray = null;
@@ -113,6 +109,30 @@ function ensureTray(): void {
 }
 let allowMainWindowShow = false;
 let forceQuit = false;
+let quitRequested = false;
+let trayHintShown = false;
+
+/**
+ * Настоящий выход: сначала даём рендереру дописать карточку и толкнуть синк
+ * (он отвечает `app:close-response`), но не ждём вечно — зависшее окно не должно
+ * превращать «Выход» в ничто.
+ */
+function requestAppQuit(reason: string): void {
+  if (quitRequested) return;
+  quitRequested = true;
+  logToFile(`quit requested (${reason})`);
+  setTimeout(() => {
+    logToFile('quit fallback: renderer did not confirm in 25s, quitting anyway');
+    setForceQuit(true);
+    app.quit();
+  }, 25_000).unref();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('app:close-request');
+    return;
+  }
+  setForceQuit(true);
+  app.quit();
+}
 let writeSessionAuditEvent:
   | ((action: 'app.session.start' | 'app.session.stop') => Promise<void>)
   | null = null;
@@ -123,6 +143,17 @@ const APP_TITLE = () => formatAppVersionLabel(app.getVersion());
 
 const { logToFile, getLogPath } = createFileLogger(app);
 const baseDir = appDirname(import.meta.url);
+
+// Замер старта: «залипло на запуске» лечится не догадками, а строкой в логе —
+// какой этап сколько съел (P3, диагностика).
+const STARTED_AT = Date.now();
+let stageClock = STARTED_AT;
+async function markStage(stage: string, note?: string): Promise<void> {
+  const spent = Date.now() - stageClock;
+  stageClock = Date.now();
+  logToFile(`startup-stage: ${spent}ms -> ${stage}`);
+  await setStartupStage(stage, note);
+}
 
 // Headless/CDP verification hook (verifier-electron skill, used by /verify):
 // when MATRICA_CDP_PORT is set we expose the Chrome DevTools Protocol so the
@@ -332,6 +363,25 @@ function createWindow(): void {
   mainWindow.on('close', (event) => {
     if (forceQuit) return;
     event.preventDefault();
+    // Крестик прячет программу в трей (P3, требование владельца): открытая карточка
+    // и синк живут дальше, а следующий запуск не ждёт старта. Настоящий выход —
+    // «Выход» в меню трея, там же досинхронизация.
+    if (tray) {
+      mainWindow?.hide();
+      logToFile('window closed to tray');
+      if (!trayHintShown) {
+        trayHintShown = true;
+        try {
+          tray?.displayBalloon({
+            title: APP_TITLE(),
+            content: 'Матрица свёрнута в трей. Клик по иконке вернёт окно, «Выход» — в её меню.',
+          });
+        } catch {
+          // Шарик — подсказка, а не условие работы.
+        }
+      }
+      return;
+    }
     mainWindow?.webContents.send('app:close-request');
   });
 
@@ -511,7 +561,9 @@ app.whenReady().then(() => {
   void (async () => {
     // Взводим окно ПЕРЕД первой тяжёлой работой: нативный SQLite и ключ базы уже
     // могут занять секунды. Само окно всплывёт только если старт затянется.
-    // Свёрнутый запуск (C9) молчит целиком: ни сплэша, ни окна — только трей.
+    // Свёрнутый запуск молчит целиком: ни сплэша, ни окна этапов — только трей
+    // (P3, шаг 2: раньше окно всё равно всплывало по таймеру 3.5 с).
+    setStartupStatusSilent(minimizedLaunch);
     if (!minimizedLaunch) showStartupStatus('Запускаю программу');
     try {
       const { loadRuntimeInitDeps } = await import('./bootstrap/runtimeInitDeps.js');
@@ -544,8 +596,8 @@ app.whenReady().then(() => {
         // уходит во вторую строку: владельцу важнее понять, что идёт долгое лечение.
         const stage = (text: string) =>
           recovery
-            ? setStartupStage('Восстанавливаю базу данных', `${text} — это может занять несколько минут`)
-            : setStartupStage(text);
+            ? markStage('Восстанавливаю базу данных', `${text} — это может занять несколько минут`)
+            : markStage(text);
         await stage('Открываю базу данных');
         const opened = openSqlite(dbPath, dbEncryptionKey);
         const migrationsFolder = join(app.getAppPath(), 'drizzle');
@@ -553,9 +605,13 @@ app.whenReady().then(() => {
         await stage('Обновляю структуру базы');
         migrateSqlite(opened.db, opened.sqlite, migrationsFolder);
         await stage('Сверяю структуру с сервером');
-        const alignResult = await alignSchemaWithServer(opened.db, apiBaseUrl, { allowUnauthenticated: true }).catch(
-          (e) => ({ ok: false as const, reason: String(e) }),
-        );
+        // Короткий бюджет (P3): на мёртвой сети 2 попытки по 20 с держали старт
+        // минутой без единого окна. Не сверилось — досверяется синком, работа идёт.
+        const alignResult = await alignSchemaWithServer(opened.db, apiBaseUrl, {
+          allowUnauthenticated: true,
+          attempts: 1,
+          timeoutMs: 4_000,
+        }).catch((e) => ({ ok: false as const, reason: String(e) }));
         if (!alignResult.ok && alignResult.reason !== 'auth_required') {
           logToFile(`schema align before seed skipped: ${alignResult.reason}`);
         }
@@ -735,7 +791,7 @@ app.whenReady().then(() => {
       // потому что именно он и регистрирует машину пиром. Прежде настройка доезжала и не читалась.
       setLanShareEnabled(cached.torrentEnabled !== false);
 
-      await setStartupStage('Проверяю обновления');
+      await markStage('Проверяю обновления');
 
       // Dev-only верификация окна обновления симуляцией (в проде env не выставлен).
       const simUpdate = process.env.MATRICA_SIMULATE_UPDATE;
@@ -743,24 +799,33 @@ app.whenReady().then(() => {
         const simScenario = simUpdate === 'error' ? 'error' : simUpdate === 'loop' ? 'loop' : 'happy';
         void simulateUpdateUiForDev(simScenario);
       } else if (updatesEnabled) {
+        // Применение уже скачанного обновления — локальная операция: делаем до окна,
+        // чтобы окно не мелькнуло и не погасло. Сетевая проверка — после окна.
         await recoverStuckUpdateState();
         const pendingApplied = await applyPendingUpdateIfAny(null);
         if (pendingApplied) return;
-        const updateResult = await runAutoUpdateFlow({ reason: 'startup', parentWindow: null });
-        if (updateResult?.action === 'update_started') {
-          app.quit();
-          return;
-        }
-        startBackgroundUpdatePolling();
       }
 
-      // Создаём окно только после завершения update-flow.
-      await setStartupStage('Загружаю окно');
+      // Окно не ждёт сети (P3, шаг 3): проверка обновлений на плохой связи тянется
+      // десятками секунд, и всё это время оператор видел «Запускаю программу».
+      await markStage('Загружаю окно');
       createWindow();
-      // Свёрнутый запуск живёт треем (окно создано скрытым и молчит).
-      if (minimizedLaunch) ensureTray();
-      const delay = updatesEnabled ? 800 : 0;
-      scheduleShowMainWindow(delay);
+      // Трей — у всех клиентов (P3): крестик прячет окно, программа живёт и синкается.
+      ensureTray();
+      scheduleShowMainWindow(updatesEnabled ? 800 : 0);
+      logToFile(`startup: window created after ${Date.now() - STARTED_AT}ms`);
+
+      if (!simUpdate && updatesEnabled) {
+        void runAutoUpdateFlow({ reason: 'startup', parentWindow: null })
+          .then((updateResult) => {
+            if (updateResult?.action === 'update_started') {
+              app.quit();
+              return;
+            }
+            startBackgroundUpdatePolling();
+          })
+          .catch((e) => logToFile(`startup update flow failed: ${String(e)}`));
+      }
     } catch (e) {
       logToFile(`fatal init failed: ${String(e)}`);
       hideStartupStatus();
@@ -842,14 +907,11 @@ ipcMain.handle('app:navigateDeepLink', async (_event, link: ChatDeepLinkPayload)
 });
 
 ipcMain.on('app:close-response', (_event, args: { allowClose: boolean }) => {
-  if (args?.allowClose) {
-    setForceQuit(true);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.close();
-    } else {
-      app.quit();
-    }
-  }
+  if (!args?.allowClose) return;
+  // Трей переживает закрытие окна, поэтому одного `mainWindow.close()` мало:
+  // выходим явно, а before-quit досинхронизирует очередь.
+  setForceQuit(true);
+  app.quit();
 });
 
 
