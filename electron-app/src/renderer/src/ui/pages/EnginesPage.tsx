@@ -6,6 +6,8 @@ import {
   describeFacetSelection,
   engineFacetIsActive,
   engineStageFacetOptions,
+  facetDateBound,
+  facetRangeOf,
   isFactoryStageActive,
   sanitizeEngineFacetSelection,
   stripStageDateWhenWhereNow,
@@ -152,7 +154,7 @@ export type EnginesPageUiState = {
     | 'engineStage'
     /** Цех последнего события истории (13.10.2026). */
     | 'workshop'
-    /** Дата прохождения выбранного в фильтре «Все этапы» этапа (12.10.2026). */
+    /** Дата прохождения выбранного в фильтре «История» этапа (12.10.2026). */
     | 'stageDate'
     | 'updatedAt';
   sortDir: 'asc' | 'desc';
@@ -193,11 +195,15 @@ export function createDefaultEnginesPageUiState(): EnginesPageUiState {
   };
 }
 
-/** Даты стадий (16.09) — скрыты, пока оператор сам не включит их в «Колонках списка». */
-const ENGINE_LIST_HIDDEN_BY_DEFAULT = ['repairStartedDate', 'repairedDate', 'scrapDate', 'stageDate'];
+/**
+ * Даты стадий (16.09) и «Дата изменения» (владелец 19.10.2026: «дата внесения — убрать из
+ * показа по умолчанию, оставить в настройках колонок») — скрыты, пока оператор сам не включит
+ * их в «Колонках списка».
+ */
+const ENGINE_LIST_HIDDEN_BY_DEFAULT = ['repairStartedDate', 'repairedDate', 'scrapDate', 'stageDate', 'updatedAt'];
 
 /**
- * Выбранный в фильтре «Все этапы» этап — ровно один (или ни одного). Возвращает
+ * Выбранный в фильтре «История» этап — ровно один (или ни одного). Возвращает
  * КОД этапа (без префикса `stage:`); `'none'` («этапов нет») не код — колонка молчит.
  */
 export function selectedStageCodeFromSelection(selection: EngineFacetSelection): string | null {
@@ -409,7 +415,7 @@ export function EnginesPage(props: {
     if (customerFilter && !engineFacetIsActive(base, 'customer')) out.customer = [customerFilter];
     if (onlyReclamation && !engineFacetIsActive(base, 'reclamation')) out.reclamation = ['yes'];
     if (completenessFilter !== 'all' && !engineFacetIsActive(base, 'completenessAct')) out.completenessAct = [completenessFilter];
-    // Старый сохранённый отбор мог держать период вместе с «Где сейчас?» — чистим при чтении.
+    // Старый сохранённый отбор мог держать период вместе с «Текущим состоянием» — чистим при чтении.
     return stripStageDateWhenWhereNow(out);
   }, [listState.facets, customerFilter, onlyReclamation, completenessFilter]);
   const facetFields = useMemo<EngineFacetId[]>(() => {
@@ -421,21 +427,38 @@ export function EnginesPage(props: {
   }, [listState.facetFields, facets]);
   const facetsOpen = listState.facetsOpen === true;
 
-  // «Где сейчас?» гасит «Дату этапа» (владелец 14.10.2026): текущее место двигателя
+  // «Текущее состояние» гасит «Дату этапа» (владелец 14.10.2026): текущее место двигателя
   // и период — разные вопросы. Ступень периода прячется из ряда кнопок и чистится из отбора.
   const whereNowActive = isFactoryStageActive(facets);
   const visibleFacetFields = whereNowActive ? facetFields.filter((id) => id !== 'stageDate') : facetFields;
 
-  // Выбранный этап фильтра «Все этапы»: колонка «Дата этапа» отвечает по НЕМУ «когда
-  // проходили», а не по последнему этапу (решение владельца 12.10.2026).
+  // Выбранный этап фильтра «История»: колонка «Дата этапа» отвечает по НЕМУ «когда
+  // проходили», а не по последнему этапу (решение владельца 12.10.2026). При активном периоде
+  // колонка показывает тот проход, который в период попал (владелец 19.10.2026: у этапа,
+  // пройденного дважды, «дата этапа» — это дата прохода, а не всегда последняя).
   const selectedStageCode = React.useMemo(() => selectedStageCodeFromSelection(facets), [facets]);
+  const stageDateRange = React.useMemo(() => facetRangeOf(facets, 'stageDate'), [facets]);
   const selectedStageDateOf = React.useCallback(
     (e: EngineListItem): number | null => {
       if (!selectedStageCode) return null;
+      const from = facetDateBound(stageDateRange?.from, 'from');
+      const to = facetDateBound(stageDateRange?.to, 'to');
+      if (from != null || to != null) {
+        let best: number | null = null;
+        for (const entry of e.stageEntries ?? []) {
+          if (String(entry.code ?? '').trim().toLowerCase() !== selectedStageCode) continue;
+          const at = entry.at;
+          if (typeof at !== 'number' || !Number.isFinite(at) || at <= 0) continue;
+          if (from != null && at < from) continue;
+          if (to != null && at > to) continue;
+          if (best == null || at > best) best = at;
+        }
+        if (best != null) return best;
+      }
       const at = e.stageDates?.[selectedStageCode];
       return typeof at === 'number' && Number.isFinite(at) && at > 0 ? at : null;
     },
-    [selectedStageCode],
+    [selectedStageCode, stageDateRange],
   );
   const searchSimilar = listState.searchSimilar === true;
   const width = useWindowWidth();
@@ -554,7 +577,7 @@ export function EnginesPage(props: {
           return byDate(engineScrapDate(a), engineScrapDate(b));
         // Дата прохождения выбранного этапа: без выбора у всех «—», всё равно сортируется.
         case 'stageDate':
-          return byDate(a.stageDates?.[selectedStageCode ?? ''] ?? null, b.stageDates?.[selectedStageCode ?? ''] ?? null);
+          return byDate(selectedStageDateOf(a), selectedStageDateOf(b));
         case 'updatedAt':
           return byDate(a.updatedAt ?? null, b.updatedAt ?? null);
         case 'completenessAct': {
@@ -566,7 +589,7 @@ export function EnginesPage(props: {
       }
     });
     return items;
-  }, [facetFiltered, sortDir, sortKey, query, selectedStageCode]);
+  }, [facetFiltered, sortDir, sortKey, query, selectedStageDateOf]);
 
   const displayRows = sorted;
 
@@ -614,7 +637,7 @@ export function EnginesPage(props: {
     return map;
   }, [groupedItems]);
 
-  // Заголовок печати (владелец 12.10.2026): при выбранном этапе фильтра «Все этапы»
+  // Заголовок печати (владелец 12.10.2026): при выбранном этапе фильтра «История»
   // печать отвечает тем же вопросом, что и экран — «эти двигатели прошли этап X».
   // Имя берём из того же справочника, что варианты ступени: подпись этапа одна на все места.
   const printTitle = React.useMemo(() => {
@@ -796,7 +819,7 @@ export function EnginesPage(props: {
       },
       { id: 'arrivalDate', label: 'Дата прихода', tabletLabel: 'Приход', sortable: true, sortKey: 'arrivalDate', kind: 'date', render: (e) => toDateLabel(e.arrivalDate) || '-' },
       // «Дата этапа» (владелец 12.10.2026): когда двигатель прошёл ЭТАП, выбранный в фильтре
-      // «Все этапы». Без выбора она показывала бы дату последнего этапа и отвечала бы не на тот
+      // «История». Без выбора она показывала бы дату последнего этапа и отвечала бы не на тот
       // вопрос, поэтому в этом случае молчит «—»: врать хуже, чем промолчать.
       {
         id: 'stageDate',
@@ -1156,7 +1179,7 @@ export function EnginesPage(props: {
         />
         {whereNowActive ? (
           <div className="ui-muted" style={{ fontSize: 12, marginTop: 4 }}>
-            «Где сейчас?» показывает текущее место каждого двигателя — период («Дата этапа») при нём не нужен и скрыт.
+            «Текущее состояние» показывает место каждого двигателя — период («Дата этапа») при нём не нужен и скрыт.
           </div>
         ) : null}
       </div>

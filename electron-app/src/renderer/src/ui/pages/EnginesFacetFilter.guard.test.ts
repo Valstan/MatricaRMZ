@@ -17,6 +17,8 @@ const PAGE = src('./EnginesPage.tsx');
 const WRAPPER = src('../components/EngineFacetFilter.tsx');
 const FILTER = src('../components/FacetFilter.tsx');
 const TOOLBAR = src('../components/PageToolbar.tsx');
+// Движок ступеней: разовый день — правило отбора, а не украшение панели.
+const SHARED_FACETS = src('../../../../../../shared/src/domain/listFacets.ts');
 
 describe('ступенчатый фильтр доезжает до строк списка', () => {
   it('таблица строится по отфильтрованному ступенями массиву', () => {
@@ -123,7 +125,7 @@ describe('ступенчатый фильтр доезжает до строк �
   it('обёртка двигателей подставляет в общий фильтр именно свои ступени — со справочником видов работ', () => {
     // Владелец 16.09.2026: «обкатки нет в фильтре» — ряд этапов должен сеяться справочником,
     // а не собираться из строк; справочник доезжает до ступеней и до отбора одним и тем же путём.
-    expect(WRAPPER).toContain('engineFacets(types, stageTemplates) as readonly FacetDescriptor<EngineListItem>[]');
+    expect(WRAPPER).toContain('engineFacets(types, stageTemplates, selection) as readonly FacetDescriptor<EngineListItem>[]');
     expect(WRAPPER).toContain('rows={props.engines}');
     expect(PAGE).toContain('const sheetTypes = useWorkSheetTypeRefs();');
     expect(PAGE).toContain('types={sheetTypes}');
@@ -139,6 +141,15 @@ describe('ступенчатый фильтр доезжает до строк �
     expect(FILTER).toContain("if (facet.kind === 'dateRange') {");
     expect(FILTER).toContain('data-facet-date={`${fieldId}:from`}');
     expect(FILTER).toContain('data-facet-date={`${fieldId}:to`}');
+  });
+
+  // Владелец 19.10.2026: «быстрый выбор одного дня» — одна дата ставит обе границы разом.
+  // Своё поле у диапазона не заводим: список не должен знать второго способа отбора по датам.
+  it('у ступени по датам есть быстрый выбор ровно одного дня', () => {
+    expect(FILTER).toContain('data-facet-day={fieldId}');
+    expect(FILTER).toContain('setFacetDay(props.selection, fieldId, e.target.value)');
+    expect(SHARED_FACETS).toContain('export function setFacetDay(');
+    expect(SHARED_FACETS).toContain('else out[facetId] = { from: value, to: value };');
   });
 
   it('варианты считаются по отобранному, а имя цеха подставляется до подсчёта', () => {

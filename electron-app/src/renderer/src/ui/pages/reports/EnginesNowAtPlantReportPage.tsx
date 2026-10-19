@@ -63,9 +63,9 @@ import type { ListReportPageProps } from './listReportPages.js';
  * Строки — двигатели, что числятся пришедшими и ещё не отправленными (`isEngineAtPlant`).
  * По умолчанию каждый двигатель — одна строка с текущим местом («Где сейчас?»,
  * `engineFactoryStage`: побеждает поздний признак). Вопрос про движение раскрывает
- * двигатель в строки-проходы: выбранные «Все этапы» или период «Даты этапа» показывают
+ * двигатель в строки-проходы: выбранные «История» или период «Даты этапа» показывают
  * точные срезы (строка-проход несёт только свой этап), дубли двигателя в разных группах
- * допускаются. «Где сейчас?» раскрытия не даёт и гасит период.
+ * допускаются. «Текущее состояние» раскрытия не даёт и гасит период.
  *
  * Группировка: по этапу / по заказчику / заказчик → этап / по дате прихода (месяц) /
  * по дням на заводе / по утилю / без. Данные — каталог двигателей приложения, тот же,
@@ -108,7 +108,7 @@ type ListUiState = {
 
 /**
  * Ступени отчёта — подмножество ступеней списка двигателей; порядок — как на панели.
- * Про этапы: «Все этапы» (проходил ли) + «Дата этапа» + «Где сейчас?». Ступень
+ * Про этапы: «История» (проходил ли) + «Дата этапа» + «Текущее состояние». Ступень
  * «Последний этап» снята 07.10.2026 решением владельца — как в списке двигателей
  * (см. `engineListFacets.ts`). Бывшие тут «Последний этап работ» и «Дата этапа работ»
  * убраны раньше (владелец 01.10.2026): они отвечали на те же вопросы, но про узлы работ.
@@ -130,7 +130,7 @@ function yesNo(v: boolean | undefined): string {
 }
 
 export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
-  // Справочник видов работ задаёт порядок групп-этапов и полный ряд ступени «Где сейчас?»;
+  // Справочник видов работ задаёт порядок групп-этапов и полный ряд ступени «Текущее состояние»;
   // без него (офлайн, нет кэша) этап всё равно узнаётся по самой записи этапа работ.
   const types = useWorkSheetTypeRefs();
   const stageTemplates = useRepairStageTemplateRefs();
@@ -152,14 +152,14 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
     groupBy: 'stage',
   });
 
-  // Отбор с учётом гейта «Где сейчас?»: старое сохранённое состояние могло держать
+  // Отбор с учётом гейта «Текущее состояние»: старое сохранённое состояние могло держать
   // период вместе с «где» — чистим при чтении, а не только при смене выбора.
   const activeFacets = useMemo(
     () => stripStageDateWhenWhereNow(ui.facets as EngineFacetSelection) as FacetSelection,
     [ui.facets],
   );
   const whereNowActive = isFactoryStageActive(activeFacets as EngineFacetSelection);
-  // Раскрытие в проходы — только вопрос про движение («Все этапы» / «Дата этапа»).
+  // Раскрытие в проходы — только вопрос про движение («История» / «Дата этапа»).
   const entriesActive = isStageEntriesActive(activeFacets as EngineFacetSelection);
 
   const rows = useMemo<Row[]>(
@@ -200,6 +200,10 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
             return entries.map((entry) => ({
               ...base,
               stageCodes: [entry.code], // для фасета hasStage — точный срез
+              // Строка — ровно этот проход: ступень «Дата этапа» считает по нему, а не по всему
+              // движению двигателя (владелец 19.10.2026) — иначе день одного прохода вытаскивал
+              // бы в отбор все остальные проходы того же двигателя.
+              stageEntries: [entry],
               stageDates: { [entry.code]: entry.at }, // для колонки «Дата этапа» этого среза
               lastStageAt: entry.at, // для фасета stageDate (дата конкретного прохождения)
               id: `${withName.id}::${entry.code}::${entry.at}::${entry.pass}`,
@@ -228,6 +232,13 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
                 return {
                   ...base,
                   stageCodes: [code], // для фасета hasStage — точный срез
+                  // Срез отвечает своей датой: «Дата этапа» считает по этой строке, а не по всем
+                  // проходам двигателя (владелец 19.10.2026).
+                  stageEntries:
+                    sliceAt != null
+                      ? [{ code, name: stageByCode(code, stageTemplates)?.name ?? code, at: sliceAt, pass: code === lastCode ? returnsPass(withName) : 1 }]
+                      : [],
+                  stageDates: atMs != null ? { [code]: atMs } : {},
                   ...(sliceAt != null ? { lastStageAt: sliceAt } : {}),
                   id: `${withName.id}::${code}`,
                   stage: {
@@ -284,17 +295,17 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
     [columnLayout, columnsById],
   );
 
-  // «Где сейчас?» гасит «Дату этапа» (владелец 14.10.2026): текущее место двигателя
-  // и период — разные вопросы, ступень периода при активном «где» прячется и чистится.
+  // «Текущее состояние» гасит «Дату этапа» (владелец 14.10.2026): текущее место двигателя
+  // и период — разные вопросы, ступень периода при активном текущем месте прячется и чистится.
   const onChangeFacets = (next: FacetSelection) =>
     patchState({ facets: stripStageDateWhenWhereNow(next as EngineFacetSelection) as FacetSelection });
   const visibleFacetFields = whereNowActive ? ui.facetFields.filter((f) => f !== 'stageDate') : ui.facetFields;
 
   const facets = useMemo(() => {
-    const all = engineFacets(types, stageTemplates);
+    const all = engineFacets(types, stageTemplates, activeFacets as EngineFacetSelection);
     const ids = whereNowActive ? FACET_IDS.filter((id) => id !== 'stageDate') : FACET_IDS;
     return ids.map((id) => all.find((f) => f.id === id)).filter(Boolean) as FacetDescriptor<Row>[];
-  }, [types, stageTemplates, whereNowActive]);
+  }, [types, stageTemplates, whereNowActive, activeFacets]);
 
   const deep = useListDeepFilter(
     rows,
@@ -485,7 +496,7 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
         />
         {whereNowActive ? (
           <div className="ui-muted" style={{ fontSize: 12, marginTop: 4 }}>
-            «Где сейчас?» показывает текущее место каждого двигателя одной строкой — период («Дата этапа») при нём не нужен и скрыт.
+            «Текущее состояние» показывает место каждого двигателя одной строкой — период («Дата этапа») при нём не нужен и скрыт.
           </div>
         ) : null}
       </div>

@@ -16,6 +16,7 @@ import {
   stripStageDateWhenWhereNow,
   toggleEngineFacetValue,
 } from './engineListFacets.js';
+import { setFacetDay } from './listFacets.js';
 
 // Ступенчатый фильтр списка двигателей (просьба владельца 07.09.2026): выбираем поля, затем
 // значения, и каждый выбор отсекает лишнее в остальных ступенях.
@@ -113,6 +114,7 @@ describe('ступенчатый фильтр списка двигателей'
 const DAY_05 = Date.parse('2026-09-05T10:00:00');
 const DAY_07 = Date.parse('2026-09-07T10:00:00');
 const DAY_09 = Date.parse('2026-09-09T10:00:00');
+const DAY_01 = Date.parse('2026-09-01T10:00:00');
 
 const dated = [
   { id: 'd1', arrivalDate: DAY_05, defectDate: DAY_05, workshopId: 'W1', workshopName: 'Цех 1', hasDefectAct: true, statusFlags: { status_repair_started: true } },
@@ -188,18 +190,19 @@ describe('стадия ремонта, цех и акт дефектовки', (
 
 // Этапы единого списка (владелец 01.10.2026). Было четыре ступени об одном и том же —
 // «Последнее событие», «Дата события», «Последний этап работ», «Дата этапа работ» — плюс
-// «Где сейчас?» (до 14.10.2026 — «Этап на заводе»). Осталось две: «Все этапы» (проходил ли,
-// без привязки к дате; подпись с 12.10.2026) и «Дата этапа». Ступень «Последний этап» снята
-// 07.10.2026 (владелец: она берёт один последний этап и вводит в заблуждение — разрез по
-// всему движению даёт «Где сейчас?»).
+// «Текущее состояние» (до 14.10.2026 — «Этап на заводе», до 19.10.2026 — «Где сейчас?»).
+// Осталось две: «История» (проходил ли, без привязки к дате; подписи «Все этапы» с 12.10.2026
+// и «История» с 19.10.2026) и «Дата этапа». Ступень «Последний этап» снята 07.10.2026
+// (владелец: она берёт один последний этап и вводит в заблуждение — разрез по всему движению
+// даёт «Текущее состояние»).
 const stageCodeRows = [
   { id: 'c1', stageCodes: ['arrival', 'disassembly_defect', 'sborka'], lastStageCode: 'sborka', lastStageName: 'Сборка', lastStageAt: DAY_09 },
   { id: 'c2', stageCodes: ['arrival', 'disassembly_defect', 'sborka', 'obkatka'], lastStageCode: 'obkatka', lastStageName: 'Обкатка', lastStageAt: DAY_09 },
   { id: 'c3', stageCodes: [] },
 ] as unknown as EngineListItem[];
 
-describe('ступени этапов: «Все этапы» и «Дата этапа»', () => {
-  it('«Все этапы» находит двигатель по ЛЮБОМУ пройденному этапу, а не только по последнему', () => {
+describe('ступени этапов: «История» и «Дата этапа»', () => {
+  it('«История» находит двигатель по ЛЮБОМУ пройденному этапу, а не только по последнему', () => {
     // Ключевая разница с прежней ступенью «Последний этап работ»: двигатель c2 дошёл до обкатки,
     // но и сборку проходил — «есть сборка» должно находить обоих, а «последний этап = сборка»
     // только c1. Иначе ступень молчала бы там, где оператор ищет именно прохождение этапа.
@@ -218,13 +221,73 @@ describe('ступени этапов: «Все этапы» и «Дата эт�
     expect(sanitizeEngineFacetSelection({ lastStage: ['stage:sborka'] })).toEqual({});
   });
 
-  it('«Дата этапа» отбирается диапазоном по дате ПОСЛЕДНЕГО этапа', () => {
+  it('«Дата этапа» отбирается диапазоном по дате ПОСЛЕДНЕГО этапа, когда проходов нет', () => {
+    // Старая история без строк проходов: остаётся `lastStageAt` — другого источника дат нет.
     expect(ids(applyEngineFacets(stageCodeRows, { stageDate: { from: '2026-09-07' } }))).toEqual(['c1', 'c2']);
     // Двигатель без даты в отбор по диапазону не попадает.
     expect(ids(applyEngineFacets(stageCodeRows, { stageDate: { from: '2026-01-01' } }))).toEqual(['c1', 'c2']);
   });
 
-  it('«Все этапы» и «Где сейчас?» не исключают друг друга — это разные вопросы', () => {
+  it('«Дата этапа» — дата КОНКРЕТНОГО прохода: двигатель попадает в день, когда был ЛЮБОЙ его этап', () => {
+    // Владелец 19.10.2026. d1 прошёл укладку 1 сентября и обкатку 9-го; прежний отбор по
+    // `lastStageAt` нашёл бы его только 9-го, и вопрос «кто укладывал первого» остался бы без
+    // ответа — а на экране это выглядело бы как «таких двигателей нет».
+    const rows = [
+      {
+        id: 'd1',
+        stageCodes: ['ukladka', 'obkatka'],
+        stageDates: { ukladka: DAY_01, obkatka: DAY_09 },
+        stageEntries: [
+          { code: 'ukladka', name: 'Укладка', at: DAY_01, pass: 1 },
+          { code: 'obkatka', name: 'Обкатка', at: DAY_09, pass: 1 },
+        ],
+        lastStageCode: 'obkatka',
+        lastStageAt: DAY_09,
+      },
+      {
+        id: 'd2',
+        stageCodes: ['ukladka'],
+        stageDates: { ukladka: DAY_09 },
+        stageEntries: [{ code: 'ukladka', name: 'Укладка', at: DAY_09, pass: 1 }],
+        lastStageCode: 'ukladka',
+        lastStageAt: DAY_09,
+      },
+    ] as unknown as EngineListItem[];
+    expect(ids(applyEngineFacets(rows, { stageDate: { from: '2026-09-01', to: '2026-09-01' } }))).toEqual(['d1']);
+    expect(ids(applyEngineFacets(rows, { stageDate: { from: '2026-09-09', to: '2026-09-09' } }))).toEqual(['d1', 'd2']);
+  });
+
+  it('выбранный этап сужает даты: «Укладка» + чужой день двигатель не находит', () => {
+    // Иначе отбор читался бы «проходил укладку когда-то и в этот день был где-то ещё» — на
+    // экране это двигатель с датой чужого события, ровно та путаница, от которой уходили.
+    const rows = [
+      {
+        id: 'd1',
+        stageCodes: ['ukladka', 'obkatka'],
+        stageDates: { ukladka: DAY_01, obkatka: DAY_09 },
+        stageEntries: [
+          { code: 'ukladka', name: 'Укладка', at: DAY_01, pass: 1 },
+          { code: 'obkatka', name: 'Обкатка', at: DAY_09, pass: 1 },
+        ],
+        lastStageAt: DAY_09,
+      },
+    ] as unknown as EngineListItem[];
+    expect(ids(applyEngineFacets(rows, { hasStage: ['stage:ukladka'], stageDate: { from: '2026-09-01', to: '2026-09-01' } }))).toEqual(['d1']);
+    expect(ids(applyEngineFacets(rows, { hasStage: ['stage:ukladka'], stageDate: { from: '2026-09-09', to: '2026-09-09' } }))).toEqual([]);
+  });
+
+  it('один день ставит обе границы разом, а пустой день снимает отбор', () => {
+    const day = setFacetDay({}, 'stageDate', '2026-09-01');
+    expect(day).toEqual({ stageDate: { from: '2026-09-01', to: '2026-09-01' } });
+    expect(setFacetDay(day, 'stageDate', '')).toEqual({});
+    // Прочие ступени разовый день не трогает.
+    expect(setFacetDay({ customer: ['CP1'], stageDate: { from: '2026-09-01' } }, 'stageDate', '2026-09-02')).toEqual({
+      customer: ['CP1'],
+      stageDate: { from: '2026-09-02', to: '2026-09-02' },
+    });
+  });
+
+  it('«История» и «Текущее состояние» не исключают друг друга — это разные вопросы', () => {
     // Прежние четыре ступени отвечали на почти один вопрос и пересекались; здесь оператор
     // может спросить «кто проходил сборку» и «где сейчас» одним отбором.
     expect(ids(applyEngineFacets(stageCodeRows, { hasStage: ['stage:sborka'], factoryStage: ['stage:obkatka'] }))).toEqual(['c2']);
@@ -237,7 +300,7 @@ describe('ступени этапов: «Все этапы» и «Дата эт�
     expect(options[options.length - 1]).toMatchObject({ value: 'none', label: 'этапов нет' });
   });
 
-  it('счётчик «Все этапы» считает двигатели по каждому их этапу', () => {
+  it('счётчик «История» считает двигатели по каждому их этапу', () => {
     // Строка с несколькими значениями засчитывается под каждым: счётчик отвечает на вопрос
     // «сколько двигателей проходили обкатку», а не «сколько строк в списке».
     const options = engineFacetOptions(stageCodeRows, {}, 'hasStage');
@@ -273,12 +336,13 @@ describe('ступени этапов: «Все этапы» и «Дата эт�
     expect(ids(applyEngineFacets(rows, { hasStage: ['none'] }))).toEqual(['x1']);
   });
 
-  it('ступень «Где сейчас?» так называется (переименование 14.10.2026)', () => {
-    expect(engineFacetById('factoryStage')?.label).toBe('Где сейчас?');
+  it('ступень «Текущее состояние» так называется (переименования 14.10 и 19.10.2026)', () => {
+    expect(engineFacetById('factoryStage')?.label).toBe('Текущее состояние');
+    expect(engineFacetById('hasStage')?.label).toBe('История');
   });
 });
 
-describe('«Где сейчас?» гасит «Дату этапа» (владелец 14.10.2026)', () => {
+describe('«Текущее состояние» гасит «Дату этапа» (владелец 14.10.2026)', () => {
   it('активен, когда выбрано хоть одно значение', () => {
     expect(isFactoryStageActive({})).toBe(false);
     expect(isFactoryStageActive({ factoryStage: [] })).toBe(false);
@@ -290,7 +354,7 @@ describe('«Где сейчас?» гасит «Дату этапа» (влад�
       factoryStage: ['stage:ukladka'],
       customer: ['CP1'],
     });
-    // Без «Где сейчас?» период живёт.
+    // Без «Текущего состояния» период живёт.
     const sel = { stageDate: { from: '2026-10-01' } };
     expect(stripStageDateWhenWhereNow(sel)).toBe(sel);
   });
@@ -316,7 +380,7 @@ const stageRows = [
   { id: 'f3', arrivalDate: DAY_05 },
 ] as unknown as EngineListItem[];
 
-describe('ступень «Где сейчас?» со справочником видов работ', () => {
+describe('ступень «Текущее состояние» со справочником видов работ', () => {
   it('предлагает ВСЕ этапы в порядке шаблона (приоритет линейки), пустые — нулём', () => {
     const options = engineFacetOptions(stageRows, {}, 'factoryStage', STAGE_TYPES);
     expect(options.map((o) => o.value)).toEqual([

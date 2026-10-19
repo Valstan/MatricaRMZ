@@ -86,20 +86,20 @@ describe('отчёт-список «сейчас на заводе»', () => {
 
   it('ступени — те же смыслы, что в списке двигателей; этапы выбираются для показа', () => {
     const facetIds = PAGE.match(/const FACET_IDS = \[([^\]]*)\]/)?.[1] ?? '';
-    expect(facetIds, 'ступень «Последний этап» вернулась — путаница с «Где сейчас?» тоже').not.toContain('lastStage');
+    expect(facetIds, 'ступень «Последний этап» вернулась — путаница с «Текущим состоянием» тоже').not.toContain('lastStage');
     expect(facetIds).toContain("'factoryStage'");
-    expect(facetIds, 'ступень «Все этапы» потеряна — отбор по прохождению этапов не сделать').toContain("'hasStage'");
+    expect(facetIds, 'ступень «История» потеряна — отбор по прохождению этапов не сделать').toContain("'hasStage'");
     expect(PAGE).toContain("'scrap'");
   });
 
-  it('точные срезы «Всех этапов» + «Где сейчас?» гасит период (владелец 14.10.2026)', () => {
+  it('точные срезы «Истории»; «Текущее состояние» гасит период (владелец 14.10.2026)', () => {
     expect(PAGE, 'строка-проход снова несёт все этапы двигателя — срез неточный').toContain('stageCodes: [entry.code]');
     expect(PAGE).toContain('stageDates: { [entry.code]: entry.at }');
     // Без проходов в едином списке (старая история) двигатель с пройденным этапом
     // показывается строкой НА ВЫБРАННЫЙ этап, а не с текущим местом.
     expect(PAGE, 'срез снова показывает чужое текущее место вместо выбранного этапа').toContain('stageCodes: [code], // для фасета hasStage — точный срез');
     expect(PAGE, 'раскрытие строится вопросом не про движение').toContain('isStageEntriesActive(');
-    expect(PAGE, 'ступень периода осталась в ряду при активном «где»').toContain(
+    expect(PAGE, 'ступень периода осталась в ряду при активном «Текущем состоянии»').toContain(
       "whereNowActive ? FACET_IDS.filter((id) => id !== 'stageDate') : FACET_IDS",
     );
     expect(PAGE, 'скрытый период продолжает отбирать втихую').toContain('stripStageDateWhenWhereNow(');

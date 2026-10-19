@@ -90,7 +90,7 @@ type ListUiState = {
  * Колонки этапов в этом отчёте — одна, «Последний этап». Прежние «Последний этап работ»,
  * «Последнее событие» и «Дата этапа работ» убраны (владелец 01.10.2026): четыре колонки
  * об одном и том же читались как четыре разных факта, а на экране выглядели дублями
- * ступеней фильтра. Полная картина по этапам — в ступенях «Все этапы» / «Где сейчас?».
+ * ступеней фильтра. Полная картина по этапам — в ступенях «История» / «Текущее состояние».
  */
 const REPORT_HIDDEN_BY_DEFAULT = ['workshop', 'scrapReason', 'scrapAt', 'completenessActDate', 'defectDate', 'lastStageAt'];
 
@@ -167,7 +167,7 @@ export function EnginesReportPage(props: ListReportPageProps) {
   );
 
   // Полный набор ступеней списка двигателей — отчёт универсальный, и отбор у него тот же.
-  // «Где сейчас?» гасит «Дату этапа» (владелец 14.10.2026) — как в заводских отчётах.
+  // «Текущее состояние» гасит «Дату этапа» (владелец 14.10.2026) — как в заводских отчётах.
   const activeFacets = useMemo(
     () => stripStageDateWhenWhereNow(ui.facets as EngineFacetSelection) as FacetSelection,
     [ui.facets],
@@ -177,9 +177,9 @@ export function EnginesReportPage(props: ListReportPageProps) {
     patchState({ facets: stripStageDateWhenWhereNow(next as EngineFacetSelection) as FacetSelection });
   const visibleFacetFields = whereNowActive ? ui.facetFields.filter((f) => f !== 'stageDate') : ui.facetFields;
   const facets = useMemo(() => {
-    const all = engineFacets(types, stageTemplates) as readonly FacetDescriptor<Row>[];
+    const all = engineFacets(types, stageTemplates, activeFacets as EngineFacetSelection) as readonly FacetDescriptor<Row>[];
     return whereNowActive ? all.filter((f) => f.id !== 'stageDate') : all;
-  }, [types, stageTemplates, whereNowActive]);
+  }, [types, stageTemplates, whereNowActive, activeFacets]);
 
   const deep = useListDeepFilter(
     rows,
@@ -363,7 +363,7 @@ export function EnginesReportPage(props: ListReportPageProps) {
         />
         {whereNowActive ? (
           <div className="ui-muted" style={{ fontSize: 12, marginTop: 4 }}>
-            «Где сейчас?» показывает текущее место каждого двигателя — период («Дата этапа») при нём не нужен и скрыт.
+            «Текущее состояние» показывает место каждого двигателя — период («Дата этапа») при нём не нужен и скрыт.
           </div>
         ) : null}
       </div>

@@ -7,6 +7,7 @@ import {
   facetRangeOf,
   normalizeLookupCompact,
   setFacetDateBound,
+  setFacetDay,
   toggleFacetValue,
   type FacetDescriptor,
   type FacetOption,
@@ -203,11 +204,25 @@ export function FacetFilter<Row>(props: {
         if (!facet) return null;
         if (facet.kind === 'dateRange') {
           const range = facetRangeOf(props.selection, fieldId) ?? {};
+          const sameDay = range.from && range.from === range.to ? range.from : '';
           return (
             <div key={fieldId} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{ minWidth: 150, color: 'var(--subtle)' }}>
                 <span {...emojiAttrs(facet.label)}>{facet.label}</span>: {range.from || range.to ? `${range.from || '…'} — ${range.to || '…'}` : 'все'}
               </span>
+              {/* Быстрый выбор одного дня (владелец 19.10.2026): ставит обе границы разом.
+                  Вид записи диапазона не меняется — одна дата в нём ничего не значила. */}
+              <span className="ui-muted">день</span>
+              <div style={{ width: 170 }}>
+                <Input
+                  type="date"
+                  data-facet-day={fieldId}
+                  value={sameDay}
+                  onChange={(e) => props.onChangeSelection(setFacetDay(props.selection, fieldId, e.target.value))}
+                  title={`${facet.label}: ровно этот день`}
+                />
+              </div>
+              <span className="ui-muted">или период</span>
               <div style={{ width: 170 }}>
                 <Input
                   type="date"
@@ -217,6 +232,7 @@ export function FacetFilter<Row>(props: {
                   title={`${facet.label}: с`}
                 />
               </div>
+              <span className="ui-muted">—</span>
               <div style={{ width: 170 }}>
                 <Input
                   type="date"
@@ -226,7 +242,6 @@ export function FacetFilter<Row>(props: {
                   title={`${facet.label}: по`}
                 />
               </div>
-              <span className="ui-muted">одна дата — ровно этот день</span>
             </div>
           );
         }
