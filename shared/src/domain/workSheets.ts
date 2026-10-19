@@ -324,11 +324,14 @@ export type WorkSheetRow = {
    */
   repairStageRowId: string | null;
   /**
-   * Номер прохода: 1 у обычной строки, 2+ у помеченной оператором как повторный проход.
+   * Номер прохода: 1 у обычной строки, 2+ у помеченной оператором как возврат.
    * Нужен в списке и отчётах, чтобы осознанный возврат было ВИДНО и он не читался как дубль —
-   * ради этого различия гейт и заводился.
+   * ради этого различия гейт и заводился. Номер считается по порядку записей с флагом
+   * (снял галочку у ранней — следующие сдвинулись), а не вводится оператором.
    */
   repeatPass: number;
+  /** Причина возврата (необязательна): заполняется галочкой «Возврат» в карточке. */
+  repeatReason: string;
   /**
    * Этапы двигателя строки — для движковой ступени списка («Есть этап»): та же история,
    * что в списке двигателей (sheet + stage + авто-строки), поэтому отборы в обоих списках
@@ -355,7 +358,7 @@ export function unionWorkSheetColumns(types: ReadonlyArray<{ sortOrder?: number;
   return [...seen.values()];
 }
 
-export const WORK_SHEET_ROW_FACET_IDS = ['type', 'engineBrand', 'workshop', 'performedBy', 'date', 'hasRepeat'] as const;
+export const WORK_SHEET_ROW_FACET_IDS = ['type', 'engineBrand', 'workshop', 'performedBy', 'date', 'hasRepeat', 'repeatReason'] as const;
 
 /**
  * Ступени фильтра вкладки этапов работ: общие (узел, марка, цех, исполнитель, дата) плюс
@@ -392,13 +395,24 @@ export function workSheetFacets(
     { kind: 'values', id: 'workshop', label: 'Цех', valueOf: (r) => val(r.workshopId, r.workshopName || HUMAN_LABEL_DASH) },
     { kind: 'values', id: 'performedBy', label: 'Исполнитель', valueOf: (r) => val(text(r.performedBy)) },
     { kind: 'dateRange', id: 'date', label: 'Дата', dateOf: (r) => (Number.isFinite(r.at) && r.at > 0 ? r.at : null) },
-    // B4: отдельный счётчик повторных проходов — отбор по виду работ их не делит
+    // B4: отдельный счётчик возвратов — отбор по виду работ их не делит
     // (фильтр «Укладка вала» показывает все укладки, включая повторы).
     {
       kind: 'values',
       id: 'hasRepeat',
-      label: 'Повторный заход',
-      valueOf: (r) => (r.repeatPass >= 2 ? { value: 'repeat', label: 'повторный' } : { value: 'first', label: 'первый проход' }),
+      label: 'Возврат',
+      valueOf: (r) => (r.repeatPass >= 2 ? { value: 'repeat', label: 'возврат' } : { value: 'first', label: 'без возврата' }),
+    },
+    // Причина — отдельной ступенью: «сколько возвратов из-за ОТК» и есть та статистика,
+    // ради которой галочка заводилась. Пустая причина не притворяется значением.
+    {
+      kind: 'values',
+      id: 'repeatReason',
+      label: 'Причина возврата',
+      valueOf: (r) => {
+        const reason = text(r.repeatReason);
+        return r.repeatPass >= 2 && reason ? { value: reason, label: reason } : null;
+      },
     },
     // Ступени «Последний этап» здесь больше нет — снята 07.10.2026 решением владельца
     // (та же причина, что в списке двигателей: берёт один последний этап и путает;

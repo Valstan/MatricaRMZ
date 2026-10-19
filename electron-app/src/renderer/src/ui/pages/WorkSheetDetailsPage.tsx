@@ -53,6 +53,8 @@ export function WorkSheetDetailsPage(props: {
   const [date, setDate] = useState('');
   const [workshopId, setWorkshopId] = useState('');
   const [note, setNote] = useState('');
+  const [repeat, setRepeat] = useState(false);
+  const [repeatReason, setRepeatReason] = useState('');
   const [values, setValues] = useState<Record<string, unknown>>({});
   const dirtyRef = useRef(false);
   const markDirty = () => {
@@ -71,6 +73,8 @@ export function WorkSheetDetailsPage(props: {
         setDate(toWorkSheetDateInput(Date.now()));
         setWorkshopId('');
         setNote('');
+        setRepeat(false);
+        setRepeatReason('');
         setValues({});
       } else {
         const res = await window.matrica.workSheets.rows.get(props.rowId);
@@ -84,6 +88,10 @@ export function WorkSheetDetailsPage(props: {
         setDate(toWorkSheetDateInput(res.row.at));
         setWorkshopId(res.row.workshopId);
         setNote(res.row.note);
+        // Старые возвраты живы наличием `repeat` (pass >= 2): галочка читается оттуда же,
+        // поэтому записи прежних версий открываются с уже стоящей галочкой.
+        setRepeat(res.row.repeatPass >= 2);
+        setRepeatReason(res.row.repeatReason);
         const next: Record<string, unknown> = {};
         for (const f of res.row.fields) next[f.code] = f.value;
         setValues(next);
@@ -187,9 +195,15 @@ export function WorkSheetDetailsPage(props: {
           values,
         };
         // Путь записи один на создание, правку и повтор после гейта: второй вызов разъехался
-        // бы с первым по payload.
+        // бы с первым по payload. Галочка уходит явным флагом (false — снять), а не только
+        // номером прохода: иначе сохранить «это больше не возврат» было бы нечем.
         const writeRow = (repeatPass?: number) =>
-          window.matrica.workSheets.rows.save({ ...payload, ...(repeatPass ? { repeatPass } : {}) });
+          window.matrica.workSheets.rows.save({
+            ...payload,
+            repeat: repeat || Boolean(repeatPass),
+            repeatReason: repeat || repeatPass ? repeatReason.trim() || null : null,
+            ...(repeatPass ? { repeatPass } : {}),
+          });
 
         let r = await writeRow();
         // Совпало с уже внесённой строкой — это вопрос к оператору, а не ошибка. Спрашиваем и,
@@ -225,7 +239,7 @@ export function WorkSheetDetailsPage(props: {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- props пересоздаётся каждый рендер; зависим от редактируемых значений
-    [effectiveType, columns, engineId, date, workshopId, note, values, props.rowId, load, pickChoice],
+    [effectiveType, columns, engineId, date, workshopId, note, values, repeat, repeatReason, props.rowId, load, pickChoice],
   );
 
   const remove = async () => {
@@ -381,6 +395,45 @@ export function WorkSheetDetailsPage(props: {
             }}
             data-work-sheet-date
           />
+
+          {label('Возврат')}
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
+              <input
+                type="checkbox"
+                checked={repeat}
+                disabled={!props.canEdit}
+                onChange={(e) => {
+                  markDirty();
+                  setRepeat(e.target.checked);
+                  if (!e.target.checked) setRepeatReason('');
+                }}
+                data-work-sheet-repeat
+              />
+              Повторный проход
+            </label>
+            {repeat && !props.isNew && row && row.repeatPass >= 2 ? (
+              <span className="ui-muted" style={{ fontSize: 12 }} data-work-sheet-repeat-pass>
+                проход № {row.repeatPass}
+              </span>
+            ) : null}
+          </div>
+
+          {repeat ? (
+            <>
+              {label('Причина возврата')}
+              <Input
+                value={repeatReason}
+                disabled={!props.canEdit}
+                placeholder="Почему двигатель вернулся на этот этап"
+                onChange={(e) => {
+                  markDirty();
+                  setRepeatReason(e.target.value);
+                }}
+                data-work-sheet-repeat-reason
+              />
+            </>
+          ) : null}
 
           {label('Цех')}
           <select

@@ -2566,6 +2566,11 @@ export type MatricaApi = {
          */
         repeatPass?: number | null;
         repeatReason?: string | null;
+        /**
+         * Галочка «Возврат» из карточки: `true` — пометить (номер посчитает main),
+         * `false` — снять пометку, `undefined` — не трогать (правка не разжаловывает).
+         */
+        repeat?: boolean;
       }) => Promise<
         | { ok: true; id: string; created: boolean; repair: { applied: boolean; reason?: string } | null }
         | {

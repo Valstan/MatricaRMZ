@@ -55,12 +55,23 @@ describe('отчёт-список «Этапы работ»', () => {
     expect(PAGE).toContain('data-report-group-by');
     expect(PAGE).toContain('rowGroupLabel={(r) => groupLabelByRow.get(r.id) || null}');
     expect(PAGE, 'щелчок по строке — карточка двигателя').toContain('onClick: () => props.onOpenEngine(it.row.engineId)');
-    for (const g of ["case 'type':", "case 'contract':", "case 'workshop':", "case 'customer':", "case 'customer_type':"]) expect(PAGE).toContain(g);
+    for (const g of ["case 'type':", "case 'contract':", "case 'workshop':", "case 'customer':", "case 'customer_type':", "case 'repeat':", "case 'repeatReason':"]) expect(PAGE).toContain(g);
   });
 
   it('видит рекламационные двигатели: метка-колонка и признак строки', () => {
     expect(PAGE).toContain("id: 'reclamation'");
     expect(PAGE).toContain("label: 'Рекламация'");
     expect(PAGE).toContain('r.engineIsReclamation');
+  });
+
+  // P8 (19.10.2026): статистика возвратов — без отдельного отчёта: колонка с номером
+  // прохода, ступень «Причина возврата» и группировки «По возвратам» / «По причине».
+  it('возвраты: колонка, причина и счётчик группировкой', () => {
+    expect(PAGE).toContain("id: 'repeat'");
+    expect(PAGE).toContain("label: 'Возврат'");
+    expect(PAGE, 'причина не читается').toContain('r.repeatReason');
+    expect(PAGE, 'нет группировки по возвратам').toContain("repeat: 'По возвратам'");
+    expect(PAGE, 'нет группировки по причине').toContain("repeatReason: 'По причине возврата'");
+    expect(PAGE, 'не возврат смешан с «Без причины»').toContain("label: 'Не возврат'");
   });
 });

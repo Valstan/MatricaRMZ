@@ -312,3 +312,21 @@ describe('лента: цех правится везде и снимок име�
     expect(PANEL, 'откат правки не возвращает цех').toContain('workshopId: item.workshopId');
   });
 });
+
+// P8 (19.10.2026): в ленте у возврата появились галочка и причина. Правка даты/цеха
+// пересобирает строку из входа, поэтому флаг обязан ехать вместе с остальными полями:
+// иначе сохранение примечания молча снимало бы возврат.
+describe('возврат в ленте истории', () => {
+  it('правка этапа несёт галочку и причину возврата', () => {
+    expect(PANEL).toContain('data-repair-stage-repeat={item.id}');
+    expect(PANEL).toContain('data-repair-stage-repeat-reason={item.id}');
+    expect(PANEL).toContain('repeat: editingDate.repeat,');
+    expect(PANEL).toContain('repeatReason: editingDate.repeatReason.trim()');
+    expect(PANEL, 'галочка не читает текущий проход').toContain('repeat: item.pass >= 2');
+  });
+
+  it('причина возврата видна в строке ленты, а не только в базе', () => {
+    expect(PANEL).toContain('data-history-feed-repeat-reason={item.id}');
+    expect(PANEL).toContain('Возврат: {item.repeatReason}');
+  });
+});

@@ -96,7 +96,7 @@ export function EngineHistoryFeedPanel(props: {
   // Правка уже записанного этапа прямо в строке ленты: дата, цех, примечание
   // (PR-4 плана 10-2026 — раньше правилась только дата, а смена даты молча
   // стирала цех: писатель собирает строку заново из входа).
-  const [editingDate, setEditingDate] = useState<{ id: string; code: string; value: string; workshopId: string; workshopName: string; note: string } | null>(null);
+  const [editingDate, setEditingDate] = useState<{ id: string; code: string; value: string; workshopId: string; workshopName: string; note: string; repeat: boolean; repeatReason: string } | null>(null);
   // Правка ручной записи прямо в строке: текст действия, дата, цех, примечание.
   const [editingManual, setEditingManual] = useState<{ id: string; action: string; date: string; workshopId: string; workshopName: string; note: string } | null>(null);
   // Перенос этапов при перебивке номера (программа владельца, п.4, 10.10.2026).
@@ -108,7 +108,7 @@ export function EngineHistoryFeedPanel(props: {
     | {
         label: string;
         kind: 'restore-stage';
-        snapshot: { id: string; code: string; atMs: number; note?: string; workshopId?: string; workshopName?: string; pass: number };
+        snapshot: { id: string; code: string; atMs: number; note?: string; workshopId?: string; workshopName?: string; pass: number; repeatReason?: string };
       }
     | { label: string; kind: 'remove-manual'; id: string }
     | {
@@ -171,7 +171,7 @@ export function EngineHistoryFeedPanel(props: {
 
   /** Снимок строки этапа из текущей ленты — для отката: вернуть как было. */
   function stageSnapshot(id: string):
-    | { id: string; code: string; atMs: number; note?: string; workshopId?: string; workshopName?: string; pass: number }
+    | { id: string; code: string; atMs: number; note?: string; workshopId?: string; workshopName?: string; pass: number; repeatReason?: string }
     | null {
     const item = feed.find((i) => i.id === id && i.stageCode);
     if (!item || !(item.at > 0)) return null;
@@ -183,6 +183,7 @@ export function EngineHistoryFeedPanel(props: {
       ...(item.workshopId ? { workshopId: item.workshopId } : {}),
       ...(item.workshopName ? { workshopName: item.workshopName } : {}),
       pass: item.pass,
+      ...(item.repeatReason ? { repeatReason: item.repeatReason } : {}),
     };
   }
 
@@ -211,6 +212,7 @@ export function EngineHistoryFeedPanel(props: {
           ...(s.workshopId ? { workshopId: s.workshopId } : {}),
           ...(s.workshopName ? { workshopName: s.workshopName } : {}),
           ...(s.pass >= 2 ? { repeatPass: s.pass } : {}),
+          ...(s.repeatReason ? { repeatReason: s.repeatReason } : {}),
           // Откат — сам по себе подтверждение: оператор уже отвечал на вопрос один раз,
           // второй раз спрашивать про ту же дату незачем.
           ...(s.code === 'disassembly_defect' ? { confirmDefectDate: true } : {}),
@@ -261,6 +263,8 @@ export function EngineHistoryFeedPanel(props: {
       workshopId?: string;
       workshopName?: string;
       repeatPass?: number;
+      repeatReason?: string;
+      repeat?: boolean;
       confirmDefectDate?: boolean;
     },
   ) {
@@ -310,7 +314,7 @@ export function EngineHistoryFeedPanel(props: {
           ? { label: `«${templateName(args.code)}»`, kind: 'restore-stage', snapshot: before }
           : { label: `«${templateName(args.code)}»`, kind: 'remove-stage', id: args.id },
       );
-      setStatus(r.backward ? `«${templateName(args.code)}» — возврат назад, записан проход № ${r.pass}.` : '');
+      setStatus(r.backward && r.pass >= 2 ? `«${templateName(args.code)}» — возврат назад, записан проход № ${r.pass}.` : '');
       // Направление «этап → акт»: дату дефектовки доносим до листа. Довесок —
       // этап уже записан, его исход не трогаем.
       if (args.code === 'disassembly_defect') {
@@ -763,7 +767,7 @@ export function EngineHistoryFeedPanel(props: {
                             disabled={busy}
                             title="Править этап: дата, цех, примечание"
                             data-repair-stage-edit-date={item.id}
-                            onClick={() => setEditingDate({ id: item.id, code: item.stageCode, value: toInputDate(item.at), workshopId: item.workshopId, workshopName: item.workshopName ?? '', note: item.note })}
+                            onClick={() => setEditingDate({ id: item.id, code: item.stageCode, value: toInputDate(item.at), workshopId: item.workshopId, workshopName: item.workshopName ?? '', note: item.note, repeat: item.pass >= 2, repeatReason: item.repeatReason })}
                           >
                             ✎
                           </Button>
@@ -877,6 +881,30 @@ export function EngineHistoryFeedPanel(props: {
                             data-repair-stage-note={item.id}
                             onChange={(e) => setEditingDate((prev) => (prev ? { ...prev, note: e.target.value } : null))}
                           />
+                          <label style={{ display: 'inline-flex', gap: 4, alignItems: 'center', whiteSpace: 'nowrap', fontSize: 12 }}>
+                            <input
+                              type="checkbox"
+                              checked={editingDate.repeat}
+                              disabled={busy}
+                              data-repair-stage-repeat={item.id}
+                              onChange={(e) =>
+                                setEditingDate((prev) =>
+                                  prev ? { ...prev, repeat: e.target.checked, ...(e.target.checked ? {} : { repeatReason: '' }) } : prev,
+                                )
+                              }
+                            />
+                            Возврат
+                          </label>
+                          {editingDate.repeat ? (
+                            <Input
+                              value={editingDate.repeatReason}
+                              disabled={busy}
+                              title="Причина возврата"
+                              placeholder="Причина возврата"
+                              data-repair-stage-repeat-reason={item.id}
+                              onChange={(e) => setEditingDate((prev) => (prev ? { ...prev, repeatReason: e.target.value } : null))}
+                            />
+                          ) : null}
                           <Button
                             variant="ghost"
                             disabled={busy}
@@ -897,6 +925,8 @@ export function EngineHistoryFeedPanel(props: {
                                   ...(editingDate.note.trim() ? { note: editingDate.note.trim() } : {}),
                                   ...(editingDate.workshopId ? { workshopId: editingDate.workshopId } : {}),
                                   ...(wsLabel ? { workshopName: wsLabel } : {}),
+                                  repeat: editingDate.repeat,
+                                  ...(editingDate.repeat ? { repeatReason: editingDate.repeatReason.trim() } : {}),
                                 }).then(() => setEditingDate(null));
                               }
                             }}
@@ -923,6 +953,11 @@ export function EngineHistoryFeedPanel(props: {
                       ) : (
                         <>
                           {item.reason && <div>{item.reason}</div>}
+                          {item.repeatReason && item.pass >= 2 ? (
+                            <div className="ui-muted" data-history-feed-repeat-reason={item.id}>
+                              Возврат: {item.repeatReason}
+                            </div>
+                          ) : null}
                           {item.note && <div>{item.note}</div>}
                           {details.map((line) => (
                             <div key={line} className="ui-muted">
