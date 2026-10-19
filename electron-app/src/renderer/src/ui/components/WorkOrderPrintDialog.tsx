@@ -150,6 +150,8 @@ export function WorkOrderPrintDialog(props: {
   buildHtml: (settings: WorkOrderPrintSettings) => string;
   onChange: (settings: WorkOrderPrintSettings) => void;
   onPrint: (settings: WorkOrderPrintSettings) => void;
+  /** Выгрузка формы в Word: та же модель и те же настройки, что у печати, — файл не разъедется с листом. */
+  onExport?: (settings: WorkOrderPrintSettings) => Promise<void> | void;
   onClose: () => void;
 }) {
   // Родитель монтирует диалог только при открытии → draft инициализируется свежим.
@@ -161,6 +163,7 @@ export function WorkOrderPrintDialog(props: {
   const [templates, setTemplates] = useState<WoPrintTemplate[]>(() => loadWoPrintTemplates());
   const [templateName, setTemplateName] = useState('');
   const [note, setNote] = useState('');
+  const [exporting, setExporting] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const { buildHtml } = props;
@@ -226,6 +229,7 @@ export function WorkOrderPrintDialog(props: {
 
   return (
     <div
+      data-wo-print-dialog="true"
       style={{
         position: 'fixed',
         inset: 0,
@@ -518,6 +522,22 @@ export function WorkOrderPrintDialog(props: {
             <Button variant="primary" onClick={() => props.onPrint(draft)}>
               Печать / PDF
             </Button>
+            {props.onExport ? (
+              <Button
+                variant="ghost"
+                data-wo-print-export="word"
+                disabled={exporting}
+                title="Сохранить форму в Word: те же разделы и настройки, что у печати"
+                onClick={() => {
+                  const run = props.onExport;
+                  if (!run) return;
+                  setExporting(true);
+                  void Promise.resolve(run(draft)).finally(() => setExporting(false));
+                }}
+              >
+                {exporting ? 'Готовим…' : 'В Word'}
+              </Button>
+            ) : null}
             <Button
               variant="ghost"
               onClick={() => applySettings(loadWoPrintDefault(props.workOrderKind) ?? {})}

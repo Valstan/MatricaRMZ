@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import type { ChatDeepLinkPayload, ListExportFormat, ListExportSpec, PartMetadata } from '@matricarmz/shared';
+import type { CardExportSpec, ChatDeepLinkPayload, ListExportFormat, ListExportSpec, PartMetadata } from '@matricarmz/shared';
 
 // Нативный сканер QR ставит сюда планшет (android-app/src/platform/qrScan.ts) до
 // загрузки renderer. На десктопе хука нет — мост честно отвечает unsupported,
@@ -979,6 +979,7 @@ const matricaApi = {
   },
   exports: {
     list: async (args: { format: ListExportFormat; spec: ListExportSpec }) => ipcRenderer.invoke('exports:list', args),
+    card: async (args: CardExportSpec) => ipcRenderer.invoke('exports:card', args),
   },
   chat: {
     usersList: async () => ipcRenderer.invoke('chat:usersList'),
