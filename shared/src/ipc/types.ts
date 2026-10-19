@@ -3182,6 +3182,11 @@ export type MatricaApi = {
       format: import('../domain/listExport.js').ListExportFormat;
       spec: import('../domain/listExport.js').ListExportSpec;
     }) => Promise<{ ok: true; path: string; name: string } | { ok: false; error: string; cancelled?: true }>;
+    // Печатная форма карточки (наряд, акт, табель) в Word. Секции — те же, что уходят в печать:
+    // форма описывается один раз, а не вторым сборщиком, который разъедется с листом.
+    card: (
+      args: import('../domain/cardExport.js').CardExportSpec,
+    ) => Promise<{ ok: true; path: string; name: string } | { ok: false; error: string; cancelled?: true }>;
   };
   chat: {
     usersList: () => Promise<ChatUsersListResult>;

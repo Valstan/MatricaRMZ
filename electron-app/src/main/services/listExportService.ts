@@ -26,21 +26,7 @@ import {
   type ListExportSpec,
 } from '@matricarmz/shared';
 
-const APP_NAME = 'Матрица3-РМЗ';
-
-/** Управляющие символы и непарные суррогаты — недопустимы в XML 1.0: на них Excel и Word
- * объявляют файл повреждённым целиком (M80/M81, воспроизведено COM-открытием 2026-08-17). */
-// eslint-disable-next-line no-control-regex -- ровно эти символы и запрещаем
-const XML_CONTROL_CHARS = new RegExp('[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\uFFFE\uFFFF]', 'g');
-const XML_LONE_HIGH_SURROGATE = new RegExp('[\\uD800-\\uDBFF](?![\\uDC00-\\uDFFF])', 'g');
-const XML_LONE_LOW_SURROGATE = new RegExp('(^|[^\\uD800-\\uDBFF])[\\uDC00-\\uDFFF]', 'g');
-
-function xmlSafe(text: string): string {
-  return String(text ?? '')
-    .replace(XML_CONTROL_CHARS, '')
-    .replace(XML_LONE_HIGH_SURROGATE, '')
-    .replace(XML_LONE_LOW_SURROGATE, '$1');
-}
+import { APP_NAME, MARGIN_TWIPS, MM_TO_TWIPS, PAGE_TWIPS, xmlSafe } from './exportCommon.js';
 
 const NUMBER_FORMAT = '#,##0.###';
 const DAY_FORMAT = 'dd.mm.yyyy';
@@ -125,14 +111,6 @@ export async function buildListWorkbook(spec: ListExportSpec): Promise<Buffer> {
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
-const MM_TO_TWIPS = 56.6929;
-/** A4 как её считает Word: портрет 11906×16838 твипов, альбом — те же стороны местами. */
-const PAGE_TWIPS = {
-  portrait: { width: 11906, height: 16838 },
-  landscape: { width: 16838, height: 11906 },
-} as const;
-/** Поля 12 мм — те же, что у печатного листа (см. планировщик печати). */
-const MARGIN_TWIPS = Math.round(12 * MM_TO_TWIPS);
 const MIN_COLUMN_TWIPS = 300;
 
 /** Word не понимает ширину таблицы в процентах (`w:tblW type="pct"`) — только твипы (M80). */

@@ -1684,6 +1684,25 @@ export function WorkOrderDetailsPage(props: {
     openPrintPreview(buildPrintModel(current, settings));
   }
 
+  /**
+   * Выгрузка формы наряда в Word: уходят те же секции, что и в печать, поэтому файл повторяет
+   * лист. Собирает файл main-процесс (там `docx`), он же ведёт «Сохранить как» и обратную связь.
+   */
+  async function exportWorkOrderCard(current: WorkOrderPayload, settings: WorkOrderPrintSettings) {
+    const model = buildPrintModel(current, settings);
+    const number = String(current.workOrderNumber ?? '').trim();
+    await window.matrica.exports.card({
+      title: model.title,
+      fileBaseName: number ? `Наряд №${number}` : model.title,
+      sections: model.sections.map((s) => ({
+        id: s.id,
+        title: s.title,
+        html: s.html,
+        ...(s.hideTitle ? { hideTitle: true } : {}),
+      })),
+    });
+  }
+
   if (loading) return <div style={{ color: 'var(--muted)' }}>Загрузка…</div>;
   if (!payload) return <div style={{ color: 'var(--danger)' }}>{status || 'Карточка наряда недоступна'}</div>;
 
@@ -3631,6 +3650,7 @@ export function WorkOrderDetailsPage(props: {
           patch(next);
         }}
         onPrint={(settings) => printWorkOrderCard(payload, settings)}
+        onExport={(settings) => exportWorkOrderCard(payload, settings)}
         onClose={() => setPrintDialogOpen(false)}
       />
     ) : null}
