@@ -56,7 +56,7 @@ describe('возврат в карточке этапа', () => {
     expect(PAGE).toContain('data-work-sheet-repeat-reason');
     expect(PAGE).toContain('repeat: repeat || Boolean(repeatPass)');
     expect(PAGE).toContain('repeatReason: repeat || repeatPass ? repeatReason.trim() || null : null');
-    expect(PAGE, 'снятая галочка оставляет причину висеть').toContain('if (!e.target.checked) setRepeatReason');
+    expect(PAGE, 'снятая галочка чистит причину — иначе она осталась бы висеть').toContain('if (!e.target.checked) setRepeatReason');
   });
 
   it('загруженный возврат открывается с галочкой и причиной', () => {
