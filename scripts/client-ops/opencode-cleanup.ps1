@@ -1,7 +1,7 @@
 ﻿# opencode-cleanup.ps1 — снять с машины админ-раскладку OpenCode-узла
 #
 # Зачем. Модуль OpenCode-узлов вырезан из программы (решение владельца 19.10.2026; план —
-# docs/plans/batch-pain-print-and-filters-2026-10.md §P2). Установщик узла (бывший
+# docs/plans/_archive/batch-pain-print-and-filters-2026-10.md §P2). Установщик узла (бывший
 # opencode-harness.ps1) оставлял на машине парка следы ВНЕ профиля оператора:
 #   * задачу планировщика `MatricaRMZ-OpenCode-serve-<оператор>` (триггер «при входе»);
 #   * входящее правило брандмауэра «MatricaRMZ - OpenCode serve …» (только порт serve);

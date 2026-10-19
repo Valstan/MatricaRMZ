@@ -49,5 +49,5 @@
 
 - Пункт **D10** (авто-подъём OpenCode-сессий, ИИваныч через встроенный узел) снят:
   модуль вырезан из программы решением владельца
-  ([`batch-pain-print-and-filters-2026-10.md`](batch-pain-print-and-filters-2026-10.md) §P2).
+  ([`batch-pain-print-and-filters-2026-10.md`](_archive/batch-pain-print-and-filters-2026-10.md) §P2).
   ИИваныч остаётся на серверном DeepSeek.
