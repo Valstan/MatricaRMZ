@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { WarehouseDocumentListItem, WarehouseDocumentType } from '@matricarmz/shared';
-import { WAREHOUSE_DOCUMENT_STATUS_FILTER_ORDER } from '@matricarmz/shared';
+import { WAREHOUSE_DOCUMENT_STATUS_FILTER_ORDER, describeFacetSelection, formatDayLabel } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
@@ -27,6 +27,7 @@ import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { fetchWarehouseDocumentsAllPages } from '../utils/warehousePagedFetch.js';
 import {
+  lookupLabelById,
   lookupToSelectOptions,
   warehouseDocTypeLabel,
   warehouseDocumentStatusLabel,
@@ -395,12 +396,26 @@ export function StockDocumentsPage(props: {
       {printDialogOpen && (
         <ListPrintDialog
           title="Документы склада"
-          unitLabel="Документов"
           columns={printColumns}
           visibleColumnIds={visibleColumns.map((c) => c.id)}
           rows={displayRows}
           selectedRows={[]}
           storageKey="list:stock-documents:printFields"
+          filtersSummary={describeFacetSelection([], {}, {
+            search: query,
+            extra: [
+              docType ? `Тип: ${warehouseDocTypeLabel(docType)}` : '',
+              includedStatuses.length < WAREHOUSE_DOCUMENT_STATUS_FILTER_ORDER.length
+                ? `Статусы: ${includedStatuses.map((id) => warehouseDocumentStatusLabel(id)).join(', ') || 'ни один'}`
+                : '',
+              fromDate || toDate
+                ? `Дата: ${[fromDate ? `с ${formatDayLabel(fromDate)}` : '', toDate ? `по ${formatDayLabel(toDate)}` : '']
+                    .filter(Boolean)
+                    .join(' ')}`
+                : '',
+              warehouseId ? `Склад: ${lookupLabelById(lookups.warehouses, warehouseId) || warehouseId}` : '',
+            ],
+          })}
           onClose={() => setPrintDialogOpen(false)}
         />
       )}

@@ -260,3 +260,64 @@ describe('ширина колонки тянется мышью', () => {
   });
 });
 
+const PRINT_PREVIEW = src('../utils/printPreview.ts');
+const PRINT_LAYOUT = src('../utils/listPrintLayout.ts');
+
+// Печать списка (владелец 15.09.2026, план batch-pain-print-and-filters-2026-10): лист не
+// обрезает колонки и не молчит об отборе. Контракт проверяем по исходникам — вёрсткой он не
+// проверяется, а рвётся молча: список «печатается», просто снова уезжает за правый край.
+describe('печать списка', () => {
+  it('диалог печати считает раскладку сам, а не отдаёт её браузеру', () => {
+    expect(PRINT_DIALOG).toContain('planListPrintLayout({ columns: columnSpecs, orientation })');
+    expect(PRINT_DIALOG).toContain('<colgroup>');
+    expect(PRINT_DIALOG).toContain('table-layout: fixed');
+    // Обрезанным колонкам оператор назван поимённо, а не оставлен догадываться по листу.
+    expect(PRINT_DIALOG).toContain('layout.clippedLabels');
+    expect(PRINT_DIALOG).toContain('Не хватает места колонкам');
+  });
+
+  it('каждая страница со списком называет отбор в шапке печати', () => {
+    for (const [name, text] of PAGES) {
+      expect(text, `${name}: нет диалога печати`).toContain('<ListPrintDialog');
+      expect(text, `${name}: шапка листа не узнает, что отобрано`).toContain('filtersSummary={');
+      expect(text, `${name}: отбор собран руками вместо общего описания`).toContain('describeFacetSelection');
+    }
+  });
+
+  it('окно предпросмотра печатает лист той ориентации, что выбрал оператор', () => {
+    expect(PRINT_PREVIEW).toContain('@page { size: A4 ');
+    expect(PRINT_PREVIEW).toContain('orientationSwitch');
+    expect(PRINT_PREVIEW).toContain('fontSizeSwitch');
+    expect(PRINT_PREVIEW).toContain('renderPrintHeader');
+  });
+
+  it('переключатели в окне предпросмотра пересчитывают раскладку, а не только CSS', () => {
+    // Ширины колонок живут в `<colgroup>` внутри разметки: без пересборки разделов и разметки
+    // альбомный лист остался бы с колонками книжного, а крупный кегль — с прежними ширинами.
+    expect(PRINT_PREVIEW).toContain("typeof opts.extraCss === 'function'");
+    expect(PRINT_PREVIEW).toContain("typeof opts.sections === 'function'");
+    expect(PRINT_PREVIEW).toContain("typeof opts.printHeader === 'function'");
+    expect(PRINT_PREVIEW).toContain('resolvePlan');
+    expect(PRINT_DIALOG).toContain('extraCss: (state) => listPrintCss(planFor(state))');
+    expect(PRINT_DIALOG).toContain('sections: (state) => [');
+    expect(PRINT_DIALOG).toContain('orientation: state.orientation,');
+  });
+
+  it('кегль остаётся «авто», пока оператор не тронул переключатель', () => {
+    // Иначе на книжном листе остались бы колонки от альбомных 12 pt и обрезались бы все —
+    // при том что раскладка для того же листа сама подобрала бы 10 pt.
+    expect(PRINT_DIALOG).toContain('...(state.fontSizePinned ? { fontSizePt: state.fontSizePt } : {})');
+    expect(PRINT_DIALOG).toContain('plan: planFor,');
+    expect(PRINT_PREVIEW).toContain('fontSizePinned = true');
+  });
+
+  it('планировщик держит печатную ширину, колонку «№» и ступени кегля', () => {
+    expect(PRINT_LAYOUT).toContain('printableWidthMm');
+    expect(PRINT_LAYOUT).toContain('ROW_NUMBER_COLUMN_MM');
+    expect(PRINT_LAYOUT).toContain('PRINT_FONT_STEPS');
+    // Шапка жирная, значение — нет: без поправки слово шапки вылезало из своей колонки.
+    expect(PRINT_LAYOUT).toContain('HEADER_BOLD_FACTOR');
+    expect(PRINT_DIALOG).toContain('table.list-print th { white-space: normal; overflow-wrap: anywhere; }');
+  });
+});
+

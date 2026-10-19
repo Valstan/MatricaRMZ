@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ENGINE_FACETS,
   applyEngineFacets,
+  describeFacetSelection,
   engineFacetIsActive,
   engineStageFacetOptions,
   isFactoryStageActive,
@@ -18,6 +19,7 @@ import {
   arrivalPlacementLabel,
   formatEngineInternalNumber,
   formatEngineReservationUntil,
+  type FacetSelection,
 } from '@matricarmz/shared';
 import type { EngineFacetId, EngineFacetSelection, EngineListItem, GroupLevel } from '@matricarmz/shared';
 
@@ -1293,13 +1295,16 @@ export function EnginesPage(props: {
       {printDialogOpen && (
         <ListPrintDialog
           title={printTitle}
-          unitLabel="Двигателей"
           columns={printColumns}
           visibleColumnIds={visibleColumns.map((c) => c.id)}
           rows={displayRows}
           selectedRows={displayRows.filter((e) => selection.isSelected(String(e.id)))}
           storageKey="list:engines:printFields"
           rowGroupLabel={(e) => groupLabelByRow.get(String(e.id)) || null}
+          filtersSummary={describeFacetSelection(ENGINE_FACETS, facets as FacetSelection, {
+            search: query,
+            grouping: groupBy === 'none' ? '' : ENGINE_LIST_GROUP_BY_LABELS[groupBy],
+          })}
           onClose={() => setPrintDialogOpen(false)}
         />
       )}

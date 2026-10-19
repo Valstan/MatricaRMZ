@@ -1,5 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { NomenclatureItemType, WarehouseNomenclatureListItem } from '@matricarmz/shared';
+import {
+  describeFacetSelection,
+  type NomenclatureItemType,
+  type WarehouseNomenclatureListItem,
+} from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
@@ -37,7 +41,15 @@ import {
 } from './nomenclatureDirectoryPresets.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
 import { parseTemplatePropertiesJson } from '../utils/nomenclatureTemplateProperties.js';
-import { lookupToSelectOptions, WAREHOUSE_ITEM_TYPE_OPTIONS } from '../utils/warehouseUi.js';
+import { lookupLabelById, lookupToSelectOptions, WAREHOUSE_ITEM_TYPE_OPTIONS } from '../utils/warehouseUi.js';
+
+const DIRECTORY_KIND_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'engine_brand', label: 'Марки двигателя' },
+  { value: 'part', label: 'Детали' },
+  { value: 'tool', label: 'Инструменты' },
+  { value: 'good', label: 'Товары' },
+  { value: 'service', label: 'Услуги' },
+];
 
 function NomenclatureCollapsePanel(props: {
   title: string;
@@ -743,11 +755,11 @@ export function NomenclaturePage(props: {
               </select>
               <select value={directoryKind} onChange={(e) => setDirectoryKind(e.target.value)} title="Источник позиции" style={{ width: 180, padding: '8px 10px' }}>
                 <option value="">Все источники</option>
-                <option value="engine_brand">Марки двигателя</option>
-                <option value="part">Детали</option>
-                <option value="tool">Инструменты</option>
-                <option value="good">Товары</option>
-                <option value="service">Услуги</option>
+                {DIRECTORY_KIND_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
               <div style={{ width: 200 }}>
                 <SearchSelect
@@ -791,12 +803,22 @@ export function NomenclaturePage(props: {
             {printDialogOpen && (
               <ListPrintDialog
                 title="Склад · Номенклатура"
-                unitLabel="Позиций"
                 columns={printColumns}
                 visibleColumnIds={visibleColumns.map((c) => c.id)}
                 rows={printRows}
                 selectedRows={[]}
                 storageKey="list:nomenclature:columns:printFields"
+                filtersSummary={describeFacetSelection([], {}, {
+                  search: query,
+                  extra: [
+                    itemType ? `Тип: ${itemTypeOptions.find((item) => item.id === itemType)?.label ?? itemType}` : '',
+                    directoryKind
+                      ? `Источник: ${DIRECTORY_KIND_OPTIONS.find((option) => option.value === directoryKind)?.label ?? directoryKind}`
+                      : '',
+                    groupId ? `Группа: ${lookupLabelById(lookups.nomenclatureGroups, groupId) || groupId}` : '',
+                    collapseVariants ? 'Артикульные варианты свёрнуты' : '',
+                  ],
+                })}
                 onClose={() => setPrintDialogOpen(false)}
               />
             )}

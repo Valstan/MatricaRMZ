@@ -1,3 +1,5 @@
+import { PRINT_MARGIN_MM, type PrintOrientation } from './listPrintLayout.js';
+
 export type PrintSection = {
   id: string;
   title: string;
@@ -6,6 +8,78 @@ export type PrintSection = {
   /** Не печатать заголовок секции (<h2>). Чекбокс-переключатель (по title) остаётся. */
   hideTitle?: boolean;
 };
+
+/** Шапка печатного документа: она печатается, а не только видна в окне. */
+export type PrintHeader = {
+  title: string;
+  /** Строки отбора человеческим языком. */
+  lines?: readonly string[];
+  /** Кто и когда печатал. */
+  meta?: string;
+};
+
+/** Состояние окна предпросмотра: переключатели меняют его и перерисовывают документ на месте. */
+export type PrintPreviewState = {
+  orientation: PrintOrientation;
+  fontSizePt: number;
+  /** Кегль выбран оператором вручную; до первого такого выбора его подбирает раскладка. */
+  fontSizePinned: boolean;
+};
+
+/** Что раскладка решила про лист: только эти два числа окно и показывает переключателями. */
+export type PrintPreviewPlan = {
+  orientation: PrintOrientation;
+  fontSizePt: number;
+};
+
+export type PrintPreviewOptions = {
+  title: string;
+  subtitle?: string;
+  /**
+   * Разделы документа. Функция от состояния окна — для таблиц, которые пересобираются под
+   * выбранный лист и кегль (ширины колонок задаются `<colgroup>` внутри разметки, CSS их
+   * не перепишет).
+   */
+  sections: PrintSection[] | ((state: PrintPreviewState) => PrintSection[]);
+  /**
+   * Разметка документа. Функция от состояния окна — чтобы переключатели кегля и ориентации
+   * пересчитывали ширины таблицы: иначе на альбомном листе таблица осталась бы узкой полосой
+   * книжного, а на мелком кегле в те же колонки по-прежнему не влезало бы ничего.
+   */
+  extraCss?: string | ((state: PrintPreviewState) => string);
+  /** Ориентация листа; по умолчанию книжная. */
+  orientation?: PrintOrientation;
+  /** Кегль таблицы в pt; не задан — кегль по умолчанию из PRINT_BASE_CSS. */
+  fontSizePt?: number;
+  /** Переключатели в окне: перерисовывают документ на месте, не открывая новое окно. */
+  orientationSwitch?: boolean;
+  fontSizeSwitch?: boolean;
+  /** Шапка документа вместо заголовка окна — печатается вместе с таблицей. */
+  printHeader?: PrintHeader | ((state: PrintPreviewState) => PrintHeader);
+  /**
+   * Раскладка под текущий выбор. Возвращает лист и кегль, которыми окно перерисует документ:
+   * без неё «Авто»-кегль в окне не обновлялся бы, и на повёрнутом листе остались бы колонки
+   * от прежнего размера — оператор увидел бы обрезанную таблицу вместо подобранной заново.
+   */
+  plan?: (state: PrintPreviewState) => PrintPreviewPlan;
+};
+
+/** Ступени кегля в окне предпросмотра — те же, что подбирает планировщик раскладки. */
+const PREVIEW_FONT_STEPS = [12, 10, 9, 8] as const;
+
+function renderPrintHeader(header: PrintHeader): string {
+  const lines = (header.lines ?? [])
+    .map((line) => String(line ?? '').trim())
+    .filter(Boolean)
+    .map((line) => `<div class="doc-filter">${escapeHtml(line)}</div>`)
+    .join('');
+  const meta = String(header.meta ?? '').trim();
+  return `<header class="doc-head">
+  <h1>${escapeHtml(header.title)}</h1>
+  ${lines}
+  ${meta ? `<div class="doc-meta">${escapeHtml(meta)}</div>` : ''}
+</header>`;
+}
 
 export function escapeHtml(s: string) {
   return String(s ?? '')
@@ -32,6 +106,10 @@ export const PRINT_BASE_CSS = `
     ul { margin: 0; padding-left: 18px; }
     .section { margin-bottom: 16px; }
     .muted { color: #6b7280; }
+    .doc-head { margin: 0 0 10px 0; padding-bottom: 6px; border-bottom: 1px solid #cbd5e1; }
+    .doc-head h1 { font-size: 18px; margin: 0 0 4px 0; }
+    .doc-filter { font-size: 11px; color: #374151; line-height: 1.45; }
+    .doc-meta { font-size: 10px; color: #6b7280; margin-top: 3px; }
     @media print {
       .no-print { display: none !important; }
       body { margin: 12mm; color: #0b1220; }
@@ -120,80 +198,148 @@ ${renderSectionsHtml(opts.sections)}
   }, 100));
 }
 
-export function openPrintPreview(opts: { title: string; subtitle?: string; sections: PrintSection[]; extraCss?: string }) {
+/**
+ * Окно предпросмотра печати. Переключатели ориентации/кегля перерисовывают документ в
+ * том же окне: `document.write` во вновь открытом окне Electron не исполняет встроенные
+ * `<script>`, поэтому обработчики вешает открывающее окно, а не сам документ (иначе
+ * переключатели молчали бы, а разделы застревали бы скрытыми — «пустая страница»).
+ */
+export function openPrintPreview(opts: PrintPreviewOptions) {
   const title = escapeHtml(opts.title);
   const subtitle = opts.subtitle ? escapeHtml(opts.subtitle) : '';
+  const previewState: PrintPreviewState = {
+    orientation: opts.orientation ?? 'portrait',
+    fontSizePt: opts.fontSizePt ?? PREVIEW_FONT_STEPS[0],
+    fontSizePinned: false,
+  };
+  const sectionsFor = (state: PrintPreviewState): PrintSection[] =>
+    typeof opts.sections === 'function' ? opts.sections(state) : opts.sections;
+  const state = {
+    ...previewState,
+    sections: sectionsFor(previewState).map((s) => ({ ...s })),
+  };
 
-  const visibilityCss = opts.sections
+  const visibilityCss = state.sections
     .map((s) => {
       const id = escapeHtml(s.id);
       return `body:has(input[data-section="${id}"]:not(:checked)) [data-print-section="${id}"] { display: none !important; }`;
     })
     .join('\n    ');
 
-  const controls = opts.sections
-    .map((s) => {
-      const checked = s.checked === false ? '' : 'checked';
-      return `<label class="toggle">
+  // Собираются на каждую перерисовку: иначе после переключения радиокнопка «отпрыгивала» бы
+  // назад к варианту, с которым окно открылось, и оператор не понял бы, что выбрано.
+  const sectionControls = () =>
+    state.sections
+      .map((s) => {
+        const checked = s.checked === false ? '' : 'checked';
+        return `<label class="toggle">
   <input type="checkbox" data-section="${escapeHtml(s.id)}" ${checked}/>
   <span>${escapeHtml(s.title)}</span>
 </label>`;
-    })
-    .join('\n');
-  // NB: no inline `display:none` on unchecked sections. The print window is
-  // opened via document.write(), whose inline <script> does NOT execute in the
-  // Electron child window — so applyVis never runs there. Section visibility is
-  // therefore driven purely by the CSS `:has(:not(:checked))` rule below, which
-  // can both hide AND reveal as checkboxes toggle. A persistent inline
-  // display:none would shadow that rule (CSS can't un-hide an inline style),
-  // leaving checked sections stuck hidden — the "blank page" bug.
-  const content = renderSectionsHtml(opts.sections);
+      })
+      .join('\n');
 
-  const html = `<!doctype html>
+  const orientationControls = opts.orientationSwitch
+    ? () => `<span class="toggle">Лист:</span>
+      <label class="toggle"><input type="radio" name="print-orientation" data-orientation="portrait" ${state.orientation === 'portrait' ? 'checked' : ''}/><span>Книжная</span></label>
+      <label class="toggle"><input type="radio" name="print-orientation" data-orientation="landscape" ${state.orientation === 'landscape' ? 'checked' : ''}/><span>Альбомная</span></label>`
+    : () => '';
+
+  const fontControls = opts.fontSizeSwitch
+    ? () => `<span class="toggle">Кегль:</span>${PREVIEW_FONT_STEPS.map(
+        (pt) =>
+          `<label class="toggle"><input type="radio" name="print-font" data-font-size="${pt}" ${state.fontSizePt === pt ? 'checked' : ''}/><span>${pt} pt</span></label>`,
+      ).join('\n      ')}`
+    : () => '';
+
+  const build = () => {
+    const header = typeof opts.printHeader === 'function' ? opts.printHeader(state) : opts.printHeader;
+    const extraCss = typeof opts.extraCss === 'function' ? opts.extraCss(state) : opts.extraCss;
+    // Отметки разделов живут в состоянии окна, а разметка приходит заново на каждую
+    // перерисовку — переносим выбор оператора по id, иначе галочка гаснет молча.
+    const sections = sectionsFor(state).map((s) => {
+      const previous = state.sections.find((old) => old.id === s.id);
+      return previous?.checked == null ? s : { ...s, checked: previous.checked };
+    });
+    return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8"/>
   <title>${title}</title>
   <style>${PRINT_BASE_CSS}
     ${visibilityCss}
-    ${opts.extraCss ?? ''}
+    @page { size: A4 ${state.orientation}; margin: ${PRINT_MARGIN_MM}mm; }
+    @media print { body { margin: 0; } }
+    table th, table td { font-size: ${state.fontSizePt}pt; }
+    ${extraCss ?? ''}
   </style>
 </head>
 <body>
   <div class="no-print">
-    <h1>${title}</h1>
-    ${subtitle ? `<div class="subtitle">${subtitle}</div>` : ''}
+    ${header ? '' : `<h1>${title}</h1>`}
+    ${header || !subtitle ? '' : `<div class="subtitle">${subtitle}</div>`}
     <div class="controls">
-      ${controls}
+      ${orientationControls()}
+      ${fontControls()}
+      ${sectionControls()}
       <button class="action" id="printBtn">Печать / PDF</button>
     </div>
   </div>
-  ${content}
-  <script>
-    var toggles = document.querySelectorAll('input[data-section]');
-    function applyVis() {
-      for (var i = 0; i < toggles.length; i++) {
-        var cb = toggles[i];
-        var s = document.querySelector('[data-print-section="' + cb.getAttribute('data-section') + '"]');
-        if (s) s.style.display = cb.checked ? '' : 'none';
-      }
-    }
-    for (var j = 0; j < toggles.length; j++) toggles[j].addEventListener('change', applyVis);
-    applyVis();
-    var printBtn = document.getElementById('printBtn');
-    if (printBtn) printBtn.addEventListener('click', function() { window.print(); });
-  </script>
+  ${header ? renderPrintHeader(header) : ''}
+  ${renderSectionsHtml(sections)}
 </body>
 </html>`;
+  };
 
   const w = window.open('', '_blank');
   if (!w) return;
-  w.document.open();
-  w.document.write(html);
-  w.document.close();
-  setTimeout(() => {
-    const printBtn = w.document.getElementById('printBtn');
+
+  // Раскладка — источник правды по листу и кеглю: пока оператор не выбрал кегль сам, его
+  // подбирает раскладка под текущий лист, и переключатели обязаны показывать именно его.
+  const resolvePlan = (): PrintPreviewPlan => {
+    const planned = opts.plan
+      ? opts.plan(state)
+      : { orientation: state.orientation, fontSizePt: state.fontSizePt };
+    state.orientation = planned.orientation;
+    state.fontSizePt = planned.fontSizePt;
+    return planned;
+  };
+
+  const draw = () => {
+    resolvePlan();
+    w.document.open();
+    w.document.write(build());
+    w.document.close();
+    const doc = w.document;
+
+    doc.querySelectorAll<HTMLInputElement>('input[data-orientation]').forEach((el) => {
+      el.addEventListener('change', () => {
+        if (!el.checked) return;
+        state.orientation = el.dataset.orientation === 'landscape' ? 'landscape' : 'portrait';
+        draw();
+      });
+    });
+    doc.querySelectorAll<HTMLInputElement>('input[data-font-size]').forEach((el) => {
+      el.addEventListener('change', () => {
+        if (!el.checked) return;
+        const next = Number(el.dataset.fontSize);
+        if (!Number.isFinite(next) || next <= 0) return;
+        state.fontSizePt = next;
+        state.fontSizePinned = true;
+        draw();
+      });
+    });
+    doc.querySelectorAll<HTMLInputElement>('input[data-section]').forEach((el) => {
+      el.addEventListener('change', () => {
+        const id = el.dataset.section;
+        const section = state.sections.find((s) => s.id === id);
+        if (section) section.checked = el.checked;
+      });
+    });
+    const printBtn = doc.getElementById('printBtn');
     if (printBtn) printBtn.addEventListener('click', () => w.print());
     w.focus();
-  }, 200);
+  };
+
+  draw();
 }
