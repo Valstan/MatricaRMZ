@@ -63,12 +63,15 @@ export function TimesheetPrintDialog(props: {
   /** Standalone A4-landscape HTML (с #wo-a4) для iframe-превью по настройкам, варианту и блокам. */
   buildHtml: (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) => string;
   onPrint: (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) => void;
+  /** Выгрузка в Word: форма уходит теми же секциями и настройками, что и печать. */
+  onExport?: (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) => Promise<void> | void;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<TimesheetPrintSettings>(() => loadTimesheetPrintSettings());
   const [variant, setVariant] = useState<TimesheetPrintVariant>('full');
   const [blocks, setBlocks] = useState<TimesheetPrintBlocks>({ header: true, grid: true, legend: true, decode: false });
   const [pages, setPages] = useState(1);
+  const [exporting, setExporting] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const { buildHtml } = props;
@@ -220,6 +223,23 @@ export function TimesheetPrintDialog(props: {
             >
               Печать…
             </Button>
+            {props.onExport ? (
+              <Button
+                variant="ghost"
+                data-ts-print-export="word"
+                disabled={exporting}
+                title="Сохранить табель в Word: те же блоки и настройки, что у печати"
+                onClick={() => {
+                  const run = props.onExport;
+                  if (!run) return;
+                  saveTimesheetPrintSettings(draft);
+                  setExporting(true);
+                  void Promise.resolve(run(draft, variant, blocks)).finally(() => setExporting(false));
+                }}
+              >
+                {exporting ? 'Готовим…' : 'В Word'}
+              </Button>
+            ) : null}
             <Button variant="ghost" onClick={props.onClose}>Закрыть</Button>
           </div>
         </div>

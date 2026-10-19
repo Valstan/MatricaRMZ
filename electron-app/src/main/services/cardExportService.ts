@@ -22,6 +22,7 @@ import {
   AlignmentType,
   BorderStyle,
   Document,
+  HeightRule,
   Packer,
   Paragraph,
   Table,
@@ -36,17 +37,34 @@ import type { CardExportSection, CardExportSpec } from '@matricarmz/shared';
 
 import { APP_NAME, MARGIN_TWIPS, PAGE_TWIPS, xmlSafe } from './exportCommon.js';
 
-const CONTENT_TWIPS = PAGE_TWIPS.portrait.width - MARGIN_TWIPS * 2;
 const BORDER_COLOR = '999999';
+
+/** Печатная область листа: у табеля она альбомная — проценты колонок считаются от неё. */
+function contentTwips(page: { width: number }): number {
+  return page.width - MARGIN_TWIPS * 2;
+}
 /** Подписная линия — неразрывные пробелы с подчёркиванием: в Word это и есть линия для росписи. */
 const SIGNATURE_LINE = '\u00A0'.repeat(20);
 
 type Align = 'left' | 'center' | 'right';
-type Run = { text: string; bold: boolean; sizePx: number | null; underline: boolean };
-type ParagraphBlock = { kind: 'paragraph'; runs: Run[]; align: Align; muted: boolean; bold: boolean; sizePx: number | null };
+type Run = { text: string; bold: boolean; sizePx: number | null; underline: boolean; br?: true };
+type ParagraphBlock = {
+  kind: 'paragraph';
+  runs: Run[];
+  align: Align;
+  muted: boolean;
+  bold: boolean;
+  sizePx: number | null;
+  bullet: boolean;
+};
 type Cell = { runs: Run[]; bold: boolean; colspan: number; align: Align | null };
-type TableBlock = { kind: 'table'; head: Cell[][]; body: Cell[][]; bordered: boolean; widths: number[] };
-type Block = ParagraphBlock | TableBlock;
+type Row = { cells: Cell[]; heightPx: number | null };
+type TableBlock = { kind: 'table'; head: Row[]; body: Row[]; bordered: boolean; widths: number[] };
+/** Разрыв листа, объявленный формой (`page-break-before:always`): у табеля комментарии идут
+ *  отдельным листом. Отдельным блоком, а не флагом абзаца: абзац-обёртка часто пуст, и флаг
+ *  уехал бы вместе с ним. */
+type BreakBlock = { kind: 'pageBreak' };
+type Block = ParagraphBlock | TableBlock | BreakBlock;
 
 type InlineStyle = { bold: boolean; sizePx: number | null; underline: boolean; text: boolean; line: boolean };
 
@@ -150,6 +168,12 @@ function percentOf(style: Record<string, string>): number | null {
   return Number.isFinite(v) && v > 0 ? v : null;
 }
 
+/** Разрыв листа, объявленный формой: `page-break-before:always` / `break-before:page`. */
+function pageBreakOf(style: Record<string, string>): boolean {
+  const v = String(style['page-break-before'] ?? style['break-before'] ?? '').trim();
+  return v === 'always' || v === 'page';
+}
+
 /**
  * Ширины колонок таблицы в процентах. Объявленные формы приводятся к 100% (пропорции листа
  * сохраняются), недостающие колонки делят остаток; если не объявлено ни одной — таблица уходит
@@ -176,11 +200,12 @@ export function parseCardHtml(html: string): Block[] {
 
   let paragraph: ParagraphBlock | null = null;
   let table: {
-    head: Cell[][];
-    body: Cell[][];
+    head: Row[];
+    body: Row[];
     bordered: boolean;
     widths: (number | null)[];
     row: Cell[] | null;
+    rowHeightPx: number | null;
     cell: Cell | null;
     inHead: boolean;
   } | null = null;
@@ -199,10 +224,12 @@ export function parseCardHtml(html: string): Block[] {
 
   const flushTable = () => {
     if (!table) return;
-    if (table.row && table.row.length > 0) (table.inHead ? table.head : table.body).push(table.row);
+    if (table.row && table.row.length > 0) {
+      (table.inHead ? table.head : table.body).push({ cells: table.row, heightPx: table.rowHeightPx });
+    }
     const { head, body } = table;
     if (head.length > 0 || body.length > 0) {
-      const columns = Math.max(...[...head, ...body].map((row) => row.reduce((n, c) => n + Math.max(1, c.colspan), 0)));
+      const columns = Math.max(...[...head, ...body].map((row) => row.cells.reduce((n, c) => n + Math.max(1, c.colspan), 0)));
       blocks.push({
         kind: 'table',
         head,
@@ -228,7 +255,7 @@ export function parseCardHtml(html: string): Block[] {
       table.cell.runs.push({ text: clean, bold: st.bold, sizePx: st.sizePx, underline: st.underline });
       return;
     }
-    paragraph ??= { kind: 'paragraph', runs: [], align: 'left', muted: false, bold: false, sizePx: null };
+    paragraph ??= { kind: 'paragraph', runs: [], align: 'left', muted: false, bold: false, sizePx: null, bullet: false };
     paragraph.runs.push({
       text: clean,
       bold: paragraph.bold || st.bold,
@@ -266,14 +293,14 @@ export function parseCardHtml(html: string): Block[] {
         }
       } else if (tag === 'tr') {
         if (table && table.row) {
-          (table.inHead ? table.head : table.body).push(table.row);
+          (table.inHead ? table.head : table.body).push({ cells: table.row, heightPx: table.rowHeightPx });
           table.row = null;
         }
       } else if (tag === 'thead' || tag === 'tbody') {
         if (table) table.inHead = false;
       } else if (tag === 'table') {
         flushTable();
-      } else if (tag === 'div' || tag === 'p' || HEADINGS.has(tag)) {
+      } else if (tag === 'div' || tag === 'p' || HEADINGS.has(tag) || tag === 'li') {
         flushParagraph();
       } else if (isInlineTag) {
         const frame = inline.pop();
@@ -286,16 +313,23 @@ export function parseCardHtml(html: string): Block[] {
     }
 
     if (tag === 'br') {
-      flushParagraph();
+      // В ячейке перенос строк делается разрывом внутри абзаца: `<br>` у форм разделяет
+      // заголовки шапки («1 / пн»), склеенные в один текст они читались бы слитно.
+      if (table && table.cell) table.cell.runs.push({ text: '', bold: false, sizePx: null, underline: false, br: true });
+      else flushParagraph();
     } else if (tag === 'table') {
       flushParagraph();
-      table = { head: [], body: [], bordered: true, widths: [], row: null, cell: null, inHead: false };
+      table = { head: [], body: [], bordered: true, widths: [], row: null, rowHeightPx: null, cell: null, inHead: false };
     } else if (tag === 'thead') {
       if (table) table.inHead = true;
     } else if (tag === 'tbody') {
       if (table) table.inHead = false;
     } else if (tag === 'tr') {
-      if (table) table.row = [];
+      if (table) {
+        table.row = [];
+        const h = Number.parseFloat(String(style.height ?? ''));
+        table.rowHeightPx = Number.isFinite(h) && h > 0 ? h : null;
+      }
     } else if (tag === 'td' || tag === 'th') {
       if (table && table.row) {
         const isHeader = tag === 'th';
@@ -308,8 +342,24 @@ export function parseCardHtml(html: string): Block[] {
         const pct = percentOf(style);
         if (pct !== null && table.widths[table.row.length] == null) table.widths[table.row.length] = pct;
       }
+    } else if (tag === 'li') {
+      // Пункт списка — свой абзац с маркером (комментарии табеля печатаются списком).
+      // Кегль наследуем у абзаца-обёртки: иначе строки уедут обычным кеглем страницы.
+      const inherited: ParagraphBlock | null = paragraph;
+      flushParagraph();
+      const item: ParagraphBlock = {
+        kind: 'paragraph',
+        runs: [],
+        align: 'left',
+        muted: inherited?.muted ?? false,
+        bold: false,
+        sizePx: inherited?.sizePx ?? null,
+        bullet: true,
+      };
+      paragraph = item;
     } else if (tag === 'div' || tag === 'p' || HEADINGS.has(tag)) {
       flushParagraph();
+      if (pageBreakOf(style)) blocks.push({ kind: 'pageBreak' });
       const isHeading = HEADINGS.has(tag);
       paragraph = {
         kind: 'paragraph',
@@ -318,6 +368,7 @@ export function parseCardHtml(html: string): Block[] {
         muted: String(attrs.class ?? '').includes('muted'),
         bold: isHeading || boldOf(style),
         sizePx: sizeOf(style) ?? (isHeading ? headingPx(tag) : null),
+        bullet: false,
       };
     } else if (isInlineTag) {
       const parent = inlineStyle();
@@ -347,26 +398,37 @@ function halfPoints(sizePx: number | null): number {
 }
 
 function textRuns(runs: readonly Run[], muted: boolean): TextRun[] {
-  return runs.map(
-    (r) =>
-      new TextRun({
-        text: xmlSafe(r.text),
-        size: halfPoints(r.sizePx),
-        ...(r.bold ? { bold: true } : {}),
-        ...(r.underline ? { underline: {} } : {}),
-        ...(muted ? { color: '666666', italics: true } : {}),
-      }),
+  return runs.map((r) =>
+    r.br
+      ? new TextRun({ break: 1 })
+      : new TextRun({
+          text: xmlSafe(r.text),
+          size: halfPoints(r.sizePx),
+          ...(r.bold ? { bold: true } : {}),
+          ...(r.underline ? { underline: {} } : {}),
+          ...(muted ? { color: '666666', italics: true } : {}),
+        }),
   );
 }
 
-/** Ширины колонок таблицы в twips: проценты форм переводятся в печатную область A4 портрет. */
-function columnTwips(block: TableBlock): number[] | null {
+/** Ширины колонок таблицы в twips: объявленные формой проценты переводятся в печатную область. */
+function columnTwips(block: TableBlock, content: number): number[] | null {
   const widths = block.widths;
   if (widths.length === 0) return null;
   const total = widths.reduce((a, b) => a + b, 0);
   if (!(total > 0)) return null;
-  // Нижний порог — чтобы вырожденное объявление (`width:0.1%`) не дало невидимую колонку.
-  return widths.map((p) => Math.max(240, Math.round((CONTENT_TWIPS * p) / total)));
+  // Нижний порог — чтобы «сжатая по содержимому» колонка (`width:1%` у табеля) не стала невидимой.
+  const MIN = 240;
+  const out = widths.map((p) => Math.max(MIN, Math.round((content * p) / total)));
+  const sum = out.reduce((a, b) => a + b, 0);
+  if (sum <= content) return out;
+  // Порог поднял узкие колонки выше их доли — лишнее снимаем с колонок, которые ещё выше
+  // порога: таблица обязана влезть в лист, иначе правый край уедет за страницу.
+  const flexible = out.map((w) => w > MIN);
+  const flexSum = out.reduce((a, w, i) => a + (flexible[i] ? w : 0), 0);
+  if (flexSum <= 0) return out;
+  const excess = sum - content;
+  return out.map((w, i) => (flexible[i] ? Math.max(MIN, w - Math.round((excess * w) / flexSum)) : w));
 }
 
 function alignmentOf(align: Align) {
@@ -383,15 +445,21 @@ function cellOf(cell: Cell, widthTwips: number | null): TableCell {
 }
 
 /** Строка таблицы: ширина ячейки — сумма колонок, которые она накрывает (`colspan`). */
-function tableRowOf(cells: Cell[], widths: number[] | null, header: boolean): TableRow {
+function tableRowOf(row: Row, widths: number[] | null, header: boolean): TableRow {
   const children: TableCell[] = [];
   let column = 0;
-  for (const cell of cells) {
+  for (const cell of row.cells) {
     const span = Math.max(1, cell.colspan);
     children.push(cellOf(cell, widths ? widths.slice(column, column + span).reduce((a, b) => a + b, 0) : null));
     column += span;
   }
-  return new TableRow({ ...(header ? { tableHeader: true } : {}), children });
+  return new TableRow({
+    ...(header ? { tableHeader: true } : {}),
+    // Высота — данные формы (у табеля клетки рассчитаны под запись ручкой); порог «не меньше»,
+    // чтобы длинный текст волен был строку подрастить, а не обрезаться.
+    ...(row.heightPx ? { height: { value: Math.round(row.heightPx * 15), rule: HeightRule.ATLEAST } } : {}),
+    children,
+  });
 }
 
 const BORDERED = {
@@ -403,23 +471,25 @@ const BORDERED = {
   insideVertical: { style: BorderStyle.SINGLE, size: 2, color: BORDER_COLOR },
 } as const;
 
-function documentChild(block: Block): Paragraph | Table {
+function documentChild(block: ParagraphBlock | TableBlock, content: number, pageBreak: boolean): Paragraph | Table {
   if (block.kind === 'paragraph') {
     return new Paragraph({
       children: textRuns(block.runs, block.muted),
       alignment: alignmentOf(block.align),
       spacing: { after: 60 },
+      ...(block.bullet ? { bullet: { level: 0 } } : {}),
+      ...(pageBreak ? { pageBreakBefore: true } : {}),
     });
   }
   // Ширины объявила сама форма (пропорции листа) — держим их жёстко; иначе таблица
   // уходит Word на автораскладку, как и раньше.
-  const widths = columnTwips(block);
+  const widths = columnTwips(block, content);
   const rows = [
-    ...block.head.map((cells) => tableRowOf(cells, widths, true)),
-    ...block.body.map((cells) => tableRowOf(cells, widths, false)),
+    ...block.head.map((row) => tableRowOf(row, widths, true)),
+    ...block.body.map((row) => tableRowOf(row, widths, false)),
   ];
   return new Table({
-    width: { size: CONTENT_TWIPS, type: WidthType.DXA },
+    width: { size: content, type: WidthType.DXA },
     layout: widths ? TableLayoutType.FIXED : TableLayoutType.AUTOFIT,
     ...(widths ? { columnWidths: widths } : {}),
     ...(block.bordered ? { borders: BORDERED } : {}),
@@ -428,6 +498,8 @@ function documentChild(block: Block): Paragraph | Table {
 }
 
 export async function buildCardDocument(spec: CardExportSpec): Promise<Buffer> {
+  const page = spec.orientation === 'landscape' ? PAGE_TWIPS.landscape : PAGE_TWIPS.portrait;
+  const content = contentTwips(page);
   const children: (Paragraph | Table)[] = [];
   for (const section of spec.sections as CardExportSection[]) {
     if (!section.hideTitle && String(section.title ?? '').trim() !== '') {
@@ -435,7 +507,19 @@ export async function buildCardDocument(spec: CardExportSpec): Promise<Buffer> {
         new Paragraph({ children: [new TextRun({ text: xmlSafe(section.title), bold: true, size: 24 })], spacing: { after: 80 } }),
       );
     }
-    for (const block of parseCardHtml(section.html)) children.push(documentChild(block));
+    let pendingBreak = false;
+    for (const block of parseCardHtml(section.html)) {
+      if (block.kind === 'pageBreak') {
+        pendingBreak = true;
+        continue;
+      }
+      if (pendingBreak && block.kind === 'table') {
+        // Своего «начать с новой страницы» у таблицы нет — просим об этом пустой абзац.
+        children.push(new Paragraph({ pageBreakBefore: true, spacing: { after: 0 } }));
+      }
+      children.push(documentChild(block, content, pendingBreak && block.kind === 'paragraph'));
+      pendingBreak = false;
+    }
     if (children.length > 0 && children[children.length - 1] instanceof Table) children.push(new Paragraph({ text: '' }));
   }
   // Пустой абзац в конце обязателен и после таблицы, и у документа, кончающегося таблицей (M80).
@@ -447,7 +531,7 @@ export async function buildCardDocument(spec: CardExportSpec): Promise<Buffer> {
     sections: [
       {
         properties: {
-          page: { size: PAGE_TWIPS.portrait, margin: { top: MARGIN_TWIPS, bottom: MARGIN_TWIPS, left: MARGIN_TWIPS, right: MARGIN_TWIPS } },
+          page: { size: page, margin: { top: MARGIN_TWIPS, bottom: MARGIN_TWIPS, left: MARGIN_TWIPS, right: MARGIN_TWIPS } },
         },
         children,
       },

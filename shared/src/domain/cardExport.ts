@@ -20,5 +20,8 @@ export type CardExportSpec = {
   title: string;
   /** Имя файла без расширения — расширение добавит сохранение. */
   fileBaseName: string;
+  /** Лист документа: табель печатается альбомом (`@page A4 landscape`), и файл обязан быть тем же
+   *  листом — 31 колонка дней в книжную ширину не влезает. По умолчанию — портрет. */
+  orientation?: 'portrait' | 'landscape';
   sections: readonly CardExportSection[];
 };

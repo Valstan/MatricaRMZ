@@ -11,9 +11,16 @@
 //      выгрузки обязан совпасть, а маркера версии «(в. N)» в документе быть не должно; из целого
 //      печатного листа в документ не попадают ни CSS-текст, ни кнопка «Печать / PDF», а ширины
 //      колонок берутся из процентов формы.
-//  [6] за собой смоук подчищает: карточки («Наряд № N», «⚙ <номер>») закрываются и метлой при
-//      старте, и в конце — полоса вкладок не должна копиться (владелец, 19.10.2026). Чужую
-//      несохранённую работу не трогаем: всплыл dirty-guard — закрытие отменяется.
+//  [6] требование-накладная расхода (P5b-3): дверь «В Word» в тулбаре карточки складского
+//      документа выгружает те же разделы, что и печать («Основное», «Позиции», «Подписи»).
+//  [7] табель Т-13 (P5b-3): дверь «В Word» в диалоге печати табеля выгружает тот же лист;
+//      лист альбомный (pgSz 16838×11906), сетка дней вписана в печатную ширину, фамилия
+//      сотрудника из строки табеля напечатана, переносы «день / день недели» — тоже.
+//  [8] за собой смоук подчищает: карточки («Наряд № N», «⚙ <номер>», «📦 <номер>»,
+//      «Карточка табеля») закрываются и метлой при старте, и в конце, а вкладки-экраны,
+//      которые открыл прогон, — в конце; чужие открытые вкладки не трогаем — полоса вкладок
+//      не должна копиться (владелец, 19.10.2026). Чужую несохранённую работу не трогаем:
+//      всплыл dirty-guard — закрытие отменяется.
 //
 // Запуск: MATRICA_EXPORT_AUTOSAVE_DIR=<абсолютный путь> в env Electron (start-electron.ps1 пробрасывает
 // env текущей сессии), затем node .claude/skills/verifier-electron/scripts/cdp-card-export.mjs
@@ -245,6 +252,26 @@ async function closeTabs(ws, re, label) {
   );
   return r;
 }
+/* Вкладки-экраны (списки) прогон тоже открывает — и закрывает за собой лишь те, которых до
+   него не было: открытый владельцем экран трогать нельзя. `before` — снимок подписей вкладок
+   сразу после входа в приложение. */
+async function closeNewScreens(ws, before) {
+  for (const label of ['Наряды', 'Двигатели', 'Документы', 'Табель']) {
+    if (before.some((t) => t.startsWith(label))) continue;
+    const r = await evaluate(
+      ws,
+      `const strip = document.querySelector('.v3-tab-strip');
+       const t = strip ? [...strip.querySelectorAll('.v3-tab')].find((x) => ((x.querySelector('.v3-tab-label') ?? x).textContent ?? '').trim().startsWith(${JSON.stringify(label)})) : null;
+       if (!t) return { ok: true, closed: false };
+       const x = t.querySelector('button.v3-tab-close');
+       if (!x) return { ok: false, reason: 'нет кнопки закрытия' };
+       x.click(); await wait(500);
+       return { ok: true, closed: true };`,
+    );
+    if (r.closed) note(true, `подчистка: вкладка «${label}» закрыта (её открыл прогон)`);
+    else if (!r.ok) note(false, `подчистка: вкладку «${label}» закрыть не удалось`, r);
+  }
+}
 /* Карточка открывается новой вкладкой и штатно становится активной. Если между кликом и
    проверкой активной оказалась другая вкладка (владелец работает в том же окне), активируем
    свою: дальше все проверки ходят по активной панели. */
@@ -323,12 +350,17 @@ async function main() {
   note(login.ok, 'вход в приложение', login);
   if (!login.ok) throw new Error('логин не прошёл');
   await evaluate(ws, `await dismissModals(); await closePrintDialog(); return true;`);
+  /* Подписи вкладок на входе: в конце прогон закроет вкладки-экраны, которых до него не было
+     (открытые владельцем не трогаем). */
+  const tabsAtStart = await tabLabels(ws);
 
   /* Метла прошлых прогонов: карточки копятся в полосе, и стенд начинает «не открывать»
      очередную (владелец закрывал их руками 19.10.2026). Чужие правки не трогаем — при
      несохранённых closeTabs отменяет закрытие (dirty-guard). */
   await closeTabs(ws, 'Наряд\\s*№\\s*\\d+', 'подчистка при старте: карточки нарядов');
   await closeTabs(ws, '^⚙', 'подчистка при старте: карточки двигателей');
+  await closeTabs(ws, '^📦|^Карточка складского документа', 'подчистка при старте: карточки складских документов');
+  await closeTabs(ws, '^Карточка табеля', 'подчистка при старте: карточки табелей');
 
   /* [0] Фикстура: на стенде наряда нет, а дверь выгрузки надо где-то проверять. Создаём его
      штатным путём приложения (тот же `workOrders.create` + `update`, что у формы оператора) —
@@ -442,7 +474,7 @@ async function main() {
   /* Диалог печати модален: пока он открыт, клик по «МЕНЮ» мимо него не проходит. */
   await evaluate(ws, `await closePrintDialog(); return true;`);
 
-  /* ── [6] Акт комплектности в Word (P5b-2) ──
+  /* ── [5] Акт комплектности в Word (P5b-2) ──
      Дверь выгрузки акта — панель на вкладке «Акт комплектности» карточки двигателя: та же
      кнопка-пара «печать / выгрузка», что у наряда. Двигаемся путём из cdp-engine-act-number:
      список → поиск → строка → вкладка. */
@@ -508,10 +540,10 @@ async function main() {
   if (!actDoor) throw new Error('панель актов не открылась');
   await shot(ws, '3-act-tab');
 
-  /* [7] Снимок версий: печать акта пишет версию (`engineActSnapshot`), выгрузка — обязана пройти
-     мимо. Считаем журнал версий по ВСЕМ трём актам через API (кнопка «История версий» появляется
-     только при ненулевой истории — по ней ноль версий не отличить от «кнопки нет»): выгрузка
-     не создаёт версию. */
+  /* [5.1] Снимок версий: печать акта пишет версию (`engineActSnapshot`), выгрузка — обязана
+     пройти мимо. Считаем журнал версий по ВСЕМ трём актам через API (кнопка «История версий»
+     появляется только при ненулевой истории — по ней ноль версий не отличить от «кнопки нет»):
+     выгрузка не создаёт версию. */
   const versionCount = `(async () => { let n = 0;
      for (const actType of ['completeness', 'defect', 'claim']) {
        const r = await window.matrica.checklists.engineActVersions({ engineId: ${JSON.stringify(eng.id)}, actType });
@@ -540,7 +572,7 @@ async function main() {
   );
   await shot(ws, '4-act-exported');
 
-  /* [8] Файл акта — документ Word с той же формой: заголовок, таблица комплектности,
+  /* [5.2] Файл акта — документ Word с той же формой: заголовок, таблица комплектности,
      номер двигателя, ширины колонок из формы и никакого CSS-мусора от целого листа. */
   const actZip = await JSZip.loadAsync(readFileSync(actFile.path));
   const actXml = actZip.file('word/document.xml') ? await actZip.file('word/document.xml').async('string') : '';
@@ -561,10 +593,261 @@ async function main() {
   note(actParagraphs >= 4 && actTables >= 1, 'акт не пустой: абзацы и таблица на месте', { абзацев: actParagraphs, таблиц: actTables });
   copyFileSync(actFile.path, join(OUT_DIR, 'card-export-act.docx'));
 
+  /* ── [6] Требование-накладная расхода в Word (P5b-3) ──
+     Дверь выгрузки — тулбар карточки складского документа, под тем же гейтом, что печать
+     (`isAddressable`). Карточка открывается только из списка, поэтому фикстуру заводим тем же
+     `warehouse.documentCreate`, что и форма оператора, и открываем её поиском по номеру. */
+  const stockFix = await evaluate(
+    ws,
+    `const call = async (p) => { try { return await p; } catch (e) { return { error: String(e) }; } };
+     const docNo = 'SMOKE-' + String(Date.now()).slice(-6);
+     const nom = await call(window.matrica.warehouse.nomenclatureList({}));
+     const items = (nom?.rows ?? nom ?? []).filter((n) => n && n.id && n.name);
+     const item = items[0] ?? null;
+     const created = await call(window.matrica.warehouse.documentCreate({
+       docType: 'stock_issue',
+       docNo,
+       docDate: Date.now(),
+       header: { warehouseId: 'default', reason: null, counterpartyId: null },
+       lines: item ? [{ nomenclatureId: item.id, unit: 'шт', qty: 2 }] : [],
+     }));
+     return { ok: Boolean(created?.ok && created.id && !created.queued), id: created?.id ?? null, docNo,
+       позиция: item?.name ?? null, ответ: JSON.stringify(created).slice(0, 160) };`,
+  );
+  note(stockFix.ok, 'фикстура: документ расхода создан', stockFix);
+  if (!stockFix.ok) throw new Error(`документ расхода не создать: ${stockFix.ответ}`);
+
+  await openSection(ws, 'Склад', 'Документы');
+  const docTab = await evaluate(
+    ws,
+    `const strip = document.querySelector('.v3-tab-strip');
+     if (!strip) return { ok: false, reason: 'нет ленты вкладок' };
+     const tab = [...strip.querySelectorAll('.v3-tab')].find((t) => txt(t.querySelector('.v3-tab-label') ?? t).startsWith('Документы'));
+     if (!tab) return { ok: false, reason: 'вкладка «Документы» не найдена' };
+     click(tab.querySelector('.v3-tab-label') ?? tab); await wait(700);
+     return { ok: true };`,
+  );
+  note(docTab.ok, 'вкладка «Документы» активна', docTab);
+  if (!docTab.ok) throw new Error(docTab.reason);
+  const docSearchReady = await waitVal(
+    ws,
+    `vis('input', activePane()).some((i) => /Поиск по номеру/.test(i.placeholder || ''))`,
+    'список складских документов',
+  );
+  const docSearch = await evaluate(
+    ws,
+    `const s = vis('input', activePane()).find((i) => /Поиск по номеру/.test(i.placeholder || ''));
+     if (!s) return { ok: false, reason: 'поле поиска документов не найдено' };
+     setVal(s, ${JSON.stringify(stockFix.docNo)});
+     return { ok: true };`,
+  );
+  note(Boolean(docSearchReady) && docSearch.ok, 'список документов отобран по номеру', docSearch);
+  if (!docSearch.ok) throw new Error(docSearch.reason);
+  await sleep(1500);
+  const docRowReady = await waitVal(
+    ws,
+    `[...activePane().querySelectorAll('tr')].some((r) => (r.textContent || '').includes(${JSON.stringify(stockFix.docNo)}))`,
+    'строка документа в списке',
+  );
+  const tabsBeforeDoc = await tabLabels(ws);
+  const docRow = await evaluate(
+    ws,
+    `const tr = [...activePane().querySelectorAll('tr')].find((r) => (r.textContent || '').includes(${JSON.stringify(stockFix.docNo)}));
+     if (!tr) return { ok: false, reason: 'строка документа не найдена' };
+     for (const type of ['mousedown', 'mouseup', 'click']) tr.dispatchEvent(new MouseEvent(type, { bubbles: true }));
+     return { ok: true, текст: txt(tr).slice(0, 60) };`,
+  );
+  note(docRow.ok && Boolean(docRowReady), 'клик по строке списка документов отправлен', docRow);
+  if (!docRow.ok) throw new Error(docRow.reason);
+  await sleep(2500);
+  const docCard = await activateNewTab(ws, tabsBeforeDoc);
+  const docDoor = await waitVal(
+    ws,
+    `Boolean(byExact('Печать: требование-накладная', activePane())) && Boolean(activePane().querySelector('[data-stock-print-export="word"]'))`,
+    'кнопки печати и выгрузки в карточке документа',
+  );
+  note(
+    Boolean(docDoor),
+    'в тулбаре накладной рядом с «Печать: требование-накладная» стоит «В Word»',
+    docCard ? { вкладка: docCard } : undefined,
+  );
+  if (!docDoor) throw new Error('тулбар накладной без кнопки «В Word»');
+  await shot(ws, '5-stock-card');
+
+  const startedDoc = Date.now();
+  const docClicked = await evaluate(ws, `const b = activePane().querySelector('[data-stock-print-export="word"]'); if (!b) return { ok: false }; click(b); return { ok: true };`);
+  note(docClicked.ok, 'нажата «В Word» в карточке накладной');
+  const docFile = await waitForFile('.docx', startedDoc);
+  note(Boolean(docFile), 'файл накладной записан на диск', docFile ?? { dir: AUTO_DIR });
+  if (!docFile) throw new Error('файл накладной не появился');
+
+  const docZip = await JSZip.loadAsync(readFileSync(docFile.path));
+  const stockXml = docZip.file('word/document.xml') ? await docZip.file('word/document.xml').async('string') : '';
+  const stockText = stockXml.replace(/<[^>]+>/g, '');
+  const posHead = String(stockFix.позиция ?? '').trim().split(/\s+/)[0] ?? '';
+  note(stockXml !== '', 'накладная — документ Word (word/document.xml на месте)');
+  note(/^Требование-накладная № SMOKE-/.test(docFile.name), 'файл назван по форме («Требование-накладная № …»)', { имя: docFile.name });
+  note(stockText.includes('Требование-накладная'), 'в документе заголовок формы');
+  note(
+    stockText.includes('Основное') && stockText.includes('Позиции') && stockText.includes('Подписи'),
+    'разделы формы напечатаны теми же подписями, что и на экране («Основное», «Позиции», «Подписи»)',
+  );
+  note(stockText.includes('Отпустил (кладовщик)') && stockText.includes('Получил'), 'подписные строки формы на месте');
+  note(stockText.includes(String(stockFix.docNo)), 'номер документа напечатан в заголовке листа', { docNo: stockFix.docNo });
+  note(posHead.length < 3 || stockText.includes(posHead), 'строка позиции попала в документ', { позиция: stockFix.позиция });
+  note(!stockXml.includes('font-family'), 'CSS-текст стилей не попал в документ');
+  note(!/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(stockXml), 'управляющих символов в накладной нет (Word такие файлы отвергает)');
+  copyFileSync(docFile.path, join(OUT_DIR, 'card-export-stock.docx'));
+
+  /* ── [7] Табель Т-13 в Word (P5b-3) ──
+     Дверь — диалог печати табеля («Печать» → «В Word»). Лист альбомный: сетка дней в книжную
+     ширину не влезает. Фикстура — штатным путём (`timesheets.create` + `addRows` + `setCells`)
+     на январь следующего года: существующий табель стенда в прогоне не участвует, а повторный
+     прогон переиспользует созданный (unique по области и периоду). */
+  const tsFix = await evaluate(
+    ws,
+    `const call = async (p) => { try { return await p; } catch (e) { return { error: String(e) }; } };
+     const year = new Date().getFullYear() + 1, month = 1;
+     const list = await call(window.matrica.timesheets.list());
+     let mine = (list?.ok ? list.rows : []).find((r) => r.year === year && r.month === month) ?? null;
+     if (!mine) {
+       const w = await call(window.matrica.workshops.list({ activeOnly: true }));
+       const workshop = (w?.ok ? w.rows : [])[0];
+       if (!workshop) return { ok: false, reason: 'нет активных цехов для табеля' };
+       const c = await call(window.matrica.timesheets.create({ workshopId: workshop.id, year, month, weekMode: 6 }));
+       if (!c?.ok) return { ok: false, reason: 'create: ' + JSON.stringify(c).slice(0, 160) };
+       mine = { id: c.id, scopeName: workshop.name };
+     }
+     const sheetOf = async () => ((await call(window.matrica.timesheets.get(mine.id)))?.timesheet ?? null);
+     let sh = await sheetOf();
+     if (!sh) return { ok: false, reason: 'табель не читается' };
+     const named = (e) => String(e.fullName || e.displayName || ((e.lastName ?? '') + ' ' + (e.firstName ?? ''))).trim();
+     let rows = sh.rows ?? [];
+     // Строка без фамилии печатается пустой клеткой — фикстуре нужен сотрудник с именем
+     // (в прошлом прогоне могла остаться безымянная строка — дочитываем именованную).
+     if (!rows.some((r) => String(r.fullName ?? '').trim())) {
+       const emp = await call(window.matrica.employees.list());
+       const employees = (emp?.rows ?? emp ?? []).filter((e) => e && e.id);
+       const present = new Set(rows.map((r) => String(r.employeeId)));
+       const pick = employees.find((e) => !present.has(String(e.id)) && named(e).length > 2) ?? employees.find((e) => !present.has(String(e.id)));
+       if (!pick) return { ok: false, reason: 'нет сотрудника для строки табеля' };
+       const add = await call(window.matrica.timesheets.addRows({ timesheetId: mine.id, employees: [{ employeeId: pick.id }] }));
+       if (add?.ok === false) return { ok: false, reason: 'addRows: ' + JSON.stringify(add).slice(0, 160) };
+       sh = await sheetOf();
+       rows = sh?.rows ?? [];
+     }
+     const rowId = rows.find((r) => String(r.fullName ?? '').trim())?.id ?? rows[0]?.id ?? null;
+     if (rowId) await call(window.matrica.timesheets.setCells({ rowId, cells: [{ day: 1, code: 'Я', hours: 8 }, { day: 2, code: 'Я', hours: 8 }] }));
+     const fresh = await call(window.matrica.timesheets.list());
+     const index = (fresh?.ok ? fresh.rows : []).findIndex((r) => String(r.id) === String(mine.id));
+     return { ok: Boolean(rows.length && rowId), id: mine.id, scope: mine.scopeName ?? '', year, month, index,
+       строк: rows.length, фио: rows.find((r) => String(r.fullName ?? '').trim())?.fullName ?? '' };`,
+  );
+  note(tsFix.ok, 'фикстура: табель со строкой сотрудника и часами готов', tsFix);
+  if (!tsFix.ok) throw new Error(`табель не подготовить: ${tsFix.reason ?? 'нет строк'}`);
+
+  await openSection(ws, 'Персонал и доступ', 'Табель');
+  const tsTab = await evaluate(
+    ws,
+    `const strip = document.querySelector('.v3-tab-strip');
+     if (!strip) return { ok: false, reason: 'нет ленты вкладок' };
+     const tab = [...strip.querySelectorAll('.v3-tab')].find((t) => txt(t.querySelector('.v3-tab-label') ?? t).startsWith('Табель'));
+     if (!tab) return { ok: false, reason: 'вкладка «Табель» не найдена' };
+     click(tab.querySelector('.v3-tab-label') ?? tab); await wait(700);
+     return { ok: true };`,
+  );
+  note(tsTab.ok, 'вкладка «Табель» активна', tsTab);
+  if (!tsTab.ok) throw new Error(tsTab.reason);
+  const tsListReady = await waitVal(ws, `txt(activePane()).includes('Табель учёта рабочего времени')`, 'список табелей');
+  const tsRowReady = await waitVal(
+    ws,
+    `(() => { const trs = [...activePane().querySelectorAll('tbody tr')].filter((r) => r.querySelectorAll('td').length > 3);
+       return trs.length > ${Math.max(0, tsFix.index)}; })()`,
+    'строки списка табелей',
+  );
+  const tabsBeforeTs = await tabLabels(ws);
+  const tsRow = await evaluate(
+    ws,
+    `const trs = [...activePane().querySelectorAll('tbody tr')].filter((r) => r.querySelectorAll('td').length > 3);
+     const tr = trs[${tsFix.index}] ?? trs.find((r) => (r.textContent || '').includes(${JSON.stringify(tsFix.scope)}) && (r.textContent || '').includes(${JSON.stringify(String(tsFix.year))}));
+     if (!tr) return { ok: false, reason: 'строка табеля не найдена' };
+     for (const type of ['mousedown', 'mouseup', 'click']) tr.dispatchEvent(new MouseEvent(type, { bubbles: true }));
+     return { ok: true, текст: txt(tr).slice(0, 60) };`,
+  );
+  note(tsRow.ok && Boolean(tsRowReady) && Boolean(tsListReady), 'клик по строке списка табелей отправлен', tsRow);
+  if (!tsRow.ok) throw new Error(tsRow.reason);
+  await sleep(2500);
+  const tsCard = await activateNewTab(ws, tabsBeforeTs);
+  const tsPrint = await waitVal(ws, `Boolean(byExact('Печать', activePane()))`, 'кнопка «Печать» в карточке табеля');
+  note(Boolean(tsPrint), 'карточка табеля открыта (кнопка «Печать» на месте)', tsCard ? { вкладка: tsCard } : undefined);
+  if (!tsPrint) throw new Error('карточка табеля не открылась');
+  const tsDialog = await evaluate(
+    ws,
+    `const b = byExact('Печать', activePane());
+     if (!b) return { ok: false, reason: 'нет кнопки «Печать»' };
+     click(b); await wait(1400);
+     const word = [...document.querySelectorAll('[data-ts-print-export="word"]')].find(visible) ?? null;
+     const titled = [...document.querySelectorAll('div')].some((d) => txt(d) === 'Настройка печати табеля');
+     if (word) word.setAttribute('data-smoke-pick', 'ts-word');
+     return { ok: titled, word: Boolean(word) };`,
+  );
+  note(tsDialog.ok, 'диалог печати табеля открылся', tsDialog);
+  note(Boolean(tsDialog.word), 'в диалоге печати табеля стоит «В Word»');
+  if (!tsDialog.word) throw new Error('кнопки выгрузки в диалоге печати табеля нет');
+  await shot(ws, '6-ts-dialog');
+
+  const startedTs = Date.now();
+  const tsClicked = await evaluate(ws, `const b = document.querySelector('[data-smoke-pick="ts-word"]'); if (!b) return { ok: false }; click(b); return { ok: true };`);
+  note(tsClicked.ok, 'нажата «В Word» в диалоге печати табеля');
+  const tsFile = await waitForFile('.docx', startedTs);
+  note(Boolean(tsFile), 'файл табеля записан на диск', tsFile ?? { dir: AUTO_DIR });
+  if (!tsFile) throw new Error('файл табеля не появился');
+
+  const tsZip = await JSZip.loadAsync(readFileSync(tsFile.path));
+  const tsXml = tsZip.file('word/document.xml') ? await tsZip.file('word/document.xml').async('string') : '';
+  const tsText = tsXml.replace(/<[^>]+>/g, '');
+  const surname = String(tsFix.фио ?? '').trim().split(/\s+/)[0] ?? '';
+  note(tsXml !== '', 'табель — документ Word (word/document.xml на месте)');
+  note(/^Табель учёта рабочего времени/.test(tsFile.name), 'файл назван по форме («Табель учёта рабочего времени …»)', { имя: tsFile.name });
+  note(tsText.includes('Табель учёта рабочего времени'), 'в документе заголовок листа');
+  note(/<w:pgSz[^>]*w:w="16838"[^>]*w:h="11906"/.test(tsXml), 'лист табеля альбомный — сетка дней в книжную ширину не влезает');
+  const grids = [...tsXml.matchAll(/<w:tbl>[\s\S]*?<\/w:tbl>/g)].map((m) =>
+    [...m[0].matchAll(/<w:gridCol w:w="(\d+)"/g)].map((x) => Number(x[1])),
+  );
+  const grid = grids.find((cols) => cols.length >= 20) ?? [];
+  const gridSum = grid.reduce((a, b) => a + b, 0);
+  note(grid.length >= 20, 'сетка дней в документе — таблица с дневными колонками', { колонок: grid.length, таблиц: grids.length });
+  note(grid.length > 0 && Math.min(...grid) >= 240, 'ни одна колонка не сжата ниже читаемого минимума', { минимум: grid.length ? Math.min(...grid) : null });
+  note(gridSum > 0 && gridSum <= 15478 && gridSum >= 15000, 'сетка вписана в альбомный лист (сумма колонок ≤ печатной ширины)', { сумма: gridSum, печатнаяШирина: 15478 });
+  note(tsText.includes('ФИО'), 'колонка ФИО на месте');
+  note(surname.length < 3 || tsText.includes(surname), 'фамилия сотрудника из строки табеля напечатана', { фио: tsFix.фио });
+  note(tsXml.includes('<w:br/>'), 'переносы в шапке («день» / «день недели») доехали до документа');
+  note(tsXml.includes('w:trHeight'), 'высоты строк взяты из формы — клетки остались под запись ручкой');
+  note(!tsXml.includes('font-family'), 'CSS-текст стилей не попал в документ');
+  note(!/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(tsXml), 'управляющих символов в табеле нет (Word такие файлы отвергает)');
+  copyFileSync(tsFile.path, join(OUT_DIR, 'card-export-timesheet.docx'));
+
+  /* Диалог печати табеля модален: пока он открыт, дальше по экранам не пройти. */
+  const tsDialogClosed = await evaluate(
+    ws,
+    `const btn = [...document.querySelectorAll('[data-ts-print-export="word"]')].find(visible);
+     if (!btn) return { ok: true, already: true };
+     let node = btn;
+     for (let i = 0; i < 14 && node && !txt(node).includes('Настройка печати табеля'); i++) node = node.parentElement;
+     const close = node ? [...node.querySelectorAll('button')].find((x) => txt(x) === 'Закрыть') : null;
+     if (!close) return { ok: false, reason: 'кнопка «Закрыть» не найдена' };
+     click(close); await wait(500);
+     return { ok: ![...document.querySelectorAll('[data-ts-print-export="word"]')].some(visible) };`,
+  );
+  note(tsDialogClosed.ok, 'диалог печати табеля закрыт', tsDialogClosed.already ? { уже: true } : undefined);
+
   /* Подчищаем за собой: вкладки, которые открыл прогон. Чужое не трогаем — при несохранённых
      правках dirty-guard закрытие отменяет (см. closeTabs). */
   await closeTabs(ws, 'Наряд\\s*№\\s*\\d+', 'подчистка: карточки нарядов');
   await closeTabs(ws, '^⚙', 'подчистка: карточки двигателей');
+  await closeTabs(ws, '^📦|^Карточка складского документа', 'подчистка: карточки складских документов');
+  await closeTabs(ws, '^Карточка табеля', 'подчистка: карточки табелей');
+  await closeNewScreens(ws, tabsAtStart);
 
   /* Убираем за собой: диалог закрываем, чтобы следующий прогон начинался с чистого экрана */
   await evaluate(ws, `await dismissModals(); await closePrintDialog(); return true;`);

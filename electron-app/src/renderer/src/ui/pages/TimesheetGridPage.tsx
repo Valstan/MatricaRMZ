@@ -517,6 +517,24 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
     // Печать сразу из диалога настроек — без промежуточного окна с чекбоксами.
     printSectionsDirect({ title: printTitle, ...printParts(settings, variant, blocks) });
   };
+  /**
+   * Выгрузка табеля в Word: секции берутся у печати (`printParts`), поэтому файл повторяет лист;
+   * собирает файл main-процесс, он же ведёт «Сохранить как…». Лист — альбомный: сетка дней
+   * в книжную ширину не влезает.
+   */
+  const exportTimesheetToWord = async (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) => {
+    await window.matrica.exports.card({
+      title: printTitle,
+      fileBaseName: printTitle,
+      orientation: 'landscape',
+      sections: printParts(settings, variant, blocks).sections.map((s) => ({
+        id: s.id,
+        title: s.title,
+        html: s.html,
+        ...(s.hideTitle ? { hideTitle: true } : {}),
+      })),
+    });
+  };
 
   return (
     <div style={{ padding: 4 }} ref={gridRef} tabIndex={0} onKeyDown={onKeyDown}>
@@ -876,6 +894,7 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
         <TimesheetPrintDialog
           buildHtml={buildPrintPreviewHtml}
           onPrint={(settings, variant, blocks) => { setPrintDlg(false); doPrint(settings, variant, blocks); }}
+          onExport={(settings, variant, blocks) => exportTimesheetToWord(settings, variant, blocks)}
           onClose={() => setPrintDlg(false)}
         />
       )}
