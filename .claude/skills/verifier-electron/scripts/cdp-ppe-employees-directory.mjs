@@ -13,6 +13,11 @@
 // Запуск (стек поднят с -Cdp):
 //   node .claude/skills/verifier-electron/scripts/cdp-ppe-employees-directory.mjs seed
 //   node .claude/skills/verifier-electron/scripts/cdp-ppe-employees-directory.mjs verify
+//
+// **На проде — только `verify --readonly`** (и `PPE_EMPLOYEE_QUERY=<фамилия>`): стенд
+// пишет синтетику, а прод живой. Read-only не жмёт «Новая» — карточку СИЗ на настоящем
+// человеке смоук заводить не должен; проверяется реплика, подстановка фамилии и поиск
+// карточки (он ничего не создаёт).
 import { createRequire } from 'node:module';
 import { mkdirSync, writeFileSync } from 'node:fs';
 
@@ -20,6 +25,9 @@ const require = createRequire(import.meta.url);
 const PORT = process.env.MATRICA_CDP_PORT || '9222';
 const OUT_DIR = '.verifier-electron';
 const MODE = process.argv[2] === 'verify' ? 'verify' : 'seed';
+const READONLY = process.argv.includes('--readonly');
+// На проде имена настоящие: «СМОК …» там нет, фамилию даёт запускающий.
+const QUERY = process.env.PPE_EMPLOYEE_QUERY || 'СМОК Директория';
 mkdirSync(OUT_DIR, { recursive: true });
 
 function wsLib() {
@@ -223,10 +231,14 @@ async function main() {
     `const res = await call(window.matrica.ppe.employees.list(), 30000);
      if (!res?.ok) return { ok: false, error: res?.error };
      const rows = res.employees ?? [];
-     const smoke = rows.filter((r) => String(r.fullName ?? '').includes('СМОК Директория'));
-     return { ok: true, total: rows.length, smoke: smoke.map((r) => r.fullName + ' / ' + String(r.id).slice(0, 8)) };`,
+     const found = rows.filter((r) => String(r.fullName ?? '').includes(${JSON.stringify(QUERY)}));
+     return { ok: true, total: rows.length, found: found.map((r) => r.fullName + ' / ' + String(r.id).slice(0, 8)) };`,
   );
-  note(replica.ok && replica.smoke.length === PEOPLE.length, 'сотрудники справочника в реплике СИЗ', replica);
+  note(
+    replica.ok === true && (READONLY ? replica.total > 0 && replica.found.length > 0 : replica.found.length === PEOPLE.length),
+    READONLY ? 'сотрудники справочника в реплике СИЗ (прод, только чтение)' : 'сотрудники справочника в реплике СИЗ',
+    replica,
+  );
 
   await openSection(ws, 'Кладовщик', 'Карточки СИЗ');
   const picker = await evaluate(
@@ -235,14 +247,17 @@ async function main() {
      const inputs = vis('input');
      const input = inputs.find((i) => (i.placeholder ?? '') === 'Выберите сотрудника');
      if (!input) return { ok: false, reason: 'нет пикера сотрудника', placeholders: inputs.map((i) => i.placeholder) };
-     const picked = await pickOption(input, 'СМОК Директория');
+     const picked = await pickOption(input, ${JSON.stringify(QUERY)});
      if (!picked.ok) return picked;
      // «Открыть карточку» — поиск существующей; у нового сотрудника её нет, и это
      // правильный ответ (главное — не «сотрудник не найден»). Карточку заводит «Новая».
      const findBtn = byText('Открыть карточку');
      if (findBtn) { click(findBtn); await wait(1800); }
      const afterFind = txt(document.body);
-     const findOk = afterFind.includes('Карточки нет') && !afterFind.includes('Сотрудник не найден');
+     const findOk = (afterFind.includes('Карточки нет') || afterFind.includes('Карточка:')) && !afterFind.includes('Сотрудник не найден');
+     if (${READONLY}) {
+       return { ok: true, picked: picked.picked, rows: picked.rows, findOk, opened: null, hasName: null, errors: [] };
+     }
      const createBtn = byExact('Новая');
      if (!createBtn) return { ok: false, reason: 'нет кнопки «Новая»', rows: picked.rows };
      click(createBtn); await wait(2500);
@@ -252,18 +267,22 @@ async function main() {
        picked: picked.picked,
        rows: picked.rows,
        findOk,
-       opened: body.includes('Карточка открыта') || body.includes('Карточка: СМОК Директория'),
-       hasName: body.includes('Карточка: СМОК Директория'),
+       opened: body.includes('Карточка открыта') || body.includes('Карточка: ' + ${JSON.stringify(QUERY)}),
+       hasName: body.includes('Карточка: ' + ${JSON.stringify(QUERY)}),
        errors: (body.match(/Ошибка:[^.]{0,160}/g) ?? []).slice(0, 3),
      };`,
   );
   note(picker.ok === true, 'пикер «Карточек СИЗ» подставляет фамилию при наборе', picker.ok ? { picked: picker.picked, rows: picker.rows } : picker);
   note(picker.ok === true && picker.findOk === true, 'поиск карточки узнаёт сотрудника из справочника', picker.ok ? { findOk: picker.findOk } : undefined);
-  note(
-    picker.ok === true && picker.opened === true && picker.hasName === true,
-    'карточка на сотруднике из справочника открывается',
-    picker.ok ? { opened: picker.opened, hasName: picker.hasName, errors: picker.errors } : undefined,
-  );
+  if (READONLY) {
+    console.log('      (read-only: «Новая» не нажимается — карточку СИЗ на живом человеке смоук не заводит)');
+  } else {
+    note(
+      picker.ok === true && picker.opened === true && picker.hasName === true,
+      'карточка на сотруднике из справочника открывается',
+      picker.ok ? { opened: picker.opened, hasName: picker.hasName, errors: picker.errors } : undefined,
+    );
+  }
   await shot(ws, 'verify');
 
   const failed = steps.filter((s) => !s.ok).length;
