@@ -20,7 +20,9 @@
 - **Авторизация — HTTP Basic** (`-u opencode:<токен>`), не Bearer: с верным токеном в `Authorization: Bearer` сервер отвечает `401 UnauthorizedError`. Рабочая переменная в v2.0.32 — `OPENCODE_SERVER_PASSWORD` (одна `OPENCODE_PASSWORD` из инструкции Мозга не взлетела; в env стоят обе).
 - **Free-тир с прод-IP работает:** 12 последовательных вызовов модели `big-pickle` (provider `opencode`), `cost: 0`, ни одной ошибки. Гипотеза «серые IP хостера режет free-тир» на 20.10 **не подтвердилась**.
 - RSS движка после 12 вызовов — ~340 МБ. Прод-сервисы не затронуты (оба `active`).
-- **API v2 фактически отличается от рецепта #373:** `POST /api/session {title}`; `POST /api/session/<id>/prompt {"text": …}` (поле `prompt` → `Missing key at ["text"]`); `/api/session/<id>/wait` → **404**, ждать надо опросом `GET /api/session/<id>/message` (новейшие первыми; у сообщения `type=assistant` есть `error` и итог в `outcome`); `DELETE /api/session/<id>` → 204.
+- **API v2 фактически отличается от рецепта #373:** `POST /api/session {title}`; `POST /api/session/<id>/prompt {"text": …}` (поле `prompt` → `Missing key at ["text"]`); `/api/session/<id>/wait` → **404**, ждать надо опросом `GET /api/session/<id>/message` (новейшие первыми; у сообщения `type=assistant` есть `completed`, а итог сессии — в отдельном сообщении `type=idle` с полем `outcome`); `DELETE /api/session/<id>` → 204.
+- **Модель и запреты задаются при создании сессии** (спека — `/openapi.json` на самом движке): `model: {providerID, id}` фиксирует модель; `permissions` — массив правил `{action, resource, effect}` (`allow`/`deny`/`ask`), объектом-словарём не принимается (`Expected Permission.Ruleset | null`).
+- **Замер реального запроса** (вопрос в 2 строки, ответ 500 токенов, запреты `shell`/`edit`/`write`/`webfetch`, модель `big-pickle`): ответ по-русски по делу, **96 с**, `cost: 0`. Медленно для чата — сравнить с текущим DeepSeek и с другими free-моделями до выбора.
 
 ### Контур B — спайк на PC79
 
