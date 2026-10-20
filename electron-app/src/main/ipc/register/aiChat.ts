@@ -33,10 +33,11 @@ export function registerAiChatIpc(ctx: IpcContext) {
     if (args?.filePath && !consumeIssuedPath(args.filePath)) {
       return { ok: false as const, error: 'путь не из диалога выбора файлов' };
     }
-    const res = await aiChatCreate(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args, await engineMode(ctx));
+    const mode = await engineMode(ctx);
+    const res = await aiChatCreate(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args, mode);
     // Сервер отвечает сразу, как получит вопрос — не ждём очередного тика синка.
     // Локальный режим на сервер ничего не отправляет, пинать синк незачем.
-    if (res.ok && (await engineMode(ctx)) !== 'local') void ctx.mgr.runOnce().catch(() => undefined);
+    if (res.ok && mode !== 'local') void ctx.mgr.runOnce().catch(() => undefined);
     return res;
   });
 
