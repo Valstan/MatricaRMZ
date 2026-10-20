@@ -258,10 +258,12 @@ export function EngineBulkIntakeDialog(props: {
         }
       }
       if (!r.ok) {
-        await props.onCreated({ created: createdIds.length, skipped: 0, overPlan, slotErrors, error: r.error });
+        await props.onCreated({ created: createdIds.length, skipped: summary.skip, overPlan, slotErrors, error: r.error });
         return;
       }
-      await props.onCreated({ created: r.created, skipped: r.skipped, overPlan, slotErrors });
+      // Пропущенные оператором строки в main не уходят — считаем их здесь, иначе итог
+      // «пропущено: 0» выглядит как потеря номеров.
+      await props.onCreated({ created: r.created, skipped: r.skipped + summary.skip, overPlan, slotErrors });
     } catch (e) {
       setError(`Не удалось завести карточки: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
