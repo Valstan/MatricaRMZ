@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // CDP-смоук: пакетный приём двигателей списком (накладная).
 //   [1] кнопка «Принять двигатели списком» есть в списке двигателей
-//   [2] пустые справочники → окно говорит «двигатели некуда добавить» и не даёт заводить
+//   [2] пустые справочники → окно предупреждает, но приём не блокирует (все поля необязательны)
 //   [3] марка/контрагент/договор/дата + список с повтором → превью: 3 строки, повтор помечен
 //   [4] «Завести карточки: 3» → созданы 3 карточки с маркой, договором, датой прихода
 //   [5] повторный заход: номер уже есть → «Пропустить» по умолчанию, создаётся только новый
 //   [6] дубль → «Повторный заезд» → карточка с repeat_arrival_flag и previous_arrival_id
+//   [7] дубль → «Обновить» → дописывает внутренний номер и этап дефектовки, не трогая заполненное
 // Usage: MATRICA_CDP_PORT=9222 node .claude/skills/verifier-electron/scripts/cdp-engine-bulk-intake.mjs
 // Exit 0 = PASS. Фикстуры (контрагент/договор/SMK-BI-*) удаляются в конце.
 
@@ -288,23 +289,41 @@ async function main() {
   const hasButton = await cdp.ev("return Boolean(window.__bi.byText('button', 'Принять двигатели списком'))");
   check('кнопка на месте', hasButton === true);
 
-  console.log('\n[2] Пустые справочники: приём не начинается и говорит, что создать');
+  console.log('\n[2] Пустые справочники: приём не блокируется — все поля необязательны');
   await cdp.ev("return window.__bi.openDialog()");
   await waitFor(() => cdp.ev("return Boolean(window.__bi.dialog())"), 'окно приёма');
   const emptyState = await waitFor(
     () => cdp.ev("return window.__bi.dlgText().includes('нет контрагентов') ? window.__bi.dlgText() : null"),
-    'сообщение о пустых контрагентах',
+    'предупреждение о пустых контрагентах',
     10000,
   );
-  check('сказано: нет контрагентов — двигатели некуда добавить', Boolean(emptyState) && emptyState.includes('некуда добавить'), String(emptyState).slice(0, 200));
+  check(
+    'сказано: контрагентов нет — двигатели заведутся без контрагента',
+    Boolean(emptyState) && emptyState.includes('заведутся без контрагента'),
+    String(emptyState).slice(0, 240),
+  );
   const emptyFields = await cdp.ev(`return {
     brand: Boolean(window.__bi.field('Марка двигателя')),
     date: Boolean(document.querySelector('[data-bulk-intake-arrival="true"]')),
     customer: Boolean(window.__bi.field('Контрагент')),
     contract: Boolean(window.__bi.field('Номер договора')),
+    defect: Boolean(document.querySelector('[data-bulk-intake-defect="true"]')),
     numbers: Boolean(document.querySelector('[data-bulk-intake-numbers="true"]')),
   };`);
-  check('поля формы: марка, дата, контрагент, договор, номера', Object.values(emptyFields).every(Boolean), JSON.stringify(emptyFields));
+  check('поля формы: марка, дата прихода, контрагент, договор, дата дефектовки, номера', Object.values(emptyFields).every(Boolean), JSON.stringify(emptyFields));
+  await cdp.ev(`return window.__bi.setNumbers(${JSON.stringify(NUM_A)})`);
+  const optionalRows = await waitFor(() => cdp.ev("return window.__bi.rows().length === 1 ? window.__bi.rows() : null"), 'превью на 1 строку', 20000);
+  check('без марки/контрагента/договора превью всё равно считается', Array.isArray(optionalRows) && optionalRows.length === 1, JSON.stringify(optionalRows));
+  check(
+    'колонка «Внутренний номер» на месте и стоит в строке двигателя',
+    (await cdp.ev(`return Boolean(window.__bi.dlgText().includes('Внутренний номер') && document.querySelector('[data-bulk-intake-internal="true"]'))`)) === true,
+    String(await cdp.ev('return window.__bi.dlgText();')).slice(0, 240),
+  );
+  check(
+    'кнопка приёма доступна без марки/контрагента/договора',
+    (await cdp.ev("return window.__bi.dlgButtons().some(b => b.startsWith('Завести карточки: 1'))")) === true,
+    JSON.stringify(await cdp.ev('return window.__bi.dlgButtons();')),
+  );
   await cdp.shot('bulk-intake-empty');
   await cdp.ev("return window.__bi.clickIn('Отмена')");
   await sleep(600);
@@ -361,7 +380,7 @@ async function main() {
   check('в превью 3 строки, повтор внутри списка склеен', Array.isArray(rows) && rows.length === 3, JSON.stringify(rows));
   const dlg = await cdp.ev('return window.__bi.dlgText();');
   check('внутренний повтор помечен «в списке дважды»', String(dlg).includes('в списке дважды'), String(dlg).slice(0, 300));
-  check('счётчик: заведём 3, пропустим 0', /Номеров: 3 .*заведём карточек: 3 .*пропустим: 0/.test(String(dlg)), String(dlg).slice(0, 300));
+  check('счётчик: заведём 3, дополним 0, пропустим 0', /Номеров: 3 .*заведём: 3 .*дополним: 0 .*пропустим: 0/.test(String(dlg)), String(dlg).slice(0, 300));
   check('кнопка зовёт завести 3 карточки', (await cdp.ev("return window.__bi.dlgButtons().some(b => b.startsWith('Завести карточки: 3'))")) === true, JSON.stringify(await cdp.ev('return window.__bi.dlgButtons();')));
   await cdp.shot('bulk-intake-preview');
 
@@ -410,10 +429,14 @@ async function main() {
   await cdp.ev(`return window.__bi.pick('Номер договора', ${JSON.stringify(CONTRACT_NAME)})`);
   await cdp.ev(`return window.__bi.setNumbers(${JSON.stringify(`${NUM_A} ${NUM_D}`)})`);
   const dupRows = await waitFor(() => cdp.ev("return window.__bi.rows().length === 2 ? window.__bi.rows() : null"), 'превью на 2 строки', 20000);
-  check('дубль узнан: «уже есть» с датой прихода', Array.isArray(dupRows) && dupRows.some((r) => String(r[1]) === NUM_A && String(r[2]).includes('уже есть')), JSON.stringify(dupRows));
+  check('дубль узнан: «уже есть» с датой прихода', Array.isArray(dupRows) && dupRows.some((r) => String(r[1]) === NUM_A && String(r[3]).includes('уже есть')), JSON.stringify(dupRows));
   const dupDlg = await cdp.ev('return window.__bi.dlgText();');
   check('новый номер помечен «новый»', String(dupDlg).includes('новый'), String(dupDlg).slice(0, 300));
-  check('у дубля оба решения: «Пропустить» и «Повторный заезд»', (await cdp.ev("return window.__bi.dlgButtons().includes('Пропустить') && window.__bi.dlgButtons().includes('Повторный заезд')")) === true, JSON.stringify(await cdp.ev('return window.__bi.dlgButtons();')));
+  check(
+    'у дубля три решения: «Пропустить», «Обновить», «Повторный заезд»',
+    (await cdp.ev("return window.__bi.dlgButtons().includes('Пропустить') && window.__bi.dlgButtons().includes('Обновить') && window.__bi.dlgButtons().includes('Повторный заезд')")) === true,
+    JSON.stringify(await cdp.ev('return window.__bi.dlgButtons();')),
+  );
   check('по умолчанию дубль пропускается: заводим 1 из 2', (await cdp.ev("return window.__bi.dlgButtons().some(b => b.startsWith('Завести карточки: 1'))")) === true, JSON.stringify(await cdp.ev('return window.__bi.dlgButtons();')));
   await cdp.ev("return window.__bi.clickIn('Завести карточки:')");
   const afterSkip = await waitFor(() => cdp.ev(`return (async () => { const r = await window.__bi.enginesByPrefix('SMK-BI-', ${JSON.stringify(STAMP)}); return r.some(x => x.number === ${JSON.stringify(NUM_D)}) ? r : null; })()`), 'новый номер заведён', 40000);
@@ -447,7 +470,65 @@ async function main() {
   check('и ссылается на прежний заезд', Boolean(repeat && String(repeat.attrs.previous_arrival_id ?? '').length > 0 && String(repeat.attrs.previous_arrival_id) !== String(repeat.id)), JSON.stringify(repeat?.attrs?.previous_arrival_id));
   await cdp.shot('bulk-intake-repeat');
 
-  console.log('\n[8] Уборка фикстур');
+  console.log('\n[8] Дубль → «Обновить»: дописывает недостающее, заполненное не трогает');
+  const INTERNAL = `9${STAMP}`;
+  await cdp.ev("return window.__bi.openDialog()");
+  await waitFor(() => cdp.ev("return Boolean(window.__bi.dialog())"), 'окно приёма');
+  await waitFor(() => cdp.ev("return !/Загрузка справочников/.test(window.__bi.dlgText())"), 'справочники загрузились', 20000);
+  await cdp.ev(`return window.__bi.setNumbers(${JSON.stringify(NUM_C)})`);
+  await waitFor(() => cdp.ev("return window.__bi.rows().length === 1 ? window.__bi.rows() : null"), 'превью на 1 строку', 20000);
+  const internalSet = await cdp.ev(`const el = document.querySelector('[data-bulk-intake-internal="true"]'); return window.__bi.setInput(el, ${JSON.stringify(INTERNAL)});`);
+  check('внутренний номер вводится в строке, а не в шапке формы', internalSet === true);
+  await cdp.ev(`const el = document.querySelector('[data-bulk-intake-defect="true"]'); return window.__bi.setInput(el, ${JSON.stringify(today)});`);
+  const updateRows = await waitFor(
+    () => cdp.ev(`return window.__bi.rows().find(r => String(r[1]) === ${JSON.stringify(NUM_C)} && String(r[3]).includes('не хватает: внутренний номер, дата дефектовки')) ?? null`),
+    'строка говорит, чего не хватает',
+    20000,
+  );
+  check('строка называет недостающее: внутренний номер и дата дефектовки', Boolean(updateRows), JSON.stringify(await cdp.ev('return window.__bi.rows();')));
+  check(
+    'есть кнопка «всем „обновить“»',
+    (await cdp.ev("return window.__bi.dlgButtons().some(b => b.includes('обновить'))")) === true,
+    JSON.stringify(await cdp.ev('return window.__bi.dlgButtons();')),
+  );
+  await cdp.ev("return window.__bi.clickIn('всем «обновить»')");
+  await sleep(500);
+  check(
+    'кнопка зовёт дополнить 1 карточку',
+    (await cdp.ev("return window.__bi.dlgButtons().some(b => b.startsWith('Дополнить карточки: 1'))")) === true,
+    JSON.stringify(await cdp.ev('return window.__bi.dlgButtons();')),
+  );
+  await cdp.ev("return window.__bi.clickIn('Дополнить карточки:')");
+  const updateNotice = await waitFor(
+    () => cdp.ev("const t = document.body.innerText || ''; const m = t.match(/Заведено карточек: \\d+[^\\n]*/); return m && m[0].includes('дополнено') ? m[0] : null;"),
+    'итог дополнения',
+    40000,
+  );
+  check('итог: дополнено карточек: 1', /дополнено карточек: 1/.test(String(updateNotice)), String(updateNotice));
+  const updated = await cdp.ev(`return (async () => {
+    const list = await window.__bi.enginesByPrefix(${JSON.stringify(NUM_C)});
+    if (!list.length) return { error: 'карточка не найдена' };
+    const id = list[0].id;
+    const g = await window.__bi.call(window.matrica.engines.get(id));
+    const attrs = g?.attributes ?? g?.engine?.attributes ?? {};
+    const st = await window.__bi.call(window.matrica.workSheets.stages.list(id)).catch(() => null);
+    return {
+      id,
+      internal: attrs.engine_internal_number ?? null,
+      year: attrs.engine_internal_number_year ?? null,
+      customer: attrs.customer_id ?? null,
+      contract: attrs.contract_id ?? null,
+      codes: (st?.rows ?? []).map((x) => String(x.code)),
+    };
+  })()`);
+  report.updated = updated;
+  check('внутренний номер дописан в карточку', String(updated?.internal ?? '') === INTERNAL, JSON.stringify(updated));
+  check('год внутреннего номера — текущий', Number(updated?.year) === new Date().getFullYear(), JSON.stringify(updated?.year));
+  check('этап «Разборка/Дефектовка» поставлен', Array.isArray(updated?.codes) && updated.codes.includes('disassembly_defect'), JSON.stringify(updated?.codes));
+  check('контрагент и договор остались прежними', String(updated?.customer) === fx.customerId && String(updated?.contract) === fx.contractId, JSON.stringify(updated));
+  await cdp.shot('bulk-intake-update');
+
+  console.log('\n[9] Уборка фикстур');
   const cleanup = await cdp.ev(`
     const all = await window.__bi.enginesByPrefix('SMK-BI-');
     let deleted = 0;

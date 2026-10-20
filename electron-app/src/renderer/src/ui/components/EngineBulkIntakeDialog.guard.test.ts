@@ -15,20 +15,31 @@ describe('EngineBulkIntakeDialog — приём двигателей списк�
     expect(PAGE).toContain('canViewMasterData={props.canViewMasterData === true}');
   });
 
-  it('в форме — марка, дата прихода, контрагент, договор и большой список номеров', () => {
+  it('в форме — марка, дата прихода, контрагент, договор, дата дефектовки и список номеров', () => {
     expect(DIALOG).toContain('target="engine_brand"');
     expect(DIALOG).toContain('target="customer"');
     expect(DIALOG).toContain('target="contract"');
     expect(DIALOG).toContain('data-bulk-intake-arrival="true"');
+    expect(DIALOG).toContain('data-bulk-intake-defect="true"');
     expect(DIALOG).toContain('data-bulk-intake-numbers="true"');
   });
 
-  it('без контрагента или договора приём не начинается — оператору сказано, что делать', () => {
-    expect(DIALOG).toContain('двигатели некуда добавить');
-    expect(DIALOG).toContain('Создайте контрагента');
-    expect(DIALOG).toContain('Сначала заведите договор');
+  it('все поля необязательны: обязательных подписей и отказов «некуда добавить» нет', () => {
+    expect(DIALOG).not.toContain('Марка двигателя *');
+    expect(DIALOG).not.toContain('Дата прихода *');
+    expect(DIALOG).not.toContain('Контрагент *');
+    expect(DIALOG).not.toContain('Номер договора *');
+    expect(DIALOG).not.toContain('Номера двигателей *');
+    expect(DIALOG).not.toContain('двигатели некуда добавить');
+    expect(DIALOG).toContain('Все поля ниже — по желанию');
+    // Пустые справочники больше не блокируют приём — предупреждаем, что свяжется позже.
     expect(DIALOG).toContain('В базе нет контрагентов');
     expect(DIALOG).toContain('В базе нет договоров');
+  });
+
+  it('внутренний номер вводится построчно — один на пачку не бывает (пара номер+год уникальна)', () => {
+    expect(DIALOG).toContain('data-bulk-intake-internal="true"');
+    expect(DIALOG).toContain('internalNumber: item.rawInternal.trim()');
   });
 
   it('превью и запись идут через main — гейты дублей одни на все входы', () => {
@@ -39,21 +50,42 @@ describe('EngineBulkIntakeDialog — приём двигателей списк�
     expect(SERVICE).not.toContain('db.insert(erpEngineCards)');
   });
 
-  it('дублю предлагаются «пропустить» и «повторный заезд», третьего пути нет', () => {
+  it('дублю предлагаются «пропустить», «обновить» и «повторный заезд»', () => {
     expect(DIALOG).toContain('Пропустить');
+    expect(DIALOG).toContain('Обновить');
     expect(DIALOG).toContain('Повторный заезд');
+    expect(DIALOG).toContain("action: 'update'");
     expect(DIALOG).toContain('previousEngineId: item.existing.id');
     expect(DIALOG).not.toContain('number_collision_flag');
   });
 
+  it('«обновить» дописывает только недостающее — и main, и форма считают одно и то же', () => {
+    expect(SERVICE).toContain('engineBulkIntakeMissingFields');
+    expect(DIALOG).toContain('engineBulkIntakeMissingFields');
+    expect(DIALOG).toContain('engineBulkIntakeConflictingFields');
+    expect(DIALOG).toContain('не хватает:');
+    expect(DIALOG).toContain('всё уже есть');
+    // Дописываем только пустое: заполненное в карточке не перезаписываем.
+    expect(DIALOG).toContain('не перезаписываю');
+  });
+
+  it('дата дефектовки ставится этапом «Разборка/Дефектовка», а не полем карточки', () => {
+    expect(SERVICE).toContain('disassembly_defect');
+    expect(SERVICE).toContain('ensureRepairStageRow');
+    expect(SERVICE).toContain('defectStageMissed');
+    expect(SERVICE).not.toContain("fields.defect_date");
+    expect(DIALOG).toContain('Разборка/Дефектовка');
+  });
+
   it('повторный заезд ставит флаг и ссылку на прежний заезд', () => {
-    expect(SERVICE).toContain('repeat_arrival_flag: true');
+    expect(SERVICE).toContain('repeat_arrival_flag');
     expect(SERVICE).toContain('previous_arrival_id');
   });
 
   it('каждый заведённый двигатель занимает плановое место в договоре', () => {
     expect(DIALOG).toContain('placeEngineIntoContractSlot');
     expect(DIALOG).toContain('contract_section_number');
+    expect(DIALOG).toContain('contractedIds');
     expect(SLOT).toContain('mutateContractPayments');
     // Карточка двигателя ходит тем же путём — две копии логики разошлись бы.
     expect(CARD).toContain('placeEngineIntoContractSlotShared');
