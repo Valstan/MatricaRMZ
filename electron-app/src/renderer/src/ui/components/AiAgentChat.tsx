@@ -138,6 +138,11 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [engineReady, setEngineReady] = useState<boolean | null>(null);
+  // Контур B: где считает Ииваныч — на сервере («prod») или движком этого ПК («local»).
+  const [engineMode, setEngineMode] = useState<'prod' | 'local'>('prod');
+  const [localEngine, setLocalEngine] = useState<{ state: string; progress: number | null; error: string | null } | null>(
+    null,
+  );
   const [me, setMe] = useState<{ id: string; role: string } | null>(null);
   const [now, setNow] = useState<number>(Date.now());
   const [activeHints, setActiveHints] = useState<string[]>([]);
@@ -160,6 +165,39 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
     await window.matrica.sync.run().catch(() => undefined);
     await refresh();
   }, [refresh]);
+
+  const syncEngine = useCallback(async () => {
+    const s = await window.matrica.aiEngine.status().catch(() => null);
+    if (!s?.ok) return;
+    setEngineMode(s.mode);
+    setLocalEngine({ state: s.state, progress: s.progress, error: s.error });
+  }, []);
+
+  useEffect(() => {
+    void syncEngine();
+  }, [syncEngine]);
+
+  // Скачивание движка идёт минуты — статус держим свежим, чтобы было видно прогресс.
+  useEffect(() => {
+    if (engineMode !== 'local') return;
+    if (localEngine?.state !== 'downloading' && localEngine?.state !== 'starting') return;
+    const t = setInterval(() => void syncEngine(), 2000);
+    return () => clearInterval(t);
+  }, [engineMode, localEngine?.state, syncEngine]);
+
+  const switchEngine = useCallback(
+    async (mode: 'prod' | 'local') => {
+      const r = await window.matrica.aiEngine.setMode(mode).catch(() => null);
+      if (!r?.ok) {
+        setError(r?.error ?? 'не удалось переключить движок');
+        return;
+      }
+      setError(null);
+      setEngineMode(r.mode);
+      void syncEngine();
+    },
+    [syncEngine],
+  );
 
   const loadTemplates = useCallback(async () => {
     try {
@@ -601,6 +639,33 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
         }}
       >
         <div style={{ fontWeight: 900, flex: 1 }}>ИИваныч</div>
+        <div style={{ display: 'flex', gap: 2 }}>
+          {(
+            [
+              { mode: 'prod' as const, label: 'Сервер', hint: 'Считать на сервере — видит прод-базу' },
+              { mode: 'local' as const, label: 'Этот ПК', hint: 'Считать на этом компьютере — видит локальную базу' },
+            ]
+          ).map((o) => (
+            <button
+              key={o.mode}
+              type="button"
+              onClick={() => void switchEngine(o.mode)}
+              title={o.hint}
+              style={{
+                fontSize: 11,
+                padding: '3px 8px',
+                borderRadius: 999,
+                cursor: engineMode === o.mode ? 'default' : 'pointer',
+                border: `1px solid ${engineMode === o.mode ? theme.colors.borderStrong : theme.colors.border}`,
+                background: engineMode === o.mode ? theme.colors.surface2 : 'transparent',
+                color: engineMode === o.mode ? theme.colors.text : theme.colors.muted,
+                fontWeight: engineMode === o.mode ? 700 : 400,
+              }}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
         <Button variant="ghost" onClick={() => void refresh()} title="Обновить">
           ⟳
         </Button>
@@ -618,7 +683,21 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
           flexWrap: 'wrap',
         }}
       >
-        {engineReady === false ? (
+        {engineMode === 'local' ? (
+          <span title="Ответ считает движок на этом компьютере; данные он видит только на чтение">
+            {localEngine?.state === 'running'
+              ? '🟢 Ииваныч на этом компьютере: движок готов'
+              : localEngine?.state === 'downloading'
+                ? `⏳ Готовим движок: скачано ${Math.round((localEngine.progress ?? 0) * 100)}%`
+                : localEngine?.state === 'starting'
+                  ? '⏳ Движок запускается…'
+                  : localEngine?.state === 'error'
+                    ? `🔴 Локальный движок не запустился: ${localEngine.error ?? 'неизвестная ошибка'}`
+                    : localEngine?.state === 'unsupported'
+                      ? '⚫ Локальный движок доступен только на Windows'
+                      : '⚙️ Движок включится с первым вопросом'}
+          </span>
+        ) : engineReady === false ? (
           <span title="На сервере не настроен ключ нейросети — вопросы копятся в очереди">
             🔴 ИИваныч сейчас недоступен: <b>вопрос сохранится и будет обработан позже</b>
           </span>

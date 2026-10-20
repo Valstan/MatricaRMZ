@@ -13,6 +13,7 @@ import { aiChatRequests } from '../database/schema.js';
 import { getSession } from './authService.js';
 import { httpAuthed } from './httpClient.js';
 import { filesUpload } from './fileService.js';
+import { runLocalAiChatAnswer } from './localAiChat.js';
 
 function nowMs() {
   return Date.now();
@@ -68,6 +69,7 @@ export async function aiChatCreate(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
   args: { questionText: string; filePath?: string },
+  engineMode: 'prod' | 'local' = 'prod',
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   try {
     const me = await currentUser(db);
@@ -87,6 +89,9 @@ export async function aiChatCreate(
     }
 
     const ts = nowMs();
+    // Локальный режим (контур B): строка сразу помечена synced — вопрос остаётся
+    // на машине оператора и на сервер не уезжает, отвечает движок этого компьютера.
+    const local = engineMode === 'local';
     await db.insert(aiChatRequests).values({
       id,
       userId: me.id,
@@ -97,8 +102,9 @@ export async function aiChatCreate(
       createdAt: ts,
       updatedAt: ts,
       deletedAt: null,
-      syncStatus: 'pending',
+      syncStatus: local ? 'synced' : 'pending',
     });
+    if (local) void runLocalAiChatAnswer(db, id, questionText);
     return { ok: true, id };
   } catch (e) {
     return { ok: false, error: String(e) };

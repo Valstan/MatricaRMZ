@@ -11,8 +11,15 @@ import {
   aiChatSetVerdict,
   aiChatUpdate,
 } from '../../services/aiChatService.js';
+import { SettingsKey, settingsGetString, settingsSetString } from '../../services/settingsStore.js';
+import { ensureLocalEngine, getLocalEngineStatus, stopLocalEngine } from '../../services/localAiEngine.js';
 
 const writeError = { ok: false as const, error: 'AI-чат недоступен в режиме просмотра бэкапа' };
+
+async function engineMode(ctx: IpcContext): Promise<'prod' | 'local'> {
+  const raw = await settingsGetString(ctx.sysDb, SettingsKey.AiEngineMode).catch(() => null);
+  return raw === 'local' ? 'local' : 'prod';
+}
 
 export function registerAiChatIpc(ctx: IpcContext) {
   ipcMain.handle('aiChat:list', async () => {
@@ -26,9 +33,11 @@ export function registerAiChatIpc(ctx: IpcContext) {
     if (args?.filePath && !consumeIssuedPath(args.filePath)) {
       return { ok: false as const, error: 'путь не из диалога выбора файлов' };
     }
-    const res = await aiChatCreate(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
+    const mode = await engineMode(ctx);
+    const res = await aiChatCreate(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args, mode);
     // Сервер отвечает сразу, как получит вопрос — не ждём очередного тика синка.
-    if (res.ok) void ctx.mgr.runOnce().catch(() => undefined);
+    // Локальный режим на сервер ничего не отправляет, пинать синк незачем.
+    if (res.ok && mode !== 'local') void ctx.mgr.runOnce().catch(() => undefined);
     return res;
   });
 
@@ -49,5 +58,19 @@ export function registerAiChatIpc(ctx: IpcContext) {
 
   ipcMain.handle('aiChat:meta', async () => {
     return await aiChatMeta(ctx.sysDb, ctx.mgr.getApiBaseUrl());
+  });
+
+  // Контур B: где считать ответ и что с локальным движком.
+  ipcMain.handle('aiEngine:status', async () => {
+    return { ok: true as const, mode: await engineMode(ctx), ...getLocalEngineStatus() };
+  });
+
+  ipcMain.handle('aiEngine:setMode', async (_e, mode: 'prod' | 'local') => {
+    if (isViewMode(ctx)) return writeError;
+    const next = mode === 'local' ? 'local' : 'prod';
+    await settingsSetString(ctx.sysDb, SettingsKey.AiEngineMode, next);
+    if (next === 'local') void ensureLocalEngine();
+    else void stopLocalEngine();
+    return { ok: true as const, mode: next };
   });
 }
