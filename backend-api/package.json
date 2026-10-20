@@ -30,6 +30,8 @@
     "users:merge-repoint-check": "tsx src/scripts/checkEmployeeMergeRepoint.ts",
     "users:publisher-check": "tsx src/scripts/checkUsersPublisher.ts",
     "engines:first-save-check": "tsx src/scripts/checkEngineFirstSave.ts",
+    "engines:restore-first-save": "tsx src/scripts/restoreEngineFirstSave.ts",
+    "engines:restore-first-save:apply": "tsx src/scripts/restoreEngineFirstSave.ts --apply",
     "demo:seed": "tsx src/scripts/seedPortfolioDemo.ts",
     "warehouse:reclassify-product-to-part": "tsx src/scripts/reclassifyProductToPartItemType.ts",
     "warehouse:reclassify-product-to-part:apply": "tsx src/scripts/reclassifyProductToPartItemType.ts --apply",
