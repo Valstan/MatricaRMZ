@@ -77,8 +77,12 @@ function deps(sqlite: Database.Database, canWriteStageRow = false) {
   return { db: drizzle(sqlite), actor: 'tester', canWriteStageRow };
 }
 
-const ARRIVAL = Date.parse('2026-10-15T12:00:00');
-const DEFECT = Date.parse('2026-10-20T12:00:00');
+// Даты — от «сегодня», а не жёстким литералом: создание карточки best-effort ставит этап
+// «Создание карточки» моментом записи (Москва), и субординация дат отказала бы дефектовке,
+// начни тест жить дольше своего календарного дня (поймано CI 21.10: «дефектовка» 20.10
+// оказалась раньше авто-метки 21.10).
+const ARRIVAL = Date.now() - 5 * 86_400_000;
+const DEFECT = Date.now();
 
 function cardRow(sqlite: Database.Database, id: string) {
   return sqlite
