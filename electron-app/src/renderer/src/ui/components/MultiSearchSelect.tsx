@@ -8,7 +8,14 @@ import {
 import { useSuggestionDropdown } from '../hooks/useSuggestionDropdown.js';
 import { buildLookupHighlightParts } from '../utils/searchMatching.js';
 
-export type MultiSearchSelectOption = { id: string; label: string; hintText?: string; searchText?: string };
+export type MultiSearchSelectOption = {
+  id: string;
+  label: string;
+  hintText?: string;
+  searchText?: string;
+  /** Видно, но отметить нельзя (уволенные сотрудники — как в `SearchSelect`). */
+  disabled?: boolean;
+};
 
 export function MultiSearchSelect(props: {
   values: string[];
@@ -72,6 +79,9 @@ export function MultiSearchSelect(props: {
   }
 
   function toggle(id: string) {
+    // Отмеченный ранее недоступный (человек уволен после того, как попал в группу) снять
+    // можно: иначе из группы не убрать того, кто больше не работает. Добавить — нельзя.
+    if (props.options.find((o) => o.id === id)?.disabled && !safeValues.includes(id)) return;
     const set = new Set(safeValues);
     if (set.has(id)) set.delete(id);
     else set.add(id);
@@ -85,7 +95,7 @@ export function MultiSearchSelect(props: {
   }
 
   function selectAllFiltered() {
-    const ids = dropdown.filtered.map((o) => o.id);
+    const ids = dropdown.filtered.filter((o) => o.disabled !== true).map((o) => o.id);
     const combined = new Set([...safeValues, ...ids]);
     props.onChange(Array.from(combined));
   }
@@ -221,12 +231,14 @@ export function MultiSearchSelect(props: {
                 {dropdown.filtered.map((o, idx) => {
                   const checked = safeValues.includes(o.id);
                   const focused = dropdown.activeIdx === idx;
+                  const unavailable = o.disabled === true && !checked;
                   const highlightParts = buildLookupHighlightParts(o.label, dropdown.query);
                   const hintParts = o.hintText ? buildLookupHighlightParts(o.hintText, dropdown.query) : null;
                   return (
                     <label
                       key={o.id}
                       data-idx={idx}
+                      data-disabled={unavailable ? '1' : undefined}
                       onMouseEnter={() => {
                         dropdown.setActiveIdx(idx);
                       }}
@@ -236,21 +248,23 @@ export function MultiSearchSelect(props: {
                         alignItems: 'center',
                         padding: '8px 10px',
                         borderBottom: '1px solid var(--border)',
-                        cursor: 'pointer',
+                        cursor: unavailable ? 'not-allowed' : 'pointer',
                         background: focused ? 'rgba(96, 165, 250, 0.14)' : 'transparent',
+                        opacity: unavailable ? 0.6 : 1,
                       }}
                     >
-                      <input type="checkbox" checked={checked} onChange={() => toggle(o.id)} />
+                      <input type="checkbox" checked={checked} disabled={unavailable} onChange={() => toggle(o.id)} />
                       <span style={{ display: 'grid', gap: 2, color: 'var(--text)', minWidth: 'min-content' }}>
                         <span style={{ whiteSpace: 'nowrap' }}>
                           {highlightParts.map((part, partIdx) => (
                             <span
                               key={`${o.id}-part-${partIdx}`}
-                              style={part.matched ? { background: 'rgba(250, 204, 21, 0.28)', borderRadius: 3 } : undefined}
+                              style={part.matched && !unavailable ? { background: 'rgba(250, 204, 21, 0.28)', borderRadius: 3 } : undefined}
                             >
                               {part.text}
                             </span>
                           ))}
+                          {unavailable ? <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--muted)' }}>· недоступен</span> : null}
                         </span>
                         {hintParts && hintParts.some((part) => part.text) ? (
                           <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>

@@ -9,7 +9,18 @@ import { useSuggestionDropdown } from '../hooks/useSuggestionDropdown.js';
 import { buildLookupHighlightParts, normalizeLookupCompact, normalizeLookupText, rankLookupOptions } from '../utils/searchMatching.js';
 import { usePickerRank } from '../hooks/usePickerRank.js';
 
-export type SearchSelectOption = { id: string; label: string; hintText?: string; searchText?: string };
+export type SearchSelectOption = {
+  id: string;
+  label: string;
+  hintText?: string;
+  searchText?: string;
+  /**
+   * Строка видна, но выбрать её нельзя. Так показывают уволенных сотрудников (владелец
+   * 20.10.2026): скрыть — значит потерять историю выдач, а дать выбрать — завести карточку
+   * на человека, которого в цеху нет.
+   */
+  disabled?: boolean;
+};
 
 type SourceLabel = 'database' | 'current' | 'autocomplete';
 
@@ -151,10 +162,25 @@ export function SearchSelect(props: {
   function pickByIndex(idx: number) {
     const item = visibleItems[idx];
     if (!item) return;
+    // Недоступная строка (уволенный) видна, чтобы оператор дочитал историю, но не выбирается.
+    if (item.option.disabled) return;
     // Единственная воронка настоящего выбора (клик по строке и Enter с клавиатуры идут сюда).
     rank.bump(item.option.id);
     props.onChange(item.option.id);
     close(item.option.label);
+  }
+
+  /** Шаг клавиатуры через недоступные строки: курсор не должен застревать на уволенном. */
+  function stepEnabled(from: number, dir: 1 | -1): number {
+    if (visibleItems.length === 0) return -1;
+    let idx = from;
+    for (let i = 0; i < visibleItems.length; i += 1) {
+      idx = idx < 0 ? (dir > 0 ? 0 : visibleItems.length - 1) : idx + dir;
+      if (idx < 0) idx = visibleItems.length - 1;
+      if (idx >= visibleItems.length) idx = 0;
+      if (!visibleItems[idx]?.option.disabled) return idx;
+    }
+    return from;
   }
 
   useEffect(() => {
@@ -191,10 +217,16 @@ export function SearchSelect(props: {
     setDropdownActiveIdx((idx) => {
       if (visibleItems.length === 0) return -1;
       if (exactMatch) return 0;
-      if (idx < 0) return 0;
+      if (idx < 0) {
+        // Курсор встаёт на первую ДОСТУПНУЮ строку: уволенный в начале списка не должен
+        // перехватывать Enter сразу после открытия.
+        const firstEnabled = visibleItems.findIndex((it) => !it.option.disabled);
+        return firstEnabled >= 0 ? firstEnabled : 0;
+      }
       if (idx >= visibleItems.length) return visibleItems.length - 1;
       return idx;
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- юзаем массив только чтобы выбрать стартовую строку; зависимость от самого массива перезапускала бы эффект на каждый ввод и сбрасывала курсор
   }, [dropdown.open, setDropdownActiveIdx, exactMatch, visibleItems.length]);
 
   async function submitCreate() {
@@ -230,12 +262,12 @@ export function SearchSelect(props: {
       e.preventDefault();
       if (!dropdown.open) { openDropdown(); return; }
       if (visibleItems.length === 0) return;
-      dropdown.setActiveByKeyboard((p) => (p < 0 ? 0 : Math.min(visibleItems.length - 1, p + 1)));
+      dropdown.setActiveByKeyboard((p) => (p < 0 ? Math.max(0, stepEnabled(-1, 1)) : Math.max(0, stepEnabled(p, 1))));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       if (!dropdown.open) { openDropdown(); return; }
       if (visibleItems.length === 0) return;
-      dropdown.setActiveByKeyboard((p) => (p <= 0 ? 0 : p - 1));
+      dropdown.setActiveByKeyboard((p) => (p <= 0 ? Math.max(0, stepEnabled(visibleItems.length, -1)) : Math.max(0, stepEnabled(p, -1))));
     } else if (e.key === 'Enter') {
       if (!dropdown.open) return;
       e.preventDefault();
@@ -398,6 +430,7 @@ export function SearchSelect(props: {
                   const { option, source } = item;
                   const active = props.value === option.id;
                   const focused = dropdown.activeIdx === idx;
+                  const unavailable = option.disabled === true;
                   const highlightParts = buildLookupHighlightParts(option.label, dropdown.query);
                   const hintParts = option.hintText ? buildLookupHighlightParts(option.hintText, dropdown.query) : null;
                   return (
@@ -407,29 +440,33 @@ export function SearchSelect(props: {
                     <div
                       key={option.id}
                       data-idx={idx}
+                      data-disabled={unavailable ? '1' : undefined}
                       onClick={() => pickByIndex(idx)}
                       onMouseEnter={() => dropdown.setActiveIdx(idx)}
                       style={{
                         padding: '8px 12px',
-                        cursor: 'pointer',
+                        cursor: unavailable ? 'not-allowed' : 'pointer',
                         borderBottom: props.onCreate ? '1px solid var(--border)' : 'none',
                         background: focused ? 'rgba(96, 165, 250, 0.18)' : active ? 'rgba(129, 140, 248, 0.18)' : 'transparent',
                         display: 'flex',
                         alignItems: 'center',
                         gap: 8,
                         minHeight: 38,
+                        color: unavailable ? 'var(--muted)' : undefined,
+                        opacity: unavailable ? 0.6 : 1,
                       }}
                     >
                       <div style={{ flex: 1, minWidth: 'min-content' }}>
-                        <div style={{ fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                        <div style={{ fontWeight: 700, color: unavailable ? 'var(--muted)' : 'var(--text)', whiteSpace: 'nowrap' }}>
                           {highlightParts.map((part, partIdx) => (
                             <span
                               key={`${option.id}-part-${partIdx}`}
-                              style={part.matched ? { background: 'rgba(250, 204, 21, 0.28)', borderRadius: 3 } : undefined}
+                              style={part.matched && !unavailable ? { background: 'rgba(250, 204, 21, 0.28)', borderRadius: 3 } : undefined}
                             >
                               {part.text}
                             </span>
                           ))}
+                          {unavailable ? <span style={{ marginLeft: 6, fontSize: 11 }}>· недоступен</span> : null}
                         </div>
                         {hintParts && hintParts.some((part) => part.text) ? (
                           <div style={{ marginTop: 1, fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
