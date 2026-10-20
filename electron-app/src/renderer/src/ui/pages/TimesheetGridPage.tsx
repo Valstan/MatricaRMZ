@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { EmployeeListItem, TimesheetCodeDef, TimesheetData, TimesheetPrintSettings, TimesheetRowData } from '@matricarmz/shared';
+import type { CardExportSpec, EmployeeListItem, TimesheetCodeDef, TimesheetData, TimesheetPrintSettings, TimesheetRowData } from '@matricarmz/shared';
 import {
   computeTimesheetRowTotals,
   formatTimesheetHours,
@@ -14,9 +14,11 @@ import {
 
 import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
+import { MailComposeDialog } from '../components/MailComposeDialog.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { TimesheetPrintDialog, type TimesheetPrintBlocks, type TimesheetPrintVariant } from '../components/TimesheetPrintDialog.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
+import { printSectionsToText } from '../utils/mailText.js';
 import { buildWorkOrderA4PreviewHtml, printSectionsDirect } from '../utils/printPreview.js';
 import { buildTimesheetPrintSections, timesheetPrintCss, timesheetPrintTitle, type TimesheetPrintInput } from '../utils/timesheetPrintHtml.js';
 import { useTabVisibility } from '../shell/TabVisibilityContext.js';
@@ -69,6 +71,8 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
   const [autoFont, setAutoFont] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('full');
   const [printDlg, setPrintDlg] = useState(false);
+  /** Письмо с табелем: собирается по тем же настройкам, что печать. */
+  const [mailPayload, setMailPayload] = useState<{ title: string; summary: string[]; body: string; spec: CardExportSpec } | null>(null);
   const dragRowIdx = useRef<number | null>(null);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -536,6 +540,30 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
     });
   };
 
+  /**
+   * Письмо с табелем: секции берутся у печати (`printParts`) — как и выгрузка в Word,
+   * поэтому письмо не заводит второй сборщик формы.
+   */
+  const mailTimesheet = (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) => {
+    const parts = printParts(settings, variant, blocks);
+    setMailPayload({
+      title: printTitle,
+      summary: [printTitle, `${MONTHS[ts.month - 1]} ${ts.year}`, `Сотрудников: ${presentRows.length}`],
+      body: printSectionsToText(parts.sections),
+      spec: {
+        title: printTitle,
+        fileBaseName: printTitle,
+        orientation: 'landscape',
+        sections: parts.sections.map((s) => ({
+          id: s.id,
+          title: s.title,
+          html: s.html,
+          ...(s.hideTitle ? { hideTitle: true } : {}),
+        })),
+      },
+    });
+  };
+
   return (
     <div style={{ padding: 4 }} ref={gridRef} tabIndex={0} onKeyDown={onKeyDown}>
       {/* Панель управления табелем (тулбар + кисти-коды) закреплена сверху: при вертикальной
@@ -895,9 +923,23 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
           buildHtml={buildPrintPreviewHtml}
           onPrint={(settings, variant, blocks) => { setPrintDlg(false); doPrint(settings, variant, blocks); }}
           onExport={(settings, variant, blocks) => exportTimesheetToWord(settings, variant, blocks)}
+          onMail={(settings, variant, blocks) => {
+            setPrintDlg(false);
+            mailTimesheet(settings, variant, blocks);
+          }}
           onClose={() => setPrintDlg(false)}
         />
       )}
+
+      {mailPayload ? (
+        <MailComposeDialog
+          subject={`${mailPayload.title} — Матрица`}
+          summary={mailPayload.summary}
+          body={mailPayload.body}
+          attachment={{ kind: 'card', spec: mailPayload.spec }}
+          onClose={() => setMailPayload(null)}
+        />
+      ) : null}
 
       {commentEdit && (
         <div onClick={() => setCommentEdit(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

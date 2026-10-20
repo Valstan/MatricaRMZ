@@ -2350,6 +2350,35 @@ export type MatricaApi = {
     };
     cards: {
       open: (args: { employeeId: string }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+      /**
+       * Список карточек СИЗ: строка на сотрудника. Считает сервер — тем же ядром
+       * `shared/ppe`, что и карточка, иначе список и карточка говорят разное про «пора».
+       */
+      overview: () => Promise<
+        | {
+            ok: true;
+            rows: Array<{
+              employeeId: string;
+              fullName: string;
+              personnelNo: string | null;
+              isActive: boolean;
+              sizes: { clothes: string; shoes: string; height: string };
+              cardId: string | null;
+              cardState: 'none' | 'open' | 'closed';
+              cardOpenedAt: number | null;
+              normSetCount: number;
+              normPositionCount: number;
+              issueCount: number;
+              lastIssuedAt: number | null;
+              nextDueAt: number | null;
+              status: 'overdue' | 'dueSoon' | 'ok' | 'neverIssued' | 'noNorms';
+              overdueCount: number;
+              dueSoonCount: number;
+              fillPercent: number;
+            }>;
+          }
+        | { ok: false; error: string }
+      >;
       get: (id: string) => Promise<
         | {
             ok: true;
@@ -3196,6 +3225,23 @@ export type MatricaApi = {
     // Папка скачивания/кеша.
     downloadDirGet: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
     downloadDirPick: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
+  };
+  /**
+   * Почта: письмо с формой программы (список или карточка).
+   *
+   * Своего почтового сервера у завода нет, и заводить его ради кнопки — не наша работа:
+   * программа готовит письмо и файл вложения, а отправляет его почтовый клиент оператора.
+   * `openDraft` открывает системный клиент через `mailto:` — вложения он не умеет, поэтому
+   * файл лежит рядом (`prepareAttachment`), и оператор прикрепляет его одним движением.
+   */
+  mail: {
+    prepareAttachment: (
+      args:
+        | { kind: 'list'; format: import('../domain/listExport.js').ListExportFormat; spec: import('../domain/listExport.js').ListExportSpec }
+        | { kind: 'card'; spec: import('../domain/cardExport.js').CardExportSpec },
+    ) => Promise<{ ok: true; path: string; name: string } | { ok: false; error: string }>;
+    revealAttachment: (args: { path: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    openDraft: (args: { to?: string; cc?: string; subject: string; body: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
   };
   exports: {
     // Список в файл Word/Excel. Файл собирает main-процесс (там живут сборщики), папку

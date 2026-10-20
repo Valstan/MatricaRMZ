@@ -36,6 +36,7 @@ import {
   type QuickCreateResult,
   type AssemblyPlanCandidate,
   type DefectPartInstanceSummary,
+  type CardExportSpec,
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
@@ -50,6 +51,7 @@ import { SectionCard } from '../components/SectionCard.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { WorkOrderTemplateEditorDialog } from '../components/WorkOrderTemplateEditorDialog.js';
 import { WorkOrderPrintDialog } from '../components/WorkOrderPrintDialog.js';
+import { MailComposeDialog } from '../components/MailComposeDialog.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
@@ -66,6 +68,7 @@ import { formatMoscowDate } from '../utils/dateUtils.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { normalizeLookupText } from '../utils/searchMatching.js';
 import { buildWorkOrderA4PreviewHtml, openPrintPreview } from '../utils/printPreview.js';
+import { printSectionsToText } from '../utils/mailText.js';
 import { buildWorkOrderPrintModel, type WoPrintDeps } from '../utils/woPrintModel.js';
 import { buildSearchOption, joinOptionHint, joinOptionSearch } from '../utils/selectOptions.js';
 import { withArrivalNote } from '../utils/engineOptionLabel.js';
@@ -318,6 +321,8 @@ export function WorkOrderDetailsPage(props: {
   const [engines, setEngines] = useState<EngineInfo[]>([]);
   const [engineContractInfo, setEngineContractInfo] = useState<Record<string, EngineContractInfo>>({});
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  /** Письмо с формой наряда: собирается по тем же настройкам, что печать. */
+  const [mailPayload, setMailPayload] = useState<{ title: string; summary: string[]; body: string; spec: CardExportSpec } | null>(null);
   const [numberEditor, setNumberEditor] = useState<{ value: string; busy: boolean; error: string } | null>(null);
   const [activeTab, setActiveTab] = useState<WorkOrderCardTab>('main');
   // Новый наряд открываем на реквизитах (их и заполняют), уже заведённый — сразу на
@@ -1700,6 +1705,30 @@ export function WorkOrderDetailsPage(props: {
         html: s.html,
         ...(s.hideTitle ? { hideTitle: true } : {}),
       })),
+    });
+  }
+
+  /**
+   * Письмо с нарядом: форма, текст и вложение — из `buildPrintModel`, того же источника, что
+   * у печати и Word. Печать описывает лист один раз; письмо не заводит второй сборщик.
+   */
+  function mailWorkOrderCard(current: WorkOrderPayload, settings: WorkOrderPrintSettings) {
+    const model = buildPrintModel(current, settings);
+    const number = String(current.workOrderNumber ?? '').trim();
+    setMailPayload({
+      title: model.title,
+      summary: [model.title, ...(number ? [`Наряд №${number}`] : [])],
+      body: printSectionsToText(model.sections),
+      spec: {
+        title: model.title,
+        fileBaseName: number ? `Наряд №${number}` : model.title,
+        sections: model.sections.map((s) => ({
+          id: s.id,
+          title: s.title,
+          html: s.html,
+          ...(s.hideTitle ? { hideTitle: true } : {}),
+        })),
+      },
     });
   }
 
@@ -3651,7 +3680,17 @@ export function WorkOrderDetailsPage(props: {
         }}
         onPrint={(settings) => printWorkOrderCard(payload, settings)}
         onExport={(settings) => exportWorkOrderCard(payload, settings)}
+        onMail={(settings) => mailWorkOrderCard(payload, settings)}
         onClose={() => setPrintDialogOpen(false)}
+      />
+    ) : null}
+    {mailPayload ? (
+      <MailComposeDialog
+        subject={`${mailPayload.title} — Матрица`}
+        summary={mailPayload.summary}
+        body={mailPayload.body}
+        attachment={{ kind: 'card', spec: mailPayload.spec }}
+        onClose={() => setMailPayload(null)}
       />
     ) : null}
     {withdrawDialogOpen && payload ? (
