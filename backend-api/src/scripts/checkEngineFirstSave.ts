@@ -44,18 +44,42 @@ async function scalar<T>(sql: string, params: unknown[] = []): Promise<T | null>
 
 const ACTOR: SyncWriteActor = { id: 'server', username: 'engines:first-save-check', role: 'system' };
 
-async function ensureEngineNumberDef(entityTypeId: string): Promise<void> {
-  const existing = await scalar<string>(
-    `SELECT id::text AS v FROM attribute_defs WHERE entity_type_id = $1 AND code = 'engine_number' LIMIT 1`,
-    [entityTypeId],
-  );
-  if (existing) return;
+async function ensureEngineType(): Promise<string> {
+  const existing = await scalar<string>(`SELECT id::text AS v FROM entity_types WHERE code = 'engine' LIMIT 1`);
+  if (existing) return existing;
+  const id = randomUUID();
   const now = Date.now();
   await pool.query(
-    `INSERT INTO attribute_defs (id, entity_type_id, code, name, data_type, is_required, sort_order, created_at, updated_at, sync_status)
-     VALUES ($1, $2, 'engine_number', 'Номер двигателя', 'text', false, 0, $3, $3, 'synced')`,
-    [randomUUID(), entityTypeId, now],
+    `INSERT INTO entity_types (id, code, name, created_at, updated_at, sync_status)
+     VALUES ($1, 'engine', 'Двигатель', $2, $2, 'synced')`,
+    [id, now],
   );
+  return id;
+}
+
+// Трасса карточки пишется в EAV по кодам, а зеркало пересобирает строку из EAV:
+// без определения атрибута колонка после пересборки стала бы пустой. В CI база
+// пустая, поэтому фикстура заводит все четыре сама.
+async function ensureEngineDefs(entityTypeId: string): Promise<void> {
+  const defs: Array<[string, string]> = [
+    ['engine_number', 'Номер двигателя'],
+    ['engine_brand', 'Марка двигателя'],
+    ['engine_note', 'Примечание'],
+    ['arrival_date', 'Дата прихода'],
+  ];
+  for (const [code, name] of defs) {
+    const existing = await scalar<string>(
+      `SELECT id::text AS v FROM attribute_defs WHERE entity_type_id = $1 AND code = $2 LIMIT 1`,
+      [entityTypeId, code],
+    );
+    if (existing) continue;
+    const now = Date.now();
+    await pool.query(
+      `INSERT INTO attribute_defs (id, entity_type_id, code, name, data_type, is_required, sort_order, created_at, updated_at, sync_status)
+       VALUES ($1, $2, $3, $4, 'text', false, 0, $5, $5, 'synced')`,
+      [randomUUID(), entityTypeId, code, name, now],
+    );
+  }
 }
 
 async function main(): Promise<void> {
@@ -64,14 +88,8 @@ async function main(): Promise<void> {
     process.exit(2);
   }
 
-  const typeId = await scalar<string>(
-    `SELECT id::text AS v FROM entity_types WHERE code = 'engine' LIMIT 1`,
-  );
-  if (!typeId) {
-    console.error('Нет типа сущности engine — база не мигрирована.');
-    process.exit(2);
-  }
-  await ensureEngineNumberDef(typeId);
+  const typeId = await ensureEngineType();
+  await ensureEngineDefs(typeId);
 
   const engineId = randomUUID();
   const stamp = Date.now();
