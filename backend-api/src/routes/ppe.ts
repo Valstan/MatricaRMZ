@@ -32,6 +32,7 @@ import {
   upsertPpeNormSet,
 } from '../services/ppeService.js';
 import { applyPpeImportPreview, previewPpeImport } from '../services/ppeImportService.js';
+import { getPpeCardsOverview } from '../services/ppeCardsOverview.js';
 import { shouldRunBackgroundJobs } from '../services/instanceRole.js';
 import { kickPpeSyncPublisher } from '../services/sync/ppeSyncPublisherService.js';
 import { logWarn } from '../utils/logger.js';
@@ -165,6 +166,12 @@ ppeRouter.get('/cards/by-employee/:employeeId', requirePermission(PermissionCode
   if (!employeeId) return res.status(400).json({ ok: false, error: 'employeeId обязателен' });
   const result = await getPpeCard({ employeeId });
   if (!result.ok) return res.status(404).json(result);
+  return res.json(result);
+});
+
+ppeRouter.get('/cards/overview', requirePermission(PermissionCode.ErpDictionaryView), async (_req, res) => {
+  const result = await getPpeCardsOverview();
+  if (!result.ok) return res.status(500).json(result);
   return res.json(result);
 });
 

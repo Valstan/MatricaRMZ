@@ -31,6 +31,7 @@ const PAGES = [
   'NomenclaturePage',
   'NomenclatureDirectoryPage',
   'WorkSheetsPage',
+  'PpeCardsPage',
   'reports/EnginesNowAtPlantReportPage',
   'reports/EnginesReportPage',
   'reports/WorkSheetsReportPage',
@@ -179,7 +180,7 @@ const SUBTABLE_PAGES = [
   'RepairFundAuditPage', 'ReportPresetPage', 'ServicesByBrandPage', 'StockDocumentDetailsPage', 'StockInventoryPage',
   'SuperadminAuditPage', 'SupplyRequestDetailsPage', 'SupplyToolMovementsPage', 'ToolDetailsPage', 'ToolPropertiesPage',
   'WarehouseLocationsAdminPage', 'WarehouseLocationsPage', 'WorkOrderDetailsPage', 'WorkOrderTemplatesPage',
-  'ServicePriceOrdersPage', 'TimesheetsPage', 'PpeCardsPage', 'PpeNormsPage', 'PpeStockPage',
+  'ServicePriceOrdersPage', 'TimesheetsPage', 'PpeNormsPage', 'PpeStockPage',
 ].map((name) => [name, src(`../pages/${name}.tsx`)] as const);
 const SUBTABLE_COMPONENTS = [
   'AssemblyReturnDialog', 'DocumentHistoryPanel', 'EngineDismantlePreviewDialog', 'NomenclatureTemplateCompositionEditor',

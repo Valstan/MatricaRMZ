@@ -175,7 +175,12 @@ export function planEmployeeMirror(
 
 type EmployeeAttrRow = { id: string; code: string | null; value_json: string | null };
 
-function parseJsonish(raw: string | null): string {
+/**
+ * Значение EAV-атрибута как текст: в `value_json` лежит JSON, но исторически попадались и
+ * голые строки. Читается и карточкой сотрудника (зеркало), и списком карточек СИЗ — чтобы
+ * «р. 48» в обоих местах означало одно и то же.
+ */
+export function parseEavValue(raw: string | null): string {
   if (raw == null) return '';
   try {
     const parsed = JSON.parse(raw);
@@ -215,7 +220,7 @@ export async function loadDirectoryEmployees(): Promise<{
   const byId = new Map<string, Map<string, string>>();
   for (const row of live.rows) {
     const attrs = byId.get(row.id) ?? new Map<string, string>();
-    if (row.code) attrs.set(row.code, parseJsonish(row.value_json));
+    if (row.code) attrs.set(row.code, parseEavValue(row.value_json));
     byId.set(row.id, attrs);
   }
 
