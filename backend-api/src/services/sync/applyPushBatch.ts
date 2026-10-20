@@ -1695,7 +1695,12 @@ export async function applyPushBatch(
           )
           .onConflictDoUpdate({
             target: erpEngineCards.id,
-            setWhere: sql`${erpEngineCards.updatedAt} <= excluded.updated_at`,
+            // Строка без номера журнала — не автор: её завёл триггер зеркала
+            // (`rebuild_erp_engine_card`) в этой же транзакции, и её `updated_at` —
+            // часы сервера в момент push'а, а не время сохранения оператора.
+            // Пускать такую строку впереди присланной значит молча потерять
+            // заполненную карточку (20.10.2026, 0112_engine_cards_first_save_guard.sql).
+            setWhere: sql`${erpEngineCards.lastServerSeq} IS NULL OR ${erpEngineCards.updatedAt} <= excluded.updated_at`,
             set: {
               engineNumber: sql`excluded.engine_number`,
               engineInternalNumber: sql`excluded.engine_internal_number`,
@@ -1764,6 +1769,18 @@ export async function applyPushBatch(
         const stamped = rows.filter((r) => writtenIds.has(String(r.id)));
         await updateSeqAndCollect(erpEngineCards, SyncTableName.ErpEngineCards, stamped);
         applied += stamped.length;
+        if (stamped.length < rows.length) {
+          // Отказ LWW здесь раньше был молчаливым — и именно им 20.10.2026 потерялась
+          // заполненная карточка: клиент считал строку отправленной, сервер её не взял.
+          const dropped = rows.filter((r) => !writtenIds.has(String(r.id))).map((r) => String(r.id));
+          addSkipMetric('conflict', SyncTableName.ErpEngineCards, dropped.length);
+          logSkip('engine card rows stale skipped (LWW guard)', {
+            rows: dropped.length,
+            sample: dropped.slice(0, 5).join(','),
+            client_id: req.client_id,
+            user: actor.username,
+          });
+        }
         // EAV-след (старые клиенты читают EAV до E5-freeze): только изменившиеся
         // коды. Тумстоуны не следываем — удаление едет tombstone entities и
         // триггером зеркала. След НЕ пишем здесь: весь apply — одна транзакция,

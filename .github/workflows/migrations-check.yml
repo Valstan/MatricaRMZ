@@ -85,5 +85,14 @@ jobs:
           MATRICA_FIXTURE_ALLOW_WRITE: "1"
         run: pnpm -C backend-api users:publisher-check
 
+      # Первый сейв карточки двигателя: клиент присылает сущность и карточку одним
+      # батчем, а триггер зеркала (0105/0112) успевает создать строку карточки раньше.
+      # Проверяется, что присланные значения применяются, а не проигрывают зеркалу
+      # по updated_at — этот отказ 20.10.2026 терял заполненную карточку у оператора.
+      - name: Verify first save of a new engine card is not dropped
+        env:
+          MATRICA_FIXTURE_ALLOW_WRITE: "1"
+        run: pnpm -C backend-api engines:first-save-check
+
       - name: Parity EAV vs strict tables
         run: pnpm -C backend-api users:parity
