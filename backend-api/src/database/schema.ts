@@ -1013,6 +1013,10 @@ export const erpEmployeeCards = pgTable(
     fullName: text('full_name').notNull(),
     roleCode: text('role_code'),
     attrsJson: text('attrs_json'),
+    // Связь с карточкой справочника сотрудников (EAV `employee`). Заполняет зеркало
+    // (ppeEmployeeMirrorService): импорт ЗУП такой связи не знает. Серверная колонка —
+    // в зеркальный DTO не входит, клиенту достаточно card id.
+    entityId: uuid('entity_id'),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
@@ -1025,6 +1029,9 @@ export const erpEmployeeCards = pgTable(
   (t) => ({
     personnelNoUq: uniqueIndex('erp_employee_cards_personnel_no_uq').on(t.personnelNo),
     fullNameIdx: index('erp_employee_cards_full_name_idx').on(t.fullName),
+    entityIdUq: uniqueIndex('erp_employee_cards_entity_id_uq')
+      .on(t.entityId)
+      .where(sql`${t.entityId} IS NOT NULL AND ${t.deletedAt} IS NULL`),
   }),
 );
 

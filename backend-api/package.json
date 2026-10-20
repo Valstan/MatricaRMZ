@@ -43,6 +43,8 @@
     "employees:import-csv": "tsx src/scripts/importEmployeesCsv.ts",
     "engines:import": "tsx src/scripts/importEngineLedger.ts",
     "positions:backfill:apply": "tsx src/scripts/backfillEmployeePositions.ts --apply",
+    "ppe:mirror-employees": "tsx src/scripts/mirrorPpeEmployees.ts",
+    "ppe:mirror-employees:apply": "tsx src/scripts/mirrorPpeEmployees.ts --apply",
     "access:backfill-sections": "tsx src/scripts/backfillSectionAccess.ts",
     "fix:zero-wo-numbers-20260722": "tsx src/scripts/fixZeroWorkOrderNumbers20260722.ts",
     "fix:zero-wo-numbers-20260722:apply": "tsx src/scripts/fixZeroWorkOrderNumbers20260722.ts --apply",

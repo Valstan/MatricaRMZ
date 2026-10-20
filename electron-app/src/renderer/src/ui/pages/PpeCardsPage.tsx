@@ -22,6 +22,7 @@ import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { SectionCard } from '../components/SectionCard.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
 type CardDto = {
   id: string;
@@ -156,26 +157,35 @@ export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
     setSizesByPersonnel(byPersonnel);
   }, []);
 
+  // Пикер — из реплики СИЗ (`erp_employee_cards`), не из EAV-списка сотрудников:
+  // строгая дверь модуля знает только эти id (см. ppe:employees:list).
+  const loadEmployees = useCallback(async () => {
+    const emp = await window.matrica.ppe.employees.list().catch(() => null);
+    const empRows = emp?.ok ? emp.employees : [];
+    setEmployees(
+      empRows.map((e) => ({
+        id: e.id,
+        label: e.fullName.trim() || e.id,
+        ...(e.roleCode ? { hintText: e.roleCode } : {}),
+        searchText: `${e.fullName} ${e.personnelNo ?? ''} ${e.roleCode ?? ''}`,
+      })),
+    );
+    setPersonnelByEmployee(new Map(empRows.map((e) => [String(e.id), String(e.personnelNo ?? '')])));
+    await loadEmployeeSizes();
+  }, [loadEmployeeSizes]);
+
+  // Вкладка живёт в keep-alive: список сотрудников снимается один раз при открытии, и
+  // импортированные (или приехавшие зеркалом справочника) люди иначе не появлялись бы в
+  // пикере до перезапуска клиента — ровно жалоба «набираю фамилию, а никого нет».
+  useLiveDataRefresh(loadEmployees, { intervalMs: 60_000 });
+
   useEffect(() => {
     void (async () => {
-      const [emp, norms, wh] = await Promise.all([
-        window.matrica.ppe.employees.list().catch(() => null),
+      const [norms, wh] = await Promise.all([
         window.matrica.ppe.norms.list().catch(() => null),
         window.matrica.warehouseLocations.list({ activeOnly: true }).catch(() => null),
       ]);
-      // Пикер — из реплики СИЗ (`erp_employee_cards`), не из EAV-списка сотрудников:
-      // строгая дверь модуля знает только эти id (см. ppe:employees:list).
-      setEmployees(
-        (emp?.ok ? emp.employees : []).map((e) => ({
-          id: e.id,
-          label: e.fullName.trim() || e.id,
-          ...(e.roleCode ? { hintText: e.roleCode } : {}),
-          searchText: `${e.fullName} ${e.personnelNo ?? ''} ${e.roleCode ?? ''}`,
-        })),
-      );
-      const empRows = emp?.ok ? emp.employees : [];
-      setPersonnelByEmployee(new Map(empRows.map((e) => [String(e.id), String(e.personnelNo ?? '')])));
-      await loadEmployeeSizes();
+      await loadEmployees();
       if (norms?.ok) setNormOptions(norms.rows);
       if (wh?.ok) {
         setWarehouses(
@@ -188,7 +198,7 @@ export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
         setNomNames(new Map(rows.map((r) => [String(r.id), String(r.name ?? r.id)])));
       }
     })();
-  }, [loadEmployeeSizes]);
+  }, [loadEmployees]);
 
   const nomName = useCallback((id: string) => nomNames.get(id) ?? id, [nomNames]);
   const empName = useCallback(
