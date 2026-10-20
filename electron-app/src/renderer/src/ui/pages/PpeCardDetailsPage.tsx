@@ -737,7 +737,7 @@ export function PpeCardDetailsPage(props: {
                 <FormField label="По">
                   <Input type="date" value={absenceTo} onChange={(e) => setAbsenceTo(e.target.value)} />
                 </FormField>
-                <Button variant="primary" onClick={() => void addAbsence()} disabled={busy}>
+                <Button variant="primary" style={{ justifySelf: 'start' }} onClick={() => void addAbsence()} disabled={busy}>
                   Добавить отпуск
                 </Button>
               </div>

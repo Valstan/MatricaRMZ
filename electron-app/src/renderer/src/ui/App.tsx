@@ -829,6 +829,7 @@ const CARD_PARENT_TAB: Partial<Record<TabId, TabId>> = {
   report_preset: 'reports',
   work_sheet: 'work_sheets',
   user_screen: 'user_screens',
+  ppe_card: 'ppe_cards',
 };
 
 const CARD_DETAIL_TABS: ReadonlyArray<TabId> = [

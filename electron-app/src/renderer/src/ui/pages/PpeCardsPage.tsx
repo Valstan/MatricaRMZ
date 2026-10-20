@@ -375,14 +375,6 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
   );
   const printColumns = useMemo(() => buildListPrintColumns(allColumns), [allColumns]);
 
-  const filtersSummary = useMemo(
-    () =>
-      describeFacetSelection(PPE_CARDS_FACETS as readonly FacetDescriptor<Row>[], facets as FacetSelection, {
-        search: query,
-      }),
-    [facets, query],
-  );
-
   function onSortHeader(nextKey: SortKey) {
     const next = toggleSort(sortKey, sortDir, nextKey);
     patchState({ sortKey: next.sortKey, sortDir: next.sortDir });
@@ -503,7 +495,9 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
           rows={sorted}
           selectedRows={[]}
           storageKey="list:ppe-cards:printFields"
-          filtersSummary={filtersSummary}
+          filtersSummary={describeFacetSelection(PPE_CARDS_FACETS as readonly FacetDescriptor<Row>[], facets as FacetSelection, {
+            search: query,
+          })}
         />
       </PageToolbar>
 
@@ -516,7 +510,9 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
           rows={sorted}
           selectedRows={[]}
           storageKey="list:ppe-cards:printFields"
-          filtersSummary={filtersSummary}
+          filtersSummary={describeFacetSelection(PPE_CARDS_FACETS as readonly FacetDescriptor<Row>[], facets as FacetSelection, {
+            search: query,
+          })}
           onClose={() => setPrintDialogOpen(false)}
         />
       )}

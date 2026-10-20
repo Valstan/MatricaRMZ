@@ -629,6 +629,8 @@ const matricaApi = {
     cards: {
       open: async (args: { employeeId: string }) => ipcRenderer.invoke('ppe:cards:open', args),
       get: async (id: string) => ipcRenderer.invoke('ppe:cards:get', id),
+      /** Список карточек: строка на сотрудника, сроки считает сервер тем же ядром, что и карточка. */
+      overview: async () => ipcRenderer.invoke('ppe:cards:overview'),
       byEmployee: async (employeeId: string) => ipcRenderer.invoke('ppe:cards:byEmployee', employeeId),
       assignNorms: async (args: { cardId: string; normSetIds: string[] }) => ipcRenderer.invoke('ppe:cards:assignNorms', args),
       close: async (id: string) => ipcRenderer.invoke('ppe:cards:close', id),
