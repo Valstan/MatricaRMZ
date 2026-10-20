@@ -3,8 +3,8 @@
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
 **Status:** IDLE
-**Updated:** 2026-10-20 (DeepSeek V4.1 Flash Free / opencode session, на машине `PC79`, worktree `bugfix-parallel`)
-**Branch:** `chore/session-handoff-3-82-0` (рабочая ветка worktree; релизная работа уже в `main`)
+**Updated:** 2026-10-20 (DeepSeek V4.1 Flash Free / opencode session, на машине `PC79`, основное дерево)
+**Branch:** `main` — второе дерево `bugfix-parallel` снято, писатель снова один
 **Last released version:** **v3.82.0** на проде (+ android-v3.82.0).
 
 ## Текущая нитка
