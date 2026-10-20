@@ -29,6 +29,10 @@ function makeDb() {
     CREATE TABLE attribute_values (id text PRIMARY KEY NOT NULL, entity_id text NOT NULL, attribute_def_id text NOT NULL,
       value_json text, created_at integer NOT NULL, updated_at integer NOT NULL,
       last_server_seq integer, deleted_at integer, sync_status text NOT NULL DEFAULT 'synced');
+    CREATE TABLE operations (id text PRIMARY KEY NOT NULL, engine_entity_id text NOT NULL,
+      operation_type text NOT NULL, status text NOT NULL, note text, performed_at integer, performed_by text,
+      meta_json text, created_at integer NOT NULL, updated_at integer NOT NULL, last_server_seq integer,
+      deleted_at integer, sync_status text NOT NULL DEFAULT 'synced');
 
     INSERT INTO entity_types (id, code, name, created_at, updated_at) VALUES
       ('t-engine', 'engine', 'Engine', 1, 1),
@@ -51,8 +55,11 @@ function makeDb() {
       ('d-engine-number', 't-engine', 'engine_number', 'Номер двигателя', 'text', 1, 1),
       ('d-engine-arrival', 't-engine', 'arrival_date', 'Дата прихода', 'date', 1, 1),
       ('d-engine-brand', 't-engine', 'engine_brand', 'Марка', 'text', 1, 1),
+      ('d-engine-brand-id', 't-engine', 'engine_brand_id', 'Марка (id)', 'text', 1, 1),
       ('d-engine-cust', 't-engine', 'customer_id', 'Контрагент', 'text', 1, 1),
-      ('d-engine-contract', 't-engine', 'contract_id', 'Договор', 'text', 1, 1);
+      ('d-engine-contract', 't-engine', 'contract_id', 'Договор', 'text', 1, 1),
+      ('d-engine-internal', 't-engine', 'engine_internal_number', 'Внутренний номер', 'text', 1, 1),
+      ('d-engine-internal-year', 't-engine', 'engine_internal_number_year', 'Год номера', 'number', 1, 1);
 
     INSERT INTO attribute_values (id, entity_id, attribute_def_id, value_json, created_at, updated_at) VALUES
       ('v-1', 'brand-bosch', 'd-brand-name', '"Bosch"', 1, 1),
@@ -66,11 +73,25 @@ function makeDb() {
   return sqlite;
 }
 
-function deps(sqlite: Database.Database) {
-  return { db: drizzle(sqlite), actor: 'tester', canWriteStageRow: false };
+function deps(sqlite: Database.Database, canWriteStageRow = false) {
+  return { db: drizzle(sqlite), actor: 'tester', canWriteStageRow };
 }
 
 const ARRIVAL = Date.parse('2026-10-15T12:00:00');
+const DEFECT = Date.parse('2026-10-20T12:00:00');
+
+function cardRow(sqlite: Database.Database, id: string) {
+  return sqlite
+    .prepare('SELECT engine_number AS n, engine_brand_id AS b, engine_brand AS bl, customer_id AS c, contract_id AS k, arrival_date AS a, engine_internal_number AS i, engine_internal_number_year AS y FROM erp_engine_cards WHERE id = ?')
+    .get(id) as Record<string, unknown>;
+}
+
+function stageCodes(sqlite: Database.Database, engineId: string): string[] {
+  const rows = sqlite
+    .prepare('SELECT meta_json AS m FROM operations WHERE engine_entity_id = ? AND deleted_at IS NULL')
+    .all(engineId) as Array<{ m: string }>;
+  return rows.map((row) => String((JSON.parse(row.m) as { stage?: { code?: string } }).stage?.code ?? ''));
+}
 
 describe('previewEngineBulkIntake', () => {
   it('находит дубль в строгой реплике и помечает новый номер', async () => {
@@ -100,6 +121,46 @@ describe('previewEngineBulkIntake', () => {
     sqlite.close();
   });
 
+  it('отдаёт карточку целиком: марку, договор, внутренний номер и наличие этапа дефектовки', async () => {
+    const sqlite = makeDb();
+    sqlite
+      .prepare(
+        'INSERT INTO erp_engine_cards (id, engine_number, engine_brand_id, engine_brand, customer_id, contract_id, engine_internal_number, engine_internal_number_year, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+      )
+      .run('e-full', 'FULL-1', 'brand-bosch', 'Bosch', 'cust-1', 'contract-1', '41', 2026, 1, 1);
+    sqlite
+      .prepare(
+        `INSERT INTO operations (id, engine_entity_id, operation_type, status, meta_json, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?)`,
+      )
+      .run(
+        'op-1',
+        'e-full',
+        'repair_history_entry',
+        'done',
+        JSON.stringify({
+          kind: 'repair_history',
+          action: 'Разборка/Дефектовка',
+          entryType: 'stage',
+          at: DEFECT,
+          stage: { code: 'disassembly_defect', name: 'Разборка/Дефектовка' },
+        }),
+        1,
+        1,
+      );
+    const preview = await previewEngineBulkIntake(drizzle(sqlite), 'full-1');
+    expect(preview.rows[0]?.existing).toMatchObject({
+      id: 'e-full',
+      engineBrandId: 'brand-bosch',
+      customerId: 'cust-1',
+      contractId: 'contract-1',
+      internalNumber: '41',
+      internalNumberYear: 2026,
+      hasDefectStage: true,
+    });
+    sqlite.close();
+  });
+
   it('внутренний повтор помечает repeatedInBatch', async () => {
     const sqlite = makeDb();
     const preview = await previewEngineBulkIntake(drizzle(sqlite), 'X-1\nX-1\nX-2');
@@ -119,32 +180,16 @@ describe('previewEngineBulkIntake', () => {
 });
 
 describe('applyEngineBulkIntake', () => {
-  it('без контрагента отказывает и не заводит карточек', async () => {
+  it('без общих полей заводит карточку с одним номером — все поля необязательны', async () => {
     const sqlite = makeDb();
     const r = await applyEngineBulkIntake(deps(sqlite), {
-      brandId: 'brand-bosch',
-      customerId: '',
-      contractId: 'contract-1',
-      arrivalDate: ARRIVAL,
       rows: [{ number: 'NEW-1', action: 'create' }],
     });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain('контрагент');
-    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM erp_engine_cards').get()).toMatchObject({ n: 0 });
-    sqlite.close();
-  });
-
-  it('без договора отказывает', async () => {
-    const sqlite = makeDb();
-    const r = await applyEngineBulkIntake(deps(sqlite), {
-      brandId: 'brand-bosch',
-      customerId: 'cust-1',
-      contractId: '',
-      arrivalDate: ARRIVAL,
-      rows: [{ number: 'NEW-1', action: 'create' }],
-    });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain('договор');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.created).toBe(1);
+    const row = cardRow(sqlite, r.createdIds[0] ?? '');
+    expect(row).toMatchObject({ n: 'NEW-1', b: null, c: null, k: null, a: null, i: null });
     sqlite.close();
   });
 
@@ -159,6 +204,18 @@ describe('applyEngineBulkIntake', () => {
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain('другому контрагенту');
+    sqlite.close();
+  });
+
+  it('контрагента берёт из договора, если выбран только договор', async () => {
+    const sqlite = makeDb();
+    const r = await applyEngineBulkIntake(deps(sqlite), {
+      contractId: 'contract-1',
+      rows: [{ number: 'NEW-1', action: 'create' }],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(cardRow(sqlite, r.createdIds[0] ?? '')).toMatchObject({ c: 'cust-1', k: 'contract-1' });
     sqlite.close();
   });
 
@@ -182,6 +239,53 @@ describe('applyEngineBulkIntake', () => {
       .all() as Array<Record<string, unknown>>;
     expect(rows.map((row) => row.n)).toEqual(['NEW-1', 'NEW-2']);
     expect(rows[0]).toMatchObject({ b: 'Bosch', c: 'cust-1', k: 'contract-1', a: ARRIVAL });
+    sqlite.close();
+  });
+
+  it('внутренний номер пишется в карточку построчно, со своим годом', async () => {
+    const sqlite = makeDb();
+    const r = await applyEngineBulkIntake(deps(sqlite), {
+      brandId: 'brand-bosch',
+      rows: [
+        { number: 'NEW-1', action: 'create', internalNumber: '41/26' },
+        { number: 'NEW-2', action: 'create', internalNumber: '42' },
+      ],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const first = cardRow(sqlite, r.createdIds[0] ?? '');
+    const second = cardRow(sqlite, r.createdIds[1] ?? '');
+    expect(first).toMatchObject({ i: '41', y: 2026 });
+    expect(second).toMatchObject({ i: '42', y: new Date().getFullYear() });
+    sqlite.close();
+  });
+
+  it('дата дефектовки ставит этап «Разборка/Дефектовка» один раз', async () => {
+    const sqlite = makeDb();
+    const r = await applyEngineBulkIntake(deps(sqlite, true), {
+      arrivalDate: ARRIVAL,
+      defectDate: DEFECT,
+      rows: [{ number: 'NEW-1', action: 'create' }],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const id = r.createdIds[0] ?? '';
+    expect(r.defectStageMissed).toBe(0);
+    expect(stageCodes(sqlite, id)).toContain('disassembly_defect');
+    sqlite.close();
+  });
+
+  it('без права писать этапы дата дефектовки не теряется молча — попадает в итог', async () => {
+    const sqlite = makeDb();
+    const r = await applyEngineBulkIntake(deps(sqlite, false), {
+      defectDate: DEFECT,
+      rows: [{ number: 'NEW-1', action: 'create' }],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.created).toBe(1);
+    expect(r.defectStageMissed).toBe(1);
+    expect(r.defectStageError).toContain('права');
     sqlite.close();
   });
 
@@ -218,6 +322,84 @@ describe('applyEngineBulkIntake', () => {
     sqlite.close();
   });
 
+  it('«обновить» дописывает только недостающее и не перезаписывает заполненное', async () => {
+    const sqlite = makeDb();
+    sqlite.exec(`
+      INSERT INTO erp_engine_cards (id, engine_number, customer_id, created_at, updated_at)
+        VALUES ('e-old', 'OLD-1', 'cust-2', 1, 1);
+      INSERT INTO entities (id, type_id, created_at, updated_at) VALUES ('e-old', 't-engine', 1, 1);
+      INSERT INTO attribute_values (id, entity_id, attribute_def_id, value_json, created_at, updated_at)
+        VALUES ('v-old-num', 'e-old', 'd-engine-number', '"OLD-1"', 1, 1);
+    `);
+    const r = await applyEngineBulkIntake(deps(sqlite), {
+      brandId: 'brand-bosch',
+      customerId: 'cust-1',
+      contractId: 'contract-1',
+      arrivalDate: ARRIVAL,
+      rows: [{ number: 'OLD-1', action: 'update', internalNumber: '41/26' }],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.created).toBe(0);
+    expect(r.updated).toBe(1);
+    expect(r.updatedIds).toEqual(['e-old']);
+    expect(r.contractedIds).toEqual(['e-old']);
+    // Контрагент в карточке был другой — его не тронули, остальное дописали.
+    expect(cardRow(sqlite, 'e-old')).toMatchObject({
+      n: 'OLD-1',
+      b: 'brand-bosch',
+      c: 'cust-2',
+      k: 'contract-1',
+      a: ARRIVAL,
+      i: '41',
+      y: 2026,
+    });
+    sqlite.close();
+  });
+
+  it('«обновить» дописывает дату дефектовки, если этапа нет', async () => {
+    const sqlite = makeDb();
+    sqlite.exec(`
+      INSERT INTO erp_engine_cards (id, engine_number, created_at, updated_at) VALUES ('e-old', 'OLD-1', 1, 1);
+      INSERT INTO entities (id, type_id, created_at, updated_at) VALUES ('e-old', 't-engine', 1, 1);
+      INSERT INTO attribute_values (id, entity_id, attribute_def_id, value_json, created_at, updated_at)
+        VALUES ('v-old-num', 'e-old', 'd-engine-number', '"OLD-1"', 1, 1);
+    `);
+    const r = await applyEngineBulkIntake(deps(sqlite, true), {
+      defectDate: DEFECT,
+      rows: [{ number: 'OLD-1', action: 'update' }],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.updated).toBe(1);
+    expect(stageCodes(sqlite, 'e-old')).toContain('disassembly_defect');
+    sqlite.close();
+  });
+
+  it('«обновить» при полной карточке ничего не пишет и считает строку пропущенной', async () => {
+    const sqlite = makeDb();
+    sqlite.exec(`
+      INSERT INTO erp_engine_cards (id, engine_number, engine_brand_id, engine_brand, customer_id, contract_id, arrival_date, engine_internal_number, engine_internal_number_year, created_at, updated_at)
+        VALUES ('e-old', 'OLD-1', 'brand-bosch', 'Bosch', 'cust-1', 'contract-1', ${ARRIVAL}, '41', 2026, 1, 1);
+      INSERT INTO entities (id, type_id, created_at, updated_at) VALUES ('e-old', 't-engine', 1, 1);
+      INSERT INTO attribute_values (id, entity_id, attribute_def_id, value_json, created_at, updated_at)
+        VALUES ('v-old-num', 'e-old', 'd-engine-number', '"OLD-1"', 1, 1);
+    `);
+    const r = await applyEngineBulkIntake(deps(sqlite), {
+      brandId: 'brand-bosch',
+      customerId: 'cust-1',
+      contractId: 'contract-1',
+      arrivalDate: ARRIVAL,
+      rows: [{ number: 'OLD-1', action: 'update', internalNumber: '41/26' }],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.updated).toBe(0);
+    expect(r.skipped).toBe(1);
+    expect(cardRow(sqlite, 'e-old')).toMatchObject({ n: 'OLD-1', i: '41', y: 2026 });
+    sqlite.close();
+  });
+
   it('повтор номера внутри пачки заводит одну карточку', async () => {
     const sqlite = makeDb();
     const r = await applyEngineBulkIntake(deps(sqlite), {
@@ -249,20 +431,6 @@ describe('applyEngineBulkIntake', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain('Марка');
     expect(sqlite.prepare('SELECT COUNT(*) AS n FROM erp_engine_cards').get()).toMatchObject({ n: 0 });
-    sqlite.close();
-  });
-
-  it('без даты прихода — отказ', async () => {
-    const sqlite = makeDb();
-    const r = await applyEngineBulkIntake(deps(sqlite), {
-      brandId: 'brand-bosch',
-      customerId: 'cust-1',
-      contractId: 'contract-1',
-      arrivalDate: 0,
-      rows: [{ number: 'NEW-1', action: 'create' }],
-    });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain('дата');
     sqlite.close();
   });
 });

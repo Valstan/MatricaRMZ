@@ -1349,11 +1349,18 @@ export function EnginesPage(props: {
             setBulkIntakeOpen(false);
             await props.onRefresh();
             const parts = [`Заведено карточек: ${r.created}`];
+            if (r.updated > 0) parts.push(`дополнено карточек: ${r.updated}`);
             if (r.skipped > 0) parts.push(`пропущено: ${r.skipped}`);
             if (r.overPlan > 0) parts.push(`сверх плана договора: ${r.overPlan}`);
             if (r.slotErrors > 0) parts.push(`без места в договоре: ${r.slotErrors} (назначьте в карточке договора)`);
+            if (r.defectStageMissed > 0) {
+              parts.push(`этап дефектовки не встал: ${r.defectStageMissed} (дата раньше прихода или нет права)`);
+            }
             if (r.error) parts.push(r.error);
-            props.onNotify?.(parts.join(' · '), r.error || r.slotErrors > 0 ? 'error' : 'info');
+            props.onNotify?.(
+              parts.join(' · '),
+              r.error || r.slotErrors > 0 || r.defectStageMissed > 0 ? 'error' : 'info',
+            );
           }}
         />
       )}
