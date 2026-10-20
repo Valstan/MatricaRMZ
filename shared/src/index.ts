@@ -44,6 +44,7 @@ export * from './domain/engineInternalNumber.js';
 export * from './domain/engineQr.js';
 export * from './domain/engineReservation.js';
 export * from './domain/engineFlatFields.js';
+export * from './domain/engineBulkIntake.js';
 export * from './domain/engineTimeline.js';
 export * from './domain/engineHistoryFeed.js';
 export * from './domain/actStages.js';

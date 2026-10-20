@@ -1,0 +1,268 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { describe, expect, it } from 'vitest';
+
+import { ENGINE_BULK_INTAKE_MAX } from '@matricarmz/shared';
+
+import { applyEngineBulkIntake, previewEngineBulkIntake } from './engineBulkIntakeService.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+
+function makeDb() {
+  const sqlite = new Database(':memory:');
+  sqlite.exec(readFileSync(join(here, '../../../drizzle/0032_erp_engine_cards_replica.sql'), 'utf8'));
+  sqlite.exec(`
+    CREATE TABLE entity_types (id text PRIMARY KEY NOT NULL, code text NOT NULL, name text NOT NULL,
+      created_at integer NOT NULL, updated_at integer NOT NULL,
+      last_server_seq integer, deleted_at integer, sync_status text NOT NULL DEFAULT 'synced');
+    CREATE TABLE entities (id text PRIMARY KEY NOT NULL, type_id text NOT NULL,
+      created_at integer NOT NULL, updated_at integer NOT NULL, last_server_seq integer, deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced');
+    CREATE TABLE attribute_defs (id text PRIMARY KEY NOT NULL, entity_type_id text NOT NULL, code text NOT NULL,
+      name text NOT NULL, data_type text NOT NULL, is_required integer NOT NULL DEFAULT 0, sort_order integer NOT NULL DEFAULT 0,
+      meta_json text, created_at integer NOT NULL, updated_at integer NOT NULL,
+      last_server_seq integer, deleted_at integer, sync_status text NOT NULL DEFAULT 'synced');
+    CREATE TABLE attribute_values (id text PRIMARY KEY NOT NULL, entity_id text NOT NULL, attribute_def_id text NOT NULL,
+      value_json text, created_at integer NOT NULL, updated_at integer NOT NULL,
+      last_server_seq integer, deleted_at integer, sync_status text NOT NULL DEFAULT 'synced');
+
+    INSERT INTO entity_types (id, code, name, created_at, updated_at) VALUES
+      ('t-engine', 'engine', 'Engine', 1, 1),
+      ('t-brand', 'engine_brand', 'Brand', 1, 1),
+      ('t-customer', 'customer', 'Customer', 1, 1),
+      ('t-contract', 'contract', 'Contract', 1, 1);
+
+    INSERT INTO entities (id, type_id, created_at, updated_at) VALUES
+      ('brand-bosch', 't-brand', 1, 1),
+      ('cust-1', 't-customer', 1, 1),
+      ('cust-2', 't-customer', 1, 1),
+      ('contract-1', 't-contract', 2, 2),
+      ('contract-2', 't-contract', 2, 2);
+
+    INSERT INTO attribute_defs (id, entity_type_id, code, name, data_type, created_at, updated_at) VALUES
+      ('d-brand-name', 't-brand', 'name', 'Марка', 'text', 1, 1),
+      ('d-cust-name', 't-customer', 'name', 'Контрагент', 'text', 1, 1),
+      ('d-contract-name', 't-contract', 'number', 'Номер', 'text', 1, 1),
+      ('d-contract-cust', 't-contract', 'customer_id', 'Контрагент', 'text', 1, 1),
+      ('d-engine-number', 't-engine', 'engine_number', 'Номер двигателя', 'text', 1, 1),
+      ('d-engine-arrival', 't-engine', 'arrival_date', 'Дата прихода', 'date', 1, 1),
+      ('d-engine-brand', 't-engine', 'engine_brand', 'Марка', 'text', 1, 1),
+      ('d-engine-cust', 't-engine', 'customer_id', 'Контрагент', 'text', 1, 1),
+      ('d-engine-contract', 't-engine', 'contract_id', 'Договор', 'text', 1, 1);
+
+    INSERT INTO attribute_values (id, entity_id, attribute_def_id, value_json, created_at, updated_at) VALUES
+      ('v-1', 'brand-bosch', 'd-brand-name', '"Bosch"', 1, 1),
+      ('v-2', 'cust-1', 'd-cust-name', '"Завод №1"', 1, 1),
+      ('v-3', 'cust-2', 'd-cust-name', '"Завод №2"', 1, 1),
+      ('v-4', 'contract-1', 'd-contract-name', '"Д-1"', 2, 2),
+      ('v-5', 'contract-1', 'd-contract-cust', '"cust-1"', 2, 2),
+      ('v-6', 'contract-2', 'd-contract-name', '"Д-2"', 2, 2),
+      ('v-7', 'contract-2', 'd-contract-cust', '"cust-2"', 2, 2);
+  `);
+  return sqlite;
+}
+
+function deps(sqlite: Database.Database) {
+  return { db: drizzle(sqlite), actor: 'tester', canWriteStageRow: false };
+}
+
+const ARRIVAL = Date.parse('2026-10-15T12:00:00');
+
+describe('previewEngineBulkIntake', () => {
+  it('находит дубль в строгой реплике и помечает новый номер', async () => {
+    const sqlite = makeDb();
+    sqlite
+      .prepare('INSERT INTO erp_engine_cards (id, engine_number, arrival_date, engine_brand, created_at, updated_at) VALUES (?,?,?,?,?,?)')
+      .run('e-old', 'AAA-111', Date.parse('2025-03-01T12:00:00'), 'Bosch', 1, 1);
+    const preview = await previewEngineBulkIntake(drizzle(sqlite), 'AAA-111 bbb-222');
+    expect(preview.rows.map((r) => r.number)).toEqual(['AAA-111', 'bbb-222']);
+    expect(preview.rows[0]?.existing?.id).toBe('e-old');
+    expect(preview.rows[1]?.existing).toBeNull();
+    expect(preview.overflow).toBe(0);
+    sqlite.close();
+  });
+
+  it('видит двигатель, который есть только в EAV (до pull реплики)', async () => {
+    const sqlite = makeDb();
+    sqlite.exec(`
+      INSERT INTO entities (id, type_id, created_at, updated_at) VALUES ('e-eav', 't-engine', 1, 1);
+      INSERT INTO attribute_values (id, entity_id, attribute_def_id, value_json, created_at, updated_at)
+        VALUES ('v-num', 'e-eav', 'd-engine-number', '"CCC-333"', 1, 1),
+               ('v-arr', 'e-eav', 'd-engine-arrival', '1750000000000', 1, 1);
+    `);
+    const preview = await previewEngineBulkIntake(drizzle(sqlite), 'ccc-333');
+    expect(preview.rows[0]?.existing?.id).toBe('e-eav');
+    expect(preview.rows[0]?.existing?.arrivalDate).toBe(1750000000000);
+    sqlite.close();
+  });
+
+  it('внутренний повтор помечает repeatedInBatch', async () => {
+    const sqlite = makeDb();
+    const preview = await previewEngineBulkIntake(drizzle(sqlite), 'X-1\nX-1\nX-2');
+    expect(preview.rows).toHaveLength(2);
+    expect(preview.rows[0]?.repeatedInBatch).toBe(true);
+    expect(preview.rows[1]?.repeatedInBatch).toBe(false);
+    sqlite.close();
+  });
+
+  it('список сверх предела отдаёт overflow', async () => {
+    const sqlite = makeDb();
+    const text = Array.from({ length: ENGINE_BULK_INTAKE_MAX + 2 }, (_, i) => `N-${i}`).join(' ');
+    const preview = await previewEngineBulkIntake(drizzle(sqlite), text);
+    expect(preview.overflow).toBe(2);
+    sqlite.close();
+  });
+});
+
+describe('applyEngineBulkIntake', () => {
+  it('без контрагента отказывает и не заводит карточек', async () => {
+    const sqlite = makeDb();
+    const r = await applyEngineBulkIntake(deps(sqlite), {
+      brandId: 'brand-bosch',
+      customerId: '',
+      contractId: 'contract-1',
+      arrivalDate: ARRIVAL,
+      rows: [{ number: 'NEW-1', action: 'create' }],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('контрагент');
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM erp_engine_cards').get()).toMatchObject({ n: 0 });
+    sqlite.close();
+  });
+
+  it('без договора отказывает', async () => {
+    const sqlite = makeDb();
+    const r = await applyEngineBulkIntake(deps(sqlite), {
+      brandId: 'brand-bosch',
+      customerId: 'cust-1',
+      contractId: '',
+      arrivalDate: ARRIVAL,
+      rows: [{ number: 'NEW-1', action: 'create' }],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('договор');
+    sqlite.close();
+  });
+
+  it('договор другого контрагента не принимает', async () => {
+    const sqlite = makeDb();
+    const r = await applyEngineBulkIntake(deps(sqlite), {
+      brandId: 'brand-bosch',
+      customerId: 'cust-1',
+      contractId: 'contract-2',
+      arrivalDate: ARRIVAL,
+      rows: [{ number: 'NEW-1', action: 'create' }],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('другому контрагенту');
+    sqlite.close();
+  });
+
+  it('заводит карточки с маркой, контрагентом, договором и датой прихода', async () => {
+    const sqlite = makeDb();
+    const r = await applyEngineBulkIntake(deps(sqlite), {
+      brandId: 'brand-bosch',
+      customerId: 'cust-1',
+      contractId: 'contract-1',
+      arrivalDate: ARRIVAL,
+      rows: [
+        { number: 'NEW-1', action: 'create' },
+        { number: 'NEW-2', action: 'create' },
+      ],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.created).toBe(2);
+    const rows = sqlite
+      .prepare('SELECT engine_number AS n, engine_brand AS b, customer_id AS c, contract_id AS k, arrival_date AS a FROM erp_engine_cards ORDER BY engine_number')
+      .all() as Array<Record<string, unknown>>;
+    expect(rows.map((row) => row.n)).toEqual(['NEW-1', 'NEW-2']);
+    expect(rows[0]).toMatchObject({ b: 'Bosch', c: 'cust-1', k: 'contract-1', a: ARRIVAL });
+    sqlite.close();
+  });
+
+  it('дубль по умолчанию пропускается, повторный заезд — заводится с флагом и ссылкой', async () => {
+    const sqlite = makeDb();
+    sqlite.exec(`
+      INSERT INTO erp_engine_cards (id, engine_number, created_at, updated_at) VALUES
+        ('e-old', 'DUP-1', 1, 1), ('e-old-2', 'DUP-2', 1, 1);
+      INSERT INTO entities (id, type_id, created_at, updated_at) VALUES
+        ('e-old', 't-engine', 1, 1), ('e-old-2', 't-engine', 1, 1);
+      -- Тот же номер лежит и в EAV — именно его читает гейт дублей при записи карточки.
+      INSERT INTO attribute_values (id, entity_id, attribute_def_id, value_json, created_at, updated_at) VALUES
+        ('v-dup', 'e-old', 'd-engine-number', '"DUP-1"', 1, 1),
+        ('v-dup-2', 'e-old-2', 'd-engine-number', '"DUP-2"', 1, 1);
+    `);
+    const r = await applyEngineBulkIntake(deps(sqlite), {
+      brandId: 'brand-bosch',
+      customerId: 'cust-1',
+      contractId: 'contract-1',
+      arrivalDate: ARRIVAL,
+      rows: [
+        { number: 'DUP-1', action: 'skip' },
+        { number: 'DUP-2', action: 'repeat_arrival', previousEngineId: 'e-old-2' },
+      ],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.created).toBe(1);
+    expect(r.skipped).toBe(1);
+    const row = sqlite
+      .prepare('SELECT engine_number AS n, repeat_arrival_flag AS f, previous_arrival_id AS p FROM erp_engine_cards WHERE id NOT IN (?,?)')
+      .get('e-old', 'e-old-2') as Record<string, unknown>;
+    expect(row).toMatchObject({ n: 'DUP-2', f: 1, p: 'e-old-2' });
+    sqlite.close();
+  });
+
+  it('повтор номера внутри пачки заводит одну карточку', async () => {
+    const sqlite = makeDb();
+    const r = await applyEngineBulkIntake(deps(sqlite), {
+      brandId: 'brand-bosch',
+      customerId: 'cust-1',
+      contractId: 'contract-1',
+      arrivalDate: ARRIVAL,
+      rows: [
+        { number: 'SAME-1', action: 'create' },
+        { number: 'same 1', action: 'create' },
+      ],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.created).toBe(1);
+    expect(r.skipped).toBe(1);
+    sqlite.close();
+  });
+
+  it('несуществующая марка — отказ, карточек нет', async () => {
+    const sqlite = makeDb();
+    const r = await applyEngineBulkIntake(deps(sqlite), {
+      brandId: 'brand-missing',
+      customerId: 'cust-1',
+      contractId: 'contract-1',
+      arrivalDate: ARRIVAL,
+      rows: [{ number: 'NEW-1', action: 'create' }],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('Марка');
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM erp_engine_cards').get()).toMatchObject({ n: 0 });
+    sqlite.close();
+  });
+
+  it('без даты прихода — отказ', async () => {
+    const sqlite = makeDb();
+    const r = await applyEngineBulkIntake(deps(sqlite), {
+      brandId: 'brand-bosch',
+      customerId: 'cust-1',
+      contractId: 'contract-1',
+      arrivalDate: 0,
+      rows: [{ number: 'NEW-1', action: 'create' }],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('дата');
+    sqlite.close();
+  });
+});

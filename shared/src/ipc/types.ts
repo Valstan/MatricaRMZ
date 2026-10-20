@@ -1,4 +1,5 @@
 import type { AuthFailureCode } from '../domain/authFailure.js';
+import type { EngineBulkIntakeApplyInput, EngineBulkIntakeApplyResult, EngineBulkIntakePreview } from '../domain/engineBulkIntake.js';
 import type { EngineReservation } from '../domain/engineReservation.js';
 import type { GlobalSearchHit, GlobalSearchResponse } from '../domain/globalSearch.js';
 import type { PartDimension, PartEngineBrandLink, PartMetadata, PartSpec } from '../domain/part.js';
@@ -1281,6 +1282,22 @@ export type MatricaApi = {
     /** Массовый разбор дублей: полное сканирование НА СЕРВЕРЕ (не по локальному кешу). */
     dedupeAnalyze: () => Promise<EngineDedupeAnalyzeResult>;
     dedupeMerge: (args: { survivorId: string; loserIds: string[] }) => Promise<EngineDedupeMergeResult>;
+    /** Строгая реплика карточки: запись — локально pending, уход в push забирает collectPending. */
+    card: {
+      get: (id: string) => Promise<{ ok: boolean; row?: Record<string, unknown> | null; error?: string }>;
+      save: (args: { id: string; fields: Record<string, unknown> }) => Promise<{
+        ok: boolean;
+        changed?: boolean;
+        error?: string;
+      }>;
+    };
+    /** Пакетный приём списком: превью дублей и заведение карточек одной пачкой. */
+    bulkIntake: {
+      preview: (args: { text: string }) => Promise<
+        { ok: true; preview: EngineBulkIntakePreview } | { ok: false; error: string }
+      >;
+      apply: (args: EngineBulkIntakeApplyInput) => Promise<EngineBulkIntakeApplyResult>;
+    };
   };
   /** Передача файлов между Верстаками: отправка коллеге и разбор входящих. */
   desktopTransfer: {

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { EngineDetails, EngineDuplicateMatches, EngineInternalNumberDuplicate, FileRef, SupplyRequestItem } from '@matricarmz/shared';
-import { looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, DEFAULT_CONTRACT_REPAIR_DAYS, effectiveRepairDays, buildContractSectionOptions, contractSectionAddonToken, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, planSlotForEngine, attachEngineToSlot, isEavFlagSet, isEngineDoneForCountdown, compareStageRecency, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, arrivalPlacements, arrivalPlacementLabel, REPAIR_HISTORY_OPERATION_TYPE, buildRepairHistoryMeta, type ArrivalListItem, type ArrivalPlacement, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
+import { looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, DEFAULT_CONTRACT_REPAIR_DAYS, effectiveRepairDays, buildContractSectionOptions, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, isEavFlagSet, isEngineDoneForCountdown, compareStageRecency, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, arrivalPlacements, arrivalPlacementLabel, REPAIR_HISTORY_OPERATION_TYPE, buildRepairHistoryMeta, type ArrivalListItem, type ArrivalPlacement, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -28,7 +28,7 @@ import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 import { quickCreateEntity } from '../utils/quickCreateEntity.js';
 import { AssemblyReturnDialog } from '../components/AssemblyReturnDialog.js';
 import { EnginePaymentsTab } from '../components/EnginePaymentsTab.js';
-import { mutateContractPayments } from '../utils/contractPaymentsStore.js';
+import { placeEngineIntoContractSlot as placeEngineIntoContractSlotShared } from '../utils/engineContractSlot.js';
 import { EngineDismantlePreviewDialog } from '../components/EngineDismantlePreviewDialog.js';
 import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
 import { isAndroidPlatform } from '../platform.js';
@@ -1239,56 +1239,21 @@ export function EngineDetailsPage(props: {
   }
 
   /**
-   * Посадить двигатель в слот ЕГО марки внутри выбранного контракта.
-   *
-   * Марка известна здесь, а слоты живут в контракте — раньше привязка из карточки
-   * двигателя слот не создавала вовсе: он назначался, только когда кто-нибудь откроет
-   * карточку контракта, и до 31.07 мог достаться слоту чужой марки.
-   *
-   * Возвращает выбранную секцию (её пишем в contract_section_number) и признак «сверх
-   * плана» — о нём говорим оператору вслух.
+   * Посадить двигатель в слот ЕГО марки внутри выбранного контракта — общий util:
+   * тем же путём ходит пакетный приём двигателей списком (иначе один из входов
+   * перестал бы занимать плановое место).
    */
   async function placeEngineIntoContractSlot(
     targetContractId: string,
     preferredSectionKey: string,
   ): Promise<{ sectionKey: string; overPlan: boolean } | null> {
-    try {
-      const contract = (await window.matrica.admin.entities.get(targetContractId)) as {
-        attributes?: Record<string, unknown>;
-      } | null;
-      const committed = parseContractSections(contract?.attributes ?? {});
-      const sectionKeys = [
-        PRIMARY_CONTRACT_SECTION_KEY,
-        ...committed.addons.map((addon) => contractSectionAddonToken(addon.seq)),
-      ];
-      let placed: { sectionKey: string; overPlan: boolean } | null = null;
-      const r = await mutateContractPayments(targetContractId, (current) => {
-        const placement = planSlotForEngine({
-          cp: current,
-          sectionKeys,
-          ...(engineBrandId ? { engineBrandId } : {}),
-          ...(preferredSectionKey ? { preferredSectionKey } : {}),
-        });
-        placed = { sectionKey: placement.sectionKey, overPlan: placement.overPlan };
-        return attachEngineToSlot(
-          current,
-          placement,
-          props.engineId,
-          () => crypto.randomUUID(),
-          engineBrandId || undefined,
-        );
-      });
-      if (!r.ok) {
-        setSaveStatus(`Ошибка платежей контракта: ${r.error}`);
-        return null;
-      }
-      return placed;
-    } catch (e) {
-      // Карточку двигателя из-за платежей не валим: связь двигатель↔контракт всё равно
-      // запишется, а слот доназначится при открытии карточки контракта.
-      setSaveStatus(`Слот в контракте не назначен: ${e instanceof Error ? e.message : String(e)}`);
-      return null;
-    }
+    return placeEngineIntoContractSlotShared({
+      contractId: targetContractId,
+      engineId: props.engineId,
+      ...(engineBrandId ? { engineBrandId } : {}),
+      ...(preferredSectionKey ? { preferredSectionKey } : {}),
+      onStatus: setSaveStatus,
+    });
   }
 
   async function saveAllAndClose() {
