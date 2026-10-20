@@ -50,8 +50,8 @@ export function PpeGroupsPage(props: { canEdit: boolean }) {
       (emp?.ok ? emp.employees : []).map((e) => ({
         id: e.id,
         label: e.fullName.trim() || e.id,
-        ...(e.roleCode ? { hintText: e.roleCode } : {}),
-        searchText: `${e.fullName} ${e.personnelNo ?? ''} ${e.roleCode ?? ''}`,
+        ...(e.isActive === false ? { disabled: true, hintText: 'уволен' } : e.roleCode ? { hintText: e.roleCode } : {}),
+        searchText: `${e.fullName} ${e.personnelNo ?? ''} ${e.roleCode ?? ''}${e.isActive === false ? ' уволен' : ''}`,
       })),
     );
   }, []);
