@@ -528,7 +528,45 @@ async function main() {
   check('контрагент и договор остались прежними', String(updated?.customer) === fx.customerId && String(updated?.contract) === fx.contractId, JSON.stringify(updated));
   await cdp.shot('bulk-intake-update');
 
-  console.log('\n[9] Уборка фикстур');
+  console.log('\n[9] Синк-круг не стирает заполненные карточки (регресс 20.10.2026)');
+  // Сервер заводил строку карточки триггером зеркала раньше строки клиента и обгонял
+  // её по updated_at: значения молча терялись, а пустая строка уезжала в парк и
+  // затирала карточку у оператора. Проверяем именно круг: push -> издатель -> pull.
+  const readCards = `return (async () => {
+    const list = await window.__bi.enginesByPrefix('SMK-BI-');
+    const out = [];
+    for (const e of list) {
+      const g = await window.__bi.call(window.matrica.engines.get(e.id));
+      const a = g?.attributes ?? g?.engine?.attributes ?? {};
+      out.push({
+        id: String(e.id),
+        internal: a.engine_internal_number ?? null,
+        brand: a.engine_brand_id ?? null,
+        customer: a.customer_id ?? null,
+        contract: a.contract_id ?? null,
+      });
+    }
+    return out;
+  })()`;
+  const beforeSync = await cdp.ev(readCards);
+  const filledBefore = beforeSync.filter((c) => c.brand && c.customer && c.contract);
+  check('до синка карточки заполнены', filledBefore.length >= 3, JSON.stringify(beforeSync).slice(0, 400));
+  await cdp.ev('const r = await window.__bi.call(window.matrica.sync.run(), 90000).catch((e) => ({ ok: false, error: String(e) })); return r;');
+  // Издатель справочников просыпается раз в минуту и только потом отдаёт строки в pull.
+  await new Promise((r) => setTimeout(r, 75_000));
+  await cdp.ev('const r = await window.__bi.call(window.matrica.sync.run(), 90000).catch((e) => ({ ok: false, error: String(e) })); return r;');
+  const afterSync = await cdp.ev(readCards);
+  report.afterSync = afterSync;
+  const lost = afterSync.filter((c) => {
+    const b = filledBefore.find((x) => x.id === c.id);
+    if (!b) return false;
+    return String(c.brand ?? '') !== String(b.brand ?? '') || String(c.customer ?? '') !== String(b.customer ?? '') || String(c.contract ?? '') !== String(b.contract ?? '');
+  });
+  check('синк-круг сохранил марку/контрагента/договор', lost.length === 0, JSON.stringify(lost).slice(0, 500));
+  const internalAfter = afterSync.find((c) => c.id === updated?.id);
+  check('внутренний номер пережил синк-круг', String(internalAfter?.internal ?? '') === INTERNAL, JSON.stringify(internalAfter));
+
+  console.log('\n[10] Уборка фикстур');
   const cleanup = await cdp.ev(`
     const all = await window.__bi.enginesByPrefix('SMK-BI-');
     let deleted = 0;
