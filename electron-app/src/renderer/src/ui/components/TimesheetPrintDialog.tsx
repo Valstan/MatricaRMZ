@@ -65,6 +65,8 @@ export function TimesheetPrintDialog(props: {
   onPrint: (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) => void;
   /** Выгрузка в Word: форма уходит теми же секциями и настройками, что и печать. */
   onExport?: (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) => Promise<void> | void;
+  /** Письмо с табелем: те же блоки и настройки, что у печати. */
+  onMail?: (settings: TimesheetPrintSettings, variant: TimesheetPrintVariant, blocks: TimesheetPrintBlocks) => void;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<TimesheetPrintSettings>(() => loadTimesheetPrintSettings());
@@ -238,6 +240,19 @@ export function TimesheetPrintDialog(props: {
                 }}
               >
                 {exporting ? 'Готовим…' : 'В Word'}
+              </Button>
+            ) : null}
+            {props.onMail ? (
+              <Button
+                variant="ghost"
+                data-ts-print-mail="1"
+                title="Отправить табель по почте: те же блоки и настройки, что у печати"
+                onClick={() => {
+                  saveTimesheetPrintSettings(draft);
+                  props.onMail?.(draft, variant, blocks);
+                }}
+              >
+                Почта
               </Button>
             ) : null}
             <Button variant="ghost" onClick={props.onClose}>Закрыть</Button>

@@ -5,6 +5,7 @@ import { APPROVER_GRIF_KEY, applyEngineActTemplate, buildEngineActTemplatePayloa
 
 import { Button } from './Button.js';
 import { ListCount } from './ListCount.js';
+import { MailSendButton } from './MailSendButton.js';
 import { RowNumberCell, RowNumberHeaderCell } from './RowNumberCell.js';
 import { EntityReferenceField } from './EntityReferenceField.js';
 import { useConfirm } from './ConfirmContext.js';
@@ -16,6 +17,7 @@ import { useListUiState } from '../hooks/useListBehavior.js';
 import { isAndroidPlatform } from '../platform.js';
 import { SearchSelect } from './SearchSelect.js';
 import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
+import { printSectionsToText } from '../utils/mailText.js';
 import { useTabletDevice, useUiMode } from '../hooks/useUiMode.js';
 import {
   buildEngineRequirementHtml,
@@ -991,6 +993,11 @@ export function RepairChecklistPanel(props: {
     .filter(Boolean)
     .join(' ');
 
+  /** Заголовок акта: печать, Word и письмо зовут один и тот же документ одинаково. */
+  function actLabelFor(actType: EngineActType): string {
+    return actType === 'claim' ? 'Претензия' : actType === 'completeness' ? 'Акт комплектности' : 'Акт дефектовки';
+  }
+
   /**
    * Выгрузка акта в Word: форма берётся у печати (`actHtml`), но **без версии-снимка** —
    * выгрузка не фиксирует документ, а отдаёт копию текущей формы. Печать версию пишет
@@ -998,7 +1005,7 @@ export function RepairChecklistPanel(props: {
    */
   async function exportActToWord(actType: EngineActType) {
     const rows = extractInventoryRowsForPrint(answers, actType);
-    const label = actType === 'claim' ? 'Претензия' : actType === 'completeness' ? 'Акт комплектности' : 'Акт дефектовки';
+    const label = actLabelFor(actType);
     await window.matrica.exports.card({
       title: label,
       fileBaseName: engineFileLabel ? `${label} ${engineFileLabel}` : label,
@@ -2976,6 +2983,30 @@ export function RepairChecklistPanel(props: {
                 </Button>
               </>
             )}
+            <MailSendButton
+              dataAttr="engine-act"
+              subject={`${actLabelFor(actView)}${engineFileLabel ? ` ${engineFileLabel}` : ''} — Матрица`}
+              summary={() => [
+                actLabelFor(actView),
+                ...(engineFileLabel ? [`Двигатель: ${engineFileLabel}`] : []),
+              ]}
+              body={() => {
+                const rows = extractInventoryRowsForPrint(answers, actView);
+                return printSectionsToText([{ title: actLabelFor(actView), html: actHtml(actView, rows, answers) }]);
+              }}
+              attachment={() => {
+                const label = actLabelFor(actView);
+                const rows = extractInventoryRowsForPrint(answers, actView);
+                return {
+                  kind: 'card',
+                  spec: {
+                    title: label,
+                    fileBaseName: engineFileLabel ? `${label} ${engineFileLabel}` : label,
+                    sections: [{ id: actView, title: label, html: actHtml(actView, rows, answers), hideTitle: true }],
+                  },
+                };
+              }}
+            />
             {selectedInventoryCount > 0 && (
               <span style={{ color: '#2563eb', fontSize: 12, alignSelf: 'center' }}>
                 в печать: {selectedInventoryCount}

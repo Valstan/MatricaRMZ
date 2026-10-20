@@ -7,9 +7,11 @@ import { isAndroidPlatform } from '../platform.js';
 import { resolvePrintColumnIds } from '../utils/listColumnSelection.js';
 import { planListPrintLayout } from '../utils/listPrintLayout.js';
 import { buildListExportSpec } from '../utils/listExportSpec.js';
+import { listToText } from '../utils/mailText.js';
 import { formatMomentLabel } from '../utils/printPreview.js';
 import { Button } from './Button.js';
 import type { ListPrintColumn } from './ListPrintDialog.js';
+import { MailSendButton } from './MailSendButton.js';
 
 /** Сколько строк меряем, чтобы предположить ширины колонок в Word: дальше значения не меняют картину. */
 const LAYOUT_SAMPLE_ROWS = 200;
@@ -63,29 +65,33 @@ export function ListExportButtons<T>(props: {
   const scopeRows = props.selectedRows.length > 0 ? props.selectedRows : props.rows;
   const canExport = fields.length > 0 && scopeRows.length > 0 && busy === null;
 
+  /** Один и тот же лист уходит и в файл, и в письмо: письмо не описывает список второй раз. */
+  const buildSpec = () => {
+    const sample = scopeRows.slice(0, LAYOUT_SAMPLE_ROWS);
+    const plan = planListPrintLayout({
+      columns: fields.map((field) => ({
+        label: field.label,
+        valueChars: sample.reduce((max, row) => Math.max(max, field.printValue(row).length), 0),
+      })),
+    });
+    return buildListExportSpec({
+      title: props.title,
+      fields,
+      rows: scopeRows,
+      filters: props.filtersSummary ?? [],
+      columnWidthsMm: plan.widthsMm,
+      meta: `Выгружено: ${formatMomentLabel(new Date())}`,
+      ...(props.fileBaseName ? { fileBaseName: props.fileBaseName } : {}),
+    });
+  };
+
   const run = async (format: ListExportFormat) => {
     setPending(null);
     setBusy(format);
     try {
-      const sample = scopeRows.slice(0, LAYOUT_SAMPLE_ROWS);
-      const plan = planListPrintLayout({
-        columns: fields.map((field) => ({
-          label: field.label,
-          valueChars: sample.reduce((max, row) => Math.max(max, field.printValue(row).length), 0),
-        })),
-      });
-      const spec = buildListExportSpec({
-        title: props.title,
-        fields,
-        rows: scopeRows,
-        filters: props.filtersSummary ?? [],
-        columnWidthsMm: plan.widthsMm,
-        meta: `Выгружено: ${formatMomentLabel(new Date())}`,
-        ...(props.fileBaseName ? { fileBaseName: props.fileBaseName } : {}),
-      });
       // Ошибку оператору показывает main: он единственный, кто видит причину целиком,
       // и его окно не зависит от того, уехали ли кнопки в меню переполнения.
-      await window.matrica.exports.list({ format, spec });
+      await window.matrica.exports.list({ format, spec: buildSpec() });
     } finally {
       setBusy(null);
     }
@@ -120,6 +126,17 @@ export function ListExportButtons<T>(props: {
       >
         {busy === 'docx' ? 'Готовим…' : 'В Word'}
       </Button>
+      <MailSendButton
+        subject={`${props.title} — Матрица`}
+        summary={[
+          props.title,
+          `${scopeRows.length} ${pluralRows(scopeRows.length)}`,
+          ...(props.filtersSummary ?? []),
+        ]}
+        body={listToText(fields, scopeRows)}
+        attachment={() => ({ kind: 'list', format: 'docx', spec: buildSpec() })}
+        disabled={!canExport}
+      />
       {pending
         ? createPortal(
             <div

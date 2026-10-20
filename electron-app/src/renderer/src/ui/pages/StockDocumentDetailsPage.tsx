@@ -17,6 +17,7 @@ import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { ListCount } from '../components/ListCount.js';
+import { MailSendButton } from '../components/MailSendButton.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
@@ -27,6 +28,7 @@ import { fetchWarehouseStockAllPages } from '../utils/warehousePagedFetch.js';
 import { buildStockDocumentSnapshot } from '../utils/stockDocumentDirty.js';
 import { withArrivalNote } from '../utils/engineOptionLabel.js';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
+import { printSectionsToText } from '../utils/mailText.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
 import {
   lookupToSelectOptions,
@@ -777,6 +779,21 @@ export function StockDocumentDetailsPage(props: {
           >
             В Word
           </Button>
+        ) : null}
+        {isAddressable ? (
+          <MailSendButton
+            dataAttr="stock-document"
+            subject={`${isWriteoff ? 'Акт списания' : 'Требование-накладная'}${docNo ? ` №${docNo}` : ''} — Матрица`}
+            summary={() => {
+              const form = buildIssueDocumentForm();
+              return [form.title, ...(form.subtitle ? [form.subtitle] : [])];
+            }}
+            body={() => printSectionsToText(buildIssueDocumentForm().sections)}
+            attachment={() => {
+              const form = buildIssueDocumentForm();
+              return { kind: 'card', spec: { title: form.title, fileBaseName: form.title, sections: form.sections } };
+            }}
+          />
         ) : null}
         <Button variant="ghost" onClick={() => void refreshRefs()}>
           Обновить справочники

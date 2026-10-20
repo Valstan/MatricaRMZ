@@ -152,6 +152,8 @@ export function WorkOrderPrintDialog(props: {
   onPrint: (settings: WorkOrderPrintSettings) => void;
   /** Выгрузка формы в Word: та же модель и те же настройки, что у печати, — файл не разъедется с листом. */
   onExport?: (settings: WorkOrderPrintSettings) => Promise<void> | void;
+  /** Письмо с формой наряда: те же настройки, что у печати. */
+  onMail?: (settings: WorkOrderPrintSettings) => void;
   onClose: () => void;
 }) {
   // Родитель монтирует диалог только при открытии → draft инициализируется свежим.
@@ -536,6 +538,16 @@ export function WorkOrderPrintDialog(props: {
                 }}
               >
                 {exporting ? 'Готовим…' : 'В Word'}
+              </Button>
+            ) : null}
+            {props.onMail ? (
+              <Button
+                variant="ghost"
+                data-wo-print-mail="1"
+                title="Отправить форму наряда по почте: те же настройки, что у печати"
+                onClick={() => props.onMail?.(draft)}
+              >
+                Почта
               </Button>
             ) : null}
             <Button
