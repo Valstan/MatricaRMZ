@@ -3245,6 +3245,20 @@ export type MatricaApi = {
     setVerdict: (args: { id: string; verdictText: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
     meta: () => Promise<import('../domain/aiChatSchedule.js').AiChatMetaResult>;
   };
+  aiEngine: {
+    // Контур B: движок нейросети на этой машине. mode — где считать ответ
+    // («prod» — сервер, «local» — движок этого компьютера).
+    status: () => Promise<{
+      ok: true;
+      mode: 'prod' | 'local';
+      state: 'missing' | 'downloading' | 'ready' | 'starting' | 'running' | 'stopped' | 'error' | 'unsupported';
+      version: string | null;
+      progress: number | null;
+      port: number | null;
+      error: string | null;
+    }>;
+    setMode: (mode: 'prod' | 'local') => Promise<{ ok: true; mode: 'prod' | 'local' } | { ok: false; error: string }>;
+  };
   aiAgent: {
     // Синхронный AI-контур снесён 2026-07-25; остался только event-лог.
     logEvent: (args: AiAgentLogRequest) => Promise<AiAgentLogResponse>;

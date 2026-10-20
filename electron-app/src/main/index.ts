@@ -30,6 +30,7 @@ import { applyRemoteClientSettings, getCachedClientSettings, setReportedActivity
 import { setLanShareEnabled } from './services/lanUpdateService.js';
 import { readSidecarClientId, writeSidecarClientId } from './services/clientIdStore.js';
 import { isSameMigrationFailure } from './services/dbSelfHealLoopDetector.js';
+import { stopLocalEngine } from './services/localAiEngine.js';
 import { tryEmergencyUpdate } from './services/emergencyUpdate.js';
 import {
   finishStartupStatus,
@@ -855,6 +856,9 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', (event) => {
+  // Движок нейросети (контур B) не должен переживать клиент: гасим тот, что
+  // запустили сами, — иначе он останется висеть в памяти до перезагрузки.
+  void stopLocalEngine();
   if (tray) {
     tray.destroy();
     tray = null;

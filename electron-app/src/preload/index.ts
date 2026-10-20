@@ -1024,6 +1024,11 @@ const matricaApi = {
     setVerdict: async (args: { id: string; verdictText: string }) => ipcRenderer.invoke('aiChat:setVerdict', args),
     meta: async () => ipcRenderer.invoke('aiChat:meta'),
   },
+  aiEngine: {
+    // Контур B: движок нейросети на этой машине (Ииваныч «на клиенте»).
+    status: async () => ipcRenderer.invoke('aiEngine:status'),
+    setMode: async (mode: 'prod' | 'local') => ipcRenderer.invoke('aiEngine:setMode', mode),
+  },
   aiAgent: {
     // Синхронный AI-контур (ai:assist / ai:conversations:*) снесён 2026-07-25 —
     // пользовательский чат работает через асинхронную очередь aiChat (v2026.719.1555).
