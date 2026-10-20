@@ -243,6 +243,7 @@ const PpeGroupsPage = lazyPage('./pages/PpeGroupsPage.tsx', 'PpeGroupsPage');
 const PpeCollectivePage = lazyPage('./pages/PpeCollectivePage.tsx', 'PpeCollectivePage');
 const PpeImportPage = lazyPage('./pages/PpeImportPage.tsx', 'PpeImportPage');
 const PpeCardsPage = lazyPage('./pages/PpeCardsPage.tsx', 'PpeCardsPage');
+const PpeCardDetailsPage = lazyPage('./pages/PpeCardDetailsPage.tsx', 'PpeCardDetailsPage');
 const PpeStockPage = lazyPage('./pages/PpeStockPage.tsx', 'PpeStockPage');
 const PpeReportsPage = lazyPage('./pages/PpeReportsPage.tsx', 'PpeReportsPage');
 const UserScreensPage = lazyPage('./pages/UserScreensPage.tsx', 'UserScreensPage');
@@ -849,6 +850,7 @@ const CARD_DETAIL_TABS: ReadonlyArray<TabId> = [
   'stock_document',
   'report_preset',
   'user_screen',
+  'ppe_card',
 ];
 
 export function App() {
@@ -979,6 +981,8 @@ export function App() {
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
   const [selectedToolPropertyId, setSelectedToolPropertyId] = useState<string | null>(null);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+  /** Карточка СИЗ в отдельной вкладке: id — строгий сотрудник СИЗ (`erp_employee_cards`). */
+  const [selectedPpeCardEmployeeId, setSelectedPpeCardEmployeeId] = useState<string | null>(null);
   const [selectedTimesheetId, setSelectedTimesheetId] = useState<string | null>(null);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
@@ -3668,6 +3672,14 @@ export function App() {
     });
   }
 
+  /** Карточка СИЗ открывается вкладкой: клик по строке списка карточек (владелец 20.10.2026). */
+  async function openPpeCardEmployee(id: string) {
+    v2OpenCardGuarded('ppe_card', id, () => {
+      setSelectedPpeCardEmployeeId(id);
+      setTab('ppe_card');
+    });
+  }
+
   async function openProduct(id: string) {
     v2OpenCardGuarded('product', id, () => {
       setSelectedProductId(id);
@@ -3840,6 +3852,7 @@ export function App() {
     product: openProduct,
     nomenclature: openNomenclature,
     employee: openEmployee,
+    ppe_card: openPpeCardEmployee,
     tool: (id: string) => openTool(id),
     tool_property: openToolProperty,
     stock_document: openStockDocument,
@@ -3875,6 +3888,7 @@ export function App() {
       stock_document: selectedStockDocumentId,
       report_preset: selectedReportPresetId,
       user_screen: selectedUserScreenId,
+      ppe_card: selectedPpeCardEmployeeId,
     };
     const id = idByTab[tab];
     return id ? { kind: tab, entityId: String(id) } : null;
@@ -3902,6 +3916,7 @@ export function App() {
     stock_document: selectedStockDocumentId,
     report_preset: selectedReportPresetId,
     user_screen: selectedUserScreenId,
+    ppe_card: selectedPpeCardEmployeeId,
   };
   const v2PrevSelectedRef = useRef<Partial<Record<TabId, string | null>>>({});
   // Намеренно без массива зависимостей: диффим каждый рендер против ref. Переход id→null —
@@ -3968,6 +3983,13 @@ export function App() {
         return n ? `🖥 ${n}` : null;
       }
       if (kind === 'report_preset') return null; // статический реестр, резолвится синхронно
+      if (kind === 'ppe_card') {
+        // id вкладки — строгий сотрудник СИЗ, а не EAV-сущность: обычный резолв по атрибутам
+        // вернул бы null, и вкладка всю сессию называлась бы шестью символами id.
+        const r = await api.ppe.employees.list();
+        const row = r?.ok ? (r.employees as Array<{ id: string; fullName: string }>).find((e) => String(e.id) === entityId) : null;
+        return row ? `🦺 ${row.fullName}` : null;
+      }
       const d = await api.admin.entities.get(entityId);
       const attrs = d?.attributes ?? {};
       const cand = [attrs.name, attrs.full_name, attrs.title, attrs.contract_number, attrs.number, attrs.login];
@@ -4017,6 +4039,7 @@ export function App() {
       case 'stock_document': return void openStockDocument(entityId);
       case 'report_preset': return void openReportPreset(entityId as ReportPresetId);
       case 'user_screen': return openUserScreen(entityId);
+      case 'ppe_card': return void openPpeCardEmployee(entityId);
       default: return;
     }
   }
@@ -5887,7 +5910,17 @@ export function App() {
         )}
 
         {t === 'ppe_cards' && (
-          <PpeCardsPage canEdit={caps.canEditNomenclature} canIssue={caps.canPostWarehouseDocs} />
+          <PpeCardsPage onOpen={(employeeId: string) => void openPpeCardEmployee(employeeId)} />
+        )}
+
+        {t === 'ppe_card' && selectedPpeCardEmployeeId && (
+          <PpeCardDetailsPage
+            key={cardKey(selectedPpeCardEmployeeId)}
+            employeeId={selectedPpeCardEmployeeId}
+            canEdit={caps.canEditNomenclature}
+            canIssue={caps.canPostWarehouseDocs}
+            onBack={() => setTab('ppe_cards')}
+          />
         )}
 
         {t === 'ppe_stock' && (

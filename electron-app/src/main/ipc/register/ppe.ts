@@ -93,6 +93,14 @@ export function registerPpeIpc(ctx: IpcContext) {
     return toResult(await httpAuthed(ctx.sysDb, base(), `/ppe/cards/${encodeURIComponent(String(id || ''))}`, { method: 'GET' }));
   });
 
+  // Список карточек СИЗ — строка на сотрудника (а не на карточку): считает сервер, чтобы
+  // «пора выдавать» в списке и в карточке шло из одного ядра (shared/ppe).
+  ipcMain.handle('ppe:cards:overview', async () => {
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as Err;
+    return toResult(await httpAuthed(ctx.sysDb, base(), '/ppe/cards/overview', { method: 'GET' }));
+  });
+
   ipcMain.handle('ppe:cards:byEmployee', async (_e, employeeId: string) => {
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as Err;

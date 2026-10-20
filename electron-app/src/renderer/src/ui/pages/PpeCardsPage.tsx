@@ -1,85 +1,95 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
-  addWearMonths,
-  nextIssueDates,
-  normalizeLookupCompact,
-  normalizeLookupText,
-  PPE_DAY_MS,
-  PPE_SIZE_ATTRIBUTE_CODES,
-  ppeSizeKindForName,
-  resolveEmployeeNorms,
-  type PpeSizeKind,
-  type PpeNextIssue,
+  activePpeCardsFacetCount,
+  applyPpeCardsFacets,
+  describeFacetSelection,
+  PPE_CARDS_FACETS,
+  PPE_CARD_STATE_RU,
+  PPE_OVERVIEW_STATUS_RU,
+  sanitizePpeCardsFacetSelection,
+  type FacetDescriptor,
+  type FacetSelection,
+  type PpeCardsFacetRow,
+  type PpeCardsFacetSelection,
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
-import { useConfirm } from '../components/ConfirmContext.js';
-import { FormField } from '../components/FormField.js';
-import { FormGrid } from '../components/FormGrid.js';
+import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
+import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
+import { FacetFilter, FacetToggleButton } from '../components/FacetFilter.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
-import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
-import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
-import { SectionCard } from '../components/SectionCard.js';
+import { ListExportButtons } from '../components/ListExportButtons.js';
+import { ListPrintDialog } from '../components/ListPrintDialog.js';
+import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
+import { RowNumberHeaderCell } from '../components/RowNumberCell.js';
+import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
+import { useColumnLayout } from '../hooks/useColumnLayout.js';
+import { useListUiState, usePersistedScrollTop, sortArrow, toggleSort, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
+import { listCellKindProps, listHeaderKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
+import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 
-type CardDto = {
-  id: string;
+type Row = PpeCardsFacetRow & {
   employeeId: string;
-  openedAt: number;
-  closedAt: number | null;
-  norms: Array<{ normSetId: string; name: string; assignedAt: number }>;
-  entries: Array<{ id: string; nomenclatureId: string; qty: number; issuedAt: number; documentId: string | null }>;
+  fullName: string;
+  personnelNo: string | null;
+  sizes: { clothes: string; shoes: string; height: string };
+  cardId: string | null;
+  cardOpenedAt: number | null;
+  normSetCount: number;
+  normPositionCount: number;
+  issueCount: number;
+  lastIssuedAt: number | null;
+  nextDueAt: number | null;
+  overdueCount: number;
+  dueSoonCount: number;
 };
 
-type NormOption = { id: string; name: string; postTitle: string | null };
-type IssueLine = { nomenclatureId: string; qty: string };
-type AbsenceRow = { id: string; employeeId: string; fromMs: number; toMs: number; kind: string };
+type SortKey =
+  | 'fullName'
+  | 'personnelNo'
+  | 'cardState'
+  | 'fillPercent'
+  | 'clothes'
+  | 'shoes'
+  | 'height'
+  | 'norms'
+  | 'issues'
+  | 'lastIssuedAt'
+  | 'nextDueAt'
+  | 'status'
+  | 'employed';
 
-/** Фактические размеры сотрудника — из EAV-карточки employee (та же, где их правит оператор). */
-type EmployeeSizes = { clothes: string; shoes: string; height: string };
-const EMPTY_SIZES: EmployeeSizes = { clothes: '', shoes: '', height: '' };
-function sizeMatchKey(raw: string): string {
-  const compact = normalizeLookupCompact(String(raw ?? ''));
-  return compact.match(/\d+/)?.[0] ?? compact;
-}
-function sizeWordTokens(name: string): string[] {
-  return normalizeLookupText(String(name ?? ''))
-    .split(/[^0-9a-zа-яё]+/i)
-    .map(normalizeLookupCompact)
-    .filter(Boolean);
-}
-const SIZE_LABEL_RU: Array<[PpeSizeKind, string]> = [
-  ['clothes', 'одежда'],
-  ['shoes', 'обувь'],
-];
-
-function readEmployeeSizes(attributes: Record<string, unknown> | null | undefined): EmployeeSizes {
-  const text = (code: string): string => {
-    const raw = attributes?.[code];
-    return raw == null || typeof raw === 'object' ? '' : String(raw).trim();
-  };
-  return {
-    clothes: text(PPE_SIZE_ATTRIBUTE_CODES.clothes),
-    shoes: text(PPE_SIZE_ATTRIBUTE_CODES.shoes),
-    height: text(PPE_SIZE_ATTRIBUTE_CODES.height),
-  };
-}
-
-function sizesSummary(sizes: EmployeeSizes): string {
-  const parts = SIZE_LABEL_RU.filter(([kind]) => sizes[kind]).map(([kind, label]) => `${label} ${sizes[kind]}`);
-  if (sizes.height) parts.push(`рост ${sizes.height}`);
-  return parts.join(' · ');
-}
-
-const ABSENCE_KIND_RU: Record<string, string> = {
-  vacation: 'отпуск',
-  sick: 'больничный',
-  unpaid: 'без сохранения',
+type ListState = {
+  query: string;
+  sortKey: SortKey;
+  sortDir: 'asc' | 'desc';
+  facets: PpeCardsFacetSelection;
+  facetFields: string[];
+  facetsOpen: boolean;
 };
 
-const ROWNUM_STYLE: React.CSSProperties = { width: '1%', whiteSpace: 'nowrap', textAlign: 'right', color: '#6b7280' };
+const DEFAULT_STATE: ListState = {
+  query: '',
+  sortKey: 'fullName',
+  sortDir: 'asc',
+  facets: {},
+  facetFields: [],
+  facetsOpen: false,
+};
+
+/** Порядок важности состояний: сортировка «Состояние» ставит просрочку наверх. */
+const STATUS_RANK: Record<Row['status'], number> = {
+  overdue: 0,
+  dueSoon: 1,
+  neverIssued: 2,
+  noNorms: 3,
+  ok: 4,
+};
 
 function fmtDate(ms: number | null): string {
   if (ms == null || !Number.isFinite(ms) || ms <= 0) return '—';
@@ -87,639 +97,468 @@ function fmtDate(ms: number | null): string {
   return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
 }
 
-function fromInputDate(v: string): number | null {
-  if (!v) return null;
-  const [y, m, d] = v.split('-').map((x) => Number(x));
-  if (!y || !m || !d) return null;
-  return new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
+function statusCell(row: Row): React.ReactNode {
+  const label = PPE_OVERVIEW_STATUS_RU[row.status];
+  if (row.status === 'overdue') {
+    return (
+      <span style={{ color: '#b91c1c', fontWeight: 600 }} title={`Просрочено позиций: ${row.overdueCount}`}>
+        {label}
+        {row.overdueCount > 1 ? ` (${row.overdueCount})` : ''}
+      </span>
+    );
+  }
+  if (row.status === 'dueSoon') {
+    return (
+      <span style={{ color: '#b45309' }} title={`Скоро выдавать позиций: ${row.dueSoonCount}`}>
+        {label}
+      </span>
+    );
+  }
+  return <span style={{ color: 'var(--muted)' }}>{label}</span>;
 }
 
-const STATUS_RU: Record<PpeNextIssue['status'], string> = {
-  overdue: 'просрочено',
-  dueSoon: 'скоро выдавать',
-  ok: 'в сроке',
-  neverIssued: 'не выдавалось',
-};
+function fillCell(row: Row): React.ReactNode {
+  return (
+    <span title="Заполнено: одежда, обувь, рост, нормы, выдачи">
+      <span
+        aria-hidden="true"
+        style={{
+          display: 'inline-block',
+          width: 44,
+          height: 6,
+          borderRadius: 3,
+          background: '#e5e7eb',
+          marginRight: 6,
+          verticalAlign: 'middle',
+        }}
+      >
+        <span
+          style={{
+            display: 'block',
+            width: `${Math.max(0, Math.min(100, row.fillPercent))}%`,
+            height: '100%',
+            borderRadius: 3,
+            background: row.fillPercent >= 100 ? '#16a34a' : row.fillPercent > 0 ? '#f59e0b' : '#dc2626',
+          }}
+        />
+      </span>
+      {row.fillPercent}%
+    </span>
+  );
+}
 
 /**
- * Личные карточки выдачи СИЗ. Карточка = сотрудник + назначенные наборы норм +
- * история выдач. Следующая выдача считается ядром shared/ppe из норм и фактов —
- * тем же, которым считают отчёты. Выдача — одним кликом: создаёт и проводит
- * stock_issue на выбранном складе, след пишет в карточку.
+ * «Карточки СИЗ» — список сотрудников, а не пикер (владелец 20.10.2026): кладовщику нужно
+ * видеть, у кого карточка заведена и кому пора выдавать, а не искать фамилию вслепую.
+ * Клик по строке открывает карточку сотрудника в отдельной вкладке.
+ *
+ * Строку и сроки считает сервер (`/ppe/cards/overview`) тем же ядром shared/ppe, что и
+ * карточка: список и карточка не могут говорить разное про «пора».
  */
-export function PpeCardsPage(props: { canEdit: boolean; canIssue: boolean }) {
-  const [employees, setEmployees] = useState<SearchSelectOption[]>([]);
-  const [employeeId, setEmployeeId] = useState<string | null>(null);
-  const [card, setCard] = useState<CardDto | null>(null);
-  const [normOptions, setNormOptions] = useState<NormOption[]>([]);
-  const [normToAssign, setNormToAssign] = useState<string | null>(null);
-  const [normLines, setNormLines] = useState<Array<{ nomenclatureId: string; qty: number; wearMonths: number }>>([]);
-  const [groupNormIds, setGroupNormIds] = useState<string[]>([]);
-  const [absences, setAbsences] = useState<AbsenceRow[]>([]);
-  const [absenceFrom, setAbsenceFrom] = useState('');
-  const [absenceTo, setAbsenceTo] = useState('');
-  const [nomNames, setNomNames] = useState<Map<string, string>>(new Map());
-  const [personnelByEmployee, setPersonnelByEmployee] = useState<Map<string, string>>(new Map());
-  // Размеры по табельному номеру: карточка СИЗ знает строгого сотрудника (id из
-  // erp_employee_cards), а размеры живут в EAV-карточке employee — общий ключ один.
-  const [sizesByPersonnel, setSizesByPersonnel] = useState<Map<string, EmployeeSizes>>(new Map());
-  const [sizes, setSizes] = useState<EmployeeSizes>(EMPTY_SIZES);
-  const [warehouses, setWarehouses] = useState<SearchSelectOption[]>([]);
-  const [issueOpen, setIssueOpen] = useState(false);
-  const [issueWarehouse, setIssueWarehouse] = useState<string | null>(null);
-  const [issueLines, setIssueLines] = useState<IssueLine[]>([{ nomenclatureId: '', qty: '1' }]);
+export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
+  const { state, patchState } = useListUiState<ListState>('list:ppe-cards', DEFAULT_STATE);
+  const { query, sortKey, sortDir, facetsOpen } = state;
+  const facets = sanitizePpeCardsFacetSelection(state.facets);
+  const facetFields = state.facetFields;
+  const { containerRef, onScroll } = usePersistedScrollTop('list:ppe-cards');
+
+  const [rows, setRows] = useState<Row[]>([]);
+  const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [query, setQuery] = useState('');
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
 
-  const { confirm } = useConfirm();
-  const canEdit = props.canEdit;
-
-  /**
-   * Размеры сотрудников — из EAV-карточек `employee` (поля «Размер одежды», «Размер
-   * обуви», «Рост»). Карточка СИЗ и EAV-карточка живут разными id, поэтому размеры
-   * кладём в карту по табельному номеру — единственному общему ключу. Читаем тем же
-   * правом `masterdata.view`, что и справочник сотрудников (оно в базе роли оператора).
-   */
-  const loadEmployeeSizes = useCallback(async () => {
-    const types = await window.matrica.admin.entityTypes.list().catch(() => null as any);
-    const employeeType = (types ?? []).find((t: any) => String(t.code ?? '') === 'employee');
-    if (!employeeType) return;
-    const rows = await window.matrica.admin.entities
-      .listByEntityTypeWithAttrs(String(employeeType.id))
-      .catch(() => [] as Array<{ id: string; attributes: Record<string, unknown> }>);
-    const byPersonnel = new Map<string, EmployeeSizes>();
-    for (const row of rows) {
-      const personnelNo = String(row.attributes?.personnel_number ?? '').trim();
-      if (!personnelNo) continue;
-      byPersonnel.set(personnelNo, readEmployeeSizes(row.attributes));
-    }
-    setSizesByPersonnel(byPersonnel);
-  }, []);
-
-  // Пикер — из реплики СИЗ (`erp_employee_cards`), не из EAV-списка сотрудников:
-  // строгая дверь модуля знает только эти id (см. ppe:employees:list).
-  const loadEmployees = useCallback(async () => {
-    const emp = await window.matrica.ppe.employees.list().catch(() => null);
-    const empRows = emp?.ok ? emp.employees : [];
-    setEmployees(
-      empRows.map((e) => ({
-        id: e.id,
-        label: e.fullName.trim() || e.id,
-        ...(e.roleCode ? { hintText: e.roleCode } : {}),
-        searchText: `${e.fullName} ${e.personnelNo ?? ''} ${e.roleCode ?? ''}`,
-      })),
-    );
-    setPersonnelByEmployee(new Map(empRows.map((e) => [String(e.id), String(e.personnelNo ?? '')])));
-    await loadEmployeeSizes();
-  }, [loadEmployeeSizes]);
-
-  // Вкладка живёт в keep-alive: список сотрудников снимается один раз при открытии, и
-  // импортированные (или приехавшие зеркалом справочника) люди иначе не появлялись бы в
-  // пикере до перезапуска клиента — ровно жалоба «набираю фамилию, а никого нет».
-  useLiveDataRefresh(loadEmployees, { intervalMs: 60_000 });
-
-  useEffect(() => {
-    void (async () => {
-      const [norms, wh] = await Promise.all([
-        window.matrica.ppe.norms.list().catch(() => null),
-        window.matrica.warehouseLocations.list({ activeOnly: true }).catch(() => null),
-      ]);
-      await loadEmployees();
-      if (norms?.ok) setNormOptions(norms.rows);
-      if (wh?.ok) {
-        setWarehouses(
-          (wh.rows ?? []).map((w: any) => ({ id: String(w.id), label: String(w.name ?? w.code ?? w.id) })),
-        );
-      }
-      const noms = await window.matrica.warehouse.nomenclatureList({ limit: 2000, offset: 0 }).catch(() => null);
-      if (noms?.ok) {
-        const rows = (noms.rows ?? []) as any[];
-        setNomNames(new Map(rows.map((r) => [String(r.id), String(r.name ?? r.id)])));
-      }
-    })();
-  }, [loadEmployees]);
-
-  const nomName = useCallback((id: string) => nomNames.get(id) ?? id, [nomNames]);
-  const empName = useCallback(
-    (id: string) => employees.find((e) => e.id === id)?.label ?? id,
-    [employees],
-  );
-
-  /**
-   * Пометка для позиции выдачи: та, что совпала с размером сотрудника. Это подсказка,
-   * а не выбор — кладовщик подтверждает сам. Неоднозначно (два размера в ряду) или
-   * размер не заполнен — пометки нет.
-   */
-  const loadCard = useCallback(async (id: string) => {
-    const res = await window.matrica.ppe.cards.get(id);
-    if (!res.ok) {
-      setStatus(`Ошибка: ${res.error}`);
+  const load = useCallback(async () => {
+    const res = await window.matrica.ppe.cards.overview().catch(() => null);
+    if (!res) {
+      setStatus('Ошибка: сервер не ответил');
+      setLoading(false);
       return;
     }
-    setCard(res.card);
-    const abs = await window.matrica.ppe.absences.list({ employeeId: res.card.employeeId }).catch(() => null);
-    setAbsences(abs?.ok ? abs.rows : []);
-    // Нормы сотрудника = личные привязки + нормы его групп (ядро сливает с дедупом
-    // и минимальным сроком) — групповые строки видны и учитываются здесь же.
-    const resolved = await window.matrica.ppe.employees.normSets(res.card.employeeId).catch(() => null);
-    const groupIds = resolved?.ok ? resolved.group : [];
-    setGroupNormIds(groupIds);
-    const setIds = [...new Set([...res.card.norms.map((n) => n.normSetId), ...groupIds])];
-    const allLines: Array<{ nomenclatureId: string; qty: number; wearMonths: number }> = [];
-    for (const setId of setIds) {
-      const det = await window.matrica.ppe.norms.get(setId).catch(() => null);
-      if (det?.ok) allLines.push(...det.normSet.lines);
+    if (!res.ok) {
+      setStatus(`Ошибка: ${res.error}`);
+      setLoading(false);
+      return;
     }
-    setNormLines(allLines);
-    // Размеры — по табельному номеру сотрудника карточки.
-    const personnelNo = personnelByEmployee.get(res.card.employeeId) ?? '';
-    setSizes(personnelNo ? (sizesByPersonnel.get(personnelNo) ?? EMPTY_SIZES) : EMPTY_SIZES);
-  }, [personnelByEmployee, sizesByPersonnel]);
+    setRows(res.rows as Row[]);
+    setStatus('');
+    setLoading(false);
+  }, []);
 
-  async function openCard() {
-    if (!employeeId) return setStatus('Выберите сотрудника');
-    setBusy(true);
-    try {
-      const res = await window.matrica.ppe.cards.open({ employeeId });
-      if (!res.ok) {
-        // Уже есть открытая — покажем её вместо ошибки.
-        const existing = await window.matrica.ppe.cards.byEmployee(employeeId).catch(() => null);
-        if (existing?.ok) {
-          setStatus('');
-          await loadCard(existing.card.id);
-          return;
-        }
-        setStatus(`Ошибка: ${res.error}`);
-        return;
-      }
-      setStatus('Карточка открыта');
-      await loadCard(res.id);
-    } finally {
-      setBusy(false);
-    }
-  }
+  // Вкладка в keep-alive: без импульса выдача, сделанная в карточке, не изменила бы сроки
+  // в списке до перезапуска клиента.
+  useLiveDataRefresh(load, { intervalMs: 60_000 });
 
-  async function findCard() {
-    if (!employeeId) return setStatus('Выберите сотрудника');
-    setBusy(true);
-    try {
-      const res = await window.matrica.ppe.cards.byEmployee(employeeId);
-      if (!res.ok) {
-        setStatus(`Карточки нет: ${res.error}`);
-        setCard(null);
-        setAbsences([]);
-        setGroupNormIds([]);
-        return;
-      }
-      setCard(res.card);
-      setStatus('');
-      await loadCard(res.card.id);
-    } finally {
-      setBusy(false);
-    }
-  }
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-  async function assignNorm() {
-    if (!card || !normToAssign) return;
-    setBusy(true);
-    try {
-      const res = await window.matrica.ppe.cards.assignNorms({ cardId: card.id, normSetIds: [normToAssign] });
-      if (!res.ok) {
-        setStatus(`Ошибка: ${res.error}`);
-        return;
-      }
-      setNormToAssign(null);
-      setStatus(res.assigned > 0 ? 'Норма назначена' : 'Норма уже была назначена');
-      await loadCard(card.id);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function closeCard() {
-    if (!card) return;
-    const ok = await confirm({
-      title: 'Закрыть карточку?',
-      detail: `Карточка ${empName(card.employeeId)}. Выдачи останутся в истории, новые — невозможны.`,
-      confirmLabel: 'Закрыть',
-    });
-    if (!ok) return;
-    setBusy(true);
-    try {
-      const res = await window.matrica.ppe.cards.close(card.id);
-      if (!res.ok) {
-        setStatus(`Ошибка: ${res.error}`);
-        return;
-      }
-      setStatus('Карточка закрыта');
-      await loadCard(card.id);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function addAbsence() {
-    if (!card) return;
-    const fromMs = fromInputDate(absenceFrom);
-    const toMs = fromInputDate(absenceTo);
-    if (fromMs == null || toMs == null) return setStatus('Заполните период отпуска: с и по');
-    if (toMs <= fromMs) return setStatus('Дата «По» должна быть позже даты «С»');
-    setBusy(true);
-    try {
-      const res = await window.matrica.ppe.absences.create({ employeeId: card.employeeId, fromMs, toMs });
-      if (!res.ok) {
-        setStatus(`Ошибка: ${res.error}`);
-        return;
-      }
-      setAbsenceFrom('');
-      setAbsenceTo('');
-      setStatus('Отпуск добавлен — сроки носки сдвинуты');
-      await loadCard(card.id);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function removeAbsence(row: AbsenceRow) {
-    if (!card) return;
-    const ok = await confirm({
-      title: 'Убрать отпуск?',
-      detail: `${fmtDate(row.fromMs)} — ${fmtDate(row.toMs)} (${ABSENCE_KIND_RU[row.kind] ?? row.kind}). Сроки вернутся назад.`,
-      confirmLabel: 'Убрать',
-    });
-    if (!ok) return;
-    setBusy(true);
-    try {
-      const res = await window.matrica.ppe.absences.delete(row.id);
-      if (!res.ok) {
-        setStatus(`Ошибка: ${res.error}`);
-        return;
-      }
-      setStatus('Отпуск убран');
-      await loadCard(card.id);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const merged = useMemo(
-    () => resolveEmployeeNorms(normLines.map((l) => ({ normSetId: '', nomenclatureId: l.nomenclatureId, qty: l.qty, wearMonths: l.wearMonths }))),
-    [normLines],
-  );
-
-  // Позиции размерного ряда, совпавшие с размером сотрудника (подсказка при выдаче).
-  // Сравниваем внутри набора норм карточки, по целому слову: «8» ≠ «р. 48».
-  // Пометка ставится только при однозначном совпадении по виду размера.
-  const hintedIds = useMemo(() => {
-    const result = new Set<string>();
-    const byKind = new Map<PpeSizeKind, string[]>();
-    for (const m of merged) {
-      const kind = ppeSizeKindForName(nomName(m.nomenclatureId));
-      if (!kind) continue;
-      const size = sizes[kind];
-      if (!size) continue;
-      const sizeKey = sizeMatchKey(size);
-      if (!sizeWordTokens(nomName(m.nomenclatureId)).includes(sizeKey)) continue;
-      const arr = byKind.get(kind) ?? [];
-      arr.push(m.nomenclatureId);
-      byKind.set(kind, arr);
-    }
-    for (const ids of byKind.values()) {
-      if (ids.length === 1) result.add(ids[0]!);
-    }
-    return result;
-  }, [merged, nomName, sizes]);
-
-  const upcoming = useMemo(
-    () =>
-      nextIssueDates(
-        merged,
-        card?.entries ?? [],
-        Date.now(),
-        undefined,
-        absences.map((a) => ({ fromMs: a.fromMs, toMs: a.toMs })),
-      ),
-    [merged, card, absences],
-  );
-
-  async function doIssue() {
-    if (!card) return;
-    if (!issueWarehouse) return setStatus('Выберите склад выдачи');
-    const parsed = issueLines
-      .filter((l) => l.nomenclatureId)
-      .map((l) => ({ nomenclatureId: l.nomenclatureId, qty: Math.trunc(Number(String(l.qty).replace(',', '.'))) }));
-    if (parsed.length === 0) return setStatus('Добавьте хотя бы одну позицию');
-    if (parsed.some((l) => !Number.isInteger(l.qty) || l.qty <= 0)) return setStatus('Количество — целое больше нуля');
-    const ok = await confirm({
-      title: 'Выдать СИЗ?',
-      detail: `${empName(card.employeeId)}: ${parsed.map((l) => `${nomName(l.nomenclatureId)} — ${l.qty} шт`).join('; ')}. Документ расхода будет проведён сразу.`,
-      confirmLabel: 'Выдать',
-    });
-    if (!ok) return;
-    setBusy(true);
-    try {
-      const res = await window.matrica.ppe.cards.issue({ cardId: card.id, warehouseId: issueWarehouse, lines: parsed });
-      if (!res.ok) {
-        setStatus(`Ошибка: ${res.error}`);
-        return;
-      }
-      setIssueOpen(false);
-      setIssueLines([{ nomenclatureId: '', qty: '1' }]);
-      setStatus('Выдано, документ расхода проведён');
-      await loadCard(card.id);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const filteredEmployees = useMemo(() => {
+  const searched = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return employees;
-    return employees.filter((e) => `${e.label} ${e.hintText ?? ''}`.toLowerCase().includes(q));
-  }, [employees, query]);
+    if (!q) return rows;
+    return rows.filter((row) =>
+      `${row.fullName} ${row.personnelNo ?? ''}`.toLowerCase().includes(q),
+    );
+  }, [rows, query]);
 
-  const closed = card?.closedAt != null;
-  const personalNormIds = new Set((card?.norms ?? []).map((n) => n.normSetId));
-  const groupOnlyNormIds = groupNormIds.filter((id) => !personalNormIds.has(id));
-  const hasAnyNorms = (card?.norms.length ?? 0) + groupOnlyNormIds.length > 0;
+  const faceted = useMemo(
+    () => applyPpeCardsFacets(searched, facets),
+    [searched, facets],
+  );
+
+  const sorted = useSortedItems<Row, SortKey>(
+    faceted,
+    sortKey,
+    sortDir,
+    (row, key) => {
+      switch (key) {
+        case 'personnelNo':
+          return row.personnelNo ?? '';
+        case 'cardState':
+          return PPE_CARD_STATE_RU[row.cardState];
+        case 'fillPercent':
+          return row.fillPercent;
+        case 'clothes':
+          return row.sizes.clothes;
+        case 'shoes':
+          return row.sizes.shoes;
+        case 'height':
+          return row.sizes.height;
+        case 'norms':
+          return row.normPositionCount;
+        case 'issues':
+          return row.issueCount;
+        case 'lastIssuedAt':
+          return row.lastIssuedAt ?? 0;
+        case 'nextDueAt':
+          return row.nextDueAt ?? Number.MAX_SAFE_INTEGER;
+        case 'status':
+          return STATUS_RANK[row.status];
+        case 'employed':
+          return row.isActive ? 1 : 0;
+        default:
+          return row.fullName;
+      }
+    },
+    (row) => row.fullName,
+  );
+
+  type PpeColumn = ColumnDescriptor & {
+    sortKey: SortKey;
+    kind?: ListColumnKind;
+    printValue?: (row: Row) => string;
+    render: (row: Row) => React.ReactNode;
+  };
+
+  const allColumns = useMemo<PpeColumn[]>(
+    () => [
+      {
+        id: 'fullName',
+        label: 'Сотрудник',
+        sortKey: 'fullName',
+        kind: 'name',
+        alwaysVisible: true,
+        render: (row) => (
+          <span style={row.isActive ? undefined : { color: 'var(--muted)' }}>
+            {row.fullName || '—'}
+            {row.isActive ? null : <span style={{ fontSize: 11 }}> · уволен</span>}
+          </span>
+        ),
+      },
+      {
+        id: 'personnelNo',
+        label: 'Табельный',
+        tabletLabel: 'Таб.',
+        sortKey: 'personnelNo',
+        render: (row) => row.personnelNo || '—',
+      },
+      {
+        id: 'cardState',
+        label: 'Карточка',
+        sortKey: 'cardState',
+        render: (row) => PPE_CARD_STATE_RU[row.cardState],
+        printValue: (row) => PPE_CARD_STATE_RU[row.cardState],
+      },
+      {
+        id: 'fillPercent',
+        label: 'Заполнено',
+        sortKey: 'fillPercent',
+        kind: 'num',
+        render: fillCell,
+        printValue: (row) => `${row.fillPercent}%`,
+      },
+      {
+        id: 'clothes',
+        label: 'Одежда',
+        sortKey: 'clothes',
+        render: (row) => row.sizes.clothes || '—',
+      },
+      {
+        id: 'shoes',
+        label: 'Обувь',
+        sortKey: 'shoes',
+        render: (row) => row.sizes.shoes || '—',
+      },
+      {
+        id: 'height',
+        label: 'Рост',
+        sortKey: 'height',
+        render: (row) => row.sizes.height || '—',
+      },
+      {
+        id: 'norms',
+        label: 'Норм',
+        sortKey: 'norms',
+        kind: 'num',
+        render: (row) => row.normPositionCount,
+        printValue: (row) => String(row.normPositionCount),
+      },
+      {
+        id: 'issues',
+        label: 'Выдач',
+        sortKey: 'issues',
+        kind: 'num',
+        render: (row) => row.issueCount,
+        printValue: (row) => String(row.issueCount),
+      },
+      {
+        id: 'lastIssuedAt',
+        label: 'Последняя выдача',
+        tabletLabel: 'Посл.',
+        sortKey: 'lastIssuedAt',
+        kind: 'date',
+        render: (row) => fmtDate(row.lastIssuedAt),
+        printValue: (row) => fmtDate(row.lastIssuedAt),
+      },
+      {
+        id: 'nextDueAt',
+        label: 'Следующая',
+        sortKey: 'nextDueAt',
+        kind: 'date',
+        render: (row) => fmtDate(row.nextDueAt),
+        printValue: (row) => fmtDate(row.nextDueAt),
+      },
+      {
+        id: 'status',
+        label: 'Состояние',
+        sortKey: 'status',
+        render: statusCell,
+        printValue: (row) => PPE_OVERVIEW_STATUS_RU[row.status],
+      },
+      {
+        id: 'employed',
+        label: 'Уволен',
+        sortKey: 'employed',
+        render: (row) => (row.isActive ? '—' : 'да'),
+        printValue: (row) => (row.isActive ? '' : 'да'),
+      },
+    ],
+    [],
+  );
+
+  const allColumnIds = useMemo(() => allColumns.map((c) => c.id), [allColumns]);
+  const columnsById = useMemo(() => new Map(allColumns.map((c) => [c.id, c])), [allColumns]);
+  // Рост и дату последней выдачи прячем по умолчанию: без них список читается, а с ними
+  // превращается в таблицу из тринадцати колонок.
+  const columnLayout = useColumnLayout('list:ppe-cards:columns', allColumnIds, ['height', 'lastIssuedAt']);
+  const visibleColumns = useMemo(
+    () =>
+      columnLayout.order
+        .map((id) => columnsById.get(id))
+        .filter((col): col is PpeColumn => Boolean(col))
+        .filter((col) => columnLayout.isVisible(col.id)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- useColumnLayout returns a fresh object each render; only hidden matters here
+    [columnLayout.order, columnLayout.hidden, columnsById],
+  );
+  const columnDescriptors = useMemo<ColumnDescriptor[]>(
+    () => allColumns.map((c) => ({ id: c.id, label: c.label, ...(c.tabletLabel ? { tabletLabel: c.tabletLabel } : {}) })),
+    [allColumns],
+  );
+  const printColumns = useMemo(() => buildListPrintColumns(allColumns), [allColumns]);
+
+  const filtersSummary = useMemo(
+    () =>
+      describeFacetSelection(PPE_CARDS_FACETS as readonly FacetDescriptor<Row>[], facets as FacetSelection, {
+        search: query,
+      }),
+    [facets, query],
+  );
+
+  function onSortHeader(nextKey: SortKey) {
+    const next = toggleSort(sortKey, sortDir, nextKey);
+    patchState({ sortKey: next.sortKey, sortDir: next.sortDir });
+  }
+
+  function sortLabel(label: string, key: SortKey) {
+    return `${label}${sortArrow(sortKey, sortDir, key)}`;
+  }
+
+  function renderTableHeader() {
+    const allInOrder = columnLayout.order
+      .map((id) => columnsById.get(id))
+      .filter((col): col is PpeColumn => Boolean(col));
+    return (
+      <thead>
+        <tr>
+          <RowNumberHeaderCell />
+          {allInOrder.map((col) => {
+            if (!columnLayout.isVisible(col.id)) return null;
+            return (
+              <th
+                key={col.id}
+                {...listHeaderKindProps(col.kind, col.label)}
+                {...manualWidthAttr(columnLayout.widthOf(col.id))}
+                style={{
+                  ...manualThAnchor(),
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                  ...manualWidth(columnLayout.widthOf(col.id)),
+                }}
+                onClick={() => onSortHeader(col.sortKey)}
+              >
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                  <span>{sortLabel(tabletColumnLabel(col.label, col.tabletLabel), col.sortKey)}</span>
+                  <ColumnToggleButton
+                    colId={col.id}
+                    visible
+                    alwaysVisible={col.alwaysVisible}
+                    onToggle={() => columnLayout.setVisible(col.id, false)}
+                  />
+                </span>
+                <ColumnResizeHandle columnId={col.id} layout={columnLayout} />
+              </th>
+            );
+          })}
+          <th className="list-col-filler" aria-hidden="true" />
+        </tr>
+      </thead>
+    );
+  }
+
+  function rowProps(row: Row): VirtualTableRowProps {
+    return {
+      style: { cursor: 'pointer', opacity: row.isActive ? 1 : 0.55 },
+      onClick: () => props.onOpen(row.employeeId),
+      title: 'Открыть карточку СИЗ',
+    };
+  }
+
+  function renderCells(row: Row) {
+    return (
+      <>
+        {visibleColumns.map((col) => (
+          <td key={col.id} {...listCellKindProps(col.kind)}>
+            {col.render(row)}
+          </td>
+        ))}
+        <td className="list-col-filler" aria-hidden="true" />
+      </>
+    );
+  }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 380px) 1fr', gap: 16, alignItems: 'start' }}>
-      <SectionCard title="Сотрудники">
-        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск сотрудника" style={{ flex: 1 }} />
-        </div>
-        <FormField label="Сотрудник">
-          <SearchSelect value={employeeId} options={filteredEmployees} placeholder="Выберите сотрудника" showAllWhenEmpty onChange={setEmployeeId} />
-        </FormField>
-        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-          <Button variant="primary" onClick={() => void findCard()} disabled={busy || !employeeId}>
-            Открыть карточку
+    <div data-list-root="true" style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
+      <PageToolbar>
+        <ToolbarPin>
+          <div style={{ width: 280 }}>
+            <Input
+              value={query}
+              onChange={(e) => patchState({ query: e.target.value })}
+              placeholder="Поиск по ФИО и табельному…"
+            />
+          </div>
+        </ToolbarPin>
+        <ToolbarPin>
+          <FacetToggleButton<Row>
+            facets={PPE_CARDS_FACETS as readonly FacetDescriptor<Row>[]}
+            selection={facets as FacetSelection}
+            open={facetsOpen}
+            onToggle={() => patchState({ facetsOpen: !facetsOpen })}
+          />
+        </ToolbarPin>
+        <ColumnSettingsButton
+          label="Колонки списка"
+          columns={columnDescriptors}
+          order={columnLayout.order}
+          isVisible={columnLayout.isVisible}
+          onToggleVisible={columnLayout.setVisible}
+          onMove={columnLayout.moveColumn}
+          onReset={columnLayout.resetToDefault}
+        />
+        <Button variant="ghost" onClick={() => void load()} disabled={loading}>
+          Обновить
+        </Button>
+        {!isAndroidPlatform() && (
+          <Button
+            variant="ghost"
+            onClick={() => setPrintDialogOpen(true)}
+            title="Печать текущего списка: колонки как на экране, объём под контролем"
+          >
+            Печать списка
           </Button>
-          {canEdit ? (
-            <Button variant="ghost" onClick={() => void openCard()} disabled={busy || !employeeId}>
-              Новая
-            </Button>
-          ) : null}
-        </div>
-        <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 8 }}>
-          <ListCount total={employees.length} shown={filteredEmployees.length} />
-        </div>
-      </SectionCard>
-
-      <div style={{ display: 'grid', gap: 16 }}>
-        {!card ? (
-          <SectionCard title="Личная карточка СИЗ">
-            <div style={{ color: 'var(--muted)' }}>Выберите сотрудника и откройте карточку. В карточке — назначенные нормы, сроки следующих выдач и история.</div>
-          </SectionCard>
-        ) : (
-          <>
-            <SectionCard title={`Карточка: ${empName(card.employeeId)}${closed ? ' (закрыта)' : ''}`}>
-              <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>Открыта {fmtDate(card.openedAt)}</div>
-              {!hasAnyNorms ? (
-                <div style={{ color: 'var(--muted)' }}>Нормы не назначены.</div>
-              ) : (
-                <table className="table" style={{ width: '100%' }}>
-                  <thead>
-                    <tr>
-                      <RowNumberHeaderCell style={ROWNUM_STYLE} />
-                      <th>Набор норм</th>
-                      <th>Назначен</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {card.norms.map((n, i) => (
-                      <tr key={n.normSetId}>
-                        <RowNumberCell n={i + 1} style={ROWNUM_STYLE} />
-                        <td>{n.name}</td>
-                        <td>{fmtDate(n.assignedAt)}</td>
-                      </tr>
-                    ))}
-                    {groupOnlyNormIds.map((id, gi) => (
-                      <tr key={id}>
-                        <RowNumberCell n={card.norms.length + gi + 1} style={ROWNUM_STYLE} />
-                        <td>
-                          {normOptions.find((o) => o.id === id)?.name ?? id}
-                          <span style={{ color: 'var(--muted)', fontSize: 12 }}> · от группы</span>
-                        </td>
-                        <td>—</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-              {canEdit && !closed ? (
-                <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'end' }}>
-                  <div style={{ flex: 1 }}>
-                    <FormField label="Назначить набор">
-                      <SearchSelect
-                        value={normToAssign}
-                        options={normOptions.filter((o) => !card.norms.some((n) => n.normSetId === o.id)).map((o) => ({
-                          id: o.id,
-                          label: o.name,
-                          ...(o.postTitle ? { hintText: o.postTitle } : {}),
-                          searchText: `${o.name} ${o.postTitle ?? ''}`,
-                        }))}
-                        placeholder="Набор норм"
-                        showAllWhenEmpty
-                        onChange={setNormToAssign}
-                      />
-                    </FormField>
-                  </div>
-                  <Button variant="primary" onClick={() => void assignNorm()} disabled={busy || !normToAssign}>
-                    Назначить
-                  </Button>
-                  <Button variant="ghost" tone="danger" onClick={() => void closeCard()} disabled={busy}>
-                    Закрыть карточку
-                  </Button>
-                </div>
-              ) : null}
-            </SectionCard>
-
-            <SectionCard title="Сроки следующих выдач">
-              {upcoming.length === 0 ? (
-                <div style={{ color: 'var(--muted)' }}>Нет назначенных норм — сроки считать не из чего.</div>
-              ) : (
-                <table className="table" style={{ width: '100%' }}>
-                  <thead>
-                    <tr>
-                      <RowNumberHeaderCell style={ROWNUM_STYLE} />
-                      <th>Позиция</th>
-                      <th style={{ textAlign: 'right' }}>Кол-во</th>
-                      <th>Последняя выдача</th>
-                      <th>Следующая</th>
-                      <th>Состояние</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {upcoming.map((u, i) => (
-                      <tr key={u.nomenclatureId} style={u.status === 'overdue' ? { background: 'var(--danger-soft, rgba(200,0,0,0.06))' } : undefined}>
-                        <RowNumberCell n={i + 1} style={ROWNUM_STYLE} />
-                        <td>{nomName(u.nomenclatureId)}</td>
-                        <td style={{ textAlign: 'right' }}>{u.qty}</td>
-                        <td>{fmtDate(u.lastIssuedAt)}</td>
-                        <td>
-                          {fmtDate(u.nextDueAt)}
-                          {u.lastIssuedAt != null && u.nextDueAt != null
-                            ? (() => {
-                                const days = Math.round((u.nextDueAt - addWearMonths(u.lastIssuedAt, u.wearMonths)) / PPE_DAY_MS);
-                                return days > 0 ? (
-                                  <div style={{ color: 'var(--muted)', fontSize: 12 }}>+{days} дн. отпуск</div>
-                                ) : null;
-                              })()
-                            : null}
-                        </td>
-                        <td>{STATUS_RU[u.status]}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-              {props.canIssue && !closed ? (
-                <div style={{ marginTop: 8 }}>
-                  <Button variant="primary" onClick={() => setIssueOpen(true)} disabled={busy}>
-                    Выдать СИЗ
-                  </Button>
-                </div>
-              ) : null}
-            </SectionCard>
-
-            <SectionCard title="Отпуска (сдвигают сроки носки)">
-              {absences.length === 0 ? (
-                <div style={{ color: 'var(--muted)' }}>Отпусков нет.</div>
-              ) : (
-                <table className="table" style={{ width: '100%' }}>
-                  <thead>
-                    <tr>
-                      <RowNumberHeaderCell style={ROWNUM_STYLE} />
-                      <th>Период</th>
-                      <th>Вид</th>
-                      {canEdit && !closed ? <th /> : null}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[...absences].sort((a, b) => b.fromMs - a.fromMs).map((a, i) => (
-                      <tr key={a.id}>
-                        <RowNumberCell n={i + 1} style={ROWNUM_STYLE} />
-                        <td>
-                          {fmtDate(a.fromMs)} — {fmtDate(a.toMs)}
-                        </td>
-                        <td>{ABSENCE_KIND_RU[a.kind] ?? a.kind}</td>
-                        {canEdit && !closed ? (
-                          <td style={{ textAlign: 'right' }}>
-                            <Button variant="ghost" onClick={() => void removeAbsence(a)} disabled={busy}>
-                              Убрать
-                            </Button>
-                          </td>
-                        ) : null}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-              {canEdit && !closed ? (
-                <div style={{ display: 'grid', gridTemplateColumns: '160px 160px auto', gap: 8, alignItems: 'end', marginTop: 8 }}>
-                  <FormField label="С">
-                    <Input type="date" value={absenceFrom} onChange={(e) => setAbsenceFrom(e.target.value)} />
-                  </FormField>
-                  <FormField label="По">
-                    <Input type="date" value={absenceTo} onChange={(e) => setAbsenceTo(e.target.value)} />
-                  </FormField>
-                  <Button variant="primary" onClick={() => void addAbsence()} disabled={busy}>
-                    Добавить отпуск
-                  </Button>
-                </div>
-              ) : null}
-            </SectionCard>
-
-            {issueOpen ? (
-              <SectionCard title="Выдача">
-                {sizesSummary(sizes) ? (
-                  <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>
-                    Размер сотрудника: {sizesSummary(sizes)}
-                  </div>
-                ) : null}
-                <FormGrid>
-                  <FormField label="Склад выдачи">
-                    <SearchSelect value={issueWarehouse} options={warehouses} placeholder="Склад" showAllWhenEmpty onChange={setIssueWarehouse} />
-                  </FormField>
-                </FormGrid>
-                {issueLines.map((l, i) => (
-                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 110px auto', gap: 8, alignItems: 'end', marginTop: 8 }}>
-                    <FormField label={i === 0 ? 'Позиция' : ''}>
-                      <SearchSelect
-                        value={l.nomenclatureId || null}
-                        options={merged.map((m) => ({
-                          id: m.nomenclatureId,
-                          label: nomName(m.nomenclatureId),
-                          searchText: nomName(m.nomenclatureId),
-                          ...(hintedIds.has(m.nomenclatureId) ? { hintText: 'размер сотрудника' } : {}),
-                        }))}
-                        placeholder="Позиция из норм"
-                        showAllWhenEmpty
-                        onChange={(next) => setIssueLines((prev) => prev.map((p, j) => (j === i ? { ...p, nomenclatureId: next ?? '' } : p)))}
-                      />
-                    </FormField>
-                    <FormField label={i === 0 ? 'Кол-во' : ''}>
-                      <Input
-                        value={l.qty}
-                        inputMode="numeric"
-                        onChange={(e) => setIssueLines((prev) => prev.map((p, j) => (j === i ? { ...p, qty: e.target.value } : p)))}
-                      />
-                    </FormField>
-                    <Button variant="ghost" onClick={() => setIssueLines((prev) => prev.filter((_, j) => j !== i))} disabled={busy || issueLines.length <= 1}>
-                      Убрать
-                    </Button>
-                  </div>
-                ))}
-                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                  <Button variant="ghost" onClick={() => setIssueLines((prev) => [...prev, { nomenclatureId: '', qty: '1' }])} disabled={busy}>
-                    + Позиция
-                  </Button>
-                  <Button variant="primary" onClick={() => void doIssue()} disabled={busy}>
-                    Выдать и провести
-                  </Button>
-                  <Button variant="ghost" onClick={() => setIssueOpen(false)} disabled={busy}>
-                    Отмена
-                  </Button>
-                </div>
-              </SectionCard>
-            ) : null}
-
-            <SectionCard title="История выдач">
-              {card.entries.length === 0 ? (
-                <div style={{ color: 'var(--muted)' }}>Выдач пока не было.</div>
-              ) : (
-                <>
-                  <ListCount total={card.entries.length} shown={card.entries.length} />
-                  <table className="table" style={{ width: '100%' }}>
-                    <thead>
-                      <tr>
-                        <RowNumberHeaderCell style={ROWNUM_STYLE} />
-                        <th>Дата</th>
-                        <th>Позиция</th>
-                        <th style={{ textAlign: 'right' }}>Кол-во</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {[...card.entries].sort((a, b) => b.issuedAt - a.issuedAt).map((e, i) => (
-                        <tr key={e.id}>
-                          <RowNumberCell n={i + 1} style={ROWNUM_STYLE} />
-                          <td>{fmtDate(e.issuedAt)}</td>
-                          <td>{nomName(e.nomenclatureId)}</td>
-                          <td style={{ textAlign: 'right' }}>{e.qty}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </>
-              )}
-            </SectionCard>
-          </>
         )}
+        <ListExportButtons
+          title="Карточки СИЗ"
+          columns={printColumns}
+          visibleColumnIds={visibleColumns.map((c) => c.id)}
+          rows={sorted}
+          selectedRows={[]}
+          storageKey="list:ppe-cards:printFields"
+          filtersSummary={filtersSummary}
+        />
+      </PageToolbar>
 
-        {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger, #b00)' : 'var(--muted)' }}>{status}</div> : null}
+      {/* Диалог печати вне ряда кнопок: в ряду он уехал бы в меню переполнения. */}
+      {printDialogOpen && (
+        <ListPrintDialog
+          title="Карточки СИЗ"
+          columns={printColumns}
+          visibleColumnIds={visibleColumns.map((c) => c.id)}
+          rows={sorted}
+          selectedRows={[]}
+          storageKey="list:ppe-cards:printFields"
+          filtersSummary={filtersSummary}
+          onClose={() => setPrintDialogOpen(false)}
+        />
+      )}
+
+      <div style={{ marginTop: 8, flex: '0 0 auto' }}>
+        <FacetFilter<Row>
+          facets={PPE_CARDS_FACETS as readonly FacetDescriptor<Row>[]}
+          rows={searched}
+          selection={facets as FacetSelection}
+          fields={facetFields}
+          open={facetsOpen}
+          onChangeSelection={(next) => patchState({ facets: next as PpeCardsFacetSelection })}
+          onChangeFields={(next) => patchState({ facetFields: next })}
+          onReset={() => patchState({ facets: {}, facetFields: [] })}
+        />
+      </div>
+
+      {status ? (
+        <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger, #b91c1c)' : 'var(--muted)' }}>{status}</div>
+      ) : null}
+
+      <ListCount total={rows.length} shown={sorted.length} />
+      <div ref={containerRef} onScroll={onScroll} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+        <VirtualTable
+          scrollElementRef={containerRef}
+          count={sorted.length}
+          header={renderTableHeader()}
+          renderCells={(i) => renderCells(sorted[i]!)}
+          getRowKey={(i) => sorted[i]!.employeeId}
+          getRowProps={(i) => rowProps(sorted[i]!)}
+          colCount={visibleColumns.length + 1}
+          rowNumbers
+          leadingColumns={2}
+          columnWidths={visibleColumns.map((col) => ({ id: col.id, width: columnLayout.widthOf(col.id) }))}
+          emptyState={
+            loading
+              ? 'Загружаем сотрудников…'
+              : activePpeCardsFacetCount(facets) > 0
+                ? 'Под фильтр не попал никто'
+                : 'Сотрудников нет'
+          }
+        />
       </div>
     </div>
   );
