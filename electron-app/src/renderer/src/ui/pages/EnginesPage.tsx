@@ -55,6 +55,7 @@ import { ListContextMenu, type ListContextMenuItem } from '../components/ListCon
 import { resolveMenuRows } from '../utils/listContextActions.js';
 import { ListExportButtons } from '../components/ListExportButtons.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
+import { EngineBulkIntakeDialog } from '../components/EngineBulkIntakeDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
 import { ListCount } from '../components/ListCount.js';
@@ -385,11 +386,16 @@ export function EnginesPage(props: {
   onOpen: (id: string) => Promise<void>;
   onCreate: () => Promise<void>;
   canCreate: boolean;
+  /** Доступ к справочникам: пакетный приём выбирает марку, контрагента и договор. */
+  canViewMasterData?: boolean;
+  /** Сообщение оператору (оболочка): итог пакетного приёма. */
+  onNotify?: (message: string, tone?: 'info' | 'error') => void;
   /** ПКМ → «Наряд на сборку» (тема D): открыть новый сборочный наряд для этого двигателя. */
   onCreateAssemblyOrder?: (engine: EngineListItem) => void;
   /** Кнопка «Отчёт „Двигатели“» → объединённый пресет engines (разрезы/фильтры/колонки/шаблоны). */
 }) {
   const [dedupeOpen, setDedupeOpen] = React.useState(false);
+  const [bulkIntakeOpen, setBulkIntakeOpen] = React.useState(false);
   const [labelDialogOpen, setLabelDialogOpen] = React.useState(false);
   const [printDialogOpen, setPrintDialogOpen] = React.useState(false);
   // Бирки печатаются по строкам, которые оператор выделил (а не по фильтру, как этикетки),
@@ -1093,6 +1099,15 @@ export function EnginesPage(props: {
         {/* Отчёт «Двигатели» живёт в разделе «Отчёты» (пресет `engines`, темы «Двигатели» и
             «Контракты») — вторая точка входа из списка только дублировала каталог. */}
         {props.canCreate && <Button onClick={props.onCreate}>Добавить двигатель</Button>}
+        {props.canCreate && (
+          <Button
+            variant="outline"
+            onClick={() => setBulkIntakeOpen(true)}
+            title="Принять двигатели из накладной: один контрагент, договор, дата прихода и список номеров"
+          >
+            Принять двигатели списком
+          </Button>
+        )}
         {/* Поиск и то, что им управляет, в меню не уезжают: без них список неуправляем.
             Ширину обёртке не задаём: поле само ограничено 48ch, и любая большая ширина
             превратилась бы в пустоту между поиском и кнопками. */}
@@ -1324,6 +1339,24 @@ export function EnginesPage(props: {
       {menu && menuItems.length > 0 ? (
         <ListContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
       ) : null}
+
+      {props.canCreate && (
+        <EngineBulkIntakeDialog
+          open={bulkIntakeOpen}
+          canViewMasterData={props.canViewMasterData === true}
+          onClose={() => setBulkIntakeOpen(false)}
+          onCreated={async (r) => {
+            setBulkIntakeOpen(false);
+            await props.onRefresh();
+            const parts = [`Заведено карточек: ${r.created}`];
+            if (r.skipped > 0) parts.push(`пропущено: ${r.skipped}`);
+            if (r.overPlan > 0) parts.push(`сверх плана договора: ${r.overPlan}`);
+            if (r.slotErrors > 0) parts.push(`без места в договоре: ${r.slotErrors} (назначьте в карточке договора)`);
+            if (r.error) parts.push(r.error);
+            props.onNotify?.(parts.join(' · '), r.error || r.slotErrors > 0 ? 'error' : 'info');
+          }}
+        />
+      )}
 
       {dedupeOpen && (
         <EngineDedupeModal

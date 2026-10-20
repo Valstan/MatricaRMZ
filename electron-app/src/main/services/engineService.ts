@@ -105,7 +105,7 @@ async function getEntityTypeIdByCode(db: BetterSQLite3Database, code: string): P
   return rows[0]?.id ?? null;
 }
 
-async function getDisplayNameMap(db: BetterSQLite3Database, typeCode: string): Promise<Map<string, string>> {
+export async function getDisplayNameMap(db: BetterSQLite3Database, typeCode: string): Promise<Map<string, string>> {
   const typeId = await getEntityTypeIdByCode(db, typeCode);
   if (!typeId) return new Map();
   const items = await listEntitiesByType(db, typeId);
@@ -195,7 +195,7 @@ async function getContractSignedAtMap(db: BetterSQLite3Database): Promise<Map<st
  * договора (`resolveEngineCustomer`), а не берётся из карточки — иначе перецепка двигателя на
  * другой договор не меняет ни колонку «Контрагент», ни отбор по нему.
  */
-async function getContractCustomerMap(db: BetterSQLite3Database): Promise<Map<string, string>> {
+export async function getContractCustomerMap(db: BetterSQLite3Database): Promise<Map<string, string>> {
   const typeId = await getEntityTypeIdByCode(db, EntityTypeCode.Contract);
   if (!typeId) return new Map();
 

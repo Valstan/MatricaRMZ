@@ -26,6 +26,8 @@ function src(rel: string): string {
 const STAGES_IPC = src('../ipc/register/workSheets.ts');
 const CHECKLISTS_IPC = src('../ipc/register/checklists.ts');
 const ENGINE_CARDS_IPC = src('../ipc/register/engineCards.ts');
+/** Единственная дверь записи карточки (карточка + пакетный приём списком). */
+const ENGINE_CARD_WRITE = src('./engineCardWrite.ts');
 const ENGINE_SERVICE = src('./engineService.ts');
 const WORKSHEET_SERVICE = src('./workSheetService.ts');
 const CARD = src('../../renderer/src/ui/pages/EngineDetailsPage.tsx');
@@ -46,6 +48,7 @@ describe('воронка этапов: все писатели через save/e
       ['workSheetService', WORKSHEET_SERVICE],
       ['checklists IPC', CHECKLISTS_IPC],
       ['engineCards IPC', ENGINE_CARDS_IPC],
+      ['engineCardWrite', ENGINE_CARD_WRITE],
     ] as Array<[string, string]>) {
       expect(`${name}: ${text.includes('kitting_done')}`).toBe(`${name}: false`);
     }
@@ -53,15 +56,18 @@ describe('воронка этапов: все писатели через save/e
 
   it('карта писателей: arrival/shipped/accepted — strict-save карточки (main, не renderer)', () => {
     expect(ENGINE_SERVICE).toContain("code === 'arrival_date'");
-    expect(ENGINE_CARDS_IPC).toContain("stageFromDate('arrival'");
-    expect(ENGINE_CARDS_IPC).toContain("stageFromDate('shipped'");
-    expect(ENGINE_CARDS_IPC).toContain("stageFromDate('accepted'");
+    expect(ENGINE_CARD_WRITE).toContain("stageFromDate('arrival'");
+    expect(ENGINE_CARD_WRITE).toContain("stageFromDate('shipped'");
+    expect(ENGINE_CARD_WRITE).toContain("stageFromDate('accepted'");
+    // Через эту дверь ходят оба входа — карточка и пакетный приём списком.
+    expect(ENGINE_CARDS_IPC).toContain('saveEngineCardGated(');
   });
 
   it('даты «Основного» → этапы пишет main, а не рендерер (дефект 07.10.2026)', () => {
     // Прежде рендерер звал `workSheets:stages:save` под правом `work_sheets.edit` —
     // у ролей без него (инженер, админ) этап молча не появлялся. Сторож держит
     // место записи: main-путь + check права-дизъюнкции (и сервер её требует).
+    expect(ENGINE_CARD_WRITE).toContain('if (deps.canWriteStageRow)');
     expect(ENGINE_CARDS_IPC).toContain('canWriteStageRow');
     expect(ENGINE_CARDS_IPC).toContain("stageWritePerms['work_sheets.edit']");
     expect(ENGINE_CARDS_IPC).toContain("stageWritePerms['operations.edit']");

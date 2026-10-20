@@ -5728,6 +5728,8 @@ export function App() {
               }
             }}
             canCreate={caps.canEditEngines}
+            canViewMasterData={caps.canViewMasterData}
+            onNotify={notifyOperator}
             {...(caps.canCreateWorkOrders
               ? {
                   onCreateAssemblyOrder: (engine: EngineListItem) => {
