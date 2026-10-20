@@ -7,6 +7,10 @@ import { join } from 'node:path';
 
 import { app } from 'electron';
 
+import { getSqliteHandle } from '../database/db.js';
+import { AI_TOOLS, startAiToolsBridge, type AiToolsBridge } from './aiLocalTools.js';
+import { writeEngineMcpFiles } from './aiMcpProxy.js';
+
 /**
  * Локальный движок нейросети для клиентской машины (контур B, план
  * `docs/plans/neural-contours-2026-10.md`).
@@ -85,6 +89,7 @@ async function readTrimmed(path: string): Promise<string> {
 let status: LocalEngineStatus = { state: 'missing', version: null, progress: null, port: null, error: null };
 let child: ReturnType<typeof spawn> | null = null;
 let ensureRunning: Promise<void> | null = null;
+let bridge: AiToolsBridge | null = null;
 
 export function getLocalEngineStatus(): LocalEngineStatus {
   return { ...status };
@@ -170,11 +175,26 @@ async function spawnEngine(dir: string): Promise<void> {
   const exe = join(dir, EXE_NAME);
   const token = (await readTrimmed(join(dir, TOKEN_FILE))) || engineToken();
   await writeFile(join(dir, TOKEN_FILE), token, 'utf8');
+  // Инструменты чтения базы: мост в этом процессе + MCP-прокси для движка.
+  // Файлы конфига переписываем каждый запуск — токен моста живёт один запуск.
+  if (!bridge) bridge = await startAiToolsBridge(() => getSqliteHandle() as never);
+  await mkdir(join(dir, 'config', 'opencode'), { recursive: true });
+  await writeEngineMcpFiles(dir, {
+    execPath: process.execPath,
+    bridgeUrl: bridge.url,
+    bridgeToken: bridge.token,
+    catalog: AI_TOOLS,
+  });
   const proc = spawn(exe, engineSpawnArgs(), {
     windowsHide: true,
     cwd: dir,
     stdio: 'ignore',
-    env: { ...process.env, OPENCODE_SERVER_PASSWORD: token, XDG_DATA_HOME: join(dir, 'data') },
+    env: {
+      ...process.env,
+      OPENCODE_SERVER_PASSWORD: token,
+      XDG_CONFIG_HOME: join(dir, 'config'),
+      XDG_DATA_HOME: join(dir, 'data'),
+    },
   });
   proc.unref();
   const drop = () => {
@@ -243,5 +263,10 @@ export async function stopLocalEngine(): Promise<void> {
     // уже нет
   }
   await rm(join(dir, PID_FILE), { force: true }).catch(() => {});
+  if (bridge) {
+    const b = bridge;
+    bridge = null;
+    await b.close().catch(() => {});
+  }
   setStatus({ state: 'stopped', port: null, error: null });
 }

@@ -13,7 +13,7 @@ import { ENGINE_HOST, ENGINE_PORT, ensureLocalEngine, engineInstallDir, getLocal
  */
 
 /** Модели, которые на free-тире отвечают без ключа; порядок — порядок проб. */
-const FREE_MODELS = ['minimax-m3.1-flash-free', 'big-pickle'];
+const PREFERRED_MODELS = ['deepseek-v4.1-flash-free', 'glm-5.3-flash-free', 'big-pickle'];
 const PROVIDER = 'opencode';
 
 /** Инструменты, которых у клиентского ассистента нет. */
@@ -21,6 +21,12 @@ const DENIED_ACTIONS = ['shell', 'bash', 'edit', 'write', 'patch', 'webfetch', '
 
 const POLL_MS = 700;
 const ANSWER_TIMEOUT_MS = 180_000;
+
+/** Короткая рамка для движка: кто он и чем смотрит данные. */
+const SYSTEM_HINT =
+  'Ты — Ииваныч, помощник по программе «Матрица3-РМЗ» (ремонт двигателей). Отвечай по-русски, коротко и по делу. ' +
+  'Данные локальной базы смотри инструментами matrica-db (db_schema, db_table, db_query) — они только для чтения. ' +
+  'Ничего не выдумывай: если в базе нет ответа, так и скажи.';
 
 export type LocalEngineAnswer = { ok: true; text: string } | { ok: false; error: string };
 
@@ -76,6 +82,26 @@ function isDone(messages: ChatMessage[]): boolean {
   return messages.some((m) => m.type === 'idle');
 }
 
+/**
+ * Какие free-модели есть у этого движка. Каталог зависит от сборки и региона —
+ * жёстко зашитый id однажды станет «Model unavailable», поэтому спрашиваем
+ * движок и берём из его списка.
+ */
+export async function pickEngineModels(token: string): Promise<string[]> {
+  const page = await api<{ data?: { items?: Array<{ providerID?: string; id?: string }> } | Array<{ providerID?: string; id?: string }> }>(
+    token,
+    '/api/model',
+  );
+  const items = Array.isArray(page?.data) ? page.data : (page?.data?.items ?? []);
+  const ids = items
+    .filter((m) => String(m?.providerID ?? '') === PROVIDER && m?.id)
+    .map((m) => String(m.id));
+  const preferred = PREFERRED_MODELS.filter((id) => ids.includes(id));
+  const free = ids.filter((id) => /free|pickle/i.test(id) && !preferred.includes(id));
+  const rest = ids.filter((id) => !preferred.includes(id) && !free.includes(id));
+  return [...preferred, ...free, ...rest];
+}
+
 async function createSession(token: string, model: string): Promise<string> {
   const r = await api<{ data?: { id?: string } }>(token, '/api/session', {
     method: 'POST',
@@ -105,7 +131,8 @@ export async function askLocalEngine(question: string): Promise<LocalEngineAnswe
 
     let sessionID = '';
     let lastError = '';
-    for (const model of FREE_MODELS) {
+    const candidates = (await pickEngineModels(token).catch(() => [])).slice(0, 4);
+    for (const model of candidates.length > 0 ? candidates : PREFERRED_MODELS) {
       try {
         sessionID = await createSession(token, model);
         break;
@@ -116,7 +143,10 @@ export async function askLocalEngine(question: string): Promise<LocalEngineAnswe
     if (!sessionID) return { ok: false, error: lastError || 'ни одна free-модель не открылась' };
 
     try {
-      await api(token, `/api/session/${sessionID}/prompt`, { method: 'POST', body: JSON.stringify({ text }) });
+      await api(token, `/api/session/${sessionID}/prompt`, {
+        method: 'POST',
+        body: JSON.stringify({ text: `${SYSTEM_HINT}\n\nВопрос: ${text}` }),
+      });
       const deadline = Date.now() + ANSWER_TIMEOUT_MS;
       let messages: ChatMessage[] = [];
       while (Date.now() < deadline) {
