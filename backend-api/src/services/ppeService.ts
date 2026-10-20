@@ -4,7 +4,6 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
 import {
-  erpEmployeeCards,
   erpNomenclature,
   ppeAbsences,
   ppeCardNorms,
@@ -18,6 +17,7 @@ import {
   ppeNormLines,
   ppeNormSets,
 } from '../database/schema.js';
+import { ensurePpeEmployeeCard, ensurePpeEmployeeCards } from './ppeEmployeeMirror.js';
 import { createWarehouseDocument, postWarehouseDocument } from './warehouseService.js';
 
 type Result<T> = ({ ok: true } & T) | { ok: false; error: string };
@@ -200,19 +200,19 @@ export async function openPpeCard(args: { employeeId: string }): Promise<Result<
   try {
     const employeeId = String(args.employeeId ?? '').trim();
     if (!employeeId) return { ok: false, error: 'employeeId обязателен' };
-    // Сотрудник обязан существовать в строгой таблице: она — единственный субъект модуля
-    // (импорт ЗУП), и вся дальнейшая нитка (нормы, выдачи, распределение) знает только
-    // эти id. EAV-сущность employee здесь пропуском быть не может: карточка, открытая
-    // на ней, падала бы «не найден» уже на первой выдаче, где оператор ничего не исправит.
-    if (!(await employeeExistsStrict(employeeId))) {
-      return { ok: false, error: 'Сотрудник не найден в карточках СИЗ (сначала импорт)' };
-    }
+    // Субъект модуля — строгая таблица, и вся дальнейшая нитка (нормы, выдачи,
+    // распределение) знает только её id. Карточку из справочника программа заводит
+    // сама (`ensurePpeEmployeeCard`): иначе кладовщик видел пустой пикер и «не найден»
+    // на первой выдаче, хотя сотрудник давно заведён в базе.
+    const emp = await ensurePpeEmployeeCard(employeeId);
+    if (!emp.ok) return { ok: false, error: emp.error };
+    const cardEmployeeId = emp.cardId;
     const now = Date.now();
     const id = randomUUID();
     try {
       await db.insert(ppeIssueCards).values({
         id,
-        employeeId,
+        employeeId: cardEmployeeId,
         openedAt: now,
         closedAt: null,
         createdAt: now,
@@ -439,17 +439,13 @@ export async function createPpeAbsence(args: { employeeId: string; fromMs: numbe
     const toMs = Number(args.toMs);
     if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return { ok: false, error: 'fromMs/toMs обязаны быть числами (Unix-ms)' };
     if (fromMs >= toMs) return { ok: false, error: 'fromMs обязан быть раньше toMs' };
-    const emp = await db
-      .select({ id: erpEmployeeCards.id })
-      .from(erpEmployeeCards)
-      .where(and(eq(erpEmployeeCards.id, employeeId as any), isNull(erpEmployeeCards.deletedAt)))
-      .limit(1);
-    if (!emp[0]) return { ok: false, error: 'Сотрудник не найден в карточках СИЗ (сначала импорт)' };
+    const emp = await ensurePpeEmployeeCard(employeeId);
+    if (!emp.ok) return { ok: false, error: emp.error };
     const now = Date.now();
     const id = randomUUID();
     await db.insert(ppeAbsences).values({
       id,
-      employeeId,
+      employeeId: emp.cardId,
       fromMs,
       toMs,
       kind: String(args.kind ?? 'vacation').trim() || 'vacation',
@@ -570,14 +566,9 @@ export async function deletePpeGroup(id: string): Promise<Result<{ id: string }>
   }
 }
 
-async function employeeExistsStrict(employeeId: string): Promise<boolean> {
-  const rows = await db
-    .select({ id: erpEmployeeCards.id })
-    .from(erpEmployeeCards)
-    .where(and(eq(erpEmployeeCards.id, employeeId as any), isNull(erpEmployeeCards.deletedAt)))
-    .limit(1);
-  return rows.length > 0;
-}
+// Резолв сотрудников в строгие карточки СИЗ живёт в `ppeEmployeeMirror.ts`:
+// справочник программы и таблица импорта ЗУП сводятся там, дверь модуля только
+// спрашивает результат (и получает отказ, лишь если сотрудника нет вовсе).
 
 export async function setPpeGroupMembers(args: { groupId: string; employeeIds: string[] }): Promise<Result<{ members: number }>> {
   try {
@@ -589,10 +580,10 @@ export async function setPpeGroupMembers(args: { groupId: string; employeeIds: s
       .where(and(eq(ppeGroups.id, groupId as any), isNull(ppeGroups.deletedAt)))
       .limit(1);
     if (!group[0]) return { ok: false, error: 'Группа не найдена' };
-    const employeeIds = [...new Set((args.employeeIds ?? []).map((v) => String(v).trim()).filter(Boolean))];
-    for (const employeeId of employeeIds) {
-      if (!(await employeeExistsStrict(employeeId))) return { ok: false, error: `Сотрудник ${employeeId} не найден в карточках СИЗ (сначала импорт)` };
-    }
+    const requestedIds = [...new Set((args.employeeIds ?? []).map((v) => String(v).trim()).filter(Boolean))];
+    const resolved = await ensurePpeEmployeeCards(requestedIds);
+    if (!resolved.ok) return { ok: false, error: resolved.error };
+    const employeeIds = resolved.cardIds;
     const now = Date.now();
     await db
       .update(ppeGroupMembers)
@@ -765,10 +756,11 @@ export async function openCollective(args: {
     }
     const refError = await validateNomenclatureIds(lines.map((l) => l.nomenclatureId));
     if (refError) return { ok: false, error: refError };
+    const cardByRequested = new Map<string, string>();
     for (const employeeId of [...new Set(lines.map((l) => String(l.employeeId).trim()))]) {
-      if (!(await employeeExistsStrict(employeeId))) {
-        return { ok: false, error: `Сотрудник ${employeeId} не найден в карточках СИЗ (сначала импорт)` };
-      }
+      const emp = await ensurePpeEmployeeCard(employeeId);
+      if (!emp.ok) return { ok: false, error: emp.error };
+      cardByRequested.set(employeeId, emp.cardId);
     }
     const existing = await db
       .select({ id: ppeCollectives.id, documentId: ppeCollectives.documentId })
@@ -807,7 +799,7 @@ export async function openCollective(args: {
           lines.map((l) => ({
             id: randomUUID(),
             collectiveId: id,
-            employeeId: String(l.employeeId).trim(),
+            employeeId: cardByRequested.get(String(l.employeeId).trim()) ?? String(l.employeeId).trim(),
             nomenclatureId: String(l.nomenclatureId).trim(),
             qty: l.qty,
             createdAt: now,

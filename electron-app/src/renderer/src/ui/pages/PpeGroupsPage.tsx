@@ -7,6 +7,7 @@ import { ListCount } from '../components/ListCount.js';
 import { MultiSearchSelect, type MultiSearchSelectOption } from '../components/MultiSearchSelect.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SectionCard } from '../components/SectionCard.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
 type GroupRow = { id: string; name: string; membersCount: number; normsCount: number };
 
@@ -41,25 +42,31 @@ export function PpeGroupsPage(props: { canEdit: boolean }) {
     setRows(res.rows);
   }, []);
 
+  // Пикер — из реплики СИЗ (`erp_employee_cards`), не из EAV-списка: состав группы
+  // сервер принимает только по этим id (см. ppe:employees:list).
+  const loadEmployees = useCallback(async () => {
+    const emp = await window.matrica.ppe.employees.list().catch(() => null);
+    setEmployees(
+      (emp?.ok ? emp.employees : []).map((e) => ({
+        id: e.id,
+        label: e.fullName.trim() || e.id,
+        ...(e.roleCode ? { hintText: e.roleCode } : {}),
+        searchText: `${e.fullName} ${e.personnelNo ?? ''} ${e.roleCode ?? ''}`,
+      })),
+    );
+  }, []);
+
+  // Вкладка в keep-alive: без импульса люди, приехавшие импортом/зеркалом, не попали бы
+  // в состав группы до перезапуска клиента.
+  useLiveDataRefresh(loadEmployees, { intervalMs: 60_000 });
+
   useEffect(() => {
     void (async () => {
       setStatus('Загрузка...');
       await refresh();
       setStatus('');
-      const [emp, nrm] = await Promise.all([
-        window.matrica.ppe.employees.list().catch(() => null),
-        window.matrica.ppe.norms.list().catch(() => null),
-      ]);
-      // Пикер — из реплики СИЗ (`erp_employee_cards`), не из EAV-списка: состав группы
-      // сервер принимает только по этим id (см. ppe:employees:list).
-      setEmployees(
-        (emp?.ok ? emp.employees : []).map((e) => ({
-          id: e.id,
-          label: e.fullName.trim() || e.id,
-          ...(e.roleCode ? { hintText: e.roleCode } : {}),
-          searchText: `${e.fullName} ${e.personnelNo ?? ''} ${e.roleCode ?? ''}`,
-        })),
-      );
+      await loadEmployees();
+      const nrm = await window.matrica.ppe.norms.list().catch(() => null);
       if (nrm?.ok) {
         setNorms(
           nrm.rows.map((r) => ({
@@ -71,7 +78,7 @@ export function PpeGroupsPage(props: { canEdit: boolean }) {
         );
       }
     })();
-  }, [refresh]);
+  }, [refresh, loadEmployees]);
 
   const selected = useMemo(() => rows.find((r) => r.id === selectedId) ?? null, [rows, selectedId]);
 

@@ -19,6 +19,7 @@ import { startSyncPipelineSupervisorService, stopSyncPipelineSupervisorService }
 import { startUsersSyncPublisher } from './services/sync/usersSyncPublisherService.js';
 import { startWarehouseLocationsSyncPublisher } from './services/sync/warehouseLocationsSyncPublisherService.js';
 import { startPpeSyncPublisher } from './services/sync/ppeSyncPublisherService.js';
+import { startPpeEmployeeMirror } from './services/ppeEmployeeMirror.js';
 import { startSignatureDefaultsSyncPublisher } from './services/sync/signatureDefaultsSyncPublisherService.js';
 import { startDictionarySyncPublisher } from './services/sync/dictionarySyncPublisherService.js';
 import { startAuditStatisticsScheduler } from './services/statisticsAuditService.js';
@@ -109,6 +110,9 @@ async function bootstrap() {
     startUsersSyncPublisher();
     startWarehouseLocationsSyncPublisher();
     startPpeSyncPublisher();
+    // Справочник сотрудников (EAV) → строгие карточки СИЗ: без этого зеркала пикеры
+    // «Кладовщика» пусты у завода, который не импортирует выгрузку 1С:ЗУП.
+    startPpeEmployeeMirror();
     startSignatureDefaultsSyncPublisher();
     startDictionarySyncPublisher();
     startCriticalEventsTelegramService();

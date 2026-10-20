@@ -303,9 +303,75 @@ async function main() {
      const rows = (list.rows ?? []).filter((r) => String(r.code ?? '').trim());
      const byCode = new Map(rows.map((r) => [String(r.code).trim(), r]));
      // Донор — живая позиция с группой и единицей: строгая дверь создания спрашивает
-     // их обязательно, а фикстуре нужны формы, не смысл.
-     const donor = rows.find((r) => String(r.groupId ?? '').trim() && String(r.unitId ?? '').trim());
-     if (!donor) throw new Error('нет позиции-донора (группа + единица)');
+     // их обязательно, а фикстуре нужны формы, не смысл. На пустом стенде донора нет —
+     // заводим его сами (группа СИЗ + единица из справочника), иначе смоук падал бы
+     // на голой базе, где проверять модуль как раз и нужно.
+     let donor = rows.find((r) => String(r.groupId ?? '').trim() && String(r.unitId ?? '').trim()) ?? null;
+     let donorCreated = false;
+     if (!donor) {
+       const types = await call(window.matrica.admin.entityTypes.list(), 40000);
+       let groupType = (types ?? []).find((t) => String(t.code ?? '') === 'nomenclature_group');
+       if (!groupType) {
+         // На голом стенде тип групп ещё не заведён (bootstrap его не создаёт) —
+         // заводим вместе с атрибутом имени, иначе донора для СИЗ не построить.
+         const made = await call(
+           window.matrica.admin.entityTypes.upsert({ code: 'nomenclature_group', name: 'Группы номенклатуры' }),
+           40000,
+         );
+         if (!made?.ok) throw new Error('тип nomenclature_group: ' + JSON.stringify(made));
+         groupType = { id: String(made.id) };
+         const defs = await call(window.matrica.admin.attributeDefs.listByEntityType(String(made.id)), 40000);
+         if (!(defs ?? []).some((d) => String(d.code ?? '') === 'name')) {
+           await call(
+             window.matrica.admin.attributeDefs.upsert({
+               entityTypeId: String(made.id),
+               code: 'name',
+               name: 'Наименование',
+               dataType: 'text',
+               isRequired: false,
+               sortOrder: 0,
+               metaJson: null,
+             }),
+             40000,
+           );
+         }
+       }
+       const groups = await call(window.matrica.admin.entities.listByEntityTypeWithAttrs(String(groupType.id)), 40000);
+       let groupId = (groups ?? []).find((g) => String(g.attributes?.name ?? '').trim() === 'СИЗ (смоук)')?.id ?? null;
+       if (!groupId) {
+         const made = await call(window.matrica.admin.entities.create(String(groupType.id)), 40000);
+         if (!made?.ok) throw new Error('группа номенклатуры: ' + JSON.stringify(made));
+         groupId = String(made.id);
+         await call(window.matrica.admin.entities.setAttr(groupId, 'name', 'СИЗ (смоук)'), 40000);
+       }
+       // Группа живёт в EAV: пока она не уехала на сервер, строгая дверь номенклатуры
+       // отвергнет group_id по внешнему ключу. Толкаем синк до создания донора.
+       const pushed = await call(window.matrica.sync.run(), 90000).catch((e) => ({ ok: false, error: String(e) }));
+       if (!pushed?.ok) throw new Error('sync перед донором: ' + JSON.stringify(pushed));
+       const lookups = await call(window.matrica.warehouse.lookupsGet(), 40000);
+       const units = lookups?.lookups?.units ?? lookups?.units ?? [];
+       const unit = units.find((u) => /^шт/i.test(String(u.label ?? ''))) ?? units[0];
+       if (!unit) throw new Error('в справочнике нет ни одной единицы измерения');
+       const templates0 = await call(window.matrica.warehouse.nomenclatureTemplatesList());
+       const tpl0 = (templates0?.ok ? templates0.rows : []).find((t) => String(t.code ?? '').trim() === 'default_component');
+       if (!tpl0) throw new Error('нет шаблона default_component');
+       const madeDonor = await call(
+         window.matrica.warehouse.nomenclatureUpsert({
+           code: 'SMK-DONOR-01',
+           name: 'SMK Донор СИЗ (смоук)',
+           itemType: 'component',
+           directoryKind: 'component',
+           category: 'workwear',
+           groupId: String(groupId),
+           unitId: String(unit.id),
+           specJson: JSON.stringify({ templateId: String(tpl0.id), propertyValues: {} }),
+         }),
+         40000,
+       );
+       if (!madeDonor?.ok) throw new Error('донор номенклатуры: ' + JSON.stringify(madeDonor?.error ?? madeDonor));
+       donor = { id: String(madeDonor.id), groupId: String(groupId), unitId: String(unit.id) };
+       donorCreated = true;
+     }
      // Шаблон обязан совпадать с типом номенклатуры (серверная проверка), поэтому
      // берём дефолтный шаблон для типа component — он не требует источника-карточки.
      const templates = await call(window.matrica.warehouse.nomenclatureTemplatesList());

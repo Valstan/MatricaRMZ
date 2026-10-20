@@ -8,6 +8,7 @@ import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { SectionCard } from '../components/SectionCard.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
 type CollectiveRow = {
   id: string;
@@ -68,15 +69,32 @@ export function PpeCollectivePage(props: { canEdit: boolean; canIssue: boolean }
     setRows(res.rows);
   }, []);
 
+  // Пикер — из реплики СИЗ (`erp_employee_cards`): распределение сервер принимает
+  // только по этим id (см. ppe:employees:list).
+  const loadEmployees = useCallback(async () => {
+    const emp = await window.matrica.ppe.employees.list().catch(() => null);
+    setEmployees(
+      (emp?.ok ? emp.employees : []).map((e) => ({
+        id: e.id,
+        label: e.fullName.trim() || e.id,
+        ...(e.roleCode ? { hintText: e.roleCode } : {}),
+        searchText: `${e.fullName} ${e.personnelNo ?? ''} ${e.roleCode ?? ''}`,
+      })),
+    );
+  }, []);
+
+  // Вкладка в keep-alive: без импульса новые сотрудники не появились бы в распределении
+  // до перезапуска клиента.
+  useLiveDataRefresh(loadEmployees, { intervalMs: 60_000 });
+
   useEffect(() => {
     void (async () => {
       setStatus('Загрузка...');
       await refresh();
       setStatus('');
-      const [deps, wh, emp, noms, nrm] = await Promise.all([
+      const [deps, wh, noms, nrm] = await Promise.all([
         window.matrica.employees.departmentsList().catch(() => []),
         window.matrica.warehouseLocations.list({ activeOnly: true }).catch(() => null),
-        window.matrica.ppe.employees.list().catch(() => null),
         window.matrica.warehouse.nomenclatureList({ limit: 2000, offset: 0 }).catch(() => null),
         window.matrica.ppe.norms.list().catch(() => null),
       ]);
@@ -84,20 +102,11 @@ export function PpeCollectivePage(props: { canEdit: boolean; canIssue: boolean }
         (Array.isArray(deps) ? deps : []).map((d: any) => ({ id: String(d.id), label: String(d.displayName ?? d.id) })),
       );
       if (wh?.ok) setWarehouses((wh.rows ?? []).map((w: any) => ({ id: String(w.id), label: String(w.name ?? w.code ?? w.id) })));
-      // Пикер — из реплики СИЗ (`erp_employee_cards`): распределение сервер принимает
-      // только по этим id (см. ppe:employees:list).
-      setEmployees(
-        (emp?.ok ? emp.employees : []).map((e) => ({
-          id: e.id,
-          label: e.fullName.trim() || e.id,
-          ...(e.roleCode ? { hintText: e.roleCode } : {}),
-          searchText: `${e.fullName} ${e.personnelNo ?? ''} ${e.roleCode ?? ''}`,
-        })),
-      );
+      await loadEmployees();
       if (noms?.ok) setNomenclature((noms.rows ?? []).map((r: any) => ({ id: String(r.id), label: String(r.name ?? r.id) })));
       if (nrm?.ok) setNormOptions(nrm.rows.map((r) => ({ id: r.id, name: r.name, isDuty: r.isDuty })));
     })();
-  }, [refresh]);
+  }, [refresh, loadEmployees]);
 
   const deptName = useCallback((id: string) => departments.find((d) => d.id === id)?.label ?? id, [departments]);
   const whName = useCallback((id: string) => warehouses.find((w) => w.id === id)?.label ?? id, [warehouses]);

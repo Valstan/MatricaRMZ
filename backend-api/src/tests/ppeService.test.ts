@@ -6,6 +6,8 @@ const DOC = 'cccccccc-cccc-4ccc-cccc-cccccccccccc';
 
 const state = vi.hoisted(() => ({
   queue: [] as unknown[][],
+  // Ответы `pool.query` (сырой SQL справочника сотрудников): [живые атрибуты, удалённые id].
+  poolRows: [] as unknown[][],
   failInsert: false,
   returningRows: [[{ id: 'row-1' }]] as unknown[][],
   createdDoc: { ok: true, id: 'cccccccc-cccc-4ccc-cccc-cccccccccccc' } as { ok: boolean; id?: string; error?: string },
@@ -58,7 +60,7 @@ vi.mock('../database/db.js', () => ({
     transaction: async (cb: (tx: unknown) => Promise<unknown>) =>
       cb({ select: () => chain(), insert: () => valuesMock(), update: () => updateMock() }),
   },
-  pool: { query: () => undefined, end: () => undefined },
+  pool: { query: async () => ({ rows: state.poolRows.shift() ?? [] }), end: () => undefined },
 }));
 
 vi.mock('../services/warehouseService.js', () => ({
@@ -276,15 +278,18 @@ describe('ppeService фаза 2: условия норм', () => {
   });
 });
 
-describe('ppeService: открытие только по строгим карточкам (PR-6)', () => {
-  // EAV-фолбэк убран: субъект модуля — `erp_employee_cards` (импорт ЗУП). Карточка,
-  // открытая на EAV-сущности, доходила до первой выдачи и падала «не найден» там,
-  // где оператор уже ничего не исправит, — отказ должен случаться на входе.
-  it('строгой карточки нет — отказ «сначала импорт», EAV не спасает', async () => {
-    state.queue.push([]); // strict: нет (второй запрос EAV-фолбэка не делается)
+describe('ppeService: сотрудник приходит из справочника или из карточек импорта', () => {
+  // Раньше дверь принимала только `erp_employee_cards` (импорт ЗУП) — у завода без
+  // импорта пикеры были пусты, а сотрудник «не находился» при первой выдаче.
+  // Теперь карточку из справочника заводит само зеркало (ppeEmployeeMirror).
+  it('нет ни карточки, ни сотрудника в справочнике — отказ', async () => {
+    state.queue.push([]); // строгая карточка по id
+    state.queue.push([]); // строгая карточка по entity_id
+    state.poolRows.push([]); // живые сотрудники справочника
+    state.poolRows.push([]); // удалённые
     const r = await openPpeCard({ employeeId: NOM });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain('сначала импорт');
+    if (!r.ok) expect(r.error).toContain('не найден');
   });
 
   it('строгая карточка есть — открывается', async () => {
