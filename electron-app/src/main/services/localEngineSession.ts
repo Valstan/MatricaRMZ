@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { ENGINE_HOST, ENGINE_PORT, ensureLocalEngine, engineInstallDir, getLocalEngineStatus } from './localAiEngine.js';
+import { ENGINE_HOST, ENGINE_PORT, activeEngineDir, ensureLocalEngine, getLocalEngineStatus } from './localAiEngine.js';
 
 /**
  * Клиент session-API движка v2 (контур B): создать сессию, задать вопрос,
@@ -127,7 +127,9 @@ export async function askLocalEngine(question: string): Promise<LocalEngineAnswe
     await ensureLocalEngine();
     const status = getLocalEngineStatus();
     if (status.state !== 'running') return { ok: false, error: status.error ?? 'движок не запустился' };
-    const token = await engineToken(engineInstallDir());
+    const active = await activeEngineDir();
+    if (!active) return { ok: false, error: 'движок не установлен' };
+    const token = await engineToken(active.dir);
 
     let sessionID = '';
     let lastError = '';

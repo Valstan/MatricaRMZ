@@ -1031,9 +1031,12 @@ const matricaApi = {
     meta: async () => ipcRenderer.invoke('aiChat:meta'),
   },
   aiEngine: {
-    // Контур B: движок нейросети на этой машине (Ииваныч «на клиенте»).
+    // Движок нейросети на этой машине (Ииваныч «на клиенте»).
     status: async () => ipcRenderer.invoke('aiEngine:status'),
-    setMode: async (mode: 'prod' | 'local') => ipcRenderer.invoke('aiEngine:setMode', mode),
+    setMode: async (mode: 'auto' | 'local' | 'prod') => ipcRenderer.invoke('aiEngine:setMode', mode),
+    diagnose: async () => ipcRenderer.invoke('aiEngine:diagnose'),
+    resetBreaker: async () => ipcRenderer.invoke('aiEngine:resetBreaker'),
+    answerSource: async (id: string) => ipcRenderer.invoke('aiEngine:answerSource', id),
   },
   aiAgent: {
     // Синхронный AI-контур (ai:assist / ai:conversations:*) снесён 2026-07-25 —

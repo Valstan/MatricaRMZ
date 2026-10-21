@@ -3302,25 +3302,45 @@ export type MatricaApi = {
     list: () => Promise<
       { ok: true; items: import('../domain/aiChatSchedule.js').AiChatRequestItem[] } | { ok: false; error: string }
     >;
-    create: (args: { questionText: string; filePath?: string }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    create: (args: { questionText: string; filePath?: string }) => Promise<
+      { ok: true; id: string; source: 'local' | 'server' } | { ok: false; error: string }
+    >;
     update: (args: { id: string; questionText: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
     delete: (args: { id: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
     setVerdict: (args: { id: string; verdictText: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
     meta: () => Promise<import('../domain/aiChatSchedule.js').AiChatMetaResult>;
   };
   aiEngine: {
-    // Контур B: движок нейросети на этой машине. mode — где считать ответ
-    // («prod» — сервер, «local» — движок этого компьютера).
+    // Где считает ответ Ииваныча: «auto» — сначала этот компьютер, при неудаче
+    // сервер; «local» — только этот ПК; «prod» — только сервер.
     status: () => Promise<{
       ok: true;
-      mode: 'prod' | 'local';
+      mode: 'auto' | 'local' | 'prod';
       state: 'missing' | 'downloading' | 'ready' | 'starting' | 'running' | 'stopped' | 'error' | 'unsupported';
       version: string | null;
       progress: number | null;
       port: number | null;
       error: string | null;
+      dir: string | null;
+      recommended: string | null;
+      checkedAt: number | null;
+      /** Неудач локального движка подряд — по ним открывается пауза. */
+      breakerFailures: number;
+      /** Сколько осталось ждать до следующей попытки локального (мс). */
+      pausedForMs: number;
     }>;
-    setMode: (mode: 'prod' | 'local') => Promise<{ ok: true; mode: 'prod' | 'local' } | { ok: false; error: string }>;
+    setMode: (mode: 'auto' | 'local' | 'prod') => Promise<
+      { ok: true; mode: 'auto' | 'local' | 'prod' } | { ok: false; error: string }
+    >;
+    /** Отчёт о локальном движке — копируется в буфер одним нажатием. */
+    diagnose: () => Promise<
+      | { ok: true; report: string; state: string; version: string | null; dir: string | null; error: string | null }
+      | { ok: false; error: string }
+    >;
+    /** Попробовать локальный движок снова, не дожидаясь конца паузы. */
+    resetBreaker: () => Promise<{ ok: true }>;
+    /** Где посчитан ответ по строке — оператор видит «считал сервер». */
+    answerSource: (id: string) => Promise<{ ok: true; source: 'local' | 'server' | null }>;
   };
   aiAgent: {
     // Синхронный AI-контур снесён 2026-07-25; остался только event-лог.
