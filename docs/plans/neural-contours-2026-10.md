@@ -3,6 +3,7 @@
 > **Тип:** plan · **Статус:** active · **Создан:** 2026-10-20
 > **Задача владельца 20.10:** «Нужно делать оба варианта, потому что я не знаю, какой из них в итоге заработает… надо делать оба и тестировать, смотреть, что заработает».
 > **Источник:** brain, письмо 19.10 [`2026-10-19-neural-selfhost-and-client-contour`](../../mailbox/to-brain/) (отменяет письмо `…-neural-access-iiivanich-via-es-vps`), решение [D-149](../../../brain_matrica/docs/DECISIONS.md), планы Мозга `neural-selfhost.md` и `matrica-client-engine.md`, рецепт движка — [#373](../../../brain_matrica/cross-project-ideas/ideas/373-opencode-v2-httpapi-headless-engine.md).
+> **Отчёт в brain (21.10):** [`mailbox/to-brain/2026-10-21-neural-contours-both-installed.md`](../../mailbox/to-brain/2026-10-21-neural-contours-both-installed.md) — оба контура поставлены (A — движок на нашем проде, B — движок на машинах парка в продукте с 3.86.0); что осталось открытым — там же.
 
 ## Итог первых замеров (20.10.2026)
 
