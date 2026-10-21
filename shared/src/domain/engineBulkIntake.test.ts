@@ -101,6 +101,13 @@ describe('engineBulkIntakeSummary', () => {
     ]);
     expect(summary).toEqual({ create: 1, skip: 2, repeat: 1, update: 1 });
   });
+
+  it('привязанная строка («возможно, опечатка») — дополнение, а не пропуск', () => {
+    // Оператор выбрал карточку из подсказки: точного совпадения нет, но действие — «дополнить».
+    // Пока её считали пропуском, кнопка гасла на «Завести карточки: 0» (смоук 21.10.2026).
+    const summary = engineBulkIntakeSummary([{ action: 'update', existing: null }]);
+    expect(summary).toEqual({ create: 0, skip: 0, repeat: 0, update: 1 });
+  });
 });
 
 describe('engineBulkIntakeMissingFields', () => {
