@@ -275,6 +275,7 @@ New attributes must be registered in `ensureAttributeDefs` inside `SimpleMasterd
    scp "$TMP/app-release.apk" matricarmz:/opt/matricarmz/updates/android/MatricaRMZ-X.Y.Z.apk
    ```
    > ⚠️ **Не гонять `gh release download` на самом проде** — к GitHub CDN оттуда воспроизводимо валится TLS-таймаут. Каталог `updates/` принадлежит сервисному пользователю (тому же, под которым ходит `ssh matricarmz`), так что `scp` идёт без `sudo`. Проверка: `curl -fsSk "https://127.0.0.1/dispatcher/update-plan?platform=android&current=<прежняя>"` → план с новой версией (а не `up-to-date`).
+   > 🧹 **Старые APK в `<updatesDir>/android/` бесполезны и копятся** (проверено 21.10): `/updates/file/:name` отдаёт **только свежайший по версии в имени** APK (`getLatestAndroidApkMeta`), старый файл на диске отвечает `404` — ни планшетам, ни откату он не служит (откат планшета — ручная установка APK). Держим один свежий файл; за 3.76–3.84 накопилось 9 файлов ≈434 МБ при 3.2 ГБ свободных — чистка вернула ~386 МБ.
 
 9. `corepack pnpm release:ledger-publish X.Y.Z` — publishes the release into the ledger. Still **before** restart. Note it does **not** rewrite `latest.json` itself — that is the rescan's job (see step 8).
 10. Restart services: `sudo systemctl restart matricarmz-backend-primary.service matricarmz-backend-secondary.service`. Verify with `curl -fsk https://127.0.0.1/health` (should report new version).
