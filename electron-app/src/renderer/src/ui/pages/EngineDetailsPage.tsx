@@ -539,6 +539,13 @@ export function EngineDetailsPage(props: {
     canonicalContractSectionKey(props.engine.attributes?.contract_section_number as string | null | undefined),
   );
   const [contractSectionOptions, setContractSectionOptions] = useState<ContractSectionOption[]>([]);
+  // Секции договора — не снимок «на момент открытия карточки»: ДС заводят в карточке договора,
+  // пока эта карточка уже открыта, а без перезапроса список остаётся прежним до сохранения
+  // двигателя (владелец 21.10.2026). Тик перезапрашивает секции, когда оператор тянется к
+  // выбору ДС и когда окно возвращается в фокус.
+  const [contractSectionsTick, setContractSectionsTick] = useState(0);
+  const [contractSectionsState, setContractSectionsState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const refreshContractSections = useCallback(() => setContractSectionsTick((n) => n + 1), []);
   // Подпись секции для оператора: ключ служебный, показываем номер договора / «ДС N».
   const contractSectionLabel =
     contractSectionOptions.find((o) => o.id === contractSectionNumber)?.label ??
@@ -1102,22 +1109,47 @@ export function EngineDetailsPage(props: {
       setContractCustomerId('');
       setContractSectionOptions([]);
       setContractRepairDays(DEFAULT_CONTRACT_REPAIR_DAYS);
+      setContractSectionsState('idle');
       return;
     }
+    let cancelled = false;
+    setContractSectionsState('loading');
     void (async () => {
       try {
         const contract = await window.matrica.admin.entities.get(contractId);
+        if (cancelled) return;
         const sections = parseContractSections((contract as { attributes?: Record<string, unknown> })?.attributes ?? {});
         setContractSectionOptions(buildContractSectionOptions(sections));
         setContractRepairDays(effectiveRepairDays(sections));
         const contractAttrs = ((contract as { attributes?: Record<string, unknown> })?.attributes ?? {}) as Record<string, unknown>;
         setContractCustomerId(String(sections.primary.customerId ?? contractAttrs.customer_id ?? '').trim());
+        setContractSectionsState('idle');
       } catch {
+        if (cancelled) return;
         setContractSectionOptions([]);
         setContractRepairDays(DEFAULT_CONTRACT_REPAIR_DAYS);
+        setContractSectionsState('error');
       }
     })();
-  }, [contractId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [contractId, contractSectionsTick]);
+
+  // Вернулись в окно из карточки договора или из другого приложения — секции могли устареть.
+  useEffect(() => {
+    if (!contractId) return undefined;
+    const refresh = () => {
+      if (document.visibilityState === 'hidden') return;
+      refreshContractSections();
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [contractId, refreshContractSections]);
 
   // Дата последней любой работы по двигателю — вкладке платежей она нужна, чтобы не звать
   // просрочкой забытую карточку (список контрактов её уже называет «без движения»).
@@ -2279,20 +2311,42 @@ export function EngineDetailsPage(props: {
           label: 'ДС контракта',
           value: contractSectionNumber,
           render: (
-            <SearchSelect
-              value={contractSectionNumber || null}
-              options={(contractSectionNumber && !contractSectionOptions.some((o) => o.id === contractSectionNumber)
-                ? [{ id: contractSectionNumber, label: contractSectionLabel }, ...contractSectionOptions]
-                : contractSectionOptions
-              ).map((o) => ({ id: o.id, label: o.label }))}
-              placeholder={contractId ? 'Выберите ДС' : 'Сначала выберите контракт'}
-              disabled={!canEditEnginesEff || !contractId || contractSectionOptions.length === 0}
-              showAllWhenEmpty
-              onChange={(next) => {
-                setSessionChanged(true);
-                setContractSectionNumber(next ?? '');
+            // Перезапрос по обращению к полю: ДС могли завести в карточке договора уже после
+            // того, как эта карточка открылась. Поле не выключается из-за пустого списка —
+            // иначе оператору нечем повторить запрос и остаётся только «Сохранить».
+            <div
+              style={{ display: 'grid', gap: 4 }}
+              onPointerDownCapture={() => {
+                if (contractId) refreshContractSections();
               }}
-            />
+              onFocusCapture={() => {
+                if (contractId) refreshContractSections();
+              }}
+            >
+              <SearchSelect
+                value={contractSectionNumber || null}
+                options={(contractSectionNumber && !contractSectionOptions.some((o) => o.id === contractSectionNumber)
+                  ? [{ id: contractSectionNumber, label: contractSectionLabel }, ...contractSectionOptions]
+                  : contractSectionOptions
+                ).map((o) => ({ id: o.id, label: o.label }))}
+                placeholder={
+                  contractId
+                    ? (contractSectionsState === 'loading' ? 'Загружаю ДС…' : 'Выберите ДС')
+                    : 'Сначала выберите контракт'
+                }
+                disabled={!canEditEnginesEff || !contractId}
+                showAllWhenEmpty
+                onChange={(next) => {
+                  setSessionChanged(true);
+                  setContractSectionNumber(next ?? '');
+                }}
+              />
+              {contractId && contractSectionsState === 'error' ? (
+                <div style={{ fontSize: 12, color: 'var(--warning, #b45309)' }}>
+                  Не удалось прочитать ДС договора — нажмите на поле, чтобы повторить
+                </div>
+              ) : null}
+            </div>
           ),
         }
       : null,
