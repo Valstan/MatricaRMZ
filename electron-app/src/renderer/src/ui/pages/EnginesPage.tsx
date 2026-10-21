@@ -1356,10 +1356,17 @@ export function EnginesPage(props: {
             if (r.defectStageMissed > 0) {
               parts.push(`этап дефектовки не встал: ${r.defectStageMissed} (дата раньше прихода или нет права)`);
             }
+            if ((r.otkApplied ?? 0) > 0) parts.push(`входной контроль ОТК поставлен: ${r.otkApplied}`);
+            if ((r.otkMissed ?? 0) > 0) {
+              parts.push(`входной контроль ОТК не создан: ${r.otkMissed}${r.otkError ? ` (${r.otkError})` : ''}`);
+            }
+            if ((r.otkConflicts ?? 0) > 0) {
+              parts.push(`в карточке другой входной контроль: ${r.otkConflicts} — не перезаписывали`);
+            }
             if (r.error) parts.push(r.error);
             props.onNotify?.(
               parts.join(' · '),
-              r.error || r.slotErrors > 0 || r.defectStageMissed > 0 ? 'error' : 'info',
+              r.error || r.slotErrors > 0 || r.defectStageMissed > 0 || (r.otkMissed ?? 0) > 0 ? 'error' : 'info',
             );
           }}
         />

@@ -90,6 +90,8 @@ export type EngineBulkIntakeExisting = {
   /** Внутренний номер как в журнале ('41'), без года. */
   internalNumber: string | null;
   internalNumberYear: number | null;
+  /** Номер накладной прихода (`arrival_invoice`) — своя у каждого двигателя. */
+  waybillNumber: string | null;
   /**
    * У двигателя уже есть строка этапа «Разборка/Дефектовка». Дату дефектовки
    * дописываем только туда, где этапа нет: `ensureRepairStageRow` идемпотентен, но
@@ -105,7 +107,15 @@ export type EngineBulkIntakePreviewRow = {
   existing: EngineBulkIntakeExisting | null;
   /** Тот же номер встретился в этом же тексте выше. */
   repeatedInBatch: boolean;
+  /**
+   * Похожие номера из базы (не точные совпадения): «возможно, опечатка». Оператор
+   * привязывает строку к найденному двигателю вместо заведения двойника.
+   */
+  similar: EngineBulkIntakeSimilar[];
 };
+
+/** Кандидат «возможно, вы имели в виду этот двигатель». */
+export type EngineBulkIntakeSimilar = { id: string; engineNumber: string };
 
 export type EngineBulkIntakePreview = {
   rows: EngineBulkIntakePreviewRow[];
@@ -122,11 +132,17 @@ export type EngineBulkIntakeOffer = {
   brandId: string | null;
   customerId: string | null;
   contractId: string | null;
+  /**
+   * «Входной контроль ОТК» — ОДНА дата на три действия (владелец 21.10.2026):
+   * дата прихода на завод, дата акта комплектности и дата этапа «Входной контроль ОТК».
+   */
   arrivalDate: number | null;
   internalNumber: string | null;
   internalNumberYear: number | null;
   /** Дата этапа «Разборка/Дефектовка» — отдельного поля в карточке нет с 01.10.2026. */
   defectDate: number | null;
+  /** Номер накладной прихода — у каждого двигателя свой, общей быть не может. */
+  waybillNumber: string | null;
 };
 
 /** Поле карточки, которое приём может дописать. */
@@ -136,15 +152,17 @@ export type EngineBulkIntakeField =
   | 'contract'
   | 'arrivalDate'
   | 'internalNumber'
-  | 'defectDate';
+  | 'defectDate'
+  | 'waybillNumber';
 
 export const ENGINE_BULK_INTAKE_FIELD_LABELS: Readonly<Record<EngineBulkIntakeField, string>> = {
   engineBrand: 'марка',
   customer: 'контрагент',
   contract: 'договор',
-  arrivalDate: 'дата прихода',
+  arrivalDate: 'входной контроль ОТК',
   internalNumber: 'внутренний номер',
   defectDate: 'дата дефектовки',
+  waybillNumber: 'номер накладной',
 };
 
 /** «марка, договор» — для строки превью и для итога. */
@@ -168,6 +186,7 @@ export function engineBulkIntakeMissingFields(
   if (offer.arrivalDate && !existing.arrivalDate) missing.push('arrivalDate');
   if (offer.internalNumber && !existing.internalNumber) missing.push('internalNumber');
   if (offer.defectDate && !existing.hasDefectStage) missing.push('defectDate');
+  if (offer.waybillNumber && !existing.waybillNumber) missing.push('waybillNumber');
   return missing;
 }
 
@@ -192,6 +211,9 @@ export function engineBulkIntakeConflictingFields(
   const offered = normalizeEngineInternalNumber(offer.internalNumber ?? '');
   const card = normalizeEngineInternalNumber(existing.internalNumber ?? '');
   if (offered && card && offered !== card) out.push('internalNumber');
+  const offeredWaybill = String(offer.waybillNumber ?? '').trim();
+  const cardWaybill = String(existing.waybillNumber ?? '').trim();
+  if (offeredWaybill && cardWaybill && offeredWaybill !== cardWaybill) out.push('waybillNumber');
   return out;
 }
 
@@ -234,7 +256,99 @@ export type EngineBulkIntakeRowInput = {
   previousEngineId?: string;
   /** Внутренний номер ЭТОГО двигателя ('41' или '41/26') — один на пачку не бывает. */
   internalNumber?: string;
+  /**
+   * Блок «Индивидуально по каждому» (владелец 21.10.2026): марка, дата входного
+   * контроля ОТК, номер накладной и дата дефектовки — у каждого двигателя свои,
+   * и перекрывают общие поля пачки.
+   */
+  brandId?: string | null;
+  incomingOtkDate?: number | null;
+  waybillNumber?: string | null;
+  defectDate?: number | null;
 };
+
+/**
+ * Порядок действий по умолчанию (владелец 21.10.2026): у нового двигателя —
+ * «Создать», у уже заведённого — «Обновить» (дозаполнение), а не «Пропустить».
+ * Пропуск без изменений остаётся, когда дописывать нечего: иначе итог обещал бы
+ * работу, которой нет.
+ */
+export function effectiveEngineBulkIntakeAction(
+  existing: EngineBulkIntakeExisting | null,
+  decision: EngineBulkIntakeAction | null | undefined,
+  hasSomethingToAdd: boolean,
+): EngineBulkIntakeAction {
+  if (!existing) return 'create';
+  if (decision) return decision;
+  return hasSomethingToAdd ? 'update' : 'skip';
+}
+
+/** Меньше этого числа символов в номере — «похожесть» уже не подсказка, а шум. */
+const SIMILAR_MIN_KEY_LENGTH = 3;
+
+/**
+ * Расстояние Левенштейна с отсечкой: как только ясно, что больше `max`, считаем
+ * «далеко» и не тратим время. Номера короткие, но кандидатов тысячи.
+ */
+export function engineBulkIntakeKeyDistance(a: string, b: string, max: number): number {
+  if (a === b) return 0;
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev = new Array<number>(b.length + 1);
+  let cur = new Array<number>(b.length + 1);
+  for (let j = 0; j <= b.length; j += 1) prev[j] = j;
+  for (let i = 1; i <= a.length; i += 1) {
+    cur[0] = i;
+    let best = Number.POSITIVE_INFINITY;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      const value = Math.min((prev[j]! + 1), (cur[j - 1]! + 1), (prev[j - 1]! + cost));
+      cur[j] = value;
+      if (value < best) best = value;
+    }
+    if (best > max) return max + 1;
+    const swap = prev;
+    prev = cur;
+    cur = swap;
+  }
+  return prev[b.length]!;
+}
+
+/**
+ * Похожие номера: «возможно, опечатка» (владелец 21.10.2026). Точное совпадение —
+ * это гейт дублей, а не подсказка, поэтому своей же пары в кандидатах нет.
+ * Нормализация та же, что у гейта (`engineBulkIntakeKey`), так что «АБ-12» и
+ * «аб 12» считаются одним номером, а не «похожими».
+ */
+export function engineBulkIntakeSimilarNumbers(
+  rows: ReadonlyArray<{ key: string }>,
+  candidates: ReadonlyArray<{ id: string; engineNumber: string; key?: string }>,
+  options?: { maxDistance?: number; limitPerRow?: number },
+): Map<string, EngineBulkIntakeSimilar[]> {
+  const maxDistance = options?.maxDistance ?? 2;
+  const limitPerRow = options?.limitPerRow ?? 3;
+  const out = new Map<string, EngineBulkIntakeSimilar[]>();
+  const prepared = candidates
+    .map((c) => ({ id: c.id, engineNumber: c.engineNumber, key: c.key ?? engineBulkIntakeKey(c.engineNumber) }))
+    .filter((c) => c.key);
+  for (const row of rows) {
+    const key = String(row.key ?? '');
+    if (key.length < SIMILAR_MIN_KEY_LENGTH) continue;
+    const found: Array<EngineBulkIntakeSimilar & { distance: number }> = [];
+    for (const candidate of prepared) {
+      if (candidate.key === key) continue;
+      const distance = engineBulkIntakeKeyDistance(key, candidate.key, maxDistance);
+      if (distance > maxDistance) continue;
+      found.push({ id: candidate.id, engineNumber: candidate.engineNumber, distance });
+    }
+    if (found.length === 0) continue;
+    found.sort((a, b) => a.distance - b.distance || a.engineNumber.localeCompare(b.engineNumber, 'ru'));
+    out.set(
+      key,
+      found.slice(0, limitPerRow).map(({ id, engineNumber }) => ({ id, engineNumber })),
+    );
+  }
+  return out;
+}
 
 /**
  * Что приходит в main. Все общие поля необязательны: пачку можно принять без
@@ -266,6 +380,13 @@ export type EngineBulkIntakeApplyResult =
       /** Дата дефектовки была, а этап не встал (нет права, дата раньше прихода). */
       defectStageMissed: number;
       defectStageError: string | null;
+      /** Акт комплектности (входной контроль ОТК) поставлен датой пачки. */
+      otkApplied: number;
+      /** Входной контроль нужен был, а акт не создан (нет права, шаблона, другой акт). */
+      otkMissed: number;
+      otkError: string | null;
+      /** В карточке уже другой входной контроль — не перезаписывали. */
+      otkConflicts: number;
     }
   /** Отказ в середине пачки: сколько успело завестись, чтобы окно не потеряло эти карточки. */
   | {
@@ -278,6 +399,10 @@ export type EngineBulkIntakeApplyResult =
       contractedIds?: string[];
       defectStageMissed?: number;
       defectStageError?: string | null;
+      otkApplied?: number;
+      otkMissed?: number;
+      otkError?: string | null;
+      otkConflicts?: number;
     };
 
 /** «Заведём N · дополним M · пропустим K» — одна подпись на кнопку и на итог. */

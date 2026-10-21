@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  effectiveEngineBulkIntakeAction,
   engineBulkIntakeConflictingFields,
   engineBulkIntakeKey,
   engineBulkIntakeMissingFields,
+  engineBulkIntakeSimilarNumbers,
   engineBulkIntakeSummary,
   ENGINE_BULK_INTAKE_MAX,
   parseEngineBulkIntake,
@@ -24,6 +26,7 @@ const card = (over: Partial<EngineBulkIntakeExisting> = {}): EngineBulkIntakeExi
   contractId: null,
   internalNumber: null,
   internalNumberYear: null,
+  waybillNumber: null,
   hasDefectStage: false,
   ...over,
 });
@@ -36,6 +39,7 @@ const offer = (over: Partial<EngineBulkIntakeOffer> = {}): EngineBulkIntakeOffer
   internalNumber: null,
   internalNumberYear: null,
   defectDate: null,
+  waybillNumber: null,
   ...over,
 });
 
@@ -218,5 +222,86 @@ describe('engineBulkIntakeInternalNumberDuplicates', () => {
 describe('ENGINE_BULK_INTAKE_MAX', () => {
   it('порог описан числом, а не магией в форме', () => {
     expect(ENGINE_BULK_INTAKE_MAX).toBeGreaterThanOrEqual(100);
+  });
+});
+
+describe('порядок действий по умолчанию', () => {
+  it('новый двигатель — «создать», а не «пропустить»', () => {
+    expect(effectiveEngineBulkIntakeAction(null, undefined, false)).toBe('create');
+  });
+
+  it('существующий по умолчанию — «обновить», если есть что дописать (владелец 21.10.2026)', () => {
+    expect(effectiveEngineBulkIntakeAction(card(), undefined, true)).toBe('update');
+  });
+
+  it('дописывать нечего — «пропустить»: итог не обещает работу, которой нет', () => {
+    expect(effectiveEngineBulkIntakeAction(card(), undefined, false)).toBe('skip');
+  });
+
+  it('выбор оператора сильнее умолчания', () => {
+    expect(effectiveEngineBulkIntakeAction(card(), 'repeat_arrival', true)).toBe('repeat_arrival');
+    expect(effectiveEngineBulkIntakeAction(card(), 'skip', true)).toBe('skip');
+  });
+});
+
+describe('номер накладной в строке', () => {
+  it('дописывается, когда в карточке пусто', () => {
+    expect(engineBulkIntakeMissingFields(card(), offer({ waybillNumber: 'Н-17' }))).toEqual(['waybillNumber']);
+  });
+
+  it('другой номер — расхождение, а не перезапись', () => {
+    const existing = card({ waybillNumber: 'Н-17' });
+    expect(engineBulkIntakeConflictingFields(existing, offer({ waybillNumber: 'Н-18' }))).toEqual(['waybillNumber']);
+    expect(engineBulkIntakeMissingFields(existing, offer({ waybillNumber: 'Н-17' }))).toEqual([]);
+  });
+});
+
+describe('engineBulkIntakeSimilarNumbers', () => {
+  const candidates = [
+    { id: 'e1', engineNumber: '1234567' },
+    { id: 'e2', engineNumber: '7654321' },
+    { id: 'e3', engineNumber: '1234599' },
+  ];
+
+  it('находит номер, отличный на одну цифру', () => {
+    const found = engineBulkIntakeSimilarNumbers([{ key: engineBulkIntakeKey('1234568') }], candidates);
+    const list = found.get(engineBulkIntakeKey('1234568')) ?? [];
+    expect(list[0]?.engineNumber).toBe('1234567');
+  });
+
+  it('свой номер не подсказывает — это гейт дублей, а не «похоже»', () => {
+    const found = engineBulkIntakeSimilarNumbers([{ key: engineBulkIntakeKey('1234567') }], candidates);
+    const list = found.get(engineBulkIntakeKey('1234567')) ?? [];
+    expect(list.map((c) => c.engineNumber)).not.toContain('1234567');
+  });
+
+  it('регистр и дефисы не делают номер «похожим» — это тот же номер', () => {
+    const found = engineBulkIntakeSimilarNumbers(
+      [{ key: engineBulkIntakeKey('ab-12') }],
+      [{ id: 'x', engineNumber: 'AB 12' }],
+    );
+    expect(found.size).toBe(0);
+  });
+
+  it('далёкие номера не подсказывает', () => {
+    const found = engineBulkIntakeSimilarNumbers([{ key: engineBulkIntakeKey('9999999') }], candidates);
+    expect(found.size).toBe(0);
+  });
+
+  it('короткие номера не подсказывает: «1» и «2» — это не опечатка', () => {
+    const found = engineBulkIntakeSimilarNumbers([{ key: '1' }], [{ id: 'x', engineNumber: '2' }]);
+    expect(found.size).toBe(0);
+  });
+
+  it('не больше трёх кандидатов и ближний первым', () => {
+    const found = engineBulkIntakeSimilarNumbers([{ key: engineBulkIntakeKey('1234568') }], [
+      { id: 'far', engineNumber: '1234688' },
+      { id: 'close', engineNumber: '1234567' },
+      { id: 'mid', engineNumber: '1234569' },
+      { id: 'extra', engineNumber: '1235588' },
+    ]);
+    const list = found.get(engineBulkIntakeKey('1234568')) ?? [];
+    expect(list).toHaveLength(3);
+    expect(list[0]?.id).toBe('close');
   });
 });
