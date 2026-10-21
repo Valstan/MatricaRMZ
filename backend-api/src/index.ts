@@ -12,6 +12,7 @@ import { startFileCacheEvictionJob } from './services/fileCache.js';
 import { startDiagnosticsRetentionJob } from './services/diagnosticsRetentionService.js';
 import { startServicePriceSweepJob } from './services/servicePricingService.js';
 import { startAiChatDirectWorker } from './services/ai/aiChatAnswerService.js';
+import { startServerEngineToolsBridge } from './services/ai/serverEngineTools.js';
 import { startAiChatHotlineBridge } from './services/ai/aiChatHotlineBridgeService.js';
 import { startAiUsageDigestScheduler } from './services/ai/aiUsageDigestService.js';
 import { startLogAnalysisAgent } from './services/ai/logAnalysisAgentService.js';
@@ -124,6 +125,9 @@ async function bootstrap() {
     // Цена «с 1-го числа» из приказа — в карточку услуги ночным проходом, без напоминаний.
     startServicePriceSweepJob();
     startAiChatDirectWorker();
+    // Контур A: инструменты серверного движка приходят в бэкенд через loopback-мост,
+    // поэтому он живёт рядом с воркером (тот же primary-инстанс).
+    startServerEngineToolsBridge();
     // D-111: мост очереди ИИваныча в Телефон (живая сессия отвечает, пока DeepSeek не оплачен).
     startAiChatHotlineBridge();
     startAiUsageDigestScheduler();
