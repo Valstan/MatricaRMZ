@@ -5,6 +5,7 @@ import {
   applyEmployeeFacets,
   employeeFacetIsActive,
   employeeFacetOptions,
+  employeeRoleLabelRu,
   sanitizeEmployeeFacetSelection,
   toggleEmployeeFacetValue,
   type EmployeeFacetRow,
@@ -73,7 +74,10 @@ describe('ступени списка сотрудников', () => {
     expect(ids(applyEmployeeFacets(rows, { access: ['no'] }))).toEqual(['e2']);
     // У e2 роль admin, но доступ закрыт — вариантом «Администратор» он не считается.
     expect(ids(applyEmployeeFacets(rows, { role: ['администратор'] }))).toEqual(['e1']);
-    expect(employeeFacetOptions(rows, {}, 'role').map((o) => o.value).sort()).toEqual(['администратор', 'пользователь']);
+    expect(employeeFacetOptions(rows, {}, 'role').map((o) => o.value).sort()).toEqual([
+      'администратор',
+      'пользователь (полный доступ, устар.)',
+    ]);
   });
 
   it('табельный номер, файлы и заявка на удаление — признаки', () => {
@@ -110,5 +114,32 @@ describe('ступени списка сотрудников', () => {
     const idsList = EMPLOYEE_FACETS.map((f) => f.id);
     expect(new Set(idsList).size).toBe(idsList.length);
     expect(EMPLOYEE_FACETS.every((f) => f.label.trim().length > 0)).toBe(true);
+  });
+});
+
+describe('подписи ролей в списке сотрудников (владелец 21.10.2026)', () => {
+  it('операторские роли подписаны по-русски, а не английским ключом', () => {
+    expect(employeeRoleLabelRu('storekeeper')).toBe('Кладовщик');
+    expect(employeeRoleLabelRu('engineer')).toBe('Двигателист');
+    expect(employeeRoleLabelRu('technolog')).toBe('Технолог');
+    expect(employeeRoleLabelRu('master')).toBe('Мастер (наряды)');
+    expect(employeeRoleLabelRu('supply')).toBe('Снабжение/ПЭО');
+    expect(employeeRoleLabelRu('viewer')).toBe('Наблюдатель');
+    expect(employeeRoleLabelRu('timekeeper')).toBe('Табельщик');
+    expect(employeeRoleLabelRu('STOREKEEPER')).toBe('Кладовщик');
+  });
+
+  it('админские и системные роли называют себя полностью', () => {
+    expect(employeeRoleLabelRu('superadmin')).toBe('Суперадминистратор');
+    expect(employeeRoleLabelRu('admin')).toBe('Администратор');
+    // Сотрудник без учётной записи — тот самый «по умолчанию без доступа».
+    expect(employeeRoleLabelRu('employee')).toBe('Сотрудник (без доступа)');
+    expect(employeeRoleLabelRu('pending')).toBe('Ожидает подтверждения');
+  });
+
+  it('пустая роль и незнакомый ключ не роняют колонку', () => {
+    expect(employeeRoleLabelRu('')).toBe('Пользователь');
+    expect(employeeRoleLabelRu(null)).toBe('Пользователь');
+    expect(employeeRoleLabelRu('unknown_role')).toBe('unknown_role');
   });
 });

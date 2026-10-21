@@ -5,6 +5,7 @@ import {
   applyEmployeeFacets,
   describeFacetSelection,
   employeeFacetIsActive,
+  employeeRoleLabelRu,
   employmentStatusLabelRu,
   resolveEmploymentStatusCode,
   sanitizeEmployeeFacetSelection,
@@ -93,17 +94,6 @@ type EmployeesListUiState = {
   /** Раскрыта ли панель фильтров (по умолчанию свёрнута — тулбар должен быть коротким). */
   facetsOpen?: boolean;
 };
-
-function formatAccessRole(role: string | null | undefined) {
-  const normalized = String(role ?? '').trim().toLowerCase();
-  if (!normalized) return 'Пользователь';
-  if (normalized === 'superadmin') return 'Суперадминистратор';
-  if (normalized === 'admin') return 'Администратор';
-  if (normalized === 'employee') return 'Сотрудник';
-  if (normalized === 'pending') return 'Ожидает подтверждения';
-  if (normalized === 'user') return 'Пользователь';
-  return normalized;
-}
 
 export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; canCreate: boolean; canDelete: boolean; refreshKey?: number }) {
   const { confirm } = useConfirm();
@@ -215,7 +205,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
         matchesQueryInRecord(query, row, [
           formatDepartment(row),
           employmentStatusLabelRu(resolveEmploymentStatusCode(row.employmentStatus, row.terminationDate)),
-          row.accessEnabled === true ? formatAccessRole(row.systemRole) : 'запрещено',
+          row.accessEnabled === true ? employeeRoleLabelRu(row.systemRole) : 'запрещено',
         ], searchMode) || (deepIds?.has(String(row.id)) ?? false),
     );
   }, [deepIds, facetRows, formatDepartment, query, searchMode]);
@@ -247,7 +237,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
       case 'employmentStatus':
         return employmentStatusLabelRu(resolveEmploymentStatusCode(row.employmentStatus, row.terminationDate));
       case 'access':
-        return row.accessEnabled === true ? formatAccessRole(row.systemRole).toLowerCase() : 'запрещено';
+        return row.accessEnabled === true ? employeeRoleLabelRu(row.systemRole).toLowerCase() : 'запрещено';
       case 'updatedAt':
         return Number(row.updatedAt ?? 0);
       default:
@@ -381,7 +371,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
         kind: 'flag',
         render: (row) => (
           <span style={{ color: row.accessEnabled === true ? '#065f46' : '#b91c1c' }}>
-            {row.accessEnabled === true ? formatAccessRole(row.systemRole) : 'запрещено'}
+            {row.accessEnabled === true ? employeeRoleLabelRu(row.systemRole) : 'запрещено'}
           </span>
         ),
       },
@@ -455,7 +445,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
       },
       {
         title: 'Доступ',
-        value: (row: Row) => (row.accessEnabled === true ? formatAccessRole(row.systemRole) : 'запрещено'),
+        value: (row: Row) => (row.accessEnabled === true ? employeeRoleLabelRu(row.systemRole) : 'запрещено'),
       },
     ],
     [formatDepartment],
