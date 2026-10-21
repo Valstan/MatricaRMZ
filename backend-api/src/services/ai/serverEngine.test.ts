@@ -112,8 +112,14 @@ describe('server engine client', () => {
     const body = JSON.parse(String(createCall![1].body));
     expect(body.model).toEqual({ providerID: 'opencode', id: 'deepseek-v4.1-flash-free' });
     const denied = new Map<string, string>(body.permissions.map((rule: any) => [rule.action, rule.effect]));
-    for (const action of ['shell', 'bash', 'edit', 'write', 'read', 'webfetch']) {
+    for (const action of ['shell', 'bash', 'edit', 'write', 'webfetch']) {
       expect(denied.get(action), `движку запрещён ${action}`).toBe('deny');
+    }
+    // Файловые инструменты запрещать НЕЛЬЗЯ: free-тир движка отвечает на такой
+    // запрос 403 provider.auth и сессия умирает, не начав отвечать (проверено
+    // на живом движке 21.10). Сторож держит список от «добрых улучшений».
+    for (const action of ['read', 'glob', 'grep', 'list']) {
+      expect(denied.has(action), `${action} нельзя запрещать — free-тир отдаёт 403`).toBe(false);
     }
 
     const promptCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/prompt'));
@@ -162,6 +168,30 @@ describe('server engine client', () => {
 
     const outcome = await engine.askServerEngine(ARGS);
     expect(outcome).toMatchObject({ ok: false, kind: 'timeout' });
+  });
+
+  it('причина сбоя берётся из сообщения, даже если idle пришёл раньше', async () => {
+    // Живой движок кладёт ошибку и в idle, и в assistant, а порядок в массиве
+    // разный. Раньше в лог попадало «движок вернул failed» без причины, и
+    // настоящий 403 free-тира искали вслепую.
+    const engine = await loadEngine();
+    const failure = { type: 'provider.auth', status: 403, message: 'free tier can only be used from within OpenCode' };
+    mockEngine([
+      (url) => (url.endsWith('/api/model') ? jsonRes(200, MODELS) : undefined),
+      (url, init) => (url.endsWith('/api/session') && init.method === 'POST' ? jsonRes(200, { data: { id: 'ses_5' } }) : undefined),
+      (url) => (url.endsWith('/prompt') ? jsonRes(200, {}) : undefined),
+      (url, init) =>
+        url.endsWith('/message') && !init.method
+          ? jsonRes(200, { data: [{ type: 'idle', outcome: 'failed', error: failure }, { type: 'assistant', error: failure }] })
+          : undefined,
+    ]);
+
+    const outcome = await engine.askServerEngine(ARGS);
+    expect(outcome).toMatchObject({ ok: false, kind: 'error' });
+    const error = String((outcome as any).error);
+    expect(error).toContain('provider.auth');
+    expect(error).toContain('403');
+    expect(error).toContain('free tier');
   });
 
   it('модель не открылась — пробует следующую из каталога', async () => {
