@@ -29,15 +29,21 @@ import {
   getLlmProvider,
   isLlmConfigured,
   isLlmMisconfigured,
-  type LlmToolDef,
   type LlmToolUse,
+  type LlmWithToolsResult,
   type SystemBlock,
 } from './llmProvider.js';
 import { FULL_TOOL_NAMES, executeTool, getToolDefinitions, type ToolContext } from './llmTools.js';
 import { listBridgedRequestIds } from './aiChatHotlineBridgeService.js';
-import { buildAnswerWorkbook, type AnswerTable } from './answerWorkbook.js';
+import { buildAnswerWorkbook } from './answerWorkbook.js';
 import { buildAnswerDocx } from './answerDocument.js';
-import { appendLearningNote, getLearningNotes } from './aiChatLearningNotes.js';
+import { getLearningNotes } from './aiChatLearningNotes.js';
+import {
+  IIVANYCH_TOOLS,
+  runIivanychTool,
+  type IivanychAnswerSide,
+} from './iivanychTools.js';
+import { askServerEngine, isServerEngineEnabled } from './serverEngine.js';
 
 const TICK_MS = Math.max(500, Number(process.env.AI_CHAT_DIRECT_TICK_MS ?? 2_000));
 /** Строка зависла в `processing` (рестарт сервера посреди ответа) — вернуть в очередь. */
@@ -54,40 +60,6 @@ const ANSWER_MAX_STEPS = Math.max(1, Math.min(Number(process.env.AI_CHAT_ANSWER_
 /** Текстовое вложение к вопросу инлайнится в промпт — картинки/офис движок не читает. */
 const INLINE_FILE_MAX_BYTES = 200_000;
 const INLINE_FILE_EXTENSIONS = ['.txt', '.csv', '.md', '.json', '.log', '.xml', '.yaml', '.yml'];
-
-const ESCALATE_TOOL: LlmToolDef = {
-  name: 'escalate_to_admin',
-  description:
-    'Передать вопрос администратору, когда ответить нельзя: не хватает прав или данных в базе, ' +
-    'вопрос вне программы, требуется управленческое решение. Вызывай вместо выдуманного ответа.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      reason: { type: 'string', description: 'Чего не хватает для ответа — одной-двумя фразами.' },
-    },
-    required: ['reason'],
-  },
-};
-
-const ATTACH_TABLE_TOOL: LlmToolDef = {
-  name: 'attach_table',
-  description:
-    'Приложить к ответу файл Excel (.xlsx) с таблицей. Вызывай, когда пользователь просит ответ файлом ' +
-    'или таблица длиннее ~15 строк. Один вызов — один лист. После вызова всё равно дай короткий текстовый вывод.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      filename: { type: 'string', description: 'Имя файла без расширения, по-русски, коротко.' },
-      columns: { type: 'array', items: { type: 'string' }, description: 'Заголовки колонок.' },
-      rows: {
-        type: 'array',
-        description: 'Строки таблицы: массив массивов значений в порядке колонок.',
-        items: { type: 'array', items: { type: 'string' } },
-      },
-    },
-    required: ['filename', 'columns', 'rows'],
-  },
-};
 
 const BASE_PROMPT =
   'Ты ИИваныч — помощник работников ремонтно-механического завода в ERP-программе «Матрица РМЗ». ' +
@@ -107,21 +79,6 @@ const BASE_PROMPT =
   'настройками (период, марка, договор, заказчик из вопроса). Маркер не сочиняй и внутрь него ничего не дописывай — ' +
   'испорченная строка откроет отчёт без отбора, и человек об этом не узнает. Словами скажи, что подставлено. ' +
   'К каждому текстовому ответу сервер сам прикладывает документ Word — отдельно собирать его не нужно.';
-
-const SAVE_LEARNING_NOTE_TOOL: LlmToolDef = {
-  name: 'save_learning_note',
-  description:
-    'Сохранить короткую заметку самообучения: как понимать пользователей в будущем. ' +
-    'Примеры: «ОВК = заказчик ООО "ОВК" (тип customer)», «рекламации ищи через get_reclamations». ' +
-    'Вызывай после успешного уточнения или когда обнаружил неочевидное соответствие. Одна фраза, без воды.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      note: { type: 'string', description: 'Одна короткая фраза-правило.' },
-    },
-    required: ['note'],
-  },
-};
 
 const MAX_ATTEMPTS = Math.max(1, Number(process.env.AI_CHAT_ANSWER_MAX_ATTEMPTS ?? 3));
 
@@ -201,18 +158,6 @@ async function describeQuestionFile(questionFileJson: string | null): Promise<st
   } catch (e) {
     return `К вопросу приложен файл «${name}», но прочитать его не удалось (${String(e)}).`;
   }
-}
-
-function parseAttachTable(input: Record<string, unknown>): AnswerTable | null {
-  const columns = Array.isArray(input.columns) ? input.columns.map((c) => String(c ?? '')) : [];
-  const rawRows = Array.isArray(input.rows) ? input.rows : [];
-  if (columns.length === 0 || rawRows.length === 0) return null;
-  const rows = rawRows
-    .filter((r): r is unknown[] => Array.isArray(r))
-    .map((r) => r.map((v) => (v == null ? '' : String(v))));
-  if (rows.length === 0) return null;
-  const filename = String(input.filename ?? 'Таблица').trim() || 'Таблица';
-  return { filename, columns, rows };
 }
 
 /** Забрать вопрос в работу: pending → processing (виден клиенту как «думает»). */
@@ -332,46 +277,65 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
       : []),
   ].join('\n');
 
-  const tables: AnswerTable[] = [];
-  let escalationReason: string | null = null;
+  const side: IivanychAnswerSide = { escalationReason: null, tables: [] };
 
-  const result = await callLlmWithTools({
-    model: AI_MODEL_ANALYTICS,
-    systemBlocks,
+  // Контур A: первым считает серверный движок (opencode на проде). Инструменты
+  // приезжают ему не из in-process цикла, а по MCP-мосту (serverEngineTools),
+  // поэтому контекст сотрудника — права и побочные результаты — объявляется
+  // активным на время ответа внутри askServerEngine.
+  const engine = await askServerEngine({
+    systemPrompt: systemBlocks.map((block) => block.text).join('\n\n'),
     userMessage,
-    tools: [...getToolDefinitions(FULL_TOOL_NAMES), ESCALATE_TOOL, ATTACH_TABLE_TOOL, SAVE_LEARNING_NOTE_TOOL],
-    scope: 'iivanych',
-    options: { timeoutMs: ANSWER_TIMEOUT_MS, maxTokens: ANSWER_MAX_TOKENS, temperature: 0.2 },
-    maxSteps: ANSWER_MAX_STEPS,
-    executeTool: async (toolUse: LlmToolUse) => {
-      if (toolUse.name === ESCALATE_TOOL.name) {
-        escalationReason = String(toolUse.input?.reason ?? '').trim() || 'причина не указана';
-        return { content: 'Вопрос передан администратору. Заверши ответ короткой фразой об этом.' };
-      }
-      if (toolUse.name === SAVE_LEARNING_NOTE_TOOL.name) {
-        const res = await appendLearningNote(String(toolUse.input?.note ?? ''));
-        return res.ok
-          ? { content: 'Заметка сохранена.' }
-          : { content: `Заметка не сохранена: ${res.error}`, isError: true };
-      }
-      if (toolUse.name === ATTACH_TABLE_TOOL.name) {
-        const table = parseAttachTable(toolUse.input ?? {});
-        if (!table) return { content: 'Таблица пустая — заполни columns и rows.', isError: true };
-        tables.push(table);
-        return { content: `Файл «${table.filename}.xlsx» приложен к ответу (${table.rows.length} строк).` };
-      }
-      return executeTool(toolUse, toolCtx);
-    },
+    toolCtx,
+    side,
   });
 
-  if (escalationReason) {
-    await finish(row, actor, { status: 'escalated', escalationNote: escalationReason });
+  let result: LlmWithToolsResult;
+  if (engine.ok) {
+    result = {
+      text: engine.text,
+      toolUses: [],
+      steps: engine.steps,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      stopReason: `engine:${engine.model}`,
+    };
+  } else {
+    // DeepSeek — последнее звено цепочки. Пишем причину, только когда движок
+    // включён: выключенный движок не сбой, а штатная настройка.
+    if (isServerEngineEnabled() && engine.kind !== 'unavailable') {
+      logError('ai chat direct: server engine failed, falling back to deepseek', {
+        id: requestId,
+        kind: engine.kind,
+        error: engine.error,
+      });
+    }
+    result = await callLlmWithTools({
+      model: AI_MODEL_ANALYTICS,
+      systemBlocks,
+      userMessage,
+      tools: [...getToolDefinitions(FULL_TOOL_NAMES), ...IIVANYCH_TOOLS],
+      scope: 'iivanych',
+      options: { timeoutMs: ANSWER_TIMEOUT_MS, maxTokens: ANSWER_MAX_TOKENS, temperature: 0.2 },
+      maxSteps: ANSWER_MAX_STEPS,
+      executeTool: async (toolUse: LlmToolUse) => {
+        const own = await runIivanychTool(toolUse, side);
+        if (own) return own;
+        return executeTool(toolUse, toolCtx);
+      },
+    });
+  }
+
+  if (side.escalationReason) {
+    await finish(row, actor, { status: 'escalated', escalationNote: side.escalationReason });
     await notifySuperadminEscalation(actor, {
       username: String(row.username),
       questionText: String(row.questionText),
-      reason: escalationReason,
+      reason: side.escalationReason,
     }).catch((e) => logError('ai chat direct: superadmin DM failed', { id: requestId, error: String(e) }));
-    logInfo('ai chat direct: escalated', { id: requestId, reason: escalationReason });
+    logInfo('ai chat direct: escalated', { id: requestId, reason: side.escalationReason });
     return;
   }
 
@@ -395,7 +359,7 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
   }
 
   const attachRefs: Record<string, unknown>[] = [];
-  for (const table of tables) {
+  for (const table of side.tables) {
     try {
       const bytes = await buildAnswerWorkbook(table);
       attachRefs.push(await uploadAnswerBuffer(requestId, `${table.filename}.xlsx`, bytes, actor.id));
@@ -422,6 +386,7 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
   });
   logInfo('ai chat direct: answered', {
     id: requestId,
+    source: engine.ok ? `engine:${engine.model}` : 'deepseek',
     steps: result.steps,
     tools: result.toolUses.length,
     attachments: attachRefs.length,
@@ -475,15 +440,19 @@ async function listPending(): Promise<any[]> {
 
 /** Один проход очереди. Экспортируется для тестов и ручного прогона. */
 export async function aiChatDirectTick(): Promise<{ processed: number }> {
-  if (!AI_ENABLED || !isLlmConfigured()) return { processed: 0 };
+  if (!AI_ENABLED) return { processed: 0 };
+  // Движок контура A — самостоятельное звено: без ключа DeepSeek он всё равно
+  // отвечает, поэтому «нет ключа» не выключает очередь целиком.
+  if (!isLlmConfigured() && !isServerEngineEnabled()) return { processed: 0 };
   const actor = await getAiChatActor();
   await reclaimStale(actor).catch((e) => logError('ai chat direct: reclaim failed', { error: String(e) }));
 
   let processed = 0;
   // До пробы — не трогаем pending: всё равно пустим в 402 и зажжём эскалации.
+  // При включённом движке пауза не нужна: вопросы обслуживает он.
   if (creditExhaustedAt > 0) {
     const alive = await probeCredit();
-    if (!alive) return { processed: 0 };
+    if (!alive && !isServerEngineEnabled()) return { processed: 0 };
   }
   for (const row of await listPending()) {
     const id = String(row.id);
