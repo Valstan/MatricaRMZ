@@ -40,15 +40,52 @@
 - Обновление движка на проде — **вручную по чек-листу** (после рестарта: health, пробный
   ответ модели, `systemctl is-active`, `/health` бэкенда).
 
-## Код (ожидаемые точки)
+## Код (сделано 21.10, PR «контур A в продукте»)
 
-- `backend-api/src/services/ai/opencodeEngineClient.ts` — session-API, опрос, таймауты, Basic.
-- `backend-api/src/services/ai/llmProvider.ts` — выбор провайдера по настройке, цепочка отказов.
-- `backend-api/src/services/ai/` — MCP-прокси с read-only инструментами.
-- `backend-api/src/routes/ai*.ts` — асинхронный статус задачи.
-- `electron-app` — статус «считает сервер (движок)» вместо «считает сервер».
-- Тесты: клиент движка (моки session-API: done/limit/error/таймаут), очередь, права инструментов,
-  guard «пишущий SQL отбит».
+- `backend-api/src/services/ai/serverEngine.ts` — клиент session-API прода: выбор free-модели
+  (`GET /api/model`, кэш 10 мин, env-оверрайд), сессия с deny-списком (`shell`, `bash`, `edit`,
+  `write`, `read`, `glob`, `grep`, `webfetch`, `websearch`, …), промпт, опрос `/message` до `idle`,
+  типизированные исходы `ok | limit | timeout | error | unavailable`, пауза после сбоя
+  (лимит — 10 мин, прочее — 2 мин), чтобы следующие вопросы не платили минутами за мёртвое звено.
+- `backend-api/src/services/ai/serverEngineTools.ts` — loopback-мост (127.0.0.1:49390,
+  токен из `AI_SERVER_ENGINE_TOOLS_TOKEN`): `GET /tools` — каталог в форме MCP, `POST /tool` —
+  исполнение тех же инструментов, что у DeepSeek, с правами спросившего сотрудника. Активный
+  контекст один (`withEngineTask`), вне задачи инструменты отбиваются.
+- `backend-api/src/services/ai/iivanychTools.ts` — три «продуктовых» инструмента
+  (`escalate_to_admin`, `attach_table`, `save_learning_note`) вынесены из `aiChatAnswerService`,
+  чтобы их видели оба пути ответа: у движка иначе не было бы эскалации.
+- `backend-api/src/services/ai/aiChatAnswerService.ts` — `answerOne`: движок первым, DeepSeek
+  последним; очередь больше не глохнет без ключа DeepSeek (движок сам себе звено).
+- `scripts/prod-ops/install-engine-mcp.sh` + `scripts/prod-ops/engine-mcp/matrica-engine-mcp.cjs` —
+  установка MCP-прокси движку (конфиг в `/home/opencode/.config/opencode/opencode.json`) и проверка,
+  что `/api/mcp` видит сервер `matrica`.
+- Тесты: `serverEngine.test.ts` (ok/limit/timeout/недоступен/перебор моделей + deny-права сессии),
+  `serverEngineTools.test.ts` (нет токена → 401, каталог = инструменты DeepSeek + три наших,
+  вне задачи — отказ, две задачи разом — ошибка).
+
+### Сверено на живом движке прода (21.10)
+
+- `POST /api/session` принимает `id/parentID/title/agent/model/location/metadata/permissions`;
+  полей `mcp`/`tools` **нет** — инструменты задаются только конфигом движка.
+- `/api/session/<id>/wait` → 404; готовность — сообщение `type: 'idle'` в `GET …/message`.
+- `POST /api/session/<id>/prompt` ждёт `{ text }`; авторизация — HTTP Basic `opencode:<токен>`.
+- `/api/config` → `[{"type":"directory","path":"/home/opencode/.config/opencode"}]`; каталог пуст,
+  `/api/mcp` пуст — инструментов у движка не было до установки моста.
+- Токен движка: `/etc/opencode-web/anon.env` (600 root, каталог не читается пользователем `valstan`),
+  поэтому копия токена живёт в `/etc/matricarmz/matricarmz.env` (там же env бэкенда).
+
+## Что осталось
+
+1. Прописать на проде env: `AI_SERVER_ENGINE_ENABLED=1`, `AI_SERVER_ENGINE_TOKEN`,
+   `AI_SERVER_ENGINE_TOOLS_TOKEN` (сгенерировать), порт моста.
+2. Установить мост движку: `bash scripts/prod-ops/install-engine-mcp.sh` (перезапускает
+   `opencode-web.service`, проверяет `/api/mcp`).
+3. Деплой `scripts/prod-ops/deploy-backend.sh`, приёмка: `:3001`/`:3002` health, пробный вопрос
+   через серверный путь (реальный движок + реальные инструменты + прод-БД), лог
+   `ai chat direct: answered { source: "engine:<модель>" }`, при остановленном движке — откат на
+   DeepSeek без роста ошибок.
+4. Второй PR: поле `answer_source` (`engine` | `deepseek`) в `ai_chat_requests` + вывод
+   «считал сервер (движок)» в окне Ииваныча — чтобы владелец видел источник ответа, а не верил логу.
 
 ## Риски и границы
 
