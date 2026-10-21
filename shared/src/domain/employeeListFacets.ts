@@ -1,4 +1,5 @@
 import { employmentStatusLabelRu, resolveEmploymentStatusCode } from './employees.js';
+import { systemRoleTitleRu } from './permissions.js';
 import {
   activeFacetCount,
   applyFacets,
@@ -69,16 +70,18 @@ function yesNo(on: boolean, yes: string, no: string) {
   return on ? { value: 'yes', label: yes } : { value: 'no', label: no };
 }
 
-/** Русская подпись системной роли — та же, что в колонке «Доступ». */
+/**
+ * Русская подпись системной роли — та же, что в колонке «Доступ».
+ *
+ * Названия ролей берутся из одного места (`SYSTEM_ROLE_CATALOG`), а не из местной
+ * копии: своя копия знала только админские роли, и операторские (`storekeeper`,
+ * `master`, `supply`, `engineer`, `technolog`, `viewer`, `timekeeper`) уезжали в
+ * список сотрудников и в фильтр «Роль» английскими ключами — «Доступ: storekeeper»
+ * вместо «Кладовщик». (просьба владельца 21.10.2026)
+ */
 export function employeeRoleLabelRu(role: string | null | undefined): string {
   const normalized = text(role).toLowerCase();
-  if (!normalized) return 'Пользователь';
-  if (normalized === 'superadmin') return 'Суперадминистратор';
-  if (normalized === 'admin') return 'Администратор';
-  if (normalized === 'employee') return 'Сотрудник';
-  if (normalized === 'pending') return 'Ожидает подтверждения';
-  if (normalized === 'user') return 'Пользователь';
-  return normalized;
+  return normalized ? systemRoleTitleRu(normalized) : 'Пользователь';
 }
 
 export const EMPLOYEE_FACETS: readonly EmployeeFacetDescriptor[] = [

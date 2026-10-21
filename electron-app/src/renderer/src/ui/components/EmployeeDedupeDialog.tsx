@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 
-import type { EmployeeDupGroup, EmployeeMergeReport } from '@matricarmz/shared';
+import { employeeRoleLabelRu, type EmployeeDupGroup, type EmployeeMergeReport } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 
@@ -153,7 +153,7 @@ export function EmployeeDedupeDialog(props: { onClose: () => void; onMerged: () 
                       </td>
                       <td style={{ padding: '4px 6px' }}>{emp.fullName}</td>
                       <td style={{ padding: '4px 6px' }}>{emp.login ?? '—'}</td>
-                      <td style={{ padding: '4px 6px' }}>{emp.systemRole ?? '—'}</td>
+                      <td style={{ padding: '4px 6px' }}>{emp.systemRole ? employeeRoleLabelRu(emp.systemRole) : '—'}</td>
                       <td style={{ padding: '4px 6px' }}>{emp.accessEnabled === true ? 'разрешён' : emp.accessEnabled === false ? 'запрещён' : '—'}</td>
                       <td style={{ padding: '4px 6px' }}>{emp.hasPassword ? 'задан' : 'нет'}</td>
                       <td style={{ padding: '4px 6px' }}>{emp.filledAttrs}</td>
