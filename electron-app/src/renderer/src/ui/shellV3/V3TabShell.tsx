@@ -16,6 +16,7 @@ import { FavoriteStarButton } from '../components/FavoriteStarButton.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
 import { emojiAttrs } from '../utils/labelEmoji.js';
 import { shouldKeepAliveTab } from './keepAlive.js';
+import { MatrixRain } from './MatrixRain.js';
 import rmzLogo from '../../assets/logo_rmz.png';
 import './shellV3.css';
 
@@ -514,24 +515,54 @@ export function V3TabShell(props: {
           со звёздочкой — переключение в один клик. МЕНЮ-оверлей живёт внутри
           .v3-tab-body и рельсу не накрывает. */}
       <div className="v3-body-row">
-        <div className="v3-fav-rail" data-fav-rail="1" title="Избранные разделы">
-          {favoriteCards.map((btn) => (
+        <div className="v3-fav-rail" data-fav-rail="1">
+          <div className="v3-fav-rail-list" title="Избранные разделы">
+            {favoriteCards.map((btn) => (
+              <button
+                key={btn.id}
+                type="button"
+                className="v3-fav-card"
+                data-fav-card={btn.id}
+                data-fav-active={activeMenuTab === btn.id ? '1' : undefined}
+                title={btn.label}
+                onClick={() => { setMenuOverlayOpen(false); props.onMenuTab(btn.id as MenuTabId); }}
+              >
+                <span className="v3-fav-card-icon" aria-hidden="true">{btn.icon}</span>
+                <span className="v3-fav-card-label">{btn.label}</span>
+              </button>
+            ))}
+            {favoriteCards.length === 0 && (
+              <div className="v3-fav-rail-hint">Поставьте ★ в МЕНЮ — раздел появится здесь</div>
+            )}
+          </div>
+          {/* Постоянные плашки — не избранное: они не хранятся в профиле (иначе их можно было бы
+              удалить или не получить на новой машине), а показываются у всех, на всех машинах и
+              аккаунтах (владелец 21.10.2026). Вкладки при этом закрываемые — вернуться можно
+              отсюда. */}
+          <div className="v3-fav-rail-builtins" data-rail-builtin="1">
             <button
-              key={btn.id}
               type="button"
-              className="v3-fav-card"
-              data-fav-card={btn.id}
-              data-fav-active={activeMenuTab === btn.id ? '1' : undefined}
-              title={btn.label}
-              onClick={() => { setMenuOverlayOpen(false); props.onMenuTab(btn.id as MenuTabId); }}
+              className="v3-fav-card v3-fav-card-ai"
+              data-fav-card="ai_chat"
+              aria-label="Ииваныч — спроси меня про что угодно"
+              onClick={() => { setMenuOverlayOpen(false); props.onAction('ai_chat'); }}
             >
-              <span className="v3-fav-card-icon" aria-hidden="true">{btn.icon}</span>
-              <span className="v3-fav-card-label">{btn.label}</span>
+              <MatrixRain className="v3-fav-ai-rain" />
+              <span className="v3-fav-card-icon" aria-hidden="true">🧠</span>
+              <span className="v3-fav-card-label">Ииваныч</span>
+              <span className="v3-fav-tip" role="tooltip">Спроси меня про что угодно, я знаю ответ!</span>
             </button>
-          ))}
-          {favoriteCards.length === 0 && (
-            <div className="v3-fav-rail-hint">Поставьте ★ в МЕНЮ — раздел появится здесь</div>
-          )}
+            <button
+              type="button"
+              className="v3-fav-card v3-fav-card-workshop"
+              data-fav-card="chat"
+              aria-label="Верстак"
+              onClick={() => { setMenuOverlayOpen(false); props.onAction('chat'); }}
+            >
+              <span className="v3-fav-card-icon" aria-hidden="true">🛠️</span>
+              <span className="v3-fav-card-label">ВЕРСТАК</span>
+            </button>
+          </div>
         </div>
       {/* Сравнение живёт ВНУТРИ общего контейнера: будь оно другой веткой тернарника,
           включение «2 рядом» размонтировало бы все живые панели разом. */}

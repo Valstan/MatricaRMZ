@@ -497,7 +497,9 @@
   flex: 0 0 148px;
   width: 148px;
   min-height: 0;
-  overflow-y: auto;
+  /* Прокрутка живёт на списке избранного (ниже), а не здесь: постоянные плашки внизу
+     обязаны стоять на месте при любой прокрутке, а подсказка Ииваныча — не обрезаться. */
+  overflow: visible;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -506,7 +508,26 @@
   border-right: 1px solid var(--border);
 }
 
+.v3-fav-rail-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.v3-fav-rail-builtins {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
 .v3-fav-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -517,6 +538,67 @@
   background: transparent;
   cursor: pointer;
   color: inherit;
+}
+
+/* Кремовые постоянные плашки (владелец 21.10.2026): тёплый фон отличает их от избранного,
+   которое оператор поставил сам. У Ииваныча — кремовый с красноватым оттенком. */
+.v3-fav-card-workshop {
+  background: #fdf3e4;
+  border-color: #e8d6bb;
+}
+
+.v3-fav-card-ai {
+  background: #fbeadf;
+  border-color: #e9c3b4;
+}
+
+.v3-fav-card-ai .v3-fav-card-icon,
+.v3-fav-card-ai .v3-fav-card-label {
+  position: relative;
+  z-index: 1;
+}
+
+/* «Матричный дождь» — фоном плашки, поверх него иконка и подпись. */
+.v3-fav-ai-rain {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.v3-fav-tip {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 60;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #2f2a26;
+  color: #fff8ee;
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+}
+
+.v3-fav-card-ai:hover .v3-fav-tip,
+.v3-fav-card-ai:focus-visible .v3-fav-tip {
+  opacity: 1;
+  visibility: visible;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v3-fav-tip {
+    transition: none;
+  }
 }
 
 .v3-fav-card[data-fav-active='1'] {

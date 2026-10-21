@@ -1015,6 +1015,8 @@ export function App() {
   const [userScreenEditMode, setUserScreenEditMode] = useState<boolean>(false);
   // Чат — обычная вкладка полосы, а не отдельный булев стейт (раньше их было два и они расходились).
   const chatOpen = hasTab(tabsState, 'chat');
+  // Автооткрытие Верстака неодобренному пользователю — один раз, иначе закрытие не держится.
+  const pendingChatAutoOpened = useRef(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState<boolean>(false);
   const [chatContext, setChatContext] = useState<{ selectedUserId: string | null; adminMode: boolean }>({
     selectedUserId: null,
@@ -3042,10 +3044,14 @@ export function App() {
     return () => document.removeEventListener('pointerdown', onPointerDown);
   }, [trashOpen]);
 
-  // For pending users: open chat automatically.
+  // For pending users: open chat automatically — ОДИН раз за сессию. Иначе закрытая вкладка
+  // Верстака возвращалась бы сама (с 21.10.2026 её можно закрыть, плашка в рельсе остаётся).
   useEffect(() => {
     const role = String(authStatus.user?.role ?? '').toLowerCase();
-    if (authStatus.loggedIn && role === 'pending' && canChat && !chatOpen) dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Верстак', focus: true });
+    if (!authStatus.loggedIn || role !== 'pending' || !canChat || chatOpen) return;
+    if (pendingChatAutoOpened.current) return;
+    pendingChatAutoOpened.current = true;
+    dispatchTabs({ type: 'OPEN_SINGLETON', id: 'chat', label: 'Верстак', focus: true });
   }, [authStatus.loggedIn, authStatus.user?.role, canChat, chatOpen]);
 
   function resolveChatSoundUrl(fileName: string) {
@@ -6703,10 +6709,10 @@ export function App() {
       id: t.id,
       kind: t.kind,
       label: t.label,
-      // Меню, Верстак и ИИваныч закрыть нельзя (владелец 08.09.2026): в них заходят в любой
-      // момент, а закрытая вкладка возвращалась только при следующем входе в программу —
-      // крестик у них означал «спрятать до перезахода», чего оператор не ожидает.
-      canClose: t.kind !== 'menu' && t.kind !== 'chat' && t.kind !== 'ai_chat',
+      // Меню закрыть нельзя — это домашний экран. Верстак и Ииваныч с 21.10.2026 закрываемые:
+      // вернуться к ним можно постоянными плашками в левой рельсе, а прежний запрет означал
+      // «крестик есть, а не работает».
+      canClose: t.kind !== 'menu',
       ...(t.kind === 'list' ? { tabId: t.tabId as TabId } : {}),
       ...(t.kind === 'card'
         ? { tabId: t.cardKind as TabId, cardKind: t.cardKind as TabId, entityId: t.entityId, titleIsFallback: t.titleIsFallback }
