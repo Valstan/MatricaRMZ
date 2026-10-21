@@ -91,4 +91,45 @@ describe('EngineBulkIntakeDialog — приём двигателей списк�
     expect(CARD).toContain('placeEngineIntoContractSlotShared');
     expect(CARD).not.toContain('const r = await mutateContractPayments(targetContractId');
   });
+
+  it('«входной контроль ОТК» — одна дата на приход, акт комплектности и этап (владелец 21.10.2026)', () => {
+    expect(DIALOG).toContain('Входной контроль ОТК');
+    expect(DIALOG).toContain('Одна дата на три действия');
+    // Акт идёт штатным путём актов, а не прямой записью в operations.
+    const IPC = readFileSync(resolve(__dirname, '../../../../main/ipc/register/engineBulkIntake.ts'), 'utf-8');
+    expect(IPC).toContain('saveRepairChecklistForEngine');
+    expect(IPC).toContain('completeness_inspection_date');
+    expect(IPC).toContain('incoming_otk');
+    expect(SERVICE).toContain('otkMissed');
+    expect(PAGE).toContain('входной контроль ОТК не создан');
+  });
+
+  it('блок «индивидуально по каждому»: марка, ОТК, накладная и дата дефектовки построчно', () => {
+    expect(DIALOG).toContain('data-bulk-intake-individual="true"');
+    expect(DIALOG).toContain('Индивидуально по каждому');
+    expect(DIALOG).toContain('data-bulk-intake-row-otk="true"');
+    expect(DIALOG).toContain('data-bulk-intake-row-waybill="true"');
+    expect(DIALOG).toContain('data-bulk-intake-row-defect="true"');
+    expect(DIALOG).toContain('incomingOtkDate');
+    expect(DIALOG).toContain('waybillNumber');
+    expect(SERVICE).toContain('arrival_invoice');
+  });
+
+  it('по умолчанию у заведённого двигателя «Обновить», а не «Пропустить»', () => {
+    expect(DIALOG).toContain('effectiveEngineBulkIntakeAction');
+    // Порядок кнопок в строке: Обновить → Повторный заезд → Пропустить.
+    const updateAt = DIALOG.search(/>\s*Обновить\s*</);
+    const repeatAt = DIALOG.search(/>\s*Повторный заезд\s*</);
+    const skipAt = DIALOG.search(/>\s*Пропустить\s*</);
+    expect(updateAt).toBeGreaterThan(0);
+    expect(repeatAt).toBeGreaterThan(updateAt);
+    expect(skipAt).toBeGreaterThan(repeatAt);
+  });
+
+  it('похожие номера подсказываются и дают привязать строку вместо двойника', () => {
+    expect(DIALOG).toContain('возможно, опечатка');
+    expect(DIALOG).toContain('setBindings');
+    expect(DIALOG).toContain('item.binding?.engineNumber');
+    expect(SERVICE).toContain('engineBulkIntakeSimilarNumbers');
+  });
 });

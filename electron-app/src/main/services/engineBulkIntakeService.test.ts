@@ -111,6 +111,19 @@ describe('previewEngineBulkIntake', () => {
     sqlite.close();
   });
 
+  it('подсказывает похожий номер, когда точного совпадения нет', async () => {
+    const sqlite = makeDb();
+    sqlite
+      .prepare('INSERT INTO erp_engine_cards (id, engine_number, created_at, updated_at) VALUES (?,?,?,?)')
+      .run('e-old', 'AAA-111', 1, 1);
+    const preview = await previewEngineBulkIntake(drizzle(sqlite), 'AAA-112 AAA-111');
+    expect(preview.rows[1]?.existing?.id).toBe('e-old');
+    // Точное совпадение — гейт дублей, подсказка ему не нужна.
+    expect(preview.rows[1]?.similar).toEqual([]);
+    expect(preview.rows[0]?.similar.map((s) => s.engineNumber)).toEqual(['AAA-111']);
+    sqlite.close();
+  });
+
   it('видит двигатель, который есть только в EAV (до pull реплики)', async () => {
     const sqlite = makeDb();
     sqlite.exec(`
@@ -435,6 +448,117 @@ describe('applyEngineBulkIntake', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain('Марка');
     expect(sqlite.prepare('SELECT COUNT(*) AS n FROM erp_engine_cards').get()).toMatchObject({ n: 0 });
+    sqlite.close();
+  });
+
+  it('«индивидуально по каждому» перекрывает общие поля пачки', async () => {
+    const sqlite = makeDb();
+    sqlite.exec(`
+      INSERT INTO entities (id, type_id, created_at, updated_at) VALUES ('brand-other', 't-brand', 1, 1);
+      INSERT INTO attribute_values (id, entity_id, attribute_def_id, value_json, created_at, updated_at)
+        VALUES ('v-b-2', 'brand-other', 'd-brand-name', '"Cummins"', 1, 1);
+    `);
+    const r = await applyEngineBulkIntake(deps(sqlite, true), {
+      brandId: 'brand-bosch',
+      customerId: 'cust-1',
+      contractId: 'contract-1',
+      arrivalDate: ARRIVAL,
+      rows: [
+        { number: 'OWN-1', action: 'create', brandId: 'brand-other', incomingOtkDate: DEFECT, waybillNumber: 'Н-7' },
+        { number: 'OWN-2', action: 'create' },
+      ],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.created).toBe(2);
+    const first = cardRow(sqlite, r.createdIds[0]!);
+    const second = cardRow(sqlite, r.createdIds[1]!);
+    expect(first).toMatchObject({ b: 'brand-other', bl: 'Cummins', a: DEFECT });
+    expect(second).toMatchObject({ b: 'brand-bosch', bl: 'Bosch', a: ARRIVAL });
+    const waybill = sqlite
+      .prepare("SELECT arrival_invoice AS w FROM erp_engine_cards WHERE id = ?")
+      .get(r.createdIds[0]!) as { w: string | null };
+    expect(waybill.w).toBe('Н-7');
+    sqlite.close();
+  });
+
+  it('входной контроль ОТК ставится датой строки и считается в итоге', async () => {
+    const sqlite = makeDb();
+    const otkCalls: Array<{ engineId: string; dateMs: number }> = [];
+    const r = await applyEngineBulkIntake(
+      {
+        ...deps(sqlite, true),
+        writeIncomingOtk: async (engineId, dateMs) => {
+          otkCalls.push({ engineId, dateMs });
+          return { ok: true, applied: true, conflict: false };
+        },
+      },
+      {
+        brandId: 'brand-bosch',
+        customerId: 'cust-1',
+        contractId: 'contract-1',
+        arrivalDate: ARRIVAL,
+        rows: [{ number: 'OTK-1', action: 'create' }],
+      },
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(otkCalls).toEqual([{ engineId: r.createdIds[0], dateMs: ARRIVAL }]);
+    expect(r.otkApplied).toBe(1);
+    expect(r.otkMissed).toBe(0);
+    sqlite.close();
+  });
+
+  it('акт ОТК не создан — пачка всё равно заводит карточки, а итог говорит вслух', async () => {
+    const sqlite = makeDb();
+    const r = await applyEngineBulkIntake(
+      {
+        ...deps(sqlite, true),
+        writeIncomingOtk: async () => ({ ok: false, error: 'Нет права на операции' }),
+      },
+      {
+        brandId: 'brand-bosch',
+        customerId: 'cust-1',
+        contractId: 'contract-1',
+        arrivalDate: ARRIVAL,
+        rows: [{ number: 'OTK-2', action: 'create' }],
+      },
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.created).toBe(1);
+    expect(r.otkMissed).toBe(1);
+    expect(r.otkError).toContain('Нет права');
+    sqlite.close();
+  });
+
+  it('в карточке другой приход — акт ставим фактом карточки, дату не перезаписываем', async () => {
+    const sqlite = makeDb();
+    const oldArrival = ARRIVAL - 30 * 86_400_000;
+    sqlite.exec(`
+      INSERT INTO erp_engine_cards (id, engine_number, arrival_date, created_at, updated_at)
+        VALUES ('e-old', 'OLD-2', ${oldArrival}, 1, 1);
+      INSERT INTO entities (id, type_id, created_at, updated_at) VALUES ('e-old', 't-engine', 1, 1);
+    `);
+    const otkCalls: Array<{ engineId: string; dateMs: number }> = [];
+    const r = await applyEngineBulkIntake(
+      {
+        ...deps(sqlite, true),
+        writeIncomingOtk: async (engineId, dateMs) => {
+          otkCalls.push({ engineId, dateMs });
+          return { ok: true, applied: true, conflict: false };
+        },
+      },
+      {
+        arrivalDate: ARRIVAL,
+        rows: [{ number: 'OLD-2', action: 'update' }],
+      },
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(otkCalls).toEqual([{ engineId: 'e-old', dateMs: oldArrival }]);
+    expect(r.otkConflicts).toBe(1);
+    expect(cardRow(sqlite, 'e-old')).toMatchObject({ a: oldArrival });
     sqlite.close();
   });
 });

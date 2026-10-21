@@ -7,6 +7,7 @@ import {
   ENGINE_BULK_INTAKE_MAX,
   engineBulkIntakeKey,
   engineBulkIntakeMissingFields,
+  engineBulkIntakeSimilarNumbers,
   parseEngineBulkIntake,
   parseRepairHistoryMeta,
   readBulkIntakeInternalNumber,
@@ -50,6 +51,7 @@ const CARD_DETAIL_CODES = [
   'contract_id',
   'engine_internal_number',
   'engine_internal_number_year',
+  'arrival_invoice',
 ] as const;
 
 const EMPTY_DETAIL: Detail = {
@@ -60,6 +62,7 @@ const EMPTY_DETAIL: Detail = {
   contractId: null,
   internalNumber: null,
   internalNumberYear: null,
+  waybillNumber: null,
 };
 
 function parseJson(value: unknown): unknown {
@@ -133,6 +136,7 @@ async function readEavDetails(
     else if (code === 'contract_id') cur.contractId = text(row.valueJson);
     else if (code === 'engine_internal_number') cur.internalNumber = text(row.valueJson);
     else if (code === 'engine_internal_number_year') cur.internalNumberYear = int(row.valueJson);
+    else if (code === 'arrival_invoice') cur.waybillNumber = text(row.valueJson);
     out.set(engineId, cur);
   }
   return out;
@@ -175,10 +179,16 @@ async function loadDefectStageEngineIds(
 async function loadEngineNumberIndex(
   db: BetterSQLite3Database,
   numbers: readonly string[],
-): Promise<Map<string, EngineBulkIntakeExisting>> {
+): Promise<{
+  /** Точные совпадения по канон-ключу — гейт дублей. */
+  exact: Map<string, EngineBulkIntakeExisting>;
+  /** ВСЕ номера базы — сырьё для подсказки «возможно, опечатка». */
+  candidates: Array<{ id: string; engineNumber: string; key: string }>;
+}> {
   const wanted = new Set(numbers.map((n) => engineBulkIntakeKey(n)).filter(Boolean));
   const out = new Map<string, EngineBulkIntakeExisting>();
-  if (wanted.size === 0) return out;
+  const candidates: Array<{ id: string; engineNumber: string; key: string }> = [];
+  if (wanted.size === 0) return { exact: out, candidates };
 
   const replicaRows = await db
     .select({
@@ -191,6 +201,7 @@ async function loadEngineNumberIndex(
       contractId: erpEngineCards.contractId,
       internalNumber: erpEngineCards.engineInternalNumber,
       internalNumberYear: erpEngineCards.engineInternalNumberYear,
+      arrivalInvoice: erpEngineCards.arrivalInvoice,
     })
     .from(erpEngineCards)
     .where(isNull(erpEngineCards.deletedAt));
@@ -199,7 +210,9 @@ async function loadEngineNumberIndex(
     replicaIds.add(String(row.id));
     const number = String(row.engineNumber ?? '').trim();
     const key = engineBulkIntakeKey(number);
-    if (!key || !wanted.has(key) || out.has(key)) continue;
+    if (!key) continue;
+    candidates.push({ id: String(row.id), engineNumber: number, key });
+    if (!wanted.has(key) || out.has(key)) continue;
     out.set(key, {
       id: String(row.id),
       engineNumber: number,
@@ -210,6 +223,7 @@ async function loadEngineNumberIndex(
       contractId: row.contractId == null ? null : String(row.contractId),
       internalNumber: row.internalNumber == null ? null : String(row.internalNumber),
       internalNumberYear: row.internalNumberYear == null ? null : Number(row.internalNumberYear),
+      waybillNumber: row.arrivalInvoice == null ? null : String(row.arrivalInvoice),
       hasDefectStage: false,
     });
   }
@@ -238,7 +252,9 @@ async function loadEngineNumberIndex(
         const number = text(row.valueJson);
         if (!number) continue;
         const key = engineBulkIntakeKey(number);
-        if (!key || !wanted.has(key) || out.has(key) || matchedKeys.has(key)) continue;
+        if (!key) continue;
+        candidates.push({ id, engineNumber: number, key });
+        if (!wanted.has(key) || out.has(key) || matchedKeys.has(key)) continue;
         matchedKeys.set(key, { id, engineNumber: number });
         matchedIds.push(id);
       }
@@ -255,13 +271,13 @@ async function loadEngineNumberIndex(
     }
   }
 
-  if (out.size === 0) return out;
+  if (out.size === 0 && candidates.length === 0) return { exact: out, candidates };
   const withDefectStage = await loadDefectStageEngineIds(
     db,
     [...out.values()].map((card) => card.id),
   );
   for (const card of out.values()) card.hasDefectStage = withDefectStage.has(card.id);
-  return out;
+  return { exact: out, candidates };
 }
 
 export async function previewEngineBulkIntake(
@@ -271,13 +287,23 @@ export async function previewEngineBulkIntake(
   const parsed = parseEngineBulkIntake(text_);
   const repeatedKeys = new Set(parsed.repeated.map((n) => engineBulkIntakeKey(n)));
   const index = await loadEngineNumberIndex(db, parsed.numbers);
+  // Похожесть ищем только там, где точного совпадения нет: найденный двигатель — это
+  // гейт дублей, а не подсказка «возможно, опечатка».
+  const similarByKey = engineBulkIntakeSimilarNumbers(
+    parsed.numbers
+      .map((number) => ({ key: engineBulkIntakeKey(number) }))
+      .filter((row) => row.key && !index.exact.has(row.key)),
+    index.candidates,
+  );
   const rows = parsed.numbers.map((number) => {
     const key = engineBulkIntakeKey(number);
+    const existing = index.exact.get(key) ?? null;
     return {
       number,
       key,
-      existing: index.get(key) ?? null,
+      existing,
       repeatedInBatch: repeatedKeys.has(key),
+      similar: existing ? [] : (similarByKey.get(key) ?? []),
     };
   });
   return { rows, overflow: Math.max(0, rows.length - ENGINE_BULK_INTAKE_MAX) };
@@ -298,13 +324,31 @@ function msOrNull(value: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
 }
 
+/** Чем кончился «Входной контроль ОТК» для одной карточки. */
+export type IncomingOtkWriteResult =
+  | { ok: true; applied: boolean; conflict: boolean }
+  | { ok: false; error: string };
+
+/**
+ * Зависимости пачки сверх общей двери записи карточки: «Входной контроль ОТК» идёт
+ * штатным путём актов (`checklists`), а не прямой записью в `operations` — иначе не
+ * было бы версии акта, снимка подписи и авто-метки этапа.
+ */
+export type EngineBulkIntakeDeps = EngineCardWriteDeps & {
+  /** Акт комплектности этой датой. Без права на операции — вызывающий не передаёт. */
+  writeIncomingOtk?: (engineId: string, dateMs: number) => Promise<IncomingOtkWriteResult>;
+};
+
 /**
  * Завести карточки и дополнить существующие по решению оператора. Общие поля
  * (марка/контрагент/договор/даты) необязательны — карточка без них допустима и на
  * сервере (`erp_engine_cards`: все предметные колонки nullable).
+ *
+ * Всё, что у двигателя своё, приходит в строке (блок «Индивидуально по каждому») и
+ * перекрывает общее поле пачки: марка, номер накладной, дата ОТК, дата дефектовки.
  */
 export async function applyEngineBulkIntake(
-  deps: EngineCardWriteDeps,
+  deps: EngineBulkIntakeDeps,
   input: EngineBulkIntakeApplyInput,
 ): Promise<EngineBulkIntakeApplyResult> {
   const { db } = deps;
@@ -328,9 +372,15 @@ export async function applyEngineBulkIntake(
   let customerId = trimOrNull(input?.customerId);
   if (!customerId && contractId) customerId = contractCustomers?.get(contractId) ?? null;
 
-  const brandLabel = brandId ? ((await getDisplayNameMap(db, 'engine_brand')).get(brandId) ?? null) : null;
+  const rowBrandIds = rows.map((row) => trimOrNull(row?.brandId)).filter((id): id is string => Boolean(id));
+  const brandNames = brandId || rowBrandIds.length > 0 ? await getDisplayNameMap(db, 'engine_brand') : new Map<string, string>();
+  const brandLabel = brandId ? (brandNames.get(brandId) ?? null) : null;
   if (brandId && !brandLabel) {
     return { ok: false, error: 'Марка двигателя не найдена в базе — обновите список и выберите заново.' };
+  }
+  const rowBrandMissing = rowBrandIds.find((id) => !brandNames.get(id));
+  if (rowBrandMissing) {
+    return { ok: false, error: 'Марка в строке не найдена в базе — обновите список и выберите заново.' };
   }
   const customerName = customerId ? ((await getDisplayNameMap(db, 'customer')).get(customerId) ?? null) : null;
   if (customerId && !customerName) {
@@ -353,18 +403,20 @@ export async function applyEngineBulkIntake(
 
   const nowMs = Date.now();
   const numbers = rows.map((row) => String(row?.number ?? '').trim()).filter(Boolean);
-  const existingByKey = await loadEngineNumberIndex(db, numbers);
+  const { exact: existingByKey } = await loadEngineNumberIndex(db, numbers);
 
   const offerForRow = (row: EngineBulkIntakeRowInput | undefined): EngineBulkIntakeOffer => {
     const internal = readBulkIntakeInternalNumber(String(row?.internalNumber ?? ''), nowMs);
     return {
-      brandId,
+      brandId: trimOrNull(row?.brandId) ?? brandId,
       customerId,
       contractId,
-      arrivalDate,
+      // «Входной контроль ОТК» строки перекрывает общий: у каждого двигателя своя дата.
+      arrivalDate: msOrNull(row?.incomingOtkDate) ?? arrivalDate,
       internalNumber: internal.number,
       internalNumberYear: internal.year,
-      defectDate,
+      defectDate: msOrNull(row?.defectDate) ?? defectDate,
+      waybillNumber: trimOrNull(row?.waybillNumber),
     };
   };
 
@@ -373,20 +425,24 @@ export async function applyEngineBulkIntake(
   let skipped = 0;
   let defectStageMissed = 0;
   let defectStageError: string | null = null;
+  let otkApplied = 0;
+  let otkMissed = 0;
+  let otkError: string | null = null;
+  let otkConflicts = 0;
   const createdIds: string[] = [];
   const updatedIds: string[] = [];
   const contractedIds: string[] = [];
   const seen = new Set<string>();
 
-  const markDefectStage = async (engineId: string): Promise<boolean> => {
-    if (!defectDate) return false;
+  const markDefectStage = async (engineId: string, atMs: number | null): Promise<boolean> => {
+    if (!atMs) return false;
     if (!deps.canWriteStageRow) {
       defectStageMissed += 1;
       defectStageError ??= 'Нет права писать этапы работ — дата дефектовки не поставлена.';
       return false;
     }
     try {
-      const r = await ensureRepairStageRow(db, engineId, DEFECT_STAGE_CODE, defectDate, deps.actor || 'local');
+      const r = await ensureRepairStageRow(db, engineId, DEFECT_STAGE_CODE, atMs, deps.actor || 'local');
       if (r.ok) return true;
       defectStageMissed += 1;
       defectStageError ??= r.error;
@@ -394,6 +450,40 @@ export async function applyEngineBulkIntake(
     } catch (e) {
       defectStageMissed += 1;
       defectStageError ??= String(e);
+      return false;
+    }
+  };
+  // Входной контроль ОТК = дата прихода + акт комплектности этой датой (этап incoming_otk
+  // встаёт следствием акта). Дату карточки не перезаписываем: если в карточке уже другой
+  // приход, акт ставим ФАКТОМ карточки и говорим оператору о расхождении.
+  const markIncomingOtk = async (engineId: string, offered: number | null, cardArrival: number | null): Promise<boolean> => {
+    if (!offered) return false;
+    const dateMs = cardArrival && cardArrival !== offered ? cardArrival : offered;
+    if (cardArrival && cardArrival !== offered) otkConflicts += 1;
+    if (!deps.writeIncomingOtk) {
+      otkMissed += 1;
+      otkError ??= 'Нет права на операции — акт комплектности (входной контроль ОТК) не создан.';
+      return false;
+    }
+    try {
+      const r = await deps.writeIncomingOtk(engineId, dateMs);
+      if (!r.ok) {
+        otkMissed += 1;
+        otkError ??= r.error;
+        return false;
+      }
+      if (r.conflict) {
+        otkConflicts += 1;
+        return false;
+      }
+      if (r.applied) {
+        otkApplied += 1;
+        return true;
+      }
+      return false;
+    } catch (e) {
+      otkMissed += 1;
+      otkError ??= String(e);
       return false;
     }
   };
@@ -430,17 +520,20 @@ export async function applyEngineBulkIntake(
       }
       const missing = engineBulkIntakeMissingFields(existing, offer);
       const fields: Record<string, unknown> = {};
-      if (missing.includes('engineBrand') && brandId && brandLabel) {
-        fields.engine_brand_id = brandId;
-        fields.engine_brand = brandLabel;
+      if (missing.includes('engineBrand') && offer.brandId) {
+        fields.engine_brand_id = offer.brandId;
+        fields.engine_brand = brandNames.get(offer.brandId) ?? null;
       }
       if (missing.includes('customer') && customerId) fields.customer_id = customerId;
       if (missing.includes('contract') && contractId) fields.contract_id = contractId;
-      if (missing.includes('arrivalDate') && arrivalDate) fields.arrival_date = arrivalDate;
+      if (missing.includes('arrivalDate') && offer.arrivalDate) fields.arrival_date = offer.arrivalDate;
       if (missing.includes('internalNumber') && offer.internalNumber) {
         // Год — ПЕРЕД номером: гейт пары дочитывает второй элемент из реплики.
         fields.engine_internal_number_year = offer.internalNumberYear;
         fields.engine_internal_number = offer.internalNumber;
+      }
+      if (missing.includes('waybillNumber') && offer.waybillNumber) {
+        fields.arrival_invoice = offer.waybillNumber;
       }
       let changed = false;
       if (Object.keys(fields).length > 0) {
@@ -456,12 +549,17 @@ export async function applyEngineBulkIntake(
             contractedIds,
             defectStageMissed,
             defectStageError,
+            otkApplied,
+            otkMissed,
+            otkError,
+            otkConflicts,
           };
         }
         changed = true;
         if (fields.contract_id) contractedIds.push(existing.id);
       }
-      if (missing.includes('defectDate') && (await markDefectStage(existing.id))) changed = true;
+      if (missing.includes('defectDate') && (await markDefectStage(existing.id, offer.defectDate))) changed = true;
+      if (await markIncomingOtk(existing.id, offer.arrivalDate, existing.arrivalDate)) changed = true;
       if (!changed) {
         skipped += 1;
         continue;
@@ -480,13 +578,14 @@ export async function applyEngineBulkIntake(
     const previousEngineId = repeat ? String(row?.previousEngineId ?? '').trim() || existing?.id || '' : '';
     const engineId = randomUUID();
     const fields: Record<string, unknown> = { engine_number: number };
-    if (brandId && brandLabel) {
-      fields.engine_brand_id = brandId;
-      fields.engine_brand = brandLabel;
+    if (offer.brandId) {
+      fields.engine_brand_id = offer.brandId;
+      fields.engine_brand = brandNames.get(offer.brandId) ?? null;
     }
     if (customerId) fields.customer_id = customerId;
     if (contractId) fields.contract_id = contractId;
-    if (arrivalDate) fields.arrival_date = arrivalDate;
+    if (offer.arrivalDate) fields.arrival_date = offer.arrivalDate;
+    if (offer.waybillNumber) fields.arrival_invoice = offer.waybillNumber;
     if (offer.internalNumber) {
       fields.engine_internal_number_year = offer.internalNumberYear;
       fields.engine_internal_number = offer.internalNumber;
@@ -510,11 +609,16 @@ export async function applyEngineBulkIntake(
         contractedIds,
         defectStageMissed,
         defectStageError,
+        otkApplied,
+        otkMissed,
+        otkError,
+        otkConflicts,
       };
     }
     created += 1;
     createdIds.push(engineId);
-    await markDefectStage(engineId);
+    await markDefectStage(engineId, offer.defectDate);
+    await markIncomingOtk(engineId, offer.arrivalDate, null);
   }
   return {
     ok: true,
@@ -526,5 +630,9 @@ export async function applyEngineBulkIntake(
     contractedIds,
     defectStageMissed,
     defectStageError,
+    otkApplied,
+    otkMissed,
+    otkError,
+    otkConflicts,
   };
 }

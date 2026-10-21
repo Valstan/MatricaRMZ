@@ -2,6 +2,7 @@
 
 import {
   ENGINE_BULK_INTAKE_MAX,
+  effectiveEngineBulkIntakeAction,
   engineBulkIntakeConflictingFields,
   engineBulkIntakeFieldList,
   engineBulkIntakeInternalNumberDuplicates,
@@ -32,6 +33,11 @@ export type EngineBulkIntakeResult = {
   slotErrors: number;
   /** Дата дефектовки была, а этап «Разборка/Дефектовка» не встал. */
   defectStageMissed: number;
+  /** Входной контроль ОТК: акт комплектности поставлен / не поставлен / был другой. */
+  otkApplied?: number;
+  otkMissed?: number;
+  otkError?: string | null;
+  otkConflicts?: number;
   error?: string;
 };
 
@@ -58,10 +64,8 @@ function formatArrival(ms: number | null): string {
 
 type RowState = { action: EngineBulkIntakeAction };
 
-function effectiveAction(row: EngineBulkIntakePreviewRow, states: Record<string, RowState>): EngineBulkIntakeAction {
-  if (!row.existing) return 'create';
-  return states[row.key]?.action ?? 'skip';
-}
+/** «Опечатка?» — оператор привязывает строку к найденному двигателю, а не заводит двойника. */
+type RowBinding = { id: string; engineNumber: string };
 
 /**
  * Пакетный приём двигателей списком («накладная»): номера вставляются из документа,
@@ -98,6 +102,12 @@ export function EngineBulkIntakeDialog(props: {
   const [overflow, setOverflow] = useState(0);
   const [decisions, setDecisions] = useState<Record<string, RowState>>({});
   const [internalNumbers, setInternalNumbers] = useState<Record<string, string>>({});
+  // Блок «Индивидуально по каждому»: у каждого двигателя свои марка, накладная и даты.
+  const [rowBrands, setRowBrands] = useState<Record<string, string>>({});
+  const [rowOtk, setRowOtk] = useState<Record<string, string>>({});
+  const [rowWaybills, setRowWaybills] = useState<Record<string, string>>({});
+  const [rowDefect, setRowDefect] = useState<Record<string, string>>({});
+  const [bindings, setBindings] = useState<Record<string, RowBinding>>({});
   const [previewBusy, setPreviewBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -112,6 +122,11 @@ export function EngineBulkIntakeDialog(props: {
     setOverflow(0);
     setDecisions({});
     setInternalNumbers({});
+    setRowBrands({});
+    setRowOtk({});
+    setRowWaybills({});
+    setRowDefect({});
+    setBindings({});
     setBrandId('');
     setCustomerId('');
     setContractId('');
@@ -204,7 +219,7 @@ export function EngineBulkIntakeDialog(props: {
   );
 
   const items = useMemo(() => {
-    const base: Omit<EngineBulkIntakeOffer, 'internalNumber' | 'internalNumberYear'> = {
+    const base: Omit<EngineBulkIntakeOffer, 'internalNumber' | 'internalNumberYear' | 'waybillNumber'> = {
       brandId: brandId || null,
       customerId: customerId || null,
       contractId: contractId || null,
@@ -214,21 +229,34 @@ export function EngineBulkIntakeDialog(props: {
     return rows.map((row) => {
       const rawInternal = internalNumbers[row.key] ?? '';
       const internal = readBulkIntakeInternalNumber(rawInternal, nowMs);
+      const binding = bindings[row.key] ?? null;
       const offer: EngineBulkIntakeOffer = {
         ...base,
+        brandId: rowBrands[row.key] || base.brandId,
+        arrivalDate: fromInputDate(rowOtk[row.key] ?? '') ?? base.arrivalDate,
+        defectDate: fromInputDate(rowDefect[row.key] ?? '') ?? base.defectDate,
+        waybillNumber: (rowWaybills[row.key] ?? '').trim() || null,
         internalNumber: internal.number,
         internalNumberYear: internal.year,
       };
+      // Привязанная строка — это «номер с опечаткой», а не новая карточка: дополняем
+      // найденный двигатель. Чего в нём не хватает, скажет main по своим данным.
+      const existing = binding ? null : row.existing;
+      const missing = (existing ? engineBulkIntakeMissingFields(existing, offer) : []) as EngineBulkIntakeField[];
       return {
         ...row,
-        action: effectiveAction(row, decisions),
+        existing,
+        action: binding
+          ? 'update'
+          : effectiveEngineBulkIntakeAction(row.existing, decisions[row.key]?.action, missing.length > 0),
+        binding,
         rawInternal,
         internal,
-        missing: (row.existing ? engineBulkIntakeMissingFields(row.existing, offer) : []) as EngineBulkIntakeField[],
-        conflicts: (row.existing ? engineBulkIntakeConflictingFields(row.existing, offer) : []) as EngineBulkIntakeField[],
+        missing,
+        conflicts: (existing ? engineBulkIntakeConflictingFields(existing, offer) : []) as EngineBulkIntakeField[],
       };
     });
-  }, [rows, decisions, internalNumbers, brandId, customerId, contractId, arrivalDate, defectDate, nowMs]);
+  }, [rows, decisions, internalNumbers, rowBrands, rowOtk, rowWaybills, rowDefect, bindings, brandId, customerId, contractId, arrivalDate, defectDate, nowMs]);
 
   const summary = engineBulkIntakeSummary(items);
   const toCreate = summary.create + summary.repeat;
@@ -299,10 +327,15 @@ export function EngineBulkIntakeDialog(props: {
         rows: items
           .filter((item) => item.action !== 'skip')
           .map((item) => ({
-            number: item.number,
+            // Привязка к найденному номеру: заводим не двойника, а дополняем его карточку.
+            number: item.binding?.engineNumber ?? item.number,
             action: item.action,
             ...(item.action === 'repeat_arrival' && item.existing ? { previousEngineId: item.existing.id } : {}),
             ...(item.rawInternal.trim() ? { internalNumber: item.rawInternal.trim() } : {}),
+            ...(rowBrands[item.key] ? { brandId: rowBrands[item.key] } : {}),
+            ...(fromInputDate(rowOtk[item.key] ?? '') ? { incomingOtkDate: fromInputDate(rowOtk[item.key] ?? '') } : {}),
+            ...((rowWaybills[item.key] ?? '').trim() ? { waybillNumber: (rowWaybills[item.key] ?? '').trim() } : {}),
+            ...(fromInputDate(rowDefect[item.key] ?? '') ? { defectDate: fromInputDate(rowDefect[item.key] ?? '') } : {}),
           })),
       });
       const createdIds = r.ok ? r.createdIds : (r.createdIds ?? []);
@@ -310,14 +343,24 @@ export function EngineBulkIntakeDialog(props: {
       // под него в плане договора нет. Сбой слота карточку не отменяет — сообщаем итогом.
       // Дополненные карточки, которым договор дописали только сейчас, — тоже сюда.
       const slotTargets = [...createdIds, ...(r.ok ? r.contractedIds : (r.contractedIds ?? []))];
+      const anyRowBrand = Object.values(rowBrands).some((id) => Boolean(id));
       let overPlan = 0;
       let slotErrors = 0;
       if (contractId) {
         for (const id of slotTargets) {
+          // Своя марка в строке — плановое место ищем по ней, а не по общей марке пачки.
+          let targetBrandId = brandId;
+          if (anyRowBrand) {
+            const card = (await window.matrica.admin.entities.get(id).catch(() => null)) as {
+              attributes?: Record<string, unknown>;
+            } | null;
+            const own = String(card?.attributes?.engine_brand_id ?? '').trim();
+            if (own) targetBrandId = own;
+          }
           const placed = await placeEngineIntoContractSlot({
             contractId,
             engineId: id,
-            ...(brandId ? { engineBrandId: brandId } : {}),
+            ...(targetBrandId ? { engineBrandId: targetBrandId } : {}),
           });
           if (!placed) {
             slotErrors += 1;
@@ -340,6 +383,10 @@ export function EngineBulkIntakeDialog(props: {
           overPlan,
           slotErrors,
           defectStageMissed: r.defectStageMissed ?? 0,
+          otkApplied: r.otkApplied ?? 0,
+          otkMissed: r.otkMissed ?? 0,
+          otkError: r.otkError ?? null,
+          otkConflicts: r.otkConflicts ?? 0,
           error: r.error,
         });
         return;
@@ -353,6 +400,10 @@ export function EngineBulkIntakeDialog(props: {
         overPlan,
         slotErrors,
         defectStageMissed: r.defectStageMissed,
+        otkApplied: r.otkApplied,
+        otkMissed: r.otkMissed,
+        otkError: r.otkError,
+        otkConflicts: r.otkConflicts,
       });
     } catch (e) {
       setError(`Не удалось завести карточки: ${e instanceof Error ? e.message : String(e)}`);
@@ -430,7 +481,7 @@ export function EngineBulkIntakeDialog(props: {
             />
           </label>
           <label style={{ display: 'grid', gap: 4 }}>
-            <span style={hintStyle}>Дата прихода</span>
+            <span style={hintStyle}>Входной контроль ОТК</span>
             <Input
               type="date"
               value={arrivalDate}
@@ -438,6 +489,9 @@ export function EngineBulkIntakeDialog(props: {
               disabled={busy}
               data-bulk-intake-arrival="true"
             />
+            <span style={hintStyle}>
+              Одна дата на три действия: дата прихода на завод, акт комплектности и этап «Входной контроль ОТК».
+            </span>
           </label>
           <label style={{ display: 'grid', gap: 4 }}>
             <span style={hintStyle}>Контрагент</span>
@@ -540,6 +594,77 @@ export function EngineBulkIntakeDialog(props: {
                 </>
               )}
             </div>
+            <details
+              data-bulk-intake-individual="true"
+              style={{ border: '1px solid var(--border, #e2e8f0)', borderRadius: 10, padding: '6px 10px' }}
+            >
+              <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Индивидуально по каждому</summary>
+              <div style={hintStyle}>
+                Общее поле пачки — значение по умолчанию. Пустая ячейка значит «как в пачке».
+              </div>
+              <div style={{ maxHeight: 300, overflow: 'auto' }}>
+                <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', color: 'var(--muted, #64748b)' }}>
+                      <th style={{ padding: '4px 6px' }}>Номер</th>
+                      <th style={{ padding: '4px 6px' }}>Марка</th>
+                      <th style={{ padding: '4px 6px' }}>Входной контроль ОТК</th>
+                      <th style={{ padding: '4px 6px' }}>Номер накладной</th>
+                      <th style={{ padding: '4px 6px' }}>Дата дефектовки</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((item) => (
+                      <tr key={`ind#${item.key}`} style={{ borderTop: '1px solid var(--border, #e2e8f0)' }}>
+                        <td style={{ padding: '4px 6px', fontFamily: 'monospace' }}>{item.number}</td>
+                        <td style={{ padding: '4px 6px', minWidth: 180 }}>
+                          <EntityReferenceField
+                            target="engine_brand"
+                            targetLabel="Марка двигателя"
+                            value={rowBrands[item.key] || null}
+                            options={brands}
+                            placeholder={brandId ? 'как в пачке' : 'марка не выбрана'}
+                            onChange={(next) => setRowBrands((prev) => ({ ...prev, [item.key]: next ?? '' }))}
+                            disabled={busy}
+                          />
+                        </td>
+                        <td style={{ padding: '4px 6px' }}>
+                          <Input
+                            type="date"
+                            value={rowOtk[item.key] ?? ''}
+                            placeholder={arrivalDate || ''}
+                            disabled={busy}
+                            data-bulk-intake-row-otk="true"
+                            onChange={(e) => setRowOtk((prev) => ({ ...prev, [item.key]: e.target.value }))}
+                          />
+                        </td>
+                        <td style={{ padding: '4px 6px' }}>
+                          <Input
+                            value={rowWaybills[item.key] ?? ''}
+                            placeholder="накладная"
+                            disabled={busy}
+                            data-bulk-intake-row-waybill="true"
+                            onChange={(e) => setRowWaybills((prev) => ({ ...prev, [item.key]: e.target.value }))}
+                            style={{ width: 130 }}
+                          />
+                        </td>
+                        <td style={{ padding: '4px 6px' }}>
+                          <Input
+                            type="date"
+                            value={rowDefect[item.key] ?? ''}
+                            placeholder={defectDate || ''}
+                            disabled={busy}
+                            data-bulk-intake-row-defect="true"
+                            onChange={(e) => setRowDefect((prev) => ({ ...prev, [item.key]: e.target.value }))}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+
             <div
               style={{
                 maxHeight: 360,
@@ -608,6 +733,47 @@ export function EngineBulkIntakeDialog(props: {
                         ) : (
                           <span style={{ color: '#15803d' }}>новый</span>
                         )}
+                        {item.binding && (
+                          <div style={{ marginTop: 4, fontSize: 12, color: 'var(--muted, #64748b)' }}>
+                            привязано к {item.binding.engineNumber} — дополняем его карточку
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={busy}
+                              onClick={() =>
+                                setBindings((prev) => {
+                                  const next = { ...prev };
+                                  delete next[item.key];
+                                  return next;
+                                })
+                              }
+                            >
+                              Отвязать
+                            </Button>
+                          </div>
+                        )}
+                        {!item.existing && !item.binding && item.similar.length > 0 && (
+                          <div style={{ marginTop: 4, fontSize: 12, color: '#b45309' }}>
+                            возможно, опечатка — в базе есть{' '}
+                            {item.similar.map((candidate) => (
+                              <Button
+                                key={candidate.id}
+                                size="sm"
+                                variant="ghost"
+                                disabled={busy}
+                                title={`Вместо новой карточки дополнить двигатель ${candidate.engineNumber}`}
+                                onClick={() =>
+                                  setBindings((prev) => ({
+                                    ...prev,
+                                    [item.key]: { id: candidate.id, engineNumber: candidate.engineNumber },
+                                  }))
+                                }
+                              >
+                                {candidate.engineNumber}
+                              </Button>
+                            ))}
+                          </div>
+                        )}
                         {item.repeatedInBatch && (
                           <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--muted, #64748b)' }}>
                             в списке дважды
@@ -619,20 +785,12 @@ export function EngineBulkIntakeDialog(props: {
                           <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
                             <Button
                               size="sm"
-                              variant={item.action === 'skip' ? 'primary' : 'ghost'}
-                              disabled={busy}
-                              onClick={() => setDecisions((p) => ({ ...p, [item.key]: { action: 'skip' } }))}
-                            >
-                              Пропустить
-                            </Button>
-                            <Button
-                              size="sm"
                               variant={item.action === 'update' ? 'primary' : 'ghost'}
                               disabled={busy || item.missing.length === 0}
                               title={
                                 item.missing.length === 0
                                   ? 'В карточке уже всё есть — дописывать нечего'
-                                  : 'Дописать в карточку только то, чего в ней нет'
+                                  : 'Дописать в карточку только то, чего в ней нет (по умолчанию)'
                               }
                               onClick={() => setDecisions((p) => ({ ...p, [item.key]: { action: 'update' } }))}
                             >
@@ -645,6 +803,14 @@ export function EngineBulkIntakeDialog(props: {
                               onClick={() => setDecisions((p) => ({ ...p, [item.key]: { action: 'repeat_arrival' } }))}
                             >
                               Повторный заезд
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant={item.action === 'skip' ? 'primary' : 'ghost'}
+                              disabled={busy}
+                              onClick={() => setDecisions((p) => ({ ...p, [item.key]: { action: 'skip' } }))}
+                            >
+                              Пропустить
                             </Button>
                           </span>
                         ) : (
