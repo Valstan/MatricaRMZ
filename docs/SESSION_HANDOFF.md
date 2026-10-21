@@ -84,7 +84,7 @@
 
 ## Контекст
 
-- Прод: **3.88.0** (артефакты и откат-копия — см. `COMPLETED`, строка 3.88.0).
+- Прод: **3.88.0** (принят 21.10 18:15 MSK: `:3001`/`:3002` и nginx отдают 3.88.0, `/updates/status` — `latest 3.88.0`, `lastError: null`, blockmap 200, планы Диспетчера win32 и android — `update`). Артефакты: `.exe` 141 863 035 Б, `.blockmap` 144 449 Б, APK 48 280 180 Б; откат-копия `.deploy-backup/20261021-181538` (`bash scripts/prod-ops/deploy-backend.sh rollback 20261021-181538`). Ledger опубликован (`release:ledger-publish 3.88.0` с прода, `--installer`). Прежний APK 3.87.0 на проде **не удалён** — `rm` на проде без подтверждения владельца не делаю.
 - Движок на проде: `/opt/matricarmz/updates/engine/cli-windows-x64-2.0.32.tgz` (100 022 170 Б),
   манифест опубликован `scripts/prod-ops/publish-engine-artifact.mjs` (sha512 `e5574aa2…`),
   раздаётся на `/updates/engine/manifest` + `/updates/engine/file/:name`.
