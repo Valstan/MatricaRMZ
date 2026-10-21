@@ -43,7 +43,7 @@ import {
   runIivanychTool,
   type IivanychAnswerSide,
 } from './iivanychTools.js';
-import { askServerEngine, isServerEngineEnabled } from './serverEngine.js';
+import { askServerEngine, isServerEngineAvailable, isServerEngineEnabled } from './serverEngine.js';
 
 const TICK_MS = Math.max(500, Number(process.env.AI_CHAT_DIRECT_TICK_MS ?? 2_000));
 /** Строка зависла в `processing` (рестарт сервера посреди ответа) — вернуть в очередь. */
@@ -449,10 +449,12 @@ export async function aiChatDirectTick(): Promise<{ processed: number }> {
 
   let processed = 0;
   // До пробы — не трогаем pending: всё равно пустим в 402 и зажжём эскалации.
-  // При включённом движке пауза не нужна: вопросы обслуживает он.
+  // Продолжаем только если вопрос реально может обслужить движок: включён и не
+  // в паузе. Иначе каждый тик дёргал бы DeepSeek с 402 — так и случилось на
+  // проде 21.10, пока движок был в паузе после сбоя.
   if (creditExhaustedAt > 0) {
     const alive = await probeCredit();
-    if (!alive && !isServerEngineEnabled()) return { processed: 0 };
+    if (!alive && !isServerEngineAvailable()) return { processed: 0 };
   }
   for (const row of await listPending()) {
     const id = String(row.id);

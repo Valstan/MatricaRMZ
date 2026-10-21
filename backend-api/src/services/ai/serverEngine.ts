@@ -42,10 +42,18 @@ const PROVIDER = 'opencode';
 const PREFERRED_MODELS = ['deepseek-v4.1-flash-free', 'glm-5.3-flash-free', 'big-pickle'];
 
 /**
- * Инструменты, которых у серверного движка нет. Скрипты и файлы ему не нужны
- * вовсе: он отвечает по базе Матрицы, а базу видит через MCP-мост, не через
- * права движка. `read`/`glob`/`grep` тоже закрыты — иначе содержимое файлов
- * хоста уезжает в модель мимо всех гейтов.
+ * Инструменты, которых у серверного движка нет. Скрипты и правка файлов ему не
+ * нужны вовсе: он отвечает по базе Матрицы, а базу видит через MCP-мост, не
+ * через права движка.
+ *
+ * `read`/`glob`/`grep`/`list` здесь НЕТ намеренно, и это не упущение: запрет
+ * файловых инструментов в правах сессии free-тир движка встречает `403
+ * provider.auth` («free tier can only be used from within OpenCode») — сессия
+ * умирает за 2 секунды, не начав отвечать. Проверено на живом движке 21.10:
+ * стандартные семь запретов работают, добавление любого из файловых — 403.
+ * Остаточный риск невелик: движок живёт под своим пользователем, секретов
+ * Матрицы не читает (env бэкенда — `root:valstan 640`, движок — чужой пользователь),
+ * а его рабочий каталог — собственный `$HOME`.
  */
 const DENIED_ACTIONS = [
   'shell',
@@ -55,10 +63,6 @@ const DENIED_ACTIONS = [
   'patch',
   'multiedit',
   'apply_patch',
-  'read',
-  'glob',
-  'grep',
-  'list',
   'webfetch',
   'websearch',
   'task',
@@ -90,6 +94,15 @@ function sleep(ms: number): Promise<void> {
 
 export function isServerEngineEnabled(): boolean {
   return ENGINE_ENABLED;
+}
+
+/**
+ * Звено реально может ответить прямо сейчас: включено и не в паузе после сбоя.
+ * Отдельно от `isServerEngineEnabled()` — по этому признаку решается, стоит ли
+ * вообще трогать очередь, когда у DeepSeek кончился баланс.
+ */
+export function isServerEngineAvailable(): boolean {
+  return ENGINE_ENABLED && cooldownUntil <= Date.now();
 }
 
 /** Состояние звена для логов и диагностики (без токена). */
@@ -144,11 +157,27 @@ function textOf(messages: EngineMessage[]): string {
   return parts.join('\n\n').trim();
 }
 
-function failureOf(messages: EngineMessage[]): string | null {
-  for (const message of messages) {
-    if (message.type === 'assistant' && message.error) return JSON.stringify(message.error).slice(0, 300);
-    if (message.type === 'idle' && message.outcome === 'failed') return 'движок вернул failed';
+function describeEngineError(error: unknown): string {
+  if (error && typeof error === 'object') {
+    const e = error as { type?: string; status?: number; message?: string };
+    const parts = [e.type, e.status ? String(e.status) : '', e.message ?? ''].filter(Boolean);
+    if (parts.length > 0) return parts.join(' ').slice(0, 300);
   }
+  return JSON.stringify(error).slice(0, 300);
+}
+
+/**
+ * Причина, по которой сессия не дала текста. Ошибка берётся с ЛЮБОГО сообщения:
+ * движок кладёт её и в `idle`, и в `assistant`, а порядок в массиве разный —
+ * раньше из-за этого в лог попадало бесполезное «движок вернул failed» без
+ * `provider.auth 403` и настоящей причины.
+ */
+function failureOf(messages: EngineMessage[]): string | null {
+  const assistantError = messages.find((message) => message.type === 'assistant' && message.error)?.error;
+  if (assistantError) return describeEngineError(assistantError);
+  const idle = messages.find((message) => message.type === 'idle');
+  if (idle?.error) return describeEngineError(idle.error);
+  if (idle?.outcome === 'failed') return 'движок вернул failed без причины';
   return null;
 }
 

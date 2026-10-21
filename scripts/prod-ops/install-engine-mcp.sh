@@ -73,7 +73,14 @@ done
 
 echo "== проверка: какие MCP-серверы видит движок =="
 ENGINE_TOKEN=$(sudo -n grep -E '^OPENCODE_SERVER_PASSWORD=' "$ENGINE_ENV" | head -1 | cut -d= -f2-)
-MCP_OUT=$(curl -fsS -u "opencode:$ENGINE_TOKEN" "$ENGINE_URL/api/mcp" || true)
+# Движок подключает MCP-серверы лениво: сразу после рестарта /api/mcp бывает пуст
+# и наполняется через несколько секунд. Проверяем не «в один заход», а ждём.
+MCP_OUT=""
+for _ in $(seq 1 30); do
+  MCP_OUT=$(curl -fsS -u "opencode:$ENGINE_TOKEN" "$ENGINE_URL/api/mcp" || true)
+  if printf '%s' "$MCP_OUT" | grep -q 'matrica'; then break; fi
+  sleep 2
+done
 echo "$MCP_OUT"
 if printf '%s' "$MCP_OUT" | grep -q 'matrica'; then
   echo "OK: движок видит MCP-сервер matrica"
