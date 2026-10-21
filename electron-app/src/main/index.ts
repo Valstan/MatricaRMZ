@@ -31,6 +31,7 @@ import { setLanShareEnabled } from './services/lanUpdateService.js';
 import { readSidecarClientId, writeSidecarClientId } from './services/clientIdStore.js';
 import { isSameMigrationFailure } from './services/dbSelfHealLoopDetector.js';
 import { stopLocalEngine } from './services/localAiEngine.js';
+import { prepareLocalEngineInBackground, scheduleEngineMaintenance } from './services/aiEngineAuto.js';
 import { tryEmergencyUpdate } from './services/emergencyUpdate.js';
 import {
   finishStartupStatus,
@@ -827,6 +828,12 @@ app.whenReady().then(() => {
           })
           .catch((e) => logToFile(`startup update flow failed: ${String(e)}`));
       }
+
+      // Ииваныч на этом компьютере готовим тихо и не на критическом пути: окно уже
+      // показано, оператор не ждёт, а к первому вопросу движок обычно уже готов.
+      void prepareLocalEngineInBackground(db, apiBaseUrl)
+        .then(() => scheduleEngineMaintenance(() => apiBaseUrl))
+        .catch((e) => logToFile(`local engine autostart failed: ${String(e)}`));
     } catch (e) {
       logToFile(`fatal init failed: ${String(e)}`);
       hideStartupStatus();

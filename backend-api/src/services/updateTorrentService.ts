@@ -59,7 +59,7 @@ const LAN_PEER_HARD_DELETE_MS = 1_800_000;
 const PEER_KIND_TORRENT = 'torrent';
 const PEER_KIND_LAN_HTTP = 'lan_http';
 
-function getUpdatesDir(): string | null {
+export function getUpdatesDir(): string | null {
   const raw = String(process.env.MATRICA_UPDATES_DIR ?? '').trim();
   return raw || null;
 }
