@@ -1332,6 +1332,8 @@ export type MatricaApi = {
     clear: (args: { id?: string; cardType?: string; cardId?: string }) => Promise<
       { ok: true; cleared: number } | { ok: false; error: string }
     >;
+    /** Событие «черновики изменились» — счётчик на вкладке обновляется сразу. */
+    onChanged: (cb: () => void) => () => void;
   };
   operations: {
     list: (engineId: string) => Promise<OperationItem[]>;
@@ -3309,6 +3311,47 @@ export type MatricaApi = {
     delete: (args: { id: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
     setVerdict: (args: { id: string; verdictText: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
     meta: () => Promise<import('../domain/aiChatSchedule.js').AiChatMetaResult>;
+  };
+  /** Часы компьютера против часов сервера + перезапуск программы. */
+  system: {
+    clockStatus: () => Promise<
+      | {
+          ok: true;
+          skewMs: number | null;
+          checkedAt: number | null;
+          serverTimeMs: number | null;
+          rttMs: number | null;
+          error: string | null;
+        }
+      | { ok: false; error: string }
+    >;
+    clockCheck: () => Promise<
+      | {
+          ok: true;
+          skewMs: number | null;
+          checkedAt: number | null;
+          serverTimeMs: number | null;
+          rttMs: number | null;
+          error: string | null;
+        }
+      | { ok: false; error: string }
+    >;
+    /** Пробуем синхронизировать часы службой времени Windows. */
+    clockSync: () => Promise<
+      | {
+          ok: true;
+          skewMs: number | null;
+          checkedAt: number | null;
+          serverTimeMs: number | null;
+          rttMs: number | null;
+          error: string | null;
+        }
+      | { ok: false; error: string }
+    >;
+    /** Открыть настройки даты и времени Windows (без прав администратора). */
+    openDateTimeSettings: () => Promise<{ ok: true } | { ok: false; error: string }>;
+    /** Перезапуск программы: штатное гашение и подъём заново. */
+    restart: () => Promise<{ ok: true } | { ok: false; error: string }>;
   };
   aiEngine: {
     // Где считает ответ Ииваныча: «auto» — сначала этот компьютер, при неудаче

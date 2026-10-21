@@ -90,7 +90,7 @@ export type CardRef = {
 // Поля экшенов намеренно обязательные (в т.ч. focus): под exactOptionalPropertyTypes
 // любое `focus: cond ? true : undefined` у вызывающего — ошибка компиляции.
 export type TabsAction =
-  | { type: 'OPEN_LIST'; tabId: TabSectionId; label: string; focus: boolean }
+  | { type: 'OPEN_LIST'; tabId: TabSectionId; label: string; focus: boolean; afterTabId?: string }
   | {
       type: 'OPEN_CARD';
       cardKind: TabSectionId;
@@ -330,6 +330,16 @@ function insertAfterActive(tabs: readonly WorkTab[], activeId: string, tab: Work
   return [...tabs.slice(0, at + 1), tab, ...tabs.slice(at + 1)];
 }
 
+/**
+ * Вставка вкладки сразу после указанной (вкладка «Черновики» — рядом с Ииванычем).
+ * Если указанной вкладки нет — в хвост: молча пропадать нельзя.
+ */
+function insertAfter(tabs: readonly WorkTab[], afterTabId: string, tab: WorkTab): WorkTab[] {
+  const at = tabs.findIndex((t) => t.id === afterTabId);
+  if (at < 0) return [...tabs, tab];
+  return [...tabs.slice(0, at + 1), tab, ...tabs.slice(at + 1)];
+}
+
 function countCards(tabs: readonly WorkTab[]): number {
   let n = 0;
   for (const t of tabs) if (t.kind === 'card') n += 1;
@@ -369,7 +379,9 @@ export function reduceTabs(state: TabsState, action: TabsAction): TabsResult {
       }
       const tab: ListTab = { id, kind: 'list', label: action.label.trim() || tabId, tabId };
       return ok(state, {
-        tabs: insertAfterActive(state.tabs, state.activeId, tab),
+        tabs: action.afterTabId
+          ? insertAfter(state.tabs, action.afterTabId, tab)
+          : insertAfterActive(state.tabs, state.activeId, tab),
         activeId: action.focus ? id : state.activeId,
         secondary: state.secondary,
         notice: state.notice,

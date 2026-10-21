@@ -64,6 +64,26 @@ function cardRef(cardKind: string, entityId: string, title = `${cardKind} ${enti
 }
 
 describe('tabsModel: состав полосы вкладок', () => {
+  it('вкладку можно поставить рядом с указанной (черновики — рядом с Ииванычем)', () => {
+    const s = run(
+      createTabsState(),
+      openSingleton('chat', 'Верстак'),
+      openSingleton('ai_chat', 'ИИваныч'),
+      { type: 'OPEN_LIST', tabId: 'drafts', label: 'Черновики', focus: false, afterTabId: 'ai_chat' },
+    );
+    expect(ids(s)).toEqual([MENU_TAB_ID, 'chat', 'ai_chat', listTabId('drafts')]);
+    // Фокус не забираем: оператор может быть посреди работы.
+    expect(s.activeId).toBe('ai_chat');
+  });
+
+  it('если указанной вкладки нет — новая вкладка уходит в хвост, а не пропадает', () => {
+    const s = run(
+      createTabsState(),
+      { type: 'OPEN_LIST', tabId: 'drafts', label: 'Черновики', focus: false, afterTabId: 'нет-такой' },
+    );
+    expect(ids(s)).toContain(listTabId('drafts'));
+  });
+
   it('МЕНЮ незакрываемо и всегда стоит первым', () => {
     const s = run(
       createTabsState(),
