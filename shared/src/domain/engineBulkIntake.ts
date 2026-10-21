@@ -388,6 +388,13 @@ export type EngineBulkIntakeApplyResult =
       /** В карточке уже другой входной контроль — не перезаписывали. */
       otkConflicts: number;
       /**
+       * Акт комплектности лёг, а этап «Входной контроль ОТК» не встал (отказ
+       * субординации дат). Итог пачки обязан сказать это вслух: иначе оператор
+       * считает, что след работы есть, а в истории ремонта его нет.
+       */
+      otkStageMissed: number;
+      otkStageError: string | null;
+      /**
        * Что с какой строкой стало: номер списка → карточка. Нужно тем, кто после пачки
        * дописывает в карточку своё (утиль верхнего картера) — по номеру, а не по порядку.
        */
@@ -408,10 +415,19 @@ export type EngineBulkIntakeApplyResult =
       otkMissed?: number;
       otkError?: string | null;
       otkConflicts?: number;
+      otkStageMissed?: number;
+      otkStageError?: string | null;
       applied?: Array<{ number: string; engineId: string; action: EngineBulkIntakeAction }>;
     };
 
-/** «Заведём N · дополним M · пропустим K» — одна подпись на кнопку и на итог. */
+/**
+ * «Заведём N · дополним M · пропустим K» — одна подпись на кнопку и на итог.
+ *
+ * Привязанная строка («возможно, опечатка» → «дополняем этот двигатель») приходит
+ * с `existing: null` — карточку оператор выбрал из подсказки, а не из точного
+ * совпадения. Считать её пропуском нельзя: иначе кнопка гаснет («Завести карточки: 0»)
+ * и привязка не применяется никогда (найдено смоуком 21.10.2026).
+ */
 export function engineBulkIntakeSummary(
   rows: ReadonlyArray<{ action: EngineBulkIntakeAction; existing: EngineBulkIntakeExisting | null }>,
 ): {
@@ -427,7 +443,7 @@ export function engineBulkIntakeSummary(
   for (const row of rows) {
     if (row.action === 'create' && !row.existing) create += 1;
     else if (row.action === 'repeat_arrival' && row.existing) repeat += 1;
-    else if (row.action === 'update' && row.existing) update += 1;
+    else if (row.action === 'update') update += 1;
     else skip += 1;
   }
   return { create, skip, repeat, update };

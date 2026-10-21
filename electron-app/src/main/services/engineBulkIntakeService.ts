@@ -326,7 +326,14 @@ function msOrNull(value: unknown): number | null {
 
 /** Чем кончился «Входной контроль ОТК» для одной карточки. */
 export type IncomingOtkWriteResult =
-  | { ok: true; applied: boolean; conflict: boolean }
+  | {
+      ok: true;
+      applied: boolean;
+      conflict: boolean;
+      /** Акт сохранён, а этап `incoming_otk` не встал — итог пачки обязан это назвать. */
+      stageMissed?: boolean;
+      stageError?: string;
+    }
   | { ok: false; error: string };
 
 /**
@@ -429,6 +436,8 @@ export async function applyEngineBulkIntake(
   let otkMissed = 0;
   let otkError: string | null = null;
   let otkConflicts = 0;
+  let otkStageMissed = 0;
+  let otkStageError: string | null = null;
   const createdIds: string[] = [];
   const updatedIds: string[] = [];
   const contractedIds: string[] = [];
@@ -481,6 +490,10 @@ export async function applyEngineBulkIntake(
       }
       if (r.applied) {
         otkApplied += 1;
+        if (r.stageMissed) {
+          otkStageMissed += 1;
+          otkStageError ??= r.stageError || 'этап «Входной контроль ОТК» не встал — дата раньше нижележащего этапа';
+        }
         return true;
       }
       return false;
@@ -556,6 +569,8 @@ export async function applyEngineBulkIntake(
             otkMissed,
             otkError,
             otkConflicts,
+            otkStageMissed,
+            otkStageError,
             applied,
           };
         }
@@ -618,6 +633,8 @@ export async function applyEngineBulkIntake(
         otkMissed,
         otkError,
         otkConflicts,
+        otkStageMissed,
+        otkStageError,
         applied,
       };
     }
@@ -641,6 +658,8 @@ export async function applyEngineBulkIntake(
     otkMissed,
     otkError,
     otkConflicts,
+    otkStageMissed,
+    otkStageError,
     applied,
   };
 }

@@ -102,13 +102,23 @@ export function registerEngineBulkIntakeIpc(ctx: IpcContext) {
     });
     if (!saved.ok) return { ok: false, error: saved.error };
 
+    // Этап — не причина терять сохранённый акт, но и молчать о его отказе нельзя:
+    // итог пачки обязан сказать «акт лёг, а этап не встал», иначе оператор считает,
+    // что след работы есть, а в истории ремонта его нет (смоук 21.10.2026).
+    let stageMissed = false;
+    let stageError = '';
     try {
       const { templates } = await loadRepairStageTemplates(ctx.sysDb, ctx.mgr.getApiBaseUrl());
-      await ensureRepairStageRow(db, engineId, 'incoming_otk', dateMs, actor, templates);
-    } catch {
-      // этап двигателя — не причина терять сохранённый акт
+      const marked = await ensureRepairStageRow(db, engineId, 'incoming_otk', dateMs, actor, templates);
+      if (!marked.ok) {
+        stageMissed = true;
+        stageError = marked.error;
+      }
+    } catch (e) {
+      stageMissed = true;
+      stageError = String(e);
     }
-    return { ok: true, applied: true, conflict: false };
+    return { ok: true, applied: true, conflict: false, ...(stageMissed ? { stageMissed: true, ...(stageError ? { stageError } : {}) } : {}) };
   };
 
   ipcMain.handle('engines:bulkIntake:apply', async (_e, args: EngineBulkIntakeApplyInput) => {

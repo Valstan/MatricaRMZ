@@ -1363,6 +1363,11 @@ export function EnginesPage(props: {
             if ((r.otkConflicts ?? 0) > 0) {
               parts.push(`в карточке другой входной контроль: ${r.otkConflicts} — не перезаписывали`);
             }
+            if ((r.otkStageMissed ?? 0) > 0) {
+              parts.push(
+                `акт ОТК лёг, а этап не встал: ${r.otkStageMissed}${r.otkStageError ? ` (${r.otkStageError})` : ''}`,
+              );
+            }
             if ((r.scrapApplied ?? 0) > 0) parts.push(`верхний картер в утиль: ${r.scrapApplied}`);
             if ((r.scrapMissing ?? 0) > 0) {
               parts.push(
@@ -1372,7 +1377,7 @@ export function EnginesPage(props: {
             if (r.error) parts.push(r.error);
             props.onNotify?.(
               parts.join(' · '),
-              r.error || r.slotErrors > 0 || r.defectStageMissed > 0 || (r.otkMissed ?? 0) > 0 || (r.scrapMissing ?? 0) > 0
+              r.error || r.slotErrors > 0 || r.defectStageMissed > 0 || (r.otkMissed ?? 0) > 0 || (r.otkStageMissed ?? 0) > 0 || (r.scrapMissing ?? 0) > 0
                 ? 'error'
                 : 'info',
             );

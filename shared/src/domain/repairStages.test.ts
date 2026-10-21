@@ -152,6 +152,15 @@ describe('субординация дат (сравнение по дням, М�
   it('этапы без даты не участвуют', () => {
     expect(findStageDateConflict([{ code: 'sborka' as const, at: null }], 'otk', DAY2)).toBeNull();
   });
+
+  it('создание карточки датой позже прихода — не конфликт: приём задним числом законен', () => {
+    // Накладная от прошлой недели, карточку завели сегодня: маркер материализации
+    // сущности в субординации не участвует, иначе след работы молча терялся
+    // (смоук 21.10.2026: акт лёг, этапа ОТК нет, а итог пачки говорил «поставлен»).
+    const stages = [{ code: 'card_created' as const, at: DAY2 }];
+    expect(findStageDateConflict(stages, 'arrival', DAY1)).toBeNull();
+    expect(findStageDateConflict(stages, 'incoming_otk', DAY1)).toBeNull();
+  });
 });
 
 describe('возврат назад', () => {

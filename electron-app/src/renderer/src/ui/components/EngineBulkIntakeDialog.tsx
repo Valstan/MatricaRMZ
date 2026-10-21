@@ -41,6 +41,9 @@ export type EngineBulkIntakeResult = {
   otkMissed?: number;
   otkError?: string | null;
   otkConflicts?: number;
+  /** Акт комплектности лёг, а этап «Входной контроль ОТК» не встал (отказ субординации дат). */
+  otkStageMissed?: number;
+  otkStageError?: string | null;
   /** Утиль верхнего картера: помечено / марка не знает такой детали / отказ. */
   scrapApplied?: number;
   scrapMissing?: number;
@@ -481,6 +484,8 @@ export function EngineBulkIntakeDialog(props: {
           otkMissed: r.otkMissed ?? 0,
           otkError: r.otkError ?? null,
           otkConflicts: r.otkConflicts ?? 0,
+          otkStageMissed: r.otkStageMissed ?? 0,
+          otkStageError: r.otkStageError ?? null,
           scrapApplied,
           scrapMissing,
           scrapError,
@@ -501,6 +506,8 @@ export function EngineBulkIntakeDialog(props: {
         otkMissed: r.otkMissed,
         otkError: r.otkError,
         otkConflicts: r.otkConflicts,
+        otkStageMissed: r.otkStageMissed,
+        otkStageError: r.otkStageError,
         scrapApplied,
         scrapMissing,
         scrapError,
