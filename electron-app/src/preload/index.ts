@@ -137,6 +137,19 @@ const matricaApi = {
     list: async () => ipcRenderer.invoke('drafts:list'),
     get: async (args: { cardType: string; cardId: string }) => ipcRenderer.invoke('drafts:get', args),
     clear: async (args: { id?: string; cardType?: string; cardId?: string }) => ipcRenderer.invoke('drafts:clear', args),
+    // Событие «черновики изменились»: счётчик на вкладке не должен ждать синка.
+    onChanged: (cb: () => void) => {
+      const listener = () => cb();
+      ipcRenderer.on('drafts:changed', listener);
+      return () => ipcRenderer.removeListener('drafts:changed', listener);
+    },
+  },
+  system: {
+    clockStatus: async () => ipcRenderer.invoke('system:clockStatus'),
+    clockCheck: async () => ipcRenderer.invoke('system:clockCheck'),
+    clockSync: async () => ipcRenderer.invoke('system:clockSync'),
+    openDateTimeSettings: async () => ipcRenderer.invoke('system:openDateTimeSettings'),
+    restart: async () => ipcRenderer.invoke('system:restart'),
   },
   operations: {
     list: async (engineId: string) => ipcRenderer.invoke('ops:list', engineId),

@@ -23,6 +23,7 @@ import type {
   WorkOrderPayload,
   SupplyRequestPayload,
 } from '@matricarmz/shared';
+import { CLOCK_SKEW_THRESHOLD_MS, formatClockSkew } from '@matricarmz/shared';
 import {
   ACCESS_SECTION_CATALOG,
   formatAppVersionLabel,
@@ -3346,6 +3347,44 @@ export function App() {
     shellNoticeTimerRef.current = window.setTimeout(() => setShellNotice(null), SHELL_NOTICE_MS[tone]);
   }, []);
 
+  // Часы компьютера против часов сервера (владелец 21.10.2026). Расхождение больше
+  // двух минут — плашка в шапке, НЕ модалка: работать можно и нужно, но подписи
+  // документов и «свежесть» записей от расхождения страдают.
+  const [clockSkew, setClockSkew] = useState<{ problem: boolean; text: string; rttMs: number | null } | null>(null);
+  const refreshClockSkew = useCallback(async () => {
+    const r = await window.matrica.system.clockStatus().catch(() => null);
+    if (!r?.ok) return;
+    const problem = r.skewMs != null && Math.abs(r.skewMs) > CLOCK_SKEW_THRESHOLD_MS;
+    setClockSkew({ problem, text: formatClockSkew(r.skewMs), rttMs: r.rttMs ?? null });
+  }, []);
+  useEffect(() => {
+    void refreshClockSkew();
+    const t = window.setInterval(() => void refreshClockSkew(), 30 * 60 * 1000);
+    return () => window.clearInterval(t);
+  }, [refreshClockSkew]);
+  const syncClockNow = useCallback(async () => {
+    const r = await window.matrica.system.clockSync().catch(() => null);
+    if (!r?.ok) {
+      notifyOperator(r?.error ?? 'не удалось синхронизировать время', 'error');
+      return;
+    }
+    await refreshClockSkew();
+    notifyOperator('Время синхронизировано', 'info');
+  }, [notifyOperator, refreshClockSkew]);
+  const openClockSettings = useCallback(async () => {
+    const r = await window.matrica.system.openDateTimeSettings().catch(() => null);
+    if (!r?.ok) notifyOperator(r?.error ?? 'не удалось открыть настройки времени', 'error');
+  }, [notifyOperator]);
+  // Перезапуск программы: штатное гашение (движок, синк, трей) и подъём заново.
+  const restartApp = useCallback(async () => {
+    const r = await window.matrica.system.restart().catch(() => null);
+    if (!r?.ok) {
+      notifyOperator(r?.error ?? 'не удалось перезапустить программу', 'error');
+      return;
+    }
+    notifyOperator('Перезапускаю программу…', 'info');
+  }, [notifyOperator]);
+
   /** Сообщение называет то, что произошло: упор в лимит — не «добавлено». */
   function announceDesktopOutcome(outcome: DesktopToggleOutcome | DesktopPutOutcome, label: string) {
     if (outcome === 'limit') {
@@ -3751,8 +3790,7 @@ export function App() {
   // Phase 3b: after login, surface any unsaved recovery drafts (crash / forced close /
   // "оставить черновик") once per operator session. Restore navigates to the card, which
   // revives the snapshot on load; discard soft-deletes the draft (synced).
-  useEffect(() => {
-    if (!authStatus.loggedIn) return;
+  useEffect(() => {    if (!authStatus.loggedIn) return;
     const userId = String(authStatus.user?.id ?? '').trim();
     if (!userId || recoveryCheckedUserRef.current === userId) return;
     recoveryCheckedUserRef.current = userId;
@@ -3791,6 +3829,44 @@ export function App() {
 
   /** Типы карточек, чьи details-страницы умеют открываться из черновика (3d). */
   const DRAFT_OPENABLE_CARD_TYPES = ['work_order', 'supply_request', 'product', 'service', 'counterparty', 'engine_brand', 'contract', 'engine', 'employee'];
+
+  // Черновики: счётчик на вкладке (владелец 21.10.2026). Пока черновики есть,
+  // вкладка «Черновики» стоит рядом с Ииванычем, горит красным и не закрывается.
+  const [draftsCount, setDraftsCount] = useState(0);
+  const refreshDraftsCount = useCallback(async () => {
+    try {
+      const r = await window.matrica.drafts.list();
+      if (r?.ok) setDraftsCount(r.drafts.length);
+    } catch {
+      // best-effort — счётчик не должен ломать работу
+    }
+  }, []);
+  useEffect(() => {
+    if (!authStatus.loggedIn) {
+      setDraftsCount(0);
+      return;
+    }
+    void refreshDraftsCount();
+    // main сообщает о сохранении/удалении черновика — считаем сразу, не дожидаясь синка.
+    const off = window.matrica.drafts.onChanged(() => void refreshDraftsCount());
+    return () => off();
+  }, [authStatus.loggedIn, refreshDraftsCount]);
+
+  // Вкладка «Черновики» появляется сама, как только черновики есть, и стоит рядом
+  // с Ииванычем. Фокус не забираем: оператор может быть посреди работы.
+  useEffect(() => {
+    if (!authStatus.loggedIn) return;
+    if (draftsCount <= 0) return;
+    const hasDraftsTab = tabsState.tabs.some((t) => t.kind === 'list' && t.tabId === 'drafts');
+    if (hasDraftsTab) return;
+    dispatchTabs({ type: 'OPEN_LIST', tabId: 'drafts', label: 'Черновики', focus: false, afterTabId: 'ai_chat' });
+  }, [authStatus.loggedIn, draftsCount, tabsState.tabs]);
+
+  /** Открыть вкладку «Черновики» из модалки восстановления — список, а не черновик наугад. */
+  const openDraftsTab = useCallback(() => {
+    setRecoveryDrafts(null);
+    dispatchTabs({ type: 'OPEN_LIST', tabId: 'drafts', label: 'Черновики', focus: true, afterTabId: 'ai_chat' });
+  }, [dispatchTabs]);
 
   async function discardDraft(d: { id: string }) {
     try {
@@ -5492,9 +5568,12 @@ export function App() {
               </div>
             ))}
           </div>
-          <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
+          <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             <Button variant="ghost" onClick={() => setRecoveryDrafts(null)}>
               Позже
+            </Button>
+            <Button variant="primary" onClick={openDraftsTab} data-open-drafts-tab>
+              Разобрать черновики
             </Button>
           </div>
         </div>
@@ -6705,7 +6784,7 @@ export function App() {
   };
 
   function toOpenTab(t: WorkTab): OpenTab {
-    return {
+    const base: OpenTab = {
       id: t.id,
       kind: t.kind,
       label: t.label,
@@ -6718,6 +6797,12 @@ export function App() {
         ? { tabId: t.cardKind as TabId, cardKind: t.cardKind as TabId, entityId: t.entityId, titleIsFallback: t.titleIsFallback }
         : {}),
     };
+    // Вкладка «Черновики», пока черновики есть, закрыть нельзя (владелец 21.10.2026):
+    // оператор не должен потерять список, в котором сам же и не разобрался.
+    if (t.kind === 'list' && t.tabId === 'drafts' && draftsCount > 0) {
+      return { ...base, canClose: false };
+    }
+    return base;
   }
 
   // Полоса и активный ключ — одно состояние: рассинхрон «активная вкладка не существует»
@@ -6948,6 +7033,11 @@ export function App() {
           {isV3 ? (
             <V3TabShell
               chatUnread={chatUnreadTotal}
+              draftsCount={draftsCount}
+              clockSkew={clockSkew}
+              onClockSync={() => void syncClockNow()}
+              onClockOpenSettings={() => void openClockSettings()}
+              onRestartApp={() => void restartApp()}
               updateProgress={
                 updateState?.state === 'downloading' && typeof updateState.progress === 'number'
                   ? { pct: Math.round(updateState.progress), version: updateState.version ?? null }

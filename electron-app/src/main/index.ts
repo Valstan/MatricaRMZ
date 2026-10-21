@@ -32,6 +32,7 @@ import { readSidecarClientId, writeSidecarClientId } from './services/clientIdSt
 import { isSameMigrationFailure } from './services/dbSelfHealLoopDetector.js';
 import { stopLocalEngine } from './services/localAiEngine.js';
 import { prepareLocalEngineInBackground, scheduleEngineMaintenance } from './services/aiEngineAuto.js';
+import { startClockChecks } from './services/clockSkewService.js';
 import { tryEmergencyUpdate } from './services/emergencyUpdate.js';
 import {
   finishStartupStatus,
@@ -834,6 +835,10 @@ app.whenReady().then(() => {
       void prepareLocalEngineInBackground(db, apiBaseUrl)
         .then(() => scheduleEngineMaintenance(() => apiBaseUrl))
         .catch((e) => logToFile(`local engine autostart failed: ${String(e)}`));
+
+      // Часы компьютера сверяем с часами сервера: расхождение больше двух минут
+      // ломает подписи и свежесть записей. Проверка раз в два часа, в фоне.
+      startClockChecks(() => apiBaseUrl);
     } catch (e) {
       logToFile(`fatal init failed: ${String(e)}`);
       hideStartupStatus();

@@ -66,6 +66,7 @@ export * from './domain/notes.js';
 export * from './domain/aiAgent.js';
 export * from './domain/aiChatSchedule.js';
 export * from './domain/aiEngineMode.js';
+export * from './domain/clockSkew.js';
 export * from './domain/systemIds.js';
 export * from './domain/permissions.js';
 export * from './domain/ledgerAuthz.js';

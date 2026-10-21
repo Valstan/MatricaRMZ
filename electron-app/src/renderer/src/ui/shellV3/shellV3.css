@@ -99,6 +99,57 @@
   color: var(--danger, #dc2626);
 }
 
+/* Крестик вкладки «Черновики», пока черновики есть: показать, но не дать закрыть —
+   иначе оператор не понимает, почему вкладка не закрывается. */
+.v3-tab-close-locked {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.v3-tab-close-locked:hover {
+  color: var(--muted, #6b7280);
+}
+
+/* Красный бейдж черновиков на вкладке (владелец 21.10.2026). */
+.v3-tab-drafts-badge {
+  flex: 0 0 auto;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--danger, #dc2626);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+/* Плашка расхождения часов — в шапке, не модалка (владелец 21.10.2026). */
+.v3-clock-skew {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  background: rgba(220, 38, 38, 0.12);
+  border-bottom: 1px solid var(--danger, #dc2626);
+  color: var(--text, #111827);
+  font-size: 12px;
+}
+
+.v3-clock-skew-btn {
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--danger, #dc2626);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.v3-clock-skew-btn:hover {
+  background: rgba(220, 38, 38, 0.16);
+}
+
 /* Растяжка между вкладками и кнопкой синка */
 .v3-tab-spacer {
   flex: 1 1 auto;

@@ -73,6 +73,14 @@ export function V3TabShell(props: {
   onToggleSectionFavorite: (id: MenuTabId) => void;
   /** Непрочитанные сообщения чата — бейдж на вкладке Верстака (владелец 08.09.2026). */
   chatUnread?: number;
+  /** Черновики на машине: красный бейдж на вкладке «Черновики» (владелец 21.10.2026). */
+  draftsCount?: number;
+  /** Расхождение часов компьютера с сервером — плашка в шапке (владелец 21.10.2026). */
+  clockSkew?: { problem: boolean; text: string; rttMs: number | null } | null;
+  onClockSync?: () => void;
+  onClockOpenSettings?: () => void;
+  /** Перезапуск программы из шапки — для оператора, который не может выгрузить её из трея. */
+  onRestartApp?: () => void;
   /** Прогресс фоновой загрузки обновления: заливка под вкладками. `null` — ничего не качается. */
   updateProgress?: { pct: number; version?: string | null } | null;
   /** Короткое сообщение оператору — всплывает над телом вкладки и гаснет само. */
@@ -323,6 +331,27 @@ export function V3TabShell(props: {
 
   return (
     <div className="v3-shell">
+      {/* Часы компьютера расходятся с часами сервера — плашка в шапке, не модалка:
+          работать можно, но подписи и «свежесть» записей будут врать. */}
+      {props.clockSkew?.problem ? (
+        <div className="v3-clock-skew" data-clock-skew="problem" role="status">
+          <span>
+            🔴 Время на компьютере расходится с сервером на {props.clockSkew.text}
+            {props.clockSkew.rttMs != null ? ` (сеть ${Math.round(props.clockSkew.rttMs / 100) / 10} с)` : ''} — документы
+            подписываются неверным временем, изменения могут не уйти на сервер.
+          </span>
+          {props.onClockSync ? (
+            <button type="button" className="v3-clock-skew-btn" onClick={() => props.onClockSync?.()}>
+              Синхронизировать
+            </button>
+          ) : null}
+          {props.onClockOpenSettings ? (
+            <button type="button" className="v3-clock-skew-btn" onClick={() => props.onClockOpenSettings?.()}>
+              Открыть настройки времени
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <div className="v3-tab-strip" role="tablist">
         {/* Прогресс фонового обновления — заливка ПОД вкладками во всю ширину (владелец
             08.09.2026): видно, что программа что-то качает и скоро может перезагрузиться,
@@ -395,6 +424,12 @@ export function V3TabShell(props: {
                     🔔{props.chatUnread}
                   </span>
                 )}
+                {/* Черновики: красный бейдж со счётчиком (владелец 21.10.2026). */}
+                {tab.kind === 'list' && tab.tabId === 'drafts' && Number(props.draftsCount ?? 0) > 0 && (
+                  <span className="v3-tab-drafts-badge" data-drafts-count={String(props.draftsCount)} title={`Черновиков: ${props.draftsCount} — вкладку нельзя закрыть, пока они есть`}>
+                    ●{props.draftsCount}
+                  </span>
+                )}
               </button>
               {canSplit && (
                 <button
@@ -426,6 +461,18 @@ export function V3TabShell(props: {
                     />
                   );
                 })()}
+              {tab.kind === 'list' && tab.tabId === 'drafts' && Number(props.draftsCount ?? 0) > 0 ? (
+                // Пока есть черновики, вкладку закрывать нельзя — но крестик показываем
+                // (иначе оператор не понимает, почему вкладка не закрывается).
+                <button
+                  type="button"
+                  className="v3-tab-close v3-tab-close-locked"
+                  disabled
+                  title="Пока есть черновики, вкладку закрыть нельзя — разберите черновики"
+                >
+                  ✕
+                </button>
+              ) : null}
               {tab.canClose && (
                 <button
                   type="button"
@@ -440,6 +487,21 @@ export function V3TabShell(props: {
           );
         })}
         <div className="v3-tab-spacer" />
+        {/* Перезапуск программы (владелец 21.10.2026): программа живёт в трее и сама
+            не выгружается — после правок или зависания оператору нужен свой restart
+            без перезагрузки компьютера. */}
+        {props.onRestartApp ? (
+          <button
+            type="button"
+            className="v3-account-btn"
+            data-restart-app-btn
+            title="Перезапустить программу: закрыть всё и открыть заново (компьютер перезагружать не нужно)"
+            onClick={() => props.onRestartApp?.()}
+          >
+            <span aria-hidden="true">⟳</span>
+            <span className="v3-account-name">Перезапустить программу</span>
+          </button>
+        ) : null}
         {/* «Правка программы» — рядом с аккаунтом: доступна с любого экрана, а не
             только из МЕНЮ; раздел в письмо подставляется сам. */}
         {props.userLabel && props.onProgramFeedback ? (
