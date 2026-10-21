@@ -8,6 +8,7 @@ import {
   ROW_PART_ID_KEY,
   ROW_PHOTOS_KEY,
   ROW_SELECTED_KEY,
+  buildBrandRowsForStage,
   clearBrandRowMeta,
   defectRowSignature,
   getRowPartId,
@@ -16,6 +17,7 @@ import {
   isBrandLinkedChecklistRow,
   isInventoryRowVisibleForVariant,
   markBrandLinkedRow,
+  markScrapRow,
   mergeBrandManagedRows,
   preserveRowIdentityMeta,
   rowPartIdFromOptionId,
@@ -239,5 +241,52 @@ describe('mergeBrandManagedRows — G3 id-keying', () => {
     const merged = mergeBrandManagedRows(current, fresh, defectRowSignature, mergeDefectEditable);
     expect(merged).toHaveLength(1);
     expect(getRowPartId(merged[0]!)).toBe('5');
+  });
+});
+
+describe('строки марки и утиль верхнего картера', () => {
+  const part = {
+    id: 'part-carter',
+    name: 'Картер верхний',
+    article: 'А-12',
+    brandLinks: [{ engineBrandId: 'brand-1', assemblyUnitNumber: 'СЕ-7', quantity: 1, inDefectAct: true }],
+  };
+
+  it('строка списка деталей повторяет строку панели акта (иначе resync завёл бы двойника)', () => {
+    const [row] = buildBrandRowsForStage([part], 'brand-1', 'engine_inventory');
+    expect(row).toMatchObject({
+      part_name: 'Картер верхний',
+      part_number: 'СЕ-7',
+      assembly_unit_number: 'А-12',
+      quantity: 1,
+      scrap_qty: 0,
+    });
+    // Тот же id детали, по которому панель узнаёт «свою» строку марки.
+    expect(String(row?.[BRAND_ROW_PART_ID_KEY])).toBe('part-carter');
+  });
+
+  it('утиль ставится строкой марки: количество в утиль, ремонтопригодных ноль', () => {
+    const [scrapRow] = buildBrandRowsForStage([part], 'brand-1', 'engine_inventory');
+    const { rows, existed } = markScrapRow([], { ...scrapRow!, present: true, actual_qty: 1, scrap_qty: 1, repairable_qty: 0 });
+    expect(existed).toBe(false);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ part_name: 'Картер верхний', scrap_qty: 1, repairable_qty: 0, present: true });
+  });
+
+  it('вторая галочка обновляет ту же строку, а не добавляет новую', () => {
+    const [scrapRow] = buildBrandRowsForStage([part], 'brand-1', 'engine_inventory');
+    const first = markScrapRow([], { ...scrapRow!, scrap_qty: 1, repairable_qty: 0 });
+    const second = markScrapRow(first.rows, { ...scrapRow!, scrap_qty: 1, repairable_qty: 0 });
+    expect(second.existed).toBe(true);
+    expect(second.rows).toHaveLength(1);
+    expect(second.rows[0]).toMatchObject({ scrap_qty: 1, repairable_qty: 0 });
+  });
+
+  it('чужие строки списка утиль не трогает', () => {
+    const other = { part_name: 'Картер нижний', assembly_unit_number: 'А-13', part_number: 'СЕ-8', scrap_qty: 0 };
+    const [scrapRow] = buildBrandRowsForStage([part], 'brand-1', 'engine_inventory');
+    const { rows } = markScrapRow([other], { ...scrapRow!, scrap_qty: 1, repairable_qty: 0 });
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ part_name: 'Картер нижний', scrap_qty: 0 });
   });
 });

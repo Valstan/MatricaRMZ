@@ -1363,10 +1363,18 @@ export function EnginesPage(props: {
             if ((r.otkConflicts ?? 0) > 0) {
               parts.push(`в карточке другой входной контроль: ${r.otkConflicts} — не перезаписывали`);
             }
+            if ((r.scrapApplied ?? 0) > 0) parts.push(`верхний картер в утиль: ${r.scrapApplied}`);
+            if ((r.scrapMissing ?? 0) > 0) {
+              parts.push(
+                `утиль верхнего картера не поставлен: ${r.scrapMissing}${r.scrapError ? ` (${r.scrapError})` : ' (в марке нет такой детали)'}`,
+              );
+            }
             if (r.error) parts.push(r.error);
             props.onNotify?.(
               parts.join(' · '),
-              r.error || r.slotErrors > 0 || r.defectStageMissed > 0 || (r.otkMissed ?? 0) > 0 ? 'error' : 'info',
+              r.error || r.slotErrors > 0 || r.defectStageMissed > 0 || (r.otkMissed ?? 0) > 0 || (r.scrapMissing ?? 0) > 0
+                ? 'error'
+                : 'info',
             );
           }}
         />

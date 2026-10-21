@@ -433,6 +433,9 @@ export async function applyEngineBulkIntake(
   const updatedIds: string[] = [];
   const contractedIds: string[] = [];
   const seen = new Set<string>();
+  // Номер списка → карточка: по этой карте пакетный приём дописывает в карточку своё
+  // (утиль верхнего картера) там, где строку нельзя опознать по порядку строк.
+  const applied: Array<{ number: string; engineId: string; action: 'create' | 'repeat_arrival' | 'update' }> = [];
 
   const markDefectStage = async (engineId: string, atMs: number | null): Promise<boolean> => {
     if (!atMs) return false;
@@ -553,6 +556,7 @@ export async function applyEngineBulkIntake(
             otkMissed,
             otkError,
             otkConflicts,
+            applied,
           };
         }
         changed = true;
@@ -565,6 +569,7 @@ export async function applyEngineBulkIntake(
         continue;
       }
       updated += 1;
+      applied.push({ number: existing.engineNumber || number, engineId: existing.id, action: 'update' });
       updatedIds.push(existing.id);
       continue;
     }
@@ -613,9 +618,11 @@ export async function applyEngineBulkIntake(
         otkMissed,
         otkError,
         otkConflicts,
+        applied,
       };
     }
     created += 1;
+    applied.push({ number, engineId, action: repeat ? 'repeat_arrival' : 'create' });
     createdIds.push(engineId);
     await markDefectStage(engineId, offer.defectDate);
     await markIncomingOtk(engineId, offer.arrivalDate, null);
@@ -634,5 +641,6 @@ export async function applyEngineBulkIntake(
     otkMissed,
     otkError,
     otkConflicts,
+    applied,
   };
 }

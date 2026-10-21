@@ -132,4 +132,13 @@ describe('EngineBulkIntakeDialog — приём двигателей списк�
     expect(DIALOG).toContain('item.binding?.engineNumber');
     expect(SERVICE).toContain('engineBulkIntakeSimilarNumbers');
   });
+
+  it('утиль верхнего картера — галочка строки, а строка берётся из марки тем же построителем', () => {
+    expect(DIALOG).toContain('data-bulk-intake-row-scrap="true"');
+    expect(DIALOG).toContain('markUpperCarterScrap');
+    expect(DIALOG).toContain('buildBrandRowsForStage');
+    expect(DIALOG).toContain('markScrapRow');
+    expect(DIALOG).toContain('scrapMissing');
+    expect(PAGE).toContain('утиль верхнего картера не поставлен');
+  });
 });

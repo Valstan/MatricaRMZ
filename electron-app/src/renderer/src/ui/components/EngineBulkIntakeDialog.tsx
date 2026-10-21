@@ -2,6 +2,7 @@
 
 import {
   ENGINE_BULK_INTAKE_MAX,
+  ENGINE_INVENTORY_STAGE,
   effectiveEngineBulkIntakeAction,
   engineBulkIntakeConflictingFields,
   engineBulkIntakeFieldList,
@@ -22,6 +23,8 @@ import { EntityReferenceField } from './EntityReferenceField.js';
 import { Input } from './Input.js';
 import { Spinner } from './LoadingOverlay.js';
 import { placeEngineIntoContractSlot } from '../utils/engineContractSlot.js';
+import { listAllPartSpecs } from '../utils/partsPagination.js';
+import { buildBrandRowsForStage, markScrapRow, toQtyValue, type ChecklistTableRow } from '../utils/repairChecklistRows.js';
 import { mapEntityRowsToSearchOptions, type SearchableSelectOption } from '../utils/selectOptions.js';
 
 export type EngineBulkIntakeResult = {
@@ -38,6 +41,10 @@ export type EngineBulkIntakeResult = {
   otkMissed?: number;
   otkError?: string | null;
   otkConflicts?: number;
+  /** Утиль верхнего картера: помечено / марка не знает такой детали / отказ. */
+  scrapApplied?: number;
+  scrapMissing?: number;
+  scrapError?: string | null;
   error?: string;
 };
 
@@ -53,6 +60,57 @@ function fromInputDate(value: string): number | null {
   if (!v) return null;
   const ms = Date.parse(`${v}T12:00:00`);
   return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * Утиль верхнего картера: галочка в строке списка (владелец 21.10.2026). Строку берём
+ * из спецификации марки тем же построителем, что и панель акта, — иначе авто-resync
+ * панели завёл бы вторую строку той же детали.
+ */
+async function markUpperCarterScrap(
+  engineId: string,
+  brandId: string | null,
+): Promise<'ok' | 'no-part' | 'error'> {
+  const parts = await listAllPartSpecs({ ...(brandId ? { engineBrandId: brandId } : {}) });
+  if (!parts.ok) return 'error';
+  const part = (parts.parts as Array<Record<string, unknown>>).find((p) => /картер\s+верхн/i.test(String(p?.name ?? '')));
+  if (!part) return 'no-part';
+  const [fresh] = buildBrandRowsForStage([part], brandId ?? undefined, ENGINE_INVENTORY_STAGE);
+  if (!fresh) return 'no-part';
+  const qty = toQtyValue((fresh as Record<string, unknown>).quantity) || 1;
+  const scrapRow: ChecklistTableRow = {
+    ...fresh,
+    present: true,
+    actual_qty: qty,
+    scrap_qty: qty,
+    repairable_qty: 0,
+  };
+  const leaf = await window.matrica.checklists.engineGet({ engineId, stage: ENGINE_INVENTORY_STAGE });
+  if (!leaf?.ok) return 'error';
+  let templateId = String(leaf.payload?.templateId ?? '');
+  if (!templateId) {
+    const t = await window.matrica.checklists.templatesList({ stage: ENGINE_INVENTORY_STAGE });
+    const first = t?.ok ? (t.templates ?? [])[0] : null;
+    if (!first?.id) return 'error';
+    templateId = String(first.id);
+  }
+  const answers = (leaf.payload?.answers ?? {}) as Record<string, unknown>;
+  const rawTable = answers.engine_inventory_items;
+  const table =
+    rawTable && typeof rawTable === 'object' && (rawTable as Record<string, unknown>).kind === 'table'
+      ? (rawTable as { kind: 'table'; rows: ChecklistTableRow[] })
+      : { kind: 'table' as const, rows: [] as ChecklistTableRow[] };
+  const currentRows: ChecklistTableRow[] = Array.isArray(table.rows) ? table.rows : [];
+  const { rows } = markScrapRow(currentRows, scrapRow);
+  const saved = await window.matrica.checklists.engineSave({
+    engineId,
+    stage: ENGINE_INVENTORY_STAGE,
+    templateId,
+    operationId: leaf.operationId ?? null,
+    answers: { ...answers, engine_inventory_items: { kind: 'table', rows } },
+    auto: true,
+  });
+  return saved?.ok ? 'ok' : 'error';
 }
 
 function formatArrival(ms: number | null): string {
@@ -107,6 +165,8 @@ export function EngineBulkIntakeDialog(props: {
   const [rowOtk, setRowOtk] = useState<Record<string, string>>({});
   const [rowWaybills, setRowWaybills] = useState<Record<string, string>>({});
   const [rowDefect, setRowDefect] = useState<Record<string, string>>({});
+  /** Утиль верхнего картера — галочка строки списка (заводская просьба 21.10.2026). */
+  const [rowScrap, setRowScrap] = useState<Record<string, boolean>>({});
   const [bindings, setBindings] = useState<Record<string, RowBinding>>({});
   const [previewBusy, setPreviewBusy] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -126,6 +186,7 @@ export function EngineBulkIntakeDialog(props: {
     setRowOtk({});
     setRowWaybills({});
     setRowDefect({});
+    setRowScrap({});
     setBindings({});
     setBrandId('');
     setCustomerId('');
@@ -375,6 +436,39 @@ export function EngineBulkIntakeDialog(props: {
           }
         }
       }
+      // Утиль верхнего картера — после карточек: строка помечается в списке деталей двигателя
+      // (даже в проведённом акте). Марка нужна своя, из строки; нет карточки в списке —
+      // говорим итогом, а не молчим.
+      let scrapApplied = 0;
+      let scrapMissing = 0;
+      let scrapError: string | null = null;
+      const scrapKeys = items.filter((item) => item.action !== 'skip' && rowScrap[item.key]).map((item) => item.key);
+      if (scrapKeys.length > 0) {
+        const engineIdsByNumber = new Map<string, string>();
+        for (const entry of r.applied ?? []) engineIdsByNumber.set(entry.number, entry.engineId);
+        for (const key of scrapKeys) {
+          const item = items.find((i) => i.key === key);
+          if (!item) continue;
+          const engineId = engineIdsByNumber.get(item.binding?.engineNumber ?? item.number);
+          if (!engineId) {
+            scrapMissing += 1;
+            continue;
+          }
+          const ownBrand = rowBrands[key] || brandId || null;
+          try {
+            const result = await markUpperCarterScrap(engineId, ownBrand);
+            if (result === 'ok') scrapApplied += 1;
+            else if (result === 'no-part') scrapMissing += 1;
+            else {
+              scrapMissing += 1;
+              scrapError ??= 'Не удалось записать утиль верхнего картера в список деталей.';
+            }
+          } catch (e) {
+            scrapMissing += 1;
+            scrapError ??= String(e);
+          }
+        }
+      }
       if (!r.ok) {
         await props.onCreated({
           created: createdIds.length,
@@ -387,6 +481,9 @@ export function EngineBulkIntakeDialog(props: {
           otkMissed: r.otkMissed ?? 0,
           otkError: r.otkError ?? null,
           otkConflicts: r.otkConflicts ?? 0,
+          scrapApplied,
+          scrapMissing,
+          scrapError,
           error: r.error,
         });
         return;
@@ -404,6 +501,9 @@ export function EngineBulkIntakeDialog(props: {
         otkMissed: r.otkMissed,
         otkError: r.otkError,
         otkConflicts: r.otkConflicts,
+        scrapApplied,
+        scrapMissing,
+        scrapError,
       });
     } catch (e) {
       setError(`Не удалось завести карточки: ${e instanceof Error ? e.message : String(e)}`);
@@ -611,6 +711,7 @@ export function EngineBulkIntakeDialog(props: {
                       <th style={{ padding: '4px 6px' }}>Входной контроль ОТК</th>
                       <th style={{ padding: '4px 6px' }}>Номер накладной</th>
                       <th style={{ padding: '4px 6px' }}>Дата дефектовки</th>
+                      <th style={{ padding: '4px 6px' }}>Картер верхний — утиль</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -656,6 +757,16 @@ export function EngineBulkIntakeDialog(props: {
                             disabled={busy}
                             data-bulk-intake-row-defect="true"
                             onChange={(e) => setRowDefect((prev) => ({ ...prev, [item.key]: e.target.value }))}
+                          />
+                        </td>
+                        <td style={{ padding: '4px 6px', textAlign: 'center' }}>
+                          <input
+                            type="checkbox"
+                            aria-label={`Картер верхний в утиль — двигатель ${item.number}`}
+                            data-bulk-intake-row-scrap="true"
+                            checked={Boolean(rowScrap[item.key])}
+                            disabled={busy}
+                            onChange={(e) => setRowScrap((prev) => ({ ...prev, [item.key]: e.target.checked }))}
                           />
                         </td>
                       </tr>

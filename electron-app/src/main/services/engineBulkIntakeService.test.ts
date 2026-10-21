@@ -475,6 +475,11 @@ describe('applyEngineBulkIntake', () => {
     const second = cardRow(sqlite, r.createdIds[1]!);
     expect(first).toMatchObject({ b: 'brand-other', bl: 'Cummins', a: DEFECT });
     expect(second).toMatchObject({ b: 'brand-bosch', bl: 'Bosch', a: ARRIVAL });
+    // Карта «номер списка → карточка»: по ней пачка дописывает в карточку своё (утиль картера).
+    expect(r.applied).toEqual([
+      { number: 'OWN-1', engineId: r.createdIds[0], action: 'create' },
+      { number: 'OWN-2', engineId: r.createdIds[1], action: 'create' },
+    ]);
     const waybill = sqlite
       .prepare("SELECT arrival_invoice AS w FROM erp_engine_cards WHERE id = ?")
       .get(r.createdIds[0]!) as { w: string | null };
