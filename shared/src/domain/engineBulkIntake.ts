@@ -387,6 +387,11 @@ export type EngineBulkIntakeApplyResult =
       otkError: string | null;
       /** В карточке уже другой входной контроль — не перезаписывали. */
       otkConflicts: number;
+      /**
+       * Что с какой строкой стало: номер списка → карточка. Нужно тем, кто после пачки
+       * дописывает в карточку своё (утиль верхнего картера) — по номеру, а не по порядку.
+       */
+      applied?: Array<{ number: string; engineId: string; action: EngineBulkIntakeAction }>;
     }
   /** Отказ в середине пачки: сколько успело завестись, чтобы окно не потеряло эти карточки. */
   | {
@@ -403,6 +408,7 @@ export type EngineBulkIntakeApplyResult =
       otkMissed?: number;
       otkError?: string | null;
       otkConflicts?: number;
+      applied?: Array<{ number: string; engineId: string; action: EngineBulkIntakeAction }>;
     };
 
 /** «Заведём N · дополним M · пропустим K» — одна подпись на кнопку и на итог. */

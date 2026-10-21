@@ -10,7 +10,7 @@
  * Извлечено из RepairChecklistPanel.tsx ради юнит-тестов (rfx #013 «доказать, не на глаз»).
  */
 
-import type { FileRef } from '@matricarmz/shared';
+import { engineInventoryRowSignature, type FileRef } from '@matricarmz/shared';
 
 export type ChecklistTableRow = Record<string, string | boolean | number>;
 
@@ -208,4 +208,141 @@ export function mergeBrandManagedRows(
   });
 
   return [...mergedManagedRows, ...manualRows.map(clearBrandRowMeta)];
+}
+
+/* -------------------------------------------------------------------------- *
+ * Канонические строки стадии по спецификации марки
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Привязка детали к марке в той форме, в какой её ждут строки акта. Живёт здесь, а не
+ * в панели акта: с 21.10.2026 те же строки строит пакетный приём (утиль верхнего
+ * картера) — две копии разошлись бы, и строка приёмки не слилась бы с строкой панели.
+ */
+export function getBrandLinkForPart(part: unknown, engineBrandId: string | undefined) {
+  const brandId = String(engineBrandId || '').trim();
+  if (!brandId || !part || typeof part !== 'object') return null;
+  const links = Array.isArray((part as any).brandLinks) ? (part as any).brandLinks : [];
+  const link = links.find((x: any) => String(x?.engineBrandId || '').trim() === brandId);
+  if (!link) return null;
+  // Решение владельца (2026-06-12): артикул детали И ЕСТЬ «№ сборочной единицы».
+  // Артикул приоритетен; legacy-привязки без артикула падают на старый assemblyUnitNumber.
+  const article = String((part as any).article ?? '').trim();
+  return {
+    partNumber: String(link.assemblyUnitNumber ?? ''),
+    assemblyUnitNumber: article || String(link.assemblyUnitNumber ?? ''),
+    quantity: Number.isFinite(Number(link.quantity)) ? Number(link.quantity) : 0,
+    inCompletenessAct: Boolean(link.inCompletenessAct),
+    inDefectAct: Boolean(link.inDefectAct),
+    hasOwnNumber: Boolean(link.hasOwnNumber),
+  };
+}
+
+export function toQtyValue(v: unknown) {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+}
+
+/**
+ * Канонические строки стадии по спецификации марки — единственный источник «как должно быть».
+ * Используется авто-resync'ом (там результат сливается с правками оператора), кнопкой
+ * «Сбросить по двигателю и марке» (заменяет строки целиком) и пакетным приёмом.
+ */
+export function buildBrandRowsForStage(
+  parts: unknown[],
+  engineBrandId: string | undefined,
+  stage: string,
+): ChecklistTableRow[] {
+  return parts.map((p: any) => {
+    const link = getBrandLinkForPart(p, engineBrandId);
+    const qty = toQtyValue(link?.quantity ?? 0);
+    const partName = String(p.name ?? p.article ?? p.id);
+    const partId = String(p?.id ?? '');
+
+    if (stage === 'defect') {
+      return markBrandLinkedRow(
+        {
+          part_name: partName,
+          part_number: String(link?.partNumber ?? ''),
+          quantity: qty,
+          repairable_qty: qty,
+          scrap_qty: 0,
+        },
+        partId,
+      );
+    }
+
+    if (stage === 'completeness') {
+      return markBrandLinkedRow(
+        {
+          part_name: partName,
+          assembly_unit_number: String(link?.assemblyUnitNumber ?? ''),
+          quantity: qty,
+          present: false,
+          actual_qty: 0,
+        },
+        partId,
+      );
+    }
+
+    // Т4: галочки актов копируются из привязки деталь↔марка; default-наличие: акт-детали
+    // приходят с ПУСТЫМ наличием (печатается чистый акт, работники заполняют на бумаге),
+    // остальная мелочёвка — наличие проставлено сразу.
+    const inCompleteness = Boolean((link as any)?.inCompletenessAct);
+    const inDefect = Boolean((link as any)?.inDefectAct);
+    const defaultPresent = !(inCompleteness || inDefect);
+    return markBrandLinkedRow(
+      {
+        part_name: partName,
+        assembly_unit_number: String(link?.assemblyUnitNumber ?? ''),
+        part_number: String(link?.partNumber ?? ''),
+        bom_variant_group: '',
+        quantity: qty,
+        present: defaultPresent,
+        actual_qty: defaultPresent ? qty : 0,
+        repairable_qty: qty,
+        scrap_qty: 0,
+        replace_qty: 0,
+        in_completeness_act: inCompleteness,
+        in_defect_act: inDefect,
+        // «Свой номер» — тоже флаг комплекта марки: строка двигателя наследует его отсюда.
+        has_own_number: Boolean((link as any)?.hasOwnNumber),
+      },
+      partId,
+    );
+  });
+}
+
+/** Идентичность строки списка деталей — та же, что у панели акта (part_name + номера). */
+export function inventoryRowSignature(row: ChecklistTableRow): string {
+  return engineInventoryRowSignature({
+    part_name: String((row as any).part_name ?? ''),
+    assembly_unit_number: String((row as any).assembly_unit_number ?? ''),
+    part_number: String((row as any).part_number ?? ''),
+  });
+}
+
+/**
+ * Пометить утиль строки в списке деталей двигателя (утиль верхнего картера, 21.10.2026).
+ * Строку ищем по сигнатуре, а не по порядку: оператор мог её уже править, а порядок
+ * строк меняется при resync по марке. Существующую обновляем — второй строки той же
+ * детали не появляется.
+ */
+export function markScrapRow(
+  rows: ChecklistTableRow[],
+  scrapRow: ChecklistTableRow,
+): { rows: ChecklistTableRow[]; existed: boolean } {
+  const signature = inventoryRowSignature(scrapRow);
+  const index = rows.findIndex((row) => inventoryRowSignature(row) === signature);
+  const scrapQty = Number((scrapRow as any).scrap_qty ?? 0) || 1;
+  if (index < 0) return { rows: [...rows, scrapRow], existed: false };
+  const next = [...rows];
+  next[index] = {
+    ...next[index],
+    present: true,
+    actual_qty: Number((next[index] as any).actual_qty ?? 0) || scrapQty,
+    scrap_qty: scrapQty,
+    repairable_qty: 0,
+  };
+  return { rows: next, existed: true };
 }

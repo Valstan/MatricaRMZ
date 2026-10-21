@@ -32,20 +32,22 @@ import {
   BRAND_ROW_SOURCE_KEY,
   BRAND_ROW_PART_ID_KEY,
   ROW_PART_ID_KEY,
+  buildBrandRowsForStage,
   clearBrandRowMeta,
   completenessRowSignature,
   defectRowSignature,
+  getBrandLinkForPart,
   getRowPartId,
   getRowPhotos,
   getRowSelected,
   isBrandLinkedChecklistRow,
   isInventoryRowVisibleForVariant,
-  markBrandLinkedRow,
   mergeBrandManagedRows,
   preserveRowIdentityMeta,
   ROW_PHOTOS_KEY,
   ROW_SELECTED_KEY,
   rowPartIdFromOptionId,
+  toQtyValue,
   withRowPhotos,
 } from '../utils/repairChecklistRows.js';
 
@@ -268,100 +270,6 @@ function fromInputDate(v: string): number | null {
   const dt = new Date(y, m - 1, d, 0, 0, 0, 0);
   const ms = dt.getTime();
   return Number.isFinite(ms) ? ms : null;
-}
-
-function getBrandLinkForPart(part: unknown, engineBrandId: string | undefined) {
-  const brandId = String(engineBrandId || '').trim();
-  if (!brandId || !part || typeof part !== 'object') return null;
-  const links = Array.isArray((part as any).brandLinks) ? (part as any).brandLinks : [];
-  const link = links.find((x: any) => String(x?.engineBrandId || '').trim() === brandId);
-  if (!link) return null;
-  // Решение владельца (2026-06-12): артикул детали И ЕСТЬ «№ сборочной единицы».
-  // Артикул приоритетен; legacy-привязки без артикула падают на старый assemblyUnitNumber.
-  const article = String((part as any).article ?? '').trim();
-  return {
-    partNumber: String(link.assemblyUnitNumber ?? ''),
-    assemblyUnitNumber: article || String(link.assemblyUnitNumber ?? ''),
-    quantity: Number.isFinite(Number(link.quantity)) ? Number(link.quantity) : 0,
-    inCompletenessAct: Boolean(link.inCompletenessAct),
-    inDefectAct: Boolean(link.inDefectAct),
-    hasOwnNumber: Boolean(link.hasOwnNumber),
-  };
-}
-
-function toQtyValue(v: unknown) {
-  const n = Number(v);
-  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
-}
-
-/**
- * Канонические строки стадии по спецификации марки — единственный источник «как должно быть».
- * Используется и авто-resync'ом (там результат сливается с правками оператора), и кнопкой
- * «Сбросить по двигателю и марке» (там заменяет строки целиком).
- */
-function buildBrandRowsForStage(
-  parts: unknown[],
-  engineBrandId: string | undefined,
-  stage: string,
-): ChecklistTableRow[] {
-  return parts.map((p: any) => {
-    const link = getBrandLinkForPart(p, engineBrandId);
-    const qty = toQtyValue(link?.quantity ?? 0);
-    const partName = String(p.name ?? p.article ?? p.id);
-    const partId = String(p?.id ?? '');
-
-    if (stage === 'defect') {
-      return markBrandLinkedRow(
-        {
-          part_name: partName,
-          part_number: String(link?.partNumber ?? ''),
-          quantity: qty,
-          repairable_qty: qty,
-          scrap_qty: 0,
-        },
-        partId,
-      );
-    }
-
-    if (stage === 'completeness') {
-      return markBrandLinkedRow(
-        {
-          part_name: partName,
-          assembly_unit_number: String(link?.assemblyUnitNumber ?? ''),
-          quantity: qty,
-          present: false,
-          actual_qty: 0,
-        },
-        partId,
-      );
-    }
-
-    // Т4: галочки актов копируются из привязки деталь↔марка; default-наличие: акт-детали
-    // приходят с ПУСТЫМ наличием (печатается чистый акт, работники заполняют на бумаге),
-    // остальная мелочёвка — наличие проставлено сразу.
-    const inCompleteness = Boolean((link as any)?.inCompletenessAct);
-    const inDefect = Boolean((link as any)?.inDefectAct);
-    const defaultPresent = !(inCompleteness || inDefect);
-    return markBrandLinkedRow(
-      {
-        part_name: partName,
-        assembly_unit_number: String(link?.assemblyUnitNumber ?? ''),
-        part_number: String(link?.partNumber ?? ''),
-        bom_variant_group: '',
-        quantity: qty,
-        present: defaultPresent,
-        actual_qty: defaultPresent ? qty : 0,
-        repairable_qty: qty,
-        scrap_qty: 0,
-        replace_qty: 0,
-        in_completeness_act: inCompleteness,
-        in_defect_act: inDefect,
-        // «Свой номер» — тоже флаг комплекта марки: строка двигателя наследует его отсюда.
-        has_own_number: Boolean((link as any)?.hasOwnNumber),
-      },
-      partId,
-    );
-  });
 }
 
 function inventoryRawRows(answers: RepairChecklistAnswers): Record<string, unknown>[] {
