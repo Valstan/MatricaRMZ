@@ -54,6 +54,7 @@ export * from './domain/partStatusEvent.js';
 export * from './domain/repairFundInstance.js';
 export * from './domain/supplyRequest.js';
 export * from './domain/signatureAccess.js';
+export * from './domain/workOrderRoute.js';
 export * from './domain/workOrder.js';
 export * from './domain/workOrdersReport.js';
 export * from './domain/sectionAccess.js';

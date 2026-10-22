@@ -1,3 +1,6 @@
+import type { WorkOrderRoute } from './workOrderRoute.js';
+import { normalizeWorkOrderRoute } from './workOrderRoute.js';
+
 export type WorkOrderCrewMember = {
   employeeId: string;
   employeeName: string;
@@ -334,7 +337,7 @@ export const WORK_ORDER_PRINT_FONT_RANGES = {
   signatures: { min: 9, max: 20 },
 } as const;
 
-export const WORK_ORDER_PAYLOAD_VERSION = 4 as const;
+export const WORK_ORDER_PAYLOAD_VERSION = 5 as const;
 
 export type AssemblyShortageItem = {
   nomenclatureId: string;
@@ -360,7 +363,7 @@ export type AssemblyShortageApproval = {
 
 export type WorkOrderPayload = {
   kind: 'work_order';
-  version: 2 | 3 | 4;
+  version: 2 | 3 | 4 | 5;
 
   operationId: string;
   workOrderNumber: number;
@@ -465,6 +468,12 @@ export type WorkOrderPayload = {
   signatureBlocks?: WorkOrderSignatureBlockSelection[];
   /** Настройки печати наряда (заголовок/дата/шрифты разделов). По умолчанию не задано. */
   printSettings?: WorkOrderPrintSettings;
+  /**
+   * v5: маршрут заказ-наряда по цехам (план `docs/plans/zakaz-naryad-route-2026-10.md`).
+   * «Где сейчас» не хранится отдельным полем — выводится из шагов
+   * (`workOrderRouteCurrentStep`), чтобы копия не расходилась с маршрутом.
+   */
+  route?: WorkOrderRoute;
 };
 
 function normalizeConsumedLine(raw: unknown, lineNo: number): WorkOrderConsumedLine | null {
@@ -538,11 +547,11 @@ function isWorkOrderKind(value: unknown): value is WorkOrderKind {
  * Принимает payload любой версии (v1/v2/v3) и возвращает нормализованные v3-поля.
  * Не модифицирует исходный объект; ничего не теряет — старые поля сохраняются.
  */
-export function normalizeWorkOrderPayloadV3Fields(raw: unknown): Pick<WorkOrderPayload, 'workshopId' | 'workOrderKind' | 'consumedLines' | 'producedLines' | 'linkedDocumentId' | 'assemblyVariantGroup' | 'assemblyEngineId' | 'assemblyBomSnapshot' | 'assemblyMaterialHash' | 'assemblyPayloadRevision' | 'assemblyManualDeviation' | 'assemblyIssueState' | 'assemblyShortageApproval' | 'repairIssued' | 'withdrawnAt' | 'withdrawnReason' | 'withdrawnAuto' | 'signatureBlocks' | 'printSettings' | 'startDate' | 'dueDate' | 'completedDate'> {
+export function normalizeWorkOrderPayloadV3Fields(raw: unknown): Pick<WorkOrderPayload, 'workshopId' | 'workOrderKind' | 'consumedLines' | 'producedLines' | 'linkedDocumentId' | 'assemblyVariantGroup' | 'assemblyEngineId' | 'assemblyBomSnapshot' | 'assemblyMaterialHash' | 'assemblyPayloadRevision' | 'assemblyManualDeviation' | 'assemblyIssueState' | 'assemblyShortageApproval' | 'repairIssued' | 'withdrawnAt' | 'withdrawnReason' | 'withdrawnAuto' | 'signatureBlocks' | 'printSettings' | 'startDate' | 'dueDate' | 'completedDate' | 'route'> {
   if (!raw || typeof raw !== 'object') return {};
   const rec = raw as Record<string, unknown>;
 
-  const result: Pick<WorkOrderPayload, 'workshopId' | 'workOrderKind' | 'consumedLines' | 'producedLines' | 'linkedDocumentId' | 'assemblyVariantGroup' | 'assemblyEngineId' | 'assemblyBomSnapshot' | 'assemblyMaterialHash' | 'assemblyPayloadRevision' | 'assemblyManualDeviation' | 'assemblyIssueState' | 'assemblyShortageApproval' | 'repairIssued' | 'withdrawnAt' | 'withdrawnReason' | 'withdrawnAuto' | 'signatureBlocks' | 'printSettings' | 'startDate' | 'dueDate' | 'completedDate'> = {};
+  const result: Pick<WorkOrderPayload, 'workshopId' | 'workOrderKind' | 'consumedLines' | 'producedLines' | 'linkedDocumentId' | 'assemblyVariantGroup' | 'assemblyEngineId' | 'assemblyBomSnapshot' | 'assemblyMaterialHash' | 'assemblyPayloadRevision' | 'assemblyManualDeviation' | 'assemblyIssueState' | 'assemblyShortageApproval' | 'repairIssued' | 'withdrawnAt' | 'withdrawnReason' | 'withdrawnAuto' | 'signatureBlocks' | 'printSettings' | 'startDate' | 'dueDate' | 'completedDate' | 'route'> = {};
 
   const workshopId = typeof rec.workshopId === 'string' ? rec.workshopId.trim() : '';
   if (workshopId) result.workshopId = workshopId;
@@ -621,6 +630,9 @@ export function normalizeWorkOrderPayloadV3Fields(raw: unknown): Pick<WorkOrderP
 
   const printSettings = normalizeWorkOrderPrintSettings(rec.printSettings);
   if (printSettings) result.printSettings = printSettings;
+
+  const route = normalizeWorkOrderRoute(rec.route);
+  if (route) result.route = route;
 
   return result;
 }
