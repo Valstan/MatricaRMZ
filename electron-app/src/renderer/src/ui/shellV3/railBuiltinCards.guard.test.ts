@@ -45,6 +45,13 @@ describe('постоянные плашки левой панели', () => {
     expect(CSS).toMatch(/\.v3-fav-card-ai:hover\s+\.v3-fav-tip/);
   });
 
+  it('плашки — квадраты одинакового размера (владелец 22.10.2026)', () => {
+    // Первая правка сузила панель, но оставила высоту по содержимому → полоски;
+    // вторая перегнула в высокие прямоугольники. Квадрат — то, что просили.
+    expect(CSS).toMatch(/\.v3-fav-card\s*\{[^}]*aspect-ratio:\s*1 \/ 1;/);
+    expect(CSS, 'постоянные плашки снова выбиваются размером').not.toMatch(/\.v3-fav-rail-builtins\s+\.v3-fav-card\s*\{/);
+  });
+
   it('кремовый фон и красноватый оттенок у ИИваныча', () => {
     expect(CSS).toMatch(/\.v3-fav-card-workshop\s*\{[^}]*background:\s*#fdf3e4/);
     expect(CSS).toMatch(/\.v3-fav-card-ai\s*\{[^}]*background:\s*#fbeadf/);
