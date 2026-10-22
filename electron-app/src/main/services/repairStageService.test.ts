@@ -164,6 +164,32 @@ describe('возврат назад', () => {
     expect(res).toMatchObject({ ok: true, backward: false, pass: 1 });
   });
 
+  it('этап того же дня, внесённый после верхнего, — не возврат (слово владельца 22.10.2026)', async () => {
+    // Порядок внутри суток канонический (по рангу): внесение в обратной очередности
+    // не должно ронять «Возврат, проход № 2» на пустом месте.
+    const { db } = makeDb();
+    await seed(db, [{ id: 's1', code: 'sborka', at: DAY1 }]);
+    const res = await saveRepairStageRow(
+      db,
+      { id: 's2', engineId: 'eng-1', code: 'ukladka', atMs: DAY1_LATER },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(res).toMatchObject({ ok: true, backward: false, pass: 1 });
+  });
+
+  it('этап строго более позднего дня ниже по линейке — возврат (настоящий)', async () => {
+    const { db } = makeDb();
+    await seed(db, [{ id: 's1', code: 'obkatka', at: DAY1 }]);
+    const res = await saveRepairStageRow(
+      db,
+      { id: 's2', engineId: 'eng-1', code: 'sborka', atMs: DAY2 },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(res).toMatchObject({ ok: true, backward: true, pass: 2 });
+  });
+
   it('правка примечания проход не разжалует', async () => {
     const { db } = makeDb();
     await seed(db, [{ id: 's1', code: 'obkatka', at: DAY1 }]);
