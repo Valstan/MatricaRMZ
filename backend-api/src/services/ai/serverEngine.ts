@@ -30,8 +30,16 @@ function envNum(name: string, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
-/** Движку даётся меньше, чем всему ответу: остаток окна остаётся DeepSeek'у. */
-const ENGINE_TIMEOUT_MS = envNum('AI_SERVER_ENGINE_TIMEOUT_MS', 150_000);
+/**
+ * Движку даётся меньше, чем всему ответу: остаток окна остаётся DeepSeek'у.
+ *
+ * 240 с, а не 150: замеры на живом проде — 48–80 с (21.10) и 160 с (22.10, вопрос
+ * с обходом базы). Free-тир отвечает неровно, и прежние 150 с обрывали ответ на
+ * последних шагах: работа движка пропадала, вопрос уходил в мёртвый DeepSeek и
+ * эскалировался. Ждать дольше честнее, чем не ответить вовсе: оператор видит
+ * «думает …» с таймером.
+ */
+const ENGINE_TIMEOUT_MS = envNum('AI_SERVER_ENGINE_TIMEOUT_MS', 240_000);
 const POLL_MS = envNum('AI_SERVER_ENGINE_POLL_MS', 1_500);
 const COOLDOWN_LIMIT_MS = envNum('AI_SERVER_ENGINE_COOLDOWN_MS', 10 * 60_000);
 const COOLDOWN_ERROR_MS = envNum('AI_SERVER_ENGINE_COOLDOWN_ERROR_MS', 2 * 60_000);
