@@ -185,10 +185,26 @@ describe('возврат назад', () => {
     expect(isStageBackwardMove(stages, 'sborka', DAY1)).toBe(false);
   });
 
-  it('тот же день ниже по линейке — по-прежнему возврат', () => {
+  it('тот же день ниже по линейке — НЕ возврат (слово владельца 22.10.2026)', () => {
+    // Внутри суток порядок канонический (ранг) — внесение в произвольной очередности
+    // не должно ронять «Возврат, проход № 2» на пустом месте.
     const DAY1 = Date.UTC(2026, 8, 27, 21, 0, 0);
     const stages = [{ code: 'obkatka' as const, at: DAY1 }];
-    expect(isStageBackwardMove(stages, 'sborka', DAY1)).toBe(true);
+    expect(isStageBackwardMove(stages, 'sborka', DAY1)).toBe(false);
+  });
+
+  it('строго более ранний день выше по линейке — возврат', () => {
+    const DAY1 = Date.UTC(2026, 8, 27, 21, 0, 0);
+    const DAY2 = Date.UTC(2026, 8, 28, 21, 0, 0);
+    const stages = [{ code: 'obkatka' as const, at: DAY1 }];
+    expect(isStageBackwardMove(stages, 'sborka', DAY2)).toBe(true);
+  });
+
+  it('верхний этап позже по дням — не возврат (довнесение пропущенного)', () => {
+    const DAY1 = Date.UTC(2026, 8, 27, 21, 0, 0);
+    const DAY2 = Date.UTC(2026, 8, 28, 21, 0, 0);
+    const stages = [{ code: 'obkatka' as const, at: DAY2 }];
+    expect(isStageBackwardMove(stages, 'sborka', DAY1)).toBe(false);
   });
 
   it('без даты новой строки — старое поведение по рангам', () => {

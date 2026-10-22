@@ -24,6 +24,12 @@ describe('recountVerdict — снять только ложные системн
     expect(recountVerdict(row({ at: DAY2 }), [sib('obkatka', DAY1)])).toBe('keep');
   });
 
+  it('ложная пометка из-за порядка ввода внутри суток — clear', () => {
+    // Верхний этап того же дня: порядок внутри суток решает приоритет, а не очерёдность
+    // ввода, поэтому пометка «возврат» на пустом месте (слово владельца 22.10.2026).
+    expect(recountVerdict(row({ at: DAY1 }), [sib('obkatka', DAY1, 'sib-obk')])).toBe('clear');
+  });
+
   it('подтверждение оператора не трогаем даже при ложных датах', () => {
     expect(recountVerdict(row({ reason: 'вернули из ОТК' }), [sib('shipped', DAY2)])).toBe('keep-operator');
   });
