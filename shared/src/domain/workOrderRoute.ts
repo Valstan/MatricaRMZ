@@ -395,6 +395,19 @@ export const WORK_ORDER_ROUTE_PROBLEMS = [
 
 export type WorkOrderRouteProblemCode = (typeof WORK_ORDER_ROUTE_PROBLEMS)[number];
 
+/** Что показать оператору, если маршрут собран с расхождением (проверка на сохранении и в карточке). */
+export const WORK_ORDER_ROUTE_PROBLEM_MESSAGES: Record<WorkOrderRouteProblemCode, string> = {
+  empty: 'в маршруте нет ни одного шага',
+  duplicate_step_id: 'шаги повторяют один и тот же номер',
+  missing_shop: 'у шага не выбран цех',
+  unknown_kind: 'неизвестный вид шага',
+  marks_mismatch: 'отметки шага не сходятся с его состоянием',
+  step_out_of_order: 'работа стоит на шаге, хотя предыдущий не выполнен',
+  return_on_first_step: 'первый шаг не может быть возвратом',
+  last_step_not_handover: 'последний шаг должен быть «Сдача»',
+  completion_incomplete: 'у итога «не исполнен» нет причины',
+};
+
 export type WorkOrderRouteProblem = {
   code: WorkOrderRouteProblemCode;
   stepIndex?: number;

@@ -50,6 +50,7 @@ import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { SectionCard } from '../components/SectionCard.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { WorkOrderTemplateEditorDialog } from '../components/WorkOrderTemplateEditorDialog.js';
+import { WorkOrderRoutePanel } from '../components/WorkOrderRoutePanel.js';
 import { WorkOrderPrintDialog } from '../components/WorkOrderPrintDialog.js';
 import { MailComposeDialog } from '../components/MailComposeDialog.js';
 import { ListCount } from '../components/ListCount.js';
@@ -75,10 +76,11 @@ import { withArrivalNote } from '../utils/engineOptionLabel.js';
 
 type LinkOpt = SearchSelectOption;
 
-type WorkOrderCardTab = 'main' | 'content' | 'signatures';
+type WorkOrderCardTab = 'main' | 'content' | 'route' | 'signatures';
 const WORK_ORDER_CARD_TABS: CardTab<WorkOrderCardTab>[] = [
   { key: 'main', label: 'Реквизиты' },
   { key: 'content', label: 'Содержимое' },
+  { key: 'route', label: 'Маршрут' },
   { key: 'signatures', label: 'Подписи' },
 ];
 /** Резолвленные для печати реквизиты по двигателю: суффикс номера контракта (*NNN) + контрагент. */
@@ -3609,6 +3611,27 @@ export function WorkOrderDetailsPage(props: {
         ) : null}
       </SectionCard>
       </div>
+      </div>
+      {/* Вкладка «Маршрут» — по каким цехам идёт работа заказ-наряда
+          (план docs/plans/zakaz-naryad-route-2026-10.md, PR-1). Сестра остальных вкладок:
+          вложенная в «Содержимое», она гасла бы вместе с родителем. */}
+      <div
+        data-card-tab="route"
+        hidden={activeTab !== 'route'}
+        style={{ maxWidth: 'min(95vw, 1200px)', marginInline: 'auto', width: '100%', flexShrink: 0 }}
+      >
+        <WorkOrderRoutePanel
+          route={payload.route}
+          workshops={workshops}
+          canEdit={canEditNow}
+          {...(payload.workshopId ? { customerShopId: payload.workshopId } : {})}
+          onChange={(route) => {
+            const next: WorkOrderPayload = { ...payload };
+            if (route) next.route = route;
+            else delete next.route;
+            patch(next);
+          }}
+        />
       </div>
       {/* Вкладка «Подписи» — СЕСТРА вкладки «Содержимое», а не её потомок: вложенная,
           она гасла вместе с родителем при переключении, и вкладка выглядела пустой. */}
