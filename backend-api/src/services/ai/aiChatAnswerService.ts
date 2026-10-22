@@ -174,7 +174,14 @@ async function claim(row: any, actor: AiChatActor): Promise<boolean> {
 async function finish(
   row: any,
   actor: AiChatActor,
-  patch: { status: string; answerText?: string | null; answerFilesJson?: string | null; escalationNote?: string | null },
+  patch: {
+    status: string;
+    answerText?: string | null;
+    answerFilesJson?: string | null;
+    escalationNote?: string | null;
+    /** Звено, посчитавшее ответ; null/не задано — ответа не было (эскалация). */
+    answerSource?: 'engine' | 'deepseek' | null;
+  },
 ) {
   const ts = nowMs();
   await writeAiChatRow(actor, {
@@ -183,6 +190,7 @@ async function finish(
     answerText: patch.answerText ?? null,
     answerFilesJson: patch.answerFilesJson ?? null,
     escalationNote: patch.escalationNote ?? null,
+    answerSource: patch.answerSource ?? null,
     answeredAt: patch.status === 'answered' || patch.status === 'rejected' ? ts : null,
     updatedAt: ts,
   });
@@ -383,6 +391,9 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
     status: 'answered',
     answerText,
     answerFilesJson: attachRefs.length > 0 ? JSON.stringify(attachRefs) : null,
+    // Источник ответа виден оператору в окне чата (не только в логе прода, где
+    // INFO не пишется вовсе): движок завода или последнее звено — DeepSeek.
+    answerSource: engine.ok ? 'engine' : 'deepseek',
   });
   logInfo('ai chat direct: answered', {
     id: requestId,

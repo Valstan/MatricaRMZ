@@ -741,6 +741,9 @@ export const aiChatRequests = pgTable(
     answeredAt: bigint('answered_at', { mode: 'number' }),
     escalationNote: text('escalation_note'),
     verdictText: text('verdict_text'),
+    // Какое звено серверной цепочки посчитало ответ: `engine` | `deepseek`.
+    // Пишет только сервер (клиентский push это поле затирает).
+    answerSource: text('answer_source'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     lastServerSeq: bigint('last_server_seq', { mode: 'number' }),

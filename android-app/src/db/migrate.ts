@@ -96,6 +96,7 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
       answered_at integer,
       escalation_note text,
       verdict_text text,
+      answer_source text,
       created_at integer NOT NULL,
       updated_at integer NOT NULL,
       last_server_seq integer,
@@ -106,6 +107,13 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     CREATE INDEX IF NOT EXISTS ai_chat_requests_status_idx ON ai_chat_requests(status);
     CREATE INDEX IF NOT EXISTS ai_chat_requests_sync_status_idx ON ai_chat_requests(sync_status);
   `);
+
+  // ai_chat_requests.answer_source — источник серверного ответа (`engine` | `deepseek`).
+  // Зеркало electron-app/src/main/database/migrate.ts: долгоживущие БД миновали
+  // drizzle-цепочку, колонку доводит PRAGMA-проверка + ALTER.
+  if ((await columnNames('ai_chat_requests')).has('answer_source') === false) {
+    await sqlite.exec(`ALTER TABLE ai_chat_requests ADD COLUMN answer_source text;`);
+  }
 
   // users / user_section_access — реплика аккаунтов и доступов по разделам (B3/R3).
   // Зеркало electron-app/src/main/database/migrate.ts: дампы sqlite_master свежей

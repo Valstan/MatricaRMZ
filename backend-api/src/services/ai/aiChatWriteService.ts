@@ -48,6 +48,7 @@ export function toAiChatSyncPayload(row: any): Record<string, unknown> {
     answered_at: row.answeredAt ?? null,
     escalation_note: row.escalationNote ?? null,
     verdict_text: row.verdictText ?? null,
+    answer_source: row.answerSource ?? null,
     created_at: Number(row.createdAt),
     updated_at: Number(row.updatedAt),
     deleted_at: row.deletedAt ?? null,
