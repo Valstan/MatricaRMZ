@@ -29,12 +29,17 @@
   overflow-y: hidden;
 }
 
+/* Ширина вкладки постоянная (владелец 22.10.2026): раньше она считалась по содержимому,
+   и приписка «обновлено N документов» или счётчик чата дёргали всю полосу — вкладки
+   прыгали влево-вправо под курсором. Теперь подпись обрезается многоточием, полоса
+   прокручивается по горизонтали, а ширина не зависит от того, что в ней появилось. */
 .v3-tab {
   display: flex;
   align-items: center;
-  flex: 0 1 auto;
+  flex: 0 0 138px;
+  width: 138px;
+  max-width: 138px;
   min-width: 0;
-  max-width: 220px;
   border: 1px solid var(--border, #d1d5db);
   border-bottom: none;
   border-radius: 8px 8px 0 0;
@@ -45,7 +50,9 @@
 }
 
 .v3-tab-menu {
-  flex-shrink: 0;
+  flex: 0 0 auto;
+  width: auto;
+  max-width: none;
   font-weight: 700;
 }
 
@@ -545,16 +552,16 @@
 }
 
 .v3-fav-rail {
-  flex: 0 0 148px;
-  width: 148px;
+  flex: 0 0 112px;
+  width: 112px;
   min-height: 0;
   /* Прокрутка живёт на списке избранного (ниже), а не здесь: постоянные плашки внизу
-     обязаны стоять на месте при любой прокрутке, а подсказка Ииваныча — не обрезаться. */
+     обязаны стоять на месте при любой прокрутке, а подсказка ИИваныча — не обрезаться. */
   overflow: visible;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 8px;
+  gap: 6px;
+  padding: 8px 6px;
   background: var(--surface, #fff);
   border-right: 1px solid var(--border);
 }
@@ -565,30 +572,51 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .v3-fav-rail-builtins {
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-top: 8px;
+  gap: 6px;
+  padding-top: 6px;
   border-top: 1px dashed var(--border);
 }
 
+/* Плашка — почти квадрат (владелец 22.10.2026): во всю ширину рельсы и высотой чуть
+   больше ширины. Раньше высоту задавало содержимое, и плашки выходили вытянутыми
+   полосками. Пропорция держит их одинаковыми при любой длине подписи. */
 .v3-fav-card {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 4px;
-  padding: 10px 6px;
+  width: 100%;
+  aspect-ratio: 1 / 1.12;
+  padding: 6px 4px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: transparent;
   cursor: pointer;
   color: inherit;
+}
+
+/* Постоянные плашки крупнее избранного: ИИваныч и ВЕРСТАК — первые и главные (владелец 22.10.2026). */
+.v3-fav-rail-builtins .v3-fav-card {
+  aspect-ratio: 1 / 1.3;
+  gap: 6px;
+}
+
+.v3-fav-rail-builtins .v3-fav-card-icon {
+  font-size: 32px;
+}
+
+.v3-fav-rail-builtins .v3-fav-card-label {
+  font-size: 13px;
+  font-weight: 700;
 }
 
 /* Кремовые постоянные плашки (владелец 21.10.2026): тёплый фон отличает их от избранного,
@@ -609,15 +637,23 @@
   z-index: 1;
 }
 
-/* «Матричный дождь» — фоном плашки, поверх него иконка и подпись. */
+/* «Матричный дождь» — застывший кадр картинкой (владелец 22.10.2026: «просто фотография,
+   чтобы она не двигалась»). Раньше здесь крутился canvas-дождь: он жил у всех клиентов,
+   конкурировал за кадры со списками и на слабых машинах заметно грел окно.
+   Кремовая засветка в середине — чтобы глифы не спорили с иконкой и подписью: дождь
+   читается по краям плашки, а имя остаётся разборчивым. */
 .v3-fav-ai-rain {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
   border-radius: inherit;
   pointer-events: none;
   opacity: 0.6;
+  background-image:
+    radial-gradient(circle at 50% 50%, rgba(251, 234, 223, 0.95) 0 26%, rgba(251, 234, 223, 0) 62%),
+    url('../../assets/iiivanych-rain.svg');
+  background-size: cover, cover;
+  background-position: center, center;
+  background-repeat: no-repeat, no-repeat;
 }
 
 .v3-fav-tip {

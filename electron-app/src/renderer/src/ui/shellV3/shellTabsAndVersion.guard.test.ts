@@ -65,6 +65,27 @@ describe('подписи ярлыков Верстака', () => {
   });
 });
 
+describe('вкладки — постоянной ширины (владелец 22.10.2026)', () => {
+  it('ширина задана числом, а не содержимым: приписки не дёргают полосу', () => {
+    const tabRule = SHELL_CSS.slice(SHELL_CSS.indexOf('\n.v3-tab {'), SHELL_CSS.indexOf('border:', SHELL_CSS.indexOf('\n.v3-tab {')));
+    expect(tabRule).toContain('flex: 0 0 138px');
+    expect(tabRule).toContain('width: 138px');
+    expect(tabRule, 'вкладка снова сжимается по содержимому').not.toContain('flex: 0 1 auto');
+  });
+
+  it('МЕНЮ не растягивается на фиксированную ширину', () => {
+    const menuRule = SHELL_CSS.slice(SHELL_CSS.indexOf('.v3-tab-menu {'));
+    expect(menuRule.slice(0, 120)).toContain('width: auto');
+  });
+
+  it('кнопки «Заметка разработчику» в шапке нет (владелец 22.10.2026)', () => {
+    expect(SHELL).not.toContain('data-program-feedback-btn');
+    expect(SHELL).not.toContain('Заметка разработчику');
+    // Вход остался в МЕНЮ («Правка программы») — иначе фича потеряла бы последнюю дверь на планшете.
+    expect(src('../shellV2/menuActions.ts')).toContain('Правка программы');
+  });
+});
+
 describe('версия программы в меню', () => {
   it('первая строка меню спрашивает версию у моста', () => {
     expect(PANEL).toContain('window.matrica.app.version()');

@@ -56,12 +56,14 @@ describe('избранное разделов: цепочка контракт �
     expect(text).toContain('onToggleSectionFavorite={toggleSectionFavorite}');
   });
 
-  it('шелл рисует рельсу и звёздочки на вкладках-списках', () => {
+  it('шелл рисует левую панель; звезда — только в МЕНЮ, не на вкладках', () => {
     const text = src('./V3TabShell.tsx');
     expect(text).toContain('data-fav-rail');
     expect(text).toContain('data-fav-card');
-    expect(text).toContain('FavoriteStarButton');
     expect(text).toContain('onToggleSectionFavorite');
+    // Владелец 22.10.2026: звезда с вкладок снята (мешалась в узкой полосе), закрепление —
+    // контекстным меню вкладки. Цепочка сохранения та же: favoritesGet/Set.
+    expect(text).not.toContain('FavoriteStarButton');
     const star = src('../components/FavoriteStarButton.tsx');
     expect(star).toContain('data-fav-star');
   });

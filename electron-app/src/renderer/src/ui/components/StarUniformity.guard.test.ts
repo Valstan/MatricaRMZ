@@ -39,6 +39,15 @@ describe('пинов больше нет', () => {
     expect(SHELL).toContain('Добавить на Верстак');
   });
 
+  it('вкладки: звёзд нет, закрепление — контекстное меню (владелец 22.10.2026)', () => {
+    // Звезда занимала место в узкой полосе вкладок и мешалась. Осталась одна дверь —
+    // правая кнопка по вкладке; звезда живёт только в МЕНЮ и на плитках, не на вкладках.
+    expect(SHELL).not.toContain('FavoriteStarButton');
+    expect(SHELL).toContain('Добавить в левую панель');
+    expect(SHELL).toContain('Убрать с левой панели');
+    expect(SHELL).toContain('Убрать с панели');
+  });
+
   it('каталог отчётов: контекстного меню Верстака нет, звезда тянет ярлык', () => {
     expect(CATALOG).not.toContain('desktopPresetIds');
     expect(CATALOG).not.toContain('onAddToDesktop');
@@ -51,14 +60,15 @@ describe('пинов больше нет', () => {
   });
 });
 
-describe('звезда до закрытия и на карточках', () => {
-  it('звезда стоит раньше кнопки закрытия', () => {
-    expect(SHELL.indexOf('Золотая звёздочка')).toBeLessThan(SHELL.indexOf('v3-tab-close'));
+describe('закрепление разделов: звезда в МЕНЮ, панель — контекстным меню', () => {
+  it('на вкладке звезды нет — закрепляем правой кнопкой', () => {
+    expect(SHELL, 'звезда вернулась на вкладку').not.toContain('v3-tab-star');
+    expect(SHELL).toContain('Добавить в левую панель');
   });
 
-  it('карточка несёт звезду своего раздела', () => {
-    expect(SHELL).toContain("tab.kind === 'list' || tab.kind === 'card'");
-    expect(SHELL).toContain('tab.cardKind');
+  it('карточка закрепляет свой раздел: у списка — свой, у карточки — родительский', () => {
+    expect(SHELL).toContain("target.kind === 'list' ? target.tabId : target.cardKind");
+    expect(SHELL).toContain('sectionFavorites.includes(menuId)');
   });
 });
 

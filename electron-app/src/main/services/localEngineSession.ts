@@ -106,7 +106,7 @@ async function createSession(token: string, model: string): Promise<string> {
   const r = await api<{ data?: { id?: string } }>(token, '/api/session', {
     method: 'POST',
     body: JSON.stringify({
-      title: 'Ииваныч (этот компьютер)',
+      title: 'ИИваныч (этот компьютер)',
       model: { providerID: PROVIDER, id: model },
       permissions: DENIED_ACTIONS.map((action) => ({ action, resource: '*', effect: 'deny' })),
     }),

@@ -7078,7 +7078,6 @@ export function App() {
               renderSettingsTab={renderSettingsTabContent}
               userLabel={authStatus.loggedIn ? userLabel : null}
               onAccountClick={(pos) => setAccountMenuPos(pos)}
-              onProgramFeedback={() => setProgramFeedbackOpen(true)}
               syncState={syncIndicator.state}
               syncProgress={syncIndicator.progress}
               syncSummary={syncIndicator.summary}
