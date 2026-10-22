@@ -12,11 +12,9 @@ import { useChromeVisibility } from '../shell/ChromeVisibilityContext.js';
 import type { ShellNotice } from '../shell/shellNotice.js';
 import { TabVisibilityProvider } from '../shell/TabVisibilityContext.js';
 import { matricaPlatform } from '../platform.js';
-import { FavoriteStarButton } from '../components/FavoriteStarButton.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
 import { emojiAttrs } from '../utils/labelEmoji.js';
 import { shouldKeepAliveTab } from './keepAlive.js';
-import { MatrixRain } from './MatrixRain.js';
 import rmzLogo from '../../assets/logo_rmz.png';
 import './shellV3.css';
 
@@ -68,7 +66,7 @@ export function V3TabShell(props: {
   onCollapsedSectionsChange: (next: string[]) => void;
   onMenuTab: (t: MenuTabId) => void;
   onAction: (id: ActionButtonId) => void;
-  /** Избранные разделы (золотые звёздочки): рельса слева + звёзды в МЕНЮ и на вкладках. */
+  /** Избранные разделы (золотые звёздочки в МЕНЮ): левая панель — в один клик. */
   sectionFavorites: readonly MenuTabId[];
   onToggleSectionFavorite: (id: MenuTabId) => void;
   /** Непрочитанные сообщения чата — бейдж на вкладке Верстака (владелец 08.09.2026). */
@@ -113,7 +111,6 @@ export function V3TabShell(props: {
   onSyncClick: () => void;
   userLabel?: string | null;
   onAccountClick?: (pos: { x: number; y: number }) => void;
-  onProgramFeedback?: () => void;
 }) {
   const buttons = buildV2Buttons(props.availableTabs, props.menuLabels, props.buttonLayout, props.tabletOperatorMenu);
   // Панель МЕНЮ видна только когда активна вкладка МЕНЮ, поэтому подсвечивать надо раздел,
@@ -138,6 +135,9 @@ export function V3TabShell(props: {
   const [menuOverlayOpen, setMenuOverlayOpen] = React.useState(false);
   // Контекстное меню вкладки (B8): ярлык на Верстак живёт здесь, а не булавкой.
   const [tabMenu, setTabMenu] = React.useState<{ x: number; y: number; tabId: string } | null>(null);
+  // Контекстное меню плашки левой панели: снять закреплённый раздел (владелец 22.10.2026 —
+  // «схватил и убрал» заменили на правую кнопку, чтобы плашку нельзя было снести случайно).
+  const [railMenu, setRailMenu] = React.useState<{ x: number; y: number; id: MenuTabId; label: string } | null>(null);
   const activeForOverlay = props.openTabs.find((t) => t.id === props.activeTabId);
   const activeKindForOverlay = activeForOverlay?.kind;
   React.useEffect(() => {
@@ -441,26 +441,9 @@ export function V3TabShell(props: {
                   ⑃
                 </button>
               )}
-              {/* Золотая звёздочка избранного — ДО кнопки закрытия (B8). У списков —
-                  звезда своего раздела; у карточек — звезда родительского раздела
-                  (все карточки двигателей делят звезду «Двигатели»). Булавки-ярлыки
-                  сняты: ярлык вкладки — через её контекстное меню. */}
-              {(tab.kind === 'list' || tab.kind === 'card') &&
-                (tab.kind === 'list' ? tab.tabId : tab.cardKind) != null &&
-                (() => {
-                  const menuId = resolveMenuTab(String(tab.kind === 'list' ? tab.tabId : tab.cardKind));
-                  if (menuId == null) return null;
-                  const fav = props.sectionFavorites.includes(menuId);
-                  return (
-                    <FavoriteStarButton
-                      favorite={fav}
-                      dataId={menuId}
-                      size={26}
-                      title={fav ? `Убрать «${tab.label}» из избранного` : `Добавить «${tab.label}» в избранное`}
-                      onToggle={() => props.onToggleSectionFavorite(menuId)}
-                    />
-                  );
-                })()}
+              {/* Звёзд на вкладках больше нет (владелец 22.10.2026): она занимала место в
+                  узкой полосе и мешалась. Закрепление — через контекстное меню вкладки
+                  («Добавить в левую панель») и перетаскиванием. */}
               {tab.kind === 'list' && tab.tabId === 'drafts' && Number(props.draftsCount ?? 0) > 0 ? (
                 // Пока есть черновики, вкладку закрывать нельзя — но крестик показываем
                 // (иначе оператор не понимает, почему вкладка не закрывается).
@@ -502,20 +485,6 @@ export function V3TabShell(props: {
             <span className="v3-account-name">Перезапустить программу</span>
           </button>
         ) : null}
-        {/* «Правка программы» — рядом с аккаунтом: доступна с любого экрана, а не
-            только из МЕНЮ; раздел в письмо подставляется сам. */}
-        {props.userLabel && props.onProgramFeedback ? (
-          <button
-            type="button"
-            className="v3-account-btn"
-            data-program-feedback-btn
-            title="Заметка разработчику: замечание, вопрос или просьба по программе"
-            onClick={() => props.onProgramFeedback?.()}
-          >
-            <span aria-hidden="true">✏️</span>
-            <span className="v3-account-name">Заметка разработчику</span>
-          </button>
-        ) : null}
         {props.userLabel ? (
           <button
             type="button"
@@ -550,32 +519,58 @@ export function V3TabShell(props: {
       {tabMenu &&
         (() => {
           const target = props.openTabs.find((t) => t.id === tabMenu.tabId);
-          if (!target || (target.kind !== 'card' && target.kind !== 'list') || props.onToggleDesktop == null) return null;
+          if (!target || (target.kind !== 'card' && target.kind !== 'list')) return null;
+          // Раздел, которому принадлежит вкладка: у списка — свой, у карточки — родительский
+          // (все карточки двигателей живут в «Двигателях»). Плашка левой панели — раздел,
+          // поэтому «добавить в панель» = закрепить раздел; у вкладки без раздела пункта нет.
+          const menuId = resolveMenuTab(String(target.kind === 'list' ? target.tabId : target.cardKind));
+          const pinned = menuId != null && props.sectionFavorites.includes(menuId);
           // Ярлык с техническим именем не обещаем: пока заголовок карточки — фолбэк,
-          // пункт меню гаснет (та же честность, что была у булавки).
+          // пункт «на Верстак» гаснет (та же честность, что была у булавки).
           const pending = target.kind === 'card' && target.titleIsFallback;
           const onDesktop = !pending && (props.isOnDesktop?.(target) ?? false);
-          return (
-            <ListContextMenu
-              x={tabMenu.x}
-              y={tabMenu.y}
-              items={[
-                {
+          const items = [
+            ...(props.onToggleDesktop != null
+              ? [{
                   id: 'desktop',
                   label: onDesktop ? `Убрать с Верстака «${target.label}»` : `Добавить на Верстак «${target.label}»`,
                   ...(pending ? { disabled: true as const } : {}),
                   onClick: () => {
                     props.onToggleDesktop?.(target);
                   },
-                },
-              ]}
-              onClose={() => setTabMenu(null)}
-            />
-          );
+                }]
+              : []),
+            ...(menuId != null
+              ? [{
+                  id: 'rail',
+                  label: pinned
+                    ? `Убрать с левой панели «${target.label}»`
+                    : `Добавить в левую панель «${target.label}»`,
+                  onClick: () => {
+                    props.onToggleSectionFavorite(menuId);
+                  },
+                }]
+              : []),
+          ];
+          if (items.length === 0) return null;
+          return <ListContextMenu x={tabMenu.x} y={tabMenu.y} items={items} onClose={() => setTabMenu(null)} />;
         })()}
-      {/* Левая рельса избранного (владелец 12.10.2026): большие карточки разделов
-          со звёздочкой — переключение в один клик. МЕНЮ-оверлей живёт внутри
-          .v3-tab-body и рельсу не накрывает. */}
+      {railMenu && (
+        <ListContextMenu
+          x={railMenu.x}
+          y={railMenu.y}
+          items={[
+            {
+              id: 'unpin',
+              label: `Убрать с панели «${railMenu.label}»`,
+              onClick: () => props.onToggleSectionFavorite(railMenu.id),
+            },
+          ]}
+          onClose={() => setRailMenu(null)}
+        />
+      )}
+      {/* Левая панель (владелец 12.10.2026, плашки-квадраты — 22.10.2026): разделы, которые
+          оператор закрепил сам, и постоянные ИИваныч/ВЕРСТАК. Снять плашку — правой кнопкой. */}
       <div className="v3-body-row">
         <div className="v3-fav-rail" data-fav-rail="1">
           <div className="v3-fav-rail-list" title="Избранные разделы">
@@ -588,13 +583,18 @@ export function V3TabShell(props: {
                 data-fav-active={activeMenuTab === btn.id ? '1' : undefined}
                 title={btn.label}
                 onClick={() => { setMenuOverlayOpen(false); props.onMenuTab(btn.id as MenuTabId); }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setRailMenu({ x: e.clientX, y: e.clientY, id: btn.id as MenuTabId, label: btn.label });
+                }}
               >
                 <span className="v3-fav-card-icon" aria-hidden="true">{btn.icon}</span>
                 <span className="v3-fav-card-label">{btn.label}</span>
               </button>
             ))}
             {favoriteCards.length === 0 && (
-              <div className="v3-fav-rail-hint">Поставьте ★ в МЕНЮ — раздел появится здесь</div>
+              <div className="v3-fav-rail-hint">Поставьте ★ в МЕНЮ или добавьте вкладку в панель — раздел появится здесь</div>
             )}
           </div>
           {/* Постоянные плашки — не избранное: они не хранятся в профиле (иначе их можно было бы
@@ -606,12 +606,12 @@ export function V3TabShell(props: {
               type="button"
               className="v3-fav-card v3-fav-card-ai"
               data-fav-card="ai_chat"
-              aria-label="Ииваныч — спроси меня про что угодно"
+              aria-label="ИИваныч — спроси меня про что угодно"
               onClick={() => { setMenuOverlayOpen(false); props.onAction('ai_chat'); }}
             >
-              <MatrixRain className="v3-fav-ai-rain" />
+              <span className="v3-fav-ai-rain" aria-hidden="true" />
               <span className="v3-fav-card-icon" aria-hidden="true">🧠</span>
-              <span className="v3-fav-card-label">Ииваныч</span>
+              <span className="v3-fav-card-label">ИИваныч</span>
               <span className="v3-fav-tip" role="tooltip">Спроси меня про что угодно, я знаю ответ!</span>
             </button>
             <button

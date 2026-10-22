@@ -37,7 +37,7 @@ export async function buildEngineDiagnostic(mode: AiEngineMode, breaker?: AiEngi
   const freeMb = await engineFreeSpaceMb(status.dir ?? undefined);
   const log = getLocalEngineLogTail();
   const lines: string[] = [];
-  lines.push('Ииваныч — отчёт о локальном движке');
+  lines.push('ИИваныч — отчёт о локальном движке');
   lines.push(`Дата: ${new Date().toLocaleString('ru-RU')}`);
   lines.push(`Клиент: ${app.getVersion()}`);
   lines.push(`Режим: ${MODE_LABEL[mode]}`);
