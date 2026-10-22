@@ -1753,6 +1753,14 @@ export type MatricaApi = {
      */
     dedupeMerge: (args: { survivorId: string; loserId: string; dryRun?: boolean }) => Promise<EmployeeDedupeMergeResult>;
     departmentsList: () => Promise<EntityListItem[]>;
+    /** Справочник должностей для карточки сотрудника (гейт `employees.view`). */
+    positionsList: () => Promise<EntityListItem[]>;
+    /**
+     * Завести должность из карточки сотрудника (гейт `employees.create`, не
+     * `masterdata.edit`): карточку ведёт кадровик, которому остальной справочник
+     * не нужен. Существующая должность возвращается как `reused` — дублей нет.
+     */
+    positionsCreate: (label: string) => Promise<{ ok: true; id: string; reused: boolean } | { ok: false; error: string }>;
     defs: () => Promise<EmployeeAttributeDef[]>;
     permissionsGet: (userId: string) => Promise<
       | {

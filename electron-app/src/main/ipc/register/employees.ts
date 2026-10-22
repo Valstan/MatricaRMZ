@@ -5,7 +5,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
-import { getEntityDetails, listEntitiesByType, setEntityAttribute, softDeleteEntity } from '../../services/entityService.js';
+import { createEntity, getEntityDetails, listEntitiesByType, listEntitiesByTypeWithAttrs, setEntityAttribute, softDeleteEntity } from '../../services/entityService.js';
 import { analyzeEmployeeDuplicatesRemote, deleteEmployeeRemote, getSectionMembershipByLogin, getSectionMembershipByUserId, listEmployeeAttributeDefs, listEmployeesSummary, mergeEmployeeDuplicatesRemote, mergeEmployeesToServer } from '../../services/employeeService.js';
 import { adminResyncEmployees, viewUserPermissions } from '../../services/adminUsersService.js';
 import { entityTypes } from '../../database/schema.js';
@@ -18,6 +18,18 @@ async function getEntityTypeIdByCode(ctx: IpcContext, code: string): Promise<str
     .where(and(eq(entityTypes.code, code), isNull(entityTypes.deletedAt)))
     .limit(1);
   return rows[0]?.id ? String(rows[0].id) : null;
+}
+
+/**
+ * Ключ сравнения должностей: регистр, ё→е и лишние пробелы не должны плодить дубли
+ * («Водитель  погрузчика» и «водитель погрузчика» — одна должность).
+ */
+function normalizePositionKey(value: string): string {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/\s+/g, ' ');
 }
 
 export function registerEmployeesIpc(ctx: IpcContext) {
@@ -125,6 +137,43 @@ export function registerEmployeesIpc(ctx: IpcContext) {
     const typeId = await getEntityTypeIdByCode(ctx, 'department');
     if (!typeId) return [];
     return listEntitiesByType(ctx.dataDb(), typeId);
+  });
+
+  // Должности. Карточка сотрудника заводит их в справочник `position_ref` сама
+  // (кнопка «+Создать» под полем «Должность»). Раньше она шла общей дверью
+  // `admin:entities:*`, которая требует masterdata.edit, — и кадровик, вносящий
+  // новых сотрудников, упирался в отказ, хотя весь остальной справочник ему не
+  // нужен. Выдавать masterdata.edit ради должностей нельзя: та же галочка
+  // открывает товары, бренды и услуги. Поэтому у карточки своя узкая дверь на
+  // employees.view / employees.create — серверная сторона справочник должностей
+  // и так не гейтит (в ledgerAuthz `position_ref` не замаплен → open).
+  ipcMain.handle('employees:positions:list', async () => {
+    const gate = await requirePermOrResult(ctx, 'employees.view');
+    if (!gate.ok) return [];
+    const typeId = await getEntityTypeIdByCode(ctx, 'position_ref');
+    if (!typeId) return [];
+    return listEntitiesByType(ctx.dataDb(), typeId);
+  });
+
+  ipcMain.handle('employees:positions:create', async (_e, label: string) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'employees.create');
+    if (!gate.ok) return gate;
+    const name = String(label ?? '').trim();
+    if (!name) return { ok: false as const, error: 'пустое название должности' };
+    const typeId = await getEntityTypeIdByCode(ctx, 'position_ref');
+    if (!typeId) return { ok: false as const, error: 'справочник должностей не найден' };
+    // Двое кадровиков вводят одну должность — возвращаем существующую, а не
+    // вторую строку в справочнике.
+    const key = normalizePositionKey(name);
+    const existing = await listEntitiesByTypeWithAttrs(ctx.dataDb(), typeId);
+    const hit = existing.find((row) => normalizePositionKey(String(row.attributes['name'] ?? '')) === key);
+    if (hit) return { ok: true as const, id: hit.id, reused: true };
+    const created = await createEntity(ctx.dataDb(), typeId);
+    if (!created.ok) return created;
+    const saved = await setEntityAttribute(ctx.dataDb(), created.id, 'name', name);
+    if (!saved.ok) return saved;
+    return { ok: true as const, id: created.id, reused: false };
   });
 
   ipcMain.handle('employees:defs', async () => {

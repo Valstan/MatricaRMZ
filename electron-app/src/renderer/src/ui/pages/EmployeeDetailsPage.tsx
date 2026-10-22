@@ -665,12 +665,16 @@ export function EmployeeDetailsPage(props: {
     if (!props.canEdit) return null;
     const clean = label.trim();
     if (!clean) return null;
-    const positionType = entityTypes.find((t) => t.code === 'position_ref');
-    if (!positionType) return null;
-    const created = await window.matrica.admin.entities.create(String(positionType.id));
-    if (!created.ok || !created.id) return null;
-    await window.matrica.admin.entities.setAttr(created.id, 'name', clean);
-    setPositionOptions((prev) => [...prev, { id: created.id, label: clean }].sort((a, b) => a.label.localeCompare(b.label, 'ru')));
+    // Узкая дверь карточки (`employees.create`), а не общая `admin.entities.create`
+    // с masterdata.edit: кадровику нужен только справочник должностей.
+    const created = await window.matrica.employees.positionsCreate(clean);
+    if (!created.ok) {
+      setStatus(`Ошибка: ${created.error}`);
+      return null;
+    }
+    setPositionOptions((prev) =>
+      prev.some((o) => o.id === created.id) ? prev : [...prev, { id: created.id, label: clean }].sort((a, b) => a.label.localeCompare(b.label, 'ru')),
+    );
     setPosition(clean);
     dirtyRef.current = true;
     return created.id;
@@ -791,6 +795,11 @@ export function EmployeeDetailsPage(props: {
   }
 
   async function loadEntityTypes() {
+    // Должности — своей дверью (`employees.view`), отдельно от списка типов:
+    // карточку ведёт кадровик, у которого может не быть masterdata.view на общий
+    // справочник, а должность ему нужна в любом случае.
+    const positionRows = await window.matrica.employees.positionsList().catch(() => []);
+    setPositionOptions(mapEntityRowsToSearchOptions(positionRows, { fallbackToShortId: true }));
     try {
       const rows = await window.matrica.admin.entityTypes.list();
       const list = (rows as any[]).map((t) => ({ id: String(t.id), code: String(t.code), name: String(t.name) }));
@@ -798,15 +807,8 @@ export function EmployeeDetailsPage(props: {
       setEntityTypes(list);
       const employeeType = list.find((t) => t.code === 'employee');
       setEmployeeTypeId(employeeType?.id ?? '');
-      const positionType = list.find((t) => t.code === 'position_ref');
-      if (positionType?.id) {
-        const positionRows = await window.matrica.admin.entities.listByEntityType(positionType.id);
-        setPositionOptions(mapEntityRowsToSearchOptions(positionRows, { fallbackToShortId: true }));
-      } else {
-        setPositionOptions([]);
-      }
     } catch {
-      setPositionOptions([]);
+      setEntityTypes([]);
     }
   }
 
