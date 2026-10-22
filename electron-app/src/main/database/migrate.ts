@@ -120,6 +120,7 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
       answered_at integer,
       escalation_note text,
       verdict_text text,
+      answer_source text,
       created_at integer NOT NULL,
       updated_at integer NOT NULL,
       last_server_seq integer,
@@ -130,6 +131,16 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS ai_chat_requests_status_idx ON ai_chat_requests(status);
     CREATE INDEX IF NOT EXISTS ai_chat_requests_sync_status_idx ON ai_chat_requests(sync_status);
   `);
+
+  // ai_chat_requests.answer_source — источник серверного ответа (`engine` | `deepseek`).
+  // Долгоживущие БД миновали drizzle-цепочку (ClientSchemaVersion), поэтому колонку
+  // доводим здесь: PRAGMA-проверка + ALTER (SQLite не умеет ADD COLUMN IF NOT EXISTS,
+  // повторный ALTER уронил бы транзакцию миграции).
+  if (hasTable('ai_chat_requests')) {
+    if (!columnNames('ai_chat_requests').has('answer_source')) {
+      sqlite.exec(`ALTER TABLE ai_chat_requests ADD COLUMN answer_source text;`);
+    }
+  }
 
   // users / user_section_access — реплика аккаунтов и доступов по разделам (B3/R3).
   // Та же причина дубля, что у card_drafts и ai_chat_requests: свежая установка

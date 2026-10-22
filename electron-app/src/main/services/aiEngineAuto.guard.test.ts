@@ -19,6 +19,9 @@ const DIAG = readFileSync(resolve(here, 'localEngineDiagnostics.ts'), 'utf8');
 const IPC = readFileSync(resolve(here, '../ipc/register/aiChat.ts'), 'utf8');
 const MAIN = readFileSync(resolve(here, '../index.ts'), 'utf8');
 const PANEL = readFileSync(resolve(here, '../../renderer/src/ui/components/AiAgentChat.tsx'), 'utf8');
+// Подпись источника ответа живёт в shared-хелпере: одна формулировка на всё окно
+// (и на серверное звено тоже), проверяем её там, а не поиском строки в панели.
+const SCHEDULE = readFileSync(resolve(here, '../../../../shared/src/domain/aiChatSchedule.ts'), 'utf8');
 
 describe('Ииваныч — режим «Авто»', () => {
   it('в окне три режима, и по умолчанию — «Авто»', () => {
@@ -73,7 +76,11 @@ describe('Ииваныч — режим «Авто»', () => {
   });
 
   it('оператор видит, где посчитан ответ', () => {
-    expect(PANEL).toContain('считал сервер');
+    // Панель рисует подпись из shared-хелпера, а не собирает текст сама.
+    expect(PANEL).toContain('formatAiChatAnswerSourceLabel');
+    expect(SCHEDULE).toContain('считал сервер');
+    expect(SCHEDULE).toContain('считал движок завода');
     expect(CHAT_SERVICE).toContain('answerSource');
+    expect(CHAT_SERVICE).toContain('serverAnswerSource');
   });
 });

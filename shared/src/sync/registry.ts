@@ -212,6 +212,7 @@ const AI_CHAT_REQUEST_FIELDS = withBase(
   { db: 'answeredAt', dto: 'answered_at' },
   { db: 'escalationNote', dto: 'escalation_note' },
   { db: 'verdictText', dto: 'verdict_text' },
+  { db: 'answerSource', dto: 'answer_source' },
 );
 
 const ERP_NOMENCLATURE_FIELDS: readonly FieldMapping[] = [

@@ -153,6 +153,10 @@ export const aiChatRequestRowSchema = z.object({
   answered_at: z.number().int().nullable().optional(),
   escalation_note: z.string().nullable().optional(),
   verdict_text: z.string().nullable().optional(), // вердикт суперадмина по эскалации
+  // Какое звено серверной цепочки посчитало ответ: `engine` — движок завода,
+  // `deepseek` — последнее звено. Поле серверное: клиент его не пишет (push-гейт
+  // затирает), клиенту оно нужно только для показа источника ответа.
+  answer_source: z.enum(['engine', 'deepseek']).nullable().optional(),
 });
 
 // B3/R3 — аккаунты и доступы по разделам.

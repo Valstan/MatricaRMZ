@@ -6,7 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 
 import type { AiAgentContext, AiAgentEvent, AiChatRequestItem, AiChatTemplate, FileRef } from '@matricarmz/shared';
-import { AI_CHAT_MAX_QUESTIONS_PER_HOUR, AI_CHAT_STATUS_LABELS, isAiChatInFlight } from '@matricarmz/shared';
+import { AI_CHAT_MAX_QUESTIONS_PER_HOUR, AI_CHAT_STATUS_LABELS, formatAiChatAnswerSourceLabel, isAiChatInFlight } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { IvanychFigure } from './IvanychFigure.js';
@@ -455,6 +455,7 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
     const answerFiles = parseFileRefs(item.answerFilesJson);
     const editable = !foreign && item.status === 'pending';
     const isEditing = editingId === item.id;
+    const answerSourceLabel = formatAiChatAnswerSourceLabel(item);
     return (
       <div
         key={item.id}
@@ -541,7 +542,7 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
           <div style={{ padding: '8px 10px', background: theme.colors.chatOtherBg }}>
             <div style={{ fontSize: 11, color: theme.colors.muted, marginBottom: 4 }}>
               🔧 ИИваныч ответил · {item.answeredAt ? formatMoscowTime(item.answeredAt) : ''}
-              {item.answerSource === 'server' ? ' · считал сервер' : ''}
+              {answerSourceLabel ? ` · ${answerSourceLabel}` : ''}
             </div>
             <div
               style={{ fontSize: 13, lineHeight: 1.45 }}

@@ -42,7 +42,27 @@ export type AiChatRequestItem = {
    * локального движка вопрос уходит на сервер — оператор должен это видеть).
    */
   answerSource?: 'local' | 'server' | null;
+  /**
+   * Какое звено серверной цепочки посчитало ответ (`answer_source` из строки).
+   * Приходит серверу и всем клиентам: `engine` — движок завода, `deepseek` —
+   * последнее звено. null — строка ещё не отвечена или отвечена человеком.
+   */
+  serverAnswerSource?: 'engine' | 'deepseek' | null;
 };
+
+/**
+ * Пометка источника ответа для оператора. Серверное звено (`answer_source`)
+ * приоритетнее клиентской пометки «считал сервер»: если известно, какое звено
+ * цепочки считало, оператору полезнее именно это.
+ */
+export function formatAiChatAnswerSourceLabel(
+  item: Pick<AiChatRequestItem, 'answerSource' | 'serverAnswerSource'>,
+): string {
+  if (item.serverAnswerSource === 'engine') return 'считал движок завода';
+  if (item.serverAnswerSource === 'deepseek') return 'считал резервный движок';
+  if (item.answerSource === 'server') return 'считал сервер';
+  return '';
+}
 
 /** Состояние движка ИИваныча, как его видит сервер (роут `/ai-chat/meta`). */
 export type AiChatEngineMeta = {

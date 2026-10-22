@@ -281,6 +281,9 @@ export const aiChatRequests = sqliteTable(
     answeredAt: integer('answered_at'),
     escalationNote: text('escalation_note'),
     verdictText: text('verdict_text'),
+    // Какое звено серверной цепочки посчитало ответ: `engine` | `deepseek`.
+    // Пишет только сервер; клиент показывает источник в окне чата.
+    serverAnswerSource: text('answer_source'),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
     lastServerSeq: integer('last_server_seq'),

@@ -53,6 +53,14 @@ describe('applyAiChatPushPolicy', () => {
     expect(out[0]!.verdict_text).toBeNull();
   });
 
+  // Источник ответа — серверное свидетельство: клиент не должен уметь сказать
+  // «это считал движок завода», иначе метка в окне чата станет ложью.
+  it('новый вопрос: подделанный answer_source затирается', () => {
+    const r = row({ status: 'answered', answer_text: 'подделка', answer_source: 'engine' });
+    const out = applyAiChatPushPolicy([r], new Map(), ctx());
+    expect(out[0]!.answer_source).toBeNull();
+  });
+
   it('rate limit: 5-й новый вопрос за час проходит, 6-й падает', () => {
     const five = Array.from({ length: 5 }, (_, i) => row({ id: `q${i}` }));
     expect(applyAiChatPushPolicy(five, new Map(), ctx())).toHaveLength(5);
@@ -89,6 +97,12 @@ describe('applyAiChatPushPolicy', () => {
     expect(out[0]!.user_id).toBe(ACTOR);
     expect(out[0]!.answer_text).toBeNull();
     expect(out[0]!.status).toBe('pending');
+  });
+
+  it('правка своего pending: answer_source не подделать', () => {
+    const map = new Map([['q1', existing()]]);
+    const out = applyAiChatPushPolicy([row({ answer_source: 'engine' })], map, ctx());
+    expect(out[0]!.answer_source).toBeNull();
   });
 
   it('суперадмин-исключение: verdict_text в escalated проходит, остальное — из текущей строки', () => {

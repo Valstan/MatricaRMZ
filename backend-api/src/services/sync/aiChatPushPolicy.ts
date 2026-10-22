@@ -16,6 +16,7 @@ export type AiChatPushRow = {
   answered_at?: number | null;
   escalation_note?: string | null;
   verdict_text?: string | null;
+  answer_source?: 'engine' | 'deepseek' | null;
   deleted_at?: number | null;
   [key: string]: unknown;
 };
@@ -30,6 +31,7 @@ export type AiChatExistingRow = {
   answerFilesJson?: string | null;
   answeredAt?: number | null;
   escalationNote?: string | null;
+  answerSource?: 'engine' | 'deepseek' | null;
   deletedAt?: number | null;
 };
 
@@ -66,6 +68,7 @@ export function applyAiChatPushPolicy(
         answered_at: null,
         escalation_note: null,
         verdict_text: null,
+        answer_source: null,
       });
       continue;
     }
@@ -85,6 +88,7 @@ export function applyAiChatPushPolicy(
         answer_files_json: cur.answerFilesJson ?? null,
         answered_at: cur.answeredAt ?? null,
         escalation_note: cur.escalationNote ?? null,
+        answer_source: cur.answerSource ?? null,
         deleted_at: cur.deletedAt ?? null,
       });
       continue;
@@ -100,6 +104,7 @@ export function applyAiChatPushPolicy(
       answered_at: null,
       escalation_note: null,
       verdict_text: null,
+      answer_source: null,
     });
   }
   return allowed;
