@@ -3,22 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { formatAiChatAnswerSourceLabel } from './aiChatSchedule.js';
 
 describe('formatAiChatAnswerSourceLabel', () => {
-  it('серверное звено важнее клиентской пометки', () => {
-    expect(formatAiChatAnswerSourceLabel({ answerSource: 'server', serverAnswerSource: 'engine' })).toBe(
-      'считал движок завода',
-    );
-    expect(formatAiChatAnswerSourceLabel({ answerSource: 'server', serverAnswerSource: 'deepseek' })).toBe(
-      'считал резервный движок',
-    );
+  it('называет звено серверной цепочки', () => {
+    expect(formatAiChatAnswerSourceLabel({ serverAnswerSource: 'engine' })).toBe('считал движок завода');
+    expect(formatAiChatAnswerSourceLabel({ serverAnswerSource: 'deepseek' })).toBe('считал резервный движок');
   });
 
-  it('старые строки без answer_source показывают прежнюю пометку', () => {
-    expect(formatAiChatAnswerSourceLabel({ answerSource: 'server', serverAnswerSource: null })).toBe('считал сервер');
-    expect(formatAiChatAnswerSourceLabel({ answerSource: 'local', serverAnswerSource: null })).toBe('');
-  });
-
-  it('строка без пометок источника не даёт подписи', () => {
-    expect(formatAiChatAnswerSourceLabel({})).toBe('');
-    expect(formatAiChatAnswerSourceLabel({ answerSource: null, serverAnswerSource: null })).toBe('');
+  it('старые строки без answer_source показывают «считал сервер»', () => {
+    // Локального звена на клиенте нет с 23.10.2026: любой ответ посчитан сервером.
+    expect(formatAiChatAnswerSourceLabel({ serverAnswerSource: null })).toBe('считал сервер');
+    expect(formatAiChatAnswerSourceLabel({})).toBe('считал сервер');
   });
 });

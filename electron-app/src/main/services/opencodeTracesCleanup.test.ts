@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 describe('removeOpencodeTraces', () => {
-  it('снимает раскладку узла и не трогает файлы рядом', async () => {
+  it('снимает раскладку узла и локальный движок, не трогая файлы рядом', async () => {
     const localAppData = tempDir('mrz-local-');
     const userDataDir = tempDir('mrz-userdata-');
     const tempDirRoot = tempDir('mrz-temp-');
@@ -36,6 +36,14 @@ describe('removeOpencodeTraces', () => {
     mkdirSync(join(userDataDir, 'opencode-sandbox'), { recursive: true });
     writeFileSync(join(userDataDir, 'opencode-sandbox', 'ask.txt'), 'x');
     mkdirSync(join(tempDirRoot, 'matricarmz-opencode'), { recursive: true });
+
+    // Локальный движок Ииваныча (3.86+): versions/<версия> с бинарём и pid.
+    const engineDir = join(localAppData, 'Programs', 'MatricaRMZ', 'engine');
+    const engineVersionDir = join(engineDir, 'versions', '2.0.32');
+    mkdirSync(engineVersionDir, { recursive: true });
+    writeFileSync(join(engineVersionDir, 'opencode.exe'), 'binary');
+    writeFileSync(join(engineVersionDir, 'serve.pid'), '999999');
+    mkdirSync(join(tempDirRoot, 'matricarmz-engine'), { recursive: true });
 
     // Чужое: личный каталог CLI, обычные файлы профиля, соседняя папка Матрицы.
     mkdirSync(join(userDataDir, '.config', 'opencode'), { recursive: true });
@@ -51,19 +59,25 @@ describe('removeOpencodeTraces', () => {
     expect([...removed].sort()).toEqual(
       [
         installDir,
+        engineDir,
         join(userDataDir, 'opencode-nodes.json'),
         join(userDataDir, 'opencode-agent-session.json'),
         join(userDataDir, 'opencode-sandbox'),
         join(tempDirRoot, 'matricarmz-opencode'),
+        join(tempDirRoot, 'matricarmz-engine'),
       ].sort(),
     );
     expect(existsSync(installDir)).toBe(false);
+    expect(existsSync(engineDir)).toBe(false);
     expect(existsSync(join(userDataDir, 'opencode-nodes.json'))).toBe(false);
     expect(existsSync(join(userDataDir, 'opencode-sandbox'))).toBe(false);
     expect(existsSync(join(tempDirRoot, 'matricarmz-opencode'))).toBe(false);
+    expect(existsSync(join(tempDirRoot, 'matricarmz-engine'))).toBe(false);
     expect(existsSync(join(userDataDir, '.config', 'opencode'))).toBe(true);
     expect(existsSync(join(userDataDir, 'login-mru.json'))).toBe(true);
     expect(existsSync(join(localAppData, 'Programs', 'MatricaRMZ-Watchdog'))).toBe(true);
+    // Родитель движка принадлежит раскладке приложения — его не сносим.
+    expect(existsSync(join(localAppData, 'Programs', 'MatricaRMZ'))).toBe(true);
   });
 
   it('не гасит процесс по устаревшему serve.pid (PID переиспользован)', async () => {

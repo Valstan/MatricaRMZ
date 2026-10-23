@@ -30,8 +30,6 @@ import { applyRemoteClientSettings, getCachedClientSettings, setReportedActivity
 import { setLanShareEnabled } from './services/lanUpdateService.js';
 import { readSidecarClientId, writeSidecarClientId } from './services/clientIdStore.js';
 import { isSameMigrationFailure } from './services/dbSelfHealLoopDetector.js';
-import { stopLocalEngine } from './services/localAiEngine.js';
-import { prepareLocalEngineInBackground, scheduleEngineMaintenance } from './services/aiEngineAuto.js';
 import { startClockChecks } from './services/clockSkewService.js';
 import { tryEmergencyUpdate } from './services/emergencyUpdate.js';
 import {
@@ -830,11 +828,8 @@ app.whenReady().then(() => {
           .catch((e) => logToFile(`startup update flow failed: ${String(e)}`));
       }
 
-      // Ииваныч на этом компьютере готовим тихо и не на критическом пути: окно уже
-      // показано, оператор не ждёт, а к первому вопросу движок обычно уже готов.
-      void prepareLocalEngineInBackground(db, apiBaseUrl)
-        .then(() => scheduleEngineMaintenance(() => apiBaseUrl))
-        .catch((e) => logToFile(`local engine autostart failed: ${String(e)}`));
+      // Ииваныч считает только сервер (решение владельца 23.10.2026): локальный движок
+      // с клиента снят, готовить на этой машине нечего.
 
       // Часы компьютера сверяем с часами сервера: расхождение больше двух минут
       // ломает подписи и свежесть записей. Проверка раз в два часа, в фоне.
@@ -868,9 +863,8 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', (event) => {
-  // Движок нейросети (контур B) не должен переживать клиент: гасим тот, что
-  // запустили сами, — иначе он останется висеть в памяти до перезагрузки.
-  void stopLocalEngine();
+  // Движка нейросети на клиенте больше нет (23.10.2026): гасить нечего — процесс,
+  // оставшийся от прежних версий, снимает уборка следов при старте.
   if (tray) {
     tray.destroy();
     tray = null;
