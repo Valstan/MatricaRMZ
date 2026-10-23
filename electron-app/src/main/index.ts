@@ -553,6 +553,14 @@ app.whenReady().then(() => {
     )
     .catch((e) => logToFile(`opencode cleanup failed: ${String(e)}`));
 
+  // Минимальный фикс 3.89.1: предотвращаем зависание интерфейса при старте.
+  try {
+    const { localEngineReady } = await import('./services/localEngineSession.js');
+    if (localEngineReady) await localEngineReady();
+  } catch {
+    // движок снят — игнорируем отсутствие модуля
+  }
+
   // По умолчанию — адрес вашего VPS (чтобы Windows-клиент сразу мог синхронизироваться).
   // Можно переопределить переменной окружения MATRICА_API_URL при запуске.
   // В проде обычно ходим через reverse-proxy (nginx) на 80/443, поэтому порт 3001 не указываем.
