@@ -137,20 +137,9 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   const [verdictDrafts, setVerdictDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [engineReady, setEngineReady] = useState<boolean | null>(null);
-  // Где считает Ииваныч: «auto» — сначала этот ПК, при неудаче сервер; «local» —
-  // только этот ПК; «prod» — только сервер. Дефолт — «Авто» (решение владельца 21.10).
-  const [engineMode, setEngineMode] = useState<'auto' | 'local' | 'prod'>('auto');
-  const [localEngine, setLocalEngine] = useState<{
-    state: string;
-    progress: number | null;
-    error: string | null;
-    version: string | null;
-    recommended: string | null;
-    breakerFailures: number;
-    pausedForMs: number;
-  } | null>(null);
+  // Ииваныч считает только сервер (решение владельца 23.10.2026): локального движка
+  // на клиенте нет — в панели видно лишь, готов ли сервер принять вопрос.
   const [me, setMe] = useState<{ id: string; role: string } | null>(null);
   const [now, setNow] = useState<number>(Date.now());
   const [activeHints, setActiveHints] = useState<string[]>([]);
@@ -174,62 +163,9 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
     await refresh();
   }, [refresh]);
 
-  const syncEngine = useCallback(async () => {
-    const s = await window.matrica.aiEngine.status().catch(() => null);
-    if (!s?.ok) return;
-    setEngineMode(s.mode);
-    setLocalEngine({
-      state: s.state,
-      progress: s.progress,
-      error: s.error,
-      version: s.version,
-      recommended: s.recommended,
-      breakerFailures: s.breakerFailures,
-      pausedForMs: s.pausedForMs,
-    });
-  }, []);
-
   useEffect(() => {
-    void syncEngine();
-  }, [syncEngine]);
-
-  // Скачивание движка идёт минуты — статус держим свежим, чтобы было видно прогресс.
-  useEffect(() => {
-    if (engineMode === 'prod') return;
-    if (localEngine?.state !== 'downloading' && localEngine?.state !== 'starting') return;
-    const t = setInterval(() => void syncEngine(), 2000);
-    return () => clearInterval(t);
-  }, [engineMode, localEngine?.state, syncEngine]);
-
-  const switchEngine = useCallback(
-    async (mode: 'auto' | 'local' | 'prod') => {
-      const r = await window.matrica.aiEngine.setMode(mode).catch(() => null);
-      if (!r?.ok) {
-        setError(r?.error ?? 'не удалось переключить движок');
-        return;
-      }
-      setError(null);
-      setEngineMode(r.mode);
-      void syncEngine();
-    },
-    [syncEngine],
-  );
-
-  // Диагностика «не заработало»: отчёт копируется в буфер — отправляем текстом.
-  const checkEngine = useCallback(async () => {
-    const r = await window.matrica.aiEngine.diagnose().catch(() => null);
-    if (!r?.ok) {
-      setError(r?.error ?? 'не удалось собрать отчёт о движке');
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(r.report);
-      setError(null);
-      setNotice('Отчёт о движке скопирован в буфер — отправьте его владельцу.');
-    } catch {
-      setNotice('Отчёт о движке:\n' + r.report);
-    }
-  }, []);
+    void refresh();
+  }, [refresh]);
 
   const loadTemplates = useCallback(async () => {
     try {
@@ -362,10 +298,10 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   async function send() {
     const q = composeQuestion();
     if (!q || busy) return;
-    await sendDeepSeek(q);
+    await sendQuestion(q);
   }
 
-  async function sendDeepSeek(q: string) {
+  async function sendQuestion(q: string) {
     setBusy(true);
     setError(null);
     try {
@@ -673,38 +609,6 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
         }}
       >
         <div style={{ fontWeight: 900, flex: 1 }}>ИИваныч</div>
-        <div style={{ display: 'flex', gap: 2 }}>
-          {(
-            [
-              { mode: 'auto' as const, label: 'Авто', hint: 'Сначала считает этот компьютер, при неудаче — сервер' },
-              { mode: 'local' as const, label: 'Этот ПК', hint: 'Считать только на этом компьютере — видит локальную базу' },
-              { mode: 'prod' as const, label: 'Сервер', hint: 'Считать на сервере — видит прод-базу' },
-            ]
-          ).map((o) => (
-            <button
-              key={o.mode}
-              type="button"
-              data-ai-engine-mode={o.mode}
-              onClick={() => void switchEngine(o.mode)}
-              title={o.hint}
-              style={{
-                fontSize: 11,
-                padding: '3px 8px',
-                borderRadius: 999,
-                cursor: engineMode === o.mode ? 'default' : 'pointer',
-                border: `1px solid ${engineMode === o.mode ? theme.colors.borderStrong : theme.colors.border}`,
-                background: engineMode === o.mode ? theme.colors.surface2 : 'transparent',
-                color: engineMode === o.mode ? theme.colors.text : theme.colors.muted,
-                fontWeight: engineMode === o.mode ? 700 : 400,
-              }}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
-        <Button variant="ghost" onClick={() => void checkEngine()} title="Собрать отчёт о локальном движке и скопировать в буфер">
-          Проверить движок
-        </Button>
         <Button variant="ghost" onClick={() => void refresh()} title="Обновить">
           ⟳
         </Button>
@@ -722,35 +626,13 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
           flexWrap: 'wrap',
         }}
       >
-        {engineMode === 'prod' ? (
-          engineReady === false ? (
-            <span title="На сервере не настроен ключ нейросети — вопросы копятся в очереди">
-              🔴 ИИваныч сейчас недоступен: <b>вопрос сохранится и будет обработан позже</b>
-            </span>
-          ) : (
-            <span title="Вопрос уходит на сервер сразу и обрабатывается без очереди и расписания">
-              🟢 ИИваныч на связи: <b>отвечает сразу</b>
-            </span>
-          )
+        {engineReady === false ? (
+          <span title="Сервер не может принять вопрос прямо сейчас — вопрос сохранится и будет обработан позже">
+            🔴 ИИваныч сейчас недоступен: <b>вопрос сохранится и будет обработан позже</b>
+          </span>
         ) : (
-          <span title="ИИваныч сначала считает ответ на этом компьютере; если локальный движок не справился — вопрос уходит на сервер">
-            {localEngine?.state === 'error'
-              ? `🔴 Локальный движок не запустился: ${localEngine.error ?? 'неизвестная ошибка'} — нажмите «Проверить движок»`
-              : localEngine?.state === 'downloading'
-                ? `⏳ Готовим движок: скачано ${Math.round((localEngine.progress ?? 0) * 100)}%`
-                : localEngine?.state === 'starting'
-                  ? '⏳ Движок запускается…'
-                  : localEngine?.state === 'unsupported'
-                    ? '⚫ Локальный движок доступен только на Windows'
-                    : (localEngine?.pausedForMs ?? 0) > 0
-                      ? `🟠 Локальный движок на паузе ещё ${Math.ceil((localEngine?.pausedForMs ?? 0) / 60000)} мин — считает сервер`
-                      : localEngine?.state === 'running'
-                        ? engineMode === 'auto'
-                          ? '🟢 ИИваныч считает на этом компьютере; если не выйдет — ответит сервер'
-                          : '🟢 ИИваныч на этом компьютере: движок готов'
-                        : engineMode === 'auto'
-                          ? '⚙️ Готовим движок на этом компьютере… пока считает сервер'
-                          : '⚙️ Движок включится с первым вопросом'}
+          <span title="Считает движок завода на сервере — на этом компьютере ничего не запускается">
+            🟢 ИИваныч на связи: <b>считает сервер</b>
           </span>
         )}
       </div>
@@ -776,9 +658,6 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
           <div style={{ fontSize: 12, color: theme.colors.danger ?? '#dc2626' }}>
             {error.includes('rate_limit') ? 'Лимит: не больше 5 вопросов в час.' : error}
           </div>
-        )}
-        {notice && (
-          <div style={{ fontSize: 12, color: theme.colors.muted, whiteSpace: 'pre-wrap' }}>{notice}</div>
         )}
         {(templates.length > 0 || frequentQuestions.length > 0) && (
           <select

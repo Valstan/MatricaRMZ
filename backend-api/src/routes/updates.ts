@@ -16,7 +16,6 @@ import {
   registerUpdatePeers,
 } from '../services/updateTorrentService.js';
 import { getArchiveMeta, getLatestAndroidApkMeta, getStubMeta } from '../services/updateDispatcherService.js';
-import { getEngineManifest, streamEngineArtifact } from '../services/engineArtifactService.js';
 
 export const updatesRouter = Router();
 
@@ -209,35 +208,8 @@ updatesRouter.get('/file/:name', async (req, res) => {
   return;
 });
 
-// Манифест рекомендованной версии локального движка Ииваныча и сам архив.
-// Публично, как остальные маршруты обновлений: движок нужен клиенту ДО входа
-// в систему (иначе свежая установка не сможет считать ответы локально).
-updatesRouter.get('/engine/manifest', async (req, res) => {
-  try {
-    const base = `${req.protocol}://${req.get('host')}`;
-    const manifest = await getEngineManifest(base);
-    if (!manifest) {
-      return res.json({ ok: false, error: 'рекомендованная версия движка не опубликована' });
-    }
-    return res.json(manifest);
-  } catch (e) {
-    return res.status(500).json({ ok: false, error: String(e) });
-  }
-});
-
-updatesRouter.get('/engine/file/:name', async (req, res) => {
-  const name = String(req.params.name ?? '').trim();
-  const headers: Record<string, string> = {};
-  const result = await streamEngineArtifact(name, req.headers.range, (h) => {
-    Object.assign(headers, h);
-  });
-  if (!result.stream) return res.status(result.status).json({ ok: false, error: 'файл движка не найден' });
-  res.status(result.status);
-  for (const [key, value] of Object.entries(headers)) res.setHeader(key, value);
-  result.stream.pipe(res);
-  return;
-});
-
+// Локального движка Ииваныча на клиентах больше нет (решение владельца 23.10.2026):
+// считает только сервер, поэтому раздача архива движка клиентам снята вместе с ним.
 updatesRouter.post('/peers', ...requirePeerAuth, async (req, res) => {
   const st = getLatestTorrentState();
   const infoHash = String(req.body?.infoHash ?? st?.infoHash ?? '').trim();

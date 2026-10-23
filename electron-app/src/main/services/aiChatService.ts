@@ -1,21 +1,19 @@
 // Асинхронный AI-чат: локальный CRUD очереди вопросов (sync-таблица ai_chat_requests).
 // Клиент пишет ТОЛЬКО вопрос (owner-private, ≤5/час — гейт на сервере); ответ приезжает
-// pull'ом — сервер отвечает прямым вызовом нейросети через секунды после push'а (D-024),
-// поэтому создание вопроса сразу пинает синк. Файл вопроса заливается на Яндекс через
-// существующий files-контур.
+// pull'ом — сервер отвечает движком завода (opencode на проде) через секунды-минуты после
+// push'а, поэтому создание вопроса сразу пинает синк. Локального движка на клиенте нет
+// (решение владельца 23.10.2026): считает всегда сервер.
+// Файл вопроса заливается на Яндекс через существующий files-контур.
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { asc, eq, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
-import type { AiAnswerSource, AiChatMetaResult, AiChatRequestItem, AiChatRequestStatus, AiEngineMode } from '@matricarmz/shared';
-import { resolveAiEngineMode } from '@matricarmz/shared';
+import type { AiChatMetaResult, AiChatRequestItem, AiChatRequestStatus } from '@matricarmz/shared';
 
 import { aiChatRequests } from '../database/schema.js';
-import { getAnswerSource, markAnswerSource } from './aiEngineAuto.js';
 import { getSession } from './authService.js';
 import { httpAuthed } from './httpClient.js';
 import { filesUpload } from './fileService.js';
-import { runLocalAiChatAnswer } from './localAiChat.js';
 
 function nowMs() {
   return Date.now();
@@ -62,7 +60,7 @@ export async function aiChatList(
       .where(isNull(aiChatRequests.deletedAt))
       .orderBy(asc(aiChatRequests.createdAt))
       .limit(50_000);
-    return { ok: true, items: rows.map((row) => ({ ...mapRow(row), answerSource: getAnswerSource(String(row.id)) })) };
+    return { ok: true, items: rows.map((row) => mapRow(row)) };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
@@ -72,9 +70,7 @@ export async function aiChatCreate(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
   args: { questionText: string; filePath?: string },
-  engineMode: AiEngineMode = 'auto',
-  onFallback?: () => void,
-): Promise<{ ok: true; id: string; source: AiAnswerSource } | { ok: false; error: string }> {
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   try {
     const me = await currentUser(db);
     if (!me) return { ok: false, error: 'auth required' };
@@ -93,12 +89,7 @@ export async function aiChatCreate(
     }
 
     const ts = nowMs();
-    // Режим «Авто» и «Только этот ПК»: строка сразу помечена synced — вопрос остаётся
-    // на машине оператора и на сервер не уезжает, отвечает движок этого компьютера.
-    // В «Авто» при неудаче движка строка возвращается в pending (см. runLocalAiChatAnswer),
-    // и вопрос уходит на сервер.
-    const mode = resolveAiEngineMode(engineMode);
-    const local = mode !== 'prod';
+    // Строка всегда уходит на сервер: считает движок завода, локального звена нет.
     await db.insert(aiChatRequests).values({
       id,
       userId: me.id,
@@ -109,18 +100,9 @@ export async function aiChatCreate(
       createdAt: ts,
       updatedAt: ts,
       deletedAt: null,
-      syncStatus: local ? 'synced' : 'pending',
+      syncStatus: 'pending',
     });
-    if (local) {
-      markAnswerSource(id, 'local');
-      void runLocalAiChatAnswer(db, id, questionText, {
-        mode,
-        ...(onFallback ? { onFallback } : {}),
-      });
-      return { ok: true, id, source: 'local' };
-    }
-    markAnswerSource(id, 'server');
-    return { ok: true, id, source: 'server' };
+    return { ok: true, id };
   } catch (e) {
     return { ok: false, error: String(e) };
   }

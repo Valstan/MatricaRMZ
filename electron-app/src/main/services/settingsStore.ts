@@ -74,10 +74,6 @@ export const SettingsKey = {
   UpdatesEnabled: 'updates.enabled',
   UpdatesDownloadDir: 'updates.downloadDir',
   TorrentEnabled: 'torrent.enabled',
-
-  // Ииваныч: где считать ответ — на сервере («prod») или движком этой машины
-  // («local», контур B). Локально, per-machine: движок стоит на конкретном ПК.
-  AiEngineMode: 'ai.engineMode',
 } as const;
 
 export type SettingsKey = (typeof SettingsKey)[keyof typeof SettingsKey];

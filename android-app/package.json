@@ -1,6 +1,6 @@
 {
   "name": "@matricarmz/android-app",
-  "version": "0.0.1",
+  "version": "3.89.0",
   "private": true,
   "type": "module",
   "description": "Android tablet client (Capacitor port) — F1: async DB seam + ported services over the shared renderer",
