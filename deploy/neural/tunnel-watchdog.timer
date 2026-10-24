@@ -1,0 +1,10 @@
+[Unit]
+Description=Check engine egress + last Ivanych request every 2 minutes
+
+[Timer]
+OnCalendar=*:0/2
+AccuracySec=20s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
