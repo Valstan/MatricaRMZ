@@ -1,6 +1,7 @@
 # Сторож эгресса движка (контур A)
 
-Что здесь лежит и зачем. Установка — `sudo bash deploy/neural/install.sh`.
+Что здесь лежит и зачем. Установка — `sudo bash deploy/neural/install.sh`,
+посмотреть без изменений — `sudo bash deploy/neural/install.sh --dry-run`.
 
 ## Задача
 
