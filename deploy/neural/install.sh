@@ -4,10 +4,11 @@
 # Раскладывает скрипты в /usr/local/lib/neural и юниты в /etc/systemd/system,
 # включает таймеры. Ничего не рестартует: движок и ВПН работают как работали.
 #
-#   bash deploy/neural/install.sh            # установить
-#   DRY_RUN=1 bash deploy/neural/install.sh  # только показать, что будет сделано
+#   sudo bash deploy/neural/install.sh              # установить
+#   sudo bash deploy/neural/install.sh --dry-run    # только показать, что будет сделано
 #
-# Запускать на боксе от root (sudo bash deploy/neural/install.sh).
+# Запускать на боксе от root. Флаг `--dry-run` — а не переменная: `sudo DRY_RUN=1 …`
+# не работает, sudo сбрасывает окружение и скрипт молча ставит всё по-настоящему.
 # Почему сторож нужен и что он делает — README.md рядом.
 
 set -euo pipefail
@@ -15,7 +16,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR=/usr/local/lib/neural
 UNIT_DIR=/etc/systemd/system
-DRY_RUN="${DRY_RUN:-0}"
+DRY_RUN=0
+
+case "${1:-}" in
+  --dry-run) DRY_RUN=1 ;;
+  '') ;;
+  *) printf 'неизвестный аргумент: %s (есть только --dry-run)\n' "$1"; exit 1 ;;
+esac
 
 log() { printf '%s\n' "$*"; }
 run() {
@@ -48,7 +55,9 @@ run systemctl enable --now tunnel-watchdog.timer neural-subscription-refresh.tim
 
 log "→ проверка"
 if [ "$DRY_RUN" = "1" ]; then log "  [dry-run] дальше не идём"; exit 0; fi
-systemctl list-timers tunnel-watchdog.timer neural-subscription-refresh.timer --no-pager | head -3
+# awk, а не head: head закрывает трубу, и под pipefail systemctl получает SIGPIPE
+# (exit 141) — скрипт умирал здесь, не дойдя до старта сторожа и проверки алертов.
+systemctl list-timers tunnel-watchdog.timer neural-subscription-refresh.timer --no-pager | awk 'NR<=3'
 log "→ один прогон сторожа (провайдера не спрашивает, квоту не тратит)"
 systemctl start tunnel-watchdog.service
 tail -3 /var/log/neural/tunnel-watchdog.log 2>/dev/null || log "  журнала ещё нет"
