@@ -68,6 +68,20 @@ export default defineConfig({
             if (normalized.includes('/shared/src/')) {
               return 'shared';
             }
+            // theme.ts — лист: в нём нет ни одного импорта, только объявление
+            // `export const theme`. Кладём его в отдельный чанк, чтобы он
+            // гарантированно инициализировался раньше любого потребителя.
+            //
+            // Без этого Rollup уносил theme.ts в чанк страниц (`pages-control`),
+            // а `pages-control` импортирует `ui-components` — и `ui-components`
+            // читает theme на уровне модуля (`const STATE_TONE = { planned:
+            // theme.colors.subtle }`). Получается цикл чанков, и при загрузке
+            // рендерера падает TDZ: «Cannot access 'theme' before initialization» —
+            // `main.tsx` не стартует, окно вечно показывает «Загрузка интерфейса…».
+            // Это уронило релиз 3.89.0 (весь парк Windows-клиентов).
+            if (normalized.endsWith('/src/renderer/src/ui/theme.ts')) {
+              return 'ui-theme';
+            }
             if (normalized.includes('/src/renderer/src/ui/pages/')) {
               if (
                 normalized.includes('/EnginesPage.') ||

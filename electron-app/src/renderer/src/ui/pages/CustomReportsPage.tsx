@@ -18,15 +18,18 @@ import { Input } from '../components/Input.js';
 import { theme } from '../theme.js';
 import { formatReportCell } from '../utils/reportUtils.js';
 
-const selectStyle: React.CSSProperties = {
-  fontSize: 13,
-  padding: 6,
-  borderRadius: 6,
-  border: `1px solid ${theme.colors.border}`,
-  background: 'var(--panel, transparent)',
-  color: theme.colors.text,
-  maxWidth: '100%',
-};
+// Стиль собирается лениво: модульное чтение темы даёт TDZ на цикле чанков (M167, theme.chunk.guard.test.ts).
+function selectStyle(): React.CSSProperties {
+  return {
+    fontSize: 13,
+    padding: 6,
+    borderRadius: 6,
+    border: `1px solid ${theme.colors.border}`,
+    background: 'var(--panel, transparent)',
+    color: theme.colors.text,
+    maxWidth: '100%',
+  };
+}
 
 type RunResult = Extract<Awaited<ReturnType<typeof window.matrica.reports.customRun>>, { ok: true }>;
 
@@ -325,7 +328,7 @@ export function CustomReportsPage(props: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 12, height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <select value={sourcePresetId} onChange={(e) => void selectSource(e.target.value)} style={selectStyle}>
+        <select value={sourcePresetId} onChange={(e) => void selectSource(e.target.value)} style={selectStyle()}>
           <option value="">— источник данных —</option>
           {sources.map((s) => (
             <option key={s.presetId} value={s.presetId}>
@@ -438,7 +441,7 @@ export function CustomReportsPage(props: {
                           const newOps = customReportOpsForKind(columnByKey.get(key)?.kind);
                           updateFilter(i, { key, op: newOps.includes(f.op) ? f.op : (newOps[0] as CustomReportOp) });
                         }}
-                        style={{ ...selectStyle, flex: '1 1 120px' }}
+                        style={{ ...selectStyle(), flex: '1 1 120px' }}
                       >
                         {sourceColumns.map((c) => (
                           <option key={c.key} value={c.key}>
@@ -446,7 +449,7 @@ export function CustomReportsPage(props: {
                           </option>
                         ))}
                       </select>
-                      <select value={f.op} onChange={(e) => updateFilter(i, { op: e.target.value as CustomReportOp })} style={selectStyle}>
+                      <select value={f.op} onChange={(e) => updateFilter(i, { op: e.target.value as CustomReportOp })} style={selectStyle()}>
                         {ops.map((op) => (
                           <option key={op} value={op}>
                             {CUSTOM_REPORT_OP_LABELS_RU[op]}
@@ -484,7 +487,7 @@ export function CustomReportsPage(props: {
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Сортировка и лимит</div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <select value={sortKey} onChange={(e) => setSortKey(e.target.value)} style={selectStyle}>
+                  <select value={sortKey} onChange={(e) => setSortKey(e.target.value)} style={selectStyle()}>
                     <option value="">— без сортировки —</option>
                     {sourceColumns.map((c) => (
                       <option key={c.key} value={c.key}>
@@ -492,7 +495,7 @@ export function CustomReportsPage(props: {
                       </option>
                     ))}
                   </select>
-                  <select value={sortDir} onChange={(e) => setSortDir(e.target.value as 'asc' | 'desc')} style={selectStyle}>
+                  <select value={sortDir} onChange={(e) => setSortDir(e.target.value as 'asc' | 'desc')} style={selectStyle()}>
                     <option value="asc">по возрастанию</option>
                     <option value="desc">по убыванию</option>
                   </select>
@@ -512,7 +515,7 @@ export function CustomReportsPage(props: {
 
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Группировка</div>
-                <select value={groupBy} onChange={(e) => setGroupBy(e.target.value)} style={selectStyle}>
+                <select value={groupBy} onChange={(e) => setGroupBy(e.target.value)} style={selectStyle()}>
                   <option value="">— без группировки —</option>
                   {sourceColumns.map((c) => (
                     <option key={c.key} value={c.key}>
@@ -554,7 +557,7 @@ export function CustomReportsPage(props: {
                                 return next;
                               });
                             }}
-                            style={{ ...selectStyle, fontSize: 12, padding: '2px 4px' }}
+                            style={{ ...selectStyle(), fontSize: 12, padding: '2px 4px' }}
                             title="Итог по колонке (и подытоги групп)"
                           >
                             {(Object.keys(CUSTOM_REPORT_AGG_LABELS_RU) as CustomReportAgg[]).map((fn) => (

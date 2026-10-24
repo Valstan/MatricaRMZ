@@ -47,27 +47,32 @@ const fieldLabel = (text: string) => (
   <div style={{ fontSize: 12, color: theme.colors.muted, marginTop: 8 }}>{text}</div>
 );
 
-const textareaStyle: React.CSSProperties = {
-  width: '100%',
-  fontSize: 13,
-  padding: 6,
-  borderRadius: 6,
-  border: `1px solid ${theme.colors.border}`,
-  background: 'transparent',
-  color: theme.colors.text,
-  resize: 'vertical',
-  boxSizing: 'border-box',
-};
+// Стили собираются лениво: модульное чтение темы даёт TDZ на цикле чанков (M167, theme.chunk.guard.test.ts).
+function textareaStyle(): React.CSSProperties {
+  return {
+    width: '100%',
+    fontSize: 13,
+    padding: 6,
+    borderRadius: 6,
+    border: `1px solid ${theme.colors.border}`,
+    background: 'transparent',
+    color: theme.colors.text,
+    resize: 'vertical',
+    boxSizing: 'border-box',
+  };
+}
 
-const selectStyle: React.CSSProperties = {
-  width: '100%',
-  fontSize: 13,
-  padding: 6,
-  borderRadius: 6,
-  border: `1px solid ${theme.colors.border}`,
-  background: 'var(--panel, transparent)',
-  color: theme.colors.text,
-};
+function selectStyle(): React.CSSProperties {
+  return {
+    width: '100%',
+    fontSize: 13,
+    padding: 6,
+    borderRadius: 6,
+    border: `1px solid ${theme.colors.border}`,
+    background: 'var(--panel, transparent)',
+    color: theme.colors.text,
+  };
+}
 
 function BlockProperties(props: {
   block: MockBlock;
@@ -97,7 +102,7 @@ function BlockProperties(props: {
                 const { reportTemplateId: _tpl, ...rest } = block;
                 onChange(v ? { ...rest, reportTemplateId: v } : rest);
               }}
-              style={selectStyle}
+              style={selectStyle()}
             >
               <option value="">— шаблон не выбран —</option>
               {props.reportTemplates.map((t) => (
@@ -119,7 +124,7 @@ function BlockProperties(props: {
               const { targetTab: _tab, ...rest } = block;
               onChange(v ? { ...rest, targetTab: v } : rest);
             }}
-            style={selectStyle}
+            style={selectStyle()}
           >
             <option value="">— без перехода (эскизная кнопка) —</option>
             {props.tabOptions.map((t) => (
@@ -150,7 +155,7 @@ function BlockProperties(props: {
               onChange(items.length > 0 ? { ...rest, items } : rest);
             }}
             rows={4}
-            style={textareaStyle}
+            style={textareaStyle()}
           />
         </>
       ) : null}
@@ -163,7 +168,7 @@ function BlockProperties(props: {
           onChange(v ? { ...rest, note: v } : rest);
         }}
         rows={5}
-        style={textareaStyle}
+        style={textareaStyle()}
         placeholder="Например: по нажатию открывается список двигателей в ремонте, отсортированный по дате…"
       />
       <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
@@ -208,7 +213,7 @@ function LinkProperties(props: {
         {name(link.fromId)} → {name(link.toId)}
       </div>
       {fieldLabel('Тип связи')}
-      <select value={link.kind} onChange={(e) => onChange({ ...link, kind: e.target.value as MockLinkKind })} style={selectStyle}>
+      <select value={link.kind} onChange={(e) => onChange({ ...link, kind: e.target.value as MockLinkKind })} style={selectStyle()}>
         {MOCK_LINK_KINDS.map((k) => (
           <option key={k} value={k}>
             {MOCK_LINK_LABELS_RU[k]}
@@ -699,7 +704,7 @@ export function ScreenEditorPage(props: {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 12, height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <Input placeholder="Название эскиза" value={name} onChange={(e) => setName(e.target.value)} style={{ minWidth: 220 }} />
-        <select value={sectionId} onChange={(e) => setSectionId(e.target.value)} style={{ ...selectStyle, width: 'auto' }}>
+        <select value={sectionId} onChange={(e) => setSectionId(e.target.value)} style={{ ...selectStyle(), width: 'auto' }}>
           <option value="">— раздел доступа —</option>
           {editorSections.map((s) => (
             <option key={s.id} value={s.id}>
@@ -761,7 +766,7 @@ export function ScreenEditorPage(props: {
             const v = e.target.value as MockupStarterTemplateId | '';
             if (v) insertStarterTemplate(v);
           }}
-          style={{ ...selectStyle, width: 'auto' }}
+          style={{ ...selectStyle(), width: 'auto' }}
           title="Готовый скелет эскиза — добавится на холст, дальше лепите под себя"
         >
           <option value="">+ Заготовка…</option>
