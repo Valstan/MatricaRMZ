@@ -1,49 +1,36 @@
 # Session Handoff
 
-> Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Закрытое, планы и старые нитки вычищены (правило раскола «открытое vs сделанное»).
+> Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
-**Status:** ACTIVE — 3.89.2 hotfix: renderer 3.89.0 hung on startup (theme chunk cycle). Fix: theme in own chunk (`ui-theme`), lazy theme reads in 5 files, guard test (`M167`). Green gits; tags pushed; artifacts loaded; deploy started on prod (SSH profile); needs manual check for `/updates/status`.
-**Updated:** 2026-10-24 (machine `COMPUTER`)
-**Branch:** `fix/3891-renderer-theme-tdz` (after merge — `main`)
-**Last released version:** v3.88.0 on prod; v3.89.0 released but renderer hung — fix is 3.89.2.
+**Status:** IDLE — релиз **3.89.2** выпущен и опубликован (`v3.89.2` Latest на GitHub, `android-v3.89.2`). Горячий фикс рендерера закрыт: 3.89.0 вешал окно на «Загрузка интерфейса…» (цикл чанков вокруг `theme`), лечится 3.89.2.
+**Updated:** 2026-10-24 (машина `COMPUTER`)
+**Branch:** `main` (сессия закрыта)
+**Last released version:** **v3.89.2** (+ `android-v3.89.2`).
 
 ## Текущая нитка
 
-**3.89.2 — парк возвращается к жизни.** В 3.89.0 `theme.ts` (лист без импортов) не имел собственного чанка, Rollup положил его в чанк страницы (`pages-history`); страницы импортируют `ui-components`, который читает тему на уровне модуля (`const STATE_TONE = { planned: theme.colors.subtle }`). Цикл чанков `ui-components → pages-history → ui-components`: оценка «первым» успевает модуль `ui-components`, в котором ещё не объявлена `theme` — TDZ → `Cannot access 'theme' before initialization` — рендерер мёртв до первой отрисовки, окно «Загрузка интерфейса…». Гейты зелёные: дефект в бандле, не в исходниках.
+**3.89.2 — закрыт.** Причина регрессии 3.89.0 снята с собранных чанков: `theme.ts` (лист без импортов) не имел собственного чанка, Rollup положил его в чанк страницы (`pages-history`), а `ui-components` читает тему на уровне модуля (`const STATE_TONE = { planned: theme.colors.subtle }`). Цикл `ui-components → pages-history → ui-components` давал TDZ (`Cannot access 'theme' before initialization`) — рендерер мёртв до первой отрисовки, гейты при этом зелёные.
 
-Сделано: `manualChunks` отдаёт `theme.ts` собственный чанк `ui-theme`; модульные чтения темы убраны (`WorkOrderRoutePanel`, `CustomReportsPage`, `ScreenEditorPage`, `MockupCanvas`) — читаем внутри функций/геттеров; сторож `theme.chunk.guard.test.ts` (AST обход всех исходников рендерера) держит оба правила. Проверено: `theme` лежит в `ui-theme-*.js` (843 Б, без импортов), `ui-components` тянет оттуда.
+Сделано: `manualChunks` отдаёт `theme.ts` чанк `ui-theme`; модульные чтения темы убраны (`WorkOrderRoutePanel`, `CustomReportsPage`, `ScreenEditorPage`, `MockupCanvas`); сторож `theme.chunk.guard.test.ts` (AST по всем исходникам рендерера) держит оба правила. Проверено сборкой: `theme` в `ui-theme-*.js` (843 Б, без импортов).
 
 ## Следующий шаг
 
-1. Завершить релиз 3.89.2: PR #1459 → теги `v3.89.2` / `android-v3.89.2` → артефакты (`.exe`/`.blockmap` separately, `latest.yml`) → APK → `db:migrate` (нет миграций) → `release:ledger-publish` → рестарт `:3001`/`:3002` separately → `/updates/status` и `/updates/file/<exe>.blockmap` = 200.
-2. Подтвердить `/health` на `3001` и `3002` (по отдельности — M100).
-3. Решение владельца по меткам `3.89.1` (PENDING_FOLLOWUPS): оставить или снести теги и релиз `android-v3.89.1`.
-4. Закрыть PR #1458 (`fix/3891-renderer-hang`): лечил не ту болезнь.
-5. Дальше по плану: трек B — финиш миграции EAV→erp_*; трек 1 — MOVE вкладок.
-6. Снести старые APK из `<updatesDir>/android/` (~434 МБ задержки).
+1. **Модуль «Заказ-наряд»** — PR-2 (передача наряда обеими сторонами), затем PR B трека 1 (`MOVE` вкладок). План — `docs/plans/` (заказ-наряд, маршрут по цехам).
+2. **Решение владельца по меткам `3.89.1`** (`PENDING_FOLLOWUPS`): теги указывают на неслитую ветку `fix/3891-renderer-hang`; либо оставить как есть, либо снести теги и релиз `android-v3.89.1`. Номер не переиспользуем — планшет читает версию из имени APK.
+3. **Закрыть PR #1458** (`fix/3891-renderer-hang`) — лечил не ту болезнь (импорт снесённого `localEngineSession`), typecheck красный.
+4. **Проверить `/updates/status` на проде** после выката 3.89.2: должно быть `version:"3.89.2"`, `lastError:null`; `/updates/file/MatricaRMZ-Setup-3.89.2.exe.blockmap` → 200; `/health` на `:3001` и `:3002` **порознь** (`M100`).
+5. **Проверить баланс DeepSeek** на проде (на 21.10 было 0 / 402): без резерва вопрос Ииваныча при паузе движка не получит ответа.
+6. **Старые APK** в `<updatesDir>/android/` — снести (не отдаются планшетам, занимают ~434 МБ).
 
 ## Контекст
 
-- Фиксирующие файлы: `electron-app/electron.vite.config.ts`, `electron-app/src/renderer/src/ui/{components/WorkOrderRoutePanel,pages/CustomReportsPage,pages/ScreenEditorPage,uiBuilder/MockupCanvas}.tsx`, новый `ui/theme.chunk.guard.test.ts`; релиз — `VERSION`, `shared/src/domain/releaseWelcome.ts`; знание — `docs/GOTCHAS.md` (`M167`).
-- **Не возвращать** модульные чтения `theme` (`const X = { c: theme.colors.y }`) — сторож покраснеет, и это правильно: так и был заложен дефект.
-- Сторож разбирает AST по всем исходникам рендерера; без префильтра `text.includes('theme')` тест не укладывается в таймаут на этой машине (1,5 ГБ RAM).
-- Сборка рендерера здесь пройдена (`electron-vite build` → `dist/renderer`), но под PowerShell `corepack pnpm -F @matricarmz/electron-app exec electron-vite build` даёт exit 1 из-за предупреждений в stderr — это не ошибка сборки, смотреть наличие чанков.
-
-## CLOSE SESSION 2026-10-24
-
-- RELEASE 3.89.2: PR #1459 merged → `main` (674a24c9); теги `v3.89.2` + `android-v3.89.2` → origin; `VERSION` → 3.89.2; `releaseWelcome` (highlights + epigraph); `GOTCHAS M167`; `PENDING_FOLLOWUPS` (открытый вопрос `3.89.1`); `SESSION_HANDOFF` updated.
-- Сборка `electron-vite build` прошла: `theme` в `ui-theme-*.js` (843 Б, без импортов), `ui-components` тянет оттуда; до фикса — в `pages-history-*.js`.
-- Гейты: `lint`, `typecheck`, `typecheck:test`, `guard` (3/3), `electron-app` tests 1909, `shared` tests 1535 — зелёные.
-- Смоук не гонялся: `better-sqlite3` ABI на этой машине (M2). Доказательство фикса — чанки до/после и сторож.
-- Артефакты GitHub Release: `.exe` 141 845 404 Б, `.blockmap` 144 449 Б, `latest.yml` 352 Б; `sha512`/`size` согласуются (`M40`); APK `app-release.apk` 48 284 958 Б.
-- Выгружено на прод: `.exe`/`.blockmap`/`latest.yml` → `/opt/matricarmz/updates/`, APK → `updates/android/` (SCP завершился, но SSH-вывод висит — профиль `Computer.md` §SSH).
-- Deploy бэкенда (`deploy-backend.sh`) запущен; `systemctl restart matricarmz-backend-primary` / `secondary` — команда выполнилась (вывод `DONE` перед таймаутом).
-- `db:migrate` не прошёл **локально** (`auth_failed valstan` — прод-БД имеет свой логин; миграций нового нет).
-- `release:ledger-publish 3.89.2` — в фоне (таймаут ожидания).
-- **Непроверено (нужна ручная проверка на проде, SSH-канал виснет):** `/updates/status` (должно `version:"3.89.2"`, `lastError:null`); `/updates/file/MatricaRMZ-Setup-3.89.2.exe.blockmap` → 200; `systemctl is-active` по `:3001`/`:3002`; `systemctl is-active` обоих сервисов.
+- Файлы фикса: `electron-app/electron.vite.config.ts`, `electron-app/src/renderer/src/ui/{components/WorkOrderRoutePanel,pages/CustomReportsPage,pages/ScreenEditorPage,uiBuilder/MockupCanvas}.tsx`, новый `ui/theme.chunk.guard.test.ts`; релиз — `VERSION`, `shared/src/domain/releaseWelcome.ts`; знание — `docs/GOTCHAS.md` (`M167`).
+- **Не возвращать модульные чтения `theme`** (`const X = { c: theme.colors.y }`) — сторож покраснеет, и это правильно: так и был заложен дефект.
+- Сторож разбирает AST по всем исходникам рендерера; без префильтра `text.includes('theme')` не укладывался в таймаут на этой машине (1,5 ГБ RAM).
+- Сборка рендерера здесь проходит (`electron-vite build` → `dist/renderer`), но `corepack pnpm -F @matricarmz/electron-app exec electron-vite build` под PowerShell отдаёт exit 1 из-за предупреждений в stderr — это не ошибка сборки, смотреть наличие чанков, а не код возврата.
 
 ## Что не сработало / осталось
 
-- Живой CDP-смоук окна не гонялся: `better-sqlite3` под другим ABI на этой машине (M2).
+- Живой CDP-смоук окна не гонялся на этой машине: `better-sqlite3` под другим ABI (`M2`). Доказательство фикса — собранные чанки до/после и сторож.
 - Подход PR #1458 («минимальная заглушка инициализации движка») — мимо: ошибка возникала в рендерере до любого IPC.
-- Прод-проба при выкладке: `opencode-web.service` и `AI_SERVER_ENGINE_ENABLED` не трогались, ssh-канал на этой машине виснет после вывода — состояние проверять повторным чтением, не повтором мутации.
+- SSH-канал на этой машине виснет после вывода (`docs/machines/Computer.md` §SSH): прод-состояние проверять повторным чтением, не повтором мутации.
