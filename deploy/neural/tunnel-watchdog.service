@@ -1,0 +1,8 @@
+[Unit]
+Description=Tunnel watchdog for engine egress (neural-vpn)
+After=network-online.target neural-vpn.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/neural/tunnel-watchdog.sh --check

@@ -1,0 +1,7 @@
+[Unit]
+Description=Refresh NextGenVPN subscription server list
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/neural/refresh-subscription.sh
