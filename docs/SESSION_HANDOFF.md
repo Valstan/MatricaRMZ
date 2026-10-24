@@ -2,30 +2,35 @@
 
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
-**Status:** ACTIVE — релиз 3.89.0 в подготовке: локальный движок Ииваныча снят с клиентов, вся работа через прод-сервер (`AI_SERVER_ENGINE_*`, `opencode` на `127.0.0.1:49374`). Трек 1 и модуль «Заказ-наряд» остаются на потом. Смоук не гонялся — `better-sqlite3` под другим ABI; гейты (`lint` + `typecheck` + `prodOnlyAiChat.guard`) зелёные, случайный `engineStrictView`-тайм-аут — флаки на этой машине.
-**Updated:** 2026-10-23 (решение владельца 23.10 — только сервер, машина `COMPUTER`)
-**Branch:** `feat/prod-only-iivanych-3.89.0` (после мержа — `main`)
-**Last released version:** **v3.88.0** на проде (+ android-v3.88.0).
+**Status:** ACTIVE — горячий фикс 3.89.2: рендерер 3.89.0 падал на старте (цикл чанков вокруг `theme`), окно висело на «Загрузка интерфейса…». Причина найдена в собранных чанках, фикс — тема в собственный чанк + ленивые чтения темы + сторож (`M167`).
+**Updated:** 2026-10-24 (машина `COMPUTER`)
+**Branch:** `fix/3891-renderer-theme-tdz` (после мержа — `main`)
+**Last released version:** **v3.88.0** на проде; **v3.89.0** выпущен, но у части парка не стартует рендерер — его и лечит 3.89.2.
 
 ## Текущая нитка
 
-**Ииваныч — только с прод-сервера (релиз 3.89.0).** Решение владельца 23.10.2026: локальный движок снят целиком — нет бинаря, каталога, настроек `ai.engineMode`, кнопок в интерфейсе. Код (`electron-app/src/main/services/prodOnlyAiChat.guard.test.ts`) и документы (`docs/plans/prod-only-iivanych-2026-10.md`) фиксируют договорённость: вопрос = `pending`, уходит синком, ответ приезжает pull'ом. `opencodeTracesCleanup` при старте гасит живой процесс и чистит остатки (`%LOCALAPPDATA%\...\engine`, `<userData>\engine`, `%TEMP%`); деинсталлятор тоже сносит каталог.
+**3.89.2 — парк возвращается к жизни.** В 3.89.0 `theme.ts` (лист без импортов) не имел своего чанка, и Rollup положил его в чанк страницы (`pages-history`); страницы импортируют `ui-components`, а тот читает `theme` на уровне модуля (`const STATE_TONE = …`). Цикл `ui-components → pages-history → ui-components` даёт TDZ: `Cannot access 'theme' before initialization` — рендерер мёртв до первой отрисовки, гейты при этом зелёные (дефект в бандле, не в исходниках).
+
+Сделано: `manualChunks` отдаёт `theme.ts` чанк `ui-theme`; модульные чтения темы убраны в пяти файлах (`WorkOrderRoutePanel`, `CustomReportsPage`, `ScreenEditorPage`, `MockupCanvas`, конфиг); сторож `theme.chunk.guard.test.ts` (AST по всем исходникам рендерера + проверка конфига). Проверено сборкой: `theme` лежит в `ui-theme-*.js` (843 Б, без импортов), `ui-components` тянет его оттуда.
 
 ## Следующий шаг
 
-1. **Завершить релиз 3.89.0** (`/reliz`): версия, `releaseWelcome` (только `highlights` + `epigraph`), тег `v3.89.0` + `android-v3.89.0`, PR, мердж, выклад артефактов (`.exe`, `.blockmap`, `latest.yml`) в `/opt/matricarmz/updates/`, APK в `updates/android/`, `db:migrate`, `release:ledger-publish`, рестарт сервисов (`:3001` / `:3002` отдельно), проверка `/updates/status` и баланс DeepSeek.
-2. **Проверить баланс DeepSeek** на проде (на 21.10 было 0 / 402) — иначе при паузе движка оператор не получит ответа вообще (последствия записаны в `docs/plans/prod-only-iivanych-2026-10.md` §«Последствия»).
-3. **Модуль «Заказ-наряд»** — PR-2 (передача обеими сторонами), затем PR B трека 1 (`MOVE` вкладок).
-4. **Старые APK** в `<updatesDir>/android/` — снести (не отдаются планшетам, занимают ~434 МБ).
+1. **Довести релиз 3.89.2** (`/reliz`-порядок): мерж PR → теги `v3.89.2` **и** `android-v3.89.2` → артефакты (`.exe`, `.blockmap` отдельным `gh release download`, `latest.yml`) в `/opt/matricarmz/updates/` → APK в `updates/android/` → `db:migrate` (миграций нет) → `release:ledger-publish` → рестарт `:3001` / `:3002` **порознь** → `/updates/status` и `/updates/file/<exe>.blockmap` = 200.
+2. **Проверить баланс DeepSeek** на проде (на 21.10 было 0 / 402): без резерва вопрос Ииваныча при паузе движка не получит ответа вовсе.
+3. **Решение владельца по меткам 3.89.1** (`PENDING_FOLLOWUPS` §первый): оставить как есть или снести теги и релиз `android-v3.89.1`. Номер не переиспользуем — планшет читает версию из имени APK.
+4. **Закрыть PR #1458** (`fix/3891-renderer-hang`): лечил не ту болезнь (импорт снесённого `localEngineSession`), typecheck красный.
+5. Дальше по плану: **модуль «Заказ-наряд»** — PR-2 (передача обеими сторонами), затем PR B трека 1 (`MOVE` вкладок).
+6. **Старые APK** в `<updatesDir>/android/` — снести (не отдаются планшетам, занимают ~434 МБ).
 
 ## Контекст
 
-- Файлы релиза: `VERSION`, `shared/src/domain/releaseWelcome.ts`, `docs/COMPLETED.md`, `docs/plans/prod-only-iivanych-2026-10.md` (заменил `neural-auto-engine-2026-10.md`, тот помечен superseded), `docs/CODEBASE_MAP.md` (AI-строка), `docs/PENDING_FOLLOWUPS.md` (LAN-зеркало снято, DeepSeek-баланс — открыто).
-- Гейт `prodOnlyAiChat.guard.test.ts` читает исходники подстроками — не переименовывать строки, которые он проверяет (`pending`, `runLocalAiChatAnswer`, `resolveAiEngineMode`), иначе сторож сломается молча.
-- Прежний план `neural-auto-engine-2026-10.md` в архив не унесён — пусть живёт помеченным `superseded`.
+- Файлы фикса: `electron-app/electron.vite.config.ts`, `electron-app/src/renderer/src/ui/{components/WorkOrderRoutePanel,pages/CustomReportsPage,pages/ScreenEditorPage,uiBuilder/MockupCanvas}.tsx`, новый `ui/theme.chunk.guard.test.ts`; релиз — `VERSION`, `shared/src/domain/releaseWelcome.ts`; знание — `docs/GOTCHAS.md` (`M167`).
+- **Не возвращать модульные чтения `theme`** (`const X = { c: theme.colors.y }`) — сторож покраснеет, и это правильно: так и был заложен дефект.
+- Сторож разбирает AST по всем исходникам рендерера; без префильтра `text.includes('theme')` не укладывался в таймаут на этой машине (1,5 ГБ RAM).
+- Сборка рендерера здесь проходит (`electron-vite build` → `dist/renderer`), но `corepack pnpm -F @matricarmz/electron-app exec electron-vite build` под PowerShell отдаёт exit 1 из-за предупреждений в stderr — это не ошибка сборки, смотреть наличие чанков, а не код возврата.
 
 ## Что не сработало / осталось
 
-- `corepack pnpm -r test`: 222 passed, 2 failed — `prodOnlyAiChat.guard.test.ts` (путь исправлен, теперь зелёный) и `engineStrictView.test.ts` (тайм-аут 5 с, флаки на этой машине, не регресс). Перезапуск одиночно — зелёный; при релизе это не блок.
-- Живой CDP e2e-смоук окна Ииваныча не гонялся (нет живого Electron на этом сеансе); в теле PR указать «смоук не гонялся, проверено через `guard` + `lint` + `typecheck`».
-- Прод-проба `opencode-web.service` активна, `AI_SERVER_ENGINE_ENABLED` в `/etc/matricarmz/matricarmz.env` (1 вхождение), `/updates/status` и `:3001`/`:3002` health — проверить в ходе деплоя (ssh-тайм-ауты на проде при проверке не влияют на выклад).
+- Живой CDP-смоук окна не гонялся: `better-sqlite3` под другим ABI на этой машине (M2). В теле PR — «смоук не гонялся»; доказательство фикса — собранные чанки до/после и сторож.
+- Подход PR #1458 («минимальная заглушка инициализации движка») — мимо: ошибка возникала в рендерере до любого IPC.
+- Прод-проба при выкладке: `opencode-web.service` и `AI_SERVER_ENGINE_ENABLED` не трогались, но ssh-канал на этой машине виснет после вывода — состояние проверять повторным чтением, не повтором мутации.

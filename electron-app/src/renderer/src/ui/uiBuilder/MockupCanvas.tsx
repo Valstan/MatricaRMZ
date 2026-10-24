@@ -13,13 +13,22 @@ import { theme } from '../theme.js';
 
 export type MockupSelection = { type: 'block' | 'link'; id: string } | null;
 
-/** Sketch look: everything muted/dashed so nobody mistakes the mockup for a working UI. */
+/**
+ * Sketch look: everything muted/dashed so nobody mistakes the mockup for a working UI.
+ *
+ * Значения из темы — геттеры: модульное чтение темы даёт TDZ на цикле чанков
+ * (M167, theme.chunk.guard.test.ts). Геттер читает её уже внутри рендера.
+ */
 const sketch = {
   border: '#9aa3ad',
   fill: 'rgba(125,125,125,0.06)',
   fillStrong: 'rgba(125,125,125,0.14)',
-  text: theme.colors.text,
-  muted: theme.colors.muted,
+  get text() {
+    return theme.colors.text;
+  },
+  get muted() {
+    return theme.colors.muted;
+  },
   selected: '#4a90d9',
   noteBg: 'rgba(235, 200, 80, 0.25)',
   noteBorder: '#c9a227',

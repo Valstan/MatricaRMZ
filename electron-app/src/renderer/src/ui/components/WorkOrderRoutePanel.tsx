@@ -32,12 +32,19 @@ import { formatMoscowLongDateTime } from '../utils/dateUtils.js';
 
 export type WorkOrderRouteWorkshop = { id: string; code: string; name: string };
 
-const STATE_TONE: Record<WorkOrderRouteStepState, string> = {
-  planned: theme.colors.subtle,
-  sent: theme.colors.warn,
-  accepted: theme.colors.success,
-  done: theme.colors.muted,
-};
+// Тон читаем лениво: модульное чтение темы даёт TDZ на цикле чанков (M167, theme.chunk.guard.test.ts).
+function stateTone(state: WorkOrderRouteStepState): string {
+  switch (state) {
+    case 'planned':
+      return theme.colors.subtle;
+    case 'sent':
+      return theme.colors.warn;
+    case 'accepted':
+      return theme.colors.success;
+    default:
+      return theme.colors.muted;
+  }
+}
 
 function workshopLabel(workshops: readonly WorkOrderRouteWorkshop[], id: string): string {
   const found = workshops.find((row) => row.id === id);
@@ -243,7 +250,7 @@ export function WorkOrderRoutePanel(props: {
                     />
                     <span
                       data-wo-route-step-state-label
-                      style={{ fontSize: 12, fontWeight: 650, color: STATE_TONE[step.state], whiteSpace: 'nowrap' }}
+                      style={{ fontSize: 12, fontWeight: 650, color: stateTone(step.state), whiteSpace: 'nowrap' }}
                     >
                       {WORK_ORDER_ROUTE_STEP_STATE_LABELS[step.state]}
                     </span>
