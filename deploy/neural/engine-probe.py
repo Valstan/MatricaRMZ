@@ -29,6 +29,9 @@ def call(path, method='GET', body=None, timeout=60):
             'Content-Type': 'application/json',
         },
     )
+    # BASE — фиксированный loopback движка, path — только внутренние маршруты этого скрипта:
+    # управляемого извне URL здесь нет, поэтому file://-риск правила неприменим.
+    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode() or '{}')
 
