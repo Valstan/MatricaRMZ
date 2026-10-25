@@ -11,6 +11,7 @@ let requestRows: Array<Record<string, any>> = [];
 const writtenRows: Array<{ row: any }> = [];
 const escalations: Array<{ username: string; questionText: string; reason?: string }> = [];
 let llmCalls = 0;
+let probeCalls = 0;
 
 function col(key: string) {
   return { key };
@@ -111,6 +112,7 @@ vi.mock('./llmProvider.js', () => ({
     throw new Error('402 {"error":{"message":"Insufficient Balance","type":"insufficient_balance_error"}}');
   },
   callLlm: async () => {
+    probeCalls += 1;
     throw new Error('402 Insufficient Balance');
   },
   getLlmProvider: () => 'deepseek',
@@ -145,6 +147,7 @@ beforeEach(() => {
   writtenRows.length = 0;
   escalations.length = 0;
   llmCalls = 0;
+  probeCalls = 0;
   requestRows = [
     {
       id: 'req-1',
@@ -177,5 +180,35 @@ describe('очередь прямого движка', () => {
     expect(String(row?.escalationNote)).toContain('резервного движка на нуле');
     expect(escalations).toHaveLength(1);
     expect(escalations[0]?.questionText).toContain('Сколько двигателей');
+  });
+
+  // Проба баланса — настоящий запрос к провайдеру. С фиксированным интервалом она
+  // молотит в пустоту круглосуточно (25.10: 430 записей `402` за неделю, 12/час и ночью),
+  // поэтому пауза обязана расти: 5 мин → 10 → 20 …
+  it('при нулевом балансе проба баланса редеет, а не бьёт каждые 5 минут', async () => {
+    vi.useFakeTimers();
+    try {
+      const service = await loadService();
+      await service.aiChatDirectTick();
+      const afterFirstFailure = probeCalls;
+
+      // Дальше вопросов нет — работает только проба.
+      requestRows = [];
+
+      vi.advanceTimersByTime(5 * 60_000);
+      await service.aiChatDirectTick();
+      expect(probeCalls).toBe(afterFirstFailure + 1);
+
+      // Прошло ещё 5 минут, но пауза после неудачи уже 10 — пробы быть не должно.
+      vi.advanceTimersByTime(5 * 60_000);
+      await service.aiChatDirectTick();
+      expect(probeCalls).toBe(afterFirstFailure + 1);
+
+      vi.advanceTimersByTime(5 * 60_000);
+      await service.aiChatDirectTick();
+      expect(probeCalls).toBe(afterFirstFailure + 2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
