@@ -15,9 +15,14 @@ const ENV_KEYS = [
   'AI_SERVER_ENGINE_TOKEN_FILE',
   'AI_SERVER_ENGINE_MODEL',
   'AI_SERVER_ENGINE_TIMEOUT_MS',
+  'AI_SERVER_ENGINE_STALL_MS',
+  'AI_SERVER_ENGINE_GRACE_MS',
   'AI_SERVER_ENGINE_POLL_MS',
   'AI_SERVER_ENGINE_COOLDOWN_MS',
   'AI_SERVER_ENGINE_COOLDOWN_ERROR_MS',
+  'AI_SERVER_ENGINE_ROTATE_CMD',
+  'AI_SERVER_ENGINE_ROTATE_ATTEMPTS',
+  'AI_SERVER_ENGINE_ROTATE_TIMEOUT_MS',
 ];
 
 beforeEach(() => {
@@ -217,5 +222,112 @@ describe('server engine client', () => {
     const outcome = await engine.askServerEngine(ARGS);
     expect(outcome).toMatchObject({ ok: true, model: 'glm-5.3-flash-free' });
     expect(opens).toBe(2);
+  });
+
+  it('движок молчит без ошибки — «ступора» хватает, чтобы не ждать дедлайн', async () => {
+    // 25.10: сессия поднялась, мост подключился, а модели не было ни одного
+    // сообщения — 240 с в пустоту. Отсутствие записей в сессии видно раньше
+    // дедлайна и лечится сменой выхода, а не ожиданием.
+    const engine = await loadEngine({ AI_SERVER_ENGINE_TIMEOUT_MS: '5000', AI_SERVER_ENGINE_STALL_MS: '40' });
+    mockEngine([
+      (url) => (url.endsWith('/api/model') ? jsonRes(200, MODELS) : undefined),
+      (url, init) => (url.endsWith('/api/session') && init.method === 'POST' ? jsonRes(200, { data: { id: 'ses_s' } }) : undefined),
+      (url) => (url.endsWith('/prompt') ? jsonRes(200, {}) : undefined),
+      (url, init) => (url.endsWith('/message') && !init.method ? jsonRes(200, { data: [] }) : undefined),
+    ]);
+
+    const startedAt = Date.now();
+    const outcome = await engine.askServerEngine(ARGS);
+    expect(outcome).toMatchObject({ ok: false, kind: 'timeout' });
+    expect(String((outcome as any).error)).toContain('молчит');
+    expect(Date.now() - startedAt).toBeLessThan(3000);
+  });
+
+  it('дедлайн прошёл, но текст уже есть — отдаём работу, а не выбрасываем', async () => {
+    const engine = await loadEngine({ AI_SERVER_ENGINE_TIMEOUT_MS: '60', AI_SERVER_ENGINE_GRACE_MS: '40' });
+    mockEngine([
+      (url) => (url.endsWith('/api/model') ? jsonRes(200, MODELS) : undefined),
+      (url, init) => (url.endsWith('/api/session') && init.method === 'POST' ? jsonRes(200, { data: { id: 'ses_g' } }) : undefined),
+      (url) => (url.endsWith('/prompt') ? jsonRes(200, {}) : undefined),
+      (url, init) =>
+        url.endsWith('/message') && !init.method
+          ? jsonRes(200, { data: [{ type: 'assistant', content: [{ type: 'text', text: 'Успел посчитать: 302.' }] }] })
+          : undefined,
+    ]);
+
+    const outcome = await engine.askServerEngine(ARGS);
+    expect(outcome).toMatchObject({ ok: true, text: 'Успел посчитать: 302.' });
+  });
+
+  it('лимит free-тира — меняет выход ВПН и повторяет вопрос', async () => {
+    // Слово владельца 25.10: перебирать сервера ВПН по порядку, пока лимит не
+    // сбросится, — ротация внутри обработки одного вопроса.
+    const rotate = `"${process.execPath}" -e "console.log('7|10.0.0.7|NL')"`;
+    const engine = await loadEngine({ AI_SERVER_ENGINE_ROTATE_CMD: rotate, AI_SERVER_ENGINE_ROTATE_ATTEMPTS: '2' });
+    let prompts = 0;
+    mockEngine([
+      (url) => (url.endsWith('/api/model') ? jsonRes(200, MODELS) : undefined),
+      (url, init) =>
+        url.endsWith('/api/session') && init.method === 'POST' ? jsonRes(200, { data: { id: `ses_r${prompts}` } }) : undefined,
+      (url) => {
+        if (!url.endsWith('/prompt')) return undefined;
+        prompts += 1;
+        return jsonRes(200, {});
+      },
+      (url, init) => {
+        if (!url.endsWith('/message') || init.method) return undefined;
+        return prompts === 1
+          ? jsonRes(200, { data: [{ type: 'assistant', error: { message: '429 Free usage limit reached' } }, { type: 'idle', outcome: 'failed' }] })
+          : jsonRes(200, { data: [{ type: 'assistant', content: [{ type: 'text', text: 'После смены выхода: 302.' }] }, { type: 'idle', outcome: 'ok' }] });
+      },
+    ]);
+
+    const outcome = await engine.askServerEngine(ARGS);
+    expect(outcome).toMatchObject({ ok: true, text: 'После смены выхода: 302.' });
+    expect(prompts).toBe(2);
+    // Успех после смены выхода снимает паузу: следующий вопрос не ждёт 10 минут.
+    expect(engine.serverEngineStatus().cooldownLeftMs).toBe(0);
+  });
+
+  it('ротация не лечит ошибку прав — повторять вопрос на другом выходе бессмысленно', async () => {
+    const rotate = `"${process.execPath}" -e "console.log('8|10.0.0.8|DE')"`;
+    const engine = await loadEngine({ AI_SERVER_ENGINE_ROTATE_CMD: rotate, AI_SERVER_ENGINE_ROTATE_ATTEMPTS: '2' });
+    let prompts = 0;
+    const failure = { type: 'provider.auth', status: 403, message: 'free tier can only be used from within OpenCode' };
+    mockEngine([
+      (url) => (url.endsWith('/api/model') ? jsonRes(200, MODELS) : undefined),
+      (url, init) => (url.endsWith('/api/session') && init.method === 'POST' ? jsonRes(200, { data: { id: 'ses_e' } }) : undefined),
+      (url) => {
+        if (!url.endsWith('/prompt')) return undefined;
+        prompts += 1;
+        return jsonRes(200, {});
+      },
+      (url, init) =>
+        url.endsWith('/message') && !init.method
+          ? jsonRes(200, { data: [{ type: 'idle', outcome: 'failed', error: failure }, { type: 'assistant', error: failure }] })
+          : undefined,
+    ]);
+
+    const outcome = await engine.askServerEngine(ARGS);
+    expect(outcome).toMatchObject({ ok: false, kind: 'error' });
+    expect(prompts).toBe(1);
+  });
+
+  it('ротация не удалась — отдаём исходную причину и ставим паузу', async () => {
+    const rotate = `"${process.execPath}" -e "process.exit(1)"`;
+    const engine = await loadEngine({ AI_SERVER_ENGINE_ROTATE_CMD: rotate, AI_SERVER_ENGINE_ROTATE_ATTEMPTS: '2' });
+    mockEngine([
+      (url) => (url.endsWith('/api/model') ? jsonRes(200, MODELS) : undefined),
+      (url, init) => (url.endsWith('/api/session') && init.method === 'POST' ? jsonRes(200, { data: { id: 'ses_f' } }) : undefined),
+      (url) => (url.endsWith('/prompt') ? jsonRes(200, {}) : undefined),
+      (url, init) =>
+        url.endsWith('/message') && !init.method
+          ? jsonRes(200, { data: [{ type: 'assistant', error: { message: '429 Free usage limit reached' } }, { type: 'idle', outcome: 'failed' }] })
+          : undefined,
+    ]);
+
+    const outcome = await engine.askServerEngine(ARGS);
+    expect(outcome).toMatchObject({ ok: false, kind: 'limit' });
+    expect(engine.serverEngineStatus().cooldownLeftMs).toBeGreaterThan(0);
   });
 });

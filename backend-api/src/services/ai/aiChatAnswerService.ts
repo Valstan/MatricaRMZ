@@ -84,8 +84,9 @@ const MAX_ATTEMPTS = Math.max(1, Number(process.env.AI_CHAT_ANSWER_MAX_ATTEMPTS 
 
 /**
  * Гафф на 402 (счёт закончен у DeepSeek): каждый следующий запрос всё равно
- * ошибки копит, а вопросам логичнее уехать в Телефон (D-111). Вместо эскалации
- * — отпускаем строку в pending и замолкаем до пробы.
+ * ошибки копит, а вопросам логичнее уехать в Телефон (D-111). Строку отпускаем
+ * в pending и замолкаем до пробы, но попытки считаем: без счёта вопрос висел бы
+ * вечно и человек не узнал бы, что ответа не будет.
  */
 function isCreditExhausted(e: unknown): boolean {
   const s = String(e ?? '');
@@ -478,12 +479,34 @@ export async function aiChatDirectTick(): Promise<{ processed: number }> {
       processed += 1;
     } catch (e) {
       const misconfigured = isLlmMisconfigured(e);
-      // Счёт у LLM закончился — не эскалировать, а отпустить строку и тикать в спячке.
+      // Счёт у DeepSeek закончился. Строку отпускаем в pending (ждать пополнения),
+      // но попытки НЕ обнуляем: раньше `attempts.delete` в этой ветке делал счётчик
+      // бесполезным, и вопрос крутился вечно — 25.10 две попытки по 240 с, ни
+      // ответа оператору, ни эскалации администратору. После MAX_ATTEMPTS — отдаём
+      // человеку с понятной пометкой.
       if (isCreditExhausted(e)) {
-        attempts.delete(id);
         creditExhaustedAt = Date.now();
-        logError('ai chat direct: credit exhausted — routing to bridge until top-up', { id, error: String(e) });
-        await writeAiChatRow(actor as any, { ...row, status: 'pending', updatedAt: nowMs() }).catch(() => undefined);
+        const failed = (attempts.get(id) ?? 0) + 1;
+        attempts.set(id, failed);
+        logError('ai chat direct: credit exhausted — routing to bridge until top-up', {
+          id,
+          attempt: failed,
+          error: String(e),
+        });
+        if (failed >= MAX_ATTEMPTS) {
+          attempts.delete(id);
+          await finish(row, actor, {
+            status: 'escalated',
+            escalationNote: `Движок завода не ответил, а счёт резервного движка на нуле (попыток: ${MAX_ATTEMPTS}). Нужен ответ администратора.`,
+          }).catch(() => undefined);
+          await notifySuperadminEscalation(actor, {
+            username: String(row.username),
+            questionText: String(row.questionText),
+            reason: 'Серверный движок не ответил, резервный счёт на нуле — вопрос остался без ответа.',
+          }).catch(() => undefined);
+        } else {
+          await writeAiChatRow(actor as any, { ...row, status: 'pending', updatedAt: nowMs() }).catch(() => undefined);
+        }
         break;
       }
       const failed = (attempts.get(id) ?? 0) + 1;
