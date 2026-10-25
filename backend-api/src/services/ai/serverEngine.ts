@@ -342,7 +342,10 @@ async function askOnce(
     const text = textOf(messages);
     const steps = messages.filter((message) => message.type === 'assistant').length;
     if (text && (isIdle(messages) || steps > 0)) {
-      logInfo('server engine: answered', { model, steps, ms: Date.now() - startedAt });
+      // critical:true — чтобы успех был виден в журнале прода так же, как отказ:
+      // иначе там живут только `no answer`/`request failed`, и картина «движок
+      // всегда падает» складывается из одних проигрышей (переживший смещён).
+      logInfo('server engine: answered', { model, steps, ms: Date.now() - startedAt }, { critical: true });
       return { ok: true, text, model, steps };
     }
     const failure = stalled
@@ -398,7 +401,7 @@ function rotateExit(): Promise<string> {
         logError('server engine: exit rotation gave no server', { stdout: String(stdout ?? '').slice(0, 300) });
         return resolve('');
       }
-      logInfo('server engine: exit rotated', { server: line });
+      logInfo('server engine: exit rotated', { server: line }, { critical: true });
       resolve(line);
     });
   });

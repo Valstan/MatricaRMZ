@@ -16,6 +16,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR=/usr/local/lib/neural
 UNIT_DIR=/etc/systemd/system
+ENVFILE=/etc/matricarmz/matricarmz.env
 DRY_RUN=0
 
 case "${1:-}" in
@@ -30,6 +31,37 @@ run() {
 }
 
 [ "$(id -u)" = "0" ] || { log "нужен root: sudo bash $0"; exit 1; }
+
+# Env-файл читают два разных парсера: systemd (EnvironmentFile) и bash — сторож,
+# ops-скрипты, этот установщик. Значение с пробелами без кавычек первый разберёт,
+# второй развалит (GOTCHAS M175). Проверяем до установки, а не после инцидента.
+log "→ env-файл: значения с пробелами в кавычках?"
+if [ -r "$ENVFILE" ]; then
+  if bad=$(python3 - "$ENVFILE" <<'PY'
+import re, sys
+bad = []
+for num, line in enumerate(open(sys.argv[1], encoding='utf-8', errors='replace'), 1):
+    line = line.rstrip('\n')
+    if not line.strip() or line.lstrip().startswith('#') or '=' not in line:
+        continue
+    key, val = line.split('=', 1)
+    if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', key):
+        continue
+    if re.search(r'\s', val) and val[:1] not in ('"', "'"):
+        bad.append('%d: %s' % (num, key))
+print('\n'.join(bad[:5]))
+sys.exit(1 if bad else 0)
+PY
+  ); then
+    log "  ок"
+  else
+    log "! $ENVFILE — значение с пробелами без кавычек:"
+    printf '%s\n' "$bad" | sed 's/^/    /'
+    log "  systemd такое разберёт, а bash-скрипты (сторож, ops) упадут. Исправить: VAR=\"значение с пробелами\""
+  fi
+else
+  log "  $ENVFILE не найден — пропускаю"
+fi
 
 log "→ скрипты в $LIB_DIR"
 run install -d -m 755 -o root -g root "$LIB_DIR"

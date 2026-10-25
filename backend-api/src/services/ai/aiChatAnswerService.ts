@@ -405,7 +405,10 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
     inputTokens: result.inputTokens,
     outputTokens: result.outputTokens,
     cacheReadTokens: result.cacheReadTokens,
-  });
+    // critical:true — иначе строки нет в журнале прода, и «турны на вопрос»
+    // (сколько сообщений API ушло на один ответ) нечем измерить: brain просит
+    // именно эту величину, а не токены (директива 2026-10-22).
+  }, { critical: true });
 }
 
 /** Строки, застрявшие в `processing` после рестарта, — обратно в очередь. */
