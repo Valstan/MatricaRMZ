@@ -13,6 +13,11 @@
 #   --find-exit      — как --cold-rotate, но по всему списку серверов (ATTEMPTS);
 #   --dry-rotate     — собрать и проверить конфиг следующего сервера, ничего не применяя;
 #   --force-rotate   — переключиться даже при живом туннеле (проверка механизма);
+#   --rotate-next    — смена выхода ПО ЗАПРОСУ бэкенда (ротация внутри вопроса Ииваныча):
+#                      погасить движок, взять следующий сервер из журнала выходов (недавно
+#                      пробованные — в конце круга), поднять движок, дождаться его и напечатать
+#                      «индекс|exit-IP|имя». Провайдера не спрашивает — ответ даст тот вопрос,
+#                      который уже задан оператором;
 #   --test-alert     — отправить тестовое уведомление в Telegram.
 set -u
 
@@ -27,8 +32,13 @@ REDIRECT=/usr/local/lib/neural/egress-redirect.sh
 ENVFILE=/etc/matricarmz/matricarmz.env
 PROBE_URL=https://api.ipify.org
 REQ_STATE=/var/lib/neural/last-handled-request
+LEDGER=/var/lib/neural/exit-ledger.tsv
 ATTEMPTS=${ATTEMPTS:-21}
 COLD_ATTEMPTS=${COLD_ATTEMPTS:-3}
+# Ротация внутри вопроса: недавно пробованные выходы уходят в конец круга, а за
+# один вызов пробуем не больше ROTATE_TRIES серверов — бэкенд ждёт ответа ограниченно.
+RECENT_MIN=${RECENT_MIN:-15}
+ROTATE_TRIES=${ROTATE_TRIES:-2}
 
 mkdir -p "$(dirname "$LOGFILE")"
 touch "$LOGFILE"
@@ -270,6 +280,88 @@ rotate() {
   return 1
 }
 
+# Журнал выходов: «индекс|exit-IP|попыток|когда (epoch)». Нужен, чтобы перебор не
+# долбил один и тот же сервер снова и снова: владелец знает по опыту, что лимит
+# free-тира снимается сменой выхода, иногда с 3–4 попытки, и что порядок перебора
+# важнее самой попытки.
+ledger_init() {
+  mkdir -p "$(dirname "$LEDGER")"
+  touch "$LEDGER"
+  chmod 644 "$LEDGER"
+}
+
+# $1 — индекс; печатает epoch последней попытки (0 — не пробовали)
+ledger_last() {
+  awk -F'|' -v i="$1" '$1==i {t=$4} END {print (t==""?0:t)}' "$LEDGER" 2>/dev/null || echo 0
+}
+
+# $1 — индекс, $2 — exit-IP (может быть пустым)
+ledger_add() {
+  local attempts
+  attempts=$(awk -F'|' -v i="$1" '$1==i {n++} END {print n+0}' "$LEDGER" 2>/dev/null || echo 0)
+  printf '%s|%s|%s|%s\n' "$1" "${2:-}" "$((attempts + 1))" "$(date +%s)" >> "$LEDGER"
+  if [ "$(wc -l < "$LEDGER")" -gt 200 ]; then
+    tail -n 200 "$LEDGER" > "$LEDGER.tmp" && mv "$LEDGER.tmp" "$LEDGER"
+  fi
+}
+
+# Смена выхода по запросу бэкенда (ротация внутри обработки вопроса). В отличие от
+# cold_rotate провайдера не спрашивает: единственная законная проба — вопрос, который
+# оператор уже задал. Печатает «индекс|exit-IP|имя» и выходит 0; при отказе — 1.
+rotate_next() {
+  local total start now cutoff n idx name ip candidates fresh
+  total=$(count_servers)
+  start=$(current_index)
+  ledger_init
+  now=$(date +%s)
+  cutoff=$(( now - RECENT_MIN * 60 ))
+  candidates=""
+  fresh=""
+  for n in $(seq 1 "$total"); do
+    idx=$(( (start + n) % total ))
+    candidates="$candidates $idx"
+    if [ "$(ledger_last "$idx")" -le "$cutoff" ]; then fresh="$fresh $idx"; fi
+  done
+  # Все выходы пробованы недавно — идём по кругу дальше, а не стоим на месте.
+  [ -n "${fresh# }" ] && candidates="$fresh"
+
+  local tried=0
+  for idx in $candidates; do
+    [ "$tried" -ge "$ROTATE_TRIES" ] && break
+    tried=$(( tried + 1 ))
+    name=$(render "$idx") || { log "rotate-next: render failed for index $idx"; continue; }
+    if ! "$XRAY" run -test -config "$NEXT" >/dev/null 2>&1; then
+      log "rotate-next: config invalid for $name (index $idx), skipped"
+      continue
+    fi
+    log "rotate-next: switching engine to $name (index $idx)"
+    systemctl stop opencode-web
+    mv "$NEXT" "$CLIENT"
+    apply_client >/dev/null 2>&1
+    ip=$(probe)
+    if [ -z "$ip" ]; then
+      log "rotate-next: $name gave no traffic, skipped"
+      ledger_add "$idx" ""
+      systemctl start opencode-web
+      continue
+    fi
+    systemctl start opencode-web
+    if ! wait_engine; then
+      log "rotate-next: engine did not come up on $name (exit=$ip), skipped"
+      ledger_add "$idx" "$ip"
+      continue
+    fi
+    echo "$idx" > "$STATE"
+    ledger_add "$idx" "$ip"
+    log "rotate-next: engine is up on $name (index $idx), exit=$ip"
+    printf '%s|%s|%s\n' "$idx" "$ip" "$name"
+    return 0
+  done
+  systemctl start opencode-web 2>/dev/null || true
+  log "rotate-next: no server gave a working engine after $tried attempts"
+  return 1
+}
+
 # Один SQL-запрос к PG бэкенда (учётные данные — из env бэкенда).
 psql_at() {
   set -a; . "$ENVFILE"; set +a
@@ -330,6 +422,9 @@ case "${1:-}" in
     ;;
   --force-rotate)
     rotate
+    ;;
+  --rotate-next)
+    rotate_next
     ;;
   --find-exit)
     find_exit

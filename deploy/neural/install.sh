@@ -43,6 +43,29 @@ if [ ! -x "$LIB_DIR/refresh-subscription.sh" ]; then
   log "  Скрипт приходит из установки ВПН (neural-vpn), в этом репозитории его нет."
 fi
 
+# Бэкенд обрабатывает вопрос в процессе и не может ждать sudo-пароля: даём ровно
+# одну команду — смену выхода для ротации внутри вопроса. Пути и аргументы в правиле
+# фиксированы, иначе это было бы право запускать что угодно от root.
+BACKEND_USER=${BACKEND_USER:-valstan}
+ROTATE_RULE="$BACKEND_USER ALL=(root) NOPASSWD: $LIB_DIR/tunnel-watchdog.sh --rotate-next"
+log "→ sudoers: право на ротацию выхода ($BACKEND_USER)"
+if [ "$DRY_RUN" = "1" ]; then
+  log "  [dry-run] /etc/sudoers.d/neural-rotate: $ROTATE_RULE"
+else
+  tmp_rule=$(mktemp)
+  printf '%s\n' "$ROTATE_RULE" > "$tmp_rule"
+  chmod 600 "$tmp_rule"
+  if visudo -cf "$tmp_rule" >/dev/null; then
+    install -m 440 -o root -g root "$tmp_rule" /etc/sudoers.d/neural-rotate
+    log "  /etc/sudoers.d/neural-rotate"
+  else
+    log "! правило sudoers не прошло проверку visudo — ротация из бэкенда работать не будет"
+    rm -f "$tmp_rule"
+    exit 1
+  fi
+  rm -f "$tmp_rule"
+fi
+
 log "→ юниты в $UNIT_DIR"
 for unit in tunnel-watchdog.service tunnel-watchdog.timer \
             neural-subscription-refresh.service neural-subscription-refresh.timer; do
