@@ -93,11 +93,23 @@ function isCreditExhausted(e: unknown): boolean {
   return /402|Insufficient Balance|invalid_request_error/.test(s) && /balance|402|Insufficient/i.test(s);
 }
 let creditExhaustedAt = 0;
-/** Периодическая проба LLM, чтобы вернуть движок в строй после пополнения. */
-const CREDIT_PROBE_INTERVAL_MS = 5 * 60_000;
+/**
+ * Проба баланса стоит одного настоящего запроса к провайдеру, поэтому пауза между
+ * пробами растёт вдвое после каждой неудачи: 5 мин → 10 → 20 … до 6 ч. С фиксированным
+ * интервалом проба молотит в пустоту круглосуточно: 25.10 на проде — 430 записей `402`
+ * за неделю, ровно 12/час и ночью, при 11 вопросах операторов за те же 7 дней.
+ */
+const CREDIT_PROBE_BASE_MS = 5 * 60_000;
+const CREDIT_PROBE_MAX_MS = 6 * 60 * 60_000;
+let creditProbeFailures = 0;
+
+function creditProbeDelayMs(): number {
+  return Math.min(CREDIT_PROBE_MAX_MS, CREDIT_PROBE_BASE_MS * 2 ** creditProbeFailures);
+}
+
 async function probeCredit(): Promise<boolean> {
   const now = nowMs();
-  if (creditExhaustedAt > 0 && now - creditExhaustedAt < CREDIT_PROBE_INTERVAL_MS) return false;
+  if (creditExhaustedAt > 0 && now - creditExhaustedAt < creditProbeDelayMs()) return false;
   try {
     const { callLlm } = await import('./llmProvider.js');
     await callLlm({
@@ -108,11 +120,16 @@ async function probeCredit(): Promise<boolean> {
       options: { maxTokens: 1, timeoutMs: 15_000 },
     });
     creditExhaustedAt = 0;
-    logInfo('ai chat direct: credit probe ok', {});
+    creditProbeFailures = 0;
+    logInfo('ai chat direct: credit probe ok', {}, { critical: true });
     return true;
   } catch (e) {
+    creditProbeFailures += 1;
     creditExhaustedAt = now;
-    logError('ai chat direct: credit probe failed', { error: String(e) });
+    logError('ai chat direct: credit probe failed', {
+      error: String(e),
+      nextProbeInMin: Math.round(creditProbeDelayMs() / 60_000),
+    });
     return false;
   }
 }
@@ -479,6 +496,9 @@ export async function aiChatDirectTick(): Promise<{ processed: number }> {
     try {
       await answerOne({ ...row, status: 'processing' }, actor);
       attempts.delete(id);
+      // Ответ получен — значит счёт жив: снимаем гафф и не тратим пробы впустую.
+      creditExhaustedAt = 0;
+      creditProbeFailures = 0;
       processed += 1;
     } catch (e) {
       const misconfigured = isLlmMisconfigured(e);
