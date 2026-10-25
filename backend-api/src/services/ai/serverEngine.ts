@@ -1,3 +1,4 @@
+import { exec } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 
 import { logError, logInfo } from '../../utils/logger.js';
@@ -33,17 +34,34 @@ function envNum(name: string, fallback: number): number {
 /**
  * Движку даётся меньше, чем всему ответу: остаток окна остаётся DeepSeek'у.
  *
- * 240 с, а не 150: замеры на живом проде — 48–80 с (21.10) и 160 с (22.10, вопрос
- * с обходом базы). Free-тир отвечает неровно, и прежние 150 с обрывали ответ на
- * последних шагах: работа движка пропадала, вопрос уходил в мёртвый DeepSeek и
- * эскалировался. Ждать дольше честнее, чем не ответить вовсе: оператор видит
- * «думает …» с таймером.
+ * 480 с, а не 240: 25.10 свободная модель не уложилась в 240 с дважды подряд, и
+ * оба раза работа выбрасывалась — вопрос оператора оставался без ответа. Ждать
+ * дольше честнее, чем не ответить вовсе: оператор видит «думает …» с таймером.
  */
-const ENGINE_TIMEOUT_MS = envNum('AI_SERVER_ENGINE_TIMEOUT_MS', 240_000);
+const ENGINE_TIMEOUT_MS = envNum('AI_SERVER_ENGINE_TIMEOUT_MS', 480_000);
+/**
+ * Движок молчит НЕ по медлительности, а потому что провайдер не ответил вовсе:
+ * 25.10 сессия поднялась, MCP-мост подключился — и ни одного сообщения модели за
+ * 240 с. Такой обрыв виден раньше дедлайна (в сессии нет ни одного сообщения) и
+ * лечится сменой выхода, а не ожиданием. Отсюда отдельный порог «ступора».
+ */
+const ENGINE_STALL_MS = envNum('AI_SERVER_ENGINE_STALL_MS', 90_000);
+/** Дедлайн прошёл, но работа в сессии уже есть — даём ей дочитать, а не рвём. */
+const ENGINE_GRACE_MS = envNum('AI_SERVER_ENGINE_GRACE_MS', 60_000);
 const POLL_MS = envNum('AI_SERVER_ENGINE_POLL_MS', 1_500);
 const COOLDOWN_LIMIT_MS = envNum('AI_SERVER_ENGINE_COOLDOWN_MS', 10 * 60_000);
 const COOLDOWN_ERROR_MS = envNum('AI_SERVER_ENGINE_COOLDOWN_ERROR_MS', 2 * 60_000);
 const MODELS_TTL_MS = 10 * 60_000;
+/**
+ * Ротация выхода внутри вопроса (слово владельца 25.10: «перебирать сервера ВПН
+ * по порядку, пока лимит не сбросится»). Делает её сторож туннеля под root —
+ * гасит движок, ставит следующий сервер из журнала выходов, поднимает движок.
+ * Бэкенд ходит туда одной разрешённой командой (sudoers) и получает строку
+ * «индекс|exit-IP|имя». Пусто — ротация не настроена, ведём себя как раньше.
+ */
+const ROTATE_CMD = String(process.env.AI_SERVER_ENGINE_ROTATE_CMD ?? '').trim();
+const ROTATE_ATTEMPTS = Math.max(0, Number(process.env.AI_SERVER_ENGINE_ROTATE_ATTEMPTS ?? 2));
+const ROTATE_TIMEOUT_MS = envNum('AI_SERVER_ENGINE_ROTATE_TIMEOUT_MS', 180_000);
 
 const PROVIDER = 'opencode';
 /** Порядок проб: быстрые free-модели, затем прочие free, затем остальное. */
@@ -250,18 +268,14 @@ export type AskServerEngineArgs = {
 };
 
 /**
- * Спросить серверный движок. Инструменты он получает через MCP-мост, поэтому
- * контекст сотрудника (права + побочные результаты) объявляется активным на
- * время ответа и снимается сразу после.
+ * Одна попытка спросить движок. Паузу после сбоя НЕ ставит: решает внешний
+ * цикл — он либо повторяет вопрос на другом выходе, либо признаёт сбой.
  */
-export async function askServerEngine(args: AskServerEngineArgs): Promise<ServerEngineOutcome> {
-  if (!ENGINE_ENABLED) return { ok: false, kind: 'unavailable', error: 'серверный движок выключен' };
-  if (cooldownUntil > Date.now()) {
-    return { ok: false, kind: 'unavailable', error: `движок в паузе: ${lastFailure}` };
-  }
-  const prompt = `${args.systemPrompt}\n\n${args.userMessage}`.trim();
-  if (!prompt) return { ok: false, kind: 'error', error: 'пустой запрос' };
-  const timeoutMs = args.timeoutMs && args.timeoutMs > 0 ? args.timeoutMs : ENGINE_TIMEOUT_MS;
+async function askOnce(
+  args: AskServerEngineArgs,
+  prompt: string,
+  timeoutMs: number,
+): Promise<ServerEngineOutcome> {
   const startedAt = Date.now();
 
   let sessionID = '';
@@ -270,8 +284,7 @@ export async function askServerEngine(args: AskServerEngineArgs): Promise<Server
     const token = await engineToken();
     const candidates = (await engineModels(token)).slice(0, 4);
     if (candidates.length === 0) {
-      noteFailure('unavailable', 'движок не отдал ни одной модели');
-      return { ok: false, kind: 'unavailable', error: lastFailure };
+      return { ok: false, kind: 'unavailable', error: 'движок не отдал ни одной модели' };
     }
     let lastError = '';
     for (const candidate of candidates) {
@@ -284,45 +297,65 @@ export async function askServerEngine(args: AskServerEngineArgs): Promise<Server
       }
     }
     if (!sessionID) {
-      noteFailure('unavailable', lastError || 'ни одна free-модель не открылась');
-      return { ok: false, kind: 'unavailable', error: lastFailure };
+      return { ok: false, kind: 'unavailable', error: lastError || 'ни одна free-модель не открылась' };
     }
 
     const poll = await withEngineTask(
       { toolCtx: args.toolCtx, side: args.side },
-      async (): Promise<{ messages: EngineMessage[]; timedOut: boolean }> => {
+      async (): Promise<{ messages: EngineMessage[]; timedOut: boolean; stalled: boolean }> => {
         await api(token, `/api/session/${sessionID}/prompt`, {
           method: 'POST',
           body: JSON.stringify({ text: prompt }),
         });
         const deadline = Date.now() + timeoutMs;
         let seen: EngineMessage[] = [];
-        while (Date.now() < deadline) {
+        let signature = '';
+        let lastProgressAt = Date.now();
+        for (;;) {
           await sleep(POLL_MS);
           const page = await api<{ data?: EngineMessage[] }>(token, `/api/session/${sessionID}/message`);
           seen = page?.data ?? [];
-          if (isIdle(seen)) return { messages: seen, timedOut: false };
+          const next = progressSignature(seen);
+          if (next !== signature) {
+            signature = next;
+            lastProgressAt = Date.now();
+          }
+          if (isIdle(seen)) return { messages: seen, timedOut: false, stalled: false };
+          if (failureOf(seen)) return { messages: seen, timedOut: false, stalled: false };
+
+          const now = Date.now();
+          const hasWork = textOf(seen).length > 0;
+          // Дедлайн прошёл, но работа в сессии уже есть — даём дочитать.
+          if (now >= deadline && (!hasWork || now >= deadline + ENGINE_GRACE_MS)) {
+            return { messages: seen, timedOut: true, stalled: false };
+          }
+          // Ни одной новой записи в сессии: провайдер не отвечает вовсе, ждать
+          // дальше бессмысленно — выход надо менять, а не время тянуть.
+          if (now - lastProgressAt >= ENGINE_STALL_MS && !hasWork) {
+            return { messages: seen, timedOut: false, stalled: true };
+          }
         }
-        return { messages: seen, timedOut: true };
       },
     );
 
-    const { messages, timedOut } = poll;
+    const { messages, timedOut, stalled } = poll;
     const text = textOf(messages);
     const steps = messages.filter((message) => message.type === 'assistant').length;
-    if (text) {
+    if (text && (isIdle(messages) || steps > 0)) {
       logInfo('server engine: answered', { model, steps, ms: Date.now() - startedAt });
       return { ok: true, text, model, steps };
     }
-    const failure = timedOut ? 'движок не ответил за отведённое время' : (failureOf(messages) ?? 'движок не дал ответа');
-    const kind = timedOut ? 'timeout' : classifyFailure(failure);
-    noteFailure(kind, failure);
-    logError('server engine: no answer', { model, kind, failure, ms: Date.now() - startedAt });
+    const failure = stalled
+      ? `движок молчит: ни одной записи в сессии за ${Math.max(1, Math.round(ENGINE_STALL_MS / 1000))} с`
+      : timedOut
+        ? 'движок не ответил за отведённое время'
+        : (failureOf(messages) ?? 'движок не дал ответа');
+    const kind: 'limit' | 'timeout' | 'error' = stalled || timedOut ? 'timeout' : classifyFailure(failure);
+    logError('server engine: no answer', { model, kind, stalled, failure, ms: Date.now() - startedAt });
     return { ok: false, kind, error: failure };
   } catch (e) {
     const message = String((e as Error)?.message ?? e);
     const kind = classifyFailure(message);
-    noteFailure(kind, message);
     logError('server engine: request failed', { error: message, kind, ms: Date.now() - startedAt });
     return { ok: false, kind, error: message };
   } finally {
@@ -330,5 +363,90 @@ export async function askServerEngine(args: AskServerEngineArgs): Promise<Server
       const token = await engineToken().catch(() => '');
       if (token) await api(token, `/api/session/${sessionID}`, { method: 'DELETE' }).catch(() => undefined);
     }
+  }
+}
+
+/** Признак того, что движок работает: меняется число записей или текст ответа. */
+function progressSignature(messages: EngineMessage[]): string {
+  const assistants = messages.filter((message) => message.type === 'assistant').length;
+  return `${messages.length}:${assistants}:${textOf(messages).length}`;
+}
+
+/**
+ * Сменить выход движка: сторож туннеля гасит движок, ставит следующий сервер
+ * из журнала выходов и поднимает его обратно. Возвращает строку «индекс|IP|имя»
+ * или пустую строку, если ротация не настроена/не удалась.
+ */
+function rotateExit(): Promise<string> {
+  return new Promise((resolve) => {
+    if (!ROTATE_CMD) return resolve('');
+    exec(ROTATE_CMD, { timeout: ROTATE_TIMEOUT_MS, maxBuffer: 64 * 1024 }, (error, stdout, stderr) => {
+      const line =
+        String(stdout ?? '')
+          .split(/\r?\n/)
+          .map((row) => row.trim())
+          .filter(Boolean)
+          .pop() ?? '';
+      if (error) {
+        logError('server engine: exit rotation failed', {
+          error: String(error.message ?? error).slice(0, 300),
+          stderr: String(stderr ?? '').slice(0, 300),
+        });
+        return resolve('');
+      }
+      if (!line) {
+        logError('server engine: exit rotation gave no server', { stdout: String(stdout ?? '').slice(0, 300) });
+        return resolve('');
+      }
+      logInfo('server engine: exit rotated', { server: line });
+      resolve(line);
+    });
+  });
+}
+
+/**
+ * Спросить серверный движок. Инструменты он получает через MCP-мост, поэтому
+ * контекст сотрудника (права + побочные результаты) объявляется активным на
+ * время ответа и снимается сразу после.
+ *
+ * Сбой «движок не ответил» здесь не конец: free-тир упирается то в лимит, то в
+ * провайдера, который не отвечает вовсе, и владелец знает по опыту, что смена
+ * выхода ВПН это лечит. Поэтому внутри одного вопроса выход меняется до
+ * ROTATE_ATTEMPTS раз — вопрос оператора не возвращается в очередь из-за того,
+ * что сегодня «не тот» сервер. Ошибки самих прав/прошивки (`error`,
+ * `unavailable`) ротацией не лечатся — их не крутим.
+ */
+export async function askServerEngine(args: AskServerEngineArgs): Promise<ServerEngineOutcome> {
+  if (!ENGINE_ENABLED) return { ok: false, kind: 'unavailable', error: 'серверный движок выключен' };
+  if (cooldownUntil > Date.now()) {
+    return { ok: false, kind: 'unavailable', error: `движок в паузе: ${lastFailure}` };
+  }
+  const prompt = `${args.systemPrompt}\n\n${args.userMessage}`.trim();
+  if (!prompt) return { ok: false, kind: 'error', error: 'пустой запрос' };
+  const timeoutMs = args.timeoutMs && args.timeoutMs > 0 ? args.timeoutMs : ENGINE_TIMEOUT_MS;
+
+  let rotated = 0;
+  for (;;) {
+    const outcome = await askOnce(args, prompt, timeoutMs);
+    if (outcome.ok) {
+      // Успех снимает паузу: после смены выхода прежний сбой к новому не относится.
+      cooldownUntil = 0;
+      lastFailure = '';
+      return outcome;
+    }
+    const retryable = outcome.kind === 'limit' || outcome.kind === 'timeout';
+    if (!retryable || rotated >= ROTATE_ATTEMPTS) {
+      noteFailure(outcome.kind, outcome.error);
+      return outcome;
+    }
+    rotated += 1;
+    logInfo('server engine: rotating exit', { attempt: rotated, reason: outcome.kind, error: outcome.error });
+    const server = await rotateExit();
+    if (!server) {
+      noteFailure(outcome.kind, outcome.error);
+      return outcome;
+    }
+    cooldownUntil = 0;
+    lastFailure = '';
   }
 }
