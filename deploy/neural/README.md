@@ -59,7 +59,12 @@ valstan ALL=(root) NOPASSWD: /usr/local/lib/neural/tunnel-watchdog.sh --rotate-n
 | `AI_SERVER_ENGINE_STALL_MS` | `90000` | «ступора»: столько без единой новой записи в сессии — и выход меняем, не дожидаясь дедлайна |
 | `AI_SERVER_ENGINE_GRACE_MS` | `60000` | после дедлайна даём дочитать, если работа в сессии уже есть |
 
-Рекомендуемое значение на боксе: `AI_SERVER_ENGINE_ROTATE_CMD=sudo -n /usr/local/lib/neural/tunnel-watchdog.sh --rotate-next`.
+Рекомендуемое значение на боксе: `AI_SERVER_ENGINE_ROTATE_CMD="sudo -n /usr/local/lib/neural/tunnel-watchdog.sh --rotate-next"`.
+
+> **Кавычки обязательны** (GOTCHAS **M175**). Этот же файл подключают bash-скрипты на боксе
+> (`set -a; . /etc/matricarmz/matricarmz.env`) — сторож туннеля, ops-скрипты, `install.sh`. Значение с
+> пробелами без кавычек systemd разберёт, а bash — нет: получит команду `sudo` и вторую «команду» `-n`,
+> и скрипт с `set -e` оборвётся на этой строке. `install.sh` линтует env-файл на этот случай.
 
 Журнал выходов — `/var/lib/neural/exit-ledger.tsv`, строка `индекс|exit-IP|попыток|когда (epoch)`.
 Выходы, которые пробовали меньше `RECENT_MIN` минут назад (по умолчанию 15), уходят в конец круга:
