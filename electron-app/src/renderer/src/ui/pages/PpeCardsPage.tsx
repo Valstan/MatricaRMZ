@@ -524,6 +524,7 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
           selection={facets as FacetSelection}
           fields={facetFields}
           open={facetsOpen}
+          usageKey="list:ppe-cards"
           onChangeSelection={(next) => patchState({ facets: next as PpeCardsFacetSelection })}
           onChangeFields={(next) => patchState({ facetFields: next })}
           onReset={() => patchState({ facets: {}, facetFields: [] })}

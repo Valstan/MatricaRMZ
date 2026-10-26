@@ -674,6 +674,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
           selection={facets as FacetSelection}
           fields={facetFields}
           open={facetsOpen}
+          usageKey="list:employees"
           onChangeSelection={(next) => patchState({ facets: next as EmployeeFacetSelection, pageIndex: 0 })}
           onChangeFields={(next) => patchState({ facetFields: next })}
           onReset={() => patchState({ facets: {}, facetFields: [] })}

@@ -580,8 +580,9 @@ export function WorkSheetsPage(props: {
           facets={facets}
           rows={deep.filtered}
           selection={ui.facets}
-          fields={ui.facetFields}
-          open={ui.facetsOpen}
+          fields={ui.facetFields}
+          open={ui.facetsOpen}
+          usageKey="list:workSheets:ui"
           onChangeSelection={(next) => patchState({ facets: next })}
           onChangeFields={(next) => patchState({ facetFields: next })}
           onReset={() => patchState({ facets: {}, facetFields: [] })}

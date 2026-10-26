@@ -1102,6 +1102,7 @@ export function ContractsPage(props: {
           selection={facets as FacetSelection}
           fields={facetFields}
           open={facetsOpen}
+          usageKey="list:contracts"
           onChangeSelection={(next) => patchState({ facets: next as ContractFacetSelection })}
           onChangeFields={(next) => patchState({ facetFields: next })}
           onReset={() => patchState({ facets: {}, facetFields: [] })}

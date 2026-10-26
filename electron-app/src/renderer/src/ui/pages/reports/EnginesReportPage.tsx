@@ -377,6 +377,7 @@ export function EnginesReportPage(props: ListReportPageProps) {
           selection={activeFacets}
           fields={visibleFacetFields}
           open={ui.facetsOpen}
+          usageKey="report:engines:ui"
           onChangeSelection={onChangeFacets}
           onChangeFields={(next) => patchState({ facetFields: next })}
           onReset={() => patchState({ facets: {}, facetFields: [] })}
