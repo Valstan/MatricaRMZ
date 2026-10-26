@@ -64,12 +64,44 @@ describe('фильтры списков — рейтинг ступеней', ()
     expect(FILTER).toContain('orderFacetIdsByUsage(');
     // Порядок фиксируется эффектом на открытии: сдвинь кнопки в момент щелчка — оператор
     // щёлкнет не ту ступень.
-    expect(FILTER).toMatch(/if \(!props\.open\) return;\n\s*setRankedIds\(orderFacetIdsByUsage\(/);
+    expect(FILTER).toMatch(/if \(!props\.open\) return;\n\s*const at = Date\.now\(\);\n\s*setRankedIds\(orderFacetIdsByUsage\(/);
+    // Пятёрка значений считается по тому же снимку счёта: щелчок внутри открытой панели
+    // счёт копит, но ряд под курсором не перетасовывается.
+    expect(FILTER).toContain('setRating({ usage: usageRef.current, at });');
   });
 
-  it('частые ступени идут левее редких: ряд и панели сортируются одним порядком', () => {
-    expect(FILTER).toContain('orderedFacets.map(');
+  it('частые ступени идут левее редких: панели сортируются тем же порядком', () => {
+    expect(FILTER).toContain('fieldSplit.visible.map(renderFieldButton)');
     expect(FILTER).toContain('orderedFields.map(');
+  });
+
+  it('на виду только пять ступеней, хвост — под спойлером', () => {
+    // Владелец 26.10.2026: «показываются только пять самых рейтинговых фильтров, остальные
+    // прячутся в спойлер — а то рябит в глазах».
+    expect(FILTER).toContain('splitRatedByUsage(');
+    expect(FILTER).toContain('data-facet-more="fields"');
+    expect(FILTER).toContain('fieldSplit.hidden.map(renderFieldButton)');
+    // Спрятанное не теряется из разметки: кнопка ступени остаётся с тем же признаком.
+    expect(FILTER).toContain('data-facet-field={facet.id}');
+  });
+
+  it('значения ступени тоже режутся по рейтингу: пять на виду, остальные под спойлером', () => {
+    expect(FILTER).toContain('data-facet-more={`values:${fieldId}`}');
+    expect(FILTER).toContain('valueSplit.hidden.map(valueButton)');
+    expect(FILTER).toContain('facetValueScore(rating.usage, fieldId, option.value, rating.at)');
+    // Щелчок по значению копит свой счёт, отдельный от счёта ступени.
+    expect(FILTER).toContain('bumpFacet(fieldId, option.value)');
+  });
+
+  it('выбранное значение и открытая ступень не прячутся за спойлер', () => {
+    // Спрятанное выбранное значение отбирало бы втихую: снять выбор нечем.
+    expect(FILTER).toContain('(option) => option.selected === true');
+    expect(FILTER).toContain('(facet) => props.fields.includes(facet.id)');
+  });
+
+  it('пока набран поиск, показываем всё, что совпало, а не пять', () => {
+    expect(FILTER).toContain('const searching = query.trim().length > 0;');
+    expect(FILTER).toContain('{ visible: shown, hidden: [] as FacetOption[] }');
   });
 
   it('у каждого списка свой ключ рейтинга', () => {

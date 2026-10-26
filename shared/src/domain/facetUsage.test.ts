@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  FACET_USAGE_VISIBLE_LIMIT,
   createEmptyFacetUsage,
   facetUsageBump,
   facetUsageScore,
+  facetValueScore,
+  facetValueUsageId,
   orderFacetIdsByUsage,
   sanitizeFacetUsage,
+  splitRatedByUsage,
 } from './facetUsage.js';
 
 const DAY = 86_400_000;
@@ -59,6 +63,60 @@ describe('рейтинг ступеней фильтра', () => {
     expect(sanitizeFacetUsage({ buckets: { customer: { '2026-10-25': 2, bad: 5, x: 0 } } })).toEqual({
       buckets: { customer: { '2026-10-25': 2 } },
     });
+  });
+});
+
+// Владелец 26.10.2026: «показывать только пять самых рейтинговых, остальных под спойлером».
+// Ряд кнопок ступеней и список значений ступени режутся одинаково — правило живёт здесь, а не
+// в двух местах интерфейса, иначе панели начали бы прятать разное.
+describe('видимая часть ряда по рейтингу', () => {
+  const ids = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+
+  it('без щелчков видно первые пять, хвост — в исходном порядке', () => {
+    const split = splitRatedByUsage(ids, () => 0);
+    expect(FACET_USAGE_VISIBLE_LIMIT).toBe(5);
+    expect(split.visible).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(split.hidden).toEqual(['f', 'g']);
+  });
+
+  it('частые поднимаются в видимую часть и стоят левее', () => {
+    const split = splitRatedByUsage(ids, (id) => (id === 'g' ? 10 : id === 'f' ? 5 : 0));
+    expect(split.visible).toEqual(['g', 'f', 'a', 'b', 'c']);
+    expect(split.hidden).toEqual(['d', 'e']);
+  });
+
+  it('обязательное не прячется за спойлер, даже если редко используется', () => {
+    // Активная ступень и выбранное значение обязаны быть на виду: спрятанные, они отбирают
+    // втихую, и снять выбор нечем.
+    const split = splitRatedByUsage(ids, () => 0, (id) => id === 'g');
+    expect(split.visible).toContain('g');
+    expect(split.hidden).not.toContain('g');
+  });
+
+  it('ряд не длиннее пяти без обязательных и не теряет ни одного элемента', () => {
+    const split = splitRatedByUsage(ids, () => 0);
+    expect(split.visible.length).toBe(FACET_USAGE_VISIBLE_LIMIT);
+    expect([...split.visible, ...split.hidden]).toHaveLength(ids.length);
+    expect(splitRatedByUsage(['a', 'b'], () => 0).hidden).toEqual([]);
+  });
+});
+
+describe('рейтинг значений ступени', () => {
+  it('значения считаются отдельно от ступени и не сливаются с ней в один ключ', () => {
+    let usage = facetUsageBump(createEmptyFacetUsage(), 'customer', NOW);
+    usage = facetUsageBump(usage, facetValueUsageId('customer', 'CP1'), NOW);
+    expect(facetValueUsageId('customer', 'CP1')).toBe('customer|CP1');
+    expect(facetUsageScore(usage, 'customer', NOW)).toBeCloseTo(1, 6);
+    expect(facetValueScore(usage, 'customer', 'CP1', NOW)).toBeCloseTo(1, 6);
+    expect(facetValueScore(usage, 'customer', 'CP2', NOW)).toBe(0);
+  });
+
+  it('длинное значение не теряет счёт после перезапуска: ключ режется одинаково при записи и чтении', () => {
+    const long = 'name:' + 'я'.repeat(400);
+    const id = facetValueUsageId('workshop', long);
+    const usage = facetUsageBump(createEmptyFacetUsage(), id, NOW);
+    const reloaded = sanitizeFacetUsage(JSON.parse(JSON.stringify(usage)));
+    expect(facetValueScore(reloaded, 'workshop', long, NOW)).toBeCloseTo(1, 6);
   });
 });
 

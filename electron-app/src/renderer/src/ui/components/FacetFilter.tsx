@@ -7,11 +7,15 @@ import {
   facetOptions,
   facetRangeOf,
   facetUsageBump,
+  facetUsageScore,
+  facetValueScore,
+  facetValueUsageId,
   normalizeLookupCompact,
   orderFacetIdsByUsage,
   sanitizeFacetUsage,
   setFacetDateBound,
   setFacetDay,
+  splitRatedByUsage,
   toggleFacetValue,
   type FacetDescriptor,
   type FacetOption,
@@ -54,6 +58,11 @@ function readFacetUsage(usageKey: string | undefined): FacetUsage {
  * Два свойства для узнаваемости (владелец 25.10.2026, «когда открыто много фильтров — каша»):
  * у каждой ступени свой цвет (`facetTone.ts`), и ряд кнопок отсортирован по рейтингу
  * использования (`facetUsage.ts`) — частые слева.
+ *
+ * Третье (владелец 26.10.2026): на виду только пять самых рейтинговых ступеней и пять значений
+ * внутри ступени, остальное — под спойлером «Ещё N». Иначе открытая панель показывает разом два
+ * десятка кнопок и пятьдесят заказчиков: «рябит в глазах». Активная ступень и выбранное значение
+ * не прячутся никогда — иначе они отбирали бы втихую.
  */
 
 /**
@@ -152,12 +161,22 @@ export function FacetFilter<Row>(props: {
   idsRef.current = props.facets.map((f) => f.id);
   const idsSignature = idsRef.current.join('|');
 
+  // Снимок счёта на момент открытия панели. По нему считаются и порядок кнопок, и видимая
+  // пятёрка значений: щелчок внутри открытой панели счёт копит, но ряд под курсором не
+  // перетасовывается — новый рейтинг оператор увидит при следующем открытии.
+  const [rating, setRating] = React.useState<{ usage: FacetUsage; at: number }>(() => ({
+    usage: usageRef.current,
+    at: Date.now(),
+  }));
+
   const [rankedIds, setRankedIds] = React.useState<string[]>(() =>
     orderFacetIdsByUsage(idsRef.current, usageRef.current, Date.now()),
   );
   React.useEffect(() => {
     if (!props.open) return;
-    setRankedIds(orderFacetIdsByUsage(idsRef.current, usageRef.current, Date.now()));
+    const at = Date.now();
+    setRankedIds(orderFacetIdsByUsage(idsRef.current, usageRef.current, at));
+    setRating({ usage: usageRef.current, at });
   }, [props.open, idsSignature]);
 
   const rankIndex = React.useMemo(() => {
@@ -169,10 +188,18 @@ export function FacetFilter<Row>(props: {
     return map;
   }, [rankedIds, props.facets]);
 
-  const orderedFacets = React.useMemo(
-    () => [...props.facets].sort((a, b) => (rankIndex.get(a.id) ?? 0) - (rankIndex.get(b.id) ?? 0)),
-    [props.facets, rankIndex],
+  // Видимая часть ряда ступеней: пять самых рейтинговых плюс уже открытые (владелец 26.10.2026).
+  // Ряд кнопок короче — панель не превращается в стену из двух десятков ступеней.
+  const fieldSplit = React.useMemo(
+    () =>
+      splitRatedByUsage(
+        props.facets,
+        (facet) => facetUsageScore(rating.usage, facet.id, rating.at),
+        (facet) => props.fields.includes(facet.id),
+      ),
+    [props.facets, rating, props.fields],
   );
+
   const orderedFields = React.useMemo(
     () =>
       [...props.fields].sort(
@@ -182,8 +209,13 @@ export function FacetFilter<Row>(props: {
     [props.fields, rankIndex],
   );
 
-  function bumpFacet(facetId: string) {
-    usageRef.current = facetUsageBump(usageRef.current, facetId, Date.now());
+  /** Щелчок по ступени и по её значению копит счёт: у значения — свой ключ в той же карте. */
+  function bumpFacet(facetId: string, value?: string) {
+    const now = Date.now();
+    usageRef.current = facetUsageBump(usageRef.current, facetId, now);
+    if (value !== undefined) {
+      usageRef.current = facetUsageBump(usageRef.current, facetValueUsageId(facetId, value), now);
+    }
     if (!props.usageKey) return;
     try {
       window.localStorage.setItem(
@@ -244,6 +276,61 @@ export function FacetFilter<Row>(props: {
     return out;
   }, [props.open, props.facets, props.rows, props.selection, props.fields]);
 
+  /**
+   * Кнопка «Сбросить фильтр» — первой в ряду (владелец 16.09.2026): выход из фильтра ищут в
+   * начале панели, а не в её хвосте, который на узком окне уезжает под перенос ступеней.
+   */
+  function renderResetButton() {
+    return (
+      <button
+        type="button"
+        data-facet-reset
+        onClick={props.onReset}
+        disabled={activeCount === 0 && props.fields.length === 0}
+        title="Снять все ступени и вернуть полный список"
+        style={{
+          padding: '4px 10px',
+          borderRadius: 8,
+          border: '1px solid var(--border)',
+          background: 'var(--surface)',
+          cursor: activeCount === 0 && props.fields.length === 0 ? 'default' : 'pointer',
+        }}
+      >
+        Сбросить фильтр{activeCount > 0 ? ` (${activeCount})` : ''}
+      </button>
+    );
+  }
+
+  /** Кнопка ступени: цвет от её id, счёт выбранных значений — в подписи. */
+  function renderFieldButton(facet: FacetDescriptor<Row>) {
+    const on = chosen.has(facet.id);
+    const picked = pickedCount(facet.id);
+    const tone = tones[facet.id] ?? FALLBACK_FACET_TONE;
+    return (
+      <button
+        key={facet.id}
+        type="button"
+        data-facet-field={facet.id}
+        onClick={() => toggleField(facet.id)}
+        title={on ? 'Убрать ступень из фильтра' : 'Добавить ступень в фильтр'}
+        {...emojiAttrs(facet.label)}
+        style={{
+          padding: '4px 10px',
+          borderRadius: 999,
+          border: `1px solid ${on ? tone.accent : 'var(--border)'}`,
+          // Цветная полоса слева видна и в закрытой ступени: по ней фильтр и узнают.
+          borderLeft: `4px solid ${tone.accent}`,
+          background: on ? tone.tint : 'var(--surface)',
+          fontWeight: on ? 700 : 400,
+          cursor: 'pointer',
+        }}
+      >
+        {facet.label}
+        {picked > 0 ? ` (${picked})` : ''}
+      </button>
+    );
+  }
+
   // Свёрнутая панель не занимает НИЧЕГО: кнопка живёт в тулбаре рядом с поиском.
   if (!props.open) return null;
 
@@ -264,50 +351,44 @@ export function FacetFilter<Row>(props: {
             названы столбцами (владелец 08.09.2026). «Сбросить фильтр» — ПЕРВОЙ в ряду
             (владелец 16.09.2026): выход из фильтра ищут в начале панели, а не в её хвосте,
             который на узком окне уезжает под перенос ступеней. */}
-        <button
-          type="button"
-          data-facet-reset
-          onClick={props.onReset}
-          disabled={activeCount === 0 && props.fields.length === 0}
-          title="Снять все ступени и вернуть полный список"
-          style={{
-            padding: '4px 10px',
-            borderRadius: 8,
-            border: '1px solid var(--border)',
-            background: 'var(--surface)',
-            cursor: activeCount === 0 && props.fields.length === 0 ? 'default' : 'pointer',
-          }}
-        >
-          Сбросить фильтр{activeCount > 0 ? ` (${activeCount})` : ''}
-        </button>
-        {orderedFacets.map((facet) => {
-          const on = chosen.has(facet.id);
-          const picked = pickedCount(facet.id);
-          const tone = tones[facet.id] ?? FALLBACK_FACET_TONE;
-          return (
-            <button
-              key={facet.id}
-              type="button"
-              data-facet-field={facet.id}
-              onClick={() => toggleField(facet.id)}
-              title={on ? 'Убрать ступень из фильтра' : 'Добавить ступень в фильтр'}
-              {...emojiAttrs(facet.label)}
+        {renderResetButton()}
+        {fieldSplit.visible.map(renderFieldButton)}
+        {fieldSplit.hidden.length > 0 ? (
+          <details
+            data-facet-more="fields"
+            style={{ display: 'inline-block', alignSelf: 'center' }}
+          >
+            <summary
+              title="Остальные ступени: по рейтингу они реже — раскрыть список"
               style={{
                 padding: '4px 10px',
                 borderRadius: 999,
-                border: `1px solid ${on ? tone.accent : 'var(--border)'}`,
-                // Цветная полоса слева видна и в закрытой ступени: по ней фильтр и узнают.
-                borderLeft: `4px solid ${tone.accent}`,
-                background: on ? tone.tint : 'var(--surface)',
-                fontWeight: on ? 700 : 400,
+                border: '1px dashed var(--border)',
+                background: 'var(--surface)',
                 cursor: 'pointer',
+                listStyle: 'none',
+                whiteSpace: 'nowrap',
               }}
             >
-              {facet.label}
-              {picked > 0 ? ` (${picked})` : ''}
-            </button>
-          );
-        })}
+              Ещё {fieldSplit.hidden.length} ▾
+            </summary>
+            <div
+              data-facet-more-list="fields"
+              style={{
+                display: 'flex',
+                gap: 6,
+                flexWrap: 'wrap',
+                marginTop: 8,
+                padding: 8,
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                background: 'var(--surface)',
+              }}
+            >
+              {fieldSplit.hidden.map(renderFieldButton)}
+            </div>
+          </details>
+        ) : null}
       </div>
 
       {orderedFields.map((fieldId) => {
@@ -383,6 +464,41 @@ export function FacetFilter<Row>(props: {
         const picked = pickedCount(fieldId);
         const query = valueQuery[fieldId] ?? '';
         const shown = options.filter((option) => matchValueOption(option, query));
+        // Пять самых рейтинговых значений на виду, остальные — под спойлером (владелец
+        // 26.10.2026: «чтобы все заказчики не показывались одновременно — рябит в глазах»).
+        // Поиск — явный запрос: пока он набран, показываем всё, что совпало. Выбранные
+        // значения не прячутся никогда, иначе снять выбор было бы нечем.
+        const searching = query.trim().length > 0;
+        const valueSplit = searching
+          ? { visible: shown, hidden: [] as FacetOption[] }
+          : splitRatedByUsage(
+              shown,
+              (option) => facetValueScore(rating.usage, fieldId, option.value, rating.at),
+              (option) => option.selected === true,
+            );
+        const valueButton = (option: FacetOption) => (
+          <button
+            key={option.value}
+            type="button"
+            data-facet-value={`${fieldId}:${option.value}`}
+            onClick={() => {
+              bumpFacet(fieldId, option.value);
+              props.onChangeSelection(toggleFacetValue(props.selection, fieldId, option.value));
+            }}
+            title={option.selected ? 'Убрать значение из отбора' : 'Оставить только это (и другие выбранные)'}
+            style={{
+              padding: '3px 8px',
+              borderRadius: 999,
+              border: '1px solid var(--border)',
+              background: option.selected ? tone.tint : 'var(--surface)',
+              fontWeight: option.selected ? 700 : 400,
+              opacity: option.count === 0 && !option.selected ? 0.5 : 1,
+              cursor: 'pointer',
+            }}
+          >
+            {option.label} <span style={{ color: 'var(--subtle)' }}>{option.count}</span>
+          </button>
+        );
         return (
           <div key={fieldId} data-facet-panel={fieldId} style={panelStyle}>
             <span style={{ minWidth: 150, color: 'var(--subtle)' }}>
@@ -403,29 +519,45 @@ export function FacetFilter<Row>(props: {
             ) : shown.length === 0 ? (
               <span className="ui-muted">по запросу ничего нет</span>
             ) : (
-              shown.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  data-facet-value={`${fieldId}:${option.value}`}
-                  onClick={() => {
-                    bumpFacet(fieldId);
-                    props.onChangeSelection(toggleFacetValue(props.selection, fieldId, option.value));
-                  }}
-                  title={option.selected ? 'Убрать значение из отбора' : 'Оставить только это (и другие выбранные)'}
-                  style={{
-                    padding: '3px 8px',
-                    borderRadius: 999,
-                    border: '1px solid var(--border)',
-                    background: option.selected ? tone.tint : 'var(--surface)',
-                    fontWeight: option.selected ? 700 : 400,
-                    opacity: option.count === 0 && !option.selected ? 0.5 : 1,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {option.label} <span style={{ color: 'var(--subtle)' }}>{option.count}</span>
-                </button>
-              ))
+              <>
+                {valueSplit.visible.map(valueButton)}
+                {valueSplit.hidden.length > 0 ? (
+                  <details
+                    data-facet-more={`values:${fieldId}`}
+                    style={{ display: 'inline-block', alignSelf: 'center' }}
+                  >
+                    <summary
+                      title="Остальные значения: по рейтингу они реже — раскрыть список"
+                      style={{
+                        padding: '3px 8px',
+                        borderRadius: 999,
+                        border: '1px dashed var(--border)',
+                        background: 'var(--surface)',
+                        cursor: 'pointer',
+                        listStyle: 'none',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      Ещё {valueSplit.hidden.length} ▾
+                    </summary>
+                    <div
+                      data-facet-more-list={`values:${fieldId}`}
+                      style={{
+                        display: 'flex',
+                        gap: 6,
+                        flexWrap: 'wrap',
+                        marginTop: 8,
+                        padding: 8,
+                        border: '1px solid var(--border)',
+                        borderRadius: 8,
+                        background: 'var(--surface)',
+                      }}
+                    >
+                      {valueSplit.hidden.map(valueButton)}
+                    </div>
+                  </details>
+                ) : null}
+              </>
             )}
           </div>
         );

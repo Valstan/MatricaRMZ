@@ -472,17 +472,18 @@ export function V3TabShell(props: {
         <div className="v3-tab-spacer" />
         {/* Перезапуск программы (владелец 21.10.2026): программа живёт в трее и сама
             не выгружается — после правок или зависания оператору нужен свой restart
-            без перезагрузки компьютера. */}
+            без перезагрузки компьютера. Подпись короткая — «Перезапуск» (владелец
+            26.10.2026): в шапке рядом с аккаунтом длинная фраза не помещалась. */}
         {props.onRestartApp ? (
           <button
             type="button"
             className="v3-account-btn"
             data-restart-app-btn
-            title="Перезапустить программу: закрыть всё и открыть заново (компьютер перезагружать не нужно)"
+            title="Перезапуск: закрыть всё и открыть заново (компьютер перезагружать не нужно)"
             onClick={() => props.onRestartApp?.()}
           >
             <span aria-hidden="true">⟳</span>
-            <span className="v3-account-name">Перезапустить программу</span>
+            <span className="v3-account-name">Перезапуск</span>
           </button>
         ) : null}
         {props.userLabel ? (
