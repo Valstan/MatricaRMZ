@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // CDP-смоук: пакетный приём двигателей списком (накладная).
-//   [1] кнопка «Принять двигатели списком» есть в списке двигателей
+//   [1] кнопка «+Списком» (полное имя «Принять двигатели списком» — в подсказке) есть в списке двигателей
 //   [2] пустые справочники → окно предупреждает, но приём не блокирует (все поля необязательны)
 //   [3] марка/контрагент/договор/дата + список с повтором → превью: 3 строки, повтор помечен
 //   [4] «Завести карточки: 3» → созданы 3 карточки с маркой, договором, датой прихода
@@ -181,7 +181,7 @@ window.__bi = {
     return { ok: true, picked: window.__bi.txt(hit).slice(0, 100) };
   },
   rows(){ const d = window.__bi.dialog(); if(!d) return []; return [...d.querySelectorAll('tbody tr')].map(tr => [...tr.querySelectorAll('td')].map(td => window.__bi.txt(td))); },
-  async openDialog(){ const b = window.__bi.byText('button', 'Принять двигатели списком'); return window.__bi.click(b); },
+  async openDialog(){ const b = window.__bi.byText('button', '+Списком'); return window.__bi.click(b); },
   async setNumbers(text){ const t = document.querySelector('[data-bulk-intake-numbers="true"]'); return window.__bi.setInput(t, text); },
   async enginesByPrefix(prefix, suffix){
     const list = await window.__bi.call(window.matrica.engines.list());
@@ -225,7 +225,7 @@ async function dismissModals(cdp) {
 async function openEnginesList(cdp) {
   await cdp.ev("(() => { const tab = [...document.querySelectorAll('.v3-tab-label, .v3-tab button, .v3-tab')].filter(e => e.getClientRects().length > 0).find(e => (e.textContent||'').trim() === 'Двигатели'); if (tab) window.__bi.click(tab); return true; })()");
   await sleep(900);
-  if (!(await cdp.ev("return Boolean(window.__bi.byText('button', 'Добавить двигатель'))"))) {
+  if (!(await cdp.ev("return Boolean(window.__bi.byText('button', '+Двигатель'))"))) {
     if (!(await cdp.ev("return Boolean(document.querySelector('.v3-menu-overlay'))"))) {
       await cdp.ev("const el = document.elementFromPoint(75, 17); const b = el && el.closest('button'); if (b) window.__bi.click(b); return true;");
       await sleep(900);
@@ -240,7 +240,7 @@ async function openEnginesList(cdp) {
     await sleep(1600);
   }
   for (let i = 0; i < 20; i += 1) {
-    if (await cdp.ev("return Boolean(window.__bi.byText('button', 'Добавить двигатель'))")) return true;
+    if (await cdp.ev("return Boolean(window.__bi.byText('button', '+Двигатель'))")) return true;
     await sleep(1000);
   }
   return false;
@@ -285,8 +285,8 @@ async function main() {
 
   const report = { stamp: STAMP, numbers: { a: NUM_A, b: NUM_B, c: NUM_C, d: NUM_D }, created: [] };
 
-  console.log('\n[1] Кнопка «Принять двигатели списком» в списке двигателей');
-  const hasButton = await cdp.ev("return Boolean(window.__bi.byText('button', 'Принять двигатели списком'))");
+  console.log('\n[1] Кнопка «+Списком» (принять двигатели списком) в списке двигателей');
+  const hasButton = await cdp.ev("return Boolean(window.__bi.byText('button', '+Списком'))");
   check('кнопка на месте', hasButton === true);
 
   console.log('\n[2] Пустые справочники: приём не блокируется — все поля необязательны');

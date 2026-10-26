@@ -203,7 +203,7 @@ async function openEnginesList(cdp) {
   await ensureHelpers(cdp);
   await cdp.evalRaw("(() => { const tab = [...document.querySelectorAll('.v3-tab-label, .v3-tab button, .v3-tab')].filter(e => e.getClientRects().length > 0).find(e => (e.textContent||'').trim() === 'Двигатели'); if (tab) tab.click(); return true; })()");
   await sleep(800);
-  if (!(await cdp.evalAsync("Boolean(window.__mv.byText('button', 'Добавить двигатель'))"))) {
+  if (!(await cdp.evalAsync("Boolean(window.__mv.byText('button', '+Двигатель'))"))) {
     // В DOM две оболочки вкладок: кнопку МЕНЮ берём ту, что реально под точкой экрана.
     if (!(await cdp.evalRaw("Boolean(document.querySelector('.v3-menu-overlay'))"))) {
       await cdp.evalRaw("(() => { const el = document.elementFromPoint(75, 17); const b = el && el.closest('button'); if (b) b.click(); return true; })()");
@@ -220,14 +220,14 @@ async function openEnginesList(cdp) {
     await sleep(1500);
   }
   for (let i = 0; i < 20; i += 1) {
-    if (await cdp.evalAsync("Boolean(window.__mv.byText('button', 'Добавить двигатель'))")) return true;
+    if (await cdp.evalAsync("Boolean(window.__mv.byText('button', '+Двигатель'))")) return true;
     await sleep(1000);
   }
   return false;
 }
 
 async function newCard(cdp) {
-  await cdp.evalAsync("window.__mv.click(window.__mv.byText('button', 'Добавить двигатель'))");
+  await cdp.evalAsync("window.__mv.click(window.__mv.byText('button', '+Двигатель'))");
   for (let i = 0; i < 15; i += 1) {
     await sleep(1000);
     await ensureHelpers(cdp);

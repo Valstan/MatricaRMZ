@@ -1098,14 +1098,18 @@ export function EnginesPage(props: {
       <PageToolbar>
         {/* Отчёт «Двигатели» живёт в разделе «Отчёты» (пресет `engines`, темы «Двигатели» и
             «Контракты») — вторая точка входа из списка только дублировала каталог. */}
-        {props.canCreate && <Button onClick={props.onCreate}>Добавить двигатель</Button>}
+        {props.canCreate && (
+          <Button onClick={props.onCreate} title="Добавить двигатель">
+            +Двигатель
+          </Button>
+        )}
         {props.canCreate && (
           <Button
             variant="outline"
             onClick={() => setBulkIntakeOpen(true)}
-            title="Принять двигатели из накладной: один контрагент, договор, дата прихода и список номеров"
+            title="Принять двигатели списком: один контрагент, договор, дата прихода и список номеров"
           >
-            Принять двигатели списком
+            +Списком
           </Button>
         )}
         {/* Поиск и то, что им управляет, в меню не уезжают: без них список неуправляем.
@@ -1129,8 +1133,7 @@ export function EnginesPage(props: {
         </ToolbarPin>
         <ToolbarPin>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-            <span className="ui-muted">Группировать</span>
-            <select value={groupBy} onChange={(e) => patchState({ groupBy: e.target.value as EngineListGroupBy, page: 0 })} data-engines-group-by>
+            <select value={groupBy} onChange={(e) => patchState({ groupBy: e.target.value as EngineListGroupBy, page: 0 })} title="Группировать" data-engines-group-by>
               {(Object.keys(ENGINE_LIST_GROUP_BY_LABELS) as EngineListGroupBy[]).map((k) => (
                 <option key={k} value={k}>
                   {ENGINE_LIST_GROUP_BY_LABELS[k]}
