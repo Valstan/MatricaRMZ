@@ -1,5 +1,7 @@
 import React from 'react';
 
+import { HUMAN_LABEL_DASH, humanCellText } from '@matricarmz/shared';
+
 import type { ListPrintColumn } from '../components/ListPrintDialog.js';
 
 /**
@@ -35,10 +37,17 @@ export function reactNodeToText(node: React.ReactNode): string {
   return '';
 }
 
+/**
+ * Текст ячейки для печати и файла. Кроме обычной уборки пробелов здесь стоит сетка
+ * против идентификаторов: ячейка, отрендеренная как `{row.customerId}`, давала в
+ * выгрузке `8f14e45f-…` вместо названия заказчика (прод-случай 26.10.2026). Пустой
+ * прочерк списка остаётся пустым — печатная таблица ставит свой.
+ */
 function normalize(text: string): string {
-  // Прочерк-заглушка списка в печатной таблице не нужен: там своя.
   const value = text.replace(/\s+/g, ' ').trim();
-  return value === '-' || value === '—' ? '' : value;
+  if (!value || value === '-' || value === '—') return '';
+  const cleaned = humanCellText(value);
+  return cleaned === HUMAN_LABEL_DASH ? '' : cleaned;
 }
 
 export function buildListPrintColumns<T>(columns: PrintableListColumn<T>[]): ListPrintColumn<T>[] {

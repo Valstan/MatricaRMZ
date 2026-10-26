@@ -417,7 +417,7 @@ export function NomenclaturePage(props: {
         id: 'itemType',
         label: 'Тип',
         sortKey: 'itemType',
-        render: (row) => itemTypeOptions.find((item) => item.id === row.itemType)?.label ?? String(row.itemType ?? '—'),
+        render: (row) => itemTypeOptions.find((item) => item.id === row.itemType)?.label ?? '—',
       },
       { id: 'group', label: 'Группа', sortKey: 'group', minWidth: 140, render: (row) => row.groupName || '—' },
       { id: 'unit', label: 'Ед.', tabletLabel: 'Ед.', sortKey: 'unit', render: (row) => row.unitName || '—' },

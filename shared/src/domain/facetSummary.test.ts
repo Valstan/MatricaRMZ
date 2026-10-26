@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { describeFacetSelection, formatDayLabel, formatMonthLabel } from './facetSummary.js';
+import { describeFacetSelection, describeFacetSelectionForRows, formatDayLabel, formatMonthLabel } from './facetSummary.js';
 import type { FacetDescriptor, FacetSelection } from './listFacets.js';
 
 type Row = { kind: string; stage: string; date: number | null };
@@ -19,6 +19,26 @@ const FACETS: FacetDescriptor<Row>[] = [
   { kind: 'values', id: 'stage', label: 'Цех', valueOf: (row) => ({ value: row.stage, label: row.stage }) },
   { kind: 'dateRange', id: 'stageDate', label: 'Дата этапа', dateOf: (row) => row.date },
 ];
+
+// Ступень без справочника: значение — идентификатор заказчика, подпись — его название.
+// Ровно так устроены «Заказчик», «Контракт», «Марка», «Цех» в списках двигателей.
+type CustRow = { customerId: string; customerName: string };
+const CUSTOMER_FACETS: FacetDescriptor<CustRow>[] = [
+  {
+    kind: 'values',
+    id: 'customer',
+    label: 'Заказчик',
+    valueOf: (r) => (r.customerId ? { value: r.customerId, label: r.customerName } : null),
+  },
+  {
+    kind: 'values',
+    id: 'workshop',
+    label: 'Цех',
+    valueOf: (r) => ({ value: r.customerId ? `name:${r.customerName.toLowerCase()}` : 'none', label: r.customerName || 'без цеха' }),
+    options: [{ value: 'name:сборка', label: 'Сборка' }],
+  },
+];
+
 
 describe('описание отбора для шапки печати', () => {
   it('пустой отбор даёт пустой список, а не «нет фильтров»', () => {
@@ -91,5 +111,38 @@ describe('описание отбора для шапки печати', () => {
   it('дата в шапке пишется как у оператора, неразобранная — как есть', () => {
     expect(formatDayLabel('2026-10-01')).toBe('01.10.2026');
     expect(formatDayLabel('вчера')).toBe('вчера');
+  });
+});
+
+describe('шапка по строкам: значение ступени названо, а не показано идентификатором', () => {
+  const rows: CustRow[] = [
+    { customerId: '11111111-2222-3333-4444-555555555555', customerName: 'Ромашка' },
+    { customerId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', customerName: 'Лютик' },
+  ];
+
+  it('идентификатор заказчика печатается названием из строки', () => {
+    // Прод-случай: в выгрузке поле заказчика несло id, потому что у ступени нет
+    // справочника — ряд значений рождается из строк, и подпись лежит только там.
+    const lines = describeFacetSelectionForRows(CUSTOMER_FACETS, rows, {
+      customer: ['11111111-2222-3333-4444-555555555555'],
+    });
+    expect(lines).toEqual(['Заказчик: Ромашка']);
+    expect(lines.join(' ')).not.toContain('11111111');
+  });
+
+  it('ступень со справочником берёт подпись из справочника, строки ей не нужны', () => {
+    const lines = describeFacetSelectionForRows(CUSTOMER_FACETS, rows, { workshop: ['name:сборка'] });
+    expect(lines).toEqual(['Цех: Сборка']);
+  });
+
+  it('значение, которого нет в строках, не теряет отбор: печатается как есть', () => {
+    // Так выглядит выбор, переживший смену данных (заказчик удалён). Идентификатор
+    // добивает последняя сетка выгрузки, а шапка честно показывает, что отбор есть.
+    const lines = describeFacetSelectionForRows(CUSTOMER_FACETS, rows, { customer: ['99999999-0000-0000-0000-000000000000'] });
+    expect(lines).toEqual(['Заказчик: 99999999-0000-0000-0000-000000000000']);
+  });
+
+  it('пустой отбор по-прежнему даёт пустую шапку', () => {
+    expect(describeFacetSelectionForRows(CUSTOMER_FACETS, rows, {})).toEqual([]);
   });
 });

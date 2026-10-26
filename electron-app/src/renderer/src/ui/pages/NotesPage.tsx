@@ -10,14 +10,17 @@ import { useFileUploadFlow } from '../hooks/useFileUploadFlow.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { useTabVisible } from '../shell/TabVisibilityContext.js';
 import { theme } from '../theme.js';
-
-type NoteDraft = {
-  id: string;
-  title: string;
-  body: NoteBlock[];
-  importance: 'normal' | 'important' | 'burning' | 'later';
-  dueAt: number | null;
-};
+import {
+  clearDirty,
+  ensureTextBlock,
+  getTextFromBody,
+  makeAutoTitle,
+  markDirty,
+  mergeDraftsFromNotes,
+  newNoteBlockId,
+  pruneDirtyFlags,
+  type NoteDraft,
+} from '../utils/noteDrafts.js';
 
 type NoteView = NoteItem & { shared: boolean; share?: NoteShareItem | null };
 type NoteListEntry = NoteView & { section: 'owned' | 'shared' };
@@ -32,7 +35,7 @@ function nowMs() {
 }
 
 function newId() {
-  return typeof crypto !== 'undefined' && 'randomUUID' in crypto ? (crypto as any).randomUUID() : `note_${Math.random().toString(36).slice(2)}`;
+  return newNoteBlockId();
 }
 
 function formatDate(ms: number | null) {
@@ -75,32 +78,8 @@ function normalizeRecipientUsers(rawUsers: ChatUserItem[], meUserId: string) {
   });
 }
 
-function getTextFromBody(body: NoteBlock[]) {
-  const lines: string[] = [];
-  for (const b of body) {
-    if (b.kind === 'text') lines.push(b.text);
-  }
-  return lines.join('\n').trim();
-}
-
 function noteToText(note: NoteDraft) {
   return getTextFromBody(note.body);
-}
-
-function makeAutoTitle(body: NoteBlock[]) {
-  const text = getTextFromBody(body);
-  const first = text
-    .split(/\r?\n/)
-    .map((x) => x.trim())
-    .find(Boolean);
-  if (!first) return 'Заметка';
-  return first.slice(0, 80);
-}
-
-function ensureTextBlock(body: NoteBlock[]) {
-  const idx = body.findIndex((b) => b.kind === 'text');
-  if (idx >= 0) return { body, textIndex: idx };
-  return { body: [{ id: newId(), kind: 'text', text: '' } as NoteBlock, ...body], textIndex: 0 };
 }
 
 function textPreviewLines(body: NoteBlock[]) {
@@ -154,6 +133,13 @@ export function NotesPage(props: {
   const autoSaveTimersRef = useRef<Record<string, number>>({});
   const draftVersionRef = useRef<Record<string, number>>({});
   const savingRef = useRef<Record<string, boolean>>({});
+  // Черновики читаются в асинхронном автосохранении и в слиянии с сервером. Замыкание
+  // рендера там всегда на один символ позади (последний ввод пришёл после отрисовки),
+  // поэтому и сохранение, и защита от затирания смотрят в ref, а не в состояние.
+  const draftsRef = useRef<Record<string, NoteDraft>>({});
+  draftsRef.current = drafts;
+  const dirtyRef = useRef<Record<string, boolean>>({});
+  dirtyRef.current = dirty;
   const uploadFlow = useFileUploadFlow();
 
   async function refresh() {
@@ -230,35 +216,14 @@ export function NotesPage(props: {
   }, []);
 
   useEffect(() => {
-    setDrafts((prev) => {
-      const next: Record<string, NoteDraft> = { ...prev };
-      const aliveIds = new Set<string>();
-      for (const n of notes) {
-        aliveIds.add(n.id);
-        if (!prev[n.id] || !dirty[n.id]) {
-          const normalized = ensureTextBlock(n.body ?? []);
-          next[n.id] = {
-            id: n.id,
-            title: makeAutoTitle(normalized.body),
-            body: normalized.body,
-            importance: n.importance ?? 'normal',
-            dueAt: n.dueAt ?? null,
-          };
-        }
-      }
-      for (const id of Object.keys(next)) {
-        if (!aliveIds.has(id)) delete next[id];
-      }
-      return next;
-    });
-    setDirty((prev) => {
-      const next: Record<string, boolean> = {};
-      for (const n of notes) {
-        if (prev[n.id]) next[n.id] = true;
-      }
-      return next;
-    });
-  }, [notes, dirty]);
+    // Зависимость — только `notes`. Раньше в списке стоял `dirty`, и эффект
+    // перезапускал сам себя: каждый проход ставил новую карту отметок, она меняла
+    // зависимость, следующий проход брал снимок, где отметки ещё не было, и
+    // подставлял в textarea серверную копию. Набранный текст стирался на каждом
+    // проходе — «вносишь текст, а он исчезает» (прод-случай 26.10.2026).
+    setDrafts((prev) => mergeDraftsFromNotes(prev, notes, (id) => dirtyRef.current[id] === true));
+    setDirty((prev) => pruneDirtyFlags(prev, notes));
+  }, [notes]);
 
   const sharesByNoteId = useMemo(() => {
     const map = new Map<string, NoteShareItem[]>();
@@ -415,7 +380,7 @@ export function NotesPage(props: {
       return { ...prev, [id]: { ...merged, title: makeAutoTitle(merged.body ?? []) } };
     });
     draftVersionRef.current[id] = (draftVersionRef.current[id] ?? 0) + 1;
-    setDirty((prev) => ({ ...prev, [id]: true }));
+    setDirty((prev) => markDirty(prev, id));
     if (props.canEdit) queueAutoSave(id);
   }
 
@@ -432,7 +397,9 @@ export function NotesPage(props: {
   }
 
   async function saveDraft(id: string, mode: 'manual' | 'auto' = 'manual') {
-    const draft = drafts[id];
+    // Из ref, а не из замыкания рендера: иначе в сохранение уезжает версия без
+    // последнего набранного символа и «хвост» пропадает из заметки.
+    const draft = draftsRef.current[id];
     if (!draft) return;
     clearAutoSaveTimer(id);
     if (savingRef.current[id]) {
@@ -455,7 +422,7 @@ export function NotesPage(props: {
       if ((r as any)?.ok) {
         const currentVersion = draftVersionRef.current[id] ?? 0;
         if (currentVersion === startedVersion) {
-          setDirty((prev) => ({ ...prev, [id]: false }));
+          setDirty((prev) => clearDirty(prev, id));
         } else {
           queueAutoSave(id, 350);
         }

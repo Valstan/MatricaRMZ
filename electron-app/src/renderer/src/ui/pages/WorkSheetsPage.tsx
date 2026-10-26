@@ -4,7 +4,7 @@ import {
   HUMAN_LABEL_DASH,
   HUMAN_LABEL_NO_NUMBER,
   applyFacets,
-  describeFacetSelection,
+  describeFacetSelectionForRows,
   flattenGrouped,
   workSheetFacets,
   workSheetFieldsSummary,
@@ -371,7 +371,7 @@ export function WorkSheetsPage(props: {
         return { key: groupText(keyOf(r)) || `name:${label.toLowerCase()}` || 'none', label: label || empty };
       },
     });
-    const byType = byLabel((r) => r.typeCode, (r) => r.typeName || r.typeCode, 'Без вида работ');
+    const byType = byLabel((r) => r.typeCode, (r) => r.typeName, 'Без вида работ');
     const byContract = byLabel((r) => r.contractNumber, (r) => r.contractShortLabel || r.contractNumber, 'Без договора');
     const byWorkshop = byLabel((r) => r.workshopId, (r) => workshopLabel(r, workshopFromDirectory), 'Без цеха');
     const byCustomer = byLabel((r) => r.customerName, (r) => r.customerName, 'Без заказчика');
@@ -547,7 +547,7 @@ export function WorkSheetsPage(props: {
           rows={sorted}
           selectedRows={[]}
           storageKey="list:workSheets:printFields"
-          filtersSummary={describeFacetSelection(facets, ui.facets as FacetSelection, {
+          filtersSummary={describeFacetSelectionForRows(facets, rows, ui.facets as FacetSelection, {
             search: ui.query,
             period: allTime ? 'всё время' : 'за последний год',
             grouping: ui.groupBy === 'none' ? '' : WORK_SHEET_LIST_GROUP_BY_LABELS[ui.groupBy],
@@ -644,7 +644,7 @@ export function WorkSheetsPage(props: {
           selectedRows={[]}
           storageKey="list:workSheets:printFields"
           rowGroupLabel={(r) => groupLabelByRow.get(r.id) || null}
-          filtersSummary={describeFacetSelection(facets, ui.facets as FacetSelection, {
+          filtersSummary={describeFacetSelectionForRows(facets, rows, ui.facets as FacetSelection, {
             search: ui.query,
             period: allTime ? 'всё время' : 'за последний год',
             grouping: ui.groupBy === 'none' ? '' : WORK_SHEET_LIST_GROUP_BY_LABELS[ui.groupBy],

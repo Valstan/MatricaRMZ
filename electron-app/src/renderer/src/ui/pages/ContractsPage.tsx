@@ -23,11 +23,12 @@ import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import {
   CONTRACT_FACETS,
   CONTRACT_PAYMENTS_ATTR_CODE,
+  HUMAN_LABEL_DASH,
   aggregateContractExecutionProgress,
   applyContractFacets,
   burningEnginesCount,
   contractFacetIsActive,
-  describeFacetSelection,
+  describeFacetSelectionForRows,
   effectiveContractDueAt,
   effectiveRepairDays,
   isEngineDoneForCountdown,
@@ -391,7 +392,9 @@ export function ContractsPage(props: {
             const daysLeft = dueDateMs != null ? Math.ceil((dueDateMs - Date.now()) / (24 * 60 * 60 * 1000)) : null;
 
             const contractAmount = getContractAmount(sections);
-            const counterparty = sections.primary.customerId ? customerById.get(sections.primary.customerId) ?? sections.primary.customerId : '—';
+            // Заказчик — только названием: id здесь был бы тем самым «номером вместо
+            // наименования» в выгрузке. Нет в справочнике — прочерк, а не идентификатор.
+            const counterparty = sections.primary.customerId ? customerById.get(sections.primary.customerId) ?? HUMAN_LABEL_DASH : HUMAN_LABEL_DASH;
             const progressNumberKeys = collectProgressContractNumbers(sections);
             if (progressNumberKeys.size === 0) {
               const fallback = normalizeContractNumber(numberRaw);
@@ -1076,7 +1079,9 @@ export function ContractsPage(props: {
           rows={sorted}
           selectedRows={sorted.filter((row: any) => selection.isSelected(String(row.id)))}
           storageKey="list:contracts:printFields"
-          filtersSummary={describeFacetSelection(CONTRACT_FACETS, facets as FacetSelection, { search: query })}
+          filtersSummary={describeFacetSelectionForRows(CONTRACT_FACETS as readonly FacetDescriptor<Row>[], rows, facets as FacetSelection, {
+            search: query,
+          })}
         />
       </PageToolbar>
 
@@ -1090,7 +1095,9 @@ export function ContractsPage(props: {
           rows={sorted}
           selectedRows={sorted.filter((row: any) => selection.isSelected(String(row.id)))}
           storageKey="list:contracts:printFields"
-          filtersSummary={describeFacetSelection(CONTRACT_FACETS, facets as FacetSelection, { search: query })}
+          filtersSummary={describeFacetSelectionForRows(CONTRACT_FACETS as readonly FacetDescriptor<Row>[], rows, facets as FacetSelection, {
+            search: query,
+          })}
           onClose={() => setPrintDialogOpen(false)}
         />
       )}

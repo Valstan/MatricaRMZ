@@ -85,6 +85,38 @@ export function pickHumanText(...candidates: unknown[]): string {
 }
 
 /**
+ * Текст, которому положено уехать в файл (печать, Word, Excel, письмо) — без
+ * идентификаторов. Последняя сетка проекта: подписи собираются на месте (карточка,
+ * справочник, ступень отбора), но одна забытая точка не должна стоить оператору
+ * листа с `8f14e45f-ceea-…` вместо «Ромашки».
+ *
+ * Идентификатор, оставшийся без текста, даёт прочерк: ячейка была, показывать нечего.
+ * Огрызки чистятся вместе с ним — пустые скобки и повисшие разделители («Склад ()»,
+ * «Заказчик: · Цех: Сборка»).
+ */
+export function humanCellText(value: unknown): string {
+  const raw = String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!raw) return '';
+  const cleaned = stripIdentifierTokens(raw)
+    .replace(/\(\s*\)/g, '')
+    .replace(/\[\s*\]/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  if (!cleaned) return looksLikeIdentifier(raw) ? HUMAN_LABEL_DASH : '';
+  // Сегмент, у которого после сетки не осталось значения («Заказчик: · Цех: Сборка»),
+  // уходит целиком: пустая подпись читается как сбой, а не как «здесь названия нет».
+  const segments = cleaned
+    .split('·')
+    .map((part) => part.replace(/\s+/g, ' ').trim())
+    .map((part) => (/[:;,]$/.test(part) ? '' : part))
+    .filter(Boolean);
+  if (segments.length === 0) return HUMAN_LABEL_DASH;
+  return segments.join(' · ');
+}
+
+/**
  * Фазы двигателя (EAV `engine_phase`). Коды заводит сервер (`enginePhaseService`), но
  * подписей у них не было нигде — оператор видел `received` / `in_assembly` как есть.
  */

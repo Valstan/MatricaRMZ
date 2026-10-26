@@ -189,7 +189,7 @@ export function StockDocumentsPage(props: {
       { id: 'docType', label: 'Тип', sortKey: 'docType', render: (row) => warehouseDocTypeLabel(row.docType) },
       { id: 'docDate', label: 'Дата', sortKey: 'docDate', kind: 'date', render: (row) => (row.docDate ? formatListDateTime(Number(row.docDate)) : '—') },
       { id: 'status', label: 'Статус', sortKey: 'status', render: (row) => warehouseDocumentStatusLabel(row.status) },
-      { id: 'warehouse', label: 'Склад', sortKey: 'warehouse', kind: 'name', render: (row) => row.warehouseName || row.warehouseId || '—' },
+      { id: 'warehouse', label: 'Склад', sortKey: 'warehouse', kind: 'name', render: (row) => row.warehouseName || '—' },
       { id: 'counterparty', label: 'Контрагент', sortKey: 'counterparty', kind: 'name', render: (row) => row.counterpartyName || '—' },
       { id: 'reason', label: 'Основание', sortKey: 'reason', kind: 'text', render: (row) => row.reasonLabel || row.reason || '—' },
       { id: 'lines', label: 'Строк', sortKey: 'lines', kind: 'num', render: (row) => Number(row.linesCount ?? 0) },

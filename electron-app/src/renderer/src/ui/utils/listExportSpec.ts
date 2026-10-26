@@ -1,4 +1,4 @@
-import { inferListExportKind, type ListExportSpec } from '@matricarmz/shared';
+import { HUMAN_LABEL_DASH, humanCellText, inferListExportKind, type ListExportSpec } from '@matricarmz/shared';
 
 import type { ListPrintColumn } from '../components/ListPrintDialog.js';
 
@@ -19,6 +19,7 @@ export function buildListExportSpec<T>(args: {
   columnWidthsMm?: readonly number[];
   fileBaseName?: string;
 }): ListExportSpec {
+  const cell = (field: ListPrintColumn<T>, row: T) => humanCellText(field.printValue(row));
   const sample = args.rows.slice(0, KIND_SAMPLE_ROWS);
   const columns = [
     { label: '№', kind: 'number' as const },
@@ -26,15 +27,18 @@ export function buildListExportSpec<T>(args: {
       label: field.label,
       kind: inferListExportKind(
         field.label,
-        sample.map((row) => field.printValue(row)),
+        sample.map((row) => cell(field, row)),
       ),
     })),
   ];
-  const rows = args.rows.map((row, index) => [String(index + 1), ...args.fields.map((f) => f.printValue(row) || '—')]);
+  const rows = args.rows.map((row, index) => [String(index + 1), ...args.fields.map((f) => cell(f, row) || HUMAN_LABEL_DASH)]);
+  // Строки шапки — тоже текст файла: если страница собрала их из идентификаторов, сетка
+  // снимет их здесь, а не оставит в выгрузке.
+  const filters = args.filters.map((line) => humanCellText(line)).filter(Boolean);
 
   return {
     title: args.title,
-    filters: [...args.filters],
+    filters,
     columns,
     rows,
     fileBaseName: args.fileBaseName ?? args.title,
