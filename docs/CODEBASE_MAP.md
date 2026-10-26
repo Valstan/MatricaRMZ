@@ -4,7 +4,7 @@
 
 Правила проекта для любого AI-агента — [`../AGENTS.md`](../AGENTS.md) (канон; `CLAUDE.md`/`GEMINI.md` — тонкие адаптеры к нему).
 
-История релизов — `git log` + тело PR; навигация по сделанному — [`COMPLETED.md`](COMPLETED.md). Открытые задачи — [`PENDING_FOLLOWUPS.md`](PENDING_FOLLOWUPS.md). Грабли по симптомам — [`GOTCHAS.md`](GOTCHAS.md). Архитектура и правила — [`PROJECT_STATE.md`](PROJECT_STATE.md). Активная нитка — [`SESSION_HANDOFF.md`](SESSION_HANDOFF.md).
+История релизов — `git log` + тело PR; навигация по сделанному — [`COMPLETED.md`](COMPLETED.md). Открытые задачи — [`PENDING_FOLLOWUPS.md`](PENDING_FOLLOWUPS.md) (индекс; текст пункта — [`pending/<slug>.md`](pending/)). Грабли по симптомам — [`GOTCHAS.md`](GOTCHAS.md) (индекс; запись — [`gotchas/M<N>.md`](gotchas/)). Архитектура и правила — [`PROJECT_STATE.md`](PROJECT_STATE.md). Активная нитка — [`SESSION_HANDOFF.md`](SESSION_HANDOFF.md).
 
 ## Монорепо (pnpm workspaces)
 
