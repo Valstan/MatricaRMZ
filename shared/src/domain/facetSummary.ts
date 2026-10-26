@@ -1,4 +1,4 @@
-import { facetRangeOf, type FacetSelection } from './listFacets.js';
+import { facetRangeOf, type FacetDescriptor, type FacetSelection } from './listFacets.js';
 
 /**
  * Строки шапки печати (и выгрузок) человеческим языком: «Вид работ: Укладка вала ·
@@ -26,7 +26,18 @@ export type FacetSummaryExtra = {
  * к типу строки списка и без второй копии списка ступеней.
  */
 export type FacetSummarySpec =
-  | { kind: 'values'; id: string; label: string; options?: readonly { value: string; label: string }[] }
+  | {
+      kind: 'values';
+      id: string;
+      label: string;
+      options?: readonly { value: string; label: string }[];
+      /**
+       * Подпись значения, которого нет среди `options` (у ступени нет справочника, ряд
+       * рождается из строк: заказчик, контракт, марка, цех). Без неё в шапку уезжает
+       * значение как есть — а это идентификатор сущности.
+       */
+      labelOf?: (value: string) => string | undefined;
+    }
   | { kind: 'dateRange'; id: string; label: string };
 
 const MAX_LISTED_VALUES = 6;
@@ -50,9 +61,79 @@ function rangeLabel(range: { from?: string; to?: string }): string {
 
 function valuesLabel(facet: Extract<FacetSummarySpec, { kind: 'values' }>, selected: readonly string[]): string {
   const labelByValue = new Map((facet.options ?? []).map((o) => [o.value, o.label]));
-  const labels = selected.map((v) => labelByValue.get(v) ?? v);
+  const labels = selected.map((v) => labelByValue.get(v) ?? facet.labelOf?.(v) ?? v);
   if (labels.length <= MAX_LISTED_VALUES) return labels.join(', ');
   return `${labels.slice(0, MAX_LISTED_VALUES).join(', ')} и ещё ${labels.length - MAX_LISTED_VALUES}`;
+}
+
+/** Выбранные значения ступени — так же, как их читает `describeFacetSelection`. */
+function selectedValues(selection: FacetSelection, id: string): string[] {
+  const raw = selection[id];
+  return Array.isArray(raw) ? raw.map(String).filter(Boolean) : [];
+}
+
+/**
+ * Ступени + строки → спецификация шапки с подписями значений.
+ *
+ * Ступень без справочника (`options`) называет своё значение только строкой списка —
+ * подпись лежит в `valueOf(row).label`. Шапка, которой передали такой дескриптор как
+ * есть, печатала само значение, то есть `id` сущности («Заказчик: 8f14e45f-…»).
+ * Поэтому карта «значение → подпись» собирается из строк, и только для тех значений,
+ * что реально выбраны: полный перебор ряда на каждый рендер списка не нужен.
+ */
+export function facetSummarySpecs<Row>(
+  facets: readonly FacetDescriptor<Row>[],
+  rows: readonly Row[],
+  selection: FacetSelection,
+): readonly FacetSummarySpec[] {
+  const missing = new Map<string, Set<string>>();
+  for (const facet of facets) {
+    if (facet.kind !== 'values' || facet.options) continue;
+    const selected = selectedValues(selection, facet.id);
+    if (selected.length > 0) missing.set(facet.id, new Set(selected));
+  }
+  const labelOfById = new Map<string, (value: string) => string | undefined>();
+  for (const facet of facets) {
+    const need = missing.get(facet.id);
+    if (!need || facet.kind !== 'values') continue;
+    const found = new Map<string, string>();
+    for (const row of rows) {
+      if (need.size === 0) break;
+      const value = facet.valueOf(row);
+      if (!value) continue;
+      const key = String(value.value ?? '').trim();
+      if (!key || !need.has(key)) continue;
+      const label = String(value.label ?? '').trim();
+      if (label) found.set(key, label);
+      need.delete(key);
+    }
+    labelOfById.set(facet.id, (value) => found.get(value));
+  }
+  return facets.map((facet): FacetSummarySpec => {
+    if (facet.kind === 'dateRange') return { kind: 'dateRange', id: facet.id, label: facet.label };
+    const labelOf = labelOfById.get(facet.id);
+    return {
+      kind: 'values',
+      id: facet.id,
+      label: facet.label,
+      ...(facet.options ? { options: facet.options.map((o) => ({ value: o.value, label: o.label })) } : {}),
+      ...(labelOf ? { labelOf } : {}),
+    };
+  });
+}
+
+/**
+ * Шапка печати/выгрузки для страницы, которая держит и ступени, и строки. Тот же
+ * `describeFacetSelection`, но значения ступеней названы по строкам — иначе в шапку
+ * попадают идентификаторы, а не «Ромашка» или «Д-245».
+ */
+export function describeFacetSelectionForRows<Row>(
+  facets: readonly FacetDescriptor<Row>[],
+  rows: readonly Row[],
+  selection: FacetSelection,
+  extra?: FacetSummaryExtra,
+): string[] {
+  return describeFacetSelection(facetSummarySpecs(facets, rows, selection), selection, extra);
 }
 
 /**

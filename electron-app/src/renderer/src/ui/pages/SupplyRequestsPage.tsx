@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { describeFacetSelection, formatMonthLabel, humanLabel, type SupplyRequestPayload } from '@matricarmz/shared';
+import { HUMAN_LABEL_NO_NUMBER, describeFacetSelection, formatMonthLabel, humanLabel, type SupplyRequestPayload } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
@@ -130,7 +130,7 @@ export function SupplyRequestsPage(props: {
   };
   const allColumns = useMemo<RequestColumn[]>(
     () => [
-      { id: 'requestNumber', label: 'Номер', sortKey: 'requestNumber', kind: 'name', render: (r) => r.requestNumber || r.id },
+      { id: 'requestNumber', label: 'Номер', sortKey: 'requestNumber', kind: 'name', render: (r) => r.requestNumber || HUMAN_LABEL_NO_NUMBER },
       { id: 'title', label: 'Описание заявки', tabletLabel: 'Описание', kind: 'text', render: (r) => r.title || '-' },
       { id: 'itemsCount', label: 'Кол-во пунктов', tabletLabel: 'Пунктов', sortKey: 'itemsCount', kind: 'num', render: (r) => r.itemsCount },
       { id: 'compiledAt', label: 'Дата создания', tabletLabel: 'Создана', sortKey: 'compiledAt', kind: 'date', render: (r) => (r.compiledAt ? formatMoscowDate(r.compiledAt) : '-') },

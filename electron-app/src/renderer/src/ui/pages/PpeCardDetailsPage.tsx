@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
+  HUMAN_LABEL_DASH,
   addWearMonths,
   nextIssueDates,
   normalizeLookupCompact,
@@ -193,19 +194,21 @@ export function PpeCardDetailsPage(props: {
       await loadEmployees();
       if (norms?.ok) setNormOptions(norms.rows);
       if (wh?.ok) {
-        setWarehouses((wh.rows ?? []).map((w: any) => ({ id: String(w.id), label: String(w.name ?? w.code ?? w.id) })));
+        setWarehouses((wh.rows ?? []).map((w: any) => ({ id: String(w.id), label: String(w.name ?? w.code ?? '') })));
       }
       const noms = await window.matrica.warehouse.nomenclatureList({ limit: 2000, offset: 0 }).catch(() => null);
       if (noms?.ok) {
         const rows = (noms.rows ?? []) as any[];
-        setNomNames(new Map(rows.map((r) => [String(r.id), String(r.name ?? r.id)])));
+        setNomNames(new Map(rows.map((r) => [String(r.id), String(r.name ?? '')])));
       }
     })();
   }, [loadEmployees]);
 
-  const nomName = useCallback((id: string) => nomNames.get(id) ?? id, [nomNames]);
+  // Нет названия — прочерк, а не идентификатор: эти подписи уезжают в карточку СИЗ
+  // (печать и Word), а оператор читает наименование, а не `8f14e45f-…`.
+  const nomName = useCallback((id: string) => nomNames.get(id) || HUMAN_LABEL_DASH, [nomNames]);
   const empName = useCallback(
-    (id: string) => employees.find((e) => e.id === id)?.label ?? id,
+    (id: string) => employees.find((e) => e.id === id)?.label || HUMAN_LABEL_DASH,
     [employees],
   );
 
@@ -462,7 +465,7 @@ export function PpeCardDetailsPage(props: {
       ...(card?.norms ?? []).map((n, i) => `<tr><td>${i + 1}</td><td>${e(n.name)}</td><td>${e(fmtDate(n.assignedAt))}</td></tr>`),
       ...groupOnlyNormIds.map(
         (id, gi) =>
-          `<tr><td>${(card?.norms.length ?? 0) + gi + 1}</td><td>${e(normOptions.find((o) => o.id === id)?.name ?? id)} (от группы)</td><td>—</td></tr>`,
+          `<tr><td>${(card?.norms.length ?? 0) + gi + 1}</td><td>${e(normOptions.find((o) => o.id === id)?.name ?? HUMAN_LABEL_DASH)} (от группы)</td><td>—</td></tr>`,
       ),
     ].join('');
     const normsHtml = normsRows

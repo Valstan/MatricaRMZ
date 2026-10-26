@@ -1,100 +1,80 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import type { ListPrintColumn } from '../components/ListPrintDialog.js';
-import { resolvePrintColumnIds } from './listColumnSelection.js';
+import { HUMAN_LABEL_DASH } from '@matricarmz/shared';
+
 import { buildListExportSpec } from './listExportSpec.js';
+import { buildListPrintColumns } from './listPrintColumns.js';
 
-type Row = { name: string; date: string; sum: string; note: string };
+/**
+ * Сторож выгрузки: в Word и Excel уезжают наименования, а не идентификаторы.
+ *
+ * Прод-случай 26.10.2026 (просьба владельца): «поле заказчика экспортируется id номер,
+ * а надо чтобы наименование заказчика было». Текст ячейки рождается в рендерере, поэтому
+ * сетка стоит здесь, на последнем шаге перед файлом: одна забытая колонка не должна
+ * стоить оператору листа с `8f14e45f-ceea-…`.
+ */
+const ID = '8f14e45f-ceea-467a-9f3c-1d2b3c4d5e6f';
+const OTHER_ID = '00000000-0000-0000-0000-000000000000';
 
-const COLUMNS: ListPrintColumn<Row>[] = [
-  { id: 'name', label: 'Двигатель', printValue: (r) => r.name },
-  { id: 'date', label: 'Дата этапа', printValue: (r) => r.date },
-  { id: 'sum', label: 'Стоимость', printValue: (r) => r.sum },
-  { id: 'note', label: 'Примечание', printValue: (r) => r.note },
-];
+type Row = { customer: string; number: string; amount: string };
 
-const ROWS: Row[] = [
-  { name: '41/26', date: '19.10.2026', sum: '1 234,56', note: '' },
-  { name: '42/26', date: '20.10.2026', sum: '980,00', note: 'срочно' },
-];
-
-describe('спецификация выгрузки', () => {
-  it('первой колонкой идёт «№», как на экране и на листе', () => {
-    const spec = buildListExportSpec({ title: 'Двигатели', fields: COLUMNS, rows: ROWS, filters: [] });
-    expect(spec.columns.map((c) => c.label)).toEqual(['№', 'Двигатель', 'Дата этапа', 'Стоимость', 'Примечание']);
-    expect(spec.rows.map((r) => r[0])).toEqual(['1', '2']);
-  });
-
-  it('тип колонки называется по значениям, а не по названию', () => {
-    const spec = buildListExportSpec({ title: 'Двигатели', fields: COLUMNS, rows: ROWS, filters: [] });
-    expect(spec.columns.map((c) => c.kind)).toEqual(['number', 'text', 'date', 'number', 'text']);
-  });
-
-  it('пустая ячейка уходит прочерком — как на печатном листе', () => {
-    const spec = buildListExportSpec({ title: 'Двигатели', fields: COLUMNS, rows: ROWS, filters: [] });
-    expect(spec.rows[0]).toEqual(['1', '41/26', '19.10.2026', '1 234,56', '—']);
-  });
-
-  it('ширины планировщика печати и шапка отбора доезжают до файла', () => {
-    const spec = buildListExportSpec({
-      title: 'Двигатели',
-      fields: COLUMNS,
-      rows: ROWS,
-      filters: ['Поиск: «вал»'],
-      columnWidthsMm: [8, 40, 30, 30, 30],
-      meta: 'Выгружено: 19.10.2026 05:12',
-    });
-    expect(spec.columnWidthsMm).toEqual([8, 40, 30, 30, 30]);
-    expect(spec.filters).toEqual(['Поиск: «вал»']);
-    expect(spec.meta).toBe('Выгружено: 19.10.2026 05:12');
-    expect(spec.fileBaseName).toBe('Двигатели');
-  });
-
-  it('без подписи и ширин полей в спецификации не появляется (exactOptionalPropertyTypes)', () => {
-    const spec = buildListExportSpec({ title: 'Двигатели', fields: COLUMNS, rows: ROWS, filters: [] });
-    expect('meta' in spec).toBe(false);
-    expect('columnWidthsMm' in spec).toBe(false);
-  });
-});
-
-type FakeStorage = { getItem(key: string): string | null };
-
-function stubWindow(storage: FakeStorage | undefined): void {
-  (globalThis as unknown as { window: unknown }).window = storage ? { localStorage: storage } : undefined;
+function columns() {
+  return buildListPrintColumns<Row>([
+    // Ячейка, отрендеренная идентификатором (так выгрузка и ловила id).
+    { id: 'customer', label: 'Заказчик', render: (row) => row.customer },
+    // Ячейка, где id приклеен к названию: остаётся название, огрызок уходит.
+    { id: 'number', label: '№ договора', render: (row) => row.number, printValue: (row) => row.number },
+    { id: 'amount', label: 'Сумма', render: (row) => row.amount },
+  ]);
 }
 
-afterEach(() => {
-  delete (globalThis as unknown as { window?: unknown }).window;
-});
-
-describe('набор колонок для печати и выгрузки', () => {
-  const base = {
-    storageKey: 'list:engines:printFields',
-    columns: COLUMNS,
-  };
-
-  it('без памяти берутся колонки, показанные в списке', () => {
-    stubWindow(undefined);
-    expect(resolvePrintColumnIds({ ...base, visibleColumnIds: ['name', 'sum'] })).toEqual(['name', 'sum']);
+describe('выгрузка списка: идентификаторов в файле нет', () => {
+  it('ячейка, отрендеренная идентификатором, уезжает прочерком, а не id', () => {
+    const spec = buildListExportSpec<Row>({
+      title: 'Контракты',
+      fields: columns(),
+      rows: [{ customer: ID, number: '12/2026', amount: '1000' }],
+      filters: [],
+    });
+    const cells = spec.rows[0] ?? [];
+    expect(cells.join(' ')).not.toContain(ID);
+    expect(cells[1]).toBe(HUMAN_LABEL_DASH);
+    expect(cells[2]).toBe('12/2026');
   });
 
-  it('сохранённый набор главнее показанного', () => {
-    stubWindow({ getItem: () => JSON.stringify(['date', 'note']) });
-    expect(resolvePrintColumnIds({ ...base, visibleColumnIds: ['name', 'sum'] })).toEqual(['date', 'note']);
+  it('название с приклеенным идентификатором остаётся названием', () => {
+    const fields = buildListPrintColumns<Row>([
+      { id: 'customer', label: 'Заказчик', render: (row) => row.customer, printValue: (row) => `${row.customer} (${ID})` },
+    ]);
+    const spec = buildListExportSpec<Row>({
+      title: 'Контракты',
+      fields,
+      rows: [{ customer: 'Ромашка', number: '', amount: '' }],
+      filters: [],
+    });
+    expect(spec.rows[0]?.[1]).toBe('Ромашка');
   });
 
-  it('колонки, которых больше нет, из памяти выбрасываются', () => {
-    stubWindow({ getItem: () => JSON.stringify(['name', 'нет-такой']) });
-    expect(resolvePrintColumnIds({ ...base, visibleColumnIds: ['sum'] })).toEqual(['name']);
+  it('строка отбора с идентификатором не доносит его до шапки файла', () => {
+    const spec = buildListExportSpec<Row>({
+      title: 'Контракты',
+      fields: columns(),
+      rows: [{ customer: 'Ромашка', number: '1', amount: '2' }],
+      filters: [`Заказчик: ${OTHER_ID} · Цех: Сборка`, `Поиск: «${ID}»`],
+    });
+    expect(spec.filters.join(' ')).not.toContain(OTHER_ID);
+    expect(spec.filters[0]).toBe('Цех: Сборка');
+    expect(spec.filters[1]).toBe('Поиск: «»');
   });
 
-  it('мусор в памяти не ломает печать', () => {
-    stubWindow({ getItem: () => 'не json' });
-    expect(resolvePrintColumnIds({ ...base, visibleColumnIds: ['sum'] })).toEqual(['sum']);
-  });
-
-  it('если в списке не видно ни одной колонки, берутся первые пять', () => {
-    stubWindow(undefined);
-    expect(resolvePrintColumnIds({ ...base, visibleColumnIds: [] })).toEqual(['name', 'date', 'sum', 'note']);
+  it('обычные наименования и числа сетка не трогает', () => {
+    const spec = buildListExportSpec<Row>({
+      title: 'Контракты',
+      fields: columns(),
+      rows: [{ customer: 'Ромашка', number: 'Д-245', amount: '12 500,00' }],
+      filters: ['Заказчик: Ромашка', 'Период: октябрь 2026'],
+    });
+    expect(spec.rows[0]).toEqual(['1', 'Ромашка', 'Д-245', '12 500,00']);
+    expect(spec.filters).toEqual(['Заказчик: Ромашка', 'Период: октябрь 2026']);
   });
 });

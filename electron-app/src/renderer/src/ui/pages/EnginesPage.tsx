@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ENGINE_FACETS,
   applyEngineFacets,
-  describeFacetSelection,
+  describeFacetSelectionForRows,
   engineFacetIsActive,
   engineStageFacetOptions,
   facetDateBound,
@@ -1185,7 +1185,7 @@ export function EnginesPage(props: {
           rows={displayRows}
           selectedRows={displayRows.filter((e) => selection.isSelected(String(e.id)))}
           storageKey="list:engines:printFields"
-          filtersSummary={describeFacetSelection(ENGINE_FACETS, facets as FacetSelection, {
+          filtersSummary={describeFacetSelectionForRows(ENGINE_FACETS, props.engines, facets as FacetSelection, {
             search: query,
             grouping: groupBy === 'none' ? '' : ENGINE_LIST_GROUP_BY_LABELS[groupBy],
           })}
@@ -1420,7 +1420,7 @@ export function EnginesPage(props: {
           selectedRows={displayRows.filter((e) => selection.isSelected(String(e.id)))}
           storageKey="list:engines:printFields"
           rowGroupLabel={(e) => groupLabelByRow.get(String(e.id)) || null}
-          filtersSummary={describeFacetSelection(ENGINE_FACETS, facets as FacetSelection, {
+          filtersSummary={describeFacetSelectionForRows(ENGINE_FACETS, props.engines, facets as FacetSelection, {
             search: query,
             grouping: groupBy === 'none' ? '' : ENGINE_LIST_GROUP_BY_LABELS[groupBy],
           })}

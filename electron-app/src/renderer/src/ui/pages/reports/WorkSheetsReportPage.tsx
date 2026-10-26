@@ -4,7 +4,7 @@ import {
   HUMAN_LABEL_DASH,
   HUMAN_LABEL_NO_NUMBER,
   applyFacets,
-  describeFacetSelection,
+  describeFacetSelectionForRows,
   flattenGrouped,
   formatWorkSheetValue,
   workSheetFacets,
@@ -151,7 +151,7 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
   const columns = useMemo<Column[]>(
     () => [
       { id: 'at', label: 'Дата', kind: 'date', render: (r) => formatMoscowDate(new Date(r.at)), sortValue: (r) => r.at, alwaysVisible: true },
-      { id: 'type', label: 'Вид работ', kind: 'name', render: (r) => r.typeName || r.typeCode, sortValue: (r) => r.typeName, alwaysVisible: true },
+      { id: 'type', label: 'Вид работ', kind: 'name', render: (r) => r.typeName || HUMAN_LABEL_DASH, sortValue: (r) => r.typeName, alwaysVisible: true },
       {
         id: 'repeat',
         label: 'Возврат',
@@ -265,7 +265,7 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
         return { key: text(keyOf(r)) || `name:${label.toLowerCase()}` || 'none', label: label || empty };
       },
     });
-    const byType = byLabel((r) => r.typeCode, (r) => r.typeName || r.typeCode, 'Без вида работ');
+    const byType = byLabel((r) => r.typeCode, (r) => r.typeName, 'Без вида работ');
     const byContract = byLabel((r) => r.contractNumber, (r) => r.contractShortLabel || r.contractNumber, 'Без договора');
     const byWorkshop = byLabel((r) => r.workshopId, workshopLabel, 'Без цеха');
     const byCustomer = byLabel((r) => r.customerName, (r) => r.customerName, 'Без заказчика');
@@ -424,7 +424,7 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
           rows={sorted.length > 0 ? items.filter((it) => it.kind === 'row').map((it) => (it.kind === 'row' ? it.row : null)!).filter(Boolean) : []}
           selectedRows={[]}
           storageKey="report:workSheets:printFields"
-          filtersSummary={describeFacetSelection(facets, ui.facets as FacetSelection, {
+          filtersSummary={describeFacetSelectionForRows(facets, rows, ui.facets as FacetSelection, {
             search: ui.query,
             grouping: ui.groupBy === 'none' ? '' : GROUP_BY_LABELS[ui.groupBy],
           })}
@@ -484,7 +484,7 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
           selectedRows={[]}
           storageKey="report:workSheets:printFields"
           rowGroupLabel={(r) => groupLabelByRow.get(r.id) || null}
-          filtersSummary={describeFacetSelection(facets, ui.facets as FacetSelection, {
+          filtersSummary={describeFacetSelectionForRows(facets, rows, ui.facets as FacetSelection, {
             search: ui.query,
             grouping: ui.groupBy === 'none' ? '' : GROUP_BY_LABELS[ui.groupBy],
           })}

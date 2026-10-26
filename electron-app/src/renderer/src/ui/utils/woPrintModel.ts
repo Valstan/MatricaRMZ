@@ -15,10 +15,12 @@
  */
 
 import {
+  HUMAN_LABEL_DASH,
   WORK_ORDER_PRINT_FONT_DEFAULTS,
   WorkOrderKind,
   formatEmployeeInitialsSurname,
   getWorkOrderSignatureBlocks,
+  pickHumanText,
   resolveAssemblyEngineId,
   resolveWorkOrderApprover,
   resolveWorkOrderSignatureSlots,
@@ -289,7 +291,9 @@ function buildAssemblyModel(
     const raw = String(rawId ?? '').trim();
     if (!raw) return 'Склад цеха (по умолчанию)';
     const byId = raw.includes('-') && raw.length >= 32 ? warehouseNameById.get(raw) : undefined;
-    return byId ?? warehouseNameByCode.get(raw) ?? raw;
+    // Неопознанный идентификатор в наряд не печатаем: наименование склада оператор
+    // читает, а `8f14e45f-…` в колонке «Склад» — это утечка, а не данные.
+    return pickHumanText(byId, warehouseNameByCode.get(raw), raw) || HUMAN_LABEL_DASH;
   };
 
   const linesTable = (lines: WorkOrderWorkLine[]) => {

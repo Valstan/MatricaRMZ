@@ -383,7 +383,16 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
         render: (row) => acceptedOrCrew(row) || '-',
       },
       { id: 'total', label: 'Итог', sortKey: 'total', kind: 'num', render: (row) => rub(row.totalAmountRub) },
-      { id: 'status', label: 'Статус', sortKey: 'status', width: 150, render: (row) => <StatusBadge code={rowStatusCode(row, Date.now())} /> },
+      // В печать и выгрузку статус идёт подписью, а не пустой ячейкой: на экране он
+      // отрисован компонентом (`StatusBadge`), из разметки текста не достать.
+      {
+        id: 'status',
+        label: 'Статус',
+        sortKey: 'status',
+        width: 150,
+        render: (row) => <StatusBadge code={rowStatusCode(row, Date.now())} />,
+        printValue: (row) => WORK_ORDER_STATUS_LABELS[rowStatusCode(row, Date.now())] ?? '',
+      },
       {
         id: 'updatedAt',
         label: 'Дата изменения',

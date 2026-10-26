@@ -3,7 +3,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import {
   HUMAN_LABEL_DASH,
   applyFacets,
-  describeFacetSelection,
+  describeFacetSelectionForRows,
   engineDaysOnSite,
   engineFacets,
   engineFactoryStage,
@@ -363,7 +363,7 @@ export function EnginesReportPage(props: ListReportPageProps) {
           rows={sorted.length > 0 ? items.filter((it) => it.kind === 'row').map((it) => (it.kind === 'row' ? it.row : null)!).filter(Boolean) : []}
           selectedRows={[]}
           storageKey="report:engines:printFields"
-          filtersSummary={describeFacetSelection(facets, activeFacets, {
+          filtersSummary={describeFacetSelectionForRows(facets, rows, activeFacets, {
             search: ui.query,
             grouping: ui.groupBy === 'none' ? '' : GROUP_BY_LABELS[ui.groupBy],
           })}
@@ -422,7 +422,7 @@ export function EnginesReportPage(props: ListReportPageProps) {
           selectedRows={[]}
           storageKey="report:engines:printFields"
           rowGroupLabel={(r) => groupLabelByRow.get(r.id) || null}
-          filtersSummary={describeFacetSelection(facets, activeFacets, {
+          filtersSummary={describeFacetSelectionForRows(facets, rows, activeFacets, {
             search: ui.query,
             grouping: ui.groupBy === 'none' ? '' : GROUP_BY_LABELS[ui.groupBy],
           })}
