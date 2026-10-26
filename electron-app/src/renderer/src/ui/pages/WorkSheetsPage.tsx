@@ -498,8 +498,7 @@ export function WorkSheetsPage(props: {
         </ToolbarPin>
         <ToolbarPin>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-            <span className="ui-muted">Группировать</span>
-            <select value={ui.groupBy} onChange={(e) => patchState({ groupBy: e.target.value as WorkSheetListGroupBy })} data-work-sheets-group-by>
+            <select value={ui.groupBy} onChange={(e) => patchState({ groupBy: e.target.value as WorkSheetListGroupBy })} title="Группировать" data-work-sheets-group-by>
               {(Object.keys(WORK_SHEET_LIST_GROUP_BY_LABELS) as WorkSheetListGroupBy[]).map((k) => (
                 <option key={k} value={k}>
                   {WORK_SHEET_LIST_GROUP_BY_LABELS[k]}

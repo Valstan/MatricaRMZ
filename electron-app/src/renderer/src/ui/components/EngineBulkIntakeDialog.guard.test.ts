@@ -10,9 +10,18 @@ const CARD = readFileSync(resolve(__dirname, '../pages/EngineDetailsPage.tsx'), 
 
 describe('EngineBulkIntakeDialog — приём двигателей списком', () => {
   it('над списком двигателей есть кнопка приёма пачки', () => {
+    // Владелец 26.10.2026: надпись короткая («+Списком»), полное имя — в подсказке.
+    expect(PAGE).toContain('+Списком');
     expect(PAGE).toContain('Принять двигатели списком');
     expect(PAGE).toContain('EngineBulkIntakeDialog');
     expect(PAGE).toContain('canViewMasterData={props.canViewMasterData === true}');
+  });
+
+  it('тулбар списка: короткие «+Двигатель» / «+Списком», полный смысл — в подсказках', () => {
+    expect(PAGE).toContain('+Двигатель');
+    expect(PAGE).toContain('title="Добавить двигатель"');
+    expect(PAGE).not.toContain('>Добавить двигатель<');
+    expect(PAGE).not.toContain('>Принять двигатели списком<');
   });
 
   it('в форме — марка, дата прихода, контрагент, договор, дата дефектовки и список номеров', () => {

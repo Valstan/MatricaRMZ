@@ -340,8 +340,7 @@ export function EnginesReportPage(props: ListReportPageProps) {
         />
         <ToolbarPin>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-            <span className="ui-muted">Группировать</span>
-            <select value={ui.groupBy} onChange={(e) => patchState({ groupBy: e.target.value as GroupBy })} data-report-group-by>
+            <select value={ui.groupBy} onChange={(e) => patchState({ groupBy: e.target.value as GroupBy })} title="Группировать" data-report-group-by>
               {(Object.keys(GROUP_BY_LABELS) as GroupBy[]).map((k) => (
                 <option key={k} value={k}>
                   {GROUP_BY_LABELS[k]}

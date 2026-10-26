@@ -16,7 +16,10 @@ const SHEETS = src('../pages/WorkSheetsPage.tsx');
 describe('группировка списка двигателей', () => {
   it('селектор разреза живёт в тулбаре рядом с фильтром', () => {
     expect(ENGINES).toContain('data-engines-group-by');
-    expect(ENGINES).toContain('Группировать');
+    // Владелец 26.10.2026: надпись «Группировать» убрал — селект сам называет разрез
+    // («Без группировки», «По этапу на заводе»), смысл остался в подсказке.
+    expect(ENGINES).toContain('title="Группировать"');
+    expect(ENGINES).not.toContain('<span className="ui-muted">Группировать</span>');
   });
 
   it('разрезы — те же, что в отчёте «Сейчас на заводе»', () => {
@@ -47,7 +50,8 @@ describe('группировка списка двигателей', () => {
 describe('группировка списка этапов ремонта', () => {
   it('селектор разреза живёт в тулбаре рядом с фильтром', () => {
     expect(SHEETS).toContain('data-work-sheets-group-by');
-    expect(SHEETS).toContain('Группировать');
+    expect(SHEETS).toContain('title="Группировать"');
+    expect(SHEETS).not.toContain('<span className="ui-muted">Группировать</span>');
   });
 
   it('разрезы — те же, что в отчёте «Этапы работ»', () => {
