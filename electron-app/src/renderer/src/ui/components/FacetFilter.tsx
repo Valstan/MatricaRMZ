@@ -3,22 +3,41 @@ import React from 'react';
 import {
   activeFacetCount,
   clearFacet,
+  createEmptyFacetUsage,
   facetOptions,
   facetRangeOf,
+  facetUsageBump,
   normalizeLookupCompact,
+  orderFacetIdsByUsage,
+  sanitizeFacetUsage,
   setFacetDateBound,
   setFacetDay,
   toggleFacetValue,
   type FacetDescriptor,
   type FacetOption,
   type FacetSelection,
+  type FacetUsage,
 } from '@matricarmz/shared';
 
 import { Input } from './Input.js';
 import { emojiAttrs } from '../utils/labelEmoji.js';
+import { FALLBACK_FACET_TONE, facetTones, type FacetTone } from '../utils/facetTone.js';
 
 /** Значений больше — у ступени появляется поле «Найти…». */
 const FACET_VALUE_SEARCH_THRESHOLD = 10;
+
+/** Хранилище рейтинга ступеней: своё у каждого списка (`usageKey`). */
+const FACET_USAGE_STORAGE_PREFIX = 'facetUsage:';
+
+function readFacetUsage(usageKey: string | undefined): FacetUsage {
+  if (!usageKey) return createEmptyFacetUsage();
+  try {
+    const raw = window.localStorage.getItem(FACET_USAGE_STORAGE_PREFIX + usageKey);
+    return raw ? sanitizeFacetUsage(JSON.parse(raw)) : createEmptyFacetUsage();
+  } catch {
+    return createEmptyFacetUsage();
+  }
+}
 
 /**
  * Ступенчатый фильтр списка, спрятанный под кнопку «Фильтры» (просьба владельца 08.09.2026:
@@ -31,7 +50,32 @@ const FACET_VALUE_SEARCH_THRESHOLD = 10;
  * Числа рядом со значениями — сколько строк останется, и считаются они по строкам, прошедшим
  * ОСТАЛЬНЫЕ ступени. Отсюда следствие, ради которого всё и затевалось: выбор в одной ступени
  * сужает варианты в других, и порядок щелчков ни на что не влияет.
+ *
+ * Два свойства для узнаваемости (владелец 25.10.2026, «когда открыто много фильтров — каша»):
+ * у каждой ступени свой цвет (`facetTone.ts`), и ряд кнопок отсортирован по рейтингу
+ * использования (`facetUsage.ts`) — частые слева.
  */
+
+/**
+ * Цветной кружок перед подписью ступени в панели: сам цвет живёт в полосе и подложке, но подпись
+ * должна читаться в любой теме, поэтому текст остаётся обычным — цвет несёт кружок.
+ */
+function FacetToneDot(props: { tone: FacetTone }) {
+  return (
+    <span
+      aria-hidden
+      style={{
+        display: 'inline-block',
+        width: 8,
+        height: 8,
+        borderRadius: 999,
+        marginRight: 6,
+        background: props.tone.accent,
+        verticalAlign: 'middle',
+      }}
+    />
+  );
+}
 
 /**
  * Кнопка «Фильтры» для тулбара — рядом с полем поиска (владелец 08.09.2026: панель не должна
@@ -78,6 +122,8 @@ export function FacetFilter<Row>(props: {
    * при этом продолжает работать — он живёт в `selection`, а не в раскрытости.
    */
   open: boolean;
+  /** Ключ списка для рейтинга ступеней (`list:engines`, `report:engines:ui`, …) — своё у каждого ряда. */
+  usageKey?: string;
   onChangeSelection: (next: FacetSelection) => void;
   onChangeFields: (next: string[]) => void;
   onReset: () => void;
@@ -88,7 +134,69 @@ export function FacetFilter<Row>(props: {
   const activeCount = activeFacetCount(props.facets, props.selection);
   const chosen = new Set(props.fields);
 
+  // Цвет ступени — от её id, а не от места в ряду: фильтр узнаётся по цвету, даже когда
+  // рейтинг переставил кнопки.
+  const tones = React.useMemo(() => facetTones(props.facets.map((f) => f.id)), [props.facets]);
+
+  // Рейтинг щелчков. Счёт — в ref: он меняет ПОРЯДОК кнопок, а порядок фиксируется на открытии
+  // панели. Сдвинь кнопки в момент щелчка — и ряд перетасуется под курсором, оператор щёлкнет
+  // не ту ступень (владелец: «при следующем открытии смотрится рейтинг»).
+  const usageRef = React.useRef<FacetUsage>(createEmptyFacetUsage());
+  const usageKeyRef = React.useRef<string | undefined>(undefined);
+  if (usageKeyRef.current !== props.usageKey) {
+    usageRef.current = readFacetUsage(props.usageKey);
+    usageKeyRef.current = props.usageKey;
+  }
+
+  const idsRef = React.useRef<string[]>([]);
+  idsRef.current = props.facets.map((f) => f.id);
+  const idsSignature = idsRef.current.join('|');
+
+  const [rankedIds, setRankedIds] = React.useState<string[]>(() =>
+    orderFacetIdsByUsage(idsRef.current, usageRef.current, Date.now()),
+  );
+  React.useEffect(() => {
+    if (!props.open) return;
+    setRankedIds(orderFacetIdsByUsage(idsRef.current, usageRef.current, Date.now()));
+  }, [props.open, idsSignature]);
+
+  const rankIndex = React.useMemo(() => {
+    const map = new Map<string, number>();
+    rankedIds.forEach((id, index) => map.set(id, index));
+    props.facets.forEach((f, index) => {
+      if (!map.has(f.id)) map.set(f.id, rankedIds.length + index);
+    });
+    return map;
+  }, [rankedIds, props.facets]);
+
+  const orderedFacets = React.useMemo(
+    () => [...props.facets].sort((a, b) => (rankIndex.get(a.id) ?? 0) - (rankIndex.get(b.id) ?? 0)),
+    [props.facets, rankIndex],
+  );
+  const orderedFields = React.useMemo(
+    () =>
+      [...props.fields].sort(
+        (a, b) =>
+          (rankIndex.get(a) ?? Number.MAX_SAFE_INTEGER) - (rankIndex.get(b) ?? Number.MAX_SAFE_INTEGER),
+      ),
+    [props.fields, rankIndex],
+  );
+
+  function bumpFacet(facetId: string) {
+    usageRef.current = facetUsageBump(usageRef.current, facetId, Date.now());
+    if (!props.usageKey) return;
+    try {
+      window.localStorage.setItem(
+        FACET_USAGE_STORAGE_PREFIX + props.usageKey,
+        JSON.stringify(usageRef.current),
+      );
+    } catch {
+      // Хранилище недоступно — рейтинг просто не переживёт перезапуск; фильтр работает.
+    }
+  }
+
   const toggleField = (id: string) => {
+    bumpFacet(id);
     if (chosen.has(id)) {
       props.onChangeFields(props.fields.filter((x) => x !== id));
       // Снятое поле не должно продолжать отбирать втихую.
@@ -172,9 +280,10 @@ export function FacetFilter<Row>(props: {
         >
           Сбросить фильтр{activeCount > 0 ? ` (${activeCount})` : ''}
         </button>
-        {props.facets.map((facet) => {
+        {orderedFacets.map((facet) => {
           const on = chosen.has(facet.id);
           const picked = pickedCount(facet.id);
+          const tone = tones[facet.id] ?? FALLBACK_FACET_TONE;
           return (
             <button
               key={facet.id}
@@ -186,8 +295,10 @@ export function FacetFilter<Row>(props: {
               style={{
                 padding: '4px 10px',
                 borderRadius: 999,
-                border: '1px solid var(--border)',
-                background: on ? 'rgba(37, 99, 235, 0.15)' : 'var(--surface)',
+                border: `1px solid ${on ? tone.accent : 'var(--border)'}`,
+                // Цветная полоса слева видна и в закрытой ступени: по ней фильтр и узнают.
+                borderLeft: `4px solid ${tone.accent}`,
+                background: on ? tone.tint : 'var(--surface)',
                 fontWeight: on ? 700 : 400,
                 cursor: 'pointer',
               }}
@@ -199,15 +310,29 @@ export function FacetFilter<Row>(props: {
         })}
       </div>
 
-      {props.fields.map((fieldId) => {
+      {orderedFields.map((fieldId) => {
         const facet = props.facets.find((f) => f.id === fieldId);
         if (!facet) return null;
+        const tone = tones[fieldId] ?? FALLBACK_FACET_TONE;
+        // Подложка панели — в цвете своей ступени, а кнопки значений остаются обычными:
+        // цвет отвечает на вопрос «чей это список», а не «что тут выбрано».
+        const panelStyle: React.CSSProperties = {
+          display: 'flex',
+          gap: 6,
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          background: tone.panel,
+          borderLeft: `3px solid ${tone.accent}`,
+          borderRadius: 8,
+          padding: '6px 8px',
+        };
         if (facet.kind === 'dateRange') {
           const range = facetRangeOf(props.selection, fieldId) ?? {};
           const sameDay = range.from && range.from === range.to ? range.from : '';
           return (
-            <div key={fieldId} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div key={fieldId} data-facet-panel={fieldId} style={panelStyle}>
               <span style={{ minWidth: 150, color: 'var(--subtle)' }}>
+                <FacetToneDot tone={tone} />
                 <span {...emojiAttrs(facet.label)}>{facet.label}</span>: {range.from || range.to ? `${range.from || '…'} — ${range.to || '…'}` : 'все'}
               </span>
               {/* Быстрый выбор одного дня (владелец 19.10.2026): ставит обе границы разом.
@@ -218,7 +343,10 @@ export function FacetFilter<Row>(props: {
                   type="date"
                   data-facet-day={fieldId}
                   value={sameDay}
-                  onChange={(e) => props.onChangeSelection(setFacetDay(props.selection, fieldId, e.target.value))}
+                  onChange={(e) => {
+                    bumpFacet(fieldId);
+                    props.onChangeSelection(setFacetDay(props.selection, fieldId, e.target.value));
+                  }}
                   title={`${facet.label}: ровно этот день`}
                 />
               </div>
@@ -228,7 +356,10 @@ export function FacetFilter<Row>(props: {
                   type="date"
                   data-facet-date={`${fieldId}:from`}
                   value={range.from ?? ''}
-                  onChange={(e) => props.onChangeSelection(setFacetDateBound(props.selection, fieldId, 'from', e.target.value))}
+                  onChange={(e) => {
+                    bumpFacet(fieldId);
+                    props.onChangeSelection(setFacetDateBound(props.selection, fieldId, 'from', e.target.value));
+                  }}
                   title={`${facet.label}: с`}
                 />
               </div>
@@ -238,7 +369,10 @@ export function FacetFilter<Row>(props: {
                   type="date"
                   data-facet-date={`${fieldId}:to`}
                   value={range.to ?? ''}
-                  onChange={(e) => props.onChangeSelection(setFacetDateBound(props.selection, fieldId, 'to', e.target.value))}
+                  onChange={(e) => {
+                    bumpFacet(fieldId);
+                    props.onChangeSelection(setFacetDateBound(props.selection, fieldId, 'to', e.target.value));
+                  }}
                   title={`${facet.label}: по`}
                 />
               </div>
@@ -250,8 +384,9 @@ export function FacetFilter<Row>(props: {
         const query = valueQuery[fieldId] ?? '';
         const shown = options.filter((option) => matchValueOption(option, query));
         return (
-          <div key={fieldId} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div key={fieldId} data-facet-panel={fieldId} style={panelStyle}>
             <span style={{ minWidth: 150, color: 'var(--subtle)' }}>
+              <FacetToneDot tone={tone} />
               <span {...emojiAttrs(facet.label)}>{facet.label}</span>: {picked === 0 ? 'все' : `выбрано ${picked}`}
             </span>
             {options.length > FACET_VALUE_SEARCH_THRESHOLD ? (
@@ -273,13 +408,16 @@ export function FacetFilter<Row>(props: {
                   key={option.value}
                   type="button"
                   data-facet-value={`${fieldId}:${option.value}`}
-                  onClick={() => props.onChangeSelection(toggleFacetValue(props.selection, fieldId, option.value))}
+                  onClick={() => {
+                    bumpFacet(fieldId);
+                    props.onChangeSelection(toggleFacetValue(props.selection, fieldId, option.value));
+                  }}
                   title={option.selected ? 'Убрать значение из отбора' : 'Оставить только это (и другие выбранные)'}
                   style={{
                     padding: '3px 8px',
                     borderRadius: 999,
                     border: '1px solid var(--border)',
-                    background: option.selected ? 'rgba(37, 99, 235, 0.15)' : 'var(--surface)',
+                    background: option.selected ? tone.tint : 'var(--surface)',
                     fontWeight: option.selected ? 700 : 400,
                     opacity: option.count === 0 && !option.selected ? 0.5 : 1,
                     cursor: 'pointer',

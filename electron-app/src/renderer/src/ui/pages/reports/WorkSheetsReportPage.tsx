@@ -439,6 +439,7 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
           selection={ui.facets}
           fields={ui.facetFields}
           open={ui.facetsOpen}
+          usageKey="report:workSheets:ui"
           onChangeSelection={(next) => patchState({ facets: next })}
           onChangeFields={(next) => patchState({ facetFields: next })}
           onReset={() => patchState({ facets: {}, facetFields: [] })}

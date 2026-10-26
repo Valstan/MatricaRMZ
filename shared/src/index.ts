@@ -18,6 +18,7 @@ export * from './domain/engineActSnapshot.js';
 export * from './domain/contractInternalNumber.js';
 export * from './domain/engineCustomer.js';
 export * from './domain/listFacets.js';
+export * from './domain/facetUsage.js';
 export * from './domain/facetSummary.js';
 export * from './domain/listExport.js';
 export * from './domain/cardExport.js';

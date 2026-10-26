@@ -57,6 +57,8 @@ export function EngineFacetFilter(props: {
   stageTemplates?: readonly RepairStageTemplate[];
   /** Ступени, спрятанные целиком (нет в ряду кнопок и в панелях): «Дата этапа» при активном «Текущем состоянии». */
   hiddenFields?: readonly EngineFacetId[];
+  /** Ключ списка для рейтинга ступеней: ряд кнопок у каждого списка свой. */
+  usageKey?: string;
   onChangeSelection: (next: EngineFacetSelection) => void;
   onChangeFields: (next: EngineFacetId[]) => void;
   onReset: () => void;
@@ -73,6 +75,7 @@ export function EngineFacetFilter(props: {
       selection={props.selection as FacetSelection}
       fields={props.fields}
       open={props.open}
+      {...(props.usageKey !== undefined ? { usageKey: props.usageKey } : {})}
       onChangeSelection={(next) => props.onChangeSelection(next as EngineFacetSelection)}
       onChangeFields={(next) => props.onChangeFields(next as EngineFacetId[])}
       onReset={props.onReset}

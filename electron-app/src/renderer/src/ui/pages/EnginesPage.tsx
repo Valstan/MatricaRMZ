@@ -1198,6 +1198,7 @@ export function EnginesPage(props: {
           selection={facets}
           fields={visibleFacetFields}
           open={facetsOpen}
+          usageKey="list:engines"
           types={sheetTypes}
           stageTemplates={stageTemplates}
           {...(whereNowActive ? { hiddenFields: ['stageDate' as const] } : {})}
