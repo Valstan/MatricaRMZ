@@ -23,6 +23,7 @@ import { startPpeSyncPublisher } from './services/sync/ppeSyncPublisherService.j
 import { startPpeEmployeeMirror } from './services/ppeEmployeeMirror.js';
 import { startSignatureDefaultsSyncPublisher } from './services/sync/signatureDefaultsSyncPublisherService.js';
 import { startDictionarySyncPublisher } from './services/sync/dictionarySyncPublisherService.js';
+import { startEngineNumbersReconcile } from './services/engineNumbersService.js';
 import { startAuditStatisticsScheduler } from './services/statisticsAuditService.js';
 import { startEngineDedupeJob } from './services/engineDedupeService.js';
 import { startCriticalEventsTelegramService } from './services/criticalEventsTelegramService.js';
@@ -116,6 +117,10 @@ async function bootstrap() {
     startPpeEmployeeMirror();
     startSignatureDefaultsSyncPublisher();
     startDictionarySyncPublisher();
+    // Номера РМЗ: догоняем реестр тем, что накопилось без сверки (карточки, созданные
+    // до фичи, и те, что приехали, пока инстанс был перезапущен). Дальше номера выдаёт
+    // push-батч — отдельного таймера нет, повод всегда один и тот же: изменилась карточка.
+    startEngineNumbersReconcile();
     startCriticalEventsTelegramService();
     startAiChatHistoryCleanup();
     // D-073: копии вложений на боксе — кэш; протухшие снимаются, когда Я.Диск подтвердил свою.

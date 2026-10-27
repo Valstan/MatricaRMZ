@@ -1278,7 +1278,8 @@ export type MatricaApi = {
       acquire: (engineId: string) => Promise<EngineReservationResult>;
       release: (engineId: string) => Promise<EngineReservationResult>;
     };
-    delete: (engineId: string) => Promise<{ ok: boolean; error?: string }>;
+    /** Удаление карточки: причина обязательна — она уходит в журнал и остаётся в истории номера РМЗ. */
+    delete: (engineId: string, reason: string) => Promise<{ ok: boolean; error?: string }>;
     /** Массовый разбор дублей: полное сканирование НА СЕРВЕРЕ (не по локальному кешу). */
     dedupeAnalyze: () => Promise<EngineDedupeAnalyzeResult>;
     dedupeMerge: (args: { survivorId: string; loserIds: string[] }) => Promise<EngineDedupeMergeResult>;
