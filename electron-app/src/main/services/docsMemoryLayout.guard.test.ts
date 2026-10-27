@@ -121,7 +121,10 @@ const tableRows = (path: string) =>
     .split(/\r?\n/)
     .filter((line) => /^\|/.test(line))
     .filter((line) => !/^\|\s*✅?\s*\|\s*Нитка\s*\|/.test(line) && !/^\|\s*-{3,}/.test(line))
-    .map((line) => line.split('|').slice(1, -1).map((cell) => cell.trim()));
+    .map((line) => {
+      const cells = line.split('|').slice(1, -1).map((cell) => cell.trim());
+      return { first: cells[0] ?? '', name: cells[1] ?? '', rel: cells[2] ?? '' };
+    });
 
 describe('раскладка docs: done-индекс и архив прошлых поколений', () => {
   it('живой done-индекс не толще потолка', () => {
@@ -135,12 +138,12 @@ describe('раскладка docs: done-индекс и архив прошлы�
   });
 
   it('в живом индексе нет записей старше поколения 3.x', () => {
-    const offenders = tableRows(COMPLETED_PATH).filter(([first, , rel]) => {
-      const calver = /v2026\.|v1\.\d/.test(rel ?? '');
-      const tooOld = /^\d{4}-\d{2}-\d{2}$/.test(first ?? '') && first < GENERATION_3X_FROM;
+    const offenders = tableRows(COMPLETED_PATH).filter((row) => {
+      const calver = /v2026\.|v1\.\d/.test(row.rel);
+      const tooOld = /^\d{4}-\d{2}-\d{2}$/.test(row.first) && row.first < GENERATION_3X_FROM;
       return calver || tooOld;
     });
-    expect(offenders.map((cells) => `${cells[0]} ${cells[1].slice(0, 40)}`)).toEqual([]);
+    expect(offenders.map((row) => `${row.first} ${row.name.slice(0, 40)}`)).toEqual([]);
   });
 
   it('архив прошлых поколений существует и ссылается обратно на живой индекс', () => {
@@ -149,7 +152,7 @@ describe('раскладка docs: done-индекс и архив прошлы�
   });
 
   it('в архиве нет записей поколения 3.x', () => {
-    const offenders = tableRows(COMPLETED_ARCHIVE_PATH).filter(([, , rel]) => /\bv3\.\d/.test(rel ?? ''));
-    expect(offenders.map((cells) => cells[1].slice(0, 40))).toEqual([]);
+    const offenders = tableRows(COMPLETED_ARCHIVE_PATH).filter((row) => /\bv3\.\d/.test(row.rel));
+    expect(offenders.map((row) => row.name.slice(0, 40))).toEqual([]);
   });
 });
