@@ -18,6 +18,11 @@ const PENDING_INDEX_PATH = resolve(DOCS, 'PENDING_FOLLOWUPS.md');
 const PENDING_CHUNKS_DIR = resolve(DOCS, 'pending');
 const CALENDAR_HEADING = 'Календарь ротаций и дедлайнов';
 
+const COMPLETED_PATH = resolve(DOCS, 'COMPLETED.md');
+const COMPLETED_ARCHIVE_PATH = resolve(DOCS, '_archive', 'COMPLETED-2026H1.md');
+const COMPLETED_LIMIT_BYTES = 300 * 1024;
+const GENERATION_3X_FROM = '2026-08-15';
+
 const index = readFileSync(INDEX_PATH, 'utf8');
 const rows = index
   .split(/\r?\n/)
@@ -108,5 +113,43 @@ describe('раскладка docs: индекс открытых задач + ф
     expect(pendingIndex).toContain(CALENDAR_HEADING);
     const copies = pendingFiles.filter((f) => pendingH1(f).includes(CALENDAR_HEADING));
     expect(copies).toEqual([]);
+  });
+});
+
+const tableRows = (path: string) =>
+  readFileSync(path, 'utf8')
+    .split(/\r?\n/)
+    .filter((line) => /^\|/.test(line))
+    .filter((line) => !/^\|\s*✅?\s*\|\s*Нитка\s*\|/.test(line) && !/^\|\s*-{3,}/.test(line))
+    .map((line) => line.split('|').slice(1, -1).map((cell) => cell.trim()));
+
+describe('раскладка docs: done-индекс и архив прошлых поколений', () => {
+  it('живой done-индекс не толще потолка', () => {
+    expect(statSync(COMPLETED_PATH).size).toBeLessThanOrEqual(COMPLETED_LIMIT_BYTES);
+  });
+
+  it('шапка держит правило «одна строка» и ссылку на архив', () => {
+    const head = readFileSync(COMPLETED_PATH, 'utf8').split(/\r?\n/).slice(0, 20).join('\n');
+    expect(head).toContain('одна строка');
+    expect(head).toContain('_archive/COMPLETED-2026H1.md');
+  });
+
+  it('в живом индексе нет записей старше поколения 3.x', () => {
+    const offenders = tableRows(COMPLETED_PATH).filter(([first, , rel]) => {
+      const calver = /v2026\.|v1\.\d/.test(rel ?? '');
+      const tooOld = /^\d{4}-\d{2}-\d{2}$/.test(first ?? '') && first < GENERATION_3X_FROM;
+      return calver || tooOld;
+    });
+    expect(offenders.map((cells) => `${cells[0]} ${cells[1].slice(0, 40)}`)).toEqual([]);
+  });
+
+  it('архив прошлых поколений существует и ссылается обратно на живой индекс', () => {
+    expect(existsSync(COMPLETED_ARCHIVE_PATH)).toBe(true);
+    expect(readFileSync(COMPLETED_ARCHIVE_PATH, 'utf8')).toContain('../COMPLETED.md');
+  });
+
+  it('в архиве нет записей поколения 3.x', () => {
+    const offenders = tableRows(COMPLETED_ARCHIVE_PATH).filter(([, , rel]) => /\bv3\.\d/.test(rel ?? ''));
+    expect(offenders.map((cells) => cells[1].slice(0, 40))).toEqual([]);
   });
 });
