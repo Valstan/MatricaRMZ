@@ -294,6 +294,7 @@ changesRouter.get('/', async (req, res) => {
       [SyncTableName.ErpContractPaymentSlots]: 'Слоты платежей договоров',
       [SyncTableName.ErpContractPaymentPayments]: 'Платежи договоров',
       [SyncTableName.ErpEngineCards]: 'Карточки двигателей',
+      [SyncTableName.ErpEngineNumbers]: 'Номера РМЗ',
       [SyncTableName.PpeNormSets]: 'Нормы выдачи СИЗ',
       [SyncTableName.PpeNormLines]: 'Строки норм выдачи СИЗ',
       [SyncTableName.PpeIssueCards]: 'Карточки выдачи СИЗ',

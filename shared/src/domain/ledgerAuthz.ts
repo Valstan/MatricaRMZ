@@ -131,6 +131,9 @@ export const SYNC_TABLE_OWNERSHIP: Readonly<Record<SyncTableName, SyncTableOwner
   // (цех с планшета, офлайн-запись как была у EAV), требование — в TABLE_REQUIREMENT.
   // EAV-след пишет сервер при apply (старые клиенты читают EAV до E5-freeze).
   [SyncTableName.ErpEngineCards]: { owner: 'permission' },
+  // Реестр номеров РМЗ (план engine-rmz-numbers-2026-10): номер выдаёт сервер, клиент
+  // только читает. Без этой строки крафт «выдать себе RMZ1» с клиента ушёл бы в журнал.
+  [SyncTableName.ErpEngineNumbers]: { owner: 'server', why: 'reconcileEngineNumbers + публикатор зеркала' },
   // Кладовщик (СИЗ), MVP: ведут только серверные двери (нормы/карточки/выдачи),
   // клиент читает реплику. Без этих строк крафт строки нормы с клиента ушёл бы в журнал.
   [SyncTableName.PpeNormSets]: { owner: 'server', why: 'ppeService + публикатор зеркала' },
@@ -288,6 +291,8 @@ const TABLE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
   // правят двигатели (цех с планшета, офлайн-push). Гейты дублей — не здесь, а в
   // pre-sign партиции push (engineCardPushGuard): requirement видит только права.
   [SyncTableName.ErpEngineCards]: { kind: 'permission', code: PermissionCode.EnginesEdit },
+  // Реестр номеров РМЗ — вторая линия к безусловному табличному backstop'у выше.
+  [SyncTableName.ErpEngineNumbers]: { kind: 'superadmin' },
   // Кладовщик (СИЗ), MVP — вторая линия к безусловному табличному backstop'у выше.
   [SyncTableName.PpeNormSets]: { kind: 'superadmin' },
   [SyncTableName.PpeNormLines]: { kind: 'superadmin' },

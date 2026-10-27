@@ -54,6 +54,7 @@ import {
   erpContractPaymentSlots,
   erpContractPayments,
   erpEngineCards,
+  erpEngineNumbers,
   erpEmployeeCards,
   directoryEngineBrands,
   ppeNormSets,
@@ -2041,6 +2042,7 @@ async function applyPulledChanges(
     [SyncTableName.ErpContractPaymentSlots]: [],
     [SyncTableName.ErpContractPaymentPayments]: [],
     [SyncTableName.ErpEngineCards]: [],
+    [SyncTableName.ErpEngineNumbers]: [],
     [SyncTableName.PpeNormSets]: [],
     [SyncTableName.PpeNormLines]: [],
     [SyncTableName.PpeIssueCards]: [],
@@ -2524,6 +2526,28 @@ async function applyPulledChanges(
             docsReturnScanDate: num(payload.docs_return_scan_date),
             docsReturnOriginalDate: num(payload.docs_return_original_date),
             docsNote: txt(payload.docs_note),
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.ErpEngineNumbers:
+        {
+          const payload = payloadRaw;
+          const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+          const txt = (v: unknown) => (typeof v === 'string' ? v : null);
+          groups.erp_engine_numbers.push({
+            id: payload.id,
+            seq: Number(payload.seq),
+            status: String(payload.status ?? 'active'),
+            createdBy: txt(payload.created_by),
+            cardDeletedAt: num(payload.card_deleted_at),
+            cardDeletedBy: txt(payload.card_deleted_by),
+            deleteReason: txt(payload.delete_reason),
+            snapshotJson: txt(payload.snapshot_json),
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
             lastServerSeq: payload.last_server_seq ?? null,
@@ -3721,6 +3745,24 @@ async function applyPulledChanges(
       docsReturnScanDate: sql`excluded.docs_return_scan_date`,
       docsReturnOriginalDate: sql`excluded.docs_return_original_date`,
       docsNote: sql`excluded.docs_note`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  // Реестр номеров РМЗ: строки не удаляются, поэтому и приезжают как есть — с историей.
+  if (groups.erp_engine_numbers.length > 0) {
+    emitApply(SyncTableName.ErpEngineNumbers, groups.erp_engine_numbers.length);
+    await upsertPulledRowsInChunks(db, erpEngineNumbers, groups.erp_engine_numbers, erpEngineNumbers.id, {
+      seq: sql`excluded.seq`,
+      status: sql`excluded.status`,
+      createdBy: sql`excluded.created_by`,
+      cardDeletedAt: sql`excluded.card_deleted_at`,
+      cardDeletedBy: sql`excluded.card_deleted_by`,
+      deleteReason: sql`excluded.delete_reason`,
+      snapshotJson: sql`excluded.snapshot_json`,
       updatedAt: sql`excluded.updated_at`,
       lastServerSeq: sql`excluded.last_server_seq`,
       deletedAt: sql`excluded.deleted_at`,

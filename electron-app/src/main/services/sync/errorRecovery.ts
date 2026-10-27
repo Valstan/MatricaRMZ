@@ -93,6 +93,8 @@ const DRIZZLE_TABLE_MAP: Record<SyncTableName, any> = {
   // push-ом с E3b — ошибочные pending-строки чинятся так же. В E3a пуша ещё нет,
   // запись здесь — только чтобы карта была полной к моменту E3b.
   [SyncTableName.ErpEngineCards]: erpEngineCards,
+  // Реестр номеров РМЗ — pull-only: клиент в него не пишет, чинить нечего.
+  [SyncTableName.ErpEngineNumbers]: undefined,
   // Кладовщик (СИЗ), MVP — pull-only: клиент в них не пишет, чинить нечего.
   [SyncTableName.PpeNormSets]: undefined,
   [SyncTableName.PpeNormLines]: undefined,

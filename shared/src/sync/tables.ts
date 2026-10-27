@@ -55,6 +55,11 @@ export const SyncTableName = {
   // на карточку (id = entities.id). Клиенты пишут push-ом (цех с планшета, офлайн),
   // сервер публикует; EAV-след пишет сервер при apply (старые клиенты читают EAV).
   ErpEngineCards: 'erp_engine_cards',
+  // Сквозной программный номер карточки двигателя `RMZ451` (план engine-rmz-numbers-2026-10).
+  // Server-write / pull-only: выдаёт сервер сверкой `reconcileEngineNumbers`, клиент читает
+  // реплику. Строки реестра не удаляются никогда — это и история, и гарантия, что номер
+  // не выдадут второй раз. Клиентская запись отбивается backstop'ом в ledgerAuthzGuard.
+  ErpEngineNumbers: 'erp_engine_numbers',
   // Кладовщик (СИЗ), MVP: нормы выдачи, личные карточки, факты выдачи.
   // Server-write / pull-only, как WarehouseLocations: ведут серверные двери,
   // клиент читает реплику. Выдачи едут складскими документами, здесь — учётный след.
