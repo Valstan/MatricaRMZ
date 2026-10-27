@@ -10,24 +10,55 @@ on:
   # Нативную часть планшетного клиента не проверяет ни один другой гейт:
   # ошибка в Gradle/манифесте/плагине видна только при сборке APK. Гоняем её
   # на PR, задевающих android-контур, а не раз в релиз.
+  # Гейт `build-apk` стоит в обязательных проверках `main`, поэтому workflow обязан
+  # запускаться на КАЖДОМ PR. С фильтром `paths:` он не стартует вовсе, проверка
+  # остаётся в «Expected» и PR не мержится никогда. Поэтому работу решает джоб `scope`
+  # по списку файлов PR, а сам `build-apk` пропускается (`skipped` защита принимает
+  # как успешный, docs: «must have a successful, skipped, or neutral status»).
   pull_request:
-    paths:
-      - "android-app/**"
-      - "shared/**"
-      - "electron-app/src/renderer/**"
-      # main-процесс тоже попадает в сборку планшета: часть его модулей подменяют
-      # шимы (`android-app/src/shims/`), а остальные, как clientAdminService,
-      # собираются как есть. Без этого пути гейт слеп ровно к тому, что его ломает:
-      # новый экспорт в watchdogHandshakeService прошёл PR #694 незамеченным и
-      # свалил сборку APK только на релизном PR, где менялся `shared/`.
-      - "electron-app/src/main/**"
-      - ".github/workflows/android-apk-build.yml"
 
 permissions:
   contents: write
+  # Нужен джобу `scope`: список файлов PR читается через API. Без явного `read`
+  # незаданные права обнуляются, и запрос отвечает 403.
+  pull-requests: read
 
 jobs:
+  # Планшетный контур — те же пути, что раньше стояли в `paths:` триггера плюс
+  # `electron-app/src/main/**`: main-процесс тоже попадает в сборку планшета (часть
+  # модулей подменяют шимы `android-app/src/shims/`, остальные собираются как есть).
+  # Без этого пути гейт слеп ровно к тому, что его ломает: новый экспорт в
+  # watchdogHandshakeService прошёл PR #694 незамеченным и свалил сборку APK только
+  # на релизном PR, где менялся `shared/`.
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      relevant: ${{ steps.scope.outputs.relevant }}
+    steps:
+      - name: Решить, затронут ли планшетный контур
+        id: scope
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" --jq '.[].filename')
+          if printf '%s\n' "$files" | grep -Eq '^(android-app/|shared/|electron-app/src/renderer/|electron-app/src/main/|\.github/workflows/android-apk-build\.yml)'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            echo "Планшетный контур затронут — собираем APK."
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "Планшетный контур не затронут — сборка APK пропущена, гейт остаётся успешным."
+          fi
+
   build-apk:
+    needs: scope
+    if: needs.scope.outputs.relevant == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
