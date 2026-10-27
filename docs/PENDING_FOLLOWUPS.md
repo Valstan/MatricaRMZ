@@ -187,7 +187,6 @@
 - [CDP-смоук пакета 3.85–3.87 прогнан 21.10 — 52/52; осталось четыре куска 🗓 since:2026-10-21](pending/cdp-smouk-paketa-3-85-3-87-prognan-21-10-52-52-ostalos.md)
 - [🔴 Баланс DeepSeek у прод-движка: на нуле оператор не получит ответа вообще 🗓 since:2026-10-23](pending/balans-deepseek-u-prod-dvizhka-na-nule-operator-ne.md)
 - [Аварийный режим времени «по интернету + часовой пояс» 🗓 since:2026-10-21](pending/avariynyy-rezhim-vremeni-po-internetu-chasovoy-poyas.md)
-- [🟡 Авто-мерж проскочил красный `build-apk`: джоб не в required-checks `main` 🗓 since:2026-10-19](pending/avto-merzh-proskochil-krasnyy-build-apk-dzhob-ne-v.md)
 - [🟡 Заглушки `U+FFFD` в документах некому заметить: нужен шаг CI 🗓 since:2026-10-19](pending/zaglushki-u-fffd-v-dokumentakh-nekomu-zametit-nuzhen.md)
 - [🟢 Масштаб листа в окне предпросмотра печати 🗓 since:2026-10-19](pending/masshtab-lista-v-okne-predprosmotra-pechati.md)
 - [🟡 `parent_nomenclature_id` вне контракта синка: реплика не несёт родство деталей 🗓 since:2026-10-18](pending/parent-nomenclature-id-vne-kontrakta-sinka-replika-ne.md)
