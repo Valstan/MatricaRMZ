@@ -133,11 +133,26 @@ export function registerEnginesOpsAuditIpc(ctx: IpcContext) {
       );
     },
   );
-  ipcMain.handle('engine:delete', async (_e, engineId: string) => {
+  ipcMain.handle('engine:delete', async (_e, engineId: string, reasonRaw?: string) => {
     if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'engines.edit');
     if (!gate.ok) return gate;
-    return softDeleteEntity(ctx.dataDb(), engineId);
+    // Причина обязательна: номер РМЗ живёт в реестре навсегда, и «почему карточки нет»
+    // — единственное, что объясняет дырку в нумерации через год. Без неё не удаляем.
+    const reason = String(reasonRaw ?? '').trim();
+    if (!reason) return { ok: false as const, error: 'Причина удаления обязательна' };
+    const actor = await ctx.currentActor();
+    const deleted = await softDeleteEntity(ctx.dataDb(), engineId);
+    if (!deleted.ok) return deleted;
+    const audit = await addAudit(ctx.dataDb(), {
+      actor,
+      action: 'engine.delete',
+      entityId: engineId,
+      tableName: 'entities',
+      payload: { reason },
+    });
+    if (!audit.ok) return { ok: false as const, error: `Карточка удалена, причина не записалась: ${audit.error}` };
+    return deleted;
   });
 
   // Operations

@@ -36,6 +36,12 @@ export type SyncWriteActor = {
 export type SyncWriteOptions = {
   /** Skip conflict checks (for replay from canonical ledger state). */
   allowSyncConflicts?: boolean | undefined;
+  /**
+   * Не запускать сверку номеров РМЗ после этого батча. Ставит сама сверка: её записи
+   * идут штатным путём синхронизации, но поводом для нового прохода не служат —
+   * иначе выдача номера вызывала бы саму себя.
+   */
+  skipEngineNumberReconcile?: boolean | undefined;
 };
 
 export type SyncWriteResult = {
@@ -322,6 +328,20 @@ export async function writeSyncChanges(
   // сборок; осознанное удаление — тумстоунами строк). Рекурсия конечна: производный батч
   // состоит из строк таблицы, листов в нём нет.
   await deriveLinesForAppliedOperations(collected, actor);
+
+  // Номера РМЗ (план engine-rmz-numbers-2026-10): батч мог создать или удалить карточку
+  // двигателя — догоняем реестр сразу, не дожидаясь следующей двери. Динамический импорт:
+  // сверка пишет обратно этим же путём, и статический импорт замкнул бы модули.
+
+  if (!opts.skipEngineNumberReconcile) {
+    const touchedEngines = collected.some(
+      (ch) => ch.table === SyncTableName.Entities || ch.table === SyncTableName.ErpEngineCards,
+    );
+    if (touchedEngines) {
+      const { kickEngineNumberReconcile } = await import('../engineNumbersService.js');
+      await kickEngineNumberReconcile();
+    }
+  }
 
   return {
     dbApplied: dbResult.applied,

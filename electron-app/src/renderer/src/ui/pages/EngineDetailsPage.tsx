@@ -509,7 +509,7 @@ export function EngineDetailsPage(props: {
     }
   };
   const [returnOpen, setReturnOpen] = useState(false);
-  const { pickChoice } = useConfirm();
+  const { pickChoice, promptText } = useConfirm();
   const [engineNumber, setEngineNumber] = useState(String(props.engine.attributes?.engine_number ?? ''));
   const [dupMatches, setDupMatches] = useState<EngineDuplicateMatches>({ exact: [], similar: [] });
   // "New engine" = the card was opened with an empty number (freshly created). Captured
@@ -1482,9 +1482,19 @@ export function EngineDetailsPage(props: {
 
   async function handleDelete() {
     if (!canEditEnginesEff) return;
+    // Причина обязательна (решение владельца 27.10.2026): номер РМЗ остаётся в реестре
+    // навсегда, и через год только эта строка объясняет, почему номера идут с пропуском.
+    const reason = await promptText({
+      title: 'Удаление карточки двигателя',
+      detail: `Будет удалён двигатель «${String(engineNumber || '').trim() || props.engineId}» (марка: ${String(engineBrand || '—').trim()}). Номер РМЗ сохранится в истории и не будет выдан повторно. Действие обычно нельзя отменить.`,
+      placeholder: 'Почему карточку удаляют',
+      confirmLabel: 'Удалить',
+      validate: (value) => (value.trim() ? null : 'Причина обязательна — без неё карточка не удаляется.'),
+    });
+    if (reason == null) return;
     try {
       setSaveStatus('Удаление…');
-      const r = await window.matrica.engines.delete(props.engineId);
+      const r = await window.matrica.engines.delete(props.engineId, reason.trim());
       if (!r.ok) {
         setSaveStatus(`Ошибка удаления: ${r.error ?? 'unknown'}`);
         return;
@@ -2682,6 +2692,7 @@ export function EngineDetailsPage(props: {
           }}
           onPrint={props.canPrintEngineCard && !isAndroidPlatform() ? handlePrint : undefined}
           onDelete={() => void handleDelete()}
+          deleteSkipBuiltInConfirm
           deleteConfirmDetail={`Будет удалён двигатель «${String(engineNumber || '').trim() || props.engineId}» (марка: ${String(engineBrand || '—').trim()}). Действие обычно нельзя отменить.`}
           onClose={() => props.requestClose?.()}
         />
