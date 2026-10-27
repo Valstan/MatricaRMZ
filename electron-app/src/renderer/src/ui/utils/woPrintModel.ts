@@ -51,6 +51,8 @@ export type WoPrintEngine = {
   engineNumber?: string;
   engineInternalNumber?: string;
   engineBrandName?: string;
+  /** Сквозной номер карточки — «№ дв.», когда документного номера нет. */
+  rmzCode?: string;
 };
 
 export type WoPrintDeps = {
@@ -277,6 +279,7 @@ function buildAssemblyModel(
   const headerEngineNumber =
     distinctTrimmed(current.freeWorks.map((l) => l.engineNumber)).join(', ') ||
     String(headerEngineFromPayload?.engineNumber ?? '').trim() ||
+    String(headerEngineFromPayload?.rmzCode ?? '').trim() ||
     '—';
   const headerEngineInternalNumber =
     distinctTrimmed(current.freeWorks.map((l) => l.engineInternalNumber)).join(', ') ||

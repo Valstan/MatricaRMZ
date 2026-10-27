@@ -14,6 +14,8 @@ import {
   classifyEngineContractBinding,
   engineFactoryStage,
   engineInternalNumberSortKey,
+  engineRmzNumberSortKey,
+  formatEngineRmzNumber,
   engineScrapDate,
   engineStatusDate,
   flattenGrouped,
@@ -143,6 +145,8 @@ export type EnginesPageUiState = {
   sortKey:
     | 'engineNumber'
     | 'internalNumber'
+    /** Сквозной номер карточки `RMZ451` (10.2026). */
+    | 'rmzNumber'
     | 'engineBrand'
     | 'customerName'
     | 'binding'
@@ -554,6 +558,9 @@ export function EnginesPage(props: {
             engineInternalNumberSortKey(a.internalNumber ?? '', a.internalNumberYear),
             engineInternalNumberSortKey(b.internalNumber ?? '', b.internalNumberYear),
           );
+        // Номер РМЗ сортируется по числу, а не по строке: `RMZ1000` позже `RMZ451`.
+        case 'rmzNumber':
+          return byText(engineRmzNumberSortKey(a.rmzSeq), engineRmzNumberSortKey(b.rmzSeq));
         case 'engineBrand':
           return byText(String(a.engineBrand ?? ''), String(b.engineBrand ?? ''));
         case 'customerName':
@@ -768,6 +775,18 @@ export function EnginesPage(props: {
         sortKey: 'internalNumber',
         kind: 'name',
         render: (e) => formatEngineInternalNumber(e.internalNumber ?? '', e.internalNumberYear) || '-',
+      },
+      // Три номера подряд — одной строкой: документный, внутренний, РМЗ. Номер РМЗ выдаёт
+      // сервер; пока карточка до него не доехала, честно «—», а не чужой номер.
+      {
+        id: 'rmzNumber',
+        label: 'РМЗ',
+        tabletLabel: 'РМЗ',
+        sortable: true,
+        sortKey: 'rmzNumber',
+        kind: 'name',
+        printValue: (e) => formatEngineRmzNumber(e.rmzSeq),
+        render: (e) => formatEngineRmzNumber(e.rmzSeq) || '-',
       },
       { id: 'engineBrand', label: 'Марка', sortable: true, sortKey: 'engineBrand', kind: 'name', render: (e) => e.engineBrand ?? '-' },
       {

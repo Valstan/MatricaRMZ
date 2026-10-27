@@ -114,6 +114,8 @@ type EngineOptionLike = {
   engineNumber?: string | null;
   internalNumberFull?: string | null;
   engineBrand?: string | null;
+  /** Сквозной номер карточки — подставляется, когда документного номера нет. */
+  rmzCode?: string | null;
   arrival?: ArrivalPlacement | undefined;
 };
 
@@ -126,7 +128,17 @@ type EngineOptionLike = {
 export function buildEngineSearchOptions(engines: EngineOptionLike[]): SearchableSelectOption[] {
   return engines.map((e) => {
     const hint = joinOptionHint([e.internalNumberFull ? `внутр. ${e.internalNumberFull}` : '', e.engineBrand]);
-    const search = joinOptionSearch([e.engineNumber ?? '', e.internalNumberFull ?? '', e.id, e.engineBrand ?? '']);
-    return buildSearchOption({ id: e.id, label: withArrivalNote(e.engineNumber || e.id, e.arrival), ...(hint ? { hintText: hint } : {}), ...(search ? { searchText: search } : {}) });
+    const search = joinOptionSearch([
+      e.engineNumber ?? '',
+      e.internalNumberFull ?? '',
+      e.rmzCode ?? '',
+      e.id,
+      e.engineBrand ?? '',
+    ]);
+    // Подпись строки — документный номер, иначе РМЗ. Внутренний подписью не становится и
+    // раньше не становился: он уже стоит в подсказке строки («внутр. 41/26»), а подписью
+    // служит имя карточки — то, по которому её зовут в наряде и печати.
+    const label = e.engineNumber || e.rmzCode || e.id;
+    return buildSearchOption({ id: e.id, label: withArrivalNote(label, e.arrival), ...(hint ? { hintText: hint } : {}), ...(search ? { searchText: search } : {}) });
   });
 }

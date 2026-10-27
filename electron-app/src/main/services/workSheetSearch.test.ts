@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
@@ -24,6 +28,8 @@ import { deleteWorkSheetRow, saveWorkSheetRow, searchWorkSheetRows } from './wor
  * порядке хиты уходят на экран. Переименование «Обкатки» или перестановка слов в подписи
  * тест переживает; потеря фильтра, сортировки или подписи — нет.
  */
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 const DDL = `
   CREATE TABLE entity_types (id text PRIMARY KEY, code text NOT NULL, name text NOT NULL,
@@ -81,6 +87,8 @@ const AT_NEW = Date.parse('2026-09-15T00:00:00');
 function makeDb() {
   const sqlite = new Database(':memory:');
   sqlite.exec(DDL);
+  // Реплика номеров РМЗ: подпись хита берёт номер карточки — фикстура повторяет миграцию клиента.
+  sqlite.exec(readFileSync(join(here, '../../../drizzle/0037_engine_rmz_numbers_replica.sql'), 'utf8'));
   sqlite
     .prepare(`INSERT INTO entity_types (id,code,name,created_at,updated_at) VALUES (?,?,?,?,?)`)
     .run('et-engine', 'engine', 'Двигатель', 1, 1);

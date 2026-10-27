@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { describe, expect, it } from 'vitest';
@@ -11,6 +15,8 @@ import { deleteRepairStageRow, saveRepairStageRow } from './repairStageService.j
 // ту же строку. Узел «завершает ремонт» при ДОБАВЛЕНИИ отмечает этап «Обкатка» в едином
 // списке датой строки (шаг 8 плана: наследник «Отремонтирован») — один раз; утиль и уже
 // обкатанное не трогаются. Флаги карточки этот путь больше не пишет.
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 const DDL = `
   CREATE TABLE entity_types (id text PRIMARY KEY, code text NOT NULL, name text NOT NULL,
@@ -36,6 +42,8 @@ const DDL = `
 function makeDb() {
   const sqlite = new Database(':memory:');
   sqlite.exec(DDL);
+  // Реплика номеров РМЗ: карточка/список читают её всегда — фикстура повторяет миграцию клиента.
+  sqlite.exec(readFileSync(join(here, '../../../drizzle/0037_engine_rmz_numbers_replica.sql'), 'utf8'));
   sqlite.prepare(`INSERT INTO entity_types (id,code,name,created_at,updated_at) VALUES (?,?,?,?,?)`).run('et-engine', 'engine', 'Двигатель', 1, 1);
   const codes = [
     'status_repaired',

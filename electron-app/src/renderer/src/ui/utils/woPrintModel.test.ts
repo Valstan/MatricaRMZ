@@ -76,6 +76,21 @@ describe('woPrintModel — наряд на сборку', () => {
     const hidden = buildWorkOrderPrintModel(payload({ workOrderKind: WorkOrderKind.Assembly }), { hideApprover: true }, DEPS);
     expect(sectionIds(hidden)).not.toContain('director');
   });
+
+  it('без документного номера шапка называет двигатель номером РМЗ, а не прочерком', () => {
+    // Карточка заведена без номера с картера: «№ дв. —» не опознаёт двигатель,
+    // а номер РМЗ выдан сервером и живёт в карточке.
+    const noDocNumber: WoPrintDeps = {
+      ...DEPS,
+      engines: [{ id: 'eng-9', engineBrandName: 'В-84', rmzCode: 'RMZ451' }],
+    };
+    const model = buildWorkOrderPrintModel(
+      payload({ workOrderKind: WorkOrderKind.Assembly, freeWorks: [line({ engineId: 'eng-9', engineNumber: '' })] }),
+      {},
+      noDocNumber,
+    );
+    expect(html(model, 'meta')).toContain('RMZ451');
+  });
 });
 
 describe('woPrintModel — простая форма (обычный / ремонт / изготовление)', () => {

@@ -110,6 +110,13 @@ export type EngineListItem = {
    * Считается в listEngines из пары выше, врозь разъехаться не может.
    */
   internalNumberFull?: string;
+  /**
+   * Сквозной номер карточки (`RMZ451`) из реплики `erp_engine_numbers`: выдаёт сервер,
+   * клиент только читает. Пусто, пока карточка не доехала до сервера — номер не выдумываем.
+   */
+  rmzSeq?: number;
+  /** Тот же номер текстом — денормализация ради поиска, как `internalNumberFull`. */
+  rmzCode?: string;
   engineBrand?: string;
   engineBrandId?: string;
   customerId?: string;
@@ -229,6 +236,8 @@ export type EngineDetails = {
   deletedAt: number | null;
   syncStatus: string;
   attributes: Record<string, unknown>;
+  /** Сквозной номер карточки (`RMZ451`); пусто, пока сервер его не выдал. */
+  rmzSeq?: number;
 };
 
 export type EntityListItem = {

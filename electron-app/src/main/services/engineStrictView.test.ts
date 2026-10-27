@@ -52,6 +52,9 @@ function makeDb() {
   `);
   const strictSql = readFileSync(join(here, '../../../drizzle/0032_erp_engine_cards_replica.sql'), 'utf8');
   sqlite.exec(strictSql);
+  // Номер РМЗ читается карточкой (getEngineDetails) из своей реплики — фикстура обязана
+  // держать её так же, как настоящая миграция клиента.
+  sqlite.exec(readFileSync(join(here, '../../../drizzle/0037_engine_rmz_numbers_replica.sql'), 'utf8'));
   return { sqlite, db: drizzle(sqlite) };
 }
 
