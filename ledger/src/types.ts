@@ -48,6 +48,9 @@ export const LedgerTableName = {
   ErpContractPaymentSlots: 'erp_contract_payment_slots',
   ErpContractPaymentPayments: 'erp_contract_payments',
   ErpEngineCards: 'erp_engine_cards',
+  // Сквозной программный номер карточки двигателя (план engine-rmz-numbers-2026-10):
+  // строки реестра тоже едут журналом, чтобы живой клиент получал новый номер синком.
+  ErpEngineNumbers: 'erp_engine_numbers',
   PpeNormSets: 'ppe_norm_sets',
   PpeNormLines: 'ppe_norm_lines',
   PpeIssueCards: 'ppe_issue_cards',

@@ -320,6 +320,23 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     CREATE INDEX IF NOT EXISTS erp_engine_cards_number_idx ON erp_engine_cards(engine_number);
     CREATE INDEX IF NOT EXISTS erp_engine_cards_contract_idx ON erp_engine_cards(contract_id);
 
+    CREATE TABLE IF NOT EXISTS erp_engine_numbers (
+      id text PRIMARY KEY NOT NULL,
+      seq integer NOT NULL UNIQUE,
+      status text NOT NULL DEFAULT 'active',
+      created_by text,
+      card_deleted_at integer,
+      card_deleted_by text,
+      delete_reason text,
+      snapshot_json text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS erp_engine_numbers_status_idx ON erp_engine_numbers(status);
+
     CREATE TABLE IF NOT EXISTS ppe_norm_sets (
       id text PRIMARY KEY NOT NULL,
       name text NOT NULL,

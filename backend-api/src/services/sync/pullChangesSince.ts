@@ -31,6 +31,8 @@ import {
   erpContractPaymentSlots,
   erpContractPayments,
   erpEmployeeCards,
+  erpEngineCards,
+  erpEngineNumbers,
   directoryEngineBrands,
   erpEngineInstances,
   erpEngineInventoryLines,
@@ -146,6 +148,17 @@ const PG_SYNC_TABLES: Record<
   [SyncTableName.ErpContractPaymentPayments]: {
     drizzle: erpContractPayments,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpContractPaymentPayments, r),
+  },
+  // Карточки двигателей и реестр номеров РМЗ (план engine-rmz-numbers-2026-10). Карточки
+  // были в контракте с E3, но в карты pull не попали — свежая машина получала реплику
+  // только из журнала. Закрыто 27.10.2026.
+  [SyncTableName.ErpEngineCards]: {
+    drizzle: erpEngineCards,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineCards, r),
+  },
+  [SyncTableName.ErpEngineNumbers]: {
+    drizzle: erpEngineNumbers,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineNumbers, r),
   },
   // Зеркала Кладовщика (СИЗ), умолчаний подписей и сотрудников (PR-6). Строки ведут
   // серверные двери, а публикаторы зеркал доводят их до журнала. Без записей здесь

@@ -36,6 +36,7 @@ import {
   erpContractPaymentSlotRowSchema,
   erpContractPaymentRowSchema,
   erpEngineCardRowSchema,
+  erpEngineNumberRowSchema,
   ppeNormSetRowSchema,
   ppeNormLineRowSchema,
   ppeIssueCardRowSchema,
@@ -501,6 +502,20 @@ const ERP_ENGINE_CARD_FIELDS = withBase(
   { db: 'docsNote', dto: 'docs_note' },
 );
 
+// Сквозной программный номер карточки двигателя (план engine-rmz-numbers-2026-10).
+// withBase добавляет id/created_at/updated_at/deleted_at/last_server_seq/sync_status сам;
+// `deleted_at` здесь — штатное поле контракта (строка реестра не удаляется никогда),
+// удаление карточки живёт отдельно в card_deleted_at.
+const ERP_ENGINE_NUMBER_FIELDS = withBase(
+  { db: 'seq', dto: 'seq' },
+  { db: 'status', dto: 'status' },
+  { db: 'createdBy', dto: 'created_by' },
+  { db: 'cardDeletedAt', dto: 'card_deleted_at' },
+  { db: 'cardDeletedBy', dto: 'card_deleted_by' },
+  { db: 'deleteReason', dto: 'delete_reason' },
+  { db: 'snapshotJson', dto: 'snapshot_json' },
+);
+
 // Кладовщик (СИЗ), MVP. withBase добавляет
 // id/created_at/updated_at/deleted_at/last_server_seq/sync_status сам.
 const PPE_NORM_SET_FIELDS = withBase(
@@ -858,6 +873,17 @@ const ENTRIES: readonly SyncTableEntry[] = [
     ledgerName: SyncTableName.ErpEngineCards,
     schema: erpEngineCardRowSchema,
     fields: ERP_ENGINE_CARD_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [],
+  },
+  // Реестр номеров РМЗ (план engine-rmz-numbers-2026-10). Ссылок нет: id — это id
+  // карточки, но жёсткого FK нет (как у карточек выше), и номер приходит первым
+  // синком, не дожидаясь строки карточки.
+  {
+    syncName: SyncTableName.ErpEngineNumbers,
+    ledgerName: SyncTableName.ErpEngineNumbers,
+    schema: erpEngineNumberRowSchema,
+    fields: ERP_ENGINE_NUMBER_FIELDS,
     conflictTarget: ['id'],
     dependsOn: [],
   },

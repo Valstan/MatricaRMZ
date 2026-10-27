@@ -16,6 +16,8 @@ import {
   erpCounterparties,
   erpContractPaymentSlots,
   erpContractPayments,
+  erpEngineCards,
+  erpEngineNumbers,
   erpEmployeeCards,
   directoryEngineBrands,
   erpEngineAssemblyBom,
@@ -140,6 +142,19 @@ export const PG_SYNC_TABLES: Record<string, PgSyncTableEntry> = {
   [LedgerTableName.ErpContractPaymentPayments]: {
     drizzle: erpContractPayments,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpContractPaymentPayments, r),
+  },
+  // Карточки двигателей и реестр номеров РМЗ (план engine-rmz-numbers-2026-10).
+  // Карточки в контракте с E3, но в карты pull не попали: холодный снапшот отдавал по
+  // ним пустоту, и свежая машина получала реплику только из журнала. Закрыто 27.10.2026
+  // вместе с реестром номеров — сторож mirrorTables ловит только таблицы SERVER_MIRROR_TABLES,
+  // карточки в этот список не входят и провалились между PR серии (brain #166).
+  [LedgerTableName.ErpEngineCards]: {
+    drizzle: erpEngineCards,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineCards, r),
+  },
+  [LedgerTableName.ErpEngineNumbers]: {
+    drizzle: erpEngineNumbers,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineNumbers, r),
   },
   [LedgerTableName.DirectoryEngineBrands]: {
     drizzle: directoryEngineBrands,

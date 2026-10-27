@@ -479,6 +479,27 @@ export const erpEngineCards = sqliteTable('erp_engine_cards', {
   contractIdx: index('erp_engine_cards_contract_idx').on(t.contractId),
 }));
 
+// Реестр сквозных номеров РМЗ (план engine-rmz-numbers-2026-10): server-write / pull-only.
+// Nullability — ровно как серверная erp_engine_numbers (миграция 0115), иначе pull уронит
+// checkReplicaStrictness. Строки не удаляются: локальная реплика — та же история номеров.
+export const erpEngineNumbers = sqliteTable('erp_engine_numbers', {
+  id: text('id').primaryKey(),
+  seq: integer('seq').notNull().unique(),
+  status: text('status').notNull().default('active'),
+  createdBy: text('created_by'),
+  cardDeletedAt: integer('card_deleted_at'),
+  cardDeletedBy: text('card_deleted_by'),
+  deleteReason: text('delete_reason'),
+  snapshotJson: text('snapshot_json'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  statusIdx: index('erp_engine_numbers_status_idx').on(t.status),
+}));
+
 // Кладовщик (СИЗ), MVP: реплики строгих таблиц (миграция 0107).
 // Фаза 2: условия норм + nullable document_id (миграция 0110).
 // Nullability — ровно как сервер, иначе pull уронит checkReplicaStrictness.

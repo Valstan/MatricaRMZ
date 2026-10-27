@@ -11,6 +11,7 @@ import {
   erpEngineInventoryLineRowSchema,
 } from './erpDto.js';
 import { OperationTypeCode } from '../domain/enums.js';
+import { ENGINE_RMZ_NUMBER_STATUSES } from '../domain/engineRmzNumber.js';
 import { SYSTEM_ROLE_CATALOG } from '../domain/permissions.js';
 
 // Базовые поля синхронизации для всех таблиц.
@@ -327,6 +328,20 @@ export const erpEngineCardRowSchema = z.object({
   docs_note: z.string().nullable().optional(),
 });
 
+// Сквозной программный номер карточки двигателя (план engine-rmz-numbers-2026-10).
+// Строгая намеренно: строки пишет только сервер целиком (номер + актор + причина),
+// так что неполная строка — это сломанная выдача, и тихо её применять нельзя.
+export const erpEngineNumberRowSchema = z.object({
+  ...baseRowFields,
+  seq: z.number().int().positive(),
+  status: z.enum(ENGINE_RMZ_NUMBER_STATUSES),
+  created_by: z.string().nullable().optional(),
+  card_deleted_at: z.number().int().nullable().optional(),
+  card_deleted_by: z.string().nullable().optional(),
+  delete_reason: z.string().nullable().optional(),
+  snapshot_json: z.string().nullable().optional(),
+});
+
 // Кладовщик (СИЗ), MVP: мягкие намеренно, как erpEngineCardRowSchema выше, —
 // повторяют ровно форму БД (миграция 0107). Строгость здесь роняла бы строки из pull молча.
 export const ppeNormSetRowSchema = z.object({
@@ -467,6 +482,7 @@ export const syncRowSchemaByTable = {
   [SyncTableName.ErpContractPaymentSlots]: erpContractPaymentSlotRowSchema,
   [SyncTableName.ErpContractPaymentPayments]: erpContractPaymentRowSchema,
   [SyncTableName.ErpEngineCards]: erpEngineCardRowSchema,
+  [SyncTableName.ErpEngineNumbers]: erpEngineNumberRowSchema,
   [SyncTableName.PpeNormSets]: ppeNormSetRowSchema,
   [SyncTableName.PpeNormLines]: ppeNormLineRowSchema,
   [SyncTableName.PpeIssueCards]: ppeIssueCardRowSchema,

@@ -1008,6 +1008,35 @@ export const erpEngineCards = pgTable(
   }),
 );
 
+// Сквозной программный номер карточки двигателя (план engine-rmz-numbers-2026-10).
+// Строка = один выданный номер = одна карточка; не удаляется никогда (это и история,
+// и гарантия, что номер не выдадут второй раз). `deleted_at` здесь — штатное поле
+// контракта; удаление карточки живёт в card_deleted_at и статусе.
+export const erpEngineNumbers = pgTable(
+  'erp_engine_numbers',
+  {
+    id: uuid('id').primaryKey(),
+    // Номер выдаёт последовательность engine_rmz_seq (миграция 0115): nextval не
+    // транзакционен, поэтому откат «сжигает» номер — ровно как просил владелец.
+    seq: integer('seq').notNull().unique(),
+    status: text('status').notNull().default('active'),
+    createdBy: text('created_by'),
+    cardDeletedAt: bigint('card_deleted_at', { mode: 'number' }),
+    cardDeletedBy: text('card_deleted_by'),
+    deleteReason: text('delete_reason'),
+    snapshotJson: text('snapshot_json'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    statusIdx: index('erp_engine_numbers_status_idx').on(t.status),
+    seqIdx: index('erp_engine_numbers_seq_idx').on(t.lastServerSeq),
+  }),
+);
+
 export const erpEmployeeCards = pgTable(
   'erp_employee_cards',
   {
