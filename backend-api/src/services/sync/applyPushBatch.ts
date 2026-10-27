@@ -19,6 +19,7 @@ import {
   erpContractPaymentSlotRowSchema,
   erpContractPaymentRowSchema,
   erpEngineCardRowSchema,
+  erpEngineNumberRowSchema,
   directoryEngineBrandRowSchema,
   erpEngineInventoryLineRowSchema,
   operationRowSchema,
@@ -54,6 +55,7 @@ import {
   erpContractPaymentSlots,
   erpContractPayments,
   erpEngineCards,
+  erpEngineNumbers,
   directoryEngineBrands,
   erpEngineInventoryLines,
   notes,
@@ -1798,6 +1800,72 @@ export async function applyPushBatch(
       }
     }
 
+    // Номера РМЗ (план engine-rmz-numbers-2026-10). Таблицу наполняет только сервер
+    // (`engineNumbersService`), и пишет он её той же канонической дверью — `writeSyncChanges`,
+    // то есть через этот файл. Обработчика не было: строка ложилась в журнал и до таблицы не
+    // доезжала, сверка «выдавала» номер каждые 60 секунд, сжигая значения `engine_rmz_seq`,
+    // а реестр оставался пустым (поймано смоуком 27.10.2026 после мержа #1494).
+    // Содержимое переписывается целиком, в отличие от зёрен-зеркал: у одной и той же строки
+    // меняются статус, причина и снимок удаления, а `seq` не меняется никогда — номер выдан
+    // один раз, и это и есть инвариант реестра.
+    {
+      const raw = grouped.get(SyncTableName.ErpEngineNumbers) ?? [];
+      const parsed = parseRows(SyncTableName.ErpEngineNumbers, raw, erpEngineNumberRowSchema);
+      const rows = await filterStaleBySeqOrUpdatedAt(erpEngineNumbers, parsed, SyncTableName.ErpEngineNumbers);
+      if (rows.length > 0) {
+        const written = await tx
+          .insert(erpEngineNumbers)
+          .values(
+            rows.map((r) => ({
+              id: r.id as any,
+              seq: r.seq,
+              status: r.status,
+              createdBy: r.created_by ?? null,
+              cardDeletedAt: r.card_deleted_at ?? null,
+              cardDeletedBy: r.card_deleted_by ?? null,
+              deleteReason: r.delete_reason ?? null,
+              snapshotJson: r.snapshot_json ?? null,
+              createdAt: r.created_at,
+              updatedAt: r.updated_at,
+              deletedAt: r.deleted_at ?? null,
+              syncStatus: 'synced',
+            })),
+          )
+          .onConflictDoUpdate({
+            target: erpEngineNumbers.id,
+            setWhere: sql`${erpEngineNumbers.updatedAt} <= excluded.updated_at`,
+            set: {
+              status: sql`excluded.status`,
+              createdBy: sql`excluded.created_by`,
+              cardDeletedAt: sql`excluded.card_deleted_at`,
+              cardDeletedBy: sql`excluded.card_deleted_by`,
+              deleteReason: sql`excluded.delete_reason`,
+              snapshotJson: sql`excluded.snapshot_json`,
+              updatedAt: sql`excluded.updated_at`,
+              deletedAt: sql`excluded.deleted_at`,
+              syncStatus: 'synced',
+            },
+          })
+          .returning({ id: erpEngineNumbers.id });
+        const writtenIds = new Set((written as Array<{ id: string }>).map((w) => String(w.id)));
+        const stamped = rows.filter((r) => writtenIds.has(String(r.id)));
+        await updateSeqAndCollect(erpEngineNumbers, SyncTableName.ErpEngineNumbers, stamped);
+        applied += stamped.length;
+        if (stamped.length < rows.length) {
+          // Отказ LWW молчаливым быть не должен: сверка считает номер выданным, а строка
+          // осталась прежней — это разъехавшийся реестр, а не «нечего делать».
+          const dropped = rows.filter((r) => !writtenIds.has(String(r.id))).map((r) => String(r.id));
+          addSkipMetric('conflict', SyncTableName.ErpEngineNumbers, dropped.length);
+          logSkip('engine rmz number rows stale skipped (LWW guard)', {
+            rows: dropped.length,
+            sample: dropped.slice(0, 5).join(','),
+            client_id: req.client_id,
+            user: actor.username,
+          });
+        }
+      }
+    }
+
     // AuditLog — append-only (SYNC_TABLE_OWNERSHIP: owner 'append_only', brain #015, 21.09).
     // Журнал, по которому ловят злоупотребление, нельзя править той же дверью, что и данные:
     // до 21.09 клиент апсертил строку по id и мог принести `deleted_at` — запись гасилась.
@@ -2518,7 +2586,7 @@ export async function applyPushBatch(
     {
       const trustedServerWrite = isReplayClient || applyOpts.allowSyncConflicts === true;
 
-      for (const tableName of [SyncTableName.Users, SyncTableName.UserSectionAccess, SyncTableName.WarehouseLocations, SyncTableName.ErpCounterparties, SyncTableName.ErpContracts, SyncTableName.DirectoryEngineBrands, ...SERVER_MIRROR_TABLES] as const) {
+      for (const tableName of [SyncTableName.Users, SyncTableName.UserSectionAccess, SyncTableName.WarehouseLocations, SyncTableName.ErpCounterparties, SyncTableName.ErpContracts, SyncTableName.DirectoryEngineBrands, SyncTableName.ErpEngineNumbers, ...SERVER_MIRROR_TABLES] as const) {
         const raw = grouped.get(tableName) ?? [];
         if (raw.length === 0 || trustedServerWrite) continue;
         addSkipMetric('conflict', tableName, raw.length, 'server_managed_table');
