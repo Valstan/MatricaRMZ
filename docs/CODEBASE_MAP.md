@@ -103,7 +103,12 @@
 - **Services (dual-instance):** `matricarmz-backend-primary.service` (`:3001`) — singleton job'ы; `matricarmz-backend-secondary.service` (`:3002`) — только API. nginx upstream.
 - **nginx:** [`deploy/nginx/matricarmz-backend.conf`](../deploy/nginx/matricarmz-backend.conf) (catch-all `location /` + спец-блоки), выкат через [`deploy/nginx/install.sh`](../deploy/nginx/install.sh).
 - **systemd:** [`deploy/systemd/`](../deploy/systemd) — шаблоны юнитов backend (`install-backend.sh` подставляет сервисного пользователя и путь к клону на сервере — в репо их нет) + еженедельная чистка `/opt/matricarmz/updates/`.
-- **CI:** GitHub Actions для Windows installer (`.exe` + `latest.yml` + torrent). Релизный pipeline — `AGENTS.md` §Release process.
+- **CI:** 14 workflow'ов в [`.github/workflows/`](../.github/workflows), три класса. Мусорных/недостижимых нет — у каждого свой триггер и последний прогон.
+  - **На каждый PR и на push в `main`** — `typecheck`, `test`, `lint` (+ джоб `prod-ops-backup` — смоуки ops-скриптов: бэкап леджера, аудит зависимостей, выкат бэкенда), `check-sync-contract`, `migrations-check` (живой PG 17 в контейнере, все миграции журналом + сверка EAV ↔ `erp_*`), `sast-semgrep` (на PR diff-aware и блокирующий), `secret-scan` (gitleaks). **Все восемь — обязательные проверки защиты `main`** (`enforce_admins=true`), имя проверки = имя джоба, а не файла.
+  - **По путям** (платят, только когда тронут их каталог): `android-apk-build` (`android-app/**`, `shared/**`, renderer, `electron-app/src/main/**` — джоб `build-apk`, в обязательные **не** входит: пункт [`pending/avto-merzh-proskochil-krasnyy-build-apk…`](pending/avto-merzh-proskochil-krasnyy-build-apk-dzhob-ne-v.md)), `watchdog-build` (`watchdog/**`), `stub-updater-build` (`stub-updater/**`).
+  - **По тегу и вручную:** `release-electron-windows` (`v*.*.*` — installer + GitHub Release + Yandex.Disk), `android-apk-build` (`android-v*.*.*` — подписанный release-APK), `backend-dist` (push в `main` и вручную — архив, который прод **скачивает**, а не собирает), `android-signing-check` (только вручную — проверка четырёх секретов подписи без релиза, чтобы не узнать о расхождении на теге).
+  - `claude-code-review` — **заморожен**: `pull_request` закомментирован, прогонов ноль, Anthropic не отвечает из РФ. Точка включения — пункт [`pending/anthropic-api-blokiruet-rf-ip…`](pending/anthropic-api-blokiruet-rf-ip-na-prode-ai-rabotaet.md); удалять файл нет смысла (0 прогонов и так), но и считать его гейтом нельзя.
+- Полный релизный порядок (теги, артефакты, миграции, деплой) — `AGENTS.md` §Release process.
 
 ## Где сейчас активная работа
 
