@@ -44,6 +44,7 @@ import {
   erpEngineAssemblyBomBrandLinks,
   erpEngineAssemblyBomLines,
   erpEngineInventoryLines,
+  erpEngineInstances,
   erpNomenclature,
   erpRegStockBalance,
   erpRegStockMovements,
@@ -92,6 +93,7 @@ import {
   serializeBlockedRows,
   type BlockedRowInput,
 } from './sync/blockedRows.js';
+import { clearPullGaps, gapsToRetry, listPullGaps, recordPullGaps } from './sync/pullGaps.js';
 import { SettingsKey, settingsGetNumber, settingsGetString, settingsSetNumber, settingsSetString } from './settingsStore.js';
 import { logMessage, logPerfWarn } from './logService.js';
 import { encryptRowSensitive, decryptRowSensitive, getE2eKeys } from './sync/e2eCrypto.js';
@@ -1906,14 +1908,17 @@ async function applyPulledChanges(
       event: Pick<SyncProgressEvent, 'stage' | 'detail' | 'table' | 'counts' | 'breakdown' | 'service'>,
     ) => void;
   },
-) {
-  if (changes.length === 0) return;
+): Promise<{ unknownTables: string[] }> {
+  if (changes.length === 0) return { unknownTables: [] };
   const ts = nowMs();
   const applyStartedAt = ts;
   let parseDoneAt = 0;
   let remapDoneAt = 0;
   let dedupDoneAt = 0;
   const { all: e2eKeys } = getE2eKeys();
+  // Таблицы, которых эта сборка не знает: их строки нельзя применить, но и терять
+  // молча нельзя — курсор уедет вперёд, и строки станут недостижимы (sync/pullGaps.ts).
+  const unknownTables = new Map<string, number>();
 
   // Client-side ID remap (important for UNIQUE constraints):
   // - SQLite enforces unique(entity_types.code)
@@ -2310,10 +2315,12 @@ async function applyPulledChanges(
           });
         }
         break;
-      // B3/R3 — реплика аккаунтов. Ветки обязательны: у switch НЕТ `default`,
-      // и таблица без case не даёт ошибки — её строки просто исчезают (живое
-      // доказательство в этом же файле: erpEngineInstances не упомянут здесь ни
-      // разу, хотя сервер их отдаёт).
+      // B3/R3 — реплика аккаунтов. Ветки обязательны: без `case` таблица не даёт
+      // ошибки — её строки просто исчезают. Живое доказательство было в этом же файле:
+      // `erpEngineInstances` не упоминался здесь ни разу, хотя сервер их отдаёт.
+      // С 29.10.2026 у switch есть `default`, который такие таблицы записывает в
+      // журнал дырок (sync/pullGaps.ts) и добирает их позже — но `case` всё равно
+      // обязан быть у каждой таблицы контракта, иначе строки приходят дважды.
       case SyncTableName.Users:
         {
           const payload = payloadRaw;
@@ -2947,6 +2954,26 @@ async function applyPulledChanges(
           });
         }
         break;
+      // Реплика экземпляров двигателей. Ветки не было с самого начала — сервер их
+      // отдаёт, клиент выбрасывал (см. сторож pullApplyCoverage.guard.test.ts).
+      case SyncTableName.ErpEngineInstances:
+        {
+          const payload = payloadRaw;
+          groups[SyncTableName.ErpEngineInstances].push({
+            id: payload.id,
+            nomenclatureId: payload.nomenclature_id,
+            serialNumber: payload.serial_number,
+            contractId: payload.contract_id ?? null,
+            currentStatus: payload.current_status ?? 'in_stock',
+            warehouseLocationId: payload.warehouse_location_id ?? null,
+            createdAt: Number(payload.created_at ?? ts),
+            updatedAt: Number(payload.updated_at ?? ts),
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+            lastServerSeq: payload.last_server_seq ?? null,
+          });
+        }
+        break;
       case SyncTableName.ErpRegStockBalance:
         {
           const payload = payloadRaw;
@@ -2982,7 +3009,23 @@ async function applyPulledChanges(
           });
         }
         break;
+      default:
+        {
+          const unknown = String(ch.table ?? '').trim();
+          if (unknown) unknownTables.set(unknown, (unknownTables.get(unknown) ?? 0) + 1);
+        }
+        break;
     }
+  }
+
+  if (unknownTables.size > 0) {
+    const summary = Array.from(unknownTables.entries())
+      .map(([table, rows]) => `${table}=${rows}`)
+      .join(', ');
+    logSync(`pull unknown tables dropped: ${summary} — recorded as pull gap, rows will be backfilled`);
+    await recordPullGaps(db, unknownTables, nowMs()).catch((e) => {
+      logSync(`pull gap record failed: ${formatError(e)}`);
+    });
   }
 
   // De-duplicate within this pull batch by primary key (prefer newest server_seq).
@@ -4015,6 +4058,27 @@ async function applyPulledChanges(
     });
   }
 
+  if (groups[SyncTableName.ErpEngineInstances].length > 0) {
+    emitApply(SyncTableName.ErpEngineInstances, groups[SyncTableName.ErpEngineInstances].length);
+    await upsertPulledRowsInChunks(
+      db,
+      erpEngineInstances,
+      groups[SyncTableName.ErpEngineInstances],
+      erpEngineInstances.id,
+      {
+        nomenclatureId: sql`excluded.nomenclature_id`,
+        serialNumber: sql`excluded.serial_number`,
+        contractId: sql`excluded.contract_id`,
+        currentStatus: sql`excluded.current_status`,
+        warehouseLocationId: sql`excluded.warehouse_location_id`,
+        updatedAt: sql`excluded.updated_at`,
+        lastServerSeq: sql`excluded.last_server_seq`,
+        deletedAt: sql`excluded.deleted_at`,
+        syncStatus: 'synced',
+      },
+    );
+  }
+
   if (dedupWarehouseNomenclature.length > 0) {
     emitApplyRaw('erp_nomenclature', dedupWarehouseNomenclature.length);
     const nomSet: Record<string, unknown> = {
@@ -4173,6 +4237,8 @@ async function applyPulledChanges(
       `apply breakdown rows=${changes.length} totalMs=${doneAt - applyStartedAt} parseMs=${parseDoneAt - applyStartedAt} remapMs=${remapDoneAt - parseDoneAt} dedupLookupMs=${dedupDoneAt - remapDoneAt} upsertMs=${doneAt - dedupDoneAt}`,
     );
   }
+
+  return { unknownTables: Array.from(unknownTables.keys()) };
 }
 
 function normalizeApiBaseUrl(raw: string): string {
@@ -4739,10 +4805,10 @@ export async function runSync(
 
       logSync(`start clientId=${clientId} apiBaseUrl=${currentApiBaseUrl}`);
       emitStage('prepare', 'подготовка синхронизации', { service: 'sync' });
-      const pullStatePage = async (table: string, cursorId: string | null) => {
+      const pullStatePage = async (table: string, cursorId: string | null, pageSize = FULL_STATE_PAGE_SIZE) => {
         const query = new URLSearchParams();
         query.set('table', table);
-        query.set('limit', String(FULL_STATE_PAGE_SIZE));
+        query.set('limit', String(pageSize));
         if (cursorId) query.set('cursor_id', cursorId);
         const url = `${currentApiBaseUrl}/ledger/state/snapshot?${query.toString()}`;
         const res = await fetchAuthed(
@@ -5329,6 +5395,65 @@ export async function runSync(
       }
 
       if (coldStart && !fullPull) logSync('cold start: pulling full state snapshot instead of changelog walk');
+      // Дырки pull: таблицы, чьи строки эта сборка когда-то выбросила (sync/pullGaps.ts).
+      // Добираем полным состоянием и НЕ двигаем `LastPulledServerSeq` — строки приходят
+      // мимо журнала, идемпотентно по id. Сборка, которая таблицу уже знает, вылечивается
+      // сама; которая ещё не знает — остаётся в журнале (пробуем одну строку, а не всю таблицу).
+      // На холодном старте не нужен: полный pull и так заберёт всё.
+      if (since > 0) {
+        for (const gap of gapsToRetry(await listPullGaps(db), nowMs())) {
+          try {
+            const probe = await pullStatePage(gap.table, null, 1);
+            const probeRows = Array.isArray(probe.rows) ? probe.rows : [];
+            if (probeRows.length === 0) {
+              await clearPullGaps(db, [gap.table]).catch(() => {});
+              logSync(`pull gap table=${gap.table} empty on server, dropped from journal`);
+              continue;
+            }
+            const probeApplied = await applyPulledChanges(
+              db,
+              probeRows.map((row) => ({
+                table: gap.table as SyncPullResponse['changes'][number]['table'],
+                row_id: String((row as any).id ?? ''),
+                op: 'upsert' as const,
+                payload_json: JSON.stringify(row),
+                server_seq: Number((row as any).last_server_seq ?? 0) || 0,
+              })),
+            );
+            if (probeApplied.unknownTables.length > 0) {
+              logSync(`pull gap table=${gap.table} still unknown to this build, will retry later`);
+              continue;
+            }
+            let cursorId: string | null = null;
+            let backfilled = 0;
+            for (let page = 0; page < 20_000; page += 1) {
+              const statePage = await pullStatePage(gap.table, cursorId);
+              const rows = Array.isArray(statePage.rows) ? statePage.rows : [];
+              if (rows.length > 0) {
+                await applyPulledChanges(
+                  db,
+                  rows.map((row) => ({
+                    table: gap.table as SyncPullResponse['changes'][number]['table'],
+                    row_id: String((row as any).id ?? ''),
+                    op: ((row as any).deleted_at != null ? 'delete' : 'upsert') as 'upsert' | 'delete',
+                    payload_json: JSON.stringify(row),
+                    server_seq: Number((row as any).last_server_seq ?? 0) || 0,
+                  })),
+                );
+                backfilled += rows.length;
+              }
+              if (!statePage.has_more || !statePage.next_cursor_id) break;
+              cursorId = statePage.next_cursor_id;
+            }
+            await clearPullGaps(db, [gap.table]).catch(() => {});
+            logSync(`pull gap healed table=${gap.table} rows=${backfilled}`);
+          } catch (e) {
+            // Дырка не имеет права уронить синхронизацию: строки уже потеряны, а
+            // упавший heal отнял бы у клиента и текущие изменения.
+            logSync(`pull gap heal failed table=${gap.table} err=${formatError(e)}`);
+          }
+        }
+      }
       const pushMs = nowMs() - pushStartedAt;
       const pullStartedAt = nowMs();
       const pullRes = fullPull || coldStart
