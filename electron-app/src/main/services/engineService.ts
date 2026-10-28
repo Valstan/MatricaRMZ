@@ -755,6 +755,8 @@ async function getEngineLastActivityMap(
 
 export type EngineLabel = {
   engineNumber: string;
+  /** Сквозной номер карточки (`RMZ451`) — основной номер, только когда документного нет. */
+  rmzCode: string;
   engineBrand: string;
   internalNumberFull: string;
   /** Краткое имя заказчика (`short_name`, иначе полное) — оно влезает в строку и на бумагу. */
@@ -833,6 +835,21 @@ export async function resolveEngineLabels(
   const contractNameById = opts.withCounterparty ? await getDisplayNameMap(db, EntityTypeCode.Contract) : new Map<string, string>();
   const customerNames = opts.withCounterparty ? await getCustomerNameMap(db) : new Map<string, { short: string; full: string }>();
 
+  // Сквозной номер карточки: списки нарядов и этапов зовут двигатель этим номером, когда
+  // документного нет. Читается тем же пакетным приёмом, что и в `listEngines`; реплики нет —
+  // списки остаются на документных номерах.
+  const rmzByEngineId = new Map<string, string>();
+  const numberRows = await collectChunked(ids, (idsChunk) =>
+    db
+      .select({ id: erpEngineNumbers.id, seq: erpEngineNumbers.seq })
+      .from(erpEngineNumbers)
+      .where(inArray(erpEngineNumbers.id, idsChunk)),
+  ).catch(() => [] as Array<{ id: unknown; seq: unknown }>);
+  for (const row of numberRows) {
+    const code = formatEngineRmzNumber(Number(row.seq));
+    if (code) rmzByEngineId.set(String(row.id), code);
+  }
+
   for (const [entityId, bag] of byEntity) {
     // Год читается ровно как в listEngines: невалидный отбрасывается, иначе номер напечатался бы «41/NaN».
     const yearRaw = bag[ENGINE_INTERNAL_NUMBER_YEAR_CODE];
@@ -847,6 +864,7 @@ export async function resolveEngineLabels(
     const contractNumber = contractId ? (contractNameById.get(contractId) ?? '') : '';
     out.set(entityId, {
       engineNumber: (bag['engine_number'] ?? '').trim(),
+      rmzCode: rmzByEngineId.get(entityId) ?? '',
       engineBrand: (bag['engine_brand'] ?? '').trim(),
       internalNumberFull: formatEngineInternalNumber(
         bag[ENGINE_INTERNAL_NUMBER_CODE] ?? '',

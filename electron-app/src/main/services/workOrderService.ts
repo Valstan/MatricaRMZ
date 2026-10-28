@@ -643,7 +643,9 @@ export async function listWorkOrders(
         ? {
             ...row,
             engineBrand: row.engineBrand || label.engineBrand,
-            engineNumber: row.engineNumber || label.engineNumber,
+            // Документного номера нет — наряд называем номером карточки (РМЗ): пустая
+            // колонка «№ двигателя» у живого наряда читается как «двигатель не привязан».
+            engineNumber: row.engineNumber || label.engineNumber || label.rmzCode,
             // Наряды, выписанные до внутренних номеров, снимка не имеют — дотягиваем из
             // карточки двигателя, иначе колонка была бы вечно пустой на старых нарядах.
             engineInternalNumber: row.engineInternalNumber || label.internalNumberFull,

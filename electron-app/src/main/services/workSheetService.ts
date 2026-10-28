@@ -362,7 +362,7 @@ export async function getWorkSheetRow(db: BetterSQLite3Database, id: string): Pr
   return {
     id: String(existing.id),
     engineId: String(existing.engineEntityId),
-    engineNumber: label?.engineNumber ?? '',
+    engineNumber: label?.engineNumber || label?.rmzCode || '',
     engineBrand: label?.engineBrand ?? '',
     internalNumber: label?.internalNumberFull ?? '',
     customerName: label?.customerName ?? '',
@@ -498,7 +498,7 @@ export async function listWorkSheetRows(
     const base = {
       id: String(op.id),
       engineId,
-      engineNumber: label?.engineNumber ?? '',
+      engineNumber: label?.engineNumber || label?.rmzCode || '',
       engineBrand: label?.engineBrand ?? '',
       internalNumber: label?.internalNumberFull ?? '',
       customerName: label?.customerName ?? '',
@@ -546,7 +546,7 @@ export async function listWorkSheetRows(
         rows.push({
           id: `act:${engineId}:${entry.code}`,
           engineId,
-          engineNumber: label?.engineNumber ?? '',
+          engineNumber: label?.engineNumber || label?.rmzCode || '',
           engineBrand: label?.engineBrand ?? '',
           internalNumber: label?.internalNumberFull ?? '',
           customerName: label?.customerName ?? '',
@@ -682,7 +682,10 @@ export async function searchWorkSheetRows(
     const hits: GlobalSearchHit[] = picked
       .sort((a, b) => b.at - a.at || a.id.localeCompare(b.id))
       .map((p) => {
-        const engineNumber = labels.get(p.engineId)?.engineNumber?.trim() || HUMAN_LABEL_NO_NUMBER;
+        const label = labels.get(p.engineId);
+        // Документного номера нет — хит поиска называем номером карточки: «(без номера)»
+        // в палитре не отличил бы один этап от другого.
+        const engineNumber = label?.engineNumber?.trim() || label?.rmzCode?.trim() || HUMAN_LABEL_NO_NUMBER;
         const date = formatSearchDate(p.at);
         return {
           kind: 'work_sheet' as const,

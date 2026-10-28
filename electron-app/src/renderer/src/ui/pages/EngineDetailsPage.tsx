@@ -2447,6 +2447,8 @@ export function EngineDetailsPage(props: {
     return {
       engineBrand,
       engineNumber,
+      // Карточка без документного номера печатает бирку с РМЗ — тем же номером, что в списке.
+      ...(rmzCode ? { rmzCode } : {}),
       customerName: linkLabel('customer_id', effectiveCustomerId),
       contractName: contractLabelForChecklist,
       arrivalDate: arrivalMs,
@@ -2457,6 +2459,7 @@ export function EngineDetailsPage(props: {
   }, [
     engineBrand,
     engineNumber,
+    rmzCode,
     effectiveCustomerId,
     linkLists.customer_id,
     contractLabelForChecklist,

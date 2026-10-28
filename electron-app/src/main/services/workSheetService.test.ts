@@ -142,6 +142,19 @@ describe('строка этапа работ', () => {
     expect(meta.workshopId).toBe('W1');
   });
 
+  it('двигатель без документного номера называется номером карточки (РМЗ)', async () => {
+    const { sqlite, db } = makeDb();
+    // Документного номера у карточки нет — так выглядит двигатель, пришедший без документов.
+    sqlite.prepare(`DELETE FROM attribute_values WHERE id = 'v-num'`).run();
+    setFlag(sqlite, 'eng-1', 'engine_brand', 'ЯМЗ');
+    sqlite
+      .prepare(`INSERT INTO erp_engine_numbers (id,seq,status,created_at,updated_at) VALUES (?,?,?,?,?)`)
+      .run('eng-1', 451, 'active', 1, 1);
+    await saveWorkSheetRow(db, { id: 'row-rmz', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');
+    const listed = await listWorkSheetRows(db);
+    expect(listed.rows[0]?.engineNumber).toBe('RMZ451');
+  });
+
   it('повторное сохранение с тем же id — правка, не дубль', async () => {
     const { db } = makeDb();
     await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: OBKATKA, atMs: AT, values: { hours: '4' } }, 'ivanov');

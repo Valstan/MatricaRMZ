@@ -214,7 +214,7 @@ export async function buildEngineFlowByCounterpartyReport(
     if (contractSectionFilter === 'addon' && !isAddon) continue;
 
     if (engineNumberQuery) {
-      const haystack = [attrs.engine_number, attrs.number, attrs[ENGINE_INTERNAL_NUMBER_CODE]]
+      const haystack = [attrs.engine_number, attrs.number, attrs[ENGINE_INTERNAL_NUMBER_CODE], snapshot.rmzByEngineId.get(engineId)]
         .map((value) => normalizeText(value, '').toLowerCase())
         .join(' ');
       if (!haystack.includes(engineNumberQuery)) continue;

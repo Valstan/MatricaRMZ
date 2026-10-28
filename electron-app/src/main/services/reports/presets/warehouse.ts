@@ -42,7 +42,9 @@ const SERVICE_PERFORMERS: Record<string, string> = { local: 'Локальный 
 function engineNumberFromSnapshot(snapshot: Snapshot, engineId: string): string {
   if (!engineId) return HUMAN_LABEL_DASH;
   const attrs = snapshot.attrsByEntity.get(engineId) ?? {};
-  return pickHumanText(attrs.engine_number) || UNKNOWN_ENGINE_NUMBER_LABEL;
+  // Документного номера нет — складская строка называет двигатель номером карточки (РМЗ):
+  // иначе один и тот же «(без номера)» стоит у десятка живых двигателей.
+  return pickHumanText(attrs.engine_number) || snapshot.rmzByEngineId.get(engineId) || UNKNOWN_ENGINE_NUMBER_LABEL;
 }
 
 /** Логин → ФИО по снимку сотрудников: в журналах оператору нужен человек, а не учётка. */

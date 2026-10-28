@@ -54,6 +54,7 @@ import {
   WarehouseDocumentType,
   WarehouseDocumentWorkflowStatus,
   hasHumanLabel,
+  HUMAN_LABEL_NO_NUMBER,
   looksLikeIdentifier,
   stripIdentifierTokens,
 } from '@matricarmz/shared';
@@ -68,6 +69,7 @@ import {
   erpEngineAssemblyBom,
   erpEngineAssemblyBomBrandLinks,
   erpEngineAssemblyBomLines,
+  erpEngineNumbers,
   erpContractPaymentSlots,
   erpContractPayments,
   erpNomenclature,
@@ -707,6 +709,19 @@ function erpRows(shape: FixtureShape) {
 }
 
 /**
+ * Реестр номеров карточек (`erp_engine_numbers` — реплика с сервера). Строки стоят в ОБЕИХ
+ * формах фикстуры намеренно: проверяется не наличие номера, а правило подстановки. Номер
+ * карточки запасной — он называет двигатель только там, где документного нет, и обязан
+ * уступить, когда документный появился.
+ */
+function rmzRows(): Row[] {
+  return [
+    { id: ID.engineNoNumber, seq: 451, status: 'active', createdAt: T0, updatedAt: T0 },
+    { id: ID.engine, seq: 452, status: 'active', createdAt: T0, updatedAt: T0 },
+  ];
+}
+
+/**
  * Кладовщик (СИЗ): набор норм, карточка сотрудника, выдача 13-месячной давности
  * при сроке носки 12 мес — строка «просрочено». В дырявой форме строка нормы
  * ссылается на отсутствующую номенклатуру — билдеры обязаны показать прочерк, а не id.
@@ -779,6 +794,7 @@ function stubDb(shape: FixtureShape): any {
     [erpEngineAssemblyBom, erp.bomHeaders],
     [erpEngineAssemblyBomBrandLinks, erp.bomBrandLinks],
     [erpEngineAssemblyBomLines, erp.bomLines],
+    [erpEngineNumbers, rmzRows()],
     [erpContractPaymentSlots, paymentRows(shape).slots],
     [erpContractPayments, paymentRows(shape).pays],
     [erpEmployeeCards, ppe.employees],
@@ -1018,6 +1034,30 @@ describe('сторож человеко-понятных названий: ни 
     const names = new Set(report.rows.map((row) => String(row.employee)));
     expect(names, 'карточка из строгой таблицы (импорт ЗУП)').toContain('Петров Иван Сидорович');
     expect(names, 'карточка на сотрудника из справочника клиента').toContain('Иванов Иван Иванович');
+  });
+
+  // Третий номер двигателя (`RMZ451`) — запасной. Обе половины правила проверяются на одной
+  // и той же карточке, потому что разойтись они могут только вместе: ослабь подстановку —
+  // оператор увидит «(без номера)» у живого двигателя; сделай её жадной — потеряет
+  // документный номер, по которому сверяется с заводом.
+  it('дырявая фикстура: двигатель без документного номера называется номером карточки (РМЗ)', async () => {
+    const report = await runPreset('work_sheets', { leaky: true });
+    expect(report.ok, `отчёт не построился: ${report.ok ? '' : report.error}`).toBe(true);
+    if (!report.ok) return;
+    const numbers = report.rows.map((row) => String(row.engineNumber));
+    expect(numbers, 'номер карточки — запасной номер двигателя').toContain('RMZ451');
+    expect(numbers, 'у живого двигателя номер есть — заглушка «(без номера)» не нужна').not.toContain(
+      HUMAN_LABEL_NO_NUMBER,
+    );
+  });
+
+  it('полная фикстура: номер карточки не вытесняет документный', async () => {
+    const report = await runPreset('work_sheets', { leaky: false });
+    expect(report.ok, `отчёт не построился: ${report.ok ? '' : report.error}`).toBe(true);
+    if (!report.ok) return;
+    const numbers = report.rows.map((row) => String(row.engineNumber));
+    expect(numbers, 'документный номер остаётся основным').toContain('ДВ-1002');
+    expect(numbers, 'номер карточки уступает документному').not.toContain('RMZ451');
   });
 
   // Прогоняется по ВСЕМУ каталогу, а не только по покрытым: объект итогов билдеры формируют

@@ -240,7 +240,7 @@ export function computeContractBasedAssemblyPriorityFromSnapshot(
       if (eattrs.status_rejected) continue;
       const bid = normalizeText(eattrs.engine_brand_id, normalizeText(eattrs.engine_brand, ''));
       if (!passesBrandAndBom(bid)) continue;
-      const engineNumber = normalizeText(eattrs.engine_number, '');
+      const engineNumber = normalizeText(eattrs.engine_number, '') || (snapshot.rmzByEngineId.get(engineId) ?? '');
       const contractScore = scoredByContractId.get(cid)?.score ?? 0;
       const contractLabel = scoredByContractId.get(cid)?.label ?? '';
       const arr = onSiteEnginesByBrand.get(bid) ?? [];
