@@ -207,8 +207,12 @@ export function buildEngineOptions(snapshot: Snapshot, scrapEngineIds?: Readonly
       );
       const brandId = normalizeText(attrs.engine_brand_id, '');
       const brandLabel = brandId ? relatedEntityLabel(snapshot, brandId) : '';
+      // Номер карточки (РМЗ) — основной номер, когда документного нет: без него в фильтре
+      // стоит десяток одинаковых «(без номера) · ЯМЗ», и выбрать нужный двигатель нечем.
+      const rmzCode = snapshot.rmzByEngineId.get(id) ?? '';
+      const mainNumber = engineNumber || rmzCode;
       const label = [
-        engineNumber ? `№${engineNumber}` : UNKNOWN_ENGINE_NUMBER_LABEL,
+        mainNumber ? `№${mainNumber}` : UNKNOWN_ENGINE_NUMBER_LABEL,
         internalNumber ? `внутр. ${internalNumber}` : '',
         brandLabel,
       ]
@@ -216,9 +220,10 @@ export function buildEngineOptions(snapshot: Snapshot, scrapEngineIds?: Readonly
         .join(' · ');
       const searchText = joinOptionSearch([
         engineNumber,
+        rmzCode,
         internalNumber,
         brandLabel,
-        String(engineNumber).replace(/\D/g, ''),
+        String(mainNumber).replace(/\D/g, ''),
       ]);
       const phase = normalizeText(attrs.engine_phase, '');
       const hintText = joinOptionHint([phase && `Фаза: ${humanLabel('engine_phase', phase)}`]);

@@ -431,6 +431,9 @@ export async function buildWorkOrdersReport(
         engineBrand = normalizeText(brandNames.get(engineBrandId), '') || normalizeText(snapshot.attrsByEntity.get(engineBrandId)?.name, '');
       }
     }
+    // Документного номера нет — наряд называем номером карточки (РМЗ): пустая колонка
+    // «№ двигателя» у живого наряда читается как «двигатель не привязан».
+    if (engineId && !engineNumber) engineNumber = snapshot.rmzByEngineId.get(engineId) ?? '';
     if (brandFilter.length > 0) {
       const matchId = engineBrandId !== '' && brandFilter.includes(engineBrandId);
       const matchName = engineBrand !== '' && brandFilterNamesLc.has(engineBrand.toLowerCase());

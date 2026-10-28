@@ -142,7 +142,11 @@ export async function buildContractPaymentsMatrixReport(
   );
   for (const slot of slots) {
     const engineAttrs = slot.engineId ? snapshot.attrsByEntity.get(slot.engineId) ?? {} : {};
-    const engineNumber = slot.engineId ? normalizeText(engineAttrs.engine_number, '') : '';
+    // Документного номера нет — слот называем номером карточки (РМЗ): «(без номера)» в
+    // платёжном отчёте не отличил бы один двигатель от другого.
+    const engineNumber = slot.engineId
+      ? normalizeText(engineAttrs.engine_number, '') || (snapshot.rmzByEngineId.get(String(slot.engineId)) ?? '')
+      : '';
     if (!slot.engineId) emptySlotIndex += 1;
     const engineLabel = slot.engineId
       ? engineNumber || UNKNOWN_ENGINE_NUMBER_LABEL

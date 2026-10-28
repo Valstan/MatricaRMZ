@@ -2,6 +2,7 @@ import { isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
+  formatEngineRmzNumber,
   parseContractSections,
   resolveEngineCustomer,
   REPORT_PRESET_DEFINITIONS,
@@ -15,6 +16,7 @@ import {
   attributeValues,
   entities,
   entityTypes,
+  erpEngineNumbers,
     warehouseLocations,
 } from '../../database/schema.js';
 
@@ -40,6 +42,12 @@ export type Snapshot = {
   entityTypeIdByCode: Map<string, string>;
   entitiesById: Map<string, { id: string; typeId: string }>;
   attrsByEntity: Map<string, Record<string, unknown>>;
+  /**
+   * Сквозной номер карточки (`RMZ451`) по id двигателя — из реплики `erp_engine_numbers`.
+   * Двигателя в карте нет — сервер номер ещё не выдал (карточка создана офлайн): подставлять
+   * вместо него чужой номер нельзя, отчёт остаётся на документном.
+   */
+  rmzByEngineId: Map<string, string>;
 };
 
 export type OkPreview = Extract<ReportPresetPreviewResult, { ok: true }>;
@@ -190,11 +198,18 @@ export function getPreset(id: ReportPresetId): ReportPresetDefinition {
 
 
 export async function loadSnapshot(db: BetterSQLite3Database): Promise<Snapshot> {
-  const [typeRows, entityRows, defRows, valueRows] = await Promise.all([
+  const [typeRows, entityRows, defRows, valueRows, numberRows] = await Promise.all([
     db.select().from(entityTypes).where(isNull(entityTypes.deletedAt)).limit(20_000),
     db.select().from(entities).where(isNull(entities.deletedAt)).limit(200_000),
     db.select().from(attributeDefs).where(isNull(attributeDefs.deletedAt)).limit(80_000),
     db.select().from(attributeValues).where(isNull(attributeValues.deletedAt)).limit(350_000),
+    // Реплика номеров РМЗ необязательна: клиент, ещё не получивший таблицу, обязан
+    // напечатать отчёт по документным номерам, а не упасть на необязательной колонке.
+    db
+      .select({ id: erpEngineNumbers.id, seq: erpEngineNumbers.seq })
+      .from(erpEngineNumbers)
+      .limit(200_000)
+      .catch(() => [] as Array<{ id: unknown; seq: unknown }>),
   ]);
   const entityTypeIdByCode = new Map<string, string>();
   for (const row of typeRows as any[]) entityTypeIdByCode.set(String(row.code), String(row.id));
@@ -213,7 +228,12 @@ export async function loadSnapshot(db: BetterSQLite3Database): Promise<Snapshot>
     current[code] = safeJsonParse(String(row.valueJson ?? ''));
     attrsByEntity.set(entityId, current);
   }
-  return { entityTypeIdByCode, entitiesById, attrsByEntity };
+  const rmzByEngineId = new Map<string, string>();
+  for (const row of numberRows as Array<{ id: unknown; seq: unknown }>) {
+    const code = formatEngineRmzNumber(Number(row.seq));
+    if (code) rmzByEngineId.set(String(row.id), code);
+  }
+  return { entityTypeIdByCode, entitiesById, attrsByEntity, rmzByEngineId };
 }
 
 export function getIdsByType(snapshot: Snapshot, typeCode: string): string[] {

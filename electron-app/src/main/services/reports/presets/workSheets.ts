@@ -60,8 +60,10 @@ const WORK_SHEETS_SOURCE_COLUMNS: ReportColumn[] = [
   { key: 'note', label: 'Примечание' },
 ];
 
-function engineNumberLabel(attrs: Record<string, unknown>): string {
-  return pickHumanText(attrs.engine_number) || UNKNOWN_ENGINE_NUMBER_LABEL;
+function engineNumberLabel(attrs: Record<string, unknown>, rmzCode?: string): string {
+  // РМЗ подставляется только когда документного нет: он и есть опознание карточки,
+  // иначе в колонке «№ двигателя» стоит «(без номера)» у живого двигателя.
+  return pickHumanText(attrs.engine_number) || String(rmzCode ?? '').trim() || UNKNOWN_ENGINE_NUMBER_LABEL;
 }
 
 function engineBrandLabel(snapshot: Snapshot, attrs: Record<string, unknown>): string {
@@ -166,7 +168,7 @@ export async function buildWorkSheetsReport(
     const attrs = snapshot.attrsByEntity.get(p.engineId) ?? {};
     const row: Record<string, ReportCellValue> = {
       at: p.at,
-      engineNumber: engineNumberLabel(attrs),
+      engineNumber: engineNumberLabel(attrs, snapshot.rmzByEngineId.get(p.engineId)),
       engineInternalNumber: formatEngineInternalNumber(normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''), attrs[ENGINE_INTERNAL_NUMBER_YEAR_CODE]),
       engineBrand: engineBrandLabel(snapshot, attrs),
       nodeLabel: p.typeName || HUMAN_DASH,

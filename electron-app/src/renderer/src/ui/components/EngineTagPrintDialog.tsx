@@ -54,6 +54,8 @@ const PER_SHEET_HINT: Record<EngineTagsPerSheet, string> = {
 export type EngineTagSource = {
   engineBrand?: string;
   engineNumber?: string;
+  /** Сквозной номер карточки (`RMZ451`) — на бирке он и есть номер, когда документного нет. */
+  rmzCode?: string;
   customerName?: string;
   /** Номер договора целиком — у строки списка это отображаемое имя контракта. */
   contractName?: string;
@@ -75,7 +77,9 @@ export function buildEngineTagData(e: EngineTagSource & { engineId?: string }): 
   // разобрана по кодам стадий).
   return {
     engineBrand: String(e.engineBrand ?? ''),
-    engineNumber: String(e.engineNumber ?? ''),
+    // Бирка висит на железе: без документного номера на ней стоял прочерк, и двигатель
+    // в цеху оставался безымянным. РМЗ — номер карточки, он и есть опознание.
+    engineNumber: String(e.engineNumber ?? '').trim() || String(e.rmzCode ?? ''),
     engineId: String(e.engineId ?? ''),
     customerName: String(e.customerName ?? ''),
     contractNumber: String(e.contractName ?? ''),
@@ -101,7 +105,7 @@ function normalizeOrientation(v: unknown): EngineTagOrientation {
 
 function queueLabel(item: TagQueueItem): string {
   const brand = String(item.engineBrand ?? '').trim();
-  const number = String(item.engineNumber ?? '').trim();
+  const number = String(item.engineNumber ?? '').trim() || String(item.rmzCode ?? '').trim();
   const name = [brand, number].filter(Boolean).join(' ').trim();
   return name || `Без номера (${item.engineId.slice(0, 8)})`;
 }

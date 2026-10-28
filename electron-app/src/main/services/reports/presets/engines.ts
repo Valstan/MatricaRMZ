@@ -16,7 +16,6 @@ import {
   pickHumanText,
   extractBomLineNormPercent,
   formatEngineInternalNumber,
-  formatEngineRmzNumber,
   normalizeEngineInventoryRow,
   REPLENISHMENT_BRANCH_REPORT_LABELS,
   selectScrapReportColumns,
@@ -27,7 +26,6 @@ import {
   erpEngineAssemblyBom,
   erpEngineAssemblyBomBrandLinks,
   erpEngineAssemblyBomLines,
-  erpEngineNumbers,
   erpNomenclature,
   erpRegStockBalance,
   erpRegStockMovements,
@@ -54,27 +52,6 @@ import {
 // на engineId печатали в «№ двигателя» и «Марка» голый UUID.
 
 
-/**
- * Сквозные номера карточек по `entities.id`. Читаются из реплики `erp_engine_numbers`
- * (выдаёт сервер); у карточки без номера — пусто, и колонка остаётся прежней.
- *
- * Реплики может не быть (клиент, ещё не получивший таблицу): тогда отчёт остаётся на
- * документном номере. Падать из-за необязательной колонки он не должен — колонка «№»
- * существует ради читаемости, а не ради отчёта.
- */
-async function loadEngineRmzNumbers(db: BetterSQLite3Database): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
-  const loaded: unknown = await db
-    .select({ id: erpEngineNumbers.id, seq: erpEngineNumbers.seq })
-    .from(erpEngineNumbers);
-  if (!Array.isArray(loaded)) return out;
-  for (const r of loaded as Array<{ id: unknown; seq: unknown }>) {
-    const code = formatEngineRmzNumber(Number(r.seq));
-    if (code) out.set(String(r.id), code);
-  }
-  return out;
-}
-
 // Внутренний номер сюда НЕ подставляем: он живёт в соседней колонке «Внутр. №», и
 // оператор получил бы одно и то же значение дважды, приняв заводское клеймо за номер
 // двигателя. РМЗ — наоборот: это номер КАРТОЧКИ, и когда документного нет, он и есть
@@ -99,7 +76,7 @@ export async function buildEngineStagesReport(
   const brandFilter = asArray(filters?.brandIds);
   const counterpartyFilter = asArray(filters?.counterpartyIds);
   const snapshot = await loadSnapshot(db);
-  const rmzByEngineId = await loadEngineRmzNumbers(db);
+  const rmzByEngineId = snapshot.rmzByEngineId;
   const contractCounterpartyById = buildContractCounterpartyIndex(snapshot);
   const brandMatches = buildBrandFilterMatcher(brandFilter, new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const)));
   const latestOps = await db
@@ -248,7 +225,7 @@ export async function buildScrapRegisterReport(
   const columnKeys = asArray(filters?.columns);
 
   const snapshot = await loadSnapshot(db);
-  const rmzByEngineId = await loadEngineRmzNumbers(db);
+  const rmzByEngineId = snapshot.rmzByEngineId;
   const contractCounterpartyById = buildContractCounterpartyIndex(snapshot);
   const brandMatches = buildBrandFilterMatcher(brandFilter, new Map(buildOptions(snapshot, 'engine_brand').map((o) => [o.value, o.label] as const)));
   const engineTypeId = snapshot.entityTypeIdByCode.get('engine');
@@ -423,7 +400,7 @@ export async function buildEngineReadinessToAssembleReport(
   const brandFilter = asArray(filters?.engineBrandIds);
   const showOnlyShortages = Boolean((filters as Record<string, unknown> | undefined)?.showOnlyShortages);
   const snapshot = await loadSnapshot(db);
-  const rmzByEngineId = await loadEngineRmzNumbers(db);
+  const rmzByEngineId = snapshot.rmzByEngineId;
   const engineTypeId = snapshot.entityTypeIdByCode.get('engine');
   if (!engineTypeId) {
     const preset = getPreset('engine_readiness_to_assemble');
@@ -753,7 +730,7 @@ export async function buildEngineKittingReport(
   if (!engineId) return empty('Выберите двигатель в фильтре');
 
   const snapshot = await loadSnapshot(db);
-  const rmzByEngineId = await loadEngineRmzNumbers(db);
+  const rmzByEngineId = snapshot.rmzByEngineId;
   const attrs = snapshot.attrsByEntity.get(engineId) ?? {};
   const engineInternalNumber = formatEngineInternalNumber(
     normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
