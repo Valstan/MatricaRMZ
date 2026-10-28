@@ -8,6 +8,7 @@ import type { LedgerTableName } from '@matricarmz/ledger';
 
 import { recordLedgerAuthzDenial, recordLedgerReferenceDenial } from '../authzDenialLog.js';
 import { partitionEngineCardGates } from './engineCardPushGuard.js';
+import { partitionEngineDeletesByReason } from './engineDeleteReasonGuard.js';
 import { partitionLedgerInputsByAuthz } from './ledgerAuthzGuard.js';
 import { partitionByReferenceIntegrity } from './entityReferenceGuard.js';
 import { enforceWorkOrderNumberImmutability, reportWorkOrderNumberHeals } from './workOrderNumberGuard.js';
@@ -36,6 +37,9 @@ export function isPermanentSkipReason(reason: string): boolean {
   if (text.startsWith('reserved:')) return false;
   if (text.startsWith('forbidden:')) return true;
   if (text === 'engine_number_dup' || text === 'engine_pair_dup') return true;
+  // Причина удаления не появится сама: клиент должен спросить её у оператора, и только
+  // тогда строка уйдёт повторно. Значит повтор без правки бессмысленен — в карантин.
+  if (text === 'engine_delete_reason_required') return true;
   return text.includes('"reason":"deleted"');
 }
 
@@ -82,12 +86,16 @@ export async function applyLedgerTxs(txs: LedgerTxInput[], actor: SyncActor, cli
   // не будет, а подписанная разъехалась бы с базой (то же правило, что у номеров
   // нарядов выше). Отказ — per-row skip, очередь клиента не отравляется.
   const engineGate = await partitionEngineCardGates(allowed);
+  // Удаление карточки двигателя без причины — отказ (правило владельца 27.10, серверная
+  // половина 28.10). Тот же per-row skip: старая версия клиента, у которой нет поля
+  // причины, не отравит очередь, а получит внятный отказ в баннере.
+  const deleteGate = await partitionEngineDeletesByReason(engineGate.allowed);
   // Ссылочная целостность — тоже per-row (не throw): одна невалидная ссылка не
   // должна блокировать push всей машины (инцидент Я01АТ7829, см. entityReferenceGuard).
-  let writable = engineGate.allowed;
+  let writable = deleteGate.allowed;
   let referenceDenied: typeof denied = [];
   if (actor.username !== 'ledger-replay') {
-    const partition = await partitionByReferenceIntegrity(engineGate.allowed);
+    const partition = await partitionByReferenceIntegrity(deleteGate.allowed);
     writable = partition.allowed;
     referenceDenied = partition.denied;
     if (referenceDenied.length > 0) recordLedgerReferenceDenial(writeActor, referenceDenied);
@@ -110,6 +118,7 @@ export async function applyLedgerTxs(txs: LedgerTxInput[], actor: SyncActor, cli
       ...result.skipped,
       ...denied.map((r) => (isPermanentSkipReason(r.reason) ? { ...r, permanent: true as const } : r)),
       ...engineGate.skipped.map((r) => (isPermanentSkipReason(r.reason) ? { ...r, permanent: true as const } : r)),
+      ...deleteGate.skipped.map((r) => (isPermanentSkipReason(r.reason) ? { ...r, permanent: true as const } : r)),
       ...referenceDenied.map((r) => (isPermanentSkipReason(r.reason) ? { ...r, permanent: true as const } : r)),
     ],
   };

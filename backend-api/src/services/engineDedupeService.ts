@@ -779,6 +779,35 @@ export async function mergeEngineGroup(args: {
         // it (ops are already repointed; a retry will finish it once the tombstone writes).
         continue;
       }
+      // Склейка — тоже удаление карточки, и реестр номеров РМЗ спрашивает «зачем». Причина
+      // пишется ДО удаления: `softDeleteEntity` сам пинкует сверку номеров, и та читает
+      // причину из аудита — записанная после, она опоздала бы навсегда (так потерялись
+      // причины у шести карточек, удалённых с клиента 3.90.0, 28.10.2026). Отказ удаления
+      // после записи аудита практически невозможен: ссылки не проверяются, карточка только
+      // что прочитана, а томбстоун `merged_into` уже лёг.
+      const mergeAuditId = randomUUID();
+      await recordSyncChanges(
+        args.actor,
+        [
+          {
+            tableName: SyncTableName.AuditLog,
+            rowId: mergeAuditId,
+            op: 'upsert',
+            payload: {
+              id: mergeAuditId,
+              actor: args.actor.username,
+              action: 'engine.delete',
+              entity_id: loser,
+              table_name: SyncTableName.Entities,
+              payload_json: JSON.stringify({ reason: `объединение дублей: карточка склеена с ${survivorId}` }),
+              created_at: ts,
+              updated_at: ts,
+              deleted_at: null,
+            },
+          },
+        ],
+        { allowSyncConflicts: true },
+      );
       const del = await softDeleteEntity(args.actor, loser, { allowSyncConflicts: true, skipReferenceCheck: true });
       if (!del.ok) continue; // one stuck loser must not block merging the rest of the group
       report.merged.push({ loserId: loser, opsRepointed: loserOps.length, attrsFilled });
