@@ -48,4 +48,18 @@ describe('раздел «Номера РМЗ» подключён целиком
     const handler = IPC.slice(IPC.indexOf("ipcMain.handle('engine:rmzNumbers'"));
     expect(handler.slice(0, 300)).toContain("requirePermOrThrow(ctx, 'engines.view')");
   });
+
+  it('причина удаления пишется ДО удаления карточки', () => {
+    // Порядок — не стиль: сервер отбивает удаление двигателя, к которому нет записи
+    // `engine.delete` с причиной (`engine_delete_reason_required`). Обратный порядок
+    // оставляет окно, где карточка уже удалена, а причина не записалась, — и причина
+    // теряется навсегда (шесть карточек, 28.10.2026).
+    const handler = IPC.slice(IPC.indexOf("ipcMain.handle('engine:delete'"));
+    const body = handler.slice(0, handler.indexOf('ipcMain.handle', 1));
+    const auditAt = body.indexOf('addAudit(');
+    const deleteAt = body.indexOf('softDeleteEntity(');
+    expect(auditAt).toBeGreaterThan(-1);
+    expect(deleteAt).toBeGreaterThan(-1);
+    expect(auditAt, 'аудит обязан идти первым').toBeLessThan(deleteAt);
+  });
 });

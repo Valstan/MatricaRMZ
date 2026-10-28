@@ -20,6 +20,14 @@ describe('syncRejected — подписи rejected-строк для банне�
     expect(syncRejectReasonLabel('engine_pair_dup')).toContain('исправьте клеймо');
   });
 
+  it('удаление без причины называет следующий шаг (28.10.2026)', () => {
+    // Не «гейт карточки двигателя» общим ярлыком: оператору нужно понять, что карточка
+    // жива и её вернёт pull, а удалять надо заново с причиной.
+    const label = syncRejectReasonLabel('engine_delete_reason_required');
+    expect(label).toContain('указав причину');
+    expect(label).not.toBe(syncRejectReasonLabel('engine_number_dup'));
+  });
+
   it('строка описывается целиком с коротким id', () => {
     expect(describeRejectedRow({ table: 'operations', rowId: '12345678-aaaa', reason: 'missing_dependency' })).toContain(
       'Операция 12345678…',

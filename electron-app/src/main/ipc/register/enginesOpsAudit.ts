@@ -149,8 +149,11 @@ export function registerEnginesOpsAuditIpc(ctx: IpcContext) {
     const reason = String(reasonRaw ?? '').trim();
     if (!reason) return { ok: false as const, error: 'Причина удаления обязательна' };
     const actor = await ctx.currentActor();
-    const deleted = await softDeleteEntity(ctx.dataDb(), engineId);
-    if (!deleted.ok) return deleted;
+    // Причина пишется ДО удаления: сервер отбивает удаление двигателя, к которому нет
+    // записи `engine.delete` с непустой причиной (гейт `engine_delete_reason_required`).
+    // Обратный порядок оставлял бы окно, где карточка уже удалена, а причина не
+    // записалась, — и тогда причина терялась бы навсегда, как это случилось 28.10
+    // с шестью карточками, удалёнными с клиента 3.90.0.
     const audit = await addAudit(ctx.dataDb(), {
       actor,
       action: 'engine.delete',
@@ -158,7 +161,9 @@ export function registerEnginesOpsAuditIpc(ctx: IpcContext) {
       tableName: 'entities',
       payload: { reason },
     });
-    if (!audit.ok) return { ok: false as const, error: `Карточка удалена, причина не записалась: ${audit.error}` };
+    if (!audit.ok) return { ok: false as const, error: `Причина не записалась, карточка не удалена: ${audit.error}` };
+    const deleted = await softDeleteEntity(ctx.dataDb(), engineId);
+    if (!deleted.ok) return deleted;
     return deleted;
   });
 
