@@ -1,5 +1,6 @@
 import type { AuthFailureCode } from '../domain/authFailure.js';
 import type { EngineBulkIntakeApplyInput, EngineBulkIntakeApplyResult, EngineBulkIntakePreview } from '../domain/engineBulkIntake.js';
+import type { EngineRmzNumberStatus } from '../domain/engineRmzNumber.js';
 import type { EngineReservation } from '../domain/engineReservation.js';
 import type { GlobalSearchHit, GlobalSearchResponse } from '../domain/globalSearch.js';
 import type { PartDimension, PartEngineBrandLink, PartMetadata, PartSpec } from '../domain/part.js';
@@ -238,6 +239,39 @@ export type EngineDetails = {
   attributes: Record<string, unknown>;
   /** Сквозной номер карточки (`RMZ451`); пусто, пока сервер его не выдал. */
   rmzSeq?: number;
+};
+
+/**
+ * Строка реестра «Номера РМЗ» (план engine-rmz-numbers-2026-10, PR-4).
+ *
+ * Один выданный номер = одна карточка; строки реестра не удаляются никогда. Поэтому
+ * список — сразу и реестр номеров, и история: удалённая карточка остаётся строкой со
+ * статусом `deleted`, актором удаления и причиной. Владелец смотрит сюда на вопрос
+ * «кто и почему удалил карточку» — на него не отвечают ни список двигателей (там её уже
+ * нет), ни журнал действий (там нет номера и что было в карточке).
+ */
+export type EngineRmzHistoryItem = {
+  /** = id карточки двигателя: ключ реестра, он же ключ открытия карточки. */
+  engineId: string;
+  seq: number;
+  /** Готовый текст номера (`RMZ451`) — собирается `formatEngineRmzNumber`, врозь не разъедется. */
+  rmzCode: string;
+  status: EngineRmzNumberStatus;
+  /** Документный номер карточки; пусто — не заполняли. */
+  engineNumber: string;
+  /** Внутренний номер парой (`41/26`); пусто — не присваивали. */
+  internalNumber: string;
+  engineBrand: string;
+  arrivalDate: number | null;
+  /** Кто завёл карточку (логин из журнала); пусто — журнал актора не сохранил. */
+  createdBy: string;
+  createdAt: number;
+  cardDeletedAt: number | null;
+  /** Кто удалил карточку (логин из журнала). */
+  cardDeletedBy: string;
+  deleteReason: string;
+  /** «Что было в карточке» на момент удаления — уже с человеческими подписями. */
+  snapshot: Array<{ label: string; value: string }>;
 };
 
 export type EntityListItem = {
@@ -1289,6 +1323,12 @@ export type MatricaApi = {
     };
     /** Удаление карточки: причина обязательна — она уходит в журнал и остаётся в истории номера РМЗ. */
     delete: (engineId: string, reason: string) => Promise<{ ok: boolean; error?: string }>;
+    /**
+     * Реестр выданных номеров РМЗ с историей создания и удаления — экран «Номера РМЗ».
+     * Читается из реплики: строки реестра не удаляются, поэтому тут и живые карточки,
+     * и удалённые (со снимком «что было в карточке»).
+     */
+    rmzNumbers: () => Promise<EngineRmzHistoryItem[]>;
     /** Массовый разбор дублей: полное сканирование НА СЕРВЕРЕ (не по локальному кешу). */
     dedupeAnalyze: () => Promise<EngineDedupeAnalyzeResult>;
     dedupeMerge: (args: { survivorId: string; loserIds: string[] }) => Promise<EngineDedupeMergeResult>;

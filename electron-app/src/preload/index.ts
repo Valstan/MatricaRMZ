@@ -92,6 +92,7 @@ const matricaApi = {
     advanceStatus: async (args: { engineId: string; target: 'status_repair_started' | 'status_repaired'; dateMs: number }) =>
       ipcRenderer.invoke('engine:advanceStatus', args),
     delete: async (engineId: string, reason: string) => ipcRenderer.invoke('engine:delete', engineId, reason),
+    rmzNumbers: async () => ipcRenderer.invoke('engine:rmzNumbers'),
     findDuplicateCandidates: async (args: { engineNumber: string; excludeEngineId?: string }) =>
       ipcRenderer.invoke('engine:findDuplicateCandidates', args),
     reclamationNatures: async () => ipcRenderer.invoke('engine:reclamationNatures'),

@@ -263,6 +263,7 @@ const StockInventoryPage = lazyPage('./pages/StockInventoryPage.tsx', 'StockInve
 const RepairFundAuditPage = lazyPage('./pages/RepairFundAuditPage.tsx', 'RepairFundAuditPage');
 const WarehouseAnalyticsPage = lazyPage('./pages/WarehouseAnalyticsPage.tsx', 'WarehouseAnalyticsPage');
 const WorkshopStatsPage = lazyPage('./pages/WorkshopStatsPage.tsx', 'WorkshopStatsPage');
+const EngineRmzNumbersPage = lazyPage('./pages/EngineRmzNumbersPage.tsx', 'EngineRmzNumbersPage');
 const CustomReportsPage = lazyPage('./pages/CustomReportsPage.tsx', 'CustomReportsPage');
 const ReportTemplatesShowcasePage = lazyPage('./pages/ReportTemplatesShowcasePage.tsx', 'ReportTemplatesShowcasePage');
 const AccessSectionsPage = lazyPage('./pages/AccessSectionsPage.tsx', 'AccessSectionsPage');
@@ -630,6 +631,7 @@ function appTabTitle(tab: string): string {
   const labels: Record<string, string> = {
     history: 'История',
     engines: 'Двигатели',
+    engine_rmz_numbers: 'Номера РМЗ',
     now_at_plant: 'Сейчас на заводе',
     work_sheets: 'Этапы ремонта',
     assembly_forecast: 'Прогноз сборки',
@@ -706,6 +708,7 @@ const MENU_LABELS: Record<MenuTabId, string> = {
   contracts: 'Контракты',
   changes: 'Изменения',
   engines: 'Двигатели',
+  engine_rmz_numbers: 'Номера РМЗ',
   now_at_plant: 'Сейчас на заводе',
   work_sheets: 'Этапы ремонта',
   assembly_forecast: 'Прогноз сборки',
@@ -2927,6 +2930,9 @@ export function App() {
     ...(authStatus.loggedIn ? (['user_screens'] as const) : []),
     ...(caps.canViewMasterData ? (['contracts'] as const) : []),
     ...(caps.canViewEngines ? (['engines'] as const) : []),
+    // Реестр номеров РМЗ — тот же контур, что и двигатели (право `engines.view`): там
+    // видно, куда делась карточка, и кто её удалил.
+    ...(caps.canViewEngines ? (['engine_rmz_numbers'] as const) : []),
     // Обстановка по заводу — тем же, кто видит двигатели (владелец 14.10.2026: «чтобы все сразу могли попасть»).
     ...(caps.canViewEngines ? (['now_at_plant'] as const) : []),
     // Этапы работ — строки истории ремонта, право то же, что у истории.
@@ -5821,6 +5827,8 @@ export function App() {
         {t === 'work_sheet' && !selectedWorkSheetId && (
           <div style={{ color: 'var(--muted)' }}>Выберите этап работ из списка.</div>
         )}
+        {t === 'engine_rmz_numbers' && <EngineRmzNumbersPage onOpenEngine={(x: string) => void openEngine(x)} />}
+
         {t === 'engines' && (
           <EnginesPage
             engines={engines}

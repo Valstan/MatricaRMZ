@@ -92,6 +92,7 @@ export const TAB_VISUALS: Partial<Record<MenuTabId, TabVisualMeta>> = {
   stock_transfers: { icon: '🔄', subtitle: 'Перемещения и списание', gradient: 'linear-gradient(135deg, #0c4a6e 0%, #0284c7 100%)' },
   stock_inventory: { icon: '📋', subtitle: 'Инвентаризация склада', gradient: 'linear-gradient(135deg, #075985 0%, #0284c7 100%)' },
   repair_fund_audit: { icon: '🛠️', subtitle: 'Детали, ожидающие ремонта', gradient: 'linear-gradient(135deg, #b45309 0%, #f59e0b 100%)' },
+  engine_rmz_numbers: { icon: '🔢', subtitle: 'Реестр номеров РМЗ: кто завёл и кто удалил карточку', gradient: 'linear-gradient(135deg, #1d4ed8 0%, #60a5fa 100%)' },
   warehouse_analytics: { icon: '📈', subtitle: 'Выпуск двигателей по маркам', gradient: 'linear-gradient(135deg, #0d9488 0%, #2dd4bf 100%)' },
   workshop_stats: { icon: '📊', subtitle: 'Труд и прохождение двигателей по цехам', gradient: 'linear-gradient(135deg, #4338ca 0%, #6366f1 100%)' },
   contracts: { icon: '📄', subtitle: 'Договоры и условия', gradient: 'linear-gradient(135deg, #7c3aed 0%, #c084fc 100%)' },
