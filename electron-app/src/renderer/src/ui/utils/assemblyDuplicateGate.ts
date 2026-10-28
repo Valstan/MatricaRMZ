@@ -33,12 +33,15 @@ export function formatEngineGateLabel(engine: {
   engineNumber?: string | null;
   internalNumberFull?: string | null;
   engineInternalNumber?: string | null;
+  /** Сквозной номер карточки: называется, только когда прежних номеров нет. */
+  rmzCode?: string | null;
 }): string {
-  const head = [engine.engineBrandName ?? engine.engineBrand, engine.engineNumber]
+  const internal = String(engine.engineInternalNumber ?? engine.internalNumberFull ?? '').trim();
+  const rmz = String(engine.rmzCode ?? '').trim();
+  const head = [engine.engineBrandName ?? engine.engineBrand, engine.engineNumber?.trim() || (internal ? '' : rmz)]
     .map((part) => String(part ?? '').trim())
     .filter(Boolean)
     .join(' ');
-  const internal = String(engine.engineInternalNumber ?? engine.internalNumberFull ?? '').trim();
   if (!head && !internal) return '';
   return internal ? `${head || 'без номера'} (${internal})` : head;
 }

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { EngineDetails, EngineDuplicateMatches, EngineInternalNumberDuplicate, FileRef, SupplyRequestItem } from '@matricarmz/shared';
-import { looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, DEFAULT_CONTRACT_REPAIR_DAYS, effectiveRepairDays, buildContractSectionOptions, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, isEavFlagSet, isEngineDoneForCountdown, compareStageRecency, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, arrivalPlacements, arrivalPlacementLabel, REPAIR_HISTORY_OPERATION_TYPE, buildRepairHistoryMeta, type ArrivalListItem, type ArrivalPlacement, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
+import { looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, DEFAULT_CONTRACT_REPAIR_DAYS, effectiveRepairDays, buildContractSectionOptions, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, isEavFlagSet, isEngineDoneForCountdown, compareStageRecency, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, formatEngineRmzNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, arrivalPlacements, arrivalPlacementLabel, REPAIR_HISTORY_OPERATION_TYPE, buildRepairHistoryMeta, type ArrivalListItem, type ArrivalPlacement, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -976,6 +976,9 @@ export function EngineDetailsPage(props: {
 
   const internalFields = resolveInternalNumberFields();
   const internalNumberFull = formatEngineInternalNumber(internalFields.number, internalFields.year);
+  // Сквозной номер карточки выдаёт сервер — карточка только показывает. Пока не выдан,
+  // строка говорит «присваивается»: подставить чужой номер здесь было бы хуже пустоты.
+  const rmzCode = formatEngineRmzNumber(props.engine.rmzSeq);
 
   // Живая проверка занятости пары — оператор видит отказ до сохранения, а не после.
   useEffect(() => {
@@ -2090,6 +2093,24 @@ export function EngineDetailsPage(props: {
       ),
     },
     {
+      code: 'rmz_number',
+      defaultOrder: 16,
+      label: 'Номер РМЗ',
+      value: rmzCode,
+      render: (
+        <span
+          title="Программный номер карточки: присваивается автоматически при создании, не переиспользуется и остаётся в истории после удаления"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}
+        >
+          {rmzCode ? (
+            <b>{rmzCode}</b>
+          ) : (
+            <span style={{ color: 'var(--subtle)' }}>присваивается — карточка ещё не доехала до сервера</span>
+          )}
+        </span>
+      ),
+    },
+    {
       code: 'engine_brand_id',
       defaultOrder: 20,
       label: 'Марка двигателя',
@@ -2373,6 +2394,7 @@ export function EngineDetailsPage(props: {
   const orderedPrintRows: Array<[string, string]> = [
     ['Номер двигателя', engineNumber],
     ['Внутренний номер', internalNumberFull],
+    ...(rmzCode ? ([['Номер РМЗ', rmzCode]] as Array<[string, string]>) : []),
     ['Марка двигателя', engineBrand],
     ['Контрагент', linkLabel('customer_id', effectiveCustomerId)],
     ['Контракт', linkLabel('contract_id', contractId)],
@@ -2402,7 +2424,9 @@ export function EngineDetailsPage(props: {
     ? `Двигатель: ${engineNumber.trim()}${internalNumberFull ? ` (внутр. ${internalNumberFull})` : ''}`
     : internalNumberFull
       ? `Двигатель: внутр. ${internalNumberFull}`
-      : 'Карточка двигателя';
+      : rmzCode
+        ? `Двигатель: ${rmzCode}`
+        : 'Карточка двигателя';
   const contractLabelForChecklist = ((linkLists.contract_id ?? []).find((o) => o.id === contractId)?.label ?? '').trim();
   // Акт комплектности и панель дефектовки получают СОХРАНЁННУЮ дату прихода
   // (как вкладка «Платежи»), а не черновик поля: дата прихода — один источник
@@ -2968,6 +2992,7 @@ export function EngineDetailsPage(props: {
             canExport={props.canExportReports === true}
             engineNumber={engineNumber}
             engineInternalNumber={internalNumberFull}
+            {...(rmzCode ? { engineRmzNumber: rmzCode } : {})}
             engineBrand={engineBrand}
             contractNumber={contractLabelForChecklist}
             arrivalDate={arrivalDateMsForChecklist}

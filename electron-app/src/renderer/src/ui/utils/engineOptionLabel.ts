@@ -9,6 +9,8 @@ export type EngineOptionEngine = {
   engineNumber?: string | null;
   internalNumberFull?: string | null;
   engineBrand?: string | null;
+  /** Сквозной номер карточки (`RMZ451`) — основной, только если прежних номеров нет. */
+  rmzCode?: string | null;
   arrival?: ArrivalPlacement | undefined;
 };
 
@@ -28,7 +30,10 @@ export function withArrivalNote(label: string, arrival?: ArrivalPlacement): stri
 /** Подпись без пометки заезда: «номер — внутр. 41/26 — ЯМЗ», фолбэк — короткий id. */
 export function engineOptionBaseLabel(engine: EngineOptionEngine): string {
   const internal = engine.internalNumberFull?.trim();
-  const parts = [engine.engineNumber, internal ? `внутр. ${internal}` : '', engine.engineBrand].filter(
+  // РМЗ становится основным номером, только когда прежних номеров нет: иначе подпись
+  // удлинилась бы третьим номером там, где и двух хватает.
+  const main = engine.engineNumber?.trim() || (internal ? '' : engine.rmzCode?.trim() ?? '');
+  const parts = [main, internal ? `внутр. ${internal}` : '', engine.engineBrand].filter(
     (value): value is string => typeof value === 'string' && value.trim().length > 0,
   );
   return parts.length > 0 ? parts.join(' — ') : engine.id.slice(0, 8);

@@ -22,6 +22,12 @@ export type EngineInventoryPrintContext = {
    * В номер акта НЕ входит (номер акта = № двигателя + версия, см. renderActIdentity).
    */
   engineInternalNumber?: string;
+  /**
+   * Сквозной номер карточки (`RMZ451`). Печатается как «№ двигателя», только когда
+   * документного нет: иначе клетка повторяла бы уже показанное, а пустая «№ двигателя»
+   * не опознаёт двигатель никак.
+   */
+  engineRmzNumber?: string;
   contractNumber: string;
   /**
    * Номер накладной прихода (`arrival_invoice` карточки) — печатается строкой шапки
@@ -250,7 +256,7 @@ export function buildInventoryActHtml(ctx: EngineInventoryPrintContext): string 
   const inspectionDate = getDate(ctx.answers, 'completeness_inspection_date');
   const contractNumber = (ctx.contractNumber || getText(ctx.answers, 'contract_number')).trim();
   const brand = ctx.engineBrand || getText(ctx.answers, 'engine_brand');
-  const number = ctx.engineNumber || getText(ctx.answers, 'engine_number');
+  const number = ctx.engineNumber || String(ctx.engineRmzNumber ?? '').trim() || getText(ctx.answers, 'engine_number');
   const internalNumber = String(ctx.engineInternalNumber ?? '').trim();
 
   // Комиссия — динамический список (readCommissionMembers: commission_members с fallback на 3 легаси-слота).
@@ -430,7 +436,7 @@ export function buildInventoryDefectBlankHtml(ctx: EngineInventoryPrintContext):
   const startDate = getDate(ctx.answers, 'defect_start_date');
   const contractNumber = (ctx.contractNumber || getText(ctx.answers, 'contract_number')).trim();
   const brand = ctx.engineBrand || getText(ctx.answers, 'engine_brand');
-  const number = ctx.engineNumber || getText(ctx.answers, 'engine_number');
+  const number = ctx.engineNumber || String(ctx.engineRmzNumber ?? '').trim() || getText(ctx.answers, 'engine_number');
   const internalNumber = String(ctx.engineInternalNumber ?? '').trim();
 
   const header = `
@@ -471,7 +477,7 @@ export function buildInventoryDefectHtml(ctx: EngineInventoryPrintContext): stri
   const startDate = getDate(ctx.answers, 'defect_start_date');
   const contractNumber = (ctx.contractNumber || getText(ctx.answers, 'contract_number')).trim();
   const brand = ctx.engineBrand || getText(ctx.answers, 'engine_brand');
-  const number = ctx.engineNumber || getText(ctx.answers, 'engine_number');
+  const number = ctx.engineNumber || String(ctx.engineRmzNumber ?? '').trim() || getText(ctx.answers, 'engine_number');
   const internalNumber = String(ctx.engineInternalNumber ?? '').trim();
   const dismantledNames = blank
     ? ''
@@ -569,7 +575,7 @@ export function buildInventoryClaimHtml(ctx: EngineInventoryPrintContext): strin
   const header = `
     ${contractNumber ? renderHeaderRow('Номер договора', contractNumber) : ''}
     ${renderHeaderRow('Марка двигателя', ctx.engineBrand || getText(ctx.answers, 'engine_brand'))}
-    ${renderHeaderRow('№ двигателя', ctx.engineNumber || getText(ctx.answers, 'engine_number'))}
+    ${renderHeaderRow('№ двигателя', ctx.engineNumber || String(ctx.engineRmzNumber ?? '').trim() || getText(ctx.answers, 'engine_number'))}
     ${ctx.engineInternalNumber ? renderHeaderRow('Внутренний №', ctx.engineInternalNumber) : ''}
     ${renderHeaderRow('Дата приёмки', dateOrFillIn(arrivalDate))}
   `;
@@ -658,6 +664,8 @@ export type EngineRequirementPrintContext = {
   engineNumber: string;
   /** Внутренний номер ('41/26'); у требований по старым снимкам его нет — строка условная. */
   engineInternalNumber?: string;
+  /** Сквозной номер карточки — «№ двигателя», когда документного нет (исторические снимки). */
+  engineRmzNumber?: string;
   contractNumber: string;
   instances: RepairFundInstancePayload[];
   printedAt?: number;
@@ -677,7 +685,7 @@ export function buildEngineRequirementHtml(ctx: EngineRequirementPrintContext): 
   const header = `
     ${ctx.contractNumber.trim() ? renderHeaderRow('Номер договора', ctx.contractNumber) : ''}
     ${renderHeaderRow('Марка двигателя', ctx.engineBrand)}
-    ${renderHeaderRow('№ двигателя', ctx.engineNumber)}
+    ${renderHeaderRow('№ двигателя', ctx.engineNumber || String(ctx.engineRmzNumber ?? '').trim())}
     ${ctx.engineInternalNumber ? renderHeaderRow('Внутренний №', ctx.engineInternalNumber) : ''}
     ${renderHeaderRow('Дата формирования', formatMoscowDate(printedAt))}
   `;

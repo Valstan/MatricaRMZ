@@ -33,6 +33,14 @@ describe('engineOptionLabel', () => {
     expect(engineOptionLabel(old)).toBe('740.1000 — внутр. 41/25 — КАМАЗ · архивный заезд 2025 (1 из 2)');
     expect(engineOptionLabel(fresh)).not.toBe(engineOptionLabel(old));
   });
+
+  it('номер РМЗ становится основным, только когда прежних номеров нет', () => {
+    // Карточка без документного и заводского номеров иначе показывалась бы восемью
+    // символами UUID — оператор не смог бы отличить её от соседней.
+    expect(engineOptionLabel({ id: 'e9', rmzCode: 'RMZ451' })).toBe('RMZ451');
+    // Прежние номера на месте — третий в подписи не появляется: двух уже хватает.
+    expect(engineOptionLabel({ id: 'e9', engineNumber: '238.5555', rmzCode: 'RMZ451' })).toBe('238.5555');
+  });
 });
 
 describe('compareEngineOptions', () => {

@@ -38,6 +38,8 @@ export type EngineInfo = {
   id: string;
   engineNumber?: string;
   engineInternalNumber?: string;
+  /** Сквозной номер карточки (`RMZ451`): подпись и печать берут его, когда прежних номеров нет. */
+  rmzCode?: string;
   engineBrandId?: string | null;
   engineBrandName?: string;
   contractId?: string | null;
@@ -123,6 +125,7 @@ async function loadEngines(): Promise<EngineInfo[]> {
     id: String(e.id),
     engineNumber: String(e.engineNumber ?? ''),
     engineInternalNumber: String(e.internalNumberFull ?? ''),
+    ...(e.rmzCode ? { rmzCode: String(e.rmzCode) } : {}),
     engineBrandId: e.engineBrandId ? String(e.engineBrandId) : null,
     engineBrandName: String(e.engineBrand ?? ''),
     contractId: e.contractId ? String(e.contractId) : null,

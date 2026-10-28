@@ -381,6 +381,8 @@ export function RepairChecklistPanel(props: {
   engineNumber?: string;
   /** Внутренний номер ('41/26') — печатается строкой в шапке акта, рядом с № двигателя. */
   engineInternalNumber?: string;
+  /** Сквозной номер карточки (`RMZ451`) — «№ двигателя», когда документного нет. */
+  engineRmzNumber?: string;
   engineBrand?: string;
   engineBrandId?: string;
   contractNumber?: string;
@@ -774,6 +776,7 @@ export function RepairChecklistPanel(props: {
       engineBrand: String(props.engineBrand ?? ''),
       engineNumber: String(props.engineNumber ?? ''),
       ...(props.engineInternalNumber ? { engineInternalNumber: String(props.engineInternalNumber) } : {}),
+      ...(props.engineRmzNumber ? { engineRmzNumber: String(props.engineRmzNumber) } : {}),
       contractNumber: String(props.contractNumber ?? ''),
     };
   }
@@ -846,6 +849,7 @@ export function RepairChecklistPanel(props: {
       engineBrand: String(props.engineBrand ?? ''),
       engineNumber: String(props.engineNumber ?? ''),
       ...(props.engineInternalNumber ? { engineInternalNumber: String(props.engineInternalNumber) } : {}),
+      ...(props.engineRmzNumber ? { engineRmzNumber: String(props.engineRmzNumber) } : {}),
       contractNumber: String(props.contractNumber ?? ''),
       ...(props.arrivalInvoice ? { arrivalInvoice: String(props.arrivalInvoice) } : {}),
       rows,
@@ -871,6 +875,7 @@ export function RepairChecklistPanel(props: {
           engineBrand: String(props.engineBrand ?? ''),
           engineNumber: String(props.engineNumber ?? ''),
           ...(props.engineInternalNumber ? { engineInternalNumber: String(props.engineInternalNumber) } : {}),
+          ...(props.engineRmzNumber ? { engineRmzNumber: String(props.engineRmzNumber) } : {}),
           contractNumber: String(props.contractNumber ?? ''),
         },
         answers,

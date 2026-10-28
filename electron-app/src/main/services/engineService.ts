@@ -35,6 +35,7 @@ import {
   engineInternalNumberDuplicateMessage,
   engineInternalNumberKey,
   formatEngineInternalNumber,
+  formatEngineRmzNumber,
   isScrapEngine,
   isValidEngineInternalNumberYear,
   normalizeLookupCompact,
@@ -47,7 +48,7 @@ import {
   type EngineStageEntry,
 } from '@matricarmz/shared';
 
-import { attributeDefs, attributeValues, entities, entityTypes, erpEngineCards, operations } from '../database/schema.js';
+import { attributeDefs, attributeValues, entities, entityTypes, erpEngineCards, erpEngineNumbers, operations } from '../database/schema.js';
 import { collectChunked } from '../utils/sqlChunks.js';
 import { mergeStrictCardAttrs, readEngineCardStrict, strictRowToSnake, type EavCardAttr } from './engineCardsReplica.js';
 import { payloadWithInventoryRows, readInventoryRowsForOperations, readInventoryLinesVersions } from './engineInventoryLinesReplica.js';
@@ -1061,6 +1062,20 @@ export async function listEngines(
   }
   mark('strictCards');
 
+  // Сквозной номер карточки: реплика `erp_engine_numbers` приезжает обычным pull, выдаёт
+  // номер сервер. Нет строки — карточка ещё не доехала до сервера; пусто и показываем.
+  const rmzSeqByEngineId = new Map<string, number>();
+  if (engineIds.length > 0) {
+    const numberRows = await collectChunked(engineIds, (idsChunk) =>
+      db.select().from(erpEngineNumbers).where(inArray(erpEngineNumbers.id, idsChunk)),
+    );
+    for (const r of numberRows) {
+      const seq = Number(r.seq);
+      if (Number.isFinite(seq)) rmzSeqByEngineId.set(String(r.id), seq);
+    }
+  }
+  mark('rmzNumbers');
+
   const statusDefById: Record<string, string> = {};
   for (const c of STATUS_CODES) {
     const id = defs[c];
@@ -1336,12 +1351,14 @@ export async function listEngines(
     const crankcaseScrappedLive = crankcaseScrapped && !isScrapResolvedFor(scrapResolvedAt, defectDate);
     const scrapBranchLive =
       lastStageCode === 'scrap_branch' && !isScrapResolvedFor(scrapResolvedAt, lastStageAt);
+    const rmzSeq = rmzSeqByEngineId.get(e.id);
     result.push({
       id: e.id,
       engineNumber: engineNumber ?? '',
       internalNumber: internalNumber ?? '',
       ...(internalNumberYear != null ? { internalNumberYear } : {}),
       internalNumberFull: formatEngineInternalNumber(internalNumber ?? '', internalNumberYear),
+      ...(rmzSeq != null ? { rmzSeq, rmzCode: formatEngineRmzNumber(rmzSeq) } : {}),
       engineBrand: engineBrand ?? '',
       engineBrandId: engineBrandId ?? '',
       customerId: resolvedCustomerId,
@@ -1458,6 +1475,20 @@ export async function ensureEngineRow(
   return true;
 }
 
+/**
+ * Номер карточки из реплики `erp_engine_numbers`. Пусто — сервер номер ещё не выдал
+ * (карточка создана офлайн): подставлять вместо него чужой номер нельзя.
+ */
+async function readEngineRmzSeq(db: BetterSQLite3Database, id: string): Promise<number | null> {
+  const rows = await db
+    .select({ seq: erpEngineNumbers.seq })
+    .from(erpEngineNumbers)
+    .where(eq(erpEngineNumbers.id, id))
+    .limit(1);
+  const seq = Number(rows[0]?.seq);
+  return Number.isFinite(seq) && seq > 0 ? seq : null;
+}
+
 export async function getEngineDetails(db: BetterSQLite3Database, id: string): Promise<EngineDetails> {
   const e = await db.select().from(entities).where(eq(entities.id, id)).limit(1);
   if (!e[0]) {
@@ -1468,6 +1499,7 @@ export async function getEngineDetails(db: BetterSQLite3Database, id: string): P
     const strict = await readEngineCardStrict(db, id).catch(() => null);
     const attr = mergeStrictCardAttrs({}, strict, Number(strict?.updatedAt ?? 0));
     const ts = nowMs();
+    const freshRmzSeq = await readEngineRmzSeq(db, id);
     return {
       id,
       typeId: await getEngineTypeId(db),
@@ -1476,6 +1508,7 @@ export async function getEngineDetails(db: BetterSQLite3Database, id: string): P
       deletedAt: null,
       syncStatus: 'pending',
       attributes: attr,
+      ...(freshRmzSeq != null ? { rmzSeq: freshRmzSeq } : {}),
     };
   }
 
@@ -1497,6 +1530,7 @@ export async function getEngineDetails(db: BetterSQLite3Database, id: string): P
   // выглядит пустой до возвращения серверного EAV-следа pull'ом.
   const strict = await readEngineCardStrict(db, id).catch(() => null);
   const merged = mergeStrictCardAttrs(eav, strict, Number(strict?.updatedAt ?? 0));
+  const rmzSeq = await readEngineRmzSeq(db, id);
 
   return {
     id: e[0].id,
@@ -1506,6 +1540,7 @@ export async function getEngineDetails(db: BetterSQLite3Database, id: string): P
     deletedAt: e[0].deletedAt ?? null,
     syncStatus: e[0].syncStatus,
     attributes: merged,
+    ...(rmzSeq != null ? { rmzSeq } : {}),
   };
 }
 
