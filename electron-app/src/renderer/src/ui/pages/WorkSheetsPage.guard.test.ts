@@ -74,8 +74,8 @@ describe('этапы работ — экран', () => {
 
   it('вкладка заведена в реестре разделов, меню и приложении под правом на операции', () => {
     expect(SECTIONS).toContain("work_sheets: 'Этапы ремонта'");
-    expect(SECTIONS).toContain("production: ['engines', 'now_at_plant', 'work_sheets'");
-    expect(ACCESS).toContain("menuTabs: ['engines', 'work_sheets'");
+    expect(SECTIONS).toContain("production: ['engines', 'engine_rmz_numbers', 'now_at_plant', 'work_sheets'");
+    expect(ACCESS).toContain("menuTabs: ['engines', 'engine_rmz_numbers', 'work_sheets'");
     expect(APP).toContain("...(caps.canViewOperations ? (['work_sheets'] as const) : [])");
     expect(APP).toContain("{t === 'work_sheets' && (");
     expect(GATE, 'IPC этапов работ гейтится разделом «Производство»').toContain("['workSheets:', 'production']");

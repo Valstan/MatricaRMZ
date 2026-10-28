@@ -19,6 +19,7 @@ import {
   getEngineReservation,
   releaseEngineReservation,
 } from '../../services/engineReservationClient.js';
+import { listEngineRmzNumbers } from '../../services/engineRmzNumbersHistory.js';
 import { engineDedupeAnalyze, engineDedupeMerge } from '../../services/erpService.js';
 import { logPerfWarn } from '../../services/logService.js';
 import { getOperation, isManualHistoryRow, listOperations, addOperation, softDeleteOperation, updateManualEntry } from '../../services/operationService.js';
@@ -50,6 +51,12 @@ export function registerEnginesOpsAuditIpc(ctx: IpcContext) {
   ipcMain.handle('engine:get', async (_e, id: string) => {
     await requirePermOrThrow(ctx, 'engines.view');
     return getEngineDetails(ctx.dataDb(), id);
+  });
+  // Реестр номеров РМЗ с историей создания и удаления — экран «Номера РМЗ». Право то же,
+  // что у списка двигателей: это тот же производственный контур, только со стороны номера.
+  ipcMain.handle('engine:rmzNumbers', async () => {
+    await requirePermOrThrow(ctx, 'engines.view');
+    return listEngineRmzNumbers(ctx.dataDb());
   });
   ipcMain.handle('engine:reclamationNatures', async () => {
     await requirePermOrThrow(ctx, 'engines.view');
