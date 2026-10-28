@@ -184,6 +184,9 @@
 ## 🟡 Техдолг
 
 - [🟡 web-admin не показывает номер РМЗ: нужен REST-ответ с номером 🗓 since:2026-10-28](pending/web-admin-ne-pokazyvaet-nomer-rmz-nuzhen-rest.md)
+- [🟡 Журнал релизов не пополняется с 3.54.0: токен публикации протух 🗓 since:2026-10-28](pending/zhurnal-relizov-ne-popolnyaetsya-token-protukh.md)
+- [🟡 Причина удаления двигателя обязательна только на клиенте 🗓 since:2026-10-28](pending/prichina-udaleniya-dvigatelya-tolko-na-kliente.md)
+- [🟢 Экран «Номера РМЗ» не знает автора старых карточек 🗓 since:2026-10-28](pending/ekran-nomera-rmz-ne-znaet-avtora-starykh-kartochek.md)
 - [🟡 Живой `docs/COMPLETED.md` разгружен от старых поколений (638 → 274 КБ), но строки 3.x всё ещё абзацы 🗓 since:2026-10-27](pending/completed-szhat-stroki-pokoleniya-3x.md)
 - [CDP-смоук пакета 3.85–3.87 прогнан 21.10 — 52/52; осталось четыре куска 🗓 since:2026-10-21](pending/cdp-smouk-paketa-3-85-3-87-prognan-21-10-52-52-ostalos.md)
 - [🔴 Баланс DeepSeek у прод-движка: на нуле оператор не получит ответа вообще 🗓 since:2026-10-23](pending/balans-deepseek-u-prod-dvizhka-na-nule-operator-ne.md)
