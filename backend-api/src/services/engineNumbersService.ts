@@ -138,9 +138,11 @@ async function loadSnapshots(ids: string[]): Promise<Map<string, string>> {
 
 /**
  * Выдать номера живым карточкам без строки реестра. Порядок — по дате прихода
- * (самый ранний приезд получает `RMZ1`), пустая дата — в конец, дальше по времени
- * создания и id: порядок обязан быть воспроизводимым, иначе бэкфилл и обычная
- * выдача дадут разные номера одним и тем же карточкам.
+ * (самый ранний приезд получает `RMZ1`), **пустая дата — в начало**: у таких карточек
+ * нет ни документа, ни даты, и номер карточки — единственное, чем их можно назвать
+ * (решение владельца 28.10, уточняет порядок от 27.10). Дальше по времени создания и
+ * id: порядок обязан быть воспроизводимым, иначе бэкфилл и обычная выдача дадут разные
+ * номера одним и тем же карточкам.
  */
 async function issueMissingNumbers(actor: SyncWriteActor): Promise<number> {
   const candidates = await db
@@ -160,7 +162,7 @@ async function issueMissingNumbers(actor: SyncWriteActor): Promise<number> {
         isNull(erpEngineNumbers.id),
       ),
     )
-    .orderBy(sql`${erpEngineCards.arrivalDate} asc nulls last`, asc(entities.createdAt), asc(entities.id))
+    .orderBy(sql`${erpEngineCards.arrivalDate} asc nulls first`, asc(entities.createdAt), asc(entities.id))
     .limit(BATCH_LIMIT);
   if (candidates.length === 0) return 0;
 
