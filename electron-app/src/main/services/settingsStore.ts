@@ -22,6 +22,8 @@ export const SettingsKey = {
   // (sync/blockedRows.ts). Единственное состояние, которое не воскрешает
   // recoverErroredRows.
   SyncBlockedRows: 'sync.blockedRows',
+  /** Таблицы, чьи строки pull принёс, а сборка применить не смогла (sync/pullGaps.ts). */
+  SyncPullGaps: 'sync.pullGaps',
 
   // Client schema/migrations
   ClientSchemaVersion: 'schema.clientVersion',
