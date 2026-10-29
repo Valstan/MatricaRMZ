@@ -7,6 +7,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 type FileState = { kind: 'plaintext' | 'encrypted' | 'corrupt'; key?: string };
 const files = vi.hoisted(() => new Map<string, FileState>());
 const pragmaLog = vi.hoisted(() => [] as string[]);
+/** Сколько строк в sqlite_stat1 подделать: 0 — планов ещё нет, значит нужен ANALYZE. */
+const statRows = vi.hoisted(() => ({ count: 0 }));
 
 vi.mock('better-sqlite3-multiple-ciphers', () => {
   class FakeDatabase {
@@ -27,6 +29,9 @@ vi.mock('better-sqlite3-multiple-ciphers', () => {
     }
     prepare(_sql: string) {
       const state = files.get(this.path)!;
+      if (_sql.includes('sqlite_stat1')) {
+        return { get: () => ({ c: statRows.count }) };
+      }
       return {
         get: () => {
           if (state.kind === 'corrupt') throw new Error('file is not a database');
@@ -46,11 +51,12 @@ vi.mock('better-sqlite3-multiple-ciphers', () => {
 
 vi.mock('drizzle-orm/better-sqlite3', () => ({ drizzle: (h: unknown) => ({ __drizzle: h }) }));
 
-const { openSqlite } = await import('./db.js');
+const { openSqlite, openSqliteReadonly } = await import('./db.js');
 
 beforeEach(() => {
   files.clear();
   pragmaLog.length = 0;
+  statRows.count = 0;
 });
 
 describe('openSqlite — key → probe → legacy rekey', () => {
@@ -87,5 +93,46 @@ describe('openSqlite — key → probe → legacy rekey', () => {
     const { sqlite } = openSqlite('open.db', null);
     expect(sqlite).toBeTruthy();
     expect(pragmaLog.some((p) => p.startsWith('key='))).toBe(false);
+  });
+});
+
+describe('прагмы: база живёт в RAM', () => {
+  it('writable: кэш 512 МБ, temp_store в памяти, busy_timeout, optimize + первый ANALYZE', () => {
+    files.set('rw.db', { kind: 'plaintext' });
+    openSqlite('rw.db', null);
+    expect(pragmaLog).toContain('cache_size = -524288');
+    expect(pragmaLog).toContain('temp_store = MEMORY');
+    expect(pragmaLog).toContain('busy_timeout = 5000');
+    expect(pragmaLog).toContain('optimize');
+    expect(pragmaLog).toContain('analyze');
+    // durability не трогаем: synchronous остаётся дефолтным (FULL).
+    expect(pragmaLog.some((p) => p.startsWith('synchronous'))).toBe(false);
+  });
+
+  it('повторный ANALYZE не гоняется: планы уже есть', () => {
+    statRows.count = 42;
+    files.set('rw.db', { kind: 'plaintext' });
+    openSqlite('rw.db', null);
+    expect(pragmaLog).toContain('optimize');
+    expect(pragmaLog).not.toContain('analyze');
+  });
+
+  it('read-only: кэш и temp_store тоже, но без записи статистики', () => {
+    files.set('enc.db', { kind: 'encrypted', key: 'K1' });
+    openSqliteReadonly('enc.db', 'K1');
+    expect(pragmaLog).toContain('cache_size = -524288');
+    expect(pragmaLog).toContain('temp_store = MEMORY');
+    expect(pragmaLog).toContain('busy_timeout = 5000');
+    expect(pragmaLog).not.toContain('optimize');
+    expect(pragmaLog).not.toContain('analyze');
+    expect(pragmaLog).toContain('query_only = ON');
+  });
+
+  it('read-only легаси plaintext-база тоже получает кэш в памяти', () => {
+    files.set('plain.db', { kind: 'plaintext' });
+    openSqliteReadonly('plain.db', 'K1');
+    expect(pragmaLog).toContain('cache_size = -524288');
+    expect(pragmaLog).toContain('temp_store = MEMORY');
+    expect(pragmaLog).toContain('query_only = ON');
   });
 });

@@ -9,6 +9,7 @@ import { logMessageGetEnabled, startLogSender } from '../services/logService.js'
 import { reportPendingUpdateTelemetry } from '../services/updateService.js';
 import { startClientSettingsPolling } from '../services/clientAdminService.js';
 import { startGpuDiagnostics } from '../services/gpuDiagnostics.js';
+import { startEventLoopLagReporting, readEventLoopLag } from '../services/eventLoopLag.js';
 import { appendMainLogLine } from '../utils/logger.js';
 
 import type { IpcContext } from './ipcContext.js';
@@ -81,7 +82,10 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   // оборвалась сессия, сервер старее клиента, сеть отвечает молчанием.
   const AUTO_SYNC_MS = 60_000;
   // Один менеджер на процесс (переиспользуем и для ручного sync, и для status).
-  const mgr = new SyncManager(db, opts.clientId, opts.apiBaseUrl, { onProgress: emitSyncProgress });
+  const mgr = new SyncManager(db, opts.clientId, opts.apiBaseUrl, {
+    onProgress: emitSyncProgress,
+    readLag: readEventLoopLag,
+  });
   mgr.startAuto(AUTO_SYNC_MS);
   onNetworkChange((next) => {
     if (!next.online) return;
@@ -164,6 +168,10 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   // рендеринг (SwiftShader) — ещё и warn'ом на сервер, чтобы слабые машины парка
   // были видны в `client-*.log` без обхода по цеху.
   startGpuDiagnostics({ db: sysDb, apiBaseUrl: mgr.getApiBaseUrl(), log: logToFile });
+
+  // Задержки главного потока: «программа замирает» — это стоящий поток, а не медленный
+  // запрос. Сводка за минуту уезжает warn'ом, только если p99 перевалил за порог.
+  startEventLoopLagReporting({ db: sysDb, apiBaseUrl: mgr.getApiBaseUrl(), log: logToFile });
 
   // Прогрев кэшей списка двигателей в фоне: тяжёлая сборка флагов актов и
   // истории ремонта (~3 с холодно) уходит со старта приложения, а не на первое
