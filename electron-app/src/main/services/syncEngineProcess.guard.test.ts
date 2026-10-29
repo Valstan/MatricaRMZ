@@ -36,6 +36,19 @@ describe('движок синка живёт без приложения', () =>
     expect(text).toContain('setSyncSessionProvider(');
   });
 
+  it('порт воркера асимметричен: main получает сообщение, воркер — MessageEvent', () => {
+    // 3.94.0: main читал `event.data` там, где `UtilityProcess` отдаёт САМО сообщение,
+    // и молча терял всё из воркера — готовность, прогресс, заявки на сессию. Прогоны
+    // умирали на `auth required` без единой строки наружу: снаружи «синк встал и молчит».
+    const proxy = src('./syncProxy.ts');
+    const match = /child\.on\('message',\s*\((\w+)(?::[^)]*)?\)\s*=>\s*this\.handleMessage\(([^)]*)\)/.exec(proxy);
+    expect(match, 'слушатель канала воркера пропал из прокси').not.toBeNull();
+    const [, param = '', passed = ''] = match ?? [];
+    expect(passed.trim(), 'main разворачивает обёртку MessageEvent').toBe(param);
+
+    expect(src('../workers/syncWorker.ts')).toContain('handleMessage(event.data)');
+  });
+
   it('сессию расшифровывает процесс с ключом ОС, а не воркер', () => {
     // В utility-процессе `safeStorage` нет: копия кольца ключей там разошлась бы с
     // ротацией, поэтому воркер спрашивает main через порт.

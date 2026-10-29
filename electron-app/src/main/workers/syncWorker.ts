@@ -78,7 +78,14 @@ function callMain(request: SyncWorkerCall): Promise<SyncWorkerCallReply | null> 
 setSyncSessionProvider({
   read: async () => {
     const reply = await callMain({ type: 'session:read', callId: '' });
-    return reply?.type === 'session:read:result' ? reply.session : null;
+    if (reply?.type !== 'session:read:result') {
+      // Молчание моста не имеет права выглядеть как «пользователь не вошёл»: движок
+      // в этом случае объявит `auth required` и завершит прогон без единой строки в
+      // логе, а снаружи это «синк перестал ходить и ничего не сказал».
+      log('session read: no answer from main');
+      return null;
+    }
+    return reply.session;
   },
   refresh: async (_db, args) => {
     const reply = await callMain({ type: 'session:refresh', callId: '', apiBaseUrl: args.apiBaseUrl });
