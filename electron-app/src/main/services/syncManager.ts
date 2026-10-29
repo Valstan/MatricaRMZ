@@ -13,6 +13,7 @@ import {
 } from './syncService.js';
 import { isOfflineSyncError } from './sync/syncErrorClassifier.js';
 import { computeLocalDirtyAction, computeNextSyncDelayMs, computeWakeIdlePauseMs } from './sync/syncScheduling.js';
+import { SLOW_LOOP_P99_MS, lagMetadata, readEventLoopLag } from './eventLoopLag.js';
 import { logPerfWarn } from './logService.js';
 import { SettingsKey, settingsGetString } from './settingsStore.js';
 
@@ -327,16 +328,33 @@ export class SyncManager {
       // UI читает apiBaseUrl из SQLite, а менеджер живёт в памяти.
       // Перед каждым синком подхватываем актуальную конфигурацию.
       await this.refreshApiBaseUrlFromDb();
+      // Замер ровно окна прогона: сколько ждал главный поток, пока применялся pull.
+      readEventLoopLag();
       const runStartedAt = nowMs();
       const r = await runSync(this.db, this.clientId, this.apiBaseUrl, opts);
       const runMs = nowMs() - runStartedAt;
+      const lag = readEventLoopLag();
       if (runMs >= SLOW_RUN_MS) {
         logPerfWarn(this.db, this.apiBaseUrl, 'sync-run', `slow sync run: ${runMs}ms`, {
           action: 'run',
           ms: runMs,
           pulled: Number(r.pulled ?? 0),
           pushed: Number(r.pushed ?? 0),
+          ...lagMetadata(lag),
         });
+      }
+      if (lag && lag.p99Ms >= SLOW_LOOP_P99_MS) {
+        logPerfWarn(
+          this.db,
+          this.apiBaseUrl,
+          'sync-loop-lag',
+          `main thread stalled during sync: p99=${lag.p99Ms}ms max=${lag.maxMs}ms`,
+          {
+            action: 'run',
+            pulled: Number(r.pulled ?? 0),
+            ...lagMetadata(lag),
+          },
+        );
       }
       const offline = !r.ok && isOfflineSyncError(r.error ?? '');
       this.lastResult = r;

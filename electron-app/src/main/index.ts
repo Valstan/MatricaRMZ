@@ -464,6 +464,10 @@ app.whenReady().then(() => {
   app.commandLine.appendSwitch('enable-logging');
   app.commandLine.appendSwitch('v', '1');
 
+  // Замер пауз главного потока — до тяжёлого старта базы: иначе первые замирания
+  // (миграции, ANALYZE, первый pull) не попадут в гистограмму.
+  void import('./services/eventLoopLag.js').then((m) => m.startEventLoopLagMonitor());
+
   // Network bootstrap: proxy/PAC + ipv4first + online monitor.
   const apiBaseUrl = process.env.MATRICA_API_URL ?? 'https://a6fd55b8e0ae.vps.myjino.ru';
   void initNetworkService({ probeUrl: `${apiBaseUrl.replace(/\/+$/, '')}/health` });

@@ -8,6 +8,10 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 
 let lastWritableSqlite: BetterSqlite3.Database | null = null;
 
+/** Потолок страничного кэша, KiB (знак минус = KiB, а не число страниц). */
+const PAGE_CACHE_KIB = 512 * 1024;
+const BUSY_TIMEOUT_MS = 5_000;
+
 function probeReadable(sqlite: Database.Database): boolean {
   try {
     sqlite.prepare('SELECT count(*) AS c FROM sqlite_master').get();
@@ -15,6 +19,38 @@ function probeReadable(sqlite: Database.Database): boolean {
   } catch {
     return false;
   }
+}
+
+function hasQueryPlannerStats(sqlite: Database.Database): boolean {
+  try {
+    const row = sqlite.prepare('SELECT count(*) AS c FROM sqlite_stat1').get() as
+      | { c?: number }
+      | undefined;
+    return Number(row?.c ?? 0) > 0;
+  } catch {
+    // Таблицы статистики ещё нет — база не знает планов (свежая или после крупных правок).
+    return false;
+  }
+}
+
+/**
+ * Кэш страниц по умолчанию у SQLite — 2 МБ, и на шифрованной базе этого не хватает:
+ * каждая вытесненная страница расшифровывается заново, а применение pull — это
+ * короткие транзакции по 2000 строк с обновлением индексов (замер на стендовом объёме:
+ * 56 мс → 9 мс на пачку, пики 205 мс → 15 мс). 512 МБ здесь *лимит*, а не выделение:
+ * SQLite занимает страницы по мере обращения и лишнего не держит.
+ * `temp_store = MEMORY` уводит в память сортировки и DISTINCT отчётов.
+ * `busy_timeout` готовит второе соединение (синк в отдельном процессе).
+ */
+function applyTuningPragmas(sqlite: Database.Database, mode: 'readwrite' | 'readonly'): void {
+  sqlite.pragma(`cache_size = -${PAGE_CACHE_KIB}`);
+  sqlite.pragma('temp_store = MEMORY');
+  sqlite.pragma(`busy_timeout = ${BUSY_TIMEOUT_MS}`);
+  if (mode === 'readonly') return;
+  // Дешёвая уборка статистики; ANALYZE — только когда планов ещё нет (один раз на базу).
+  sqlite.pragma('optimize');
+  if (hasQueryPlannerStats(sqlite)) return;
+  sqlite.pragma('analyze');
 }
 
 /**
@@ -51,6 +87,7 @@ export function openSqlite(dbPath: string, encryptionKey?: string | null) {
   lastWritableSqlite = handle;
   sqlite.pragma('journal_mode = WAL');
   sqlite.pragma('foreign_keys = ON');
+  applyTuningPragmas(sqlite, 'readwrite');
   const db = drizzle(handle);
   return { sqlite: handle, db };
 }
@@ -63,11 +100,13 @@ export function openSqliteReadonly(dbPath: string, encryptionKey?: string | null
       // Plaintext legacy file (not yet migrated by a writable open) — reopen without key.
       sqlite.close();
       const plain = new Database(dbPath, { readonly: true, fileMustExist: true });
+      applyTuningPragmas(plain, 'readonly');
       plain.pragma('query_only = ON');
       plain.pragma('foreign_keys = OFF');
       return { sqlite: plain as unknown as BetterSqlite3.Database, db: drizzle(plain as unknown as BetterSqlite3.Database) };
     }
   }
+  applyTuningPragmas(sqlite, 'readonly');
   sqlite.pragma('query_only = ON');
   sqlite.pragma('foreign_keys = OFF');
   const handle = sqlite as unknown as BetterSqlite3.Database;
