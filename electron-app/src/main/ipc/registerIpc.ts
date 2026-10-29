@@ -4,7 +4,8 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { getSession } from '../services/authService.js';
 import { deleteBackupCacheFile } from '../services/backupService.js';
 import { onNetworkChange } from '../services/networkService.js';
-import { SyncManager } from '../services/syncManager.js';
+import { createSyncControl } from '../services/syncControlFactory.js';
+import { AUTO_SYNC_MS } from '../services/syncControl.js';
 import { logMessageGetEnabled, startLogSender } from '../services/logService.js';
 import { reportPendingUpdateTelemetry } from '../services/updateService.js';
 import { startClientSettingsPolling } from '../services/clientAdminService.js';
@@ -62,7 +63,10 @@ import { registerToolsIpc } from './register/tools.js';
 import { registerErpIpc } from './register/erp.js';
 import { openSqliteReadonly } from '../database/db.js';
 
-export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string; apiBaseUrl: string }) {
+export function registerIpc(
+  db: BetterSQLite3Database,
+  opts: { clientId: string; apiBaseUrl: string; dbPath: string; dbKey: string | null; workerPath: string },
+) {
   function emitSyncProgress(payload: unknown) {
     try {
       BrowserWindow.getAllWindows().forEach((win) => {
@@ -77,14 +81,20 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
     appendMainLogLine(app, message);
   }
 
-  // Страховочный тик. Основную доставку держат пробуждение сервером и сторож своих
-  // правок (оба внутри SyncManager); интервал остаётся на случай, когда подвели они —
-  // оборвалась сессия, сервер старее клиента, сеть отвечает молчанием.
-  const AUTO_SYNC_MS = 60_000;
-  // Один менеджер на процесс (переиспользуем и для ручного sync, и для status).
-  const mgr = new SyncManager(db, opts.clientId, opts.apiBaseUrl, {
+  // Страховочный тик (см. `syncControl.ts`).
+  // Один пульт на процесс (переиспользуем и для ручного sync, и для status). Где живёт
+  // сам движок — в этом процессе или в отдельном — решает фабрика; наружу API один.
+  const mgr = createSyncControl({
+    db,
+    clientId: opts.clientId,
+    apiBaseUrl: opts.apiBaseUrl,
+    dbPath: opts.dbPath,
+    dbKey: opts.dbKey,
+    autoSyncMs: AUTO_SYNC_MS,
+    workerPath: opts.workerPath,
     onProgress: emitSyncProgress,
     readLag: readEventLoopLag,
+    log: logToFile,
   });
   mgr.startAuto(AUTO_SYNC_MS);
   onNetworkChange((next) => {
@@ -305,7 +315,10 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   // Quit-flush: пуш несинхронизированного (черновики, надгробия черновиков после
   // «Сохранить») перед выходом — иначе вторая машина оператора не узнаёт о
   // закрытии черновика до следующего запуска этой.
-  return { flushSyncBeforeQuit: () => mgr.runOnce() };
+  return {
+    flushSyncBeforeQuit: () => mgr.runOnce(),
+    disposeSync: () => mgr.dispose(),
+  };
 }
 
 

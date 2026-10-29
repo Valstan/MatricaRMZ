@@ -1,6 +1,6 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
-import { getSession } from './authService.js';
+import { readSyncSession } from './syncSession.js';
 import { SettingsKey, settingsGetBoolean, settingsGetString, settingsSetBoolean, settingsSetString } from './settingsStore.js';
 import { httpAuthed } from './httpClient.js';
 
@@ -54,7 +54,7 @@ async function sendLogs(db: BetterSQLite3Database, apiBaseUrl: string): Promise<
     return;
   }
 
-  const session = await getSession(db).catch(() => null);
+  const session = await readSyncSession(db);
   if (!session?.accessToken) {
     logBuffer = [];
     return;

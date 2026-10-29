@@ -3,7 +3,7 @@
  */
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 
-import { getKeyRing, keyRingToBuffers } from '../e2eKeyService.js';
+import { keyRingToBuffers, readE2eKeyRing } from './e2eKeySource.js';
 
 const LEDGER_E2E_ENV = 'MATRICA_LEDGER_E2E';
 const SENSITIVE_FIELDS = ['meta_json', 'payload_json'] as const;
@@ -14,7 +14,8 @@ export function isE2eEnabled(): boolean {
 
 export function getE2eKeys(): { primary: Buffer | null; all: Buffer[] } {
   if (!isE2eEnabled()) return { primary: null, all: [] };
-  const ring = getKeyRing();
+  const ring = readE2eKeyRing();
+  if (!ring) throw new Error('E2E key ring is not available in this process');
   const all = keyRingToBuffers(ring);
   const primary = all[0] ?? null;
   return { primary, all };

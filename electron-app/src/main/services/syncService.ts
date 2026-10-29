@@ -22,13 +22,12 @@ import {
   type SyncPullResponse,
   type SyncPushRequest,
 } from '@matricarmz/shared';
-import { app } from 'electron';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { appendMainLogLine } from '../utils/logger.js';
+import { getSyncHost } from './syncHost.js';
 import { randomUUID } from 'node:crypto';
 
 import { getSqliteHandle } from '../database/db.js';
@@ -81,7 +80,7 @@ import {
   warehouseLocations,
 } from '../database/schema.js';
 import type { SyncRunResult } from '@matricarmz/shared';
-import { authRefresh, clearSession, getSession } from './authService.js';
+import { clearSyncSession, readSyncSession, refreshSyncSession } from './syncSession.js';
 import { ensureClientSchemaCompatible } from './migrations/clientSchemaMigrations.js';
 import { buildOrphanCleanupSql } from './sync/repairSql.js';
 import { DEPENDENCY_TABLE, planDependencyRequeue, type SkippedRowLike } from './sync/dependencyRequeue.js';
@@ -114,7 +113,6 @@ import { isOfflineSyncError } from './sync/syncErrorClassifier.js';
 import { countPendingLocalRows, countPendingLocalRowsByTable } from './sync/localPending.js';
 import { nowMs, yieldToEventLoop } from './sync/progressEmitter.js';
 import { fetchWithRetry } from './netFetch.js';
-// getKeyRing/keyRingToBuffers now imported in sync/e2eCrypto.ts
 
 const PUSH_TIMEOUT_MS = 180_000;
 const PULL_TIMEOUT_MS = 180_000;
@@ -281,7 +279,7 @@ const FULL_STATE_SYNC_TABLES_PRIORITIZED: string[] = [
 // Moved to sync/progressEmitter.ts
 
 function logSync(message: string) {
-  appendMainLogLine(app, `sync ${message}`);
+  getSyncHost().appendLog(`sync ${message}`);
 }
 
 // Адрес сервера последнего запуска синка. Сбор pending-строк и карантин живут
@@ -337,11 +335,11 @@ function scheduleAppRestartAfterDbReset(reason: string) {
   logSync(`local db restart scheduled reason=${reason}`);
   setTimeout(() => {
     try {
-      app.relaunch();
+      getSyncHost().relaunch();
     } catch (e) {
       logSync(`local db relaunch failed: ${String(e)}`);
     }
-    app.exit(0);
+    getSyncHost().exit(0);
   }, 300);
 }
 
@@ -440,7 +438,7 @@ async function fetchSyncSchemaSnapshot(db: BetterSQLite3Database, apiBaseUrl: st
   // ПЕРЕСБОРКОЙ локальной базы вместе с неотправленной работой, а версии в
   // запросе у них нет и появиться не может — значит «не представился» сервер
   // обязан читать как «старый» и отдавать прежний состав таблиц.
-  const url = `${apiBaseUrl}/diagnostics/sync-schema?client_version=${encodeURIComponent(app.getVersion())}`;
+  const url = `${apiBaseUrl}/diagnostics/sync-schema?client_version=${encodeURIComponent(getSyncHost().appVersion())}`;
   const res = await fetchAuthed(db, apiBaseUrl, url, { method: 'GET' }, { attempts: 2, timeoutMs: 15_000, label: 'pull' });
   if (!res.ok) {
     const body = await safeBodyText(res);
@@ -849,18 +847,18 @@ async function fetchAuthed(
   init: RequestInit,
   opts: SyncFetchOpts,
 ): Promise<Response> {
-  const session = await getSession(db).catch(() => null);
+  const session = await readSyncSession(db);
   const first = await fetchWithRetryLogged(url, withAuthHeader(init, session?.accessToken ?? null), opts);
 
   // Если токен протух/невалиден (401) — пробуем refresh один раз и повторяем.
   // 403 — вердикт о правах живой сессии (гейт SyncUse и т.п.): refresh его не
   // изменит, и стоить сессии он не должен.
-  if (first.status === 401 && session?.refreshToken) {
+  if (first.status === 401 && session?.canRefresh) {
     logSync(`${opts.label} auth failed status=${first.status}, trying refresh`);
-    const refreshed = await authRefresh(db, { apiBaseUrl, refreshToken: session.refreshToken });
+    const refreshed = await refreshSyncSession(db, { apiBaseUrl });
     if (!refreshed.ok) {
       logSync(`${opts.label} refresh failed: ${refreshed.error}`);
-      // authRefresh handles session clearing for definitive auth rejection (401/403).
+      // refreshSyncSession handles session clearing for definitive auth rejection (401/403).
       return first;
     }
     logSync(`${opts.label} refresh ok, retrying`);
@@ -4318,7 +4316,7 @@ const PENDING_EXPORT_PREFIX = 'pending-export-';
 const PENDING_EXPORT_KEEP = 5;
 
 function pendingExportDir(): string {
-  return app.getPath('userData');
+  return getSyncHost().userDataPath();
 }
 
 async function listPendingExportFiles(): Promise<string[]> {
@@ -4339,7 +4337,7 @@ export async function exportPendingRowsToDisk(
     if (total === 0) return { ok: true, file: null, rows: 0 };
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const file = join(pendingExportDir(), `${PENDING_EXPORT_PREFIX}${ts}.json`);
-    await writeFile(file, JSON.stringify({ version: 1, exportedAt: nowMs(), appVersion: app.getVersion(), packs }), 'utf8');
+    await writeFile(file, JSON.stringify({ version: 1, exportedAt: nowMs(), appVersion: getSyncHost().appVersion(), packs }), 'utf8');
     const names = await listPendingExportFiles();
     for (const stale of names.slice(0, Math.max(0, names.length - PENDING_EXPORT_KEEP))) {
       await rm(join(pendingExportDir(), stale), { force: true }).catch(() => {});
@@ -4455,7 +4453,7 @@ export async function resetLocalDatabase(db: BetterSQLite3Database, reason = 'ui
     await exportPendingRowsToDisk(db).catch(() => ({ file: null, rows: 0 }));
     // The DB copy of the session dies with the file, but the sidecar survives:
     // a local rebuild is not a logout — the server-side tokens are still valid.
-    await clearSession(db, { includeSidecar: false }).catch(() => {});
+    await clearSyncSession(db, { includeSidecar: false }).catch(() => {});
 
     const sqlite = getSqliteHandle();
     if (sqlite) {
@@ -4471,7 +4469,7 @@ export async function resetLocalDatabase(db: BetterSQLite3Database, reason = 'ui
       }
     }
 
-    const userData = app.getPath('userData');
+    const userData = getSyncHost().userDataPath();
     const dbPath = join(userData, 'matricarmz.sqlite');
     await rm(dbPath, { force: true });
     await rm(`${dbPath}-wal`, { force: true });
@@ -4485,7 +4483,7 @@ export async function resetLocalDatabase(db: BetterSQLite3Database, reason = 'ui
   }
 }
 
-type SyncProgressEvent = {
+export type SyncProgressEvent = {
   mode: 'incremental' | 'force_full_pull';
   state: 'start' | 'progress' | 'done' | 'error';
   startedAt: number;
@@ -4560,7 +4558,7 @@ export async function waitForServerChanges(
  * (поймано живым прогоном 18.09.2026: после входа доставка молчала до минуты).
  */
 export async function hasActiveSession(db: BetterSQLite3Database): Promise<boolean> {
-  const session = await getSession(db).catch(() => null);
+  const session = await readSyncSession(db).catch(() => null);
   return Boolean(session?.accessToken);
 }
 
@@ -4583,7 +4581,7 @@ export async function countPendingLocalChangesByTable(): Promise<Array<{ table: 
   return await countPendingLocalRowsByTable(exec);
 }
 
-type RunSyncOptions = {
+export type RunSyncOptions = {
   fullPull?: {
     reason: 'force_full_pull';
     startedAt: number;
@@ -4746,7 +4744,7 @@ export async function runSync(
   logSync(`sync.run.start id=${syncRunId} clientId=${clientId} mode=${progressMode}`);
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const session = await getSession(db).catch(() => null);
+      const session = await readSyncSession(db).catch(() => null);
       if (!session?.accessToken) {
         void logMessage(db, currentApiBaseUrl, 'warn', 'sync blocked: auth required', {
           component: 'sync',
@@ -5069,8 +5067,8 @@ export async function runSync(
               const messageIds = (chatReadsPack?.rows as any[] | undefined)
                 ?.map((row) => String((row as any).message_id ?? (row as any).messageId ?? ''))
                 .filter(Boolean);
-              const session = await getSession(db).catch(() => null);
-              const dropped = await dropPendingChatReadsRecovery(db, messageIds ?? [], session?.user?.id ?? null);
+              const session = await readSyncSession(db).catch(() => null);
+              const dropped = await dropPendingChatReadsRecovery(db, messageIds ?? [], session?.userId ?? null);
               logRecovery('duplicate_chat_reads', { dropped, status: r.status });
               attemptedChatReadsFix = true;
               pushedPacks = await collectPending(db);

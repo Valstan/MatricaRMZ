@@ -6,6 +6,7 @@ import { SettingsKey, settingsGetString, settingsSetString } from '../services/s
 import { getSession } from '../services/authService.js';
 import { addAudit } from '../services/auditService.js';
 import { alignSchemaWithServer } from '../services/syncService.js';
+import { installElectronSyncHost } from '../services/syncHostElectron.js';
 
 export function loadRuntimeInitDeps() {
   return {
@@ -20,5 +21,6 @@ export function loadRuntimeInitDeps() {
     settingsSetString,
     getSession,
     addAudit,
+    installElectronSyncHost,
   };
 }

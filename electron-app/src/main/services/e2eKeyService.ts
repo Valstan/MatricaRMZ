@@ -150,8 +150,3 @@ export function rotateKey(): E2eKeyRing {
 export function exportKeyRing(): E2eKeyRing {
   return loadOrCreateKeyRing();
 }
-
-export function keyRingToBuffers(ring: E2eKeyRing): Buffer[] {
-  const all = [ring.primary, ...ring.previous];
-  return all.map((k) => Buffer.from(k, 'base64')).filter((buf) => buf.length > 0);
-}

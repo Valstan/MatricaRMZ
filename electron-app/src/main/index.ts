@@ -139,6 +139,7 @@ let writeSessionAuditEvent:
   | null = null;
 let stopAuditWritten = false;
 let flushSyncBeforeQuit: (() => Promise<unknown>) | null = null;
+let disposeSync: (() => void) | null = null;
 let quitSyncFlushDone = false;
 const APP_TITLE = () => formatAppVersionLabel(app.getVersion());
 
@@ -584,6 +585,7 @@ app.whenReady().then(() => {
         settingsSetString,
         getSession,
         addAudit,
+        installElectronSyncHost,
       } = loadRuntimeInitDeps();
 
       const userData = app.getPath('userData');
@@ -777,7 +779,14 @@ app.whenReady().then(() => {
         }
       };
 
-      ({ flushSyncBeforeQuit } = registerIpc(db, { clientId: stableClientId, apiBaseUrl }));
+      installElectronSyncHost(app);
+      ({ flushSyncBeforeQuit, disposeSync } = registerIpc(db, {
+        clientId: stableClientId,
+        apiBaseUrl,
+        dbPath,
+        dbKey: dbEncryptionKey,
+        workerPath: join(baseDir, 'syncWorker.js'),
+      }));
       logToFile('IPC registered, SQLite ready');
       configureUpdateService({ apiBaseUrl, db });
       await writeSessionAuditEvent('app.session.start');
@@ -888,6 +897,13 @@ app.on('before-quit', (event) => {
   const startedAt = Date.now();
   const proceed = (how: string) => {
     logToFile(`quit-flush: ${how} after ${Date.now() - startedAt}ms`);
+    // Движок в отдельном процессе держит своё соединение SQLite: гасим его до выхода,
+    // иначе Electron снимает дочерний процесс без WAL-checkpoint.
+    try {
+      disposeSync?.();
+    } catch {
+      // ignore
+    }
     app.quit();
   };
   Promise.race([

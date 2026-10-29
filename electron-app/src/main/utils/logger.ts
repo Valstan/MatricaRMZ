@@ -58,8 +58,15 @@ function fileExists(path: string): boolean {
  * PowerShell on a Russian-locale machine.
  */
 export function appendMainLogLine(app: App, message: string): void {
+  appendLogLine(app.getPath('userData'), message);
+}
+
+/**
+ * Same line, but addressed by directory: the sync worker is a separate process and
+ * knows its userData path, not an `app` object. Both write one `matricarmz.log`.
+ */
+export function appendLogLine(dir: string, message: string): void {
   try {
-    const dir = app.getPath('userData');
     mkdirSync(dir, { recursive: true });
     const path = join(dir, 'matricarmz.log');
     const now = Date.now();
