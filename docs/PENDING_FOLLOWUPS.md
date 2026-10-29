@@ -56,6 +56,7 @@
 
 ## 🟡 Техдолг и отложенное
 
+- [🟡 Выкат прошёл, а скрипт говорит «nginx не ответил» и выходит с кодом 1 — одиночная проверка без повтора 🗓 since:2026-10-29](pending/vykat-proshel-a-skript-govorit-nginx-ne-otvetil.md)
 - [🟡 Pull может затереть локальную правку карточки: сервер не говорит, какую строку отклонил по LWW 🗓 since:2026-10-20](pending/pull-mozhet-zateret-lokalnuyu-pravku-kartochki-server.md)
 - [Диск прод-бокса заполняют фото с камеры; шифрованный бэкап молча падал 20 ночей 🗓 since:2026-09-03](pending/disk-prod-boksa-zapolnyayut-foto-s-kamery-shifrovannyy.md)
 - [🟢 Опрос Telegram-бота конфликтует сам с собой: 409 закрыты, проход загнан внутрь тика 🗓 since:2026-09-06](pending/opros-telegram-bota-konfliktuet-sam-s-soboy-409-zakryty.md)
