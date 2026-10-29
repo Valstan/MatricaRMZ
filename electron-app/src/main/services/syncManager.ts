@@ -17,6 +17,7 @@ import { SLOW_LOOP_P99_MS, lagMetadata } from './eventLoopLagMetrics.js';
 import type { EventLoopLag } from './eventLoopLagMetrics.js';
 import { logPerfWarn } from './logService.js';
 import { SettingsKey, settingsGetString } from './settingsStore.js';
+import type { SyncControl } from './syncControl.js';
 
 type RunSyncOpts = Parameters<typeof runSync>[3];
 type ProgressHandler = NonNullable<NonNullable<RunSyncOpts>['progress']>['onProgress'];
@@ -46,7 +47,7 @@ const SLOW_RUN_MS = 30_000;
 const LOCAL_RETRY_MIN_MS = 5_000;
 const LOCAL_RETRY_MAX_MS = 60_000;
 
-export class SyncManager {
+export class SyncManager implements SyncControl {
   private state: SyncStatus['state'] = 'idle';
   private lastSyncAt: number | null = null;
   private lastError: string | null = null;
@@ -118,6 +119,25 @@ export class SyncManager {
       lastResult: this.lastResult,
       nextAutoSyncInMs,
     };
+  }
+
+  /**
+   * Абсолютное время страховочного тика. Нужно воркеру: в main кэш статуса живёт без
+   * связи с движком, и обратный отсчёт он считает сам — иначе `nextAutoSyncInMs`
+   * «замирал» бы на значении последней отправки.
+   */
+  getNextAutoSyncAt(): number | null {
+    return this.nextAt;
+  }
+
+  /** Движок живёт в этом же процессе — файл базы отпускает `resetLocalDatabase`. */
+  async releaseDatabase(): Promise<void> {
+    this.stopAuto();
+  }
+
+  /** Останавливать нечего: таймеров и соединений сверх `db` у движка нет. */
+  dispose(): void {
+    this.stopAuto();
   }
 
   /**

@@ -6,6 +6,7 @@ import { describeAuthFailure, describeAuthNetworkFailure } from '@matricarmz/sha
 import { SettingsKey, settingsGetString, settingsSetString } from './settingsStore.js';
 import { logMessageSetEnabled, logMessageSetMode } from './logService.js';
 import { clearSidecarSession, readSidecarSession, writeSidecarSession } from './sessionSidecarStore.js';
+import type { SyncSessionProvider } from './syncSession.js';
 
 type StoredSession = {
   enc: boolean;
@@ -574,5 +575,31 @@ function safeJsonParse(s: string): unknown {
     return null;
   }
 }
+
+/**
+ * Сессия для движка синка — в том процессе, где живёт ключ OS (`safeStorage`).
+ * Это единственное место, где расшифровка сессии вообще возможна; отдельный процесс
+ * воркера пользуется этим через порт (см. `syncSession.ts`).
+ */
+export const authSessionProvider: SyncSessionProvider = {
+  read: async (db) => {
+    const s = await getSession(db);
+    if (!s) return null;
+    return {
+      accessToken: s.accessToken ?? null,
+      canRefresh: Boolean(s.refreshToken),
+      userId: s.user?.id ? String(s.user.id) : null,
+      username: s.user?.username ? String(s.user.username) : null,
+    };
+  },
+  refresh: async (db, args) => {
+    const s = await getSession(db);
+    const refreshToken = String(s?.refreshToken ?? '').trim();
+    if (!refreshToken) return { ok: false, error: 'no refresh token' };
+    const r = await authRefresh(db, { apiBaseUrl: args.apiBaseUrl, refreshToken });
+    return r.ok ? { ok: true, accessToken: r.accessToken } : { ok: false, error: r.error };
+  },
+  clear: (db, opts) => clearSession(db, opts),
+};
 
 

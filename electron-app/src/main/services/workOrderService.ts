@@ -427,6 +427,18 @@ function summaryCacheFor(db: BetterSQLite3Database): Map<string, WorkOrderSummar
   return cache;
 }
 
+/**
+ * Сбросить разбор строки после собственной записи.
+ *
+ * Версия разбора — `updated_at`, и этого мало: два сохранения подряд укладываются в одну
+ * миллисекунду (черновик материализуется вставкой, следующая правка — апдейтом), версия не
+ * меняется, и список продолжает искать по старому стогу. Запись через сервис знает свой id —
+ * дешевле сбросить одну строку, чем доверять часам.
+ */
+function invalidateSummary(db: BetterSQLite3Database, id: string): void {
+  summaryCacheByDb.get(db as unknown as object)?.delete(id);
+}
+
 function buildWorkOrderSummary(row: {
   id: unknown;
   status: unknown;
@@ -993,6 +1005,7 @@ export async function updateWorkOrder(
       });
       await audit(db, args.actor, 'work_order.create', payload);
       await touchEngineEntity(db, workOrderEngineEntityId(payload), ts);
+      invalidateSummary(db, args.id);
       return { ok: true as const, workOrderNumber };
     }
 
@@ -1042,6 +1055,7 @@ export async function updateWorkOrder(
       );
 
     await touchEngineEntity(db, workOrderEngineEntityId(payload), ts);
+    invalidateSummary(db, args.id);
     return { ok: true as const, workOrderNumber: Number(payload.workOrderNumber ?? 0) };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1112,6 +1126,7 @@ export async function setWorkOrderNumber(
         ),
       );
     await audit(db, args.actor, 'work_order.number_change', { operationId: args.id, from: previous, to: next });
+    invalidateSummary(db, args.id);
     return { ok: true as const, workOrderNumber: next };
   } catch (e) {
     return { ok: false as const, error: String(e) };
@@ -1137,6 +1152,7 @@ export async function deleteWorkOrder(
         ),
       );
     await audit(db, args.actor, 'work_order.delete', current.payload);
+    invalidateSummary(db, args.id);
     return { ok: true as const };
   } catch (e) {
     return { ok: false as const, error: String(e) };

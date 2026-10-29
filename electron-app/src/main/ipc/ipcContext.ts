@@ -1,6 +1,6 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
-import type { SyncManager } from '../services/syncManager.js';
+import type { SyncControl } from '../services/syncControl.js';
 
 export type AppDataMode =
   | { mode: 'live' }
@@ -12,7 +12,7 @@ export type IpcContext = {
   // dataDb: the DB used for reading domain data (live or backup snapshot)
   dataDb: () => BetterSQLite3Database;
   mode: () => AppDataMode;
-  mgr: SyncManager;
+  mgr: SyncControl;
   logToFile: (message: string) => void;
   currentActor: () => Promise<string>;
   currentViewer: () => Promise<{ login: string; role: string }>;

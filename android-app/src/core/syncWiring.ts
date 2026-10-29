@@ -9,6 +9,10 @@ import {
   setSyncSqlExecutor,
 } from '../../../electron-app/src/main/services/syncService.js';
 import { setSyncSqlLimits } from '../../../electron-app/src/main/services/sync/upsertChunks.js';
+import { setSyncHost } from '../../../electron-app/src/main/services/syncHost.js';
+import { setSyncSessionProvider } from '../../../electron-app/src/main/services/syncSession.js';
+import { authSessionProvider } from '../../../electron-app/src/main/services/authService.js';
+import { appendMainLogLine } from '../shims/logger.js';
 import type { SqlExecutor } from '../../../electron-app/src/main/database/sqlExecutor.js';
 
 import type { AsyncSqlite, SqlValue } from '../db/asyncSqlite.js';
@@ -48,6 +52,19 @@ export type AndroidSyncWiring = {
 };
 
 export function wireSyncForAndroid(w: AndroidSyncWiring): void {
+  // Платформенный хост движка синка: на планшете всё живёт в одном WebView, поэтому
+  // каталог, версия и перезапуск берутся из хуков Capacitor-слоя — так же, как их
+  // брал `electron`-шим до появления хоста.
+  setSyncHost({
+    // Только ключ для шима `node:fs/promises`: реального каталога у WebView нет.
+    userDataPath: () => '/android/userData',
+    appVersion: () => getAndroidPlatformHooks().appVersion(),
+    relaunch: () => getAndroidPlatformHooks().relaunch(),
+    exit: () => {},
+    appendLog: (line) => appendMainLogLine(null, line),
+  });
+  // Сессию читает тот же процесс, что и логинится, — провайдер прямой, без порта.
+  setSyncSessionProvider(authSessionProvider);
   // Легаси-кап 999 bind-переменных системного SQLite + байтовый кап bridge-вызова:
   // Capacitor-мост парсит каждый вызов как один JSON в Java-куче (256 МБ), и
   // upsert прод-масштаба валит процесс OOM'ом до ответа SQLite (GOTCHAS M74).

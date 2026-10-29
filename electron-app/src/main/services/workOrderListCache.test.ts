@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { WorkOrderPayload } from '@matricarmz/shared';
 
@@ -190,6 +190,39 @@ describe('listWorkOrders (кэш разбора)', () => {
       expect(rowsOf(await listWorkOrders(db, { q: 'расточка' }))).toHaveLength(0);
       expect(rowsOf(await listWorkOrders(db, { q: 'шлифовка' }))).toHaveLength(1);
     } finally {
+      sqlite.close();
+    }
+  });
+
+  it('второе сохранение в ту же миллисекунду не оставляет старый стог', async () => {
+    // Версия разбора — updated_at, а две записи подряд укладываются в одну миллисекунду
+    // (черновик материализуется вставкой, следующая правка — апдейтом). Если бы кэш верил
+    // только часам, поиск продолжал бы находить старое название работы. В CI это и вылезло.
+    const { sqlite, db } = makeDb();
+    const now = Date.now();
+    const frozen = vi.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      const id = await addOrder(db, {
+        freeWorks: [{ lineNo: 1, serviceId: 'service-1', serviceName: 'Расточка', unit: 'шт', qty: 1, priceRub: 1, amountRub: 1 }],
+      } as Partial<WorkOrderPayload>);
+      expect(rowsOf(await listWorkOrders(db, { q: 'расточка' }))).toHaveLength(1);
+
+      const stored = JSON.parse(
+        String((sqlite.prepare(`SELECT meta_json FROM operations WHERE id=?`).get(id) as any).meta_json),
+      ) as WorkOrderPayload;
+      await updateWorkOrder(db, {
+        id,
+        payload: {
+          ...stored,
+          freeWorks: [{ lineNo: 1, serviceId: 'service-1', serviceName: 'Шлифовка', unit: 'шт', qty: 1, priceRub: 1, amountRub: 1 }],
+        },
+        actor: 'tester',
+      });
+
+      expect(rowsOf(await listWorkOrders(db, { q: 'расточка' }))).toHaveLength(0);
+      expect(rowsOf(await listWorkOrders(db, { q: 'шлифовка' }))).toHaveLength(1);
+    } finally {
+      frozen.mockRestore();
       sqlite.close();
     }
   });

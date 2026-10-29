@@ -22,6 +22,7 @@ import { softDeleteOperation } from '../../services/operationService.js';
 import { SettingsKey, settingsGetNumber, settingsGetString, settingsSetString } from '../../services/settingsStore.js';
 import { parseBlockedRows, serializeBlockedRows } from '../../services/sync/blockedRows.js';
 import { resetLocalDatabase, resetSyncState } from '../../services/syncService.js';
+import { AUTO_SYNC_MS } from '../../services/syncControl.js';
 import { isViewMode } from '../ipcContext.js';
 
 export function registerAuthAndSyncIpc(ctx: IpcContext) {
@@ -166,9 +167,14 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
   });
   ipcMain.handle('sync:resetLocalDb', async () => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode' };
-    ctx.mgr.stopAuto();
+    // Движок в отдельном процессе держит своё соединение SQLite: файл нельзя удалять,
+    // пока он открыт. Просим его закрыться, и только потом сбрасываем базу.
+    await ctx.mgr.releaseDatabase();
     const res = await resetLocalDatabase(ctx.sysDb, 'ui');
-    if (!res.ok) return res;
+    if (!res.ok) {
+      ctx.mgr.startAuto(AUTO_SYNC_MS);
+      return res;
+    }
     setTimeout(() => {
       try {
         app.relaunch();

@@ -8,6 +8,15 @@ export default defineConfig({
     build: {
       outDir: resolve(__dirname, 'dist/main'),
       emptyOutDir: true,
+      rollupOptions: {
+        // Два входа: главный процесс и движок синка, который живёт отдельным
+        // `utilityProcess` (docs/plans/client-ram-cache-and-sync-worker-2026-10.md).
+        // Формат у обоих общий (CJS), поэтому `__dirname` в воркере работает.
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          syncWorker: resolve(__dirname, 'src/main/workers/syncWorker.ts'),
+        },
+      },
     },
   },
   preload: {

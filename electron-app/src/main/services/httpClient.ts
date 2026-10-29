@@ -1,6 +1,6 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
-import { authRefresh, clearSession, getSession } from './authService.js';
+import { clearSyncSession, readSyncSession, refreshSyncSession } from './syncSession.js';
 import { fetchWithRetry } from './netFetch.js';
 
 export type HttpResult = {
@@ -53,7 +53,7 @@ export async function httpAuthed(
   const timeoutMs = opts?.timeoutMs ?? 30_000;
   const attempts = opts?.attempts ?? 3;
 
-  const session = await getSession(db).catch(() => null);
+  const session = await readSyncSession(db);
   if (!session?.accessToken) return { ok: false, status: 401, text: 'auth required' };
 
   const headers = new Headers(init.headers ?? {});
@@ -68,10 +68,10 @@ export async function httpAuthed(
     return { ok: r1.ok, status: r1.status, ...body };
   }
 
-  // Refresh once and retry. authRefresh itself clears the session on a
+  // Refresh once and retry. The provider itself clears the session on a
   // definitive 401 rejection; transient refresh failures keep it.
-  if (session.refreshToken) {
-    const refreshed = await authRefresh(db, { apiBaseUrl, refreshToken: session.refreshToken });
+  if (session.canRefresh) {
+    const refreshed = await refreshSyncSession(db, { apiBaseUrl });
     if (!refreshed.ok) {
       const body = await readBody(r1);
       return { ok: false, status: r1.status, ...body };
@@ -85,7 +85,7 @@ export async function httpAuthed(
   }
 
   // 401 with no refresh token at all: the stored session is unusable.
-  await clearSession(db).catch(() => {});
+  await clearSyncSession(db).catch(() => {});
   const body = await readBody(r1);
   return { ok: false, status: r1.status, ...body };
 }
