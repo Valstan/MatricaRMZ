@@ -2,25 +2,24 @@
 
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
-**Status:** ACTIVE — нитка «клиент без замираний»: БД в RAM, синк в отдельном процессе, обновления по таблицам. PR-1 (RAM-кэш + замер пауз главного потока) готов и гейты зелёные; дальше PR-2.
+**Status:** ACTIVE — нитка «клиент без замираний»: БД в RAM, синк в отдельном процессе, обновления по таблицам. PR-1 (RAM-кэш + замер пауз главного потока) выкачен в 3.93.0; дальше PR-2.
 **Updated:** 2026-10-29 (DeepSeek V4.1 Flash Free session, на машине `COMPUTER`)
-**Branch:** `perf/client-ram-cache` (PR-1)
-**Last released version:** **v3.92.0** (+ `android-v3.92.0`), прод `3.92.0` на `:3001` и `:3002` порознь, инсталлятор + blockmap разложены, `/updates/status` отдаёт `3.92.0`, на проде один APK `MatricaRMZ-3.92.0.apk`, Диспетчер предлагает планшетам `3.92.0`.
+**Branch:** `main`
+**Last released version:** **v3.93.0** (+ `android-v3.93.0`) — клиентский выпуск: прагмы RAM-кэша и замер пауз главного потока, бэкенд не менялся. Предыдущий: **v3.92.0** (+ `android-v3.92.0`), номер РМЗ доехал до парка.
 
 ## Текущая нитка
 
 План: [`docs/plans/client-ram-cache-and-sync-worker-2026-10.md`](plans/client-ram-cache-and-sync-worker-2026-10.md) — 4 этапа, решения владельца зафиксированы (диск остаётся точкой правды, только десктоп, всё в v3, память не режем).
 
-- **PR-1 (сделан, ждёт релиза):** `cache_size = -524288`, `temp_store = MEMORY`, `busy_timeout = 5000`, `optimize` + первый `ANALYZE` в `database/db.ts` (writable и read-only); модуль `services/eventLoopLag.ts` — замер пауз главного потока, окно сбрасывается на каждом прогоне синка, warn `loop-lag` при p99 ≥ 50 мс.
+- **PR-1 (выкачен в 3.93.0):** `cache_size = -524288`, `temp_store = MEMORY`, `busy_timeout = 5000`, `optimize` + первый `ANALYZE` в `database/db.ts` (writable и read-only); модуль `services/eventLoopLag.ts` (+ листовой `eventLoopLagMetrics.ts`) — замер пауз главного потока, окно сбрасывается на каждом прогоне синка через инъекцию `opts.readLag`, warn `loop-lag` при p99 ≥ 50 мс.
 - **PR-2 (следующий):** движок синка в `utilityProcess` — вход сборки `syncWorker`, `SyncManager` целиком в воркере, `main` получает прокси с тем же API, ключ БД только сообщением, супервизор с backoff, флаг отката `MATRICA_SYNC_WORKER=0`, инъекция `host` вместо `app` в `syncService.ts`.
 - **PR-3:** `sync:changed { tables }` вместо общего «весь экран» — карта «таблица контракта → домены UI» в `shared`, фильтр в `liveDataService`/`useLiveDataRefresh`, спящие вкладки не дёргаются.
 - **PR-4:** тяжёлые чтения в data-процесс — **только по замеру** после 1–3.
 
 ## Следующий шаг
 
-1. Довести PR-1 до мержа: PR + релиз (порядок из плана — PR-1 отдельным релизом, чтобы владелец почувствовал разницу и чтобы получить числа для решения по PR-4).
-2. После выката PR-1 снять на живом клиенте: `loop-lag`/`sync-run` в `client-*.log`, RSS, `engine:list` — это база для порогов PR-4.
-3. Начать PR-2 по разделу плана (сборка воркера → прокси в main → инъекция `host` → супервизор → смоук `verifier-electron` с pull на 50k строк).
+1. Снять на живом клиенте базу для порогов: `loop-lag`/`sync-run` в `client-*.log`, RSS, `engine:list` — это вход в решение по PR-4.
+2. Начать PR-2 по разделу плана: вход сборки `syncWorker` → прокси в main с тем же API → инъекция `host` вместо `app` в `syncService.ts` → супервизор с backoff → смоук `verifier-electron` с pull на 50k строк.
 
 ## Контекст
 
