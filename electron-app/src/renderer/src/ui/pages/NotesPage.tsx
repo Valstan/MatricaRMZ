@@ -192,7 +192,7 @@ export function NotesPage(props: {
     async () => {
       await refresh();
     },
-    { intervalMs: 15000 },
+    { intervalMs: 15000, domains: ['notes', 'chat'] },
   );
 
   useEffect(() => {

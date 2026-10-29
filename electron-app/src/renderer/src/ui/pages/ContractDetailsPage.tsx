@@ -1899,7 +1899,7 @@ export function ContractDetailsPage(props: {
       await loadContract();
       await loadProgress();
     },
-    { intervalMs: 20000 },
+    { intervalMs: 20000, domains: ['contracts', 'directories', 'engines', 'drafts'] },
   );
 
   useEffect(() => {

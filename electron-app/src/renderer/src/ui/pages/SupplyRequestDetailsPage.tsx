@@ -905,7 +905,7 @@ export function SupplyRequestDetailsPage(props: {
       if (sessionHadChanges.current) return;
       await load();
     },
-    { intervalMs: 60000 },
+    { intervalMs: 60000, domains: ['supply', 'directories', 'drafts', 'warehouse'] },
   );
 
   const departmentLabel = useMemo(() => {

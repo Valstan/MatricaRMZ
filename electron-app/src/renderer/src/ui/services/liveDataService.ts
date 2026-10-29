@@ -6,6 +6,8 @@ export type LiveDataPulse = {
   at: number;
   reason: LiveDataPulseReason;
   pulled?: number;
+  /** Таблицы контракта, которые задел прогон. Пусто/нет — «неизвестно, считай все». */
+  tables?: string[];
 };
 
 type PulseListener = (pulse: LiveDataPulse) => void;
@@ -41,7 +43,13 @@ class LiveDataService {
     if (window.matrica?.sync?.onProgress) {
       this.unsubscribeSync = window.matrica.sync.onProgress((evt: SyncProgressEvent) => {
         if (!evt) return;
-        if (evt.state === 'done') this.emit('sync_done', { pulled: Number(evt.pulled ?? 0) });
+        if (evt.state === 'done') {
+          const tables = evt.counts?.tables ? Object.keys(evt.counts.tables) : null;
+          this.emit('sync_done', {
+            pulled: Number(evt.pulled ?? 0),
+            ...(tables && tables.length > 0 ? { tables } : {}),
+          });
+        }
       });
     }
   }

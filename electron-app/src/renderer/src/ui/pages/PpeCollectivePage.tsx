@@ -85,7 +85,7 @@ export function PpeCollectivePage(props: { canEdit: boolean; canIssue: boolean }
 
   // Вкладка в keep-alive: без импульса новые сотрудники не появились бы в распределении
   // до перезапуска клиента.
-  useLiveDataRefresh(loadEmployees, { intervalMs: 60_000 });
+  useLiveDataRefresh(loadEmployees, { intervalMs: 60_000, domains: ['ppe', 'employees', 'warehouse'] });
 
   useEffect(() => {
     void (async () => {

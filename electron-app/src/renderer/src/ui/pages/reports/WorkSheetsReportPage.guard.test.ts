@@ -36,7 +36,7 @@ describe('отчёт-список «Этапы работ»', () => {
 
   it('строки читаются тем же мостом, что и экран, за всё время, и подхватывают живые изменения', () => {
     expect(PAGE).toContain('window.matrica.workSheets.rows.list({ sinceMs: null })');
-    expect(PAGE).toContain('useLiveDataRefresh(refreshRows)');
+    expect(PAGE).toContain("useLiveDataRefresh(refreshRows, { domains: ['workSheets'] })");
     expect(PAGE, 'поля видов работ — по справочнику, объединением').toContain('unionWorkSheetColumns(res.rows)');
     expect(PAGE).toContain('workSheetFacets(fieldColumns)');
     // Движковой ступени «проходил этап» здесь нет с 12.10.2026 (дубль «Вид работ»):

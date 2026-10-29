@@ -183,7 +183,7 @@ export function PpeCardDetailsPage(props: {
 
   // Вкладка живёт в keep-alive: без импульса размеры и табельные, поправленные в карточке
   // сотрудника, не подтянулись бы до перезапуска клиента.
-  useLiveDataRefresh(loadEmployees, { intervalMs: 60_000 });
+  useLiveDataRefresh(loadEmployees, { intervalMs: 60_000, domains: ['ppe', 'warehouse', 'employees'] });
 
   useEffect(() => {
     void (async () => {

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 
+import { tablesTouchDomains, type SyncDomain } from '@matricarmz/shared';
+
 import { subscribeLiveDataPulse, type LiveDataPulse } from '../services/liveDataService.js';
 import { useOnTabVisible, useTabVisibility } from '../shell/TabVisibilityContext.js';
 import { perfTrace } from '../utils/perfTrace.js';
@@ -10,6 +12,14 @@ type UseLiveDataRefreshOptions = {
   refreshOnFocus?: boolean;
   refreshOnSyncDone?: boolean;
   skipWhenInteracting?: boolean;
+  /**
+   * Экраны, которые задевают правки этой страницы. Синк приносит таблицы, которые задел
+   * прогон; если ни одна не относится к доменам страницы, перечитывать нечего.
+   *
+   * Не указаны — страница перечитывается на каждый синк, как раньше: ошибка в сторону
+   * лишней работы, а не устаревшего экрана. Пустой список означает то же самое.
+   */
+  domains?: readonly SyncDomain[];
 };
 
 export function useLiveDataRefresh(
@@ -24,6 +34,10 @@ export function useLiveDataRefresh(
   const refreshOnFocus = options?.refreshOnFocus ?? true;
   const refreshOnSyncDone = options?.refreshOnSyncDone ?? true;
   const skipWhenInteracting = options?.skipWhenInteracting ?? true;
+  // Список доменов передаётся литералом в JSX, то есть новой ссылкой на каждый рендер.
+  // Через ref его свежесть сохраняется, а подписка не пересоздаётся на каждый кадр.
+  const domainsRef = useRef<readonly SyncDomain[]>(options?.domains ?? []);
+  domainsRef.current = options?.domains ?? [];
   const runningRef = useRef(false);
   const mountedRef = useRef(true);
   const lastRefreshAtRef = useRef(0);
@@ -71,6 +85,11 @@ export function useLiveDataRefresh(
       if (pulse.reason === 'sync_done') {
         if (!refreshOnSyncDone) return;
         if (Number(pulse.pulled ?? 0) <= 0) return;
+        // Прогон назвал свои таблицы — перечитываемся, только если они наши.
+        if (pulse.tables && pulse.tables.length > 0 && !tablesTouchDomains(pulse.tables, domainsRef.current)) {
+          perfTrace.count('liveData.skipped_domain');
+          return;
+        }
       }
       if ((pulse.reason === 'focus' || pulse.reason === 'visibility') && !refreshOnFocus) return;
       if (pulse.reason === 'interval') {

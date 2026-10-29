@@ -175,7 +175,7 @@ export function SupplyToolMovementsPage(props: {
     async () => {
       await refreshMovements();
     },
-    { intervalMs: 25_000 },
+    { intervalMs: 25_000, domains: ['directories', 'employees', 'workSheets'] },
   );
 
   async function createEmployeeOption(label: string): Promise<string | null> {
