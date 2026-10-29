@@ -71,7 +71,7 @@ export function ToolPropertiesPage(props: {
     useCallback(async () => {
       await refresh({ silent: true });
     }, [refresh]),
-    { intervalMs: 15000 },
+    { intervalMs: 15000, domains: ['directories'] },
   );
 
   const searchSimilar = listState.searchSimilar === true;

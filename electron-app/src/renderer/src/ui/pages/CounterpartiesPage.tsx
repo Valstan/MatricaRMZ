@@ -167,7 +167,7 @@ export function CounterpartiesPage(props: {
     useCallback(async () => {
       await refresh({ silent: true });
     }, [refresh]),
-    { enabled: !!typeId && props.canViewMasterData, intervalMs: 15000 },
+    { enabled: !!typeId && props.canViewMasterData, intervalMs: 15000, domains: ['directories', 'contracts'] },
   );
 
   // Верхний поиск: поля строки + внутрь карточки (EAV).

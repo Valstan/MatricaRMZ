@@ -186,7 +186,7 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
 
   // Вкладка в keep-alive: без импульса выдача, сделанная в карточке, не изменила бы сроки
   // в списке до перезапуска клиента.
-  useLiveDataRefresh(load, { intervalMs: 60_000 });
+  useLiveDataRefresh(load, { intervalMs: 60_000, domains: ['ppe'] });
 
   useEffect(() => {
     void load();

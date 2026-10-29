@@ -58,7 +58,7 @@ export function PpeGroupsPage(props: { canEdit: boolean }) {
 
   // Вкладка в keep-alive: без импульса люди, приехавшие импортом/зеркалом, не попали бы
   // в состав группы до перезапуска клиента.
-  useLiveDataRefresh(loadEmployees, { intervalMs: 60_000 });
+  useLiveDataRefresh(loadEmployees, { intervalMs: 60_000, domains: ['ppe', 'employees'] });
 
   useEffect(() => {
     void (async () => {

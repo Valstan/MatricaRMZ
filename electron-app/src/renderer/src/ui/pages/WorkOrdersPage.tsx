@@ -194,7 +194,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
     useCallback(async () => {
       await refresh({ silent: true });
     }, [refresh]),
-    { intervalMs: 15000 },
+    { intervalMs: 15000, domains: ['workOrders'] },
   );
 
   // Колонка «Исполнители»: фамилия того, кто «принял в работу» (нач. цеха из подписей),

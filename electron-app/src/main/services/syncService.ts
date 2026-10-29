@@ -1906,8 +1906,8 @@ async function applyPulledChanges(
       event: Pick<SyncProgressEvent, 'stage' | 'detail' | 'table' | 'counts' | 'breakdown' | 'service'>,
     ) => void;
   },
-): Promise<{ unknownTables: string[] }> {
-  if (changes.length === 0) return { unknownTables: [] };
+): Promise<{ unknownTables: string[]; changedTables: Record<string, number> }> {
+  if (changes.length === 0) return { unknownTables: [], changedTables: {} };
   const ts = nowMs();
   const applyStartedAt = ts;
   let parseDoneAt = 0;
@@ -3024,6 +3024,13 @@ async function applyPulledChanges(
     await recordPullGaps(db, unknownTables, nowMs()).catch((e) => {
       logSync(`pull gap record failed: ${formatError(e)}`);
     });
+  }
+
+  // Что реально применено — по таблицам. Отдаём наружу, чтобы окна перечитали только
+  // затронутые экраны: прогон на 50k строк иначе дёргает все открытые вкладки подряд.
+  const changedTables: Record<string, number> = {};
+  for (const [table, rows] of Object.entries(groups)) {
+    if (rows.length > 0) changedTables[table] = rows.length;
   }
 
   // De-duplicate within this pull batch by primary key (prefer newest server_seq).
@@ -4236,7 +4243,7 @@ async function applyPulledChanges(
     );
   }
 
-  return { unknownTables: Array.from(unknownTables.keys()) };
+  return { unknownTables: Array.from(unknownTables.keys()), changedTables };
 }
 
 function normalizeApiBaseUrl(raw: string): string {
@@ -4835,6 +4842,7 @@ export async function runSync(
       const pullFullState = async () => {
         let totalPulled = 0;
         let serverSeq = 0;
+        const changedTables = new Map<string, number>();
         const tableCount = FULL_STATE_SYNC_TABLES_PRIORITIZED.length;
         for (let tableIdx = 0; tableIdx < tableCount; tableIdx += 1) {
           const table = FULL_STATE_SYNC_TABLES_PRIORITIZED[tableIdx];
@@ -4870,9 +4878,12 @@ export async function runSync(
                   server_seq: serverSeq,
                 };
               });
-              await applyPulledChanges(db, changes, {
+              const applied = await applyPulledChanges(db, changes, {
                 ...(progressEmitter ? { onProgress: (info: any) => emitSyncProgress('progress', info) } : {}),
               });
+              for (const [t, n] of Object.entries(applied.changedTables)) {
+                changedTables.set(t, (changedTables.get(t) ?? 0) + n);
+              }
               totalPulled += changes.length;
               tableRows += changes.length;
               emitSyncProgress('progress', { pulled: totalPulled, progress: pageProgress });
@@ -4893,6 +4904,7 @@ export async function runSync(
         return {
           totalPulled,
           serverSeq,
+          changedTables: Object.fromEntries(changedTables),
           pullJson: {
             sync_protocol_version: 2,
             sync_mode: 'incremental' as const,
@@ -4903,6 +4915,7 @@ export async function runSync(
           },
         };
       };
+      const incrementalChangedTables = new Map<string, number>();
       const pullOnce = async (sinceValue: number) => {
         const pullUrl = `${currentApiBaseUrl}/ledger/state/changes?since=${sinceValue}&limit=${PULL_PAGE_SIZE}&client_id=${encodeURIComponent(
           clientId,
@@ -4941,9 +4954,12 @@ export async function runSync(
               : `получено ${pullJson.changes.length}${top.length ? ` (${top.join(', ')}${suffix})` : ''}`;
           emitStage('pull', detail, { counts: { batch: pullJson.changes.length }, service: 'sync' });
         }
-        await applyPulledChanges(db, pullJson.changes, {
+        const applied = await applyPulledChanges(db, pullJson.changes, {
           ...(progressEmitter ? { onProgress: (info: any) => emitSyncProgress('progress', info) } : {}),
         });
+        for (const [t, n] of Object.entries(applied.changedTables)) {
+          incrementalChangedTables.set(t, (incrementalChangedTables.get(t) ?? 0) + n);
+        }
         await setSyncStateNumber(db, SettingsKey.LastPulledServerSeq, pullJson.server_cursor);
         await setSyncStateNumber(db, SettingsKey.LastSyncAt, startedAt);
         return pullJson;
@@ -4952,14 +4968,9 @@ export async function runSync(
         let sinceCursor = sinceValue;
         let totalPulled = 0;
         let last: SyncPullResponse | null = null;
-        const pulledByTable = new Map<string, number>();
         for (let i = 0; i < 2000; i += 1) {
           const res = await pullOnce(sinceCursor);
           totalPulled += res.changes.length;
-          for (const ch of res.changes ?? []) {
-            const t = String((ch as { table?: unknown }).table ?? '').trim();
-            if (t) pulledByTable.set(t, (pulledByTable.get(t) ?? 0) + 1);
-          }
           last = res;
           const serverLastSeq = Number((res as any).server_last_seq ?? res.server_cursor ?? 0);
           const cursor = Number(res.server_cursor ?? 0);
@@ -4973,7 +4984,7 @@ export async function runSync(
           }
           sinceCursor = res.server_cursor;
         }
-        return { last, totalPulled, pulledByTable };
+        return { last, totalPulled, changedTables: Object.fromEntries(incrementalChangedTables) };
       };
       const prepareMs = nowMs() - startedAt;
       const collectStartedAt = nowMs();
@@ -5459,13 +5470,13 @@ export async function runSync(
         : await pullAll(since).then((r) => ({
             totalPulled: r.totalPulled,
             serverSeq: Number((r.last as any)?.server_last_seq ?? r.last?.server_cursor ?? since),
+            changedTables: r.changedTables,
             pullJson: r.last ?? { server_cursor: since, server_last_seq: since, has_more: false, changes: [] },
           }));
       const pullJson = pullRes.pullJson;
       const pulled = pullRes.totalPulled;
       const pullMs = nowMs() - pullStartedAt;
-      const pulledByTable = (pullRes as { pulledByTable?: Map<string, number> }).pulledByTable;
-      const pulledTables = pulledByTable ? Object.fromEntries(pulledByTable) : null;
+      const pulledTables = Object.keys(pullRes.changedTables ?? {}).length > 0 ? pullRes.changedTables : null;
 
       const finalError = pushError ? `push failed: ${pushError}` : null;
       logSync(

@@ -283,7 +283,7 @@ export function ToolDetailsPage(props: {
       await refresh();
       await refreshMovements();
     },
-    { intervalMs: 20000 },
+    { intervalMs: 20000, domains: ['directories', 'employees', 'workSheets'] },
   );
 
   useEffect(() => {

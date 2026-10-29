@@ -63,7 +63,7 @@ export function EngineBrandGroupsPage(props: {
     void refresh();
   }, [refresh]);
 
-  useLiveDataRefresh(refresh, { enabled: props.canViewMasterData, intervalMs: 20000 });
+  useLiveDataRefresh(refresh, { enabled: props.canViewMasterData, intervalMs: 20000, domains: ['directories'] });
 
   const searchMode = searchModeOf(searchSimilar);
   const filtered = useMemo(

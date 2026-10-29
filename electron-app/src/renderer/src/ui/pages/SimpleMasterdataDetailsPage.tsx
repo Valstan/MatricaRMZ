@@ -778,7 +778,7 @@ export function SimpleMasterdataDetailsPage(props: {
       if (dirtyRef.current) return;
       await load();
     },
-    { intervalMs: 20000 },
+    { intervalMs: 20000, domains: ['directories', 'drafts'] },
   );
 
   const ownerType = props.ownerType ?? 'masterdata';

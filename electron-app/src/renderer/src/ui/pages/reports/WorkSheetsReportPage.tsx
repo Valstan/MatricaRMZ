@@ -141,7 +141,7 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
       }
     })();
   }, [refreshRows]);
-  useLiveDataRefresh(refreshRows);
+  useLiveDataRefresh(refreshRows, { domains: ['workSheets'] });
 
   const workshopLabel = useCallback(
     (r: WorkSheetRow) => (r.workshopId ? workshopNameById.get(r.workshopId) || r.workshopName || HUMAN_LABEL_DASH : ''),

@@ -813,7 +813,7 @@ export function EngineBrandDetailsPage(props: {
       await loadBrand();
       await loadBrandParts();
     },
-    { enabled: props.canViewMasterData, intervalMs: 20000 },
+    { enabled: props.canViewMasterData, intervalMs: 20000, domains: ['directories', 'engines', 'drafts'] },
   );
 
   // Phase 3d: debounced recovery-автосейв (~1.5с после последней правки, пока карточка dirty).

@@ -100,7 +100,7 @@ export function EngineBrandsPage(props: {
 
   // Counts must not go stale after the operator adds/removes parts inside a brand card and
   // returns here: refresh on the live-data pulse (sync-done / focus) and on interval.
-  useLiveDataRefresh(loadBrandPartCounts, { enabled: props.canViewMasterData, intervalMs: 20000 });
+  useLiveDataRefresh(loadBrandPartCounts, { enabled: props.canViewMasterData, intervalMs: 20000, domains: ['directories', 'engines', 'warehouse'] });
 
   // Группы марок → опции фильтра + инвертированная карта brandId → [groupId]. Групп немного
   // (справочник оператора), поэтому N+1 (get на каждую группу) приемлемо — как в других экранах.
@@ -141,7 +141,7 @@ export function EngineBrandsPage(props: {
   useEffect(() => {
     void loadGroups();
   }, [loadGroups]);
-  useLiveDataRefresh(loadGroups, { enabled: props.canViewMasterData, intervalMs: 20000 });
+  useLiveDataRefresh(loadGroups, { enabled: props.canViewMasterData, intervalMs: 20000, domains: ['directories', 'engines'] });
 
   // Верхний поиск: имя + внутрь карточки (EAV). Плюс необязательный фильтр по группе марок.
   const getRowId = useCallback((r: { id: string }) => String(r.id), []);

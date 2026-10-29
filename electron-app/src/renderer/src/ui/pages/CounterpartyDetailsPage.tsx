@@ -168,7 +168,7 @@ export function CounterpartyDetailsPage(props: {
       if (dirtyRef.current) return;
       await load();
     },
-    { intervalMs: 20000 },
+    { intervalMs: 20000, domains: ['directories', 'contracts', 'drafts'] },
   );
 
   useEffect(() => {

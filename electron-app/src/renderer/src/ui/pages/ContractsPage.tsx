@@ -515,7 +515,7 @@ export function ContractsPage(props: {
     useCallback(async () => {
       await loadContracts({ silent: true });
     }, [loadContracts]),
-    { intervalMs: 15000 },
+    { intervalMs: 15000, domains: ['contracts', 'directories', 'engines'] },
   );
 
   // Верхний поиск: поля строки + внутрь карточки (EAV).

@@ -548,7 +548,7 @@ export function PartDetailsPage(props: {
       await loadCustomers();
       await loadContracts();
     },
-    { intervalMs: 20000 },
+    { intervalMs: 20000, domains: ['directories', 'engines', 'contracts', 'warehouse'] },
   );
 
   useEffect(() => {

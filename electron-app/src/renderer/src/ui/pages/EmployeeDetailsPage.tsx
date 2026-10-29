@@ -556,7 +556,7 @@ export function EmployeeDetailsPage(props: {
       await loadEmployee();
       await loadAccountPerms();
     },
-    { intervalMs: 20000 },
+    { intervalMs: 20000, domains: ['employees', 'directories', 'users', 'drafts'] },
   );
 
   useEffect(() => {

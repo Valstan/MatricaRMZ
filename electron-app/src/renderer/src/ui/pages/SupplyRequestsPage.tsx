@@ -94,7 +94,7 @@ export function SupplyRequestsPage(props: {
     useCallback(async () => {
       await refresh({ silent: true });
     }, [refresh]),
-    { intervalMs: 15000 },
+    { intervalMs: 15000, domains: ['supply', 'directories'] },
   );
 
   const sorted = useSortedItems(

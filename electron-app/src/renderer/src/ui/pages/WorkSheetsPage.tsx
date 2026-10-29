@@ -202,7 +202,7 @@ export function WorkSheetsPage(props: {
   // Пока открыт модальный диалог добавления этапа, живое обновление списка молчит:
   // список всё равно закрыт диалогом, а перерисовка тысяч строк — та самая тяжесть,
   // что читается оператором как «программа зависла» (владелец 19.10.2026).
-  useLiveDataRefresh(refreshRows, { enabled: !bulkAddOpen });
+  useLiveDataRefresh(refreshRows, { enabled: !bulkAddOpen, domains: ['workSheets'] });
 
   // Цеха — подписи для колонки и карточки; прав на справочник может не быть — тогда снимок строки.
   const onWorkshopsLoaded = props.onWorkshopsLoaded;

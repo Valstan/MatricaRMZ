@@ -169,7 +169,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
     useCallback(async () => {
       await refresh({ silent: true });
     }, [refresh]),
-    { intervalMs: 15000 },
+    { intervalMs: 15000, domains: ['employees', 'directories'] },
   );
 
   // Верхний поиск: поля строки + внутрь карточки (EAV).

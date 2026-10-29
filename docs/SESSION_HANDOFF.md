@@ -2,9 +2,9 @@
 
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
-**Status:** ACTIVE — нитка «клиент без замираний»: БД в RAM, синк в отдельном процессе, обновления по таблицам. PR-1 выкачен в 3.93.0; PR-2 (движок синка в `utilityProcess`) написан и открыт PR-ом; дальше PR-3 по той же серии.
+**Status:** ACTIVE — нитка «клиент без замираний»: БД в RAM, синк в отдельном процессе, обновления по таблицам. PR-1 выкачен в 3.93.0; PR-2 влит (#1512); PR-3 написан и открыт PR-ом; дальше — релиз серии.
 **Updated:** 2026-10-29 (DeepSeek V4.1 Flash Free session, на машине `COMPUTER`)
-**Branch:** `feat/sync-worker-process` → `main`
+**Branch:** `perf/sync-changed-tables` → `main`
 **Last released version:** **v3.93.0** (+ `android-v3.93.0`) — клиентский выпуск: прагмы RAM-кэша и замер пауз главного потока, бэкенд не менялся. Предыдущий: **v3.92.0** (+ `android-v3.92.0`), номер РМЗ доехал до парка.
 
 ## Текущая нитка
@@ -12,15 +12,16 @@
 План: [`docs/plans/client-ram-cache-and-sync-worker-2026-10.md`](plans/client-ram-cache-and-sync-worker-2026-10.md) — 4 этапа, решения владельца зафиксированы (диск остаётся точкой правды, только десктоп, всё в v3, память не режем).
 
 - **PR-1 (выкачен в 3.93.0):** `cache_size = -524288`, `temp_store = MEMORY`, `busy_timeout = 5000`, `optimize` + первый `ANALYZE` в `database/db.ts` (writable и read-only); модуль `services/eventLoopLag.ts` (+ листовой `eventLoopLagMetrics.ts`), warn `loop-lag` при p99 ≥ 50 мс.
-- **PR-2 (в PR):** движок синка в `utilityProcess` — `workers/syncWorker.ts` + протокол порта, `SyncProxy` (тот же API, кэш статуса, супервизор backoff 1→30 с), `SyncControl` + фабрика (откат `MATRICA_SYNC_WORKER=0` и автоматически при E2E), провайдеры платформенного (`syncHost`, `syncSession`, `sync/e2eKeySource`) вместо `app`/`safeStorage` в движке, второй вход сборки `syncWorker`, `releaseDatabase` для пересоздания базы.
-- **PR-3:** `sync:changed { tables }` вместо общего «весь экран» — карта «таблица контракта → домены UI» в `shared`, фильтр в `liveDataService`/`useLiveDataRefresh`, спящие вкладки не дёргаются.
+- **PR-2 (влит, #1512):** движок синка в `utilityProcess` — `workers/syncWorker.ts` + протокол порта, `SyncProxy` (тот же API, кэш статуса, супервизор backoff 1→30 с), `SyncControl` + фабрика (откат `MATRICA_SYNC_WORKER=0` и автоматически при E2E), провайдеры платформенного (`syncHost`, `syncSession`, `sync/e2eKeySource`) вместо `app`/`safeStorage` в движке, второй вход сборки `syncWorker`, `releaseDatabase` для пересоздания базы.
+- **PR-3 (в PR):** обновления по таблицам — `applyPulledChanges` → `changedTables`, `done`-событие синка несёт `counts.tables`, карта «таблица контракта → домены UI» в `shared/src/domain/syncTableDomains.ts`, фильтр в `useLiveDataRefresh` (25 страниц объявили свои домены), пропуск пишется в perfTrace как `liveData.skipped_domain`.
 - **PR-4:** тяжёлые чтения в data-процесс — **только по замеру** после 1–3.
 
 ## Следующий шаг
 
-1. Дождаться зелёного CI на PR-2, влить; затем **PR-3 той же серией** (одним релизом: по отдельности половины не дают эффекта).
-2. Для PR-3 первым делом — `changedTables` из `applyPulledChanges` и карта доменов в `shared` (сторож: у каждой таблицы контракта есть домен).
-3. В релиз серии — строка в PR «смоук прогнан / не гнался»: на этой машине живой Electron-стек не поднимается (см. ниже), гнать на машине с MSVC или после пересборки нативных модулей под Electron-ABI.
+1. Дождаться зелёного CI на PR-3 (#1513), влить.
+2. Выпустить релиз серии **PR-2 + PR-3 одним выпуском**: `node scripts/bump-version.mjs`, запись в `releaseWelcome.ts` (`highlights` + новый `epigraph`, без `intro`), теги `vX.Y.Z` и `android-vX.Y.Z`, деплой по чеклисту.
+3. В PR релиза — строка «смоук прогнан / не гнался»: на этой машине живой Electron-стек не поднимается (см. ниже), гнать на машине с MSVC или после пересборки нативных модулей под Electron-ABI.
+4. После релиза — решение по PR-4 по замеру: порог входа p99 главного потока > 50 мс или тёплое открытие списка > 150 мс.
 
 ## Контекст
 
@@ -29,7 +30,7 @@
 - **Живой Electron на этой машине не поднимается:** `better-sqlite3-multiple-ciphers` собран под Node-ABI 137, Electron 43 требует 148; `C:\BuildTools` (MSVC) сейчас нет, `install-app-deps`/`node-gyp rebuild` не пройдут. Vitest (Node) от этого зелёный. Проверено spike'ом: собранный `dist/main/syncWorker.js` в `utilityProcess` **загружается** и доходит до открытия базы — упирается ровно в ABI нативного модуля.
 - **Что нового узнали про Electron 43 (важно для следующих шагов):** в `utilityProcess` из `electron` доступны только `net` и `systemPreferences`; выход сборки — ESM, поэтому статический импорт отсутствующего имени (`app`, `safeStorage`) роняет процесс **при загрузке**. Платформенное в движке — только через провайдеры.
 - **Прод:** `3.93.0`, оба порта отвечают порознь (M100), `/updates/status` → `3.93.0`, `lastError: null`. Диск прода — ~82%.
-- **Открытых PR:** один — PR-2 этой нитки.
+- **Открытых PR:** один — PR-3 этой нитки.
 - **Замеры** лежат вне репо: `%TEMP%/opencode/sqlite-bench{,2,3}/bench.mjs`.
 - **Грабли гейта:** на этой машине `-r test` флейкует от перегруза (`clientOpsArchive.test.ts` — 5 с на архив и таймаут под нагрузкой; одиночно зелёный). Красный тест вне зоны правки перепроверять одиночным прогоном.
 
