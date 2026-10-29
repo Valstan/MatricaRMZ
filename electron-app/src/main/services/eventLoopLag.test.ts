@@ -8,15 +8,15 @@ const logPerfWarn = vi.hoisted(() => vi.fn());
 vi.mock('./logService.js', () => ({ logPerfWarn }));
 
 const {
-  currentRssMb,
-  formatLag,
-  lagMetadata,
   readEventLoopLag,
-  shouldReportLag,
   startEventLoopLagMonitor,
   startEventLoopLagReporting,
   stopEventLoopLagMonitor,
 } = await import('./eventLoopLag.js');
+
+const { currentRssMb, formatLag, lagMetadata, shouldReportLag } = await import(
+  './eventLoopLagMetrics.js'
+);
 
 beforeEach(() => {
   logPerfWarn.mockClear();

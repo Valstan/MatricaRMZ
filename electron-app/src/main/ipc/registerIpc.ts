@@ -9,7 +9,7 @@ import { logMessageGetEnabled, startLogSender } from '../services/logService.js'
 import { reportPendingUpdateTelemetry } from '../services/updateService.js';
 import { startClientSettingsPolling } from '../services/clientAdminService.js';
 import { startGpuDiagnostics } from '../services/gpuDiagnostics.js';
-import { startEventLoopLagReporting } from '../services/eventLoopLag.js';
+import { startEventLoopLagReporting, readEventLoopLag } from '../services/eventLoopLag.js';
 import { appendMainLogLine } from '../utils/logger.js';
 
 import type { IpcContext } from './ipcContext.js';
@@ -82,7 +82,10 @@ export function registerIpc(db: BetterSQLite3Database, opts: { clientId: string;
   // оборвалась сессия, сервер старее клиента, сеть отвечает молчанием.
   const AUTO_SYNC_MS = 60_000;
   // Один менеджер на процесс (переиспользуем и для ручного sync, и для status).
-  const mgr = new SyncManager(db, opts.clientId, opts.apiBaseUrl, { onProgress: emitSyncProgress });
+  const mgr = new SyncManager(db, opts.clientId, opts.apiBaseUrl, {
+    onProgress: emitSyncProgress,
+    readLag: readEventLoopLag,
+  });
   mgr.startAuto(AUTO_SYNC_MS);
   onNetworkChange((next) => {
     if (!next.online) return;

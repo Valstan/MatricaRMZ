@@ -13,7 +13,8 @@ import {
 } from './syncService.js';
 import { isOfflineSyncError } from './sync/syncErrorClassifier.js';
 import { computeLocalDirtyAction, computeNextSyncDelayMs, computeWakeIdlePauseMs } from './sync/syncScheduling.js';
-import { SLOW_LOOP_P99_MS, lagMetadata, readEventLoopLag } from './eventLoopLag.js';
+import { SLOW_LOOP_P99_MS, lagMetadata } from './eventLoopLagMetrics.js';
+import type { EventLoopLag } from './eventLoopLagMetrics.js';
 import { logPerfWarn } from './logService.js';
 import { SettingsKey, settingsGetString } from './settingsStore.js';
 
@@ -70,6 +71,12 @@ export class SyncManager {
   private lastPendingRows: number | null = null;
   private lastDirtySyncAt: number | null = null;
   private localRetryDelayMs = LOCAL_RETRY_MIN_MS;
+  /**
+   * Замер пауз главного потока. Инъекция, а не импорт: `syncManager` собирается и в
+   * планшетный web-бандл, где `node:perf_hooks` нет. Без замера (`main` -> null) синк
+   * работает как раньше и просто не пишет метрику.
+   */
+  private readonly readLag: () => EventLoopLag | null;
 
   constructor(
     private readonly db: BetterSQLite3Database,
@@ -77,9 +84,11 @@ export class SyncManager {
     private apiBaseUrl: string,
     opts?: {
       onProgress?: ProgressHandler;
+      readLag?: () => EventLoopLag | null;
     },
   ) {
     this.onProgress = opts?.onProgress;
+    this.readLag = opts?.readLag ?? (() => null);
   }
 
   setApiBaseUrl(next: string) {
@@ -329,11 +338,11 @@ export class SyncManager {
       // Перед каждым синком подхватываем актуальную конфигурацию.
       await this.refreshApiBaseUrlFromDb();
       // Замер ровно окна прогона: сколько ждал главный поток, пока применялся pull.
-      readEventLoopLag();
+      this.readLag();
       const runStartedAt = nowMs();
       const r = await runSync(this.db, this.clientId, this.apiBaseUrl, opts);
       const runMs = nowMs() - runStartedAt;
-      const lag = readEventLoopLag();
+      const lag = this.readLag();
       if (runMs >= SLOW_RUN_MS) {
         logPerfWarn(this.db, this.apiBaseUrl, 'sync-run', `slow sync run: ${runMs}ms`, {
           action: 'run',

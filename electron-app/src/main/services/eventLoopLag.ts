@@ -2,17 +2,17 @@ import { monitorEventLoopDelay } from 'node:perf_hooks';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import { logPerfWarn } from './logService.js';
+import { SLOW_LOOP_P99_MS, formatLag, lagMetadata, shouldReportLag } from './eventLoopLagMetrics.js';
+import type { EventLoopLag } from './eventLoopLagMetrics.js';
 
 // «Программа замирает» — это не медленная секунда на запрос, а стоящий главный поток:
 // пока он занят применением pull (better-sqlite3 синхронный), окно не перерисовывается
 // и IPC не отвечает. Гистограмма задержек таймера — единственный дешёвый способ увидеть
 // это числом, а не жалобой из цеха. Пишем только аномалии (порог p99), сводка едет в
 // серверный `client-*.log`, поэтому слабые машины парка видны без обхода.
-
-export type EventLoopLag = { p50Ms: number; p99Ms: number; maxMs: number; samples: number };
-
-/** Порог «ощутимая пауза» для сводок; для синка он же, но проверяется на его прогоне. */
-export const SLOW_LOOP_P99_MS = 50;
+//
+// Модуль десктопный: `node:perf_hooks` в web-сборке (планшет) нет, поэтому `syncManager`
+// берёт замер инъекцией, а не импортом.
 
 let histogram: ReturnType<typeof monitorEventLoopDelay> | null = null;
 
@@ -48,31 +48,6 @@ export function readEventLoopLag(reset = true): EventLoopLag | null {
   return lag;
 }
 
-export function formatLag(lag: EventLoopLag): string {
-  return `p50=${lag.p50Ms}ms p99=${lag.p99Ms}ms max=${lag.maxMs}ms samples=${lag.samples}`;
-}
-
-export function shouldReportLag(lag: EventLoopLag, thresholdMs = SLOW_LOOP_P99_MS): boolean {
-  return lag.samples > 0 && lag.p99Ms >= thresholdMs;
-}
-
-export function currentRssMb(): number | null {
-  const rss = process.memoryUsage?.().rss;
-  return rss ? Math.round(rss / 1024 / 1024) : null;
-}
-
-/** Метаданные для лога: задержки + фактическая память процесса (кэш страниц живёт здесь). */
-export function lagMetadata(lag: EventLoopLag | null): Record<string, unknown> {
-  if (!lag) return {};
-  return {
-    loopP50Ms: lag.p50Ms,
-    loopP99Ms: lag.p99Ms,
-    loopMaxMs: lag.maxMs,
-    loopSamples: lag.samples,
-    rssMb: currentRssMb(),
-  };
-}
-
 export type LagReportingArgs = {
   db: BetterSQLite3Database;
   apiBaseUrl: string;
@@ -98,7 +73,7 @@ export function startEventLoopLagReporting(
   const timer = setInterval(() => {
     const lag = readLag();
     if (!lag || !shouldReportLag(lag, thresholdMs)) return;
-    args.log?.(`perf: main thread lag ${formatLag(lag)} rss=${currentRssMb() ?? '?'}MB`);
+    args.log?.(`perf: main thread lag ${formatLag(lag)} rss=${lagMetadata(lag).rssMb ?? '?'}MB`);
     logPerfWarn(args.db, args.apiBaseUrl, 'loop-lag', `slow main thread: ${formatLag(lag)}`, {
       action: 'eventLoop',
       ...lagMetadata(lag),
