@@ -184,6 +184,7 @@
 
 ## 🟡 Техдолг
 
+- [🟡 План «Сквозной номер РМЗ» лежит активным, хотя код выкачен — проверить и закрыть 🗓 since:2026-10-29](pending/plan-nomerov-rmz-ne-zakryt-v-dokakh-proverit-i-dodelat.md)
 - [🟡 web-admin не показывает номер РМЗ: нужен REST-ответ с номером 🗓 since:2026-10-28](pending/web-admin-ne-pokazyvaet-nomer-rmz-nuzhen-rest.md)
 - [🟢 Экран «Номера РМЗ» не знает автора старых карточек 🗓 since:2026-10-28](pending/ekran-nomera-rmz-ne-znaet-avtora-starykh-kartochek.md)
 - [🟡 Живой `docs/COMPLETED.md` разгружен от старых поколений (638 → 274 КБ), но строки 3.x всё ещё абзацы 🗓 since:2026-10-27](pending/completed-szhat-stroki-pokoleniya-3x.md)
