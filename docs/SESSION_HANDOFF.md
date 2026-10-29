@@ -2,9 +2,9 @@
 
 > Sticky-note для непрерывности: куда шла нитка, что дальше. История — в `git log`, открытое — в `docs/PENDING_FOLLOWUPS.md`, сделанное — в `docs/COMPLETED.md`. Только активное: старые нитки вычищены (правило раскола «открытое vs сделанное»).
 
-**Status:** ACTIVE — нитка «клиент без замираний»: БД в RAM, синк в отдельном процессе, обновления по таблицам. PR-1 выкачен в 3.93.0; PR-2 влит (#1512); PR-3 написан и открыт PR-ом; дальше — релиз серии.
+**Status:** ACTIVE — нитка «клиент без замираний»: БД в RAM, синк в отдельном процессе, обновления по таблицам. PR-1 выкачен в 3.93.0; PR-2 (#1512) и PR-3 (#1513) влиты; идёт релиз серии 3.94.0.
 **Updated:** 2026-10-29 (DeepSeek V4.1 Flash Free session, на машине `COMPUTER`)
-**Branch:** `perf/sync-changed-tables` → `main`
+**Branch:** `release/v3.94.0` → `main`
 **Last released version:** **v3.93.0** (+ `android-v3.93.0`) — клиентский выпуск: прагмы RAM-кэша и замер пауз главного потока, бэкенд не менялся. Предыдущий: **v3.92.0** (+ `android-v3.92.0`), номер РМЗ доехал до парка.
 
 ## Текущая нитка
@@ -13,15 +13,14 @@
 
 - **PR-1 (выкачен в 3.93.0):** `cache_size = -524288`, `temp_store = MEMORY`, `busy_timeout = 5000`, `optimize` + первый `ANALYZE` в `database/db.ts` (writable и read-only); модуль `services/eventLoopLag.ts` (+ листовой `eventLoopLagMetrics.ts`), warn `loop-lag` при p99 ≥ 50 мс.
 - **PR-2 (влит, #1512):** движок синка в `utilityProcess` — `workers/syncWorker.ts` + протокол порта, `SyncProxy` (тот же API, кэш статуса, супервизор backoff 1→30 с), `SyncControl` + фабрика (откат `MATRICA_SYNC_WORKER=0` и автоматически при E2E), провайдеры платформенного (`syncHost`, `syncSession`, `sync/e2eKeySource`) вместо `app`/`safeStorage` в движке, второй вход сборки `syncWorker`, `releaseDatabase` для пересоздания базы.
-- **PR-3 (в PR):** обновления по таблицам — `applyPulledChanges` → `changedTables`, `done`-событие синка несёт `counts.tables`, карта «таблица контракта → домены UI» в `shared/src/domain/syncTableDomains.ts`, фильтр в `useLiveDataRefresh` (25 страниц объявили свои домены), пропуск пишется в perfTrace как `liveData.skipped_domain`.
+- **PR-3 (влит, #1513):** обновления по таблицам — `applyPulledChanges` → `changedTables`, `done`-событие синка несёт `counts.tables`, карта «таблица контракта → домены UI» в `shared/src/domain/syncTableDomains.ts`, фильтр в `useLiveDataRefresh` (25 страниц объявили свои домены), пропуск пишется в perfTrace как `liveData.skipped_domain`.
 - **PR-4:** тяжёлые чтения в data-процесс — **только по замеру** после 1–3.
 
 ## Следующий шаг
 
-1. Дождаться зелёного CI на PR-3 (#1513), влить.
-2. Выпустить релиз серии **PR-2 + PR-3 одним выпуском**: `node scripts/bump-version.mjs`, запись в `releaseWelcome.ts` (`highlights` + новый `epigraph`, без `intro`), теги `vX.Y.Z` и `android-vX.Y.Z`, деплой по чеклисту.
-3. В PR релиза — строка «смоук прогнан / не гнался»: на этой машине живой Electron-стек не поднимается (см. ниже), гнать на машине с MSVC или после пересборки нативных модулей под Electron-ABI.
-4. После релиза — решение по PR-4 по замеру: порог входа p99 главного потока > 50 мс или тёплое открытие списка > 150 мс.
+1. Влить релизный PR 3.94.0 (серия PR-2 + PR-3 одним выпуском), поставить теги `v3.94.0` и `android-v3.94.0`.
+2. Деплой по чеклисту `AGENTS.md` §Release process: артефакты (`exe` + `latest.yml`, затем `.blockmap` отдельным вызовом), дождаться совпадения `latest.json`, APK через `scp`, миграции (в этой серии их нет), рестарт с проверкой **обоих** портов порознь (M100).
+3. После выката — решение по PR-4 по замеру: порог входа p99 главного потока > 50 мс или тёплое открытие списка > 150 мс. Заодно посмотреть на стенде `liveData.skipped_domain` и `liveData.resubscribe` в perfTrace.
 
 ## Контекст
 
