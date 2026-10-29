@@ -46,7 +46,7 @@ class FakeChild {
 
   postMessage(message: Posted): void {
     this.posted.push(message);
-    if (message.type === 'init' && this.answerInit) this.emit('message', { data: { type: 'ready' } });
+    if (message.type === 'init' && this.answerInit) this.emit('message', { type: 'ready' });
   }
 
   kill(): void {
@@ -58,8 +58,14 @@ class FakeChild {
     for (const handler of this.handlers.get(event) ?? []) handler(arg);
   }
 
+  /**
+   * Так выглядит канал со стороны main: `UtilityProcess` отдаёт САМО сообщение.
+   * В воркере та же переписка приходит обёрткой `MessageEvent` (`event.data`) —
+   * поэтому фейк обязан повторять именно родительскую сторону, иначе тест
+   * закрепляет неверный контракт и пропускает мёртвый канал (поймано на 3.94.0).
+   */
   fromWorker(message: Record<string, unknown>): void {
-    this.emit('message', { data: message });
+    this.emit('message', message);
   }
 }
 

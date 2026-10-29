@@ -255,7 +255,11 @@ export class SyncProxy implements SyncControl {
     }
     this.child = child;
     this.ready = false;
-    child.on('message', (event: { data: unknown }) => this.handleMessage(event.data));
+    // Порт асимметричен: здесь (`UtilityProcess`) обработчик получает само сообщение,
+    // а в воркере (`process.parentPort`) — обёртку `MessageEvent` с `.data`. Один общий
+    // вид «на всякий случай» ломает канал молча: `event.data` от сообщения = undefined,
+    // и main перестаёт слышать всё — готовность, прогресс, заявки на сессию.
+    child.on('message', (message: unknown) => this.handleMessage(message));
     child.on('exit', (code: number) => this.handleExit(code));
 
     const init: SyncWorkerInit = {
