@@ -98,6 +98,69 @@ export async function withReplicaInventoryRows<T>(db: BetterSQLite3Database, ope
   return payloadWithInventoryRows(payload, inventoryRowsFromLines(lines));
 }
 
+/** Строка, нужная флагам акта: имя детали и три отметки. Больше из 30 колонок реплики
+ * флагам не нужно (замер 29.10.2026: `select *` по всем листам — 2.1 с, эти пять колонок — 1.0 с). */
+export type InventoryFlagRow = {
+  partName: unknown;
+  present: unknown;
+  scrapQty: unknown;
+  replaceQty: unknown;
+};
+
+function flagRowsFromPayload(payload: unknown): InventoryFlagRow[] {
+  return inventoryRawRowsFromPayload(payload).map((r) => ({
+    partName: r.part_name,
+    present: r.present,
+    scrapQty: r.scrap_qty,
+    replaceQty: r.replace_qty,
+  }));
+}
+
+/**
+ * Строки, по которым считаются флаги акта: из реплики, если она знает лист, иначе из payload.
+ * Тот же выбор источника, что у `readInventoryRowsForOperations`, но без `select *` и без
+ * сборки полных raw-строк: флаги читают четыре поля, и на 382 тыс. строк разница в разы.
+ */
+export async function readInventoryFlagRowsForOperations(
+  db: BetterSQLite3Database,
+  ops: ReadonlyArray<{ id: string; payload: unknown }>,
+): Promise<Map<string, InventoryFlagRow[]>> {
+  const fromReplica = new Map<string, InventoryFlagRow[]>();
+  const ids = [...new Set(ops.map((o) => String(o.id ?? '').trim()).filter(Boolean))];
+  if (ids.length > 0) {
+    let rows: Array<{ operationId: unknown; partName: unknown; present: unknown; scrapQty: unknown; replaceQty: unknown }>;
+    try {
+      rows = (await collectChunked(ids, (chunk) =>
+        db
+          .select({
+            operationId: erpEngineInventoryLines.operationId,
+            partName: erpEngineInventoryLines.partName,
+            present: erpEngineInventoryLines.present,
+            scrapQty: erpEngineInventoryLines.scrapQty,
+            replaceQty: erpEngineInventoryLines.replaceQty,
+          })
+          .from(erpEngineInventoryLines)
+          .where(and(inArray(erpEngineInventoryLines.operationId, chunk), isNull(erpEngineInventoryLines.deletedAt))),
+      )) as Array<{ operationId: unknown; partName: unknown; present: unknown; scrapQty: unknown; replaceQty: unknown }>;
+    } catch (e) {
+      warnOnce(`engine inventory lines replica unavailable, falling back to meta_json: ${String(e)}`);
+      rows = [];
+    }
+    for (const r of rows) {
+      const opId = String(r.operationId ?? '');
+      const arr = fromReplica.get(opId) ?? [];
+      arr.push({ partName: r.partName, present: r.present, scrapQty: r.scrapQty, replaceQty: r.replaceQty });
+      fromReplica.set(opId, arr);
+    }
+  }
+  const out = new Map<string, InventoryFlagRow[]>();
+  for (const op of ops) {
+    const replica = fromReplica.get(op.id);
+    out.set(op.id, replica && replica.length > 0 ? replica : flagRowsFromPayload(op.payload));
+  }
+  return out;
+}
+
 export type InventoryLinesWriteResult = { insert: number; update: number; tombstone: number; unchanged: number };
 
 /**

@@ -221,6 +221,7 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS erp_engine_inventory_lines_operation_order_idx ON erp_engine_inventory_lines(operation_id, sort_order);
     CREATE INDEX IF NOT EXISTS erp_engine_inventory_lines_engine_idx ON erp_engine_inventory_lines(engine_entity_id);
     CREATE INDEX IF NOT EXISTS erp_engine_inventory_lines_part_idx ON erp_engine_inventory_lines(part_id);
+    CREATE INDEX IF NOT EXISTS erp_engine_inventory_lines_operation_version_idx ON erp_engine_inventory_lines(operation_id, deleted_at, updated_at);
   `);
 
   // has_own_number / has_own_number_override («свой номер», 22.09.2026) — добавлены в уже
