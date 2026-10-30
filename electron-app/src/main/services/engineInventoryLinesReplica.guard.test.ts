@@ -257,6 +257,35 @@ describe('E2.2 — строки списка из реплики строгой 
     );
   });
 
+  it('узкие строки: картер без утиля браком не считается, «стартер» в утиле — не картер', async () => {
+    const payload = sheetPayload([
+      { part_name: 'Картер', quantity: 1, present: true, scrap_qty: 0, replace_qty: 0 },
+      { part_name: 'Стартер', quantity: 1, present: false, scrap_qty: 1, replace_qty: 0 },
+    ]);
+    const { sqlite, db } = makeDb();
+    insertSheet(sqlite, payload);
+    insertLines(sqlite, linesFromSheet(payload));
+    const flagRows = await readInventoryFlagRowsForOperations(db, [{ id: OP, payload }]);
+    const flags = computeEngineInventoryFlagsFromRows(payload, flagRows.get(OP) ?? []);
+    expect(flags.crankcaseScrapped).toBe(false);
+    expect(flags.actStarted).toBe(true);
+    expect(flags.defectStarted).toBe(true);
+    expect(flags).toEqual(computeEngineInventoryFlags(payload));
+  });
+
+  it('узкие строки: реплика знает лист с пустыми отметками → meta_json не подмешивается', async () => {
+    const zeroed = sheetPayload([{ part_name: 'Картер', present: false, scrap_qty: 0, replace_qty: 0 }]);
+    const stale = sheetPayload([{ part_name: 'Картер', present: true, scrap_qty: 1, replace_qty: 0 }]);
+    const { sqlite, db } = makeDb();
+    insertSheet(sqlite, stale);
+    insertLines(sqlite, linesFromSheet(zeroed));
+    const flagRows = await readInventoryFlagRowsForOperations(db, [{ id: OP, payload: stale }]);
+    const flags = computeEngineInventoryFlagsFromRows(stale, flagRows.get(OP) ?? []);
+    expect(flags.crankcaseScrapped).toBe(false);
+    expect(flags.actStarted).toBe(false);
+    expect(flags.defectStarted).toBe(false);
+  });
+
   it('другая стадия листа (акты) реплику не спрашивает и payload не меняет', async () => {
     const { sqlite, db } = makeDb();
     sqlite

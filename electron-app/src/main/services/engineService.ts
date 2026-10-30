@@ -516,12 +516,14 @@ async function getEngineInventoryFlagsMap(
       const metaById = new Map(bodies.map((b) => [String(b.id), b.metaJson == null ? null : String(b.metaJson)]));
       const payloadById = new Map(fresh.map((s) => [s.id, safeJsonParse(metaById.get(s.id) ?? '')]));
       mark('bodies');
-      // E2.2: строки списка — из реплики строгой таблицы, где она знает лист.
+      // E2.2: строки списка — из реплики строгой таблицы, где она знает лист. Флаги считает
+      // свёртка по акту (агрегат + имена утильных деталей), поэтому под-фазы `rows.agg` и
+      // `rows.crank` остаются в логе: по ним видно, что чтение строк перестало быть остатком.
       const rowsById = await readInventoryFlagRowsForOperations(
         db,
         fresh.map((s) => ({ id: s.id, payload: payloadById.get(s.id) })),
+        { onPhase: (phase) => mark(`rows.${phase}`) },
       );
-      mark('rows');
       for (const item of fresh) {
         const flags = computeEngineInventoryFlagsFromRows(payloadById.get(item.id), rowsById.get(item.id) ?? []);
         inventoryFlagsCache.set(item.id, { version: versionOf(item.id, item.updatedAt), flags });
