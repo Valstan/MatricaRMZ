@@ -589,6 +589,11 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     await sqlite.exec(
       `CREATE INDEX IF NOT EXISTS erp_engine_inventory_lines_operation_version_idx ON erp_engine_inventory_lines(operation_id, deleted_at, updated_at);`,
     );
+    // Агрегат флагов акта (акт начат / есть вердикт) — index-only по покрывающему индексу
+    // (замер 30.10.2026, 382 тыс. строк: 1.0 с построчно → 0.06–0.08 с).
+    await sqlite.exec(
+      `CREATE INDEX IF NOT EXISTS erp_engine_inventory_lines_flag_cover_idx ON erp_engine_inventory_lines(operation_id, deleted_at, present, scrap_qty, replace_qty);`,
+    );
   }
 
   // erp_engine_assembly_bom.engine_nomenclature_id — снятие ошибочного NOT NULL

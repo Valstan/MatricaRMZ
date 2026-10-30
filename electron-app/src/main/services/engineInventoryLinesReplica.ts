@@ -1,4 +1,4 @@
-import { and, count, eq, inArray, isNull, max } from 'drizzle-orm';
+import { and, count, eq, gt, inArray, isNull, max, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
@@ -118,38 +118,82 @@ function flagRowsFromPayload(payload: unknown): InventoryFlagRow[] {
 
 /**
  * Строки, по которым считаются флаги акта: из реплики, если она знает лист, иначе из payload.
- * Тот же выбор источника, что у `readInventoryRowsForOperations`, но без `select *` и без
- * сборки полных raw-строк: флаги читают четыре поля, и на 382 тыс. строк разница в разы.
+ * Тот же выбор источника, что у `readInventoryRowsForOperations`: разница в том, что из реплики
+ * флаги приходят не построчно, а уже сведёнными по акту.
+ *
+ * Три флага акта — это три вопроса: «есть ли хоть одна деталь на месте», «есть ли хоть один
+ * вердикт (утиль/замена)», «ушёл ли в утиль именно картер». Два первых — булевы, их считает
+ * SQLite по покрывающему индексу `(operation_id, deleted_at, present, scrap_qty, replace_qty)`:
+ * замер 30.10.2026 на копии боевой базы (382 тыс. строк) — 1.0 с на чтение пяти колонок
+ * построчно против 0.06–0.08 с на агрегат. Имя детали нужно только третьему вопросу, и только
+ * у строк с утилём (во всей базе таких 198 из 382 тыс.): их достаёт тот же индекс плюс чтение
+ * строки — 0.02 с на те же акты. Отдельный частичный индекс под них пробовали: план его не
+ * выбирает, выигрыша нет. Сравнение с «картер» остаётся в JS — SQLite без ICU не складывает
+ * регистр кириллицы, а `instr(part_name, 'артер')` поймал бы «стартер» как картер.
+ *
+ * Наружу отдаётся та же форма строк, что и в payload, — синтезированные по акту строки
+ * (`present: 1` / `scrapQty: 1`) плюс имена утильных деталей. Так правила флагов остаются
+ * одной реализацией на два источника (`flagsFromInventoryRows`), а не двумя.
  */
 export async function readInventoryFlagRowsForOperations(
   db: BetterSQLite3Database,
   ops: ReadonlyArray<{ id: string; payload: unknown }>,
+  opts?: { onPhase?: (phase: string) => void },
 ): Promise<Map<string, InventoryFlagRow[]>> {
   const fromReplica = new Map<string, InventoryFlagRow[]>();
   const ids = [...new Set(ops.map((o) => String(o.id ?? '').trim()).filter(Boolean))];
   if (ids.length > 0) {
-    let rows: Array<{ operationId: unknown; partName: unknown; present: unknown; scrapQty: unknown; replaceQty: unknown }>;
+    let actRows: Array<{ operationId: unknown; act: unknown; defect: unknown }> = [];
+    let crankRows: Array<{ operationId: unknown; partName: unknown }> = [];
     try {
-      rows = (await collectChunked(ids, (chunk) =>
+      actRows = (await collectChunked(ids, (chunk) =>
+        db
+          .select({
+            operationId: erpEngineInventoryLines.operationId,
+            act: sql<number>`max(case when ${erpEngineInventoryLines.present} <> 0 then 1 else 0 end)`,
+            defect: sql<number>`max(case when ${erpEngineInventoryLines.scrapQty} > 0 or ${erpEngineInventoryLines.replaceQty} > 0 then 1 else 0 end)`,
+          })
+          .from(erpEngineInventoryLines)
+          .where(and(inArray(erpEngineInventoryLines.operationId, chunk), isNull(erpEngineInventoryLines.deletedAt)))
+          .groupBy(erpEngineInventoryLines.operationId),
+      )) as Array<{ operationId: unknown; act: unknown; defect: unknown }>;
+      opts?.onPhase?.('agg');
+      crankRows = (await collectChunked(ids, (chunk) =>
         db
           .select({
             operationId: erpEngineInventoryLines.operationId,
             partName: erpEngineInventoryLines.partName,
-            present: erpEngineInventoryLines.present,
-            scrapQty: erpEngineInventoryLines.scrapQty,
-            replaceQty: erpEngineInventoryLines.replaceQty,
           })
           .from(erpEngineInventoryLines)
-          .where(and(inArray(erpEngineInventoryLines.operationId, chunk), isNull(erpEngineInventoryLines.deletedAt))),
-      )) as Array<{ operationId: unknown; partName: unknown; present: unknown; scrapQty: unknown; replaceQty: unknown }>;
+          .where(
+            and(
+              inArray(erpEngineInventoryLines.operationId, chunk),
+              isNull(erpEngineInventoryLines.deletedAt),
+              gt(erpEngineInventoryLines.scrapQty, 0),
+            ),
+          ),
+      )) as Array<{ operationId: unknown; partName: unknown }>;
+      opts?.onPhase?.('crank');
     } catch (e) {
       warnOnce(`engine inventory lines replica unavailable, falling back to meta_json: ${String(e)}`);
-      rows = [];
+      actRows = [];
+      crankRows = [];
     }
-    for (const r of rows) {
+    for (const r of actRows) {
       const opId = String(r.operationId ?? '');
       const arr = fromReplica.get(opId) ?? [];
-      arr.push({ partName: r.partName, present: r.present, scrapQty: r.scrapQty, replaceQty: r.replaceQty });
+      arr.push({
+        partName: undefined,
+        present: Number(r.act ?? 0) !== 0 ? 1 : 0,
+        scrapQty: Number(r.defect ?? 0) !== 0 ? 1 : 0,
+        replaceQty: 0,
+      });
+      fromReplica.set(opId, arr);
+    }
+    for (const r of crankRows) {
+      const opId = String(r.operationId ?? '');
+      const arr = fromReplica.get(opId) ?? [];
+      arr.push({ partName: r.partName, present: 0, scrapQty: 1, replaceQty: 0 });
       fromReplica.set(opId, arr);
     }
   }

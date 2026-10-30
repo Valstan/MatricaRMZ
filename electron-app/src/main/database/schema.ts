@@ -1087,6 +1087,7 @@ export const erpEngineInventoryLines = sqliteTable(
     engineIdx: index('erp_engine_inventory_lines_engine_idx').on(t.engineEntityId),
     partIdx: index('erp_engine_inventory_lines_part_idx').on(t.partId),
     operationVersionIdx: index('erp_engine_inventory_lines_operation_version_idx').on(t.operationId, t.deletedAt, t.updatedAt),
+    flagCoverIdx: index('erp_engine_inventory_lines_flag_cover_idx').on(t.operationId, t.deletedAt, t.present, t.scrapQty, t.replaceQty),
   }),
 );
 
