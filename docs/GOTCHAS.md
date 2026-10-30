@@ -31,7 +31,7 @@
 | [M15](gotchas/M15.md) | Standalone-скрипт пишет в sync/ledger (setEmployeeAuth и т.п.) → `sync_conflict` + `empty_recovery` (затирает ledger пустым) |
 | [M16](gotchas/M16.md) | `corepack pnpm install` на проде висит часами (зомби-процессы) — на postinstall `electron-app` |
 | [M17](gotchas/M17.md) | Оператор: кнопка в UI есть, локально сохраняется, но `server.authz.denied` `forbidden:<type>` — запись не уходит |
-| [M18](gotchas/M18.md) | Прод-деплой: `gh release download` с несколькими `--pattern` молча недокачал `.blockmap` → дельта релиза ломается |
+| [M18](gotchas/M18.md) | Прод-деплой: `gh release download` с несколькими `--pattern` молча недокачал `.blockmap` → дельта релиза ломается; и обрезанный файл от оборванной загрузки, который повторный вызов принимает за готовый |
 | [M19](gotchas/M19.md) | `git rm --cached` / `git pull` / `reset --hard` на проде грозит удалить ЖИВЫЕ данные (ledger-блоки/ключи трекаются внутри checkout'а) |
 | [M20](gotchas/M20.md) | После `ledger-publish` (до рестарта) `/updates/status` показывает `stale_manifest`/старую версию/`infoHash:null` |
 | [M21](gotchas/M21.md) | Починил `setEntityAttribute` (запись EAV) — а у двигателей всё равно не работает (свой путь `setEngineAttribute`) |
