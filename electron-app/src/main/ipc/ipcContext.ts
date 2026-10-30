@@ -1,5 +1,6 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
+import type { EngineListSource } from '../services/engineListInProcess.js';
 import type { SyncControl } from '../services/syncControl.js';
 
 export type AppDataMode =
@@ -13,6 +14,8 @@ export type IpcContext = {
   dataDb: () => BetterSQLite3Database;
   mode: () => AppDataMode;
   mgr: SyncControl;
+  /** Список двигателей: отдельный процесс чтения, иначе — этот (см. `engineListSource`). */
+  engineList: EngineListSource;
   logToFile: (message: string) => void;
   currentActor: () => Promise<string>;
   currentViewer: () => Promise<{ login: string; role: string }>;

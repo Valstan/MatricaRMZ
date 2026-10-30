@@ -9,12 +9,13 @@ export default defineConfig({
       outDir: resolve(__dirname, 'dist/main'),
       emptyOutDir: true,
       rollupOptions: {
-        // Два входа: главный процесс и движок синка, который живёт отдельным
-        // `utilityProcess` (docs/plans/client-ram-cache-and-sync-worker-2026-10.md).
-        // Формат у обоих общий (CJS), поэтому `__dirname` в воркере работает.
+        // Три входа: главный процесс, движок синка и процесс чтений — оба живут
+        // отдельными `utilityProcess` (docs/plans/client-ram-cache-and-sync-worker-2026-10.md).
+        // Формат у всех общий (CJS), поэтому `__dirname` в воркерах работает.
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
           syncWorker: resolve(__dirname, 'src/main/workers/syncWorker.ts'),
+          dataWorker: resolve(__dirname, 'src/main/workers/dataWorker.ts'),
         },
       },
     },

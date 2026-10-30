@@ -13,6 +13,7 @@ import { ipcMain } from 'electron';
 import { getSession } from '../../../electron-app/src/main/services/authService.js';
 import type { IpcContext } from '../../../electron-app/src/main/ipc/ipcContext.js';
 import { installSectionIpcGate } from '../../../electron-app/src/main/ipc/sectionGate.js';
+import { createInProcessEngineListSource } from '../../../electron-app/src/main/services/engineListInProcess.js';
 import { registerAdminIpc } from '../../../electron-app/src/main/ipc/register/admin.js';
 import { registerAuthAndSyncIpc } from '../../../electron-app/src/main/ipc/register/authAndSync.js';
 import { registerChangesIpc } from '../../../electron-app/src/main/ipc/register/changes.js';
@@ -69,6 +70,10 @@ export function wireIpcForAndroid(core: AndroidCore): IpcContext {
     dataDb: (): BetterSQLite3Database => db, // режима «просмотр бэкапа» на планшете нет
     mode: () => ({ mode: 'live' as const }),
     mgr: core.syncManager,
+    // Отдельного процесса чтений на планшете нет (`utilityProcess` — механизм Electron):
+    // список собирается здесь, как до переезда. Форма одна с десктопом, чтобы обработчик
+    // `engine:list` не обрастал ветками по платформе.
+    engineList: createInProcessEngineListSource({ db: () => db }),
     logToFile: (message: string) => console.info(`[android-main] ${message}`),
     currentActor,
     currentViewer,

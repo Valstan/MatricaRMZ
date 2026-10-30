@@ -57,7 +57,7 @@ import { registerContractsIpc } from './register/contracts.js';
 import { registerEngineCardsIpc } from './register/engineCards.js';
 import { registerEngineBulkIntakeIpc } from './register/engineBulkIntake.js';
 import { registerUpdateIpc } from './register/update.js';
-import { warmEngineListCaches } from '../services/engineService.js';
+import { createEngineListSource } from '../services/engineListSource.js';
 import { registerE2eKeysIpc } from './register/e2eKeys.js';
 import { registerToolsIpc } from './register/tools.js';
 import { registerErpIpc } from './register/erp.js';
@@ -65,7 +65,15 @@ import { openSqliteReadonly } from '../database/db.js';
 
 export function registerIpc(
   db: BetterSQLite3Database,
-  opts: { clientId: string; apiBaseUrl: string; dbPath: string; dbKey: string | null; workerPath: string },
+  opts: {
+    clientId: string;
+    apiBaseUrl: string;
+    dbPath: string;
+    dbKey: string | null;
+    workerPath: string;
+    /** Воркер чтений (`dist/main/dataWorker.js`): список двигателей собирается там. */
+    dataWorkerPath: string;
+  },
 ) {
   function emitSyncProgress(payload: unknown) {
     try {
@@ -156,6 +164,14 @@ export function registerIpc(
     dataDb,
     mode: getMode,
     mgr,
+    engineList: createEngineListSource({
+      db: dataDb,
+      dbPath: opts.dbPath,
+      dbKey: opts.dbKey,
+      workerPath: opts.dataWorkerPath,
+      userDataPath: () => app.getPath('userData'),
+      log: logToFile,
+    }),
     logToFile,
     currentActor,
     currentViewer,
@@ -186,8 +202,9 @@ export function registerIpc(
   // Прогрев кэшей списка двигателей в фоне: тяжёлая сборка флагов актов и
   // истории ремонта (~3 с холодно) уходит со старта приложения, а не на первое
   // открытие списка. Best-effort: любая ошибка — молчим, кэш построит обычный вызов.
+  // Кэши живут в процессе чтения (`engineList.warm`), поэтому греется он, а не main.
   setTimeout(() => {
-    void warmEngineListCaches(ctx.dataDb()).catch(() => undefined);
+    ctx.engineList.warm();
   }, 5_000);
 
   // Register IPC domains. Section-гейт (Ф2 «доступа по разделам») оборачивает все
@@ -318,6 +335,9 @@ export function registerIpc(
   return {
     flushSyncBeforeQuit: () => mgr.runOnce(),
     disposeSync: () => mgr.dispose(),
+    // Процесс чтений держит своё соединение с базой: не погасить его перед выходом —
+    // оставить за собой живой utility-процесс с открытым файлом.
+    disposeData: () => ctx.engineList.dispose(),
   };
 }
 
