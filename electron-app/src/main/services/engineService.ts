@@ -51,7 +51,7 @@ import {
 import { attributeDefs, attributeValues, entities, entityTypes, erpEngineCards, erpEngineNumbers, operations } from '../database/schema.js';
 import { collectChunked } from '../utils/sqlChunks.js';
 import { mergeStrictCardAttrs, readEngineCardStrict, strictRowToSnake, type EavCardAttr } from './engineCardsReplica.js';
-import { payloadWithInventoryRows, readInventoryRowsForOperations, readInventoryLinesVersions } from './engineInventoryLinesReplica.js';
+import { readInventoryFlagRowsForOperations, readInventoryLinesVersions, type InventoryFlagRow } from './engineInventoryLinesReplica.js';
 import { listEntitiesByType, listEntitiesByTypeWithAttrs } from './entityService.js';
 import { ensureRepairStageRow, listRepairStageRows, stageRank } from './repairStageService.js';
 import type {
@@ -363,26 +363,36 @@ function isPresentValue(value: unknown): boolean {
   return value === true || value === 'true' || value === 1 || value === '1';
 }
 
-export function computeEngineInventoryFlags(payload: unknown): EngineInventoryFlags {
+/** Ровно те поля строки, по которым считаются флаги: см. `InventoryFlagRow`. */
+function flagRowsFromPayloadRows(rows: ReadonlyArray<Record<string, unknown>>): InventoryFlagRow[] {
+  return rows.map((r) => ({ partName: r.part_name, present: r.present, scrapQty: r.scrap_qty, replaceQty: r.replace_qty }));
+}
+
+/**
+ * Флаги акта по строкам списка. Строки приходят либо из реплики (пять колонок), либо из
+ * `meta_json` — форма одна, поэтому правила читаются в одном месте и не расходятся между
+ * источниками (см. `readInventoryFlagRowsForOperations`).
+ */
+function flagsFromInventoryRows(payload: unknown, rows: ReadonlyArray<InventoryFlagRow>): EngineInventoryFlags {
   const completenessInspectionAt = completenessInspectionAtOf(payload);
   let crankcaseScrapped = false;
   let actStarted = false;
   let defectStarted = false;
-  for (const row of inventoryRowsOf(payload)) {
+  for (const row of rows) {
     // Акт комплектности «заполнен», как только хотя бы одна деталь отмечена «на месте»
     // (решение владельца 2026-07-15): работник начал заполнять акт.
     if (!actStarted && isPresentValue(row.present)) actStarted = true;
     // Акт дефектовки «заполнен» по первому же вердикту о детали — утиль или замена.
     // «На месте» тут не считается: это приёмка, дефектовку по ней ещё не делали.
     if (!defectStarted) {
-      const scrapQty = toNonNegativeInteger(row.scrap_qty) ?? 0;
-      const replaceQty = toNonNegativeInteger(row.replace_qty) ?? 0;
+      const scrapQty = toNonNegativeInteger(row.scrapQty) ?? 0;
+      const replaceQty = toNonNegativeInteger(row.replaceQty) ?? 0;
       if (scrapQty > 0 || replaceQty > 0) defectStarted = true;
     }
     if (!crankcaseScrapped) {
-      const name = String(row.part_name ?? '').toLowerCase();
+      const name = String(row.partName ?? '').toLowerCase();
       if (name.includes('картер')) {
-        const scrapQty = toNonNegativeInteger(row.scrap_qty);
+        const scrapQty = toNonNegativeInteger(row.scrapQty);
         if (scrapQty != null && scrapQty > 0) crankcaseScrapped = true;
       }
     }
@@ -396,6 +406,15 @@ export function computeEngineInventoryFlags(payload: unknown): EngineInventoryFl
     completenessInspectionAt,
     actDates: actDatesFromAnswers(answers),
   };
+}
+
+export function computeEngineInventoryFlags(payload: unknown): EngineInventoryFlags {
+  return flagsFromInventoryRows(payload, flagRowsFromPayloadRows(inventoryRowsOf(payload)));
+}
+
+/** Флаги по строкам из реплики: тот же расчёт, источник строк — строгая таблица. */
+export function computeEngineInventoryFlagsFromRows(payload: unknown, rows: ReadonlyArray<InventoryFlagRow>): EngineInventoryFlags {
+  return flagsFromInventoryRows(payload, rows);
 }
 
 /**
@@ -415,9 +434,26 @@ const inventoryFlagsCache = new Map<string, { version: string; flags: EngineInve
  * строки таблицы (`count:maxUpdatedAt` живых строк листа) — строки меняются, не трогая
  * `operations.updated_at`, и ключ по одному штампу листа после E3 врал бы.
  */
-async function getEngineInventoryFlagsMap(db: BetterSQLite3Database, engineIds: string[]): Promise<Map<string, EngineInventoryFlags>> {
+async function getEngineInventoryFlagsMap(
+  db: BetterSQLite3Database,
+  engineIds: string[],
+  opts?: { onPhase?: (phase: string, ms: number) => void },
+): Promise<Map<string, EngineInventoryFlags>> {
   const result = new Map<string, EngineInventoryFlags>();
   if (engineIds.length === 0) return result;
+
+  // Под-фазы нужны потому, что `maps.inventoryFlags` на проде стоит от 0.6 до 23 с —
+  // без разбивки не видно, что из четырёх дешёвых шагов оказался дорогим (29.10.2026).
+  let markAt = Date.now();
+  const mark = (phase: string) => {
+    const now = Date.now();
+    try {
+      opts?.onPhase?.(`maps.inventoryFlags.${phase}`, Math.max(0, now - markAt));
+    } catch {
+      // ignore
+    }
+    markAt = now;
+  };
 
   // engineIds на проде ~1600 — чанкуем под 999-парамный кап Android SQLite. Per-engine
   // порядок «новые первыми» сохраняется: все акты одного двигателя живут в одном чанке.
@@ -434,6 +470,7 @@ async function getEngineInventoryFlagsMap(db: BetterSQLite3Database, engineIds: 
       )
       .orderBy(desc(operations.updatedAt)),
   );
+  mark('heads');
 
   const seen = new Set<string>();
   const stale: Array<{ id: string; engineId: string; updatedAt: number }> = [];
@@ -448,11 +485,13 @@ async function getEngineInventoryFlagsMap(db: BetterSQLite3Database, engineIds: 
 
   if (stale.length > 0) {
     // Версия строк — одним батчем по всем головам, до чтения тел: чей ключ сошёлся —
-    // тот свежий, тела не читаем.
+    // тот свежий, тела не читаем. Покрывающий индекс (operation_id, deleted_at, updated_at)
+    // держит этот шаг на 0.1 с вместо 0.8 с: замер 29.10.2026, 382 тыс. строк линий.
     const versions = await readInventoryLinesVersions(
       db,
       stale.map((s) => s.id),
     );
+    mark('versions');
     const versionOf = (id: string, updatedAt: number) => {
       const v = versions.get(id);
       return `${updatedAt}:${v ? `${v.count}:${v.maxUpdatedAt}` : 'x'}`;
@@ -465,6 +504,7 @@ async function getEngineInventoryFlagsMap(db: BetterSQLite3Database, engineIds: 
       }
       return true;
     });
+    mark('cache');
 
     if (fresh.length > 0) {
       const bodies = await collectChunked(fresh.map((s) => s.id), (idsChunk) =>
@@ -474,18 +514,20 @@ async function getEngineInventoryFlagsMap(db: BetterSQLite3Database, engineIds: 
           .where(inArray(operations.id, idsChunk)),
       );
       const metaById = new Map(bodies.map((b) => [String(b.id), b.metaJson == null ? null : String(b.metaJson)]));
-      // E2.2: строки списка — из реплики строгой таблицы, где она знает лист.
       const payloadById = new Map(fresh.map((s) => [s.id, safeJsonParse(metaById.get(s.id) ?? '')]));
-      const rowsById = await readInventoryRowsForOperations(
+      mark('bodies');
+      // E2.2: строки списка — из реплики строгой таблицы, где она знает лист.
+      const rowsById = await readInventoryFlagRowsForOperations(
         db,
         fresh.map((s) => ({ id: s.id, payload: payloadById.get(s.id) })),
       );
+      mark('rows');
       for (const item of fresh) {
-        const payload = payloadWithInventoryRows(payloadById.get(item.id), rowsById.get(item.id) ?? []);
-        const flags = computeEngineInventoryFlags(payload);
+        const flags = computeEngineInventoryFlagsFromRows(payloadById.get(item.id), rowsById.get(item.id) ?? []);
         inventoryFlagsCache.set(item.id, { version: versionOf(item.id, item.updatedAt), flags });
         result.set(item.engineId, flags);
       }
+      mark('compute');
     }
   }
 
@@ -993,7 +1035,7 @@ export async function listEngines(
   const contractRepairDaysById = await getContractRepairDaysMap(db);
   mark('maps.contractRepairDays');
   const engineIds = engines.map((e) => e.id);
-  const inventoryFlagsByEngineId = await getEngineInventoryFlagsMap(db, engineIds);
+  const inventoryFlagsByEngineId = await getEngineInventoryFlagsMap(db, engineIds, opts?.onPhase ? { onPhase: opts.onPhase } : undefined);
   mark('maps.inventoryFlags');
   const historyByEngineId = await getEngineRepairHistoryMap(db, engineIds);
   mark('maps.repairHistory');

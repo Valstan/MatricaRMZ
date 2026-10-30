@@ -583,6 +583,14 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     );
   }
 
+  // Версии строк списка деталей (какие акты пересобирать в списке двигателей): покрывающий
+  // индекс снимает чтение строки целиком на каждый акт (замер 30.10.2026: 827 → 98 мс).
+  if (await hasTable(sqlite, 'erp_engine_inventory_lines')) {
+    await sqlite.exec(
+      `CREATE INDEX IF NOT EXISTS erp_engine_inventory_lines_operation_version_idx ON erp_engine_inventory_lines(operation_id, deleted_at, updated_at);`,
+    );
+  }
+
   // erp_engine_assembly_bom.engine_nomenclature_id — снятие ошибочного NOT NULL
   // пересборкой таблицы (историю см. в electron-app/migrate.ts).
   if (await hasTable(sqlite, 'erp_engine_assembly_bom')) {

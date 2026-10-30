@@ -16,8 +16,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { getRepairChecklistForEngine, saveRepairChecklistForEngine } from './checklistService.js';
-import { computeEngineInventoryFlags } from './engineService.js';
-import { readInventoryRowsForOperations, readInventoryLinesVersions, withReplicaInventoryRows } from './engineInventoryLinesReplica.js';
+import { computeEngineInventoryFlags, computeEngineInventoryFlagsFromRows } from './engineService.js';
+import { readInventoryFlagRowsForOperations, readInventoryRowsForOperations, readInventoryLinesVersions, withReplicaInventoryRows } from './engineInventoryLinesReplica.js';
 
 // Сторож паритета E2.2 (план engine-inventory-lines-2026-09, G1): пока строки живут и в
 // `meta_json`, и в строгой таблице, читатель обязан получать ОДИН и тот же список независимо
@@ -234,6 +234,27 @@ describe('E2.2 — строки списка из реплики строгой 
     expect(flags.crankcaseScrapped).toBe(true);
     expect(flags.actStarted).toBe(true);
     expect(flags.completenessInspectionAt).toBe(1_700_000_000_000);
+  });
+
+  it('флаги по узким строкам реплики совпадают с флагами по полному payload', async () => {
+    const payload = sheetPayload(RAW_ROWS);
+    const { sqlite, db } = makeDb();
+    insertSheet(sqlite, payload);
+    insertLines(sqlite, linesFromSheet(payload));
+    const flagRows = await readInventoryFlagRowsForOperations(db, [{ id: OP, payload }]);
+    const fromReplica = computeEngineInventoryFlagsFromRows(payload, flagRows.get(OP) ?? []);
+    expect(fromReplica).toEqual(computeEngineInventoryFlags(payload));
+  });
+
+  it('узкие строки: реплика пуста для листа → берутся строки из meta_json', async () => {
+    const payload = sheetPayload(RAW_ROWS);
+    const { sqlite, db } = makeDb();
+    insertSheet(sqlite, payload);
+    const flagRows = await readInventoryFlagRowsForOperations(db, [{ id: OP, payload }]);
+    expect(flagRows.get(OP)?.length).toBe(RAW_ROWS.length);
+    expect(computeEngineInventoryFlagsFromRows(payload, flagRows.get(OP) ?? []).crankcaseScrapped).toBe(
+      computeEngineInventoryFlags(payload).crankcaseScrapped,
+    );
   });
 
   it('другая стадия листа (акты) реплику не спрашивает и payload не меняет', async () => {
