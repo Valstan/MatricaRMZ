@@ -4,7 +4,6 @@ import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, requirePermOrThrow, viewModeWriteError } from '../ipcContext.js';
 
 import {
-  listEngines,
   createEngine,
   getEngineDetails,
   setEngineAttribute,
@@ -30,20 +29,19 @@ export function registerEnginesOpsAuditIpc(ctx: IpcContext) {
   // Engines (read)
   ipcMain.handle('engine:list', async () => {
     await requirePermOrThrow(ctx, 'engines.view');
-    const startedAt = Date.now();
-    const phases: Record<string, number> = {};
-    const rows = await listEngines(ctx.dataDb(), {
-      onPhase: (phase, ms) => {
-        phases[phase] = Math.round(ms);
-      },
-    });
-    const ms = Date.now() - startedAt;
+    // Список собирает отдельный процесс чтения (`workers/dataWorker.ts`): сборка держит
+    // главный поток секундами на слабых машинах, а окно в это время стоит. В режиме
+    // просмотра копии базы собираем здесь: воркер держит соединение с живой базой.
+    const outcome = isViewMode(ctx) ? await ctx.engineList.readHere() : await ctx.engineList.read();
+    const { rows, phases, ms } = outcome;
     if (ms >= 1500) {
       logPerfWarn(ctx.sysDb, ctx.mgr.getApiBaseUrl(), 'engine:list', `slow engine:list: ${ms}ms`, {
         action: 'engine:list',
         ms,
         rows: Array.isArray(rows) ? rows.length : -1,
         phases,
+        // Откуда собрано: без этого флага журнал не отличит переехавшее чтение от отката.
+        worker: ctx.engineList.outOfProcess,
       });
     }
     return rows;

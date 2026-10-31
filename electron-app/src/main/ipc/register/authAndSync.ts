@@ -170,6 +170,8 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
     // Движок в отдельном процессе держит своё соединение SQLite: файл нельзя удалять,
     // пока он открыт. Просим его закрыться, и только потом сбрасываем базу.
     await ctx.mgr.releaseDatabase();
+    // Процесс чтений тоже держит соединение с тем же файлом — гасим и его.
+    ctx.engineList.dispose();
     const res = await resetLocalDatabase(ctx.sysDb, 'ui');
     if (!res.ok) {
       ctx.mgr.startAuto(AUTO_SYNC_MS);

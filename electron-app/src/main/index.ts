@@ -140,6 +140,7 @@ let writeSessionAuditEvent:
 let stopAuditWritten = false;
 let flushSyncBeforeQuit: (() => Promise<unknown>) | null = null;
 let disposeSync: (() => void) | null = null;
+let disposeData: (() => void) | null = null;
 let quitSyncFlushDone = false;
 const APP_TITLE = () => formatAppVersionLabel(app.getVersion());
 
@@ -780,12 +781,13 @@ app.whenReady().then(() => {
       };
 
       installElectronSyncHost(app);
-      ({ flushSyncBeforeQuit, disposeSync } = registerIpc(db, {
+      ({ flushSyncBeforeQuit, disposeSync, disposeData } = registerIpc(db, {
         clientId: stableClientId,
         apiBaseUrl,
         dbPath,
         dbKey: dbEncryptionKey,
         workerPath: join(baseDir, 'syncWorker.js'),
+        dataWorkerPath: join(baseDir, 'dataWorker.js'),
       }));
       logToFile('IPC registered, SQLite ready');
       configureUpdateService({ apiBaseUrl, db });
@@ -901,6 +903,11 @@ app.on('before-quit', (event) => {
     // иначе Electron снимает дочерний процесс без WAL-checkpoint.
     try {
       disposeSync?.();
+    } catch {
+      // ignore
+    }
+    try {
+      disposeData?.();
     } catch {
       // ignore
     }
