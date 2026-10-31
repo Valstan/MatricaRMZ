@@ -9,6 +9,7 @@ import {
   markDirty,
   mergeDraftsFromNotes,
   noteDraftFromNote,
+  noteDraftReminderPatch,
   pruneDirtyFlags,
   type NoteDraft,
 } from './noteDrafts.js';
@@ -21,6 +22,7 @@ function note(overrides: Partial<NoteItem> = {}): NoteItem {
     body: [{ id: 'b1', kind: 'text', text: '' }],
     importance: 'normal',
     dueAt: null,
+    reminders: [],
     sortOrder: 0,
     createdAt: 1,
     updatedAt: 1,
@@ -36,6 +38,7 @@ function draft(text: string): NoteDraft {
     body: [{ id: 'b1', kind: 'text', text }],
     importance: 'normal',
     dueAt: null,
+    reminders: [],
   };
 }
 
@@ -73,6 +76,32 @@ describe('черновики заметок: несохранённый текс
     expect(textIndex).toBe(0);
     expect(body[0]?.kind).toBe('text');
     expect(body).toHaveLength(2);
+  });
+});
+
+describe('напоминания заметки: несколько точек', () => {
+  it('заметка без полей напоминаний (старая) считает свой срок одной точкой', () => {
+    const built = noteDraftFromNote(note({ dueAt: 1_700_000_000_000 }));
+    expect(built.reminders).toEqual([1_700_000_000_000]);
+    expect(built.dueAt).toBe(1_700_000_000_000);
+  });
+
+  it('несколько точек: срок — последняя из них', () => {
+    const built = noteDraftFromNote(note({ dueAt: 20, reminders: [10, 20] }));
+    expect(built.reminders).toEqual([10, 20]);
+    expect(built.dueAt).toBe(20);
+  });
+
+  it('правка набора точек держит срок последней и чистит дубли', () => {
+    expect(noteDraftReminderPatch([50, 10, 50])).toEqual({ reminders: [10, 50], dueAt: 50 });
+    expect(noteDraftReminderPatch([])).toEqual({ reminders: [], dueAt: null });
+  });
+
+  it('изменившиеся точки пересобирают черновик (объект меняется)', () => {
+    const prev = { n1: noteDraftFromNote(note({ dueAt: 10, reminders: [10] })) };
+    const merged = mergeDraftsFromNotes(prev, [note({ dueAt: 20, reminders: [10, 20] })], () => false);
+    expect(merged).not.toBe(prev);
+    expect(merged.n1?.reminders).toEqual([10, 20]);
   });
 });
 

@@ -1,4 +1,5 @@
 import type { NoteBlock, NoteImportance, NoteItem } from '@matricarmz/shared';
+import { normalizeNoteReminderPoints } from '@matricarmz/shared';
 
 /**
  * Черновик заметки, который живёт в состоянии страницы между пушами синка.
@@ -14,7 +15,10 @@ export type NoteDraft = {
   title: string;
   body: NoteBlock[];
   importance: NoteImportance;
+  /** Срок заметки — последняя точка напоминания (производное от `reminders`). */
   dueAt: number | null;
+  /** Точки напоминания: несколько дат-времён на заметку (и по дням, и внутри дня). */
+  reminders: number[];
 };
 
 export function newNoteBlockId(): string {
@@ -48,12 +52,31 @@ export function ensureTextBlock(body: NoteBlock[]): { body: NoteBlock[]; textInd
 
 export function noteDraftFromNote(note: NoteItem): NoteDraft {
   const normalized = ensureTextBlock(note.body ?? []);
+  // Точки приезжают уже действующими (правило чтения на сервере и в сервисе
+  // клиента); если поле ещё пустое — падаем на старый срок как на одну точку.
+  const reminders = normalizeNoteReminderPoints(
+    note.reminders?.length ? note.reminders : note.dueAt ? [note.dueAt] : [],
+  );
   return {
     id: note.id,
     title: makeAutoTitle(normalized.body),
     body: normalized.body,
     importance: note.importance ?? 'normal',
-    dueAt: note.dueAt ?? null,
+    dueAt: reminders.length > 0 ? reminders[reminders.length - 1]! : null,
+    reminders,
+  };
+}
+
+/**
+ * Правка набора точек напоминания. Точки — источник истины, срок — последняя
+ * из них: держать два независимых поля значит однажды показать «срок» в одном
+ * месте, а напоминать в другом.
+ */
+export function noteDraftReminderPatch(points: readonly number[]): { reminders: number[]; dueAt: number | null } {
+  const reminders = normalizeNoteReminderPoints(points);
+  return {
+    reminders,
+    dueAt: reminders.length > 0 ? reminders[reminders.length - 1]! : null,
   };
 }
 
@@ -87,6 +110,7 @@ export function mergeDraftsFromNotes(
       existing.title !== current.title ||
       existing.importance !== current.importance ||
       existing.dueAt !== current.dueAt ||
+      JSON.stringify(existing.reminders ?? []) !== JSON.stringify(current.reminders ?? []) ||
       JSON.stringify(existing.body) !== JSON.stringify(current.body);
   }
   if (!changed && Object.keys(prev).length !== Object.keys(next).length) changed = true;

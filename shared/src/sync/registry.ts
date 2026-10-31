@@ -182,6 +182,7 @@ const NOTE_FIELDS = withBase(
   { db: 'bodyJson', dto: 'body_json' },
   { db: 'importance', dto: 'importance' },
   { db: 'dueAt', dto: 'due_at' },
+  { db: 'remindersJson', dto: 'reminders_json' },
   { db: 'sortOrder', dto: 'sort_order' },
 );
 

@@ -47,7 +47,7 @@ type Migration = {
 // ⚠️ Android-клиент держит порт этого механизма
 // (android-app/src/db/migrations/clientSchemaCompatible.ts): при добавлении шага
 // НОВЕЕ 12 зеркаль его туда (константу версии сверяет тест android-app).
-export const CURRENT_CLIENT_SCHEMA_VERSION = 13;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 14;
 
 const MIGRATIONS: Migration[] = [
   {
@@ -494,6 +494,21 @@ const MIGRATIONS: Migration[] = [
         sqlite.exec(`ALTER TABLE erp_nomenclature ADD COLUMN parent_nomenclature_id text;`);
       }
       sqlite.exec(`CREATE INDEX IF NOT EXISTS erp_nomenclature_parent_idx ON erp_nomenclature(parent_nomenclature_id);`);
+    },
+  },
+  {
+    from: 13,
+    to: 14,
+    name: 'notes multiple reminder points (reminders_json)',
+    up: async (_db, sqlite) => {
+      // Колонка аддитивная и nullable: строки, заведённые раньше, остаются со
+      // своим `due_at` (он считается одной точкой — правило чтения в
+      // shared/src/domain/notes.ts). Перезаписывать их здесь нечем: перенос
+      // делает клиент при первом же сохранении заметки.
+      const cols = sqlite.prepare(`PRAGMA table_info('notes')`).all() as Array<{ name: string }>;
+      if (!cols.some((c) => c.name === 'reminders_json')) {
+        sqlite.exec(`ALTER TABLE notes ADD COLUMN reminders_json text;`);
+      }
     },
   },
 ];

@@ -3348,6 +3348,8 @@ export type MatricaApi = {
       body: NoteBlock[];
       importance: NoteImportance;
       dueAt?: number | null;
+      /** Точки напоминания: несколько дат-времён на заметку (и по дням, и внутри дня). */
+      reminders?: number[];
       sortOrder?: number;
     }) => Promise<NoteUpsertResult>;
     delete: (args: { noteId: string }) => Promise<NoteDeleteResult>;

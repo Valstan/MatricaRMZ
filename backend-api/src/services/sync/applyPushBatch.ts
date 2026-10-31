@@ -2274,6 +2274,7 @@ export async function applyPushBatch(
                 bodyJson: r.body_json ?? null,
                 importance: r.importance,
                 dueAt: r.due_at ?? null,
+                remindersJson: r.reminders_json ?? null,
                 sortOrder: r.sort_order ?? 0,
                 createdAt: r.created_at,
                 updatedAt: r.updated_at,
@@ -2289,6 +2290,11 @@ export async function applyPushBatch(
                 bodyJson: sql`excluded.body_json`,
                 importance: sql`excluded.importance`,
                 dueAt: sql`excluded.due_at`,
+                // null от клиента, который о поле не знает (старая версия), — это
+                // «не менялось», а не «очистить»: иначе правка заметки на старом
+                // клиенте стирала бы точки, выставленные новым. Явная очистка —
+                // это '[]' (не null), поэтому здесь COALESCE, а не присвоение.
+                remindersJson: sql`COALESCE(excluded.reminders_json, ${notes.remindersJson})`,
                 sortOrder: sql`excluded.sort_order`,
                 updatedAt: sql`excluded.updated_at`,
                 deletedAt: sql`excluded.deleted_at`,

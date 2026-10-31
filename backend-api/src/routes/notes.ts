@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import { db } from '../database/db.js';
@@ -8,7 +8,14 @@ import { noteShares, notes, userPresence } from '../database/schema.js';
 import { requireAuth, type AuthenticatedRequest } from '../auth/middleware.js';
 import { listEmployeesAuth, normalizeRole } from '../services/employeeAuthService.js';
 import { recordSyncChanges } from '../services/sync/syncChangeService.js';
-import { SyncTableName } from '@matricarmz/shared';
+import {
+  SyncTableName,
+  effectiveNoteDueAt,
+  effectiveNoteReminders,
+  normalizeNoteReminderPoints,
+  noteRemindersDueAt,
+  serializeNoteReminders,
+} from '@matricarmz/shared';
 
 export const notesRouter = Router();
 notesRouter.use(requireAuth);
@@ -25,6 +32,7 @@ function notePayload(row: any) {
     body_json: row.bodyJson ?? null,
     importance: String(row.importance ?? 'normal'),
     due_at: row.dueAt ?? null,
+    reminders_json: row.remindersJson ?? null,
     sort_order: Number(row.sortOrder ?? 0),
     created_at: Number(row.createdAt),
     updated_at: Number(row.updatedAt),
@@ -54,7 +62,8 @@ function noteResponse(row: any) {
     title: String(row.title ?? ''),
     body: row.bodyJson ? (() => { try { return JSON.parse(String(row.bodyJson)); } catch { return []; } })() : [],
     importance: String(row.importance ?? 'normal'),
-    dueAt: row.dueAt ?? null,
+    dueAt: effectiveNoteDueAt(row.remindersJson ?? null, row.dueAt ?? null),
+    reminders: effectiveNoteReminders(row.remindersJson ?? null, row.dueAt ?? null),
     sortOrder: Number(row.sortOrder ?? 0),
     createdAt: Number(row.createdAt),
     updatedAt: Number(row.updatedAt),
@@ -183,6 +192,10 @@ notesRouter.post('/upsert', async (req, res) => {
       body: z.array(z.unknown()).optional(),
       importance: z.enum(['normal', 'important', 'burning', 'later']).optional(),
       dueAt: z.number().int().nullable().optional(),
+      // Точки напоминания. Поле отсутствует — клиент о нём не знает, и тогда
+      // хранимое значение не трогаем (COALESCE ниже); пустой массив — явная
+      // очистка.
+      reminders: z.array(z.number().int()).optional(),
       sortOrder: z.number().int().optional(),
     });
     const parsed = schema.safeParse(req.body);
@@ -192,7 +205,10 @@ notesRouter.post('/upsert', async (req, res) => {
     const id = parsed.data.id ?? randomUUID();
     const bodyJson = parsed.data.body ? JSON.stringify(parsed.data.body) : null;
     const importance = parsed.data.importance ?? 'normal';
-    const dueAt = parsed.data.dueAt ?? null;
+    const remindersGiven = parsed.data.reminders !== undefined;
+    const reminderPoints = remindersGiven ? normalizeNoteReminderPoints(parsed.data.reminders) : null;
+    const remindersJson = reminderPoints === null ? null : serializeNoteReminders(reminderPoints);
+    const dueAt = reminderPoints === null ? (parsed.data.dueAt ?? null) : noteRemindersDueAt(reminderPoints);
     const sortOrder = parsed.data.sortOrder ?? 0;
 
     const existing = await db.select().from(notes).where(eq(notes.id, id as any)).limit(1);
@@ -210,6 +226,7 @@ notesRouter.post('/upsert', async (req, res) => {
         bodyJson,
         importance,
         dueAt,
+        remindersJson,
         sortOrder,
         createdAt: existing[0] ? Number((existing[0] as any).createdAt ?? ts) : ts,
         updatedAt: ts,
@@ -223,6 +240,9 @@ notesRouter.post('/upsert', async (req, res) => {
           bodyJson,
           importance,
           dueAt,
+          // null = «клиент о поле не знает, хранимое не трогаем»; явная очистка —
+          // это '[]', и она кладётся как есть.
+          remindersJson: sql`COALESCE(${remindersJson}::text, ${notes.remindersJson})`,
           sortOrder,
           updatedAt: ts,
           deletedAt: null,

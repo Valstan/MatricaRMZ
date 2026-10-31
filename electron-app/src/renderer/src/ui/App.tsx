@@ -134,6 +134,7 @@ import {
 import { useListColumnsMode } from './hooks/useListColumnsMode.js';
 import { useUiMode, useTabletDevice } from './hooks/useUiMode.js';
 import { useLiveDataRefresh } from './hooks/useLiveDataRefresh.js';
+import { useNoteReminderWatcher } from './hooks/useNoteReminderWatcher.js';
 import { checkAssemblyDuplicate, formatEngineGateLabel } from './utils/assemblyDuplicateGate.js';
 import { coalesceCalls } from './utils/coalesceCalls.js';
 import { perfTrace } from './utils/perfTrace.js';
@@ -3352,6 +3353,15 @@ export function App() {
     if (shellNoticeTimerRef.current != null) window.clearTimeout(shellNoticeTimerRef.current);
     shellNoticeTimerRef.current = window.setTimeout(() => setShellNotice(null), SHELL_NOTICE_MS[tone]);
   }, []);
+
+  // Напоминания по заметкам. Сторож живёт на уровне приложения, а не на странице
+  // «Заметки»: страница смонтирована только если её открывали, а напоминание
+  // должно приходить в любой вкладке.
+  useNoteReminderWatcher({
+    meUserId: authStatus.user?.id ?? '',
+    enabled: Boolean(authStatus.loggedIn) && !viewMode,
+    notify: notifyOperator,
+  });
 
   // Часы компьютера против часов сервера (владелец 21.10.2026). Расхождение больше
   // двух минут — плашка в шапке, НЕ модалка: работать можно и нужно, но подписи

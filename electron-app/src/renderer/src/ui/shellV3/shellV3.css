@@ -296,6 +296,12 @@
   border-color: var(--danger, #dc2626);
 }
 
+/* Напоминание по заметке: не авария, но и не подтверждение — поэтому свой тон. */
+.v3-shell-notice-reminder {
+  color: var(--warn, #b45309);
+  border-color: var(--warn, #b45309);
+}
+
 @keyframes v3-tabs-hint-in {
   from {
     opacity: 0;

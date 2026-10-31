@@ -110,6 +110,11 @@ export const noteRowSchema = z.object({
   body_json: z.string().nullable().optional(),
   importance: z.enum(['normal', 'important', 'burning', 'later']),
   due_at: z.number().int().nullable().optional(),
+  // Точки напоминания — JSON-массивом. null = «поле не задано» (строка заведена до
+  // появления множественных точек: действует старый due_at как одна точка);
+  // '[]' = напоминаний нет; '[ts,…]' = сами точки. Различение нужно, чтобы старый
+  // клиент (null) не затёр набор точек, выставленный новым.
+  reminders_json: z.string().nullable().optional(),
   sort_order: z.number().int().optional(),
 });
 

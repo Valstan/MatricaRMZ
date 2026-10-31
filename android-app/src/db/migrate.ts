@@ -36,6 +36,14 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     return new Set(rows.map((c) => c.name));
   };
 
+  // notes.reminders_json — точки напоминания заметки (их может быть несколько).
+  // Зеркало блока из electron-app/migrate.ts: таблица приходит из drizzle 0004, а
+  // колонка добавлена позже, и свежая БД базлайнит ClientSchemaVersion мимо
+  // version-chained мигратора — колонку доводим здесь.
+  if ((await hasTable(sqlite, 'notes')) && !(await columnNames('notes')).has('reminders_json')) {
+    await sqlite.exec(`ALTER TABLE notes ADD COLUMN reminders_json text;`);
+  }
+
   // warehouse_command_outbox — локальный outbox, добавлен через clientSchemaMigrations 6->7.
   await sqlite.exec(`
     CREATE TABLE IF NOT EXISTS warehouse_command_outbox (

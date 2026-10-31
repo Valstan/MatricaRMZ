@@ -14,6 +14,8 @@ export function upsertNote(args: {
   body?: unknown[];
   importance?: 'normal' | 'important' | 'burning' | 'later';
   dueAt?: number | null;
+  /** Точки напоминания: несколько дат-времён на заметку. */
+  reminders?: number[];
   sortOrder?: number;
 }) {
   return apiJson('/notes/upsert', {

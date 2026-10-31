@@ -28,7 +28,7 @@ import type { AsyncDrizzleDb } from '../drizzleAsync.js';
 
 // Должна совпадать с electron-app (гейт — тест рядом). Не импортируем значение
 // напрямую: electron-файл тянет better-sqlite3/node:crypto и в браузерный бандл не годится.
-export const CURRENT_CLIENT_SCHEMA_VERSION = 13;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 14;
 
 type Migration = {
   from: number;
@@ -52,6 +52,20 @@ const MIGRATIONS: Migration[] = [
       await sqlite.exec(
         `CREATE INDEX IF NOT EXISTS erp_nomenclature_parent_idx ON erp_nomenclature(parent_nomenclature_id);`,
       );
+    },
+  },
+  {
+    from: 13,
+    to: 14,
+    name: 'notes multiple reminder points (reminders_json)',
+    up: async (_db, sqlite) => {
+      // Зеркало одноимённого шага electron-файла: колонка аддитивная и nullable,
+      // старые строки остаются со своим `due_at` (он считается одной точкой —
+      // правило чтения в shared/src/domain/notes.ts).
+      const cols = await sqlite.all<{ name: string }>(`PRAGMA table_info('notes')`);
+      if (!cols.some((c) => c.name === 'reminders_json')) {
+        await sqlite.exec(`ALTER TABLE notes ADD COLUMN reminders_json text;`);
+      }
     },
   },
 ];

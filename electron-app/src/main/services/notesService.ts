@@ -1,9 +1,15 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
 import type { NoteBlock, NoteImportance, NoteItem, NoteShareItem } from '@matricarmz/shared';
 import type { ChatUsersListResult, NoteDeleteResult, NoteListResult, NoteShareResult, NoteUpsertResult } from '@matricarmz/shared';
+import {
+  effectiveNoteReminders,
+  normalizeNoteReminderPoints,
+  noteRemindersDueAt,
+  serializeNoteReminders,
+} from '@matricarmz/shared';
 import { noteShares, notes } from '../database/schema.js';
 import { getSession } from './authService.js';
 import { httpAuthed } from './httpClient.js';
@@ -30,13 +36,17 @@ function parseBody(bodyJson: string | null | undefined): NoteBlock[] {
 }
 
 function mapNoteRow(row: any): NoteItem {
+  const dueAt = row.dueAt == null ? null : Number(row.dueAt);
   return {
     id: String(row.id),
     ownerUserId: String(row.ownerUserId),
     title: String(row.title ?? ''),
     body: parseBody(row.bodyJson),
     importance: (row.importance ?? 'normal') as NoteImportance,
-    dueAt: row.dueAt == null ? null : Number(row.dueAt),
+    dueAt,
+    // Действующие точки: у заметки, заведённой до множественных точек, старый
+    // срок — это одна точка (raw = null), а '[]' означает «напоминаний нет».
+    reminders: effectiveNoteReminders(row.remindersJson ?? null, dueAt),
     sortOrder: Number(row.sortOrder ?? 0),
     createdAt: Number(row.createdAt),
     updatedAt: Number(row.updatedAt),
@@ -118,7 +128,15 @@ export async function notesList(db: BetterSQLite3Database): Promise<NoteListResu
 
 export async function notesUpsert(
   db: BetterSQLite3Database,
-  args: { id?: string; title: string; body: NoteBlock[]; importance: NoteImportance; dueAt?: number | null; sortOrder?: number },
+  args: {
+    id?: string;
+    title: string;
+    body: NoteBlock[];
+    importance: NoteImportance;
+    dueAt?: number | null;
+    reminders?: number[];
+    sortOrder?: number;
+  },
 ): Promise<NoteUpsertResult> {
   try {
     const me = await currentUser(db);
@@ -131,7 +149,13 @@ export async function notesUpsert(
     const id = args.id ? String(args.id) : randomUUID();
     const bodyJson = JSON.stringify(args.body ?? []);
     const importance = args.importance ?? 'normal';
-    const dueAt = args.dueAt ?? null;
+    // Точки напоминания. Поле не передано — значит, писатель о точках не знает:
+    // хранимое значение не трогаем, срок оставляем прежним. Передали — набор
+    // становится источником истины, а срок = последняя точка.
+    const remindersGiven = args.reminders !== undefined;
+    const reminderPoints = remindersGiven ? normalizeNoteReminderPoints(args.reminders) : null;
+    const remindersJson = reminderPoints === null ? null : serializeNoteReminders(reminderPoints);
+    const dueAt = reminderPoints === null ? (args.dueAt ?? null) : noteRemindersDueAt(reminderPoints);
     const sortOrder = args.sortOrder ?? 0;
 
     const existing = await db.select().from(notes).where(eq(notes.id, id)).limit(1);
@@ -157,6 +181,7 @@ export async function notesUpsert(
         bodyJson,
         importance,
         dueAt,
+        remindersJson,
         sortOrder,
         createdAt: existing[0] ? Number((existing[0] as any).createdAt ?? ts) : ts,
         updatedAt: ts,
@@ -170,6 +195,9 @@ export async function notesUpsert(
           bodyJson,
           importance,
           dueAt,
+          // null = «писатель о точках не знает» — хранимое не трогаем. Явная
+          // очистка — это '[]' (не null), и она кладётся как есть.
+          remindersJson: sql`CASE WHEN ${remindersJson} IS NULL THEN notes.reminders_json ELSE ${remindersJson} END`,
           sortOrder,
           updatedAt: ts,
           deletedAt: null,
