@@ -16,7 +16,9 @@ import { inflateRawSync } from 'node:zlib';
  * (M94 — голый `.ps1` антивирус съедает в момент появления на диске). Пароль напечатан и в
  * памятке, и на экране. Поэтому расшифровка своими руками не создаёт риска, которого не было:
  * секрета внутри нет. Настоящая проверка целостности здесь — CRC32 распакованных данных, и она
- * же ловит неверный пароль на файлах, где совпала контрольная байта заголовка.
+ * же ловит неверный пароль на файлах, где совпала контрольная байта заголовка. А если распаковка
+ * не проходит вовсе (на неверном пароле это и есть путь), ошибку zlib мы переводим в свою:
+ * оператор не должен читать «incorrect header check».
  */
 
 export type ClientOpsArchiveEntry = {
@@ -156,7 +158,15 @@ export function readClientOpsArchive(buf: Buffer, password: string): ClientOpsAr
       payload = keys.decrypt(payload.subarray(12));
     }
 
-    const data = method === 8 ? inflateRawSync(payload) : Buffer.from(payload);
+    let data: Buffer;
+    try {
+      data = method === 8 ? inflateRawSync(payload) : Buffer.from(payload);
+    } catch {
+      // Неверный пароль (или битый архив) приводит к тому, что в zlib попадает мусор, и он
+      // ругается по-английски («incorrect header check»). Оператор в окне обслуживания такое
+      // сообщение бесполезно — отдаём своё, с обеими возможными причинами.
+      throw new Error(`«${name}»: неверный пароль архива или повреждённые данные`);
+    }
     if (data.length !== uncompressedSize) {
       throw new Error(`«${name}»: размер после распаковки ${data.length}, ожидался ${uncompressedSize}`);
     }

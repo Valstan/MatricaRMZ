@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import sevenBin from '7zip-bin';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { readClientOpsArchive } from './clientOpsArchive.js';
 
@@ -45,13 +45,69 @@ function buildArchive(files: Record<string, string | Buffer>, args: string[] = [
   return readFileSync(zip);
 }
 
+/**
+ * Ломает последний байт сжатых данных первого файла с содержимым — так, чтобы распаковка
+ * гарантированно наткнулась на мусор.
+ *
+ * Нужно для проверки перевода ошибки: на неверном пароле путь «мусор в zlib» выстреливает лишь
+ * тогда, когда контрольный байт заголовка случайно совпал (1 прогон из 256) — то есть почти
+ * никогда. Здесь мусор получается гарантированно.
+ */
+function corruptPayload(buf: Buffer): Buffer {
+  const out = Buffer.from(buf);
+  const centralSig = Buffer.from([0x50, 0x4b, 0x01, 0x02]);
+  for (
+    let pos = out.indexOf(centralSig);
+    pos >= 0;
+    pos = out.indexOf(centralSig, pos + 1)
+  ) {
+    const compressedSize = out.readUInt32LE(pos + 20);
+    if (compressedSize <= 13) continue; // каталоги и пустые записи
+    const localOffset = out.readUInt32LE(pos + 42);
+    const dataStart = localOffset + 30 + out.readUInt16LE(localOffset + 26) + out.readUInt16LE(localOffset + 28);
+    out[dataStart + compressedSize - 1] ^= 0xff;
+    return out;
+  }
+  throw new Error('в архиве не нашлось записи с содержимым');
+}
+
 describe('readClientOpsArchive', () => {
   const big = Array.from({ length: 4000 }, (_, i) => `строка ${i} — кириллица и пробелы\r\n`).join('');
-  const archive = buildArchive({
-    'guide.ru.md': big,
-    'lan-share-firewall.ps1': '# правило брандмауэра\r\nWrite-Host "ok"\r\n',
-    'Запустить.cmd': '@echo off\r\n',
-  });
+  let archive: Buffer;
+  let utf8Archive: Buffer;
+  let plainArchive: Buffer;
+
+  /**
+   * Фикстуры собираются ОДИН раз здесь, а не внутри тестов, и у хука свой бюджет времени.
+   *
+   * Причина не в проверяемой логике: сборка — это запуск внешнего `7za`, и на Windows чтение
+   * только что записанного файла упирается в антивирус (замер на этой машине: сам `7za`
+   * отрабатывает за 20–60 мс, а `readFileSync` свежего архива может висеть до ~10 с — сканер
+   * держит хэндл). При дефолтных 5 с на тест такой «сканер завис на свежем файле» роняет
+   * тест в красный, хотя разбор архива отрабатывает за миллисекунды и всегда зелёный.
+   *
+   * Поэтому внешняя работа получает реальный бюджет, а сами тесты остаются чистыми: каждый
+   * меряет разбор, а не скорость чужого процесса.
+   */
+  beforeAll(() => {
+    archive = buildArchive({
+      'guide.ru.md': big,
+      'lan-share-firewall.ps1': '# правило брандмауэра\r\nWrite-Host "ok"\r\n',
+      'Запустить.cmd': '@echo off\r\n',
+    });
+    utf8Archive = buildArchive({ 'Запустить.cmd': '@echo off\r\n' }, ['-mcu=on']);
+
+    const dir = mkdtempSync(path.join(stage, 'plain-'));
+    const inner = path.join(dir, 'kaspersky-matrica');
+    mkdirSync(inner);
+    writeFileSync(path.join(inner, 'README.md'), '# без пароля\r\n');
+    const zip = path.join(dir, 'plain.zip');
+    execFileSync(seven(), ['a', '-tzip', '-bso0', '-bsp0', zip, 'kaspersky-matrica'], {
+      cwd: dir,
+      stdio: ['ignore', 'ignore', 'inherit'],
+    });
+    plainArchive = readFileSync(zip);
+  }, 180_000);
 
   it('отдаёт все файлы, побайтово равные исходным', () => {
     const entries = readClientOpsArchive(archive, PASSWORD);
@@ -75,12 +131,17 @@ describe('readClientOpsArchive', () => {
   });
 
   it('читает и архив с именами в UTF-8 — на случай смены ключей сборщика', () => {
-    const utf8 = buildArchive({ 'Запустить.cmd': '@echo off\r\n' }, ['-mcu=on']);
-    expect(readClientOpsArchive(utf8, PASSWORD).map((e) => e.name)).toEqual(['Запустить.cmd']);
+    expect(readClientOpsArchive(utf8Archive, PASSWORD).map((e) => e.name)).toEqual(['Запустить.cmd']);
   });
 
   it('неверный пароль — внятная ошибка, а не мусор на диске', () => {
     expect(() => readClientOpsArchive(archive, '222')).toThrow(/пароль|контрольная сумма/i);
+  });
+
+  it('битые сжатые данные — тоже наша внятная ошибка, а не английский текст zlib', () => {
+    const damaged = corruptPayload(archive);
+    expect(() => readClientOpsArchive(damaged, PASSWORD)).toThrow(/неверный пароль архива|контрольная сумма/i);
+    expect(() => readClientOpsArchive(damaged, PASSWORD)).not.toThrow(/incorrect header check|zlib/i);
   });
 
   it('обрезанный архив не читается', () => {
@@ -88,16 +149,7 @@ describe('readClientOpsArchive', () => {
   });
 
   it('незашифрованный архив читается тоже — пароль тогда просто не нужен', () => {
-    const dir = mkdtempSync(path.join(stage, 'plain-'));
-    const inner = path.join(dir, 'kaspersky-matrica');
-    mkdirSync(inner);
-    writeFileSync(path.join(inner, 'README.md'), '# без пароля\r\n');
-    const zip = path.join(dir, 'plain.zip');
-    execFileSync(seven(), ['a', '-tzip', '-bso0', '-bsp0', zip, 'kaspersky-matrica'], {
-      cwd: dir,
-      stdio: ['ignore', 'ignore', 'inherit'],
-    });
-    const entries = readClientOpsArchive(readFileSync(zip), PASSWORD);
+    const entries = readClientOpsArchive(plainArchive, PASSWORD);
     expect(entries).toHaveLength(1);
     expect(entries[0]!.data.toString('utf8')).toContain('без пароля');
   });
