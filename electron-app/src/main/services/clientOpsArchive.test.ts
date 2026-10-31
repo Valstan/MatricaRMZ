@@ -65,7 +65,10 @@ function corruptPayload(buf: Buffer): Buffer {
     if (compressedSize <= 13) continue; // каталоги и пустые записи
     const localOffset = out.readUInt32LE(pos + 42);
     const dataStart = localOffset + 30 + out.readUInt16LE(localOffset + 26) + out.readUInt16LE(localOffset + 28);
-    out[dataStart + compressedSize - 1] ^= 0xff;
+    const lastByte = dataStart + compressedSize - 1;
+    const byte = out[lastByte];
+    if (byte === undefined) throw new Error('смещение сжатых данных за пределами архива');
+    out[lastByte] = byte ^ 0xff;
     return out;
   }
   throw new Error('в архиве не нашлось записи с содержимым');
