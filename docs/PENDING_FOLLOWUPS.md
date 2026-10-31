@@ -34,7 +34,6 @@
 | **~2026-07-29** | ✅ 28.07 проверено: из 25 слотов `force_full_pull` не забрали 15 (машины-призраки и выключенные, вреда не несут). Осталось: 5 старых машин — переустановка владельцем | [де-дупликация](pending/de-duplikatsiya-directory-parts-erp-nomenclature.md) |
 | **~2026-07-30** | ✅ 30.07 перепроверено: живых с логином 10; PC71/PC49/PC14 — призраки, исчезли; PC18 обновляется сам; застрявшая осталась одна — PC20 (2026.628.2326, тишина с 16.07), нужна ручная переустановка | [PC20](pending/zastryavshee-avtoobnovlenie-ostalas-odna-mashina-pc20.md) |
 | **~2026-08-04** | Прогон deadcode-дельты (knip) | [deadcode-сканер](pending/deadcode-skaner-mesyachnaya-delta-standing.md) |
-| **≤2026-09-24** | Ротировать ledger release-token (ротирован 2026-08-28 при отзыве JWT-секрета, exp 2026-09-27) | [ledger release-token](pending/ledger-release-token-protukhaet-2026-10-28-rotirovan.md) |
 | **~2026-08-10** | Проверить, что парк обновился до ≥ v2026.808.1830 → затем ретро-скрипты контрактов | [слоты контракта](pending/khvosty-nitki-sloty-kontrakta-pechat-naryadov.md) |
 | **~август** | Снести прод бэкап-таблицы `*_bak_20260717` (без sync-колонок, guard молчит; `*_bak_norms20260717` снесены 2026-07-25 по ок владельца) — ⚠️ прод-мутация, требует подтверждения владельца в том же ходе | — |
 | **≤2026-11-26** | Ротация SSH-ключа прода `PC79` (выпущен 2026-08-28); ключ `RMZ4VAL` от 2026-06-02 просрочен — за своей машиной | `PROJECT_STATE.md` §SSH |
@@ -90,7 +89,6 @@
 - [Висящая rejected-строка этапов: диагноз есть, закрытие — после релиза 3.74.0 с PR-4 🗓 since:2026-10-09](pending/visyashchaya-rejected-stroka-etapov-diagnoz-est.md)
 - [Пересадить 3 живых legacy-`user` на роль «Кладовщик» — после релиза с ней и обновления парка 🗓 since:2026-08-28](pending/peresadit-3-zhivykh-legacy-user-na-rol-kladovshchik.md)
 - [Переход на нумерацию «Матрица3-РМЗ (N)» — раскат через Заглушку и Диспетчер 🗓 since:2026-08-15](pending/perekhod-na-numeratsiyu-matritsa3-rmz-n-raskat-cherez.md)
-- [Ledger release-token протухает ~2026-10-28 (ротирован 2026-09-28) 🗓 since:2026-06-24](pending/ledger-release-token-protukhaet-2026-10-28-rotirovan.md)
 - [🔴 Живая приёмка нового установщика (v2026.804.1200) — ДО раскатки на парк 🗓 since:2026-08-04](pending/zhivaya-priemka-novogo-ustanovshchika-v2026-804-1200-do.md)
 - [🟢 Android-планшет: ключ подписи заведён, планшет на релизе 🗓 since:2026-08-04](pending/android-planshet-klyuch-podpisi-zaveden-planshet-na.md)
 - [🟡 Форс-килл клиента в установщике — сделать безусловным 🗓 since:2026-08-04](pending/fors-kill-klienta-v-ustanovshchike-sdelat-bezuslovnym.md)

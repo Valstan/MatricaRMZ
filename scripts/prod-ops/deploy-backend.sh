@@ -86,6 +86,22 @@ restart_one() {
   return 1
 }
 
+# Справка про nginx после рестарта. Это НЕ гейт выката: гейт — два порта (M100), и они уже
+# проверены выше. Раньше здесь стоял одиночный `curl` без повтора: nginx с «мёртвым» keepalive
+# к только что перезапущенному upstream отдавал 502, строка читалась как «выкат упал», и оператор
+# откатывал хороший выкат (M180). Теперь ждём до 30 с; если nginx так и не ответил — говорим
+# прямо, что выкат удачный, и НЕ роняем код возврата: откат хорошего выката хуже шума.
+nginx_health() {
+  local waited=0 body=""
+  while (( waited < 30 )); do
+    body="$(curl -fsk --max-time 5 https://127.0.0.1/health 2>/dev/null || true)"
+    if [[ -n "$body" ]]; then printf '%s' "$body"; return 0; fi
+    sleep 2
+    waited=$((waited + 2))
+  done
+  printf 'nginx не ответил за 30 с — оба инстанса живы, выкат удачный, откат НЕ нужен (чинить nginx)'
+}
+
 if [[ "$COMMAND" == "snapshot" ]]; then
   STAMP="$(date +%Y%m%d-%H%M%S)"
   log "snapshot: копирую текущий dist в .deploy-backup/$STAMP (без рестарта)"
@@ -104,7 +120,7 @@ if [[ "$COMMAND" == "rollback" ]]; then
   restore_from "$BACKUP_ROOT/$STAMP"
   restart_one matricarmz-backend-primary 3001 "$PRIMARY_WAIT" || { log "rollback: primary не поднялся на копии $STAMP — смотреть journalctl -u matricarmz-backend-primary"; exit 1; }
   restart_one matricarmz-backend-secondary 3002 "$SECONDARY_WAIT" || { log "rollback: secondary не поднялся — primary здоров, парк обслуживается одним инстансом"; exit 1; }
-  log "готово: откат на $STAMP, $(curl -fsk https://127.0.0.1/health || echo 'nginx не ответил')"
+  log "готово: откат на $STAMP, $(nginx_health)"
   exit 0
 fi
 
@@ -219,5 +235,5 @@ if [[ -d "$BACKUP_ROOT" ]]; then
   done
 fi
 
-log "готово: $(curl -fsk https://127.0.0.1/health || echo 'nginx не ответил')"
+log "готово: $(nginx_health)"
 log "откат при нужде: bash scripts/prod-ops/deploy-backend.sh rollback $STAMP"
