@@ -38,7 +38,6 @@ import {
   defectRowSignature,
   getBrandLinkForPart,
   getRowPartId,
-  getRowPhotos,
   getRowSelected,
   isBrandLinkedChecklistRow,
   isInventoryRowVisibleForVariant,
@@ -48,7 +47,6 @@ import {
   ROW_SELECTED_KEY,
   rowPartIdFromOptionId,
   toQtyValue,
-  withRowPhotos,
 } from '../utils/repairChecklistRows.js';
 
 function safeJsonStringify(v: unknown) {
@@ -366,8 +364,11 @@ function applyCommissionPicks(
   return { members: out, changed };
 }
 
-/** Блоки акт-вкладки: «Оформление» и «Сведения» свёрнуты, «Детали» открыты (план D1). */
-const ACT_SECTIONS_DEFAULT = { registrationOpen: false, infoOpen: false, partsOpen: true };
+/**
+ * Блоки акт-вкладки: «Оформление» — всегда открыт и несворачиваем (разборка и подписи
+ * видны сразу, владелец 01.11.2026), «Сведения» свёрнуты, «Детали» открыты (план D1).
+ */
+const ACT_SECTIONS_DEFAULT = { registrationOpen: true, infoOpen: false, partsOpen: true };
 
 export function RepairChecklistPanel(props: {
   engineId: string;
@@ -2170,30 +2171,50 @@ export function RepairChecklistPanel(props: {
    * `overflow` здесь тоже нельзя: он сделал бы блок скролл-контейнером и отцепил бы
    * sticky-шапку таблицы деталей от прокрутки карточки.
    * Раскладку вешаем на ДОЧЕРНИЙ узел: инлайновый `display` на скрываемом перебил бы `hidden` (M78).
+   *
+   * `collapsible: false` — блок раскрыт всегда и не прячется (владелец, 01.11.2026: «Оформление»
+   * с датой разборки и подписью должно быть видно сразу, без щелчка и без прокрутки).
    */
-  const renderSection = (title: string, open: boolean, onToggle: () => void, body: React.ReactNode) => (
+  const renderSection = (
+    title: string,
+    open: boolean,
+    onToggle: () => void,
+    body: React.ReactNode,
+    collapsible = true,
+  ) => (
     <div style={{ marginTop: 12, border: '1px solid rgba(15,23,42,0.14)', borderRadius: 12 }} data-act-section={title}>
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        style={{
-          width: '100%',
-          textAlign: 'left',
-          padding: '8px 10px',
-          background: 'transparent',
-          border: 'none',
-          cursor: 'pointer',
-          fontWeight: 600,
-          fontSize: 14,
-          color: 'var(--text)',
-        }}
-      >
-        {open ? '▼' : '▶'} {title}
-      </button>
-      <div hidden={!open} style={{ padding: '0 10px 10px' }}>
-        {body}
-      </div>
+      {collapsible ? (
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          style={{
+            width: '100%',
+            textAlign: 'left',
+            padding: '8px 10px',
+            background: 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+            fontWeight: 600,
+            fontSize: 14,
+            color: 'var(--text)',
+          }}
+        >
+          {open ? '▼' : '▶'} {title}
+        </button>
+      ) : (
+        <div style={{ padding: '8px 10px', fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>{title}</div>
+      )}
+      {collapsible ? (
+        <div hidden={!open} style={{ padding: '0 10px 10px' }}>
+          {body}
+        </div>
+      ) : (
+        // Несворачиваемый блок: содержимое всегда на месте, атрибут hidden не нужен.
+        <div style={{ padding: '0 10px 10px' }}>
+          {body}
+        </div>
+      )}
     </div>
   );
 
@@ -2748,30 +2769,6 @@ export function RepairChecklistPanel(props: {
                           ),
                       }
                     : {})}
-                  {...(isInventoryStage && it.id === 'engine_inventory_items' && props.canViewFiles === true
-                    ? {
-                        renderRowExtra: (rowIdx: number, row: Record<string, string | boolean | number>) => (
-                          <InventoryRowPhotos
-                            photos={getRowPhotos(row as ChecklistTableRow)}
-                            canView={props.canViewFiles === true}
-                            canUpload={props.canUploadFiles === true && props.canEdit}
-                            scope={{ ownerType: 'engine', ownerId: props.engineId, category: 'defect_photo' }}
-                            onChange={(next) => {
-                              const cur = (answers as any).engine_inventory_items;
-                              const curRows: ChecklistTableRow[] =
-                                cur?.kind === 'table' && Array.isArray(cur.rows) ? (cur.rows as ChecklistTableRow[]) : [];
-                              const nextRows = curRows.map((r, i) => (i === rowIdx ? withRowPhotos(r, next) : r));
-                              const nextAnswers = {
-                                ...answers,
-                                [it.id]: { kind: 'table', rows: nextRows },
-                              } as RepairChecklistAnswers;
-                              setAnswers(nextAnswers);
-                              void save(nextAnswers);
-                            }}
-                          />
-                        ),
-                      }
-                    : {})}
                   onChange={(rows) => {
                     const normalizedRows =
                       props.stage === 'defect' && it.id === 'defect_items'
@@ -2814,9 +2811,119 @@ export function RepairChecklistPanel(props: {
   const signItems = shownItems.filter((it) => it.kind === 'date' || it.kind === 'signature');
   const infoItems = shownItems.filter((it) => it.kind !== 'table' && it.kind !== 'date' && it.kind !== 'signature');
 
+  // Гриф «Утверждаю» — общий для обоих актов (approver_grif). Пресет + override (своя
+  // должность / выбранный сотрудник) поверх него. Печатается в правом верхнем углу.
+  //
+  // Живёт в блоке «Сведения» (владелец, 01.11.2026): гриф — реквизит, а не то, что
+  // заполняют в первую очередь, и в «Оформлении» его видно не было вовсе.
+  const renderApproverGrifBlock = () =>
+    (() => {
+            const grif = readApproverGrif(answers);
+            const writeGrif = (g: RepairChecklistApproverGrif) => {
+              const next = { ...answers, [APPROVER_GRIF_KEY]: { kind: 'approver', grif: g } } as RepairChecklistAnswers;
+              setAnswers(next);
+              void save(next);
+            };
+            const activeKey: EngineActApprover = grif.preset ?? ENGINE_ACT_APPROVER_DEFAULT;
+            const preset = ENGINE_ACT_APPROVERS[activeKey] ?? ENGINE_ACT_APPROVERS[ENGINE_ACT_APPROVER_DEFAULT];
+            const resolved = resolveEngineActApprover(grif);
+            const overridden = Boolean((grif.positionOverride ?? '').trim() || (grif.nameOverride ?? '').trim() || grif.employeeId);
+            const approverKeys: EngineActApprover[] = ['quality', 'director', 'technical'];
+            const empValue = grif.employeeId && employeeOptions.some((o) => o.id === grif.employeeId) ? grif.employeeId : null;
+            return (
+              <div style={{ marginTop: 12, padding: '10px 12px', border: '1px solid rgba(15,23,42,0.12)', borderRadius: 10, background: 'var(--input-bg)' }}>
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Утверждаю (гриф):</div>
+                <div style={{ display: 'flex', border: '1px solid var(--input-border)', borderRadius: 8, overflow: 'hidden', marginBottom: 6 }}>
+                  {approverKeys.map((key, i) => {
+                    const active = activeKey === key;
+                    const v = ENGINE_ACT_APPROVERS[key];
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        disabled={!props.canEdit}
+                        onClick={() => props.canEdit && writeGrif({ preset: key })}
+                        title={`${v.position}${v.name ? ` — ${v.name}` : ''}`}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          padding: '7px 6px',
+                          border: 'none',
+                          borderLeft: i === 0 ? 'none' : '1px solid var(--input-border)',
+                          background: active ? 'var(--button-primary-bg, #2563eb)' : 'var(--input-bg)',
+                          color: active ? 'var(--button-primary-text, #fff)' : 'var(--text)',
+                          cursor: props.canEdit ? 'pointer' : 'default',
+                          fontSize: 12,
+                          fontWeight: active ? 700 : 400,
+                        }}
+                      >
+                        {v.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 8 }}>
+                  <OverflowTooltipInput
+                    value={grif.positionOverride ?? ''}
+                    disabled={!props.canEdit}
+                    placeholder={`Должность (по умолч.: ${preset.position})`}
+                    onChange={(e) => props.canEdit && writeGrif({ ...grif, positionOverride: e.target.value })}
+                    onBlur={() => void save(answers)}
+                  />
+                  <EntityReferenceField
+                    target="employee"
+                    targetLabel="Утверждающий"
+                    value={empValue}
+                    options={employeeOptions}
+                    disabled={!props.canEdit}
+                    rankKey="employee:approver"
+                    placeholder={`Сотрудник для ФИО (по умолч.: ${preset.name || '—'})`}
+                    onChange={(id) => {
+                      if (!props.canEdit) return;
+                      const chosen = employeeOptions.find((o) => o.id === id) ?? null;
+                      writeGrif({ ...grif, employeeId: id ?? '', nameOverride: chosen?.label ?? '' });
+                    }}
+                  />
+                </div>
+                <div style={{ marginTop: 6, fontSize: 12, color: '#475569', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span>Печатается: <b>{resolved.position}</b>{resolved.name ? ` — ${resolved.name}` : ''}</span>
+                  {props.canEdit && overridden ? (
+                    <button
+                      type="button"
+                      onClick={() => writeGrif({ preset: activeKey })}
+                      style={{ fontSize: 11, color: 'var(--subtle, #64748b)', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+                    >
+                      ↺ Вернуть к пресету «{preset.label}»
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })();
   return (
     <div style={{ marginTop: 14, border: '1px solid rgba(15, 23, 42, 0.18)', borderRadius: 14, padding: 12 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        {/* Проводка стоит в КРАЮ слева (владелец, 01.11.2026): до неё тянулись через всю
+            шапку, до печати, и на длинном экране кнопка уезжала за правый край. Гейты те же,
+            ответ — по-прежнему в строке статуса под шапкой. */}
+        {!collapsed && isInventoryStage && isCompletenessView && props.canEdit && (
+          <Button
+            disabled={completenessBusy}
+            title="Фиксирует акт комплектности: ставит дату осмотра (если она не заполнена — сегодняшнюю). По этой дате двигатель встаёт на этап «Приемка» в отчёте «Сейчас на заводе»."
+            onClick={() => void conductCompleteness()}
+          >
+            {completenessBusy ? 'Проводим…' : 'Провести комплектность'}
+          </Button>
+        )}
+        {!collapsed && isInventoryStage && isDefectView && props.canCreateWorkOrder && (
+          <Button
+            disabled={conductBusy}
+            title="Фиксирует неизменяемую версию дефектовки и одной серверной транзакцией отражает разборку, ремфонд, утиль, личные номера и историю деталей."
+            onClick={() => void conductDefect()}
+          >
+            {conductBusy ? 'Проводим…' : 'Провести дефектовку'}
+          </Button>
+        )}
         <strong>{panelTitle}</strong>
         <span style={{ flex: 1 }} />
         <Button variant="ghost" onClick={() => setCollapsed((v) => !v)}>
@@ -2930,24 +3037,6 @@ export function RepairChecklistPanel(props: {
         {/* Проводка стоит в шапке своей вкладки, но НЕ внутри печатной ветки: там она
             исчезла бы на планшете и у всех без права печати. `!collapsed` обязателен —
             ответ проводки показывается строкой статуса, а она живёт в развёрнутой панели. */}
-        {!collapsed && isInventoryStage && isCompletenessView && props.canEdit && (
-          <Button
-            disabled={completenessBusy}
-            title="Фиксирует акт комплектности: ставит дату осмотра (если она не заполнена — сегодняшнюю). По этой дате двигатель встаёт на этап «Приемка» в отчёте «Сейчас на заводе»."
-            onClick={() => void conductCompleteness()}
-          >
-            {completenessBusy ? 'Проводим…' : 'Провести комплектность'}
-          </Button>
-        )}
-        {!collapsed && isInventoryStage && isDefectView && props.canCreateWorkOrder && (
-          <Button
-            disabled={conductBusy}
-            title="Фиксирует неизменяемую версию дефектовки и одной серверной транзакцией отражает разборку, ремфонд, утиль, личные номера и историю деталей."
-            onClick={() => void conductDefect()}
-          >
-            {conductBusy ? 'Проводим…' : 'Провести дефектовку'}
-          </Button>
-        )}
       </div>
 
       {/*
@@ -3345,93 +3434,6 @@ export function RepairChecklistPanel(props: {
             );
           })()
         : null}
-      {!collapsed && activeTemplate && isInventoryStage
-        ? (() => {
-            // Гриф «Утверждаю» — общий для обоих актов (approver_grif). Пресет + override (своя
-            // должность / выбранный сотрудник) поверх него. Печатается в правом верхнем углу.
-            const grif = readApproverGrif(answers);
-            const writeGrif = (g: RepairChecklistApproverGrif) => {
-              const next = { ...answers, [APPROVER_GRIF_KEY]: { kind: 'approver', grif: g } } as RepairChecklistAnswers;
-              setAnswers(next);
-              void save(next);
-            };
-            const activeKey: EngineActApprover = grif.preset ?? ENGINE_ACT_APPROVER_DEFAULT;
-            const preset = ENGINE_ACT_APPROVERS[activeKey] ?? ENGINE_ACT_APPROVERS[ENGINE_ACT_APPROVER_DEFAULT];
-            const resolved = resolveEngineActApprover(grif);
-            const overridden = Boolean((grif.positionOverride ?? '').trim() || (grif.nameOverride ?? '').trim() || grif.employeeId);
-            const approverKeys: EngineActApprover[] = ['quality', 'director', 'technical'];
-            const empValue = grif.employeeId && employeeOptions.some((o) => o.id === grif.employeeId) ? grif.employeeId : null;
-            return (
-              <div style={{ marginTop: 12, padding: '10px 12px', border: '1px solid rgba(15,23,42,0.12)', borderRadius: 10, background: 'var(--input-bg)' }}>
-                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Утверждаю (гриф):</div>
-                <div style={{ display: 'flex', border: '1px solid var(--input-border)', borderRadius: 8, overflow: 'hidden', marginBottom: 6 }}>
-                  {approverKeys.map((key, i) => {
-                    const active = activeKey === key;
-                    const v = ENGINE_ACT_APPROVERS[key];
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        disabled={!props.canEdit}
-                        onClick={() => props.canEdit && writeGrif({ preset: key })}
-                        title={`${v.position}${v.name ? ` — ${v.name}` : ''}`}
-                        style={{
-                          flex: 1,
-                          minWidth: 0,
-                          padding: '7px 6px',
-                          border: 'none',
-                          borderLeft: i === 0 ? 'none' : '1px solid var(--input-border)',
-                          background: active ? 'var(--button-primary-bg, #2563eb)' : 'var(--input-bg)',
-                          color: active ? 'var(--button-primary-text, #fff)' : 'var(--text)',
-                          cursor: props.canEdit ? 'pointer' : 'default',
-                          fontSize: 12,
-                          fontWeight: active ? 700 : 400,
-                        }}
-                      >
-                        {v.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 8 }}>
-                  <OverflowTooltipInput
-                    value={grif.positionOverride ?? ''}
-                    disabled={!props.canEdit}
-                    placeholder={`Должность (по умолч.: ${preset.position})`}
-                    onChange={(e) => props.canEdit && writeGrif({ ...grif, positionOverride: e.target.value })}
-                    onBlur={() => void save(answers)}
-                  />
-                  <EntityReferenceField
-                    target="employee"
-                    targetLabel="Утверждающий"
-                    value={empValue}
-                    options={employeeOptions}
-                    disabled={!props.canEdit}
-                    rankKey="employee:approver"
-                    placeholder={`Сотрудник для ФИО (по умолч.: ${preset.name || '—'})`}
-                    onChange={(id) => {
-                      if (!props.canEdit) return;
-                      const chosen = employeeOptions.find((o) => o.id === id) ?? null;
-                      writeGrif({ ...grif, employeeId: id ?? '', nameOverride: chosen?.label ?? '' });
-                    }}
-                  />
-                </div>
-                <div style={{ marginTop: 6, fontSize: 12, color: '#475569', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span>Печатается: <b>{resolved.position}</b>{resolved.name ? ` — ${resolved.name}` : ''}</span>
-                  {props.canEdit && overridden ? (
-                    <button
-                      type="button"
-                      onClick={() => writeGrif({ preset: activeKey })}
-                      style={{ fontSize: 11, color: 'var(--subtle, #64748b)', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
-                    >
-                      ↺ Вернуть к пресету «{preset.label}»
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })()
-        : null}
       {!collapsed && activeTemplate && isInventoryStage && actView === 'completeness'
         ? (() => {
             const items = readConditionItems(answers);
@@ -3496,11 +3498,17 @@ export function RepairChecklistPanel(props: {
         : null}
       {!collapsed && activeTemplate && isInventoryStage ? (
         <>
-          {renderSection('Оформление', sections.state.registrationOpen, () => sections.patchState({ registrationOpen: !sections.state.registrationOpen }), (
+          {/* «Оформление» (даты разборки и подписи) — раскрыт всегда и НЕ сворачивается
+              (владелец, 01.11.2026): раньше блок был свёрнут по умолчанию, и заполнить
+              разборку и дефектовку можно было только после щелчка. */}
+          {renderSection('Оформление', true, () => {}, (
             <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '340px 1fr', gap: 10, alignItems: 'center' }}>{signItems.map(renderTemplateItem)}</div>
-          ))}
+          ), false)}
           {renderSection('Сведения', sections.state.infoOpen, () => sections.patchState({ infoOpen: !sections.state.infoOpen }), (
-            <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '340px 1fr', gap: 10, alignItems: 'center' }}>{infoItems.map(renderTemplateItem)}</div>
+            <>
+              <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '340px 1fr', gap: 10, alignItems: 'center' }}>{infoItems.map(renderTemplateItem)}</div>
+              {renderApproverGrifBlock()}
+            </>
           ))}
           {renderSection('Детали', sections.state.partsOpen, () => sections.patchState({ partsOpen: !sections.state.partsOpen }), (
             <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '340px 1fr', gap: 10, alignItems: 'center' }}>{tableItems.map(renderTemplateItem)}</div>
@@ -3901,6 +3909,15 @@ const INVENTORY_COL_WIDTHS: Record<string, string> = {
   replace_qty: '7%',
 };
 const INVENTORY_ACTIONS_COL_WIDTH = '7%';
+
+/**
+ * Столбцы корзины «утиль» — их фон подкрашивается, чтобы в длинном списке деталей
+ * утиль находился глазом (владелец, 01.11.2026). Это про столбец, а не про данные:
+ * значения в них не меняются.
+ */
+function isScrapColumn(columnId: string): boolean {
+  return columnId === 'scrap_qty' || columnId === 'scrap_reason';
+}
 // Колонка «№» (владелец 15.09.2026): фиксированная узкая ширина под table-layout:fixed.
 const INVENTORY_ROWNUM_COL_WIDTH = 40;
 
@@ -3926,11 +3943,6 @@ function TableEditor(props: {
    * только не рендерится; индексы, save и brand-sync работают с полным набором.
    */
   isRowHidden?: (row: Record<string, string | boolean | number>, idx: number) => boolean;
-  /**
-   * Доп. контент под ячейками строки (MVP-2: фото-доказательства дефекта). Рендерится во всю ширину
-   * (отдельная строка таблицы / блок в компактной карточке). Возврат null/undefined ничего не добавляет.
-   */
-  renderRowExtra?: (rowIdx: number, row: Record<string, string | boolean | number>) => React.ReactNode;
 }) {
   const { confirm } = useConfirm();
   // Планшетный режим (Ф1b): в планшете степперы +/- показываем даже в списке деталей и крупнее.
@@ -3964,12 +3976,63 @@ function TableEditor(props: {
 
   // Массовые операции по списку деталей (наличие/корзины ремонта) — только список деталей, с правами.
   const showBulkOps = isInventoryItemsTable && props.canEdit;
+  // Поиск и сортировка списка деталей (владелец, 01.11.2026): деталей в списке много,
+  // искомую иначе не найти, а сортировка по шапке (например по «Утиль») собирает нужные
+  // рядом. Сортируем ИНДЕКСЫ, а не сам массив строк: порядок строк в данных значим
+  // (он едет в акт и в заявку в снабжение), переставлять его нельзя.
+  const [searchText, setSearchText] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortColumnId, setSortColumnId] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+
   const visibleRowIdxs = rows.map((_, i) => i).filter((i) => !props.isRowHidden?.(rows[i]!, i));
+
+  /** Клик по шапке: тот же столбец — переворачиваем направление, новый — начинаем с возрастания. */
+  function toggleSortColumn(columnId: string) {
+    if (sortColumnId === columnId) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortColumnId(columnId);
+    setSortDir('asc');
+  }
+
+  const sortedRowIdxs = (() => {
+    if (!sortColumnId) return visibleRowIdxs;
+    const col = props.columns.find((c) => c.id === sortColumnId);
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...visibleRowIdxs].sort((a, b) => {
+      const va = (rows[a] as any)?.[sortColumnId];
+      const vb = (rows[b] as any)?.[sortColumnId];
+      if (col?.kind === 'number') {
+        const na = toNumberValue(va);
+        const nb = toNumberValue(vb);
+        if (na !== nb) return (na - nb) * dir;
+        return a - b;
+      }
+      const sa = String(va ?? '').trim().toLocaleLowerCase('ru');
+      const sb = String(vb ?? '').trim().toLocaleLowerCase('ru');
+      if (sa !== sb) return sa.localeCompare(sb, 'ru') * dir;
+      return a - b;
+    });
+  })();
+
+  /** Поиск — по текстовым полям строки (наименование, № детали, № сборки, личный №). */
+  const filteredRowIdxs = (() => {
+    const q = searchQuery.trim().toLocaleLowerCase('ru');
+    if (!q) return sortedRowIdxs;
+    return sortedRowIdxs.filter((i) => {
+      const row = rows[i] as Record<string, unknown> | undefined;
+      if (!row) return false;
+      return Object.values(row).some((v) => typeof v === 'string' && v.toLocaleLowerCase('ru').includes(q));
+    });
+  })();
+
   // Блок «Базовые детали» = деталь входит в акт комплектности ИЛИ дефектовки; «Остальные» — нет.
   const rowInAct = (i: number) =>
     Boolean((rows[i] as any)?.in_completeness_act) || Boolean((rows[i] as any)?.in_defect_act);
-  const baseRowIdxs = isInventoryItemsTable ? visibleRowIdxs.filter(rowInAct) : [];
-  const otherRowIdxs = isInventoryItemsTable ? visibleRowIdxs.filter((i) => !rowInAct(i)) : [];
+  const baseRowIdxs = isInventoryItemsTable ? filteredRowIdxs.filter(rowInAct) : [];
+  const otherRowIdxs = isInventoryItemsTable ? filteredRowIdxs.filter((i) => !rowInAct(i)) : [];
 
   function getColumnSizing(columnId: string): React.CSSProperties | undefined {
     if (isDefectItemsTable) {
@@ -4008,17 +4071,21 @@ function TableEditor(props: {
     if (save && props.canEdit) props.onSave(next);
   }
 
-  // Применяет mutate ко всем показанным строкам (скрытые фильтром по варианту — не трогаются).
+  // Применяет mutate к показанным строкам: скрытые фильтром по варианту — не трогаются,
+  // и при активном поиске — только найденные (иначе счётчик в подтверждении врал бы).
   function applyBulkToVisible(mutate: (row: Record<string, string | boolean | number>) => Record<string, string | boolean | number>) {
-    const next = rows.map((row, i) => (props.isRowHidden?.(row, i) ? row : mutate(row)));
+    const shown = new Set(filteredRowIdxs);
+    const next = rows.map((row, i) => (props.isRowHidden?.(row, i) || !shown.has(i) ? row : mutate(row)));
     props.onChange(next);
     if (props.canEdit) props.onSave(next);
   }
 
   async function bulkPresent(present: boolean) {
-    if (visibleRowIdxs.length === 0) return;
+    // Массовые операции — по показанным строкам: при активном поиске это найденные,
+    // и счётчик в подтверждении должен совпадать с тем, что оператор видит.
+    if (filteredRowIdxs.length === 0) return;
     const ok = await confirm({
-      detail: `Отметить «${present ? 'на месте' : 'отсутствует'}» для всех показанных строк (${visibleRowIdxs.length})?`,
+      detail: `Отметить «${present ? 'на месте' : 'отсутствует'}» для всех показанных строк (${filteredRowIdxs.length})?`,
     });
     if (!ok) return;
     applyBulkToVisible((row) => {
@@ -4028,10 +4095,11 @@ function TableEditor(props: {
   }
 
   async function bulkDefect(kind: 'repair' | 'scrap' | 'replace') {
-    if (visibleRowIdxs.length === 0) return;
+    // Массовые операции — по показанным строкам: при активном поиске это найденные.
+    if (filteredRowIdxs.length === 0) return;
     const ru = kind === 'repair' ? 'в ремонт' : kind === 'scrap' ? 'в утиль' : 'на замену';
     const ok = await confirm({
-      detail: `Перевести все показанные строки (${visibleRowIdxs.length}) «${ru}»? Текущее распределение по корзинам (ремонт/утиль/замена) будет перезаписано.`,
+      detail: `Перевести все показанные строки (${filteredRowIdxs.length}) «${ru}»? Текущее распределение по корзинам (ремонт/утиль/замена) будет перезаписано.`,
     });
     if (!ok) return;
     applyBulkToVisible((row) => {
@@ -4337,9 +4405,36 @@ function TableEditor(props: {
             {cols.map((c) => (
               <th
                 key={c.id}
-                style={{ textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10, ...(getColumnSizing(c.id) ?? {}) }}
+                style={{
+                  textAlign: 'left',
+                  borderBottom: '1px solid rgba(255,255,255,0.25)',
+                  padding: 10,
+                  ...(getColumnSizing(c.id) ?? {}),
+                  // Столбец утиля подкрашен: в длинном списке деталей его иначе не найти
+                  // (владелец, 01.11.2026). В шапке — тёплый тон, в ячейках — светлый.
+                  ...(isScrapColumn(c.id) ? { background: 'rgba(194, 65, 12, 0.55)' } : {}),
+                }}
               >
-                {c.label}
+                <button
+                  type="button"
+                  onClick={() => toggleSortColumn(c.id)}
+                  title={`Сортировать по «${c.label}»`}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'inherit',
+                    cursor: 'pointer',
+                    padding: 0,
+                    font: 'inherit',
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    gap: 4,
+                    alignItems: 'center',
+                  }}
+                >
+                  {c.label}
+                  {sortColumnId === c.id ? <span aria-hidden="true">{sortDir === 'asc' ? '▲' : '▼'}</span> : null}
+                </button>
               </th>
             ))}
             {props.canEdit && (
@@ -4348,28 +4443,31 @@ function TableEditor(props: {
           </tr>
         </thead>
         <tbody>
-          {idxList.map((idx, i) => {
-            const row = rows[idx]!;
-            const extra = props.renderRowExtra?.(idx, row);
-            return (
-              <tr key={idx}>
-                <RowNumberCell n={i + 1} style={{ borderBottom: '1px solid rgba(15, 23, 42, 0.10)', padding: 8 }} />
-                {cols.map((c) => (
-                  <td key={c.id} style={{ borderBottom: '1px solid rgba(15, 23, 42, 0.10)', padding: 8, ...(getColumnSizing(c.id) ?? {}) }}>
-                    {renderCellInput(idx, c)}
-                  </td>
-                ))}
-                {props.canEdit && (
-                  <td style={{ borderBottom: '1px solid rgba(15, 23, 42, 0.10)', padding: 8 }}>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                      {extra}
-                      {renderDeleteButton(idx)}
-                    </div>
-                  </td>
-                )}
-              </tr>
-            );
-          })}
+          {idxList.map((idx, i) => (
+            <tr key={idx}>
+              <RowNumberCell n={i + 1} style={{ borderBottom: '1px solid rgba(15, 23, 42, 0.10)', padding: 8 }} />
+              {cols.map((c) => (
+                <td
+                  key={c.id}
+                  style={{
+                    borderBottom: '1px solid rgba(15, 23, 42, 0.10)',
+                    padding: 8,
+                    ...(getColumnSizing(c.id) ?? {}),
+                    ...(isScrapColumn(c.id) ? { background: 'rgba(234, 88, 12, 0.09)' } : {}),
+                  }}
+                >
+                  {renderCellInput(idx, c)}
+                </td>
+              ))}
+              {props.canEdit && (
+                <td style={{ borderBottom: '1px solid rgba(15, 23, 42, 0.10)', padding: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                    {renderDeleteButton(idx)}
+                  </div>
+                </td>
+              )}
+            </tr>
+          ))}
           {idxList.length === 0 && (
             <tr>
               <td colSpan={cols.length + 1 + (props.canEdit ? 1 : 0)} style={{ padding: 10, color: '#64748b' }}>
@@ -4432,13 +4530,43 @@ function TableEditor(props: {
           <Button variant="ghost" onClick={() => void bulkDefect('replace')}>Все заменить</Button>
         </div>
       )}
+      {/* Поиск по деталям (владелец, 01.11.2026): деталей в списке много, искомую иначе
+          не найти. Ищем по текстовым полям строки: наименование, № детали, № сборки,
+          личный №. Кнопка «Найти» — по запросу, а не на лету: список пересобирается
+          при каждом нажатии иначе дёргался бы на каждую букву. */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '8px 10px', borderBottom: '1px solid rgba(15, 23, 42, 0.1)' }}>
+        <input
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') setSearchQuery(searchText);
+          }}
+          placeholder="Поиск детали: наименование, № детали, № сборки"
+          style={{
+            flex: '1 1 260px',
+            minWidth: 200,
+            padding: '5px 8px',
+            border: '1px solid var(--input-border, #cbd5e1)',
+            borderRadius: 6,
+            background: 'var(--input-bg, #fff)',
+            color: 'var(--text, #0b1220)',
+          }}
+        />
+        <Button variant="ghost" onClick={() => setSearchQuery(searchText)}>Найти</Button>
+        {searchQuery ? (
+          <Button variant="ghost" onClick={() => { setSearchText(''); setSearchQuery(''); }}>Сбросить</Button>
+        ) : null}
+        {searchQuery ? (
+          <span style={{ fontSize: 12, color: '#334155' }}>Найдено строк: {filteredRowIdxs.length}</span>
+        ) : null}
+      </div>
       {isInventoryItemsTable ? (
         <>
           {renderGroup('Базовые детали (в актах)', baseRowIdxs, baseGroupOpen, () => setBaseGroupOpen((v) => !v))}
           {renderGroup('Остальные детали', otherRowIdxs, otherGroupOpen, () => setOtherGroupOpen((v) => !v))}
         </>
       ) : (
-        renderDataTable(visibleRowIdxs, rows.length)
+        renderDataTable(filteredRowIdxs, rows.length)
       )}
       {props.canEdit && !isInventoryItemsTable && (
         <div style={{ padding: 10, display: 'flex', gap: 10 }}>
@@ -4472,39 +4600,11 @@ function TableEditor(props: {
 }
 
 /**
- * MVP-2: фото-доказательства дефекта на уровне строки списка деталей. Свёрнуто за кнопкой
- * «📷 Фото (N)»; разворачивает переиспользованную AttachmentsPanel, привязанную к строке
- * (значение/onChange ходят через мета-ключ `__photos` строки, см. withRowPhotos/getRowPhotos).
+ * Кнопка «📷 Фото» в строке списка деталей убрана (владелец, 01.11.2026): из-за неё
+ * строка выходила втолстую, а по одной кнопке на каждую деталь список разрастался.
+ * Фото дефекта — обычные документы двигателя: раздел «Фото и документы» в карточке
+ * двигателя (файлы и раньше прикреплялись к двигателю, category `defect_photo`).
+ * Ранее прикреплённые фото строк не теряются: они лежат в мета-ключе `__photos` и
+ * уезжают в заявку в снабжение (см. collectDefectPhotosFromInventory).
  */
-function InventoryRowPhotos(props: {
-  photos: FileRef[];
-  canView: boolean;
-  canUpload: boolean;
-  scope?: { ownerType: string; ownerId: string; category: string };
-  onChange: (next: FileRef[]) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  if (!props.canView) return null;
-  const count = props.photos.length;
-  return (
-    <div>
-      <Button variant="ghost" onClick={() => setOpen((v) => !v)}>
-        {`📷 Фото${count ? ` (${count})` : ''} ${open ? '▲' : '▼'}`}
-      </Button>
-      {open && (
-        <AttachmentsPanel
-          title="Фото детали (доказательство дефекта)"
-          value={props.photos}
-          canView={props.canView}
-          canUpload={props.canUpload}
-          {...(props.scope ? { scope: props.scope } : {})}
-          onChange={(next) => {
-            props.onChange(next);
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
 
