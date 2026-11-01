@@ -76,6 +76,20 @@ function todayIso(): string {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
+/**
+ * Ручка вкладки «Платежи» для карточки двигателя.
+ *
+ * Платежи пишутся СВОЕЙ кнопкой («Сохранить платежи») и держат свой флаг
+ * несохранённых правок. Кнопки шапки карточки («Сохранить» / «Сохранить и выйти») про
+ * них не знали: карточка сохраняла своё и закрывалась, а несохранённые платежи
+ * оставались в памяти вкладки и исчезали вместе с ней (жалоба владельца 01.11.2026).
+ * `flush` даёт карточке возможность сбросить их в базу ДО закрытия.
+ */
+export type EnginePaymentsTabHandle = {
+  /** Сохранить несохранённые платежи. `false` — запись не удалась, карточку закрывать нельзя. */
+  flush: () => Promise<boolean>;
+};
+
 export function EnginePaymentsTab(props: {
   engineId: string;
   contractId: string;
@@ -97,6 +111,12 @@ export function EnginePaymentsTab(props: {
   engineRepaired: boolean;
   canEdit: boolean;
   onOpenContract?: (contractId: string) => void;
+  /**
+   * Ручка вкладки для карточки двигателя: кнопки «Сохранить»/«Сохранить и выйти» в шапке
+   * карточки про платежи не знают, а платежи пишутся своей кнопкой. Без `flush` закрытие
+   * карточки теряло бы несохранённые платежи (жалоба владельца 01.11.2026).
+   */
+  registerHandle?: (handle: EnginePaymentsTabHandle | null) => void;
 }) {
   // Ключ секции двигателя, приведённый к канону ('primary' | «ДС n»): в старых
   // записях тут лежал номер договора. Пустой → секция не выбрана, при сохранении
@@ -220,12 +240,16 @@ export function EnginePaymentsTab(props: {
     );
   }
 
-  async function save() {
-    if (!props.contractId || saving) return;
+  /**
+   * Пишет платежи. Возвращает результат: `true` — записано (или писать было нечего),
+   * `false` — не удалось. Карточка двигателя ждёт этот результат перед закрытием.
+   */
+  async function save(): Promise<boolean> {
+    if (!props.contractId || saving) return !dirty;
     const invalid = rows.find((r) => draftToRow(r) == null);
     if (invalid) {
       setSaveStatus('Ошибка: у платежа не заполнена сумма');
-      return;
+      return false;
     }
     setSaving(true);
     setSaveStatus('Сохранение…');
@@ -268,19 +292,38 @@ export function EnginePaymentsTab(props: {
       });
       if (!r.ok) {
         setSaveStatus(`Ошибка: ${r.error}`);
-        return;
+        return false;
       }
       loadedPaymentIdsRef.current = new Set(
         (findSlotForEngine(r.next, props.engineId)?.payments ?? []).map((p) => p.id),
       );
       setDirty(false);
       setSaveStatus('Сохранено');
+      return true;
     } catch (e) {
       setSaveStatus(`Ошибка: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
     } finally {
       setSaving(false);
     }
   }
+
+  // Ручка для карточки двигателя: сбросить несохранённые платежи ДО её закрытия.
+  // Ссылки обновляем после каждого рендера, а ручку регистрируем один раз — её
+  // содержимое всегда смотрит на актуальные `save` и `dirty`.
+  const saveRef = useRef<() => Promise<boolean>>(async () => true);
+  const dirtyRef = useRef(dirty);
+  useEffect(() => {
+    saveRef.current = save;
+    dirtyRef.current = dirty;
+  });
+  const registerHandle = props.registerHandle;
+  useEffect(() => {
+    registerHandle?.({
+      flush: async () => (dirtyRef.current ? saveRef.current() : true),
+    });
+    return () => registerHandle?.(null);
+  }, [registerHandle]);
 
   if (!props.contractId) {
     return (

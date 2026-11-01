@@ -27,7 +27,7 @@ import type { CardCloseActions } from '../cardCloseTypes.js';
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 import { quickCreateEntity } from '../utils/quickCreateEntity.js';
 import { AssemblyReturnDialog } from '../components/AssemblyReturnDialog.js';
-import { EnginePaymentsTab } from '../components/EnginePaymentsTab.js';
+import { EnginePaymentsTab, type EnginePaymentsTabHandle } from '../components/EnginePaymentsTab.js';
 import { placeEngineIntoContractSlot as placeEngineIntoContractSlotShared } from '../utils/engineContractSlot.js';
 import { EngineDismantlePreviewDialog } from '../components/EngineDismantlePreviewDialog.js';
 import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
@@ -753,6 +753,9 @@ export function EngineDetailsPage(props: {
         ? [{ id: engineBrandId, label: engineBrand }]
         : [];
   const sessionHadChanges = useRef<boolean>(false);
+  // Ручка вкладки «Платежи»: кнопки шапки карточки сбрасывают её несохранённые
+  // правки в базу перед закрытием (см. saveAllAndClose).
+  const paymentsTabHandleRef = useRef<EnginePaymentsTabHandle | null>(null);
   // Зеркало sessionHadChanges в state — только чтобы ярлык вкладки «Основное»
   // мог показать маркер несохранённых изменений (ref не триггерит рендер).
   const [mainDirty, setMainDirty] = useState(false);
@@ -1292,6 +1295,17 @@ export function EngineDetailsPage(props: {
   }
 
   async function saveAllAndClose() {
+    // Платежи живут по своей схеме: своя кнопка «Сохранить платежи» и свой флаг
+    // несохранённых правок. Кнопки шапки карточки про них не знали, и «Сохранить и
+    // выйти» закрывал карточку, теряя введённые платежи (жалоба владельца
+    // 01.11.2026). Поэтому сначала сбрасываем их в базу — и только потом сохраняем
+    // остальное и закрываем; не получилось — карточка остаётся открытой.
+    const paymentsFlushed = await paymentsTabHandleRef.current?.flush();
+    if (paymentsFlushed === false) {
+      const msg = 'Платежи не сохранены — карточка не закрыта. Исправьте ошибку на вкладке «Платежи».';
+      setSaveStatus(msg);
+      throw new Error(msg);
+    }
     // Право на запись могло пропасть уже ПОСЛЕ того, как оператор начал править
     // (резерв перехватил другой оператор, админ отозвал доступ). Молча резолвиться
     // нельзя: App считает успешный промис за сохранение и закрывает вкладку — правки
@@ -3159,6 +3173,9 @@ export function EngineDetailsPage(props: {
           engineId={props.engineId}
           contractId={contractId}
           sectionKey={contractSectionNumber}
+          registerHandle={(handle) => {
+            paymentsTabHandleRef.current = handle;
+          }}
           {...(engineBrandId ? { engineBrandId } : {})}
           arrivalIso={toInputDate(props.engine.attributes?.arrival_date as number | null | undefined)}
           lastActivityIso={toInputDate(lastActivityAt)}
