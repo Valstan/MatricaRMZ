@@ -499,8 +499,8 @@ export function SimpleMasterdataDetailsPage(props: {
   async function checkDuplicatesBeforeSave(action: 'save' | 'saveAndClose') {
     if (!entityTypeId) {
       // No type info, just save
-      if (action === 'saveAndClose') await saveAllAndClose();
-      else await saveAll();
+      await saveAll();
+      if (action === 'saveAndClose') props.onClose();
       return;
     }
     // Run check immediately (don't wait for debounce)
@@ -508,8 +508,8 @@ export function SimpleMasterdataDetailsPage(props: {
     const queryName = name.trim();
     const queryArticle = article.trim();
     if (!queryName && !queryArticle) {
-      if (action === 'saveAndClose') await saveAllAndClose();
-      else await saveAll();
+      await saveAll();
+      if (action === 'saveAndClose') props.onClose();
       return;
     }
     try {
@@ -532,8 +532,11 @@ export function SimpleMasterdataDetailsPage(props: {
       // ignore, proceed with save
     }
     // No duplicates found
-    if (action === 'saveAndClose') await saveAllAndClose();
-    else await saveAll();
+    // Пишем сами и закрываем сами: раньше здесь стоял вызов saveAllAndClose, а тот
+    // звал checkDuplicatesBeforeSave — и так карточка уходила в бесконечную рекурсию
+    // (кнопка «Сохранить и выйти» не делала ничего: ни записи, ни закрытия).
+    await saveAll();
+    if (action === 'saveAndClose') props.onClose();
   }
 
   async function handleDuplicateAction(action: 'cancel' | 'merge' | 'replace' | 'continue' | 'open', candidateId?: string) {
@@ -595,8 +598,12 @@ export function SimpleMasterdataDetailsPage(props: {
     }
     if (action === 'continue') {
       // Save as new despite duplicates
-      if (pendingSaveAction === 'saveAndClose') await saveAllAndClose();
-      else await saveAll();
+      // Дубли оператор уже подтвердил — повторно их не проверяем (иначе диалог
+      // открылся бы снова и снова).
+      if (pendingSaveAction === 'saveAndClose') {
+        await saveAll();
+        props.onClose();
+      } else await saveAll();
       setPendingSaveAction(null);
       return;
     }
@@ -1216,9 +1223,10 @@ export function SimpleMasterdataDetailsPage(props: {
             })();
           }}
           onSaveAndClose={() => {
-            void saveAllAndClose()
-              .then(() => props.onClose())
-              .catch(() => undefined);
+            // Закрытие — внутри saveAllAndClose и только после успешной записи.
+            // Раньше закрытие висело в безусловном .then, а проверка дублей уходила
+            // в рекурсию: кнопка не делала ничего — ни записи, ни закрытия.
+            void saveAllAndClose().catch(() => undefined);
           }}
           onReset={() => {
             void load().then(() => {

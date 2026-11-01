@@ -993,8 +993,8 @@ export function WorkOrderDetailsPage(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce must restart only when payload/canEditNow change; saveDraftNow is a plain body helper recreated each render, so listing it would reset the 1.5s autosave timer on every render
   }, [payload, canEditNow]);
 
-  async function flushSave(next: WorkOrderPayload) {
-    if (!canEditNow) return;
+  async function flushSave(next: WorkOrderPayload): Promise<boolean> {
+    if (!canEditNow) return true;
     // Cancel any pending autosave so it can't re-write the draft after the commit clears it below.
     if (draftTimerRef.current != null) {
       window.clearTimeout(draftTimerRef.current);
@@ -1003,7 +1003,7 @@ export function WorkOrderDetailsPage(props: {
     const r = await window.matrica.workOrders.update({ id: props.id, payload: recalcLocally(next) });
     if (!r.ok) {
       setStatus(`Ошибка сохранения: ${r.error}`);
-      return;
+      return false;
     }
     // Phase 2: first save materializes the order and assigns the number — reflect it in the open
     // card (the «№ новый» placeholder becomes the assigned number) so the operator sees it.
@@ -1018,6 +1018,7 @@ export function WorkOrderDetailsPage(props: {
     // in-flight autosave first, or its late upsert resurrects the draft we're about to clear.
     if (draftWriteRef.current) await draftWriteRef.current.catch(() => undefined);
     await clearDraft();
+    return true;
   }
 
   function patch(next: WorkOrderPayload) {
@@ -1758,7 +1759,14 @@ export function WorkOrderDetailsPage(props: {
       }}
       onSaveAndClose={() => {
         void (async () => {
-          if (payload && canEditNow) await flushSave(payload);
+          // Закрываем карточку ТОЛЬКО после успешного сохранения: иначе неуспех
+          // тихо уносит правки оператора (жалоба владельца 01.11.2026).
+          if (!payload || !canEditNow) {
+            props.onClose();
+            return;
+          }
+          const ok = await flushSave(payload);
+          if (!ok) return;
           dirtyRef.current = false;
           props.onClose();
         })();
