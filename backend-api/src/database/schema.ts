@@ -656,6 +656,9 @@ export const notes = pgTable(
     bodyJson: text('body_json'),
     importance: text('importance').notNull().default('normal'),
     dueAt: bigint('due_at', { mode: 'number' }),
+    // Точки напоминания заметки — JSON-массивом. null = поле не задано (строка
+    // заведена до множественных точек), '[]' = напоминаний нет, '[ts,…]' = точки.
+    remindersJson: text('reminders_json'),
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),

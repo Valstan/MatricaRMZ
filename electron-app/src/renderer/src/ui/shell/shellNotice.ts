@@ -6,7 +6,7 @@
  * и «Ошибка создания наряда» уходили в пустоту с этапа 5 (нашлось смоуком этапа B).
  * Поэтому здесь один тип на всех: новое сообщение неоткуда добавить мимо плашки.
  */
-export type ShellNoticeTone = 'info' | 'error';
+export type ShellNoticeTone = 'info' | 'error' | 'reminder';
 
 export interface ShellNotice {
   text: string;
@@ -21,4 +21,8 @@ export interface ShellNotice {
 export const SHELL_NOTICE_MS: Record<ShellNoticeTone, number> = {
   info: 6_000,
   error: 12_000,
+  // Напоминание по заметке живёт дольше обычного подтверждения: это сигнал «пора
+  // посмотреть», а не отчёт о выполненном действии — за 6 секунд его можно не
+  // заметить вовсе.
+  reminder: 20_000,
 };

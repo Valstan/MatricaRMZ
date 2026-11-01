@@ -58,6 +58,15 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
       ),
     );
 
+  // notes.reminders_json — точки напоминания заметки (их может быть несколько).
+  // Таблица приходит из drizzle 0004, а колонка добавлена позже: свежая БД
+  // базлайнит ClientSchemaVersion мимо version-chained мигратора, поэтому колонку
+  // доводим здесь (PRAGMA-проверка + ALTER — SQLite не умеет ADD COLUMN IF NOT
+  // EXISTS, повторный ALTER уронил бы транзакцию миграции).
+  if (hasTable('notes') && !columnNames('notes').has('reminders_json')) {
+    sqlite.exec(`ALTER TABLE notes ADD COLUMN reminders_json text;`);
+  }
+
   // warehouse_command_outbox — локальный outbox, добавлен через clientSchemaMigrations 6->7.
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS warehouse_command_outbox (

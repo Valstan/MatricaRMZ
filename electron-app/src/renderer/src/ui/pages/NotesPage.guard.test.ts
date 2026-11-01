@@ -15,6 +15,27 @@ import { describe, expect, it } from 'vitest';
  * черновика для автосохранения.
  */
 const page = readFileSync(path.resolve(__dirname, 'NotesPage.tsx'), 'utf8');
+const watcher = readFileSync(path.resolve(__dirname, '../hooks/useNoteReminderWatcher.ts'), 'utf8');
+
+describe('NotesPage: напоминаний может быть несколько', () => {
+  it('редактор — список точек, а не одно поле с датой', () => {
+    expect(page).toContain('addReminderPoint');
+    expect(page).toContain('changeReminderPoint');
+    // Прежняя форма была одним чекбоксом и одним datetime-local.
+    expect(page).not.toContain('checked={Boolean(draft.dueAt)}');
+  });
+
+  it('срабатывание живёт на уровне приложения, а не на странице', () => {
+    // Страница «Заметки» смонтирована только если её открывали: напоминание,
+    // которое приходит лишь на этой вкладке, — не напоминание.
+    expect(page).not.toContain('Напоминание по заметке');
+    expect(watcher).toContain('Напоминание по заметке');
+  });
+
+  it('сработавшие точки не повторяются после перезапуска программы', () => {
+    expect(watcher).toContain('localStorage');
+  });
+});
 
 describe('NotesPage: набираемый текст не затирается', () => {
   it('эффект слияния черновиков не зависит от карты отметок', () => {

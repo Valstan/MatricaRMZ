@@ -205,6 +205,10 @@ export const notes = sqliteTable(
     bodyJson: text('body_json'),
     importance: text('importance').notNull().default('normal'),
     dueAt: integer('due_at'),
+    // Точки напоминания заметки — JSON-массивом. null = «поле не задано» (строка
+    // заведена до множественных точек: действует старый due_at как одна точка),
+    // '[]' = напоминаний нет, '[ts,…]' = сами точки.
+    remindersJson: text('reminders_json'),
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),

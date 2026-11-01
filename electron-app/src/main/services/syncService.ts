@@ -2243,6 +2243,9 @@ async function applyPulledChanges(
             bodyJson: payload.body_json ?? null,
             importance: payload.importance,
             dueAt: payload.due_at ?? null,
+            // null = «сервер этого поля не знает» — строка остаётся legacy, и её
+            // `due_at` считается одной точкой (правило чтения в shared).
+            remindersJson: payload.reminders_json ?? null,
             sortOrder: payload.sort_order ?? 0,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,

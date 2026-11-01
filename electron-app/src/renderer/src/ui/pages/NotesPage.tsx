@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ChatDeepLinkPayload, ChatUserItem } from '@matricarmz/shared';
 import type { NoteBlock, NoteItem, NoteShareItem } from '@matricarmz/shared';
+import { nextNoteReminderPoint, normalizeNoteReminderPoints } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
@@ -18,6 +19,7 @@ import {
   markDirty,
   mergeDraftsFromNotes,
   newNoteBlockId,
+  noteDraftReminderPatch,
   pruneDirtyFlags,
   type NoteDraft,
 } from '../utils/noteDrafts.js';
@@ -129,7 +131,6 @@ export function NotesPage(props: {
   const [now, setNow] = useState(() => nowMs());
   const [imageThumbs, setImageThumbs] = useState<Record<string, { dataUrl: string | null; status: 'idle' | 'loading' | 'done' | 'error' }>>({});
   const recipientPickerRef = useRef<HTMLDivElement | null>(null);
-  const reminderSentRef = useRef<Record<string, number>>({});
   const autoSaveTimersRef = useRef<Record<string, number>>({});
   const draftVersionRef = useRef<Record<string, number>>({});
   const savingRef = useRef<Record<string, boolean>>({});
@@ -334,29 +335,10 @@ export function NotesPage(props: {
     });
   }, [users, recipientPicker]);
 
-  useEffect(() => {
-    const me = String(props.meUserId ?? '').trim();
-    if (!me) return;
-    const dueSoon = notesVisible
-      .map((note) => {
-        const draft = drafts[note.id];
-        const dueAt = draft?.dueAt ?? note.dueAt ?? null;
-        return { note, draft, dueAt };
-      })
-      .filter((x) => x.dueAt != null && x.dueAt > now && x.dueAt - now <= 2 * 60 * 60 * 1000);
-    if (dueSoon.length === 0) return;
-    void (async () => {
-      for (const item of dueSoon) {
-        if (item.dueAt == null) continue;
-        const stamp = `${item.note.id}:${item.dueAt}`;
-        if (reminderSentRef.current[stamp]) continue;
-        reminderSentRef.current[stamp] = nowMs();
-        const [line1] = textPreviewLines(item.draft?.body ?? item.note.body ?? []);
-        const text = `Напоминание по заметке: "${line1 || 'Заметка'}". Срок: ${formatDate(item.dueAt)}.`;
-        await window.matrica.chat.sendText({ recipientUserId: me, text }).catch(() => null);
-      }
-    })();
-  }, [notesVisible, drafts, now, props.meUserId]);
+  // Срабатывание напоминаний уехало на уровень приложения
+  // (renderer/src/ui/hooks/useNoteReminderWatcher.ts): страница «Заметки»
+  // смонтирована только если её открывали, а напоминание должно приходить в любой
+  // вкладке. Здесь остаётся только отображение точек.
 
   function clearAutoSaveTimer(id: string) {
     const timer = autoSaveTimersRef.current[id];
@@ -375,13 +357,45 @@ export function NotesPage(props: {
 
   function updateDraft(id: string, next: Partial<NoteDraft>) {
     setDrafts((prev) => {
-      const current = prev[id] ?? { id, title: '', body: [], importance: 'normal' as const, dueAt: null };
+      const current = prev[id] ?? { id, title: '', body: [], importance: 'normal' as const, dueAt: null, reminders: [] };
       const merged = { ...current, ...next };
       return { ...prev, [id]: { ...merged, title: makeAutoTitle(merged.body ?? []) } };
     });
     draftVersionRef.current[id] = (draftVersionRef.current[id] ?? 0) + 1;
     setDirty((prev) => markDirty(prev, id));
     if (props.canEdit) queueAutoSave(id);
+  }
+
+  /** Точки напоминания черновика; у заметки без точек старый срок — одна точка. */
+  function reminderPointsOf(noteId: string): number[] {
+    const draft = drafts[noteId];
+    if (!draft) return [];
+    return normalizeNoteReminderPoints(draft.reminders ?? (draft.dueAt ? [draft.dueAt] : []));
+  }
+
+  function setReminderPoints(noteId: string, points: number[]) {
+    updateDraft(noteId, noteDraftReminderPatch(points));
+  }
+
+  /** Добавить точку: от последней (или от текущего момента) плюс сдвиг. */
+  function addReminderPoint(noteId: string, offsetMs: number) {
+    const points = reminderPointsOf(noteId);
+    const base = points.length > 0 ? points[points.length - 1]! : now;
+    const candidate = base + offsetMs;
+    if (points.includes(candidate)) return;
+    setReminderPoints(noteId, [...points, candidate]);
+  }
+
+  /** Правка точки по месту; пустое значение — точка убрана. */
+  function changeReminderPoint(noteId: string, index: number, value: number | null) {
+    const points = reminderPointsOf(noteId);
+    if (value == null) {
+      setReminderPoints(noteId, points.filter((_, i) => i !== index));
+      return;
+    }
+    const next = [...points];
+    next[index] = value;
+    setReminderPoints(noteId, next);
   }
 
   function setPerNoteStatus(noteId: string, text: string, tone: 'ok' | 'error') {
@@ -418,6 +432,9 @@ export function NotesPage(props: {
         body: normalized.body,
         importance: draft.importance,
         dueAt: draft.dueAt ?? null,
+        // Точки напоминания — несколько на заметку. Пустой массив означает
+        // «напоминаний нет» (и срок снят), а не «поле не задано».
+        reminders: normalizeNoteReminderPoints(draft.reminders ?? []),
       });
       if ((r as any)?.ok) {
         const currentVersion = draftVersionRef.current[id] ?? 0;
@@ -445,6 +462,7 @@ export function NotesPage(props: {
       body,
       importance: 'normal',
       dueAt: null,
+      reminders: [],
     });
     if ((r as any)?.ok) {
       await refresh();
@@ -613,6 +631,16 @@ export function NotesPage(props: {
     const sectionList = entry.section === 'owned' ? ownedNotes : sharedNotes;
     const sectionIndex = sectionList.findIndex((n) => n.id === entry.id);
     const dueInfo = parseDueColor(draft?.dueAt ?? entry.dueAt ?? null, now);
+    const entryReminders = normalizeNoteReminderPoints(
+      draft?.reminders?.length
+        ? draft.reminders
+        : entry.reminders?.length
+          ? entry.reminders
+          : entry.dueAt
+            ? [entry.dueAt]
+            : [],
+    );
+    const entryNext = nextNoteReminderPoint(entryReminders, now) ?? entryReminders[entryReminders.length - 1] ?? null;
     const hotStyle = dueInfo.isSoon || dueInfo.isOverdue;
     return (
       <div key={entry.id} style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
@@ -643,6 +671,12 @@ export function NotesPage(props: {
             <div style={{ opacity: 0.58, color: theme.colors.text }}>{line2 || ' '}</div>
             <div style={{ opacity: 0.34, color: theme.colors.text }}>{line3 || ' '}</div>
           </div>
+          {entryReminders.length > 0 ? (
+            <span style={{ fontSize: 11, color: dueInfo.color }}>
+              ⏰ напоминаний: {entryReminders.length}
+              {entryNext ? ` · ближайшее ${formatDate(entryNext)}` : ''}
+            </span>
+          ) : null}
           {saving[entry.id] ? (
             <span style={{ color: 'var(--input-border-focus)', fontSize: 12, fontWeight: 700 }}>Сохраняется...</span>
           ) : dirty[entry.id] ? (
@@ -668,6 +702,8 @@ export function NotesPage(props: {
     if (!draft) return null;
     const share = note.shared ? note.share : null;
     const dueInfo = parseDueColor(draft?.dueAt ?? note.dueAt ?? null, now);
+    const reminderPoints = reminderPointsOf(note.id);
+    const nextPoint = nextNoteReminderPoint(reminderPoints, now);
     const noteUsers = users;
     const allRecipientIds = noteUsers.map((u) => u.id);
     const sharedWith = sharesByNoteId.get(note.id) ?? [];
@@ -694,36 +730,45 @@ export function NotesPage(props: {
           <div style={{ color: theme.colors.muted, fontSize: 12 }}>{formatDate(note.createdAt)}</div>
         </div>
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <input
-              type="checkbox"
-              checked={Boolean(draft.dueAt)}
-              disabled={!props.canEdit}
-              onChange={(e) => {
-                if (!e.target.checked) {
-                  updateDraft(note.id, { dueAt: null });
-                  return;
-                }
-                updateDraft(note.id, { dueAt: draft.dueAt ?? now + 60 * 60 * 1000 });
-              }}
-            />
-            <span style={{ fontSize: 12 }}>Напоминание</span>
-          </label>
-          <Input
-            type="datetime-local"
-            value={formatLocalDateTimeInput(draft.dueAt)}
-            disabled={!props.canEdit || !draft.dueAt}
-            onChange={(e) => updateDraft(note.id, { dueAt: e.target.value ? new Date(e.target.value).getTime() : null })}
-            style={{
-              border: `1px solid ${theme.colors.border}`,
-              borderRadius: 8,
-              padding: '6px 8px',
-              background: theme.colors.surface,
-              color: theme.colors.text,
-            }}
-          />
-          {dueInfo.label ? <span style={{ color: dueInfo.color, fontSize: 12 }}>{dueInfo.label}</span> : null}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 700 }}>Напоминания</span>
+            <span style={{ fontSize: 11, color: theme.colors.muted }}>
+              {reminderPoints.length > 0
+                ? `${reminderPoints.length} шт.${nextPoint ? ` · ближайшее ${formatDate(nextPoint)}` : ''}`
+                : 'не заданы'}
+            </span>
+            <Button variant="ghost" disabled={!props.canEdit} onClick={() => addReminderPoint(note.id, 60 * 60 * 1000)}>
+              + 1 час
+            </Button>
+            <Button variant="ghost" disabled={!props.canEdit} onClick={() => addReminderPoint(note.id, 3 * 60 * 60 * 1000)}>
+              + 3 часа
+            </Button>
+            <Button variant="ghost" disabled={!props.canEdit} onClick={() => addReminderPoint(note.id, 24 * 60 * 60 * 1000)}>
+              + 1 день
+            </Button>
+            {dueInfo.label ? <span style={{ color: dueInfo.color, fontSize: 12 }}>{dueInfo.label}</span> : null}
+          </div>
+          {reminderPoints.map((point, index) => (
+            <div key={`${point}:${index}`} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Input
+                type="datetime-local"
+                value={formatLocalDateTimeInput(point)}
+                disabled={!props.canEdit}
+                onChange={(e) => changeReminderPoint(note.id, index, e.target.value ? new Date(e.target.value).getTime() : null)}
+                style={{
+                  border: `1px solid ${theme.colors.border}`,
+                  borderRadius: 8,
+                  padding: '6px 8px',
+                  background: theme.colors.surface,
+                  color: theme.colors.text,
+                }}
+              />
+              <Button variant="ghost" disabled={!props.canEdit} onClick={() => changeReminderPoint(note.id, index, null)}>
+                ×
+              </Button>
+            </div>
+          ))}
         </div>
 
         <textarea
