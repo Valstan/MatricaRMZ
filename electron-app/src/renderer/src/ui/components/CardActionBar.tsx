@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Button } from './Button.js';
 import { useConfirm } from './ConfirmContext.js';
 
@@ -28,6 +28,27 @@ export type CardActionBarProps = {
 
 export function CardActionBar(props: CardActionBarProps) {
   const { confirm } = useConfirm();
+  // Панель действий закреплена сверху, и вкладки карточки встают ПОД ней — иначе они
+  // уезжали бы под неё и пропадали бы у оператора с глаз (владелец 01.11.2026).
+  // Высота панели измеряется и кладётся в CSS-переменную на общем родителе: шапка
+  // таблицы деталей тоже должна липнуть под панелью и вкладками, а не поверх них.
+  const barRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = barRef.current;
+    const parent = el?.parentElement;
+    if (!el || !parent) return;
+    const apply = () => {
+      const h = Math.round(el.getBoundingClientRect().height);
+      parent.style.setProperty('--card-action-bar-h', `${h}px`);
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      parent.style.removeProperty('--card-action-bar-h');
+    };
+  }, []);
 
   async function handleDeleteClick() {
     if (!props.onDelete) return;
@@ -45,6 +66,7 @@ export function CardActionBar(props: CardActionBarProps) {
 
   return (
     <div
+      ref={barRef}
       className="card-action-bar"
       style={{
         position: 'sticky',
