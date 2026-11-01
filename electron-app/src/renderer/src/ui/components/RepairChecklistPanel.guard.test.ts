@@ -212,6 +212,10 @@ describe('RepairChecklistPanel: дефектовочный хвост живёт
 describe('RepairChecklistPanel: кнопки проводки живут в ряду шапки', () => {
   const LINES = PANEL.split(/\r?\n/);
   const TITLE_AT = LINES.findIndex((l) => l.includes('<strong>{panelTitle}</strong>'));
+  // Начало ряда шапки — его открывающий <div ... flexWrap: 'wrap'>. Он ВЫШЕ заголовка:
+  // с 01.11.2026 кнопки проводки стоят в самом начале ряда (владелец: до них тянулись
+  // через всю шапку, до печати). Раньше началом ряда считался заголовок.
+  const ROW_START = LINES.findIndex((l, i) => i < TITLE_AT && l.includes("flexWrap: 'wrap'"));
   const ROW_END = LINES.findIndex((l, i) => i > TITLE_AT && /^ {6}<\/div>\s*$/.test(l));
   const STATUS_AT = LINES.findIndex((l) => l.includes('{status && <div'));
 
@@ -251,24 +255,32 @@ describe('RepairChecklistPanel: кнопки проводки живут в ря
 
   it('якоря ряда шапки и строки статуса на месте (иначе ассерты блока проверяют пустоту)', () => {
     expect(TITLE_AT, 'заголовок панели не найден — ряд шапки больше нечем опознать').toBeGreaterThan(-1);
+    expect(ROW_START, 'начало ряда шапки не найдено — «в шапке или нет» измерить не по чему').toBeGreaterThan(-1);
+    expect(ROW_START, 'начало ряда шапки должно быть выше заголовка панели').toBeLessThan(TITLE_AT);
     expect(ROW_END, 'закрытие ряда шапки не найдено — «в шапке или нет» измерить не по чему').toBeGreaterThan(TITLE_AT);
     expect(STATUS_AT, 'строка статуса не найдена — ответу проводки негде появиться').toBeGreaterThan(ROW_END);
   });
 
-  it('ряд шапки переносится: на дефектовке в нём восемь элементов', () => {
+  it('ряд шапки переносится: без переноса кнопки уезжают за край карточки', () => {
     // Без переноса первой схлопывается распорка flex: 1, а дальше кнопки уезжают за край карточки
     // на 1024–1366 px — проводка становится недостижимой ровно на тех экранах, где она нужна.
-    expect(LINES[TITLE_AT - 1], 'ряд шапки потерял перенос — кнопки уедут за край карточки на узком окне').toContain(
+    expect(LINES[ROW_START], 'ряд шапки потерял перенос — кнопки уедут за край карточки на узком окне').toContain(
       "flexWrap: 'wrap'",
     );
   });
 
-  for (const { marker, human, gate } of BUTTONS) {
-    it(`кнопка проводки (${human}) стоит в ряду шапки, а не в хвосте`, () => {
+  for (const { marker, human } of BUTTONS) {
+    it(`кнопка проводки (${human}) стоит в начале ряда шапки, до заголовка`, () => {
+      // Владелец, 01.11.2026: кнопка уехала вправо, до неё тянулись через всю шапку.
       const at = labelAt(marker);
-      expect(at, `кнопка проводки (${human}) оказалась выше заголовка панели — это уже не ряд шапки`).toBeGreaterThan(
-        TITLE_AT,
-      );
+      expect(
+        at,
+        `кнопка проводки (${human}) уехала вправо от заголовка панели — до неё дотягиваются через всю шапку, до печати`,
+      ).toBeLessThan(TITLE_AT);
+      expect(
+        at,
+        `кнопка проводки (${human}) выпала из ряда шапки: в хвосте её приходится искать прокруткой под таблицей деталей`,
+      ).toBeGreaterThan(ROW_START);
       expect(
         at,
         `кнопка проводки (${human}) вывалилась из ряда шапки: в хвосте её приходится искать прокруткой под таблицей деталей`,
@@ -278,7 +290,9 @@ describe('RepairChecklistPanel: кнопки проводки живут в ря
         `кнопка проводки (${human}) стоит ниже строки статуса — оператор нажмёт и не увидит ответа, он останется выше по экрану`,
       ).toBeLessThan(STATUS_AT);
     });
+  }
 
+  for (const { marker, human, gate } of BUTTONS) {
     it(`гейт кнопки проводки (${human}) — вид акта и своё право, но не право печати`, () => {
       const gateLine = gateOf(labelAt(marker));
       expect(gateLine, `кнопка проводки (${human}) больше не под гейтом !collapsed — сторож проверяет пустоту`).not.toBe(
@@ -502,5 +516,57 @@ describe('RepairChecklistPanel: выгрузка в Word не создаёт в�
       'выгрузка акта начала писать версию-снимок — история версий наполнится выгрузками',
     ).not.toContain('engineActSnapshot');
     expect(REQ_EXPORT, 'выгрузка требования начала писать версию-снимок').not.toContain('requirementSnapshot');
+  });
+});
+
+// Решения владельца от 01.11.2026 по вкладке «Акторы сборки, дефектовки» карточки двигателя:
+// кнопка проводки — в край слева, «Оформление» — открыт и несворачиваем, гриф — в «Сведения»,
+// в списке деталей — поиск, сортировка по шапкам и подсветка столбца «Утиль», а кнопка «Фото»
+// из строк убрана (фото прикрепляются к двигателю). Решения владельца — их и держим сторожем.
+describe('RepairChecklistPanel: решения владельца от 01.11.2026 (карточка двигателя)', () => {
+  const LINES = PANEL.split(/\r?\n/);
+  const at = (needle: string) => LINES.findIndex((l) => l.includes(needle));
+
+  it('«Оформление» (разборка, даты, подписи) — раскрыт и НЕ сворачивается', () => {
+    const start = at("renderSection('Оформление'");
+    expect(start, 'блок «Оформление» не найден — разборку снова спрячут под щелчок').toBeGreaterThan(-1);
+    const tail = LINES.slice(start, start + 6).join('\n');
+    expect(tail, '«Оформление» перестало быть раскрытым — заполнить разборку и подпись можно только после щелчка').toContain(
+      "renderSection('Оформление', true",
+    );
+    expect(tail, '«Оформление» снова сворачивается — владелец просил, чтобы блок не сворачивался').toContain('), false)}');
+  });
+
+  it('гриф «Утверждаю» живёт внутри сворачиваемого блока «Сведения»', () => {
+    const info = at("renderSection('Сведения'");
+    const grif = at('{renderApproverGrifBlock()}');
+    const parts = at("renderSection('Детали'");
+    expect(info, 'блок «Сведения» не найден').toBeGreaterThan(-1);
+    expect(grif, 'гриф «Утверждаю» никуда не переехал').toBeGreaterThan(-1);
+    expect(grif, 'гриф «Утверждаю» должен лежать внутри блока «Сведения»').toBeGreaterThan(info);
+    expect(grif, 'гриф «Утверждаю» должен лежать внутри блока «Сведения», а не после «Деталей»').toBeLessThan(parts);
+  });
+
+  it('в списке деталей есть поиск по деталям', () => {
+    expect(PANEL, 'поиск по деталям пропал — в длинном списке искомую не найти').toContain('Поиск детали');
+    expect(PANEL, 'кнопки «Найти» нет — поиск нечем запустить').toContain('>Найти</Button>');
+    expect(PANEL, 'поиск не фильтрует строки').toContain('setSearchQuery');
+  });
+
+  it('список деталей сортируется по шапке столбца', () => {
+    expect(PANEL, 'сортировки по столбцам нет').toContain('toggleSortColumn');
+    expect(PANEL, 'шапка столбца не кликабельна — сортировать нечем').toContain('onClick={() => toggleSortColumn(c.id)}');
+  });
+
+  it('столбец «Утиль» подкрашен фоном', () => {
+    expect(PANEL, 'подсветки столбца утиля нет').toContain('isScrapColumn');
+    expect(PANEL, 'подсветка утиля вешается не на тот столбец').toContain(
+      "columnId === 'scrap_qty' || columnId === 'scrap_reason'",
+    );
+  });
+
+  it('кнопки «Фото» в строках деталей больше нет (фото — у двигателя)', () => {
+    expect(PANEL, 'кнопка «Фото» вернулась в строки деталей — строка снова втолстую').not.toContain('InventoryRowPhotos');
+    expect(PANEL, 'кнопка «Фото» вернулась в строки деталей').not.toContain('renderRowExtra');
   });
 });
