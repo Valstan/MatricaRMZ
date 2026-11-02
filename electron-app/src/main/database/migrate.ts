@@ -631,8 +631,171 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS signature_defaults_field_key_uq ON signature_defaults(field_key) WHERE deleted_at IS NULL;
     CREATE INDEX IF NOT EXISTS signature_defaults_employee_idx ON signature_defaults(employee_id);
+
+    -- Приказ о СИЗ (Минтруд 767н): справочник профессий с пунктами приложений,
+    -- «приказные» строки норм, личная карточка СИЗ по форме приложения №3 и шаблоны
+    -- печатных форм. Реплика — server-write / pull-only: сервер ведёт двери, клиент
+    -- читает. Реплика НЕ строже сервера (nullable wear_months, spec_id, unit).
+    CREATE TABLE IF NOT EXISTS ppe_occupation_ref (
+      id text PRIMARY KEY NOT NULL,
+      code text NOT NULL,
+      post_title text NOT NULL,
+      ton_kind text,
+      ton_label text,
+      ton_year integer,
+      department_id text,
+      is_active integer NOT NULL DEFAULT 1,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS ppe_occupation_ref_post_idx ON ppe_occupation_ref(post_title);
+    CREATE TABLE IF NOT EXISTS ppe_norm_line_specs (
+      id text PRIMARY KEY NOT NULL,
+      occupation_id text NOT NULL,
+      name text NOT NULL,
+      ppe_type text,
+      qty integer NOT NULL,
+      unit text,
+      wear_kind text,
+      wear_months integer,
+      sort_order integer NOT NULL DEFAULT 0,
+      source_ref text,
+      source_kind text,
+      source_label text,
+      nomenclature_id text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS ppe_norm_line_specs_occupation_idx ON ppe_norm_line_specs(occupation_id);
+    CREATE INDEX IF NOT EXISTS ppe_norm_line_specs_nomenclature_idx ON ppe_norm_line_specs(nomenclature_id);
+    CREATE TABLE IF NOT EXISTS ppe_employee_cards (
+      id text PRIMARY KEY NOT NULL,
+      employee_id text NOT NULL,
+      full_name text,
+      last_name text,
+      first_name text,
+      middle_name text,
+      personnel_no text,
+      department_id text,
+      department_name text,
+      post_title text,
+      occupation_id text,
+      gender text,
+      height text,
+      size_clothes text,
+      size_shoes text,
+      size_gloves text,
+      size_headgear text,
+      size_respirator text,
+      size_od text,
+      size_hands text,
+      hire_date integer,
+      position_changed_date integer,
+      occupation_notes text,
+      issued_by text,
+      prepared_by text,
+      prepared_at integer,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS ppe_employee_cards_occupation_idx ON ppe_employee_cards(occupation_id);
+    CREATE TABLE IF NOT EXISTS ppe_print_templates (
+      id text PRIMARY KEY NOT NULL,
+      owner_id text NOT NULL DEFAULT 'shared',
+      form_key text NOT NULL,
+      name text NOT NULL,
+      layout_json text NOT NULL,
+      is_default integer NOT NULL DEFAULT 0,
+      updated_at integer NOT NULL,
+      updated_by text,
+      created_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS ppe_print_templates_form_idx ON ppe_print_templates(form_key);
   `);
 
+  // Приказ о СИЗ (Минтруд 767н): доведение долгоживущих БД.
+  //  1) ppe_norm_lines.wear_months стал nullable на сервере (норма «до износа» и
+  //     «срок определяется документами изготовителя» срока не имеют). ALTER не умеет
+  //     снять NOT NULL → пересборка таблицы тем же составом колонок (приём выше).
+  //  2) Новые колонки наборов норм и строк — обычный ALTER под проверкой наличия.
+  if (hasTable('ppe_norm_lines')) {
+    const info = sqlite
+      .prepare(`PRAGMA table_info(ppe_norm_lines)`)
+      .all() as Array<{ name: string; notnull: number }>;
+    const wearCol = info.find((c) => c.name === 'wear_months');
+    if (wearCol && wearCol.notnull === 1) {
+      sqlite.exec(`
+        BEGIN;
+        CREATE TABLE ppe_norm_lines_new (
+          id text PRIMARY KEY NOT NULL,
+          norm_set_id text NOT NULL,
+          nomenclature_id text NOT NULL,
+          qty integer NOT NULL,
+          wear_months integer,
+          spec_id text,
+          unit text,
+          wear_kind text,
+          created_at integer NOT NULL,
+          updated_at integer NOT NULL,
+          last_server_seq integer,
+          deleted_at integer,
+          sync_status text NOT NULL DEFAULT 'synced'
+        );
+        INSERT INTO ppe_norm_lines_new (
+          id, norm_set_id, nomenclature_id, qty, wear_months, created_at, updated_at,
+          last_server_seq, deleted_at, sync_status
+        )
+        SELECT id, norm_set_id, nomenclature_id, qty, wear_months, created_at, updated_at,
+               last_server_seq, deleted_at, sync_status
+          FROM ppe_norm_lines;
+        DROP TABLE ppe_norm_lines;
+        ALTER TABLE ppe_norm_lines_new RENAME TO ppe_norm_lines;
+        CREATE INDEX IF NOT EXISTS ppe_norm_lines_set_idx ON ppe_norm_lines(norm_set_id);
+        CREATE INDEX IF NOT EXISTS ppe_norm_lines_nomenclature_idx ON ppe_norm_lines(nomenclature_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS ppe_norm_lines_set_nomenclature_uq
+          ON ppe_norm_lines(norm_set_id, nomenclature_id) WHERE deleted_at IS NULL;
+        COMMIT;
+      `);
+    } else {
+      const cols = columnNames('ppe_norm_lines');
+      if (!cols.has('spec_id')) sqlite.exec(`ALTER TABLE ppe_norm_lines ADD COLUMN spec_id text;`);
+      if (!cols.has('unit')) sqlite.exec(`ALTER TABLE ppe_norm_lines ADD COLUMN unit text;`);
+      if (!cols.has('wear_kind')) sqlite.exec(`ALTER TABLE ppe_norm_lines ADD COLUMN wear_kind text;`);
+    }
+  }
+  if (hasTable('ppe_norm_lines')) {
+    const cols = columnNames('ppe_norm_lines');
+    if (!cols.has('spec_id')) sqlite.exec(`ALTER TABLE ppe_norm_lines ADD COLUMN spec_id text;`);
+    if (!cols.has('unit')) sqlite.exec(`ALTER TABLE ppe_norm_lines ADD COLUMN unit text;`);
+    if (!cols.has('wear_kind')) sqlite.exec(`ALTER TABLE ppe_norm_lines ADD COLUMN wear_kind text;`);
+  }
+  if (hasTable('ppe_norm_sets')) {
+    const cols = columnNames('ppe_norm_sets');
+    if (!cols.has('occupation_id')) sqlite.exec(`ALTER TABLE ppe_norm_sets ADD COLUMN occupation_id text;`);
+    if (!cols.has('source_kind')) sqlite.exec(`ALTER TABLE ppe_norm_sets ADD COLUMN source_kind text;`);
+    if (!cols.has('source_label')) sqlite.exec(`ALTER TABLE ppe_norm_sets ADD COLUMN source_label text;`);
+  }
+  // Личная карточка СИЗ: ФИО по частям (форма приложения №3 требует три поля).
+  if (hasTable('ppe_employee_cards')) {
+    const cols = columnNames('ppe_employee_cards');
+    if (!cols.has('last_name')) sqlite.exec(`ALTER TABLE ppe_employee_cards ADD COLUMN last_name text;`);
+    if (!cols.has('first_name')) sqlite.exec(`ALTER TABLE ppe_employee_cards ADD COLUMN first_name text;`);
+    if (!cols.has('middle_name')) sqlite.exec(`ALTER TABLE ppe_employee_cards ADD COLUMN middle_name text;`);
+    if (!cols.has('department_name')) sqlite.exec(`ALTER TABLE ppe_employee_cards ADD COLUMN department_name text;`);
+    if (!cols.has('post_title')) sqlite.exec(`ALTER TABLE ppe_employee_cards ADD COLUMN post_title text;`);
+  }
   // Кладовщик, фаза 2 (0110/0035): условная доводка долгоживущих БД.
   // Свежие БД уже в норме (CREATE выше), поэтому каждая ветка под проверкой факта.
   if (hasTable('ppe_norm_sets')) {

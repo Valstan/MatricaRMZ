@@ -101,6 +101,12 @@ export const TABLE_DOMAINS: Readonly<Record<string, readonly SyncDomain[]>> = {
   ppe_group_norms: ['ppe'],
   ppe_collectives: ['ppe'],
   ppe_collective_lines: ['ppe'],
+  // Приказ о СИЗ (Минтруд 767н): профессии с пунктами приложений, «приказные»
+  // строки норм, личная карточка СИЗ по форме приложения №3, шаблоны печатных форм.
+  ppe_occupation_ref: ['ppe'],
+  ppe_norm_line_specs: ['ppe'],
+  ppe_employee_cards: ['ppe'],
+  ppe_print_templates: ['ppe'],
 
   erp_employee_cards: ['employees'],
   signature_defaults: ['employees'],

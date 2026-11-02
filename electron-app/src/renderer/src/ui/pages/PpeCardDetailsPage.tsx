@@ -26,6 +26,13 @@ import { SearchSelect, type SearchSelectOption } from '../components/SearchSelec
 import { SectionCard } from '../components/SectionCard.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { printSectionsToText } from '../utils/mailText.js';
+import {
+  applyPrintTemplate,
+  buildPrintTemplateLayout,
+  parsePrintTemplateLayout,
+  PPE_PRINT_FORM_KEY,
+  type PpePrintTemplateLayout,
+} from '../utils/ppePrintTemplate.js';
 import { escapeHtml, formatMomentLabel, openPrintPreview, type PrintSection } from '../utils/printPreview.js';
 
 type CardDto = {
@@ -40,6 +47,67 @@ type CardDto = {
 type NormOption = { id: string; name: string; postTitle: string | null };
 type IssueLine = { nomenclatureId: string; qty: string };
 type AbsenceRow = { id: string; employeeId: string; fromMs: number; toMs: number; kind: string };
+
+/**
+ * Личная карточка СИЗ по форме приложения №3 приказа Минтруда 767н.
+ * Реквизиты — снимок на момент выдачи: приказ (п. 12) требует зафиксировать ФИО и
+ * должность так, как они были, а карточка сотрудника может измениться задним числом.
+ */
+type PpeEmployeeCardDto = {
+  id: string;
+  employeeId: string;
+  fullName: string | null;
+  lastName: string | null;
+  firstName: string | null;
+  middleName: string | null;
+  personnelNo: string | null;
+  departmentId: string | null;
+  departmentName: string | null;
+  occupationId: string | null;
+  postTitle: string | null;
+  gender: 'M' | 'F' | null;
+  height: string | null;
+  sizeClothes: string | null;
+  sizeShoes: string | null;
+  sizeGloves: string | null;
+  sizeHeadgear: string | null;
+  sizeRespirator: string | null;
+  sizeOd: string | null;
+  sizeHands: string | null;
+  hireDate: number | null;
+  positionChangedDate: number | null;
+  occupationNotes: string | null;
+  issuedBy: string | null;
+  preparedBy: string | null;
+  preparedAt: number | null;
+};
+
+/** Строка нормы для печати: четыре колонки формы приложения №3. */
+type PpeCardNormRow = {
+  name: string;
+  sourceLabel: string | null;
+  unit: string | null;
+  qty: number;
+  wearKind: string | null;
+  wearMonths: number | null;
+  qtyText: string;
+};
+
+/**
+ * Семь размеров формы приложения №3 (размер одежды, обуви, перчаток, головного убора,
+ * противогаза, СИЗ ОД и СИЗ рук) + рост. Подписи — как в форме приказа.
+ */
+function personalCardSizeFields(pc: PpeEmployeeCardDto | null): Array<{ label: string; value: string | null }> {
+  return [
+    { label: 'одежды', value: pc?.sizeClothes ?? null },
+    { label: 'обуви', value: pc?.sizeShoes ?? null },
+    { label: 'перчаток', value: pc?.sizeGloves ?? null },
+    { label: 'головного убора', value: pc?.sizeHeadgear ?? null },
+    { label: 'противогаза', value: pc?.sizeRespirator ?? null },
+    { label: 'СИЗ ОД', value: pc?.sizeOd ?? null },
+    { label: 'СИЗ рук', value: pc?.sizeHands ?? null },
+  ];
+}
 
 /** Фактические размеры сотрудника — из EAV-карточки employee (та же, где их правит оператор). */
 type EmployeeSizes = { clothes: string; shoes: string; height: string };
@@ -140,6 +208,18 @@ export function PpeCardDetailsPage(props: {
   const [issueLines, setIssueLines] = useState<IssueLine[]>([{ nomenclatureId: '', qty: '1' }]);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
+  // Личная карточка СИЗ по форме приложения №3: реквизиты сотрудника и строки нормы
+  // для печати. Грузится по сотруднику — сервер заводит карточку по факту и подставляет
+  // значения из карточки сотрудника (ФИО, пол, рост, размеры, должность, даты).
+  const [personalCard, setPersonalCard] = useState<PpeEmployeeCardDto | null>(null);
+  const [personalCardRows, setPersonalCardRows] = useState<PpeCardNormRow[]>([]);
+  /** Предупреждение автоподбора: профессию не опознали — кладовщик выбирает норму вручную. */
+  const [postWarning, setPostWarning] = useState<string | null>(null);
+  /**
+   * Шаблон печатной формы (серверный): какие блоки печатать. Раньше набор колонок жил
+   * в localStorage и не переезжал между машинами — теперь шаблон в БД.
+   */
+  const [printTemplate, setPrintTemplate] = useState<PpePrintTemplateLayout>({});
 
   const { confirm } = useConfirm();
   const canEdit = props.canEdit;
@@ -212,6 +292,27 @@ export function PpeCardDetailsPage(props: {
     [employees],
   );
 
+  /**
+   * Личная карточка СИЗ (форма приложения №3) + строки нормы для печати.
+   * Строки берём по наборам норм карточки: сервер сам знает «приказную» строку,
+   * пункт приложения, единицу измерения и количество на год.
+   */
+  const loadPersonalCard = useCallback(async (employeeIdArg: string, normSetIds: string[]) => {
+    const res = await window.matrica.ppe.employees.card(employeeIdArg).catch(() => null);
+    if (!res?.ok) {
+      setPersonalCard(null);
+      setPersonalCardRows([]);
+      return;
+    }
+    setPersonalCard((res.card ?? null) as PpeEmployeeCardDto | null);
+    if (normSetIds.length === 0) {
+      setPersonalCardRows([]);
+      return;
+    }
+    const rows = await window.matrica.ppe.cardNormRows({ normSetIds }).catch(() => null);
+    setPersonalCardRows(rows?.ok ? ((rows.rows ?? []) as PpeCardNormRow[]) : []);
+  }, []);
+
   const loadCard = useCallback(async (id: string) => {
     const res = await window.matrica.ppe.cards.get(id);
     if (!res.ok) {
@@ -236,7 +337,8 @@ export function PpeCardDetailsPage(props: {
     setNormLines(allLines);
     const personnelNo = personnelByEmployee.get(res.card.employeeId) ?? '';
     setSizes(personnelNo ? (sizesByPersonnel.get(personnelNo) ?? EMPTY_SIZES) : EMPTY_SIZES);
-  }, [personnelByEmployee, sizesByPersonnel]);
+    await loadPersonalCard(res.card.employeeId, setIds);
+  }, [personnelByEmployee, sizesByPersonnel, loadPersonalCard]);
 
   // Карточку открываем по сотруднику: список карточек ведёт сюда кликом по строке, а
   // «карточки нет» — законный случай (её заводят первой выдачей или кнопкой).
@@ -252,18 +354,104 @@ export function PpeCardDetailsPage(props: {
         setNormLines([]);
         const personnelNo = personnelByEmployee.get(employeeId) ?? '';
         setSizes(personnelNo ? (sizesByPersonnel.get(personnelNo) ?? EMPTY_SIZES) : EMPTY_SIZES);
+        // Личная карточка по форме приложения №3 заводится по факту — её реквизиты
+        // нужны кладовщику и без открытой карточки выдачи.
+        await loadPersonalCard(employeeId, []);
         return;
       }
       await loadCard(res.card.id);
     } finally {
       setBusy(false);
     }
-  }, [employeeId, loadCard, personnelByEmployee, sizesByPersonnel]);
+  }, [employeeId, loadCard, personnelByEmployee, sizesByPersonnel, loadPersonalCard]);
 
   useEffect(() => {
     void findCard();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- карточка перечитывается при смене сотрудника и после первого прихода справочника: findCard зависит от карт размеров, которые приезжают позже
   }, [employeeId, personnelByEmployee.size]);
+
+  /**
+   * Шаблон печатной формы — с сервера. Личный шаблон перекрывает общий по ключу формы,
+   * поэтому берём первый подходящий: сервер отдаёт сначала личные.
+   */
+  const loadPrintTemplate = useCallback(async () => {
+    const res = await window.matrica.ppe.printTemplates.list({ formKey: PPE_PRINT_FORM_KEY }).catch(() => null);
+    if (!res?.ok || !Array.isArray(res.rows) || res.rows.length === 0) {
+      setPrintTemplate({});
+      return;
+    }
+    const def = res.rows.find((r) => r.isDefault) ?? res.rows[0];
+    setPrintTemplate(parsePrintTemplateLayout(def?.layoutJson));
+  }, []);
+
+  useEffect(() => {
+    void loadPrintTemplate();
+  }, [loadPrintTemplate]);
+
+  /** Сохранение текущего набора блоков как личного шаблона печати. */
+  async function savePrintTemplate() {
+    const form = buildPersonalCardForm();
+    const layout = buildPrintTemplateLayout({ sections: form.sections });
+    const res = await window.matrica.ppe.printTemplates.save({
+      formKey: PPE_PRINT_FORM_KEY,
+      name: `Личная карточка СИЗ (${employeeLabel})`,
+      layoutJson: JSON.stringify(layout),
+    });
+    if (!res.ok) {
+      setStatus(`Ошибка сохранения шаблона: ${res.error}`);
+      return;
+    }
+    setStatus('Шаблон печати сохранён');
+    await loadPrintTemplate();
+  }
+
+  /**
+   * Назначение норм по должности: сервер сопоставляет должность сотрудника с
+   * профессией приказа и отдаёт наборы норм (основной и зимний 766н). Дальше —
+   * обычное назначение наборов на карточку выдачи.
+   */
+  async function assignNormsByPost() {
+    const postTitle = (personalCard?.postTitle ?? '').trim();
+    if (!postTitle) {
+      setPostWarning('Должность сотрудника не заполнена — норму выберите вручную');
+      return;
+    }
+    setBusy(true);
+    setPostWarning(null);
+    try {
+      const res = await window.matrica.ppe.normsByPost({ postTitle });
+      if (!res.ok) {
+        setPostWarning(`Ошибка: ${res.error}`);
+        return;
+      }
+      if (!res.occupation || res.normSetIds.length === 0) {
+        setPostWarning(res.warning ?? 'Профессия не найдена в справочнике приказа — норму выберите вручную');
+        return;
+      }
+      if (!card) {
+        setPostWarning('Заведите карточку выдачи — тогда нормы можно будет назначить');
+        return;
+      }
+      const already = new Set((card.norms ?? []).map((n) => n.normSetId));
+      const toAdd = res.normSetIds.filter((id) => !already.has(id));
+      if (toAdd.length === 0) {
+        setPostWarning('Нормы по этой должности уже назначены');
+        return;
+      }
+      const assigned = await window.matrica.ppe.cards.assignNorms({
+        cardId: card.id,
+        normSetIds: [...already, ...toAdd],
+      });
+      if (!assigned.ok) {
+        setPostWarning(`Ошибка: ${assigned.error}`);
+        return;
+      }
+      setStatus(`Назначено наборов норм: ${toAdd.length}`);
+      await loadCard(card.id);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function openCard() {
     setBusy(true);
@@ -448,6 +636,133 @@ export function PpeCardDetailsPage(props: {
   const employeeLabel = empName(employeeId) || 'Сотрудник';
 
   /**
+   * Печатная форма личной карточки по форме приложения №3 приказа Минтруда 767н.
+   *
+   * Отдельная от рабочей карточки выдачи: в форме приказа нет истории выдач и сроков —
+   * там реквизиты сотрудника и таблица норм. История выдач оставлена ОТДЕЛЬНОЙ
+   * секцией и по умолчанию ВЫКЛЮЧЕНА: по умолчанию лист совпадает с формой приказа.
+   *
+   * Собирается здесь, а не в JSX: печать и Word обязаны показать один и тот же лист.
+   */
+  function buildPersonalCardForm() {
+    const e = (v: unknown) => escapeHtml(String(v ?? ''));
+    const pc = personalCard;
+    const title = 'ЛИЧНАЯ КАРТОЧКА № ____ учета выдачи средств индивидуальной защиты';
+    const val = (v: string | null | undefined): string => (v && String(v).trim() ? e(v) : '—');
+
+    // Реквизиты формы приложения №3: левый столбец — ФИО и должность, правый — пол,
+    // рост и семь размеров.
+    const requisitesHtml = `<table><tbody>
+      <tr>
+        <td style="vertical-align:top;width:58%;">
+          <table><tbody>
+            <tr><th style="text-align:left;white-space:nowrap;">Фамилия</th><td>${val(pc?.lastName)}</td></tr>
+            <tr><th style="text-align:left;white-space:nowrap;">Имя</th><td>${val(pc?.firstName)}</td></tr>
+            <tr><th style="text-align:left;white-space:nowrap;">Отчество</th><td>${val(pc?.middleName)}</td></tr>
+            <tr><th style="text-align:left;white-space:nowrap;">Табельный номер</th><td>${val(pc?.personnelNo)}</td></tr>
+            <tr><th style="text-align:left;white-space:nowrap;">Структурное подразделение</th><td>${val(pc?.departmentName)}</td></tr>
+            <tr><th style="text-align:left;white-space:nowrap;">Профессия (должность)</th><td>${val(pc?.postTitle)}</td></tr>
+            <tr><th style="text-align:left;white-space:nowrap;">Дата поступления на работу</th><td>${val(fmtDate(pc?.hireDate ?? null))}</td></tr>
+            <tr><th style="text-align:left;">Дата изменения профессии (должности) или переводе в другое структурное подразделение</th><td>${val(fmtDate(pc?.positionChangedDate ?? null))}</td></tr>
+          </tbody></table>
+        </td>
+        <td style="vertical-align:top;">
+          <table><tbody>
+            <tr><th style="text-align:left;white-space:nowrap;">Пол</th><td>${val(pc?.gender === 'M' ? 'М' : pc?.gender === 'F' ? 'Ж' : null)}</td></tr>
+            <tr><th style="text-align:left;white-space:nowrap;">Рост</th><td>${val(pc?.height)}</td></tr>
+            <tr><th style="text-align:left;">Размер</th><td>
+              <table><tbody>
+                <tr><td>одежды</td><td>${val(pc?.sizeClothes)}</td><td>обуви</td><td>${val(pc?.sizeShoes)}</td></tr>
+                <tr><td>перчаток</td><td>${val(pc?.sizeGloves)}</td><td>головного убора</td><td>${val(pc?.sizeHeadgear)}</td></tr>
+                <tr><td>противогаза</td><td>${val(pc?.sizeRespirator)}</td><td>СИЗ ОД</td><td>${val(pc?.sizeOd)}</td></tr>
+                <tr><td>СИЗ рук</td><td>${val(pc?.sizeHands)}</td><td></td><td></td></tr>
+              </tbody></table>
+            </td></tr>
+          </tbody></table>
+        </td>
+      </tr>
+    </tbody></table>`;
+
+    // Таблица норм формы приложения №3: наименование СИЗ, пункт ТОН, единица, количество.
+    const normRows = personalCardRows
+      .map(
+        (r, i) =>
+          `<tr><td style="text-align:right;">${i + 1}</td><td>${e(r.name)}</td><td>${val(r.sourceLabel)}</td><td>${val(r.unit)}</td><td style="text-align:right;">${e(r.qtyText)}</td></tr>`,
+      )
+      .join('');
+    const normsHtml = normRows
+      ? `<table><thead><tr><th>№</th><th style="text-align:left;">Наименование средств индивидуальной защиты</th><th style="text-align:left;">Пункт типовых отраслевых норм</th><th style="text-align:left;">Единица измерения</th><th style="text-align:right;">Количество на год</th></tr></thead><tbody>${normRows}</tbody></table>`
+      : '<div class="muted">Нормы не назначены.</div>';
+
+    // История выдач — по умолчанию выключена (в форме приказа её нет).
+    const historyRows = (card?.entries ?? [])
+      .slice()
+      .sort((a, b) => b.issuedAt - a.issuedAt)
+      .map(
+        (row, i) =>
+          `<tr><td style="text-align:right;">${i + 1}</td><td>${e(fmtDate(row.issuedAt))}</td><td>${e(nomName(row.nomenclatureId))}</td><td style="text-align:right;">${row.qty}</td></tr>`,
+      )
+      .join('');
+    const historyHtml = historyRows
+      ? `<table><thead><tr><th>№</th><th style="text-align:left;">Дата</th><th style="text-align:left;">Позиция</th><th style="text-align:right;">Кол-во</th></tr></thead><tbody>${historyRows}</tbody></table>`
+      : '<div class="muted">Выдач пока не было.</div>';
+
+    const sign = `<div style="margin-top:18px;">
+  <div><b>Разработал: Специалист по ОТ</b> ______________________ (Ф.И.О., должность) ______________________ (подпись)</div>
+  <div style="margin-top:10px;"><b>Выдал (кладовщик):</b> ______________________ (Ф.И.О., подпись)</div>
+  <div style="margin-top:10px;"><b>Получил:</b> ______________________ (Ф.И.О., подпись)</div>
+</div>`;
+
+    const sections: PrintSection[] = [
+      { id: 'title', title: 'Заголовок', html: `<div style="text-align:center;font-size:16px;font-weight:700;">${e(title)}</div>`, hideTitle: true },
+      { id: 'requisites', title: 'Реквизиты', html: requisitesHtml },
+      { id: 'norms', title: 'Нормы', html: normsHtml },
+      { id: 'history', title: 'История выдач', html: historyHtml, checked: false },
+      { id: 'sign', title: 'Подписи', html: sign },
+    ];
+    // Шаблон печати снимает выключенные блоки; порядок остаётся приказным.
+    return { title, sections: applyPrintTemplate(sections, printTemplate) };
+  }
+
+  function printPersonalCard() {
+    const form = buildPersonalCardForm();
+    openPrintPreview({
+      title: form.title,
+      sections: form.sections,
+      printHeader: {
+        title: form.title,
+        meta: `Напечатано: ${formatMomentLabel(new Date())}`,
+        ...(printTemplate.headerNote ? { lines: [printTemplate.headerNote] } : {}),
+      },
+    });
+  }
+
+  async function exportPersonalCardToWord() {
+    const form = buildPersonalCardForm();
+    await window.matrica.exports.card({ title: form.title, fileBaseName: 'Личная карточка СИЗ', sections: form.sections });
+  }
+
+  /**
+   * Выгрузка для 1С: файл по фиксированной структуре, который забирает бухгалтер.
+   * Формат — Excel (по умолчанию) и CSV.
+   */
+  async function exportOneC(kind: 'norms' | 'issues') {
+    setBusy(true);
+    try {
+      const res = await window.matrica.ppe.oneCExport({
+        kind,
+        format: 'xlsx',
+        period: fmtDate(new Date().getTime()),
+        who: employeeLabel,
+      });
+      if (!res.ok) setStatus(`Ошибка выгрузки: ${res.error}`);
+      else setStatus(`Выгружено: ${res.name}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
    * Печатная форма карточки — одна на печать и на Word. Таблицы собираются здесь, а не в
    * JSX: печать и выгрузка обязаны показывать один и тот же лист.
    */
@@ -544,6 +859,23 @@ export function PpeCardDetailsPage(props: {
         <Button variant="ghost" onClick={() => void exportCardToWord()} disabled={busy}>
           В Word
         </Button>
+        <Button variant="ghost" onClick={() => printPersonalCard()} disabled={busy}>
+          Печать по форме приказа
+        </Button>
+        <Button variant="ghost" onClick={() => void exportPersonalCardToWord()} disabled={busy}>
+          Форма приказа в Word
+        </Button>
+        <Button variant="ghost" onClick={() => void exportOneC('norms')} disabled={busy}>
+          Выгрузка для 1С (нормы)
+        </Button>
+        <Button variant="ghost" onClick={() => void exportOneC('issues')} disabled={busy}>
+          Выгрузка для 1С (выдача)
+        </Button>
+        {canEdit ? (
+          <Button variant="ghost" onClick={() => void savePrintTemplate()} disabled={busy}>
+            Сохранить шаблон печати
+          </Button>
+        ) : null}
         <MailSendButton
           subject={`Личная карточка СИЗ: ${employeeLabel}`}
           summary={[
@@ -586,6 +918,73 @@ export function PpeCardDetailsPage(props: {
 
       {card ? (
         <>
+          <SectionCard title="Личная карточка СИЗ (форма приложения №3)">
+            {personalCard ? (
+              <>
+                <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>
+                  Реквизиты подставляются из карточки сотрудника. Фамилия, имя и отчество — по частям, как в форме
+                  приказа; недостающие размеры дописывает кладовщик.
+                </div>
+                <table className="table" style={{ width: '100%' }}>
+                  <tbody>
+                    <tr>
+                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>Фамилия, имя, отчество</th>
+                      <td>
+                        {[personalCard.lastName, personalCard.firstName, personalCard.middleName]
+                          .filter(Boolean)
+                          .join(' ') || '—'}
+                      </td>
+                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>Табельный номер</th>
+                      <td>{personalCard.personnelNo || '—'}</td>
+                    </tr>
+                    <tr>
+                      <th style={{ textAlign: 'left' }}>Структурное подразделение</th>
+                      <td>{personalCard.departmentName || '—'}</td>
+                      <th style={{ textAlign: 'left' }}>Профессия (должность)</th>
+                      <td>{personalCard.postTitle || '—'}</td>
+                    </tr>
+                    <tr>
+                      <th style={{ textAlign: 'left' }}>Пол</th>
+                      <td>{personalCard.gender === 'M' ? 'М' : personalCard.gender === 'F' ? 'Ж' : '—'}</td>
+                      <th style={{ textAlign: 'left' }}>Рост</th>
+                      <td>{personalCard.height || '—'}</td>
+                    </tr>
+                    <tr>
+                      <th style={{ textAlign: 'left' }}>Размеры</th>
+                      <td colSpan={3}>
+                        {personalCardSizeFields(personalCard).map(({ label, value }) => (
+                          <span key={label} style={{ marginRight: 14 }}>
+                            {label}: {value || '—'}
+                          </span>
+                        ))}
+                      </td>
+                    </tr>
+                    <tr>
+                      <th style={{ textAlign: 'left' }}>Дата поступления на работу</th>
+                      <td>{fmtDate(personalCard.hireDate)}</td>
+                      <th style={{ textAlign: 'left' }}>Дата изменения профессии (должности) или перевода</th>
+                      <td>{fmtDate(personalCard.positionChangedDate)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                {canEdit ? (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+                    <Button variant="primary" onClick={() => void assignNormsByPost()} disabled={busy}>
+                      Назначить нормы по должности
+                    </Button>
+                  </div>
+                ) : null}
+                {postWarning ? (
+                  <div style={{ color: 'var(--warn, #b45309)', fontSize: 12, marginTop: 8 }}>{postWarning}</div>
+                ) : null}
+              </>
+            ) : (
+              <div style={{ color: 'var(--muted)' }}>
+                {busy ? 'Загружаем личную карточку…' : 'Личная карточка не заведена.'}
+              </div>
+            )}
+          </SectionCard>
+
           <SectionCard title={`Карточка: ${employeeLabel}${closed ? ' (закрыта)' : ''}`}>
             <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>
               Открыта {fmtDate(card.openedAt)}
@@ -677,7 +1076,7 @@ export function PpeCardDetailsPage(props: {
                       <td>{fmtDate(u.lastIssuedAt)}</td>
                       <td>
                         {fmtDate(u.nextDueAt)}
-                        {u.lastIssuedAt != null && u.nextDueAt != null
+                        {u.lastIssuedAt != null && u.nextDueAt != null && u.wearMonths != null
                           ? (() => {
                               const days = Math.round((u.nextDueAt - addWearMonths(u.lastIssuedAt, u.wearMonths)) / PPE_DAY_MS);
                               return days > 0 ? <div style={{ color: 'var(--muted)', fontSize: 12 }}>+{days} дн. отпуск</div> : null;

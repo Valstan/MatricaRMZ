@@ -112,6 +112,11 @@ const DRIZZLE_TABLE_MAP: Record<SyncTableName, any> = {
   [SyncTableName.SignatureDefaults]: undefined,
   // Сотрудники СИЗ (PR-6) — pull-only зеркало двери импорта ЗУП.
   [SyncTableName.ErpEmployeeCards]: undefined,
+  // Приказ о СИЗ (Минтруд 767н) — pull-only: сервер ведёт двери, клиент читает.
+  [SyncTableName.PpeOccupationRef]: undefined,
+  [SyncTableName.PpeNormLineSpecs]: undefined,
+  [SyncTableName.PpeEmployeeCards]: undefined,
+  [SyncTableName.PpePrintTemplates]: undefined,
 };
 const IN_ARRAY_CHUNK = 400;
 

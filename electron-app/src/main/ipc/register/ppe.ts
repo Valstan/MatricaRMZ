@@ -234,6 +234,119 @@ export function registerPpeIpc(ctx: IpcContext) {
     return toResult(await httpAuthed(ctx.sysDb, base(), `/ppe/employees/${encodeURIComponent(String(employeeId || ''))}/norm-sets`, { method: 'GET' }));
   });
 
+  // ── Приказ о СИЗ (Минтруд 767н) ────────────────────────────────────────────
+
+  /** Справочник профессий приказа: код пункта приложения → наименование профессии. */
+  ipcMain.handle('ppe:occupations:list', async () => {
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as Err;
+    return toResult(await httpAuthed(ctx.sysDb, base(), '/ppe/occupations', { method: 'GET' }));
+  });
+
+  /**
+   * Подбор норм по должности: профессия → наборы норм (основной и зимний 766н).
+   * Возвращает и предупреждение, если профессию опознать не удалось.
+   */
+  ipcMain.handle(
+    'ppe:norms:byPost',
+    async (_e, args: { postTitle: string; gender?: string; season?: string }) => {
+      const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+      if (!gate.ok) return gate as Err;
+      const params = new URLSearchParams({ postTitle: String(args?.postTitle ?? '') });
+      if (args?.gender) params.set('gender', args.gender);
+      if (args?.season) params.set('season', args.season);
+      return toResult(
+        await httpAuthed(ctx.sysDb, base(), `/ppe/norms-by-post?${params.toString()}`, { method: 'GET' }),
+      );
+    },
+  );
+
+  /** Личная карточка СИЗ по форме приложения №3 + реквизиты для подстановки. */
+  ipcMain.handle('ppe:employees:card', async (_e, employeeId: string) => {
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as Err;
+    return toResult(
+      await httpAuthed(ctx.sysDb, base(), `/ppe/employees/${encodeURIComponent(String(employeeId || ''))}/card`, { method: 'GET' }),
+    );
+  });
+
+  /** Правка реквизитов личной карточки (размеры, примечания, подписи). */
+  ipcMain.handle('ppe:employees:card:update', async (_e, args: { id: string; patch: Record<string, unknown> }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as Err;
+    return toResult(
+      await httpAuthed(ctx.sysDb, base(), `/ppe/employees/${encodeURIComponent(String(args?.id || ''))}/card`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(args?.patch ?? {}),
+      }),
+    );
+  });
+
+  /**
+   * Строки нормы для печати личной карточки: наименование СИЗ, пункт приказа, единица
+   * измерения и количество на год — четыре колонки формы приложения №3.
+   * Это ЧТЕНИЕ, поэтому GET: список наборов норм едет параметром.
+   */
+  ipcMain.handle('ppe:cardNormRows', async (_e, args: { normSetIds: string[] }) => {
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as Err;
+    const ids = (args?.normSetIds ?? []).slice(0, 200).join(',');
+    return toResult(
+      await httpAuthed(ctx.sysDb, base(), `/ppe/card-norm-rows?normSetIds=${encodeURIComponent(ids)}`, {
+        method: 'GET',
+      }),
+    );
+  });
+
+  /** Шаблоны печатных форм: общие и личные. */
+  ipcMain.handle('ppe:printTemplates:list', async (_e, args: { formKey: string }) => {
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+    if (!gate.ok) return gate as Err;
+    const qs = new URLSearchParams({ formKey: String(args?.formKey ?? '') });
+    return toResult(
+      await httpAuthed(ctx.sysDb, base(), `/ppe/print-templates?${qs.toString()}`, { method: 'GET' }),
+    );
+  });
+
+  ipcMain.handle(
+    'ppe:printTemplates:save',
+    async (
+      _e,
+      args: {
+        id?: string;
+        ownerId?: string;
+        formKey: string;
+        name: string;
+        layoutJson: string;
+        isDefault?: boolean;
+      },
+    ) => {
+      if (isViewMode(ctx)) return viewModeWriteError();
+      const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+      if (!gate.ok) return gate as Err;
+      return toResult(
+        await httpAuthed(ctx.sysDb, base(), '/ppe/print-templates', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(args ?? {}),
+        }),
+      );
+    },
+  );
+
+  ipcMain.handle('ppe:printTemplates:delete', async (_e, id: string) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as Err;
+    return toResult(
+      await httpAuthed(ctx.sysDb, base(), `/ppe/print-templates/${encodeURIComponent(String(id || ''))}`, {
+        method: 'DELETE',
+      }),
+    );
+  });
+
   // Сотрудники СИЗ (PR-6) — из реплики `erp_employee_cards`, не из EAV-списка
   // `employees:list`: строгая серверная дверь модуля знает только эти id, и карточка,
   // открытая на EAV-сотруднике, падала бы «Сотрудник не найден» уже при выдаче.

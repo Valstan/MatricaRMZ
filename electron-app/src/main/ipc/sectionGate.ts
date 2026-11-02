@@ -198,6 +198,11 @@ const WRITE_CHANNELS = new Set([
   // уже требует права правки — наблюдателю он незачем.
   'ppe:import:preview',
   'ppe:import:apply',
+  // Приказ о СИЗ (Минтруд 767н): личная карточка по форме приложения №3 и шаблоны
+  // печатных форм. Наблюдателю раздел «Склад» их править нельзя.
+  'ppe:employees:card:update',
+  'ppe:printTemplates:save',
+  'ppe:printTemplates:delete',
   // Умолчания подписей (PR-5): наблюдателю — отказ, нужен editor раздела.
   'signatureDefaults:set',
   'warehouseLocations:delete',

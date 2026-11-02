@@ -359,6 +359,10 @@ export const ppeNormSetRowSchema = z.object({
   // is_duty мягко-опционален: строки журнала, записанные до фазы 2, его не несут —
   // строгость роняла бы их из pull молча. Отсутствие читается как «не дежурная».
   is_duty: z.boolean().nullable().optional(),
+  // Приказ о СИЗ: привязка набора к профессии приказа и подпись источника.
+  occupation_id: z.string().uuid().nullable().optional(),
+  source_kind: z.enum(['ton', 'order766', 'local']).nullable().optional(),
+  source_label: z.string().nullable().optional(),
   valid_from: z.number().int(),
   valid_to: z.number().int().nullable().optional(),
 });
@@ -368,7 +372,84 @@ export const ppeNormLineRowSchema = z.object({
   norm_set_id: z.string().uuid(),
   nomenclature_id: z.string().uuid(),
   qty: z.number().int(),
-  wear_months: z.number().int(),
+  // wear_months стал nullable: приказ знает нормы без срока («до износа», «срок
+  // определяется документами изготовителя»). Такая позиция не «пора выдавать».
+  wear_months: z.number().int().nullable().optional(),
+  // Приказ о СИЗ: «приказная» строка и форма срока.
+  spec_id: z.string().uuid().nullable().optional(),
+  unit: z.string().nullable().optional(),
+  wear_kind: z.enum(['months', 'until_wearout', 'by_manufacturer']).nullable().optional(),
+});
+
+/** Справочник профессий приказа: код пункта приложения → наименование профессии. */
+export const ppeOccupationRefRowSchema = z.object({
+  ...baseRowFields,
+  code: z.string().min(1),
+  post_title: z.string().min(1),
+  ton_kind: z.enum(['ton', 'local']).nullable().optional(),
+  ton_label: z.string().nullable().optional(),
+  ton_year: z.number().int().nullable().optional(),
+  department_id: z.string().uuid().nullable().optional(),
+  is_active: z.boolean().nullable().optional(),
+});
+
+/** «Приказная» строка нормы: что написано в приказе (до разбора нормы). */
+export const ppeNormLineSpecRowSchema = z.object({
+  ...baseRowFields,
+  occupation_id: z.string().uuid(),
+  name: z.string().min(1),
+  ppe_type: z.string().nullable().optional(),
+  qty: z.number().int(),
+  unit: z.string().nullable().optional(),
+  wear_kind: z.enum(['months', 'until_wearout', 'by_manufacturer']).nullable().optional(),
+  wear_months: z.number().int().nullable().optional(),
+  sort_order: z.number().int(),
+  source_ref: z.string().nullable().optional(),
+  source_kind: z.enum(['ton', 'order766']).nullable().optional(),
+  source_label: z.string().nullable().optional(),
+  nomenclature_id: z.string().uuid().nullable().optional(),
+});
+
+/** Личная карточка СИЗ по форме приложения №3. */
+export const ppeEmployeeCardRowSchema = z.object({
+  ...baseRowFields,
+  employee_id: z.string().uuid(),
+  full_name: z.string().nullable().optional(),
+  last_name: z.string().nullable().optional(),
+  first_name: z.string().nullable().optional(),
+  middle_name: z.string().nullable().optional(),
+  personnel_no: z.string().nullable().optional(),
+  department_id: z.string().uuid().nullable().optional(),
+  department_name: z.string().nullable().optional(),
+  post_title: z.string().nullable().optional(),
+  occupation_id: z.string().uuid().nullable().optional(),
+  gender: z.enum(['M', 'F']).nullable().optional(),
+  height: z.string().nullable().optional(),
+  size_clothes: z.string().nullable().optional(),
+  size_shoes: z.string().nullable().optional(),
+  size_gloves: z.string().nullable().optional(),
+  size_headgear: z.string().nullable().optional(),
+  size_respirator: z.string().nullable().optional(),
+  size_od: z.string().nullable().optional(),
+  size_hands: z.string().nullable().optional(),
+  hire_date: z.number().int().nullable().optional(),
+  position_changed_date: z.number().int().nullable().optional(),
+  occupation_notes: z.string().nullable().optional(),
+  issued_by: z.string().nullable().optional(),
+  prepared_by: z.string().nullable().optional(),
+  prepared_at: z.number().int().nullable().optional(),
+});
+
+/** Шаблон печатной формы СИЗ: включённые секции и колонки + подписи. */
+export const ppePrintTemplateRowSchema = z.object({
+  ...baseRowFields,
+  owner_id: z.string().min(1),
+  form_key: z.string().min(1),
+  name: z.string().min(1),
+  layout_json: z.string().min(1),
+  is_default: z.boolean().nullable().optional(),
+  updated_at: z.number().int(),
+  updated_by: z.string().nullable().optional(),
 });
 
 export const ppeIssueCardRowSchema = z.object({
@@ -500,6 +581,10 @@ export const syncRowSchemaByTable = {
   [SyncTableName.PpeCollectives]: ppeCollectiveRowSchema,
   [SyncTableName.PpeCollectiveLines]: ppeCollectiveLineRowSchema,
   [SyncTableName.ErpEmployeeCards]: erpEmployeeCardRowSchema,
+  [SyncTableName.PpeOccupationRef]: ppeOccupationRefRowSchema,
+  [SyncTableName.PpeNormLineSpecs]: ppeNormLineSpecRowSchema,
+  [SyncTableName.PpeEmployeeCards]: ppeEmployeeCardRowSchema,
+  [SyncTableName.PpePrintTemplates]: ppePrintTemplateRowSchema,
   [SyncTableName.SignatureDefaults]: signatureDefaultRowSchema,
 } as const;
 

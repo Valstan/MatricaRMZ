@@ -515,6 +515,10 @@ export const ppeNormSets = sqliteTable('ppe_norm_sets', {
   gender: text('gender'),
   season: text('season'),
   isDuty: integer('is_duty').notNull().default(0),
+  // Приказ о СИЗ: привязка набора к профессии приказа и подпись источника.
+  occupationId: text('occupation_id'),
+  sourceKind: text('source_kind'),
+  sourceLabel: text('source_label'),
   validFrom: integer('valid_from').notNull(),
   validTo: integer('valid_to'),
   createdAt: integer('created_at').notNull(),
@@ -531,7 +535,14 @@ export const ppeNormLines = sqliteTable('ppe_norm_lines', {
   normSetId: text('norm_set_id').notNull(),
   nomenclatureId: text('nomenclature_id').notNull(),
   qty: integer('qty').notNull(),
-  wearMonths: integer('wear_months').notNull(),
+  // Приказ о СИЗ: норма без срока («до износа», «срок определяется документами
+  // изготовителя») — wear_months пустой. Nullability — ровно как сервер, иначе
+  // pull уронит checkReplicaStrictness.
+  wearMonths: integer('wear_months'),
+  // Приказ о СИЗ: «приказная» строка и форма срока.
+  specId: text('spec_id'),
+  unit: text('unit'),
+  wearKind: text('wear_kind'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
   lastServerSeq: integer('last_server_seq'),
@@ -540,6 +551,110 @@ export const ppeNormLines = sqliteTable('ppe_norm_lines', {
 }, (t) => ({
   setIdx: index('ppe_norm_lines_set_idx').on(t.normSetId),
   nomenclatureIdx: index('ppe_norm_lines_nomenclature_idx').on(t.nomenclatureId),
+}));
+
+// Приказ о СИЗ (Минтруд 767н): справочник профессий с пунктами приложений.
+// Путь «должность → норма» строит сервер (ppeOrderNormsService), клиент читает
+// реплику и показывает профессии в пикере.
+export const ppeOccupationRef = sqliteTable('ppe_occupation_ref', {
+  id: text('id').primaryKey(),
+  code: text('code').notNull(),
+  postTitle: text('post_title').notNull(),
+  tonKind: text('ton_kind'),
+  tonLabel: text('ton_label'),
+  tonYear: integer('ton_year'),
+  departmentId: text('department_id'),
+  isActive: integer('is_active').notNull().default(1),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  postIdx: index('ppe_occupation_ref_post_idx').on(t.postTitle),
+}));
+
+// «Приказная» строка нормы: что написано в приказе (до разбора нормы).
+export const ppeNormLineSpecs = sqliteTable('ppe_norm_line_specs', {
+  id: text('id').primaryKey(),
+  occupationId: text('occupation_id').notNull(),
+  name: text('name').notNull(),
+  ppeType: text('ppe_type'),
+  qty: integer('qty').notNull(),
+  unit: text('unit'),
+  wearKind: text('wear_kind'),
+  wearMonths: integer('wear_months'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  sourceRef: text('source_ref'),
+  sourceKind: text('source_kind'),
+  sourceLabel: text('source_label'),
+  nomenclatureId: text('nomenclature_id'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  occupationIdx: index('ppe_norm_line_specs_occupation_idx').on(t.occupationId),
+  nomenclatureIdx: index('ppe_norm_line_specs_nomenclature_idx').on(t.nomenclatureId),
+}));
+
+// Личная карточка СИЗ по форме приложения №3. Не путать с ppe_issue_cards —
+// карточкой выдачи. Реквизиты — снимок на момент выдачи.
+export const ppeEmployeeCards = sqliteTable('ppe_employee_cards', {
+  id: text('id').primaryKey(),
+  employeeId: text('employee_id').notNull(),
+  fullName: text('full_name'),
+  lastName: text('last_name'),
+  firstName: text('first_name'),
+  middleName: text('middle_name'),
+  personnelNo: text('personnel_no'),
+  departmentId: text('department_id'),
+  /** Название подразделения и должность — снимок на момент (в форме приказа №3). */
+  departmentName: text('department_name'),
+  postTitle: text('post_title'),
+  occupationId: text('occupation_id'),
+  gender: text('gender'),
+  height: text('height'),
+  sizeClothes: text('size_clothes'),
+  sizeShoes: text('size_shoes'),
+  sizeGloves: text('size_gloves'),
+  sizeHeadgear: text('size_headgear'),
+  sizeRespirator: text('size_respirator'),
+  sizeOd: text('size_od'),
+  sizeHands: text('size_hands'),
+  hireDate: integer('hire_date'),
+  positionChangedDate: integer('position_changed_date'),
+  occupationNotes: text('occupation_notes'),
+  issuedBy: text('issued_by'),
+  preparedBy: text('prepared_by'),
+  preparedAt: integer('prepared_at'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  occupationIdx: index('ppe_employee_cards_occupation_idx').on(t.occupationId),
+}));
+
+// Шаблон печатной формы: включённые/отключённые секции и колонки + подписи.
+// Раньше набор колонок жил в localStorage и не переезжал между машинами.
+export const ppePrintTemplates = sqliteTable('ppe_print_templates', {
+  id: text('id').primaryKey(),
+  ownerId: text('owner_id').notNull().default('shared'),
+  formKey: text('form_key').notNull(),
+  name: text('name').notNull(),
+  layoutJson: text('layout_json').notNull(),
+  isDefault: integer('is_default').notNull().default(0),
+  updatedAt: integer('updated_at').notNull(),
+  updatedBy: text('updated_by'),
+  createdAt: integer('created_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  formIdx: index('ppe_print_templates_form_idx').on(t.formKey),
 }));
 
 export const ppeIssueCards = sqliteTable('ppe_issue_cards', {

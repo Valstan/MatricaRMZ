@@ -813,6 +813,20 @@
       "when": 1793404800000,
       "tag": "0116_note_reminders",
       "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1793664000000,
+      "tag": "0117_ppe_order_norms",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1793667600000,
+      "tag": "0118_ppe_order_norms_seed",
+      "breakpoints": true
     }
   ]
 }

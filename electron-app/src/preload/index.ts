@@ -686,7 +686,43 @@ const matricaApi = {
     employees: {
       normSets: async (employeeId: string) => ipcRenderer.invoke('ppe:employees:normSets', employeeId),
       list: async () => ipcRenderer.invoke('ppe:employees:list'),
+      /** Личная карточка СИЗ по форме приложения №3 + реквизиты для подстановки. */
+      card: async (employeeId: string) => ipcRenderer.invoke('ppe:employees:card', employeeId),
+      /** Правка реквизитов личной карточки (размеры, примечания, подписи). */
+      updateCard: async (args: { id: string; patch: Record<string, unknown> }) =>
+        ipcRenderer.invoke('ppe:employees:card:update', args),
     },
+    // Приказ о СИЗ (Минтруд 767н).
+    occupations: {
+      /** Справочник профессий приказа: код пункта приложения → профессия. */
+      list: async () => ipcRenderer.invoke('ppe:occupations:list'),
+    },
+    /** Подбор норм по должности: профессия → наборы норм (основной и зимний 766н). */
+    normsByPost: async (args: { postTitle: string; gender?: string; season?: string }) =>
+      ipcRenderer.invoke('ppe:norms:byPost', args),
+    /** Строки нормы для печати личной карточки (четыре колонки формы приложения №3). */
+    cardNormRows: async (args: { normSetIds: string[] }) => ipcRenderer.invoke('ppe:cardNormRows', args),
+    printTemplates: {
+      list: async (args: { formKey: string }) => ipcRenderer.invoke('ppe:printTemplates:list', args),
+      save: async (args: {
+        id?: string;
+        ownerId?: string;
+        formKey: string;
+        name: string;
+        layoutJson: string;
+        isDefault?: boolean;
+      }) => ipcRenderer.invoke('ppe:printTemplates:save', args),
+      delete: async (id: string) => ipcRenderer.invoke('ppe:printTemplates:delete', id),
+    },
+    /** Выгрузка для 1С: XLSX или CSV по фиксированной структуре. */
+    oneCExport: async (args: {
+      kind: 'norms' | 'issues';
+      format: 'xlsx' | 'csv';
+      fromMs?: number;
+      toMs?: number;
+      period?: string;
+      who?: string;
+    }) => ipcRenderer.invoke('ppe:onec:export', args),
     collectives: {
       list: async (args?: { departmentId?: string }) => ipcRenderer.invoke('ppe:collectives:list', args),
       get: async (id: string) => ipcRenderer.invoke('ppe:collectives:get', id),

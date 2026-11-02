@@ -33,6 +33,16 @@ import {
 } from '../services/ppeService.js';
 import { applyPpeImportPreview, previewPpeImport } from '../services/ppeImportService.js';
 import { getPpeCardsOverview } from '../services/ppeCardsOverview.js';
+import {
+  deletePpePrintTemplate,
+  getPpeEmployeeCard,
+  listCardNormRows,
+  listPpeOccupations,
+  listPpePrintTemplates,
+  resolveNormsByPost,
+  savePpePrintTemplate,
+  updatePpeEmployeeCard,
+} from '../services/ppeOrderNormsService.js';
 import { shouldRunBackgroundJobs } from '../services/instanceRole.js';
 import { kickPpeSyncPublisher } from '../services/sync/ppeSyncPublisherService.js';
 import { logWarn } from '../utils/logger.js';
@@ -343,6 +353,150 @@ ppeRouter.get('/employees/:id/norm-sets', requirePermission(PermissionCode.ErpDi
   if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
   const result = await resolveEmployeeNormSetIds(id);
   if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Приказ о СИЗ (Минтруд 767н): профессии, автоподбор норм по должности, личная
+// карточка СИЗ по форме приложения №3, шаблоны печатных форм.
+// ────────────────────────────────────────────────────────────────────────────
+
+/** Справочник профессий приказа: код пункта приложения → наименование профессии. */
+ppeRouter.get('/occupations', requirePermission(PermissionCode.ErpDictionaryView), async (_req, res) => {
+  const rows = await listPpeOccupations();
+  return res.json({ ok: true, rows });
+});
+
+/**
+ * Подбор норм по должности сотрудника: профессия → наборы норм (основной и зимний
+ * 766н). Возвращает и предупреждение, если профессию опознать не удалось — кладовщик
+ * должен видеть, ПОЧЕМУ норма не подобралась.
+ */
+ppeRouter.get('/norms-by-post', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
+  const parsed = z
+    .object({
+      postTitle: z.string().min(1),
+      gender: z.string().min(1).optional(),
+      season: z.string().min(1).optional(),
+    })
+    .safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await resolveNormsByPost({
+    postTitle: parsed.data.postTitle,
+    ...(parsed.data.gender ? { gender: parsed.data.gender } : {}),
+    ...(parsed.data.season ? { season: parsed.data.season } : {}),
+  });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+/** Личная карточка СИЗ сотрудника (форма приложения №3) + реквизиты для подстановки. */
+ppeRouter.get('/employees/:id/card', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
+  const id = String(req.params.id ?? '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const result = await getPpeEmployeeCard(id);
+  if (!result.ok) return res.status(404).json(result);
+  return res.json(result);
+});
+
+/** Правка реквизитов личной карточки (размеры, примечания, подписи). */
+ppeRouter.put('/employees/:id/card', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const id = String(req.params.id ?? '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const parsed = z
+    .object({
+      fullName: z.string().nullable().optional(),
+      lastName: z.string().nullable().optional(),
+      firstName: z.string().nullable().optional(),
+      middleName: z.string().nullable().optional(),
+      personnelNo: z.string().nullable().optional(),
+      departmentId: z.string().uuid().nullable().optional(),
+      departmentName: z.string().nullable().optional(),
+      postTitle: z.string().nullable().optional(),
+      occupationId: z.string().uuid().nullable().optional(),
+      gender: z.enum(['M', 'F']).nullable().optional(),
+      height: z.string().nullable().optional(),
+      sizeClothes: z.string().nullable().optional(),
+      sizeShoes: z.string().nullable().optional(),
+      sizeGloves: z.string().nullable().optional(),
+      sizeHeadgear: z.string().nullable().optional(),
+      sizeRespirator: z.string().nullable().optional(),
+      sizeOd: z.string().nullable().optional(),
+      sizeHands: z.string().nullable().optional(),
+      hireDate: z.number().int().nullable().optional(),
+      positionChangedDate: z.number().int().nullable().optional(),
+      occupationNotes: z.string().nullable().optional(),
+      issuedBy: z.string().nullable().optional(),
+      preparedBy: z.string().nullable().optional(),
+      preparedAt: z.number().int().nullable().optional(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await updatePpeEmployeeCard(id, parsed.data);
+  if (!result.ok) return res.status(400).json(result);
+  await kickPpeSyncPublisher().catch(() => undefined);
+  return res.json(result);
+});
+
+/**
+ * Строки нормы для печати личной карточки: наименование СИЗ, пункт приказа, единица
+ * измерения и количество на год — четыре колонки формы приложения №3.
+ * Это ЧТЕНИЕ, поэтому GET: список наборов норм едет параметром (до 200 id).
+ */
+ppeRouter.get('/card-norm-rows', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
+  const raw = String(req.query.normSetIds ?? '');
+  const normSetIds = raw
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean)
+    .slice(0, 200);
+  if (normSetIds.length === 0) return res.json({ ok: true, rows: [] });
+  const rows = await listCardNormRows(normSetIds);
+  return res.json({ ok: true, rows });
+});
+
+/** Шаблоны печатных форм: общие и личные. */
+ppeRouter.get('/print-templates', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
+  const parsed = z.object({ formKey: z.string().min(1) }).safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const actor = actorOf(req);
+  const rows = await listPpePrintTemplates({ formKey: parsed.data.formKey, ownerId: actor.id });
+  return res.json({ ok: true, rows });
+});
+
+ppeRouter.put('/print-templates', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const parsed = z
+    .object({
+      id: z.string().uuid().optional(),
+      ownerId: z.string().min(1).optional(),
+      formKey: z.string().min(1),
+      name: z.string().min(1),
+      layoutJson: z.string().min(1),
+      isDefault: z.boolean().optional(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const actor = actorOf(req);
+  const result = await savePpePrintTemplate({
+    ...(parsed.data.id ? { id: parsed.data.id } : {}),
+    ownerId: parsed.data.ownerId ?? actor.id,
+    formKey: parsed.data.formKey,
+    name: parsed.data.name,
+    layoutJson: parsed.data.layoutJson,
+    ...(parsed.data.isDefault !== undefined ? { isDefault: parsed.data.isDefault } : {}),
+    updatedBy: actor.username,
+  });
+  if (!result.ok) return res.status(400).json(result);
+  await kickPpeSyncPublisher().catch(() => undefined);
+  return res.json(result);
+});
+
+ppeRouter.delete('/print-templates/:id', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const id = String(req.params.id ?? '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const result = await deletePpePrintTemplate(id);
+  if (!result.ok) return res.status(400).json(result);
+  await kickPpeSyncPublisher().catch(() => undefined);
   return res.json(result);
 });
 

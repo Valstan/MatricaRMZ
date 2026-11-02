@@ -2176,7 +2176,67 @@ export const userSettings = pgTable('user_settings', {
 });
 
 /** Кладовщик (СИЗ), MVP: нормы выдачи, личные карточки, факты выдачи. Миграция 0107.
- * Фаза 2: условия норм (пол/сезон/дежурные), отпуска, группы, коллективная выдача. Миграция 0110. */
+ * Фаза 2: условия норм (пол/сезон/дежурные), отпуска, группы, коллективная выдача. Миграция 0110.
+ * Приказ о СИЗ: профессии с пунктами приложений, «приказные» строки норм, личная карточка
+ * по форме приложения №3, шаблоны печатных форм. Миграция 0117. */
+export const ppeOccupationRef = pgTable(
+  'ppe_occupation_ref',
+  {
+    id: uuid('id').primaryKey(),
+    code: text('code').notNull(),
+    postTitle: text('post_title').notNull(),
+    tonKind: text('ton_kind').notNull().default('ton'),
+    tonLabel: text('ton_label'),
+    tonYear: integer('ton_year'),
+    departmentId: uuid('department_id'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    codeUq: uniqueIndex('ppe_occupation_ref_code_uq').on(t.code).where(sql`${t.deletedAt} is null`),
+    postIdx: index('ppe_occupation_ref_post_idx').on(t.postTitle),
+  }),
+);
+
+/** «Приказная» строка нормы: наименование СИЗ по приказу, количество, единица, форма срока.
+ * Ссылка на позицию номенклатуры — ключ подстановки: привязал позицию один раз, и карточка
+ * сама подставляет наименование, единицу, количество и пункт приложения. */
+export const ppeNormLineSpecs = pgTable(
+  'ppe_norm_line_specs',
+  {
+    id: uuid('id').primaryKey(),
+    occupationId: uuid('occupation_id')
+      .notNull()
+      .references(() => ppeOccupationRef.id),
+    name: text('name').notNull(),
+    ppeType: text('ppe_type'),
+    qty: integer('qty').notNull().default(1),
+    unit: text('unit').notNull().default('шт.'),
+    wearKind: text('wear_kind').notNull().default('months'),
+    wearMonths: integer('wear_months'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    sourceRef: text('source_ref'),
+    /** Источник строки приказа: 'ton' — ЕТН 767н, 'order766' — приказ 766н Прил.4. */
+    sourceKind: text('source_kind').notNull().default('ton'),
+    /** Подпись источника для печати: «Пункт № 1511», «№ 766н Прил.4». */
+    sourceLabel: text('source_label'),
+    nomenclatureId: uuid('nomenclature_id').references(() => erpNomenclature.id),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    occupationIdx: index('ppe_norm_line_specs_occupation_idx').on(t.occupationId),
+    nomenclatureIdx: index('ppe_norm_line_specs_nomenclature_idx').on(t.nomenclatureId),
+  }),
+);
+
 export const ppeNormSets = pgTable(
   'ppe_norm_sets',
   {
@@ -2187,6 +2247,9 @@ export const ppeNormSets = pgTable(
     gender: text('gender'),
     season: text('season'),
     isDuty: boolean('is_duty').notNull().default(false),
+    occupationId: uuid('occupation_id').references(() => ppeOccupationRef.id),
+    sourceKind: text('source_kind'),
+    sourceLabel: text('source_label'),
     validFrom: bigint('valid_from', { mode: 'number' }).notNull(),
     validTo: bigint('valid_to', { mode: 'number' }),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
@@ -2198,6 +2261,7 @@ export const ppeNormSets = pgTable(
   (t) => ({
     postGenderSeasonIdx: index('ppe_norm_sets_post_gender_season_idx').on(t.postTitle, t.gender, t.season, t.validFrom),
     departmentIdx: index('ppe_norm_sets_department_idx').on(t.departmentId),
+    occupationIdx: index('ppe_norm_sets_occupation_idx').on(t.occupationId),
   }),
 );
 
@@ -2212,7 +2276,10 @@ export const ppeNormLines = pgTable(
       .notNull()
       .references(() => erpNomenclature.id),
     qty: integer('qty').notNull(),
-    wearMonths: integer('wear_months').notNull(),
+    wearMonths: integer('wear_months'),
+    specId: uuid('spec_id').references(() => ppeNormLineSpecs.id),
+    unit: text('unit'),
+    wearKind: text('wear_kind').notNull().default('months'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
@@ -2225,6 +2292,82 @@ export const ppeNormLines = pgTable(
       .where(sql`${t.deletedAt} is null`),
     setIdx: index('ppe_norm_lines_set_idx').on(t.normSetId),
     nomenclatureIdx: index('ppe_norm_lines_nomenclature_idx').on(t.nomenclatureId),
+    specIdx: index('ppe_norm_lines_spec_idx').on(t.specId),
+  }),
+);
+
+/** Личная карточка СИЗ по форме приложения №3. Не путать с `ppe_issue_cards` — карточкой выдачи.
+ * Реквизиты — снимок на момент выдачи (приказ п. 12): ФИО и должность фиксируются так,
+ * как они были, даже если карточка сотрудника изменится задним числом. */
+export const ppeEmployeeCards = pgTable(
+  'ppe_employee_cards',
+  {
+    id: uuid('id').primaryKey(),
+    employeeId: uuid('employee_id')
+      .notNull()
+      .references(() => erpEmployeeCards.id),
+    fullName: text('full_name'),
+    /** Фамилия, имя и отчество — раздельно: форма приложения №3 требует три поля. */
+    lastName: text('last_name'),
+    firstName: text('first_name'),
+    middleName: text('middle_name'),
+    personnelNo: text('personnel_no'),
+    departmentId: uuid('department_id'),
+    /** Название подразделения и должность — снимок на момент (форма приложения №3). */
+    departmentName: text('department_name'),
+    postTitle: text('post_title'),
+    occupationId: uuid('occupation_id').references(() => ppeOccupationRef.id),
+    gender: text('gender'),
+    height: text('height'),
+    sizeClothes: text('size_clothes'),
+    sizeShoes: text('size_shoes'),
+    sizeGloves: text('size_gloves'),
+    sizeHeadgear: text('size_headgear'),
+    sizeRespirator: text('size_respirator'),
+    sizeOd: text('size_od'),
+    sizeHands: text('size_hands'),
+    hireDate: bigint('hire_date', { mode: 'number' }),
+    positionChangedDate: bigint('position_changed_date', { mode: 'number' }),
+    occupationNotes: text('occupation_notes'),
+    issuedBy: text('issued_by'),
+    preparedBy: text('prepared_by'),
+    preparedAt: bigint('prepared_at', { mode: 'number' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    employeeUq: uniqueIndex('ppe_employee_cards_employee_uq').on(t.employeeId).where(sql`${t.deletedAt} is null`),
+    occupationIdx: index('ppe_employee_cards_occupation_idx').on(t.occupationId),
+  }),
+);
+
+/** Шаблон печатной формы: секции и колонки (включить/отключить), примечание к шапке и
+ * подписи в подвале. Раньше набор колонок жил в localStorage клиента и не переезжал
+ * между машинами — теперь он в БД и доступен кладовщику с любой машины. */
+export const ppePrintTemplates = pgTable(
+  'ppe_print_templates',
+  {
+    id: uuid('id').primaryKey(),
+    ownerId: text('owner_id').notNull().default('shared'),
+    formKey: text('form_key').notNull(),
+    name: text('name').notNull(),
+    layoutJson: text('layout_json').notNull(),
+    isDefault: boolean('is_default').notNull().default(false),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    updatedBy: text('updated_by'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    ownerFormNameUq: uniqueIndex('ppe_print_templates_owner_form_name_uq')
+      .on(t.ownerId, t.formKey, t.name)
+      .where(sql`${t.deletedAt} is null`),
+    formIdx: index('ppe_print_templates_form_idx').on(t.formKey),
   }),
 );
 

@@ -49,6 +49,10 @@ import {
   ppeCollectiveRowSchema,
   ppeCollectiveLineRowSchema,
   erpEmployeeCardRowSchema,
+  ppeOccupationRefRowSchema,
+  ppeNormLineSpecRowSchema,
+  ppeEmployeeCardRowSchema,
+  ppePrintTemplateRowSchema,
   signatureDefaultRowSchema,
   directoryEngineBrandRowSchema,
 } from './dto.js';
@@ -526,6 +530,9 @@ const PPE_NORM_SET_FIELDS = withBase(
   { db: 'gender', dto: 'gender' },
   { db: 'season', dto: 'season' },
   { db: 'isDuty', dto: 'is_duty' },
+  { db: 'occupationId', dto: 'occupation_id' },
+  { db: 'sourceKind', dto: 'source_kind' },
+  { db: 'sourceLabel', dto: 'source_label' },
   { db: 'validFrom', dto: 'valid_from' },
   { db: 'validTo', dto: 'valid_to' },
 );
@@ -535,6 +542,75 @@ const PPE_NORM_LINE_FIELDS = withBase(
   { db: 'nomenclatureId', dto: 'nomenclature_id' },
   { db: 'qty', dto: 'qty' },
   { db: 'wearMonths', dto: 'wear_months' },
+  { db: 'specId', dto: 'spec_id' },
+  { db: 'unit', dto: 'unit' },
+  { db: 'wearKind', dto: 'wear_kind' },
+);
+
+// Приказ о СИЗ: справочник профессий и «приказные» строки норм.
+const PPE_OCCUPATION_REF_FIELDS = withBase(
+  { db: 'code', dto: 'code' },
+  { db: 'postTitle', dto: 'post_title' },
+  { db: 'tonKind', dto: 'ton_kind' },
+  { db: 'tonLabel', dto: 'ton_label' },
+  { db: 'tonYear', dto: 'ton_year' },
+  { db: 'departmentId', dto: 'department_id' },
+  { db: 'isActive', dto: 'is_active' },
+);
+
+const PPE_NORM_LINE_SPEC_FIELDS = withBase(
+  { db: 'occupationId', dto: 'occupation_id' },
+  { db: 'name', dto: 'name' },
+  { db: 'ppeType', dto: 'ppe_type' },
+  { db: 'qty', dto: 'qty' },
+  { db: 'unit', dto: 'unit' },
+  { db: 'wearKind', dto: 'wear_kind' },
+  { db: 'wearMonths', dto: 'wear_months' },
+  { db: 'sortOrder', dto: 'sort_order' },
+  { db: 'sourceRef', dto: 'source_ref' },
+  { db: 'sourceKind', dto: 'source_kind' },
+  { db: 'sourceLabel', dto: 'source_label' },
+  { db: 'nomenclatureId', dto: 'nomenclature_id' },
+);
+
+// Личная карточка СИЗ по форме приложения №3. Реквизиты — снимок на момент выдачи.
+const PPE_EMPLOYEE_CARD_FIELDS = withBase(
+  { db: 'employeeId', dto: 'employee_id' },
+  { db: 'fullName', dto: 'full_name' },
+  { db: 'lastName', dto: 'last_name' },
+  { db: 'firstName', dto: 'first_name' },
+  { db: 'middleName', dto: 'middle_name' },
+  { db: 'personnelNo', dto: 'personnel_no' },
+  { db: 'departmentId', dto: 'department_id' },
+  { db: 'departmentName', dto: 'department_name' },
+  { db: 'postTitle', dto: 'post_title' },
+  { db: 'occupationId', dto: 'occupation_id' },
+  { db: 'gender', dto: 'gender' },
+  { db: 'height', dto: 'height' },
+  { db: 'sizeClothes', dto: 'size_clothes' },
+  { db: 'sizeShoes', dto: 'size_shoes' },
+  { db: 'sizeGloves', dto: 'size_gloves' },
+  { db: 'sizeHeadgear', dto: 'size_headgear' },
+  { db: 'sizeRespirator', dto: 'size_respirator' },
+  { db: 'sizeOd', dto: 'size_od' },
+  { db: 'sizeHands', dto: 'size_hands' },
+  { db: 'hireDate', dto: 'hire_date' },
+  { db: 'positionChangedDate', dto: 'position_changed_date' },
+  { db: 'occupationNotes', dto: 'occupation_notes' },
+  { db: 'issuedBy', dto: 'issued_by' },
+  { db: 'preparedBy', dto: 'prepared_by' },
+  { db: 'preparedAt', dto: 'prepared_at' },
+);
+
+// Шаблон печатной формы: включённые/отключённые секции и колонки + подписи.
+const PPE_PRINT_TEMPLATE_FIELDS = withBase(
+  { db: 'ownerId', dto: 'owner_id' },
+  { db: 'formKey', dto: 'form_key' },
+  { db: 'name', dto: 'name' },
+  { db: 'layoutJson', dto: 'layout_json' },
+  { db: 'isDefault', dto: 'is_default' },
+  { db: 'updatedAt', dto: 'updated_at' },
+  { db: 'updatedBy', dto: 'updated_by' },
 );
 
 const PPE_ISSUE_CARD_FIELDS = withBase(
@@ -896,7 +972,7 @@ const ENTRIES: readonly SyncTableEntry[] = [
     schema: ppeNormSetRowSchema,
     fields: PPE_NORM_SET_FIELDS,
     conflictTarget: ['id'],
-    dependsOn: [],
+    dependsOn: [SyncTableName.PpeOccupationRef],
   },
   {
     syncName: SyncTableName.PpeNormLines,
@@ -905,6 +981,42 @@ const ENTRIES: readonly SyncTableEntry[] = [
     fields: PPE_NORM_LINE_FIELDS,
     conflictTarget: ['id'],
     dependsOn: [SyncTableName.PpeNormSets],
+  },
+  // Приказ о СИЗ (Минтруд 767н): справочник профессий и «приказные» строки норм.
+  // Порядок холодного full-state: профессии → строки приказа → наборы норм.
+  {
+    syncName: SyncTableName.PpeOccupationRef,
+    ledgerName: SyncTableName.PpeOccupationRef,
+    schema: ppeOccupationRefRowSchema,
+    fields: PPE_OCCUPATION_REF_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [],
+  },
+  {
+    syncName: SyncTableName.PpeNormLineSpecs,
+    ledgerName: SyncTableName.PpeNormLineSpecs,
+    schema: ppeNormLineSpecRowSchema,
+    fields: PPE_NORM_LINE_SPEC_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.PpeOccupationRef],
+  },
+  // Личная карточка СИЗ по форме приложения №3.
+  {
+    syncName: SyncTableName.PpeEmployeeCards,
+    ledgerName: SyncTableName.PpeEmployeeCards,
+    schema: ppeEmployeeCardRowSchema,
+    fields: PPE_EMPLOYEE_CARD_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.PpeOccupationRef],
+  },
+  // Шаблон печатной формы: секции и колонки, включённые или отключённые.
+  {
+    syncName: SyncTableName.PpePrintTemplates,
+    ledgerName: SyncTableName.PpePrintTemplates,
+    schema: ppePrintTemplateRowSchema,
+    fields: PPE_PRINT_TEMPLATE_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [],
   },
   {
     syncName: SyncTableName.PpeIssueCards,
