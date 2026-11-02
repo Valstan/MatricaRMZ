@@ -292,4 +292,44 @@ describe('лента выводит этапы arrival/disassembly_defect из �
     expect(items).toHaveLength(1);
     expect(items[0]?.at).toBe(T + DAY);
   });
+
+  // Решение владельца 02.11.2026: «Создание карточки двигателя» — не событие
+  // ремонта. В ленте у него нет даты исполнения и типа, править его нельзя —
+  // остаётся только отметка «когда и кем завели карточку».
+  it('служебная отметка о заведении карточки помечена: без типа и без правки даты', () => {
+    const feed = buildEngineHistoryFeed([
+      row({
+        id: 'card',
+        performedAt: T - 10 * DAY,
+        metaJson: repairMeta({
+          entryType: 'stage',
+          action: 'Создание карточки двигателя',
+          stage: { code: 'card_created', name: 'Создание карточки двигателя' },
+          at: T - 10 * DAY,
+        }),
+      }),
+    ]);
+    const item = feed.find((i) => i.id === 'card');
+    expect(item?.service).toBe(true);
+    expect(item?.editable).toBe(false);
+    // Дата создания карточки остаётся в записи — по ней видно, когда карточка заведена.
+    expect(item?.at).toBe(T - 10 * DAY);
+  });
+
+  it('обычный этап ремонта служебным не помечается', () => {
+    const feed = buildEngineHistoryFeed([
+      row({
+        id: 'sborka',
+        metaJson: repairMeta({
+          entryType: 'stage',
+          action: 'Сборка',
+          stage: { code: 'sborka', name: 'Сборка' },
+          at: T,
+        }),
+      }),
+    ]);
+    const item = feed.find((i) => i.id === 'sborka');
+    expect(item?.service).toBe(false);
+    expect(item?.editable).toBe(true);
+  });
 });

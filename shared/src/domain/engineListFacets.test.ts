@@ -34,6 +34,53 @@ const engines = [
 
 const ids = (list: EngineListItem[]) => list.map((e) => e.id).sort();
 
+// Договор состоит из основного договора и ДС; двигатель сидит на конкретной секции
+// (владелец 02.11.2026: «из договора выбрать фильтр по дополнительным соглашениям»).
+const contractWithAddons = [
+  { id: 'a1', contractId: 'C1', contractName: '125/2026' },
+  { id: 'a2', contractId: 'C1', contractName: '125/2026', contractSectionNumber: 'ДС 2' },
+  { id: 'a3', contractId: 'C1', contractName: '125/2026', contractSectionNumber: 'ДС 3' },
+  { id: 'a4', contractId: 'C2', contractName: '7/2026' },
+] as unknown as EngineListItem[];
+
+describe('ступень «Контракт» — договор и его дополнительные соглашения', () => {
+  it('в вариантах есть и договор, и его ДС — с подписями', () => {
+    const options = engineFacetOptions(contractWithAddons, {}, 'contract');
+    const labels = options.map((o) => o.label);
+    expect(labels).toContain('125/2026');
+    expect(labels).toContain('125/2026 — ДС 2');
+    expect(labels).toContain('125/2026 — ДС 3');
+  });
+
+  it('счётчик договора — все его двигатели, счётчик ДС — только его', () => {
+    const options = engineFacetOptions(contractWithAddons, {}, 'contract');
+    const contract = options.find((o) => o.label === '125/2026');
+    const addon2 = options.find((o) => o.label === '125/2026 — ДС 2');
+    expect(contract?.count).toBe(3);
+    expect(addon2?.count).toBe(1);
+  });
+
+  it('выбор ДС отбирает только двигатели этого соглашения', () => {
+    const options = engineFacetOptions(contractWithAddons, {}, 'contract');
+    const addon2 = options.find((o) => o.label === '125/2026 — ДС 2');
+    expect(addon2).toBeTruthy();
+    expect(ids(applyEngineFacets(contractWithAddons, { contract: [addon2!.value] }))).toEqual(['a2']);
+  });
+
+  it('выбор договора оставляет все его двигатели, включая ДС', () => {
+    const options = engineFacetOptions(contractWithAddons, {}, 'contract');
+    const contract = options.find((o) => o.label === '125/2026');
+    expect(ids(applyEngineFacets(contractWithAddons, { contract: [contract!.value] }))).toEqual(['a1', 'a2', 'a3']);
+  });
+
+  it('двигатель без секции относится к основному договору', () => {
+    // Легаси-значение (номер договора вместо ключа секции) — тоже основной договор.
+    const legacy = [{ id: 'l1', contractId: 'C1', contractName: '125/2026', contractSectionNumber: '125/2026' }] as unknown as EngineListItem[];
+    const options = engineFacetOptions(legacy, {}, 'contract');
+    expect(options.map((o) => o.label)).toEqual(['125/2026']);
+  });
+});
+
 describe('ступенчатый фильтр списка двигателей', () => {
   it('пустой фильтр не отбирает ничего', () => {
     expect(ids(applyEngineFacets(engines, {}))).toEqual(['e1', 'e2', 'e3', 'e4']);
@@ -306,7 +353,10 @@ describe('ступени этапов: «История» и «Дата этап
 
   it('ряд ступеней полный и в порядке шаблона: новый этап виден до того, как в нём никого нет', () => {
     const options = engineFacetOptions(stageCodeRows, {}, 'hasStage');
-    expect(options[0]?.value).toBe('stage:card_created');
+    // Служебного этапа («Создание карточки двигателя») в ступенях нет: это отметка о
+    // заведении карточки, а не этап ремонта (решение владельца 02.11.2026).
+    expect(options[0]?.value).toBe('stage:arrival');
+    expect(options.some((o) => o.value === 'stage:card_created')).toBe(false);
     expect(options.find((o) => o.value === 'stage:sborka')).toMatchObject({ label: 'Сборка двигателя' });
     expect(options[options.length - 1]).toMatchObject({ value: 'none', label: 'этапов нет' });
   });
@@ -397,7 +447,6 @@ describe('ступень «Текущее состояние» со справо
     expect(options.map((o) => o.value)).toEqual([
       'scrap',
       'repaired',
-      'stage:card_created',
       'stage:arrival',
       'stage:incoming_otk',
       'stage:disassembly_defect',

@@ -19,7 +19,7 @@
 import { actDatesFromAnswers, actStageEntries, mergeActStages, type ActStageEntry } from './actStages.js';
 import { parseRepairHistoryMeta, repairHistoryEntryType, type RepairHistoryEntryType } from './engineRepairHistory.js';
 import { describeOperationType, operationStatusLabel, type EngineLifecyclePhase } from './engineTimeline.js';
-import { moscowDaySortKey, repairStageRank } from './repairStages.js';
+import { moscowDaySortKey, isServiceStageCode, repairStageRank } from './repairStages.js';
 import { serviceActorLabel } from './serviceActors.js';
 import { WORK_SHEET_COLUMN_TYPES, formatWorkSheetValue, type WorkSheetField } from './workSheets.js';
 
@@ -74,6 +74,12 @@ export type EngineHistoryFeedItem = {
   sheetRowId: string | null;
   /** Запись заведена программой (стадия, переезд), а не оператором. */
   auto: boolean;
+  /**
+   * Служебная отметка (заведение карточки), а не событие ремонта: в ленте у неё
+   * нет даты исполнения и типа — только «когда и кем завели карточку»
+   * (решение владельца 02.11.2026).
+   */
+  service: boolean;
   /** Статус операции («Выполнено», «Черновик») — только у операций. */
   statusLabel: string;
 };
@@ -164,10 +170,12 @@ export function engineHistoryFeedItem(row: EngineHistoryFeedRow): EngineHistoryF
       pass: meta.repeat?.pass ?? 1,
       repeatReason: meta.repeat?.reason ?? '',
       // Дату и снятие этапа ремонта правим прямо здесь; строку этапа работ — на её
-      // экране («Этапы работ»), из ленты на неё только переход.
-      editable: kind === 'stage',
+      // экране («Этапы работ»), из ленты на неё только переход. Служебная отметка
+      // (заведение карточки) не правится: даты исполнения у неё нет вовсе.
+      editable: kind === 'stage' && !isServiceStageCode(text(meta.stage?.code)),
       sheetRowId: kind === 'sheet' ? String(row.id) : null,
       auto: meta.auto === true,
+      service: isServiceStageCode(text(meta.stage?.code)),
       statusLabel: '',
     };
   }
@@ -197,6 +205,7 @@ export function engineHistoryFeedItem(row: EngineHistoryFeedRow): EngineHistoryF
     editable: false,
     sheetRowId: null,
     auto: false,
+    service: false,
     statusLabel: operationStatusLabel(text(row.status)),
   };
 }
@@ -306,6 +315,7 @@ function actFeedItem(entry: ActStageEntry): EngineHistoryFeedItem {
     editable: false,
     sheetRowId: null,
     auto: true,
+    service: false,
     statusLabel: '',
   };
 }
