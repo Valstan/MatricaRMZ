@@ -7055,7 +7055,11 @@ export function App() {
               clockSkew={clockSkew}
               onClockSync={() => void syncClockNow()}
               onClockOpenSettings={() => void openClockSettings()}
-              onRestartApp={() => void restartApp()}
+              onRestartApp={
+              // На планшете перезапуск приложения не работает (нет канала system.restart) —
+              // кнопку там не показываем, чтобы не предлагать действие, которое не сработает.
+              isAndroidPlatform() ? undefined : () => void restartApp()
+            }
               updateProgress={
                 updateState?.state === 'downloading' && typeof updateState.progress === 'number'
                   ? { pct: Math.round(updateState.progress), version: updateState.version ?? null }

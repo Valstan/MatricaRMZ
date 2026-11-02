@@ -27,6 +27,12 @@ export type FacetValue = {
    * бы только тех, у кого сборка — последний этап.
    */
   values?: readonly string[];
+  /**
+   * Подписи для значений из `values` (главное значение подписано в `label`). Нужны ступеням,
+   * где у строки несколько значений с разными подписями: например, двигатель на ДС значится
+   * и как «договор», и как «договор — ДС 2», и в списке вариантов оба должны читаться.
+   */
+  extraLabels?: Readonly<Record<string, string>>;
 };
 
 /** Диапазон дат ступени: границы включительно, одна дата = «ровно этот день». */
@@ -174,7 +180,11 @@ export function facetOptions<Row>(
     for (const key of [v.value, ...(v.values ?? [])]) {
       const cur = counts.get(key);
       if (cur) cur.count += 1;
-      else counts.set(key, { label: key === v.value ? v.label : (labelByValue.get(key) ?? key), count: 1 });
+      else
+        counts.set(key, {
+          label: key === v.value ? v.label : (labelByValue.get(key) ?? v.extraLabels?.[key] ?? key),
+          count: 1,
+        });
     }
   }
 

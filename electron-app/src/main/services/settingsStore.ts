@@ -29,6 +29,13 @@ export const SettingsKey = {
   ClientSchemaVersion: 'schema.clientVersion',
   ServerSchemaHash: 'schema.serverHash',
 
+  /**
+   * Набор деталей-критериев утиля уже наполнялся картерными деталями.
+   * Флаг в базе клиента: наполнение одноразовое, и снятую владельцем метку
+   * seed не должен возвращать при следующем запуске.
+   */
+  ScrapCriterionSeeded: 'scrapCriterion.seeded',
+
   // Auth (encrypted JSON payload)
   AuthSession: 'auth.session',
 

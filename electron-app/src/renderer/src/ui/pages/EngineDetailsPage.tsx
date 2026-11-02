@@ -667,6 +667,31 @@ export function EngineDetailsPage(props: {
   const [scrapResolveOutcome, setScrapResolveOutcome] = useState<'repaired' | 'replaced'>('repaired');
   const [scrapResolveDate, setScrapResolveDate] = useState(toInputDate(Date.now()));
   const [scrapResolveNote, setScrapResolveNote] = useState('');
+  // Какая деталь отремонтирована/заменена: с 02.11.2026 утильный признак задаётся
+  // меткой на детали, поэтому критерий может быть не только картером («Блок цилиндров»).
+  const [scrapResolvePart, setScrapResolvePart] = useState('Картер');
+  const [scrapCriterionParts, setScrapCriterionParts] = useState<string[]>([]);
+
+  // Детали-критерии утиля — подсказка в «выводе из утиля»: какая деталь могла
+  // увести двигатель в утиль (метка на карточке детали).
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const result = await window.matrica.scrapCriterion.list();
+        if (!alive || !result?.ok) return;
+        const names = (result.parts ?? [])
+          .map((part) => String(part.name ?? '').trim())
+          .filter((name) => name.length > 0);
+        setScrapCriterionParts([...new Set(['Картер', ...names])]);
+      } catch {
+        if (alive) setScrapCriterionParts(['Картер']);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
   const [scrapResolveBusy, setScrapResolveBusy] = useState(false);
   const [scrapResolveStatus, setScrapResolveStatus] = useState('');
   // Реквизиты накладных/дефектовки/отчётных документов: однотипные поля, поэтому
@@ -1213,13 +1238,14 @@ export function EngineDetailsPage(props: {
       setScrapResolveStatus('Укажите дату');
       return;
     }
-    const action = scrapResolveOutcome === 'replaced' ? 'Картер заменён' : 'Картер отремонтирован';
+    const partLabel = scrapResolvePart.trim() || 'Картер';
+    const action = scrapResolveOutcome === 'replaced' ? `${partLabel} заменён` : `${partLabel} отремонтирован`;
     setScrapResolveBusy(true);
     setScrapResolveStatus('Записываю…');
     try {
       const meta = buildRepairHistoryMeta({
         action,
-        scrapResolved: { outcome: scrapResolveOutcome, partLabel: 'Картер', atMs },
+        scrapResolved: { outcome: scrapResolveOutcome, partLabel: partLabel, atMs },
         at: atMs,
         ...(scrapResolveNote.trim() ? { note: scrapResolveNote.trim() } : {}),
       });
@@ -2953,7 +2979,7 @@ export function EngineDetailsPage(props: {
         >
           <div style={{ fontWeight: 600 }}>Вывод из утиля</div>
           <div style={{ color: 'var(--muted)', fontSize: 12 }}>
-            Картер отремонтирован или заменён — двигатель выходит из утиля во всех списках и отчётах. След утиля остаётся в акте дефектовки и в истории ремонта.
+            Деталь отремонтирована или заменена — двигатель выходит из утиля во всех списках и отчётах. След утиля остаётся в акте дефектовки и в истории ремонта.
           </div>
           {!scrapResolveOpen ? (
             <div>
@@ -2972,6 +2998,21 @@ export function EngineDetailsPage(props: {
                   <input type="radio" checked={scrapResolveOutcome === 'replaced'} onChange={() => setScrapResolveOutcome('replaced')} />
                   Картер заменён
                 </label>
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>Деталь</span>
+                <input
+                  list="scrap-criterion-parts"
+                  value={scrapResolvePart}
+                  onChange={(e: any) => setScrapResolvePart(e.target.value)}
+                  placeholder="Картер"
+                  style={{ padding: 6, borderRadius: 8, border: '1px solid var(--input-border, #ccc)', background: 'var(--input-bg, #fff)' }}
+                />
+                <datalist id="scrap-criterion-parts">
+                  {scrapCriterionParts.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }}>Дата</span>

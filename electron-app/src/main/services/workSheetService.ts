@@ -33,7 +33,7 @@ import {
 } from '@matricarmz/shared';
 
 import { operations } from '../database/schema.js';
-import { getEngineDetails, getEngineReclamationFlags, getEngineRepairHistoryMap, resolveEngineLabels } from './engineService.js';
+import { getEngineDetails, engineDefectDateFromAttrs, getEngineReclamationFlags, getEngineRepairHistoryMap, getScrapCriterionEngineMap, resolveEngineLabels } from './engineService.js';
 import { getEngineActDatesMap, getOperation, listOperationsByType, softDeleteOperation, upsertOperation } from './operationService.js';
 import { ensureRepairStageRow, listRepairStageRows, stageRank } from './repairStageService.js';
 import { renumberRepeatPasses } from './repeatPassService.js';
@@ -309,6 +309,12 @@ async function completeRepairFromSheet(
   const legacy: Partial<Record<StatusCode, boolean>> = {};
   for (const code of STATUS_CODES) legacy[code] = isEavFlagSet(attrs[code]);
   if (isScrapEngine(legacy)) return { applied: false, reason: 'scrap-engine' };
+  // Утиль по детали (метка на карточке детали) — тот же вердикт, что в списке
+  // двигателей и в гейте сборочного наряда.
+  const criterionUtil = await getScrapCriterionEngineMap(db, [engineId], {
+    defectDateByEngineId: new Map([[engineId, engineDefectDateFromAttrs(attrs)]]),
+  });
+  if (criterionUtil.get(engineId)) return { applied: false, reason: 'scrap-engine' };
   if (legacy.status_repaired) return { applied: false, reason: 'already-repaired' };
 
   const rows = await listRepairStageRows(db, engineId);

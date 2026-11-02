@@ -1,6 +1,6 @@
 import type { EngineListItem } from '../ipc/types.js';
 import type { StatusCode } from './contract.js';
-import { DEFAULT_REPAIR_STAGE_TEMPLATES, repairStageRank, type RepairStageTemplate } from './repairStages.js';
+import { DEFAULT_REPAIR_STAGE_TEMPLATES, isServiceStageCode, repairStageRank, type RepairStageTemplate } from './repairStages.js';
 
 /**
  * «Где двигатель на заводе» — этап ремонта по данным карточки и строк этапов работ (владелец
@@ -98,6 +98,9 @@ function stageRow(
   const code = String(e.lastStageCode ?? '').trim().toLowerCase();
   const at = dateMs(e.lastStageAt);
   if (!code || at == null) return null;
+  // Служебный этап (заведение карточки) местом двигателя не является: он не этап
+  // ремонта, и в отчётах ему не полагается своя группа (решение владельца 02.11.2026).
+  if (isServiceStageCode(code)) return null;
   const ordered = orderedStageTemplates(templates);
   const idx = ordered.findIndex((t) => t.code === code);
   const template = idx >= 0 ? ordered[idx]! : null;
@@ -265,13 +268,13 @@ export function engineFactoryStageOrder(
   const sheets = orderedTypes(types).map((t, idx) => ({ key: `sheet:${t.code}`, label: t.name, rank: ENGINE_FACTORY_STAGE_RANK.sheetBase + idx }));
   const ordered = orderedStageTemplates(stageTemplates);
   const lineStages = ordered
-    .filter((t) => t.sideBranch !== true)
+    .filter((t) => t.sideBranch !== true && !isServiceStageCode(t.code))
     .map((t, idx) => ({ key: `stage:${t.code}`, label: t.name, rank: ENGINE_FACTORY_STAGE_RANK.stageBase + idx }))
     .reverse();
   // Боковая ветка — сразу после «Ремонт начат», с тем же рангом: вне линейки,
   // но не вперемешку с ней. Равные соседние ранги stable-сортировка не двигает.
   const sideStages = ordered
-    .filter((t) => t.sideBranch === true)
+    .filter((t) => t.sideBranch === true && !isServiceStageCode(t.code))
     .map((t) => ({ key: `stage:${t.code}`, label: t.name, rank: ENGINE_FACTORY_STAGE_RANK.repairStarted }));
   return [
     { key: 'scrap', label: ENGINE_FACTORY_STAGE_LABELS.scrap, rank: ENGINE_FACTORY_STAGE_RANK.scrap },

@@ -774,19 +774,30 @@ export function EngineHistoryFeedPanel(props: {
                         ))}
                     </td>
                     <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }}>
-                      {item.at > 0 ? formatMoscowDate(new Date(item.at)) : '—'}
+                      {/* Служебная отметка (заведение карточки) — не событие ремонта:
+                          даты исполнения у неё нет, только «записано» (когда и кем завели
+                          карточку). Решение владельца 02.11.2026. */}
+                      {item.service ? '' : item.at > 0 ? formatMoscowDate(new Date(item.at)) : '—'}
                       {item.pass >= 2 && <div className="ui-muted">проход № {item.pass} (возврат)</div>}
                     </td>
                     <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }} className="ui-muted" data-history-feed-recorded={item.id}>
-                      {item.recordedAt > 0 ? formatMoscowDate(new Date(item.recordedAt)) : '—'}
+                      {item.service
+                        ? item.at > 0
+                          ? formatMoscowDate(new Date(item.at))
+                          : '—'
+                        : item.recordedAt > 0
+                          ? formatMoscowDate(new Date(item.recordedAt))
+                          : '—'}
                     </td>
                     <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }}>
-                      <span
-                        className="ui-muted"
-                        style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 4, padding: '0 4px', whiteSpace: 'nowrap' }}
-                      >
-                        {item.icon} {item.kindLabel}
-                      </span>
+                      {item.service ? null : (
+                        <span
+                          className="ui-muted"
+                          style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 4, padding: '0 4px', whiteSpace: 'nowrap' }}
+                        >
+                          {item.icon} {item.kindLabel}
+                        </span>
+                      )}
                     </td>
                     <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }}>
                       {item.sheetRowId && props.onOpenWorkSheet ? (

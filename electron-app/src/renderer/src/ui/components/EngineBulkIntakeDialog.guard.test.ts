@@ -151,3 +151,36 @@ describe('EngineBulkIntakeDialog — приём двигателей списк�
     expect(PAGE).toContain('утиль верхнего картера не поставлен');
   });
 });
+
+// Владелец 02.11.2026: в пачке бывают двигатели с разными свойствами. Общие поля
+// пачки — это шаблон: галочка у поля означает «раскладывать его», а галочки в строках
+// отмечают двигатели, к которым раскладку применяют.
+describe('массовое изменение в приёме списком', () => {
+  it('у общих полей есть галочка «раскладывать по списку»', () => {
+    for (const field of ['engineBrand', 'customer', 'contract', 'arrivalDate', 'defectDate']) {
+      expect(DIALOG, `у поля ${field} нет галочки раскладки`).toContain(`data-bulk-intake-mass="${field}"`);
+    }
+  });
+
+  it('в строках списка есть галочка отметки двигателя', () => {
+    expect(DIALOG).toContain('data-bulk-intake-row-select="true"');
+    expect(DIALOG).toContain('setSelectedRows');
+  });
+
+  it('раскладка идёт по всем или по отмеченным', () => {
+    expect(DIALOG).toContain('Разложить по всем');
+    expect(DIALOG).toContain('data-bulk-intake-mass-apply-selected="true"');
+    expect(DIALOG).toContain("applyMassTemplate('all')");
+    expect(DIALOG).toContain("applyMassTemplate('selected')");
+  });
+
+  it('свойства строки перекрывают общие — в том числе контрагент и договор', () => {
+    expect(DIALOG).toContain('rowCustomers');
+    expect(DIALOG).toContain('rowContracts');
+    expect(DIALOG).toContain('customerId: rowCustomers[row.key] || base.customerId');
+    expect(DIALOG).toContain('contractId: rowContracts[row.key] || base.contractId');
+    expect(DIALOG).toContain('customerId: rowCustomers[item.key] }');
+    expect(SERVICE).toContain('customerId: trimOrNull(row?.customerId) ?? customerId');
+    expect(SERVICE).toContain('contractId: trimOrNull(row?.contractId) ?? contractId');
+  });
+});

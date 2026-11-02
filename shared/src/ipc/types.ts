@@ -15,9 +15,27 @@ import type { ServicePriceHistoryDto, ServicePriceOrderDto } from '../domain/ser
 import type { WorkSheetRow, WorkSheetType } from '../domain/workSheets.js';
 import type { ContractPayments } from '../domain/payments.js';
 import type { MenuTabId } from '../domain/uiSections.js';
+import type { ScrapCriterionPartInfo } from '../domain/scrapCriterion.js';
 
 /** Избранные разделы оператора (левая колонка оболочки). Локально, per-user scope. */
 export type SectionFavoritesResult = { ok: true; ids: MenuTabId[] } | { ok: false; error: string };
+/** Набор деталей-критериев утиля и сухой прогон по ним. */
+export type ScrapCriterionListResult =
+  | { ok: true; parts: ScrapCriterionPartInfo[] }
+  | { ok: false; error: string };
+
+export type ScrapCriterionSeedResult =
+  | { ok: true; parts: ScrapCriterionPartInfo[]; skipped?: 'already-seeded' }
+  | { ok: false; error: string };
+
+export type ScrapCriterionStateResult =
+  | { ok: true; enabled: boolean; partId: string | null; name: string; engines: number; lines: number }
+  | { ok: false; error: string };
+
+export type ScrapCriterionImpactResult =
+  | { ok: true; parts: ScrapCriterionPartInfo[]; engines: number; lines: number }
+  | { ok: false; error: string };
+
 
 /** Строка контрагента строгой реплики/двери — snake_case, как отдаёт сервер. */
 export type CounterpartyStrictRow = {
@@ -1535,6 +1553,18 @@ export type MatricaApi = {
   sections: {
     favoritesGet: (args?: { userId?: string }) => Promise<SectionFavoritesResult>;
     favoritesSet: (args: { userId?: string; ids: string[] }) => Promise<SectionFavoritesResult>;
+  };
+  scrapCriterion: {
+    /** Детали-критерии утиля: помеченные на карточках деталей. */
+    /** Наполнить набор критериями по умолчанию (картерные детали) — одноразово. */
+    seed: () => Promise<ScrapCriterionSeedResult>;
+    /** Текущее состояние метки по детали (для карточки детали). */
+    get: (args: { partId: string }) => Promise<ScrapCriterionStateResult>;
+    list: () => Promise<ScrapCriterionListResult>;
+    /** Сухой прогон: сколько двигателей затронет метка на этих деталях. */
+    impact: (args: { partIds: string[] }) => Promise<ScrapCriterionImpactResult>;
+    /** Поставить/снять метку «уводит двигатель в утиль» на детали. */
+    set: (args: { partId: string; enabled: boolean }) => Promise<ScrapCriterionImpactResult>;
   };
   reportsBuilder: {
     preview: (args: ReportBuilderPreviewRequest) => Promise<ReportBuilderPreviewResult>;

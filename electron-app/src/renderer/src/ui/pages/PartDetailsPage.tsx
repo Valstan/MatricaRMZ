@@ -6,6 +6,7 @@ import { Input } from '../components/Input.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { SectionCard } from '../components/SectionCard.js';
+import { ScrapCriterionPartToggle } from '../components/ScrapCriterionPartToggle.js';
 import {
   normalizeForMatch,
   parseContractExecutionParts,
@@ -926,6 +927,15 @@ export function PartDetailsPage(props: {
               </div>
             )}
           />
+        </SectionCard>
+
+        <SectionCard
+          title="Утильный признак двигателя"
+          collapsible
+          defaultCollapsed
+          style={{ borderRadius: 0, padding: 16 }}
+        >
+          <ScrapCriterionPartToggle partId={props.partId} canEdit={props.canEdit} />
         </SectionCard>
 
         <SectionCard title={`Где используется${usageItems.length ? ` (${usageItems.length})` : ''}`} collapsible defaultCollapsed style={{ borderRadius: 0, padding: 16 }}>

@@ -1,5 +1,5 @@
 import type { EngineListItem } from '../ipc/types.js';
-import { STATUS_LABELS, type StatusCode } from './contract.js';
+import { STATUS_LABELS, canonicalContractSectionKey, isContractAddonToken, type StatusCode } from './contract.js';
 import {
   ENGINE_FACTORY_STAGE_LABELS,
   engineFactoryStage,
@@ -8,7 +8,7 @@ import {
   returnsPass,
   type EngineFactoryStageTypeRef,
 } from './engineFactoryStage.js';
-import { DEFAULT_REPAIR_STAGE_TEMPLATES, repairStageTemplate, type RepairStageTemplate } from './repairStages.js';
+import { DEFAULT_REPAIR_STAGE_TEMPLATES, isServiceStageCode, repairStageTemplate, type RepairStageTemplate } from './repairStages.js';
 import { COUNTDOWN_STALE_DAYS, countdownThresholds, isEngineDoneForCountdown } from './payments.js';
 import {
   activeFacetCount,
@@ -142,11 +142,15 @@ const REPAIR_DEADLINE_ORDER: readonly RepairDeadlineKey[] = ['danger', 'warning'
  * при отсутствии — статичная линейка. Подпись ступени не должна зависеть от того, ответил
  * ли сервер: иначе один и тот же двигатель попадал бы в разные группы при офлайне.
  */
-/** Ряд значений ступеней этапов — в порядке шаблона (приоритет линейки, боковая ветка в конце), плюс «этапов нет». */
+/** Ряд значений ступеней этапов — в порядке шаблона (приоритет линейки, боковая ветка в конце), плюс «этапов нет».
+ *  Служебный этап («Создание карточки двигателя») в фильтр не попадает: это отметка о
+ *  заведении карточки, а не этап ремонта (решение владельца 02.11.2026). */
 export function engineStageFacetOptions(types?: readonly EngineFactoryStageTypeRef[], stageTemplates?: readonly RepairStageTemplate[]) {
   void types;
   return [
-    ...orderedStageTemplates(stageTemplates).map((s) => ({ value: `stage:${s.code}`, label: s.name })),
+    ...orderedStageTemplates(stageTemplates)
+      .filter((s) => !isServiceStageCode(s.code))
+      .map((s) => ({ value: `stage:${s.code}`, label: s.name })),
     { value: 'none', label: 'этапов нет' },
   ];
 }
@@ -162,8 +166,14 @@ function factoryStageFilterOptions(
   stageTemplates?: readonly RepairStageTemplate[],
 ): Array<{ value: string; label: string }> {
   const ordered = orderedStageTemplates(stageTemplates);
-  const line = ordered.filter((t) => t.sideBranch !== true).map((t) => ({ value: `stage:${t.code}`, label: t.name }));
-  const side = ordered.filter((t) => t.sideBranch === true).map((t) => ({ value: `stage:${t.code}`, label: t.name }));
+  // Служебный этап («Создание карточки двигателя») — не этап ремонта: ни своей
+  // ступени в фильтре, ни группы в отчёте (решение владельца 02.11.2026).
+  const line = ordered
+    .filter((t) => t.sideBranch !== true && !isServiceStageCode(t.code))
+    .map((t) => ({ value: `stage:${t.code}`, label: t.name }));
+  const side = ordered
+    .filter((t) => t.sideBranch === true && !isServiceStageCode(t.code))
+    .map((t) => ({ value: `stage:${t.code}`, label: t.name }));
   const sheets = [...(types ?? [])]
     .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name, 'ru'))
     .map((t) => ({ value: `sheet:${t.code}`, label: t.name }));
@@ -331,11 +341,26 @@ export function engineFacets(
       kind: 'values',
       id: 'contract',
       label: 'Контракт',
+      // Владелец 02.11.2026: договор состоит из основного договора и ДС, двигатель сидит
+      // на конкретной секции — и в ступени нужно уметь выбрать «договор» и «договор — ДС 2».
+      // У двигателя на ДС два значения: весь договор (главное) и само ДС (`values` — строка
+      // подходит по любому из них). Выбор договора оставляет все его двигатели, выбор ДС —
+      // только двигатели этого соглашения.
       valueOf: (e) => {
         const id = text(e.contractId);
         const label = text(e.contractName);
         if (!id && !label) return NO_VALUE;
-        return { value: id || `name:${label.toLowerCase()}`, label: label || 'без номера' };
+        const contractValue = id || `name:${label.toLowerCase()}`;
+        const contractLabel = label || 'без номера';
+        const section = canonicalContractSectionKey(e.contractSectionNumber);
+        if (!isContractAddonToken(section)) return { value: contractValue, label: contractLabel };
+        const sectionValue = `${contractValue}::${section}`;
+        return {
+          value: contractValue,
+          label: contractLabel,
+          values: [sectionValue],
+          extraLabels: { [sectionValue]: `${contractLabel} — ${section}` },
+        };
       },
     },
     {
@@ -496,7 +521,12 @@ export function engineFacets(
       id: 'hasStage',
       label: 'История',
       valueOf: (e) => {
-        const codes = (e.stageCodes ?? []).filter((c: string) => stageByCode(c, stageTemplates) !== null);
+        // Служебный этап (заведение карточки) — не этап ремонта: в ступени «История»
+        // его нет, и двигатель, у которого он один, попадает в «этапов нет», а не
+        // пропадает из выборки совсем (решение владельца 02.11.2026).
+        const codes = (e.stageCodes ?? []).filter(
+          (c: string) => stageByCode(c, stageTemplates) !== null && !isServiceStageCode(c),
+        );
         const first = codes[0];
         if (first === undefined) return { value: 'none', label: 'этапов нет' };
         // Главное значение — первый по порядку линейки (подпись ступени), а `values`

@@ -37,6 +37,11 @@ import {
   formatEngineInternalNumber,
   formatEngineRmzNumber,
   isScrapEngine,
+  isLegacyCrankcaseName,
+  inventoryRowPartId,
+  isScrapCriterionEngineUtil,
+  isServiceStageCode,
+  type ScrapCriterionPartRef,
   isValidEngineInternalNumberYear,
   normalizeLookupCompact,
   parseContractSections,
@@ -53,6 +58,7 @@ import { collectChunked } from '../utils/sqlChunks.js';
 import { mergeStrictCardAttrs, readEngineCardStrict, strictRowToSnake, type EavCardAttr } from './engineCardsReplica.js';
 import { readInventoryFlagRowsForOperations, readInventoryLinesVersions, type InventoryFlagRow } from './engineInventoryLinesReplica.js';
 import { listEntitiesByType, listEntitiesByTypeWithAttrs } from './entityService.js';
+import { loadScrapCriterionIndex } from './scrapCriterionService.js';
 import { ensureRepairStageRow, listRepairStageRows, stageRank } from './repairStageService.js';
 import type {
   RepairHistorySourceRow,
@@ -317,13 +323,18 @@ function toNonNegativeInteger(value: unknown): number | null {
 }
 
 // D-#9: авто-брак двигателя — деталь-картер ушла в утиль (scrap_qty>0) в списке деталей.
-// Прочие детали в утиле не делают двигатель забракованным (см. PENDING §D). Имя картера
-// узнаём по вхождению «картер» (без регистра) в part_name строки.
-// Источник — стадия `engine_inventory` (таблица engine_inventory_items): checklist-unify
-// (migrateChecklistToEngineInventory) объединил defect+completeness в неё и soft-delete'нул
-// прежние defect-акты, поэтому читать надо именно её, иначе флаг всегда пуст (G: метка
-// не снималась — читался опустевший defect-акт, а карточка пишет engine_inventory).
+// Историческое правило: имя картера узнаём по вхождению «картер» (без регистра) в
+// part_name строки. С 02.11.2026 критерий утиля задаётся МЕТКОЙ НА ДЕТАЛИ
+// (`scrap_criterion` на карточке детали, решение владельца): «Блок цилиндров» в утиле
+// уводит двигатель в утиль так же, как картер. Источник — стадия `engine_inventory`
+// (таблица engine_inventory_items): checklist-unify (migrateChecklistToEngineInventory)
+// объединил defect+completeness в неё и soft-delete'нул прежние defect-акты, поэтому
+// читать надо именно её, иначе флаг всегда пуст (G: метка не снималась — читался
+// опустевший defect-акт, а карточка пишет engine_inventory).
 type EngineInventoryFlags = {
+  /** Детали, ушедшие в утиль по акту: по ним узнаём критерий утиля двигателя. */
+  scrapParts: ScrapCriterionPartRef[];
+  /** Старое правило D-#9: в утиль ушла деталь с «картер» в имени. */
   crankcaseScrapped: boolean;
   actStarted: boolean;
   defectStarted: boolean;
@@ -365,7 +376,13 @@ function isPresentValue(value: unknown): boolean {
 
 /** Ровно те поля строки, по которым считаются флаги: см. `InventoryFlagRow`. */
 function flagRowsFromPayloadRows(rows: ReadonlyArray<Record<string, unknown>>): InventoryFlagRow[] {
-  return rows.map((r) => ({ partName: r.part_name, present: r.present, scrapQty: r.scrap_qty, replaceQty: r.replace_qty }));
+  return rows.map((r) => ({
+    partId: inventoryRowPartId(r),
+    partName: r.part_name,
+    present: r.present,
+    scrapQty: r.scrap_qty,
+    replaceQty: r.replace_qty,
+  }));
 }
 
 /**
@@ -375,6 +392,7 @@ function flagRowsFromPayloadRows(rows: ReadonlyArray<Record<string, unknown>>): 
  */
 function flagsFromInventoryRows(payload: unknown, rows: ReadonlyArray<InventoryFlagRow>): EngineInventoryFlags {
   const completenessInspectionAt = completenessInspectionAtOf(payload);
+  const scrapParts: ScrapCriterionPartRef[] = [];
   let crankcaseScrapped = false;
   let actStarted = false;
   let defectStarted = false;
@@ -389,17 +407,22 @@ function flagsFromInventoryRows(payload: unknown, rows: ReadonlyArray<InventoryF
       const replaceQty = toNonNegativeInteger(row.replaceQty) ?? 0;
       if (scrapQty > 0 || replaceQty > 0) defectStarted = true;
     }
-    if (!crankcaseScrapped) {
-      const name = String(row.partName ?? '').toLowerCase();
-      if (name.includes('картер')) {
-        const scrapQty = toNonNegativeInteger(row.scrapQty);
-        if (scrapQty != null && scrapQty > 0) crankcaseScrapped = true;
-      }
+    const scrapQty = toNonNegativeInteger(row.scrapQty);
+    if (scrapQty != null && scrapQty > 0) {
+      // Деталь ушла в утиль: она и есть кандидат на признак «двигатель утильный».
+      // Список деталей нужен целиком — по нему решается, уводит ли эта деталь
+      // двигатель в утиль (метка на карточке детали) или это обычный утиль.
+      const partId = String(row.partId ?? '').trim();
+      const partName = String(row.partName ?? '').trim();
+      // Строка без названия и без id (агрегат акта из реплики) деталью не является:
+      // в признак утиля она не идёт — иначе реплика и meta_json разошлись бы.
+      if (partId || partName) scrapParts.push({ partId: partId || null, partName: partName || null });
+      if (!crankcaseScrapped && isLegacyCrankcaseName(partName)) crankcaseScrapped = true;
     }
-    if (actStarted && crankcaseScrapped && defectStarted) break;
   }
   const answers = payload && typeof payload === 'object' ? (payload as { answers?: unknown }).answers : null;
   return {
+    scrapParts,
     crankcaseScrapped,
     actStarted,
     defectStarted,
@@ -591,13 +614,66 @@ export type EngineRepairHistorySummary = {
 // История ремонта — самая тяжёлая из карт списка (читает и разбирает meta_json всех
 // операций истории), а меняется редко. Кэш версионируется по count+max(updated_at)
 // строк истории: новое событие в истории → новый штамп → пересчёт; иначе пересчёт не нужен.
+/**
+ * Двигатели, утильные ПО ДЕТАЛЯМ: в списке их деталей есть деталь-критерий,
+ * ушедшая в утиль (метка на карточке детали), и снятия утиля не было.
+ *
+ * Формула та же, что в списке двигателей (`isScrapCriterionEngineUtil`):
+ * расходиться нельзя — иначе двигатель в списке утильный, а в гейте наряда
+ * и в отчёте обычный.
+ *
+ * `defectDateByEngineId` — момент источника утиля (дата дефектовки). Без него
+ * снятие считается побеждающим (как в `isScrapResolvedFor` при неизвестном
+ * моменте источника): решение оператора молча игнорировать нельзя.
+ */
+export async function getScrapCriterionEngineMap(
+  db: BetterSQLite3Database,
+  engineIds: string[],
+  opts?: { defectDateByEngineId?: ReadonlyMap<string, number | null> },
+): Promise<Map<string, boolean>> {
+  const result = new Map<string, boolean>();
+  if (engineIds.length === 0) return result;
+  try {
+    const index = await loadScrapCriterionIndex(db);
+    const flags = await getEngineInventoryFlagsMap(db, engineIds);
+    const history = await getEngineRepairHistoryMap(db, engineIds);
+    for (const engineId of engineIds) {
+      const engineFlags = flags.get(engineId);
+      if (!engineFlags) continue;
+      const parts = engineFlags.scrapParts.map((part) => ({
+        partId: index.nomenclatureToPart.get(String(part.partId ?? '')) ?? part.partId ?? null,
+        partName: part.partName ?? null,
+      }));
+      const util = isScrapCriterionEngineUtil(parts, index.set, {
+        scrapResolvedAt: history.get(engineId)?.scrapResolvedAt ?? null,
+        sourceAt: opts?.defectDateByEngineId?.get(engineId) ?? null,
+      });
+      if (util) result.set(engineId, true);
+    }
+  } catch {
+    // Признак по деталям — дополнение: нет таблиц (старая база, фикстура) — работаем как раньше.
+  }
+  return result;
+}
+
 let repairHistoryCache: { stamp: string; map: Map<string, EngineRepairHistorySummary> } | null = null;
+
+/**
+ * Дата дефектовки двигателя из карточки — момент источника утиля (ею же
+ * датируется снятие утиля: «деталь отремонтировали раньше дефектовки» —
+ * утиль стоит, «после» — снятие гасит).
+ */
+export function engineDefectDateFromAttrs(attrs: Record<string, unknown> | null | undefined): number | null {
+  const raw = attrs?.['defect_date'];
+  if (raw == null) return null;
+  const parsed = typeof raw === 'number' ? raw : Number(safeJsonParse(String(raw)));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
 
 export async function getEngineRepairHistoryMap(
   db: BetterSQLite3Database,
   engineIds: string[],
-): Promise<Map<string, EngineRepairHistorySummary>> {
-  const result = new Map<string, EngineRepairHistorySummary>();
+): Promise<Map<string, EngineRepairHistorySummary>> {  const result = new Map<string, EngineRepairHistorySummary>();
   if (engineIds.length === 0) return result;
 
   const stampQuery = await db
@@ -702,6 +778,11 @@ export async function getEngineRepairHistoryMap(
     for (const entry of entries) {
       if (entry.entryType !== 'stage' || !entry.stage) continue;
       if (typeof entry.at !== 'number' || !Number.isFinite(entry.at) || entry.at <= 0) continue;
+      // Служебная отметка (заведение карточки) — не этап ремонта: последним этапом
+      // двигателя она быть не может, иначе колонка «Этап» в списке и отчётах
+      // показывала бы «Создание карточки двигателя» вместо места двигателя
+      // (решение владельца 02.11.2026).
+      if (isServiceStageCode(entry.stage.code)) continue;
       const candidate = { at: entry.at, pass: entry.pass, code: entry.stage.code, name: entry.stage.name };
       if (
         best === null ||
@@ -739,8 +820,17 @@ export async function getEngineRepairHistoryMap(
       ...(scrapResolvedAt != null ? { scrapResolvedAt } : {}),
       // B5: все прохождения этапов для отчёта «История» — каждая запись = один проход.
       // Дубликаты кода допустимы (повторные заходы); каждая запись несёт свою дату и проход.
+      // Служебный проход (заведение карточки) — не этап ремонта: в проходы не попадает
+      // (решение владельца 02.11.2026).
       ...(entries
-        .filter((e) => e.entryType === 'stage' && e.stage && typeof e.at === 'number' && e.at > 0)
+        .filter(
+          (e) =>
+            e.entryType === 'stage' &&
+            e.stage &&
+            typeof e.at === 'number' &&
+            e.at > 0 &&
+            !isServiceStageCode(String(e.stage!.code ?? '')),
+        )
         .map((e) => ({
           code: String(e.stage!.code ?? '').trim().toLowerCase(),
           name: String(e.stage!.name ?? '').trim(),
@@ -748,7 +838,14 @@ export async function getEngineRepairHistoryMap(
           pass: e.pass ?? 1,
         })) satisfies EngineStageEntry[]
         ? { stageEntries: entries
-            .filter((e) => e.entryType === 'stage' && e.stage && typeof e.at === 'number' && e.at > 0)
+            .filter(
+              (e) =>
+                e.entryType === 'stage' &&
+                e.stage &&
+                typeof e.at === 'number' &&
+                e.at > 0 &&
+                !isServiceStageCode(String(e.stage!.code ?? '')),
+            )
             .map((e) => ({
               code: String(e.stage!.code ?? '').trim().toLowerCase(),
               name: String(e.stage!.name ?? '').trim(),
@@ -1039,6 +1136,10 @@ export async function listEngines(
   const engineIds = engines.map((e) => e.id);
   const inventoryFlagsByEngineId = await getEngineInventoryFlagsMap(db, engineIds, opts?.onPhase ? { onPhase: opts.onPhase } : undefined);
   mark('maps.inventoryFlags');
+  // Набор деталей-критериев утиля (метка на карточке детали). Читается на каждый
+  // сбор списка: смена метки видна сразу, без перезапуска клиента.
+  const scrapCriterionIndex = await loadScrapCriterionIndex(db);
+  mark('maps.scrapCriterion');
   const historyByEngineId = await getEngineRepairHistoryMap(db, engineIds);
   mark('maps.repairHistory');
   const lastActivityByEngineId = await getEngineLastActivityMap(db, engineIds);
@@ -1337,9 +1438,11 @@ export async function listEngines(
     // подсветка и колонка «Утиль» видели только «Забракован» и картер в утиле, из-за чего двигатель,
     // помеченный «Признан утильным», в списке выглядел обычным, а в отчётах числился утилем.
     const statusScrapMarked = isScrapEngine(statusFlags);
-    // D-#9: авто-брак по детали-картеру в утиле (источник — engine_inventory, см. выше).
+    // Признак утиля по детали (источник — engine_inventory, см. выше). Критерий задаётся
+    // меткой на карточке детали: «Блок цилиндров» в утиле уводит двигатель в утиль так же,
+    // как картер (старое правило D-#9 живёт в `matchesScrapCriterion`).
     const inventoryFlags = inventoryFlagsByEngineId.get(e.id);
-    const crankcaseScrapped = inventoryFlags?.crankcaseScrapped === true;
+    const scrapParts = inventoryFlags?.scrapParts ?? [];
     // Этапы из акта (унификация актов, 10.10.2026): выведенные arrival/disassembly_defect
     // складываются с хранимыми без дублей; хранимый объект истории не трогаем (он в кэше).
     // Стоит после inventoryFlags: даты акта едут из того же прохода по листам.
@@ -1410,7 +1513,17 @@ export async function listEngines(
     // того же или более раннего момента — акт не переписываем, след живёт в истории.
     // Заключённым флагам решает само действие: чистит их дверью карточки.
     const scrapResolvedAt = history?.scrapResolvedAt ?? null;
-    const crankcaseScrappedLive = crankcaseScrapped && !isScrapResolvedFor(scrapResolvedAt, defectDate);
+    // Признак «утиль по детали» живёт тем же снятием: деталь отремонтировали или
+    // заменили — двигатель перестаёт быть утильным (действие «Деталь отремонтирована»).
+    // Формула одна и здесь, и в гейте наряда, и в отчётах (`isScrapCriterionEngineUtil`).
+    const criterionScrappedLive = isScrapCriterionEngineUtil(
+      scrapParts.map((part) => ({
+        partId: scrapCriterionIndex.nomenclatureToPart.get(String(part.partId ?? '')) ?? part.partId ?? null,
+        partName: part.partName ?? null,
+      })),
+      scrapCriterionIndex.set,
+      { scrapResolvedAt, sourceAt: defectDate },
+    );
     const scrapBranchLive =
       lastStageCode === 'scrap_branch' && !isScrapResolvedFor(scrapResolvedAt, lastStageAt);
     const rmzSeq = rmzSeqByEngineId.get(e.id);
@@ -1437,7 +1550,7 @@ export async function listEngines(
       // намеренно НЕ читаем: его OR делал импортное true неисправимым из карточки — та же
       // dual-source-ловушка, что у shipping_date. На проде было лишь 2 таких, оба уже status_rejected.
       // Шаг 8/2: плюс отметка боковой ветки единого списка (её с 8/1 ставит рука вместо галочки).
-      isScrap: statusRejected || statusScrapMarked || crankcaseScrappedLive || scrapBranchLive,
+      isScrap: statusRejected || statusScrapMarked || criterionScrappedLive || scrapBranchLive,
       ...(scrapReason ? { scrapReason } : {}),
       ...(inventoryFlags?.actStarted === true ? { hasCompletenessAct: true } : {}),
       completenessActDate: inventoryFlags?.completenessInspectionAt ?? null,
@@ -2054,6 +2167,14 @@ export async function advanceEngineStatusForWorkOrder(
   const current: Partial<Record<StatusCode, boolean>> = {};
   for (const code of STATUS_CODES) current[code] = isEavFlagSet(attrs[code]);
   if (isScrapEngine(current)) return { applied: false, reason: 'scrap-engine' };
+  // Утиль ПО ДЕТАЛИ (метка на карточке детали) — тот же вердикт, что карточная
+  // метка: утильный двигатель собирают обратно из того, что есть, этап «Сборка»
+  // не двигается. Формула одна со списком и отчётами.
+  const defectDate = engineDefectDateFromAttrs(attrs);
+  const criterionUtil = await getScrapCriterionEngineMap(db, [id], {
+    defectDateByEngineId: new Map([[id, defectDate]]),
+  });
+  if (criterionUtil.get(id)) return { applied: false, reason: 'scrap-engine' };
 
   // Только вперёд: двигатель уже дальше сборки (обкатка и далее) — не двигаем.
   const rows = await listRepairStageRows(db, id);

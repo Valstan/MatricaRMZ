@@ -44,6 +44,7 @@ function inspection(value: unknown): Record<string, unknown> {
 }
 
 const EMPTY = {
+  scrapParts: [],
   crankcaseScrapped: false,
   actStarted: false,
   defectStarted: false,
@@ -154,12 +155,42 @@ describe('computeEngineInventoryFlags — прежние флаги акта', (
       }),
     );
     expect(flags).toEqual({
+      scrapParts: [{ partId: null, partName: 'Картер маховика' }],
       crankcaseScrapped: true,
       actStarted: true,
       defectStarted: true,
       completenessInspectionAt: INSPECTED_AT,
       actDates: { arrivalDate: null, completenessInspectionDate: INSPECTED_AT, defectStartDate: null },
     });
+  });
+});
+
+describe('computeEngineInventoryFlags — детали, ушедшие в утиль (признак «утильный двигатель»)', () => {
+  it('в утиль ушедшие детали собираются в список — по ним решается, уводит ли деталь двигатель в утиль', () => {
+    // С 02.11.2026 критерий утиля задаётся меткой на карточке детали, а не словом «картер»:
+    // список утильных деталей акта — это вход правила, а не готовый вердикт.
+    const flags = computeEngineInventoryFlags(
+      sheet(
+        table(
+          { part_name: 'Форсунка', scrap_qty: 1 },
+          { part_name: 'Блок цилиндров', __brand_part_id: 'part-cyl', scrap_qty: 1 },
+        ),
+      ),
+    );
+    expect(flags.scrapParts).toEqual([
+      { partId: null, partName: 'Форсунка' },
+      { partId: 'part-cyl', partName: 'Блок цилиндров' },
+    ]);
+  });
+
+  it('деталь, которую заказали новую, в утиль не уходит', () => {
+    const flags = computeEngineInventoryFlags(sheet(table({ part_name: 'Блок цилиндров', replace_qty: 1 })));
+    expect(flags.scrapParts).toEqual([]);
+  });
+
+  it('картер по-прежнему уводит двигатель в утиль (старое правило живёт до переноса картера в галку)', () => {
+    const flags = computeEngineInventoryFlags(sheet(table({ part_name: 'Картер блока', scrap_qty: 1 })));
+    expect(flags.crankcaseScrapped).toBe(true);
   });
 });
 

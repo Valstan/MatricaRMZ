@@ -262,10 +262,81 @@ export type EngineBulkIntakeRowInput = {
    * и перекрывают общие поля пачки.
    */
   brandId?: string | null;
+  customerId?: string | null;
+  contractId?: string | null;
   incomingOtkDate?: number | null;
   waybillNumber?: string | null;
   defectDate?: number | null;
 };
+
+/**
+ * Поля, которые можно раскладывать массово (владелец 02.11.2026): общие поля
+ * пачки — это шаблон, и по нему можно разложить значения сразу по всем
+ * двигателям или по отмеченным. Накладная сюда НЕ входит: она у каждого
+ * двигателя своя, общей быть не может (см. `EngineBulkIntakeOffer`).
+ */
+export type EngineBulkIntakeMassField =
+  | 'engineBrand'
+  | 'customer'
+  | 'contract'
+  | 'arrivalDate'
+  | 'defectDate'
+  | 'internalNumber';
+
+export const ENGINE_BULK_INTAKE_MASS_FIELD_LABELS: Readonly<Record<EngineBulkIntakeMassField, string>> = {
+  engineBrand: 'марка двигателя',
+  customer: 'контрагент',
+  contract: 'договор',
+  arrivalDate: 'входной контроль ОТК',
+  defectDate: 'дата дефектовки',
+  internalNumber: 'внутренний номер',
+};
+
+/** Как вводится значение поля: ссылка на справочник, дата или текст. */
+export type EngineBulkIntakeMassValueKind = 'ref' | 'date' | 'text';
+
+export type EngineBulkIntakeMassValue = {
+  field: EngineBulkIntakeMassField;
+  kind: EngineBulkIntakeMassValueKind;
+  /** Значение в его естественном виде: id справочника, мс даты или текст. */
+  value: string | number;
+};
+
+/**
+ * Значения общих полей пачки для раскладки по строкам — только те, что заданы:
+ * пустое поле раскладывать нечего, иначе пустая ячейка стёрла бы своё значение.
+ */
+export function engineBulkIntakeMassValues(
+  fields: readonly EngineBulkIntakeMassField[],
+  offer: EngineBulkIntakeOffer,
+): EngineBulkIntakeMassValue[] {
+  const out: EngineBulkIntakeMassValue[] = [];
+  for (const field of fields) {
+    if (field === 'engineBrand') {
+      const value = trimOrNullValue(offer.brandId);
+      if (value) out.push({ field, kind: 'ref', value });
+    } else if (field === 'customer') {
+      const value = trimOrNullValue(offer.customerId);
+      if (value) out.push({ field, kind: 'ref', value });
+    } else if (field === 'contract') {
+      const value = trimOrNullValue(offer.contractId);
+      if (value) out.push({ field, kind: 'ref', value });
+    } else if (field === 'arrivalDate') {
+      if (offer.arrivalDate != null && offer.arrivalDate > 0) out.push({ field, kind: 'date', value: offer.arrivalDate });
+    } else if (field === 'defectDate') {
+      if (offer.defectDate != null && offer.defectDate > 0) out.push({ field, kind: 'date', value: offer.defectDate });
+    } else if (field === 'internalNumber') {
+      const value = trimOrNullValue(offer.internalNumber);
+      if (value) out.push({ field, kind: 'text', value });
+    }
+  }
+  return out;
+}
+
+function trimOrNullValue(value: unknown): string | null {
+  const text = String(value ?? '').trim();
+  return text ? text : null;
+}
 
 /**
  * Порядок действий по умолчанию (владелец 21.10.2026): у нового двигателя —

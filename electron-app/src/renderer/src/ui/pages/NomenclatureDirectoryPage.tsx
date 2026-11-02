@@ -61,6 +61,11 @@ export function NomenclatureDirectoryPage(props: {
   onCreateDeferred?: () => void;
 }) {
   const [rows, setRows] = useState<WarehouseNomenclatureListItem[]>([]);
+  // Признак «деталь уводит двигатель в утиль» (метка на карточке детали).
+  // Фильтр нужен, чтобы быстро найти и пополнить набор — иначе добавление новой
+  // детали в набор превращается в поиск по всему справочнику.
+  const [criterionOnly, setCriterionOnly] = useState(false);
+  const [criterionIds, setCriterionIds] = useState<Set<string>>(() => new Set());
   const { promptText } = useConfirm();
   const [servicePrices, setServicePrices] = useState<Record<string, number | null>>({});
   const [serviceBrandIds, setServiceBrandIds] = useState<Record<string, string[]>>({});
@@ -237,9 +242,48 @@ export function NomenclatureDirectoryPage(props: {
     };
   }, [canView, props.directoryKind, rows]);
 
+  // Набор деталей-критериев утиля: подгружаем, чтобы фильтр «только утильные
+  // детали» работал офлайн (набор приходит из локальной базы клиента).
+  useEffect(() => {
+    if (!canView || props.directoryKind !== 'part') return;
+    let alive = true;
+    void (async () => {
+      try {
+        const result = await window.matrica.scrapCriterion.list();
+        if (!alive) return;
+        if (!result?.ok) {
+          setCriterionIds(new Set());
+          return;
+        }
+        const ids = new Set<string>();
+        for (const part of result.parts ?? []) {
+          const partId = String(part.partId ?? '').trim();
+          if (partId) ids.add(partId);
+          for (const nomId of part.nomenclatureIds ?? []) {
+            const id = String(nomId ?? '').trim();
+            if (id) ids.add(id);
+          }
+        }
+        setCriterionIds(ids);
+      } catch {
+        if (alive) setCriterionIds(new Set());
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [canView, props.directoryKind]);
+
   const sortedRows = useMemo(() => {
     const dir = sortDir === 'asc' ? 1 : -1;
-    return [...rows].sort((a, b) => {
+    const base = criterionOnly
+      ? rows.filter((row) => {
+          const refId = String(row.directoryRefId ?? '').trim();
+          const rowId = String(row.id ?? '').trim();
+          return (refId && criterionIds.has(refId)) || (rowId && criterionIds.has(rowId));
+        })
+      : rows;
+    return [...base].sort((a, b) => {
       let cmp = 0;
       if (sortKey === 'code') cmp = String(a.code ?? '').localeCompare(String(b.code ?? ''), 'ru');
       else if (sortKey === 'name') cmp = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
@@ -254,7 +298,7 @@ export function NomenclatureDirectoryPage(props: {
       if (cmp === 0) cmp = String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ru');
       return cmp * dir;
     });
-  }, [rows, sortDir, sortKey, brandPartCounts, servicePrices, serviceBrandIds, serviceUnits, serviceDescriptions, serviceAttachmentsCount]);
+  }, [rows, sortDir, sortKey, brandPartCounts, servicePrices, serviceBrandIds, serviceUnits, serviceDescriptions, serviceAttachmentsCount, criterionOnly, criterionIds]);
 
   function onSort(nextKey: SortKey) {
     if (sortKey === nextKey) {
@@ -675,6 +719,41 @@ export function NomenclatureDirectoryPage(props: {
             <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={props.searchPlaceholder} />
           </div>
         </ToolbarPin>
+        {props.directoryKind === 'part' ? (
+          <>
+            <Button
+              variant={criterionOnly ? 'primary' : 'ghost'}
+              tone="neutral"
+              onClick={() => setCriterionOnly((prev) => !prev)}
+              title="Только детали, помеченные как «уводит двигатель в утиль»"
+            >
+              Только утильные детали{criterionIds.size ? ` (${criterionIds.size})` : ''}
+            </Button>
+            <Button
+              variant="ghost"
+              tone="neutral"
+              onClick={() => {
+                void (async () => {
+                  setStatus('Наполняю набор…');
+                  const result = await window.matrica.scrapCriterion.seed();
+                  if (!result?.ok) {
+                    setStatus(`Ошибка: ${String(result?.error ?? 'не удалось')}`);
+                    return;
+                  }
+                  if (result.skipped === 'already-seeded') {
+                    setStatus('Набор уже наполнялся — картерные детали в нём есть');
+                  } else {
+                    setStatus(`В набор добавлено деталей: ${result.parts.length}`);
+                  }
+                  await refresh();
+                })();
+              }}
+              title="Одноразово: добавить в набор картерные детали (картер в утиле уводит двигатель в утиль)"
+            >
+              Наполнить набор картерами
+            </Button>
+          </>
+        ) : null}
         {!isAndroidPlatform() && (
           <Button
             variant="ghost"

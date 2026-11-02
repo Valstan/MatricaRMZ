@@ -143,7 +143,8 @@ describe('engineFactoryStageOrder — ряд групп от позднего к
       'stage:disassembly_defect',
       'stage:incoming_otk',
       'stage:arrival',
-      'stage:card_created',
+      // Служебного этапа («Создание карточки двигателя») в группах отчёта нет:
+      // это отметка о заведении карточки, а не этап ремонта (решение владельца 02.11.2026).
       'sheet:obkatka',
       'sheet:sborka',
       'sheet:val',

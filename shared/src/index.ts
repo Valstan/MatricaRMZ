@@ -23,6 +23,7 @@ export * from './domain/facetSummary.js';
 export * from './domain/listExport.js';
 export * from './domain/cardExport.js';
 export * from './domain/engineRepairHistory.js';
+export * from './domain/scrapCriterion.js';
 export * from './domain/repairStages.js';
 export * from './domain/serviceActors.js';
 export * from './domain/workSheets.js';

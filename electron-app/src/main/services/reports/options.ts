@@ -28,6 +28,7 @@ import { loadEngineStageMarks } from '../repairStageService.js';
 
 import { UNKNOWN_CONTRACT_LABEL, toNumber, normalizeText, asArray, entityLabel } from './format.js';
 import { isSqliteMissingEngineBrandIdColumn, isSqliteMissingBomBrandLinksTable, loadSnapshot, getIdsByType, getIdsByTypeCodes, getWorkshops, buildContractCounterpartyIndex, resolveEngineCounterpartyId, WAREHOUSE_LOCATION_OPTIONS_TTL_MS, type Snapshot, type ReportBuildContext } from './context.js';
+import { engineDefectDateFromAttrs, getScrapCriterionEngineMap } from '../engineService.js';
 
 export const ASSEMBLY_BOM_BRAND_OPTIONS_TTL_MS = 60_000;
 export let assemblyBomBrandOptionsCache:
@@ -188,8 +189,14 @@ export function buildOptions(snapshot: Snapshot, typeCode: string): ReportFilter
 /** Двигатели для селектора «Комплектование двигателя»: № · внутр. № · марка; утильные исключены.
  * Первая опция — пустой плейсхолдер: generic select-фильтр показывает первую опцию как выбранную,
  * не записывая её в filters, — без плейсхолдера UI показывал бы двигатель, а билдер получал бы пустой id.
- * Шаг 8/2: `scrapEngineIds` — двигатели с отметкой боковой ветки (рука вместо галочки с 8/1). */
-export function buildEngineOptions(snapshot: Snapshot, scrapEngineIds?: ReadonlySet<string>): ReportFilterOption[] {
+ * Шаг 8/2: `scrapEngineIds` — двигатели с отметкой боковой ветки (рука вместо галочки с 8/1).
+ * `criterionScrapEngineIds` — утильные по деталям (метка на карточке детали): тот же
+ * вердикт, что в списке двигателей, — комплектовать утильный двигатель нельзя. */
+export function buildEngineOptions(
+  snapshot: Snapshot,
+  scrapEngineIds?: ReadonlySet<string>,
+  criterionScrapEngineIds?: ReadonlySet<string>,
+): ReportFilterOption[] {
   const engines = getIdsByType(snapshot, 'engine')
     .map((id) => {
       const attrs = snapshot.attrsByEntity.get(id) ?? {};
@@ -200,6 +207,7 @@ export function buildEngineOptions(snapshot: Snapshot, scrapEngineIds?: Readonly
       // когда-либо ставили и сняли: на проде 147 живых двигателей из 378 с такой отметкой.
       if (isScrapEngine(statusFlagsFromAttrs(attrs))) return null;
       if (scrapEngineIds?.has(id)) return null;
+      if (criterionScrapEngineIds?.has(id)) return null;
       const engineNumber = normalizeText(attrs.engine_number, '');
       const internalNumber = formatEngineInternalNumber(
         normalizeText(attrs[ENGINE_INTERNAL_NUMBER_CODE], ''),
@@ -536,6 +544,21 @@ export function attachOptionLinks(options: ReportFilterOption[], links: Map<stri
   });
 }
 
+/**
+ * Двигатели, утильные ПО ДЕТАЛЯМ (метка на карточке детали): в списке их деталей
+ * есть деталь-критерий, ушедшая в утиль. Тот же вердикт, что в списке двигателей.
+ */
+async function loadScrapCriterionEngineIds(db: BetterSQLite3Database, snapshot: Snapshot): Promise<Set<string>> {
+  const engineIds = getIdsByType(snapshot, 'engine');
+  if (engineIds.length === 0) return new Set();
+  const defectDates = new Map<string, number | null>();
+  for (const id of engineIds) {
+    defectDates.set(id, engineDefectDateFromAttrs(snapshot.attrsByEntity.get(id) ?? {}));
+  }
+  const map = await getScrapCriterionEngineMap(db, engineIds, { defectDateByEngineId: defectDates });
+  return new Set(map.keys());
+}
+
 export async function getReportPresetList(db: BetterSQLite3Database, ctx?: ReportBuildContext): Promise<ReportPresetListResult> {
   try {
     const snapshot = await loadSnapshot(db);
@@ -549,7 +572,11 @@ export async function getReportPresetList(db: BetterSQLite3Database, ctx?: Repor
         assemblyBrands: await buildAssemblyBomEngineOptions(db, snapshot, ctx),
         assemblySleeves: buildAssemblySleeveOptions(snapshot),
         assembly_forecast_contracts: buildAssemblyForecastContractOptions(snapshot),
-        engines: buildEngineOptions(snapshot, await loadScrapStageEngineIds(db, getIdsByType(snapshot, 'engine'))),
+        engines: buildEngineOptions(
+          snapshot,
+          await loadScrapStageEngineIds(db, getIdsByType(snapshot, 'engine')),
+          await loadScrapCriterionEngineIds(db, snapshot),
+        ),
         counterparties: buildCounterpartyOptions(snapshot),
         employees: buildOptions(snapshot, 'employee'),
         departments: buildOptions(snapshot, 'department'),

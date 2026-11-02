@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   ENGINE_BULK_INTAKE_MAX,
@@ -7,6 +7,7 @@ import {
   engineBulkIntakeConflictingFields,
   engineBulkIntakeFieldList,
   engineBulkIntakeInternalNumberDuplicates,
+  engineBulkIntakeMassValues,
   engineBulkIntakeMissingFields,
   engineBulkIntakeSummary,
   formatEngineInternalNumber,
@@ -14,6 +15,7 @@ import {
   splitEngineBulkIntakeNumbers,
   type EngineBulkIntakeAction,
   type EngineBulkIntakeField,
+  type EngineBulkIntakeMassField,
   type EngineBulkIntakeOffer,
   type EngineBulkIntakePreviewRow,
 } from '@matricarmz/shared';
@@ -163,11 +165,18 @@ export function EngineBulkIntakeDialog(props: {
   const [overflow, setOverflow] = useState(0);
   const [decisions, setDecisions] = useState<Record<string, RowState>>({});
   const [internalNumbers, setInternalNumbers] = useState<Record<string, string>>({});
-  // Блок «Индивидуально по каждому»: у каждого двигателя свои марка, накладная и даты.
+  // Блок «Индивидуально по каждому»: у каждого двигателя свои марка, контрагент,
+  // договор, накладная и даты.
   const [rowBrands, setRowBrands] = useState<Record<string, string>>({});
+  const [rowCustomers, setRowCustomers] = useState<Record<string, string>>({});
+  const [rowContracts, setRowContracts] = useState<Record<string, string>>({});
   const [rowOtk, setRowOtk] = useState<Record<string, string>>({});
   const [rowWaybills, setRowWaybills] = useState<Record<string, string>>({});
   const [rowDefect, setRowDefect] = useState<Record<string, string>>({});
+  /** Отмеченные двигатели списка — им применяются общие поля пачки (владелец 02.11.2026). */
+  const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
+  /** Какие общие поля пачки раскладываются по строкам (галочки у полей). */
+  const [massFields, setMassFields] = useState<Record<string, boolean>>({});
   /** Утиль верхнего картера — галочка строки списка (заводская просьба 21.10.2026). */
   const [rowScrap, setRowScrap] = useState<Record<string, boolean>>({});
   const [bindings, setBindings] = useState<Record<string, RowBinding>>({});
@@ -186,10 +195,14 @@ export function EngineBulkIntakeDialog(props: {
     setDecisions({});
     setInternalNumbers({});
     setRowBrands({});
+    setRowCustomers({});
+    setRowContracts({});
     setRowOtk({});
     setRowWaybills({});
     setRowDefect({});
     setRowScrap({});
+    setSelectedRows({});
+    setMassFields({});
     setBindings({});
     setBrandId('');
     setCustomerId('');
@@ -282,6 +295,60 @@ export function EngineBulkIntakeDialog(props: {
     [contracts, customerId],
   );
 
+  // Раскладка общих полей пачки по строкам (владелец 02.11.2026): общие поля — это
+  // шаблон. «Ко всем» раскладывает его на весь список, «к отмеченным» — только на
+  // отмеченные галочками двигатели. Раскладываются только те поля, у которых стоит
+  // галочка, и только заполненные: пустым значением своё не стереть.
+  const massFieldList = useMemo(
+    () => (Object.keys(massFields) as EngineBulkIntakeMassField[]).filter((field) => massFields[field]),
+    [massFields],
+  );
+
+  const applyMassTemplate = useCallback(
+    (target: 'all' | 'selected') => {
+      const values = engineBulkIntakeMassValues(massFieldList, {
+        brandId: brandId || null,
+        customerId: customerId || null,
+        contractId: contractId || null,
+        arrivalDate: fromInputDate(arrivalDate),
+        internalNumber: null,
+        internalNumberYear: null,
+        defectDate: fromInputDate(defectDate),
+        waybillNumber: null,
+      });
+      if (values.length === 0) {
+        setError('Не выбрано ни одного поля для раскладки — поставьте галочку у нужного поля выше.');
+        return;
+      }
+      const keys = rows
+        .map((row) => row.key)
+        .filter((key) => (target === 'all' ? true : selectedRows[key] === true));
+      if (keys.length === 0) {
+        setError('Не отмечено ни одного двигателя — отметьте их галочками в списке.');
+        return;
+      }
+      setError('');
+      for (const value of values) {
+        for (const key of keys) {
+          if (value.field === 'engineBrand') {
+            setRowBrands((prev) => ({ ...prev, [key]: String(value.value) }));
+          } else if (value.field === 'customer') {
+            setRowCustomers((prev) => ({ ...prev, [key]: String(value.value) }));
+          } else if (value.field === 'contract') {
+            setRowContracts((prev) => ({ ...prev, [key]: String(value.value) }));
+          } else if (value.field === 'arrivalDate') {
+            setRowOtk((prev) => ({ ...prev, [key]: toInputDate(Number(value.value)) }));
+          } else if (value.field === 'defectDate') {
+            setRowDefect((prev) => ({ ...prev, [key]: toInputDate(Number(value.value)) }));
+          }
+        }
+      }
+    },
+    [arrivalDate, brandId, contractId, customerId, defectDate, massFieldList, rows, selectedRows],
+  );
+
+  const selectedCount = useMemo(() => Object.values(selectedRows).filter(Boolean).length, [selectedRows]);
+
   const items = useMemo(() => {
     const base: Omit<EngineBulkIntakeOffer, 'internalNumber' | 'internalNumberYear' | 'waybillNumber'> = {
       brandId: brandId || null,
@@ -297,6 +364,8 @@ export function EngineBulkIntakeDialog(props: {
       const offer: EngineBulkIntakeOffer = {
         ...base,
         brandId: rowBrands[row.key] || base.brandId,
+        customerId: rowCustomers[row.key] || base.customerId,
+        contractId: rowContracts[row.key] || base.contractId,
         arrivalDate: fromInputDate(rowOtk[row.key] ?? '') ?? base.arrivalDate,
         defectDate: fromInputDate(rowDefect[row.key] ?? '') ?? base.defectDate,
         waybillNumber: (rowWaybills[row.key] ?? '').trim() || null,
@@ -320,7 +389,7 @@ export function EngineBulkIntakeDialog(props: {
         conflicts: (existing ? engineBulkIntakeConflictingFields(existing, offer) : []) as EngineBulkIntakeField[],
       };
     });
-  }, [rows, decisions, internalNumbers, rowBrands, rowOtk, rowWaybills, rowDefect, bindings, brandId, customerId, contractId, arrivalDate, defectDate, nowMs]);
+  }, [rows, decisions, internalNumbers, rowBrands, rowCustomers, rowContracts, rowOtk, rowWaybills, rowDefect, bindings, brandId, customerId, contractId, arrivalDate, defectDate, nowMs]);
 
   const summary = engineBulkIntakeSummary(items);
   const toCreate = summary.create + summary.repeat;
@@ -397,6 +466,8 @@ export function EngineBulkIntakeDialog(props: {
             ...(item.action === 'repeat_arrival' && item.existing ? { previousEngineId: item.existing.id } : {}),
             ...(item.rawInternal.trim() ? { internalNumber: item.rawInternal.trim() } : {}),
             ...(rowBrands[item.key] ? { brandId: rowBrands[item.key] } : {}),
+            ...(rowCustomers[item.key] ? { customerId: rowCustomers[item.key] } : {}),
+            ...(rowContracts[item.key] ? { contractId: rowContracts[item.key] } : {}),
             ...(fromInputDate(rowOtk[item.key] ?? '') ? { incomingOtkDate: fromInputDate(rowOtk[item.key] ?? '') } : {}),
             ...((rowWaybills[item.key] ?? '').trim() ? { waybillNumber: (rowWaybills[item.key] ?? '').trim() } : {}),
             ...(fromInputDate(rowDefect[item.key] ?? '') ? { defectDate: fromInputDate(rowDefect[item.key] ?? '') } : {}),
@@ -574,9 +645,24 @@ export function EngineBulkIntakeDialog(props: {
           </div>
         )}
 
+        <div style={hintStyle}>
+          Галочка у поля означает «это свойство раскладывается по списку». Дальше можно разложить его на все
+          двигатели или только на отмеченные галочками — так в пачке меняют марку или договор сразу у группы.
+        </div>
+
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(220px, 1fr))', gap: 12 }}>
           <label style={{ display: 'grid', gap: 4 }}>
-            <span style={hintStyle}>Марка двигателя</span>
+            <span style={hintStyle}>
+              <input
+                type="checkbox"
+                checked={massFields.engineBrand === true}
+                disabled={busy}
+                data-bulk-intake-mass="engineBrand"
+                onChange={(e) => setMassFields((prev) => ({ ...prev, engineBrand: e.target.checked }))}
+                style={{ marginRight: 6 }}
+              />
+              Марка двигателя
+            </span>
             <EntityReferenceField
               target="engine_brand"
               targetLabel="Марка двигателя"
@@ -588,7 +674,17 @@ export function EngineBulkIntakeDialog(props: {
             />
           </label>
           <label style={{ display: 'grid', gap: 4 }}>
-            <span style={hintStyle}>Входной контроль ОТК</span>
+            <span style={hintStyle}>
+              <input
+                type="checkbox"
+                checked={massFields.arrivalDate === true}
+                disabled={busy}
+                data-bulk-intake-mass="arrivalDate"
+                onChange={(e) => setMassFields((prev) => ({ ...prev, arrivalDate: e.target.checked }))}
+                style={{ marginRight: 6 }}
+              />
+              Входной контроль ОТК
+            </span>
             <Input
               type="date"
               value={arrivalDate}
@@ -601,7 +697,17 @@ export function EngineBulkIntakeDialog(props: {
             </span>
           </label>
           <label style={{ display: 'grid', gap: 4 }}>
-            <span style={hintStyle}>Контрагент</span>
+            <span style={hintStyle}>
+              <input
+                type="checkbox"
+                checked={massFields.customer === true}
+                disabled={busy}
+                data-bulk-intake-mass="customer"
+                onChange={(e) => setMassFields((prev) => ({ ...prev, customer: e.target.checked }))}
+                style={{ marginRight: 6 }}
+              />
+              Контрагент
+            </span>
             <EntityReferenceField
               target="customer"
               targetLabel="Контрагент"
@@ -616,7 +722,17 @@ export function EngineBulkIntakeDialog(props: {
             />
           </label>
           <label style={{ display: 'grid', gap: 4 }}>
-            <span style={hintStyle}>Номер договора</span>
+            <span style={hintStyle}>
+              <input
+                type="checkbox"
+                checked={massFields.contract === true}
+                disabled={busy}
+                data-bulk-intake-mass="contract"
+                onChange={(e) => setMassFields((prev) => ({ ...prev, contract: e.target.checked }))}
+                style={{ marginRight: 6 }}
+              />
+              Номер договора
+            </span>
             <EntityReferenceField
               target="contract"
               targetLabel="Договор"
@@ -628,7 +744,17 @@ export function EngineBulkIntakeDialog(props: {
             />
           </label>
           <label style={{ display: 'grid', gap: 4 }}>
-            <span style={hintStyle}>Дата дефектовки</span>
+            <span style={hintStyle}>
+              <input
+                type="checkbox"
+                checked={massFields.defectDate === true}
+                disabled={busy}
+                data-bulk-intake-mass="defectDate"
+                onChange={(e) => setMassFields((prev) => ({ ...prev, defectDate: e.target.checked }))}
+                style={{ marginRight: 6 }}
+              />
+              Дата дефектовки
+            </span>
             <Input
               type="date"
               value={defectDate}
@@ -686,6 +812,32 @@ export function EngineBulkIntakeDialog(props: {
                 Номеров: <b>{rows.length}</b> · заведём: <b>{toCreate}</b> · дополним: <b>{toUpdate}</b> · пропустим:{' '}
                 <b>{summary.skip}</b>
               </span>
+              <Button size="sm" variant="outline" tone="neutral" disabled={busy} onClick={() => applyMassTemplate('all')}>
+                Разложить по всем
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                tone="neutral"
+                disabled={busy || selectedCount === 0}
+                data-bulk-intake-mass-apply-selected="true"
+                onClick={() => applyMassTemplate('selected')}
+              >
+                Разложить по отмеченным ({selectedCount})
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => {
+                  const allSelected = rows.every((row) => selectedRows[row.key] === true);
+                  const next: Record<string, boolean> = {};
+                  if (!allSelected) for (const row of rows) next[row.key] = true;
+                  setSelectedRows(next);
+                }}
+              >
+                {rows.every((row) => selectedRows[row.key] === true) ? 'Снять отметки' : 'Отметить все'}
+              </Button>
               {duplicates.length > 0 && (
                 <>
                   <span style={hintStyle}>Дубли ({duplicates.length}):</span>
@@ -713,8 +865,11 @@ export function EngineBulkIntakeDialog(props: {
                 <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>
                   <thead>
                     <tr style={{ textAlign: 'left', color: 'var(--muted, #64748b)' }}>
+                      <th style={{ padding: '4px 6px' }} />
                       <th style={{ padding: '4px 6px' }}>Номер</th>
                       <th style={{ padding: '4px 6px' }}>Марка</th>
+                      <th style={{ padding: '4px 6px' }}>Контрагент</th>
+                      <th style={{ padding: '4px 6px' }}>Договор</th>
                       <th style={{ padding: '4px 6px' }}>Входной контроль ОТК</th>
                       <th style={{ padding: '4px 6px' }}>Номер накладной</th>
                       <th style={{ padding: '4px 6px' }}>Дата дефектовки</th>
@@ -724,6 +879,16 @@ export function EngineBulkIntakeDialog(props: {
                   <tbody>
                     {items.map((item) => (
                       <tr key={`ind#${item.key}`} style={{ borderTop: '1px solid var(--border, #e2e8f0)' }}>
+                        <td style={{ padding: '4px 6px', textAlign: 'center' }}>
+                          <input
+                            type="checkbox"
+                            aria-label={`Отметить двигатель ${item.number}`}
+                            data-bulk-intake-row-select="true"
+                            checked={selectedRows[item.key] === true}
+                            disabled={busy}
+                            onChange={(e) => setSelectedRows((prev) => ({ ...prev, [item.key]: e.target.checked }))}
+                          />
+                        </td>
                         <td style={{ padding: '4px 6px', fontFamily: 'monospace' }}>{item.number}</td>
                         <td style={{ padding: '4px 6px', minWidth: 180 }}>
                           <EntityReferenceField
@@ -733,6 +898,28 @@ export function EngineBulkIntakeDialog(props: {
                             options={brands}
                             placeholder={brandId ? 'как в пачке' : 'марка не выбрана'}
                             onChange={(next) => setRowBrands((prev) => ({ ...prev, [item.key]: next ?? '' }))}
+                            disabled={busy}
+                          />
+                        </td>
+                        <td style={{ padding: '4px 6px', minWidth: 170 }}>
+                          <EntityReferenceField
+                            target="customer"
+                            targetLabel="Контрагент"
+                            value={rowCustomers[item.key] || null}
+                            options={customers}
+                            placeholder={customerId ? 'как в пачке' : 'контрагент не выбран'}
+                            onChange={(next) => setRowCustomers((prev) => ({ ...prev, [item.key]: next ?? '' }))}
+                            disabled={busy}
+                          />
+                        </td>
+                        <td style={{ padding: '4px 6px', minWidth: 170 }}>
+                          <EntityReferenceField
+                            target="contract"
+                            targetLabel="Договор"
+                            value={rowContracts[item.key] || null}
+                            options={contractOptions}
+                            placeholder={contractId ? 'как в пачке' : 'договор не выбран'}
+                            onChange={(next) => setRowContracts((prev) => ({ ...prev, [item.key]: next ?? '' }))}
                             disabled={busy}
                           />
                         </td>

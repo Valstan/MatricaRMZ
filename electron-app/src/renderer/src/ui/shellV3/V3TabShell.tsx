@@ -77,8 +77,9 @@ export function V3TabShell(props: {
   clockSkew?: { problem: boolean; text: string; rttMs: number | null } | null;
   onClockSync?: () => void;
   onClockOpenSettings?: () => void;
-  /** Перезапуск программы из шапки — для оператора, который не может выгрузить её из трея. */
-  onRestartApp?: () => void;
+  /** Перезапуск программы из шапки — для оператора, который не может выгрузить её из трея.
+   *  На планшете перезапуска нет (канала system.restart) — обработчик не передаётся, кнопки нет. */
+  onRestartApp?: (() => void) | undefined;
   /** Прогресс фоновой загрузки обновления: заливка под вкладками. `null` — ничего не качается. */
   updateProgress?: { pct: number; version?: string | null } | null;
   /** Короткое сообщение оператору — всплывает над телом вкладки и гаснет само. */
