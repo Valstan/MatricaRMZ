@@ -405,6 +405,37 @@ export async function applyEngineBulkIntake(
     };
   }
 
+  // Поля строки (владелец 02.11.2026): в пачке бывают двигатели разных заказчиков,
+  // поэтому у строки могут быть свои контрагент и договор. Проверяем их так же, как
+  // общие: договор должен принадлежать своему контрагенту, а оба — быть в базе.
+  const rowContractIds = rows.map((row) => trimOrNull(row?.contractId)).filter((id): id is string => Boolean(id));
+  const rowCustomerIds = rows.map((row) => trimOrNull(row?.customerId)).filter((id): id is string => Boolean(id));
+  if (rowContractIds.length > 0 || rowCustomerIds.length > 0) {
+    const names = await getDisplayNameMap(db, 'customer');
+    const contractNames = await getDisplayNameMap(db, 'contract');
+    const rowContracts = rowContractIds.length > 0 ? await getContractCustomerMap(db) : null;
+    const missingCustomer = rowCustomerIds.find((id) => !names.get(id));
+    if (missingCustomer) {
+      return { ok: false, error: 'Контрагент в строке не найден в базе — обновите список и выберите заново.' };
+    }
+    const missingContract = rowContractIds.find((id) => !contractNames.get(id));
+    if (missingContract) {
+      return { ok: false, error: 'Договор в строке не найден в базе — обновите список и выберите заново.' };
+    }
+    for (const row of rows) {
+      const rowContract = trimOrNull(row?.contractId);
+      if (!rowContract) continue;
+      const rowCustomer = trimOrNull(row?.customerId) ?? customerId;
+      const owner = rowContracts?.get(rowContract) ?? '';
+      if (owner && rowCustomer && owner !== rowCustomer) {
+        return {
+          ok: false,
+          error: `Договор «${contractNames.get(rowContract) ?? ''}» в строке принадлежит другому контрагенту. Выберите договор этого контрагента.`,
+        };
+      }
+    }
+  }
+
   const engineTypeId = await entityTypeId(db, 'engine');
   if (!engineTypeId) return { ok: false, error: 'В базе нет типа сущности «двигатель» — обратитесь к администратору.' };
 
@@ -416,8 +447,10 @@ export async function applyEngineBulkIntake(
     const internal = readBulkIntakeInternalNumber(String(row?.internalNumber ?? ''), nowMs);
     return {
       brandId: trimOrNull(row?.brandId) ?? brandId,
-      customerId,
-      contractId,
+      // Контрагент и договор строки перекрывают общие — так же, как марка:
+      // в пачке бывают двигатели и другого заказчика (владелец 02.11.2026).
+      customerId: trimOrNull(row?.customerId) ?? customerId,
+      contractId: trimOrNull(row?.contractId) ?? contractId,
       // «Входной контроль ОТК» строки перекрывает общий: у каждого двигателя своя дата.
       arrivalDate: msOrNull(row?.incomingOtkDate) ?? arrivalDate,
       internalNumber: internal.number,
@@ -540,8 +573,8 @@ export async function applyEngineBulkIntake(
         fields.engine_brand_id = offer.brandId;
         fields.engine_brand = brandNames.get(offer.brandId) ?? null;
       }
-      if (missing.includes('customer') && customerId) fields.customer_id = customerId;
-      if (missing.includes('contract') && contractId) fields.contract_id = contractId;
+      if (missing.includes('customer') && offer.customerId) fields.customer_id = offer.customerId;
+      if (missing.includes('contract') && offer.contractId) fields.contract_id = offer.contractId;
       if (missing.includes('arrivalDate') && offer.arrivalDate) fields.arrival_date = offer.arrivalDate;
       if (missing.includes('internalNumber') && offer.internalNumber) {
         // Год — ПЕРЕД номером: гейт пары дочитывает второй элемент из реплики.
@@ -602,8 +635,8 @@ export async function applyEngineBulkIntake(
       fields.engine_brand_id = offer.brandId;
       fields.engine_brand = brandNames.get(offer.brandId) ?? null;
     }
-    if (customerId) fields.customer_id = customerId;
-    if (contractId) fields.contract_id = contractId;
+    if (offer.customerId) fields.customer_id = offer.customerId;
+    if (offer.contractId) fields.contract_id = offer.contractId;
     if (offer.arrivalDate) fields.arrival_date = offer.arrivalDate;
     if (offer.waybillNumber) fields.arrival_invoice = offer.waybillNumber;
     if (offer.internalNumber) {

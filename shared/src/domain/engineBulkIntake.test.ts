@@ -4,6 +4,7 @@ import {
   effectiveEngineBulkIntakeAction,
   engineBulkIntakeConflictingFields,
   engineBulkIntakeKey,
+  engineBulkIntakeMassValues,
   engineBulkIntakeMissingFields,
   engineBulkIntakeSimilarNumbers,
   engineBulkIntakeSummary,
@@ -13,6 +14,7 @@ import {
   engineBulkIntakeInternalNumberDuplicates,
   splitEngineBulkIntakeNumbers,
   type EngineBulkIntakeExisting,
+  type EngineBulkIntakeMassField,
   type EngineBulkIntakeOffer,
 } from './engineBulkIntake.js';
 
@@ -310,5 +312,52 @@ describe('engineBulkIntakeSimilarNumbers', () => {
     const list = found.get(engineBulkIntakeKey('1234568')) ?? [];
     expect(list).toHaveLength(3);
     expect(list[0]?.id).toBe('close');
+  });
+});
+// Раскладка общих полей пачки по строкам (владелец 02.11.2026): общие поля —
+// шаблон, и их можно разложить на весь список или на отмеченные двигатели.
+describe('массовая раскладка общих полей пачки', () => {
+  const offer = (
+    over: Partial<EngineBulkIntakeOffer> = {},
+  ): EngineBulkIntakeOffer => ({
+    brandId: null,
+    customerId: null,
+    contractId: null,
+    arrivalDate: null,
+    internalNumber: null,
+    internalNumberYear: null,
+    defectDate: null,
+    waybillNumber: null,
+    ...over,
+  });
+
+  it('раскладываются только выбранные и только заполненные поля', () => {
+    const values = engineBulkIntakeMassValues(
+      ['engineBrand', 'customer', 'contract', 'arrivalDate', 'defectDate'] as EngineBulkIntakeMassField[],
+      offer({ brandId: 'brand-1', arrivalDate: 1_700_000_000_000 }),
+    );
+    expect(values).toEqual([
+      { field: 'engineBrand', kind: 'ref', value: 'brand-1' },
+      { field: 'arrivalDate', kind: 'date', value: 1_700_000_000_000 },
+    ]);
+  });
+
+  it('пустое поле пачки не раскладывается — своё значение строки стереть нечем', () => {
+    const values = engineBulkIntakeMassValues(['customer', 'contract'] as EngineBulkIntakeMassField[], offer());
+    expect(values).toEqual([]);
+  });
+
+  it('ссылки, даты и текст различаются по виду', () => {
+    const values = engineBulkIntakeMassValues(
+      ['engineBrand', 'customer', 'contract', 'defectDate', 'internalNumber'] as EngineBulkIntakeMassField[],
+      offer({
+        brandId: 'b',
+        customerId: 'c',
+        contractId: 'k',
+        defectDate: 1_700_000_000_000,
+        internalNumber: '41',
+      }),
+    );
+    expect(values.map((v) => v.kind)).toEqual(['ref', 'ref', 'ref', 'date', 'text']);
   });
 });

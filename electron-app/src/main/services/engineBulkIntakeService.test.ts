@@ -567,3 +567,26 @@ describe('applyEngineBulkIntake', () => {
     sqlite.close();
   });
 });
+
+// Владелец 02.11.2026: в пачке бывают двигатели разных заказчиков — общие поля
+// пачки перекрываются полями строки (как марка), а не наоборот.
+it('контрагент и договор строки перекрывают общие', async () => {
+  const sqlite = makeDb();
+  const r = await applyEngineBulkIntake(deps(sqlite), {
+    customerId: 'cust-1',
+    contractId: 'contract-1',
+    arrivalDate: ARRIVAL,
+    rows: [
+      { number: 'NEW-1', action: 'create' },
+      { number: 'NEW-2', action: 'create', customerId: 'cust-2', contractId: 'contract-2' },
+    ],
+  });
+  expect(r.ok).toBe(true);
+  if (!r.ok) return;
+  const rows = sqlite
+    .prepare('SELECT engine_number AS n, customer_id AS c, contract_id AS k FROM erp_engine_cards ORDER BY engine_number')
+    .all() as Array<Record<string, unknown>>;
+  expect(rows[0]).toMatchObject({ n: 'NEW-1', c: 'cust-1', k: 'contract-1' });
+  expect(rows[1]).toMatchObject({ n: 'NEW-2', c: 'cust-2', k: 'contract-2' });
+  sqlite.close();
+});
