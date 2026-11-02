@@ -27,6 +27,7 @@ import { registerLoggingIpc } from '../../../electron-app/src/main/ipc/register/
 import { registerNotesIpc } from '../../../electron-app/src/main/ipc/register/notes.js';
 import { registerPartsIpc } from '../../../electron-app/src/main/ipc/register/parts.js';
 import { registerSettingsIpc } from '../../../electron-app/src/main/ipc/register/settings.js';
+import { registerSectionFavoritesIpc } from '../../../electron-app/src/main/ipc/register/sectionFavorites.js';
 import { registerSupplyRequestsIpc } from '../../../electron-app/src/main/ipc/register/supplyRequests.js';
 import { registerWarehouseLocationsIpc } from '../../../electron-app/src/main/ipc/register/warehouseLocations.js';
 import { registerWorkOrderSignatureCaptionsIpc } from '../../../electron-app/src/main/ipc/register/workOrderSignatureCaptions.js';
@@ -105,6 +106,11 @@ export function wireIpcForAndroid(core: AndroidCore): IpcContext {
   // (офлайн), справочник узлов — REST, как наряды: «нужна сеть» здесь штатно.
   registerWorkSheetsIpc(ctx);
   registerSettingsIpc(ctx);
+  // Звёздочки разделов (избранное левой панели). Без этого домена звёздочка в меню
+  // нажималась, а раздел в левый блок не попадал: канал не был зарегистрирован,
+  // запись возвращала «недоступно на планшете», и оболочка откатывала выбор.
+  // Хранение локальное (как на десктопе) — в локальной БД планшета, по scope пользователя.
+  registerSectionFavoritesIpc(ctx);
   registerNotesIpc(ctx);
   registerPartsIpc(ctx);
   registerErpIpc(ctx);

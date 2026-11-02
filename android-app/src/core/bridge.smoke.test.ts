@@ -79,6 +79,24 @@ describe('android bridge smoke (preload → шина → register → серви
     expect(res.ok ? '' : res.error).toContain('недоступно на планшете');
   });
 
+  it('избранное разделов: звёздочка в меню кладёт раздел в левую панель (set → get)', async () => {
+    // Домен `sections` на планшете не был зарегистрирован: звёздочка нажималась,
+    // запись возвращала «недоступно на планшете», и оболочка откатывала выбор —
+    // раздел в левом блоке так и не появлялся.
+    const set = await h.matrica().sections.favoritesSet({ userId: 'u-1', ids: ['engines', 'work_sheets'] });
+    expect(set.ok).toBe(true);
+
+    const got = await h.matrica().sections.favoritesGet({ userId: 'u-1' });
+    expect(got.ok).toBe(true);
+    const ids = got.ok ? got.ids : [];
+    expect(ids).toContain('engines');
+    expect(ids).toContain('work_sheets');
+
+    // Чужой scope не видит чужого выбора.
+    const other = await h.matrica().sections.favoritesGet({ userId: 'u-2' });
+    expect(other.ok ? other.ids : []).not.toContain('engines');
+  });
+
   it('server.health ходит фейк-сервером через настоящий authAndSync-модуль', async () => {
     const res = await h.matrica().server.health();
     expect(res.ok).toBe(true);
