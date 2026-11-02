@@ -636,6 +636,8 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     -- «приказные» строки норм, личная карточка СИЗ по форме приложения №3 и шаблоны
     -- печатных форм. Реплика — server-write / pull-only: сервер ведёт двери, клиент
     -- читает. Реплика НЕ строже сервера (nullable wear_months, spec_id, unit).
+    -- Комментарии внутри CREATE не пишем: они попадают в sqlite_master.sql, а
+    -- сторож паритета схем (android-app) сравнивает его буквально.
     CREATE TABLE IF NOT EXISTS ppe_occupation_ref (
       id text PRIMARY KEY NOT NULL,
       code text NOT NULL,

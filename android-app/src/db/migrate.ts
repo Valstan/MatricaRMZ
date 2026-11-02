@@ -373,6 +373,93 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
       deleted_at integer,
       sync_status text NOT NULL DEFAULT 'synced'
     );
+    CREATE TABLE IF NOT EXISTS ppe_occupation_ref (
+      id text PRIMARY KEY NOT NULL,
+      code text NOT NULL,
+      post_title text NOT NULL,
+      ton_kind text,
+      ton_label text,
+      ton_year integer,
+      department_id text,
+      is_active integer NOT NULL DEFAULT 1,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS ppe_occupation_ref_post_idx ON ppe_occupation_ref(post_title);
+    CREATE TABLE IF NOT EXISTS ppe_norm_line_specs (
+      id text PRIMARY KEY NOT NULL,
+      occupation_id text NOT NULL,
+      name text NOT NULL,
+      ppe_type text,
+      qty integer NOT NULL,
+      unit text,
+      wear_kind text,
+      wear_months integer,
+      sort_order integer NOT NULL DEFAULT 0,
+      source_ref text,
+      source_kind text,
+      source_label text,
+      nomenclature_id text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS ppe_norm_line_specs_occupation_idx ON ppe_norm_line_specs(occupation_id);
+    CREATE INDEX IF NOT EXISTS ppe_norm_line_specs_nomenclature_idx ON ppe_norm_line_specs(nomenclature_id);
+    CREATE TABLE IF NOT EXISTS ppe_employee_cards (
+      id text PRIMARY KEY NOT NULL,
+      employee_id text NOT NULL,
+      full_name text,
+      last_name text,
+      first_name text,
+      middle_name text,
+      personnel_no text,
+      department_id text,
+      department_name text,
+      post_title text,
+      occupation_id text,
+      gender text,
+      height text,
+      size_clothes text,
+      size_shoes text,
+      size_gloves text,
+      size_headgear text,
+      size_respirator text,
+      size_od text,
+      size_hands text,
+      hire_date integer,
+      position_changed_date integer,
+      occupation_notes text,
+      issued_by text,
+      prepared_by text,
+      prepared_at integer,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS ppe_employee_cards_occupation_idx ON ppe_employee_cards(occupation_id);
+    CREATE TABLE IF NOT EXISTS ppe_print_templates (
+      id text PRIMARY KEY NOT NULL,
+      owner_id text NOT NULL DEFAULT 'shared',
+      form_key text NOT NULL,
+      name text NOT NULL,
+      layout_json text NOT NULL,
+      is_default integer NOT NULL DEFAULT 0,
+      updated_at integer NOT NULL,
+      updated_by text,
+      created_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS ppe_print_templates_form_idx ON ppe_print_templates(form_key);
     CREATE TABLE IF NOT EXISTS ppe_issue_cards (
       id text PRIMARY KEY NOT NULL,
       employee_id text NOT NULL,
@@ -534,6 +621,88 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     await sqlite.exec(
       `CREATE INDEX IF NOT EXISTS ppe_norm_sets_post_gender_season_idx ON ppe_norm_sets(post_title, gender, season, valid_from);`,
     );
+    // Приказ о СИЗ: привязка набора к профессии приказа и подпись источника.
+    if (!ppeCols.has('occupation_id')) {
+      await sqlite.exec(`ALTER TABLE ppe_norm_sets ADD COLUMN occupation_id text;`);
+    }
+    if (!ppeCols.has('source_kind')) {
+      await sqlite.exec(`ALTER TABLE ppe_norm_sets ADD COLUMN source_kind text;`);
+    }
+    if (!ppeCols.has('source_label')) {
+      await sqlite.exec(`ALTER TABLE ppe_norm_sets ADD COLUMN source_label text;`);
+    }
+  }
+  // Приказ о СИЗ: wear_months стал nullable (норма «до износа» срока не имеет), а у
+  // строки появились «приказная» ссылка, единица измерения и форма срока.
+  // ALTER не умеет снять NOT NULL → пересборка таблицы тем же составом колонок
+  // (срабатывает один раз: после пересборки PRAGMA видит nullable).
+  if (await hasTable(sqlite, 'ppe_norm_lines')) {
+    const lineInfo = await sqlite.all<{ name: string; notnull: number }>(`PRAGMA table_info(ppe_norm_lines)`);
+    const wearCol = lineInfo.find((c) => c.name === 'wear_months');
+    if (wearCol && Number(wearCol.notnull) === 1) {
+      await sqlite.exec(`
+      BEGIN;
+      CREATE TABLE ppe_norm_lines_new (
+        id text PRIMARY KEY NOT NULL,
+        norm_set_id text NOT NULL,
+        nomenclature_id text NOT NULL,
+        qty integer NOT NULL,
+        wear_months integer,
+        spec_id text,
+        unit text,
+        wear_kind text,
+        created_at integer NOT NULL,
+        updated_at integer NOT NULL,
+        last_server_seq integer,
+        deleted_at integer,
+        sync_status text NOT NULL DEFAULT 'synced'
+      );
+      INSERT INTO ppe_norm_lines_new (
+        id, norm_set_id, nomenclature_id, qty, wear_months, created_at, updated_at,
+        last_server_seq, deleted_at, sync_status
+      )
+      SELECT id, norm_set_id, nomenclature_id, qty, wear_months, created_at, updated_at,
+             last_server_seq, deleted_at, sync_status
+        FROM ppe_norm_lines;
+      DROP TABLE ppe_norm_lines;
+      ALTER TABLE ppe_norm_lines_new RENAME TO ppe_norm_lines;
+      CREATE INDEX IF NOT EXISTS ppe_norm_lines_set_idx ON ppe_norm_lines(norm_set_id);
+      CREATE INDEX IF NOT EXISTS ppe_norm_lines_nomenclature_idx ON ppe_norm_lines(nomenclature_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS ppe_norm_lines_set_nomenclature_uq
+        ON ppe_norm_lines(norm_set_id, nomenclature_id) WHERE deleted_at IS NULL;
+      COMMIT;
+      `);
+    } else {
+      const lineCols = await columnNames('ppe_norm_lines');
+      if (!lineCols.has('spec_id')) {
+        await sqlite.exec(`ALTER TABLE ppe_norm_lines ADD COLUMN spec_id text;`);
+      }
+      if (!lineCols.has('unit')) {
+        await sqlite.exec(`ALTER TABLE ppe_norm_lines ADD COLUMN unit text;`);
+      }
+      if (!lineCols.has('wear_kind')) {
+        await sqlite.exec(`ALTER TABLE ppe_norm_lines ADD COLUMN wear_kind text;`);
+      }
+    }
+  }
+  // Личная карточка СИЗ: ФИО по частям, подразделение и должность (форма приложения №3).
+  if (await hasTable(sqlite, 'ppe_employee_cards')) {
+    const cardCols = await columnNames('ppe_employee_cards');
+    if (!cardCols.has('last_name')) {
+      await sqlite.exec(`ALTER TABLE ppe_employee_cards ADD COLUMN last_name text;`);
+    }
+    if (!cardCols.has('first_name')) {
+      await sqlite.exec(`ALTER TABLE ppe_employee_cards ADD COLUMN first_name text;`);
+    }
+    if (!cardCols.has('middle_name')) {
+      await sqlite.exec(`ALTER TABLE ppe_employee_cards ADD COLUMN middle_name text;`);
+    }
+    if (!cardCols.has('department_name')) {
+      await sqlite.exec(`ALTER TABLE ppe_employee_cards ADD COLUMN department_name text;`);
+    }
+    if (!cardCols.has('post_title')) {
+      await sqlite.exec(`ALTER TABLE ppe_employee_cards ADD COLUMN post_title text;`);
+    }
   }
   // ppe_issue_entries.document_id nullable с 0110 — пересборка тем же составом
   // колонок (зеркало десктопа; срабатывает один раз).
