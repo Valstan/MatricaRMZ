@@ -64,6 +64,12 @@
 
 - `shared/src/sync/tables.ts`, `shared/src/sync/dto.ts`, `shared/src/sync/registry.ts`, `shared/src/domain/ledgerAuthz.ts`, `ledger/src/types.ts` — 4 новые таблицы в контракте (server-write / pull-only).
 - `electron-app/src/main/database/schema.ts` + `migrate.ts` — клиентская реплика и доводка долгоживущих БД (`wear_months` nullable — пересборка таблицы, новые колонки — ALTER).
+- `android-app/src/db/migrate.ts` — **та же** реплика для планшета в цеху. У клиента ДВЕ независимые схемы, и сторож `android-app/src/db/migrations/drizzleChain.test.ts` требует посимвольного совпадения `sqlite_master.sql` с электронной. Поэтому обе платформы идут одинаковым путём: создать таблицу старого состава → довести колонками (`ALTER`) и пересобрать `ppe_norm_lines` (снять `NOT NULL` с `wear_months`).
+
+Тонкости, на которые ушла часть времени (их стоит знать до следующих правок схемы клиента):
+- `CREATE TABLE` в electron идёт из drizzle-цепочки (с кавычками в `sqlite_master.sql`), а в android — из inline-миграции. Сравнение идёт по тексту, поэтому различаются и кавычки, и порядок колонок, и `NOT NULL`.
+- Комментарии внутри `CREATE TABLE` попадают в `sqlite_master` — внутри `CREATE` их писать нельзя.
+- `ppe_norm_lines` нельзя создавать сразу с nullable `wear_months` и новыми колонками: дроп `NOT NULL` возможен только пересборкой, а она идёт по пути «старый состав → пересборка».
 
 ### Клиент
 
