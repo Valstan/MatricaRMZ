@@ -47,6 +47,11 @@ import {
 } from '../database/schema.js';
 import { signAndAppendDetailed } from '../ledger/ledgerService.js';
 import { EnginePhase, setEnginePhase } from './enginePhaseService.js';
+import {
+  mergeScrapCriterionIntoMetadata,
+  normalizeScrapCriterionInMetadata,
+  readPartScrapCriterion,
+} from './partScrapCriterion.js';
 import { recordDefectIncomingReceipt } from './defectHistoryService.js';
 import {
   listWarehouseLocations,
@@ -2010,10 +2015,12 @@ export async function getWarehouseNomenclaturePartSpec(args: {
       .limit(1);
     const row = rows[0];
     // Stage D: name/isActive let this endpoint cover legacy `parts.get` basics.
+    // Метку утиля подмешиваем из EAV: блоб — копия для показа, источник правды — атрибут.
+    const scrapCriterion = await readPartScrapCriterion(id);
     return {
       ok: true,
       spec: row ? rowToPartSpec(row) : null,
-      metadata: row ? rowToPartMetadata(row) : null,
+      metadata: row ? mergeScrapCriterionIntoMetadata(rowToPartMetadata(row), scrapCriterion) : null,
       name: row ? String(row.name) : null,
       isActive: row ? Boolean(row.isActive) : null,
     };
@@ -2038,7 +2045,12 @@ export async function upsertWarehouseNomenclaturePartSpec(args: {
     // metadata is optional: when omitted (old clients) leave metadata_json untouched
     // (don't add it to the insert values or the conflict set). Only written when provided.
     const metadataProvided = args.metadata !== undefined;
-    const metadataJson = metadataProvided ? serializePartMetadata(args.metadata as PartMetadata) : null;
+    // Метка «уводит двигатель в утиль» — источник правды EAV, блоб только показывает:
+    // старый хвост из блоба не должен воскресить снятую метку.
+    const metadataForWrite = metadataProvided
+      ? await normalizeScrapCriterionInMetadata(args.metadata as PartMetadata, id)
+      : null;
+    const metadataJson = metadataProvided ? serializePartMetadata(metadataForWrite as PartMetadata) : null;
     const ts = nowMs();
 
     // directory_parts.name is NOT NULL — resolve it (existing row wins, else the

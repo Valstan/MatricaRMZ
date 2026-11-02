@@ -7,6 +7,7 @@ import {
   type EngineInventoryLineRow,
   inventoryLineKeys,
   inventoryRawRowsFromPayload,
+  inventoryRowPartId,
   inventoryRowsFromLines,
   lineFromInventoryRow,
   SyncTableName,
@@ -101,6 +102,8 @@ export async function withReplicaInventoryRows<T>(db: BetterSQLite3Database, ope
 /** Строка, нужная флагам акта: имя детали и три отметки. Больше из 30 колонок реплики
  * флагам не нужно (замер 29.10.2026: `select *` по всем листам — 2.1 с, эти пять колонок — 1.0 с). */
 export type InventoryFlagRow = {
+  /** id детали строки (номенклатурная позиция) — по нему узнаём критерий утиля. */
+  partId: unknown;
   partName: unknown;
   present: unknown;
   scrapQty: unknown;
@@ -109,6 +112,7 @@ export type InventoryFlagRow = {
 
 function flagRowsFromPayload(payload: unknown): InventoryFlagRow[] {
   return inventoryRawRowsFromPayload(payload).map((r) => ({
+    partId: inventoryRowPartId(r),
     partName: r.part_name,
     present: r.present,
     scrapQty: r.scrap_qty,
@@ -144,7 +148,7 @@ export async function readInventoryFlagRowsForOperations(
   const ids = [...new Set(ops.map((o) => String(o.id ?? '').trim()).filter(Boolean))];
   if (ids.length > 0) {
     let actRows: Array<{ operationId: unknown; act: unknown; defect: unknown }> = [];
-    let crankRows: Array<{ operationId: unknown; partName: unknown }> = [];
+    let crankRows: Array<{ operationId: unknown; partId: unknown; partName: unknown }> = [];
     try {
       actRows = (await collectChunked(ids, (chunk) =>
         db
@@ -162,6 +166,7 @@ export async function readInventoryFlagRowsForOperations(
         db
           .select({
             operationId: erpEngineInventoryLines.operationId,
+            partId: erpEngineInventoryLines.partId,
             partName: erpEngineInventoryLines.partName,
           })
           .from(erpEngineInventoryLines)
@@ -172,7 +177,7 @@ export async function readInventoryFlagRowsForOperations(
               gt(erpEngineInventoryLines.scrapQty, 0),
             ),
           ),
-      )) as Array<{ operationId: unknown; partName: unknown }>;
+      )) as Array<{ operationId: unknown; partId: unknown; partName: unknown }>;
       opts?.onPhase?.('crank');
     } catch (e) {
       warnOnce(`engine inventory lines replica unavailable, falling back to meta_json: ${String(e)}`);
@@ -183,6 +188,7 @@ export async function readInventoryFlagRowsForOperations(
       const opId = String(r.operationId ?? '');
       const arr = fromReplica.get(opId) ?? [];
       arr.push({
+        partId: undefined,
         partName: undefined,
         present: Number(r.act ?? 0) !== 0 ? 1 : 0,
         scrapQty: Number(r.defect ?? 0) !== 0 ? 1 : 0,
@@ -193,7 +199,7 @@ export async function readInventoryFlagRowsForOperations(
     for (const r of crankRows) {
       const opId = String(r.operationId ?? '');
       const arr = fromReplica.get(opId) ?? [];
-      arr.push({ partName: r.partName, present: 0, scrapQty: 1, replaceQty: 0 });
+      arr.push({ partId: r.partId, partName: r.partName, present: 0, scrapQty: 1, replaceQty: 0 });
       fromReplica.set(opId, arr);
     }
   }

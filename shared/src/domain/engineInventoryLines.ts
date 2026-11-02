@@ -105,6 +105,15 @@ export type LineContext = {
   updatedAt: number;
 };
 
+/**
+ * id детали строки: brand-managed деталь или вручную выбранная. Пустая
+ * строка — деталь без id (старые строки актов, введённые вручную): по ним
+ * признак «деталь уводит двигатель в утиль» ищется по имени.
+ */
+export function inventoryRowPartId(raw: Record<string, unknown>): string {
+  return str(raw[BRAND_PART_ID_KEY]).trim() || str(raw[PART_ID_KEY]).trim();
+}
+
 /** Строка таблицы из raw-строки списка. Нормализует теми же правилами, что и лист. */
 export function lineFromInventoryRow(raw: Record<string, unknown>, ctx: LineContext): EngineInventoryLineRow {
   const { row } = normalizeEngineInventoryRow(raw);

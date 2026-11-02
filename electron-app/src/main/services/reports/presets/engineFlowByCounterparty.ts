@@ -24,6 +24,7 @@ import {
 
 import { resolveEngineShippingState } from '../../reportEngineShippingState.js';
 import { loadEngineStageMarks } from '../../repairStageService.js';
+import { engineDefectDateFromAttrs, getScrapCriterionEngineMap } from '../../engineService.js';
 
 import { normalizeText, asArray, asNumberOrNull, entityLabel, toNumber } from '../format.js';
 import { getPreset, loadSnapshot, getIdsByType, buildContractCounterpartyIndex, resolveEngineCounterpartyId } from '../context.js';
@@ -151,6 +152,13 @@ export async function buildEngineFlowByCounterpartyReport(
 
   // Шаг 8/2: место и утиль из единого списка — одной пачкой на все двигатели.
   const stageMarks = await loadEngineStageMarks(db, getIdsByType(snapshot, 'engine'));
+  // Утиль ПО ДЕТАЛЯМ (метка на карточке детали) — тем же вердиктом, что список
+  // двигателей: иначе отчёт покажет двигатель обычным, а список утильным.
+  const criterionUtil = await getScrapCriterionEngineMap(db, getIdsByType(snapshot, 'engine'), {
+    defectDateByEngineId: new Map(
+      getIdsByType(snapshot, 'engine').map((id) => [id, engineDefectDateFromAttrs(snapshot.attrsByEntity.get(id) ?? {})]),
+    ),
+  });
 
   for (const engineId of getIdsByType(snapshot, 'engine')) {
     const attrs = snapshot.attrsByEntity.get(engineId) ?? {};
@@ -171,7 +179,7 @@ export async function buildEngineFlowByCounterpartyReport(
     const stageCode = marks?.lastStageCode ?? null;
     const stageAt = marks?.lastStageAt ?? null;
     const stageShipped = stageAt !== null && (stageCode === 'shipped' || stageCode === 'accepted');
-    const scrap = isScrapEngine(statusFlags) || marks?.hasScrapBranch === true;
+    const scrap = isScrapEngine(statusFlags) || marks?.hasScrapBranch === true || criterionUtil.get(engineId) === true;
     const { onSite: baseOnSite, shippingDate: attrShippingDate } = resolveEngineShippingState(attrs);
     const shippingDate = attrShippingDate ?? (stageShipped ? stageAt : null);
     // «Утиль — отправлен заказчику» — выбытие само по себе: дат отгрузки у возврата

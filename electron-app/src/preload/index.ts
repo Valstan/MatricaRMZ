@@ -277,6 +277,18 @@ const matricaApi = {
     favoritesGet: async (args?: { userId?: string }) => ipcRenderer.invoke('sections:favoritesGet', args),
     favoritesSet: async (args: { userId?: string; ids: string[] }) => ipcRenderer.invoke('sections:favoritesSet', args),
   },
+  scrapCriterion: {
+    /** Детали-критерии утиля: помеченные на карточках деталей. */
+    /** Наполнить набор критериями по умолчанию (картерные детали) — одноразово. */
+    seed: async () => ipcRenderer.invoke('scrap:criterion:seed'),
+    /** Текущее состояние метки по детали (для карточки детали). */
+    get: async (args: { partId: string }) => ipcRenderer.invoke('scrap:criterion:get', args),
+    list: async () => ipcRenderer.invoke('scrap:criterion:list'),
+    /** Сухой прогон: сколько двигателей затронет метка на этих деталях. */
+    impact: async (args: { partIds: string[] }) => ipcRenderer.invoke('scrap:criterion:impact', args),
+    /** Поставить/снять метку «уводит двигатель в утиль» на детали. */
+    set: async (args: { partId: string; enabled: boolean }) => ipcRenderer.invoke('scrap:criterion:set', args),
+  },
   reportsBuilder: {
     meta: async () => ipcRenderer.invoke('reportsBuilder:meta'),
     preview: async (args: any) => ipcRenderer.invoke('reportsBuilder:preview', args),

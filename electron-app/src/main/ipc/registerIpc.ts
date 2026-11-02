@@ -38,6 +38,7 @@ import { registerNotesIpc } from './register/notes.js';
 import { registerPartsIpc } from './register/parts.js';
 import { registerReportsIpc } from './register/reports.js';
 import { registerSectionFavoritesIpc } from './register/sectionFavorites.js';
+import { registerScrapCriterionIpc } from './register/scrapCriterion.js';
 import { registerSettingsIpc } from './register/settings.js';
 import { registerUiScreensIpc } from './register/uiScreens.js';
 import { registerSupplyRequestsIpc } from './register/supplyRequests.js';
@@ -225,6 +226,7 @@ export function registerIpc(
   registerAdminIpc(ctx);
   registerReportsIpc(ctx);
   registerSectionFavoritesIpc(ctx);
+  registerScrapCriterionIpc(ctx);
   registerUpdateIpc(ctx);
   registerFilesIpc(ctx);
   registerExportsIpc(ctx);
