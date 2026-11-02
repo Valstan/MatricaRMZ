@@ -34,7 +34,7 @@
 - Sync-гейт `scripts/git_sync_check.ps1 -Gate` — зелёный (exit 0).
 ## Контекст
 
-- План: [`docs/plans/scrap-criterion-parts-2026-11.md`](plans/scrap-criterion-parts-2026-11.md) — правило утиля по детали, где живёт метка, что не поехало и почему.
+- План: [`docs/plans/_archive/scrap-criterion-parts-2026-11.md`](plans/_archive/scrap-criterion-parts-2026-11.md) — правило утиля по детали, где живёт метка, что не поехало и почему.
 - Открытые пункты по этому релизу: [`docs/pending/util-po-detali-strakhovka-po-podstroke-karter.md`](pending/util-po-detali-strakhovka-po-podstroke-karter.md) (страховка по «картеру») и [`docs/pending/massovoe-izmenenie-proizvolnye-svojstva-kartochki.md`](pending/massovoe-izmenenie-proizvolnye-svojstva-kartochki.md) (произвольные свойства карточки в раскладке — осознанно не сделано).
 - Миграций релиз не везёт (`backend-api/drizzle/*.sql` не менялись) — гейт #025 не срабатывал.
 - `feat/engine-rmz-number-allocation` — мёртвая ветка нитки номеров РМЗ (upstream `[gone]`), коммиты не слиты: **не трогать**, разбор идёт вместе с ниткой номеров.
