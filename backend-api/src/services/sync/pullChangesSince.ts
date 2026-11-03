@@ -44,13 +44,17 @@ import {
   ppeCardNorms,
   ppeCollectiveLines,
   ppeCollectives,
+  ppeEmployeeCards,
   ppeGroupMembers,
   ppeGroupNorms,
   ppeGroups,
   ppeIssueCards,
   ppeIssueEntries,
   ppeNormLines,
+  ppeNormLineSpecs,
   ppeNormSets,
+  ppeOccupationRef,
+  ppePrintTemplates,
   signatureDefaults,
   ledgerTxIndex,
   notes,
@@ -212,6 +216,25 @@ const PG_SYNC_TABLES: Record<
   [SyncTableName.PpeCollectiveLines]: {
     drizzle: ppeCollectiveLines,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeCollectiveLines, r),
+  },
+  // Приказ о СИЗ (Минтруд 767н): профессии, «приказные» строки норм, личная карточка
+  // по форме приложения №3, шаблоны печатных форм — без них инкрементальный pull
+  // отдавал бы клиенту нормы приказа неполными.
+  [SyncTableName.PpeOccupationRef]: {
+    drizzle: ppeOccupationRef,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeOccupationRef, r),
+  },
+  [SyncTableName.PpeNormLineSpecs]: {
+    drizzle: ppeNormLineSpecs,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeNormLineSpecs, r),
+  },
+  [SyncTableName.PpeEmployeeCards]: {
+    drizzle: ppeEmployeeCards,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpeEmployeeCards, r),
+  },
+  [SyncTableName.PpePrintTemplates]: {
+    drizzle: ppePrintTemplates,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.PpePrintTemplates, r),
   },
   [SyncTableName.SignatureDefaults]: {
     drizzle: signatureDefaults,
