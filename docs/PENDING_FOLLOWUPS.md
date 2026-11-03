@@ -54,6 +54,7 @@
 
 ## 🟡 Техдолг и отложенное
 
+- [🔴 Журнал синхронизации пухнет EAV-значениями: 3.9 млн строк и рост ~8 тыс. в минуту 🗓 since:2026-11-03](pending/journal-rozet-iz-za-eav-attribute-values.md)
 - [🟡 Размерный ряд СИЗ для РМЗ: базовый может не подойти 🗓 since:2026-11-03](pending/razmernyy-ryad-siz-dlya-rmz-utochnit.md)
 - [🟡 Утиль по детали: выключить страховку по подстроке «картер» 🗓 since:2026-11-02](pending/util-po-detali-strakhovka-po-podstroke-karter.md)
 - [🟡 Массовое изменение в приёме: произвольные свойства карточки 🗓 since:2026-11-02](pending/massovoe-izmenenie-proizvolnye-svojstva-kartochki.md)
