@@ -87,7 +87,7 @@
 | `reports.ts` | Реестр пресетов отчётов, типы параметров |
 | `releaseWelcome.ts` | `RELEASE_WELCOME_HISTORY` — текст для оператора при автообновлении |
 | `desktop.ts`, `deepLinkRoute.ts` | Верстак: санитайзер секции (`pos`, `shortcutsMigratedAt`, `desktopUsage` — «прививка»), тумблер/`put` с явным исходом, ключ ссылки для дедупа (`file:`/роут/`tab:`), переезд «Быстрого запуска». Сетка: `desktopTileMetrics` (шесть шагов размера) и `desktopLayoutGrid` (кто в какой ячейке при N колонках). Рейтинг: `desktopUsageBump`/`Add`/`Score`/`Steps` — затухание `0.5^(возраст/7)`, окно 30 дней, шаг по месту в распределении с правилом ничьих. Файловый ярлык: `desktopFileLink`/`desktopFileFromLink`/`desktopFileIcon` — нагрузка живёт ВНУТРИ `link`, потому что новое поле ярлыка срезал бы санитайзер. Разбор ссылки приложения (`resolveDeepLinkRoute`) — здесь же, renderer реэкспортирует |
-| `permissions.ts`, `signatureAccess.ts` | Роли и доступ к подписям |
+| `permissions.ts`, `signatureAccess.ts`, `ledgerAuthz.ts` | Роли и доступ к подписям. **Узкие права по полям карточки**: `employees.position.edit` («Изменение должностей сотрудников») — правит ровно атрибут `role` у карточки сотрудника, не открывая кадровое `employees.create`; вид требования `own_employee_any` в `ledgerAuthz.ts`, исключение из гейта раздела «Персонал» — в `ledgerAuthzGuard.ts` (сервер) и `sectionGate.ts` (клиент). Выдано роли «Кладовщик» (решение владельца 2026-11-03): без должности норма приказа не подбирается |
 | `part.ts`, `contract.ts`, `employees.ts`, `supplyRequest.ts` | Доменные типы остальных сущностей |
 | `enums.ts`, `systemIds.ts`, `linkFieldRules.ts` | Перечисления, системные UUID, правила связей |
 
