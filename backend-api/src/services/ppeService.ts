@@ -14,8 +14,10 @@ import {
   ppeGroups,
   ppeIssueCards,
   ppeIssueEntries,
+  ppeNormLineSpecs,
   ppeNormLines,
   ppeNormSets,
+  ppeOccupationRef,
 } from '../database/schema.js';
 import { ensurePpeEmployeeCard, ensurePpeEmployeeCards } from './ppeEmployeeMirror.js';
 import { createWarehouseDocument, postWarehouseDocument } from './warehouseService.js';
@@ -55,7 +57,26 @@ async function validateNomenclatureIds(ids: string[]): Promise<string | null> {
 }
 
 export async function listPpeNormSets(args: { postTitle?: string; gender?: string; season?: string } = {}): Promise<
-  Result<{ rows: Array<{ id: string; name: string; postTitle: string | null; departmentId: string | null; gender: string | null; season: string | null; isDuty: boolean; validFrom: number; validTo: number | null; linesCount: number }> }>
+  Result<{
+    rows: Array<{
+      id: string;
+      name: string;
+      postTitle: string | null;
+      departmentId: string | null;
+      gender: string | null;
+      season: string | null;
+      isDuty: boolean;
+      validFrom: number;
+      validTo: number | null;
+      linesCount: number;
+      /** Основание набора: профессия приказа и его пункт. У приказных наборов заполнено всегда. */
+      occupationId: string | null;
+      sourceKind: string | null;
+      sourceLabel: string | null;
+      occupationCode: string | null;
+      occupationPost: string | null;
+    }>;
+  }>
 > {
   try {
     const conditions = [isNull(ppeNormSets.deletedAt)];
@@ -73,6 +94,9 @@ export async function listPpeNormSets(args: { postTitle?: string; gender?: strin
         isDuty: ppeNormSets.isDuty,
         validFrom: ppeNormSets.validFrom,
         validTo: ppeNormSets.validTo,
+        occupationId: ppeNormSets.occupationId,
+        sourceKind: ppeNormSets.sourceKind,
+        sourceLabel: ppeNormSets.sourceLabel,
       })
       .from(ppeNormSets)
       .where(and(...conditions));
@@ -84,6 +108,14 @@ export async function listPpeNormSets(args: { postTitle?: string; gender?: strin
       : [];
     const countBySet = new Map<string, number>();
     for (const l of lines) countBySet.set(String(l.normSetId), (countBySet.get(String(l.normSetId)) ?? 0) + 1);
+    const occupationIds = [...new Set(sets.map((s) => String(s.occupationId ?? '')).filter(Boolean))];
+    const occupations = occupationIds.length
+      ? await db
+          .select({ id: ppeOccupationRef.id, code: ppeOccupationRef.code, postTitle: ppeOccupationRef.postTitle })
+          .from(ppeOccupationRef)
+          .where(inArray(ppeOccupationRef.id, occupationIds as any))
+      : [];
+    const occupationById = new Map(occupations.map((o) => [String(o.id), o]));
     return {
       ok: true,
       rows: sets.map((s) => ({
@@ -97,6 +129,11 @@ export async function listPpeNormSets(args: { postTitle?: string; gender?: strin
         validFrom: Number(s.validFrom),
         validTo: s.validTo == null ? null : Number(s.validTo),
         linesCount: countBySet.get(String(s.id)) ?? 0,
+        occupationId: s.occupationId == null ? null : String(s.occupationId),
+        sourceKind: s.sourceKind == null ? null : String(s.sourceKind),
+        sourceLabel: s.sourceLabel == null ? null : String(s.sourceLabel),
+        occupationCode: occupationById.get(String(s.occupationId ?? ''))?.code ?? null,
+        occupationPost: occupationById.get(String(s.occupationId ?? ''))?.postTitle ?? null,
       })),
     };
   } catch (e) {
@@ -105,7 +142,39 @@ export async function listPpeNormSets(args: { postTitle?: string; gender?: strin
 }
 
 export async function getPpeNormSet(id: string): Promise<
-  Result<{ normSet: { id: string; name: string; postTitle: string | null; departmentId: string | null; gender: string | null; season: string | null; isDuty: boolean; validFrom: number; validTo: number | null; lines: Array<{ id: string; nomenclatureId: string; qty: number; wearMonths: number }> } }>
+  Result<{
+    normSet: {
+      id: string;
+      name: string;
+      postTitle: string | null;
+      departmentId: string | null;
+      gender: string | null;
+      season: string | null;
+      isDuty: boolean;
+      validFrom: number;
+      validTo: number | null;
+      /** Основание набора: профессия приказа и его пункт («Пункт № 1511», «№ 766н Прил.4»). */
+      occupationId: string | null;
+      sourceKind: string | null;
+      sourceLabel: string | null;
+      occupationCode: string | null;
+      occupationPost: string | null;
+      lines: Array<{
+        id: string;
+        nomenclatureId: string;
+        /** Наименование и код позиции берём с сервера: реплика номенклатуры на клиенте может отставать. */
+        nomenclatureName: string | null;
+        nomenclatureCode: string | null;
+        qty: number;
+        wearMonths: number;
+        unit: string | null;
+        /** Пункт приказа, из которого взята позиция. */
+        sourceLabel: string | null;
+        sourceKind: string | null;
+        specId: string | null;
+      }>;
+    };
+  }>
 > {
   try {
     const rows = await db.select().from(ppeNormSets).where(and(eq(ppeNormSets.id, id as any), isNull(ppeNormSets.deletedAt))).limit(1);
@@ -115,6 +184,30 @@ export async function getPpeNormSet(id: string): Promise<
       .select()
       .from(ppeNormLines)
       .where(and(eq(ppeNormLines.normSetId, id as any), isNull(ppeNormLines.deletedAt)));
+    const nomIds = [...new Set(lines.map((l) => String(l.nomenclatureId)).filter(Boolean))];
+    const noms = nomIds.length
+      ? await db
+          .select({ id: erpNomenclature.id, name: erpNomenclature.name, code: erpNomenclature.code })
+          .from(erpNomenclature)
+          .where(and(inArray(erpNomenclature.id, nomIds as any), isNull(erpNomenclature.deletedAt)))
+      : [];
+    const nomById = new Map(noms.map((n) => [String(n.id), n]));
+    const specIds = [...new Set(lines.map((l) => String(l.specId ?? '')).filter(Boolean))];
+    const specs = specIds.length
+      ? await db
+          .select({
+            id: ppeNormLineSpecs.id,
+            sourceLabel: ppeNormLineSpecs.sourceLabel,
+            sourceKind: ppeNormLineSpecs.sourceKind,
+            unit: ppeNormLineSpecs.unit,
+          })
+          .from(ppeNormLineSpecs)
+          .where(inArray(ppeNormLineSpecs.id, specIds as any))
+      : [];
+    const specById = new Map(specs.map((s) => [String(s.id), s]));
+    const occupation = set.occupationId
+      ? (await db.select().from(ppeOccupationRef).where(eq(ppeOccupationRef.id, set.occupationId as any)).limit(1))[0] ?? null
+      : null;
     return {
       ok: true,
       normSet: {
@@ -127,12 +220,27 @@ export async function getPpeNormSet(id: string): Promise<
         isDuty: set.isDuty === true,
         validFrom: Number(set.validFrom),
         validTo: set.validTo == null ? null : Number(set.validTo),
-        lines: lines.map((l) => ({
-          id: String(l.id),
-          nomenclatureId: String(l.nomenclatureId),
-          qty: Number(l.qty),
-          wearMonths: Number(l.wearMonths),
-        })),
+        occupationId: set.occupationId == null ? null : String(set.occupationId),
+        sourceKind: set.sourceKind == null ? null : String(set.sourceKind),
+        sourceLabel: set.sourceLabel == null ? null : String(set.sourceLabel),
+        occupationCode: occupation ? String(occupation.code) : null,
+        occupationPost: occupation ? String(occupation.postTitle) : null,
+        lines: lines.map((l) => {
+          const nom = nomById.get(String(l.nomenclatureId));
+          const spec = l.specId ? specById.get(String(l.specId)) : undefined;
+          return {
+            id: String(l.id),
+            nomenclatureId: String(l.nomenclatureId),
+            nomenclatureName: nom ? String(nom.name) : null,
+            nomenclatureCode: nom ? String(nom.code) : null,
+            qty: Number(l.qty),
+            wearMonths: Number(l.wearMonths),
+            unit: spec ? String(spec.unit) : null,
+            sourceLabel: spec ? (spec.sourceLabel == null ? null : String(spec.sourceLabel)) : null,
+            sourceKind: spec ? String(spec.sourceKind) : null,
+            specId: l.specId == null ? null : String(l.specId),
+          };
+        }),
       },
     };
   } catch (e) {
@@ -170,6 +278,20 @@ export async function upsertPpeNormSet(input: PpeNormSetUpsert): Promise<Result<
         deletedAt: null,
         syncStatus: 'pending',
       };
+      // Привязку позиции к приказу (specId) сохраняем: правка набора не должна отвязывать
+      // строку от пункта приказа, из которого она взята. Новая позиция без спеки — обычная.
+      const previousLines = existing.length
+        ? await tx
+            .select({ nomenclatureId: ppeNormLines.nomenclatureId, specId: ppeNormLines.specId })
+            .from(ppeNormLines)
+            .where(and(eq(ppeNormLines.normSetId, id as any), isNull(ppeNormLines.deletedAt)))
+        : [];
+      const specByNomenclature = new Map<string, string>();
+      for (const prev of previousLines) {
+        if (prev.specId && !specByNomenclature.has(String(prev.nomenclatureId))) {
+          specByNomenclature.set(String(prev.nomenclatureId), String(prev.specId));
+        }
+      }
       if (existing.length > 0) {
         await tx.update(ppeNormSets).set(values).where(eq(ppeNormSets.id, id as any));
         await tx.update(ppeNormLines).set({ deletedAt: now, updatedAt: now, syncStatus: 'pending' }).where(eq(ppeNormLines.normSetId, id as any));
@@ -181,6 +303,7 @@ export async function upsertPpeNormSet(input: PpeNormSetUpsert): Promise<Result<
           id: randomUUID(),
           normSetId: id,
           nomenclatureId: String(l.nomenclatureId),
+          specId: (specByNomenclature.get(String(l.nomenclatureId)) ?? null) as any,
           qty: l.qty,
           wearMonths: l.wearMonths,
           createdAt: now,

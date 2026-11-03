@@ -20,7 +20,9 @@ export type LedgerWriteRequirement =
   | { kind: 'permission'; code: PermissionCode } // operator must hold this permission
   | { kind: 'admin' } // admin/superadmin only (sensitive: contracts/customers)
   | { kind: 'superadmin' } // superadmin only (structural directories)
-  | { kind: 'own_employee'; code: PermissionCode }; // own employee record, либо держатель кадрового права — PII
+  | { kind: 'own_employee'; code: PermissionCode } // own employee record, либо держатель кадрового права — PII
+  // Своя карточка ЛИБО любое из узких прав (например, только должность).
+  | { kind: 'own_employee_any'; code: PermissionCode; alt: PermissionCode[] };
 
 // Server-managed employee auth/security attributes (EAV `attribute_defs.code`).
 // These are written ONLY by the server (setEmployeeAuth / admin routes) using a
@@ -192,6 +194,14 @@ export const SUPERADMIN_ONLY_EMPLOYEE_ATTR_CODES: ReadonlySet<string> = new Set(
  * намеренно не проверяется — см. комментарий у isServerOnlyAttrCode. */
 export function isSuperadminOnlyAttrCode(attrCode: string | null | undefined): boolean {
   return SUPERADMIN_ONLY_EMPLOYEE_ATTR_CODES.has((attrCode ?? '').trim().toLowerCase());
+}
+
+/** Код атрибута «должность» в карточке сотрудника. */
+export const EMPLOYEE_POSITION_ATTR_CODE = 'role';
+
+/** True если строка пишет именно должность сотрудника. */
+export function isEmployeePositionAttrCode(attrCode: string | null | undefined): boolean {
+  return (attrCode ?? '').trim().toLowerCase() === EMPLOYEE_POSITION_ATTR_CODE;
 }
 
 // entity_type code -> requirement (entities / attribute_values rows).
@@ -389,12 +399,23 @@ export function ledgerWriteRequirement(args: {
    * (`entryType: 'sheet'` / `sheet`). Без meta (легаси-очередь) — прежний фолбэк.
    */
   operationMetaJson?: string | null;
+  /** Код атрибута строки (для attribute_values) — нужен для узких прав по полям карточки. */
+  attrCode?: string | null;
 }): LedgerWriteRequirement {
   const { table } = args;
 
   if (table === SyncTableName.Entities || table === SyncTableName.AttributeValues) {
     const code = (args.entityTypeCode ?? '').trim();
     if (!code) return { kind: 'open' };
+    // Должность сотрудника — узкое право: кладовщик правит должность, чтобы
+    // подобралась норма приказа, но кадровую карточку целиком не ведёт.
+    if (code === 'employee' && table === SyncTableName.AttributeValues && isEmployeePositionAttrCode(args.attrCode)) {
+      return {
+        kind: 'own_employee_any',
+        code: PermissionCode.EmployeesCreate,
+        alt: [PermissionCode.EmployeesPositionEdit],
+      };
+    }
     return ENTITY_TYPE_REQUIREMENT[code] ?? { kind: 'open' };
   }
 
@@ -432,6 +453,10 @@ export function operatorMeetsRequirement(
       return ctx.perms[req.code] === true;
     case 'own_employee':
       if (ctx.perms[req.code] === true) return true;
+      return !!ctx.ownerEntityId && ctx.ownerEntityId === ctx.actorId;
+    case 'own_employee_any':
+      if (ctx.perms[req.code] === true) return true;
+      if (req.alt.some((code) => ctx.perms[code] === true)) return true;
       return !!ctx.ownerEntityId && ctx.ownerEntityId === ctx.actorId;
     case 'admin':
     case 'superadmin':

@@ -35,6 +35,7 @@ import {
   isRepairStageRowWrite,
   ledgerWriteRequirement,
   PermissionCode,
+  isEmployeePositionAttrCode,
   operatorMeetsRequirement,
   sectionForLedgerWrite,
   sectionLevelFor,
@@ -251,6 +252,7 @@ export async function partitionLedgerInputsByAuthz(
     let ownerEntityId: string | null = null;
     let operationType: string | null = null;
     let operationMetaJson: string | null = null;
+    let rowAttrCode: string | null = null;
 
     if (inp.table === SyncTableName.Entities) {
       ownerEntityId = str(inp.row?.['id'] ?? inp.row_id);
@@ -301,6 +303,7 @@ export async function partitionLedgerInputsByAuthz(
     // (security-hardening-2026-06 C2)
     if (inp.table === SyncTableName.AttributeValues) {
       const attrCode = codeByDefId.get(str(inp.row?.['attribute_def_id'])) ?? null;
+      rowAttrCode = attrCode;
       if (isServerOnlyAttrCode(attrCode)) {
         denied.push({
           table: inp.table,
@@ -389,7 +392,14 @@ export async function partitionLedgerInputsByAuthz(
     if (sectionMembership) {
       const section = sectionForLedgerWrite({ table: inp.table, entityTypeCode, operationType });
       const ownEmployeeRow = entityTypeCode === 'employee' && !!ownerEntityId && ownerEntityId === actor.id;
-      if (section && !ownEmployeeRow) {
+      // Узкое право на должность: кладовщику (решение владельца 2026-11-03) нужно
+      // поправить должность сотрудника, иначе норма приказа не подберётся. Отдельная
+      // сущность права здесь не создаёт: право решает и гейт раздела, и гейт требования.
+      const positionWriter =
+        entityTypeCode === 'employee' &&
+        isEmployeePositionAttrCode(rowAttrCode) &&
+        perms[PermissionCode.EmployeesPositionEdit] === true;
+      if (section && !ownEmployeeRow && !positionWriter) {
         const level = sectionLevelFor({ membership: sectionMembership, role, sectionId: section });
         if (level !== 'editor') {
           denied.push({ table: inp.table, row_id: inp.row_id, reason: `forbidden:section_viewer:${section}` });
@@ -405,7 +415,13 @@ export async function partitionLedgerInputsByAuthz(
       continue;
     }
 
-    const req = ledgerWriteRequirement({ table: inp.table, entityTypeCode, operationType, operationMetaJson });
+    const req = ledgerWriteRequirement({
+      table: inp.table,
+      entityTypeCode,
+      operationType,
+      operationMetaJson,
+      attrCode: rowAttrCode,
+    });
     const ok = operatorMeetsRequirement(req, { perms, actorId: actor.id, ownerEntityId });
     if (ok) {
       allowed.push(inp);

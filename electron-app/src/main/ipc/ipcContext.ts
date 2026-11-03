@@ -37,6 +37,18 @@ export async function requirePermOrResult(ctx: IpcContext, permCode: string) {
   return { ok: true as const };
 }
 
+/**
+ * Ворота «любое из прав»: подходит там, где одна операция закрыта двумя разными
+ * правами (например, должность сотрудника — кадровым правом или узким
+ * правом на должности).
+ */
+export async function requireAnyPermOrResult(ctx: IpcContext, permCodes: string[]) {
+  const perms = await ctx.currentPermissions();
+  const ok = permCodes.find((code) => hasPerm(perms, code));
+  if (!ok) return { ok: false as const, error: `permission denied: ${permCodes.join(' | ')}` };
+  return { ok: true as const };
+}
+
 export function isViewMode(ctx: IpcContext): boolean {
   return ctx.mode().mode === 'backup';
 }
