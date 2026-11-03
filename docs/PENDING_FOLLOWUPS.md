@@ -54,7 +54,7 @@
 
 ## 🟡 Техдолг и отложенное
 
-- [🟡 Журнал синхронизации раздувался EAV-значениями: раздувание остановлено (PR #1561), дубли вычищены 🗓 since:2026-11-03](pending/journal-rozet-iz-za-eav-attribute-values.md)
+- [🟡 Журнал синхронизации раздувался EAV-значениями: раздувание остановлено (PR #1561), все дубли вычищены 🗓 since:2026-11-03](pending/journal-rozet-iz-za-eav-attribute-values.md)
 - [🟡 Размерный ряд СИЗ для РМЗ: базовый может не подойти 🗓 since:2026-11-03](pending/razmernyy-ryad-siz-dlya-rmz-utochnit.md)
 - [🟡 Утиль по детали: выключить страховку по подстроке «картер» 🗓 since:2026-11-02](pending/util-po-detali-strakhovka-po-podstroke-karter.md)
 - [🟡 Массовое изменение в приёме: произвольные свойства карточки 🗓 since:2026-11-02](pending/massovoe-izmenenie-proizvolnye-svojstva-kartochki.md)
