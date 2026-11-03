@@ -156,11 +156,6 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
     })();
   }, []);
 
-  const nomName = useCallback(
-    (id: string) => nomenclature.find((n) => n.id === id)?.label ?? id,
-    [nomenclature],
-  );
-
   /**
    * Название позиции. Сначала сервер: реплика номенклатуры на клиенте может отставать
    * (номенклатура приказа заведена миграцией), и тогда кладовщик видел бы UUID.
