@@ -54,6 +54,7 @@
 
 ## 🟡 Техдолг и отложенное
 
+- [🟡 Размерный ряд СИЗ для РМЗ: базовый может не подойти 🗓 since:2026-11-03](pending/razmernyy-ryad-siz-dlya-rmz-utochnit.md)
 - [🟡 Утиль по детали: выключить страховку по подстроке «картер» 🗓 since:2026-11-02](pending/util-po-detali-strakhovka-po-podstroke-karter.md)
 - [🟡 Массовое изменение в приёме: произвольные свойства карточки 🗓 since:2026-11-02](pending/massovoe-izmenenie-proizvolnye-svojstva-kartochki.md)
 - [🟡 Выкат прошёл, а скрипт говорит «nginx не ответил» и выходит с кодом 1 — одиночная проверка без повтора 🗓 since:2026-10-29](pending/vykat-proshel-a-skript-govorit-nginx-ne-otvetil.md)
@@ -83,6 +84,8 @@
 
 ## ⏳ Ждёт внешнего окна / события
 
+- [⏳ Приёмка парка на 3.101.0: приказ о СИЗ должен быть виден оператору 🗓 since:2026-11-03](pending/priemka-parka-na-3-101-0-prikaz-o-siz.md)
+- [⏳ Выгрузка СИЗ в 1С: структура файла ждёт бухгалтера 🗓 since:2026-11-03](pending/vygruzka-siz-v-1s-struktura-zhdet-buhgaltera.md)
 - [Импорт ЗУП: живого образца выгрузки так и не было — проверено на фикстуре 🗓 since:2026-10-18](pending/import-zup-zhivogo-obraztsa-vygruzki-tak-i-ne-bylo.md)
 - [🟡 «Кладовщик»: показать раздел кладовщику завода (фаза 2) 🗓 since:2026-10-20](pending/kladovshchik-pokazat-razdel-kladovshchiku-zavoda-faza-2.md)
 - [🟡 Почта из программы: транспорт `mailto:`, SMTP — решением владельца 🗓 since:2026-10-21](pending/pochta-iz-programmy-transport-mailto-smtp-resheniem.md)
