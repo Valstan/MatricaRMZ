@@ -49,6 +49,12 @@ function pgMapTables(source: string): string[] {
   return Array.from(names).sort();
 }
 
+/** Имена таблиц, которые публикует издатель зеркала СИЗ (ppeSyncPublisherService.ts). */
+function publisherTableKeys(source: string): string[] {
+  const keys = new Set(Array.from(source.matchAll(/SyncTableName\.(\w+)/g)).map((m) => String(m[1])));
+  return Array.from(keys).sort();
+}
+
 /** Имена таблиц из списка `SERVER_MIRROR_TABLES` в applyPushBatch.ts. */
 function mirrorTableKeys(source: string): string[] {
   const start = source.indexOf('SERVER_MIRROR_TABLES');
@@ -91,5 +97,19 @@ describe('таблицы-зеркала серверных дверей: тра�
     // Копия списка рядом разошлась бы с константой при первой же новой таблице —
     // и строка снова начала бы перепубликоваться каждый тик.
     expect(applySource).toContain('for (const tableName of SERVER_MIRROR_TABLES)');
+  });
+
+  it('каждая таблица издателя СИЗ — зеркало', () => {
+    // Обратная сторона того же шва. Проверка выше идёт от зеркала к картам pull и
+    // потому молча пропускает обратный случай: таблицу внесли в карты pull, но
+    // забыли в SERVER_MIRROR_TABLES — издатель шлёт её в журнал каждый тик
+    // (sync_status не снимается), а клиент получает дубли. Ровно это случилось
+    // с четырьмя таблицами приказа о СИЗ: PR #1554 внёс их в pgSyncTables и
+    // pullChangesSince, а зеркалом они не стали — и PR был зелёным.
+    const publisher = publisherTableKeys(readSource('./ppeSyncPublisherService.ts'));
+    expect(publisher.length, 'издатель СИЗ не найден — тест устарел вместе с файлом').toBeGreaterThan(0);
+    for (const key of publisher) {
+      expect(mirrorTables, `SERVER_MIRROR_TABLES без ${key} — издатель переотправляет её каждый тик`).toContain(key);
+    }
   });
 });

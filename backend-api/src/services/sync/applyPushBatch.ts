@@ -103,6 +103,14 @@ export const SERVER_MIRROR_TABLES = [
   SyncTableName.PpeGroupNorms,
   SyncTableName.PpeCollectives,
   SyncTableName.PpeCollectiveLines,
+  // Приказ о СИЗ (Минтруд 767н): профессии с пунктами приложений, «приказные» строки
+  // норм, личная карточка по форме приложения №3, шаблоны печатных форм. Без них
+  // издатель переотправляет строки каждый тик (журнал пухнет), а инкрементальный
+  // pull их не отдаёт — ровно тот случай, что описан в комментарии выше.
+  SyncTableName.PpeOccupationRef,
+  SyncTableName.PpeNormLineSpecs,
+  SyncTableName.PpeEmployeeCards,
+  SyncTableName.PpePrintTemplates,
   SyncTableName.SignatureDefaults,
 ] as const;
 
