@@ -5,8 +5,11 @@
  * Все серверные модификации sync-таблиц ОБЯЗАНЫ проходить через этот сервис.
  */
 import { type LedgerTableName, type LedgerTxPayload } from '@matricarmz/ledger';
+import { and, inArray } from 'drizzle-orm';
 import { ENGINE_INVENTORY_STAGE, SyncTableName, SyncTableRegistry, syncRowSchemaByTable } from '@matricarmz/shared';
 
+import { db } from '../../database/db.js';
+import { attributeValues } from '../../database/schema.js';
 import { signAndAppendDetailed } from '../../ledger/ledgerService.js';
 import type { InventoryOperationRow } from '../engineInventoryLinesService.js';
 import { writeEngineCardEavTrail } from '../engineStrictService.js';
@@ -198,6 +201,66 @@ async function deriveLinesForAppliedOperations(collected: AppliedSyncChange[], a
  * 3. Projects to `ledgerTxIndex` (query-optimized).
  * 4. Applies to PostgreSQL tables via `applyPushBatch`.
  */
+/**
+ * Строка значения атрибута, содержимое которой не изменилось.
+ *
+ * Правило: журнал — лог ИЗМЕНЕНИЙ. Пока он писал каждый пришедший пуш подряд,
+ * клиент с зависшим pending раздувал журнал на ровном месте: содержимое то
+ * же, а запись новая (прод-инцидент 03.11.2026 — 3.6 млн записей от одной
+ * машины за сутки, 89% журнала).
+ *
+ * Такая строка в журнал НЕ идёт, но подтверждение клиенту уходит как обычно
+ * (applied_rows собирается из applyPushBatch) — pending снимается, правка не
+ * теряется, а мусор в журнале не растёт.
+ */
+export function isUnchangedAttributeValueRow(
+  current: { valueJson: string | null; updatedAt: number | null; deletedAt: number | null } | null | undefined,
+  incoming: Record<string, unknown>,
+): boolean {
+  if (!current) return false;
+  const norm = (v: unknown): string | null => {
+    if (v == null) return null;
+    const s = String(v);
+    return s === 'null' ? null : s;
+  };
+  const sameValue = norm(current.valueJson) === norm(incoming.value_json);
+  const sameUpdated = Number(current.updatedAt ?? 0) === Number(incoming.updated_at ?? 0);
+  const sameDeleted = (current.deletedAt ?? null) === (incoming.deleted_at ?? null);
+  return sameValue && sameUpdated && sameDeleted;
+}
+
+/** id строк-значений, содержимое которых совпадает с серверным (см. isUnchangedAttributeValueRow). */
+async function findUnchangedAttributeValueRows(rows: Array<Record<string, unknown>>): Promise<Set<string>> {
+  const unchanged = new Set<string>();
+  if (rows.length === 0) return unchanged;
+  const entityIds = Array.from(new Set(rows.map((r) => String(r.entity_id ?? '')).filter(Boolean)));
+  const defIds = Array.from(new Set(rows.map((r) => String(r.attribute_def_id ?? '')).filter(Boolean)));
+  if (entityIds.length === 0 || defIds.length === 0) return unchanged;
+  const stored = await db
+    .select({
+      entityId: attributeValues.entityId,
+      attributeDefId: attributeValues.attributeDefId,
+      valueJson: attributeValues.valueJson,
+      updatedAt: attributeValues.updatedAt,
+      deletedAt: attributeValues.deletedAt,
+    })
+    .from(attributeValues)
+    .where(
+      and(
+        inArray(attributeValues.entityId, entityIds as any),
+        inArray(attributeValues.attributeDefId, defIds as any),
+      ),
+    )
+    .limit(50_000);
+  const byPair = new Map<string, (typeof stored)[number]>();
+  for (const s of stored) byPair.set(`${s.entityId}:${s.attributeDefId}`, s);
+  for (const r of rows) {
+    const cur = byPair.get(`${String(r.entity_id ?? '')}:${String(r.attribute_def_id ?? '')}`);
+    if (isUnchangedAttributeValueRow(cur ?? null, r)) unchanged.add(String(r.id ?? ''));
+  }
+  return unchanged;
+}
+
 export async function writeSyncChanges(
   inputs: SyncWriteInput[],
   actor: SyncWriteActor,
@@ -217,7 +280,7 @@ export async function writeSyncChanges(
       lastSeq: 0,
       blockHeight: 0,
       appliedRows: [],
-      idRemaps: { entity_types: {}, attribute_defs: {} },
+      idRemaps: { entity_types: {}, attribute_defs: {}, attribute_values: {} },
       skipped: [],
     };
   }
@@ -248,11 +311,20 @@ export async function writeSyncChanges(
     grouped.set(input.table, arr);
   }
 
+  // ── Step 0.5: no-op строки (содержимое не изменилось) ─────────────────
+  // Их не должно быть в журнале: журнал — лог ИЗМЕНЕНИЙ. Подтверждение
+  // (applied_rows) клиенту приходит отдельно и не пострадает.
+  const noopAttributeValueIds = await findUnchangedAttributeValueRows(
+    grouped.get(SyncTableName.AttributeValues) ?? [],
+  );
+
   // ── Step 1: Sign and append to ledger ────────────────────
   const upserts = Array.from(grouped.entries()).map(([table, rows]) => ({ table, rows }));
 
   const payloads: LedgerTxPayload[] = upserts.flatMap((pack) =>
-    pack.rows.map((row) => {
+    pack.rows
+      .filter((row) => !noopAttributeValueIds.has(String(row.id ?? '')))
+      .map((row) => {
       const op = row.deleted_at ? 'delete' : 'upsert';
       const tsValue = Number(row.updated_at ?? ts);
       return {
@@ -263,7 +335,7 @@ export async function writeSyncChanges(
         actor: { userId: actor.id, username: actor.username, role: actor.role ?? 'user' },
         ts: Number.isFinite(tsValue) ? tsValue : ts,
       };
-    }),
+      }),
   );
 
   const ledgerResult = await signAndAppendDetailed(payloads);

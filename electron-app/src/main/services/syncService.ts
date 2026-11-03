@@ -402,6 +402,8 @@ type LedgerPushSubmitResponse = {
   id_remaps?: {
     entity_types?: Record<string, string>;
     attribute_defs?: Record<string, string>;
+    /** Строка значения атрибута: id клиента → id серверной строки (пара «сущность+поле»). */
+    attribute_values?: Record<string, string>;
   };
   skipped?: Array<{
     table: SyncTableName;
@@ -894,6 +896,32 @@ async function mergeAttributeValuesByDefId(sqlite: SqlExecutor, fromDefId: strin
   ]);
 }
 
+/**
+ * Строка значения атрибута: сервер переименовал id клиента на свой (по паре
+ * «сущность+поле»). Клиент обязан это знать — иначе его строка навсегда
+ * остаётся в pending: подтверждение приходит с серверным id, локальная строка
+ * с чужим id не снимается, и клиент шлёт её снова и снова (прод-инцидент
+ * 03.11.2026: 3.6 млн записей в журнале за сутки от одной машины).
+ *
+ * Серверная строка — уже применённая версия, поэтому локальный дубль удаляем,
+ * а оставшуюся строку помечаем synced: правка доехала, повторный пуш не нужен.
+ */
+async function remapAttributeValueInSqlite(sqlite: SqlExecutor, fromId: string, toId: string, ts: number) {
+  if (!fromId || !toId || fromId === toId) return;
+  const target = (await sqlite.get('SELECT id FROM attribute_values WHERE id = ? LIMIT 1', [toId])) as
+    | { id?: string }
+    | undefined;
+  if (target?.id) {
+    await sqlite.run('DELETE FROM attribute_values WHERE id = ?', [fromId]);
+    await sqlite.run("UPDATE attribute_values SET sync_status = 'synced' WHERE id = ?", [toId]);
+    return;
+  }
+  await sqlite.run(
+    "UPDATE attribute_values SET id = ?, updated_at = ?, sync_status = 'synced' WHERE id = ?",
+    [toId, ts, fromId],
+  );
+}
+
 async function remapAttributeDefInSqlite(sqlite: SqlExecutor, fromDefId: string, toDefId: string, ts: number) {
   if (!fromDefId || !toDefId || fromDefId === toDefId) return;
   await mergeAttributeValuesByDefId(sqlite, fromDefId, toDefId, ts);
@@ -952,7 +980,11 @@ async function applyServerIdRemaps(db: BetterSQLite3Database, idRemaps: LedgerPu
   const attrDefEntries = Object.entries(attrDefMap).filter(
     ([fromId, toId]) => looksLikeUuid(fromId) && looksLikeUuid(toId) && fromId !== toId,
   );
-  if (entityTypeEntries.length === 0 && attrDefEntries.length === 0) return;
+  const attrValueMap = (idRemaps.attribute_values ?? {}) as Record<string, string>;
+  const attrValueEntries = Object.entries(attrValueMap).filter(
+    ([fromId, toId]) => looksLikeUuid(fromId) && looksLikeUuid(toId) && fromId !== toId,
+  );
+  if (entityTypeEntries.length === 0 && attrDefEntries.length === 0 && attrValueEntries.length === 0) return;
   const ts = nowMs();
   await sqlite.transaction(async () => {
     for (const [fromId, toId] of entityTypeEntries) {
@@ -960,6 +992,9 @@ async function applyServerIdRemaps(db: BetterSQLite3Database, idRemaps: LedgerPu
     }
     for (const [fromId, toId] of attrDefEntries) {
       await remapAttributeDefInSqlite(sqlite, fromId, toId, ts);
+    }
+    for (const [fromId, toId] of attrValueEntries) {
+      await remapAttributeValueInSqlite(sqlite, fromId, toId, ts);
     }
   });
 }
