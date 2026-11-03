@@ -235,41 +235,47 @@ async function main() {
 
   // ── 2. Вход кладовщиком — как живой оператор: «Выйти» в меню аккаунта,
   // затем форма входа. Мост-логин меняет сессию, но не перерисовывает рендерер.
-  const logoutClicked = await evaluate(
-    call,
-    `(() => {
-      const click = (el) => {
-        for (const type of ['mousedown', 'mouseup', 'click']) {
-          el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
-        }
-      };
-      const acc = document.querySelector('.v3-account-btn');
-      if (!acc) return 'нет кнопки аккаунта';
-      click(acc);
-      return 'нажата';
-    })()`,
-  );
-  await sleep(1000);
-  const logoutItem = await evaluate(
-    call,
-    `(() => {
-      const click = (el) => {
-        for (const type of ['mousedown', 'mouseup', 'click']) {
-          el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
-        }
-      };
-      const item = Array.from(document.querySelectorAll('button, li, div')).find((e) => {
-        const t = (e.textContent || '').trim();
-        return t.includes('Выйти') && t.length < 30;
-      });
-      if (!item) return 'нет пункта';
-      click(item);
-      return 'нажат';
-    })()`,
-  );
+  // Если клиент уже на экране входа (сессии нет) — выход не нужен, сразу в форму.
+  const alreadyLoggedOut = await evaluate(call, `!!document.querySelector('input[type="password"]')`);
+  let logoutClicked = 'пропущен (уже экран входа)';
+  let logoutItem = 'пропущен';
+  if (!alreadyLoggedOut) {
+    logoutClicked = await evaluate(
+      call,
+      `(() => {
+        const click = (el) => {
+          for (const type of ['mousedown', 'mouseup', 'click']) {
+            el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+          }
+        };
+        const acc = document.querySelector('.v3-account-btn');
+        if (!acc) return 'нет кнопки аккаунта';
+        click(acc);
+        return 'нажата';
+      })()`,
+    );
+    await sleep(1000);
+    logoutItem = await evaluate(
+      call,
+      `(() => {
+        const click = (el) => {
+          for (const type of ['mousedown', 'mouseup', 'click']) {
+            el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+          }
+        };
+        const item = Array.from(document.querySelectorAll('button, li, div')).find((e) => {
+          const t = (e.textContent || '').trim();
+          return t.includes('Выйти') && t.length < 30;
+        });
+        if (!item) return 'нет пункта';
+        click(item);
+        return 'нажат';
+      })()`,
+    );
+  }
   note(
-    logoutClicked === 'нажата' && logoutItem === 'нажат',
-    'выполнен выход через меню аккаунта',
+    alreadyLoggedOut || (logoutClicked === 'нажата' && logoutItem === 'нажат'),
+    'выполнен выход через меню аккаунта (или клиент уже на экране входа)',
     { logoutClicked, logoutItem },
   );
   await sleep(1500);
