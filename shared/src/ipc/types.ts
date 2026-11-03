@@ -2451,6 +2451,8 @@ export type MatricaApi = {
               employeeId: string;
               fullName: string;
               personnelNo: string | null;
+              /** Должность сотрудника — по ней подбираются нормы приказа (п. 11 приказа). */
+              postTitle: string | null;
               isActive: boolean;
               sizes: { clothes: string; shoes: string; height: string };
               cardId: string | null;
@@ -2546,7 +2548,138 @@ export type MatricaApi = {
           }
         | { ok: false; error: string }
       >;
+      /**
+       * Личная карточка СИЗ по форме приложения №3 приказа Минтруда 767н. Реквизиты —
+       * снимок на момент выдачи: ФИО и должность фиксируются так, как они были.
+       */
+      card: (employeeId: string) => Promise<
+        | {
+            ok: true;
+            card: {
+              id: string;
+              employeeId: string;
+              fullName: string | null;
+              lastName: string | null;
+              firstName: string | null;
+              middleName: string | null;
+              personnelNo: string | null;
+              departmentId: string | null;
+              departmentName: string | null;
+              occupationId: string | null;
+              postTitle: string | null;
+              gender: 'M' | 'F' | null;
+              height: string | null;
+              sizeClothes: string | null;
+              sizeShoes: string | null;
+              sizeGloves: string | null;
+              sizeHeadgear: string | null;
+              sizeRespirator: string | null;
+              sizeOd: string | null;
+              sizeHands: string | null;
+              hireDate: number | null;
+              positionChangedDate: number | null;
+              occupationNotes: string | null;
+              issuedBy: string | null;
+              preparedBy: string | null;
+              preparedAt: number | null;
+            };
+            requisites: unknown | null;
+          }
+        | { ok: false; error: string }
+      >;
+      /** Правка реквизитов личной карточки (размеры, примечания, подписи). */
+      updateCard: (args: { id: string; patch: Record<string, unknown> }) => Promise<
+        { ok: true; card: unknown } | { ok: false; error: string }
+      >;
     };
+    // ── Приказ о СИЗ (Минтруд 767н) ───────────────────────────────────────────
+    /** Справочник профессий приказа: код пункта приложения → наименование профессии. */
+    occupations: {
+      list: () => Promise<
+        | {
+            ok: true;
+            rows: Array<{
+              id: string;
+              code: string;
+              postTitle: string;
+              tonKind: string;
+              tonLabel: string | null;
+              tonYear: number | null;
+            }>;
+          }
+        | { ok: false; error: string }
+      >;
+    };
+    /**
+     * Подбор норм по должности: профессия → наборы норм (основной и зимний 766н).
+     * Возвращает и предупреждение, если профессию опознать не удалось.
+     */
+    normsByPost: (args: { postTitle: string; gender?: string; season?: string }) => Promise<
+      | {
+          ok: true;
+          occupation: { id: string; code: string; postTitle: string; tonKind: string; tonLabel: string | null; tonYear: number | null } | null;
+          normSetIds: string[];
+          normSets: Array<{ id: string; name: string; sourceKind: string | null; sourceLabel: string | null; season: string | null }>;
+          warning: string | null;
+        }
+      | { ok: false; error: string }
+    >;
+    /** Строки нормы для печати личной карточки (четыре колонки формы приложения №3). */
+    cardNormRows: (args: { normSetIds: string[] }) => Promise<
+      | {
+          ok: true;
+          rows: Array<{
+            name: string;
+            sourceLabel: string | null;
+            unit: string | null;
+            qty: number;
+            wearKind: string | null;
+            wearMonths: number | null;
+            qtyText: string;
+          }>;
+        }
+      | { ok: false; error: string }
+    >;
+    /** Шаблоны печатных форм: набор колонок и блоков, общие и личные. */
+    printTemplates: {
+      list: (args: { formKey: string }) => Promise<
+        | {
+            ok: true;
+            rows: Array<{
+              id: string;
+              ownerId: string;
+              formKey: string;
+              name: string;
+              layoutJson: string;
+              isDefault: boolean;
+              updatedAt: number;
+              updatedBy: string | null;
+            }>;
+          }
+        | { ok: false; error: string }
+      >;
+      save: (args: {
+        id?: string;
+        ownerId?: string;
+        formKey: string;
+        name: string;
+        layoutJson: string;
+        isDefault?: boolean;
+      }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+      delete: (id: string) => Promise<{ ok: true; deleted: true } | { ok: false; error: string }>;
+    };
+    /**
+     * Выгрузка для 1С: XLSX или CSV по ФИКСИРОВАННОЙ структуре (файл забирает
+     * бухгалтер и загружает в свою 1С). Служебных идентификаторов в данных нет.
+     */
+    oneCExport: (args: {
+      kind: 'norms' | 'issues';
+      format: 'xlsx' | 'csv';
+      fromMs?: number;
+      toMs?: number;
+      period?: string;
+      who?: string;
+    }) => Promise<{ ok: true; path: string; name: string } | { ok: false; error: string }>;
     /** Коллективная выдача (PR-3): черновик → распределение. */
     collectives: {
       list: (args?: { departmentId?: string }) => Promise<

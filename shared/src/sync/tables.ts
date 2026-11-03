@@ -84,6 +84,14 @@ export const SyncTableName = {
   // резолвят ФИО одним источником). attrs_json в зеркало НЕ входит — там
   // birth/hire-даты, которые pull-фильтр скрывает от операторов.
   ErpEmployeeCards: 'erp_employee_cards',
+  // Приказ о СИЗ (Минтруд 767н): профессии с пунктами приложений, «приказные»
+  // строки норм, личная карточка СИЗ по форме приложения №3, шаблоны печатных форм.
+  // Server-write / pull-only, как остальные Ppe*: ведут серверные двери, клиент
+  // читает реплику (без неё пикер профессий и печатные формы СИЗ пусты).
+  PpeOccupationRef: 'ppe_occupation_ref',
+  PpeNormLineSpecs: 'ppe_norm_line_specs',
+  PpeEmployeeCards: 'ppe_employee_cards',
+  PpePrintTemplates: 'ppe_print_templates',
   // Умолчания подписей (план favorites-work-stages-defaults-2026-10, PR-5):
   // ключ поля подписи → сотрудник. Server-write / pull-only, как PPE:
   // пишет админская дверь, клиент читает реплику.

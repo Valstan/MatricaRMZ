@@ -150,6 +150,12 @@ export const SYNC_TABLE_OWNERSHIP: Readonly<Record<SyncTableName, SyncTableOwner
   // Сотрудники СИЗ (PR-6): пишет только импорт ЗУП (серверная дверь REST),
   // клиент читает реплику. Без строки крафт карточки сотрудника ушёл бы в журнал.
   [SyncTableName.ErpEmployeeCards]: { owner: 'server', why: 'ppeImportService + публикатор зеркала' },
+  // Приказ о СИЗ (Минтруд 767н): ведут серверные двери (REST) + публикатор зеркала,
+  // клиент читает реплику. Без строк крафт приказных норм ушёл бы в журнал.
+  [SyncTableName.PpeOccupationRef]: { owner: 'server', why: 'ppeOrderNormsService + публикатор зеркала' },
+  [SyncTableName.PpeNormLineSpecs]: { owner: 'server', why: 'ppeOrderNormsService + публикатор зеркала' },
+  [SyncTableName.PpeEmployeeCards]: { owner: 'server', why: 'ppeOrderNormsService + публикатор зеркала' },
+  [SyncTableName.PpePrintTemplates]: { owner: 'server', why: 'ppeOrderNormsService + публикатор зеркала' },
   // Умолчания подписей (PR-5): ведёт только админская дверь (REST), клиент читает
   // реплику. Без строки крафт умолчания с клиента ушёл бы в журнал.
   [SyncTableName.SignatureDefaults]: { owner: 'server', why: 'signatureDefaultsService + публикатор зеркала' },
@@ -307,6 +313,11 @@ const TABLE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
   [SyncTableName.PpeCollectiveLines]: { kind: 'superadmin' },
   // Сотрудники СИЗ (PR-6) — вторая линия к безусловному табличному backstop'у выше.
   [SyncTableName.ErpEmployeeCards]: { kind: 'superadmin' },
+  // Приказ о СИЗ — вторая линия к безусловному табличному backstop'у выше.
+  [SyncTableName.PpeOccupationRef]: { kind: 'superadmin' },
+  [SyncTableName.PpeNormLineSpecs]: { kind: 'superadmin' },
+  [SyncTableName.PpeEmployeeCards]: { kind: 'superadmin' },
+  [SyncTableName.PpePrintTemplates]: { kind: 'superadmin' },
   // Умолчания подписей (PR-5) — вторая линия к безусловному табличному backstop'у выше.
   [SyncTableName.SignatureDefaults]: { kind: 'superadmin' },
 };

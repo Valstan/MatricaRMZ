@@ -64,7 +64,7 @@ type SaveResult = { ok: true; path: string; name: string } | { ok: false; error:
  * выбор пути, сборка файла после выбора и нативное предложение открыть. Сборка идёт **после**
  * диалога: отменённый «Сохранить как» не должен стоить времени сборки.
  */
-async function saveExportFile(args: {
+export async function saveExportFile(args: {
   ctx: IpcContext;
   autoDir: string | null;
   dialogTitle: string;

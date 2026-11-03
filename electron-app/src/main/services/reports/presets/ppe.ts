@@ -714,7 +714,11 @@ export async function buildPpeAnnualNeedReport(
     if (card.closedAt != null) continue;
     const merged = resolveEmployeeNorms(cardNormLines(snap, card));
     for (const p of merged) {
-      const annualQty = (p.qty * 12) / Math.max(1, p.wearMonths);
+      // Норма без срока («до износа», «срок определяется документами изготовителя»):
+      // годовая потребность — сама годовая норма из приказа (перевыдачи по календарю
+      // нет). У остальных потребность = qty × 12 / срок.
+      const annualQty =
+        p.wearMonths == null ? p.qty : (p.qty * 12) / Math.max(1, p.wearMonths);
       const agg = byNom.get(p.nomenclatureId) ?? { employees: new Set<string>(), annualQty: 0 };
       agg.employees.add(card.employeeId);
       agg.annualQty += annualQty;

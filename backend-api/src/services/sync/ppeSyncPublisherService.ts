@@ -31,13 +31,17 @@ import {
   ppeCardNorms,
   ppeCollectiveLines,
   ppeCollectives,
+  ppeEmployeeCards,
   ppeGroupMembers,
   ppeGroupNorms,
   ppeGroups,
   ppeIssueCards,
   ppeIssueEntries,
   ppeNormLines,
+  ppeNormLineSpecs,
   ppeNormSets,
+  ppeOccupationRef,
+  ppePrintTemplates,
 } from '../../database/schema.js';
 import { logError, logInfo } from '../../utils/logger.js';
 import { writeSyncChanges, type SyncWriteInput } from './syncWriteService.js';
@@ -87,6 +91,10 @@ export function toPpeNormSetInput(r: DbRow): SyncWriteInput {
     gender: r['gender'] == null ? null : String(r['gender']),
     season: r['season'] == null ? null : String(r['season']),
     is_duty: r['isDuty'] === true,
+    // Приказ о СИЗ: привязка набора к профессии приказа и подпись источника.
+    occupation_id: r['occupationId'] == null ? null : String(r['occupationId']),
+    source_kind: r['sourceKind'] == null ? null : String(r['sourceKind']),
+    source_label: r['sourceLabel'] == null ? null : String(r['sourceLabel']),
     valid_from: Number(r['validFrom']),
     valid_to: r['validTo'] == null ? null : Number(r['validTo']),
     created_at: Number(r['createdAt']),
@@ -101,9 +109,105 @@ export function toPpeNormLineInput(r: DbRow): SyncWriteInput {
     norm_set_id: String(r['normSetId']),
     nomenclature_id: String(r['nomenclatureId']),
     qty: Number(r['qty']),
-    wear_months: Number(r['wearMonths']),
+    // wear_months может быть null: норма «до износа» или «срок определяется
+    // документами изготовителя» — срока у неё нет.
+    wear_months: r['wearMonths'] == null ? null : Number(r['wearMonths']),
+    // Приказ о СИЗ: «приказная» строка и форма срока.
+    spec_id: r['specId'] == null ? null : String(r['specId']),
+    unit: r['unit'] == null ? null : String(r['unit']),
+    wear_kind: r['wearKind'] == null ? null : String(r['wearKind']),
     created_at: Number(r['createdAt']),
     updated_at: Number(r['updatedAt']),
+    deleted_at: r['deletedAt'] == null ? null : Number(r['deletedAt']),
+  });
+}
+
+// Приказ о СИЗ: справочник профессий с пунктами приложений.
+export function toPpeOccupationRefInput(r: DbRow): SyncWriteInput {
+  return toRowInput(SyncTableName.PpeOccupationRef, r, {
+    id: String(r['id']),
+    code: String(r['code']),
+    post_title: String(r['postTitle']),
+    ton_kind: String(r['tonKind']),
+    ton_label: r['tonLabel'] == null ? null : String(r['tonLabel']),
+    ton_year: r['tonYear'] == null ? null : Number(r['tonYear']),
+    department_id: r['departmentId'] == null ? null : String(r['departmentId']),
+    is_active: r['isActive'] === true,
+    created_at: Number(r['createdAt']),
+    updated_at: Number(r['updatedAt']),
+    deleted_at: r['deletedAt'] == null ? null : Number(r['deletedAt']),
+  });
+}
+
+// «Приказная» строка нормы: что написано в приказе, до разбора нормы.
+export function toPpeNormLineSpecInput(r: DbRow): SyncWriteInput {
+  return toRowInput(SyncTableName.PpeNormLineSpecs, r, {
+    id: String(r['id']),
+    occupation_id: String(r['occupationId']),
+    name: String(r['name']),
+    ppe_type: r['ppeType'] == null ? null : String(r['ppeType']),
+    qty: Number(r['qty']),
+    unit: r['unit'] == null ? null : String(r['unit']),
+    wear_kind: r['wearKind'] == null ? null : String(r['wearKind']),
+    wear_months: r['wearMonths'] == null ? null : Number(r['wearMonths']),
+    sort_order: Number(r['sortOrder']),
+    source_ref: r['sourceRef'] == null ? null : String(r['sourceRef']),
+    source_kind: r['sourceKind'] == null ? null : String(r['sourceKind']),
+    source_label: r['sourceLabel'] == null ? null : String(r['sourceLabel']),
+    nomenclature_id: r['nomenclatureId'] == null ? null : String(r['nomenclatureId']),
+    created_at: Number(r['createdAt']),
+    updated_at: Number(r['updatedAt']),
+    deleted_at: r['deletedAt'] == null ? null : Number(r['deletedAt']),
+  });
+}
+
+// Личная карточка СИЗ по форме приложения №3.
+export function toPpeEmployeeCardInput(r: DbRow): SyncWriteInput {
+  return toRowInput(SyncTableName.PpeEmployeeCards, r, {
+    id: String(r['id']),
+    employee_id: String(r['employeeId']),
+    full_name: r['fullName'] == null ? null : String(r['fullName']),
+    last_name: r['lastName'] == null ? null : String(r['lastName']),
+    first_name: r['firstName'] == null ? null : String(r['firstName']),
+    middle_name: r['middleName'] == null ? null : String(r['middleName']),
+    personnel_no: r['personnelNo'] == null ? null : String(r['personnelNo']),
+    department_id: r['departmentId'] == null ? null : String(r['departmentId']),
+    department_name: r['departmentName'] == null ? null : String(r['departmentName']),
+    post_title: r['postTitle'] == null ? null : String(r['postTitle']),
+    occupation_id: r['occupationId'] == null ? null : String(r['occupationId']),
+    gender: r['gender'] == null ? null : String(r['gender']),
+    height: r['height'] == null ? null : String(r['height']),
+    size_clothes: r['sizeClothes'] == null ? null : String(r['sizeClothes']),
+    size_shoes: r['sizeShoes'] == null ? null : String(r['sizeShoes']),
+    size_gloves: r['sizeGloves'] == null ? null : String(r['sizeGloves']),
+    size_headgear: r['sizeHeadgear'] == null ? null : String(r['sizeHeadgear']),
+    size_respirator: r['sizeRespirator'] == null ? null : String(r['sizeRespirator']),
+    size_od: r['sizeOd'] == null ? null : String(r['sizeOd']),
+    size_hands: r['sizeHands'] == null ? null : String(r['sizeHands']),
+    hire_date: r['hireDate'] == null ? null : Number(r['hireDate']),
+    position_changed_date: r['positionChangedDate'] == null ? null : Number(r['positionChangedDate']),
+    occupation_notes: r['occupationNotes'] == null ? null : String(r['occupationNotes']),
+    issued_by: r['issuedBy'] == null ? null : String(r['issuedBy']),
+    prepared_by: r['preparedBy'] == null ? null : String(r['preparedBy']),
+    prepared_at: r['preparedAt'] == null ? null : Number(r['preparedAt']),
+    created_at: Number(r['createdAt']),
+    updated_at: Number(r['updatedAt']),
+    deleted_at: r['deletedAt'] == null ? null : Number(r['deletedAt']),
+  });
+}
+
+// Шаблон печатной формы: включённые/отключённые секции и колонки + подписи.
+export function toPpePrintTemplateInput(r: DbRow): SyncWriteInput {
+  return toRowInput(SyncTableName.PpePrintTemplates, r, {
+    id: String(r['id']),
+    owner_id: String(r['ownerId']),
+    form_key: String(r['formKey']),
+    name: String(r['name']),
+    layout_json: String(r['layoutJson']),
+    is_default: r['isDefault'] === true,
+    updated_at: Number(r['updatedAt']),
+    updated_by: r['updatedBy'] == null ? null : String(r['updatedBy']),
+    created_at: Number(r['createdAt']),
     deleted_at: r['deletedAt'] == null ? null : Number(r['deletedAt']),
   });
 }
@@ -224,6 +328,10 @@ export function toPpeCollectiveLineInput(r: DbRow): SyncWriteInput {
 const TABLES_IN_ORDER = [
   // PR-6: сотрудники первыми — карточки/отпуска/строки ссылаются на employee_id.
   { table: erpEmployeeCards, map: toErpEmployeeCardInput },
+  // Приказ о СИЗ: профессии → приказные строки → наборы норм → строки норм.
+  // Порядок важен: набор норм ссылается на профессию, строка нормы — на набор.
+  { table: ppeOccupationRef, map: toPpeOccupationRefInput },
+  { table: ppeNormLineSpecs, map: toPpeNormLineSpecInput },
   { table: ppeNormSets, map: toPpeNormSetInput },
   { table: ppeIssueCards, map: toPpeIssueCardInput },
   { table: ppeNormLines, map: toPpeNormLineInput },
@@ -237,6 +345,9 @@ const TABLES_IN_ORDER = [
   { table: ppeGroupNorms, map: toPpeGroupNormInput },
   { table: ppeCollectives, map: toPpeCollectiveInput },
   { table: ppeCollectiveLines, map: toPpeCollectiveLineInput },
+  // Личная карточка СИЗ и шаблоны печатных форм — после сотрудников и профессий.
+  { table: ppeEmployeeCards, map: toPpeEmployeeCardInput },
+  { table: ppePrintTemplates, map: toPpePrintTemplateInput },
 ] as const;
 
 /** Один проход: опубликовать строки, помеченные `pending`. Возвращает число опубликованных. */

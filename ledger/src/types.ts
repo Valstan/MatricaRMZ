@@ -62,6 +62,12 @@ export const LedgerTableName = {
   PpeGroupNorms: 'ppe_group_norms',
   PpeCollectives: 'ppe_collectives',
   PpeCollectiveLines: 'ppe_collective_lines',
+  // Приказ о СИЗ (Минтруд 767н): профессии с пунктами приложений, «приказные»
+  // строки норм, личная карточка СИЗ по форме приложения №3, шаблоны печатных форм.
+  PpeOccupationRef: 'ppe_occupation_ref',
+  PpeNormLineSpecs: 'ppe_norm_line_specs',
+  PpeEmployeeCards: 'ppe_employee_cards',
+  PpePrintTemplates: 'ppe_print_templates',
   // Умолчания подписей (PR-5): ключ поля подписи → сотрудник.
   SignatureDefaults: 'signature_defaults',
   Permissions: 'permissions',

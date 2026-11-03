@@ -11,7 +11,12 @@ export type PpeNormLineInput = {
   normSetId: string;
   nomenclatureId: string;
   qty: number;
-  wearMonths: number;
+  /**
+   * Срок носки в месяцах. `null` — срока нет: норма «до износа» или «срок определяется
+   * документами изготовителя» (приказ Минтруда 767н, Приложение №1). Такая позиция
+   * не попадает в «пора выдавать»: её меняют по износу, а не по календарю.
+   */
+  wearMonths: number | null;
   /** Условия набора- владельца строки (NULL = для всех). Фаза 2: пол/сезон/дежурные. */
   setGender?: string | null;
   setSeason?: string | null;
@@ -37,7 +42,13 @@ export type PpeIssueEntryInput = {
 export type MergedPpeNorm = {
   nomenclatureId: string;
   qty: number;
-  wearMonths: number;
+  /**
+   * Срок носки в месяцах; `null` — срока нет (норма «до износа» или «срок определяется
+   * документами изготовителя»). Позиция без срока не бывает «пора выдавать»: её меняют
+   * по износу. При слиянии двух строк берётся меньший срок (строже = раньше напомним),
+   * а строка без срока уступает строке со сроком.
+   */
+  wearMonths: number | null;
 };
 
 export type PpeIssueStatus = 'overdue' | 'dueSoon' | 'ok' | 'neverIssued';
@@ -62,6 +73,11 @@ export function addWearMonths(fromMs: number, wearMonths: number): number {
  * Фаза 2: второй аргумент (опционален) — фильтр по условиям набора.
  * NULL в норме = подходит всем; незаданная ось контекста не режет ничего.
  * Без второго аргумента поведение ровно как в MVP.
+ *
+ * Приказ о СИЗ: строка может быть БЕЗ срока («до износа», «срок определяется
+ * документами изготовителя»). Такая строка не мешает строке со сроком: если по
+ * позиции есть хоть один конечный срок, берётся он (иначе позиция вечно «не пора»).
+ * Если срока нет ни у одной строки — срок не задаётся вовсе.
  */
 export function resolveEmployeeNorms(lines: PpeNormLineInput[], cond?: PpeNormCondition): MergedPpeNorm[] {
   const gender = cond?.gender ?? null;
@@ -73,14 +89,15 @@ export function resolveEmployeeNorms(lines: PpeNormLineInput[], cond?: PpeNormCo
         (l.setGender == null || gender == null || l.setGender === gender) &&
         (l.setSeason == null || season == null || l.setSeason === season),
     );
-  const byNom = new Map<string, { qty: number; wearMonths: number }>();
+  const byNom = new Map<string, { qty: number; wearMonths: number | null }>();
   for (const l of kept) {
     const cur = byNom.get(l.nomenclatureId);
     if (!cur) {
       byNom.set(l.nomenclatureId, { qty: l.qty, wearMonths: l.wearMonths });
     } else {
       cur.qty += l.qty;
-      if (l.wearMonths < cur.wearMonths) cur.wearMonths = l.wearMonths;
+      if (cur.wearMonths == null) cur.wearMonths = l.wearMonths;
+      else if (l.wearMonths != null && l.wearMonths < cur.wearMonths) cur.wearMonths = l.wearMonths;
     }
   }
   return [...byNom.entries()]
@@ -134,6 +151,10 @@ export function resolveGroupNorms(input: {
  * Даты следующих выдач: последняя выдача + срок носки. Без выдач — `neverIssued`
  * (срок не тикает из пустоты: норма назначена, но отсчёт идёт от факта).
  * Пятый аргумент (опционален) — отсутствия: срок сдвигается shiftByAbsences.
+ *
+ * Приказ о СИЗ: норма без срока («до износа», «срок определяется документами
+ * изготовителя») даты следующей выдачи не имеет — она не «пора» и не «просрочена».
+ * Её меняют по износу, поэтому такая позиция в сроки не попадает вовсе.
  */
 export function nextIssueDates(
   merged: MergedPpeNorm[],
@@ -151,6 +172,10 @@ export function nextIssueDates(
     const last = lastByNom.get(m.nomenclatureId) ?? null;
     if (last == null) {
       return { ...m, lastIssuedAt: null, nextDueAt: null, status: 'neverIssued' as const };
+    }
+    if (m.wearMonths == null) {
+      // Срока нет — срок не считаем: позиция выдана и живёт до износа.
+      return { ...m, lastIssuedAt: last, nextDueAt: null, status: 'ok' as const };
     }
     const rawDueAt = addWearMonths(last, m.wearMonths);
     const nextDueAt = absences.length > 0 ? shiftByAbsences(rawDueAt, absences) : rawDueAt;
@@ -176,6 +201,113 @@ export function upcomingIssues(
     .filter((n) => n.nextDueAt != null && n.nextDueAt <= horizon)
     .sort((a, b) => (a.nextDueAt ?? 0) - (b.nextDueAt ?? 0) || (a.nomenclatureId < b.nomenclatureId ? -1 : 1));
 }
+
+// ── Нормы приказа о СИЗ (Минтруд 767н, Приложение №1) ─────────────────────────
+// Приказ пишет норму словами, и слова эти в документе «съехали»:
+// «1пара на 2года», «12 парсрок определяется документами изготовителя».
+// Разбор живёт здесь, а не в загрузчике: одна и та же строка встречается
+// в приказе, в ручном вводе и в файле ЗУП — и должна читаться одинаково.
+
+/** Как задан срок носки позиции. */
+export type PpeWearKind = 'months' | 'until_wearout' | 'by_manufacturer';
+
+export type PpeOrderNorm = {
+  /** Количество на год. */
+  qty: number;
+  /** Единица измерения: «шт.», «пара», «комплект». */
+  unit: string;
+  wearKind: PpeWearKind;
+  /** Срок в месяцах; `null` при `until_wearout` и `by_manufacturer`. */
+  wearMonths: number | null;
+  /**
+   * Оговорка о сроке в терминах приказа: «на 2 года», «до износа»,
+   * «срок определяется документами изготовителя». `null` — обычная годовая норма
+   * без оговорки («1 шт.», «12 пар»): её печатаем как есть, срок носки выведен
+   * из годовой нормы отдельным полем и в форму карточки не выносится.
+   */
+  periodText: string | null;
+};
+
+/** Единицы измерения приказа — в том виде, как их печатает форма карточки. */
+const PPE_UNITS = ['комплект', 'пара', 'пар', 'шт'] as const;
+
+/**
+ * Разбор строки нормы приказа: «12 пар», «1 шт. на 2 года», «до износа»,
+ * «1 пара срок определяется документами изготовителя».
+ *
+ * Правила:
+ *  - «до износа» → срока нет (позиция живёт до износа);
+ *  - «срок определяется документами изготовителя» → срока нет, но вид известен;
+ *  - «на N лет/года» → срок N*12 месяцев;
+ *  - голое количество → норма «на год» (так называет колонка приказа), поэтому срок
+ *    носки выводится из годовой нормы: «12 пар» в год = пара в месяц (1 мес.),
+ *    «6 пар» = раз в 2 месяца, «4 шт.» = раз в 3 месяца, «1 шт.» = раз в год (12 мес.).
+ *    Без этого перевода годовая норма «1 шт.» не перевыдавалась бы никогда.
+ *
+ * Мусор документа («1пара на 2года», «12 парсрок…») разбирается тем же правилом:
+ * числа и слова ищутся независимо, пробелы и точки не важны.
+ */
+export function parseOrderNormQty(raw: string): PpeOrderNorm {
+  const text = String(raw ?? '')
+    .replace(/ё/gi, 'е')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+
+  if (!text) return { qty: 1, unit: 'шт.', wearKind: 'months', wearMonths: 12, periodText: null };
+
+  // Срок «на N лет/года» — до «до износа»/«определяется…» не дотягиваем.
+  // Границу слова задаём НЕ через \b: кириллица в JS не word-символ, и \b после
+  // «года» не срабатывает никогда. Вместо этого — «дальше не буква».
+  const yearsMatch = text.match(/(\d+)\s*(?:лет|года|год)(?![а-яё])/);
+  const explicitMonths = yearsMatch ? Number(yearsMatch[1]) * 12 : null;
+
+  const qtyMatch = text.match(/(\d+)\s*(комплект|пара|пар|шт)/);
+  const qty = qtyMatch ? Number(qtyMatch[1]) : 1;
+  const unitRaw = qtyMatch?.[2] ?? 'шт';
+  const unit = unitRaw === 'пар' ? 'пар' : unitRaw === 'пара' ? 'пара' : unitRaw === 'комплект' ? 'комплект' : 'шт.';
+
+  if (text.includes('до износа')) {
+    return { qty, unit, wearKind: 'until_wearout', wearMonths: null, periodText: 'до износа' };
+  }
+  if (text.includes('определяется документами изготовителя')) {
+    return {
+      qty,
+      unit,
+      wearKind: 'by_manufacturer',
+      wearMonths: null,
+      periodText: 'срок определяется документами изготовителя',
+    };
+  }
+  if (explicitMonths != null) {
+    const years = Number(yearsMatch![1]);
+    return {
+      qty,
+      unit,
+      wearKind: 'months',
+      wearMonths: explicitMonths,
+      periodText: `на ${years} ${years === 1 ? 'год' : 'года'}`,
+    };
+  }
+  // Годовая норма без оговорки о сроке: переводим её в период носки.
+  const months = 12 % qty === 0 ? 12 / qty : Math.max(1, Math.round(12 / qty));
+  return { qty, unit, wearKind: 'months', wearMonths: months, periodText: null };
+}
+
+/**
+ * Обратный ход: строка нормы для печати в форме личной карточки (прил. №3) и
+ * для колонки «Количество на год». Формулировка повторяет приказ: «1 шт.»,
+ * «12 пар», «1 шт. на 2 года», «до износа».
+ */
+export function formatOrderNormQty(norm: PpeOrderNorm): string {
+  if (norm.periodText === 'до износа') return 'до износа';
+  const base = `${norm.qty} ${norm.unit}`;
+  if (norm.periodText) return `${base} ${norm.periodText}`;
+  return base;
+}
+
+/** Единицы приказа — для выпадающих списков формы карточки. */
+export const PPE_ORDER_UNITS: readonly string[] = PPE_UNITS;
 
 // ── Размеры сотрудника и подсказка позиции при выдаче ───────────────────────
 // Фактические размеры живут в EAV-карточке сотрудника (коды те же, что регистрирует

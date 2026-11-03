@@ -2060,6 +2060,12 @@ async function applyPulledChanges(
     [SyncTableName.PpeCollectiveLines]: [],
     // Сотрудники СИЗ (PR-6): зеркало карточек — реплика для пикеров и отчётов.
     [SyncTableName.ErpEmployeeCards]: [],
+    // Приказ о СИЗ (Минтруд 767н): профессии, «приказные» строки норм, личная
+    // карточка СИЗ и шаблоны печатных форм — реплика для пикеров и печати.
+    [SyncTableName.PpeOccupationRef]: [],
+    [SyncTableName.PpeNormLineSpecs]: [],
+    [SyncTableName.PpeEmployeeCards]: [],
+    [SyncTableName.PpePrintTemplates]: [],
     [SyncTableName.SignatureDefaults]: [],
     [SyncTableName.Users]: [],
     [SyncTableName.UserSectionAccess]: [],
@@ -2577,6 +2583,10 @@ async function applyPulledChanges(
             gender: payload.gender ?? null,
             season: payload.season ?? null,
             isDuty: payload.is_duty === true ? 1 : 0,
+            // Приказ о СИЗ: привязка набора к профессии приказа и подпись источника.
+            occupationId: payload.occupation_id ?? null,
+            sourceKind: payload.source_kind ?? null,
+            sourceLabel: payload.source_label ?? null,
             validFrom: payload.valid_from,
             validTo: payload.valid_to ?? null,
             createdAt: payload.created_at,
@@ -2595,9 +2605,120 @@ async function applyPulledChanges(
             normSetId: payload.norm_set_id,
             nomenclatureId: payload.nomenclature_id,
             qty: Number(payload.qty ?? 0),
-            wearMonths: Number(payload.wear_months ?? 0),
+            // wear_months бывает null: норма «до износа» срока не имеет.
+            wearMonths: payload.wear_months == null ? null : Number(payload.wear_months),
+            // Приказ о СИЗ: «приказная» строка, единица измерения и форма срока.
+            specId: payload.spec_id ?? null,
+            unit: payload.unit ?? null,
+            wearKind: payload.wear_kind ?? null,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      // Приказ о СИЗ (Минтруд 767н): справочник профессий с пунктами приложений.
+      case SyncTableName.PpeOccupationRef:
+        {
+          const payload = payloadRaw;
+          groups.ppe_occupation_ref.push({
+            id: payload.id,
+            code: payload.code,
+            postTitle: payload.post_title,
+            tonKind: payload.ton_kind ?? 'ton',
+            tonLabel: payload.ton_label ?? null,
+            tonYear: payload.ton_year == null ? null : Number(payload.ton_year),
+            departmentId: payload.department_id ?? null,
+            isActive: payload.is_active === false ? 0 : 1,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      // «Приказная» строка нормы: что написано в приказе, до разбора нормы.
+      case SyncTableName.PpeNormLineSpecs:
+        {
+          const payload = payloadRaw;
+          groups.ppe_norm_line_specs.push({
+            id: payload.id,
+            occupationId: payload.occupation_id,
+            name: payload.name,
+            ppeType: payload.ppe_type ?? null,
+            qty: Number(payload.qty ?? 0),
+            unit: payload.unit ?? null,
+            wearKind: payload.wear_kind ?? null,
+            wearMonths: payload.wear_months == null ? null : Number(payload.wear_months),
+            sortOrder: Number(payload.sort_order ?? 0),
+            sourceRef: payload.source_ref ?? null,
+            sourceKind: payload.source_kind ?? null,
+            sourceLabel: payload.source_label ?? null,
+            nomenclatureId: payload.nomenclature_id ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      // Личная карточка СИЗ по форме приложения №3.
+      case SyncTableName.PpeEmployeeCards:
+        {
+          const payload = payloadRaw;
+          groups.ppe_employee_cards.push({
+            id: payload.id,
+            employeeId: payload.employee_id,
+            fullName: payload.full_name ?? null,
+            lastName: payload.last_name ?? null,
+            firstName: payload.first_name ?? null,
+            middleName: payload.middle_name ?? null,
+            personnelNo: payload.personnel_no ?? null,
+            departmentId: payload.department_id ?? null,
+            departmentName: payload.department_name ?? null,
+            postTitle: payload.post_title ?? null,
+            occupationId: payload.occupation_id ?? null,
+            gender: payload.gender ?? null,
+            height: payload.height ?? null,
+            sizeClothes: payload.size_clothes ?? null,
+            sizeShoes: payload.size_shoes ?? null,
+            sizeGloves: payload.size_gloves ?? null,
+            sizeHeadgear: payload.size_headgear ?? null,
+            sizeRespirator: payload.size_respirator ?? null,
+            sizeOd: payload.size_od ?? null,
+            sizeHands: payload.size_hands ?? null,
+            hireDate: payload.hire_date == null ? null : Number(payload.hire_date),
+            positionChangedDate: payload.position_changed_date == null ? null : Number(payload.position_changed_date),
+            occupationNotes: payload.occupation_notes ?? null,
+            issuedBy: payload.issued_by ?? null,
+            preparedBy: payload.prepared_by ?? null,
+            preparedAt: payload.prepared_at == null ? null : Number(payload.prepared_at),
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      // Шаблон печатной формы: секции и колонки, включённые или отключённые.
+      case SyncTableName.PpePrintTemplates:
+        {
+          const payload = payloadRaw;
+          groups.ppe_print_templates.push({
+            id: payload.id,
+            ownerId: payload.owner_id,
+            formKey: payload.form_key,
+            name: payload.name,
+            layoutJson: payload.layout_json,
+            isDefault: payload.is_default === true ? 1 : 0,
+            updatedAt: payload.updated_at,
+            updatedBy: payload.updated_by ?? null,
+            createdAt: payload.created_at,
             lastServerSeq: payload.last_server_seq ?? null,
             deletedAt: payload.deleted_at ?? null,
             syncStatus: 'synced',

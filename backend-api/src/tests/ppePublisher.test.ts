@@ -6,13 +6,17 @@ import {
   toPpeCardNormInput,
   toPpeCollectiveInput,
   toPpeCollectiveLineInput,
+  toPpeEmployeeCardInput,
   toPpeGroupInput,
   toPpeGroupMemberInput,
   toPpeGroupNormInput,
   toPpeIssueCardInput,
   toPpeIssueEntryInput,
   toPpeNormLineInput,
+  toPpeNormLineSpecInput,
   toPpeNormSetInput,
+  toPpeOccupationRefInput,
+  toPpePrintTemplateInput,
 } from '../services/sync/ppeSyncPublisherService.js';
 
 // Зеркало Кладовщика ведут серверные двери обычными insert/update, мимо пути записи
@@ -25,12 +29,14 @@ const CASES = [
   {
     table: SyncTableName.PpeNormSets,
     map: toPpeNormSetInput,
-    row: { ...BASE, name: 'Слесарь РМЦ', postTitle: 'Слесарь', departmentId: null, gender: 'M', season: 'winter', isDuty: false, validFrom: 1_700_000_000_000, validTo: null },
+    // Приказ о СИЗ: набор ссылается на профессию приказа и хранит подпись источника.
+    row: { ...BASE, name: 'Слесарь РМЦ', postTitle: 'Слесарь', departmentId: null, gender: 'M', season: 'winter', isDuty: false, occupationId: null, sourceKind: 'ton', sourceLabel: 'Пункт № 4516', validFrom: 1_700_000_000_000, validTo: null },
   },
   {
     table: SyncTableName.PpeNormLines,
     map: toPpeNormLineInput,
-    row: { ...BASE, normSetId: UID, nomenclatureId: UID, qty: 2, wearMonths: 12 },
+    // Приказ о СИЗ: строка ссылается на «приказную» строку, единицу и форму срока.
+    row: { ...BASE, normSetId: UID, nomenclatureId: UID, qty: 2, wearMonths: 12, specId: null, unit: 'шт.', wearKind: 'months' },
   },
   {
     table: SyncTableName.PpeIssueCards,
@@ -82,6 +88,28 @@ const CASES = [
     table: SyncTableName.PpeCollectiveLines,
     map: toPpeCollectiveLineInput,
     row: { ...BASE, collectiveId: UID, employeeId: UID, nomenclatureId: UID, qty: 3 },
+  },
+  // Приказ о СИЗ (Минтруд 767н): профессии, «приказные» строки норм, личная карточка
+  // СИЗ по форме приложения №3 и шаблоны печатных форм.
+  {
+    table: SyncTableName.PpeOccupationRef,
+    map: toPpeOccupationRefInput,
+    row: { ...BASE, code: '1511', postTitle: 'Кладовщик', tonKind: 'ton', tonLabel: 'Пункт № 1511', tonYear: 2021, departmentId: null, isActive: true },
+  },
+  {
+    table: SyncTableName.PpeNormLineSpecs,
+    map: toPpeNormLineSpecInput,
+    row: { ...BASE, occupationId: UID, name: 'Костюм для защиты от механических воздействий (истирания)', ppeType: 'Одежда специальная защитная', qty: 1, unit: 'шт.', wearKind: 'months', wearMonths: 12, sortOrder: 1, sourceRef: '1 шт.', sourceKind: 'ton', sourceLabel: 'Пункт № 1511', nomenclatureId: UID },
+  },
+  {
+    table: SyncTableName.PpeEmployeeCards,
+    map: toPpeEmployeeCardInput,
+    row: { ...BASE, employeeId: UID, fullName: 'Иванов Иван Иванович', lastName: 'Иванов', firstName: 'Иван', middleName: 'Иванович', personnelNo: '0042', departmentId: null, departmentName: 'Склад', postTitle: 'Кладовщик', occupationId: null, gender: 'M', height: '176', sizeClothes: '50', sizeShoes: '43', sizeGloves: 'L', sizeHeadgear: '56', sizeRespirator: null, sizeOd: null, sizeHands: null, hireDate: 1_700_000_000_000, positionChangedDate: null, occupationNotes: null, issuedBy: null, preparedBy: null, preparedAt: null },
+  },
+  {
+    table: SyncTableName.PpePrintTemplates,
+    map: toPpePrintTemplateInput,
+    row: { ...BASE, ownerId: 'shared', formKey: 'ppe_card', name: 'Личная карточка СИЗ', layoutJson: '{"sections":[]}', isDefault: false, updatedAt: 1_700_000_001_000, updatedBy: 'system' },
   },
 ] as const;
 
