@@ -154,6 +154,17 @@ export type AppliedSyncChange = {
 export type SyncIdRemaps = {
   entity_types: Record<string, string>;
   attribute_defs: Record<string, string>;
+  /**
+   * Строка значения атрибута: id клиента → id серверной строки.
+   *
+   * Сервер хранит значение по паре «сущность+поле», и если такая строка уже
+   * есть, id пришедшей от клиента строки ЗАМЕНЯЕТСЯ на серверный. Клиент об
+   * этом не знал (в отчёте были только entity_types/attribute_defs) — его строка
+   * навсегда оставалась с чужим id, подтверждение приходило с серверным id,
+   * pending не снимался, и клиент слал ту же строку снова и снова (прод-инцидент
+   * 03.11.2026: 3.6 млн записей в журнале за сутки от одной машины).
+   */
+  attribute_values: Record<string, string>;
 };
 
 export type SyncSkippedRow = {
@@ -216,6 +227,8 @@ export async function applyPushBatch(
   const actorRole = String(actor.role ?? '').toLowerCase();
   const actorIsAdmin = actorRole === 'admin' || actorRole === 'superadmin';
   const collected = applyOpts.collectChanges ?? null;
+  /** id строки значения атрибута: id клиента → id серверной строки (пара «сущность+поле»). */
+  const attributeValueIdRemap: Record<string, string> = {};
   const telegramNotifications: TelegramNotification[] = [];
   const skipCounters = new Map<string, number>();
   const skippedRows: SyncSkippedRow[] = [];
@@ -1120,6 +1133,7 @@ export async function applyPushBatch(
             pairLwwConflicts += 1;
             continue;
           }
+          attributeValueIdRemap[String(r.id)] = resolvedId;
           allowed.push({ ...r, id: resolvedId });
         } else {
           allowed.push(r);
@@ -3024,6 +3038,7 @@ export async function applyPushBatch(
     const idRemaps: SyncIdRemaps = {
       entity_types: Object.fromEntries(entityTypeIdRemap.entries()),
       attribute_defs: Object.fromEntries(attributeDefIdRemap.entries()),
+      attribute_values: attributeValueIdRemap,
     };
     return {
       applied,
