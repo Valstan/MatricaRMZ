@@ -36,6 +36,17 @@ import type { IpcContext } from '../ipcContext.js';
 
 type Err = { ok: false; error: string };
 
+/**
+ * Папка автосохранения для смоук-шоу: когда переменная задана, файл пишется прямо
+ * в неё и ни одного нативного окна не показывается (иначе диалог «Сохранить как»
+ * из CDP не нажать — вызов висит). В обычной работе переменной нет, и путь выбирает
+ * оператор.
+ */
+function autoSaveDir(): string | null {
+  const dir = String(process.env.MATRICA_EXPORT_AUTOSAVE_DIR ?? '').trim();
+  return dir === '' ? null : dir;
+}
+
 export type PpeOneCExportKind = 'norms' | 'issues';
 
 type EmployeeInfo = {
@@ -243,7 +254,7 @@ export function registerPpeOneCExportIpc(ctx: IpcContext) {
 
         const result = await saveExportFile({
           ctx,
-          autoDir: null,
+          autoDir: autoSaveDir(),
           dialogTitle: format === 'csv' ? 'Сохранить выгрузку для 1С (CSV)' : 'Сохранить выгрузку для 1С (Excel)',
           baseName: `${fileTitle}${period ? ` ${period}` : ''}`,
           ext: format === 'csv' ? '.csv' : '.xlsx',

@@ -101,11 +101,6 @@ CREATE TABLE IF NOT EXISTS ppe_employee_cards (
   id uuid PRIMARY KEY,
   employee_id uuid NOT NULL,
   full_name text,
-  -- Фамилия, имя и отчество хранятся РАЗДЕЛЬНО: форма приложения №3 требует три
-  -- отдельных поля, и склеенное ФИО пришлось бы разрезать при печати.
-  last_name text,
-  first_name text,
-  middle_name text,
   personnel_no text,
   department_id uuid,
   occupation_id uuid,

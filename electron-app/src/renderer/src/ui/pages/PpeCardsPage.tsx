@@ -37,6 +37,8 @@ type Row = PpeCardsFacetRow & {
   employeeId: string;
   fullName: string;
   personnelNo: string | null;
+  /** Должность сотрудника — по ней подбираются нормы приказа. */
+  postTitle: string | null;
   sizes: { clothes: string; shoes: string; height: string };
   cardId: string | null;
   cardOpenedAt: number | null;
@@ -52,6 +54,7 @@ type Row = PpeCardsFacetRow & {
 type SortKey =
   | 'fullName'
   | 'personnelNo'
+  | 'postTitle'
   | 'cardState'
   | 'fillPercent'
   | 'clothes'
@@ -270,6 +273,15 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
         tabletLabel: 'Таб.',
         sortKey: 'personnelNo',
         render: (row) => row.personnelNo || '—',
+      },
+      {
+        // Должность нужна оператору глазами: по ней подбираются нормы приказа
+        // («назначить нормы по должности»), и без неё непонятно, кому какая норма.
+        id: 'postTitle',
+        label: 'Должность',
+        tabletLabel: 'Должн.',
+        sortKey: 'postTitle',
+        render: (row) => row.postTitle || '—',
       },
       {
         id: 'cardState',

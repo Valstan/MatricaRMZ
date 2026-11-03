@@ -12,6 +12,12 @@ export type PrintSection = {
 /** Шапка печатного документа: она печатается, а не только видна в окне. */
 export type PrintHeader = {
   title: string;
+  /**
+   * Не печатать `<h1>` шапки. Нужно формам, у которых заголовок уже есть отдельной
+   * секцией (например, личная карточка по форме приложения №3): иначе заголовок
+   * печатается дважды — из шапки и из секции.
+   */
+  hideTitle?: boolean;
   /** Строки отбора человеческим языком. */
   lines?: readonly string[];
   /** Кто и когда печатал. */
@@ -75,7 +81,7 @@ function renderPrintHeader(header: PrintHeader): string {
     .join('');
   const meta = String(header.meta ?? '').trim();
   return `<header class="doc-head">
-  <h1>${escapeHtml(header.title)}</h1>
+  ${header.hideTitle ? '' : `<h1>${escapeHtml(header.title)}</h1>`}
   ${lines}
   ${meta ? `<div class="doc-meta">${escapeHtml(meta)}</div>` : ''}
 </header>`;

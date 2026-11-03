@@ -827,6 +827,13 @@
       "when": 1793667600000,
       "tag": "0118_ppe_order_norms_seed",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1793671200000,
+      "tag": "0119_ppe_employee_card_requisites",
+      "breakpoints": true
     }
   ]
 }

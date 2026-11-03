@@ -43,6 +43,8 @@ export type PpeOverviewRow = {
   employeeId: string;
   fullName: string;
   personnelNo: string | null;
+  /** Должность сотрудника — по ней подбираются нормы приказа (п. 11 приказа). */
+  postTitle: string | null;
   isActive: boolean;
   sizes: PpeEmployeeSizes;
   cardId: string | null;
@@ -66,6 +68,7 @@ type EmployeeRow = {
   entityId: string | null;
   fullName: string;
   personnelNo: string | null;
+  postTitle: string | null;
   isActive: boolean;
 };
 
@@ -196,6 +199,7 @@ export function buildPpeCardsOverview(src: OverviewSources): PpeOverviewRow[] {
       employeeId: String(employee.id),
       fullName: String(employee.fullName ?? ''),
       personnelNo: employee.personnelNo == null ? null : String(employee.personnelNo),
+      postTitle: employee.postTitle == null ? null : String(employee.postTitle),
       isActive: employee.isActive !== false,
       sizes,
       cardId: card ? String(card.id) : null,
@@ -245,6 +249,7 @@ export async function getPpeCardsOverview(): Promise<{ ok: true; rows: PpeOvervi
         entityId: erpEmployeeCards.entityId,
         fullName: erpEmployeeCards.fullName,
         personnelNo: erpEmployeeCards.personnelNo,
+        roleCode: erpEmployeeCards.roleCode,
         isActive: erpEmployeeCards.isActive,
       })
       .from(erpEmployeeCards)
@@ -256,6 +261,7 @@ export async function getPpeCardsOverview(): Promise<{ ok: true; rows: PpeOvervi
       entityId: e.entityId == null ? null : String(e.entityId),
       fullName: String(e.fullName ?? ''),
       personnelNo: e.personnelNo == null ? null : String(e.personnelNo),
+      postTitle: e.roleCode == null ? null : String(e.roleCode),
       isActive: e.isActive !== false,
     }));
 

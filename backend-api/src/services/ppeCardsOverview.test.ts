@@ -26,7 +26,7 @@ describe('список карточек СИЗ (ядро)', () => {
   it('считает просрочку по личным нормам сотрудника', () => {
     const rows = buildPpeCardsOverview(
       sources({
-        employees: [{ id: 'e1', entityId: 'n1', fullName: 'Иванов', personnelNo: '101', isActive: true }],
+        employees: [{ id: 'e1', entityId: 'n1', fullName: 'Иванов', personnelNo: '101', postTitle: 'Кладовщик', isActive: true }],
         sizes: new Map([['n1', { clothes: '48', shoes: '42', height: '176' }]]),
         cards: [{ id: 'c1', employeeId: 'e1', openedAt: NOW - 10, closedAt: null }],
         cardNorms: [{ cardId: 'c1', normSetId: 's1' }],
@@ -50,7 +50,7 @@ describe('список карточек СИЗ (ядро)', () => {
   it('групповые нормы считаются наравне с личными, но без выдач это «не выдавалось»', () => {
     const rows = buildPpeCardsOverview(
       sources({
-        employees: [{ id: 'e1', entityId: null, fullName: 'Петров', personnelNo: null, isActive: true }],
+        employees: [{ id: 'e1', entityId: null, fullName: 'Петров', personnelNo: null, postTitle: null, isActive: true }],
         cards: [],
         groupMembers: [{ groupId: 'g1', employeeId: 'e1' }],
         groupNorms: [{ groupId: 'g1', normSetId: 's1' }],
@@ -63,7 +63,7 @@ describe('список карточек СИЗ (ядро)', () => {
   it('без норм состояние «нет норм», а не выдуманный срок', () => {
     const rows = buildPpeCardsOverview(
       sources({
-        employees: [{ id: 'e1', entityId: 'n1', fullName: 'Сидоров', personnelNo: null, isActive: false }],
+        employees: [{ id: 'e1', entityId: 'n1', fullName: 'Сидоров', personnelNo: null, postTitle: null, isActive: false }],
         sizes: new Map([['n1', { clothes: '', shoes: '43', height: '' }]]),
       }),
     );
@@ -72,7 +72,7 @@ describe('список карточек СИЗ (ядро)', () => {
 
   it('отпуск сдвигает срок: за день отпуска срок позже на день', () => {
     const base = {
-      employees: [{ id: 'e1', entityId: null, fullName: 'Иванов', personnelNo: null, isActive: true }],
+      employees: [{ id: 'e1', entityId: null, fullName: 'Иванов', personnelNo: null, postTitle: null, isActive: true }],
       cards: [{ id: 'c1', employeeId: 'e1', openedAt: NOW - 10, closedAt: null }],
       cardNorms: [{ cardId: 'c1', normSetId: 's1' }],
       normLines: [{ normSetId: 's1', nomenclatureId: 'x1', qty: 1, wearMonths: 12 }],
@@ -88,7 +88,7 @@ describe('список карточек СИЗ (ядро)', () => {
   it('нормы закрытой карточки не приписываются, если уже открыта новая', () => {
     const rows = buildPpeCardsOverview(
       sources({
-        employees: [{ id: 'e1', entityId: null, fullName: 'Иванов', personnelNo: null, isActive: true }],
+        employees: [{ id: 'e1', entityId: null, fullName: 'Иванов', personnelNo: null, postTitle: null, isActive: true }],
         cards: [
           { id: 'old', employeeId: 'e1', openedAt: NOW - 1000, closedAt: NOW - 500 },
           { id: 'new', employeeId: 'e1', openedAt: NOW - 100, closedAt: null },

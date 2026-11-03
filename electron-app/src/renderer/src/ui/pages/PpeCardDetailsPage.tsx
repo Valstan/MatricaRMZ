@@ -428,18 +428,26 @@ export function PpeCardDetailsPage(props: {
         setPostWarning(res.warning ?? 'Профессия не найдена в справочнике приказа — норму выберите вручную');
         return;
       }
-      if (!card) {
-        setPostWarning('Заведите карточку выдачи — тогда нормы можно будет назначить');
-        return;
+      // Карточки выдачи может ещё не быть — заводим её сами: кладовщику не нужно
+      // сначала «Завести карточку», а потом ещё раз назначать нормы.
+      let cardId = card?.id ?? null;
+      if (!cardId) {
+        const opened = await window.matrica.ppe.cards.open({ employeeId });
+        if (!opened.ok) {
+          setPostWarning(`Не удалось завести карточку выдачи: ${opened.error}`);
+          return;
+        }
+        cardId = opened.id;
       }
-      const already = new Set((card.norms ?? []).map((n) => n.normSetId));
+      const already = new Set((card?.norms ?? []).map((n) => n.normSetId));
       const toAdd = res.normSetIds.filter((id) => !already.has(id));
       if (toAdd.length === 0) {
-        setPostWarning('Нормы по этой должности уже назначены');
+        setStatus('Нормы по этой должности уже назначены');
+        await loadCard(cardId);
         return;
       }
       const assigned = await window.matrica.ppe.cards.assignNorms({
-        cardId: card.id,
+        cardId,
         normSetIds: [...already, ...toAdd],
       });
       if (!assigned.ok) {
@@ -447,7 +455,7 @@ export function PpeCardDetailsPage(props: {
         return;
       }
       setStatus(`Назначено наборов норм: ${toAdd.length}`);
-      await loadCard(card.id);
+      await loadCard(cardId);
     } finally {
       setBusy(false);
     }
@@ -731,6 +739,8 @@ export function PpeCardDetailsPage(props: {
       sections: form.sections,
       printHeader: {
         title: form.title,
+        // Заголовок формы уже есть отдельной секцией — иначе печатается дважды.
+        hideTitle: true,
         meta: `Напечатано: ${formatMomentLabel(new Date())}`,
         ...(printTemplate.headerNote ? { lines: [printTemplate.headerNote] } : {}),
       },
@@ -916,75 +926,81 @@ export function PpeCardDetailsPage(props: {
         </SectionCard>
       ) : null}
 
+      {/*
+        Личная карточка по форме приложения №3 — самостоятельный документ, а не часть
+        карточки выдачи: показываем её ВСЕГДА, даже если выдачи ещё не было (иначе
+        кладовщик не увидит форму, за которую отвечает). Назначение норм по должности
+        требует карточки выдачи — без неё кнопка объясняет, что делать.
+      */}
+      <SectionCard title="Личная карточка СИЗ (форма приложения №3)">
+        {personalCard ? (
+          <>
+            <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>
+              Реквизиты подставляются из карточки сотрудника. Фамилия, имя и отчество — по частям, как в форме
+              приказа; недостающие размеры дописывает кладовщик.
+            </div>
+            <table className="table" style={{ width: '100%' }}>
+              <tbody>
+                <tr>
+                  <th style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>Фамилия, имя, отчество</th>
+                  <td>
+                    {[personalCard.lastName, personalCard.firstName, personalCard.middleName]
+                      .filter(Boolean)
+                      .join(' ') || '—'}
+                  </td>
+                  <th style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>Табельный номер</th>
+                  <td>{personalCard.personnelNo || '—'}</td>
+                </tr>
+                <tr>
+                  <th style={{ textAlign: 'left' }}>Структурное подразделение</th>
+                  <td>{personalCard.departmentName || '—'}</td>
+                  <th style={{ textAlign: 'left' }}>Профессия (должность)</th>
+                  <td>{personalCard.postTitle || '—'}</td>
+                </tr>
+                <tr>
+                  <th style={{ textAlign: 'left' }}>Пол</th>
+                  <td>{personalCard.gender === 'M' ? 'М' : personalCard.gender === 'F' ? 'Ж' : '—'}</td>
+                  <th style={{ textAlign: 'left' }}>Рост</th>
+                  <td>{personalCard.height || '—'}</td>
+                </tr>
+                <tr>
+                  <th style={{ textAlign: 'left' }}>Размеры</th>
+                  <td colSpan={3}>
+                    {personalCardSizeFields(personalCard).map(({ label, value }) => (
+                      <span key={label} style={{ marginRight: 14 }}>
+                        {label}: {value || '—'}
+                      </span>
+                    ))}
+                  </td>
+                </tr>
+                <tr>
+                  <th style={{ textAlign: 'left' }}>Дата поступления на работу</th>
+                  <td>{fmtDate(personalCard.hireDate)}</td>
+                  <th style={{ textAlign: 'left' }}>Дата изменения профессии (должности) или перевода</th>
+                  <td>{fmtDate(personalCard.positionChangedDate)}</td>
+                </tr>
+              </tbody>
+            </table>
+            {canEdit ? (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+                <Button variant="primary" onClick={() => void assignNormsByPost()} disabled={busy}>
+                  Назначить нормы по должности
+                </Button>
+              </div>
+            ) : null}
+            {postWarning ? (
+              <div style={{ color: 'var(--warn, #b45309)', fontSize: 12, marginTop: 8 }}>{postWarning}</div>
+            ) : null}
+          </>
+        ) : (
+          <div style={{ color: 'var(--muted)' }}>
+            {busy ? 'Загружаем личную карточку…' : 'Личная карточка не заведена.'}
+          </div>
+        )}
+      </SectionCard>
+
       {card ? (
         <>
-          <SectionCard title="Личная карточка СИЗ (форма приложения №3)">
-            {personalCard ? (
-              <>
-                <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>
-                  Реквизиты подставляются из карточки сотрудника. Фамилия, имя и отчество — по частям, как в форме
-                  приказа; недостающие размеры дописывает кладовщик.
-                </div>
-                <table className="table" style={{ width: '100%' }}>
-                  <tbody>
-                    <tr>
-                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>Фамилия, имя, отчество</th>
-                      <td>
-                        {[personalCard.lastName, personalCard.firstName, personalCard.middleName]
-                          .filter(Boolean)
-                          .join(' ') || '—'}
-                      </td>
-                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>Табельный номер</th>
-                      <td>{personalCard.personnelNo || '—'}</td>
-                    </tr>
-                    <tr>
-                      <th style={{ textAlign: 'left' }}>Структурное подразделение</th>
-                      <td>{personalCard.departmentName || '—'}</td>
-                      <th style={{ textAlign: 'left' }}>Профессия (должность)</th>
-                      <td>{personalCard.postTitle || '—'}</td>
-                    </tr>
-                    <tr>
-                      <th style={{ textAlign: 'left' }}>Пол</th>
-                      <td>{personalCard.gender === 'M' ? 'М' : personalCard.gender === 'F' ? 'Ж' : '—'}</td>
-                      <th style={{ textAlign: 'left' }}>Рост</th>
-                      <td>{personalCard.height || '—'}</td>
-                    </tr>
-                    <tr>
-                      <th style={{ textAlign: 'left' }}>Размеры</th>
-                      <td colSpan={3}>
-                        {personalCardSizeFields(personalCard).map(({ label, value }) => (
-                          <span key={label} style={{ marginRight: 14 }}>
-                            {label}: {value || '—'}
-                          </span>
-                        ))}
-                      </td>
-                    </tr>
-                    <tr>
-                      <th style={{ textAlign: 'left' }}>Дата поступления на работу</th>
-                      <td>{fmtDate(personalCard.hireDate)}</td>
-                      <th style={{ textAlign: 'left' }}>Дата изменения профессии (должности) или перевода</th>
-                      <td>{fmtDate(personalCard.positionChangedDate)}</td>
-                    </tr>
-                  </tbody>
-                </table>
-                {canEdit ? (
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-                    <Button variant="primary" onClick={() => void assignNormsByPost()} disabled={busy}>
-                      Назначить нормы по должности
-                    </Button>
-                  </div>
-                ) : null}
-                {postWarning ? (
-                  <div style={{ color: 'var(--warn, #b45309)', fontSize: 12, marginTop: 8 }}>{postWarning}</div>
-                ) : null}
-              </>
-            ) : (
-              <div style={{ color: 'var(--muted)' }}>
-                {busy ? 'Загружаем личную карточку…' : 'Личная карточка не заведена.'}
-              </div>
-            )}
-          </SectionCard>
-
           <SectionCard title={`Карточка: ${employeeLabel}${closed ? ' (закрыта)' : ''}`}>
             <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>
               Открыта {fmtDate(card.openedAt)}

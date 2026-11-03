@@ -2451,6 +2451,8 @@ export type MatricaApi = {
               employeeId: string;
               fullName: string;
               personnelNo: string | null;
+              /** Должность сотрудника — по ней подбираются нормы приказа (п. 11 приказа). */
+              postTitle: string | null;
               isActive: boolean;
               sizes: { clothes: string; shoes: string; height: string };
               cardId: string | null;
