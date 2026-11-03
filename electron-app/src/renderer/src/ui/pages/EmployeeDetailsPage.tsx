@@ -634,7 +634,10 @@ export function EmployeeDetailsPage(props: {
   }
 
   async function saveAttr(code: string, value: unknown): Promise<boolean> {
-    if (!props.canEdit) return false;
+    // Кладовщик (узкое право на должность) правит ровно один атрибут — должность.
+    // Остальные поля карточки остаются за кадровым правом.
+    const isPosition = String(code ?? '').trim().toLowerCase() === 'role';
+    if (!props.canEdit && !(isPosition && canEditPosition)) return false;
     setStatus('Сохранение…');
     const r = await window.matrica.employees.setAttr(props.employeeId, code, value);
     if (!r.ok) {
@@ -1603,7 +1606,7 @@ export function EmployeeDetailsPage(props: {
       contentMaxWidth={1280}
       cardActions={
         <CardActionBar
-          canEdit={props.canEdit}
+          canEdit={canEditPosition}
           onCopyToNew={
             props.canEdit
               ? async () => {

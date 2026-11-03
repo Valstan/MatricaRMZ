@@ -233,15 +233,87 @@ async function main() {
   );
   note(seeded?.ok === true, 'справочник должностей на стенде готов', seeded?.ok ? { typeId: seeded.typeId } : seeded);
 
-  // ── 2. Вход кладовщиком и проверка прав ─────────────────────────────────
-  await evaluate(call, `(() => { window.matrica.auth.logout({}).catch(() => null); return true; })()`);
-  await sleep(1500);
-  const loginStore = await evaluate(
+  // ── 2. Вход кладовщиком — как живой оператор: «Выйти» в меню аккаунта,
+  // затем форма входа. Мост-логин меняет сессию, но не перерисовывает рендерер.
+  const logoutClicked = await evaluate(
     call,
-    `window.matrica.auth.login({ username: ${JSON.stringify(LOGIN)}, password: ${JSON.stringify(PASSWORD)} })`,
+    `(() => {
+      const click = (el) => {
+        for (const type of ['mousedown', 'mouseup', 'click']) {
+          el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+        }
+      };
+      const acc = document.querySelector('.v3-account-btn');
+      if (!acc) return 'нет кнопки аккаунта';
+      click(acc);
+      return 'нажата';
+    })()`,
   );
-  note(loginStore?.ok === true, 'вход кладовщиком', loginStore?.ok ? { role: loginStore.role } : loginStore);
-  if (!loginStore?.ok) throw new Error('кладовщик не вошёл: ' + JSON.stringify(loginStore));
+  await sleep(1000);
+  const logoutItem = await evaluate(
+    call,
+    `(() => {
+      const click = (el) => {
+        for (const type of ['mousedown', 'mouseup', 'click']) {
+          el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+        }
+      };
+      const item = Array.from(document.querySelectorAll('button, li, div')).find((e) => {
+        const t = (e.textContent || '').trim();
+        return t.includes('Выйти') && t.length < 30;
+      });
+      if (!item) return 'нет пункта';
+      click(item);
+      return 'нажат';
+    })()`,
+  );
+  note(
+    logoutClicked === 'нажата' && logoutItem === 'нажат',
+    'выполнен выход через меню аккаунта',
+    { logoutClicked, logoutItem },
+  );
+  await sleep(1500);
+  let formReady = false;
+  try {
+    await waitFor(call, `!!document.querySelector('input[type="password"]')`, 'форма входа', 15000);
+    formReady = true;
+  } catch {
+    formReady = false;
+  }
+  note(formReady, 'экран входа открыт', { formReady });
+  const formFilled = await evaluate(
+    call,
+    `(() => {
+      const setVal = (el, v) => {
+        const proto = Object.getPrototypeOf(el);
+        const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+        setter.call(el, v);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      const inputs = Array.from(document.querySelectorAll('input'));
+      const login = inputs.find((i) => i.type !== 'password' && i.value !== undefined);
+      const pass = inputs.find((i) => i.type === 'password');
+      if (!login || !pass) return { ok: false, reason: 'нет полей входа' };
+      setVal(login, ${JSON.stringify(LOGIN)});
+      setVal(pass, ${JSON.stringify(PASSWORD)});
+      const btn = Array.from(document.querySelectorAll('button')).find((b) => (b.textContent || '').trim().startsWith('Войти'));
+      if (!btn) return { ok: false, reason: 'нет кнопки «Войти»' };
+      btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      return { ok: true };
+    })()`,
+  );
+  note(formFilled?.ok === true, 'форма входа заполнена кладовщиком', formFilled);
+  await sleep(4000);
+  const switched = await waitFor(
+    call,
+    `(() => {
+      const b = document.querySelector('.v3-account-btn');
+      return b && (b.textContent || '').includes(${JSON.stringify(LOGIN)}) ? (b.textContent || '').trim() : null;
+    })()`,
+    'интерфейс переключился на кладовщика',
+    20000,
+  );
+  note(!!switched, 'клиент показывает сеанс кладовщика', { account: switched });
 
   const perms = await evaluate(
     call,
@@ -269,6 +341,7 @@ async function main() {
       if (!rows.length) return { ok: false, reason: 'список пуст' };
       const target = rows.find((r) => r.roleCode && r.roleCode !== 'Кладовщик') || rows[0];
       window.__smokeEmployeeId = target.id;
+      window.__smokeEmployeeName = target.fullName ?? '';
       return { ok: true, id: target.id, fullName: target.fullName, roleCode: target.roleCode };
     })()`,
   );
@@ -282,10 +355,11 @@ async function main() {
       const attrs = details?.attributes ?? details?.attrs ?? {};
       const role = attrs?.role?.value ?? attrs?.role ?? null;
       const roleValue = typeof role === 'object' && role ? role.value : role;
-      return { ok: true, role: roleValue == null ? null : String(roleValue) };
+      window.__smokeOriginalRole = roleValue == null ? null : String(roleValue);
+      return { ok: true, role: window.__smokeOriginalRole };
     })()`,
   );
-  note(cardState?.ok === true, 'карточка сотрудника читается', cardState);
+  note(cardState?.ok === true, 'карточка сотрудника читается (исходная должность сохранена)', cardState);
 
   // Правка должности через мост (тот же путь, что у кладовщика в UI).
   const newRole = `Смоук-должность-${Date.now().toString().slice(-6)}`;
@@ -329,6 +403,181 @@ async function main() {
   );
   note(createdPosition?.ok === true, 'кладовщик заводит новую должность в справочнике', createdPosition);
 
+  // ── 3a. UI: карточка сотрудника глазами кладовщика ─────────────────────
+  // Открываем «Персонал и доступ» → «Сотрудники» → карточка.
+  const menuOpened = await evaluate(
+    call,
+    `(() => {
+      // МЕНЮ — переключатель: если оверлей уже открыт, клик его ЗАКРОЕТ.
+      if (document.querySelectorAll('button.v2-section-header').length > 0) return 'уже открыто';
+      const b = Array.from(document.querySelectorAll('button')).find((x) => (x.textContent || '').trim().includes('МЕНЮ'));
+      if (!b) return 'нет кнопки';
+      for (const type of ['mousedown', 'mouseup', 'click']) {
+        b.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      }
+      return 'открыто';
+    })()`,
+  );
+  await sleep(1200);
+  const groupOpened = await evaluate(
+    call,
+    `(() => {
+      // Аккордеон: открыт максимум один раздел. Если «Персонал и доступ» уже развёрнут —
+      // плитка «Сотрудники» есть; если нет — раскрываем заголовок.
+      const tileNow = Array.from(document.querySelectorAll('button.v2-menu-btn')).find((b) => {
+        const l = b.querySelector('.v2-menu-btn-label');
+        return ((l && l.textContent) || '').trim() === 'Сотрудники';
+      });
+      if (tileNow) return 'уже раскрыта';
+      const hit = Array.from(document.querySelectorAll('button.v2-section-header')).find((b) => {
+        const l = b.querySelector('.v2-section-header-label');
+        return ((l && l.textContent) || '').trim() === 'Персонал и доступ';
+      });
+      if (!hit) return 'нет группы';
+      for (const type of ['mousedown', 'mouseup', 'click']) {
+        hit.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      }
+      return 'раскрыта';
+    })()`,
+  );
+  await sleep(1200);
+  const tileClicked = await evaluate(
+    call,
+    `(() => {
+      const btn = Array.from(document.querySelectorAll('button.v2-menu-btn')).find((b) => {
+        const l = b.querySelector('.v2-menu-btn-label');
+        return ((l && l.textContent) || '').trim() === 'Сотрудники';
+      });
+      if (!btn) return false;
+      for (const type of ['mousedown', 'mouseup', 'click']) {
+        btn.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      }
+      return true;
+    })()`,
+  );
+  note(tileClicked, 'вкладка «Сотрудники» открыта', { menuOpened, groupOpened });
+  await sleep(2500);
+
+  const cardOpened = await evaluate(
+    call,
+    `(() => {
+      const name = String(window.__smokeEmployeeName || '').trim();
+      const cells = Array.from(document.querySelectorAll('td'));
+      const hit = (name && cells.find((td) => (td.innerText || '').trim() === name))
+        || cells.find((td) => (td.innerText || '').trim().length > 3);
+      if (!hit) return false;
+      const el = hit.querySelector('a, button') || hit;
+      for (const type of ['mousedown', 'mouseup', 'click']) {
+        el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      }
+      return true;
+    })()`,
+  );
+  note(cardOpened, 'карточка сотрудника открыта');
+  await sleep(3000);
+  const cardReady = await waitFor(
+    call,
+    `document.querySelectorAll('.card-row').length > 0`,
+    'карточка сотрудника с полями',
+    15000,
+  );
+  note(!!cardReady, 'поля карточки отрисованы');
+
+  const uiState = await evaluate(
+    call,
+    `(() => {
+      const rows = Array.from(document.querySelectorAll('.card-row'));
+      const pick = (label) => rows.find((r) => (r.children[0]?.textContent || '').trim() === label);
+      const pos = pick('Должность');
+      const fio = pick('Фамилия');
+      const posInput = pos ? pos.querySelector('input') : null;
+      const fioInput = fio ? fio.querySelector('input') : null;
+      const saveBtn = Array.from(document.querySelectorAll('button')).find((b) => (b.textContent || '').trim() === 'Сохранить');
+      return {
+        posFound: !!pos,
+        posDisabled: posInput ? !!posInput.disabled : null,
+        fioFound: !!fio,
+        fioDisabled: fioInput ? !!fioInput.disabled : null,
+        hasSave: !!saveBtn,
+        bodyHasPosition: /Должность/.test(document.body.innerText),
+      };
+    })()`,
+  );
+  note(uiState?.posFound === true && uiState?.posDisabled === false, '«Должность» кладовщику редактируема', uiState);
+  note(uiState?.fioDisabled === true, 'остальные поля карточки закрыты (ФИО заблокировано)', {
+    fioDisabled: uiState?.fioDisabled,
+  });
+  note(uiState?.hasSave === true, 'кнопка «Сохранить» есть', { hasSave: uiState?.hasSave });
+
+  // Правка должности через саму форму: набрать в поле, создать, сохранить.
+  const uiRole = 'Смоук-форма-' + String(Date.now()).slice(-6);
+  const typed = await evaluate(
+    call,
+    `(() => {
+      const rows = Array.from(document.querySelectorAll('.card-row'));
+      const pos = rows.find((r) => (r.children[0]?.textContent || '').trim() === 'Должность');
+      const input = pos ? pos.querySelector('input') : null;
+      if (!input) return { ok: false };
+      const proto = Object.getPrototypeOf(input);
+      const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+      setter.call(input, ${JSON.stringify(uiRole)});
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.focus();
+      return { ok: true };
+    })()`,
+  );
+  note(typed?.ok === true, 'в поле «Должность» введено новое значение', typed?.ok ? { uiRole } : typed);
+  await sleep(1500);
+  const createClicked = await evaluate(
+    call,
+    `(() => {
+      const click = (el) => {
+        for (const type of ['mousedown', 'mouseup', 'click']) {
+          el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+        }
+      };
+      const items = Array.from(document.querySelectorAll('button, li, div, span')).filter((e) => {
+        const t = (e.textContent || '').trim();
+        return t.includes('Новая должность') || t.includes(${JSON.stringify(uiRole)});
+      });
+      const target = items.find((e) => e.tagName === 'BUTTON') || items[items.length - 1];
+      if (!target) return false;
+      click(target);
+      return true;
+    })()`,
+  );
+  note(createClicked, 'выбрано создание новой должности из списка');
+  await sleep(2000);
+  const saved = await evaluate(
+    call,
+    `(() => {
+      const btn = Array.from(document.querySelectorAll('button')).find((b) => (b.textContent || '').trim() === 'Сохранить');
+      if (!btn) return false;
+      for (const type of ['mousedown', 'mouseup', 'click']) {
+        btn.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      }
+      return true;
+    })()`,
+  );
+  note(saved, 'нажата «Сохранить»');
+  await sleep(2500);
+  const afterUiSave = await evaluate(
+    call,
+    `(async () => {
+      const id = window.__smokeEmployeeId;
+      const details = await window.matrica.employees.get(id);
+      const attrs = details?.attributes ?? details?.attrs ?? {};
+      const role = attrs?.role?.value ?? attrs?.role ?? null;
+      const value = typeof role === 'object' && role ? role.value : role;
+      return { role: value == null ? null : String(value) };
+    })()`,
+  );
+  note(
+    afterUiSave?.role === uiRole,
+    'должность сохранилась через форму',
+    { ожидали: uiRole, получили: afterUiSave?.role },
+  );
+
   // ── 4. Дождаться синка и проверить на сервере ───────────────────────────
   await sleep(4000);
   const serverState = await evaluate(
@@ -368,11 +617,11 @@ async function main() {
     call,
     `(async () => {
       const id = window.__smokeEmployeeId;
-      const res = await window.matrica.employees.setAttr(id, 'role', ${JSON.stringify(cardState?.role ?? '')});
+      const res = await window.matrica.employees.setAttr(id, 'role', window.__smokeOriginalRole ?? '');
       return { ok: res?.ok === true, res };
     })()`,
   );
-  note(restored?.ok === true, 'должность возвращена обратно (стенд чист)', restored?.ok ? { было: cardState?.role } : restored);
+  note(restored?.ok === true, 'исходная должность возвращена (стенд чист)', restored?.ok ? { было: cardState?.role } : restored);
 
   await shot(call, '01-storekeeper');
 
