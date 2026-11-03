@@ -3,6 +3,13 @@ export const PermissionCode = {
   AdminUsersManage: 'admin.users.manage',
   EmployeesView: 'employees.view',
   EmployeesCreate: 'employees.create',
+  /**
+   * Узкое право: завести должность и поправить должность у сотрудника.
+   * Кладовщику оно нужно, чтобы норма приказа подобралась по должности
+   * (приказ Минтруда 767н), и оно НЕ даёт вести кадровую карточку целиком —
+   * для этого есть employees.create.
+   */
+  EmployeesPositionEdit: 'employees.position.edit',
   ClientsManage: 'clients.manage',
 
   // master-data (EAV справочники)
@@ -147,6 +154,7 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
 
   { code: PermissionCode.EmployeesView, group: 'Сотрудники', titleRu: 'Просмотр сотрудников' },
   { code: PermissionCode.EmployeesCreate, group: 'Сотрудники', titleRu: 'Добавление/редактирование сотрудников' },
+  { code: PermissionCode.EmployeesPositionEdit, group: 'Сотрудники', titleRu: 'Изменение должностей сотрудников' },
 
   { code: PermissionCode.MasterDataView, group: 'Справочники', titleRu: 'Просмотр справочников (мастер-данные)' },
   { code: PermissionCode.MasterDataEdit, group: 'Справочники', titleRu: 'Редактирование справочников (мастер-данные)' },
@@ -476,6 +484,10 @@ const OPERATOR_ROLE_EDIT: Record<string, PermissionCode[]> = {
     PermissionCode.SupplyRequestsCreate,
     PermissionCode.SupplyRequestsEdit,
     PermissionCode.FilesUpload,
+    // Должность сотрудника — по решению владельца (2026-11-03): кладовщик (Хапикова)
+    // правит должности, чтобы норма приказа подбиралась по должности. Кадровую
+    // карточку целиком это право не открывает.
+    PermissionCode.EmployeesPositionEdit,
   ],
   timekeeper: [PermissionCode.TimesheetEdit],
   viewer: [],

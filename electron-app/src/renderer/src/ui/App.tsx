@@ -2909,6 +2909,7 @@ export function App() {
         canEditContracts: false,
         canViewParts: false,
         canManageEmployees: false,
+        canEditEmployeePositions: false,
         canViewEmployees: false,
         canManageWorkshops: false,
         canEditWorkshopRepairTemplates: false,
@@ -5744,7 +5745,7 @@ export function App() {
         );
       case 'employee':
         return (
-          <EmployeeDetailsPage key={k} employeeId={id} canEdit={caps.canManageEmployees} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} canManageUsers={caps.canManageUsers} onAccessChanged={triggerEmployeesRefresh} me={authStatus.user} registerCardCloseActions={reg} requestClose={close} onOpenEmployee={openEmployee} onOpenCounterparty={openCounterparty} onOpenContract={openContract} onOpenByCode={openByCode} onClose={close} />
+          <EmployeeDetailsPage key={k} employeeId={id} canEdit={caps.canManageEmployees} canEditPosition={caps.canEditEmployeePositions} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} canManageUsers={caps.canManageUsers} onAccessChanged={triggerEmployeesRefresh} me={authStatus.user} registerCardCloseActions={reg} requestClose={close} onOpenEmployee={openEmployee} onOpenCounterparty={openCounterparty} onOpenContract={openContract} onOpenByCode={openByCode} onClose={close} />
         );
       case 'product':
         return (
@@ -5998,7 +5999,10 @@ export function App() {
         )}
 
         {t === 'ppe_norms' && (
-          <PpeNormsPage canEdit={caps.canEditNomenclature} />
+          <PpeNormsPage
+            canEdit={caps.canEditNomenclature}
+            onOpenNomenclature={(id: string) => openNomenclature(id, { from: 'ppe_norms' })}
+          />
         )}
 
         {t === 'ppe_groups' && (
@@ -6443,6 +6447,7 @@ export function App() {
             key={cardKey(selectedEmployeeId)}
             employeeId={selectedEmployeeId}
             canEdit={caps.canManageEmployees}
+            canEditPosition={caps.canEditEmployeePositions}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
             canManageUsers={caps.canManageUsers}

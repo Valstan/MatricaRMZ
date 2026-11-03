@@ -4,7 +4,7 @@ import { ipcMain } from 'electron';
 import { and, eq, isNull } from 'drizzle-orm';
 
 import type { IpcContext } from '../ipcContext.js';
-import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
+import { isViewMode, requireAnyPermOrResult, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { createEntity, getEntityDetails, listEntitiesByType, listEntitiesByTypeWithAttrs, setEntityAttribute, softDeleteEntity } from '../../services/entityService.js';
 import { analyzeEmployeeDuplicatesRemote, deleteEmployeeRemote, getSectionMembershipByLogin, getSectionMembershipByUserId, listEmployeeAttributeDefs, listEmployeesSummary, mergeEmployeeDuplicatesRemote, mergeEmployeesToServer } from '../../services/employeeService.js';
 import { adminResyncEmployees, viewUserPermissions } from '../../services/adminUsersService.js';
@@ -67,7 +67,13 @@ export function registerEmployeesIpc(ctx: IpcContext) {
 
   ipcMain.handle('employees:setAttr', async (_e, employeeId: string, code: string, value: unknown) => {
     if (isViewMode(ctx)) return viewModeWriteError();
-    const gate = await requirePermOrResult(ctx, 'employees.create');
+    // Должность — узкое право: кладовщик правит должность сотрудника, чтобы
+    // подобралась норма приказа (решение владельца 2026-11-03). Остальные поля
+    // карточки остаются за кадровым правом employees.create.
+    const gate =
+      String(code ?? '').trim().toLowerCase() === 'role'
+        ? await requireAnyPermOrResult(ctx, ['employees.create', 'employees.position.edit'])
+        : await requirePermOrResult(ctx, 'employees.create');
     if (!gate.ok) return gate;
     // fallback type id materializes the entity on the first write for a deferred employee.
     const typeId = await getEntityTypeIdByCode(ctx, 'employee');
@@ -157,7 +163,9 @@ export function registerEmployeesIpc(ctx: IpcContext) {
 
   ipcMain.handle('employees:positions:create', async (_e, label: string) => {
     if (isViewMode(ctx)) return viewModeWriteError();
-    const gate = await requirePermOrResult(ctx, 'employees.create');
+    // Завести должность в справочнике — можно и по кадровому праву, и по узкому
+    // праву на должности (кладовщик, решение владельца 2026-11-03).
+    const gate = await requireAnyPermOrResult(ctx, ['employees.create', 'employees.position.edit']);
     if (!gate.ok) return gate;
     const name = String(label ?? '').trim();
     if (!name) return { ok: false as const, error: 'пустое название должности' };

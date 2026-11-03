@@ -24,9 +24,28 @@ type NormRow = {
   validFrom: number;
   validTo: number | null;
   linesCount: number;
+  /** Основание набора: профессия приказа и его пункт. */
+  occupationId: string | null;
+  sourceKind: string | null;
+  sourceLabel: string | null;
+  occupationCode: string | null;
+  occupationPost: string | null;
 };
 
-type NormLine = { id: string; nomenclatureId: string; qty: number; wearMonths: number };
+type NormLine = {
+  id: string;
+  nomenclatureId: string;
+  /** Наименование и код позиции с сервера: реплика номенклатуры на клиенте может отставать. */
+  nomenclatureName: string | null;
+  nomenclatureCode: string | null;
+  qty: number;
+  wearMonths: number;
+  unit: string | null;
+  /** Пункт приказа, из которого взята позиция. */
+  sourceLabel: string | null;
+  sourceKind: string | null;
+  specId: string | null;
+};
 type LineDraft = { nomenclatureId: string | null; qty: string; wearMonths: string };
 
 const GENDER_RU: Record<PpeGender, string> = { M: 'мужской', F: 'женский' };
@@ -61,7 +80,7 @@ const EMPTY_LINE: LineDraft = { nomenclatureId: null, qty: '1', wearMonths: '12'
  * именно размер («Куртка зимняя, р.52»), а не базовая модель. Данные живут на
  * сервере (REST /ppe), без связи страница пуста — как приказы о ценах.
  */
-export function PpeNormsPage(props: { canEdit: boolean }) {
+export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id: string) => void }) {
   const [rows, setRows] = useState<NormRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [name, setName] = useState('');
@@ -142,7 +161,18 @@ export function PpeNormsPage(props: { canEdit: boolean }) {
     [nomenclature],
   );
 
+  /**
+   * Название позиции. Сначала сервер: реплика номенклатуры на клиенте может отставать
+   * (номенклатура приказа заведена миграцией), и тогда кладовщик видел бы UUID.
+   */
+  const lineLabel = useCallback(
+    (l: NormLine) => l.nomenclatureName ?? nomenclature.find((n) => n.id === l.nomenclatureId)?.label ?? l.nomenclatureId,
+    [nomenclature],
+  );
+
   const selected = useMemo(() => rows.find((r) => r.id === selectedId) ?? null, [rows, selectedId]);
+  /** Набор заведён по приказу — его название и должность производные, руками не меняются. */
+  const isOrderBasis = !!selected?.occupationId;
 
   function select(row: NormRow) {
     setSelectedId(row.id);
@@ -255,7 +285,7 @@ export function PpeNormsPage(props: { canEdit: boolean }) {
     if (!selectedId) return;
     const ok = await confirm({
       title: 'Убрать позицию из нормы?',
-      detail: `${nomName(line.nomenclatureId)}: ${line.qty} шт, носка ${line.wearMonths} мес. Прошлые выдачи по ней останутся в карточках.`,
+      detail: `${lineLabel(line)}: ${line.qty} шт, носка ${line.wearMonths} мес. Прошлые выдачи по ней останутся в карточках.`,
       confirmLabel: 'Убрать',
     });
     if (!ok) return;
@@ -317,6 +347,7 @@ export function PpeNormsPage(props: { canEdit: boolean }) {
         ) : (
           <>
             <ListCount total={rows.length} shown={filtered.length} />
+            <div style={{ maxHeight: 'calc(100vh - 300px)', overflowY: 'auto' }}>
             <table className="table" style={{ width: '100%' }}>
               <thead>
                 <tr>
@@ -352,11 +383,12 @@ export function PpeNormsPage(props: { canEdit: boolean }) {
                 ))}
               </tbody>
             </table>
+            </div>
           </>
         )}
       </SectionCard>
 
-      <div style={{ display: 'grid', gap: 16 }}>
+      <div style={{ display: 'grid', gap: 16, maxHeight: 'calc(100vh - 120px)', overflowY: 'auto', paddingRight: 4 }}>
         {!selectedId && !isNew ? (
           <SectionCard title="Нормы выдачи">
             <div style={{ color: 'var(--muted)' }}>
@@ -366,12 +398,48 @@ export function PpeNormsPage(props: { canEdit: boolean }) {
           </SectionCard>
         ) : (
           <SectionCard title={isNew ? 'Новый набор' : `Набор «${selected?.name ?? ''}»`}>
+            {selected && isOrderBasis ? (
+              <div
+                style={{
+                  marginBottom: 12,
+                  padding: '8px 10px',
+                  borderRadius: 6,
+                  background: 'var(--accent-soft, rgba(0,0,0,0.05))',
+                }}
+              >
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>Основание — приказ Минтруда №767н</div>
+                <div>
+                  {selected.occupationPost ?? selected.occupationCode ?? '—'}
+                  {selected.sourceLabel ? ` · ${selected.sourceLabel}` : ''}
+                  {selected.season ? ` · ${SEASON_RU[selected.season]}` : ''}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  Название и должность набора задаёт приказ. Правка позиций сохраняет их привязку к пункту приказа.
+                </div>
+              </div>
+            ) : selected ? (
+              <div style={{ marginBottom: 12, fontSize: 12, color: 'var(--muted)' }}>
+                Основание — свой набор завода (без приказа).
+              </div>
+            ) : null}
             <FormGrid>
               <FormField label="Название">
-                <Input value={name} disabled={!canEdit} onChange={(e) => setName(e.target.value)} placeholder="Слесарь РМЦ, основная" />
+                <Input
+                  value={name}
+                  disabled={!canEdit || isOrderBasis}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Слесарь РМЦ, основная"
+                  title={isOrderBasis ? 'Название формируется по приказу: профессия и пункт' : undefined}
+                />
               </FormField>
               <FormField label="Должность">
-                <Input value={postTitle} disabled={!canEdit} onChange={(e) => setPostTitle(e.target.value)} placeholder="Слесарь" />
+                <Input
+                  value={postTitle}
+                  disabled={!canEdit || isOrderBasis}
+                  onChange={(e) => setPostTitle(e.target.value)}
+                  placeholder="Слесарь"
+                  title={isOrderBasis ? 'Должность берётся из профессии приказа' : undefined}
+                />
               </FormField>
               <FormField label="Пол">
                 <select
@@ -456,6 +524,7 @@ export function PpeNormsPage(props: { canEdit: boolean }) {
                     <tr>
                       <RowNumberHeaderCell style={ROWNUM_STYLE} />
                       <th>Позиция</th>
+                      <th>Основание</th>
                       <th style={{ textAlign: 'right' }}>Кол-во</th>
                       <th style={{ textAlign: 'right' }}>Носка, мес</th>
                       {canEditLines ? <th /> : null}
@@ -465,8 +534,36 @@ export function PpeNormsPage(props: { canEdit: boolean }) {
                     {lines.map((l, i) => (
                       <tr key={l.id}>
                         <RowNumberCell n={i + 1} style={ROWNUM_STYLE} />
-                        <td>{nomName(l.nomenclatureId)}</td>
-                        <td style={{ textAlign: 'right' }}>{l.qty}</td>
+                        <td>
+                          {props.onOpenNomenclature ? (
+                            <button
+                              type="button"
+                              onClick={() => props.onOpenNomenclature?.(l.nomenclatureId)}
+                              title="Открыть карточку позиции"
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                padding: 0,
+                                color: 'var(--accent, #1668b8)',
+                                cursor: 'pointer',
+                                textAlign: 'left',
+                                textDecoration: 'underline',
+                              }}
+                            >
+                              {lineLabel(l)}
+                            </button>
+                          ) : (
+                            <span>{lineLabel(l)}</span>
+                          )}
+                          {l.nomenclatureCode ? (
+                            <div style={{ color: 'var(--muted)', fontSize: 12 }}>{l.nomenclatureCode}</div>
+                          ) : null}
+                        </td>
+                        <td style={{ color: 'var(--muted)' }}>{l.sourceLabel ?? '—'}</td>
+                        <td style={{ textAlign: 'right' }}>
+                          {l.qty}
+                          {l.unit ? ` ${l.unit}` : ''}
+                        </td>
                         <td style={{ textAlign: 'right' }}>{l.wearMonths}</td>
                         {canEditLines ? (
                           <td style={{ textAlign: 'right' }}>

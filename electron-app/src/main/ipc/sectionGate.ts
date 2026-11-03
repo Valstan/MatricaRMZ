@@ -325,6 +325,22 @@ export function createSectionIpcGate(ctx: IpcContext) {
     }
   }
 
+  /**
+   * Узкое исключение из гейта раздела: запись ДОЛЖНОСТИ сотрудника.
+   *
+   * Кладовщику (решение владельца 2026-11-03) нужно править должность, чтобы
+   * подобралась норма приказа по должности. Editor'а раздела «Персонал» у него
+   * нет — и не нужно: кадровую карточку он не ведёт. Право узкое
+   * (`employees.position.edit`), проверяет его сам обработчик.
+   */
+  async function isPositionWrite(channel: string, args: unknown[]): Promise<boolean> {
+    if (channel !== 'employees:setAttr') return false;
+    const attrCode = String(args[1] ?? '').trim().toLowerCase();
+    if (attrCode !== 'role') return false;
+    const perms = await ctx.currentPermissions().catch(() => ({}) as Record<string, boolean>);
+    return perms['employees.position.edit'] === true;
+  }
+
   /** Обернуть handler канала section-гейтом (или вернуть как есть, если канал не гейтится). */
   function wrap(channel: string, handler: (...a: any[]) => any): (...a: any[]) => any {
     const prefixSection = matchPrefixRule(channel);
@@ -332,6 +348,7 @@ export function createSectionIpcGate(ctx: IpcContext) {
     if (!prefixSection && !entityGated) return handler;
     const level: 'viewer' | 'editor' = isWriteGatedChannel(channel) ? 'editor' : 'viewer';
     return async (event: unknown, ...args: unknown[]) => {
+      if (await isPositionWrite(channel, args)) return handler(event, ...args);
       const sectionId = prefixSection ?? (await sectionForEntityArgs(channel, args));
       if (sectionId && !(await isAllowed(sectionId, level))) {
         const title = accessSectionMeta(sectionId)?.titleRu ?? sectionId;

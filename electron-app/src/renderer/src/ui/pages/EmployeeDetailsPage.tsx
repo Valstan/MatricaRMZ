@@ -242,6 +242,8 @@ function formatValue(v: unknown): string {
 export function EmployeeDetailsPage(props: {
   employeeId: string;
   canEdit: boolean;
+  /** Узкое право на должность: правит только её, остальные поля — за кадровиком. */
+  canEditPosition?: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
   canManageUsers: boolean;
@@ -256,6 +258,8 @@ export function EmployeeDetailsPage(props: {
   requestClose?: () => void;
 }) {
   const { confirm } = useConfirm();
+  // Должность — единственное поле, которое правит узкое право (кладовщик).
+  const canEditPosition = props.canEdit || props.canEditPosition === true;
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [status, setStatus] = useState('');
   const [activeTab, setActiveTab] = useState<EmployeeCardTab>('main');
@@ -662,7 +666,7 @@ export function EmployeeDetailsPage(props: {
   }
 
   async function createPosition(label: string): Promise<string | null> {
-    if (!props.canEdit) return null;
+    if (!canEditPosition) return null;
     const clean = label.trim();
     if (!clean) return null;
     // Узкая дверь карточки (`employees.create`), а не общая `admin.entities.create`
@@ -686,7 +690,7 @@ export function EmployeeDetailsPage(props: {
    * заводим должность в справочник, если её там ещё нет (кейс-нечувствительно, ё→е).
    */
   async function ensurePositionInDirectory(label: string): Promise<void> {
-    if (!props.canEdit) return;
+    if (!canEditPosition) return;
     const clean = label.trim();
     if (!clean) return;
     const key = clean.toLowerCase().replace(/ё/g, 'е');
@@ -696,6 +700,14 @@ export function EmployeeDetailsPage(props: {
   }
 
   async function saveAllAndClose(): Promise<boolean> {
+    // Узкое право на должность: пишем ТОЛЬКО должность — остальные поля карточки
+    // кладовщик не трогает (и не должен: кадровое право у него нет).
+    if (!props.canEdit && canEditPosition) {
+      if (!(await saveAttr('role', position.trim() || null))) return false;
+      await ensurePositionInDirectory(position);
+      dirtyRef.current = false;
+      return true;
+    }
     if (props.canEdit) {
       const attrs: Array<[string, unknown]> = [
         ['last_name', lastName.trim() || null],
@@ -1426,9 +1438,9 @@ export function EmployeeDetailsPage(props: {
               setPosition(label);
             }}
             onCreate={createPosition}
-            canCreate={props.canEdit}
+            canCreate={canEditPosition}
             createLabel="Новая должность"
-            disabled={!props.canEdit}
+            disabled={!canEditPosition}
             placeholder="Должность"
           />
         ),
@@ -1610,12 +1622,12 @@ export function EmployeeDetailsPage(props: {
               : undefined
           }
           onSave={
-            props.canEdit
+            canEditPosition
               ? () => void saveAllAndClose().catch(() => undefined)
               : undefined
           }
           onSaveAndClose={
-            props.canEdit
+            canEditPosition
               ? () => void saveAllAndClose().then((ok) => { if (ok) props.onClose(); }).catch(() => undefined)
               : undefined
           }

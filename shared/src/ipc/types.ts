@@ -2403,6 +2403,12 @@ export type MatricaApi = {
               validFrom: number;
               validTo: number | null;
               linesCount: number;
+              /** Основание набора: профессия приказа и его пункт. */
+              occupationId: string | null;
+              sourceKind: string | null;
+              sourceLabel: string | null;
+              occupationCode: string | null;
+              occupationPost: string | null;
             }>;
           }
         | { ok: false; error: string }
@@ -2420,7 +2426,26 @@ export type MatricaApi = {
               isDuty: boolean;
               validFrom: number;
               validTo: number | null;
-              lines: Array<{ id: string; nomenclatureId: string; qty: number; wearMonths: number }>;
+              /** Основание набора: профессия приказа и его пункт. */
+              occupationId: string | null;
+              sourceKind: string | null;
+              sourceLabel: string | null;
+              occupationCode: string | null;
+              occupationPost: string | null;
+              lines: Array<{
+                id: string;
+                nomenclatureId: string;
+                /** Наименование и код позиции с сервера: реплика номенклатуры на клиенте может отставать. */
+                nomenclatureName: string | null;
+                nomenclatureCode: string | null;
+                qty: number;
+                wearMonths: number;
+                unit: string | null;
+                /** Пункт приказа, из которого взята позиция. */
+                sourceLabel: string | null;
+                sourceKind: string | null;
+                specId: string | null;
+              }>;
             };
           }
         | { ok: false; error: string }
