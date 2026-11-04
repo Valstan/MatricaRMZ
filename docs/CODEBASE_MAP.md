@@ -15,7 +15,7 @@
 | [`shared/`](../shared) | Общие типы и pure-логика TS | Изменения видимые и UI и API, доменные правила (BOM, forecast, signatures) |
 | [`web-admin/`](../web-admin) | Веб-админка (React, отдельно от Electron) | Админ-задачи через браузер |
 | [`ledger/`](../ledger) | Типы контракта журнала (`LedgerTableName`, `LedgerTxPayload`) | Имена таблиц журнала/синка; цепочка блоков снята 2026-09 ([план](plans/_archive/ledger-journal-in-pg-2026-09.md)) |
-| [`scripts/`](../scripts) | Корневые CLI: bump-version, release-ledger; `prod-ops/` — ops прод-VPS; `client-ops/` — инструменты для машин парка | Релизный процесс (см. `AGENTS.md` §Release); настройка антивируса на клиенте — [`client-ops/README.md`](../scripts/client-ops/README.md) |
+| [`scripts/`](../scripts) | Корневые CLI: bump-version, release-ledger; `prod-ops/` — ops прод-VPS; `client-ops/` — инструменты для машин парка; `signing/` — подпись исполняемого контура | Релизный процесс (см. `AGENTS.md` §Release); настройка антивируса на клиенте — [`client-ops/README.md`](../scripts/client-ops/README.md); подпись кода и доверенный CA — [`signing/README.md`](../scripts/signing/README.md) + [ADR-0003](adr/0003-signed-code-ecosystem-one-kaspersky-rule.md) |
 | [`deploy/`](../deploy) | nginx config + systemd units | Прод-конфигурация nginx / systemd таймеры |
 
 ## Backend (`backend-api/src/`)
