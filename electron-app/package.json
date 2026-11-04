@@ -83,6 +83,10 @@
     ],
     "win": {
       "icon": "build/icon.ico",
+      "signExts": [
+        ".dll",
+        ".node"
+      ],
       "signtoolOptions": {
         "signingHashAlgorithms": [
           "sha256"

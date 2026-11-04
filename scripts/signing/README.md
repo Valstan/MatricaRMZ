@@ -128,26 +128,49 @@ CRL Distribution Points, ни AIA, цепочка строится локаль�
 
 ## Конвейер выпуска
 
-`electron-builder` умеет подписывать сам, и в
-[`.github/workflows/release-electron-windows.yml`](../../.github/workflows/release-electron-windows.yml)
-переменные **уже прокинуты** — не хватает только сертификата:
-
-```yaml
-CSC_LINK: ${{ secrets.CSC_LINK }}          # base64 от codesign.pfx
-CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-```
-
-В `electron-app/package.json` → `build.win` нужно добавить:
+`electron-builder` подписывает сам (клиент, инсталлятор, деинсталлятор, DLL, `.node`) —
+в [`.github/workflows/release-electron-windows.yml`](../../.github/workflows/release-electron-windows.yml)
+переменные `CSC_LINK`/`CSC_KEY_PASSWORD` уже прокинуты, не хватает только самого сертификата.
+В `electron-app/package.json` → `build.win` включено:
 
 ```jsonc
-"signDlls": true,              // Electron-DLL
-"signExts": [".node"],         // нативные модули
+"signExts": [".dll", ".node"],   // DLL Electron и нативные модули
 ```
 
-`.exe` подписываются по умолчанию. `extraResources` (сторож в ресурсах, иконки) проходят
-через `CopyFileTransformer` и подписываются тоже. **Собранный до electron-builder Go-бинарь
-сторожа подписи не проходит** — его нужно подписать явно (`signtool` отдельным шагом CI
-после `go build`).
+Опции `signDlls` в electron-builder **нет** (в версии 26.8.1 сборка падает с
+`configuration.win has an unknown property 'signDlls'`) — DLL подписываются через `signExts`.
+
+Сторож подписывается **отдельно**: он собирается ДО electron-builder и кладётся в
+`extraResources` как готовый файл, поэтому electron-builder его не трогает.
+
+Весь контур подписи и его проверки — [`ci-sign-artifacts.ps1`](ci-sign-artifacts.ps1):
+
+```powershell
+# предпроверка ключа (до сборки)
+.\ci-sign-artifacts.ps1 -Mode Electron
+
+# подпись сторожа
+.\ci-sign-artifacts.ps1 -Mode Watchdog -Target .\electron-app\build\watchdog\matricarmz-watchdog.exe
+
+# проверка собранного релиза
+.\ci-sign-artifacts.ps1 -Mode Verify -ReleaseDir .\electron-app\release
+```
+
+### Поведение при отсутствии и при битом сертификате
+
+| Ситуация | Что происходит |
+|---|---|
+| `CSC_LINK` не задан | Предупреждение, сборка идёт дальше **неподписанной**, релиз выпускается. Парк не остаётся без релизов из-за отсутствия ключа |
+| `CSC_LINK` задан, PFX битый/неверный пароль | **Сборка останавливается** с читаемым сообщением. Внутри electron-builder тот же случай падает невнятным «cannot extract publisher name» |
+| `CSC_LINK` задан, ключ годный | Сборка подписана; проверка `-Mode Verify` требует, чтобы **каждый** артефакт был подписан нашим ключом |
+| Проверка без `CSC_LINK` | Нестрогая: сообщает, сколько подписано и сколько нет, но **не роняет** сборку |
+
+### Кто подписал файл — читать из таблицы сертификатов PE
+
+`Get-AuthenticodeSignature` **не годится** для этого вопроса: для файла, ранее подписанного
+Microsoft, он продолжает показывать подписавшего Microsoft даже после замены подписи нашей
+(он берёт подпись из каталога подписей Windows). Источник истины — `signtool verify /pa /v`:
+строка `Issued to:` и код возврата. На этом построена проверка `-Mode Verify`. Подробнее — [M189](../../docs/gotchas/M189.md).
 
 ---
 

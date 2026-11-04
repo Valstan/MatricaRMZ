@@ -170,10 +170,11 @@ try {
             $signResult = Invoke-Sign -Files @($copy) -PfxFile $pfx -Pwd $pwd -TsUrl $tsUrl -SignTool $signtool
             Assert-Equal 'подпись прошла' @($signResult)[0].Status 'Signed'
 
-            # Подписал именно наш CA — по отпечатку, а не по статусу цепочки:
-            # «Valid» бывает и у чужой подписи.
-            $after = Get-AuthenticodeSignature -LiteralPath $copy
-            Assert-Equal 'подписал наш CA' ([string]$after.SignerCertificate.Thumbprint) $caThumb
+            # Подписал именно наш CA. Проверяем по таблице сертификатов PE:
+            # Get-AuthenticodeSignature для файлов Microsoft показывает Microsoft
+            # даже после замены подписи (M189).
+            $after = Get-SignerInfo -File $copy -SignTool $signtool -OurThumbprint $caThumb
+            Assert-True 'подписал наш CA' ([bool]$after.Ours)
 
             # Повторная подпись не должна ломать файл — она просто пропускается.
             $again = Invoke-Sign -Files @($copy) -PfxFile $pfx -Pwd $pwd -TsUrl $tsUrl -SignTool $signtool
@@ -195,18 +196,15 @@ try {
             Assert-True 'неверный пароль PFX роняет скрипт' $threw
             Assert-True 'в тексте ошибки есть слово про пароль' ([bool]($threwMsg -match 'парол'))
 
-            # Чужая подпись (Microsoft) не переписывается нашей: signtool её не
-            # заменяет, а добавляет вторую, и первичной остаётся чужая. Поэтому
-            # файл с чужой подписью помечается ForeignSigned и не трогается.
+            # Чужая подпись (Microsoft) ЗАМЕНЯЕТСЯ нашей: signtool не добавляет вторую
+            # запись, а заменяет имеющуюся (M189 — разбор таблицы сертификатов PE).
             $foreign = Join-Path $fake 'foreign.exe'
             [System.IO.File]::Copy((Join-Path $env:SystemRoot 'System32\where.exe'), $foreign, $true)
             $foreignResult = Invoke-Sign -Files @($foreign) -PfxFile $pfx -Pwd $pwd -TsUrl $tsUrl -SignTool $signtool
-            $foreignThumb = (Get-AuthenticodeSignature -LiteralPath $foreign).SignerCertificate.Thumbprint
-            if ($foreignThumb -eq $caThumb) {
-                Assert-Equal 'файл с нашей подписью пропускается' @($foreignResult)[0].Status 'AlreadySigned'
-            } else {
-                Assert-Equal 'файл с чужой подписью не переписывается' @($foreignResult)[0].Status 'ForeignSigned'
-            }
+            Assert-Equal 'файл с чужой подписью переподписан нашим' @($foreignResult)[0].Status 'Signed'
+            $foreignInfo = Get-SignerInfo -File $foreign -SignTool $signtool -OurThumbprint $caThumb
+            Assert-True 'подпись Microsoft заменена нашей' ([bool]$foreignInfo.Ours)
+            Assert-True 'в цепочке наш отпечаток' (@($foreignInfo.Thumbprints) -contains $caThumb.ToUpperInvariant())
 
             # Установка корня в CurrentUser\Root — без прав администратора и без диалога
             # (M188: certutil тут зависает, Import-Certificate отказывает).
