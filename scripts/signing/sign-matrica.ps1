@@ -91,6 +91,36 @@ function Get-SignToolPath {
     return $null
 }
 
+<#
+    Кто подписал файл — по ТАБЛИЦЕ СЕРТИФИКАТОВ PE, а не по Get-AuthenticodeSignature.
+    PowerShell 5.1 для файла, ранее подписанного Microsoft, отдаёт подпись из
+    каталога подписей Windows и показывает подписавшего Microsoft даже после
+    замены подписи нашей (M189). Источник истины — signtool verify /pa /v:
+    он печатает отпечатки всех сертификатов цепочки («SHA1 hash:»).
+#>
+function Get-SignerInfo {
+    param([string]$File, [string]$SignTool, [string]$OurThumbprint)
+
+    if (-not (Test-Path -LiteralPath $File)) { return @{ Signed = $false; Ours = $false; Thumbprints = @(); Subject = '' } }
+
+    $out = ''
+    $prevPref = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $out = (& $SignTool verify /pa /v $File 2>&1) | Out-String -Width 300
+    } finally {
+        $ErrorActionPreference = $prevPref
+    }
+
+    $hashes = @([regex]::Matches($out, 'SHA1 hash:\s*([0-9A-Fa-f]{40})') | ForEach-Object { $_.Groups[1].Value.ToUpperInvariant() })
+    $subject = ''
+    $m = [regex]::Match($out, 'Issued to:\s*(.+?)\s*$', [System.Text.RegularExpressions.RegexOptions]::Multiline)
+    if ($m.Success) { $subject = $m.Groups[1].Value.Trim() }
+    $ours = $false
+    if ($OurThumbprint) { $ours = ($hashes -contains $OurThumbprint.ToUpperInvariant()) }
+    return @{ Signed = ($hashes.Count -gt 0); Ours = $ours; Thumbprints = $hashes; Subject = $subject }
+}
+
 function Resolve-Password {
     param([string]$Explicit)
     if ($Explicit) { return $Explicit }
@@ -190,31 +220,25 @@ function Invoke-Sign {
 
     $results = @()
     foreach ($f in $Files) {
-        # Кто стоит в подписи файла — по отпечатку подписавшего, а не по статусу
-        # цепочки доверия.
-        #
-        # Проверка «подпись вообще есть» (Status -eq 'Valid') была бы ошибкой:
-        # подпись Microsoft тоже даёт 'Valid'. Но и подписывать поверх чужой — тоже
-        # ошибка: signtool не заменяет подпись, а ДОБАВЛЯЕТ вторую в таблицу
-        # сертификатов, и первичной остаётся чужая (проверено на d3dcompiler_47.dll:
-        # размер файла вырос, а подписавшемся остался Microsoft). Повторный прогон
-        # дописал бы ещё одну копию.
+        # Кто стоит в подписи файла — по ТАБЛИЦЕ СЕРТИФИКАТОВ PE (M189).
+        # Get-AuthenticodeSignature здесь не годится: для файла, ранее
+        # подписанного Microsoft, он отдаёт подпись из каталога подписей Windows
+        # и показывает подписавшего Microsoft даже после замены подписи нашей.
         #
         # Правило:
-        #   - наш отпечаток → уже подписано нами, пропускаем (идемпотентность);
-        #   - чужой отпечаток → не трогаем: файл подписан Microsoft, Касперский доверяет
-        #     ему и так, а наша вторая подпись всё равно не станет первичной;
+        #   - в цепочке есть наш отпечаток → уже подписано нами, пропускаем
+        #     (идемпотентность);
+        #   - чужая подпись → подписываем заново: signtool ЗАМЕНЯЕТ подпись
+        #     (в таблице остаётся одна запись — наша), и файл становится
+        #     доверенным по НАШЕМУ ключу — ровно то, ради чего всё затевалось
+        #     (ADR-0003);
         #   - подписи нет → подписываем, наша становится первичной.
-        $current = Get-AuthenticodeSignature -LiteralPath $f
-        $currentThumb = if ($current.SignerCertificate) { $current.SignerCertificate.Thumbprint } else { '' }
-        if ($currentThumb -eq $PfxThumbprint) {
-            $results += [pscustomobject]@{ File = $f; Status = 'AlreadySigned'; Message = $current.SignerCertificate.Subject }
+        $before = Get-SignerInfo -File $f -SignTool $SignTool -OurThumbprint $PfxThumbprint
+        if ($before.Ours) {
+            $results += [pscustomobject]@{ File = $f; Status = 'AlreadySigned'; Message = $before.Subject }
             continue
         }
-        if ($currentThumb) {
-            $results += [pscustomobject]@{ File = $f; Status = 'ForeignSigned'; Message = $current.SignerCertificate.Subject }
-            continue
-        }
+        $wasForeign = if ($before.Signed) { " (заменена подпись: $($before.Subject))" } else { '' }
 
         # signtool пишет об ошибке в stderr, а $ErrorActionPreference='Stop' превращает
         # stderr нативной команды в исключение — скрипт упал бы раньше, чем мы успели
@@ -237,28 +261,31 @@ function Invoke-Sign {
             $results += [pscustomobject]@{ File = $f; Status = 'Failed'; Message = ($msg -replace '^\s*signtool\.exe\s*:\s*','').Trim() }
             continue
         }
-        $after = Get-AuthenticodeSignature -LiteralPath $f
-        $afterThumb = if ($after.SignerCertificate) { $after.SignerCertificate.Thumbprint } else { '' }
-        $status = if ($afterThumb -eq $PfxThumbprint) { 'Signed' } else { [string]$after.Status }
+        # Проверяем результат по таблице сертификатов: наш отпечаток должен быть
+        # в цепочке. Get-AuthenticodeSignature здесь снова не годится (M189).
+        $after = Get-SignerInfo -File $f -SignTool $SignTool -OurThumbprint $PfxThumbprint
+        $status = if ($after.Ours) { 'Signed' } elseif ($after.Signed) { 'ForeignSigned' } else { 'NotSigned' }
         $results += [pscustomobject]@{
             File = $f
             Status = $status
-            Message = [string]$after.SignerCertificate.Subject
+            Message = ([string]$after.Subject) + $wasForeign
         }
     }
     return $results
 }
 
 function Test-SignedTree {
-    param([string]$Path, [string[]]$Extensions)
+    param([string]$Path, [string[]]$Extensions, [string]$OurThumbprint)
 
     $files = Get-SignTargets -Path $Path -Extensions $Extensions
     $rows = foreach ($f in $files) {
-        $sig = Get-AuthenticodeSignature -LiteralPath $f
+        # Кто подписал — по таблице сертификатов PE (M189), а не по
+        # Get-AuthenticodeSignature (для файлов Microsoft он врёт).
+        $info = Get-SignerInfo -File $f -SignTool $signTool -OurThumbprint $OurThumbprint
         [pscustomobject]@{
             File = $f
-            Status = [string]$sig.Status
-            Signer = [string]$sig.SignerCertificate.Subject
+            Status = if ($info.Ours) { 'Signed' } elseif ($info.Signed) { 'ForeignSigned' } else { 'NotSigned' }
+            Signer = [string]$info.Subject
         }
     }
     return @($rows)
@@ -294,7 +321,14 @@ switch ($Mode) {
     }
     'Verify' {
         if (-not $Target) { throw 'Нужен -Target.' }
-        $rows = Test-SignedTree -Path $Target -Extensions $exts
+        # Отпечаток нашего CA — если ключ задан, показываем, чья это подпись.
+        $ourThumb = ''
+        if ($PfxPath -and (Test-Path -LiteralPath $PfxPath)) {
+            try {
+                $ourThumb = (New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($PfxPath, $pwd)).Thumbprint
+            } catch { $ourThumb = '' }
+        }
+        $rows = Test-SignedTree -Path $Target -Extensions $exts -OurThumbprint $ourThumb
         if ($Json) {
             $rows | ConvertTo-Json -Depth 4
         } else {

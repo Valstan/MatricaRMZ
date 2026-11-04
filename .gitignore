@@ -45,6 +45,7 @@ yarn-error.log*
 
 # Release artifacts (не коммитим артефакты сборки)
 electron-app/release
+electron-app/release-*
 electron-app/dist
 web-admin/dist
 

@@ -35,8 +35,7 @@ jobs:
       # The watchdog is bundled into the installer as a Windows extraResource
       # (electron-app build.win.extraResources). It must exist before
       # electron-builder packs, so build it here into the path package.json
-      # references. It ships UNSIGNED — code-signing is not available to this
-      # project (no CA cert), same as the client itself.
+      # references.
       - name: Build watchdog binary (windows/amd64)
         env:
           GOOS: windows
@@ -51,6 +50,25 @@ jobs:
           # The watchdog logs to %APPDATA%\MatricaRMZ\watchdog.log regardless of stdout.
           go build -trimpath -ldflags "-s -w -H=windowsgui" -o ../electron-app/build/watchdog/matricarmz-watchdog.exe .
         shell: bash
+
+      # Code signing (ADR-0003). CSC_LINK/CSC_KEY_PASSWORD are optional: with no
+      # key the release ships UNSIGNED and the park is never blocked by a missing
+      # certificate. A BROKEN key stops the build here with a readable message —
+      # inside electron-builder the same problem surfaces as "cannot extract
+      # publisher name", which says nothing about the cause.
+      - name: Check code-signing material
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: pwsh -File scripts/signing/ci-sign-artifacts.ps1 -Mode Electron
+
+      # The watchdog is built before electron-builder and shipped as a ready-made
+      # extraResource, so electron-builder does NOT sign it. Sign it separately.
+      - name: Sign watchdog binary
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: pwsh -File scripts/signing/ci-sign-artifacts.ps1 -Mode Watchdog -Target electron-app/build/watchdog/matricarmz-watchdog.exe
 
       - name: Install dependencies
         run: pnpm install
@@ -77,6 +95,16 @@ jobs:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
         run: pnpm -C electron-app exec electron-builder --win --x64 --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+
+      # Проверяем факт подписи собранного, а не намерение подписать: читаем таблицу
+      # сертификатов каждого артефакта. С ключом — все артефакты обязаны быть
+      # подписаны НАШИМ ключом; без ключа проверка нестрогая (релиз неподписанный —
+      # допустимое состояние, парк не должен зависеть от наличия сертификата).
+      - name: Verify code signing of release artifacts
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: pwsh -File scripts/signing/ci-sign-artifacts.ps1 -Mode Verify -ReleaseDir electron-app/release
 
       - name: Upload test installer artifact (non-tag builds)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
