@@ -133,6 +133,14 @@
 
 Инструмент: [`scripts/signing/ci-sign-artifacts.ps1`](../../scripts/signing/ci-sign-artifacts.ps1).
 
+**Проверено настоящим прогоном релизного конвейера на GitHub-раннере** (run `41908688540`, ветка `feature/ci-code-signing`, PR #1569) — конвейер зелёный целиком:
+- «Check code-signing material» → `CSC_LINK не задан — релиз выйдет НЕПОДПИСАННЫМ` — **сборка не упала**;
+- «Sign watchdog binary» → `CSC_LINK не задан — сторож останется неподписанным`;
+- «Publish release» → electron-builder подписывал `d3dcompiler_47.dll`, `dxcompiler.dll`, `ffmpeg.dll`, `libEGL.dll`, `libGLESv2.dll`, `vk_swiftshader.dll`, `vulkan-1.dll`, `MatricaRMZ.exe`, `resources/app.asar.unpacked\node_modules\...` — то есть **`win.signExts` работает**, DLL и `.node` входят в контур;
+- «Verify code signing of release artifacts» → `Проверено файлов: 16, подписано: 2` (два — файлы Microsoft, подписанные публичным CA; наш ключ не задан, поэтому проверка нестрогая) — **шаг отработал и не сорвал релиз**.
+
+Локально на PC79: 18 проверок приёмки — 0 провалов; все переходы `ci-sign-artifacts.ps1` прогнаны (нет ключа → 0, битый → 1 с текстом, годный → 0, подпись сторожа → 0; проверка релиза: все подписаны → 0, смешанные → 1 со списком, без ключа → 0).
+
 ### Осталось за владельцем
 
 1. **Ответ на вопрос 7** — посмотреть в GUI Касперского 21.27, какие хранилища предлагает вкладка «Доверенное системное хранилище сертификатов». От ответа зависит, кто ставит корень.
