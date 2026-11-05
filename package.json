@@ -2,6 +2,9 @@
   "name": "matricarmz",
   "private": true,
   "packageManager": "pnpm@10.26.1",
+  "engines": {
+    "pnpm": "^10.26.0"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/Valstan/MatricaRMZ.git"
@@ -24,6 +27,7 @@
     "lint": "corepack pnpm -r lint",
     "deadcode": "knip",
     "deadcode:pages": "node scripts/check-dead-pages.mjs",
+    "check:overrides": "node scripts/check-pnpm-overrides.mjs",
     "typecheck": "corepack pnpm -r typecheck",
     "test": "corepack pnpm -r --workspace-concurrency=1 test",
     "format": "prettier -w .",

@@ -26,6 +26,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      # Поле `pnpm.overrides` читается только до pnpm 11: на 11+ оно молча игнорируется,
+      # install проходит, а CVE-патчи выпадают из дерева. Сторож проверяет по lockfile,
+      # что патчи реально применены (признак «поле есть» ничего не значит).
+      - name: Guard pnpm overrides
+        run: pnpm run check:overrides
+
       - name: Build shared + ledger (required by dependents)
         run: |
           pnpm --filter @matricarmz/shared build
