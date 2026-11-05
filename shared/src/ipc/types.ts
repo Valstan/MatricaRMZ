@@ -4,6 +4,7 @@ import type { EngineRmzNumberStatus } from '../domain/engineRmzNumber.js';
 import type { EngineReservation } from '../domain/engineReservation.js';
 import type { GlobalSearchHit, GlobalSearchResponse } from '../domain/globalSearch.js';
 import type { PartDimension, PartEngineBrandLink, PartMetadata, PartSpec } from '../domain/part.js';
+import type { PpeWearKind } from '../domain/ppe.js';
 import type { DuplicateBlockReason } from '../domain/partsDedup.js';
 import type { WorkshopStatsResult } from '../domain/workshopStats.js';
 import type { TimesheetCodeDef, TimesheetData, TimesheetHeader } from '../domain/timesheet.js';
@@ -2439,7 +2440,10 @@ export type MatricaApi = {
                 nomenclatureName: string | null;
                 nomenclatureCode: string | null;
                 qty: number;
-                wearMonths: number;
+                /** Срок носки; `null` — срока нет (годовая норма без срока, «до износа»). */
+                wearMonths: number | null;
+                /** Вид нормы: 'months' | 'until_wearout' | 'by_manufacturer' | 'annual' | 'months_clerk'. */
+                wearKind: PpeWearKind | null;
                 unit: string | null;
                 /** Пункт приказа, из которого взята позиция. */
                 sourceLabel: string | null;
@@ -2449,6 +2453,14 @@ export type MatricaApi = {
             };
           }
         | { ok: false; error: string }
+      >;
+      /**
+       * Срок носки по позиции проставляет кладовщик (решение владельца от 05.11): у годовой
+       * нормы («1 шт.», «12 пар») срока в приказе нет, а выводить его из количества нельзя —
+       * это разные величины. Срок действует на всех сотрудников профессии.
+       */
+      setWearPeriod: (args: { id: string; wearMonths: number | null }) => Promise<
+        { ok: true; id: string; wearKind: string; wearMonths: number | null } | { ok: false; error: string }
       >;
       upsert: (args: {
         id?: string;
@@ -2460,7 +2472,7 @@ export type MatricaApi = {
         isDuty?: boolean;
         validFrom?: number;
         validTo?: number | null;
-        lines: Array<{ nomenclatureId: string; qty: number; wearMonths: number }>;
+        lines: Array<{ nomenclatureId: string; qty: number; wearMonths: number | null; wearKind?: string | null }>;
       }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     };
     cards: {
@@ -2654,13 +2666,17 @@ export type MatricaApi = {
       | {
           ok: true;
           rows: Array<{
+            /** id строки нормы — по нему кладовщик проставляет срок носки по позиции. */
+            id: string;
             name: string;
             sourceLabel: string | null;
             unit: string | null;
             qty: number;
-            wearKind: string | null;
+            wearKind: PpeWearKind | null;
             wearMonths: number | null;
             qtyText: string;
+            /** Срок носки — отдельной величиной, с указанием, чей это выбор. */
+            wearText: string;
           }>;
         }
       | { ok: false; error: string }

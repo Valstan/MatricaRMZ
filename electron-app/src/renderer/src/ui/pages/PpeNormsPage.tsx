@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { wearPeriodText, type PpeWearKind } from '@matricarmz/shared';
+
 import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { FormField } from '../components/FormField.js';
@@ -39,7 +41,10 @@ type NormLine = {
   nomenclatureName: string | null;
   nomenclatureCode: string | null;
   qty: number;
-  wearMonths: number;
+  /** Срок носки; `null` — срока нет (годовая норма без срока, «до износа»). */
+  wearMonths: number | null;
+  /** Вид нормы: от него зависит, чей это срок — приказ или кладовщик. */
+  wearKind: PpeWearKind | null;
   unit: string | null;
   /** Пункт приказа, из которого взята позиция. */
   sourceLabel: string | null;
@@ -280,7 +285,7 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
     if (!selectedId) return;
     const ok = await confirm({
       title: 'Убрать позицию из нормы?',
-      detail: `${lineLabel(line)}: ${line.qty} шт, носка ${line.wearMonths} мес. Прошлые выдачи по ней останутся в карточках.`,
+      detail: `${lineLabel(line)}: ${line.qty} шт, ${wearPeriodText(line.wearKind, line.wearMonths)}. Прошлые выдачи по ней останутся в карточках.`,
       confirmLabel: 'Убрать',
     });
     if (!ok) return;
@@ -559,7 +564,7 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
                           {l.qty}
                           {l.unit ? ` ${l.unit}` : ''}
                         </td>
-                        <td style={{ textAlign: 'right' }}>{l.wearMonths}</td>
+                        <td style={{ textAlign: 'right' }}>{wearPeriodText(l.wearKind, l.wearMonths)}</td>
                         {canEditLines ? (
                           <td style={{ textAlign: 'right' }}>
                             <Button variant="ghost" onClick={() => void removeLine(l)} disabled={busy}>

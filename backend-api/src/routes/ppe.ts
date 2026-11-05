@@ -41,6 +41,7 @@ import {
   listPpePrintTemplates,
   resolveNormsByPost,
   savePpePrintTemplate,
+  setNormLineWearPeriod,
   updatePpeEmployeeCard,
 } from '../services/ppeOrderNormsService.js';
 import { shouldRunBackgroundJobs } from '../services/instanceRole.js';
@@ -116,6 +117,24 @@ ppeRouter.get('/norms/:id', requirePermission(PermissionCode.ErpDictionaryView),
   return res.json(result);
 });
 
+/**
+ * Срок носки по позиции проставляет кладовщик (решение владельца от 05.11): у годовой
+ * нормы («1 шт.», «12 пар») срока в приказе нет, а выводить его из количества нельзя —
+ * это разные величины. Срок действует на всех сотрудников профессии (строка нормы
+ * принадлежит набору норм профессии), поэтому изменение уходит в журнал синхронизации.
+ */
+ppeRouter.put('/norm-lines/:id/wear-period', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const id = String(req.params.id ?? '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const parsed = z
+    .object({ wearMonths: z.coerce.number().int().positive().nullable() })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await setNormLineWearPeriod({ normLineId: id, wearMonths: parsed.data.wearMonths });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
 ppeRouter.post('/norms', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
   const parsed = z
     .object({
@@ -134,7 +153,9 @@ ppeRouter.post('/norms', requirePermission(PermissionCode.ErpDictionaryEdit), as
           z.object({
             nomenclatureId: z.string().uuid(),
             qty: z.coerce.number().int().positive(),
-            wearMonths: z.coerce.number().int().positive(),
+            // Срок носки может отсутствовать: годовая норма без срока («до износа»).
+            wearMonths: z.coerce.number().int().positive().nullable().optional(),
+            wearKind: z.string().trim().min(1).max(32).nullable().optional(),
           }),
         )
         .min(1),
@@ -158,7 +179,12 @@ ppeRouter.post('/norms', requirePermission(PermissionCode.ErpDictionaryEdit), as
         ...(parsed.data.isDuty !== undefined ? { isDuty: parsed.data.isDuty } : {}),
         ...(parsed.data.validFrom !== undefined ? { validFrom: parsed.data.validFrom } : {}),
         ...(parsed.data.validTo !== undefined ? { validTo: parsed.data.validTo } : {}),
-        lines: parsed.data.lines,
+        lines: parsed.data.lines.map((l) => ({
+          nomenclatureId: l.nomenclatureId,
+          qty: l.qty,
+          wearMonths: l.wearMonths ?? null,
+          wearKind: l.wearKind ?? null,
+        })),
       }),
   );
 });

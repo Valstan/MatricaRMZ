@@ -69,11 +69,40 @@ describe('сид приказа о СИЗ', () => {
     }
   });
 
-  it('норма без срока — это «до износа» или «по документам изготовителя»', () => {
+  it('норма без срока — это «до износа», «по документам изготовителя» или годовая норма', () => {
+    // Вид без срока — полноценный вид, а не «нет данных» (решение владельца от 05.11).
+    // «annual» — годовая норма: срока в приказе нет, его проставляет кладовщик.
     for (const spec of PPE_ORDER_SPECS) {
       const parsed = parseOrderNormQty(spec.sourceRef);
       if (parsed.wearMonths == null) {
-        expect(['until_wearout', 'by_manufacturer']).toContain(parsed.wearKind);
+        expect(['until_wearout', 'by_manufacturer', 'annual']).toContain(parsed.wearKind);
+      }
+    }
+  });
+
+  it('годовая норма без оговорки о сроке — вид annual, срока нет', () => {
+    // Срок носки из годовой нормы НЕ выводится: «12 пар» в год — это количество, а не
+    // срок. Смешивать их в одной величине нельзя (владелец, 05.11).
+    let annual = 0;
+    for (const spec of PPE_ORDER_SPECS) {
+      const parsed = parseOrderNormQty(spec.sourceRef);
+      if (parsed.wearKind === 'annual') {
+        annual += 1;
+        expect(parsed.wearMonths).toBeNull();
+        expect(parsed.periodText).toBeNull();
+      }
+    }
+    // В приказе 191 строка: 113 годовых норм без оговорки, 52 «на N лет», 10 «до износа»,
+    // 16 «по документам изготовителя». Если это число вдруг другое — приказ перечитали.
+    expect(annual).toBe(113);
+  });
+
+  it('срок, заданный приказом, остаётся сроком приказа', () => {
+    for (const spec of PPE_ORDER_SPECS) {
+      const parsed = parseOrderNormQty(spec.sourceRef);
+      if (parsed.wearKind === 'months') {
+        expect(parsed.wearMonths).not.toBeNull();
+        expect(parsed.wearMonths! % 12).toBe(0);
       }
     }
   });

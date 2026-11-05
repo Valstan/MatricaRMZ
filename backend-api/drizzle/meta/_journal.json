@@ -841,6 +841,13 @@
       "when": 1793692800000,
       "tag": "0120_ppe_order_norms_publish",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1793883878002,
+      "tag": "0121_ppe_annual_norms_no_derived_period",
+      "breakpoints": true
     }
   ]
 }

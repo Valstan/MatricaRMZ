@@ -18,7 +18,8 @@
  */
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 
-import { normalizeLookupText } from '@matricarmz/shared';
+import { normalizeLookupText, wearPeriodText } from '@matricarmz/shared';
+import type { PpeWearKind } from '@matricarmz/shared';
 
 import { db, pool } from '../database/db.js';
 import {
@@ -579,6 +580,8 @@ export async function updatePpeEmployeeCard(
  * единице; количество и форма срока — из строки набора норм (`ppe_norm_lines`).
  */
 export type PpeCardNormRow = {
+  /** id строки нормы — по нему кладовщик проставляет срок по позиции. */
+  id: string;
   name: string;
   sourceLabel: string | null;
   unit: string | null;
@@ -586,6 +589,8 @@ export type PpeCardNormRow = {
   wearKind: string | null;
   wearMonths: number | null;
   qtyText: string;
+  /** Срок носки — отдельной величиной, с указанием, чей это выбор. */
+  wearText: string;
 };
 
 export async function listCardNormRows(normSetIds: string[]): Promise<PpeCardNormRow[]> {
@@ -624,6 +629,7 @@ export async function listCardNormRows(normSetIds: string[]): Promise<PpeCardNor
     const wearMonths = line.wearMonths == null ? null : Number(line.wearMonths);
     const unit = line.unit == null ? (spec?.unit ?? null) : String(line.unit);
     out.push({
+      id: String(line.id),
       name: spec ? String(spec.name) : '',
       sourceLabel,
       unit,
@@ -631,20 +637,77 @@ export async function listCardNormRows(normSetIds: string[]): Promise<PpeCardNor
       wearKind,
       wearMonths,
       qtyText: formatQty(qty, unit, wearKind, wearMonths),
+      wearText: wearPeriodText(wearKind as PpeWearKind | null, wearMonths),
     });
   }
   return out;
 }
 
-/** «Количество на год» в приказной записи: «1 шт.», «12 пар», «до износа». */
+/**
+ * «Количество на год» в приказной записи: «1 шт.», «12 пар», «до износа».
+ *
+ * Это ТОЛЬКО количество на год — величина приказа. Срок носки сюда не подмешивается:
+ * смешивать их в одну ячейку нельзя (решение владельца от 05.11 — «срок носки» и
+ * «количество на год» разные величины, путаница выглядит как «норма не выполнена»).
+ * Срок приходит отдельной колонкой (`wearText`), с указанием, чей это выбор.
+ *
+ * Слово «на N лет/года» в ячейке остаётся только там, где оно есть в самом приказе
+ * (вид `months`); срок, проставленный кладовщиком, в количество не превращается.
+ */
 function formatQty(qty: number, unit: string | null, wearKind: string | null, wearMonths: number | null): string {
   if (wearKind === 'until_wearout') return 'до износа';
   const base = `${qty} ${unit ?? 'шт.'}`;
   if (wearKind === 'by_manufacturer') return `${base} срок определяется документами изготовителя`;
   if (wearMonths == null) return base;
+  if (wearKind === 'months_clerk') return base; // срок кладовщика — отдельной колонкой
   const years = wearMonths / 12;
   if (!Number.isInteger(years)) return `${base} на ${wearMonths} мес.`;
   return `${base} на ${years} ${years === 1 ? 'год' : 'года'}`;
+}
+
+/**
+ * Срок носки по позиции проставляет кладовщик (решение владельца от 05.11).
+ *
+ * У годовой нормы («1 шт.», «12 пар») срока в приказе нет, а выводить его из
+ * количества нельзя — это разные величины. Кладовщик задаёт срок сам; вид строки
+ * становится `months_clerk`, и в журнале приёмки видно, чей это выбор.
+ *
+ * Строка нормы принадлежит набору норм профессии, а не сотруднику: срок действует
+ * на всех сотрудников этой профессии. Поэтому изменение публикуется в журнал
+ * синхронизации (`sync_status = 'pending'`) — парк должен увидеть новый срок.
+ */
+export async function setNormLineWearPeriod(args: {
+  normLineId: string;
+  wearMonths: number | null;
+}): Promise<Result<{ id: string; wearKind: string; wearMonths: number | null }>> {
+  const id = String(args.normLineId ?? '').trim();
+  if (!id) return { ok: false, error: 'normLineId обязателен' };
+  const wearMonths = args.wearMonths == null ? null : Number(args.wearMonths);
+  if (wearMonths != null && (!Number.isInteger(wearMonths) || wearMonths <= 0)) {
+    return { ok: false, error: 'Срок носки — целое число месяцев больше нуля (или пусто, чтобы снять)' };
+  }
+  try {
+    const rows = await db
+      .select()
+      .from(ppeNormLines)
+      .where(and(eq(ppeNormLines.id, id as never), isNull(ppeNormLines.deletedAt)))
+      .limit(1);
+    const line = rows[0];
+    if (!line) return { ok: false, error: 'Строка нормы не найдена' };
+    const currentKind = line.wearKind == null ? null : String(line.wearKind);
+    // Срок из приказа не перебиваем: приказ — источник истины, кладовщик его не отменяет.
+    if (currentKind === 'months') {
+      return { ok: false, error: 'Срок этой позиции задан приказом — менять его не нужно' };
+    }
+    const wearKind = wearMonths == null ? (currentKind ?? 'annual') : 'months_clerk';
+    await db
+      .update(ppeNormLines)
+      .set({ wearMonths, wearKind, updatedAt: Date.now(), syncStatus: 'pending' })
+      .where(eq(ppeNormLines.id, id as never));
+    return { ok: true, id, wearKind, wearMonths };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
 }
 
 // ── Шаблоны печатных форм ────────────────────────────────────────────────────

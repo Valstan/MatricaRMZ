@@ -28,7 +28,10 @@ type Actor = { id: string; username: string; role?: string };
 export type PpeNormLineInput = {
   nomenclatureId: string;
   qty: number;
-  wearMonths: number;
+  /** Срок носки в месяцах; `null` — срока нет (годовая норма без срока, «до износа»). */
+  wearMonths: number | null;
+  /** Вид нормы. Если не передан — вид прежней строки сохраняется. */
+  wearKind?: string | null;
 };
 
 export type PpeNormSetUpsert = {
@@ -166,7 +169,10 @@ export async function getPpeNormSet(id: string): Promise<
         nomenclatureName: string | null;
         nomenclatureCode: string | null;
         qty: number;
-        wearMonths: number;
+        /** Срок носки; `null` — срока нет (годовая норма без срока, «до износа»). */
+        wearMonths: number | null;
+        /** Вид нормы: 'months' | 'until_wearout' | 'by_manufacturer' | 'annual' | 'months_clerk'. */
+        wearKind: string | null;
         unit: string | null;
         /** Пункт приказа, из которого взята позиция. */
         sourceLabel: string | null;
@@ -234,7 +240,10 @@ export async function getPpeNormSet(id: string): Promise<
             nomenclatureName: nom ? String(nom.name) : null,
             nomenclatureCode: nom ? String(nom.code) : null,
             qty: Number(l.qty),
-            wearMonths: Number(l.wearMonths),
+            // `Number(null)` дал бы 0 — позиция с сроком «0 месяцев» выглядела бы
+            // просроченной сразу после выдачи. Срока нет — значит null.
+            wearMonths: l.wearMonths == null ? null : Number(l.wearMonths),
+            wearKind: l.wearKind == null ? null : String(l.wearKind),
             unit: spec ? String(spec.unit) : null,
             sourceLabel: spec ? (spec.sourceLabel == null ? null : String(spec.sourceLabel)) : null,
             sourceKind: spec ? String(spec.sourceKind) : null,
@@ -248,16 +257,25 @@ export async function getPpeNormSet(id: string): Promise<
   }
 }
 
-export async function upsertPpeNormSet(input: PpeNormSetUpsert): Promise<Result<{ id: string }>> {
-  try {
+/**
+ * Вид нормы, когда клиент его не передал: прежний вид строки, а если прежней строки
+ * не было или вид был «годовая норма» (срока нет), а срок задали — это срок кладовщика.
+ */
+function resolvedKind(line: PpeNormLineInput, prevKind: string | null): string {
+  if (prevKind === 'months') return 'months'; // срок из приказа не перебиваем
+  if (line.wearMonths != null) return 'months_clerk';
+  return prevKind ?? 'annual';
+}
+
+export async function upsertPpeNormSet(input: PpeNormSetUpsert): Promise<Result<{ id: string }>> {  try {
     const id = String(input.id ?? randomUUID()).trim();
     const name = String(input.name ?? '').trim();
     if (!name) return { ok: false, error: 'name обязателен' };
     if (input.lines.length === 0) return { ok: false, error: 'Набор норм должен содержать хотя бы одну строку' };
     for (const [i, line] of input.lines.entries()) {
       if (!Number.isInteger(line.qty) || line.qty <= 0) return { ok: false, error: `lines[${i}].qty должен быть целым больше нуля` };
-      if (!Number.isInteger(line.wearMonths) || line.wearMonths <= 0) {
-        return { ok: false, error: `lines[${i}].wearMonths должен быть целым больше нуля` };
+      if (line.wearMonths != null && (!Number.isInteger(line.wearMonths) || line.wearMonths <= 0)) {
+        return { ok: false, error: `lines[${i}].wearMonths должен быть целым больше нуля (либо пусто — срока нет)` };
       }
     }
     const refError = await validateNomenclatureIds(input.lines.map((l) => l.nomenclatureId));
@@ -282,14 +300,22 @@ export async function upsertPpeNormSet(input: PpeNormSetUpsert): Promise<Result<
       // строку от пункта приказа, из которого она взята. Новая позиция без спеки — обычная.
       const previousLines = existing.length
         ? await tx
-            .select({ nomenclatureId: ppeNormLines.nomenclatureId, specId: ppeNormLines.specId })
+            .select({
+              nomenclatureId: ppeNormLines.nomenclatureId,
+              specId: ppeNormLines.specId,
+              wearKind: ppeNormLines.wearKind,
+            })
             .from(ppeNormLines)
             .where(and(eq(ppeNormLines.normSetId, id as any), isNull(ppeNormLines.deletedAt)))
         : [];
       const specByNomenclature = new Map<string, string>();
+      const kindByNomenclature = new Map<string, string | null>();
       for (const prev of previousLines) {
         if (prev.specId && !specByNomenclature.has(String(prev.nomenclatureId))) {
           specByNomenclature.set(String(prev.nomenclatureId), String(prev.specId));
+        }
+        if (!kindByNomenclature.has(String(prev.nomenclatureId))) {
+          kindByNomenclature.set(String(prev.nomenclatureId), prev.wearKind == null ? null : String(prev.wearKind));
         }
       }
       if (existing.length > 0) {
@@ -306,6 +332,10 @@ export async function upsertPpeNormSet(input: PpeNormSetUpsert): Promise<Result<
           specId: (specByNomenclature.get(String(l.nomenclatureId)) ?? null) as any,
           qty: l.qty,
           wearMonths: l.wearMonths,
+          // Вид нормы: переданный — как есть; иначе прежний (переназначение норм не имеет
+          // права стирать вид). Если вид прежней строки был «годовая норма» (срока нет),
+          // а срок задали — это уже срок кладовщика.
+          wearKind: (l.wearKind ?? resolvedKind(l, kindByNomenclature.get(String(l.nomenclatureId)) ?? null)) as any,
           createdAt: now,
           updatedAt: now,
           deletedAt: null,

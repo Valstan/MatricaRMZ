@@ -176,6 +176,7 @@ const WRITE_CHANNELS = new Set([
   'warehouse:repairFund:intake',
   'warehouse:scrap:intake',
   'ppe:norms:upsert',
+  'ppe:normLines:wearPeriod:set',
   'ppe:cards:open',
   'ppe:cards:assignNorms',
   'ppe:cards:close',

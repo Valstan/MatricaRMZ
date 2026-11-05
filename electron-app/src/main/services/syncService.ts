@@ -4016,6 +4016,11 @@ async function applyPulledChanges(
       nomenclatureId: sql`excluded.nomenclature_id`,
       qty: sql`excluded.qty`,
       wearMonths: sql`excluded.wear_months`,
+      // Вид нормы едет в парк вместе со строкой: годовая норма без срока и норма
+      // «до износа» — разные правила, и без вида клиент не отличит их.
+      wearKind: sql`excluded.wear_kind`,
+      unit: sql`excluded.unit`,
+      specId: sql`excluded.spec_id`,
       updatedAt: sql`excluded.updated_at`,
       lastServerSeq: sql`excluded.last_server_seq`,
       deletedAt: sql`excluded.deleted_at`,
