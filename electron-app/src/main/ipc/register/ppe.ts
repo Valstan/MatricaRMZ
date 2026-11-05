@@ -4,6 +4,7 @@ import { isNull } from 'drizzle-orm';
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { httpAuthed } from '../../services/httpClient.js';
+import { buildPpeJournal } from '../../services/ppeJournalService.js';
 import { erpEmployeeCards } from '../../database/schema.js';
 
 type Ok<T> = { ok: true } & T;
@@ -71,6 +72,29 @@ export function registerPpeIpc(ctx: IpcContext) {
           body: JSON.stringify(args),
         }),
       );
+    },
+  );
+
+  // Журнал приёмки СИЗ: факты выдачи + контекст нормы. Источник — реплика (те же
+  // таблицы, что у выгрузки 1С), поэтому нового серверного контракта не заводим.
+  ipcMain.handle(
+    'ppe:journal:list',
+    async (_e, args: { fromMs?: number; toMs?: number; employeeId?: string | null }) => {
+      const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+      if (!gate.ok) return gate as Err;
+      try {
+        const db = ctx.dataDb();
+        return {
+          ok: true as const,
+          ...(await buildPpeJournal(db, {
+            fromMs: args?.fromMs,
+            toMs: args?.toMs,
+            employeeId: args?.employeeId,
+          })),
+        };
+      } catch (e) {
+        return { ok: false as const, error: String(e) };
+      }
     },
   );
 

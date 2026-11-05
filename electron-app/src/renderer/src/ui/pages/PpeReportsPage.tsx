@@ -3,6 +3,7 @@ import type { ReportPresetId } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { SectionCard } from '../components/SectionCard.js';
+import { PpeJournalPage } from './PpeJournalPage.js';
 
 const PPE_PRESETS: Array<{ id: ReportPresetId; title: string; hint: string }> = [
   { id: 'ppe_summary_sheet', title: 'Сводная ведомость СИЗ', hint: 'Сотрудник → позиция: норма, выдано, сроки' },
@@ -18,10 +19,11 @@ const PPE_PRESETS: Array<{ id: ReportPresetId; title: string; hint: string }> = 
   { id: 'ppe_annual_need', title: 'Среднегодовая потребность в СИЗ', hint: 'Потребность в год из норм и сроков носки' },
 ];
 
-/** Отчёты Кладовщика: одиннадцать пресетов (MVP + фаза 2), открываются штатным экраном шаблона отчёта. */
+/** Отчёты Кладовщика: пресеты (MVP + фаза 2) и журнал приёмки с отчётом «невыданное». */
 export function PpeReportsPage(props: { onOpen: (presetId: ReportPresetId) => void }) {
   return (
     <div style={{ display: 'grid', gap: 16 }}>
+      <PpeJournalPage />
       <SectionCard title="Отчёты СИЗ">
         <div style={{ display: 'grid', gap: 8 }}>
           {PPE_PRESETS.map((p) => (
