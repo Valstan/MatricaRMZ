@@ -38,7 +38,12 @@ log() { printf '[%s] %s\n' "$(date +%FT%T%z)" "$*"; }
 # Тот же список, что пакует `.github/workflows/backend-dist.yml` — менять парой. `web-admin/dist`
 # здесь с 21.09: бэкенд раздаёт админку как `/admin-ui` из этого каталога, и без него в архиве
 # она на проде обновлялась руками и отставала от кода.
-PATHS=(backend-api/dist backend-api/drizzle shared/dist ledger/dist web-admin/dist)
+# `backend-api/drizzle` в списке НЕТ: миграции — ИСХОДНИКИ, а не сборка. Артефакт собран
+# с коммита выката; если после него в main приехала миграция (горячая правка), распаковка
+# клала на бокс её файл из более старой сборки — и следующий `db:migrate` её просто не видел.
+# На проде это случилось 05.11.2026 с миграцией `0122`: база правку получила, а файл
+# миграции с бокса исчез. Миграции приезжают с `git pull` — клон источник истины.
+PATHS=(backend-api/dist shared/dist ledger/dist web-admin/dist)
 
 BACKUP_ROOT="$REPO_DIR/.deploy-backup"
 BACKUP_KEEP="${MATRICA_DEPLOY_BACKUP_KEEP:-3}"
@@ -199,6 +204,16 @@ snapshot_to "$BACKUP"
 
 log "раскладываю"
 restore_from "$STAGE"
+
+# Сторож: миграции в клоне обязаны совпадать с HEAD. Если распаковка снова затерла
+# исходники (значит, в PATHS снова попал каталог с миграциями), выкат должен встать ДО
+# рестарта — иначе расхождение всплывёт на следующем `db:migrate`, когда миграции уже
+# не хватит, и правка данных молча не дойдёт до прода.
+if git -C "$REPO_DIR" status --short -- backend-api/drizzle 2>/dev/null | grep -q .; then
+  log "ОШИБКА: миграции в клоне разошлись с HEAD — сборка затерла исходники, выкат отменён"
+  git -C "$REPO_DIR" status --short -- backend-api/drizzle >&2 || true
+  exit 1
+fi
 
 restore_backup() {
   log "ОТКАТ: возвращаю dist из .deploy-backup/$STAMP"

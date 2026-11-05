@@ -171,6 +171,15 @@ RC="$(MATRICA_TEST_TARBALL="$MATRICA_TEST_TARBALL_NO_ADMIN" MATRICA_TEST_HEALTH_
 [[ "$(cat "$REPO/web-admin/dist/index.html")" == "OLD" && "$(cat "$REPO/backend-api/dist/index.js")" == "OLD" ]]   && ok "ничего не тронуто — отказ случился до rm -rf" || fail "dist заменён неполным архивом"
 grep -q "web-admin/dist" "$ROOT/out.txt" && ok "недостающий путь назван" || fail "лог не назвал недостающий путь"
 
+# --- 6b. Миграции клона переживают выкат (05.11.2026) -------------------------------------------
+# Сборка может быть старше клона (горячая правка приехала после сборки). Если распаковка
+# трогает `backend-api/drizzle`, миграция с бокса исчезает и следующий `db:migrate` её не видит.
+REPO="$ROOT/repo6b"; make_repo "$REPO" '{"express":"5.0.0"}'; install_dep "$REPO" express
+RC="$(MATRICA_TEST_HEALTH_FAIL_UNTIL=0 run_deploy "$REPO")"
+[[ "$RC" == 0 ]] && ok "выкат прошёл" || fail "выкат вернул $RC"
+[[ "$(cat "$REPO/backend-api/drizzle/marker")" == "OLD" ]] \
+  && ok "миграции клона пережили выкат — сборка их не затерла" || fail "миграции клона затёрты сборкой"
+
 # --- 7. snapshot → rollback: репетиция отката без смены версии (brain #324/G373) --------------
 REPO="$ROOT/repo7"; make_repo "$REPO" '{"express":"5.0.0"}'; install_dep "$REPO" express
 export MATRICA_REPO_DIR="$REPO"; export MATRICA_TEST_CURL_COUNT="$ROOT/curl.count"; rm -f "$MATRICA_TEST_CURL_COUNT"
