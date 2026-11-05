@@ -140,7 +140,8 @@
     "ai:rules": "tsx src/scripts/aiChatRules.ts",
     "payments:parity": "tsx src/scripts/checkPaymentsParity.ts",
     "contracts:parity": "tsx src/scripts/checkContractsParity.ts",
-    "engines:parity": "tsx src/scripts/checkEnginesParity.ts"
+    "engines:parity": "tsx src/scripts/checkEnginesParity.ts",
+    "ppe:norms-parity": "tsx src/scripts/checkPpeNormKinds.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",

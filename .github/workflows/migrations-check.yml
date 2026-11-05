@@ -96,3 +96,10 @@ jobs:
 
       - name: Parity EAV vs strict tables
         run: pnpm -C backend-api users:parity
+
+      # Правило разбора строки приказа о СИЗ живёт в домене, а миграции повторяют его
+      # на SQL — и повторение разошлось с доменом на «1 шт. на год» (миграция 0121).
+      # Здесь база после миграций сверяется с доменом построчно: класс расхождений
+      # закрыт, а не «поймали на проде».
+      - name: Verify PPE norm kinds match the domain rule
+        run: pnpm -C backend-api ppe:norms-parity
