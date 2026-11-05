@@ -4,6 +4,7 @@ import type { EngineRmzNumberStatus } from '../domain/engineRmzNumber.js';
 import type { EngineReservation } from '../domain/engineReservation.js';
 import type { GlobalSearchHit, GlobalSearchResponse } from '../domain/globalSearch.js';
 import type { PartDimension, PartEngineBrandLink, PartMetadata, PartSpec } from '../domain/part.js';
+import type { PpeJournalRow, PpeUndeliveredRow } from '../domain/ppeAcceptance.js';
 import type { PpeWearKind } from '../domain/ppe.js';
 import type { DuplicateBlockReason } from '../domain/partsDedup.js';
 import type { WorkshopStatsResult } from '../domain/workshopStats.js';
@@ -2661,8 +2662,25 @@ export type MatricaApi = {
         }
       | { ok: false; error: string }
     >;
-    /** Строки нормы для печати личной карточки (четыре колонки формы приложения №3). */
-    cardNormRows: (args: { normSetIds: string[] }) => Promise<
+    /**
+     * Журнал приёмки СИЗ: факты выдачи + контекст нормы, плюс отчёт «невыданное».
+     * Количество на год и срок носки стоят РАЗНЫМИ колонками — по решению владельца
+     * от 05.11 это разные величины, и их смешение читается как «норма не выполнена».
+     */
+    journal: {
+      list: (args: { fromMs?: number; toMs?: number; employeeId?: string | null }) => Promise<
+        | {
+            ok: true;
+            rows: PpeJournalRow[];
+            undelivered: PpeUndeliveredRow[];
+            totalIssued: number;
+            from: number;
+            to: number;
+          }
+        | { ok: false; error: string }
+      >;
+    };
+    /** Строки нормы для печати личной карточки (четыре колонки формы приложения №3). */    cardNormRows: (args: { normSetIds: string[] }) => Promise<
       | {
           ok: true;
           rows: Array<{

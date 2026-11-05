@@ -657,6 +657,11 @@ const matricaApi = {
         lines: Array<{ nomenclatureId: string; qty: number; wearMonths: number | null; wearKind?: string | null }>;
       }) => ipcRenderer.invoke('ppe:norms:upsert', args),
     },
+    // Журнал приёмки СИЗ: факты выдачи + контекст нормы + отчёт «невыданное».
+    journal: {
+      list: async (args: { fromMs?: number; toMs?: number; employeeId?: string | null }) =>
+        ipcRenderer.invoke('ppe:journal:list', args),
+    },
     cards: {
       open: async (args: { employeeId: string }) => ipcRenderer.invoke('ppe:cards:open', args),
       get: async (id: string) => ipcRenderer.invoke('ppe:cards:get', id),

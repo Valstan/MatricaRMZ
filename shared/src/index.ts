@@ -108,6 +108,7 @@ export * from './domain/payments.js';
 export * from './domain/reclamation.js';
 export * from './domain/repeatArrival.js';
 export * from './domain/ppe.js';
+export * from './domain/ppeAcceptance.js';
 export * from './domain/ppeCardsFacets.js';
 export * from './domain/defectLifecycle.js';
 export * from './domain/uiSections.js';
