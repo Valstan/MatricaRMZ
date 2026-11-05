@@ -99,6 +99,7 @@
 - [Переход на нумерацию «Матрица3-РМЗ (N)» — раскат через Заглушку и Диспетчер 🗓 since:2026-08-15](pending/perekhod-na-numeratsiyu-matritsa3-rmz-n-raskat-cherez.md)
 - [🔴 Живая приёмка нового установщика (v2026.804.1200) — ДО раскатки на парк 🗓 since:2026-08-04](pending/zhivaya-priemka-novogo-ustanovshchika-v2026-804-1200-do.md)
 - [🟢 Android-планшет: ключ подписи заведён, планшет на релизе 🗓 since:2026-08-04](pending/android-planshet-klyuch-podpisi-zaveden-planshet-na.md)
+- [🟢 Реестр выпусков (`release_registry`) не ведётся — решение владельца 05.11: оставить как есть; для возврата нужен долгоживущий ключ 🗓 since:2026-11-05](pending/reestr-vypuskov-ne-vedetsya-reshenie-vladeltsa-05-11.md)
 - [🟡 Форс-килл клиента в установщике — сделать безусловным 🗓 since:2026-08-04](pending/fors-kill-klienta-v-ustanovshchike-sdelat-bezuslovnym.md)
 - [🟡 Настроить доверенную зону антивируса на парке 🗓 since:2026-08-04](pending/nastroit-doverennuyu-zonu-antivirusa-na-parke.md)
 - [Финальная визуальная проверка иконки клиента 🗓 since:2026-05-30](pending/finalnaya-vizualnaya-proverka-ikonki-klienta.md)

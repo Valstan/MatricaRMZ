@@ -44,7 +44,7 @@ description: Выпусти новый релиз согласно инстру�
     - `scp <tmp>/MatricaRMZ-Setup-X.Y.Z.exe <tmp>/latest.yml <tmp>/*.blockmap matricarmz:/opt/matricarmz/updates/`
     - проверить, что легли все 3 (`.exe`, `.exe.blockmap`, `latest.yml`).
     - дождаться согласия `latest.json` с `.exe` на диске (GOTCHAS M40 — иначе poisoned manifest): сверять размер из файла с `size` в `latest.json`, не на глаз.
-12. `corepack pnpm release:ledger-publish X.Y.Z` (на проде — нужен доступ к БД; сам `latest.json` не переписывает, это дело рескана).
+12. ~~`corepack pnpm release:ledger-publish X.Y.Z`~~ — **шаг снят решением владельца от 28.10.2026** (см. AGENTS.md §Release и `docs/COMPLETED.md`): токен `MATRICA_LEDGER_RELEASE_TOKEN` был admin-JWT с TTL 720 ч, протух, и публикация падала с `401 token_invalid` после каждого выката, никем не замеченная (последняя запись в `release_registry` — 3.90.0 от 25.10). Реестр выпусков читает только веб-админка; клиент обновляется по серверному `latest.json` и GitHub Releases. **Ведение истории релизов у нас идёт GitHub Releases + `shared/src/domain/releaseWelcome.ts` (текст релиза) + `docs/COMPLETED.md` (лента).** Если журнал понадобится снова — ему нужен отдельный долгоживущий ключ и своя дата в `PENDING_FOLLOWUPS`.
 13. Приёмка по каждому порту раздельно, не через nginx (GOTCHAS M100 — общий `/health` зелёный, пока жив хоть один инстанс):
     `http://127.0.0.1:3001/health` и `http://127.0.0.1:3002/health` (новый номер; primary биндится ~50 с, окно ≥90 с) + `https://127.0.0.1/updates/status` (`latest.version` = новый номер, `lastError: null`) + `/updates/file/<exe>.blockmap` → `200`. APK планшета — шагом 7a (проверка: `/dispatcher/update-plan?platform=android` ведёт на новый номер).
 
