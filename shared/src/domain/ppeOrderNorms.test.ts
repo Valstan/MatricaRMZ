@@ -19,34 +19,41 @@ const NOM_A = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa';
 const T0 = Date.UTC(2026, 9, 11);
 
 describe('ppe: разбор нормы приказа', () => {
-  it('количество в год: «1 шт.» — единица и годовой срок 12 мес.', () => {
+  it('количество в год: «1 шт.» — годовая норма, срока нет', () => {
+    // Срок носки НЕ выводится из количества: это разные величины (решение владельца
+    // от 05.11). Вид 'annual': срок проставит кладовщик по позиции.
     expect(parseOrderNormQty('1 шт.')).toEqual({
       qty: 1,
       unit: 'шт.',
-      wearKind: 'months',
-      wearMonths: 12,
+      wearKind: 'annual',
+      wearMonths: null,
       periodText: null,
     });
   });
 
-  it('«12 пар» в год — пара в месяц (1 мес. носки)', () => {
-    expect(parseOrderNormQty('12 пар')).toMatchObject({ qty: 12, unit: 'пар', wearMonths: 1 });
+  it('«12 пар» в год — годовая норма, срока нет', () => {
+    expect(parseOrderNormQty('12 пар')).toMatchObject({
+      qty: 12,
+      unit: 'пар',
+      wearKind: 'annual',
+      wearMonths: null,
+    });
   });
 
-  it('«6 пар» в год — раз в 2 месяца', () => {
-    expect(parseOrderNormQty('6 пар')).toMatchObject({ qty: 6, unit: 'пар', wearMonths: 2 });
+  it('«6 пар» в год — годовая норма, срока нет', () => {
+    expect(parseOrderNormQty('6 пар')).toMatchObject({ qty: 6, unit: 'пар', wearMonths: null });
   });
 
-  it('«4 шт.» в год — раз в 3 месяца', () => {
-    expect(parseOrderNormQty('4 шт.')).toMatchObject({ qty: 4, unit: 'шт.', wearMonths: 3 });
+  it('«4 шт.» в год — годовая норма, срока нет', () => {
+    expect(parseOrderNormQty('4 шт.')).toMatchObject({ qty: 4, unit: 'шт.', wearMonths: null });
   });
 
-  it('«2 шт.» в год — раз в 6 месяцев', () => {
-    expect(parseOrderNormQty('2 шт.')).toMatchObject({ qty: 2, unit: 'шт.', wearMonths: 6 });
+  it('«2 шт.» в год — годовая норма, срока нет', () => {
+    expect(parseOrderNormQty('2 шт.')).toMatchObject({ qty: 2, unit: 'шт.', wearMonths: null });
   });
 
-  it('«1 пара» — пара в год', () => {
-    expect(parseOrderNormQty('1 пара')).toMatchObject({ qty: 1, unit: 'пара', wearMonths: 12 });
+  it('«1 пара» — годовая норма, срока нет', () => {
+    expect(parseOrderNormQty('1 пара')).toMatchObject({ qty: 1, unit: 'пара', wearMonths: null });
   });
 
   it('«1 шт. на 2 года» — 24 месяца', () => {
@@ -71,8 +78,10 @@ describe('ppe: разбор нормы приказа', () => {
     expect(parseOrderNormQty('1шт на 2года')).toMatchObject({ qty: 1, unit: 'шт.', wearMonths: 24 });
   });
 
-  it('«1 шт. на год» — 12 месяцев', () => {
-    expect(parseOrderNormQty('1 шт. на год')).toMatchObject({ qty: 1, unit: 'шт.', wearMonths: 12 });
+  it('«1 шт. на год» — годовая норма, срока нет', () => {
+    // «на год» здесь — про годовую норму, а не про срок носки: цифра «1» относится
+    // к количеству, поэтому оговорки о сроке тут нет.
+    expect(parseOrderNormQty('1 шт. на год')).toMatchObject({ qty: 1, unit: 'шт.', wearMonths: null });
   });
 
   it('«до износа» — срока нет', () => {
@@ -142,7 +151,7 @@ describe('ppe: разбор нормы приказа', () => {
   });
 
   it('пустая строка — годовая норма по умолчанию, а не ноль', () => {
-    expect(parseOrderNormQty('')).toMatchObject({ qty: 1, unit: 'шт.', wearMonths: 12 });
+    expect(parseOrderNormQty('')).toMatchObject({ qty: 1, unit: 'шт.', wearMonths: null });
   });
 });
 
@@ -172,22 +181,57 @@ describe('ppe: обратный ход — печать нормы как в п�
 describe('ppe: позиция без срока носки', () => {
   it('при слиянии строка со сроком побеждает строку без срока', () => {
     const merged = resolveEmployeeNorms([
-      { normSetId: 'ns-1', nomenclatureId: NOM_A, qty: 1, wearMonths: null },
-      { normSetId: 'ns-2', nomenclatureId: NOM_A, qty: 1, wearMonths: 12 },
+      { normSetId: 'ns-1', nomenclatureId: NOM_A, qty: 1, wearMonths: null, wearKind: 'until_wearout' },
+      { normSetId: 'ns-2', nomenclatureId: NOM_A, qty: 1, wearMonths: 12, wearKind: 'months' },
     ]);
-    expect(merged).toEqual([{ nomenclatureId: NOM_A, qty: 2, wearMonths: 12 }]);
+    expect(merged).toEqual([
+      { nomenclatureId: NOM_A, qty: 2, wearMonths: 12, wearKind: 'months' },
+    ]);
   });
 
   it('если срока нет ни у одной строки — срок не задаётся', () => {
     const merged = resolveEmployeeNorms([
-      { normSetId: 'ns-1', nomenclatureId: NOM_A, qty: 1, wearMonths: null },
+      { normSetId: 'ns-1', nomenclatureId: NOM_A, qty: 1, wearMonths: null, wearKind: 'until_wearout' },
     ]);
-    expect(merged).toEqual([{ nomenclatureId: NOM_A, qty: 1, wearMonths: null }]);
+    expect(merged).toEqual([
+      { nomenclatureId: NOM_A, qty: 1, wearMonths: null, wearKind: 'until_wearout' },
+    ]);
+  });
+
+  it('вид нормы не теряется при слиянии: «по документам изготовителя» и «до износа» — разные', () => {
+    // Раньше вид не нёсся вовсе, и две разные нормы без срока сливались в один NULL:
+    // оператор не видел, по какому правилу позиция живёт.
+    const merged = resolveEmployeeNorms([
+      { normSetId: 'ns-1', nomenclatureId: NOM_A, qty: 1, wearMonths: null, wearKind: 'by_manufacturer' },
+    ]);
+    expect(merged[0]!.wearKind).toBe('by_manufacturer');
+
+    const withWearout = resolveEmployeeNorms([
+      { normSetId: 'ns-1', nomenclatureId: NOM_A, qty: 1, wearMonths: null, wearKind: 'by_manufacturer' },
+      { normSetId: 'ns-2', nomenclatureId: NOM_A, qty: 1, wearMonths: null, wearKind: 'until_wearout' },
+    ]);
+    expect(withWearout[0]!.wearKind).toBe('until_wearout');
+  });
+
+  it('годовая норма важнее «до износа»: по ней кладовщик ещё должен проставить срок', () => {
+    const merged = resolveEmployeeNorms([
+      { normSetId: 'ns-1', nomenclatureId: NOM_A, qty: 1, wearMonths: null, wearKind: 'until_wearout' },
+      { normSetId: 'ns-2', nomenclatureId: NOM_A, qty: 1, wearMonths: null, wearKind: 'annual' },
+    ]);
+    expect(merged[0]!.wearKind).toBe('annual');
+  });
+
+  it('срок из приказа важнее срока от кладовщика', () => {
+    const merged = resolveEmployeeNorms([
+      { normSetId: 'ns-1', nomenclatureId: NOM_A, qty: 1, wearMonths: 12, wearKind: 'months_clerk' },
+      { normSetId: 'ns-2', nomenclatureId: NOM_A, qty: 1, wearMonths: 12, wearKind: 'months' },
+    ]);
+    expect(merged[0]!.wearKind).toBe('months');
   });
 
   it('выданная позиция без срока не бывает «пора» и не «просрочена»', () => {
     const [item] = nextIssueDates(
-      [{ nomenclatureId: NOM_A, qty: 1, wearMonths: null }],
+      [{ nomenclatureId: NOM_A, qty: 1, wearMonths: null, wearKind: 'until_wearout' }],
       [{ nomenclatureId: NOM_A, qty: 1, issuedAt: T0 }],
       T0,
     );
@@ -195,13 +239,17 @@ describe('ppe: позиция без срока носки', () => {
   });
 
   it('невыданная позиция без срока остаётся neverIssued', () => {
-    const [item] = nextIssueDates([{ nomenclatureId: NOM_A, qty: 1, wearMonths: null }], [], T0);
+    const [item] = nextIssueDates(
+      [{ nomenclatureId: NOM_A, qty: 1, wearMonths: null, wearKind: 'annual' }],
+      [],
+      T0,
+    );
     expect(item).toMatchObject({ nextDueAt: null, status: 'neverIssued' });
   });
 
   it('старое поведение со сроком не меняется', () => {
     const [item] = nextIssueDates(
-      [{ nomenclatureId: NOM_A, qty: 1, wearMonths: 12 }],
+      [{ nomenclatureId: NOM_A, qty: 1, wearMonths: 12, wearKind: 'months' }],
       [{ nomenclatureId: NOM_A, qty: 1, issuedAt: T0 }],
       T0,
     );

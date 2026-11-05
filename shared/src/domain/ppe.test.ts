@@ -24,8 +24,8 @@ describe('ppe: слияние норм', () => {
       { normSetId: 'ns-2', nomenclatureId: NOM_A, qty: 1, wearMonths: 6 },
     ]);
     expect(merged).toEqual([
-      { nomenclatureId: NOM_A, qty: 3, wearMonths: 6 },
-      { nomenclatureId: NOM_B, qty: 1, wearMonths: 24 },
+      { nomenclatureId: NOM_A, qty: 3, wearMonths: 6, wearKind: 'months' },
+      { nomenclatureId: NOM_B, qty: 1, wearMonths: 24, wearKind: 'months' },
     ]);
   });
 
@@ -42,8 +42,8 @@ describe('ppe: месяцы календарные', () => {
 
 describe('ppe: даты следующих выдач', () => {
   const merged = [
-    { nomenclatureId: NOM_A, qty: 2, wearMonths: 12 },
-    { nomenclatureId: NOM_B, qty: 1, wearMonths: 1 },
+    { nomenclatureId: NOM_A, qty: 2, wearMonths: 12, wearKind: 'months' },
+    { nomenclatureId: NOM_B, qty: 1, wearMonths: 1, wearKind: 'months' },
   ];
 
   it('без выдач — neverIssued, срок не тикает из пустоты', () => {
@@ -67,7 +67,7 @@ describe('ppe: даты следующих выдач', () => {
     const last10 = new Date(dueIn10);
     const issued10 = Date.UTC(last10.getUTCFullYear(), last10.getUTCMonth() - 1, last10.getUTCDate());
     const [n10] = nextIssueDates(
-      [{ nomenclatureId: NOM_B, qty: 1, wearMonths: 1 }],
+      [{ nomenclatureId: NOM_B, qty: 1, wearMonths: 1, wearKind: 'months' }],
       [{ nomenclatureId: NOM_B, qty: 1, issuedAt: issued10 }],
       T0,
     );
@@ -76,7 +76,7 @@ describe('ppe: даты следующих выдач', () => {
     const last20 = new Date(dueIn20);
     const issued20 = Date.UTC(last20.getUTCFullYear(), last20.getUTCMonth() - 1, last20.getUTCDate());
     const [n20] = nextIssueDates(
-      [{ nomenclatureId: NOM_B, qty: 1, wearMonths: 1 }],
+      [{ nomenclatureId: NOM_B, qty: 1, wearMonths: 1, wearKind: 'months' }],
       [{ nomenclatureId: NOM_B, qty: 1, issuedAt: issued20 }],
       T0,
     );
@@ -97,8 +97,8 @@ describe('ppe: даты следующих выдач', () => {
 describe('ppe: ближайшие выдачи', () => {
   it('в горизонт попадают просрочка и близкие сроки, сортировка по дате', () => {
     const merged = [
-      { nomenclatureId: NOM_A, qty: 2, wearMonths: 12 },
-      { nomenclatureId: NOM_B, qty: 1, wearMonths: 12 },
+      { nomenclatureId: NOM_A, qty: 2, wearMonths: 12, wearKind: 'months' },
+      { nomenclatureId: NOM_B, qty: 1, wearMonths: 12, wearKind: 'months' },
     ];
     const rows = upcomingIssues(
       merged,
@@ -115,7 +115,7 @@ describe('ppe: ближайшие выдачи', () => {
 
   it('далёкие сроки в короткий горизонт не попадают', () => {
     const rows = upcomingIssues(
-      [{ nomenclatureId: NOM_A, qty: 2, wearMonths: 12 }],
+      [{ nomenclatureId: NOM_A, qty: 2, wearMonths: 12, wearKind: 'months' }],
       [{ nomenclatureId: NOM_A, qty: 2, issuedAt: T0 }],
       T0,
       30,
@@ -134,24 +134,24 @@ describe('ppe фаза 2: фильтр норм по условиям', () => {
   it('мужчина зимой: мужской зимний + всесезонный, женский отрезан', () => {
     const merged = resolveEmployeeNorms(lines, { gender: 'M', season: 'winter' });
     expect(merged).toEqual([
-      { nomenclatureId: NOM_A, qty: 1, wearMonths: 12 },
-      { nomenclatureId: NOM_B, qty: 2, wearMonths: 6 },
+      { nomenclatureId: NOM_A, qty: 1, wearMonths: 12, wearKind: 'months' },
+      { nomenclatureId: NOM_B, qty: 2, wearMonths: 6, wearKind: 'months' },
     ]);
   });
 
   it('женщина летом: женский всесезонный + общий, зимний отрезан', () => {
     const merged = resolveEmployeeNorms(lines, { gender: 'F', season: 'summer' });
     expect(merged).toEqual([
-      { nomenclatureId: NOM_A, qty: 1, wearMonths: 24 },
-      { nomenclatureId: NOM_B, qty: 2, wearMonths: 6 },
+      { nomenclatureId: NOM_A, qty: 1, wearMonths: 24, wearKind: 'months' },
+      { nomenclatureId: NOM_B, qty: 2, wearMonths: 6, wearKind: 'months' },
     ]);
   });
 
   it('без второго аргумента — ровно поведение MVP (ничего не режется)', () => {
     const merged = resolveEmployeeNorms(lines);
     expect(merged).toEqual([
-      { nomenclatureId: NOM_A, qty: 2, wearMonths: 12 },
-      { nomenclatureId: NOM_B, qty: 2, wearMonths: 6 },
+      { nomenclatureId: NOM_A, qty: 2, wearMonths: 12, wearKind: 'months' },
+      { nomenclatureId: NOM_B, qty: 2, wearMonths: 6, wearKind: 'months' },
     ]);
   });
 
@@ -160,7 +160,7 @@ describe('ppe фаза 2: фильтр норм по условиям', () => {
       [{ normSetId: 'ns-old', nomenclatureId: NOM_A, qty: 1, wearMonths: 12 }],
       { gender: 'F', season: 'winter' },
     );
-    expect(merged).toEqual([{ nomenclatureId: NOM_A, qty: 1, wearMonths: 12 }]);
+    expect(merged).toEqual([{ nomenclatureId: NOM_A, qty: 1, wearMonths: 12, wearKind: 'months' }]);
   });
 });
 
@@ -189,12 +189,12 @@ describe('ppe фаза 2: сдвиг срока на отпуска', () => {
 
   it('nextIssueDates принимает отсутствия пятым аргументом', () => {
     const issued = Date.UTC(2025, 9, 11);
-    const [plain] = nextIssueDates([{ nomenclatureId: NOM_A, qty: 1, wearMonths: 12 }], [
+    const [plain] = nextIssueDates([{ nomenclatureId: NOM_A, qty: 1, wearMonths: 12, wearKind: 'months' }], [
       { nomenclatureId: NOM_A, qty: 1, issuedAt: issued },
     ], T0);
     expect(plain.nextDueAt).toBe(Date.UTC(2026, 9, 11));
     const [shifted] = nextIssueDates(
-      [{ nomenclatureId: NOM_A, qty: 1, wearMonths: 12 }],
+      [{ nomenclatureId: NOM_A, qty: 1, wearMonths: 12, wearKind: 'months' }],
       [{ nomenclatureId: NOM_A, qty: 1, issuedAt: issued }],
       T0,
       14,

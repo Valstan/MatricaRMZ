@@ -171,7 +171,7 @@ function parseNorm(raw) {
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
-  if (!text) return { qty: 1, unit: 'шт.', wearKind: 'months', wearMonths: 12, periodText: null };
+  if (!text) return { qty: 1, unit: 'шт.', wearKind: 'annual', wearMonths: null, periodText: null };
   const yearsMatch = text.match(/(\d+)\s*(?:лет|года|год)(?![а-яё])/);
   const qtyMatch = text.match(/(\d+)\s*(комплект|пара|пар|шт)/);
   const qty = qtyMatch ? Number(qtyMatch[1]) : 1;
@@ -185,8 +185,9 @@ function parseNorm(raw) {
     const years = Number(yearsMatch[1]);
     return { qty, unit, wearKind: 'months', wearMonths: years * 12, periodText: `на ${years} ${years === 1 ? 'год' : 'года'}` };
   }
-  const months = 12 % qty === 0 ? 12 / qty : Math.max(1, Math.round(12 / qty));
-  return { qty, unit, wearKind: 'months', wearMonths: months, periodText: null };
+  // Годовая норма без оговорки о сроке: срока в приказе нет, его проставит кладовщик
+  // по позиции. Выводить срок из количества нельзя — это разные величины.
+  return { qty, unit, wearKind: 'annual', wearMonths: null, periodText: null };
 }
 
 // ── Номенклатура СИЗ: базовая позиция + размерный ряд ────────────────────────
@@ -434,20 +435,23 @@ parts.push(
   specs
     .map((s) => {
       const occ = occupations.find((o) => o.code === s.occupationCode);
-      // Количество/единица/срок разбираются доменом; здесь — годовая норма приказа
-      // как есть, единица и срок выведены из неё правилами parseOrderNormQty.
+      // Количество/единица/вид срока разбираются доменом; здесь — те же правила
+      // (расхождение ловит тест `ppeOrderNorms.seed.test.ts`).
       const qty = (() => {
         const m = s.sourceRef.match(/(\d+)/);
         return m ? Number(m[1]) : 1;
       })();
       const unit = s.sourceRef.includes('пар') ? 'пар' : s.sourceRef.includes('комплект') ? 'комплект' : 'шт.';
+      const years = s.sourceRef.match(/(\d+)\s*(?:лет|года|год)(?![а-яё])/);
       const wearKind = s.sourceRef.includes('до износа')
         ? 'until_wearout'
         : s.sourceRef.includes('определяется документами изготовителя')
           ? 'by_manufacturer'
-          : 'months';
-      const years = s.sourceRef.match(/(\d+)\s*(?:лет|года|год)(?![а-яё])/);
-      const wearMonths = wearKind === 'months' ? (years ? Number(years[1]) * 12 : 12 % qty === 0 ? 12 / qty : Math.max(1, Math.round(12 / qty))) : 'NULL';
+          : years
+            ? 'months'
+            : 'annual';
+      // Годовая норма без оговорки: срока нет — его проставит кладовщик по позиции.
+      const wearMonths = wearKind === 'months' ? Number(years[1]) * 12 : 'NULL';
       return `  (${sqlStr(s.id)}, ${sqlStr(occ.id)}, ${sqlStr(s.name)}, ${sqlStr(s.ppeType)}, ${qty}, ${sqlStr(unit)}, ${sqlStr(wearKind)}, ${wearMonths}, ${s.sortOrder}, ${sqlStr(s.sourceRef)}, ${sqlStr(s.sourceKind)}, ${sqlStr(s.sourceLabel)}, ${NOW}, ${NOW}, 'synced')`;
     })
     .join(',\n') + ';',

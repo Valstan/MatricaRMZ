@@ -58,7 +58,7 @@ export function registerPpeIpc(ctx: IpcContext) {
         isDuty?: boolean;
         validFrom?: number;
         validTo?: number | null;
-        lines: Array<{ nomenclatureId: string; qty: number; wearMonths: number }>;
+        lines: Array<{ nomenclatureId: string; qty: number; wearMonths: number | null; wearKind?: string | null }>;
       },
     ) => {
       if (isViewMode(ctx)) return viewModeWriteError();
@@ -69,6 +69,23 @@ export function registerPpeIpc(ctx: IpcContext) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(args),
+        }),
+      );
+    },
+  );
+
+  // Срок носки по позиции: проставляет кладовщик (решение владельца от 05.11).
+  ipcMain.handle(
+    'ppe:normLines:wearPeriod:set',
+    async (_e, args: { id: string; wearMonths: number | null }) => {
+      if (isViewMode(ctx)) return viewModeWriteError();
+      const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+      if (!gate.ok) return gate as Err;
+      return toResult(
+        await httpAuthed(ctx.sysDb, base(), `/ppe/norm-lines/${encodeURIComponent(String(args?.id || ''))}/wear-period`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ wearMonths: args?.wearMonths ?? null }),
         }),
       );
     },

@@ -12,6 +12,7 @@ import {
   resolveEmployeeNorms,
   type PpeNextIssue,
   type PpeSizeKind,
+  type PpeWearKind,
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
@@ -84,13 +85,17 @@ type PpeEmployeeCardDto = {
 
 /** Строка нормы для печати: четыре колонки формы приложения №3. */
 type PpeCardNormRow = {
+  /** id строки нормы — по нему кладовщик проставляет срок носки по позиции. */
+  id: string;
   name: string;
   sourceLabel: string | null;
   unit: string | null;
   qty: number;
-  wearKind: string | null;
+  wearKind: PpeWearKind | null;
   wearMonths: number | null;
   qtyText: string;
+  /** Срок носки — отдельной величиной, с указанием, чей это выбор. */
+  wearText: string;
 };
 
 /**
@@ -191,7 +196,7 @@ export function PpeCardDetailsPage(props: {
   const [cardMissing, setCardMissing] = useState(false);
   const [normOptions, setNormOptions] = useState<NormOption[]>([]);
   const [normToAssign, setNormToAssign] = useState<string | null>(null);
-  const [normLines, setNormLines] = useState<Array<{ nomenclatureId: string; qty: number; wearMonths: number }>>([]);
+  const [normLines, setNormLines] = useState<Array<{ nomenclatureId: string; qty: number; wearMonths: number | null; wearKind: PpeWearKind | null }>>([]);
   const [groupNormIds, setGroupNormIds] = useState<string[]>([]);
   const [absences, setAbsences] = useState<AbsenceRow[]>([]);
   const [absenceFrom, setAbsenceFrom] = useState('');
@@ -213,6 +218,12 @@ export function PpeCardDetailsPage(props: {
   // значения из карточки сотрудника (ФИО, пол, рост, размеры, должность, даты).
   const [personalCard, setPersonalCard] = useState<PpeEmployeeCardDto | null>(null);
   const [personalCardRows, setPersonalCardRows] = useState<PpeCardNormRow[]>([]);
+  /**
+   * Черновики срока носки по позиции: id строки нормы → месяцы (пусто — срок снять).
+   * У годовой нормы («1 шт.», «12 пар») срока в приказе нет — его проставляет кладовщик
+   * (решение владельца от 05.11). Выводить срок из количества нельзя: это разные величины.
+   */
+  const [periodDrafts, setPeriodDrafts] = useState<Record<string, string>>({});
   /** Предупреждение автоподбора: профессию не опознали — кладовщик выбирает норму вручную. */
   const [postWarning, setPostWarning] = useState<string | null>(null);
   /**
@@ -223,6 +234,8 @@ export function PpeCardDetailsPage(props: {
 
   const { confirm } = useConfirm();
   const canEdit = props.canEdit;
+  /** Позиции без срока носки: годовая норма, срок проставляет кладовщик. */
+  const rowsWithoutPeriod = personalCardRows.filter((r) => r.wearKind === 'annual');
 
   /**
    * Размеры сотрудников — из EAV-карточек `employee` (поля «Размер одежды», «Размер
@@ -329,7 +342,7 @@ export function PpeCardDetailsPage(props: {
     const groupIds = resolved?.ok ? resolved.group : [];
     setGroupNormIds(groupIds);
     const setIds = [...new Set([...res.card.norms.map((n) => n.normSetId), ...groupIds])];
-    const allLines: Array<{ nomenclatureId: string; qty: number; wearMonths: number }> = [];
+    const allLines: Array<{ nomenclatureId: string; qty: number; wearMonths: number | null; wearKind: PpeWearKind | null }> = [];
     for (const setId of setIds) {
       const det = await window.matrica.ppe.norms.get(setId).catch(() => null);
       if (det?.ok) allLines.push(...det.normSet.lines);
@@ -339,6 +352,36 @@ export function PpeCardDetailsPage(props: {
     setSizes(personnelNo ? (sizesByPersonnel.get(personnelNo) ?? EMPTY_SIZES) : EMPTY_SIZES);
     await loadPersonalCard(res.card.employeeId, setIds);
   }, [personnelByEmployee, sizesByPersonnel, loadPersonalCard]);
+
+  /**
+   * Срок носки по позиции проставляет кладовщик (решение владельца от 05.11): у годовой
+   * нормы («1 шт.», «12 пар») срока в приказе нет, а выводить его из количества нельзя —
+   * это разные величины. Строка нормы общая для профессии, поэтому срок действует на всех
+   * сотрудников этой профессии — об этом предупреждаем.
+   */
+  const saveWearPeriod = useCallback(
+    async (row: PpeCardNormRow) => {
+      const raw = (periodDrafts[row.id] ?? '').trim();
+      const months = raw === '' ? null : Number(raw);
+      if (months != null && (!Number.isInteger(months) || months <= 0)) {
+        setStatus('Срок носки — целое число месяцев больше нуля (пусто — срок снять)');
+        return;
+      }
+      setBusy(true);
+      try {
+        const res = await window.matrica.ppe.norms.setWearPeriod({ id: row.id, wearMonths: months });
+        if (!res.ok) {
+          setStatus(`Ошибка: ${res.error}`);
+          return;
+        }
+        setStatus('Срок сохранён. Он действует на всех сотрудников этой профессии.');
+        if (card) await loadCard(card.id);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [periodDrafts, card, loadCard],
+  );
 
   // Карточку открываем по сотруднику: список карточек ведёт сюда кликом по строке, а
   // «карточки нет» — законный случай (её заводят первой выдачей или кнопкой).
@@ -568,7 +611,7 @@ export function PpeCardDetailsPage(props: {
   const merged = useMemo(
     () =>
       resolveEmployeeNorms(
-        normLines.map((l) => ({ normSetId: '', nomenclatureId: l.nomenclatureId, qty: l.qty, wearMonths: l.wearMonths })),
+        normLines.map((l) => ({ normSetId: '', nomenclatureId: l.nomenclatureId, qty: l.qty, wearMonths: l.wearMonths, wearKind: l.wearKind })),
       ),
     [normLines],
   );
@@ -1112,6 +1155,52 @@ export function PpeCardDetailsPage(props: {
                 </Button>
               </div>
             ) : null}
+          </SectionCard>
+
+          <SectionCard title="Сроки носки по позициям">
+            {rowsWithoutPeriod.length === 0 ? (
+              <div style={{ color: 'var(--muted)' }}>
+                Незаданных сроков нет: у всех позиций срок либо задан приказом, либо проставлен кладовщиком.
+              </div>
+            ) : (
+              <table className="table" style={{ width: '100%' }}>
+                <thead>
+                  <tr>
+                    <th>Позиция</th>
+                    <th style={{ textAlign: 'right' }}>Кол-во на год</th>
+                    <th style={{ width: 140 }}>Срок носки, мес.</th>
+                    <th style={{ width: 120 }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {rowsWithoutPeriod.map((r) => (
+                    <tr key={r.id}>
+                      <td>{r.name}</td>
+                      <td style={{ textAlign: 'right' }}>{r.qtyText}</td>
+                      <td>
+                        <Input
+                          type="number"
+                          min={1}
+                          placeholder="мес."
+                          value={periodDrafts[r.id] ?? ''}
+                          onChange={(e) => setPeriodDrafts((prev) => ({ ...prev, [r.id]: e.target.value }))}
+                        />
+                      </td>
+                      <td>
+                        <Button onClick={() => void saveWearPeriod(r)} disabled={busy}>
+                          Сохранить
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <div style={{ marginTop: 8, color: 'var(--muted)', fontSize: 12 }}>
+              Срок проставляет кладовщик: в приказе у годовой нормы («1 шт.», «12 пар») срока нет, а выводить
+              его из количества нельзя — «срок носки» и «количество на год» это разные величины. Срок действует
+              на всех сотрудников профессии.
+            </div>
           </SectionCard>
 
           <SectionCard title="Отпуска (сдвигают сроки носки)">

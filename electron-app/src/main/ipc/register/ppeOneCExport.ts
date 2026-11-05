@@ -11,6 +11,9 @@
 import { ipcMain } from 'electron';
 import { and, eq, isNull } from 'drizzle-orm';
 
+import { wearPeriodText } from '@matricarmz/shared';
+import type { PpeWearKind } from '@matricarmz/shared';
+
 import { requirePermOrResult } from '../ipcContext.js';
 import {
   erpEmployeeCards,
@@ -182,14 +185,10 @@ export function registerPpeOneCExportIpc(ctx: IpcContext) {
             for (const setId of setIds) {
               for (const row of linesBySet.get(setId) ?? []) {
                 const itemName = row.itemName || nomName.get(String(row.nomenclatureId)) || '';
-                const wearPeriod =
-                  row.wearKind === 'until_wearout'
-                    ? 'до износа'
-                    : row.wearKind === 'by_manufacturer'
-                      ? 'по документам изготовителя'
-                      : row.wearMonths != null
-                        ? `${row.wearMonths} мес.`
-                        : '';
+                const wearPeriod = wearPeriodText(
+                  row.wearKind as PpeWearKind | null,
+                  row.wearMonths == null ? null : Number(row.wearMonths),
+                );
                 rows.push({
                   personnelNo: info.personnelNo,
                   fullName: info.fullName,

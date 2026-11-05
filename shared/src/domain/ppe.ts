@@ -12,11 +12,14 @@ export type PpeNormLineInput = {
   nomenclatureId: string;
   qty: number;
   /**
-   * Срок носки в месяцах. `null` — срока нет: норма «до износа» или «срок определяется
-   * документами изготовителя» (приказ Минтруда 767н, Приложение №1). Такая позиция
-   * не попадает в «пора выдавать»: её меняют по износу, а не по календарю.
+   * Срок носки в месяцах. `null` — срока нет: норма «до износа», «срок определяется
+   * документами изготовителя» (приказ Минтруда 767н, Приложение №1) или годовая норма,
+   * для которой срок проставляет кладовщик. Такая позиция не попадает в «пора выдавать»:
+   * её меняют по износу, а не по календарю.
    */
   wearMonths: number | null;
+  /** Вид нормы. `null` — вид неизвестен (старая строка без вида). */
+  wearKind?: PpeWearKind | null;
   /** Условия набора- владельца строки (NULL = для всех). Фаза 2: пол/сезон/дежурные. */
   setGender?: string | null;
   setSeason?: string | null;
@@ -43,12 +46,18 @@ export type MergedPpeNorm = {
   nomenclatureId: string;
   qty: number;
   /**
-   * Срок носки в месяцах; `null` — срока нет (норма «до износа» или «срок определяется
-   * документами изготовителя»). Позиция без срока не бывает «пора выдавать»: её меняют
-   * по износу. При слиянии двух строк берётся меньший срок (строже = раньше напомним),
-   * а строка без срока уступает строке со сроком.
+   * Срок носки в месяцах; `null` — срока нет (норма «до износа», «срок определяется
+   * документами изготовителя» или годовая норма без проставленного срока). Позиция без
+   * срока не бывает «пора выдавать»: её меняют по износу. При слиянии двух строк берётся
+   * меньший срок (строже = раньше напомним), а строка без срока уступает строке со сроком.
    */
   wearMonths: number | null;
+  /**
+   * Вид нормы после слияния. Вид не теряется: «до износа» и «срок определяется
+   * документами изготовителя» — разные правила, и оператор должен видеть, по какому
+   * живёт позиция. `annual` — годовая норма, срок проставляет кладовщик.
+   */
+  wearKind: PpeWearKind;
 };
 
 export type PpeIssueStatus = 'overdue' | 'dueSoon' | 'ok' | 'neverIssued';
@@ -89,20 +98,63 @@ export function resolveEmployeeNorms(lines: PpeNormLineInput[], cond?: PpeNormCo
         (l.setGender == null || gender == null || l.setGender === gender) &&
         (l.setSeason == null || season == null || l.setSeason === season),
     );
-  const byNom = new Map<string, { qty: number; wearMonths: number | null }>();
+  const byNom = new Map<string, { qty: number; wearMonths: number | null; wearKind: PpeWearKind }>();
   for (const l of kept) {
     const cur = byNom.get(l.nomenclatureId);
     if (!cur) {
-      byNom.set(l.nomenclatureId, { qty: l.qty, wearMonths: l.wearMonths });
-    } else {
-      cur.qty += l.qty;
-      if (cur.wearMonths == null) cur.wearMonths = l.wearMonths;
-      else if (l.wearMonths != null && l.wearMonths < cur.wearMonths) cur.wearMonths = l.wearMonths;
+      byNom.set(l.nomenclatureId, {
+        qty: l.qty,
+        wearMonths: l.wearMonths,
+        wearKind: l.wearKind ?? wearKindFor(l.wearMonths),
+      });
+      continue;
     }
+    cur.qty += l.qty;
+    const winner = betterWear(
+      { kind: cur.wearKind, months: cur.wearMonths },
+      { kind: l.wearKind ?? wearKindFor(l.wearMonths), months: l.wearMonths },
+    );
+    cur.wearKind = winner.kind;
+    cur.wearMonths = winner.months;
   }
   return [...byNom.entries()]
-    .map(([nomenclatureId, v]) => ({ nomenclatureId, qty: v.qty, wearMonths: v.wearMonths }))
+    .map(([nomenclatureId, v]) => ({ nomenclatureId, qty: v.qty, wearMonths: v.wearMonths, wearKind: v.wearKind }))
     .sort((a, b) => (a.nomenclatureId < b.nomenclatureId ? -1 : 1));
+}
+
+/** Вид по одному лишь сроку — для старых строк, у которых вида не было. */
+function wearKindFor(wearMonths: number | null): PpeWearKind {
+  return wearMonths == null ? 'until_wearout' : 'months';
+}
+
+/**
+ * Приоритет вида при слиянии. Больше — важнее.
+ * `months` — срок прямо в приказе; `months_clerk` — срок проставил кладовщик;
+ * `annual` — годовая норма, срока нет и его должен проставить кладовщик;
+ * `until_wearout` / `by_manufacturer` — срока нет вовсе, по ним меняют по износу.
+ */
+const WEAR_KIND_PRIORITY: Record<PpeWearKind, number> = {
+  months: 5,
+  months_clerk: 4,
+  annual: 3,
+  until_wearout: 2,
+  by_manufacturer: 1,
+};
+
+/**
+ * Что побеждает при слиянии: строка со сроком — строку без срока; из двух строк со
+ * сроком — меньший срок (строже = раньше напомним), при равенстве — вид важнее.
+ */
+function betterWear(
+  a: { kind: PpeWearKind; months: number | null },
+  b: { kind: PpeWearKind; months: number | null },
+): { kind: PpeWearKind; months: number | null } {
+  if (a.months != null && b.months == null) return a;
+  if (b.months != null && a.months == null) return b;
+  if (a.months != null && b.months != null && a.months !== b.months) {
+    return a.months < b.months ? a : b;
+  }
+  return WEAR_KIND_PRIORITY[a.kind] >= WEAR_KIND_PRIORITY[b.kind] ? a : b;
 }
 
 /**
@@ -208,8 +260,16 @@ export function upcomingIssues(
 // Разбор живёт здесь, а не в загрузчике: одна и та же строка встречается
 // в приказе, в ручном вводе и в файле ЗУП — и должна читаться одинаково.
 
-/** Как задан срок носки позиции. */
-export type PpeWearKind = 'months' | 'until_wearout' | 'by_manufacturer';
+/**
+ * Как задан срок носки позиции.
+ * - `months` — срок прямо в приказе («на 2 года»);
+ * - `until_wearout` — «до износа»;
+ * - `by_manufacturer` — «срок определяется документами изготовителя»;
+ * - `annual` — годовая норма без оговорки («1 шт.», «12 пар»): срока в приказе нет,
+ *   его проставляет кладовщик по позиции (решение владельца от 05.11);
+ * - `months_clerk` — срок проставил кладовщик.
+ */
+export type PpeWearKind = 'months' | 'until_wearout' | 'by_manufacturer' | 'annual' | 'months_clerk';
 
 export type PpeOrderNorm = {
   /** Количество на год. */
@@ -217,13 +277,12 @@ export type PpeOrderNorm = {
   /** Единица измерения: «шт.», «пара», «комплект». */
   unit: string;
   wearKind: PpeWearKind;
-  /** Срок в месяцах; `null` при `until_wearout` и `by_manufacturer`. */
+  /** Срок в месяцах; `null` при `until_wearout`, `by_manufacturer` и `annual`. */
   wearMonths: number | null;
   /**
    * Оговорка о сроке в терминах приказа: «на 2 года», «до износа»,
    * «срок определяется документами изготовителя». `null` — обычная годовая норма
-   * без оговорки («1 шт.», «12 пар»): её печатаем как есть, срок носки выведен
-   * из годовой нормы отдельным полем и в форму карточки не выносится.
+   * без оговорки («1 шт.», «12 пар»): её печатаем как есть.
    */
   periodText: string | null;
 };
@@ -239,10 +298,10 @@ const PPE_UNITS = ['комплект', 'пара', 'пар', 'шт'] as const;
  *  - «до износа» → срока нет (позиция живёт до износа);
  *  - «срок определяется документами изготовителя» → срока нет, но вид известен;
  *  - «на N лет/года» → срок N*12 месяцев;
- *  - голое количество → норма «на год» (так называет колонка приказа), поэтому срок
- *    носки выводится из годовой нормы: «12 пар» в год = пара в месяц (1 мес.),
- *    «6 пар» = раз в 2 месяца, «4 шт.» = раз в 3 месяца, «1 шт.» = раз в год (12 мес.).
- *    Без этого перевода годовая норма «1 шт.» не перевыдавалась бы никогда.
+ *  - голое количество → годовая норма («норма выдачи на год»). **Срока из неё не
+ *    выводится** (решение владельца от 05.11): «срок носки» и «количество на год» —
+ *    разные величины, и выведенный срок молча выдавал себя за приказной. Вид
+ *    `annual`: срок не задан, его проставляет кладовщик по позиции.
  *
  * Мусор документа («1пара на 2года», «12 парсрок…») разбирается тем же правилом:
  * числа и слова ищутся независимо, пробелы и точки не важны.
@@ -254,7 +313,7 @@ export function parseOrderNormQty(raw: string): PpeOrderNorm {
     .trim()
     .toLowerCase();
 
-  if (!text) return { qty: 1, unit: 'шт.', wearKind: 'months', wearMonths: 12, periodText: null };
+  if (!text) return { qty: 1, unit: 'шт.', wearKind: 'annual', wearMonths: null, periodText: null };
 
   // Срок «на N лет/года» — до «до износа»/«определяется…» не дотягиваем.
   // Границу слова задаём НЕ через \b: кириллица в JS не word-символ, и \b после
@@ -289,9 +348,24 @@ export function parseOrderNormQty(raw: string): PpeOrderNorm {
       periodText: `на ${years} ${years === 1 ? 'год' : 'года'}`,
     };
   }
-  // Годовая норма без оговорки о сроке: переводим её в период носки.
-  const months = 12 % qty === 0 ? 12 / qty : Math.max(1, Math.round(12 / qty));
-  return { qty, unit, wearKind: 'months', wearMonths: months, periodText: null };
+  // Годовая норма без оговорки о сроке: срока в приказе нет — его проставит кладовщик.
+  return { qty, unit, wearKind: 'annual', wearMonths: null, periodText: null };
+}
+
+/**
+ * Срок носки строки — отдельной величиной, с указанием, чей это выбор.
+ * «2 мес. (приказ)» / «2 мес. (кладовщик)» / «до износа» /
+ * «по документам изготовителя» / «срок не задан».
+ *
+ * Отдельная величина, а не приписка к количеству: смешивать их в одну строку нельзя,
+ * путаница выглядит как «норма не выполнена», хотя не выполнено другое.
+ */
+export function wearPeriodText(wearKind: PpeWearKind | null, wearMonths: number | null): string {
+  if (wearKind === 'until_wearout') return 'до износа';
+  if (wearKind === 'by_manufacturer') return 'по документам изготовителя';
+  if (wearMonths == null) return 'срок не задан';
+  const months = wearMonths % 12 === 0 ? `${wearMonths / 12} г.` : `${wearMonths} мес.`;
+  return wearKind === 'months_clerk' ? `${months} (кладовщик)` : `${months} (приказ)`;
 }
 
 /**

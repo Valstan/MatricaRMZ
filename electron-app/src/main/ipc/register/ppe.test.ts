@@ -36,12 +36,13 @@ function makeCtx() {
 }
 
 describe('ppe IPC', () => {
-  it('все 10 каналов зарегистрированы', () => {
+  it('все 11 каналов зарегистрированы', () => {
     registerPpeIpc(makeCtx());
     for (const ch of [
       'ppe:norms:list',
       'ppe:norms:get',
       'ppe:norms:upsert',
+      'ppe:normLines:wearPeriod:set',
       'ppe:cards:open',
       'ppe:cards:get',
       'ppe:cards:overview',

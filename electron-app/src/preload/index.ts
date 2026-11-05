@@ -641,6 +641,9 @@ const matricaApi = {
     norms: {
       list: async (args?: { postTitle?: string; gender?: 'M' | 'F'; season?: 'winter' | 'summer' }) => ipcRenderer.invoke('ppe:norms:list', args),
       get: async (id: string) => ipcRenderer.invoke('ppe:norms:get', id),
+      // Срок носки по позиции проставляет кладовщик: у годовой нормы срока в приказе нет.
+      setWearPeriod: async (args: { id: string; wearMonths: number | null }) =>
+        ipcRenderer.invoke('ppe:normLines:wearPeriod:set', args),
       upsert: async (args: {
         id?: string;
         name: string;
@@ -651,7 +654,7 @@ const matricaApi = {
         isDuty?: boolean;
         validFrom?: number;
         validTo?: number | null;
-        lines: Array<{ nomenclatureId: string; qty: number; wearMonths: number }>;
+        lines: Array<{ nomenclatureId: string; qty: number; wearMonths: number | null; wearKind?: string | null }>;
       }) => ipcRenderer.invoke('ppe:norms:upsert', args),
     },
     cards: {
