@@ -848,6 +848,13 @@
       "when": 1793883878002,
       "tag": "0121_ppe_annual_norms_no_derived_period",
       "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1793899614770,
+      "tag": "0122_ppe_annual_norms_domain_rule",
+      "breakpoints": true
     }
   ]
 }
