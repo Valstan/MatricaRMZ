@@ -204,3 +204,4 @@
 | [M188](gotchas/M188.md) | `certutil -user -addstore Root` зависает, `Import-Certificate` отказывает: корень сертификата ставится только через .NET API |
 | [M189](gotchas/M189.md) | `signtool sign` не заменяет чужую подпись, а добавляет вторую: подписавший остаётся прежним |
 | [M190](gotchas/M190.md) | Сборка electron-builder на Windows падает на распаковке winCodeSign: нужны симлинки, Developer Mode не помогает |
+| [M191](gotchas/M191.md) | `app.asar` из каталога сборки не удаляется: файл держит другой процесс, а каталог ещё и помечен EFS |
