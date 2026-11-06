@@ -193,14 +193,25 @@ $pfx = $PfxPath
 if (-not $pfx -and $env:CSC_LINK) {
     # CSC_LINK electron-builder принимает как base64 PFX — раскодим его во временный
     # файл, чтобы и electron-builder, и наша проверка работали с одним и тем же ключом.
-    if ($env:CSC_LINK -match '^[A-Za-z0-9+/=\s]+$' -and $env:CSC_LINK.Length -gt 100) {
+    #
+    # Значение чистим: пайп PowerShell (например `Get-Content ... | gh secret set`)
+    # добавляет UTF-8 BOM и перевод строки, и тогда base64 не распознаётся — сборка
+    # падала с невнятным «файл не найден: <замаскированное значение>». Снимаем BOM и
+    # крайние пробелы сами, а чистые кладём обратно в $env — electron-builder в этом же
+    # шаге увидит то же значение.
+    $link = ($env:CSC_LINK -replace '^[\uFEFF]+', '').Trim()
+    if ($link -match '^[A-Za-z0-9+/=\s]+$' -and $link.Length -gt 100) {
         # RUNNER_TEMP есть только в GitHub Actions; локально берём TEMP.
         $tmpRoot = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
         if (-not $tmpRoot) { $tmpRoot = [System.IO.Path]::GetTempPath() }
         $pfx = Join-Path $tmpRoot 'matrica-csc.pfx'
-        [System.IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String(($env:CSC_LINK -replace '\s', '')))
+        [System.IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String(($link -replace '\s', '')))
+        $env:CSC_LINK = $link
+    } elseif ($link -match '\.pfx$') {
+        # Явный путь к файлу — оставляем как есть.
+        $pfx = $link
     } else {
-        $pfx = $env:CSC_LINK
+        throw 'CSC_LINK не похож ни на base64-PFX, ни на путь к .pfx. Чаще всего значение попало в секрет с BOM или переводом строки (пайп PowerShell) — перезапишите секрет без них.'
     }
 }
 
