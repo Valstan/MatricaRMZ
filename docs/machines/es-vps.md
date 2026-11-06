@@ -29,6 +29,31 @@
 
 Частично скачанный `node_modules` в коммиты не попадает (gitignored), но и пользы не приносит — перед следующей попыткой лучше снести.
 
+## Контур «нейронки» снят 06.11.2026 (решение владельца: счёт DeepSeek оплачен)
+
+На боксе больше нет ни движка, ни его обвязки. Снято: `opencode-web.service` (бинарь 203 МБ в
+`/usr/local/bin/opencode`), `neural-vpn.service` (xray, 36 МБ + подписка NextGenVPN),
+`neural-egress-redirect.service` (nft-таблица `ip neural`), `tunnel-watchdog.timer` (каждые 2 мин),
+`neural-subscription-refresh.timer`, `/etc/sudoers.d/neural-rotate`, MCP-мост в `/opt/matricarmz/mcp`,
+каталоги `/etc/neural`, `/usr/local/lib/neural`, `/var/lib/neural`, `/var/log/neural`,
+`/etc/opencode-web`, пользователь `opencode`. Флаги `AI_SERVER_ENGINE_*` вычищены из
+`/etc/matricarmz/matricarmz.env` (копия рядом: `matricarmz.env.bak.<штамп>`).
+
+**Место после уборки:** было 6,9 ГБ из 9,9 ГБ (73%) → стало **5,6 ГБ (59%)**, свободно 3,9 ГБ.
+Освобождено 1,3 ГБ: контур (~240 МБ) + мусор ротации установщиков `.trash-*` (229 МБ) +
+артефакты движка в `updates/engine` (96 МБ) + apt-кэш (90 МБ) + journald-vacuum (114 МБ) +
+кэш node (72 МБ) + ротированные логи nginx (22 МБ).
+
+**Что НЕ трогали (и почему):** текущий установщик 3.105.0 и его blockmap, `updates/android`,
+`updates/stub` (вечный мост для клиентов старше 3.1.0), `.deploy-backup` (точки отката),
+бэкапы БД в `~/db-backups` (347 МБ — это страховка; владельцу сказать, если убрать),
+`node_modules` репозитория (378 МБ — нужен для filtered-install, а `pnpm store prune` его не
+снимает: файлы хардлинки в стор).
+
+**ИИ-контур теперь:** единственное звено — DeepSeek напрямую (`deepseek-flash`, белый список
+модели в коде). Проверка вживую 07.11.2026: ответ за ~50 с (12 шагов с инструментами),
+`cache_read` 96–98%, `answer_source=deepseek`.
+
 ## Прочее
 
 - **`/tmp/opencode` периодически очищается** (наблюдалось дважды за сессию 25–26.10) — логи и скрипты там не хранилище. Долгие операции: `setsid nohup … > "$HOME/<имя>.log" 2>&1 &`, лог в домашнем каталоге.
