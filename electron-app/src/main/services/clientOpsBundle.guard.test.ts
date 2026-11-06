@@ -33,6 +33,24 @@ function builderFiles(): string[] {
   return [...block![1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]!);
 }
 
+/**
+ * Файлы, которые сборщик берёт не из `scripts/client-ops`, а из другой папки репозитория
+ * (сейчас — скрипт установки корня и публичная часть корня из `scripts/signing`).
+ */
+function extraSources(): Record<string, string> {
+  const block = BUILDER.match(/const EXTRA_SOURCES = \{([\s\S]*?)\}/);
+  expect(block, 'в сборщике больше нет EXTRA_SOURCES — сторож ослеп').toBeTruthy();
+  const out: Record<string, string> = {};
+  for (const m of block![1]!.matchAll(/'([^']+)'\s*:\s*'([^']+)'/g)) out[m[1]!] = m[2]!;
+  return out;
+}
+
+/** Где файл архива лежит в репозитории. */
+function sourceFile(name: string): string {
+  const extra = extraSources()[name];
+  return extra ? path.join(repoRoot, extra) : path.join(srcDir, name);
+}
+
 describe('архив со скриптами обслуживания везёт всё, что нужно окну', () => {
   it('точка входа, которую запускает клиент, лежит в архиве', () => {
     // Имя живёт в двух файлах сразу: клиент его запускает, сборщик — кладёт.
@@ -53,8 +71,24 @@ describe('архив со скриптами обслуживания везёт
 
   it('каждое имя из списка сборщика существует в исходниках', () => {
     for (const name of builderFiles()) {
-      expect(existsSync(path.join(srcDir, name)), `${name} в списке сборщика, но файла нет`).toBe(true);
+      expect(existsSync(sourceFile(name)), `${name} в списке сборщика, но файла нет`).toBe(true);
     }
+  });
+
+  it('повышенный шаг установки корня едет в парк вместе с помощником', () => {
+    // Шаг корня (ADR-0003) на машине парка выполнить нечем: репозитория там нет, а без
+    // корня подпись клиента не действует — Касперский доверяет сертификату из МАШИННОГО
+    // хранилища. Скрипт и публичная часть корня лежат в одной папке архива: скрипт ищет
+    // .cer рядом с собой.
+    const files = builderFiles();
+    for (const name of ['install-root-on-machine.ps1', 'matrixarmz-rootca.cer']) {
+      expect(files, `${name} не попадёт в архив — повышенный шаг на парке не выполнить`).toContain(
+        name,
+      );
+    }
+    const extra = extraSources();
+    expect(extra['install-root-on-machine.ps1'], 'скрипт установки корня берётся не из того места').toBeTruthy();
+    expect(extra['matrixarmz-rootca.cer'], 'публичная часть корня берётся не из того места').toBeTruthy();
   });
 
   it('утилиты умеют подключаться точкой — иначе дот-сорсинг откроет вторые окна', () => {
@@ -77,7 +111,7 @@ describe('архив со скриптами обслуживания везёт
     // Кириллицы в этих файлах больше, чем кода: без BOM окно откроется с кракозябрами, а
     // сравнения путей с русскими именами начнут молча не совпадать.
     for (const name of builderFiles().filter((f) => f.endsWith('.ps1'))) {
-      const head = readFileSync(path.join(srcDir, name)).subarray(0, 3);
+      const head = readFileSync(sourceFile(name)).subarray(0, 3);
       expect([...head], `${name} без BOM`).toEqual([0xef, 0xbb, 0xbf]);
     }
   });
