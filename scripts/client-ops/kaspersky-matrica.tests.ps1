@@ -235,6 +235,113 @@ try {
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+Write-Host 'Доверие по подписи (ADR-0003) — чем закрыт файл:'
+$fx = Join-Path ([System.IO.Path]::GetTempPath()) ('kaspersky-matrica-sign-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $fx -Force | Out-Null
+try {
+    # Фикстуры без подписи: файлы PE-подобного вида, но без таблицы сертификатов.
+    $unsignedClient = Join-Path $fx 'MatricaRMZ.exe'
+    Set-Content -LiteralPath $unsignedClient -Value 'not a PE at all' -Encoding UTF8
+    $unsignedExe = Join-Path $fx 'installer.exe'
+    Set-Content -LiteralPath $unsignedExe -Value 'not a PE at all' -Encoding UTF8
+
+    Assert-Equal 'файл без подписи не считается подписанным нашим ключом' `
+        (Test-SignedByMatrica -Path $unsignedExe) 'False'
+    Assert-Equal 'несуществующий файл не считается подписанным' `
+        (Test-SignedByMatrica -Path (Join-Path $fx 'нет-такого.exe')) 'False'
+    Assert-Equal 'пустой путь не считается подписанным' (Test-SignedByMatrica -Path '') 'False'
+
+    # Подпись ЧУЖИМ издателем (Microsoft) — не наша: подписью Матрицы такой файл не закрыт.
+    $foreign = Join-Path $env:SystemRoot 'System32\kernel32.dll'
+    if (Test-Path -LiteralPath $foreign) {
+        Assert-Equal 'подпись чужого издателя не считается нашей' `
+            (Test-SignedByMatrica -Path $foreign) 'False'
+    }
+
+    # Клиент, подписанный нашим корнем: берём установленный, если он есть на этой машине.
+    $realClient = Join-Path $env:LOCALAPPDATA 'Programs\MatricaRMZ\MatricaRMZ.exe'
+    $signedClient = ''
+    if (Test-Path -LiteralPath $realClient) {
+        $signedClient = Join-Path $fx 'signed-client.exe'
+        Copy-Item -LiteralPath $realClient -Destination $signedClient -Force
+    }
+    $haveSigned = $false
+    if ($signedClient -and (Test-SignedByMatrica -Path $signedClient)) {
+        $haveSigned = $true
+        Assert-Equal 'файл, подписанный нашим корнем, опознан' `
+            (Test-SignedByMatrica -Path $signedClient) 'True'
+    } else {
+        Write-Host '  skip  подписанного нашим корнем клиента на этой машине нет — часть проверок пропущена' -ForegroundColor DarkYellow
+    }
+
+    # План доверенных: клиент остаётся ВСЕГДА (на нём правило дочерних процессов),
+    # неподписанное остаётся (подпись его не покрывает), подписанное уходит.
+    $fake = [pscustomobject][ordered]@{
+        AppExe = $unsignedClient; WatchdogExe = $unsignedExe
+        ExtraExes = @($unsignedExe); Shortcuts = @()
+    }
+    $planSig = Get-TrustedAppsPlan -Matrica $fake -Mode 'Signature'
+    Assert-Equal 'клиент остаётся в списке доверенных' `
+        ([bool](@($planSig.Trusted) -contains $unsignedClient)) 'True'
+    Assert-Equal 'неподписанный файл остаётся в списке доверенных' `
+        ([bool](@($planSig.Trusted) -contains $unsignedExe)) 'True'
+    Assert-Equal 'неподписанное не попадает в «закрытое подписью»' `
+        (@($planSig.CoveredBySignature).Count) '0'
+
+    $planLegacy = Get-TrustedAppsPlan -Matrica $fake -Mode 'Legacy'
+    Assert-Equal 'в режиме Legacy список полный' (@($planLegacy.Trusted).Count) '2'
+    Assert-Equal 'в режиме Legacy закрытых подписью нет' `
+        (@($planLegacy.CoveredBySignature).Count) '0'
+
+    if ($haveSigned) {
+        $fakeSigned = [pscustomobject][ordered]@{
+            AppExe = $unsignedClient; WatchdogExe = $unsignedExe
+            ExtraExes = @($signedClient, $unsignedExe); Shortcuts = @()
+        }
+        $plan2 = Get-TrustedAppsPlan -Matrica $fakeSigned -Mode 'Signature'
+        Assert-Equal 'подписанный файл ушёл из списка доверенных' `
+            ([bool](@($plan2.Trusted) -contains $signedClient)) 'False'
+        Assert-Equal 'подписанный файл помечен как закрытый подписью' `
+            ([bool](@($plan2.CoveredBySignature) -contains $signedClient)) 'True'
+        Assert-Equal 'неподписанный файл остался в списке' `
+            ([bool](@($plan2.Trusted) -contains $unsignedExe)) 'True'
+
+        # Ярлык: Касперский переносит доверие с .lnk на цель, поэтому подписанная цель
+        # закрывает ярлык, а неподписанная — нет.
+        $shell = New-Object -ComObject WScript.Shell
+        $lnkSigned = Join-Path $fx 'на подписанное.lnk'
+        $s1 = $shell.CreateShortcut($lnkSigned); $s1.TargetPath = $signedClient; $s1.Save()
+        $lnkUnsigned = Join-Path $fx 'на неподписанное.lnk'
+        $s2 = $shell.CreateShortcut($lnkUnsigned); $s2.TargetPath = $unsignedExe; $s2.Save()
+        $fakeLnk = [pscustomobject][ordered]@{
+            AppExe = $unsignedClient; WatchdogExe = $unsignedExe
+            ExtraExes = @($unsignedExe); Shortcuts = @($lnkSigned, $lnkUnsigned)
+        }
+        $plan3 = Get-TrustedAppsPlan -Matrica $fakeLnk -Mode 'Signature'
+        Assert-Equal 'ярлык на подписанную цель ушёл из списка' `
+            ([bool](@($plan3.Trusted) -contains $lnkSigned)) 'False'
+        Assert-Equal 'ярлык на неподписанную цель остался в списке' `
+            ([bool](@($plan3.Trusted) -contains $lnkUnsigned)) 'True'
+    }
+} finally { Remove-Item -LiteralPath $fx -Recurse -Force -ErrorAction SilentlyContinue }
+
+Write-Host 'Корень доверия на этой машине:'
+$rootState = Get-MatricaRootState
+Assert-Equal 'отпечаток корня — боевой' $rootState.Thumbprint '7E2D335A418EF9292BA2868EED92F65E2650932D'
+Assert-Equal 'текст состояния не пуст' ([bool](Get-RootStateText -State $rootState)) 'True'
+Assert-Equal 'команда установки корня указывает на скрипт' `
+    ([bool]((Get-RootInstallCommand -State $rootState) -like '*install-root-on-machine.ps1')) 'True'
+if (-not $rootState.Readable) {
+    Assert-Equal 'хранилища не читаются — текст зовёт под администратора' `
+        ([bool]((Get-RootStateText -State $rootState) -like '*администратора*')) 'True'
+} elseif ($rootState.Present) {
+    Assert-Equal 'корень есть — текст говорит, что подпись действует' `
+        ([bool]((Get-RootStateText -State $rootState) -like '*подпись действует*')) 'True'
+} else {
+    Assert-Equal 'кореня нет — текст зовёт на повышенный шаг' `
+        ([bool]((Get-RootStateText -State $rootState) -like '*повышенный шаг*')) 'True'
+}
+
 Write-Host ''
 if ($script:Failures -gt 0) {
     Write-Host "ИТОГ: провалов $script:Failures из $script:Checks" -ForegroundColor Red

@@ -41,7 +41,20 @@ const FILES = [
   'README.md',
   'Запустить.cmd',
   'Запустить-от-администратора.cmd',
+  // Повышенный шаг установки корня доверия (ADR-0003): без него на машине парка нечем
+  // поставить корень, а без корня подпись клиента не действует.
+  'install-root-on-machine.ps1',
+  'matrixarmz-rootca.cer',
 ]
+
+// Файлы, которые лежат не в scripts/client-ops, а едут в том же архиве. Скрипт установки
+// корня ищет .cer рядом с собой (Join-Path $PSScriptRoot), поэтому оба кладутся в одну
+// папку — иначе повышенный шаг на машине парка не запустится. Приватный ключ сюда не
+// едет никогда: он живёт только в CI.
+const EXTRA_SOURCES = {
+  'install-root-on-machine.ps1': 'scripts/signing/install-root-on-machine.ps1',
+  'matrixarmz-rootca.cer': 'scripts/signing/matrixarmz-rootca.cer',
+}
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(here, '..', '..')
@@ -49,9 +62,15 @@ const srcDir = path.join(repoRoot, 'scripts', 'client-ops')
 const outDir = path.resolve(here, '..', 'build', 'kaspersky')
 const outZip = path.join(outDir, 'kaspersky-matrica.zip')
 
-const missing = FILES.filter((f) => !existsSync(path.join(srcDir, f)))
+/** Откуда берётся файл архива: свой каталог или другая папка репозитория. */
+function sourcePath(name) {
+  const extra = EXTRA_SOURCES[name];
+  return extra ? path.join(repoRoot, extra) : path.join(srcDir, name);
+}
+
+const missing = FILES.filter((f) => !existsSync(sourcePath(f)))
 if (missing.length) {
-  throw new Error(`build-kaspersky-zip: missing source files in ${srcDir}: ${missing.join(', ')}`)
+  throw new Error(`build-kaspersky-zip: missing source files: ${missing.join(', ')}`)
 }
 
 // 7za APPENDS to an existing archive; start from a clean output so a rebuild never
@@ -63,7 +82,7 @@ const stage = mkdtempSync(path.join(tmpdir(), 'kmz-zip-'))
 try {
   const inner = path.join(stage, INNER_DIR)
   mkdirSync(inner)
-  for (const f of FILES) copyFileSync(path.join(srcDir, f), path.join(inner, f))
+  for (const f of FILES) copyFileSync(sourcePath(f), path.join(inner, f))
 
   // cwd = stage so the archive stores paths as "kaspersky-matrica/<file>".
   execFileSync(
