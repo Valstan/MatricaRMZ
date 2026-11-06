@@ -226,6 +226,25 @@ try {
             }
             Assert-True 'корень установлен' ([bool](Get-ChildItem Cert:\CurrentUser\Root | Where-Object { $_.Thumbprint -eq $installed.Thumbprint }))
 
+            # Имя машинного хранилища задаётся параметром: Касперский по умолчанию
+            # предлагает Enterprise Trust («Доверительные отношения в предприятии»), и корень
+            # должен лежать в том же хранилище, что выбрано в его списке. Поэтому режим
+            # InstallRoot умеет класть корень не только в Root.
+            $alreadyInTrust = [bool](Get-ChildItem Cert:\CurrentUser\Trust -ErrorAction SilentlyContinue |
+                Where-Object { $_.Thumbprint -eq $caThumb })
+            if ($alreadyInTrust) {
+                Write-Host 'Корень уже в Trust — установку пропускаем.'
+                $installedTrust = @{ Store = 'CurrentUser'; RootStoreName = 'Trust'; Thumbprint = $caThumb }
+            } else {
+                Write-Host 'Установка доверенного корня в CurrentUser\Trust (Enterprise Trust)...'
+                $swTrust = [Diagnostics.Stopwatch]::StartNew()
+                $installedTrust = Install-TrustedRoot -CerFile $cer -Store 'CurrentUser' -RootStoreName 'Trust'
+                $swTrust.Stop()
+                Write-Host ("  корень установлен в Trust за " + [math]::Round($swTrust.Elapsed.TotalSeconds, 1) + " с")
+            }
+            Assert-True 'корень установлен в выбранное хранилище (Trust)' ([bool](Get-ChildItem Cert:\CurrentUser\Trust -ErrorAction SilentlyContinue | Where-Object { $_.Thumbprint -eq $installedTrust.Thumbprint }))
+            Assert-True 'в ответе указано имя хранилища' ($installedTrust.RootStoreName -eq 'Trust')
+
             # Теперь цепочка доверия сходится и signtool это подтверждает.
             $verifyOut = & $signtool verify /pa $copy 2>&1 | Out-String
             Assert-True 'signtool verify проходит после установки корня' ($verifyOut -match 'Successfully verified')
