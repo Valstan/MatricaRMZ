@@ -157,12 +157,14 @@
 и галочка в программе. По одному только корню Касперский ничего не поменяет.
 
 **D1. Положить корень в МАШИННЫЕ хранилища сертификатов** (от администратора, один раз на
-машину):
+машину) — одной командой, корень берётся из репозитория:
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\signing\sign-matrica.ps1 -Mode InstallRoot -CerPath <путь к rootca.cer> -CertStore LocalMachine -RootStoreName Root
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\signing\sign-matrica.ps1 -Mode InstallRoot -CerPath <путь к rootca.cer> -CertStore LocalMachine -RootStoreName Trust
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\signing\install-root-on-machine.ps1
 ```
+
+Скрипт сам попросит повышение прав (UAC), положит корень в оба машинных хранилища,
+проверит, что корень в них виден, и напечатает оставшиеся шаги.
 
 Корень кладём в **оба** машинных хранилища: «Доверенные корневые центры» (Root) и
 «Доверительные отношения в предприятии» (Enterprise Trust, `Cert:\LocalMachine\Trust`).
