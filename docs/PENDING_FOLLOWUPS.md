@@ -55,6 +55,7 @@
 ## 🟡 Техдолг и отложенное
 
 - [🟡 Подписать заглушку-обновлятель: osslsigncode или windows-джоб 🗓 since:2026-11-05](pending/podpisat-zaglushku-obnovlyatel.md)
+- [🟡 Done-индекс у потолка 300 КБ: новая строка не влезает 🗓 since:2026-11-06](pending/done-indeks-u-potolka-300-kb.md)
 - [🟡 Журнал синхронизации раздувался EAV-значениями: раздувание остановлено (PR #1561), все дубли вычищены 🗓 since:2026-11-03](pending/journal-rozet-iz-za-eav-attribute-values.md)
 - [🟡 Размерный ряд СИЗ для РМЗ: базовый может не подойти 🗓 since:2026-11-03](pending/razmernyy-ryad-siz-dlya-rmz-utochnit.md)
 - [🟡 Утиль по детали: выключить страховку по подстроке «картер» 🗓 since:2026-11-02](pending/util-po-detali-strakhovka-po-podstroke-karter.md)
