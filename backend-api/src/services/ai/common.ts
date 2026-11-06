@@ -2,13 +2,25 @@ import { randomUUID } from 'node:crypto';
 
 import { db } from '../../database/db.js';
 import { diagnosticsSnapshots } from '../../database/schema.js';
+import { logError } from '../../utils/logger.js';
 
 export type AiProfile = 'fast' | 'balanced' | 'quality';
 
-// Модели DeepSeek (D-024). Anthropic-совместимый эндпойнт принимает и claude-*-имена,
-// но мапит их вслепую на flash — просим ровно то, что хотим получить.
-const MODEL_FLASH = 'deepseek-v4-flash';
-const MODEL_PRO = 'deepseek-v4-pro';
+// Модель DeepSeek (D-024). У провайдера сейчас две: `deepseek-flash` — новая, быстрая и
+// дешёвая по кэшу префикса, и `deepseek-v4-pro` — старая, дороже и по качеству не лучше.
+//
+// **Решение владельца 07.11.2026: работаем только на flash.** Счёт оплачен, платить за
+// устаревшую модель незачем, а префиксный кэш на flash стоит копейки (замер на проде:
+// hit 96–98% со второго шага).
+//
+// Имя — каноническое из `GET /models` провайдера (`deepseek-flash`). Прежнее
+// `deepseek-v4-flash` — устаревший алиас, который ещё мапится на тот же flash, но
+// завтра может исчезнуть, поэтому его мы только принимаем и сводим на каноническое.
+const MODEL_FLASH = 'deepseek-flash';
+/** Модели, которыми движок вправе звать провайдера. Всё, чего здесь нет, — не наша. */
+const ALLOWED_MODELS = new Set<string>([MODEL_FLASH]);
+/** Старое имя той же модели: принимаем, но зовём каноническое. */
+const MODEL_ALIASES = new Map<string, string>([['deepseek-v4-flash', MODEL_FLASH]]);
 
 export const AI_PROFILE: AiProfile = (() => {
   const raw = String(process.env.AI_PROFILE ?? 'balanced')
@@ -18,6 +30,8 @@ export const AI_PROFILE: AiProfile = (() => {
 })();
 
 function profileDefaults(profile: AiProfile) {
+  // Профили различаются потолками ожидания, глубиной RAG и размером ответа — модель у них
+  // одна (решение владельца 07.11.2026): разница в скорости и объёме, а не в «умах» модели.
   if (profile === 'fast') {
     return {
       modelChat: MODEL_FLASH,
@@ -32,8 +46,8 @@ function profileDefaults(profile: AiProfile) {
   }
   if (profile === 'quality') {
     return {
-      modelChat: MODEL_PRO,
-      modelAnalytics: MODEL_PRO,
+      modelChat: MODEL_FLASH,
+      modelAnalytics: MODEL_FLASH,
       timeoutMs: 90_000,
       timeoutChatMs: 40_000,
       timeoutAnalyticsMs: 90_000,
@@ -45,7 +59,7 @@ function profileDefaults(profile: AiProfile) {
   // balanced
   return {
     modelChat: MODEL_FLASH,
-    modelAnalytics: MODEL_PRO,
+    modelAnalytics: MODEL_FLASH,
     timeoutMs: 60_000,
     timeoutChatMs: 30_000,
     timeoutAnalyticsMs: 60_000,
@@ -64,14 +78,29 @@ function envNum(name: string, fallback: number) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function envText(name: string, fallback: string) {
-  const raw = process.env[name];
-  const value = String(raw ?? '').trim();
-  return value || fallback;
+/**
+ * Модель из окружения — только из белого списка.
+ *
+ * Смысл: движок не должен звать снятую модель (владелец, 07.11.2026), и отказ должен быть
+ * **виден**: если в env-файле осталось имя вроде `deepseek-v4-pro`, молча свести его на
+ * flash — значит заметить расход можно только по счёту провайдера. Поэтому пишем в лог.
+ */
+function modelFromEnv(name: string, fallback: string): string {
+  const raw = String(process.env[name] ?? '').trim();
+  if (!raw) return fallback;
+  const alias = MODEL_ALIASES.get(raw);
+  if (alias) return alias;
+  if (ALLOWED_MODELS.has(raw)) return raw;
+  logError('ai model: запрошенная модель не разрешена — беру единственную разрешённую', {
+    env: name,
+    requested: raw,
+    allowed: [...ALLOWED_MODELS].join(','),
+  });
+  return fallback;
 }
 
-export const AI_MODEL_CHAT = envText('AI_MODEL_CHAT', PROFILE_DEFAULTS.modelChat);
-export const AI_MODEL_ANALYTICS = envText('AI_MODEL_ANALYTICS', PROFILE_DEFAULTS.modelAnalytics);
+export const AI_MODEL_CHAT = modelFromEnv('AI_MODEL_CHAT', PROFILE_DEFAULTS.modelChat);
+export const AI_MODEL_ANALYTICS = modelFromEnv('AI_MODEL_ANALYTICS', PROFILE_DEFAULTS.modelAnalytics);
 
 export const AI_TIMEOUT_MS = envNum('AI_TIMEOUT_MS', PROFILE_DEFAULTS.timeoutMs);
 export const AI_TIMEOUT_CHAT_MS = envNum('AI_TIMEOUT_CHAT_MS', PROFILE_DEFAULTS.timeoutChatMs);

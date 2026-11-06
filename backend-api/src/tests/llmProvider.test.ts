@@ -42,7 +42,7 @@ describe('callLlmWithTools', () => {
       .mockResolvedValueOnce(textResponse('Двигателей в ремонте: 7.'));
 
     const result = await callLlmWithTools({
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       systemBlocks: [{ type: 'text', text: 'system' }],
       userMessage: 'сколько двигателей в ремонте?',
       tools: TOOLS,
@@ -72,7 +72,7 @@ describe('callLlmWithTools', () => {
       .mockResolvedValueOnce(textResponse(''));
 
     const result = await callLlmWithTools({
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       systemBlocks: [{ type: 'text', text: 'system' }],
       userMessage: 'вопрос',
       tools: TOOLS,
@@ -87,7 +87,7 @@ describe('callLlmWithTools', () => {
     create.mockResolvedValueOnce(TOOL_USE_RESPONSE).mockResolvedValueOnce(textResponse('Итог: 7 двигателей.'));
 
     await callLlmWithTools({
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       systemBlocks: [{ type: 'text', text: 'system' }],
       userMessage: 'вопрос',
       tools: TOOLS,
@@ -108,7 +108,7 @@ describe('callLlmWithTools', () => {
       .mockResolvedValueOnce(textResponse('Ответ по собранным данным.'));
 
     const result = await callLlmWithTools({
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       systemBlocks: [{ type: 'text', text: 'system' }],
       userMessage: 'вопрос',
       tools: TOOLS,
@@ -124,7 +124,7 @@ describe('callLlmWithTools', () => {
     create.mockResolvedValueOnce(textResponse('Готово.'));
 
     const result = await callLlmWithTools({
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
       systemBlocks: [{ type: 'text', text: 'system' }],
       userMessage: 'вопрос',
       tools: TOOLS,
@@ -141,7 +141,7 @@ describe('callLlmWithTools', () => {
 
 describe('callLlmJson', () => {
   const JSON_ARGS = {
-    model: 'deepseek-v4-flash',
+    model: 'deepseek-flash',
     system: 'system',
     user: 'user',
     toolName: 'report',
@@ -216,7 +216,7 @@ describe('callLlmJson', () => {
 });
 
 describe('callLlm', () => {
-  const ARGS = { model: 'deepseek-v4-flash', system: 'system', user: 'user', scope: 'usage-digest' };
+  const ARGS = { model: 'deepseek-flash', system: 'system', user: 'user', scope: 'usage-digest' };
 
   it('обрезанный текст не выдаётся за законченный', async () => {
     create.mockResolvedValueOnce({

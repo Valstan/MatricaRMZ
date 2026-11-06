@@ -18,9 +18,11 @@ const MAX_TOOL_STEPS = 12;
  * рендера: tools → system → messages, поэтому любая переменная величина (дата, id, память
  * пользователя) в начале обнуляет кэш всего запроса, а смена состава `tools` — тоже.
  *
- * Замер на проде 2026-08-30 (`deepseek-v4-flash`, Anthropic-совместимый эндпойнт):
+ * Замер на проде 2026-08-30 (тогда модель звалась `deepseek-v4-flash` — устаревший алиас
+ * того же flash; нынешнее каноническое имя — `deepseek-flash`, решение владельца 07.11.2026):
  * повтор с тем же префиксом — `input_tokens` 1756 → 91 при `cache_read_input_tokens` 1664;
  * дата первой строкой system — `cache_read_input_tokens` 0 при том же тексте ниже.
+ * Повторная проверка на проде 07.11.2026 (после снятия движка): по шагам ответа hit 96–98%.
  *
  * Имена полей — anthropic'овские: `cache_read_input_tokens` (это и есть «hit») и
  * `cache_creation_input_tokens`. Нативных `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`
