@@ -12,6 +12,12 @@ const writtenRows: Array<{ row: any }> = [];
 const escalations: Array<{ username: string; questionText: string; reason?: string }> = [];
 let llmCalls = 0;
 let probeCalls = 0;
+/** Проба баланса отвечает «живой» — иначе воркер после 402 перестаёт брать вопросы. */
+let probeAlive = false;
+/** Ответ провайдера удачный (без 402) — для проверок, где важен сам запрос. */
+let llmSucceeds = false;
+/** Аргументы последних вызовов модели — по ним проверяем стабильность префикса (R29). */
+const llmArgs: Array<{ systemBlocks: Array<{ text: string }>; userMessage: string }> = [];
 
 function col(key: string) {
   return { key };
@@ -100,19 +106,27 @@ vi.mock('./aiChatWriteService.js', () => ({
   },
 }));
 
-vi.mock('./serverEngine.js', () => ({
-  askServerEngine: async () => ({ ok: false, kind: 'unavailable', error: 'движок в паузе' }),
-  isServerEngineEnabled: () => true,
-  isServerEngineAvailable: () => true,
-}));
-
 vi.mock('./llmProvider.js', () => ({
-  callLlmWithTools: async () => {
+  callLlmWithTools: async (args: any) => {
     llmCalls += 1;
+    llmArgs.push({ systemBlocks: args.systemBlocks, userMessage: args.userMessage });
+    if (llmSucceeds) {
+      return {
+        text: 'ответ модели',
+        toolUses: [],
+        steps: 1,
+        inputTokens: 12,
+        outputTokens: 7,
+        cacheReadTokens: 8,
+        cacheCreationTokens: 0,
+        stopReason: 'end_turn',
+      };
+    }
     throw new Error('402 {"error":{"message":"Insufficient Balance","type":"insufficient_balance_error"}}');
   },
   callLlm: async () => {
     probeCalls += 1;
+    if (probeAlive) return 'счёт живой';
     throw new Error('402 Insufficient Balance');
   },
   getLlmProvider: () => 'deepseek',
@@ -148,6 +162,9 @@ beforeEach(() => {
   escalations.length = 0;
   llmCalls = 0;
   probeCalls = 0;
+  probeAlive = false;
+  llmSucceeds = false;
+  llmArgs.length = 0;
   requestRows = [
     {
       id: 'req-1',
@@ -166,20 +183,82 @@ beforeEach(() => {
 });
 
 describe('очередь прямого движка', () => {
-  it('счёт резервного движка на нуле — после MAX_ATTEMPTS вопрос уходит человеку', async () => {
+  // 25.10: строка висела в `pending` вечно — счёт кончился, а эскалация не наступала.
+  // Теперь звено одно (DeepSeek), и «денег нет» означает «ответ невозможен»: вопрос
+  // ждёт пополнения, но после MAX_ATTEMPTS подтверждений уходит человеку.
+  it('счёт на нуле — после MAX_ATTEMPTS подтверждений вопрос уходит человеку', async () => {
+    vi.useFakeTimers();
+    try {
+      process.env.AI_CHAT_ANSWER_MAX_ATTEMPTS = '3';
+      const service = await loadService();
+
+      await service.aiChatDirectTick();
+      expect(llmCalls).toBe(1);
+
+      // Пауза между пробами не вышла — провайдера не дёргаем.
+      await service.aiChatDirectTick();
+      expect(llmCalls).toBe(1);
+
+      // Проба (5 мин) подтвердила: денег нет. Вторая (10 мин) — уже эскалация.
+      vi.advanceTimersByTime(5 * 60_000);
+      await service.aiChatDirectTick();
+      expect(probeCalls).toBeGreaterThan(0);
+      vi.advanceTimersByTime(10 * 60_000);
+      await service.aiChatDirectTick();
+
+      const statuses = writtenRows.map((w) => w.row.status);
+      expect(statuses.filter((s) => s === 'escalated')).toHaveLength(1);
+      const row = requestRows[0];
+      expect(row?.status).toBe('escalated');
+      expect(String(row?.escalationNote)).toContain('на нуле');
+      expect(escalations).toHaveLength(1);
+      expect(escalations[0]?.questionText).toContain('Сколько двигателей');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Кэш префикса (R29): DeepSeek кэширует НАЧАЛО запроса, и счёт у провайдера платный.
+  // Значит system-блоки Ииваныча должны быть одинаковыми от вопроса к вопросу, а всё
+  // живое (вопрос, сотрудник, заметки самообучения, вердикт) — в user-сообщении.
+  // Иначе кэш обнуляется на каждом запросе и деньги сгорают впустую.
+  it('система Ииваныча одинакова от вопроса к вопросу — префикс кэшируется', async () => {
     process.env.AI_CHAT_ANSWER_MAX_ATTEMPTS = '3';
+    llmSucceeds = true;
     const service = await loadService();
 
-    for (let i = 0; i < 3; i += 1) await service.aiChatDirectTick();
+    await service.aiChatDirectTick();
+    // Проба баланса после 402 обязана пройти, иначе второй вопрос не возьмут.
+    probeAlive = true;
+    requestRows = [
+      {
+        id: 'req-2',
+        userId: 'u-2',
+        username: 'master',
+        questionText: 'Какой график ППО за прошлый месяц?',
+        questionFileJson: null,
+        status: 'pending',
+        answerText: null,
+        verdictText: null,
+        createdAt: Date.now() - 30_000,
+        updatedAt: Date.now() - 30_000,
+        deletedAt: null,
+      },
+    ];
+    await service.aiChatDirectTick();
 
-    expect(llmCalls).toBe(3);
-    const statuses = writtenRows.map((w) => w.row.status);
-    expect(statuses.filter((s) => s === 'escalated')).toHaveLength(1);
-    const row = requestRows[0];
-    expect(row?.status).toBe('escalated');
-    expect(String(row?.escalationNote)).toContain('резервного движка на нуле');
-    expect(escalations).toHaveLength(1);
-    expect(escalations[0]?.questionText).toContain('Сколько двигателей');
+    expect(llmArgs.length).toBeGreaterThanOrEqual(2);
+    const first = llmArgs[0]!;
+    const second = llmArgs[llmArgs.length - 1]!;
+    const system1 = first.systemBlocks.map((b) => b.text).join('\n\n');
+    const system2 = second.systemBlocks.map((b) => b.text).join('\n\n');
+    expect(system1).toBe(system2);
+    // Ни даты, ни сотрудника в system — иначе префикс обнуляется на каждом запросе.
+    expect(system1).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    expect(system1).not.toContain('oper');
+    expect(system1).not.toContain('master');
+    // Живое — в сообщении.
+    expect(second.userMessage).toContain('Какой график ППО');
   });
 
   // Проба баланса — настоящий запрос к провайдеру. С фиксированным интервалом она
