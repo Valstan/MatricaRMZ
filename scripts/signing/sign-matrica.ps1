@@ -24,6 +24,7 @@
       -CerPath <путь>      rootca.cer (NewCa: куда сохранить; InstallRoot: откуда поставить)
       -Target <путь>       файл или папка для подписи (Sign). Папка обходится рекурсивно.
       -CertStore           хранилище для InstallRoot: CurrentUser (по умолчанию) | LocalMachine
+      -RootStoreName       имя МАШИННОГО хранилища под корень (InstallRoot): Root (по умолчанию) | Trust (Enterprise Trust — его предлагает Касперский) | TrustedPublisher
       -Password <пароль>   пароль PFX (по умолчанию берётся из CSC_KEY_PASSWORD)
       -TimestampUrl <url>  сервер метки времени (по умолчанию http://timestamp.digicert.com)
       -IncludeExt <список> расширения для подписи, по умолчанию .exe,.dll,.node
@@ -47,6 +48,13 @@ param(
     [string]$Target,
     [ValidateSet('CurrentUser', 'LocalMachine')]
     [string]$CertStore = 'CurrentUser',
+    # Имя МАШИННОГО хранилища, куда кладётся корень: 'Root' («Доверенные корневые
+    # центры») или 'Trust' («Доверительные отношения в предприятии», Enterprise Trust —
+    # его Касперский предлагает по умолчанию). Должно совпадать с тем, что выбрано
+    # в списке вкладки «Доверенное системное хранилище сертификатов»: корень лежит
+    # в том хранилище, которое читает служба (ADR-0003).
+    [ValidateSet('Root', 'Trust', 'TrustedPublisher')]
+    [string]$RootStoreName = 'Root',
     [string]$Password,
     [string]$TimestampUrl = 'http://timestamp.digicert.com',
     [string]$IncludeExt = '.exe,.dll,.node',
@@ -158,7 +166,7 @@ function New-SigningCa {
 }
 
 function Install-TrustedRoot {
-    param([string]$CerFile, [string]$Store)
+    param([string]$CerFile, [string]$Store, [string]$RootStoreName = 'Root')
 
     if (-not $CerFile) { throw 'Нужен -CerPath.' }
     if (-not (Test-Path -LiteralPath $CerFile)) { throw "Файл не найден: $CerFile" }
@@ -174,7 +182,7 @@ function Install-TrustedRoot {
     # стороне Windows при добавлении в Root. Это НЕ зависание, но оператор на парке
     # должен знать про ожидание — иначе бросит установку. Скрипт предупреждает заранее.
     $x = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($CerFile)
-    $s = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root', $Store)
+    $s = New-Object System.Security.Cryptography.X509Certificates.X509Store($RootStoreName, $Store)
     try {
         $s.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
         Write-Info 'Ставлю корень в хранилище. Это МЕДЛЕННО: от 45 секунд до нескольких минут (Windows проверяет доверие). Не прерывайте — установка не зависла.'
@@ -182,8 +190,8 @@ function Install-TrustedRoot {
     } finally {
         $s.Close()
     }
-    Write-Info "Корень установлен в Cert:\$Store\Root ($Store)"
-    return @{ Store = $Store; Thumbprint = $x.Thumbprint; Subject = $x.Subject }
+    Write-Info "Корень установлен в Cert:\$Store\$RootStoreName ($Store)"
+    return @{ Store = $Store; RootStoreName = $RootStoreName; Thumbprint = $x.Thumbprint; Subject = $x.Subject }
 }
 
 function Get-SignTargets {
@@ -303,7 +311,7 @@ switch ($Mode) {
         if ($Json) { $res | ConvertTo-Json -Depth 4 }
     }
     'InstallRoot' {
-        $res = Install-TrustedRoot -CerFile $CerPath -Store $CertStore
+        $res = Install-TrustedRoot -CerFile $CerPath -Store $CertStore -RootStoreName $RootStoreName
         if ($Json) { $res | ConvertTo-Json -Depth 4 }
     }
     'Sign' {
