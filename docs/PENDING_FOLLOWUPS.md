@@ -30,7 +30,6 @@
 
 | Срок | Что | Где подробности |
 |---|---|---|
-| **~2026-10-25 03:00** | Первый реальный вопрос Ииваныча после суточного сброса free-квоты: `answer_source=engine` → контур A жив через туннель; `429` → пул выходов подписки выеден | [Баланс DeepSeek](pending/balans-deepseek-u-prod-dvizhka-na-nule-operator-ne.md) |
 | **~2026-07-29** | ✅ 28.07 проверено: из 25 слотов `force_full_pull` не забрали 15 (машины-призраки и выключенные, вреда не несут). Осталось: 5 старых машин — переустановка владельцем | [де-дупликация](pending/de-duplikatsiya-directory-parts-erp-nomenclature.md) |
 | **~2026-07-30** | ✅ 30.07 перепроверено: живых с логином 10; PC71/PC49/PC14 — призраки, исчезли; PC18 обновляется сам; застрявшая осталась одна — PC20 (2026.628.2326, тишина с 16.07), нужна ручная переустановка | [PC20](pending/zastryavshee-avtoobnovlenie-ostalas-odna-mashina-pc20.md) |
 | **~2026-08-04** | Прогон deadcode-дельты (knip) | [deadcode-сканер](pending/deadcode-skaner-mesyachnaya-delta-standing.md) |
@@ -197,7 +196,6 @@
 - [🟢 Экран «Номера РМЗ» не знает автора старых карточек 🗓 since:2026-10-28](pending/ekran-nomera-rmz-ne-znaet-avtora-starykh-kartochek.md)
 - [🟡 Живой `docs/COMPLETED.md` разгружен от старых поколений (638 → 274 КБ), но строки 3.x всё ещё абзацы 🗓 since:2026-10-27](pending/completed-szhat-stroki-pokoleniya-3x.md)
 - [CDP-смоук пакета 3.85–3.87 прогнан 21.10 — 52/52; осталось четыре куска 🗓 since:2026-10-21](pending/cdp-smouk-paketa-3-85-3-87-prognan-21-10-52-52-ostalos.md)
-- [🔴 Баланс DeepSeek у прод-движка: на нуле оператор не получит ответа вообще 🗓 since:2026-10-23](pending/balans-deepseek-u-prod-dvizhka-na-nule-operator-ne.md)
 - [Аварийный режим времени «по интернету + часовой пояс» 🗓 since:2026-10-21](pending/avariynyy-rezhim-vremeni-po-internetu-chasovoy-poyas.md)
 - [🟡 Заглушки `U+FFFD` в документах некому заметить: нужен шаг CI 🗓 since:2026-10-19](pending/zaglushki-u-fffd-v-dokumentakh-nekomu-zametit-nuzhen.md)
 - [🟢 Масштаб листа в окне предпросмотра печати 🗓 since:2026-10-19](pending/masshtab-lista-v-okne-predprosmotra-pechati.md)

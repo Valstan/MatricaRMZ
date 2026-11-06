@@ -30,7 +30,6 @@ import {
   isLlmConfigured,
   isLlmMisconfigured,
   type LlmToolUse,
-  type LlmWithToolsResult,
   type SystemBlock,
 } from './llmProvider.js';
 import { FULL_TOOL_NAMES, executeTool, getToolDefinitions, type ToolContext } from './llmTools.js';
@@ -43,7 +42,6 @@ import {
   runIivanychTool,
   type IivanychAnswerSide,
 } from './iivanychTools.js';
-import { askServerEngine, isServerEngineAvailable, isServerEngineEnabled } from './serverEngine.js';
 
 const TICK_MS = Math.max(500, Number(process.env.AI_CHAT_DIRECT_TICK_MS ?? 2_000));
 /** Строка зависла в `processing` (рестарт сервера посреди ответа) — вернуть в очередь. */
@@ -98,7 +96,14 @@ let creditExhaustedAt = 0;
  * пробами растёт вдвое после каждой неудачи: 5 мин → 10 → 20 … до 6 ч. С фиксированным
  * интервалом проба молотит в пустоту круглосуточно: 25.10 на проде — 430 записей `402`
  * за неделю, ровно 12/час и ночью, при 11 вопросах операторов за те же 7 дней.
+ *
+ * Три ответа, и разница между ними важна:
+ *   `alive`   — счёт жив, можно работать;
+ *   `dead`    — провайдер только что подтвердил: денег нет;
+ *   `backoff` — мы ещё не пробовали (пауза не вышла), ответа провайдера не было.
  */
+type CreditProbe = 'alive' | 'dead' | 'backoff';
+
 const CREDIT_PROBE_BASE_MS = 5 * 60_000;
 const CREDIT_PROBE_MAX_MS = 6 * 60 * 60_000;
 let creditProbeFailures = 0;
@@ -107,9 +112,9 @@ function creditProbeDelayMs(): number {
   return Math.min(CREDIT_PROBE_MAX_MS, CREDIT_PROBE_BASE_MS * 2 ** creditProbeFailures);
 }
 
-async function probeCredit(): Promise<boolean> {
+async function probeCredit(): Promise<CreditProbe> {
   const now = nowMs();
-  if (creditExhaustedAt > 0 && now - creditExhaustedAt < creditProbeDelayMs()) return false;
+  if (creditExhaustedAt > 0 && now - creditExhaustedAt < creditProbeDelayMs()) return 'backoff';
   try {
     const { callLlm } = await import('./llmProvider.js');
     await callLlm({
@@ -122,7 +127,7 @@ async function probeCredit(): Promise<boolean> {
     creditExhaustedAt = 0;
     creditProbeFailures = 0;
     logInfo('ai chat direct: credit probe ok', {}, { critical: true });
-    return true;
+    return 'alive';
   } catch (e) {
     creditProbeFailures += 1;
     creditExhaustedAt = now;
@@ -130,7 +135,7 @@ async function probeCredit(): Promise<boolean> {
       error: String(e),
       nextProbeInMin: Math.round(creditProbeDelayMs() / 60_000),
     });
-    return false;
+    return 'dead';
   }
 }
 
@@ -198,7 +203,7 @@ async function finish(
     answerFilesJson?: string | null;
     escalationNote?: string | null;
     /** Звено, посчитавшее ответ; null/не задано — ответа не было (эскалация). */
-    answerSource?: 'engine' | 'deepseek' | null;
+    answerSource?: 'deepseek' | null;
   },
 ) {
   const ts = nowMs();
@@ -305,54 +310,27 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
 
   const side: IivanychAnswerSide = { escalationReason: null, tables: [] };
 
-  // Контур A: первым считает серверный движок (opencode на проде). Инструменты
-  // приезжают ему не из in-process цикла, а по MCP-мосту (serverEngineTools),
-  // поэтому контекст сотрудника — права и побочные результаты — объявляется
-  // активным на время ответа внутри askServerEngine.
-  const engine = await askServerEngine({
-    systemPrompt: systemBlocks.map((block) => block.text).join('\n\n'),
+  // Единственное звено: DeepSeek напрямую.
+  //
+  // Контур A (движок opencode на проде) снят 06.11.2026 по решению владельца: счёт
+  // DeepSeek оплачен, и движок стал лишним звеном — он не давал ничего, чего не умеет
+  // прямой путь, зато тянул за собой free-тир, ВПН с ротацией выходов и 203 МБ бинаря
+  // на боксе. Прямой путь вдобавок единственный, кто берёт кэш префикса: движок ходил
+  // в провайдера своим промптом, и cache_read по нему всегда был 0.
+  const result = await callLlmWithTools({
+    model: AI_MODEL_ANALYTICS,
+    systemBlocks,
     userMessage,
-    toolCtx,
-    side,
+    tools: [...getToolDefinitions(FULL_TOOL_NAMES), ...IIVANYCH_TOOLS],
+    scope: 'iivanych',
+    options: { timeoutMs: ANSWER_TIMEOUT_MS, maxTokens: ANSWER_MAX_TOKENS, temperature: 0.2 },
+    maxSteps: ANSWER_MAX_STEPS,
+    executeTool: async (toolUse: LlmToolUse) => {
+      const own = await runIivanychTool(toolUse, side);
+      if (own) return own;
+      return executeTool(toolUse, toolCtx);
+    },
   });
-
-  let result: LlmWithToolsResult;
-  if (engine.ok) {
-    result = {
-      text: engine.text,
-      toolUses: [],
-      steps: engine.steps,
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheCreationTokens: 0,
-      stopReason: `engine:${engine.model}`,
-    };
-  } else {
-    // DeepSeek — последнее звено цепочки. Пишем причину, только когда движок
-    // включён: выключенный движок не сбой, а штатная настройка.
-    if (isServerEngineEnabled() && engine.kind !== 'unavailable') {
-      logError('ai chat direct: server engine failed, falling back to deepseek', {
-        id: requestId,
-        kind: engine.kind,
-        error: engine.error,
-      });
-    }
-    result = await callLlmWithTools({
-      model: AI_MODEL_ANALYTICS,
-      systemBlocks,
-      userMessage,
-      tools: [...getToolDefinitions(FULL_TOOL_NAMES), ...IIVANYCH_TOOLS],
-      scope: 'iivanych',
-      options: { timeoutMs: ANSWER_TIMEOUT_MS, maxTokens: ANSWER_MAX_TOKENS, temperature: 0.2 },
-      maxSteps: ANSWER_MAX_STEPS,
-      executeTool: async (toolUse: LlmToolUse) => {
-        const own = await runIivanychTool(toolUse, side);
-        if (own) return own;
-        return executeTool(toolUse, toolCtx);
-      },
-    });
-  }
 
   if (side.escalationReason) {
     await finish(row, actor, { status: 'escalated', escalationNote: side.escalationReason });
@@ -369,7 +347,7 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
   if (!answerText) {
     await finish(row, actor, {
       status: 'escalated',
-      escalationNote: 'Движок вернул пустой ответ (исчерпаны шаги или лимит токенов).',
+      escalationNote: 'DeepSeek вернул пустой ответ (исчерпаны шаги или лимит токенов).',
     });
     // Имена вызванных tools показывают, на чём именно закольцевался ответ.
     logError('ai chat direct: empty answer', {
@@ -410,12 +388,12 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
     answerText,
     answerFilesJson: attachRefs.length > 0 ? JSON.stringify(attachRefs) : null,
     // Источник ответа виден оператору в окне чата (не только в логе прода, где
-    // INFO не пишется вовсе): движок завода или последнее звено — DeepSeek.
-    answerSource: engine.ok ? 'engine' : 'deepseek',
+    // INFO не пишется вовсе): единственное звено — DeepSeek.
+    answerSource: 'deepseek',
   });
   logInfo('ai chat direct: answered', {
     id: requestId,
-    source: engine.ok ? `engine:${engine.model}` : 'deepseek',
+    source: 'deepseek',
     steps: result.steps,
     tools: result.toolUses.length,
     attachments: attachRefs.length,
@@ -470,23 +448,57 @@ async function listPending(): Promise<any[]> {
   return rows.filter((r) => !bridged.has(String(r.id)));
 }
 
+/**
+ * Провайдер подтвердил: денег на счёте нет. Вопрос ждёт пополнения, но висеть вечно
+ * не должен — после MAX_ATTEMPTS подтверждений он уходит человеку (GOTCHAS M174).
+ * Раньше эту роль играл резервный движок: он отвечал, пока DeepSeek был без денег.
+ * Счёт оплачен, движка нет — значит и ждать незачем, оператору нужен живой ответ.
+ */
+async function escalateExhausted(actor: AiChatActor): Promise<number> {
+  let escalated = 0;
+  for (const row of await listPending()) {
+    const id = String(row.id);
+    if (inFlight.has(id)) continue;
+    const failed = (attempts.get(id) ?? 0) + 1;
+    attempts.set(id, failed);
+    if (failed < MAX_ATTEMPTS) continue;
+    attempts.delete(id);
+    await finish(row, actor, {
+      status: 'escalated',
+      escalationNote: `Счёт DeepSeek на нуле (попыток: ${MAX_ATTEMPTS}). Нужен ответ администратора.`,
+    }).catch(() => undefined);
+    await notifySuperadminEscalation(actor, {
+      username: String(row.username),
+      questionText: String(row.questionText),
+      reason: 'Счёт DeepSeek на нуле — вопрос остался без ответа.',
+    }).catch(() => undefined);
+    escalated += 1;
+  }
+  return escalated;
+}
+
 /** Один проход очереди. Экспортируется для тестов и ручного прогона. */
 export async function aiChatDirectTick(): Promise<{ processed: number }> {
   if (!AI_ENABLED) return { processed: 0 };
-  // Движок контура A — самостоятельное звено: без ключа DeepSeek он всё равно
-  // отвечает, поэтому «нет ключа» не выключает очередь целиком.
-  if (!isLlmConfigured() && !isServerEngineEnabled()) return { processed: 0 };
+  // Единственное звено — DeepSeek: без ключа отвечать некому.
+  if (!isLlmConfigured()) return { processed: 0 };
   const actor = await getAiChatActor();
   await reclaimStale(actor).catch((e) => logError('ai chat direct: reclaim failed', { error: String(e) }));
 
   let processed = 0;
   // До пробы — не трогаем pending: всё равно пустим в 402 и зажжём эскалации.
-  // Продолжаем только если вопрос реально может обслужить движок: включён и не
-  // в паузе. Иначе каждый тик дёргал бы DeepSeek с 402 — так и случилось на
-  // проде 21.10, пока движок был в паузе после сбоя.
+  // Продолжаем только если вопрос реально может обслужить провайдер: счёт жив.
+  // Иначе каждый тик дёргал бы DeepSeek с 402 — так и случилось на проде 21.10.
   if (creditExhaustedAt > 0) {
-    const alive = await probeCredit();
-    if (!alive && !isServerEngineAvailable()) return { processed: 0 };
+    const probe = await probeCredit();
+    // Пауза между пробами не вышла — провайдера не спрашивали, состояние прежнее.
+    if (probe === 'backoff') return { processed: 0 };
+    // Провайдер подтвердил: денег нет. Вопросы копятся, но висят не вечно — через
+    // MAX_ATTEMPTS подтверждений уходят человеку.
+    if (probe === 'dead') {
+      await escalateExhausted(actor);
+      return { processed: 0 };
+    }
   }
   for (const row of await listPending()) {
     const id = String(row.id);
@@ -511,7 +523,7 @@ export async function aiChatDirectTick(): Promise<{ processed: number }> {
         creditExhaustedAt = Date.now();
         const failed = (attempts.get(id) ?? 0) + 1;
         attempts.set(id, failed);
-        logError('ai chat direct: credit exhausted — routing to bridge until top-up', {
+        logError('ai chat direct: credit exhausted — вопрос ждёт пополнения счёта', {
           id,
           attempt: failed,
           error: String(e),
@@ -520,12 +532,12 @@ export async function aiChatDirectTick(): Promise<{ processed: number }> {
           attempts.delete(id);
           await finish(row, actor, {
             status: 'escalated',
-            escalationNote: `Движок завода не ответил, а счёт резервного движка на нуле (попыток: ${MAX_ATTEMPTS}). Нужен ответ администратора.`,
+            escalationNote: `DeepSeek не ответил, а счёт на нуле (попыток: ${MAX_ATTEMPTS}). Нужен ответ администратора.`,
           }).catch(() => undefined);
           await notifySuperadminEscalation(actor, {
             username: String(row.username),
             questionText: String(row.questionText),
-            reason: 'Серверный движок не ответил, резервный счёт на нуле — вопрос остался без ответа.',
+            reason: 'DeepSeek не ответил, счёт на нуле — вопрос остался без ответа.',
           }).catch(() => undefined);
         } else {
           await writeAiChatRow(actor as any, { ...row, status: 'pending', updatedAt: nowMs() }).catch(() => undefined);
