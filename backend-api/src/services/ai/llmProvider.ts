@@ -360,11 +360,25 @@ function toSystemParam(blocks: SystemBlock[]): Anthropic.TextBlockParam[] {
   }));
 }
 
+/**
+ * Набор инструментов на текущий шаг.
+ *
+ * Массив — набор неизменен весь ответ. Функция — набор может расшириться ПОСЕРЕДИ
+ * ответа: путь ответа Ииваныча стартует с компактного меню (бытовой вопрос не должен
+ * перебирать все 19 инструментов), а полный набор модель просит сама, когда
+ * компактного не хватило. Без этой возможности «компактный старт» был бы
+ * обменом скорости на способность отвечать — цена, которую оператор платит
+ * качеством ответа.
+ */
+function resolveTools(tools: LlmToolDef[] | (() => LlmToolDef[])): LlmToolDef[] {
+  return typeof tools === 'function' ? tools() : tools;
+}
+
 export async function callLlmWithTools(args: {
   model: string;
   systemBlocks: SystemBlock[];
   userMessage: string;
-  tools: LlmToolDef[];
+  tools: LlmToolDef[] | (() => LlmToolDef[]);
   executeTool: (toolUse: LlmToolUse) => Promise<{ content: string; isError?: boolean }>;
   maxSteps?: number;
   /** Кто зовёт — попадает в строку `llm usage`, чтобы hit/miss читались по модулям. */
@@ -385,12 +399,16 @@ export async function callLlmWithTools(args: {
   let lastText = '';
   try {
     for (let step = 1; step <= maxSteps; step++) {
+      // Набор перечитывается на каждом шаге: модель могла расширить его предыдущим
+      // вызовом (enable_full_tools) — и следующий запрос обязан объявить эти инструменты,
+      // иначе провайдер отвергнет историю с незнакомым tool_use.
+      const tools = resolveTools(args.tools);
       const resp = await client.messages.create(
         {
           model: args.model,
           max_tokens: args.options?.maxTokens ?? 1024,
           system: toSystemParam(args.systemBlocks),
-          tools: args.tools,
+          tools,
           messages,
           ...(args.options?.temperature != null ? { temperature: args.options.temperature } : {}),
         },
@@ -455,7 +473,7 @@ export async function callLlmWithTools(args: {
       model: args.model,
       max_tokens: args.options?.maxTokens ?? 1024,
       system: toSystemParam(args.systemBlocks),
-      ...(withTools ? { tools: args.tools } : {}),
+      ...(withTools ? { tools: resolveTools(args.tools) } : {}),
       messages,
       ...(args.options?.temperature != null ? { temperature: args.options.temperature } : {}),
     });

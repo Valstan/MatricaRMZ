@@ -62,10 +62,25 @@ export const SAVE_LEARNING_NOTE_TOOL: LlmToolDef = {
   },
 };
 
+export const ENABLE_FULL_TOOLS: LlmToolDef = {
+  name: 'enable_full_tools',
+  description:
+    'Включить расширенный набор инструментов: прогноз сборки, приоритеты деталей, аномалии движений, ' +
+    'выработка цеха, диагностика, статистика отчётов. Вызывай, когда компактного набора ЯВНО не хватает ' +
+    'для точного ответа. Один вызов — и расширенный набор остаётся до конца ответа.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      reason: { type: 'string', description: 'Чего не хватило в компактном наборе — одной фразой.' },
+    },
+  },
+};
+
 export const IIVANYCH_TOOLS: ReadonlyArray<LlmToolDef> = [
   ESCALATE_TOOL,
   ATTACH_TABLE_TOOL,
   SAVE_LEARNING_NOTE_TOOL,
+  ENABLE_FULL_TOOLS,
 ];
 
 /**
@@ -76,6 +91,12 @@ export const IIVANYCH_TOOLS: ReadonlyArray<LlmToolDef> = [
 export type IivanychAnswerSide = {
   escalationReason: string | null;
   tables: AnswerTable[];
+  /**
+   * Модель попросила расширенный набор инструментов (`enable_full_tools`).
+   * Флаг ставит `runIivanychTool`, читает путь ответа — он переключает меню
+   * инструментов с компактного на полный на следующем шаге.
+   */
+  fullToolsEnabled: boolean;
 };
 
 export function parseAttachTable(input: Record<string, unknown>): AnswerTable | null {
@@ -111,6 +132,14 @@ export async function runIivanychTool(
     side.tables.push(table);
     return {
       content: `Файл «${table.filename}.xlsx» приложен к ответу (${table.rows.length} строк).`,
+    };
+  }
+  if (toolUse.name === ENABLE_FULL_TOOLS.name) {
+    side.fullToolsEnabled = true;
+    return {
+      content:
+        'Расширенный набор инструментов включён — он доступен до конца ответа. ' +
+        'Пользуйся им и отвечай по данным.',
     };
   }
   return null;

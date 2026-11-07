@@ -32,7 +32,13 @@ import {
   type LlmToolUse,
   type SystemBlock,
 } from './llmProvider.js';
-import { FULL_TOOL_NAMES, executeTool, getToolDefinitions, type ToolContext } from './llmTools.js';
+import {
+  ANSWER_COMPACT_TOOL_NAMES,
+  FULL_TOOL_NAMES,
+  executeTool,
+  getToolDefinitions,
+  type ToolContext,
+} from './llmTools.js';
 import { listBridgedRequestIds } from './aiChatHotlineBridgeService.js';
 import { buildAnswerWorkbook } from './answerWorkbook.js';
 import { buildAnswerDocx } from './answerDocument.js';
@@ -59,7 +65,13 @@ const ANSWER_MAX_STEPS = Math.max(1, Math.min(Number(process.env.AI_CHAT_ANSWER_
 const INLINE_FILE_MAX_BYTES = 200_000;
 const INLINE_FILE_EXTENSIONS = ['.txt', '.csv', '.md', '.json', '.log', '.xml', '.yaml', '.yml'];
 
-const BASE_PROMPT =
+/**
+ * Системный промпт Ииваныча. Экспортирован не для красоты: сторож сверяет, что
+ * каждый инструмент, упомянутый тут поимённо, реально есть в меню, которое модель
+ * видит. Промпт, зовущий инструмент, которого нет, — тихая поломка: модель либо
+ * уходит в эскалацию, либо отвечает «не найдено» там, где всё есть.
+ */
+export const IIVANYCH_BASE_PROMPT =
   'Ты ИИваныч — помощник работников ремонтно-механического завода в ERP-программе «Матрица РМЗ». ' +
   'Отвечай по-русски, по делу, без воды: сначала прямой ответ, затем при необходимости пояснение. ' +
   'Данные бери ТОЛЬКО из tools (read-only доступ к базе) — не выдумывай числа, названия и функции программы. ' +
@@ -70,6 +82,10 @@ const BASE_PROMPT =
   'Когда уточнение раскрыло, что пользователь имел в виду (синоним, сокращение, где лежат данные) — ' +
   'сохрани это одной фразой через save_learning_note, чтобы в следующий раз не переспрашивать. ' +
   'Если данных для точного ответа нет или прав пользователя не хватает — вызови escalate_to_admin, а не гадай. ' +
+  'Тебе дан компактный набор инструментов — он покрывает обычные вопросы. Если данных в нём явно не хватает — ' +
+  'вызови enable_full_tools (без лишних слов) и получишь расширенный набор; он останется до конца ответа. ' +
+  'Отвечай, как только данных хватило: не перебирай варианты запроса и не проверяй одно и то же разными ' +
+  'инструментами — каждый лишний вызов стоит оператору времени. ' +
   'Ответ оформляй простым markdown (заголовки, списки, таблицы до ~15 строк). ' +
   'Длинные таблицы отдавай файлом через attach_table. ' +
   'Если задаче пользователя отвечает готовый отчёт программы — зови suggest_report и вставь в ответ строку из поля ' +
@@ -279,7 +295,7 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
   // вытеснением с головы), вердикт же относится к одному конкретному обращению. И то и
   // другое, стоя в system, обнуляло префикс-кэш на каждом запросе — R29.
   const systemBlocks: SystemBlock[] = [
-    { type: 'text', text: BASE_PROMPT },
+    { type: 'text', text: IIVANYCH_BASE_PROMPT },
     {
       type: 'text',
       text: rulesMd
@@ -308,7 +324,7 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
       : []),
   ].join('\n');
 
-  const side: IivanychAnswerSide = { escalationReason: null, tables: [] };
+  const side: IivanychAnswerSide = { escalationReason: null, tables: [], fullToolsEnabled: false };
 
   // Единственное звено: DeepSeek напрямую.
   //
@@ -321,7 +337,14 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
     model: AI_MODEL_ANALYTICS,
     systemBlocks,
     userMessage,
-    tools: [...getToolDefinitions(FULL_TOOL_NAMES), ...IIVANYCH_TOOLS],
+    // Меню инструментов перечитывается на каждом шаге: по умолчанию — компактное
+    // (бытовой вопрос не должен перебирать все 19), а полное модель включает сама
+    // вызовом enable_full_tools, когда компактного не хватило. Способность отвечать
+    // не теряется — теряется только время на перебор.
+    tools: () =>
+      side.fullToolsEnabled
+        ? [...getToolDefinitions(FULL_TOOL_NAMES), ...IIVANYCH_TOOLS]
+        : [...getToolDefinitions(ANSWER_COMPACT_TOOL_NAMES), ...IIVANYCH_TOOLS],
     scope: 'iivanych',
     options: { timeoutMs: ANSWER_TIMEOUT_MS, maxTokens: ANSWER_MAX_TOKENS, temperature: 0.2 },
     maxSteps: ANSWER_MAX_STEPS,
@@ -396,6 +419,10 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
     source: 'deepseek',
     steps: result.steps,
     tools: result.toolUses.length,
+    // Какой набор инструментов довёл до ответа: 'compact' — бытовой вопрос обошёлся
+    // без расширения, 'full' — модели не хватило компактного. Это то, чем измеряется
+    // эффект компактного старта: сколько ответов стоили расширения.
+    toolSet: side.fullToolsEnabled ? 'full' : 'compact',
     attachments: attachRefs.length,
     inputTokens: result.inputTokens,
     outputTokens: result.outputTokens,
