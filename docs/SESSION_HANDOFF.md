@@ -28,7 +28,7 @@
 
 - **ADR:** [`docs/adr/0003-signed-code-ecosystem-one-kaspersky-rule.md`](../adr/0003-signed-code-ecosystem-one-kaspersky-rule.md) — Accepted (05.11), п. 4 «обновить помощник» закрыт 06.11.
 - **Планы контура A — в архиве:** [`docs/plans/_archive/neural-contour-a-in-product-2026-10.md`](_archive/neural-contour-a-in-product-2026-10.md) (и ещё два `neural-*`) с пометкой «свернуто 06.11». Активный: [`docs/plans/prod-only-iivanych-2026-10.md`](plans/prod-only-iivanych-2026-10.md) (дополнен 06.11).
-- **Связанные PR:** **#1595** (контур A снят), **#1596** (модель — только `deepseek-flash`), **#1597** (handoff и профили машин), релиз `release/v3.106.0`, **#1600** (быстрый ответ Ииваныча: компактный набор инструментов + `enable_full_tools`; затронуты `backend-api/src/services/ai/{aiChatAnswerService,iivanychTools,llmProvider,llmTools}.ts`).
+- **Связанные PR:** **#1595** (контур A снят), **#1596** (модель — только `deepseek-flash`), **#1597** (handoff и профили машин), релиз `release/v3.106.0`, **#1600** (быстрый ответ Ииваныча: компактный набор инструментов + `enable_full_tools`; затронуты `backend-api/src/services/ai/{aiChatAnswerService,iivanychTools,llmProvider,llmTools}.ts`), **#1601** (строка нитки в done-индексе; место освобождено сжатием формы ссылок — запас индекса 490 байт).
 - **Прод:** v3.106.0, `lastError: null`, миграций новых нет. **Место: 6,9 → 5,6 ГБ из 9,9 (73% → 59%)**, освобождено 1,3 ГБ. Подробности — [`docs/machines/es-vps.md`](machines/es-vps.md).
 - **Открытых PR:** нет.
 - **Локальные ветки с un-pushed коммитами:** `feat/engine-rmz-number-allocation` (2 коммита, `50585146` + `a653b9f6`; upstream `[gone]`). **Не трогать**: это нитка номеров РМЗ, её разбор идёт вместе с ней.
