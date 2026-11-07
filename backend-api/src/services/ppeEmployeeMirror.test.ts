@@ -115,6 +115,23 @@ describe('planEmployeeMirror', () => {
     expect(plan.ambiguous[0]?.reason).toBe('табельный номер уже занят другой карточкой');
   });
 
+  // Прод 07.11.2026: в справочнике ТРИ сотрудника с одинаковым ФИО, у двоих карточек,
+  // табельный 818 занят первой. Зеркало писало 818 в вторую карточку — уникальный
+  // индекс отвергал правку, и строка падала каждую минуту (69 раз за 2,5 часа).
+  it('табельный номер, занятый другой карточкой, в карточку не пишется', () => {
+    const employee = emp({ entityId: 'e-1', personnelNo: '818', roleCode: 'мастер' });
+    const holder = card({ id: 'holder', personnelNo: '818' });
+    const mine = card({ id: 'e-1', entityId: 'e-1', roleCode: null });
+    const plan = planEmployeeMirror([employee], [holder, mine]);
+    const updates = plan.ops.filter((o) => o.kind === 'update') as Array<
+      Extract<MirrorOp, { kind: 'update' }>
+    >;
+    // Номер не навязываем (уникальный индекс), остальные поля синхронизируются.
+    expect(updates.every((o) => o.patch.personnelNo === undefined)).toBe(true);
+    expect(updates[0]?.patch.roleCode).toBe('мастер');
+    expect(plan.ambiguous[0]?.reason).toBe('табельный номер уже занят другой карточкой');
+  });
+
   it('сотрудник без табельного сводится по единственному однофамильцу без табельного', () => {
     const employee = emp({ personnelNo: null, fullName: 'Петров Пётр Петрович' });
     const imported = card({ id: 'imported', fullName: 'Петров Петр Петрович' });
