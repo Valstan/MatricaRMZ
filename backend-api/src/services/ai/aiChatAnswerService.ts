@@ -60,7 +60,7 @@ const ANSWER_MAX_TOKENS = Math.max(512, Number(process.env.AI_CHAT_ANSWER_MAX_TO
 // половину шагов съедали безрезультатные поиски. Оборванный ответ всё равно
 // стоит полного набора токенов и вынуждает переспрашивать — то есть экономии
 // на низком дефолте не было.
-const ANSWER_MAX_STEPS = Math.max(1, Math.min(Number(process.env.AI_CHAT_ANSWER_MAX_STEPS ?? 12), 12));
+export const ANSWER_MAX_STEPS = Math.max(1, Math.min(Number(process.env.AI_CHAT_ANSWER_MAX_STEPS ?? 12), 12));
 /** Текстовое вложение к вопросу инлайнится в промпт — картинки/офис движок не читает. */
 const INLINE_FILE_MAX_BYTES = 200_000;
 const INLINE_FILE_EXTENSIONS = ['.txt', '.csv', '.md', '.json', '.log', '.xml', '.yaml', '.yml'];
@@ -93,6 +93,32 @@ export const IIVANYCH_BASE_PROMPT =
   'настройками (период, марка, договор, заказчик из вопроса). Маркер не сочиняй и внутрь него ничего не дописывай — ' +
   'испорченная строка откроет отчёт без отбора, и человек об этом не узнает. Словами скажи, что подставлено. ' +
   'К каждому текстовому ответу сервер сам прикладывает документ Word — отдельно собирать его не нужно.';
+
+/**
+ * Системные блоки ответа — ровно те, что уходят в прод.
+ *
+ * В system остаётся только то, что не меняется от ответа к ответу: базовый промпт и
+ * правила администратора (их правят руками и редко). Блок правил присутствует ВСЕГДА —
+ * при пустых правилах заглушкой: иначе число блоков плавало бы и меняло сериализацию
+ * запроса само по себе. Метка кэша стоит на последнем стабильном блоке — это граница
+ * префикса для anthropic-пути; DeepSeek кэширует сам и метку игнорирует.
+ *
+ * Вынесено отдельной функцией, потому что стенд замера (`scripts/measureAnswer.ts`)
+ * должен мерить ровно тот запрос, который уходит в прод: свой промпт у стенда рано или
+ * поздно разошёлся бы с боевым, и цифры стали бы враньём.
+ */
+export function buildIivanychSystemBlocks(rulesMd: string | null): SystemBlock[] {
+  return [
+    { type: 'text', text: IIVANYCH_BASE_PROMPT },
+    {
+      type: 'text',
+      text: rulesMd
+        ? `Правила ответов, заданные администратором:\n${rulesMd}`
+        : 'Правила ответов, заданные администратором: не заданы.',
+      cacheable: true,
+    },
+  ];
+}
 
 const MAX_ATTEMPTS = Math.max(1, Number(process.env.AI_CHAT_ANSWER_MAX_ATTEMPTS ?? 3));
 
@@ -294,16 +320,7 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
   // дописывает себе сама после каждого ответа (а при переполнении блок ещё и съезжает
   // вытеснением с головы), вердикт же относится к одному конкретному обращению. И то и
   // другое, стоя в system, обнуляло префикс-кэш на каждом запросе — R29.
-  const systemBlocks: SystemBlock[] = [
-    { type: 'text', text: IIVANYCH_BASE_PROMPT },
-    {
-      type: 'text',
-      text: rulesMd
-        ? `Правила ответов, заданные администратором:\n${rulesMd}`
-        : 'Правила ответов, заданные администратором: не заданы.',
-      cacheable: true,
-    },
-  ];
+  const systemBlocks: SystemBlock[] = buildIivanychSystemBlocks(rulesMd);
   const learningMd = await getLearningNotes().catch(() => null);
 
   const personLabel = await personLabelForLogin(String(row.username));
