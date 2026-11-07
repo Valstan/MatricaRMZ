@@ -86,6 +86,7 @@
 
 ## ⏳ Ждёт внешнего окна / события
 
+- [🔴 Telegram-опрос: канал рвётся сетью хостинг-провайдера — нужно решение владельца 🗓 since:2026-11-07](pending/telegram-opy-s-chastoy-seti-zhdet-zhdemut-resheniya-vladeltsa.md)
 - [⏳ Боевой CA Матрицы и вывод подписи в бой 🗓 since:2026-11-05](pending/boevoy-ca-i-vyvod-podpisi-v-boy.md)
 - [⏳ Приёмка парка на 3.102.0: приказ о СИЗ и должности должны быть видны оператору 🗓 since:2026-11-03](pending/priemka-parka-na-3-101-0-prikaz-o-siz.md)
 - [⏳ Проставить сроки носки по 113 годовым позициям приказа о СИЗ: без срока они не попадают в «пора выдавать» 🗓 since:2026-11-05](pending/prostat-sroki-noski-po-godovym-poziciyam-prikaza-siz.md)
