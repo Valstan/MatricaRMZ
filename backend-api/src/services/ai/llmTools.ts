@@ -1142,6 +1142,42 @@ export const COMPACT_TOOL_NAMES: ReadonlyArray<string> = [
   'get_inventory_forecast',
 ];
 
+/**
+ * Набор инструментов пути ОТВЕТА Ииваныча (вопрос оператора → ответ в чате).
+ *
+ * Отдельный от COMPACT_TOOL_NAMES (тот — для подсказки в окне клиента): правила
+ * разные. У чата полный набор приходит по счётчику непонимания. У Ииваныча набор
+ * задаёт ПРОМПТ, и там он прямо зовёт два инструмента:
+ *   · `find_entity` — нечёткий поиск, без него модель отвечает «не найдено» там,
+ *     где сущность есть (жёсткое требование базового промпта);
+ *   · `suggest_report` — кнопка готового отчёта, без него оператор теряет отчёт,
+ *     ради которого обычно и спрашивают.
+ * Оба обязаны быть в наборе с первого шага: инструмента, которого нет в меню,
+ * модель не зовёт — она зовёт `enable_full_tools` или уходит в эскалацию.
+ *
+ * Остальное (прогноз сборки, приоритеты деталей, аномалии, выработка цеха,
+ * диагностика, статистика отчётов) — вопросы аналитика; они достаются модели
+ * по запросу `enable_full_tools`, то есть бытовой вопрос их за собой не тащит.
+ *
+ * Почему не полный набор: 07.11.2026 на проде вопрос «сколько двигателей» занял
+ * 12 шагов с инструментами (потолок `ANSWER_MAX_STEPS`) и ~50 с — модель
+ * перебирала меню. Меньшее меню — меньше поводов свернуть не туда.
+ */
+export const ANSWER_COMPACT_TOOL_NAMES: ReadonlyArray<string> = [
+  'find_entity',
+  'query_nomenclature',
+  'get_stock_balances',
+  'get_engine_brands',
+  'get_engine_details',
+  'get_operations',
+  'get_contracts',
+  'get_employees_list',
+  'get_organization_structure',
+  'get_reclamations',
+  'execute_safe_sql',
+  'suggest_report',
+];
+
 export function getToolDefinitions(names: ReadonlyArray<string>): LlmToolDef[] {
   return names
     .map((n) => TOOLS[n]?.def)

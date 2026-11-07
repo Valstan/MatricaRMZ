@@ -18,6 +18,16 @@ let probeAlive = false;
 let llmSucceeds = false;
 /** Аргументы последних вызовов модели — по ним проверяем стабильность префикса (R29). */
 const llmArgs: Array<{ systemBlocks: Array<{ text: string }>; userMessage: string }> = [];
+/** Имена инструментов, которые модель видела на каждом шаге (меню перечитывается). */
+const offeredTools: string[][] = [];
+/** Модель сама просит расширенный набор инструментов (enable_full_tools). */
+let modelExpandsTools = false;
+
+/** Меню, объявленное в запросе: массив или функция (набор может расширяться). */
+function offeredNames(tools: any): string[] {
+  const list = typeof tools === 'function' ? tools() : tools;
+  return (list ?? []).map((t: any) => t.name);
+}
 
 function col(key: string) {
   return { key };
@@ -110,7 +120,15 @@ vi.mock('./llmProvider.js', () => ({
   callLlmWithTools: async (args: any) => {
     llmCalls += 1;
     llmArgs.push({ systemBlocks: args.systemBlocks, userMessage: args.userMessage });
+    offeredTools.push(offeredNames(args.tools));
     if (llmSucceeds) {
+      if (modelExpandsTools) {
+        // Модель позвала enable_full_tools — путь ответа обязан расширить меню,
+        // иначе следующий шаг уйдёт с компактным набором и нужный инструмент
+        // модель не увидит.
+        await args.executeTool({ id: 'tu-1', name: 'enable_full_tools', input: { reason: 'нужен аналитический отчёт' } });
+        offeredTools.push(offeredNames(args.tools));
+      }
       return {
         text: 'ответ модели',
         toolUses: [],
@@ -134,15 +152,36 @@ vi.mock('./llmProvider.js', () => ({
   isLlmMisconfigured: () => false,
 }));
 
+// Зеркало реальных наборов: компактный — обычный вопрос, полный — аналитика.
+// Соответствие настоящим спискам проверяет сторож
+// `backend-api/src/tests/llmTools.answerCompact.guard.test.ts`.
 vi.mock('./llmTools.js', () => ({
-  FULL_TOOL_NAMES: [] as string[],
+  ANSWER_COMPACT_TOOL_NAMES: ['find_entity', 'query_nomenclature', 'suggest_report'] as string[],
+  FULL_TOOL_NAMES: [
+    'find_entity',
+    'query_nomenclature',
+    'suggest_report',
+    'get_workshop_throughput',
+  ] as string[],
   executeTool: async () => null,
-  getToolDefinitions: () => [],
+  getToolDefinitions: (names: ReadonlyArray<string>) =>
+    names.map((name) => ({ name, description: '', input_schema: { type: 'object' as const, properties: {} } })),
 }));
 
 vi.mock('./iivanychTools.js', () => ({
-  IIVANYCH_TOOLS: [],
-  runIivanychTool: async () => null,
+  IIVANYCH_TOOLS: [
+    { name: 'escalate_to_admin', description: '', input_schema: { type: 'object' as const, properties: {} } },
+    { name: 'save_learning_note', description: '', input_schema: { type: 'object' as const, properties: {} } },
+    { name: 'attach_table', description: '', input_schema: { type: 'object' as const, properties: {} } },
+    { name: 'enable_full_tools', description: '', input_schema: { type: 'object' as const, properties: {} } },
+  ],
+  runIivanychTool: async (toolUse: any, side: any) => {
+    if (toolUse?.name === 'enable_full_tools') {
+      side.fullToolsEnabled = true;
+      return { content: 'Расширенный набор инструментов включён.' };
+    }
+    return null;
+  },
 }));
 
 vi.mock('./aiChatLearningNotes.js', () => ({ getLearningNotes: async () => null }));
@@ -165,6 +204,8 @@ beforeEach(() => {
   probeAlive = false;
   llmSucceeds = false;
   llmArgs.length = 0;
+  offeredTools.length = 0;
+  modelExpandsTools = false;
   requestRows = [
     {
       id: 'req-1',
@@ -288,6 +329,57 @@ describe('очередь прямого движка', () => {
       expect(probeCalls).toBe(afterFirstFailure + 2);
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  // 07.11.2026 на проде вопрос «сколько двигателей» занял 12 шагов с инструментами
+  // (потолок ANSWER_MAX_STEPS) и ~50 с: модель перебирала меню из 19 инструментов.
+  // Ответ стартует с компактного набора — аналитические инструменты в меню не светятся.
+  it('ответ стартует с компактного набора инструментов', async () => {
+    process.env.AI_CHAT_ANSWER_MAX_ATTEMPTS = '3';
+    llmSucceeds = true;
+    const service = await loadService();
+
+    await service.aiChatDirectTick();
+
+    expect(offeredTools.length).toBeGreaterThan(0);
+    const first = offeredTools[0]!;
+    expect(first).toContain('find_entity');
+    expect(first).toContain('suggest_report');
+    // Аналитика в компактном наборе не лежит — её модель берёт по запросу.
+    expect(first).not.toContain('get_workshop_throughput');
+  });
+
+  // Компактный старт не должен стоить способности отвечать: модель сама расширяет
+  // меню, когда компактного не хватило, и следующий шаг обязан видеть полный набор.
+  it('модель включает расширенный набор — следующий шаг видит полный', async () => {
+    process.env.AI_CHAT_ANSWER_MAX_ATTEMPTS = '3';
+    llmSucceeds = true;
+    modelExpandsTools = true;
+    const service = await loadService();
+
+    await service.aiChatDirectTick();
+
+    expect(offeredTools.length).toBeGreaterThanOrEqual(2);
+    const afterExpand = offeredTools[offeredTools.length - 1]!;
+    expect(afterExpand).toContain('get_workshop_throughput');
+    expect(afterExpand).toContain('enable_full_tools');
+  });
+
+  // Промпт зовёт инструменты поимённо. Инструмента, которого нет в меню, модель не
+  // зовёт: она уходит в эскалацию или отвечает «не найдено» там, где всё есть.
+  it('каждый инструмент, названный в промпте, есть в меню модели', async () => {
+    process.env.AI_CHAT_ANSWER_MAX_ATTEMPTS = '3';
+    llmSucceeds = true;
+    const service = await loadService();
+
+    await service.aiChatDirectTick();
+
+    const named = service.IIVANYCH_BASE_PROMPT.match(/\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g) ?? [];
+    expect(named.length).toBeGreaterThan(0);
+    const offered = new Set(offeredTools[0] ?? []);
+    for (const name of named) {
+      expect(offered.has(name)).toBe(true);
     }
   });
 });
