@@ -386,13 +386,16 @@ const matricaApi = {
     list: async () => ipcRenderer.invoke('employees:list'),
     get: async (id: string) => ipcRenderer.invoke('employees:get', id),
     create: async () => ipcRenderer.invoke('employees:create'),
-    setAttr: async (employeeId: string, code: string, value: unknown) =>
-      ipcRenderer.invoke('employees:setAttr', employeeId, code, value),
+    setAttr: async (employeeId: string, code: string, value: unknown, opts?: { force?: boolean }) =>
+      ipcRenderer.invoke('employees:setAttr', employeeId, code, value, opts),
     delete: async (employeeId: string) => ipcRenderer.invoke('employees:delete', employeeId),
     merge: async () => ipcRenderer.invoke('employees:merge'),
     resyncFromServer: async () => ipcRenderer.invoke('employees:resyncFromServer'),
     dedupeAnalyze: async () => ipcRenderer.invoke('employees:dedupeAnalyze'),
-    dedupeMerge: async (args: { survivorId: string; loserId: string; dryRun?: boolean }) => ipcRenderer.invoke('employees:dedupeMerge', args),
+    dedupeCheck: async (args: { fullName?: string; personnelNumber?: string; excludeId?: string }) =>
+      ipcRenderer.invoke('employees:dedupeCheck', args),
+    dedupeMerge: async (args: { survivorId: string; loserIds: string[]; dryRun?: boolean }) =>
+      ipcRenderer.invoke('employees:dedupeMerge', args),
     departmentsList: async () => ipcRenderer.invoke('employees:departments:list'),
     positionsList: async () => ipcRenderer.invoke('employees:positions:list'),
     positionsCreate: async (label: string) => ipcRenderer.invoke('employees:positions:create', label),

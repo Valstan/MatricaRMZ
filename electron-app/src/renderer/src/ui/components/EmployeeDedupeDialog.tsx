@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 
-import { employeeRoleLabelRu, type EmployeeDupGroup, type EmployeeMergeReport } from '@matricarmz/shared';
+import {
+  employeeRoleLabelRu,
+  type EmployeeDupGroup,
+  type EmployeeGroupMergeReport,
+} from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 
@@ -9,15 +13,24 @@ import { Button } from './Button.js';
  * дважды — автоматический аккаунт и созданный им самим).
  *
  * Порядок намеренно в два шага: сперва **проверка** (dry-run) показывает, что именно произойдёт,
- * и только потом слияние. Операция необратима и трогает права человека, поэтому оператор
- * выбирает основную запись явно — а не «первую попавшуюся».
+ * и только потом слияние. Операция необратима и трогает права человека.
+ *
+ * Слияние — ГРУППОЙ (просьба владельца 07.11.2026): прежде сливалась только пара, и группа
+ * из трёх записей («Хапикова И. С.» на проде) не сливалась вовсе — диалог прямо отказывал
+ * («слияние идёт парами»). Теперь:
+ *   · галочками оператор отмечает, КАКИЕ записи сливать (остальные останутся как есть);
+ *   · радио выбирает основную запись — ту, чей логин, пароль, роль и доступ останутся
+ *     нетронутыми, а к которой переедут остальные;
+ *   · слить можно хоть три, хоть четыре записи разом.
  */
 export function EmployeeDedupeDialog(props: { onClose: () => void; onMerged: () => void }) {
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('');
   const [groups, setGroups] = useState<EmployeeDupGroup[]>([]);
   const [survivorByGroup, setSurvivorByGroup] = useState<Record<number, string>>({});
-  const [reportByGroup, setReportByGroup] = useState<Record<number, EmployeeMergeReport>>({});
+  /** Отметки «слить эту запись» по группам: id записи → отмечена ли. */
+  const [losersByGroup, setLosersByGroup] = useState<Record<number, Record<string, boolean>>>({});
+  const [reportByGroup, setReportByGroup] = useState<Record<number, EmployeeGroupMergeReport>>({});
   const [busyGroup, setBusyGroup] = useState<number | null>(null);
 
   const analyze = useCallback(async () => {
@@ -32,7 +45,10 @@ export function EmployeeDedupeDialog(props: { onClose: () => void; onMerged: () 
       }
       setGroups(r.groups);
       // Основной по умолчанию — запись с доступом, иначе с бо́льшим числом заполненных полей.
+      // Галочки дублей: по умолчанию отмечены ВСЕ остальные записи группы (слияние одним
+      // шагом), оператор снимает галочку с той, которую сливать не надо.
       const preset: Record<number, string> = {};
+      const losers: Record<number, Record<string, boolean>> = {};
       r.groups.forEach((g, i) => {
         const best = [...g.employees].sort(
           (a, b) =>
@@ -41,9 +57,15 @@ export function EmployeeDedupeDialog(props: { onClose: () => void; onMerged: () 
             b.filledAttrs - a.filledAttrs ||
             a.createdAt - b.createdAt,
         )[0];
-        if (best) preset[i] = best.id;
+        if (!best) return;
+        preset[i] = best.id;
+        losers[i] = {};
+        for (const e of g.employees) {
+          if (e.id !== best.id) losers[i]![e.id] = true;
+        }
       });
       setSurvivorByGroup(preset);
+      setLosersByGroup(losers);
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     } finally {
@@ -55,26 +77,46 @@ export function EmployeeDedupeDialog(props: { onClose: () => void; onMerged: () 
     void analyze();
   }, [analyze]);
 
+  /** Выбор основной: с неё снимается галочка — основной не сливается никогда. */
+  const setSurvivor = (gi: number, id: string) => {
+    setSurvivorByGroup((p) => ({ ...p, [gi]: id }));
+    setLosersByGroup((p) => ({ ...p, [gi]: { ...(p[gi] ?? {}), [id]: false } }));
+  };
+
+  const toggleLoser = (gi: number, id: string) =>
+    setLosersByGroup((p) => ({ ...p, [gi]: { ...(p[gi] ?? {}), [id]: !p[gi]?.[id] } }));
+
   async function runMerge(groupIndex: number, dryRun: boolean) {
     const group = groups[groupIndex];
     const survivorId = survivorByGroup[groupIndex] ?? '';
     if (!group || !survivorId) return;
-    const losers = group.employees.filter((e) => e.id !== survivorId);
-    if (losers.length !== 1) {
-      setStatus('Слияние идёт парами: оставьте в группе две записи или объединяйте по одной.');
+    const loserIds = group.employees
+      .map((e) => e.id)
+      .filter((id) => id !== survivorId && losersByGroup[groupIndex]?.[id]);
+    if (loserIds.length === 0) {
+      setStatus('Отметьте галочками хотя бы одну запись для слияния.');
       return;
     }
-    const loser = losers[0]!;
     setBusyGroup(groupIndex);
     setStatus('');
     try {
-      const r = await window.matrica.employees.dedupeMerge({ survivorId, loserId: loser.id, ...(dryRun ? { dryRun: true } : {}) });
+      const r = await window.matrica.employees.dedupeMerge({
+        survivorId,
+        loserIds,
+        ...(dryRun ? { dryRun: true } : {}),
+      });
       if (!r.ok) {
         setStatus(`Ошибка: ${r.error}`);
         return;
       }
       setReportByGroup((prev) => ({ ...prev, [groupIndex]: r.report }));
       if (!dryRun) {
+        if (r.report.failed) {
+          setStatus(
+            `Слияние остановлено на записи ${r.report.failed.loserId.slice(0, 8)}: ${r.report.failed.error}. ` +
+              'Уже слитые стоят на основной — повтор продолжит с того же места.',
+          );
+        }
         props.onMerged();
         await analyze();
       }
@@ -112,9 +154,10 @@ export function EmployeeDedupeDialog(props: { onClose: () => void; onMerged: () 
         </div>
 
         <div style={{ marginTop: 8, color: 'var(--muted)' }}>
-          Выберите основную запись — её логин, пароль, роль и доступ останутся нетронутыми. Из второй
-          перенесутся только те поля, которых у основной нет, а также чат, файлы, заметки и права.
-          Сначала нажмите «Проверить» — он покажет, что произойдёт, ничего не меняя.
+          Отметьте галочками записи, которые нужно слить (можно сразу все — хоть три, хоть четыре), и
+          выберите радио основную: её логин, пароль, роль и доступ останутся нетронутыми, а из
+          отмеченных перенесутся только те поля, которых у основной нет, а также чат, файлы, заметки и
+          права. Сначала нажмите «Проверить» — он покажет, что произойдёт, ничего не меняя.
         </div>
 
         {status ? <div style={{ marginTop: 8, color: 'var(--danger)' }}>{status}</div> : null}
@@ -124,16 +167,22 @@ export function EmployeeDedupeDialog(props: { onClose: () => void; onMerged: () 
         {groups.map((group, i) => {
           const report = reportByGroup[i];
           const survivorId = survivorByGroup[i] ?? '';
+          const loserIds = group.employees
+            .map((e) => e.id)
+            .filter((id) => id !== survivorId && losersByGroup[i]?.[id]);
           return (
             <div key={`${group.key}:${i}`} data-dedupe-group style={{ marginTop: 14, padding: 10, border: '1px solid var(--border)', borderRadius: 10 }}>
               <div style={{ fontWeight: 700 }}>
                 {group.employees[0]?.fullName || group.key}
-                <span className="ui-muted"> · {group.kind === 'exact' ? 'имена совпадают' : 'имена похожи'}</span>
+                <span className="ui-muted">
+                  {' '}
+                  · {group.kind === 'exact' ? 'имена совпадают' : 'имена похожи'} · записей: {group.employees.length}
+                </span>
               </div>
               <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>
                 <thead>
                   <tr>
-                    {['Основная', 'ФИО', 'Логин', 'Роль', 'Доступ', 'Пароль', 'Заполнено полей'].map((h) => (
+                    {['Слить', 'Основная', 'ФИО', 'Логин', 'Табельный', 'Роль', 'Доступ', 'Пароль', 'Заполнено полей'].map((h) => (
                       <th key={h} style={{ textAlign: 'left', padding: '4px 6px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>
                         {h}
                       </th>
@@ -145,14 +194,24 @@ export function EmployeeDedupeDialog(props: { onClose: () => void; onMerged: () 
                     <tr key={emp.id} data-dedupe-row={emp.id}>
                       <td style={{ padding: '4px 6px' }}>
                         <input
+                          type="checkbox"
+                          data-dedupe-merge-check
+                          checked={emp.id !== survivorId && losersByGroup[i]?.[emp.id] === true}
+                          disabled={emp.id === survivorId}
+                          onChange={() => toggleLoser(i, emp.id)}
+                        />
+                      </td>
+                      <td style={{ padding: '4px 6px' }}>
+                        <input
                           type="radio"
                           name={`survivor-${i}`}
                           checked={survivorId === emp.id}
-                          onChange={() => setSurvivorByGroup((prev) => ({ ...prev, [i]: emp.id }))}
+                          onChange={() => setSurvivor(i, emp.id)}
                         />
                       </td>
                       <td style={{ padding: '4px 6px' }}>{emp.fullName}</td>
                       <td style={{ padding: '4px 6px' }}>{emp.login ?? '—'}</td>
+                      <td style={{ padding: '4px 6px' }}>{emp.personnelNumber ?? '—'}</td>
                       <td style={{ padding: '4px 6px' }}>{emp.systemRole ? employeeRoleLabelRu(emp.systemRole) : '—'}</td>
                       <td style={{ padding: '4px 6px' }}>{emp.accessEnabled === true ? 'разрешён' : emp.accessEnabled === false ? 'запрещён' : '—'}</td>
                       <td style={{ padding: '4px 6px' }}>{emp.hasPassword ? 'задан' : 'нет'}</td>
@@ -165,31 +224,22 @@ export function EmployeeDedupeDialog(props: { onClose: () => void; onMerged: () 
               {report ? (
                 <div data-dedupe-report style={{ marginTop: 8, color: report.dryRun ? 'var(--muted)' : 'var(--success, #16a34a)' }}>
                   {report.dryRun ? 'Проверка: ' : 'Объединено: '}
-                  полей будет заполнено {report.attrsFilled}; настроек клиента перевешено {report.clientSettingsRelinked};
-                  {report.userReferencesMoved ? ' чат, файлы и права переносятся' : ' переносить пользовательские ссылки не потребуется'}
-                  {report.protectedSkipped.length > 0 ? `; не тронуты: ${report.protectedSkipped.join(', ')}` : ''}
-                  {report.referencesMoved > 0
-                    ? `; ссылок ${report.dryRun ? 'будет переведено' : 'переведено'} ${report.referencesMoved} (${report.referencesByStore
-                        .map((s) => `${s.store}: ${s.count}`)
-                        .join(', ')})`
-                    : '; ссылок на вторичную запись нет'}
-                  {report.referenceNotes.length > 0 ? (
-                    <div data-dedupe-report-notes style={{ marginTop: 4 }}>
-                      {report.referenceNotes.join('; ')}
-                    </div>
-                  ) : null}
+                  слито записей {report.merged.length}; полей будет заполнено {report.totals.attrsFilled}; настроек клиента
+                  перевешено {report.totals.clientSettingsRelinked}; ссылок{' '}
+                  {report.dryRun ? 'будет переведено' : 'переведено'} {report.totals.referencesMoved}
+                  {report.failed ? `; остановлено на записи ${report.failed.loserId.slice(0, 8)}: ${report.failed.error}` : ''}
                 </div>
               ) : null}
 
               <div style={{ marginTop: 10, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <Button variant="ghost" data-dedupe-dry disabled={busyGroup === i || !survivorId} onClick={() => void runMerge(i, true)}>
+                <Button variant="ghost" data-dedupe-dry disabled={busyGroup === i || !survivorId || loserIds.length === 0} onClick={() => void runMerge(i, true)}>
                   Проверить
                 </Button>
                 <Button
                   tone="success"
                   data-dedupe-merge
-                  disabled={busyGroup === i || !survivorId || !report}
-                  title={report ? 'Объединить записи' : 'Сначала нажмите «Проверить»'}
+                  disabled={busyGroup === i || !survivorId || !report || loserIds.length === 0}
+                  title={report ? 'Объединить отмеченные записи' : 'Сначала нажмите «Проверить»'}
                   onClick={() => void runMerge(i, false)}
                 >
                   Объединить

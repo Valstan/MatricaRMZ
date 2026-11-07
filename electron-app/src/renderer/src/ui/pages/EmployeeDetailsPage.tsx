@@ -641,6 +641,28 @@ export function EmployeeDetailsPage(props: {
     setStatus('Сохранение…');
     const r = await window.matrica.employees.setAttr(props.employeeId, code, value);
     if (!r.ok) {
+      // Гейт дублей: совпало ФИО — спрашиваем оператора (однофамильцы бывают);
+      // занят табельный номер — отказ без «подтверждения» (номер идентифицирует человека).
+      if (r.duplicates?.length && r.blockReason === 'name') {
+        const listed = r.duplicates
+          .slice(0, 5)
+          .map((d) => `${d.fullName || 'без имени'}${d.personnelNumber ? ` (таб. ${d.personnelNumber})` : ''}${d.login ? ` · ${d.login}` : ''}`)
+          .join('; ');
+        const force = window.confirm(
+          `Такой сотрудник уже есть: ${listed}.\n\nЭто другой человек? Тогда подтвердите — запись будет заведена.\n` +
+            'Если это тот же человек — откройте найденную карточку или слейте дубли (Администрирование → Дубли сотрудников).',
+        );
+        if (force) {
+          const forced = await window.matrica.employees.setAttr(props.employeeId, code, value, { force: true });
+          if (!forced.ok) {
+            setStatus(`Ошибка: ${forced.error ?? 'unknown'}`);
+            return false;
+          }
+          setStatus('Сохранено');
+          setTimeout(() => setStatus(''), 1200);
+          return true;
+        }
+      }
       setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
       return false;
     }
@@ -1281,11 +1303,19 @@ export function EmployeeDetailsPage(props: {
       copyToNew: async () => {
         const r = await window.matrica.employees.create();
         if (!r?.ok || !r?.id) return;
+        const full = buildFullName(lastName, firstName, middleName);
+        // ФИО первым: карточка материализуется на первом успешном атрибуте, и гейт
+        // дублей (если такой сотрудник уже есть) остановит запись ДО её появления.
+        if (full) {
+          const nameWrite = await window.matrica.employees.setAttr(r.id, 'full_name', full);
+          if (!nameWrite.ok) {
+            setStatus(`Ошибка: ${nameWrite.error ?? 'unknown'}`);
+            return;
+          }
+        }
         if (lastName.trim()) await window.matrica.employees.setAttr(r.id, 'last_name', lastName.trim());
         if (firstName.trim()) await window.matrica.employees.setAttr(r.id, 'first_name', firstName.trim());
         if (middleName.trim()) await window.matrica.employees.setAttr(r.id, 'middle_name', middleName.trim());
-        const full = buildFullName(lastName, firstName, middleName);
-        if (full) await window.matrica.employees.setAttr(r.id, 'full_name', full);
         if (position.trim()) await window.matrica.employees.setAttr(r.id, 'role', position.trim());
         if (personnelNumber.trim()) await window.matrica.employees.setAttr(r.id, 'personnel_number', personnelNumber.trim());
         if (departmentId) await window.matrica.employees.setAttr(r.id, 'department_id', departmentId);
@@ -1612,11 +1642,19 @@ export function EmployeeDetailsPage(props: {
               ? async () => {
                   const r = await window.matrica.employees.create();
                   if (!r?.ok || !r?.id) return;
+                  const full = buildFullName(lastName, firstName, middleName);
+                  // ФИО первым: карточка материализуется на первом успешном атрибуте, и
+                  // гейт дублей остановит запись ДО её появления.
+                  if (full) {
+                    const nameWrite = await window.matrica.employees.setAttr(r.id, 'full_name', full);
+                    if (!nameWrite.ok) {
+                      setStatus(`Ошибка: ${nameWrite.error ?? 'unknown'}`);
+                      return;
+                    }
+                  }
                   if (lastName.trim()) await window.matrica.employees.setAttr(r.id, 'last_name', lastName.trim());
                   if (firstName.trim()) await window.matrica.employees.setAttr(r.id, 'first_name', firstName.trim());
                   if (middleName.trim()) await window.matrica.employees.setAttr(r.id, 'middle_name', middleName.trim());
-                  const full = buildFullName(lastName, firstName, middleName);
-                  if (full) await window.matrica.employees.setAttr(r.id, 'full_name', full);
                   if (position.trim()) await window.matrica.employees.setAttr(r.id, 'role', position.trim());
                   if (personnelNumber.trim()) await window.matrica.employees.setAttr(r.id, 'personnel_number', personnelNumber.trim());
                   if (departmentId) await window.matrica.employees.setAttr(r.id, 'department_id', departmentId);

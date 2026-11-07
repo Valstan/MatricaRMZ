@@ -20,7 +20,7 @@ import {
   upsertAttributeDef,
   upsertEntityType,
 } from '../services/adminMasterdataService.js';
-import { analyzeEmployeeDuplicates, mergeEmployees } from '../services/employeeDedupeService.js';
+import { analyzeEmployeeDuplicates, findEmployeeDuplicates, mergeEmployeeGroup } from '../services/employeeDedupeService.js';
 import { mergeEmployeesByFullName } from '../services/employeeMergeService.js';
 import { emitAllMasterdataSyncSnapshot, emitEntityTypeSyncSnapshot } from '../services/masterdataSyncService.js';
 
@@ -270,19 +270,39 @@ adminMasterdataRouter.get('/employees/dedupe/analyze', async (req, res) => {
   return res.json(result);
 });
 
+adminMasterdataRouter.get('/employees/dedupe/check', async (req, res) => {
+  const actor = await requireAdmin(req, res);
+  if (!actor) return;
+  // Точечная проверка при создании/правке карточки: «есть ли уже такой сотрудник».
+  // По ФИО — предупреждение (однофамильцы бывают), по табельному номеру — дубль
+  // всегда (номер идентифицирует человека).
+  const result = await findEmployeeDuplicates({
+    fullName: String(req.query.fullName ?? ''),
+    personnelNumber: String(req.query.personnelNumber ?? ''),
+    excludeId: String(req.query.excludeId ?? ''),
+  });
+  return res.json(result);
+});
+
 adminMasterdataRouter.post('/employees/dedupe/merge', async (req, res) => {
   const actor = await requireAdmin(req, res);
   if (!actor) return;
   const schema = z.object({
     survivorId: z.string().min(1),
-    loserId: z.string().min(1),
+    /** Несколько дублей за раз (просьба владельца 07.11.2026). Старое `loserId` — одна запись. */
+    loserIds: z.array(z.string().min(1)).optional(),
+    loserId: z.string().min(1).optional(),
     dryRun: z.boolean().optional(),
   });
   const parsed = schema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
-  const result = await mergeEmployees({
+  const loserIds = parsed.data.loserIds ?? (parsed.data.loserId ? [parsed.data.loserId] : []);
+  if (loserIds.length === 0) {
+    return res.status(400).json({ ok: false, error: 'не выбрано ни одного дубля для слияния' });
+  }
+  const result = await mergeEmployeeGroup({
     survivorId: parsed.data.survivorId,
-    loserId: parsed.data.loserId,
+    loserIds,
     ...(parsed.data.dryRun === true ? { dryRun: true } : {}),
     actor: { id: actor.id, username: actor.username, role: 'admin' },
   });

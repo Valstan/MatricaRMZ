@@ -574,10 +574,34 @@ export async function analyzeEmployeeDuplicatesRemote(sysDb: BetterSQLite3Databa
   return r.json as { ok: boolean; totalEmployees?: number; groups?: unknown[]; error?: string };
 }
 
+/**
+ * Точечная проверка дубля: «есть ли уже такой сотрудник» — по ФИО и по табельному
+ * номеру. Зовётся при каждом сохранении имени/номера карточки, поэтому запрос
+ * делается на сервере (там полный срез), а не по локальной реплике.
+ */
+export async function findEmployeeDuplicatesRemote(
+  sysDb: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { fullName?: string; personnelNumber?: string; excludeId?: string },
+) {
+  const qs = new URLSearchParams();
+  if (args.fullName) qs.set('fullName', args.fullName);
+  if (args.personnelNumber) qs.set('personnelNumber', args.personnelNumber);
+  if (args.excludeId) qs.set('excludeId', args.excludeId);
+  const r = await httpAuthed(
+    sysDb,
+    apiBaseUrl,
+    `/admin/masterdata/employees/dedupe/check?${qs.toString()}`,
+    { method: 'GET' },
+  );
+  if (!r.ok) return { ok: false as const, error: r.text || r.json?.error || `server error ${r.status}` };
+  return r.json as { ok: boolean; matches?: unknown[]; error?: string };
+}
+
 export async function mergeEmployeeDuplicatesRemote(
   sysDb: BetterSQLite3Database,
   apiBaseUrl: string,
-  args: { survivorId: string; loserId: string; dryRun?: boolean },
+  args: { survivorId: string; loserIds: string[]; dryRun?: boolean },
 ) {
   const r = await httpAuthed(sysDb, apiBaseUrl, '/admin/masterdata/employees/dedupe/merge', {
     method: 'POST',

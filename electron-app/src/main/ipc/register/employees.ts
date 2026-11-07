@@ -6,7 +6,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requireAnyPermOrResult, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { createEntity, getEntityDetails, listEntitiesByType, listEntitiesByTypeWithAttrs, setEntityAttribute, softDeleteEntity } from '../../services/entityService.js';
-import { analyzeEmployeeDuplicatesRemote, deleteEmployeeRemote, getSectionMembershipByLogin, getSectionMembershipByUserId, listEmployeeAttributeDefs, listEmployeesSummary, mergeEmployeeDuplicatesRemote, mergeEmployeesToServer } from '../../services/employeeService.js';
+import { analyzeEmployeeDuplicatesRemote, deleteEmployeeRemote, findEmployeeDuplicatesRemote, getSectionMembershipByLogin, getSectionMembershipByUserId, listEmployeeAttributeDefs, listEmployeesSummary, mergeEmployeeDuplicatesRemote, mergeEmployeesToServer } from '../../services/employeeService.js';
 import { adminResyncEmployees, viewUserPermissions } from '../../services/adminUsersService.js';
 import { entityTypes } from '../../database/schema.js';
 
@@ -32,8 +32,66 @@ function normalizePositionKey(value: string): string {
     .replace(/\s+/g, ' ');
 }
 
-export function registerEmployeesIpc(ctx: IpcContext) {
-  // Self-read собственного membership «доступа по разделам» — без permission-гейта
+/**
+ * Гейт дублей при записи ФИО или табельного номера сотрудника.
+ *
+ * Возвращает `null`, когда писать можно. Иначе — отказ с причиной и списком
+ * найденных записей: по табельному номеру отказ жёсткий (номер идентифицирует
+ * человека, дубль номера — всегда ошибка), по ФИО — предупреждение, которое
+ * оператор может подтвердить (однофамильцы бывают, и это не ошибка учёта).
+ *
+ * Проверка идёт на СЕРВЕР: там полный срез сотрудников, локальная реплика может
+ * отставать. Если сервер недоступен — запись НЕ блокируется (иначе клиент без сети
+ * не смог бы завести сотрудника вовсе); за спиной остаётся уникальный индекс на
+ * табельный номер.
+ */
+async function checkEmployeeDuplicate(
+  ctx: IpcContext,
+  employeeId: string,
+  code: string,
+  value: unknown,
+  force: boolean,
+): Promise<{ ok: false; error: string; duplicates: unknown[]; blockReason: 'personnel' | 'name' } | null> {
+  if (force) return null;
+  const attr = String(code ?? '').trim().toLowerCase();
+  const isName = attr === 'full_name';
+  const isPersonnel = attr === 'personnel_number';
+  if (!isName && !isPersonnel) return null;
+  const text = String(value ?? '').trim();
+  if (!text) return null;
+  try {
+    const check = await findEmployeeDuplicatesRemote(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
+      ...(isName ? { fullName: text } : {}),
+      ...(isPersonnel ? { personnelNumber: text } : {}),
+      excludeId: employeeId,
+    });
+    if (!check.ok) return null;
+    const matches = (check.matches ?? []) as Array<{
+      id: string;
+      fullName: string;
+      login: string | null;
+      personnelNumber: string | null;
+      matchedBy: string[];
+    }>;
+    if (matches.length === 0) return null;
+    const byPersonnel = matches.some((m) => m.matchedBy.includes('personnel'));
+    const listed = matches
+      .slice(0, 5)
+      .map((m) => `${m.fullName || 'без имени'}${m.personnelNumber ? ` (таб. ${m.personnelNumber})` : ''}${m.login ? ` · ${m.login}` : ''}`);
+    return {
+      ok: false,
+      error: byPersonnel
+        ? `Табельный номер ${text} уже занят: ${listed.join('; ')}. Откройте эту карточку или слейте дубли — второго с таким номером быть не может.`
+        : `Такой сотрудник уже есть: ${listed.join('; ')}. Если это другой человек — подтвердите заведение, иначе откройте найденную карточку.`,
+      duplicates: matches,
+      blockReason: byPersonnel ? 'personnel' : 'name',
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function registerEmployeesIpc(ctx: IpcContext) {  // Self-read собственного membership «доступа по разделам» — без permission-гейта
   // (пользователь читает только своё; null = не засеяно → меню работает fail-open).
   ipcMain.handle('access:sections:self', async () => {
     const viewer = await ctx.currentViewer();
@@ -65,7 +123,7 @@ export function registerEmployeesIpc(ctx: IpcContext) {
     return { ok: true as const, id: randomUUID() };
   });
 
-  ipcMain.handle('employees:setAttr', async (_e, employeeId: string, code: string, value: unknown) => {
+  ipcMain.handle('employees:setAttr', async (_e, employeeId: string, code: string, value: unknown, opts?: { force?: boolean }) => {
     if (isViewMode(ctx)) return viewModeWriteError();
     // Должность — узкое право: кладовщик правит должность сотрудника, чтобы
     // подобралась норма приказа (решение владельца 2026-11-03). Остальные поля
@@ -75,6 +133,12 @@ export function registerEmployeesIpc(ctx: IpcContext) {
         ? await requireAnyPermOrResult(ctx, ['employees.create', 'employees.position.edit'])
         : await requirePermOrResult(ctx, 'employees.create');
     if (!gate.ok) return gate;
+    // Гейт дублей (просьба владельца 07.11.2026: «дублей сотрудников не мог
+    // оператор создавать»). Спрашиваем сервер — там полный срез сотрудников.
+    // Табельный номер занят — ОТКАЗ (номер идентифицирует человека); ФИО совпало —
+    // предупреждение, оператор решает (однофамильцы бывают).
+    const dup = await checkEmployeeDuplicate(ctx, employeeId, String(code ?? ''), value, opts?.force === true);
+    if (dup) return dup;
     // fallback type id materializes the entity on the first write for a deferred employee.
     const typeId = await getEntityTypeIdByCode(ctx, 'employee');
     return setEntityAttribute(ctx.dataDb(), employeeId, code, value, typeId ?? undefined);
@@ -113,13 +177,23 @@ export function registerEmployeesIpc(ctx: IpcContext) {
     return analyzeEmployeeDuplicatesRemote(ctx.sysDb, ctx.mgr.getApiBaseUrl());
   });
 
-  ipcMain.handle('employees:dedupeMerge', async (_e, args: { survivorId: string; loserId: string; dryRun?: boolean }) => {
+  ipcMain.handle('employees:dedupeCheck', async (_e, args: { fullName?: string; personnelNumber?: string; excludeId?: string }) => {
+    const gate = await requirePermOrResult(ctx, 'employees.create');
+    if (!gate.ok) return gate;
+    return findEmployeeDuplicatesRemote(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
+      ...(args?.fullName ? { fullName: String(args.fullName) } : {}),
+      ...(args?.personnelNumber ? { personnelNumber: String(args.personnelNumber) } : {}),
+      ...(args?.excludeId ? { excludeId: String(args.excludeId) } : {}),
+    });
+  });
+
+  ipcMain.handle('employees:dedupeMerge', async (_e, args: { survivorId: string; loserIds: string[]; dryRun?: boolean }) => {
     if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'employees.create');
     if (!gate.ok) return gate;
     const result = await mergeEmployeeDuplicatesRemote(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
       survivorId: String(args?.survivorId ?? ''),
-      loserId: String(args?.loserId ?? ''),
+      loserIds: (args?.loserIds ?? []).map((id) => String(id ?? '')).filter(Boolean),
       ...(args?.dryRun === true ? { dryRun: true } : {}),
     });
     // После боевого слияния подтягиваем изменения: карточка вторичного погашена на сервере.
