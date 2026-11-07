@@ -36,7 +36,9 @@ describe('диалог дублей сотрудников', () => {
 
   it('сначала «Проверить», потом «Объединить» — порядок не ослаблен', () => {
     const dry = DIALOG.indexOf('data-dedupe-dry');
-    const merge = DIALOG.indexOf('data-dedupe-merge\n');
+    // Регулярка, а не indexOf: в рабочей копии файл с CRLF, и жёсткий перевод строки
+    // в шаблоне не нашёлся бы — сторож падал бы на переносе, а не по существу.
+    const merge = DIALOG.search(/data-dedupe-merge\s+disabled=/);
     expect(dry).toBeGreaterThan(-1);
     expect(merge).toBeGreaterThan(dry);
     // «Объединить» не активна, пока отчёта проверки нет.
