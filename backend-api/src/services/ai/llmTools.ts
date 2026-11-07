@@ -177,6 +177,65 @@ async function getEngineBrands(input: Record<string, unknown>): Promise<ToolResu
   return jsonResult(sanitizeRows(res.rows ?? []));
 }
 
+/**
+ * Счёт двигателей по состояниям — ОДИН вызов.
+ *
+ * Зачем: на вопрос «сколько двигателей» модель писала до двенадцати отдельных
+ * COUNT-запросов (замер на проде 08.11.2026: 12 шагов, все — `execute_safe_sql`, 44 с,
+ * 15 169 токенов входа). Здесь все цифры приходят одним запросом, и модель получает
+ * готовый счёт вместо десятка запросов по одному на каждый статус.
+ *
+ * Флаги ПЕРЕСЕКАЮТСЯ: один двигатель может попасть в несколько строк (он и «начал
+ * ремонт», и «отремонтирован», если ремонт начат, а потом закончен). Сумма строк не
+ * равна «всего» — это разные разрезы одних и тех же карточек, и об этом сказано
+ * в ответе инструмента, чтобы модель не сложила их в одну цифру.
+ */
+async function getEngineStats(input: Record<string, unknown>): Promise<ToolResult> {
+  const brandId = asString(input, 'engineBrandId').trim();
+  const contractId = asString(input, 'contractId').trim();
+  const customerId = asString(input, 'customerId').trim();
+  const workshopId = asString(input, 'workshopId').trim();
+  const params: unknown[] = [];
+  const conds: string[] = ['deleted_at is null'];
+  const add = (column: string, value: string): void => {
+    if (!value) return;
+    params.push(value);
+    conds.push(`${column} = $${params.length}`);
+  };
+  add('engine_brand_id', brandId);
+  add('contract_id', contractId);
+  add('customer_id', customerId);
+  add('workshop_id', workshopId);
+  const sql =
+    'select ' +
+    'count(*)::int as total, ' +
+    'count(*) filter (where status_repair_started)::int as repair_started, ' +
+    'count(*) filter (where status_repaired)::int as repaired, ' +
+    'count(*) filter (where status_customer_sent or status_customer_accepted)::int as shipped, ' +
+    'count(*) filter (where status_scrap_confirmed)::int as scrap, ' +
+    'count(*) filter (where reclamation_flag)::int as reclamation, ' +
+    'count(*) filter (where status_storage_received)::int as storage_received, ' +
+    'count(*) filter (where arrival_date is not null and not status_customer_sent and not status_customer_accepted)::int as at_plant, ' +
+    'count(*) filter (where arrival_date is not null and customer_id is not null and not status_customer_sent and not status_customer_accepted)::int as at_plant_with_customer, ' +
+    'count(*) filter (where status_repair_started and not status_repaired and not status_customer_sent)::int as in_repair_now, ' +
+    'count(*) filter (where arrival_date is null)::int as without_arrival ' +
+    `from erp_engine_cards where ${conds.join(' and ')}`;
+  const res = await pool.query(sql, params as any[]);
+  const counts = (res.rows ?? [])[0] ?? {};
+  return jsonResult({
+    filters: {
+      engineBrandId: brandId || null,
+      contractId: contractId || null,
+      customerId: customerId || null,
+      workshopId: workshopId || null,
+    },
+    counts,
+    note:
+      'Флаги пересекаются: один двигатель может попасть в несколько строк (например, «начал ремонт» и «отремонтирован»). ' +
+      'Сумма строк не равна «всего» — это разные разрезы одних и тех же карточек.',
+  });
+}
+
 async function getEngineDetails(input: Record<string, unknown>): Promise<ToolResult> {
   const engineId = asString(input, 'engineId').trim();
   if (!engineId) return { content: 'Параметр engineId обязателен.', isError: true };
@@ -849,6 +908,27 @@ const TOOLS: Record<string, ToolEntry> = {
     requires: ['masterdata.view', 'engines.view'],
     handler: (input) => getEngineBrands(input),
   },
+  get_engine_stats: {
+    def: {
+      name: 'get_engine_stats',
+      description:
+        'Счёт двигателей по состояниям: всего и по разбивкам — начал ремонт, отремонтирован, отгружен заказчику, утиль, рекламационные, на заводе, в работе сейчас, принят на хранение, заведён без даты прихода. ' +
+        'ОДИН вызов отдаёт все цифры: пользуйся им вместо десятка отдельных COUNT-запросов. ' +
+        'Необязательные фильтры: engineBrandId, contractId, customerId, workshopId. ' +
+        'Флаги пересекаются: один двигатель может попасть в несколько строк, сумма строк не равна «всего».',
+      input_schema: {
+        type: 'object',
+        properties: {
+          engineBrandId: { type: 'string', description: 'UUID марки двигателя.' },
+          contractId: { type: 'string', description: 'UUID договора.' },
+          customerId: { type: 'string', description: 'UUID заказчика.' },
+          workshopId: { type: 'string', description: 'UUID цеха.' },
+        },
+      },
+    },
+    requires: ['engines.view', 'reports.view'],
+    handler: (input) => getEngineStats(input),
+  },
   get_engine_details: {
     def: {
       name: 'get_engine_details',
@@ -1159,6 +1239,11 @@ export const COMPACT_TOOL_NAMES: ReadonlyArray<string> = [
  * диагностика, статистика отчётов) — вопросы аналитика; они достаются модели
  * по запросу `enable_full_tools`, то есть бытовой вопрос их за собой не тащит.
  *
+ * Про `get_engine_stats`: он в компактном наборе не случайно. На вопрос «сколько
+ * двигателей» модель без него писала до двенадцати отдельных COUNT-запросов (замер на
+ * проде 08.11.2026: 12 шагов, все — `execute_safe_sql`, 44 с). Инструмент отдаёт те же
+ * цифры одним вызовом.
+ *
  * Почему не полный набор: 07.11.2026 на проде вопрос «сколько двигателей» занял
  * 12 шагов с инструментами (потолок `ANSWER_MAX_STEPS`) и ~50 с — модель
  * перебирала меню. Меньшее меню — меньше поводов свернуть не туда.
@@ -1168,6 +1253,7 @@ export const ANSWER_COMPACT_TOOL_NAMES: ReadonlyArray<string> = [
   'query_nomenclature',
   'get_stock_balances',
   'get_engine_brands',
+  'get_engine_stats',
   'get_engine_details',
   'get_operations',
   'get_contracts',

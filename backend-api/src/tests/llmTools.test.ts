@@ -20,6 +20,7 @@ vi.mock('../services/warehouseForecastService.js', () => ({
 import { pool } from '../database/db.js';
 import {
   executeTool,
+  ANSWER_COMPACT_TOOL_NAMES,
   FULL_TOOL_NAMES,
   getToolDefinitions,
   type ToolContext,
@@ -84,6 +85,60 @@ describe('llmTools.executeTool', () => {
     const payload = JSON.parse(res.content);
     expect(payload.total).toBe(1);
     expect(payload.rows[0].name).toBe('Поршень');
+  });
+
+  it('get_engine_stats отдаёт все цифры одним запросом и фильтры идут параметрами', async () => {
+    poolQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          total: 2578,
+          repair_started: 168,
+          repaired: 135,
+          shipped: 1472,
+          scrap: 97,
+          reclamation: 19,
+          storage_received: 27,
+          at_plant: 513,
+          at_plant_with_customer: 418,
+          in_repair_now: 150,
+          without_arrival: 659,
+        },
+      ],
+    });
+    const res = await executeTool(
+      { id: 'x', name: 'get_engine_stats', input: { engineBrandId: 'b1' } },
+      partsViewer,
+    );
+    expect(res.isError).toBeFalsy();
+    expect(poolQuery).toHaveBeenCalledOnce();
+    const call = poolQuery.mock.calls[0]!;
+    // Один запрос с FILTER по всем состояниям — не десяток COUNT-запросов по одному.
+    expect(call[0]).toMatch(/from erp_engine_cards/);
+    expect(call[0]).toMatch(/count\(\*\) filter \(where status_repair_started\)/);
+    expect(call[0]).toMatch(/count\(\*\) filter \(where status_scrap_confirmed\)/);
+    expect(call[0]).toMatch(/count\(\*\) filter \(where reclamation_flag\)/);
+    expect(call[1]).toEqual(['b1']);
+    const payload = JSON.parse(res.content);
+    expect(payload.counts.total).toBe(2578);
+    expect(payload.counts.at_plant_with_customer).toBe(418);
+    expect(payload.filters.engineBrandId).toBe('b1');
+    // Модель складывает строки — предупреждаем, что флаги пересекаются.
+    expect(payload.note).toMatch(/пересекаются/);
+  });
+
+  it('get_engine_stats без фильтров идёт по всем карточкам', async () => {
+    poolQuery.mockResolvedValueOnce({ rows: [{ total: 0 }] });
+    const res = await executeTool({ id: 'x', name: 'get_engine_stats', input: {} }, partsViewer);
+    expect(res.isError).toBeFalsy();
+    const call = poolQuery.mock.calls[0]!;
+    expect(call[1]).toEqual([]);
+    expect(call[0]).toMatch(/where deleted_at is null/);
+  });
+
+  it('счёт двигателей есть в компактном наборе ответа', () => {
+    expect(ANSWER_COMPACT_TOOL_NAMES).toContain('get_engine_stats');
+    // Инструмент без «по счёту» — снова десяток COUNT-запросов (прод 08.11: 12 шагов).
+    expect(getToolDefinitions(ANSWER_COMPACT_TOOL_NAMES).map((d) => d.name)).toContain('get_engine_stats');
   });
 
   it('get_employees_list filters out hidden attributes (salary, passport)', async () => {
