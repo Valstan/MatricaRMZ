@@ -13,6 +13,7 @@ import {
 import { OperationTypeCode } from '../domain/enums.js';
 import { ENGINE_RMZ_NUMBER_STATUSES } from '../domain/engineRmzNumber.js';
 import { SYSTEM_ROLE_CATALOG } from '../domain/permissions.js';
+import { PPE_WEAR_KINDS } from '../domain/ppe.js';
 
 // Базовые поля синхронизации для всех таблиц.
 export const baseRowFields = {
@@ -378,7 +379,7 @@ export const ppeNormLineRowSchema = z.object({
   // Приказ о СИЗ: «приказная» строка и форма срока.
   spec_id: z.string().uuid().nullable().optional(),
   unit: z.string().nullable().optional(),
-  wear_kind: z.enum(['months', 'until_wearout', 'by_manufacturer']).nullable().optional(),
+  wear_kind: z.enum(PPE_WEAR_KINDS).nullable().optional(),
 });
 
 /** Справочник профессий приказа: код пункта приложения → наименование профессии. */
@@ -401,7 +402,7 @@ export const ppeNormLineSpecRowSchema = z.object({
   ppe_type: z.string().nullable().optional(),
   qty: z.number().int(),
   unit: z.string().nullable().optional(),
-  wear_kind: z.enum(['months', 'until_wearout', 'by_manufacturer']).nullable().optional(),
+  wear_kind: z.enum(PPE_WEAR_KINDS).nullable().optional(),
   wear_months: z.number().int().nullable().optional(),
   sort_order: z.number().int(),
   source_ref: z.string().nullable().optional(),

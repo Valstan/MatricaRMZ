@@ -26,7 +26,7 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { db, pool } from '../database/db.js';
 import { erpEmployeeCards } from '../database/schema.js';
-import { logError, logInfo } from '../utils/logger.js';
+import { describeError, logError, logInfo } from '../utils/logger.js';
 import { kickPpeSyncPublisher } from './sync/ppeSyncPublisherService.js';
 
 export type DirectoryEmployee = {
@@ -164,7 +164,29 @@ export function planEmployeeMirror(
     if (card.entityId !== emp.entityId) patch.entityId = emp.entityId;
     if (card.deleted) patch.revive = true;
     if (card.fullName !== emp.fullName) patch.fullName = emp.fullName;
-    if (!card.personnelNo && emp.personnelNo) patch.personnelNo = emp.personnelNo;
+    if (!card.personnelNo && emp.personnelNo) {
+      // Табельный номер бывает уже занят другой карточкой: в справочнике два
+      // сотрудника с одинаковым ФИО и с одним табельным номером (на проде
+      // 07.11.2026 — «Хапикова И. С.», 818 занят первой карточкой). Уникальный
+      // индекс на `personnel_no` такую правку отвергает, и строка падала каждую
+      // минуту. Тот же случай, что и в ветке create: номер не навязываем, а
+      // карточку помечаем неоднозначной — дубль сотрудника в справочнике
+      // разбирает кадровщик. Остальные поля карточки при этом синхронизируются.
+      const pno = personnelKey(emp.personnelNo);
+      const holder = pno
+        ? (byPersonnel.get(pno) ?? []).find((c) => c.id !== card.id && !c.deleted)
+        : undefined;
+      if (holder) {
+        ambiguous.push({
+          entityId: emp.entityId,
+          fullName: emp.fullName,
+          reason: 'табельный номер уже занят другой карточкой',
+        });
+      } else {
+        patch.personnelNo = emp.personnelNo;
+        if (pno) plannedPersonnel.add(pno);
+      }
+    }
     if ((card.roleCode ?? null) !== emp.roleCode) patch.roleCode = emp.roleCode;
     if (card.isActive !== emp.isActive) patch.isActive = emp.isActive;
     if (Object.keys(patch).length > 0) ops.push({ kind: 'update', id: card.id, patch });
@@ -352,7 +374,10 @@ export async function mirrorPpeEmployees(opts: { apply: boolean } = { apply: tru
           .where(eq(erpEmployeeCards.id, op.id as never));
       }
     } catch (e) {
-      logError('ppe employee mirror row failed', { id: op.id, kind: op.kind, error: String(e) });
+      // `describeError` вместо `String(e)`: Drizzle оборачивает причину PG (SQLSTATE,
+      // detail) в `cause`, и без неё в журнале остаётся только «Failed query: …» —
+      // настоящую причину (уникальный индекс на personnel_no) видно не было.
+      logError('ppe employee mirror row failed', { id: op.id, kind: op.kind, ...describeError(e) });
       report.ambiguous.push({ entityId: op.id, fullName: '', reason: String(e) });
     }
   }

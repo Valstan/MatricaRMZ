@@ -268,8 +268,23 @@ export function upcomingIssues(
  * - `annual` — годовая норма без оговорки («1 шт.», «12 пар»): срока в приказе нет,
  *   его проставляет кладовщик по позиции (решение владельца от 05.11);
  * - `months_clerk` — срок проставил кладовщик.
+ *
+ * Список — источник истины, а не только тип: контракт синка берёт его отсюда
+ * (`z.enum(PPE_WEAR_KINDS)`). Раньше перечисление жило отдельно в DTO, и когда
+ * домен добавил `annual` (миграции 0121/0122, 113 позиций приказа), контракт
+ * за ним не поспел: строка с `wear_kind='annual'` не проходила валидатор, и ВЕСЬ
+ * проход зеркала СИЗ падал на `sync_invalid_row` — 1244 раза в сутки. Список и
+ * тип выведены из одного места, чтобы такой разрыв был невозможен.
  */
-export type PpeWearKind = 'months' | 'until_wearout' | 'by_manufacturer' | 'annual' | 'months_clerk';
+export const PPE_WEAR_KINDS = [
+  'months',
+  'until_wearout',
+  'by_manufacturer',
+  'annual',
+  'months_clerk',
+] as const;
+
+export type PpeWearKind = (typeof PPE_WEAR_KINDS)[number];
 
 export type PpeOrderNorm = {
   /** Количество на год. */
