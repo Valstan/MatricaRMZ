@@ -180,7 +180,7 @@ async function measureOne(
     cacheRead,
     cacheShare: total > 0 ? Math.round((cacheRead / total) * 100) : 0,
     ms: Date.now() - started,
-    text: (result.text ?? '').replace(/\s+/g, ' ').slice(0, 120),
+    text: (result.text ?? '').replace(/\s+/g, ' ').slice(0, 300),
   };
 }
 
@@ -202,6 +202,9 @@ function printRows(rows: Row[]): void {
       ].join(' | '),
     );
     if (r.expanded) console.log('   ↳ модель запросила расширенный набор инструментов');
+    // Текст ответа — чтобы видеть, что кэш не испортил качество: короткий ответ
+    // по данным из кэша хуже полного только если модель потеряла сами данные.
+    if (r.text) console.log(`   ответ: ${r.text}`);
   }
   const avg = (pick: (r: Row) => number): string =>
     (rows.reduce((sum, r) => sum + pick(r), 0) / Math.max(1, rows.length)).toFixed(1);
@@ -216,7 +219,8 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   console.log(
     `Стенд: модель ${AI_MODEL_ANALYTICS}, меню ${args.menu}, повторов ${args.repeat}, ` +
-      `потолок шагов ${ANSWER_MAX_STEPS}, актор ${args.actor ?? '— (полные права)'}`,
+      `потолок шагов ${ANSWER_MAX_STEPS}, ` +
+      `актор ${args.actor ?? '— (полные права)'}`,
   );
 
   const key = await readVaultSecret('DEEPSEEK_API_KEY');
