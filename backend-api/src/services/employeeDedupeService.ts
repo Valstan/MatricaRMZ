@@ -49,6 +49,8 @@ export type EmployeeDupCandidate = {
   id: string;
   fullName: string;
   login: string | null;
+  /** Табельный номер: по нему видно, какая из записей — «настоящая». */
+  personnelNumber: string | null;
   systemRole: string | null;
   accessEnabled: boolean | null;
   hasPassword: boolean;
@@ -195,6 +197,7 @@ export async function analyzeEmployeeDuplicates(): Promise<
         key,
         fullName,
         login: user?.login ? String(user.login) : (attrs.get('login') ?? null),
+        personnelNumber: attrs.get(PERSONNEL_NUMBER_CODE) ?? null,
         systemRole: user?.systemRole ? String(user.systemRole) : (attrs.get('system_role') ?? null),
         accessEnabled: user ? Boolean(user.accessEnabled) : null,
         hasPassword: Boolean(attrs.get('password_hash')),
@@ -454,3 +457,190 @@ export async function mergeEmployees(args: {
 }
 
 export const __testables = { normalizeName, editBudgetForName, PROTECTED_CODES, SyncTableName, blockerMessage };
+
+/** Атрибут табельного номера (заводится `baseMasterdataService`). */
+const PERSONNEL_NUMBER_CODE = 'personnel_number';
+const FULL_NAME_CODE = 'full_name';
+
+/** Табельный номер: «00675» и «675» — один человек (тот же ключ, что у номера РМЗ). */
+function personnelKey(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  return /^\d+$/.test(raw) ? String(Number(raw)) : raw.toLowerCase();
+}
+
+export type EmployeeDupMatch = {
+  id: string;
+  fullName: string;
+  login: string | null;
+  personnelNumber: string | null;
+  systemRole: string | null;
+  accessEnabled: boolean | null;
+  /** По каким признакам нашлась запись: ФИО, табельный номер. */
+  matchedBy: Array<'name' | 'personnel'>;
+};
+
+/**
+ * Атрибуты всех живых сотрудников — ОДНИМ запросом.
+ *
+ * Прежний `loadAttrs` ходил в базу по одной строке на сотрудника (N+1): анализ
+ * дублей на 440 сотрудниках — это 440 походов. Тут нужен весь срез разом: по нему
+ * работает и точечная проверка при создании карточки, а она зовётся на КАЖДОЕ
+ * сохранение имени — значит, запрос должен быть один и быстрый.
+ */
+async function loadAllEmployeeAttrs(
+  typeId: string,
+  codeByDefId: Map<string, string>,
+): Promise<Map<string, Map<string, string>>> {
+  const defIds = [...codeByDefId.keys()];
+  const rows = defIds.length
+    ? await db
+        .select({
+          entityId: attributeValues.entityId,
+          defId: attributeValues.attributeDefId,
+          valueJson: attributeValues.valueJson,
+        })
+        .from(attributeValues)
+        .where(
+          and(
+            inArray(attributeValues.attributeDefId, defIds as never[]),
+            isNull(attributeValues.deletedAt),
+          ),
+        )
+    : [];
+  const out = new Map<string, Map<string, string>>();
+  for (const row of rows) {
+    const code = codeByDefId.get(String(row.defId));
+    if (!code) continue;
+    const value = parseAttr(row.valueJson);
+    if (!value) continue;
+    const bucket = out.get(String(row.entityId)) ?? new Map<string, string>();
+    bucket.set(code, value);
+    out.set(String(row.entityId), bucket);
+  }
+  return out;
+}
+
+/**
+ * Точечная проверка: есть ли уже такой сотрудник.
+ *
+ * Служит гейтом при создании и правке карточки: табельный номер идентифицирует
+ * человека (дубль номера — всегда ошибка), а ФИО может совпасть у разных людей
+ * (тогда нужен явный выбор оператора, а не молчаливый дубль).
+ *
+ * Возвращает обе группы совпадений, чтобы оператор увидел: «вот кто уже есть».
+ */
+export async function findEmployeeDuplicates(args: {
+  fullName?: string | null;
+  personnelNumber?: string | null;
+  excludeId?: string | null;
+}): Promise<{ ok: true; matches: EmployeeDupMatch[] } | { ok: false; error: string }> {
+  try {
+    const nameKey = normalizeName(args.fullName);
+    const personnel = personnelKey(args.personnelNumber);
+    if (!nameKey && !personnel) return { ok: true as const, matches: [] };
+
+    const typeId = await getEmployeeTypeId();
+    if (!typeId) return { ok: false as const, error: 'тип сущности "employee" не найден' };
+    const codeByDefId = await loadCodeByDefId(typeId);
+
+    const rows = await db
+      .select({ id: entities.id })
+      .from(entities)
+      .where(and(eq(entities.typeId, typeId as never), isNull(entities.deletedAt)));
+    if (rows.length === 0) return { ok: true as const, matches: [] };
+
+    const ids = rows.map((r) => String(r.id));
+    const userRows = await db
+      .select({ id: users.id, login: users.login, systemRole: users.systemRole, accessEnabled: users.accessEnabled })
+      .from(users)
+      .where(inArray(users.id, ids as never[]));
+    const userById = new Map(userRows.map((u) => [String(u.id), u]));
+    const attrsById = await loadAllEmployeeAttrs(typeId, codeByDefId);
+
+    const excludeId = String(args.excludeId ?? '').trim();
+    const matches: EmployeeDupMatch[] = [];
+    for (const id of ids) {
+      if (excludeId && id === excludeId) continue;
+      const attrs = attrsById.get(id) ?? new Map<string, string>();
+      // Слитые записи — след прежнего слияния, они не «ещё один такой же сотрудник».
+      if (attrs.get(MERGED_INTO_CODE)) continue;
+      const fullName = attrs.get(FULL_NAME_CODE) ?? '';
+      const matchedBy: Array<'name' | 'personnel'> = [];
+      if (nameKey && normalizeName(fullName) === nameKey) matchedBy.push('name');
+      if (personnel && personnelKey(attrs.get(PERSONNEL_NUMBER_CODE)) === personnel) {
+        matchedBy.push('personnel');
+      }
+      if (matchedBy.length === 0) continue;
+      const user = userById.get(id);
+      matches.push({
+        id,
+        fullName,
+        login: user?.login ? String(user.login) : (attrs.get('login') ?? null),
+        personnelNumber: attrs.get(PERSONNEL_NUMBER_CODE) ?? null,
+        systemRole: user?.systemRole ? String(user.systemRole) : (attrs.get('system_role') ?? null),
+        accessEnabled: user ? Boolean(user.accessEnabled) : null,
+        matchedBy,
+      });
+    }
+    // Сначала совпадения по табельному номеру: они жёстче, оператор должен увидеть их первыми.
+    matches.sort((a, b) => Number(b.matchedBy.includes('personnel')) - Number(a.matchedBy.includes('personnel')));
+    return { ok: true as const, matches };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export type EmployeeGroupMergeReport = {
+  survivorId: string;
+  /** Отчёт по каждому слитому дублю, по порядку. */
+  merged: Array<{ loserId: string; report: EmployeeMergeReport }>;
+  /** Дубль, на котором слияние остановилось (и остальные — не трогали). */
+  failed: { loserId: string; error: string } | null;
+  totals: { attrsFilled: number; referencesMoved: number; clientSettingsRelinked: number };
+  dryRun: boolean;
+};
+
+/**
+ * Слияние НЕСКОЛЬКИХ дублей в одну основную запись (просьба владельца 07.11.2026:
+ * «три-четыре дубля сразу, галочками, а основной выбирает оператор»).
+ *
+ * Прежнее слияние умело только пару — и в диалоге стоял жёсткий отказ «слияние идёт
+ * парами»: группа из трёх записей (как «Хапикова И. С.» на проде) не сливалась вовсе.
+ *
+ * Слияние идёт последовательно, по одному дублю: перевод ссылок идемпотентен (повторный
+ * проход уже переведённого не находит), поэтому обрыв на третьем дубле не оставляет
+ * полу-состояния — уже слитые стоят на основной, повтор продолжит с того же места.
+ */
+export async function mergeEmployeeGroup(args: {
+  survivorId: string;
+  loserIds: string[];
+  actor: Actor;
+  dryRun?: boolean;
+}): Promise<{ ok: true; report: EmployeeGroupMergeReport } | { ok: false; error: string }> {
+  const survivorId = String(args.survivorId ?? '').trim();
+  const loserIds = (args.loserIds ?? []).map((id) => String(id ?? '').trim()).filter(Boolean);
+  const dryRun = args.dryRun === true;
+  if (!survivorId) return { ok: false as const, error: 'не выбрана основная запись' };
+  if (loserIds.length === 0) return { ok: false as const, error: 'не выбрано ни одного дубля для слияния' };
+  if (loserIds.includes(survivorId)) {
+    return { ok: false as const, error: 'основная запись не может быть дублем' };
+  }
+
+  const merged: Array<{ loserId: string; report: EmployeeMergeReport }> = [];
+  const totals = { attrsFilled: 0, referencesMoved: 0, clientSettingsRelinked: 0 };
+  for (const loserId of loserIds) {
+    const res = await mergeEmployees({ survivorId, loserId, actor: args.actor, dryRun });
+    if (!res.ok) {
+      return {
+        ok: true as const,
+        report: { survivorId, merged, failed: { loserId, error: res.error }, totals, dryRun },
+      };
+    }
+    merged.push({ loserId, report: res.report });
+    totals.attrsFilled += res.report.attrsFilled;
+    totals.referencesMoved += res.report.referencesMoved;
+    totals.clientSettingsRelinked += res.report.clientSettingsRelinked;
+  }
+  return { ok: true as const, report: { survivorId, merged, failed: null, totals, dryRun } };
+}

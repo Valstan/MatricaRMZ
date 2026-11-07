@@ -191,10 +191,16 @@ export function SupplyToolMovementsPage(props: {
     const lastName = chunks[0] ?? clean;
     const firstName = chunks[1] ?? '';
     const middleName = chunks.slice(2).join(' ');
+    // ФИО пишем ПЕРВЫМ: карточка материализуется на первом успешном атрибуте, поэтому
+    // гейт дублей остановит запись ДО появления карточки — полузаписи без ФИО не остаётся.
+    const nameWrite = await window.matrica.employees.setAttr(created.id, 'full_name', clean);
+    if (!nameWrite.ok) {
+      setStatus(`Ошибка: ${nameWrite.error ?? 'unknown'}`);
+      return null;
+    }
     await window.matrica.employees.setAttr(created.id, 'last_name', lastName);
     if (firstName) await window.matrica.employees.setAttr(created.id, 'first_name', firstName);
     if (middleName) await window.matrica.employees.setAttr(created.id, 'middle_name', middleName);
-    await window.matrica.employees.setAttr(created.id, 'full_name', clean);
     const dept = currentDepartmentId;
     if (dept) await window.matrica.employees.setAttr(created.id, 'department_id', dept);
     setEmployeeOptions((prev) => [...prev, { id: created.id, label: clean }].sort((a, b) => a.label.localeCompare(b.label, 'ru')));

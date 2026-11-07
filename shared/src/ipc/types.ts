@@ -570,6 +570,8 @@ export type EmployeeDupCandidate = {
   id: string;
   fullName: string;
   login: string | null;
+  /** Табельный номер: по нему видно, какая из записей — «настоящая». */
+  personnelNumber: string | null;
   systemRole: string | null;
   accessEnabled: boolean | null;
   hasPassword: boolean;
@@ -600,6 +602,44 @@ export type EmployeeMergeReport = {
 };
 
 export type EmployeeDedupeMergeResult = { ok: true; report: EmployeeMergeReport } | { ok: false; error: string };
+
+/**
+ * Найденный дубль сотрудника: по чему совпало — ФИО или табельный номер.
+ *
+ * Табельный номер идентифицирует человека (дубль номера — всегда ошибка), а ФИО может
+ * совпасть у разных людей (тогда нужен явный выбор оператора, а не молчаливый дубль).
+ */
+export type EmployeeDupMatch = {
+  id: string;
+  fullName: string;
+  login: string | null;
+  personnelNumber: string | null;
+  systemRole: string | null;
+  accessEnabled: boolean | null;
+  matchedBy: Array<'name' | 'personnel'>;
+};
+
+export type EmployeeDedupeCheckResult =
+  | { ok: true; matches: EmployeeDupMatch[] }
+  | { ok: false; error: string };
+
+/**
+ * Отчёт о слиянии НЕСКОЛЬКИХ дублей в одну основную запись (просьба владельца
+ * 07.11.2026: «три-четыре дубля сразу»).
+ */
+export type EmployeeGroupMergeReport = {
+  survivorId: string;
+  /** Отчёт по каждому слитому дублю, по порядку. */
+  merged: Array<{ loserId: string; report: EmployeeMergeReport }>;
+  /** Дубль, на котором слияние остановилось (остальные не трогали). */
+  failed: { loserId: string; error: string } | null;
+  totals: { attrsFilled: number; referencesMoved: number; clientSettingsRelinked: number };
+  dryRun: boolean;
+};
+
+export type EmployeeDedupeGroupMergeResult =
+  | { ok: true; report: EmployeeGroupMergeReport }
+  | { ok: false; error: string };
 
 export type AppVersionResult = { ok: true; version: string } | { ok: false; error: string };
 
@@ -1822,7 +1862,19 @@ export type MatricaApi = {
     list: () => Promise<EmployeeListItem[]>;
     get: (id: string) => Promise<EntityDetails>;
     create: () => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
-    setAttr: (employeeId: string, code: string, value: unknown) => Promise<{ ok: boolean; error?: string }>;
+    setAttr: (
+      employeeId: string,
+      code: string,
+      value: unknown,
+      opts?: { force?: boolean },
+    ) => Promise<{
+      ok: boolean;
+      error?: string;
+      /** Найденные дубли (при отказе гейта дублей). */
+      duplicates?: EmployeeDupMatch[];
+      /** 'personnel' — табельный номер занят (отказ жёсткий), 'name' — совпало ФИО (предупреждение). */
+      blockReason?: 'personnel' | 'name';
+    }>;
     delete: (employeeId: string) => Promise<{ ok: boolean; error?: string }>;
     merge: () => Promise<{ ok: true; stats?: any } | { ok: false; error: string }>;
     /** Подтянуть карточки сотрудников снимком с сервера и прогнать синхронизацию следом. */
@@ -1830,10 +1882,16 @@ export type MatricaApi = {
     /** Дубли сотрудников: что нашлось (ничего не меняет). */
     dedupeAnalyze: () => Promise<EmployeeDedupeAnalyzeResult>;
     /**
-     * Слияние двух записей одного человека. `dryRun` возвращает тот же отчёт, ничего не
+     * Точечная проверка при создании/правке карточки: есть ли уже такой сотрудник
+     * (по ФИО или по табельному номеру).
+     */
+    dedupeCheck: (args: { fullName?: string; personnelNumber?: string; excludeId?: string }) => Promise<EmployeeDedupeCheckResult>;
+    /**
+     * Слияние записей одного человека. `loserIds` — сколько угодно дублей за раз,
+     * основной оператор выбирает сам; `dryRun` возвращает тот же отчёт, ничего не
      * записывая, — им проверяют слияние до боевого.
      */
-    dedupeMerge: (args: { survivorId: string; loserId: string; dryRun?: boolean }) => Promise<EmployeeDedupeMergeResult>;
+    dedupeMerge: (args: { survivorId: string; loserIds: string[]; dryRun?: boolean }) => Promise<EmployeeDedupeGroupMergeResult>;
     departmentsList: () => Promise<EntityListItem[]>;
     /** Справочник должностей для карточки сотрудника (гейт `employees.view`). */
     positionsList: () => Promise<EntityListItem[]>;
