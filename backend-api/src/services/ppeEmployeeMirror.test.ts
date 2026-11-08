@@ -82,6 +82,119 @@ describe('planEmployeeMirror', () => {
     expect(op.patch.roleCode).toBe('мастер');
   });
 
+  it('номер удалённой карточки ТОГО ЖЕ сотрудника переходит к живой', () => {
+    // Прод 08.11.2026: у «Хапиковой И. С.» три карточки-дубля; номер 818 держала
+    // удалённая, живая оставалась без табельного, и зеркало падало на уникальный
+    // индекс каждую минуту. Номер переходит от удалённой карточки к живой, но НЕ
+    // в том же проходе: удалённая должна уехать в зеркало без номера раньше живой,
+    // иначе реплика клиента ловит конфликт уникального индекса.
+    const employee = emp({ personnelNo: '818' });
+    const dead = card({ id: 'dead-1', personnelNo: '818', deleted: true, fullName: employee.fullName });
+    const alive = card({ id: 'alive-1', entityId: employee.entityId, personnelNo: null });
+    const plan = planEmployeeMirror([employee], [dead, alive]);
+    const updates = plan.ops.filter((o) => o.kind === 'update') as Array<
+      Extract<MirrorOp, { kind: 'update' }>
+    >;
+    expect(updates).toHaveLength(1);
+    expect(updates[0]?.id).toBe('dead-1');
+    expect(updates[0]?.patch.personnelNo).toBeNull();
+    expect(plan.ambiguous[0]?.reason).toBe(
+      'табельный номер переходит от удалённой карточки — займём следующим проходом',
+    );
+  });
+
+  it('следующим проходом номер свободен — живая карточка его занимает', () => {
+    const employee = emp({ personnelNo: '818' });
+    const dead = card({ id: 'dead-1', personnelNo: null, deleted: true, fullName: employee.fullName });
+    const alive = card({ id: 'alive-1', entityId: employee.entityId, personnelNo: null });
+    const plan = planEmployeeMirror([employee], [dead, alive]);
+    const op = plan.ops[0] as Extract<MirrorOp, { kind: 'update' }>;
+    expect(op.id).toBe('alive-1');
+    expect(op.patch.personnelNo).toBe('818');
+    expect(plan.ambiguous).toEqual([]);
+  });
+
+  it('табельный номер уволенного не переиспользуется', () => {
+    const employee = emp({ personnelNo: '835' });
+    const dead = card({ id: 'dead-1', personnelNo: '835', deleted: true, fullName: 'Ватажников Андрей Александрович' });
+    const alive = card({ id: 'alive-1', entityId: employee.entityId, personnelNo: null });
+    const plan = planEmployeeMirror([employee], [dead, alive]);
+    expect(plan.ops.filter((o) => o.kind === 'update')).toEqual([]);
+    expect(plan.ambiguous[0]?.reason).toBe('табельный номер уволенного не переиспользуется');
+  });
+
+  it('номер живой карточки, который держит удалённая того же сотрудника, освобождается', () => {
+    const employee = emp({ personnelNo: '818' });
+    const dead = card({ id: 'dead-1', personnelNo: '818', deleted: true, fullName: employee.fullName });
+    const alive = card({ id: 'alive-1', entityId: employee.entityId, personnelNo: '818' });
+    const plan = planEmployeeMirror([employee], [dead, alive]);
+    const updates = plan.ops.filter((o) => o.kind === 'update') as Array<
+      Extract<MirrorOp, { kind: 'update' }>
+    >;
+    expect(updates.some((o) => o.id === 'dead-1' && o.patch.personnelNo === null)).toBe(true);
+  });
+
+  it('карточка без табельного заводится сразу, номер — следующим проходом', () => {
+    const employee = emp({ personnelNo: '818' });
+    const dead = card({ id: 'dead-1', personnelNo: '818', deleted: true, fullName: employee.fullName });
+    const plan = planEmployeeMirror([employee], [dead]);
+    const creates = plan.ops.filter((o) => o.kind === 'create') as Array<
+      Extract<MirrorOp, { kind: 'create' }>
+    >;
+    expect(creates).toHaveLength(1);
+    expect(creates[0]?.row.personnelNo).toBeNull();
+    const updates = plan.ops.filter((o) => o.kind === 'update') as Array<
+      Extract<MirrorOp, { kind: 'update' }>
+    >;
+    expect(updates[0]?.id).toBe('dead-1');
+    expect(updates[0]?.patch.personnelNo).toBeNull();
+  });
+
+  it('оживление откладывается, пока номер не отпустят удалённая карточка', () => {
+    const employee = emp({ personnelNo: '818' });
+    const gone = card({ id: 'gone-1', entityId: employee.entityId, personnelNo: '818', deleted: true });
+    const dead = card({ id: 'dead-1', personnelNo: '818', deleted: true, fullName: employee.fullName });
+    const plan = planEmployeeMirror([employee], [gone, dead]);
+    const updates = plan.ops.filter((o) => o.kind === 'update') as Array<
+      Extract<MirrorOp, { kind: 'update' }>
+    >;
+    expect(updates.some((o) => o.id === 'dead-1' && o.patch.personnelNo === null)).toBe(true);
+    expect(updates.some((o) => o.patch.revive)).toBe(false);
+    expect(plan.ambiguous[0]?.reason).toBe(
+      'табельный номер переходит от удалённой карточки — оживим следующим проходом',
+    );
+  });
+
+  it('номер, занятый живой карточкой импорта, второму сотруднику не отдаётся', () => {
+    // Карточка импорта без связи со справочником — тоже «живая»: её табельный
+    // номер занять нельзя (иначе две живые строки с одним номером).
+    const first = emp({ entityId: 'e-1', personnelNo: '42' });
+    const second = emp({ entityId: 'e-2', personnelNo: '42' });
+    const imported = card({ id: 'imported', personnelNo: '42' });
+    const plan = planEmployeeMirror([first, second], [imported]);
+    expect(plan.ambiguous.some((a) => a.entityId === 'e-2')).toBe(true);
+    expect(plan.ops.filter((o) => o.kind === 'create')).toEqual([]);
+  });
+
+  it('оживление не делается, если номер держит другая ЖИВАЯ карточка', () => {
+    const employee = emp({ personnelNo: '818' });
+    const gone = card({ id: 'gone-1', entityId: employee.entityId, personnelNo: '818', deleted: true });
+    const holder = card({ id: 'holder-1', personnelNo: '818' });
+    const plan = planEmployeeMirror([employee], [gone, holder]);
+    expect(plan.ops).toEqual([]);
+    expect(plan.ambiguous[0]?.reason).toBe('табельный номер уже занят другой карточкой');
+  });
+
+  it('номер, назначенный раньше в этом проходе, считается занятым', () => {
+    // Два сотрудника справочника с одним табельным: второй — в отчёт, а не в
+    // правку, которую отвергнет уникальный индекс.
+    const first = emp({ entityId: 'e-1', personnelNo: '900' });
+    const second = emp({ entityId: 'e-2', personnelNo: '900' });
+    const plan = planEmployeeMirror([first, second], []);
+    expect(kinds(plan.ops)).toEqual(['create']);
+    expect(plan.ambiguous[0]?.reason).toBe('табельный номер уже занят другой карточкой');
+  });
+
   it('удалённый в справочнике сотрудник гасит карточку (история выдач остаётся)', () => {
     const employee = emp();
     const synced = card({ id: employee.entityId, entityId: employee.entityId, personnelNo: '827' });

@@ -748,6 +748,29 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     if (!empCols.has('sync_status')) {
       await sqlite.exec(`ALTER TABLE erp_employee_cards ADD COLUMN sync_status text NOT NULL DEFAULT 'synced';`);
     }
+    // Табельный номер в реплике уникален среди ЖИВЫХ карточек — так же, как на
+    // сервере (миграция 0123: индекс частичный, `WHERE deleted_at IS NULL`).
+    // Обычный уникальный индекс (drizzle 0006) держал номер и у удалённых строк:
+    // зеркало привозило удалённую карточку с номером и живую с тем же номером —
+    // апсерт падал на «UNIQUE constraint failed». Асинхронный порт шапки
+    // electron-app/src/main/database/migrate.ts (правки — туда и сюда).
+    const idx = await sqlite.get<{ sql?: string | null }>(
+      `SELECT sql FROM sqlite_master WHERE type='index' AND name='erp_employee_cards_personnel_no_uq'`,
+    );
+    const aliveOnly = !!idx?.sql && /where\s+deleted_at\s+is\s+null/i.test(idx.sql);
+    if (!aliveOnly) {
+      try {
+        await sqlite.exec(`DROP INDEX IF EXISTS erp_employee_cards_personnel_no_uq;`);
+        await sqlite.exec(
+          `CREATE UNIQUE INDEX IF NOT EXISTS erp_employee_cards_personnel_no_uq ON erp_employee_cards(personnel_no) WHERE deleted_at IS NULL;`,
+        );
+      } catch {
+        // Старт не роняем: дубль номера среди живых строк — обычный индекс.
+        await sqlite.exec(
+          `CREATE INDEX IF NOT EXISTS erp_employee_cards_personnel_no_idx ON erp_employee_cards(personnel_no);`,
+        );
+      }
+    }
   }
 
   // erp_document_lines.nomenclature_id — добавлен через clientSchemaMigrations 3->4.

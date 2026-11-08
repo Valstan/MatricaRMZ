@@ -22,7 +22,7 @@
  * Строка, записанная здесь, дальше идёт обычным путём зеркала
  * (`ppeSyncPublisherService`): `sync_status='pending'` → журнал → реплика клиента.
  */
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 
 import { db, pool } from '../database/db.js';
 import { erpEmployeeCards } from '../database/schema.js';
@@ -50,7 +50,7 @@ export type ExistingCard = {
 export type MirrorPatch = {
   entityId?: string;
   fullName?: string;
-  personnelNo?: string;
+  personnelNo?: string | null;
   roleCode?: string | null;
   isActive?: boolean;
   revive?: true;
@@ -94,21 +94,52 @@ export function planEmployeeMirror(
   const ambiguous: MirrorPlan['ambiguous'] = [];
   const byEntity = new Map<string, ExistingCard>();
   const byPersonnel = new Map<string, ExistingCard[]>();
+  // Номер → ВСЕ карточки (живые и удалённые). Удалённая карточка номер держит
+  // (история выдач ссылается на неё), но номер уволенного не переиспользуют —
+  // освобождать его может только карточка ТОГО ЖЕ сотрудника.
+  const byPersonnelAll = new Map<string, ExistingCard[]>();
   const byName = new Map<string, ExistingCard[]>();
   const claimed = new Set<string>();
   const plannedPersonnel = new Set<string>();
 
   for (const card of cards) {
     if (card.entityId) byEntity.set(card.entityId, card);
-    if (!card.deleted && personnelKey(card.personnelNo)) {
-      const key = personnelKey(card.personnelNo);
-      byPersonnel.set(key, [...(byPersonnel.get(key) ?? []), card]);
+    const pkey = personnelKey(card.personnelNo);
+    if (pkey) {
+      byPersonnelAll.set(pkey, [...(byPersonnelAll.get(pkey) ?? []), card]);
+      if (!card.deleted) byPersonnel.set(pkey, [...(byPersonnel.get(pkey) ?? []), card]);
     }
     if (!card.deleted) {
       const key = nameKey(card.fullName);
       byName.set(key, [...(byName.get(key) ?? []), card]);
     }
   }
+
+  /**
+   * Кто держит табельный номер:
+   *  - `alive` — живая карточка: номер занят, навязать нельзя;
+   *  - `deadSame` — удалённая карточка ТОГО ЖЕ сотрудника (ФИО совпадает): номер
+   *    переходит к живому (тот же человек вернулся под новой карточкой);
+   *  - `deadOther` — удалённая карточка чужого сотрудника: табельный номер
+   *    уволенного не переиспользуют, освобождать его некому.
+   */
+  const holderOf = (pno: string, fullName: string, exceptId?: string) => {
+    const holders = (byPersonnelAll.get(pno) ?? []).filter((c) => c.id !== exceptId);
+    const same = nameKey(fullName);
+    return {
+      alive: holders.find((c) => !c.deleted),
+      deadSame: holders.find((c) => c.deleted && nameKey(c.fullName) === same),
+      deadOther: holders.find((c) => c.deleted && nameKey(c.fullName) !== same),
+    };
+  };
+
+  /** Отпустить табельный номер удалённой карточки: `personnel_no = NULL`. */
+  const released = new Set<string>();
+  const releaseNumber = (cardId: string) => {
+    if (released.has(cardId)) return;
+    released.add(cardId);
+    ops.push({ kind: 'update', id: cardId, patch: { personnelNo: null } });
+  };
 
   for (const entityId of deletedEntityIds) {
     const linked = byEntity.get(entityId);
@@ -150,9 +181,32 @@ export function planEmployeeMirror(
       // Табельный уже занят другой строгой карточкой (дубль сотрудника в справочнике):
       // вторую строку с тем же `personnel_no` не заводим — упадёт unique-индекс.
       const pno = personnelKey(emp.personnelNo);
-      if (pno && (plannedPersonnel.has(pno) || (byPersonnel.get(pno) ?? []).some((c) => c.entityId && !c.deleted))) {
-        ambiguous.push({ entityId: emp.entityId, fullName: emp.fullName, reason: 'табельный номер уже занят другой карточкой' });
-        continue;
+      if (pno) {
+        if (plannedPersonnel.has(pno) || (byPersonnel.get(pno) ?? []).length > 0) {
+          ambiguous.push({ entityId: emp.entityId, fullName: emp.fullName, reason: 'табельный номер уже занят другой карточкой' });
+          continue;
+        }
+        const holder = holderOf(pno, emp.fullName);
+        if (holder.deadSame) {
+          // Номер переходит от удалённой карточки ТОГО ЖЕ сотрудника (тот же человек
+          // вернулся под новой карточкой): освобождаем его сейчас, карточку заводим
+          // БЕЗ номера, а номер она займёт следующим проходом. Порядок важен: удалённая
+          // карточка уедет в зеркало без номера раньше живой — иначе реплика клиента
+          // ловит конфликт уникального индекса (в реплике ещё лежит удалённая с 818).
+          releaseNumber(holder.deadSame.id);
+          ops.push({ kind: 'create', id: emp.entityId, row: { ...emp, personnelNo: null } });
+          plannedPersonnel.add(pno);
+          ambiguous.push({
+            entityId: emp.entityId,
+            fullName: emp.fullName,
+            reason: 'табельный номер переходит от удалённой карточки — карточка заведена без номера',
+          });
+          continue;
+        }
+        if (holder.deadOther) {
+          ambiguous.push({ entityId: emp.entityId, fullName: emp.fullName, reason: 'табельный номер уволенного не переиспользуется' });
+          continue;
+        }
       }
       if (pno) plannedPersonnel.add(pno);
       ops.push({ kind: 'create', id: emp.entityId, row: emp });
@@ -162,7 +216,49 @@ export function planEmployeeMirror(
 
     const patch: MirrorPatch = {};
     if (card.entityId !== emp.entityId) patch.entityId = emp.entityId;
-    if (card.deleted) patch.revive = true;
+    if (card.deleted) {
+      // Оживление: карточку возвращают в строй — но только если её табельный номер
+      // не держит другая ЖИВАЯ карточка и не назначен этот же номер раньше в этом
+      // проходе. Иначе правку отвергнет уникальный индекс (даже частичный) и строка
+      // будет падать каждую минуту. Тот же дубль сотрудника в справочнике — разбирает
+      // кадровщик через «Найти дубли».
+      const cardPersonnel = personnelKey(card.personnelNo);
+      const aliveHolder = cardPersonnel
+        ? (byPersonnel.get(cardPersonnel) ?? []).find((c) => c.id !== card.id && !c.deleted)
+        : undefined;
+      if (aliveHolder || (cardPersonnel && plannedPersonnel.has(cardPersonnel))) {
+        ambiguous.push({
+          entityId: emp.entityId,
+          fullName: emp.fullName,
+          reason: 'табельный номер уже занят другой карточкой',
+        });
+        continue;
+      }
+      if (cardPersonnel) {
+        // Номер карточки держит другая удалённая карточка: отпустит его только
+        // карточка ТОГО ЖЕ сотрудника, а номер уволенного не переиспользуют.
+        const holder = holderOf(cardPersonnel, emp.fullName, card.id);
+        if (holder.deadSame) {
+          releaseNumber(holder.deadSame.id);
+          ambiguous.push({
+            entityId: emp.entityId,
+            fullName: emp.fullName,
+            reason: 'табельный номер переходит от удалённой карточки — оживим следующим проходом',
+          });
+          continue;
+        }
+        if (holder.deadOther) {
+          ambiguous.push({
+            entityId: emp.entityId,
+            fullName: emp.fullName,
+            reason: 'табельный номер уволенного не переиспользуется',
+          });
+          continue;
+        }
+      }
+      patch.revive = true;
+      if (cardPersonnel) plannedPersonnel.add(cardPersonnel);
+    }
     if (card.fullName !== emp.fullName) patch.fullName = emp.fullName;
     if (!card.personnelNo && emp.personnelNo) {
       // Табельный номер бывает уже занят другой карточкой: в справочнике два
@@ -176,16 +272,47 @@ export function planEmployeeMirror(
       const holder = pno
         ? (byPersonnel.get(pno) ?? []).find((c) => c.id !== card.id && !c.deleted)
         : undefined;
-      if (holder) {
+      // Номер, назначенный РАНЬШЕ в этом же проходе, тоже занят: две строки
+      // с одним табельным в одной выкатке невозможны (уникальный индекс).
+      if (holder || (pno && plannedPersonnel.has(pno))) {
         ambiguous.push({
           entityId: emp.entityId,
           fullName: emp.fullName,
           reason: 'табельный номер уже занят другой карточкой',
         });
       } else {
-        patch.personnelNo = emp.personnelNo;
-        if (pno) plannedPersonnel.add(pno);
+        const dead = pno ? holderOf(pno, emp.fullName, card.id) : null;
+        if (dead?.deadSame) {
+          // Номер переходит от удалённой карточки ТОГО ЖЕ сотрудника: освобождаем
+          // его сейчас, живая карточка займёт следующим проходом (тогда в зеркало
+          // удалённая уедет без номера раньше живой — реплика клиента не ловит
+          // конфликт уникального индекса).
+          releaseNumber(dead.deadSame.id);
+          ambiguous.push({
+            entityId: emp.entityId,
+            fullName: emp.fullName,
+            reason: 'табельный номер переходит от удалённой карточки — займём следующим проходом',
+          });
+        } else if (dead?.deadOther) {
+          ambiguous.push({
+            entityId: emp.entityId,
+            fullName: emp.fullName,
+            reason: 'табельный номер уволенного не переиспользуется',
+          });
+        } else {
+          patch.personnelNo = emp.personnelNo;
+          if (pno) plannedPersonnel.add(pno);
+        }
       }
+    }
+    if (card.personnelNo) {
+      // У живой карточки номер уже есть, но ту же цифру может держать удалённая
+      // карточка ТОГО ЖЕ сотрудника (номер перешёл к живому, а у удалённой остался).
+      // Освобождаем: иначе в реплике клиента живут две строки с одним табельным,
+      // и её уникальный индекс отвергнет правку.
+      const own = personnelKey(card.personnelNo);
+      const dead = own ? holderOf(own, emp.fullName, card.id).deadSame : undefined;
+      if (dead) releaseNumber(dead.id);
     }
     if ((card.roleCode ?? null) !== emp.roleCode) patch.roleCode = emp.roleCode;
     if (card.isActive !== emp.isActive) patch.isActive = emp.isActive;
@@ -415,18 +542,36 @@ export async function ensurePpeEmployeeCard(
 
   const cards = await loadExistingCards();
   const plan = planEmployeeMirror([target], cards);
-  const op = plan.ops[0];
-  if (!op) return { ok: false, error: 'Не удалось свести сотрудника с карточкой СИЗ' };
-  if (op.kind === 'create') {
-    await db.insert(erpEmployeeCards).values(createValues(target, op.id));
-  } else if (op.kind === 'update') {
-    await db
-      .update(erpEmployeeCards)
-      .set(patchValues(op.patch) as never)
-      .where(eq(erpEmployeeCards.id, op.id as never));
+  if (plan.ops.length === 0) return { ok: false, error: 'Не удалось свести сотрудника с карточкой СИЗ' };
+  for (const op of plan.ops) {
+    try {
+      if (op.kind === 'create') {
+        await db.insert(erpEmployeeCards).values(createValues(op.row, op.id));
+      } else if (op.kind === 'update') {
+        await db
+          .update(erpEmployeeCards)
+          .set(patchValues(op.patch) as never)
+          .where(eq(erpEmployeeCards.id, op.id as never));
+      }
+    } catch (e) {
+      logError('ppe employee mirror row failed', { id: op.id, kind: op.kind, ...describeError(e) });
+    }
   }
+  // Карточку сотрудника ищем в БД: в плане может быть и освобождение номера у
+  // ЧУЖОЙ удалённой карточки — её id в ответе сотруднику отдавать нельзя.
+  const found = await db
+    .select({ id: erpEmployeeCards.id })
+    .from(erpEmployeeCards)
+    .where(
+      and(
+        isNull(erpEmployeeCards.deletedAt),
+        or(eq(erpEmployeeCards.id, id as never), eq(erpEmployeeCards.entityId, id as never)),
+      ),
+    )
+    .limit(1);
+  if (!found[0]) return { ok: false, error: 'Не удалось свести сотрудника с карточкой СИЗ' };
   await kickPpeSyncPublisher().catch(() => undefined);
-  return { ok: true, cardId: op.id };
+  return { ok: true, cardId: String(found[0].id) };
 }
 
 /** Резолв пачки (группа, коллективная выдача): отказ — только если сотрудника нет вовсе. */

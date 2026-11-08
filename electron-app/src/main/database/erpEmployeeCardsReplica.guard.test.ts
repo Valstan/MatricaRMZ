@@ -49,6 +49,60 @@ describe('erp_employee_cards replica (0036 + parity)', () => {
     sqlite.close();
   });
 
+  it('индекс табельного номера уникален среди ЖИВЫХ (как на сервере, 0123)', () => {
+    // Обычный уникальный индекс (drizzle 0006) держал номер и у удалённых карточек:
+    // зеркало привозило удалённую строку с номером и живую с тем же номером —
+    // апсерт падал на «UNIQUE constraint failed», и модуль СИЗ на клиенте вставал.
+    const sqlite = new Database(':memory:');
+    sqlite.exec(readFileSync(join(here, '../../../drizzle/0036_erp_employee_cards_replica.sql'), 'utf8'));
+    const idx = sqlite
+      .prepare(`SELECT sql FROM sqlite_master WHERE type='index' AND name='erp_employee_cards_personnel_no_uq'`)
+      .get() as { sql?: string } | undefined;
+    expect(idx?.sql).toBeTruthy();
+    expect(idx?.sql).toMatch(/where\s+`?deleted_at`?\s+is\s+null/i);
+    // Две строки с одним табельным (удалённая и живая) — не конфликтуют.
+    const now = Date.now();
+    sqlite
+      .prepare(
+        `INSERT INTO erp_employee_cards (id, personnel_no, full_name, is_active, created_at, updated_at, deleted_at)
+         VALUES ('dead', '818', 'Хапикова Ирина Сергеевна', 1, ?, ?, ?)`,
+      )
+      .run(now, now, now);
+    sqlite
+      .prepare(
+        `INSERT INTO erp_employee_cards (id, personnel_no, full_name, is_active, created_at, updated_at)
+         VALUES ('alive', '818', 'Хапикова Ирина Сергеевна', 1, ?, ?)`,
+      )
+      .run(now, now);
+    sqlite.close();
+  });
+
+  it('parity пересоздаёт обычный индекс в частичный и не роняет старт', () => {
+    const sqlite = new Database(':memory:');
+    sqlite.exec(`
+      CREATE TABLE erp_employee_cards (
+        id text PRIMARY KEY NOT NULL,
+        personnel_no text,
+        full_name text NOT NULL,
+        role_code text,
+        attrs_json text,
+        is_active integer DEFAULT 1 NOT NULL,
+        created_at integer NOT NULL,
+        updated_at integer NOT NULL,
+        deleted_at integer
+      );
+      CREATE UNIQUE INDEX erp_employee_cards_personnel_no_uq ON erp_employee_cards (personnel_no);
+    `);
+    ensureClientSchemaParity(sqlite);
+    const idx = sqlite
+      .prepare(`SELECT sql FROM sqlite_master WHERE type='index' AND name='erp_employee_cards_personnel_no_uq'`)
+      .get() as { sql?: string } | undefined;
+    expect(idx?.sql).toMatch(/where\s+deleted_at\s+is\s+null/i);
+    // Повторный прогон (старт после старта) ничего не ломает.
+    expect(() => ensureClientSchemaParity(sqlite)).not.toThrow();
+    sqlite.close();
+  });
+
   it('живой путь: parity добавляет хвост к таблице формы 0006 и идемпотентен', () => {
     const sqlite = new Database(':memory:');
     sqlite.exec(`

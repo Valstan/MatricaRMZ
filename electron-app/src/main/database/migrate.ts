@@ -875,6 +875,31 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     if (!cols.has('sync_status')) {
       sqlite.exec(`ALTER TABLE erp_employee_cards ADD COLUMN sync_status text NOT NULL DEFAULT 'synced';`);
     }
+    // Табельный номер в реплике уникален среди ЖИВЫХ карточек — так же, как на
+    // сервере (миграция 0123: индекс частичный, `WHERE deleted_at IS NULL`).
+    // Обычный уникальный индекс (drizzle 0006) держал номер и у удалённых строк:
+    // зеркало привозило удалённую карточку с номером и живую с тем же номером —
+    // апсерт падал на «UNIQUE constraint failed», и модуль СИЗ на клиенте вставал.
+    // Пересоздаём индекс частичным (идемпотентно, на каждом старте).
+    const idx = sqlite
+      .prepare(`SELECT sql FROM sqlite_master WHERE type='index' AND name='erp_employee_cards_personnel_no_uq'`)
+      .get() as { sql?: string | null } | undefined;
+    const aliveOnly = !!idx?.sql && /where\s+deleted_at\s+is\s+null/i.test(idx.sql);
+    if (!aliveOnly) {
+      try {
+        sqlite.exec(`DROP INDEX IF EXISTS erp_employee_cards_personnel_no_uq;`);
+        sqlite.exec(
+          `CREATE UNIQUE INDEX IF NOT EXISTS erp_employee_cards_personnel_no_uq ON erp_employee_cards(personnel_no) WHERE deleted_at IS NULL;`,
+        );
+      } catch {
+        // Старт не роняем: если среди живых строк нашёлся дубль номера, оставляем
+        // обычный (неуникальный) индекс — данные переживут, уникальность дотянется
+        // после того, как кадровщик разберёт дубли.
+        sqlite.exec(
+          `CREATE INDEX IF NOT EXISTS erp_employee_cards_personnel_no_idx ON erp_employee_cards(personnel_no);`,
+        );
+      }
+    }
   }
 
   // chat_rooms — комнаты чата (владелец 08.09.2026). Та же причина дубля, что у таблиц выше:
