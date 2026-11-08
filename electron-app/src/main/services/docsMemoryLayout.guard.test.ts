@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
- * Сторож раскладки памяти (brain D-097, ADR-0013, план docs/plans/memory-index-plus-chunks-2026-09.md):
+ * Сторож раскладки памяти (brain D-097, ADR-0013, план docs/plans/_archive/memory-index-plus-chunks-2026-09.md):
  * реестр грабель и реестр открытых задач живут индексом + файлом на запись. Потолок индекса держит форма,
  * а не память агента: упёрлись — сокращаем формулировки, а не поднимаем потолок.
  */
