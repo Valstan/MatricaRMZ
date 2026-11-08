@@ -54,7 +54,6 @@
 ## 🟡 Техдолг и отложенное
 
 - [🟡 Подписать заглушку-обновлятель: osslsigncode или windows-джоб 🗓 since:2026-11-05](pending/podpisat-zaglushku-obnovlyatel.md)
-- [🟡 Done-индекс у потолка 300 КБ: новая строка не влезает 🗓 since:2026-11-06](pending/done-indeks-u-potolka-300-kb.md)
 - [🟡 Журнал синхронизации раздувался EAV-значениями: раздувание остановлено (PR #1561), все дубли вычищены 🗓 since:2026-11-03](pending/journal-rozet-iz-za-eav-attribute-values.md)
 - [🟡 Размерный ряд СИЗ для РМЗ: базовый может не подойти 🗓 since:2026-11-03](pending/razmernyy-ryad-siz-dlya-rmz-utochnit.md)
 - [🟡 Утиль по детали: выключить страховку по подстроке «картер» 🗓 since:2026-11-02](pending/util-po-detali-strakhovka-po-podstroke-karter.md)
@@ -195,7 +194,6 @@
 - [🟡 План «Сквозной номер РМЗ» лежит активным, хотя код выкачен — проверить и закрыть 🗓 since:2026-10-29](pending/plan-nomerov-rmz-ne-zakryt-v-dokakh-proverit-i-dodelat.md)
 - [🟡 web-admin не показывает номер РМЗ: нужен REST-ответ с номером 🗓 since:2026-10-28](pending/web-admin-ne-pokazyvaet-nomer-rmz-nuzhen-rest.md)
 - [🟢 Экран «Номера РМЗ» не знает автора старых карточек 🗓 since:2026-10-28](pending/ekran-nomera-rmz-ne-znaet-avtora-starykh-kartochek.md)
-- [🟡 Живой `docs/COMPLETED.md` разгружен от старых поколений (638 → 274 КБ), но строки 3.x всё ещё абзацы 🗓 since:2026-10-27](pending/completed-szhat-stroki-pokoleniya-3x.md)
 - [CDP-смоук пакета 3.85–3.87 прогнан 21.10 — 52/52; осталось четыре куска 🗓 since:2026-10-21](pending/cdp-smouk-paketa-3-85-3-87-prognan-21-10-52-52-ostalos.md)
 - [Аварийный режим времени «по интернету + часовой пояс» 🗓 since:2026-10-21](pending/avariynyy-rezhim-vremeni-po-internetu-chasovoy-poyas.md)
 - [🟡 Заглушки `U+FFFD` в документах некому заметить: нужен шаг CI 🗓 since:2026-10-19](pending/zaglushki-u-fffd-v-dokumentakh-nekomu-zametit-nuzhen.md)
