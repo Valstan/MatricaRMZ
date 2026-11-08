@@ -87,7 +87,7 @@
 
 - [⏳ Боевой CA Матрицы и вывод подписи в бой: Allowlist закрыт, остались раскатка корня и GUI-проверка 🗓 since:2026-11-05](pending/boevoy-ca-i-vyvod-podpisi-v-boy.md)
 - [⏳ Свой ключ DeepSeek под проект (D-188): выпускает владелец, переезд делаем мы 🗓 since:2026-11-08](pending/svoy-key-deepseek-dlya-proekta-d-188.md)
-- [⏳ Промты проекта из КАРМАНА (D-190): токен выпущен, грант id 22 ждёт клика владельца 🗓 since:2026-11-08](pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md)
+- [⏳ Промты проекта из КАРМАНА (D-190): канал живой, 26 промтов ждут выполнения 🗓 since:2026-11-08](pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md)
 - [⏳ Приёмка парка на 3.102.0: приказ о СИЗ и должности должны быть видны оператору 🗓 since:2026-11-03](pending/priemka-parka-na-3-101-0-prikaz-o-siz.md)
 - [⏳ Проставить сроки носки по 113 годовым позициям приказа о СИЗ: без срока они не попадают в «пора выдавать» 🗓 since:2026-11-05](pending/prostat-sroki-noski-po-godovym-poziciyam-prikaza-siz.md)
 - [⏳ Выгрузка СИЗ в 1С: структура файла ждёт бухгалтера 🗓 since:2026-11-03](pending/vygruzka-siz-v-1s-struktura-zhdet-buhgaltera.md)
