@@ -21,6 +21,9 @@ CREATE TABLE `erp_employee_cards` (
 	`sync_status` text DEFAULT 'synced' NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS `erp_employee_cards_personnel_no_uq` ON `erp_employee_cards` (`personnel_no`);
+-- Табельный номер уникален среди ЖИВЫХ карточек (как на сервере, миграция 0123):
+-- удалённая карточка номер не держит — иначе зеркало привозит две строки с одним
+-- табельным, и апсерт реплики падает на уникальном индексе.
+CREATE UNIQUE INDEX IF NOT EXISTS `erp_employee_cards_personnel_no_uq` ON `erp_employee_cards` (`personnel_no`) WHERE `deleted_at` IS NULL;
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `erp_employee_cards_full_name_idx` ON `erp_employee_cards` (`full_name`);

@@ -855,6 +855,13 @@
       "when": 1793899614770,
       "tag": "0122_ppe_annual_norms_domain_rule",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1794146046461,
+      "tag": "0123_erp_employee_cards_personnel_no_unique_alive",
+      "breakpoints": true
     }
   ]
 }

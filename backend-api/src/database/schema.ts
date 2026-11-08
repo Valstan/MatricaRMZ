@@ -1062,7 +1062,12 @@ export const erpEmployeeCards = pgTable(
     lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
   },
   (t) => ({
-    personnelNoUq: uniqueIndex('erp_employee_cards_personnel_no_uq').on(t.personnelNo),
+    // Табельный номер занимает только ЖИВАЯ карточка (миграция 0123): мягко удалённая
+    // строка номер больше не держит — иначе удалённая карточка блокировала номер
+    // живому сотруднику, а зеркало падало на unique-индекс каждую минуту.
+    personnelNoUq: uniqueIndex('erp_employee_cards_personnel_no_uq')
+      .on(t.personnelNo)
+      .where(sql`${t.deletedAt} IS NULL`),
     fullNameIdx: index('erp_employee_cards_full_name_idx').on(t.fullName),
     entityIdUq: uniqueIndex('erp_employee_cards_entity_id_uq')
       .on(t.entityId)

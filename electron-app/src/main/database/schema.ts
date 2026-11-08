@@ -818,7 +818,12 @@ export const erpEmployeeCards = sqliteTable(
     syncStatus: text('sync_status').notNull().default('synced'),
   },
   (t) => ({
-    personnelNoUq: uniqueIndex('erp_employee_cards_personnel_no_uq').on(t.personnelNo),
+    // Табельный номер в реплике уникален среди ЖИВЫХ карточек — так же, как на
+    // сервере (миграция 0123). Удалённая карточка номер не держит, иначе зеркало
+    // привозит две строки с одним табельным, и апсерт падает на уникальном индексе.
+    personnelNoUq: uniqueIndex('erp_employee_cards_personnel_no_uq')
+      .on(t.personnelNo)
+      .where(sql`${t.deletedAt} IS NULL`),
     fullNameIdx: index('erp_employee_cards_full_name_idx').on(t.fullName),
   }),
 );

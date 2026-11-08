@@ -89,6 +89,19 @@ describe('android clientSchemaCompatible', () => {
     await adapter.close();
   });
 
+  it('свежая БД: индекс табельного номера уникален среди ЖИВЫХ (как на сервере, 0123)', async () => {
+    // Обычный уникальный индекс (drizzle 0006) держал номер и у удалённых карточек:
+    // зеркало привозило удалённую строку с номером и живую с тем же номером —
+    // апсерт падал на «UNIQUE constraint failed». Пariти пересоздаёт индекс частичным.
+    const adapter = createBetterSqlite3AsyncAdapter(':memory:');
+    await migrateSqliteAsync(adapter);
+    const idx = await adapter.get<{ sql?: string }>(
+      `SELECT sql FROM sqlite_master WHERE type='index' AND name='erp_employee_cards_personnel_no_uq'`,
+    );
+    expect(idx?.sql).toMatch(/where\s+deleted_at\s+is\s+null/i);
+    await adapter.close();
+  });
+
   it('смена server-hash НЕ даёт rebuild (v3.5.0), downgrade даёт', async () => {
     const adapter = createBetterSqlite3AsyncAdapter(':memory:');
     await migrateSqliteAsync(adapter);
