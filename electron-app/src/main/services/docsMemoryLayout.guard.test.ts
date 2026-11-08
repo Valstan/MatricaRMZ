@@ -20,7 +20,13 @@ const CALENDAR_HEADING = 'Календарь ротаций и дедлайно�
 
 const COMPLETED_PATH = resolve(DOCS, 'COMPLETED.md');
 const COMPLETED_ARCHIVE_PATH = resolve(DOCS, '_archive', 'COMPLETED-2026H1.md');
-const COMPLETED_LIMIT_BYTES = 300 * 1024;
+// Потолок снижен 08.11.2026 после переработки формы: раньше индекс упирался в 300 КБ
+// (307 186 байт при потолке 307 200) — строки выросли в абзацы (медиана 1 259 байт).
+// Теперь форма короткая (итог до 240 знаков) + ротация по возрасту в архив 3.x,
+// поэтому 150 КБ — это запас на несколько месяцев роста, а не «нулевой» запас.
+const COMPLETED_LIMIT_BYTES = 150 * 1024;
+// Форма строки: тезис + релиз/PR + короткий итог. Сторож ловит возврат абзацев.
+const COMPLETED_ROW_MAX_BYTES = 900;
 const GENERATION_3X_FROM = '2026-08-15';
 
 const index = readFileSync(INDEX_PATH, 'utf8');
@@ -154,5 +160,40 @@ describe('раскладка docs: done-индекс и архив прошлы�
   it('в архиве нет записей поколения 3.x', () => {
     const offenders = tableRows(COMPLETED_ARCHIVE_PATH).filter((row) => /\bv3\.\d/.test(row.rel));
     expect(offenders.map((row) => row.name.slice(0, 40))).toEqual([]);
+  });
+
+  it('форма строки держится: итог короткий, абзацы не вернулись', () => {
+    const long = readFileSync(COMPLETED_PATH, 'utf8')
+      .split(/\r?\n/)
+      .filter((line) => /^\| \d{4}-\d{2}-\d{2} \|/.test(line))
+      .map((line) => ({ bytes: Buffer.byteLength(line, 'utf8'), line: line.slice(0, 120) }))
+      .filter((row) => row.bytes > COMPLETED_ROW_MAX_BYTES);
+    expect(long.map((row) => `${row.bytes} ${row.line}`)).toEqual([]);
+  });
+
+  it('ротация по возрасту: архив 3.x существует, граница из его шапки соблюдена', () => {
+    const archivesDir = resolve(DOCS, '_archive');
+    const archives = readdirSync(archivesDir)
+      .filter((f) => /^COMPLETED-3x-\d{4}Q\d\.md$/.test(f))
+      .sort();
+    expect(archives.length).toBeGreaterThan(0);
+    for (const name of archives) {
+      const text = readFileSync(resolve(archivesDir, name), 'utf8');
+      // Граница записана в шапке архива: «записи строго раньше <дата>».
+      const boundary = text.match(/строго \*\*раньше\*\* (\d{4}-\d{2}-\d{2})/)?.[1];
+      expect(boundary, `в шапке ${name} нет границы ротации`).toBeTruthy();
+      const tooNew = tableRows(resolve(archivesDir, name)).filter(
+        (row) => /^\d{4}-\d{2}-\d{2}$/.test(row.first) && row.first >= (boundary as string),
+      );
+      expect(tooNew.map((row) => `${row.first} ${row.name.slice(0, 40)}`), `в ${name} есть записи не старше границы`).toEqual([]);
+    }
+    // В живом индексе не должно остаться записей, которые уже ушли в последний архив.
+    const latest = archives[archives.length - 1] as string;
+    const latestText = readFileSync(resolve(archivesDir, latest), 'utf8');
+    const boundary = latestText.match(/строго \*\*раньше\*\* (\d{4}-\d{2}-\d{2})/)?.[1] as string;
+    const stale = tableRows(COMPLETED_PATH).filter(
+      (row) => /^\d{4}-\d{2}-\d{2}$/.test(row.first) && row.first < boundary,
+    );
+    expect(stale.map((row) => `${row.first} ${row.name.slice(0, 40)}`), 'живой индекс держит то, что уже в архиве').toEqual([]);
   });
 });
