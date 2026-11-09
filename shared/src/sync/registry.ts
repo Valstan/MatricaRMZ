@@ -685,6 +685,31 @@ const SIGNATURE_DEFAULT_FIELDS = withBase(
   { db: 'employeeId', dto: 'employee_id' },
 );
 
+// Производственная программа (ПП): шапка программы и строки плана.
+const ERP_PRODUCTION_PROGRAM_FIELDS = withBase(
+  { db: 'periodStart', dto: 'period_start' },
+  { db: 'periodEnd', dto: 'period_end' },
+  { db: 'shop', dto: 'shop' },
+  { db: 'title', dto: 'title' },
+  { db: 'status', dto: 'status' },
+  { db: 'signatureSlots', dto: 'signature_slots' },
+);
+
+const ERP_PRODUCTION_PROGRAM_ROW_FIELDS = withBase(
+  { db: 'programId', dto: 'program_id' },
+  { db: 'orderNo', dto: 'order_no' },
+  { db: 'contractId', dto: 'contract_id' },
+  { db: 'groupLabel', dto: 'group_label' },
+  { db: 'contractKind', dto: 'contract_kind' },
+  { db: 'engineId', dto: 'engine_id' },
+  { db: 'engineMark', dto: 'engine_mark' },
+  { db: 'engineNumber', dto: 'engine_number' },
+  { db: 'state', dto: 'state' },
+  { db: 'shippingPlanAt', dto: 'shipping_plan_at' },
+  { db: 'factors', dto: 'factors' },
+  { db: 'note', dto: 'note' },
+);
+
 // ────────────────────────────────────────────────────────────
 // Registry entries
 // ────────────────────────────────────────────────────────────
@@ -1112,6 +1137,26 @@ const ENTRIES: readonly SyncTableEntry[] = [
     fields: SIGNATURE_DEFAULT_FIELDS,
     conflictTarget: ['id'],
     dependsOn: [],
+  },
+  // Производственная программа (ПП): план производства. Server-write / pull-only:
+  // ведёт серверная дверь (productionProgramService), клиент читает реплику.
+  // Строка плана ссылается на программу (uuid) — жёсткой FK нет, порядок
+  // обработки задан dependsOn.
+  {
+    syncName: SyncTableName.ErpProductionPrograms,
+    ledgerName: SyncTableName.ErpProductionPrograms,
+    schema: erpProductionProgramRowSchema,
+    fields: ERP_PRODUCTION_PROGRAM_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [],
+  },
+  {
+    syncName: SyncTableName.ErpProductionProgramRows,
+    ledgerName: SyncTableName.ErpProductionProgramRows,
+    schema: erpProductionProgramLineRowSchema,
+    fields: ERP_PRODUCTION_PROGRAM_ROW_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.ErpProductionPrograms],
   },
 ] as const;
 

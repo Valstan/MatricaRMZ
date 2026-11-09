@@ -96,6 +96,11 @@ export const SyncTableName = {
   // ключ поля подписи → сотрудник. Server-write / pull-only, как PPE:
   // пишет админская дверь, клиент читает реплику.
   SignatureDefaults: 'signature_defaults',
+  // Производственная программа (ПП): план производства на две недели/месяц по
+  // образцу «ПП Цех № 1». Server-write / pull-only, как умолчания подписей:
+  // ведёт серверная дверь (REST), клиент читает реплику (офлайн-чтение плана).
+  ErpProductionPrograms: 'erp_production_programs',
+  ErpProductionProgramRows: 'erp_production_program_rows',
 } as const;
 
 export type SyncTableName = (typeof SyncTableName)[keyof typeof SyncTableName];
