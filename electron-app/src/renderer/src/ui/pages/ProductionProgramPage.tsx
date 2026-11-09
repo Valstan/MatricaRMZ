@@ -16,6 +16,7 @@ import {
 
 import { Button } from '../components/Button.js';
 import { SectionCard } from '../components/SectionCard.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { openProductionProgramPrint } from '../utils/productionProgramPrintHtml.js';
 
 /**
@@ -89,6 +90,15 @@ export function ProductionProgramPage(props: Props) {
     void reload();
   }, [reload]);
 
+  // План ведёт сервер, клиент читает реплику: только что созданный план приедет
+  // публикацией зеркала и pull'ом — страница перечитывает список по этому событию.
+  useLiveDataRefresh(
+    async () => {
+      await reload();
+    },
+    { domains: ['productionProgram'] },
+  );
+
   useEffect(() => {
     void (async () => {
       try {
@@ -139,7 +149,10 @@ export function ProductionProgramPage(props: Props) {
   }, [props.engines]);
 
   const contractEngines = useMemo(
-    () => props.engines.filter((e) => String(e.contractId ?? '') === pickerContract),
+    // Пока договор не выбран, двигателей нет: строка плана без договора не имеет группы
+    // («Организация, договор»), и сервер такую строку всё равно не примет (у неё нет
+    // шапки группы) — предлагать её в договоре было бы обещанием, которого нет.
+    () => (pickerContract ? props.engines.filter((e) => String(e.contractId ?? '') === pickerContract) : []),
     [props.engines, pickerContract],
   );
 
@@ -439,8 +452,7 @@ export function ProductionProgramPage(props: Props) {
                             {c.label}
                           </option>
                         ))}
-                      </select>
-                    </label>
+                      </select>                    </label>
                     <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
                       Двигатель
                       <select value={pickerEngine} onChange={(e) => setPickerEngine(e.target.value)} style={{ padding: '4px 6px' }}>

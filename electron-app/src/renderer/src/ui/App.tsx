@@ -2939,6 +2939,9 @@ export function App() {
     ...(caps.canViewEngines ? (['engine_rmz_numbers'] as const) : []),
     // Обстановка по заводу — тем же, кто видит двигатели (владелец 14.10.2026: «чтобы все сразу могли попасть»).
     ...(caps.canViewEngines ? (['now_at_plant'] as const) : []),
+    // Производственная программа (ПП): план производства читает весь производственный
+    // контур (право `production_program.view`), ведёт его — тот, кому выдано `.edit`.
+    ...(caps.canViewProductionProgram ? (['production_program'] as const) : []),
     // Этапы работ — строки истории ремонта, право то же, что у истории.
     ...(caps.canViewOperations ? (['work_sheets'] as const) : []),
     ...(caps.canViewReports ? (['assembly_forecast'] as const) : []),
