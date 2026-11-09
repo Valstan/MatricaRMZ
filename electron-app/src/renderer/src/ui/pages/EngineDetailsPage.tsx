@@ -6,6 +6,8 @@ import { looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGIN
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
+import { EngineScrapBadge } from '../components/EngineScrapBadge.js';
+import { isScrapEngine } from '@matricarmz/shared';
 import { SectionCard } from '../components/SectionCard.js';
 import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { EngineHistoryFeedPanel } from '../components/EngineHistoryFeedPanel.js';
@@ -2771,7 +2773,11 @@ export function EngineDetailsPage(props: {
           </div>
         ) : saveStatus ? (
           <div style={{ color: saveStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>{saveStatus}</div>
-        ) : null
+        ) : (
+          // Плашка «Утиль» в шапке карточки: утильный двигатель должен читаться сразу,
+          // а не вычисляться оператором по подписям (в списках ту же роль играет розовая строка).
+          <EngineScrapBadge isScrap={isScrapEngine(statusFlags) || statusFlags.status_rejected === true} />
+        )
       }
     >
         {/* Вкладки карточки (план reclamation-mvp-2026-07 Ф0). Панели НЕ размонтируются

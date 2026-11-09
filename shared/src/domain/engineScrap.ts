@@ -20,6 +20,13 @@ export const ENGINE_SCRAP_ROW_BACKGROUND = 'rgba(239, 68, 68, 0.18)';
 /** Плотный розовый для печати: на белом фоне полупрозрачный цвет бледнеет. */
 export const ENGINE_SCRAP_ROW_BACKGROUND_PRINT = '#fde8e8';
 
+/** Плашка «Утиль» на карточке двигателя: подпись, которую видит оператор первым. */
+export const ENGINE_SCRAP_BADGE_LABEL = 'Утиль';
+/** Фон плашки — тот же плотный розовый, что и для печати (на экране тоже читаем). */
+export const ENGINE_SCRAP_BADGE_BACKGROUND = ENGINE_SCRAP_ROW_BACKGROUND_PRINT;
+/** Текст плашки — тёмно-красный, читаем на розовом. */
+export const ENGINE_SCRAP_BADGE_COLOR = '#b91c1c';
+
 /**
  * Фон строки по признаку утиля. Пусто (без розового), если двигатель не утильный.
  *
