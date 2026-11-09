@@ -55,6 +55,8 @@ import {
   ppePrintTemplateRowSchema,
   signatureDefaultRowSchema,
   directoryEngineBrandRowSchema,
+  erpProductionProgramRowSchema,
+  erpProductionProgramLineRowSchema,
 } from './dto.js';
 import {
   erpEngineInstanceRowSchema,
