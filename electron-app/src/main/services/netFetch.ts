@@ -123,8 +123,7 @@ function parseTotalBytes(res: Response, rangeStart: number) {
   return null;
 }
 
-export async function downloadWithResume(url: string, outPath: string, opts: DownloadOptions) {
-  let lastErr: unknown = null;
+export async function downloadWithResume(url: string, outPath: string, opts: DownloadOptions) {  let lastErr: unknown = null;
   for (let attempt = 1; attempt <= opts.attempts; attempt++) {
     if (!opts.allowOffline && !net.isOnline()) {
       throw new Error('offline');
@@ -218,4 +217,120 @@ export async function downloadWithResume(url: string, outPath: string, opts: Dow
     }
   }
   return { ok: false as const, error: String(lastErr ?? 'download failed') };
+}
+
+/**
+ * Скачивание файла потоком в файл С ПРОГРЕССОМ (без докачки).
+ *
+ * ЗАЧЕМ ОТДЕЛЬНО ОТ `downloadWithResume`. Докачка требует Range/206, а файловый сервер
+ * их не умеет (сам `downloadWithResume` на этом месте падает с «resume-invalid-content-range»).
+ * Здесь нужен обычный GET с заголовками (Bearer) и честный счётчик байт: сервер отдаёт
+ * файл потоком, значит процент реальный, а не «по времени» и не «крутилка».
+ */
+export type StreamDownloadOptions = {
+  headers?: Record<string, string>;
+  /** Сколько байт уже скачано и сколько всего (null — объём неизвестен). */
+  onProgress?: (transferred: number, total: number | null) => void;
+  timeoutMs?: number;
+  attempts?: number;
+};
+
+export async function downloadToFileWithProgress(
+  url: string,
+  outPath: string,
+  opts: StreamDownloadOptions,
+): Promise<{ ok: true; filePath: string; bytes: number } | { ok: false; error: string }> {
+  let lastErr: unknown = null;
+  const attempts = Math.max(1, opts.attempts ?? 2);
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    if (!net.isOnline()) {
+      return { ok: false, error: 'offline' };
+    }
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(new Error('timeout')), opts.timeoutMs ?? 120_000);
+    try {
+      const headers = new Headers(opts.headers ?? {});
+      const res = await net.fetch(url, { method: 'GET', headers, signal: ac.signal as any });
+      if (!res.ok || !res.body) throw new Error(`download HTTP ${res.status}`);
+      const len = Number(res.headers.get('content-length') ?? 0);
+      const total = Number.isFinite(len) && len > 0 ? len : null;
+
+      let transferred = 0;
+      const stream = Readable.fromWeb(res.body as any);
+      stream.on('data', (chunk) => {
+        transferred += chunk?.length ?? 0;
+        opts.onProgress?.(transferred, total);
+      });
+      const out = createWriteStream(outPath, { flags: 'w' });
+      await pipeline(stream, out);
+      opts.onProgress?.(transferred, total ?? transferred);
+      return { ok: true, filePath: outPath, bytes: transferred };
+    } catch (e) {
+      lastErr = e;
+      if (!isTransientNetworkError(e) || attempt >= attempts) break;
+      await sleep(getBackoffMs(attempt, { attempts, timeoutMs: opts.timeoutMs ?? 120_000 }));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return { ok: false, error: String(lastErr ?? 'download failed') };
+}
+
+/**
+ * Отправка файла (буфер) с ПРОГРЕССОМ.
+ *
+ * `net.fetch` прогресса отправки не умеет в принципе, поэтому здесь `net.request`:
+ * у него есть документированный `getUploadProgress()` ({active, started, current, total}).
+ * Если `net.request` не сработал — откат на `net.fetch` (как раньше), прогресс тогда
+ * неопределённый, но операция не срывается.
+ */
+export async function putBufferWithProgress(
+  url: string,
+  body: Buffer,
+  opts: {
+    headers?: Record<string, string>;
+    onProgress?: (sent: number, total: number) => void;
+    timeoutMs?: number;
+  } = {},
+): Promise<{ ok: boolean; status: number; text: string }> {
+  const total = body?.length ?? 0;
+  try {
+    // Тело отдаётся через write/end, а не полем конструктора: в Electron у
+    // `net.request` нет `uploadData`, прогресс берётся из getUploadProgress().
+    const req = net.request({ method: 'PUT', url });
+    for (const [k, v] of Object.entries(opts.headers ?? {})) req.setHeader(k, v);
+    const poll = setInterval(() => {
+      try {
+        const p = req.getUploadProgress();
+        if (p && p.started) opts.onProgress?.(Number(p.current ?? 0), Number(p.total ?? total));
+      } catch {
+        // прогресс недоступен — операция продолжается
+      }
+    }, 120);
+    const timeout = setTimeout(() => req.abort(), opts.timeoutMs ?? 300_000);
+    try {
+      return await new Promise<{ ok: boolean; status: number; text: string }>((resolve, reject) => {
+        req.on('response', (res) => {
+          let text = '';
+          res.on('data', (c) => (text += String(c ?? '')));
+          res.on('end', () => {
+            const status = Number((res as any).statusCode ?? 0);
+            resolve({ ok: status >= 200 && status < 300, status, text });
+          });
+        });
+        req.on('error', (e) => reject(e));
+        req.write(body);
+        req.end();
+      });
+    } finally {
+      clearInterval(poll);
+      clearTimeout(timeout);
+    }
+  } catch {
+    // Откат: обычная отправка без процента. Ошибку отдаёт вызывающий.
+    const res = await net.fetch(url, { method: 'PUT', body: new Uint8Array(body) });
+    const text = await res.text().catch(() => '');
+    opts.onProgress?.(total, total);
+    return { ok: res.ok, status: res.status, text };
+  }
 }

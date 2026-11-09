@@ -1004,6 +1004,7 @@ import type {
   EngineActTemplateSummary,
 } from '../domain/engineActTemplate.js';
 import type { FileRef } from '../domain/fileStorage.js';
+import type { FileTransferProgress } from '../domain/fileTransferProgress.js';
 import type { NoteBlock, NoteImportance, NoteItem, NoteShareItem } from '../domain/notes.js';
 import type { StatusCode } from '../domain/contract.js';
 import type { IncomingReferenceGroup } from '../domain/entityReference.js';
@@ -3575,9 +3576,20 @@ export type MatricaApi = {
     // `deduped`/`canOpen` приходят, когда байты совпали с уже загруженным файлом: сервер
     // отдаёт ЧУЖУЮ запись, владелец остаётся прежним, и открыть её загрузивший может не
     // всегда. Поля необязательные — старый сервер их не присылает.
-    upload: (args: { path: string; fileName?: string; scope?: { ownerType: string; ownerId: string; category: string } }) => Promise<
+    // `transferId` — идентификатор операции для полосы прогресса: задаёт инициатор
+    // (renderer), чтобы он узнал свою операцию в общем списке передач.
+    upload: (args: {
+      path: string;
+      fileName?: string;
+      scope?: { ownerType: string; ownerId: string; category: string };
+      transferId?: string;
+    }) => Promise<
       { ok: true; file: FileRef; deduped?: true; canOpen?: boolean } | { ok: false; error: string }
     >;
+    // Живой прогресс передач файлов: события main → renderer (`onProgress`) и снимок
+    // текущих передач для окна, открывшегося посреди операции (`progressList`).
+    onProgress: (handler: (state: FileTransferProgress | null) => void) => () => void;
+    progressList: () => Promise<FileTransferProgress[]>;
     // Выбор файлов в OS-диалоге (для drag&drop можно не использовать).
     // Карточка файла по id. Тем же вызовом сервер проверяет ДОСТУП: 403, если файл
     // читать нельзя. Ярлык на Верстаке прав не даёт, поэтому «взять с Верстака»
@@ -3585,9 +3597,10 @@ export type MatricaApi = {
     meta: (args: { fileId: string }) => Promise<{ ok: true; file: FileRef } | { ok: false; error: string }>;
     pick: () => Promise<{ ok: true; paths: string[] } | { ok: false; error: string }>;
     // Скачивает файл в локальную папку кеша (или выбранную пользователем) и возвращает путь.
-    download: (args: { fileId: string }) => Promise<{ ok: true; localPath: string } | { ok: false; error: string }>;
+    // `transferId` — идентификатор операции для полосы прогресса.
+    download: (args: { fileId: string; transferId?: string }) => Promise<{ ok: true; localPath: string } | { ok: false; error: string }>;
     // Открывает файл (скачивает при необходимости) средствами ОС.
-    open: (args: { fileId: string }) => Promise<{ ok: true; localPath: string } | { ok: false; error: string }>;
+    open: (args: { fileId: string; transferId?: string }) => Promise<{ ok: true; localPath: string } | { ok: false; error: string }>;
     // Удаляет файл на сервере (soft delete + удаление физического файла/объекта).
     delete: (args: { fileId: string }) => Promise<{ ok: true; queued?: boolean } | { ok: false; error: string }>;
     // Возвращает data: URL превью (thumbnail) либо null (если превью нет).
@@ -3597,7 +3610,7 @@ export type MatricaApi = {
     // Копирует изображение в буфер обмена Windows (одно изображение).
     copyImage: (args: { fileId: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
     // Сохраняет копии выбранных файлов в выбранную пользователем папку (или на флешку).
-    copyToFolder: (args: { fileIds: string[] }) => Promise<{ ok: true; count: number } | { ok: false; error: string }>;
+    copyToFolder: (args: { fileIds: string[]; transferId?: string }) => Promise<{ ok: true; count: number } | { ok: false; error: string }>;
     // Собирает оригиналы во временную папку и открывает её в Проводнике (для перетаскивания в Telegram/MAX); mailto — заодно открыть черновик письма.
     revealForShare: (args: { fileIds: string[]; label?: string; mailto?: boolean }) => Promise<{ ok: true; folder: string } | { ok: false; error: string }>;
     // Собирает выбранные фото в один PDF и сохраняет по выбранному пути (по умолчанию — Верстак).
@@ -3669,7 +3682,9 @@ export type MatricaApi = {
     adminListPair: (args: { userAId: string; userBId: string; limit?: number }) => Promise<ChatListResult>;
     sendText: (args: { recipientUserId?: string | null; roomId?: string | null; text: string }) => Promise<ChatSendResult>;
     sendTextEverywhere: (args: { recipientUserId?: string | null; text: string }) => Promise<ChatSendResult>;
-    sendFile: (args: { recipientUserId?: string | null; path: string }) => Promise<ChatSendResult>;
+    // Отправка файла в чат. `transferId` — идентификатор операции для полосы прогресса:
+    // без него оператор не видит, что файл ещё летит.
+    sendFile: (args: { recipientUserId?: string | null; path: string; transferId?: string }) => Promise<ChatSendResult>;
     sendDeepLink: (args: { recipientUserId?: string | null; link: ChatDeepLinkPayload; text?: string | null }) => Promise<ChatSendResult>;
     markRead: (args: { messageIds: string[] }) => Promise<{ ok: true; marked: number } | { ok: false; error: string }>;
     unreadCount: () => Promise<ChatUnreadCountResult>;

@@ -1,4 +1,4 @@
-import { BrowserWindow, clipboard, nativeImage, net, shell } from 'electron';
+import { BrowserWindow, clipboard, nativeImage, shell } from 'electron';
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, mkdirSync, promises as fsp } from 'node:fs';
 import { basename, join } from 'node:path';
@@ -19,6 +19,8 @@ import { SettingsKey, settingsGetString, settingsSetString } from './settingsSto
 import { httpAuthed } from './httpClient.js';
 import { logMessage } from './logService.js';
 import { previewCache } from './previewCache.js';
+import { beginFileTransfer, endFileTransfer, updateFileTransfer } from './fileTransferProgress.js';
+import { downloadToFileWithProgress, putBufferWithProgress } from './netFetch.js';
 
 const MAX_LOCAL_BYTES = 10 * 1024 * 1024;
 const PREVIEW_PNG_MAX_SIDE = 256;
@@ -302,18 +304,35 @@ function uploadOwnership(json: unknown): { deduped?: true; canOpen?: boolean } {
 export async function filesUpload(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args: { path: string; fileName?: string; scope?: UploadScope },
+  args: { path: string; fileName?: string; scope?: UploadScope; transferId?: string | undefined },
 ): Promise<{ ok: true; file: FileRef; deduped?: true; canOpen?: boolean } | { ok: false; error: string }> {
+  // Передача отчитывается оператору: без неё «отправил файл» и «зависло» выглядят
+  // одинаково. Идентификатор задаёт инициатор (renderer) — по нему оператор узнаёт
+  // свою операцию в общем списке передач.
+  let transferId = String(args.transferId ?? '').trim() || '';
+  const bail = (error: string) => {
+    if (transferId) endFileTransfer(transferId, { ok: false, error });
+    return { ok: false as const, error };
+  };
   try {
     const filePath = String(args.path || '').trim();
-    if (!filePath) return { ok: false, error: 'path is empty' };
+    if (!filePath) return bail('path is empty');
     const st = await fsp.stat(filePath);
-    if (!st.isFile()) return { ok: false, error: 'not a file' };
+    if (!st.isFile()) return bail('not a file');
 
     const requestedName = String(args.fileName || '').trim();
     const name = safeFilename(requestedName || basename(filePath));
     const size = Number(st.size);
     const sha256 = await sha256OfFile(filePath);
+
+    const transfer = beginFileTransfer({
+      id: transferId || undefined,
+      direction: 'upload',
+      fileName: name,
+      label: 'Отправка файла',
+      bytesTotal: null,
+    });
+    transferId = transfer.id;
 
     // Large file: init Yandex upload (backend returns pre-signed uploadUrl), then PUT directly to Yandex.
     if (size > MAX_LOCAL_BYTES) {
@@ -337,25 +356,28 @@ export async function filesUpload(
       );
       if (!initRes.ok) {
         void logMessage(db, apiBaseUrl, 'warn', `file upload init failed: ${formatHttpError(initRes)}`, { component: 'files', action: 'upload:init' });
-        return { ok: false, error: `init ${formatHttpError(initRes)}` };
+        return bail(`init ${formatHttpError(initRes)}`);
       }
       const json = initRes.json as any;
-      if (!json?.ok || !json?.file) return { ok: false, error: 'bad init response' };
+      if (!json?.ok || !json?.file) return bail('bad init response');
       const uploadUrl = json.uploadUrl as string | null;
       const file: FileRef = json.file as FileRef;
 
       if (uploadUrl) {
-        // Read file into buffer and use net.fetch() for external URL (required in Electron)
+        // Файл целиком в буфере (как раньше), но отправка идёт через net.request: у него
+        // есть getUploadProgress(), а у fetch прогресса отправки нет вовсе.
         const fileBuffer = await fsp.readFile(filePath);
-        const r = await net.fetch(uploadUrl, { method: 'PUT', body: fileBuffer });
+        updateFileTransfer(transfer.id, { phase: 'transferring', bytesTotal: size });
+        const r = await putBufferWithProgress(uploadUrl, fileBuffer, {
+          onProgress: (sent) => updateFileTransfer(transfer.id, { bytesDone: sent, bytesTotal: size }),
+        });
         if (!r.ok) {
-          const errorText = await r.text().catch(() => '');
           void logMessage(db, apiBaseUrl, 'warn', `file upload yandex PUT failed: HTTP ${r.status}`, {
             component: 'files',
             action: 'upload:yandex',
             status: r.status,
           });
-          return { ok: false, error: `yandex PUT HTTP ${r.status}: ${errorText}`.trim() };
+          return bail(`yandex PUT HTTP ${r.status}: ${r.text}`.trim());
         }
       }
 
@@ -365,11 +387,15 @@ export async function filesUpload(
         if (png) await uploadPreview(db, apiBaseUrl, { fileId: file.id, pngBytes: png });
       })();
 
+      endFileTransfer(transfer.id, { ok: true });
       return { ok: true, file, ...uploadOwnership(json) };
     }
 
-    // Small file: upload to backend (base64)
+    // Small file: upload to backend (base64). Формат base64-JSON не даёт счётчика байт
+    // (тело буферизуется сервером целиком), поэтому прогресс здесь неопределённый —
+    // честная «крутилка» вместо выдуманных процентов.
     const scope = args.scope;
+    updateFileTransfer(transfer.id, { phase: 'transferring' });
     const buf = await fsp.readFile(filePath);
     const r = await httpAuthed(
       db,
@@ -389,9 +415,9 @@ export async function filesUpload(
     );
     if (!r.ok) {
       void logMessage(db, apiBaseUrl, 'warn', `file upload failed: ${formatHttpError(r)}`, { component: 'files', action: 'upload' });
-      return { ok: false, error: `upload ${formatHttpError(r)}` };
+      return bail(`upload ${formatHttpError(r)}`);
     }
-    if (!r.json?.ok || !r.json?.file) return { ok: false, error: 'bad upload response' };
+    if (!r.json?.ok || !r.json?.file) return bail('bad upload response');
     const file = r.json.file as FileRef;
 
     // Best-effort thumbnail upload (do not fail main upload flow).
@@ -400,9 +426,11 @@ export async function filesUpload(
       if (png) await uploadPreview(db, apiBaseUrl, { fileId: file.id, pngBytes: png });
     })();
 
+    endFileTransfer(transfer.id, { ok: true });
     return { ok: true, file, ...uploadOwnership(r.json) };
   } catch (e) {
     void logMessage(db, apiBaseUrl, 'error', `file upload error: ${String(e)}`, { component: 'files', action: 'upload' });
+    if (transferId) endFileTransfer(transferId, { ok: false, error: String(e) });
     return { ok: false, error: String(e) };
   }
 }
@@ -459,59 +487,106 @@ export async function filesMeta(
 export async function filesDownload(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args: { fileId: string; downloadDir: string },
+  args: { fileId: string; downloadDir: string; transferId?: string | undefined; onBytes?: ((done: number) => void) | undefined },
 ): Promise<{ ok: true; localPath: string } | { ok: false; error: string }> {
+  const transferId = String(args.transferId ?? '').trim();
+  const bail = (error: string) => {
+    if (transferId) endFileTransfer(transferId, { ok: false, error });
+    return { ok: false as const, error };
+  };
   try {
     const fileId = String(args.fileId || '').trim();
-    if (!fileId) return { ok: false, error: 'fileId is empty' };
+    if (!fileId) return bail('fileId is empty');
 
     const metaRes = await httpAuthed(db, apiBaseUrl, `/files/${encodeURIComponent(fileId)}/meta`, { method: 'GET' });
     if (!metaRes.ok) {
       void logMessage(db, apiBaseUrl, 'warn', `file download meta failed: ${formatHttpError(metaRes)}`, { component: 'files', action: 'download:meta' });
-      return { ok: false, error: `meta ${formatHttpError(metaRes)}` };
+      return bail(`meta ${formatHttpError(metaRes)}`);
     }
-    if (!metaRes.json?.ok || !metaRes.json?.file) return { ok: false, error: 'bad meta response' };
+    if (!metaRes.json?.ok || !metaRes.json?.file) return bail('bad meta response');
     const meta = metaRes.json.file as FileRef;
 
     const target = await localPathForFile(args.downloadDir, meta);
-    if (existsSync(target)) return { ok: true, localPath: target };
+    // Файл уже на диске — сети нет вовсе, передача мгновенная: показываем «готово».
+    if (existsSync(target)) {
+      if (transferId) {
+        const t = beginFileTransfer({
+          id: transferId,
+          direction: 'download',
+          fileName: String(meta.name ?? 'файл'),
+          label: 'Скачивание файла',
+          bytesTotal: null,
+        });
+        endFileTransfer(t.id, { ok: true });
+      }
+      return { ok: true, localPath: target };
+    }
+
+    const transfer = beginFileTransfer({
+      id: transferId || undefined,
+      direction: 'download',
+      fileName: String(meta.name ?? 'файл'),
+      label: 'Скачивание файла',
+      bytesTotal: null,
+    });
 
     // If Yandex: get direct URL and stream download.
     const urlRes = await httpAuthed(db, apiBaseUrl, `/files/${encodeURIComponent(fileId)}/url`, { method: 'GET' });
     if (!urlRes.ok) {
       void logMessage(db, apiBaseUrl, 'warn', `file download url failed: ${formatHttpError(urlRes)}`, { component: 'files', action: 'download:url' });
+      endFileTransfer(transfer.id, { ok: false, error: `url ${formatHttpError(urlRes)}` });
       return { ok: false, error: `url ${formatHttpError(urlRes)}` };
     }
     const directUrl = urlRes.json?.url as string | null | undefined;
 
+    // Файл тянется ПОТОКОМ в файл на диске: сервер отдаёт его потоком, значит процент
+    // честный (раньше файл целиком буферизовался в памяти и оператор видел «ничего»).
     if (directUrl) {
-      // Use net.fetch() for external URL (required in Electron)
-      const r = await net.fetch(directUrl);
+      updateFileTransfer(transfer.id, { phase: 'transferring' });
+      const r = await downloadToFileWithProgress(directUrl, target, {
+        onProgress: (done, total) => {
+          updateFileTransfer(transfer.id, { bytesDone: done, bytesTotal: total });
+          args.onBytes?.(done);
+        },
+        timeoutMs: 300_000,
+      });
       if (!r.ok) {
-        void logMessage(db, apiBaseUrl, 'warn', `file download failed: HTTP ${r.status}`, { component: 'files', action: 'download', status: r.status });
-        return { ok: false, error: `download HTTP ${r.status}` };
+        void logMessage(db, apiBaseUrl, 'warn', `file download failed: ${r.error}`, { component: 'files', action: 'download' });
+        endFileTransfer(transfer.id, { ok: false, error: r.error });
+        return { ok: false, error: r.error };
       }
-      const ab = await r.arrayBuffer();
-      await fsp.writeFile(target, Buffer.from(ab));
+      updateFileTransfer(transfer.id, { phase: 'finalizing' });
+      endFileTransfer(transfer.id, { ok: true });
       return { ok: true, localPath: target };
     }
 
     // Local: download through backend with auth (small files, OK to buffer)
     const sessionToken = await ensureSessionAccessToken(db);
-    if (!sessionToken) return { ok: false, error: 'auth required' };
-    const r2 = await net.fetch(`${apiBaseUrl}/files/${encodeURIComponent(fileId)}`, {
-      method: 'GET',
-      headers: { Authorization: `Bearer ${sessionToken}` },
-    });
-    if (!r2.ok) {
-      void logMessage(db, apiBaseUrl, 'warn', `file download failed: HTTP ${r2.status}`, { component: 'files', action: 'download', status: r2.status });
-      return { ok: false, error: `download HTTP ${r2.status}` };
+    if (!sessionToken) {
+      endFileTransfer(transfer.id, { ok: false, error: 'auth required' });
+      return { ok: false, error: 'auth required' };
     }
-    const ab2 = await r2.arrayBuffer();
-    await fsp.writeFile(target, Buffer.from(ab2));
+    updateFileTransfer(transfer.id, { phase: 'transferring' });
+    const r2 = await downloadToFileWithProgress(
+      `${apiBaseUrl}/files/${encodeURIComponent(fileId)}`,
+      target,
+      {
+        headers: { Authorization: `Bearer ${sessionToken}` },
+        onProgress: (done, total) => updateFileTransfer(transfer.id, { bytesDone: done, bytesTotal: total }),
+        timeoutMs: 300_000,
+      },
+    );
+    if (!r2.ok) {
+      void logMessage(db, apiBaseUrl, 'warn', `file download failed: ${r2.error}`, { component: 'files', action: 'download' });
+      endFileTransfer(transfer.id, { ok: false, error: r2.error });
+      return { ok: false, error: r2.error };
+    }
+    updateFileTransfer(transfer.id, { phase: 'finalizing' });
+    endFileTransfer(transfer.id, { ok: true });
     return { ok: true, localPath: target };
   } catch (e) {
     void logMessage(db, apiBaseUrl, 'error', `file download error: ${String(e)}`, { component: 'files', action: 'download' });
+    if (transferId) endFileTransfer(transferId, { ok: false, error: String(e) });
     return { ok: false, error: String(e) };
   }
 }
@@ -519,9 +594,9 @@ export async function filesDownload(
 export async function filesOpen(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args: { fileId: string; downloadDir: string },
+  args: { fileId: string; downloadDir: string; transferId?: string | undefined },
 ): Promise<{ ok: true; localPath: string } | { ok: false; error: string }> {
-  const dl = await filesDownload(db, apiBaseUrl, { fileId: args.fileId, downloadDir: args.downloadDir });
+  const dl = await filesDownload(db, apiBaseUrl, { fileId: args.fileId, downloadDir: args.downloadDir, transferId: args.transferId });
   if (!dl.ok) return dl;
   await shell.openPath(dl.localPath);
   return dl;
@@ -606,19 +681,51 @@ async function downloadOriginals(
   apiBaseUrl: string,
   fileIds: string[],
   downloadDir: string,
+  transferId?: string,
 ): Promise<{ ok: true; files: { id: string; localPath: string; name: string }[] } | { ok: false; error: string }> {
   const files: { id: string; localPath: string; name: string }[] = [];
-  for (const rawId of fileIds) {
-    const fileId = String(rawId || '').trim();
-    if (!fileId) continue;
-    const metaRes = await httpAuthed(db, apiBaseUrl, `/files/${encodeURIComponent(fileId)}/meta`, { method: 'GET' });
-    const name = metaRes.ok && metaRes.json?.file?.name ? String(metaRes.json.file.name) : `${fileId}.jpg`;
-    const dl = await filesDownload(db, apiBaseUrl, { fileId, downloadDir });
-    if (!dl.ok) return { ok: false, error: dl.error };
-    files.push({ id: fileId, localPath: dl.localPath, name });
+  // Пачка скачивается одной передачей: оператор видит «качаю 12 файлов», а не двенадцать
+  // отдельных полос, и понимает, что процесс идёт.
+  const batch = transferId
+    ? beginFileTransfer({
+        id: transferId,
+        direction: 'download',
+        fileName: `${fileIds.length} файл(ов)`,
+        label: 'Скачивание файлов',
+        bytesTotal: null,
+      })
+    : null;
+  let bytesDone = 0;
+  try {
+    for (const rawId of fileIds) {
+      const fileId = String(rawId || '').trim();
+      if (!fileId) continue;
+      const metaRes = await httpAuthed(db, apiBaseUrl, `/files/${encodeURIComponent(fileId)}/meta`, { method: 'GET' });
+      const name = metaRes.ok && metaRes.json?.file?.name ? String(metaRes.json.file.name) : `${fileId}.jpg`;
+      const dl = await filesDownload(db, apiBaseUrl, {
+        fileId,
+        downloadDir,
+        onBytes: (done) => {
+          bytesDone += done;
+          if (batch) updateFileTransfer(batch.id, { phase: 'transferring', bytesDone });
+        },
+      });
+      if (!dl.ok) {
+        if (batch) endFileTransfer(batch.id, { ok: false, error: dl.error });
+        return { ok: false, error: dl.error };
+      }
+      files.push({ id: fileId, localPath: dl.localPath, name });
+    }
+    if (files.length === 0) {
+      if (batch) endFileTransfer(batch.id, { ok: false, error: 'нет файлов' });
+      return { ok: false, error: 'нет файлов' };
+    }
+    if (batch) endFileTransfer(batch.id, { ok: true });
+    return { ok: true, files };
+  } catch (e) {
+    if (batch) endFileTransfer(batch.id, { ok: false, error: String(e) });
+    return { ok: false, error: String(e) };
   }
-  if (files.length === 0) return { ok: false, error: 'нет файлов' };
-  return { ok: true, files };
 }
 
 function escapeHtmlMain(s: string): string {
@@ -805,9 +912,9 @@ export async function filesCopyImageToClipboard(
 export async function filesCopyToFolder(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args: { fileIds: string[]; downloadDir: string; destDir: string },
+  args: { fileIds: string[]; downloadDir: string; destDir: string; transferId?: string | undefined },
 ): Promise<{ ok: true; count: number } | { ok: false; error: string }> {
-  const dl = await downloadOriginals(db, apiBaseUrl, args.fileIds, args.downloadDir);
+  const dl = await downloadOriginals(db, apiBaseUrl, args.fileIds, args.downloadDir, args.transferId);
   if (!dl.ok) return dl;
   try {
     mkdirSync(args.destDir, { recursive: true });
@@ -889,9 +996,9 @@ export async function filesRevealForShare(
 export async function photosAssemblePdf(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args: { fileIds: string[]; downloadDir: string; savePath: string },
+  args: { fileIds: string[]; downloadDir: string; savePath: string; transferId?: string },
 ): Promise<{ ok: true; savePath: string } | { ok: false; error: string }> {
-  const dl = await downloadOriginals(db, apiBaseUrl, args.fileIds, args.downloadDir);
+  const dl = await downloadOriginals(db, apiBaseUrl, args.fileIds, args.downloadDir, args.transferId);
   if (!dl.ok) return dl;
   const win = await renderPhotosWindow(dl.files.map((f) => f.localPath));
   try {
@@ -908,9 +1015,9 @@ export async function photosAssemblePdf(
 export async function photosPrint(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args: { fileIds: string[]; downloadDir: string; listHtml?: string },
+  args: { fileIds: string[]; downloadDir: string; listHtml?: string; transferId?: string },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const dl = await downloadOriginals(db, apiBaseUrl, args.fileIds, args.downloadDir);
+  const dl = await downloadOriginals(db, apiBaseUrl, args.fileIds, args.downloadDir, args.transferId);
   if (!dl.ok) return dl;
   // Печатаем изображениями только то, что изображением является; остальные
   // файлы (PDF, docx, …) перечисляем на первой странице — раньше они уезжали

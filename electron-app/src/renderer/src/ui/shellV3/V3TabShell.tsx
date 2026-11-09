@@ -3,6 +3,7 @@ import { Group, Panel, Separator, type Layout, type LayoutChangedMeta } from 're
 import { shouldWarnTabsCount } from '@matricarmz/shared';
 
 import { resolveMenuTab, type MenuTabId, type TabId } from '../layout/Tabs.js';
+import { FileTransferProgressPanel } from '../components/FileTransferProgressPanel.js';
 import { ButtonPanel } from '../shellV2/ButtonPanel.js';
 import type { V2ButtonLayout } from '@matricarmz/shared';
 import { buildV2Buttons } from '../shellV2/v2ButtonCatalog.js';
@@ -332,6 +333,9 @@ export function V3TabShell(props: {
 
   return (
     <div className="v3-shell">
+      {/* Прогресс загрузки/скачивания файлов — на любом экране: оператор должен видеть,
+          что файл летит, а не гадать, не зависло ли. */}
+      <FileTransferProgressPanel />
       {/* Часы компьютера расходятся с часами сервера — плашка в шапке, не модалка:
           работать можно, но подписи и «свежесть» записей будут врать. */}
       {props.clockSkew?.problem ? (

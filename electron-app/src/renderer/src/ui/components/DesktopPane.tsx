@@ -327,8 +327,8 @@ export function DesktopPane(props: {
     }
     const result = await uploadFlow.runUploads(
       tasks,
-      async (task) => {
-        const up = await window.matrica.files.upload({ path: task.path, fileName: task.fileName });
+      async (task, transferId) => {
+        const up = await window.matrica.files.upload({ path: task.path, fileName: task.fileName, transferId });
         if (!up.ok) return { ok: false as const, error: up.error };
         // Байты совпали с чужим файлом: сервер вернул чужую запись, и открыть её нельзя.
         // Плитку, которая не откроется, не кладём вовсе — врать оператору хуже, чем отказать.

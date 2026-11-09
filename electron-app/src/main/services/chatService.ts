@@ -3,7 +3,7 @@ import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import { randomUUID, createHash } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
 import { basename } from 'node:path';
-import { net, dialog, app, BrowserWindow } from 'electron';
+import { dialog, app, BrowserWindow } from 'electron';
 
 import { canEditChatRoom, canSeeChatRoom, parseRoomMembers, serializeRoomMembers } from '@matricarmz/shared';
 
@@ -23,6 +23,8 @@ import type {
 import { chatMessages, chatReads, chatRooms } from '../database/schema.js';
 import { getSession } from './authService.js';
 import { httpAuthed } from './httpClient.js';
+import { beginFileTransfer, endFileTransfer, updateFileTransfer } from './fileTransferProgress.js';
+import { putBufferWithProgress } from './netFetch.js';
 
 function nowMs() {
   return Date.now();
@@ -451,22 +453,37 @@ async function sha256OfFile(filePath: string): Promise<string> {
 export async function chatSendFile(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args: { recipientUserId?: string | null; path: string },
+  args: { recipientUserId?: string | null; path: string; transferId?: string | undefined },
 ): Promise<ChatSendResult> {
+  const transferId = String(args.transferId ?? '').trim();
+  const bail = (error: string) => {
+    if (transferId) endFileTransfer(transferId, { ok: false, error });
+    return { ok: false as const, error } as ChatSendResult;
+  };
   try {
     const me = await currentUser(db);
-    if (!me) return { ok: false, error: 'auth required' };
+    if (!me) return bail('auth required');
 
     const filePath = String(args.path ?? '').trim();
-    if (!filePath) return { ok: false, error: 'path is empty' };
+    if (!filePath) return bail('path is empty');
     const st = await fsp.stat(filePath);
-    if (!st.isFile()) return { ok: false, error: 'not a file' };
+    if (!st.isFile()) return bail('not a file');
     const size = Number(st.size);
     const max = 20 * 1024 * 1024;
-    if (size > max) return { ok: false, error: 'file too large (>20MB)' };
+    if (size > max) return bail('file too large (>20MB)');
 
     const name = safeFilename(basename(filePath));
     const sha256 = await sha256OfFile(filePath);
+
+    // Отправка файла в чат видна оператору: раньше он видел только пустоту до появления
+    // сообщения и не мог отличить «висит» от «ещё отправляется».
+    const transfer = beginFileTransfer({
+      id: transferId || undefined,
+      direction: 'upload',
+      fileName: name,
+      label: 'Отправка файла в чат',
+      bytesTotal: null,
+    });
 
     // Always use Yandex init for chat-files (even for small files), so retention cleanup works by folder.
     const initRes = await httpAuthed(
@@ -486,21 +503,35 @@ export async function chatSendFile(
       },
       { timeoutMs: 120_000 },
     );
-    if (!initRes.ok) return { ok: false, error: `init HTTP ${initRes.status}` };
+    if (!initRes.ok) {
+      endFileTransfer(transfer.id, { ok: false, error: `init HTTP ${initRes.status}` });
+      return { ok: false, error: `init HTTP ${initRes.status}` };
+    }
     const json = initRes.json as any;
-    if (!json?.ok || !json?.file) return { ok: false, error: 'bad init response' };
+    if (!json?.ok || !json?.file) {
+      endFileTransfer(transfer.id, { ok: false, error: 'bad init response' });
+      return { ok: false, error: 'bad init response' };
+    }
     const uploadUrl = (json.uploadUrl as string | null) ?? null;
     const file = json.file as any;
 
     if (uploadUrl) {
       const buf = await fsp.readFile(filePath); // <=20MB
-      const r = await net.fetch(uploadUrl, { method: 'PUT', body: buf });
+      updateFileTransfer(transfer.id, { phase: 'transferring', bytesTotal: size });
+      // net.request вместо net.fetch: у него есть getUploadProgress(), а у fetch
+      // прогресса отправки нет вовсе (процент был бы выдуманным).
+      const r = await putBufferWithProgress(uploadUrl, buf, {
+        onProgress: (sent) => updateFileTransfer(transfer.id, { bytesDone: sent, bytesTotal: size }),
+        timeoutMs: 300_000,
+      });
       if (!r.ok) {
-        const t = await r.text().catch(() => '');
-        return { ok: false, error: `yandex PUT HTTP ${r.status}: ${t}`.trim() };
+        const t = `yandex PUT HTTP ${r.status}: ${r.text}`.trim();
+        endFileTransfer(transfer.id, { ok: false, error: t });
+        return { ok: false, error: t };
       }
     }
 
+    updateFileTransfer(transfer.id, { phase: 'finalizing' });
     const recipientUserId = args.recipientUserId ? String(args.recipientUserId) : null;
     const ts = nowMs();
     const id = randomUUID();
@@ -515,8 +546,10 @@ export async function chatSendFile(
       createdAt: ts,
       updatedAt: ts,
     });
+    endFileTransfer(transfer.id, { ok: true });
     return { ok: true, id };
   } catch (e) {
+    if (transferId) endFileTransfer(transferId, { ok: false, error: String(e) });
     return { ok: false, error: String(e) };
   }
 }

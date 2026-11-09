@@ -220,8 +220,8 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
     }
     setBusy('Загрузка файлов...');
     try {
-      const uploadResult = await uploadFlow.runUploads<FileRef>(uploads, async (task) => {
-        const r = await window.matrica.files.upload({ path: task.path, fileName: task.fileName, ...(props.scope ? { scope: props.scope } : {}) });
+      const uploadResult = await uploadFlow.runUploads<FileRef>(uploads, async (task, transferId) => {
+        const r = await window.matrica.files.upload({ path: task.path, fileName: task.fileName, transferId, ...(props.scope ? { scope: props.scope } : {}) });
         return r.ok ? { ok: true as const, value: r.file } : { ok: false as const, error: r.error };
       });
       if (uploadResult.failures.length > 0) {
@@ -781,18 +781,25 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
         <div style={{ marginTop: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#64748b', marginBottom: 4 }}>
             <span>{uploadFlow.progress.label}</span>
-            <span>{Math.max(0, Math.min(100, Math.round(uploadFlow.progress.percent)))}%</span>
+            {uploadFlow.progress.indeterminate ? (
+              // Объём неизвестен — показываем «крутилку», а не правдоподобные нули.
+              <span className="mx-spinner" style={{ width: 14, height: 14 }} aria-label="идёт загрузка" />
+            ) : (
+              <span>{Math.max(0, Math.min(100, Math.round(uploadFlow.progress.percent)))}%</span>
+            )}
           </div>
-          <div style={{ height: 8, borderRadius: 999, background: '#e5e7eb', overflow: 'hidden' }}>
-            <div
-              style={{
-                width: `${Math.max(0, Math.min(100, uploadFlow.progress.percent))}%`,
-                height: '100%',
-                background: 'linear-gradient(90deg, #0ea5e9 0%, #2563eb 100%)',
-                transition: 'width 0.2s ease',
-              }}
-            />
-          </div>
+          {!uploadFlow.progress.indeterminate && (
+            <div style={{ height: 8, borderRadius: 999, background: '#e5e7eb', overflow: 'hidden' }}>
+              <div
+                style={{
+                  width: `${Math.max(0, Math.min(100, uploadFlow.progress.percent))}%`,
+                  height: '100%',
+                  background: 'linear-gradient(90deg, #0ea5e9 0%, #2563eb 100%)',
+                  transition: 'width 0.2s ease',
+                }}
+              />
+            </div>
+          )}
         </div>
       )}
 

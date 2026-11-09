@@ -1031,8 +1031,19 @@ const matricaApi = {
       ipcRenderer.invoke('warehouse:forecast:bom:get', args),
   },
   files: {
-    upload: async (args: { path: string; fileName?: string; scope?: { ownerType: string; ownerId: string; category: string } }) =>
-      ipcRenderer.invoke('files:upload', args),
+    upload: async (args: {
+      path: string;
+      fileName?: string;
+      scope?: { ownerType: string; ownerId: string; category: string };
+      transferId?: string;
+    }) => ipcRenderer.invoke('files:upload', args),
+    // Прогресс передачи файла: события из main (полоса в углу и подпись под файлом в чате).
+    onProgress: (handler: (state: any) => void) => {
+      const wrapped = (_e: Electron.IpcRendererEvent, payload: any) => handler(payload);
+      ipcRenderer.on('files:progress', wrapped);
+      return () => ipcRenderer.removeListener('files:progress', wrapped);
+    },
+    progressList: async () => ipcRenderer.invoke('files:progress:list'),
     meta: async (args: { fileId: string }) => ipcRenderer.invoke('files:meta', args),
     pick: async () => ipcRenderer.invoke('files:pick'),
     // Путь брошенного файла умеет достать только preload (webUtils) и только у
@@ -1047,13 +1058,13 @@ const matricaApi = {
     // Планшет: пути к файлу нет, содержимое приходит из Blob (галерея/камера).
     uploadBlob: async (args: { name: string; mime?: string; dataBase64: string; scope?: { ownerType: string; ownerId: string; category: string } }) =>
       ipcRenderer.invoke('files:uploadBlob', args),
-    download: async (args: { fileId: string }) => ipcRenderer.invoke('files:download', args),
-    open: async (args: { fileId: string }) => ipcRenderer.invoke('files:open', args),
+    download: async (args: { fileId: string; transferId?: string }) => ipcRenderer.invoke('files:download', args),
+    open: async (args: { fileId: string; transferId?: string }) => ipcRenderer.invoke('files:open', args),
     delete: async (args: { fileId: string }) => ipcRenderer.invoke('files:delete', args),
     previewGet: async (args: { fileId: string }) => ipcRenderer.invoke('files:preview:get', args),
     originalGet: async (args: { fileId: string }) => ipcRenderer.invoke('files:original:get', args),
     copyImage: async (args: { fileId: string }) => ipcRenderer.invoke('files:clipboard:copyImage', args),
-    copyToFolder: async (args: { fileIds: string[] }) => ipcRenderer.invoke('files:copyToFolder', args),
+    copyToFolder: async (args: { fileIds: string[]; transferId?: string }) => ipcRenderer.invoke('files:copyToFolder', args),
     revealForShare: async (args: { fileIds: string[]; label?: string; mailto?: boolean }) =>
       ipcRenderer.invoke('files:revealForShare', args),
     assemblePdf: async (args: { fileIds: string[]; defaultName?: string }) => ipcRenderer.invoke('files:assemblePdf', args),
@@ -1073,7 +1084,8 @@ const matricaApi = {
     sendText: async (args: { recipientUserId?: string | null; text: string }) => ipcRenderer.invoke('chat:sendText', args),
     sendTextEverywhere: async (args: { recipientUserId?: string | null; text: string }) =>
       ipcRenderer.invoke('chat:sendTextEverywhere', args),
-    sendFile: async (args: { recipientUserId?: string | null; path: string }) => ipcRenderer.invoke('chat:sendFile', args),
+    sendFile: async (args: { recipientUserId?: string | null; path: string; transferId?: string }) =>
+      ipcRenderer.invoke('chat:sendFile', args),
     sendDeepLink: async (args: { recipientUserId?: string | null; link: unknown; text?: string | null }) =>
       ipcRenderer.invoke('chat:sendDeepLink', args),
     markRead: async (args: { messageIds: string[] }) => ipcRenderer.invoke('chat:markRead', args),

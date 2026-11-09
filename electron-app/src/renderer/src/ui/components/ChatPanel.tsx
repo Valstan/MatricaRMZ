@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import { compareChatConversations } from '@matricarmz/shared';
+import { compareChatConversations, fileTransferPercent } from '@matricarmz/shared';
 import type {
   ChatDeepLinkPayload,
   ChatMessageItem,
@@ -16,6 +16,7 @@ import { theme } from '../theme.js';
 import { formatChatDaySeparator, formatMoscowTime, moscowDayKey } from '../utils/dateUtils.js';
 import { pollWhenVisible } from '../utils/pollWhenVisible.js';
 import { useTabVisible } from '../shell/TabVisibilityContext.js';
+import { useFileTransfers } from '../hooks/useFileTransfers.js';
 
 function onlineDot(online: boolean | null | undefined, size = 9) {
   if (online == null) return null;
@@ -451,7 +452,11 @@ export function ChatPanel(props: {
       setBusyNote(list.length > 1 ? `Отправка файлов: ${i + 1} из ${list.length}…` : 'Отправка файла…');
       // IPC bridge to main (not express res.sendFile); main accepts only paths it issued
       // itself — the file dialog or files:registerDropped — via consumeIssuedPath.
-      const r = await window.matrica.chat.sendFile({ recipientUserId: selectedUserId, path }).catch(() => null); // nosemgrep: javascript.express.security.audit.express-res-sendfile.express-res-sendfile
+      // transferId — чтобы полоса прогресса в углу показала, ЧТО именно летит: раньше
+      // отправка файла выглядела как «ничего не происходит».
+      const r = await window.matrica.chat
+        .sendFile({ recipientUserId: selectedUserId, path, transferId: crypto.randomUUID() })
+        .catch(() => null); // nosemgrep: javascript.express.security.audit.express-res-sendfile.express-res-sendfile
       if ((r as any)?.ok) sent += 1;
     }
     setBusyNote(sent < list.length ? `Отправлено ${sent} из ${list.length}: часть файлов не ушла` : '');
@@ -489,6 +494,23 @@ export function ChatPanel(props: {
     () => messages.filter((m) => m.messageType === 'file' && (m.payload as any)?.id),
     [messages],
   );
+
+  // Скачивание файла из переписки: оператор жаловался, что жмёт на файл десять раз,
+  // не видя, что файл качается. Держим идентификатор операции по файлу: второй клик
+  // по уже качающемуся файлу игнорируем, а рядом с именем показываем прогресс.
+  const { byId: transferById } = useFileTransfers();
+  const [openingFiles, setOpeningFiles] = useState<Record<string, string>>({});
+
+  function fileDownloadText(m: ChatMessageItem): string | null {
+    if (m.messageType !== 'file') return null;
+    const fileId = (m.payload as any)?.id ? String((m.payload as any).id) : '';
+    const transferId = fileId ? openingFiles[fileId] : '';
+    if (!transferId) return null;
+    const t = transferById(transferId);
+    if (!t) return null;
+    const pct = fileTransferPercent(t);
+    return pct != null ? `Скачиваем… ${pct}%` : 'Скачиваем…';
+  }
 
   /** «Сохранить все» — все файлы открытой переписки одной папкой. */
   async function saveAllFiles() {
@@ -862,7 +884,24 @@ export function ChatPanel(props: {
                     onClick={() => {
                       if (m.messageType === 'file') {
                         const fileId = (m.payload as any)?.id ? String((m.payload as any).id) : '';
-                        if (fileId) void window.matrica.files.open({ fileId });
+                        if (fileId) {
+                          // Уже качается — второй клик игнорируем (оператор жаловался,
+                          // что жмёт по файлу десять раз, не видя прогресса).
+                          const running = openingFiles[fileId];
+                          if (running && transferById(running)) return;
+                          const transferId = crypto.randomUUID();
+                          setOpeningFiles((prev) => ({ ...prev, [fileId]: transferId }));
+                          void window.matrica.files
+                            .open({ fileId, transferId })
+                            .catch(() => null)
+                            .finally(() => {
+                              setOpeningFiles((prev) => {
+                                const next = { ...prev };
+                                delete next[fileId];
+                                return next;
+                              });
+                            });
+                        }
                       }
                       if (m.messageType === 'deep_link') {
                         const link = m.payload as any;
@@ -879,6 +918,9 @@ export function ChatPanel(props: {
                   >
                     {(m.messageType === 'text' || m.messageType === 'text_notify') && (m.bodyText || '')}
                     {m.messageType === 'file' && `📎 ${m.bodyText || 'Файл'}`}
+                    {m.messageType === 'file' && fileDownloadText(m) && (
+                      <div style={{ fontSize: 11, color: theme.colors.muted, marginTop: 2 }}>{fileDownloadText(m)}</div>
+                    )}
                     {m.messageType === 'deep_link' && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                         {/* Подпись к ссылке (например, «Правка программы») — текст и

@@ -526,10 +526,11 @@ export function NotesPage(props: {
       return;
     }
     uploadFlow.setStatus('');
-    const result = await uploadFlow.runUploads(tasks, async (task) => {
+    const result = await uploadFlow.runUploads(tasks, async (task, transferId) => {
       const uploaded = await window.matrica.files.upload({
         path: task.path,
         fileName: task.fileName,
+        transferId,
         scope: { ownerType: 'note', ownerId: noteId, category: 'note-images' },
       });
       if (!uploaded.ok) return { ok: false as const, error: uploaded.error };
