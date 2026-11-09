@@ -1,12 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+
+import { fileTransferPercent, isFileTransferActive } from '@matricarmz/shared';
 
 import { FileRenameUploadDialog } from '../components/FileRenameUploadDialog.js';
 import { sanitizeFileNameStem, splitNameAndExt } from '../utils/fileUploadRename.js';
+import { useFileTransfers } from './useFileTransfers.js';
 
 export type UploadProgressState = {
   active: boolean;
   percent: number;
   label: string;
+  /** Процент неизвестен (транспорт не считает байты) — полоса неопределённая, а не «0%». */
+  indeterminate?: boolean;
 };
 
 export type UploadTask = {
@@ -28,6 +33,24 @@ export function useFileUploadFlow() {
     warning: string;
     resolve: (fileName: string | null) => void;
   } | null>(null);
+  // Живой прогресс загрузки: main присылает состояние передачи по её идентификатору.
+  const { byId } = useFileTransfers();
+  const [activeTransferId, setActiveTransferId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!activeTransferId) return;
+    const live = byId(activeTransferId);
+    if (!live) return;
+    const pct = fileTransferPercent(live);
+    setProgress((prev) => {
+      const percent = pct ?? 0;
+      const indeterminate = pct == null;
+      // Тот же объект — React прекращает перерисовку: эффект вызывается на каждом
+      // рендере, и без этой проверки получился бы бесконечный цикл.
+      if (prev.percent === percent && prev.indeterminate === indeterminate) return prev;
+      return { ...prev, percent, indeterminate };
+    });
+  }, [activeTransferId, byId]);
 
   function setStatusWithTimeout(message: string, timeoutMs = 1400) {
     setStatus(message);
@@ -55,35 +78,34 @@ export function useFileUploadFlow() {
     return uploads;
   }
 
+  /**
+   * Загрузка файлов по очереди — с НАСТОЯЩИМ прогрессом.
+   *
+   * Раньше процент был выдуман таймером («+2% каждые 120 мс»): оператор видел полосу,
+   * которая ползёт сама, и не мог отличить её от реальной передачи. Теперь прогресс
+   * приходит из main по идентификатору передачи (`transferId`), а тот, кто не умеет
+   * считать байты, показывает неопределённую полосу вместо правдоподобных нулей.
+   */
   async function runUploads<T>(
     tasks: UploadTask[],
-    uploadOne: (task: UploadTask) => Promise<{ ok: true; value: T } | { ok: false; error: string }>,
+    uploadOne: (task: UploadTask, transferId: string) => Promise<{ ok: true; value: T } | { ok: false; error: string }>,
     opts?: { continueOnError?: boolean },
   ): Promise<{ successes: Array<{ task: UploadTask; value: T }>; failures: UploadFailure[] }> {
     const continueOnError = opts?.continueOnError === true;
     const successes: Array<{ task: UploadTask; value: T }> = [];
     const failures: UploadFailure[] = [];
-    const total = tasks.length || 1;
 
-    for (let i = 0; i < tasks.length; i += 1) {
-      const task = tasks[i];
-      if (!task) continue;
-      const startPercent = Math.round((i / total) * 100);
-      const endPercent = Math.round(((i + 1) / total) * 100);
-      let animatedPercent = startPercent;
+    for (const task of tasks) {
+      const transferId = crypto.randomUUID();
+      setActiveTransferId(transferId);
+      setProgress({ active: true, percent: 0, label: `Загрузка файла: ${task.fileName}`, indeterminate: true });
 
-      setProgress({ active: true, percent: startPercent, label: `Загрузка файла: ${task.fileName}` });
-      const timer = window.setInterval(() => {
-        animatedPercent = Math.min(endPercent - 8, animatedPercent + 2);
-        setProgress((prev) => (prev.active ? { ...prev, percent: Math.max(prev.percent, animatedPercent) } : prev));
-      }, 120);
-
-      const result = await uploadOne(task);
-      window.clearInterval(timer);
+      const result = await uploadOne(task, transferId);
+      setActiveTransferId(null);
 
       if (result.ok) {
         successes.push({ task, value: result.value });
-        setProgress({ active: true, percent: endPercent, label: `Загружено: ${task.fileName}` });
+        setProgress({ active: true, percent: 100, label: `Загружено: ${task.fileName}`, indeterminate: false });
         continue;
       }
 
@@ -140,6 +162,10 @@ export function useFileUploadFlow() {
     buildTasks,
     runUploads,
     renameDialog,
+    /** Жив ли ещё аппарат загрузки (для стража: прогресс не должен быть выдуманным). */
+    isTransferActive: (id: string | null) => {
+      const live = id ? byId(id) : null;
+      return live ? isFileTransferActive(live) : false;
+    },
   };
 }
-

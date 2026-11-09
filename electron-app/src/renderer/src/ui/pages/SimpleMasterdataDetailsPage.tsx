@@ -840,10 +840,11 @@ export function SimpleMasterdataDetailsPage(props: {
               uploadFlow.setStatus('');
               const uploadResult = await uploadFlow.runUploads<FileRef>(
                 uploads,
-                async (task) => {
+                async (task, transferId) => {
                   const r = await window.matrica.files.upload({
                     path: task.path,
                     fileName: task.fileName,
+                    transferId,
                     scope: { ownerType, ownerId: resolvedEntityIdRef.current, category: 'photos' },
                   });
                   return r.ok ? { ok: true as const, value: r.file } : { ok: false as const, error: r.error };

@@ -29,15 +29,20 @@ import {
   photosAssemblePdf,
   photosPrint,
 } from '../../services/fileService.js';
+import { listFileTransfers } from '../../services/fileTransferProgress.js';
 
 export function registerFilesIpc(ctx: IpcContext) {
-  ipcMain.handle('files:upload', async (_e, args: { path: string; fileName?: string; scope?: { ownerType: string; ownerId: string; category: string } }) => {
+  ipcMain.handle('files:upload', async (_e, args: { path: string; fileName?: string; scope?: { ownerType: string; ownerId: string; category: string }; transferId?: string }) => {
     if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'files.upload');
     if (!gate.ok) return gate;
     if (!consumeIssuedPath(args?.path)) return { ok: false as const, error: 'путь не из диалога выбора файлов' };
     return filesUpload(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args);
   });
+
+  // Текущие передачи файлов — окну, которое открылось посреди операции (иначе полосы
+  // не будет у того окна, которое открыли после старта загрузки).
+  ipcMain.handle('files:progress:list', async () => listFileTransfers());
 
   ipcMain.handle('files:pick', async () => {
     try {
@@ -130,12 +135,12 @@ export function registerFilesIpc(ctx: IpcContext) {
     return await filesMeta(ctx.sysDb, ctx.mgr.getApiBaseUrl(), { fileId: args?.fileId ?? '' });
   });
 
-  ipcMain.handle('files:download', async (_e, args: { fileId: string }) => {
+  ipcMain.handle('files:download', async (_e, args: { fileId: string; transferId?: string }) => {
     const gate = await requirePermOrResult(ctx, 'files.view');
     if (!gate.ok) return gate;
     const dir = await filesDownloadDirGet(ctx.sysDb, { defaultDir: app.getPath('downloads') });
     if (!dir.ok) return dir;
-    const result = await filesDownload(ctx.sysDb, ctx.mgr.getApiBaseUrl(), { fileId: args.fileId, downloadDir: dir.path });
+    const result = await filesDownload(ctx.sysDb, ctx.mgr.getApiBaseUrl(), { fileId: args.fileId, downloadDir: dir.path, transferId: args.transferId });
     // Allowlist the main-generated path so a downloaded file can be re-shared via
     // chat:sendFile without a fresh dialog (App.tsx note→chat re-share flow).
     if ((result as { ok?: boolean; localPath?: string })?.ok && (result as { localPath?: string }).localPath) {
@@ -144,12 +149,12 @@ export function registerFilesIpc(ctx: IpcContext) {
     return result;
   });
 
-  ipcMain.handle('files:open', async (_e, args: { fileId: string }) => {
+  ipcMain.handle('files:open', async (_e, args: { fileId: string; transferId?: string }) => {
     const gate = await requirePermOrResult(ctx, 'files.view');
     if (!gate.ok) return gate;
     const dir = await filesDownloadDirGet(ctx.sysDb, { defaultDir: app.getPath('downloads') });
     if (!dir.ok) return dir;
-    return filesOpen(ctx.sysDb, ctx.mgr.getApiBaseUrl(), { fileId: args.fileId, downloadDir: dir.path });
+    return filesOpen(ctx.sysDb, ctx.mgr.getApiBaseUrl(), { fileId: args.fileId, downloadDir: dir.path, transferId: args.transferId });
   });
 
   ipcMain.handle('files:delete', async (_e, args: { fileId: string }) => {
@@ -183,7 +188,7 @@ export function registerFilesIpc(ctx: IpcContext) {
     return filesCopyImageToClipboard(ctx.sysDb, ctx.mgr.getApiBaseUrl(), { fileId: args.fileId, downloadDir: dir.path });
   });
 
-  ipcMain.handle('files:copyToFolder', async (_e, args: { fileIds: string[] }) => {
+  ipcMain.handle('files:copyToFolder', async (_e, args: { fileIds: string[]; transferId?: string }) => {
     try {
       const gate = await requirePermOrResult(ctx, 'files.view');
       if (!gate.ok) return gate;
@@ -198,7 +203,7 @@ export function registerFilesIpc(ctx: IpcContext) {
       const r = parent ? await dialog.showOpenDialog(parent, opts) : await dialog.showOpenDialog(opts);
       const destDir = r.filePaths?.[0] ? String(r.filePaths[0]) : '';
       if (!destDir) return { ok: false, error: 'cancelled' };
-      return filesCopyToFolder(ctx.sysDb, ctx.mgr.getApiBaseUrl(), { fileIds: args.fileIds, downloadDir: dir.path, destDir });
+      return filesCopyToFolder(ctx.sysDb, ctx.mgr.getApiBaseUrl(), { fileIds: args.fileIds, downloadDir: dir.path, destDir, transferId: args.transferId });
     } catch (e) {
       return { ok: false, error: String(e) };
     }
