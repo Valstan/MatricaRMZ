@@ -68,6 +68,10 @@ export type UiCaps = {
   canEditWarehouseDocs: boolean;
   canPostWarehouseDocs: boolean;
   canEditNomenclature: boolean;
+  /** Производственная программа (ПП): видеть план. */
+  canViewProductionProgram: boolean;
+  /** Производственная программа (ПП): вести план (строки, состояния, отгрузка, подписи). */
+  canEditProductionProgram: boolean;
 };
 
 export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
@@ -139,6 +143,11 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
   const canPostWarehouseDocs = has(perms, 'erp.documents.post');
   const canEditNomenclature = has(perms, 'erp.dictionary.edit');
 
+  // Производственная программа (ПП): план читает весь производственный контур,
+  // вести его — те, кому выдано `production_program.edit`.
+  const canViewProductionProgram = has(perms, 'production_program.view');
+  const canEditProductionProgram = has(perms, 'production_program.edit');
+
   return {
     canViewEmployees,
     canViewTimesheets,
@@ -198,6 +207,9 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
     canEditWarehouseDocs,
     canPostWarehouseDocs,
     canEditNomenclature,
+
+    canViewProductionProgram,
+    canEditProductionProgram,
   };
 }
 

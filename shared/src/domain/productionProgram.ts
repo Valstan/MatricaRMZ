@@ -575,3 +575,67 @@ export function buildProductionProgramPrintModel(input: ProductionProgramPrintIn
     signatures,
   };
 }
+
+// ────────────────────────────────────────────────────────────
+// Контракт клиента (DTO)
+// ────────────────────────────────────────────────────────────
+
+/** План производства — как его видит клиент (реплика сервера). */
+export type ProductionProgramDto = {
+  id: string;
+  periodStart: number;
+  periodEnd: number;
+  shop: string;
+  title: string;
+  status: string;
+  signatureSlots: string | null;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+};
+
+/** Строка плана — как её видит клиент. */
+export type ProductionProgramLineDto = {
+  id: string;
+  programId: string;
+  orderNo: number;
+  contractId: string | null;
+  groupLabel: string;
+  contractKind: string | null;
+  engineId: string | null;
+  engineMark: string;
+  engineNumber: string;
+  state: string | null;
+  shippingPlanAt: number | null;
+  factors: string;
+  note: string;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+};
+
+/** Строка плана в редакторе — то, что оператор присылает на сервер. */
+export type ProductionProgramLineDraftDto = {
+  id?: string | null;
+  orderNo: number;
+  contractId?: string | null;
+  groupLabel: string;
+  contractKind?: string | null;
+  engineId?: string | null;
+  engineMark?: string;
+  engineNumber?: string;
+  state?: string | null;
+  shippingPlanAt?: number | null;
+  factors?: string;
+  note?: string;
+};
+
+/** Шапка плана в редакторе. */
+export type ProductionProgramSaveDto = {
+  periodStart: number;
+  periodEnd: number;
+  shop: string;
+  title: string;
+  status?: string;
+  signatureSlots?: string | null;
+};

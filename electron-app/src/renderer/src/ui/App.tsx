@@ -205,6 +205,7 @@ function lazyPage(modulePath: keyof typeof pageModules, exportName: string) {
 
 const EnginesPage = lazyPage('./pages/EnginesPage.tsx', 'EnginesPage');
 const WorkSheetsPage = lazyPage('./pages/WorkSheetsPage.tsx', 'WorkSheetsPage');
+const ProductionProgramPage = lazyPage('./pages/ProductionProgramPage.tsx', 'ProductionProgramPage');
 const WorkSheetDetailsPage = lazyPage('./pages/WorkSheetDetailsPage.tsx', 'WorkSheetDetailsPage');
 const EngineDetailsPage = lazyPage('./pages/EngineDetailsPage.tsx', 'EngineDetailsPage');
 const EngineBrandsPage = lazyPage('./pages/EngineBrandsPage.tsx', 'EngineBrandsPage');
@@ -711,6 +712,7 @@ const MENU_LABELS: Record<MenuTabId, string> = {
   engines: 'Двигатели',
   engine_rmz_numbers: 'Номера РМЗ',
   now_at_plant: 'Сейчас на заводе',
+  production_program: 'Производственная программа',
   work_sheets: 'Этапы ремонта',
   assembly_forecast: 'Прогноз сборки',
   engine_brands: 'Марки двигателей',
@@ -5813,6 +5815,9 @@ export function App() {
             onWorkshopsLoaded={setWorkSheetWorkshops}
             {...(sectionGatedTabs.includes('now_at_plant') ? { onOpenNowAtPlant: () => openNowAtPlant('work_sheets') } : {})}
           />
+        )}
+        {t === 'production_program' && (
+          <ProductionProgramPage engines={engines} canEdit={caps.canEditProductionProgram} />
         )}
         {t === 'work_sheet' && selectedWorkSheetId && (
           <WorkSheetDetailsPage
