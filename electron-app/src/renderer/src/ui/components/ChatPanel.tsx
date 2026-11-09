@@ -454,9 +454,7 @@ export function ChatPanel(props: {
       // itself — the file dialog or files:registerDropped — via consumeIssuedPath.
       // transferId — чтобы полоса прогресса в углу показала, ЧТО именно летит: раньше
       // отправка файла выглядела как «ничего не происходит».
-      const r = await window.matrica.chat
-        .sendFile({ recipientUserId: selectedUserId, path, transferId: crypto.randomUUID() })
-        .catch(() => null); // nosemgrep: javascript.express.security.audit.express-res-sendfile.express-res-sendfile
+      const r = await window.matrica.chat.sendFile({ recipientUserId: selectedUserId, path, transferId: crypto.randomUUID() }).catch(() => null); // nosemgrep: javascript.express.security.audit.express-res-sendfile.express-res-sendfile
       if ((r as any)?.ok) sent += 1;
     }
     setBusyNote(sent < list.length ? `Отправлено ${sent} из ${list.length}: часть файлов не ушла` : '');
