@@ -226,6 +226,13 @@ export type EngineListItem = {
   isReclamation?: boolean;
   /** Дата приёмки по рекламации (`reclamation_accepted_date`) — для отбора и статистики по месяцам. */
   reclamationAcceptedDate?: number;
+  /**
+   * Дата отправки с рекламации (`reclamation_shipped_date`) — «уехал с рекламации».
+   * Вместе с приёмкой по рекламации она образует ПОЗДНИЙ источник правды по датам:
+   * при рекламации отчёт считает приходом приёмку по рекламации, а отгрузкой — отправку
+   * с рекламации (старые даты основного цикла рекламацию не перебивают).
+   */
+  reclamationShippedDate?: number;
   isRepeatArrival?: boolean;
   isNumberCollision?: boolean;
   /**

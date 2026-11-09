@@ -168,7 +168,10 @@ export function engineScrapDate(e: Pick<EngineListItem, 'statusDates'>): number 
  * «Принят на хранение» для новых двигателей).
  */
 export function engineStateLabel(
-  e: Pick<EngineListItem, 'isScrap' | 'arrivalDate' | 'shippingDate' | 'statusFlags' | 'lastStageCode' | 'lastStageAt'>,
+  e: Pick<
+    EngineListItem,
+    'isScrap' | 'arrivalDate' | 'shippingDate' | 'statusFlags' | 'lastStageCode' | 'lastStageAt' | 'isReclamation' | 'reclamationShippedDate'
+  >,
 ): string {
   const flags = e.statusFlags ?? {};
   if (e.isScrap) return 'Утиль';
@@ -176,6 +179,14 @@ export function engineStateLabel(
   const stageAt =
     typeof e.lastStageAt === 'number' && Number.isFinite(e.lastStageAt) && e.lastStageAt > 0 ? e.lastStageAt : null;
   const stageRank = stageAt !== null ? repairStageRank(stageCode) : 0;
+  // РЕКЛАМАЦИЯ ВЫШЕ ОСНОВНОГО ЦИКЛА (владелец 09.11.2026). Двигатель уехал заказчику по
+  // основному ремонту и вернулся по рекламации: его основной цикл — в прошлом, и флаги
+  // «отправлен/принят» с его этапами больше не решают, что с двигателем. Состояние
+  // определяет ветка рекламации: уехал с рекламации — «Отгружен», иначе он на заводе.
+  if (e.isReclamation === true) {
+    if (dateMs(e.reclamationShippedDate) != null || dateMs(e.shippingDate) != null) return 'Отгружен';
+    return dateMs(e.arrivalDate) != null ? 'На заводе' : 'Заведён';
+  }
   if (
     dateMs(e.shippingDate) != null ||
     flags.status_customer_sent ||
