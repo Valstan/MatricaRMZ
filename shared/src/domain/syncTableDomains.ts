@@ -39,6 +39,8 @@ export type SyncDomain =
   | 'users'
   /** Черновики карточек. */
   | 'drafts'
+  /** Производственная программа (ПП): план производства и его строки. */
+  | 'productionProgram'
   /** Журнал действий. */
   | 'audit'
   /**
@@ -110,6 +112,11 @@ export const TABLE_DOMAINS: Readonly<Record<string, readonly SyncDomain[]>> = {
 
   erp_employee_cards: ['employees'],
   signature_defaults: ['employees'],
+
+  // Производственная программа (ПП): свой домен — страница плана перечитывается
+  // и при правке программы, и при правке её строк.
+  erp_production_programs: ['productionProgram'],
+  erp_production_program_rows: ['productionProgram'],
 };
 
 /** Домены, которых касаются правки этих таблиц. */

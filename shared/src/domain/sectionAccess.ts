@@ -58,7 +58,7 @@ export const ACCESS_SECTION_CATALOG: readonly AccessSectionMeta[] = [
     // «Производство» (ENTITY_TYPE_SECTION.engine_brand_group), а меню пряталось по
     // этому же списку — плитка показывалась тем, кому раздел не выдан, и открывалась
     // отказом «Нет доступа к разделу «Производство»».
-    menuTabs: ['engines', 'engine_rmz_numbers', 'work_sheets', 'assembly_forecast', 'engine_brands', 'engine_brand_groups', 'parts', 'engine_assembly_bom', 'repair_norms', 'tools'],
+    menuTabs: ['engines', 'engine_rmz_numbers', 'work_sheets', 'assembly_forecast', 'engine_brands', 'engine_brand_groups', 'parts', 'engine_assembly_bom', 'repair_norms', 'tools', 'production_program'],
   },
   {
     id: AccessSection.WorkOrders,
@@ -353,6 +353,9 @@ export const LEDGER_SECTION_BY_TABLE: Readonly<Record<string, AccessSection>> = 
   erp_engine_instances: AccessSection.Production,
   // Строки списка деталей — та же секция, что и сам лист (operations без типа → Production).
   erp_engine_inventory_lines: AccessSection.Production,
+  // Производственная программа (ПП) — производственный контур.
+  erp_production_programs: AccessSection.Production,
+  erp_production_program_rows: AccessSection.Production,
   warehouse_locations: AccessSection.Warehouse,
 };
 

@@ -161,6 +161,10 @@ export const SYNC_TABLE_OWNERSHIP: Readonly<Record<SyncTableName, SyncTableOwner
   // Умолчания подписей (PR-5): ведёт только админская дверь (REST), клиент читает
   // реплику. Без строки крафт умолчания с клиента ушёл бы в журнал.
   [SyncTableName.SignatureDefaults]: { owner: 'server', why: 'signatureDefaultsService + публикатор зеркала' },
+  // Производственная программа (ПП): ведёт серверная дверь (productionProgramService),
+  // клиент читает реплику. Без строк крафт плана ПП с клиента ушёл бы в журнал.
+  [SyncTableName.ErpProductionPrograms]: { owner: 'server', why: 'productionProgramService + публикатор зеркала' },
+  [SyncTableName.ErpProductionProgramRows]: { owner: 'server', why: 'productionProgramService + публикатор зеркала' },
 };
 
 // Таблицы, которые клиент не пишет никогда, — по ТАБЛИЦЕ, а не по коду атрибута (B3/R3).
@@ -330,6 +334,11 @@ const TABLE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
   [SyncTableName.PpePrintTemplates]: { kind: 'superadmin' },
   // Умолчания подписей (PR-5) — вторая линия к безусловному табличному backstop'у выше.
   [SyncTableName.SignatureDefaults]: { kind: 'superadmin' },
+  // Производственная программа (ПП) — вторая линия к безусловному табличному
+  // backstop'у выше. Сама запись плана идёт серверной дверью REST, где право
+  // `production_program.edit`; клиентский push закрыт владением server.
+  [SyncTableName.ErpProductionPrograms]: { kind: 'superadmin' },
+  [SyncTableName.ErpProductionProgramRows]: { kind: 'superadmin' },
 };
 
 /**

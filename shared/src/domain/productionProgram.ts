@@ -13,17 +13,49 @@
 //
 // Вид договора (военный/гражданский) — НЕ новый признак: он уже есть в
 // `contract_sections.primary.kind` (см. `contract.ts`), здесь он только читается.
+//
+// Даты двигателя берём по ИСТОЧНИКУ ПРАВДЫ (engineReclamation.ts): при
+// рекламации приход — приёмка по рекламации, отгрузка — отправка с рекламации;
+// старые даты основного цикла рекламацию не перебивают.
 
 import type { EngineListItem } from '../ipc/types.js';
 import type { ContractKind } from './contract.js';
 import { parseContractKind } from './contract.js';
-import { engineStateLabel, isEngineAtPlant } from './engineFactoryStage.js';
+import { engineStateLabel } from './engineFactoryStage.js';
+import { resolveEngineTruthDates } from './engineReclamation.js';
 import { repairStageRank } from './repairStages.js';
 import {
   findEmployeeByPositionGroups,
   formatEmployeeSurnameInitials,
   type WorkOrderSignatureEmployee,
 } from './workOrderSignatures.js';
+
+/**
+ * Даты двигателя по источнику правды (рекламация выше основного цикла).
+ * `isEngineAtPlant` смотрит на сырые даты карточки, поэтому для плана ПП
+ * «на заводе» считаем здесь — иначе рекламационный двигатель, который сейчас
+ * на заводе, выглядел бы уехавшим по основному циклу.
+ */
+export function productionProgramEngineDates(engine: EngineListItem | null | undefined): {
+  arrivalDate: number | null;
+  shippingDate: number | null;
+} {
+  if (!engine) return { arrivalDate: null, shippingDate: null };
+  return resolveEngineTruthDates({
+    isReclamation: engine.isReclamation === true,
+    reclamationAcceptedDate: engine.reclamationAcceptedDate ?? null,
+    reclamationShippedDate: engine.reclamationShippedDate ?? null,
+    mainArrivalDate: engine.arrivalDate ?? null,
+    mainShippingDate: engine.shippingDate ?? null,
+  });
+}
+
+/** На заводе по источнику правды: приход есть, отгрузки нет. */
+export function isProductionProgramEngineAtPlant(engine: EngineListItem | null | undefined): boolean {
+  if (!engine) return false;
+  const dates = productionProgramEngineDates(engine);
+  return dates.arrivalDate != null && dates.shippingDate == null;
+}
 
 // ────────────────────────────────────────────────────────────
 // Состояния строк плана
@@ -279,15 +311,21 @@ export function productionProgramEngineHint(engine: EngineListItem | null | unde
   if (engine.isScrap === true) return { tone: 'warn', text: 'Утиль — восстановление' };
   const state = engineStateLabel(engine);
   if (state === 'Отгружен') return { tone: 'block', text: 'Уже отгружен — в план не берём' };
-  if (!isEngineAtPlant(engine)) {
-    const arrived = typeof engine.arrivalDate === 'number' && engine.arrivalDate > 0;
-    return arrived
-      ? { tone: 'warn', text: 'Отгружен по карточке — в план не берём' }
-      : { tone: 'warn', text: 'Ещё не прибыл на завод' };
+  const dates = productionProgramEngineDates(engine);
+  if (dates.arrivalDate == null) {
+    return { tone: 'warn', text: 'Ещё не прибыл на завод' };
   }
-  if (state === 'В ремонте') return { tone: 'info', text: 'В ремонте — на заводе, можно брать' };
-  if (state === 'Готов, не отгружен') return { tone: 'ok', text: 'Готов к отгрузке — на заводе, можно брать' };
-  return { tone: 'ok', text: 'На заводе — можно брать' };
+  if (dates.shippingDate != null) {
+    return { tone: 'block', text: 'Уже отгружен — в план не берём' };
+  }
+  const reclamation = engine.isReclamation === true;
+  if (state === 'В ремонте') {
+    return { tone: 'info', text: reclamation ? 'В ремонте (рекламация) — на заводе, можно брать' : 'В ремонте — на заводе, можно брать' };
+  }
+  if (state === 'Готов, не отгружен') {
+    return { tone: 'ok', text: 'Готов к отгрузке — на заводе, можно брать' };
+  }
+  return { tone: 'ok', text: reclamation ? 'На заводе (рекламация) — можно брать' : 'На заводе — можно брать' };
 }
 
 /**
@@ -304,7 +342,8 @@ export function productionProgramRowHighlight(
   engine: EngineListItem | null | undefined,
 ): ProductionProgramHighlight {
   if (!engine) return 'none';
-  if (engineStateLabel(engine) === 'Отгружен') return 'shipped';
+  const dates = productionProgramEngineDates(engine);
+  if (engineStateLabel(engine) === 'Отгружен' || dates.shippingDate != null) return 'shipped';
   const code = String(engine.lastStageCode ?? '').trim().toLowerCase();
   const at = engine.lastStageAt;
   const dated = typeof at === 'number' && Number.isFinite(at) && at > 0;
@@ -508,12 +547,11 @@ export function buildProductionProgramPrintModel(input: ProductionProgramPrintIn
       engineNumber: String(raw.engineNumber ?? '').trim(),
       state: parseProductionProgramState(raw.state),
       shippingPlanAt: typeof raw.shippingPlanAt === 'number' && raw.shippingPlanAt > 0 ? raw.shippingPlanAt : null,
+      // Факт отгрузки — по источнику правды по датам (рекламация выше основного цикла).
       shippingFactAt:
         typeof raw.shippingFactAt === 'number' && raw.shippingFactAt > 0
           ? raw.shippingFactAt
-          : typeof engine?.shippingDate === 'number' && engine.shippingDate > 0
-            ? engine.shippingDate
-            : null,
+          : productionProgramEngineDates(engine).shippingDate,
       factors: String(raw.factors ?? '').trim(),
       note: String(raw.note ?? '').trim(),
       highlight: productionProgramRowHighlight(engine),
