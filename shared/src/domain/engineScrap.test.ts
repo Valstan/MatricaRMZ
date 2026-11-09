@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ENGINE_SCRAP_ROW_BACKGROUND,
   ENGINE_SCRAP_ROW_BACKGROUND_PRINT,
+  engineScrapRowBackgroundPrint,
   engineScrapRowStyle,
 } from './engineScrap.js';
 
@@ -22,5 +23,8 @@ describe('пометка строки утильного двигателя', ()
 
   it('для печати — плотный розовый: на белом фоне полупрозрачный бледнеет', () => {
     expect(ENGINE_SCRAP_ROW_BACKGROUND_PRINT).toBe('#fde8e8');
+    expect(engineScrapRowBackgroundPrint(true)).toBe('#fde8e8');
+    expect(engineScrapRowBackgroundPrint(false)).toBeUndefined();
+    expect(engineScrapRowBackgroundPrint(null)).toBeUndefined();
   });
 });
