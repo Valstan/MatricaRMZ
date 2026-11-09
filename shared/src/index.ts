@@ -78,6 +78,7 @@ export * from './domain/linkFieldRules.js';
 export * from './domain/contract.js';
 export * from './domain/adminUsers.js';
 export * from './domain/employees.js';
+export * from './domain/employeeCardKey.js';
 export * from './domain/erp.js';
 export * from './domain/warehouse.js';
 export * from './domain/warehouseLocations.js';

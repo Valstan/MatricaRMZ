@@ -598,6 +598,67 @@ export async function findEmployeeDuplicatesRemote(
   return r.json as { ok: boolean; matches?: unknown[]; error?: string };
 }
 
+/**
+ * Проверка карточки по ПОЛНОМУ ключу личности (ФИО + табельный + должность + приём + ДР).
+ *
+ * Спрашивает сервер: там полный срез сотрудников, локальная реплика отстаёт. Правило
+ * сравнения — общее с сервером (`employeeCardKey` в `shared`).
+ */
+export async function checkEmployeeCardKeyRemote(
+  sysDb: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { before: Record<string, unknown>; after: Record<string, unknown>; excludeId: string },
+) {
+  const r = await httpAuthed(
+    sysDb,
+    apiBaseUrl,
+    '/admin/masterdata/employees/dedupe/key-check',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    },
+  );
+  if (!r.ok) return { ok: false as const, error: r.text || r.json?.error || `server error ${r.status}` };
+  const json = r.json as {
+    ok?: boolean;
+    relation?: 'different' | 'disputed' | 'exact' | 'personnel';
+    matches?: Array<{
+      id: string;
+      fullName: string;
+      login: string | null;
+      personnelNumber: string | null;
+      relation: 'different' | 'disputed' | 'exact' | 'personnel';
+      isNew: boolean;
+      matchedBy: string[];
+      conflicts: string[];
+    }>;
+    error?: string;
+  };
+  if (json.ok !== true || !json.relation || !json.matches) {
+    return { ok: false as const, error: json.error ?? 'сервер не вернул результат проверки ключа' };
+  }
+  return { ok: true as const, relation: json.relation, matches: json.matches };
+}
+
+/**
+ * Обоснование обхода гейта дублей: оператор подтвердил, что это другой человек.
+ * Ложится в журнал критических событий на сервере.
+ */
+export async function recordEmployeeDuplicateOverrideRemote(
+  sysDb: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { employeeId: string; reason: string },
+) {
+  const r = await httpAuthed(sysDb, apiBaseUrl, '/admin/masterdata/employees/dedupe/override', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  });
+  if (!r.ok) return { ok: false as const, error: r.text || r.json?.error || `server error ${r.status}` };
+  return r.json as { ok: boolean; error?: string };
+}
+
 export async function mergeEmployeeDuplicatesRemote(
   sysDb: BetterSQLite3Database,
   apiBaseUrl: string,

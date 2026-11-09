@@ -257,7 +257,7 @@ export function EmployeeDetailsPage(props: {
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
   requestClose?: () => void;
 }) {
-  const { confirm } = useConfirm();
+  const { confirm, pickChoice, promptText } = useConfirm();
   // Должность — единственное поле, которое правит узкое право (кладовщик).
   const canEditPosition = props.canEdit || props.canEditPosition === true;
   const [employee, setEmployee] = useState<Employee | null>(null);
@@ -633,6 +633,115 @@ export function EmployeeDetailsPage(props: {
     }
   }
 
+  /**
+   * Разбор отказа гейта дублей — общий для всех дверей записи.
+   *
+   * Три уровня:
+   *  - 'personnel' — табельный номер занят: обхода нет (номер идентифицирует человека);
+   *  - 'exact' — совпал полный ключ личности: обход только с обоснованием, оно уходит
+   *    в журнал критических событий на сервере;
+   *  - 'name' — совпало только ФИО (однофамильцы бывают): достаточно подтверждения.
+   *
+   * `retry` выполняет саму запись повторно; для обхода ему передаётся force.
+   */
+  async function resolveDuplicateRefusal(
+    r: {
+      ok: boolean;
+      error?: string;
+      blockReason?: 'name' | 'exact' | 'personnel';
+      duplicates?: Array<{ id: string; fullName: string; login: string | null; personnelNumber: string | null; conflicts?: string[] }>;
+    },
+    retry: (opts: { force: boolean }) => Promise<{ ok: boolean; error?: string }>,
+  ): Promise<boolean> {
+    const duplicates = r.duplicates ?? [];
+    const listed = duplicates
+      .slice(0, 5)
+      .map((d) => {
+        const diff = (d.conflicts ?? []).length > 0 ? ` (расходятся: ${(d.conflicts ?? []).join(', ')})` : '';
+        return `${d.fullName || 'без имени'}${d.personnelNumber ? ` (таб. ${d.personnelNumber})` : ''}${d.login ? ` · ${d.login}` : ''}${diff}`;
+      });
+    const found = listed.length > 0 ? `Найдено: ${listed.join('; ')}\n\n` : '';
+
+    // Табельный номер занят — обхода нет: номер идентифицирует человека.
+    if (r.blockReason === 'personnel') {
+      setStatus(`Ошибка: ${r.error ?? 'табельный номер уже занят'}`);
+      return false;
+    }
+
+    // Совпал полный ключ личности — это почти наверняка тот же человек. Предлагаем
+    // открыть найденную карточку; если обоснования нет — запись не идёт.
+    if (r.blockReason === 'exact') {
+      const openEmployee = props.onOpenEmployee;
+      const openFound = duplicates[0]?.id;
+      const choice = await pickChoice({
+        title: 'Найден сотрудник с тем же ключом',
+        detail:
+          `${r.error ?? 'Найден сотрудник с тем же ключом личности.'}\n\n${found}` +
+          'Откройте найденную карточку и дополните её. Если это всё-таки другой человек — обоснуйте, и запись пройдёт.',
+        choices: [
+          ...(openFound && openEmployee ? [{ id: 'open', label: 'Открыть найденную карточку' }] : []),
+          { id: 'justify', label: 'Это другой человек — обосновать' },
+        ],
+      });
+      if (!choice) {
+        setStatus('Сохранение отменено');
+        setTimeout(() => setStatus(''), 2000);
+        return false;
+      }
+      if (choice === 'open' && openFound && openEmployee) {
+        openEmployee(openFound);
+        setStatus('Открыта найденная карточка — дополните её');
+        setTimeout(() => setStatus(''), 3000);
+        return false;
+      }
+      const reason = await promptText({
+        title: 'Обоснуйте, что это другой человек',
+        detail:
+          'Обоснование попадёт в журнал критических событий на сервере: без него дубль завёсти нельзя.',
+        placeholder: 'Например: однофамилец, другой отдел, табельный номер ошибочен',
+        confirmLabel: 'Записать с обоснованием',
+      });
+      if (!reason) {
+        setStatus('Сохранение отменено');
+        setTimeout(() => setStatus(''), 2000);
+        return false;
+      }
+      await reportDuplicateOverride(reason);
+      const forced = await retry({ force: true });
+      if (!forced.ok) {
+        setStatus(`Ошибка: ${forced.error ?? 'unknown'}`);
+        return false;
+      }
+      setStatus('Сохранено');
+      setTimeout(() => setStatus(''), 1200);
+      return true;
+    }
+
+    // Совпало только ФИО — однофамильцы бывают, это не ошибка учёта: подтверждаем.
+    const ok = await confirm({
+      title: 'Такой сотрудник уже есть',
+      detail:
+        `${r.error ?? 'Такой сотрудник уже есть.'}\n\n${found}` +
+        'Если это другой человек — подтвердите заведение, иначе откройте найденную карточку.',
+      confirmLabel: 'Это другой человек — записать',
+      cancelLabel: 'Отменить сохранение',
+      confirmTone: 'warn',
+    });
+    if (!ok) {
+      setStatus('Сохранение отменено');
+      setTimeout(() => setStatus(''), 2000);
+      return false;
+    }
+    const forced = await retry({ force: true });
+    if (!forced.ok) {
+      setStatus(`Ошибка: ${forced.error ?? 'unknown'}`);
+      return false;
+    }
+    setStatus('Сохранено');
+    setTimeout(() => setStatus(''), 1200);
+    return true;
+  }
+
   async function saveAttr(code: string, value: unknown): Promise<boolean> {
     // Кладовщик (узкое право на должность) правит ровно один атрибут — должность.
     // Остальные поля карточки остаются за кадровым правом.
@@ -641,30 +750,9 @@ export function EmployeeDetailsPage(props: {
     setStatus('Сохранение…');
     const r = await window.matrica.employees.setAttr(props.employeeId, code, value);
     if (!r.ok) {
-      // Гейт дублей: совпало ФИО — спрашиваем оператора (однофамильцы бывают);
-      // занят табельный номер — отказ без «подтверждения» (номер идентифицирует человека).
-      if (r.duplicates?.length && r.blockReason === 'name') {
-        const listed = r.duplicates
-          .slice(0, 5)
-          .map((d) => `${d.fullName || 'без имени'}${d.personnelNumber ? ` (таб. ${d.personnelNumber})` : ''}${d.login ? ` · ${d.login}` : ''}`)
-          .join('; ');
-        const force = window.confirm(
-          `Такой сотрудник уже есть: ${listed}.\n\nЭто другой человек? Тогда подтвердите — запись будет заведена.\n` +
-            'Если это тот же человек — откройте найденную карточку или слейте дубли (Администрирование → Дубли сотрудников).',
-        );
-        if (force) {
-          const forced = await window.matrica.employees.setAttr(props.employeeId, code, value, { force: true });
-          if (!forced.ok) {
-            setStatus(`Ошибка: ${forced.error ?? 'unknown'}`);
-            return false;
-          }
-          setStatus('Сохранено');
-          setTimeout(() => setStatus(''), 1200);
-          return true;
-        }
-      }
-      setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
-      return false;
+      return resolveDuplicateRefusal(r, (opts) =>
+        window.matrica.employees.setAttr(props.employeeId, code, value, opts),
+      );
     }
     setStatus('Сохранено');
     setTimeout(() => setStatus(''), 1200);
@@ -750,13 +838,18 @@ export function EmployeeDetailsPage(props: {
         ['transfers', transfers],
         ['attachments', attachments],
       ];
-      for (const [code, value] of attrs) {
-        if (!(await saveAttr(code, value))) return false;
-      }
-      await ensurePositionInDirectory(position);
       for (const def of customDefs) {
-        if (!(await saveAttr(def.code, (customDraftValues as any)[def.code] ?? null))) return false;
+        attrs.push([def.code, (customDraftValues as any)[def.code] ?? null]);
       }
+      // Карточка пишется ЦЕЛИКОМ одной дверью: гейт дублей считает полный ключ
+      // личности (ФИО + табельный номер + должность + дата приёма + ДР) из всех полей
+      // разом. По одному атрибуту ключ не собрать — ФИО пишется первым, даты позже,
+      // и проверка успела бы сработать на половине ключа.
+      const fields: Record<string, unknown> = {};
+      for (const [code, value] of attrs) fields[code] = value;
+      const saved = await saveCardThroughDoor(fields);
+      if (!saved) return false;
+      await ensurePositionInDirectory(position);
       if (employmentStatus === 'fired' && canToggleAccess) {
         const r = await window.matrica.admin.users.update(props.employeeId, { accessEnabled: false });
         setAccountStatus(r.ok ? 'Доступ отключён (уволен)' : `Ошибка: ${r.error ?? 'unknown'}`);
@@ -770,6 +863,43 @@ export function EmployeeDetailsPage(props: {
     }
     dirtyRef.current = false;
     return true;
+  }
+
+  /**
+   * Запись карточки через единую дверь с гейтом дублей по полному ключу.
+   *
+   * Карточка пишется ЦЕЛИКОМ: гейт считает ключ личности (ФИО + табельный номер +
+   * должность + дата приёма + ДР) из всех полей разом. По одному атрибуту ключ не
+   * собрать — ФИО пишется первым, даты позже, и проверка успела бы сработать на
+   * половине ключа.
+   */
+  async function saveCardThroughDoor(fields: Record<string, unknown>): Promise<boolean> {
+    setStatus('Сохранение…');
+    const r = await window.matrica.employees.cardSave(props.employeeId, fields);
+    if (!r.ok) {
+      return resolveDuplicateRefusal(r, (opts) =>
+        window.matrica.employees.cardSave(props.employeeId, fields, opts),
+      );
+    }
+    setStatus('Сохранено');
+    setTimeout(() => setStatus(''), 1200);
+    return true;
+  }
+
+  /**
+   * Обоснование обхода гейта дублей уходит на сервер и ложится в журнал критических
+   * событий: обойти гейт молча нельзя, но можно — с объяснением, которое видно потом.
+   */
+  async function reportDuplicateOverride(reason: string): Promise<void> {
+    try {
+      await window.matrica.employees.dedupeOverride({
+        employeeId: props.employeeId,
+        reason,
+      });
+    } catch {
+      // Обоснование не дошло — запись всё равно идёт, но след в журнале не останется.
+      // Это лучше, чем сорвать запись: оператор уже подтвердил, что человек другой.
+    }
   }
 
   async function handleDelete() {

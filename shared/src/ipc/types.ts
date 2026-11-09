@@ -609,6 +609,18 @@ export type EmployeeDedupeMergeResult = { ok: true; report: EmployeeMergeReport 
  * Табельный номер идентифицирует человека (дубль номера — всегда ошибка), а ФИО может
  * совпасть у разных людей (тогда нужен явный выбор оператора, а не молчаливый дубль).
  */
+/**
+ * Найденный дубль сотрудника — в кратком виде, одинаковом для всех дверей записи.
+ */
+export type EmployeeDuplicateHit = {
+  id: string;
+  fullName: string;
+  login: string | null;
+  personnelNumber: string | null;
+  /** Поля ключа, которые расходятся: оператор видит, ЧЕМ карточки отличаются. */
+  conflicts?: string[];
+};
+
 export type EmployeeDupMatch = {
   id: string;
   fullName: string;
@@ -1885,10 +1897,40 @@ export type MatricaApi = {
       ok: boolean;
       error?: string;
       /** Найденные дубли (при отказе гейта дублей). */
-      duplicates?: EmployeeDupMatch[];
-      /** 'personnel' — табельный номер занят (отказ жёсткий), 'name' — совпало ФИО (предупреждение). */
-      blockReason?: 'personnel' | 'name';
+      duplicates?: EmployeeDuplicateHit[];
+      /**
+       * 'personnel' — табельный номер занят (отказ жёсткий);
+       * 'exact' — совпал полный ключ личности (нужно обоснование);
+       * 'name' — совпало ФИО (предупреждение).
+       */
+      blockReason?: 'personnel' | 'exact' | 'name';
     }>;
+    /**
+     * Единая дверь записи карточки: поля приходят ЦЕЛИКОМ, гейт дублей считает
+     * полный ключ личности (ФИО + табельный номер + должность + дата приёма + ДР).
+     * При отказе вернёт `blockReason` и список найденных карточек.
+     */
+    cardSave: (
+      employeeId: string,
+      fields: Record<string, unknown>,
+      opts?: { force?: boolean },
+    ) => Promise<{
+      ok: boolean;
+      error?: string;
+      /**
+       * 'name' — совпало ФИО (однофамильцы, можно подтвердить);
+       * 'exact' — совпал полный ключ личности (нужно обоснование);
+       * 'personnel' — совпал табельный номер (обхода нет).
+       */
+      blockReason?: 'name' | 'exact' | 'personnel';
+      /** Найденные карточки: оператору показываем, к кому идти. */
+      duplicates?: EmployeeDuplicateHit[];
+    }>;
+    /**
+     * Обоснование обхода гейта дублей: оператор подтвердил, что это другой человек.
+     * Ложится в журнал критических событий на сервере.
+     */
+    dedupeOverride: (args: { employeeId: string; reason: string }) => Promise<{ ok: boolean; error?: string }>;
     delete: (employeeId: string) => Promise<{ ok: boolean; error?: string }>;
     merge: () => Promise<{ ok: true; stats?: any } | { ok: false; error: string }>;
     /** Подтянуть карточки сотрудников снимком с сервера и прогнать синхронизацию следом. */
