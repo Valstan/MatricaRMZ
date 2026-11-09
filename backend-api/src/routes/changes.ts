@@ -312,6 +312,8 @@ changesRouter.get('/', async (req, res) => {
       [SyncTableName.PpeEmployeeCards]: 'Личные карточки СИЗ',
       [SyncTableName.PpePrintTemplates]: 'Шаблоны печатных форм СИЗ',
       [SyncTableName.SignatureDefaults]: 'Умолчания подписей',
+      [SyncTableName.ErpProductionPrograms]: 'Производственные программы',
+      [SyncTableName.ErpProductionProgramRows]: 'Строки производственных программ',
       file_assets: 'Файлы',
     };
 

@@ -69,6 +69,8 @@ import {
   ppeCollectives,
   ppeCollectiveLines,
   signatureDefaults,
+  erpProductionPrograms,
+  erpProductionProgramRows,
   noteShares,
   notes,
   cardDrafts,
@@ -2102,6 +2104,9 @@ async function applyPulledChanges(
     [SyncTableName.PpeEmployeeCards]: [],
     [SyncTableName.PpePrintTemplates]: [],
     [SyncTableName.SignatureDefaults]: [],
+    // Производственная программа (ПП): план ведёт сервер, клиент читает реплику.
+    [SyncTableName.ErpProductionPrograms]: [],
+    [SyncTableName.ErpProductionProgramRows]: [],
     [SyncTableName.Users]: [],
     [SyncTableName.UserSectionAccess]: [],
   };
@@ -2935,6 +2940,52 @@ async function applyPulledChanges(
             id: payload.id,
             fieldKey: payload.field_key,
             employeeId: payload.employee_id ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      // Производственная программа (ПП): pull-only реплика. Без ветки строки исчезли бы:
+      // у switch нет `default` (см. комментарий у WarehouseLocations выше).
+      case SyncTableName.ErpProductionPrograms:
+        {
+          const payload = payloadRaw;
+          groups.erp_production_programs.push({
+            id: payload.id,
+            periodStart: payload.period_start,
+            periodEnd: payload.period_end,
+            shop: payload.shop,
+            title: payload.title,
+            status: payload.status,
+            signatureSlots: payload.signature_slots ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.ErpProductionProgramRows:
+        {
+          const payload = payloadRaw;
+          groups.erp_production_program_rows.push({
+            id: payload.id,
+            programId: payload.program_id,
+            orderNo: payload.order_no,
+            contractId: payload.contract_id ?? null,
+            groupLabel: payload.group_label,
+            contractKind: payload.contract_kind ?? null,
+            engineId: payload.engine_id ?? null,
+            engineMark: payload.engine_mark,
+            engineNumber: payload.engine_number,
+            state: payload.state ?? null,
+            shippingPlanAt: payload.shipping_plan_at ?? null,
+            factors: payload.factors,
+            note: payload.note,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
             lastServerSeq: payload.last_server_seq ?? null,
@@ -4156,6 +4207,45 @@ async function applyPulledChanges(
     await upsertPulledRowsInChunks(db, signatureDefaults, groups.signature_defaults, signatureDefaults.id, {
       fieldKey: sql`excluded.field_key`,
       employeeId: sql`excluded.employee_id`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  // Производственная программа (ПП): реплика плана. Строки плана идут после шапки —
+  // жёсткой FK нет, но порядок «сначала программа, потом строки» читается честнее.
+  if (groups.erp_production_programs.length > 0) {
+    emitApply(SyncTableName.ErpProductionPrograms, groups.erp_production_programs.length);
+    await upsertPulledRowsInChunks(db, erpProductionPrograms, groups.erp_production_programs, erpProductionPrograms.id, {
+      periodStart: sql`excluded.period_start`,
+      periodEnd: sql`excluded.period_end`,
+      shop: sql`excluded.shop`,
+      title: sql`excluded.title`,
+      status: sql`excluded.status`,
+      signatureSlots: sql`excluded.signature_slots`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+  if (groups.erp_production_program_rows.length > 0) {
+    emitApply(SyncTableName.ErpProductionProgramRows, groups.erp_production_program_rows.length);
+    await upsertPulledRowsInChunks(db, erpProductionProgramRows, groups.erp_production_program_rows, erpProductionProgramRows.id, {
+      programId: sql`excluded.program_id`,
+      orderNo: sql`excluded.order_no`,
+      contractId: sql`excluded.contract_id`,
+      groupLabel: sql`excluded.group_label`,
+      contractKind: sql`excluded.contract_kind`,
+      engineId: sql`excluded.engine_id`,
+      engineMark: sql`excluded.engine_mark`,
+      engineNumber: sql`excluded.engine_number`,
+      state: sql`excluded.state`,
+      shippingPlanAt: sql`excluded.shipping_plan_at`,
+      factors: sql`excluded.factors`,
+      note: sql`excluded.note`,
       updatedAt: sql`excluded.updated_at`,
       lastServerSeq: sql`excluded.last_server_seq`,
       deletedAt: sql`excluded.deleted_at`,

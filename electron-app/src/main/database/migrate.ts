@@ -632,6 +632,45 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     CREATE UNIQUE INDEX IF NOT EXISTS signature_defaults_field_key_uq ON signature_defaults(field_key) WHERE deleted_at IS NULL;
     CREATE INDEX IF NOT EXISTS signature_defaults_employee_idx ON signature_defaults(employee_id);
 
+    CREATE TABLE IF NOT EXISTS erp_production_programs (
+      id text PRIMARY KEY NOT NULL,
+      period_start integer NOT NULL,
+      period_end integer NOT NULL,
+      shop text NOT NULL,
+      title text NOT NULL,
+      status text NOT NULL DEFAULT 'draft',
+      signature_slots text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS erp_production_programs_period_idx ON erp_production_programs(period_start);
+    CREATE INDEX IF NOT EXISTS erp_production_programs_shop_idx ON erp_production_programs(shop);
+    CREATE TABLE IF NOT EXISTS erp_production_program_rows (
+      id text PRIMARY KEY NOT NULL,
+      program_id text NOT NULL,
+      order_no integer NOT NULL,
+      contract_id text,
+      group_label text NOT NULL,
+      contract_kind text,
+      engine_id text,
+      engine_mark text NOT NULL,
+      engine_number text NOT NULL,
+      state text,
+      shipping_plan_at integer,
+      factors text NOT NULL,
+      note text NOT NULL,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS erp_production_program_rows_program_idx ON erp_production_program_rows(program_id);
+    CREATE INDEX IF NOT EXISTS erp_production_program_rows_order_idx ON erp_production_program_rows(program_id, order_no);
+
     -- Приказ о СИЗ (Минтруд 767н): справочник профессий с пунктами приложений,
     -- «приказные» строки норм, личная карточка СИЗ по форме приложения №3 и шаблоны
     -- печатных форм. Реплика — server-write / pull-only: сервер ведёт двери, клиент

@@ -2595,3 +2595,71 @@ export const signatureDefaults = pgTable(
     employeeIdx: index('signature_defaults_employee_idx').on(t.employeeId),
   }),
 );
+
+/**
+ * Производственная программа (ПП): шапка плана производства и его строки.
+ * Миграция 0124. Ведёт серверная дверь (`productionProgramService`), клиент читает
+ * реплику (server-write / pull-only — см. `shared/domain/ledgerAuthz`).
+ */
+export const erpProductionPrograms = pgTable(
+  'erp_production_programs',
+  {
+    id: uuid('id').primaryKey(),
+    /** Начало периода плана (мс) — как в Word-форме «01.11-15.11». */
+    periodStart: bigint('period_start', { mode: 'number' }).notNull(),
+    periodEnd: bigint('period_end', { mode: 'number' }).notNull(),
+    /** Цех: «Цех № 1» из образца. */
+    shop: text('shop').notNull(),
+    title: text('title').notNull(),
+    /** `draft` — черновик, `approved` — утверждён. */
+    status: text('status').notNull().default('draft'),
+    /** Слоты подписей (должность + ФИО + сотрудник) JSON-строкой: текстовый DTO-контракт. */
+    signatureSlots: text('signature_slots'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    periodIdx: index('erp_production_programs_period_idx').on(t.periodStart),
+    shopIdx: index('erp_production_programs_shop_idx').on(t.shop),
+  }),
+);
+
+/** Строка плана ПП: № п/п, договор (шапка группы), двигатель и состояние строки. */
+export const erpProductionProgramRows = pgTable(
+  'erp_production_program_rows',
+  {
+    id: uuid('id').primaryKey(),
+    programId: uuid('program_id').notNull(),
+    /** № п/п в печатной форме. */
+    orderNo: integer('order_no').notNull(),
+    contractId: uuid('contract_id'),
+    /** Шапка группы: организация + номер договора. */
+    groupLabel: text('group_label').notNull(),
+    /** Снимок вида договора на момент добавления строки: `military` | `civil` | ''. */
+    contractKind: text('contract_kind'),
+    engineId: uuid('engine_id'),
+    engineMark: text('engine_mark').notNull(),
+    engineNumber: text('engine_number').notNull(),
+    /** Состояние строки плана: `restoration` | `repairable` | `capital_repair` (в статусы двигателей не пишется). */
+    state: text('state'),
+    /** Плановая отгрузка (мс) — ставится вручную, факт отгрузки берётся из карточки двигателя. */
+    shippingPlanAt: bigint('shipping_plan_at', { mode: 'number' }),
+    /** Факторы, влияющие на выполнение плана. */
+    factors: text('factors').notNull(),
+    note: text('note').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    programIdx: index('erp_production_program_rows_program_idx').on(t.programId),
+    orderUq: uniqueIndex('erp_production_program_rows_order_uq')
+      .on(t.programId, t.orderNo)
+      .where(sql`${t.deletedAt} is null`),
+  }),
+);

@@ -130,6 +130,13 @@ export const PermissionCode = {
   TimesheetView: 'timesheet.view',
   TimesheetEdit: 'timesheet.edit',
   TimesheetPrint: 'timesheet.print',
+
+  // Производственная программа (ПП): план производства на две недели/месяц.
+  // Узкие права: смотреть план может весь производственный контур, а вести его —
+  // только те, кто планирует производство (двигателист, мастер). Право на правку
+  // НЕ достаётся наблюдателю, снабжению, кладовщику и табельщику.
+  ProductionProgramView: 'production_program.view',
+  ProductionProgramEdit: 'production_program.edit',
 } as const;
 
 export type PermissionCode = (typeof PermissionCode)[keyof typeof PermissionCode];
@@ -345,6 +352,21 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
   { code: PermissionCode.TimesheetView, group: 'Табель', titleRu: 'Просмотр табеля учёта рабочего времени' },
   { code: PermissionCode.TimesheetEdit, group: 'Табель', titleRu: 'Ведение табеля (создание/редактирование)' },
   { code: PermissionCode.TimesheetPrint, group: 'Табель', titleRu: 'Печать/экспорт табеля' },
+
+  {
+    code: PermissionCode.ProductionProgramView,
+    group: 'Производственная программа',
+    titleRu: 'Просмотр производственной программы (ПП)',
+    descriptionRu: 'Видеть планы производства на две недели/месяц и печатать их.',
+  },
+  {
+    code: PermissionCode.ProductionProgramEdit,
+    group: 'Производственная программа',
+    titleRu: 'Ведение производственной программы (ПП)',
+    descriptionRu:
+      'Создавать и править планы производства: строки плана, состояния, отгрузка, подписи. ' +
+      'Наблюдателю, снабжению, кладовщику и табельщику роль этого права не даёт.',
+  },
 ];
 
 export const PERM_META_BY_CODE: Record<string, PermissionMeta> = Object.fromEntries(
@@ -443,6 +465,10 @@ const OPERATOR_BASE_PERMISSIONS: PermissionCode[] = [
   PermissionCode.SyncUse,
   PermissionCode.UpdatesUse,
   PermissionCode.ChatUse,
+  // Производственная программа (ПП): план читает весь производственный контур —
+  // это документ, по которому видно, что делает цех. Право на ВЕДЕНИЕ плана
+  // выдаётся отдельно (см. OPERATOR_ROLE_EDIT): читать план может каждый.
+  PermissionCode.ProductionProgramView,
 ];
 
 // Edit footprint per operator role, added on top of the read-only base.
@@ -455,6 +481,8 @@ const OPERATOR_ROLE_EDIT: Record<string, PermissionCode[]> = {
     PermissionCode.OperationsEdit,
     PermissionCode.DefectActEdit,
     PermissionCode.FilesUpload,
+    // ПП: двигателист планирует производство цеха — ведёт программу.
+    PermissionCode.ProductionProgramEdit,
   ],
   technolog: [
     PermissionCode.PartsCreate,
@@ -476,6 +504,8 @@ const OPERATOR_ROLE_EDIT: Record<string, PermissionCode[]> = {
     PermissionCode.OperationsEdit,
     PermissionCode.ServicesEdit,
     PermissionCode.FilesUpload,
+    // ПП: мастер выписывает наряды по плану — ведёт и сам план.
+    PermissionCode.ProductionProgramEdit,
   ],
   supply: [
     PermissionCode.SupplyRequestsCreate,

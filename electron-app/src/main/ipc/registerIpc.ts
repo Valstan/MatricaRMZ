@@ -53,6 +53,7 @@ import { registerServicePricingIpc } from './register/servicePricing.js';
 import { registerPpeIpc } from './register/ppe.js';
 import { registerPpeOneCExportIpc } from './register/ppeOneCExport.js';
 import { registerSignatureDefaultsIpc } from './register/signatureDefaults.js';
+import { registerProductionProgramIpc } from './register/productionProgram.js';
 import { registerWorkSheetsIpc } from './register/workSheets.js';
 import { registerContractPaymentsIpc } from './register/contractPayments.js';
 import { registerContractsIpc } from './register/contracts.js';
@@ -249,6 +250,7 @@ export function registerIpc(
   registerPpeIpc(ctx);
   registerPpeOneCExportIpc(ctx);
   registerSignatureDefaultsIpc(ctx);
+  registerProductionProgramIpc(ctx);
   registerWorkSheetsIpc(ctx);
   registerContractPaymentsIpc(ctx);
   registerContractsIpc(ctx);

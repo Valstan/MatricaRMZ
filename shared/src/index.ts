@@ -78,6 +78,8 @@ export * from './domain/ledgerAuthz.js';
 export * from './domain/timesheet.js';
 export * from './domain/linkFieldRules.js';
 export * from './domain/contract.js';
+// Производственная программа (ПП): состояния строк, подписи, модель печати.
+export * from './domain/productionProgram.js';
 export * from './domain/adminUsers.js';
 export * from './domain/employees.js';
 export * from './domain/employeeCardKey.js';

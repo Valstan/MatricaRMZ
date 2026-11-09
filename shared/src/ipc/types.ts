@@ -18,6 +18,12 @@ import type { WorkSheetRow, WorkSheetType } from '../domain/workSheets.js';
 import type { ContractPayments } from '../domain/payments.js';
 import type { MenuTabId } from '../domain/uiSections.js';
 import type { ScrapCriterionPartInfo } from '../domain/scrapCriterion.js';
+import type {
+  ProductionProgramDto,
+  ProductionProgramLineDraftDto,
+  ProductionProgramLineDto,
+  ProductionProgramSaveDto,
+} from '../domain/productionProgram.js';
 
 /** Избранные разделы оператора (левая колонка оболочки). Локально, per-user scope. */
 export type SectionFavoritesResult = { ok: true; ids: MenuTabId[] } | { ok: false; error: string };
@@ -2963,6 +2969,22 @@ export type MatricaApi = {
       { ok: true; rows: Array<{ fieldKey: string; employeeId: string | null }> } | { ok: false; error: string }
     >;
     set: (args: { fieldKey: string; employeeId: string | null }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+  };
+  /**
+   * Производственная программа (ПП): план производства на две недели/месяц.
+   * Чтение — из локальной pull-only реплики (план доступен и без сети),
+   * запись — серверной дверью REST (права `production_program.view` / `.edit`).
+   */
+  productionProgram: {
+    list: () => Promise<
+      { ok: true; rows: ProductionProgramDto[]; lines: ProductionProgramLineDto[] } | { ok: false; error: string }
+    >;
+    create: (args: ProductionProgramSaveDto) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    update: (args: ProductionProgramSaveDto & { id: string }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    saveRows: (args: { id: string; rows: ProductionProgramLineDraftDto[] }) => Promise<
+      { ok: true; count: number } | { ok: false; error: string }
+    >;
+    remove: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
   };
   /** Этапы работ: узлы — REST-справочник сервера; строки — записи истории ремонта (`operations`). */
   workSheets: {

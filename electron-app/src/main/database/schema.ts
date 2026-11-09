@@ -802,6 +802,51 @@ export const signatureDefaults = sqliteTable('signature_defaults', {
   employeeIdx: index('signature_defaults_employee_idx').on(t.employeeId),
 }));
 
+// Производственная программа (ПП): реплика шапки плана и его строк. Server-write /
+// pull-only: сервер ведёт двери, клиент читает реплику. Nullability — ровно как
+// сервер, иначе pull уронит checkReplicaStrictness.
+export const erpProductionPrograms = sqliteTable('erp_production_programs', {
+  id: text('id').primaryKey(),
+  periodStart: integer('period_start').notNull(),
+  periodEnd: integer('period_end').notNull(),
+  shop: text('shop').notNull(),
+  title: text('title').notNull(),
+  status: text('status').notNull().default('draft'),
+  signatureSlots: text('signature_slots'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  periodIdx: index('erp_production_programs_period_idx').on(t.periodStart),
+  shopIdx: index('erp_production_programs_shop_idx').on(t.shop),
+}));
+
+export const erpProductionProgramRows = sqliteTable('erp_production_program_rows', {
+  id: text('id').primaryKey(),
+  programId: text('program_id').notNull(),
+  orderNo: integer('order_no').notNull(),
+  contractId: text('contract_id'),
+  groupLabel: text('group_label').notNull(),
+  contractKind: text('contract_kind'),
+  engineId: text('engine_id'),
+  engineMark: text('engine_mark').notNull(),
+  engineNumber: text('engine_number').notNull(),
+  state: text('state'),
+  shippingPlanAt: integer('shipping_plan_at'),
+  factors: text('factors').notNull(),
+  note: text('note').notNull(),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  programIdx: index('erp_production_program_rows_program_idx').on(t.programId),
+  orderIdx: index('erp_production_program_rows_order_idx').on(t.programId, t.orderNo),
+}));
+
 export const erpEmployeeCards = sqliteTable(
   'erp_employee_cards',
   {

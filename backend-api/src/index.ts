@@ -21,6 +21,7 @@ import { startWarehouseLocationsSyncPublisher } from './services/sync/warehouseL
 import { startPpeSyncPublisher } from './services/sync/ppeSyncPublisherService.js';
 import { startPpeEmployeeMirror } from './services/ppeEmployeeMirror.js';
 import { startSignatureDefaultsSyncPublisher } from './services/sync/signatureDefaultsSyncPublisherService.js';
+import { startProductionProgramSyncPublisher } from './services/sync/productionProgramSyncPublisherService.js';
 import { startDictionarySyncPublisher } from './services/sync/dictionarySyncPublisherService.js';
 import { startEngineNumbersReconcile } from './services/engineNumbersService.js';
 import { startAuditStatisticsScheduler } from './services/statisticsAuditService.js';
@@ -115,6 +116,9 @@ async function bootstrap() {
     // «Кладовщика» пусты у завода, который не импортирует выгрузку 1С:ЗУП.
     startPpeEmployeeMirror();
     startSignatureDefaultsSyncPublisher();
+    // Производственная программа: план ведёт серверная дверь, клиент читает реплику —
+    // без публикатора строки не получат номера журнала и не приедут на парк.
+    startProductionProgramSyncPublisher();
     startDictionarySyncPublisher();
     // Номера РМЗ: догоняем реестр тем, что накопилось без сверки (карточки, созданные
     // до фичи, и те, что приехали, пока инстанс был перезапущен). Дальше номера выдаёт

@@ -758,6 +758,44 @@ const matricaApi = {
     list: async () => ipcRenderer.invoke('signatureDefaults:list'),
     set: async (args: { fieldKey: string; employeeId: string | null }) => ipcRenderer.invoke('signatureDefaults:set', args),
   },
+  productionProgram: {
+    list: async () => ipcRenderer.invoke('productionProgram:list'),
+    create: async (args: {
+      periodStart: number;
+      periodEnd: number;
+      shop: string;
+      title: string;
+      status?: string;
+      signatureSlots?: string | null;
+    }) => ipcRenderer.invoke('productionProgram:create', args),
+    update: async (args: {
+      id: string;
+      periodStart?: number;
+      periodEnd?: number;
+      shop?: string;
+      title?: string;
+      status?: string;
+      signatureSlots?: string | null;
+    }) => ipcRenderer.invoke('productionProgram:update', args),
+    saveRows: async (args: {
+      id: string;
+      rows: Array<{
+        id?: string | null;
+        orderNo: number;
+        contractId?: string | null;
+        groupLabel: string;
+        contractKind?: string | null;
+        engineId?: string | null;
+        engineMark?: string;
+        engineNumber?: string;
+        state?: string | null;
+        shippingPlanAt?: number | null;
+        factors?: string;
+        note?: string;
+      }>;
+    }) => ipcRenderer.invoke('productionProgram:saveRows', args),
+    remove: async (id: string) => ipcRenderer.invoke('productionProgram:remove', id),
+  },
   workSheets: {
     types: {
       list: async (args?: { includeArchived?: boolean }) => ipcRenderer.invoke('workSheets:types:list', args),

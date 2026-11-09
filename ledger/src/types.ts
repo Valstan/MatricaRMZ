@@ -70,6 +70,9 @@ export const LedgerTableName = {
   PpePrintTemplates: 'ppe_print_templates',
   // Умолчания подписей (PR-5): ключ поля подписи → сотрудник.
   SignatureDefaults: 'signature_defaults',
+  // Производственная программа (ПП): шапка программы и строки плана.
+  ErpProductionPrograms: 'erp_production_programs',
+  ErpProductionProgramRows: 'erp_production_program_rows',
   Permissions: 'permissions',
   UserPermissions: 'user_permissions',
   PermissionDelegations: 'permission_delegations',

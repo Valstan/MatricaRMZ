@@ -537,6 +537,39 @@ export const erpEmployeeCardRowSchema = z.object({
   is_active: z.boolean().nullable().optional(),
 });
 
+// Производственная программа (ПП) — шапка программы.
+// signature_slots — JSON-строка со слотами подписей (текст, как sections_json у
+// договора: DTO-контракт синка текстовый, и SQLite-реплика такой же).
+export const erpProductionProgramRowSchema = z.object({
+  ...baseRowFields,
+  period_start: z.number().int(),
+  period_end: z.number().int(),
+  shop: z.string(),
+  title: z.string(),
+  status: z.enum(['draft', 'approved']),
+  signature_slots: z.string().nullable().optional(),
+});
+
+// Строка плана ПП. contract_kind — снимок вида договора на момент добавления
+// ('military' | 'civil' | ''), state — состояние строки плана (новые значения
+// модуля, в статусы двигателей они не пишутся). Оба мягкие: лишняя строка в
+// pull молча исчезла бы, а разбор значения живёт в домене (productionProgram.ts).
+export const erpProductionProgramLineRowSchema = z.object({
+  ...baseRowFields,
+  program_id: z.string().uuid(),
+  order_no: z.number().int(),
+  contract_id: z.string().nullable().optional(),
+  group_label: z.string(),
+  contract_kind: z.string().nullable().optional(),
+  engine_id: z.string().nullable().optional(),
+  engine_mark: z.string(),
+  engine_number: z.string(),
+  state: z.string().nullable().optional(),
+  shipping_plan_at: z.number().int().nullable().optional(),
+  factors: z.string(),
+  note: z.string(),
+});
+
 export const syncRowSchemaByTable = {
   [SyncTableName.EntityTypes]: entityTypeRowSchema,
   [SyncTableName.Entities]: entityRowSchema,
@@ -587,6 +620,8 @@ export const syncRowSchemaByTable = {
   [SyncTableName.PpeEmployeeCards]: ppeEmployeeCardRowSchema,
   [SyncTableName.PpePrintTemplates]: ppePrintTemplateRowSchema,
   [SyncTableName.SignatureDefaults]: signatureDefaultRowSchema,
+  [SyncTableName.ErpProductionPrograms]: erpProductionProgramRowSchema,
+  [SyncTableName.ErpProductionProgramRows]: erpProductionProgramLineRowSchema,
 } as const;
 
 export const syncTableUpsertSchema = z.object({
