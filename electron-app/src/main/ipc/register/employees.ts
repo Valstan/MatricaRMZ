@@ -1,24 +1,13 @@
 import { randomUUID } from 'node:crypto';
 
 import { ipcMain } from 'electron';
-import { and, eq, isNull } from 'drizzle-orm';
 
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requireAnyPermOrResult, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
-import { createEntity, getEntityDetails, listEntitiesByType, listEntitiesByTypeWithAttrs, setEntityAttribute, softDeleteEntity } from '../../services/entityService.js';
-import { analyzeEmployeeDuplicatesRemote, deleteEmployeeRemote, findEmployeeDuplicatesRemote, getSectionMembershipByLogin, getSectionMembershipByUserId, listEmployeeAttributeDefs, listEmployeesSummary, mergeEmployeeDuplicatesRemote, mergeEmployeesToServer, removeDuplicateEmployeeRemote } from '../../services/employeeService.js';
+import { createEntity, getEntityDetails, getEntityTypeIdByCode, listEntitiesByType, listEntitiesByTypeWithAttrs, setEntityAttribute, softDeleteEntity } from '../../services/entityService.js';
+import { analyzeEmployeeDuplicatesRemote, checkEmployeeCardKeyRemote, deleteEmployeeRemote, findEmployeeDuplicatesRemote, getSectionMembershipByLogin, getSectionMembershipByUserId, listEmployeeAttributeDefs, listEmployeesSummary, mergeEmployeeDuplicatesRemote, mergeEmployeesToServer, recordEmployeeDuplicateOverrideRemote, removeDuplicateEmployeeRemote } from '../../services/employeeService.js';
+import { saveEmployeeCardGated } from '../../services/employeeCardWrite.js';
 import { adminResyncEmployees, viewUserPermissions } from '../../services/adminUsersService.js';
-import { entityTypes } from '../../database/schema.js';
-
-async function getEntityTypeIdByCode(ctx: IpcContext, code: string): Promise<string | null> {
-  const rows = await ctx
-    .dataDb()
-    .select({ id: entityTypes.id })
-    .from(entityTypes)
-    .where(and(eq(entityTypes.code, code), isNull(entityTypes.deletedAt)))
-    .limit(1);
-  return rows[0]?.id ? String(rows[0].id) : null;
-}
 
 /**
  * Ключ сравнения должностей: регистр, ё→е и лишние пробелы не должны плодить дубли
@@ -30,65 +19,6 @@ function normalizePositionKey(value: string): string {
     .toLowerCase()
     .replace(/ё/g, 'е')
     .replace(/\s+/g, ' ');
-}
-
-/**
- * Гейт дублей при записи ФИО или табельного номера сотрудника.
- *
- * Возвращает `null`, когда писать можно. Иначе — отказ с причиной и списком
- * найденных записей: по табельному номеру отказ жёсткий (номер идентифицирует
- * человека, дубль номера — всегда ошибка), по ФИО — предупреждение, которое
- * оператор может подтвердить (однофамильцы бывают, и это не ошибка учёта).
- *
- * Проверка идёт на СЕРВЕР: там полный срез сотрудников, локальная реплика может
- * отставать. Если сервер недоступен — запись НЕ блокируется (иначе клиент без сети
- * не смог бы завести сотрудника вовсе); за спиной остаётся уникальный индекс на
- * табельный номер.
- */
-async function checkEmployeeDuplicate(
-  ctx: IpcContext,
-  employeeId: string,
-  code: string,
-  value: unknown,
-  force: boolean,
-): Promise<{ ok: false; error: string; duplicates: unknown[]; blockReason: 'personnel' | 'name' } | null> {
-  if (force) return null;
-  const attr = String(code ?? '').trim().toLowerCase();
-  const isName = attr === 'full_name';
-  const isPersonnel = attr === 'personnel_number';
-  if (!isName && !isPersonnel) return null;
-  const text = String(value ?? '').trim();
-  if (!text) return null;
-  try {
-    const check = await findEmployeeDuplicatesRemote(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
-      ...(isName ? { fullName: text } : {}),
-      ...(isPersonnel ? { personnelNumber: text } : {}),
-      excludeId: employeeId,
-    });
-    if (!check.ok) return null;
-    const matches = (check.matches ?? []) as Array<{
-      id: string;
-      fullName: string;
-      login: string | null;
-      personnelNumber: string | null;
-      matchedBy: string[];
-    }>;
-    if (matches.length === 0) return null;
-    const byPersonnel = matches.some((m) => m.matchedBy.includes('personnel'));
-    const listed = matches
-      .slice(0, 5)
-      .map((m) => `${m.fullName || 'без имени'}${m.personnelNumber ? ` (таб. ${m.personnelNumber})` : ''}${m.login ? ` · ${m.login}` : ''}`);
-    return {
-      ok: false,
-      error: byPersonnel
-        ? `Табельный номер ${text} уже занят: ${listed.join('; ')}. Откройте эту карточку или слейте дубли — второго с таким номером быть не может.`
-        : `Такой сотрудник уже есть: ${listed.join('; ')}. Если это другой человек — подтвердите заведение, иначе откройте найденную карточку.`,
-      duplicates: matches,
-      blockReason: byPersonnel ? 'personnel' : 'name',
-    };
-  } catch {
-    return null;
-  }
 }
 
 export function registerEmployeesIpc(ctx: IpcContext) {  // Self-read собственного membership «доступа по разделам» — без permission-гейта
@@ -110,7 +40,7 @@ export function registerEmployeesIpc(ctx: IpcContext) {  // Self-read собст
     const gate = await requirePermOrResult(ctx, 'employees.view');
     if (!gate.ok) throw new Error(gate.error);
     // Pass the employee type so a not-yet-saved (deferred) employee opens as an empty card.
-    const typeId = await getEntityTypeIdByCode(ctx, 'employee');
+    const typeId = await getEntityTypeIdByCode(ctx.dataDb(), 'employee');
     return getEntityDetails(ctx.dataDb(), id, typeId ?? undefined);
   });
 
@@ -134,14 +64,47 @@ export function registerEmployeesIpc(ctx: IpcContext) {  // Self-read собст
         : await requirePermOrResult(ctx, 'employees.create');
     if (!gate.ok) return gate;
     // Гейт дублей (просьба владельца 07.11.2026: «дублей сотрудников не мог
-    // оператор создавать»). Спрашиваем сервер — там полный срез сотрудников.
-    // Табельный номер занят — ОТКАЗ (номер идентифицирует человека); ФИО совпало —
-    // предупреждение, оператор решает (однофамильцы бывают).
-    const dup = await checkEmployeeDuplicate(ctx, employeeId, String(code ?? ''), value, opts?.force === true);
-    if (dup) return dup;
-    // fallback type id materializes the entity on the first write for a deferred employee.
-    const typeId = await getEntityTypeIdByCode(ctx, 'employee');
-    return setEntityAttribute(ctx.dataDb(), employeeId, code, value, typeId ?? undefined);
+    // оператор создавать»). Проверка — в общей двери карточки: ключ личности
+    // считается из ВСЕХ полей карточки (текущих + записываемых), а не из одного
+    // атрибута. Отдельный путь записи здесь означал бы два разных гейта (класс G363).
+    const typeId = await getEntityTypeIdByCode(ctx.dataDb(), 'employee');
+    return saveEmployeeCardGated(
+      {
+        db: ctx.dataDb(),
+        typeId,
+        checkKey: (args) => checkEmployeeCardKeyRemote(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args),
+      },
+      employeeId,
+      { [String(code ?? '')]: value },
+      { force: opts?.force === true },
+    );
+  });
+
+  /**
+   * ЕДИНАЯ ДВЕРЬ ЗАПИСИ КАРТОЧКИ СОТРУДНИКА.
+   *
+   * Раньше карточка писалась по одному атрибуту через `employees:setAttr`, и гейт
+   * дублей проверял ровно ОДИН атрибут за раз: ФИО пишется первым, табельный номер
+   * и даты — позже. Проверить по полному ключу «ФИО + табельный номер + должность +
+   * дата приёма + ДР» по одному атрибуту нечем — половины ключа ещё нет. Здесь
+   * приходит карточка ЦЕЛИКОМ, ключ считается из всех полей сразу, и запись идёт
+   * только после того, как гейт её пропустил (аналог `saveEngineCardGated`).
+   */
+  ipcMain.handle('employees:card:save', async (_e, employeeId: string, fields: Record<string, unknown>, opts?: { force?: boolean }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'employees.create');
+    if (!gate.ok) return gate;
+    const typeId = await getEntityTypeIdByCode(ctx.dataDb(), 'employee');
+    return saveEmployeeCardGated(
+      {
+        db: ctx.dataDb(),
+        typeId,
+        checkKey: (args) => checkEmployeeCardKeyRemote(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args),
+      },
+      employeeId,
+      fields ?? {},
+      { force: opts?.force === true },
+    );
   });
 
   ipcMain.handle('employees:delete', async (_e, employeeId: string) => {
@@ -201,6 +164,15 @@ export function registerEmployeesIpc(ctx: IpcContext) {  // Self-read собст
     });
   });
 
+  ipcMain.handle('employees:dedupeOverride', async (_e, args: { employeeId: string; reason: string }) => {
+    const gate = await requireAnyPermOrResult(ctx, ['employees.create', 'employees.dedupe']);
+    if (!gate.ok) return gate;
+    return recordEmployeeDuplicateOverrideRemote(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
+      employeeId: String(args?.employeeId ?? ''),
+      reason: String(args?.reason ?? ''),
+    });
+  });
+
   ipcMain.handle('employees:dedupeMerge', async (_e, args: { survivorId: string; loserIds: string[]; dryRun?: boolean }) => {
     if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requireAnyPermOrResult(ctx, ['employees.create', 'employees.dedupe']);
@@ -228,7 +200,7 @@ export function registerEmployeesIpc(ctx: IpcContext) {  // Self-read собст
   ipcMain.handle('employees:departments:list', async () => {
     const gate = await requirePermOrResult(ctx, 'employees.view');
     if (!gate.ok) return [];
-    const typeId = await getEntityTypeIdByCode(ctx, 'department');
+    const typeId = await getEntityTypeIdByCode(ctx.dataDb(), 'department');
     if (!typeId) return [];
     return listEntitiesByType(ctx.dataDb(), typeId);
   });
@@ -244,7 +216,7 @@ export function registerEmployeesIpc(ctx: IpcContext) {  // Self-read собст
   ipcMain.handle('employees:positions:list', async () => {
     const gate = await requirePermOrResult(ctx, 'employees.view');
     if (!gate.ok) return [];
-    const typeId = await getEntityTypeIdByCode(ctx, 'position_ref');
+    const typeId = await getEntityTypeIdByCode(ctx.dataDb(), 'position_ref');
     if (!typeId) return [];
     return listEntitiesByType(ctx.dataDb(), typeId);
   });
@@ -257,7 +229,7 @@ export function registerEmployeesIpc(ctx: IpcContext) {  // Self-read собст
     if (!gate.ok) return gate;
     const name = String(label ?? '').trim();
     if (!name) return { ok: false as const, error: 'пустое название должности' };
-    const typeId = await getEntityTypeIdByCode(ctx, 'position_ref');
+    const typeId = await getEntityTypeIdByCode(ctx.dataDb(), 'position_ref');
     if (!typeId) return { ok: false as const, error: 'справочник должностей не найден' };
     // Двое кадровиков вводят одну должность — возвращаем существующую, а не
     // вторую строку в справочнике.

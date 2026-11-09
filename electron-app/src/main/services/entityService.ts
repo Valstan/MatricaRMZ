@@ -340,6 +340,33 @@ async function findLocalContractInternalNumberDuplicate(
   return null;
 }
 
+/** Тип сущности по её id: код типа ('employee', 'department', ...) либо null. */
+export async function getEntityTypeCodeByEntityId(
+  db: BetterSQLite3Database,
+  entityId: string,
+): Promise<string | null> {
+  const rows = await db
+    .select({ code: entityTypes.code })
+    .from(entities)
+    .innerJoin(entityTypes, eq(entityTypes.id, entities.typeId))
+    .where(and(eq(entities.id, entityId), isNull(entityTypes.deletedAt)))
+    .limit(1);
+  return rows[0]?.code ?? null;
+}
+
+/** id типа сущности по его коду ('employee' → id) либо null. */
+export async function getEntityTypeIdByCode(
+  db: BetterSQLite3Database,
+  code: string,
+): Promise<string | null> {
+  const rows = await db
+    .select({ id: entityTypes.id })
+    .from(entityTypes)
+    .where(and(eq(entityTypes.code, code), isNull(entityTypes.deletedAt)))
+    .limit(1);
+  return rows[0]?.id ? String(rows[0].id) : null;
+}
+
 export async function setEntityAttribute(
   db: BetterSQLite3Database,
   entityId: string,

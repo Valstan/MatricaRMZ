@@ -388,6 +388,10 @@ const matricaApi = {
     create: async () => ipcRenderer.invoke('employees:create'),
     setAttr: async (employeeId: string, code: string, value: unknown, opts?: { force?: boolean }) =>
       ipcRenderer.invoke('employees:setAttr', employeeId, code, value, opts),
+    cardSave: async (employeeId: string, fields: Record<string, unknown>, opts?: { force?: boolean }) =>
+      ipcRenderer.invoke('employees:card:save', employeeId, fields, opts),
+    dedupeOverride: async (args: { employeeId: string; reason: string }) =>
+      ipcRenderer.invoke('employees:dedupeOverride', args),
     delete: async (employeeId: string) => ipcRenderer.invoke('employees:delete', employeeId),
     merge: async () => ipcRenderer.invoke('employees:merge'),
     resyncFromServer: async () => ipcRenderer.invoke('employees:resyncFromServer'),

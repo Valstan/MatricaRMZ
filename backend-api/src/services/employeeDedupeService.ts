@@ -13,7 +13,15 @@
 //  - доступ и роль основного НИКОГДА не перетираются данными вторичного — иначе слияние может
 //    отобрать у человека права, а именно это в исходной жалобе и было риском (у одной записи
 //    администратор, у другой доступ запрещён).
-import { SyncTableName, damerauLevenshtein } from '@matricarmz/shared';
+import {
+  SyncTableName,
+  compareEmployeeCardKeys,
+  damerauLevenshtein,
+  employeeCardKeyFromFields,
+  employeeCardRelationLevel,
+  isNewEmployeeCardRelation,
+  type EmployeeCardRelation,
+} from '@matricarmz/shared';
 
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 
@@ -679,8 +687,188 @@ export async function findEmployeeDuplicates(args: {
   }
 }
 
-export type EmployeeGroupMergeReport = {
-  survivorId: string;
+/**
+ * Найденный дубль по ПОЛНОМУ ключу личности (ФИО + табельный + должность + приём + ДР).
+ */
+export type EmployeeKeyMatch = {
+  id: string;
+  fullName: string;
+  login: string | null;
+  personnelNumber: string | null;
+  position: string | null;
+  hireDate: string | null;
+  birthDate: string | null;
+  /** Связь карточек ПОСЛЕ записи. */
+  relation: EmployeeCardRelation;
+  /** Связь карточек ДО записи — по ней видно, что запись сама создала совпадение. */
+  relationBefore: EmployeeCardRelation;
+  /** Связь выросла после записи — именно такую запись надо блокировать. */
+  isNew: boolean;
+  /** Какие поля ключа совпали. */
+  matchedBy: string[];
+  /** Какие поля ключа расходятся. */
+  conflicts: string[];
+};
+
+export type EmployeeKeyCheckResult = {
+  ok: true;
+  /** Самая жёсткая НОВАЯ связь среди найденных ('different' — новых связей нет). */
+  relation: EmployeeCardRelation;
+  matches: EmployeeKeyMatch[];
+};
+
+/**
+ * Проверка карточки сотрудника по полному ключу личности.
+ *
+ * ЧТО ЭТО ДЕЛАЕТ. Сравнивает ПРОСПЕКТИВНУЮ карточку (то, что оператор хочет записать)
+ * со срезом живых сотрудников и возвращает связь по каждому совпадению. Правило
+ * сравнения — общее для клиента и сервера (`employeeCardKey` в `shared`), чтобы половины
+ * гейта не разошлись.
+ *
+ * ЗАЧЕМ «ДО» И «ПОСЛЕ». Дубль, который был ДО записи, — не вина этой записи: карточка
+ * могла прийти из импорта ЗУП или быть заведена на другой машине. Блокировать правку
+ * такой карточки нельзя — иначе дубль нельзя ни поправить, ни слить. Поэтому блокируется
+ * только связь, которую запись САМА подняла.
+ *
+ * ГДЕ БЕРЁТСЯ «ДО». Клиент присылает то, что видит на экране (его локальная реплика),
+ * сервер — своё состояние карточки. СЛИВАЮТСЯ: клиент побеждает там, где у него поле
+ * есть, сервер дополняет то, чего у клиента нет. Это важно: даты приёма и ДР —
+ * HR-чувствительные поля, и оператору в чужой карточке они не приезжают вовсе
+ * (`pullReadFilter`), так что без слияния серверный «до» был бы полнее клиентского, а
+ * клиентский «после» — беднее, и дописывание ДР выглядело бы новым совпадением
+ * (ложный запрет на ровно том случае, ради которого всё затевалось).
+ */
+export async function findEmployeeDuplicatesByKey(args: {
+  /** Ключ карточки ДО записи — как его видит оператор (из локальной реплики). */
+  before: Record<string, unknown>;
+  /** Ключ карточки ПОСЛЕ записи — как его видит оператор. */
+  after: Record<string, unknown>;
+  excludeId?: string | null;
+}): Promise<EmployeeKeyCheckResult | { ok: false; error: string }> {
+  try {
+    const typeId = await getEmployeeTypeId();
+    if (!typeId) return { ok: false as const, error: 'тип сущности "employee" не найден' };
+    const codeByDefId = await loadCodeByDefId(typeId);
+    const attrsById = await loadAllEmployeeAttrs(typeId, codeByDefId);
+    const excludeId = String(args.excludeId ?? '').trim();
+
+    const KEY_CODES = ['full_name', 'personnel_number', 'role', 'hire_date', 'birth_date'];
+    /** Поля ключа в виде простого объекта (без id карточки). */
+    const keyFieldsOf = (attrs: Map<string, string> | undefined): Record<string, unknown> => {
+      const out: Record<string, unknown> = {};
+      if (!attrs) return out;
+      for (const code of KEY_CODES) {
+        const value = attrs.get(code);
+        if (value !== undefined) out[code] = value;
+      }
+      return out;
+    };
+
+    // Состояние карточки на сервере — основа, к которой доливается то, что знает клиент.
+    const ownOnServer = keyFieldsOf(excludeId ? attrsById.get(excludeId) : undefined);
+    const beforeKey = employeeCardKeyFromFields({ ...ownOnServer, ...args.before });
+    const afterKey = employeeCardKeyFromFields({ ...ownOnServer, ...args.before, ...args.after });
+
+    const aliveRows = await db
+      .select({ id: entities.id })
+      .from(entities)
+      .where(and(eq(entities.typeId, typeId as never), isNull(entities.deletedAt)));
+    const aliveIds = aliveRows.map((r) => String(r.id));
+    if (aliveIds.length === 0) return { ok: true as const, relation: 'different', matches: [] };
+
+    const userRows = await db
+      .select({ id: users.id, login: users.login })
+      .from(users)
+      .where(inArray(users.id, aliveIds as never[]));
+    const loginById = new Map(userRows.map((u) => [String(u.id), String(u.login ?? '')]));
+
+    const matches: EmployeeKeyMatch[] = [];
+    let strongest: EmployeeCardRelation = 'different';
+    for (const id of aliveIds) {
+      if (excludeId && id === excludeId) continue;
+      const attrs = attrsById.get(id);
+      if (!attrs) continue;
+      // Слитые записи — след прежнего слияния, они не «ещё один такой же сотрудник».
+      if (attrs.get(MERGED_INTO_CODE)) continue;
+      const otherFields: Record<string, unknown> = {};
+      for (const code of ['full_name', 'personnel_number', 'role', 'hire_date', 'birth_date']) {
+        const value = attrs.get(code);
+        if (value !== undefined) otherFields[code] = value;
+      }
+      const comparison = compareEmployeeCardKeys(afterKey, employeeCardKeyFromFields(otherFields));
+      if (comparison.relation === 'different') continue;
+      const comparisonBefore = compareEmployeeCardKeys(beforeKey, employeeCardKeyFromFields(otherFields));
+      // «Новая связь» — по множеству совпавших полей, а не по уровню: дописывание
+      // последнего поля ключа уровень не поднимает, а связь делает крепче (см.
+      // `isNewEmployeeCardRelation`).
+      const isNew = isNewEmployeeCardRelation(comparisonBefore, comparison);
+      matches.push({
+        id,
+        fullName: attrs.get(FULL_NAME_CODE) ?? '',
+        login: loginById.get(id) || null,
+        personnelNumber: attrs.get(PERSONNEL_NUMBER_CODE) ?? null,
+        position: attrs.get(POSITION_ATTR_CODE) ?? null,
+        hireDate: attrs.get('hire_date') ?? null,
+        birthDate: attrs.get('birth_date') ?? null,
+        relation: comparison.relation,
+        relationBefore: comparisonBefore.relation,
+        isNew,
+        matchedBy: comparison.matchedBy,
+        conflicts: comparison.conflicts,
+      });
+      if (isNew && employeeCardRelationLevel(comparison.relation) > employeeCardRelationLevel(strongest)) {
+        strongest = comparison.relation;
+      }
+    }
+    // Сначала самые жёсткие новые совпадения: оператор должен увидеть их первыми.
+    matches.sort(
+      (a, b) =>
+        Number(b.isNew) - Number(a.isNew) ||
+        employeeCardRelationLevel(b.relation) - employeeCardRelationLevel(a.relation),
+    );
+    return { ok: true as const, relation: strongest, matches };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+/**
+ * Обоснование обхода гейта дублей: оператор подтвердил, что это другой человек.
+ *
+ * Ложится в журнал критических событий — обойти гейт молча нельзя, но можно с
+ * объяснением, которое видно потом. Отдельная функция (а не флаг в проверке): сама
+ * проверка ничего не знает про обоснование, его присылает клиент уже после отказа.
+ */
+export async function recordEmployeeDuplicateOverride(args: {
+  employeeId: string;
+  reason: string;
+  actor: Actor;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const reason = String(args.reason ?? '').trim();
+    if (!reason) return { ok: false as const, error: 'обоснование не указано' };
+    ingestServerCriticalEvent({
+      eventCode: 'employee_duplicate_overridden',
+      title: 'Обход гейта дублей сотрудника',
+      humanMessage:
+        `Оператор ${args.actor.username} подтвердил, что карточка ${args.employeeId.slice(0, 8)} — ` +
+        `другой человек, а не дубль. Обоснование: ${reason}`,
+      category: 'database',
+      severity: 'warn',
+      aiDetails: { employeeId: args.employeeId, reason, actor: args.actor.username },
+    });
+    logInfo('employee duplicate gate overridden', {
+      employeeId: args.employeeId,
+      actor: args.actor.username,
+      reason,
+    });
+    return { ok: true as const };
+  } catch (e) {
+    return { ok: false as const, error: String(e) };
+  }
+}
+
+export type EmployeeGroupMergeReport = {  survivorId: string;
   /** Отчёт по каждому слитому дублю, по порядку. */
   merged: Array<{ loserId: string; report: EmployeeMergeReport }>;
   /** Дубль, на котором слияние остановилось (и остальные — не трогали). */

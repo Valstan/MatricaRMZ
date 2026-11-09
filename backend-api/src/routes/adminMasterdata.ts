@@ -20,7 +20,7 @@ import {
   upsertAttributeDef,
   upsertEntityType,
 } from '../services/adminMasterdataService.js';
-import { analyzeEmployeeDuplicates, findEmployeeDuplicates, mergeEmployeeGroup, removeDuplicateEmployee } from '../services/employeeDedupeService.js';
+import { analyzeEmployeeDuplicates, findEmployeeDuplicates, findEmployeeDuplicatesByKey, mergeEmployeeGroup, recordEmployeeDuplicateOverride, removeDuplicateEmployee } from '../services/employeeDedupeService.js';
 import { mergeEmployeesByFullName } from '../services/employeeMergeService.js';
 import { emitAllMasterdataSyncSnapshot, emitEntityTypeSyncSnapshot } from '../services/masterdataSyncService.js';
 
@@ -285,6 +285,35 @@ async function requireDedupeAccess(req: Request, res: Response) {
   return actor;
 }
 
+/**
+ * Доступ к ПРОВЕРКЕ ключа личности (без записи и без разбора дублей).
+ *
+ * Проверка только читает срез сотрудников, но она нужна тому, кто пишет карточку:
+ * кадровику (employees.create), кладовщику с правом на должность
+ * (employees.position.edit), разбирающему дубли (employees.dedupe) и админу, который
+ * правит справочник «Сотрудники» (masterdata.edit). Без этого гейт на админ-пути
+ * молча выключался бы: сервер отвечал бы 403, клиент счёл бы это «сервера нет» и
+ * записал бы карточку без проверки.
+ */
+async function requireKeyCheckAccess(req: Request, res: Response) {
+  const actor = (req as unknown as AuthenticatedRequest).user;
+  if (!actor?.id) {
+    res.status(403).json({ ok: false, error: 'требуется авторизация' });
+    return null;
+  }
+  const [dedupe, hr, position, masterdata] = await Promise.all([
+    hasPermission(actor.id, PermissionCode.EmployeesDedupe).catch(() => false),
+    hasPermission(actor.id, PermissionCode.EmployeesCreate).catch(() => false),
+    hasPermission(actor.id, PermissionCode.EmployeesPositionEdit).catch(() => false),
+    hasPermission(actor.id, PermissionCode.MasterDataEdit).catch(() => false),
+  ]);
+  if (!dedupe && !hr && !position && !masterdata) {
+    res.status(403).json({ ok: false, error: 'нет права на проверку карточки сотрудника' });
+    return null;
+  }
+  return actor;
+}
+
 // Дубли сотрудников (владелец 08.09.2026). Анализ ничего не меняет; слияние — необратимая
 // правка живых данных, поэтому у него есть dryRun: сперва отчёт, потом решение.
 adminMasterdataRouter.get('/employees/dedupe/analyze', async (req, res) => {
@@ -304,6 +333,47 @@ adminMasterdataRouter.get('/employees/dedupe/check', async (req, res) => {
     fullName: String(req.query.fullName ?? ''),
     personnelNumber: String(req.query.personnelNumber ?? ''),
     excludeId: String(req.query.excludeId ?? ''),
+  });
+  return res.json(result);
+});
+
+adminMasterdataRouter.post('/employees/dedupe/key-check', async (req, res) => {
+  const actor = await requireKeyCheckAccess(req, res);
+  if (!actor) return;
+  // Проверка карточки по ПОЛНОМУ ключу личности (ФИО + табельный + должность +
+  // дата приёма + ДР). Принимает ключ ДО и ПОСЛЕ записи: блокируется только связь,
+  // которую запись сама создала, — иначе нельзя было бы поправить дубль, пришедший
+  // из импорта ЗУП (см. `isNewRelation` в `shared/domain/employeeCardKey`).
+  const parsed = z
+    .object({
+      before: z.record(z.string(), z.unknown()).default({}),
+      after: z.record(z.string(), z.unknown()),
+      excludeId: z.string().optional(),
+    })
+    .safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await findEmployeeDuplicatesByKey({
+    before: parsed.data.before,
+    after: parsed.data.after,
+    excludeId: parsed.data.excludeId ?? null,
+  });
+  return res.json(result);
+});
+
+adminMasterdataRouter.post('/employees/dedupe/override', async (req, res) => {
+  const actor = await requireDedupeAccess(req, res);
+  if (!actor) return;
+  const parsed = z
+    .object({
+      employeeId: z.string().min(1),
+      reason: z.string().min(1).max(500),
+    })
+    .safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await recordEmployeeDuplicateOverride({
+    employeeId: parsed.data.employeeId,
+    reason: parsed.data.reason,
+    actor: { id: actor.id, username: actor.username, role: String(actor.role ?? '') },
   });
   return res.json(result);
 });

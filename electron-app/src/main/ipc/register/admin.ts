@@ -22,6 +22,8 @@ import {
   type ReferenceResolutionMode,
   findDuplicateEntities,
   getEntityDetails,
+  getEntityTypeCodeByEntityId,
+  getEntityTypeIdByCode,
   getIncomingLinksForEntity,
   listEntitiesByType,
   listEntitiesByTypeWithAttrs,
@@ -48,6 +50,8 @@ import {
 } from '../../services/adminUsersService.js';
 import { adminResyncAllMasterdata, adminResyncEntityType } from '../../services/adminMasterdataRemoteService.js';
 import { adminAuditDailySummary, adminAuditDocument, adminAuditList } from '../../services/adminAuditService.js';
+import { checkEmployeeCardKeyRemote } from '../../services/employeeService.js';
+import { saveEmployeeCardGated } from '../../services/employeeCardWrite.js';
 
 export function registerAdminIpc(ctx: IpcContext) {
   // Master-data: EntityTypes/AttributeDefs/Entities
@@ -170,6 +174,22 @@ export function registerAdminIpc(ctx: IpcContext) {
     if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'masterdata.edit');
     if (!gate.ok) return gate;
+    // Карточка сотрудника — та же дверь записи, что и у кадровой карточки. Иначе гейт
+    // дублей обходится через админ-справочник: право masterdata.edit есть и у ролей,
+    // которые не ведут кадровую карточку, а справочник «Сотрудники» открыт на запись
+    // (класс brain G363 — один гейт на периметре, два входа = два разных гейта).
+    if ((await getEntityTypeCodeByEntityId(ctx.dataDb(), entityId)) === 'employee') {
+      const typeId = await getEntityTypeIdByCode(ctx.dataDb(), 'employee');
+      return saveEmployeeCardGated(
+        {
+          db: ctx.dataDb(),
+          typeId,
+          checkKey: (args) => checkEmployeeCardKeyRemote(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args),
+        },
+        entityId,
+        { [code]: value },
+      );
+    }
     return setEntityAttribute(ctx.dataDb(), entityId, code, value, fallbackTypeId);
   });
   ipcMain.handle(

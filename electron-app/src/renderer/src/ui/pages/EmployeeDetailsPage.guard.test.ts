@@ -24,7 +24,11 @@ describe('карточка сотрудника бережёт введённо�
   it('saveAttr и saveAllAndClose возвращают успех — первая ошибка останавливает коммит', () => {
     expect(PAGE).toContain('async function saveAttr(code: string, value: unknown): Promise<boolean>');
     expect(PAGE).toContain('async function saveAllAndClose(): Promise<boolean>');
-    expect(PAGE).toContain('if (!(await saveAttr(code, value))) return false;');
+    // Карточка пишется ЦЕЛИКОМ одной дверью: гейт дублей считает полный ключ личности
+    // из всех полей разом. Первая ошибка останавливает коммит — как и раньше.
+    expect(PAGE).toContain('async function saveCardThroughDoor(fields: Record<string, unknown>): Promise<boolean>');
+    expect(PAGE).toContain('const saved = await saveCardThroughDoor(fields);');
+    expect(PAGE).toContain('if (!saved) return false;');
     expect(PAGE, 'закрытие мимо результата').toContain('saveAllAndClose().then((ok) => { if (ok) props.onClose(); })');
   });
 
