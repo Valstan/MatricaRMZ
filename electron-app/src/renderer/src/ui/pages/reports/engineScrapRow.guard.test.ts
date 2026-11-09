@@ -20,8 +20,8 @@ const ENGINES_REPORT = read('./EnginesReportPage.tsx');
 const AT_PLANT_REPORT = read('./EnginesNowAtPlantReportPage.tsx');
 const ENGINES_LIST = read('../EnginesPage.tsx');
 const WEB_ADMIN_LIST = read('../../../../../../../web-admin/src/ui/EnginesPage.tsx');
-const TAG_QUEUE = read('../components/EngineTagPrintDialog.tsx');
-const PRINT_DIALOG = read('../components/ListPrintDialog.tsx');
+const TAG_QUEUE = read('../../components/EngineTagPrintDialog.tsx');
+const PRINT_DIALOG = read('../../components/ListPrintDialog.tsx');
 
 describe('розовая пометка утильного двигателя', () => {
   it('отчёт «Двигатели» розовит утильные строки', () => {
