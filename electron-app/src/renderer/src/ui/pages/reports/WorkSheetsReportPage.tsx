@@ -5,6 +5,10 @@ import {
   HUMAN_LABEL_NO_NUMBER,
   applyFacets,
   describeFacetSelectionForRows,
+  engineScrapById,
+  engineScrapFlagsById,
+  engineScrapRowBackgroundPrint,
+  engineScrapRowStyle,
   flattenGrouped,
   formatWorkSheetValue,
   workSheetFacets,
@@ -320,6 +324,10 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
 
   const enginesShown = useMemo(() => new Set(sorted.map((r) => r.engineId)).size, [sorted]);
 
+  // Розовая пометка утиля: признак берём из каталога двигателей (одно правило на всю
+  // программу), чтобы этапы ремонта и список двигателей показывали один и тот же утиль.
+  const scrapFlags = useMemo(() => engineScrapFlagsById(props.engines), [props.engines]);
+
   const toggleSort = (id: string) =>
     patchState(ui.sortKey === id ? { sortDir: ui.sortDir === 'asc' ? 'desc' : 'asc' } : { sortKey: id, sortDir: id === 'at' ? 'desc' : 'asc' });
 
@@ -372,7 +380,13 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
   const rowProps = (i: number): VirtualTableRowProps => {
     const it = items[i]!;
     if (it.kind === 'group') return { 'data-report-group': it.key };
-    return { onClick: () => props.onOpenEngine(it.row.engineId), title: 'Открыть карточку двигателя', style: { cursor: 'pointer' }, 'data-report-sheet-row': it.row.id };
+    return {
+      onClick: () => props.onOpenEngine(it.row.engineId),
+      title: 'Открыть карточку двигателя',
+      // Розовая пометка утиля — признак из каталога двигателей (одно правило на программу).
+      style: { cursor: 'pointer', ...engineScrapRowStyle(engineScrapById(scrapFlags, it.row.engineId)) },
+      'data-report-sheet-row': it.row.id,
+    };
   };
 
   return (
@@ -483,6 +497,7 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
           selectedRows={[]}
           storageKey="report:workSheets:printFields"
           rowGroupLabel={(r) => groupLabelByRow.get(r.id) || null}
+          rowBackground={(r) => engineScrapRowBackgroundPrint(engineScrapById(scrapFlags, r.engineId))}
           filtersSummary={describeFacetSelectionForRows(facets, rows, ui.facets as FacetSelection, {
             search: ui.query,
             grouping: ui.groupBy === 'none' ? '' : GROUP_BY_LABELS[ui.groupBy],

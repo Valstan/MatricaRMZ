@@ -5,6 +5,7 @@ import {
   applyFacets,
   describeFacetSelectionForRows,
   engineScrapRowStyle,
+  engineScrapRowBackgroundPrint,
   engineDaysOnSite,
   engineFacets,
   engineFactoryStage,
@@ -422,6 +423,7 @@ export function EnginesReportPage(props: ListReportPageProps) {
           selectedRows={[]}
           storageKey="report:engines:printFields"
           rowGroupLabel={(r) => groupLabelByRow.get(r.id) || null}
+          rowBackground={(r) => engineScrapRowBackgroundPrint(r.isScrap)}
           filtersSummary={describeFacetSelectionForRows(facets, rows, activeFacets, {
             search: ui.query,
             grouping: ui.groupBy === 'none' ? '' : GROUP_BY_LABELS[ui.groupBy],
