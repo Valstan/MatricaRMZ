@@ -28,3 +28,13 @@ export const ENGINE_SCRAP_ROW_BACKGROUND_PRINT = '#fde8e8';
 export function engineScrapRowStyle(isScrap: boolean | null | undefined): { background?: string } {
   return isScrap === true ? { background: ENGINE_SCRAP_ROW_BACKGROUND } : {};
 }
+
+/**
+ * Тот же розовый, но для печати: плотный `#fde8e8` вместо полупрозрачного цвета.
+ * На белом листе полупрозрачный бледнеет и розовый утиль не читается.
+ *
+ * @param isScrap признак утиля двигателя (тот же, что в основном списке).
+ */
+export function engineScrapRowBackgroundPrint(isScrap: boolean | null | undefined): string | undefined {
+  return isScrap === true ? ENGINE_SCRAP_ROW_BACKGROUND_PRINT : undefined;
+}
