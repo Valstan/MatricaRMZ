@@ -782,7 +782,13 @@ export function EmployeeDetailsPage(props: {
         setStatus(`Ошибка: ${r.error ?? 'unknown'}`);
         return;
       }
-      if ((r as any).mode === 'deleted') {
+      if ((r as any).mode === 'merged') {
+        // Дубль погашен слиянием: ссылки перевешены на настоящую карточку, карточка
+        // ушла из списка и из реплики (план владельца 09.11.2026).
+        setStatus('Дубль слит: данные перенесены на основную карточку');
+        setTimeout(() => setStatus(''), 1800);
+        props.onClose();
+      } else if ((r as any).mode === 'deleted') {
         setStatus('Удалено');
         setTimeout(() => setStatus(''), 900);
         props.onClose();

@@ -231,6 +231,13 @@ export function EmployeeDedupeDialog(props: { onClose: () => void; onMerged: () 
                 </div>
               ) : null}
 
+              {report?.conflicts?.length ? (
+                <div data-dedupe-conflicts style={{ marginTop: 6, color: 'var(--muted)' }}>
+                  Расхождения между карточками — останутся значения основной записи:{' '}
+                  {report.conflicts.map((c) => `${c.label}: ${c.values.map((v) => v.value).join(' / ')}`).join('; ')}
+                </div>
+              ) : null}
+
               <div style={{ marginTop: 10, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                 <Button variant="ghost" data-dedupe-dry disabled={busyGroup === i || !survivorId || loserIds.length === 0} onClick={() => void runMerge(i, true)}>
                   Проверить

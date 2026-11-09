@@ -456,7 +456,16 @@ export async function mergeEmployees(args: {
   }
 }
 
-export const __testables = { normalizeName, editBudgetForName, PROTECTED_CODES, SyncTableName, blockerMessage };
+export const __testables = {
+  normalizeName,
+  editBudgetForName,
+  PROTECTED_CODES,
+  SyncTableName,
+  blockerMessage,
+  positionKey,
+  employeeRelation,
+  collectConflicts,
+};
 
 /** Атрибут табельного номера (заводится `baseMasterdataService`). */
 const PERSONNEL_NUMBER_CODE = 'personnel_number';
@@ -467,6 +476,85 @@ function personnelKey(value: unknown): string {
   const raw = String(value ?? '').trim();
   if (!raw) return '';
   return /^\d+$/.test(raw) ? String(Number(raw)) : raw.toLowerCase();
+}
+
+/** Код атрибута должности сотрудника (тот же, что `ledgerAuthz.EMPLOYEE_POSITION_ATTR_CODE`). */
+const POSITION_ATTR_CODE = 'role';
+
+/**
+ * Ключ сравнения должностей: регистр, ё→е и лишние пробелы не должны плодить дубли
+ * («Водитель  погрузчика» и «водитель погрузчика» — одна должность).
+ */
+function positionKey(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * Поля, где расхождение между карточками одного человека — вопрос к оператору.
+ * Пустое поле расхождением НЕ считается: «не заполнено» — не «по-разному».
+ */
+const CONFLICT_FIELDS: ReadonlyArray<{ code: string; label: string }> = [
+  { code: 'personnel_number', label: 'табельный номер' },
+  { code: 'role', label: 'должность' },
+  { code: 'hire_date', label: 'дата приёма на работу' },
+  { code: 'birth_date', label: 'день рождения' },
+];
+
+/**
+ * Отношение двух карточек сотрудника:
+ *  - `same` — один человек (совпал табельный номер, либо совпала должность при
+ *    незаполненном номере): сливать можно;
+ *  - `disputed` — один человек, но значения расходятся (разные табельные номера):
+ *    спорный случай, решает оператор выбором основной карточки;
+ *  - `different` — разные люди (совпало только имя): сливать нельзя.
+ */
+export type EmployeeRelation = 'same' | 'disputed' | 'different';
+
+function employeeRelation(a: Map<string, string>, b: Map<string, string>): EmployeeRelation {
+  const pa = personnelKey(a.get(PERSONNEL_NUMBER_CODE));
+  const pb = personnelKey(b.get(PERSONNEL_NUMBER_CODE));
+  const ra = positionKey(a.get(POSITION_ATTR_CODE));
+  const rb = positionKey(b.get(POSITION_ATTR_CODE));
+  const samePosition = Boolean(ra && rb && ra === rb);
+  const diffPosition = Boolean(ra && rb && ra !== rb);
+  // Один табельный номер — один человек.
+  if (pa && pb && pa === pb) return 'same';
+  // Разные люди — только при ПОЛОЖИТЕЛЬНЫХ признаках. Отсутствие данных — не
+  // «по-разному»: пустое поле значит «не заполнено», и по нему людей разными
+  // не объявишь (иначе слияние встало бы на неполных карточках).
+  if (diffPosition) return 'different';
+  // Должность одна — человек один, а табельные разные: спорный случай, решает
+  // оператор выбором основной карточки (расхождение попадёт в отчёт).
+  if (samePosition) return pa && pb ? 'disputed' : 'same';
+  if (pa && pb) return 'different';
+  return 'same';
+}
+
+/** Расхождения между карточками: разные непустые значения одного поля. */
+export type EmployeeMergeConflict = {
+  code: string;
+  label: string;
+  values: Array<{ cardId: string; value: string }>;
+};
+
+function collectConflicts(cards: Array<{ id: string; attrs: Map<string, string> }>): EmployeeMergeConflict[] {
+  const out: EmployeeMergeConflict[] = [];
+  for (const field of CONFLICT_FIELDS) {
+    const values: Array<{ cardId: string; value: string }> = [];
+    for (const card of cards) {
+      const raw = String(card.attrs.get(field.code) ?? '').trim();
+      if (!raw) continue;
+      const key = field.code === 'personnel_number' ? personnelKey(raw) : positionKey(raw);
+      if (values.some((v) => v.value === key)) continue;
+      values.push({ cardId: card.id, value: raw });
+    }
+    if (values.length > 1) out.push({ code: field.code, label: field.label, values });
+  }
+  return out;
 }
 
 export type EmployeeDupMatch = {
@@ -598,6 +686,8 @@ export type EmployeeGroupMergeReport = {
   /** Дубль, на котором слияние остановилось (и остальные — не трогали). */
   failed: { loserId: string; error: string } | null;
   totals: { attrsFilled: number; referencesMoved: number; clientSettingsRelinked: number };
+  /** Расхождения между карточками: останутся значения основной записи. */
+  conflicts: EmployeeMergeConflict[];
   dryRun: boolean;
 };
 
@@ -629,12 +719,35 @@ export async function mergeEmployeeGroup(args: {
 
   const merged: Array<{ loserId: string; report: EmployeeMergeReport }> = [];
   const totals = { attrsFilled: 0, referencesMoved: 0, clientSettingsRelinked: 0 };
+
+  // Блокер слияния — РАСХОЖДЕНИЕ ЗНАЧЕНИЙ, а не «меньше заполненных полей» (план
+  // владельца 09.11.2026): счёт заполненности — подсказка, какую карточку взять
+  // основной, а не запрет. Двое РАЗНЫХ людей с разными табельными не сливаются.
+  const typeId = await getEmployeeTypeId();
+  if (!typeId) return { ok: false as const, error: 'тип сущности "employee" не найден' };
+  const codeByDefId = await loadCodeByDefId(typeId);
+  const survivorAttrs = await loadAttrs(survivorId, codeByDefId);
+  const cards: Array<{ id: string; attrs: Map<string, string> }> = [{ id: survivorId, attrs: survivorAttrs }];
+  for (const loserId of loserIds) {
+    cards.push({ id: loserId, attrs: await loadAttrs(loserId, codeByDefId) });
+  }
+  for (const card of cards.slice(1)) {
+    if (employeeRelation(survivorAttrs, card.attrs) !== 'different') continue;
+    return {
+      ok: false as const,
+      error:
+        `Слияние остановлено: записи ${survivorId.slice(0, 8)} и ${card.id.slice(0, 8)} — это разные люди ` +
+        '(совпало только имя, а табельные номера и должности разные). Слить их нельзя: сначала разберитесь, кто есть кто.',
+    };
+  }
+  const conflicts = collectConflicts(cards);
+
   for (const loserId of loserIds) {
     const res = await mergeEmployees({ survivorId, loserId, actor: args.actor, dryRun });
     if (!res.ok) {
       return {
         ok: true as const,
-        report: { survivorId, merged, failed: { loserId, error: res.error }, totals, dryRun },
+        report: { survivorId, merged, failed: { loserId, error: res.error }, totals, conflicts, dryRun },
       };
     }
     merged.push({ loserId, report: res.report });
@@ -642,5 +755,116 @@ export async function mergeEmployeeGroup(args: {
     totals.referencesMoved += res.report.referencesMoved;
     totals.clientSettingsRelinked += res.report.clientSettingsRelinked;
   }
-  return { ok: true as const, report: { survivorId, merged, failed: null, totals, dryRun } };
+  return { ok: true as const, report: { survivorId, merged, failed: null, totals, conflicts, dryRun } };
+}
+
+/**
+ * «Удалить карточку-дубль» — это СЛИЯНИЕ, а не стирание (план владельца 09.11.2026):
+ * ссылки перевешиваются на настоящую карточку, карточка гасится с меткой «слит в
+ * другую» и уходит из списка и из реплики клиента. Стирание «очистить карточку»
+ * ≠ «слить»: при стирании остались бы сироты — наряды, закупки, чат.
+ *
+ * Отказ — когда карточка дублём НЕ является: кадровую карточку удаляет администратор,
+ * а оператор-кладовщик прибирает только дубли (право `employees.dedupe`).
+ */
+export async function removeDuplicateEmployee(args: {
+  employeeId: string;
+  actor: Actor;
+  dryRun?: boolean;
+}): Promise<
+  | { ok: true; survivorId: string; report: EmployeeMergeReport; conflicts: EmployeeMergeConflict[] }
+  | { ok: false; error: string; reason: 'not_duplicate' | 'disputed' | 'login' | 'merge_failed' }
+> {
+  try {
+    const employeeId = String(args.employeeId ?? '').trim();
+    if (!employeeId) return { ok: false as const, error: 'не выбрана карточка', reason: 'not_duplicate' };
+
+    const typeId = await getEmployeeTypeId();
+    if (!typeId) return { ok: false as const, error: 'тип сущности "employee" не найден', reason: 'not_duplicate' };
+    const codeByDefId = await loadCodeByDefId(typeId);
+    const attrsById = await loadAllEmployeeAttrs(typeId, codeByDefId);
+
+    const aliveRows = await db
+      .select({ id: entities.id })
+      .from(entities)
+      .where(and(eq(entities.typeId, typeId as never), isNull(entities.deletedAt)));
+    const aliveIds = aliveRows.map((r) => String(r.id));
+    if (!aliveIds.includes(employeeId)) {
+      return { ok: false as const, error: 'карточка не найдена среди действующих сотрудников', reason: 'not_duplicate' };
+    }
+    const targetAttrs = attrsById.get(employeeId) ?? new Map<string, string>();
+    const nameKey = normalizeName(targetAttrs.get(FULL_NAME_CODE));
+    if (!nameKey) {
+      return {
+        ok: false as const,
+        error: 'у карточки не заполнено ФИО — дублем её считать не по чему',
+        reason: 'not_duplicate',
+      };
+    }
+
+    const userRows = aliveIds.length
+      ? await db
+          .select({ id: users.id, login: users.login })
+          .from(users)
+          .where(inArray(users.id, aliveIds as never[]))
+      : [];
+    const loginById = new Map(userRows.map((u) => [String(u.id), String(u.login ?? '')]));
+
+    const same: Array<{ id: string; attrs: Map<string, string> }> = [];
+    let disputed = 0;
+    for (const id of aliveIds) {
+      if (id === employeeId) continue;
+      const attrs = attrsById.get(id);
+      if (!attrs) continue;
+      if (attrs.get(MERGED_INTO_CODE)) continue;
+      if (normalizeName(attrs.get(FULL_NAME_CODE)) !== nameKey) continue;
+      const relation = employeeRelation(targetAttrs, attrs);
+      if (relation === 'same') same.push({ id, attrs });
+      else if (relation === 'disputed') disputed += 1;
+    }
+    if (same.length === 0) {
+      if (disputed > 0) {
+        return {
+          ok: false as const,
+          error:
+            'У карточки другой табельный номер, чем у найденной: это спорный случай (один человек или двое — решает оператор). ' +
+            'Слейте вручную в разделе «Дубли сотрудников»: там видно обе карточки и можно выбрать основной.',
+          reason: 'disputed',
+        };
+      }
+      return {
+        ok: false as const,
+        error:
+          'Карточка дублём не является: нет другой карточки того же человека (совпал бы табельный номер или должность). ' +
+          'Кадровую карточку удаляет администратор.',
+        reason: 'not_duplicate',
+      };
+    }
+
+    // Настоящая карточка — та, где есть вход: на неё переезжают чат, файлы и права.
+    const withLogin = same.filter((c) => Boolean(loginById.get(c.id)));
+    const targetHasLogin = Boolean(loginById.get(employeeId));
+    let survivor = (withLogin[0] ?? same[0])!;
+    if (targetHasLogin && !withLogin.length) {
+      return {
+        ok: false as const,
+        error:
+          'У этой карточки есть вход (логин), а у найденной — нет: удаление отключит человеку доступ. ' +
+          'Слейте вручную в разделе «Дубли сотрудников», выбрав основной карточку с входом.',
+        reason: 'login',
+      };
+    }
+
+    const conflicts = collectConflicts([{ id: employeeId, attrs: targetAttrs }, { id: survivor.id, attrs: survivor.attrs }]);
+    const merged = await mergeEmployees({
+      survivorId: survivor.id,
+      loserId: employeeId,
+      actor: args.actor,
+      dryRun: args.dryRun === true,
+    });
+    if (!merged.ok) return { ok: false as const, error: merged.error, reason: 'merge_failed' };
+    return { ok: true as const, survivorId: survivor.id, report: merged.report, conflicts };
+  } catch (e) {
+    return { ok: false as const, error: String(e), reason: 'merge_failed' };
+  }
 }

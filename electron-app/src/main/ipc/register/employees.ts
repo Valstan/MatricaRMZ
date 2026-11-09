@@ -6,7 +6,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requireAnyPermOrResult, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { createEntity, getEntityDetails, listEntitiesByType, listEntitiesByTypeWithAttrs, setEntityAttribute, softDeleteEntity } from '../../services/entityService.js';
-import { analyzeEmployeeDuplicatesRemote, deleteEmployeeRemote, findEmployeeDuplicatesRemote, getSectionMembershipByLogin, getSectionMembershipByUserId, listEmployeeAttributeDefs, listEmployeesSummary, mergeEmployeeDuplicatesRemote, mergeEmployeesToServer } from '../../services/employeeService.js';
+import { analyzeEmployeeDuplicatesRemote, deleteEmployeeRemote, findEmployeeDuplicatesRemote, getSectionMembershipByLogin, getSectionMembershipByUserId, listEmployeeAttributeDefs, listEmployeesSummary, mergeEmployeeDuplicatesRemote, mergeEmployeesToServer, removeDuplicateEmployeeRemote } from '../../services/employeeService.js';
 import { adminResyncEmployees, viewUserPermissions } from '../../services/adminUsersService.js';
 import { entityTypes } from '../../database/schema.js';
 
@@ -146,8 +146,21 @@ export function registerEmployeesIpc(ctx: IpcContext) {  // Self-read собст
 
   ipcMain.handle('employees:delete', async (_e, employeeId: string) => {
     if (isViewMode(ctx)) return viewModeWriteError();
-    const gate = await requirePermOrResult(ctx, 'employees.create');
+    const gate = await requireAnyPermOrResult(ctx, ['employees.create', 'employees.dedupe']);
     if (!gate.ok) return gate;
+    // Карточка-дубль гасится СЛИЯНИЕМ: ссылки перевешиваются на настоящую карточку,
+    // карточка уходит из списка и из реплики. Настоящую карточку удаляет администратор
+    // (запросом) — прежний путь.
+    const dup = await removeDuplicateEmployeeRemote(ctx.sysDb, ctx.mgr.getApiBaseUrl(), { employeeId });
+    if (dup.ok) {
+      const local = await softDeleteEntity(ctx.dataDb(), employeeId);
+      if (!local.ok) return local;
+      await ctx.mgr.runOnce().catch(() => {});
+      return { ok: true as const, mode: 'merged', survivorId: dup.survivorId };
+    }
+    // Всё, кроме «не дубль», — внятный отказ: молчаливый запрос администратору ничем
+    // не кончается (жалоба владельца 08.11 — «запрос уходит, карточка остаётся»).
+    if (dup.reason !== 'not_duplicate') return { ok: false as const, error: dup.error };
     const remote = await deleteEmployeeRemote(ctx.sysDb, ctx.mgr.getApiBaseUrl(), employeeId);
     if (!remote.ok) return remote;
     if (remote.mode === 'deleted') {
@@ -169,16 +182,17 @@ export function registerEmployeesIpc(ctx: IpcContext) {  // Self-read собст
     return result;
   });
 
-  // Дубли сотрудников: анализ читает, слияние правит живые данные — оба под правом создания
-  // сотрудников, оба идут на сервер (там вторая половина сотрудника: users, права, чат).
+  // Дубли сотрудников: анализ читает, слияние правит живые данные. Право — отдельное
+  // (`employees.dedupe`): оператор-кладовщик разбирает дубли, не получая права вести
+  // кадровую карточку. Кадровик с `employees.create` работает с дублями, как и раньше.
   ipcMain.handle('employees:dedupeAnalyze', async () => {
-    const gate = await requirePermOrResult(ctx, 'employees.create');
+    const gate = await requireAnyPermOrResult(ctx, ['employees.create', 'employees.dedupe']);
     if (!gate.ok) return gate;
     return analyzeEmployeeDuplicatesRemote(ctx.sysDb, ctx.mgr.getApiBaseUrl());
   });
 
   ipcMain.handle('employees:dedupeCheck', async (_e, args: { fullName?: string; personnelNumber?: string; excludeId?: string }) => {
-    const gate = await requirePermOrResult(ctx, 'employees.create');
+    const gate = await requireAnyPermOrResult(ctx, ['employees.create', 'employees.dedupe']);
     if (!gate.ok) return gate;
     return findEmployeeDuplicatesRemote(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
       ...(args?.fullName ? { fullName: String(args.fullName) } : {}),
@@ -189,7 +203,7 @@ export function registerEmployeesIpc(ctx: IpcContext) {  // Self-read собст
 
   ipcMain.handle('employees:dedupeMerge', async (_e, args: { survivorId: string; loserIds: string[]; dryRun?: boolean }) => {
     if (isViewMode(ctx)) return viewModeWriteError();
-    const gate = await requirePermOrResult(ctx, 'employees.create');
+    const gate = await requireAnyPermOrResult(ctx, ['employees.create', 'employees.dedupe']);
     if (!gate.ok) return gate;
     const result = await mergeEmployeeDuplicatesRemote(ctx.sysDb, ctx.mgr.getApiBaseUrl(), {
       survivorId: String(args?.survivorId ?? ''),

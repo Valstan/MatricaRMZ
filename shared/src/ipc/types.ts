@@ -627,6 +627,18 @@ export type EmployeeDedupeCheckResult =
  * Отчёт о слиянии НЕСКОЛЬКИХ дублей в одну основную запись (просьба владельца
  * 07.11.2026: «три-четыре дубля сразу»).
  */
+/**
+ * Расхождение между карточками группы дублей: у карточек ОДНОГО человека разные
+ * значения. Пустое поле расхождением не считается — «не заполнено» ≠ «по-разному».
+ * Спорный случай решает оператор выбором основной карточки.
+ */
+export type EmployeeMergeConflict = {
+  code: string;
+  label: string;
+  /** Значение по каждой карточке, где оно заполнено. */
+  values: Array<{ cardId: string; value: string }>;
+};
+
 export type EmployeeGroupMergeReport = {
   survivorId: string;
   /** Отчёт по каждому слитому дублю, по порядку. */
@@ -634,6 +646,8 @@ export type EmployeeGroupMergeReport = {
   /** Дубль, на котором слияние остановилось (остальные не трогали). */
   failed: { loserId: string; error: string } | null;
   totals: { attrsFilled: number; referencesMoved: number; clientSettingsRelinked: number };
+  /** Расхождения между карточками: останутся значения основной записи. */
+  conflicts: EmployeeMergeConflict[];
   dryRun: boolean;
 };
 

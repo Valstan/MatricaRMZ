@@ -20,7 +20,7 @@ import {
   upsertAttributeDef,
   upsertEntityType,
 } from '../services/adminMasterdataService.js';
-import { analyzeEmployeeDuplicates, findEmployeeDuplicates, mergeEmployeeGroup } from '../services/employeeDedupeService.js';
+import { analyzeEmployeeDuplicates, findEmployeeDuplicates, mergeEmployeeGroup, removeDuplicateEmployee } from '../services/employeeDedupeService.js';
 import { mergeEmployeesByFullName } from '../services/employeeMergeService.js';
 import { emitAllMasterdataSyncSnapshot, emitEntityTypeSyncSnapshot } from '../services/masterdataSyncService.js';
 
@@ -261,17 +261,41 @@ adminMasterdataRouter.post('/entities/:id/detach-links-delete', async (req, res)
   return res.json(r);
 });
 
+/**
+ * Гейт обработки дублей сотрудников.
+ *
+ * Отдельно от `requireAdmin`: разбор дублей — операторская работа (решение владельца
+ * 09.11.2026), право на неё выдаётся ролью кладовщика и точечными разрешениями.
+ * Кадровую карточку целиком это право не открывает — только дубли.
+ */
+async function requireDedupeAccess(req: Request, res: Response) {
+  const actor = (req as unknown as AuthenticatedRequest).user;
+  if (!actor?.id) {
+    res.status(403).json({ ok: false, error: 'требуется авторизация' });
+    return null;
+  }
+  const [dedupe, hr] = await Promise.all([
+    hasPermission(actor.id, PermissionCode.EmployeesDedupe).catch(() => false),
+    hasPermission(actor.id, PermissionCode.EmployeesCreate).catch(() => false),
+  ]);
+  if (!dedupe && !hr) {
+    res.status(403).json({ ok: false, error: 'нет права на обработку дублей сотрудников' });
+    return null;
+  }
+  return actor;
+}
+
 // Дубли сотрудников (владелец 08.09.2026). Анализ ничего не меняет; слияние — необратимая
 // правка живых данных, поэтому у него есть dryRun: сперва отчёт, потом решение.
 adminMasterdataRouter.get('/employees/dedupe/analyze', async (req, res) => {
-  const actor = await requireAdmin(req, res);
+  const actor = await requireDedupeAccess(req, res);
   if (!actor) return;
   const result = await analyzeEmployeeDuplicates();
   return res.json(result);
 });
 
 adminMasterdataRouter.get('/employees/dedupe/check', async (req, res) => {
-  const actor = await requireAdmin(req, res);
+  const actor = await requireDedupeAccess(req, res);
   if (!actor) return;
   // Точечная проверка при создании/правке карточки: «есть ли уже такой сотрудник».
   // По ФИО — предупреждение (однофамильцы бывают), по табельному номеру — дубль
@@ -285,7 +309,7 @@ adminMasterdataRouter.get('/employees/dedupe/check', async (req, res) => {
 });
 
 adminMasterdataRouter.post('/employees/dedupe/merge', async (req, res) => {
-  const actor = await requireAdmin(req, res);
+  const actor = await requireDedupeAccess(req, res);
   if (!actor) return;
   const schema = z.object({
     survivorId: z.string().min(1),
@@ -304,9 +328,27 @@ adminMasterdataRouter.post('/employees/dedupe/merge', async (req, res) => {
     survivorId: parsed.data.survivorId,
     loserIds,
     ...(parsed.data.dryRun === true ? { dryRun: true } : {}),
-    actor: { id: actor.id, username: actor.username, role: 'admin' },
+    actor: { id: actor.id, username: actor.username, role: String(actor.role ?? '') },
   });
   return res.json(result);
+});
+
+// «Удалить карточку-дубль» (план владельца 09.11.2026): удаление дубля — это СЛИЯНИЕ с
+// настоящей карточкой (ссылки перевешиваются, карточка гасится и уходит из реплики),
+// а не стирание. Стирание кадровой карточки остаётся за администратором.
+adminMasterdataRouter.post('/employees/dedupe/remove', async (req, res) => {
+  const actor = await requireDedupeAccess(req, res);
+  if (!actor) return;
+  const schema = z.object({ employeeId: z.string().min(1), dryRun: z.boolean().optional() });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await removeDuplicateEmployee({
+    employeeId: parsed.data.employeeId,
+    actor: { id: actor.id, username: actor.username, role: String(actor.role ?? '') },
+    ...(parsed.data.dryRun === true ? { dryRun: true } : {}),
+  });
+  if (!result.ok) return res.json({ ok: false, error: result.error, reason: result.reason });
+  return res.json({ ok: true, survivorId: result.survivorId, report: result.report, conflicts: result.conflicts });
 });
 
 adminMasterdataRouter.post('/employees/merge', async (req, res) => {
