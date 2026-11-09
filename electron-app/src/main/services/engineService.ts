@@ -49,6 +49,7 @@ import {
   shortContractSuffixLabel,
   searchLookupOptionsTiered,
   statusDateCode,
+  resolveEngineTruthDates,
   type StatusCode,
   type EngineStageEntry,
 } from '@matricarmz/shared';
@@ -1117,6 +1118,7 @@ export async function listEngines(
   const attachmentsDefId = defs['attachments'];
   const reclamationFlagDefId = defs['reclamation_flag'];
   const reclamationAcceptedDefId = defs['reclamation_accepted_date'];
+  const reclamationShippedDefId = defs['reclamation_shipped_date'];
   const repeatArrivalDefId = defs['repeat_arrival_flag'];
   const numberCollisionDefId = defs['number_collision_flag'];
   const reservationDefId = defs[ENGINE_RESERVATION_CODE];
@@ -1167,6 +1169,7 @@ export async function listEngines(
     attachmentsDefId,
     reclamationFlagDefId,
     reclamationAcceptedDefId,
+    reclamationShippedDefId,
     repeatArrivalDefId,
     numberCollisionDefId,
     reservationDefId,
@@ -1344,6 +1347,15 @@ export async function listEngines(
       const parsed = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
       reclamationAcceptedDate = typeof parsed === 'number' && Number.isFinite(parsed) && parsed > 0 ? parsed : null;
     }
+    // Отправка с рекламации — вторая дата ветки рекламации. Вместе с приёмкой она
+    // образует поздний источник правды по датам (см. `resolveEngineTruthDates`).
+    let reclamationShippedDate: number | null = null;
+    if (reclamationShippedDefId) {
+      const v = (rowValues.get(reclamationShippedDefId)?.json ?? null);
+      const raw = v != null ? safeJsonParse(v) : null;
+      const parsed = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
+      reclamationShippedDate = typeof parsed === 'number' && Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
     let legacyShippingDate: number | null = null;
     if (shippingDateDefId) {
       const v = (rowValues.get(shippingDateDefId)?.json ?? null);
@@ -1426,6 +1438,20 @@ export async function listEngines(
     } else {
       shippingDate = legacyShippingDate;
     }
+    // ИСТОЧНИК ПРАВДЫ ПО ДАТАМ: рекламация выше основного цикла (владелец 09.11.2026).
+    // Двигатель пришёл по рекламации — а в отчёте висели старые даты основного цикла
+    // (приход и отправка заказчику) и перебивали рекламацию. Теперь при рекламации
+    // приход = приёмка по рекламации, отгрузка = отправка с рекламации (а её нет —
+    // значит двигатель сейчас на заводе, и старой отгрузки подставлять нельзя).
+    const truthDates = resolveEngineTruthDates({
+      isReclamation,
+      reclamationAcceptedDate,
+      reclamationShippedDate,
+      mainArrivalDate: arrivalDate ?? null,
+      mainShippingDate: shippingDate ?? null,
+    });
+    arrivalDate = truthDates.arrivalDate;
+    shippingDate = truthDates.shippingDate;
     // В строку списка уезжают только проставленные даты стадий: «ремонт начат / отремонтирован /
     // утиль» нужны колонкам списка и отчёту «этапы на заводе» (владелец 16.09).
     const statusDates: Partial<Record<StatusCode, number>> = {};
@@ -1580,6 +1606,7 @@ export async function listEngines(
       ...(lastActivityAt > 0 ? { lastActivityAt } : {}),
       ...(isReclamation ? { isReclamation: true } : {}),
       ...(reclamationAcceptedDate != null ? { reclamationAcceptedDate } : {}),
+      ...(reclamationShippedDate != null ? { reclamationShippedDate } : {}),
       ...(isRepeatArrival ? { isRepeatArrival: true } : {}),
       ...(isNumberCollision ? { isNumberCollision: true } : {}),
       ...(liveReservation

@@ -174,6 +174,31 @@ describe('engineStateLabel / engineDaysOnSite — отчёт «Двигател�
     expect(engineStateLabel({ arrivalDate: T0 })).toBe('На заводе');
     expect(engineStateLabel({})).toBe('Заведён');
   });
+  it('рекламация выше основного цикла: состояние решает ветка рекламации', () => {
+    // Двигатель уехал заказчику по основному ремонту и вернулся по рекламации: его
+    // основной цикл в прошлом, и «отправлен заказчику» из него больше не значит,
+    // что двигатель уехал. Пока он на заводе по рекламации — он «На заводе».
+    expect(
+      engineStateLabel({
+        isReclamation: true,
+        arrivalDate: T0,
+        statusFlags: { status_customer_sent: true },
+        lastStageCode: 'obkatka',
+        lastStageAt: T0,
+      }),
+    ).toBe('На заводе');
+    // Уехал с рекламации — «Отгружен».
+    expect(
+      engineStateLabel({
+        isReclamation: true,
+        arrivalDate: T0,
+        reclamationShippedDate: T0 + DAY,
+        statusFlags: { status_customer_sent: true },
+      }),
+    ).toBe('Отгружен');
+    // Утиль важнее рекламации.
+    expect(engineStateLabel({ isReclamation: true, isScrap: true, arrivalDate: T0 })).toBe('Утиль');
+  });
   it('состояние — единый список бьёт замороженные флаги (шаг 8)', () => {
     expect(engineStateLabel({ arrivalDate: T0, lastStageCode: 'accepted', lastStageAt: T0 })).toBe('Отгружен');
     expect(engineStateLabel({ arrivalDate: T0, lastStageCode: 'obkatka', lastStageAt: T0 })).toBe('Готов, не отгружен');

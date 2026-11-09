@@ -1,0 +1,59 @@
+// ИСТОЧНИК ПРАВДЫ ПО ДАТАМ ДВИГАТЕЛЯ: рекламация выше основного цикла.
+//
+// ПРОБЛЕМА (владелец 09.11.2026). Двигатель проходит два цикла: основной ремонт
+// (приход на завод → ремонт → отправка заказчику) и потом, если он вернулся по
+// рекламации, ещё один: приёмка по рекламации → ремонт → отправка с рекламации.
+// Даты основного цикла лежат на карточке ВМЕСТЕ с датами рекламации, и в отчётах
+// побеждали старые: «двигатель пришёл (по рекламации), а у нас старая выгрузка и
+// старая отправка заказчику — и она перебивает рекламацию». Оператор видел движок,
+// который «уже отгружен», хотя он сейчас на заводе по рекламации.
+//
+// ПРАВИЛО. Если на карточке стоит рекламация, источником правды по датам служит
+// ВЕТКА РЕКЛАМАЦИИ: приёмка по рекламации и отправка с рекламации. Даты основного
+// цикла в этом случае не показываются: они относятся к прошлому проходу.
+// Если рекламации нет — работают обычные даты (приход на завод, отправка заказчику).
+//
+// ПУСТОЕ ЗНАЧЕНИЕ — НЕ «НЕТ ДАННЫХ», А «НЕ УШЁЛ». У рекламационного двигателя,
+// которого ещё не отправили с рекламации, даты отгрузки НЕТ вовсе: он сейчас на
+// заводе. Поэтому отгрузка рекламации — ровно то, что записано в карточке
+// (`reclamation_shipped_date`), без подстановки старой даты основного цикла.
+
+export type EngineTruthDates = {
+  /** Дата прихода на завод: по рекламации — приёмка по рекламации. */
+  arrivalDate: number | null;
+  /** Дата отправки заказчику: по рекламации — отправка с рекламации. */
+  shippingDate: number | null;
+};
+
+function ms(value: number | null | undefined): number | null {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Даты двигателя по источнику правды: рекламация выше основного цикла.
+ *
+ * @param args.isReclamation стоит ли на карточке рекламация (`reclamation_flag`).
+ * @param args.reclamationAcceptedDate приёмка по рекламации (`reclamation_accepted_date`).
+ * @param args.reclamationShippedDate отправка с рекламации (`reclamation_shipped_date`).
+ * @param args.mainArrivalDate приход на завод по основному циклу (`arrival_date`).
+ * @param args.mainShippingDate отправка заказчику по основному циклу.
+ */
+export function resolveEngineTruthDates(args: {
+  isReclamation: boolean | null | undefined;
+  reclamationAcceptedDate: number | null | undefined;
+  reclamationShippedDate: number | null | undefined;
+  mainArrivalDate: number | null | undefined;
+  mainShippingDate: number | null | undefined;
+}): EngineTruthDates {
+  if (args.isReclamation === true) {
+    // Приёмка по рекламации — позже прихода по основному циклу. Если дату не завели,
+    // лучше старый приход, чем пустота: карточка рекламации без даты приёмки — редкость.
+    const arrival = ms(args.reclamationAcceptedDate) ?? ms(args.mainArrivalDate);
+    // Отправка с рекламации — своя. Старая отправка по основному циклу сюда НЕ
+    // подставляется: двигатель сейчас на заводе по рекламации, «уехал» он будет
+    // только после ремонта по рекламации.
+    return { arrivalDate: arrival, shippingDate: ms(args.reclamationShippedDate) };
+  }
+  return { arrivalDate: ms(args.mainArrivalDate), shippingDate: ms(args.mainShippingDate) };
+}
