@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { StatusCode } from '@matricarmz/shared';
+import { engineScrapRowStyle, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { Input } from './Input.js';
@@ -63,6 +63,12 @@ export type EngineTagSource = {
   /** Крайний день ремонта по договору: в списке его считает `listEngines` (поступление + `effectiveRepairDays`). */
   repairDueDate?: number | null;
   statusDates?: Partial<Record<StatusCode, number | null>>;
+  /**
+   * Признак утиля двигателя. Розовая пометка строки — общее правило программы
+   * (`engineScrapRowStyle`), чтобы утильный двигатель в очереди бирок выглядел так же,
+   * как в списке двигателей: бирку ему вообще не печатают, а в наборе он мелькает.
+   */
+  isScrap?: boolean;
 };
 
 export type EngineTagInitial = EngineTagSource & { engineId: string };
@@ -259,7 +265,7 @@ export function EngineTagPrintDialog(props: {
             ) : (
               <div style={{ display: 'grid', gap: 4, maxHeight: 180, overflowY: 'auto' }}>
                 {queue.items.map((item) => (
-                  <label key={item.engineId} data-tag-row={item.engineId} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
+                  <label key={item.engineId} data-tag-row={item.engineId} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, ...engineScrapRowStyle(item.isScrap) }}>
                     <input type="checkbox" checked={item.checked} data-tag-check={item.engineId} onChange={(e) => queue.setChecked(item.engineId, e.target.checked)} />
                     <span style={{ flex: 1 }}>{queueLabel(item)}</span>
                     <Button variant="ghost" title="Убрать из очереди" data-tag-remove={item.engineId} onClick={() => queue.remove(item.engineId)}>
@@ -279,7 +285,7 @@ export function EngineTagPrintDialog(props: {
             {matches.length > 0 && (
               <div style={{ display: 'grid', gap: 4, marginTop: 4, maxHeight: 140, overflowY: 'auto' }}>
                 {matches.map((m) => (
-                  <div key={m.engineId} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
+                  <div key={m.engineId} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, ...engineScrapRowStyle(m.isScrap) }}>
                     <span style={{ flex: 1 }}>{queueLabel({ ...m, checked: true })}</span>
                     <Button variant="ghost" title="Добавить в очередь" data-tag-add={m.engineId} onClick={() => queue.enqueue([m])}>
                       +
