@@ -5,10 +5,15 @@ import {
   HUMAN_LABEL_NO_NUMBER,
   applyFacets,
   describeFacetSelectionForRows,
+  engineScrapById,
+  engineScrapFlagsById,
+  engineScrapRowBackgroundPrint,
+  engineScrapRowStyle,
   flattenGrouped,
   workSheetFacets,
   workSheetFieldsSummary,
   unionWorkSheetColumns,
+  type EngineListItem,
   type FacetDescriptor,
   type FacetSelection,
   type GroupLevel,
@@ -132,6 +137,12 @@ function workshopLabel(r: WorkSheetRow, fromDirectory: (id: string) => string): 
 export function WorkSheetsPage(props: {
   canManageTypes: boolean;
   canManageStageTemplates: boolean;
+  /**
+   * Каталог двигателей — источник признака утиля для розовой пометки строки этапа.
+   * Само правило считается в списке двигателей; здесь берём готовый признак, чтобы
+   * «утиль» в этапах ремонта и в списке двигателей означал одно и то же.
+   */
+  engines: EngineListItem[];
   /** Открыть карточку этапа работ. */
   onOpenSheet: (id: string, opts?: { isNew?: boolean; typeCode?: string | null; title?: string }) => void;
   /** Открыть карточку двигателя строки (номер в колонке + щелчок по строке-шаблону). */
@@ -449,13 +460,18 @@ export function WorkSheetsPage(props: {
   // смена даты), а строка шаблонного этапа из карточки двигателя (origin 'stage') и этап,
   // выведенный из акта (origin 'act'), своей карточки не имеют — их щелчок ведёт в карточку
   // двигателя (решение владельца: обе ссылки из списка, номер — тоже ссылка, чтобы не целиться).
+  // Розовая пометка утиля: признак берём из каталога двигателей (одно правило на всю
+  // программу), а не считаем заново по меткам карточки.
+  const scrapFlags = useMemo(() => engineScrapFlagsById(props.engines), [props.engines]);
+
   const rowProps = (r: WorkSheetRow): VirtualTableRowProps => {
+    const scrapStyle = engineScrapRowStyle(engineScrapById(scrapFlags, r.engineId));
     if (r.origin === 'stage' || r.origin === 'act') {
       return r.engineId && props.onOpenEngine
         ? {
             onClick: () => void openEngineOf(r),
             title: 'Открыть карточку двигателя',
-            style: { cursor: 'pointer' },
+            style: { cursor: 'pointer', ...scrapStyle },
             'data-work-sheet-row': r.id,
           }
         : {
@@ -463,13 +479,14 @@ export function WorkSheetsPage(props: {
               r.origin === 'act'
                 ? 'Этап из акта — открывается в карточке'
                 : 'Этап из карточки двигателя — открывается в карточке',
+            style: { ...scrapStyle },
             'data-work-sheet-row': r.id,
           };
     }
     return {
       onClick: () => void openRow(r),
       title: 'Открыть карточку этапа работ',
-      style: { cursor: 'pointer' },
+      style: { cursor: 'pointer', ...scrapStyle },
       'data-work-sheet-row': r.id,
     };
   };
@@ -643,6 +660,7 @@ export function WorkSheetsPage(props: {
           selectedRows={[]}
           storageKey="list:workSheets:printFields"
           rowGroupLabel={(r) => groupLabelByRow.get(r.id) || null}
+          rowBackground={(r) => engineScrapRowBackgroundPrint(engineScrapById(scrapFlags, r.engineId))}
           filtersSummary={describeFacetSelectionForRows(facets, rows, ui.facets as FacetSelection, {
             search: ui.query,
             period: allTime ? 'всё время' : 'за последний год',
