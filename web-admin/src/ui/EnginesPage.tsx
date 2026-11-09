@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
+import { engineScrapRowStyle } from '@matricarmz/shared';
+
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
 import { EngineDetailsPage } from './EngineDetailsPage.js';
@@ -371,7 +373,7 @@ export function EnginesPage(props: {
               <tr
                 key={row.id}
                 onClick={() => setSelectedId(row.id)}
-                style={{ cursor: 'pointer', background: row.isScrap ? 'rgba(239, 68, 68, 0.18)' : undefined }}
+                style={{ cursor: 'pointer', ...engineScrapRowStyle(row.isScrap) }}
               >
                 <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }}>{row.engineNumber || '-'}</td>
                 <td style={{ borderTop: '1px solid #f3f4f6', padding: 8 }}>

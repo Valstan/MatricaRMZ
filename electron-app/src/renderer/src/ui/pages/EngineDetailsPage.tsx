@@ -2496,6 +2496,9 @@ export function EngineDetailsPage(props: {
       arrivalDate: arrivalMs,
       repairDueDate: arrivalMs === null ? null : arrivalMs + contractRepairDays * 24 * 60 * 60 * 1000,
       statusDates,
+      // Признак утиля — тот же, что у плашки «Утиль» в шапке карточки: в очереди бирок
+      // утильный двигатель должен выглядеть так же, как в списке двигателей.
+      isScrap: isScrapEngine(statusFlags) || statusFlags.status_rejected === true,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- linkLabel пересоздаётся каждый рендер; настоящая зависимость — linkLists.customer_id, она в списке ниже
   }, [
@@ -2508,6 +2511,7 @@ export function EngineDetailsPage(props: {
     arrivalDateMsForChecklist,
     contractRepairDays,
     statusDates,
+    statusFlags,
   ]);
   // Печать понимает, какая вкладка открыта (решение владельца 2026-08-20):
   // на «Фото и документы» — работа с файлами (выбранные из списка или все),
