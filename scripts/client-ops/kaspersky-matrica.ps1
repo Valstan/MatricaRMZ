@@ -773,14 +773,31 @@ function Get-MatricaRootState {
         $candidateCer = Join-Path $PSScriptRoot 'matrixarmz-rootca.cer'
         if (Test-Path -LiteralPath $candidateCer) { $cerPath = $candidateCer }
     }
+    # Хранилище ПОЛЬЗОВАТЕЛЯ (CurrentUser): ставится без прав администратора и этого
+    # достаточно, чтобы программа сама доверяла серверу (TLS) и Windows показывала
+    # правильного издателя подписи. Но Касперский (служба от SYSTEM) смотрит МАШИННЫЕ
+    # хранилища — их состояние и решает «доверять по подписи» (ADR-0003).
+    $userStores = @{}
+    foreach ($storeName in $const.Stores) {
+        try {
+            $foundUser = @(Get-ChildItem "Cert:\CurrentUser\$storeName" -ErrorAction Stop |
+                Where-Object { $_.Thumbprint -eq $const.Thumbprint })
+            $userStores[$storeName] = ($foundUser.Count -gt 0)
+        } catch {
+            $userStores[$storeName] = $false
+        }
+    }
     [pscustomobject]@{
-        Thumbprint    = $const.Thumbprint
-        RootPresent   = [bool]$stores['Root']
-        TrustPresent  = [bool]$stores['Trust']
-        Present       = ([bool]$stores['Root'] -and [bool]$stores['Trust'])
-        Readable      = $readable
-        InstallScript = $installScript
-        CerPath       = $cerPath
+        Thumbprint      = $const.Thumbprint
+        RootPresent     = [bool]$stores['Root']
+        TrustPresent    = [bool]$stores['Trust']
+        Present         = ([bool]$stores['Root'] -and [bool]$stores['Trust'])
+        UserRootPresent = [bool]$userStores['Root']
+        UserTrustPresent = [bool]$userStores['Trust']
+        UserPresent    = ([bool]$userStores['Root'] -and [bool]$userStores['Trust'])
+        Readable        = $readable
+        InstallScript   = $installScript
+        CerPath         = $cerPath
     }
 }
 
@@ -793,6 +810,9 @@ function Get-RootStateText {
     }
     if ($State.Present) {
         return 'корень стоит в обоих машинных хранилищах — подпись действует'
+    }
+    if ($State.UserPresent) {
+        return 'корень стоит в хранилище пользователя (без прав админа) — программа доверяет серверу сама; для доверия Касперского нужен повышенный шаг (машинные хранилища)'
     }
     $parts = @()
     $parts += $(if ($State.RootPresent) { 'Root — есть' } else { 'Root — нет' })
@@ -1317,7 +1337,7 @@ function New-KasperskyPanel {
     $rootState = $Plan.RootState
     $rootText = Get-RootStateText -State $rootState
     Add-Section 'A. Корень доверия и подпись — повышенный шаг, один раз на машину' `
-        ('Матрица подписана своим ключом («CN=MatricaRMZ Root CA»). Касперский доверяет ПО ПОДПИСИ, когда корень лежит в МАШИННОМ хранилище сертификатов, а в программе включена вкладка «Доверенное системное хранилище сертификатов». Настройку Касперского программно не поменять (Самозащита), но корень поставить — можно: это делает администратор, один раз на машину. Состояние: ' + $rootText + '.')
+        ('Матрица подписана своим ключом («CN=MatricaRMZ Root CA»). Касперский доверяет ПО ПОДПИСИ, когда корень лежит в МАШИННОМ хранилище сертификатов, а в программе включена вкладка «Доверенное системное хранилище сертификатов». Настройку Касперского программно не поменять (Самозащита), но корень поставить — можно: это делает администратор, один раз на машину. Состояние: ' + $rootText + '. Без прав администратора корень можно поставить в хранилище пользователя (install-root-on-machine.ps1 -Scope CurrentUser) — этого хватает, чтобы программа сама доверяла серверу, но Касперский системное хранилище всё равно не увидит.')
     Add-Row (Get-RootInstallCommand -State $rootState)
     if ($rootState -and $rootState.InstallScript) {
         $capturedInstall = $rootState.InstallScript
