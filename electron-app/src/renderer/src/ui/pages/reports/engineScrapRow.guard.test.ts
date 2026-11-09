@@ -30,14 +30,15 @@ describe('розовая пометка утильного двигателя', 
   });
 
   it('основной список и веб-админка сохраняют прежний вид', () => {
-    expect(ENGINES_LIST).toContain("rgba(239, 68, 68, 0.18)");
+    // Цвет у обоих теперь берётся из общего правила — вид тот же, но литерал не дублируется.
+    expect(ENGINES_LIST).toContain('engineScrapRowStyle');
     expect(WEB_ADMIN_LIST).toContain("rgba(239, 68, 68, 0.18)");
   });
 
   it('литерал цвета не копируется по файлам: берётся общее правило', () => {
-    // Сам список двигателей — источник истины по цвету; остальные места берут правило
+    // Список двигателей — источник истины по цвету; остальные места берут правило
     // из `shared`, иначе пометки снова разъедутся.
-    for (const src of [ENGINES_REPORT, AT_PLANT_REPORT]) {
+    for (const src of [ENGINES_LIST, ENGINES_REPORT, AT_PLANT_REPORT]) {
       expect(src).not.toContain('rgba(239, 68, 68, 0.18)');
     }
   });
