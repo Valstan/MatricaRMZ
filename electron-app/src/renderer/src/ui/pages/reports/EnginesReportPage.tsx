@@ -4,6 +4,7 @@ import {
   HUMAN_LABEL_DASH,
   applyFacets,
   describeFacetSelectionForRows,
+  engineScrapRowStyle,
   engineDaysOnSite,
   engineFacets,
   engineFactoryStage,
@@ -311,7 +312,7 @@ export function EnginesReportPage(props: ListReportPageProps) {
   const rowProps = (i: number): VirtualTableRowProps => {
     const it = items[i]!;
     if (it.kind === 'group') return { 'data-report-group': it.key };
-    return { onClick: () => props.onOpenEngine(it.row.id), title: 'Открыть карточку двигателя', style: { cursor: 'pointer' }, 'data-report-engine-row': it.row.id };
+    return { onClick: () => props.onOpenEngine(it.row.id), title: 'Открыть карточку двигателя', style: { cursor: 'pointer', ...engineScrapRowStyle(it.row.isScrap) }, 'data-report-engine-row': it.row.id };
   };
 
   return (
