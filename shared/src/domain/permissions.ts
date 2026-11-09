@@ -10,6 +10,13 @@ export const PermissionCode = {
    * для этого есть employees.create.
    */
   EmployeesPositionEdit: 'employees.position.edit',
+  /**
+   * Узкое право: разбирать дубли сотрудников — анализ, слияние, удаление дубля.
+   * Отдельно от employees.create: оператор-кладовщик должен уметь прибрать дубли
+   * (решение владельца 09.11.2026), не получая права вести кадровую карточку
+   * целиком. Выдаётся ролью `storekeeper` и точечными разрешениями.
+   */
+  EmployeesDedupe: 'employees.dedupe',
   ClientsManage: 'clients.manage',
 
   // master-data (EAV справочники)
@@ -155,6 +162,7 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
   { code: PermissionCode.EmployeesView, group: 'Сотрудники', titleRu: 'Просмотр сотрудников' },
   { code: PermissionCode.EmployeesCreate, group: 'Сотрудники', titleRu: 'Добавление/редактирование сотрудников' },
   { code: PermissionCode.EmployeesPositionEdit, group: 'Сотрудники', titleRu: 'Изменение должностей сотрудников' },
+  { code: PermissionCode.EmployeesDedupe, group: 'Сотрудники', titleRu: 'Обработка дублей сотрудников' },
 
   { code: PermissionCode.MasterDataView, group: 'Справочники', titleRu: 'Просмотр справочников (мастер-данные)' },
   { code: PermissionCode.MasterDataEdit, group: 'Справочники', titleRu: 'Редактирование справочников (мастер-данные)' },
@@ -484,10 +492,14 @@ const OPERATOR_ROLE_EDIT: Record<string, PermissionCode[]> = {
     PermissionCode.SupplyRequestsCreate,
     PermissionCode.SupplyRequestsEdit,
     PermissionCode.FilesUpload,
-    // Должность сотрудника — по решению владельца (2026-11-03): кладовщик (Хапикова)
+    // Должность сотрудника — по решению владельца (2026-11-03): кладовщик
     // правит должности, чтобы норма приказа подбиралась по должности. Кадровую
     // карточку целиком это право не открывает.
     PermissionCode.EmployeesPositionEdit,
+    // Дубли сотрудников — по решению владельца (09.11.2026): кладовщик разбирает
+    // дубли одной кнопкой (анализ, слияние, удаление дубля). Право узкое:
+    // кадровую карточку целиком оно не открывает.
+    PermissionCode.EmployeesDedupe,
   ],
   timekeeper: [PermissionCode.TimesheetEdit],
   viewer: [],

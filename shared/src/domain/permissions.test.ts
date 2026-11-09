@@ -156,6 +156,26 @@ describe('operator role presets (RBAC #474)', () => {
   });
 });
 
+describe('право на разбор дублей сотрудников (09.11.2026)', () => {
+  it('кладовщик разбирает дубли, но не ведёт кадровую карточку', () => {
+    const perms = operatorRolePermissions('storekeeper');
+    expect(perms![PermissionCode.EmployeesDedupe]).toBe(true);
+    expect(perms![PermissionCode.EmployeesCreate]).toBeFalsy();
+  });
+
+  it('право есть в каталоге с русским названием', () => {
+    const row = PERMISSION_CATALOG.find((p) => p.code === PermissionCode.EmployeesDedupe);
+    expect(row).toBeDefined();
+    expect(row!.titleRu).toBe('Обработка дублей сотрудников');
+  });
+
+  it('остальным операторским ролям право не достаётся', () => {
+    for (const role of ['engineer', 'technolog', 'master', 'supply', 'timekeeper', 'viewer']) {
+      expect(operatorRolePermissions(role)![PermissionCode.EmployeesDedupe], role).toBeFalsy();
+    }
+  });
+});
+
 describe('isAssignableSystemRole', () => {
   it('operator roles and employee are assignable by any admin tier', () => {
     for (const role of ['engineer', 'technolog', 'master', 'supply', 'storekeeper', 'timekeeper', 'viewer', 'employee']) {

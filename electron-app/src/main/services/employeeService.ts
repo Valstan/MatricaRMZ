@@ -622,3 +622,33 @@ export async function deleteEmployeeRemote(sysDb: BetterSQLite3Database, apiBase
   const mode = r.json?.mode === 'deleted' ? 'deleted' : r.json?.mode === 'requested' ? 'requested' : null;
   return { ok: true as const, mode };
 }
+
+/**
+ * «Удалить карточку-дубль» — на сервере это СЛИЯНИЕ с настоящей карточкой: ссылки
+ * перевешиваются, карточка гасится и уходит из реплики. Если карточка дублём не
+ * является — сервер отвечает `reason`, и тогда удаление идёт обычным путём
+ * (запрос администратору).
+ */
+export async function removeDuplicateEmployeeRemote(
+  sysDb: BetterSQLite3Database,
+  apiBaseUrl: string,
+  args: { employeeId: string; dryRun?: boolean },
+) {
+  const r = await httpAuthed(sysDb, apiBaseUrl, '/admin/masterdata/employees/dedupe/remove', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  });
+  if (!r.ok) {
+    return { ok: false as const, error: r.text || r.json?.error || `server error ${r.status}`, reason: 'error' as const };
+  }
+  if (r.json?.ok !== true) {
+    const reason = (r.json?.reason ?? 'not_duplicate') as 'not_duplicate' | 'disputed' | 'login' | 'merge_failed';
+    return { ok: false as const, error: String(r.json?.error ?? 'не получилось удалить дубль'), reason };
+  }
+  return {
+    ok: true as const,
+    survivorId: String(r.json?.survivorId ?? ''),
+    conflicts: (r.json?.conflicts ?? []) as Array<{ code: string; label: string; values: Array<{ cardId: string; value: string }> }>,
+  };
+}
