@@ -23,6 +23,8 @@ import {
   arrivalPlacementLabel,
   formatEngineInternalNumber,
   formatEngineReservationUntil,
+  engineScrapRowBackgroundPrint,
+  engineScrapRowStyle,
   type FacetSelection,
 } from '@matricarmz/shared';
 import type { EngineFacetId, EngineFacetSelection, EngineListItem, GroupLevel } from '@matricarmz/shared';
@@ -1070,7 +1072,10 @@ export function EnginesPage(props: {
       ...(isSelected ? { 'data-list-selected': 'true' as const } : {}),
       style: {
         cursor: 'pointer',
-        ...(e.isScrap ? { background: 'rgba(239, 68, 68, 0.18)' } : {}),
+        // Розовая пометка утиля — общее правило `engineScrapRowStyle`. Синий выбор
+        // выбранного двигателя накладывается ПОСЛЕ и перекрывает розовое (так же,
+        // как в остальных списках программы).
+        ...engineScrapRowStyle(e.isScrap),
         ...(isSelected ? { background: 'rgba(37, 99, 235, 0.14)' } : {}),
       },
     };
@@ -1442,6 +1447,7 @@ export function EnginesPage(props: {
           selectedRows={displayRows.filter((e) => selection.isSelected(String(e.id)))}
           storageKey="list:engines:printFields"
           rowGroupLabel={(e) => groupLabelByRow.get(String(e.id)) || null}
+          rowBackground={(e) => engineScrapRowBackgroundPrint(e.isScrap)}
           filtersSummary={describeFacetSelectionForRows(ENGINE_FACETS, props.engines, facets as FacetSelection, {
             search: query,
             grouping: groupBy === 'none' ? '' : ENGINE_LIST_GROUP_BY_LABELS[groupBy],

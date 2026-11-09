@@ -93,6 +93,16 @@ export function ListPrintDialog<T>(props: {
    * честно молчит, а не пишет «Фильтры: нет».
    */
   filtersSummary?: string[];
+  /**
+   * Фон строки на бумаге — например, розовая пометка утильного двигателя
+   * (`engineScrapRowBackgroundPrint`). Не задан — строка обычная.
+   *
+   * ЗАЧЕМ это в самом диалоге. Печатная модель списка не несла строковый фон: движок
+   * печати собирает таблицу из колонок и строк, и места «эта строка — утиль» в ней не
+   * было. Поэтому на бумаге утильный двигатель выглядел как обычный. Один пропс в
+   * движке печати покрывает ВСЕ списки, а не каждый по отдельности.
+   */
+  rowBackground?: (row: T) => string | undefined;
 }) {
   const [columnIds, setColumnIds] = useState<string[]>(() =>
     resolvePrintColumnIds({ storageKey: props.storageKey, columns: props.columns, visibleColumnIds: props.visibleColumnIds }),
@@ -173,7 +183,11 @@ export function ListPrintDialog<T>(props: {
               ? `<tr><td colspan="${fields.length + 1}" style="font-weight:600;background:#f3f4f6">${escapeHtml(group)}</td></tr>`
               : '';
           lastGroup = group;
-          return `${head}<tr><td style="text-align:right">${i + 1}</td>${fields.map((f) => `<td>${escapeHtml(f.printValue(row) || '—')}</td>`).join('')}</tr>`;
+          // Фон строки (розовая пометка утиля) — инлайном: в печатном окне стили
+          // таблицы перебиваются, а фон строки должен пережить и перерисовку.
+          const bg = props.rowBackground?.(row);
+          const rowStyle = bg ? ` style="background:${escapeHtml(bg)}"` : '';
+          return `${head}<tr${rowStyle}><td style="text-align:right">${i + 1}</td>${fields.map((f) => `<td>${escapeHtml(f.printValue(row) || '—')}</td>`).join('')}</tr>`;
         })
         .join('');
       const colgroup = `<colgroup><col style="width:${plan.widthsMm[0]}mm"/>${plan.widthsMm
