@@ -53,3 +53,12 @@ CREATE INDEX IF NOT EXISTS erp_production_program_rows_program_idx ON erp_produc
 CREATE UNIQUE INDEX IF NOT EXISTS erp_production_program_rows_order_uq
     ON erp_production_program_rows (program_id, order_no)
     WHERE deleted_at IS NULL;
+--> statement-breakpoint
+-- Новые коды прав в справочник permissions. Роль оператора получает их из каталога
+-- (shared/domain/permissions.ts), но матрица прав в админке читает ТАБЛИЦУ — без строк
+-- здесь новые права нельзя было бы выдать вручную до отдельного perm:seed.
+INSERT INTO permissions (code, description, created_at)
+VALUES
+  ('production_program.view', 'Просмотр производственной программы (ПП)', 1794268800000),
+  ('production_program.edit', 'Ведение производственной программы (ПП)', 1794268800000)
+ON CONFLICT (code) DO NOTHING;

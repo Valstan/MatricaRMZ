@@ -38,6 +38,15 @@ describe('миграция production_program (0124)', () => {
     expect(journal.entries.find((e) => e.tag === '0124_production_program')).toBeTruthy();
   });
 
+  it('новые коды прав сеются в справочник permissions', () => {
+    // Роль оператора берёт права из каталога, а матрица прав в админке — из таблицы.
+    // Без строк здесь новые права нельзя выдать вручную до отдельного perm:seed.
+    expect(sql).toContain('INSERT INTO permissions');
+    expect(sql).toContain('production_program.view');
+    expect(sql).toContain('production_program.edit');
+    expect(sql).toContain('ON CONFLICT (code) DO NOTHING');
+  });
+
   it('drizzle-схема экспортирует обе таблицы', () => {
     expect(getTableName(erpProductionPrograms)).toBe('erp_production_programs');
     expect(getTableName(erpProductionProgramRows)).toBe('erp_production_program_rows');
