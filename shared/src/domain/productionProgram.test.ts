@@ -8,7 +8,9 @@ import {
   formatProductionProgramPeriod,
   parseProductionProgramSignatureSlots,
   parseProductionProgramState,
+  productionProgramContractLabel,
   productionProgramEngineHint,
+  productionProgramGroupLabel,
   productionProgramRowHighlight,
   PRODUCTION_PROGRAM_SIGNATURE_SLOTS,
   PRODUCTION_PROGRAM_STATE_LABELS,
@@ -16,6 +18,7 @@ import {
   resolveProductionProgramSignatureSlots,
   suggestedProductionProgramStates,
 } from './productionProgram.js';
+import { HUMAN_LABEL_DASH, looksLikeIdentifier } from './humanLabels.js';
 
 function engine(overrides: Partial<EngineListItem> = {}): EngineListItem {
   return {
@@ -227,5 +230,51 @@ describe('модель печати', () => {
     });
     expect(model.groups[0]?.rows[0]?.highlight).toBe('ready');
     expect(model.groups[0]?.rows[1]?.highlight).toBe('shipped');
+  });
+});
+
+// Оператору — человеческие наименования. Технический идентификатор в подписи
+// договора — это «номер вместо наименования»: в отчёте перед подписью директора
+// он выглядит как служебная выгрузка.
+describe('человеческие наименования в плане', () => {
+  const UUID = '9e142af3-caf9-427f-9893-58961e48d4b1';
+
+  it('технический идентификатор опознаётся общим проектным детектором', () => {
+    expect(looksLikeIdentifier(UUID)).toBe(true);
+    expect(looksLikeIdentifier('125/2026')).toBe(false);
+    expect(looksLikeIdentifier('ООО «Малмыжский РМЗ»')).toBe(false);
+    expect(looksLikeIdentifier('')).toBe(false);
+    expect(looksLikeIdentifier(null)).toBe(false);
+  });
+
+  it('подпись договора — организация и номер', () => {
+    expect(productionProgramContractLabel({ organization: 'ООО «Заказчик»', contractNumber: '125/2026' })).toBe(
+      'ООО «Заказчик» · 125/2026',
+    );
+    expect(productionProgramContractLabel({ organization: 'ООО «Заказчик»', contractNumber: '' })).toBe('ООО «Заказчик»');
+    expect(productionProgramContractLabel({ organization: '', contractNumber: '125/2026' })).toBe('125/2026');
+  });
+
+  it('идентификатор в подпись не идёт — ни вместо организации, ни вместо номера', () => {
+    expect(productionProgramContractLabel({ organization: UUID, contractNumber: '125/2026' })).toBe('125/2026');
+    expect(productionProgramContractLabel({ organization: 'ООО «Заказчик»', contractNumber: UUID })).toBe('ООО «Заказчик»');
+    expect(productionProgramContractLabel({ organization: UUID, contractNumber: UUID })).toBe('');
+  });
+
+  it('шапка группы: идентификатор печатается прочерком', () => {
+    expect(productionProgramGroupLabel('ООО «Заказчик» · 125/2026')).toBe('ООО «Заказчик» · 125/2026');
+    expect(productionProgramGroupLabel(UUID)).toBe(HUMAN_LABEL_DASH);
+    expect(productionProgramGroupLabel('')).toBe(HUMAN_LABEL_DASH);
+  });
+
+  it('в печатной форме идентификатор группы не печатается', () => {
+    const model = buildProductionProgramPrintModel({
+      title: 'ПП',
+      shop: 'Цех № 1',
+      period: { start: Date.UTC(2026, 10, 1, 12), end: Date.UTC(2026, 10, 15, 12) },
+      rows: [{ id: 'r1', groupLabel: UUID, engineMark: 'Д-245', engineNumber: '001' }],
+    });
+    expect(model.groups[0]?.label).toBe(HUMAN_LABEL_DASH);
+    expect(model.groups[0]?.rows[0]?.groupLabel).toBe(HUMAN_LABEL_DASH);
   });
 });

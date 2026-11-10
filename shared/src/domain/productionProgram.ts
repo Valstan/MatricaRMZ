@@ -24,11 +24,33 @@ import { parseContractKind } from './contract.js';
 import { engineStateLabel } from './engineFactoryStage.js';
 import { resolveEngineTruthDates } from './engineReclamation.js';
 import { repairStageRank } from './repairStages.js';
-import {
-  findEmployeeByPositionGroups,
-  formatEmployeeSurnameInitials,
-  type WorkOrderSignatureEmployee,
-} from './workOrderSignatures.js';
+import { findEmployeeByPositionGroups, formatEmployeeSurnameInitials, type WorkOrderSignatureEmployee } from './workOrderSignatures.js';
+import { HUMAN_LABEL_DASH, humanCellText } from './humanLabels.js';
+
+/**
+ * Подпись договора для плана: организация + номер договора (как в Word-форме).
+ *
+ * Идентификатор в подпись не идёт — это ровно тот «номер вместо наименования», из-за
+ * которого печатная форма плана выглядит служебной. Чистит и вычищает его общий
+ * проектный `humanCellText`; если после чистки ничего не осталось — подписи нет.
+ */
+export function productionProgramContractLabel(input: {
+  organization?: string | null | undefined;
+  contractNumber?: string | null | undefined;
+}): string {
+  const parts = [input.organization, input.contractNumber].map((v) => String(v ?? '').trim()).filter(Boolean);
+  if (parts.length === 0) return '';
+  const text = humanCellText(parts.join(' · '));
+  return text === HUMAN_LABEL_DASH ? '' : text;
+}
+
+/**
+ * Подпись группы строк плана — то, что печатается шапкой группы. Технический
+ * идентификатор печатается прочерком: подпись должна оставаться человеческой.
+ */
+export function productionProgramGroupLabel(value: string | null | undefined): string {
+  return humanCellText(value) || HUMAN_LABEL_DASH;
+}
 
 /**
  * Даты двигателя по источнику правды (рекламация выше основного цикла).
@@ -525,7 +547,9 @@ export function buildProductionProgramPrintModel(input: ProductionProgramPrintIn
 
   for (const raw of input.rows ?? []) {
     const contractId = raw.contractId ? String(raw.contractId) : null;
-    const groupLabel = String(raw.groupLabel ?? '').trim();
+    // Шапка группы — человеческое наименование договора. Технический идентификатор
+    // в печать не идёт (прочерк): форма плана — документ для подписей, а не выгрузка.
+    const groupLabel = productionProgramGroupLabel(raw.groupLabel);
     const key = `${contractId ?? ''}::${groupLabel}`;
     let group = groupByKey.get(key);
     if (!group) {

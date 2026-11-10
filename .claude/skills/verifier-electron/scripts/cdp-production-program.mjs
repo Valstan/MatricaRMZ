@@ -246,10 +246,22 @@ async function main() {
      if (!add) return { ok: false, reason: 'кнопка «Добавить в план» не найдена' };
      click(add); await wait(1200);
      const rows = [...document.querySelectorAll('table.list-table tbody tr')].filter((r) => visible(r));
-     return { ok: true, rows: rows.length, engine: txt(eopt), contract: txt(chosen) };`,
+     const groupCell = rows[0] ? txt(rows[0].querySelectorAll('td')[1]) : '';
+     return { ok: true, rows: rows.length, engine: txt(eopt), contract: txt(chosen), groupCell };`,
     90000,
   );
   note(added.ok && (added.rows ?? 0) >= 1, 'двигатель добавлен в план', added);
+  note(
+    added.ok && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(added.contract ?? '').trim()),
+    'подпись договора — человеческая (не идентификатор)',
+    { contract: added.contract ?? null },
+  );
+
+  note(
+    added.ok && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(added.groupCell ?? '').trim()),
+    'шапка группы в строке — человеческая (не идентификатор)',
+    { groupCell: added.groupCell ?? null },
+  );
 
   // 5. Сохранение.
   const saved = await evaluate(

@@ -4,7 +4,9 @@ import {
   PRODUCTION_PROGRAM_STATES,
   PRODUCTION_PROGRAM_STATE_LABELS,
   formatProductionProgramPeriod,
+  looksLikeIdentifier,
   parseContractSections,
+  productionProgramContractLabel,
   productionProgramEngineHint,
   suggestedProductionProgramStates,
   type EngineListItem,
@@ -69,6 +71,9 @@ export function ProductionProgramPage(props: Props) {
   const [busy, setBusy] = useState(false);
   const [pickerContract, setPickerContract] = useState<string>('');
   const [pickerEngine, setPickerEngine] = useState<string>('');
+  // Номер договора, подтянутый из строгой реплики: в строке двигателя его может не
+  // быть (контракт создан мимо EAV), а подпись должна остаться человеческой.
+  const [resolvedContractNumbers, setResolvedContractNumbers] = useState<Record<string, string>>({});
   // Сотрудники — для подписей ПП: если по должности нашёлся сотрудник, печатаем ФИО из
   // его карточки; если нет — ФИО из документа-образца (вносить подписантов в кадровый
   // реестр нельзя: это засоряет реестр и попадает под гейт дублей).
@@ -110,6 +115,37 @@ export function ProductionProgramPage(props: Props) {
     })();
   }, []);
 
+  // Номер договора подтягиваем из строгой реплики там, где в строке двигателя его нет
+  // (контракт создан мимо EAV). Без этого подпись группы стала бы пустой или технической.
+  useEffect(() => {
+    const missing = new Set<string>();
+    for (const e of props.engines) {
+      const id = String(e.contractId ?? '');
+      if (!id) continue;
+      const number = String(e.contractName ?? '').trim();
+      if (!number || looksLikeIdentifier(number)) missing.add(id);
+    }
+    if (missing.size === 0) return;
+    let alive = true;
+    void (async () => {
+      for (const id of missing) {
+        try {
+          const res = await window.matrica.contracts.contract.get(id);
+          const number = res.ok && res.row ? String(res.row.number ?? '').trim() : '';
+          if (!alive) return;
+          if (number && !looksLikeIdentifier(number)) {
+            setResolvedContractNumbers((prev) => (prev[id] === number ? prev : { ...prev, [id]: number }));
+          }
+        } catch {
+          // Договора нет в реплике — подпись останется без номера, но без идентификатора.
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [props.engines]);
+
   const selected = useMemo(() => programs.find((p) => p.id === selectedId) ?? null, [programs, selectedId]);
 
   // Строки выбранного плана — локальная копия для правки; сохранение уходит на сервер.
@@ -139,14 +175,27 @@ export function ProductionProgramPage(props: Props) {
   }, [lines, selectedId]);
 
   const contracts = useMemo(() => {
-    const map = new Map<string, string>();
+    // Подпись договора — человеческая: организация + номер. Идентификатор оператору
+    // не показываем (правило проекта: наименование, а не технический номер).
+    const organizationById = new Map<string, string>();
+    const numberById = new Map<string, string>();
     for (const e of props.engines) {
       const id = String(e.contractId ?? '');
       if (!id) continue;
-      if (!map.has(id)) map.set(id, String(e.contractName ?? e.contractId ?? ''));
+      if (!organizationById.has(id)) organizationById.set(id, String(e.customerName ?? '').trim());
+      const number = String(e.contractName ?? '').trim();
+      if (number && !looksLikeIdentifier(number) && !numberById.has(id)) numberById.set(id, number);
     }
-    return [...map.entries()].map(([id, label]) => ({ id, label }));
-  }, [props.engines]);
+    for (const [id, number] of Object.entries(resolvedContractNumbers)) numberById.set(id, number);
+    return [...organizationById.keys()].map((id) => ({
+      id,
+      label:
+        productionProgramContractLabel({
+          organization: organizationById.get(id),
+          contractNumber: numberById.get(id),
+        }) || 'Договор без номера',
+    }));
+  }, [props.engines, resolvedContractNumbers]);
 
   const contractEngines = useMemo(
     // Пока договор не выбран, двигателей нет: строка плана без договора не имеет группы
@@ -276,13 +325,21 @@ export function ProductionProgramPage(props: Props) {
     const contractId = String(engine.contractId ?? '');
     const kind = contractId ? await contractKindOf(contractId) : null;
     const suggested = suggestedProductionProgramStates(kind);
+    // Шапка группы — человеческое наименование договора (организация и номер).
+    // Идентификатор в неё не идёт: в отчёте это «номер вместо наименования».
+    // Наименования нет — строку не берём: без группы строки план не складывается.
+    const groupLabel = contracts.find((c) => c.id === contractId)?.label ?? '';
+    if (!groupLabel || groupLabel === 'Договор без номера') {
+      setError('У двигателя нет наименования договора — строка плана без него не имеет группы. Заведите договор (наименование и номер) и повторите.');
+      return;
+    }
     setRows((prev) => [
       ...prev,
       {
         id: `draft-${Date.now()}-${prev.length}`,
         orderNo: prev.length + 1,
         contractId: contractId || null,
-        groupLabel: String(engine.contractName ?? ''),
+        groupLabel,
         contractKind: kind,
         engineId: String(engine.id),
         engineMark: String(engine.engineBrand ?? ''),
