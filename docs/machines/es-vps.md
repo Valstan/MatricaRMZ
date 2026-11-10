@@ -123,6 +123,44 @@
 Ни одной ошибки в журнале primary с момента рестарта. Зеркало СИЗ молчит (0 отказов), 191 строка
 приказа — `synced`.
 
+## Выкат v3.113.0 (2026-11-10, 09:18–09:19)
+
+Релиз выкатан штатным скриптом (`bash scripts/prod-ops/deploy-backend.sh`), **с миграцией `0124`**
+(таблицы ПП + коды прав).
+
+- `db:migrate` — между `git pull` и рестартом (миграции едут с pull, не с артефактом):
+  `erp_production_programs`, `erp_production_program_rows`, коды прав `production_program.view` /
+  `production_program.edit`.
+- Артефакт `backend-dist` run `42766490021` собран на `bd0ae08d` = локальный HEAD ✓.
+- Откатная копия прежнего `dist`: **`.deploy-backup/20261110-091801`**.
+  Откат: `bash scripts/prod-ops/deploy-backend.sh rollback 20261110-091801`.
+- Primary поднялся за 8 с, secondary — за 6 с; оба `active` (старт 09:18:17 / 09:18:41).
+- `/health` на обоих портах: `{"ok":true,"version":"3.113.0","features":{"aiEnabled":true}}`.
+- `/updates/status`: latest 3.113.0, size 142 178 400 (= размеру `.exe`), `lastError: null`;
+  blockmap — 200, инсталлятор — 206 с Range, APK — 200.
+- План для планшета: `3.112.0 → 3.113.0` (APK 48 342 360 байта, sha256 `75628c87…`); для десктопа
+  `3.112.0 → 3.113.0` с blockmap URL (sha256 `.exe` `9609f2c5…`). В `updates/android/` лежат
+  `3.111.0.apk`, `3.112.0.apk`, `3.113.0.apk`.
+- Прод-БД: обе таблицы ПП на месте, оба кода прав засеяны.
+
+### Ловушка M40 выстрелила в этот раз (проверено на живых данных)
+
+`scp` пишет `.exe` **на месте**, и перескан каталога раз в 60 с застал файл частично залитым:
+в `latest.json` попал `size=67338240` вместо реального, и `/updates/file/MatricaRMZ-Setup-3.113.0.exe`
+отдавал **404** при `lastError: "stale_manifest"`, `latestSource: "disk-fallback"`. Рестарт не понадобился:
+следующий перескан (через ~60 с) пересёк манифест с полным размером — `lastError` обнулился, инсталлятор
+и blockmap отдались 200. **Вывод:** после scp ждать совпадения размеров, а не «и так пройдёт».
+
+### Ошибок после выката: 0 своих
+
+Две строки с `[ERROR]` в grep'е — обе не про релиз: «graceful shutdown: drain timed out» от прежнего
+инстанса при остановке и доставшийся от 09.11 warn-mode `db tables with sync columns are not in
+SyncTableName: service_price_history, service_price_orders` (в журнале 09.11 тоже есть). Строк про
+`production_program` в журнале — **0**: модуль ещё не трогали. Отдельно шумит WARN
+`sync pipeline bot poll failed` — telegram unreachable, streak 35 (до релиза, релей KARMANa).
+
+- **Место:** 5,8 ГБ из 9,9 (62 %), свободно 3,6 ГБ.
+
 ## Выкат v3.112.0 (2026-11-09, 09:58–09:59)
 
 Релиз выкатан штатным скриптом (`bash scripts/prod-ops/deploy-backend.sh`), **без миграций** (в релизе
