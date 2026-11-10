@@ -180,6 +180,31 @@ export type ProductionProgramLineDraft = {
   note?: string | undefined;
 };
 
+/**
+ * Постоянный id строки плана.
+ *
+ * Клиент присылает id строки, которую создал сам (uuid). Пока id не держался,
+ * каждое сохранение пересоздавало строку: сервер заводил новый uuid, старую снимал
+ * мягко, а журнал увозил пару «удалить + вставить». Клиент применял её по очереди —
+ * между удалением и вставкой двигатель ПРОПАДАЛ из плана и через миг возвращался
+ * («неправильно сохраняется», владелец 10.11.2026).
+ *
+ * Чужой id (занятый другой программой) не берём: строка не должна переезжать
+ * из плана в план.
+ */
+export function resolveProductionProgramRowId(args: {
+  /** Id, который прислал клиент. */
+  requestedId: string | null | undefined;
+  /** Id, уже занятые другой программой. */
+  foreignIds: ReadonlySet<string>;
+  /** Новый id, когда клиентский не годится. */
+  fallbackId: () => string;
+}): string {
+  const requested = String(args.requestedId ?? '').trim();
+  if (isUuid(requested) && !args.foreignIds.has(requested)) return requested;
+  return args.fallbackId();
+}
+
 /** Проверенная строка плана — все поля заполнены. */
 export type ProductionProgramLineInput = {
   id: string | null;
@@ -277,16 +302,23 @@ export async function updateProductionProgram(
   return { ok: true, id: programId };
 }
 
-/** Снятие плана: шапка и строки уходят мягко (клиент увидит удаление через зеркало). */
+/**
+ * Снятие плана: шапка и строки уходят мягко (клиент увидит удаление через зеркало).
+ *
+ * Повторное удаление — НЕ ошибка: клиент, снявший программу, ждёт подтверждения
+ * синком и до прихода pull'а видит её в списке. Второй клик по «Удалить» раньше
+ * отвечал «программа не найдена» (владелец 10.11.2026) — теперь это успех.
+ */
 export async function deleteProductionProgram(id: string): Promise<Result<{ id: string }>> {
   const programId = String(id ?? '').trim();
   if (!isUuid(programId)) return { ok: false, error: 'id программы должен быть uuid' };
   const [current] = await db
-    .select({ id: erpProductionPrograms.id })
+    .select({ id: erpProductionPrograms.id, deletedAt: erpProductionPrograms.deletedAt })
     .from(erpProductionPrograms)
-    .where(and(eq(erpProductionPrograms.id, programId as any), isNull(erpProductionPrograms.deletedAt)))
+    .where(eq(erpProductionPrograms.id, programId as any))
     .limit(1);
   if (!current) return { ok: false, error: 'программа не найдена' };
+  if (current.deletedAt != null) return { ok: true, id: programId };
   const now = Date.now();
   await db
     .update(erpProductionPrograms)
@@ -348,6 +380,14 @@ export function validateLine(input: ProductionProgramLineDraft, index: number): 
  * Строки с известным id обновляются на месте (id стабилен — реплика клиента не
  * плодит мусор), новые вставляются, пропавшие снимаются мягко. Порядок № п/п
  * перенумеровывается по позиции в массиве.
+ *
+ * Порядок операций внутри транзакции:
+ *  1. снять мягко пропавшие строки — иначе новая строка, занимающая их номер
+ *     п/п, упрётся в частичный уникальный индекс
+ *     (`erp_production_program_rows_order_uq … WHERE deleted_at IS NULL`);
+ *  2. «припарковать» номера п/п строк, у которых номер меняется (перестановка),
+ *     — во временные отрицательные, иначе две строки на секунду делят один номер;
+ *  3. вставить/обновить строки с их постоянными id.
  */
 export async function replaceProductionProgramRows(
   programId: string,
@@ -369,55 +409,89 @@ export async function replaceProductionProgramRows(
     checked.push(row);
   }
 
-  const existing = await db
-    .select()
-    .from(erpProductionProgramRows)
-    .where(and(eq(erpProductionProgramRows.programId, pid as any), isNull(erpProductionProgramRows.deletedAt)));
-  const existingById = new Map(existing.map((r) => [String(r.id), r]));
-  const now = Date.now();
-  const keptIds = new Set<string>();
+  await db.transaction(async (tx) => {
+    const existing = await tx
+      .select()
+      .from(erpProductionProgramRows)
+      .where(and(eq(erpProductionProgramRows.programId, pid as any), isNull(erpProductionProgramRows.deletedAt)));
+    const existingById = new Map(existing.map((r) => [String(r.id), r]));
 
-  for (let i = 0; i < checked.length; i++) {
-    const row = checked[i]!;
-    const orderNo = i + 1;
-    const id = row.id && existingById.has(String(row.id)) ? String(row.id) : randomUUID();
-    if (id) keptIds.add(id);
-    const values = {
-      programId: pid,
-      orderNo,
-      contractId: row.contractId,
-      groupLabel: row.groupLabel,
-      contractKind: row.contractKind,
-      engineId: row.engineId,
-      engineMark: row.engineMark,
-      engineNumber: row.engineNumber,
-      state: row.state,
-      shippingPlanAt: row.shippingPlanAt,
-      factors: row.factors,
-      note: row.note,
-      updatedAt: now,
-      syncStatus: 'pending',
-    };
-    if (existingById.has(id)) {
-      await db.update(erpProductionProgramRows).set(values).where(eq(erpProductionProgramRows.id, id as any));
-    } else {
-      await db.insert(erpProductionProgramRows).values({ id: id as any, createdAt: now, ...values });
+    // Id, занятые другой программой: такой клиентский id не берём.
+    const requestedIds = checked.map((r) => (r.id ? String(r.id) : '')).filter((id) => isUuid(id));
+    const foreignIds = new Set<string>();
+    if (requestedIds.length > 0) {
+      const taken = await tx
+        .select({ id: erpProductionProgramRows.id, programId: erpProductionProgramRows.programId })
+        .from(erpProductionProgramRows)
+        .where(inArray(erpProductionProgramRows.id, requestedIds as any));
+      for (const row of taken) {
+        if (String(row.programId) !== pid) foreignIds.add(String(row.id));
+      }
     }
-  }
 
-  for (const row of existing) {
-    const id = String(row.id);
-    if (keptIds.has(id)) continue;
-    await db
-      .update(erpProductionProgramRows)
-      .set({ deletedAt: now, updatedAt: now, syncStatus: 'pending' })
-      .where(eq(erpProductionProgramRows.id, id as any));
-  }
+    const now = Date.now();
+    const keptIds = new Set<string>();
+    const plan: Array<{ id: string; orderNo: number; row: ProductionProgramLineInput }> = [];
+    for (let i = 0; i < checked.length; i++) {
+      const row = checked[i]!;
+      const id = resolveProductionProgramRowId({ requestedId: row.id, foreignIds, fallbackId: () => randomUUID() });
+      keptIds.add(id);
+      plan.push({ id, orderNo: i + 1, row });
+    }
 
-  await db
-    .update(erpProductionPrograms)
-    .set({ updatedAt: now, syncStatus: 'pending' })
-    .where(eq(erpProductionPrograms.id, pid as any));
+    // 1. Пропавшие строки снимаем мягко ДО вставки новых.
+    for (const row of existing) {
+      const id = String(row.id);
+      if (keptIds.has(id)) continue;
+      await tx
+        .update(erpProductionProgramRows)
+        .set({ deletedAt: now, updatedAt: now, syncStatus: 'pending' })
+        .where(eq(erpProductionProgramRows.id, id as any));
+    }
+
+    // 2. Номера п/п меняются перестановкой строк: сначала «паркуем» их во временные
+    //    отрицательные (уникальный индекс не мешает), потом ставим окончательные.
+    for (const item of plan) {
+      const current = existingById.get(item.id);
+      if (!current) continue;
+      if (Number(current.orderNo) === item.orderNo) continue;
+      await tx
+        .update(erpProductionProgramRows)
+        .set({ orderNo: -item.orderNo, updatedAt: now })
+        .where(and(eq(erpProductionProgramRows.id, item.id as any), isNull(erpProductionProgramRows.deletedAt)));
+    }
+
+    // 3. Вставка и обновление строк с их постоянными id.
+    for (const item of plan) {
+      const row = item.row;
+      const values = {
+        programId: pid,
+        orderNo: item.orderNo,
+        contractId: row.contractId,
+        groupLabel: row.groupLabel,
+        contractKind: row.contractKind,
+        engineId: row.engineId,
+        engineMark: row.engineMark,
+        engineNumber: row.engineNumber,
+        state: row.state,
+        shippingPlanAt: row.shippingPlanAt,
+        factors: row.factors,
+        note: row.note,
+        updatedAt: now,
+        syncStatus: 'pending',
+      };
+      if (existingById.has(item.id)) {
+        await tx.update(erpProductionProgramRows).set(values).where(eq(erpProductionProgramRows.id, item.id as any));
+      } else {
+        await tx.insert(erpProductionProgramRows).values({ id: item.id as any, createdAt: now, ...values });
+      }
+    }
+
+    await tx
+      .update(erpProductionPrograms)
+      .set({ updatedAt: now, syncStatus: 'pending' })
+      .where(eq(erpProductionPrograms.id, pid as any));
+  });
 
   return { ok: true, count: checked.length };
 }

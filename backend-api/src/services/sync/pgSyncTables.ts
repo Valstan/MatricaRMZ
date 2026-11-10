@@ -19,6 +19,8 @@ import {
   erpEngineCards,
   erpEngineNumbers,
   erpEmployeeCards,
+  erpProductionPrograms,
+  erpProductionProgramRows,
   directoryEngineBrands,
   erpEngineAssemblyBom,
   erpEngineAssemblyBomBrandLinks,
@@ -251,5 +253,17 @@ export const PG_SYNC_TABLES: Record<string, PgSyncTableEntry> = {
   [LedgerTableName.SignatureDefaults]: {
     drizzle: signatureDefaults,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.SignatureDefaults, r),
+  },
+  // Производственная программа (ПП): шапка плана и его строки. Ведёт серверная
+  // дверь (productionProgramService), клиент читает реплику. Без записей здесь
+  // холодный снапшот отдавал по ПП пустоту (на свежей машине программ не было бы
+  // никогда), а `stampRowSeq` не ставил строкам `last_server_seq`.
+  [LedgerTableName.ErpProductionPrograms]: {
+    drizzle: erpProductionPrograms,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpProductionPrograms, r),
+  },
+  [LedgerTableName.ErpProductionProgramRows]: {
+    drizzle: erpProductionProgramRows,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpProductionProgramRows, r),
   },
 };

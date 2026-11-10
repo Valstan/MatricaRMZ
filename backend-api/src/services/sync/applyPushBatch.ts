@@ -112,6 +112,12 @@ export const SERVER_MIRROR_TABLES = [
   SyncTableName.PpeEmployeeCards,
   SyncTableName.PpePrintTemplates,
   SyncTableName.SignatureDefaults,
+  // Производственная программа (ПП): шапка плана и его строки. Ведёт серверная
+  // дверь (productionProgramService), издатель зеркала доводит их до журнала.
+  // Без записи здесь `sync_status='pending'` не снимался — издатель переотправлял
+  // те же строки каждый тик (журнал пухнет), а инкрементальный pull их не отдавал.
+  SyncTableName.ErpProductionPrograms,
+  SyncTableName.ErpProductionProgramRows,
 ] as const;
 
 // Специальный “контейнер” для операций заявок в снабжение.
