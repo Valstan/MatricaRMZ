@@ -10,11 +10,14 @@ import {
   parseContractSections,
   productionProgramContractLabel,
   productionProgramEngineHint,
+  productionProgramExecutionSummary,
   productionProgramOrganizationLabel,
   productionProgramPeriodKind,
+  productionProgramRowExecution,
   suggestedProductionProgramStates,
   type EngineListItem,
   type ProductionProgramDto,
+  type ProductionProgramExecutionSummary,
   type ProductionProgramLineDraftDto,
   type ProductionProgramLineDto,
   type ProductionProgramPeriodKind,
@@ -303,6 +306,27 @@ export function ProductionProgramPage(props: Props) {
     return [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label, 'ru'));
   }, [rows, engineById, contractLabelById, contractNumberOf]);
 
+  /**
+   * Сводка выполнения по каждой программе — то, что показывается на плашке
+   * («сколько двигателей ещё не собраны, невыполнены, сколько выполнено»).
+   *
+   * Считается по ЖИВОЙ карточке двигателя: ОТК пройден — «готов к отгрузке»,
+   * отгружен — «выполнено»; срок — плановая отгрузка строки.
+   */
+  const summaryByProgram = useMemo(() => {
+    const map = new Map<string, ProductionProgramExecutionSummary>();
+    for (const p of programs) {
+      map.set(
+        p.id,
+        productionProgramExecutionSummary({
+          rows: lines.filter((l) => l.programId === p.id),
+          engines: props.engines,
+        }),
+      );
+    }
+    return map;
+  }, [programs, lines, props.engines]);
+
   const setHeader = (patch: Partial<ProductionProgramDto>) => {
     setPrograms((prev) => prev.map((p) => (p.id === selectedId ? { ...p, ...patch } : p)));
   };
@@ -562,6 +586,7 @@ export function ProductionProgramPage(props: Props) {
             const tone = PROGRAM_STATUS_TONES[p.status] ?? PROGRAM_STATUS_TONES.draft!;
             const count = lines.filter((l) => l.programId === p.id).length;
             const active = p.id === selectedId;
+            const summary = summaryByProgram.get(p.id);
             return (
               <button
                 key={p.id}
@@ -600,6 +625,17 @@ export function ProductionProgramPage(props: Props) {
                     {p.shop} · {count} двиг.
                   </span>
                 </div>
+                {/* Выполнение плана — по живой карточке двигателя (владелец 10.11.2026):
+                    сколько собрано, сколько в срок, сколько выпало из сроков. */}
+                {summary && summary.total > 0 ? (
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 11 }}>
+                    <span style={{ color: '#166534' }}>Собрано {summary.done} из {summary.total}</span>
+                    <span className="ui-muted">В срок {summary.onTime}</span>
+                    {summary.overdue > 0 ? (
+                      <span style={{ color: 'var(--danger)' }}>Просрочено {summary.overdue}</span>
+                    ) : null}
+                  </div>
+                ) : null}
               </button>
             );
           })}
@@ -767,6 +803,7 @@ export function ProductionProgramPage(props: Props) {
                       <th>№ п/п</th>
                       <th>Организация, договор</th>
                       <th>Двигатель</th>
+                      <th>Выполнение</th>
                       <th>Состояние</th>
                       <th>Отгрузка</th>
                       <th>Факторы</th>
@@ -777,7 +814,7 @@ export function ProductionProgramPage(props: Props) {
                   <tbody>
                     {groups.length === 0 ? (
                       <tr>
-                        <td colSpan={props.canEdit ? 8 : 7} className="ui-muted">
+                        <td colSpan={props.canEdit ? 9 : 8} className="ui-muted">
                           Строк в плане нет
                         </td>
                       </tr>
@@ -786,7 +823,7 @@ export function ProductionProgramPage(props: Props) {
                       <React.Fragment key={group.key}>
                         <tr style={{ background: '#f3f4f6' }}>
                           <td
-                            colSpan={props.canEdit ? 8 : 7}
+                            colSpan={props.canEdit ? 9 : 8}
                             style={{ fontWeight: 700, padding: '4px 6px', whiteSpace: 'normal' }}
                           >
                             {group.label}
@@ -795,6 +832,12 @@ export function ProductionProgramPage(props: Props) {
                         {group.items.map((item, i) => {
                           const r = item.row;
                           const engine = item.engine;
+                          // Выполнение — по живой карточке: ОТК пройден → готов к
+                          // отгрузке, отгружен → выполнено, срок — плановая отгрузка.
+                          const execution = productionProgramRowExecution({
+                            engine,
+                            shippingPlanAt: r.shippingPlanAt ?? null,
+                          });
                           return (
                             <tr key={r.id}>
                               <td>{i + 1}</td>
@@ -803,6 +846,26 @@ export function ProductionProgramPage(props: Props) {
                                 {[engine?.engineBrand ?? r.engineMark, engine?.engineNumber ?? r.engineNumber]
                                   .filter(Boolean)
                                   .join(' ')}
+                              </td>
+                              <td>
+                                <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+                                  <span
+                                    style={{
+                                      fontSize: 12,
+                                      color:
+                                        execution.state === 'ready' || execution.state === 'shipped'
+                                          ? '#166534'
+                                          : execution.state === 'inWork'
+                                            ? '#1d4ed8'
+                                            : 'var(--subtle)',
+                                    }}
+                                  >
+                                    {execution.stateLabel}
+                                  </span>
+                                  {execution.overdue ? (
+                                    <span style={{ fontSize: 11, color: 'var(--danger)' }}>просрочен</span>
+                                  ) : null}
+                                </div>
                               </td>
                               <td>
                                 <select
