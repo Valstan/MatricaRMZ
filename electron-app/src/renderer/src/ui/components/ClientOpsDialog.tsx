@@ -97,11 +97,11 @@ export function ClientOpsDialog(props: { open: boolean; onClose: () => void; not
           background: 'var(--surface)',
           border: '1px solid var(--border)',
           borderRadius: 12,
-          padding: 20,
+          padding: 16,
           maxWidth: 640,
           width: '100%',
           display: 'grid',
-          gap: 12,
+          gap: 10,
           // Панель доверия с инструкцией администратору делает окно длинным: на невысокой
           // панели управления без прокрутки нижние кнопки уезжали бы за край.
           maxHeight: '90vh',
@@ -115,9 +115,9 @@ export function ClientOpsDialog(props: { open: boolean; onClose: () => void; not
           style={{
             border: '1px solid var(--border)',
             borderRadius: 10,
-            padding: '12px 14px',
+            padding: '10px 12px',
             display: 'grid',
-            gap: 8,
+            gap: 6,
           }}
         >
           <TrustRootPanel
@@ -131,13 +131,8 @@ export function ClientOpsDialog(props: { open: boolean; onClose: () => void; not
 
         {bundle?.available ? (
           <>
-            <div style={{ color: 'var(--subtle)' }}>
-              Откроется окно с вкладками:
-              <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
-                {bundle.contents.map((line) => (
-                  <li key={line}>{line}</li>
-                ))}
-              </ul>
+            <div style={{ color: 'var(--subtle)', fontSize: 13 }}>
+              Откроется окно с вкладками: настройка Касперского, раздача соседям и памятка.
             </div>
 
             {bundle.canLaunch ? (
@@ -147,7 +142,8 @@ export function ClientOpsDialog(props: { open: boolean; onClose: () => void; not
                     background: 'var(--surface-2)',
                     border: '1px solid var(--border)',
                     borderRadius: 8,
-                    padding: '8px 10px',
+                    padding: '6px 10px',
+                    fontSize: 13,
                   }}
                 >
                   Программа распакует скрипты сама и откроет окно. Windows может спросить права

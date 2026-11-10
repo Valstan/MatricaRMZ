@@ -338,7 +338,7 @@ if (-not $rootState.Readable) {
     Assert-Equal 'корень есть — текст говорит, что подпись действует' `
         ([bool]((Get-RootStateText -State $rootState) -like '*подпись действует*')) 'True'
 } else {
-    Assert-Equal 'кореня нет — текст зовёт на повышенный шаг' `
+    Assert-Equal 'корня нет — текст зовёт на повышенный шаг' `
         ([bool]((Get-RootStateText -State $rootState) -like '*повышенный шаг*')) 'True'
 }
 

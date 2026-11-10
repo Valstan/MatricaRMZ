@@ -251,9 +251,11 @@ async function main() {
   );
   // Прямая просьба «позовите системного администратора» — требование владельца: остаток
   // работы в Касперском делает человек с правами, и оператор должен знать, кого звать.
+  // Падеж не важен: «системный администратор» (бейдж) и «системного администратора»
+  // (просьба) — одно и то же требование.
   const panelText = rendered.text ?? '';
   note(
-    /системного администратора/i.test(panelText),
+    /системн[а-яё]* администратор/i.test(panelText),
     'панель прямо просит позвать системного администратора',
     { snippet: panelText.slice(0, 200) },
   );
@@ -268,18 +270,27 @@ async function main() {
   );
   note(legacyNote.ok, 'в панели есть заметка про старый способ', legacyNote.ok ? undefined : legacyNote);
   note(
-    legacyNote.ok && legacyNote.text.includes('больше не нужен'),
+    legacyNote.ok && legacyNote.text.includes('больше не нужны'),
     'заметка говорит: ручные списки исключений больше не нужны',
     { text: legacyNote.ok ? legacyNote.text : '' },
   );
   note(
-    opened.ok && opened.text.includes('ничего добавлять не нужно'),
+    opened.ok && opened.text.includes('добавлять не нужно'),
     'инструкция администратору говорит: в «Исключениях» добавлять нечего',
     { snippet: opened.ok ? opened.text.slice(0, 200) : '' },
   );
   note(
-    opened.ok && opened.text.includes('ПАПКИ с данными'),
-    'инструкция не замалчивает про исключения на данные',
+    legacyNote.ok && legacyNote.text.includes('исключения на папки с данными'),
+    'исключения на данные не замалчиваются (сказано в заметке оператору)',
+    { text: legacyNote.ok ? legacyNote.text : '' },
+  );
+  // Владелец (10.11.2026): слово «чужая» в инструкции пугало — «чужая подпись» читалась
+  // как «программа чем-то заражена». В интерфейсе о доверии оценок быть не должно.
+  const signatureText = rendered.signature ?? '';
+  note(
+    !/чужая/i.test(panelText) && !/чужая/i.test(signatureText),
+    'в панели нет слова «чужая» про подпись',
+    { signature: signatureText },
   );
   const shotPath = await shot(ws, 'panel');
   const failed = steps.filter((s) => !s.ok);
