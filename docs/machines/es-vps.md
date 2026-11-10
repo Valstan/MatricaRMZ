@@ -123,6 +123,39 @@
 Ни одной ошибки в журнале primary с момента рестарта. Зеркало СИЗ молчит (0 отказов), 191 строка
 приказа — `synced`.
 
+## Выкат v3.114.0 (2026-11-10, 13:18–13:19)
+
+Релиз выкатан штатным скриптом (`bash scripts/prod-ops/deploy-backend.sh`), **без миграций** (в релизе
+нет новых `backend-api/drizzle/*.sql`).
+
+- Артефакт `backend-dist` run `42795344259` собран на `44c1ff76` = локальный HEAD ✓.
+- Откатная копия прежнего `dist`: **`.deploy-backup/20261110-131839`**.
+  Откат: `bash scripts/prod-ops/deploy-backend.sh rollback 20261110-131839`.
+- Primary поднялся за 6 с, secondary — за 4 с; оба `active`.
+- `/health` на обоих портах: `{"ok":true,"version":"3.114.0","features":{"aiEnabled":true}}`.
+- `/updates/status`: latest 3.114.0, size 142 251 384 (= размеру `.exe`), `lastError: null`.
+- Отдача: инсталлятор — 206 с Range, blockmap — 200 (145 131 байт), APK — 200 (48 346 404 байта).
+- План планшета: `3.113.0 → 3.114.0` (sha256 `31f92f2b…`); план десктопа: `3.113.0 → 3.114.0`
+  с blockmap URL (sha256 `.exe` `6baa5877…`).
+- **Место:** 5,8 ГБ из 9,9 (62 %), свободно 3,7 ГБ. Старый APK `3.113.0` удалён автоматически
+  (новый скрипт `scripts/prod-ops/cleanup-old-apks.sh`), освобождено 48 МБ.
+- Ошибок уровня ERROR в primary с момента рестарта — **0 своих** (в grep'е две: «graceful
+  shutdown: drain timed out» от прежнего инстанса при остановке и доставшийся от 09.11
+  warn-mode `SyncTableName`).
+
+### ⚠️ Грабли выката: чистка каталога убивает staging-имена
+
+На боксе стоит path-юнит `matricarmz-updates-prune.path` (`PathChanged=/opt/matricarmz/updates`):
+он срабатывает на **любое** изменение каталога и запускает чистку, которая удаляет всё, что не
+похоже на инсталлятор (новейшие `MatricaRMZ-Setup-*.exe` с их `.blockmap` + `latest.json` /
+`latest.yml` / `latest.torrent` / `pending-update.json`).
+
+Из-за этого файлы, залитые под промежуточным именем (`MatricaRMZ-Setup-3.114.0.exe.incoming`),
+**исчезали через секунды после заливки**, при этом `scp` отчитывался кодом 0 — выглядит как
+«залилось, а файла нет». Заливка под финальными именами работает: `.exe` → его `.blockmap`
+(переживает чистку только рядом со своим `.exe`) → `latest.yml`. Каталог `android/` path-юнит
+не смотрит.
+
 ## Выкат v3.113.0 (2026-11-10, 09:18–09:19)
 
 Релиз выкатан штатным скриптом (`bash scripts/prod-ops/deploy-backend.sh`), **с миграцией `0124`**
