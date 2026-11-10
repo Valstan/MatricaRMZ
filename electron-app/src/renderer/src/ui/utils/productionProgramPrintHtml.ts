@@ -103,27 +103,71 @@ function rowHtml(model: ProductionProgramPrintModel): string {
   return body.join('');
 }
 
-/** Сетка подписей: должность и ФИО из документа или из карточки сотрудника. */
-function signaturesHtml(model: ProductionProgramPrintModel): string {
-  const cells = model.signatures
-    .map(
-      (s) =>
-        `<td style="border:0;padding:0 6px 8px 0;vertical-align:top;width:25%">` +
-        `<div style="font-size:14pt">${escapeHtml(s.caption)}</div>` +
-        `<div style="font-size:14pt;border-bottom:1px solid #111827;margin-top:22px">${escapeHtml(s.name)}</div>` +
-        `</td>`,
-    )
-    .join('');
-  return `<table style="width:100%;border-collapse:collapse;margin-top:14px"><tr>${cells}</tr></table>`;
+/**
+ * Сетка подписей: должность и ФИО из документа или из карточки сотрудника.
+ *
+ * Подписи идут ВЕРТИКАЛЬНО в два столбца (владелец 10.11.2026: «подписи размещай не
+ * в горизонтальном виде, а и в вертикальном, то есть подписи должны идти друг под
+ * дружкой… может быть, в два столбца»): восемь подписей в одну строку занимали
+ * половину листа, а в два столбца занимают четверть.
+ */
+function signaturesHtml(model: ProductionProgramPrintModel, fontSize: number): string {
+  const cells = model.signatures.map(
+    (s) =>
+      `<td style="border:0;padding:0 12px 10px 0;vertical-align:top;width:50%">` +
+      `<div style="font-size:${fontSize}pt">${escapeHtml(s.caption)}</div>` +
+      `<div style="font-size:${fontSize}pt;border-bottom:1px solid #111827;margin-top:22px">${escapeHtml(s.name)}</div>` +
+      `</td>`,
+  );
+  const rows: string[] = [];
+  for (let i = 0; i < cells.length; i += 2) {
+    const pair = cells.slice(i, i + 2);
+    // Нечётная подпись занимает левую половину — вторая ячейка пустая.
+    rows.push(`<tr>${pair.join('')}${pair.length === 1 ? '<td style="border:0"></td>' : ''}</tr>`);
+  }
+  if (rows.length === 0) return '';
+  return `<table style="width:100%;border-collapse:collapse;margin-top:14px">${rows.join('')}</table>`;
+}
+
+/** Настройки печати формы ПП: кегли и состав подписей. */
+export type ProductionProgramPrintOptions = {
+  /** Кегль шапки формы (pt). По умолчанию 14. */
+  headerFontSize?: number | undefined;
+  /** Кегль таблицы строк (pt). По умолчанию 14. */
+  tableFontSize?: number | undefined;
+  /** Кегль подписей (pt). По умолчанию 14. */
+  signatureFontSize?: number | undefined;
+  /**
+   * Подписи, которые печатаем (по названию должности). undefined/null — все.
+   * Пустой список — ни одной подписи.
+   */
+  signatureCaptions?: readonly string[] | null | undefined;
+};
+
+const DEFAULT_FONT_SIZE = 14;
+const MIN_FONT_SIZE = 8;
+const MAX_FONT_SIZE = 24;
+
+function clampFontSize(value: number | undefined, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  return Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(value)));
 }
 
 /** Печатный HTML производственной программы. */
-export function productionProgramPrintHtml(input: ProductionProgramPrintInput): string {
+export function productionProgramPrintHtml(
+  input: ProductionProgramPrintInput,
+  options?: ProductionProgramPrintOptions,
+): string {
   const model = buildProductionProgramPrintModel(input);
+  const headerSize = clampFontSize(options?.headerFontSize, DEFAULT_FONT_SIZE);
+  const tableSize = clampFontSize(options?.tableFontSize, DEFAULT_FONT_SIZE);
+  const signatureSize = clampFontSize(options?.signatureFontSize, DEFAULT_FONT_SIZE);
+  const wanted = options?.signatureCaptions ?? null;
+  const signatures = wanted == null ? model.signatures : model.signatures.filter((s) => wanted.includes(s.caption));
   const colgroup = `<colgroup>${COL_WIDTHS_MM.map((w) => `<col style="width:${w}mm"/>`).join('')}</colgroup>`;
   const header = HEADERS.map(
     (h, i) =>
-      `<th style="border:1px solid #111827;padding:4px 5px;font-size:14pt;text-align:center;${i === 1 || i === 5 || i === 6 ? 'text-align:left' : ''}">${escapeHtml(h)}</th>`,
+      `<th style="border:1px solid #111827;padding:4px 5px;font-size:${tableSize}pt;text-align:center;${i === 1 || i === 5 || i === 6 ? 'text-align:left' : ''}">${escapeHtml(h)}</th>`,
   ).join('');
 
   return `<!doctype html>
@@ -131,17 +175,17 @@ export function productionProgramPrintHtml(input: ProductionProgramPrintInput): 
 <title>${escapeHtml(model.title)}</title>
 <style>
 @page { size: A4 landscape; margin: 12.7mm; }
-body { margin: 0; font-family: "Times New Roman", Times, serif; font-size: 14pt; color: #111827; }
+body { margin: 0; font-family: "Times New Roman", Times, serif; font-size: ${tableSize}pt; color: #111827; }
 .pp-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
-.pp-approver { text-align: right; font-size: 14pt; }
-.pp-title { text-align: center; font-size: 16pt; font-weight: 700; margin: 6px 0 2px 0; }
-.pp-period { text-align: center; font-size: 14pt; margin-bottom: 8px; }
+.pp-approver { text-align: right; font-size: ${headerSize}pt; }
+.pp-title { text-align: center; font-size: ${headerSize + 2}pt; font-weight: 700; margin: 6px 0 2px 0; }
+.pp-period { text-align: center; font-size: ${headerSize}pt; margin-bottom: 8px; }
 table.pp-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 table.pp-table th { background: #f3f4f6; }
 </style>
 </head><body>
 <div class="pp-head">
-  <div style="font-size:14pt">${escapeHtml(model.shop)}</div>
+  <div style="font-size:${headerSize}pt">${escapeHtml(model.shop)}</div>
   <div class="pp-approver">
     <div>${escapeHtml(model.approver.title)}</div>
     <div style="margin-top:20px">${escapeHtml(model.approver.position)}</div>
@@ -155,7 +199,7 @@ ${colgroup}
 <thead><tr>${header}</tr></thead>
 <tbody>${rowHtml(model)}</tbody>
 </table>
-${signaturesHtml(model)}
+${signaturesHtml({ ...model, signatures }, signatureSize)}
 </body></html>`;
 }
 
@@ -169,9 +213,17 @@ export function productionProgramPrintTitle(input: ProductionProgramPrintInput):
  * Печать формы ПП: окно с готовым документом и `print()` из открывающего окна
  * (inline-скрипты в document.write-окне Electron не исполняются — тот же приём,
  * что в `printSectionsDirect`).
+ *
+ * Это ПРЯМАЯ печать без превью. Оператору нужен промежуточный этап (владелец
+ * 10.11.2026: «нужен промежуточный этап, чтобы можно было редактировать форму
+ * печати галочками»), поэтому кнопка «Печать» открывает окно превью
+ * (`ProductionProgramPrintPreview`), а сюда попадают уже утверждённые настройки.
  */
-export function openProductionProgramPrint(input: ProductionProgramPrintInput): boolean {
-  const html = productionProgramPrintHtml(input);
+export function openProductionProgramPrint(
+  input: ProductionProgramPrintInput,
+  options?: ProductionProgramPrintOptions,
+): boolean {
+  const html = productionProgramPrintHtml(input, options);
   const w = window.open('', '_blank');
   if (!w) return false;
   w.document.open();

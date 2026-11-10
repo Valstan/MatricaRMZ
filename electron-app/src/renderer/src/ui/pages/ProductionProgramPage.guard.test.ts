@@ -15,6 +15,8 @@ function src(rel: string): string {
 }
 
 const PAGE = src('./ProductionProgramPage.tsx');
+const PREVIEW = src('../components/ProductionProgramPrintPreview.tsx');
+const PRINT_HTML = src('../utils/productionProgramPrintHtml.ts');
 const CSS = src('../global.css');
 const SHARED_DOMAIN = src('../../../../../../shared/src/domain/productionProgram.ts');
 
@@ -93,5 +95,21 @@ describe('производственная программа — экран п�
     expect(PAGE).toContain('<th>Выполнение</th>');
     expect(SHARED_DOMAIN).toContain('export function productionProgramExecutionSummary');
     expect(SHARED_DOMAIN).toContain('export function productionProgramRowExecution');
+  });
+
+  it('«Печать» открывает превью, а не сразу принтер', () => {
+    // Владелец (10.11.2026): «нужен промежуточный этап, чтобы можно было редактировать
+    // форму печати галочками… при нажатии кнопки Печать сперва показывать превью».
+    expect(PAGE).toContain('ProductionProgramPrintPreview');
+    // Прямая печать мимо превью — значит, оператор снова увидит только окно принтера.
+    expect(PAGE).not.toContain('openProductionProgramPrint');
+    expect(PREVIEW).toContain('data-pp-print-preview');
+    expect(PREVIEW).toContain('type="checkbox"');
+    expect(PREVIEW).toContain('Подписи');
+    expect(PREVIEW).toContain('Размеры шрифта');
+    // Печатная форма умеет настраиваться: кегли и состав подписей.
+    expect(PRINT_HTML).toContain('signatureCaptions');
+    expect(PRINT_HTML).toContain('signatureFontSize');
+    expect(PRINT_HTML).toContain('tableFontSize');
   });
 });
