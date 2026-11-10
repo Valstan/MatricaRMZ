@@ -287,15 +287,21 @@ export function ProductionProgramPage(props: Props) {
 
   async function removeProgram() {
     if (!selected) return;
+    const programId = selected.id;
     setBusy(true);
     try {
-      const res = await window.matrica.productionProgram.remove(selected.id);
+      const res = await window.matrica.productionProgram.remove(programId);
       if (!res.ok) {
         setError(res.error);
         return;
       }
-      setSelectedId(null);
-      await reload();
+      // Убираем программу из списка сразу: снятие приходит на клиент с задержкой
+      // (публикатор зеркала + pull), а до неё программа ещё жила в реплике — и
+      // повторный клик «Удалить» отвечал «программа не найдена».
+      setPrograms((prev) => prev.filter((p) => p.id !== programId));
+      setLines((prev) => prev.filter((l) => l.programId !== programId));
+      setSelectedId((prev) => (prev === programId ? null : prev));
+      setStatus('Программа снята. Правка дойдёт до остальных компьютеров при синхронизации.');
     } finally {
       setBusy(false);
     }
@@ -336,7 +342,10 @@ export function ProductionProgramPage(props: Props) {
     setRows((prev) => [
       ...prev,
       {
-        id: `draft-${Date.now()}-${prev.length}`,
+        // Постоянный id строки: пока id был черновым («draft-…»), сервер на каждое
+        // сохранение заводил новый uuid и снимал старый — журнал увозил пару
+        // «удалить + вставить», и двигатель на время ПРОПАДАЛ из плана.
+        id: crypto.randomUUID(),
         orderNo: prev.length + 1,
         contractId: contractId || null,
         groupLabel,

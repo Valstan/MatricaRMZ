@@ -31,6 +31,8 @@ import {
   erpContractPaymentSlots,
   erpContractPayments,
   erpEmployeeCards,
+  erpProductionPrograms,
+  erpProductionProgramRows,
   erpEngineCards,
   erpEngineNumbers,
   directoryEngineBrands,
@@ -239,6 +241,17 @@ const PG_SYNC_TABLES: Record<
   [SyncTableName.SignatureDefaults]: {
     drizzle: signatureDefaults,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.SignatureDefaults, r),
+  },
+  // Производственная программа (ПП): шапка плана и его строки. Без записей здесь
+  // инкрементальный pull отдавал ПП только payload'ами журнала, а `last_server_seq`
+  // на строках оставался пустым — строка не доезжала до реплики инкрементально.
+  [SyncTableName.ErpProductionPrograms]: {
+    drizzle: erpProductionPrograms,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpProductionPrograms, r),
+  },
+  [SyncTableName.ErpProductionProgramRows]: {
+    drizzle: erpProductionProgramRows,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpProductionProgramRows, r),
   },
 };
 

@@ -55,6 +55,21 @@ function publisherTableKeys(source: string): string[] {
   return Array.from(keys).sort();
 }
 
+/**
+ * Издатели зеркал, чьи таблицы обязаны быть в `SERVER_MIRROR_TABLES`.
+ *
+ * Список не «весь подряд»: справочники (договоры, контрагенты, склады) и аккаунты
+ * ведут серверные обработчики в applyPushBatch отдельной веткой, а не зеркалом.
+ * ПП попал в этот список после разведки 10.11.2026: его издатель публиковал строки
+ * каждый тик (sync_status не снимался), а `last_server_seq` на них не ставился —
+ * ровно тот шов, который этот сторож и ловит.
+ */
+const MIRROR_PUBLISHERS = [
+  './ppeSyncPublisherService.ts',
+  './productionProgramSyncPublisherService.ts',
+  './signatureDefaultsSyncPublisherService.ts',
+] as const;
+
 /** Имена таблиц из списка `SERVER_MIRROR_TABLES` в applyPushBatch.ts. */
 function mirrorTableKeys(source: string): string[] {
   const start = source.indexOf('SERVER_MIRROR_TABLES');
@@ -99,17 +114,22 @@ describe('таблицы-зеркала серверных дверей: тра�
     expect(applySource).toContain('for (const tableName of SERVER_MIRROR_TABLES)');
   });
 
-  it('каждая таблица издателя СИЗ — зеркало', () => {
+  it('каждая таблица издателя зеркала — зеркало', () => {
     // Обратная сторона того же шва. Проверка выше идёт от зеркала к картам pull и
     // потому молча пропускает обратный случай: таблицу внесли в карты pull, но
     // забыли в SERVER_MIRROR_TABLES — издатель шлёт её в журнал каждый тик
     // (sync_status не снимается), а клиент получает дубли. Ровно это случилось
     // с четырьмя таблицами приказа о СИЗ: PR #1554 внёс их в pgSyncTables и
     // pullChangesSince, а зеркалом они не стали — и PR был зелёным.
-    const publisher = publisherTableKeys(readSource('./ppeSyncPublisherService.ts'));
-    expect(publisher.length, 'издатель СИЗ не найден — тест устарел вместе с файлом').toBeGreaterThan(0);
-    for (const key of publisher) {
-      expect(mirrorTables, `SERVER_MIRROR_TABLES без ${key} — издатель переотправляет её каждый тик`).toContain(key);
+    // Повторилось с производственной программой (10.11.2026): её издатель был
+    // вне списка, и строки ПП перепубликовывались каждый тик, а инкрементальный
+    // pull их не отдавал.
+    for (const file of MIRROR_PUBLISHERS) {
+      const publisher = publisherTableKeys(readSource(file));
+      expect(publisher.length, `издатель ${file} не найден — тест устарел вместе с файлом`).toBeGreaterThan(0);
+      for (const key of publisher) {
+        expect(mirrorTables, `SERVER_MIRROR_TABLES без ${key} (${file}) — издатель переотправляет её каждый тик`).toContain(key);
+      }
     }
   });
 });
