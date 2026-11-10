@@ -13,7 +13,9 @@ import {
   productionProgramGroupLabel,
   productionProgramOrganizationLabel,
   productionProgramPeriodKind,
+  productionProgramRowExecution,
   productionProgramRowHighlight,
+  productionProgramExecutionSummary,
   PRODUCTION_PROGRAM_SIGNATURE_SLOTS,
   PRODUCTION_PROGRAM_STATE_LABELS,
   resolveProductionProgramSignatureName,
@@ -349,5 +351,105 @@ describe('вид периода выводится из дат', () => {
 
   it('произвольные даты — «свои даты»', () => {
     expect(productionProgramPeriodKind({ start: Date.UTC(2026, 10, 1), end: Date.UTC(2026, 10, 20) })).toBe('custom');
+  });
+});
+
+/**
+ * План следит за выполнением сам (владелец 10.11.2026): «если прошёл контроль АТК,
+ * то в плане должно ставиться отметка, что план по двигателю выполнен… показывать,
+ * сколько двигателей ещё не собраны, невыполнены, сколько выполнены».
+ */
+describe('выполнение плана по факту из карточки двигателя', () => {
+  const NOW = Date.UTC(2026, 10, 10);
+
+  it('ОТК пройден, но не отгружен — «готов к отгрузке», это выполнено', () => {
+    const res = productionProgramRowExecution({
+      engine: engine({ lastStageCode: 'otk', lastStageAt: 5_000, arrivalDate: 1_000 }),
+      shippingPlanAt: Date.UTC(2026, 10, 20),
+      now: NOW,
+    });
+    expect(res.state).toBe('ready');
+    expect(res.stateLabel).toBe('Готов к отгрузке');
+    expect(res.onTime).toBe(true);
+  });
+
+  it('отгружен — выполнено', () => {
+    const res = productionProgramRowExecution({
+      engine: engine({ shippingDate: Date.UTC(2026, 10, 5), arrivalDate: 1_000 }),
+      shippingPlanAt: Date.UTC(2026, 10, 20),
+      now: NOW,
+    });
+    expect(res.state).toBe('shipped');
+    expect(res.onTime).toBe(true);
+  });
+
+  it('на заводе, но без ОТК — в работе', () => {
+    const res = productionProgramRowExecution({
+      engine: engine({ arrivalDate: 1_000 }),
+      shippingPlanAt: Date.UTC(2026, 10, 20),
+      now: NOW,
+    });
+    expect(res.state).toBe('inWork');
+  });
+
+  it('не прибыл — не начат', () => {
+    const res = productionProgramRowExecution({
+      engine: engine({ arrivalDate: null }),
+      shippingPlanAt: Date.UTC(2026, 10, 20),
+      now: NOW,
+    });
+    expect(res.state).toBe('notStarted');
+  });
+
+  it('срок вышел, а двигатель не отгружен — просрочен', () => {
+    const res = productionProgramRowExecution({
+      engine: engine({ arrivalDate: 1_000 }),
+      shippingPlanAt: Date.UTC(2026, 10, 1),
+      now: NOW,
+    });
+    expect(res.overdue).toBe(true);
+    expect(res.onTime).toBe(false);
+  });
+
+  it('отгрузили позже плановой даты — выпал из сроков', () => {
+    const res = productionProgramRowExecution({
+      engine: engine({ arrivalDate: 1_000, shippingDate: Date.UTC(2026, 10, 15) }),
+      shippingPlanAt: Date.UTC(2026, 10, 1),
+      now: NOW,
+    });
+    expect(res.state).toBe('shipped');
+    expect(res.overdue).toBe(true);
+  });
+
+  it('без плановой даты срок не судим', () => {
+    const res = productionProgramRowExecution({ engine: engine({ arrivalDate: 1_000 }), shippingPlanAt: null, now: NOW });
+    expect(res.onTime).toBeNull();
+    expect(res.overdue).toBe(false);
+  });
+
+  it('сводка плана считает собрано, не собрано, в срок и просрочено', () => {
+    const summary = productionProgramExecutionSummary({
+      rows: [
+        { engineId: 'ready', shippingPlanAt: Date.UTC(2026, 10, 20) },
+        { engineId: 'shipped', shippingPlanAt: Date.UTC(2026, 10, 20) },
+        { engineId: 'work', shippingPlanAt: Date.UTC(2026, 10, 1) },
+        { engineId: 'late', shippingPlanAt: Date.UTC(2026, 10, 1) },
+      ],
+      engines: [
+        engine({ id: 'ready', lastStageCode: 'otk', lastStageAt: 5_000, arrivalDate: 1_000 }),
+        engine({ id: 'shipped', arrivalDate: 1_000, shippingDate: Date.UTC(2026, 10, 5) }),
+        engine({ id: 'work', arrivalDate: 1_000 }),
+        engine({ id: 'late', arrivalDate: 1_000, shippingDate: Date.UTC(2026, 10, 15) }),
+      ],
+      now: NOW,
+    });
+    expect(summary.total).toBe(4);
+    // Выполнено три: готов к отгрузке, отгружен в срок и отгружен с опозданием.
+    expect(summary.done).toBe(3);
+    expect(summary.ready).toBe(1);
+    expect(summary.shipped).toBe(2);
+    expect(summary.inWork).toBe(1);
+    expect(summary.onTime).toBe(2);
+    expect(summary.overdue).toBe(2);
   });
 });

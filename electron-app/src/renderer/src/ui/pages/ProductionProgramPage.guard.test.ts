@@ -81,4 +81,17 @@ describe('производственная программа — экран п�
     // Черновой id собирался шаблонной строкой — именно её и не должно остаться.
     expect(PAGE).not.toContain('draft-${');
   });
+
+  it('план следит за выполнением сам: счётчики на плашке и отметка в строке', () => {
+    // Владелец (10.11.2026): «план сам себя отслеживал, выполнение плана по статусам
+    // двигателей… показывать, сколько двигателей ещё не собраны, невыполнены, сколько
+    // выполнены».
+    expect(PAGE).toContain('productionProgramExecutionSummary');
+    expect(PAGE).toContain('productionProgramRowExecution');
+    expect(PAGE).toContain('Собрано');
+    expect(PAGE).toContain('Просрочено');
+    expect(PAGE).toContain('<th>Выполнение</th>');
+    expect(SHARED_DOMAIN).toContain('export function productionProgramExecutionSummary');
+    expect(SHARED_DOMAIN).toContain('export function productionProgramRowExecution');
+  });
 });
