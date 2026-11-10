@@ -115,3 +115,46 @@ describe('печатная форма производственной прог�
     expect(shippedRow).not.toContain('background:#dcfce7');
   });
 });
+
+/**
+ * Настройки печати (владелец 10.11.2026): превью с галочками подписей и
+ * регулировкой кеглей, подписи вертикально в два столбца.
+ */
+describe('настройки печатной формы ПП', () => {
+  it('подписи идут вертикально в два столбца, а не в одну строку', () => {
+    // Восемь подписей в одну строку занимали половину листа (владелец: «подписи
+    // должны идти друг под дружкой… можно в два столбца»).
+    const html = productionProgramPrintHtml(INPUT as never);
+    const signatureTable = html.slice(html.indexOf('Коммерческий директор'));
+    expect(signatureTable).toContain('width:50%');
+    // Строк подписей вдвое меньше, чем подписей (две в ряд).
+    const rows = signatureTable.match(/<tr>/g) ?? [];
+    expect(rows.length).toBeGreaterThan(1);
+    expect(rows.length).toBeLessThan(8);
+  });
+
+  it('кегли разделов настраиваются: шапка, список, подписи', () => {
+    const html = productionProgramPrintHtml(INPUT as never, {
+      headerFontSize: 18,
+      tableFontSize: 11,
+      signatureFontSize: 12,
+    });
+    expect(html).toContain('font-size:18pt');
+    expect(html).toContain('font-size:11pt');
+    expect(html).toContain('font-size:12pt');
+  });
+
+  it('снятая подпись не печатается', () => {
+    const html = productionProgramPrintHtml(INPUT as never, {
+      signatureCaptions: ['Коммерческий директор'],
+    });
+    expect(html).toContain('Коммерческий директор');
+    expect(html).not.toContain('Начальник цеха №1');
+  });
+
+  it('кегль не выходит за разумные пределы', () => {
+    const html = productionProgramPrintHtml(INPUT as never, { tableFontSize: 2 });
+    expect(html).toContain('font-size:8pt');
+    expect(html).not.toContain('font-size:2pt');
+  });
+});

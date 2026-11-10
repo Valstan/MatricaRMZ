@@ -21,15 +21,16 @@ import {
   type ProductionProgramLineDraftDto,
   type ProductionProgramLineDto,
   type ProductionProgramPeriodKind,
+  type ProductionProgramPrintInput,
   type WorkOrderSignatureEmployee,
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { ProductionProgramPrintPreview } from '../components/ProductionProgramPrintPreview.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { UnifiedDateInput } from '../components/UnifiedDateInput.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
-import { openProductionProgramPrint } from '../utils/productionProgramPrintHtml.js';
 
 /**
  * Производственная программа (ПП) — страница модуля.
@@ -112,6 +113,8 @@ export function ProductionProgramPage(props: Props) {
   const [busy, setBusy] = useState(false);
   const [pickerContract, setPickerContract] = useState<string>('');
   const [pickerEngine, setPickerEngine] = useState<string>('');
+  // Форма, подготовленная к печати: открывается превью, а не принтер.
+  const [printInput, setPrintInput] = useState<ProductionProgramPrintInput | null>(null);
   // Вид периода: null — показываем вид, выведенный из самих дат.
   const [periodKindOverride, setPeriodKindOverride] = useState<ProductionProgramPeriodKind | null>(null);
   // Номер договора, подтянутый из строгой реплики: в строке двигателя его может не
@@ -519,9 +522,15 @@ export function ProductionProgramPage(props: Props) {
     setPickerEngine('');
   }
 
-  function printProgram() {
+  /**
+   * Кнопка «Печать» открывает ПРЕВЬЮ, а не принтер (владелец 10.11.2026):
+   * раньше сразу выскакивало системное окно принтера, и форму печати нельзя было
+   * ни посмотреть, ни поправить (закрытие окна принтера закрывало и форму).
+   * Превью — промежуточный этап: галочки подписей, кегли разделов и кнопка печати.
+   */
+  function openPrintPreview() {
     if (!selected) return;
-    const ok = openProductionProgramPrint({
+    setPrintInput({
       title: selected.title,
       shop: selected.shop,
       period: { start: selected.periodStart, end: selected.periodEnd },
@@ -541,7 +550,6 @@ export function ProductionProgramPage(props: Props) {
       engines: props.engines,
       employees,
     });
-    if (!ok) setError('Окно печати не открылось');
   }
 
   const hint = pickerEngine ? productionProgramEngineHint(engineById.get(pickerEngine) ?? null) : null;
@@ -663,7 +671,7 @@ export function ProductionProgramPage(props: Props) {
                   <Button onClick={() => void saveProgram()} disabled={busy || !props.canEdit}>
                     Сохранить
                   </Button>
-                  <Button onClick={printProgram}>Печать</Button>
+                  <Button onClick={openPrintPreview}>Печать</Button>
                   {props.canEdit ? (
                     <Button onClick={() => void removeProgram()} disabled={busy}>
                       Удалить
@@ -952,6 +960,9 @@ export function ProductionProgramPage(props: Props) {
           </>
         )}
       </div>
+
+      {/* Превью печатной формы — промежуточный этап между «Печать» и принтером. */}
+      {printInput ? <ProductionProgramPrintPreview input={printInput} onClose={() => setPrintInput(null)} /> : null}
     </div>
   );
 }
