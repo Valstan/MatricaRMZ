@@ -45,12 +45,12 @@ export function TrustRootNoticeDialog(props: {
           background: 'var(--surface)',
           border: '1px solid var(--border)',
           borderRadius: 12,
-          padding: 20,
-          maxWidth: 620,
+          padding: 16,
+          maxWidth: 660,
           width: '100%',
           display: 'grid',
-          gap: 12,
-          maxHeight: '90vh',
+          gap: 10,
+          maxHeight: '92vh',
           overflowY: 'auto',
         }}
       >

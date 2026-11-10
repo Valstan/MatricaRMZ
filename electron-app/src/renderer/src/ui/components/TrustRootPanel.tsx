@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-import { adminInstructions, planTrustRootSteps, trustRootLegacyNote, trustRootSummary, type TrustRootStatus } from '@matricarmz/shared';
+import { adminInstructions, planTrustRootSteps, trustRootLegacyNote, trustRootSignatureLabel, trustRootSummary, type TrustRootStatus } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 
@@ -49,12 +49,11 @@ export function TrustRootPanel(props: {
   const userTrusted = status?.userTrusted === true;
 
   return (
-    <div data-trust-root-panel style={{ display: 'grid', gap: 10 }}>
+    <div data-trust-root-panel style={{ display: 'grid', gap: 8 }}>
       <div style={{ fontWeight: 700, fontSize: 15 }}>Доверие и подпись</div>
-      <div style={{ color: 'var(--subtle)', fontSize: 13, marginTop: -6 }}>
-        Программа подписана своим ключом. Касперский не трогает подписанное, когда корень стоит в
-        машинном хранилище сертификатов и включён пункт «Доверенное системное хранилище
-        сертификатов».
+      <div style={{ color: 'var(--subtle)', fontSize: 13 }}>
+        Программа подписана ключом Матрицы — Касперский доверяет подписанному, когда корень стоит в
+        машинном хранилище и включён пункт «Доверенное системное хранилище сертификатов».
       </div>
 
       {status ? (
@@ -63,9 +62,9 @@ export function TrustRootPanel(props: {
             background: 'var(--surface-2)',
             border: '1px solid var(--border)',
             borderRadius: 8,
-            padding: '8px 10px',
+            padding: '6px 10px',
             display: 'grid',
-            gap: 4,
+            gap: 2,
           }}
         >
           <div style={{ fontWeight: 600 }}>{trustRootSummary(status)}</div>
@@ -85,17 +84,10 @@ export function TrustRootPanel(props: {
             </b>
           </div>
           <div data-trust-root-signature style={{ fontSize: 13, color: 'var(--subtle)' }}>
-            Подпись программы:{' '}
-            <b>
-              {status.signatureChainToMatrica
-                ? 'нашим ключом'
-                : status.executableSigned
-                  ? `чужая (${status.signerSubject ?? 'неизвестно'})`
-                  : 'нет'}
-            </b>
+            Подпись программы: <b>{trustRootSignatureLabel(status)}</b>
           </div>
           {status.probeError ? (
-            <div style={{ fontSize: 13, color: 'var(--tone-warn-text)' }}>
+            <div style={{ fontSize: 13, color: 'var(--danger)' }}>
               Состояние проверить не удалось: {status.probeError}
             </div>
           ) : null}
@@ -110,13 +102,13 @@ export function TrustRootPanel(props: {
           style={{
             border: '1px solid var(--border)',
             borderRadius: 8,
-            padding: '8px 10px',
+            padding: '6px 10px',
             display: 'grid',
-            gap: 6,
+            gap: 4,
           }}
         >
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ fontWeight: 600, fontSize: 13 }}>{step.title}</div>
+            <div style={{ fontWeight: 600, fontSize: 13, flex: 1, minWidth: 200 }}>{step.title}</div>
             {step.admin ? (
               <span
                 style={{
@@ -133,22 +125,21 @@ export function TrustRootPanel(props: {
                 нужен системный администратор
               </span>
             ) : null}
+            {/* Кнопка — в строке с заголовком, а не под текстом: иначе окно подсказки
+                (а она и есть то, что видит оператор после установки) уезжает за край
+                экрана на невысокой панели управления. */}
+            {step.id === 'install-user' && props.onInstallUser ? (
+              <Button size="sm" onClick={props.onInstallUser} disabled={props.busy}>
+                Поставить в моё хранилище
+              </Button>
+            ) : null}
+            {step.id === 'install-machine' && props.onInstallMachine ? (
+              <Button size="sm" tone="warn" onClick={props.onInstallMachine} disabled={props.busy}>
+                Установить на всю машину
+              </Button>
+            ) : null}
           </div>
           <div style={{ fontSize: 13, color: 'var(--subtle)' }}>{step.detail}</div>
-          {step.id === 'install-user' && props.onInstallUser ? (
-            <div>
-              <Button size="sm" onClick={props.onInstallUser} disabled={props.busy}>
-                Поставить в моё хранилище (без прав администратора)
-              </Button>
-            </div>
-          ) : null}
-          {step.id === 'install-machine' && props.onInstallMachine ? (
-            <div>
-              <Button size="sm" tone="warn" onClick={props.onInstallMachine} disabled={props.busy}>
-                Установить на всю машину (попросит права администратора)
-              </Button>
-            </div>
-          ) : null}
         </div>
       ))}
 
@@ -183,9 +174,9 @@ export function TrustRootPanel(props: {
               }}
             >
               <div style={{ fontSize: 13, fontWeight: 600 }}>
-                Инструкция для системного администратора — можно переслать в заявку
+                Для системного администратора — можно переслать в заявку
               </div>
-              <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--subtle)', display: 'grid', gap: 4 }}>
+              <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: 'var(--subtle)', display: 'grid', gap: 3 }}>
                 {instructions.map((line, i) => (
                   <li key={i}>{line}</li>
                 ))}

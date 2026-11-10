@@ -9,6 +9,7 @@ import {
   planTrustRootSteps,
   trustRootNoticeDecision,
   trustRootLegacyNote,
+  trustRootSignatureLabel,
   trustRootSummary,
   type TrustRootStatus,
 } from './trustRoot.js';
@@ -37,7 +38,7 @@ describe('корень доверия: шаги', () => {
     expect(steps.every((s) => s.admin)).toBe(true);
   });
 
-  it('кореня нет нигде: сначала пользовательское хранилище (без админа), потом машина, потом Касперский', () => {
+  it('корня нет нигде: сначала пользовательское хранилище (без админа), потом машина, потом Касперский', () => {
     const steps = planTrustRootSteps(status());
     expect(steps.map((s) => s.id)).toEqual(['install-user', 'install-machine', 'kaspersky-gui']);
     // Пользовательский шаг программа делает сама и сама же — без прав администратора.
@@ -52,7 +53,7 @@ describe('корень доверия: шаги', () => {
     expect(steps.map((s) => s.id)).toEqual(['install-machine', 'kaspersky-gui']);
   });
 
-  it('опрос не прошёл — это «состояние неизвестно», а не «кореня нет»', () => {
+  it('опрос не прошёл — это «состояние неизвестно», а не «корня нет»', () => {
     const steps = planTrustRootSteps(status({ probeError: 'powershell не найден' }));
     expect(steps.map((s) => s.id)).toEqual(['none']);
     expect(steps[0].detail).toContain('powershell не найден');
@@ -112,10 +113,11 @@ describe('подсказка при запуске: показывать или 
   });
 });
 
-describe('корень доверия: инструкция администратору', () => {  it('инструкция говорит, что делать, и признаёт, что Касперский программно не настроить', () => {
+describe('корень доверия: инструкция администратору', () => {
+  it('инструкция говорит, что делать, и признаёт, что Касперский программно не настроить', () => {
     const lines = adminInstructions(status());
     const text = lines.join('\n');
-    expect(text).toContain(MATRICA_ROOT_CA_THUMBPRINT);
+    expect(text).toContain(MATRICA_ROOT_CA_THUMBPRINT.slice(0, 8));
     expect(text).toContain('LocalMachine\\Root');
     expect(text).toContain('Доверенное системное хранилище сертификатов');
     expect(text).toContain('Самозащита');
@@ -128,17 +130,18 @@ describe('корень доверия: инструкция администра
     // операторов — путь в настройках Касперского читали как приглашение вносить списки
     // заново. Для наших файлов их закрывает подпись.
     const text = adminInstructions(status()).join('\n');
-    expect(text).toContain('ОДНА галочка');
-    expect(text).toContain('ничего добавлять не нужно');
+    expect(text).toContain('одна галочка');
+    expect(text).toContain('добавлять не нужно');
     expect(text).toContain('закрывает подпись');
   });
 
   it('не замалчивает про исключения на данные — подпись на них не распространяется', () => {
-    const text = adminInstructions(status()).join('\n');
-    expect(text).toContain('ПАПКИ с данными');
-    expect(text).toContain('подпись на данные не распространяется');
+    // Гарантия переехала в заметку для оператора: инструкция админу про подпись короткая,
+    // а про исключения на данные сказано отдельно и один раз.
+    const note = trustRootLegacyNote();
+    expect(note).toContain('исключения на папки с данными');
+    expect(note).toContain('помощник по антивирусу');
   });
-
   it('на настроенной машине шаг установки не предлагается заново', () => {
     const text = adminInstructions(status({ machineTrusted: true })).join('\n');
     expect(text).toContain('уже настроены');
@@ -149,9 +152,28 @@ describe('корень доверия: инструкция администра
 describe('корень доверия: заметка про старый способ', () => {
   it('говорит оператору, что ручные списки исключений больше не нужны', () => {
     const note = trustRootLegacyNote();
-    expect(note).toContain('больше не нужен');
+    expect(note).toContain('больше не нужны');
     expect(note).toContain('подпись');
     // И что осталось — только исключения на папки с данными.
     expect(note).toContain('данными');
+  });
+});
+
+describe('корень доверия: как названа подпись', () => {
+  it('наш ключ — доверие Касперского по подписи', () => {
+    const label = trustRootSignatureLabel(status({ signatureChainToMatrica: true, executableSigned: true }));
+    expect(label).toContain('нашим ключом');
+    expect(label).toContain('Касперский доверяет');
+  });
+
+  it('другой ключ — без слова «чужая»: в сборке для разработки это нормально', () => {
+    // Владелец (10.11.2026): слово «чужая» в инструкции пугало операторов.
+    const label = trustRootSignatureLabel(status({ executableSigned: true }));
+    expect(label).not.toContain('чужая');
+    expect(label).toContain('нормально');
+  });
+
+  it('подписи нет — говорим прямо, без оценок', () => {
+    expect(trustRootSignatureLabel(status())).toBe('подписи нет');
   });
 });
