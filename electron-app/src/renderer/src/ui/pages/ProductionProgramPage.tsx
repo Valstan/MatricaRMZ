@@ -1,23 +1,30 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
+  PRODUCTION_PROGRAM_PERIOD_LABELS,
   PRODUCTION_PROGRAM_STATES,
   PRODUCTION_PROGRAM_STATE_LABELS,
+  buildProductionProgramPeriod,
   formatProductionProgramPeriod,
   looksLikeIdentifier,
   parseContractSections,
   productionProgramContractLabel,
   productionProgramEngineHint,
+  productionProgramOrganizationLabel,
+  productionProgramPeriodKind,
   suggestedProductionProgramStates,
   type EngineListItem,
   type ProductionProgramDto,
   type ProductionProgramLineDraftDto,
   type ProductionProgramLineDto,
+  type ProductionProgramPeriodKind,
   type WorkOrderSignatureEmployee,
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { SearchSelect } from '../components/SearchSelect.js';
 import { SectionCard } from '../components/SectionCard.js';
+import { UnifiedDateInput } from '../components/UnifiedDateInput.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { openProductionProgramPrint } from '../utils/productionProgramPrintHtml.js';
 
@@ -28,13 +35,21 @@ import { openProductionProgramPrint } from '../utils/productionProgramPrintHtml.
  * доступен и без сети), а ведётся серверной дверью: кнопки «Сохранить» и «Новый
  * план» бьют в REST `/production-program`, а изменения приезжают обратно pull'ом.
  *
+ * Экран — две части (владелец 10.11.2026):
+ *  · слева — плашки производственных программ (название, период, цех, статус);
+ *  · справа — настройка открытой программы: шапка (название → цех → период →
+ *    статус), добор двигателей по договору и строки плана, сгруппированные по
+ *    договорам.
+ *
  * Что показывает экран:
- *  · список планов (период, цех, название, число двигателей);
- *  · редактор шапки: цех, название, период (две даты), статус;
+ *  · шапку: название, цех, период (вид + две даты), статус (черновик/утверждён);
  *  · строки плана: организация и договор, двигатель, состояние, плановая
  *    отгрузка, факторы, примечание;
  *  · добор двигателей по договору с подсказкой по состоянию («на заводе — можно
  *    брать», «ещё не приехал», «уже отгружен», «утиль»).
+ *
+ * Данные двигателя (заказчик, договор, номер) берутся из карточки ЖИВЫМИ: план
+ * не живёт отдельной жизнью — правка карточки видна в плане сразу.
  */
 
 type Props = {
@@ -46,17 +61,40 @@ type Props = {
 
 type DraftRow = ProductionProgramLineDraftDto & { id: string };
 
-function inputDate(ms: number | null | undefined): string {
+/** Строка плана на экране: снимок строки + живые данные карточки двигателя. */
+type ScreenRow = {
+  row: DraftRow;
+  engine: EngineListItem | null;
+  /** Живая подпись «Организация»: заказчик + три цифры номера договора. */
+  organization: string;
+};
+
+/** Статус программы: подпись и цвет плашки. */
+const PROGRAM_STATUS_LABELS: Record<string, string> = {
+  draft: 'Черновик',
+  approved: 'Утверждён',
+};
+
+/**
+ * Цвета статуса (владелец 10.11.2026: «подбери сам»).
+ * Черновик — бледный серый (не спорит с зелёным утверждения), утверждён — зелёный.
+ */
+const PROGRAM_STATUS_TONES: Record<string, { bg: string; border: string; text: string }> = {
+  draft: { bg: '#f1f5f9', border: '#cbd5e1', text: '#475569' },
+  approved: { bg: '#dcfce7', border: '#86efac', text: '#166534' },
+};
+
+function isoDate(ms: number | null | undefined): string {
   if (!ms || !Number.isFinite(ms) || ms <= 0) return '';
   const d = new Date(ms);
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function parseInputDate(value: string): number | null {
-  const m = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(String(value ?? '').trim());
+function parseIsoDate(value: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value ?? '').trim());
   if (!m) return null;
-  const [, d, mo, y] = m;
+  const [, y, mo, d] = m;
   const ts = new Date(Number(y), Number(mo) - 1, Number(d), 12, 0, 0, 0).getTime();
   return Number.isFinite(ts) ? ts : null;
 }
@@ -71,8 +109,10 @@ export function ProductionProgramPage(props: Props) {
   const [busy, setBusy] = useState(false);
   const [pickerContract, setPickerContract] = useState<string>('');
   const [pickerEngine, setPickerEngine] = useState<string>('');
+  // Вид периода: null — показываем вид, выведенный из самих дат.
+  const [periodKindOverride, setPeriodKindOverride] = useState<ProductionProgramPeriodKind | null>(null);
   // Номер договора, подтянутый из строгой реплики: в строке двигателя его может не
-  // быть (контракт создан мимо EAV), а подпись должна остаться человеческой.
+  // быть (контракт создан мимо EAV), а подпись должна оставаться человеческой.
   const [resolvedContractNumbers, setResolvedContractNumbers] = useState<Record<string, string>>({});
   // Сотрудники — для подписей ПП: если по должности нашёлся сотрудник, печатаем ФИО из
   // его карточки; если нет — ФИО из документа-образца (вносить подписантов в кадровый
@@ -174,41 +214,131 @@ export function ProductionProgramPage(props: Props) {
     );
   }, [lines, selectedId]);
 
+  const engineById = useMemo(() => new Map(props.engines.map((e) => [String(e.id), e])), [props.engines]);
+
+  /** Номер договора по его id: из карточки двигателя, иначе — из строгой реплики. */
+  const contractNumberById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const e of props.engines) {
+      const id = String(e.contractId ?? '');
+      if (!id) continue;
+      const number = String(e.contractName ?? '').trim();
+      if (number && !looksLikeIdentifier(number) && !map.has(id)) map.set(id, number);
+    }
+    for (const [id, number] of Object.entries(resolvedContractNumbers)) map.set(id, number);
+    return map;
+  }, [props.engines, resolvedContractNumbers]);
+
+  /** Живой номер договора для конкретного двигателя (с подстановкой из реплики). */
+  const contractNumberOf = useCallback(
+    (engine: EngineListItem | null | undefined): string => {
+      if (!engine) return '';
+      const raw = String(engine.contractName ?? '').trim();
+      if (raw && !looksLikeIdentifier(raw)) return raw;
+      const id = String(engine.contractId ?? '').trim();
+      return id ? String(contractNumberById.get(id) ?? '') : '';
+    },
+    [contractNumberById],
+  );
+
+  /** Договоры для выпадашки: подпись — заказчик и номер (поиск идёт по обоим). */
   const contracts = useMemo(() => {
-    // Подпись договора — человеческая: организация + номер. Идентификатор оператору
-    // не показываем (правило проекта: наименование, а не технический номер).
     const organizationById = new Map<string, string>();
-    const numberById = new Map<string, string>();
     for (const e of props.engines) {
       const id = String(e.contractId ?? '');
       if (!id) continue;
       if (!organizationById.has(id)) organizationById.set(id, String(e.customerName ?? '').trim());
-      const number = String(e.contractName ?? '').trim();
-      if (number && !looksLikeIdentifier(number) && !numberById.has(id)) numberById.set(id, number);
     }
-    for (const [id, number] of Object.entries(resolvedContractNumbers)) numberById.set(id, number);
     return [...organizationById.keys()].map((id) => ({
       id,
       label:
         productionProgramContractLabel({
           organization: organizationById.get(id),
-          contractNumber: numberById.get(id),
+          contractNumber: contractNumberById.get(id),
         }) || 'Договор без номера',
     }));
-  }, [props.engines, resolvedContractNumbers]);
+  }, [props.engines, contractNumberById]);
 
-  const contractEngines = useMemo(
-    // Пока договор не выбран, двигателей нет: строка плана без договора не имеет группы
-    // («Организация, договор»), и сервер такую строку всё равно не примет (у неё нет
-    // шапки группы) — предлагать её в договоре было бы обещанием, которого нет.
-    () => (pickerContract ? props.engines.filter((e) => String(e.contractId ?? '') === pickerContract) : []),
-    [props.engines, pickerContract],
-  );
+  const contractOptions = useMemo(() => contracts.map((c) => ({ id: c.id, label: c.label })), [contracts]);
 
-  const engineById = useMemo(() => new Map(props.engines.map((e) => [String(e.id), e])), [props.engines]);
+  /**
+   * Двигатели для выпадашки: все, если договор не выбран, иначе — его двигатели.
+   * Выбор двигателя подтягивает договор из карточки (поиски взаимозаменяемы).
+   */
+  const engineOptions = useMemo(() => {
+    const list = pickerContract ? props.engines.filter((e) => String(e.contractId ?? '') === pickerContract) : props.engines;
+    return list.map((e) => ({
+      id: String(e.id),
+      label: [e.engineBrand, e.engineNumber].filter(Boolean).join(' ') || String(e.id),
+    }));
+  }, [props.engines, pickerContract]);
+
+  /** Живая подпись договора (шапка группы): заказчик и полный номер. */
+  const contractLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of contracts) map.set(c.id, c.label);
+    return map;
+  }, [contracts]);
+
+  /** Строки плана, сгруппированные по договору (владелец 10.11.2026). */
+  const groups = useMemo(() => {
+    const byKey = new Map<string, { key: string; label: string; items: ScreenRow[] }>();
+    for (const row of rows) {
+      const engine = engineById.get(String(row.engineId ?? '')) ?? null;
+      const contractId = String(row.contractId ?? '');
+      const organization =
+        productionProgramOrganizationLabel({
+          customerName: engine?.customerName ?? null,
+          contractNumber: contractNumberOf(engine),
+        }) || String(row.groupLabel ?? '');
+      const label = contractLabelById.get(contractId) || String(row.groupLabel ?? '') || 'Без договора';
+      const key = contractId || `без-договора:${label}`;
+      let group = byKey.get(key);
+      if (!group) {
+        group = { key, label, items: [] };
+        byKey.set(key, group);
+      }
+      group.items.push({ row, engine, organization });
+    }
+    return [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+  }, [rows, engineById, contractLabelById, contractNumberOf]);
 
   const setHeader = (patch: Partial<ProductionProgramDto>) => {
     setPrograms((prev) => prev.map((p) => (p.id === selectedId ? { ...p, ...patch } : p)));
+  };
+
+  /** Смена программы: вид периода — по её датам. */
+  const selectProgram = (id: string) => {
+    setSelectedId(id);
+    setPeriodKindOverride(null);
+    setPickerContract('');
+    setPickerEngine('');
+  };
+
+  const inferredPeriodKind = useMemo<ProductionProgramPeriodKind>(
+    () => (selected ? productionProgramPeriodKind({ start: selected.periodStart, end: selected.periodEnd }) : 'two_weeks'),
+    [selected],
+  );
+  const periodKind = periodKindOverride ?? inferredPeriodKind;
+
+  /** Смена вида периода — сразу пересчитываем даты (вид = «две недели/месяц/свои»). */
+  const applyPeriodKind = (kind: ProductionProgramPeriodKind) => {
+    setPeriodKindOverride(kind);
+    if (!selected) return;
+    const base = selected.periodStart || Date.now();
+    const period = buildProductionProgramPeriod(kind, base, { start: selected.periodStart, end: selected.periodEnd });
+    setHeader({ periodStart: period.start, periodEnd: period.end });
+  };
+
+  /** Правка одной даты периода: вид дальше выводится из дат. */
+  const applyPeriodDate = (which: 'start' | 'end', value: string) => {
+    if (!selected) return;
+    const next = parseIsoDate(value);
+    if (next == null) return;
+    const start = which === 'start' ? next : selected.periodStart;
+    const end = which === 'end' ? next : selected.periodEnd;
+    setPeriodKindOverride(null);
+    setHeader({ periodStart: Math.min(start, end), periodEnd: Math.max(start, end) });
   };
 
   async function createProgram() {
@@ -235,6 +365,7 @@ export function ProductionProgramPage(props: Props) {
       setStatus('План создан');
       await reload();
       setSelectedId(res.id);
+      setPeriodKindOverride(null);
     } finally {
       setBusy(false);
     }
@@ -334,9 +465,11 @@ export function ProductionProgramPage(props: Props) {
     // Шапка группы — человеческое наименование договора (организация и номер).
     // Идентификатор в неё не идёт: в отчёте это «номер вместо наименования».
     // Наименования нет — строку не берём: без группы строки план не складывается.
-    const groupLabel = contracts.find((c) => c.id === contractId)?.label ?? '';
+    const groupLabel = contractLabelById.get(contractId) ?? '';
     if (!groupLabel || groupLabel === 'Договор без номера') {
-      setError('У двигателя нет наименования договора — строка плана без него не имеет группы. Заведите договор (наименование и номер) и повторите.');
+      setError(
+        'У двигателя нет наименования договора — строка плана без него не имеет группы. Заведите договор (наименование и номер) и повторите.',
+      );
       return;
     }
     setRows((prev) => [
@@ -389,260 +522,373 @@ export function ProductionProgramPage(props: Props) {
 
   const hint = pickerEngine ? productionProgramEngineHint(engineById.get(pickerEngine) ?? null) : null;
 
+  const fieldLabel = (label: string, control: React.ReactNode) => (
+    <label style={{ display: 'grid', gap: 4, fontSize: 12, minWidth: 0 }}>
+      <span style={{ color: 'var(--subtle)' }}>{label}</span>
+      {control}
+    </label>
+  );
+
   return (
-    <div style={{ display: 'grid', gap: 12 }}>
+    <div
+      className="production-program-page"
+      style={{
+        display: 'grid',
+        gap: 12,
+        gridTemplateColumns: 'minmax(260px, 340px) minmax(0, 1fr)',
+        width: '100%',
+        minWidth: 0,
+        alignItems: 'start',
+      }}
+    >
+      {/* ЛЕВАЯ ЧАСТЬ — плашки производственных программ */}
       <SectionCard
-        title="Производственная программа"
+        title="Производственные программы"
         actions={
-          <div style={{ display: 'flex', gap: 8 }}>
-            {props.canEdit ? (
-              <Button onClick={() => void createProgram()} disabled={busy}>
-                Новый план
-              </Button>
-            ) : null}
-            {selected ? (
-              <>
-                <Button onClick={() => void saveProgram()} disabled={busy || !props.canEdit}>
-                  Сохранить
-                </Button>
-                <Button onClick={printProgram}>Печать</Button>
-                {props.canEdit ? (
-                  <Button onClick={() => void removeProgram()} disabled={busy}>
-                    Удалить
-                  </Button>
-                ) : null}
-              </>
-            ) : null}
-          </div>
+          props.canEdit ? (
+            <Button onClick={() => void createProgram()} disabled={busy}>
+              Новый план
+            </Button>
+          ) : null
         }
       >
-        {error ? <div style={{ color: 'var(--danger)', marginBottom: 8 }}>{error}</div> : null}
-        {status ? <div style={{ color: 'var(--subtle)', marginBottom: 8 }}>{status}</div> : null}
-        <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'minmax(220px, 300px) 1fr' }}>
-          <div style={{ display: 'grid', gap: 6, alignContent: 'start' }}>
+        <div style={{ display: 'grid', gap: 8 }}>
+          {programs.length === 0 ? (
             <div className="ui-muted" style={{ fontSize: 12 }}>
-              Планы
+              Планов пока нет
             </div>
-            {programs.length === 0 ? (
-              <div className="ui-muted" style={{ fontSize: 12 }}>
-                Планов пока нет
-              </div>
-            ) : null}
-            {programs.map((p) => (
+          ) : null}
+          {programs.map((p) => {
+            const tone = PROGRAM_STATUS_TONES[p.status] ?? PROGRAM_STATUS_TONES.draft!;
+            const count = lines.filter((l) => l.programId === p.id).length;
+            const active = p.id === selectedId;
+            return (
               <button
                 key={p.id}
                 type="button"
-                onClick={() => setSelectedId(p.id)}
+                onClick={() => selectProgram(p.id)}
                 style={{
                   textAlign: 'left',
-                  padding: '6px 8px',
+                  display: 'grid',
+                  gap: 4,
+                  padding: '8px 10px',
                   borderRadius: 8,
-                  border: '1px solid var(--border)',
-                  background: p.id === selectedId ? 'var(--tone-info-bg, #dbeafe)' : 'transparent',
+                  border: `1px solid ${active ? tone.border : 'var(--border)'}`,
+                  background: active ? tone.bg : 'transparent',
                   cursor: 'pointer',
+                  minWidth: 0,
                 }}
               >
-                <div style={{ fontWeight: 600 }}>{p.title}</div>
+                <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.title}</div>
                 <div className="ui-muted" style={{ fontSize: 12 }}>
-                  {p.shop} · {formatProductionProgramPeriod({ start: p.periodStart, end: p.periodEnd })} ·{' '}
-                  {lines.filter((l) => l.programId === p.id).length} двиг.
+                  {formatProductionProgramPeriod({ start: p.periodStart, end: p.periodEnd })}
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      padding: '1px 6px',
+                      borderRadius: 999,
+                      border: `1px solid ${tone.border}`,
+                      background: tone.bg,
+                      color: tone.text,
+                    }}
+                  >
+                    {PROGRAM_STATUS_LABELS[p.status] ?? p.status}
+                  </span>
+                  <span className="ui-muted" style={{ fontSize: 12 }}>
+                    {p.shop} · {count} двиг.
+                  </span>
                 </div>
               </button>
-            ))}
-          </div>
-
-          <div style={{ display: 'grid', gap: 10 }}>
-            {!selected ? (
-              <div className="ui-muted">Выберите план или создайте новый.</div>
-            ) : (
-              <>
-                <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
-                  <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
-                    Цех
-                    <input
-                      value={selected.shop}
-                      disabled={!props.canEdit}
-                      onChange={(e) => setHeader({ shop: e.target.value })}
-                      style={{ padding: '4px 6px' }}
-                    />
-                  </label>
-                  <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
-                    Название
-                    <input
-                      value={selected.title}
-                      disabled={!props.canEdit}
-                      onChange={(e) => setHeader({ title: e.target.value })}
-                      style={{ padding: '4px 6px' }}
-                    />
-                  </label>
-                  <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
-                    Период с
-                    <input
-                      value={inputDate(selected.periodStart)}
-                      disabled={!props.canEdit}
-                      onChange={(e) => setHeader({ periodStart: parseInputDate(e.target.value) ?? selected.periodStart })}
-                      style={{ padding: '4px 6px' }}
-                    />
-                  </label>
-                  <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
-                    Период по
-                    <input
-                      value={inputDate(selected.periodEnd)}
-                      disabled={!props.canEdit}
-                      onChange={(e) => setHeader({ periodEnd: parseInputDate(e.target.value) ?? selected.periodEnd })}
-                      style={{ padding: '4px 6px' }}
-                    />
-                  </label>
-                  <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
-                    Статус
-                    <select
-                      value={selected.status}
-                      disabled={!props.canEdit}
-                      onChange={(e) => setHeader({ status: e.target.value })}
-                      style={{ padding: '4px 6px' }}
-                    >
-                      <option value="draft">Черновик</option>
-                      <option value="approved">Утверждён</option>
-                    </select>
-                  </label>
-                </div>
-
-                {props.canEdit ? (
-                  <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(200px, 1fr) minmax(240px, 2fr) auto' }}>
-                    <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
-                      Договор
-                      <select value={pickerContract} onChange={(e) => setPickerContract(e.target.value)} style={{ padding: '4px 6px' }}>
-                        <option value="">— выберите договор —</option>
-                        {contracts.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.label}
-                          </option>
-                        ))}
-                      </select>                    </label>
-                    <label style={{ display: 'grid', gap: 4, fontSize: 12 }}>
-                      Двигатель
-                      <select value={pickerEngine} onChange={(e) => setPickerEngine(e.target.value)} style={{ padding: '4px 6px' }}>
-                        <option value="">— выберите двигатель —</option>
-                        {contractEngines.map((e) => (
-                          <option key={String(e.id)} value={String(e.id)}>
-                            {[e.engineBrand, e.engineNumber].filter(Boolean).join(' ')}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <Button onClick={() => void addEngine()} disabled={!pickerEngine}>
-                      Добавить в план
-                    </Button>
-                    {hint ? (
-                      <div style={{ fontSize: 12, color: 'var(--subtle)', gridColumn: '1 / -1' }}>
-                        {hint.text}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-
-                <div style={{ overflowX: 'auto' }}>
-                  <table className="list-table" style={{ width: '100%' }}>
-                    <thead>
-                      <tr>
-                        <th>№ п/п</th>
-                        <th>Организация, договор</th>
-                        <th>Двигатель</th>
-                        <th>Состояние</th>
-                        <th>Отгрузка</th>
-                        <th>Факторы</th>
-                        <th>Примечание</th>
-                        {props.canEdit ? <th /> : null}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.length === 0 ? (
-                        <tr>
-                          <td colSpan={props.canEdit ? 8 : 7} className="ui-muted">
-                            Строк в плане нет
-                          </td>
-                        </tr>
-                      ) : null}
-                      {rows.map((r, i) => (
-                        <tr key={r.id}>
-                          <td>{i + 1}</td>
-                          <td>{r.groupLabel}</td>
-                          <td>{[r.engineMark, r.engineNumber].filter(Boolean).join(' ')}</td>
-                          <td>
-                            <select
-                              value={r.state ?? ''}
-                              disabled={!props.canEdit}
-                              onChange={(e) =>
-                                setRows((prev) =>
-                                  prev.map((x) => (x.id === r.id ? { ...x, state: e.target.value || null } : x)),
-                                )
-                              }
-                              style={{ padding: '2px 4px' }}
-                            >
-                              <option value="">—</option>
-                              {PRODUCTION_PROGRAM_STATES.map((s) => (
-                                <option key={s} value={s}>
-                                  {PRODUCTION_PROGRAM_STATE_LABELS[s]}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                          <td>
-                            <input
-                              value={inputDate(r.shippingPlanAt)}
-                              disabled={!props.canEdit}
-                              onChange={(e) =>
-                                setRows((prev) =>
-                                  prev.map((x) =>
-                                    x.id === r.id ? { ...x, shippingPlanAt: parseInputDate(e.target.value) } : x,
-                                  ),
-                                )
-                              }
-                              style={{ padding: '2px 4px', width: 110 }}
-                            />
-                          </td>
-                          <td>
-                            <input
-                              value={r.factors ?? ''}
-                              disabled={!props.canEdit}
-                              onChange={(e) =>
-                                setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, factors: e.target.value } : x)))
-                              }
-                              style={{ padding: '2px 4px', width: 180 }}
-                            />
-                          </td>
-                          <td>
-                            <input
-                              value={r.note ?? ''}
-                              disabled={!props.canEdit}
-                              onChange={(e) =>
-                                setRows((prev) => prev.map((x) => (x.id === r.id ? { ...x, note: e.target.value } : x)))
-                              }
-                              style={{ padding: '2px 4px', width: 160 }}
-                            />
-                          </td>
-                          {props.canEdit ? (
-                            <td>
-                              <button
-                                type="button"
-                                onClick={() => setRows((prev) => prev.filter((x) => x.id !== r.id))}
-                                title="Убрать строку из плана"
-                                style={{ border: 'none', background: 'transparent', color: 'var(--danger)', cursor: 'pointer' }}
-                              >
-                                ✕
-                              </button>
-                            </td>
-                          ) : null}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-          </div>
+            );
+          })}
         </div>
       </SectionCard>
+
+      {/* ПРАВАЯ ЧАСТЬ — настройка открытой программы */}
+      <div style={{ display: 'grid', gap: 12, minWidth: 0 }}>
+        {error ? (
+          <div style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</div>
+        ) : null}
+        {status ? (
+          <div style={{ color: 'var(--subtle)', fontSize: 12 }}>{status}</div>
+        ) : null}
+        {!selected ? (
+          <SectionCard title="Программа">
+            <div className="ui-muted">Выберите программу слева или создайте новую.</div>
+          </SectionCard>
+        ) : (
+          <>
+            <SectionCard
+              title="Программа"
+              actions={
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button onClick={() => void saveProgram()} disabled={busy || !props.canEdit}>
+                    Сохранить
+                  </Button>
+                  <Button onClick={printProgram}>Печать</Button>
+                  {props.canEdit ? (
+                    <Button onClick={() => void removeProgram()} disabled={busy}>
+                      Удалить
+                    </Button>
+                  ) : null}
+                </div>
+              }
+            >
+              <div
+                style={{
+                  display: 'grid',
+                  gap: 10,
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+                  alignItems: 'end',
+                }}
+              >
+                {fieldLabel(
+                  'Название программы',
+                  <input
+                    value={selected.title}
+                    disabled={!props.canEdit}
+                    onChange={(e) => setHeader({ title: e.target.value })}
+                    style={{ padding: '4px 6px', width: '100%' }}
+                  />,
+                )}
+                {fieldLabel(
+                  'Цех',
+                  <input
+                    value={selected.shop}
+                    disabled={!props.canEdit}
+                    onChange={(e) => setHeader({ shop: e.target.value })}
+                    style={{ padding: '4px 6px', width: '100%' }}
+                  />,
+                )}
+                {fieldLabel(
+                  'Период',
+                  <select
+                    value={periodKind}
+                    disabled={!props.canEdit}
+                    onChange={(e) => applyPeriodKind(e.target.value as ProductionProgramPeriodKind)}
+                    style={{ padding: '4px 6px', width: '100%' }}
+                  >
+                    {(['two_weeks', 'month', 'custom'] as ProductionProgramPeriodKind[]).map((kind) => (
+                      <option key={kind} value={kind}>
+                        {PRODUCTION_PROGRAM_PERIOD_LABELS[kind]}
+                      </option>
+                    ))}
+                  </select>,
+                )}
+                {fieldLabel(
+                  'Период с',
+                  <UnifiedDateInput
+                    type="date"
+                    value={isoDate(selected.periodStart)}
+                    disabled={!props.canEdit}
+                    onChange={(e) => applyPeriodDate('start', String(e.target.value ?? ''))}
+                  />,
+                )}
+                {fieldLabel(
+                  'Период по',
+                  <UnifiedDateInput
+                    type="date"
+                    value={isoDate(selected.periodEnd)}
+                    disabled={!props.canEdit}
+                    onChange={(e) => applyPeriodDate('end', String(e.target.value ?? ''))}
+                  />,
+                )}
+                {fieldLabel(
+                  'Статус программы',
+                  <select
+                    value={selected.status}
+                    disabled={!props.canEdit}
+                    onChange={(e) => setHeader({ status: e.target.value })}
+                    style={{ padding: '4px 6px', width: '100%' }}
+                  >
+                    <option value="draft">Черновик</option>
+                    <option value="approved">Утверждён</option>
+                  </select>,
+                )}
+              </div>
+
+              {props.canEdit ? (
+                <div
+                  style={{
+                    display: 'grid',
+                    gap: 8,
+                    gridTemplateColumns: 'minmax(220px, 1fr) minmax(240px, 1fr) auto',
+                    alignItems: 'end',
+                    marginTop: 12,
+                  }}
+                >
+                  {fieldLabel(
+                    'Договор',
+                    <SearchSelect
+                      value={pickerContract || null}
+                      options={contractOptions}
+                      placeholder="— выберите договор —"
+                      emptyQueryLimit={40}
+                      onChange={(next) => {
+                        setPickerContract(next ?? '');
+                        // Договор сменился — выбранный двигатель может быть чужим.
+                        setPickerEngine('');
+                      }}
+                    />,
+                  )}
+                  {fieldLabel(
+                    'Двигатель',
+                    <SearchSelect
+                      value={pickerEngine || null}
+                      options={engineOptions}
+                      placeholder="— найдите двигатель по номеру —"
+                      emptyQueryLimit={40}
+                      onChange={(next) => {
+                        setPickerEngine(next ?? '');
+                        // Поиски взаимозаменяемы: двигатель подтягивает свой договор.
+                        const engine = next ? engineById.get(next) : null;
+                        const contractId = String(engine?.contractId ?? '');
+                        if (contractId) setPickerContract(contractId);
+                      }}
+                    />,
+                  )}
+                  <Button onClick={() => void addEngine()} disabled={!pickerEngine}>
+                    Добавить в план
+                  </Button>
+                  {hint ? (
+                    <div style={{ fontSize: 12, color: 'var(--subtle)', gridColumn: '1 / -1' }}>{hint.text}</div>
+                  ) : null}
+                </div>
+              ) : null}
+            </SectionCard>
+
+            <SectionCard title="Строки плана">
+              <div style={{ overflowX: 'auto' }}>
+                <table className="list-table" style={{ width: '100%' }}>
+                  <thead>
+                    <tr>
+                      <th>№ п/п</th>
+                      <th>Организация, договор</th>
+                      <th>Двигатель</th>
+                      <th>Состояние</th>
+                      <th>Отгрузка</th>
+                      <th>Факторы</th>
+                      <th>Примечание</th>
+                      {props.canEdit ? <th /> : null}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groups.length === 0 ? (
+                      <tr>
+                        <td colSpan={props.canEdit ? 8 : 7} className="ui-muted">
+                          Строк в плане нет
+                        </td>
+                      </tr>
+                    ) : null}
+                    {groups.map((group) => (
+                      <React.Fragment key={group.key}>
+                        <tr style={{ background: '#f3f4f6' }}>
+                          <td
+                            colSpan={props.canEdit ? 8 : 7}
+                            style={{ fontWeight: 700, padding: '4px 6px', whiteSpace: 'normal' }}
+                          >
+                            {group.label}
+                          </td>
+                        </tr>
+                        {group.items.map((item, i) => {
+                          const r = item.row;
+                          const engine = item.engine;
+                          return (
+                            <tr key={r.id}>
+                              <td>{i + 1}</td>
+                              <td title={item.organization}>{item.organization || '—'}</td>
+                              <td>
+                                {[engine?.engineBrand ?? r.engineMark, engine?.engineNumber ?? r.engineNumber]
+                                  .filter(Boolean)
+                                  .join(' ')}
+                              </td>
+                              <td>
+                                <select
+                                  value={r.state ?? ''}
+                                  disabled={!props.canEdit}
+                                  onChange={(e) =>
+                                    setRows((prev) =>
+                                      prev.map((x) => (x.id === r.id ? { ...x, state: e.target.value || null } : x)),
+                                    )
+                                  }
+                                  style={{ padding: '2px 4px' }}
+                                >
+                                  <option value="">—</option>
+                                  {PRODUCTION_PROGRAM_STATES.map((s) => (
+                                    <option key={s} value={s}>
+                                      {PRODUCTION_PROGRAM_STATE_LABELS[s]}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td>
+                                <UnifiedDateInput
+                                  type="date"
+                                  value={isoDate(r.shippingPlanAt)}
+                                  disabled={!props.canEdit}
+                                  onChange={(e) => {
+                                    const next = parseIsoDate(String(e.target.value ?? ''));
+                                    setRows((prev) =>
+                                      prev.map((x) => (x.id === r.id ? { ...x, shippingPlanAt: next } : x)),
+                                    );
+                                  }}
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  value={r.factors ?? ''}
+                                  disabled={!props.canEdit}
+                                  onChange={(e) =>
+                                    setRows((prev) =>
+                                      prev.map((x) => (x.id === r.id ? { ...x, factors: e.target.value } : x)),
+                                    )
+                                  }
+                                  style={{ padding: '2px 4px', width: 180 }}
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  value={r.note ?? ''}
+                                  disabled={!props.canEdit}
+                                  onChange={(e) =>
+                                    setRows((prev) =>
+                                      prev.map((x) => (x.id === r.id ? { ...x, note: e.target.value } : x)),
+                                    )
+                                  }
+                                  style={{ padding: '2px 4px', width: 160 }}
+                                />
+                              </td>
+                              {props.canEdit ? (
+                                <td>
+                                  <button
+                                    type="button"
+                                    onClick={() => setRows((prev) => prev.filter((x) => x.id !== r.id))}
+                                    title="Убрать строку из плана"
+                                    style={{
+                                      border: 'none',
+                                      background: 'transparent',
+                                      color: 'var(--danger)',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    ✕
+                                  </button>
+                                </td>
+                              ) : null}
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </SectionCard>
+          </>
+        )}
+      </div>
     </div>
   );
 }

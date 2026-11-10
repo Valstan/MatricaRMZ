@@ -83,7 +83,7 @@ function rowHtml(model: ProductionProgramPrintModel): string {
       body.push(
         `<tr style="${bg}">` +
           `<td style="border:1px solid #111827;padding:3px 4px;text-align:center">${row.orderNo}</td>` +
-          `<td style="border:1px solid #111827;padding:3px 4px">${escapeHtml(row.groupLabel)}</td>` +
+          `<td style="border:1px solid #111827;padding:3px 4px">${escapeHtml(row.organizationLabel)}</td>` +
           `<td style="border:1px solid #111827;padding:3px 4px">${escapeHtml(
             [row.engineMark, row.engineNumber].filter(Boolean).join(' '),
           )}</td>` +
