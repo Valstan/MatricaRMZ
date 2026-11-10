@@ -8,6 +8,7 @@ import {
   isTrustRootHealthy,
   planTrustRootSteps,
   trustRootNoticeDecision,
+  trustRootLegacyNote,
   trustRootSummary,
   type TrustRootStatus,
 } from './trustRoot.js';
@@ -122,9 +123,35 @@ describe('корень доверия: инструкция администра
     expect(text).toContain('install-root-on-machine.ps1');
   });
 
+  it('говорит прямо: в «Исключениях» и «Доверенных программах» добавлять нечего', () => {
+    // Владелец (10.11.2026): старое описание ручного добавления исключений путает
+    // операторов — путь в настройках Касперского читали как приглашение вносить списки
+    // заново. Для наших файлов их закрывает подпись.
+    const text = adminInstructions(status()).join('\n');
+    expect(text).toContain('ОДНА галочка');
+    expect(text).toContain('ничего добавлять не нужно');
+    expect(text).toContain('закрывает подпись');
+  });
+
+  it('не замалчивает про исключения на данные — подпись на них не распространяется', () => {
+    const text = adminInstructions(status()).join('\n');
+    expect(text).toContain('ПАПКИ с данными');
+    expect(text).toContain('подпись на данные не распространяется');
+  });
+
   it('на настроенной машине шаг установки не предлагается заново', () => {
     const text = adminInstructions(status({ machineTrusted: true })).join('\n');
     expect(text).toContain('уже настроены');
     expect(text).not.toContain('install-root-on-machine.ps1');
+  });
+});
+
+describe('корень доверия: заметка про старый способ', () => {
+  it('говорит оператору, что ручные списки исключений больше не нужны', () => {
+    const note = trustRootLegacyNote();
+    expect(note).toContain('больше не нужен');
+    expect(note).toContain('подпись');
+    // И что осталось — только исключения на папки с данными.
+    expect(note).toContain('данными');
   });
 });

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-import { adminInstructions, planTrustRootSteps, trustRootSummary, type TrustRootStatus } from '@matricarmz/shared';
+import { adminInstructions, planTrustRootSteps, trustRootLegacyNote, trustRootSummary, type TrustRootStatus } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 
@@ -154,6 +154,12 @@ export function TrustRootPanel(props: {
 
       {instructions.length > 0 ? (
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 8, display: 'grid', gap: 6 }}>
+          {/* Старый способ (списки исключений руками) для наших файлов не нужен — и без
+              этой строки путь в настройках Касперского читается как приглашение вносить
+              исключения заново. */}
+          <div data-trust-root-legacy-note style={{ fontSize: 12, color: 'var(--subtle)' }}>
+            {trustRootLegacyNote()}
+          </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <Button size="sm" variant="ghost" onClick={() => setAdminOpen((v) => !v)}>
               {adminOpen ? 'Скрыть' : 'Что делать системному администратору'}
