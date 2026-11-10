@@ -257,6 +257,30 @@ async function main() {
     'панель прямо просит позвать системного администратора',
     { snippet: panelText.slice(0, 200) },
   );
+
+  // Замечание владельца (10.11.2026): старое описание «внести исключения вручную» в
+  // инструкции путало операторов. Проверяем, что сказано обратное: руками добавлять
+  // нечего, а исключения остались только на папки с данными.
+  const legacyNote = await evaluate(
+    ws,
+    `const n = document.querySelector('[data-trust-root-legacy-note]');
+     return { ok: Boolean(n), text: n ? txt(n) : '' };`,
+  );
+  note(legacyNote.ok, 'в панели есть заметка про старый способ', legacyNote.ok ? undefined : legacyNote);
+  note(
+    legacyNote.ok && legacyNote.text.includes('больше не нужен'),
+    'заметка говорит: ручные списки исключений больше не нужны',
+    { text: legacyNote.ok ? legacyNote.text : '' },
+  );
+  note(
+    opened.ok && opened.text.includes('ничего добавлять не нужно'),
+    'инструкция администратору говорит: в «Исключениях» добавлять нечего',
+    { snippet: opened.ok ? opened.text.slice(0, 200) : '' },
+  );
+  note(
+    opened.ok && opened.text.includes('ПАПКИ с данными'),
+    'инструкция не замалчивает про исключения на данные',
+  );
   const shotPath = await shot(ws, 'panel');
   const failed = steps.filter((s) => !s.ok);
   writeFileSync(OUT, JSON.stringify({ verdict: failed.length === 0 ? 'PASS' : 'FAIL', steps, screenshots: [shotPath] }, null, 2));
