@@ -12,6 +12,7 @@ import type { TimesheetCodeDef, TimesheetData, TimesheetHeader } from '../domain
 import type { UserUiProfile } from '../domain/userUiProfile.js';
 import type { UiShellPrefs } from '../domain/uiShellV2.js';
 import type { SectionMembership } from '../domain/sectionAccess.js';
+import type { TrustRootStatus } from '../domain/trustRoot.js';
 import type { SupportContact } from '../domain/supportContact.js';
 import type { ServicePriceHistoryDto, ServicePriceOrderDto } from '../domain/servicePriceOrders.js';
 import type { WorkSheetRow, WorkSheetType } from '../domain/workSheets.js';
@@ -1461,6 +1462,22 @@ export type MatricaApi = {
     launch: (args?: { tab?: ClientOpsTab }) => Promise<{ ok: true; dir: string } | { ok: false; error: string }>;
     reveal: () => Promise<{ ok: true } | { ok: false; error: string }>;
     saveCopy: () => Promise<{ ok: true; folder: string } | { ok: false; error: string }>;
+  };
+  /**
+   * Корень доверия Матрицы: подпись программы и доверие Касперского (ADR-0003).
+   * Доступно любому вошедшему: проверка и установка в профиль — работа на своей машине,
+   * права администратора нужны только машинному хранилищу, и там решение остаётся за человеком.
+   */
+  trustRoot: {
+    status: (args?: { force?: boolean }) => Promise<TrustRootStatus>;
+    /** Поставить корень в хранилище пользователя — без прав администратора, молча. */
+    installUser: () => Promise<{ ok: boolean; error: string | null; durationMs: number }>;
+    /** Поставить корень в машинные хранилища — запросит права администратора (UAC). */
+    installMachine: () => Promise<{ ok: boolean; error: string | null; durationMs: number }>;
+    /** Показывать ли подсказку про доверие при старте (решение — в домене trustRoot). */
+    notice: () => Promise<{ show: boolean; reason: string; status: TrustRootStatus }>;
+    /** Отметить, что подсказку показали — чтобы не лезть повторно каждую неделю. */
+    noticeAck: () => Promise<{ ok: true }>;
   };
   maintenance: {
     emptyCardsAnalyze: () => Promise<MaintenanceEmptyCardsAnalyzeResult>;

@@ -3,6 +3,8 @@ import React, { useEffect, useState } from 'react';
 import type { ClientOpsBundleInfo, ClientOpsTab } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { TrustRootPanel } from './TrustRootPanel.js';
+import { useTrustRoot } from '../hooks/useTrustRoot.js';
 
 /**
  * «Скрипты обслуживания» — вход в окно обслуживания машины.
@@ -20,6 +22,9 @@ export function ClientOpsDialog(props: { open: boolean; onClose: () => void; not
   const [bundle, setBundle] = useState<ClientOpsBundleInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [fallbackOpen, setFallbackOpen] = useState(false);
+  // Доверие и подпись живут в этом же окне: оператор приходит сюда за настройкой машины,
+  // и «корень не установлен — позовите администратора» — это ровно сюда.
+  const trust = useTrustRoot({ notify: props.notify });
 
   useEffect(() => {
     if (!props.open) return;
@@ -97,9 +102,32 @@ export function ClientOpsDialog(props: { open: boolean; onClose: () => void; not
           width: '100%',
           display: 'grid',
           gap: 12,
+          // Панель доверия с инструкцией администратору делает окно длинным: на невысокой
+          // панели управления без прокрутки нижние кнопки уезжали бы за край.
+          maxHeight: '90vh',
+          overflowY: 'auto',
         }}
       >
         <div style={{ fontWeight: 700, fontSize: 18 }}>🧰 Скрипты обслуживания</div>
+
+        <div
+          data-client-ops-trust
+          style={{
+            border: '1px solid var(--border)',
+            borderRadius: 10,
+            padding: '12px 14px',
+            display: 'grid',
+            gap: 8,
+          }}
+        >
+          <TrustRootPanel
+            status={trust.status}
+            busy={trust.busy}
+            onInstallUser={() => void trust.installUser()}
+            onInstallMachine={() => void trust.installMachine()}
+            onRefresh={() => void trust.refresh(true)}
+          />
+        </div>
 
         {bundle?.available ? (
           <>

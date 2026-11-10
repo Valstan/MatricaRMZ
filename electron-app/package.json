@@ -106,6 +106,18 @@
           "to": "kaspersky-matrica.zip"
         },
         {
+          "from": "build/trust/matrixarmz-rootca.cer",
+          "to": "matrixarmz-rootca.cer"
+        },
+        {
+          "from": "build/trust/install-root-on-machine.ps1",
+          "to": "install-root-on-machine.ps1"
+        },
+        {
+          "from": "build/trust/trust-root-probe.ps1",
+          "to": "trust-root-probe.ps1"
+        },
+        {
           "from": "installer/kaspersky-desktop-readme.txt",
           "to": "kaspersky-desktop-readme.txt"
         }
