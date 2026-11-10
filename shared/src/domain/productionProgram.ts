@@ -20,12 +20,12 @@
 
 import type { EngineListItem } from '../ipc/types.js';
 import type { ContractKind } from './contract.js';
-import { parseContractKind } from './contract.js';
+import { parseContractKind, shortContractSuffix } from './contract.js';
 import { engineStateLabel } from './engineFactoryStage.js';
 import { resolveEngineTruthDates } from './engineReclamation.js';
 import { repairStageRank } from './repairStages.js';
 import { findEmployeeByPositionGroups, formatEmployeeSurnameInitials, type WorkOrderSignatureEmployee } from './workOrderSignatures.js';
-import { HUMAN_LABEL_DASH, humanCellText } from './humanLabels.js';
+import { HUMAN_LABEL_DASH, humanCellText, looksLikeIdentifier } from './humanLabels.js';
 
 /**
  * Подпись договора для плана: организация + номер договора (как в Word-форме).
@@ -50,6 +50,29 @@ export function productionProgramContractLabel(input: {
  */
 export function productionProgramGroupLabel(value: string | null | undefined): string {
   return humanCellText(value) || HUMAN_LABEL_DASH;
+}
+
+/**
+ * Живая подпись «Организация» для строки плана: заказчик и ТРИ ЦИФРЫ номера
+ * договора — те, что до первого слэша (`shortContractSuffix`, `*239`).
+ *
+ * Именно эту подпись владелец просил поставить в колонку «Организация» печатной
+ * формы: полный номер договора в цеху не читают, а рабочий трёхзначный код — да.
+ *
+ * Числа берутся из карточки двигателя, а не из снимка строки плана: заказчик и
+ * договор меняются в карточке — и план должен видеть это сразу (владелец 10.11.2026).
+ * Слэша нет — номер показывается как есть (правило владельца 22.09.2026).
+ */
+export function productionProgramOrganizationLabel(input: {
+  customerName?: string | null | undefined;
+  contractNumber?: string | null | undefined;
+}): string {
+  const customer = String(input.customerName ?? '').trim();
+  const raw = String(input.contractNumber ?? '').trim();
+  const number = raw && !looksLikeIdentifier(raw) ? raw : '';
+  const code = shortContractSuffix(number) || number;
+  const parts = [customer, code].filter(Boolean);
+  return parts.length ? parts.join(' · ') : '';
 }
 
 /**
@@ -438,6 +461,26 @@ export function buildProductionProgramPeriod(
   return { start: base, end: startOfDay(end.getTime()) };
 }
 
+/**
+ * Вид периода по самим датам: календарный месяц — «месяц», ровно 14 дней —
+ * «две недели», остальное — «свои даты».
+ *
+ * Нужен, чтобы выбор вида периода в шапке плана показывал правду: программа,
+ * сохранённая с произвольными датами, не должна выглядеть как двухнедельная.
+ */
+export function productionProgramPeriodKind(period: ProductionProgramPeriod): ProductionProgramPeriodKind {
+  const start = startOfDay(period.start);
+  const end = startOfDay(period.end);
+  const startDate = new Date(start);
+  const monthStart = startOfDay(new Date(startDate.getFullYear(), startDate.getMonth(), 1).getTime());
+  const monthEnd = startOfDay(new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0).getTime());
+  if (start === monthStart && end === monthEnd) return 'month';
+  const twoWeeksEnd = new Date(start);
+  twoWeeksEnd.setDate(twoWeeksEnd.getDate() + 13);
+  if (startOfDay(twoWeeksEnd.getTime()) === end) return 'two_weeks';
+  return 'custom';
+}
+
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
@@ -483,6 +526,11 @@ export type ProductionProgramPrintRow = {
   shippingPlanAt: number | null;
   /** Факт отгрузки — из карточки двигателя (для подсказки/подсветки). */
   shippingFactAt: number | null;
+  /**
+   * Живая подпись «Организация» для строки: заказчик и три цифры номера договора
+   * (до слэша). Берётся из карточки двигателя, а не из снимка строки плана.
+   */
+  organizationLabel: string;
   factors: string;
   note: string;
   highlight: ProductionProgramHighlight;
@@ -578,6 +626,11 @@ export function buildProductionProgramPrintModel(input: ProductionProgramPrintIn
           : productionProgramEngineDates(engine).shippingDate,
       factors: String(raw.factors ?? '').trim(),
       note: String(raw.note ?? '').trim(),
+      organizationLabel:
+        productionProgramOrganizationLabel({
+          customerName: engine?.customerName ?? null,
+          contractNumber: engine?.contractName ?? null,
+        }) || productionProgramGroupLabel(raw.groupLabel),
       highlight: productionProgramRowHighlight(engine),
     });
   }

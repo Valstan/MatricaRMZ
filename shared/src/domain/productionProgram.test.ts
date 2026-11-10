@@ -11,6 +11,8 @@ import {
   productionProgramContractLabel,
   productionProgramEngineHint,
   productionProgramGroupLabel,
+  productionProgramOrganizationLabel,
+  productionProgramPeriodKind,
   productionProgramRowHighlight,
   PRODUCTION_PROGRAM_SIGNATURE_SLOTS,
   PRODUCTION_PROGRAM_STATE_LABELS,
@@ -276,5 +278,76 @@ describe('человеческие наименования в плане', () =
     });
     expect(model.groups[0]?.label).toBe(HUMAN_LABEL_DASH);
     expect(model.groups[0]?.rows[0]?.groupLabel).toBe(HUMAN_LABEL_DASH);
+  });
+});
+
+/**
+ * Колонка «Организация» печатной формы и плана: заказчик и ТРИ ЦИФРЫ номера
+ * договора (те, что до первого слэша — `shortContractSuffix`).
+ *
+ * Владелец (10.11.2026): «в колонке организация нужно писать название заказчика и
+ * номер договора, но только три цифры, те самые три цифры, которые у нас до
+ * слэша… вот их нужно подставлять в отчёт при печати».
+ */
+describe('подпись «Организация»: заказчик и три цифры номера договора', () => {
+  it('берёт последние три цифры части до слэша', () => {
+    expect(productionProgramOrganizationLabel({ customerName: 'ООО «Заказчик»', contractNumber: '239/27/ГОЗ-24' })).toBe(
+      'ООО «Заказчик» · *239',
+    );
+    expect(
+      productionProgramOrganizationLabel({ customerName: 'ООО «Заказчик»', contractNumber: '2325187913551442245231239/27/ГОЗ-24' }),
+    ).toBe('ООО «Заказчик» · *239');
+  });
+
+  it('без слэша номер показывается как есть (правило владельца 22.09.2026)', () => {
+    expect(productionProgramOrganizationLabel({ customerName: 'ООО «Заказчик»', contractNumber: '125/2026' })).toBe(
+      'ООО «Заказчик» · *125',
+    );
+    expect(productionProgramOrganizationLabel({ customerName: 'ООО «Заказчик»', contractNumber: 'Письмо № 15' })).toBe(
+      'ООО «Заказчик» · Письмо № 15',
+    );
+  });
+
+  it('технический идентификатор в подпись не идёт', () => {
+    expect(
+      productionProgramOrganizationLabel({
+        customerName: 'ООО «Заказчик»',
+        contractNumber: '9e142af3-caf9-427f-9893-58961e48d4b1',
+      }),
+    ).toBe('ООО «Заказчик»');
+  });
+
+  it('пустые части не дают пустой подписи с разделителем', () => {
+    expect(productionProgramOrganizationLabel({ customerName: '', contractNumber: '' })).toBe('');
+    expect(productionProgramOrganizationLabel({})).toBe('');
+  });
+
+  it('в печатной форме колонка «Организация» — живая подпись из карточки', () => {
+    const model = buildProductionProgramPrintModel({
+      title: 'ПП',
+      shop: 'Цех № 1',
+      period: { start: Date.UTC(2026, 10, 1, 12), end: Date.UTC(2026, 10, 15, 12) },
+      rows: [{ id: 'r1', groupLabel: 'ООО «Заказчик» · 239/27/ГОЗ-24', engineId: 'e1' }],
+      engines: [engine({ id: 'e1', customerName: 'ООО «Заказчик»', contractName: '239/27/ГОЗ-24' })],
+    });
+    expect(model.groups[0]?.rows[0]?.organizationLabel).toBe('ООО «Заказчик» · *239');
+  });
+});
+
+/**
+ * Вид периода выводится из дат: программа, сохранённая с произвольными датами,
+ * не должна выглядеть как двухнедельная.
+ */
+describe('вид периода выводится из дат', () => {
+  it('календарный месяц — «месяц»', () => {
+    expect(productionProgramPeriodKind({ start: Date.UTC(2026, 10, 1), end: Date.UTC(2026, 10, 30) })).toBe('month');
+  });
+
+  it('ровно 14 дней — «две недели»', () => {
+    expect(productionProgramPeriodKind({ start: Date.UTC(2026, 10, 1), end: Date.UTC(2026, 10, 14) })).toBe('two_weeks');
+  });
+
+  it('произвольные даты — «свои даты»', () => {
+    expect(productionProgramPeriodKind({ start: Date.UTC(2026, 10, 1), end: Date.UTC(2026, 10, 20) })).toBe('custom');
   });
 });

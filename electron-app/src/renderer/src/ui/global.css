@@ -1951,6 +1951,21 @@ table.list-table.list-table--catalog {
   box-sizing: border-box;
 }
 
+/* Производственная программа: модуль во всю ширину области контента (владелец
+   10.11.2026 — «расширить рабочую область на всю ширину программы»). Без этого
+   карточка ПП упиралась в общий потолок 1400px, а её секция — в 1200px. */
+.ui-content-viewport > .production-program-page {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-inline: 0;
+  box-sizing: border-box;
+}
+
+/* Внутри ПП ширина тоже своя: карточка секции тянется на всю колонку, а не в 1200px. */
+.production-program-page {
+  --ui-content-block-max-width: 100%;
+}
+
 .report-preset-page > .ui-content-block {
   width: 100%;
   max-width: 100%;
