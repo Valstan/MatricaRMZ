@@ -128,6 +128,13 @@ const matricaApi = {
     reveal: async () => ipcRenderer.invoke('clientOps:reveal'),
     saveCopy: async () => ipcRenderer.invoke('clientOps:saveCopy'),
   },
+  trustRoot: {
+    status: async (args?: { force?: boolean }) => ipcRenderer.invoke('trustRoot:status', args ?? {}),
+    installUser: async () => ipcRenderer.invoke('trustRoot:installUser'),
+    installMachine: async () => ipcRenderer.invoke('trustRoot:installMachine'),
+    notice: async () => ipcRenderer.invoke('trustRoot:notice'),
+    noticeAck: async () => ipcRenderer.invoke('trustRoot:noticeAck'),
+  },
   maintenance: {
     emptyCardsAnalyze: async () => ipcRenderer.invoke('maintenance:emptyCards:analyze'),
     emptyCardsDelete: async (args: { ids: string[] }) => ipcRenderer.invoke('maintenance:emptyCards:delete', args),

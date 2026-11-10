@@ -113,6 +113,8 @@ ledger/state.json
 electron-app/build/watchdog/
 # Kaspersky helper archive is a build artifact (beforePack output), bundled as extraResources — not committed.
 electron-app/build/kaspersky/
+# Trust assets (root CA + install/probe scripts) are staged by beforePack — not committed.
+electron-app/build/trust/
 
 
 

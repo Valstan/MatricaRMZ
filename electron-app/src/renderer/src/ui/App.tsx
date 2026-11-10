@@ -109,6 +109,7 @@ const SECTION_BY_TAB: ReadonlyMap<string, string> = new Map(
 import { Button } from './components/Button.js';
 import { ChatPanel } from './components/ChatPanel.js';
 import { ClientOpsDialog } from './components/ClientOpsDialog.js';
+import { TrustRootNoticeDialog } from './components/TrustRootNoticeDialog.js';
 import { DesktopInboxBar } from './components/DesktopInboxBar.js';
 import { SendFileToColleagueDialog } from './components/SendFileToColleagueDialog.js';
 import { DesktopPane } from './components/DesktopPane.js';
@@ -1224,6 +1225,9 @@ export function App() {
   const [desktopUi, setDesktopUi] = useState<UserUiProfileDesktop>(() => createEmptyDesktop());
   // Окно «Скрипты обслуживания»: открывается встроенной плиткой Верстака и пунктом МЕНЮ.
   const [clientOpsOpen, setClientOpsOpen] = useState(false);
+  // Подсказка про доверие и подпись: корень Матрицы не в машинном хранилище — Касперский
+  // по подписи не доверяет (ADR-0003). Показывается раз в неделю, пока состояние не изменится.
+  const [trustRootNoticeOpen, setTrustRootNoticeOpen] = useState(false);
   // Передача файлов между Верстаками: что отправляем и что нам прислали.
   const [sendFileTarget, setSendFileTarget] = useState<{ fileId: string; name: string } | null>(null);
   const [desktopInbox, setDesktopInbox] = useState<DesktopInboxItem[]>([]);
@@ -1867,6 +1871,22 @@ export function App() {
       alive = false;
     };
   }, []);
+
+  // Подсказка про доверие и подпись (ADR-0003): корень Матрицы не стоит в машинном хранилище,
+  // а значит Касперский по подписи программе ещё не доверяет. Показываем один раз (решение
+  // «показать или нет» — в домене trustRootNoticeDecision, там же пауза в неделю).
+  // После входа в программу: до входа окно закрывало бы экран входа.
+  useEffect(() => {
+    if (!authStatus.loggedIn) return;
+    let alive = true;
+    void window.matrica.trustRoot.notice().then((r) => {
+      if (!alive || !r?.show) return;
+      setTrustRootNoticeOpen(true);
+    }).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [authStatus.loggedIn]);
 
   useEffect(() => {
     if (!authStatus.loggedIn) return;
@@ -7014,6 +7034,17 @@ export function App() {
           onClose={() => setProgramFeedbackOpen(false)}
         />
         <ClientOpsDialog open={clientOpsOpen} onClose={() => setClientOpsOpen(false)} notify={notifyOperator} />
+        <TrustRootNoticeDialog
+          open={trustRootNoticeOpen}
+          notify={notifyOperator}
+          onClose={() => {
+            setTrustRootNoticeOpen(false);
+            // Отмечаем, что показали: иначе окно лезло бы при каждом запуске, пока
+            // администратор не сделает шаг. Отметка — после закрытия, а не при открытии:
+            // если программу закрыли, не успев прочитать, подсказка вернётся в следующий раз.
+            void window.matrica.trustRoot.noticeAck();
+          }}
+        />
         <SendFileToColleagueDialog
           open={sendFileTarget != null}
           fileName={sendFileTarget?.name ?? ''}

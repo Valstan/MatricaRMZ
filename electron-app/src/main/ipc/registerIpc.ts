@@ -25,6 +25,7 @@ import { registerAiChatIpc } from './register/aiChat.js';
 import { registerChangesIpc } from './register/changes.js';
 import { registerEnginesOpsAuditIpc } from './register/enginesOpsAudit.js';
 import { registerClientOpsIpc } from './register/clientOps.js';
+import { registerTrustRootIpc } from './register/trustRoot.js';
 import { registerDesktopTransferIpc } from './register/desktopTransfer.js';
 import { registerMaintenanceIpc } from './register/maintenance.js';
 import { registerDraftsIpc } from './register/drafts.js';
@@ -220,6 +221,7 @@ export function registerIpc(
   registerChangesIpc(ctx);
   registerEnginesOpsAuditIpc(ctx);
   registerClientOpsIpc(ctx);
+  registerTrustRootIpc(ctx);
   registerDesktopTransferIpc(ctx);
   registerMaintenanceIpc(ctx);
   registerDraftsIpc(ctx);

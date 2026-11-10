@@ -13,6 +13,11 @@
                        сторож собирается ДО electron-builder и кладётся в extraResources
                        как готовый файл.
 
+      -Mode Scripts    подпись скриптов PowerShell, которые едут в клиент (проверка и
+                       установка корня доверия). Без подписи Касперский удаляет .ps1 на
+                       лету (M94). Подпись Authenticode делает сам PowerShell — signtool
+                       для .ps1 не годится (это не PE).
+
       -Mode Verify     проверка: каждый артефакт подписан и подписан НАШИМ ключом.
 
     Ключевые свойства, ради которых скрипт написан отдельным:
@@ -45,7 +50,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Electron', 'Watchdog', 'Verify')]
+    [ValidateSet('Electron', 'Watchdog', 'Scripts', 'Verify')]
     [string]$Mode = 'Verify',
     [string]$ReleaseDir,
     [string]$Target,
@@ -260,6 +265,52 @@ switch ($Mode) {
         }
         Write-Info "Подписано файлов: $($signed.Count)"
         $res = @{ Mode = 'Watchdog'; Signed = $true; Count = $signed.Count; Thumbprint = $check.Thumbprint }
+        if ($Json) { $res | ConvertTo-Json -Depth 4 }
+    }
+
+    'Scripts' {
+        # Скрипты PowerShell, которые едут в клиент (проверка и установка корня доверия),
+        # подписываем Authenticode: НЕПОДПИСАННЫЙ .ps1 Касперский удаляет на лету, ещё до
+        # того, как для него заведено исключение (M94 — так исчезал помощник на парке).
+        # signtool для .ps1 не годится: это не PE, таблицы сертификатов у него нет.
+        # Подписывает сам PowerShell (Set-AuthenticodeSignature).
+        if (-not $Target) { throw 'Нужен -Target (папка со скриптами или конкретный файл).' }
+        if (-not $env:CSC_LINK) {
+            Write-Warn2 'CSC_LINK не задан — скрипты останутся неподписанными, и антивирус может удалить их на машине парка.'
+            $res = @{ Mode = 'Scripts'; Signed = $false; Reason = 'CSC_LINK не задан' }
+            if ($Json) { $res | ConvertTo-Json -Depth 4 }
+            break
+        }
+        $check = Test-PfxUsable -PfxFile $pfx -Pwd $pwd
+        if (-not $check.Ok) { throw "Сертификат подписи непригоден: $($check.Reason)" }
+
+        # PowerShell 5.1 читает .ps1 как ANSI, если нет BOM: кириллица в комментариях
+        # превращается в мусор и скрипт не разбирается. Поэтому BOM обязателен — и
+        # подпись его НЕ трогает, а вот Set-AuthenticodeSignature в некоторых версиях
+        # BOM сносит, и тогда подписанный скрипт перестаёт запускаться. Проверяем и
+        # после подписи: лучше красная сборка, чем молча битый скрипт на парке.
+        $files = Get-SignTargets -Path $Target -Extensions @('.ps1')
+        if ($files.Count -eq 0) {
+            throw "По пути $Target не найдено ни одного .ps1 — подписывать нечего."
+        }
+        $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfx, $pwd, 'Exportable')
+        $hasHashAlg = (Get-Command Set-AuthenticodeSignature).Parameters.ContainsKey('HashAlgorithm')
+        $signed = @()
+        foreach ($f in $files) {
+            $sigParams = @{ FilePath = $f; Certificate = $cert; TimestampServer = $TimestampUrl }
+            if ($hasHashAlg) { $sigParams['HashAlgorithm'] = 'SHA256' }
+            $sig = Set-AuthenticodeSignature @sigParams
+            if ($sig.Status -ne 'Valid') {
+                throw "Не удалось подписать $f : $($sig.StatusMessage)"
+            }
+            $bytes = [System.IO.File]::ReadAllBytes($f)
+            if ($bytes.Length -lt 3 -or $bytes[0] -ne 0xEF -or $bytes[1] -ne 0xBB -or $bytes[2] -ne 0xBF) {
+                throw "После подписи у $f пропал UTF-8 BOM — PowerShell 5.1 прочитает кириллицу как мусор и скрипт не запустится."
+            }
+            $signed += $f
+        }
+        Write-Info "Подписано скриптов: $($signed.Count)"
+        $res = @{ Mode = 'Scripts'; Signed = $true; Count = $signed.Count; Thumbprint = $check.Thumbprint }
         if ($Json) { $res | ConvertTo-Json -Depth 4 }
     }
 
