@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 
-import { parseProductionProgramState } from '@matricarmz/shared';
+import { looksLikeIdentifier, parseProductionProgramState } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
 import { erpProductionProgramRows, erpProductionPrograms } from '../database/schema.js';
@@ -299,11 +299,16 @@ export async function deleteProductionProgram(id: string): Promise<Result<{ id: 
   return { ok: true, id: programId };
 }
 
-function validateLine(input: ProductionProgramLineDraft, index: number): Result<ProductionProgramLineInput> {
+export function validateLine(input: ProductionProgramLineDraft, index: number): Result<ProductionProgramLineInput> {
   const orderNo = Number(input.orderNo);
   if (!Number.isFinite(orderNo) || orderNo <= 0) return { ok: false, error: `строка ${index + 1}: № п/п должен быть положительным числом` };
   const groupLabel = String(input.groupLabel ?? '').trim();
-  if (!groupLabel) return { ok: false, error: `строка ${index + 1}: шапка группы (организация и договор) обязательна` };
+  if (!groupLabel) return { ok: false, error: `строка ${index + 1}: шапка группы (организация и договор) обязательна — без договора строка в плане не стоит` };
+  // Технический идентификатор в подписи группы — это ровно тот «номер вместо
+  // наименования», из-за которого печатная форма плана выглядит служебной.
+  if (looksLikeIdentifier(groupLabel)) {
+    return { ok: false, error: `строка ${index + 1}: в шапке группы технический идентификатор — укажите наименование и номер договора` };
+  }
   const contractId = input.contractId == null || String(input.contractId).trim() === '' ? null : String(input.contractId).trim();
   if (contractId !== null && !isUuid(contractId)) return { ok: false, error: `строка ${index + 1}: договор должен быть uuid` };
   const engineId = input.engineId == null || String(input.engineId).trim() === '' ? null : String(input.engineId).trim();
