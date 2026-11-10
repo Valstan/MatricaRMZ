@@ -117,6 +117,10 @@ export const TABLE_DOMAINS: Readonly<Record<string, readonly SyncDomain[]>> = {
   // и при правке программы, и при правке её строк.
   erp_production_programs: ['productionProgram'],
   erp_production_program_rows: ['productionProgram'],
+
+  // Рекламации двигателя: очередь заездов — домен двигателей, карточка и список
+  // перечитываются при изменении очереди.
+  erp_engine_reclamations: ['engines'],
 };
 
 /** Домены, которых касаются правки этих таблиц. */

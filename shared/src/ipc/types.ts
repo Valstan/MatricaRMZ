@@ -25,6 +25,7 @@ import type {
   ProductionProgramLineDto,
   ProductionProgramSaveDto,
 } from '../domain/productionProgram.js';
+import type { EngineReclamationDto } from '../domain/engineReclamations.js';
 
 /** Избранные разделы оператора (левая колонка оболочки). Локально, per-user scope. */
 export type SectionFavoritesResult = { ok: true; ids: MenuTabId[] } | { ok: false; error: string };
@@ -3002,6 +3003,34 @@ export type MatricaApi = {
       { ok: true; count: number } | { ok: false; error: string }
     >;
     remove: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+  };
+  /**
+   * Рекламации двигателя: очередь заездов по рекламации (1-я, 2-я, 3-я …).
+   * Чтение — из локальной pull-only реплики (очередь видна и без сети), запись —
+   * серверной дверью REST (права `engines.view` / `engines.edit`).
+   */
+  engineReclamations: {
+    list: (engineId: string) => Promise<
+      { ok: true; rows: EngineReclamationDto[] } | { ok: false; error: string }
+    >;
+    save: (args: {
+      engineId: string;
+      rows: Array<{
+        id?: string | null;
+        queueNo: number;
+        acceptedAt?: number | null;
+        shippedAt?: number | null;
+        customerReason?: string | null;
+        actualDefect?: string | null;
+        defectNature?: string | null;
+        actNumber?: string | null;
+        actDate?: number | null;
+        comment?: string | null;
+      }>;
+      /** Даты основного цикла — для гейта «заезды не пересекаются». */
+      mainArrivalDate?: number | null;
+      mainShippingDate?: number | null;
+    }) => Promise<{ ok: true; count: number } | { ok: false; error: string }>;
   };
   /** Этапы работ: узлы — REST-справочник сервера; строки — записи истории ремонта (`operations`). */
   workSheets: {

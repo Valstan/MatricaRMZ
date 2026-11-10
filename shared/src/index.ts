@@ -80,6 +80,8 @@ export * from './domain/linkFieldRules.js';
 export * from './domain/contract.js';
 // Производственная программа (ПП): состояния строк, подписи, модель печати.
 export * from './domain/productionProgram.js';
+// Рекламации двигателя: очередь заездов и гейт дат.
+export * from './domain/engineReclamations.js';
 export * from './domain/adminUsers.js';
 export * from './domain/employees.js';
 export * from './domain/employeeCardKey.js';

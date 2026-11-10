@@ -21,6 +21,7 @@ import {
   erpEmployeeCards,
   erpProductionPrograms,
   erpProductionProgramRows,
+  erpEngineReclamations,
   directoryEngineBrands,
   erpEngineAssemblyBom,
   erpEngineAssemblyBomBrandLinks,
@@ -265,5 +266,11 @@ export const PG_SYNC_TABLES: Record<string, PgSyncTableEntry> = {
   [LedgerTableName.ErpProductionProgramRows]: {
     drizzle: erpProductionProgramRows,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpProductionProgramRows, r),
+  },
+  // Рекламации двигателя (очередь заездов): серверная дверь ведёт, клиент читает
+  // реплику. Без записи здесь холодный снапшот отдавал бы пустоту.
+  [LedgerTableName.ErpEngineReclamations]: {
+    drizzle: erpEngineReclamations,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineReclamations, r),
   },
 };

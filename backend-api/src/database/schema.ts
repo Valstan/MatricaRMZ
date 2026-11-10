@@ -2663,3 +2663,49 @@ export const erpProductionProgramRows = pgTable(
       .where(sql`${t.deletedAt} is null`),
   }),
 );
+
+/**
+ * Рекламации двигателя: очередь заездов по рекламации (миграция 0125).
+ *
+ * Одна строка — один заезд по рекламации. `queue_no` — порядок (1, 2, 3 …):
+ * основной цикл карточки — заезд №1, рекламация №1 — заезд №2 и так далее.
+ * Отдельная строгая таблица, а не EAV-атрибут: EAV под заморожкой (AGENTS.md §EAV),
+ * а рекламаций у одного двигателя может быть несколько.
+ */
+export const erpEngineReclamations = pgTable(
+  'erp_engine_reclamations',
+  {
+    id: uuid('id').primaryKey(),
+    /** Двигатель (uuid карточки). Жёсткой FK нет — как в остальных строгах контракта. */
+    engineId: uuid('engine_id').notNull(),
+    /** Порядок рекламации в очереди заездов: 1, 2, 3 … */
+    queueNo: integer('queue_no').notNull(),
+    /** Дата приёма по рекламации (мс). */
+    acceptedAt: bigint('accepted_at', { mode: 'number' }),
+    /** Дата отправки заказчику после рекламации (мс). */
+    shippedAt: bigint('shipped_at', { mode: 'number' }),
+    /** Описание дефекта изделия (что заявил заказчик). */
+    customerReason: text('customer_reason'),
+    /** Фактически установленный дефект (что увидели при разборе). */
+    actualDefect: text('actual_defect'),
+    /** Установленный характер дефекта. */
+    defectNature: text('defect_nature'),
+    /** Номер акта исследования. */
+    actNumber: text('act_number'),
+    /** Дата акта исследования (мс). */
+    actDate: bigint('act_date', { mode: 'number' }),
+    /** Комментарий по рекламации. */
+    comment: text('comment'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    engineIdx: index('erp_engine_reclamations_engine_idx').on(t.engineId),
+    queueUq: uniqueIndex('erp_engine_reclamations_queue_uq')
+      .on(t.engineId, t.queueNo)
+      .where(sql`${t.deletedAt} is null`),
+  }),
+);

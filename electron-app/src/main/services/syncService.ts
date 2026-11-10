@@ -71,6 +71,7 @@ import {
   signatureDefaults,
   erpProductionPrograms,
   erpProductionProgramRows,
+  erpEngineReclamations,
   noteShares,
   notes,
   cardDrafts,
@@ -2107,6 +2108,8 @@ async function applyPulledChanges(
     // Производственная программа (ПП): план ведёт сервер, клиент читает реплику.
     [SyncTableName.ErpProductionPrograms]: [],
     [SyncTableName.ErpProductionProgramRows]: [],
+    // Рекламации двигателя: очередь заездов ведёт сервер, клиент читает реплику.
+    [SyncTableName.ErpEngineReclamations]: [],
     [SyncTableName.Users]: [],
     [SyncTableName.UserSectionAccess]: [],
   };
@@ -2986,6 +2989,31 @@ async function applyPulledChanges(
             shippingPlanAt: payload.shipping_plan_at ?? null,
             factors: payload.factors,
             note: payload.note,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      // Рекламации двигателя: очередь заездов по рекламации. Без ветки строки
+      // исчезли бы: у switch нет `default` (см. комментарий у WarehouseLocations выше).
+      case SyncTableName.ErpEngineReclamations:
+        {
+          const payload = payloadRaw;
+          groups.erp_engine_reclamations.push({
+            id: payload.id,
+            engineId: payload.engine_id,
+            queueNo: payload.queue_no,
+            acceptedAt: payload.accepted_at ?? null,
+            shippedAt: payload.shipped_at ?? null,
+            customerReason: payload.customer_reason ?? null,
+            actualDefect: payload.actual_defect ?? null,
+            defectNature: payload.defect_nature ?? null,
+            actNumber: payload.act_number ?? null,
+            actDate: payload.act_date ?? null,
+            comment: payload.comment ?? null,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
             lastServerSeq: payload.last_server_seq ?? null,
@@ -4260,6 +4288,28 @@ async function applyPulledChanges(
       isActive: sql`excluded.is_active`,
       metadataJson: sql`excluded.metadata_json`,
       deprecatedAt: sql`excluded.deprecated_at`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  // Рекламации двигателя: очередь заездов по рекламации. Реплика — server-write:
+  // ведёт серверная дверь, клиент читает и правит на вкладке «Рекламация».
+  if (groups.erp_engine_reclamations.length > 0) {
+    emitApply(SyncTableName.ErpEngineReclamations, groups.erp_engine_reclamations.length);
+    await upsertPulledRowsInChunks(db, erpEngineReclamations, groups.erp_engine_reclamations, erpEngineReclamations.id, {
+      engineId: sql`excluded.engine_id`,
+      queueNo: sql`excluded.queue_no`,
+      acceptedAt: sql`excluded.accepted_at`,
+      shippedAt: sql`excluded.shipped_at`,
+      customerReason: sql`excluded.customer_reason`,
+      actualDefect: sql`excluded.actual_defect`,
+      defectNature: sql`excluded.defect_nature`,
+      actNumber: sql`excluded.act_number`,
+      actDate: sql`excluded.act_date`,
+      comment: sql`excluded.comment`,
       updatedAt: sql`excluded.updated_at`,
       lastServerSeq: sql`excluded.last_server_seq`,
       deletedAt: sql`excluded.deleted_at`,

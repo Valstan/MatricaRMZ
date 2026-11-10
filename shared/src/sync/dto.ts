@@ -570,6 +570,23 @@ export const erpProductionProgramLineRowSchema = z.object({
   note: z.string(),
 });
 
+// Рекламация двигателя: одна строка — один заезд по рекламации.
+// queue_no — порядок в очереди (1, 2, 3 …): основной цикл — заезд №1, рекламация
+// №1 — заезд №2 и так далее. Даты приёма и отправки — заезд целиком.
+export const erpEngineReclamationRowSchema = z.object({
+  ...baseRowFields,
+  engine_id: z.string().uuid(),
+  queue_no: z.number().int(),
+  accepted_at: z.number().int().nullable().optional(),
+  shipped_at: z.number().int().nullable().optional(),
+  customer_reason: z.string().nullable().optional(),
+  actual_defect: z.string().nullable().optional(),
+  defect_nature: z.string().nullable().optional(),
+  act_number: z.string().nullable().optional(),
+  act_date: z.number().int().nullable().optional(),
+  comment: z.string().nullable().optional(),
+});
+
 export const syncRowSchemaByTable = {
   [SyncTableName.EntityTypes]: entityTypeRowSchema,
   [SyncTableName.Entities]: entityRowSchema,
@@ -622,6 +639,7 @@ export const syncRowSchemaByTable = {
   [SyncTableName.SignatureDefaults]: signatureDefaultRowSchema,
   [SyncTableName.ErpProductionPrograms]: erpProductionProgramRowSchema,
   [SyncTableName.ErpProductionProgramRows]: erpProductionProgramLineRowSchema,
+  [SyncTableName.ErpEngineReclamations]: erpEngineReclamationRowSchema,
 } as const;
 
 export const syncTableUpsertSchema = z.object({

@@ -48,6 +48,7 @@ import { contractsRouter, counterpartiesRouter } from './routes/contracts.js';
 import { ppeRouter } from './routes/ppe.js';
 import { signatureDefaultsRouter } from './routes/signatureDefaults.js';
 import { productionProgramRouter } from './routes/productionProgram.js';
+import { engineReclamationsRouter } from './routes/engineReclamations.js';
 import { repairStageTemplatesRouter } from './routes/repairStageTemplates.js';
 import { noteStatisticsRequestActivity } from './services/statisticsAuditService.js';
 import { requireAuth, requirePermission } from './auth/middleware.js';
@@ -195,6 +196,8 @@ export function createApp() {
   app.use('/ppe', ppeRouter);
   app.use('/signature-defaults', signatureDefaultsRouter);
   app.use('/production-program', requireAuth, productionProgramRouter);
+  // Рекламации двигателя: очередь заездов по рекламации (серверная дверь записи).
+  app.use('/engine-reclamations', requireAuth, engineReclamationsRouter);
 
   // Web admin UI (served as static SPA from /admin-ui)
   const __dirname = path.dirname(fileURLToPath(import.meta.url));

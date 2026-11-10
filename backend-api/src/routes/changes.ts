@@ -314,6 +314,7 @@ changesRouter.get('/', async (req, res) => {
       [SyncTableName.SignatureDefaults]: 'Умолчания подписей',
       [SyncTableName.ErpProductionPrograms]: 'Производственные программы',
       [SyncTableName.ErpProductionProgramRows]: 'Строки производственных программ',
+      [SyncTableName.ErpEngineReclamations]: 'Рекламации двигателей',
       file_assets: 'Файлы',
     };
 

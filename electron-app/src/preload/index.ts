@@ -803,6 +803,26 @@ const matricaApi = {
     }) => ipcRenderer.invoke('productionProgram:saveRows', args),
     remove: async (id: string) => ipcRenderer.invoke('productionProgram:remove', id),
   },
+  engineReclamations: {
+    list: async (engineId: string) => ipcRenderer.invoke('engineReclamations:list', engineId),
+    save: async (args: {
+      engineId: string;
+      rows: Array<{
+        id?: string | null;
+        queueNo: number;
+        acceptedAt?: number | null;
+        shippedAt?: number | null;
+        customerReason?: string | null;
+        actualDefect?: string | null;
+        defectNature?: string | null;
+        actNumber?: string | null;
+        actDate?: number | null;
+        comment?: string | null;
+      }>;
+      mainArrivalDate?: number | null;
+      mainShippingDate?: number | null;
+    }) => ipcRenderer.invoke('engineReclamations:save', args),
+  },
   workSheets: {
     types: {
       list: async (args?: { includeArchived?: boolean }) => ipcRenderer.invoke('workSheets:types:list', args),

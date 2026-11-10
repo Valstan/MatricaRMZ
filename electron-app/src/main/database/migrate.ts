@@ -670,6 +670,25 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS erp_production_program_rows_program_idx ON erp_production_program_rows(program_id);
     CREATE INDEX IF NOT EXISTS erp_production_program_rows_order_idx ON erp_production_program_rows(program_id, order_no);
+    CREATE TABLE IF NOT EXISTS erp_engine_reclamations (
+      id text PRIMARY KEY NOT NULL,
+      engine_id text NOT NULL,
+      queue_no integer NOT NULL,
+      accepted_at integer,
+      shipped_at integer,
+      customer_reason text,
+      actual_defect text,
+      defect_nature text,
+      act_number text,
+      act_date integer,
+      comment text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS erp_engine_reclamations_engine_idx ON erp_engine_reclamations(engine_id);
 
     -- Приказ о СИЗ (Минтруд 767н): справочник профессий с пунктами приложений,
     -- «приказные» строки норм, личная карточка СИЗ по форме приложения №3 и шаблоны
