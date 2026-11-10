@@ -3,12 +3,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   REPAIR_HISTORY_OPERATION_TYPE,
   buildEngineHistoryFeed,
+  buildEngineVisits,
   buildRepairHistoryMeta,
   ENGINE_INVENTORY_STAGE,
   engineHistoryFeedFieldLines,
   repairHistoryActionOptions,
   type EngineHistoryFeedItem,
   type EngineHistoryFeedRow,
+  type EngineReclamationDto,
   type RepairStageTemplate,
 } from '@matricarmz/shared';
 
@@ -62,11 +64,17 @@ export function EngineHistoryFeedPanel(props: {
   engineLabel?: string;
   /** Открыть карточку этапа работ, породившего запись. */
   onOpenWorkSheet?: (id: string, title?: string) => void;
+  /** Даты основного цикла (заезд №1) — для списка заездов. */
+  mainArrivalDate?: number | null;
+  mainShippingDate?: number | null;
 }) {
   const [rows, setRows] = useState<EngineHistoryFeedRow[]>([]);
   const [templates, setTemplates] = useState<StageTemplate[]>([]);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
+  // Очередь рекламаций — для блока «Заезды двигателя» (владелец 10.11.2026: «чтоб мы
+  // видели, что там с ним происходило, по порядку, в том числе и рекламации»).
+  const [reclamations, setReclamations] = useState<EngineReclamationDto[]>([]);
 
   // Две формы добавления (владелец 01.10.2026): этап из шаблона и ручная запись.
   // Обе раскрываются кнопками и прячутся после записи/отмены — инлайн-полей вверху нет.
@@ -129,11 +137,13 @@ export function EngineHistoryFeedPanel(props: {
 
   const load = useCallback(async () => {
     try {
-      const [ops, tpl] = await Promise.all([
+      const [ops, tpl, recl] = await Promise.all([
         window.matrica.operations.list(props.engineId),
         window.matrica.workSheets.stages.templates.list(),
+        window.matrica.engineReclamations.list(props.engineId).catch(() => null),
       ]);
       setRows((Array.isArray(ops) ? ops : []) as EngineHistoryFeedRow[]);
+      setReclamations(recl && recl.ok ? recl.rows : []);
       if (tpl.ok) {
         setTemplates(tpl.templates);
         if (tpl.source === 'fallback') setStatus('Шаблон этапов взят из программы — сервер недоступен, свежих правок может не быть.');
@@ -148,6 +158,21 @@ export function EngineHistoryFeedPanel(props: {
   }, [load]);
 
   const feed = useMemo(() => buildEngineHistoryFeed(rows), [rows]);
+
+  /**
+   * Заезды двигателя по порядку: основной цикл — заезд №1, рекламации следом.
+   * Владелец (10.11.2026): «нужно чтобы это всё тоже в истории двигателя отображалось,
+   * чтоб мы видели, что там с ним происходило, по порядку, в том числе и рекламации».
+   */
+  const visits = useMemo(
+    () =>
+      buildEngineVisits({
+        mainArrivalDate: props.mainArrivalDate ?? null,
+        mainShippingDate: props.mainShippingDate ?? null,
+        reclamations,
+      }),
+    [props.mainArrivalDate, props.mainShippingDate, reclamations],
+  );
   const workshopName = useCallback(
     (id: string, snapshot?: string) =>
       props.workshopOptions.find((w) => w.id === id)?.label ?? snapshot ?? (id ? 'цех не из справочника' : ''),
@@ -730,6 +755,38 @@ export function EngineHistoryFeedPanel(props: {
               ↩ Отменить: {undo.label}
             </Button>
           )}
+        </div>
+      )}
+
+      {visits.length > 0 && (
+        <div
+          data-engine-visits
+          style={{
+            width: '100%',
+            maxWidth: 1400,
+            margin: '0 auto',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            padding: '8px 10px',
+            display: 'grid',
+            gap: 4,
+          }}
+        >
+          <div style={{ fontWeight: 700, fontSize: 13 }} {...emojiAttrs('Заезды двигателя')}>
+            Заезды двигателя
+          </div>
+          {visits.map((visit) => (
+            <div key={visit.visitNo} style={{ display: 'flex', gap: 10, fontSize: 13, flexWrap: 'wrap' }}>
+              <span style={{ minWidth: 34, color: 'var(--subtle)' }}>№{visit.visitNo}</span>
+              <span style={{ fontWeight: 600 }}>{visit.label}</span>
+              <span className="ui-muted">
+                {visit.arrivalDate
+                  ? `приход ${formatMoscowDate(new Date(visit.arrivalDate))}`
+                  : 'приход не задан'}
+                {visit.shippingDate ? ` · отправка ${formatMoscowDate(new Date(visit.shippingDate))}` : ''}
+              </span>
+            </div>
+          ))}
         </div>
       )}
 

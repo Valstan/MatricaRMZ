@@ -1702,9 +1702,14 @@ export function EngineDetailsPage(props: {
 
   // Состояние вкладки «Рекламация» остаётся здесь (панель не размонтируется, от этого
   // зависят сохранение при закрытии, черновик и печать), а компонент шлёт сюда патчи.
+  //
+  // С 10.11.2026 рекламаций может быть НЕСКОЛЬКО (очередь заездов, владелец: «рекламаций
+  // может быть несколько, и они должны иметь свою очередность»). Очередь живёт в строгой
+  // таблице `erp_engine_reclamations` и правится на вкладке; эти EAV-атрибуты остаются
+  // ЗЕРКАЛОМ последней (текущей) рекламации — по ним читают синяя метка в списке и
+  // источник правды по датам (`resolveEngineTruthDates`).
   function applyReclamationPatch(patch: Partial<ReclamationDraft>) {
     setSessionChanged(true);
-    if (patch.flag !== undefined) setReclFlag(patch.flag);
     if (patch.acceptedDate !== undefined) setReclAcceptedDate(patch.acceptedDate);
     if (patch.defectDescription !== undefined) setReclCustomerReason(patch.defectDescription);
     if (patch.actualDefect !== undefined) setReclActualDefect(patch.actualDefect);
@@ -3102,6 +3107,8 @@ export function EngineDetailsPage(props: {
             canEdit={canEditEnginesEff}
             workshopOptions={workshopOptions}
             engineLabel={formatEngineGateLabel({ engineBrand, engineNumber, internalNumberFull })}
+            mainArrivalDate={fromInputDate(arrivalDate)}
+            mainShippingDate={statusDates.status_customer_sent ?? null}
             onChanged={() => {
               void props.onEngineUpdated();
               void reloadLastStage();
@@ -3186,18 +3193,14 @@ export function EngineDetailsPage(props: {
           visible={activeTab === 'reclamation'}
           canEdit={canEditEnginesEff}
           readOnlyNote={reclamationReadOnlyNote}
-          value={{
-            flag: reclFlag,
-            acceptedDate: reclAcceptedDate,
-            defectDescription: reclCustomerReason,
-            actualDefect: reclActualDefect,
-            defectNature: reclDefectNature,
-            actNumber: reclActNumber,
-            actDate: reclVerdictDate,
-            shippedDate: reclShippedDate,
-            comment: reclComment,
+          engineId={String(props.engineId)}
+          mainAcceptedDate={arrivalDate}
+          mainShippedDate={toInputDate(statusDates.status_customer_sent)}
+          onPatchFlag={(flag) => {
+            setSessionChanged(true);
+            setReclFlag(flag);
           }}
-          onPatch={applyReclamationPatch}
+          onPatchMirror={applyReclamationPatch}
           natureOptions={reclNatureOptions}
           onNotice={(text) => setSaveStatus(text)}
           attachmentsSlot={

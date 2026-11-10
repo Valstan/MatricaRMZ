@@ -33,6 +33,7 @@ import {
   erpEmployeeCards,
   erpProductionPrograms,
   erpProductionProgramRows,
+  erpEngineReclamations,
   erpEngineCards,
   erpEngineNumbers,
   directoryEngineBrands,
@@ -252,6 +253,11 @@ const PG_SYNC_TABLES: Record<
   [SyncTableName.ErpProductionProgramRows]: {
     drizzle: erpProductionProgramRows,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpProductionProgramRows, r),
+  },
+  // Рекламации двигателя (очередь заездов) — pull-only зеркало серверной двери.
+  [SyncTableName.ErpEngineReclamations]: {
+    drizzle: erpEngineReclamations,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineReclamations, r),
   },
 };
 

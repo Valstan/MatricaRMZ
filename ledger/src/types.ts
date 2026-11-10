@@ -73,6 +73,8 @@ export const LedgerTableName = {
   // Производственная программа (ПП): шапка программы и строки плана.
   ErpProductionPrograms: 'erp_production_programs',
   ErpProductionProgramRows: 'erp_production_program_rows',
+  // Рекламации двигателя: очередь заездов по рекламации (1-я, 2-я, 3-я …).
+  ErpEngineReclamations: 'erp_engine_reclamations',
   Permissions: 'permissions',
   UserPermissions: 'user_permissions',
   PermissionDelegations: 'permission_delegations',

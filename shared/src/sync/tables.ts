@@ -101,6 +101,10 @@ export const SyncTableName = {
   // ведёт серверная дверь (REST), клиент читает реплику (офлайн-чтение плана).
   ErpProductionPrograms: 'erp_production_programs',
   ErpProductionProgramRows: 'erp_production_program_rows',
+  // Рекламации двигателя (очередь заездов). Server-write / pull-only: ведёт серверная
+  // дверь (engineReclamationService), клиент читает реплику и правит на вкладке
+  // «Рекламация». Отдельная таблица, а не EAV-атрибут: EAV под заморозкой.
+  ErpEngineReclamations: 'erp_engine_reclamations',
 } as const;
 
 export type SyncTableName = (typeof SyncTableName)[keyof typeof SyncTableName];

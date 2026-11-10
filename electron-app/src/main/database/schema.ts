@@ -847,6 +847,29 @@ export const erpProductionProgramRows = sqliteTable('erp_production_program_rows
   orderIdx: index('erp_production_program_rows_order_idx').on(t.programId, t.orderNo),
 }));
 
+// Рекламации двигателя: очередь заездов по рекламации (1-я, 2-я, 3-я …).
+// Server-write / pull-only: ведёт серверная дверь, клиент читает реплику.
+export const erpEngineReclamations = sqliteTable('erp_engine_reclamations', {
+  id: text('id').primaryKey(),
+  engineId: text('engine_id').notNull(),
+  queueNo: integer('queue_no').notNull(),
+  acceptedAt: integer('accepted_at'),
+  shippedAt: integer('shipped_at'),
+  customerReason: text('customer_reason'),
+  actualDefect: text('actual_defect'),
+  defectNature: text('defect_nature'),
+  actNumber: text('act_number'),
+  actDate: integer('act_date'),
+  comment: text('comment'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  engineIdx: index('erp_engine_reclamations_engine_idx').on(t.engineId),
+}));
+
 export const erpEmployeeCards = sqliteTable(
   'erp_employee_cards',
   {

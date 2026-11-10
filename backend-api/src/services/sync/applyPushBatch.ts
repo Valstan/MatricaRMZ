@@ -118,6 +118,11 @@ export const SERVER_MIRROR_TABLES = [
   // те же строки каждый тик (журнал пухнет), а инкрементальный pull их не отдавал.
   SyncTableName.ErpProductionPrograms,
   SyncTableName.ErpProductionProgramRows,
+  // Рекламации двигателя: очередь заездов ведёт серверная дверь, издатель зеркала
+  // доводит их до журнала. Без записи здесь `sync_status='pending'` не снимался —
+  // издатель переотправлял те же строки каждый тик (журнал пухнет), а
+  // инкрементальный pull их не отдавал.
+  SyncTableName.ErpEngineReclamations,
 ] as const;
 
 // Специальный “контейнер” для операций заявок в снабжение.

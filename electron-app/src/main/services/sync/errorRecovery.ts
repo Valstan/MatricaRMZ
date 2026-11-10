@@ -113,6 +113,8 @@ const DRIZZLE_TABLE_MAP: Record<SyncTableName, any> = {
   // Производственная программа (ПП) — pull-only: план ведёт серверная дверь, клиент читает.
   [SyncTableName.ErpProductionPrograms]: undefined,
   [SyncTableName.ErpProductionProgramRows]: undefined,
+  // Рекламации двигателя — pull-only: очередь заездов ведёт серверная дверь, клиент читает.
+  [SyncTableName.ErpEngineReclamations]: undefined,
   // Сотрудники СИЗ (PR-6) — pull-only зеркало двери импорта ЗУП.
   [SyncTableName.ErpEmployeeCards]: undefined,
   // Приказ о СИЗ (Минтруд 767н) — pull-only: сервер ведёт двери, клиент читает.

@@ -68,6 +68,7 @@ const MIRROR_PUBLISHERS = [
   './ppeSyncPublisherService.ts',
   './productionProgramSyncPublisherService.ts',
   './signatureDefaultsSyncPublisherService.ts',
+  './engineReclamationSyncPublisherService.ts',
 ] as const;
 
 /** Имена таблиц из списка `SERVER_MIRROR_TABLES` в applyPushBatch.ts. */

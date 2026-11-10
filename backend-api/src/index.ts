@@ -22,6 +22,7 @@ import { startPpeSyncPublisher } from './services/sync/ppeSyncPublisherService.j
 import { startPpeEmployeeMirror } from './services/ppeEmployeeMirror.js';
 import { startSignatureDefaultsSyncPublisher } from './services/sync/signatureDefaultsSyncPublisherService.js';
 import { startProductionProgramSyncPublisher } from './services/sync/productionProgramSyncPublisherService.js';
+import { startEngineReclamationSyncPublisher } from './services/sync/engineReclamationSyncPublisherService.js';
 import { startDictionarySyncPublisher } from './services/sync/dictionarySyncPublisherService.js';
 import { startEngineNumbersReconcile } from './services/engineNumbersService.js';
 import { startAuditStatisticsScheduler } from './services/statisticsAuditService.js';
@@ -119,6 +120,9 @@ async function bootstrap() {
     // Производственная программа: план ведёт серверная дверь, клиент читает реплику —
     // без публикатора строки не получат номера журнала и не приедут на парк.
     startProductionProgramSyncPublisher();
+    // Рекламации двигателя: очередь заездов ведёт серверная дверь, клиент читает
+    // реплику — без публикатора строки не получат номера журнала и не приедут на парк.
+    startEngineReclamationSyncPublisher();
     startDictionarySyncPublisher();
     // Номера РМЗ: догоняем реестр тем, что накопилось без сверки (карточки, созданные
     // до фичи, и те, что приехали, пока инстанс был перезапущен). Дальше номера выдаёт

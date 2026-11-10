@@ -57,6 +57,7 @@ import {
   directoryEngineBrandRowSchema,
   erpProductionProgramRowSchema,
   erpProductionProgramLineRowSchema,
+  erpEngineReclamationRowSchema,
 } from './dto.js';
 import {
   erpEngineInstanceRowSchema,
@@ -712,6 +713,21 @@ const ERP_PRODUCTION_PROGRAM_ROW_FIELDS = withBase(
   { db: 'note', dto: 'note' },
 );
 
+// Рекламации двигателя (очередь заездов). Даты приёма и отправки — nullable:
+// рекламация может быть заведена, но ещё не принята или ещё не отправлена.
+const ERP_ENGINE_RECLAMATION_FIELDS = withBase(
+  { db: 'engineId', dto: 'engine_id' },
+  { db: 'queueNo', dto: 'queue_no' },
+  { db: 'acceptedAt', dto: 'accepted_at' },
+  { db: 'shippedAt', dto: 'shipped_at' },
+  { db: 'customerReason', dto: 'customer_reason' },
+  { db: 'actualDefect', dto: 'actual_defect' },
+  { db: 'defectNature', dto: 'defect_nature' },
+  { db: 'actNumber', dto: 'act_number' },
+  { db: 'actDate', dto: 'act_date' },
+  { db: 'comment', dto: 'comment' },
+);
+
 // ────────────────────────────────────────────────────────────
 // Registry entries
 // ────────────────────────────────────────────────────────────
@@ -1159,6 +1175,18 @@ const ENTRIES: readonly SyncTableEntry[] = [
     fields: ERP_PRODUCTION_PROGRAM_ROW_FIELDS,
     conflictTarget: ['id'],
     dependsOn: [SyncTableName.ErpProductionPrograms],
+  },
+  // Рекламации двигателя: очередь заездов по рекламации. Server-write / pull-only:
+  // ведёт серверная дверь (engineReclamationService), клиент читает реплику.
+  // Строка ссылается на двигателя по uuid без жёсткой FK — как остальные строки
+  // контракта; порядок обработки задан dependsOn (карточка двигателя идёт первой).
+  {
+    syncName: SyncTableName.ErpEngineReclamations,
+    ledgerName: SyncTableName.ErpEngineReclamations,
+    schema: erpEngineReclamationRowSchema,
+    fields: ERP_ENGINE_RECLAMATION_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [],
   },
 ] as const;
 

@@ -634,6 +634,25 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     );
     CREATE INDEX IF NOT EXISTS erp_production_program_rows_program_idx ON erp_production_program_rows(program_id);
     CREATE INDEX IF NOT EXISTS erp_production_program_rows_order_idx ON erp_production_program_rows(program_id, order_no);
+    CREATE TABLE IF NOT EXISTS erp_engine_reclamations (
+      id text PRIMARY KEY NOT NULL,
+      engine_id text NOT NULL,
+      queue_no integer NOT NULL,
+      accepted_at integer,
+      shipped_at integer,
+      customer_reason text,
+      actual_defect text,
+      defect_nature text,
+      act_number text,
+      act_date integer,
+      comment text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS erp_engine_reclamations_engine_idx ON erp_engine_reclamations(engine_id);
   `);
 
   // Кладовщик, фаза 2 (0110/0035): условная доводка долгоживущих БД

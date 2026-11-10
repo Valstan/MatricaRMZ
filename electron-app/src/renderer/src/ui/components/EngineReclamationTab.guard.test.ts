@@ -36,12 +36,17 @@ describe('вкладка «Рекламация»: панель живёт, со
     expect(CARD).toContain('<EngineReclamationTab');
   });
 
-  it('состояние остаётся в карточке, компонент шлёт патчи', () => {
-    expect(CARD).toContain('onPatch={applyReclamationPatch}');
+  it('состояние очереди — в вкладке, зеркало — в карточке', () => {
+    // С 10.11.2026 рекламаций может быть несколько (очередь заездов). Очередь живёт
+    // в строгой таблице `erp_engine_reclamations` и правится на вкладке; карточка
+    // хранит EAV-зеркало ТЕКУЩЕЙ (последней) рекламации — по нему читают синяя
+    // метка в списке и источник правды по датам.
+    expect(CARD).toContain('onPatchMirror={applyReclamationPatch}');
     expect(CARD).toContain('function applyReclamationPatch');
     // Любая правка обязана поднять флаг сессии, иначе карточка закроется без сохранения.
-    expect(CARD).toMatch(/function applyReclamationPatch[\s\S]{0,120}setSessionChanged\(true\)/);
-    expect(TAB).not.toContain('useState<ReclamationDraft');
+    expect(CARD).toMatch(/function applyReclamationPatch[\s\S]{0,160}setSessionChanged\(true\)/);
+    expect(TAB).toContain('useState<ReclamationDraft[]>([])');
+    expect(TAB).toContain('window.matrica.engineReclamations.save');
   });
 
   it('поле знает, видима ли вкладка', () => {
@@ -161,5 +166,38 @@ describe('справочник характера дефекта', () => {
   it('кнопка добавления есть и не плодит дубли-опечатки', () => {
     expect(TAB).toContain('Добавить новый характер дефекта');
     expect(TAB).toContain('normalizeLookupCompact');
+  });
+});
+
+/**
+ * Очередь рекламаций (владелец 10.11.2026): «рекламаций может быть несколько, и они
+ * должны иметь свою очередность… слева будет первая рекламация, вторая, третья, а
+ * справа это будет уже сама раскрываться… даты прихода и отгрузки по рекламациям не
+ * пересекались».
+ */
+describe('очередь рекламаций: порядок и гейт дат', () => {
+  it('слева очередь, справа — выбранная рекламация', () => {
+    expect(TAB).toContain('Рекламация №{q.queueNo}');
+    expect(TAB).toContain('setSelectedQueueNo(q.queueNo)');
+    expect(TAB).toContain('Рекламация №{selected.queueNo}');
+  });
+
+  it('нумерация очереди сквозная: добавление и удаление пересчитывают номера', () => {
+    expect(TAB).toContain('const nextNo = queue.length === 0 ? 1');
+    expect(TAB).toContain('q.queueNo > queueNo ? { ...q, queueNo: i + 1 } : q');
+  });
+
+  it('гейт дат проверяется до записи — и на клиенте, и на сервере', () => {
+    expect(TAB).toContain('validateEngineReclamationQueue');
+    expect(TAB).toMatch(/const gate = validateEngineReclamationQueue[\s\S]{0,400}if \(gate\) \{/);
+    // Серверная дверь проверяет то же самое (владелец может править с другой машины).
+    const SERVICE = src('../../../../../../backend-api/src/services/engineReclamationService.ts');
+    expect(SERVICE).toContain('validateEngineReclamationQueue');
+  });
+
+  it('очередь сохраняется серверной дверью, а не в карточке', () => {
+    expect(TAB).toContain('window.matrica.engineReclamations.save');
+    expect(TAB).toContain('window.matrica.engineReclamations.list');
+    expect(PRELOAD).toContain("ipcRenderer.invoke('engineReclamations:save'");
   });
 });
