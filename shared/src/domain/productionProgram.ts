@@ -398,6 +398,141 @@ export function productionProgramRowHighlight(
 }
 
 // ────────────────────────────────────────────────────────────
+// Выполнение плана
+// ────────────────────────────────────────────────────────────
+
+/**
+ * Состояние выполнения строки плана по факту из карточки двигателя.
+ *
+ * Владелец (10.11.2026): «план сам себя отслеживал, выполнение плана по статусам
+ * двигателей… если прошёл контроль АТК, то в плане должно ставиться отметка, что
+ * план по двигателю выполнен».
+ */
+export type ProductionProgramExecutionState = 'ready' | 'shipped' | 'inWork' | 'notStarted';
+
+export const PRODUCTION_PROGRAM_EXECUTION_LABELS: Record<ProductionProgramExecutionState, string> = {
+  ready: 'Готов к отгрузке',
+  shipped: 'Отгружен',
+  inWork: 'В работе',
+  notStarted: 'Не начат',
+};
+
+export type ProductionProgramExecution = {
+  state: ProductionProgramExecutionState;
+  stateLabel: string;
+  /** null — плановой даты отгрузки нет, срок не судим. */
+  onTime: boolean | null;
+  /** Просрочен ли план по этой строке. */
+  overdue: boolean;
+};
+
+/**
+ * Выполнение строки плана: состояние двигателя + попадание в срок.
+ *
+ * Срок — плановая отгрузка строки (`shippingPlanAt`): отгружен в срок — «в срок»,
+ * отгружен позже — «выпал из сроков»; не отгружен, а срок уже прошёл — «просрочен».
+ */
+export function productionProgramRowExecution(args: {
+  engine: EngineListItem | null | undefined;
+  shippingPlanAt?: number | null | undefined;
+  /** Текущее время (мс) — для проверки «срок вышел». */
+  now?: number | undefined;
+}): ProductionProgramExecution {
+  const engine = args.engine ?? null;
+  const now = typeof args.now === 'number' && Number.isFinite(args.now) ? args.now : Date.now();
+  const planAt = typeof args.shippingPlanAt === 'number' && args.shippingPlanAt > 0 ? args.shippingPlanAt : null;
+
+  let state: ProductionProgramExecutionState;
+  if (!engine) state = 'notStarted';
+  else {
+    const highlight = productionProgramRowHighlight(engine);
+    if (highlight === 'shipped') state = 'shipped';
+    else if (highlight === 'ready') state = 'ready';
+    else if (isProductionProgramEngineAtPlant(engine)) state = 'inWork';
+    else state = 'notStarted';
+  }
+
+  let onTime: boolean | null = null;
+  if (planAt != null) {
+    if (state === 'shipped') {
+      const shippedAt = productionProgramEngineDates(engine).shippingDate;
+      onTime = (shippedAt ?? now) <= planAt;
+    } else {
+      onTime = now <= planAt;
+    }
+  }
+
+  return {
+    state,
+    stateLabel: PRODUCTION_PROGRAM_EXECUTION_LABELS[state],
+    onTime,
+    overdue: onTime === false,
+  };
+}
+
+export type ProductionProgramExecutionSummary = {
+  /** Строк в плане всего. */
+  total: number;
+  /** Выполнено: готов к отгрузке или отгружен. */
+  done: number;
+  ready: number;
+  shipped: number;
+  inWork: number;
+  notStarted: number;
+  /** Уложились в плановый срок отгрузки. */
+  onTime: number;
+  /** Выпали из сроков. */
+  overdue: number;
+};
+
+/**
+ * Сводка выполнения плана — то, что показывается на плашке программы
+ * («сколько двигателей ещё не собраны, сколько выполнено», владелец 10.11.2026).
+ */
+export function productionProgramExecutionSummary(args: {
+  rows: readonly {
+    engineId?: string | null | undefined;
+    shippingPlanAt?: number | null | undefined;
+  }[];
+  engines?: readonly EngineListItem[] | null | undefined;
+  now?: number | undefined;
+}): ProductionProgramExecutionSummary {
+  const engineById = new Map<string, EngineListItem>();
+  for (const e of args.engines ?? []) {
+    const id = String(e.id ?? '').trim();
+    if (id) engineById.set(id, e);
+  }
+  const summary: ProductionProgramExecutionSummary = {
+    total: 0,
+    done: 0,
+    ready: 0,
+    shipped: 0,
+    inWork: 0,
+    notStarted: 0,
+    onTime: 0,
+    overdue: 0,
+  };
+  for (const row of args.rows ?? []) {
+    const engineId = String(row.engineId ?? '').trim();
+    const engine = engineId ? engineById.get(engineId) ?? null : null;
+    const execution = productionProgramRowExecution({
+      engine,
+      shippingPlanAt: row.shippingPlanAt ?? null,
+      ...(typeof args.now === 'number' ? { now: args.now } : {}),
+    });
+    summary.total += 1;
+    if (execution.state === 'ready') summary.ready += 1;
+    if (execution.state === 'shipped') summary.shipped += 1;
+    if (execution.state === 'inWork') summary.inWork += 1;
+    if (execution.state === 'notStarted') summary.notStarted += 1;
+    if (execution.state === 'ready' || execution.state === 'shipped') summary.done += 1;
+    if (execution.onTime === true) summary.onTime += 1;
+    if (execution.overdue) summary.overdue += 1;
+  }
+  return summary;
+}
+
+// ────────────────────────────────────────────────────────────
 // Период
 // ────────────────────────────────────────────────────────────
 
