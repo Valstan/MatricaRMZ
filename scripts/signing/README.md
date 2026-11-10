@@ -238,9 +238,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\signing\trust-root-p
 # подпись сторожа
 .\ci-sign-artifacts.ps1 -Mode Watchdog -Target .\electron-app\build\watchdog\matricarmz-watchdog.exe
 
+# подпись скриптов PowerShell, которые едут в клиент (проверка и установка корня доверия)
+.\ci-sign-artifacts.ps1 -Mode Scripts -Target .\scripts\signing
+
 # проверка собранного релиза
 .\ci-sign-artifacts.ps1 -Mode Verify -ReleaseDir .\electron-app\release
 ```
+
+> **Почему `-Mode Scripts` не требует, чтобы раннер доверял нашему корню.** Наш корень
+> самоподписанный, и CI-раннер ему не доверяет: `Set-AuthenticodeSignature` в этом случае
+> возвращает статус `UnknownError` («цепочка упирается в корень, которому не доверяет
+> поставщик»), **но подпись при этом пишется** — с сертификатом и меткой времени RFC 3161
+> (проверено на PC79: файл подписан, `SignerCertificate` и метка времени на месте). Поэтому
+> критерий приёмки здесь — **факт подписи в файле**, а не статус цепочки: на машине парка,
+> где корень стоит, статус будет `Valid`. Критерий прежний — «подпись есть», и он же
+> ловит случай, когда подпись не записалась вовсе.
 
 ### Поведение при отсутствии и при битом сертификате
 
