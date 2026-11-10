@@ -87,7 +87,7 @@ async function main(): Promise<void> {
        JOIN entities e ON e.id = av.entity_id
       WHERE ad.code = ANY($1::text[])
         AND av.deleted_at IS NULL
-        AND e.entity_type_id = (SELECT id FROM entity_types WHERE code = 'engine' LIMIT 1)`,
+        AND e.type_id = (SELECT id FROM entity_types WHERE code = 'engine' LIMIT 1)`,
     [CODES as unknown as string[]],
   );
 
