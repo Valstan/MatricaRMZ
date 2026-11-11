@@ -152,22 +152,28 @@ export function resolveReclamationRowId(args: {
 /**
  * Можно ли снять строку очереди, которой нет в запросе.
  *
- * Непустой запрос — строки сняты осознанно (оператор убрал их в форме). Пустой запрос
- * без подтверждения очистки — НЕЛЬЗЯ: клиент с отставшей репликой присылал пустую
- * очередь, и сервер смягко удалял рекламацию, которую оператор только что записал
- * (жалоба владельца 11.11.2026, двигатель Е02АТ5382: три нажатия — три строки, две
- * удалены).
+ * Строку снимает только тот, кто её ВИДЕЛ: клиент передаёт `knownIds` — что он прочитал
+ * при загрузке очереди. Строка, которой клиент не видел (другой оператор добавил её
+ * позже), остаётся на месте: иначе сохранение устаревшей формы сносило бы чужую
+ * рекламацию. Пустой запрос без подтверждения (`clear`) — тоже ничего не снимает:
+ * клиент с отставшей репликой присылал пустую очередь, и сервер удалял рекламацию,
+ * которую оператор только что записал (жалоба владельца 11.11.2026, Е02АТ5382).
  */
-export function mayDropReclamationRow(args: { preparedCount: number; clear: boolean }): boolean {
-  if (args.preparedCount > 0) return true;
-  return args.clear === true;
+export function mayDropReclamationRow(args: {
+  preparedCount: number;
+  clear: boolean;
+  knownIds: ReadonlySet<string>;
+  rowId: string;
+}): boolean {
+  if (args.preparedCount === 0 && !args.clear) return false;
+  return args.knownIds.has(args.rowId);
 }
 
 export async function replaceEngineReclamations(
   engineId: string,
   inputs: EngineReclamationDraft[],
   mainDates?: { mainArrivalDate?: number | null | undefined; mainShippingDate?: number | null | undefined },
-  opts?: { clear?: boolean | undefined },
+  opts?: { clear?: boolean | undefined; knownIds?: readonly string[] | undefined },
 ): Promise<Result<{ count: number; rows: EngineReclamationRow[]; cleared: boolean }>> {
   const id = String(engineId ?? '').trim();
   if (!isUuid(id)) return { ok: false, error: 'id двигателя должен быть uuid' };
@@ -301,12 +307,13 @@ export async function replaceEngineReclamations(
   // что записал (три нажатия подряд — три строки, две удалены). Очистка идёт только
   // по явному `clear` от клиента, который прочитал очередь с сервера.
   const clear = opts?.clear === true;
+  const knownIds = new Set((opts?.knownIds ?? []).map((id) => String(id)).filter(Boolean));
   let cleared = true;
   for (const row of existing) {
     const rowId = String(row.id);
     if (keptIds.has(rowId)) continue;
     if (row.deletedAt != null) continue;
-    if (!mayDropReclamationRow({ preparedCount: prepared.length, clear })) {
+    if (!mayDropReclamationRow({ preparedCount: prepared.length, clear, knownIds, rowId })) {
       cleared = false;
       continue;
     }

@@ -38,6 +38,12 @@ const queueBody = z.object({
    * — и сервер смягко удалил рекламацию, которую оператор только что записал).
    */
   clear: z.boolean().optional(),
+  /**
+   * Что клиент реально видел при загрузке очереди: снимать можно только те строки,
+   * которые клиент знал, — иначе сохранение устаревшей формы снесло бы рекламацию,
+   * добавленную другим оператором.
+   */
+  knownIds: z.array(z.string()).optional(),
 });
 
 engineReclamationsRouter.get(
@@ -65,7 +71,7 @@ engineReclamationsRouter.put(
         mainArrivalDate: parsed.data.mainArrivalDate ?? null,
         mainShippingDate: parsed.data.mainShippingDate ?? null,
       },
-      { clear: parsed.data.clear === true },
+      { clear: parsed.data.clear === true, knownIds: parsed.data.knownIds ?? [] },
     );
     if (!result.ok) return res.status(400).json(result);
     return res.json(result);

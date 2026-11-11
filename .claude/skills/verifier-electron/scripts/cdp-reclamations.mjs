@@ -374,6 +374,7 @@ async function main() {
        reclMs,
        rowFlag: row?.engineIsReclamation === true,
        queueRows: (queue?.rows ?? []).length,
+       queueIds: (queue?.rows ?? []).map((r) => String(r.id)),
      };`,
   );
   note(
@@ -669,6 +670,7 @@ async function main() {
        engineId: ${JSON.stringify(ENGINE_ID)},
        rows: [],
      clear: true,
+     knownIds: ${JSON.stringify(fixture.queueIds ?? [])},
      }));
      await call(window.matrica.sync.run());
      await wait(2500);

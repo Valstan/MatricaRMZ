@@ -153,6 +153,13 @@ export function EngineReclamationTab(props: {
    * рекламацию, которой оператор не видел).
    */
   const [queueSource, setQueueSource] = useState<'server' | 'replica' | null>(null);
+  /**
+   * Id строк, которые вкладка ВИДЕЛА (прочитала с сервера). По ним сервер понимает,
+   * какие строки снять осознанно, а какие — просто не попали в устаревшую форму.
+   * Не путать со строками в форме: снятая оператором строка из формы исчезает, но из
+   * «виденных» остаётся — иначе сервер не поймёт, что её надо снять.
+   */
+  const [knownIds, setKnownIds] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     if (!props.engineId) return;
@@ -167,6 +174,7 @@ export function EngineReclamationTab(props: {
       setQueue(rows);
       setDirty(false);
       setQueueSource(res.source ?? 'replica');
+      setKnownIds(rows.map((r) => r.id).filter((id): id is string => Boolean(id)));
       setSelectedQueueNo((prev) => prev ?? (rows[0]?.queueNo ?? null));
     } finally {
       setLoading(false);
@@ -277,6 +285,8 @@ export function EngineReclamationTab(props: {
         mainShippingDate: fromIsoDate(props.mainShippedDate ?? ''),
         // Очистка — только явная: пустой список без подтверждения сервер не сносит.
         clear: queue.length === 0 && queueSource === 'server',
+        // Что вкладка видела: сервер снимет только эти строки.
+        knownIds,
       });
       if (!res.ok) {
         setError(res.error);
@@ -298,6 +308,7 @@ export function EngineReclamationTab(props: {
       setQueue(saved);
       setDirty(false);
       setSavedLocally(true);
+      setKnownIds(saved.map((r) => r.id).filter((id): id is string => Boolean(id)));
       setSelectedQueueNo((prev) => prev ?? (saved[0]?.queueNo ?? null));
       props.onPatchFlag?.(saved.length > 0);
       // Зеркало текущей рекламации — последняя в очереди: именно она «сейчас».

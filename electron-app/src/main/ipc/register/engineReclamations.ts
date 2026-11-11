@@ -134,6 +134,11 @@ export function registerEngineReclamationsIpc(ctx: IpcContext) {
          * прислал пустую очередь и снёс запись, которую только что записал).
          */
         clear?: boolean;
+        /**
+         * Что клиент видел при загрузке очереди: снимать можно только эти строки —
+         * иначе сохранение устаревшей формы снесло бы чужую рекламацию.
+         */
+        knownIds?: string[];
       },
     ): Promise<Result<{ count: number; rows: EngineReclamationDto[]; cleared?: boolean; stages?: EngineReclamationStagesSummary }>> => {
       if (isViewMode(ctx)) return viewModeWriteError();
@@ -147,6 +152,7 @@ export function registerEngineReclamationsIpc(ctx: IpcContext) {
           mainArrivalDate: args?.mainArrivalDate ?? null,
           mainShippingDate: args?.mainShippingDate ?? null,
           clear: args?.clear === true,
+          knownIds: Array.isArray(args?.knownIds) ? args.knownIds : [],
         }),
       });
       if (!res.ok) return toResult(res);
