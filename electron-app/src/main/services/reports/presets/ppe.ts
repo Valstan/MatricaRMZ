@@ -54,7 +54,7 @@ type PpeSnapshot = {
   linesBySet: Map<string, Array<{ nomenclatureId: string; qty: number; wearMonths: number }>>;
   cards: Array<{ id: string; employeeId: string; closedAt: number | null }>;
   normsByCard: Map<string, string[]>;
-  entriesByCard: Map<string, Array<{ nomenclatureId: string; qty: number; issuedAt: number; documentId: string | null }>>;
+  entriesByCard: Map<string, Array<{ nomenclatureId: string; qty: number; issuedAt: number; documentId: string | null; returnedAt: number | null }>>;
   groupIdsByEmployee: Map<string, string[]>;
   groupNormSetIdsByGroup: Map<string, string[]>;
   absencesByEmployee: Map<string, PpeAbsenceInput[]>;
@@ -116,7 +116,7 @@ async function loadPpeSnapshot(db: BetterSQLite3Database): Promise<PpeSnapshot> 
     arr.push(String(cn.normSetId));
     normsByCard.set(String(cn.cardId), arr);
   }
-  const entriesByCard = new Map<string, Array<{ nomenclatureId: string; qty: number; issuedAt: number; documentId: string | null }>>();
+  const entriesByCard = new Map<string, Array<{ nomenclatureId: string; qty: number; issuedAt: number; documentId: string | null; returnedAt: number | null }>>();
   for (const v of entries as any[]) {
     const arr = entriesByCard.get(String(v.cardId)) ?? [];
     arr.push({
@@ -124,6 +124,8 @@ async function loadPpeSnapshot(db: BetterSQLite3Database): Promise<PpeSnapshot> 
       qty: Number(v.qty),
       issuedAt: Number(v.issuedAt),
       documentId: v.documentId == null ? null : String(v.documentId),
+      // Возврат СИЗ (миграция 0126): дата «получил обратно» — в ведомости своей колонкой.
+      returnedAt: v.returnedAt == null ? null : Number(v.returnedAt),
     });
     entriesByCard.set(String(v.cardId), arr);
   }
@@ -211,8 +213,13 @@ export async function buildPpeSummarySheetReport(
     const merged = resolveEmployeeNorms(cardNormLines(snap, card));
     const plan = nextIssueDates(merged, snap.entriesByCard.get(card.id) ?? [], now, undefined, absenceSpans(snap, card.employeeId));
     const issuedByNom = new Map<string, number>();
+    const returnedByNom = new Map<string, number>();
     for (const e of snap.entriesByCard.get(card.id) ?? []) {
       issuedByNom.set(e.nomenclatureId, (issuedByNom.get(e.nomenclatureId) ?? 0) + e.qty);
+      if (e.returnedAt != null) {
+        const prev = returnedByNom.get(e.nomenclatureId);
+        if (prev == null || e.returnedAt > prev) returnedByNom.set(e.nomenclatureId, e.returnedAt);
+      }
     }
     for (const p of plan) {
       const nom = snap.nomName.get(p.nomenclatureId) ?? HUMAN_DASH;
@@ -224,6 +231,8 @@ export async function buildPpeSummarySheetReport(
         wearMonths: p.wearMonths,
         issuedQty: issuedByNom.get(p.nomenclatureId) ?? 0,
         lastIssued: p.lastIssuedAt ?? HUMAN_DASH,
+        // Дата возврата (миграция 0126): вещь сдали — своя величина, не подмена срока.
+        returnedAt: returnedByNom.get(p.nomenclatureId) ?? HUMAN_DASH,
         nextDue: p.nextDueAt ?? HUMAN_DASH,
         status: STATUS_RU[p.status] ?? p.status,
       });
@@ -243,6 +252,7 @@ export async function buildPpeSummarySheetReport(
       { key: 'wearMonths', label: 'Носка (мес)', kind: 'number', align: 'right' },
       { key: 'issuedQty', label: 'Выдано всего (шт)', kind: 'number', align: 'right' },
       { key: 'lastIssued', label: 'Последняя выдача', kind: 'date' },
+      { key: 'returnedAt', label: 'Дата возврата', kind: 'date' },
       { key: 'nextDue', label: 'Следующая выдача', kind: 'date' },
       { key: 'status', label: 'Состояние' },
     ],

@@ -108,6 +108,8 @@ export function NomenclatureDetailsPage(props: {
   const [componentTypeId, setComponentTypeId] = useState<string | null>(null);
   // Обобщённая позиция (E3): родитель без артикула; варианты этой строки — если она сама родитель.
   const [parentNomenclatureId, setParentNomenclatureId] = useState<string | null>(null);
+  /** Сертификат позиции (миграция 0127): «свой сертификат» — вид СИЗ. */
+  const [certificate, setCertificate] = useState('');
   const [parentCandidates, setParentCandidates] = useState<Array<{ id: string; name: string; code: string; parentNomenclatureId: string | null }>>([]);
   const [bomRelationSchema, setBomRelationSchema] = useState<WarehouseBomRelationSchema>(DEFAULT_WAREHOUSE_BOM_RELATION_SCHEMA);
   const [templateId, setTemplateId] = useState<string | null>(null);
@@ -204,6 +206,7 @@ export function NomenclatureDetailsPage(props: {
         found.componentTypeId ?? readWarehouseNomenclatureComponentTypeId(found.specJson ?? null),
       );
       setParentNomenclatureId(found.parentNomenclatureId ?? null);
+      setCertificate(String(found.certificate ?? ''));
       try {
         const parsedSpec = found.specJson ? (JSON.parse(String(found.specJson)) as Record<string, unknown>) : {};
         const parsedTemplateId = typeof parsedSpec.templateId === 'string' && parsedSpec.templateId.trim() ? parsedSpec.templateId.trim() : null;
@@ -607,6 +610,9 @@ export function NomenclatureDetailsPage(props: {
       // Pass `null` explicitly so backend can clear the column if the operator unset it.
       componentTypeId: componentTypeId ?? null,
       parentNomenclatureId: parentNomenclatureId ?? null,
+      // Сертификат позиции (миграция 0127): «свой сертификат» — вид СИЗ. null явно,
+      // чтобы сервер снял колонку, если кладовщик убрал значение.
+      certificate: certificate.trim() || null,
       isActive: true,
     });
     if (!result?.ok) {
@@ -741,6 +747,14 @@ export function NomenclatureDetailsPage(props: {
             showAllWhenEmpty
             emptyQueryLimit={20}
             onChange={(next) => setComponentTypeId(next)}
+          />
+          <div title="Сертификат позиции (вид СИЗ): общий для нескольких позиций, разный внутри одного набора норм.">Сертификат</div>
+          <input
+            className="input"
+            value={certificate}
+            disabled={!canEditNomenclatureFields}
+            placeholder="не задан"
+            onChange={(e) => setCertificate(e.target.value)}
           />
           <div>Шаблон</div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>

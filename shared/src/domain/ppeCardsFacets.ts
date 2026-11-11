@@ -19,7 +19,7 @@ import {
 } from './listFacets.js';
 
 export type PpeCardState = 'none' | 'open' | 'closed';
-export type PpeOverviewStatus = 'overdue' | 'dueSoon' | 'ok' | 'neverIssued' | 'noNorms';
+export type PpeOverviewStatus = 'overdue' | 'dueSoon' | 'ok' | 'neverIssued' | 'returned' | 'noNorms';
 
 export type PpeCardsFacetRow = {
   cardState: PpeCardState;
@@ -44,6 +44,8 @@ export const PPE_OVERVIEW_STATUS_RU: Record<PpeOverviewStatus, string> = {
   dueSoon: 'скоро выдавать',
   ok: 'в сроке',
   neverIssued: 'не выдавалось',
+  // Возврат (миграция 0126): вещь сдали — носить нечего, срок носки не тикает.
+  returned: 'сдано',
   noNorms: 'нет норм',
 };
 
@@ -79,7 +81,7 @@ export const PPE_CARDS_FACETS: readonly (FacetDescriptor<PpeCardsFacetRow> & { i
     id: 'issue',
     label: 'Выдача',
     valueOf: (r) => ({ value: r.status, label: PPE_OVERVIEW_STATUS_RU[r.status] }),
-    options: (['overdue', 'dueSoon', 'neverIssued', 'ok', 'noNorms'] as const).map((value) => ({
+    options: (['overdue', 'dueSoon', 'neverIssued', 'ok', 'returned', 'noNorms'] as const).map((value) => ({
       value,
       label: PPE_OVERVIEW_STATUS_RU[value],
     })),

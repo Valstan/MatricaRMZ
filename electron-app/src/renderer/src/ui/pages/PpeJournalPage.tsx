@@ -84,7 +84,11 @@ export function PpeJournalPage() {
           `<td>${escapeHtml(r.postTitle ?? '')}</td><td>${escapeHtml(r.itemName)}</td>` +
           `<td>${escapeHtml(r.size ?? '')}</td><td style="text-align:right;">${r.qty}</td>` +
           `<td style="text-align:right;">${r.normQty == null ? '—' : r.normQty}</td>` +
-          `<td>${escapeHtml(r.wearText)}</td></tr>`,
+          `<td>${escapeHtml(r.wearText)}</td>` +
+          // Дата возврата — отдельной величиной (решение владельца от 09.11): дата
+          // возврата живёт в бланке выдачи и в ведомости, а срок носки — другое.
+          `<td>${escapeHtml(fmtDate(r.returnedAt ?? null))}</td>` +
+          `<td style="text-align:right;">${r.wearPercent == null ? '—' : r.wearPercent}</td></tr>`,
       )
       .join('');
     return (
@@ -92,7 +96,8 @@ export function PpeJournalPage() {
       `<th style="text-align:left;">Таб. номер</th><th style="text-align:left;">ФИО</th>` +
       `<th style="text-align:left;">Должность</th><th style="text-align:left;">Позиция СИЗ</th>` +
       `<th style="text-align:left;">Размер</th><th style="text-align:right;">Выдано</th>` +
-      `<th style="text-align:right;">Кол-во на год</th><th style="text-align:left;">Срок носки</th></tr></thead>` +
+      `<th style="text-align:right;">Кол-во на год</th><th style="text-align:left;">Срок носки</th>` +
+      `<th style="text-align:left;">Дата возврата</th><th style="text-align:right;">Износ, %</th></tr></thead>` +
       `<tbody>${body}</tbody></table>`
     );
   }, [rows]);
@@ -178,6 +183,8 @@ export function PpeJournalPage() {
                 <th style={{ textAlign: 'right' }}>Выдано</th>
                 <th style={{ textAlign: 'right' }}>Кол-во на год</th>
                 <th>Срок носки</th>
+                <th>Дата возврата</th>
+                <th style={{ textAlign: 'right' }}>Износ, %</th>
               </tr>
             </thead>
             <tbody>
@@ -193,6 +200,8 @@ export function PpeJournalPage() {
                   <td style={{ textAlign: 'right' }}>{r.qty}</td>
                   <td style={{ textAlign: 'right' }}>{r.normQty ?? '—'}</td>
                   <td>{r.wearText}</td>
+                  <td>{fmtDate(r.returnedAt ?? null)}</td>
+                  <td style={{ textAlign: 'right' }}>{r.wearPercent ?? '—'}</td>
                 </tr>
               ))}
             </tbody>

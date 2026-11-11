@@ -692,6 +692,10 @@ export const ppeIssueEntries = sqliteTable('ppe_issue_entries', {
   qty: integer('qty').notNull(),
   issuedAt: integer('issued_at').notNull(),
   documentId: text('document_id'),
+  // Возврат СИЗ (миграция 0126): «получил обратно», кто принял, процент износа.
+  returnedAt: integer('returned_at'),
+  returnedBy: text('returned_by'),
+  wearPercent: integer('wear_percent'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
   lastServerSeq: integer('last_server_seq'),
@@ -964,6 +968,8 @@ export const erpNomenclature = sqliteTable(
     specJson: text('spec_json'),
     /** Обобщённая позиция (сервер: migration 0096; реплика: 0026 / шаг 12→13). Без FK — реплика не строже сервера. */
     parentNomenclatureId: text('parent_nomenclature_id'),
+    /** Сертификат позиции (сервер: migration 0127). Вид СИЗ: общий для нескольких позиций, разный внутри набора норм. */
+    certificate: text('certificate'),
     isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
     syncStatus: text('sync_status').notNull().default('synced'),
     lastServerSeq: integer('last_server_seq'),

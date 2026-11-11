@@ -297,6 +297,8 @@ warehouseRouter.post('/nomenclature', requirePermission(PermissionCode.ErpDictio
     specJson: z.string().nullable().optional(),
     componentTypeId: z.string().nullable().optional(),
     parentNomenclatureId: z.string().nullable().optional(),
+    // Сертификат позиции (миграция 0127): «свой сертификат» — вид СИЗ.
+    certificate: z.string().nullable().optional(),
     isActive: z.boolean().optional(),
   });
   const parsed = schema.safeParse(req.body);
@@ -322,6 +324,7 @@ warehouseRouter.post('/nomenclature', requirePermission(PermissionCode.ErpDictio
     ...(parsed.data.specJson !== undefined ? { specJson: parsed.data.specJson } : {}),
     ...(parsed.data.componentTypeId !== undefined ? { componentTypeId: parsed.data.componentTypeId } : {}),
     ...(parsed.data.parentNomenclatureId !== undefined ? { parentNomenclatureId: parsed.data.parentNomenclatureId } : {}),
+    ...(parsed.data.certificate !== undefined ? { certificate: parsed.data.certificate } : {}),
     ...(parsed.data.isActive !== undefined ? { isActive: parsed.data.isActive } : {}),
   });
   if (!result.ok) return res.status(400).json(result);

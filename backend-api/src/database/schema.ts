@@ -1511,6 +1511,13 @@ export const erpNomenclature = pgTable(
     componentTypeId: text('component_type_id'),
     /** Обобщённая позиция (migration 0096): родитель без артикула, эта строка — его вариант. Один уровень. */
     parentNomenclatureId: uuid('parent_nomenclature_id').references((): AnyPgColumn => erpNomenclature.id),
+    /**
+     * Сертификат позиции (миграция 0127): «свой сертификат» (решение владельца
+     * 09.11.2026). Идентификатор группы — вид СИЗ (спецодежда / обувь / защита от
+     * механических воздействий): общий для нескольких позиций и РАЗНЫЙ внутри одного
+     * набора норм. Живёт на позиции номенклатуры, а не EAV-атрибутом (EAV заморожен).
+     */
+    certificate: text('certificate'),
     isActive: boolean('is_active').notNull().default(true),
     syncStatus: text('sync_status').notNull().default('synced'),
     lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
@@ -2437,6 +2444,15 @@ export const ppeIssueEntries = pgTable(
     qty: integer('qty').notNull(),
     issuedAt: bigint('issued_at', { mode: 'number' }).notNull(),
     documentId: uuid('document_id').references(() => erpDocumentHeaders.id),
+    // Возврат СИЗ (миграция 0126): кладовщик отмечает «получил обратно» — отработал
+    // меньше года или уволился. Состояние самой строки выдачи, а не новая таблица:
+    // факт возврата относится к конкретной выданной вещи. returned_by — логин
+    // принявшего (клиент по правилу AGENTS.md показывает логин + ФИО), wear_percent —
+    // процент износа (значение вносит кладовщик; правило пересчёта не выводится без
+    // карточки СИЗ от владельца).
+    returnedAt: bigint('returned_at', { mode: 'number' }),
+    returnedBy: text('returned_by'),
+    wearPercent: integer('wear_percent'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),

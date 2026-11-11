@@ -40,6 +40,8 @@ type NormLine = {
   /** Наименование и код позиции с сервера: реплика номенклатуры на клиенте может отставать. */
   nomenclatureName: string | null;
   nomenclatureCode: string | null;
+  /** Сертификат позиции (миграция 0127): вид СИЗ. Пересекается между наборами, внутри набора — разный. */
+  certificate: string | null;
   qty: number;
   /** Срок носки; `null` — срока нет (годовая норма без срока, «до износа»). */
   wearMonths: number | null;
@@ -525,6 +527,7 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
                       <RowNumberHeaderCell style={ROWNUM_STYLE} />
                       <th>Позиция</th>
                       <th>Основание</th>
+                      <th>Сертификат</th>
                       <th style={{ textAlign: 'right' }}>Кол-во</th>
                       <th style={{ textAlign: 'right' }}>Носка, мес</th>
                       {canEditLines ? <th /> : null}
@@ -560,6 +563,7 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
                           ) : null}
                         </td>
                         <td style={{ color: 'var(--muted)' }}>{l.sourceLabel ?? '—'}</td>
+                        <td>{l.certificate ?? '—'}</td>
                         <td style={{ textAlign: 'right' }}>
                           {l.qty}
                           {l.unit ? ` ${l.unit}` : ''}

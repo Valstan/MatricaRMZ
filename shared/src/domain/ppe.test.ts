@@ -94,6 +94,74 @@ describe('ppe: даты следующих выдач', () => {
   });
 });
 
+describe('ppe: возврат СИЗ (миграция 0126)', () => {
+  const merged = [{ nomenclatureId: NOM_A, qty: 2, wearMonths: 12, wearKind: 'months' }];
+
+  it('сданная вещь не «просрочена»: у сотрудника её нет, срок от выдачи не значит', () => {
+    const yearAgo = Date.UTC(2025, 9, 10);
+    const [a] = nextIssueDates(
+      merged,
+      [{ nomenclatureId: NOM_A, qty: 2, issuedAt: yearAgo, returnedAt: T0 }],
+      T0,
+    );
+    expect(a.status).toBe('returned');
+    expect(a.nextDueAt).toBeNull();
+  });
+
+  it('возврат не отменяет выдачу: позиция не выглядит «никогда не выдавалась»', () => {
+    const yearAgo = Date.UTC(2025, 9, 10);
+    const [a] = nextIssueDates(
+      merged,
+      [{ nomenclatureId: NOM_A, qty: 2, issuedAt: yearAgo, returnedAt: T0 }],
+      T0,
+    );
+    expect(a.lastIssuedAt).toBe(yearAgo);
+  });
+
+  it('повторная выдача после возврата считается заново: срок от новой даты', () => {
+    const yearAgo = Date.UTC(2025, 9, 10);
+    const [a] = nextIssueDates(
+      merged,
+      [
+        { nomenclatureId: NOM_A, qty: 2, issuedAt: yearAgo, returnedAt: Date.UTC(2026, 2, 1) },
+        { nomenclatureId: NOM_A, qty: 2, issuedAt: T0 },
+      ],
+      T0,
+    );
+    expect(a.status).toBe('ok');
+    expect(a.lastIssuedAt).toBe(T0);
+    expect(a.nextDueAt).toBe(Date.UTC(2027, 9, 11));
+  });
+
+  it('возврат снят — позиция снова считается выданной', () => {
+    const yearAgo = Date.UTC(2025, 9, 10);
+    const [a] = nextIssueDates(
+      merged,
+      [{ nomenclatureId: NOM_A, qty: 2, issuedAt: yearAgo, returnedAt: null }],
+      T0,
+    );
+    expect(a.status).toBe('overdue');
+  });
+
+  it('возврат по позиции не трогает другие позиции', () => {
+    const two = [
+      { nomenclatureId: NOM_A, qty: 2, wearMonths: 12, wearKind: 'months' as const },
+      { nomenclatureId: NOM_B, qty: 1, wearMonths: 12, wearKind: 'months' as const },
+    ];
+    const yearAgo = Date.UTC(2025, 9, 10);
+    const [a, b] = nextIssueDates(
+      two,
+      [
+        { nomenclatureId: NOM_A, qty: 2, issuedAt: yearAgo, returnedAt: T0 },
+        { nomenclatureId: NOM_B, qty: 1, issuedAt: yearAgo },
+      ],
+      T0,
+    );
+    expect(a.status).toBe('returned');
+    expect(b.status).toBe('overdue');
+  });
+});
+
 describe('ppe: ближайшие выдачи', () => {
   it('в горизонт попадают просрочка и близкие сроки, сортировка по дате', () => {
     const merged = [

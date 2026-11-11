@@ -40,6 +40,14 @@ export type PpeIssueEntryInput = {
   nomenclatureId: string;
   qty: number;
   issuedAt: number;
+  /**
+   * Дата возврата вещи (миграция 0126). Не `null` — вещь сдали: кладовщик отметил
+   * «получил обратно» (отработал меньше года или уволился). Возврат не обнуляет
+   * норму: после новой выдачи срок носки считается заново от новой даты.
+   */
+  returnedAt?: number | null;
+  /** Процент износа, вносит кладовщик (правило пересчёта — по карточке владельца). */
+  wearPercent?: number | null;
 };
 
 export type MergedPpeNorm = {
@@ -60,7 +68,15 @@ export type MergedPpeNorm = {
   wearKind: PpeWearKind;
 };
 
-export type PpeIssueStatus = 'overdue' | 'dueSoon' | 'ok' | 'neverIssued';
+/**
+ * Состояние позиции по сроку выдачи.
+ *
+ * `returned` — вещь сдали (миграция 0126): срок, отсчитанный от выдачи, потерял смысл
+ * (вещи у сотрудника нет), но норма остаётся — после новой выдачи срок считается заново.
+ * Это ОТДЕЛЬНЫЙ статус, а не подмена `nextDueAt`: иначе «просрочено» начало бы врать
+ * про вещь, которой у человека нет, а кладовщик — поправлять чужую ошибку.
+ */
+export type PpeIssueStatus = 'overdue' | 'dueSoon' | 'ok' | 'neverIssued' | 'returned';
 
 export type PpeNextIssue = MergedPpeNorm & {
   lastIssuedAt: number | null;
@@ -207,6 +223,12 @@ export function resolveGroupNorms(input: {
  * Приказ о СИЗ: норма без срока («до износа», «срок определяется документами
  * изготовителя») даты следующей выдачи не имеет — она не «пора» и не «просрочена».
  * Её меняют по износу, поэтому такая позиция в сроки не попадает вовсе.
+ *
+ * Возврат (миграция 0126): вещь сдали — у сотрудника её нет, поэтому срок от
+ * выдачи больше не значит ничего и позиция получает статус `returned`, а не
+ * «просрочено». Но норма остаётся: после новой выдачи срок считается заново от
+ * новой даты (новая строка выдачи — новый отсчёт). Возвращённая строка выдачи
+ * поэтому не обнуляет норму, а лишь снимает тревогу «пора выдавать».
  */
 export function nextIssueDates(
   merged: MergedPpeNorm[],
@@ -216,7 +238,14 @@ export function nextIssueDates(
   absences: PpeAbsenceInput[] = [],
 ): PpeNextIssue[] {
   const lastByNom = new Map<string, number>();
+  const returnedByNom = new Map<string, number>();
   for (const e of entries) {
+    if (e.returnedAt != null) {
+      const prev = returnedByNom.get(e.nomenclatureId);
+      if (prev == null || e.returnedAt > prev) returnedByNom.set(e.nomenclatureId, e.returnedAt);
+      // Возврат не отменяет выдачу: последняя выдача считается по всем строкам,
+      // иначе сданная вещь выглядела бы как «никогда не выдавалась».
+    }
     const cur = lastByNom.get(e.nomenclatureId);
     if (cur == null || e.issuedAt > cur) lastByNom.set(e.nomenclatureId, e.issuedAt);
   }
@@ -224,6 +253,11 @@ export function nextIssueDates(
     const last = lastByNom.get(m.nomenclatureId) ?? null;
     if (last == null) {
       return { ...m, lastIssuedAt: null, nextDueAt: null, status: 'neverIssued' as const };
+    }
+    // Сдали после последней выдачи — вещи у сотрудника нет, срок от выдачи не значит.
+    const returnedAt = returnedByNom.get(m.nomenclatureId) ?? null;
+    if (returnedAt != null && returnedAt >= last) {
+      return { ...m, lastIssuedAt: last, nextDueAt: null, status: 'returned' as const };
     }
     if (m.wearMonths == null) {
       // Срока нет — срок не считаем: позиция выдана и живёт до износа.

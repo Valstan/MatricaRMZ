@@ -188,6 +188,41 @@ export function registerPpeIpc(ctx: IpcContext) {
     },
   );
 
+  // Возврат СИЗ (миграция 0126): отметка «получил обратно» по строке выдачи.
+  // Гейт — erp.dictionary.edit (действие кладовщика по карточке СИЗ): возврата вещи
+  // нет складского документа, движение по фонду деталей не трогается.
+  ipcMain.handle(
+    'ppe:issueEntries:markReturned',
+    async (_e, args: { entryId: string; returnedAt?: number | null; wearPercent?: number | null }) => {
+      if (isViewMode(ctx)) return viewModeWriteError();
+      const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+      if (!gate.ok) return gate as Err;
+      return toResult(
+        await httpAuthed(ctx.sysDb, base(), `/ppe/issue-entries/${encodeURIComponent(String(args?.entryId || ''))}/return`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...(args?.returnedAt != null ? { returnedAt: args.returnedAt } : {}),
+            ...(args?.wearPercent != null ? { wearPercent: args.wearPercent } : {}),
+          }),
+        }),
+      );
+    },
+  );
+
+  ipcMain.handle('ppe:issueEntries:undoReturn', async (_e, args: { entryId: string }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+    if (!gate.ok) return gate as Err;
+    return toResult(
+      await httpAuthed(ctx.sysDb, base(), `/ppe/issue-entries/${encodeURIComponent(String(args?.entryId || ''))}/return/undo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      }),
+    );
+  });
+
   // ────────────────────────────────────────────────────────────
   // Фаза 2: отпуска, группы, коллективная выдача, дежурные, импорт.
   // Гейты повторяют REST-роуты: чтение — view справочников, правка — edit,

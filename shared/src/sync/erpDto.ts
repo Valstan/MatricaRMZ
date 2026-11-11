@@ -68,6 +68,10 @@ export const erpNomenclatureRowSchema = z.object({
   default_brand_id: z.string().uuid().nullable().optional(),
   is_serial_tracked: z.boolean().optional(),
   default_warehouse_id: z.string().nullable().optional(),
+  // Сертификат позиции (миграция 0127): «свой сертификат» — идентификатор группы
+  // (вид СИЗ). Nullable/optional: у номенклатуры вне СИЗ сертификата нет, и строки,
+  // записанные до 0127, его не несут.
+  certificate: z.string().nullable().optional(),
   spec_json: z.string().nullable().optional(),
   is_active: z.boolean(),
   sync_status: z.enum(['synced', 'pending', 'error']).optional(),

@@ -188,6 +188,10 @@ export async function buildPpeJournal(
       size: sizeOf(itemName) || null,
       qty: Number(entry.qty),
       documentNo: null,
+      // Возврат СИЗ (миграция 0126): дата «получил обратно» и процент износа едут
+      // в ведомость отдельными величинами (решение владельца от 09.11).
+      returnedAt: entry.returnedAt == null ? null : Number(entry.returnedAt),
+      wearPercent: entry.wearPercent == null ? null : Number(entry.wearPercent),
     });
   }
 

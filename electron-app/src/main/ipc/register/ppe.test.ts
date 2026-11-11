@@ -36,7 +36,7 @@ function makeCtx() {
 }
 
 describe('ppe IPC', () => {
-  it('все 11 каналов зарегистрированы', () => {
+  it('все 13 каналов зарегистрированы', () => {
     registerPpeIpc(makeCtx());
     for (const ch of [
       'ppe:norms:list',
@@ -50,6 +50,8 @@ describe('ppe IPC', () => {
       'ppe:cards:assignNorms',
       'ppe:cards:close',
       'ppe:cards:issue',
+      'ppe:issueEntries:markReturned',
+      'ppe:issueEntries:undoReturn',
     ]) {
       expect(handlers.has(ch), ch).toBe(true);
     }
@@ -85,6 +87,34 @@ describe('ppe IPC', () => {
     registerPpeIpc(ctx);
     const issue = handlers.get('ppe:cards:issue')!;
     const r = (await issue({}, { cardId: 'c-1', warehouseId: 'w-1', lines: [] })) as { ok: boolean };
+    expect(r.ok).toBe(false);
+    expect(httpCalls.length).toBe(0);
+  });
+
+  it('возврат идёт в POST /ppe/issue-entries/:id/return, снятие — в .../return/undo', async () => {
+    registerPpeIpc(makeCtx());
+    httpCalls.length = 0;
+    response = { ok: true, status: 200, json: { ok: true, entryId: 'e-1', returnedAt: 1, wearPercent: null } };
+    const mark = handlers.get('ppe:issueEntries:markReturned')!;
+    const r = (await mark({}, { entryId: 'e-1', wearPercent: 40 })) as { ok: boolean };
+    expect(r.ok).toBe(true);
+    expect(httpCalls[0]).toMatchObject({ url: '/ppe/issue-entries/e-1/return', method: 'POST' });
+    expect(httpCalls[0]?.body).toMatchObject({ wearPercent: 40 });
+
+    httpCalls.length = 0;
+    const undo = handlers.get('ppe:issueEntries:undoReturn')!;
+    const r2 = (await undo({}, { entryId: 'e-1' })) as { ok: boolean };
+    expect(r2.ok).toBe(true);
+    expect(httpCalls[0]).toMatchObject({ url: '/ppe/issue-entries/e-1/return/undo', method: 'POST' });
+  });
+
+  it('без права справочников возврат не уходит на сервер', async () => {
+    registerPpeIpc(makeCtx());
+    httpCalls.length = 0;
+    const ctx = { ...makeCtx(), currentPermissions: async () => ({}) };
+    registerPpeIpc(ctx);
+    const mark = handlers.get('ppe:issueEntries:markReturned')!;
+    const r = (await mark({}, { entryId: 'e-1' })) as { ok: boolean };
     expect(r.ok).toBe(false);
     expect(httpCalls.length).toBe(0);
   });
