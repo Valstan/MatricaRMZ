@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveReclamationRowId } from './engineReclamationService.js';
+import { mayDropReclamationRow, resolveReclamationRowId } from './engineReclamationService.js';
 
 // Очередь рекламаций — заезды двигателя по рекламации. Ключевое правило записи:
 // строка опознаётся по НОМЕРУ рекламации, а не только по id из запроса. Клиент знает
@@ -78,5 +78,25 @@ describe('resolveReclamationRowId — какую строку очереди п�
         newId: 'new',
       }),
     ).toBe(OWN_2);
+  });
+});
+
+/**
+ * Потеря рекламации (жалоба владельца 11.11.2026, Е02АТ5382): пустой запрос от клиента
+ * с отставшей репликой означал «рекламаций нет», и сервер смягко удалял то, что оператор
+ * только что записал. Пустая очередь чистится только по явному подтверждению.
+ */
+describe('mayDropReclamationRow — когда очередь можно очистить', () => {
+  it('непустой запрос — строки сняты осознанно, чистим', () => {
+    expect(mayDropReclamationRow({ preparedCount: 2, clear: false })).toBe(true);
+    expect(mayDropReclamationRow({ preparedCount: 1, clear: false })).toBe(true);
+  });
+
+  it('пустой запрос без подтверждения — НЕ сносим рекламацию', () => {
+    expect(mayDropReclamationRow({ preparedCount: 0, clear: false })).toBe(false);
+  });
+
+  it('пустой запрос с подтверждением очистки — сносим', () => {
+    expect(mayDropReclamationRow({ preparedCount: 0, clear: true })).toBe(true);
   });
 });

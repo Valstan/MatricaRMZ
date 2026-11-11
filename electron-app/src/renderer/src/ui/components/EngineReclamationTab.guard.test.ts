@@ -208,3 +208,36 @@ describe('очередь рекламаций: порядок и гейт дат
     expect(PRELOAD).toContain("ipcRenderer.invoke('engineReclamations:save'");
   });
 });
+
+/**
+ * Потеря рекламации (жалоба владельца 11.11.2026, двигатель Е02АТ5382): дверь «заменяет
+ * очередь», поэтому пустая форма = «рекламаций нет» = сервер смягко удаляет всё, что там
+ * было. Очередь в форме бралась из отстающей локальной реплики → выглядела пустой →
+ * оператор жал «Сохранить очередь» и сносил рекламацию, которую только что записал
+ * (три нажатия подряд — три строки, две удалены).
+ */
+describe('очередь рекламаций: пустая форма не сносит рекламацию', () => {
+  it('очередь читается с сервера, а реплика — только офлайн-фолбэк', () => {
+    const IPC = src('../../../../main/ipc/register/engineReclamations.ts');
+    expect(IPC).toContain('/engine-reclamations/');
+    expect(IPC).toContain("source: 'server'");
+    expect(IPC).toContain("source: 'replica'");
+  });
+
+  it('пустая очередь сохраняется только если сервер её подтвердил', () => {
+    // Форма, прочитанная из отставшей реплики, сохраняться не может: сервер счёл бы
+    // невидимые строки лишними и снёс бы их.
+    expect(TAB).toContain("queueSource === 'replica'");
+    // Гейт стоит ДО записи: пустой список не должен уйти в дверь.
+    const gateAt = TAB.indexOf("queueSource === 'replica'");
+    const saveAt = TAB.indexOf('window.matrica.engineReclamations.save');
+    expect(gateAt).toBeGreaterThan(-1);
+    expect(saveAt).toBeGreaterThan(gateAt);
+    // Очистка уходит на сервер только с явным подтверждением.
+    expect(TAB).toContain("clear: queue.length === 0 && queueSource === 'server'");
+  });
+
+  it('вкладка помнит, откуда взята очередь, и не путает сервер с репликой', () => {
+    expect(TAB).toContain('setQueueSource(res.source');
+  });
+});
