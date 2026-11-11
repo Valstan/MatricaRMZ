@@ -357,10 +357,12 @@ async function findEntity(input: Record<string, unknown>): Promise<ToolResult> {
   return jsonResult({ found: true, candidates: results.slice(0, limit) });
 }
 
-// Рекламации — НЕ отдельная таблица: это EAV-атрибуты reclamation_* на самой
-// сущности двигателя (см. shared/src/domain/reclamation.ts). Без этого tool
-// модель ищет несуществующую таблицу claims, получает отказ и неверно
-// докладывает «нет прав» (кейс «вся рекламация ОВК», 2026-08-17).
+// Рекламации — очередь заездов в строгой таблице erp_engine_reclamations (миграция
+// 0125): одна строка — один заезд по рекламации, у двигателя их может быть несколько
+// (№1, №2 …). Раньше tool читал EAV-атрибуты reclamation_* (одна рекламация на движок)
+// и в описании говорил модели, что «отдельной таблицы claims НЕТ» — после перехода на
+// очередь это враньё: истина в очереди, а таблица для прямого SQL модели закрыта
+// (см. buildAccessPolicy — там только EAV-таблицы).
 async function getReclamations(input: Record<string, unknown>): Promise<ToolResult> {
   const search = asString(input, 'counterparty').trim();
   const limit = asLimit(input);
@@ -382,9 +384,7 @@ async function getReclamations(input: Record<string, unknown>): Promise<ToolResu
     'select e.id, e.created_at, e.updated_at from entities e ' +
     'join entity_types t on t.id = e.type_id ' +
     "where t.code in ('engine','engine_instance') and e.deleted_at is null " +
-    'and exists (select 1 from attribute_values avf join attribute_defs df on df.id = avf.attribute_def_id ' +
-    "where avf.entity_id = e.id and avf.deleted_at is null and df.code = 'reclamation_flag' " +
-    "and lower(coalesce(avf.value_json, '')) in ('true', '\"true\"'))" +
+    'and exists (select 1 from erp_engine_reclamations r where r.engine_id = e.id and r.deleted_at is null)' +
     counterpartyFilter +
     ` order by e.updated_at desc limit ${limit}`;
   const head = await pool.query(headSql, params as any[]);
@@ -394,7 +394,7 @@ async function getReclamations(input: Record<string, unknown>): Promise<ToolResu
     'select av.entity_id, d.code as attribute_code, d.name as attribute_name, av.value_json ' +
     'from attribute_values av join attribute_defs d on d.id = av.attribute_def_id ' +
     'where av.deleted_at is null and d.deleted_at is null and av.entity_id = ANY($1::uuid[]) ' +
-    "and (d.code like 'reclamation%' or d.code in ('engine_number','engine_internal_number','engine_brand','engine_brand_id','contract_id','customer_id'))";
+    "and d.code in ('engine_number','engine_internal_number','engine_brand','engine_brand_id','contract_id','customer_id')";
   const attrs = await pool.query(attrSql, [ids]);
   const byId = new Map<string, Record<string, unknown>>();
   const counterpartyIds = new Set<string>();
@@ -456,13 +456,30 @@ async function getReclamations(input: Record<string, unknown>): Promise<ToolResu
       if (label) contractNames.set(row.id, label);
     }
   }
-  const rows = ids.map((id: string) => {
+  // Очередь заездов: строка — одна рекламация. Двигатель с двумя рекламациями даст
+  // две строки — так очередь и устроена (№1, №2 …).
+  const queueSql =
+    'select engine_id, queue_no, accepted_at, shipped_at, customer_reason, actual_defect, ' +
+    'defect_nature, act_number, act_date, comment from erp_engine_reclamations ' +
+    'where engine_id = ANY($1::uuid[]) and deleted_at is null order by engine_id, queue_no';
+  const queue = await pool.query(queueSql, [ids]);
+  const rows = (queue.rows ?? []).map((r: any) => {
+    const id = String(r.engine_id);
     const rec = byId.get(id) ?? {};
     const customerId = typeof rec['customer_id'] === 'string' ? (rec['customer_id'] as string) : '';
     const contractId = typeof rec['contract_id'] === 'string' ? (rec['contract_id'] as string) : '';
     return {
       engineId: id,
       ...rec,
+      reclamation_no: Number(r.queue_no),
+      reclamation_accepted_at: r.accepted_at == null ? null : Number(r.accepted_at),
+      reclamation_shipped_at: r.shipped_at == null ? null : Number(r.shipped_at),
+      reclamation_customer_reason: r.customer_reason == null ? null : String(r.customer_reason),
+      reclamation_actual_defect: r.actual_defect == null ? null : String(r.actual_defect),
+      reclamation_defect_nature: r.defect_nature == null ? null : String(r.defect_nature),
+      reclamation_act_number: r.act_number == null ? null : String(r.act_number),
+      reclamation_act_date: r.act_date == null ? null : Number(r.act_date),
+      reclamation_comment: r.comment == null ? null : String(r.comment),
       customer_name: names.get(customerId) ?? null,
       contract_name: contractNames.get(contractId) ?? null,
     };
@@ -969,14 +986,16 @@ const TOOLS: Record<string, ToolEntry> = {
     def: {
       name: 'get_reclamations',
       description:
-        'Рекламации по двигателям: дата приёма, причина заказчика, вердикт, статус ремонта, отгрузка, ' +
-        'контрагент и контракт. Рекламации хранятся атрибутами reclamation_* на двигателе — отдельной ' +
-        'таблицы claims НЕТ, используй этот tool. Фильтр counterparty — подстрока имени контрагента (например «ОВК»).',
+        'Рекламации по двигателям: очередь заездов по рекламации — номер рекламации, дата приёма, дата отгрузки, ' +
+        'причина заказчика, фактический дефект, характер дефекта, акт исследования, комментарий, контрагент и ' +
+        'контракт. Рекламации живут в строгой таблице erp_engine_reclamations (строка — один заезд), у двигателя их ' +
+        'может быть несколько (№1, №2 …) — по одному движку вернётся несколько строк. Таблица закрыта для прямого ' +
+        'SQL, поэтому берь эти данные этим tool. Фильтр counterparty — подстрока имени контрагента (например «ОВК»).',
       input_schema: {
         type: 'object',
         properties: {
           counterparty: { type: 'string', description: 'Подстрока имени контрагента-заказчика.' },
-          limit: { type: 'integer', description: 'Максимум строк (1..200, default 50).' },
+          limit: { type: 'integer', description: 'Максимум двигателей (1..200, default 50) — по каждому все его рекламации.' },
         },
       },
     },
@@ -1089,7 +1108,8 @@ const TOOLS: Record<string, ToolEntry> = {
         'договор опознаётся НОМЕРОМ, а не именем: атрибуты `number` (длинный ' +
         'казённый номер) и `internal_number` («20/ГОЗ-25»), поле `name` у него ' +
         'отсутствует; двигатель ссылается на договор атрибутом `contract_id`; ' +
-        'рекламации — НЕ таблица claims, а атрибуты reclamation_* двигателя (tool get_reclamations); ' +
+        'рекламации — таблица erp_engine_reclamations (очередь заездов по рекламации, строка = заезд), но она ' +
+        'закрыта для прямого SQL: бери tool get_reclamations; ' +
         'двигатели/детали/сотрудники — EAV: entities + attribute_values + attribute_defs.',
       input_schema: {
         type: 'object',
