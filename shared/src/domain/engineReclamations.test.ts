@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildEngineVisits,
+  engineReclamationFacts,
   engineReclamationHistoryLines,
   formatQueueDate,
   sortEngineReclamations,
@@ -137,5 +138,41 @@ describe('порядок рекламаций', () => {
 
   it('дата в тексте — ДД.ММ.ГГГГ', () => {
     expect(formatQueueDate(new Date(2026, 9, 3, 12).getTime())).toBe('03.10.2026');
+  });
+});
+
+/**
+ * Факты отслеживания (признак «рекламационный», даты приёма и отгрузки) считаются
+ * из САМОЙ очереди: EAV-зеркало поддерживалось только при сохранении карточки, и
+ * «Сохранить очередь» отслеживание в отчётах и фильтрах не двигало.
+ */
+describe('очередь рекламаций: факты отслеживания', () => {
+  it('пустая очередь — двигатель не рекламационный', () => {
+    expect(engineReclamationFacts([])).toEqual({ isReclamation: false, acceptedAt: null, shippedAt: null });
+  });
+
+  it('одна рекламация — признак и её даты', () => {
+    const facts = engineReclamationFacts([
+      reclamation({ queueNo: 1, acceptedAt: BASE + 10 * DAY, shippedAt: BASE + 20 * DAY }),
+    ]);
+    expect(facts.isReclamation).toBe(true);
+    expect(facts.acceptedAt).toBe(BASE + 10 * DAY);
+    expect(facts.shippedAt).toBe(BASE + 20 * DAY);
+  });
+
+  it('текущая — последняя в очереди, а не первая', () => {
+    const facts = engineReclamationFacts([
+      reclamation({ id: 'r2', queueNo: 2, acceptedAt: BASE + 30 * DAY, shippedAt: null }),
+      reclamation({ id: 'r1', queueNo: 1, acceptedAt: BASE + 10 * DAY, shippedAt: BASE + 20 * DAY }),
+    ]);
+    expect(facts.acceptedAt).toBe(BASE + 30 * DAY);
+    expect(facts.shippedAt).toBeNull();
+  });
+
+  it('рекламация без даты приёма — признак есть, дат нет', () => {
+    const facts = engineReclamationFacts([reclamation({ queueNo: 1, acceptedAt: null, shippedAt: null })]);
+    expect(facts.isReclamation).toBe(true);
+    expect(facts.acceptedAt).toBeNull();
+    expect(facts.shippedAt).toBeNull();
   });
 });

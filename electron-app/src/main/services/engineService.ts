@@ -57,6 +57,7 @@ import {
 import { attributeDefs, attributeValues, entities, entityTypes, erpEngineCards, erpEngineNumbers, operations } from '../database/schema.js';
 import { collectChunked } from '../utils/sqlChunks.js';
 import { mergeStrictCardAttrs, readEngineCardStrict, strictRowToSnake, type EavCardAttr } from './engineCardsReplica.js';
+import { listReclamationDefectNaturesFromQueue, loadEngineReclamationFactsMap } from './engineReclamationReplica.js';
 import { readInventoryFlagRowsForOperations, readInventoryLinesVersions, type InventoryFlagRow } from './engineInventoryLinesReplica.js';
 import { listEntitiesByType, listEntitiesByTypeWithAttrs } from './entityService.js';
 import { loadScrapCriterionIndex } from './scrapCriterionService.js';
@@ -1025,37 +1026,23 @@ export async function resolveEngineLabels(
 }
 
 /**
- * Признак «рекламационный» по горстке двигателей — одним пакетным чтением EAV-флага
- * (`reclamation_flag`). Список этапов спрашивает его у каждой строки, поэтому построчные
- * `getEngineDetails` не годятся: это был бы запрос на строку. Правило разбора — то же,
- * что в `listEngines` (флаг хранится в EAV; strict-реплика его ещё не отдаёт).
+ * Признак «рекламационный» по горстке двигателей — одним пакетным чтением ОЧЕРЕДИ
+ * заездов (`erp_engine_reclamations`, локальная реплика). Список этапов спрашивает его
+ * у каждой строки, поэтому построчные `getEngineDetails` не годятся: это был бы запрос
+ * на строку.
+ *
+ * Раньше признак читался из EAV-флага `reclamation_flag`, а тот поддерживался только
+ * при сохранении карточки: «Сохранить очередь» писал очередь и больше ничего, и в
+ * ведомостях рекламационных двигателей не было. Правило разбора — то же, что в
+ * `listEngines` (см. `loadEngineReclamationFactsMap`).
  */
 export async function getEngineReclamationFlags(
   db: BetterSQLite3Database,
   engineIds: readonly string[],
 ): Promise<Map<string, boolean>> {
   const out = new Map<string, boolean>();
-  const ids = [...new Set(engineIds.map((id) => String(id ?? '').trim()).filter(Boolean))];
-  if (ids.length === 0) return out;
-  const defs = await getEngineAttrDefs(db);
-  const defId = defs['reclamation_flag'];
-  if (!defId) return out;
-  const rows = await collectChunked(ids, (idsChunk) =>
-    db
-      .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
-      .from(attributeValues)
-      .where(
-        and(
-          inArray(attributeValues.entityId, idsChunk),
-          eq(attributeValues.attributeDefId, defId),
-          isNull(attributeValues.deletedAt),
-        ),
-      ),
-  );
-  for (const row of rows) {
-    const raw = row.valueJson == null ? null : safeJsonParse(String(row.valueJson));
-    out.set(String(row.entityId), isEavFlagSet(raw));
-  }
+  const facts = await loadEngineReclamationFactsMap(db, engineIds);
+  for (const [engineId, fact] of facts) out.set(engineId, fact.isReclamation);
   return out;
 }
 
@@ -1116,9 +1103,6 @@ export async function listEngines(
   const scrapReasonDefId = defs['scrap_reason'];
   const statusDateDefIds = STATUS_CODES.map((c) => defs[statusDateCode(c)]).filter(Boolean) as string[];
   const attachmentsDefId = defs['attachments'];
-  const reclamationFlagDefId = defs['reclamation_flag'];
-  const reclamationAcceptedDefId = defs['reclamation_accepted_date'];
-  const reclamationShippedDefId = defs['reclamation_shipped_date'];
   const repeatArrivalDefId = defs['repeat_arrival_flag'];
   const numberCollisionDefId = defs['number_collision_flag'];
   const reservationDefId = defs[ENGINE_RESERVATION_CODE];
@@ -1146,6 +1130,12 @@ export async function listEngines(
   mark('maps.repairHistory');
   const lastActivityByEngineId = await getEngineLastActivityMap(db, engineIds);
   mark('maps.lastActivity');
+  // Рекламация — из ОЧЕРЕДИ заездов (`erp_engine_reclamations`), а не из EAV-зеркала.
+  // Зеркало поддерживалось только при сохранении карточки, поэтому «Сохранить очередь»
+  // двигал очередь и ни одного отчёта: признак и даты рекламации в списке, отчётах
+  // и ведомостях оставались прежними.
+  const reclamationFactsByEngineId = await loadEngineReclamationFactsMap(db, engineIds);
+  mark('maps.reclamations');
   try {
     opts?.onPhase?.('maps', Date.now() - mapsStartedAt);
   } catch {
@@ -1167,9 +1157,6 @@ export async function listEngines(
     workshopIdDefId,
     scrapReasonDefId,
     attachmentsDefId,
-    reclamationFlagDefId,
-    reclamationAcceptedDefId,
-    reclamationShippedDefId,
     repeatArrivalDefId,
     numberCollisionDefId,
     reservationDefId,
@@ -1340,22 +1327,13 @@ export async function listEngines(
       const raw = v != null ? safeJsonParse(v) : null;
       arrivalDate = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
     }
-    let reclamationAcceptedDate: number | null = null;
-    if (reclamationAcceptedDefId) {
-      const v = (rowValues.get(reclamationAcceptedDefId)?.json ?? null);
-      const raw = v != null ? safeJsonParse(v) : null;
-      const parsed = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
-      reclamationAcceptedDate = typeof parsed === 'number' && Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-    }
-    // Отправка с рекламации — вторая дата ветки рекламации. Вместе с приёмкой она
-    // образует поздний источник правды по датам (см. `resolveEngineTruthDates`).
-    let reclamationShippedDate: number | null = null;
-    if (reclamationShippedDefId) {
-      const v = (rowValues.get(reclamationShippedDefId)?.json ?? null);
-      const raw = v != null ? safeJsonParse(v) : null;
-      const parsed = typeof raw === 'number' ? raw : raw ? Number(raw) : null;
-      reclamationShippedDate = typeof parsed === 'number' && Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-    }
+    // Рекламация — текущий заезд из очереди заездов (источник правды). Отправка с
+    // рекламации — вторая дата ветки рекламации; вместе с приёмкой она образует
+    // поздний источник правды по датам (см. `resolveEngineTruthDates`).
+    const reclamationFacts = reclamationFactsByEngineId.get(e.id) ?? null;
+    const isReclamation = reclamationFacts?.isReclamation === true;
+    const reclamationAcceptedDate = reclamationFacts?.acceptedAt ?? null;
+    const reclamationShippedDate = reclamationFacts?.shippedAt ?? null;
     let legacyShippingDate: number | null = null;
     if (shippingDateDefId) {
       const v = (rowValues.get(shippingDateDefId)?.json ?? null);
@@ -1401,7 +1379,6 @@ export async function listEngines(
       const raw = v != null ? safeJsonParse(v) : null;
       return raw === true || raw === 'true' || raw === 1;
     };
-    const isReclamation = boolAttr(reclamationFlagDefId);
     const isRepeatArrival = boolAttr(repeatArrivalDefId);
     const isNumberCollision = boolAttr(numberCollisionDefId);
 
@@ -2256,11 +2233,15 @@ function toAttachmentPreviews(raw: unknown): Array<{ id: string; name: string; m
  * Варианты для списка «Установленный характер дефекта»: встроенные плюс всё, что уже
  * вводили на этом заводе. Справочник намеренно не заведён отдельным типом сущности —
  * иначе релиз требовал бы ручного посева на проде (план reclamation-tab-redesign-2026-08).
+ *
+ * Значения лежат в очереди рекламаций (колонка `defect_nature`); прежний EAV-атрибут
+ * `reclamation_defect_nature` остаётся в списке как исторический — выпадашка не должна
+ * терять характер дефекта, который вводили до перехода на очередь.
  */
 export async function listReclamationDefectNatures(db: BetterSQLite3Database): Promise<string[]> {
+  const used: string[] = [...(await listReclamationDefectNaturesFromQueue(db))];
   const defs = await getEngineAttrDefs(db);
   const defId = defs[RECLAMATION_DEFECT_NATURE];
-  const used: string[] = [];
   if (defId) {
     const rows = await db
       .select()

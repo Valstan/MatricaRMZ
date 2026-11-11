@@ -37,6 +37,11 @@ const DDL = `
     status text NOT NULL, note text, performed_at integer, performed_by text, meta_json text,
     created_at integer NOT NULL, updated_at integer NOT NULL, last_server_seq integer,
     deleted_at integer, sync_status text NOT NULL DEFAULT 'synced');
+  CREATE TABLE erp_engine_reclamations (id text PRIMARY KEY NOT NULL, engine_id text NOT NULL,
+    queue_no integer NOT NULL, accepted_at integer, shipped_at integer, customer_reason text,
+    actual_defect text, defect_nature text, act_number text, act_date integer, comment text,
+    created_at integer NOT NULL, updated_at integer NOT NULL, last_server_seq integer,
+    deleted_at integer, sync_status text NOT NULL DEFAULT 'synced');
 `;
 
 function makeDb() {
@@ -118,12 +123,19 @@ function seedContract(sqlite: any, opts: { number: string; section?: string; sho
 }
 
 describe('строка этапа работ', () => {
-  it('признак рекламации приезжает из карточки двигателя в строку', async () => {
+  it('признак рекламации приезжает из очереди рекламаций в строку', async () => {
     const { sqlite, db } = makeDb();
     await saveWorkSheetRow(db, { id: 'row-1', engineId: 'eng-1', type: UKLADKA, atMs: AT, values: {} }, 'ivanov');
     let listed = await listWorkSheetRows(db);
     expect(listed.rows[0]?.engineIsReclamation).toBe(false);
-    setFlag(sqlite, 'eng-1', 'reclamation_flag', true);
+    // Признак берётся из очереди заездов (источник правды), а не из EAV-зеркала:
+    // зеркало поддерживалось только при сохранении карточки, и в ведомостях
+    // рекламационных двигателей не было.
+    sqlite
+      .prepare(
+        `INSERT INTO erp_engine_reclamations (id, engine_id, queue_no, accepted_at, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
+      )
+      .run('rec-1', 'eng-1', 1, AT, 1, 1);
     listed = await listWorkSheetRows(db);
     expect(listed.rows[0]?.engineIsReclamation).toBe(true);
   });

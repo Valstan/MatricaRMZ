@@ -71,8 +71,43 @@ function text(value: string | null | undefined): string | null {
  * Номера могут прийти не по порядку (журнал доставляет строки как попало) — порядок
  * задаёт именно `queue_no`, а не позиция в массиве.
  */
-export function sortEngineReclamations(rows: readonly EngineReclamationDto[]): EngineReclamationDto[] {
+export function sortEngineReclamations<T extends Pick<EngineReclamationDto, 'queueNo'>>(rows: readonly T[]): T[] {
   return [...rows].sort((a, b) => Number(a.queueNo ?? 0) - Number(b.queueNo ?? 0));
+}
+
+/** Факты отслеживания рекламации двигателя — то, что читают список, отчёты и статусы. */
+export type EngineReclamationFacts = {
+  /** Стоит ли на двигателе рекламация (очередь непуста). */
+  isReclamation: boolean;
+  /** Дата приёма по текущей рекламации (мс). */
+  acceptedAt: number | null;
+  /** Дата отгрузки по текущей рекламации (мс). */
+  shippedAt: number | null;
+};
+
+/**
+ * Факты отслеживания из очереди заездов.
+ *
+ * «Текущая» рекламация — последняя в очереди (по `queue_no`): она и есть текущий
+ * заезд двигателя, её даты — источник правды по датам (`resolveEngineTruthDates`).
+ * Признак «рекламационный» — очередь непуста.
+ *
+ * Раньше эти факты брались из EAV-зеркала (`reclamation_flag` и соседи), которое
+ * поддерживалось только при сохранении карточки: «Сохранить очередь» очередь писал,
+ * а отслеживание в отчётах и фильтрах оставалось прежним. Теперь факты считаются
+ * из самой очереди — она и есть источник правды.
+ */
+export function engineReclamationFacts(
+  rows: readonly Pick<EngineReclamationDto, 'queueNo' | 'acceptedAt' | 'shippedAt'>[],
+): EngineReclamationFacts {
+  const queue = sortEngineReclamations(rows ?? []);
+  const current = queue.length > 0 ? queue[queue.length - 1] : null;
+  if (!current) return { isReclamation: false, acceptedAt: null, shippedAt: null };
+  return {
+    isReclamation: true,
+    acceptedAt: ms(current.acceptedAt),
+    shippedAt: ms(current.shippedAt),
+  };
 }
 
 /**

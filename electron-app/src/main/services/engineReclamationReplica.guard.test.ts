@@ -69,4 +69,26 @@ describe('реплика рекламаций двигателя', () => {
     expect(pull).toContain('ErpEngineReclamations');
     expect(apply).toContain('SyncTableName.ErpEngineReclamations');
   });
+
+  it('отслеживание рекламации читается из очереди, а не из EAV-зеркала', () => {
+    // Признак и даты рекламации в списке, отчётах, ведомостях и статусе двигателя
+    // берутся из очереди заездов. EAV-зеркало (`reclamation_flag`) — только совместимость
+    // со старыми клиентами и серверной проекцией карточки: читать его оттуда нельзя,
+    // иначе отслеживание снова отстанет от очереди (как было после #1666).
+    const service = readFileSync(fileURLToPath(new URL('./engineService.ts', import.meta.url)), 'utf8');
+    expect(service).toContain('loadEngineReclamationFactsMap');
+    expect(service).not.toContain("defs['reclamation_flag']");
+    expect(service).not.toContain("defs['reclamation_accepted_date']");
+    expect(service).not.toContain("defs['reclamation_shipped_date']");
+  });
+
+  it('зеркало EAV поддерживается при сохранении очереди, а не карточки', () => {
+    // Иначе старые клиенты парка и серверная проекция карточки (ИИ-инструменты)
+    // не видят рекламацию: очередь сохранена, а признак — нет.
+    const ipc = readFileSync(
+      fileURLToPath(new URL('../ipc/register/engineReclamations.ts', import.meta.url)),
+      'utf8',
+    );
+    expect(ipc).toContain('syncEngineReclamationMirror');
+  });
 });

@@ -5,6 +5,7 @@ import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, viewModeWriteError } from '../ipcContext.js';
 import { erpEngineReclamations } from '../../database/schema.js';
 import { httpAuthed } from '../../services/httpClient.js';
+import { syncEngineReclamationMirror } from '../../services/engineReclamationMirror.js';
 
 /**
  * Рекламации двигателя — клиентский контур.
@@ -102,17 +103,44 @@ export function registerEngineReclamationsIpc(ctx: IpcContext) {
       if (isViewMode(ctx)) return viewModeWriteError();
       const engineId = String(args?.engineId ?? '');
       const rows = Array.isArray(args?.rows) ? args.rows : [];
-      return toResult(
-        await httpAuthed(ctx.sysDb, base(), `/engine-reclamations/${encodeURIComponent(engineId)}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            rows,
-            mainArrivalDate: args?.mainArrivalDate ?? null,
-            mainShippingDate: args?.mainShippingDate ?? null,
-          }),
+      const res = await httpAuthed(ctx.sysDb, base(), `/engine-reclamations/${encodeURIComponent(engineId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rows,
+          mainArrivalDate: args?.mainArrivalDate ?? null,
+          mainShippingDate: args?.mainShippingDate ?? null,
         }),
+      });
+      if (!res.ok) return toResult(res);
+      // Зеркало текущей рекламации в EAV — для клиентов прежней версии (они читают
+      // признак и даты из EAV) и для серверной проекции карточки с ИИ-инструментами.
+      // Раньше зеркало копилось только при сохранении карточки, поэтому «Сохранить
+      // очередь» двигал очередь и ни одного отчёта: признака рекламации не было ни
+      // в списке, ни в отчётах, ни в ведомостях.
+      const mirrorErrors = await syncEngineReclamationMirror(
+        ctx.dataDb(),
+        engineId,
+        rows.map((row) => ({
+          queueNo: Number(row.queueNo ?? 0),
+          acceptedAt: row.acceptedAt ?? null,
+          shippedAt: row.shippedAt ?? null,
+          customerReason: row.customerReason ?? null,
+          actualDefect: row.actualDefect ?? null,
+          defectNature: row.defectNature ?? null,
+          actNumber: row.actNumber ?? null,
+          actDate: row.actDate ?? null,
+          comment: row.comment ?? null,
+        })),
+        await ctx.currentActor().catch(() => undefined),
       );
+      if (mirrorErrors.length > 0) {
+        ctx.logToFile(`[engine-reclamations] зеркало EAV записано не полностью: ${mirrorErrors.join('; ')}`);
+      }
+      // Добор pull'а: очередь — источник правды, а она приезжает журналом. Без добора
+      // синяя метка в списке и отчёты появлялись бы только на следующем круге синка.
+      void ctx.mgr.runOnce().catch(() => undefined);
+      return toResult(res);
     },
   );
 }
