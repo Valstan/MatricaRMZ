@@ -1,8 +1,11 @@
 // Смоук P7 (владелец 19.10.2026, план batch-pain-print-and-filters-2026-10):
-// рекламации в отборах и статистике.
+// рекламации в отборах и статистике. Обновлён 11.11.2026 под новый модуль очереди
+// заездов (erp_engine_reclamations): фикстура заводится ОЧЕРЕДЬЮ через серверную
+// дверь, а не EAV-флагами — после перехода на очередь отслеживание читает очередь,
+// и прежняя фикстура отчётам ничего не показывала.
 //
 // Проверки (свойства, а не клики):
-//  [1] фикстура: TEST-001 помечен рекламационным, дата приёмки 02.09.2026,
+//  [1] фикстура: TEST-001 рекламационный (очередь №1, дата приёмки 02.09.2026),
 //      у двигателя есть строка этапа работ за тот же день; мост отдаёт признак и дату;
 //  [2] список двигателей: колонка «Рекламация» видна по умолчанию и говорит «Да»,
 //      ступень «Дата приёмки рекламации» есть в панели;
@@ -13,8 +16,8 @@
 //      «рекламационный» оставляет строку, «обычный» убирает;
 //  [6] отчёт «Этапы ремонта»: та же колонка и ступень.
 //
-// Пишет фикстуру (флаг + дата приёмки + строка этапа) и убирает за собой: атрибуты
-// возвращаются, строка удаляется, ступени/поиск/группировка сбрасываются, вкладки
+// Пишет фикстуру (очередь рекламаций + строка этапа) и убирает за собой: очередь
+// очищается, строка удаляется, ступени/поиск/группировка сбрасываются, вкладки
 // закрываются.
 //
 // Запуск: стек поднят с -Cdp, `node .claude/skills/verifier-electron/scripts/cdp-reclamations.mjs`.
@@ -291,8 +294,28 @@ async function main() {
      const atPlant = engines.filter((e) => typeof e.arrivalDate === 'number' && e.arrivalDate > 0 && !(typeof e.shippingDate === 'number' && e.shippingDate > 0));
      const eng = atPlant.find((e) => String(e.engineNumber) === 'TEST-001') ?? atPlant[0];
      if (!eng) return { ok: false, reason: 'нет двигателя на заводе' };
-     await call(window.matrica.engines.setAttr(eng.id, 'reclamation_flag', true));
-     await call(window.matrica.engines.setAttr(eng.id, 'reclamation_accepted_date', ${DAY_MS}));
+     // Рекламация заводится НОВЫМ модулем — очередью заездов (серверная дверь).
+     // Прежде здесь ставились EAV-флаги напрямую: с переходом на очередь отслеживание
+     // читает очередь, и такой фикстурой отчёты не видели рекламацию вовсе.
+     const saved0 = await call(window.matrica.engineReclamations.save({
+       engineId: String(eng.id),
+       rows: [{
+         queueNo: 1,
+         acceptedAt: ${DAY_MS},
+         shippedAt: null,
+         customerReason: '${TAG}: дефект по рекламации',
+         actualDefect: '${TAG}: фактический дефект',
+         defectNature: null,
+         actNumber: null,
+         actDate: null,
+         comment: '${TAG}',
+       }],
+       mainArrivalDate: typeof eng.arrivalDate === 'number' ? eng.arrivalDate : null,
+       mainShippingDate: typeof eng.shippingDate === 'number' ? eng.shippingDate : null,
+     }));
+     if (!saved0?.ok) return { ok: false, reason: 'очередь рекламаций не сохранилась', saved0 };
+     await call(window.matrica.sync.run());
+     await wait(2500);
      const tr = await call(window.matrica.workSheets.types.list());
      const types = tr?.rows ?? [];
      const type = types.find((t) => t.code === 'ukladka') ?? types[0];
@@ -309,17 +332,19 @@ async function main() {
      const after = (Array.isArray(afterRes) ? afterRes : (afterRes?.rows ?? [])).find((e) => String(e.id) === String(eng.id));
      const wsRes = await call(window.matrica.workSheets.rows.list());
      const row = (wsRes?.rows ?? []).find((r) => String(r.id) === String(saved.id));
+     const queue = await call(window.matrica.engineReclamations.list(String(eng.id)));
      return {
        ok: true, engineId: String(eng.id), number: String(eng.engineNumber ?? ''), rowId: String(saved.id), typeCode: String(type.code),
        flag: after?.isReclamation === true,
        accepted: after?.reclamationAcceptedDate ?? null,
        rowFlag: row?.engineIsReclamation === true,
+       queueRows: (queue?.rows ?? []).length,
      };`,
   );
   note(
     Boolean(fixture.ok && fixture.flag && fixture.accepted === DAY_MS && fixture.rowFlag),
     'фикстура: TEST-001 — рекламационный, дата приёмки 02.09.2026, признак доехал до строки этапа',
-    fixture.ok ? { number: fixture.number, flag: fixture.flag, accepted: fixture.accepted, rowFlag: fixture.rowFlag } : fixture,
+    fixture.ok ? { number: fixture.number, flag: fixture.flag, accepted: fixture.accepted, rowFlag: fixture.rowFlag, queueRows: fixture.queueRows } : fixture,
   );
   if (!fixture.ok || !fixture.flag || fixture.accepted !== DAY_MS || !fixture.rowFlag) {
     throw new Error(`фикстура не создалась: ${JSON.stringify(fixture)}`);
@@ -531,8 +556,13 @@ async function main() {
      for (const r of (await call(window.matrica.workSheets.rows.list()))?.rows ?? []) {
        if (String(r.note ?? '').includes('${TAG}')) out[r.id] = await call(window.matrica.workSheets.rows.delete(String(r.id)));
      }
-     await call(window.matrica.engines.setAttr(${JSON.stringify(ENGINE_ID)}, 'reclamation_flag', false));
-     await call(window.matrica.engines.setAttr(${JSON.stringify(ENGINE_ID)}, 'reclamation_accepted_date', null));
+     // Очередь рекламаций очищается тем же модулем: пустая очередь снимает и признак.
+     const cleared = await call(window.matrica.engineReclamations.save({
+       engineId: ${JSON.stringify(ENGINE_ID)},
+       rows: [],
+     }));
+     await call(window.matrica.sync.run());
+     await wait(2500);
      window.dispatchEvent(new Event('matrica:engines-changed'));
      await wait(1800);
      const afterRes = await call(window.matrica.engines.list());
@@ -541,14 +571,15 @@ async function main() {
      return {
        deleted: Object.keys(out).length,
        results: Object.values(out).map((r) => Boolean(r?.ok)),
+       cleared: Boolean(cleared?.ok),
        flag: after?.isReclamation === true,
        accepted: after?.reclamationAcceptedDate ?? null,
        left: wsRows.filter((r) => String(r.note ?? '').includes('${TAG}')).length,
      };`,
   );
   note(
-    cleanup.deleted >= 1 && cleanup.results.every(Boolean) && cleanup.left === 0 && cleanup.flag === false && (cleanup.accepted == null || cleanup.accepted === 0),
-    'уборка: фикстура удалена, признаки рекламации возвращены',
+    cleanup.deleted >= 1 && cleanup.results.every(Boolean) && cleanup.left === 0 && cleanup.cleared && cleanup.flag === false && (cleanup.accepted == null || cleanup.accepted === 0),
+    'уборка: фикстура удалена, очередь рекламаций очищена, признаки сняты',
     cleanup,
   );
 

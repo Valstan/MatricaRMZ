@@ -6,6 +6,7 @@ import { validateEngineReclamationQueue } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
 import { erpEngineReclamations } from '../database/schema.js';
+import { publishPendingEngineReclamations } from './sync/engineReclamationSyncPublisherService.js';
 
 /**
  * Рекламации двигателя — серверная дверь.
@@ -233,6 +234,16 @@ export async function replaceEngineReclamations(
       .update(erpEngineReclamations)
       .set({ deletedAt: now, updatedAt: now, syncStatus: 'pending' })
       .where(eq(erpEngineReclamations.id, rowId as any));
+  }
+
+  // Публикация в журнал сразу, а не минутным тиком издателя: очередь — источник
+  // правды, и отслеживание рекламации (синяя метка, отчёты, ведомости) читается из
+  // её реплики. Без добора оператор видел бы пустые отчёты до минуты после сохранения.
+  // Ошибка публикации не отменяет сохранение: тик издателя её повторит.
+  try {
+    await publishPendingEngineReclamations();
+  } catch {
+    /* публикатор доберёт строки следующим тиком */
   }
 
   return { ok: true, count: prepared.length };
