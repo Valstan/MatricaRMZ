@@ -93,6 +93,8 @@ export async function listRepairStageRows(
       note: meta.note ?? '',
       // H1: кто внёс этап. Служебный `local` и пусто — «неизвестно», не показываем.
       by: normalizeStageAuthor(row.performedBy),
+      // Приёмка по рекламации: номер рекламации в очереди заездов (null — обычная строка).
+      ...(meta.reclamation ? { reclamationQueueNo: meta.reclamation.queueNo } : {}),
     });
   }
   return out;
@@ -225,6 +227,13 @@ export async function saveRepairStageRow(
     entryType: 'stage',
     stage: { code: template.code, name: template.name },
     ...(repeat ? { repeat } : {}),
+    // След приёмки по рекламации: строка порождена очередью заездов, и по метке её
+    // можно снять, когда рекламацию убрали из очереди.
+    ...(typeof input.reclamationQueueNo === 'number' && Number.isFinite(input.reclamationQueueNo)
+      ? { reclamation: { queueNo: Math.floor(input.reclamationQueueNo) } }
+      : existingMeta?.reclamation
+        ? { reclamation: existingMeta.reclamation }
+        : {}),
   });
   const noteLine = [`Этап: ${template.name}`, text(input.note)].filter(Boolean).join(' · ');
   const { created } = await upsertOperation(db, {

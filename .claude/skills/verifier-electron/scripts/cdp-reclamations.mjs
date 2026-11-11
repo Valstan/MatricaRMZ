@@ -5,12 +5,17 @@
 // и прежняя фикстура отчётам ничего не показывала.
 //
 // Проверки (свойства, а не клики):
-//  [1] фикстура: TEST-001 рекламационный (очередь №1, дата приёмки 02.09.2026),
-//      у двигателя есть строка этапа работ за тот же день; мост отдаёт признак и дату;
+//  [1] фикстура: TEST-001 рекламационный (очередь №1, дата приёмки по рекламации —
+//      считается от даты прихода двигателя, гейт субординации дат не даёт принять
+//      рекламацию раньше прихода), у двигателя есть строка этапа работ за тот же день;
+//      мост отдаёт признак и дату;
 //  [2] список двигателей: колонка «Рекламация» видна по умолчанию и говорит «Да»,
 //      ступень «Дата приёмки рекламации» есть в панели;
+//  [2b] приёмка по рекламации — этап ремонта: колонка «Этап» показывает «Приемка
+//      двигателя на завод по рекламации», отбор «История» → «Приемка двигателя на
+//      завод» ловит приезд по рекламации, а «…по рекламации» — только его;
 //  [3] отчёт «Двигатели»: метка с датой приёмки в строке, ступень даты, группировка
-//      «По месяцу рекламации» раскладывает рекламации по «Сентябрь 2026»;
+//      «По месяцу рекламации» раскладывает рекламации по месяцу приёмки;
 //  [4] «Сейчас на заводе»: метка-колонка «Рекламация» показывает «Да»;
 //  [5] «Этапы ремонта» (экран): колонка «Рекламация» и ступень по признаку двигателя —
 //      «рекламационный» оставляет строку, «обычный» убирает;
@@ -41,8 +46,23 @@ function wsLib() {
 const WebSocket = wsLib();
 
 const DAY = '2026-09-02';
-const DAY_LABEL = '02.09.2026';
 const DAY_MS = new Date(`${DAY}T10:00:00`).getTime();
+
+// Приёмка по рекламации — этап ремонта, а приёмка по времени идёт ПОСЛЕ прихода
+// двигателя на завод (гейт субординации дат). Поэтому дату приёма по рекламации
+// считаем от даты прихода фикстуры, а не от фиксированной даты: стенд сеет карточку
+// «TEST-001» с датой прихода «сегодня», и фиксированная дата оказалась бы РАНЬШЕ
+// прихода — гейт справедливо отказал бы, а проверка падала бы не по существу.
+const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+function dateLabel(ms) {
+  const d = new Date(ms);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`;
+}
+function monthLabel(ms) {
+  const d = new Date(ms);
+  return `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
 const TAG = 'SMOKE-P7';
 
 const steps = [];
@@ -294,6 +314,17 @@ async function main() {
      const atPlant = engines.filter((e) => typeof e.arrivalDate === 'number' && e.arrivalDate > 0 && !(typeof e.shippingDate === 'number' && e.shippingDate > 0));
      const eng = atPlant.find((e) => String(e.engineNumber) === 'TEST-001') ?? atPlant[0];
      if (!eng) return { ok: false, reason: 'нет двигателя на заводе' };
+     // Дата приёма по рекламации — ПОСЛЕ прихода двигателя на завод (гейт субординации
+     // дат: приёмка по рекламации не может быть раньше обычной приёмки) и ПОСЛЕ всех
+     // его этапов: иначе приёмка по рекламации не была бы текущим местом двигателя
+     // (текущее место — самый поздний этап, а при равной дате — старший по рангу), и
+     // колонка «Этап» показывала бы прошлый этап, а не приёмку по рекламации.
+     const stRes = await call(window.matrica.workSheets.stages.list(String(eng.id)));
+     const stages = stRes?.rows ?? [];
+     const stageAt = stages.reduce((m, r) => (typeof r.at === 'number' && r.at > m ? r.at : m), 0);
+     const lastAt = Math.max(stageAt, typeof eng.lastStageAt === 'number' ? eng.lastStageAt : 0);
+     const arrival = typeof eng.arrivalDate === 'number' ? eng.arrivalDate : 0;
+     const reclMs = Math.max(${DAY_MS}, lastAt + 86400000, arrival + 3 * 86400000);
      // Рекламация заводится НОВЫМ модулем — очередью заездов (серверная дверь).
      // Прежде здесь ставились EAV-флаги напрямую: с переходом на очередь отслеживание
      // читает очередь, и такой фикстурой отчёты не видели рекламацию вовсе.
@@ -301,7 +332,7 @@ async function main() {
        engineId: String(eng.id),
        rows: [{
          queueNo: 1,
-         acceptedAt: ${DAY_MS},
+         acceptedAt: reclMs,
          shippedAt: null,
          customerReason: '${TAG}: дефект по рекламации',
          actualDefect: '${TAG}: фактический дефект',
@@ -314,6 +345,9 @@ async function main() {
        mainShippingDate: typeof eng.shippingDate === 'number' ? eng.shippingDate : null,
      }));
      if (!saved0?.ok) return { ok: false, reason: 'очередь рекламаций не сохранилась', saved0 };
+     if (!saved0?.stages || saved0.stages.errors?.length) {
+       return { ok: false, reason: 'этап приёмки по рекламации не заведён', stages: saved0.stages, saved0 };
+     }
      await call(window.matrica.sync.run());
      await wait(2500);
      const tr = await call(window.matrica.workSheets.types.list());
@@ -337,21 +371,25 @@ async function main() {
        ok: true, engineId: String(eng.id), number: String(eng.engineNumber ?? ''), rowId: String(saved.id), typeCode: String(type.code),
        flag: after?.isReclamation === true,
        accepted: after?.reclamationAcceptedDate ?? null,
+       reclMs,
        rowFlag: row?.engineIsReclamation === true,
        queueRows: (queue?.rows ?? []).length,
      };`,
   );
   note(
-    Boolean(fixture.ok && fixture.flag && fixture.accepted === DAY_MS && fixture.rowFlag),
-    'фикстура: TEST-001 — рекламационный, дата приёмки 02.09.2026, признак доехал до строки этапа',
-    fixture.ok ? { number: fixture.number, flag: fixture.flag, accepted: fixture.accepted, rowFlag: fixture.rowFlag, queueRows: fixture.queueRows } : fixture,
+    Boolean(fixture.ok && fixture.flag && fixture.accepted === fixture.reclMs && fixture.rowFlag),
+    'фикстура: TEST-001 — рекламационный, дата приёмки по рекламации, признак доехал до строки этапа',
+    fixture.ok ? { number: fixture.number, flag: fixture.flag, accepted: fixture.accepted, reclMs: fixture.reclMs, rowFlag: fixture.rowFlag, queueRows: fixture.queueRows } : fixture,
   );
-  if (!fixture.ok || !fixture.flag || fixture.accepted !== DAY_MS || !fixture.rowFlag) {
+  if (!fixture.ok || !fixture.flag || fixture.accepted !== fixture.reclMs || !fixture.rowFlag) {
     throw new Error(`фикстура не создалась: ${JSON.stringify(fixture)}`);
   }
   const NUMBER = fixture.number;
   const ENGINE_ID = fixture.engineId;
   const ROW_ID = fixture.rowId;
+  const RECL_MS = fixture.reclMs;
+  const RECL_LABEL = dateLabel(RECL_MS);
+  const RECL_MONTH = monthLabel(RECL_MS);
 
   /* ── [2] Список двигателей: колонка и ступень даты ────────────────────────────── */
   await openSection(ws, 'Производство', 'Двигатели');
@@ -386,6 +424,76 @@ async function main() {
   await shot(ws, '1-engines-list');
   await evaluate(ws, `const root = activePane(); await setQuery(root, ''); return true;`);
 
+  /* ── [2b] Приёмка по рекламации — этап ремонта (владелец 11.11.2026) ───────────── */
+  // «Приход по рекламации приравнивается к приемке двигателя на заводе»: приёмка по
+  // рекламации — этап единого списка, а не строчка в ленте. Видно в колонке «Этап» и в
+  // отборе по этапам: выбрана «приёмка двигателя на завод» — ловит и приезд по рекламации.
+  const reclamationStage = await evaluate(
+    ws,
+    `const st = await call(window.matrica.workSheets.stages.list(${JSON.stringify(ENGINE_ID)}));
+     const rows = st?.rows ?? [];
+     const stage = rows.find((r) => r.code === 'arrival_reclamation');
+     const root = activePane();
+     await setQuery(root, ${JSON.stringify(NUMBER)});
+     const row = rowWith(root, ${JSON.stringify(NUMBER)});
+     const rowText = row ? txt(row) : '';
+     return {
+       ok: Boolean(stage),
+       code: stage?.code ?? null,
+       name: stage?.name ?? null,
+       at: stage?.at ?? null,
+       rowFound: Boolean(row),
+       rowText,
+     };`,
+  );
+  note(
+    reclamationStage.code === 'arrival_reclamation' &&
+      reclamationStage.name === 'Приемка двигателя на завод по рекламации' &&
+      reclamationStage.at === RECL_MS,
+    'приёмка по рекламации — этап ремонта с датой приёма',
+    reclamationStage,
+  );
+  note(
+    reclamationStage.rowFound && reclamationStage.rowText.includes('Приемка двигателя на завод по рекламации'),
+    'список двигателей: колонка «Этап» показывает «Приемка двигателя на завод по рекламации»',
+    { rowFound: reclamationStage.rowFound, rowText: reclamationStage.rowText.slice(0, 200) },
+  );
+
+  const stageFilter = await evaluate(
+    ws,
+    `const root = activePane();
+     await openFacets(root);
+     const opened = await ensureField(root, 'hasStage');
+     if (!opened) return { ok: false, reason: 'ступень «История» не раскрылась' };
+     const picked = await setPicked(root, 'hasStage', 'stage:arrival', true);
+     if (!picked.ok) return { ok: false, reason: 'значения «Приемка двигателя на завод» нет', picked };
+     const rowsAfter = listRows(root);
+     const hit = rowsAfter.some((r) => txt(r).includes(${JSON.stringify(NUMBER)}));
+     const pickedRecl = await setPicked(root, 'hasStage', 'stage:arrival_reclamation', true);
+     const rowsRecl = listRows(root);
+     const hitRecl = rowsRecl.some((r) => txt(r).includes(${JSON.stringify(NUMBER)}));
+     const otherHit = rowsRecl.some((r) => !txt(r).includes(${JSON.stringify(NUMBER)}) && txt(r).includes('TEST-001'));
+     return { ok: true, hit, hitRecl, pickedRecl: pickedRecl.ok, otherHit, rows: rowsAfter.length, rowsRecl: rowsRecl.length };`,
+  );
+  note(
+    stageFilter.ok && stageFilter.hit,
+    'отбор «История» → «Приемка двигателя на завод» ловит приезд по рекламации',
+    stageFilter,
+  );
+  note(
+    stageFilter.ok && stageFilter.hitRecl && !stageFilter.otherHit,
+    'отбор «История» → «Приемка двигателя на завод по рекламации» ловит только приезд по рекламации',
+    stageFilter,
+  );
+  await evaluate(
+    ws,
+    `const root = activePane();
+     const reset = vis('[data-facet-reset]', root)[0];
+     if (reset && !reset.disabled) { click(reset); await wait(900); }
+     await setQuery(root, '');
+     return true;`,
+  );
+
   /* ── [3] Отчёт «Двигатели»: метка с датой, ступень, месяцы ────────────────────── */
   await openReport(ws, 'Двигатели', '[data-engines-report]');
   const enginesReport = await evaluate(
@@ -417,14 +525,14 @@ async function main() {
      };`,
   );
   note(
-    enginesReport.rowFound && enginesReport.cell === `Да · ${DAY_LABEL}`,
-    'отчёт «Двигатели»: метка «Да · 02.09.2026» в строке рекламации',
+    enginesReport.rowFound && enginesReport.cell === `Да · ${RECL_LABEL}`,
+    'отчёт «Двигатели»: метка «Да · ${RECL_LABEL}» в строке рекламации',
     { cell: enginesReport.cell },
   );
   note(enginesReport.accepted?.label === 'Дата приёмки рекламации', 'отчёт «Двигатели»: ступень «Дата приёмки рекламации» на месте', enginesReport.accepted);
   note(
-    enginesReport.groupValue === 'reclamation' && (enginesReport.groups ?? []).some((g) => g.startsWith('Сентябрь 2026')),
-    'отчёт «Двигатели»: группировка «По месяцу рекламации» даёт «Сентябрь 2026»',
+    enginesReport.groupValue === 'reclamation' && (enginesReport.groups ?? []).some((g) => g.startsWith(RECL_MONTH)),
+    `отчёт «Двигатели»: группировка «По месяцу рекламации» даёт «${RECL_MONTH}»`,
     { value: enginesReport.groupValue, groups: enginesReport.groups },
   );
   await shot(ws, '2-engines-report');

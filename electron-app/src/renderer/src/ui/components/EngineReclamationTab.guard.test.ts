@@ -20,6 +20,7 @@ const CARD = src('../pages/EngineDetailsPage.tsx');
 const PRELOAD = src('../../../../preload/index.ts');
 const FILES_IPC = src('../../../../main/ipc/register/files.ts');
 const ENGINES_IPC = src('../../../../main/ipc/register/enginesOpsAudit.ts');
+const RECL_IPC = src('../../../../main/ipc/register/engineReclamations.ts');
 
 const NEW_CODES = [
   'reclamation_actual_defect',
@@ -59,14 +60,20 @@ describe('вкладка «Рекламация»: панель живёт, со
   });
 });
 
-describe('новые поля доезжают до базы', () => {
-  it('каждое новое поле и пишется, и читается для сравнения', () => {
-    // Запись без чтения = поле никогда не «изменилось» и не сохранится:
-    // saveAllAndClose пишет только то, что отличается от currentValues.
+describe('поля рекламации: владелец — очередь, не карточка', () => {
+  it('карточка не пишет поля рекламации — их держит очередь заездов', () => {
+    // Очередь — единственный писатель. Карточка, сохраняя зеркало рекламации, могла
+    // затереть его stale-значениями: метка появлялась в карточке и пропадала из
+    // списка (жалоба владельца 11.11.2026, двигатель Е02АТ5382).
     for (const code of NEW_CODES.filter((c) => c !== 'reclamation_attachments')) {
-      expect(CARD).toContain(`nextValues.${code} =`);
-      expect(CARD).toContain(`currentValues.${code} =`);
+      expect(CARD, `карточка не должна писать ${code}`).not.toContain(`nextValues.${code} =`);
     }
+  });
+
+  it('зеркало EAV пишется при сохранении очереди, а не карточкой', () => {
+    // Клиенты прежней версии читают признак и даты рекламации из EAV, и на сервере
+    // живой триггер пересобирает из EAV строгую карточку (с ней ИИ-инструменты).
+    expect(RECL_IPC).toContain('syncEngineReclamationMirror');
   });
 
   it('каждое новое поле зарегистрировано определением атрибута', () => {

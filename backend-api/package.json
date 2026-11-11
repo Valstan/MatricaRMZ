@@ -102,6 +102,7 @@
     "engine-inventory:dedup-sheets": "tsx src/scripts/dedupEngineInventorySheets.ts",
     "engine-inventory:fix-defect-stage-dates": "tsx src/scripts/fixDefectStageDates.ts",
     "stages:backfill": "tsx src/scripts/backfillRepairStages.ts",
+    "stages:backfill-reclamations": "tsx src/scripts/backfillReclamationArrivalStages.ts",
     "stages:review-order": "tsx src/scripts/reviewRepairStageOrder.ts",
     "stages:merge-kitting": "tsx src/scripts/mergeKittingToArrival.ts",
     "stages:refresh-names": "tsx src/scripts/refreshStageNames.ts",

@@ -6,6 +6,8 @@ import { isViewMode, viewModeWriteError } from '../ipcContext.js';
 import { erpEngineReclamations } from '../../database/schema.js';
 import { httpAuthed } from '../../services/httpClient.js';
 import { syncEngineReclamationMirror } from '../../services/engineReclamationMirror.js';
+import { syncEngineReclamationStages } from '../../services/engineReclamationStages.js';
+import { loadRepairStageTemplates } from '../../services/repairStageService.js';
 
 /**
  * Рекламации двигателя — клиентский контур.
@@ -32,6 +34,14 @@ export type EngineReclamationDto = {
   actNumber: string | null;
   actDate: number | null;
   comment: string | null;
+};
+
+/** Что сделала материализация приёмки по рекламации в истории ремонта. */
+export type EngineReclamationStagesSummary = {
+  created: number;
+  updated: number;
+  removed: number;
+  errors: string[];
 };
 
 function toResult<T>(r: { ok: boolean; status: number; json?: unknown; text?: string }): Result<T> {
@@ -99,7 +109,7 @@ export function registerEngineReclamationsIpc(ctx: IpcContext) {
         mainArrivalDate?: number | null;
         mainShippingDate?: number | null;
       },
-    ): Promise<Result<{ count: number }>> => {
+    ): Promise<Result<{ count: number; rows: EngineReclamationDto[]; stages?: EngineReclamationStagesSummary }>> => {
       if (isViewMode(ctx)) return viewModeWriteError();
       const engineId = String(args?.engineId ?? '');
       const rows = Array.isArray(args?.rows) ? args.rows : [];
@@ -113,6 +123,7 @@ export function registerEngineReclamationsIpc(ctx: IpcContext) {
         }),
       });
       if (!res.ok) return toResult(res);
+      const saved = (res.json as { rows?: EngineReclamationDto[] } | undefined)?.rows ?? [];
       // Зеркало текущей рекламации в EAV — для клиентов прежней версии (они читают
       // признак и даты из EAV) и для серверной проекции карточки с ИИ-инструментами.
       // Раньше зеркало копилось только при сохранении карточки, поэтому «Сохранить
@@ -121,7 +132,7 @@ export function registerEngineReclamationsIpc(ctx: IpcContext) {
       const mirrorErrors = await syncEngineReclamationMirror(
         ctx.dataDb(),
         engineId,
-        rows.map((row) => ({
+        saved.map((row) => ({
           queueNo: Number(row.queueNo ?? 0),
           acceptedAt: row.acceptedAt ?? null,
           shippedAt: row.shippedAt ?? null,
@@ -137,10 +148,47 @@ export function registerEngineReclamationsIpc(ctx: IpcContext) {
       if (mirrorErrors.length > 0) {
         ctx.logToFile(`[engine-reclamations] зеркало EAV записано не полностью: ${mirrorErrors.join('; ')}`);
       }
+      // Приёмка по рекламации — этап истории ремонта (владелец 11.11.2026: приход по
+      // рекламации приравнивается к приёмке двигателя на заводе). Материализуем её
+      // здесь же, пока очередь свежа: очередь — источник правды, этап — её след.
+      // Право на этап — как у карточки (`work_sheets.edit` ИЛИ `operations.edit`): без
+      // него этап не пишется, но очередь уже принята сервером — молчать об отказе нельзя.
+      const stageSummary = await materializeReclamationStages(ctx, engineId, saved);
+      if (stageSummary.errors.length > 0) {
+        ctx.logToFile(`[engine-reclamations] этапы приёмки по рекламации: ${stageSummary.errors.join('; ')}`);
+      }
       // Добор pull'а: очередь — источник правды, а она приезжает журналом. Без добора
       // синяя метка в списке и отчёты появлялись бы только на следующем круге синка.
       void ctx.mgr.runOnce().catch(() => undefined);
-      return toResult(res);
+      const out = toResult<{ count: number; rows: EngineReclamationDto[]; stages?: EngineReclamationStagesSummary }>(res);
+      if (!out.ok) return out;
+      return { ...out, stages: stageSummary };
     },
   );
+}
+
+/**
+ * Материализация приёмки по рекламации в истории ремонта.
+ *
+ * Отказ здесь не отменяет сохранение очереди: очередь на сервере уже принята, а этап —
+ * её след в истории. Отказ возвращается списком, чтобы вкладка показала его оператору.
+ */
+async function materializeReclamationStages(
+  ctx: IpcContext,
+  engineId: string,
+  rows: EngineReclamationDto[],
+): Promise<EngineReclamationStagesSummary> {
+  const empty: EngineReclamationStagesSummary = { created: 0, updated: 0, removed: 0, errors: [] };
+  try {
+    const perms = await ctx.currentPermissions();
+    const canWriteStageRow = perms['work_sheets.edit'] === true || perms['operations.edit'] === true;
+    if (!canWriteStageRow) {
+      return { ...empty, errors: ['Нет права писать этапы ремонта — приёмка по рекламации не попала в историю.'] };
+    }
+    const templates = await loadRepairStageTemplates(ctx.sysDb, ctx.mgr.getApiBaseUrl());
+    const actor = (await ctx.currentActor().catch(() => undefined)) ?? 'local';
+    return await syncEngineReclamationStages(ctx.dataDb(), engineId, rows, actor, templates.templates);
+  } catch (e) {
+    return { ...empty, errors: [String(e)] };
+  }
 }

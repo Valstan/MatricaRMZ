@@ -60,6 +60,30 @@ describe('разбор и сборка записи истории', () => {
   });
 });
 
+describe('след приёмки по рекламации (11.11.2026)', () => {
+  it('метка строится и переживает круг через парсер', () => {
+    const meta = buildRepairHistoryMeta({
+      action: 'Приемка двигателя на завод по рекламации',
+      entryType: 'stage',
+      stage: { code: 'arrival_reclamation', name: 'Приемка двигателя на завод по рекламации' },
+      at: 1234,
+      reclamation: { queueNo: 2 },
+    });
+    expect(parseRepairHistoryMeta(JSON.stringify(meta))?.reclamation).toEqual({ queueNo: 2 });
+  });
+
+  it('строка без метки — обычная строка этапа', () => {
+    const meta = buildRepairHistoryMeta({ action: 'Приемка двигателя на завод', entryType: 'stage', stage: { code: 'arrival', name: 'Приемка двигателя на завод' } });
+    expect(meta.reclamation).toBeUndefined();
+    expect(parseRepairHistoryMeta(JSON.stringify(meta))?.reclamation).toBeUndefined();
+  });
+
+  it('бессмысленный номер рекламации метку не создаёт', () => {
+    const bad = { kind: 'repair_history', action: 'x', reclamation: { queueNo: 0 } };
+    expect(parseRepairHistoryMeta(JSON.stringify(bad))?.reclamation).toBeUndefined();
+  });
+});
+
 describe('снятие утиля (10.10.2026)', () => {
   it('след снятия утиля строится и переживает круг через парсер', () => {
     const meta = buildRepairHistoryMeta({

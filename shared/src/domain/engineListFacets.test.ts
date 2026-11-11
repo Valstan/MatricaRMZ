@@ -369,6 +369,34 @@ describe('ступени этапов: «История» и «Дата этап
     expect(options.find((o) => o.value === 'stage:sborka')?.count).toBe(2);
   });
 
+  it('приёмка по рекламации ловится отбором «приёмка двигателя на завод» (владелец 11.11.2026)', () => {
+    // «Приход по рекламации приравнивается к приемке двигателя на заводе»: выбрана
+    // обычная приёмка — отбор находит и движок, приехавший по рекламации.
+    const rows = [
+      { id: 'r1', stageCodes: ['arrival', 'arrival_reclamation'], lastStageCode: 'arrival_reclamation', lastStageName: 'Приемка двигателя на завод по рекламации', lastStageAt: DAY_09 },
+      { id: 'r2', stageCodes: ['arrival'], lastStageCode: 'arrival', lastStageName: 'Приемка двигателя на завод', lastStageAt: DAY_09 },
+    ] as unknown as EngineListItem[];
+    expect(ids(applyEngineFacets(rows, { hasStage: ['stage:arrival'] }))).toEqual(['r1', 'r2']);
+    expect(ids(applyEngineFacets(rows, { hasStage: ['stage:arrival_reclamation'] }))).toEqual(['r1']);
+    // И в «Текущем состоянии» так же: приезд по рекламации виден и под обычной приёмкой.
+    expect(ids(applyEngineFacets(rows, { factoryStage: ['stage:arrival'] }))).toEqual(['r1', 'r2']);
+    expect(ids(applyEngineFacets(rows, { factoryStage: ['stage:arrival_reclamation'] }))).toEqual(['r1']);
+  });
+
+  it('в ступенях есть «приёмка по рекламации» — счётчик считает и обычную приёмку, и рекламационную', () => {
+    const rows = [
+      { id: 'r1', stageCodes: ['arrival_reclamation'], lastStageCode: 'arrival_reclamation', lastStageName: 'Приемка двигателя на завод по рекламации', lastStageAt: DAY_09 },
+      { id: 'r2', stageCodes: ['arrival'], lastStageCode: 'arrival', lastStageName: 'Приемка двигателя на завод', lastStageAt: DAY_09 },
+    ] as unknown as EngineListItem[];
+    const options = engineFacetOptions(rows, {}, 'hasStage');
+    expect(options.find((o) => o.value === 'stage:arrival_reclamation')).toMatchObject({
+      label: 'Приемка двигателя на завод по рекламации',
+      count: 1,
+    });
+    // Под «приёмкой» — оба: приёмка по рекламации отвечает на приёмку.
+    expect(options.find((o) => o.value === 'stage:arrival')?.count).toBe(2);
+  });
+
   it('B4: ступень «Повторный заход» считает повторы, не забирая двигатели из этапов', () => {
     const rows = [
       { id: 'd1', lastStageCode: 'obkatka', lastStageName: 'Обкатка', lastStageAt: DAY_09, lastStagePass: 1 },
@@ -448,6 +476,7 @@ describe('ступень «Текущее состояние» со справо
       'scrap',
       'repaired',
       'stage:arrival',
+      'stage:arrival_reclamation',
       'stage:incoming_otk',
       'stage:disassembly_defect',
       'stage:parts_repair',

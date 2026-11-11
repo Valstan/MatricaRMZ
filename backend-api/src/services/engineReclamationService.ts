@@ -115,11 +115,45 @@ export async function listEngineReclamations(engineId: string): Promise<Result<{
  * Строки с известным id обновляются на месте, новые вставляются, пропавшие снимаются
  * мягко. Перед записью проверяется гейт дат (заезды не пересекаются).
  */
+/**
+ * Какая строка очереди правится под рекламацию из запроса.
+ *
+ * Клиент знает id строки только когда успела получить её из реплики; реплика
+ * отстаёт от сервера, поэтому в запросе id часто нет (или он чужой). Без
+ * разбора такой запрос ПЛЮДИЛ новую строку вместо правки прежней, а прежняя
+ * смягко удалялась — у одного рекламационного номера оказывалось несколько строк,
+ * и вторая запись падала на уникальном индексе (жалоба владельца 11.11.2026,
+ * двигатель Е02АТ5382).
+ *
+ * Правило: своя строка — правим её; иначе ищем ту же рекламацию по НОМЕРУ в
+ * очереди; и только если такой нет — заводим новую.
+ */
+export function resolveReclamationRowId(args: {
+  /** Id из запроса (может быть пустым или чужим). */
+  requestedId: string | null | undefined;
+  /** Номер рекламации в очереди. */
+  queueNo: number;
+  /** Id строк ЭТОГО двигателя — живых и снятых. */
+  ownIds: ReadonlySet<string>;
+  /** Id, занятые другим двигателем: их брать нельзя. */
+  foreignIds: ReadonlySet<string>;
+  /** Живая строка по номеру рекламации. */
+  liveIdByQueueNo: ReadonlyMap<number, string>;
+  /** Новый id, когда править нечего. */
+  newId: string;
+}): string {
+  const requested = String(args.requestedId ?? '').trim();
+  if (requested && args.ownIds.has(requested) && !args.foreignIds.has(requested)) return requested;
+  const same = args.liveIdByQueueNo.get(Number(args.queueNo));
+  if (same) return same;
+  return args.newId;
+}
+
 export async function replaceEngineReclamations(
   engineId: string,
   inputs: EngineReclamationDraft[],
   mainDates?: { mainArrivalDate?: number | null | undefined; mainShippingDate?: number | null | undefined },
-): Promise<Result<{ count: number }>> {
+): Promise<Result<{ count: number; rows: EngineReclamationRow[] }>> {
   const id = String(engineId ?? '').trim();
   if (!isUuid(id)) return { ok: false, error: 'id двигателя должен быть uuid' };
 
@@ -183,9 +217,13 @@ export async function replaceEngineReclamations(
   const existing = await db
     .select()
     .from(erpEngineReclamations)
-    .where(and(eq(erpEngineReclamations.engineId, id as any), isNull(erpEngineReclamations.deletedAt)));
+    .where(eq(erpEngineReclamations.engineId, id as any));
   const existingById = new Map(existing.map((r) => [String(r.id), r]));
-
+  const liveByQueueNo = new Map<number, string>();
+  for (const row of existing) {
+    if (row.deletedAt != null) continue;
+    liveByQueueNo.set(Number(row.queueNo), String(row.id));
+  }
   // Чужой id (занятый другим двигателем) не берём: строка не должна переезжать.
   const requestedIds = prepared.map((r) => r.id).filter((v): v is string => !!v && isUuid(v));
   const foreignIds = new Set<string>();
@@ -201,9 +239,16 @@ export async function replaceEngineReclamations(
 
   const now = Date.now();
   const keptIds = new Set<string>();
+  const ownIds = new Set(existing.map((r) => String(r.id)));
   for (const row of prepared) {
-    const requested = row.id;
-    const rowId = requested && isUuid(requested) && !foreignIds.has(requested) ? requested : randomUUID();
+    const rowId = resolveReclamationRowId({
+      requestedId: row.id,
+      queueNo: Number(row.queueNo),
+      ownIds,
+      foreignIds,
+      liveIdByQueueNo: liveByQueueNo,
+      newId: randomUUID(),
+    });
     keptIds.add(rowId);
     const values = {
       engineId: id,
@@ -219,17 +264,25 @@ export async function replaceEngineReclamations(
       updatedAt: now,
       syncStatus: 'pending',
     };
-    if (existingById.has(rowId)) {
-      await db.update(erpEngineReclamations).set(values).where(eq(erpEngineReclamations.id, rowId as any));
+    const known = existingById.get(rowId);
+    if (known) {
+      // Возвращённая из архива строка оживает: снятый `deleted_at` — иначе она
+      // осталась бы невидимой при живом `deleted_at is null` в выборках.
+      await db
+        .update(erpEngineReclamations)
+        .set({ ...values, deletedAt: null })
+        .where(eq(erpEngineReclamations.id, rowId as any));
     } else {
       await db.insert(erpEngineReclamations).values({ id: rowId as any, createdAt: now, ...values });
     }
   }
 
-  // Пропавшие снимаем мягко — клиент увидит удаление через зеркало.
+  // Пропавшие снимаем мягко — клиент увидит удаление через зеркало. Уже снятые
+  // строки не трогаем: иначе они вечно переписывались бы и перепубликовывались.
   for (const row of existing) {
     const rowId = String(row.id);
     if (keptIds.has(rowId)) continue;
+    if (row.deletedAt != null) continue;
     await db
       .update(erpEngineReclamations)
       .set({ deletedAt: now, updatedAt: now, syncStatus: 'pending' })
@@ -246,5 +299,10 @@ export async function replaceEngineReclamations(
     /* публикатор доберёт строки следующим тиком */
   }
 
-  return { ok: true, count: prepared.length };
+  // Итоговая очередь — с id строк. Клиент не должен перечитывать реплику сразу
+  // после сохранения: она отстаёт от сервера (pull ещё не пришёл), и вкладка
+  // показала бы пустую очередь — оператор жал «не сохраняется» и жал ещё раз,
+  // плодя новые строки вместо правки прежней.
+  const after = await listEngineReclamations(id);
+  return { ok: true, count: prepared.length, rows: after.ok ? after.rows : [] };
 }

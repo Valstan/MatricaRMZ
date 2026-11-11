@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildEngineVisits,
+  engineReclamationArrivals,
   engineReclamationFacts,
   engineReclamationHistoryLines,
   formatQueueDate,
@@ -174,5 +175,32 @@ describe('очередь рекламаций: факты отслеживани
     expect(facts.isReclamation).toBe(true);
     expect(facts.acceptedAt).toBeNull();
     expect(facts.shippedAt).toBeNull();
+  });
+});
+
+/**
+ * Приёмки по рекламации — то, что материализуется этапами ремонта: приход по
+ * рекламации приравнивается к приёмке двигателя на заводе (владелец 11.11.2026).
+ */
+describe('очередь рекламаций: приёмки под этапы', () => {
+  it('рекламация с датой приёма — приёмка, рекламация без даты — ещё нет', () => {
+    const arrivals = engineReclamationArrivals([
+      reclamation({ queueNo: 1, acceptedAt: BASE + 10 * DAY }),
+      reclamation({ queueNo: 2, acceptedAt: null }),
+    ]);
+    expect(arrivals).toEqual([{ queueNo: 1, at: BASE + 10 * DAY }]);
+  });
+
+  it('несколько рекламаций — несколько приёмок, по порядку очереди', () => {
+    const arrivals = engineReclamationArrivals([
+      reclamation({ queueNo: 2, acceptedAt: BASE + 30 * DAY }),
+      reclamation({ queueNo: 1, acceptedAt: BASE + 10 * DAY }),
+    ]);
+    expect(arrivals.map((a) => a.queueNo)).toEqual([1, 2]);
+    expect(arrivals.map((a) => a.at)).toEqual([BASE + 10 * DAY, BASE + 30 * DAY]);
+  });
+
+  it('пустая очередь — приёмок нет', () => {
+    expect(engineReclamationArrivals([])).toEqual([]);
   });
 });

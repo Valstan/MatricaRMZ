@@ -54,6 +54,7 @@ import { noteStatisticsRequestActivity } from './services/statisticsAuditService
 import { requireAuth, requirePermission } from './auth/middleware.js';
 import { PermissionCode } from './auth/permissions.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { forwardAsyncErrors } from './utils/asyncForward.js';
 
 /**
  * CORS allow-list. Электронный клиент не шлёт Origin, поэтому ему ничего не блокирует;
@@ -198,6 +199,13 @@ export function createApp() {
   app.use('/production-program', requireAuth, productionProgramRouter);
   // Рекламации двигателя: очередь заездов по рекламации (серверная дверь записи).
   app.use('/engine-reclamations', requireAuth, engineReclamationsRouter);
+
+  // Express 4 не ловит отклонённый промис async-обработчика — запрос висит до
+  // клиентского таймаута, и оператор видит «не сохранилось» вместо ошибки
+  // (симптом владельца 11.11.2026, двигатель Е02АТ5382). Обёртка forward'ит отказ
+  // в обработчик ошибок Express — ответ уходит, а не тишина. Подробности и границы
+  // решения — в `utils/asyncForward.ts`.
+  forwardAsyncErrors(app);
 
   // Web admin UI (served as static SPA from /admin-ui)
   const __dirname = path.dirname(fileURLToPath(import.meta.url));

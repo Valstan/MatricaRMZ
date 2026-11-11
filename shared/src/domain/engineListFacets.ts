@@ -8,7 +8,14 @@ import {
   returnsPass,
   type EngineFactoryStageTypeRef,
 } from './engineFactoryStage.js';
-import { DEFAULT_REPAIR_STAGE_TEMPLATES, isServiceStageCode, repairStageTemplate, type RepairStageTemplate } from './repairStages.js';
+import {
+  DEFAULT_REPAIR_STAGE_TEMPLATES,
+  equivalentStageCodes,
+  isServiceStageCode,
+  repairStageTemplate,
+  stageAnsweringAliases,
+  type RepairStageTemplate,
+} from './repairStages.js';
 import { COUNTDOWN_STALE_DAYS, countdownThresholds, isEngineDoneForCountdown } from './payments.js';
 import {
   activeFacetCount,
@@ -274,7 +281,10 @@ function pickedStageCodes(selection?: EngineFacetSelection): string[] {
     const s = text(value);
     if (!s.startsWith('stage:')) continue;
     const code = s.slice('stage:'.length).trim().toLowerCase();
-    if (code && !out.includes(code)) out.push(code);
+    if (!code) continue;
+    // Равные этапы (приёмка по рекламации = приёмка): выбрана «приёмка» — отбор
+    // ловит и приезд по рекламации (владелец 11.11.2026).
+    for (const eq of equivalentStageCodes(code)) if (!out.includes(eq)) out.push(eq);
   }
   return out;
 }
@@ -532,10 +542,18 @@ export function engineFacets(
         // Главное значение — первый по порядку линейки (подпись ступени), а `values`
         // отдаёт ВСЕ этапы двигателя: ступени «есть этап» нужна любая комбинация, иначе
         // выбор «Сборка» отбирал бы только тех, у кого сборка — последний этап.
+        //
+        // Плюс равные этапы (приёмка по рекламации = приёмка): движок, прошедший приёмку
+        // по рекламации, попадает под отбор «приёмка двигателя на завод» (владелец
+        // 11.11.2026). Ответ — односторонний: обычная приёмка под «приёмку по
+        // рекламации» не попадает.
         return {
           value: 'stage:' + first,
           label: stageByCode(first, stageTemplates)!.name,
-          values: codes.map((c: string) => 'stage:' + c),
+          values: codes.flatMap((c: string) => [
+            'stage:' + c,
+            ...stageAnsweringAliases(c).map((eq) => 'stage:' + eq),
+          ]),
         };
       },
       options: engineStageFacetOptions(types, stageTemplates),
@@ -567,7 +585,16 @@ export function engineFacets(
       label: 'Текущее состояние',
       valueOf: (e) => {
         const s = engineFactoryStage(e, types, stageTemplates);
-        return { value: s.key, label: s.label };
+        // Подпись — своя («по рекламации» видно), а отбор — по равному этапу:
+        // выбранная «приёмка двигателя на завод» ловит и приезд по рекламации.
+        // Раскрытие — только для этапов единого списка: ключи видов работ (`sheet:`) и
+        // состояний карточки (`scrap`, `repaired`) своей группы не имеют.
+        const stageKey = s.key.startsWith('stage:') ? s.key.slice('stage:'.length) : null;
+        return {
+          value: s.key,
+          label: s.label,
+          ...(stageKey ? { values: stageAnsweringAliases(stageKey).map((eq) => 'stage:' + eq) } : {}),
+        };
       },
       options: factoryStageFilterOptions(types, stageTemplates),
     },

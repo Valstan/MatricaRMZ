@@ -20,6 +20,7 @@ import { moscowDayKey } from './workSheetDuplicates.js';
 export const REPAIR_STAGE_CODES = [
   'card_created',
   'arrival',
+  'arrival_reclamation',
   'incoming_otk',
   'disassembly_defect',
   'parts_repair',
@@ -73,6 +74,11 @@ export type RepairStageTemplate = {
 export const DEFAULT_REPAIR_STAGE_TEMPLATES: ReadonlyArray<RepairStageTemplate> = [
   { code: 'card_created', name: 'Создание карточки двигателя', sortOrder: 5 },
   { code: 'arrival', name: 'Приемка двигателя на завод', sortOrder: 10, autoFrom: 'kittingAct' },
+  // Приёмка по рекламации (владелец 11.11.2026): «Приход по рекламации приравнивается
+  // к приёмке двигателя на заводе». Свой код и своя подпись — чтобы в колонке «этап»
+  // было видно, что движок приехал по рекламации, а в фильтрах отбор по «приёмке»
+  // ловил и его (см. REPAIR_STAGE_EQUIVALENT_GROUPS).
+  { code: 'arrival_reclamation', name: 'Приемка двигателя на завод по рекламации', sortOrder: 11 },
   { code: 'incoming_otk', name: 'Входной контроль ОТК', sortOrder: 15, autoFrom: 'kittingAct' },
   { code: 'disassembly_defect', name: 'Разборка/Дефектовка', sortOrder: 20, autoFrom: 'defectAct' },
   { code: 'parts_repair', name: 'Ремонт деталей', sortOrder: 30 },
@@ -84,6 +90,56 @@ export const DEFAULT_REPAIR_STAGE_TEMPLATES: ReadonlyArray<RepairStageTemplate> 
   { code: 'accepted', name: 'Приемка двигателя заказчиком', sortOrder: 90 },
   { code: 'scrap_branch', name: 'Утиль и брак', sortOrder: 0, sideBranch: true },
 ];
+
+/**
+ * Приёмка двигателя на заводе ПО РЕКЛАМАЦИИ (владелец 11.11.2026).
+ *
+ * Свой код и своя подпись — чтобы в колонке «этап» было видно, что движок приехал по
+ * рекламации, а не по основному циклу. При этом по смыслу это та же приёмка двигателя
+ * на заводе: приход по рекламации приравнивается к приёмке (см.
+ * `REPAIR_STAGE_EQUIVALENT_GROUPS`).
+ */
+export const RECLAMATION_ARRIVAL_STAGE_CODE = 'arrival_reclamation';
+
+/**
+ * Группы равных этапов (владелец 11.11.2026): приёмка по рекламации — та же приёмка
+ * двигателя на заводе. Отбор «приёмка двигателя на завод» должен ловить и приезд по
+ * рекламации, а при этом подпись этапа в колонке «этап» остаётся своей («по
+ * рекламации») — видно, откуда движок приехал.
+ *
+ * Порядок в группе — ОТ ОБЩЕГО К ЧАСТНОМУ: `arrival` (приёмка) → `arrival_reclamation`
+ * (приёмка по рекламации). Частный этап отвечает на общий (движок, приехавший по
+ * рекламации, попадает под отбор «приёмка»), но общий не отвечает на частный (обычная
+ * приёмка не должна попадать под отбор «приёмка по рекламации»).
+ */
+export const REPAIR_STAGE_EQUIVALENT_GROUPS: ReadonlyArray<readonly string[]> = [['arrival', 'arrival_reclamation']];
+
+/**
+ * Коды, которым данный этап отвечает ДОПОЛНИТЕЛЬНО (кроме самого себя): группа — от
+ * общего к частному. Это то, чем строка отвечает на ОТБОР (владелец выбрал «приёмка» —
+ * ловим и приезд по рекламации).
+ *
+ * Свой код сюда не входит: отбор и счётчик ступени и так сверяются с главным значением
+ * строки, а повторный учёт своего же кода задваивал бы счётчик (строка засчитывалась бы
+ * под одним значением дважды).
+ */
+export function stageAnsweringAliases(code: string): string[] {
+  const c = resolveStageCode(code);
+  const group = REPAIR_STAGE_EQUIVALENT_GROUPS.find((g) => g.includes(c));
+  if (!group) return [];
+  return group.slice(0, group.indexOf(c));
+}
+
+/**
+ * Все коды, равные данному (симметрично): сам код плюс вся его группа. Нужен там, где
+ * сравнение идёт В ОБЕ стороны: отбор по дате этапа (выбрана «приёмка» — дата
+ * приезда по рекламации тоже в границах).
+ */
+export function equivalentStageCodes(code: string): string[] {
+  const c = resolveStageCode(code);
+  const group = REPAIR_STAGE_EQUIVALENT_GROUPS.find((g) => g.includes(c));
+  return group ? [...group] : [c];
+}
 
 /**
  * Снесённые коды, читаемые как их преемники до миграции строк (PR3 данных):
@@ -255,6 +311,12 @@ export function findStageDateConflict(stages: DatedStage[], code: RepairStageCod
 export function isStageBackwardMove(stages: DatedStage[], code: RepairStageCode, newAtMs?: number): boolean {
   const rank = sortOrderOf(code);
   if (rank === 0) return false;
+  // Приёмка по рекламации — НЕ возврат назад, а НОВЫЙ заезд: движок уехал заказчику и
+  // вернулся. Ранг у неё низкий (сразу за обычной приёмкой), поэтому относительно
+  // прошлого цикла (обкатка, отгрузка) она «ниже» — и без этой оговорки её пометили бы
+  // как возврат назад, а пометка «повторный заход» тут врёт: это второй заезд, а не
+  // шаг назад по лестнице этапов.
+  if (resolveStageCode(code) === RECLAMATION_ARRIVAL_STAGE_CODE) return false;
   // Дата новой строки: этапы, датированные ПОЗЖЕ неё, её не «обгоняют» — это довнесение
   // пропущенного, а не возврат (баг 09.10.2026: поздно внесённая сборка с ранней датой
   // при живом shipped помечалась pass≥2). Сравнение по дням (Москва), как в субординации:
@@ -290,6 +352,11 @@ export type RepairStageRow = {
   note: string;
   /** Автор внесения (логин); null — неизвестен/служебная запись. H1: автор навсегда. */
   by: string | null;
+  /**
+   * Номер рекламации в очереди заездов, если строка — приёмка по рекламации
+   * (материализация очереди). null — строка обычная.
+   */
+  reclamationQueueNo?: number | null;
 };
 
 export type SaveRepairStageInput = {
@@ -317,6 +384,13 @@ export type SaveRepairStageInput = {
    * Автоматы флаг не передают (им mark-if-absent, гейт не касается).
    */
   confirmDefectDate?: boolean;
+  /**
+   * Номер рекламации в очереди заездов, если этап — материализация приёмки по
+   * рекламации. Помечает строку как порождённую очередью: по метке её можно найти и
+   * снять, когда рекламацию убрали из очереди (строка, поставленная руками, метки не
+   * несёт и очередью не управляется).
+   */
+  reclamationQueueNo?: number;
 };
 
 export type SaveRepairStageResult =
