@@ -46,7 +46,12 @@ export function resolveEngineTruthDates(args: {
   mainArrivalDate: number | null | undefined;
   mainShippingDate: number | null | undefined;
 }): EngineTruthDates {
-  if (args.isReclamation === true) {
+  // Ветка рекламации — когда движок УЖЕ вернулся по ней (есть дата приёма по
+  // рекламации). Рекламация может быть только заявлена (даты приёма нет): тогда
+  // заезда ещё не было, движок в основном цикле, и правдой остаются даты основного
+  // цикла — «пришёл/ушёл» по нему. Раньше случай «заявлено, но не принято» был
+  // невозможен: флаг ставился только вместе с датой приёма.
+  if (args.isReclamation === true && ms(args.reclamationAcceptedDate) != null) {
     // Приёмка по рекламации — позже прихода по основному циклу. Если дату не завели,
     // лучше старый приход, чем пустота: карточка рекламации без даты приёмки — редкость.
     const arrival = ms(args.reclamationAcceptedDate) ?? ms(args.mainArrivalDate);

@@ -80,6 +80,15 @@ export type RepairHistoryStageMark = {
   atMs: number;
 };
 
+/**
+ * След строки этапа, порождённой очередью рекламаций: номер рекламации в очереди
+ * заездов. Строка приёмки по рекламации — материализация этой очереди.
+ */
+export type RepairHistoryReclamationMark = {
+  /** Номер рекламации в очереди заездов (1, 2, 3 …). */
+  queueNo: number;
+};
+
 export type RepairHistoryMeta = {
   kind: typeof REPAIR_HISTORY_META_KIND;
   action: string;
@@ -118,6 +127,13 @@ export type RepairHistoryMeta = {
    * это выход годного с первого предъявления, и сегодня его посчитать нечем.
    */
   repeat?: RepairHistoryRepeat;
+  /**
+   * След приёмки по рекламации: этап `arrival_reclamation`, порождённый очередью
+   * заездов по рекламации (владелец 11.11.2026). Номер рекламации в очереди — по нему
+   * видно, какой строкой очереди порождён этап, и можно снять его, когда рекламацию
+   * убрали из очереди. Строки, поставленные руками, метку не несут.
+   */
+  reclamation?: RepairHistoryReclamationMark;
   /**
    * Снятие утиля по картеру (исход 10.10.2026): картер отремонтирован или заменён —
    * двигатель перестаёт считаться утильным, но след утиля в акте и в этой записи
@@ -277,6 +293,19 @@ function parseRepairStageMark(raw: unknown): RepairHistoryStageMark | null {
   return { rowId, code, atMs };
 }
 
+/**
+ * Разбор следа приёмки по рекламации: номер рекламации в очереди заездов. Номер
+ * меньше 1 — метка бессмысленна (номера рекламаций начинаются с 1), и поле уходит
+ * вместе со значением: «есть метка» и «нет метки» — разные состояния.
+ */
+function parseReclamationMark(raw: unknown): RepairHistoryReclamationMark | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const queueNo = typeof obj.queueNo === 'number' && Number.isFinite(obj.queueNo) ? Math.floor(obj.queueNo) : 0;
+  if (queueNo < 1) return null;
+  return { queueNo };
+}
+
 function parseScrapResolved(raw: unknown): RepairHistoryScrapResolved | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const obj = raw as Record<string, unknown>;
@@ -351,6 +380,7 @@ export function parseRepairHistoryMeta(metaJson: string | null): RepairHistoryMe
     ...(parseSheet(obj.sheet) ? { sheet: parseSheet(obj.sheet)! } : {}),
     ...(parseStage(obj.stage) ? { stage: parseStage(obj.stage)! } : {}),
     ...(parseRepairStageMark(obj.repairStage) ? { repairStage: parseRepairStageMark(obj.repairStage)! } : {}),
+    ...(parseReclamationMark(obj.reclamation) ? { reclamation: parseReclamationMark(obj.reclamation)! } : {}),
     ...(parseRepeat(obj.repeat) ? { repeat: parseRepeat(obj.repeat)! } : {}),
     ...(parseScrapResolved(obj.scrapResolved) ? { scrapResolved: parseScrapResolved(obj.scrapResolved)! } : {}),
   };
@@ -376,6 +406,7 @@ export function buildRepairHistoryMeta(input: {
   repairStage?: RepairHistoryStageMark | null;
   repeat?: RepairHistoryRepeat | null;
   scrapResolved?: RepairHistoryScrapResolved | null;
+  reclamation?: RepairHistoryReclamationMark | null;
 }): RepairHistoryMeta {
   const sheet = parseSheet(input.sheet);
   const stage = parseStage(input.stage);
@@ -395,6 +426,7 @@ export function buildRepairHistoryMeta(input: {
     ...(parseRepairStageMark(input.repairStage) ? { repairStage: parseRepairStageMark(input.repairStage)! } : {}),
     ...(parseRepeat(input.repeat) ? { repeat: parseRepeat(input.repeat)! } : {}),
     ...(parseScrapResolved(input.scrapResolved) ? { scrapResolved: parseScrapResolved(input.scrapResolved)! } : {}),
+    ...(parseReclamationMark(input.reclamation) ? { reclamation: parseReclamationMark(input.reclamation)! } : {}),
   };
 }
 

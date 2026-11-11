@@ -3069,7 +3069,23 @@ export type MatricaApi = {
       /** Даты основного цикла — для гейта «заезды не пересекаются». */
       mainArrivalDate?: number | null;
       mainShippingDate?: number | null;
-    }) => Promise<{ ok: true; count: number } | { ok: false; error: string }>;
+      /**
+       * Ответ — итоговая очередь с id строк. Клиент не должен перечитывать локальную
+       * реплику сразу после сохранения: она отстаёт от сервера (pull ещё не пришёл),
+       * и вкладка показывала бы пустую очередь — «не сохраняется».
+       *
+       * `stages` — что сделала материализация приёмки по рекламации в истории ремонта
+       * (заведено/переписано/снято строк этапа и отказы гейтов).
+       */
+    }) => Promise<
+      | {
+          ok: true;
+          count: number;
+          rows: EngineReclamationDto[];
+          stages?: { created: number; updated: number; removed: number; errors: string[] };
+        }
+      | { ok: false; error: string }
+    >;
   };
   /** Этапы работ: узлы — REST-справочник сервера; строки — записи истории ремонта (`operations`). */
   workSheets: {

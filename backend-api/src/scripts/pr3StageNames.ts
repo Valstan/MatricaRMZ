@@ -6,9 +6,12 @@
 // Сверено с DEFAULT_REPAIR_STAGE_TEMPLATES на момент PR3.
 // Дополнение 14.10.2026 — только новые ключи (существующие не трогаем):
 // `incoming_otk` и `parts_repair` с именами из реестра.
+// Дополнение 11.11.2026 — `arrival_reclamation` («Приемка двигателя на завод по
+// рекламации»): приход по рекламации приравнивается к приёмке двигателя на заводе.
 export const PR3_CANONICAL_STAGE_NAMES: Readonly<Record<string, string>> = {
   card_created: 'Создание карточки двигателя',
   arrival: 'Приемка двигателя на завод',
+  arrival_reclamation: 'Приемка двигателя на завод по рекламации',
   incoming_otk: 'Входной контроль ОТК',
   disassembly_defect: 'Разборка/Дефектовка',
   parts_repair: 'Ремонт деталей',

@@ -3,21 +3,24 @@ import { describe, expect, it } from 'vitest';
 import {
   currentDatedStage,
   DEFAULT_REPAIR_STAGE_TEMPLATES,
+  equivalentStageCodes,
   findStageDateConflict,
   isBulkStageCandidate,
   isStageBackwardMove,
   isTransferableStageCode,
+  RECLAMATION_ARRIVAL_STAGE_CODE,
   repairStageRank,
   repairStageTemplate,
   resolveStageCode,
   sortStagesByDate,
+  stageAnsweringAliases,
 } from './repairStages.js';
 
 describe('шаблон этапов (состав 05.10.2026 + входной контроль и ремонт деталей 14.10.2026)', () => {
   it('линейка из 11 + боковая ветка, приоритеты строго растут', () => {
-    expect(DEFAULT_REPAIR_STAGE_TEMPLATES).toHaveLength(12);
+    expect(DEFAULT_REPAIR_STAGE_TEMPLATES).toHaveLength(13);
     const line = DEFAULT_REPAIR_STAGE_TEMPLATES.filter((t) => !t.sideBranch).map((t) => t.sortOrder);
-    expect(line).toEqual([5, 10, 15, 20, 30, 40, 50, 60, 70, 80, 90]);
+    expect(line).toEqual([5, 10, 11, 15, 20, 30, 40, 50, 60, 70, 80, 90]);
   });
 
   it('«Вал» не этап, «Отгрузка» и «Приемка заказчиком» — разные этапы', () => {
@@ -273,5 +276,41 @@ describe('isTransferableStageCode — срез переноса от уклад�
     for (const code of ['card_created', 'arrival', 'incoming_otk', 'disassembly_defect', 'parts_repair', 'kitting_done', 'scrap_branch', '', 'что-то']) {
       expect(isTransferableStageCode(code)).toBe(false);
     }
+  });
+});
+
+describe('приёмка по рекламации — этап, равный приёмке (владелец 11.11.2026)', () => {
+  it('свой код и своя подпись — видно, что движок приехал по рекламации', () => {
+    expect(RECLAMATION_ARRIVAL_STAGE_CODE).toBe('arrival_reclamation');
+    const t = repairStageTemplate(RECLAMATION_ARRIVAL_STAGE_CODE);
+    expect(t.name).toBe('Приемка двигателя на завод по рекламации');
+    expect(t.sideBranch).toBeUndefined();
+  });
+
+  it('приёмка по рекламации отвечает на приёмку, но не наоборот', () => {
+    // Выбрана «приёмка двигателя на завод» — отбор ловит и приезд по рекламации.
+    expect(stageAnsweringAliases(RECLAMATION_ARRIVAL_STAGE_CODE)).toEqual(['arrival']);
+    // Обычная приёмка под «приёмку по рекламации» НЕ попадает.
+    expect(stageAnsweringAliases('arrival')).toEqual([]);
+    // Вне группы этап не отвечает ни за что.
+    expect(stageAnsweringAliases('obkatka')).toEqual([]);
+  });
+
+  it('симметричное равенство — для отбора по дате этапа', () => {
+    expect(equivalentStageCodes('arrival')).toContain(RECLAMATION_ARRIVAL_STAGE_CODE);
+    expect(equivalentStageCodes(RECLAMATION_ARRIVAL_STAGE_CODE)).toContain('arrival');
+    expect(equivalentStageCodes('obkatka')).toEqual(['obkatka']);
+  });
+
+  it('приёмка по рекламации — новый заезд, а не возврат назад', () => {
+    // Движок уехал заказчику и вернулся: ранг приёмки по рекламации ниже прошлого цикла,
+    // но «возврат назад» тут врёт — это второй заезд, а не шаг назад по лестнице этапов.
+    const stages = [
+      { code: 'arrival' as const, at: Date.UTC(2025, 4, 29) },
+      { code: 'obkatka' as const, at: Date.UTC(2025, 5, 10) },
+      { code: 'shipped' as const, at: Date.UTC(2025, 9, 31) },
+    ];
+    expect(isStageBackwardMove(stages, 'arrival')).toBe(true);
+    expect(isStageBackwardMove(stages, RECLAMATION_ARRIVAL_STAGE_CODE)).toBe(false);
   });
 });

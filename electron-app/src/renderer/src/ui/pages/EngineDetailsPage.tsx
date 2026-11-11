@@ -12,7 +12,7 @@ import { SectionCard } from '../components/SectionCard.js';
 import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { EngineHistoryFeedPanel } from '../components/EngineHistoryFeedPanel.js';
 import { AttachmentsModule } from '../components/AttachmentsModule.js';
-import { EngineReclamationTab, type ReclamationDraft } from '../components/EngineReclamationTab.js';
+import { EngineReclamationTab, type EngineReclamationTabHandle, type ReclamationDraft } from '../components/EngineReclamationTab.js';
 import { EngineTagPrintDialog, type EngineTagInitial, type EngineTagSource } from '../components/EngineTagPrintDialog.js';
 import { buildEngineTimeline, type EngineTimelineItem } from '@matricarmz/shared';
 import { DocumentHistoryPanel } from '../components/DocumentHistoryPanel.js';
@@ -783,6 +783,11 @@ export function EngineDetailsPage(props: {
   // Ручка вкладки «Платежи»: кнопки шапки карточки сбрасывают её несохранённые
   // правки в базу перед закрытием (см. saveAllAndClose).
   const paymentsTabHandleRef = useRef<EnginePaymentsTabHandle | null>(null);
+  // Ручка вкладки «Рекламация»: очередь заездов пишется своей кнопкой, а кнопки
+  // шапки карточки («Сохранить» / «Сохранить и выйти») про неё не знали — оператор
+  // жал «Сохранить» в шапке и думал, что рекламация сохранена (жалоба владельца
+  // 11.11.2026). Карточка сбрасывает очередь в базу перед своим сохранением.
+  const reclamationTabHandleRef = useRef<EngineReclamationTabHandle | null>(null);
   // Зеркало sessionHadChanges в state — только чтобы ярлык вкладки «Основное»
   // мог показать маркер несохранённых изменений (ref не триггерит рендер).
   const [mainDirty, setMainDirty] = useState(false);
@@ -1334,6 +1339,15 @@ export function EngineDetailsPage(props: {
       setSaveStatus(msg);
       throw new Error(msg);
     }
+    // Очередь рекламаций — тот же класс, что и платежи: своя кнопка и свои правила.
+    // Без сброса перед сохранением «Сохранить» в шапке закрывал бы карточку, а
+    // несохранённая очередь осталась бы в памяти вкладки и исчезла бы с ней.
+    const reclamationFlushed = await reclamationTabHandleRef.current?.flush();
+    if (reclamationFlushed === false) {
+      const msg = 'Рекламации не сохранены — карточка не закрыта. Исправьте ошибку на вкладке «Рекламация».';
+      setSaveStatus(msg);
+      throw new Error(msg);
+    }
     // Право на запись могло пропасть уже ПОСЛЕ того, как оператор начал править
     // (резерв перехватил другой оператор, админ отозвал доступ). Молча резолвиться
     // нельзя: App считает успешный промис за сохранение и закрывает вкладку — правки
@@ -1389,15 +1403,11 @@ export function EngineDetailsPage(props: {
         contract_id: asNullableText(contractId),
         contract_section_number: asNullableText(resolvedSectionKey),
       };
-      nextValues.reclamation_flag = reclFlag;
-      nextValues.reclamation_accepted_date = fromInputDate(reclAcceptedDate);
-      nextValues.reclamation_customer_reason = asNullableText(reclCustomerReason);
-      nextValues.reclamation_actual_defect = asNullableText(reclActualDefect);
-      nextValues.reclamation_defect_nature = asNullableText(reclDefectNature);
-      nextValues.reclamation_act_number = asNullableText(reclActNumber);
-      nextValues.reclamation_verdict_date = fromInputDate(reclVerdictDate);
-      nextValues.reclamation_shipped_date = fromInputDate(reclShippedDate);
-      nextValues.reclamation_comment = asNullableText(reclComment);
+      // Рекламации здесь НЕ пишутся: очередь заездов — единственный писатель
+      // (кнопка «Сохранить очередь» и сброс карточки перед её сохранением).
+      // Карточка больше не кладёт в EAV зеркало рекламации: иначе её сохранение
+      // могло затереть зеркало stale-значениями — метка рекламации появлялась бы
+      // в карточке и пропадала из списка (жалоба владельца 11.11.2026).
       nextValues.scrap_reason = asNullableText(scrapReason);
       for (const f of ENGINE_FLAT_FIELDS) {
         nextValues[f.code] =
@@ -3201,6 +3211,9 @@ export function EngineDetailsPage(props: {
             setReclFlag(flag);
           }}
           onPatchMirror={applyReclamationPatch}
+          registerHandle={(handle) => {
+            reclamationTabHandleRef.current = handle;
+          }}
           natureOptions={reclNatureOptions}
           onNotice={(text) => setSaveStatus(text)}
           attachmentsSlot={

@@ -101,13 +101,45 @@ export function engineReclamationFacts(
   rows: readonly Pick<EngineReclamationDto, 'queueNo' | 'acceptedAt' | 'shippedAt'>[],
 ): EngineReclamationFacts {
   const queue = sortEngineReclamations(rows ?? []);
-  const current = queue.length > 0 ? queue[queue.length - 1] : null;
-  if (!current) return { isReclamation: false, acceptedAt: null, shippedAt: null };
+  if (queue.length === 0) return { isReclamation: false, acceptedAt: null, shippedAt: null };
+  // «Текущий заезд» — последняя рекламация, по которой движок УЖЕ вернулся (есть
+  // дата приёма). Рекламация может быть заявлена, но ещё не принята — тогда заезда
+  // не было, и даты основного цикла остаются правдой о движке.
+  const visited = queue.filter((row) => ms(row.acceptedAt) != null);
+  const current = visited.length > 0 ? visited[visited.length - 1] : null;
   return {
     isReclamation: true,
-    acceptedAt: ms(current.acceptedAt),
-    shippedAt: ms(current.shippedAt),
+    acceptedAt: current ? ms(current.acceptedAt) : null,
+    shippedAt: current ? ms(current.shippedAt) : null,
   };
+}
+
+/**
+ * Приёмки по рекламации — то, что материализуется этапами ремонта.
+ *
+ * Приёмка по рекламации — это ПРИХОД двигателя на завод (владелец 11.11.2026: «приход по
+ * рекламации приравнивается к приемке двигателя на заводе»), поэтому она должна быть
+ * этапом единого списка, а не отдельной строчкой в истории. Эта функция — правило
+ * «какие приёмки у двигателя»: рекламация без даты приёма ещё не была заездом, и этап
+ * для неё не заводится.
+ */
+export type EngineReclamationArrival = {
+  /** Номер рекламации в очереди заездов. */
+  queueNo: number;
+  /** Дата приёма (мс). */
+  at: number;
+};
+
+export function engineReclamationArrivals(
+  rows: readonly Pick<EngineReclamationDto, 'queueNo' | 'acceptedAt'>[],
+): EngineReclamationArrival[] {
+  const out: EngineReclamationArrival[] = [];
+  for (const row of sortEngineReclamations(rows ?? [])) {
+    const at = ms(row.acceptedAt);
+    if (at == null) continue;
+    out.push({ queueNo: Number(row.queueNo ?? 0), at });
+  }
+  return out;
 }
 
 /**

@@ -80,6 +80,9 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   console.log(`engine-reclamations:backfill — ${args.apply ? 'РЕЖИМ ЗАПИСИ' : 'dry-run, ничего не меняется'}`);
 
+  // Только ЖИВЫЕ карточки: у удалённых (архивный заезд повторного приезда) своя
+  // рекламация уже не нужна — очередь для них создала бы «призрачную» строку, не
+  // видимую ни в списке, ни в отчётах.
   const res = await pool.query<Row>(
     `SELECT av.entity_id::text AS engine_id, ad.code, av.value_json
        FROM attribute_values av
@@ -87,6 +90,7 @@ async function main(): Promise<void> {
        JOIN entities e ON e.id = av.entity_id
       WHERE ad.code = ANY($1::text[])
         AND av.deleted_at IS NULL
+        AND e.deleted_at IS NULL
         AND e.type_id = (SELECT id FROM entity_types WHERE code = 'engine' LIMIT 1)`,
     [CODES as unknown as string[]],
   );

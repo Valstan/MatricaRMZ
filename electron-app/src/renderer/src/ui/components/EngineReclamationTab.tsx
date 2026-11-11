@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { normalizeLookupCompact, validateEngineReclamationQueue } from '@matricarmz/shared';
 
@@ -97,6 +97,20 @@ function fromIsoDate(value: string): number | null {
   return Number.isFinite(ts) ? ts : null;
 }
 
+/**
+ * Ручка вкладки «Рекламация» для карточки двигателя.
+ *
+ * Очередь пишется своей кнопкой («Сохранить очередь»), и кнопки шапки карточки
+ * («Сохранить» / «Сохранить и выйти») про неё не знали: оператор жал «Сохранить»
+ * в шапке и думал, что рекламация сохранена, а она оставалась в форме. `flush`
+ * даёт карточке возможность сбросить очередь в базу ДО сохранения карточки —
+ * одна кнопка сохраняет всё.
+ */
+export type EngineReclamationTabHandle = {
+  /** Сохранить несохранённую очередь. `false` — запись не удалась, карточку закрывать нельзя. */
+  flush: () => Promise<boolean>;
+};
+
 export function EngineReclamationTab(props: {
   visible: boolean;
   canEdit: boolean;
@@ -110,12 +124,14 @@ export function EngineReclamationTab(props: {
   onPatchFlag?: (flag: boolean) => void;
   /**
    * Зеркало последней (текущей) рекламации в EAV-атрибуты карточки: по ним читают
-   * синяя метка в списке двигателей и источник правды по датам.
+   * клиенты прежней версии и источник правды по датам на сервере.
    */
   onPatchMirror?: (mirror: Partial<ReclamationDraft>) => void;
   natureOptions: string[];
   onNotice: (text: string) => void;
   attachmentsSlot: React.ReactNode;
+  /** Ручка вкладки для карточки двигателя (см. EngineReclamationTabHandle). */
+  registerHandle?: (handle: EngineReclamationTabHandle | null) => void;
 }) {
   const { canEdit } = props;
   const [queue, setQueue] = useState<ReclamationDraft[]>([]);
@@ -127,6 +143,10 @@ export function EngineReclamationTab(props: {
   const actualDefectRef = React.useRef<HTMLTextAreaElement | null>(null);
   const [addingNature, setAddingNature] = useState(false);
   const [newNature, setNewNature] = useState('');
+  /** Очередь правится, но не записана на сервер — карточка должна сбросить её перед своим сохранением. */
+  const [dirty, setDirty] = useState(false);
+  /** Очередь сохранена в этой сессии — её держим локально, реплику не перечитываем. */
+  const [savedLocally, setSavedLocally] = useState(false);
 
   const load = useCallback(async () => {
     if (!props.engineId) return;
@@ -139,6 +159,7 @@ export function EngineReclamationTab(props: {
       }
       const rows = res.rows.map(toDraft);
       setQueue(rows);
+      setDirty(false);
       setSelectedQueueNo((prev) => prev ?? (rows[0]?.queueNo ?? null));
     } finally {
       setLoading(false);
@@ -146,23 +167,40 @@ export function EngineReclamationTab(props: {
   }, [props.engineId]);
 
   useEffect(() => {
-    if (props.visible) void load();
-  }, [props.visible, load]);
+    // Перечитываем реплику только если правок нет: иначе уход на другую вкладку
+    // стирал бы несохранённую очередь (как и случилось — оператор жал «Сохранить
+    // очередь», видел пустую форму и жал ещё раз).
+    //
+    // После УДАЧНОГО сохранения очередь тоже не перечитываем: реплика отстаёт от
+    // сервера (pull ещё не пришёл), и перечитывание стирало бы только что сохранённое —
+    // оператор видел бы пустую очередь и жал кнопку ещё раз (жалоба владельца
+    // 11.11.2026, двигатель Е02АТ5382). Данные сохранённой очереди — ответ сервера,
+    // он и есть правда; реплика догонит её позже сама.
+    if (!props.visible) return;
+    if (dirty || savedLocally) return;
+    void load();
+  }, [props.visible, load, dirty, savedLocally]);
 
   const selected = useMemo(() => queue.find((q) => q.queueNo === selectedQueueNo) ?? null, [queue, selectedQueueNo]);
 
   const patchSelected = (patch: Partial<ReclamationDraft>) => {
     if (selectedQueueNo == null) return;
+    setDirty(true);
+    setSavedLocally(false);
     setQueue((prev) => prev.map((q) => (q.queueNo === selectedQueueNo ? { ...q, ...patch } : q)));
   };
 
   const addReclamation = () => {
     const nextNo = queue.length === 0 ? 1 : Math.max(...queue.map((q) => q.queueNo)) + 1;
+    setDirty(true);
+    setSavedLocally(false);
     setQueue((prev) => [...prev, emptyDraft(nextNo)]);
     setSelectedQueueNo(nextNo);
   };
 
   const removeReclamation = (queueNo: number) => {
+    setDirty(true);
+    setSavedLocally(false);
     setQueue((prev) =>
       prev.filter((q) => q.queueNo !== queueNo).map((q, i) => (q.queueNo > queueNo ? { ...q, queueNo: i + 1 } : q)),
     );
@@ -184,8 +222,8 @@ export function EngineReclamationTab(props: {
     [queue, props.mainAcceptedDate, props.mainShippedDate],
   );
 
-  const saveQueue = async () => {
-    if (!props.engineId) return;
+  const saveQueue = async (): Promise<boolean> => {
+    if (!props.engineId) return false;
     const gate = validateEngineReclamationQueue({
       rows: queue.map((q) => ({
         queueNo: q.queueNo,
@@ -198,7 +236,7 @@ export function EngineReclamationTab(props: {
     if (gate) {
       setError(gate);
       props.onNotice(gate);
-      return;
+      return false;
     }
     setBusy(true);
     setError('');
@@ -223,11 +261,21 @@ export function EngineReclamationTab(props: {
       if (!res.ok) {
         setError(res.error);
         props.onNotice(res.error);
-        return;
+        return false;
       }
-      props.onPatchFlag?.(queue.length > 0);
+      // Итоговую очередь берём ОТ СЕРВЕРА, а не перечитываем локальную реплику:
+      // реплика отстаёт (pull ещё не пришёл), и перечитывание сразу после
+      // сохранения показывало бы пустую очередь — оператор видел «не сохраняется»
+      // и жал кнопку ещё раз, плодя новые строки вместо правки прежней
+      // (жалоба владельца 11.11.2026, двигатель Е02АТ5382).
+      const saved = (res.rows ?? []).map(toDraft);
+      setQueue(saved);
+      setDirty(false);
+      setSavedLocally(true);
+      setSelectedQueueNo((prev) => prev ?? (saved[0]?.queueNo ?? null));
+      props.onPatchFlag?.(saved.length > 0);
       // Зеркало текущей рекламации — последняя в очереди: именно она «сейчас».
-      const current = queue.length === 0 ? null : queue.reduce((a, b) => (b.queueNo > a.queueNo ? b : a));
+      const current = saved.length === 0 ? null : saved.reduce((a, b) => (b.queueNo > a.queueNo ? b : a));
       props.onPatchMirror?.(
         current
           ? {
@@ -252,11 +300,42 @@ export function EngineReclamationTab(props: {
             },
       );
       props.onNotice('Очередь рекламаций сохранена.');
-      await load();
+      // Приёмка по рекламации — этап истории ремонта. Если этап не завелся (нет права
+      // или гейт отказал), оператор должен знать: в списке и отчётах этого этапа не будет.
+      const stages = res.stages;
+      if (stages && stages.errors.length > 0) {
+        setError(stages.errors.join('; '));
+        props.onNotice(`Очередь сохранена, но этап приёмки по рекламации не заведён: ${stages.errors.join('; ')}`);
+      } else if (stages && (stages.created > 0 || stages.updated > 0)) {
+        props.onNotice('Очередь рекламаций сохранена — приёмка по рекламации внесена в историю ремонта.');
+      }
+      return true;
     } finally {
       setBusy(false);
     }
   };
+
+  // Ручка для карточки двигателя: кнопки «Сохранить» / «Сохранить и выйти» в шапке
+  // про очередь не знали, и оператор жал «Сохранить» в шапке, думая, что рекламация
+  // сохранена (жалоба владельца 11.11.2026). Теперь карточка сбрасывает очередь в
+  // базу перед своим сохранением — одна кнопка сохраняет всё.
+  //
+  // Ссылки обновляем после каждого рендера, а ручку регистрируем один раз — её
+  // содержимое всегда смотрит на актуальные `saveQueue` и `dirty` (как на вкладке
+  // «Платежи»).
+  const saveQueueRef = useRef<() => Promise<boolean>>(async () => true);
+  const dirtyRef = useRef(dirty);
+  useEffect(() => {
+    saveQueueRef.current = saveQueue;
+    dirtyRef.current = dirty;
+  });
+  const registerHandle = props.registerHandle;
+  useEffect(() => {
+    registerHandle?.({
+      flush: async () => (dirtyRef.current ? saveQueueRef.current() : true),
+    });
+    return () => registerHandle?.(null);
+  }, [registerHandle]);
 
   async function pasteInto(
     ref: React.MutableRefObject<HTMLTextAreaElement | null>,
