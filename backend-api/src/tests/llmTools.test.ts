@@ -245,6 +245,70 @@ describe('llmTools.executeTool', () => {
     expect(res.content).toMatch(/Нет прав на таблицу/);
   });
 
+  // Рекламации читаются из очереди заездов (erp_engine_reclamations), а не из EAV:
+  // у двигателя рекламаций может быть несколько, и модель должна видеть их все.
+  it('get_reclamations читает очередь заездов и отдаёт все рекламации движка', async () => {
+    poolQuery.mockResolvedValueOnce({ rows: [{ id: 'e1' }] });
+    poolQuery.mockResolvedValueOnce({
+      rows: [
+        { entity_id: 'e1', attribute_code: 'engine_number', value_json: '"Д-1"' },
+        { entity_id: 'e1', attribute_code: 'customer_id', value_json: '"c1"' },
+      ],
+    });
+    poolQuery.mockResolvedValueOnce({ rows: [{ id: 'c1', name: 'ООО «ВЗК»' }] });
+    poolQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          engine_id: 'e1',
+          queue_no: 1,
+          accepted_at: 1788332400000,
+          shipped_at: 1788418800000,
+          customer_reason: 'Треснул блок',
+          actual_defect: 'Разрушение вкладышей',
+          defect_nature: 'Производственный',
+          act_number: '14/26',
+          act_date: null,
+          comment: null,
+        },
+        {
+          engine_id: 'e1',
+          queue_no: 2,
+          accepted_at: 1788505200000,
+          shipped_at: null,
+          customer_reason: 'Повторный дефект',
+          actual_defect: null,
+          defect_nature: 'Эксплуатационный',
+          act_number: null,
+          act_date: null,
+          comment: 'В работе',
+        },
+      ],
+    });
+    const res = await executeTool({ id: 'x', name: 'get_reclamations', input: {} }, partsViewer);
+    expect(res.isError).toBeFalsy();
+    const payload = JSON.parse(res.content);
+    expect(payload.rows).toHaveLength(2);
+    expect(payload.total).toBe(2);
+    expect(payload.rows[0]).toMatchObject({
+      engineId: 'e1',
+      engine_number: 'Д-1',
+      customer_name: 'ООО «ВЗК»',
+      reclamation_no: 1,
+      reclamation_accepted_at: 1788332400000,
+      reclamation_shipped_at: 1788418800000,
+      reclamation_customer_reason: 'Треснул блок',
+    });
+    expect(payload.rows[1]).toMatchObject({ reclamation_no: 2, reclamation_shipped_at: null, reclamation_defect_nature: 'Эксплуатационный' });
+    // Очередь читается из строгой таблицы, а не из EAV-флага.
+    expect(poolQuery.mock.calls[0]![0]).toMatch(/erp_engine_reclamations/);
+  });
+
+  it('описание get_reclamations больше не врёт про отсутствие таблицы', () => {
+    const def = getToolDefinitions(['get_reclamations'])[0]!;
+    expect(def.description).toContain('erp_engine_reclamations');
+    expect(def.description).not.toContain('отдельной таблицы claims НЕТ');
+  });
+
   it('list_report_presets возвращает каталог, поиск фильтрует', async () => {
     const all = await executeTool({ name: 'list_report_presets', input: {} } as any, partsViewer);
     const parsedAll = JSON.parse(all.content);
