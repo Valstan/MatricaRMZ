@@ -668,6 +668,7 @@ async function main() {
      const cleared = await call(window.matrica.engineReclamations.save({
        engineId: ${JSON.stringify(ENGINE_ID)},
        rows: [],
+     clear: true,
      }));
      await call(window.matrica.sync.run());
      await wait(2500);

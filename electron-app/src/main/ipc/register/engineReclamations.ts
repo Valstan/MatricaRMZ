@@ -57,16 +57,36 @@ export function registerEngineReclamationsIpc(ctx: IpcContext) {
 
   ipcMain.handle(
     'engineReclamations:list',
-    async (_e, engineId: string): Promise<Result<{ rows: EngineReclamationDto[] }>> => {
+    async (_e, engineId: string): Promise<Result<{ rows: EngineReclamationDto[]; source: 'server' | 'replica' }>> => {
+      const id = String(engineId ?? '');
+      // СЕРВЕР — источник правды по очереди. Локальная реплика отстаёт на минуты, и
+      // пустой ответ неё выглядел как «рекламаций нет»: оператор жал «Сохранить очередь»
+      // с пустой формой — а серверная дверь честно применяла «заменить очередь» и СМЯГКО
+      // УДАЛЯЛА рекламацию (жалоба владельца 11.11.2026, Е02АТ5382: три нажатия — три
+      // строки, две удалены). Поэтому читаем сервер, а реплику берём офлайн-фолбэком.
+      try {
+        const res = await httpAuthed(ctx.sysDb, base(), `/engine-reclamations/${encodeURIComponent(id)}`, {
+          method: 'GET',
+        });
+        if (res.ok) {
+          const json = res.json as { ok?: boolean; rows?: EngineReclamationDto[] } | null;
+          if (json?.ok === true && Array.isArray(json.rows)) {
+            return { ok: true, rows: json.rows, source: 'server' };
+          }
+        }
+      } catch {
+        /* нет связи — берём локальную реплику */
+      }
       try {
         const db = ctx.dataDb();
         const rows = await db
           .select()
           .from(erpEngineReclamations)
-          .where(and(eq(erpEngineReclamations.engineId, String(engineId ?? '')), isNull(erpEngineReclamations.deletedAt)))
+          .where(and(eq(erpEngineReclamations.engineId, id), isNull(erpEngineReclamations.deletedAt)))
           .orderBy(asc(erpEngineReclamations.queueNo));
         return {
           ok: true,
+          source: 'replica',
           rows: rows.map((r) => ({
             id: String(r.id),
             engineId: String(r.engineId),
@@ -108,8 +128,14 @@ export function registerEngineReclamationsIpc(ctx: IpcContext) {
         /** Даты основного цикла — для гейта «заезды не пересекаются». */
         mainArrivalDate?: number | null;
         mainShippingDate?: number | null;
+        /**
+         * Подтверждение очистки: пустая очередь без этого флага НЕ удаляет рекламацию на
+         * сервере (жалоба владельца 11.11.2026, Е02АТ5382 — клиент с отставшей репликой
+         * прислал пустую очередь и снёс запись, которую только что записал).
+         */
+        clear?: boolean;
       },
-    ): Promise<Result<{ count: number; rows: EngineReclamationDto[]; stages?: EngineReclamationStagesSummary }>> => {
+    ): Promise<Result<{ count: number; rows: EngineReclamationDto[]; cleared?: boolean; stages?: EngineReclamationStagesSummary }>> => {
       if (isViewMode(ctx)) return viewModeWriteError();
       const engineId = String(args?.engineId ?? '');
       const rows = Array.isArray(args?.rows) ? args.rows : [];
@@ -120,6 +146,7 @@ export function registerEngineReclamationsIpc(ctx: IpcContext) {
           rows,
           mainArrivalDate: args?.mainArrivalDate ?? null,
           mainShippingDate: args?.mainShippingDate ?? null,
+          clear: args?.clear === true,
         }),
       });
       if (!res.ok) return toResult(res);

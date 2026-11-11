@@ -149,11 +149,26 @@ export function resolveReclamationRowId(args: {
   return args.newId;
 }
 
+/**
+ * Можно ли снять строку очереди, которой нет в запросе.
+ *
+ * Непустой запрос — строки сняты осознанно (оператор убрал их в форме). Пустой запрос
+ * без подтверждения очистки — НЕЛЬЗЯ: клиент с отставшей репликой присылал пустую
+ * очередь, и сервер смягко удалял рекламацию, которую оператор только что записал
+ * (жалоба владельца 11.11.2026, двигатель Е02АТ5382: три нажатия — три строки, две
+ * удалены).
+ */
+export function mayDropReclamationRow(args: { preparedCount: number; clear: boolean }): boolean {
+  if (args.preparedCount > 0) return true;
+  return args.clear === true;
+}
+
 export async function replaceEngineReclamations(
   engineId: string,
   inputs: EngineReclamationDraft[],
   mainDates?: { mainArrivalDate?: number | null | undefined; mainShippingDate?: number | null | undefined },
-): Promise<Result<{ count: number; rows: EngineReclamationRow[] }>> {
+  opts?: { clear?: boolean | undefined },
+): Promise<Result<{ count: number; rows: EngineReclamationRow[]; cleared: boolean }>> {
   const id = String(engineId ?? '').trim();
   if (!isUuid(id)) return { ok: false, error: 'id двигателя должен быть uuid' };
 
@@ -279,10 +294,22 @@ export async function replaceEngineReclamations(
 
   // Пропавшие снимаем мягко — клиент увидит удаление через зеркало. Уже снятые
   // строки не трогаем: иначе они вечно переписывались бы и перепубликовывались.
+  //
+  // ПУСТАЯ ОЧЕРЕДЬ БЕЗ ПОДТВЕРЖДЕНИЯ НИЧЕГО НЕ УДАЛЯЕТ (жалоба владельца 11.11.2026,
+  // Е02АТ5382). Дверь «заменяет очередь», и пустой список от клиента с отставшей
+  // репликой значил «рекламаций нет» — сервер смягко удалял то, что оператор только
+  // что записал (три нажатия подряд — три строки, две удалены). Очистка идёт только
+  // по явному `clear` от клиента, который прочитал очередь с сервера.
+  const clear = opts?.clear === true;
+  let cleared = true;
   for (const row of existing) {
     const rowId = String(row.id);
     if (keptIds.has(rowId)) continue;
     if (row.deletedAt != null) continue;
+    if (!mayDropReclamationRow({ preparedCount: prepared.length, clear })) {
+      cleared = false;
+      continue;
+    }
     await db
       .update(erpEngineReclamations)
       .set({ deletedAt: now, updatedAt: now, syncStatus: 'pending' })
@@ -304,5 +331,5 @@ export async function replaceEngineReclamations(
   // показала бы пустую очередь — оператор жал «не сохраняется» и жал ещё раз,
   // плодя новые строки вместо правки прежней.
   const after = await listEngineReclamations(id);
-  return { ok: true, count: prepared.length, rows: after.ok ? after.rows : [] };
+  return { ok: true, count: prepared.length, rows: after.ok ? after.rows : [], cleared };
 }

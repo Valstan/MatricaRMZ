@@ -147,6 +147,12 @@ export function EngineReclamationTab(props: {
   const [dirty, setDirty] = useState(false);
   /** Очередь сохранена в этой сессии — её держим локально, реплику не перечитываем. */
   const [savedLocally, setSavedLocally] = useState(false);
+  /**
+   * Откуда взята очередь в форме: 'server' — сервер подтвердил (можно сохранять и пустую),
+   * 'replica' — локальная копия (отстаёт; пустую сохранять нельзя, иначе сервер снесёт
+   * рекламацию, которой оператор не видел).
+   */
+  const [queueSource, setQueueSource] = useState<'server' | 'replica' | null>(null);
 
   const load = useCallback(async () => {
     if (!props.engineId) return;
@@ -160,6 +166,7 @@ export function EngineReclamationTab(props: {
       const rows = res.rows.map(toDraft);
       setQueue(rows);
       setDirty(false);
+      setQueueSource(res.source ?? 'replica');
       setSelectedQueueNo((prev) => prev ?? (rows[0]?.queueNo ?? null));
     } finally {
       setLoading(false);
@@ -224,6 +231,17 @@ export function EngineReclamationTab(props: {
 
   const saveQueue = async (): Promise<boolean> => {
     if (!props.engineId) return false;
+    // ПУСТАЯ ОЧЕРЕДЬ, НЕ ПОДТВЕРЖДЁННАЯ СЕРВЕРОМ, — НЕ СОХРАНЯЕТСЯ (жалоба владельца
+    // 11.11.2026, Е02АТ5382). Дверь «заменяет очередь»: пустой список = «рекламаций нет» →
+    // сервер смягко удаляет всё, что там было. Если очередь в форме пустая, потому что её
+    // не удалось прочитать (нет связи, реплика отстала), такой «сброс» снёс бы рекламацию,
+    // которой оператор просто не видел.
+    if (queueSource === 'replica') {
+      const msg = 'Очередь прочитана из локальной копии — она может отставать от сервера. Сохранять нельзя: сервер счёл бы снятые строки лишними. Дождитесь связи и обновите вкладку.';
+      setError(msg);
+      props.onNotice(msg);
+      return false;
+    }
     const gate = validateEngineReclamationQueue({
       rows: queue.map((q) => ({
         queueNo: q.queueNo,
@@ -257,10 +275,18 @@ export function EngineReclamationTab(props: {
         })),
         mainArrivalDate: fromIsoDate(props.mainAcceptedDate ?? ''),
         mainShippingDate: fromIsoDate(props.mainShippedDate ?? ''),
+        // Очистка — только явная: пустой список без подтверждения сервер не сносит.
+        clear: queue.length === 0 && queueSource === 'server',
       });
       if (!res.ok) {
         setError(res.error);
         props.onNotice(res.error);
+        return false;
+      }
+      if (res.cleared === false) {
+        const msg = 'Очередь на сервере не очищена — сервер не принял подтверждение очистки. Рекламация на месте; обновите программу и повторите.';
+        setError(msg);
+        props.onNotice(msg);
         return false;
       }
       // Итоговую очередь берём ОТ СЕРВЕРА, а не перечитываем локальную реплику:

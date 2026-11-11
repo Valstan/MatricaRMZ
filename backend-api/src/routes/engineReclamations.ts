@@ -32,6 +32,12 @@ const queueBody = z.object({
   /** Даты основного цикла — для гейта «заезды не пересекаются». */
   mainArrivalDate: z.number().nullable().optional(),
   mainShippingDate: z.number().nullable().optional(),
+  /**
+   * Подтверждение очистки: пустой `rows` без этого флага НЕ удаляет очередь (жалоба
+   * владельца 11.11.2026, Е02АТ5382: клиент с отставшей репликой прислал пустую очередь
+   * — и сервер смягко удалил рекламацию, которую оператор только что записал).
+   */
+  clear: z.boolean().optional(),
 });
 
 engineReclamationsRouter.get(
@@ -59,6 +65,7 @@ engineReclamationsRouter.put(
         mainArrivalDate: parsed.data.mainArrivalDate ?? null,
         mainShippingDate: parsed.data.mainShippingDate ?? null,
       },
+      { clear: parsed.data.clear === true },
     );
     if (!result.ok) return res.status(400).json(result);
     return res.json(result);
