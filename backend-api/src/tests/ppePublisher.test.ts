@@ -51,13 +51,19 @@ const CASES = [
   {
     table: SyncTableName.PpeIssueEntries,
     map: toPpeIssueEntryInput,
-    row: { ...BASE, cardId: UID, nomenclatureId: UID, qty: 1, issuedAt: 1_700_000_000_000, documentId: UID },
+    row: { ...BASE, cardId: UID, nomenclatureId: UID, qty: 1, issuedAt: 1_700_000_000_000, documentId: UID, returnedAt: null, returnedBy: null, wearPercent: null },
   },
   // Фаза 2, PR-1. NULL-документ доввода истории тоже проходит схему.
   {
     table: SyncTableName.PpeIssueEntries,
     map: toPpeIssueEntryInput,
-    row: { ...BASE, cardId: UID, nomenclatureId: UID, qty: 1, issuedAt: 1_700_000_000_000, documentId: null },
+    row: { ...BASE, cardId: UID, nomenclatureId: UID, qty: 1, issuedAt: 1_700_000_000_000, documentId: null, returnedAt: null, returnedBy: null, wearPercent: null },
+  },
+  // Возврат СИЗ (миграция 0126): отметка «получил обратно» + кто принял + износ.
+  {
+    table: SyncTableName.PpeIssueEntries,
+    map: toPpeIssueEntryInput,
+    row: { ...BASE, cardId: UID, nomenclatureId: UID, qty: 1, issuedAt: 1_700_000_000_000, documentId: UID, returnedAt: 1_700_000_500_000, returnedBy: 'kladovshchik', wearPercent: 40 },
   },
   {
     table: SyncTableName.PpeAbsences,

@@ -474,6 +474,11 @@ export const ppeIssueEntryRowSchema = z.object({
   qty: z.number().int(),
   issued_at: z.number().int(),
   document_id: z.string().uuid().nullable().optional(),
+  // Возврат СИЗ (миграция 0126): nullable/optional — строки, записанные до 0126,
+  // этих полей не несут, и роверная схема отвергла бы их как sync_invalid_row.
+  returned_at: z.number().int().nullable().optional(),
+  returned_by: z.string().nullable().optional(),
+  wear_percent: z.number().int().nullable().optional(),
 });
 
 // Кладовщик (СИЗ), фаза 2: повторяют ровно форму БД (миграция 0110).

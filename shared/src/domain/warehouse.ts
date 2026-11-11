@@ -129,6 +129,12 @@ export type NomenclatureItem = {
   specJson: string | null;
   /** Обобщённая позиция: id родителя без артикула (эта строка — его вариант). Один уровень. */
   parentNomenclatureId?: string | null;
+  /**
+   * Сертификат позиции (миграция 0127): «свой сертификат» (решение владельца 09.11).
+   * Идентификатор группы — вид СИЗ: общий для нескольких позиций и РАЗНЫЙ внутри
+   * одного набора норм. `null` — сертификат не задан.
+   */
+  certificate?: string | null;
   isActive: boolean;
   createdAt: number;
   updatedAt: number;

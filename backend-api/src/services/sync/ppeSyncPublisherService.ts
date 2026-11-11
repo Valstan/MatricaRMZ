@@ -246,6 +246,12 @@ export function toPpeIssueEntryInput(r: DbRow): SyncWriteInput {
     // document_id nullable с фазы 2 (доввод истории без документа): честный null,
     // а не мусорная строка "null" (zod-ряд контракта принимает null).
     document_id: r['documentId'] == null ? null : String(r['documentId']),
+    // Возврат СИЗ (миграция 0126): отметка «получил обратно», кто принял и
+    // процент износа. Поля перечислены вручную — забытое здесь поле молча
+    // теряется по дороге к парку (строка приедет без возврата).
+    returned_at: r['returnedAt'] == null ? null : Number(r['returnedAt']),
+    returned_by: r['returnedBy'] == null ? null : String(r['returnedBy']),
+    wear_percent: r['wearPercent'] == null ? null : Number(r['wearPercent']),
     created_at: Number(r['createdAt']),
     updated_at: Number(r['updatedAt']),
     deleted_at: r['deletedAt'] == null ? null : Number(r['deletedAt']),

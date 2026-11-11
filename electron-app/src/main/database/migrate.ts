@@ -520,6 +520,9 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
       qty integer NOT NULL,
       issued_at integer NOT NULL,
       document_id text,
+      returned_at integer,
+      returned_by text,
+      wear_percent integer,
       created_at integer NOT NULL,
       updated_at integer NOT NULL,
       last_server_seq integer,
@@ -921,6 +924,31 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     }
   }
 
+  // ppe_issue_entries: возврат СИЗ (миграция 0126) — «получил обратно», кто принял,
+  // процент износа. Три nullable-колонки ALTER'ом.
+  //
+  // Именно ПОСЛЕ пересборки выше: пересборка копирует состав старой таблицы
+  // (PRAGMA → INSERT ... SELECT по списку колонок), и колонки, добавленные до неё,
+  // в новую таблицу не попали бы — а INSERT по отсутствующей колонке уронил бы всю
+  // транзакцию. Сначала пересборка (старый состав), потом добавление новых колонок.
+  //
+  // Почему не через drizzle-цепочку: ALTER TABLE ADD COLUMN в SQLite не имеет
+  // IF NOT EXISTS, а долгоживущие БД уже могли получить эти колонки из другой ветки
+  // (alignSchemaWithServer / clientSchemaMigrations) — неэкранированный ALTER упал бы
+  // с «duplicate column name» и откатил транзакцию миграции. Здесь — PRAGMA-проверка.
+  if (hasTable('ppe_issue_entries')) {
+    const cols = columnNames('ppe_issue_entries');
+    if (!cols.has('returned_at')) {
+      sqlite.exec(`ALTER TABLE ppe_issue_entries ADD COLUMN returned_at integer;`);
+    }
+    if (!cols.has('returned_by')) {
+      sqlite.exec(`ALTER TABLE ppe_issue_entries ADD COLUMN returned_by text;`);
+    }
+    if (!cols.has('wear_percent')) {
+      sqlite.exec(`ALTER TABLE ppe_issue_entries ADD COLUMN wear_percent integer;`);
+    }
+  }
+
   // Сотрудники СИЗ (0111/PR-6): erp_employee_cards вошла в sync-контракт зеркалом
   // (server-write / pull-only). Таблица приходит из drizzle 0006, а sync-хвоста в ней
   // нет ни у свежих БД, ни у долгоживущих — доводим здесь (не drizzle-миграцией: ALTER
@@ -1091,6 +1119,10 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     // parent_nomenclature_id — обобщённая позиция (шаг 12→13); здесь дубль для баз, минующих цепочку.
     if (!cols.has('parent_nomenclature_id')) {
       sqlite.exec(`ALTER TABLE erp_nomenclature ADD COLUMN parent_nomenclature_id text;`);
+    }
+    // certificate — сертификат позиции (миграция сервера 0127): «свой сертификат», вид СИЗ.
+    if (!cols.has('certificate')) {
+      sqlite.exec(`ALTER TABLE erp_nomenclature ADD COLUMN certificate text;`);
     }
     sqlite.exec(
       `CREATE INDEX IF NOT EXISTS erp_nomenclature_directory_kind_idx ON erp_nomenclature(directory_kind);`,

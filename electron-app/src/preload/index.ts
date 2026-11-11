@@ -687,6 +687,12 @@ const matricaApi = {
       issue: async (args: { cardId: string; warehouseId: string; docNo?: string; lines: Array<{ nomenclatureId: string; qty: number }> }) =>
         ipcRenderer.invoke('ppe:cards:issue', args),
     },
+    // Возврат СИЗ (миграция 0126): «получил обратно» по строке выдачи.
+    issueEntries: {
+      markReturned: async (args: { entryId: string; returnedAt?: number | null; wearPercent?: number | null }) =>
+        ipcRenderer.invoke('ppe:issueEntries:markReturned', args),
+      undoReturn: async (args: { entryId: string }) => ipcRenderer.invoke('ppe:issueEntries:undoReturn', args),
+    },
     absences: {
       list: async (args?: { employeeId?: string }) => ipcRenderer.invoke('ppe:absences:list', args),
       create: async (args: { employeeId: string; fromMs: number; toMs: number; kind?: string }) => ipcRenderer.invoke('ppe:absences:create', args),

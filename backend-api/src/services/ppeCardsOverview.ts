@@ -116,6 +116,11 @@ function statusOf(items: PpeNextIssue[]): {
   if (items.every((i) => i.status === 'neverIssued')) {
     return { status: 'neverIssued', nextDueAt, overdueCount, dueSoonCount };
   }
+  // Всё сдано: вещи у сотрудника нет, срок носки не тикает. Показывать «в сроке»
+  // здесь — враньё (срок не идёт, потому что носить нечего), поэтому отдельный статус.
+  if (items.every((i) => i.status === 'returned')) {
+    return { status: 'returned', nextDueAt, overdueCount, dueSoonCount };
+  }
   return { status: 'ok', nextDueAt, overdueCount, dueSoonCount };
 }
 

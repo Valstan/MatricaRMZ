@@ -42,7 +42,17 @@ type CardDto = {
   openedAt: number;
   closedAt: number | null;
   norms: Array<{ normSetId: string; name: string; assignedAt: number }>;
-  entries: Array<{ id: string; nomenclatureId: string; qty: number; issuedAt: number; documentId: string | null }>;
+  entries: Array<{
+    id: string;
+    nomenclatureId: string;
+    qty: number;
+    issuedAt: number;
+    documentId: string | null;
+    /** Возврат СИЗ (миграция 0126): дата «получил обратно», кто принял, износ. */
+    returnedAt: number | null;
+    returnedBy: string | null;
+    wearPercent: number | null;
+  }>;
 };
 
 type NormOption = { id: string; name: string; postTitle: string | null };
@@ -96,6 +106,8 @@ type PpeCardNormRow = {
   qtyText: string;
   /** Срок носки — отдельной величиной, с указанием, чей это выбор. */
   wearText: string;
+  /** Сертификат позиции (миграция 0127): вид СИЗ. */
+  certificate: string | null;
 };
 
 /**
@@ -176,6 +188,9 @@ const STATUS_RU: Record<PpeNextIssue['status'], string> = {
   dueSoon: 'скоро выдавать',
   ok: 'в сроке',
   neverIssued: 'не выдавалось',
+  // Возврат (миграция 0126): вещь сдали — срок от выдачи больше не значит, но норма
+  // остаётся (после новой выдачи срок считается заново).
+  returned: 'сдано',
 };
 
 /**
@@ -202,6 +217,8 @@ export function PpeCardDetailsPage(props: {
   const [absenceFrom, setAbsenceFrom] = useState('');
   const [absenceTo, setAbsenceTo] = useState('');
   const [nomNames, setNomNames] = useState<Map<string, string>>(new Map());
+  /** Сертификат позиции (вид СИЗ) по id номенклатуры — из списка номенклатуры. */
+  const [nomCertificates, setNomCertificates] = useState<Map<string, string>>(new Map());
   const [personnelByEmployee, setPersonnelByEmployee] = useState<Map<string, string>>(new Map());
   // Размеры по табельному номеру: карточка СИЗ знает строгого сотрудника (id из
   // erp_employee_cards), а размеры живут в EAV-карточке employee — общий ключ один.
@@ -293,6 +310,13 @@ export function PpeCardDetailsPage(props: {
       if (noms?.ok) {
         const rows = (noms.rows ?? []) as any[];
         setNomNames(new Map(rows.map((r) => [String(r.id), String(r.name ?? '')])));
+        setNomCertificates(
+          new Map(
+            rows
+              .filter((r) => String(r.certificate ?? '').trim())
+              .map((r) => [String(r.id), String(r.certificate).trim()]),
+          ),
+        );
       }
     })();
   }, [loadEmployees]);
@@ -687,6 +711,52 @@ export function PpeCardDetailsPage(props: {
   const employeeLabel = empName(employeeId) || 'Сотрудник';
 
   /**
+   * Отметка «получил обратно» (миграция 0126).
+   *
+   * Правило владельца (09.11.2026): отработал меньше года → спецодежда подлежит
+   * возврату; уволился → сдал. Кладовщик отмечает, кладовщик же и снимает отметку.
+   * Возврат не отменяет выдачу и не трогает норму: после новой выдачи срок носки
+   * считается заново от новой даты.
+   */
+  async function markReturned(entryId: string) {
+    if (!card) return;
+    setBusy(true);
+    try {
+      const res = await window.matrica.ppe.issueEntries.markReturned({ entryId });
+      if (!res.ok) {
+        setStatus(`Ошибка: ${res.error}`);
+        return;
+      }
+      setStatus('Отмечено: вещь получена обратно');
+      await loadCard(card.id);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function undoReturn(entryId: string) {
+    if (!card) return;
+    const ok = await confirm({
+      title: 'Снять отметку о возврате?',
+      detail: 'Позиция снова числится выданной: срок носки продолжит идти от даты выдачи.',
+      confirmLabel: 'Снять отметку',
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const res = await window.matrica.ppe.issueEntries.undoReturn({ entryId });
+      if (!res.ok) {
+        setStatus(`Ошибка: ${res.error}`);
+        return;
+      }
+      setStatus('Отметка о возврате снята');
+      await loadCard(card.id);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
    * Печатная форма личной карточки по форме приложения №3 приказа Минтруда 767н.
    *
    * Отдельная от рабочей карточки выдачи: в форме приказа нет истории выдач и сроков —
@@ -738,24 +808,29 @@ export function PpeCardDetailsPage(props: {
     const normRows = personalCardRows
       .map(
         (r, i) =>
-          `<tr><td style="text-align:right;">${i + 1}</td><td>${e(r.name)}</td><td>${val(r.sourceLabel)}</td><td>${val(r.unit)}</td><td style="text-align:right;">${e(r.qtyText)}</td></tr>`,
+          `<tr><td style="text-align:right;">${i + 1}</td><td>${e(r.name)}</td><td>${val(r.sourceLabel)}</td><td>${val(r.unit)}</td><td style="text-align:right;">${e(r.qtyText)}</td><td>${val(r.certificate)}</td></tr>`,
       )
       .join('');
+    // Сертификат — дополнительная колонка к форме приложения №3: в приказной форме её
+    // нет, но решение владельца от 09.11 требует, чтобы «свой сертификат» был виден
+    // на бланке выдачи.
     const normsHtml = normRows
-      ? `<table><thead><tr><th>№</th><th style="text-align:left;">Наименование средств индивидуальной защиты</th><th style="text-align:left;">Пункт типовых отраслевых норм</th><th style="text-align:left;">Единица измерения</th><th style="text-align:right;">Количество на год</th></tr></thead><tbody>${normRows}</tbody></table>`
+      ? `<table><thead><tr><th>№</th><th style="text-align:left;">Наименование средств индивидуальной защиты</th><th style="text-align:left;">Пункт типовых отраслевых норм</th><th style="text-align:left;">Единица измерения</th><th style="text-align:right;">Количество на год</th><th style="text-align:left;">Сертификат</th></tr></thead><tbody>${normRows}</tbody></table>`
       : '<div class="muted">Нормы не назначены.</div>';
 
     // История выдач — по умолчанию выключена (в форме приказа её нет).
+    // Дата возврата («получил обратно», миграция 0126) — в этой же строке: решение
+    // владельца от 09.11 — дата возврата живёт в бланке выдачи и в ведомости.
     const historyRows = (card?.entries ?? [])
       .slice()
       .sort((a, b) => b.issuedAt - a.issuedAt)
       .map(
         (row, i) =>
-          `<tr><td style="text-align:right;">${i + 1}</td><td>${e(fmtDate(row.issuedAt))}</td><td>${e(nomName(row.nomenclatureId))}</td><td style="text-align:right;">${row.qty}</td></tr>`,
+          `<tr><td style="text-align:right;">${i + 1}</td><td>${e(fmtDate(row.issuedAt))}</td><td>${e(nomName(row.nomenclatureId))}</td><td style="text-align:right;">${row.qty}</td><td>${e(fmtDate(row.returnedAt ?? null))}</td><td style="text-align:right;">${row.wearPercent == null ? '—' : e(row.wearPercent)}</td></tr>`,
       )
       .join('');
     const historyHtml = historyRows
-      ? `<table><thead><tr><th>№</th><th style="text-align:left;">Дата</th><th style="text-align:left;">Позиция</th><th style="text-align:right;">Кол-во</th></tr></thead><tbody>${historyRows}</tbody></table>`
+      ? `<table><thead><tr><th>№</th><th style="text-align:left;">Дата</th><th style="text-align:left;">Позиция</th><th style="text-align:right;">Кол-во</th><th style="text-align:left;">Дата возврата</th><th style="text-align:right;">Износ, %</th></tr></thead><tbody>${historyRows}</tbody></table>`
       : '<div class="muted">Выдач пока не было.</div>';
 
     const sign = `<div style="margin-top:18px;">
@@ -843,11 +918,11 @@ export function PpeCardDetailsPage(props: {
     const dueRows = upcoming
       .map(
         (u, i) =>
-          `<tr><td>${i + 1}</td><td>${e(nomName(u.nomenclatureId))}</td><td style="text-align:right;">${u.qty}</td><td>${e(fmtDate(u.lastIssuedAt))}</td><td>${e(fmtDate(u.nextDueAt))}</td><td>${e(STATUS_RU[u.status])}</td></tr>`,
+          `<tr><td>${i + 1}</td><td>${e(nomName(u.nomenclatureId))}</td><td>${e(nomCertificates.get(u.nomenclatureId) ?? '—')}</td><td style="text-align:right;">${u.qty}</td><td>${e(fmtDate(u.lastIssuedAt))}</td><td>${e(fmtDate(u.nextDueAt))}</td><td>${e(STATUS_RU[u.status])}</td></tr>`,
       )
       .join('');
     const dueHtml = dueRows
-      ? `<table><thead><tr><th>№</th><th>Позиция</th><th>Кол-во</th><th>Последняя выдача</th><th>Следующая</th><th>Состояние</th></tr></thead><tbody>${dueRows}</tbody></table>`
+      ? `<table><thead><tr><th>№</th><th>Позиция</th><th>Сертификат</th><th>Кол-во</th><th>Последняя выдача</th><th>Следующая</th><th>Состояние</th></tr></thead><tbody>${dueRows}</tbody></table>`
       : '<div class="muted">Нет назначенных норм — сроки считать не из чего.</div>';
 
     const absenceHtml = absences.length
@@ -858,9 +933,9 @@ export function PpeCardDetailsPage(props: {
       : '<div class="muted">Отпусков нет.</div>';
 
     const historyHtml = card && card.entries.length
-      ? `<table><thead><tr><th>№</th><th>Дата</th><th>Позиция</th><th>Кол-во</th></tr></thead><tbody>${[...card.entries]
+      ? `<table><thead><tr><th>№</th><th>Дата</th><th>Позиция</th><th>Кол-во</th><th>Дата возврата</th><th>Износ, %</th></tr></thead><tbody>${[...card.entries]
           .sort((a, b) => b.issuedAt - a.issuedAt)
-          .map((row, i) => `<tr><td>${i + 1}</td><td>${e(fmtDate(row.issuedAt))}</td><td>${e(nomName(row.nomenclatureId))}</td><td style="text-align:right;">${row.qty}</td></tr>`)
+          .map((row, i) => `<tr><td>${i + 1}</td><td>${e(fmtDate(row.issuedAt))}</td><td>${e(nomName(row.nomenclatureId))}</td><td style="text-align:right;">${row.qty}</td><td>${e(fmtDate(row.returnedAt ?? null))}</td><td style="text-align:right;">${row.wearPercent == null ? '—' : e(row.wearPercent)}</td></tr>`)
           .join('')}</tbody></table>`
       : '<div class="muted">Выдач пока не было.</div>';
 
@@ -1316,6 +1391,9 @@ export function PpeCardDetailsPage(props: {
                       <th>Дата</th>
                       <th>Позиция</th>
                       <th style={{ textAlign: 'right' }}>Кол-во</th>
+                      <th>Дата возврата</th>
+                      <th style={{ textAlign: 'right' }}>Износ, %</th>
+                      <th />
                     </tr>
                   </thead>
                   <tbody>
@@ -1325,6 +1403,21 @@ export function PpeCardDetailsPage(props: {
                         <td>{fmtDate(e.issuedAt)}</td>
                         <td>{nomName(e.nomenclatureId)}</td>
                         <td style={{ textAlign: 'right' }}>{e.qty}</td>
+                        <td>{fmtDate(e.returnedAt ?? null)}</td>
+                        <td style={{ textAlign: 'right' }}>{e.wearPercent ?? '—'}</td>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          {props.canEdit ? (
+                            e.returnedAt == null ? (
+                              <Button variant="ghost" onClick={() => void markReturned(e.id)} disabled={busy}>
+                                Получил обратно
+                              </Button>
+                            ) : (
+                              <Button variant="ghost" onClick={() => void undoReturn(e.id)} disabled={busy}>
+                                Снять отметку
+                              </Button>
+                            )
+                          ) : null}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

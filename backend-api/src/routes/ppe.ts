@@ -24,11 +24,13 @@ import {
   listPpeCollectives,
   listPpeGroups,
   listPpeNormSets,
+  markPpeIssueReturned,
   openCollective,
   openPpeCard,
   resolveEmployeeNormSetIds,
   setPpeGroupMembers,
   setPpeGroupNorms,
+  undoPpeIssueReturn,
   upsertPpeNormSet,
 } from '../services/ppeService.js';
 import { applyPpeImportPreview, previewPpeImport } from '../services/ppeImportService.js';
@@ -273,6 +275,47 @@ ppeRouter.post('/cards/:id/issue', requirePermission(PermissionCode.ErpDocuments
       }),
   );
 });
+
+// Возврат СИЗ (миграция 0126): кладовщик отмечает «получил обратно» по строке выдачи.
+// Гейт — erp.dictionary.edit (действие по карточке СИЗ), а не erp.documents.post:
+// возврата вещи НЕТ складского документа — это учётный след, движение по фонду деталей
+// не трогается.
+ppeRouter.post(
+  '/issue-entries/:id/return',
+  requirePermission(PermissionCode.ErpDictionaryEdit),
+  async (req, res) => {
+    const id = String(req.params.id ?? '').trim();
+    const parsed = z
+      .object({
+        returnedAt: z.coerce.number().int().positive().nullable().optional(),
+        wearPercent: z.coerce.number().int().min(0).max(100).nullable().optional(),
+      })
+      .safeParse(req.body ?? {});
+    if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+    const result = await markPpeIssueReturned({
+      entryId: id,
+      ...(parsed.data.returnedAt !== undefined ? { returnedAt: parsed.data.returnedAt } : {}),
+      ...(parsed.data.wearPercent !== undefined ? { wearPercent: parsed.data.wearPercent } : {}),
+      actor: actorOf(req),
+    });
+    if (!result.ok) return res.status(400).json(result);
+    return res.json(result);
+  },
+);
+
+// Снятие отметки о возврате (кладовщик ошибся). Отметки нет — успех.
+ppeRouter.post(
+  '/issue-entries/:id/return/undo',
+  requirePermission(PermissionCode.ErpDictionaryEdit),
+  async (req, res) => {
+    const id = String(req.params.id ?? '').trim();
+    if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+    const result = await undoPpeIssueReturn({ entryId: id });
+    if (!result.ok) return res.status(400).json(result);
+    return res.json(result);
+  },
+);
 
 // ────────────────────────────────────────────────────────────
 // Фаза 2: отпуска, группы, транзитивные нормы, импорт Excel/1С.

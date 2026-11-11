@@ -2586,6 +2586,8 @@ export type MatricaApi = {
                 /** Наименование и код позиции с сервера: реплика номенклатуры на клиенте может отставать. */
                 nomenclatureName: string | null;
                 nomenclatureCode: string | null;
+                /** Сертификат позиции (миграция 0127): вид СИЗ. Пересекается между наборами, внутри набора — разный. */
+                certificate: string | null;
                 qty: number;
                 /** Срок носки; `null` — срока нет (годовая норма без срока, «до износа»). */
                 wearMonths: number | null;
@@ -2647,7 +2649,7 @@ export type MatricaApi = {
               issueCount: number;
               lastIssuedAt: number | null;
               nextDueAt: number | null;
-              status: 'overdue' | 'dueSoon' | 'ok' | 'neverIssued' | 'noNorms';
+              status: 'overdue' | 'dueSoon' | 'ok' | 'neverIssued' | 'returned' | 'noNorms';
               overdueCount: number;
               dueSoonCount: number;
               fillPercent: number;
@@ -2664,7 +2666,19 @@ export type MatricaApi = {
               openedAt: number;
               closedAt: number | null;
               norms: Array<{ normSetId: string; name: string; assignedAt: number }>;
-              entries: Array<{ id: string; nomenclatureId: string; qty: number; issuedAt: number; documentId: string }>;
+              entries: Array<{
+                id: string;
+                nomenclatureId: string;
+                qty: number;
+                issuedAt: number;
+                documentId: string;
+                /** Возврат СИЗ (миграция 0126): дата «получил обратно» — `null`, пока не сдали. */
+                returnedAt: number | null;
+                /** Кто принял (логин). */
+                returnedBy: string | null;
+                /** Процент износа, вносит кладовщик. */
+                wearPercent: number | null;
+              }>;
             };
           }
         | { ok: false; error: string }
@@ -2678,7 +2692,16 @@ export type MatricaApi = {
               openedAt: number;
               closedAt: number | null;
               norms: Array<{ normSetId: string; name: string; assignedAt: number }>;
-              entries: Array<{ id: string; nomenclatureId: string; qty: number; issuedAt: number; documentId: string }>;
+              entries: Array<{
+                id: string;
+                nomenclatureId: string;
+                qty: number;
+                issuedAt: number;
+                documentId: string;
+                returnedAt: number | null;
+                returnedBy: string | null;
+                wearPercent: number | null;
+              }>;
             };
           }
         | { ok: false; error: string }
@@ -2687,6 +2710,20 @@ export type MatricaApi = {
       close: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
       issue: (args: { cardId: string; warehouseId: string; docNo?: string; lines: Array<{ nomenclatureId: string; qty: number }> }) => Promise<
         { ok: true; documentId: string; entries: number } | { ok: false; error: string }
+      >;
+    };
+    /**
+     * Возврат СИЗ (миграция 0126): кладовщик отмечает «получил обратно» по строке
+     * выдачи — отработал меньше года или уволился. Возврат НЕ отменяет выдачу и не
+     * трогает норму: после новой выдачи срок носки считается заново от новой даты.
+     */
+    issueEntries: {
+      markReturned: (args: { entryId: string; returnedAt?: number | null; wearPercent?: number | null }) => Promise<
+        { ok: true; entryId: string; returnedAt: number | null; wearPercent: number | null } | { ok: false; error: string }
+      >;
+      /** Снятие отметки о возврате (кладовщик ошибся). Отметки нет — успех. */
+      undoReturn: (args: { entryId: string }) => Promise<
+        { ok: true; entryId: string; returnedAt: number | null; wearPercent: number | null } | { ok: false; error: string }
       >;
     };
     /** Отпуска сотрудника (фаза 2): источник сдвига сроков носки. */
@@ -2841,6 +2878,8 @@ export type MatricaApi = {
             qtyText: string;
             /** Срок носки — отдельной величиной, с указанием, чей это выбор. */
             wearText: string;
+            /** Сертификат позиции (миграция 0127): вид СИЗ. */
+            certificate: string | null;
           }>;
         }
       | { ok: false; error: string }
@@ -3466,6 +3505,8 @@ export type MatricaApi = {
       componentTypeId?: string | null;
       /** Обобщённая позиция (migration 0096): id родителя; null — снять; не передавать — не трогать. */
       parentNomenclatureId?: string | null;
+      /** Сертификат позиции (migration 0127): «свой сертификат» — вид СИЗ. */
+      certificate?: string | null;
       isActive?: boolean;
     }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     nomenclatureDelete: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;

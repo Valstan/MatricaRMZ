@@ -24,6 +24,7 @@ import type { PpeWearKind } from '@matricarmz/shared';
 import { db, pool } from '../database/db.js';
 import {
   erpEmployeeCards,
+  erpNomenclature,
   ppeEmployeeCards,
   ppeNormLineSpecs,
   ppeNormLines,
@@ -591,6 +592,8 @@ export type PpeCardNormRow = {
   qtyText: string;
   /** Срок носки — отдельной величиной, с указанием, чей это выбор. */
   wearText: string;
+  /** Сертификат позиции (миграция 0127): вид СИЗ. `null` — не задан. */
+  certificate: string | null;
 };
 
 export async function listCardNormRows(normSetIds: string[]): Promise<PpeCardNormRow[]> {
@@ -619,6 +622,21 @@ export async function listCardNormRows(normSetIds: string[]): Promise<PpeCardNor
     .where(and(isNull(ppeNormSets.deletedAt), inArray(ppeNormSets.id, setIds as never[])));
   for (const s of setRows) sets.set(String(s.id), s);
 
+  // Сертификат позиции (миграция 0127) — по номенклатуре строки нормы: в приказной
+  // форме его нет, а бланк выдачи и ведомость его показывают.
+  const nomIds = [...new Set(lines.map((l) => String(l.nomenclatureId)))];
+  const certByNom = new Map<string, string>();
+  if (nomIds.length > 0) {
+    const nomRows = await db
+      .select({ id: erpNomenclature.id, certificate: erpNomenclature.certificate })
+      .from(erpNomenclature)
+      .where(and(isNull(erpNomenclature.deletedAt), inArray(erpNomenclature.id, nomIds as never[])));
+    for (const n of nomRows) {
+      const cert = n.certificate == null ? '' : String(n.certificate).trim();
+      if (cert) certByNom.set(String(n.id), cert);
+    }
+  }
+
   const out: PpeCardNormRow[] = [];
   for (const line of lines) {
     const spec = line.specId ? specs.get(String(line.specId)) : undefined;
@@ -638,6 +656,7 @@ export async function listCardNormRows(normSetIds: string[]): Promise<PpeCardNor
       wearMonths,
       qtyText: formatQty(qty, unit, wearKind, wearMonths),
       wearText: wearPeriodText(wearKind as PpeWearKind | null, wearMonths),
+      certificate: certByNom.get(String(line.nomenclatureId)) ?? null,
     });
   }
   return out;

@@ -241,6 +241,8 @@ const ERP_NOMENCLATURE_FIELDS: readonly FieldMapping[] = [
   { db: 'defaultBrandId', dto: 'default_brand_id' },
   { db: 'isSerialTracked', dto: 'is_serial_tracked' },
   { db: 'defaultWarehouseId', dto: 'default_warehouse_id' },
+  // Сертификат позиции (миграция 0127): «свой сертификат» — вид СИЗ.
+  { db: 'certificate', dto: 'certificate' },
   { db: 'specJson', dto: 'spec_json' },
   { db: 'isActive', dto: 'is_active' },
   { db: 'syncStatus', dto: 'sync_status' },
@@ -634,6 +636,10 @@ const PPE_ISSUE_ENTRY_FIELDS = withBase(
   { db: 'qty', dto: 'qty' },
   { db: 'issuedAt', dto: 'issued_at' },
   { db: 'documentId', dto: 'document_id' },
+  // Возврат СИЗ (миграция 0126): «получил обратно» + кто принял + процент износа.
+  { db: 'returnedAt', dto: 'returned_at' },
+  { db: 'returnedBy', dto: 'returned_by' },
+  { db: 'wearPercent', dto: 'wear_percent' },
 );
 
 // Кладовщик (СИЗ), фаза 2.

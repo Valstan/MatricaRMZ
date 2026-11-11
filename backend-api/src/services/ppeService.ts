@@ -168,6 +168,8 @@ export async function getPpeNormSet(id: string): Promise<
         /** Наименование и код позиции берём с сервера: реплика номенклатуры на клиенте может отставать. */
         nomenclatureName: string | null;
         nomenclatureCode: string | null;
+        /** Сертификат позиции (миграция 0127): вид СИЗ. */
+        certificate: string | null;
         qty: number;
         /** Срок носки; `null` — срока нет (годовая норма без срока, «до износа»). */
         wearMonths: number | null;
@@ -193,7 +195,14 @@ export async function getPpeNormSet(id: string): Promise<
     const nomIds = [...new Set(lines.map((l) => String(l.nomenclatureId)).filter(Boolean))];
     const noms = nomIds.length
       ? await db
-          .select({ id: erpNomenclature.id, name: erpNomenclature.name, code: erpNomenclature.code })
+          .select({
+            id: erpNomenclature.id,
+            name: erpNomenclature.name,
+            code: erpNomenclature.code,
+            // Сертификат позиции (миграция 0127): «свой сертификат» едет вместе
+            // с позицией в набор норм, карточку и печать.
+            certificate: erpNomenclature.certificate,
+          })
           .from(erpNomenclature)
           .where(and(inArray(erpNomenclature.id, nomIds as any), isNull(erpNomenclature.deletedAt)))
       : [];
@@ -239,6 +248,9 @@ export async function getPpeNormSet(id: string): Promise<
             nomenclatureId: String(l.nomenclatureId),
             nomenclatureName: nom ? String(nom.name) : null,
             nomenclatureCode: nom ? String(nom.code) : null,
+            // Сертификат позиции: вид СИЗ. Пересекается между наборами, внутри
+            // набора — разный (гейт в upsertPpeNormSet).
+            certificate: nom ? (nom.certificate == null ? null : String(nom.certificate)) : null,
             qty: Number(l.qty),
             // `Number(null)` дал бы 0 — позиция с сроком «0 месяцев» выглядела бы
             // просроченной сразу после выдачи. Срока нет — значит null.
@@ -280,6 +292,37 @@ export async function upsertPpeNormSet(input: PpeNormSetUpsert): Promise<Result<
     }
     const refError = await validateNomenclatureIds(input.lines.map((l) => l.nomenclatureId));
     if (refError) return { ok: false, error: refError };
+
+    // Гейт «свой сертификат» (решение владельца 09.11.2026): сертификат — идентификатор
+    // группы (вид СИЗ), он общий для нескольких позиций, но ВНУТРИ одного набора норм
+    // повторяться не должен: «у каждой позиции набора норм свой сертификат». Пересечение
+    // между разными наборами — законно (вся спецодежда завода может идти под одним).
+    // Проверка — по сертификату позиции номенклатуры: он и есть атрибут позиции.
+    const certByNom = new Map<string, string>();
+    for (const line of input.lines) {
+      const nomId = String(line.nomenclatureId);
+      const rows = await db
+        .select({ certificate: erpNomenclature.certificate })
+        .from(erpNomenclature)
+        .where(and(eq(erpNomenclature.id, nomId as any), isNull(erpNomenclature.deletedAt)))
+        .limit(1);
+      const cert = String(rows[0]?.certificate ?? '').trim();
+      if (!cert) continue;
+      const seen = certByNom.get(cert);
+      if (seen && seen !== nomId) {
+        const names = await db
+          .select({ name: erpNomenclature.name })
+          .from(erpNomenclature)
+          .where(inArray(erpNomenclature.id, [seen, nomId] as any));
+        const label = names.map((n) => String(n.name)).filter(Boolean).join(' и ');
+        return {
+          ok: false,
+          error: `Сертификат «${cert}» уже стоит у другой позиции набора (${label}). Внутри одного набора норм сертификаты разные — пересекаться они могут между наборами.`,
+        };
+      }
+      certByNom.set(cert, nomId);
+    }
+
     const now = Date.now();
     await db.transaction(async (tx) => {
       const existing = await tx.select({ id: ppeNormSets.id }).from(ppeNormSets).where(eq(ppeNormSets.id, id as any)).limit(1);
@@ -438,7 +481,16 @@ export async function getPpeCard(args: { cardId?: string; employeeId?: string })
       openedAt: number;
       closedAt: number | null;
       norms: Array<{ normSetId: string; name: string; assignedAt: number }>;
-      entries: Array<{ id: string; nomenclatureId: string; qty: number; issuedAt: number; documentId: string | null }>;
+      entries: Array<{
+        id: string;
+        nomenclatureId: string;
+        qty: number;
+        issuedAt: number;
+        documentId: string | null;
+        returnedAt: number | null;
+        returnedBy: string | null;
+        wearPercent: number | null;
+      }>;
     };
   }>
 > {
@@ -480,6 +532,10 @@ export async function getPpeCard(args: { cardId?: string; employeeId?: string })
           // document_id nullable с фазы 2 (доввод истории без документа): String(null)
           // дал бы мусорную строку "null" — отдаём честный null.
           documentId: v.documentId == null ? null : String(v.documentId),
+          // Возврат СИЗ (миграция 0126): дата «получил обратно», кто принял, износ.
+          returnedAt: v.returnedAt == null ? null : Number(v.returnedAt),
+          returnedBy: v.returnedBy == null ? null : String(v.returnedBy),
+          wearPercent: v.wearPercent == null ? null : Number(v.wearPercent),
         })),
       },
     };
@@ -573,6 +629,93 @@ export async function issuePpe(args: {
       return { ok: false, error: `Документ ${docNo} проведён, но след выдачи не записан (documentId ${created.id}): ${String(e)}` };
     }
     return { ok: true, documentId: created.id, entries: args.lines.length };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/**
+ * Отметка «получил обратно» по строке выдачи (миграция 0126).
+ *
+ * Правило владельца (09.11.2026): отработал меньше года → спецодежда подлежит
+ * возврату; уволился → сдал; кладовщик ставит отметку. Это состояние существующей
+ * строки выдачи, а не новая таблица: возврат относится к конкретной выданной вещи.
+ *
+ * Идемпотентно: повторная отметка той же датой — успех, а не «уже отмечено» (клиент
+ * повторяет запрос при неуверенной сети — тихий отказ там хуже успеха).
+ * Возврат НЕ отменяет выдачу и не трогает норму: после новой выдачи срок носки
+ * считается заново от новой даты (новая строка выдачи — новый отсчёт).
+ */
+export async function markPpeIssueReturned(args: {
+  entryId: string;
+  returnedAt?: number | null;
+  wearPercent?: number | null;
+  actor: Actor;
+}): Promise<Result<{ entryId: string; returnedAt: number | null; wearPercent: number | null }>> {
+  try {
+    const entryId = String(args.entryId ?? '').trim();
+    if (!entryId) return { ok: false, error: 'entryId обязателен' };
+    const rows = await db
+      .select({
+        id: ppeIssueEntries.id,
+        returnedAt: ppeIssueEntries.returnedAt,
+        wearPercent: ppeIssueEntries.wearPercent,
+      })
+      .from(ppeIssueEntries)
+      .where(and(eq(ppeIssueEntries.id, entryId as any), isNull(ppeIssueEntries.deletedAt)))
+      .limit(1);
+    if (!rows[0]) return { ok: false, error: 'Строка выдачи не найдена' };
+
+    const returnedAt = args.returnedAt == null ? Date.now() : Number(args.returnedAt);
+    if (!Number.isFinite(returnedAt) || returnedAt <= 0) {
+      return { ok: false, error: 'Дата возврата не задана' };
+    }
+    const wearPercent = args.wearPercent == null ? null : Number(args.wearPercent);
+    if (wearPercent != null && (!Number.isInteger(wearPercent) || wearPercent < 0 || wearPercent > 100)) {
+      return { ok: false, error: 'Процент износа — целое от 0 до 100' };
+    }
+
+    await db
+      .update(ppeIssueEntries)
+      .set({
+        returnedAt,
+        // Логин принявшего — по правилу AGENTS.md клиент показывает логин + ФИО.
+        returnedBy: String(args.actor?.username ?? '').trim() || null,
+        wearPercent,
+        updatedAt: Date.now(),
+        // Возврат — правка серверной строки: публикатор зеркала сам проштампует seq.
+        syncStatus: 'pending',
+      })
+      .where(eq(ppeIssueEntries.id, entryId as any));
+
+    return { ok: true, entryId, returnedAt, wearPercent };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/**
+ * Снятие отметки о возврате (кладовщик ошибся). Отметки нет — успех: снять нечего.
+ */
+export async function undoPpeIssueReturn(args: { entryId: string }): Promise<
+  Result<{ entryId: string; returnedAt: number | null; wearPercent: number | null }>
+> {
+  try {
+    const entryId = String(args.entryId ?? '').trim();
+    if (!entryId) return { ok: false, error: 'entryId обязателен' };
+    const rows = await db
+      .select({ id: ppeIssueEntries.id })
+      .from(ppeIssueEntries)
+      .where(and(eq(ppeIssueEntries.id, entryId as any), isNull(ppeIssueEntries.deletedAt)))
+      .limit(1);
+    if (!rows[0]) return { ok: false, error: 'Строка выдачи не найдена' };
+
+    await db
+      .update(ppeIssueEntries)
+      .set({ returnedAt: null, returnedBy: null, wearPercent: null, updatedAt: Date.now(), syncStatus: 'pending' })
+      .where(eq(ppeIssueEntries.id, entryId as any));
+
+    return { ok: true, entryId, returnedAt: null, wearPercent: null };
   } catch (e) {
     return { ok: false, error: String(e) };
   }

@@ -90,8 +90,10 @@ const STATUS_RANK: Record<Row['status'], number> = {
   overdue: 0,
   dueSoon: 1,
   neverIssued: 2,
-  noNorms: 3,
-  ok: 4,
+  // Возврат (миграция 0126): сданная вещь — не просрочка, но и не «в сроке».
+  returned: 3,
+  noNorms: 4,
+  ok: 5,
 };
 
 function fmtDate(ms: number | null): string {

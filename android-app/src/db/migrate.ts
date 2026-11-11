@@ -489,6 +489,9 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
       qty integer NOT NULL,
       issued_at integer NOT NULL,
       document_id text,
+      returned_at integer,
+      returned_by text,
+      wear_percent integer,
       created_at integer NOT NULL,
       updated_at integer NOT NULL,
       last_server_seq integer,
@@ -795,6 +798,23 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     }
   }
 
+  // ppe_issue_entries: возврат СИЗ (миграция 0126) — «получил обратно», кто принял,
+  // процент износа. Зеркало electron-app/src/main/database/migrate.ts: те же три
+  // nullable-колонки ALTER'ом, ПОСЛЕ пересборки выше (пересборка копирует состав
+  // старой таблицы, и колонка, добавленная до неё, в новую таблицу не попала бы).
+  if (await hasTable(sqlite, 'ppe_issue_entries')) {
+    const entryCols = await columnNames('ppe_issue_entries');
+    if (!entryCols.has('returned_at')) {
+      await sqlite.exec(`ALTER TABLE ppe_issue_entries ADD COLUMN returned_at integer;`);
+    }
+    if (!entryCols.has('returned_by')) {
+      await sqlite.exec(`ALTER TABLE ppe_issue_entries ADD COLUMN returned_by text;`);
+    }
+    if (!entryCols.has('wear_percent')) {
+      await sqlite.exec(`ALTER TABLE ppe_issue_entries ADD COLUMN wear_percent integer;`);
+    }
+  }
+
   // Сотрудники СИЗ (0111/PR-6): erp_employee_cards вошла в sync-контракт зеркалом
   // (server-write / pull-only). Таблица приходит из drizzle-цепочки, а sync-хвоста в ней
   // нет — доводим здесь (зеркало десктопа; парити свежей схемы держит drizzleChain.test).
@@ -916,6 +936,10 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     // parent_nomenclature_id — обобщённая позиция (шаг 12→13); здесь дубль для баз, минующих цепочку.
     if (!cols.has('parent_nomenclature_id')) {
       await sqlite.exec(`ALTER TABLE erp_nomenclature ADD COLUMN parent_nomenclature_id text;`);
+    }
+    // certificate — сертификат позиции (миграция сервера 0127): «свой сертификат», вид СИЗ.
+    if (!cols.has('certificate')) {
+      await sqlite.exec(`ALTER TABLE erp_nomenclature ADD COLUMN certificate text;`);
     }
     await sqlite.exec(
       `CREATE INDEX IF NOT EXISTS erp_nomenclature_directory_kind_idx ON erp_nomenclature(directory_kind);`,

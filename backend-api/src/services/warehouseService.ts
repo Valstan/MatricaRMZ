@@ -1556,6 +1556,11 @@ export async function upsertWarehouseNomenclature(args: {
   componentTypeId?: string | null;
   /** Обобщённая позиция (migration 0096): id родителя без артикула; null — снять. undefined — не трогать. */
   parentNomenclatureId?: string | null;
+  /**
+   * Сертификат позиции (миграция 0127): «свой сертификат» (решение владельца 09.11).
+   * Идентификатор группы — вид СИЗ. undefined — не трогать, null — снять.
+   */
+  certificate?: string | null;
   isActive?: boolean;
 }): Promise<Result<{ id: string }> | DirectoryPartDuplicateRejection> {
   try {
@@ -1815,6 +1820,11 @@ export async function upsertWarehouseNomenclature(args: {
           }
         : {}),
       ...(args.parentNomenclatureId !== undefined ? { parentNomenclatureId: parentIdOrNull } : {}),
+      // Сертификат (миграция 0127) — так же, как componentTypeId: только когда поле
+      // явно передали, чтобы частичное обновление не затирало существующее значение.
+      ...(args.certificate !== undefined
+        ? { certificate: args.certificate == null ? null : String(args.certificate).trim() || null }
+        : {}),
       isActive: args.isActive ?? true,
     };
     // Тот же гейт дублей, что и на создании детали: имя и артикул детали оператор правит
