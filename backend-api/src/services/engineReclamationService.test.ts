@@ -87,16 +87,30 @@ describe('resolveReclamationRowId — какую строку очереди п�
  * только что записал. Пустая очередь чистится только по явному подтверждению.
  */
 describe('mayDropReclamationRow — когда очередь можно очистить', () => {
-  it('непустой запрос — строки сняты осознанно, чистим', () => {
-    expect(mayDropReclamationRow({ preparedCount: 2, clear: false })).toBe(true);
-    expect(mayDropReclamationRow({ preparedCount: 1, clear: false })).toBe(true);
+  it('непустой запрос — строки сняты осознанно, чистим те, что клиент видел', () => {
+    expect(
+      mayDropReclamationRow({ preparedCount: 2, clear: false, knownIds: new Set([OWN_1]), rowId: OWN_1 }),
+    ).toBe(true);
+    // Строку, которой клиент НЕ видел, сносить нельзя: её мог добавить другой оператор.
+    expect(
+      mayDropReclamationRow({ preparedCount: 2, clear: false, knownIds: new Set([OWN_1]), rowId: OWN_2 }),
+    ).toBe(false);
   });
 
   it('пустой запрос без подтверждения — НЕ сносим рекламацию', () => {
-    expect(mayDropReclamationRow({ preparedCount: 0, clear: false })).toBe(false);
+    expect(mayDropReclamationRow({ preparedCount: 0, clear: false, knownIds: new Set([OWN_1]), rowId: OWN_1 })).toBe(
+      false,
+    );
   });
 
-  it('пустой запрос с подтверждением очистки — сносим', () => {
-    expect(mayDropReclamationRow({ preparedCount: 0, clear: true })).toBe(true);
+  it('пустой запрос с подтверждением очистки — сносим то, что клиент видел', () => {
+    expect(mayDropReclamationRow({ preparedCount: 0, clear: true, knownIds: new Set([OWN_1]), rowId: OWN_1 })).toBe(
+      true,
+    );
+  });
+
+  it('клиент без известных строк (старая версия) не сносит ничего', () => {
+    expect(mayDropReclamationRow({ preparedCount: 0, clear: false, knownIds: new Set(), rowId: OWN_1 })).toBe(false);
+    expect(mayDropReclamationRow({ preparedCount: 1, clear: false, knownIds: new Set(), rowId: OWN_1 })).toBe(false);
   });
 });
