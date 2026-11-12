@@ -819,19 +819,21 @@ export function NomenclatureDirectoryPage(props: {
           ) : null}
         </div>
       ) : null}
-      <ListCount total={rows.length} shown={sortedRows.length} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'nowrap' }}>
+        <ListCount total={rows.length} shown={sortedRows.length} />
 
-      {/* Ряд плашек видимости колонок — между панелью фильтров и шапкой списка
-          (владелец 12.11.2026): белая плашка — колонка не включена, тёмно-серая — включена
-          (видна в списке и идёт на печать). Кнопки «Колонки списка» в тулбаре больше нет. */}
-      <ListColumnChips
-        columns={columnDescriptors}
-        order={columnLayout.order}
-        isVisible={columnLayout.isVisible}
-        onToggleVisible={columnLayout.setVisible}
-        onMoveTo={columnLayout.moveColumnTo}
-        onReset={columnLayout.resetToDefault}
-      />
+        {/* Ряд плашек видимости колонок — между панелью фильтров и шапкой списка
+            (владелец 12.11.2026): белая плашка — колонка не включена, тёмно-серая — включена
+            (видна в списке и идёт на печать). Кнопки «Колонки списка» в тулбаре больше нет. */}
+        <ListColumnChips
+          columns={columnDescriptors}
+          order={columnLayout.order}
+          isVisible={columnLayout.isVisible}
+          onToggleVisible={columnLayout.setVisible}
+          onMoveTo={columnLayout.moveColumnTo}
+          onReset={columnLayout.resetToDefault}
+        />
+      </div>
       <div ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         {twoCol ? (
           <TwoColumnList items={sortedRows} enabled renderColumn={(items, _c, _n, startIndex) => renderTable(items, startIndex)} />

@@ -195,6 +195,19 @@ async function main() {
   const ws = await connect(list[0].webSocketDebuggerUrl);
   await send(ws, 'Runtime.enable');
 
+  console.log('== подготовка ==');
+  // Оверлей МЕНЮ перекрывает всю рабочую область (он модальный) — пока он открыт, под ним
+  // не кликнуть ни по одной плашке. Закрываем его, как делает смоук панели фильтров.
+  const overlayClosed = await evaluate(
+    ws,
+    `if (!document.querySelector('.v3-menu-overlay-backdrop')) return 'оверлея не было';
+     const ev = (type, key, code) => document.dispatchEvent(new KeyboardEvent(type, { key, code, keyCode: code, bubbles: true }));
+     ev('keydown', 'Escape', 27); ev('keyup', 'Escape', 27);
+     await wait(700);
+     return document.querySelector('.v3-menu-overlay-backdrop') ? 'не закрылся' : 'закрыт';`,
+  );
+  note(true, `оверлей МЕНЮ: ${overlayClosed}`);
+
   console.log('== логин ==');
   note(true, `экран входа: ${await login(ws)}`);
 
@@ -243,6 +256,26 @@ async function main() {
   note((row.outOfWindow ?? []).length === 0, 'ни одна плашка не уехала за край окна', { outOfWindow: row.outOfWindow });
   note((row.notClickable ?? []).length === 0, 'каждая плашка кликабельна мышкой', { notClickable: row.notClickable });
   await shot(ws, '1-row');
+
+  // ── 2b. Плашки стоят в одной строке со статистикой, справа от неё ───────────────────
+  // Владелец 12.11.2026: «помести эти плашки на строку "Всего/Показано" справа от
+  // статистики — там много пустого места».
+  const place = await evaluate(
+    ws,
+    `const count = document.querySelector('[data-list-count]');
+     const chips = document.querySelector('[data-list-column-chips]');
+     if (!count || !chips) return { missing: true };
+     const cr = count.getBoundingClientRect();
+     const hr = chips.getBoundingClientRect();
+     return {
+       countTop: Math.round(cr.top), countRight: Math.round(cr.right),
+       chipsTop: Math.round(hr.top), chipsBottom: Math.round(hr.bottom),
+       sameLine: cr.top < hr.bottom && cr.bottom > hr.top,
+       onRight: hr.left >= cr.right - 1,
+     };`,
+  );
+  note(!place.missing && place.sameLine === true, 'плашки — в одной строке со статистикой «Всего/Показано»', place);
+  note(!place.missing && place.onRight === true, 'плашки — справа от статистики', place);
 
   // ── 4. Цвета: включённая — тёмно-серая, выключенная — белая ────────────────────────
   const colors = await evaluate(
@@ -321,6 +354,105 @@ async function main() {
     );
     note(back.state === 'on', 'повторный щелчок возвращает колонку', { ...back, id: target.id });
     note(back.ths === target.thsBefore, 'шапка списка снова полная', { before: target.thsBefore, after: back.ths });
+  }
+
+  // ── 6. Печать: вопрос оператору, когда колонки в списке и в шаблоне печати разошлись ──
+  // Владелец 12.11.2026: «надо тут вопрос задавать оператору о том, что просмотр и шаблон
+  // печати расходятся в наличии столбцов, и предлагать включить или отключить их, показать
+  // разницу». Делаем набор печати отличным от видимого: оставляем ОДНУ скрытую колонку —
+  // тогда есть и «недостающие», и «лишние», и обе кнопки вопроса.
+  const printPrep = await evaluate(
+    ws,
+    `localStorage.setItem('list:engines:printFields', JSON.stringify(['repairStartedDate']));
+     await wait(200);
+     return true;`,
+  );
+  note(printPrep === true, 'набор печати сделан не таким, как на экране', printPrep);
+
+  const opened = await evaluate(
+    ws,
+    `const b = [...document.querySelectorAll('button')].filter(visible).find((x) => txt(x).includes('Печать списка'));
+     if (!b) return { found: false };
+     click(b); await wait(1500);
+     return { found: true };`,
+  );
+  if (!opened.found) {
+    note(false, 'диалог печати: кнопка «Печать списка» не найдена');
+  } else {
+    const notice = await evaluate(
+      ws,
+      `const n = document.querySelector('[data-print-column-mismatch]');
+       return {
+         has: !!n,
+         text: n ? txt(n).slice(0, 300) : null,
+         add: !!document.querySelector('[data-print-column-mismatch-add]'),
+         drop: !!document.querySelector('[data-print-column-mismatch-drop]'),
+       };`,
+    );
+    note(notice.has === true, 'в диалоге печати — вопрос о расхождении колонок', notice);
+    note(
+      notice.add === true && notice.drop === true,
+      'в вопросе есть обе кнопки: включить недостающие и отключить лишние',
+      notice,
+    );
+    await shot(ws, '4-print-mismatch');
+
+    // Закрываем диалог БЕЗ применения — страница перерисуется, и кнопка выгрузки пересчитает
+    // пометку о расхождении.
+    await evaluate(
+      ws,
+      `const b = [...document.querySelectorAll('button')].filter(visible).find((x) => txt(x) === 'Закрыть' || txt(x) === 'Отмена');
+       if (b) click(b);
+       await wait(900);
+       const btn = document.querySelector('[data-list-export="xlsx"]');
+       return { exportState: btn ? btn.getAttribute('data-list-export-columns') : null };`,
+    );
+    const marked = await evaluate(
+      ws,
+      `const btn = document.querySelector('[data-list-export="xlsx"]');
+       return { exportState: btn ? btn.getAttribute('data-list-export-columns') : null, title: btn ? btn.getAttribute('title') : null };`,
+    );
+    note(marked.exportState === 'mismatch', 'кнопка выгрузки помечена: наборы разошлись', marked);
+
+    // Возвращаемся в диалог и выравниваем набор: сначала недостающие, потом лишние.
+    const reopened = await evaluate(
+      ws,
+      `const b = [...document.querySelectorAll('button')].filter(visible).find((x) => txt(x).includes('Печать списка'));
+       if (!b) return { found: false };
+       click(b); await wait(1200);
+       const add = document.querySelector('[data-print-column-mismatch-add]');
+       if (!add) return { found: true, add: false };
+       click(add); await wait(900);
+       const afterAdd = {
+         noticeLeft: !!document.querySelector('[data-print-column-mismatch]'),
+         addLeft: !!document.querySelector('[data-print-column-mismatch-add]'),
+         dropLeft: !!document.querySelector('[data-print-column-mismatch-drop]'),
+       };
+       const drop = document.querySelector('[data-print-column-mismatch-drop]');
+       if (drop) { click(drop); await wait(900); }
+       const stored = JSON.parse(localStorage.getItem('list:engines:printFields') || '[]');
+       return {
+         found: true, add: true, ...afterAdd,
+         noticeGone: !document.querySelector('[data-print-column-mismatch]'),
+         stored: stored.length,
+       };`,
+    );
+    note(
+      reopened.add === true && reopened.addLeft === false && reopened.dropLeft === true,
+      '«Включить недостающие» убирает недостающие, вопрос остаётся из-за лишних',
+      reopened,
+    );
+    note(reopened.noticeGone === true, 'после «Отключить лишние» вопрос снимается', reopened);
+    note(reopened.stored > 1, 'новый набор запомнился — печать и файл держат один список', reopened);
+
+    await evaluate(
+      ws,
+      `const b = [...document.querySelectorAll('button')].filter(visible).find((x) => txt(x) === 'Закрыть' || txt(x) === 'Отмена');
+       if (b) click(b);
+       await wait(600);
+       localStorage.removeItem('list:engines:printFields');
+       return true;`,
+    );
   }
 
   await shot(ws, '3-final');

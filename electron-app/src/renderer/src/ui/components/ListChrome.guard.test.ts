@@ -88,6 +88,20 @@ describe('выбор колонок', () => {
     }
   });
 
+  it('плашки стоят в одной строке со статистикой — справа от «Всего/Показано»', () => {
+    // Владелец 12.11.2026: «помести эти плашки на строку "Всего/Показано" справа от
+    // статистики — там много пустого места». Значит, плашки и счётчик — соседи в одном
+    // флекс-ряду: между ними не должно закрываться ни одного `</div>`.
+    for (const [name, page] of PAGES) {
+      const chipsAt = page.indexOf('<ListColumnChips');
+      expect(chipsAt, `${name}: ряд плашек не найден`).toBeGreaterThan(0);
+      const countAt = page.lastIndexOf('<ListCount', chipsAt);
+      expect(countAt, `${name}: счётчик «Всего/Показано» не найден рядом с плашками`).toBeGreaterThan(0);
+      const between = page.slice(countAt, chipsAt);
+      expect(between, `${name}: плашки уехали в отдельную строку от статистики`).not.toContain('</div>');
+    }
+  });
+
   it('включённая колонка уходит и в список, и в печать', () => {
     // Печать и выгрузка берут по умолчанию ровно те колонки, что видны на экране.
     expect(COLUMNS).toContain('onToggleVisible(column.id, !on)');
@@ -396,3 +410,36 @@ describe('выгрузка списка в Word и Excel', () => {
   });
 });
 
+const MISMATCH = src('../utils/printColumnMismatch.ts');
+
+// Печать и выгрузка помнят СВОЙ набор колонок, и он разъезжается с тем, что на экране
+// (владелец 12.11.2026): «надо тут вопрос задавать оператору о том, что просмотр и шаблон
+// печати расходятся в наличии столбцов, и предлагать включить или отключить их, показать
+// разницу». Молчаливый файл читают как «вот что в списке» — и это ловушка.
+describe('печать спрашивает оператора, когда колонки разошлись', () => {
+  it('разница считается отдельным модулем (у него есть свои тесты)', () => {
+    expect(MISMATCH).toContain('export function printColumnMismatch');
+    expect(MISMATCH).toContain('export function printColumnIdsWithMissing');
+    expect(MISMATCH).toContain('export function printColumnIdsWithoutExtra');
+  });
+
+  it('в диалоге печати — вопрос с разницей и двумя кнопками', () => {
+    expect(PRINT_DIALOG).toContain('data-print-column-mismatch');
+    expect(PRINT_DIALOG).toContain('Включить недостающие');
+    expect(PRINT_DIALOG).toContain('Отключить лишние');
+    expect(PRINT_DIALOG, 'разница показывается словами').toContain('В списке, но не в печати');
+    expect(PRINT_DIALOG, 'разница показывается словами').toContain('В печати, но не в списке');
+  });
+
+  it('в выгрузке в файл — тот же вопрос, и кнопки помечены', () => {
+    expect(EXPORT_BUTTONS).toContain('data-list-export-column-question');
+    expect(EXPORT_BUTTONS).toContain('data-list-export-column-add');
+    expect(EXPORT_BUTTONS).toContain('data-list-export-column-drop');
+    expect(EXPORT_BUTTONS).toContain("data-list-export-columns={mismatchVisible ? 'mismatch' : 'same'}");
+  });
+
+  it('выравнивание набора запоминается: печать и файл держат один и тот же список', () => {
+    expect(PRINT_DIALOG).toContain('persistPrintColumnIds(props.storageKey, next)');
+    expect(EXPORT_BUTTONS).toContain('persistPrintColumnIds(props.storageKey, next)');
+  });
+});
