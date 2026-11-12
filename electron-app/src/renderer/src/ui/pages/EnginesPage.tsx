@@ -29,7 +29,7 @@ import {
 } from '@matricarmz/shared';
 import type { EngineFacetId, EngineFacetSelection, EngineListItem, GroupLevel } from '@matricarmz/shared';
 
-import { EngineFacetFilter, EngineFacetToggleButton } from '../components/EngineFacetFilter.js';
+import { EngineFacetFilter } from '../components/EngineFacetFilter.js';
 import { EngineQrScanButton } from '../components/EngineQrScanButton.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { Button } from '../components/Button.js';
@@ -177,8 +177,6 @@ export type EnginesPageUiState = {
   /** Ступенчатый фильтр: какие столбцы участвуют и что в них выбрано (пусто = все). */
   facetFields?: EngineFacetId[];
   facets?: EngineFacetSelection;
-  /** Раскрыта ли панель фильтров (по умолчанию свёрнута — тулбар должен быть коротким). */
-  facetsOpen?: boolean;
   /** Поиск показывает и похожее (опечатки, часть слова, раскладка). По умолчанию — только точное. */
   searchSimilar?: boolean;
   /** Группировка списка (B6): те же разрезы, что в отчёте «Сейчас на заводе». */
@@ -438,7 +436,6 @@ export function EnginesPage(props: {
     // Ступень с выбранными значениями показываем всегда: иначе отбор идёт, а чем — не видно.
     return Array.from(new Set([...known, ...active]));
   }, [listState.facetFields, facets]);
-  const facetsOpen = listState.facetsOpen === true;
 
   // «Текущее состояние» гасит «Дату этапа» (владелец 14.10.2026): текущее место двигателя
   // и период — разные вопросы. Ступень периода прячется из ряда кнопок и чистится из отбора.
@@ -1153,9 +1150,6 @@ export function EnginesPage(props: {
           <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar, page: 0 })} />
         </ToolbarPin>
         <ToolbarPin>
-          <EngineFacetToggleButton selection={facets} open={facetsOpen} onToggle={() => patchState({ facetsOpen: !facetsOpen })} types={sheetTypes} stageTemplates={stageTemplates} />
-        </ToolbarPin>
-        <ToolbarPin>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
             <select value={groupBy} onChange={(e) => patchState({ groupBy: e.target.value as EngineListGroupBy, page: 0 })} title="Группировать" data-engines-group-by>
               {(Object.keys(ENGINE_LIST_GROUP_BY_LABELS) as EngineListGroupBy[]).map((k) => (
@@ -1224,7 +1218,6 @@ export function EnginesPage(props: {
           engines={facetRows}
           selection={facets}
           fields={visibleFacetFields}
-          open={facetsOpen}
           usageKey="list:engines"
           types={sheetTypes}
           stageTemplates={stageTemplates}

@@ -226,24 +226,16 @@ async function main() {
 
   // --- [2] фильтры под одной кнопкой ----------------------------------------
   await ensureHelpers(cdp);
-  console.log('\n[2] Фильтры под одной кнопкой');
-  // Состояние панели роумится вместе со списком, поэтому «по умолчанию свёрнута» проверяем
-  // не по началу прогона (второй прогон застанет её открытой — и это правильно), а по тому,
-  // что кнопка действительно переключает панель в обе стороны.
+  console.log('\n[2] Фильтры всегда на виду');
+  // Кнопки «Фильтры» больше нет (владелец 12.11.2026): панель стоит под тулбаром всегда,
+  // сворачивать её нечем — и проверять «переключение в обе стороны» больше нечего.
   const toggleExists = await cdp.evalAsync("Boolean(document.querySelector('[data-facet-toggle]'))");
-  check('кнопка «Фильтры» есть в тулбаре', toggleExists === true);
+  check('кнопки «Фильтры» в тулбаре нет', toggleExists === false);
 
-  await cdp.evalRaw("(() => { if (document.querySelector('[data-facet-field]')) document.querySelector('[data-facet-toggle]').click(); return true; })()");
-  await sleep(600);
-  const collapsed = await cdp.evalAsync("document.querySelectorAll('[data-facet-field]').length");
-  check('свёрнутая панель не показывает ступени', Number(collapsed) === 0, `ступеней видно: ${collapsed}`);
-
-  await cdp.evalAsync("window.__mv.click(document.querySelector('[data-facet-toggle]'))");
-  await sleep(600);
   const fields = await cdp.evalAsync(
     "[...document.querySelectorAll('[data-facet-field]')].map(b => b.getAttribute('data-facet-field'))",
   );
-  check('панель раскрылась', Array.isArray(fields) && fields.length > 0, `ступеней: ${fields?.length}`);
+  check('панель фильтров на виду', Array.isArray(fields) && fields.length > 0, `ступеней: ${fields?.length}`);
   for (const id of ['defectAct', 'status', 'workshop', 'arrivalDate', 'defectDate', 'shippingDate']) {
     check(`ступень «${id}» на месте`, Array.isArray(fields) && fields.includes(id), JSON.stringify(fields));
   }
@@ -272,8 +264,10 @@ async function main() {
     Number(afterPick) > 0 && Number(afterPick) < Number(beforePick),
     `было ${beforePick} → стало ${afterPick}`,
   );
-  const toggleCount = await cdp.evalAsync("window.__mv.txt(document.querySelector('[data-facet-toggle]'))");
-  check('кнопка показывает число активных ступеней', String(toggleCount).includes('(1)'), String(toggleCount));
+  // Счётчик активных ступеней теперь на кнопке «Сбросить фильтры» — кнопки «Фильтры»
+  // в тулбаре больше нет.
+  const toggleCount = await cdp.evalAsync("window.__mv.txt(document.querySelector('[data-facet-reset]'))");
+  check('счётчик активных ступеней виден', String(toggleCount).includes('(1)'), String(toggleCount));
 
   // --- [4] диапазон дат -------------------------------------------------------
   await ensureHelpers(cdp);
@@ -282,10 +276,7 @@ async function main() {
   // и в прошлый прогон попадал не туда, выключая соседнюю ступень.
   await cdp.evalAsync("window.__mv.click(document.querySelector('[data-facet-reset]'))");
   await sleep(800);
-  // Раскрытие тоже идемпотентно: панель уже открыта, и лишний клик её свернул бы.
-  await cdp.evalRaw(
-    "(() => { if (!document.querySelector('[data-facet-field]')) { const t = document.querySelector('[data-facet-toggle]'); if (t) t.click(); } return true; })()",
-  );
+  // Панель всегда на виду (владелец 12.11.2026) — раскрывать её нечем.
   await sleep(500);
   // Ступень включаем идемпотентно: клик — тумблер, а повторный выключил бы её обратно.
   await cdp.evalRaw("(() => { if (!document.querySelector('[data-facet-date=\"arrivalDate:from\"]')) { const b = document.querySelector('[data-facet-field=\"arrivalDate\"]'); if (b) b.click(); } return true; })()");

@@ -44,7 +44,7 @@ import {
   parseContractSections,
 } from '@matricarmz/shared';
 
-import { FacetFilter, FacetToggleButton } from '../components/FacetFilter.js';
+import { FacetFilter } from '../components/FacetFilter.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney } from '../utils/dateUtils.js';
 import {
@@ -120,8 +120,6 @@ type ContractsListUiState = {
   /** Ступенчатый фильтр: какие столбцы участвуют и что в них выбрано (пусто = все). */
   facetFields?: string[];
   facets?: ContractFacetSelection;
-  /** Раскрыта ли панель фильтров (по умолчанию свёрнута — тулбар должен быть коротким). */
-  facetsOpen?: boolean;
   /** Поиск показывает и похожее. По умолчанию — только точное совпадение. */
   searchSimilar?: boolean;
 };
@@ -538,7 +536,6 @@ export function ContractsPage(props: {
     // Ступень с выбранными значениями показываем всегда: иначе отбор идёт, а чем — не видно.
     return Array.from(new Set([...known, ...active]));
   }, [listState.facetFields, facets]);
-  const facetsOpen = listState.facetsOpen === true;
   const searchSimilar = listState.searchSimilar === true;
 
   const filtered = useMemo(() => applyContractFacets(searched, facets), [searched, facets]);
@@ -1041,14 +1038,6 @@ export function ContractsPage(props: {
         <ToolbarPin>
           <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar })} />
         </ToolbarPin>
-        <ToolbarPin>
-          <FacetToggleButton<Row>
-            facets={CONTRACT_FACETS as readonly FacetDescriptor<Row>[]}
-            selection={facets as FacetSelection}
-            open={facetsOpen}
-            onToggle={() => patchState({ facetsOpen: !facetsOpen })}
-          />
-        </ToolbarPin>
         <ColumnSettingsButton
           label="Колонки списка"
           columns={columnDescriptors}
@@ -1108,7 +1097,6 @@ export function ContractsPage(props: {
           rows={searched}
           selection={facets as FacetSelection}
           fields={facetFields}
-          open={facetsOpen}
           usageKey="list:contracts"
           onChangeSelection={(next) => patchState({ facets: next as ContractFacetSelection })}
           onChangeFields={(next) => patchState({ facetFields: next })}

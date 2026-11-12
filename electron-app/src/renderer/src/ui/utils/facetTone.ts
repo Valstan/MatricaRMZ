@@ -23,8 +23,6 @@ export type FacetTone = {
   accent: string;
   /** Заливка открытой кнопки ступени. */
   tint: string;
-  /** Подложка панели со значениями ступени. */
-  panel: string;
 };
 
 function slotOf(id: string): number {
@@ -38,7 +36,6 @@ function toneOfHue(hue: number): FacetTone {
     hue,
     accent: `hsl(${hue} 65% 45%)`,
     tint: `hsl(${hue} 70% 50% / 0.18)`,
-    panel: `hsl(${hue} 70% 50% / 0.08)`,
   };
 }
 

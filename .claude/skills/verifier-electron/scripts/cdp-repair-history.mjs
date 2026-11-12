@@ -272,9 +272,7 @@ async function main() {
   await cdp.evalRaw("(() => { const tab = [...document.querySelectorAll('.v3-tab-label, .v3-tab button, .v3-tab')].find(e => (e.textContent||'').trim() === 'Двигатели'); if (tab) tab.click(); return true; })()");
   await sleep(2000);
   await ensureHelpers(cdp);
-  await cdp.evalRaw(
-    "(() => { if (!document.querySelector('[data-facet-field]')) { const t = document.querySelector('[data-facet-toggle]'); if (t) t.click(); } return true; })()",
-  );
+  // Кнопки «Фильтры» больше нет (владелец 12.11.2026): панель всегда на виду.
   await sleep(700);
   // Отбор от прошлых прогонов роумится вместе со списком: без сброса к нашему значению
   // добавились бы чужие, и «осталась одна строка» превратилось бы в «осталось три».

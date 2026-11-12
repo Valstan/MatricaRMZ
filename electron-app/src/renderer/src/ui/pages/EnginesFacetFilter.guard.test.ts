@@ -71,15 +71,17 @@ describe('ступенчатый фильтр доезжает до строк �
     expect(PAGE, 'мёртвый механизм видимости не должен остаться в коде').not.toContain('requireShowPreviews');
   });
 
-  it('кнопка «Фильтры» стоит в тулбаре сразу после поиска и «Похожих»', () => {
-    // Владелец 08.09.2026: свёрнутая панель не должна занимать полосу — кнопка живёт рядом
-    // с поиском, а панель разворачивается ниже.
-    const toolbar = PAGE.slice(PAGE.indexOf('<SearchModeToggle'), PAGE.indexOf('<SearchModeToggle') + 400);
-    expect(toolbar).toContain('<EngineFacetToggleButton');
-    expect(FILTER).toContain('export function FacetToggleButton');
+  it('кнопки «Фильтры» в тулбаре больше нет — панель стоит под тулбаром всегда', () => {
+    // Владелец 12.11.2026: «убери кнопку „Фильтры“ отовсюду, пусть панель фильтров будет всегда
+    // открыта и активна и видна под панелью управляющих кнопок карточки или списка».
+    expect(PAGE, 'кнопка «Фильтры» вернулась бы в тулбар').not.toContain('<EngineFacetToggleButton');
+    expect(PAGE).not.toContain('data-facet-toggle');
+    expect(FILTER, 'кнопка «Фильтры» вернулась бы в компонент').not.toContain('export function FacetToggleButton');
+    expect(WRAPPER, 'обёртка двигателей больше не держит кнопку').not.toContain('EngineFacetToggleButton');
+    // Панель при этом на месте — под тулбаром, как и просили.
+    expect(PAGE).toContain('<EngineFacetFilter');
     // Поиск и его спутники не уезжают в меню переполнения: без них список неуправляем.
     expect(PAGE).toContain('<ToolbarPin>');
-    expect(FILTER).toContain("{props.open ? '▾' : '▸'} Фильтры{activeCount > 0 ? ` (${activeCount})` : ''}");
   });
 
   it('ряд кнопок — одна строка, лишнее уезжает в меню справа', () => {
@@ -117,11 +119,12 @@ describe('ступенчатый фильтр доезжает до строк �
     expect(reset, 'выход из фильтра ищут в начале панели, а не в её хвосте').toBeLessThan(firstFacet);
   });
 
-  it('свёрнутая панель не занимает места, а отбор продолжает работать', () => {
-    expect(FILTER, 'свёрнутая панель обязана исчезать целиком').toContain('if (!props.open) return null;');
-    // Отбор живёт в `selection`, а не в раскрытости панели: сворачивание фильтры не снимает.
+  it('панель фильтров всегда на виду, а отбор продолжает работать', () => {
+    // Кнопки «Фильтры» больше нет — панель не сворачивается и не прячется.
+    expect(FILTER, 'панель снова может исчезнуть').not.toContain('if (!props.open) return null;');
+    expect(PAGE, 'у списка больше нет состояния раскрытости панели').not.toContain('facetsOpen');
+    // Отбор живёт в `selection`, а не в раскрытости панели.
     expect(PAGE).toContain('applyEngineFacets(facetRows, facets, sheetTypes, stageTemplates)');
-    expect(PAGE).toContain('open={facetsOpen}');
   });
 
   it('обёртка двигателей подставляет в общий фильтр именно свои ступени — со справочником видов работ', () => {

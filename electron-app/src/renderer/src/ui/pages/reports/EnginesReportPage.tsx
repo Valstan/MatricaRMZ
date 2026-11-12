@@ -28,7 +28,7 @@ import { Button } from '../../components/Button.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../../components/ColumnSettingsButton.js';
 import { ColumnToggleButton } from '../../components/ColumnToggleButton.js';
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../../components/ColumnResizeHandle.js';
-import { FacetFilter, FacetToggleButton } from '../../components/FacetFilter.js';
+import { FacetFilter } from '../../components/FacetFilter.js';
 import { Input } from '../../components/Input.js';
 import { ListCount } from '../../components/ListCount.js';
 import { ListExportButtons } from '../../components/ListExportButtons.js';
@@ -84,7 +84,6 @@ type ListUiState = {
   searchSimilar: boolean;
   facets: FacetSelection;
   facetFields: string[];
-  facetsOpen: boolean;
   sortKey: string;
   sortDir: 'asc' | 'desc';
   groupBy: GroupBy;
@@ -121,7 +120,6 @@ export function EnginesReportPage(props: ListReportPageProps) {
     searchSimilar: false,
     facets: {},
     facetFields: ['customer'],
-    facetsOpen: true,
     sortKey: 'engineNumber',
     sortDir: 'asc',
     groupBy: 'none',
@@ -328,9 +326,6 @@ export function EnginesReportPage(props: ListReportPageProps) {
         <ToolbarPin>
           <SearchModeToggle similar={ui.searchSimilar} onToggle={() => patchState({ searchSimilar: !ui.searchSimilar })} />
         </ToolbarPin>
-        <ToolbarPin>
-          <FacetToggleButton<Row> facets={facets} selection={activeFacets} open={ui.facetsOpen} onToggle={() => patchState({ facetsOpen: !ui.facetsOpen })} />
-        </ToolbarPin>
         <ColumnSettingsButton
           label="Колонки списка"
           columns={columns}
@@ -377,7 +372,6 @@ export function EnginesReportPage(props: ListReportPageProps) {
           rows={deep.filtered}
           selection={activeFacets}
           fields={visibleFacetFields}
-          open={ui.facetsOpen}
           usageKey="report:engines:ui"
           onChangeSelection={onChangeFacets}
           onChangeFields={(next) => patchState({ facetFields: next })}

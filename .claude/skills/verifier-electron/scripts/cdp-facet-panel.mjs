@@ -219,19 +219,15 @@ async function openSection(ws, group, item) {
   return 'через меню';
 }
 
-// Открыть панель фильтров, если она свёрнута, и привести её в чистое состояние: стенд живёт
-// между прогонами, а прошлый прогон оставляет отбор.
+// Привести панель фильтров в чистое состояние: стенд живёт между прогонами, а прошлый прогон
+// оставляет отбор. Кнопки «Фильтры» больше нет (владелец 12.11.2026) — панель всегда на виду,
+// поэтому проверяем именно это.
 async function openPanel(ws) {
   return evaluate(
     ws,
-    `let how = 'уже открыта';
-     if (vis('[data-facet-field]').length === 0) {
-       const tg = vis('[data-facet-toggle]')[0];
-       if (!tg) return 'кнопки «Фильтры» нет';
-       click(tg); await wait(900);
-       if (vis('[data-facet-field]').length === 0) return 'не открылась';
-       how = 'открыта';
-     }
+    `let how = 'панель на виду';
+     if (vis('[data-facet-field]').length === 0) return 'панель фильтров не отрисована';
+     if (vis('[data-facet-toggle]').length > 0) return 'кнопка «Фильтры» всё ещё в интерфейсе';
      const r = vis('[data-facet-reset]')[0];
      if (r && !r.disabled) { click(r); await wait(800); how += ', отбор сброшен'; }
      return how;`,
@@ -282,8 +278,20 @@ async function main() {
   console.log('== двигатели: панель фильтров ==');
   note(true, `раздел: ${await openSection(ws, 'Производство', 'Двигатели')}`);
   const opened = await openPanel(ws);
-  note(/открыта/.test(opened ?? ''), `панель фильтров: ${opened}`);
+  note(/панель на виду/.test(opened ?? ''), `панель фильтров: ${opened}`);
   await shot(ws, '1-cells');
+
+  // ── 0. Кнопки «Фильтры» в интерфейсе нет, панель на виду сразу ─────────────────────────
+  const chrome = await evaluate(
+    ws,
+    `return {
+       toggles: document.querySelectorAll('[data-facet-toggle]').length,
+       panels: document.querySelectorAll('[data-engine-facets]').length,
+       fields: vis('[data-facet-field]').length,
+     };`,
+  );
+  note(chrome.toggles === 0, 'кнопки «Фильтры» в интерфейсе нет нигде', chrome);
+  note(chrome.panels > 0 && chrome.fields > 0, 'панель фильтров на виду сразу, без нажатий', chrome);
 
   // ── 1. Ряд ячеек: все ступени на виду, спойлера нет ──────────────────────────────────
   const row = await evaluate(
@@ -381,6 +389,21 @@ async function main() {
     hovered != null && hovered.resetFirst === true && /Сбросить фильтр$/.test(hovered.resetText ?? ''),
     'первая строка меню — «Сбросить фильтр» (сброс этой ветки)',
     hovered ? { resetText: hovered.resetText } : null,
+  );
+  // Фон меню непрозрачный (владелец 12.11.2026): сквозь полупрозрачную выпадашку просвечивал
+  // список под ней. Проверяем альфу вычисленного фона: 1 = непрозрачно.
+  const menuBg = await evaluate(
+    ws,
+    `const m = vis('[data-facet-menu]')[0] ?? null;
+     if (!m) return null;
+     const cs = getComputedStyle(m);
+     const parse = (c) => { const m2 = /rgba?\\(([^)]+)\\)/.exec(c); if (!m2) return null; const p = m2[1].split(',').map((x) => Number(x.trim())); return p.length > 3 ? p[3] : 1; };
+     return { background: cs.backgroundColor, alpha: parse(cs.backgroundColor) };`,
+  );
+  note(
+    menuBg != null && menuBg.alpha === 1,
+    'фон выпадающего меню непрозрачный (сквозь него не видно список)',
+    menuBg,
   );
   await shot(ws, '2-hover-menu');
 
@@ -487,26 +510,35 @@ async function main() {
     note(width.chipCentered === true, 'плашка прижата к центру своей кнопки', width);
   }
 
-  // ── 6. На плашке открывается то же меню ступени (добрать значений) ──────────────────
-  const chipMenu = await evaluate(
+  // ── 6. На плашке по НАВЕДЕНИЮ открывается то же меню ступени (добрать значений) ────────
+  // Владелец 12.11.2026: «выпадашка работает хорошо, пусть так и будет» — по наведению она
+  // открывается как прежде. А вот ЩЕЛЧОК по плашке теперь снимает значение (шаг 8).
+  const chipBox = await evaluate(
     ws,
     `const c = [...document.querySelectorAll('[data-facet-chip]')].filter(painted)[0];
-     if (!c) return { skip: 'плашки нет' };
-     click(c); await wait(800);
-     const m = vis('[data-facet-menu]')[0] ?? null;
-     return {
-       facet: m ? m.getAttribute('data-facet-menu') : null,
-       chipFacet: (c.getAttribute('data-facet-chip') || '').split(':')[0],
-       values: m ? m.querySelectorAll('[data-facet-value]').length : 0,
-       resetFirst: m ? m.firstElementChild === m.querySelector('[data-facet-menu-reset]') : false,
-     };`,
+     if (!c) return null;
+     return { chipFacet: (c.getAttribute('data-facet-chip') || '').split(':')[0], box: cellBox(c) };`,
   );
-  note(
-    chipMenu.facet != null && chipMenu.facet === chipMenu.chipFacet,
-    'по клику на плашку открывается меню ЕЁ ступени',
-    chipMenu,
-  );
-  note(chipMenu.resetFirst === true, 'в меню плашки первая строка — тоже «Сбросить фильтр»', chipMenu);
+  if (!chipBox) {
+    note(false, 'по наведению на плашку открывается меню её ступени: плашки нет');
+  } else {
+    await hover(ws, chipBox.box);
+    const chipMenu = await evaluate(
+      ws,
+      `const m = vis('[data-facet-menu]')[0] ?? null;
+       return {
+         facet: m ? m.getAttribute('data-facet-menu') : null,
+         values: m ? m.querySelectorAll('[data-facet-value]').length : 0,
+         resetFirst: m ? m.firstElementChild === m.querySelector('[data-facet-menu-reset]') : false,
+       };`,
+    );
+    note(
+      chipMenu.facet != null && chipMenu.facet === chipBox.chipFacet,
+      'по наведению на плашку открывается меню ЕЁ ступени',
+      chipMenu,
+    );
+    note(chipMenu.resetFirst === true, 'в меню плашки первая строка — тоже «Сбросить фильтр»', chipMenu);
+  }
   await shot(ws, '4-chip-menu');
 
   // ── 7. Сброс ветки в меню снимает ТОЛЬКО эту ступень ────────────────────────────────
@@ -534,13 +566,60 @@ async function main() {
     );
   }
 
-  // ── 8. Уборка: снять отбор и свернуть панель, чтобы стенд не остался с чужим фильтром ─
+  // ── 8. Щелчок по плашке снимает значение — одним движением (владелец 12.11.2026) ─
+  // «Наводишь мышку, хочешь отключить данный фильтр, а он не отключается, а только выпадашка
+  // меню выпала и в ней можно только его выбрать и отключить — это лишнее движение».
+  // После сброса ветки (шаг 7) плашек не осталось — сначала выбираем значение заново.
+  const pickCell = await evaluate(
+    ws,
+    `const b = vis('[data-facet-field]').find(hoverable);
+     if (!b) return null;
+     return { facet: b.getAttribute('data-facet-field'), box: cellBox(b) };`,
+  );
+  if (!pickCell) {
+    note(false, 'щелчок по плашке снимает значение: нет ячейки ступени на виду');
+  } else {
+    await hover(ws, pickCell.box);
+    const repick = await evaluate(
+      ws,
+      `const m = vis('[data-facet-menu]')[0] ?? null;
+       if (!m) return { skip: 'меню не открылось' };
+       const vals = [...m.querySelectorAll('[data-facet-value]')];
+       if (vals.length === 0) return { skip: 'в меню нет вариантов' };
+       click(vals[0]); await wait(1200);
+       const chips = [...document.querySelectorAll('[data-facet-chip]')].filter(painted);
+       return { chip: chips.length ? chips[0].getAttribute('data-facet-chip') : null };`,
+    );
+    if (repick.skip || !repick.chip) {
+      note(false, `щелчок по плашке снимает значение: ${repick.skip ?? 'плашка не появилась'}`);
+    } else {
+      const beforeToggle = await evaluate(ws, 'return shown();');
+      await evaluate(
+        ws,
+        `const c = [...document.querySelectorAll('[data-facet-chip]')].filter(painted)[0];
+         if (c) { click(c); await wait(1200); }
+         return true;`,
+      );
+      const afterToggle = await evaluate(
+        ws,
+        `return {
+           chipsLeft: [...document.querySelectorAll('[data-facet-chip]')].filter((x) => x.getAttribute('data-facet-chip') === ${JSON.stringify(repick.chip)}).length,
+           shown: shown(),
+         };`,
+      );
+      note(
+        afterToggle.chipsLeft === 0,
+        'щелчок по плашке снимает значение из отбора (одно движение, без захода в меню)',
+        { chip: repick.chip, rowsBefore: beforeToggle, rowsAfter: afterToggle.shown },
+      );
+    }
+  }
+
+  // ── 9. Уборка: снять отбор, чтобы стенд не остался с чужим фильтром ─
   await evaluate(
     ws,
     `const r = vis('[data-facet-reset]')[0];
      if (r && !r.disabled) { click(r); await wait(800); }
-     const tg = vis('[data-facet-toggle]')[0];
-     if (tg) { click(tg); await wait(500); }
      return true;`,
   );
   await shot(ws, '5-cleanup');
