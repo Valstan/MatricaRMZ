@@ -1,7 +1,13 @@
 import React, { useEffect, useState } from 'react';
 
 import { Button } from './Button.js';
-import { resolvePrintColumnIds } from '../utils/listColumnSelection.js';
+import { persistPrintColumnIds, resolvePrintColumnIds } from '../utils/listColumnSelection.js';
+import {
+  hasPrintColumnMismatch,
+  printColumnIdsWithMissing,
+  printColumnIdsWithoutExtra,
+  printColumnMismatch,
+} from '../utils/printColumnMismatch.js';
 import { planListPrintLayout, printableHeightMm, type PrintColumnSpec, type PrintLayoutPlan, type PrintOrientationChoice } from '../utils/listPrintLayout.js';
 import { escapeHtml, formatMomentLabel, openPrintPreview, type PrintPreviewState } from '../utils/printPreview.js';
 
@@ -149,13 +155,28 @@ export function ListPrintDialog<T>(props: {
   const toggleColumn = (id: string) => {
     setColumnIds((prev) => {
       const next = prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id];
-      try {
-        window.localStorage.setItem(props.storageKey, JSON.stringify(next));
-      } catch {
-        // localStorage недоступен — просто не запоминаем выбор
-      }
+      persistPrintColumnIds(props.storageKey, next);
       return next;
     });
+  };
+
+  /**
+   * Расхождение между тем, что видно в списке, и тем, что пойдёт на печать (владелец
+   * 12.11.2026). Печать помнит свой набор колонок, и без вопроса оператор выводит файл,
+   * состав которого он уже не сверяет с экраном. Вопрос задаём прямо здесь: показываем
+   * разницу и предлагаем включить недостающие или отключить лишние.
+   */
+  const mismatch = printColumnMismatch({
+    columns: props.columns,
+    printColumnIds: columnIds,
+    visibleColumnIds: props.visibleColumnIds,
+  });
+  const mismatchVisible = hasPrintColumnMismatch(mismatch);
+
+  /** Заменить набор печати и запомнить его: печать и выгрузка держат один и тот же набор. */
+  const applyPrintColumnIds = (next: string[]) => {
+    persistPrintColumnIds(props.storageKey, next);
+    setColumnIds(next);
   };
 
   const emit = () => {
@@ -357,6 +378,58 @@ export function ListPrintDialog<T>(props: {
           <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
             По умолчанию — те же, что показаны в списке.
           </div>
+          {mismatchVisible ? (
+            <div
+              data-print-column-mismatch
+              style={{
+                marginBottom: 8,
+                padding: '6px 8px',
+                borderRadius: 6,
+                border: '1px solid rgba(217, 119, 6, 0.45)',
+                background: 'rgba(245, 158, 11, 0.12)',
+                fontSize: 12,
+                lineHeight: 1.5,
+              }}
+            >
+              <div style={{ fontWeight: 700 }}>
+                Колонки в списке и на печати расходятся — проверьте состав файла
+              </div>
+              {mismatch.missing.length > 0 ? (
+                <div>
+                  В списке, но не в печати: <b>{mismatch.missing.map((c) => c.label).join(', ')}</b>
+                </div>
+              ) : null}
+              {mismatch.extra.length > 0 ? (
+                <div>
+                  В печати, но не в списке: <b>{mismatch.extra.map((c) => c.label).join(', ')}</b>
+                </div>
+              ) : null}
+              <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                {mismatch.missing.length > 0 ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    data-print-column-mismatch-add
+                    onClick={() => applyPrintColumnIds(printColumnIdsWithMissing(columnIds, mismatch.missing))}
+                    title="Добавить в печать колонки, которые видны в списке"
+                  >
+                    Включить недостающие
+                  </Button>
+                ) : null}
+                {mismatch.extra.length > 0 ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    data-print-column-mismatch-drop
+                    onClick={() => applyPrintColumnIds(printColumnIdsWithoutExtra(columnIds, mismatch.extra))}
+                    title="Убрать из печати колонки, которых нет в списке"
+                  >
+                    Отключить лишние
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, maxHeight: 240, overflowY: 'auto' }}>
             {props.columns.map((c) => (
               <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>

@@ -529,19 +529,21 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
         <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger, #b91c1c)' : 'var(--muted)' }}>{status}</div>
       ) : null}
 
-      <ListCount total={rows.length} shown={sorted.length} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'nowrap' }}>
+        <ListCount total={rows.length} shown={sorted.length} />
 
-      {/* Ряд плашек видимости колонок — между панелью фильтров и шапкой списка
-          (владелец 12.11.2026): белая плашка — колонка не включена, тёмно-серая — включена
-          (видна в списке и идёт на печать). Кнопки «Колонки списка» в тулбаре больше нет. */}
-      <ListColumnChips
-        columns={columnDescriptors}
-        order={columnLayout.order}
-        isVisible={columnLayout.isVisible}
-        onToggleVisible={columnLayout.setVisible}
-        onMoveTo={columnLayout.moveColumnTo}
-        onReset={columnLayout.resetToDefault}
-      />
+        {/* Ряд плашек видимости колонок — между панелью фильтров и шапкой списка
+            (владелец 12.11.2026): белая плашка — колонка не включена, тёмно-серая — включена
+            (видна в списке и идёт на печать). Кнопки «Колонки списка» в тулбаре больше нет. */}
+        <ListColumnChips
+          columns={columnDescriptors}
+          order={columnLayout.order}
+          isVisible={columnLayout.isVisible}
+          onToggleVisible={columnLayout.setVisible}
+          onMoveTo={columnLayout.moveColumnTo}
+          onReset={columnLayout.resetToDefault}
+        />
+      </div>
       <div ref={containerRef} onScroll={onScroll} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         <VirtualTable
           scrollElementRef={containerRef}

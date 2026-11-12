@@ -33,3 +33,15 @@ export function resolvePrintColumnIds(config: {
   const fallback = visible.length > 0 ? visible : config.columns.slice(0, 5).map((c) => c.id);
   return loadStoredIds(config.storageKey, fallback, known);
 }
+
+/**
+ * Запомнить набор колонок печати (он же — набор выгрузки). Нужен, когда оператор прямо в
+ * диалоге печати выравнивает набор по списку: без записи на печать разошлась бы с файлом.
+ */
+export function persistPrintColumnIds(storageKey: string, ids: readonly string[]): void {
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify([...ids]));
+  } catch {
+    // localStorage недоступен — выбор просто не переживёт перезапуск.
+  }
+}

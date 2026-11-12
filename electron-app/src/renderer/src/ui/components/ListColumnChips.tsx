@@ -108,6 +108,11 @@ export function ListColumnChips(props: {
         overflowX: 'auto',
         overflowY: 'hidden',
         padding: '2px 0',
+        // Ряд стоит рядом со строкой статистики («Всего: N · Показано: M»), поэтому он должен
+        // ужиматься, а не распирать строку: без `minWidth: 0` флекс-элемент не сжимается
+        // меньше своего содержимого и уезжает за правый край окна.
+        flex: '1 1 auto',
+        minWidth: 0,
       }}
     >
       <span

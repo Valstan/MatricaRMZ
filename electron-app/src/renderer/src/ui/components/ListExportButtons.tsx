@@ -4,7 +4,13 @@ import { createPortal } from 'react-dom';
 import type { ListExportFormat } from '@matricarmz/shared';
 
 import { isAndroidPlatform } from '../platform.js';
-import { resolvePrintColumnIds } from '../utils/listColumnSelection.js';
+import { persistPrintColumnIds, resolvePrintColumnIds } from '../utils/listColumnSelection.js';
+import {
+  hasPrintColumnMismatch,
+  printColumnIdsWithMissing,
+  printColumnIdsWithoutExtra,
+  printColumnMismatch,
+} from '../utils/printColumnMismatch.js';
 import { planListPrintLayout } from '../utils/listPrintLayout.js';
 import { buildListExportSpec } from '../utils/listExportSpec.js';
 import { listToText } from '../utils/mailText.js';
@@ -51,6 +57,8 @@ export function ListExportButtons<T>(props: {
 }) {
   const [busy, setBusy] = useState<ListExportFormat | null>(null);
   const [pending, setPending] = useState<{ format: ListExportFormat; count: number } | null>(null);
+  /** Вопрос оператору: колонки в списке и в файле разошлись. */
+  const [columnQuestion, setColumnQuestion] = useState<{ format: ListExportFormat } | null>(null);
 
   // На планшете выгрузка в Word/Excel не поддерживается: кнопки, которые не могут работать,
   // хуже их отсутствия.
@@ -65,18 +73,36 @@ export function ListExportButtons<T>(props: {
   const scopeRows = props.selectedRows.length > 0 ? props.selectedRows : props.rows;
   const canExport = fields.length > 0 && scopeRows.length > 0 && busy === null;
 
+  /**
+   * Расхождение между экраном и файлом (владелец 12.11.2026): выгрузка берёт тот же набор
+   * колонок, что и печать, а он живёт своей жизнью. Без вопроса оператор выводит файл,
+   * состав которого уже не сверял с экраном.
+   */
+  const mismatch = printColumnMismatch({
+    columns: props.columns,
+    printColumnIds: columnIds,
+    visibleColumnIds: props.visibleColumnIds,
+  });
+  const mismatchVisible = hasPrintColumnMismatch(mismatch);
+  const mismatchHint = mismatchVisible
+    ? `Колонки в списке и в файле расходятся — проверьте состав перед выгрузкой. В списке, но не в файле: ${mismatch.missing
+        .map((c) => c.label)
+        .join(', ') || '—'}. В файле, но не в списке: ${mismatch.extra.map((c) => c.label).join(', ') || '—'}`
+    : 'Те же колонки, что показаны в списке';
+
   /** Один и тот же лист уходит и в файл, и в письмо: письмо не описывает список второй раз. */
-  const buildSpec = () => {
+  const buildSpec = (ids: string[]) => {
+    const specFields = props.columns.filter((c) => ids.includes(c.id));
     const sample = scopeRows.slice(0, LAYOUT_SAMPLE_ROWS);
     const plan = planListPrintLayout({
-      columns: fields.map((field) => ({
+      columns: specFields.map((field) => ({
         label: field.label,
         valueChars: sample.reduce((max, row) => Math.max(max, field.printValue(row).length), 0),
       })),
     });
     return buildListExportSpec({
       title: props.title,
-      fields,
+      fields: specFields,
       rows: scopeRows,
       filters: props.filtersSummary ?? [],
       columnWidthsMm: plan.widthsMm,
@@ -85,13 +111,14 @@ export function ListExportButtons<T>(props: {
     });
   };
 
-  const run = async (format: ListExportFormat) => {
+  const run = async (format: ListExportFormat, ids: string[]) => {
     setPending(null);
+    setColumnQuestion(null);
     setBusy(format);
     try {
       // Ошибку оператору показывает main: он единственный, кто видит причину целиком,
       // и его окно не зависит от того, уехали ли кнопки в меню переполнения.
-      await window.matrica.exports.list({ format, spec: buildSpec() });
+      await window.matrica.exports.list({ format, spec: buildSpec(ids) });
     } finally {
       setBusy(null);
     }
@@ -99,11 +126,17 @@ export function ListExportButtons<T>(props: {
 
   const start = (format: ListExportFormat) => {
     if (!canExport) return;
+    // Сначала вопрос о колонках: набор печати и набор экрана могут разойтись, и оператор
+    // должен увидеть это ДО того, как файл уйдёт в Excel или Word.
+    if (mismatchVisible) {
+      setColumnQuestion({ format });
+      return;
+    }
     if (scopeRows.length > BIG_EXPORT_ROWS) {
       setPending({ format, count: scopeRows.length });
       return;
     }
-    void run(format);
+    void run(format, columnIds);
   };
 
   return (
@@ -113,18 +146,22 @@ export function ListExportButtons<T>(props: {
         disabled={!canExport}
         onClick={() => start('xlsx')}
         data-list-export="xlsx"
-        title="Выгрузить список в Excel: те же колонки и отбор, что на экране"
+        data-list-export-columns={mismatchVisible ? 'mismatch' : 'same'}
+        title={mismatchHint}
       >
         {busy === 'xlsx' ? 'Готовим…' : 'В Excel'}
+        {mismatchVisible ? ' ⚠' : ''}
       </Button>
       <Button
         variant="ghost"
         disabled={!canExport}
         onClick={() => start('docx')}
         data-list-export="docx"
-        title="Выгрузить список в Word: тот же лист, что печатается"
+        data-list-export-columns={mismatchVisible ? 'mismatch' : 'same'}
+        title={mismatchHint}
       >
         {busy === 'docx' ? 'Готовим…' : 'В Word'}
+        {mismatchVisible ? ' ⚠' : ''}
       </Button>
       <MailSendButton
         subject={`${props.title} — Матрица`}
@@ -134,9 +171,97 @@ export function ListExportButtons<T>(props: {
           ...(props.filtersSummary ?? []),
         ]}
         body={listToText(fields, scopeRows)}
-        attachment={() => ({ kind: 'list', format: 'docx', spec: buildSpec() })}
+        attachment={() => ({ kind: 'list', format: 'docx', spec: buildSpec(columnIds) })}
         disabled={!canExport}
+        {...(mismatchVisible ? { label: 'Почта ⚠' } : {})}
       />
+      {columnQuestion ? createPortal(
+          <div
+            onClick={() => setColumnQuestion(null)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.4)',
+              zIndex: 1200,
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'center',
+              padding: 24,
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              data-list-export-column-question
+              style={{
+                background: 'var(--card-bg, #fff)',
+                color: 'var(--text)',
+                borderRadius: 12,
+                padding: 16,
+                width: 'min(520px, 96vw)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+                boxShadow: '0 10px 40px rgba(0,0,0,0.3)',
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: 16 }}>
+                Колонки в списке и в файле расходятся
+              </div>
+              <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+                В списке {props.visibleColumnIds.length} колонок, в файле {columnIds.length}. Набор печати
+                свой, и он мог разойтись с экраном, когда вы отключали колонки плашкой. Проверьте
+                состав — на печати и в выгрузке он один и тот же.
+              </div>
+              {mismatch.missing.length > 0 ? (
+                <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+                  В списке, но не в файле: <b>{mismatch.missing.map((c) => c.label).join(', ')}</b>
+                </div>
+              ) : null}
+              {mismatch.extra.length > 0 ? (
+                <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+                  В файле, но не в списке: <b>{mismatch.extra.map((c) => c.label).join(', ')}</b>
+                </div>
+              ) : null}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+                {mismatch.missing.length > 0 ? (
+                  <Button
+                    variant="ghost"
+                    data-list-export-column-add
+                    onClick={() => {
+                      const next = printColumnIdsWithMissing(columnIds, mismatch.missing);
+                      persistPrintColumnIds(props.storageKey, next);
+                      void run(columnQuestion.format, next);
+                    }}
+                    title="Добавить в файл колонки, которые видны в списке"
+                  >
+                    Включить недостающие
+                  </Button>
+                ) : null}
+                {mismatch.extra.length > 0 ? (
+                  <Button
+                    variant="ghost"
+                    data-list-export-column-drop
+                    onClick={() => {
+                      const next = printColumnIdsWithoutExtra(columnIds, mismatch.extra);
+                      persistPrintColumnIds(props.storageKey, next);
+                      void run(columnQuestion.format, next);
+                    }}
+                    title="Убрать из файла колонки, которых нет в списке"
+                  >
+                    Отключить лишние
+                  </Button>
+                ) : null}
+                <Button variant="ghost" onClick={() => void run(columnQuestion.format, columnIds)}>
+                  Выгрузить как есть
+                </Button>
+                <Button variant="ghost" onClick={() => setColumnQuestion(null)}>
+                  Отмена
+                </Button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        ) : null}
       {pending
         ? createPortal(
             <div
@@ -178,7 +303,7 @@ export function ListExportButtons<T>(props: {
                   <Button variant="ghost" onClick={() => setPending(null)}>
                     Вернуться и уточнить
                   </Button>
-                  <Button onClick={() => void run(pending.format)}>Всё равно выгрузить</Button>
+                  <Button onClick={() => void run(pending.format, columnIds)}>Всё равно выгрузить</Button>
                 </div>
               </div>
             </div>,

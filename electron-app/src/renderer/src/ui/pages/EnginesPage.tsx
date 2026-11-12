@@ -1282,19 +1282,21 @@ export function EnginesPage(props: {
         </div>
       )}
 
-      <ListCount total={props.engines.length} shown={displayRows.length} style={{ marginTop: 6 }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'nowrap' }}>
+        <ListCount total={props.engines.length} shown={displayRows.length} style={{ marginTop: 6, flex: '0 0 auto' }} />
 
-      {/* Ряд плашек видимости колонок — между панелью фильтров и шапкой списка
-          (владелец 12.11.2026): белая плашка — колонка не включена, тёмно-серая — включена
-          (видна в списке и идёт на печать). Кнопки «Колонки списка» в тулбаре больше нет. */}
-      <ListColumnChips
-        columns={columnDescriptors}
-        order={columnLayout.order}
-        isVisible={columnLayout.isVisible}
-        onToggleVisible={columnLayout.setVisible}
-        onMoveTo={columnLayout.moveColumnTo}
-        onReset={columnLayout.resetToDefault}
-      />
+        {/* Ряд плашек видимости колонок — между панелью фильтров и шапкой списка
+            (владелец 12.11.2026): белая плашка — колонка не включена, тёмно-серая — включена
+            (видна в списке и идёт на печать). Кнопки «Колонки списка» в тулбаре больше нет. */}
+        <ListColumnChips
+          columns={columnDescriptors}
+          order={columnLayout.order}
+          isVisible={columnLayout.isVisible}
+          onToggleVisible={columnLayout.setVisible}
+          onMoveTo={columnLayout.moveColumnTo}
+          onReset={columnLayout.resetToDefault}
+        />
+      </div>
       <div
         ref={containerRef}
         style={{ marginTop: 2, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}
