@@ -1,15 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  FACET_USAGE_VISIBLE_LIMIT,
   createEmptyFacetUsage,
   facetUsageBump,
   facetUsageScore,
   facetValueScore,
   facetValueUsageId,
   orderFacetIdsByUsage,
+  rankByUsage,
   sanitizeFacetUsage,
-  splitRatedByUsage,
 } from './facetUsage.js';
 
 const DAY = 86_400_000;
@@ -66,38 +65,33 @@ describe('рейтинг ступеней фильтра', () => {
   });
 });
 
-// Владелец 26.10.2026: «показывать только пять самых рейтинговых, остальных под спойлером».
-// Ряд кнопок ступеней и список значений ступени режутся одинаково — правило живёт здесь, а не
-// в двух местах интерфейса, иначе панели начали бы прятать разное.
-describe('видимая часть ряда по рейтингу', () => {
+// Владелец 12.11.2026: после компактной переделки панели спойлер снят («можно убрать
+// спойлер и показывать сразу все кнопки фильтров без скрытия»). Рейтинг остался — он задаёт
+// ПОРЯДОК (частые слева), но ничего не прячет. Правило живёт здесь, а не в интерфейсе, иначе
+// панели начали бы сортироваться по-разному.
+describe('порядок ряда по рейтингу', () => {
   const ids = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
 
-  it('без щелчков видно первые пять, хвост — в исходном порядке', () => {
-    const split = splitRatedByUsage(ids, () => 0);
-    expect(FACET_USAGE_VISIBLE_LIMIT).toBe(5);
-    expect(split.visible).toEqual(['a', 'b', 'c', 'd', 'e']);
-    expect(split.hidden).toEqual(['f', 'g']);
+  it('без щелчков порядок исходный — все ступени на виду', () => {
+    expect(rankByUsage(ids, () => 0)).toEqual(ids);
   });
 
-  it('частые поднимаются в видимую часть и стоят левее', () => {
-    const split = splitRatedByUsage(ids, (id) => (id === 'g' ? 10 : id === 'f' ? 5 : 0));
-    expect(split.visible).toEqual(['g', 'f', 'a', 'b', 'c']);
-    expect(split.hidden).toEqual(['d', 'e']);
+  it('частые стоят левее, остальные — в исходном порядке', () => {
+    expect(rankByUsage(ids, (id) => (id === 'g' ? 10 : id === 'f' ? 5 : 0))).toEqual([
+      'g',
+      'f',
+      'a',
+      'b',
+      'c',
+      'd',
+      'e',
+    ]);
   });
 
-  it('обязательное не прячется за спойлер, даже если редко используется', () => {
-    // Активная ступень и выбранное значение обязаны быть на виду: спрятанные, они отбирают
-    // втихую, и снять выбор нечем.
-    const split = splitRatedByUsage(ids, () => 0, (id) => id === 'g');
-    expect(split.visible).toContain('g');
-    expect(split.hidden).not.toContain('g');
-  });
-
-  it('ряд не длиннее пяти без обязательных и не теряет ни одного элемента', () => {
-    const split = splitRatedByUsage(ids, () => 0);
-    expect(split.visible.length).toBe(FACET_USAGE_VISIBLE_LIMIT);
-    expect([...split.visible, ...split.hidden]).toHaveLength(ids.length);
-    expect(splitRatedByUsage(['a', 'b'], () => 0).hidden).toEqual([]);
+  it('ни одна ступень не теряется: сколько было, столько и в ряду', () => {
+    const ranked = rankByUsage(ids, (id) => (id === 'c' ? 3 : 0));
+    expect(ranked).toHaveLength(ids.length);
+    expect([...ranked].sort()).toEqual([...ids].sort());
   });
 });
 

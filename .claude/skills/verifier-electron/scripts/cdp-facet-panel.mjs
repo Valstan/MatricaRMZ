@@ -2,16 +2,18 @@
 // Смоук панели фильтров по заказу владельца 12.11.2026:
 //
 //   1. первый уровень — компактные ячейки-надписи (поля в пару пикселей, без рамки, фон —
-//      бледный цвет своей ступени), рядом спойлер «Ещё N ▾»;
+//      бледный цвет своей ступени); спойлера «Ещё N» НЕТ: видны все ступени сразу;
 //   2. по наведению мыши на ячейку выпадает меню со ВСЕМИ вариантами ступени, первой строкой —
 //      «Сбросить фильтр» (сброс ЭТОЙ ветки);
 //   3. слева в ряду — «Сбросить фильтры» (сброс ВСЕГО);
 //   4. выбранное значение — плашка под своей ячейкой, цветом той же ступени; наведение на
-//      плашку открывает то же меню ступени (добрать значений).
+//      плашку открывает то же меню ступени (добрать значений);
+//   5. ширина плашки НЕ раздвигает кнопку родителя: плашка висит плавающим слоем, ряд
+//      остаётся компактным (владелец 12.11.2026).
 //
 // Проверяется живьём то, чего не видит сторож по исходнику: ячейки действительно компактны,
 // меню действительно выпадает по НАВЕДЕНИЮ (а не только по щелчку), плашка стоит под своей
-// ячейкой, а сброс в меню снимает одну ступень, не трогая остальные.
+// ячейкой и не растягивает ряд, а сброс в меню снимает одну ступень, не трогая остальные.
 //
 //   node .claude/skills/verifier-electron/scripts/cdp-facet-panel.mjs
 
@@ -132,6 +134,15 @@ const HELPERS = `
     }
   };
   const vis = (sel, root) => [...(root ?? PANE()).querySelectorAll(sel)].filter(visible);
+  // Ячейка, на которую МОЖНО навести: под ней может лежать липкая шапка раздела — тогда
+  // elementFromPoint в её центре вернёт шапку, а не ячейку, и наведение уйдёт мимо.
+  // С 23 ступенями (спойлер снят) первая ячейка ряда часто оказывается под шапкой.
+  const hoverable = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.top < 0 || r.bottom > innerHeight || r.left < 0 || r.right > innerWidth) return false;
+    const at = document.elementFromPoint(Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2));
+    return !!at && (at === el || el.contains(at) || at.contains(el));
+  };
   // ВАЖНО: закрытый <details> в Chromium держит геометрию (content-visibility: hidden),
   // поэтому getBoundingClientRect у спрятанного НЕ нулевой. Считать «на виду» надо по
   // предку-спойлеру: элемент внутри details:not([open]) не нарисован.
@@ -227,11 +238,43 @@ async function openPanel(ws) {
   );
 }
 
+/**
+ * Закрыть оверлей МЕНЮ, если он остался висеть с прошлого прогона.
+ *
+ * Оверлей (`.v3-menu-overlay-backdrop`) перекрывает всю рабочую область и перехватывает
+ * наведение: elementFromPoint в центре ячейки возвращает его подложку, а не ячейку. Из-за
+ * этого смоук падал на «меню не выпадает по наведению» — при полностью рабочей панели.
+ */
+async function closeMenuOverlay(ws) {
+  const had = await evaluate(ws, `return Boolean(document.querySelector('.v3-menu-overlay-backdrop'));`);
+  if (!had) return 'оверлея не было';
+  await send(ws, 'Input.dispatchKeyEvent', {
+    type: 'keyDown',
+    key: 'Escape',
+    code: 'Escape',
+    windowsVirtualKeyCode: 27,
+    nativeVirtualKeyCode: 27,
+  });
+  await send(ws, 'Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'Escape',
+    code: 'Escape',
+    windowsVirtualKeyCode: 27,
+    nativeVirtualKeyCode: 27,
+  });
+  await sleep(700);
+  const left = await evaluate(ws, `return Boolean(document.querySelector('.v3-menu-overlay-backdrop'));`);
+  return left ? 'не закрылся' : 'закрыт';
+}
+
 async function main() {
   const list = await targets();
   if (list.length === 0) throw new Error('renderer-таргет не найден — стек с -Cdp поднят?');
   const ws = await connect(list[0].webSocketDebuggerUrl);
   await send(ws, 'Runtime.enable');
+
+  console.log('== подготовка ==');
+  note(true, `оверлей МЕНЮ: ${await closeMenuOverlay(ws)}`);
 
   console.log('== логин ==');
   note(true, `экран входа: ${await login(ws)}`);
@@ -242,26 +285,16 @@ async function main() {
   note(/открыта/.test(opened ?? ''), `панель фильтров: ${opened}`);
   await shot(ws, '1-cells');
 
-  // ── 1. Ряд ячеек: сколько ступеней на виду, есть ли спойлер, что в нём ──────────────
+  // ── 1. Ряд ячеек: все ступени на виду, спойлера нет ──────────────────────────────────
   const row = await evaluate(
     ws,
     `const all = [...vis('[data-facet-field]')];
      const ids = (list) => list.map((b) => b.getAttribute('data-facet-field'));
      const more = vis('[data-facet-more="fields"]')[0] ?? null;
-     // Спойлер помнит раскрытость, пока панель смонтирована: перед замером закрываем его
-     // руками, иначе замер считает раскрытый хвост частью ряда.
-     if (more && more.open) { more.open = false; await wait(400); }
      const shownNow = ids(all.filter(painted));
-     let hidden = [];
-     if (more) {
-       more.open = true; await wait(400);
-       hidden = ids([...vis('[data-facet-field]')].filter(painted)).filter((id) => !shownNow.includes(id));
-       more.open = false; await wait(300);
-     }
      return {
        visible: shownNow.length, ids: shownNow,
        spoiler: !!more, spoilerText: more ? txt(more.querySelector('summary')) : null,
-       hidden,
        resetFirst: (() => {
          const reset = vis('[data-facet-reset]')[0];
          if (!reset) return null;
@@ -270,17 +303,9 @@ async function main() {
        resetText: txt(vis('[data-facet-reset]')[0]),
      };`,
   );
-  note(row.visible <= 5, `на виду ступеней не больше пяти`, { visible: row.visible, ids: row.ids });
+  note(row.visible > 5, `на виду все ступени (${row.visible}), без ограничения в пять`, { visible: row.visible });
+  note(row.spoiler === false, 'спойлера «Ещё N» в ряду нет', { spoilerText: row.spoilerText });
   note(row.resetFirst === true, `«Сбросить фильтры» — первой в ряду`, { text: row.resetText });
-  if (row.spoiler) {
-    note(
-      row.hidden.length > 0,
-      'хвост ступеней живёт под спойлером и раскрывается',
-      { spoiler: row.spoilerText, hidden: row.hidden.length },
-    );
-  } else {
-    note(row.visible <= 5, 'ступени все на виду — спойлер не нужен (их ≤ 5)');
-  }
 
   // ── 2. Ячейка компактна: надпись без полей, без рамки, фон своего цвета ───────────────
   const cell = await evaluate(
@@ -317,7 +342,7 @@ async function main() {
   // ── 3. Меню выпадает ПО НАВЕДЕНИЮ (не только по щелчку) ──────────────────────────────
   const target = await evaluate(
     ws,
-    `const b = vis('[data-facet-field]').find(painted);
+    `const b = vis('[data-facet-field]').find(hoverable);
      if (!b) return null;
      return { id: b.getAttribute('data-facet-field'), box: cellBox(b) };`,
   );
@@ -422,6 +447,45 @@ async function main() {
     'плашка выбранного — тем же цветом, что и ячейка ступени',
     chip ? { chipBackground: chip.chipBackground, cellBackground: chip.cellBackground } : null,
   );
+
+  // ── 5b. Ширина плашки НЕ раздвигает кнопку родителя (владелец 12.11.2026) ───────────────
+  // Плашка висит плавающим слоем (absolute), поэтому колонку задаёт только кнопка. Проверяем
+  // это ЖИВЫМ замером: ширина колонки с плашкой равна ширине её кнопки, а плашка при этом
+  // выходит за пределы кнопки (может наползти на соседа — так и просил владелец).
+  const width = await evaluate(
+    ws,
+    `const c = [...document.querySelectorAll('[data-facet-chip]')].filter(painted)[0];
+     if (!c) return { skip: 'плашки нет' };
+     const column = c.closest('[data-facet-column]');
+     const cellEl = column ? column.querySelector('[data-facet-field]') : null;
+     if (!column || !cellEl) return { skip: 'колонка не найдена' };
+     const colRect = column.getBoundingClientRect();
+     const cellRect = cellEl.getBoundingClientRect();
+     const chipRect = c.getBoundingClientRect();
+     // Соседи рядом: кнопка следующей ступени (если есть) — её левый край.
+     const all = [...vis('[data-facet-field]')].filter(painted);
+     const idx = all.findIndex((b) => b.getAttribute('data-facet-field') === cellEl.getAttribute('data-facet-field'));
+     const nextBtn = idx >= 0 && idx + 1 < all.length ? all[idx + 1] : null;
+     const nextRect = nextBtn ? nextBtn.getBoundingClientRect() : null;
+     return {
+       columnWidth: Math.round(colRect.width),
+       cellWidth: Math.round(cellRect.width),
+       chipWidth: Math.round(chipRect.width),
+       chipOverlapsNeighbor: nextRect ? chipRect.right > nextRect.left + 1 : false,
+       chipCentered: Math.abs((chipRect.left + chipRect.right) / 2 - (cellRect.left + cellRect.right) / 2) < 40,
+     };`,
+  );
+  if (width.skip) {
+    note(false, `ширина плашки и кнопки родителя: ${width.skip}`);
+  } else {
+    note(
+      width.columnWidth <= width.cellWidth + 2,
+      'колонка задаётся кнопкой, а не плашкой (ширина плашки не раздвигает ряд)',
+      width,
+    );
+    note(width.chipWidth > width.cellWidth, 'плашка шире кнопки — она и наползает на соседа', width);
+    note(width.chipCentered === true, 'плашка прижата к центру своей кнопки', width);
+  }
 
   // ── 6. На плашке открывается то же меню ступени (добрать значений) ──────────────────
   const chipMenu = await evaluate(

@@ -17,12 +17,6 @@
 export type FacetUsage = { buckets: Record<string, Record<string, number>> };
 
 export const FACET_USAGE_MAX_DAYS = 30;
-/**
- * Сколько ступеней и значений видно в панели сразу, без спойлера (владелец 26.10.2026:
- * «показывать только пять самых рейтинговых, остальные под спойлером — а то рябит в глазах»).
- * Число живёт здесь, а не в интерфейсе: ряд кнопок и список значений режутся одинаково.
- */
-export const FACET_USAGE_VISIBLE_LIMIT = 5;
 const MAX_USAGE_COUNT = 1_000_000;
 const USAGE_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** Потолок ключа счёта: он же стоит в санитайзере, иначе после перезапуска счёт не найдётся. */
@@ -111,33 +105,23 @@ export function facetValueScore(usage: FacetUsage, facetId: string, value: strin
   return facetUsageScore(usage, facetValueUsageId(facetId, value), now);
 }
 
-export type RatedSplit<T> = { visible: T[]; hidden: T[] };
-
 /**
- * Ряд по рейтингу → «видно сразу» и «под спойлером».
+ * Ряд по рейтингу: частые — левее, заброшенные уезжают вправо сами.
  *
- * Видимая часть — до `limit` самых рейтинговых, но **обязательные** (`keep`) не прячутся за
- * спойлер никогда: активная ступень и выбранное значение иначе отбирали бы втихую, а снять
- * выбор было бы нечем. Хвост остаётся упорядоченным по тому же рейтингу — в спойлере частые
- * тоже выше редких.
+ * Спойлера больше нет (владелец 12.11.2026): после компактной переделки панели показывать
+ * все ступени сразу — удобно, а ряд остаётся компактным, потому что ширину кнопки задаёт
+ * сама кнопка, а не плашки выбранных значений под ней. Рейтинг по-прежнему задаёт порядок.
+ * Равные счёты сохраняют исходный порядок — иначе ряд перетасовывался бы у оператора на
+ * первом же открытии.
  */
-export function splitRatedByUsage<T>(
+export function rankByUsage<T>(
   items: readonly T[],
   scoreOf: (item: T) => number,
-  keep: (item: T) => boolean = () => false,
-  limit: number = FACET_USAGE_VISIBLE_LIMIT,
-): RatedSplit<T> {
-  const ranked = items
+): T[] {
+  return items
     .map((item, index) => ({ item, index, score: scoreOf(item) }))
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .map((x) => x.item);
-  const visible: T[] = [];
-  const hidden: T[] = [];
-  for (const item of ranked) {
-    if (keep(item) || visible.length < limit) visible.push(item);
-    else hidden.push(item);
-  }
-  return { visible, hidden };
 }
 
 /**
