@@ -127,13 +127,9 @@ const matricaApi = {
     launch: async (args?: { tab?: string }) => ipcRenderer.invoke('clientOps:launch', args ?? {}),
     reveal: async () => ipcRenderer.invoke('clientOps:reveal'),
     saveCopy: async () => ipcRenderer.invoke('clientOps:saveCopy'),
-  },
-  trustRoot: {
-    status: async (args?: { force?: boolean }) => ipcRenderer.invoke('trustRoot:status', args ?? {}),
-    installUser: async () => ipcRenderer.invoke('trustRoot:installUser'),
-    installMachine: async () => ipcRenderer.invoke('trustRoot:installMachine'),
-    notice: async () => ipcRenderer.invoke('trustRoot:notice'),
-    noticeAck: async () => ipcRenderer.invoke('trustRoot:noticeAck'),
+    adminInstruction: async () => ipcRenderer.invoke('clientOps:adminInstruction'),
+    freshInstallPending: async () => ipcRenderer.invoke('clientOps:freshInstallPending'),
+    freshInstallAck: async () => ipcRenderer.invoke('clientOps:freshInstallAck'),
   },
   maintenance: {
     emptyCardsAnalyze: async () => ipcRenderer.invoke('maintenance:emptyCards:analyze'),

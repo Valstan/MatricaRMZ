@@ -34,7 +34,9 @@ describe('встроенная плитка «Скрипты обслужива�
   it('нажатие на плитку открывает окно скриптов, а не «пустой ярлык»', () => {
     expect(APP).toContain('if (isBuiltinDesktopLink(link)) {');
     expect(APP).toContain('setClientOpsOpen(true);');
-    expect(APP).toContain('<ClientOpsDialog open={clientOpsOpen}');
+    // Раскладка вызова может меняться (добавились пропсы кнопки инструкции), поэтому
+    // проверяем по смыслу — имя окна и его состояние рядом, а не по точному тексту строки.
+    expect(APP).toMatch(/<ClientOpsDialog[\s\S]{0,200}open=\{clientOpsOpen\}/);
   });
 
   it('второй вход — пункт МЕНЮ: у оператора, спрятавшего Верстак, путь остаётся', () => {

@@ -3,8 +3,6 @@ import React, { useEffect, useState } from 'react';
 import type { ClientOpsBundleInfo, ClientOpsTab } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
-import { TrustRootPanel } from './TrustRootPanel.js';
-import { useTrustRoot } from '../hooks/useTrustRoot.js';
 
 /**
  * «Скрипты обслуживания» — вход в окно обслуживания машины.
@@ -18,13 +16,16 @@ import { useTrustRoot } from '../hooks/useTrustRoot.js';
  * они нужны, когда окно не открылось (нет PowerShell, политика запуска, чужая машина) —
  * тогда у оператора по-прежнему есть файл и пароль к нему.
  */
-export function ClientOpsDialog(props: { open: boolean; onClose: () => void; notify?: (text: string, tone?: 'info' | 'error') => void }) {
+export function ClientOpsDialog(props: {
+  open: boolean;
+  onClose: () => void;
+  /** Открыть окно инструкции для системного администратора (короткая последовательность шагов). */
+  onOpenInstruction?: () => void;
+  notify?: (text: string, tone?: 'info' | 'error') => void;
+}) {
   const [bundle, setBundle] = useState<ClientOpsBundleInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [fallbackOpen, setFallbackOpen] = useState(false);
-  // Доверие и подпись живут в этом же окне: оператор приходит сюда за настройкой машины,
-  // и «корень не установлен — позовите администратора» — это ровно сюда.
-  const trust = useTrustRoot({ notify: props.notify });
 
   useEffect(() => {
     if (!props.open) return;
@@ -52,7 +53,7 @@ export function ClientOpsDialog(props: { open: boolean; onClose: () => void; not
       }
       // Окно поднимается несколько секунд (сбор данных о компьютере), и всё это время оно
       // ничем не проявляется. Без этой строки оператор успевает нажать кнопку второй раз.
-      props.notify?.('Открываю окно обслуживания — оно появится через несколько секунд. Windows может спросить права администратора.');
+      props.notify?.('Открываю окно обслуживания — оно появится через несколько секунд.');
       props.onClose();
     } catch (e) {
       props.notify?.(`Не удалось открыть окно обслуживания: ${String(e)}`, 'error');
@@ -110,25 +111,6 @@ export function ClientOpsDialog(props: { open: boolean; onClose: () => void; not
       >
         <div style={{ fontWeight: 700, fontSize: 18 }}>🧰 Скрипты обслуживания</div>
 
-        <div
-          data-client-ops-trust
-          style={{
-            border: '1px solid var(--border)',
-            borderRadius: 10,
-            padding: '10px 12px',
-            display: 'grid',
-            gap: 6,
-          }}
-        >
-          <TrustRootPanel
-            status={trust.status}
-            busy={trust.busy}
-            onInstallUser={() => void trust.installUser()}
-            onInstallMachine={() => void trust.installMachine()}
-            onRefresh={() => void trust.refresh(true)}
-          />
-        </div>
-
         {bundle?.available ? (
           <>
             <div style={{ color: 'var(--subtle)', fontSize: 13 }}>
@@ -146,9 +128,9 @@ export function ClientOpsDialog(props: { open: boolean; onClose: () => void; not
                     fontSize: 13,
                   }}
                 >
-                  Программа распакует скрипты сама и откроет окно. Windows может спросить права
-                  администратора — они нужны только правилу брандмауэра; без них окно тоже
-                  работает и готовит строки для Касперского.
+                  Программа распакует скрипты сама и откроет окно. Прав администратора не
+                  нужно: список исключений и доверенных программ готовится под этот компьютер
+                  без повышенных прав, а вносит их в Касперский системный администратор.
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <Button onClick={() => void launch('kaspersky')} disabled={busy}>
@@ -157,6 +139,11 @@ export function ClientOpsDialog(props: { open: boolean; onClose: () => void; not
                   <Button variant="ghost" onClick={() => void launch('lan')} disabled={busy}>
                     Сразу к раздаче соседям
                   </Button>
+                  {props.onOpenInstruction ? (
+                    <Button variant="ghost" onClick={props.onOpenInstruction} disabled={busy}>
+                      Инструкция для администратора
+                    </Button>
+                  ) : null}
                   <div style={{ flex: 1 }} />
                   <Button variant="ghost" onClick={props.onClose}>
                     Закрыть

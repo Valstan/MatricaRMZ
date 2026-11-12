@@ -6,12 +6,20 @@
 # Верстака распаковывает архив сама и открывает ЭТО окно, а утилиты живут в нём вкладками.
 #
 # Как оно запускается. Матрица (`clientOpsService.ts`) распаковывает архив в свою папку данных
-# и зовёт этот файл. Права администратора окно просит себе само — см. ниже, почему не Матрица.
+# и зовёт этот файл.
+#
+# ПРАВ АДМИНИСТРАТОРА ОНО НЕ ПРОСИТ И НЕ ТРЕБУЕТ (решение владельца 12.11.2026). Раньше окно
+# поднимало себя через UAC, а в шапке была кнопка «Перезапустить от администратора». Причина
+# отмены: программа работает в учётке пользователя без повышенных прав, и все настройки
+# Касперского тоже должны делаться без прав админа — иначе половина парка (у оператора цеха их
+# нет) до списка исключений просто не доберётся. Шаги, которые прав требуют по существу
+# (правило брандмауэра, снятие задачи планировщика), делает тот, у кого права есть, — окно
+# даёт ему готовую команду.
 #
 # Что оно НЕ делает: не меняет настройки за оператора. Касперский не позволяет вносить
 # исключения программно (Самозащита), а правило брандмауэра создаётся только по явному нажатию.
 #
-# Запуск вручную: Обслуживание.cmd (или powershell -sta -ep bypass -file matrica-ops.ps1)
+# Запуск вручную: Запустить.cmd (или powershell -sta -ep bypass -file matrica-ops.ps1)
 
 [CmdletBinding()]
 param(
@@ -19,13 +27,10 @@ param(
     [ValidateSet('kaspersky', 'lan', 'cleanup', 'guide')]
     [string]$Tab = 'kaspersky',
     # Путь к .exe клиента и к его папке данных — их знает сама Матрица и передаёт сюда.
-    # Своими силами их пришлось бы искать по профилю ТЕКУЩЕГО пользователя, а после подъёма
-    # прав на неадминской учётке это может быть уже чужой профиль (см. блок элевации ниже).
+    # Своими силами их пришлось бы искать по профилю ТЕКУЩЕГО пользователя.
     [string]$ClientExe = '',
     [string]$UserDataDir = '',
-    [int]$Port = 38080,
-    # Не пытаться поднять права: ставится на перезапуск, когда оператор уже отказался от UAC.
-    [switch]$NoElevate
+    [int]$Port = 38080
 )
 
 $ErrorActionPreference = 'Stop'
@@ -46,38 +51,20 @@ function Test-OpsAdmin {
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
-<#
-    Аргументы для перезапуска самого себя. Собираются в одном месте: их два потребителя —
-    подъём прав на старте и кнопка «Перезапустить от администратора» в шапке.
-#>
-function Get-OpsRelaunchArgs {
-    param([string]$ForTab)
-    $list = @('-sta', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Tab', $ForTab, '-Port', [string]$OpsPort)
-    if ($OpsClientExe) { $list += @('-ClientExe', "`"$OpsClientExe`"") }
-    if ($OpsUserDataDir) { $list += @('-UserDataDir', "`"$OpsUserDataDir`"") }
-    return $list
-}
-
 # --------------------------------------------------------------------------------------
 # Права администратора
 #
-# Просит их скрипт, а не Матрица. Установщик собран `perMachine: false` именно потому, что у
-# оператора цеха прав обычно нет: потребуй их Матрица при открытии плитки — половина парка
-# упёрлась бы в запрос пароля, которого у неё нет, и не увидела бы даже того, что прекрасно
-# работает без прав (готовые строки для Касперского, проверка состояния). Поэтому: пробуем
-# подняться, при отказе — работаем без прав, а вкладки сами скажут, чего им не хватает.
+# Окно НЕ поднимает себя и НЕ просит прав (решение владельца 12.11.2026). Раньше оно
+# стартовало через `Start-Process -Verb RunAs`, а в шапке была кнопка «Перезапустить от
+# администратора». Обе вещи убраны: программа живёт в учётке пользователя без повышенных
+# прав, и весь сценарий настройки Касперского обязан работать так же.
+#
+# Что осталось делать с правами: правило брандмауэра (вкладка «Раздача соседям») и снятие
+# задачи планировщика (вкладка «Уборка OpenCode») требуют прав по существу — их делает
+# системный администратор. Окно не мешает: эти вкладки честно пишут, что нужно, и дают
+# готовую команду; вкладка «Антивирус» (то, что нужно оператору и админу чаще всего)
+# работает полностью без прав.
 # --------------------------------------------------------------------------------------
-
-if (-not (Test-OpsAdmin) -and -not $NoElevate) {
-    try {
-        Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList (Get-OpsRelaunchArgs -ForTab $OpsTab) -ErrorAction Stop
-        # Поднятая копия уже идёт — эта больше не нужна. Второго запроса UAC не будет:
-        # у поднятой копии Test-OpsAdmin вернёт true, и в эту ветку она не зайдёт.
-        exit 0
-    } catch {
-        # Оператор отклонил UAC или прав нет вовсе. Это не ошибка: окно нужно и без них.
-    }
-}
 
 # --------------------------------------------------------------------------------------
 # Утилиты — подключаются точкой, каждая отдаёт свою панель
@@ -88,13 +75,6 @@ if (-not (Test-OpsAdmin) -and -not $NoElevate) {
 . (Join-Path $OpsDir 'opencode-cleanup.ps1') -AsLibrary
 
 $OpsIsAdmin = Test-OpsAdmin
-# Подъём прав на НЕадминской учётке идёт через ввод ЧУЖИХ данных, и поднятый процесс живёт в
-# чужом профиле: %APPDATA% там другой, а Матрица стоит не там. Путь к клиенту это лечит
-# (он приходит параметром), а вот поиск папок Касперским — нет, и об этом надо сказать вслух.
-$OpsForeignProfile = $false
-if ($OpsUserDataDir -and $env:APPDATA) {
-    $OpsForeignProfile = -not $OpsUserDataDir.ToLower().StartsWith($env:APPDATA.ToLower())
-}
 
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
@@ -124,34 +104,17 @@ if ($OpsIsAdmin) {
     $lblRights.Text = 'Права администратора есть — доступно всё.'
     $lblRights.ForeColor = [System.Drawing.Color]::DarkGreen
 } else {
-    $lblRights.Text = 'Без прав администратора: строки для Касперского готовятся, правило брандмауэра — нет.'
+    $lblRights.Text = 'Без прав администратора: всё для Касперского работает, правило брандмауэра — нет.'
     $lblRights.ForeColor = [System.Drawing.Color]::Firebrick
 }
 $bar.Controls.Add($lblRights)
 
 if (-not $OpsIsAdmin) {
-    $bElevate = New-Object System.Windows.Forms.Button
-    $bElevate.Text = 'Перезапустить от администратора'; $bElevate.Width = 230; $bElevate.Height = 24
-    $bElevate.Add_Click({
-            try {
-                $current = if ($tabs.SelectedTab) { [string]$tabs.SelectedTab.Tag } else { 'kaspersky' }
-                Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList (Get-OpsRelaunchArgs -ForTab $current) -ErrorAction Stop
-                $form.Close()
-            } catch {
-                [System.Windows.Forms.MessageBox]::Show(
-                    "Поднять права не вышло: $([string]$_)`r`n`r`nЗначит, на этой учётной записи их нет. Правило брандмауэра ставит тот, у кого они есть — обычно это разовый обход машин.",
-                    'Без прав администратора') | Out-Null
-            }
-        }.GetNewClosure())
-    $bar.Controls.Add($bElevate)
-}
-
-if ($OpsForeignProfile) {
     $lblProfile = New-Object System.Windows.Forms.Label
     $lblProfile.AutoSize = $true
     $lblProfile.Margin = New-Object System.Windows.Forms.Padding(12, 6, 0, 0)
     $lblProfile.ForeColor = [System.Drawing.Color]::DarkOrange
-    $lblProfile.Text = 'Внимание: окно поднято под другой учётной записью — папки на вкладке «Антивирус» ищутся в ЕЁ профиле.'
+    $lblProfile.Text = 'Шаги, которым нужны права администратора (правило брандмауэра, снятие задачи), выполняет тот, у кого они есть — окно даёт готовую команду.'
     $bar.Controls.Add($lblProfile)
 }
 

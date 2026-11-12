@@ -325,22 +325,49 @@ try {
     }
 } finally { Remove-Item -LiteralPath $fx -Recurse -Force -ErrorAction SilentlyContinue }
 
-Write-Host 'Корень доверия на этой машине:'
-$rootState = Get-MatricaRootState
-Assert-Equal 'отпечаток корня — боевой' $rootState.Thumbprint '7E2D335A418EF9292BA2868EED92F65E2650932D'
-Assert-Equal 'текст состояния не пуст' ([bool](Get-RootStateText -State $rootState)) 'True'
-Assert-Equal 'команда установки корня указывает на скрипт' `
-    ([bool]((Get-RootInstallCommand -State $rootState) -like '*install-root-on-machine.ps1')) 'True'
-if (-not $rootState.Readable) {
-    Assert-Equal 'хранилища не читаются — текст зовёт под администратора' `
-        ([bool]((Get-RootStateText -State $rootState) -like '*администратора*')) 'True'
-} elseif ($rootState.Present) {
-    Assert-Equal 'корень есть — текст говорит, что подпись действует' `
-        ([bool]((Get-RootStateText -State $rootState) -like '*подпись действует*')) 'True'
-} else {
-    Assert-Equal 'корня нет — текст зовёт на повышенный шаг' `
-        ([bool]((Get-RootStateText -State $rootState) -like '*повышенный шаг*')) 'True'
-}
+Write-Host 'Список доверенных по умолчанию (откат с подписи):'
+# Доверие по подписи на парке не подтвердилось (решение владельца 12.11.2026), поэтому
+# по умолчанию список доверенных ПОЛНЫЙ: все наши исполняемые файлы и наши ярлыки.
+$planDefault = Get-TrustedAppsPlan -Matrica ([pscustomobject]@{
+        AppExe       = 'C:\Program Files\MatricaRMZ\MatricaRMZ.exe'
+        WatchdogExe  = 'C:\Program Files\MatricaRMZ-Watchdog\matricarmz-watchdog.exe'
+        ExtraExes    = @('C:\Program Files\MatricaRMZ-Updates\matricarmz_update.exe')
+        Shortcuts    = @('C:\Users\operator\Desktop\MatricaRMZ.lnk')
+    }) -Mode 'Legacy'
+Assert-Equal 'клиент в списке доверенных' `
+    ([bool](@($planDefault.Trusted) -contains 'C:\Program Files\MatricaRMZ\MatricaRMZ.exe')) 'True'
+Assert-Equal 'сторож в списке доверенных' `
+    ([bool](@($planDefault.Trusted) -contains 'C:\Program Files\MatricaRMZ-Watchdog\matricarmz-watchdog.exe')) 'True'
+Assert-Equal 'апдейтер в списке доверенных' `
+    ([bool](@($planDefault.Trusted) -contains 'C:\Program Files\MatricaRMZ-Updates\matricarmz_update.exe')) 'True'
+Assert-Equal 'в режиме Legacy закрытых подписью нет' (@($planDefault.CoveredBySignature).Count) '0'
+
+Write-Host 'Чужой ярлык в доверенные не попадает:'
+# Поиск ярлыков идёт по образцу имени («*Матриц*.lnk»), и под него попадает ярлык на
+# ЧУЖУЮ программу. Доверять чужое нельзя: ярлык берётся только если его цель — наш файл.
+$fxLnk = Join-Path ([System.IO.Path]::GetTempPath()) ('matrica-lnk-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $fxLnk -Force | Out-Null
+try {
+    $ourExe = Join-Path $fxLnk 'MatricaRMZ.exe'
+    $foreignExe = Join-Path $fxLnk 'OtherApp.exe'
+    Set-Content -LiteralPath $ourExe -Value ([byte[]](0x4D, 0x5A)) -Encoding Byte
+    Set-Content -LiteralPath $foreignExe -Value ([byte[]](0x4D, 0x5A)) -Encoding Byte
+    $shell = New-Object -ComObject WScript.Shell
+    $lnkOur = Join-Path $fxLnk 'Матрица РМЗ.lnk'
+    $lnkForeign = Join-Path $fxLnk 'Матрица РМЗ (чужая).lnk'
+    $s = $shell.CreateShortcut($lnkOur); $s.TargetPath = $ourExe; $s.Save()
+    $s = $shell.CreateShortcut($lnkForeign); $s.TargetPath = $foreignExe; $s.Save()
+    $planLnk = Get-TrustedAppsPlan -Matrica ([pscustomobject]@{
+            AppExe      = $ourExe
+            WatchdogExe = ''
+            ExtraExes   = @()
+            Shortcuts   = @($lnkOur, $lnkForeign)
+        }) -Mode 'Legacy'
+    Assert-Equal 'наш ярлык в списке доверенных' `
+        ([bool](@($planLnk.Trusted) -contains $lnkOur)) 'True'
+    Assert-Equal 'чужой ярлык в список доверенных НЕ попал' `
+        ([bool](@($planLnk.Trusted) -contains $lnkForeign)) 'False'
+} finally { Remove-Item -LiteralPath $fxLnk -Recurse -Force -ErrorAction SilentlyContinue }
 
 Write-Host ''
 if ($script:Failures -gt 0) {

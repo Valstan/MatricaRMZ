@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { app, shell } from 'electron';
@@ -35,6 +35,8 @@ export type ClientOpsBundle = {
 };
 
 const ARCHIVE_FILE = 'kaspersky-matrica.zip';
+/** Короткая инструкция для системного администратора — едет в том же архиве. */
+const ADMIN_INSTRUCTION_FILE = 'admin-instruction.ru.md';
 /** Точка входа окна с вкладками. Имя латиницей: путь уезжает в аргументы PowerShell. */
 const LAUNCHER_SCRIPT = 'matrica-ops.ps1';
 
@@ -140,6 +142,57 @@ export function launchClientOps(
     return { ok: true, dir: extracted.dir };
   } catch (e) {
     return { ok: false, error: `Не удалось запустить окно обслуживания: ${String(e)}` };
+  }
+}
+
+/**
+ * Метка «установка с нуля». Её пишет установщик (`installer.nsh`, макро
+ * MarkFreshInstall) — и только когда установка НЕ обновление. Так программа
+ * отличает «машину настроили впервые» от «прилетело обновление на настроенную
+ * машину», не гадая по датам и не спрашивая пользователя.
+ *
+ * Метка лежит в папке данных клиента и потому переживает обновления. После
+ * показа инструкции метка удаляется: показывать её второй раз на той же
+ * машине незачем.
+ */
+function freshInstallFlagPath(): string {
+  return join(app.getPath('userData'), 'kaspersky-setup-needed.flag');
+}
+
+/** Есть ли метка свежей установки (инструкцию ещё не показывали). */
+export function isFreshInstallPending(): boolean {
+  try {
+    return existsSync(freshInstallFlagPath());
+  } catch {
+    return false;
+  }
+}
+
+/** Снять метку: инструкцию показали, второй раз не показываем. */
+export function clearFreshInstallFlag(): void {
+  try {
+    rmSync(freshInstallFlagPath(), { force: true });
+  } catch {
+    // Метка не удалилась — инструкция покажется ещё раз. Не критично: лишний
+    // показ лучше, чем молчаливый пропуск настройки антивируса.
+  }
+}
+
+/**
+ * Короткая инструкция для системного администратора. Живёт в архиве скриптов
+ * рядом с помощником: тот же набор файлов, что едет в парк, — одна правда.
+ */
+export function readAdminInstruction(): { ok: true; text: string } | { ok: false; error: string } {
+  const extracted = extractClientOpsBundle();
+  if (!extracted.ok) return extracted;
+  const file = join(extracted.dir, ADMIN_INSTRUCTION_FILE);
+  if (!existsSync(file)) {
+    return { ok: false, error: `В этой сборке клиента нет инструкции (${ADMIN_INSTRUCTION_FILE})` };
+  }
+  try {
+    return { ok: true, text: readFileSync(file, 'utf8') };
+  } catch (e) {
+    return { ok: false, error: `Не удалось прочитать инструкцию: ${String(e)}` };
   }
 }
 

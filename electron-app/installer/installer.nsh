@@ -208,6 +208,29 @@ killDoneUninstall:
   CreateShortCut "$SMSTARTUP\MatricaRMZ.lnk" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" "--minimized" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0
 !macroend
 
+; --- Метка «установка с нуля» -----------------------------------------------
+; Программа при первом запуске на СВЕЖЕЙ машине показывает инструкцию по
+; настройке Касперского (исключения + доверенные программы). На обновлении
+; инструкция не показывается — там кнопка в интерфейсе.
+;
+; Отличие «с нуля» от «обновления» знает сам установщик: `${isUpdated}` истинно
+; только когда установку запустил автообновлятель. Всё остальное (переустановка
+; вручную поверх старой, машина после удаления Касперским) — это свежая
+; установка, и инструкция нужна.
+;
+; Метка лежит в папке данных клиента (`%APPDATA%\@matricarmz\electron-app`) —
+; она переживает обновления, поэтому «показали один раз» можно запомнить
+; отдельным файлом. Саму метку клиент после показа удаляет.
+!macro MarkFreshInstall
+  ${ifNot} ${isUpdated}
+    SetOutPath "$APPDATA\@matricarmz\electron-app"
+    FileOpen /o=$0 "kaspersky-setup-needed.flag"
+    FileWrite $0 "1"
+    FileClose $0
+    SetOutPath "$INSTDIR"
+  ${endIf}
+!macroend
+
 ; --- Аварийная кнопка «Восстановить Матрицу РМЗ» СНЯТА (C9) --------------------
 ; Ярлык на `watchdog --repair` больше не создаётся. У существующих машин его
 ; сносит Delete в customInit выше (он выполняется и при обновлении).
@@ -288,6 +311,7 @@ killDoneUninstall:
   !insertmacro InstallWatchdog
   !insertmacro InstallKasperskyHelper
   !insertmacro InstallClientAutostart
+  !insertmacro MarkFreshInstall
 !macroend
 
 !macro customUnInstall
