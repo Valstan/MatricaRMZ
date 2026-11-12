@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 // Обвязка списков после правок владельца 08.09.2026: тулбар в одну строку с меню переполнения,
-// выбор колонок внутри панели фильтров, однострочные заголовки и ширина колонок по данным.
+// выбор колонок рядом плашек под шапкой списка (12.11.2026), однострочные заголовки и ширина
+// колонок по данным.
 // Всё это рвётся молча — вёрстка «работает», просто снова занимает две строки или снова
 // растягивает колонку под длинную подпись.
 // Перевод строки нормализуется: на рабочей копии с CRLF многострочные ожидания
@@ -15,7 +16,7 @@ function src(rel: string): string {
 }
 
 const TOOLBAR = src('./PageToolbar.tsx');
-const COLUMNS = src('./ColumnSettingsButton.tsx');
+const COLUMNS = src('./ListColumnChips.tsx');
 const CSS = src('../global.css');
 const WIDTHS = src('../hooks/useAdaptiveListTables.ts');
 const POPUP = src('./PopupLayer.tsx');
@@ -71,12 +72,27 @@ describe('тулбар списка — одна строка', () => {
 });
 
 describe('выбор колонок', () => {
-  it('называется словами', () => {
-    expect(COLUMNS).toContain('label?: string;');
-    expect(COLUMNS).toContain('{props.label ? <span>{props.label}</span> : null}');
+  it('живёт рядом плашек под шапкой списка, а не кнопкой в тулбаре', () => {
+    // Владелец 12.11.2026: «кнопку колонки списка убрать полностью из панели кнопок
+    // управления списками… теперь этими колонками управляют плашки». Ряд плашек стоит между
+    // панелью фильтров и шапкой списка: белая плашка — колонка выключена, тёмно-серая —
+    // включена (видна в списке и идёт на печать).
+    expect(COLUMNS).toContain('export function ListColumnChips');
+    expect(COLUMNS).toContain('data-list-column-chip={column.id}');
+    expect(COLUMNS).toContain("data-list-column-chip-state={on ? 'on' : 'off'}");
+    expect(COLUMNS, 'белая плашка — колонка не включена').toContain("const CHIP_OFF_BACKGROUND = '#ffffff';");
+    expect(COLUMNS, 'тёмно-серая плашка — колонка включена').toContain('const CHIP_ON_BACKGROUND =');
     for (const [name, page] of PAGES) {
-      expect(page, `${name}: кнопка колонок без подписи`).toContain('label="Колонки списка"');
+      expect(page, `${name}: ряд плашек колонок на месте`).toContain('<ListColumnChips');
+      expect(page, `${name}: кнопка колонок вернулась бы в тулбар`).not.toContain('ColumnSettingsButton');
     }
+  });
+
+  it('включённая колонка уходит и в список, и в печать', () => {
+    // Печать и выгрузка берут по умолчанию ровно те колонки, что видны на экране.
+    expect(COLUMNS).toContain('onToggleVisible(column.id, !on)');
+    const PRINT_SELECTION = src('../utils/listColumnSelection.ts');
+    expect(PRINT_SELECTION).toContain('config.visibleColumnIds.filter((id) => known.has(id))');
   });
 });
 
@@ -91,8 +107,6 @@ describe('выпадающие панели остаются на экране',
     expect(POPUP, 'без запасного края панель прилипает к самой кромке').toContain('const margin = 8;');
     expect(TOOLBAR).toContain('useAnchoredPopup(menuOpen, menuAnchor');
     expect(TOOLBAR).toContain('...popup.style,');
-    expect(COLUMNS).toContain('useAnchoredPopup(open, anchor');
-    expect(COLUMNS).toContain('...popup.style,');
   });
 
   it('панель, не влезающая вниз, открывается вверх (низкий экран планшета)', () => {

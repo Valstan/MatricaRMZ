@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { HUMAN_LABEL_NO_NUMBER, describeFacetSelection, formatMonthLabel, humanLabel, type SupplyRequestPayload } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
-import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ListColumnChips, type ColumnDescriptor } from '../components/ListColumnChips.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { ListExportButtons } from '../components/ListExportButtons.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
@@ -305,15 +305,6 @@ export function SupplyRequestsPage(props: {
             extra: [month ? `Месяц: ${formatMonthLabel(month) || month}` : ''],
           })}
         />
-        <ColumnSettingsButton
-          label="Колонки списка"
-          columns={columnDescriptors}
-          order={columnLayout.order}
-          isVisible={columnLayout.isVisible}
-          onToggleVisible={columnLayout.setVisible}
-          onMove={columnLayout.moveColumn}
-          onReset={columnLayout.resetToDefault}
-        />
       </PageToolbar>
 
       {/* Диалог печати вне ряда кнопок: в ряду он уехал бы в меню переполнения вместе со своей
@@ -337,6 +328,18 @@ export function SupplyRequestsPage(props: {
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
       <ListCount total={rows.length} shown={displayRows.length} style={{ marginTop: 6 }} />
+
+      {/* Ряд плашек видимости колонок — между панелью фильтров и шапкой списка
+          (владелец 12.11.2026): белая плашка — колонка не включена, тёмно-серая — включена
+          (видна в списке и идёт на печать). Кнопки «Колонки списка» в тулбаре больше нет. */}
+      <ListColumnChips
+        columns={columnDescriptors}
+        order={columnLayout.order}
+        isVisible={columnLayout.isVisible}
+        onToggleVisible={columnLayout.setVisible}
+        onMoveTo={columnLayout.moveColumnTo}
+        onReset={columnLayout.resetToDefault}
+      />
       <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 2, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         {twoCol ? (
           <TwoColumnList items={displayRows} enabled renderColumn={(items, _c, _n, startIndex) => renderTable(items, startIndex)} />

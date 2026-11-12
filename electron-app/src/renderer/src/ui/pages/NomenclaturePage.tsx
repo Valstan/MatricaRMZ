@@ -6,7 +6,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
-import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ListColumnChips, type ColumnDescriptor } from '../components/ListColumnChips.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { Input } from '../components/Input.js';
 import { ListExportButtons } from '../components/ListExportButtons.js';
@@ -798,15 +798,6 @@ export function NomenclaturePage(props: {
                   ],
                 })}
               />
-              <ColumnSettingsButton
-                label="Колонки списка"
-                columns={columnDescriptors}
-                order={columnLayout.order}
-                isVisible={columnLayout.isVisible}
-                onToggleVisible={columnLayout.setVisible}
-                onMove={columnLayout.moveColumn}
-                onReset={columnLayout.resetToDefault}
-              />
               <Button variant="ghost" onClick={() => void refresh()}>
                 Обновить
               </Button>
@@ -851,6 +842,17 @@ export function NomenclaturePage(props: {
             {/* Всего — позиции всех групп (счётчики групп приходят с сервера), показано — строки
                 раскрытой группы: пока ничего не раскрыто, на экране строк нет. */}
             <ListCount total={groupCounts.reduce((acc, g) => acc + (Number(g.count) || 0), 0)} shown={sorted.length} style={{ flexShrink: 0 }} />
+            {/* Ряд плашек видимости колонок — между панелью фильтров и шапкой списка
+                (владелец 12.11.2026): белая плашка — колонка не включена, тёмно-серая — включена
+                (видна в списке и идёт на печать). Кнопки «Колонки списка» в тулбаре больше нет. */}
+            <ListColumnChips
+              columns={columnDescriptors}
+              order={columnLayout.order}
+              isVisible={columnLayout.isVisible}
+              onToggleVisible={columnLayout.setVisible}
+              onMoveTo={columnLayout.moveColumnTo}
+              onReset={columnLayout.resetToDefault}
+            />
             <div
               ref={containerRef}
               onScroll={onScroll}

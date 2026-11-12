@@ -7,7 +7,7 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
-import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ListColumnChips, type ColumnDescriptor } from '../components/ListColumnChips.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { ListExportButtons } from '../components/ListExportButtons.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
@@ -772,15 +772,6 @@ export function NomenclatureDirectoryPage(props: {
           storageKey={`${layoutId}:printFields`}
           filtersSummary={describeFacetSelection([], {}, { search: query })}
         />
-        <ColumnSettingsButton
-          label="Колонки списка"
-          columns={columnDescriptors}
-          order={columnLayout.order}
-          isVisible={columnLayout.isVisible}
-          onToggleVisible={columnLayout.setVisible}
-          onMove={columnLayout.moveColumn}
-          onReset={columnLayout.resetToDefault}
-        />
         <Button variant="ghost" onClick={() => void refresh()}>
           Обновить
         </Button>
@@ -829,6 +820,18 @@ export function NomenclatureDirectoryPage(props: {
         </div>
       ) : null}
       <ListCount total={rows.length} shown={sortedRows.length} />
+
+      {/* Ряд плашек видимости колонок — между панелью фильтров и шапкой списка
+          (владелец 12.11.2026): белая плашка — колонка не включена, тёмно-серая — включена
+          (видна в списке и идёт на печать). Кнопки «Колонки списка» в тулбаре больше нет. */}
+      <ListColumnChips
+        columns={columnDescriptors}
+        order={columnLayout.order}
+        isVisible={columnLayout.isVisible}
+        onToggleVisible={columnLayout.setVisible}
+        onMoveTo={columnLayout.moveColumnTo}
+        onReset={columnLayout.resetToDefault}
+      />
       <div ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         {twoCol ? (
           <TwoColumnList items={sortedRows} enabled renderColumn={(items, _c, _n, startIndex) => renderTable(items, startIndex)} />

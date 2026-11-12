@@ -24,7 +24,6 @@ function src(rel: string): string {
 /** Меню, которые ОБЯЗАНЫ рисоваться порталом. Файл → как выглядит его меню в коде. */
 const PORTALED = [
   ['./ListContextMenu.tsx', 'меню строки списка и меню аккаунта'],
-  ['./ColumnSettingsButton.tsx', '«Колонки списка»'],
   ['./PageToolbar.tsx', '«Ещё кнопки» тулбара'],
   ['./WarehouseDocumentStatusFilterDropdown.tsx', 'отбор статусов документов'],
   ['../shellV2/ButtonPanel.tsx', 'меню кнопки в панели МЕНЮ'],

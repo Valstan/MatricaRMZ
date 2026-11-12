@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../components/Button.js';
-import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ListColumnChips, type ColumnDescriptor } from '../components/ListColumnChips.js';
 import { ContractNumberText } from '../components/ContractNumberText.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { ListExportButtons } from '../components/ListExportButtons.js';
@@ -1038,15 +1038,6 @@ export function ContractsPage(props: {
         <ToolbarPin>
           <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar })} />
         </ToolbarPin>
-        <ColumnSettingsButton
-          label="Колонки списка"
-          columns={columnDescriptors}
-          order={columnLayout.order}
-          isVisible={columnLayout.isVisible}
-          onToggleVisible={columnLayout.setVisible}
-          onMove={columnLayout.moveColumn}
-          onReset={columnLayout.resetToDefault}
-        />
         <Button variant="ghost" onClick={() => void loadContracts()}>
           Обновить
         </Button>
@@ -1107,6 +1098,18 @@ export function ContractsPage(props: {
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
 
       <ListCount total={rows.length} shown={sorted.length} style={{ marginTop: 6 }} />
+
+      {/* Ряд плашек видимости колонок — между панелью фильтров и шапкой списка
+          (владелец 12.11.2026): белая плашка — колонка не включена, тёмно-серая — включена
+          (видна в списке и идёт на печать). Кнопки «Колонки списка» в тулбаре больше нет. */}
+      <ListColumnChips
+        columns={columnDescriptors}
+        order={columnLayout.order}
+        isVisible={columnLayout.isVisible}
+        onToggleVisible={columnLayout.setVisible}
+        onMoveTo={columnLayout.moveColumnTo}
+        onReset={columnLayout.resetToDefault}
+      />
       <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 2, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items, _c, _n, startIndex) => renderTable(items, startIndex)} />
       </div>
