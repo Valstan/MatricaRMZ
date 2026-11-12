@@ -90,6 +90,7 @@
 - [⏳ Дубли сотрудников: остаток — штатка с ПДО и приёмка на парке (запрет по полному ключу сделан) 🗓 since:2026-11-09](pending/dubli-sotrudnikov-ostatok-zapret-po-polnomu-klyuchu-shtatka-s-pdo.md)
 - [⏳ Рекламация в истории ремонта: код сделан (3.117.0 и 3.118.0) — осталась приёмка на парке 🗓 since:2026-11-09](pending/reklamaatsiya-v-istorii-remonta.md)
 - [⏳ СИЗ: у каждой позиции набора норм — своя номенклатура 🗓 since:2026-11-11](pending/siz-svoya-nomenklatura-na-poziciyu-nabora.md)
+- [⏳ Панель фильтров: спойлера нет, плашки выбранных плавающие — приёмка на парке (PR #1688) 🗓 since:2026-11-12](pending/panel-filtrov-spoilera-net-plashki-plavayushchie-priemka.md)
 - [⏳ Приёмка парка на 3.102.0: приказ о СИЗ и должности должны быть видны оператору 🗓 since:2026-11-03](pending/priemka-parka-na-3-101-0-prikaz-o-siz.md)
 - [⏳ Проставить сроки носки по 113 годовым позициям приказа о СИЗ: без срока они не попадают в «пора выдавать» 🗓 since:2026-11-05](pending/prostat-sroki-noski-po-godovym-poziciyam-prikaza-siz.md)
 - [⏳ Выгрузка СИЗ в 1С: структура файла ждёт бухгалтера 🗓 since:2026-11-03](pending/vygruzka-siz-v-1s-struktura-zhdet-buhgaltera.md)
