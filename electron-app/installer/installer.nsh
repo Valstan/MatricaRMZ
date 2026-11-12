@@ -223,11 +223,21 @@ killDoneUninstall:
 ; отдельным файлом. Саму метку клиент после показа удаляет.
 !macro MarkFreshInstall
   ${ifNot} ${isUpdated}
-    SetOutPath "$APPDATA\@matricarmz\electron-app"
-    FileOpen /o=$0 "kaspersky-setup-needed.flag"
+    ; ⚠️ `FileOpen` в NSIS — РОВНО ТРИ параметра: `FileOpen <handle> <имя файла> <режим>`,
+    ; где режим: r — чтение, w — запись (файл создаётся/перезаписывается), a — дописать.
+    ; Прежняя запись `FileOpen /o=$0 "kaspersky-setup-needed.flag"` выглядела правдоподобно,
+    ; но макрос раскрывается как текст: сборщик отвечал «FileOpen expects 3 parameters, got 2»
+    ; и ронял СБОРКУ инсталлятора (12.11.2026, релиз v3.120.0). Ловится сторожем
+    ; `kasperskySetup.guard.test.ts` — теперь локально, за секунды, а не в CI через 6 минут.
+    ;
+    ; Путь — папка данных клиента (userData), а не папка установки: она переживает обновления.
+    ; На СВЕЖЕЙ машине её может не быть вовсе (её создаёт первый запуск программы) — создаём.
+    CreateDirectory "$APPDATA\@matricarmz\electron-app"
+    ClearErrors
+    FileOpen $0 "$APPDATA\@matricarmz\electron-app\kaspersky-setup-needed.flag" w
     FileWrite $0 "1"
     FileClose $0
-    SetOutPath "$INSTDIR"
+    ClearErrors
   ${endIf}
 !macroend
 

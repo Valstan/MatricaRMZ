@@ -21,6 +21,14 @@ function read(rel: string): string {
 }
 
 const INSTALLER = read('electron-app/installer/installer.nsh');
+/**
+ * Только код установщика — без комментариев. Комментарий может СОБОЧНО содержать
+ * неверный вызов (так и было: цитата прежней ошибки в комментарии ловилась сторожем),
+ * а проверять надо то, что реально компилируется.
+ */
+const INSTALLER_CODE = INSTALLER.split(/\r?\n/)
+  .filter((line) => !line.trimStart().startsWith(';'))
+  .join('\n');
 const SERVICE = read('electron-app/src/main/services/clientOpsService.ts');
 const APP = read('electron-app/src/renderer/src/ui/App.tsx');
 const CLIENT_OPS_DIALOG = read('electron-app/src/renderer/src/ui/components/ClientOpsDialog.tsx');
@@ -42,6 +50,23 @@ describe('инструкция по настройке Касперского: �
     // В папке установки метка исчезала бы при каждом обновлении (каталог заменяется
     // целиком), и «показали один раз» не запоминалось бы.
     expect(SERVICE).toContain("join(app.getPath('userData'), 'kaspersky-setup-needed.flag')");
+    // Установщик пишет метку в ТОТ ЖЕ каталог: userData клиента — «%APPDATA%\@matricarmz\
+    // electron-app». Расхождение путей = метка, которую никто не прочитает.
+    expect(INSTALLER).toContain('"$APPDATA\\@matricarmz\\electron-app\\kaspersky-setup-needed.flag"');
+  });
+
+  it('установщик пишет метку вызовом FileOpen с тремя параметрами', () => {
+    // NSIS: `FileOpen <handle> <имя файла> <режим>` — ровно три. Прежний вызов
+    // `FileOpen /o=$0 "kaspersky-setup-needed.flag"` компилировался только в CI: makensis
+    // отвечал «FileOpen expects 3 parameters, got 2» и ронял сборку инсталлятора
+    // (12.11.2026, релиз v3.120.0). Сторож ловит это локально, за секунды.
+    expect(INSTALLER_CODE, 'у FileOpen ровно три параметра — /o= отсюда лишний').not.toContain('FileOpen /o=');
+    expect(INSTALLER_CODE).toMatch(/FileOpen \$0 "[^"]*kaspersky-setup-needed\.flag" w/);
+    expect(INSTALLER_CODE).toContain('FileWrite $0 "1"');
+    expect(INSTALLER_CODE).toContain('FileClose $0');
+    // Папка данных клиента на свежей машине может не существовать — без неё метка не пишется
+    // и автопоказ инструкции не срабатывает.
+    expect(INSTALLER_CODE).toContain('CreateDirectory "$APPDATA\\@matricarmz\\electron-app"');
   });
 
   it('клиент читает метку и снимает её после показа', () => {
