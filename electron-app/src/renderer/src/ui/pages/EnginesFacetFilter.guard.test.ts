@@ -111,7 +111,7 @@ describe('ступенчатый фильтр доезжает до строк �
   // атрибута в файле: обработчик клика по ячейке тоже упоминает имя атрибута.
   it('«Сбросить фильтр» стоит первым в ряду — до кнопок ступеней', () => {
     const reset = FILTER.indexOf('{renderResetButton()}');
-    const firstFacet = FILTER.indexOf('fieldSplit.visible.map(renderFacetColumn)');
+    const firstFacet = FILTER.indexOf('rankedFields.map(renderFacetColumn)');
     expect(reset, 'кнопка сброса на месте').toBeGreaterThan(0);
     expect(firstFacet, 'кнопки ступеней на месте').toBeGreaterThan(0);
     expect(reset, 'выход из фильтра ищут в начале панели, а не в её хвосте').toBeLessThan(firstFacet);

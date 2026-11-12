@@ -11,10 +11,10 @@ import {
   facetValueScore,
   facetValueUsageId,
   normalizeLookupCompact,
+  rankByUsage,
   sanitizeFacetUsage,
   setFacetDateBound,
   setFacetDay,
-  splitRatedByUsage,
   toggleFacetValue,
   type FacetDescriptor,
   type FacetOption,
@@ -28,6 +28,15 @@ import { FALLBACK_FACET_TONE, facetTones, type FacetTone } from '../utils/facetT
 
 /** Значений больше — в меню ступени появляется поле «Найти…». */
 const FACET_VALUE_SEARCH_THRESHOLD = 10;
+
+/**
+ * Высота строки плашек под кнопками-родителями. Резервируется у всех колонок, когда
+ * выбрано хоть что-то: плашки висят плавающим слоем и не участвуют в потоке по ширине
+ * (иначе длинное название выбранного значения раздвигало соседние кнопки — владелец
+ * 12.11.2026), но место под них в колонке должно быть — иначе следующий ряд кнопок
+ * наполз бы на плашки.
+ */
+const FACET_CHIP_ROW_HEIGHT = 22;
 
 /** Хранилище рейтинга ступеней: своё у каждого списка (`usageKey`). */
 const FACET_USAGE_STORAGE_PREFIX = 'facetUsage:';
@@ -78,10 +87,16 @@ function readFacetUsage(usageKey: string | undefined): FacetUsage {
  * у каждой ступени свой цвет (`facetTone.ts`), и ряд кнопок отсортирован по рейтингу
  * использования (`facetUsage.ts`) — частые слева.
  *
- * Третье (владелец 26.10.2026): на виду только пять самых рейтинговых ступеней, остальное —
- * под спойлером «Ещё N». Иначе открытая панель показывает разом два десятка кнопок и пятьдесят
- * заказчиков: «рябит в глазах». Ступень с выбранными значениями не прячется никогда — иначе
- * она отбирала бы втихую, а её плашки висели бы без ячейки.
+ * Четвёртое (владелец 12.11.2026, после компактной переделки): спойлера «Ещё N» больше нет —
+ * показываются ВСЕ ступени сразу. Рейтинг по-прежнему задаёт порядок, но ничего не прячет:
+ * панель стала компактной, и стена из двух десятков кнопок больше не пугает.
+ *
+ * Пятое (владелец 12.11.2026): ширина плашек выбранных значений НЕ влияет на ширину
+ * кнопки-родителя. Раньше колонка была `flex column` с `maxWidth`, и длинное название
+ * выбранного значения раздвигало соседние кнопки — общий ряд «расползался в ширину».
+ * Теперь плашки висят отдельным слоем поверх ряда (absolute), прижаты к центру своей
+ * кнопки и могут наползать на территорию соседа: место под соседом пустует, но ряд
+ * кнопок остаётся компактным.
  */
 
 /**
@@ -243,27 +258,11 @@ export function FacetFilter<Row>(props: {
     return normalizeLookupCompact(option.label).includes(q);
   }
 
-  /** Ступени, по которым есть выбор: их ячейка не прячется, а плашки висят под ней. */
-  const pickedFields = React.useMemo(() => {
-    const out = new Set<string>();
-    for (const facet of props.facets) {
-      const raw = props.selection[facet.id];
-      const picked = Array.isArray(raw) ? raw.length > 0 : facetRangeOf(props.selection, facet.id) != null;
-      if (picked) out.add(facet.id);
-    }
-    return out;
-  }, [props.facets, props.selection]);
-
-  // Видимая часть ряда ступеней: пять самых рейтинговых плюс те, по которым есть выбор.
-  // Ряд кнопок короче — панель не превращается в стену из двух десятков ступеней.
-  const fieldSplit = React.useMemo(
-    () =>
-      splitRatedByUsage(
-        props.facets,
-        (facet) => facetUsageScore(rating.usage, facet.id, rating.at),
-        (facet) => props.fields.includes(facet.id) || pickedFields.has(facet.id),
-      ),
-    [props.facets, rating, props.fields, pickedFields],
+  // Порядок ступеней в ряду — по рейтингу (частые слева). Спойлера нет: показываются все
+  // (владелец 12.11.2026 — панель стала компактной, прятать больше нечего).
+  const rankedFields = React.useMemo(
+    () => rankByUsage(props.facets, (facet) => facetUsageScore(rating.usage, facet.id, rating.at)),
+    [props.facets, rating],
   );
 
   // Открытое меню: наведение открывает, щелчок «прикалывает» (на планшете наведения нет).
@@ -367,6 +366,15 @@ export function FacetFilter<Row>(props: {
     }
     return out;
   }, [props.facets, props.rows, props.selection]);
+
+  /** Есть ли где-то выбранные значения — от этого зависит, резервировать ли место под плашки. */
+  const hasAnyChips = React.useMemo(() => {
+    for (const facet of props.facets) {
+      if ((selectedOptions.get(facet.id) ?? []).length > 0) return true;
+      if (facet.kind === 'dateRange' && facetRangeOf(props.selection, facet.id) != null) return true;
+    }
+    return false;
+  }, [props.facets, props.selection, selectedOptions]);
 
   /**
    * Кнопка «Сбросить фильтры» — первой в ряду (владелец 16.09.2026): выход из фильтра ищут в
@@ -585,9 +593,16 @@ export function FacetFilter<Row>(props: {
   }
 
   /**
-   * Ячейка ступени и её плашки: колонка. Плашка выбранного значения стоит прямо под той
-   * ячейкой, из которой значение выбрано (владелец 12.11.2026), и открывает то же меню —
-   * так набирают несколько значений, не возвращаясь к ячейке.
+   * Ячейка ступени и её плашки.
+   *
+   * Плашка выбранного значения стоит под той ячейкой, из которой значение выбрано
+   * (владелец 12.11.2026), и открывает то же меню — так набирают несколько значений,
+   * не возвращаясь к ячейке.
+   *
+   * Но плашки НЕ входят в поток колонки: они висят отдельным слоем (absolute) под
+   * ячейкой. Иначе длинное название выбранного значения раздвигало соседние кнопки —
+   * общий ряд фильтров «расползался в ширину» (владелец 12.11.2026). Теперь ширину
+   * колонки задаёт ТОЛЬКО кнопка, а плашка может наползти на территорию соседа.
    */
   function renderFacetColumn(facet: FacetDescriptor<Row>) {
     const tone = tones[facet.id] ?? FALLBACK_FACET_TONE;
@@ -599,11 +614,15 @@ export function FacetFilter<Row>(props: {
         key={facet.id}
         data-facet-column={facet.id}
         style={{
+          position: 'relative',
           display: 'flex',
           flexDirection: 'column',
           gap: 2,
           alignItems: 'flex-start',
-          maxWidth: 260,
+          // Место под строку плашек резервируется у ВСЕХ колонок, а не только у тех,
+          // где что-то выбрано: иначе ряд кнопок переносился бы на разную высоту и
+          // плашки первой строки наползали бы на кнопки второй.
+          paddingBottom: hasAnyChips ? FACET_CHIP_ROW_HEIGHT : 0,
         }}
       >
         <div
@@ -623,48 +642,76 @@ export function FacetFilter<Row>(props: {
             {picked > 0 ? ` (${picked})` : ''}
           </button>
           {renderFacetMenu(facet, 'cell')}
-        </div>
-        {chips.length > 0 ? (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2, maxWidth: 260 }}>
-            {chips.map((option) => (
+          {chips.length > 0 ? (
+            <div
+              data-facet-chips={facet.id}
+              style={{
+                // Плавающий слой под кнопкой: он НЕ в потоке колонки, поэтому ширину
+                // кнопки-родителя не раздвигает (владелец 12.11.2026: длинное название
+                // выбранного значения разводило соседние кнопки, и общий ряд расползался
+                // в ширину). Прижат к центру своей кнопки и может наползти на соседа.
+                position: 'absolute',
+                top: '100%',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                display: 'flex',
+                flexWrap: 'nowrap',
+                alignItems: 'flex-start',
+                gap: 2,
+                whiteSpace: 'nowrap',
+                zIndex: 5,
+              }}
+            >
+              {chips.map((option) => (
+                <div
+                  key={option.value}
+                  style={{ position: 'relative' }}
+                  onMouseEnter={() => openMenu(facet.id, option.value)}
+                  onMouseLeave={closeMenuOnLeave}
+                >
+                  <button
+                    type="button"
+                    data-facet-chip={`${facet.id}:${option.value}`}
+                    onClick={() => togglePin(facet.id, option.value)}
+                    title={`${option.label} — выбранное значение`}
+                    style={facetChipStyle(tone)}
+                  >
+                    {option.label}
+                  </button>
+                  {renderFacetMenu(facet, option.value)}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {range ? (
+            <div
+              style={{
+                position: 'absolute',
+                top: '100%',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 5,
+              }}
+            >
               <div
-                key={option.value}
                 style={{ position: 'relative' }}
-                onMouseEnter={() => openMenu(facet.id, option.value)}
+                onMouseEnter={() => openMenu(facet.id, 'range')}
                 onMouseLeave={closeMenuOnLeave}
               >
                 <button
                   type="button"
-                  data-facet-chip={`${facet.id}:${option.value}`}
-                  onClick={() => togglePin(facet.id, option.value)}
-                  title={`${option.label} — выбранное значение`}
+                  data-facet-chip={`${facet.id}:range`}
+                  onClick={() => togglePin(facet.id, 'range')}
+                  title={`${facet.label}: ${range.from ?? '…'} — ${range.to ?? '…'}`}
                   style={facetChipStyle(tone)}
                 >
-                  {option.label}
+                  {range.from && range.from === range.to ? range.from : `${range.from ?? '…'} — ${range.to ?? '…'}`}
                 </button>
-                {renderFacetMenu(facet, option.value)}
+                {renderFacetMenu(facet, 'range')}
               </div>
-            ))}
-          </div>
-        ) : null}
-        {range ? (
-          <div
-            style={{ position: 'relative' }}
-            onMouseEnter={() => openMenu(facet.id, 'range')}
-            onMouseLeave={closeMenuOnLeave}
-          >
-            <button
-              type="button"
-              data-facet-chip={`${facet.id}:range`}
-              onClick={() => togglePin(facet.id, 'range')}
-              title={`${facet.label}: ${range.from ?? '…'} — ${range.to ?? '…'}`}
-              style={facetChipStyle(tone)}
-            >
-              {range.from && range.from === range.to ? range.from : `${range.from ?? '…'} — ${range.to ?? '…'}`}
-            </button>
-            {renderFacetMenu(facet, 'range')}
-          </div>
-        ) : null}
+            </div>
+          ) : null}
+        </div>
       </div>
     );
   }
@@ -690,44 +737,11 @@ export function FacetFilter<Row>(props: {
             (владелец 16.09.2026): выход из фильтра ищут в начале панели, а не в её хвосте,
             который на узком окне уезжает под перенос ступеней. */}
         {renderResetButton()}
-        {fieldSplit.visible.map(renderFacetColumn)}
-        {fieldSplit.hidden.length > 0 ? (
-          <details
-            data-facet-more="fields"
-            style={{ display: 'inline-block', alignSelf: 'flex-start' }}
-          >
-            <summary
-              title="Остальные ступени: по рейтингу они реже — раскрыть список"
-              style={{
-                padding: '2px 4px',
-                borderRadius: 4,
-                border: '1px dashed var(--border)',
-                background: 'var(--surface)',
-                cursor: 'pointer',
-                listStyle: 'none',
-                whiteSpace: 'nowrap',
-                lineHeight: 1.25,
-              }}
-            >
-              Ещё {fieldSplit.hidden.length} ▾
-            </summary>
-            <div
-              data-facet-more-list="fields"
-              style={{
-                display: 'flex',
-                gap: 4,
-                flexWrap: 'wrap',
-                marginTop: 4,
-                padding: 4,
-                border: '1px solid var(--border)',
-                borderRadius: 6,
-                background: 'var(--surface)',
-              }}
-            >
-              {fieldSplit.hidden.map(renderFacetColumn)}
-            </div>
-          </details>
-        ) : null}
+        {/* Спойлера «Ещё N» больше нет (владелец 12.11.2026): после компактной переделки
+            панели показывать все ступени сразу — удобно, а ряд остаётся компактным, потому
+            что ширину задаёт сама кнопка, а не плашки под ней. Рейтинг по-прежнему задаёт
+            порядок — частые слева. */}
+        {rankedFields.map(renderFacetColumn)}
       </div>
     </div>
   );

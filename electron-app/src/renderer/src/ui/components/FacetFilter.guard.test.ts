@@ -70,20 +70,20 @@ describe('фильтры списков — рейтинг ступеней', ()
   });
 
   it('частые ступени идут левее редких: ряд ячеек строится тем же порядком', () => {
-    expect(FILTER).toContain('fieldSplit.visible.map(renderFacetColumn)');
+    expect(FILTER).toContain('rankedFields.map(renderFacetColumn)');
     // Отдельного списка панелей больше нет (владелец 12.11.2026) — порядок один: и ячейки, и
     // плашки под ними.
     expect(FILTER).not.toContain('orderedFields.map(');
   });
 
-  it('на виду только пять ступеней, хвост — под спойлером', () => {
-    // Владелец 26.10.2026: «показываются только пять самых рейтинговых фильтров, остальные
-    // прячутся в спойлер — а то рябит в глазах».
-    expect(FILTER).toContain('splitRatedByUsage(');
-    expect(FILTER).toContain('data-facet-more="fields"');
-    expect(FILTER).toContain('fieldSplit.hidden.map(renderFacetColumn)');
-    // Спрятанное не теряется из разметки: кнопка ступени остаётся с тем же признаком.
-    expect(FILTER).toContain('data-facet-field={facet.id}');
+  it('спойлера больше нет: видны все ступени сразу (владелец 12.11.2026)', () => {
+    // Панель после компактной переделки перестала быть «стеной из двух десятков кнопок»,
+    // и владелец снял ограничение: «можно убрать спойлер и показывать сразу все кнопки
+    // фильтров без скрытия». Рейтинг при этом по-прежнему задаёт порядок.
+    expect(FILTER).not.toContain('data-facet-more="fields"');
+    // Кнопки спойлера в разметке нет — слово «Ещё» осталось только в комментариях.
+    expect(FILTER).not.toContain('<summary');
+    expect(FILTER).toContain('rankedFields');
   });
 
   it('в меню ступени — все варианты, отсортированные по рейтингу', () => {
@@ -94,11 +94,11 @@ describe('фильтры списков — рейтинг ступеней', ()
     expect(FILTER).toContain('bumpFacet(fieldId, option.value)');
   });
 
-  it('ступень с выбором не прячется за спойлер, а выбранное видно в меню', () => {
+  it('ступень с выбором видна в ряду, а выбранное — в меню', () => {
     // Спрятанная ступень с выбором отбирала бы втихую: снять выбор нечем, а плашки висели бы
-    // без ячейки.
-    expect(FILTER).toContain('(facet) => props.fields.includes(facet.id) || pickedFields.has(facet.id)');
+    // без ячейки. Спойлера больше нет — но и выбор в меню остаётся видимым.
     expect(FILTER).toContain('if (option.selected) return true;');
+    expect(FILTER).toContain('data-facet-field={facet.id}');
   });
 
   it('в меню показываются все совпавшие значения, а не пять', () => {
@@ -149,6 +149,17 @@ describe('панель фильтров — вид по заказу владе�
     expect(FILTER).toContain('background: tone.tint');
     // Плашка и ячейка стоят в одной колонке — плашка под своей кнопкой.
     expect(FILTER).toContain('data-facet-column={facet.id}');
+  });
+
+  it('плашки висят плавающим слоем и не раздвигают кнопку родителя (владелец 12.11.2026)', () => {
+    // Длинное название выбранного значения разводило соседние кнопки, и общий ряд
+    // фильтров «расползался в ширину». Теперь плашка вне потока колонки (absolute) и
+    // прижата к центру своей кнопки; место под неё резервируется высотой, а не шириной.
+    expect(FILTER).toContain("position: 'absolute'");
+    expect(FILTER).toContain("transform: 'translateX(-50%)'");
+    expect(FILTER).toContain('FACET_CHIP_ROW_HEIGHT');
+    // Поток по ширине у плашек закрыт — все плашки ступени в одну строку.
+    expect(FILTER).toContain("flexWrap: 'nowrap'");
   });
 
   it('выбранное в меню — синее с белыми буквами, под курсором — серое', () => {
