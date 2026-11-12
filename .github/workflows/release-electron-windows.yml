@@ -70,17 +70,6 @@ jobs:
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
         run: pwsh -File scripts/signing/ci-sign-artifacts.ps1 -Mode Watchdog -Target electron-app/build/watchdog/matricarmz-watchdog.exe
 
-      # Trust scripts (root-CA probe + installer) ride inside the installer as
-      # extraResources. An UNSIGNED .ps1 is deleted by Kaspersky on sight (GOTCHAS M94),
-      # so the very files the client needs to install the root would vanish on the park
-      # machine. Sign them BEFORE the build — build-trust-assets copies the signed
-      # sources into electron-app/build/trust.
-      - name: Sign trust scripts
-        env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-        run: pwsh -File scripts/signing/ci-sign-artifacts.ps1 -Mode Scripts -Target scripts/signing
-
       - name: Install dependencies
         run: pnpm install
 

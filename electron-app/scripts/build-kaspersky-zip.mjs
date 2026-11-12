@@ -38,23 +38,17 @@ const FILES = [
   'lan-share-firewall.ps1',
   'opencode-cleanup.ps1',
   'guide.ru.md',
+  // Короткая инструкция СИСТЕМНОМУ АДМИНИСТРАТОРУ: четыре шага, без объяснений «почему».
+  // Памятка guide.ru.md — подробный разбор для оператора; админу достаточно этой.
+  'admin-instruction.ru.md',
   'README.md',
   'Запустить.cmd',
-  'Запустить-от-администратора.cmd',
-  // Повышенный шаг установки корня доверия (ADR-0003): без него на машине парка нечем
-  // поставить корень, а без корня подпись клиента не действует.
-  'install-root-on-machine.ps1',
-  'matrixarmz-rootca.cer',
 ]
 
-// Файлы, которые лежат не в scripts/client-ops, а едут в том же архиве. Скрипт установки
-// корня ищет .cer рядом с собой (Join-Path $PSScriptRoot), поэтому оба кладутся в одну
-// папку — иначе повышенный шаг на машине парка не запустится. Приватный ключ сюда не
-// едет никогда: он живёт только в CI.
-const EXTRA_SOURCES = {
-  'install-root-on-machine.ps1': 'scripts/signing/install-root-on-machine.ps1',
-  'matrixarmz-rootca.cer': 'scripts/signing/matrixarmz-rootca.cer',
-}
+// Файлы, которые лежат не в scripts/client-ops, а едут в том же архиве. Сейчас таких нет:
+// повышенный шаг установки корня доверия убран (ADR-0003 откатан на исключения), и
+// «Запустить-от-администратора.cmd» тоже — окно обслуживания больше не просит прав.
+const EXTRA_SOURCES = {}
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(here, '..', '..')

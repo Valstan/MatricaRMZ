@@ -82,10 +82,15 @@ param(
     [string]$MergeExclusions,
     [string]$MergeTrusted,
     # Как считать список доверенных программ:
+    #   Legacy    — полный список: все найденные исполняемые файлы и ярлыки. ЗНАЧЕНИЕ ПО
+    #               УМОЛЧАНИЮ: доверие по подписи на парке не подтвердилось (решение
+    #               владельца 12.11.2026), а подпись закрывает только PE-образы — данные
+    #               (база, логи, кэш обновлений) она не покрывает вовсе.
     #   Signature — по ADR-0003: подпись закрывает подписанные файлы, в списке остаётся
-    #               клиент (правило дочерних процессов) и всё, что подпись не покрывает;
-    #   Legacy    — старый путь целиком: все найденные исполняемые файлы и ярлыки.
-    [ValidateSet('Signature', 'Legacy')][string]$TrustMode = 'Signature',
+    #               клиент (правило дочерних процессов) и всё, что подпись не покрывает.
+    #               Оставлен как явный выбор на случай, если механика сертификатов
+    #               подтвердится; включать его по умолчанию нельзя.
+    [ValidateSet('Signature', 'Legacy')][string]$TrustMode = 'Legacy',
     # Не выполнять главный поток: скрипт подключают точкой (`. .\kaspersky-matrica.ps1 -AsLibrary`)
     # из окна обслуживания `matrica-ops.ps1`, которому нужны только функции — собрать данные и
     # построить панель для своей вкладки. Без этого ключа дот-сорсинг открыл бы второе окно.
@@ -688,26 +693,10 @@ function Get-MatricaRootConstants {
     }
 }
 
-function Get-MatricaRootInstallScript {
-    # Где лежит скрипт повышенной установки корня. На машине парка — рядом с помощником
-    # (оба едут в одном архиве); в репозитории — в scripts\signing. Ищем оба места, иначе
-    # команда в памятке указывала бы в пустоту.
-    if (-not $PSScriptRoot) { return '' }
-    $candidates = @(
-        (Join-Path $PSScriptRoot 'install-root-on-machine.ps1'),
-        (Join-Path (Join-Path $PSScriptRoot 'signing') 'install-root-on-machine.ps1'),
-        (Join-Path (Join-Path (Join-Path $PSScriptRoot '..') 'signing') 'install-root-on-machine.ps1')
-    )
-    foreach ($c in $candidates) {
-        if (Test-Path -LiteralPath $c) { return (Resolve-Path -LiteralPath $c).Path }
-    }
-    return ''
-}
-
 function Get-MatricaRootCert {
-    # Публичная часть корня едет вместе с помощником (matrixarmz-rootca.cer — копия
-    # scripts\signing\matrixarmz-rootca.cer). Рядом может не оказаться (старый архив, копия
-    # помощника на флешке) — тогда опознаём корень по зашитому Subject.
+    # Публичная часть корня лежит в репозитории (scripts\signing\matrixarmz-rootca.cer).
+    # Рядом с помощником её может не оказаться (старый архив, копия на флешке) — тогда
+    # опознаём корень по зашитому Subject (см. Get-MatricaRootConstants).
     # $PSScriptRoot пуст не только «файла нет»: приёмка подключает функции разбором AST, и у
     # такого скриптблока своего файла нет — тогда путь не строим вовсе.
     if (-not $PSScriptRoot) { return $null }
@@ -742,6 +731,8 @@ function Test-SignedByMatrica {
 function Get-ShortcutTarget {
     # Куда ведёт ярлык. Нужно, чтобы решить, покрывает ли ярлык подпись: Касперский разбирает
     # .lnk и переносит доверие на цель, поэтому ярлык на подписанный клиент подписью закрыт.
+    # Второе применение — отсев чужих ярлыков: под образец имени «*Матриц*.lnk» попадает
+    # ярлык на чужую программу, и доверять её нельзя.
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) { return '' }
     try {
@@ -751,90 +742,15 @@ function Get-ShortcutTarget {
     } catch { return '' }
 }
 
-function Get-MatricaRootState {
-    # Стоит ли корень доверия на ЭТОЙ машине. Служба Касперского работает от SYSTEM и читает
-    # МАШИННЫЕ хранилища (ADR-0003 §«Хранилище сертификатов: решение»), поэтому смотрим их.
-    $stores = @{}
-    $readable = $true
-    $const = Get-MatricaRootConstants
-    foreach ($storeName in $const.Stores) {
-        try {
-            $found = @(Get-ChildItem "Cert:\LocalMachine\$storeName" -ErrorAction Stop |
-                Where-Object { $_.Thumbprint -eq $const.Thumbprint })
-            $stores[$storeName] = ($found.Count -gt 0)
-        } catch {
-            $stores[$storeName] = $false
-            $readable = $false
-        }
-    }
-    $installScript = Get-MatricaRootInstallScript
-    $cerPath = ''
-    if ($PSScriptRoot) {
-        $candidateCer = Join-Path $PSScriptRoot 'matrixarmz-rootca.cer'
-        if (Test-Path -LiteralPath $candidateCer) { $cerPath = $candidateCer }
-    }
-    # Хранилище ПОЛЬЗОВАТЕЛЯ (CurrentUser): ставится без прав администратора и этого
-    # достаточно, чтобы программа сама доверяла серверу (TLS) и Windows показывала
-    # правильного издателя подписи. Но Касперский (служба от SYSTEM) смотрит МАШИННЫЕ
-    # хранилища — их состояние и решает «доверять по подписи» (ADR-0003).
-    $userStores = @{}
-    foreach ($storeName in $const.Stores) {
-        try {
-            $foundUser = @(Get-ChildItem "Cert:\CurrentUser\$storeName" -ErrorAction Stop |
-                Where-Object { $_.Thumbprint -eq $const.Thumbprint })
-            $userStores[$storeName] = ($foundUser.Count -gt 0)
-        } catch {
-            $userStores[$storeName] = $false
-        }
-    }
-    [pscustomobject]@{
-        Thumbprint      = $const.Thumbprint
-        RootPresent     = [bool]$stores['Root']
-        TrustPresent    = [bool]$stores['Trust']
-        Present         = ([bool]$stores['Root'] -and [bool]$stores['Trust'])
-        UserRootPresent = [bool]$userStores['Root']
-        UserTrustPresent = [bool]$userStores['Trust']
-        UserPresent    = ([bool]$userStores['Root'] -and [bool]$userStores['Trust'])
-        Readable        = $readable
-        InstallScript   = $installScript
-        CerPath         = $cerPath
-    }
-}
-
-function Get-RootStateText {
-    # Одна строка о корне — и в окно, и в памятку, и в -Verify: состояние одно и то же.
-    param($State)
-    if (-not $State) { return 'состояние корня неизвестно' }
-    if (-not $State.Readable) {
-        return 'прочитать машинные хранилища не вышло — нужен запуск от администратора'
-    }
-    if ($State.Present) {
-        return 'корень стоит в обоих машинных хранилищах — подпись действует'
-    }
-    if ($State.UserPresent) {
-        return 'корень стоит в хранилище пользователя (без прав админа) — программа доверяет серверу сама; для доверия Касперского нужен повышенный шаг (машинные хранилища)'
-    }
-    $parts = @()
-    $parts += $(if ($State.RootPresent) { 'Root — есть' } else { 'Root — нет' })
-    $parts += $(if ($State.TrustPresent) { 'Trust — есть' } else { 'Trust — нет' })
-    'корень стоит не везде (' + ($parts -join ', ') + ') — нужен повышенный шаг установки'
-}
-
-function Get-RootInstallCommand {
-    # Команда повышенной установки корня. Скрипт лежит рядом с помощником (в этом же архиве),
-    # поэтому на машине парка работает без репозитория.
-    param($State)
-    if ($State -and $State.InstallScript) {
-        return 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + $State.InstallScript + '"'
-    }
-    return 'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\signing\install-root-on-machine.ps1'
-}
-
 function Get-TrustedAppsPlan {
     # Что вносить в список доверенных программ.
     #
-    #   Signature (ADR-0003) — подписанный нашим ключом файл Касперский доверяет по подписи,
-    #   поэтому в список он не нужен. Остаётся:
+    #   Legacy (по умолчанию) — полный список: все НАШИ исполняемые файлы и наши ярлыки.
+    #     Доверие по подписи на парке не подтвердилось (решение владельца 12.11.2026), а
+    #     подпись закрывает только PE-образы: данные (база, логи, кэш обновлений) она не
+    #     покрывает вовсе. Значит закрывать исполняемые файлы должна явная строка списка.
+    #   Signature (ADR-0003) — по подписи: подписанный нашим ключом файл Касперский доверяет
+    #     сам, поэтому в список он не нужен. Остаётся:
     #     * клиент — ВСЕГДА: на этой строке держится правило «не контролировать активность
     #       дочерних приложений», а оно покрывает модули экосистемы и сторонние утилиты,
     #       которые запускает Матрица;
@@ -842,13 +758,34 @@ function Get-TrustedAppsPlan {
     #       остаётся единственным путём;
     #     * ярлык — только если его цель не подписана (Касперский переносит доверие с .lnk
     #       на цель, и подписанная цель закрывает ярлык).
-    #   Legacy — старый путь целиком: все найденные исполняемые файлы и ярлыки. Нужен, если
-    #   подпись на парке не подтвердилась (ADR-0003 §«Откат, если механика не подтвердится»).
-    param($Matrica, [string]$Mode = 'Signature')
+    #
+    # Ярлык — только наш: поиск идёт по образцу имени («*Матриц*.lnk»), и под это имя
+    # попадает ЧУЖАЯ программа, если у оператора есть ярлык с похожим названием. Доверять
+    # чужое приложение нельзя, поэтому ярлык берётся только если его цель — один из наших
+    # исполняемых файлов (проверено на живой машине: ярлык «Матрица РМЗ.lnk» вёл на
+    # стороннюю программу и попадал в список доверенных — это ошибка, а не доверие).
+    param($Matrica, [string]$Mode = 'Legacy')
+
+    $ourExes = @()
+    foreach ($exe in (@($Matrica.AppExe, $Matrica.WatchdogExe) + @($Matrica.ExtraExes))) {
+        # @() вокруг вызова: функция возвращает список, а PowerShell разворачивает массив
+        # в поток — без обёртки список из одного элемента становится СТРОКОЙ, и следующая
+        # склейка `+` сработала бы как склейка строк (проверено: два пути слились в один).
+        if ($exe) { $ourExes = @(Add-UniquePath -List $ourExes -Path $exe) }
+    }
+    $ourShortcuts = @()
+    foreach ($lnk in @($Matrica.Shortcuts)) {
+        if (-not $lnk) { continue }
+        $target = Get-ShortcutTarget -Path $lnk
+        if (-not $target) { continue }
+        if (Test-ContainsPath -List $ourExes -Path $target) {
+            $ourShortcuts = @(Add-UniquePath -List $ourShortcuts -Path $lnk)
+        }
+    }
 
     $candidates = @()
-    foreach ($exe in (@($Matrica.AppExe, $Matrica.WatchdogExe) + @($Matrica.ExtraExes) + @($Matrica.Shortcuts))) {
-        if ($exe) { $candidates = Add-UniquePath -List $candidates -Path $exe }
+    foreach ($exe in (@($ourExes) + @($ourShortcuts))) {
+        $candidates = @(Add-UniquePath -List $candidates -Path $exe)
     }
     if ($Mode -eq 'Legacy') {
         return [pscustomobject]@{ Trusted = $candidates; CoveredBySignature = @() }
@@ -859,13 +796,13 @@ function Get-TrustedAppsPlan {
     foreach ($item in $candidates) {
         $isClient = $false
         if ($Matrica.AppExe) { $isClient = Test-ContainsPath -List @($Matrica.AppExe) -Path $item }
-        if ($isClient) { $trusted = Add-UniquePath -List $trusted -Path $item; continue }
+        if ($isClient) { $trusted = @(Add-UniquePath -List $trusted -Path $item); continue }
         $probe = $item
         if ($item -like '*.lnk') { $probe = Get-ShortcutTarget -Path $item }
         if ($probe -and (Test-SignedByMatrica -Path $probe)) {
-            $covered = Add-UniquePath -List $covered -Path $item
+            $covered = @(Add-UniquePath -List $covered -Path $item)
         } else {
-            $trusted = Add-UniquePath -List $trusted -Path $item
+            $trusted = @(Add-UniquePath -List $trusted -Path $item)
         }
     }
     [pscustomobject]@{ Trusted = $trusted; CoveredBySignature = $covered }
@@ -910,11 +847,12 @@ function Get-ExclusionPlan {
         NetworkHost    = $Matrica.ApiHost
         NetworkIps     = $Matrica.ApiIps
         NetworkPort    = 443
-        # Чем закрыты подписанные файлы: подписью. Их в списке доверенных нет — и оператор
-        # должен видеть, что они убраны именно потому, что подписаны, а не забыты.
+        # Чем закрыты подписанные файлы: подписью. В режиме Signature их в списке доверенных
+        # нет — и администратор должен видеть, что они убраны именно потому, что подписаны,
+        # а не забыты. По умолчанию режим Legacy: доверие по подписи на парке не
+        # подтвердилось, поэтому подписанные файлы в список доверенных возвращаются.
         TrustMode           = $Mode
         CoveredBySignature  = $trustedPlan.CoveredBySignature
-        RootState           = (Get-MatricaRootState)
         TrustedFlags   = @(
             'Не проверять открываемые файлы',
             'Не контролировать активность программы',
@@ -1097,8 +1035,6 @@ function Write-Guide {
         '{{EXCLUDE_LIST}}'  = ($Plan.ExcludeFolders -join "`r`n")
         '{{MASK_LIST}}'     = ($Plan.ExcludeMasks -join "`r`n")
         '{{TRUSTED_LIST}}'  = ($Plan.TrustedApps -join "`r`n")
-        '{{ROOT_STATE}}'    = (Get-RootStateText -State $Plan.RootState)
-        '{{ROOT_COMMAND}}'  = (Get-RootInstallCommand -State $Plan.RootState)
         '{{SIGNED_COVERED}}' = $(if (@($Plan.CoveredBySignature).Count -gt 0) {
                                     @($Plan.CoveredBySignature) -join "`r`n"
                                 } else {
@@ -1199,16 +1135,6 @@ function Invoke-VerifyState {
         $lines += "Рукопожатие приложения: есть (обновлено $age)"
     } else {
         $lines += 'Рукопожатие приложения: нет (приложение ни разу не стартовало на этом пользователе)'
-    }
-
-    # Корень доверия: без него подпись клиента не действует, и весь список доверенных
-    # программ работает «наполовину» — по пути, а не по подписи.
-    $rootState = Get-MatricaRootState
-    $lines += "Корень доверия: $(Get-RootStateText -State $rootState)"
-    if ($rootState.Present) {
-        $lines += "  отпечаток: $($rootState.Thumbprint) — в Cert:\LocalMachine\Root и Cert:\LocalMachine\Trust"
-    } else {
-        $lines += '  нужен повышенный шаг: install-root-on-machine.ps1 (кнопка «Установить корень» во вкладке «Антивирус»).'
     }
 
     # Сеть до прода — TCP:443, без DNS-зависимости, если IP уже известен.
@@ -1332,48 +1258,19 @@ function New-KasperskyPanel {
         [void]$script:allText.AppendLine($Label)
     }
 
-    # ── Шаг 1: корень доверия. Без него подпись не действует, и весь остальной список
-    #    доверенных — работа вслепую: файл подписан, но Касперский ему не доверяет.
-    $rootState = $Plan.RootState
-    $rootText = Get-RootStateText -State $rootState
-    Add-Section 'A. Корень доверия и подпись — повышенный шаг, один раз на машину' `
-        ('Матрица подписана своим ключом («CN=MatricaRMZ Root CA»). Касперский доверяет ПО ПОДПИСИ, когда корень лежит в МАШИННОМ хранилище сертификатов, а в программе включена вкладка «Доверенное системное хранилище сертификатов». Настройку Касперского программно не поменять (Самозащита), но корень поставить — можно: это делает администратор, один раз на машину. Состояние: ' + $rootText + '. Без прав администратора корень можно поставить в хранилище пользователя (install-root-on-machine.ps1 -Scope CurrentUser) — этого хватает, чтобы программа сама доверяла серверу, но Касперский системное хранилище всё равно не увидит.')
-    Add-Row (Get-RootInstallCommand -State $rootState)
-    if ($rootState -and $rootState.InstallScript) {
-        $capturedInstall = $rootState.InstallScript
-        $installAction = {
-            try {
-                Start-Process -FilePath 'powershell.exe' -Verb RunAs -ErrorAction Stop `
-                    -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$capturedInstall`"")
-            } catch {
-                [System.Windows.Forms.MessageBox]::Show(
-                    "Запустить с повышенными правами не вышло:`r`n$([string]$_)`r`n`r`nЗначит, на этой учётной записи прав администратора нет — корень ставит тот, у кого они есть.",
-                    'Не получилось') | Out-Null
-            }
-        }.GetNewClosure()
-        $installNote = 'Откроется отдельное окно PowerShell с повышенными правами — подтверди UAC. Установка в хранилище Root идёт 45–207 секунд: это НЕ зависание, не прерывай.'
-        if ($rootState.Present) {
-            $installNote = 'Корень уже стоит в обоих машинных хранилищах — шаг не нужен. Кнопка оставлена на случай, если корень снесли.'
-        }
-        Add-Action 'Установить корень (попросит права)' $installAction $installNote
-    } else {
-        Add-Row '(скрипта установки корня рядом нет — он едет в этом же архиве; на машине без него шаг выполняется вручную)'
-    }
-
-    Add-Section 'A2. Что остаётся сделать в окне Касперского (это уже не elevated)' `
-        'Настройка (шестерёнка) → раздел про исключения («Исключения и действия с найденными объектами» в новых сборках, «Угрозы и исключения» в 21.9 и старше) → прокрутить ВНИЗ до строки «Доверенное системное хранилище сертификатов» (она последняя в таблице) → в списке выбрать наше хранилище, НЕ «Не использовать» (без этого антивирус проверяет программы независимо от подписи) → сохранить. Если такой строки в сборке нет вовсе — работает старый путь: доверенные программы и исключения вносит помощник по антивирусу (импорт готового файла). Если машина под политикой Kaspersky Security Center — настройка в политике, а не в окне программы. Сертификат в Касперский добавлять не нужно: он уже стоит в Windows, в машинных хранилищах. После этого подписанный MatricaRMZ.exe попадает в группу «Доверенные», а HIPS / System Watcher молчат.'
-
-    $trustedNote = 'Настройки Касперского → Настройка (шестерёнка) → «Угрозы и исключения» → «Указать доверенные программы» → Добавить. Для каждой поставь все галочки: ' + ($Plan.TrustedFlags -join '; ') + '.'
-    if ($Plan.TrustMode -eq 'Signature') {
-        $trustedNote += ' Про клиента: он остаётся в списке всегда — на этой строке держится правило «не контролировать активность дочерних приложений», которым закрывается всё, что Матрица запускает.'
-    }
-    Add-Section 'B. Доверенные программы' $trustedNote
+    # ── Шаг 1: доверенные программы.
+    # Повышенного шага здесь больше нет: доверие по сертификату на парке не подтвердилось
+    # (решение владельца 12.11.2026), и весь список доверенных вносится вручную — без прав
+    # администратора и без шага с UAC.
+    $trustedNote = 'Настройки Касперского → Настройка (шестерёнка) → раздел про исключения («Исключения и действия с найденными объектами» в новых сборках, «Угрозы и исключения» в 21.9 и старше) → «Указать доверенные программы» → Добавить. Для каждой поставь все галочки: ' + ($Plan.TrustedFlags -join '; ') + '.'
+    $trustedNote += ' Клиент остаётся в списке всегда: на этой строке держится правило «не контролировать активность дочерних приложений», которым закрывается всё, что Матрица запускает.'
+    Add-Section 'A. Доверенные программы' $trustedNote
     foreach ($t in $Plan.TrustedApps) { Add-Row $t }
     if (@($Plan.TrustedApps).Count -eq 0) { Add-Row '(не найдено — установи Матрицу и открой это окно снова)' }
 
-    if ($Plan.TrustMode -eq 'Signature' -and @($Plan.CoveredBySignature).Count -gt 0) {
-        Add-Section 'B2. Убрано из списка — эти файлы закрывает подпись' `
-            'Подписанные нашим ключом файлы в списке доверенных не нужны: Касперский доверяет им по подписи, а не по пути. Если подпись на этой машине не работает — верни список целиком: kaspersky-matrica.ps1 -TrustMode Legacy.'
+    if (@($Plan.CoveredBySignature).Count -gt 0) {
+        Add-Section 'A2. Не попали в список — но это не страшно' `
+            'Эти файлы подписаны нашим ключом, но Касперский на парке доверия по подписи не подтвердил, поэтому они перечислены здесь для сведения: вносить их в доверенные не нужно.'
         foreach ($c in $Plan.CoveredBySignature) { Add-Row $c }
     }
 
@@ -1609,9 +1506,6 @@ if ($Json) {
 $guidePath = $ctx.GuidePath
 
 if ($Quiet) {
-    Write-Host "=== Корень доверия ==="
-    Write-Host "  $(Get-RootStateText -State $plan.RootState)"
-    Write-Host "  $(Get-RootInstallCommand -State $plan.RootState)"
     Write-Host "=== Доверенные программы ==="
     $plan.TrustedApps | ForEach-Object { Write-Host "  $_" }
     if ($plan.TrustMode -eq 'Signature' -and @($plan.CoveredBySignature).Count -gt 0) {

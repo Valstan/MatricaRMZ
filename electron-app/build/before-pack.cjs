@@ -7,11 +7,6 @@
 // dedicated CI step because it needs the Go toolchain — the archive needs only Node
 // and the 7zip-bin dev-dependency, present in every build path, so a single hook here
 // covers local `pnpm dist` and the CI installer job without a separate step to forget.
-//
-// It also stages the trust assets (root CA + install script + probe, ADR-0003): the
-// client checks and installs the root itself, so these files must ride inside the
-// installer. Fail loudly if they cannot be produced — shipping a client that cannot
-// check its own trust state is worse than a red build.
 const { execFileSync } = require('node:child_process')
 const path = require('node:path')
 
@@ -20,7 +15,4 @@ exports.default = async function beforePack() {
   // Fail the build loudly if the archive cannot be produced: shipping an installer
   // that silently lacks the helper is worse than a red build.
   execFileSync(process.execPath, [script], { stdio: 'inherit' })
-
-  const trustScript = path.join(__dirname, '..', 'scripts', 'build-trust-assets.mjs')
-  execFileSync(process.execPath, [trustScript], { stdio: 'inherit' })
 }
