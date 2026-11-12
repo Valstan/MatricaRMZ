@@ -46,9 +46,9 @@ describe('фильтры списков — цвет ступени', () => {
     expect(FILTER).toContain('tone.tint');
   });
 
-  it('панель значений лежит на подложке своего цвета', () => {
-    const panels = FILTER.match(/data-facet-panel=\{[^}]+\} style=\{panelStyle\}/g) ?? [];
-    expect(panels).toHaveLength(2); // ступень значений и ступень-диапазон дат
+  it('меню ступени помечено и лежит в её цвете', () => {
+    // Владелец 12.11.2026: вместо раскрытой панели под ячейкой — меню по наведению.
+    expect(FILTER).toContain('data-facet-menu={facet.id}');
     expect(FILTER).toContain('background: tone.panel');
     expect(FILTER).toContain('borderLeft: `3px solid ${tone.accent}`');
   });
@@ -61,18 +61,19 @@ describe('фильтры списков — рейтинг ступеней', ()
   });
 
   it('ряд кнопок строится по рейтингу в момент открытия панели, а не под курсором', () => {
-    expect(FILTER).toContain('orderFacetIdsByUsage(');
-    // Порядок фиксируется эффектом на открытии: сдвинь кнопки в момент щелчка — оператор
-    // щёлкнет не ту ступень.
-    expect(FILTER).toMatch(/if \(!props\.open\) return;\n\s*const at = Date\.now\(\);\n\s*setRankedIds\(orderFacetIdsByUsage\(/);
-    // Пятёрка значений считается по тому же снимку счёта: щелчок внутри открытой панели
-    // счёт копит, но ряд под курсором не перетасовывается.
-    expect(FILTER).toContain('setRating({ usage: usageRef.current, at });');
+    // Порядок и состав ряда считаются по СНИМКУ счёта, снятому при открытии панели: щелчок
+    // внутри открытой панели счёт копит, но ряд под курсором не перетасовывается.
+    expect(FILTER).toMatch(
+      /if \(!props\.open\) return;\n\s*const at = Date\.now\(\);\n\s*setRating\(\{ usage: usageRef\.current, at \}\);/,
+    );
+    expect(FILTER).toContain('facetUsageScore(rating.usage, facet.id, rating.at)');
   });
 
-  it('частые ступени идут левее редких: панели сортируются тем же порядком', () => {
-    expect(FILTER).toContain('fieldSplit.visible.map(renderFieldButton)');
-    expect(FILTER).toContain('orderedFields.map(');
+  it('частые ступени идут левее редких: ряд ячеек строится тем же порядком', () => {
+    expect(FILTER).toContain('fieldSplit.visible.map(renderFacetColumn)');
+    // Отдельного списка панелей больше нет (владелец 12.11.2026) — порядок один: и ячейки, и
+    // плашки под ними.
+    expect(FILTER).not.toContain('orderedFields.map(');
   });
 
   it('на виду только пять ступеней, хвост — под спойлером', () => {
@@ -80,28 +81,29 @@ describe('фильтры списков — рейтинг ступеней', ()
     // прячутся в спойлер — а то рябит в глазах».
     expect(FILTER).toContain('splitRatedByUsage(');
     expect(FILTER).toContain('data-facet-more="fields"');
-    expect(FILTER).toContain('fieldSplit.hidden.map(renderFieldButton)');
+    expect(FILTER).toContain('fieldSplit.hidden.map(renderFacetColumn)');
     // Спрятанное не теряется из разметки: кнопка ступени остаётся с тем же признаком.
     expect(FILTER).toContain('data-facet-field={facet.id}');
   });
 
-  it('значения ступени тоже режутся по рейтингу: пять на виду, остальные под спойлером', () => {
-    expect(FILTER).toContain('data-facet-more={`values:${fieldId}`}');
-    expect(FILTER).toContain('valueSplit.hidden.map(valueButton)');
-    expect(FILTER).toContain('facetValueScore(rating.usage, fieldId, option.value, rating.at)');
+  it('в меню ступени — все варианты, отсортированные по рейтингу', () => {
+    // Владелец 12.11.2026: меню показывает всё, что ступень предлагает, — рейтинг задаёт
+    // лишь порядок (частые выше), но ничего не отсекает.
+    expect(FILTER).toContain('facetValueScore(rating.usage, openFacetId, option.value, rating.at)');
     // Щелчок по значению копит свой счёт, отдельный от счёта ступени.
     expect(FILTER).toContain('bumpFacet(fieldId, option.value)');
   });
 
-  it('выбранное значение и открытая ступень не прячутся за спойлер', () => {
-    // Спрятанное выбранное значение отбирало бы втихую: снять выбор нечем.
-    expect(FILTER).toContain('(option) => option.selected === true');
-    expect(FILTER).toContain('(facet) => props.fields.includes(facet.id)');
+  it('ступень с выбором не прячется за спойлер, а выбранное видно в меню', () => {
+    // Спрятанная ступень с выбором отбирала бы втихую: снять выбор нечем, а плашки висели бы
+    // без ячейки.
+    expect(FILTER).toContain('(facet) => props.fields.includes(facet.id) || pickedFields.has(facet.id)');
+    expect(FILTER).toContain('if (option.selected) return true;');
   });
 
-  it('пока набран поиск, показываем всё, что совпало, а не пять', () => {
-    expect(FILTER).toContain('const searching = query.trim().length > 0;');
-    expect(FILTER).toContain('{ visible: shown, hidden: [] as FacetOption[] }');
+  it('в меню показываются все совпавшие значения, а не пять', () => {
+    expect(FILTER).toContain('const shown = options.filter((option) => matchValueOption(option, query));');
+    expect(FILTER).toContain('shown.map(valueButton)');
   });
 
   it('у каждого списка свой ключ рейтинга', () => {
@@ -115,5 +117,43 @@ describe('фильтры списков — рейтинг ступеней', ()
   it('двигатели идут через обёртку — она обязана прокинуть ключ дальше', () => {
     expect(ENGINE_FILTER).toContain('usageKey?: string;');
     expect(ENGINE_FILTER).toContain('usageKey: props.usageKey');
+  });
+});
+
+// Вид панели по заказу владельца 12.11.2026: «пусть это будут просто надписи на квадратных
+// ячейках, практически без полей», по наведению — меню со всеми вариантами и сбросом этой
+// ветки, выбранные значения — плашками под своей кнопкой и цветом той же ступени.
+describe('панель фильтров — вид по заказу владельца 12.11.2026', () => {
+  it('ячейка ступени — надпись без полей и без рамки, цветом своей ступени', () => {
+    expect(FILTER).toContain('background: tone.tint');
+    expect(FILTER).toContain("border: 'none'");
+    expect(FILTER).toContain("padding: '2px 4px'");
+  });
+
+  it('меню ступени открывается по наведению и прикалывается щелчком', () => {
+    expect(FILTER).toContain('onMouseEnter={() => openMenu(facet.id,');
+    expect(FILTER).toContain('onMouseLeave={closeMenuOnLeave}');
+    expect(FILTER).toContain('togglePin(facet.id,');
+  });
+
+  it('в меню первая строка — сброс этой ветки, а в ряду — сброс всего', () => {
+    expect(FILTER).toContain('data-facet-menu-reset={facet.id}');
+    expect(FILTER).toContain('Сбросить фильтр');
+    expect(FILTER).toContain('Сбросить фильтры');
+    // Сброс ветки снимает ТОЛЬКО свою ступень.
+    expect(FILTER).toContain('clearFacet(props.selection, facetId)');
+  });
+
+  it('выбранное значение — плашка под своей ячейкой, цветом той же ступени', () => {
+    expect(FILTER).toContain('data-facet-chip={`${facet.id}:${option.value}`}');
+    expect(FILTER).toContain('background: tone.tint');
+    // Плашка и ячейка стоят в одной колонке — плашка под своей кнопкой.
+    expect(FILTER).toContain('data-facet-column={facet.id}');
+  });
+
+  it('выбранное в меню — синее с белыми буквами, под курсором — серое', () => {
+    expect(FILTER).toContain("const MENU_SELECTED = 'hsl(221 83% 53%)'");
+    expect(FILTER).toContain("const MENU_HOVER = 'rgba(127, 127, 127, 0.18)'");
+    expect(FILTER).toContain("color: option.selected ? '#ffffff' : 'var(--text)'");
   });
 });

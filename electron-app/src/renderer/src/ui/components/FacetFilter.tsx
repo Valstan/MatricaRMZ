@@ -11,7 +11,6 @@ import {
   facetValueScore,
   facetValueUsageId,
   normalizeLookupCompact,
-  orderFacetIdsByUsage,
   sanitizeFacetUsage,
   setFacetDateBound,
   setFacetDay,
@@ -27,11 +26,22 @@ import { Input } from './Input.js';
 import { emojiAttrs } from '../utils/labelEmoji.js';
 import { FALLBACK_FACET_TONE, facetTones, type FacetTone } from '../utils/facetTone.js';
 
-/** Значений больше — у ступени появляется поле «Найти…». */
+/** Значений больше — в меню ступени появляется поле «Найти…». */
 const FACET_VALUE_SEARCH_THRESHOLD = 10;
 
 /** Хранилище рейтинга ступеней: своё у каждого списка (`usageKey`). */
 const FACET_USAGE_STORAGE_PREFIX = 'facetUsage:';
+
+/**
+ * Открытое меню ступени: по ячейке первого уровня или по плашке выбранного значения.
+ * `anchor` — что именно открыто: `'cell'` (ячейка ступени) либо значение плашки.
+ */
+type FacetMenu = { facetId: string; anchor: 'cell' | string };
+
+/** Меню: выбранное значение — синее с белыми буквами, под курсором — серое. */
+const MENU_SELECTED = 'hsl(221 83% 53%)';
+const MENU_SELECTED_HOVER = 'hsl(221 83% 45%)';
+const MENU_HOVER = 'rgba(127, 127, 127, 0.18)';
 
 function readFacetUsage(usageKey: string | undefined): FacetUsage {
   if (!usageKey) return createEmptyFacetUsage();
@@ -48,8 +58,17 @@ function readFacetUsage(usageKey: string | undefined): FacetUsage {
  * тулбар оброс кнопками, и все отборы должны жить в одном месте). Общий для двигателей и
  * контрактов — ступени приходят описанием, компонент о предметной области ничего не знает.
  *
- * Первая ступень — какие поля вообще участвуют, вторая — значения выбранных полей; пустой
- * выбор значений читается как «все», поэтому состояния «поле выбрано, а список пуст» нет.
+ * Вид панели (владелец 12.11.2026: «пусть это будут просто надписи на квадратных ячейках,
+ * практически без полей»):
+ *
+ * - **Первый уровень** — ряд компактных ячеек: только надпись ступени, поля в пару пикселей,
+ *   фон — бледный цвет своей ступени (`facetTone.ts`). Рамки нет: цвет и есть опознание.
+ * - **Меню ступени** — выпадает ПОД ячейкой по наведению мыши (и по щелчку: на планшете
+ *   наведения нет). Первая строка меню — «Сбросить фильтр»: снимает ЭТУ ступень. Сбросить
+ *   всё — отдельная кнопка в начале ряда.
+ * - **Второй уровень** — выбранные значения стоят плашками ПОД своей ячейки, цветом той же
+ *   ступени. Наведение на плашку открывает то же меню ступени — так набирают несколько
+ *   значений, не возвращаясь к ячейке.
  *
  * Числа рядом со значениями — сколько строк останется, и считаются они по строкам, прошедшим
  * ОСТАЛЬНЫЕ ступени. Отсюда следствие, ради которого всё и затевалось: выбор в одной ступени
@@ -59,31 +78,45 @@ function readFacetUsage(usageKey: string | undefined): FacetUsage {
  * у каждой ступени свой цвет (`facetTone.ts`), и ряд кнопок отсортирован по рейтингу
  * использования (`facetUsage.ts`) — частые слева.
  *
- * Третье (владелец 26.10.2026): на виду только пять самых рейтинговых ступеней и пять значений
- * внутри ступени, остальное — под спойлером «Ещё N». Иначе открытая панель показывает разом два
- * десятка кнопок и пятьдесят заказчиков: «рябит в глазах». Активная ступень и выбранное значение
- * не прячутся никогда — иначе они отбирали бы втихую.
+ * Третье (владелец 26.10.2026): на виду только пять самых рейтинговых ступеней, остальное —
+ * под спойлером «Ещё N». Иначе открытая панель показывает разом два десятка кнопок и пятьдесят
+ * заказчиков: «рябит в глазах». Ступень с выбранными значениями не прячется никогда — иначе
+ * она отбирала бы втихую, а её плашки висели бы без ячейки.
  */
 
 /**
- * Цветной кружок перед подписью ступени в панели: сам цвет живёт в полосе и подложке, но подпись
- * должна читаться в любой теме, поэтому текст остаётся обычным — цвет несёт кружок.
+ * Ячейка ступени: только надпись, поля в пару пикселей, фон — бледный цвет ступени.
+ * Рамки нет (владелец 12.11.2026: «рамочка невнятная — надо, чтоб просто фон»).
  */
-function FacetToneDot(props: { tone: FacetTone }) {
-  return (
-    <span
-      aria-hidden
-      style={{
-        display: 'inline-block',
-        width: 8,
-        height: 8,
-        borderRadius: 999,
-        marginRight: 6,
-        background: props.tone.accent,
-        verticalAlign: 'middle',
-      }}
-    />
-  );
+function facetCellStyle(tone: FacetTone, active: boolean): React.CSSProperties {
+  return {
+    padding: '2px 4px',
+    borderRadius: 4,
+    border: 'none',
+    background: tone.tint,
+    color: 'var(--text)',
+    fontWeight: active ? 700 : 400,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    lineHeight: 1.25,
+  };
+}
+
+/** Плашка выбранного значения: тот же цвет, что у ячейки ступени, и так же компактна. */
+function facetChipStyle(tone: FacetTone): React.CSSProperties {
+  return {
+    padding: '1px 4px',
+    borderRadius: 3,
+    border: 'none',
+    background: tone.tint,
+    color: 'var(--text)',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    maxWidth: 200,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    lineHeight: 1.25,
+  };
 }
 
 /**
@@ -123,7 +156,7 @@ export function FacetFilter<Row>(props: {
   facets: readonly FacetDescriptor<Row>[];
   rows: readonly Row[];
   selection: FacetSelection;
-  /** Какие ступени раскрыты. Хранится снаружи: состояние списка роумится вместе с фильтром. */
+  /** Какие ступени ступени были открыты. Хранится снаружи: состояние списка роумится вместе с фильтром. */
   fields: string[];
   /**
    * Раскрыта ли панель. Состояние снаружи (роумится вместе со списком), а переключает его
@@ -161,53 +194,19 @@ export function FacetFilter<Row>(props: {
   idsRef.current = props.facets.map((f) => f.id);
   const idsSignature = idsRef.current.join('|');
 
-  // Снимок счёта на момент открытия панели. По нему считаются и порядок кнопок, и видимая
-  // пятёрка значений: щелчок внутри открытой панели счёт копит, но ряд под курсором не
+  // Снимок счёта на момент открытия панели. По нему считаются и порядок кнопок, и порядок
+  // значений в меню: щелчок внутри открытой панели счёт копит, но ряд под курсором не
   // перетасовывается — новый рейтинг оператор увидит при следующем открытии.
   const [rating, setRating] = React.useState<{ usage: FacetUsage; at: number }>(() => ({
     usage: usageRef.current,
     at: Date.now(),
   }));
 
-  const [rankedIds, setRankedIds] = React.useState<string[]>(() =>
-    orderFacetIdsByUsage(idsRef.current, usageRef.current, Date.now()),
-  );
   React.useEffect(() => {
     if (!props.open) return;
     const at = Date.now();
-    setRankedIds(orderFacetIdsByUsage(idsRef.current, usageRef.current, at));
     setRating({ usage: usageRef.current, at });
   }, [props.open, idsSignature]);
-
-  const rankIndex = React.useMemo(() => {
-    const map = new Map<string, number>();
-    rankedIds.forEach((id, index) => map.set(id, index));
-    props.facets.forEach((f, index) => {
-      if (!map.has(f.id)) map.set(f.id, rankedIds.length + index);
-    });
-    return map;
-  }, [rankedIds, props.facets]);
-
-  // Видимая часть ряда ступеней: пять самых рейтинговых плюс уже открытые (владелец 26.10.2026).
-  // Ряд кнопок короче — панель не превращается в стену из двух десятков ступеней.
-  const fieldSplit = React.useMemo(
-    () =>
-      splitRatedByUsage(
-        props.facets,
-        (facet) => facetUsageScore(rating.usage, facet.id, rating.at),
-        (facet) => props.fields.includes(facet.id),
-      ),
-    [props.facets, rating, props.fields],
-  );
-
-  const orderedFields = React.useMemo(
-    () =>
-      [...props.fields].sort(
-        (a, b) =>
-          (rankIndex.get(a) ?? Number.MAX_SAFE_INTEGER) - (rankIndex.get(b) ?? Number.MAX_SAFE_INTEGER),
-      ),
-    [props.fields, rankIndex],
-  );
 
   /** Щелчок по ступени и по её значению копит счёт: у значения — свой ключ в той же карте. */
   function bumpFacet(facetId: string, value?: string) {
@@ -227,23 +226,6 @@ export function FacetFilter<Row>(props: {
     }
   }
 
-  const toggleField = (id: string) => {
-    bumpFacet(id);
-    if (chosen.has(id)) {
-      props.onChangeFields(props.fields.filter((x) => x !== id));
-      // Снятое поле не должно продолжать отбирать втихую.
-      props.onChangeSelection(clearFacet(props.selection, id));
-      setValueQuery((prev) => {
-        if (!(id in prev)) return prev;
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-    } else {
-      props.onChangeFields([...props.fields, id]);
-    }
-  };
-
   const pickedCount = (id: string): number => {
     const raw = props.selection[id];
     if (Array.isArray(raw)) return raw.length;
@@ -251,8 +233,7 @@ export function FacetFilter<Row>(props: {
   };
 
   // Поиск по значениям ступени (владелец 02.10.2026: 50 заказчиков глазами не
-  // найти). Локально в панели, в отбор и роуминг не едет. Выбранные значения
-  // видны всегда — иначе выбор снимался бы только сбросом всего фильтра.
+  // найти). Локально в меню, в отбор и роуминг не едет.
   const [valueQuery, setValueQuery] = React.useState<Record<string, string>>({});
 
   function matchValueOption(option: FacetOption, query: string): boolean {
@@ -262,72 +243,429 @@ export function FacetFilter<Row>(props: {
     return normalizeLookupCompact(option.label).includes(q);
   }
 
-  // Варианты всех раскрытых ступеней — одним мемо: раньше каждая ступень сканировала
-  // весь список прямо в рендере, и любой чих родителя (индикатор синка, часы)
-  // пересчитывал всё заново. Содержимое то же, платит только смена входа.
-  const optionsByField = React.useMemo(() => {
-    const out = new Map<string, FacetOption[]>();
-    if (!props.open) return out;
-    for (const fieldId of props.fields) {
-      const facet = props.facets.find((f) => f.id === fieldId);
-      if (!facet || facet.kind !== 'values') continue;
-      out.set(fieldId, facetOptions(props.facets, props.rows, props.selection, fieldId));
+  /** Ступени, по которым есть выбор: их ячейка не прячется, а плашки висят под ней. */
+  const pickedFields = React.useMemo(() => {
+    const out = new Set<string>();
+    for (const facet of props.facets) {
+      const raw = props.selection[facet.id];
+      const picked = Array.isArray(raw) ? raw.length > 0 : facetRangeOf(props.selection, facet.id) != null;
+      if (picked) out.add(facet.id);
     }
     return out;
-  }, [props.open, props.facets, props.rows, props.selection, props.fields]);
+  }, [props.facets, props.selection]);
+
+  // Видимая часть ряда ступеней: пять самых рейтинговых плюс те, по которым есть выбор.
+  // Ряд кнопок короче — панель не превращается в стену из двух десятков ступеней.
+  const fieldSplit = React.useMemo(
+    () =>
+      splitRatedByUsage(
+        props.facets,
+        (facet) => facetUsageScore(rating.usage, facet.id, rating.at),
+        (facet) => props.fields.includes(facet.id) || pickedFields.has(facet.id),
+      ),
+    [props.facets, rating, props.fields, pickedFields],
+  );
+
+  // Открытое меню: наведение открывает, щелчок «прикалывает» (на планшете наведения нет).
+  // Приколотое меню главнее наведённого: пока оно не отпущено, наведение его не вытесняет.
+  const [pinned, setPinned] = React.useState<FacetMenu | null>(null);
+  const [hovered, setHovered] = React.useState<FacetMenu | null>(null);
+  const openMenuTarget = pinned ?? hovered;
+  const openFacetId = openMenuTarget?.facetId ?? null;
+
+  React.useEffect(() => {
+    if (props.open) return;
+    setPinned(null);
+    setHovered(null);
+  }, [props.open]);
+
+  // Щелчок мимо меню закрывает его. Внутри меню — не закрывает: иначе нельзя было бы выбрать
+  // несколько значений подряд (выбор не закрывает меню, закрывает только щелчок снаружи).
+  // Щелчок по ячейке или плашке — тоже не закрывает: их обработчик сам решает, открыть или
+  // отпустить, иначе повторный щелчок по ячейке открывал бы меню заново вместо закрытия.
+  React.useEffect(() => {
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target.closest('[data-facet-menu]')) return;
+      if (target.closest('[data-facet-field]')) return;
+      if (target.closest('[data-facet-chip]')) return;
+      setPinned(null);
+      setHovered(null);
+    };
+    document.addEventListener('mousedown', onPointerDown, true);
+    return () => document.removeEventListener('mousedown', onPointerDown, true);
+  }, []);
+
+  /** Наведение открывает меню. Приколотое меню наведением не вытесняется. */
+  function openMenu(facetId: string, anchor: 'cell' | string) {
+    setHovered((prev) => {
+      if (prev && prev.facetId === facetId && prev.anchor === anchor) return prev;
+      return { facetId, anchor };
+    });
+  }
+
+  /** Уход курсора закрывает наведённое меню: приколотое живёт до щелчка. */
+  function closeMenuOnLeave() {
+    setHovered(null);
+  }
+
+  /** Щелчок прикалывает меню (повторный — отпускает). */
+  function togglePin(facetId: string, anchor: 'cell' | string) {
+    bumpFacet(facetId);
+    setPinned((prev) => {
+      if (prev && prev.facetId === facetId && prev.anchor === anchor) return null;
+      return { facetId, anchor };
+    });
+  }
+
+  /** Сбросить ветку ступени: снимает её значения и убирает ступень из открытых. */
+  function resetFacet(facetId: string) {
+    props.onChangeSelection(clearFacet(props.selection, facetId));
+    if (chosen.has(facetId)) props.onChangeFields(props.fields.filter((x) => x !== facetId));
+    setValueQuery((prev) => {
+      if (!(facetId in prev)) return prev;
+      const next = { ...prev };
+      delete next[facetId];
+      return next;
+    });
+  }
+
+  /** Ступень с выбором запоминается открытой — иначе её ячейка уехала бы в спойлер. */
+  function rememberField(facetId: string) {
+    if (chosen.has(facetId)) return;
+    props.onChangeFields([...props.fields, facetId]);
+  }
+
+  /** Варианты открытой ступени — по рейтингу: частые выше (рейтинг значений общий со ступенями). */
+  const menuOptions = React.useMemo(() => {
+    if (!openFacetId) return [] as FacetOption[];
+    const facet = props.facets.find((f) => f.id === openFacetId);
+    if (!facet || facet.kind !== 'values') return [];
+    return facetOptions(props.facets, props.rows, props.selection, openFacetId)
+      .map((option, index) => ({
+        option,
+        index,
+        score: facetValueScore(rating.usage, openFacetId, option.value, rating.at),
+      }))
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .map((x) => x.option);
+  }, [openFacetId, props.facets, props.rows, props.selection, rating]);
+
+  /** Выбранные значения ступени — плашки под её ячейкой (владелец 12.11.2026). */
+  const selectedOptions = React.useMemo(() => {
+    const out = new Map<string, FacetOption[]>();
+    for (const facet of props.facets) {
+      if (facet.kind !== 'values') continue;
+      const raw = props.selection[facet.id];
+      if (!Array.isArray(raw) || raw.length === 0) continue;
+      const options = facetOptions(props.facets, props.rows, props.selection, facet.id);
+      out.set(
+        facet.id,
+        options.filter((o) => o.selected),
+      );
+    }
+    return out;
+  }, [props.facets, props.rows, props.selection]);
 
   /**
-   * Кнопка «Сбросить фильтр» — первой в ряду (владелец 16.09.2026): выход из фильтра ищут в
+   * Кнопка «Сбросить фильтры» — первой в ряду (владелец 16.09.2026): выход из фильтра ищут в
    * начале панели, а не в её хвосте, который на узком окне уезжает под перенос ступеней.
+   * Снимает ВСЁ (владелец 12.11.2026); сброс одной ступени живёт в её меню.
    */
   function renderResetButton() {
+    const idle = activeCount === 0 && props.fields.length === 0;
     return (
       <button
         type="button"
         data-facet-reset
         onClick={props.onReset}
-        disabled={activeCount === 0 && props.fields.length === 0}
+        disabled={idle}
         title="Снять все ступени и вернуть полный список"
         style={{
-          padding: '4px 10px',
-          borderRadius: 8,
+          padding: '2px 4px',
+          borderRadius: 4,
           border: '1px solid var(--border)',
           background: 'var(--surface)',
-          cursor: activeCount === 0 && props.fields.length === 0 ? 'default' : 'pointer',
+          color: 'var(--text)',
+          cursor: idle ? 'default' : 'pointer',
+          whiteSpace: 'nowrap',
+          lineHeight: 1.25,
         }}
       >
-        Сбросить фильтр{activeCount > 0 ? ` (${activeCount})` : ''}
+        Сбросить фильтры{activeCount > 0 ? ` (${activeCount})` : ''}
       </button>
     );
   }
 
-  /** Кнопка ступени: цвет от её id, счёт выбранных значений — в подписи. */
-  function renderFieldButton(facet: FacetDescriptor<Row>) {
-    const on = chosen.has(facet.id);
-    const picked = pickedCount(facet.id);
+  /** Меню ступени: сброс этой ветки, а дальше — варианты (или поля дат). */
+  function renderFacetMenu(facet: FacetDescriptor<Row>, anchor: 'cell' | string) {
+    if (!openMenuTarget || openMenuTarget.facetId !== facet.id || openMenuTarget.anchor !== anchor) return null;
     const tone = tones[facet.id] ?? FALLBACK_FACET_TONE;
+    const fieldId = facet.id;
     return (
-      <button
-        key={facet.id}
-        type="button"
-        data-facet-field={facet.id}
-        onClick={() => toggleField(facet.id)}
-        title={on ? 'Убрать ступень из фильтра' : 'Добавить ступень в фильтр'}
-        {...emojiAttrs(facet.label)}
+      <div
+        data-facet-menu={facet.id}
         style={{
-          padding: '4px 10px',
-          borderRadius: 999,
-          border: `1px solid ${on ? tone.accent : 'var(--border)'}`,
-          // Цветная полоса слева видна и в закрытой ступени: по ней фильтр и узнают.
-          borderLeft: `4px solid ${tone.accent}`,
-          background: on ? tone.tint : 'var(--surface)',
-          fontWeight: on ? 700 : 400,
+          position: 'absolute',
+          top: '100%',
+          left: 0,
+          zIndex: 60,
+          minWidth: 200,
+          maxWidth: 320,
+          maxHeight: 320,
+          overflowY: 'auto',
+          padding: 2,
+          border: '1px solid var(--border)',
+          borderLeft: `3px solid ${tone.accent}`,
+          borderRadius: 6,
+          background: tone.panel,
+          boxShadow: '0 8px 20px rgba(15, 23, 42, 0.18)',
+        }}
+      >
+        <button
+          type="button"
+          data-facet-menu-reset={facet.id}
+          onClick={() => resetFacet(facet.id)}
+          title="Снять отбор по этой ступени"
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = MENU_HOVER;
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'transparent';
+          }}
+          style={{
+            display: 'block',
+            width: '100%',
+            textAlign: 'left',
+            padding: '2px 4px',
+            border: 'none',
+            borderRadius: 3,
+            background: 'transparent',
+            color: 'var(--subtle)',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Сбросить фильтр
+        </button>
+        {renderMenuBody(facet, fieldId)}
+      </div>
+    );
+  }
+
+  /** Тело меню: у ступени-диапазона — поля дат, у ступени-значений — список вариантов. */
+  function renderMenuBody(facet: FacetDescriptor<Row>, fieldId: string) {
+    if (facet.kind === 'dateRange') {
+      return renderDateMenu(facet, fieldId);
+    }
+    return renderValueMenu(facet, fieldId);
+  }
+
+  /** Поля дат ступени-диапазона: вариантов у неё нет — есть две границы. */
+  function renderDateMenu(facet: FacetDescriptor<Row>, fieldId: string) {
+    const range = facetRangeOf(props.selection, fieldId) ?? {};
+    const sameDay = range.from && range.from === range.to ? range.from : '';
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '2px 4px' }}>
+        <span className="ui-muted">день</span>
+        <Input
+          type="date"
+          data-facet-day={fieldId}
+          value={sameDay}
+          onChange={(e) => {
+            bumpFacet(fieldId);
+            props.onChangeSelection(setFacetDay(props.selection, fieldId, e.target.value));
+          }}
+          title={`${facet.label}: ровно этот день`}
+        />
+        <span className="ui-muted">или период</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ width: 132 }}>
+            <Input
+              type="date"
+              data-facet-date={`${fieldId}:from`}
+              value={range.from ?? ''}
+              onChange={(e) => {
+                bumpFacet(fieldId);
+                props.onChangeSelection(setFacetDateBound(props.selection, fieldId, 'from', e.target.value));
+              }}
+              title={`${facet.label}: с`}
+            />
+          </div>
+          <span className="ui-muted">—</span>
+          <div style={{ width: 132 }}>
+            <Input
+              type="date"
+              data-facet-date={`${fieldId}:to`}
+              value={range.to ?? ''}
+              onChange={(e) => {
+                bumpFacet(fieldId);
+                props.onChangeSelection(setFacetDateBound(props.selection, fieldId, 'to', e.target.value));
+              }}
+              title={`${facet.label}: по`}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /** Варианты ступени в меню: все, что она предлагает (владелец 12.11.2026). */
+  function renderValueMenu(facet: FacetDescriptor<Row>, fieldId: string) {
+    const options = menuOptions;
+    const query = valueQuery[fieldId] ?? '';
+    const shown = options.filter((option) => matchValueOption(option, query));
+    const valueButton = (option: FacetOption) => (
+      <button
+        key={option.value}
+        type="button"
+        data-facet-value={`${fieldId}:${option.value}`}
+        onClick={() => {
+          bumpFacet(fieldId, option.value);
+          props.onChangeSelection(toggleFacetValue(props.selection, fieldId, option.value));
+          rememberField(fieldId);
+        }}
+        title={option.selected ? 'Убрать значение из отбора' : 'Оставить только это (и другие выбранные)'}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = option.selected ? MENU_SELECTED_HOVER : MENU_HOVER;
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = option.selected ? MENU_SELECTED : 'transparent';
+        }}
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 10,
+          width: '100%',
+          padding: '2px 4px',
+          border: 'none',
+          borderRadius: 3,
+          textAlign: 'left',
+          background: option.selected ? MENU_SELECTED : 'transparent',
+          color: option.selected ? '#ffffff' : 'var(--text)',
           cursor: 'pointer',
         }}
       >
-        {facet.label}
-        {picked > 0 ? ` (${picked})` : ''}
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {option.label}
+        </span>
+        <span style={{ color: option.selected ? 'rgba(255, 255, 255, 0.75)' : 'var(--subtle)' }}>
+          {option.count}
+        </span>
       </button>
+    );
+    return (
+      <>
+        {options.length > FACET_VALUE_SEARCH_THRESHOLD ? (
+          <div style={{ padding: '2px 4px' }}>
+            <Input
+              value={query}
+              onChange={(e) => setValueQuery((prev) => ({ ...prev, [fieldId]: e.target.value }))}
+              placeholder="Найти…"
+              title={`Найти значение: ${facet.label}`}
+              data-facet-value-search={fieldId}
+            />
+          </div>
+        ) : null}
+        {options.length === 0 ? (
+          <span className="ui-muted" style={{ padding: '2px 4px' }}>
+            нет значений при текущем отборе
+          </span>
+        ) : shown.length === 0 ? (
+          <span className="ui-muted" style={{ padding: '2px 4px' }}>
+            по запросу ничего нет
+          </span>
+        ) : (
+          shown.map(valueButton)
+        )}
+      </>
+    );
+  }
+
+  /**
+   * Ячейка ступени и её плашки: колонка. Плашка выбранного значения стоит прямо под той
+   * ячейкой, из которой значение выбрано (владелец 12.11.2026), и открывает то же меню —
+   * так набирают несколько значений, не возвращаясь к ячейке.
+   */
+  function renderFacetColumn(facet: FacetDescriptor<Row>) {
+    const tone = tones[facet.id] ?? FALLBACK_FACET_TONE;
+    const picked = pickedCount(facet.id);
+    const chips = selectedOptions.get(facet.id) ?? [];
+    const range = facet.kind === 'dateRange' ? facetRangeOf(props.selection, facet.id) : null;
+    return (
+      <div
+        key={facet.id}
+        data-facet-column={facet.id}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 2,
+          alignItems: 'flex-start',
+          maxWidth: 260,
+        }}
+      >
+        <div
+          style={{ position: 'relative' }}
+          onMouseEnter={() => openMenu(facet.id, 'cell')}
+          onMouseLeave={closeMenuOnLeave}
+        >
+          <button
+            type="button"
+            data-facet-field={facet.id}
+            onClick={() => togglePin(facet.id, 'cell')}
+            title="Показать варианты фильтра"
+            {...emojiAttrs(facet.label)}
+            style={facetCellStyle(tone, picked > 0)}
+          >
+            {facet.label}
+            {picked > 0 ? ` (${picked})` : ''}
+          </button>
+          {renderFacetMenu(facet, 'cell')}
+        </div>
+        {chips.length > 0 ? (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2, maxWidth: 260 }}>
+            {chips.map((option) => (
+              <div
+                key={option.value}
+                style={{ position: 'relative' }}
+                onMouseEnter={() => openMenu(facet.id, option.value)}
+                onMouseLeave={closeMenuOnLeave}
+              >
+                <button
+                  type="button"
+                  data-facet-chip={`${facet.id}:${option.value}`}
+                  onClick={() => togglePin(facet.id, option.value)}
+                  title={`${option.label} — выбранное значение`}
+                  style={facetChipStyle(tone)}
+                >
+                  {option.label}
+                </button>
+                {renderFacetMenu(facet, option.value)}
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {range ? (
+          <div
+            style={{ position: 'relative' }}
+            onMouseEnter={() => openMenu(facet.id, 'range')}
+            onMouseLeave={closeMenuOnLeave}
+          >
+            <button
+              type="button"
+              data-facet-chip={`${facet.id}:range`}
+              onClick={() => togglePin(facet.id, 'range')}
+              title={`${facet.label}: ${range.from ?? '…'} — ${range.to ?? '…'}`}
+              style={facetChipStyle(tone)}
+            >
+              {range.from && range.from === range.to ? range.from : `${range.from ?? '…'} — ${range.to ?? '…'}`}
+            </button>
+            {renderFacetMenu(facet, 'range')}
+          </div>
+        ) : null}
+      </div>
     );
   }
 
@@ -339,35 +677,36 @@ export function FacetFilter<Row>(props: {
       data-engine-facets
       style={{
         display: 'grid',
-        gap: 8,
-        padding: 10,
+        gap: 6,
+        padding: 6,
         border: '1px solid var(--border)',
-        borderRadius: 10,
+        borderRadius: 8,
         background: 'var(--surface-2)',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, flexWrap: 'wrap' }}>
         {/* Подписи у ряда нет: кнопка «Фильтры» уже сказала, что это фильтры, а сами кнопки
-            названы столбцами (владелец 08.09.2026). «Сбросить фильтр» — ПЕРВОЙ в ряду
+            названы столбцами (владелец 08.09.2026). «Сбросить фильтры» — ПЕРВОЙ в ряду
             (владелец 16.09.2026): выход из фильтра ищут в начале панели, а не в её хвосте,
             который на узком окне уезжает под перенос ступеней. */}
         {renderResetButton()}
-        {fieldSplit.visible.map(renderFieldButton)}
+        {fieldSplit.visible.map(renderFacetColumn)}
         {fieldSplit.hidden.length > 0 ? (
           <details
             data-facet-more="fields"
-            style={{ display: 'inline-block', alignSelf: 'center' }}
+            style={{ display: 'inline-block', alignSelf: 'flex-start' }}
           >
             <summary
               title="Остальные ступени: по рейтингу они реже — раскрыть список"
               style={{
-                padding: '4px 10px',
-                borderRadius: 999,
+                padding: '2px 4px',
+                borderRadius: 4,
                 border: '1px dashed var(--border)',
                 background: 'var(--surface)',
                 cursor: 'pointer',
                 listStyle: 'none',
                 whiteSpace: 'nowrap',
+                lineHeight: 1.25,
               }}
             >
               Ещё {fieldSplit.hidden.length} ▾
@@ -376,192 +715,20 @@ export function FacetFilter<Row>(props: {
               data-facet-more-list="fields"
               style={{
                 display: 'flex',
-                gap: 6,
+                gap: 4,
                 flexWrap: 'wrap',
-                marginTop: 8,
-                padding: 8,
+                marginTop: 4,
+                padding: 4,
                 border: '1px solid var(--border)',
-                borderRadius: 8,
+                borderRadius: 6,
                 background: 'var(--surface)',
               }}
             >
-              {fieldSplit.hidden.map(renderFieldButton)}
+              {fieldSplit.hidden.map(renderFacetColumn)}
             </div>
           </details>
         ) : null}
       </div>
-
-      {orderedFields.map((fieldId) => {
-        const facet = props.facets.find((f) => f.id === fieldId);
-        if (!facet) return null;
-        const tone = tones[fieldId] ?? FALLBACK_FACET_TONE;
-        // Подложка панели — в цвете своей ступени, а кнопки значений остаются обычными:
-        // цвет отвечает на вопрос «чей это список», а не «что тут выбрано».
-        const panelStyle: React.CSSProperties = {
-          display: 'flex',
-          gap: 6,
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          background: tone.panel,
-          borderLeft: `3px solid ${tone.accent}`,
-          borderRadius: 8,
-          padding: '6px 8px',
-        };
-        if (facet.kind === 'dateRange') {
-          const range = facetRangeOf(props.selection, fieldId) ?? {};
-          const sameDay = range.from && range.from === range.to ? range.from : '';
-          return (
-            <div key={fieldId} data-facet-panel={fieldId} style={panelStyle}>
-              <span style={{ minWidth: 150, color: 'var(--subtle)' }}>
-                <FacetToneDot tone={tone} />
-                <span {...emojiAttrs(facet.label)}>{facet.label}</span>: {range.from || range.to ? `${range.from || '…'} — ${range.to || '…'}` : 'все'}
-              </span>
-              {/* Быстрый выбор одного дня (владелец 19.10.2026): ставит обе границы разом.
-                  Вид записи диапазона не меняется — одна дата в нём ничего не значила. */}
-              <span className="ui-muted">день</span>
-              <div style={{ width: 170 }}>
-                <Input
-                  type="date"
-                  data-facet-day={fieldId}
-                  value={sameDay}
-                  onChange={(e) => {
-                    bumpFacet(fieldId);
-                    props.onChangeSelection(setFacetDay(props.selection, fieldId, e.target.value));
-                  }}
-                  title={`${facet.label}: ровно этот день`}
-                />
-              </div>
-              <span className="ui-muted">или период</span>
-              <div style={{ width: 170 }}>
-                <Input
-                  type="date"
-                  data-facet-date={`${fieldId}:from`}
-                  value={range.from ?? ''}
-                  onChange={(e) => {
-                    bumpFacet(fieldId);
-                    props.onChangeSelection(setFacetDateBound(props.selection, fieldId, 'from', e.target.value));
-                  }}
-                  title={`${facet.label}: с`}
-                />
-              </div>
-              <span className="ui-muted">—</span>
-              <div style={{ width: 170 }}>
-                <Input
-                  type="date"
-                  data-facet-date={`${fieldId}:to`}
-                  value={range.to ?? ''}
-                  onChange={(e) => {
-                    bumpFacet(fieldId);
-                    props.onChangeSelection(setFacetDateBound(props.selection, fieldId, 'to', e.target.value));
-                  }}
-                  title={`${facet.label}: по`}
-                />
-              </div>
-            </div>
-          );
-        }
-        const options = optionsByField.get(fieldId) ?? [];
-        const picked = pickedCount(fieldId);
-        const query = valueQuery[fieldId] ?? '';
-        const shown = options.filter((option) => matchValueOption(option, query));
-        // Пять самых рейтинговых значений на виду, остальные — под спойлером (владелец
-        // 26.10.2026: «чтобы все заказчики не показывались одновременно — рябит в глазах»).
-        // Поиск — явный запрос: пока он набран, показываем всё, что совпало. Выбранные
-        // значения не прячутся никогда, иначе снять выбор было бы нечем.
-        const searching = query.trim().length > 0;
-        const valueSplit = searching
-          ? { visible: shown, hidden: [] as FacetOption[] }
-          : splitRatedByUsage(
-              shown,
-              (option) => facetValueScore(rating.usage, fieldId, option.value, rating.at),
-              (option) => option.selected === true,
-            );
-        const valueButton = (option: FacetOption) => (
-          <button
-            key={option.value}
-            type="button"
-            data-facet-value={`${fieldId}:${option.value}`}
-            onClick={() => {
-              bumpFacet(fieldId, option.value);
-              props.onChangeSelection(toggleFacetValue(props.selection, fieldId, option.value));
-            }}
-            title={option.selected ? 'Убрать значение из отбора' : 'Оставить только это (и другие выбранные)'}
-            style={{
-              padding: '3px 8px',
-              borderRadius: 999,
-              border: '1px solid var(--border)',
-              background: option.selected ? tone.tint : 'var(--surface)',
-              fontWeight: option.selected ? 700 : 400,
-              opacity: option.count === 0 && !option.selected ? 0.5 : 1,
-              cursor: 'pointer',
-            }}
-          >
-            {option.label} <span style={{ color: 'var(--subtle)' }}>{option.count}</span>
-          </button>
-        );
-        return (
-          <div key={fieldId} data-facet-panel={fieldId} style={panelStyle}>
-            <span style={{ minWidth: 150, color: 'var(--subtle)' }}>
-              <FacetToneDot tone={tone} />
-              <span {...emojiAttrs(facet.label)}>{facet.label}</span>: {picked === 0 ? 'все' : `выбрано ${picked}`}
-            </span>
-            {options.length > FACET_VALUE_SEARCH_THRESHOLD ? (
-              <Input
-                value={query}
-                onChange={(e) => setValueQuery((prev) => ({ ...prev, [fieldId]: e.target.value }))}
-                placeholder="Найти…"
-                title={`Найти значение: ${facet.label}`}
-                data-facet-value-search={fieldId}
-              />
-            ) : null}
-            {options.length === 0 ? (
-              <span className="ui-muted">нет значений при текущем отборе</span>
-            ) : shown.length === 0 ? (
-              <span className="ui-muted">по запросу ничего нет</span>
-            ) : (
-              <>
-                {valueSplit.visible.map(valueButton)}
-                {valueSplit.hidden.length > 0 ? (
-                  <details
-                    data-facet-more={`values:${fieldId}`}
-                    style={{ display: 'inline-block', alignSelf: 'center' }}
-                  >
-                    <summary
-                      title="Остальные значения: по рейтингу они реже — раскрыть список"
-                      style={{
-                        padding: '3px 8px',
-                        borderRadius: 999,
-                        border: '1px dashed var(--border)',
-                        background: 'var(--surface)',
-                        cursor: 'pointer',
-                        listStyle: 'none',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      Ещё {valueSplit.hidden.length} ▾
-                    </summary>
-                    <div
-                      data-facet-more-list={`values:${fieldId}`}
-                      style={{
-                        display: 'flex',
-                        gap: 6,
-                        flexWrap: 'wrap',
-                        marginTop: 8,
-                        padding: 8,
-                        border: '1px solid var(--border)',
-                        borderRadius: 8,
-                        background: 'var(--surface)',
-                      }}
-                    >
-                      {valueSplit.hidden.map(valueButton)}
-                    </div>
-                  </details>
-                ) : null}
-              </>
-            )}
-          </div>
-        );
-      })}
     </div>
   );
 }
