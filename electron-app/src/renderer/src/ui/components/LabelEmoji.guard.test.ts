@@ -16,7 +16,7 @@ const FORM_FIELD = src('./FormField.tsx');
 const CARD_TABS = src('./CardTabs.tsx');
 const SECTION_CARD = src('./SectionCard.tsx');
 const FACETS = src('./FacetFilter.tsx');
-const COLUMNS = src('./ColumnSettingsButton.tsx');
+const COLUMNS = src('./ListColumnChips.tsx');
 const KINDS = src('../utils/listColumnKinds.ts');
 const SHELL = src('../shellV3/V3TabShell.tsx');
 
@@ -32,7 +32,7 @@ describe('эмодзи подписей рисуются, а не дописыв
       ['CardTabs', CARD_TABS],
       ['SectionCard', SECTION_CARD],
       ['FacetFilter', FACETS],
-      ['ColumnSettingsButton', COLUMNS],
+      ['ListColumnChips', COLUMNS],
       ['V3TabShell', SHELL],
     ] as const) {
       expect(body, `${name} не ставит data-emoji — подписи без значков`).toContain('emojiAttrs(');

@@ -831,6 +831,22 @@ table.list-table th:hover .list-col-hide,
   background: rgba(255, 255, 255, 0.18);
 }
 
+/* Ряд плашек видимости колонок (владелец 12.11.2026). Ряд — одна строка на всю ширину
+   программы; если колонок больше, чем влезает, ряд прокручивается по горизонтали, а не
+   обрезается. Полоса — тонкая: она иначе съедает высоту у шапки списка. */
+.list-column-chips {
+  scrollbar-width: thin;
+}
+
+.list-column-chips::-webkit-scrollbar {
+  height: 5px;
+}
+
+.list-column-chips::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 25%, transparent);
+  border-radius: 4px;
+}
+
 table.list-table.work-order-table {
   width: max-content;
   max-width: 100%;

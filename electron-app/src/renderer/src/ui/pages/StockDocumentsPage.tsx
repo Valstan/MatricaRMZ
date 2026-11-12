@@ -3,7 +3,7 @@ import type { WarehouseDocumentListItem, WarehouseDocumentType } from '@matricar
 import { WAREHOUSE_DOCUMENT_STATUS_FILTER_ORDER, describeFacetSelection, formatDayLabel } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
-import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ListColumnChips, type ColumnDescriptor } from '../components/ListColumnChips.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { ListExportButtons } from '../components/ListExportButtons.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
@@ -404,15 +404,6 @@ export function StockDocumentsPage(props: {
             ],
           })}
         />
-        <ColumnSettingsButton
-          label="Колонки списка"
-          columns={columnDescriptors}
-          order={columnLayout.order}
-          isVisible={columnLayout.isVisible}
-          onToggleVisible={columnLayout.setVisible}
-          onMove={columnLayout.moveColumn}
-          onReset={columnLayout.resetToDefault}
-        />
       </PageToolbar>
 
       {/* Диалог печати вне ряда кнопок: в ряду он уехал бы в меню переполнения вместе со своей
@@ -452,6 +443,18 @@ export function StockDocumentsPage(props: {
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}
 
       <ListCount total={rows.length} shown={displayRows.length} />
+
+      {/* Ряд плашек видимости колонок — между панелью фильтров и шапкой списка
+          (владелец 12.11.2026): белая плашка — колонка не включена, тёмно-серая — включена
+          (видна в списке и идёт на печать). Кнопки «Колонки списка» в тулбаре больше нет. */}
+      <ListColumnChips
+        columns={columnDescriptors}
+        order={columnLayout.order}
+        isVisible={columnLayout.isVisible}
+        onToggleVisible={columnLayout.setVisible}
+        onMoveTo={columnLayout.moveColumnTo}
+        onReset={columnLayout.resetToDefault}
+      />
       <div ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         {twoCol ? (
           <TwoColumnList items={displayRows} enabled renderColumn={(items, _c, _n, startIndex) => renderTable(items, startIndex)} />

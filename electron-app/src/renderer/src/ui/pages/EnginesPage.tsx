@@ -36,7 +36,7 @@ import { Button } from '../components/Button.js';
 import { LabelPrintDialog } from '../components/LabelPrintDialog.js';
 import { EngineTagPrintDialog, type EngineTagInitial } from '../components/EngineTagPrintDialog.js';
 import { useTagPrintQueue } from '../hooks/useTagPrintQueue.js';
-import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ListColumnChips, type ColumnDescriptor } from '../components/ListColumnChips.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
@@ -1160,15 +1160,6 @@ export function EnginesPage(props: {
             </select>
           </label>
         </ToolbarPin>
-        <ColumnSettingsButton
-          label="Колонки списка"
-          columns={columnDescriptors}
-          order={columnLayout.order}
-          isVisible={columnLayout.isVisible}
-          onToggleVisible={columnLayout.setVisible}
-          onMove={columnLayout.moveColumn}
-          onReset={columnLayout.resetToDefault}
-        />
         <Button variant="ghost" onClick={() => setDedupeOpen(true)} title="Найти и склеить дубли двигателей">
           Поиск дублей
         </Button>
@@ -1292,6 +1283,18 @@ export function EnginesPage(props: {
       )}
 
       <ListCount total={props.engines.length} shown={displayRows.length} style={{ marginTop: 6 }} />
+
+      {/* Ряд плашек видимости колонок — между панелью фильтров и шапкой списка
+          (владелец 12.11.2026): белая плашка — колонка не включена, тёмно-серая — включена
+          (видна в списке и идёт на печать). Кнопки «Колонки списка» в тулбаре больше нет. */}
+      <ListColumnChips
+        columns={columnDescriptors}
+        order={columnLayout.order}
+        isVisible={columnLayout.isVisible}
+        onToggleVisible={columnLayout.setVisible}
+        onMoveTo={columnLayout.moveColumnTo}
+        onReset={columnLayout.resetToDefault}
+      />
       <div
         ref={containerRef}
         style={{ marginTop: 2, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}

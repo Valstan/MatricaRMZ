@@ -148,20 +148,25 @@ describe('панель фильтров — вид по заказу владе�
     expect(FILTER).toContain('clearFacet(props.selection, facetId)');
   });
 
-  it('выбранное значение — плашка под своей ячейкой, цветом той же ступени', () => {
+  it('выбранное значение — плашка в общем ряду, цветом той же ступени', () => {
     expect(FILTER).toContain('data-facet-chip={`${facet.id}:${option.value}`}');
     expect(FILTER).toContain('background: tone.tint');
-    // Плашка и ячейка стоят в одной колонке — плашка под своей кнопкой.
+    // Плашки вынесены в ОБЩИЙ ряд под кнопками (владелец 12.11.2026): пока каждая висела
+    // плавающим слоем под своей кнопкой, плашки соседних ступеней наезжали друг на друга —
+    // «прочитать невозможно, что выбрано, и отключить невозможно».
+    expect(FILTER).toContain('data-facet-chip-row');
+    expect(FILTER).toContain('data-facet-chip-group={facet.id}');
     expect(FILTER).toContain('data-facet-column={facet.id}');
   });
 
-  it('плашки висят плавающим слоем и не раздвигают кнопку родителя (владелец 12.11.2026)', () => {
+  it('плашки стоят общим рядом и не раздвигают кнопку родителя (владелец 12.11.2026)', () => {
     // Длинное название выбранного значения разводило соседние кнопки, и общий ряд
-    // фильтров «расползался в ширину». Теперь плашка вне потока колонки (absolute) и
-    // прижата к центру своей кнопки; место под неё резервируется высотой, а не шириной.
+    // фильтров «расползался в ширину». Теперь плашки живут в отдельной строке под кнопками,
+    // а место в ней считает отдельный модуль (`facetChipLayout.ts`) — с честными тестами.
     expect(FILTER).toContain("position: 'absolute'");
-    expect(FILTER).toContain("transform: 'translateX(-50%)'");
+    expect(FILTER, 'прежнее прижатие к центру кнопки вернулось бы').not.toContain("transform: 'translateX(-50%)'");
     expect(FILTER).toContain('FACET_CHIP_ROW_HEIGHT');
+    expect(FILTER).toContain('layoutFacetChipGroups(groups, available)');
     // Поток по ширине у плашек закрыт — все плашки ступени в одну строку.
     expect(FILTER).toContain("flexWrap: 'nowrap'");
   });

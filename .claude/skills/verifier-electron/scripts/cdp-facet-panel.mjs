@@ -6,10 +6,10 @@
 //   2. по наведению мыши на ячейку выпадает меню со ВСЕМИ вариантами ступени, первой строкой —
 //      «Сбросить фильтр» (сброс ЭТОЙ ветки);
 //   3. слева в ряду — «Сбросить фильтры» (сброс ВСЕГО);
-//   4. выбранное значение — плашка под своей ячейкой, цветом той же ступени; наведение на
-//      плашку открывает то же меню ступени (добрать значений);
-//   5. ширина плашки НЕ раздвигает кнопку родителя: плашка висит плавающим слоем, ряд
-//      остаётся компактным (владелец 12.11.2026).
+//   4. выбранное значение — плашка в ОБЩЕМ ряду под кнопками-ступенями, цветом той же
+//      ступени; наведение на плашку открывает то же меню ступени (добрать значений);
+//   5. плашки соседних ступеней НЕ наезжают друг на друга: каждая группа тянется к своей
+//      кнопке-родителю, но ряд остаётся в одну строку и всё влезает (владелец 12.11.2026).
 //
 // Проверяется живьём то, чего не видит сторож по исходнику: ячейки действительно компактны,
 // меню действительно выпадает по НАВЕДЕНИЮ (а не только по щелчку), плашка стоит под своей
@@ -437,14 +437,42 @@ async function main() {
   }
   await shot(ws, '3-picked');
 
-  // ── 5. Выбранное значение — плашка под своей ячейкой, цветом той же ступени ──────────
+  // ── 4b. Второе значение в СОСЕДНЕЙ ступени: две группы плашек в одном ряду ───────────
+  // Именно этот случай и ломался (владелец 12.11.2026): плашки соседних ступеней наезжали
+  // друг на друга — «прочитать невозможно, что выбрано, и отключить невозможно».
+  const second = await evaluate(
+    ws,
+    `const cells = [...vis('[data-facet-field]')].filter(painted).filter(hoverable);
+     const first = ${JSON.stringify(picked.skip ? '' : (picked.facet ?? ''))};
+     const other = cells.find((b) => b.getAttribute('data-facet-field') !== first);
+     if (!other) return { skip: 'нет второй ступени на виду' };
+     return { facet: other.getAttribute('data-facet-field'), box: cellBox(other) };`,
+  );
+  if (second.skip) {
+    note(false, `вторая ступень для проверки наезда: ${second.skip}`);
+  } else {
+    await hover(ws, second.box);
+    const secondPick = await evaluate(
+      ws,
+      `const m = vis('[data-facet-menu]')[0] ?? null;
+       if (!m) return { skip: 'меню второй ступени не открылось' };
+       const vals = [...m.querySelectorAll('[data-facet-value]')];
+       if (vals.length === 0) return { skip: 'в меню второй ступени нет вариантов' };
+       click(vals[0]); await wait(1200);
+       return { facet: m.getAttribute('data-facet-menu') };`,
+    );
+    note(!secondPick.skip, `значение выбрано во второй ступени (${secondPick.facet ?? secondPick.skip})`, secondPick);
+  }
+
+  // ── 5. Выбранное значение — плашка в общем ряду под ячейками ───────────────────────
   const chip = await evaluate(
     ws,
     `const chips = [...document.querySelectorAll('[data-facet-chip]')].filter(painted);
      if (chips.length === 0) return null;
      const c = chips[0];
-     const column = c.closest('[data-facet-column]');
-     const cellEl = column ? column.querySelector('[data-facet-field]') : null;
+     const group = c.closest('[data-facet-chip-group]');
+     const facetId = group ? group.getAttribute('data-facet-chip-group') : null;
+     const cellEl = facetId ? document.querySelector('[data-facet-field="' + facetId + '"]') : null;
      const csC = getComputedStyle(c);
      const csCell = cellEl ? getComputedStyle(cellEl) : null;
      const cr = c.getBoundingClientRect();
@@ -452,7 +480,7 @@ async function main() {
      return {
        chip: c.getAttribute('data-facet-chip'),
        text: txt(c),
-       column: column ? column.getAttribute('data-facet-column') : null,
+       group: facetId,
        below: lr ? cr.top >= lr.bottom - 1 : false,
        sameColor: csCell ? csC.backgroundColor === csCell.backgroundColor : null,
        chipBackground: csC.backgroundColor,
@@ -463,7 +491,7 @@ async function main() {
   note(
     chip != null && chip.below === true,
     'плашка стоит ПОД своей ячейкой ступени',
-    chip ? { column: chip.column, below: chip.below } : null,
+    chip ? { group: chip.group, below: chip.below } : null,
   );
   note(
     chip != null && chip.sameColor === true,
@@ -471,44 +499,53 @@ async function main() {
     chip ? { chipBackground: chip.chipBackground, cellBackground: chip.cellBackground } : null,
   );
 
-  // ── 5b. Ширина плашки НЕ раздвигает кнопку родителя (владелец 12.11.2026) ───────────────
-  // Плашка висит плавающим слоем (absolute), поэтому колонку задаёт только кнопка. Проверяем
-  // это ЖИВЫМ замером: ширина колонки с плашкой равна ширине её кнопки, а плашка при этом
-  // выходит за пределы кнопки (может наползти на соседа — так и просил владелец).
+  // ── 5b. Плашки разных ступеней НЕ наезжают друг на друга (владелец 12.11.2026) ──────
+  // Плашки стоят общим рядом под кнопками-родителями, каждая группа тянется к своей
+  // кнопке, но ни одна не заезжает на соседнюю.
   const width = await evaluate(
     ws,
-    `const c = [...document.querySelectorAll('[data-facet-chip]')].filter(painted)[0];
-     if (!c) return { skip: 'плашки нет' };
-     const column = c.closest('[data-facet-column]');
-     const cellEl = column ? column.querySelector('[data-facet-field]') : null;
-     if (!column || !cellEl) return { skip: 'колонка не найдена' };
-     const colRect = column.getBoundingClientRect();
-     const cellRect = cellEl.getBoundingClientRect();
-     const chipRect = c.getBoundingClientRect();
-     // Соседи рядом: кнопка следующей ступени (если есть) — её левый край.
-     const all = [...vis('[data-facet-field]')].filter(painted);
-     const idx = all.findIndex((b) => b.getAttribute('data-facet-field') === cellEl.getAttribute('data-facet-field'));
-     const nextBtn = idx >= 0 && idx + 1 < all.length ? all[idx + 1] : null;
-     const nextRect = nextBtn ? nextBtn.getBoundingClientRect() : null;
+    `const groups = [...document.querySelectorAll('[data-facet-chip-group]')].filter(painted);
+     const row = document.querySelector('[data-facet-chip-row]');
+     const boxes = groups.map((g) => {
+       const r = g.getBoundingClientRect();
+       const facetId = g.getAttribute('data-facet-chip-group');
+       const cellEl = document.querySelector('[data-facet-field="' + facetId + '"]');
+       const cr = cellEl ? cellEl.getBoundingClientRect() : null;
+       return {
+         id: facetId,
+         left: r.left, right: r.right, top: r.top, width: r.width,
+         center: r.left + r.width / 2,
+         parentCenter: cr ? cr.left + cr.width / 2 : null,
+       };
+     });
+     let overlaps = 0;
+     for (let i = 1; i < boxes.length; i++) {
+       if (boxes[i].left < boxes[i - 1].right - 0.5) overlaps++;
+     }
+     const tops = [...new Set(boxes.map((b) => Math.round(b.top)))];
+     const rowRect = row ? row.getBoundingClientRect() : null;
      return {
-       columnWidth: Math.round(colRect.width),
-       cellWidth: Math.round(cellRect.width),
-       chipWidth: Math.round(chipRect.width),
-       chipOverlapsNeighbor: nextRect ? chipRect.right > nextRect.left + 1 : false,
-       chipCentered: Math.abs((chipRect.left + chipRect.right) / 2 - (cellRect.left + cellRect.right) / 2) < 40,
+       groups: boxes.length,
+       overlaps,
+       oneRow: tops.length <= 1,
+       tops,
+       rowWidth: rowRect ? Math.round(rowRect.width) : null,
+       maxRight: boxes.length ? Math.round(Math.max(...boxes.map((b) => b.right))) : null,
+       drift: boxes.filter((b) => b.parentCenter != null).map((b) => Math.round(Math.abs(b.center - b.parentCenter))),
      };`,
   );
-  if (width.skip) {
-    note(false, `ширина плашки и кнопки родителя: ${width.skip}`);
-  } else {
-    note(
-      width.columnWidth <= width.cellWidth + 2,
-      'колонка задаётся кнопкой, а не плашкой (ширина плашки не раздвигает ряд)',
-      width,
-    );
-    note(width.chipWidth > width.cellWidth, 'плашка шире кнопки — она и наползает на соседа', width);
-    note(width.chipCentered === true, 'плашка прижата к центру своей кнопки', width);
-  }
+  note(width.groups >= 1, 'плашки стоят общим рядом под ступенями', width);
+  note(
+    width.overlaps === 0,
+    'плашки соседних ступеней НЕ наезжают друг на друга',
+    width,
+  );
+  note(width.oneRow === true, 'все группы плашек стоят в ОДНОЙ строке', width);
+  note(
+    width.rowWidth == null || width.maxRight == null || width.maxRight <= width.rowWidth + 1,
+    'ряд плашек не выходит за правый край панели',
+    width,
+  );
 
   // ── 6. На плашке по НАВЕДЕНИЮ открывается то же меню ступени (добрать значений) ────────
   // Владелец 12.11.2026: «выпадашка работает хорошо, пусть так и будет» — по наведению она

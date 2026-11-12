@@ -24,7 +24,7 @@ export function ColumnToggleButton(props: {
         e.stopPropagation();
         props.onToggle();
       }}
-      title="Скрыть колонку (вернуть — кнопкой «Колонки»)"
+      title="Скрыть колонку (вернуть — плашкой в ряду колонок)"
       aria-label="Скрыть колонку"
     >
       ×

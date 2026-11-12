@@ -16,7 +16,7 @@ import {
 
 import { Button } from '../components/Button.js';
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
-import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
+import { ListColumnChips, type ColumnDescriptor } from '../components/ListColumnChips.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { FacetFilter } from '../components/FacetFilter.js';
 import { Input } from '../components/Input.js';
@@ -471,15 +471,6 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
             />
           </div>
         </ToolbarPin>
-        <ColumnSettingsButton
-          label="Колонки списка"
-          columns={columnDescriptors}
-          order={columnLayout.order}
-          isVisible={columnLayout.isVisible}
-          onToggleVisible={columnLayout.setVisible}
-          onMove={columnLayout.moveColumn}
-          onReset={columnLayout.resetToDefault}
-        />
         <Button variant="ghost" onClick={() => void load()} disabled={loading}>
           Обновить
         </Button>
@@ -539,6 +530,18 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
       ) : null}
 
       <ListCount total={rows.length} shown={sorted.length} />
+
+      {/* Ряд плашек видимости колонок — между панелью фильтров и шапкой списка
+          (владелец 12.11.2026): белая плашка — колонка не включена, тёмно-серая — включена
+          (видна в списке и идёт на печать). Кнопки «Колонки списка» в тулбаре больше нет. */}
+      <ListColumnChips
+        columns={columnDescriptors}
+        order={columnLayout.order}
+        isVisible={columnLayout.isVisible}
+        onToggleVisible={columnLayout.setVisible}
+        onMoveTo={columnLayout.moveColumnTo}
+        onReset={columnLayout.resetToDefault}
+      />
       <div ref={containerRef} onScroll={onScroll} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         <VirtualTable
           scrollElementRef={containerRef}

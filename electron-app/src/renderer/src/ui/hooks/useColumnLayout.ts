@@ -67,6 +67,8 @@ export type UseColumnLayoutResult = {
   isVisible: (id: string) => boolean;
   setVisible: (id: string, visible: boolean) => void;
   moveColumn: (id: string, direction: -1 | 1) => void;
+  /** Поставить колонку перед указанной (перетаскивание плашки в ряду колонок). */
+  moveColumnTo: (id: string, targetId: string) => void;
   resetToDefault: () => void;
   /** Ручная ширина колонки, px; null — авто (замер хука ширин). */
   widthOf: (id: string) => number | null;
@@ -145,6 +147,24 @@ export function useColumnLayout(
     [layoutId],
   );
 
+  const moveColumnTo = useCallback(
+    (id: string, targetId: string) => {
+      setState((prev) => {
+        const from = prev.order.indexOf(id);
+        if (from < 0) return prev;
+        const target = prev.order.indexOf(targetId);
+        if (target < 0 || target === from) return prev;
+        const order = [...prev.order];
+        order.splice(from, 1);
+        order.splice(order.indexOf(targetId), 0, id);
+        const next = { ...prev, order };
+        writeColumnLayout(layoutId, next);
+        return next;
+      });
+    },
+    [layoutId],
+  );
+
   const resetToDefault = useCallback(() => {
     clearColumnLayout(layoutId);
     setState({ order: [...allColumnIds], hidden: [...defaultHidden], widths: {} });
@@ -184,6 +204,7 @@ export function useColumnLayout(
     isVisible: (id: string) => !hiddenSet.has(id),
     setVisible,
     moveColumn,
+    moveColumnTo,
     resetToDefault,
     widthOf,
     setWidthLive,

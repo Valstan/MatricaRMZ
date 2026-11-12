@@ -25,18 +25,27 @@ import {
 import { Input } from './Input.js';
 import { emojiAttrs } from '../utils/labelEmoji.js';
 import { FALLBACK_FACET_TONE, facetTones, type FacetTone } from '../utils/facetTone.js';
+import { layoutFacetChipGroups, type FacetChipGroup } from '../utils/facetChipLayout.js';
 
 /** Значений больше — в меню ступени появляется поле «Найти…». */
 const FACET_VALUE_SEARCH_THRESHOLD = 10;
 
 /**
- * Высота строки плашек под кнопками-родителями. Резервируется у всех колонок, когда
- * выбрано хоть что-то: плашки висят плавающим слоем и не участвуют в потоке по ширине
- * (иначе длинное название выбранного значения раздвигало соседние кнопки — владелец
- * 12.11.2026), но место под них в колонке должно быть — иначе следующий ряд кнопок
- * наполз бы на плашки.
+ * Высота строки плашек под кнопками-родителями. Плашки висят в ОТДЕЛЬНОЙ строке под рядом
+ * кнопок (не плавающим слоем поверх него): строка плашек — общая на все ступени, иначе
+ * плашки соседних ступеней наезжали друг на друга (владелец 12.11.2026: «наезжают друг на
+ * друга, прочитать невозможно, что выбрано, и отключить невозможно»).
  */
 const FACET_CHIP_ROW_HEIGHT = 22;
+
+/** Плашка не шире этого — длинное значение обрезается многоточием, полный текст — в подсказке. */
+const FACET_CHIP_MAX_WIDTH = 200;
+
+/**
+ * Ниже этой ширины плашку не ужимаем: вместо читаемой подписи получится «Пр…», и оператор
+ * не поймёт, что выбрано. Лучше пусть ряд выйдет за панель, чем плашка станет нечитаемой.
+ */
+const FACET_CHIP_MIN_WIDTH = 90;
 
 /** Хранилище рейтинга ступеней: своё у каждого списка (`usageKey`). */
 const FACET_USAGE_STORAGE_PREFIX = 'facetUsage:';
@@ -101,12 +110,18 @@ function readFacetUsage(usageKey: string | undefined): FacetUsage {
  * Пятое (владелец 12.11.2026): ширина плашек выбранных значений НЕ влияет на ширину
  * кнопки-родителя. Раньше колонка была `flex column` с `maxWidth`, и длинное название
  * выбранного значения раздвигало соседние кнопки — общий ряд «расползался в ширину».
- * Теперь плашки висят отдельным слоем поверх ряда (absolute), прижаты к центру своей
- * кнопки и могут наползать на территорию соседа: место под соседом пустует, но ряд
- * кнопок остаётся компактным.
+ * Теперь плашки стоят отдельной строкой под рядом кнопок, и ширину ряда задаёт сама
+ * кнопка.
  *
  * Шестое (владелец 12.11.2026): кнопки «Фильтры» больше нет — панель всегда открыта,
  * выпадашка непрозрачная, щелчок по плашке снимает значение.
+ *
+ * Седьмое (владелец 12.11.2026): плашки разных ступеней больше НЕ наезжают друг на друга.
+ * Раньше каждая висела плавающим слоем под своей кнопкой, и широкая плашка наезжала на
+ * соседнюю — «прочитать невозможно, что выбрано, и отключить невозможно». Теперь у всех
+ * ступеней ОДНА строка плашек под рядом кнопок, и места в ней хватает всем: группа тянется
+ * к своей кнопке-родителю, но при нехватке места сдвигается — ровно как дочернее меню в
+ * Матрице первой и второй версии.
  */
 
 /**
@@ -128,7 +143,7 @@ function facetCellStyle(tone: FacetTone, active: boolean): React.CSSProperties {
 }
 
 /** Плашка выбранного значения: тот же цвет, что у ячейки ступени, и так же компактна. */
-function facetChipStyle(tone: FacetTone): React.CSSProperties {
+function facetChipStyle(tone: FacetTone, maxWidth: number): React.CSSProperties {
   return {
     padding: '1px 4px',
     borderRadius: 3,
@@ -137,11 +152,22 @@ function facetChipStyle(tone: FacetTone): React.CSSProperties {
     color: 'var(--text)',
     cursor: 'pointer',
     whiteSpace: 'nowrap',
-    maxWidth: 200,
+    fontSize: 12,
+    maxWidth,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     lineHeight: 1.25,
   };
+}
+
+/**
+ * Позиции плашек не изменились — тогда состояние не трогаем. Без этого проверки каждый
+ * замер ронял бы новый объект, а React — перерисовывать панель (и замерять снова) по кругу.
+ */
+function sameChipLayout(prev: Record<string, number>, next: Record<string, number>): boolean {
+  const prevKeys = Object.keys(prev);
+  if (prevKeys.length !== Object.keys(next).length) return false;
+  return prevKeys.every((key) => Math.abs((prev[key] ?? -1) - (next[key] ?? -2)) <= 0.5);
 }
 
 export function FacetFilter<Row>(props: {
@@ -365,7 +391,7 @@ export function FacetFilter<Row>(props: {
     return out;
   }, [props.facets, props.rows, props.selection]);
 
-  /** Есть ли где-то выбранные значения — от этого зависит, резервировать ли место под плашки. */
+  /** Есть ли где-то выбранные значения — от этого зависит, рисовать ли строку плашек. */
   const hasAnyChips = React.useMemo(() => {
     for (const facet of props.facets) {
       if ((selectedOptions.get(facet.id) ?? []).length > 0) return true;
@@ -373,6 +399,97 @@ export function FacetFilter<Row>(props: {
     }
     return false;
   }, [props.facets, props.selection, selectedOptions]);
+
+  /**
+   * Раскладка плашек по строке (владелец 12.11.2026).
+   *
+   * Плашки больше не висят плавающим слоем под своей кнопкой: все ступени делят ОДНУ строку
+   * под рядом кнопок, и плашки соседних ступеней наезжали друг на друга. Теперь позиции
+   * считаются явно: у каждой группы — своё место в строке, рядом со своей кнопкой, но без
+   * наезда (алгоритм — в `utils/facetChipLayout.ts`, это то же поведение, что было у меню
+   * Матрицы первой и второй версии: дочернее меню ищет место под родителем и сдвигается,
+   * если место занято).
+   */
+  const chipRowRef = React.useRef<HTMLDivElement | null>(null);
+  const parentRefs = React.useRef<Record<string, HTMLElement | null>>({});
+  const groupRefs = React.useRef<Record<string, HTMLElement | null>>({});
+  const [chipLayout, setChipLayout] = React.useState<Record<string, number>>({});
+  /** Ширина плашки: ужимается, если в одну строку иначе не влезает. */
+  const [chipMaxWidth, setChipMaxWidth] = React.useState(FACET_CHIP_MAX_WIDTH);
+
+  /** Состав плашек — по нему ширина плашек возвращается к обычной, когда отбор изменился. */
+  const chipSignature = React.useMemo(
+    () =>
+      rankedFields
+        .map((facet) => {
+          const chips = selectedOptions.get(facet.id) ?? [];
+          const range = facet.kind === 'dateRange' && facetRangeOf(props.selection, facet.id) != null ? 1 : 0;
+          return `${facet.id}:${chips.length}:${range}`;
+        })
+        .join('|'),
+    [rankedFields, selectedOptions, props.selection],
+  );
+
+  React.useEffect(() => {
+    setChipMaxWidth(FACET_CHIP_MAX_WIDTH);
+  }, [chipSignature]);
+
+  /**
+   * Замер и раскладка. Считается после каждой отрисовки: изменились плашки, изменилась
+   * ширина панели — плашки встали на новые места.
+   */
+  const measureChipRow = React.useCallback(() => {
+    const chipRow = chipRowRef.current;
+    if (!chipRow) return;
+    const rowRect = chipRow.getBoundingClientRect();
+    const available = rowRect.width;
+    const groups: FacetChipGroup[] = [];
+    let chipCount = 0;
+    for (const facet of rankedFields) {
+      const group = groupRefs.current[facet.id];
+      const parent = parentRefs.current[facet.id];
+      if (!group || !parent) continue;
+      const chips = selectedOptions.get(facet.id) ?? [];
+      const range = facet.kind === 'dateRange' ? facetRangeOf(props.selection, facet.id) : null;
+      if (chips.length === 0 && !range) continue;
+      const groupRect = group.getBoundingClientRect();
+      const parentRect = parent.getBoundingClientRect();
+      groups.push({
+        id: facet.id,
+        width: groupRect.width,
+        parentCenter: parentRect.left + parentRect.width / 2 - rowRect.left,
+      });
+      chipCount += chips.length + (range ? 1 : 0);
+    }
+    if (groups.length === 0) {
+      setChipLayout((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+      return;
+    }
+    const plan = layoutFacetChipGroups(groups, available);
+    // В одну строку не влезает — ужимаем плашки (снизу ограничителем: подпись должна читаться).
+    if (plan.totalWidth > available + 0.5 && chipCount > 0 && chipMaxWidth > FACET_CHIP_MIN_WIDTH) {
+      const per = Math.ceil((plan.totalWidth - available) / chipCount);
+      const next = Math.max(FACET_CHIP_MIN_WIDTH, chipMaxWidth - per);
+      if (next < chipMaxWidth) {
+        setChipMaxWidth(next);
+        return;
+      }
+    }
+    setChipLayout((prev) => (sameChipLayout(prev, plan.positions) ? prev : plan.positions));
+  }, [rankedFields, selectedOptions, props.selection, chipMaxWidth]);
+
+  React.useLayoutEffect(() => {
+    measureChipRow();
+  }, [measureChipRow]);
+
+  /** Ширина панели меняется — плашки пересчитывают места. */
+  React.useEffect(() => {
+    const chipRow = chipRowRef.current;
+    if (!chipRow || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => measureChipRow());
+    observer.observe(chipRow);
+    return () => observer.disconnect();
+  }, [measureChipRow]);
 
   /**
    * Кнопка «Сбросить фильтры» — первой в ряду (владелец 16.09.2026): выход из фильтра ищут в
@@ -594,22 +711,13 @@ export function FacetFilter<Row>(props: {
   }
 
   /**
-   * Ячейка ступени и её плашки.
-   *
-   * Плашка выбранного значения стоит под той ячейкой, из которой значение выбрано
-   * (владелец 12.11.2026), и открывает то же меню — так набирают несколько значений,
-   * не возвращаясь к ячейке.
-   *
-   * Но плашки НЕ входят в поток колонки: они висят отдельным слоем (absolute) под
-   * ячейкой. Иначе длинное название выбранного значения раздвигало соседние кнопки —
-   * общий ряд фильтров «расползался в ширину» (владелец 12.11.2026). Теперь ширину
-   * колонки задаёт ТОЛЬКО кнопка, а плашка может наползти на территорию соседа.
+   * Ячейка ступени — кнопка-родитель. Плашек выбранных значений здесь нет: они стоят
+   * общим рядом ПОД рядом кнопок (см. `renderChipGroup`), чтобы плашки соседних ступеней
+   * не наезжали друг на друга.
    */
   function renderFacetColumn(facet: FacetDescriptor<Row>) {
     const tone = tones[facet.id] ?? FALLBACK_FACET_TONE;
     const picked = pickedCount(facet.id);
-    const chips = selectedOptions.get(facet.id) ?? [];
-    const range = facet.kind === 'dateRange' ? facetRangeOf(props.selection, facet.id) : null;
     return (
       <div
         key={facet.id}
@@ -620,13 +728,12 @@ export function FacetFilter<Row>(props: {
           flexDirection: 'column',
           gap: 2,
           alignItems: 'flex-start',
-          // Место под строку плашек резервируется у ВСЕХ колонок, а не только у тех,
-          // где что-то выбрано: иначе ряд кнопок переносился бы на разную высоту и
-          // плашки первой строки наползали бы на кнопки второй.
-          paddingBottom: hasAnyChips ? FACET_CHIP_ROW_HEIGHT : 0,
         }}
       >
         <div
+          ref={(el) => {
+            parentRefs.current[facet.id] = el;
+          }}
           style={{ position: 'relative' }}
           onMouseEnter={() => openMenu(facet.id, 'cell')}
           onMouseLeave={closeMenuOnLeave}
@@ -643,76 +750,93 @@ export function FacetFilter<Row>(props: {
             {picked > 0 ? ` (${picked})` : ''}
           </button>
           {renderFacetMenu(facet, 'cell')}
-          {chips.length > 0 ? (
-            <div
-              data-facet-chips={facet.id}
-              style={{
-                // Плавающий слой под кнопкой: он НЕ в потоке колонки, поэтому ширину
-                // кнопки-родителя не раздвигает (владелец 12.11.2026: длинное название
-                // выбранного значения разводило соседние кнопки, и общий ряд расползался
-                // в ширину). Прижат к центру своей кнопки и может наползти на соседа.
-                position: 'absolute',
-                top: '100%',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                display: 'flex',
-                flexWrap: 'nowrap',
-                alignItems: 'flex-start',
-                gap: 2,
-                whiteSpace: 'nowrap',
-                zIndex: 5,
-              }}
-            >
-              {chips.map((option) => (
-                <div
-                  key={option.value}
-                  style={{ position: 'relative' }}
-                  onMouseEnter={() => openMenu(facet.id, option.value)}
-                  onMouseLeave={closeMenuOnLeave}
-                >
-                  <button
-                    type="button"
-                    data-facet-chip={`${facet.id}:${option.value}`}
-                    onClick={() => toggleChip(facet.id, option.value)}
-                    title={`${option.label} — нажмите, чтобы снять значение из отбора`}
-                    style={facetChipStyle(tone)}
-                  >
-                    {option.label}
-                  </button>
-                  {renderFacetMenu(facet, option.value)}
-                </div>
-              ))}
-            </div>
-          ) : null}
-          {range ? (
-            <div
-              style={{
-                position: 'absolute',
-                top: '100%',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                zIndex: 5,
-              }}
-            >
-              <div
-                style={{ position: 'relative' }}
-                onMouseEnter={() => openMenu(facet.id, 'range')}
-                onMouseLeave={closeMenuOnLeave}
-              >
-                <button
-                  type="button"
-                  data-facet-chip={`${facet.id}:range`}
-                  onClick={() => clearRangeChip(facet.id)}
-                  title={`${facet.label}: ${range.from ?? '…'} — ${range.to ?? '…'} — нажмите, чтобы снять период`}
-                  style={facetChipStyle(tone)}
-                >
-                  {range.from && range.from === range.to ? range.from : `${range.from ?? '…'} — ${range.to ?? '…'}`}
-                </button>
-                {renderFacetMenu(facet, 'range')}
-              </div>
-            </div>
-          ) : null}
         </div>
+      </div>
+    );
+  }
+
+  /**
+   * Группа плашек одной ступени: стоит в общем ряду под кнопками, прижата к своей кнопке
+   * (насколько позволяет ряд), но ни на что не наезжает.
+   */
+  function renderChipGroup(facet: FacetDescriptor<Row>) {
+    const tone = tones[facet.id] ?? FALLBACK_FACET_TONE;
+    const chips = selectedOptions.get(facet.id) ?? [];
+    const range = facet.kind === 'dateRange' ? facetRangeOf(props.selection, facet.id) : null;
+    if (chips.length === 0 && !range) return null;
+    return (
+      <div
+        key={facet.id}
+        ref={(el) => {
+          groupRefs.current[facet.id] = el;
+        }}
+        data-facet-chip-group={facet.id}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: chipLayout[facet.id] ?? 0,
+          // Ширина по содержимому: от положения группы в ряду она не зависит, иначе
+          // замер ширины ломался бы о собственное смещение.
+          width: 'max-content',
+          display: 'flex',
+          flexWrap: 'nowrap',
+          alignItems: 'flex-start',
+          gap: 2,
+          whiteSpace: 'nowrap',
+          zIndex: 5,
+        }}
+      >
+        {chips.map((option) => (
+          <div
+            key={option.value}
+            style={{ position: 'relative' }}
+            onMouseEnter={() => openMenu(facet.id, option.value)}
+            onMouseLeave={closeMenuOnLeave}
+          >
+            <button
+              type="button"
+              data-facet-chip={`${facet.id}:${option.value}`}
+              onClick={() => toggleChip(facet.id, option.value)}
+              title={`${option.label} — нажмите, чтобы снять значение из отбора`}
+              style={facetChipStyle(tone, chipMaxWidth)}
+            >
+              {option.label}
+            </button>
+            {renderFacetMenu(facet, option.value)}
+          </div>
+        ))}
+        {range ? (
+          <div
+            style={{ position: 'relative' }}
+            onMouseEnter={() => openMenu(facet.id, 'range')}
+            onMouseLeave={closeMenuOnLeave}
+          >
+            <button
+              type="button"
+              data-facet-chip={`${facet.id}:range`}
+              onClick={() => clearRangeChip(facet.id)}
+              title={`${facet.label}: ${range.from ?? '…'} — ${range.to ?? '…'} — нажмите, чтобы снять период`}
+              style={facetChipStyle(tone, chipMaxWidth)}
+            >
+              {range.from && range.from === range.to ? range.from : `${range.from ?? '…'} — ${range.to ?? '…'}`}
+            </button>
+            {renderFacetMenu(facet, 'range')}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  /** Общий ряд плашек под рядом кнопок: одна строка на все ступени, без наездов. */
+  function renderChipRow() {
+    if (!hasAnyChips) return null;
+    return (
+      <div
+        ref={chipRowRef}
+        data-facet-chip-row
+        style={{ position: 'relative', height: FACET_CHIP_ROW_HEIGHT }}
+      >
+        {rankedFields.map(renderChipGroup)}
       </div>
     );
   }
@@ -743,6 +867,11 @@ export function FacetFilter<Row>(props: {
             порядок — частые слева. */}
         {rankedFields.map(renderFacetColumn)}
       </div>
+      {/* Ряд плашек выбранных значений — общий на все ступени, под рядом кнопок. Каждая
+          группа тянется к своей кнопке, но ни одна не наезжает на другую (владелец
+          12.11.2026: «плавающие плашки наезжают друг на друга — прочитать невозможно,
+          что выбрано, и отключить невозможно»). */}
+      {renderChipRow()}
     </div>
   );
 }

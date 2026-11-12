@@ -96,12 +96,18 @@ describe('ступенчатый фильтр доезжает до строк �
     );
   });
 
-  it('выбор колонок называется словами и живёт в тулбаре', () => {
-    // Владелец 16.09.2026 вернул кнопку в тулбар: панель фильтров сворачивается, и вместе с
-    // ней пропадала настройка колонок — а она нужна и при закрытом фильтре.
-    expect(PAGE).toContain('label="Колонки списка"');
+  it('выбор колонок — рядом плашек между фильтрами и шапкой списка, а не кнопкой в тулбаре', () => {
+    // Владелец 12.11.2026: «та кнопка, которая у нас сейчас есть в панели кнопок управления
+    // списками, нужно убрать кнопку колонки списка полностью… теперь этими колонками нужно
+    // управлять вот этими плашками». Ряд плашек — между панелью фильтров и шапкой списка.
+    expect(PAGE, 'кнопка «Колонки списка» вернулась бы в тулбар').not.toContain('ColumnSettingsButton');
+    expect(PAGE, 'ряд плашек колонок на месте').toContain('<ListColumnChips');
     const toolbar = PAGE.slice(PAGE.indexOf('<PageToolbar>'), PAGE.indexOf('</PageToolbar>'));
-    expect(toolbar, 'кнопка колонок живёт в тулбаре — она нужна и при свёрнутом фильтре').toContain('<ColumnSettingsButton');
+    expect(toolbar, 'в тулбаре колонок больше нет').not.toContain('<ListColumnChips');
+    // Порядок на экране: панель фильтров → ряд плашек → шапка списка.
+    const chips = PAGE.indexOf('<ListColumnChips');
+    expect(chips, 'ряд плашек на месте').toBeGreaterThan(PAGE.indexOf('<EngineFacetFilter'));
+    expect(chips, 'ряд плашек — до шапки списка').toBeLessThan(PAGE.indexOf('<VirtualTable'));
     expect(PAGE, 'в панель фильтров кнопка больше не отдаётся').not.toContain('columnsControl={');
     expect(FILTER, 'слот колонок из панели убран — иначе останется мёртвая разметка').not.toContain('data-facet-columns');
   });
