@@ -125,35 +125,69 @@ async function login(ws) {
   return 'форма входа';
 }
 
-/** Открыть окно «Скрипты обслуживания»: через Верстак (плитка) или через МЕНЮ. */
+/**
+ * Убрать окна, оставшиеся от прошлого прогона: они перекрывают меню и клики.
+ * Прогон должен быть независим от предыдущего — иначе результат зависит от порядка.
+ */
+async function closeLeftovers(ws) {
+  return evaluate(
+    ws,
+    `const closed = [];
+     // Окно инструкции: закрыть кнопкой «Закрыть».
+     for (let i = 0; i < 3; i++) {
+       const d = document.querySelector('[data-kaspersky-setup-dialog]');
+       if (!d) break;
+       const b = [...d.querySelectorAll('button')].filter(visible).find((x) => txt(x) === 'Закрыть')
+              || [...d.querySelectorAll('button')].filter(visible).find((x) => txt(x).includes('Закрыть'));
+       if (b) { click(b); closed.push('инструкция'); await wait(700); } else break;
+     }
+     // Окно обслуживания: закрыть кнопкой «Закрыть»/«×».
+     for (let i = 0; i < 3; i++) {
+       const d = document.querySelector('[data-client-ops-dialog]');
+       if (!d) break;
+       const b = [...d.querySelectorAll('button')].filter(visible).find((x) => txt(x).includes('Закрыть'))
+              || [...d.querySelectorAll('button')].filter(visible).find((x) => txt(x) === '×');
+       if (b) { click(b); closed.push('обслуживание'); await wait(700); } else break;
+     }
+     // Оверлей меню: закрыть Escape.
+     if (document.querySelector('.v3-menu-overlay')) {
+       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+       await wait(600);
+       closed.push('меню');
+     }
+     return closed;`,
+  );
+}
+
+/** Открыть окно «Скрипты обслуживания»: через МЕНЮ (пункт лежит в группе «Сервис»). */
 async function openClientOps(ws) {
   return evaluate(
     ws,
     `await wait(500);
-     // Плитка на Верстаке: «Скрипты обслуживания».
-     const tile = [...document.querySelectorAll('*')].filter(visible).find((el) => {
-       if (el.children.length > 0) return false;
-       return txt(el).includes('Скрипты обслуживания');
-     });
-     if (tile) {
-       const btn = tile.closest('[role="button"], button, .v3-tile, [data-desktop-tile]') ?? tile;
-       click(btn); await wait(900);
-       if (document.querySelector('[data-client-ops-dialog]')) return 'плитка Верстака';
+     // Закрыть оверлей, если он остался висеть с прошлого прогона: он перехватывает клики.
+     if (document.querySelector('.v3-menu-overlay-backdrop')) {
+       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+       await wait(600);
      }
-     // Запасной путь — пункт МЕНЮ.
-     let b = null;
-     for (let i = 0; i < 20 && !b; i++) {
-       const el = document.elementFromPoint(75, 17);
-       b = el && el.closest('button');
-       if (!b) await wait(500);
+     if (!document.querySelector('.v3-menu-overlay')) {
+       let b = null;
+       for (let i = 0; i < 20 && !b; i++) {
+         const el = document.elementFromPoint(75, 17);
+         b = el && el.closest('button');
+         if (!b) await wait(500);
+       }
+       if (!b) return 'кнопка МЕНЮ не найдена';
+       b.click(); await wait(1000);
      }
-     if (!b) return 'кнопка МЕНЮ не найдена';
-     b.click(); await wait(900);
      const ov = document.querySelector('.v3-menu-overlay');
      if (!ov) return 'оверлей меню не открылся';
+     // Пункт лежит в группе «Сервис» — группа по умолчанию свёрнута, её надо раскрыть.
+     const groups = [...ov.querySelectorAll('button')];
+     const g = groups.find((x) => txt(x).replace(/^▸|^▾/, '').replace(/\\d+$/, '').trim().startsWith('Сервис'));
+     if (g && txt(g).startsWith('▸')) { g.click(); await wait(900); }
      const it = [...ov.querySelectorAll('button')].find((x) => txt(x).includes('Скрипты обслуживания'));
-     if (!it) return 'пункт меню не найден';
-     it.click(); await wait(1200);
+     if (!it) return { error: 'пункт меню не найден', have: [...ov.querySelectorAll('button')].map(txt).slice(0, 40) };
+     it.click(); await wait(1400);
      return 'через меню';`,
   );
 }
@@ -166,6 +200,9 @@ async function main() {
 
   console.log('== логин ==');
   note(true, `экран входа: ${await login(ws)}`);
+
+  const closed = await closeLeftovers(ws);
+  if (closed.length) console.log(`   закрыто с прошлого прогона: ${closed.join(', ')}`);
 
   console.log('== окно скриптов обслуживания ==');
   const how = await openClientOps(ws);
@@ -200,6 +237,12 @@ async function main() {
     ws,
     `const d = document.querySelector('[data-kaspersky-setup-dialog]');
      const body = d ? txt(d) : '';
+     // Упоминание сертификата/корня доверия допустимо ТОЛЬКО как запрет
+     // («Чего делать не нужно»). Шаг с установкой сертификата — дефект.
+     const cut = body.split(/Чего делать не нужно/i);
+     const actionable = cut[0];
+     // Заголовок возвращаем в хвост: в нём и живёт отрицание («не нужно»).
+     const tail = 'Чего делать не нужно ' + cut.slice(1).join(' ');
      return {
        length: body.length,
        hasStep1: /Шаг 1|шаг 1/i.test(body),
@@ -207,7 +250,9 @@ async function main() {
        hasAdmin: /системн(ый|ого) администратор/i.test(body),
        // Признаки шага с повышенными правами: их быть не должно.
        mentionsUac: /UAC|повышенн/i.test(body),
-       mentionsRoot: /кор[её]н[ья] доверия|сертификат/i.test(body),
+       mentionsRoot: /кор[её]н[ья] доверия|корень сертификата|сертификат/i.test(actionable),
+       // Запрет ставить корень сертификата должен быть явно проговорен.
+       forbidsRoot: /сертификат/i.test(tail) && /не нужно|не ставить|запрещ/i.test(tail),
      };`,
   );
   note(instr.length > 200, 'окно инструкции открылось и содержит текст', instr);
@@ -215,6 +260,7 @@ async function main() {
   note(instr.hasImport === true, 'инструкция говорит про импорт файлов в Касперский', instr);
   note(instr.mentionsUac === false, 'в инструкции НЕТ шага с повышенными правами', instr);
   note(instr.mentionsRoot === false, 'в инструкции НЕТ шага с сертификатом/корнем доверия', instr);
+  note(instr.forbidsRoot === true, 'инструкция прямо запрещает ставить корень сертификата', instr);
   await shot(ws, '2-instruction');
 
   // ── 3. Кнопка запуска помощника есть ────────────────────────────────────────────────
