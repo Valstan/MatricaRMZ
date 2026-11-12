@@ -427,7 +427,6 @@ async function main() {
     ws,
     `const pane = activePane();
      const panel = vis('[data-engine-facets]', pane)[0] ?? null;
-     if (!panel) { const toggle = vis('[data-facet-toggle]', pane)[0]; if (toggle) { click(toggle); await wait(800); } }
      const ids = vis('[data-facet-field]', pane).map((b) => b.getAttribute('data-facet-field'));
      const reset = vis('[data-facet-reset]', pane)[0] ?? null;
      if (reset) { click(reset); await wait(400); }

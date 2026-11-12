@@ -22,7 +22,7 @@ import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
-import { FacetFilter, FacetToggleButton } from '../components/FacetFilter.js';
+import { FacetFilter } from '../components/FacetFilter.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
@@ -91,8 +91,6 @@ type EmployeesListUiState = {
   /** Ступенчатый фильтр: какие столбцы участвуют и что в них выбрано (пусто = все). */
   facetFields?: string[];
   facets?: EmployeeFacetSelection;
-  /** Раскрыта ли панель фильтров (по умолчанию свёрнута — тулбар должен быть коротким). */
-  facetsOpen?: boolean;
 };
 
 export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; canCreate: boolean; canDelete: boolean; refreshKey?: number }) {
@@ -115,7 +113,6 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
     // Ступень с выбранными значениями показываем всегда: иначе отбор идёт, а чем — не видно.
     return Array.from(new Set([...known, ...active]));
   }, [listState.facetFields, facets]);
-  const facetsOpen = listState.facetsOpen === true;
   const { containerRef, onScroll } = usePersistedScrollTop('list:employees');
   const query = String(listState.query ?? '');
   const searchSimilar = listState.searchSimilar === true;
@@ -594,14 +591,6 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
         <ToolbarPin>
           <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar, pageIndex: 0 })} />
         </ToolbarPin>
-        <ToolbarPin>
-          <FacetToggleButton<Row>
-            facets={EMPLOYEE_FACETS as readonly FacetDescriptor<Row>[]}
-            selection={facets as FacetSelection}
-            open={facetsOpen}
-            onToggle={() => patchState({ facetsOpen: !facetsOpen })}
-          />
-        </ToolbarPin>
         <ColumnSettingsButton
           label="Колонки списка"
           columns={columnDescriptors}
@@ -673,7 +662,6 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
           rows={searched}
           selection={facets as FacetSelection}
           fields={facetFields}
-          open={facetsOpen}
           usageKey="list:employees"
           onChangeSelection={(next) => patchState({ facets: next as EmployeeFacetSelection, pageIndex: 0 })}
           onChangeFields={(next) => patchState({ facetFields: next })}

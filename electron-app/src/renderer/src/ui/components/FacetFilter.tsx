@@ -63,9 +63,13 @@ function readFacetUsage(usageKey: string | undefined): FacetUsage {
 }
 
 /**
- * Ступенчатый фильтр списка, спрятанный под кнопку «Фильтры» (просьба владельца 08.09.2026:
- * тулбар оброс кнопками, и все отборы должны жить в одном месте). Общий для двигателей и
- * контрактов — ступени приходят описанием, компонент о предметной области ничего не знает.
+ * Ступенчатый фильтр списка — **всегда на виду**, под панелью управляющих кнопок
+ * (владелец 12.11.2026: «убери кнопку „Фильтры“ отовсюду, пусть панель фильтров будет всегда
+ * открыта и активна и видна под панелью управляющих кнопок карточки или списка»). Раньше панель
+ * пряталась под кнопку в тулбаре (просьба владельца 08.09.2026: тулбар оброс кнопками, и все
+ * отборы должны жить в одном месте) — теперь кнопки нет, а панель стоит под тулбаром всегда.
+ * Общий для двигателей и контрактов — ступени приходят описанием, компонент о предметной
+ * области ничего не знает.
  *
  * Вид панели (владелец 12.11.2026: «пусть это будут просто надписи на квадратных ячейках,
  * практически без полей»):
@@ -74,10 +78,13 @@ function readFacetUsage(usageKey: string | undefined): FacetUsage {
  *   фон — бледный цвет своей ступени (`facetTone.ts`). Рамки нет: цвет и есть опознание.
  * - **Меню ступени** — выпадает ПОД ячейкой по наведению мыши (и по щелчку: на планшете
  *   наведения нет). Первая строка меню — «Сбросить фильтр»: снимает ЭТУ ступень. Сбросить
- *   всё — отдельная кнопка в начале ряда.
+ *   всё — отдельная кнопка в начале ряда. Фон меню **непрозрачный** (владелец 12.11.2026:
+ *   сквозь полупрозрачную выпадашку просвечивал список под ней).
  * - **Второй уровень** — выбранные значения стоят плашками ПОД своей ячейки, цветом той же
  *   ступени. Наведение на плашку открывает то же меню ступени — так набирают несколько
- *   значений, не возвращаясь к ячейке.
+ *   значений, не возвращаясь к ячейке. **Щелчок по плашке снимает значение** (владелец
+ *   12.11.2026: «наводишь мышку, хочешь отключить данный фильтр, а он не отключается, а только
+ *   выпадашка меню выпала и в ней можно только его выбрать и отключить — это лишнее движение»).
  *
  * Числа рядом со значениями — сколько строк останется, и считаются они по строкам, прошедшим
  * ОСТАЛЬНЫЕ ступени. Отсюда следствие, ради которого всё и затевалось: выбор в одной ступени
@@ -97,6 +104,9 @@ function readFacetUsage(usageKey: string | undefined): FacetUsage {
  * Теперь плашки висят отдельным слоем поверх ряда (absolute), прижаты к центру своей
  * кнопки и могут наползать на территорию соседа: место под соседом пустует, но ряд
  * кнопок остаётся компактным.
+ *
+ * Шестое (владелец 12.11.2026): кнопки «Фильтры» больше нет — панель всегда открыта,
+ * выпадашка непрозрачная, щелчок по плашке снимает значение.
  */
 
 /**
@@ -134,59 +144,23 @@ function facetChipStyle(tone: FacetTone): React.CSSProperties {
   };
 }
 
-/**
- * Кнопка «Фильтры» для тулбара — рядом с полем поиска (владелец 08.09.2026: панель не должна
- * занимать полосу, когда она свёрнута). Число активных ступеней видно и в свёрнутом виде:
- * иначе отобранный список неотличим от полного.
- */
-export function FacetToggleButton<Row>(props: {
-  facets: readonly FacetDescriptor<Row>[];
-  selection: FacetSelection;
-  open: boolean;
-  onToggle: () => void;
-}) {
-  const activeCount = activeFacetCount(props.facets, props.selection);
-  return (
-    <button
-      type="button"
-      data-facet-toggle
-      onClick={props.onToggle}
-      title={props.open ? 'Свернуть панель фильтров (отбор останется)' : 'Развернуть панель фильтров'}
-      style={{
-        padding: '6px 12px',
-        borderRadius: 8,
-        border: '1px solid var(--border)',
-        background: activeCount > 0 ? 'rgba(37, 99, 235, 0.15)' : 'var(--surface)',
-        fontWeight: activeCount > 0 ? 700 : 400,
-        whiteSpace: 'nowrap',
-        cursor: 'pointer',
-      }}
-    >
-      {props.open ? '▾' : '▸'} Фильтры{activeCount > 0 ? ` (${activeCount})` : ''}
-    </button>
-  );
-}
-
 export function FacetFilter<Row>(props: {
   facets: readonly FacetDescriptor<Row>[];
   rows: readonly Row[];
   selection: FacetSelection;
   /** Какие ступени ступени были открыты. Хранится снаружи: состояние списка роумится вместе с фильтром. */
   fields: string[];
-  /**
-   * Раскрыта ли панель. Состояние снаружи (роумится вместе со списком), а переключает его
-   * `FacetToggleButton` из тулбара: свёрнутая панель не должна занимать полосу, но отбор
-   * при этом продолжает работать — он живёт в `selection`, а не в раскрытости.
-   */
-  open: boolean;
   /** Ключ списка для рейтинга ступеней (`list:engines`, `report:engines:ui`, …) — своё у каждого ряда. */
   usageKey?: string;
   onChangeSelection: (next: FacetSelection) => void;
   onChangeFields: (next: string[]) => void;
   onReset: () => void;
-  // Кнопки колонок здесь больше нет (владелец 16.09.2026): она жила в панели с 08.09, но
-  // панель сворачивается, и «Колонки списка» пропадали вместе с ней. Настройка колонок нужна
-  // и при закрытом фильтре, поэтому она вернулась в тулбар — постоянно на виду.
+  // Пропа `open` больше нет (владелец 12.11.2026: «убери кнопку „Фильтры“ отовсюду, пусть
+  // панель фильтров будет всегда открыта и активна и видна»): панель не сворачивается, и
+  // состояние раскрытости в состоянии списка больше не нужно.
+  // Кнопки колонок здесь тоже нет (владелец 16.09.2026): она жила в панели с 08.09, но панель
+  // сворачивалась, и «Колонки списка» пропадали вместе с ней. Настройка колонок вернулась
+  // в тулбар — постоянно на виду.
 }) {
   const activeCount = activeFacetCount(props.facets, props.selection);
   const chosen = new Set(props.fields);
@@ -209,19 +183,18 @@ export function FacetFilter<Row>(props: {
   idsRef.current = props.facets.map((f) => f.id);
   const idsSignature = idsRef.current.join('|');
 
-  // Снимок счёта на момент открытия панели. По нему считаются и порядок кнопок, и порядок
-  // значений в меню: щелчок внутри открытой панели счёт копит, но ряд под курсором не
-  // перетасовывается — новый рейтинг оператор увидит при следующем открытии.
+  // Снимок счёта на момент появления панели. По нему считаются и порядок кнопок, и порядок
+  // значений в меню: щелчок внутри панели счёт копит, но ряд под курсором не перетасовывается —
+  // новый рейтинг оператор увидит, когда панель пересоберётся.
   const [rating, setRating] = React.useState<{ usage: FacetUsage; at: number }>(() => ({
     usage: usageRef.current,
     at: Date.now(),
   }));
 
   React.useEffect(() => {
-    if (!props.open) return;
     const at = Date.now();
     setRating({ usage: usageRef.current, at });
-  }, [props.open, idsSignature]);
+  }, [idsSignature]);
 
   /** Щелчок по ступени и по её значению копит счёт: у значения — свой ключ в той же карте. */
   function bumpFacet(facetId: string, value?: string) {
@@ -272,12 +245,6 @@ export function FacetFilter<Row>(props: {
   const openMenuTarget = pinned ?? hovered;
   const openFacetId = openMenuTarget?.facetId ?? null;
 
-  React.useEffect(() => {
-    if (props.open) return;
-    setPinned(null);
-    setHovered(null);
-  }, [props.open]);
-
   // Щелчок мимо меню закрывает его. Внутри меню — не закрывает: иначе нельзя было бы выбрать
   // несколько значений подряд (выбор не закрывает меню, закрывает только щелчок снаружи).
   // Щелчок по ячейке или плашке — тоже не закрывает: их обработчик сам решает, открыть или
@@ -316,6 +283,37 @@ export function FacetFilter<Row>(props: {
       if (prev && prev.facetId === facetId && prev.anchor === anchor) return null;
       return { facetId, anchor };
     });
+  }
+
+  /**
+   * Щелчок по плашке выбранного значения — **снимает значение из отбора**
+   * (владелец 12.11.2026: «сделай так, чтобы при нажатии на плашку фильтра он активировался и
+   * деактивировался… наводишь мышку, хочешь отключить данный фильтр, а он не отключается, а
+   * только выпадашка меню выпала и в ней можно только его выбрать и отключить — это лишнее
+   * движение»).
+   *
+   * Раньше щелчок по плашке прикалывал меню, и снять значение можно было только заходом в
+   * выпадашку — два лишних движения. Теперь один щелчок по плашке — и значения в отборе нет.
+   * **Сама выпадашка не тронута**: по наведению она открывается как прежде.
+   */
+  function toggleChip(facetId: string, value: string) {
+    bumpFacet(facetId, value);
+    props.onChangeSelection(toggleFacetValue(props.selection, facetId, value));
+    // Меню, привязанное к этой плашке, закрываем: плашка могла исчезнуть, а приколотое меню
+    // осталось бы висеть на несуществующем элементе и блокировать меню других ступеней.
+    setPinned((prev) => (prev && prev.facetId === facetId && prev.anchor === value ? null : prev));
+    setHovered((prev) => (prev && prev.facetId === facetId && prev.anchor === value ? null : prev));
+  }
+
+  /**
+   * Щелчок по плашке периода — **снимает отбор по датам**. У ступени-диапазона отбор и есть
+   * период, поэтому снимается он целиком (значений у такой ступени нет).
+   */
+  function clearRangeChip(facetId: string) {
+    bumpFacet(facetId);
+    props.onChangeSelection(clearFacet(props.selection, facetId));
+    setPinned((prev) => (prev && prev.facetId === facetId && prev.anchor === 'range' ? null : prev));
+    setHovered((prev) => (prev && prev.facetId === facetId && prev.anchor === 'range' ? null : prev));
   }
 
   /** Сбросить ветку ступени: снимает её значения и убирает ступень из открытых. */
@@ -427,7 +425,10 @@ export function FacetFilter<Row>(props: {
           border: '1px solid var(--border)',
           borderLeft: `3px solid ${tone.accent}`,
           borderRadius: 6,
-          background: tone.panel,
+          // Фон НЕПРОЗРАЧНЫЙ (владелец 12.11.2026: «прозрачность выпадающего меню фильтров
+          // убери»): сквозь полупрозрачную выпадашку просвечивал список под ней. Цвет ступени
+          // остаётся виден по полосе слева и по цвету выбранного значения.
+          background: 'var(--surface)',
           boxShadow: '0 8px 20px rgba(15, 23, 42, 0.18)',
         }}
       >
@@ -672,8 +673,8 @@ export function FacetFilter<Row>(props: {
                   <button
                     type="button"
                     data-facet-chip={`${facet.id}:${option.value}`}
-                    onClick={() => togglePin(facet.id, option.value)}
-                    title={`${option.label} — выбранное значение`}
+                    onClick={() => toggleChip(facet.id, option.value)}
+                    title={`${option.label} — нажмите, чтобы снять значение из отбора`}
                     style={facetChipStyle(tone)}
                   >
                     {option.label}
@@ -701,8 +702,8 @@ export function FacetFilter<Row>(props: {
                 <button
                   type="button"
                   data-facet-chip={`${facet.id}:range`}
-                  onClick={() => togglePin(facet.id, 'range')}
-                  title={`${facet.label}: ${range.from ?? '…'} — ${range.to ?? '…'}`}
+                  onClick={() => clearRangeChip(facet.id)}
+                  title={`${facet.label}: ${range.from ?? '…'} — ${range.to ?? '…'} — нажмите, чтобы снять период`}
                   style={facetChipStyle(tone)}
                 >
                   {range.from && range.from === range.to ? range.from : `${range.from ?? '…'} — ${range.to ?? '…'}`}
@@ -716,9 +717,8 @@ export function FacetFilter<Row>(props: {
     );
   }
 
-  // Свёрнутая панель не занимает НИЧЕГО: кнопка живёт в тулбаре рядом с поиском.
-  if (!props.open) return null;
-
+  // Панель всегда на виду (владелец 12.11.2026): кнопки «Фильтры» больше нет, сворачивать
+  // нечего — панель стоит под тулбаром всегда.
   return (
     <div
       data-engine-facets

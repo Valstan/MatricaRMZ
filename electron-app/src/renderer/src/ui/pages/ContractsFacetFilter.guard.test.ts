@@ -68,12 +68,15 @@ describe('ступенчатый фильтр доезжает до строк �
     expect(PAGE, 'мёртвый механизм видимости не должен остаться в коде').not.toContain('requireShowPreviews');
   });
 
-  it('кнопка «Фильтры» — в тулбаре, панель разворачивается ниже', () => {
-    const toolbar = PAGE.slice(PAGE.indexOf('<SearchModeToggle'), PAGE.indexOf('<SearchModeToggle') + 500);
-    expect(toolbar).toContain('<FacetToggleButton<Row>');
-    expect(PAGE).toContain('open={facetsOpen}');
-    expect(FILTER).toContain('data-facet-toggle');
-    expect(FILTER, 'свёрнутая панель не занимает полосу').toContain('if (!props.open) return null;');
+  it('кнопки «Фильтры» нет: панель фильтров всегда на виду под тулбаром', () => {
+    // Владелец 12.11.2026: «убери кнопку „Фильтры“ отовсюду, пусть панель фильтров будет всегда
+    // открыта и активна и видна под панелью управляющих кнопок карточки или списка».
+    expect(PAGE, 'кнопка «Фильтры» вернулась бы в тулбар').not.toContain('<FacetToggleButton');
+    expect(PAGE).not.toContain('data-facet-toggle');
+    expect(PAGE, 'у списка больше нет состояния раскрытости панели').not.toContain('facetsOpen');
+    expect(FILTER, 'панель снова может исчезнуть').not.toContain('if (!props.open) return null;');
+    // Панель при этом на месте — под тулбаром.
+    expect(PAGE).toContain('<FacetFilter<Row>');
   });
 });
 

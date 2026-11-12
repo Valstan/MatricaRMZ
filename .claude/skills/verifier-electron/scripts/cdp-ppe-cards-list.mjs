@@ -230,9 +230,8 @@ async function main() {
     ws,
     `const root = listRoot();
      const panel = root?.parentElement ?? document;
-     const toggle = vis('[data-facet-toggle]', panel)[0];
-     if (!toggle) return { ok: false, reason: 'кнопки «Фильтры» нет' };
-     if (!txt(panel).includes('Размер одежды')) { click(toggle); await wait(900); }
+     // Кнопки «Фильтры» больше нет (владелец 12.11.2026): панель всегда на виду.
+     if (vis('[data-facet-toggle]', panel).length > 0) return { ok: false, reason: 'кнопка «Фильтры» ещё в интерфейсе' };
      const text = txt(panel);
      const wanted = ['Карточка', 'Выдача', 'Размер одежды', 'Размер обуви', 'Заполнено', 'Уволен'];
      const missing = wanted.filter((w) => !text.includes(w));
@@ -246,7 +245,6 @@ async function main() {
      if (btn) { click(btn); await wait(900); filtered = listRows().length; }
      if (btn) { click(btn); await wait(600); }
      if (group && valueBtn()) { click(group); await wait(300); }
-     click(toggle); await wait(400);
      return { ok: true, missing, filtered, promised };`,
   );
   note(facets.ok && facets.missing.length === 0, 'ступени-фильтры СИЗ на месте', facets);

@@ -239,9 +239,11 @@ async function main() {
     console.log('      на стенде один двигатель — вместо поиска переключаем фасет');
     const facet = await evaluate(
       ws,
-      `const tg = [...PANE().querySelectorAll('[data-facet-toggle]')].find(visible);
-       if (!tg) return { ok: false, reason: '[data-facet-toggle] не найден' };
-       click(tg); await wait(800);
+      `const cell = [...PANE().querySelectorAll('[data-facet-field]')].find(visible);
+       if (!cell) return { ok: false, reason: '[data-facet-field] не найден' };
+       // Меню ступени открывается по наведению; щелчок по ячейке его прикалывает — так и
+       // делаем (кнопки «Фильтры» больше нет, панель всегда на виду).
+       click(cell); await wait(800);
        const v = [...PANE().querySelectorAll('[data-facet-value]')].find(visible);
        if (!v) return { ok: false, reason: '[data-facet-value] не найден после раскрытия' };
        click(v); await wait(800);

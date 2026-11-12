@@ -104,10 +104,8 @@ const HELPERS = `
     label: txt(b).replace(/\\s*\\(\\d+\\)$/, '').trim(),
   }));
   const openFacets = async (root) => {
-    if (vis('[data-facet-field]', root).length > 0) return true;
-    const tog = vis('[data-facet-toggle]', root)[0];
-    if (!tog) return false;
-    click(tog); await wait(700);
+    // Кнопки «Фильтры» больше нет (владелец 12.11.2026): панель всегда на виду.
+    await wait(400);
     return vis('[data-facet-field]', root).length > 0;
   };
   const fieldOpen = (root, id) =>

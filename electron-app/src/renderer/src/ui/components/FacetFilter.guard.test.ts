@@ -46,10 +46,13 @@ describe('фильтры списков — цвет ступени', () => {
     expect(FILTER).toContain('tone.tint');
   });
 
-  it('меню ступени помечено и лежит в её цвете', () => {
-    // Владелец 12.11.2026: вместо раскрытой панели под ячейкой — меню по наведению.
+  it('меню ступени помечено, фон непрозрачный, а цвет ступени виден по полосе слева', () => {
+    // Владелец 12.11.2026: «прозрачность выпадающего меню фильтров убери» — сквозь
+    // полупрозрачную выпадашку просвечивал список под ней. Фон теперь непрозрачный
+    // (`var(--surface)`), а цвет ступени остался: полоса слева и синее выбранное значение.
     expect(FILTER).toContain('data-facet-menu={facet.id}');
-    expect(FILTER).toContain('background: tone.panel');
+    expect(FILTER).toContain("background: 'var(--surface)'");
+    expect(FILTER, 'полупрозрачная подложка панели вернулась бы в меню').not.toContain('background: tone.panel');
     expect(FILTER).toContain('borderLeft: `3px solid ${tone.accent}`');
   });
 });
@@ -60,11 +63,12 @@ describe('фильтры списков — рейтинг ступеней', ()
     expect(FILTER).toContain('localStorage');
   });
 
-  it('ряд кнопок строится по рейтингу в момент открытия панели, а не под курсором', () => {
-    // Порядок и состав ряда считаются по СНИМКУ счёта, снятому при открытии панели: щелчок
-    // внутри открытой панели счёт копит, но ряд под курсором не перетасовывается.
+  it('ряд кнопок строится по рейтингу на момент появления панели, а не под курсором', () => {
+    // Порядок и состав ряда считаются по СНИМКУ счёта: щелчок внутри панели счёт копит, но
+    // ряд под курсором не перетасовывается. Снимок снимается при появлении панели и при смене
+    // набора ступеней (раньше — в момент «открытия» по кнопке «Фильтры», которой больше нет).
     expect(FILTER).toMatch(
-      /if \(!props\.open\) return;\n\s*const at = Date\.now\(\);\n\s*setRating\(\{ usage: usageRef\.current, at \}\);/,
+      /const at = Date\.now\(\);\n\s*setRating\(\{ usage: usageRef\.current, at \}\);/,
     );
     expect(FILTER).toContain('facetUsageScore(rating.usage, facet.id, rating.at)');
   });
@@ -166,5 +170,53 @@ describe('панель фильтров — вид по заказу владе�
     expect(FILTER).toContain("const MENU_SELECTED = 'hsl(221 83% 53%)'");
     expect(FILTER).toContain("const MENU_HOVER = 'rgba(127, 127, 127, 0.18)'");
     expect(FILTER).toContain("color: option.selected ? '#ffffff' : 'var(--text)'");
+  });
+});
+
+// Владелец 12.11.2026 (третья правка панели): «убери кнопку „Фильтры“ отовсюду, пусть панель
+// фильтров будет всегда открыта и активна и видна под панелью управляющих кнопок карточки или
+// списка… прозрачность выпадающего меню фильтров убери… при нажатии на плашку фильтра он
+// активировался и деактивировался».
+describe('панель фильтров — по заказу владельца 12.11.2026 (третья правка)', () => {
+  it('кнопки «Фильтры» нет ни в компоненте, ни на восьми экранах', () => {
+    expect(FILTER, 'кнопка «Фильтры» вернулась бы в тулбар').not.toContain('FacetToggleButton');
+    expect(FILTER).not.toContain('data-facet-toggle');
+    expect(ENGINE_FILTER, 'кнопка «Фильтры» вернулась бы в тулбар').not.toContain('EngineFacetToggleButton');
+    for (const host of HOSTS) {
+      expect(host.source, `${host.name}: кнопка «Фильтры» вернулась в тулбар`).not.toContain('FacetToggleButton');
+      expect(host.source, `${host.name}: кнопка «Фильтры» вернулась в тулбар`).not.toContain('data-facet-toggle');
+    }
+  });
+
+  it('панель всегда на виду: свернуть её нечем', () => {
+    // Проп `open` ушёл из компонента, а вместе с ним и ранний выход из рендера.
+    expect(FILTER, 'панель снова прячется').not.toContain('if (!props.open) return null;');
+    expect(FILTER, 'у панели не должно быть пропа раскрытости').not.toContain('open: boolean;');
+    expect(ENGINE_FILTER, 'у обёртки не должно быть пропа раскрытости').not.toContain('open: boolean;');
+    // Панель стоит под тулбаром на всех восьми экранах.
+    for (const host of HOSTS) {
+      expect(host.source, `${host.name}: панель фильтров не отрисована`).toMatch(/<(FacetFilter|EngineFacetFilter)/);
+    }
+  });
+
+  it('щелчок по плашке снимает значение из отбора — без захода в выпадашку', () => {
+    // Владелец: «наводишь мышку, хочешь отключить данный фильтр, а он не отключается, а только
+    // выпадашка меню выпала и в ней можно только его выбрать и отключить — это лишнее движение».
+    expect(FILTER).toContain('function toggleChip(');
+    expect(FILTER).toContain('toggleFacetValue(props.selection, facetId, value)');
+    expect(FILTER).toContain('onClick={() => toggleChip(facet.id, option.value)}');
+    // Приколотое меню плашки закрывается: плашка могла исчезнуть, и меню осталось бы висеть
+    // на несуществующем элементе.
+    expect(FILTER).toContain('setPinned((prev) => (prev && prev.facetId === facetId && prev.anchor === value ? null : prev))');
+    // Плашка периода снимает период тем же щелчком.
+    expect(FILTER).toContain('function clearRangeChip(');
+    expect(FILTER).toContain('onClick={() => clearRangeChip(facet.id)}');
+  });
+
+  it('выпадашка по наведению осталась как была', () => {
+    // Владелец: «выпадашка работает хорошо, пусть так и будет».
+    expect(FILTER).toContain('onMouseEnter={() => openMenu(facet.id,');
+    expect(FILTER).toContain('onMouseLeave={closeMenuOnLeave}');
+    expect(FILTER).toContain('togglePin(facet.id,');
   });
 });

@@ -326,8 +326,12 @@ async function main() {
     "(() => { const b = window.__mv.toolbar(); return b ? [...b.querySelectorAll('input')].some(i => (i.placeholder||'').includes('Поиск')) : false; })()",
   );
   check('поиск из ряда не уехал', searchStays === true);
-  const similarStays = await cdp.evalAsync("Boolean(window.__mv.panelFor('Марка', '[data-facet-toggle]'))");
-  check('кнопка «Фильтры» из ряда не уехала', similarStays === true);
+  // Кнопки «Фильтры» в ряду больше нет (владелец 12.11.2026) — вместо неё панель фильтров
+  // стоит под тулбаром всегда и уехать в меню переполнения не может.
+  const facetToggleGone = await cdp.evalAsync("!window.__mv.panelFor('Марка', '[data-facet-toggle]')");
+  check('кнопки «Фильтры» в ряду нет', facetToggleGone === true);
+  const panelVisible = await cdp.evalAsync("Boolean(window.__mv.panelFor('Марка', '[data-engine-facets]'))");
+  check('панель фильтров на виду под тулбаром', panelVisible === true);
   await cdp.evalAsync("window.__mv.click(window.__mv.panelFor('Марка', '[data-toolbar-overflow]'))");
   await sleep(600);
   const menuOpen = await cdp.evalAsync(
@@ -344,11 +348,9 @@ async function main() {
     "(() => { const b = window.__mv.toolbar(); return b ? [...b.querySelectorAll('button')].some(x => window.__mv.txt(x).includes('Колонки списка')) : false; })()",
   );
   check('в тулбаре кнопки колонок больше нет', inToolbar === false);
+  // Панель фильтров всегда на виду (владелец 12.11.2026) — раскрывать её нечем.
   const alreadyOpen = await cdp.evalAsync("Boolean(window.__mv.panelFor('Марка', '[data-engine-facets]'))");
-  if (alreadyOpen !== true) {
-    await cdp.evalAsync("window.__mv.click(window.__mv.panelFor('Марка', '[data-facet-toggle]'))");
-    await sleep(900);
-  }
+  check('панель фильтров на виду', alreadyOpen === true);
   const inPanel = await cdp.evalAsync("Boolean(window.__mv.panelFor('Марка', '[data-facet-columns]'))");
   check('в панели фильтров кнопка колонок есть', inPanel === true);
   await cdp.evalAsync("window.__mv.click(window.__mv.panelFor('Марка', '[data-facet-columns] button'))");
@@ -378,8 +380,7 @@ async function main() {
   await sleep(900);
   const back = await cdp.evalAsync("window.__mv.heads('Марка').some(th => window.__mv.txt(th).startsWith('Марка'))");
   check('колонка возвращается галочкой обратно', back === true);
-  await cdp.evalAsync("window.__mv.click(window.__mv.panelFor('Марка', '[data-facet-toggle]'))");
-  await sleep(400);
+  // Панель фильтров сворачивать нечем — кнопки «Фильтры» больше нет.
 
   console.log('\n[4] Шапка колонок — ровно одна строка');
   const wrapped = await cdp.evalAsync("window.__mv.headerWrapped('Марка')");

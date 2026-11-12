@@ -16,10 +16,13 @@ describe('цвет ступени фильтра', () => {
     expect(new Set(ids.map((id) => tones[id]?.hue)).size).toBe(12);
   });
 
-  it('все оттенки дают полосу, заливку и подложку', () => {
+  it('все оттенки дают полосу и заливку', () => {
     const tone = facetTones(['customer']).customer ?? FALLBACK_FACET_TONE;
     expect(tone.accent).toMatch(/^hsl\(/);
     expect(tone.tint).toMatch(/^hsl\(/);
-    expect(tone.panel).toMatch(/^hsl\(/);
+    // Полупрозрачной подложки панели больше нет (владелец 12.11.2026: «прозрачность выпадающего
+    // меню фильтров убери») — фон меню непрозрачный (`var(--surface)`), цвет ступени виден по
+    // полосе слева.
+    expect('panel' in tone).toBe(false);
   });
 });

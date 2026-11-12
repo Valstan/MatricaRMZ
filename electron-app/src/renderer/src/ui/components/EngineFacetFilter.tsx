@@ -11,7 +11,7 @@ import {
   type RepairStageTemplate,
 } from '@matricarmz/shared';
 
-import { FacetFilter, FacetToggleButton } from './FacetFilter.js';
+import { FacetFilter } from './FacetFilter.js';
 
 /** Ступени со справочниками: ряд этапов полный, а не «что встретилось». */
 function useEngineFacetDescriptors(
@@ -25,34 +25,15 @@ function useEngineFacetDescriptors(
   );
 }
 
-/** Кнопка «Фильтры» списка двигателей — живёт в тулбаре рядом с поиском. */
-export function EngineFacetToggleButton(props: {
-  selection: EngineFacetSelection;
-  open: boolean;
-  onToggle: () => void;
-  types?: readonly EngineFactoryStageTypeRef[];
-  stageTemplates?: readonly RepairStageTemplate[];
-}) {
-  const facets = useEngineFacetDescriptors(props.types, props.stageTemplates, props.selection);
-  return (
-    <FacetToggleButton<EngineListItem>
-      facets={facets}
-      selection={props.selection as FacetSelection}
-      open={props.open}
-      onToggle={props.onToggle}
-    />
-  );
-}
-
 /**
- * Панель ступеней списка двигателей поверх общего `FacetFilter`. Разворачивается ПОД тулбаром
- * по кнопке `EngineFacetToggleButton`; свёрнутая не занимает места, а отбор продолжает работать.
+ * Панель ступеней списка двигателей поверх общего `FacetFilter`. Стоит **всегда** — под
+ * тулбаром (владелец 12.11.2026: «убери кнопку „Фильтры“ отовсюду, пусть панель фильтров будет
+ * всегда открыта и активна и видна под панелью управляющих кнопок»).
  */
 export function EngineFacetFilter(props: {
   engines: readonly EngineListItem[];
   selection: EngineFacetSelection;
   fields: EngineFacetId[];
-  open: boolean;
   types?: readonly EngineFactoryStageTypeRef[];
   stageTemplates?: readonly RepairStageTemplate[];
   /** Ступени, спрятанные целиком (нет в ряду кнопок и в панелях): «Дата этапа» при активном «Текущем состоянии». */
@@ -74,7 +55,6 @@ export function EngineFacetFilter(props: {
       rows={props.engines}
       selection={props.selection as FacetSelection}
       fields={props.fields}
-      open={props.open}
       {...(props.usageKey !== undefined ? { usageKey: props.usageKey } : {})}
       onChangeSelection={(next) => props.onChangeSelection(next as EngineFacetSelection)}
       onChangeFields={(next) => props.onChangeFields(next as EngineFacetId[])}

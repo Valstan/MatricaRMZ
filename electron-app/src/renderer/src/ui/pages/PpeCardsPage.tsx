@@ -18,7 +18,7 @@ import { Button } from '../components/Button.js';
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
 import { ColumnSettingsButton, type ColumnDescriptor } from '../components/ColumnSettingsButton.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
-import { FacetFilter, FacetToggleButton } from '../components/FacetFilter.js';
+import { FacetFilter } from '../components/FacetFilter.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
 import { ListExportButtons } from '../components/ListExportButtons.js';
@@ -73,7 +73,6 @@ type ListState = {
   sortDir: 'asc' | 'desc';
   facets: PpeCardsFacetSelection;
   facetFields: string[];
-  facetsOpen: boolean;
 };
 
 const DEFAULT_STATE: ListState = {
@@ -82,7 +81,6 @@ const DEFAULT_STATE: ListState = {
   sortDir: 'asc',
   facets: {},
   facetFields: [],
-  facetsOpen: false,
 };
 
 /** Порядок важности состояний: сортировка «Состояние» ставит просрочку наверх. */
@@ -162,7 +160,7 @@ function fillCell(row: Row): React.ReactNode {
  */
 export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
   const { state, patchState } = useListUiState<ListState>('list:ppe-cards', DEFAULT_STATE);
-  const { query, sortKey, sortDir, facetsOpen } = state;
+  const { query, sortKey, sortDir } = state;
   const facets = sanitizePpeCardsFacetSelection(state.facets);
   const facetFields = state.facetFields;
   const { containerRef, onScroll } = usePersistedScrollTop('list:ppe-cards');
@@ -473,14 +471,6 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
             />
           </div>
         </ToolbarPin>
-        <ToolbarPin>
-          <FacetToggleButton<Row>
-            facets={PPE_CARDS_FACETS as readonly FacetDescriptor<Row>[]}
-            selection={facets as FacetSelection}
-            open={facetsOpen}
-            onToggle={() => patchState({ facetsOpen: !facetsOpen })}
-          />
-        </ToolbarPin>
         <ColumnSettingsButton
           label="Колонки списка"
           columns={columnDescriptors}
@@ -537,7 +527,6 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
           rows={searched}
           selection={facets as FacetSelection}
           fields={facetFields}
-          open={facetsOpen}
           usageKey="list:ppe-cards"
           onChangeSelection={(next) => patchState({ facets: next as PpeCardsFacetSelection })}
           onChangeFields={(next) => patchState({ facetFields: next })}

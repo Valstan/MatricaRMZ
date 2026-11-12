@@ -294,11 +294,14 @@ async function main() {
   }
   check('список сотрудников открыт', listOpen);
 
+  // Кнопки «Фильтры» в тулбаре больше нет (владелец 12.11.2026): панель фильтров всегда
+  // на виду под тулбаром, и сворачивать её нечем.
   const toggle = await cdp.evalAsync("(() => { const b = document.querySelector('[data-facet-toggle]'); return b ? { text: window.__mv.txt(b), vis: window.__mv.vis(b) } : null; })()");
-  check('кнопка «Фильтры» есть в тулбаре', Boolean(toggle && toggle.vis), toggle ? toggle.text : 'нет');
+  check('кнопки «Фильтры» в тулбаре нет', toggle === null, toggle ? toggle.text : 'нет');
+  const panelOnScreen = await cdp.evalAsync("Boolean(document.querySelector('[data-facet-field]'))");
+  check('панель фильтров на виду', panelOnScreen === true);
 
   const before = await cdp.evalAsync("window.__mv.all('tbody tr').length");
-  await cdp.evalAsync("window.__mv.click(document.querySelector('[data-facet-toggle]'))");
   await sleep(900);
   const facetLabels = await cdp.evalAsync(`(() => {
     const panel = document.querySelector('[data-facet-reset]') ? document.querySelector('[data-facet-reset]').closest('div').parentElement : null;
@@ -332,16 +335,16 @@ async function main() {
     // считает по одному массиву, а таблица рисует другой.
     const counted = Number(String(values[0] && values[0].t).replace(/\D+/g, '')) || null;
     check('счётчик варианта совпал с числом строк', counted == null || counted === after, `вариант «${values[0] && values[0].t}», строк ${after}`);
-    const activeCount = await cdp.evalAsync("(() => { const b = document.querySelector('[data-facet-toggle]'); return b ? window.__mv.txt(b) : ''; })()");
-    check('счётчик активных ступеней на кнопке', /\d/.test(String(activeCount)), String(activeCount));
+    // Счётчик активных ступеней теперь на кнопке «Сбросить фильтры» — кнопки «Фильтры»
+    // в тулбаре больше нет.
+    const activeCount = await cdp.evalAsync("(() => { const b = document.querySelector('[data-facet-reset]'); return b ? window.__mv.txt(b) : ''; })()");
+    check('счётчик активных ступеней виден', /\d/.test(String(activeCount)), String(activeCount));
     await cdp.shot('owner0912-employee-facets-applied');
     await cdp.evalAsync("window.__mv.click(document.querySelector('[data-facet-reset]'))");
     await sleep(800);
     const reset = await cdp.evalAsync("window.__mv.all('tbody tr').length");
     check('сброс возвращает полный список', reset === before, `было ${before}, после сброса ${reset}`);
   }
-  await cdp.evalAsync("window.__mv.click(document.querySelector('[data-facet-toggle]'))");
-  await sleep(500);
 
   console.log('\n[4] Кэш превью: второй запрос не идёт на сервер');
   // Берём любой файл с превью; если в стенде файлов нет — заводим текстовый (превью у него есть).
