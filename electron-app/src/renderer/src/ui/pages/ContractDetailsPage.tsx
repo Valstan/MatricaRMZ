@@ -1510,7 +1510,10 @@ function SectionBlock(props: {
               </CardTable>
               {/* Свободные места (пустые слоты) — свёрнуты: в основной таблице они только
                   загромождали карточку (владелец 13.11.2026). Места создаются как раньше,
-                  оператор разворачивает список и привязывает двигатель. */}
+                  оператор разворачивает список и привязывает двигатель. Галочки здесь
+                  обязательны: деньги часто приходят РАНЬШЕ двигателей, и аванс разносится
+                  именно по отмеченным местам — без отметки в развернутом списке аванс
+                  было бы некуда положить. */}
               {freeSlotGroups.length > 0 ? (
                 <div style={{ marginTop: 8 }}>
                   <CollapsibleSection
@@ -1519,12 +1522,29 @@ function SectionBlock(props: {
                   >
                     <div style={{ display: 'grid', gap: 4 }}>
                       {freeSlotGroups.map((group) => (
-                        <div key={group.key || 'no-brand'} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <span style={{ fontWeight: 600 }}>{group.label}</span>
-                          <span style={{ color: 'var(--subtle)', fontSize: 12 }}>
-                            свободно {group.rows.length}
-                            {group.outsidePlan ? ' — вне плана договора' : ''}
-                          </span>
+                        <div key={group.key || 'no-brand'}>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <span style={{ fontWeight: 600 }}>{group.label}</span>
+                            <span style={{ color: 'var(--subtle)', fontSize: 12 }}>
+                              свободно {group.rows.length}
+                              {group.outsidePlan ? ' — вне плана договора' : ''}
+                            </span>
+                          </div>
+                          {props.onToggleSlots ? (
+                            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 2 }}>
+                              {group.rows.map((row, idx) => (
+                                <label key={row.slot.id} style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 12 }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={props.slotSelection?.has(row.slot.id) === true}
+                                    onChange={(e) => props.onToggleSlots?.([row.slot.id], e.target.checked)}
+                                    title="Отметить место — сюда можно разнести аванс (двигатель придёт позже)"
+                                  />
+                                  <span style={{ color: 'var(--subtle)' }}>место {idx + 1}</span>
+                                </label>
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
                       ))}
                     </div>
