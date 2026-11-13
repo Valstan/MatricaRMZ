@@ -653,11 +653,13 @@ function SectionBlock(props: {
   // (владелец 13.11.2026: «пустые слоты не надо показывать… лучше скрыть под спойлер»).
   // Места создаются как раньше, но показываются свёрнутым списком: оператор развернул —
   // увидел, сколько мест свободно по каждой марке, и привязал двигатель.
+  // Занятость места определяется по САМОМУ слоту (engineId), а не по загруженной карточке
+  // двигателя: не подгрузившаяся карточка не должна превращать занятое место в свободное.
   const occupiedBrandGroups = brandGroups
-    .map((group) => ({ ...group, rows: group.rows.filter((row) => Boolean(row.engine)) }))
+    .map((group) => ({ ...group, rows: group.rows.filter((row) => Boolean(row.slot.engineId)) }))
     .filter((group) => group.rows.length > 0);
   const freeSlotGroups = brandGroups
-    .map((group) => ({ ...group, rows: group.rows.filter((row) => !row.engine) }))
+    .map((group) => ({ ...group, rows: group.rows.filter((row) => !row.slot.engineId) }))
     .filter((group) => group.rows.length > 0);
   // Строки kind='contract_price' — это стоимость по контракту, у неё своя колонка.
   const slotPayments = (slot: PaymentSlot) => slot.payments.filter((p) => p.kind !== 'contract_price');
@@ -1388,6 +1390,10 @@ function SectionBlock(props: {
                                     )}
                                     {renderMoveEngineSelect(engine, sectionToken)}
                                   </div>
+                                ) : slot.engineId ? (
+                                  <span style={{ color: 'var(--warning, #b45309)' }} title="Двигатель привязан к месту, но его карточка не подгрузилась">
+                                    ⚠ двигатель не загружен
+                                  </span>
                                 ) : (
                                   <span style={{ color: 'var(--subtle)' }}>— свободно —</span>
                                 )}
