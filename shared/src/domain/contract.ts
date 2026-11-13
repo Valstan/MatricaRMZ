@@ -564,6 +564,71 @@ export function isContractAddonToken(sectionNumber: string | null | undefined): 
 }
 
 /**
+ * Вид значения `contract_section_number` — раздела договора, к которому привязан двигатель.
+ *
+ * - `empty` — раздела нет;
+ * - `addon` — канон ДС («ДС {seq}»);
+ * - `primary` — канон основного договора (`primary`);
+ * - `bare-number` — легаси старого импорта: номер ДС без слова «ДС» («3»);
+ * - `foreign` — мусор импорта: в поле раздела лежит номер договора.
+ */
+export type ContractSectionTokenKind = 'empty' | 'addon' | 'primary' | 'bare-number' | 'foreign';
+
+export type ContractSectionTokenPlan = {
+  kind: ContractSectionTokenKind;
+  /** Текущее значение без краёв. */
+  current: string;
+  /** Каноническое значение; `null` — править нечего. */
+  next: string | null;
+};
+
+/**
+ * План приведения `contract_section_number` к канону — ПРАВИЛО ОДНО.
+ *
+ * Хранится значение явно, а не выводится: «ДС {seq}» — токен ДС, `primary` — основной
+ * договор. Всё, что в поле раздела не ДС-токен, домен уже читает как основной договор
+ * (`canonicalContractSectionKey`), поэтому починка — это запись того, что клиент и так
+ * считает, а не изменение смысла.
+ *
+ * Два легаси-вида разбираются по-разному:
+ *
+ * - **Голое число** («3») — номер ДС без слова «ДС»: это ДС, приводим к «ДС 3»
+ *   (решение владельца 13.11.2026). Считать его основным договором нельзя: сдвинуло бы
+ *   двигатель с его ДС на основной договор.
+ * - **Всё прочее** (номер договора в поле раздела) — другой секции у него быть не могло,
+ *   секций ровно две, значит это основной договор: `primary` (решение владельца 13.11.2026).
+ *
+ * Пустое значение — это «раздела нет», его не заполняем: раздел заводят руками.
+ */
+export function planContractSectionToken(raw: string | null | undefined): ContractSectionTokenPlan {
+  const current = String(raw ?? '').trim();
+  if (!current) return { kind: 'empty', current, next: null };
+
+  // Канон ДС: «ДС {seq}». Регистр и лишние пробелы — тот же раздел, приводим к виду.
+  const addon = /^дс\s*(\d+)$/iu.exec(current);
+  if (addon) {
+    const token = contractSectionAddonToken(Number(addon[1]));
+    return { kind: 'addon', current, next: token === current ? null : token };
+  }
+
+  if (current.toLowerCase() === PRIMARY_CONTRACT_SECTION_KEY) {
+    return {
+      kind: 'primary',
+      current,
+      next: current === PRIMARY_CONTRACT_SECTION_KEY ? null : PRIMARY_CONTRACT_SECTION_KEY,
+    };
+  }
+
+  // Легаси старого импорта: номер ДС без слова «ДС» («3» → «ДС 3»).
+  if (/^\d+$/.test(current)) {
+    return { kind: 'bare-number', current, next: `ДС ${current}` };
+  }
+
+  // Мусор импорта: в поле раздела лежит номер договора — это основной договор.
+  return { kind: 'foreign', current, next: PRIMARY_CONTRACT_SECTION_KEY };
+}
+
+/**
  * Статус привязки двигателя к контракту для списка двигателей:
  * - `contract` — привязан к основному договору (есть contractId, секция не ДС);
  * - `addon` — привязан к ДС (есть contractId, секция = «ДС {seq}»);

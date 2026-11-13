@@ -1,10 +1,13 @@
 import 'dotenv/config';
 
+import { planContractSectionToken, type ContractSectionTokenKind } from '@matricarmz/shared';
+
 import { pool } from '../database/db.js';
 import { setEntityAttribute } from '../services/adminMasterdataService.js';
 
-// contracts:backfill-section-tokens — приведение раздела ДС к канону «ДС N» (владелец
-// 13.11.2026: «55 движков в старом формате ДС — чинить миграцией»).
+// contracts:backfill-section-tokens — приведение раздела ДС к канону (владелец
+// 13.11.2026: «55 движков в старом формате ДС — чинить миграцией», а 8 движков с
+// номером договора в поле раздела — перенести в «основной договор»).
 //
 // ЗАЧЕМ. `contract_section_number` (раздел договора, к которому привязан двигатель) на проде
 // лежит в четырёх видах (проверено 12.11.2026 на 578 заполненных строках):
@@ -13,12 +16,13 @@ import { setEntityAttribute } from '../services/adminMasterdataService.js';
 //   • «primary»     — основной договор, 276 движков;
 //   • пусто          — раздела нет, 40 движков;
 //   • голые числа «1»–«4» — наследие старого импорта: номер ДС без слова «ДС», 55 движков;
-//   • номер договора в поле раздела — мусор импорта, 8 движков (владелец решение не принял —
-//     скрипт их только считает и показывает, но НЕ трогает).
+//   • номер договора в поле раздела — мусор импорта, 8 движков.
 //
-// Голые числа приложение ДС-ами не считает (`isContractAddonToken` — это /^ДС\s/), поэтому
-// у таких двигателей в колонке «Договор» показывается номер договора без «/N», а кружок в
-// ячейке один зелёный вместо двух. После приведения к канону появится «/N» и второй кружок.
+// ПЕРЕНОС ОДНО, ПРАВИЛО ОДНО. Разбор значения — доменное правило
+// `planContractSectionToken` (`shared/src/domain/contract.ts`): голое число — это номер ДС
+// («3» → «ДС 3»), всё прочее не-ДС — основной договор (`primary`). Тот же разбор стоит в
+// `contracts:canonicalize-section-keys`, поэтому два скрипта не могут разойтись и порезать
+// данные по-разному.
 //
 // ПОЧЕМУ СКРИПТ, А НЕ SQL-МИГРАЦИЯ. Источник правды — EAV, а список двигателей читает его
 // локально; серверные EAV-строки доезжают до клиентов только через журнал синхронизации
@@ -27,8 +31,8 @@ import { setEntityAttribute } from '../services/adminMasterdataService.js';
 // (`setEntityAttribute`) — она пишет и EAV, и журнал; клиенты забирают значение обычным
 // pull'ом. Зеркало `erp_engine_cards` пересобирается триггером само.
 //
-// ИДЕНТИЧНОСТЬ. Скрипт идемпотентен: значение «ДС N» уже канон, повторный прогон его не
-// трогает. Голые номера и мусор различаются по виду, а не по списку.
+// ИДЕНТИЧНОСТЬ. Скрипт идемпотентен: канон повторный прогон не трогает, а «ДС N» и
+// «primary» — уже целевые значения.
 //
 // Usage:
 //   corepack pnpm -F @matricarmz/backend-api contracts:backfill-section-tokens            # dry-run
@@ -61,10 +65,7 @@ function textOf(valueJson: string | null): string {
   }
 }
 
-/** Голое число — наследие старого импорта: номер ДС без слова «ДС». */
-function isBareNumber(value: string): boolean {
-  return /^[0-9]+$/.test(value);
-}
+type Fix = { engineId: string; from: string; to: string; kind: ContractSectionTokenKind };
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
@@ -83,44 +84,32 @@ async function main(): Promise<void> {
     [ATTR],
   );
 
-  const bare: Array<{ engineId: string; from: string; to: string }> = [];
-  let canon = 0;
-  let primary = 0;
-  let empty = 0;
-  const junk: Array<{ engineId: string; value: string }> = [];
+  const counts: Record<ContractSectionTokenKind, number> = {
+    empty: 0,
+    addon: 0,
+    primary: 0,
+    'bare-number': 0,
+    foreign: 0,
+  };
+  const fixes: Fix[] = [];
   for (const row of res.rows) {
-    const value = textOf(row.value_json);
-    if (!value) {
-      empty += 1;
-      continue;
+    const plan = planContractSectionToken(textOf(row.value_json));
+    counts[plan.kind] += 1;
+    if (plan.next != null && plan.next !== plan.current) {
+      fixes.push({ engineId: row.engine_id, from: plan.current, to: plan.next, kind: plan.kind });
     }
-    if (/^ДС\s/.test(value)) {
-      canon += 1;
-      continue;
-    }
-    if (value === 'primary') {
-      primary += 1;
-      continue;
-    }
-    if (isBareNumber(value)) {
-      bare.push({ engineId: row.engine_id, from: value, to: `ДС ${value}` });
-      continue;
-    }
-    // Всё прочее — мусор импорта (в поле раздела номер договора). Владелец решение не принял:
-    // показываем, но НЕ трогаем.
-    junk.push({ engineId: row.engine_id, value });
   }
 
   console.log(`  всего с разделом: ${res.rows.length}`);
-  console.log(`  по канону («ДС N»): ${canon}; основной договор («primary»): ${primary}; пусто: ${empty}`);
-  console.log(`  к приведению (голые номера): ${bare.length}`);
-  console.log(`  мусор (номер договора в поле раздела) — НЕ трогаем, решение владельца нужно: ${junk.length}`);
+  console.log(`  по канону («ДС N»): ${counts.addon}; основной договор («primary»): ${counts.primary}; пусто: ${counts.empty}`);
+  console.log(`  к приведению: голые номера → «ДС N»: ${counts['bare-number']}; номер договора в поле раздела → «primary»: ${counts.foreign}`);
 
   const actor = { id: 'server', username: 'contracts:backfill-section-tokens', role: 'system' };
   let fixed = 0;
   const failed: Array<{ engineId: string; error: string }> = [];
-  for (const item of bare) {
+  for (const item of fixes) {
     if (!args.apply) {
+      console.log(`    ${item.engineId}: «${item.from}» → «${item.to}»`);
       fixed += 1;
       continue;
     }
@@ -129,6 +118,7 @@ async function main(): Promise<void> {
       failed.push({ engineId: item.engineId, error: written.error });
       continue;
     }
+    console.log(`    ${item.engineId}: «${item.from}» → «${item.to}»`);
     fixed += 1;
   }
 

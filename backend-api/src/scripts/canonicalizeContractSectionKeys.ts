@@ -13,6 +13,12 @@
  * ⚠️ Запускать ТОЛЬКО после того, как парк клиентов обновится: версия без канонизации
  * читает `primary` как незнакомую секцию и покажет двигатель «без привязки».
  *
+ * ⚠️ Запускать ПОСЛЕ `contracts:backfill-section-tokens` (перенос раздела ДС к канону).
+ * Голые номера («3») — это номер ДС без слова «ДС», и по решению владельца 13.11.2026 они
+ * должны стать «ДС 3»; общий разбор ниже различает их с мусором импорта, поэтому порядок
+ * больше не важен — но перенос всё равно идёт первым: он и есть источник истины о том,
+ * что считать «ДС», а что «основным договором».
+ *
  * Записи идут штатным путём (`setEntityAttribute` → recordSyncChanges), поэтому доезжают
  * клиентам инкрементальным sync — прямой UPDATE этого не делает (GOTCHAS M6/M8).
  *
@@ -25,7 +31,7 @@
  */
 import 'dotenv/config';
 
-import { canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY } from '@matricarmz/shared';
+import { canonicalContractSectionKey, planContractSectionToken, PRIMARY_CONTRACT_SECTION_KEY } from '@matricarmz/shared';
 
 import { pool } from '../database/db.js';
 import { setEntityAttribute } from '../services/adminMasterdataService.js';
@@ -131,12 +137,15 @@ async function migrateEngineBindings(actor: Actor): Promise<{ engines: number }>
     } catch {
       raw = String(row.value_json ?? '');
     }
-    const canonical = canonicalContractSectionKey(raw);
-    if (!canonical || canonical === raw.trim()) continue;
+    // Разбор — общий с переносом раздела (`planContractSectionToken`): голое число «3» —
+    // это номер ДС, а не основной договор. Простой `canonicalContractSectionKey` свернул бы
+    // его в «primary» и сдвинул бы двигатель с его ДС.
+    const plan = planContractSectionToken(raw);
+    if (!plan.next || plan.next === plan.current) continue;
     engines += 1;
-    log(`  ${row.entity_id}: «${raw}» → «${canonical}»`);
+    log(`  ${row.entity_id}: «${raw}» → «${plan.next}»`);
     if (APPLY) {
-      await setEntityAttribute(actor, row.entity_id, 'contract_section_number', canonical, {
+      await setEntityAttribute(actor, row.entity_id, 'contract_section_number', plan.next, {
         allowSyncConflicts: true,
       });
     }
