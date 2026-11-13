@@ -270,7 +270,29 @@ async function main() {
   note(on.state === 'on' && on.hasHeader === true, 'плашка включила колонку — она в шапке списка', on);
   await shot(ws, '2-on');
 
-  // ── 4. Ячейка: три цифры договора + номер ДС ──────────────────────────────────────
+  // ── 4. Фикстуры привязки — через мост (как это делает оператор) ────────────────────
+  // TEST-001 → договор «125/2026» + раздел «ДС 2» → подпись «125/2», два зелёных.
+  // Второй двигатель → договор без номера → подпись «Договор», один зелёный.
+  const fixture = await evaluate(
+    ws,
+    `const E1 = '9b4eec6f-f13e-4db2-8af4-4e3e93f9449a';
+     const E2 = '08ea80b5-6847-41dc-9eb0-10ca43108379';
+     const l = await window.matrica.engines.list();
+     const rows = Array.isArray(l) ? l : (l?.items ?? []);
+     const byId = new Map(rows.map((e) => [String(e.id), e]));
+     if (!byId.has(E1) || !byId.has(E2)) return { error: 'фикстурных двигателей нет в списке' };
+     await window.matrica.engines.setAttr(E1, 'contract_id', '9e142af3-caf9-427f-9893-58961e48d4b1');
+     await window.matrica.engines.setAttr(E1, 'contract_section_number', 'ДС 2');
+     await window.matrica.engines.setAttr(E2, 'contract_id', 'c91c6199-879e-4f62-8f2b-4689ede9fbcd');
+     await window.matrica.engines.setAttr(E2, 'contract_section_number', 'primary');
+     return { ok: true, e1: byId.get(E1).engineNumber ?? '', e2: byId.get(E2).engineNumber ?? '' };`,
+  );
+  note(fixture?.ok === true, 'фикстуры привязки поставлены через мост', fixture);
+  await sleep(1500);
+  await openSection(ws, 'Производство', 'Двигатели');
+  await sleep(2000);
+
+  // ── 5. Ячейка: три цифры договора + номер ДС ──────────────────────────────────────
   const cells = await evaluate(ws, `return bindingRows();`);
   const testRow = cells?.rows?.find((r) => r.number === 'TEST-001') ?? null;
   note(cells?.missing !== true, 'колонка «Привязка» есть в списке — ячейки читаются', { rows: cells?.rows?.length });
@@ -314,14 +336,18 @@ async function main() {
   );
   await shot(ws, '4-unbound');
 
-  // ── 6. Возвращаем привязку (стенд живёт между прогонами) ──────────────────────────
+  // ── 6. Возвращаем стенд как было: привязки сняты (стенд живёт между прогонами) ────
   const restored = await evaluate(
     ws,
-    `await window.matrica.engines.setAttr(${JSON.stringify(engineId.id)}, 'contract_id', '9e142af3-caf9-427f-9893-58961e48d4b1');
-     await window.matrica.engines.setAttr(${JSON.stringify(engineId.id)}, 'contract_section_number', 'ДС 2');
+    `const E1 = '9b4eec6f-f13e-4db2-8af4-4e3e93f9449a';
+     const E2 = '08ea80b5-6847-41dc-9eb0-10ca43108379';
+     await window.matrica.engines.setAttr(E1, 'contract_id', '');
+     await window.matrica.engines.setAttr(E1, 'contract_section_number', '');
+     await window.matrica.engines.setAttr(E2, 'contract_id', '');
+     await window.matrica.engines.setAttr(E2, 'contract_section_number', '');
      return { ok: true };`,
   );
-  note(restored?.ok === true, 'привязка стенда возвращена', restored);
+  note(restored?.ok === true, 'фикстуры сняты — стенд возвращён в исходное состояние', restored);
 
   // ── 7. Колонка снова выключена (новое умолчание) ─────────────────────────────────
   const offBox = await evaluate(ws, `const c = chip('binding'); return c ? cellBox(c) : null;`);
