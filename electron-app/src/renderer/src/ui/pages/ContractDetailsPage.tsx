@@ -92,6 +92,7 @@ import { mutateContractPayments, readContractPayments } from '../utils/contractP
 import { paymentCountdownVisual } from '../utils/paymentCountdownVisual.js';
 import { buildServiceMemoSections } from '../utils/serviceMemo.js';
 import { buildAdvanceMemoSections } from '../utils/advanceMemo.js';
+import { CollapsibleSection } from '../components/CollapsibleSection.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions, mapPartRowsToSearchOptions } from '../utils/selectOptions.js';
@@ -633,10 +634,14 @@ function SectionBlock(props: {
       if (list) list.push(row);
       else byBrand.set(key, [row]);
     }
+    // Марки плана этой секции: слоты марки, которой в плане нет, — «вне плана» (двигатель
+    // привязан, а марку в плане поменяли — или двигатель чужой марки). Их видно, но помечено.
+    const planBrandIds = new Set(section.engineBrands.map((r) => r.engineBrandId));
     return [...byBrand.entries()]
       .map(([key, rows]) => ({
         key,
         label: brandLabelById(key || undefined),
+        outsidePlan: Boolean(key) && !planBrandIds.has(key),
         rows: [...rows].sort((a, b) => {
           if (Boolean(a.engine) !== Boolean(b.engine)) return a.engine ? -1 : 1;
           return String(a.engine?.engineNumber ?? '').localeCompare(String(b.engine?.engineNumber ?? ''), 'ru');
@@ -644,6 +649,16 @@ function SectionBlock(props: {
       }))
       .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
   })();
+  // Пустые слоты (свободные места под двигатели) в основной таблице загромождают лист
+  // (владелец 13.11.2026: «пустые слоты не надо показывать… лучше скрыть под спойлер»).
+  // Места создаются как раньше, но показываются свёрнутым списком: оператор развернул —
+  // увидел, сколько мест свободно по каждой марке, и привязал двигатель.
+  const occupiedBrandGroups = brandGroups
+    .map((group) => ({ ...group, rows: group.rows.filter((row) => Boolean(row.engine)) }))
+    .filter((group) => group.rows.length > 0);
+  const freeSlotGroups = brandGroups
+    .map((group) => ({ ...group, rows: group.rows.filter((row) => !row.engine) }))
+    .filter((group) => group.rows.length > 0);
   // Строки kind='contract_price' — это стоимость по контракту, у неё своя колонка.
   const slotPayments = (slot: PaymentSlot) => slot.payments.filter((p) => p.kind !== 'contract_price');
   const paymentColumnCount = slotRows.reduce((max, r) => Math.max(max, slotPayments(r.slot).length), 0);
@@ -1281,8 +1296,8 @@ function SectionBlock(props: {
                   </tr>
                 </thead>
                 <tbody>
-                  {brandGroups.map((group, groupIdx) => {
-                    const groupOffset = brandGroups.slice(0, groupIdx).reduce((acc, g) => acc + g.rows.length, 0);
+                  {occupiedBrandGroups.map((group, groupIdx) => {
+                    const groupOffset = occupiedBrandGroups.slice(0, groupIdx).reduce((acc, g) => acc + g.rows.length, 0);
                     const groupIds = group.rows.map((r) => r.slot.id);
                     const allChecked = groupIds.every((id) => props.slotSelection?.has(id));
                     const occupied = group.rows.filter((r) => r.engine).length;
@@ -1305,6 +1320,14 @@ function SectionBlock(props: {
                             <span style={{ color: 'var(--subtle)', fontWeight: 400 }}>
                               — {occupied} из {group.rows.length}
                             </span>
+                            {group.outsidePlan ? (
+                              <span
+                                style={{ color: 'var(--warning, #b45309)', fontWeight: 400, marginLeft: 8 }}
+                                title="Марки этой группы нет в плане договора: марку в плане поменяли или двигатель привязан другой марки"
+                              >
+                                — вне плана
+                              </span>
+                            ) : null}
                           </td>
                         </tr>
                         {group.rows.map((row, idx) => {
@@ -1337,6 +1360,17 @@ function SectionBlock(props: {
                               ) : null}
                               <td data-col-kind="name" style={TD_CELL}>
                                 {group.label}
+                                {/* Марка двигателя — живая (из базы). Если она разошлась с
+                                    планом договора, говорим об этом прямо: слот привязан к
+                                    марке плана, и движок другой марки сюда не сядет. */}
+                                {engine?.engineBrand && engine.engineBrand !== group.label ? (
+                                  <span
+                                    style={{ color: 'var(--warning, #b45309)', display: 'block', fontSize: 12 }}
+                                    title="Марка двигателя в карточке двигателя отличается от марки плана договора"
+                                  >
+                                    ⚠ по двигателю: {engine.engineBrand}
+                                  </span>
+                                ) : null}
                               </td>
                               <td data-col-kind="name" style={TD_CELL}>
                                 {engine ? (
@@ -1442,7 +1476,7 @@ function SectionBlock(props: {
                   })}
                   {orphanEngines.map((engine, orphanIdx) => (
                     <tr key={`orphan-${engine.id}`}>
-                      <RowNumberCell n={slotRows.length + orphanIdx + 1} style={TD_CELL} />
+                      <RowNumberCell n={occupiedBrandGroups.reduce((sum, g) => sum + g.rows.length, 0) + orphanIdx + 1} style={TD_CELL} />
                       {props.onToggleSlots ? <td style={{ borderBottom: '1px solid var(--border)' }} /> : null}
                       <td data-col-kind="name" style={TD_CELL}>
                         <span style={{ color: 'var(--warning, #b45309)' }} title="Двигатель привязан к секции, но слот ему ещё не назначен">⚠</span>{' '}
@@ -1474,6 +1508,29 @@ function SectionBlock(props: {
                   ))}
                 </tbody>
               </CardTable>
+              {/* Свободные места (пустые слоты) — свёрнуты: в основной таблице они только
+                  загромождали карточку (владелец 13.11.2026). Места создаются как раньше,
+                  оператор разворачивает список и привязывает двигатель. */}
+              {freeSlotGroups.length > 0 ? (
+                <div style={{ marginTop: 8 }}>
+                  <CollapsibleSection
+                    title="Свободные места под двигатели"
+                    count={freeSlotGroups.reduce((sum, g) => sum + g.rows.length, 0)}
+                  >
+                    <div style={{ display: 'grid', gap: 4 }}>
+                      {freeSlotGroups.map((group) => (
+                        <div key={group.key || 'no-brand'} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <span style={{ fontWeight: 600 }}>{group.label}</span>
+                          <span style={{ color: 'var(--subtle)', fontSize: 12 }}>
+                            свободно {group.rows.length}
+                            {group.outsidePlan ? ' — вне плана договора' : ''}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </CollapsibleSection>
+                </div>
+              ) : null}
               </>
             ) : null}
             {canEdit && addEngineOpen && (
@@ -1882,14 +1939,30 @@ export function ContractDetailsPage(props: {
     return relatedContractIds;
   }
 
-  const sameEngineIds = (a: ReadonlyArray<{ id: string }>, b: ReadonlyArray<{ id: string }>) =>
-    a.length === b.length && a.every((x, i) => x.id === b[i]?.id);
+  // Свежесть каталога двигателей: сравниваем не только состав, но и СОДЕРЖИМОЕ строк.
+  // Раньше сравнение шло по id — и правка марки (или номера) на двигателе не доезжала до
+  // открытой карточки контракта: список «не изменился» (те же id), и контракт продолжал
+  // показывать старую марку (владелец 13.11.2026: «в контракте марка не обновилась»).
+  const engineSignature = (e: EngineListItem) =>
+    [
+      e.id,
+      e.engineNumber ?? '',
+      e.engineBrand ?? '',
+      e.engineBrandId ?? '',
+      e.contractSectionNumber ?? '',
+      e.arrivalDate ?? '',
+      e.lastActivityAt ?? '',
+      e.updatedAt ?? 0,
+    ].join('|');
+
+  const sameEngines = (a: ReadonlyArray<EngineListItem>, b: ReadonlyArray<EngineListItem>) =>
+    a.length === b.length && a.every((x, i) => engineSignature(x) === engineSignature(b[i]!));
 
   async function loadEnginesCatalog(): Promise<EngineListItem[]> {
     try {
       const engines = await window.matrica.engines.list();
       const next = Array.isArray(engines) ? engines : [];
-      setEnginesCache((prev) => (sameEngineIds(prev, next) ? prev : next));
+      setEnginesCache((prev) => (sameEngines(prev, next) ? prev : next));
       return next;
     } catch {
       setEnginesCache([]);
@@ -1913,7 +1986,7 @@ export function ContractDetailsPage(props: {
         if (byNumber !== 0) return byNumber;
         return b.updatedAt - a.updatedAt;
       });
-      setRelatedEngines((prev) => (sameEngineIds(prev, sortedEngineItems) ? prev : sortedEngineItems));
+      setRelatedEngines((prev) => (sameEngines(prev, sortedEngineItems) ? prev : sortedEngineItems));
       engineBrandByIdRef.current = new Map(
         catalog.flatMap((e) =>
           e.engineBrandId ? [[String(e.id), String(e.engineBrandId)] as const] : [],
@@ -1927,7 +2000,12 @@ export function ContractDetailsPage(props: {
         id: engine.id,
         label: engineOptionLabel(engine),
       }));
-      setAllEngineOptions((prev) => (sameEngineIds(prev, engineOpts) ? prev : engineOpts));
+      // Подписи опций движка тоже живые: марка в подписи меняется вместе с маркой на карточке.
+      setAllEngineOptions((prev) =>
+        prev.length === engineOpts.length && prev.every((x, i) => x.id === engineOpts[i]?.id && x.label === engineOpts[i]?.label)
+          ? prev
+          : engineOpts,
+      );
       const aggregate = aggregateContractExecutionProgress({
         sections,
         engineItems: sortedEngineItems,

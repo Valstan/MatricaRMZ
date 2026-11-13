@@ -385,6 +385,20 @@ export function syncSlotsWithPlan(
     }
   }
 
+  // 1b. Хвосты плана: слоты марки, которой в плане больше нет. Пустые — вон: при правке
+  // марки в договоре старые места должны исчезнуть, иначе оператор видит две группы марок
+  // и думает, что правка не сработала. Слоты с двигателем или с деньгами не трогаем:
+  // двигатель привязан — это факт, и его видно отдельной пометкой «вне плана».
+  if (groups.size > 0) {
+    const planKeys = new Set(groups.keys());
+    for (let i = slots.length - 1; i >= 0; i -= 1) {
+      const s = slots[i]!;
+      if (planKeys.has(`${s.sectionKey}\u0000${s.engineBrandId ?? ''}`)) continue;
+      if (s.engineId || s.payments.length > 0) continue;
+      slots.splice(i, 1);
+    }
+  }
+
   // 2. Отвязка уехавших двигателей (двигатель сменил секцию/контракт — деньги остаются).
   const attachedBySection = new Map<string, string>();
   for (const a of attached) attachedBySection.set(a.engineId, a.sectionKey);

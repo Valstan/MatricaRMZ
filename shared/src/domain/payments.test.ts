@@ -392,6 +392,28 @@ describe('syncSlotsWithPlan', () => {
     expect(cp.slots).toHaveLength(2);
     expect(findSlotForEngine(cp, 'eng-2')).toBeTruthy();
   });
+
+  it('правка марки в плане убирает пустые места старой марки — правка видна', () => {
+    seq = 0;
+    // План: марка brand-1, три места. Марку в договоре поменяли на brand-2.
+    const cp = syncSlotsWithPlan(emptyContractPayments(), plan, [], nextId);
+    const after = syncSlotsWithPlan(cp, [{ sectionKey: 'primary', engineBrandId: 'brand-2', qty: 2, unitPrice: 0 }], [], nextId);
+    expect(after.slots).toHaveLength(2);
+    expect(after.slots.every((s) => s.engineBrandId === 'brand-2')).toBe(true);
+  });
+
+  it('место с привязанным двигателем старой марки остаётся: двигатель — факт', () => {
+    seq = 0;
+    const attached = [{ engineId: 'eng-1', sectionKey: 'primary', engineBrandId: 'brand-1' }];
+    let cp = syncSlotsWithPlan(emptyContractPayments(), plan, attached, nextId);
+    expect(findSlotForEngine(cp, 'eng-1')).toBeTruthy();
+    // Марку в плане поменяли на другую — двигатель при этом остаётся привязан к договору.
+    const after = syncSlotsWithPlan(cp, [{ sectionKey: 'primary', engineBrandId: 'brand-2', qty: 1, unitPrice: 0 }], attached, nextId);
+    // Двигатель сидит в слоте своей марки (он вне плана) + один плановый слот новой марки.
+    expect(findSlotForEngine(after, 'eng-1')).toBeTruthy();
+    expect(findSlotForEngine(after, 'eng-1')?.engineBrandId).toBe('brand-1');
+    expect(after.slots.filter((s) => s.engineBrandId === 'brand-2')).toHaveLength(1);
+  });
 });
 
 describe('марка слота — инвариант', () => {
