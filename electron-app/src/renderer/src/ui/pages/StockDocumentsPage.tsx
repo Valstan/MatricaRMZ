@@ -13,6 +13,7 @@ import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from
 import { Stock1cImportDialog } from '../components/Stock1cImportDialog.js';
 import { WarehouseDocumentStatusFilterDropdown } from '../components/WarehouseDocumentStatusFilterDropdown.js';
 import { Input } from '../components/Input.js';
+import { ToolbarSearchField } from '../components/ToolbarSearchField.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
@@ -321,9 +322,7 @@ export function StockDocumentsPage(props: {
           <WarehouseDocumentStatusFilterDropdown value={includedStatuses} onChange={persistIncludedStatuses} />
         </div>
         <ToolbarPin>
-          <div style={{ width: 260 }}>
-            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по номеру, основанию, складу, контрагенту..." />
-          </div>
+          <ToolbarSearchField value={query} onChange={(v) => setQuery(v)} placeholder="Поиск по номеру, основанию, складу, контрагенту..." />
         </ToolbarPin>
         <div style={{ width: 150 }}>
           <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} title="Документы с даты" />
@@ -375,6 +374,7 @@ export function StockDocumentsPage(props: {
         {!isAndroidPlatform() && (
           <Button
             variant="ghost"
+            data-list-print
             onClick={() => setPrintDialogOpen(true)}
             title="Печать текущего списка: колонки как на экране, объём под контролем"
           >

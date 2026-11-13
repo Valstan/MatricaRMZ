@@ -11,6 +11,7 @@ import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
 import { Input } from '../components/Input.js';
+import { ToolbarSearchField } from '../components/ToolbarSearchField.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
@@ -274,9 +275,7 @@ export function SupplyRequestsPage(props: {
           </Button>
         )}
         <ToolbarPin>
-          <div style={{ width: 260 }}>
-            <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным заявки…" />
-          </div>
+          <ToolbarSearchField value={query} onChange={(v) => patchState({ query: v })} placeholder="Поиск по всем данным заявки…" />
         </ToolbarPin>
         <div style={{ width: 160 }}>
           <Input type="month" value={month} onChange={(e) => patchState({ month: e.target.value })} title="Месяц заявок" />
@@ -287,6 +286,7 @@ export function SupplyRequestsPage(props: {
         {!isAndroidPlatform() && (
           <Button
             variant="ghost"
+            data-list-print
             onClick={() => setPrintDialogOpen(true)}
             title="Печать текущего списка: колонки как на экране, объём под контролем"
           >

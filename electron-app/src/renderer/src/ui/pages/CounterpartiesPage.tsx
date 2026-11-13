@@ -10,7 +10,7 @@ import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { useConfirm } from '../components/ConfirmContext.js';
-import { Input } from '../components/Input.js';
+import { ToolbarSearchField } from '../components/ToolbarSearchField.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { type WarehouseListPageSize } from '../components/WarehouseListPager.js';
@@ -410,7 +410,7 @@ export function CounterpartiesPage(props: {
           </Button>
         )}
         <ToolbarPin>
-          <Input value={query} onChange={(e) => patchState({ query: e.target.value, pageIndex: 0 })} placeholder="Поиск по всем данным контрагента…" />
+          <ToolbarSearchField value={query} onChange={(v) => patchState({ query: v, pageIndex: 0 })} placeholder="Поиск по всем данным контрагента…" />
         </ToolbarPin>
         <ToolbarPin>
           <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar, pageIndex: 0 })} />
@@ -418,6 +418,7 @@ export function CounterpartiesPage(props: {
         {!isAndroidPlatform() && (
           <Button
             variant="ghost"
+            data-list-print
             onClick={() => setPrintDialogOpen(true)}
             title="Печать текущего списка: колонки как на экране, объём под контролем"
           >

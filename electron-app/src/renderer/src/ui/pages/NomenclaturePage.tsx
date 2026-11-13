@@ -9,6 +9,7 @@ import { Button } from '../components/Button.js';
 import { ListColumnChips, type ColumnDescriptor } from '../components/ListColumnChips.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { Input } from '../components/Input.js';
+import { ToolbarSearchField } from '../components/ToolbarSearchField.js';
 import { ListExportButtons } from '../components/ListExportButtons.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
@@ -734,9 +735,7 @@ export function NomenclaturePage(props: {
                 </Button>
               ) : null}
               <ToolbarPin>
-                <div style={{ width: 280 }}>
-                  <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по наименованию, коду, штрихкоду…" />
-                </div>
+                <ToolbarSearchField value={query} onChange={(v) => setQuery(v)} placeholder="Поиск по наименованию, коду, штрихкоду…" />
               </ToolbarPin>
               <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, whiteSpace: 'nowrap' }} title="Артикульные варианты прячутся под обобщённую позицию">
                 <input type="checkbox" checked={collapseVariants} onChange={(e) => setCollapseVariants(e.target.checked)} data-collapse-variants />
@@ -773,6 +772,7 @@ export function NomenclaturePage(props: {
               {!isAndroidPlatform() && (
                 <Button
                   variant="ghost"
+                  data-list-print
                   onClick={() => setPrintDialogOpen(true)}
                   title="Печать текущего списка: колонки как на экране, объём под контролем"
                 >

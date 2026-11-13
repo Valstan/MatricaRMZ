@@ -437,7 +437,7 @@ async function main() {
   const reportReady = await focusTab('Сейчас на заводе', '[data-report-group-by]');
   const reportState = await evaluate(
     ws,
-    `return { xlsx: Boolean(exportButton('xlsx')), docx: Boolean(exportButton('docx')), print: Boolean(byExact('Печать списка', activePane())), pane: txt(activePane()).slice(0, 80) };`,
+    `return { xlsx: Boolean(exportButton('xlsx')), docx: Boolean(exportButton('docx')), print: Boolean(document.querySelector('button[data-list-print]')), pane: txt(activePane()).slice(0, 80) };`,
   );
   note(reportReady && reportState.xlsx && reportState.docx, 'на отчёте «Сейчас на заводе» выгрузка стоит рядом с печатью', reportState);
   await shot(ws, '2-report-buttons');

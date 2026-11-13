@@ -44,11 +44,21 @@ describe('тулбар списка — одна строка', () => {
     expect(TOOLBAR).toContain("overflow: 'hidden'");
     expect(TOOLBAR).toContain('data-toolbar-overflow');
   });
-
   it('ширины замеряются один раз на состав ряда', () => {
     // Повторный замер по спрятанным элементам дал бы нули и схлопнул ряд в одну кнопку.
     expect(TOOLBAR).toContain('const measuring = measured?.signature !== signature;');
     expect(TOOLBAR).toContain('useLayoutEffect(');
+  });
+
+  it('замер повторяется, когда вкладка оживает (иначе кнопки срезает краем окна)', () => {
+    // Ряд, смонтированный в скрытой вкладке, отдаёт нулевые ширины — кэш не пишется. Пока
+    // вкладка не открылась, лишнее уезжает за край и до него не добраться: на узком окне
+    // кнопки просто пропадали. Ряд ожил — значит, меряем заново.
+    expect(TOOLBAR).toContain('const measureItems = useCallback(');
+    expect(TOOLBAR).toContain('measureRef.current();');
+    expect(TOOLBAR).toContain('if (measuredRef.current?.signature === signature) return;');
+    // Наблюдатель пересоздаётся вместе с замером: тот же ряд, то же правило.
+    expect(TOOLBAR).toContain('const observer = new ResizeObserver(');
   });
 
   it('закреплённое в меню не уезжает', () => {
@@ -68,6 +78,82 @@ describe('тулбар списка — одна строка', () => {
     for (const [name, page] of PAGES) {
       expect(page, `${name}: тулбар не на PageToolbar`).toContain('<PageToolbar>');
     }
+  });
+});
+
+// Панель кнопок над списком (владелец 13.11.2026, промты КАРМАНА #9 и #13): длинные подписи
+// сокращены, поле поиска раздвигается при фокусе и сжимается обратно. Ломается молча: панель
+// «работает», просто поле осталось узким, а кнопка с длинным текстом отжала соседей.
+const SEARCH_FIELD = src('./ToolbarSearchField.tsx');
+const TOGGLE = src('./SearchModeToggle.tsx');
+/** Список, который тоже панель над списком, но в общий перечень выше не входит. */
+const REPAIR_FUND_PAGE = src('../pages/RepairFundAuditPage.tsx');
+const EXTRA_LIST_PAGES = [['RepairFundAuditPage', REPAIR_FUND_PAGE] as const];
+
+/** Блок панели кнопок на странице — всё, что внутри `PageToolbar`. */
+function toolbarOf(page: string): string {
+  return page.slice(page.indexOf('<PageToolbar>'), page.indexOf('</PageToolbar>'));
+}
+
+describe('панель кнопок: общее поле поиска и короткие подписи', () => {
+  it('поле одно на все списки и раздвигается поверх кнопок', () => {
+    expect(SEARCH_FIELD).toContain('export function ToolbarSearchField');
+    expect(SEARCH_FIELD).toContain('data-toolbar-search');
+    expect(SEARCH_FIELD).toContain('data-toolbar-search-expanded');
+    // Накладка, а не перестройка ряда: пересчёт ширин по спрятанным элементам отдал бы нули
+    // и схлопнул ряд в одну кнопку (см. комментарий в PageToolbar).
+    expect(SEARCH_FIELD).toContain("position: 'relative'");
+    expect(SEARCH_FIELD).toContain("position: 'absolute'");
+    expect(SEARCH_FIELD).toContain('zIndex: 5');
+  });
+
+  it('без фокуса поле возвращается к базовой ширине, текст обрезается, а не исчезает', () => {
+    expect(SEARCH_FIELD).toContain('onBlur={() => setExpandedWidth(null)}');
+    expect(SEARCH_FIELD).toContain('const BASE_WIDTH = 280;');
+    // Ширина базовая — фиксированная: от окна она не зависит, иначе кэш ширин ряда
+    // (меряется один раз на состав) после изменения размера окна врал бы.
+    expect(SEARCH_FIELD).not.toMatch(/BASE_WIDTH = .*vw/);
+  });
+
+  it('кнопка «≈ Похожие» остаётся доступной под раздвинутым полем', () => {
+    // Накладка закрывает соседние кнопки, а переключить режим, не убирая курсор из поиска,
+    // оператор должен иметь возможность.
+    expect(TOGGLE).toContain('zIndex: 6');
+  });
+
+  it('ни один список не заводит своё поле поиска в тулбаре', () => {
+    for (const [name, page] of [...PAGES, ...EXTRA_LIST_PAGES]) {
+      const toolbar = toolbarOf(page);
+      if (!toolbar.includes('placeholder="Поиск') && !toolbar.includes('searchPlaceholder')) continue;
+      expect(toolbar, `${name}: в тулбаре своё поле вместо общего`).toContain('<ToolbarSearchField');
+      // Прочие поля в тулбаре (дата, месяц) — можно; нельзя только голое поле поиска.
+      expect(toolbar, `${name}: в тулбаре осталось голое поле поиска`).not.toMatch(/<Input[^>]*placeholder="Поиск/);
+    }
+  });
+
+  it('длинные подписи сокращены, полная осталась в подсказке', () => {
+    const engines = PAGES.find(([name]) => name === 'EnginesPage')![1];
+    const toolbar = toolbarOf(engines);
+    expect(toolbar).toContain('Бирки');
+    expect(toolbar, 'длинная подпись «Бирки на двигатели» вернулась бы').not.toContain('Бирки на двигатели');
+    expect(toolbar).toContain('Печать');
+    expect(toolbar, 'длинная подпись «Печать списка» вернулась бы').not.toContain('Печать списка');
+    // Подсказка по наведению остаётся полной — по ней оператор понимает, что печатает.
+    expect(toolbar).toContain('title="Печать текущего списка');
+  });
+
+  it('кнопка печати помечена меткой — смоук ищет её по метке, а не по тексту', () => {
+    // Подписи у списков разные («Печать списка», «Печать») и меняются; смоук обязан находить
+    // кнопку по метке, иначе гейт падает от переименования, а не от поломки.
+    for (const [name, page] of [...PAGES, ...EXTRA_LIST_PAGES]) {
+      if (!page.includes('Печать текущего списка')) continue;
+      expect(page, `${name}: кнопка печати без метки data-list-print`).toContain('data-list-print');
+    }
+  });
+
+  it('список ревизии фонда стоит на общей панели', () => {
+    // Свой flex-ряд переполнения не умеет: кнопки уезжали за правый край окна.
+    expect(REPAIR_FUND_PAGE).toContain('<PageToolbar>');
   });
 });
 

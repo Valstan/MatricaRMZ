@@ -7,9 +7,11 @@ import {
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
+import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { SearchSelect } from '../components/SearchSelect.js';
+import { ToolbarSearchField } from '../components/ToolbarSearchField.js';
 import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { fetchWarehouseStockAllPages } from '../utils/warehousePagedFetch.js';
@@ -273,17 +275,24 @@ export function RepairFundAuditPage(props: {
 
       <div style={{ border: '1px solid var(--border)', padding: 12, display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minHeight: 0 }}>
         {/* mx-page-toolbar — планшетный режим убирает заголовок с поиском при прокрутке.
-            Ряд с «Провести ревизию» выше НЕ помечен: действие оператора не прячем. */}
-        <div className="mx-page-toolbar" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <div style={{ fontWeight: 700 }}>Детали в фонде</div>
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Поиск по коду и наименованию..."
-            style={{ maxWidth: 360 }}
-          />
-          <SearchModeToggle similar={searchSimilar} onToggle={() => setSearchSimilar((v) => !v)} />
-        </div>
+            Ряд с «Провести ревизию» выше НЕ помечен: действие оператора не прячем.
+            Ряд собран общим PageToolbar: свой flex-ряд не умеет переполнение, и кнопки
+            уезжали бы за правый край окна. */}
+        <PageToolbar>
+          <ToolbarPin>
+            <div style={{ fontWeight: 700 }}>Детали в фонде</div>
+          </ToolbarPin>
+          <ToolbarPin>
+            <ToolbarSearchField
+              value={query}
+              onChange={(v) => setQuery(v)}
+              placeholder="Поиск по коду и наименованию..."
+            />
+          </ToolbarPin>
+          <ToolbarPin>
+            <SearchModeToggle similar={searchSimilar} onToggle={() => setSearchSimilar((v) => !v)} />
+          </ToolbarPin>
+        </PageToolbar>
         {/* Без виртуализации — редактируемое поле «Факт» не должно размонтироваться при прокрутке. */}
         <ListCount total={rows.length} shown={visibleRows.length} />
         <div ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>

@@ -24,7 +24,7 @@ import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
 import { FacetFilter } from '../components/FacetFilter.js';
 import { useConfirm } from '../components/ConfirmContext.js';
-import { Input } from '../components/Input.js';
+import { ToolbarSearchField } from '../components/ToolbarSearchField.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
 
 import { useCardContentIds } from '../hooks/useListDeepFilter.js';
@@ -586,7 +586,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
           </Button>
         )}
         <ToolbarPin>
-          <Input value={query} onChange={(e) => patchState({ query: e.target.value, pageIndex: 0 })} placeholder="Поиск по всем данным сотрудника (и внутри карточек)…" />
+          <ToolbarSearchField value={query} onChange={(v) => patchState({ query: v, pageIndex: 0 })} placeholder="Поиск по всем данным сотрудника (и внутри карточек)…" />
         </ToolbarPin>
         <ToolbarPin>
           <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar, pageIndex: 0 })} />
@@ -615,6 +615,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
         {!isAndroidPlatform() && (
           <Button
             variant="ghost"
+            data-list-print
             onClick={() => setPrintDialogOpen(true)}
             title="Печать текущего списка: колонки как на экране, объём под контролем"
           >

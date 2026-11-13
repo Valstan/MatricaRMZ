@@ -55,6 +55,10 @@ export function PageToolbar(props: { children: React.ReactNode; className?: stri
     widths: Record<string, number>;
     pinned: Record<string, boolean>;
   } | null>(null);
+  // Тот же замер и та же функция замера — но «нативно», без перерисовки: ими пользуется
+  // ResizeObserver, когда ряд оживает (вкладка открыта, окно переехало).
+  const measuredRef = useRef<typeof measured>(null);
+  const measureRef = useRef<() => void>(() => {});
   const [rowWidth, setRowWidth] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -71,11 +75,12 @@ export function PageToolbar(props: { children: React.ReactNode; className?: stri
 
   const measuring = measured?.signature !== signature;
 
-  useLayoutEffect(() => {
-    if (!measuring) return;
-    // Скрытая вкладка отдаёт нулевые ширины, а кэш пишется один раз на состав ряда: замер
-    // «в темноте» навсегда сделал бы ряд шириной 0, и в меню не уезжало бы ничего. Пока ряд
-    // не на экране — не запоминаем; эффект перезапустится, когда вкладка станет видимой.
+  // Замер ширин элементов ряда. Вынесен в функцию, потому что мерять надо дважды: при смене
+  // состава ряда и тогда, когда ряд измерился, пока вкладка была скрыта (см. ниже).
+  const measureItems = useCallback(() => {
+    // Этот состав ряда уже меряли — повторный замер дал бы нули (спрятанные элементы из
+    // ряда убраны) и сломал бы счётку переполнения.
+    if (measuredRef.current?.signature === signature) return;
     const row = rowRef.current;
     if (!row || row.clientWidth <= 0) return;
     const widths: Record<string, number> = {};
@@ -86,15 +91,36 @@ export function PageToolbar(props: { children: React.ReactNode; className?: stri
       pinned[it.key] = Boolean(el?.querySelector('[data-toolbar-pin]'));
     }
     if (items.length > 0 && Object.values(widths).every((w) => w <= 0)) return;
-    setMeasured({ signature, widths, pinned });
-  }, [measuring, signature, items]);
+    const next = { signature, widths, pinned };
+    measuredRef.current = next;
+    setMeasured(next);
+  }, [items, signature]);
+
+  useEffect(() => {
+    measureRef.current = measureItems;
+  }, [measureItems]);
+
+  useLayoutEffect(() => {
+    if (!measuring) return;
+    // Скрытая вкладка отдаёт нулевые ширины, а кэш пишется один раз на состав ряда: замер
+    // «в темноте» навсегда сделал бы ряд шириной 0, и в меню не уезжало бы ничего. Пока ряд
+    // не на экране — не запоминаем; как только вкладка станет видимой, ряд получит размер —
+    // и тогда мы перемерим (это делает ResizeObserver ниже).
+    measureItems();
+  }, [measuring, measureItems]);
 
   useEffect(() => {
     const el = rowRef.current;
     if (!el) return;
     setRowWidth(el.clientWidth);
     if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(() => setRowWidth(el.clientWidth));
+    const observer = new ResizeObserver(() => {
+      setRowWidth(el.clientWidth);
+      // Ряд измерился, пока вкладка была скрыта: кэша нет, а лишние кнопки без него просто
+      // срезаются краем окна — и до них нельзя добраться. Ряд получил размер (вкладка
+      // открылась или окно переехало) — меряем по-настоящему.
+      measureRef.current();
+    });
     observer.observe(el);
     return () => observer.disconnect();
   }, []);

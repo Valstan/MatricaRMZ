@@ -29,6 +29,10 @@ export function SearchModeToggle(props: { similar: boolean; onToggle: () => void
         fontWeight: props.similar ? 700 : 400,
         whiteSpace: 'nowrap',
         cursor: 'pointer',
+        // Поле поиска при фокусе накладывается поверх соседних кнопок. Эту кнопку накладка
+        // закрывать не должна: переключить режим, не убирая курсор из поиска, — обычное дело.
+        position: 'relative',
+        zIndex: 6,
       }}
     >
       ≈ Похожие
