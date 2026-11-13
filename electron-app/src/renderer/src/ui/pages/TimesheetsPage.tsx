@@ -11,7 +11,7 @@ const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', '�
 
 type WorkshopOpt = { id: string; name: string };
 
-export function TimesheetsPage(props: { canEdit: boolean; onOpen: (id: string) => void }) {
+export function TimesheetsPage(props: { canCreate: boolean; canEdit: boolean; onOpen: (id: string) => void }) {
   const { confirm } = useConfirm();
   const now = new Date();
   const [workshops, setWorkshops] = useState<WorkshopOpt[]>([]);
@@ -78,7 +78,8 @@ export function TimesheetsPage(props: { canEdit: boolean; onOpen: (id: string) =
         {busy && <span style={{ color: busy.startsWith('Ошибка') ? '#b91c1c' : '#64748b', fontSize: 13 }}>{busy}</span>}
       </div>
 
-      {props.canEdit && (
+      {/* Завести табель может каждый, кто работает в программе (владелец 13.11.2026). */}
+      {props.canCreate && (
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 10, padding: 12, border: '1px solid #e5e7eb', borderRadius: 12, marginBottom: 14, background: '#f8fafc' }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, color: '#64748b' }}>
             Цех / подразделение
@@ -134,6 +135,7 @@ export function TimesheetsPage(props: { canEdit: boolean; onOpen: (id: string) =
               <th style={thStyle}>Режим</th>
               <th style={thStyle}>Норма, ч</th>
               <th style={thStyle}>Статус</th>
+              <th style={thStyle}>Автор</th>
               <th style={{ ...thStyle, width: 200 }}>Действия</th>
             </tr>
           </thead>
@@ -148,10 +150,15 @@ export function TimesheetsPage(props: { canEdit: boolean; onOpen: (id: string) =
                   <td style={tdStyle}>{r.weekMode}-дн.</td>
                   <td style={tdStyle}>{r.normHours ?? '—'}</td>
                   <td style={tdStyle}>{r.status === 'closed' ? 'Закрыт' : 'Черновик'}</td>
+                  <td style={tdStyle}>
+                    {r.createdBy ? r.createdBy : '—'}
+                    {r.isAuthor ? ' (мой)' : ''}
+                  </td>
                   <td style={tdStyle} onClick={(e) => e.stopPropagation()}>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <Button variant="ghost" onClick={() => props.onOpen(r.id)}>Открыть</Button>
-                      {props.canEdit && (
+                      {/* Удалить может только автор (владелец 13.11.2026: «удалять чужие нельзя»). */}
+                      {props.canEdit && (r.isAuthor || !r.createdBy) && (
                         <Button variant="ghost" onClick={() => void remove(r.id, `${r.scopeName || r.workshopName} · ${period}`)}>Удалить</Button>
                       )}
                     </div>
@@ -162,7 +169,7 @@ export function TimesheetsPage(props: { canEdit: boolean; onOpen: (id: string) =
             {rows.length === 0 && (
               <tr>
                 <td colSpan={7} style={{ padding: 14, color: '#6b7280' }}>
-                  Табелей пока нет. {props.canEdit ? 'Выберите цех и месяц, затем «Создать табель».' : ''}
+                  Табелей пока нет. {props.canCreate ? 'Выберите цех и месяц, затем «Создать табель».' : ''}
                 </td>
               </tr>
             )}

@@ -120,16 +120,22 @@
   color: var(--accent, #2563eb);
 }
 
+/* Крестик вкладки — заметная кнопка с серым фоном (владелец 13.11.2026: «сделай
+   ввиде кнопки с каким нибудь сереньким фоном, чтобы легче было ее увидеть и
+   прицелиться по ней указателем мышки»). Наведение — красным, как раньше. */
 .v3-tab-close {
   flex: 0 0 auto;
-  padding: 4px 8px;
-  background: none;
+  margin-left: 2px;
+  padding: 3px 7px;
   border: none;
+  border-radius: 5px;
+  background: rgba(15, 23, 42, 0.07);
   color: var(--muted, #6b7280);
   cursor: pointer;
 }
 
 .v3-tab-close:hover {
+  background: rgba(220, 38, 38, 0.14);
   color: var(--danger, #dc2626);
 }
 
@@ -716,6 +722,13 @@
 .v3-fav-card-icon {
   font-size: 26px;
   line-height: 1;
+}
+
+/* Рисованная иконка раздела: в плишке (112px) ей есть место, в МЕНЮ — нет. */
+.v3-fav-card-img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
 }
 
 .v3-fav-card-label {

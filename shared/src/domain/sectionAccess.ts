@@ -114,7 +114,11 @@ export const ACCESS_SECTION_CATALOG: readonly AccessSectionMeta[] = [
   {
     id: AccessSection.People,
     titleRu: 'Персонал',
-    menuTabs: ['employees', 'timesheets'],
+    // Табель сюда НЕ входит (владелец 13.11.2026: табель заводит и смотрит каждый,
+    // а правит — только автор своего табеля). Оставаясь в разделе «Персонал», табель
+    // был бы виден лишь тем, кому выдан раздел, — а плашка «Табель» в левой панели
+    // должна быть у всех.
+    menuTabs: ['employees'],
   },
   {
     id: AccessSection.Reports,

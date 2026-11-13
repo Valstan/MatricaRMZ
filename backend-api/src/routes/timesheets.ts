@@ -48,7 +48,10 @@ timesheetsRouter.get('/', requirePermission(PermissionCode.TimesheetView), async
   return res.status(r.ok ? 200 : 400).json(r);
 });
 
-timesheetsRouter.post('/', requirePermission(PermissionCode.TimesheetEdit), async (req, res) => {
+// Создавать табель может каждый, кто работает в программе (владелец 13.11.2026):
+// свой табель по своему цеху/подразделению. ПРАВИТЬ табель может только его автор —
+// это гейт на уровне строки (timesheetService.canEditTimesheet), а не права раздела.
+timesheetsRouter.post('/', requirePermission(PermissionCode.TimesheetCreate), async (req, res) => {
   // Scope = workshop XOR department (exactly one). Department-scoped timesheets cover org
   // units like ОПП that are not цеха.
   const schema = z
@@ -87,7 +90,6 @@ timesheetsRouter.put('/:id', requirePermission(PermissionCode.TimesheetEdit), as
     status: z.enum(['draft', 'closed']).optional(),
     weekMode: z.union([z.literal(5), z.literal(6)]).optional(),
     normHours: z.number().nullable().optional(),
-    allowOthersEdit: z.boolean().optional(),
   });
   const parsed = schema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
@@ -97,7 +99,6 @@ timesheetsRouter.put('/:id', requirePermission(PermissionCode.TimesheetEdit), as
     ...(parsed.data.status !== undefined ? { status: parsed.data.status } : {}),
     ...(parsed.data.weekMode !== undefined ? { weekMode: parsed.data.weekMode } : {}),
     ...(parsed.data.normHours !== undefined ? { normHours: parsed.data.normHours } : {}),
-    ...(parsed.data.allowOthersEdit !== undefined ? { allowOthersEdit: parsed.data.allowOthersEdit } : {}),
   });
   return res.status(r.ok ? 200 : 400).json(r);
 });

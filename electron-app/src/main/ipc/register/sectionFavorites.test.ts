@@ -58,27 +58,28 @@ describe('sections favorites IPC', () => {
     const setResult = await setHandler(null, { userId: 'u1', ids: ['engines', 'work_sheets'] });
     expect(setResult).toEqual({ ok: true, ids: ['engines', 'work_sheets'] });
     expect(await getHandler(null, { userId: 'u1' })).toEqual({ ok: true, ids: ['engines', 'work_sheets'] });
-    // u2 ещё ничего не выбирал: у него дефолтные разделы (двигатели + контракты).
-    expect(await getHandler(null, { userId: 'u2' })).toEqual({ ok: true, ids: ['engines', 'contracts'] });
+    // u2 ещё ничего не выбирал: у него дефолтные разделы (двигатели, контракты, табель).
+    expect(await getHandler(null, { userId: 'u2' })).toEqual({ ok: true, ids: ['engines', 'contracts', 'timesheets'] });
   });
 
   it('дефолтные разделы у всех, пока оператор их сам не снял', async () => {
     const setHandler = hoisted.ipcHandlers.get('sections:favoritesSet')!;
     const getHandler = hoisted.ipcHandlers.get('sections:favoritesGet')!;
-    // Свой выбор оператора не вытесняет дефолты.
-    await setHandler(null, { userId: 'u1', ids: ['engines', 'contracts', 'work_sheets'] });
-    expect(await getHandler(null, { userId: 'u1' })).toEqual({ ok: true, ids: ['engines', 'contracts', 'work_sheets'] });
+    // Свой выбор оператора не вытесняет дефолты: он присылает полный список того,
+    // что видит (дефолты + своё).
+    await setHandler(null, { userId: 'u1', ids: ['engines', 'contracts', 'timesheets', 'work_sheets'] });
+    expect(await getHandler(null, { userId: 'u1' })).toEqual({ ok: true, ids: ['engines', 'contracts', 'timesheets', 'work_sheets'] });
     // Снятый дефолт запоминается: пустая колонка не возвращается сама.
-    await setHandler(null, { userId: 'u1', ids: ['contracts', 'work_sheets'] });
-    expect(await getHandler(null, { userId: 'u1' })).toEqual({ ok: true, ids: ['contracts', 'work_sheets'] });
+    await setHandler(null, { userId: 'u1', ids: ['contracts', 'timesheets', 'work_sheets'] });
+    expect(await getHandler(null, { userId: 'u1' })).toEqual({ ok: true, ids: ['contracts', 'timesheets', 'work_sheets'] });
     // У другого оператора дефолты на месте — снятие своё.
-    expect(await getHandler(null, { userId: 'u2' })).toEqual({ ok: true, ids: ['engines', 'contracts'] });
+    expect(await getHandler(null, { userId: 'u2' })).toEqual({ ok: true, ids: ['engines', 'contracts', 'timesheets'] });
   });
 
   it('старая запись (просто массив) читается как выбор без снятых дефолтов', async () => {
     hoisted.settings.set('ui.sectionFavorites', JSON.stringify({ u3: ['work_sheets'] }));
     const getHandler = hoisted.ipcHandlers.get('sections:favoritesGet')!;
-    expect(await getHandler(null, { userId: 'u3' })).toEqual({ ok: true, ids: ['engines', 'contracts', 'work_sheets'] });
+    expect(await getHandler(null, { userId: 'u3' })).toEqual({ ok: true, ids: ['engines', 'contracts', 'timesheets', 'work_sheets'] });
   });
 
   it('битая запись не роняет панель: читаются дефолты', async () => {
@@ -87,7 +88,7 @@ describe('sections favorites IPC', () => {
     const r = await setHandler(null, { userId: 'u1', ids: ['engines', 'nope', 'engines', 42, 'work_sheets'] });
     expect(r).toEqual({ ok: true, ids: ['engines', 'work_sheets'] });
     hoisted.settings.set('ui.sectionFavorites', '{broken');
-    expect(await getHandler(null, { userId: 'u1' })).toEqual({ ok: true, ids: ['engines', 'contracts'] });
+    expect(await getHandler(null, { userId: 'u1' })).toEqual({ ok: true, ids: ['engines', 'contracts', 'timesheets'] });
   });
 
   it('чистый санитайзер: известное проходит, неизвестное и дубли — нет', () => {

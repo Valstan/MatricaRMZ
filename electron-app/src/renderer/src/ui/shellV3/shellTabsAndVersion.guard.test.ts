@@ -105,6 +105,23 @@ describe('кнопки вкладок в шапке (владелец 13.11.2026
     expect(SHELL).toContain('v3-tab-star');
     expect(SHELL).toContain('FavoriteStarButton');
   });
+
+  it('звезда на вкладке без обрамления: пустая — серая, активная — золотая', () => {
+    // «звездочку сделай на пустом месте без обрамления, неактивированная звездочка внутри
+    // пустотелая, а активированная — желтая».
+    const star = src('../components/FavoriteStarButton.tsx');
+    expect(star).toContain("variant?: 'framed' | 'plain'");
+    expect(star).toContain('data-fav-variant');
+    expect(SHELL).toContain('variant="plain"');
+  });
+
+  it('крестик вкладки — кнопка с серым фоном, чтобы по нему было видно, куда целиться', () => {
+    const closeRule = SHELL_CSS.slice(
+      SHELL_CSS.indexOf('\n.v3-tab-close {'),
+      SHELL_CSS.indexOf('}', SHELL_CSS.indexOf('\n.v3-tab-close {')),
+    );
+    expect(closeRule).toMatch(/background:\s*rgba\(/);
+  });
 });
 
 describe('версия программы в меню', () => {

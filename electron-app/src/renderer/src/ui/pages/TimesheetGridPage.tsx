@@ -80,10 +80,12 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
   const [gridMaxH, setGridMaxH] = useState<number | null>(null);
   const tableRef = useRef<HTMLTableElement | null>(null);
   const appliedFont = autoFont ?? fontScale;
-  // Право редактирования табеля: автор-создатель всегда; другие — только если автор включил
-  // «Разрешить редактирование другим». Легаси-табели без автора (createdBy=null) — открыты.
+  // Право редактирования табеля (владелец 13.11.2026): «редактировать все могут
+  // только свои табеля, чужие портить нельзя и удалять чужие нельзя, чужие табеля
+  // можно только смотреть». Поэтому правит ТОЛЬКО автор. Легаси-табель без автора
+  // (createdBy=null) берёт себе автором тот, кто первый его правит.
   // props.canEdit — это разрешение (timesheet.edit); ниже накладываем авторский гейт.
-  const editAllowed = ts ? (ts.isAuthor || ts.allowOthersEdit || !ts.createdBy) : false;
+  const editAllowed = ts ? (ts.isAuthor || !ts.createdBy) : false;
   const canEdit = props.canEdit && editAllowed;
   const setFont = (n: number) => { setFontScale(Math.min(FONT_MAX, Math.max(FONT_MIN, n))); setAutoFont(null); };
   const setMode = (m: ViewMode) => { setViewMode(m); setAutoFont(null); };
@@ -92,14 +94,6 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
     setBusy(m);
     if (ms) setTimeout(() => setBusy(''), ms);
   };
-
-  // Галку «разрешить редактирование другим» меняет только автор табеля (бэкенд это тоже гейтит).
-  async function toggleAllowOthers(next: boolean) {
-    if (!ts || !ts.isAuthor) return;
-    const r = await window.matrica.timesheets.update({ id: ts.id, allowOthersEdit: next });
-    if (!r.ok) { flash(`Ошибка: ${r.error}`, 3000); return; }
-    setTs((prev) => (prev ? { ...prev, allowOthersEdit: next } : prev));
-  }
 
   const reload = useCallback(async () => {
     const [t, c, w] = await Promise.all([window.matrica.timesheets.get(props.timesheetId), window.matrica.timesheets.codes(), window.matrica.workshops.list()]);
@@ -587,15 +581,8 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
           <button onClick={() => setFont(appliedFont + 1)} disabled={appliedFont >= FONT_MAX} style={fontBtn}>A+</button>
         </div>
         <span style={{ flex: 1 }} />
-        <label
-          title={ts.isAuthor ? 'Разрешить другим пользователям редактировать этот табель (по умолчанию — только автор)' : 'Менять это разрешение может только автор табеля'}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#475569', cursor: ts.isAuthor ? 'pointer' : 'default', opacity: ts.isAuthor ? 1 : 0.65 }}
-        >
-          <input type="checkbox" checked={ts.allowOthersEdit} disabled={!ts.isAuthor} onChange={(e) => void toggleAllowOthers(e.target.checked)} />
-          Разрешить редактирование другим
-        </label>
         {props.canEdit && !canEdit && (
-          <span title="Автор не разрешил другим редактировать этот табель" style={{ fontSize: 12, color: '#b45309', fontWeight: 600 }}>🔒 только автор</span>
+          <span title="Табель правит только его автор: чужие табели можно только смотреть" style={{ fontSize: 12, color: '#b45309', fontWeight: 600 }}>🔒 только автор</span>
         )}
         {busy && <span style={{ fontSize: 12, color: busy.startsWith('Ошибка') ? '#b91c1c' : '#64748b' }}>{busy}</span>}
         {canEdit && <Button variant="ghost" onClick={() => void openPicker()}>+ Сотрудники</Button>}

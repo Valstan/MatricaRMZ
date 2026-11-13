@@ -459,7 +459,8 @@ export function V3TabShell(props: {
                       <FavoriteStarButton
                         favorite={fav}
                         dataId={menuId}
-                        size={20}
+                        size={18}
+                        variant="plain"
                         title={
                           fav
                             ? `Убрать «${sectionLabel}» из левой панели`
@@ -627,7 +628,13 @@ export function V3TabShell(props: {
                   setRailMenu({ x: e.clientX, y: e.clientY, id: btn.id as MenuTabId, label: btn.label });
                 }}
               >
-                <span className="v3-fav-card-icon" aria-hidden="true">{btn.icon}</span>
+                {btn.iconImage ? (
+                  // Рисованная иконка раздела (дизельный мотор, документы, табель) —
+                  // в плишке левой панели ей есть место, эмодзи там ничего не объясняет.
+                  <img className="v3-fav-card-img" src={btn.iconImage} alt="" aria-hidden="true" />
+                ) : (
+                  <span className="v3-fav-card-icon" aria-hidden="true">{btn.icon}</span>
+                )}
                 <span className="v3-fav-card-label">{btn.label}</span>
               </button>
             ))}

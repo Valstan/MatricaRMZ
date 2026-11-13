@@ -66,6 +66,8 @@ export type MenuButtonDescriptor = {
   id: string;
   label: string;
   icon: string;
+  /** Рисованная иконка раздела (есть у Двигателей, Контрактов и Табеля) — плишка левой панели. */
+  iconImage?: string;
   group: string;
   groupLabel: string;
   kind: MenuButtonKind;
@@ -91,10 +93,12 @@ function defaultFlatOrder(): MenuTabId[] {
 
 function toDescriptor(id: MenuTabId, menuLabels: Partial<Record<MenuTabId, string>>): MenuButtonDescriptor {
   const group = groupForTab(id);
+  const image = TAB_VISUALS[id]?.image;
   return {
     id,
     label: menuLabels[id] ?? id,
     icon: TAB_VISUALS[id]?.icon ?? '▫️',
+    ...(image ? { iconImage: image } : {}),
     group,
     groupLabel: GROUP_LABELS[group] ?? group,
     kind: 'nav',
