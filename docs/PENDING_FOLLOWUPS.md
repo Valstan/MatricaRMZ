@@ -54,6 +54,7 @@
 ## 🟡 Техдолг и отложенное
 
 - [🟡 11 списков вне общей панели кнопок: свой ряд, без переполнения и меню «⋯» 🗓 since:2026-11-13](pending/spiski-vne-obshchey-paneli-bez-perepolneniya.md)
+- [🟡 Контракты: догоняем модуль до остальной программы 🗓 since:2026-11-13](pending/kontrakty-dogonyaem-module-do-ostalnoy-programmy.md)
 - [🟡 Подписать заглушку-обновлятель: osslsigncode или windows-джоб 🗓 since:2026-11-05](pending/podpisat-zaglushku-obnovlyatel.md)
 - [🟡 Журнал синхронизации раздувался EAV-значениями: раздувание остановлено (PR #1561), все дубли вычищены 🗓 since:2026-11-03](pending/journal-rozet-iz-za-eav-attribute-values.md)
 - [🟡 Размерный ряд СИЗ для РМЗ: базовый может не подойти 🗓 since:2026-11-03](pending/razmernyy-ryad-siz-dlya-rmz-utochnit.md)
