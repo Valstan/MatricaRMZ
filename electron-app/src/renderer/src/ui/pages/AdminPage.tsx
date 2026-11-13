@@ -1193,11 +1193,11 @@ export function MasterdataPage(props: {
                       );
                     })}
                     {filteredEntities.length === 0 && (
-              <div style={{ padding: 12, color: '#6b7280' }}>
-                (пусто)
-                <SearchModeEmptyHint similar={entitySearchSimilar} query={entityQuery} />
-              </div>
-            )}
+                      <div style={{ padding: 12, color: '#6b7280' }}>
+                        (пусто)
+                        <SearchModeEmptyHint similar={entitySearchSimilar} query={entityQuery} />
+                      </div>
+                    )}
                   </>
                 )}
               </div>

@@ -71,6 +71,9 @@ describe('точный поиск по умолчанию', () => {
     // Намерение едет в запрос ЯВНО — и «похожие», и «строго» (владелец 13.11.2026, промт #10):
     // «параметр не прислали» — это не решение, это отсутствие решения. Сервер не должен угадывать.
     expect(STOCK_BALANCES).toContain('similar: searchSimilar,');
+    // Намерение доезжает до сервера через разбор страниц: флаг объявлен и уходит в запрос как есть.
+    expect(PAGED_FETCH).toContain('similar?: boolean;');
+    expect(PAGED_FETCH).toContain('...args,');
     expect(ERP_SERVICE).toContain("qp.set('similar', args?.similar === true ? 'true' : 'false');");
     expect(WAREHOUSE_ROUTE).toContain('similar: parsed.data.similar === true,');
     // Флаг ответа «показаны похожие» и тумблер — разные вещи; одно имя на двоих
