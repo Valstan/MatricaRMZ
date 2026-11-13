@@ -134,6 +134,9 @@ describe('engineFactoryStageOrder — ряд групп от позднего к
       'scrap',
       'repaired',
       'stage:accepted',
+      // Отгрузка по рекламации — этап линейки (владелец 13.11.2026), рангом сразу за
+      // обычной отгрузкой: в отчёте по группам видно, что движок уехал по рекламации.
+      'stage:shipped_reclamation',
       'stage:shipped',
       'stage:otk',
       'stage:obkatka',

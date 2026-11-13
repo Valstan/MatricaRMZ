@@ -9,6 +9,7 @@ import {
   isStageBackwardMove,
   isTransferableStageCode,
   RECLAMATION_ARRIVAL_STAGE_CODE,
+  RECLAMATION_SHIPPED_STAGE_CODE,
   repairStageRank,
   repairStageTemplate,
   resolveStageCode,
@@ -18,9 +19,9 @@ import {
 
 describe('шаблон этапов (состав 05.10.2026 + входной контроль и ремонт деталей 14.10.2026)', () => {
   it('линейка из 11 + боковая ветка, приоритеты строго растут', () => {
-    expect(DEFAULT_REPAIR_STAGE_TEMPLATES).toHaveLength(13);
+    expect(DEFAULT_REPAIR_STAGE_TEMPLATES).toHaveLength(14);
     const line = DEFAULT_REPAIR_STAGE_TEMPLATES.filter((t) => !t.sideBranch).map((t) => t.sortOrder);
-    expect(line).toEqual([5, 10, 11, 15, 20, 30, 40, 50, 60, 70, 80, 90]);
+    expect(line).toEqual([5, 10, 11, 15, 20, 30, 40, 50, 60, 70, 80, 81, 90]);
   });
 
   it('«Вал» не этап, «Отгрузка» и «Приемка заказчиком» — разные этапы', () => {
@@ -312,5 +313,38 @@ describe('приёмка по рекламации — этап, равный п
     ];
     expect(isStageBackwardMove(stages, 'arrival')).toBe(true);
     expect(isStageBackwardMove(stages, RECLAMATION_ARRIVAL_STAGE_CODE)).toBe(false);
+  });
+});
+
+describe('отправка по рекламации — этап, равный отгрузке (владелец 13.11.2026)', () => {
+  it('свой код и своя подпись — видно, что движок уехал по рекламации', () => {
+    expect(RECLAMATION_SHIPPED_STAGE_CODE).toBe('shipped_reclamation');
+    const t = repairStageTemplate(RECLAMATION_SHIPPED_STAGE_CODE);
+    expect(t.name).toBe('Отгрузка двигателя заказчику по рекламации');
+    expect(t.sideBranch).toBeUndefined();
+    // Ранг — сразу за обычной отгрузкой: отправка по рекламации завершает свой заезд.
+    expect(repairStageRank(RECLAMATION_SHIPPED_STAGE_CODE)).toBe(repairStageRank('shipped') + 1);
+  });
+
+  it('отправка по рекламации отвечает на отгрузку, но не наоборот', () => {
+    // Выбрана «отгрузка двигателя заказчику» — отбор ловит и рекламационную отправку.
+    expect(stageAnsweringAliases(RECLAMATION_SHIPPED_STAGE_CODE)).toEqual(['shipped']);
+    // Обычная отгрузка под «отгрузку по рекламации» НЕ попадает.
+    expect(stageAnsweringAliases('shipped')).toEqual([]);
+  });
+
+  it('симметричное равенство — для отбора по дате этапа', () => {
+    expect(equivalentStageCodes('shipped')).toContain(RECLAMATION_SHIPPED_STAGE_CODE);
+    expect(equivalentStageCodes(RECLAMATION_SHIPPED_STAGE_CODE)).toContain('shipped');
+  });
+
+  it('отправка по рекламации — шаг своего заезда, а не возврат назад', () => {
+    // В заезде по рекламации движок прошёл линейку второй раз: отправка по рекламации идёт
+    // после этапов СВОЕГО заезда, и ранг у неё выше — шага назад тут нет.
+    const stages = [
+      { code: 'arrival_reclamation' as const, at: Date.UTC(2026, 2, 18) },
+      { code: 'obkatka' as const, at: Date.UTC(2026, 3, 20) },
+    ];
+    expect(isStageBackwardMove(stages, RECLAMATION_SHIPPED_STAGE_CODE)).toBe(false);
   });
 });

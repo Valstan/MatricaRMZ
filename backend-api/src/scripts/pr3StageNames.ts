@@ -8,6 +8,8 @@
 // `incoming_otk` и `parts_repair` с именами из реестра.
 // Дополнение 11.11.2026 — `arrival_reclamation` («Приемка двигателя на завод по
 // рекламации»): приход по рекламации приравнивается к приёмке двигателя на заводе.
+// Дополнение 13.11.2026 — `shipped_reclamation` («Отгрузка двигателя заказчику по
+// рекламации»): отправка после ремонта по рекламации — тоже этап единого списка.
 export const PR3_CANONICAL_STAGE_NAMES: Readonly<Record<string, string>> = {
   card_created: 'Создание карточки двигателя',
   arrival: 'Приемка двигателя на завод',
@@ -20,6 +22,7 @@ export const PR3_CANONICAL_STAGE_NAMES: Readonly<Record<string, string>> = {
   obkatka: 'Обкатка двигателя',
   otk: 'Выходной контроль ОТК',
   shipped: 'Отгрузка двигателя заказчику',
+  shipped_reclamation: 'Отгрузка двигателя заказчику по рекламации',
   accepted: 'Приемка двигателя заказчиком',
   scrap_branch: 'Утиль и брак',
 };

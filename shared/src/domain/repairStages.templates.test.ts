@@ -22,6 +22,7 @@ describe('DEFAULT_REPAIR_STAGE_TEMPLATES — один единый список'
       'obkatka',
       'otk',
       'shipped',
+      'shipped_reclamation',
       'accepted',
       'scrap_branch',
     ]) {

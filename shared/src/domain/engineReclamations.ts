@@ -143,6 +143,35 @@ export function engineReclamationArrivals(
 }
 
 /**
+ * Отгрузки по рекламации — то, что материализуется этапами.
+ *
+ * Отправка двигателя заказчику после ремонта по рекламации — такой же участник процесса,
+ * как приёмка (владелец 13.11.2026: «надо его в историю ремонта тоже добавить, чтобы
+ * и показывалось в истории, и фильтровалось, и было полноценным участником процесса, и в
+ * отчётах и в списках»). Поэтому она материализуется этапом — как приёмка, правилом
+ * «какие отгрузки у двигателя»: рекламация без даты отправки ещё не уехала, и этапа для
+ * неё не заводим.
+ */
+export type EngineReclamationShipment = {
+  /** Номер рекламации в очереди заездов. */
+  queueNo: number;
+  /** Дата отправки (мс). */
+  at: number;
+};
+
+export function engineReclamationShipments(
+  rows: readonly Pick<EngineReclamationDto, 'queueNo' | 'shippedAt'>[],
+): EngineReclamationShipment[] {
+  const out: EngineReclamationShipment[] = [];
+  for (const row of sortEngineReclamations(rows ?? [])) {
+    const at = ms(row.shippedAt);
+    if (at == null) continue;
+    out.push({ queueNo: Number(row.queueNo ?? 0), at });
+  }
+  return out;
+}
+
+/**
  * Проверка очереди рекламаций: номера без пропусков и даты заездов по порядку.
  *
  * Возвращает текст ошибки (по-русски, для оператора) или null — если всё в порядке.
