@@ -86,7 +86,7 @@
 ## ⏳ Ждёт внешнего окна / события
 
 - [⏳ Свой ключ DeepSeek под проект (D-188): выпускает владелец, переезд делаем мы 🗓 since:2026-11-08](pending/svoy-key-deepseek-dlya-proekta-d-188.md)
-- [⏳ Промты проекта из КАРМАНА (D-190): канал живой, 26 промтов ждут выполнения 🗓 since:2026-11-08](pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md)
+- [⏳ Промты проекта из КАРМАНА (D-190): канал живой, 22 промта ждут выполнения (пара «Колонка „Привязка“» — сделана, релиз v3.122.0, в архиве) 🗓 since:2026-11-08](pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md)
 - [⏳ Дубли сотрудников: остаток — штатка с ПДО и приёмка на парке (запрет по полному ключу сделан) 🗓 since:2026-11-09](pending/dubli-sotrudnikov-ostatok-zapret-po-polnomu-klyuchu-shtatka-s-pdo.md)
 - [⏳ Рекламация в истории ремонта: код сделан (3.117.0 и 3.118.0) — осталась приёмка на парке 🗓 since:2026-11-09](pending/reklamaatsiya-v-istorii-remonta.md)
 - [⏳ СИЗ: у каждой позиции набора норм — своя номенклатура 🗓 since:2026-11-11](pending/siz-svoya-nomenklatura-na-poziciyu-nabora.md)
