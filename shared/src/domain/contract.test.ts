@@ -9,6 +9,7 @@ import {
   classifyEngineContractBinding,
   computeObjectProgress,
   effectiveRepairDays,
+  engineBindingLabel,
   isContractAddonToken,
   isEavFlagSet,
   isScrapEngine,
@@ -385,6 +386,41 @@ describe('короткий номер договора', () => {
       accent: '',
       after: '',
     });
+  });
+});
+
+// Подпись привязки в списке двигателей (владелец 12.11.2026, промт КАРМАНА #8): вместо
+// слова «договор» — рабочий номер из трёх цифр, для ДС — ещё и «/N». Привязки нет —
+// пусто: в ячейке остаётся только красный кружок.
+describe('подпись привязки двигателя', () => {
+  const NUMBER = '2325187913551442245231239/27/ГОЗ-24';
+
+  it('показывает три цифры рабочего номера — без звёздочки', () => {
+    expect(engineBindingLabel({ contractId: 'c-1', contractNumber: NUMBER })).toBe('239');
+    expect(engineBindingLabel({ contractId: 'c-1', contractNumber: '125/2026' })).toBe('125');
+  });
+
+  it('к ДС дописывает номер соглашения через слэш, без слова «ДС»', () => {
+    expect(engineBindingLabel({ contractId: 'c-1', contractNumber: NUMBER, contractSectionNumber: 'ДС 2' })).toBe('239/2');
+    expect(engineBindingLabel({ contractId: 'c-1', contractNumber: NUMBER, contractSectionNumber: 'ДС 5' })).toBe('239/5');
+  });
+
+  it('номер выделить нельзя — пишем «договор»', () => {
+    expect(engineBindingLabel({ contractId: 'c-1', contractNumber: 'Письмо № 15 от 03.09.2026' })).toBe('Договор');
+    expect(engineBindingLabel({ contractId: 'c-1', contractNumber: '' })).toBe('Договор');
+  });
+
+  it('без привязки — пусто: в ячейке остаётся только красный кружок', () => {
+    expect(engineBindingLabel({ contractId: '', contractNumber: NUMBER })).toBe('');
+    expect(engineBindingLabel({ contractId: null, contractNumber: NUMBER, contractSectionNumber: 'ДС 2' })).toBe('');
+  });
+
+  it('ДС без договора — пусто, а не «/2»', () => {
+    expect(engineBindingLabel({ contractId: '', contractNumber: '', contractSectionNumber: 'ДС 2' })).toBe('');
+  });
+
+  it('основной договор раздела «primary» — без номера ДС', () => {
+    expect(engineBindingLabel({ contractId: 'c-1', contractNumber: NUMBER, contractSectionNumber: 'primary' })).toBe('239');
   });
 });
 
