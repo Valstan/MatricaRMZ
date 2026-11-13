@@ -2,6 +2,7 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
+  CONTRACT_KIND_LABELS,
   STATUS_CODES,
   isEavFlagSet,
   computeObjectProgress,
@@ -111,6 +112,7 @@ export async function buildContractsFinanceReport(
     rows.push({
       contractLabel: resolveContractLabel(contractId, contractOptions),
       internalNumber: normalizeText(sections.primary.internalNumber ?? attrs.internal_number, ''),
+      kindLabel: CONTRACT_KIND_LABELS[sections.primary.kind],
       counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
       signedAt,
       dueAt,
@@ -193,6 +195,7 @@ export async function buildContractsDeadlinesReport(
     const daysLeft = dueAt ? Math.ceil((dueAt - now) / (24 * 60 * 60 * 1000)) : null;
     rows.push({
       contractLabel: resolveContractLabel(contractId, contractOptions),
+      kindLabel: CONTRACT_KIND_LABELS[sections.primary.kind],
       counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
       signedAt,
       dueAt,
@@ -263,6 +266,7 @@ export async function buildContractsRequisitesReport(
     rows.push({
       contractLabel: resolveContractLabel(contractId, contractOptions),
       internalNumber: normalizeText(sections.primary.internalNumber ?? attrs.internal_number, ''),
+      kindLabel: CONTRACT_KIND_LABELS[sections.primary.kind],
       counterpartyLabel: resolveCounterpartyLabel(snapshot, counterpartyOptions, counterpartyId),
       signedAt,
       dueAt,

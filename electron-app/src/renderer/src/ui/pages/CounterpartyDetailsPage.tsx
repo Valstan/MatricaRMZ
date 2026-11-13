@@ -9,7 +9,14 @@ import { SectionCard } from '../components/SectionCard.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { useDraftWriteGuard } from '../hooks/useDraftWriteGuard.js';
-import type { CounterpartyStrictRow } from '@matricarmz/shared';
+import { safeJsonObject } from '../utils/safeJson.js';
+import { formatMoscowDate } from '../utils/dateUtils.js';
+import {
+  CONTRACT_KIND_LABELS,
+  contractAmountFromSections,
+  parseContractSections,
+  type CounterpartyStrictRow,
+} from '@matricarmz/shared';
 
 // Ядро карточки — строгая реплика/двери (план contract-cutover-2026-10, C2).
 // Вложения остаются в EAV (в strict-зеркале их нет).
@@ -28,6 +35,8 @@ export function CounterpartyDetailsPage(props: {
   canEdit: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
+  /** Открыть договор заказчика — из раздела «Договоры» карточки. */
+  onOpenContract?: (id: string) => void;
   onClose: () => void;
   registerCardCloseActions?: (actions: CardCloseActions | null) => void;
   requestClose?: () => void;
@@ -38,6 +47,10 @@ export function CounterpartyDetailsPage(props: {
   const [status, setStatus] = useState<string>('');
   const [typeId, setTypeId] = useState<string>('');
   const [coreDefsReady, setCoreDefsReady] = useState(false);
+  /** Договоры заказчика (связь «заказчик → его договоры»). */
+  const [counterpartyContracts, setCounterpartyContracts] = useState<
+    Array<{ id: string; number: string; dateLabel: string; kindLabel: string; amountLabel: string }>
+  >([]);
 
   const [name, setName] = useState<string>('');
   const [shortName, setShortName] = useState<string>('');
@@ -157,6 +170,42 @@ export function CounterpartyDetailsPage(props: {
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
+  }, [props.counterpartyId]);
+
+  // Договоры заказчика — из строгой реплики (как список договоров). Это и есть связь
+  // «заказчик → его договоры»: по ним видно объём работы и можно открыть любой.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = (await window.matrica.contracts.contract.list().catch(() => null)) as
+          | { ok: boolean; rows?: Array<Record<string, unknown>> }
+          | null;
+        if (cancelled || !result?.ok || !Array.isArray(result.rows)) {
+          if (!cancelled) setCounterpartyContracts([]);
+          return;
+        }
+        const rows = result.rows
+          .filter((row) => String(row.customer_id ?? '') === String(props.counterpartyId))
+          .map((row) => {
+            const sections = parseContractSections({ contract_sections: safeJsonObject(row.sections_json as string | null) });
+            return {
+              id: String(row.id),
+              number: String(row.number ?? sections.primary.number ?? ''),
+              dateLabel: sections.primary.signedAt ? formatMoscowDate(sections.primary.signedAt) : '—',
+              kindLabel: CONTRACT_KIND_LABELS[sections.primary.kind],
+              amountLabel: `${(contractAmountFromSections(sections) / 1_000_000).toFixed(2)} млн`,
+            };
+          })
+          .sort((a, b) => a.number.localeCompare(b.number, 'ru'));
+        if (!cancelled) setCounterpartyContracts(rows);
+      } catch {
+        if (!cancelled) setCounterpartyContracts([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [props.counterpartyId]);
 
   useEffect(() => {
@@ -583,6 +632,40 @@ export function CounterpartyDetailsPage(props: {
               </div>
             )}
           />
+        </SectionCard>
+
+        {/* Договоры заказчика — связь «заказчик → его договоры»: из карточки видно,
+            по скольким договорам работаем и что с ними, и можно открыть любой. */}
+        <SectionCard title={`Договоры (${counterpartyContracts.length})`} style={{ padding: 12, marginTop: 12 }}>
+          {counterpartyContracts.length === 0 ? (
+            <div style={{ color: 'var(--subtle)', fontSize: 13 }}>Договоров у заказчика нет.</div>
+          ) : (
+            <div style={{ display: 'grid', gap: 6 }}>
+              {counterpartyContracts.map((contract) => (
+                <div key={contract.id} style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13 }}>
+                  <button
+                    type="button"
+                    onClick={() => props.onOpenContract?.(contract.id)}
+                    disabled={!props.onOpenContract}
+                    style={{
+                      border: 'none',
+                      background: 'transparent',
+                      padding: 0,
+                      color: 'var(--info)',
+                      cursor: props.onOpenContract ? 'pointer' : 'default',
+                      font: 'inherit',
+                      textDecoration: 'underline',
+                    }}
+                  >
+                    {contract.number || '(без номера)'}
+                  </button>
+                  <span style={{ color: 'var(--subtle)' }}>
+                    {contract.dateLabel} · {contract.kindLabel} · {contract.amountLabel}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </SectionCard>
       </div>
     </div>

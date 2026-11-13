@@ -77,6 +77,14 @@ export type ContractStrictRow = {
   execution_parts_json: string | null;
   updated_at: number;
 };
+
+/**
+ * Строка договора в СПИСКЕ: то же, плюс зеркало платежей (`payments_json`) — список
+ * считает по нём горящие двигатели, а зеркало в карточке эту строку не отдаёт.
+ */
+export type ContractStrictListRow = ContractStrictRow & {
+  payments_json: string | null;
+};
 import type { RepairStageRow, RepairStageTemplate, SaveRepairStageInput, SaveRepairStageResult } from '../domain/repairStages.js';
 import type { WorkSheetDuplicateRef } from '../domain/workSheetDuplicates.js';
 import type { ArrivalPlacement } from '../domain/repeatArrival.js';
@@ -3275,6 +3283,11 @@ export type MatricaApi = {
     contract: {
       get: (id: string) => Promise<
         | { ok: true; row: ContractStrictRow | null }
+        | { ok: false; error: string }
+      >;
+      /** Список договоров из строгой реплики — список и карточка читают одно и то же. */
+      list: () => Promise<
+        | { ok: true; rows: ContractStrictListRow[] }
         | { ok: false; error: string }
       >;
       save: (args: { id: string; fields: Record<string, unknown> }) => Promise<

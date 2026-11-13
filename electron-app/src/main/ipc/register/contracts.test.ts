@@ -152,6 +152,27 @@ describe('contracts:counterparty IPC', () => {
     expect(httpCalls.length).toBe(0);
   });
 
+  it('contract:list отдаёт строки строгой реплики и не отдаёт удалённые', async () => {
+    const { sqlite } = makeDb();
+    sqlite.prepare(`INSERT INTO erp_contracts (id,number,internal_number,signed_at,customer_id,sections_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`)
+      .run('c-1', 'T-1', '84/ГОЗ-25', 1_700_000_000_000, 'cp-1', '{"primary":{"number":"T-1"}}', 1, 7);
+    sqlite.prepare(`INSERT INTO erp_contracts (id,number,created_at,updated_at,deleted_at) VALUES (?,?,?,?,?)`)
+      .run('c-2', 'T-2', 1, 2, 3);
+    registerContractsIpc(makeCtx(sqlite));
+    const list = handlers.get('contracts:contract:list')!;
+    const r = (await list({})) as {
+      ok: boolean;
+      rows?: Array<{ id: string; number: string | null; internal_number: string | null; customer_id: string | null; sections_json: string | null; updated_at: number }>;
+    };
+    expect(r.ok).toBe(true);
+    expect(r.rows).toHaveLength(1);
+    expect(r.rows?.[0]?.number).toBe('T-1');
+    expect(r.rows?.[0]?.internal_number).toBe('84/ГОЗ-25');
+    expect(r.rows?.[0]?.customer_id).toBe('cp-1');
+    expect(r.rows?.[0]?.sections_json).toContain('T-1');
+    expect(r.rows?.[0]?.updated_at).toBe(7);
+  });
+
   it('contract:get отдаёт строку реплики, save идёт в patch с write-through', async () => {
     const { sqlite } = makeDb();
     sqlite.prepare(`INSERT INTO erp_contracts (id,number,created_at,updated_at) VALUES (?,?,?,?)`)

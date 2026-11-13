@@ -38,9 +38,24 @@ import { matchesQueryInRecord } from '../utils/search.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
 import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
+import { safeJsonObject } from '../utils/safeJson.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
-import { describeFacetSelection } from '@matricarmz/shared';
+import { FacetFilter } from '../components/FacetFilter.js';
+import {
+  applyCounterpartyFacets,
+  COUNTERPARTY_FACETS,
+  sanitizeCounterpartyFacetSelection,
+  type CounterpartyFacetSelection,
+} from '@matricarmz/shared';
+import {
+  contractAmountFromSections,
+  describeFacetSelectionForRows,
+  effectiveContractDueAt,
+  parseContractSections,
+  type FacetDescriptor,
+  type FacetSelection,
+} from '@matricarmz/shared';
 
 type Row = {
   id: string;
@@ -55,8 +70,16 @@ type Row = {
   email?: string;
   updatedAt: number;
   attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
+  /** Сколько договоров у заказчика. */
+  contractCount?: number;
+  /** Сумма по его договорам, ₽. */
+  contractAmount?: number;
+  /** Двигателей на заводе по его договорам. */
+  enginesAtFactory?: number;
+  /** Просроченных договоров. */
+  overdueContracts?: number;
 };
-type SortKey = 'displayName' | 'inn' | 'updatedAt';
+type SortKey = 'displayName' | 'inn' | 'updatedAt' | 'contractCount' | 'contractAmount';
 
 function toAttachmentPreviews(raw: unknown): Array<{ id: string; name: string; mime: string | null }> {
   if (!Array.isArray(raw)) return [];
@@ -73,6 +96,30 @@ function toAttachmentPreviews(raw: unknown): Array<{ id: string; name: string; m
     if (previews.length >= 5) break;
   }
   return previews;
+}
+
+/**
+ * Двигатель на заводе (ещё не отгружен): пришёл на склад, в ремонте или отремонтирован —
+ * либо просто стоит на этапе, который ещё не «отгружен»/«принят». Тот же закон, что и в
+ * списке договоров: заказчика с «горящим» двигателем видно по этой сводке.
+ */
+function isEngineAtFactory(engine: any): boolean {
+  const flags = (engine?.statusFlags ?? {}) as Record<string, boolean | undefined>;
+  const stageCode = String(engine?.lastStageCode ?? '').trim().toLowerCase();
+  const stageAt =
+    typeof engine?.lastActivityAt === 'number' && Number.isFinite(engine.lastActivityAt) && engine.lastActivityAt > 0
+      ? engine.lastActivityAt
+      : null;
+  const arrived =
+    flags.status_storage_received === true ||
+    flags.status_repair_started === true ||
+    flags.status_repaired === true ||
+    (stageAt !== null && stageCode !== '' && stageCode !== 'shipped' && stageCode !== 'accepted');
+  const shippedOut =
+    flags.status_customer_sent === true ||
+    flags.status_customer_accepted === true ||
+    (stageAt !== null && (stageCode === 'shipped' || stageCode === 'accepted'));
+  return arrived && !shippedOut;
 }
 
 function collectAttachmentPreviews(attrs: Record<string, unknown>): Array<{ id: string; name: string; mime: string | null }> {
@@ -108,6 +155,10 @@ export function CounterpartiesPage(props: {
     pageSize: 50 as WarehouseListPageSize,
     pageIndex: 0,
     searchSimilar: false,
+    // Ступени фильтра и раскрытые ступени — рядом с поиском: состояние списка
+    // роумится вместе с фильтром.
+    facets: {} as CounterpartyFacetSelection,
+    facetFields: [] as string[],
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:counterparties');
   const query = String(listState.query ?? '');
@@ -147,6 +198,39 @@ export function CounterpartiesPage(props: {
       const attrsById = new Map(withAttrs.map((row) => [String(row.id), row.attributes ?? {}]));
       const strictById = new Map(strictRows.map((r) => [String(r.id), r]));
       const merged = strictRows.length > 0 ? [...strictRows, ...eavRows.filter((r) => !strictById.has(String(r.id)))] : eavRows;
+
+      // Сводка по договорам заказчика: сколько их, какая сумма, есть ли двигатели на
+      // заводе, есть ли просроченные. Это и есть связь «заказчик → его договоры» и
+      // основа для ступеней фильтра (бухгалтеру нужен не список названий, а «кто горит»).
+      const contractsResult = await window.matrica.contracts.contract.list().catch(() => null);
+      const contractRows =
+        contractsResult && contractsResult.ok && Array.isArray(contractsResult.rows) ? (contractsResult.rows as any[]) : [];
+      const engines = (await window.matrica.engines.list().catch(() => [])) as any[];
+      const enginesByContract = new Map<string, any[]>();
+      for (const engine of Array.isArray(engines) ? engines : []) {
+        const contractId = String(engine?.contractId ?? '');
+        if (!contractId) continue;
+        const bucket = enginesByContract.get(contractId) ?? [];
+        bucket.push(engine);
+        enginesByContract.set(contractId, bucket);
+      }
+      const now = Date.now();
+      const statsByCustomer = new Map<string, { count: number; amount: number; enginesAtFactory: number; overdue: number }>();
+      for (const contract of contractRows) {
+        const sections = parseContractSections({ contract_sections: safeJsonObject(contract.sections_json) });
+        const customerId = String(sections.primary.customerId ?? contract.customer_id ?? '');
+        if (!customerId) continue;
+        const stats = statsByCustomer.get(customerId) ?? { count: 0, amount: 0, enginesAtFactory: 0, overdue: 0 };
+        stats.count += 1;
+        stats.amount += contractAmountFromSections(sections);
+        const dueAt = effectiveContractDueAt(sections);
+        if (dueAt != null && dueAt < now) stats.overdue += 1;
+        for (const engine of enginesByContract.get(String(contract.id)) ?? []) {
+          if (isEngineAtFactory(engine)) stats.enginesAtFactory += 1;
+        }
+        statsByCustomer.set(customerId, stats);
+      }
+
       const enriched: Row[] = merged.map((r) => {
         const attrs = attrsById.get(String(r.id)) ?? {};
         const strict = strictById.get(String(r.id));
@@ -181,6 +265,17 @@ export function CounterpartiesPage(props: {
               }
             : {}),
           updatedAt: Number(strict ? strict.updated_at : r.updatedAt ?? 0),
+          // Сводка по договорам заказчика (в списке это колонки «Договоров» и «Сумма»).
+          ...(() => {
+            const stats = statsByCustomer.get(String(r.id));
+            if (!stats) return {};
+            return {
+              contractCount: stats.count,
+              contractAmount: stats.amount,
+              enginesAtFactory: stats.enginesAtFactory,
+              overdueContracts: stats.overdue,
+            };
+          })(),
           ...(attachmentPreviews.length > 0 ? { attachmentPreviews } : {}),
         };
       });
@@ -213,13 +308,21 @@ export function CounterpartiesPage(props: {
     return rows.filter((row) => matchesQueryInRecord(query, row, undefined, searchMode) || (deepIds?.has(String(row.id)) ?? false));
   }, [rows, query, deepIds, searchMode]);
 
+  // Ступени фильтра: сначала поиск, потом отбор по ступеням (варианты ступеней считаются
+  // по строкам, прошедшим остальные ступени — общий движок `listFacets.ts`).
+  const facets = useMemo(() => sanitizeCounterpartyFacetSelection(listState.facets), [listState.facets]);
+  const facetFields: string[] = Array.isArray(listState.facetFields) ? (listState.facetFields as string[]) : [];
+  const facetFiltered = useMemo(() => applyCounterpartyFacets<Row>(filtered, facets), [filtered, facets]);
+
   const sorted = useSortedItems(
-    filtered,
+    facetFiltered,
     listState.sortKey as SortKey,
     listState.sortDir,
     (row, key) => {
       if (key === 'inn') return String(row.inn ?? '').toLowerCase();
       if (key === 'updatedAt') return Number(row.updatedAt ?? 0);
+      if (key === 'contractCount') return Number(row.contractCount ?? 0);
+      if (key === 'contractAmount') return Number(row.contractAmount ?? 0);
       return String(row.displayName ?? '').toLowerCase();
     },
     (row) => row.id,
@@ -304,6 +407,8 @@ export function CounterpartiesPage(props: {
       { id: 'address', label: 'Адрес', kind: 'text', render: (row) => row.address || '—' },
       { id: 'phone', label: 'Телефон', kind: 'text', render: (row) => row.phone || '—' },
       { id: 'email', label: 'E-mail', kind: 'text', render: (row) => row.email || '—' },
+      { id: 'contractCount', label: 'Договоров', sortKey: 'contractCount', kind: 'num', render: (row) => (row.contractCount ? String(row.contractCount) : '—') },
+      { id: 'contractAmount', label: 'Сумма по договорам', sortKey: 'contractAmount', kind: 'num', render: (row) => (row.contractAmount ? `${(row.contractAmount / 1_000_000).toFixed(2)} млн` : '—') },
       { id: 'updatedAt', label: 'Дата изменения', tabletLabel: 'Изм.', sortKey: 'updatedAt', kind: 'date', render: (row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—') },
       { id: 'previews', label: 'Превью', cellAlign: 'right', kind: 'thumbs', requireShowPreviews: true, render: (row) => <ListRowThumbs files={row.attachmentPreviews ?? []} /> },
     ],
@@ -475,9 +580,29 @@ export function CounterpartiesPage(props: {
           rows={sorted}
           selectedRows={sorted.filter((row: any) => selection.isSelected(String(row.id)))}
           storageKey="list:counterparties:printFields"
-          filtersSummary={describeFacetSelection([], {}, { search: query })}
+          filtersSummary={describeFacetSelectionForRows(
+            COUNTERPARTY_FACETS as readonly FacetDescriptor<Row>[],
+            rows,
+            facets as FacetSelection,
+            { search: query },
+          )}
         />
       </PageToolbar>
+
+      {/* Панель ступеней фильтра — как у списков двигателей и договоров: «у кого
+          договоров», «сумма», «есть ли двигатели на заводе», «просроченные». */}
+      <div style={{ marginTop: 8, flex: '0 0 auto' }}>
+        <FacetFilter<Row>
+          facets={COUNTERPARTY_FACETS as readonly FacetDescriptor<Row>[]}
+          rows={filtered}
+          selection={facets as FacetSelection}
+          fields={facetFields}
+          usageKey="list:counterparties"
+          onChangeSelection={(next) => patchState({ facets: next as CounterpartyFacetSelection })}
+          onChangeFields={(next) => patchState({ facetFields: next })}
+          onReset={() => patchState({ facets: {}, facetFields: [] })}
+        />
+      </div>
 
       {/* Диалог печати вне ряда кнопок: в ряду он уехал бы в меню переполнения вместе со своей
           кнопкой и открывался бы внутри выпадающей панели. */}
@@ -489,7 +614,12 @@ export function CounterpartiesPage(props: {
           rows={sorted}
           selectedRows={sorted.filter((row: any) => selection.isSelected(String(row.id)))}
           storageKey="list:counterparties:printFields"
-          filtersSummary={describeFacetSelection([], {}, { search: query })}
+          filtersSummary={describeFacetSelectionForRows(
+            COUNTERPARTY_FACETS as readonly FacetDescriptor<Row>[],
+            rows,
+            facets as FacetSelection,
+            { search: query },
+          )}
           onClose={() => setPrintDialogOpen(false)}
         />
       )}
