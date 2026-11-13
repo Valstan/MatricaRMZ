@@ -13,6 +13,8 @@ import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
+import { searchModeEmptyText } from '../components/SearchModeHint.js';
+import { useSearchMode } from '../hooks/useSearchMode.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 import { WorkOrderTemplateEditorDialog } from '../components/WorkOrderTemplateEditorDialog.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
@@ -26,7 +28,7 @@ export function WorkOrderTemplatesPage(props: { canEdit: boolean }) {
   const [rows, setRows] = useState<WorkOrderTemplateSummary[]>([]);
   const [kindFilter, setKindFilter] = useState<KindFilter>(KIND_FILTER_ALL);
   const [search, setSearch] = useState('');
-  const [searchSimilar, setSearchSimilar] = useState(false);
+  const { similar: searchSimilar, toggle: toggleSearchSimilar } = useSearchMode({ query: search });
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
   const [dialog, setDialog] = useState<{ templateId: string | null; defaultKind: WorkOrderKind } | null>(null);
@@ -116,7 +118,7 @@ export function WorkOrderTemplatesPage(props: { canEdit: boolean }) {
           onChange={(e) => setSearch(e.target.value)}
           style={{ width: 260 }}
         />
-        <SearchModeToggle similar={searchSimilar} onToggle={() => setSearchSimilar((v) => !v)} />
+        <SearchModeToggle similar={searchSimilar} onToggle={toggleSearchSimilar} />
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
           {props.canEdit
             ? WORK_ORDER_TEMPLATE_KINDS.map((k) => (
@@ -176,7 +178,7 @@ export function WorkOrderTemplatesPage(props: { canEdit: boolean }) {
               <td colSpan={6} style={{ textAlign: 'center', color: 'var(--subtle)', padding: 12 }}>
                 {rows.length === 0
                   ? 'Шаблонов ещё нет.'
-                  : 'По текущему фильтру ничего не найдено.'}
+                  : searchModeEmptyText(searchSimilar, search, 'По текущему фильтру ничего не найдено')}
               </td>
             </tr>
           ) : (

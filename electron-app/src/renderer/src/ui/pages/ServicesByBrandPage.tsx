@@ -8,6 +8,8 @@ import { SearchSelect } from '../components/SearchSelect.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
+import { searchModeEmptyText } from '../components/SearchModeHint.js';
+import { useSearchMode } from '../hooks/useSearchMode.js';
 import { useCardContentIds } from '../hooks/useListDeepFilter.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 import { parseIdArray } from '../utils/groupBrandIds.js';
@@ -44,8 +46,8 @@ export function ServicesByBrandPage(props: {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
   const [query, setQuery] = useState('');
-  // Поиск по спискам: точное совпадение по умолчанию, похожее — по кнопке (владелец 08.09.2026).
-  const [searchSimilar, setSearchSimilar] = useState(false);
+  // Поиск по спискам: точное совождение по умолчанию, похожее — по кнопке (владелец 08.09.2026).
+  const { similar: searchSimilar, toggle: toggleSearchSimilar } = useSearchMode({ query });
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [busy, setBusy] = useState(false);
 
@@ -224,7 +226,7 @@ export function ServicesByBrandPage(props: {
         </label>
         <label style={{ display: 'grid', gap: 4 }}>
           <span style={{ fontSize: 12, color: 'var(--subtle)' }}>&nbsp;</span>
-          <SearchModeToggle similar={searchSimilar} onToggle={() => setSearchSimilar((v) => !v)} />
+          <SearchModeToggle similar={searchSimilar} onToggle={toggleSearchSimilar} />
         </label>
         <label style={{ display: 'grid', gap: 4 }}>
           <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Фильтр</span>
@@ -296,7 +298,7 @@ export function ServicesByBrandPage(props: {
               {filteredServices.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ textAlign: 'center', color: 'var(--subtle)', padding: 12 }}>
-                    Нет услуг под фильтр
+                    {query.trim() ? searchModeEmptyText(searchSimilar, query) : 'Нет услуг под фильтр'}
                   </td>
                 </tr>
               ) : (

@@ -33,6 +33,8 @@ import { ListPrintDialog } from '../../components/ListPrintDialog.js';
 import { PageToolbar, ToolbarPin } from '../../components/PageToolbar.js';
 import { RowNumberHeaderCell } from '../../components/RowNumberCell.js';
 import { SearchModeToggle, searchModeOf } from '../../components/SearchModeToggle.js';
+import { searchModeEmptyText } from '../../components/SearchModeHint.js';
+import { useSearchMode } from '../../hooks/useSearchMode.js';
 import { VirtualTable, type VirtualTableRowProps } from '../../components/VirtualTable.js';
 import { useColumnLayout } from '../../hooks/useColumnLayout.js';
 import { useListDeepFilter } from '../../hooks/useListDeepFilter.js';
@@ -80,7 +82,6 @@ const GROUP_BY_LABELS: Record<GroupBy, string> = {
 
 type ListUiState = {
   query: string;
-  searchSimilar: boolean;
   facets: FacetSelection;
   facetFields: string[];
   sortKey: string;
@@ -108,7 +109,6 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
 
   const { state: ui, patchState } = useListUiState<ListUiState>('report:workSheets:ui', {
     query: '',
-    searchSimilar: false,
     facets: {},
     facetFields: ['type'],
     sortKey: 'at',
@@ -240,12 +240,13 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
   // Движковой ступени «проходил этап» здесь нет с 12.10.2026 (дубль «Вид работ»).
   const facets = useMemo(() => workSheetFacets(fieldColumns) as FacetDescriptor<WorkSheetRow>[], [fieldColumns]);
 
+  const { similar: searchSimilar, toggle: toggleSearchMode, reset: resetSearchMode } = useSearchMode({ query: ui.query });
   const deep = useListDeepFilter(
     rows,
     (r) => r.id,
     (r) => [r.engineNumber, r.engineBrand, r.internalNumber, r.typeName, r.customerName, r.contractNumber, r.contractShortLabel, workshopLabel(r), r.note, r.performedBy, r.engineIsReclamation ? 'рекламация' : '', r.repeatPass >= 2 ? `возврат проход ${r.repeatPass}` : '', r.repeatReason, workSheetFieldsSummary(r.fields)].join(' '),
     ui.query,
-    { entityBacked: false, mode: searchModeOf(ui.searchSimilar) },
+    { entityBacked: false, mode: searchModeOf(searchSimilar) },
   );
   const faceted = useMemo(() => applyFacets(facets, deep.filtered, ui.facets), [facets, deep.filtered, ui.facets]);
   const sorted = useMemo(() => {
@@ -397,7 +398,7 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
           <ToolbarSearchField value={ui.query} onChange={(v) => patchState({ query: v })} placeholder="Поиск по этапам работ…" />
         </ToolbarPin>
         <ToolbarPin>
-          <SearchModeToggle similar={ui.searchSimilar} onToggle={() => patchState({ searchSimilar: !ui.searchSimilar })} />
+          <SearchModeToggle similar={searchSimilar} onToggle={toggleSearchMode} />
         </ToolbarPin>
         <ToolbarPin>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
@@ -440,7 +441,10 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
           usageKey="report:workSheets:ui"
           onChangeSelection={(next) => patchState({ facets: next })}
           onChangeFields={(next) => patchState({ facetFields: next })}
-          onReset={() => patchState({ facets: {}, facetFields: [] })}
+          onReset={() => {
+            resetSearchMode();
+            patchState({ facets: {}, facetFields: [] });
+          }}
         />
       </div>
 
@@ -481,7 +485,7 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
           colCount={Math.max(1, visibleColumns.length) + 1}
           rowNumbers
           estimateSize={40}
-          emptyState={rows.length === 0 ? 'Этапов работ пока нет' : 'Ничего не найдено'}
+          emptyState={rows.length === 0 ? 'Этапов работ пока нет' : searchModeEmptyText(searchSimilar, ui.query, 'Ничего не найдено')}
           columnWidths={visibleColumns.map((c) => ({ id: c.id, width: columnLayout.widthOf(c.id) }))}
         />
       </div>

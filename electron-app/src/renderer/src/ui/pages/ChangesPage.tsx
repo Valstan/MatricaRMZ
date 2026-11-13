@@ -5,6 +5,8 @@ import { looksLikeIdentifier, HUMAN_LABEL_OTHER, type AuthUserInfo, type ChangeR
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
+import { searchModeEmptyText } from '../components/SearchModeHint.js';
+import { useSearchMode } from '../hooks/useSearchMode.js';
 import { VirtualTable } from '../components/VirtualTable.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { ListCount } from '../components/ListCount.js';
@@ -146,7 +148,6 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
   const { state: listState, patchState } = useListUiState('list:changes', {
     status: 'pending' as 'pending' | 'applied' | 'rejected',
     query: '',
-    searchSimilar: false,
     sortKey: 'createdAt' as SortKey,
     sortDir: 'desc' as const,
   });
@@ -175,7 +176,7 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
     void refresh();
   }, [refresh]);
 
-  const searchSimilar = listState.searchSimilar === true;
+  const { similar: searchSimilar, toggle: toggleSearchMode } = useSearchMode({ query: listState.query });
   const searchMode = searchModeOf(searchSimilar);
   const filtered = useMemo(() => {
     return rows.filter((row) => matchesQueryInRecord(query, row, undefined, searchMode));
@@ -374,7 +375,7 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
           <option value="rejected">Отклонены</option>
         </select>
         <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным изменения…" />
-        <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar })} />
+        <SearchModeToggle similar={searchSimilar} onToggle={toggleSearchMode} />
         <Button variant="ghost" onClick={() => void refresh()}>
           Обновить
         </Button>
@@ -396,7 +397,7 @@ export function ChangesPage(props: { me: AuthUserInfo; canDecideAsAdmin: boolean
             colCount={6}
             rowNumbers
             estimateSize={100}
-            emptyState="Изменений нет"
+            emptyState={searchModeEmptyText(searchSimilar, listState.query, 'Изменений нет')}
           />
         )}
       </div>

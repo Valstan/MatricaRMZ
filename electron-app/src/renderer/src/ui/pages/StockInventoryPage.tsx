@@ -6,6 +6,8 @@ import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
+import { searchModeEmptyText } from '../components/SearchModeHint.js';
+import { useSearchMode } from '../hooks/useSearchMode.js';
 import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
 import { fetchWarehouseStockAllPages } from '../utils/warehousePagedFetch.js';
@@ -37,7 +39,7 @@ export function StockInventoryPage(props: {
   // скрыты. В документ идут только строки с введённым фактом (частичная инвентаризация).
   const [blindMode, setBlindMode] = useState(false);
   const [query, setQuery] = useState('');
-  const [searchSimilar, setSearchSimilar] = useState(false);
+  const { similar: searchSimilar, toggle: toggleSearchSimilar } = useSearchMode({ query });
   const [rows, setRows] = useState<InventoryLine[]>([]);
   const [loadingRows, setLoadingRows] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('name');
@@ -279,7 +281,7 @@ export function StockInventoryPage(props: {
             placeholder="Поиск по коду и номенклатуре..."
             style={{ maxWidth: 360 }}
           />
-          <SearchModeToggle similar={searchSimilar} onToggle={() => setSearchSimilar((prev) => !prev)} />
+          <SearchModeToggle similar={searchSimilar} onToggle={toggleSearchSimilar} />
         </div>
         {/* NB: без виртуализации — редактируемое поле «Факт» не должно размонтироваться
             при прокрутке (иначе фокус слетает посреди ввода). Sticky-шапка работает,
@@ -294,7 +296,7 @@ export function StockInventoryPage(props: {
                 {sortedRows.length === 0 ? (
                   <tr>
                     <td style={{ padding: 10, color: '#6b7280' }} colSpan={blindMode ? 5 : 7}>
-                      Загрузите остатки по складу, чтобы начать инвентаризацию.
+                      {query.trim() ? searchModeEmptyText(searchSimilar, query) : 'Загрузите остатки по складу, чтобы начать инвентаризацию.'}
                     </td>
                   </tr>
                 ) : (

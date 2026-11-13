@@ -497,7 +497,8 @@ warehouseRouter.get('/stock', requirePermission(PermissionCode.ErpRegistersView)
     ...(parsed.data.warehouseId !== undefined ? { warehouseId: parsed.data.warehouseId } : {}),
     ...(parsed.data.nomenclatureId !== undefined ? { nomenclatureId: parsed.data.nomenclatureId } : {}),
     ...(parsed.data.search !== undefined ? { search: parsed.data.search } : {}),
-    ...(parsed.data.similar === true ? { similar: true } : {}),
+    // Флаг намерения приезжает всегда (строго это тоже решение) — сервер не угадывает режим.
+    similar: parsed.data.similar === true,
     ...(parsed.data.lowStockOnly !== undefined ? { lowStockOnly: parsed.data.lowStockOnly } : {}),
     ...(parsed.data.limit !== undefined ? { limit: parsed.data.limit } : {}),
     ...(parsed.data.offset !== undefined ? { offset: parsed.data.offset } : {}),

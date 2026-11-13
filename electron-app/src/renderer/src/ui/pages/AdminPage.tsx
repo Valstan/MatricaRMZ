@@ -7,6 +7,8 @@ import { DeletionIntentDialog } from '../components/DeletionIntentDialog.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { Input } from '../components/Input.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
+import { SearchModeEmptyHint } from '../components/SearchModeHint.js';
+import { useSearchMode } from '../hooks/useSearchMode.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SearchSelect } from '../components/SearchSelect.js';
@@ -153,7 +155,7 @@ export function MasterdataPage(props: {
   const [entities, setEntities] = useState<EntityRow[]>([]);
   const [selectedEntityId, setSelectedEntityId] = useState<string>('');
   const [entityQuery, setEntityQuery] = useState<string>('');
-  const [entitySearchSimilar, setEntitySearchSimilar] = useState(false);
+  const { similar: entitySearchSimilar, toggle: toggleEntitySearchSimilar } = useSearchMode({ query: entityQuery });
   const [entityAttrs, setEntityAttrs] = useState<Record<string, unknown>>({});
   // Кнопочное сохранение карточки записи: правки копятся локально, пишутся по «Сохранить».
   const [dirtyAttrCodes, setDirtyAttrCodes] = useState<Set<string>>(new Set());
@@ -1156,7 +1158,7 @@ export function MasterdataPage(props: {
               </div>
               <div style={{ padding: '4px 12px', display: 'flex', gap: 6, alignItems: 'center' }}>
                 <Input value={entityQuery} onChange={(e) => setEntityQuery(e.target.value)} placeholder="Поиск…" />
-                <SearchModeToggle similar={entitySearchSimilar} onToggle={() => setEntitySearchSimilar((v) => !v)} />
+                <SearchModeToggle similar={entitySearchSimilar} onToggle={toggleEntitySearchSimilar} />
               </div>
               <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
                 {!selectedTypeId ? (
@@ -1190,7 +1192,12 @@ export function MasterdataPage(props: {
                         </div>
                       );
                     })}
-                    {filteredEntities.length === 0 && <div style={{ padding: 12, color: '#6b7280' }}>(пусто)</div>}
+                    {filteredEntities.length === 0 && (
+              <div style={{ padding: 12, color: '#6b7280' }}>
+                (пусто)
+                <SearchModeEmptyHint similar={entitySearchSimilar} query={entityQuery} />
+              </div>
+            )}
                   </>
                 )}
               </div>

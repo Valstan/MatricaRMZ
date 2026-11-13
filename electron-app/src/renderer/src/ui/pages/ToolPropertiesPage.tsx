@@ -5,6 +5,8 @@ import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
+import { searchModeEmptyText } from '../components/SearchModeHint.js';
+import { useSearchMode } from '../hooks/useSearchMode.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { useListSelection } from '../hooks/useListSelection.js';
@@ -37,7 +39,6 @@ export function ToolPropertiesPage(props: {
   const { confirm } = useConfirm();
   const { state: listState, patchState } = useListUiState('list:tool_properties', {
     query: '',
-    searchSimilar: false,
     sortKey: 'name' as SortKey,
     sortDir: 'asc' as const,
   });
@@ -74,7 +75,7 @@ export function ToolPropertiesPage(props: {
     { intervalMs: 15000, domains: ['directories'] },
   );
 
-  const searchSimilar = listState.searchSimilar === true;
+  const { similar: searchSimilar, toggle: toggleSearchMode } = useSearchMode({ query: listState.query });
   const searchMode = searchModeOf(searchSimilar);
   const filtered = useMemo(() => {
     return rows.filter((row) => matchesQueryInRecord(query, row, undefined, searchMode));
@@ -171,7 +172,7 @@ export function ToolPropertiesPage(props: {
         <div style={{ flex: 1, minWidth: 220 }}>
           <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным свойства…" />
         </div>
-        <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar })} />
+        <SearchModeToggle similar={searchSimilar} onToggle={toggleSearchMode} />
       </div>
 
       {status && <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div>}
@@ -195,7 +196,7 @@ export function ToolPropertiesPage(props: {
               {sorted.length === 0 && (
                 <tr>
                   <td colSpan={3} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
-                    {rows.length === 0 ? 'Нет свойств' : 'Не найдено'}
+                    {rows.length === 0 ? 'Нет свойств' : searchModeEmptyText(searchSimilar, listState.query, 'Не найдено')}
                   </td>
                 </tr>
               )}

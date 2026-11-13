@@ -46,6 +46,8 @@ import {
 
 import { FacetFilter } from '../components/FacetFilter.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
+import { searchModeEmptyText } from '../components/SearchModeHint.js';
+import { useSearchMode } from '../hooks/useSearchMode.js';
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney } from '../utils/dateUtils.js';
 import {
   buildCopyRowsStatus,
@@ -121,8 +123,6 @@ type ContractsListUiState = {
   /** Ступенчатый фильтр: какие столбцы участвуют и что в них выбрано (пусто = все). */
   facetFields?: string[];
   facets?: ContractFacetSelection;
-  /** Поиск показывает и похожее. По умолчанию — только точное совпадение. */
-  searchSimilar?: boolean;
 };
 
 /** Марки контракта — из основного раздела и всех ДС: ступень отбирает по любой из них. */
@@ -557,7 +557,8 @@ export function ContractsPage(props: {
   );
 
   // Верхний поиск: поля строки + внутрь карточки (EAV).
-  const searchMode = searchModeOf(listState.searchSimilar === true);
+  const { similar: searchSimilar, toggle: toggleSearchMode, reset: resetSearchMode } = useSearchMode({ query });
+  const searchMode = searchModeOf(searchSimilar);
   const getRowId = useCallback((row: { id: string }) => String(row.id), []);
   const deepIds = useCardContentIds(rows, getRowId, query);
   // Поиск отбирает первым, ступени — вторым: варианты ступеней считаются по найденному.
@@ -576,7 +577,6 @@ export function ContractsPage(props: {
     // Ступень с выбранными значениями показываем всегда: иначе отбор идёт, а чем — не видно.
     return Array.from(new Set([...known, ...active]));
   }, [listState.facetFields, facets]);
-  const searchSimilar = listState.searchSimilar === true;
 
   const filtered = useMemo(() => applyContractFacets(searched, facets), [searched, facets]);
 
@@ -1045,7 +1045,7 @@ export function ContractsPage(props: {
             {items.length === 0 && (
               <tr>
                 <td colSpan={Math.max(1, visibleColumns.length) + 2} style={{ padding: 10, color: '#6b7280' }}>
-                  Ничего не найдено
+                  {searchModeEmptyText(searchSimilar, query)}
                 </td>
               </tr>
             )}
@@ -1080,7 +1080,7 @@ export function ContractsPage(props: {
           <ToolbarSearchField value={query} onChange={(v) => patchState({ query: v })} placeholder="Поиск по всем данным контракта…" />
         </ToolbarPin>
         <ToolbarPin>
-          <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar })} />
+          <SearchModeToggle similar={searchSimilar} onToggle={toggleSearchMode} />
         </ToolbarPin>
         <Button variant="ghost" onClick={() => void loadContracts()}>
           Обновить
@@ -1136,7 +1136,10 @@ export function ContractsPage(props: {
           usageKey="list:contracts"
           onChangeSelection={(next) => patchState({ facets: next as ContractFacetSelection })}
           onChangeFields={(next) => patchState({ facetFields: next })}
-          onReset={() => patchState({ facets: {}, facetFields: [] })}
+          onReset={() => {
+            resetSearchMode();
+            patchState({ facets: {}, facetFields: [] });
+          }}
         />
       </div>
 

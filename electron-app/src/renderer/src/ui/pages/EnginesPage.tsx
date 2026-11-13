@@ -35,6 +35,8 @@ import type { EngineFacetId, EngineFacetSelection, EngineListItem, GroupLevel } 
 import { EngineFacetFilter } from '../components/EngineFacetFilter.js';
 import { EngineQrScanButton } from '../components/EngineQrScanButton.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
+import { SEARCH_MODE_HINT, searchModeEmptyText } from '../components/SearchModeHint.js';
+import { useSearchMode } from '../hooks/useSearchMode.js';
 import { Button } from '../components/Button.js';
 import { LabelPrintDialog } from '../components/LabelPrintDialog.js';
 import { EngineTagPrintDialog, type EngineTagInitial } from '../components/EngineTagPrintDialog.js';
@@ -189,8 +191,6 @@ export type EnginesPageUiState = {
   /** Ступенчатый фильтр: какие столбцы участвуют и что в них выбрано (пусто = все). */
   facetFields?: EngineFacetId[];
   facets?: EngineFacetSelection;
-  /** Поиск показывает и похожее (опечатки, часть слова, раскладка). По умолчанию — только точное. */
-  searchSimilar?: boolean;
   /** Группировка списка (B6): те же разрезы, что в отчёте «Сейчас на заводе». */
   groupBy?: EngineListGroupBy;
   /**
@@ -499,7 +499,7 @@ export function EnginesPage(props: {
     },
     [selectedStageCode, stageDateRange],
   );
-  const searchSimilar = listState.searchSimilar === true;
+  const { similar: searchSimilar, toggle: toggleSearchMode, reset: resetSearchMode } = useSearchMode({ query });
   const width = useWindowWidth();
   const { isMultiColumn } = useListColumnsMode();
   const twoCol = isMultiColumn && width >= 1400;
@@ -507,7 +507,7 @@ export function EnginesPage(props: {
   // Верхний поиск: tier-1 по полям строки + tier-2 внутрь карточек (EAV).
   const getRowId = React.useCallback((e: EngineListItem) => String(e.id), []);
   const getRowLabel = React.useCallback((e: EngineListItem) => String(e.engineNumber ?? ''), []);
-  const deepFilter = useListDeepFilter(modeRows, getRowId, getRowLabel, query, { mode: searchModeOf(listState.searchSimilar) });
+  const deepFilter = useListDeepFilter(modeRows, getRowId, getRowLabel, query, { mode: searchModeOf(searchSimilar) });
   const similarMode = deepFilter.similarMode;
   // Все отборы, кроме поиска, живут теперь в ступенях: рекламация, акт комплектности и даты
   // прихода стали ступенями и применяются одним проходом ниже.
@@ -1134,7 +1134,7 @@ export function EnginesPage(props: {
             {items.length === 0 && (
               <tr>
                 <td style={{ padding: 10, color: '#6b7280' }} colSpan={Math.max(1, visibleColumns.length) + 3}>
-                  Ничего не найдено
+                  {searchModeEmptyText(searchSimilar, query)}
                 </td>
               </tr>
             )}
@@ -1179,7 +1179,7 @@ export function EnginesPage(props: {
           <EngineQrScanButton onEngineNumber={(n) => patchState({ query: n, page: 0 })} />
         </ToolbarPin>
         <ToolbarPin>
-          <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar, page: 0 })} />
+          <SearchModeToggle similar={searchSimilar} onToggle={() => { toggleSearchMode(); patchState({ page: 0 }); }} />
         </ToolbarPin>
         <ToolbarPin>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
@@ -1270,7 +1270,8 @@ export function EnginesPage(props: {
           {...(whereNowActive ? { hiddenFields: ['stageDate' as const] } : {})}
           onChangeSelection={(next) => patchState({ facets: stripStageDateWhenWhereNow(next), page: 0 })}
           onChangeFields={(next) => patchState({ facetFields: next, page: 0 })}
-          onReset={() =>
+          onReset={() => {
+            resetSearchMode();
             patchState({
               facets: {},
               facetFields: [],
@@ -1278,8 +1279,8 @@ export function EnginesPage(props: {
               onlyReclamation: false,
               completenessFilter: 'all',
               page: 0,
-            })
-          }
+            });
+          }}
         />
         {whereNowActive ? (
           <div className="ui-muted" style={{ fontSize: 12, marginTop: 4 }}>
@@ -1333,7 +1334,7 @@ export function EnginesPage(props: {
             flex: '0 0 auto',
           }}
         >
-          Точных совпадений нет. Нажмите «≈ Похожие», чтобы показать близкие: опечатки, часть слова, другая раскладка.
+          Точных совпадений нет. {SEARCH_MODE_HINT}
         </div>
       )}
 
@@ -1410,7 +1411,7 @@ export function EnginesPage(props: {
             colCount={Math.max(1, visibleColumns.length) + 2}
             rowNumbers
             estimateSize={previewsVisible ? 64 : 40}
-            emptyState="Ничего не найдено"
+            emptyState={searchModeEmptyText(searchSimilar, query, 'Ничего не найдено')}
             columnWidths={visibleColumns.map((c) => ({ id: c.id, width: columnLayout.widthOf(c.id) }))}
             leadingColumns={2}
           />
