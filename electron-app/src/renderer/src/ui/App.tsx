@@ -1200,6 +1200,8 @@ export function App() {
   const [pinnedShortcuts, setPinnedShortcuts] = useState<string[]>([]);
   /** Избранные разделы (золотые звёздочки, левая рельса). Локально, per-user scope. */
   const [sectionFavorites, setSectionFavorites] = useState<MenuTabId[]>([]);
+  /** Профиль избранного прочитан: до этого звезда молчит, чтобы не затереть выбор оператора. */
+  const [sectionFavoritesLoaded, setSectionFavoritesLoaded] = useState(false);
   /** Сбрасывает применение устаревшего ответа `shortcuts:get`, если за время запроса уже меняли закрепления локально. */
   const shortcutsMutationEpochRef = useRef(0);
   // Workspace-профиль: для какого userId серверный профиль применён (push разрешён) и
@@ -2115,7 +2117,13 @@ export function App() {
         if (!alive) return;
         if (r?.ok) setSectionFavorites(sanitizeSectionFavoriteIds(r.ids));
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        // Профиль прочитан — с этого момента звезда на вкладке/в меню работает.
+        // Раньше клик прилетел в пустой список и затирал выбор оператора (владелец
+        // 13.11.2026: звезда вернулась на вкладки — значит, кликнуть её можно сразу).
+        if (alive) setSectionFavoritesLoaded(true);
+      });
     return () => {
       alive = false;
     };
@@ -3487,6 +3495,9 @@ export function App() {
   function toggleSectionFavorite(id: MenuTabId) {
     const userId = authStatus.loggedIn ? String(authStatus.user?.id ?? '').trim() : '';
     if (!userId) return;
+    // Пока профиль не прочитан, список в руках пустой — запись по нему стёрла бы
+    // выбор оператора (и сняла бы дефолтные разделы, которых он не видел).
+    if (!sectionFavoritesLoaded) return;
     const prev = sectionFavorites;
     const next = toggleSectionFavoriteId(prev, id);
     const willBeFav = next.includes(id);

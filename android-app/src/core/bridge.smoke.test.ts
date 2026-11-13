@@ -92,9 +92,14 @@ describe('android bridge smoke (preload → шина → register → серви
     expect(ids).toContain('engines');
     expect(ids).toContain('work_sheets');
 
-    // Чужой scope не видит чужого выбора.
+    // Чужой scope не видит чужого выбора. ДЕФОЛТНЫЕ разделы (список двигателей и список
+    // контрактов) при этом у всех — они и есть «по умолчанию» (владелец 13.11.2026:
+    // «многие клиенты сидят с пустой колонкой слева»), а вот СВОЙ выбор оператора
+    // остаётся личным.
     const other = await h.matrica().sections.favoritesGet({ userId: 'u-2' });
-    expect(other.ok ? other.ids : []).not.toContain('engines');
+    expect(other.ok ? other.ids : []).not.toContain('work_sheets');
+    expect(other.ok ? other.ids : []).toContain('engines');
+    expect(other.ok ? other.ids : []).toContain('contracts');
   });
 
   it('server.health ходит фейк-сервером через настоящий authAndSync-модуль', async () => {

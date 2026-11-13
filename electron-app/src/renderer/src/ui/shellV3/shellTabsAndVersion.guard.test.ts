@@ -68,8 +68,10 @@ describe('подписи ярлыков Верстака', () => {
 describe('вкладки — постоянной ширины (владелец 22.10.2026)', () => {
   it('ширина задана числом, а не содержимым: приписки не дёргают полосу', () => {
     const tabRule = SHELL_CSS.slice(SHELL_CSS.indexOf('\n.v3-tab {'), SHELL_CSS.indexOf('border:', SHELL_CSS.indexOf('\n.v3-tab {')));
-    expect(tabRule).toContain('flex: 0 0 138px');
-    expect(tabRule).toContain('width: 138px');
+    // 138px было до возврата звезды на вкладку (13.11.2026): под звезду место нужно,
+    // иначе название вкладки режется до «Двиг…».
+    expect(tabRule).toContain('flex: 0 0 160px');
+    expect(tabRule).toContain('width: 160px');
     expect(tabRule, 'вкладка снова сжимается по содержимому').not.toContain('flex: 0 1 auto');
   });
 
@@ -83,6 +85,25 @@ describe('вкладки — постоянной ширины (владелец
     expect(SHELL).not.toContain('Заметка разработчику');
     // Вход остался в МЕНЮ («Правка программы») — иначе фича потеряла бы последнюю дверь на планшете.
     expect(src('../shellV2/menuActions.ts')).toContain('Правка программы');
+  });
+});
+
+describe('кнопки вкладок в шапке (владелец 13.11.2026)', () => {
+  it('подпись тянется, текст режется многоточием — звезда и крестик у правого края', () => {
+    // «Кнопка закрытия как-то странно смещена влево от края, как будто там что-то должно
+    // быть, но там пусто»: подпись не занимала всю вкладку, и крестик висел по середине.
+    const labelRule = SHELL_CSS.slice(
+      SHELL_CSS.indexOf('\n.v3-tab-label {'),
+      SHELL_CSS.indexOf('}', SHELL_CSS.indexOf('\n.v3-tab-label {')),
+    );
+    expect(labelRule).toContain('flex: 1 1 auto');
+    expect(SHELL_CSS).toMatch(/\.v3-tab-text\s*\{[^}]*text-overflow:\s*ellipsis/);
+  });
+
+  it('звезда на вкладке — между названием и крестиком', () => {
+    expect(SHELL).toContain('v3-tab-text');
+    expect(SHELL).toContain('v3-tab-star');
+    expect(SHELL).toContain('FavoriteStarButton');
   });
 });
 

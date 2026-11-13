@@ -117,6 +117,9 @@ const HELPERS = `
     return !!document.querySelector('.v3-menu-overlay');
   };
   const railCards = () => [...document.querySelectorAll('[data-fav-card]')].filter(visible).map((c) => c.getAttribute('data-fav-card'));
+  // Только разделы: постоянные плашки (ИИваныч, ВЕРСТАК) в рельсе всегда и к избранному
+  // не относятся.
+  const sectionCards = () => railCards().filter((c) => c !== 'ai_chat' && c !== 'chat');
   const starInMenuRow = (item) => {
     const ov = document.querySelector('.v3-menu-overlay');
     if (!ov) return null;
@@ -181,6 +184,8 @@ async function main() {
   if (!userId) throw new Error('нет userId');
 
   // Запоминаем исходное избранное, чистим для детерминированного прогона.
+  // Пустой список — это и «оператор снял всё», в том числе дефолтные разделы
+  // (владелец 13.11.2026): с этого состояния звёздочка в МЕНЮ не залита.
   const initial = await evaluate(
     ws,
     `const r = await window.matrica.sections.favoritesGet({ userId: UID });
@@ -197,14 +202,15 @@ async function main() {
   await waitFor(ws, `document.querySelector('[data-fav-rail]')`, 'рельса после стартового reload');
   note(true, 'стартовый reload: рельса на месте', null);
 
-  // 2. Рельса есть всегда, пустая — с подсказкой.
+  // 2. Рельса есть всегда; снятое избранное с неё ушло (сами дефолты скрипт снял
+  //    чисткой записи — «по умолчанию» уважает снятие оператора).
   const rail = await evaluate(
     ws,
     `const rail = document.querySelector('[data-fav-rail]');
-     return { hasRail: !!rail && visible(rail), cards: railCards(), hint: !!rail && rail.textContent.includes('МЕНЮ') };`,
+     return { hasRail: !!rail && visible(rail), cards: railCards() };`,
   );
   note(rail.hasRail, 'левая рельса [data-fav-rail] видна всегда', rail);
-  note(rail.cards.length === 0 && rail.hint, 'пустая рельса: карточек нет, подсказка есть', rail);
+  note(!rail.cards.includes('engines') && !rail.cards.includes('contracts'), 'снятые разделы ушли с рельсы', rail);
   const shots = [await shot(ws, 'rail-empty')];
 
   // 3. Звёздочка в МЕНЮ кладёт карточку на рельсу.
@@ -295,7 +301,7 @@ async function main() {
   await send(ws, 'Page.reload', { ignoreCache: true });
   await sleep(6000);
   await evaluate(ws, `await dismissModals(); return true;`);
-  const cleaned = await evaluate(ws, `return { cards: railCards() };`);
+  const cleaned = await evaluate(ws, `return { cards: sectionCards() };`);
   note(JSON.stringify([...cleaned.cards].sort()) === JSON.stringify([...initialIds].sort()), 'уборка: рельса как была', { cleaned, initialIds });
 
   const failed = steps.filter((s) => !s.ok);
