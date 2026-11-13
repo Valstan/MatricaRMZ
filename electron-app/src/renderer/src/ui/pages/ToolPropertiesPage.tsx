@@ -178,7 +178,7 @@ export function ToolPropertiesPage(props: {
 
       <ListCount total={rows.length} shown={sorted.length} style={{ marginTop: 6 }} />
       <div ref={containerRef} onScroll={onScroll} style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
-        <div style={{ border: '1px solid #e5e7eb', overflow: 'hidden' }}>
+        <div style={{ border: '1px solid #e5e7eb', overflow: 'clip' }}>
           <table className="list-table list-table--catalog">
             <thead>
               <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>

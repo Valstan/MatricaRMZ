@@ -648,7 +648,12 @@ export function NomenclatureDirectoryPage(props: {
 
   function renderTable(items: WarehouseNomenclatureListItem[], startIndex = 0) {
     return (
-      <div style={{ border: '1px solid #e5e7eb', overflow: 'auto' }}>
+      // Обёртка без своей прокрутки — иначе шапка отцепляется от прокрутки страницы
+      // (та же причина, что и в списке контрактов: свой скролл-контейнер перехватывает
+      // sticky-шапку, и она уезжает вместе со списком). Колонки здесь растягиваются
+      // мышью, поэтому `visible`, а не `clip`: широкая таблица должна доезжать
+      // прокруткой бокса страницы, а не обрезаться.
+      <div style={{ border: '1px solid #e5e7eb', overflow: 'visible' }}>
         <table className="list-table">
           <colgroup>
             <col key="__lead" />

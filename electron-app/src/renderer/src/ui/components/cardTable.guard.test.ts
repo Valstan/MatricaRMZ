@@ -114,4 +114,43 @@ describe('Единый движок таблиц в карточках (шапк
       `таблица замкнута в свой скролл-контейнер — шапка липнет внутри него и накрывает первую строку:\n${offenders.join('\n')}`,
     ).toEqual([]);
   });
+
+  /**
+   * Тот же закон для СПИСКОВ: шапка колонок должна липнуть к прокручиваемому боксу
+   * страницы, а не к обёртке таблицы. Обёртка со своей прокруткой (`overflow: auto`
+   * или `hidden`) перехватывает sticky-контекст, и шапка уезжает вместе со списком
+   * (жалоба владельца 13.11.2026: «строка шапок столбцов уезжает вместе со списком»).
+   *
+   * Исключения — законные случаи:
+   *  - обёртка САМА является прокручиваемым боксом списка (`ref`/`onScroll`, либо
+   *    `flex: 1` + `minHeight: 0`) — тогда шапка липнет внутри него, и это правильно;
+   *  - ограниченная по высоте панель (`maxHeight`) — таблица прокручивается внутри
+   *    панели, и её шапка держится там;
+   *  - `overflowX` без `overflow` — намеренная горизонтальная прокрутка (широкая
+   *    таблица/матрица); вертикальную липкость она не отменяет осознанно.
+   */
+  it('в списках таблица не замкнута в свою обёртку со своей прокруткой', () => {
+    const offenders: string[] = [];
+    for (const file of tsxFiles(UI_DIR)) {
+      const lines = readFileSync(file, 'utf8').split(/\r?\n/);
+      const rel = path.relative(UI_DIR, file).replace(/\\/g, '/');
+      for (let i = 0; i < lines.length - 1; i += 1) {
+        const line = lines[i]!;
+        if (!/<(div|section|main|article)\b/.test(line)) continue;
+        // Только сокращённая запись `overflow: 'auto'` (обе оси). `overflowX`/`overflowY`
+        // по отдельности — осознанный выбор оси, его не трогаем.
+        if (!/style=\{\{[^}]*overflow\s*:\s*'(auto|scroll|hidden)'/.test(line)) continue;
+        const next = lines.slice(i + 1, i + 3).join('\n');
+        if (!/<table\b/.test(next)) continue;
+        if (/ref=\{|onScroll=/.test(line)) continue; // бокс самого списка
+        if (/maxHeight/.test(line)) continue; // ограниченная панель
+        if (/flex:/.test(line) && /minHeight:\s*0/.test(line)) continue; // бокс страницы
+        offenders.push(`${rel}:${i + 1}: ${line.trim().slice(0, 110)}`);
+      }
+    }
+    expect(
+      offenders,
+      `таблица списка замкнута в обёртку со своей прокруткой — шапка колонок уезжает вместе со списком:\n${offenders.join('\n')}`,
+    ).toEqual([]);
+  });
 });

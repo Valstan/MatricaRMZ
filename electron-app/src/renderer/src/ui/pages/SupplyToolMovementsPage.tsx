@@ -469,7 +469,7 @@ export function SupplyToolMovementsPage(props: {
 
       <SectionCard title="Журнал движений" style={{ marginTop: 16 }}>
         <ListCount total={movements.length} shown={movements.length} />
-        <div style={{ border: '1px solid var(--border)', overflow: 'hidden', marginTop: 6 }}>
+        <div style={{ border: '1px solid var(--border)', overflow: 'clip', marginTop: 6 }}>
           <table className="list-table">
             <thead>
               <tr style={{ backgroundColor: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
