@@ -4,6 +4,8 @@ import { createPortal } from 'react-dom';
 import { globalSearchKindLabel, type GlobalSearchHit, type GlobalSearchKind } from '@matricarmz/shared';
 
 import { SearchModeToggle, searchModeOf } from './SearchModeToggle.js';
+import { SEARCH_MODE_HINT } from './SearchModeHint.js';
+import { useSearchMode } from '../hooks/useSearchMode.js';
 import { EngineQrScanButton } from './EngineQrScanButton.js';
 import { useGlobalSearchScope } from '../context/globalSearchScope.js';
 import { L2_SOURCES, loadAllL2, pickL2Label, type L2Row } from '../services/globalSearchSources.js';
@@ -81,7 +83,7 @@ export function GlobalSearchOverlay(props: {
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<LevelMode>('auto');
   // Режим совпадения — не путать с уровнем поиска `mode`: точное или ещё и похожее.
-  const [searchSimilar, setSearchSimilar] = useState(false);
+  const { similar: searchSimilar, toggle: toggleSearchMode } = useSearchMode({ query });
   const searchMode = searchModeOf(searchSimilar);
   const [l2Loaded, setL2Loaded] = useState<Partial<Record<GlobalSearchKind, L2Row[]>>>({});
   const [serverHits, setServerHits] = useState<GlobalSearchHit[]>([]);
@@ -549,7 +551,7 @@ export function GlobalSearchOverlay(props: {
             })}
             {/* Режим совпадения отодвинут вправо, чтобы не читался как ещё один уровень поиска. */}
             <span style={{ marginLeft: 'auto' }}>
-              <SearchModeToggle similar={searchSimilar} onToggle={() => setSearchSimilar((v) => !v)} />
+              <SearchModeToggle similar={searchSimilar} onToggle={toggleSearchMode} />
             </span>
           </div>
         </div>
@@ -564,7 +566,7 @@ export function GlobalSearchOverlay(props: {
                 ? 'Поиск…'
                 : searchSimilar
                   ? 'Ничего не найдено'
-                  : 'Ничего не найдено. Нажмите «≈ Похожие», чтобы искать с опечатками и по части слова.'}
+                  : `Ничего не найдено. ${SEARCH_MODE_HINT}`}
             </div>
           )}
           {groups.map((group) => (

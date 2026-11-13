@@ -44,7 +44,9 @@ describe('ступенчатый фильтр доезжает до строк �
   });
 
   it('кнопка сброса чистит ступени и их значения', () => {
-    expect(PAGE).toContain('onReset={() => patchState({ facets: {}, facetFields: [] })}');
+    // Сброс вернул строгий поиск (владелец 13.11.2026): сброс ступеней — это новый поиск.
+    expect(PAGE).toMatch(/onReset=\{\(\) => \{[\s\S]{0,240}patchState\(\{ facets: \{\}, facetFields: \[\] \}\)/);
+    expect(PAGE).toContain('resetSearchMode();');
     expect(FILTER).toContain('data-facet-reset');
   });
 

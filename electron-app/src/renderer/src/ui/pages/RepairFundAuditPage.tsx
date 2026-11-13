@@ -10,6 +10,8 @@ import { ListCount } from '../components/ListCount.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
+import { searchModeEmptyText } from '../components/SearchModeHint.js';
+import { useSearchMode } from '../hooks/useSearchMode.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { ToolbarSearchField } from '../components/ToolbarSearchField.js';
 import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
@@ -50,7 +52,7 @@ export function RepairFundAuditPage(props: {
   const [status, setStatus] = useState('');
   const [reason, setReason] = useState('Ревизия ремонтного фонда');
   const [query, setQuery] = useState('');
-  const [searchSimilar, setSearchSimilar] = useState(false);
+  const { similar: searchSimilar, toggle: toggleSearchSimilar } = useSearchMode({ query });
   const [rows, setRows] = useState<FundLine[]>([]);
   const [loadingRows, setLoadingRows] = useState(false);
   const [posting, setPosting] = useState(false);
@@ -290,7 +292,7 @@ export function RepairFundAuditPage(props: {
             />
           </ToolbarPin>
           <ToolbarPin>
-            <SearchModeToggle similar={searchSimilar} onToggle={() => setSearchSimilar((v) => !v)} />
+            <SearchModeToggle similar={searchSimilar} onToggle={toggleSearchSimilar} />
           </ToolbarPin>
         </PageToolbar>
         {/* Без виртуализации — редактируемое поле «Факт» не должно размонтироваться при прокрутке. */}
@@ -314,7 +316,9 @@ export function RepairFundAuditPage(props: {
                 {visibleRows.length === 0 ? (
                   <tr>
                     <td style={{ padding: 10, color: '#6b7280' }} colSpan={8}>
-                      Список пуст. Добавьте детали через поле «Добавить деталь» выше.
+                      {query.trim()
+                        ? searchModeEmptyText(searchSimilar, query)
+                        : 'Список пуст. Добавьте детали через поле «Добавить деталь» выше.'}
                     </td>
                   </tr>
                 ) : (

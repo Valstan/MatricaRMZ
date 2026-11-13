@@ -7,6 +7,8 @@ import { SectionCard } from '../components/SectionCard.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { CardActionBar } from '../components/CardActionBar.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
+import { searchModeEmptyText } from '../components/SearchModeHint.js';
+import { useSearchMode } from '../hooks/useSearchMode.js';
 import { ensureAttributeDefs, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
@@ -878,7 +880,7 @@ export function EngineBrandDetailsPage(props: {
 
   // Фильтр + режим отображения списка деталей.
   const [partsQuery, setPartsQuery] = useState('');
-  const [partsSearchSimilar, setPartsSearchSimilar] = useState(false);
+  const { similar: partsSearchSimilar, toggle: togglePartsSearchSimilar } = useSearchMode({ query: partsQuery });
   const [partsView, setPartsView] = useState<BrandPartsView>('all');
   const [openUnits, setOpenUnits] = useState<Record<string, boolean>>({});
 
@@ -1338,7 +1340,7 @@ export function EngineBrandDetailsPage(props: {
                 placeholder="Фильтр: деталь, артикул, узел…"
               />
             </div>
-            <SearchModeToggle similar={partsSearchSimilar} onToggle={() => setPartsSearchSimilar((v) => !v)} />
+            <SearchModeToggle similar={partsSearchSimilar} onToggle={togglePartsSearchSimilar} />
             <span style={{ fontSize: 12, color: 'var(--subtle)', whiteSpace: 'nowrap' }}>
               {partsQuery.trim() || partsView !== 'all' ? `${visibleParts.length} из ${selectedParts.length}` : `${selectedParts.length}`}
             </span>
@@ -1432,7 +1434,7 @@ export function EngineBrandDetailsPage(props: {
         {selectedParts.length === 0 ? (
           <div style={{ color: 'var(--subtle)', fontSize: 13 }}>Детали не добавлены.</div>
         ) : visibleParts.length === 0 ? (
-          <div style={{ color: 'var(--subtle)', fontSize: 13 }}>Ничего не найдено по текущему фильтру.</div>
+          <div style={{ color: 'var(--subtle)', fontSize: 13 }}>{searchModeEmptyText(partsSearchSimilar, partsQuery, 'Ничего не найдено по текущему фильтру')}</div>
         ) : partsView === 'units' ? (
           <div style={{ display: 'grid', gap: 8 }}>
             {unitGroups.map((g) => (

@@ -37,6 +37,8 @@ import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { useListSelection } from '../hooks/useListSelection.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
+import { searchModeEmptyText } from '../components/SearchModeHint.js';
+import { useSearchMode } from '../hooks/useSearchMode.js';
 import { EmployeeDedupeDialog } from '../components/EmployeeDedupeDialog.js';
 import { useListUiState, usePersistedScrollTop } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
@@ -86,8 +88,6 @@ type EmployeesListUiState = {
   showPreviews?: boolean;
   pageSize?: WarehouseListPageSize;
   pageIndex?: number;
-  /** Поиск показывает и похожее. По умолчанию — только точное совпадение. */
-  searchSimilar?: boolean;
   /** Ступенчатый фильтр: какие столбцы участвуют и что в них выбрано (пусто = все). */
   facetFields?: string[];
   facets?: EmployeeFacetSelection;
@@ -102,7 +102,6 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
     showPreviews: true,
     pageSize: 50 as WarehouseListPageSize,
     pageIndex: 0,
-    searchSimilar: false,
   });
   // Ступенчатый фильтр (владелец 12.09.2026): состояние роумится вместе со списком, как у двигателей.
   const facets = useMemo<EmployeeFacetSelection>(() => sanitizeEmployeeFacetSelection(listState.facets), [listState.facets]);
@@ -115,7 +114,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
   }, [listState.facetFields, facets]);
   const { containerRef, onScroll } = usePersistedScrollTop('list:employees');
   const query = String(listState.query ?? '');
-  const searchSimilar = listState.searchSimilar === true;
+  const { similar: searchSimilar, toggle: toggleSearchMode, reset: resetSearchMode } = useSearchMode({ query });
   const searchMode = searchModeOf(searchSimilar);
   const [rows, setRows] = useState<Row[]>([]);
   const [dedupeOpen, setDedupeOpen] = useState(false);
@@ -546,7 +545,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
             {items.length === 0 && (
               <tr>
                 <td colSpan={Math.max(1, visibleColumns.length) + 2} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
-                  {rows.length === 0 ? 'Нет сотрудников' : 'Не найдено'}
+                  {rows.length === 0 ? 'Нет сотрудников' : searchModeEmptyText(searchSimilar, query, 'Не найдено')}
                 </td>
               </tr>
             )}
@@ -589,7 +588,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
           <ToolbarSearchField value={query} onChange={(v) => patchState({ query: v, pageIndex: 0 })} placeholder="Поиск по всем данным сотрудника (и внутри карточек)…" />
         </ToolbarPin>
         <ToolbarPin>
-          <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar, pageIndex: 0 })} />
+          <SearchModeToggle similar={searchSimilar} onToggle={() => { toggleSearchMode(); patchState({ pageIndex: 0 }); }} />
         </ToolbarPin>
         {props.canCreate && (
           <Button variant="ghost" data-employee-dedupe-open onClick={() => setDedupeOpen(true)} title="Найти сотрудников, заведённых дважды, и объединить записи">
@@ -657,7 +656,10 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
           usageKey="list:employees"
           onChangeSelection={(next) => patchState({ facets: next as EmployeeFacetSelection, pageIndex: 0 })}
           onChangeFields={(next) => patchState({ facetFields: next })}
-          onReset={() => patchState({ facets: {}, facetFields: [] })}
+          onReset={() => {
+            resetSearchMode();
+            patchState({ facets: {}, facetFields: [] });
+          }}
         />
       </div>
 
@@ -691,7 +693,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
             colCount={Math.max(1, visibleColumns.length) + 1}
             rowNumbers
             estimateSize={showPreviews ? 56 : 44}
-            emptyState={rows.length === 0 ? 'Нет сотрудников' : 'Не найдено'}
+            emptyState={rows.length === 0 ? 'Нет сотрудников' : searchModeEmptyText(searchSimilar, query, 'Не найдено')}
             columnWidths={visibleColumns.map((c) => ({ id: c.id, width: columnLayout.widthOf(c.id) }))}
           />
         )}

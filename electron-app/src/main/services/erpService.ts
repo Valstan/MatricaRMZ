@@ -1308,7 +1308,9 @@ export async function warehouseStockList(
     if (args?.warehouseId) qp.set('warehouseId', args.warehouseId);
     if (args?.nomenclatureId) qp.set('nomenclatureId', args.nomenclatureId);
     if (args?.search) qp.set('search', args.search);
-    if (args?.similar === true) qp.set('similar', 'true');
+    // Намерение оператора едет в запрос ЯВНО: «строго» — это тоже решение, а не «параметр не прислали».
+    // Иначе сервер сам угадывает режим, и его умолчание однажды разойдётся с клиентским.
+    qp.set('similar', args?.similar === true ? 'true' : 'false');
     if (args?.lowStockOnly !== undefined) qp.set('lowStockOnly', args.lowStockOnly ? 'true' : 'false');
     if (args?.limit !== undefined) qp.set('limit', String(Math.trunc(args.limit)));
     if (args?.offset !== undefined) qp.set('offset', String(Math.trunc(args.offset)));

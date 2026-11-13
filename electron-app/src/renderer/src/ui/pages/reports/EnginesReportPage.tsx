@@ -36,6 +36,8 @@ import { ListPrintDialog } from '../../components/ListPrintDialog.js';
 import { PageToolbar, ToolbarPin } from '../../components/PageToolbar.js';
 import { RowNumberHeaderCell } from '../../components/RowNumberCell.js';
 import { SearchModeToggle, searchModeOf } from '../../components/SearchModeToggle.js';
+import { searchModeEmptyText } from '../../components/SearchModeHint.js';
+import { useSearchMode } from '../../hooks/useSearchMode.js';
 import { VirtualTable, type VirtualTableRowProps } from '../../components/VirtualTable.js';
 import { useColumnLayout } from '../../hooks/useColumnLayout.js';
 import { useListDeepFilter } from '../../hooks/useListDeepFilter.js';
@@ -81,7 +83,6 @@ const GROUP_BY_LABELS: Record<GroupBy, string> = {
 
 type ListUiState = {
   query: string;
-  searchSimilar: boolean;
   facets: FacetSelection;
   facetFields: string[];
   sortKey: string;
@@ -117,7 +118,6 @@ export function EnginesReportPage(props: ListReportPageProps) {
 
   const { state: ui, patchState } = useListUiState<ListUiState>('report:engines:ui', {
     query: '',
-    searchSimilar: false,
     facets: {},
     facetFields: ['customer'],
     sortKey: 'engineNumber',
@@ -199,12 +199,13 @@ export function EnginesReportPage(props: ListReportPageProps) {
     return whereNowActive ? all.filter((f) => f.id !== 'stageDate') : all;
   }, [types, stageTemplates, whereNowActive, activeFacets]);
 
+  const { similar: searchSimilar, toggle: toggleSearchMode, reset: resetSearchMode } = useSearchMode({ query: ui.query });
   const deep = useListDeepFilter(
     rows,
     (r) => r.id,
     (r) => [r.engineNumber, r.internalNumberFull, r.engineBrand, r.customerName, r.contractName, r.workshopName, r.state, r.stage.label, r.stage.repeatPass >= 2 ? 'возврат' : '', r.scrapReason, r.lastStageName, r.isReclamation ? 'рекламация' : ''].map(text).join(' '),
     ui.query,
-    { entityBacked: false, mode: searchModeOf(ui.searchSimilar) },
+    { entityBacked: false, mode: searchModeOf(searchSimilar) },
   );
   const faceted = useMemo(() => applyFacets(facets, deep.filtered, activeFacets), [facets, deep.filtered, activeFacets]);
   const sorted = useMemo(() => {
@@ -324,7 +325,7 @@ export function EnginesReportPage(props: ListReportPageProps) {
           <ToolbarSearchField value={ui.query} onChange={(v) => patchState({ query: v })} placeholder="Поиск по двигателям…" />
         </ToolbarPin>
         <ToolbarPin>
-          <SearchModeToggle similar={ui.searchSimilar} onToggle={() => patchState({ searchSimilar: !ui.searchSimilar })} />
+          <SearchModeToggle similar={searchSimilar} onToggle={toggleSearchMode} />
         </ToolbarPin>
         <ToolbarPin>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
@@ -366,7 +367,10 @@ export function EnginesReportPage(props: ListReportPageProps) {
           usageKey="report:engines:ui"
           onChangeSelection={onChangeFacets}
           onChangeFields={(next) => patchState({ facetFields: next })}
-          onReset={() => patchState({ facets: {}, facetFields: [] })}
+          onReset={() => {
+            resetSearchMode();
+            patchState({ facets: {}, facetFields: [] });
+          }}
         />
         {whereNowActive ? (
           <div className="ui-muted" style={{ fontSize: 12, marginTop: 4 }}>
@@ -408,7 +412,7 @@ export function EnginesReportPage(props: ListReportPageProps) {
           colCount={Math.max(1, visibleColumns.length) + 1}
           rowNumbers
           estimateSize={40}
-          emptyState={rows.length === 0 ? 'В каталоге пока нет двигателей' : 'Ничего не найдено'}
+          emptyState={rows.length === 0 ? 'В каталоге пока нет двигателей' : searchModeEmptyText(searchSimilar, ui.query, 'Ничего не найдено')}
           columnWidths={visibleColumns.map((c) => ({ id: c.id, width: columnLayout.widthOf(c.id) }))}
         />
       </div>

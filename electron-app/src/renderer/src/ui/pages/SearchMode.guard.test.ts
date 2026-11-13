@@ -35,9 +35,14 @@ const SEARCH_SCREENS = walk(UI_ROOT)
   .map(({ path, code }) => ({ name: path.slice(UI_ROOT.length), code }));
 
 const HOOK = src('../hooks/useListDeepFilter.ts');
+const MODE_HOOK = src('../hooks/useSearchMode.ts');
 const TOGGLE = src('../components/SearchModeToggle.tsx');
 const SEARCH = src('../utils/search.ts');
+const HINT = src('../components/SearchModeHint.tsx');
+const PAGED_FETCH = src('../utils/warehousePagedFetch.ts');
 const STOCK_BALANCES = src('./StockBalancesPage.tsx');
+const ERP_SERVICE = src('../../../../main/services/erpService.ts');
+const WAREHOUSE_ROUTE = src('../../../../../../backend-api/src/routes/warehouse.ts');
 
 describe('точный поиск по умолчанию', () => {
   it('обход дерева нашёл экраны с поиском (иначе сторож проверяет пустоту)', () => {
@@ -63,7 +68,14 @@ describe('точный поиск по умолчанию', () => {
   it('остатки склада ищут точно, пока оператор не попросил похожие', () => {
     // Здесь поиск считает сервер (или оффлайн-реплика), поэтому намерение едет параметром.
     expect(STOCK_BALANCES).toContain('<SearchModeToggle');
-    expect(STOCK_BALANCES, 'тумблер не доезжает до запроса остатков').toMatch(/searchSimilar\s*\?\s*\{\s*similar:\s*true\s*\}/);
+    // Намерение едет в запрос ЯВНО — и «похожие», и «строго» (владелец 13.11.2026, промт #10):
+    // «параметр не прислали» — это не решение, это отсутствие решения. Сервер не должен угадывать.
+    expect(STOCK_BALANCES).toContain('similar: searchSimilar,');
+    // Намерение доезжает до сервера через разбор страниц: флаг объявлен и уходит в запрос как есть.
+    expect(PAGED_FETCH).toContain('similar?: boolean;');
+    expect(PAGED_FETCH).toContain('...args,');
+    expect(ERP_SERVICE).toContain("qp.set('similar', args?.similar === true ? 'true' : 'false');");
+    expect(WAREHOUSE_ROUTE).toContain('similar: parsed.data.similar === true,');
     // Флаг ответа «показаны похожие» и тумблер — разные вещи; одно имя на двоих
     // уже приводило к тому, что ответ сервера переключал намерение оператора.
     expect(STOCK_BALANCES).toContain('responseSimilar');
@@ -83,9 +95,52 @@ describe('точный поиск по умолчанию', () => {
   });
 
   it('пустая выдача в точном режиме подсказывает про кнопку, а не молчит', () => {
-    const engines = src('./EnginesPage.tsx');
-    const globalSearch = src('../components/GlobalSearchOverlay.tsx');
-    expect(engines).toContain('Нажмите «≈ Похожие»');
-    expect(globalSearch, 'Ctrl+K молчит о том, чем расширить поиск').toContain('Нажмите «≈ Похожие»');
+    // Подсказка живёт в ОДНОМ файле (её текст одинаков на всех экранах), а экраны её подключают.
+    expect(HINT, 'подсказка пропала из общего места').toContain('Нажмите «≈ Похожие»');
+    expect(src('./EnginesPage.tsx')).toContain('SEARCH_MODE_HINT');
+    expect(src('../components/GlobalSearchOverlay.tsx')).toContain('SEARCH_MODE_HINT');
+  });
+
+  // Правило одно для всех экранов (владелец 13.11.2026, промты КАРМАНА #10 + #14):
+  // пока в поле печатают — ищется ТОЧНО; «похожие» включается кнопкой и только на это время.
+  it('режим поиска берётся из общего хука — одно правило, а не по экрану', () => {
+    for (const { name, code } of SEARCH_SCREENS) {
+      expect(code, `${name}: режим поиска взят не из общего хука`).toContain('useSearchMode(');
+    }
+  });
+
+  it('режим поиска не лежит в состоянии списка (оно живёт в sessionStorage)', () => {
+    for (const { name, code } of SEARCH_SCREENS) {
+      // Список сохранён в sessionStorage: режим там переживал бы и перезапуск программы,
+      // и смену экрана — оператор получал «лишнее» в выдаче и не понимал, откуда оно.
+      expect(code, `${name}: режим поиска снова в состоянии списка`).not.toMatch(/searchSimilar:\s*(false|boolean)/);
+      expect(code, `${name}: режим читается из состояния списка`).not.toMatch(/(listState|ui)\.searchSimilar/);
+    }
+  });
+
+  it('режим не переживает перезапуск списка, очистку поля и сброс фильтров', () => {
+    expect(MODE_HOOK).toContain('const [similar, setSimilar] = useState(false);');
+    // Панель показали снова — список открыли заново: «похожие» не переносится через экран.
+    expect(MODE_HOOK).toContain('useOnTabVisible(() => setSimilar(false));');
+    // Новое поле — новый поиск: очистил строку, вернись к точному.
+    expect(MODE_HOOK).toContain('if (!query.trim()) setSimilar(false);');
+    // Сброс фильтров возвращает строгий (одно правило, а не по экрану).
+    expect(MODE_HOOK).toContain('const reset = useCallback(() => setSimilar(false), []);');
+  });
+
+  it('сброс фильтров на экране со ступенями возвращает строгий режим', () => {
+    const withFacets = SEARCH_SCREENS.filter(({ code }) => code.includes('<FacetFilter') || code.includes('<EngineFacetFilter'));
+    expect(withFacets.length).toBeGreaterThanOrEqual(8);
+    for (const { name, code } of withFacets) {
+      expect(code, `${name}: сброс ступеней не вернул строгий поиск`).toContain('resetSearchMode()');
+    }
+  });
+
+  it('пустая выдача на любом экране подсказывает кнопку «Похожие»', () => {
+    for (const { name, code } of SEARCH_SCREENS) {
+      expect(code, `${name}: пустая выдача молчит — оператор не знает, чем искать`).toMatch(
+        /searchModeEmptyText|SearchModeEmptyHint|SEARCH_MODE_HINT/,
+      );
+    }
   });
 });

@@ -59,6 +59,8 @@ import { RowNumberHeaderCell } from '../components/RowNumberCell.js';
 
 
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
+import { searchModeEmptyText } from '../components/SearchModeHint.js';
+import { useSearchMode } from '../hooks/useSearchMode.js';
 
 
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
@@ -170,7 +172,6 @@ type Column = ColumnDescriptor & {
 
 type ListUiState = {
   query: string;
-  searchSimilar: boolean;
   facets: FacetSelection;
   facetFields: string[];
   sortKey: string;
@@ -333,7 +334,6 @@ export function WorkSheetsPage(props: {
 
   const { state: ui, patchState } = useListUiState<ListUiState>('list:workSheets:ui', {
     query: '',
-    searchSimilar: false,
     facets: {},
     facetFields: [],
     sortKey: 'at',
@@ -711,6 +711,7 @@ export function WorkSheetsPage(props: {
 
 
 
+  const { similar: searchSimilar, toggle: toggleSearchMode, reset: resetSearchMode } = useSearchMode({ query: ui.query });
   const deep = useListDeepFilter(
 
 
@@ -729,7 +730,7 @@ export function WorkSheetsPage(props: {
     ui.query,
 
 
-    { entityBacked: false, mode: searchModeOf(ui.searchSimilar) },
+    { entityBacked: false, mode: searchModeOf(searchSimilar) },
 
 
   );
@@ -940,7 +941,7 @@ export function WorkSheetsPage(props: {
         <ToolbarPin>
 
 
-          <SearchModeToggle similar={ui.searchSimilar} onToggle={() => patchState({ searchSimilar: !ui.searchSimilar })} />
+          <SearchModeToggle similar={searchSimilar} onToggle={toggleSearchMode} />
 
 
         </ToolbarPin>
@@ -1102,7 +1103,10 @@ export function WorkSheetsPage(props: {
           onChangeFields={(next) => patchState({ facetFields: next })}
 
 
-          onReset={() => patchState({ facets: {}, facetFields: [] })}
+          onReset={() => {
+            resetSearchMode();
+            patchState({ facets: {}, facetFields: [] });
+          }}
 
 
         />
@@ -1172,7 +1176,7 @@ export function WorkSheetsPage(props: {
           colCount={Math.max(1, visibleColumns.length) + 1}
           rowNumbers
           estimateSize={40}
-          emptyState={rows.length === 0 ? 'Этапов работ пока нет' : 'Ничего не найдено'}
+          emptyState={rows.length === 0 ? 'Этапов работ пока нет' : searchModeEmptyText(searchSimilar, ui.query, 'Ничего не найдено')}
           columnWidths={visibleColumns.map((c) => ({ id: c.id, width: columnLayout.widthOf(c.id) }))}
         />
       </div>

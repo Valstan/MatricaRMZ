@@ -44,6 +44,8 @@ import { ListPrintDialog } from '../../components/ListPrintDialog.js';
 import { PageToolbar, ToolbarPin } from '../../components/PageToolbar.js';
 import { RowNumberHeaderCell } from '../../components/RowNumberCell.js';
 import { SearchModeToggle, searchModeOf } from '../../components/SearchModeToggle.js';
+import { searchModeEmptyText } from '../../components/SearchModeHint.js';
+import { useSearchMode } from '../../hooks/useSearchMode.js';
 import { VirtualTable, type VirtualTableRowProps } from '../../components/VirtualTable.js';
 import { useColumnLayout } from '../../hooks/useColumnLayout.js';
 import { useListDeepFilter } from '../../hooks/useListDeepFilter.js';
@@ -100,7 +102,6 @@ const GROUP_BY_LABELS: Record<GroupBy, string> = {
 
 type ListUiState = {
   query: string;
-  searchSimilar: boolean;
   facets: FacetSelection;
   facetFields: string[];
   sortKey: string;
@@ -145,7 +146,6 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
 
   const { state: ui, patchState } = useListUiState<ListUiState>('report:enginesNowAtPlant:ui', {
     query: '',
-    searchSimilar: false,
     facets: {},
     facetFields: ['factoryStage'],
     sortKey: 'engineNumber',
@@ -326,12 +326,13 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
     return ids.map((id) => all.find((f) => f.id === id)).filter(Boolean) as FacetDescriptor<Row>[];
   }, [types, stageTemplates, whereNowActive, activeFacets]);
 
+  const { similar: searchSimilar, toggle: toggleSearchMode, reset: resetSearchMode } = useSearchMode({ query: ui.query });
   const deep = useListDeepFilter(
     rows,
     (r) => r.id,
     (r) => [r.engineNumber, r.internalNumberFull, r.engineBrand, r.customerName, r.contractName, r.workshopName, r.stage.label, r.stage.repeatPass >= 2 ? 'возврат' : '', r.state, r.lastSheetNode, r.lastHistoryAction].map(text).join(' '),
     ui.query,
-    { entityBacked: false, mode: searchModeOf(ui.searchSimilar) },
+    { entityBacked: false, mode: searchModeOf(searchSimilar) },
   );
   const faceted = useMemo(() => applyFacets(facets, deep.filtered, activeFacets), [facets, deep.filtered, activeFacets]);
   const sorted = useMemo(() => {
@@ -456,7 +457,7 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
           <ToolbarSearchField value={ui.query} onChange={(v) => patchState({ query: v })} placeholder="Поиск по двигателям на заводе…" />
         </ToolbarPin>
         <ToolbarPin>
-          <SearchModeToggle similar={ui.searchSimilar} onToggle={() => patchState({ searchSimilar: !ui.searchSimilar })} />
+          <SearchModeToggle similar={searchSimilar} onToggle={toggleSearchMode} />
         </ToolbarPin>
         <ToolbarPin>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
@@ -498,7 +499,10 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
           usageKey="report:enginesNowAtPlant:ui"
           onChangeSelection={onChangeFacets}
           onChangeFields={(next) => patchState({ facetFields: next })}
-          onReset={() => patchState({ facets: {}, facetFields: [] })}
+          onReset={() => {
+            resetSearchMode();
+            patchState({ facets: {}, facetFields: [] });
+          }}
         />
         {whereNowActive ? (
           <div className="ui-muted" style={{ fontSize: 12, marginTop: 4 }}>
@@ -540,7 +544,7 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
           colCount={Math.max(1, visibleColumns.length) + 1}
           rowNumbers
           estimateSize={40}
-          emptyState={rows.length === 0 ? 'На заводе сейчас нет двигателей: ни у одного нет даты прихода без даты отгрузки' : 'Ничего не найдено'}
+          emptyState={rows.length === 0 ? 'На заводе сейчас нет двигателей: ни у одного нет даты прихода без даты отгрузки' : searchModeEmptyText(searchSimilar, ui.query, 'Ничего не найдено')}
           columnWidths={visibleColumns.map((c) => ({ id: c.id, width: columnLayout.widthOf(c.id) }))}
         />
       </div>

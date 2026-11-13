@@ -4,6 +4,8 @@ import type { WarehouseMovementListItem, WarehouseStockListItem } from '@matrica
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { SearchModeToggle } from '../components/SearchModeToggle.js';
+import { searchModeEmptyText } from '../components/SearchModeHint.js';
+import { useSearchMode } from '../hooks/useSearchMode.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { rollupStockByParent, type StockRollupRow } from '../utils/nomenclatureParent.js';
@@ -28,12 +30,12 @@ export function StockBalancesPage(props: {
 }) {
   const { lookups, nomenclature, error: refsError, refresh: refreshRefs } = useWarehouseReferenceData({ loadNomenclature: true });
   const [rows, setRows] = useState<WarehouseStockListItem[]>([]);
-  // Тумблер «≈ Похожие»: намерение оператора, уезжает в запрос. Поиск здесь серверный.
-  const [searchSimilar, setSearchSimilar] = useState(false);
   // Флаг ответа: точных совпадений не нашлось и показаны похожие — только для баннера.
   const [responseSimilar, setResponseSimilar] = useState(false);
   const [status, setStatus] = useState('');
   const [query, setQuery] = useState('');
+  // Тумблер «≈ Похожие»: намерение оператора, уезжает в запрос. Поиск здесь серверный.
+  const { similar: searchSimilar, toggle: toggleSearchSimilar } = useSearchMode({ query });
   const [warehouseId, setWarehouseId] = useState<string | null>(null);
   const [nomenclatureId, setNomenclatureId] = useState<string | null>(null);
   const [itemTypeFilter, setItemTypeFilter] = useState('');
@@ -58,7 +60,7 @@ export function StockBalancesPage(props: {
       setStatus('Загрузка остатков...');
       const fetched = await fetchWarehouseStockAllPagesEx({
         ...(query.trim() ? { search: query.trim() } : {}),
-        ...(searchSimilar ? { similar: true } : {}),
+        similar: searchSimilar,
         ...(warehouseId ? { warehouseId } : {}),
         ...(nomenclatureId ? { nomenclatureId } : {}),
         ...(lowStockOnly ? { lowStockOnly: true } : {}),
@@ -336,7 +338,7 @@ export function StockBalancesPage(props: {
       <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'minmax(220px, 1.2fr) minmax(220px, 1fr) minmax(260px, 1.1fr) minmax(180px, 0.8fr) minmax(180px, 0.8fr) auto auto' }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по складу, коду и номенклатуре..." />
-          <SearchModeToggle similar={searchSimilar} onToggle={() => setSearchSimilar((prev) => !prev)} />
+          <SearchModeToggle similar={searchSimilar} onToggle={toggleSearchSimilar} />
         </div>
         <SearchSelect
           value={warehouseId}
@@ -435,7 +437,7 @@ export function StockBalancesPage(props: {
             colCount={10}
             rowNumbers
             estimateSize={40}
-            emptyState="Нет данных"
+            emptyState={searchModeEmptyText(searchSimilar, query, 'Нет данных')}
           />
         )}
       </div>

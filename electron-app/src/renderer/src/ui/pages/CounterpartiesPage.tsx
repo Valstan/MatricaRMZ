@@ -21,6 +21,8 @@ import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
+import { searchModeEmptyText } from '../components/SearchModeHint.js';
+import { useSearchMode } from '../hooks/useSearchMode.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
@@ -154,7 +156,6 @@ export function CounterpartiesPage(props: {
     showPreviews: true,
     pageSize: 50 as WarehouseListPageSize,
     pageIndex: 0,
-    searchSimilar: false,
     // Ступени фильтра и раскрытые ступени — рядом с поиском: состояние списка
     // роумится вместе с фильтром.
     facets: {} as CounterpartyFacetSelection,
@@ -162,7 +163,7 @@ export function CounterpartiesPage(props: {
   });
   const { containerRef, onScroll } = usePersistedScrollTop('list:counterparties');
   const query = String(listState.query ?? '');
-  const searchSimilar = listState.searchSimilar === true;
+  const { similar: searchSimilar, toggle: toggleSearchMode, reset: resetSearchMode } = useSearchMode({ query });
   const searchMode = searchModeOf(searchSimilar);
   const [typeId, setTypeId] = useState<string>('');
   const width = useWindowWidth();
@@ -521,7 +522,7 @@ export function CounterpartiesPage(props: {
             {items.length === 0 && (
               <tr>
                 <td colSpan={Math.max(1, visibleColumns.length) + 2} style={{ padding: '16px 12px', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
-                  {rows.length === 0 ? 'Нет контрагентов' : 'Не найдено'}
+                  {rows.length === 0 ? 'Нет контрагентов' : searchModeEmptyText(searchSimilar, query, 'Не найдено')}
                 </td>
               </tr>
             )}
@@ -561,7 +562,7 @@ export function CounterpartiesPage(props: {
           <ToolbarSearchField value={query} onChange={(v) => patchState({ query: v, pageIndex: 0 })} placeholder="Поиск по всем данным контрагента…" />
         </ToolbarPin>
         <ToolbarPin>
-          <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar, pageIndex: 0 })} />
+          <SearchModeToggle similar={searchSimilar} onToggle={() => { toggleSearchMode(); patchState({ pageIndex: 0 }); }} />
         </ToolbarPin>
         {!isAndroidPlatform() && (
           <Button
@@ -600,7 +601,10 @@ export function CounterpartiesPage(props: {
           usageKey="list:counterparties"
           onChangeSelection={(next) => patchState({ facets: next as CounterpartyFacetSelection })}
           onChangeFields={(next) => patchState({ facetFields: next })}
-          onReset={() => patchState({ facets: {}, facetFields: [] })}
+          onReset={() => {
+            resetSearchMode();
+            patchState({ facets: {}, facetFields: [] });
+          }}
         />
       </div>
 
@@ -654,7 +658,7 @@ export function CounterpartiesPage(props: {
             colCount={Math.max(1, visibleColumns.length) + 1}
             rowNumbers
             estimateSize={showPreviews ? 52 : 44}
-            emptyState={rows.length === 0 ? 'Нет контрагентов' : 'Не найдено'}
+            emptyState={rows.length === 0 ? 'Нет контрагентов' : searchModeEmptyText(searchSimilar, query, 'Не найдено')}
             columnWidths={visibleColumns.map((c) => ({ id: c.id, width: columnLayout.widthOf(c.id) }))}
           />
         )}

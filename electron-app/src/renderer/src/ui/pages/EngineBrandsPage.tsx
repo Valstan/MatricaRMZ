@@ -13,6 +13,8 @@ import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
+import { searchModeEmptyText } from '../components/SearchModeHint.js';
+import { useSearchMode } from '../hooks/useSearchMode.js';
 import { useCardContentIds } from '../hooks/useListDeepFilter.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
 import { matchesQueryInRecord } from '../utils/search.js';
@@ -35,7 +37,7 @@ export function EngineBrandsPage(props: {
   const [groupFilterId, setGroupFilterId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   // Поиск по спискам: точное совпадение по умолчанию, похожее — по кнопке (владелец 08.09.2026).
-  const [searchSimilar, setSearchSimilar] = useState(false);
+  const { similar: searchSimilar, toggle: toggleSearchSimilar } = useSearchMode({ query });
   const [status, setStatus] = useState('');
   const containerRef = useRef<HTMLDivElement | null>(null);
   const width = useWindowWidth();
@@ -258,7 +260,7 @@ export function EngineBrandsPage(props: {
             {items.length === 0 && (
               <tr>
                 <td style={{ padding: 10, color: '#6b7280' }} colSpan={3}>
-                  Нет марок двигателя в справочнике
+                  {query.trim() ? searchModeEmptyText(searchSimilar, query) : 'Нет марок двигателя в справочнике'}
                 </td>
               </tr>
             )}
@@ -283,7 +285,7 @@ export function EngineBrandsPage(props: {
             placeholder="Поиск по наименованию или id..."
           />
         </div>
-        <SearchModeToggle similar={searchSimilar} onToggle={() => setSearchSimilar((v) => !v)} />
+        <SearchModeToggle similar={searchSimilar} onToggle={toggleSearchSimilar} />
         {groupOptions.length > 0 ? (
           <div style={{ width: 240 }} title="Показать только марки выбранной группы">
             <SearchSelect
@@ -342,7 +344,7 @@ export function EngineBrandsPage(props: {
             colCount={2}
             rowNumbers
             estimateSize={40}
-            emptyState="Нет марок двигателя в справочнике"
+            emptyState={query.trim() ? searchModeEmptyText(searchSimilar, query) : 'Нет марок двигателя в справочнике'}
           />
         )}
       </div>
