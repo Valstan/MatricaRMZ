@@ -128,6 +128,10 @@ export const PermissionCode = {
 
   // timesheet (табель Т-13)
   TimesheetView: 'timesheet.view',
+  // Создавать табели может каждый (владелец 13.11.2026: «открой всем пользователям
+  // программы разрешение на создание табелей работы»), а вот править — только автор
+  // своего табеля (см. timesheetService: canEditTimesheet).
+  TimesheetCreate: 'timesheet.create',
   TimesheetEdit: 'timesheet.edit',
   TimesheetPrint: 'timesheet.print',
 
@@ -350,7 +354,14 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
   },
 
   { code: PermissionCode.TimesheetView, group: 'Табель', titleRu: 'Просмотр табеля учёта рабочего времени' },
-  { code: PermissionCode.TimesheetEdit, group: 'Табель', titleRu: 'Ведение табеля (создание/редактирование)' },
+  {
+    code: PermissionCode.TimesheetCreate,
+    group: 'Табель',
+    titleRu: 'Создание табеля',
+    descriptionRu:
+      'Заводить свой табель по цеху/подразделению. Входит в базу оператора: табель нужен каждому, кто ведёт учёт рабочего времени.',
+  },
+  { code: PermissionCode.TimesheetEdit, group: 'Табель', titleRu: 'Ведение табеля (редактирование)' },
   { code: PermissionCode.TimesheetPrint, group: 'Табель', titleRu: 'Печать/экспорт табеля' },
 
   {
@@ -462,6 +473,12 @@ const OPERATOR_BASE_PERMISSIONS: PermissionCode[] = [
   PermissionCode.FilesView,
   PermissionCode.TimesheetView,
   PermissionCode.TimesheetPrint,
+  // Табель заводит и ведёт каждый, кто работает в программе (владелец 13.11.2026):
+  // свой табель по своему цеху/подразделению. Право само по себе безопасно: границу
+  // «чужие табели только смотреть» держит АВТОРСТВО на сервере
+  // (timesheetService.canEditTimesheet), а не право роли.
+  PermissionCode.TimesheetCreate,
+  PermissionCode.TimesheetEdit,
   PermissionCode.SyncUse,
   PermissionCode.UpdatesUse,
   PermissionCode.ChatUse,
@@ -531,6 +548,8 @@ const OPERATOR_ROLE_EDIT: Record<string, PermissionCode[]> = {
     // кадровую карточку целиком оно не открывает.
     PermissionCode.EmployeesDedupe,
   ],
+  // Табельщик — по должности: он заводит и ведёт табели первым, но отдельного права
+  // сверх общей базы у него нет — границу «чужие табели только смотреть» держит авторство.
   timekeeper: [PermissionCode.TimesheetEdit],
   viewer: [],
 };

@@ -4,6 +4,12 @@
 // планшетные наборы вкладок) и реэкспорт для обратной совместимости импортов.
 import type { MenuGroupId, MenuTabId } from '@matricarmz/shared';
 
+// Рисованные иконки разделов для плишек левой панели (владелец 13.11.2026):
+// эмодзи-шестерёнка не говорит ни о чём, а нарисованный дизельный мотор — говорит.
+import sectionEnginesImage from '../../assets/sections/section-engines.png';
+import sectionContractsImage from '../../assets/sections/section-contracts.png';
+import sectionTimesheetsImage from '../../assets/sections/section-timesheets.png';
+
 export type { TabId, MenuTabId, MenuGroupId } from '@matricarmz/shared';
 export {
   resolveMenuTab,
@@ -65,10 +71,21 @@ export const TABLET_OPERATOR_TABS: readonly MenuTabId[] = [
   'repair_fund_audit',
 ];
 
-type TabVisualMeta = { icon: string; subtitle: string; gradient: string };
+type TabVisualMeta = {
+  icon: string;
+  subtitle: string;
+  gradient: string;
+  /**
+   * Рисованная иконка раздела (владелец 13.11.2026: «надо изображение мотора,
+   * двигателя, пусть рисованный, но видно что двигатель»). Живёт в плишке левой
+   * панели: там есть место. В МЕНЮ иконка 15px — картинка там нечитаема, там
+   * остаётся эмодзи.
+   */
+  image?: string;
+};
 export const TAB_VISUALS: Partial<Record<MenuTabId, TabVisualMeta>> = {
   history: { icon: '🎯', subtitle: '', gradient: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)' },
-  engines: { icon: '⚙️', subtitle: 'Список и карточки двигателей', gradient: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)' },
+  engines: { icon: '⚙️', image: sectionEnginesImage, subtitle: 'Список и карточки двигателей', gradient: 'linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%)' },
   now_at_plant: { icon: '🏭', subtitle: 'Кто на заводе и где каждый', gradient: 'linear-gradient(135deg, #1d4ed8 0%, #7c3aed 100%)' },
   production_program: { icon: '📆', subtitle: 'План производства на две недели', gradient: 'linear-gradient(135deg, #4338ca 0%, #7c3aed 100%)' },
   assembly_forecast: { icon: '🔮', subtitle: 'Прогноз сборки двигателей', gradient: 'linear-gradient(135deg, #4338ca 0%, #6366f1 100%)' },
@@ -96,10 +113,10 @@ export const TAB_VISUALS: Partial<Record<MenuTabId, TabVisualMeta>> = {
   engine_rmz_numbers: { icon: '🔢', subtitle: 'Реестр номеров РМЗ: кто завёл и кто удалил карточку', gradient: 'linear-gradient(135deg, #1d4ed8 0%, #60a5fa 100%)' },
   warehouse_analytics: { icon: '📈', subtitle: 'Выпуск двигателей по маркам', gradient: 'linear-gradient(135deg, #0d9488 0%, #2dd4bf 100%)' },
   workshop_stats: { icon: '📊', subtitle: 'Труд и прохождение двигателей по цехам', gradient: 'linear-gradient(135deg, #4338ca 0%, #6366f1 100%)' },
-  contracts: { icon: '📄', subtitle: 'Договоры и условия', gradient: 'linear-gradient(135deg, #7c3aed 0%, #c084fc 100%)' },
+  contracts: { icon: '📄', image: sectionContractsImage, subtitle: 'Договоры и условия', gradient: 'linear-gradient(135deg, #7c3aed 0%, #c084fc 100%)' },
   counterparties: { icon: '🤝', subtitle: 'Поставщики и партнеры', gradient: 'linear-gradient(135deg, #9333ea 0%, #ec4899 100%)' },
   employees: { icon: '👥', subtitle: 'Сотрудники и профили', gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)' },
-  timesheets: { icon: '🗓️', subtitle: 'Табель учёта рабочего времени (Т-13)', gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)' },
+  timesheets: { icon: '🗓️', image: sectionTimesheetsImage, subtitle: 'Табель учёта рабочего времени (Т-13)', gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)' },
   access_sections: { icon: '🔐', subtitle: 'Кто видит и правит каждый раздел', gradient: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)' },
   reports: { icon: '📊', subtitle: 'Аналитика и выгрузки', gradient: 'linear-gradient(135deg, #be185d 0%, #ec4899 100%)' },
   custom_reports: { icon: '🧩', subtitle: 'Свои отчёты: фильтры, колонки, шаблоны', gradient: 'linear-gradient(135deg, #be185d 0%, #f472b6 100%)' },

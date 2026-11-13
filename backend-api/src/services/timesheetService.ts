@@ -24,9 +24,12 @@ const nowMs = () => Date.now();
 const numOrNull = (v: unknown): number | null => (v == null || v === '' ? null : Number(v));
 const normLogin = (v: unknown): string => String(v ?? '').trim().toLowerCase();
 
-// Право на редактирование табеля: автор-создатель редактирует всегда; другие — только
-// при включённом allow_others_edit. Легаси-табели без автора (created_by IS NULL)
-// остаются открытыми — как было до фичи прав (иначе их никто не смог бы править).
+// Право на редактирование табеля (владелец 13.11.2026): «редактировать все могут
+// только свои табеля, чужие портить нельзя и удалять чужие нельзя, чужие табеля
+// можно только смотреть». Значит правит ТОЛЬКО автор: галка «разрешить другим»,
+// которая раньше снимала запрет, убрана — обход через неё и был «порчей чужого».
+// Легаси-табели без автора (created_by IS NULL) остаются открытыми: их забирает
+// себе автором первый же редактор (claim в assertCanEditTimesheet).
 type TimesheetEditMeta = { createdBy: string | null; allowOthersEdit: boolean };
 
 async function loadTimesheetEditMeta(timesheetId: string): Promise<TimesheetEditMeta | null> {
@@ -45,15 +48,22 @@ export function actorIsAuthor(createdBy: string | null, actor?: string | null): 
 }
 
 export function canEditTimesheet(meta: TimesheetEditMeta, actor?: string | null): boolean {
-  if (!meta.createdBy) return true; // legacy timesheet without an author → open
-  return actorIsAuthor(meta.createdBy, actor) || meta.allowOthersEdit;
+  if (!meta.createdBy) return true; // legacy timesheet without an author → the first editor claims it
+  return actorIsAuthor(meta.createdBy, actor);
 }
 
 async function assertCanEditTimesheet(timesheetId: string, actor?: string | null): Promise<Err | null> {
   const meta = await loadTimesheetEditMeta(timesheetId);
   if (!meta) return { ok: false, error: 'Табель не найден' };
   if (!canEditTimesheet(meta, actor))
-    return { ok: false, error: 'Редактировать этот табель может только его автор (включите «Разрешить редактирование другим пользователям»)' };
+    return { ok: false, error: 'Править этот табель может только его автор — чужой табель можно только смотреть' };
+  // Легаси-табель без автора: забираем авторство себе, иначе его не смог бы никто.
+  if (!meta.createdBy && normLogin(actor)) {
+    await db
+      .update(timesheets)
+      .set({ createdBy: String(actor).trim(), updatedAt: nowMs() })
+      .where(and(eq(timesheets.id, timesheetId), isNull(timesheets.createdBy), isNull(timesheets.deletedAt)));
+  }
   return null;
 }
 
@@ -326,28 +336,18 @@ export async function updateTimesheet(args: {
   status?: TimesheetStatus;
   weekMode?: WeekMode;
   normHours?: number | null;
-  allowOthersEdit?: boolean;
   actor?: string | null;
 }): Promise<Result<{ id: string }>> {
   try {
     const id = String(args.id || '').trim();
     if (!id) return { ok: false, error: 'id обязателен' };
-    const meta = await loadTimesheetEditMeta(id);
-    if (!meta) return { ok: false, error: 'Табель не найден' };
-    // Галку «разрешить другим» меняет ТОЛЬКО автор (на легаси-табелях без автора —
-    // любой редактор, иначе её некому было бы включить).
-    if (args.allowOthersEdit !== undefined && meta.createdBy && !actorIsAuthor(meta.createdBy, args.actor)) {
-      return { ok: false, error: 'Менять разрешение на редактирование может только автор табеля' };
-    }
-    // Прочие правки заголовка (статус/режим/норма) — по обычному праву редактирования.
-    if (!canEditTimesheet(meta, args.actor)) {
-      return { ok: false, error: 'Редактировать этот табель может только его автор (включите «Разрешить редактирование другим пользователям»)' };
-    }
+    // Правка табеля — только автором (тот же гейт, что и у строк/ячеек).
+    const denied = await assertCanEditTimesheet(id, args.actor);
+    if (denied) return denied;
     const set: Record<string, unknown> = { updatedAt: nowMs() };
     if (args.status === 'draft' || args.status === 'closed') set.status = args.status;
     if (args.weekMode === 5 || args.weekMode === 6) set.weekMode = args.weekMode;
     if (args.normHours !== undefined) set.normHours = args.normHours == null ? null : String(args.normHours);
-    if (args.allowOthersEdit !== undefined) set.allowOthersEdit = Boolean(args.allowOthersEdit);
     await db.update(timesheets).set(set).where(and(eq(timesheets.id, id), isNull(timesheets.deletedAt)));
     return { ok: true, id };
   } catch (e) {

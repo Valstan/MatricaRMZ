@@ -417,7 +417,7 @@ const matricaApi = {
     get: async (id: string) => ipcRenderer.invoke('timesheets:get', id),
     create: async (args: { workshopId?: string; departmentId?: string; year: number; month: number; weekMode?: 5 | 6; shiftHours?: number }) =>
       ipcRenderer.invoke('timesheets:create', args),
-    update: async (args: { id: string; status?: 'draft' | 'closed'; weekMode?: 5 | 6; normHours?: number | null; allowOthersEdit?: boolean }) =>
+    update: async (args: { id: string; status?: 'draft' | 'closed'; weekMode?: 5 | 6; normHours?: number | null }) =>
       ipcRenderer.invoke('timesheets:update', args),
     delete: async (id: string) => ipcRenderer.invoke('timesheets:delete', id),
     addRows: async (args: { timesheetId: string; employees: Array<{ employeeId: string; tabNumber?: string | null; position?: string | null }> }) =>

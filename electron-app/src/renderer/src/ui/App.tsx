@@ -2919,6 +2919,7 @@ export function App() {
         canUseSync: false,
         canUseUpdates: false,
         canEditEngines: false,
+        canCreateTimesheets: false,
         canEditTimesheets: false,
         canEditOperations: false,
         canCreateSupplyRequests: false,
@@ -6277,6 +6278,7 @@ export function App() {
 
         {t === 'timesheets' && (
           <TimesheetsPage
+            canCreate={caps.canCreateTimesheets}
             canEdit={caps.canEditTimesheets}
             onOpen={(id: string) => {
               setSelectedTimesheetId(id);

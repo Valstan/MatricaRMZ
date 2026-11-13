@@ -57,7 +57,7 @@ const SPIKE_PERMISSIONS = Object.fromEntries(
     'supply_requests.accept', 'supply_requests.create', 'supply_requests.director_approve',
     'supply_requests.edit', 'supply_requests.fulfill', 'supply_requests.print',
     'supply_requests.sign', 'supply_requests.view', 'sync.use',
-    'timesheet.edit', 'timesheet.print', 'timesheet.view', 'updates.use',
+    'timesheet.create', 'timesheet.edit', 'timesheet.print', 'timesheet.view', 'updates.use',
     'warehouse.assembly_return', 'warehouse_locations.manage', 'warehouse_locations.view',
     'work_order_templates.edit', 'work_orders.assembly_shortage_approve', 'work_orders.close',
     'work_orders.create', 'work_orders.edit', 'work_orders.print', 'work_orders.revert',

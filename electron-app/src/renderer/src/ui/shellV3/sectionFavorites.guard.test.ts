@@ -83,10 +83,10 @@ describe('избранное разделов: цепочка контракт �
 // и список контрактов — лежат в реестре разделов (один источник правды), а main
 // подмешивает их к выбору оператора и помнит, что тот их снял.
 describe('дефолтные разделы левой панели', () => {
-  it('дефолты живут в реестре разделов: двигатели и контракты', () => {
+  it('дефолты живут в реестре разделов: двигатели, контракты и табель', () => {
     const text = rootSrc('shared/src/domain/uiSections.ts');
     expect(text).toContain('DEFAULT_SECTION_FAVORITES');
-    expect(text).toMatch(/DEFAULT_SECTION_FAVORITES[^=]*=\s*\['engines',\s*'contracts'\]/);
+    expect(text).toMatch(/DEFAULT_SECTION_FAVORITES[^=]*=\s*\['engines',\s*'contracts',\s*'timesheets'\]/);
   });
 
   it('main отдаёт дефолты каждому и считает снятые отдельно', () => {

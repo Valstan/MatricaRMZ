@@ -50,12 +50,14 @@ export function registerTimesheetsIpc(ctx: IpcContext) {
 
   ipcMain.handle('timesheets:create', async (_e, args: { workshopId?: string; departmentId?: string; year: number; month: number; weekMode?: 5 | 6; shiftHours?: number }) => {
     if (isViewMode(ctx)) return viewModeWriteError();
-    const gate = await requirePermOrResult(ctx, 'timesheet.edit');
+    // Заводить табель может каждый, кто работает в программе (владелец 13.11.2026).
+    // Править свой табель — только автор (гейт на сервере, timesheet.edit).
+    const gate = await requirePermOrResult(ctx, 'timesheet.create');
     if (!gate.ok) return gate as Err;
     return toResult(await httpAuthed(ctx.sysDb, base(), '/timesheets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) }));
   });
 
-  ipcMain.handle('timesheets:update', async (_e, args: { id: string; status?: 'draft' | 'closed'; weekMode?: 5 | 6; normHours?: number | null; allowOthersEdit?: boolean }) => {
+  ipcMain.handle('timesheets:update', async (_e, args: { id: string; status?: 'draft' | 'closed'; weekMode?: 5 | 6; normHours?: number | null }) => {
     if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'timesheet.edit');
     if (!gate.ok) return gate as Err;

@@ -71,22 +71,25 @@ describe('operator role presets (RBAC #474)', () => {
     }
   });
 
-  it('viewer can edit nothing', () => {
+  it('viewer edits nothing', () => {
     const perms = operatorRolePermissions('viewer')!;
     expect(perms[PermissionCode.EnginesEdit]).toBeFalsy();
     expect(perms[PermissionCode.WorkOrdersEdit]).toBeFalsy();
     expect(perms[PermissionCode.PartsEdit]).toBeFalsy();
-    expect(perms[PermissionCode.TimesheetEdit]).toBeFalsy();
+    // Табель — исключение: право «вести табели» общее у всех (владелец 13.11.2026),
+    // но править можно только СВОЙ табель — границу держит авторство на сервере.
+    expect(perms[PermissionCode.TimesheetCreate]).toBe(true);
+    expect(perms[PermissionCode.TimesheetEdit]).toBe(true);
   });
 
-  it('engineer edits engines/operations but not work orders or timesheet', () => {
+  it('engineer edits engines/operations but not work orders', () => {
     const perms = operatorRolePermissions('engineer')!;
     expect(perms[PermissionCode.EnginesEdit]).toBe(true);
     expect(perms[PermissionCode.OperationsEdit]).toBe(true);
     expect(perms[PermissionCode.EnginesDisassembleConfirm]).toBe(true);
     expect(perms[PermissionCode.WorkOrdersEdit]).toBeFalsy();
     expect(perms[PermissionCode.WorkOrdersClose]).toBeFalsy();
-    expect(perms[PermissionCode.TimesheetEdit]).toBeFalsy();
+    expect(perms[PermissionCode.TimesheetCreate]).toBe(true);
     expect(perms[PermissionCode.SupplyRequestsCreate]).toBeFalsy();
   });
 
@@ -109,7 +112,7 @@ describe('operator role presets (RBAC #474)', () => {
     expect(perms[PermissionCode.MasterDataEdit]).toBe(true);
     expect(perms[PermissionCode.EnginesEdit]).toBe(true);
     expect(perms[PermissionCode.WorkOrdersClose]).toBeFalsy();
-    expect(perms[PermissionCode.TimesheetEdit]).toBeFalsy();
+    expect(perms[PermissionCode.TimesheetCreate]).toBe(true);
   });
 
   it('supply edits requests but sign/approve stay per-person (overrides)', () => {
@@ -129,6 +132,22 @@ describe('operator role presets (RBAC #474)', () => {
     expect(perms[PermissionCode.WorkOrdersEdit]).toBeFalsy();
   });
 
+  // Табель заводит и ведёт каждый, кто работает в программе (владелец 13.11.2026):
+  // «открой всем пользователям программы разрешение на создание табелей работы, но
+  // редактировать все могут только свои табеля, чужие портить нельзя и удалять чужие
+  // нельзя, чужие табеля можно только смотреть». Право «вести табели» общее у всех,
+  // а границу «только свой» держит АВТОРСТВО на сервере (timesheetService).
+  it('табель заводит и ведёт любой оператор — править можно только свой', () => {
+    for (const role of ['engineer', 'technolog', 'master', 'supply', 'storekeeper', 'timekeeper', 'viewer']) {
+      const perms = operatorRolePermissions(role)!;
+      expect(perms[PermissionCode.TimesheetCreate], role).toBe(true);
+      expect(perms[PermissionCode.TimesheetView], role).toBe(true);
+    }
+    expect(operatorRolePermissions('viewer')![PermissionCode.TimesheetEdit]).toBe(true);
+    expect(operatorRolePermissions('engineer')![PermissionCode.TimesheetEdit]).toBe(true);
+    expect(operatorRolePermissions('timekeeper')![PermissionCode.TimesheetEdit]).toBe(true);
+  });
+
   it('storekeeper edits/posts warehouse documents, nomenclature and supply requests — nothing else', () => {
     const perms = operatorRolePermissions('storekeeper')!;
     expect(perms[PermissionCode.ErpDocumentsEdit]).toBe(true);
@@ -139,7 +158,7 @@ describe('operator role presets (RBAC #474)', () => {
     expect(perms[PermissionCode.FilesUpload]).toBe(true);
     expect(perms[PermissionCode.WorkOrdersEdit]).toBeFalsy();
     expect(perms[PermissionCode.EnginesEdit]).toBeFalsy();
-    expect(perms[PermissionCode.TimesheetEdit]).toBeFalsy();
+    expect(perms[PermissionCode.TimesheetCreate]).toBe(true);
     // admin-only clamp territory — must not be in the operator footprint
     expect(perms[PermissionCode.WarehouseLocationsManage]).toBeFalsy();
     expect(perms[PermissionCode.MovementsRevert]).toBeFalsy();

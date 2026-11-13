@@ -57,7 +57,8 @@ const PREFIX_RULES: ReadonlyArray<readonly [string, AccessSection]> = [
   ['employees:permissionsGet', 'people'],
   ['employees:sectionMembershipGet', 'people'],
   ['employees:resyncFromServer', 'people'],
-  ['timesheets:', 'people'],
+  // timesheets:* — без гейта по разделу (владелец 13.11.2026): табель доступен всем,
+  // кто работает в программе; править свой табель может только автор (гейт на сервере).
   ['reports:', 'reports'],
   ['reportsBuilder:', 'reports'],
   ['workshops:stats', 'reports'],
@@ -218,12 +219,9 @@ const WRITE_CHANNELS = new Set([
   'employees:delete',
   'employees:merge',
   'employees:resyncFromServer',
-  'timesheets:create',
-  'timesheets:update',
-  'timesheets:delete',
-  'timesheets:addRows',
-  'timesheets:removeRow',
-  'timesheets:setCells',
+  // Табели (timesheets:*) в разделе «Персонал» больше не гейтятся (владелец 13.11.2026):
+  // табель заводит и смотрит каждый, а править свой табель может только автор —
+  // этот гейт держит сервер (timesheetService.canEditTimesheet), а не раздел.
   // directories
   'workshops:upsert',
   'workshops:delete',
