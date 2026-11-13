@@ -2,7 +2,7 @@
 import { Group, Panel, Separator, type Layout, type LayoutChangedMeta } from 'react-resizable-panels';
 import { shouldWarnTabsCount } from '@matricarmz/shared';
 
-import { resolveMenuTab, type MenuTabId, type TabId } from '../layout/Tabs.js';
+import { resolveMenuTab, MENU_TAB_LABELS, type MenuTabId, type TabId } from '../layout/Tabs.js';
 import { FileTransferProgressPanel } from '../components/FileTransferProgressPanel.js';
 import { ButtonPanel } from '../shellV2/ButtonPanel.js';
 import type { V2ButtonLayout } from '@matricarmz/shared';
@@ -13,6 +13,7 @@ import { useChromeVisibility } from '../shell/ChromeVisibilityContext.js';
 import type { ShellNotice } from '../shell/shellNotice.js';
 import { TabVisibilityProvider } from '../shell/TabVisibilityContext.js';
 import { matricaPlatform } from '../platform.js';
+import { FavoriteStarButton } from '../components/FavoriteStarButton.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
 import { emojiAttrs } from '../utils/labelEmoji.js';
 import { shouldKeepAliveTab } from './keepAlive.js';
@@ -421,7 +422,13 @@ export function V3TabShell(props: {
                 title={isSecondary ? `${tab.label} — открыта во второй панели` : tab.label}
                 {...(isMenu || isSecondary ? {} : emojiAttrs(tab.label))}
               >
-                {isMenu ? `🧱 ${tab.label}` : isSecondary ? `▐ ${tab.label}` : tab.label}
+                {/* Подпись вкладки — в своём элементе: сама кнопка тянется на всю
+                    свободную ширину, а текст режется многоточием. Так крестик и звезда
+                    стоят у правого края вкладки, а не висят по середине (владелец
+                    13.11.2026: «кнопка закрытия смещена влево от края»). */}
+                <span className="v3-tab-text">
+                  {isMenu ? `🧱 ${tab.label}` : isSecondary ? `▐ ${tab.label}` : tab.label}
+                </span>
                 {/* Непрочитанные сообщения видны, даже когда оператор в другой вкладке
                     (владелец 08.09.2026): раньше о письме узнавали, только зайдя в чат. */}
                 {tab.kind === 'chat' && Number(props.chatUnread ?? 0) > 0 && (
@@ -436,6 +443,33 @@ export function V3TabShell(props: {
                   </span>
                 )}
               </button>
+              {/* Золотая звёздочка избранного — между названием и крестиком (владелец
+                  13.11.2026: «на кнопки вкладок верни значок звездочки, чтобы вкладку
+                  в левую колонку можно было добавлять»). У списка — звезда своего
+                  раздела, у карточки — родительского (все карточки двигателей делят
+                  звезду «Двигатели»). Закрепление осталось и в контекстном меню вкладки. */}
+              {(tab.kind === 'list' || tab.kind === 'card') &&
+                (tab.kind === 'list' ? tab.tabId : tab.cardKind) != null && (() => {
+                  const menuId = resolveMenuTab(String(tab.kind === 'list' ? tab.tabId : tab.cardKind));
+                  if (menuId == null) return null;
+                  const fav = props.sectionFavorites.includes(menuId);
+                  const sectionLabel = props.menuLabels[menuId] ?? MENU_TAB_LABELS[menuId];
+                  return (
+                    <span className="v3-tab-star">
+                      <FavoriteStarButton
+                        favorite={fav}
+                        dataId={menuId}
+                        size={20}
+                        title={
+                          fav
+                            ? `Убрать «${sectionLabel}» из левой панели`
+                            : `Добавить «${sectionLabel}» в левую панель`
+                        }
+                        onToggle={() => props.onToggleSectionFavorite(menuId)}
+                      />
+                    </span>
+                  );
+                })()}
               {canSplit && (
                 <button
                   type="button"
@@ -446,9 +480,7 @@ export function V3TabShell(props: {
                   ⑃
                 </button>
               )}
-              {/* Звёзд на вкладках больше нет (владелец 22.10.2026): она занимала место в
-                  узкой полосе и мешалась. Закрепление — через контекстное меню вкладки
-                  («Добавить в левую панель») и перетаскиванием. */}
+              {/* Крестик — последним, у самого края вкладки. */}
               {tab.kind === 'list' && tab.tabId === 'drafts' && Number(props.draftsCount ?? 0) > 0 ? (
                 // Пока есть черновики, вкладку закрывать нельзя — но крестик показываем
                 // (иначе оператор не понимает, почему вкладка не закрывается).

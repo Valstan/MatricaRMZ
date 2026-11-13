@@ -56,14 +56,16 @@ describe('избранное разделов: цепочка контракт �
     expect(text).toContain('onToggleSectionFavorite={toggleSectionFavorite}');
   });
 
-  it('шелл рисует левую панель; звезда — только в МЕНЮ, не на вкладках', () => {
+  it('шелл рисует левую панель; звезда — в МЕНЮ и на вкладке', () => {
     const text = src('./V3TabShell.tsx');
     expect(text).toContain('data-fav-rail');
     expect(text).toContain('data-fav-card');
     expect(text).toContain('onToggleSectionFavorite');
-    // Владелец 22.10.2026: звезда с вкладок снята (мешалась в узкой полосе), закрепление —
-    // контекстным меню вкладки. Цепочка сохранения та же: favoritesGet/Set.
-    expect(text).not.toContain('FavoriteStarButton');
+    // Владелец 13.11.2026: звезда вернулась на вкладки («верни значок звездочки, чтобы
+    // вкладку в левую колонку можно было добавлять»). Цепочка сохранения та же:
+    // favoritesGet/Set.
+    expect(text).toContain('FavoriteStarButton');
+    expect(text).toContain('v3-tab-star');
     const star = src('../components/FavoriteStarButton.tsx');
     expect(star).toContain('data-fav-star');
   });
@@ -73,5 +75,38 @@ describe('избранное разделов: цепочка контракт �
     expect(text).toContain('FavoriteStarButton');
     expect(text).toContain("btn.kind === 'nav'");
     expect(text).toContain('onToggleFavoriteTab');
+  });
+});
+
+// Левая панель не должна оставаться пустой (владелец 13.11.2026: «многие клиенты так
+// и сидят до сих пор с пустой колонкой слева»). Дефолтные разделы — список двигателей
+// и список контрактов — лежат в реестре разделов (один источник правды), а main
+// подмешивает их к выбору оператора и помнит, что тот их снял.
+describe('дефолтные разделы левой панели', () => {
+  it('дефолты живут в реестре разделов: двигатели и контракты', () => {
+    const text = rootSrc('shared/src/domain/uiSections.ts');
+    expect(text).toContain('DEFAULT_SECTION_FAVORITES');
+    expect(text).toMatch(/DEFAULT_SECTION_FAVORITES[^=]*=\s*\['engines',\s*'contracts'\]/);
+  });
+
+  it('main отдаёт дефолты каждому и считает снятые отдельно', () => {
+    const text = rootSrc('electron-app/src/main/ipc/register/sectionFavorites.ts');
+    expect(text).toContain('DEFAULT_SECTION_FAVORITES');
+    expect(text).toContain('effectiveSectionFavoriteIds');
+    // Снятый дефолт должен ПЕРЕЖИТЬ перезапуск: иначе «по умолчанию» — фикция.
+    expect(text).toMatch(/off\s*=/);
+    expect(text).toContain('off:');
+  });
+
+  it('звезда с вкладки ведёт в тот же профиль избранного', () => {
+    const text = src('./V3TabShell.tsx');
+    expect(text).toContain('props.onToggleSectionFavorite(menuId)');
+    expect(text).toContain('props.sectionFavorites.includes(menuId)');
+  });
+
+  it('звезда молчит, пока профиль не прочитан (иначе клик затрёт выбор)', () => {
+    const text = src('../App.tsx');
+    expect(text).toContain('sectionFavoritesLoaded');
+    expect(text).toContain('if (!sectionFavoritesLoaded) return;');
   });
 });
