@@ -14,7 +14,7 @@ import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
-import { Input } from '../components/Input.js';
+import { ToolbarSearchField } from '../components/ToolbarSearchField.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { ListCount } from '../components/ListCount.js';
@@ -715,9 +715,7 @@ export function NomenclatureDirectoryPage(props: {
         {props.secondaryAction}
 
         <ToolbarPin>
-          <div style={{ width: 280 }}>
-            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={props.searchPlaceholder} />
-          </div>
+          <ToolbarSearchField value={query} onChange={(v) => setQuery(v)} placeholder={props.searchPlaceholder} />
         </ToolbarPin>
         {props.directoryKind === 'part' ? (
           <>
@@ -757,6 +755,7 @@ export function NomenclatureDirectoryPage(props: {
         {!isAndroidPlatform() && (
           <Button
             variant="ghost"
+            data-list-print
             onClick={() => setPrintDialogOpen(true)}
             title="Печать текущего списка: колонки как на экране, объём под контролем"
           >

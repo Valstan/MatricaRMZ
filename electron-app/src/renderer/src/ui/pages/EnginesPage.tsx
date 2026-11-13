@@ -39,9 +39,9 @@ import { EngineTagPrintDialog, type EngineTagInitial } from '../components/Engin
 import { useTagPrintQueue } from '../hooks/useTagPrintQueue.js';
 import { ListColumnChips, type ColumnDescriptor } from '../components/ListColumnChips.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
+import { ToolbarSearchField } from '../components/ToolbarSearchField.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
-import { Input } from '../components/Input.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { useListDeepFilter } from '../hooks/useListDeepFilter.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
@@ -1146,12 +1146,12 @@ export function EnginesPage(props: {
           </Button>
         )}
         {/* Поиск и то, что им управляет, в меню не уезжают: без них список неуправляем.
-            Ширину обёртке не задаём: поле само ограничено 48ch, и любая большая ширина
-            превратилась бы в пустоту между поиском и кнопками. */}
+            Ширину и раздвижение задаёт общее поле (ToolbarSearchField): при фокусе оно
+            накладывается поверх кнопок, без фокуса — сжимается обратно. */}
         <ToolbarPin>
-          <Input
+          <ToolbarSearchField
             value={query}
-            onChange={(e) => patchState({ query: e.target.value, page: 0 })}
+            onChange={(v) => patchState({ query: v, page: 0 })}
             placeholder="Поиск по всем данным двигателя (и внутри карточек)…"
           />
         </ToolbarPin>
@@ -1189,17 +1189,19 @@ export function EnginesPage(props: {
             variant="ghost"
             onClick={openTagDialog}
             title="Бирки на двигатель (марка, номера, заказчик, договор, даты) по ВЫДЕЛЕННЫМ строкам: 6 / 4 / 2 на листе A4"
+            data-list-tags
           >
-            {selectedEngines.length > 0 ? `Бирки на двигатели (${selectedEngines.length})` : 'Бирки на двигатели'}
+            {selectedEngines.length > 0 ? `Бирки (${selectedEngines.length})` : 'Бирки'}
           </Button>
         )}
         {!isAndroidPlatform() && (
           <Button
             variant="ghost"
+            data-list-print
             onClick={() => setPrintDialogOpen(true)}
             title="Печать текущего списка (по фильтру или выделенных строк) с выбором полей"
           >
-            Печать списка
+            Печать
           </Button>
         )}
         <ListExportButtons
@@ -1258,7 +1260,7 @@ export function EnginesPage(props: {
           }}
         >
           Бирки печатаются на выделенные двигатели — сейчас не выделен ни один. Поставьте галочки
-          в колонке слева (или Shift+клик / Shift+стрелки) и нажмите «Бирки на двигатели» ещё раз.
+          в колонке слева (или Shift+клик / Shift+стрелки) и нажмите «Бирки» ещё раз.
         </div>
       )}
 

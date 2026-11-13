@@ -26,7 +26,7 @@ import { ListColumnChips, type ColumnDescriptor } from '../../components/ListCol
 import { ColumnToggleButton } from '../../components/ColumnToggleButton.js';
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../../components/ColumnResizeHandle.js';
 import { FacetFilter } from '../../components/FacetFilter.js';
-import { Input } from '../../components/Input.js';
+import { ToolbarSearchField } from '../../components/ToolbarSearchField.js';
 import { ListCount } from '../../components/ListCount.js';
 import { ListExportButtons } from '../../components/ListExportButtons.js';
 import { ListPrintDialog } from '../../components/ListPrintDialog.js';
@@ -394,7 +394,7 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
           К списку Отчётов
         </Button>
         <ToolbarPin>
-          <Input value={ui.query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по этапам работ…" />
+          <ToolbarSearchField value={ui.query} onChange={(v) => patchState({ query: v })} placeholder="Поиск по этапам работ…" />
         </ToolbarPin>
         <ToolbarPin>
           <SearchModeToggle similar={ui.searchSimilar} onToggle={() => patchState({ searchSimilar: !ui.searchSimilar })} />
@@ -411,7 +411,7 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
           </label>
         </ToolbarPin>
         {!isAndroidPlatform() && props.canExport && (
-          <Button variant="ghost" onClick={() => setPrintOpen(true)} title="Печать текущего списка (по фильтру, с заголовками групп) с выбором полей">
+          <Button variant="ghost" data-list-print onClick={() => setPrintOpen(true)} title="Печать текущего списка (по фильтру, с заголовками групп) с выбором полей">
             Печать списка
           </Button>
         )}

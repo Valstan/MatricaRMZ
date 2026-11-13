@@ -10,7 +10,7 @@ import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
 import { useConfirm } from '../components/ConfirmContext.js';
-import { Input } from '../components/Input.js';
+import { ToolbarSearchField } from '../components/ToolbarSearchField.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
 import { ListRowThumbs } from '../components/ListRowThumbs.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
@@ -1033,7 +1033,7 @@ export function ContractsPage(props: {
         )}
         {/* Поиск и то, что им управляет, в меню не уезжают: без них список неуправляем. */}
         <ToolbarPin>
-          <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным контракта…" />
+          <ToolbarSearchField value={query} onChange={(v) => patchState({ query: v })} placeholder="Поиск по всем данным контракта…" />
         </ToolbarPin>
         <ToolbarPin>
           <SearchModeToggle similar={searchSimilar} onToggle={() => patchState({ searchSimilar: !searchSimilar })} />
@@ -1046,6 +1046,7 @@ export function ContractsPage(props: {
         {!isAndroidPlatform() && (
           <Button
             variant="ghost"
+            data-list-print
             onClick={() => setPrintDialogOpen(true)}
             title="Печать текущего списка: колонки как на экране, объём под контролем"
           >

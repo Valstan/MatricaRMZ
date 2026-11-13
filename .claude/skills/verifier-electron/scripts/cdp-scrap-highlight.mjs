@@ -250,8 +250,8 @@ async function main() {
        if (!cs || !cn) return { ok: false, reason: 'в строке нет галочки выделения' };
        click(cs); await wait(500);
        click(cn); await wait(700);
-       const btn = byText('Бирки на двигатели');
-       if (!btn) return { ok: false, reason: 'кнопка «Бирки на двигатели» не найдена' };
+       const btn = document.querySelector('[data-list-tags]') ?? byText('Бирки');
+       if (!btn) return { ok: false, reason: 'кнопка «Бирки» не найдена' };
        click(btn); await wait(2500);
        const q = document.querySelector('[data-tag-queue]');
        if (!q) return { ok: false, reason: 'очередь бирок не открылась' };

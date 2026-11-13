@@ -138,6 +138,9 @@ const HELPERS = `
   const vis = (sel, root) => [...(root ?? document).querySelectorAll(sel)].filter(visible);
   const byText = (label, root) => vis('button', root).find((b) => txt(b).includes(label));
   const byExact = (label, root) => vis('button', root).find((b) => txt(b) === label);
+  // Кнопку печати списка ищем по метке, а не по тексту: подписи у списков разные («Печать
+  // списка», «Печать»), и они меняются — метка переживает переименование.
+  const printButton = (root) => vis('button[data-list-print]', root)[0] ?? byExact('Печать списка', root) ?? byExact('Печать', root);
   const call = (p, ms = 15000) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('мост не ответил')), ms))]);
   const activePane = () => vis('.v3-tab-pane[data-pane-active="1"]')[0] ?? document;
   const dismissModals = async () => {
@@ -176,17 +179,17 @@ const HELPERS = `
   // Кнопка печати может уехать в меню переполнения тулбара («⋯»): на узком ряду она
   // прячется вместе с остальными, и оператор достаёт её оттуда же.
   const openPrintDialog = async () => {
-    let btn = byExact('Печать списка', activePane()) ?? byExact('Печать списка');
+    let btn = printButton(activePane()) ?? printButton();
     let fromOverflow = false;
     if (!btn) {
       const more = vis('button[data-toolbar-overflow]')[0];
-      if (!more) return { ok: false, reason: 'нет ни кнопки «Печать списка», ни меню «⋯»' };
+      if (!more) return { ok: false, reason: 'нет ни кнопки печати, ни меню «⋯»' };
       click(more);
       await wait(700);
-      btn = byExact('Печать списка');
+      btn = printButton();
       fromOverflow = Boolean(btn);
     }
-    if (!btn) return { ok: false, reason: 'кнопки «Печать списка» нет' };
+    if (!btn) return { ok: false, reason: 'кнопки печати нет' };
     click(btn);
     await wait(900);
     const root = printDialogRoot();
@@ -351,8 +354,8 @@ async function main() {
   /* ── [1][2] диалог печати: раскладка и честное предупреждение ───────────── */
   const openDialog = await evaluate(
     ws,
-    `const btn = byExact('Печать списка', activePane());
-     if (!btn) return { ok: false, reason: 'кнопки «Печать списка» нет' };
+    `const btn = printButton(activePane());
+     if (!btn) return { ok: false, reason: 'кнопки печати нет' };
      click(btn); await wait(700);
      const root = printDialogRoot();
      if (!root) return { ok: false, reason: 'диалог печати не открылся' };
@@ -611,11 +614,11 @@ async function main() {
 
   /* ── [10] отчётный список (та же печать, другая страница) ───────────────── */
   await openSection(ws, 'Производство', 'Сейчас на заводе');
-  const report = await waitVal(ws, `activePane() && byExact('Печать списка', activePane()) !== undefined`, 'отчёт открыт');
+  const report = await waitVal(ws, `activePane() && printButton(activePane()) !== undefined`, 'отчёт открыт');
   note(Boolean(report), 'отчёт «Сейчас на заводе» открыт', { page: Boolean(report) });
   const reportDialog = await evaluate(
     ws,
-    `const btn = byExact('Печать списка', activePane());
+    `const btn = printButton(activePane());
      if (!btn) return { ok: false, reason: 'кнопки печати нет' };
      click(btn); await wait(800);
      const root = printDialogRoot();
@@ -672,7 +675,7 @@ async function main() {
   ];
   for (const [group, item] of otherPages) {
     await openSection(ws, group, item);
-    await waitVal(ws, `activePane() && (byExact('Печать списка', activePane()) !== undefined || vis('button[data-toolbar-overflow]')[0] !== undefined)`, `${item}: панель готова`, 15000);
+    await waitVal(ws, `activePane() && (printButton(activePane()) !== undefined || vis('button[data-toolbar-overflow]')[0] !== undefined)`, `${item}: панель готова`, 15000);
     const checked = await evaluate(
       ws,
       `const opened = await openPrintDialog();

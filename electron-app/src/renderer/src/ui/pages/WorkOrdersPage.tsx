@@ -24,6 +24,7 @@ import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from '../components/ColumnResizeHandle.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
+import { ToolbarSearchField } from '../components/ToolbarSearchField.js';
 import { ListContextMenu } from '../components/ListContextMenu.js';
 import { TwoColumnList } from '../components/TwoColumnList.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
@@ -558,9 +559,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
           </Button>
         )}
         <ToolbarPin>
-          <div style={{ width: 260 }}>
-            <Input value={query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по всем данным наряда…" />
-          </div>
+          <ToolbarSearchField value={query} onChange={(v) => patchState({ query: v })} placeholder="Поиск по всем данным наряда…" />
         </ToolbarPin>
         <div style={{ width: 160 }}>
           <Input type="month" value={month} onChange={(e) => patchState({ month: e.target.value })} title="Месяц нарядов" />
@@ -596,6 +595,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
         {!isAndroidPlatform() && (
           <Button
             variant="ghost"
+            data-list-print
             onClick={() => setPrintDialogOpen(true)}
             title="Печать текущего списка: колонки как на экране, объём под контролем"
           >

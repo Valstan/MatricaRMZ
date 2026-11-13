@@ -19,7 +19,7 @@ import { ColumnResizeHandle, manualThAnchor, manualWidth, manualWidthAttr } from
 import { ListColumnChips, type ColumnDescriptor } from '../components/ListColumnChips.js';
 import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { FacetFilter } from '../components/FacetFilter.js';
-import { Input } from '../components/Input.js';
+import { ToolbarSearchField } from '../components/ToolbarSearchField.js';
 import { ListCount } from '../components/ListCount.js';
 import { ListExportButtons } from '../components/ListExportButtons.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
@@ -463,13 +463,11 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
     <div data-list-root="true" style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
       <PageToolbar>
         <ToolbarPin>
-          <div style={{ width: 280 }}>
-            <Input
-              value={query}
-              onChange={(e) => patchState({ query: e.target.value })}
-              placeholder="Поиск по ФИО и табельному…"
-            />
-          </div>
+          <ToolbarSearchField
+            value={query}
+            onChange={(v) => patchState({ query: v })}
+            placeholder="Поиск по ФИО и табельному…"
+          />
         </ToolbarPin>
         <Button variant="ghost" onClick={() => void load()} disabled={loading}>
           Обновить
@@ -477,6 +475,7 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
         {!isAndroidPlatform() && (
           <Button
             variant="ghost"
+            data-list-print
             onClick={() => setPrintDialogOpen(true)}
             title="Печать текущего списка: колонки как на экране, объём под контролем"
           >

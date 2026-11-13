@@ -371,7 +371,7 @@ async function main() {
 
   const opened = await evaluate(
     ws,
-    `const b = [...document.querySelectorAll('button')].filter(visible).find((x) => txt(x).includes('Печать списка'));
+    `const b = [...document.querySelectorAll('button')].filter(visible).find((x) => x.hasAttribute('data-list-print') || txt(x).includes('Печать списка'));
      if (!b) return { found: false };
      click(b); await wait(1500);
      return { found: true };`,
@@ -417,7 +417,7 @@ async function main() {
     // Возвращаемся в диалог и выравниваем набор: сначала недостающие, потом лишние.
     const reopened = await evaluate(
       ws,
-      `const b = [...document.querySelectorAll('button')].filter(visible).find((x) => txt(x).includes('Печать списка'));
+      `const b = [...document.querySelectorAll('button')].filter(visible).find((x) => x.hasAttribute('data-list-print') || txt(x).includes('Печать списка'));
        if (!b) return { found: false };
        click(b); await wait(1200);
        const add = document.querySelector('[data-print-column-mismatch-add]');

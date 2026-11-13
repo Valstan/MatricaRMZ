@@ -42,7 +42,7 @@ import { FacetFilter } from '../components/FacetFilter.js';
 import { EngineQrScanButton } from '../components/EngineQrScanButton.js';
 
 
-import { Input } from '../components/Input.js';
+import { ToolbarSearchField } from '../components/ToolbarSearchField.js';
 
 
 import { ListCount } from '../components/ListCount.js';
@@ -932,7 +932,7 @@ export function WorkSheetsPage(props: {
           Добавить этап
         </Button>
         <ToolbarPin>
-          <Input value={ui.query} onChange={(e) => patchState({ query: e.target.value })} placeholder="Поиск по этапам работ…" />
+          <ToolbarSearchField value={ui.query} onChange={(v) => patchState({ query: v })} placeholder="Поиск по этапам работ…" />
         </ToolbarPin>
         <ToolbarPin>
           <EngineQrScanButton onEngineNumber={(n) => patchState({ query: n })} />
@@ -987,7 +987,7 @@ export function WorkSheetsPage(props: {
         {!isAndroidPlatform() && (
 
 
-          <Button variant="ghost" onClick={() => setPrintOpen(true)} title="Печать текущего списка (по фильтру) с выбором полей">
+          <Button variant="ghost" data-list-print onClick={() => setPrintOpen(true)} title="Печать текущего списка (по фильтру) с выбором полей">
 
 
             Печать списка
