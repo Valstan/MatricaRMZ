@@ -12,6 +12,7 @@ import {
   sanitizeEngineFacetSelection,
   stripStageDateWhenWhereNow,
   classifyEngineContractBinding,
+  engineBindingLabel,
   engineFactoryStage,
   engineInternalNumberSortKey,
   engineRmzNumberSortKey,
@@ -109,15 +110,24 @@ function renderBindingCell(e: EngineListItem): React.ReactNode {
         {dots}
         {recl}
       </span>
-      <span>{label}</span>
+      {label ? <span>{label}</span> : null}
     </span>
   );
+  // Подпись привязки — рабочий номер договора («239», «239/2»), а не слово «договор»
+  // (владелец 12.11.2026). `contractName` у договора — это ЕГО НОМЕР: своей подписи у
+  // сущности «договор» нет, берётся атрибут `number`. Непривязанный двигатель остаётся
+  // пустым: в ячейке только красный кружок — «нет ни договора, ни ДС».
+  const label = engineBindingLabel({
+    contractId: e.contractId,
+    contractNumber: e.contractName,
+    contractSectionNumber: e.contractSectionNumber,
+  });
   if (status === 'none') {
-    return wrap(bindingDot(BINDING_RED), 'Не привязан', 'Двигатель не привязан к контракту');
+    return wrap(bindingDot(BINDING_RED), label, 'Двигатель не привязан к контракту');
   }
   const contractTitle = e.contractName ? `Договор: ${e.contractName}` : 'Привязан к договору';
   if (status === 'contract') {
-    return wrap(bindingDot(BINDING_GREEN), 'Договор', contractTitle);
+    return wrap(bindingDot(BINDING_GREEN), label, contractTitle);
   }
   const section = String(e.contractSectionNumber ?? 'ДС').trim() || 'ДС';
   return wrap(
@@ -125,7 +135,7 @@ function renderBindingCell(e: EngineListItem): React.ReactNode {
       {bindingDot(BINDING_GREEN)}
       {bindingDot(BINDING_GREEN)}
     </>,
-    section,
+    label,
     `${contractTitle} · ${section}`,
   );
 }
@@ -202,11 +212,13 @@ export function createDefaultEnginesPageUiState(): EnginesPageUiState {
 }
 
 /**
- * Даты стадий (16.09) и «Дата изменения» (владелец 19.10.2026: «дата внесения — убрать из
- * показа по умолчанию, оставить в настройках колонок») — скрыты, пока оператор сам не включит
- * их в «Колонках списка».
+ * Даты стадий (16.09), «Дата изменения» (владелец 19.10.2026: «дата внесения — убрать из
+ * показа по умолчанию, оставить в настройках колонок») и «Привязка» (владелец 12.11.2026:
+ * «выключить, чтобы не мешалась») — скрыты, пока оператор сам не включит их в «Колонках
+ * списка». У тех, у кого колонка уже видна, умолчание применяется один раз — см.
+ * `HIDE_ONCE` в `hooks/columnLayoutStore.ts`.
  */
-const ENGINE_LIST_HIDDEN_BY_DEFAULT = ['repairStartedDate', 'repairedDate', 'scrapDate', 'stageDate', 'updatedAt'];
+const ENGINE_LIST_HIDDEN_BY_DEFAULT = ['repairStartedDate', 'repairedDate', 'scrapDate', 'stageDate', 'updatedAt', 'binding'];
 
 /**
  * Выбранный в фильтре «История» этап — ровно один (или ни одного). Возвращает

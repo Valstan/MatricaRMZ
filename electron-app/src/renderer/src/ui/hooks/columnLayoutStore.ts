@@ -26,15 +26,23 @@ export const COLUMN_LAYOUT_CHANGE_EVENT = 'matrica:column-layout-changed';
 
 /**
  * Колонки, спрятанные задним числом у уже сохранённых раскладок (владелец 19.10.2026, P6:
- * «дата внесения — убрать из показа по умолчанию, оставить в настройках колонок»). Обычное
+ * «дата внесения — убрать из показа по умолчанию, оставить в настройках колонок»; владелец
+ * 12.11.2026 — «Привязка» в списке двигателей: «выключить, чтобы не мешалась»). Обычное
  * правило `defaultHidden` такие колонки не трогает: сохранённая запись их знает, а «оператор
  * уже видел» (см. `layoutFromPersisted`). Поэтому смена умолчания для жившей колонки названа
  * здесь явно и срабатывает один раз на пользователя: включил обратно в «Колонках списка» —
  * значит, так и надо, второй раз прятать не станем.
  */
 const HIDE_ONCE: Record<string, readonly string[]> = {
-  'list:engines:columns': ['updatedAt'],
+  'list:engines:columns': ['updatedAt', 'binding'],
 };
+
+/**
+ * Колонки, к которым старая отметка «1» (19.10.2026, отметка была на пользователя и на
+ * список) относится как к уже применённым. Новая колонка в `HIDE_ONCE` после этого срока
+ * отметки не имеет — и потому прячется один раз у всех.
+ */
+const LEGACY_HIDE_ONCE_APPLIED = ['updatedAt'];
 
 let currentUserId = '';
 
@@ -126,28 +134,47 @@ export function clearColumnLayout(layoutId: string): void {
 }
 
 /**
- * Раскладка после разовой миграции умолчаний; `null` — менять нечего либо миграция этому
- * пользователю уже применялась. Отметка локальная (не едет в профиль): на другой машине
- * раскладка обычно приходит уже с этой колонкой скрытой, и прятать нечего; если там колонку
- * включали руками, новое умолчание сработает один раз и там — дальше решает оператор.
+ * Раскладка после разовой миграции умолчаний; `null` — менять нечего либо это умолчание
+ * этому пользователю уже применялось. Отметка локальная (не едет в профиль): на другой
+ * машине раскладка обычно приходит уже с этой колонкой скрытой, и прятать нечего; если там
+ * колонку включали руками, новое умолчание сработает один раз и там — дальше решает оператор.
+ *
+ * Отметка — **по колонкам** (в значении список id через запятую), а не на пользователя: иначе
+ * колонка, добавленная в `HIDE_ONCE` позже, у парка уже никогда не спряталась бы — отметка
+ * стояла бы с прошлого умолчания. Старое значение «1» — это «updatedAt»: 19.10.2026 отметка
+ * была на пользователя и на список, а колонка в нём была одна.
  */
 export function applyHideOnce(layoutId: string, knownIds: readonly string[], state: ColumnLayoutState): ColumnLayoutState | null {
   const ids = HIDE_ONCE[layoutId];
   if (!ids || ids.length === 0) return null;
   const key = `${HIDE_ONCE_PREFIX}${currentUserId}:${layoutId}`;
+  const known = new Set(knownIds);
+  const hidden = new Set(state.hidden);
+  let applied: Set<string>;
   try {
-    if (window.localStorage.getItem(key)) return null;
-    window.localStorage.setItem(key, '1');
+    const raw = window.localStorage.getItem(key);
+    applied = new Set(raw ? (raw === '1' ? LEGACY_HIDE_ONCE_APPLIED : raw.split(',')) : []);
   } catch {
     return null;
   }
-  const known = new Set(knownIds);
-  const hidden = new Set(state.hidden);
   let changed = false;
+  let markerChanged = false;
   for (const id of ids) {
-    if (!known.has(id) || hidden.has(id)) continue;
+    if (!known.has(id) || applied.has(id)) continue;
+    applied.add(id);
+    markerChanged = true;
+    // Уже спрятана — прятать нечего, но отметку ставим: включит оператор — и больше мы её
+    // не тронем (его выбор после «спрятать по умолчанию» главнее нашего умолчания).
+    if (hidden.has(id)) continue;
     hidden.add(id);
     changed = true;
+  }
+  if (markerChanged) {
+    try {
+      window.localStorage.setItem(key, Array.from(applied).join(','));
+    } catch {
+      return null;
+    }
   }
   return changed ? { ...state, hidden: Array.from(hidden) } : null;
 }

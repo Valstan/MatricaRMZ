@@ -35,6 +35,7 @@ vi.stubGlobal('window', {
 vi.stubGlobal('CustomEvent', (window as unknown as { CustomEvent: unknown }).CustomEvent);
 
 const {
+  applyHideOnce,
   clearColumnLayout,
   hydrateColumnLayouts,
   readAllColumnLayouts,
@@ -99,5 +100,46 @@ describe('columnLayoutStore', () => {
     clearColumnLayout('list:a');
     expect(readColumnLayout('list:a')).toBeNull();
     expect(readColumnLayout('list:b')?.order).toEqual(['2']);
+  });
+});
+
+// Разовая смена умолчаний (колонка «Дата изменения» 19.10.2026, «Привязка» 12.11.2026).
+// Отметка — по колонкам: колонка, добавленная в умолчание позже, должна спрятаться у того,
+// кто отметку за прошлый список уже получил (иначе она осталась бы на экране у парка).
+describe('разовое применение умолчания колонки', () => {
+  const LAYOUT = 'list:engines:columns';
+  const MARK = `matrica:columnLayout:hideOnce:${U1}:${LAYOUT}`;
+
+  it('спрятать колонку у того, чья сохранённая раскладка её уже знает', () => {
+    const state = { order: ['engineNumber', 'binding'], hidden: [] };
+    const next = applyHideOnce(LAYOUT, ['engineNumber', 'binding', 'updatedAt'], state);
+    expect(next?.hidden).toContain('binding');
+    expect(store.get(MARK)).toContain('binding');
+  });
+
+  it('колонка, добавленная в умолчание позже, прячется и у тех, кто отметку уже получил', () => {
+    store.set(MARK, '1'); // старая отметка 19.10.2026 — это «Дата изменения»
+    const next = applyHideOnce(LAYOUT, ['engineNumber', 'binding', 'updatedAt'], {
+      order: ['engineNumber', 'binding'],
+      hidden: [],
+    });
+    expect(next?.hidden).toContain('binding');
+    // «Дата изменения» уже применена — второй раз её не трогаем.
+    expect(next?.hidden ?? []).not.toContain('updatedAt');
+  });
+
+  it('включил обратно — второй раз не прячем: выбор оператора главнее умолчания', () => {
+    applyHideOnce(LAYOUT, ['engineNumber', 'binding'], { order: ['engineNumber', 'binding'], hidden: [] });
+    const again = applyHideOnce(LAYOUT, ['engineNumber', 'binding'], {
+      order: ['engineNumber', 'binding'],
+      hidden: [],
+    });
+    expect(again).toBeNull();
+  });
+
+  it('уже спрятанную колонку не трогаем, но отметку ставим', () => {
+    const next = applyHideOnce(LAYOUT, ['binding'], { order: ['binding'], hidden: ['binding'] });
+    expect(next).toBeNull();
+    expect(store.get(MARK)).toContain('binding');
   });
 });

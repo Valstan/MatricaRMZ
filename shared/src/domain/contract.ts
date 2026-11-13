@@ -635,6 +635,34 @@ export function shortContractSuffixLabel(
   return isContractAddonToken(sectionNumber) ? `${head} / ${String(sectionNumber).trim()}` : head;
 }
 
+/**
+ * Подпись привязки двигателя для списка (владелец 12.11.2026, промт КАРМАНА #8).
+ *
+ * В колонке «Привязка» вместо слова «договор» — рабочий номер: последние три цифры
+ * части номера ДО первого «/». Для привязки к ДС — ещё и «/N» (номер ДС, без слова «ДС»).
+ *
+ * - привязки нет → пустая строка: в ячейке остаётся только красный кружок, без слов;
+ * - номер выделить нельзя (номер другого вида или его нет) → «Договор»;
+ * - ДС без договора → пусто: привязки к договору нет, значит и «/2» показывать не к чему.
+ *
+ * Цифры берутся из `shortContractSuffix` — то же правило, что у печатной метки
+ * `shortContractSuffixLabel`, поэтому список, карточка и печать называют договор
+ * одинаково. Свой разбор номера здесь был бы вторым правилом в проекте.
+ */
+export function engineBindingLabel(args: {
+  contractId?: string | null | undefined;
+  contractNumber?: string | null | undefined;
+  contractSectionNumber?: string | null | undefined;
+}): string {
+  if (!String(args.contractId ?? '').trim()) return '';
+  const digits = shortContractSuffix(args.contractNumber).replace(/^\*/, '');
+  if (!digits) return 'Договор';
+  if (!isContractAddonToken(args.contractSectionNumber)) return digits;
+  // Номер ДС — из того же токена «ДС N», каким его признаёт `isContractAddonToken`.
+  const seq = String(args.contractSectionNumber ?? '').replace(/^ДС\s*/, '').trim();
+  return seq ? `${digits}/${seq}` : digits;
+}
+
 /** Дата в формате ДД.ММ.ГГГГ для человекочитаемых лейблов секций контракта. */
 export function formatContractDate(ms: number | null | undefined): string {
   if (ms == null || !Number.isFinite(ms)) return '';
