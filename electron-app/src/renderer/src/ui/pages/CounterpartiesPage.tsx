@@ -47,6 +47,12 @@ type Row = {
   displayName?: string;
   searchText?: string;
   inn?: string;
+  /** Краткое наименование (строгая карточка контрагента). */
+  shortName?: string;
+  kpp?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
   updatedAt: number;
   attachmentPreviews?: Array<{ id: string; name: string; mime: string | null }>;
 };
@@ -129,22 +135,52 @@ export function CounterpartiesPage(props: {
     }
     try {
       if (!silent) setStatus('Загрузка…');
-      const list = await window.matrica.admin.entities.listByEntityType(typeId);
-      const baseRows = list as any[];
-      // Один вызов со всеми атрибутами вместо `get` на каждую строку: список контрагентов
-      // открывался тем же способом, что справочник услуг в наряде, — по запросу на строку.
+      // Строгая таблица (`erp_counterparties`) — тот же источник, что у карточки
+      // контрагента. Раньше список читал легаси-EAV, и правка в карточке (ИНН, адрес,
+      // телефон) до списка не доезжала — два экрана показывали разное. EAV остаётся
+      // запасным путём и источником вложений (превью файлов).
+      const strictResult = await window.matrica.contracts.counterparty.list().catch(() => null);
+      const strictRows =
+        strictResult && strictResult.ok && Array.isArray(strictResult.rows) ? (strictResult.rows as any[]) : [];
+      const eavRows = (await window.matrica.admin.entities.listByEntityType(typeId)) as any[];
       const withAttrs = await window.matrica.admin.entities.listByEntityTypeWithAttrs(typeId).catch(() => []);
       const attrsById = new Map(withAttrs.map((row) => [String(row.id), row.attributes ?? {}]));
-      const enriched: Row[] = baseRows.map((r) => {
+      const strictById = new Map(strictRows.map((r) => [String(r.id), r]));
+      const merged = strictRows.length > 0 ? [...strictRows, ...eavRows.filter((r) => !strictById.has(String(r.id)))] : eavRows;
+      const enriched: Row[] = merged.map((r) => {
         const attrs = attrsById.get(String(r.id)) ?? {};
-        const inn = typeof attrs.inn === 'string' ? attrs.inn : attrs.inn == null ? '' : String(attrs.inn);
+        const strict = strictById.get(String(r.id));
+        const inn = strict
+          ? String(strict.inn ?? '')
+          : typeof attrs.inn === 'string'
+            ? attrs.inn
+            : attrs.inn == null
+              ? ''
+              : String(attrs.inn);
         const attachmentPreviews = collectAttachmentPreviews(attrs);
+        const displayName = strict ? String(strict.name ?? '') : r.displayName ? String(r.displayName) : '';
+        const searchText = strict
+          ? [strict.name, strict.short_name, strict.inn, strict.kpp, strict.address, strict.phone, strict.email]
+              .filter((v) => v != null && String(v).trim() !== '')
+              .join(' ')
+          : r.searchText
+            ? String(r.searchText)
+            : '';
         return {
           id: String(r.id),
-          displayName: r.displayName ? String(r.displayName) : '',
-          searchText: r.searchText ? String(r.searchText) : '',
+          displayName,
+          searchText,
           ...(inn.trim() ? { inn: inn.trim() } : {}),
-          updatedAt: Number(r.updatedAt ?? 0),
+          ...(strict
+            ? {
+                ...(strict.short_name ? { shortName: String(strict.short_name) } : {}),
+                ...(strict.kpp ? { kpp: String(strict.kpp) } : {}),
+                ...(strict.address ? { address: String(strict.address) } : {}),
+                ...(strict.phone ? { phone: String(strict.phone) } : {}),
+                ...(strict.email ? { email: String(strict.email) } : {}),
+              }
+            : {}),
+          updatedAt: Number(strict ? strict.updated_at : r.updatedAt ?? 0),
           ...(attachmentPreviews.length > 0 ? { attachmentPreviews } : {}),
         };
       });
@@ -262,7 +298,12 @@ export function CounterpartiesPage(props: {
   const allColumns = useMemo<CounterpartyColumn[]>(
     () => [
       { id: 'displayName', label: 'Название', sortKey: 'displayName', kind: 'name', render: (row) => <span style={{ color: '#111827' }}>{row.displayName || '(без названия)'}</span> },
+      { id: 'shortName', label: 'Краткое наименование', kind: 'name', render: (row) => row.shortName || '—' },
       { id: 'inn', label: 'ИНН', sortKey: 'inn', kind: 'name', render: (row) => row.inn || '—' },
+      { id: 'kpp', label: 'КПП', kind: 'name', render: (row) => row.kpp || '—' },
+      { id: 'address', label: 'Адрес', kind: 'text', render: (row) => row.address || '—' },
+      { id: 'phone', label: 'Телефон', kind: 'text', render: (row) => row.phone || '—' },
+      { id: 'email', label: 'E-mail', kind: 'text', render: (row) => row.email || '—' },
       { id: 'updatedAt', label: 'Дата изменения', tabletLabel: 'Изм.', sortKey: 'updatedAt', kind: 'date', render: (row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—') },
       { id: 'previews', label: 'Превью', cellAlign: 'right', kind: 'thumbs', requireShowPreviews: true, render: (row) => <ListRowThumbs files={row.attachmentPreviews ?? []} /> },
     ],
@@ -270,7 +311,9 @@ export function CounterpartiesPage(props: {
   );
   const allColumnIds = useMemo(() => allColumns.map((c) => c.id), [allColumns]);
   const columnsById = useMemo(() => new Map(allColumns.map((c) => [c.id, c])), [allColumns]);
-  const columnLayout = useColumnLayout('list:counterparties:columns', allColumnIds);
+  // Реквизиты из строгой карточки контрагента: по умолчанию скрыты (список не шире прежнего),
+  // включаются в «Колонках списка» — как колонка «Привязка» у двигателей.
+  const columnLayout = useColumnLayout('list:counterparties:columns', allColumnIds, ['shortName', 'kpp', 'address', 'phone', 'email']);
   const visibleColumns = useMemo(
     () =>
       columnLayout.order

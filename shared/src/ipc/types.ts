@@ -3260,6 +3260,11 @@ export type MatricaApi = {
         | { ok: true; row: CounterpartyStrictRow | null }
         | { ok: false; error: string }
       >;
+      /** Список контрагентов из строгой реплики — список и карточка читают одно и то же. */
+      list: () => Promise<
+        | { ok: true; rows: CounterpartyStrictRow[] }
+        | { ok: false; error: string }
+      >;
       save: (args: { id: string; fields: Record<string, unknown> }) => Promise<
         { ok: true; row: CounterpartyStrictRow } | { ok: false; error: string }
       >;

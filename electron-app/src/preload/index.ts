@@ -873,6 +873,7 @@ const matricaApi = {
   contracts: {
     counterparty: {
       get: async (id: string) => ipcRenderer.invoke('contracts:counterparty:get', id),
+      list: async () => ipcRenderer.invoke('contracts:counterparty:list'),
       save: async (args: { id: string; fields: Record<string, unknown> }) =>
         ipcRenderer.invoke('contracts:counterparty:save', args),
       create: async (args: { id?: string; fields: Record<string, unknown> }) =>
