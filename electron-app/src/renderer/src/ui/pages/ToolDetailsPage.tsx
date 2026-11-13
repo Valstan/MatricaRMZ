@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '../components/Button.js';
+import { CardTable } from '../components/CardTable.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { Input } from '../components/Input.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
@@ -905,8 +906,11 @@ export function ToolDetailsPage(props: {
         )}
 
         <ListCount total={movements.length} shown={movements.length} />
-        <div style={{ border: '1px solid var(--border)', overflow: 'hidden', marginTop: 6 }}>
-          <table className="list-table">
+        <CardTable
+          mode="clip"
+          className="list-table"
+          wrapStyle={{ border: '1px solid var(--border)', marginTop: 6 }}
+        >
             <thead>
               <tr style={{ backgroundColor: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
                 <RowNumberHeaderCell style={{ padding: '10px 12px', fontWeight: 700, fontSize: 14, color: 'var(--muted)' }} />
@@ -999,9 +1003,8 @@ export function ToolDetailsPage(props: {
                 </tr>
               ))}
             </tbody>
-          </table>
-        </div>
-      </SectionCard>
+          </CardTable>
+        </SectionCard>
 
       <AttachmentsPanel
         title="Фото инструмента"

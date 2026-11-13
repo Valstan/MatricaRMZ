@@ -23,7 +23,7 @@ const CONTRACT_CARD_TABS: CardTab<ContractCardTab>[] = [
   { key: 'accounting', label: 'Бухгалтерия' },
   { key: 'files', label: 'Фото и документы' },
 ];
-import { DataTable } from '../components/DataTable.js';
+import { CardTable } from '../components/CardTable.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { DocumentHistoryPanel } from '../components/DocumentHistoryPanel.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
@@ -895,7 +895,7 @@ function SectionBlock(props: {
             )}
           </div>
           <ListCount total={section.engineBrands.length} shown={section.engineBrands.length} />
-          <DataTable className="list-table">
+          <CardTable className="list-table">
               <colgroup>
                 <col />
                 <col />
@@ -987,7 +987,7 @@ function SectionBlock(props: {
                   );
                 })}
               </tbody>
-          </DataTable>
+          </CardTable>
         </div>
         )}
 
@@ -1002,7 +1002,7 @@ function SectionBlock(props: {
             )}
           </div>
           <ListCount total={section.parts.length} shown={section.parts.length} />
-          <DataTable className="list-table">
+          <CardTable className="list-table">
               <colgroup>
                 <col />
                 <col />
@@ -1092,7 +1092,7 @@ function SectionBlock(props: {
                   );
                 })}
               </tbody>
-            </DataTable>
+            </CardTable>
         </div>
         )}
 
@@ -1142,7 +1142,7 @@ function SectionBlock(props: {
             {slotRows.length > 0 || orphanEngines.length > 0 ? (
               <>
               <ListCount total={slotRows.length + orphanEngines.length} shown={slotRows.length + orphanEngines.length} />
-              <DataTable className="list-table">
+              <CardTable className="list-table">
                 <colgroup>
                   <col style={{ width: 42 }} />
                   {props.onToggleSlots ? <col style={{ width: 34 }} /> : null}
@@ -1356,7 +1356,7 @@ function SectionBlock(props: {
                     </tr>
                   ))}
                 </tbody>
-              </DataTable>
+              </CardTable>
               </>
             ) : null}
             {canEdit && addEngineOpen && (
@@ -2922,7 +2922,7 @@ export function ContractDetailsPage(props: {
                     своей марки.
                   </div>
                   <ListCount total={enginesWithoutSection.length} shown={enginesWithoutSection.length} />
-                  <DataTable className="list-table">
+                  <CardTable className="list-table">
                     <colgroup>
                       <col />
                       <col style={{ width: '30%' }} />
@@ -2999,7 +2999,7 @@ export function ContractDetailsPage(props: {
                         );
                       })}
                     </tbody>
-                  </DataTable>
+                  </CardTable>
                   {props.canEdit ? (
                     <div>
                       <Button variant="outline" tone="neutral" size="sm" onClick={() => void placeEnginesWithoutSection()}>
@@ -3073,7 +3073,7 @@ export function ContractDetailsPage(props: {
             {expandedBlocks.contractParts !== false && (
               <div style={{ marginTop: 12, display: 'grid', gap: 12 }}>
                 <ListCount total={executionParts.length} shown={executionParts.length} />
-                <DataTable className="list-table">
+                <CardTable className="list-table">
                   <colgroup>
                     <col />
                     <col />
@@ -3153,7 +3153,7 @@ export function ContractDetailsPage(props: {
                       </tr>
                     )}
                   </tbody>
-                </DataTable>
+                </CardTable>
 
                 {props.canEdit && (
                   addPartOpen ? (

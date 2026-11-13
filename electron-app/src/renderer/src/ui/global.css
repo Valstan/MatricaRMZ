@@ -549,7 +549,7 @@ table.list-table {
    переменные равны нулю — шапка липнет к самому верху. */
 table thead {
   position: sticky;
-  top: calc(var(--card-action-bar-h, 0px) + var(--card-tabs-h, 0px));
+  top: calc(var(--card-action-bar-h, 0px) + var(--card-tabs-h, 0px) + var(--card-scroll-head-h, 0px));
   z-index: 3;
   background: var(--surface, #fff);
 }
@@ -577,6 +577,43 @@ table thead {
      capture the sticky `<th>` context from the real scroll element and unpin
      the virtualized list header. clip clips identically without scrolling. */
   overflow-x: clip;
+}
+
+/* Единый движок таблиц ВНУТРИ карточек (`ui/components/CardTable.tsx`).
+   Шапка липнет к своему скролл-контексту и отступает на высоту закреплённой
+   «шапки карточки» (панель действий + полоса вкладок) — отступ верен только
+   тогда, когда контекст шапки и есть прокручиваемый бокс карточки. Обёртка со
+   своей прокруткой (`auto|hidden`) перехватывает контекст: шапка липнет внутри
+   обёртки, отступ сдвигает её вниз — и она накрывает первую строку (жалоба
+   владельца 13.11.2026). Поэтому здесь прокрутки нет: широкую таблицу
+   прокрутит бокс карточки (overflow:auto по обеим осям). */
+.card-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow: visible;
+}
+
+/* Скруглённые углы без скролл-контейнера: `clip` режет так же, как `hidden`,
+   но не перехватывает sticky-контекст шапки. */
+.card-table-wrap--clip {
+  overflow: clip;
+}
+
+/* Широкая таблица со своей горизонтальной прокруткой: контекст шапки — свой
+   бокс, поэтому смещение «шапки карточки» здесь не действует и шапка липнет к
+   своему боксу (top: 0), а не уезжает вниз на первую строку. */
+.card-table-wrap--scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* Тот же случай, когда прокручивающий бокс стоит ВЫШЕ таблицы (двухпанельные
+   редакторы): помечаем такой бокс — и шапка липнет к нему, а не к карточке. */
+.card-table-scroll-context table thead,
+.card-table-scroll-context table thead th,
+.card-table-wrap--scroll table thead,
+.card-table-wrap--scroll table thead th {
+  top: 0;
 }
 
 table.list-table--single-mode {

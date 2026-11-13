@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { FileRef } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { CardTable } from './CardTable.js';
 import { ListCount } from './ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from './RowNumberCell.js';
 import { useConfirm } from './ConfirmContext.js';
@@ -810,8 +811,13 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
         </button>
       )}
       {!listCollapsed && (
-      <div style={{ marginTop: 10, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      // Движок таблиц карточки: обёртка без своей прокрутки (clip — только скругление),
+      // иначе шапка липнет внутри обёртки и накрывает первую строку.
+      <CardTable
+        mode="clip"
+        wrapStyle={{ marginTop: 10, border: '1px solid #e5e7eb', borderRadius: 12 }}
+        style={{ width: '100%', borderCollapse: 'collapse' }}
+      >
           <thead>
             <tr style={{ background: 'linear-gradient(135deg, #0f766e 0%, #2563eb 120%)', color: '#fff' }}>
               <RowNumberHeaderCell style={{ borderBottom: '1px solid rgba(255,255,255,0.25)', padding: 10 }} />
@@ -996,8 +1002,7 @@ function AttachmentsPanelInner(props: AttachmentsPanelProps) {
               </tr>
             )}
           </tbody>
-        </table>
-      </div>
+        </CardTable>
       )}
       {uploadFlow.renameDialog}
     </div>

@@ -4517,8 +4517,13 @@ function TableEditor(props: {
     // sticky `<th>` context and unpins the column header on scroll. The inventory table is
     // single-mode (cells wrap, width:100%) so it never needs horizontal scroll → use `clip`
     // there to keep sticky headers attached to the real (card) scroller. The fixed-layout
-    // defect/completeness tables keep `auto` for their horizontal scroll.
-    <div style={{ border: '1px solid rgba(15, 23, 42, 0.18)', borderRadius: 12, overflowX: isInventoryItemsTable ? 'clip' : 'auto', overflowY: isInventoryItemsTable ? 'visible' : 'hidden' }}>
+    // defect/completeness tables keep `auto` for their horizontal scroll — and their box is
+    // marked `card-table-scroll-context`, so the header sticks to THIS box (top: 0) instead
+    // of being pushed down by the card chrome offset onto the first row.
+    <div
+      className={isInventoryItemsTable ? undefined : 'card-table-scroll-context'}
+      style={{ border: '1px solid rgba(15, 23, 42, 0.18)', borderRadius: 12, overflowX: isInventoryItemsTable ? 'clip' : 'auto', overflowY: isInventoryItemsTable ? 'visible' : 'hidden' }}
+    >
       {showBulkOps && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', padding: '8px 10px', borderBottom: '1px solid rgba(15, 23, 42, 0.1)' }}>
           <span style={{ fontSize: 12, color: '#334155' }}>Массовые операции:</span>

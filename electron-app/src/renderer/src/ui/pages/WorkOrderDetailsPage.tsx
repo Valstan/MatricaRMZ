@@ -330,6 +330,26 @@ export function WorkOrderDetailsPage(props: {
   // Новый наряд открываем на реквизитах (их и заполняют), уже заведённый — сразу на
   // содержимом. Переключаем один раз, чтобы не отменять выбор пользователя.
   const defaultTabApplied = useRef(false);
+  // Прокручиваемый бокс карточки и её липкая шапка: высоту шапки объявляем боксу,
+  // иначе шапки таблиц липнут к самому верху бокса и уезжают под шапку карточки
+  // (смещение «шапки карточки» в этом боксе иначе не доходит до таблиц).
+  const cardScrollRef = useRef<HTMLDivElement | null>(null);
+  const cardHeadRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const scroller = cardScrollRef.current;
+    const head = cardHeadRef.current;
+    if (!scroller || !head) return;
+    const apply = () => {
+      scroller.style.setProperty('--card-scroll-head-h', `${Math.round(head.getBoundingClientRect().height)}px`);
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(head);
+    return () => {
+      ro.disconnect();
+      scroller.style.removeProperty('--card-scroll-head-h');
+    };
+  }, []);
   const [parts, setParts] = useState<PartInfo[]>([]);
   const [workshops, setWorkshops] = useState<Array<{ id: string; code: string; name: string; isActive: boolean }>>([]);
   const [assemblyVariantGroups, setAssemblyVariantGroups] = useState<string[]>([]);
@@ -2208,11 +2228,11 @@ export function WorkOrderDetailsPage(props: {
   );
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
+    <div ref={cardScrollRef} style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
       {/* Закреплённая шапка: управляющие кнопки и вкладки. Реквизиты уехали в свою
           вкладку (решение владельца 2026-08-11): в шапке они занимали пол-экрана
           планшета и мешали работать с содержимым наряда. */}
-      <div style={{ position: 'sticky', top: 0, zIndex: 9, flexShrink: 0, background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+      <div ref={cardHeadRef} style={{ position: 'sticky', top: 0, zIndex: 9, flexShrink: 0, background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
         <div style={{ maxWidth: 'min(95vw, 1200px)', marginInline: 'auto', width: '100%' }}>
           {cardActionBar}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 var(--ui-space-4, 10px) var(--ui-space-2, 4px)', fontSize: 12, color: 'var(--subtle)' }}>
