@@ -327,6 +327,14 @@ export function ContractsPage(props: {
         customerById.set(String(row.id), String(row.displayName ?? '(без названия)'));
       }
 
+      // Атрибуты всех договоров одним вызовом — вместо запроса на каждую строку списка.
+      const contractAttrsRows = await window.matrica.admin.entities
+        .listByEntityTypeWithAttrs(String(type.id))
+        .catch(() => []);
+      const attrsById = new Map(
+        contractAttrsRows.map((r) => [String(r.id), (r as any).attributes ?? {}] as const),
+      );
+
       // Марки нужны ступени «Марка в контракте»: в разделах лежат только их идентификаторы.
       const brandType = (types as any[]).find((t) => String(t.code) === 'engine_brand') ?? null;
       const brandRows =
@@ -378,8 +386,10 @@ export function ContractsPage(props: {
       const details = await Promise.all(
         (listRaw as any[]).map(async (row: any) => {
           try {
-            const d = await window.matrica.admin.entities.get(String(row.id));
-            const attrs = (d as any).attributes ?? {};
+            // Атрибуты всех договоров — ОДНИМ вызовом. Раньше на каждую строку списка
+            // уходил отдельный `admin.entities.get` (N+1): на списке из сотни договоров
+            // это сотня походов в главный процесс, и список открывался заметно медленно.
+            const attrs = attrsById.get(String(row.id)) ?? {};
             const attachmentPreviews = collectAttachmentPreviews(attrs);
             const sections = parseContractSections(attrs);
             const executionParts = parseContractExecutionParts(attrs);
