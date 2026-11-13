@@ -290,6 +290,39 @@ export function registerContractsIpc(ctx: IpcContext) {
     }
   });
 
+  // Список контрагентов из строгой таблицы (реплика `erp_counterparties`).
+  // Список на экране «Контрагенты» читался из легаси-EAV, а карточка — из strict: данные
+  // расходились (правка ИНН в карточке не доезжала до списка). Теперь список и карточка
+  // читают одно и то же; EAV остаётся запасным путём на клиентах без реплики.
+  ipcMain.handle('contracts:counterparty:list', async () => {
+    const gate = await requirePermOrResult(ctx, 'masterdata.view');
+    if (!gate.ok) return gate as Err;
+    try {
+      const rows = await ctx.dataDb().select().from(erpCounterparties);
+      return {
+        ok: true as const,
+        rows: rows
+          .filter((row) => (row as Record<string, unknown>).deletedAt == null)
+          .map((row) => {
+            const r = row as Record<string, unknown>;
+            return {
+              id: String(r.id),
+              name: String(r.name ?? ''),
+              short_name: (r.shortName as string | null) ?? null,
+              inn: (r.inn as string | null) ?? null,
+              kpp: (r.kpp as string | null) ?? null,
+              address: (r.address as string | null) ?? null,
+              phone: (r.phone as string | null) ?? null,
+              email: (r.email as string | null) ?? null,
+              updated_at: Number(r.updatedAt ?? 0),
+            };
+          }),
+      };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
   ipcMain.handle('contracts:counterparty:save', async (_e, args: { id: string; fields: Record<string, unknown> }) => {
     if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'masterdata.edit');

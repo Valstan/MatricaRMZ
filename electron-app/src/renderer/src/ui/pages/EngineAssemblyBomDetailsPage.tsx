@@ -1169,7 +1169,10 @@ export function EngineAssemblyBomDetailsPage(props: {
                     Строки варианта дополняют базовый комплект в прогнозе сборки; в сборочный наряд по этому варианту идут только его строки.
                   </div>
                 ) : null}
-                <div style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--surface2)' }}>
+                <div
+                  className="card-table-scroll-context"
+                  style={{ flex: 1, minHeight: 0, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--surface2)' }}
+                >
                   {sections.length === 0 ? (
                     <div style={{ padding: 16, textAlign: 'center', color: 'var(--subtle)', fontSize: 12 }}>
                       {data.lines.length === 0

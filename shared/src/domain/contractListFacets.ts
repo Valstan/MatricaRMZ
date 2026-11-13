@@ -1,4 +1,4 @@
-import { CONTRACT_KIND_LABELS, parseContractKind } from './contract.js';
+import { CONTRACT_KIND_LABELS, DEFAULT_CONTRACT_KIND, parseContractKind } from './contract.js';
 import {
   activeFacetCount,
   applyFacets,
@@ -90,10 +90,10 @@ export const CONTRACT_FACETS: readonly ContractFacetDescriptor[] = [
     id: 'kind',
     label: 'Вид контракта',
     valueOf: (r) => {
-      const value = parseContractKind(r.kind);
-      // Вид проставлен не у всех: у старых контрактов его нет, и «не указан» — честный ответ,
-      // по которому эти контракты как раз и находят, чтобы проставить.
-      return value ? { value, label: CONTRACT_KIND_LABELS[value] } : { value: 'none', label: 'не указан' };
+      // Вид по умолчанию — «ГОЗ»: забытый переключатель не должен оставлять договор
+      // без вида, поэтому в фильтре только два значения — ГОЗ и Гражданский.
+      const value = parseContractKind(r.kind) ?? DEFAULT_CONTRACT_KIND;
+      return { value, label: CONTRACT_KIND_LABELS[value] };
     },
   },
   {

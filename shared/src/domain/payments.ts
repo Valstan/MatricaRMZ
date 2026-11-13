@@ -168,6 +168,12 @@ export type SlotTotals = {
   paidKop: number;
   /** Стоимость по контракту (contractPriceKop, fallback — строки kind=contract_price). */
   priceKop: number;
+  /**
+   * Авансовые платежи слота (аванс + доаванс) — отдельной колонкой, чтобы не затирать
+   * общую сумму по двигателю (владелец 13.11.2026: «чтобы не затирать ту сумму,
+   * которая показывается в целом»).
+   */
+  advanceKop: number;
   /** paid − price: >0 переплата, <0 недоплата. */
   deltaKop: number;
   lastPaymentDate?: string;
@@ -180,6 +186,10 @@ function isPaid(row: PaymentRow): boolean {
   return row.kind !== 'contract_price';
 }
 
+function isAdvance(row: PaymentRow): boolean {
+  return row.kind === 'advance' || row.kind === 'extra_advance';
+}
+
 export function slotTotals(slot: PaymentSlot): SlotTotals {
   const paidRows = slot.payments.filter(isPaid);
   const paidKop = paidRows.reduce((s, p) => s + p.amountKop, 0);
@@ -187,15 +197,17 @@ export function slotTotals(slot: PaymentSlot): SlotTotals {
     .filter((p) => p.kind === 'contract_price')
     .reduce((s, p) => s + p.amountKop, 0);
   const priceKop = slot.contractPriceKop ?? priceFromRows;
+  const advanceKop = slot.payments.filter(isAdvance).reduce((s, p) => s + p.amountKop, 0);
   const datedPaid = paidRows.filter((p) => p.date);
   const lastPaymentDate = datedPaid.map((p) => p.date).sort().at(-1);
-  const advances = slot.payments.filter((p) => (p.kind === 'advance' || p.kind === 'extra_advance') && p.date);
+  const advances = slot.payments.filter((p) => isAdvance(p) && p.date);
   const firstAdvanceDate = advances.map((p) => p.date).sort()[0];
   const flagged = slot.payments.find((p) => p.countdownStart && p.date);
   const countdownStartDate = flagged?.date ?? firstAdvanceDate;
   return {
     paidKop,
     priceKop,
+    advanceKop,
     deltaKop: paidKop - priceKop,
     ...(lastPaymentDate ? { lastPaymentDate } : {}),
     ...(firstAdvanceDate ? { firstAdvanceDate } : {}),
@@ -373,6 +385,20 @@ export function syncSlotsWithPlan(
     }
   }
 
+  // 1b. Хвосты плана: слоты марки, которой в плане больше нет. Пустые — вон: при правке
+  // марки в договоре старые места должны исчезнуть, иначе оператор видит две группы марок
+  // и думает, что правка не сработала. Слоты с двигателем или с деньгами не трогаем:
+  // двигатель привязан — это факт, и его видно отдельной пометкой «вне плана».
+  if (groups.size > 0) {
+    const planKeys = new Set(groups.keys());
+    for (let i = slots.length - 1; i >= 0; i -= 1) {
+      const s = slots[i]!;
+      if (planKeys.has(`${s.sectionKey}\u0000${s.engineBrandId ?? ''}`)) continue;
+      if (s.engineId || s.payments.length > 0) continue;
+      slots.splice(i, 1);
+    }
+  }
+
   // 2. Отвязка уехавших двигателей (двигатель сменил секцию/контракт — деньги остаются).
   const attachedBySection = new Map<string, string>();
   for (const a of attached) attachedBySection.set(a.engineId, a.sectionKey);
@@ -412,6 +438,38 @@ export function syncSlotsWithPlan(
 }
 
 /**
+ * Добавить платёж в слоты, у которых сумма задана явно (по слоту).
+ * Общая часть для разноса суммой и разноса по проценту.
+ */
+function addPaymentsToSlots(
+  cp: ContractPayments,
+  amounts: ReadonlyMap<string, number>,
+  kind: PaymentKind,
+  date: string,
+  newId: () => string,
+  note?: string,
+): ContractPayments {
+  const slots = cp.slots.map((s) => {
+    const amount = amounts.get(s.id);
+    if (amount == null || amount <= 0) return s;
+    const hasStart = s.payments.some((p) => p.countdownStart);
+    const startsCountdown = !hasStart && (kind === 'advance' || kind === 'extra_advance');
+    const row: PaymentRow = {
+      id: newId(),
+      date,
+      amountKop: amount,
+      kind,
+      ...(note?.trim() ? { note: note.trim() } : {}),
+      ...(startsCountdown ? { countdownStart: true } : {}),
+    };
+    // В отличие от distributeAmount прогоняем нормализацию флагов: слот, уже испорченный
+    // двумя стартовыми платежами, чинится, а не только «не портится дальше».
+    return { ...s, payments: normalizeCountdownFlags([...s.payments, row], startsCountdown ? row.id : undefined) };
+  });
+  return { version: 1, slots };
+}
+
+/**
  * Разнести сумму по ЯВНО выбранным слотам (галочки в карточке контракта).
  *
  * Legacy `distributeAmount` («первые N слотов секции в порядке массива») снесена 2026-08-08:
@@ -436,27 +494,60 @@ export function distributeAmountToSlots(
   if (targets.length === 0 || !Number.isFinite(amountKop) || amountKop <= 0) return cp;
   const per = Math.floor(amountKop / targets.length);
   const remainder = amountKop - per * targets.length;
-  const targetIds = new Set(targets.map((s) => s.id));
+  const amounts = new Map<string, number>();
   let first = true;
-  const slots = cp.slots.map((s) => {
-    if (!targetIds.has(s.id)) return s;
-    const amount = per + (first ? remainder : 0);
+  for (const slot of targets) {
+    amounts.set(slot.id, per + (first ? remainder : 0));
     first = false;
-    const hasStart = s.payments.some((p) => p.countdownStart);
-    const startsCountdown = !hasStart && (kind === 'advance' || kind === 'extra_advance');
-    const row: PaymentRow = {
-      id: newId(),
-      date,
-      amountKop: amount,
-      kind,
-      ...(note?.trim() ? { note: note.trim() } : {}),
-      ...(startsCountdown ? { countdownStart: true } : {}),
-    };
-    // В отличие от distributeAmount прогоняем нормализацию флагов: слот, уже испорченный
-    // двумя стартовыми платежами, чинится, а не только «не портится дальше».
-    return { ...s, payments: normalizeCountdownFlags([...s.payments, row], startsCountdown ? row.id : undefined) };
-  });
-  return { version: 1, slots };
+  }
+  return addPaymentsToSlots(cp, amounts, kind, date, newId, note);
+}
+
+/** Доля аванса по слоту при разносе по проценту от стоимости двигателя. */
+export type AdvancePercentShare = { slotId: string; amountKop: number };
+
+/**
+ * Аванс по проценту от стоимости по контракту (владелец 13.11.2026: «ставим 50%
+ * авансового платежа — он сам раскидывает по отмеченным двигателям»).
+ *
+ * Процент берётся от стоимости КАЖДОГО двигателя: 50% от двигателя за 100 000 — это
+ * 50 000, итого по отмеченным двигателям — ровно половина их суммы. Слоты без
+ * стоимости по контракту (цена не заведена) пропускаются: процент от нуля — ноль.
+ *
+ * Округление — до копейки на слот, поэтому итог может отличаться от процента от
+ * суммы на копейку-другую; показываем оператору именно тот итог, который запишем.
+ */
+export function advancePercentShares(
+  cp: ContractPayments,
+  slotIds: readonly string[],
+  percent: number,
+): AdvancePercentShare[] {
+  if (!Number.isFinite(percent) || percent <= 0) return [];
+  const wanted = new Set(slotIds);
+  const out: AdvancePercentShare[] = [];
+  for (const slot of cp.slots) {
+    if (!wanted.has(slot.id)) continue;
+    const priceKop = slotTotals(slot).priceKop;
+    if (priceKop <= 0) continue;
+    const amountKop = Math.round((priceKop * percent) / 100);
+    if (amountKop > 0) out.push({ slotId: slot.id, amountKop });
+  }
+  return out;
+}
+
+/** Разнести аванс по проценту от стоимости по выбранным слотам. */
+export function distributePercentToSlots(
+  cp: ContractPayments,
+  slotIds: readonly string[],
+  percent: number,
+  kind: PaymentKind,
+  date: string,
+  newId: () => string,
+  note?: string,
+): ContractPayments {
+  const shares = advancePercentShares(cp, slotIds, percent);
+  if (shares.length === 0) return cp;
+  return addPaymentsToSlots(cp, new Map(shares.map((s) => [s.slotId, s.amountKop])), kind, date, newId, note);
 }
 
 /** Куда сядет двигатель при привязке к контракту. */

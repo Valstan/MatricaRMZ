@@ -85,6 +85,22 @@ describe('contracts:counterparty IPC', () => {
     expect(r.row).toBeNull();
   });
 
+  it('list отдаёт строки строгой реплики и не отдаёт удалённые', async () => {
+    const { sqlite } = makeDb();
+    sqlite.prepare(`INSERT INTO erp_counterparties (id,name,inn,kpp,phone,email,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`)
+      .run('cp-1', 'ООО Ромашка', '1234567890', '9901', '+7-000', 'a@b.ru', 1, 7);
+    sqlite.prepare(`INSERT INTO erp_counterparties (id,name,created_at,updated_at,deleted_at) VALUES (?,?,?,?,?)`)
+      .run('cp-2', 'Удалённый', 1, 2, 3);
+    registerContractsIpc(makeCtx(sqlite));
+    const list = handlers.get('contracts:counterparty:list')!;
+    const r = (await list({})) as { ok: boolean; rows?: Array<{ id: string; name: string; inn: string | null; updated_at: number }> };
+    expect(r.ok).toBe(true);
+    expect(r.rows).toHaveLength(1);
+    expect(r.rows?.[0]?.name).toBe('ООО Ромашка');
+    expect(r.rows?.[0]?.inn).toBe('1234567890');
+    expect(r.rows?.[0]?.updated_at).toBe(7);
+  });
+
   it('save существующего идёт в patch и делает write-through', async () => {
     const { sqlite } = makeDb();
     registerContractsIpc(makeCtx(sqlite));

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   CONTRACT_KIND_LABELS,
+  DEFAULT_CONTRACT_KIND,
   DEFAULT_CONTRACT_REPAIR_DAYS,
   aggregateContractExecutionProgress,
   buildContractSectionOptions,
@@ -314,30 +315,32 @@ describe('isEavFlagSet — три представления одного «не
   });
 });
 
-// Вид контракта «военный / гражданский» (просьба владельца 08.09.2026). Живёт ВНУТРИ
-// contract_sections, а не отдельным EAV-атрибутом: действует EAV-freeze, а erp_contracts —
-// зеркало EAV, писать в него напрямую нельзя.
+// Вид контракта «ГОЗ / Гражданский» (просьба владельца 08.09.2026, уточнение
+// 13.11.2026: подпись «ГОЗ» — государственный оборонный заказ, и вид по умолчанию — ГОЗ).
+// Живёт ВНУТРИ contract_sections, а не отдельным EAV-атрибутом: действует EAV-freeze, а
+// erp_contracts — зеркало EAV, писать в него напрямую нельзя.
 describe('вид контракта', () => {
   it('читается из основного раздела и переживает разбор', () => {
     const sections = parseContractSections({ contract_sections: { primary: { number: '1', kind: 'military' }, addons: [] } });
     expect(sections.primary.kind).toBe('military');
   });
 
-  it('у контракта без вида это null, а не догадка', () => {
+  it('у контракта без вида — вид по умолчанию «ГОЗ» (забытый переключатель не оставляет договор без вида)', () => {
     const sections = parseContractSections({ contract_sections: { primary: { number: '1' }, addons: [] } });
-    expect(sections.primary.kind).toBeNull();
-    expect(parseContractSections({ number: '7/2026' }).primary.kind).toBeNull();
+    expect(sections.primary.kind).toBe('military');
+    expect(parseContractSections({ number: '7/2026' }).primary.kind).toBe('military');
+    expect(DEFAULT_CONTRACT_KIND).toBe('military');
   });
 
-  it('мусор в поле не превращается в вид', () => {
+  it('мусор в поле не ломает вид — читается вид по умолчанию', () => {
     for (const raw of ['военный', 'MILITARY', '', 0, null, {}]) {
       const sections = parseContractSections({ contract_sections: { primary: { number: '1', kind: raw }, addons: [] } });
-      expect(sections.primary.kind).toBeNull();
+      expect(sections.primary.kind).toBe('military');
     }
   });
 
   it('у обоих видов есть подпись для оператора', () => {
-    expect(CONTRACT_KIND_LABELS.military).toBe('Военный');
+    expect(CONTRACT_KIND_LABELS.military).toBe('ГОЗ');
     expect(CONTRACT_KIND_LABELS.civil).toBe('Гражданский');
     expect(parseContractKind('civil')).toBe('civil');
   });

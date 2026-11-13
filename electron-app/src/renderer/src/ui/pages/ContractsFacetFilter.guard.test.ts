@@ -88,12 +88,15 @@ describe('вид контракта в карточке', () => {
   it('переключатель пишет в раздел, а не в отдельный атрибут', () => {
     // EAV-freeze: новых атрибутов не заводим, поле живёт внутри contract_sections.
     expect(CARD).toContain('data-contract-kind');
-    expect(CARD).toContain('update({ kind: on ? null : kind })');
+    expect(CARD).toContain('update({ kind })');
     expect(CARD, 'новый EAV-атрибут вида нарушил бы EAV-freeze').not.toContain("'contract_kind'");
   });
 
-  it('повторный щелчок снимает вид — иначе «не указан» не вернуть', () => {
-    expect(CARD).toContain('on ? null : kind');
+  it('вид всегда проставлен: переключатель двух видов, а не «снять вид»', () => {
+    // Владелец 13.11.2026: вид по умолчанию «ГОЗ», забытый переключатель не должен
+    // оставлять договор без вида — состояния «не указан» больше нет.
+    expect(CARD).not.toContain('on ? null : kind');
+    expect(CARD).toContain('update({ kind })');
   });
 });
 

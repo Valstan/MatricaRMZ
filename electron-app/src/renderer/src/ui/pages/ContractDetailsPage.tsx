@@ -23,7 +23,7 @@ const CONTRACT_CARD_TABS: CardTab<ContractCardTab>[] = [
   { key: 'accounting', label: 'Бухгалтерия' },
   { key: 'files', label: 'Фото и документы' },
 ];
-import { DataTable } from '../components/DataTable.js';
+import { CardTable } from '../components/CardTable.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { DocumentHistoryPanel } from '../components/DocumentHistoryPanel.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
@@ -47,8 +47,10 @@ import {
   CONTRACT_PAYMENTS_ATTR_CODE,
   PAYMENT_KIND_LABELS,
   attachEngineToSlot,
+  advancePercentShares,
   countdownStatus,
   distributeAmountToSlots,
+  distributePercentToSlots,
   emptyContractPayments,
   findSlotForEngine,
   formatKopMoney,
@@ -89,6 +91,8 @@ import { emojiAttrs } from '../utils/labelEmoji.js';
 import { mutateContractPayments, readContractPayments } from '../utils/contractPaymentsStore.js';
 import { paymentCountdownVisual } from '../utils/paymentCountdownVisual.js';
 import { buildServiceMemoSections } from '../utils/serviceMemo.js';
+import { buildAdvanceMemoSections } from '../utils/advanceMemo.js';
+import { CollapsibleSection } from '../components/CollapsibleSection.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions, mapPartRowsToSearchOptions } from '../utils/selectOptions.js';
@@ -358,33 +362,103 @@ type SectionSlotRow = { slot: PaymentSlot; engine?: EngineListItem };
 // Раньше спрашивалось «на слотов (из N)» и деньги ложились на первые N слотов секции по
 // порядку массива — выбрать конкретную марку было нельзя. Кейс владельца ровно обратный:
 // «аванс пришёл за 10 двигателей вот этой марки».
+//
+// Два способа задать сумму (владелец 13.11.2026): своей суммой — когда известно, сколько
+// пришло, и процентом от стоимости по контракту — когда известно «50% аванса по этим
+// двигателям». Оба раскладываются по ОТМЕЧЕННЫМ слотам.
 function DistributeToSelectedForm(props: {
   selectedCount: number;
-  onApply: (amountKop: number, kind: PaymentKind, date: string, note: string) => void;
+  /** Платежи договора — нужны цены слотов для разноса по проценту. */
+  contractPayments?: ContractPayments | undefined;
+  /** Отмеченные слоты (для разноса по проценту). */
+  slotIds?: readonly string[];
+  onApply: (
+    payload: { mode: 'amount'; amountKop: number } | { mode: 'percent'; percent: number },
+    kind: PaymentKind,
+    date: string,
+    note: string,
+  ) => void;
   onCancel: () => void;
 }) {
+  const [mode, setMode] = useState<'amount' | 'percent'>('amount');
   const [amountText, setAmountText] = useState('');
+  const [percentText, setPercentText] = useState('');
   const [kind, setKind] = useState<PaymentKind>('advance');
   const [date, setDate] = useState(todayIsoDate());
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
   const amountKop = parseMoneyToKop(amountText);
+  const percent = Number.parseFloat(percentText.replace(',', '.'));
+  const percentOk = Number.isFinite(percent) && percent > 0;
   // Живой расчёт: бухгалтер видит, что получит каждый двигатель, до нажатия кнопки.
   const preview =
-    amountKop != null && amountKop > 0 && props.selectedCount > 0
-      ? (() => {
-          const per = Math.floor(amountKop / props.selectedCount);
-          const rest = amountKop - per * props.selectedCount;
-          return `по ${formatKopMoney(per)} ₽ на ${props.selectedCount} поз.${
-            rest > 0 ? `, остаток ${formatKopMoney(rest)} ₽ — первой` : ''
-          }`;
-        })()
-      : '';
+    mode === 'amount'
+      ? amountKop != null && amountKop > 0 && props.selectedCount > 0
+        ? (() => {
+            const per = Math.floor(amountKop / props.selectedCount);
+            const rest = amountKop - per * props.selectedCount;
+            return `по ${formatKopMoney(per)} ₽ на ${props.selectedCount} поз.${
+              rest > 0 ? `, остаток ${formatKopMoney(rest)} ₽ — первой` : ''
+            }`;
+          })()
+        : ''
+      : percentOk && props.contractPayments && (props.slotIds ?? []).length > 0
+        ? (() => {
+            const shares = advancePercentShares(props.contractPayments, props.slotIds ?? [], percent);
+            const total = shares.reduce((s, x) => s + x.amountKop, 0);
+            return shares.length === 0
+              ? 'у отмеченных двигателей нет цены по контракту — процент не от чего считать'
+              : `${percent}% от суммы по ${shares.length} поз. — всего ${formatKopMoney(total)} ₽`;
+          })()
+        : '';
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'end', flexWrap: 'wrap', padding: '8px 0' }}>
-      <FormField label="Сумма, ₽">
-        <Input value={amountText} onChange={(e) => setAmountText(e.target.value)} placeholder="0,00" style={{ width: 130, textAlign: 'right' }} />
+      <FormField label="Как считать">
+        <div style={{ display: 'flex', gap: 6 }} data-distribute-mode>
+          {(
+            [
+              { key: 'amount', label: 'Суммой' },
+              { key: 'percent', label: '% от суммы двигателя' },
+            ] as const
+          ).map((opt) => (
+            <button
+              key={opt.key}
+              type="button"
+              data-distribute-mode-option={opt.key}
+              onClick={() => {
+                setMode(opt.key);
+                setError('');
+              }}
+              style={{
+                padding: '6px 10px',
+                borderRadius: 8,
+                border: '1px solid var(--border)',
+                background: mode === opt.key ? 'rgba(37, 99, 235, 0.15)' : 'var(--surface)',
+                fontWeight: mode === opt.key ? 700 : 400,
+                cursor: 'pointer',
+                fontSize: 13,
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </FormField>
+      {mode === 'amount' ? (
+        <FormField label="Сумма, ₽">
+          <Input value={amountText} onChange={(e) => setAmountText(e.target.value)} placeholder="0,00" style={{ width: 130, textAlign: 'right' }} />
+        </FormField>
+      ) : (
+        <FormField label="Процент, %">
+          <Input
+            value={percentText}
+            onChange={(e) => setPercentText(e.target.value)}
+            placeholder="50"
+            inputMode="decimal"
+            style={{ width: 90, textAlign: 'right' }}
+          />
+        </FormField>
+      )}
       <FormField label="Вид платежа">
         <select
           value={kind}
@@ -407,15 +481,23 @@ function DistributeToSelectedForm(props: {
       <Button
         size="sm"
         onClick={() => {
-          if (amountKop == null || amountKop <= 0) {
-            setError('Укажите сумму');
-            return;
-          }
           if (props.selectedCount === 0) {
             setError('Отметьте двигатели галочками');
             return;
           }
-          props.onApply(amountKop, kind, date, note);
+          if (mode === 'amount') {
+            if (amountKop == null || amountKop <= 0) {
+              setError('Укажите сумму');
+              return;
+            }
+            props.onApply({ mode: 'amount', amountKop }, kind, date, note);
+            return;
+          }
+          if (!percentOk) {
+            setError('Укажите процент');
+            return;
+          }
+          props.onApply({ mode: 'percent', percent }, kind, date, note);
         }}
       >
         Разнести на {props.selectedCount}
@@ -462,7 +544,7 @@ function SectionBlock(props: {
   /** Для гарда резервирования: чужой advisory-резерв блокирует перенос. */
   currentUserId?: string;
   // Платежи (план engine-payments-2026-07, этап 2): слоты секции + распределение аванса.
-  contractPayments?: ContractPayments;
+  contractPayments?: ContractPayments | undefined;
   canEditPayments?: boolean;
   /**
    * Отбор СЛОТОВ (а не двигателей) — один набор галочек на два действия: разнести аванс
@@ -478,6 +560,8 @@ function SectionBlock(props: {
   globalSelectedSlotIds?: readonly string[];
   onToggleSlots?: (slotIds: readonly string[], checked: boolean) => void;
   onDistributeToSlots?: (slotIds: readonly string[], amountKop: number, kind: PaymentKind, date: string, note: string) => void | Promise<void>;
+  /** Аванс по проценту от стоимости двигателя (владелец 13.11.2026). */
+  onDistributePercentToSlots?: (slotIds: readonly string[], percent: number, kind: PaymentKind, date: string, note: string) => void | Promise<void>;
   onRemoveSlotPayment?: (slotId: string, paymentId: string) => void | Promise<void>;
 }) {
   const { confirm } = useConfirm();
@@ -550,10 +634,14 @@ function SectionBlock(props: {
       if (list) list.push(row);
       else byBrand.set(key, [row]);
     }
+    // Марки плана этой секции: слоты марки, которой в плане нет, — «вне плана» (двигатель
+    // привязан, а марку в плане поменяли — или двигатель чужой марки). Их видно, но помечено.
+    const planBrandIds = new Set(section.engineBrands.map((r) => r.engineBrandId));
     return [...byBrand.entries()]
       .map(([key, rows]) => ({
         key,
         label: brandLabelById(key || undefined),
+        outsidePlan: Boolean(key) && !planBrandIds.has(key),
         rows: [...rows].sort((a, b) => {
           if (Boolean(a.engine) !== Boolean(b.engine)) return a.engine ? -1 : 1;
           return String(a.engine?.engineNumber ?? '').localeCompare(String(b.engine?.engineNumber ?? ''), 'ru');
@@ -561,6 +649,18 @@ function SectionBlock(props: {
       }))
       .sort((a, b) => a.label.localeCompare(b.label, 'ru'));
   })();
+  // Пустые слоты (свободные места под двигатели) в основной таблице загромождают лист
+  // (владелец 13.11.2026: «пустые слоты не надо показывать… лучше скрыть под спойлер»).
+  // Места создаются как раньше, но показываются свёрнутым списком: оператор развернул —
+  // увидел, сколько мест свободно по каждой марке, и привязал двигатель.
+  // Занятость места определяется по САМОМУ слоту (engineId), а не по загруженной карточке
+  // двигателя: не подгрузившаяся карточка не должна превращать занятое место в свободное.
+  const occupiedBrandGroups = brandGroups
+    .map((group) => ({ ...group, rows: group.rows.filter((row) => Boolean(row.slot.engineId)) }))
+    .filter((group) => group.rows.length > 0);
+  const freeSlotGroups = brandGroups
+    .map((group) => ({ ...group, rows: group.rows.filter((row) => !row.slot.engineId) }))
+    .filter((group) => group.rows.length > 0);
   // Строки kind='contract_price' — это стоимость по контракту, у неё своя колонка.
   const slotPayments = (slot: PaymentSlot) => slot.payments.filter((p) => p.kind !== 'contract_price');
   const paymentColumnCount = slotRows.reduce((max, r) => Math.max(max, slotPayments(r.slot).length), 0);
@@ -784,8 +884,10 @@ function SectionBlock(props: {
                 />
               </FormField>
               <FormField label="Вид контракта">
-                {/* Повторный щелчок по выбранному снимает вид: проставить его по ошибке легче,
-                    чем догадаться, как вернуть «не указан». */}
+                {/* Переключатель двух видов: по умолчанию «ГОЗ» (государственный оборонный
+                    заказ), на гражданский переключают осознанно (владелец 13.11.2026).
+                    Состояния «не указан» больше нет — забытый переключатель не оставляет
+                    договор без вида. */}
                 <div style={{ display: 'flex', gap: 6 }} data-contract-kind>
                   {(Object.keys(CONTRACT_KIND_LABELS) as ContractKind[]).map((kind) => {
                     const on = primarySection.kind === kind;
@@ -795,8 +897,8 @@ function SectionBlock(props: {
                         type="button"
                         data-contract-kind-option={kind}
                         disabled={!canEdit}
-                        onClick={() => update({ kind: on ? null : kind })}
-                        title={on ? 'Снять вид контракта' : `Отметить контракт как «${CONTRACT_KIND_LABELS[kind]}»`}
+                        onClick={() => update({ kind })}
+                        title={on ? `Вид договора — «${CONTRACT_KIND_LABELS[kind]}»` : `Отметить договор как «${CONTRACT_KIND_LABELS[kind]}»`}
                         style={{
                           flex: 1,
                           padding: '6px 10px',
@@ -895,7 +997,7 @@ function SectionBlock(props: {
             )}
           </div>
           <ListCount total={section.engineBrands.length} shown={section.engineBrands.length} />
-          <DataTable className="list-table">
+          <CardTable className="list-table">
               <colgroup>
                 <col />
                 <col />
@@ -987,7 +1089,7 @@ function SectionBlock(props: {
                   );
                 })}
               </tbody>
-          </DataTable>
+          </CardTable>
         </div>
         )}
 
@@ -1002,7 +1104,7 @@ function SectionBlock(props: {
             )}
           </div>
           <ListCount total={section.parts.length} shown={section.parts.length} />
-          <DataTable className="list-table">
+          <CardTable className="list-table">
               <colgroup>
                 <col />
                 <col />
@@ -1092,7 +1194,7 @@ function SectionBlock(props: {
                   );
                 })}
               </tbody>
-            </DataTable>
+            </CardTable>
         </div>
         )}
 
@@ -1132,8 +1234,14 @@ function SectionBlock(props: {
             {distributeOpen && props.onDistributeToSlots ? (
               <DistributeToSelectedForm
                 selectedCount={distributeSlotIds.length}
-                onApply={(amountKop, kind, date, note) => {
-                  void props.onDistributeToSlots?.(distributeSlotIds, amountKop, kind, date, note);
+                contractPayments={props.contractPayments}
+                slotIds={distributeSlotIds}
+                onApply={(payload, kind, date, note) => {
+                  if (payload.mode === 'percent') {
+                    void props.onDistributePercentToSlots?.(distributeSlotIds, payload.percent, kind, date, note);
+                  } else {
+                    void props.onDistributeToSlots?.(distributeSlotIds, payload.amountKop, kind, date, note);
+                  }
                   setDistributeOpen(false);
                 }}
                 onCancel={() => setDistributeOpen(false)}
@@ -1142,7 +1250,7 @@ function SectionBlock(props: {
             {slotRows.length > 0 || orphanEngines.length > 0 ? (
               <>
               <ListCount total={slotRows.length + orphanEngines.length} shown={slotRows.length + orphanEngines.length} />
-              <DataTable className="list-table">
+              <CardTable className="list-table">
                 <colgroup>
                   <col style={{ width: 42 }} />
                   {props.onToggleSlots ? <col style={{ width: 34 }} /> : null}
@@ -1150,6 +1258,7 @@ function SectionBlock(props: {
                   <col style={{ width: '16%' }} />
                   <col style={{ width: '14%' }} />
                   <col style={{ width: '13%' }} />
+                  <col style={{ width: 110 }} />
                   <col style={{ width: 110 }} />
                   <col style={{ width: 110 }} />
                   {Array.from({ length: paymentColumnCount }, (_, i) => (
@@ -1174,6 +1283,13 @@ function SectionBlock(props: {
                     </th>
                     <th className="num" data-col-kind="num" title="Стоимость по контракту">Стоимость, ₽</th>
                     <th className="num" data-col-kind="num">Оплачено, ₽</th>
+                    <th
+                      className="num"
+                      data-col-kind="num"
+                      title="Авансовые платежи по двигателю — отдельной колонкой, общая сумма не затирается"
+                    >
+                      Аванс, ₽
+                    </th>
                     {Array.from({ length: paymentColumnCount }, (_, i) => (
                       <th key={i} style={TD_HEAD} data-col-kind="text">
                         Платёж {i + 1}
@@ -1182,8 +1298,8 @@ function SectionBlock(props: {
                   </tr>
                 </thead>
                 <tbody>
-                  {brandGroups.map((group, groupIdx) => {
-                    const groupOffset = brandGroups.slice(0, groupIdx).reduce((acc, g) => acc + g.rows.length, 0);
+                  {occupiedBrandGroups.map((group, groupIdx) => {
+                    const groupOffset = occupiedBrandGroups.slice(0, groupIdx).reduce((acc, g) => acc + g.rows.length, 0);
                     const groupIds = group.rows.map((r) => r.slot.id);
                     const allChecked = groupIds.every((id) => props.slotSelection?.has(id));
                     const occupied = group.rows.filter((r) => r.engine).length;
@@ -1201,11 +1317,19 @@ function SectionBlock(props: {
                               />
                             </td>
                           ) : null}
-                          <td colSpan={6 + paymentColumnCount} style={{ ...TD_CELL, fontWeight: 700 }}>
+                          <td colSpan={7 + paymentColumnCount} style={{ ...TD_CELL, fontWeight: 700 }}>
                             {group.label}{' '}
                             <span style={{ color: 'var(--subtle)', fontWeight: 400 }}>
                               — {occupied} из {group.rows.length}
                             </span>
+                            {group.outsidePlan ? (
+                              <span
+                                style={{ color: 'var(--warning, #b45309)', fontWeight: 400, marginLeft: 8 }}
+                                title="Марки этой группы нет в плане договора: марку в плане поменяли или двигатель привязан другой марки"
+                              >
+                                — вне плана
+                              </span>
+                            ) : null}
                           </td>
                         </tr>
                         {group.rows.map((row, idx) => {
@@ -1238,6 +1362,17 @@ function SectionBlock(props: {
                               ) : null}
                               <td data-col-kind="name" style={TD_CELL}>
                                 {group.label}
+                                {/* Марка двигателя — живая (из базы). Если она разошлась с
+                                    планом договора, говорим об этом прямо: слот привязан к
+                                    марке плана, и движок другой марки сюда не сядет. */}
+                                {engine?.engineBrand && engine.engineBrand !== group.label ? (
+                                  <span
+                                    style={{ color: 'var(--warning, #b45309)', display: 'block', fontSize: 12 }}
+                                    title="Марка двигателя в карточке двигателя отличается от марки плана договора"
+                                  >
+                                    ⚠ по двигателю: {engine.engineBrand}
+                                  </span>
+                                ) : null}
                               </td>
                               <td data-col-kind="name" style={TD_CELL}>
                                 {engine ? (
@@ -1255,6 +1390,10 @@ function SectionBlock(props: {
                                     )}
                                     {renderMoveEngineSelect(engine, sectionToken)}
                                   </div>
+                                ) : slot.engineId ? (
+                                  <span style={{ color: 'var(--warning, #b45309)' }} title="Двигатель привязан к месту, но его карточка не подгрузилась">
+                                    ⚠ двигатель не загружен
+                                  </span>
                                 ) : (
                                   <span style={{ color: 'var(--subtle)' }}>— свободно —</span>
                                 )}
@@ -1284,6 +1423,24 @@ function SectionBlock(props: {
                                 }
                               >
                                 {totals.paidKop > 0 ? formatKopMoney(totals.paidKop) : '—'}
+                              </td>
+                              <td
+                                className="num"
+                                data-col-kind="num"
+                                title={totals.firstAdvanceDate ? `Дата аванса: ${isoDateRu(totals.firstAdvanceDate)}` : undefined}
+                              >
+                                {totals.advanceKop > 0 ? (
+                                  <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                                    <span style={{ fontWeight: 700 }}>{formatKopMoney(totals.advanceKop)}</span>
+                                    {totals.firstAdvanceDate ? (
+                                      <span style={{ color: 'var(--subtle)', fontSize: 12, whiteSpace: 'nowrap' }}>
+                                        {isoDateRu(totals.firstAdvanceDate)}
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: 'var(--subtle)' }}>—</span>
+                                )}
                               </td>
                               {Array.from({ length: paymentColumnCount }, (_, i) => {
                                 const p = payments[i];
@@ -1325,7 +1482,7 @@ function SectionBlock(props: {
                   })}
                   {orphanEngines.map((engine, orphanIdx) => (
                     <tr key={`orphan-${engine.id}`}>
-                      <RowNumberCell n={slotRows.length + orphanIdx + 1} style={TD_CELL} />
+                      <RowNumberCell n={occupiedBrandGroups.reduce((sum, g) => sum + g.rows.length, 0) + orphanIdx + 1} style={TD_CELL} />
                       {props.onToggleSlots ? <td style={{ borderBottom: '1px solid var(--border)' }} /> : null}
                       <td data-col-kind="name" style={TD_CELL}>
                         <span style={{ color: 'var(--warning, #b45309)' }} title="Двигатель привязан к секции, но слот ему ещё не назначен">⚠</span>{' '}
@@ -1350,13 +1507,56 @@ function SectionBlock(props: {
                       <td data-col-kind="text" style={TD_CELL}>
                         {currentEngineStatusLabel(engine)}
                       </td>
-                      <td colSpan={3 + paymentColumnCount} style={{ ...TD_CELL, color: 'var(--subtle)' }}>
+                      <td colSpan={4 + paymentColumnCount} style={{ ...TD_CELL, color: 'var(--subtle)' }}>
                         слот не назначен — переоткройте карточку контракта
                       </td>
                     </tr>
                   ))}
                 </tbody>
-              </DataTable>
+              </CardTable>
+              {/* Свободные места (пустые слоты) — свёрнуты: в основной таблице они только
+                  загромождали карточку (владелец 13.11.2026). Места создаются как раньше,
+                  оператор разворачивает список и привязывает двигатель. Галочки здесь
+                  обязательны: деньги часто приходят РАНЬШЕ двигателей, и аванс разносится
+                  именно по отмеченным местам — без отметки в развернутом списке аванс
+                  было бы некуда положить. */}
+              {freeSlotGroups.length > 0 ? (
+                <div style={{ marginTop: 8 }}>
+                  <CollapsibleSection
+                    title="Свободные места под двигатели"
+                    count={freeSlotGroups.reduce((sum, g) => sum + g.rows.length, 0)}
+                  >
+                    <div style={{ display: 'grid', gap: 4 }}>
+                      {freeSlotGroups.map((group) => (
+                        <div key={group.key || 'no-brand'}>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <span style={{ fontWeight: 600 }}>{group.label}</span>
+                            <span style={{ color: 'var(--subtle)', fontSize: 12 }}>
+                              свободно {group.rows.length}
+                              {group.outsidePlan ? ' — вне плана договора' : ''}
+                            </span>
+                          </div>
+                          {props.onToggleSlots ? (
+                            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 2 }}>
+                              {group.rows.map((row, idx) => (
+                                <label key={row.slot.id} style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 12 }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={props.slotSelection?.has(row.slot.id) === true}
+                                    onChange={(e) => props.onToggleSlots?.([row.slot.id], e.target.checked)}
+                                    title="Отметить место — сюда можно разнести аванс (двигатель придёт позже)"
+                                  />
+                                  <span style={{ color: 'var(--subtle)' }}>место {idx + 1}</span>
+                                </label>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </CollapsibleSection>
+                </div>
+              ) : null}
               </>
             ) : null}
             {canEdit && addEngineOpen && (
@@ -1765,14 +1965,30 @@ export function ContractDetailsPage(props: {
     return relatedContractIds;
   }
 
-  const sameEngineIds = (a: ReadonlyArray<{ id: string }>, b: ReadonlyArray<{ id: string }>) =>
-    a.length === b.length && a.every((x, i) => x.id === b[i]?.id);
+  // Свежесть каталога двигателей: сравниваем не только состав, но и СОДЕРЖИМОЕ строк.
+  // Раньше сравнение шло по id — и правка марки (или номера) на двигателе не доезжала до
+  // открытой карточки контракта: список «не изменился» (те же id), и контракт продолжал
+  // показывать старую марку (владелец 13.11.2026: «в контракте марка не обновилась»).
+  const engineSignature = (e: EngineListItem) =>
+    [
+      e.id,
+      e.engineNumber ?? '',
+      e.engineBrand ?? '',
+      e.engineBrandId ?? '',
+      e.contractSectionNumber ?? '',
+      e.arrivalDate ?? '',
+      e.lastActivityAt ?? '',
+      e.updatedAt ?? 0,
+    ].join('|');
+
+  const sameEngines = (a: ReadonlyArray<EngineListItem>, b: ReadonlyArray<EngineListItem>) =>
+    a.length === b.length && a.every((x, i) => engineSignature(x) === engineSignature(b[i]!));
 
   async function loadEnginesCatalog(): Promise<EngineListItem[]> {
     try {
       const engines = await window.matrica.engines.list();
       const next = Array.isArray(engines) ? engines : [];
-      setEnginesCache((prev) => (sameEngineIds(prev, next) ? prev : next));
+      setEnginesCache((prev) => (sameEngines(prev, next) ? prev : next));
       return next;
     } catch {
       setEnginesCache([]);
@@ -1796,7 +2012,7 @@ export function ContractDetailsPage(props: {
         if (byNumber !== 0) return byNumber;
         return b.updatedAt - a.updatedAt;
       });
-      setRelatedEngines((prev) => (sameEngineIds(prev, sortedEngineItems) ? prev : sortedEngineItems));
+      setRelatedEngines((prev) => (sameEngines(prev, sortedEngineItems) ? prev : sortedEngineItems));
       engineBrandByIdRef.current = new Map(
         catalog.flatMap((e) =>
           e.engineBrandId ? [[String(e.id), String(e.engineBrandId)] as const] : [],
@@ -1810,7 +2026,12 @@ export function ContractDetailsPage(props: {
         id: engine.id,
         label: engineOptionLabel(engine),
       }));
-      setAllEngineOptions((prev) => (sameEngineIds(prev, engineOpts) ? prev : engineOpts));
+      // Подписи опций движка тоже живые: марка в подписи меняется вместе с маркой на карточке.
+      setAllEngineOptions((prev) =>
+        prev.length === engineOpts.length && prev.every((x, i) => x.id === engineOpts[i]?.id && x.label === engineOpts[i]?.label)
+          ? prev
+          : engineOpts,
+      );
       const aggregate = aggregateContractExecutionProgress({
         sections,
         engineItems: sortedEngineItems,
@@ -2352,6 +2573,21 @@ export function ContractDetailsPage(props: {
     setSlotSelection(new Set());
   }
 
+  /** Аванс по проценту от стоимости двигателя: 50% от суммы по отмеченным двигателям. */
+  async function distributePercentToSelectedSlots(
+    slotIds: readonly string[],
+    percent: number,
+    kind: PaymentKind,
+    date: string,
+    note: string,
+  ) {
+    if (slotIds.length === 0) return;
+    await mutatePayments((current) =>
+      distributePercentToSlots(current, slotIds, percent, kind, date, () => crypto.randomUUID(), note),
+    );
+    setSlotSelection(new Set());
+  }
+
   async function removeSlotPayment(slotId: string, paymentId: string) {
     await mutatePayments((current) => removePayment(current, slotId, paymentId));
   }
@@ -2410,6 +2646,55 @@ export function ContractDetailsPage(props: {
         contractNumber: String(sections?.primary.number ?? '').trim(),
         customerName,
         engines,
+      }),
+    });
+  }
+
+  /**
+   * Строки формы «Авансы по договору»: по каким двигателям внесён аванс, сколько и когда.
+   * Отмеченные галочками двигатели — если галочек нет, берём все, по которым аванс есть.
+   */
+  const advanceMemoRows = React.useMemo(() => {
+    const engineById = new Map(relatedEngines.map((e) => [e.id, e] as const));
+    const selectedIds = new Set(slotSelection);
+    return contractPayments.slots
+      .filter((slot) => (selectedIds.size > 0 ? selectedIds.has(slot.id) : slotTotals(slot).advanceKop > 0))
+      .map((slot) => {
+        const totals = slotTotals(slot);
+        const engine = slot.engineId ? engineById.get(slot.engineId) : undefined;
+        const brand = engine?.engineBrand
+          ? String(engine.engineBrand)
+          : engineBrandOptions.find((o) => o.id === slot.engineBrandId)?.label ?? '—';
+        return {
+          engineNumber: String(engine?.engineNumber ?? '—'),
+          brand,
+          sectionToken: sectionLabelOf(slot.sectionKey),
+          advanceLabel: totals.advanceKop > 0 ? formatKopMoney(totals.advanceKop) : '—',
+          advanceDateLabel: totals.firstAdvanceDate ? isoDateRu(totals.firstAdvanceDate) : '',
+          priceLabel: totals.priceKop > 0 ? formatKopMoney(totals.priceKop) : '—',
+          advanceKop: totals.advanceKop,
+        };
+      })
+      .filter((row) => row.advanceKop > 0);
+  }, [contractPayments, slotSelection, relatedEngines, engineBrandOptions, sectionLabelOf]);
+
+  /** Печатная форма «Авансы по договору» — для директора: по каким двигателям аванс и когда. */
+  function printAdvanceMemo() {
+    const rows = advanceMemoRows;
+    if (rows.length === 0) return;
+    const contractNumber = String(sections?.primary.number ?? '').trim();
+    const customerName = sections?.primary.customerId
+      ? customerOptions.find((o) => o.id === sections.primary.customerId)?.label ?? ''
+      : '';
+    const totalKop = rows.reduce((sum, row) => sum + row.advanceKop, 0);
+    openPrintPreview({
+      title: 'Авансы по договору',
+      subtitle: `Контракт № ${contractNumber || '—'}`,
+      sections: buildAdvanceMemoSections({
+        contractNumber,
+        customerName,
+        rows,
+        totalLabel: formatKopMoney(totalKop),
       }),
     });
   }
@@ -2646,6 +2931,7 @@ export function ContractDetailsPage(props: {
     const accounting = buildAccountingForm(attrs);
     const mainRows: Array<[string, string]> = [
       ['Номер', sections.primary.number || '—'],
+      ['Вид договора', CONTRACT_KIND_LABELS[sections.primary.kind] ?? '—'],
       ['Дата заключения', toInputDate(sections.primary.signedAt) || '—'],
       ['Дата исполнения', toInputDate(effectiveContractDueAt(sections)) || '—'],
       ['Внутренний номер', sections.primary.internalNumber || '—'],
@@ -2791,6 +3077,16 @@ export function ContractDetailsPage(props: {
       }
       actions={
         <RowActions>
+          {advanceMemoRows.length > 0 ? (
+            <Button
+              variant="ghost"
+              tone="info"
+              onClick={printAdvanceMemo}
+              title="Авансовые платежи по отмеченным галочками двигателям (без отметок — по всем, где аванс есть)"
+            >
+              Авансы ({advanceMemoRows.length})
+            </Button>
+          ) : null}
           {selectedMemoEngines.length > 0 ? (
             <Button
               variant="ghost"
@@ -2835,6 +3131,7 @@ export function ContractDetailsPage(props: {
             contractPayments={contractPayments}
             canEditPayments={props.canEdit}
             onDistributeToSlots={distributeToSlots}
+                  onDistributePercentToSlots={distributePercentToSelectedSlots}
             onRemoveSlotPayment={removeSlotPayment}
             slotSelection={slotSelection}
             globalSelectedSlotIds={globalSelectedSlotIds}
@@ -2868,6 +3165,7 @@ export function ContractDetailsPage(props: {
               contractPayments={contractPayments}
               canEditPayments={props.canEdit}
               onDistributeToSlots={distributeToSlots}
+                  onDistributePercentToSlots={distributePercentToSelectedSlots}
               onRemoveSlotPayment={removeSlotPayment}
               slotSelection={slotSelection}
               globalSelectedSlotIds={globalSelectedSlotIds}
@@ -2922,7 +3220,7 @@ export function ContractDetailsPage(props: {
                     своей марки.
                   </div>
                   <ListCount total={enginesWithoutSection.length} shown={enginesWithoutSection.length} />
-                  <DataTable className="list-table">
+                  <CardTable className="list-table">
                     <colgroup>
                       <col />
                       <col style={{ width: '30%' }} />
@@ -2999,7 +3297,7 @@ export function ContractDetailsPage(props: {
                         );
                       })}
                     </tbody>
-                  </DataTable>
+                  </CardTable>
                   {props.canEdit ? (
                     <div>
                       <Button variant="outline" tone="neutral" size="sm" onClick={() => void placeEnginesWithoutSection()}>
@@ -3073,7 +3371,7 @@ export function ContractDetailsPage(props: {
             {expandedBlocks.contractParts !== false && (
               <div style={{ marginTop: 12, display: 'grid', gap: 12 }}>
                 <ListCount total={executionParts.length} shown={executionParts.length} />
-                <DataTable className="list-table">
+                <CardTable className="list-table">
                   <colgroup>
                     <col />
                     <col />
@@ -3153,7 +3451,7 @@ export function ContractDetailsPage(props: {
                       </tr>
                     )}
                   </tbody>
-                </DataTable>
+                </CardTable>
 
                 {props.canEdit && (
                   addPartOpen ? (

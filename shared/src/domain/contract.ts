@@ -19,17 +19,28 @@ export type ContractExecutionPartRow = {
 };
 
 /**
- * Военный / гражданский контракт (просьба владельца 08.09.2026 — по нему фильтруется список).
+ * Вид контракта: гособоронзаказ (ГОЗ) или гражданский.
  *
- * Живёт ВНУТРИ `contract_sections`, а не отдельным EAV-атрибутом: с 2026-08-18 действует
- * EAV-freeze (AGENTS.md §EAV), а строгая таблица `erp_contracts` — зеркало EAV, писать в неё
- * напрямую нельзя. Поле в уже существующем JSON не заводит ни атрибута, ни колонки и само
- * доезжает до зеркала (`sections_json`) и синхронизации.
+ * Просьба владельца 08.09.2026 — по виду фильтруется список. Уточнение 13.11.2026:
+ * подпись «Военный» заменена на «ГОЗ» (государственный оборонный заказ), а вид по
+ * умолчанию — ГОЗ: забытый переключатель не должен оставлять договор без вида,
+ * переключать на гражданский нужно осознанно.
+ *
+ * Хранимое значение остаётся прежним ('military'/'civil') — миграция данных не
+ * нужна; меняются подпись и умолчание.
+ *
+ * Живёт ВНУТРИ `contract_sections`, а не отдельным EAV-атрибутом: с 2026-08-18
+ * действует EAV-freeze (AGENTS.md §EAV), а строгая таблица `erp_contracts` —
+ * зеркало EAV, писать в неё напрямую нельзя. Поле в уже существующем JSON не
+ * заводит ни атрибута, ни колонки и само доезжает до зеркала (`sections_json`).
  */
 export type ContractKind = 'military' | 'civil';
 
+/** Вид по умолчанию: государственный оборонный заказ. */
+export const DEFAULT_CONTRACT_KIND: ContractKind = 'military';
+
 export const CONTRACT_KIND_LABELS: Record<ContractKind, string> = {
-  military: 'Военный',
+  military: 'ГОЗ',
   civil: 'Гражданский',
 };
 
@@ -44,8 +55,8 @@ export type ContractPrimarySection = {
   dueAt: number | null;
   internalNumber: string;
   customerId: string | null;
-  /** `null` — вид не проставлен: у старых контрактов его нет, и угадывать нечего. */
-  kind: ContractKind | null;
+  /** Вид договора: по умолчанию — государственный оборонный заказ («ГОЗ»). */
+  kind: ContractKind;
   /**
    * Сколько дней даётся на ремонт двигателя с момента приезда на завод (владелец
    * 22.09.2026). Раньше срок был зашит в код одним числом на весь завод, а он у
@@ -454,7 +465,7 @@ const defaultPrimary: ContractPrimarySection = {
   dueAt: null,
   internalNumber: '',
   customerId: null,
-  kind: null,
+  kind: DEFAULT_CONTRACT_KIND,
   engineBrands: [],
   parts: [],
 };
@@ -474,7 +485,7 @@ export function parseContractSections(attrs: Record<string, unknown> | null | un
             dueAt: typeof primary.dueAt === 'number' ? primary.dueAt : null,
             internalNumber: String(primary.internalNumber ?? primary.number ?? ''),
             customerId: primary.customerId != null ? String(primary.customerId) : null,
-            kind: parseContractKind(primary.kind),
+            kind: parseContractKind(primary.kind) ?? DEFAULT_CONTRACT_KIND,
             ...(parseRepairDays(primary.repairDays) != null ? { repairDays: parseRepairDays(primary.repairDays)! } : {}),
             engineBrands: Array.isArray(primary.engineBrands) ? primary.engineBrands.filter((r) => r && typeof r.engineBrandId === 'string') : [],
             parts: Array.isArray(primary.parts) ? primary.parts.filter((p) => p && typeof p.partId === 'string') : [],
