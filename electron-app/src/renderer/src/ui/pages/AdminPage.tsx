@@ -1430,7 +1430,7 @@ export function MasterdataPage(props: {
                       Запись связана с другими ({deleteDialog.links.length}). Удаление доступно только администратору. Вы можете перейти к зависимым записям и изменить их.
                     </div>
                     <ListCount total={deleteDialog.links.length} shown={Math.min(deleteDialog.links.length, 10)} />
-                    <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
+                    <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'clip' }}>
                       <table className="list-table list-table--catalog">
                         <thead>
                           <tr style={{ background: 'linear-gradient(135deg, #f97316 0%, #ea580c 120%)', color: '#fff' }}>
@@ -1504,7 +1504,7 @@ export function MasterdataPage(props: {
                     />
                   )}
                   <ListCount total={visibleDefs.length} shown={visibleDefs.length} />
-                  <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'hidden' }}>
+                  <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, overflow: 'clip' }}>
                     <table className="list-table list-table--catalog">
                       <thead>
                         <tr style={{ background: 'linear-gradient(135deg, #db2777 0%, #9d174d 120%)', color: '#fff' }}>

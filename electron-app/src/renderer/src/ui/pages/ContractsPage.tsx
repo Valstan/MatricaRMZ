@@ -996,7 +996,11 @@ export function ContractsPage(props: {
 
   function renderTable(items: Row[], startIndex = 0) {
     return (
-      <div style={{ border: '1px solid #e5e7eb', overflow: 'auto' }}>
+      // Без своей прокрутки: обёртка со скроллом перехватывает sticky-контекст шапки —
+      // и она уезжала вместе со списком (владелец 13.11.2026). `visible`, а не `clip`:
+      // колонки в этом списке растягиваются мышью, и широкая таблица должна доезжать
+      // прокруткой бокса страницы (как у общего `.list-table-wrap`), а не обрезаться.
+      <div style={{ border: '1px solid #e5e7eb', overflow: 'visible' }}>
         <table className="list-table">
           <colgroup>
             <col key="__lead" />

@@ -804,7 +804,10 @@ export function ProductionProgramPage(props: Props) {
             </SectionCard>
 
             <SectionCard title="Строки плана">
-              <div style={{ overflowX: 'auto' }}>
+              {/* Без своей горизонтальной прокрутки: вложенный скролл-контейнер
+                  перехватывает sticky-шапку, и она уезжает вместе с таблицей. Широкая
+                  таблица доезжает прокруткой бокса карточки. */}
+              <div style={{ overflow: 'visible' }}>
                 <table className="list-table" style={{ width: '100%' }}>
                   <thead>
                     <tr>

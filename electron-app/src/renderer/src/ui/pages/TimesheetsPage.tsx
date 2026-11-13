@@ -124,7 +124,7 @@ export function TimesheetsPage(props: { canEdit: boolean; onOpen: (id: string) =
       )}
 
       <ListCount total={rows.length} shown={rows.length} />
-      <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
+      <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'clip' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 120%)', color: '#fff' }}>
