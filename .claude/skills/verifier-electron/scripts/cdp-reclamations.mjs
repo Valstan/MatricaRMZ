@@ -493,6 +493,144 @@ async function main() {
      return true;`,
   );
 
+  /* ── [2c] Отправка по рекламации — этап ремонта (владелец 13.11.2026) ────────────── */
+  // Отправка после ремонта по рекламации — такой же участник процесса, как приёмка: этап
+  // единого списка, а не поле вкладки. Пока этапа нет, отправки нет ни в истории ремонта,
+  // ни в отборе по этапам, ни в отчёте по этапам.
+  const SHIP_MS = RECL_MS + 2 * 86400000;
+  const shipmentStage = await evaluate(
+    ws,
+    `const saved = await call(window.matrica.engineReclamations.save({
+       engineId: ${JSON.stringify(ENGINE_ID)},
+       rows: [{
+         queueNo: 1,
+         acceptedAt: ${RECL_MS},
+         shippedAt: ${SHIP_MS},
+         customerReason: '${TAG}: дефект по рекламации',
+         actualDefect: '${TAG}: фактический дефект',
+         defectNature: null,
+         actNumber: null,
+         actDate: null,
+         comment: '${TAG}',
+       }],
+     }));
+     if (!saved?.ok) return { ok: false, reason: 'очередь с датой отправки не сохранилась', saved };
+     if (!saved?.stages || saved.stages.errors?.length) {
+       return { ok: false, reason: 'этап отправки по рекламации не заведён', stages: saved.stages, saved };
+     }
+     await call(window.matrica.sync.run());
+     await wait(2500);
+     const st = await call(window.matrica.workSheets.stages.list(${JSON.stringify(ENGINE_ID)}));
+     const rows = st?.rows ?? [];
+     const stage = rows.find((r) => r.code === 'shipped_reclamation');
+     const root = activePane();
+     await setQuery(root, ${JSON.stringify(NUMBER)});
+     const row = rowWith(root, ${JSON.stringify(NUMBER)});
+     const rowText = row ? txt(row) : '';
+     return {
+       ok: Boolean(stage),
+       code: stage?.code ?? null,
+       name: stage?.name ?? null,
+       at: stage?.at ?? null,
+       rowFound: Boolean(row),
+       rowText,
+     };`,
+  );
+  note(
+    shipmentStage.code === 'shipped_reclamation' &&
+      shipmentStage.name === 'Отгрузка двигателя заказчику по рекламации' &&
+      shipmentStage.at === SHIP_MS,
+    'отправка по рекламации — этап ремонта с датой отправки',
+    shipmentStage,
+  );
+  note(
+    shipmentStage.rowFound && shipmentStage.rowText.includes('Отгрузка двигателя заказчику по рекламации'),
+    'список двигателей: колонка «Этап» показывает «Отгрузка двигателя заказчику по рекламации»',
+    { rowFound: shipmentStage.rowFound, rowText: shipmentStage.rowText.slice(0, 200) },
+  );
+
+  const shipmentFilter = await evaluate(
+    ws,
+    `const root = activePane();
+     await openFacets(root);
+     const opened = await ensureField(root, 'hasStage');
+     if (!opened) return { ok: false, reason: 'ступень «История» не раскрылась' };
+     const picked = await setPicked(root, 'hasStage', 'stage:shipped', true);
+     if (!picked.ok) return { ok: false, reason: 'значения «Отгрузка двигателя заказчику» нет', picked };
+     const rowsAfter = listRows(root);
+     const hit = rowsAfter.some((r) => txt(r).includes(${JSON.stringify(NUMBER)}));
+     const pickedRecl = await setPicked(root, 'hasStage', 'stage:shipped_reclamation', true);
+     const rowsRecl = listRows(root);
+     const hitRecl = rowsRecl.some((r) => txt(r).includes(${JSON.stringify(NUMBER)}));
+     const otherHit = rowsRecl.some((r) => !txt(r).includes(${JSON.stringify(NUMBER)}) && txt(r).includes('TEST-001'));
+     const fields = facetFields(root);
+     return {
+       ok: true, hit, hitRecl, pickedRecl: pickedRecl.ok, otherHit,
+       rows: rowsAfter.length, rowsRecl: rowsRecl.length,
+       shippedFacet: fields.find((f) => f.id === 'reclamationShipped') ?? null,
+     };`,
+  );
+  note(
+    shipmentFilter.ok && shipmentFilter.hit,
+    'отбор «История» → «Отгрузка двигателя заказчику» ловит рекламационную отправку',
+    shipmentFilter,
+  );
+  note(
+    shipmentFilter.ok && shipmentFilter.hitRecl && !shipmentFilter.otherHit,
+    'отбор «История» → «Отгрузка двигателя заказчику по рекламации» ловит только её',
+    shipmentFilter,
+  );
+  note(
+    shipmentFilter.shippedFacet?.label === 'Дата отправки по рекламации',
+    'список двигателей: ступень «Дата отправки по рекламации» на месте',
+    shipmentFilter.shippedFacet,
+  );
+
+  // Отправка снята — движок снова числится на заводе (дальше по смоуку идёт отчёт
+  // «Сейчас на заводе», где отгруженного движка нет). Заодно проверяем, что снятие
+  // даты отправки снимает и этап.
+  const shipmentReset = await evaluate(
+    ws,
+    `const saved = await call(window.matrica.engineReclamations.save({
+       engineId: ${JSON.stringify(ENGINE_ID)},
+       rows: [{
+         queueNo: 1,
+         acceptedAt: ${RECL_MS},
+         shippedAt: null,
+         customerReason: '${TAG}: дефект по рекламации',
+         actualDefect: '${TAG}: фактический дефект',
+         defectNature: null,
+         actNumber: null,
+         actDate: null,
+         comment: '${TAG}',
+       }],
+     }));
+     if (!saved?.ok) return { ok: false, reason: 'очередь без даты отправки не сохранилась', saved };
+     await call(window.matrica.sync.run());
+     await wait(2500);
+     const st = await call(window.matrica.workSheets.stages.list(${JSON.stringify(ENGINE_ID)}));
+     const rows = st?.rows ?? [];
+     return {
+       ok: true,
+       errors: saved?.stages?.errors ?? [],
+       stageLeft: rows.some((r) => r.code === 'shipped_reclamation'),
+       arrivalLeft: rows.some((r) => r.code === 'arrival_reclamation'),
+     };`,
+  );
+  note(
+    shipmentReset.ok && !shipmentReset.stageLeft && shipmentReset.arrivalLeft,
+    'снятие даты отправки снимает этап отправки, а приёмка по рекламации остаётся',
+    shipmentReset,
+  );
+  await evaluate(
+    ws,
+    `const root = activePane();
+     const reset = vis('[data-facet-reset]', root)[0];
+     if (reset && !reset.disabled) { click(reset); await wait(900); }
+     await setQuery(root, '');
+     return true;`,
+  );
+
   /* ── [3] Отчёт «Двигатели»: метка с датой, ступень, месяцы ────────────────────── */
   await openReport(ws, 'Двигатели', '[data-engines-report]');
   const enginesReport = await evaluate(

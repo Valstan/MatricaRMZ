@@ -5,6 +5,7 @@ import {
   engineReclamationArrivals,
   engineReclamationFacts,
   engineReclamationHistoryLines,
+  engineReclamationShipments,
   formatQueueDate,
   sortEngineReclamations,
   validateEngineReclamationQueue,
@@ -202,5 +203,32 @@ describe('очередь рекламаций: приёмки под этапы'
 
   it('пустая очередь — приёмок нет', () => {
     expect(engineReclamationArrivals([])).toEqual([]);
+  });
+});
+
+/**
+ * Отправки по рекламации — тоже под этапы (владелец 13.11.2026): уехал заказчику после
+ * ремонта по рекламации — значит, это этап истории, а не поле вкладки.
+ */
+describe('очередь рекламаций: отправки под этапы', () => {
+  it('рекламация с датой отправки — отправка, без даты — ещё не уехал', () => {
+    const shipments = engineReclamationShipments([
+      reclamation({ queueNo: 1, shippedAt: BASE + 20 * DAY }),
+      reclamation({ queueNo: 2, shippedAt: null }),
+    ]);
+    expect(shipments).toEqual([{ queueNo: 1, at: BASE + 20 * DAY }]);
+  });
+
+  it('несколько рекламаций — несколько отправок, по порядку очереди', () => {
+    const shipments = engineReclamationShipments([
+      reclamation({ queueNo: 2, shippedAt: BASE + 40 * DAY }),
+      reclamation({ queueNo: 1, shippedAt: BASE + 20 * DAY }),
+    ]);
+    expect(shipments.map((s) => s.queueNo)).toEqual([1, 2]);
+    expect(shipments.map((s) => s.at)).toEqual([BASE + 20 * DAY, BASE + 40 * DAY]);
+  });
+
+  it('пустая очередь — отправок нет', () => {
+    expect(engineReclamationShipments([])).toEqual([]);
   });
 });

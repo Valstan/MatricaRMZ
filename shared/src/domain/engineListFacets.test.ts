@@ -198,6 +198,17 @@ describe('ступени по датам', () => {
     expect(engineFacetById('reclamationAccepted')?.label).toBe('Дата приёмки рекламации');
   });
 
+  it('рекламация: отбор по дате отправки — симметрично приёмке (владелец 13.11.2026)', () => {
+    const rows = [
+      { id: 'r1', isReclamation: true, reclamationShippedDate: DAY_05 },
+      { id: 'r2', isReclamation: true, reclamationShippedDate: DAY_09 },
+      { id: 'r3', isReclamation: true },
+    ] as unknown as EngineListItem[];
+    expect(ids(applyEngineFacets(rows, { reclamationShipped: { from: '2026-09-05', to: '2026-09-07' } }))).toEqual(['r1']);
+    expect(ids(applyEngineFacets(rows, { reclamationShipped: { from: '2026-09-09' } }))).toEqual(['r2']);
+    expect(engineFacetById('reclamationShipped')?.label).toBe('Дата отправки по рекламации');
+  });
+
   it('пустой диапазон не отбирает и не считается активной ступенью', () => {
     expect(ids(applyEngineFacets(dated, { arrivalDate: {} }))).toEqual(['d1', 'd2', 'd3']);
     expect(activeEngineFacetCount({ arrivalDate: {} })).toBe(0);
@@ -485,6 +496,7 @@ describe('ступень «Текущее состояние» со справо
       'stage:obkatka',
       'stage:otk',
       'stage:shipped',
+      'stage:shipped_reclamation',
       'stage:accepted',
       'sheet:ukladka',
       'sheet:sborka',

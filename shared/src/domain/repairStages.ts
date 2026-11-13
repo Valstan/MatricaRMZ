@@ -29,6 +29,7 @@ export const REPAIR_STAGE_CODES = [
   'obkatka',
   'otk',
   'shipped',
+  'shipped_reclamation',
   'accepted',
   'scrap_branch',
 ] as const;
@@ -87,6 +88,11 @@ export const DEFAULT_REPAIR_STAGE_TEMPLATES: ReadonlyArray<RepairStageTemplate> 
   { code: 'obkatka', name: 'Обкатка двигателя', sortOrder: 60 },
   { code: 'otk', name: 'Выходной контроль ОТК', sortOrder: 70 },
   { code: 'shipped', name: 'Отгрузка двигателя заказчику', sortOrder: 80 },
+  // Отгрузка по рекламации (владелец 13.11.2026): движок уехал заказчику после ремонта по
+  // рекламации — и эта отправка должна быть этапом истории, а не полем вкладки. Свой код и
+  // своя подпись — чтобы в колонке «этап» было видно, что это отправка по рекламации, а
+  // отбор по отгрузке ловил и её (см. REPAIR_STAGE_EQUIVALENT_GROUPS).
+  { code: 'shipped_reclamation', name: 'Отгрузка двигателя заказчику по рекламации', sortOrder: 81 },
   { code: 'accepted', name: 'Приемка двигателя заказчиком', sortOrder: 90 },
   { code: 'scrap_branch', name: 'Утиль и брак', sortOrder: 0, sideBranch: true },
 ];
@@ -102,6 +108,16 @@ export const DEFAULT_REPAIR_STAGE_TEMPLATES: ReadonlyArray<RepairStageTemplate> 
 export const RECLAMATION_ARRIVAL_STAGE_CODE = 'arrival_reclamation';
 
 /**
+ * Отгрузка двигателя заказчику ПО РЕКЛАМАЦИИ (владелец 13.11.2026).
+ *
+ * Зеркало приёмки по рекламации: движок уехал заказчику после ремонта по рекламации — и эта
+ * отправка такой же участник процесса, как приёмка: этап единого списка, а не поле вкладки.
+ * Ранг — сразу за обычной отгрузкой (81 против 80), подпись своя: в колонке «этап» видно,
+ * что движок уехал по рекламации.
+ */
+export const RECLAMATION_SHIPPED_STAGE_CODE = 'shipped_reclamation';
+
+/**
  * Группы равных этапов (владелец 11.11.2026): приёмка по рекламации — та же приёмка
  * двигателя на заводе. Отбор «приёмка двигателя на завод» должен ловить и приезд по
  * рекламации, а при этом подпись этапа в колонке «этап» остаётся своей («по
@@ -111,8 +127,14 @@ export const RECLAMATION_ARRIVAL_STAGE_CODE = 'arrival_reclamation';
  * (приёмка по рекламации). Частный этап отвечает на общий (движок, приехавший по
  * рекламации, попадает под отбор «приёмка»), но общий не отвечает на частный (обычная
  * приёмка не должна попадать под отбор «приёмка по рекламации»).
+ *
+ * Отгрузка по рекламации (13.11.2026) — та же отгрузка двигателя заказчику: отбор
+ * «отгрузка» ловит и её, а обычная отгрузка под «отгрузку по рекламации» не попадает.
  */
-export const REPAIR_STAGE_EQUIVALENT_GROUPS: ReadonlyArray<readonly string[]> = [['arrival', 'arrival_reclamation']];
+export const REPAIR_STAGE_EQUIVALENT_GROUPS: ReadonlyArray<readonly string[]> = [
+  ['arrival', 'arrival_reclamation'],
+  ['shipped', 'shipped_reclamation'],
+];
 
 /**
  * Коды, которым данный этап отвечает ДОПОЛНИТЕЛЬНО (кроме самого себя): группа — от
