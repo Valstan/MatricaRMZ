@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Смоук колонки «Привязка» (владелец 12.11.2026, промт КАРМАНА #8):
+// Смоук колонки «Договор» (владелец 12.11.2026, промт КАРМАНА #8):
 //
-//   1. колонка «Привязка» в списке двигателей ВЫКЛЮЧЕНА по умолчанию — и у оператора с
+//   1. колонка «Договор» в списке двигателей ВЫКЛЮЧЕНА по умолчанию — и у оператора с
 //      сохранённой раскладкой (разовое умолчание HIDE_ONCE), и у свежего;
 //   2. когда её включить — в ячейке три цифры рабочего номера договора, а для ДС ещё «/N»;
 //   3. у непривязанного двигателя — только красный кружок, без слов;
@@ -128,9 +128,9 @@ const HELPERS = `
     const i = ths.findIndex((th) => txt(th).startsWith(label));
     return i < 0 ? null : i;
   };
-  // Ячейка «Привязка» каждой видимой строки: текст и цвета кружков.
+  // Ячейка «Договор» каждой видимой строки: текст и цвета кружков.
   const bindingRows = () => {
-    const idx = headerIndex('Привязка');
+    const idx = headerIndex('Договор');
     if (idx == null) return { missing: true };
     const numIdx = headerIndex('Номер'); // «№» строки — не то; номер двигателя — «Номер».
     const rows = [...(listTable()?.querySelectorAll('tbody tr') ?? [])].filter(visible);
@@ -228,13 +228,13 @@ async function main() {
        const k = localStorage.key(i);
        if (k && k.includes('hideOnce')) keys.push({ k, v: localStorage.getItem(k) });
      }
-     return { hideOnce: keys, state: chipState('binding'), hasHeader: headerIndex('Привязка') != null };`,
+     return { hideOnce: keys, state: chipState('binding'), hasHeader: headerIndex('Договор') != null };`,
   );
   note(true, 'отметка разового умолчания и состояние плашки', layout);
-  note(layout.state === 'off', 'колонка «Привязка» выключена по умолчанию (у сохранённой раскладки)', {
+  note(layout.state === 'off', 'колонка «Договор» выключена по умолчанию (у сохранённой раскладки)', {
     state: layout.state,
   });
-  note(layout.hasHeader === false, 'колонки «Привязка» нет в шапке списка', { hasHeader: layout.hasHeader });
+  note(layout.hasHeader === false, 'колонки «Договор» нет в шапке списка', { hasHeader: layout.hasHeader });
   await shot(ws, '1-hidden');
 
   // ── 2. Свежий оператор: раскладки нет — умолчание то же ───────────────────────────
@@ -252,7 +252,7 @@ async function main() {
   await evaluate(ws, `await dismissModals(); return true;`);
   const afterReload = await evaluate(
     ws,
-    `return { state: chipState('binding'), hasHeader: headerIndex('Привязка') != null };`,
+    `return { state: chipState('binding'), hasHeader: headerIndex('Договор') != null };`,
   );
   note(
     afterReload.state === 'off' && afterReload.hasHeader === false,
@@ -264,9 +264,9 @@ async function main() {
   await openSection(ws, 'Производство', 'Двигатели');
   await sleep(2000);
   const chipBox = await evaluate(ws, `const c = chip('binding'); return c ? cellBox(c) : null;`);
-  note(Boolean(chipBox), 'плашка «Привязка» есть в ряду колонок');
+  note(Boolean(chipBox), 'плашка «Договор» есть в ряду колонок');
   await clickAt(ws, chipBox);
-  const on = await evaluate(ws, `return { state: chipState('binding'), hasHeader: headerIndex('Привязка') != null };`);
+  const on = await evaluate(ws, `return { state: chipState('binding'), hasHeader: headerIndex('Договор') != null };`);
   note(on.state === 'on' && on.hasHeader === true, 'плашка включила колонку — она в шапке списка', on);
   await shot(ws, '2-on');
 
@@ -295,7 +295,7 @@ async function main() {
   // ── 5. Ячейка: три цифры договора + номер ДС ──────────────────────────────────────
   const cells = await evaluate(ws, `return bindingRows();`);
   const testRow = cells?.rows?.find((r) => r.number === 'TEST-001') ?? null;
-  note(cells?.missing !== true, 'колонка «Привязка» есть в списке — ячейки читаются', { rows: cells?.rows?.length });
+  note(cells?.missing !== true, 'колонка «Договор» есть в списке — ячейки читаются', { rows: cells?.rows?.length });
   note(testRow?.text === '125/2', 'привязанный к ДС двигатель: в ячейке «125/2» (три цифры + номер ДС)', testRow);
   note(
     testRow?.dots?.length === 2 && testRow.dots.every((d) => d === 'rgb(22, 163, 74)'),
@@ -352,7 +352,7 @@ async function main() {
   // ── 7. Колонка снова выключена (новое умолчание) ─────────────────────────────────
   const offBox = await evaluate(ws, `const c = chip('binding'); return c ? cellBox(c) : null;`);
   await clickAt(ws, offBox);
-  const after = await evaluate(ws, `return { state: chipState('binding'), hasHeader: headerIndex('Привязка') != null };`);
+  const after = await evaluate(ws, `return { state: chipState('binding'), hasHeader: headerIndex('Договор') != null };`);
   note(after.state === 'off' && after.hasHeader === false, 'колонка снова выключена — стенд оставлен в новом умолчании', after);
 
   const report = { ok: steps.every((s) => s.ok), steps };

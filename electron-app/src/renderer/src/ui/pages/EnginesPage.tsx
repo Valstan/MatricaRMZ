@@ -143,15 +143,15 @@ function renderBindingCell(e: EngineListItem): React.ReactNode {
 }
 
 // Текстовая метка привязки — для печати списка (в таблице те же состояния рисуются точками).
+// Короткий рабочий номер договора, а не слово «договор» (владелец 13.11.2026) — и тот же
+// правило, что на экране: `engineBindingLabel`, чтобы печать и список называли договор одинаково.
 function bindingTextLabel(e: EngineListItem): string {
-  switch (classifyEngineContractBinding(e)) {
-    case 'contract':
-      return 'Договор';
-    case 'addon':
-      return String(e.contractSectionNumber ?? 'ДС').trim() || 'ДС';
-    default:
-      return 'Не привязан';
-  }
+  if (classifyEngineContractBinding(e) === 'none') return 'Не привязан';
+  return engineBindingLabel({
+    contractId: e.contractId,
+    contractNumber: e.contractName,
+    contractSectionNumber: e.contractSectionNumber,
+  });
 }
 
 export type EnginesPageUiState = {
@@ -837,7 +837,10 @@ export function EnginesPage(props: {
       { id: 'customerName', label: 'Контрагент', sortable: true, sortKey: 'customerName', kind: 'name', render: (e) => e.customerName ?? '-' },
       {
         id: 'binding',
-        label: 'Привязка',
+        // Колонка называется «Договор» (владелец 13.11.2026): показывать надо договор, а
+        // не «привязку к чему-то» — привязка это про то, что привязка есть. В ячейке и в
+        // печати — короткий рабочий номер договора («239», для ДС — «239/2»).
+        label: 'Договор',
         sortable: true,
         sortKey: 'binding',
         kind: 'name',
