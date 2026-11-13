@@ -53,6 +53,7 @@
 
 ## 🟡 Техдолг и отложенное
 
+- [🟡 11 списков вне общей панели кнопок: свой ряд, без переполнения и меню «⋯» 🗓 since:2026-11-13](pending/spiski-vne-obshchey-paneli-bez-perepolneniya.md)
 - [🟡 Подписать заглушку-обновлятель: osslsigncode или windows-джоб 🗓 since:2026-11-05](pending/podpisat-zaglushku-obnovlyatel.md)
 - [🟡 Журнал синхронизации раздувался EAV-значениями: раздувание остановлено (PR #1561), все дубли вычищены 🗓 since:2026-11-03](pending/journal-rozet-iz-za-eav-attribute-values.md)
 - [🟡 Размерный ряд СИЗ для РМЗ: базовый может не подойти 🗓 since:2026-11-03](pending/razmernyy-ryad-siz-dlya-rmz-utochnit.md)
@@ -86,7 +87,7 @@
 ## ⏳ Ждёт внешнего окна / события
 
 - [⏳ Свой ключ DeepSeek под проект (D-188): выпускает владелец, переезд делаем мы 🗓 since:2026-11-08](pending/svoy-key-deepseek-dlya-proekta-d-188.md)
-- [⏳ Промты проекта из КАРМАНА (D-190): канал живой, 22 промта ждут выполнения (пара «Колонка „Привязка“» — сделана, релиз v3.122.0, в архиве) 🗓 since:2026-11-08](pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md)
+- [⏳ Промты проекта из КАРМАНА (D-190): канал живой, 20 промтов ждут выполнения (пары «Колонка „Привязка“» и «Панель кнопок над списком» — сделаны, в архиве) 🗓 since:2026-11-08](pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md)
 - [⏳ Дубли сотрудников: остаток — штатка с ПДО и приёмка на парке (запрет по полному ключу сделан) 🗓 since:2026-11-09](pending/dubli-sotrudnikov-ostatok-zapret-po-polnomu-klyuchu-shtatka-s-pdo.md)
 - [⏳ Рекламация в истории ремонта: код сделан (3.117.0 и 3.118.0) — осталась приёмка на парке 🗓 since:2026-11-09](pending/reklamaatsiya-v-istorii-remonta.md)
 - [⏳ СИЗ: у каждой позиции набора норм — своя номенклатура 🗓 since:2026-11-11](pending/siz-svoya-nomenklatura-na-poziciyu-nabora.md)
