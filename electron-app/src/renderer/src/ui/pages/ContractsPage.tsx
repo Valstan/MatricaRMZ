@@ -58,6 +58,7 @@ import {
 } from '../utils/listContextActions.js';
 import { useCardContentIds } from '../hooks/useListDeepFilter.js';
 import { matchesQueryInRecord } from '../utils/search.js';
+import { safeJsonObject } from '../utils/safeJson.js';
 import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
 import { getContractProgressVisual } from '../utils/contractProgressVisual.js';
 import { listHeaderKindProps, listCellKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
@@ -334,6 +335,13 @@ export function ContractsPage(props: {
       const attrsById = new Map(
         contractAttrsRows.map((r) => [String(r.id), (r as any).attributes ?? {}] as const),
       );
+      // Реквизиты договора — из строгой таблицы `erp_contracts`, как в карточке. Раньше
+      // список читал легаси-EAV, и правка в карточке до списка не доезжала. EAV остаётся
+      // запасным путём и источником вложений (превью файлов).
+      const strictResult = await window.matrica.contracts.contract.list().catch(() => null);
+      const strictRows =
+        strictResult && strictResult.ok && Array.isArray(strictResult.rows) ? strictResult.rows : [];
+      const strictById = new Map(strictRows.map((r) => [String(r.id), r] as const));
 
       // Марки нужны ступени «Марка в контракте»: в разделах лежат только их идентификаторы.
       const brandType = (types as any[]).find((t) => String(t.code) === 'engine_brand') ?? null;
@@ -386,10 +394,30 @@ export function ContractsPage(props: {
       const details = await Promise.all(
         (listRaw as any[]).map(async (row: any) => {
           try {
-            // Атрибуты всех договоров — ОДНИМ вызовом. Раньше на каждую строку списка
-            // уходил отдельный `admin.entities.get` (N+1): на списке из сотни договоров
-            // это сотня походов в главный процесс, и список открывался заметно медленно.
-            const attrs = attrsById.get(String(row.id)) ?? {};
+            // Реквизиты договора — из строгой таблицы (как в карточке); EAV — запасной
+            // путь и источник вложений. Атрибуты всех договоров — ОДНИМ вызовом: раньше
+            // на каждую строку списка уходил отдельный `admin.entities.get` (N+1), и на
+            // сотне договоров это сотня походов в главный процесс.
+            const eavAttrs = attrsById.get(String(row.id)) ?? {};
+            const strict = strictById.get(String(row.id));
+            const attrs = strict
+              ? {
+                  ...eavAttrs,
+                  ...(strict.sections_json ? { contract_sections: safeJsonObject(strict.sections_json) } : {}),
+                  ...(strict.execution_parts_json
+                    ? { contract_execution_parts: safeJsonObject(strict.execution_parts_json) }
+                    : {}),
+                  ...(strict.payments_json ? { [CONTRACT_PAYMENTS_ATTR_CODE]: strict.payments_json } : {}),
+                  ...(strict.number ? { number: strict.number } : {}),
+                  ...(strict.internal_number ? { internal_number: strict.internal_number } : {}),
+                  ...(strict.signed_at != null ? { date: strict.signed_at } : {}),
+                  ...(strict.goz_name ? { goz_name: strict.goz_name } : {}),
+                  ...(strict.goz_igk ? { goz_igk: strict.goz_igk } : {}),
+                  ...(strict.goz_separate_account_number
+                    ? { goz_separate_account_number: strict.goz_separate_account_number }
+                    : {}),
+                }
+              : eavAttrs;
             const attachmentPreviews = collectAttachmentPreviews(attrs);
             const sections = parseContractSections(attrs);
             const executionParts = parseContractExecutionParts(attrs);
@@ -466,7 +494,9 @@ export function ContractsPage(props: {
               dueDateMs,
               contractAmount,
               dateMs,
-              updatedAt: Number(row.updatedAt ?? 0),
+              // Дата изменения — из strict: она меняется при правке договора, а дата
+              // EAV-сущности — при правке самой карточки справочника.
+              updatedAt: Number(strict?.updated_at ?? row.updatedAt ?? 0),
               daysLeft,
               progressPct,
               isFullyExecuted,

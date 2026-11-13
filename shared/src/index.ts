@@ -39,6 +39,7 @@ export * from './domain/listGrouping.js';
 export * from './domain/engineFactoryStage.js';
 export * from './domain/listGrouping.js';
 export * from './domain/contractListFacets.js';
+export * from './domain/counterpartyListFacets.js';
 export * from './domain/employeeListFacets.js';
 export * from './domain/authFailure.js';
 export * from './domain/reportFilterSummary.js';

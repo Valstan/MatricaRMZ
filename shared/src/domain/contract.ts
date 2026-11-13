@@ -259,6 +259,27 @@ function normalizeQty(value: unknown): number {
   return n;
 }
 
+/**
+ * Сумма договора по разделам: строки двигателей и деталей основного договора и всех ДС.
+ * Живёт в домене, потому что считают её два экрана — список договоров (колонка «сумма»)
+ * и список заказчиков (сводка «сумма по его договорам»); копия расчёта разъехалась бы.
+ */
+export function contractAmountFromSections(sections: ContractSections | null | undefined): number {
+  if (!sections) return 0;
+  const sumRows = (rows: Array<{ qty: number; unitPrice: number }>) => {
+    let total = 0;
+    for (const row of rows) total += normalizeQty(row?.qty) * (Number(row?.unitPrice) || 0);
+    return total;
+  };
+  let total = sumRows(sections.primary.engineBrands);
+  total += sumRows(sections.primary.parts);
+  for (const addon of sections.addons) {
+    total += sumRows(addon.engineBrands);
+    total += sumRows(addon.parts);
+  }
+  return total;
+}
+
 export function contractPlannedItemsCount(sections: ContractSections | null | undefined): number {
   if (!sections) return 0;
 

@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 
 import type {
   AuthStatus,
@@ -5741,7 +5741,7 @@ export function App() {
         );
       case 'engine_brand':
         return (
-          <EngineBrandDetailsPage key={k} brandId={id} canEdit={caps.canEditMasterData} canViewParts={caps.canViewParts} canCreateParts={caps.canCreateParts} canEditParts={caps.canEditParts} canViewMasterData={caps.canViewMasterData} onOpenPart={openPart} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} registerCardCloseActions={reg} requestClose={close} onClose={close} />
+          <EngineBrandDetailsPage key={k} brandId={id} canEdit={caps.canEditMasterData} canViewParts={caps.canViewParts} canCreateParts={caps.canCreateParts} canEditParts={caps.canEditParts} canViewMasterData={caps.canViewMasterData} onOpenPart={openPart} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} onOpenContract={openContract} registerCardCloseActions={reg} requestClose={close} onClose={close} />
         );
       case 'engine_brand_group':
         return <EngineBrandGroupDetailsPage key={k} groupId={id} canEdit={caps.canEditMasterData} canViewMasterData={caps.canViewMasterData} onClose={close} />;
@@ -5759,7 +5759,7 @@ export function App() {
         );
       case 'counterparty':
         return (
-          <CounterpartyDetailsPage key={k} counterpartyId={id} canEdit={caps.canEditContracts} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} registerCardCloseActions={reg} requestClose={close} onClose={close} />
+          <CounterpartyDetailsPage key={k} counterpartyId={id} canEdit={caps.canEditContracts} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} onOpenContract={openContract} registerCardCloseActions={reg} requestClose={close} onClose={close} />
         );
       // Во второй панели этап работ открывается только существующий: новый заводится
       // раздвижной строкой в списке, а `isNew` подняло бы пустую карточку без записи.
@@ -6460,6 +6460,7 @@ export function App() {
             canEdit={caps.canEditContracts}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
+            onOpenContract={openContract}
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
             onClose={() => {

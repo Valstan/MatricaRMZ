@@ -881,6 +881,7 @@ const matricaApi = {
     },
     contract: {
       get: async (id: string) => ipcRenderer.invoke('contracts:contract:get', id),
+      list: async () => ipcRenderer.invoke('contracts:contract:list'),
       save: async (args: { id: string; fields: Record<string, unknown> }) =>
         ipcRenderer.invoke('contracts:contract:save', args),
       create: async (args: { id?: string; fields: Record<string, unknown> }) =>

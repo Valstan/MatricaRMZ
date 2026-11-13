@@ -686,6 +686,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'contractLabel', label: 'Контракт' },
       { key: 'internalNumber', label: 'Внутр. номер' },
       { key: 'counterpartyLabel', label: 'Контрагент' },
+      { key: 'kindLabel', label: 'Вид договора' },
       { key: 'signedAt', label: 'Дата заключения', kind: 'date' },
       { key: 'dueAt', label: 'Срок исполнения', kind: 'date' },
       { key: 'totalQty', label: 'Кол-во ед.', kind: 'number', align: 'right' },
@@ -778,6 +779,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     columns: [
       { key: 'contractLabel', label: 'Контракт' },
       { key: 'counterpartyLabel', label: 'Контрагент' },
+      { key: 'kindLabel', label: 'Вид договора' },
       { key: 'signedAt', label: 'Дата заключения', kind: 'date' },
       { key: 'dueAt', label: 'Срок исполнения', kind: 'date' },
       { key: 'daysLeft', label: 'Дней до окончания', kind: 'number', align: 'right' },
@@ -819,6 +821,7 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'contractLabel', label: 'Контракт' },
       { key: 'internalNumber', label: 'Внутр. номер' },
       { key: 'counterpartyLabel', label: 'Контрагент' },
+      { key: 'kindLabel', label: 'Вид договора' },
       { key: 'signedAt', label: 'Дата заключения', kind: 'date' },
       { key: 'dueAt', label: 'Срок исполнения', kind: 'date' },
       { key: 'igk', label: 'ИГК' },

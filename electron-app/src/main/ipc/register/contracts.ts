@@ -203,6 +203,47 @@ export function registerContractsIpc(ctx: IpcContext) {
     }
   });
 
+  // Список договоров из строгой реплики (`erp_contracts`).
+  // Список на экране «Контракты» читался из легаси-EAV, а карточка — из strict: правка в
+  // карточке до списка не доезжала (та же дыра, что была в списке заказчиков). Теперь
+  // список и карточка читают одно и то же; EAV остаётся запасным путём и источником
+  // вложений (превью файлов).
+  ipcMain.handle('contracts:contract:list', async () => {
+    const gate = await requirePermOrResult(ctx, 'masterdata.view');
+    if (!gate.ok) return gate as Err;
+    try {
+      const rows = await ctx.dataDb().select().from(erpContracts);
+      return {
+        ok: true as const,
+        rows: rows
+          .filter((row) => (row as Record<string, unknown>).deletedAt == null)
+          .map((row) => {
+            const r = row as Record<string, unknown>;
+            return {
+              id: String(r.id),
+              number: (r.number as string | null) ?? null,
+              internal_number: (r.internalNumber as string | null) ?? null,
+              goz_name: (r.gozName as string | null) ?? null,
+              goz_igk: (r.gozIgk as string | null) ?? null,
+              goz_separate_account_number: (r.gozSeparateAccountNumber as string | null) ?? null,
+              goz_separate_account_bank: (r.gozSeparateAccountBank as string | null) ?? null,
+              goz_separate_account: (r.gozSeparateAccount as string | null) ?? null,
+              signed_at: (r.signedAt as number | null) ?? null,
+              due_at: (r.dueAt as number | null) ?? null,
+              customer_id: (r.customerId as string | null) ?? null,
+              comment: (r.comment as string | null) ?? null,
+              sections_json: (r.sectionsJson as string | null) ?? null,
+              execution_parts_json: (r.executionPartsJson as string | null) ?? null,
+              payments_json: (r.paymentsJson as string | null) ?? null,
+              updated_at: Number(r.updatedAt ?? 0),
+            };
+          }),
+      };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+
   ipcMain.handle('contracts:contract:save', async (_e, args: { id: string; fields: Record<string, unknown> }) => {
     if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'masterdata.edit');
