@@ -631,6 +631,98 @@ async function main() {
      return true;`,
   );
 
+  /* ── [2e] Режим «Сейчас на заводе» в списке двигателей (владелец 13.11.2026) ───────── */
+  // Режим показывает только тех, кто сейчас на заводе, и считает ТЕКУЩИЙ заезд: этапы
+  // прошлого заезда (движок уехал и вернулся по рекламации) не действуют. В отчётах
+  // статистики — наоборот, все операции равны и считаются по всем датам.
+  const atPlantMode = await evaluate(
+    ws,
+    `const st = await call(window.matrica.workSheets.stages.list(${JSON.stringify(ENGINE_ID)}));
+     const rows = st?.rows ?? [];
+     // Этап, СБРОШЕННЫЙ шагом назад: строка прохода ≥2 — это и есть «шаг назад», а сброшены
+     // те, что были выше и раньше (был на обкатке — потом вернулся на приёмку). Он и не
+     // должен ловиться отбором в режиме «сейчас».
+     // ВНИМАНИЕ: обычная приёмка и приёмка по рекламации — РАВНЫЕ этапы (отбор «приёмка»
+     // ловит и приезд по рекламации) — такой этап проверять нельзя, он ловится по праву.
+     const back = rows.find((r) => (r.pass ?? 1) >= 2) ?? null;
+     const prev = back
+       ? (rows.filter((r) => r.code && r.code !== 'arrival_reclamation' && r.at > 0 && r.at < back.at)
+           .sort((a, b) => b.at - a.at)[0] ?? null)
+       : null;
+     const root = activePane();
+     await setQuery(root, ${JSON.stringify(NUMBER)});
+     const btn = [...document.querySelectorAll('button')].find((b) => b.getAttribute('data-at-plant-mode'));
+     if (!btn) return { ok: false, reason: 'переключатель режима не найден' };
+     const before = Boolean(document.querySelector('[data-at-plant-mode-note]'));
+     click(btn); await wait(1600);
+     const note = document.querySelector('[data-at-plant-mode-note]');
+     const modeOn = btn.getAttribute('data-at-plant-mode') === 'on';
+     const inList = listRows(root).some((r) => txt(r).includes(${JSON.stringify(NUMBER)}));
+     const noteText = note ? txt(note) : '';
+     // Отбор по этапу прошлого заезда: в режиме «сейчас» он НЕ должен ловить двигателя.
+     let caughtInMode = null;
+     if (prev?.code) {
+       await openFacets(root);
+       const opened = await ensureField(root, 'hasStage');
+       if (opened) {
+         const picked = await setPicked(root, 'hasStage', 'stage:' + prev.code, true);
+         caughtInMode = picked.ok ? listRows(root).some((r) => txt(r).includes(${JSON.stringify(NUMBER)})) : null;
+         const reset = vis('[data-facet-reset]', root)[0];
+         if (reset && !reset.disabled) { click(reset); await wait(900); }
+       }
+     }
+     // Режим выключен — тот же отбор по истории ловит двигателя (все операции считаются).
+     click(btn); await wait(1600);
+     let caughtOutMode = null;
+     if (prev?.code) {
+       await openFacets(root);
+       const opened = await ensureField(root, 'hasStage');
+       if (opened) {
+         const picked = await setPicked(root, 'hasStage', 'stage:' + prev.code, true);
+         caughtOutMode = picked.ok ? listRows(root).some((r) => txt(r).includes(${JSON.stringify(NUMBER)})) : null;
+         const reset = vis('[data-facet-reset]', root)[0];
+         if (reset && !reset.disabled) { click(reset); await wait(900); }
+       }
+     }
+     await setQuery(root, '');
+     return {
+       ok: true, before, modeOn, inList, noteText, prevCode: prev?.code ?? null,
+       caughtInMode, caughtOutMode,
+     };`,
+  );
+  note(
+    atPlantMode.ok && atPlantMode.modeOn && !atPlantMode.before,
+    'список двигателей: переключатель «Сейчас на заводе» включается и показывает подсказку режима',
+    atPlantMode,
+  );
+  note(
+    atPlantMode.inList === true,
+    'список двигателей: в режиме «Сейчас на заводе» движок, вернувшийся по рекламации, остаётся в списке',
+    atPlantMode,
+  );
+  if (atPlantMode.prevCode) {
+    note(
+      atPlantMode.caughtInMode === false,
+      'список двигателей: в режиме «Сейчас на заводе» отбор по этапу, СБРОШЕННОМУ шагом назад, его не ловит',
+      atPlantMode,
+    );
+    note(
+      atPlantMode.caughtOutMode === true,
+      'список двигателей: без режима тот же отбор по истории его ловит (операции равны)',
+      atPlantMode,
+    );
+  } else {
+    console.log('      у двигателя нет сброшенного шагом назад этапа — такой отбор не проверяем');
+  }
+  await evaluate(
+    ws,
+    `const root = activePane();
+     const reset = vis('[data-facet-reset]', root)[0];
+     if (reset && !reset.disabled) { click(reset); await wait(900); }
+     await setQuery(root, '');
+     return true;`,
+  );
+
   /* ── [3] Отчёт «Двигатели»: метка с датой, ступень, месяцы ────────────────────── */
   await openReport(ws, 'Двигатели', '[data-engines-report]');
   const enginesReport = await evaluate(

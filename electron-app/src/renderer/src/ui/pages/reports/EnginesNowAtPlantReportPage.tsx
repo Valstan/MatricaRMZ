@@ -15,6 +15,7 @@ import {
   engineScrapDate,
   engineStateLabel,
   engineStatusDate,
+  currentPassRow,
   flattenGrouped,
   formatEngineFactoryStageLabel,
   isEngineAtPlant,
@@ -176,6 +177,10 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
         .filter(Boolean);
       return props.engines
         .filter(isEngineAtPlant)
+        // «Сейчас на заводе» — срез ТЕКУЩЕГО заезда (владелец 13.11.2026): этапы прошлого
+        // цикла и сброшенные шагом назад не действуют — иначе отбор «Отгрузка двигателя
+        // заказчику» ловил бы двигателя, который после рекламации на завод вернулся.
+        .map(currentPassRow)
         .flatMap((e) => {
           const name = resolveWorkshopName(workshopNameById, e.workshopId, e.workshopName);
           const withName = name && name !== e.workshopName ? { ...e, workshopName: name } : e;

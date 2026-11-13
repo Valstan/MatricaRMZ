@@ -3,11 +3,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ENGINE_FACETS,
   applyEngineFacets,
+  currentPassRows,
   describeFacetSelectionForRows,
   engineFacetIsActive,
   engineStageFacetOptions,
   facetDateBound,
   facetRangeOf,
+  isEngineAtPlant,
   isFactoryStageActive,
   sanitizeEngineFacetSelection,
   stripStageDateWhenWhereNow,
@@ -191,6 +193,12 @@ export type EnginesPageUiState = {
   searchSimilar?: boolean;
   /** Группировка списка (B6): те же разрезы, что в отчёте «Сейчас на заводе». */
   groupBy?: EngineListGroupBy;
+  /**
+   * Режим «Сейчас на заводе» (владелец 13.11.2026): в списке видны только двигатели,
+   * которые сейчас на заводе, и считается ТЕКУЩИЙ заезд (этапы прошлого цикла и
+   * сброшенные шагом назад не действуют). Тот же срез, что в отчёте «Сейчас на заводе».
+   */
+  atPlantOnly?: boolean;
 };
 
 export type EngineListGroupBy = 'stage' | 'customer' | 'customer_stage' | 'none';
@@ -427,6 +435,15 @@ export function EnginesPage(props: {
   const onlyReclamation = listState.onlyReclamation === true;
   const completenessFilter = listState.completenessFilter ?? 'all';
   const customerFilter = String(listState.customerFilter ?? '');
+  // Режим «Сейчас на заводе» (владелец 13.11.2026): список показывает только двигателей,
+  // которые сейчас на заводе, и отборы/колонки считаются по ТЕКУЩЕМУ заезду — этапы
+  // прошлого цикла (движок уехал и вернулся по рекламации) и сброшенные шагом назад
+  // (был на обкатке, вернулся на сборку) не действуют. Тот же срез, что в отчёте.
+  const atPlantOnly = listState.atPlantOnly === true;
+  const modeRows = React.useMemo(
+    () => (atPlantOnly ? currentPassRows(props.engines).filter(isEngineAtPlant) : props.engines),
+    [props.engines, atPlantOnly],
+  );
   // Старые одиночные фильтры тулбара (контрагент, рекламация, акт комплектности) переезжают
   // в свои ступени: у оператора не должно остаться двух фильтров об одном и том же, из которых
   // один невидим. Переезд читающий — в состоянии списка старые поля остаются лежать, пока их
@@ -490,7 +507,7 @@ export function EnginesPage(props: {
   // Верхний поиск: tier-1 по полям строки + tier-2 внутрь карточек (EAV).
   const getRowId = React.useCallback((e: EngineListItem) => String(e.id), []);
   const getRowLabel = React.useCallback((e: EngineListItem) => String(e.engineNumber ?? ''), []);
-  const deepFilter = useListDeepFilter(props.engines, getRowId, getRowLabel, query, { mode: searchModeOf(listState.searchSimilar) });
+  const deepFilter = useListDeepFilter(modeRows, getRowId, getRowLabel, query, { mode: searchModeOf(listState.searchSimilar) });
   const similarMode = deepFilter.similarMode;
   // Все отборы, кроме поиска, живут теперь в ступенях: рекламация, акт комплектности и даты
   // прихода стали ступенями и применяются одним проходом ниже.
@@ -1172,6 +1189,19 @@ export function EnginesPage(props: {
             </select>
           </label>
         </ToolbarPin>
+        {/* Режим «Сейчас на заводе» (владелец 13.11.2026): та же панель, что и в отчёте, —
+            только двигатели, которые сейчас на заводе, и срез ТЕКУЩЕГО заезда. Закреплён:
+            переключатель режима не должен уезжать в меню «⋯». */}
+        <ToolbarPin>
+          <Button
+            variant={atPlantOnly ? 'primary' : 'ghost'}
+            onClick={() => patchState({ atPlantOnly: !atPlantOnly, page: 0 })}
+            title="Показывать только двигатели, которые сейчас на заводе. Считается текущий заезд: этапы прошлого цикла и сброшенные шагом назад не действуют"
+            data-at-plant-mode={atPlantOnly ? 'on' : 'off'}
+          >
+            Сейчас на заводе
+          </Button>
+        </ToolbarPin>
         <Button variant="ghost" onClick={() => setDedupeOpen(true)} title="Найти и склеить дубли двигателей">
           Поиск дублей
         </Button>
@@ -1217,6 +1247,14 @@ export function EnginesPage(props: {
           })}
         />
       </PageToolbar>
+
+      {atPlantOnly ? (
+        <div className="ui-muted" style={{ fontSize: 12, marginTop: 8, marginBottom: 4 }} data-at-plant-mode-note>
+          Режим «Сейчас на заводе»: показаны только двигатели, которые сейчас на заводе — {modeRows.length} из{' '}
+          {props.engines.length}. Считается текущий заезд: этапы прошлого цикла и сброшенные шагом назад
+          не действуют.
+        </div>
+      ) : null}
 
       <div style={{ marginTop: 8, flex: '0 0 auto' }}>
         <EngineFacetFilter
