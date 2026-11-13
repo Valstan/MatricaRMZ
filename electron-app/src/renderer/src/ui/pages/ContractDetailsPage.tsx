@@ -784,8 +784,10 @@ function SectionBlock(props: {
                 />
               </FormField>
               <FormField label="Вид контракта">
-                {/* Повторный щелчок по выбранному снимает вид: проставить его по ошибке легче,
-                    чем догадаться, как вернуть «не указан». */}
+                {/* Переключатель двух видов: по умолчанию «Гос» (гособоронзаказ), на
+                    гражданский переключают осознанно (владелец 13.11.2026). Состояния
+                    «не указан» больше нет — забытый переключатель не оставляет договор
+                    без вида. */}
                 <div style={{ display: 'flex', gap: 6 }} data-contract-kind>
                   {(Object.keys(CONTRACT_KIND_LABELS) as ContractKind[]).map((kind) => {
                     const on = primarySection.kind === kind;
@@ -795,8 +797,8 @@ function SectionBlock(props: {
                         type="button"
                         data-contract-kind-option={kind}
                         disabled={!canEdit}
-                        onClick={() => update({ kind: on ? null : kind })}
-                        title={on ? 'Снять вид контракта' : `Отметить контракт как «${CONTRACT_KIND_LABELS[kind]}»`}
+                        onClick={() => update({ kind })}
+                        title={on ? `Вид договора — «${CONTRACT_KIND_LABELS[kind]}»` : `Отметить договор как «${CONTRACT_KIND_LABELS[kind]}»`}
                         style={{
                           flex: 1,
                           padding: '6px 10px',
@@ -2646,6 +2648,7 @@ export function ContractDetailsPage(props: {
     const accounting = buildAccountingForm(attrs);
     const mainRows: Array<[string, string]> = [
       ['Номер', sections.primary.number || '—'],
+      ['Вид договора', CONTRACT_KIND_LABELS[sections.primary.kind] ?? '—'],
       ['Дата заключения', toInputDate(sections.primary.signedAt) || '—'],
       ['Дата исполнения', toInputDate(effectiveContractDueAt(sections)) || '—'],
       ['Внутренний номер', sections.primary.internalNumber || '—'],
