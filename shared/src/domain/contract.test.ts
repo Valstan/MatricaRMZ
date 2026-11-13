@@ -20,6 +20,7 @@ import {
   parseContractExecutionParts,
   parseContractKind,
   parseContractSections,
+  planContractSectionToken,
   shortContractSuffix,
   shortContractSuffixLabel,
   splitContractNumberAccent,
@@ -270,6 +271,67 @@ describe('canonical contract section key', () => {
     });
     const options = buildContractSectionOptions(sections);
     expect(options[0]).toMatchObject({ id: 'primary', isPrimary: true, label: 'Основной договор' });
+  });
+});
+
+describe('план приведения раздела к канону (одно правило на перенос данных)', () => {
+  it('канон не трогаем', () => {
+    expect(planContractSectionToken('ДС 3')).toEqual({ kind: 'addon', current: 'ДС 3', next: null });
+    expect(planContractSectionToken('primary')).toEqual({ kind: 'primary', current: 'primary', next: null });
+    expect(planContractSectionToken('')).toEqual({ kind: 'empty', current: '', next: null });
+    expect(planContractSectionToken('   ')).toEqual({ kind: 'empty', current: '', next: null });
+    expect(planContractSectionToken(null)).toEqual({ kind: 'empty', current: '', next: null });
+  });
+
+  it('голое число — это номер ДС, а не основной договор', () => {
+    // Решение владельца 13.11.2026: «3» → «ДС 3». Свернуть в «primary» значило бы
+    // сдвинуть двигатель с его ДС на основной договор.
+    expect(planContractSectionToken('3')).toEqual({ kind: 'bare-number', current: '3', next: 'ДС 3' });
+    expect(planContractSectionToken(' 12 ')).toEqual({ kind: 'bare-number', current: '12', next: 'ДС 12' });
+  });
+
+  it('номер договора в поле раздела — основной договор', () => {
+    // Решение владельца 13.11.2026: мусор старого импорта переносим в «основной договор».
+    const plan = planContractSectionToken('2325187913551442245231239/739-1/71ОВК/ГОЗ-24');
+    expect(plan).toEqual({
+      kind: 'foreign',
+      current: '2325187913551442245231239/739-1/71ОВК/ГОЗ-24',
+      next: 'primary',
+    });
+  });
+
+  it('мусор импорта: починка не меняет смысл привязки', () => {
+    // Ключевое свойство для этого вида: клиент и так читает такой раздел как основной
+    // договор (`canonicalContractSectionKey`), поэтому перенос — это запись того, что
+    // домен уже считает, а не изменение смысла.
+    for (const raw of ['2325187913551442245231239/739-1/ГОЗ-24', 'K-2024/15', 'primary']) {
+      const plan = planContractSectionToken(raw);
+      const after = plan.next ?? plan.current;
+      expect(canonicalContractSectionKey(after)).toBe(canonicalContractSectionKey(raw));
+    }
+  });
+
+  it('голое число — исключение: привязка съезжает с основного договора на свой ДС', () => {
+    // Здесь починка МЕНЯЕТ смысл, и это ровно решение владельца 13.11.2026: «3» — это
+    // номер ДС, а не «основной договор». До переноса домен по умолчанию читал такое
+    // значение как основной договор (`canonicalContractSectionKey('3')` → 'primary'),
+    // и двигатель показывался привязанным не к тому разделу.
+    expect(canonicalContractSectionKey('3')).toBe('primary');
+    expect(canonicalContractSectionKey(planContractSectionToken('3').next ?? '3')).toBe('ДС 3');
+  });
+
+  it('повторный прогон ничего не меняет (идемпотентность)', () => {
+    for (const raw of ['ДС 3', '3', 'primary', '2325187913551442245231239/739-1/ГОЗ-24']) {
+      const first = planContractSectionToken(raw);
+      const second = planContractSectionToken(first.next ?? first.current);
+      expect(second.next).toBeNull();
+    }
+  });
+
+  it('канон ДС приводим к виду «ДС N» (регистр и пробелы)', () => {
+    expect(planContractSectionToken('дс 3')).toEqual({ kind: 'addon', current: 'дс 3', next: 'ДС 3' });
+    expect(planContractSectionToken('ДС3')).toEqual({ kind: 'addon', current: 'ДС3', next: 'ДС 3' });
+    expect(planContractSectionToken('  ДС 12  ')).toEqual({ kind: 'addon', current: 'ДС 12', next: null });
   });
 });
 
