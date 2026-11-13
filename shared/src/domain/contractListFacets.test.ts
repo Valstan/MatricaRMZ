@@ -64,10 +64,10 @@ const rows: ContractFacetRow[] = [
 const ids = (list: ContractFacetRow[]) => list.map((r) => r.id).sort();
 
 describe('ступени списка контрактов', () => {
-  it('вид контракта: Гос (по умолчанию) и Гражданский', () => {
+  it('вид контракта: ГОЗ (по умолчанию) и Гражданский', () => {
     expect(ids(applyContractFacets(rows, { kind: ['military'] }))).toEqual(['c1', 'c3']);
     expect(ids(applyContractFacets(rows, { kind: ['civil'] }))).toEqual(['c2']);
-    // Контракт без проставленного вида — это «Гос» (вид по умолчанию), отдельного
+    // Контракт без проставленного вида — это «ГОЗ» (вид по умолчанию), отдельного
     // значения «не указан» в ступени больше нет.
     expect(contractFacetOptions(rows, {}, 'kind').map((o) => o.value).sort()).toEqual(['civil', 'military']);
   });

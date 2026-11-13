@@ -47,8 +47,10 @@ import {
   CONTRACT_PAYMENTS_ATTR_CODE,
   PAYMENT_KIND_LABELS,
   attachEngineToSlot,
+  advancePercentShares,
   countdownStatus,
   distributeAmountToSlots,
+  distributePercentToSlots,
   emptyContractPayments,
   findSlotForEngine,
   formatKopMoney,
@@ -89,6 +91,7 @@ import { emojiAttrs } from '../utils/labelEmoji.js';
 import { mutateContractPayments, readContractPayments } from '../utils/contractPaymentsStore.js';
 import { paymentCountdownVisual } from '../utils/paymentCountdownVisual.js';
 import { buildServiceMemoSections } from '../utils/serviceMemo.js';
+import { buildAdvanceMemoSections } from '../utils/advanceMemo.js';
 import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions, mapPartRowsToSearchOptions } from '../utils/selectOptions.js';
@@ -358,33 +361,103 @@ type SectionSlotRow = { slot: PaymentSlot; engine?: EngineListItem };
 // Раньше спрашивалось «на слотов (из N)» и деньги ложились на первые N слотов секции по
 // порядку массива — выбрать конкретную марку было нельзя. Кейс владельца ровно обратный:
 // «аванс пришёл за 10 двигателей вот этой марки».
+//
+// Два способа задать сумму (владелец 13.11.2026): своей суммой — когда известно, сколько
+// пришло, и процентом от стоимости по контракту — когда известно «50% аванса по этим
+// двигателям». Оба раскладываются по ОТМЕЧЕННЫМ слотам.
 function DistributeToSelectedForm(props: {
   selectedCount: number;
-  onApply: (amountKop: number, kind: PaymentKind, date: string, note: string) => void;
+  /** Платежи договора — нужны цены слотов для разноса по проценту. */
+  contractPayments?: ContractPayments | undefined;
+  /** Отмеченные слоты (для разноса по проценту). */
+  slotIds?: readonly string[];
+  onApply: (
+    payload: { mode: 'amount'; amountKop: number } | { mode: 'percent'; percent: number },
+    kind: PaymentKind,
+    date: string,
+    note: string,
+  ) => void;
   onCancel: () => void;
 }) {
+  const [mode, setMode] = useState<'amount' | 'percent'>('amount');
   const [amountText, setAmountText] = useState('');
+  const [percentText, setPercentText] = useState('');
   const [kind, setKind] = useState<PaymentKind>('advance');
   const [date, setDate] = useState(todayIsoDate());
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
   const amountKop = parseMoneyToKop(amountText);
+  const percent = Number.parseFloat(percentText.replace(',', '.'));
+  const percentOk = Number.isFinite(percent) && percent > 0;
   // Живой расчёт: бухгалтер видит, что получит каждый двигатель, до нажатия кнопки.
   const preview =
-    amountKop != null && amountKop > 0 && props.selectedCount > 0
-      ? (() => {
-          const per = Math.floor(amountKop / props.selectedCount);
-          const rest = amountKop - per * props.selectedCount;
-          return `по ${formatKopMoney(per)} ₽ на ${props.selectedCount} поз.${
-            rest > 0 ? `, остаток ${formatKopMoney(rest)} ₽ — первой` : ''
-          }`;
-        })()
-      : '';
+    mode === 'amount'
+      ? amountKop != null && amountKop > 0 && props.selectedCount > 0
+        ? (() => {
+            const per = Math.floor(amountKop / props.selectedCount);
+            const rest = amountKop - per * props.selectedCount;
+            return `по ${formatKopMoney(per)} ₽ на ${props.selectedCount} поз.${
+              rest > 0 ? `, остаток ${formatKopMoney(rest)} ₽ — первой` : ''
+            }`;
+          })()
+        : ''
+      : percentOk && props.contractPayments && (props.slotIds ?? []).length > 0
+        ? (() => {
+            const shares = advancePercentShares(props.contractPayments, props.slotIds ?? [], percent);
+            const total = shares.reduce((s, x) => s + x.amountKop, 0);
+            return shares.length === 0
+              ? 'у отмеченных двигателей нет цены по контракту — процент не от чего считать'
+              : `${percent}% от суммы по ${shares.length} поз. — всего ${formatKopMoney(total)} ₽`;
+          })()
+        : '';
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'end', flexWrap: 'wrap', padding: '8px 0' }}>
-      <FormField label="Сумма, ₽">
-        <Input value={amountText} onChange={(e) => setAmountText(e.target.value)} placeholder="0,00" style={{ width: 130, textAlign: 'right' }} />
+      <FormField label="Как считать">
+        <div style={{ display: 'flex', gap: 6 }} data-distribute-mode>
+          {(
+            [
+              { key: 'amount', label: 'Суммой' },
+              { key: 'percent', label: '% от суммы двигателя' },
+            ] as const
+          ).map((opt) => (
+            <button
+              key={opt.key}
+              type="button"
+              data-distribute-mode-option={opt.key}
+              onClick={() => {
+                setMode(opt.key);
+                setError('');
+              }}
+              style={{
+                padding: '6px 10px',
+                borderRadius: 8,
+                border: '1px solid var(--border)',
+                background: mode === opt.key ? 'rgba(37, 99, 235, 0.15)' : 'var(--surface)',
+                fontWeight: mode === opt.key ? 700 : 400,
+                cursor: 'pointer',
+                fontSize: 13,
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </FormField>
+      {mode === 'amount' ? (
+        <FormField label="Сумма, ₽">
+          <Input value={amountText} onChange={(e) => setAmountText(e.target.value)} placeholder="0,00" style={{ width: 130, textAlign: 'right' }} />
+        </FormField>
+      ) : (
+        <FormField label="Процент, %">
+          <Input
+            value={percentText}
+            onChange={(e) => setPercentText(e.target.value)}
+            placeholder="50"
+            inputMode="decimal"
+            style={{ width: 90, textAlign: 'right' }}
+          />
+        </FormField>
+      )}
       <FormField label="Вид платежа">
         <select
           value={kind}
@@ -407,15 +480,23 @@ function DistributeToSelectedForm(props: {
       <Button
         size="sm"
         onClick={() => {
-          if (amountKop == null || amountKop <= 0) {
-            setError('Укажите сумму');
-            return;
-          }
           if (props.selectedCount === 0) {
             setError('Отметьте двигатели галочками');
             return;
           }
-          props.onApply(amountKop, kind, date, note);
+          if (mode === 'amount') {
+            if (amountKop == null || amountKop <= 0) {
+              setError('Укажите сумму');
+              return;
+            }
+            props.onApply({ mode: 'amount', amountKop }, kind, date, note);
+            return;
+          }
+          if (!percentOk) {
+            setError('Укажите процент');
+            return;
+          }
+          props.onApply({ mode: 'percent', percent }, kind, date, note);
         }}
       >
         Разнести на {props.selectedCount}
@@ -462,7 +543,7 @@ function SectionBlock(props: {
   /** Для гарда резервирования: чужой advisory-резерв блокирует перенос. */
   currentUserId?: string;
   // Платежи (план engine-payments-2026-07, этап 2): слоты секции + распределение аванса.
-  contractPayments?: ContractPayments;
+  contractPayments?: ContractPayments | undefined;
   canEditPayments?: boolean;
   /**
    * Отбор СЛОТОВ (а не двигателей) — один набор галочек на два действия: разнести аванс
@@ -478,6 +559,8 @@ function SectionBlock(props: {
   globalSelectedSlotIds?: readonly string[];
   onToggleSlots?: (slotIds: readonly string[], checked: boolean) => void;
   onDistributeToSlots?: (slotIds: readonly string[], amountKop: number, kind: PaymentKind, date: string, note: string) => void | Promise<void>;
+  /** Аванс по проценту от стоимости двигателя (владелец 13.11.2026). */
+  onDistributePercentToSlots?: (slotIds: readonly string[], percent: number, kind: PaymentKind, date: string, note: string) => void | Promise<void>;
   onRemoveSlotPayment?: (slotId: string, paymentId: string) => void | Promise<void>;
 }) {
   const { confirm } = useConfirm();
@@ -784,10 +867,10 @@ function SectionBlock(props: {
                 />
               </FormField>
               <FormField label="Вид контракта">
-                {/* Переключатель двух видов: по умолчанию «Гос» (гособоронзаказ), на
-                    гражданский переключают осознанно (владелец 13.11.2026). Состояния
-                    «не указан» больше нет — забытый переключатель не оставляет договор
-                    без вида. */}
+                {/* Переключатель двух видов: по умолчанию «ГОЗ» (государственный оборонный
+                    заказ), на гражданский переключают осознанно (владелец 13.11.2026).
+                    Состояния «не указан» больше нет — забытый переключатель не оставляет
+                    договор без вида. */}
                 <div style={{ display: 'flex', gap: 6 }} data-contract-kind>
                   {(Object.keys(CONTRACT_KIND_LABELS) as ContractKind[]).map((kind) => {
                     const on = primarySection.kind === kind;
@@ -1134,8 +1217,14 @@ function SectionBlock(props: {
             {distributeOpen && props.onDistributeToSlots ? (
               <DistributeToSelectedForm
                 selectedCount={distributeSlotIds.length}
-                onApply={(amountKop, kind, date, note) => {
-                  void props.onDistributeToSlots?.(distributeSlotIds, amountKop, kind, date, note);
+                contractPayments={props.contractPayments}
+                slotIds={distributeSlotIds}
+                onApply={(payload, kind, date, note) => {
+                  if (payload.mode === 'percent') {
+                    void props.onDistributePercentToSlots?.(distributeSlotIds, payload.percent, kind, date, note);
+                  } else {
+                    void props.onDistributeToSlots?.(distributeSlotIds, payload.amountKop, kind, date, note);
+                  }
                   setDistributeOpen(false);
                 }}
                 onCancel={() => setDistributeOpen(false)}
@@ -1152,6 +1241,7 @@ function SectionBlock(props: {
                   <col style={{ width: '16%' }} />
                   <col style={{ width: '14%' }} />
                   <col style={{ width: '13%' }} />
+                  <col style={{ width: 110 }} />
                   <col style={{ width: 110 }} />
                   <col style={{ width: 110 }} />
                   {Array.from({ length: paymentColumnCount }, (_, i) => (
@@ -1176,6 +1266,13 @@ function SectionBlock(props: {
                     </th>
                     <th className="num" data-col-kind="num" title="Стоимость по контракту">Стоимость, ₽</th>
                     <th className="num" data-col-kind="num">Оплачено, ₽</th>
+                    <th
+                      className="num"
+                      data-col-kind="num"
+                      title="Авансовые платежи по двигателю — отдельной колонкой, общая сумма не затирается"
+                    >
+                      Аванс, ₽
+                    </th>
                     {Array.from({ length: paymentColumnCount }, (_, i) => (
                       <th key={i} style={TD_HEAD} data-col-kind="text">
                         Платёж {i + 1}
@@ -1203,7 +1300,7 @@ function SectionBlock(props: {
                               />
                             </td>
                           ) : null}
-                          <td colSpan={6 + paymentColumnCount} style={{ ...TD_CELL, fontWeight: 700 }}>
+                          <td colSpan={7 + paymentColumnCount} style={{ ...TD_CELL, fontWeight: 700 }}>
                             {group.label}{' '}
                             <span style={{ color: 'var(--subtle)', fontWeight: 400 }}>
                               — {occupied} из {group.rows.length}
@@ -1287,6 +1384,24 @@ function SectionBlock(props: {
                               >
                                 {totals.paidKop > 0 ? formatKopMoney(totals.paidKop) : '—'}
                               </td>
+                              <td
+                                className="num"
+                                data-col-kind="num"
+                                title={totals.firstAdvanceDate ? `Дата аванса: ${isoDateRu(totals.firstAdvanceDate)}` : undefined}
+                              >
+                                {totals.advanceKop > 0 ? (
+                                  <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                                    <span style={{ fontWeight: 700 }}>{formatKopMoney(totals.advanceKop)}</span>
+                                    {totals.firstAdvanceDate ? (
+                                      <span style={{ color: 'var(--subtle)', fontSize: 12, whiteSpace: 'nowrap' }}>
+                                        {isoDateRu(totals.firstAdvanceDate)}
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: 'var(--subtle)' }}>—</span>
+                                )}
+                              </td>
                               {Array.from({ length: paymentColumnCount }, (_, i) => {
                                 const p = payments[i];
                                 return (
@@ -1352,7 +1467,7 @@ function SectionBlock(props: {
                       <td data-col-kind="text" style={TD_CELL}>
                         {currentEngineStatusLabel(engine)}
                       </td>
-                      <td colSpan={3 + paymentColumnCount} style={{ ...TD_CELL, color: 'var(--subtle)' }}>
+                      <td colSpan={4 + paymentColumnCount} style={{ ...TD_CELL, color: 'var(--subtle)' }}>
                         слот не назначен — переоткройте карточку контракта
                       </td>
                     </tr>
@@ -2354,6 +2469,21 @@ export function ContractDetailsPage(props: {
     setSlotSelection(new Set());
   }
 
+  /** Аванс по проценту от стоимости двигателя: 50% от суммы по отмеченным двигателям. */
+  async function distributePercentToSelectedSlots(
+    slotIds: readonly string[],
+    percent: number,
+    kind: PaymentKind,
+    date: string,
+    note: string,
+  ) {
+    if (slotIds.length === 0) return;
+    await mutatePayments((current) =>
+      distributePercentToSlots(current, slotIds, percent, kind, date, () => crypto.randomUUID(), note),
+    );
+    setSlotSelection(new Set());
+  }
+
   async function removeSlotPayment(slotId: string, paymentId: string) {
     await mutatePayments((current) => removePayment(current, slotId, paymentId));
   }
@@ -2412,6 +2542,55 @@ export function ContractDetailsPage(props: {
         contractNumber: String(sections?.primary.number ?? '').trim(),
         customerName,
         engines,
+      }),
+    });
+  }
+
+  /**
+   * Строки формы «Авансы по договору»: по каким двигателям внесён аванс, сколько и когда.
+   * Отмеченные галочками двигатели — если галочек нет, берём все, по которым аванс есть.
+   */
+  const advanceMemoRows = React.useMemo(() => {
+    const engineById = new Map(relatedEngines.map((e) => [e.id, e] as const));
+    const selectedIds = new Set(slotSelection);
+    return contractPayments.slots
+      .filter((slot) => (selectedIds.size > 0 ? selectedIds.has(slot.id) : slotTotals(slot).advanceKop > 0))
+      .map((slot) => {
+        const totals = slotTotals(slot);
+        const engine = slot.engineId ? engineById.get(slot.engineId) : undefined;
+        const brand = engine?.engineBrand
+          ? String(engine.engineBrand)
+          : engineBrandOptions.find((o) => o.id === slot.engineBrandId)?.label ?? '—';
+        return {
+          engineNumber: String(engine?.engineNumber ?? '—'),
+          brand,
+          sectionToken: sectionLabelOf(slot.sectionKey),
+          advanceLabel: totals.advanceKop > 0 ? formatKopMoney(totals.advanceKop) : '—',
+          advanceDateLabel: totals.firstAdvanceDate ? isoDateRu(totals.firstAdvanceDate) : '',
+          priceLabel: totals.priceKop > 0 ? formatKopMoney(totals.priceKop) : '—',
+          advanceKop: totals.advanceKop,
+        };
+      })
+      .filter((row) => row.advanceKop > 0);
+  }, [contractPayments, slotSelection, relatedEngines, engineBrandOptions, sectionLabelOf]);
+
+  /** Печатная форма «Авансы по договору» — для директора: по каким двигателям аванс и когда. */
+  function printAdvanceMemo() {
+    const rows = advanceMemoRows;
+    if (rows.length === 0) return;
+    const contractNumber = String(sections?.primary.number ?? '').trim();
+    const customerName = sections?.primary.customerId
+      ? customerOptions.find((o) => o.id === sections.primary.customerId)?.label ?? ''
+      : '';
+    const totalKop = rows.reduce((sum, row) => sum + row.advanceKop, 0);
+    openPrintPreview({
+      title: 'Авансы по договору',
+      subtitle: `Контракт № ${contractNumber || '—'}`,
+      sections: buildAdvanceMemoSections({
+        contractNumber,
+        customerName,
+        rows,
+        totalLabel: formatKopMoney(totalKop),
       }),
     });
   }
@@ -2794,6 +2973,16 @@ export function ContractDetailsPage(props: {
       }
       actions={
         <RowActions>
+          {advanceMemoRows.length > 0 ? (
+            <Button
+              variant="ghost"
+              tone="info"
+              onClick={printAdvanceMemo}
+              title="Авансовые платежи по отмеченным галочками двигателям (без отметок — по всем, где аванс есть)"
+            >
+              Авансы ({advanceMemoRows.length})
+            </Button>
+          ) : null}
           {selectedMemoEngines.length > 0 ? (
             <Button
               variant="ghost"
@@ -2838,6 +3027,7 @@ export function ContractDetailsPage(props: {
             contractPayments={contractPayments}
             canEditPayments={props.canEdit}
             onDistributeToSlots={distributeToSlots}
+                  onDistributePercentToSlots={distributePercentToSelectedSlots}
             onRemoveSlotPayment={removeSlotPayment}
             slotSelection={slotSelection}
             globalSelectedSlotIds={globalSelectedSlotIds}
@@ -2871,6 +3061,7 @@ export function ContractDetailsPage(props: {
               contractPayments={contractPayments}
               canEditPayments={props.canEdit}
               onDistributeToSlots={distributeToSlots}
+                  onDistributePercentToSlots={distributePercentToSelectedSlots}
               onRemoveSlotPayment={removeSlotPayment}
               slotSelection={slotSelection}
               globalSelectedSlotIds={globalSelectedSlotIds}

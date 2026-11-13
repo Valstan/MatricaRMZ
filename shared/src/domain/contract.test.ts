@@ -315,17 +315,17 @@ describe('isEavFlagSet — три представления одного «не
   });
 });
 
-// Вид контракта «Гос / Гражданский» (просьба владельца 08.09.2026, уточнение
-// 13.11.2026: подпись «Гос» и вид по умолчанию — гособоронзаказ). Живёт ВНУТРИ
-// contract_sections, а не отдельным EAV-атрибутом: действует EAV-freeze, а erp_contracts —
-// зеркало EAV, писать в него напрямую нельзя.
+// Вид контракта «ГОЗ / Гражданский» (просьба владельца 08.09.2026, уточнение
+// 13.11.2026: подпись «ГОЗ» — государственный оборонный заказ, и вид по умолчанию — ГОЗ).
+// Живёт ВНУТРИ contract_sections, а не отдельным EAV-атрибутом: действует EAV-freeze, а
+// erp_contracts — зеркало EAV, писать в него напрямую нельзя.
 describe('вид контракта', () => {
   it('читается из основного раздела и переживает разбор', () => {
     const sections = parseContractSections({ contract_sections: { primary: { number: '1', kind: 'military' }, addons: [] } });
     expect(sections.primary.kind).toBe('military');
   });
 
-  it('у контракта без вида — вид по умолчанию «Гос» (забытый переключатель не оставляет договор без вида)', () => {
+  it('у контракта без вида — вид по умолчанию «ГОЗ» (забытый переключатель не оставляет договор без вида)', () => {
     const sections = parseContractSections({ contract_sections: { primary: { number: '1' }, addons: [] } });
     expect(sections.primary.kind).toBe('military');
     expect(parseContractSections({ number: '7/2026' }).primary.kind).toBe('military');
@@ -340,7 +340,7 @@ describe('вид контракта', () => {
   });
 
   it('у обоих видов есть подпись для оператора', () => {
-    expect(CONTRACT_KIND_LABELS.military).toBe('Гос');
+    expect(CONTRACT_KIND_LABELS.military).toBe('ГОЗ');
     expect(CONTRACT_KIND_LABELS.civil).toBe('Гражданский');
     expect(parseContractKind('civil')).toBe('civil');
   });

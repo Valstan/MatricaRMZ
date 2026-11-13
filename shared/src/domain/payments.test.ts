@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   addPayment,
+  advancePercentShares,
   attachEngineToSlot,
   burningEnginesCount,
   collectContractPaymentsEngineIds,
@@ -9,6 +10,7 @@ import {
   countdownStatus,
   countdownThresholds,
   distributeAmountToSlots,
+  distributePercentToSlots,
   emptyContractPayments,
   findSlotForEngine,
   formatKopMoney,
@@ -136,6 +138,22 @@ describe('slotTotals', () => {
       }),
     );
     expect(t.countdownStartDate).toBe('2026-07-15');
+  });
+
+  it('аванс виден отдельной долей и не затирает общую сумму по двигателю', () => {
+    const t = slotTotals(
+      slot({
+        contractPriceKop: 300_00,
+        payments: [
+          { id: 'p1', date: '2026-07-10', amountKop: 100_00, kind: 'advance' },
+          { id: 'p2', date: '2026-07-20', amountKop: 50_00, kind: 'extra_advance' },
+          { id: 'p3', date: '2026-08-01', amountKop: 100_00, kind: 'final' },
+        ],
+      }),
+    );
+    expect(t.advanceKop).toBe(150_00);
+    expect(t.paidKop).toBe(250_00);
+    expect(t.priceKop).toBe(300_00);
   });
 });
 
@@ -536,8 +554,7 @@ describe('distributeAmountToSlots', () => {
     expect(next.slots[1]!.payments[0]!.countdownStart).toBe(true);
   });
 
-  it('чинит слот, у которого стартовых платежей было два', () => {
-    let cp = fourSlots();
+  it('чинит слот, у которого стартовых платежей было два', () => {    let cp = fourSlots();
     const id = cp.slots[0]!.id;
     cp = addPayment(cp, id, { id: 'p1', date: '2026-06-01', amountKop: 10, kind: 'advance', countdownStart: true });
     cp = {
@@ -696,6 +713,57 @@ describe('money helpers', () => {
     expect(parseMoneyToKop('1 234 567,89')).toBe(123_456_789);
     expect(parseMoneyToKop('100')).toBe(10_000);
     expect(parseMoneyToKop('мусор')).toBeNull();
+  });
+});
+
+// Аванс по проценту от стоимости двигателя (владелец 13.11.2026): «ставим 50% авансового
+// платежа — он сам раскидывает по отмеченным двигателям».
+describe('разнос аванса по проценту', () => {
+  function pricedSlots(): ContractPayments {
+    return {
+      version: 1,
+      slots: [
+        { id: 's1', sectionKey: 'primary', contractPriceKop: 100_00, payments: [] },
+        { id: 's2', sectionKey: 'primary', contractPriceKop: 200_00, payments: [] },
+        { id: 's3', sectionKey: 'primary', contractPriceKop: 0, payments: [] },
+      ],
+    };
+  }
+
+  it('процент берётся от стоимости КАЖДОГО двигателя', () => {
+    const shares = advancePercentShares(pricedSlots(), ['s1', 's2'], 50);
+    expect(shares).toEqual([
+      { slotId: 's1', amountKop: 50_00 },
+      { slotId: 's2', amountKop: 100_00 },
+    ]);
+  });
+
+  it('слот без цены по контракту пропускается — процент не от чего считать', () => {
+    const shares = advancePercentShares(pricedSlots(), ['s1', 's3'], 50);
+    expect(shares.map((s) => s.slotId)).toEqual(['s1']);
+  });
+
+  it('неотмеченные слоты не трогаем', () => {
+    const next = distributePercentToSlots(pricedSlots(), ['s1'], 50, 'advance', '2026-11-13', nextId);
+    expect(next.slots.find((s) => s.id === 's1')?.payments[0]?.amountKop).toBe(50_00);
+    expect(next.slots.find((s) => s.id === 's2')?.payments).toHaveLength(0);
+    expect(next.slots.find((s) => s.id === 's3')?.payments).toHaveLength(0);
+  });
+
+  it('мусорный процент не пишет платежей', () => {
+    const cp = pricedSlots();
+    expect(distributePercentToSlots(cp, ['s1'], 0, 'advance', '2026-11-13', nextId)).toBe(cp);
+    expect(distributePercentToSlots(cp, ['s1'], Number.NaN, 'advance', '2026-11-13', nextId)).toBe(cp);
+  });
+
+  it('процент — это доля КАЖДОГО двигателя, а разнос суммой делит поровну', () => {
+    const cp = pricedSlots();
+    const byPercent = distributePercentToSlots(cp, ['s1', 's2'], 100, 'advance', '2026-11-13', nextId);
+    const byAmount = distributeAmountToSlots(cp, ['s1', 's2'], 300_00, 'advance', '2026-11-13', nextId);
+    // 100% от стоимости своего двигателя: 100 ₽ и 200 ₽.
+    expect(byPercent.slots.slice(0, 2).map((s) => s.payments[0]?.amountKop)).toEqual([100_00, 200_00]);
+    // Суммой — поровну: по 150 ₽ на двигатель.
+    expect(byAmount.slots.slice(0, 2).map((s) => s.payments[0]?.amountKop)).toEqual([150_00, 150_00]);
   });
 });
 

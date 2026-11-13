@@ -90,8 +90,8 @@ export const CONTRACT_FACETS: readonly ContractFacetDescriptor[] = [
     id: 'kind',
     label: 'Вид контракта',
     valueOf: (r) => {
-      // Вид по умолчанию — «Гос»: забытый переключатель не должен оставлять договор
-      // без вида, поэтому в фильтре только два значения — Гос и Гражданский.
+      // Вид по умолчанию — «ГОЗ»: забытый переключатель не должен оставлять договор
+      // без вида, поэтому в фильтре только два значения — ГОЗ и Гражданский.
       const value = parseContractKind(r.kind) ?? DEFAULT_CONTRACT_KIND;
       return { value, label: CONTRACT_KIND_LABELS[value] };
     },
