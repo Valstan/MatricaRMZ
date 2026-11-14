@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { wearPeriodText, type PpeWearKind } from '@matricarmz/shared';
+import { buildPpeIssueCard, wearPeriodText, type PpeWearKind } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
@@ -11,6 +11,7 @@ import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { SectionCard } from '../components/SectionCard.js';
+import { printPpeIssueCard } from '../utils/ppeIssueCardPrint.js';
 
 type PpeGender = 'M' | 'F';
 type PpeSeason = 'winter' | 'summer';
@@ -323,6 +324,27 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
 
   const canEditLines = canEdit && !!selectedId && !isNew;
 
+  /**
+   * Пустой бланк карточки выдачи по выбранному набору норм — та же форма, что
+   * на бумаге у кладовщика (наименование, сертификат и пустые графы выдачи/возврата).
+   */
+  const printIssueCardBlank = useCallback(() => {
+    const card = buildPpeIssueCard({
+      positions: lines.map((l) => ({
+        nomenclatureId: l.nomenclatureId,
+        name: lineLabel(l),
+        certificate: l.certificate,
+        unit: l.unit,
+      })),
+      facts: [],
+    });
+    printPpeIssueCard({
+      title: `Карточка выдачи СИЗ — ${selected?.name ?? ''}`,
+      ...(selected?.postTitle ? { subtitle: selected.postTitle } : {}),
+      card,
+    });
+  }, [lines, lineLabel, selected]);
+
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 380px) 1fr', gap: 16, alignItems: 'start' }}>
       <SectionCard title="Наборы норм">
@@ -582,6 +604,16 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
                 </table>
               </>
             )}
+            {lines.length > 0 ? (
+              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <Button onClick={printIssueCardBlank} disabled={busy}>
+                  Бланк карточки выдачи
+                </Button>
+                <span style={{ color: 'var(--muted)', fontSize: 12, alignSelf: 'center' }}>
+                  Пустая карточка по этому набору норм — та же форма, что на бумаге у кладовщика.
+                </span>
+              </div>
+            ) : null}
           </SectionCard>
         ) : null}
 

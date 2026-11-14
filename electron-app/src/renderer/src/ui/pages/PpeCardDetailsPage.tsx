@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   HUMAN_LABEL_DASH,
   addWearMonths,
+  buildPpeIssueCard,
   nextIssueDates,
   normalizeLookupCompact,
   normalizeLookupText,
@@ -35,6 +36,7 @@ import {
   type PpePrintTemplateLayout,
 } from '../utils/ppePrintTemplate.js';
 import { escapeHtml, formatMomentLabel, openPrintPreview, type PrintSection } from '../utils/printPreview.js';
+import { printPpeIssueCard } from '../utils/ppeIssueCardPrint.js';
 
 type CardDto = {
   id: string;
@@ -850,8 +852,37 @@ export function PpeCardDetailsPage(props: {
     return { title, sections: applyPrintTemplate(sections, printTemplate) };
   }
 
-  function printPersonalCard() {
-    const form = buildPersonalCardForm();
+  /**
+   * Карточка выдачи сотрудника — форма, которой владелец пользуется на бумаге:
+   * наименование, сертификат, выдано (дата, кол-во, износ) и возвращено (те же графы).
+   * Пустые графы под подписи остаются подписывать от руки.
+   */
+  function printIssueCard() {
+    if (!card) return;
+    const model = buildPpeIssueCard({
+      positions: merged.map((m) => ({
+        nomenclatureId: m.nomenclatureId,
+        name: nomName(m.nomenclatureId),
+        certificate: nomCertificates.get(m.nomenclatureId) ?? null,
+        unit: null,
+      })),
+      facts: (card.entries ?? []).map((e) => ({
+        nomenclatureId: e.nomenclatureId,
+        issuedAt: e.issuedAt,
+        qty: e.qty,
+        wearPercent: e.wearPercent ?? null,
+        returnedAt: e.returnedAt ?? null,
+        name: nomName(e.nomenclatureId),
+        certificate: nomCertificates.get(e.nomenclatureId) ?? null,
+      })),
+    });
+    printPpeIssueCard({
+      title: `Карточка выдачи СИЗ — ${empName(card.employeeId)}`,
+      card: model,
+    });
+  }
+
+  function printPersonalCard() {    const form = buildPersonalCardForm();
     openPrintPreview({
       title: form.title,
       sections: form.sections,
@@ -989,6 +1020,9 @@ export function PpeCardDetailsPage(props: {
         </Button>
         <Button variant="ghost" onClick={() => printPersonalCard()} disabled={busy}>
           Печать по форме приказа
+        </Button>
+        <Button variant="ghost" onClick={() => printIssueCard()} disabled={busy}>
+          Карточка выдачи
         </Button>
         <Button variant="ghost" onClick={() => void exportPersonalCardToWord()} disabled={busy}>
           Форма приказа в Word

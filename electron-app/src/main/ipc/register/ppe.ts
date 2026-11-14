@@ -515,4 +515,20 @@ export function registerPpeIpc(ctx: IpcContext) {
     if (result.ok && args?.dryRun !== true) await ctx.mgr.runOnce().catch(() => undefined);
     return result;
   });
+
+  // Остатки склада СИЗ по отчёту. Гейт — `erp.documents.post`: импорт проводит
+  // складской документ (корректировку остатка), это действие кладовщика со складом.
+  ipcMain.handle('ppe:stockImport:preview', async (_e, args: { filename: string; contentBase64: string }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'erp.documents.post');
+    if (!gate.ok) return gate as Err;
+    return toResult(await postJson('/ppe/stock-import/preview', args));
+  });
+
+  ipcMain.handle('ppe:stockImport:apply', async (_e, args: { previewId: string; contentBase64: string }) => {
+    if (isViewMode(ctx)) return viewModeWriteError();
+    const gate = await requirePermOrResult(ctx, 'erp.documents.post');
+    if (!gate.ok) return gate as Err;
+    return toResult(await postJson('/ppe/stock-import/apply', args));
+  });
 }

@@ -6071,7 +6071,7 @@ export function App() {
         )}
 
         {t === 'ppe_stock' && (
-          <PpeStockPage />
+          <PpeStockPage canPost={caps.canPostWarehouseDocs} />
         )}
 
         {t === 'ppe_reports' && (

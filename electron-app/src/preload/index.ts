@@ -762,6 +762,11 @@ const matricaApi = {
       preview: async (args: { filename: string; contentBase64: string }) => ipcRenderer.invoke('ppe:import:preview', args),
       apply: async (args: { previewId: string; contentBase64: string; dryRun?: boolean }) => ipcRenderer.invoke('ppe:import:apply', args),
     },
+    // Остатки склада СИЗ по отчёту (выгрузка 1С «Остатки товаров»).
+    stockImport: {
+      preview: async (args: { filename: string; contentBase64: string }) => ipcRenderer.invoke('ppe:stockImport:preview', args),
+      apply: async (args: { previewId: string; contentBase64: string }) => ipcRenderer.invoke('ppe:stockImport:apply', args),
+    },
   },
   signatureDefaults: {
     list: async () => ipcRenderer.invoke('signatureDefaults:list'),

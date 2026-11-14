@@ -34,6 +34,7 @@ import {
   upsertPpeNormSet,
 } from '../services/ppeService.js';
 import { applyPpeImportPreview, previewPpeImport } from '../services/ppeImportService.js';
+import { applyPpeStockImport, previewPpeStockImport } from '../services/ppeStockImportService.js';
 import { getPpeCardsOverview } from '../services/ppeCardsOverview.js';
 import {
   deletePpePrintTemplate,
@@ -720,5 +721,32 @@ ppeRouter.post('/import/apply', requirePermission(PermissionCode.ErpDictionaryEd
   if (parsed.data.dryRun !== true && shouldRunBackgroundJobs()) {
     await kickPpeSyncPublisher().catch((e) => logWarn('ppe import kick failed', { error: String(e) }));
   }
+  return res.json(result);
+});
+
+// Остатки склада СИЗ по отчёту (выгрузка 1С «Остатки товаров»).
+// Гейт — `erp.documents.post`: импорт заводит складской документ (корректировку остатка),
+// это действие кладовщика со складом — как и проведение выдачи.
+ppeRouter.post('/stock-import/preview', requirePermission(PermissionCode.ErpDocumentsPost), async (req, res) => {
+  const parsed = z
+    .object({ filename: z.string().trim().min(1).max(256), contentBase64: z.string().min(1) })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await previewPpeStockImport({ filename: parsed.data.filename, contentBase64: parsed.data.contentBase64 });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+ppeRouter.post('/stock-import/apply', requirePermission(PermissionCode.ErpDocumentsPost), async (req, res) => {
+  const parsed = z
+    .object({ previewId: z.string().min(1), contentBase64: z.string().min(1) })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await applyPpeStockImport({
+    previewId: parsed.data.previewId,
+    contentBase64: parsed.data.contentBase64,
+    actor: actorOf(req),
+  });
+  if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });

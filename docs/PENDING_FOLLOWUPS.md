@@ -92,6 +92,7 @@
 - [⏳ Дубли сотрудников: остаток — штатка с ПДО и приёмка на парке (запрет по полному ключу сделан) 🗓 since:2026-11-09](pending/dubli-sotrudnikov-ostatok-zapret-po-polnomu-klyuchu-shtatka-s-pdo.md)
 - [⏳ Рекламация в истории ремонта: код сделан (3.117.0, 3.118.0 и 3.123.0) — осталась приёмка на парке 🗓 since:2026-11-09](pending/reklamaatsiya-v-istorii-remonta.md)
 - [⏳ СИЗ: у каждой позиции набора норм — своя номенклатура 🗓 since:2026-11-11](pending/siz-svoya-nomenklatura-na-poziciyu-nabora.md)
+- [⏳ СИЗ: карточка смывающих средств (мыло, крем) 🗓 since:2026-11-14](pending/siz-kartochka-smyvayushchih-sredstv.md)
 - [⏳ Панель фильтров и ряд плашек колонок: плашки не наезжают, колонки — плашками — приёмка на парке (PR #1693) 🗓 since:2026-11-12](pending/panel-filtrov-spoilera-net-plashki-plavayushchie-priemka.md)
 - [⏳ Приёмка парка на 3.102.0: приказ о СИЗ и должности должны быть видны оператору 🗓 since:2026-11-03](pending/priemka-parka-na-3-101-0-prikaz-o-siz.md)
 - [⏳ Проставить сроки носки по 113 годовым позициям приказа о СИЗ: без срока они не попадают в «пора выдавать» 🗓 since:2026-11-05](pending/prostat-sroki-noski-po-godovym-poziciyam-prikaza-siz.md)
