@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import type { CardExportSpec, ChatDeepLinkPayload, EngineBulkIntakeApplyInput, ListExportFormat, ListExportSpec, PartMetadata } from '@matricarmz/shared';
+import type { CardExportSpec, ChatDeepLinkPayload, EngineBulkIntakeApplyInput, FileSearchSource, ListExportFormat, ListExportSpec, PartMetadata } from '@matricarmz/shared';
 
 // Нативный сканер QR ставит сюда планшет (android-app/src/platform/qrScan.ts) до
 // загрузки renderer. На десктопе хука нет — мост честно отвечает unsupported,
@@ -101,6 +101,8 @@ const matricaApi = {
       internalNumberYear: number;
       excludeEngineId?: string;
     }) => ipcRenderer.invoke('engine:findInternalNumberDuplicate', args),
+    findExactByNumber: async (args: { query: string }) => ipcRenderer.invoke('engine:findExactByNumber', args),
+    characteristics: async () => ipcRenderer.invoke('engine:characteristics'),
     reservation: {
       get: async (engineId: string) => ipcRenderer.invoke('engine:reservation:get', engineId),
       acquire: async (engineId: string) => ipcRenderer.invoke('engine:reservation:acquire', engineId),
@@ -116,6 +118,17 @@ const matricaApi = {
     bulkIntake: {
       preview: async (args: { text: string }) => ipcRenderer.invoke('engines:bulkIntake:preview', args),
       apply: async (args: EngineBulkIntakeApplyInput) => ipcRenderer.invoke('engines:bulkIntake:apply', args),
+    },
+  },
+  fileSearch: {
+    pick: async () => ipcRenderer.invoke('fileSearch:pick'),
+    search: async (args: { sources: FileSearchSource[]; query: string }) =>
+      ipcRenderer.invoke('fileSearch:search', args),
+    context: async (args: { source: FileSearchSource; paragraphIndex: number; count?: number }) =>
+      ipcRenderer.invoke('fileSearch:context', args),
+    sources: {
+      get: async () => ipcRenderer.invoke('fileSearch:sources:get'),
+      set: async (args: { sources: FileSearchSource[] }) => ipcRenderer.invoke('fileSearch:sources:set', args),
     },
   },
   desktopTransfer: {

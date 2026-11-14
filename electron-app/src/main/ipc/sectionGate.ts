@@ -28,6 +28,8 @@ import { entities, entityTypes } from '../database/schema.js';
 const PREFIX_RULES: ReadonlyArray<readonly [string, AccessSection]> = [
   ['engine:', 'production'],
   ['engines:', 'production'],
+  // Поиск по файлам работает с данными двигателей — раздел тот же.
+  ['fileSearch:', 'production'],
   ['ops:', 'production'],
   ['workSheets:', 'production'],
   ['parts:', 'production'],
