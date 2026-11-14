@@ -315,6 +315,9 @@ changesRouter.get('/', async (req, res) => {
       [SyncTableName.ErpProductionPrograms]: 'Производственные программы',
       [SyncTableName.ErpProductionProgramRows]: 'Строки производственных программ',
       [SyncTableName.ErpEngineReclamations]: 'Рекламации двигателей',
+      [SyncTableName.ErpEmployeeChildren]: 'Карточки детей',
+      [SyncTableName.ErpOrgEvents]: 'Мероприятия',
+      [SyncTableName.ErpGiftRecords]: 'Выдача подарков',
       file_assets: 'Файлы',
     };
 

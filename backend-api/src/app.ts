@@ -49,6 +49,8 @@ import { ppeRouter } from './routes/ppe.js';
 import { signatureDefaultsRouter } from './routes/signatureDefaults.js';
 import { productionProgramRouter } from './routes/productionProgram.js';
 import { engineReclamationsRouter } from './routes/engineReclamations.js';
+import { childrenRouter } from './routes/children.js';
+import { organizationRouter } from './routes/organization.js';
 import { repairStageTemplatesRouter } from './routes/repairStageTemplates.js';
 import { noteStatisticsRequestActivity } from './services/statisticsAuditService.js';
 import { requireAuth, requirePermission } from './auth/middleware.js';
@@ -199,6 +201,10 @@ export function createApp() {
   app.use('/production-program', requireAuth, productionProgramRouter);
   // Рекламации двигателя: очередь заездов по рекламации (серверная дверь записи).
   app.use('/engine-reclamations', requireAuth, engineReclamationsRouter);
+  // Детский и организационный модуль: карточки детей, мероприятия и журнал выдачи
+  // подарков (серверные двери записи).
+  app.use('/children', requireAuth, childrenRouter);
+  app.use('/organization', requireAuth, organizationRouter);
 
   // Express 4 не ловит отклонённый промис async-обработчика — запрос висит до
   // клиентского таймаута, и оператор видит «не сохранилось» вместо ошибки

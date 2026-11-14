@@ -34,6 +34,9 @@ import {
   erpProductionPrograms,
   erpProductionProgramRows,
   erpEngineReclamations,
+  erpEmployeeChildren,
+  erpOrgEvents,
+  erpGiftRecords,
   erpEngineCards,
   erpEngineNumbers,
   directoryEngineBrands,
@@ -258,6 +261,19 @@ const PG_SYNC_TABLES: Record<
   [SyncTableName.ErpEngineReclamations]: {
     drizzle: erpEngineReclamations,
     toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEngineReclamations, r),
+  },
+  // Детский и организационный модуль — pull-only зеркала серверных дверей.
+  [SyncTableName.ErpEmployeeChildren]: {
+    drizzle: erpEmployeeChildren,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpEmployeeChildren, r),
+  },
+  [SyncTableName.ErpOrgEvents]: {
+    drizzle: erpOrgEvents,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpOrgEvents, r),
+  },
+  [SyncTableName.ErpGiftRecords]: {
+    drizzle: erpGiftRecords,
+    toSyncRow: (r: any) => SyncTableRegistry.toSyncRow(SyncTableName.ErpGiftRecords, r),
   },
 };
 

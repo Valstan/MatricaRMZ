@@ -87,6 +87,10 @@ export * from './domain/productionProgram.js';
 export * from './domain/engineReclamations.js';
 export * from './domain/adminUsers.js';
 export * from './domain/employees.js';
+// Детский модуль и организационный модуль: карточка ребёнка, мероприятия, журнал выдачи.
+export * from './domain/children.js';
+export * from './domain/childListFacets.js';
+export * from './domain/orgGifts.js';
 export * from './domain/employeeCardKey.js';
 export * from './domain/fileTransferProgress.js';
 export * from './domain/erp.js';
