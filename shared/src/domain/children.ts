@@ -27,7 +27,7 @@ export const CHILD_TAG_CATALOG = [
 export type ChildTagId = (typeof CHILD_TAG_CATALOG)[number]['id'];
 
 /** Карточка ребёнка в строгой таблице `erp_employee_children`. */
-export type ChildRecord = {
+export type ChildDto = {
   id: string;
   /** Сотрудник-родитель (id EAV-сущности сотрудника). */
   employeeId: string | null;
@@ -40,6 +40,17 @@ export type ChildRecord = {
   note: string;
   createdAt: number;
   updatedAt: number;
+};
+
+/** Запись карточки ребёнка из UI: `id` пустой — новая карточка. */
+export type ChildSaveDto = {
+  id?: string | null;
+  employeeId?: string | null;
+  fullName: string;
+  birthDate?: number | null;
+  gender?: string | null;
+  tags?: string[] | null;
+  note?: string | null;
 };
 
 /** Состояние ребёнка в глазах модуля: участвует в отборах или «серенький». */

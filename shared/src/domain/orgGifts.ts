@@ -62,6 +62,58 @@ export type EventSelection = {
   reason: string;
 };
 
+/** Мероприятие в том виде, в каком его видит UI. */
+export type OrgEventDto = {
+  id: string;
+  title: string;
+  kind: string;
+  eventDate: number | null;
+  description: string;
+  selectionsJson: string | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+/** Запись мероприятия из UI: `id` пустой — новое мероприятие. */
+export type OrgEventSaveDto = {
+  id?: string | null;
+  title: string;
+  kind?: string | null;
+  eventDate?: number | null;
+  description?: string | null;
+  selections?: Array<{ childId: string; invited: boolean; reason?: string | null }> | null;
+};
+
+/** Запись журнала выдачи в том виде, в каком её видит UI. */
+export type GiftRecordDto = {
+  id: string;
+  eventId: string | null;
+  recipientKind: string;
+  recipientEmployeeId: string | null;
+  recipientChildId: string | null;
+  kind: string;
+  title: string;
+  place: string;
+  givenAt: number | null;
+  note: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+/** Запись журнала выдачи из UI: `id` пустой — новая запись. */
+export type GiftRecordSaveDto = {
+  id?: string | null;
+  eventId?: string | null;
+  recipientKind?: string | null;
+  recipientEmployeeId?: string | null;
+  recipientChildId?: string | null;
+  kind?: string | null;
+  title?: string | null;
+  place?: string | null;
+  givenAt?: number | null;
+  note?: string | null;
+};
+
 export function orgEventKindLabelRu(kind: string | null | undefined): string {
   const k = String(kind ?? '').trim().toLowerCase();
   if (k === 'holiday') return 'праздник';

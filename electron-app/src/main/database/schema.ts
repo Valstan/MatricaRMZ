@@ -1331,3 +1331,64 @@ export const userSectionAccess = sqliteTable(
     userIdx: index('user_section_access_user_idx').on(t.userId),
   }),
 );
+
+// Детский модуль: реплика карточки ребёнка (миграция сервера 0130). Server-write /
+// pull-only: сервер ведёт двери, клиент читает реплику. Nullability — ровно как
+// сервер, иначе pull уронит checkReplicaStrictness.
+export const erpEmployeeChildren = sqliteTable('erp_employee_children', {
+  id: text('id').primaryKey(),
+  employeeId: text('employee_id'),
+  fullName: text('full_name').notNull(),
+  birthDate: integer('birth_date'),
+  gender: text('gender').notNull().default(''),
+  tagsJson: text('tags_json'),
+  note: text('note').notNull().default(''),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  employeeIdx: index('erp_employee_children_employee_idx').on(t.employeeId),
+  birthIdx: index('erp_employee_children_birth_idx').on(t.birthDate),
+}));
+
+// Организационный модуль: реплика мероприятия (решения по отбору — JSON-текстом)
+// и реплика журнала выдачи подарков, призов и грамот.
+export const erpOrgEvents = sqliteTable('erp_org_events', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  kind: text('kind').notNull().default('other'),
+  eventDate: integer('event_date'),
+  description: text('description').notNull().default(''),
+  selectionsJson: text('selections_json'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  dateIdx: index('erp_org_events_date_idx').on(t.eventDate),
+}));
+
+export const erpGiftRecords = sqliteTable('erp_gift_records', {
+  id: text('id').primaryKey(),
+  eventId: text('event_id'),
+  recipientKind: text('recipient_kind').notNull().default('child'),
+  recipientEmployeeId: text('recipient_employee_id'),
+  recipientChildId: text('recipient_child_id'),
+  kind: text('kind').notNull().default('gift'),
+  title: text('title').notNull().default(''),
+  place: text('place').notNull().default(''),
+  givenAt: integer('given_at'),
+  note: text('note').notNull().default(''),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastServerSeq: integer('last_server_seq'),
+  deletedAt: integer('deleted_at'),
+  syncStatus: text('sync_status').notNull().default('synced'),
+}, (t) => ({
+  eventIdx: index('erp_gift_records_event_idx').on(t.eventId),
+  childIdx: index('erp_gift_records_child_idx').on(t.recipientChildId),
+  employeeIdx: index('erp_gift_records_employee_idx').on(t.recipientEmployeeId),
+}));

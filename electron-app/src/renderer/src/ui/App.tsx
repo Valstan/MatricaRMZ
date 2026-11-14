@@ -233,6 +233,8 @@ const ToolDetailsPage = lazyPage('./pages/ToolDetailsPage.tsx', 'ToolDetailsPage
 const ToolPropertiesPage = lazyPage('./pages/ToolPropertiesPage.tsx', 'ToolPropertiesPage');
 const ToolPropertyDetailsPage = lazyPage('./pages/ToolPropertyDetailsPage.tsx', 'ToolPropertyDetailsPage');
 const EmployeesPage = lazyPage('./pages/EmployeesPage.tsx', 'EmployeesPage');
+const ChildrenPage = lazyPage('./pages/ChildrenPage.tsx', 'ChildrenPage');
+const OrganizationPage = lazyPage('./pages/OrganizationPage.tsx', 'OrganizationPage');
 const TimesheetsPage = lazyPage('./pages/TimesheetsPage.tsx', 'TimesheetsPage');
 const TimesheetGridPage = lazyPage('./pages/TimesheetGridPage.tsx', 'TimesheetGridPage');
 const EmployeeDetailsPage = lazyPage('./pages/EmployeeDetailsPage.tsx', 'EmployeeDetailsPage');
@@ -706,6 +708,8 @@ function appTabTitle(tab: string): string {
 // Подписи разделов. Модульная константа, а не переменная компонента: её читает
 // setTabState-адаптер, объявленный выше по телу рендера (иначе TDZ на первом же вызове).
 const MENU_LABELS: Record<MenuTabId, string> = {
+  children: 'Дети',
+  organization: 'Организационное',
   history: 'История',
   user_screens: 'Мои экраны',
   masterdata: 'Справочники',
@@ -2990,6 +2994,9 @@ export function App() {
     // ...(caps.canViewParts ? (['parts'] as const) : []),
     // ...(caps.canViewMasterData ? (['tools'] as const) : []),
     ...(caps.canViewEmployees ? (['employees'] as const) : []),
+    // Детский и организационный модули: карточки детей и журнал выдачи подарков.
+    ...(caps.canViewChildren ? (['children'] as const) : []),
+    ...(caps.canViewOrganization ? (['organization'] as const) : []),
     ...(caps.canViewTimesheets ? (['timesheets'] as const) : []),
     ...(caps.canViewMasterData
       ? (['nomenclature', 'parts_dedupe', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'repair_fund_audit', 'warehouse_analytics', 'engine_assembly_bom', 'repair_norms', 'ppe_cards', 'ppe_norms', 'ppe_groups', 'ppe_collective', 'ppe_import', 'ppe_stock', 'ppe_reports'] as const)
@@ -6280,6 +6287,16 @@ export function App() {
             canDelete={caps.canManageEmployees}
             refreshKey={employeesRefreshKey}
           />
+        )}
+
+        {/* Детский модуль: карточки детей сотрудников. */}
+        {t === 'children' && (
+          <ChildrenPage canEdit={caps.canEditChildren} refreshKey={employeesRefreshKey} />
+        )}
+
+        {/* Организационный модуль: мероприятия и журнал выдачи подарков. */}
+        {t === 'organization' && (
+          <OrganizationPage canEdit={caps.canEditOrganization} refreshKey={employeesRefreshKey} />
         )}
 
         {t === 'timesheets' && (

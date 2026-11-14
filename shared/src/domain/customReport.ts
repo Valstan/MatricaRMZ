@@ -19,6 +19,7 @@ export const CUSTOM_REPORT_SOURCE_PRESET_IDS = [
   'work_orders_report',
   'organization_structure',
   'employees_roster',
+  'children_roster',
   'tools_inventory',
   'services_pricelist',
   'products_catalog',

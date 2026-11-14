@@ -823,6 +823,44 @@ const matricaApi = {
     }) => ipcRenderer.invoke('productionProgram:saveRows', args),
     remove: async (id: string) => ipcRenderer.invoke('productionProgram:remove', id),
   },
+  children: {
+    list: async () => ipcRenderer.invoke('children:list'),
+    save: async (args: {
+      id?: string | null;
+      employeeId?: string | null;
+      fullName: string;
+      birthDate?: number | null;
+      gender?: string | null;
+      tags?: string[] | null;
+      note?: string | null;
+    }) => ipcRenderer.invoke('children:save', args),
+    remove: async (id: string) => ipcRenderer.invoke('children:remove', id),
+  },
+  organization: {
+    list: async () => ipcRenderer.invoke('organization:list'),
+    saveEvent: async (args: {
+      id?: string | null;
+      title: string;
+      kind?: string | null;
+      eventDate?: number | null;
+      description?: string | null;
+      selections?: Array<{ childId: string; invited: boolean; reason?: string | null }> | null;
+    }) => ipcRenderer.invoke('organization:saveEvent', args),
+    removeEvent: async (id: string) => ipcRenderer.invoke('organization:removeEvent', id),
+    saveGift: async (args: {
+      id?: string | null;
+      eventId?: string | null;
+      recipientKind?: string | null;
+      recipientEmployeeId?: string | null;
+      recipientChildId?: string | null;
+      kind?: string | null;
+      title?: string | null;
+      place?: string | null;
+      givenAt?: number | null;
+      note?: string | null;
+    }) => ipcRenderer.invoke('organization:saveGift', args),
+    removeGift: async (id: string) => ipcRenderer.invoke('organization:removeGift', id),
+  },
   engineReclamations: {
     list: async (engineId: string) => ipcRenderer.invoke('engineReclamations:list', engineId),
     save: async (args: {
@@ -1192,6 +1230,8 @@ const matricaApi = {
       body: Array<{ id: string; kind: string }>;
       importance: 'normal' | 'important' | 'burning' | 'later';
       dueAt?: number | null;
+      /** Точки напоминания: несколько дат-времён на заметку (и по дням, и внутри дня). */
+      reminders?: number[];
       sortOrder?: number;
     }) => ipcRenderer.invoke('notes:upsert', args),
     delete: async (args: { noteId: string }) => ipcRenderer.invoke('notes:delete', args),

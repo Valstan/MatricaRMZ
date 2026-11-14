@@ -74,6 +74,14 @@ export type UiCaps = {
   canViewProductionProgram: boolean;
   /** Производственная программа (ПП): вести план (строки, состояния, отгрузка, подписи). */
   canEditProductionProgram: boolean;
+  /** Детский модуль: видеть карточки детей. */
+  canViewChildren: boolean;
+  /** Детский модуль: вести карточки детей. */
+  canEditChildren: boolean;
+  /** Организационный модуль: видеть мероприятия и журнал выдачи. */
+  canViewOrganization: boolean;
+  /** Организационный модуль: вести мероприятия и журнал выдачи. */
+  canEditOrganization: boolean;
 };
 
 export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
@@ -151,6 +159,13 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
   const canViewProductionProgram = has(perms, 'production_program.view');
   const canEditProductionProgram = has(perms, 'production_program.edit');
 
+  // Детский и организационный модули: смотреть может тот, кому выдан раздел
+  // (меню прячет раздел), вести — узкий круг с правом `*.edit`.
+  const canViewChildren = has(perms, 'children.view');
+  const canEditChildren = has(perms, 'children.edit');
+  const canViewOrganization = has(perms, 'organization.view');
+  const canEditOrganization = has(perms, 'organization.edit');
+
   return {
     canViewEmployees,
     canViewTimesheets,
@@ -214,6 +229,11 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
 
     canViewProductionProgram,
     canEditProductionProgram,
+
+    canViewChildren,
+    canEditChildren,
+    canViewOrganization,
+    canEditOrganization,
   };
 }
 
