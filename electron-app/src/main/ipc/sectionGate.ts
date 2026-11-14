@@ -209,6 +209,10 @@ const WRITE_CHANNELS = new Set([
   'ppe:employees:card:update',
   'ppe:printTemplates:save',
   'ppe:printTemplates:delete',
+  // Остатки склада СИЗ по отчёту: импорт проводит складской документ —
+  // наблюдателю раздел «Склад» его проводить нельзя.
+  'ppe:stockImport:preview',
+  'ppe:stockImport:apply',
   // Умолчания подписей (PR-5): наблюдателю — отказ, нужен editor раздела.
   'signatureDefaults:set',
   'warehouseLocations:delete',

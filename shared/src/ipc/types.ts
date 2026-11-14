@@ -3013,6 +3013,52 @@ export type MatricaApi = {
         | { ok: false; error: string }
       >;
     };
+    /**
+     * Остатки склада СИЗ по отчёту (выгрузка 1С «Остатки товаров»).
+     * Preview → apply; файл едет base64 внутри JSON. Склад СИЗ — отдельная локация,
+     * импорт — корректировка остатка, поэтому повтор того же отчёта остаток не удваивает.
+     */
+    stockImport: {
+      preview: (args: { filename: string; contentBase64: string }) => Promise<
+        | {
+            ok: true;
+            previewId: string;
+            expiresAt: number;
+            preview: {
+              reportDate: number | null;
+              title: string[];
+              warehouse: { code: string; name: string; exists: boolean };
+              rows: Array<{
+                line: number;
+                name: string;
+                unit: string | null;
+                reportQty: number;
+                currentQty: number;
+                delta: number;
+                action: 'create' | 'match' | 'unchanged';
+                nomenclatureId: string | null;
+                note: string | null;
+              }>;
+              summary: { total: number; create: number; match: number; unchanged: number; changed: number };
+            };
+          }
+        | { ok: false; error: string }
+      >;
+      apply: (args: { previewId: string; contentBase64: string }) => Promise<
+        | {
+            ok: true;
+            report: {
+              docNo: string | null;
+              documentId: string | null;
+              created: number;
+              matched: number;
+              unchanged: number;
+              posted: number;
+            };
+          }
+        | { ok: false; error: string }
+      >;
+    };
   };
   /**
    * Умолчания подписей (PR-5): чтение — из локальной pull-only реплики
