@@ -14,7 +14,7 @@
 //   node .claude/skills/verifier-electron/scripts/cdp-file-search.mjs
 import { createRequire } from 'node:module';
 import { mkdirSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 const require = createRequire(import.meta.url);
 const requireFromApp = createRequire(new URL('../../../../electron-app/package.json', import.meta.url));
@@ -22,7 +22,7 @@ const ExcelJS = requireFromApp('exceljs');
 
 const PORT = process.env.MATRICA_CDP_PORT || '9222';
 const OUT_DIR = '.verifier-electron';
-const FIXTURE_DIR = join(OUT_DIR, 'fixtures');
+const FIXTURE_DIR = resolve(OUT_DIR, 'fixtures');
 const OUT = `${OUT_DIR}/cdp-file-search-report.json`;
 mkdirSync(FIXTURE_DIR, { recursive: true });
 
@@ -111,8 +111,7 @@ const HELPERS = `
 
 /** Фикстура: книга Excel с шапкой и строкой по номеру двигателя TEST-001. */
 async function makeFixture() {
-  const path = join(FIXTURE_DIR, 'акты приёмки.xlsx');
-  const wb = new ExcelJS.Workbook();
+  const path = join(FIXTURE_DIR, 'акты приёмки.xlsx');  const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Приёмка');
   ws.addRow(['№ двигателя', 'Контракт', 'Дата прихода', 'Примечание']);
   ws.addRow(['TEST-001', 'Д-100', '15.11.2026', 'принят по акту']);
@@ -204,9 +203,11 @@ async function main() {
      const body = document.body.innerText;
      return { ok: true, headers: body.includes('№ двигателя'), value: body.includes('TEST-001'),
               contract: body.includes('Д-100'), card: body.includes('Карточка двигателя из базы'),
-              missing: body.includes('Чего в карточке нет') };`,
+              missing: body.includes('Чего в карточке нет'),
+              unreadable: body.includes('Файлы, которые не прочитались') };`,
   );
   note(search.ok, 'поиск выполнен', search.ok ? undefined : search);
+  note(!search.unreadable, 'все файлы прочитались (нет блока «не прочитались»)', search);
   note(search.headers, 'найденная строка показана с наименованиями столбцов', search);
   note(search.value && search.contract, 'значения строки на месте (номер и контракт)', search);
   note(search.card, 'справа — карточка двигателя из базы', search);
