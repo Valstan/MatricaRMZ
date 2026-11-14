@@ -70,6 +70,8 @@ export type TabId =
   | 'tool_property'
   | 'employees'
   | 'employee'
+  | 'children'
+  | 'organization'
   | 'access_sections'
   | 'timesheets'
   | 'timesheet'
@@ -193,6 +195,8 @@ const menuTabSet = new Set<MenuTabId>([
   'engine_assembly_bom',
   'repair_norms',
   'employees',
+  'children',
+  'organization',
   'timesheets',
   'access_sections',
   'reports',
@@ -298,6 +302,8 @@ export const MENU_TAB_LABELS: Record<MenuTabId, string> = {
   ppe_reports: 'Отчёты СИЗ',
   workshop_stats: 'Статистика цехов',
   employees: 'Сотрудники',
+  children: 'Дети',
+  organization: 'Организационное',
   timesheets: 'Табель',
   access_sections: 'Доступы по разделам',
   reports: 'Отчёты',
@@ -324,7 +330,7 @@ export const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   warehouse: ['nomenclature', 'parts_dedupe', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'repair_fund_audit', 'warehouse_analytics'],
   workwear: ['ppe_cards', 'ppe_norms', 'ppe_groups', 'ppe_collective', 'ppe_import', 'ppe_stock', 'ppe_reports'],
   business: ['contracts', 'counterparties'],
-  people: ['employees', 'timesheets', 'access_sections'],
+  people: ['employees', 'children', 'organization', 'timesheets', 'access_sections'],
   control: ['reports', 'custom_reports', 'report_templates', 'changes', 'audit', 'notes', 'masterdata', 'workshops', 'workshop_stats', 'warehouses_admin', 'empty_cards', 'drafts', 'admin'],
 };
 

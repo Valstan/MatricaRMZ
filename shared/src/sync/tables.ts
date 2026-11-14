@@ -105,6 +105,15 @@ export const SyncTableName = {
   // дверь (engineReclamationService), клиент читает реплику и правит на вкладке
   // «Рекламация». Отдельная таблица, а не EAV-атрибут: EAV под заморозкой.
   ErpEngineReclamations: 'erp_engine_reclamations',
+  // Детский модуль: карточка ребёнка сотрудника. Server-write / pull-only: ведёт
+  // серверная дверь (childrenService), клиент читает реплику. Отдельная таблица, а не
+  // EAV-атрибут: EAV под заморозкой, а у ребёнка свои фильтры и отчёты.
+  ErpEmployeeChildren: 'erp_employee_children',
+  // Организационный модуль: мероприятие (праздник, соревнование) и журнал выдачи
+  // подарков, призов и грамот. Server-write / pull-only — ведёт серверная дверь
+  // (organizationService).
+  ErpOrgEvents: 'erp_org_events',
+  ErpGiftRecords: 'erp_gift_records',
 } as const;
 
 export type SyncTableName = (typeof SyncTableName)[keyof typeof SyncTableName];

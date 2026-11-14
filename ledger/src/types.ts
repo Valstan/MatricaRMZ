@@ -75,6 +75,11 @@ export const LedgerTableName = {
   ErpProductionProgramRows: 'erp_production_program_rows',
   // Рекламации двигателя: очередь заездов по рекламации (1-я, 2-я, 3-я …).
   ErpEngineReclamations: 'erp_engine_reclamations',
+  // Детский модуль: карточка ребёнка сотрудника.
+  ErpEmployeeChildren: 'erp_employee_children',
+  // Организационный модуль: мероприятие и журнал выдачи подарков.
+  ErpOrgEvents: 'erp_org_events',
+  ErpGiftRecords: 'erp_gift_records',
   Permissions: 'permissions',
   UserPermissions: 'user_permissions',
   PermissionDelegations: 'permission_delegations',

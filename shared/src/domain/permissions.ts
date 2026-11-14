@@ -141,6 +141,15 @@ export const PermissionCode = {
   // НЕ достаётся наблюдателю, снабжению, кладовщику и табельщику.
   ProductionProgramView: 'production_program.view',
   ProductionProgramEdit: 'production_program.edit',
+
+  // Детский модуль: карточки детей сотрудников. Смотреть — всякий, кому выдан раздел
+  // (меню прячет раздел); ВЕСТИ карточку ребёнка — узкий круг, которому владелец выдал
+  // право поимённо: даты рождения и признаки детей — персональные данные.
+  ChildrenView: 'children.view',
+  ChildrenEdit: 'children.edit',
+  // Организационный модуль: мероприятия, журнал выдачи подарков, призов и грамот.
+  OrganizationView: 'organization.view',
+  OrganizationEdit: 'organization.edit',
 } as const;
 
 export type PermissionCode = (typeof PermissionCode)[keyof typeof PermissionCode];
@@ -378,6 +387,31 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
       'Создавать и править планы производства: строки плана, состояния, отгрузка, подписи. ' +
       'Наблюдателю, снабжению, кладовщику и табельщику роль этого права не даёт.',
   },
+  {
+    code: PermissionCode.ChildrenView,
+    group: 'Детский модуль',
+    titleRu: 'Просмотр карточек детей',
+    descriptionRu: 'Видеть список детей сотрудников, их карточки, возраст и признаки отбора.',
+  },
+  {
+    code: PermissionCode.ChildrenEdit,
+    group: 'Детский модуль',
+    titleRu: 'Ведение карточек детей',
+    descriptionRu:
+      'Заводить и править карточки детей: ФИО, дата рождения, пол, признаки отбора, связь с родителем.',
+  },
+  {
+    code: PermissionCode.OrganizationView,
+    group: 'Организационный модуль',
+    titleRu: 'Просмотр организационного модуля',
+    descriptionRu: 'Видеть мероприятия, журнал выдачи подарков, призов и грамот.',
+  },
+  {
+    code: PermissionCode.OrganizationEdit,
+    group: 'Организационный модуль',
+    titleRu: 'Ведение организационного модуля',
+    descriptionRu: 'Заводить мероприятия, вести отборы и записывать выдачу подарков, призов и грамот.',
+  },
 ];
 
 export const PERM_META_BY_CODE: Record<string, PermissionMeta> = Object.fromEntries(
@@ -486,6 +520,10 @@ const OPERATOR_BASE_PERMISSIONS: PermissionCode[] = [
   // это документ, по которому видно, что делает цех. Право на ВЕДЕНИЕ плана
   // выдаётся отдельно (см. OPERATOR_ROLE_EDIT): читать план может каждый.
   PermissionCode.ProductionProgramView,
+  // Детский и организационный модули: смотреть может тот, кому выдан раздел (меню
+  // прячет раздел), а ВЕСТИ — узкий круг, которому владелец выдал право поимённо.
+  PermissionCode.ChildrenView,
+  PermissionCode.OrganizationView,
 ];
 
 // Edit footprint per operator role, added on top of the read-only base.

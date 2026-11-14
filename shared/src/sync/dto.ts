@@ -592,6 +592,47 @@ export const erpEngineReclamationRowSchema = z.object({
   comment: z.string().nullable().optional(),
 });
 
+// Карточка ребёнка сотрудника. employee_id — id сотрудника (EAV-сущность), без жёсткой
+// FK, как и остальные ссылки в контракте. birth_date — мс: возраст СЧИТАЕТСЯ в домене,
+// в строке его нет. tags_json — признаки отбора (дети СВО, на лечении) текстом:
+// контракт синка текстовый, и SQLite-реплика такая же.
+export const erpEmployeeChildRowSchema = z.object({
+  ...baseRowFields,
+  employee_id: z.string().nullable().optional(),
+  full_name: z.string(),
+  birth_date: z.number().int().nullable().optional(),
+  gender: z.string().nullable().optional(),
+  tags_json: z.string().nullable().optional(),
+  note: z.string().nullable().optional(),
+});
+
+// Мероприятие организационного модуля. selections_json — решения оператора по отбору
+// ([{ childId, invited, reason }]): результат фильтра не хранится (он зависит от состава),
+// хранится только решение.
+export const erpOrgEventRowSchema = z.object({
+  ...baseRowFields,
+  title: z.string(),
+  kind: z.string(),
+  event_date: z.number().int().nullable().optional(),
+  description: z.string().nullable().optional(),
+  selections_json: z.string().nullable().optional(),
+});
+
+// Журнал выдачи подарков, призов и грамот. Получатель — ссылка (сотрудник или ребёнок),
+// а не свободный текст с ФИО: иначе в журнале заводятся дубли.
+export const erpGiftRecordRowSchema = z.object({
+  ...baseRowFields,
+  event_id: z.string().nullable().optional(),
+  recipient_kind: z.string(),
+  recipient_employee_id: z.string().nullable().optional(),
+  recipient_child_id: z.string().nullable().optional(),
+  kind: z.string(),
+  title: z.string(),
+  place: z.string().nullable().optional(),
+  given_at: z.number().int().nullable().optional(),
+  note: z.string().nullable().optional(),
+});
+
 export const syncRowSchemaByTable = {
   [SyncTableName.EntityTypes]: entityTypeRowSchema,
   [SyncTableName.Entities]: entityRowSchema,
@@ -645,6 +686,9 @@ export const syncRowSchemaByTable = {
   [SyncTableName.ErpProductionPrograms]: erpProductionProgramRowSchema,
   [SyncTableName.ErpProductionProgramRows]: erpProductionProgramLineRowSchema,
   [SyncTableName.ErpEngineReclamations]: erpEngineReclamationRowSchema,
+  [SyncTableName.ErpEmployeeChildren]: erpEmployeeChildRowSchema,
+  [SyncTableName.ErpOrgEvents]: erpOrgEventRowSchema,
+  [SyncTableName.ErpGiftRecords]: erpGiftRecordRowSchema,
 } as const;
 
 export const syncTableUpsertSchema = z.object({

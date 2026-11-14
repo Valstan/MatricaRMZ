@@ -28,6 +28,13 @@ export const AccessSection = {
   Directories: 'directories',
   /** Audit/admin pages — only the owner assigns people here. */
   Administration: 'administration',
+  /**
+   * Детский и организационный модуль (владелец 15.11.2026): карточки детей сотрудников,
+   * мероприятия и журнал выдачи подарков. Отдельный раздел, а не часть «Персонала»:
+   * даты рождения и признаки детей — персональные данные, и в общий кадровый контур
+   * они попадать не должны. Людей в раздел добавляет владелец.
+   */
+  Organization: 'organization',
 } as const;
 export type AccessSection = (typeof AccessSection)[keyof typeof AccessSection];
 
@@ -136,6 +143,14 @@ export const ACCESS_SECTION_CATALOG: readonly AccessSectionMeta[] = [
     // «Изменения» (changes) и «Черновики» (drafts) сознательно ВНЕ разделов: ими
     // пользуются все роли сегодня — гейтить их значило бы менять поведение в день засева.
     menuTabs: ['audit', 'admin'],
+    restrictedAssign: true,
+  },
+  {
+    id: AccessSection.Organization,
+    titleRu: 'Дети и организационное',
+    // Отдельный раздел: карточки детей — персональные данные, в общий кадровый
+    // контур они не попадают. Людей в раздел добавляет владелец.
+    menuTabs: ['children', 'organization'],
     restrictedAssign: true,
   },
 ] as const;
@@ -360,6 +375,10 @@ export const LEDGER_SECTION_BY_TABLE: Readonly<Record<string, AccessSection>> = 
   // Производственная программа (ПП) — производственный контур.
   erp_production_programs: AccessSection.Production,
   erp_production_program_rows: AccessSection.Production,
+  // Детский и организационный модуль — свой раздел (персональные данные детей).
+  erp_employee_children: AccessSection.Organization,
+  erp_org_events: AccessSection.Organization,
+  erp_gift_records: AccessSection.Organization,
   warehouse_locations: AccessSection.Warehouse,
 };
 
