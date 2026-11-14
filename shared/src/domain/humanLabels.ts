@@ -135,6 +135,11 @@ export const ENGINE_PHASE_LABELS: Record<string, string> = {
  */
 export const REPORT_TOTAL_LABELS: Record<string, string> = {
   employees: 'Сотрудники, шт.',
+  // Детский модуль: карточки детей, отчёт «Дети сотрудников».
+  children: 'Дети, шт.',
+  active: 'Участвуют, шт.',
+  silver: 'Серенькие, шт.',
+  gifted: 'Получили подарок в этом году, шт.',
   workingEmployees: 'Работают, шт.',
   firedEmployees: 'Уволены, шт.',
   firedInPeriod: 'Уволены за период, шт.',

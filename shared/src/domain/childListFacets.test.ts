@@ -12,8 +12,6 @@ import {
   type ChildFacetSelection,
 } from './childListFacets.js';
 
-const NOW = new Date(2026, 0, 15, 10, 0, 0).getTime();
-
 function row(over: Partial<ChildFacetRow> & { id: string }): ChildFacetRow {
   return {
     parentId: 'e1',

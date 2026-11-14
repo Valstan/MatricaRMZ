@@ -3,18 +3,13 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CHILD_FACETS,
   applyChildFacets,
-  childActivityLabelRu,
   childActivityState,
   childAgeYears,
   childAgeBandOf,
-  childFacetIsActive,
-  childGenderLabelRu,
   giftKindLabelRu,
   giftRecipientKindLabelRu,
   orgEventKindLabelRu,
   parseEventSelections,
-  sanitizeChildFacetSelection,
-  serializeEventSelections,
   type ChildDto,
   type ChildFacetRow,
   type ChildFacetSelection,
@@ -701,6 +696,17 @@ function GiftDialog(props: {
             <Input type="date" value={givenAt} onChange={(e) => setGivenAt(e.target.value)} disabled={busy || !props.canEdit} />
           </label>
         </div>
+
+        <label style={{ display: 'grid', gap: 4 }}>
+          <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Примечание</span>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            disabled={busy || !props.canEdit}
+            rows={2}
+            style={{ ...selStyle, height: 'auto', padding: 8 }}
+          />
+        </label>
 
         {status && <div style={{ color: status.startsWith('Ошибка') ? '#b91c1c' : 'var(--subtle)', fontSize: 13 }}>{status}</div>}
 

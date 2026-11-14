@@ -87,6 +87,8 @@ import {
   ppeIssueEntries,
   ppeNormLines,
   ppeNormSets,
+  erpEmployeeChildren,
+  erpGiftRecords,
 } from '../../database/schema.js';
 
 import { buildReportByPreset } from './dispatch.js';
@@ -115,6 +117,11 @@ const ID = {
   contract: 'cc330000-0000-4000-8000-000000000001',
   counterparty: 'dd440000-0000-4000-8000-000000000001',
   employee: 'ee550000-0000-4000-8000-000000000001',
+  /** Ребёнок сотрудника (детский модуль) и запись о выдаче подарка ему. */
+  child: 'ee560000-0000-4000-8000-000000000001',
+  gift: 'ee570000-0000-4000-8000-000000000001',
+  /** Ребёнок с висячим родителем: сотрудника с таким id в справочнике нет. */
+  childOrphan: 'ee560000-0000-4000-8000-000000000002',
   tool: 'ff660000-0000-4000-8000-000000000001',
   service: 'a1770000-0000-4000-8000-000000000001',
   product: 'b2880000-0000-4000-8000-000000000001',
@@ -722,6 +729,57 @@ function rmzRows(): Row[] {
 }
 
 /**
+ * Детский модуль: карточка ребёнка сотрудника и запись о выдаче ему подарка.
+ * В дырявой форме — ребёнок с висячим родителем: отчёт обязан показать прочерк,
+ * а не идентификатор сотрудника.
+ */
+function childrenRows(shape: FixtureShape): { children: Row[]; gifts: Row[] } {
+  const children: Row[] = [
+    {
+      id: ID.child,
+      employeeId: ID.employee,
+      fullName: 'Сидоров Пётр Петрович',
+      birthDate: T0 - 9 * 365 * DAY,
+      gender: 'male',
+      tagsJson: JSON.stringify(['svo']),
+      note: '',
+      createdAt: T0,
+      updatedAt: T0,
+    },
+  ];
+  if (shape.leaky) {
+    children.push({
+      id: ID.childOrphan,
+      employeeId: 'ee550000-0000-4000-8000-0000000099',
+      fullName: 'Кузнецов Артём Игоревич',
+      birthDate: T0 - 5 * 365 * DAY,
+      gender: 'female',
+      tagsJson: null,
+      note: '',
+      createdAt: T0,
+      updatedAt: T0,
+    });
+  }
+  const gifts: Row[] = [
+    {
+      id: ID.gift,
+      eventId: null,
+      recipientKind: 'child',
+      recipientEmployeeId: null,
+      recipientChildId: ID.child,
+      kind: 'gift',
+      title: 'Конструктор',
+      place: '',
+      givenAt: T0 - 20 * DAY,
+      note: '',
+      createdAt: T0,
+      updatedAt: T0,
+    },
+  ];
+  return { children, gifts };
+}
+
+/**
  * Кладовщик (СИЗ): набор норм, карточка сотрудника, выдача 13-месячной давности
  * при сроке носки 12 мес — строка «просрочено». В дырявой форме строка нормы
  * ссылается на отсутствующую номенклатуру — билдеры обязаны показать прочерк, а не id.
@@ -809,6 +867,8 @@ function stubDb(shape: FixtureShape): any {
     [ppeAbsences, ppe.absences],
     [ppeCollectives, ppe.collectives],
     [ppeCollectiveLines, ppe.collectiveLines],
+    [erpEmployeeChildren, childrenRows(shape).children],
+    [erpGiftRecords, childrenRows(shape).gifts],
   ]);
 
   return {
@@ -892,6 +952,7 @@ type Violation = { presetId: string; column: string; value: string; kind: string
  */
 const COVERED_PRESETS: Array<{ presetId: string; filters?: Record<string, unknown> }> = [
   { presetId: 'employees_roster' },
+  { presetId: 'children_roster' },
   { presetId: 'organization_structure' },
   { presetId: 'tools_inventory' },
   { presetId: 'services_pricelist' },
