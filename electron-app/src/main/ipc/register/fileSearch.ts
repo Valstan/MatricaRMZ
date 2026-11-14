@@ -12,6 +12,7 @@ import { findEngineByExactNumber, listEngineCharacteristicDefs } from '../../ser
 import {
   SEARCH_SOURCE_EXTENSIONS,
   describeSearchSource,
+  readSearchContext,
   searchFileSources,
   sourceIdForPath,
 } from '../../services/fileSearchService.js';
@@ -111,6 +112,23 @@ export function registerFileSearchIpc(ctx: IpcContext) {
         const sources = Array.isArray(args?.sources) ? args.sources : [];
         const result = await searchFileSources(sources, String(args?.query ?? ''));
         return { ok: true, result };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    'fileSearch:context',
+    async (
+      _e,
+      args: { source?: FileSearchSource; paragraphIndex?: number; count?: number },
+    ): Promise<{ ok: true; paragraphs: string[] } | Err> => {
+      try {
+        const source = args?.source;
+        if (!source?.path) return { ok: false, error: 'Не указан файл' };
+        const paragraphs = await readSearchContext(source, Number(args?.paragraphIndex ?? 0), Number(args?.count ?? 10));
+        return { ok: true, paragraphs };
       } catch (e) {
         return { ok: false, error: String(e) };
       }

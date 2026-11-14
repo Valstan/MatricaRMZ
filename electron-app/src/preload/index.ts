@@ -124,6 +124,8 @@ const matricaApi = {
     pick: async () => ipcRenderer.invoke('fileSearch:pick'),
     search: async (args: { sources: FileSearchSource[]; query: string }) =>
       ipcRenderer.invoke('fileSearch:search', args),
+    context: async (args: { source: FileSearchSource; paragraphIndex: number; count?: number }) =>
+      ipcRenderer.invoke('fileSearch:context', args),
     sources: {
       get: async () => ipcRenderer.invoke('fileSearch:sources:get'),
       set: async (args: { sources: FileSearchSource[] }) => ipcRenderer.invoke('fileSearch:sources:set', args),

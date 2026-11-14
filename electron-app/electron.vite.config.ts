@@ -96,6 +96,7 @@ export default defineConfig({
               if (
                 normalized.includes('/EnginesPage.') ||
                 normalized.includes('/EngineDetailsPage.') ||
+                normalized.includes('/FileSearchPage.') ||
                 normalized.includes('/EngineBrandsPage.') ||
                 normalized.includes('/EngineBrandDetailsPage.') ||
                 normalized.includes('/PartsPage.') ||

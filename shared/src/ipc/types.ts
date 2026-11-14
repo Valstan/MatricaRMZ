@@ -1497,6 +1497,10 @@ export type MatricaApi = {
     search: (args: { sources: FileSearchSource[]; query: string }) => Promise<
       { ok: true; result: FileSearchResult } | { ok: false; error: string }
     >;
+    /** Абзацы после найденного — по кнопке «показать строки ниже». */
+    context: (args: { source: FileSearchSource; paragraphIndex: number; count?: number }) => Promise<
+      { ok: true; paragraphs: string[] } | { ok: false; error: string }
+    >;
     sources: {
       get: () => Promise<
         { ok: true; userId: string; sources: FileSearchSource[] } | { ok: false; error: string }

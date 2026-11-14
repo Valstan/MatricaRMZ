@@ -267,6 +267,7 @@ const RepairFundAuditPage = lazyPage('./pages/RepairFundAuditPage.tsx', 'RepairF
 const WarehouseAnalyticsPage = lazyPage('./pages/WarehouseAnalyticsPage.tsx', 'WarehouseAnalyticsPage');
 const WorkshopStatsPage = lazyPage('./pages/WorkshopStatsPage.tsx', 'WorkshopStatsPage');
 const EngineRmzNumbersPage = lazyPage('./pages/EngineRmzNumbersPage.tsx', 'EngineRmzNumbersPage');
+const FileSearchPage = lazyPage('./pages/FileSearchPage.tsx', 'FileSearchPage');
 const CustomReportsPage = lazyPage('./pages/CustomReportsPage.tsx', 'CustomReportsPage');
 const ReportTemplatesShowcasePage = lazyPage('./pages/ReportTemplatesShowcasePage.tsx', 'ReportTemplatesShowcasePage');
 const AccessSectionsPage = lazyPage('./pages/AccessSectionsPage.tsx', 'AccessSectionsPage');
@@ -711,6 +712,7 @@ const MENU_LABELS: Record<MenuTabId, string> = {
   contracts: 'Контракты',
   changes: 'Изменения',
   engines: 'Двигатели',
+  file_search: 'Поиск по файлам',
   engine_rmz_numbers: 'Номера РМЗ',
   now_at_plant: 'Сейчас на заводе',
   production_program: 'Производственная программа',
@@ -2962,6 +2964,8 @@ export function App() {
     ...(authStatus.loggedIn ? (['user_screens'] as const) : []),
     ...(caps.canViewMasterData ? (['contracts'] as const) : []),
     ...(caps.canViewEngines ? (['engines'] as const) : []),
+    // Поиск по файлам оператора: те же права, что у двигателей (карточка — двигатель).
+    ...(caps.canViewEngines ? (['file_search'] as const) : []),
     // Реестр номеров РМЗ — тот же контур, что и двигатели (право `engines.view`): там
     // видно, куда делась карточка, и кто её удалил.
     ...(caps.canViewEngines ? (['engine_rmz_numbers'] as const) : []),
@@ -5878,6 +5882,8 @@ export function App() {
           <div style={{ color: 'var(--muted)' }}>Выберите этап работ из списка.</div>
         )}
         {t === 'engine_rmz_numbers' && <EngineRmzNumbersPage onOpenEngine={(x: string) => void openEngine(x)} />}
+
+        {t === 'file_search' && <FileSearchPage canEdit={caps.canEditEngines} />}
 
         {t === 'engines' && (
           <EnginesPage
