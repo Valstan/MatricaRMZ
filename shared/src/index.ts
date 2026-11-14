@@ -8,6 +8,7 @@ export * from './domain/lookupNormalize.js';
 export * from './domain/tieredSearch.js';
 export * from './domain/partsDedup.js';
 export * from './domain/fileStorage.js';
+export * from './domain/fileSearch.js';
 export * from './domain/repairChecklist.js';
 export * from './domain/engineInventoryLines.js';
 export * from './domain/engineInventoryLineId.js';

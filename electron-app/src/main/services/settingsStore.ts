@@ -47,6 +47,11 @@ export const SettingsKey = {
   FilesDownloadDir: 'files.downloadDir',
   /** Папка последней выгрузки списка в Word/Excel — «Сохранить как» начинает с неё. */
   ExportsDir: 'files.exportsDir',
+  /**
+   * Файлы-источники модуля «Поиск по файлам» — карта по пользователю (JSON).
+   * Локально и машинно: путь на другой машине невалиден, роумить его незачем.
+   */
+  FileSearchSources: 'fileSearch.sources',
 
   // Client identity (stable per workstation)
   ClientId: 'clientId',

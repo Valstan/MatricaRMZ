@@ -25,6 +25,7 @@ import type {
   ProductionProgramSaveDto,
 } from '../domain/productionProgram.js';
 import type { EngineReclamationDto } from '../domain/engineReclamations.js';
+import type { FileSearchResult, FileSearchSource } from '../domain/fileSearch.js';
 
 /** Избранные разделы оператора (левая колонка оболочки). Локально, per-user scope. */
 export type SectionFavoritesResult = { ok: true; ids: MenuTabId[] } | { ok: false; error: string };
@@ -1425,6 +1426,32 @@ export type MatricaApi = {
       internalNumberYear: number;
       excludeEngineId?: string;
     }) => Promise<EngineInternalNumberDuplicate | null>;
+    /**
+     * Точный поиск двигателя по номеру (без «похожих»): документный номер по
+     * канон-ключу или внутренний клеймо «41/26». Нужен модулю «Поиск по файлам».
+     */
+    findExactByNumber: (args: { query: string }) => Promise<
+      | {
+          ok: true;
+          engine: {
+            id: string;
+            engineNumber: string;
+            internalNumberFull: string;
+            rmzCode: string;
+            matchedBy: 'engine_number' | 'internal_number';
+          } | null;
+          note: string | null;
+        }
+      | { ok: false; error: string }
+    >;
+    /** Известные характеристики двигателя — по дефам «Двигатель» из базы. */
+    characteristics: () => Promise<
+      | {
+          ok: true;
+          defs: { code: string; name: string; dataType: string | null; sortOrder: number }[];
+        }
+      | { ok: false; error: string }
+    >;
     reservation: {
       get: (engineId: string) => Promise<EngineReservationResult>;
       acquire: (engineId: string) => Promise<EngineReservationResult>;
@@ -1456,6 +1483,25 @@ export type MatricaApi = {
         { ok: true; preview: EngineBulkIntakePreview } | { ok: false; error: string }
       >;
       apply: (args: EngineBulkIntakeApplyInput) => Promise<EngineBulkIntakeApplyResult>;
+    };
+  };
+  /**
+   * Модуль «Поиск по файлам»: источники оператора, поиск по ним и перенос
+   * найденного в карточку двигателя. Файлы читает главный процесс.
+   */
+  fileSearch: {
+    pick: () => Promise<
+      | { ok: true; sources: FileSearchSource[]; skipped: string[]; supported: string[] }
+      | { ok: false; error: string }
+    >;
+    search: (args: { sources: FileSearchSource[]; query: string }) => Promise<
+      { ok: true; result: FileSearchResult } | { ok: false; error: string }
+    >;
+    sources: {
+      get: () => Promise<
+        { ok: true; userId: string; sources: FileSearchSource[] } | { ok: false; error: string }
+      >;
+      set: (args: { sources: FileSearchSource[] }) => Promise<{ ok: true } | { ok: false; error: string }>;
     };
   };
   /** Передача файлов между Верстаками: отправка коллеге и разбор входящих. */

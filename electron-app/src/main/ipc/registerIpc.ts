@@ -33,6 +33,7 @@ import { registerEmployeesIpc } from './register/employees.js';
 import { registerExportsIpc } from './register/exports.js';
 import { registerMailIpc } from './register/mail.js';
 import { registerFilesIpc } from './register/files.js';
+import { registerFileSearchIpc } from './register/fileSearch.js';
 import { registerLoggingIpc } from './register/logging.js';
 import { registerNotesIpc } from './register/notes.js';
 import { registerPartsIpc } from './register/parts.js';
@@ -232,6 +233,7 @@ export function registerIpc(
   registerScrapCriterionIpc(ctx);
   registerUpdateIpc(ctx);
   registerFilesIpc(ctx);
+  registerFileSearchIpc(ctx);
   registerExportsIpc(ctx);
   registerMailIpc(ctx);
   registerChatIpc(ctx);
