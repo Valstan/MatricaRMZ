@@ -6,6 +6,10 @@ import { parseChildTags, serializeChildTags } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
 import { erpEmployeeChildren } from '../database/schema.js';
+import { publishOrganizationRowNow, toChildInput } from './sync/childrenSyncPublisherService.js';
+
+/** Актор правки — попадает в журнал синка (кто записал строку). */
+export type SyncActor = { id: string; username: string; role: string };
 
 /**
  * Детский модуль — серверная дверь.
@@ -136,14 +140,14 @@ export async function getChild(id: string): Promise<Result<{ child: ChildRow }>>
   return { ok: true, child: mapChild(row) };
 }
 
-export async function createChild(input: ChildInput): Promise<Result<{ id: string }>> {
+export async function createChild(input: ChildInput, actor?: SyncActor): Promise<Result<{ id: string }>> {
   const checked = validateInput(input);
   if (!checked.ok) return checked;
   const now = Date.now();
   const id = randomUUID();
-  await db.insert(erpEmployeeChildren).values({
-    id: id as any,
-    employeeId: checked.value.employeeId as any,
+  const row = {
+    id,
+    employeeId: checked.value.employeeId,
     fullName: checked.value.fullName,
     birthDate: checked.value.birthDate,
     gender: checked.value.gender ?? '',
@@ -151,12 +155,26 @@ export async function createChild(input: ChildInput): Promise<Result<{ id: strin
     note: checked.value.note ?? '',
     createdAt: now,
     updatedAt: now,
+    deletedAt: null as number | null,
+  };
+  await db.insert(erpEmployeeChildren).values({
+    id: id as any,
+    employeeId: row.employeeId as any,
+    fullName: row.fullName,
+    birthDate: row.birthDate,
+    gender: row.gender,
+    tagsJson: row.tagsJson,
+    note: row.note,
+    createdAt: now,
+    updatedAt: now,
     syncStatus: 'pending',
   });
+  // Публикуем строку сразу: иначе оператор увидит пустой список до тика публикатора.
+  await publishOrganizationRowNow(toChildInput(row as any), actor);
   return { ok: true, id };
 }
 
-export async function updateChild(id: string, input: ChildUpdate): Promise<Result<{ id: string }>> {
+export async function updateChild(id: string, input: ChildUpdate, actor?: SyncActor): Promise<Result<{ id: string }>> {
   const childId = String(id ?? '').trim();
   if (!isUuid(childId)) return { ok: false, error: 'id ребёнка должен быть uuid' };
   const [current] = await db
@@ -187,10 +205,12 @@ export async function updateChild(id: string, input: ChildUpdate): Promise<Resul
       syncStatus: 'pending',
     })
     .where(eq(erpEmployeeChildren.id, childId as any));
+  const [fresh] = await db.select().from(erpEmployeeChildren).where(eq(erpEmployeeChildren.id, childId as any)).limit(1);
+  if (fresh) await publishOrganizationRowNow(toChildInput(fresh as any), actor);
   return { ok: true, id: childId };
 }
 
-export async function deleteChild(id: string): Promise<Result<{ id: string }>> {
+export async function deleteChild(id: string, actor?: SyncActor): Promise<Result<{ id: string }>> {
   const childId = String(id ?? '').trim();
   if (!isUuid(childId)) return { ok: false, error: 'id ребёнка должен быть uuid' };
   const [current] = await db
@@ -203,5 +223,7 @@ export async function deleteChild(id: string): Promise<Result<{ id: string }>> {
     .update(erpEmployeeChildren)
     .set({ deletedAt: Date.now(), updatedAt: Date.now(), syncStatus: 'pending' })
     .where(eq(erpEmployeeChildren.id, childId as any));
+  const [fresh] = await db.select().from(erpEmployeeChildren).where(eq(erpEmployeeChildren.id, childId as any)).limit(1);
+  if (fresh) await publishOrganizationRowNow(toChildInput(fresh as any), actor);
   return { ok: true, id: childId };
 }

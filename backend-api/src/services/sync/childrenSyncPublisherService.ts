@@ -133,6 +133,26 @@ export async function publishPendingOrganizationRows(): Promise<number> {
   return inputs.length;
 }
 
+/**
+ * Опубликовать ОДНУ строку сразу, минуя ожидание тика.
+ *
+ * Дверь записи пишет строку и ждёт, пока её заберёт публикатор (раз в минуту) — а
+ * оператор в это время смотрит на пустой журнал выдачи: «я вручил подарок, а его нет».
+ * Поэтому дверь публикует строку сама, здесь и сейчас: журнал просыпает клиент, клиент
+ * тянет строку, и она появляется в списке за секунды, а не за минуту.
+ *
+ * Публикатор такие строки потом не переотправляет: после публикации `sync_status`
+ * уже `synced`. Гонка (публикатор успел прочитать строку как `pending` до нашей
+ * публикации) даёт вторую такую же запись в журнале — содержимое то же, апсерт
+ * идемпотентный, номер журнала проставляется тот же.
+ */
+export async function publishOrganizationRowNow(
+  input: SyncWriteInput,
+  actor: { id: string; username: string; role: string } = SYSTEM_ACTOR,
+): Promise<void> {
+  await writeSyncChanges([input], actor, { allowSyncConflicts: true });
+}
+
 async function tick(): Promise<void> {
   if (running) return;
   running = true;
