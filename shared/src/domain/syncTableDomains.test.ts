@@ -27,6 +27,8 @@ const DOMAINS: SyncDomain[] = [
   'users',
   'drafts',
   'productionProgram',
+  'children',
+  'organization',
   'audit',
   'directories',
 ];

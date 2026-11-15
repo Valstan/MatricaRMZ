@@ -2725,3 +2725,106 @@ export const erpEngineReclamations = pgTable(
       .where(sql`${t.deletedAt} is null`),
   }),
 );
+
+/**
+ * Карточка ребёнка сотрудника (миграция 0130).
+ *
+ * Отдельная строгая таблица, а не EAV-атрибут: EAV под заморожкой (AGENTS.md §EAV),
+ * а у ребёнка свои фильтры и свои отчёты (решение владельца 15.11.2026).
+ *
+ * Возраст НЕ хранится — он считается от `birth_date` в домене (`shared/domain/children.ts`).
+ * Статус «серенький» тоже не хранится: он выводится из статуса занятости родителя,
+ * иначе кадровый статус и статус ребёнка разъедутся.
+ */
+export const erpEmployeeChildren = pgTable(
+  'erp_employee_children',
+  {
+    id: uuid('id').primaryKey(),
+    /** Сотрудник-родитель (id EAV-сущности сотрудника). Жёсткой FK нет — как в остальных строгах. */
+    employeeId: uuid('employee_id'),
+    /** ФИО ребёнка. */
+    fullName: text('full_name').notNull(),
+    /** Дата рождения (мс). Nullable: без неё возраст неизвестен, карточка остаётся. */
+    birthDate: bigint('birth_date', { mode: 'number' }),
+    /** Пол: `male` | `female` | '' (не указан). */
+    gender: text('gender').notNull().default(''),
+    /** Признаки отбора JSON-строкой: `["svo","treatment"]`. */
+    tagsJson: text('tags_json'),
+    note: text('note').notNull().default(''),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    employeeIdx: index('erp_employee_children_employee_idx').on(t.employeeId),
+    birthIdx: index('erp_employee_children_birth_idx').on(t.birthDate),
+  }),
+);
+
+/**
+ * Мероприятие организационного модуля (миграция 0130): праздник, соревнование,
+ * день рождения. Решения оператора по отбору — JSON-строкой: результат фильтра
+ * не хранится (он зависит от состава), хранится только решение «приглашён / не приглашён».
+ */
+export const erpOrgEvents = pgTable(
+  'erp_org_events',
+  {
+    id: uuid('id').primaryKey(),
+    title: text('title').notNull(),
+    /** `holiday` | `competition` | `birthday` | `other`. */
+    kind: text('kind').notNull().default('other'),
+    /** Дата мероприятия (мс). */
+    eventDate: bigint('event_date', { mode: 'number' }),
+    description: text('description').notNull().default(''),
+    /** Решения по отбору: `[{ childId, invited, reason }]`. */
+    selectionsJson: text('selections_json'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    dateIdx: index('erp_org_events_date_idx').on(t.eventDate),
+  }),
+);
+
+/**
+ * Журнал выдачи подарков, призов и грамот (миграция 0130).
+ *
+ * Получатель — ССЫЛКА (сотрудник или ребёнок), а не свободный текст с ФИО: свободный
+ * текст завёл бы в журнале дубли, а отчёт «кому что подарили» разъехался бы с карточкой.
+ */
+export const erpGiftRecords = pgTable(
+  'erp_gift_records',
+  {
+    id: uuid('id').primaryKey(),
+    /** Мероприятие-мотив; null — подарок вне мероприятия (например, на день рождения). */
+    eventId: uuid('event_id'),
+    /** `employee` | `child`. */
+    recipientKind: text('recipient_kind').notNull().default('child'),
+    recipientEmployeeId: uuid('recipient_employee_id'),
+    recipientChildId: uuid('recipient_child_id'),
+    /** `gift` | `prize` | `certificate` | `money`. */
+    kind: text('kind').notNull().default('gift'),
+    /** Что подарили (наименование). */
+    title: text('title').notNull().default(''),
+    /** Место/ранг («1 место», «за 2 место»). */
+    place: text('place').notNull().default(''),
+    /** Дата выдачи (мс). */
+    givenAt: bigint('given_at', { mode: 'number' }),
+    note: text('note').notNull().default(''),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
+  },
+  (t) => ({
+    eventIdx: index('erp_gift_records_event_idx').on(t.eventId),
+    childIdx: index('erp_gift_records_child_idx').on(t.recipientChildId),
+    employeeIdx: index('erp_gift_records_employee_idx').on(t.recipientEmployeeId),
+  }),
+);

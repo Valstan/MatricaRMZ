@@ -17,6 +17,7 @@ export type ReportPresetId =
   | 'work_orders_report'
   | 'organization_structure'
   | 'employees_roster'
+  | 'children_roster'
   | 'tools_inventory'
   | 'services_pricelist'
   | 'products_catalog'
@@ -351,6 +352,7 @@ export const REPORT_PRESET_THEMES: Record<ReportPresetId, readonly [ReportThemeI
   work_orders_report: ['work_orders'],
   organization_structure: ['catalogs', 'payroll'],
   employees_roster: ['catalogs', 'payroll'],
+  children_roster: ['catalogs', 'payroll'],
   tools_inventory: ['catalogs'],
   services_pricelist: ['catalogs', 'supply'],
   products_catalog: ['catalogs', 'supply'],
@@ -1054,6 +1056,35 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
       { key: 'hireDate', label: 'Дата приема', kind: 'date' },
       { key: 'terminationDate', label: 'Дата увольнения', kind: 'date' },
       { key: 'employmentStatus', label: 'Статус' },
+    ],
+  },
+  {
+    id: 'children_roster',
+    title: 'Дети сотрудников: список и выдача подарков',
+    description:
+      'Карточки детей: ФИО, родитель, возраст, дата рождения, признаки отбора, состояние и подарки, выданные в этом году.',
+    filters: [
+      { type: 'date_range', key: 'period', label: 'Период (дата рождения)', startKey: 'startMs', endKey: 'endMs' },
+      {
+        type: 'select',
+        key: 'state',
+        label: 'Состояние',
+        options: [
+          { value: 'all', label: 'Все' },
+          { value: 'active', label: 'Участвуют' },
+          { value: 'silver', label: 'Серенькие' },
+        ],
+      },
+    ],
+    columns: [
+      { key: 'fullName', label: 'ФИО ребёнка' },
+      { key: 'parentName', label: 'Родитель' },
+      { key: 'age', label: 'Возраст' },
+      { key: 'birthDate', label: 'Дата рождения', kind: 'date' },
+      { key: 'gender', label: 'Пол' },
+      { key: 'tags', label: 'Признаки' },
+      { key: 'state', label: 'Состояние' },
+      { key: 'giftsThisYear', label: 'Подарков в этом году' },
     ],
   },
   {

@@ -168,6 +168,12 @@ export const SYNC_TABLE_OWNERSHIP: Readonly<Record<SyncTableName, SyncTableOwner
   // Рекламации двигателя (очередь заездов): ведёт серверная дверь
   // (engineReclamationService), клиент читает реплику.
   [SyncTableName.ErpEngineReclamations]: { owner: 'server', why: 'engineReclamationService + публикатор зеркала' },
+  // Детский модуль: ведёт серверная дверь (childrenService), клиент читает реплику.
+  // Без строк крафт карточки ребёнка с клиента ушёл бы в журнал.
+  [SyncTableName.ErpEmployeeChildren]: { owner: 'server', why: 'childrenService + публикатор зеркала' },
+  // Организационный модуль: ведёт серверная дверь (organizationService).
+  [SyncTableName.ErpOrgEvents]: { owner: 'server', why: 'organizationService + публикатор зеркала' },
+  [SyncTableName.ErpGiftRecords]: { owner: 'server', why: 'organizationService + публикатор зеркала' },
 };
 
 // Таблицы, которые клиент не пишет никогда, — по ТАБЛИЦЕ, а не по коду атрибута (B3/R3).
@@ -345,6 +351,12 @@ const TABLE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
   // Рекламации двигателя — вторая линия к безусловному табличному backstop'у выше.
   // Сама запись идёт серверной дверью REST, где право `engines.edit`.
   [SyncTableName.ErpEngineReclamations]: { kind: 'superadmin' },
+  // Детский и организационный модули — вторая линия к безусловному табличному
+  // backstop'у выше. Сама запись идёт серверной дверью REST, где право
+  // `children.edit` / `organization.edit`; клиентский push закрыт владением server.
+  [SyncTableName.ErpEmployeeChildren]: { kind: 'superadmin' },
+  [SyncTableName.ErpOrgEvents]: { kind: 'superadmin' },
+  [SyncTableName.ErpGiftRecords]: { kind: 'superadmin' },
 };
 
 /**

@@ -693,6 +693,57 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS erp_engine_reclamations_engine_idx ON erp_engine_reclamations(engine_id);
 
+    CREATE TABLE IF NOT EXISTS erp_employee_children (
+      id text PRIMARY KEY NOT NULL,
+      employee_id text,
+      full_name text NOT NULL,
+      birth_date integer,
+      gender text NOT NULL DEFAULT '',
+      tags_json text,
+      note text NOT NULL DEFAULT '',
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS erp_employee_children_employee_idx ON erp_employee_children(employee_id);
+    CREATE INDEX IF NOT EXISTS erp_employee_children_birth_idx ON erp_employee_children(birth_date);
+    CREATE TABLE IF NOT EXISTS erp_org_events (
+      id text PRIMARY KEY NOT NULL,
+      title text NOT NULL,
+      kind text NOT NULL DEFAULT 'other',
+      event_date integer,
+      description text NOT NULL DEFAULT '',
+      selections_json text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS erp_org_events_date_idx ON erp_org_events(event_date);
+    CREATE TABLE IF NOT EXISTS erp_gift_records (
+      id text PRIMARY KEY NOT NULL,
+      event_id text,
+      recipient_kind text NOT NULL DEFAULT 'child',
+      recipient_employee_id text,
+      recipient_child_id text,
+      kind text NOT NULL DEFAULT 'gift',
+      title text NOT NULL DEFAULT '',
+      place text NOT NULL DEFAULT '',
+      given_at integer,
+      note text NOT NULL DEFAULT '',
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      last_server_seq integer,
+      deleted_at integer,
+      sync_status text NOT NULL DEFAULT 'synced'
+    );
+    CREATE INDEX IF NOT EXISTS erp_gift_records_event_idx ON erp_gift_records(event_id);
+    CREATE INDEX IF NOT EXISTS erp_gift_records_child_idx ON erp_gift_records(recipient_child_id);
+    CREATE INDEX IF NOT EXISTS erp_gift_records_employee_idx ON erp_gift_records(recipient_employee_id);
+
     -- Приказ о СИЗ (Минтруд 767н): справочник профессий с пунктами приложений,
     -- «приказные» строки норм, личная карточка СИЗ по форме приложения №3 и шаблоны
     -- печатных форм. Реплика — server-write / pull-only: сервер ведёт двери, клиент

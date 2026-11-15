@@ -20,6 +20,7 @@ import { buildContractsFinanceReport, buildContractsDeadlinesReport, buildContra
 import { buildWorkOrderCostsReport, buildWorkOrdersReport, buildWorkOrderPayrollReport, buildWorkOrderPayrollSummaryReport } from './presets/workOrders.js';
 import { buildEmployeesRosterReport, buildOrganizationStructureReport, buildToolsInventoryReport, buildServicesPricelistReport, buildProductsCatalogReport, buildPartsCompatibilityReport, buildCounterpartiesSummaryReport } from './presets/catalogs.js';
 import { buildEngineFlowByCounterpartyReport } from './presets/engineFlowByCounterparty.js';
+import { buildChildrenRosterReport } from './presets/children.js';
 import { buildAssemblyForecast7dReport } from './presets/assemblyForecast.js';
 import { buildContractPaymentsMatrixReport, buildPaymentsOverviewReport } from './presets/payments.js';
 import {
@@ -86,6 +87,8 @@ async function dispatchReportPreset(
         return buildWorkOrderPayrollSummaryReport(db, args.filters, ctx);
       case 'employees_roster':
         return buildEmployeesRosterReport(db, args.filters, ctx);
+      case 'children_roster':
+        return buildChildrenRosterReport(db, args.filters);
       case 'organization_structure':
         return buildOrganizationStructureReport(db, args.filters, ctx);
       case 'tools_inventory':

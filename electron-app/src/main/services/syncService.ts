@@ -72,6 +72,9 @@ import {
   erpProductionPrograms,
   erpProductionProgramRows,
   erpEngineReclamations,
+  erpEmployeeChildren,
+  erpOrgEvents,
+  erpGiftRecords,
   noteShares,
   notes,
   cardDrafts,
@@ -2110,6 +2113,11 @@ async function applyPulledChanges(
     [SyncTableName.ErpProductionProgramRows]: [],
     // Рекламации двигателя: очередь заездов ведёт сервер, клиент читает реплику.
     [SyncTableName.ErpEngineReclamations]: [],
+    // Детский и организационный модуль: карточки детей, мероприятия и журнал выдачи
+    // ведёт сервер, клиент читает реплику.
+    [SyncTableName.ErpEmployeeChildren]: [],
+    [SyncTableName.ErpOrgEvents]: [],
+    [SyncTableName.ErpGiftRecords]: [],
     [SyncTableName.Users]: [],
     [SyncTableName.UserSectionAccess]: [],
   };
@@ -3014,6 +3022,68 @@ async function applyPulledChanges(
             actNumber: payload.act_number ?? null,
             actDate: payload.act_date ?? null,
             comment: payload.comment ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      // Детский и организационный модуль: карточка ребёнка, мероприятие и запись
+      // о выдаче подарка. Без ветки строки исчезли бы: у switch нет `default`
+      // (см. комментарий у WarehouseLocations выше).
+      case SyncTableName.ErpEmployeeChildren:
+        {
+          const payload = payloadRaw;
+          groups.erp_employee_children.push({
+            id: payload.id,
+            employeeId: payload.employee_id ?? null,
+            fullName: payload.full_name,
+            birthDate: payload.birth_date ?? null,
+            gender: payload.gender ?? '',
+            tagsJson: payload.tags_json ?? null,
+            note: payload.note ?? '',
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.ErpOrgEvents:
+        {
+          const payload = payloadRaw;
+          groups.erp_org_events.push({
+            id: payload.id,
+            title: payload.title,
+            kind: payload.kind,
+            eventDate: payload.event_date ?? null,
+            description: payload.description ?? '',
+            selectionsJson: payload.selections_json ?? null,
+            createdAt: payload.created_at,
+            updatedAt: payload.updated_at,
+            lastServerSeq: payload.last_server_seq ?? null,
+            deletedAt: payload.deleted_at ?? null,
+            syncStatus: 'synced',
+          });
+        }
+        break;
+      case SyncTableName.ErpGiftRecords:
+        {
+          const payload = payloadRaw;
+          groups.erp_gift_records.push({
+            id: payload.id,
+            eventId: payload.event_id ?? null,
+            recipientKind: payload.recipient_kind,
+            recipientEmployeeId: payload.recipient_employee_id ?? null,
+            recipientChildId: payload.recipient_child_id ?? null,
+            kind: payload.kind,
+            title: payload.title ?? '',
+            place: payload.place ?? '',
+            givenAt: payload.given_at ?? null,
+            note: payload.note ?? '',
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
             lastServerSeq: payload.last_server_seq ?? null,
@@ -4310,6 +4380,56 @@ async function applyPulledChanges(
       actNumber: sql`excluded.act_number`,
       actDate: sql`excluded.act_date`,
       comment: sql`excluded.comment`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  // Детский и организационный модуль: карточки детей, мероприятия и журнал выдачи.
+  // Реплика — server-write: ведёт серверная дверь, клиент читает.
+  if (groups.erp_employee_children.length > 0) {
+    emitApply(SyncTableName.ErpEmployeeChildren, groups.erp_employee_children.length);
+    await upsertPulledRowsInChunks(db, erpEmployeeChildren, groups.erp_employee_children, erpEmployeeChildren.id, {
+      employeeId: sql`excluded.employee_id`,
+      fullName: sql`excluded.full_name`,
+      birthDate: sql`excluded.birth_date`,
+      gender: sql`excluded.gender`,
+      tagsJson: sql`excluded.tags_json`,
+      note: sql`excluded.note`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+  if (groups.erp_org_events.length > 0) {
+    emitApply(SyncTableName.ErpOrgEvents, groups.erp_org_events.length);
+    await upsertPulledRowsInChunks(db, erpOrgEvents, groups.erp_org_events, erpOrgEvents.id, {
+      title: sql`excluded.title`,
+      kind: sql`excluded.kind`,
+      eventDate: sql`excluded.event_date`,
+      description: sql`excluded.description`,
+      selectionsJson: sql`excluded.selections_json`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+  if (groups.erp_gift_records.length > 0) {
+    emitApply(SyncTableName.ErpGiftRecords, groups.erp_gift_records.length);
+    await upsertPulledRowsInChunks(db, erpGiftRecords, groups.erp_gift_records, erpGiftRecords.id, {
+      eventId: sql`excluded.event_id`,
+      recipientKind: sql`excluded.recipient_kind`,
+      recipientEmployeeId: sql`excluded.recipient_employee_id`,
+      recipientChildId: sql`excluded.recipient_child_id`,
+      kind: sql`excluded.kind`,
+      title: sql`excluded.title`,
+      place: sql`excluded.place`,
+      givenAt: sql`excluded.given_at`,
+      note: sql`excluded.note`,
       updatedAt: sql`excluded.updated_at`,
       lastServerSeq: sql`excluded.last_server_seq`,
       deletedAt: sql`excluded.deleted_at`,

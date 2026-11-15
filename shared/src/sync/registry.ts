@@ -58,6 +58,9 @@ import {
   erpProductionProgramRowSchema,
   erpProductionProgramLineRowSchema,
   erpEngineReclamationRowSchema,
+  erpEmployeeChildRowSchema,
+  erpOrgEventRowSchema,
+  erpGiftRecordRowSchema,
 } from './dto.js';
 import {
   erpEngineInstanceRowSchema,
@@ -734,6 +737,39 @@ const ERP_ENGINE_RECLAMATION_FIELDS = withBase(
   { db: 'comment', dto: 'comment' },
 );
 
+// Карточка ребёнка сотрудника. Дата рождения nullable: без неё возраст неизвестен,
+// но карточка остаётся (оператор допишет). Признаки отбора — JSON-текстом.
+const ERP_EMPLOYEE_CHILD_FIELDS = withBase(
+  { db: 'employeeId', dto: 'employee_id' },
+  { db: 'fullName', dto: 'full_name' },
+  { db: 'birthDate', dto: 'birth_date' },
+  { db: 'gender', dto: 'gender' },
+  { db: 'tagsJson', dto: 'tags_json' },
+  { db: 'note', dto: 'note' },
+);
+
+// Мероприятие организационного модуля. Решения по отбору — JSON-текстом.
+const ERP_ORG_EVENT_FIELDS = withBase(
+  { db: 'title', dto: 'title' },
+  { db: 'kind', dto: 'kind' },
+  { db: 'eventDate', dto: 'event_date' },
+  { db: 'description', dto: 'description' },
+  { db: 'selectionsJson', dto: 'selections_json' },
+);
+
+// Журнал выдачи подарков, призов и грамот.
+const ERP_GIFT_RECORD_FIELDS = withBase(
+  { db: 'eventId', dto: 'event_id' },
+  { db: 'recipientKind', dto: 'recipient_kind' },
+  { db: 'recipientEmployeeId', dto: 'recipient_employee_id' },
+  { db: 'recipientChildId', dto: 'recipient_child_id' },
+  { db: 'kind', dto: 'kind' },
+  { db: 'title', dto: 'title' },
+  { db: 'place', dto: 'place' },
+  { db: 'givenAt', dto: 'given_at' },
+  { db: 'note', dto: 'note' },
+);
+
 // ────────────────────────────────────────────────────────────
 // Registry entries
 // ────────────────────────────────────────────────────────────
@@ -1193,6 +1229,35 @@ const ENTRIES: readonly SyncTableEntry[] = [
     fields: ERP_ENGINE_RECLAMATION_FIELDS,
     conflictTarget: ['id'],
     dependsOn: [],
+  },
+  // Детский модуль: карточка ребёнка. Server-write / pull-only: ведёт серверная дверь
+  // (childrenService), клиент читает реплику. Ребёнок ссылается на сотрудника по uuid
+  // без жёсткой FK — как остальные строки контракта.
+  {
+    syncName: SyncTableName.ErpEmployeeChildren,
+    ledgerName: SyncTableName.ErpEmployeeChildren,
+    schema: erpEmployeeChildRowSchema,
+    fields: ERP_EMPLOYEE_CHILD_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [],
+  },
+  // Организационный модуль: мероприятие и журнал выдачи. Строка выдачи ссылается на
+  // мероприятие — порядок обработки задан dependsOn.
+  {
+    syncName: SyncTableName.ErpOrgEvents,
+    ledgerName: SyncTableName.ErpOrgEvents,
+    schema: erpOrgEventRowSchema,
+    fields: ERP_ORG_EVENT_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [],
+  },
+  {
+    syncName: SyncTableName.ErpGiftRecords,
+    ledgerName: SyncTableName.ErpGiftRecords,
+    schema: erpGiftRecordRowSchema,
+    fields: ERP_GIFT_RECORD_FIELDS,
+    conflictTarget: ['id'],
+    dependsOn: [SyncTableName.ErpOrgEvents, SyncTableName.ErpEmployeeChildren],
   },
 ] as const;
 

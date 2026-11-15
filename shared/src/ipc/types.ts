@@ -25,6 +25,13 @@ import type {
   ProductionProgramSaveDto,
 } from '../domain/productionProgram.js';
 import type { EngineReclamationDto } from '../domain/engineReclamations.js';
+import type { ChildDto, ChildSaveDto } from '../domain/children.js';
+import type {
+  GiftRecordDto,
+  GiftRecordSaveDto,
+  OrgEventDto,
+  OrgEventSaveDto,
+} from '../domain/orgGifts.js';
 import type { FileSearchResult, FileSearchSource } from '../domain/fileSearch.js';
 
 /** Избранные разделы оператора (левая колонка оболочки). Локально, per-user scope. */
@@ -3135,6 +3142,36 @@ export type MatricaApi = {
       { ok: true; count: number } | { ok: false; error: string }
     >;
     remove: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+  };
+  /**
+   * Детский модуль: карточки детей сотрудников.
+   * Чтение — из локальной pull-only реплики (список доступен и без сети),
+   * запись — серверной дверью REST (права `children.view` / `children.edit`).
+   */
+  children: {
+    list: () => Promise<{ ok: true; rows: ChildDto[] } | { ok: false; error: string }>;
+    save: (args: ChildSaveDto & { id?: string | null }) => Promise<
+      { ok: true; id: string } | { ok: false; error: string }
+    >;
+    remove: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+  };
+  /**
+   * Организационный модуль: мероприятия и журнал выдачи подарков, призов, грамот.
+   * Чтение — из локальной pull-only реплики, запись — серверной дверью REST
+   * (права `organization.view` / `organization.edit`).
+   */
+  organization: {
+    list: () => Promise<
+      { ok: true; events: OrgEventDto[]; gifts: GiftRecordDto[] } | { ok: false; error: string }
+    >;
+    saveEvent: (args: OrgEventSaveDto & { id?: string | null }) => Promise<
+      { ok: true; id: string } | { ok: false; error: string }
+    >;
+    removeEvent: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    saveGift: (args: GiftRecordSaveDto & { id?: string | null }) => Promise<
+      { ok: true; id: string } | { ok: false; error: string }
+    >;
+    removeGift: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
   };
   /**
    * Рекламации двигателя: очередь заездов по рекламации (1-я, 2-я, 3-я …).

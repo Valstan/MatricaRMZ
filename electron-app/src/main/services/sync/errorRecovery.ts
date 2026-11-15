@@ -24,6 +24,9 @@ import {
   operations,
   userPresence,
   erpEngineInventoryLines,
+  erpEmployeeChildren,
+  erpOrgEvents,
+  erpGiftRecords,
 } from '../../database/schema.js';
 
 // ── Error classifiers ──────────────────────────────────────
@@ -115,6 +118,10 @@ const DRIZZLE_TABLE_MAP: Record<SyncTableName, any> = {
   [SyncTableName.ErpProductionProgramRows]: undefined,
   // Рекламации двигателя — pull-only: очередь заездов ведёт серверная дверь, клиент читает.
   [SyncTableName.ErpEngineReclamations]: undefined,
+  // Детский и организационный модуль — pull-only: ведёт серверная дверь, клиент читает.
+  [SyncTableName.ErpEmployeeChildren]: erpEmployeeChildren,
+  [SyncTableName.ErpOrgEvents]: erpOrgEvents,
+  [SyncTableName.ErpGiftRecords]: erpGiftRecords,
   // Сотрудники СИЗ (PR-6) — pull-only зеркало двери импорта ЗУП.
   [SyncTableName.ErpEmployeeCards]: undefined,
   // Приказ о СИЗ (Минтруд 767н) — pull-only: сервер ведёт двери, клиент читает.
