@@ -30,7 +30,8 @@ const CASES = [
     table: SyncTableName.PpeNormSets,
     map: toPpeNormSetInput,
     // Приказ о СИЗ: набор ссылается на профессию приказа и хранит подпись источника.
-    row: { ...BASE, name: 'Слесарь РМЦ', postTitle: 'Слесарь', departmentId: null, gender: 'M', season: 'winter', isDuty: false, occupationId: null, sourceKind: 'ton', sourceLabel: 'Пункт № 4516', validFrom: 1_700_000_000_000, validTo: null },
+    // Вид набора (спецодежда/мыло) — миграция 0131.
+    row: { ...BASE, name: 'Слесарь РМЦ', postTitle: 'Слесарь', departmentId: null, gender: 'M', season: 'winter', isDuty: false, occupationId: null, sourceKind: 'ton', sourceLabel: 'Пункт № 4516', kind: 'workwear', validFrom: 1_700_000_000_000, validTo: null },
   },
   {
     table: SyncTableName.PpeNormLines,
@@ -41,7 +42,7 @@ const CASES = [
   {
     table: SyncTableName.PpeIssueCards,
     map: toPpeIssueCardInput,
-    row: { ...BASE, employeeId: UID, openedAt: 1_700_000_000_000, closedAt: null },
+    row: { ...BASE, employeeId: UID, kind: 'workwear', openedAt: 1_700_000_000_000, closedAt: null },
   },
   {
     table: SyncTableName.PpeCardNorms,

@@ -47,8 +47,7 @@ describe('PPE: реестр покрывает ровно схему DTO', () =>
 
   it('мягкие схемы принимают серверные строки целиком', () => {
     const id = '11111111-1111-4111-8111-111111111111';
-    expect(ppeNormSetRowSchema.safeParse({ id, created_at: 1, updated_at: 2, name: 'Слесарь', valid_from: 3 }).success).toBe(true);
-    expect(
+    expect(ppeNormSetRowSchema.safeParse({ id, created_at: 1, updated_at: 2, name: 'Слесарь', valid_from: 3 }).success).toBe(true);    expect(
       ppeNormLineRowSchema.safeParse({ id, created_at: 1, updated_at: 2, norm_set_id: id, nomenclature_id: id, qty: 2, wear_months: 12 }).success,
     ).toBe(true);
     expect(ppeIssueCardRowSchema.safeParse({ id, created_at: 1, updated_at: 2, employee_id: id, opened_at: 3 }).success).toBe(true);
@@ -90,6 +89,28 @@ describe('PPE: реестр покрывает ровно схему DTO', () =>
     // Фаза 2: чужой пол/сезон в норме — не строка контракта.
     expect(
       ppeNormSetRowSchema.safeParse({ id: '11111111-1111-4111-8111-111111111111', created_at: 1, updated_at: 2, name: 'Норма', valid_from: 3, gender: 'X' }).success,
+    ).toBe(false);
+  });
+
+  it('вид СИЗ едет в контракт: набор и карточка различают спецодежду и мыло', () => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    // Миграция 0131: вид есть в реестре и в схеме — иначе строка с видом молча
+    // теряла бы его по дороге к парку (или, наоборот, падала бы как «неизвестный вид»).
+    for (const table of [SyncTableName.PpeNormSets, SyncTableName.PpeIssueCards]) {
+      const entry = SyncTableRegistry.get(table)!;
+      expect(entry.fields.map((f) => f.dto)).toContain('kind');
+    }
+    expect(
+      ppeNormSetRowSchema.safeParse({ id, created_at: 1, updated_at: 2, name: 'Мыло — всем', valid_from: 3, kind: 'soap' }).success,
+    ).toBe(true);
+    expect(
+      ppeIssueCardRowSchema.safeParse({ id, created_at: 1, updated_at: 2, employee_id: id, opened_at: 3, kind: 'soap' }).success,
+    ).toBe(true);
+    // Старая строка без вида — не ошибка: читается как спецодежда.
+    expect(ppeIssueCardRowSchema.safeParse({ id, created_at: 1, updated_at: 2, employee_id: id, opened_at: 3 }).success).toBe(true);
+    // Чужой вид — не строка контракта.
+    expect(
+      ppeNormSetRowSchema.safeParse({ id, created_at: 1, updated_at: 2, name: 'Норма', valid_from: 3, kind: 'something' }).success,
     ).toBe(false);
   });
 });

@@ -24,12 +24,14 @@ import {
   matchEmployeeSizePosition,
   nextIssueDates,
   PPE_SIZE_ATTRIBUTE_CODES,
+  ppeKindOf,
   ppeResolvePositionId,
   ppeSizeKindForName,
   resolveEmployeeNorms,
   type PpeAcceptanceFact,
   type PpeEmployeeNormContext,
   type PpeJournalRow,
+  type PpeKind,
   type PpeUndeliveredRow,
   type PpeWearKind,
 } from '@matricarmz/shared';
@@ -145,18 +147,22 @@ export async function buildPpeJournal(
   }
 
   // Карточка выдачи → сотрудник; наборы норм карточки → контекст нормы сотрудника.
-  const cardById = new Map<string, { employeeId: string; setIds: string[] }>();
+  // Ключ — «сотрудник|вид»: у сотрудника две карточки (спецодежда и мыло), и нормы
+  // разных видов не должны сливаться в один контекст (промты КАРМАНА #21/#26).
+  const cardById = new Map<string, { employeeId: string; setIds: string[]; kind: PpeKind }>();
   const setsByEmployee = new Map<string, Set<string>>();
   for (const c of cardRows) {
     const id = String(c.id);
     const employeeId = String(c.employeeId);
+    const kind = ppeKindOf(c.kind);
     const setIds = cardNormRows
       .filter((cn) => String(cn.cardId) === id)
       .map((cn) => String(cn.normSetId));
-    cardById.set(id, { employeeId, setIds });
-    const set = setsByEmployee.get(employeeId) ?? new Set<string>();
+    cardById.set(id, { employeeId, setIds, kind });
+    const employeeKey = `${employeeId}|${kind}`;
+    const set = setsByEmployee.get(employeeKey) ?? new Set<string>();
     for (const s of setIds) set.add(s);
-    setsByEmployee.set(employeeId, set);
+    setsByEmployee.set(employeeKey, set);
   }
 
   const linesBySet = new Map<string, typeof lineRows>();
@@ -170,7 +176,8 @@ export async function buildPpeJournal(
   // Контекст нормы сотрудника: строки его наборов, слитые тем же ядром, что и карточка.
   const contexts: PpeEmployeeNormContext[] = [];
   const mergedByEmployee = new Map<string, ReturnType<typeof resolveEmployeeNorms>>();
-  for (const [employeeId, setIds] of setsByEmployee) {
+  for (const [employeeKey, setIds] of setsByEmployee) {
+    const [employeeId, kind] = employeeKey.split('|') as [string, PpeKind];
     const input = [];
     for (const setId of setIds) {
       for (const l of linesBySet.get(setId) ?? []) {
@@ -184,7 +191,7 @@ export async function buildPpeJournal(
       }
     }
     const merged = resolveEmployeeNorms(input);
-    mergedByEmployee.set(employeeId, merged);
+    mergedByEmployee.set(employeeKey, merged);
     const info = employees.get(employeeId);
     for (const m of merged) {
       // Размер позиции сотрудника: у размерной позиции — свой, у базы — по карточке.
@@ -205,6 +212,7 @@ export async function buildPpeJournal(
       }
       contexts.push({
         employeeId,
+        kind,
         nomenclatureId: m.nomenclatureId,
         qty: m.qty,
         wearKind: m.wearKind,
@@ -217,11 +225,11 @@ export async function buildPpeJournal(
 
   // Факты выдачи: кладовщик выдаёт конкретный размер, а норма живёт на базовой позиции.
   const facts: PpeAcceptanceFact[] = [];
-  const issuedByEmployeePosition: Array<{ employeeId: string; nomenclatureId: string; qty: number }> = [];
+  const issuedByEmployeePosition: Array<{ employeeId: string; nomenclatureId: string; qty: number; kind: PpeKind }> = [];
   const historyByEmployee = new Map<string, Array<{ nomenclatureId: string; qty: number; issuedAt: number }>>();
   const positionIdsByEmployee = new Map<string, Set<string>>();
-  for (const [employeeId, merged] of mergedByEmployee) {
-    positionIdsByEmployee.set(employeeId, new Set(merged.map((m) => m.nomenclatureId)));
+  for (const [employeeKey, merged] of mergedByEmployee) {
+    positionIdsByEmployee.set(employeeKey, new Set(merged.map((m) => m.nomenclatureId)));
   }
   for (const entry of entryRows) {
     const card = cardById.get(String(entry.cardId));
@@ -232,9 +240,10 @@ export async function buildPpeJournal(
     if (!info) continue;
     const nomenclatureId = String(entry.nomenclatureId);
     const itemName = nomName.get(nomenclatureId) ?? '';
+    const employeeKey = `${card.employeeId}|${card.kind}`;
 
     // Позиция нормы этой выдачи: точное совпадение → база размера → нет (выдано сверх нормы).
-    const positionIds = positionIdsByEmployee.get(card.employeeId) ?? new Set<string>();
+    const positionIds = positionIdsByEmployee.get(employeeKey) ?? new Set<string>();
     const parentId = parentById.get(nomenclatureId) ?? null;
     const positionId = ppeResolvePositionId({
       nomenclatureId,
@@ -242,16 +251,22 @@ export async function buildPpeJournal(
       positionIds,
     });
 
-    const history = historyByEmployee.get(card.employeeId) ?? [];
+    const history = historyByEmployee.get(employeeKey) ?? [];
     history.push({ nomenclatureId: positionId ?? nomenclatureId, qty: Number(entry.qty), issuedAt });
-    historyByEmployee.set(card.employeeId, history);
+    historyByEmployee.set(employeeKey, history);
     if (issuedAt < from || issuedAt > to) continue;
     if (positionId) {
-      issuedByEmployeePosition.push({ employeeId: card.employeeId, nomenclatureId: positionId, qty: Number(entry.qty) });
+      issuedByEmployeePosition.push({
+        employeeId: card.employeeId,
+        nomenclatureId: positionId,
+        qty: Number(entry.qty),
+        kind: card.kind,
+      });
     }
     facts.push({
       issuedAt,
       employeeId: card.employeeId,
+      kind: card.kind,
       personnelNo: info.personnelNo,
       fullName: info.fullName,
       postTitle: info.postTitle,
@@ -270,10 +285,10 @@ export async function buildPpeJournal(
 
   // Сроки следующей выдачи — тем же расчётом, что и в карточке.
   const nextDueAt = new Map<string, number | null>();
-  for (const [employeeId, merged] of mergedByEmployee) {
-    const items = nextIssueDates(merged, historyByEmployee.get(employeeId) ?? [], now);
+  for (const [employeeKey, merged] of mergedByEmployee) {
+    const items = nextIssueDates(merged, historyByEmployee.get(employeeKey) ?? [], now);
     for (const item of items) {
-      nextDueAt.set(`${employeeId}|${item.nomenclatureId}`, item.nextDueAt);
+      nextDueAt.set(`${employeeKey}|${item.nomenclatureId}`, item.nextDueAt);
     }
   }
 

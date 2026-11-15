@@ -28,16 +28,21 @@ function toResult<T>(r: { ok: boolean; status: number; json?: unknown; text?: st
 export function registerPpeIpc(ctx: IpcContext) {
   const base = () => ctx.mgr.getApiBaseUrl();
 
-  ipcMain.handle('ppe:norms:list', async (_e, args?: { postTitle?: string; gender?: string; season?: string }) => {
-    const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
-    if (!gate.ok) return gate as Err;
-    const params = new URLSearchParams();
-    if (args?.postTitle) params.set('postTitle', args.postTitle);
-    if (args?.gender) params.set('gender', args.gender);
-    if (args?.season) params.set('season', args.season);
-    const qs = params.size > 0 ? `?${params.toString()}` : '';
-    return toResult(await httpAuthed(ctx.sysDb, base(), `/ppe/norms${qs}`, { method: 'GET' }));
-  });
+  ipcMain.handle(
+    'ppe:norms:list',
+    async (_e, args?: { postTitle?: string; gender?: string; season?: string; kind?: string }) => {
+      const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
+      if (!gate.ok) return gate as Err;
+      const params = new URLSearchParams();
+      if (args?.postTitle) params.set('postTitle', args.postTitle);
+      if (args?.gender) params.set('gender', args.gender);
+      if (args?.season) params.set('season', args.season);
+      // Вид набора: 'workwear' — спецодежда, 'soap' — мыло (промты КАРМАНА #21/#26).
+      if (args?.kind) params.set('kind', args.kind);
+      const qs = params.size > 0 ? `?${params.toString()}` : '';
+      return toResult(await httpAuthed(ctx.sysDb, base(), `/ppe/norms${qs}`, { method: 'GET' }));
+    },
+  );
 
   ipcMain.handle('ppe:norms:get', async (_e, id: string) => {
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
@@ -57,6 +62,8 @@ export function registerPpeIpc(ctx: IpcContext) {
         gender?: 'M' | 'F' | null;
         season?: 'winter' | 'summer' | null;
         isDuty?: boolean;
+        // Вид набора: 'workwear' — спецодежда, 'soap' — мыло (промты КАРМАНА #21/#26).
+        kind?: 'workwear' | 'soap' | null;
         validFrom?: number;
         validTo?: number | null;
         lines: Array<{ nomenclatureId: string; qty: number; wearMonths: number | null; wearKind?: string | null }>;
@@ -115,7 +122,7 @@ export function registerPpeIpc(ctx: IpcContext) {
     },
   );
 
-  ipcMain.handle('ppe:cards:open', async (_e, args: { employeeId: string }) => {
+  ipcMain.handle('ppe:cards:open', async (_e, args: { employeeId: string; kind?: 'workwear' | 'soap' }) => {
     if (isViewMode(ctx)) return viewModeWriteError();
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
     if (!gate.ok) return gate as Err;
@@ -142,13 +149,46 @@ export function registerPpeIpc(ctx: IpcContext) {
     return toResult(await httpAuthed(ctx.sysDb, base(), '/ppe/cards/overview', { method: 'GET' }));
   });
 
-  ipcMain.handle('ppe:cards:byEmployee', async (_e, employeeId: string) => {
+  ipcMain.handle('ppe:cards:byEmployee', async (_e, employeeId: string, kind?: 'workwear' | 'soap') => {
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as Err;
+    // Вид карточки: у сотрудника их может быть две (спецодежда и мыло).
+    const qs = kind ? `?kind=${encodeURIComponent(kind)}` : '';
     return toResult(
-      await httpAuthed(ctx.sysDb, base(), `/ppe/cards/by-employee/${encodeURIComponent(String(employeeId || ''))}`, { method: 'GET' }),
+      await httpAuthed(ctx.sysDb, base(), `/ppe/cards/by-employee/${encodeURIComponent(String(employeeId || ''))}${qs}`, { method: 'GET' }),
     );
   });
+
+  /**
+   * Набор норм заводится прямо из карточки СИЗ — одним действием (промт КАРМАНА #21):
+   * «набор норм должен заводиться прямо из карточки СИЗ, без ручной правки приказа — в том
+   * числе набор на мыло, которого в приказе сейчас нет». Набор создаётся и сразу
+   * назначается карточке; для вида «мыло» — всем открытым карточкам мыла.
+   */
+  ipcMain.handle(
+    'ppe:cards:createNormSet',
+    async (
+      _e,
+      args: {
+        cardId: string;
+        name: string;
+        kind?: 'workwear' | 'soap' | null;
+        postTitle?: string | null;
+        lines: Array<{ nomenclatureId: string; qty: number; wearMonths: number | null }>;
+      },
+    ) => {
+      if (isViewMode(ctx)) return viewModeWriteError();
+      const gate = await requirePermOrResult(ctx, 'erp.dictionary.edit');
+      if (!gate.ok) return gate as Err;
+      return toResult(
+        await httpAuthed(ctx.sysDb, base(), `/ppe/cards/${encodeURIComponent(String(args?.cardId || ''))}/norm-sets`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(args),
+        }),
+      );
+    },
+  );
 
   ipcMain.handle('ppe:cards:assignNorms', async (_e, args: { cardId: string; normSetIds: string[] }) => {
     if (isViewMode(ctx)) return viewModeWriteError();
@@ -304,10 +344,14 @@ export function registerPpeIpc(ctx: IpcContext) {
     return toResult(await postJson(`/ppe/groups/${encodeURIComponent(String(args?.groupId || ''))}/norms`, { normSetIds: args?.normSetIds ?? [] }, 'PUT'));
   });
 
-  ipcMain.handle('ppe:employees:normSets', async (_e, employeeId: string) => {
+  ipcMain.handle('ppe:employees:normSets', async (_e, employeeId: string, kind?: 'workwear' | 'soap') => {
     const gate = await requirePermOrResult(ctx, 'erp.dictionary.view');
     if (!gate.ok) return gate as Err;
-    return toResult(await httpAuthed(ctx.sysDb, base(), `/ppe/employees/${encodeURIComponent(String(employeeId || ''))}/norm-sets`, { method: 'GET' }));
+    // Вид карточки: нормы мыла не должны попадать в карточку спецодежды и наоборот.
+    const qs = kind ? `?kind=${encodeURIComponent(kind)}` : '';
+    return toResult(
+      await httpAuthed(ctx.sysDb, base(), `/ppe/employees/${encodeURIComponent(String(employeeId || ''))}/norm-sets${qs}`, { method: 'GET' }),
+    );
   });
 
   // ── Приказ о СИЗ (Минтруд 767н) ────────────────────────────────────────────

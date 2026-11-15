@@ -36,7 +36,7 @@ function makeCtx() {
 }
 
 describe('ppe IPC', () => {
-  it('все 13 каналов зарегистрированы', () => {
+  it('все 14 каналов зарегистрированы', () => {
     registerPpeIpc(makeCtx());
     for (const ch of [
       'ppe:norms:list',
@@ -48,6 +48,7 @@ describe('ppe IPC', () => {
       'ppe:cards:overview',
       'ppe:cards:byEmployee',
       'ppe:cards:assignNorms',
+      'ppe:cards:createNormSet',
       'ppe:cards:close',
       'ppe:cards:issue',
       'ppe:issueEntries:markReturned',
@@ -65,6 +66,36 @@ describe('ppe IPC', () => {
     const r = (await list({}, undefined)) as { ok: boolean };
     expect(r.ok).toBe(true);
     expect(httpCalls[0]).toMatchObject({ url: '/ppe/norms', method: 'GET' });
+  });
+
+  it('вид набора едет в фильтр и в карточку (спецодежда ↔ мыло)', async () => {
+    registerPpeIpc(makeCtx());
+    httpCalls.length = 0;
+    response = { ok: true, status: 200, json: { ok: true, rows: [] } };
+    const list = handlers.get('ppe:norms:list')!;
+    await list({}, { kind: 'soap' });
+    expect(httpCalls[0]?.url).toBe('/ppe/norms?kind=soap');
+
+    httpCalls.length = 0;
+    const byEmployee = handlers.get('ppe:cards:byEmployee')!;
+    await byEmployee({}, 'e-1', 'soap');
+    expect(httpCalls[0]?.url).toBe('/ppe/cards/by-employee/e-1?kind=soap');
+  });
+
+  it('набор из карточки идёт в POST /ppe/cards/:id/norm-sets с видом и строками', async () => {
+    registerPpeIpc(makeCtx());
+    httpCalls.length = 0;
+    response = { ok: true, status: 200, json: { ok: true, id: 's-1', assigned: 1 } };
+    const create = handlers.get('ppe:cards:createNormSet')!;
+    const r = (await create({}, {
+      cardId: 'c-1',
+      name: 'Мыло — всем',
+      kind: 'soap',
+      lines: [{ nomenclatureId: 'n-1', qty: 1, wearMonths: 1 }],
+    })) as { ok: boolean; id?: string };
+    expect(r.ok).toBe(true);
+    expect(httpCalls[0]).toMatchObject({ url: '/ppe/cards/c-1/norm-sets', method: 'POST' });
+    expect(httpCalls[0]?.body).toMatchObject({ name: 'Мыло — всем', kind: 'soap' });
   });
 
   it('выдача идёт в POST /ppe/cards/:id/issue с телом', async () => {

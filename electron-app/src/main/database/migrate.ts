@@ -471,6 +471,7 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
       gender text,
       season text,
       is_duty integer NOT NULL DEFAULT 0,
+      kind text NOT NULL DEFAULT 'workwear',
       valid_from integer NOT NULL,
       valid_to integer,
       created_at integer NOT NULL,
@@ -494,6 +495,7 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     CREATE TABLE IF NOT EXISTS ppe_issue_cards (
       id text PRIMARY KEY NOT NULL,
       employee_id text NOT NULL,
+      kind text NOT NULL DEFAULT 'workwear',
       opened_at integer NOT NULL,
       closed_at integer,
       created_at integer NOT NULL,
@@ -534,7 +536,10 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS ppe_norm_lines_nomenclature_idx ON ppe_norm_lines(nomenclature_id);
     CREATE UNIQUE INDEX IF NOT EXISTS ppe_norm_lines_set_nomenclature_uq ON ppe_norm_lines(norm_set_id, nomenclature_id) WHERE deleted_at IS NULL;
     CREATE INDEX IF NOT EXISTS ppe_issue_cards_employee_idx ON ppe_issue_cards(employee_id);
-    CREATE UNIQUE INDEX IF NOT EXISTS ppe_issue_cards_employee_open_uq ON ppe_issue_cards(employee_id) WHERE closed_at IS NULL AND deleted_at IS NULL;
+    -- Уникальный индекс открытой карточки уехал на пару (employee_id, kind):
+    -- вид появился миграцией 0131, а колонки kind у долгоживущей БД ещё нет на этом
+    -- шаге. Поэтому индекс создаётся в JS-доводке ниже — после ALTER, — а здесь
+    -- только сносится прежний (employee_id), он запрещал вторую открытую карточку.
     CREATE INDEX IF NOT EXISTS ppe_card_norms_card_idx ON ppe_card_norms(card_id);
     CREATE UNIQUE INDEX IF NOT EXISTS ppe_card_norms_card_set_uq ON ppe_card_norms(card_id, norm_set_id) WHERE deleted_at IS NULL;
     CREATE INDEX IF NOT EXISTS ppe_issue_entries_card_idx ON ppe_issue_entries(card_id, issued_at);
@@ -934,6 +939,29 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     }
     sqlite.exec(
       `CREATE INDEX IF NOT EXISTS ppe_norm_sets_post_gender_season_idx ON ppe_norm_sets(post_title, gender, season, valid_from);`,
+    );
+    // Вид набора (миграция 0131): 'workwear' — спецодежда, 'soap' — мыло.
+    if (!cols.has('kind')) {
+      sqlite.exec(`ALTER TABLE ppe_norm_sets ADD COLUMN kind text NOT NULL DEFAULT 'workwear';`);
+    }
+  }
+  // Вид карточки выдачи (миграция 0131): у сотрудника может быть две открытые
+  // карточки — по спецодежде и по мылу, — поэтому уникальный индекс уезжает на
+  // пару (employee_id, kind). Прежний индекс (employee_id) запрещал вторую карточку
+  // вообще, и снос его — часть перехода: без сноса «карточка мыло» не открылась бы.
+  if (hasTable('ppe_issue_cards')) {
+    const cols = columnNames('ppe_issue_cards');
+    if (!cols.has('kind')) {
+      sqlite.exec(`ALTER TABLE ppe_issue_cards ADD COLUMN kind text NOT NULL DEFAULT 'workwear';`);
+    }
+    const oldOpenUq = sqlite
+      .prepare(`SELECT 1 FROM sqlite_master WHERE type='index' AND name='ppe_issue_cards_employee_open_uq'`)
+      .get();
+    if (oldOpenUq) {
+      sqlite.exec(`DROP INDEX ppe_issue_cards_employee_open_uq;`);
+    }
+    sqlite.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS ppe_issue_cards_employee_kind_open_uq ON ppe_issue_cards(employee_id, kind) WHERE closed_at IS NULL AND deleted_at IS NULL;`,
     );
   }
   // ppe_issue_entries.document_id — на сервере nullable с 0110 (доввод истории

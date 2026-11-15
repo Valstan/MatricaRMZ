@@ -10,7 +10,16 @@
  *    и просроченный срок — это разные вещи, их нельзя сливать в один статус.
  */
 import { wearPeriodText } from './ppe.js';
-import type { PpeWearKind } from './ppe.js';
+import type { PpeKind, PpeWearKind } from './ppe.js';
+
+/**
+ * Вид строки: спецодежда или мыло (промты КАРМАНА #21/#26). В журнале выдача мыла
+ * не должна смешиваться с выдачей спецодежды: у мыла своя норма и свой след выдачи.
+ * Отсутствие вида читается как спецодежда — прежние строки журнала вида не несут.
+ */
+export function ppeKindOf(value: string | null | undefined): PpeKind {
+  return value === 'soap' ? 'soap' : 'workwear';
+}
 
 /** Факт выдачи — строка журнала без контекста нормы. */
 export type PpeAcceptanceFact = {
@@ -27,6 +36,8 @@ export type PpeAcceptanceFact = {
   qty: number;
   /** Основание выдачи (документ). */
   documentNo: string | null;
+  /** Вид выдачи: 'workwear' — спецодежда, 'soap' — мыло. */
+  kind?: PpeKind;
   /**
    * Дата возврата вещи (миграция 0126): `null` — ещё выдана. Решение владельца
    * от 09.11: дата возврата живёт в бланке выдачи и в ведомости, поэтому в ведомости
@@ -46,6 +57,8 @@ export type PpeNormContext = {
   wearMonths: number | null;
   /** Наименование позиции по приказу (может отличаться от номенклатуры выдачи). */
   itemName?: string | null;
+  /** Вид нормы: 'workwear' — спецодежда, 'soap' — мыло. */
+  kind?: PpeKind;
 };
 
 /** Строка журнала приёмки: факт + контекст нормы. */
@@ -71,12 +84,15 @@ export function buildAcceptanceJournal(
   facts: PpeAcceptanceFact[],
   context: PpeNormContext[],
 ): PpeJournalRow[] {
+  // Контекст ищем по виду И позиции: у мыла своя норма, и подмена нормы спецодежды
+  // в строке выдачи мыла читалась бы как «выдали не то».
   const byPos = new Map<string, PpeNormContext>();
-  for (const c of context) byPos.set(c.nomenclatureId, c);
+  for (const c of context) byPos.set(`${ppeKindOf(c.kind)}|${c.nomenclatureId}`, c);
   const rows = facts.map((f) => {
-    const c = byPos.get(f.nomenclatureId);
+    const c = byPos.get(`${ppeKindOf(f.kind)}|${f.nomenclatureId}`);
     return {
       ...f,
+      kind: ppeKindOf(f.kind),
       normQty: c ? c.qty : null,
       wearText: wearPeriodText(c?.wearKind ?? null, c?.wearMonths ?? null),
       wearKind: c?.wearKind ?? null,
@@ -100,7 +116,6 @@ export type PpeEmployeeNormContext = PpeNormContext & {
   /** Размер позиции сотрудника (если известен) — в ведомости видно, чего именно не хватило. */
   size?: string | null;
 };
-
 /** Строка отчёта «невыданное за период»: две независимые величины рядом. */
 export type PpeUndeliveredRow = {
   employeeId: string;
@@ -123,6 +138,8 @@ export type PpeUndeliveredRow = {
   nextDueAt: number | null;
   /** Срок просрочен — отдельный признак от невыданного количества. */
   periodOverdue: boolean;
+  /** Вид нормы: 'workwear' — спецодежда, 'soap' — мыло. */
+  kind: PpeKind;
 };
 
 /**
@@ -138,7 +155,7 @@ export type PpeUndeliveredRow = {
  */
 export function buildUndeliveredReport(args: {
   contexts: PpeEmployeeNormContext[];
-  issuedByEmployeePosition: Array<{ employeeId: string; nomenclatureId: string; qty: number }>;
+  issuedByEmployeePosition: Array<{ employeeId: string; nomenclatureId: string; qty: number; kind?: PpeKind }>;
   /** Выдано по сотруднику и позиции — считается на стороне клиента. */
   employeeInfo: Array<{
     employeeId: string;
@@ -148,23 +165,26 @@ export function buildUndeliveredReport(args: {
     itemName?: string | null;
     size?: string | null;
   }>;
-  /** Когда пора выдавать по сроку (из расчёта сроков), ключ «сотрудник|позиция». */
+  /** Когда пора выдавать по сроку (из расчёта сроков), ключ «сотрудник|вид|позиция». */
   nextDueAt?: Map<string, number | null>;
   now: number;
 }): PpeUndeliveredRow[] {
   const info = new Map(args.employeeInfo.map((i) => [i.employeeId, i]));
   const issued = new Map<string, number>();
   for (const i of args.issuedByEmployeePosition) {
-    const key = `${i.employeeId}|${i.nomenclatureId}`;
+    // Ключ с видом: у мыла своя норма, и выдача мыла не должна попадать в невыданное
+    // по нормам спецодежды.
+    const key = `${i.employeeId}|${ppeKindOf(i.kind)}|${i.nomenclatureId}`;
     issued.set(key, (issued.get(key) ?? 0) + i.qty);
   }
   const rows: PpeUndeliveredRow[] = [];
-  // Контексты приходят по (сотрудник, позиция) — они уже разнесены вызывающим кодом.
+  // Контексты приходят по (сотрудник, вид, позиция) — они уже разнесены вызывающим кодом.
   for (const c of args.contexts) {
     const employeeId = c.employeeId;
     const meta = info.get(employeeId);
-    const issuedQty = issued.get(`${employeeId}|${c.nomenclatureId}`) ?? 0;
-    const nextDueAt = args.nextDueAt?.get(`${employeeId}|${c.nomenclatureId}`) ?? null;
+    const kind = ppeKindOf(c.kind);
+    const issuedQty = issued.get(`${employeeId}|${kind}|${c.nomenclatureId}`) ?? 0;
+    const nextDueAt = args.nextDueAt?.get(`${employeeId}|${kind}|${c.nomenclatureId}`) ?? null;
     rows.push({
       employeeId,
       personnelNo: meta?.personnelNo ?? null,
@@ -180,6 +200,7 @@ export function buildUndeliveredReport(args: {
       wearMonths: c.wearMonths,
       nextDueAt,
       periodOverdue: nextDueAt != null && nextDueAt <= args.now,
+      kind,
     });
   }
   return rows.sort(

@@ -353,6 +353,7 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
       gender text,
       season text,
       is_duty integer NOT NULL DEFAULT 0,
+      kind text NOT NULL DEFAULT 'workwear',
       valid_from integer NOT NULL,
       valid_to integer,
       created_at integer NOT NULL,
@@ -463,6 +464,7 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     CREATE TABLE IF NOT EXISTS ppe_issue_cards (
       id text PRIMARY KEY NOT NULL,
       employee_id text NOT NULL,
+      kind text NOT NULL DEFAULT 'workwear',
       opened_at integer NOT NULL,
       closed_at integer,
       created_at integer NOT NULL,
@@ -503,7 +505,10 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     CREATE INDEX IF NOT EXISTS ppe_norm_lines_nomenclature_idx ON ppe_norm_lines(nomenclature_id);
     CREATE UNIQUE INDEX IF NOT EXISTS ppe_norm_lines_set_nomenclature_uq ON ppe_norm_lines(norm_set_id, nomenclature_id) WHERE deleted_at IS NULL;
     CREATE INDEX IF NOT EXISTS ppe_issue_cards_employee_idx ON ppe_issue_cards(employee_id);
-    CREATE UNIQUE INDEX IF NOT EXISTS ppe_issue_cards_employee_open_uq ON ppe_issue_cards(employee_id) WHERE closed_at IS NULL AND deleted_at IS NULL;
+    -- Уникальный индекс открытой карточки уехал на пару (employee_id, kind):
+    -- вид появился миграцией 0131, а колонки kind у долгоживущей БД ещё нет на этом
+    -- шаге. Поэтому индекс создаётся в JS-доводке ниже — после ALTER, — а здесь
+    -- только сносится прежний (employee_id), он запрещал вторую открытую карточку.
     CREATE INDEX IF NOT EXISTS ppe_card_norms_card_idx ON ppe_card_norms(card_id);
     CREATE UNIQUE INDEX IF NOT EXISTS ppe_card_norms_card_set_uq ON ppe_card_norms(card_id, norm_set_id) WHERE deleted_at IS NULL;
     CREATE INDEX IF NOT EXISTS ppe_issue_entries_card_idx ON ppe_issue_entries(card_id, issued_at);
@@ -743,6 +748,29 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     if (!ppeCols.has('source_label')) {
       await sqlite.exec(`ALTER TABLE ppe_norm_sets ADD COLUMN source_label text;`);
     }
+    // Вид набора (миграция 0131): 'workwear' — спецодежда, 'soap' — мыло.
+    if (!ppeCols.has('kind')) {
+      await sqlite.exec(`ALTER TABLE ppe_norm_sets ADD COLUMN kind text NOT NULL DEFAULT 'workwear';`);
+    }
+  }
+  // Вид карточки выдачи (миграция 0131): у сотрудника может быть две открытые
+  // карточки — по спецодежде и по мылу, — поэтому уникальный индекс уезжает на
+  // пару (employee_id, kind). Прежний индекс (employee_id) запрещал вторую карточку
+  // вообще, и снос его — часть перехода: без сноса «карточка мыла» не открылась бы.
+  if (await hasTable(sqlite, 'ppe_issue_cards')) {
+    const cardCols = await columnNames('ppe_issue_cards');
+    if (!cardCols.has('kind')) {
+      await sqlite.exec(`ALTER TABLE ppe_issue_cards ADD COLUMN kind text NOT NULL DEFAULT 'workwear';`);
+    }
+    const oldOpenUq = await sqlite.get(
+      `SELECT 1 AS one FROM sqlite_master WHERE type='index' AND name='ppe_issue_cards_employee_open_uq'`,
+    );
+    if (oldOpenUq) {
+      await sqlite.exec(`DROP INDEX ppe_issue_cards_employee_open_uq;`);
+    }
+    await sqlite.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS ppe_issue_cards_employee_kind_open_uq ON ppe_issue_cards(employee_id, kind) WHERE closed_at IS NULL AND deleted_at IS NULL;`,
+    );
   }
   // Приказ о СИЗ: wear_months стал nullable (норма «до износа» срока не имеет), а у
   // строки появились «приказная» ссылка, единица измерения и форма срока.
