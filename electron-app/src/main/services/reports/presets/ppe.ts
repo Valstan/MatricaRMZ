@@ -2,13 +2,14 @@ import { isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
+  buildPpeEmployeeIssueRows,
+  buildPpeRequestPositions,
   StockMovementType,
   nextIssueDates,
   pickHumanText,
   resolveEmployeeNorms,
   resolveGroupNorms,
   reversalMovementType,
-  upcomingIssues,
   type PpeAbsenceInput,
   type ReportCellValue,
   type ReportPresetFilters,
@@ -33,10 +34,10 @@ import {
 } from '../../../database/schema.js';
 import { getPreset, getWarehouseLocationsForReport, loadSnapshot, type ReportBuildContext } from '../context.js';
 import { normalizeText, readPeriod } from '../format.js';
+import { buildPpeIssueCoverage } from '../../ppeIssueCoverageService.js';
 import { movementTypeLabel } from './warehouse.js';
 
 const HUMAN_DASH = '—';
-const REQUEST_HORIZON_DAYS = 90;
 
 const STATUS_RU: Record<string, string> = {
   overdue: 'просрочено',
@@ -438,60 +439,98 @@ async function priceByNomenclature(db: BetterSQLite3Database): Promise<Map<strin
   return out;
 }
 
+/**
+ * Ведомость по выдаче СИЗ: одна строка на сотрудника — фамилия и набор.
+ *
+ * Собран из того же расчёта, что и заявка (домен `ppeIssueCoverage`), поэтому
+ * «не выдано» в ведомости и «к закупке» в заявке — одно и то же число.
+ */
+export async function buildPpeIssueByPersonReport(
+  db: BetterSQLite3Database,
+  filters: ReportPresetFilters | undefined,
+): Promise<ReportPresetPreviewResult> {
+  const q = String((filters as any)?.nameQuery ?? '').trim().toLowerCase();
+  const onlyMissing = Boolean((filters as any)?.onlyMissing ?? false);
+  const data = await buildPpeIssueCoverage(db);
+  const all = buildPpeEmployeeIssueRows({
+    employees: data.employees,
+    items: data.items,
+    issued: data.issued,
+  });
+  const selected = all.filter((row) => {
+    if (onlyMissing && row.missingCount === 0) return false;
+    if (!q) return true;
+    return `${row.fullName} ${row.postTitle ?? ''} ${row.issuedText} ${row.missingText}`.toLowerCase().includes(q);
+  });
+  const rows: Array<Record<string, ReportCellValue>> = selected.map((row) => ({
+    employee: row.fullName,
+    postTitle: row.postTitle ?? HUMAN_DASH,
+    issued: row.issuedText || HUMAN_DASH,
+    missing: row.missingText || HUMAN_DASH,
+    state: row.state,
+  }));
+  const preset = getPreset('ppe_issue_by_person');
+  return {
+    ok: true,
+    presetId: 'ppe_issue_by_person',
+    title: preset.title,
+    subtitle: `Сотрудников: ${rows.length}; с нехваткой: ${selected.filter((r) => r.missingCount > 0).length}`,
+    columns: preset.columns,
+    rows,
+    totals: {
+      lines: rows.length,
+      missing: selected.filter((r) => r.missingCount > 0).length,
+    },
+    generatedAt: Date.now(),
+  };
+}
+
+/**
+ * Заявка на СИЗ по позициям и размерам — бумажка, которая уходит в фирму.
+ *
+ * Расчёт: потребность (нехватка по людям: не выдано ни разу, выдано частично,
+ * подошёл срок, сдано) − остаток склада = к закупке. Выданное показано
+ * отдельной величиной и дважды не вычитается: выдача списывает склад.
+ */
 export async function buildPpeRequestSheetReport(
   db: BetterSQLite3Database,
   filters: ReportPresetFilters | undefined,
 ): Promise<ReportPresetPreviewResult> {
-  const snap = await loadPpeSnapshot(db);
   const q = String((filters as any)?.nameQuery ?? '').trim().toLowerCase();
-  const warehouseIds = new Set((Array.isArray((filters as any)?.warehouseIds) ? (filters as any).warehouseIds : []).map(String));
-  const now = Date.now();
-  const needByNom = new Map<string, number>();
-  for (const card of snap.cards) {
-    if (card.closedAt != null) continue;
-    const merged = resolveEmployeeNorms(cardNormLines(snap, card));
-    const upcoming = upcomingIssues(merged, snap.entriesByCard.get(card.id) ?? [], now, REQUEST_HORIZON_DAYS);
-    for (const p of upcoming) needByNom.set(p.nomenclatureId, (needByNom.get(p.nomenclatureId) ?? 0) + p.qty);
-  }
-  const stockByNom = new Map<string, number>();
-  const balances = await db.select().from(erpRegStockBalance).limit(200_000);
-  for (const b of balances as any[]) {
-    const nomId = b.nomenclatureId == null ? null : String(b.nomenclatureId);
-    if (!nomId || snap.nomCategory.get(nomId) !== 'workwear') continue;
-    const wh = b.warehouseLocationId == null ? null : String(b.warehouseLocationId);
-    if (warehouseIds.size > 0 && (wh == null || !warehouseIds.has(wh))) continue;
-    const available = Math.max(0, Number(b.qty ?? 0) - Number(b.reservedQty ?? 0));
-    stockByNom.set(nomId, (stockByNom.get(nomId) ?? 0) + available);
-  }
-  const prices = await priceByNomenclature(db);
+  const warehouseIds = Array.isArray((filters as any)?.warehouseIds) ? ((filters as any).warehouseIds as string[]) : [];
+  const data = await buildPpeIssueCoverage(db, { warehouseIds });
+  const positions = buildPpeRequestPositions({
+    items: data.items,
+    issued: data.issued,
+    stockByNomenclature: data.stockByNomenclature,
+    prices: data.prices,
+  });
   const rows: Array<Record<string, ReportCellValue>> = [];
-  for (const [nomId, needQty] of needByNom) {
-    const nom = snap.nomName.get(nomId) ?? HUMAN_DASH;
-    if (!matchQuery(nom, q)) continue;
-    const stockQty = stockByNom.get(nomId) ?? 0;
-    const deficitQty = Math.max(0, needQty - stockQty);
-    const price = prices.get(nomId) ?? null;
+  for (const position of positions) {
+    if (position.toBuyQty <= 0) continue;
+    if (!matchQuery(`${position.name} ${position.size ?? ''}`, q)) continue;
     rows.push({
-      nomenclature: nom,
-      needQty,
-      stockQty,
-      deficitQty,
-      priceRub: price == null ? HUMAN_DASH : round2(price),
-      amountRub: price == null ? HUMAN_DASH : round2(deficitQty * price),
+      nomenclature: position.name,
+      size: position.size ?? HUMAN_DASH,
+      demandQty: position.demandQty,
+      issuedQty: position.issuedQty,
+      stockQty: position.stockQty ?? HUMAN_DASH,
+      toBuyQty: position.toBuyQty,
+      priceRub: position.priceRub == null ? HUMAN_DASH : round2(position.priceRub),
+      amountRub: position.amountRub == null ? HUMAN_DASH : round2(position.amountRub),
     });
   }
-  rows.sort((a, b) => String(a.nomenclature).localeCompare(String(b.nomenclature), 'ru'));
   const preset = getPreset('ppe_request_sheet');
   return {
     ok: true,
     presetId: 'ppe_request_sheet',
     title: preset.title,
-    subtitle: `Позиций к закупке: ${rows.length} (горизонт ${REQUEST_HORIZON_DAYS} дней)`,
+    subtitle: `Позиций к закупке: ${rows.length}`,
     columns: preset.columns,
     rows,
     totals: {
       lines: rows.length,
-      deficitQty: rows.reduce((s, r) => s + Number(r.deficitQty ?? 0), 0),
+      toBuyQty: rows.reduce((s, r) => s + Number(r.toBuyQty ?? 0), 0),
       amountRub: round2(rows.reduce((s, r) => s + (typeof r.amountRub === 'number' ? r.amountRub : 0), 0)),
     },
     generatedAt: Date.now(),

@@ -7,6 +7,7 @@ import { PpeJournalPage } from './PpeJournalPage.js';
 
 const PPE_PRESETS: Array<{ id: ReportPresetId; title: string; hint: string }> = [
   { id: 'ppe_summary_sheet', title: 'Сводная ведомость СИЗ', hint: 'Сотрудник → позиция: норма, выдано, сроки' },
+  { id: 'ppe_issue_by_person', title: 'Ведомость по выдаче СИЗ', hint: 'По сотруднику: что выдано и что не выдано' },
   { id: 'ppe_by_size', title: 'Список СИЗ по размерам', hint: 'Модель → размеры: кому нужно, сколько выдано' },
   { id: 'ppe_unissued', title: 'Справка по невыданному СИЗ', hint: 'Кому и что пора выдавать' },
   { id: 'ppe_stock_list', title: 'Складская ведомость СИЗ', hint: 'Остатки спецодежды по складам' },

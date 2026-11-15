@@ -44,6 +44,7 @@ export type ReportPresetId =
   | 'contract_payments_matrix'
   | 'payments_overview'
   | 'ppe_summary_sheet'
+  | 'ppe_issue_by_person'
   | 'ppe_by_size'
   | 'ppe_unissued'
   | 'ppe_stock_list'
@@ -379,6 +380,7 @@ export const REPORT_PRESET_THEMES: Record<ReportPresetId, readonly [ReportThemeI
   contract_payments_matrix: ['contracts'],
   payments_overview: ['contracts'],
   ppe_summary_sheet: ['warehouse', 'catalogs'],
+  ppe_issue_by_person: ['supply', 'warehouse'],
   ppe_by_size: ['warehouse', 'catalogs'],
   ppe_unissued: ['warehouse', 'catalogs'],
   ppe_stock_list: ['warehouse'],
@@ -1883,6 +1885,23 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
     ],
   },
   {
+    id: 'ppe_issue_by_person',
+    title: 'Ведомость по выдаче СИЗ',
+    description:
+      'По каждому сотруднику: что выдано (набор позиций с размерами) и что не выдано (позиция, причина и количество). Нехватка — та же величина, что и в заявке на закупку.',
+    filters: [
+      { type: 'text', key: 'nameQuery', label: 'Сотрудник или позиция', placeholder: 'часть имени или названия' },
+      { type: 'checkbox', key: 'onlyMissing', label: 'Только с нехваткой' },
+    ],
+    columns: [
+      { key: 'employee', label: 'Сотрудник' },
+      { key: 'postTitle', label: 'Должность' },
+      { key: 'issued', label: 'Выдано' },
+      { key: 'missing', label: 'Не выдано' },
+      { key: 'state', label: 'Состояние' },
+    ],
+  },
+  {
     id: 'ppe_by_size',
     title: 'Список СИЗ по размерам',
     description: 'Модель → размеры: сколько сотрудников нуждается, сколько выдано всего.',
@@ -1932,16 +1951,19 @@ export const REPORT_PRESET_DEFINITIONS: ReportPresetDefinition[] = [
   {
     id: 'ppe_request_sheet',
     title: 'Заявка на СИЗ',
-    description: 'Что и сколько закупить на ближайшие 90 дней: потребность по нормам минус остатки. Сумма — только там, где у позиции известна цена.',
+    description:
+      'Что заказать по позициям и размерам: потребность (не выдано, выдано частично, подошёл срок, сдано) минус остаток склада. Выданное показано отдельно и дважды не вычитается — выдача списывает склад. Где позиции нет на складе, остаток — прочерк, а не ноль.',
     filters: [
       { type: 'text', key: 'nameQuery', label: 'Позиция', placeholder: 'часть названия' },
       { type: 'multi_select', key: 'warehouseIds', label: 'Склады учёта остатков (пусто = все)', optionsSource: 'warehouses' },
     ],
     columns: [
       { key: 'nomenclature', label: 'Позиция СИЗ' },
-      { key: 'needQty', label: 'Нужно (шт)', kind: 'number', align: 'right' },
+      { key: 'size', label: 'Размер' },
+      { key: 'demandQty', label: 'Нужно (шт)', kind: 'number', align: 'right' },
+      { key: 'issuedQty', label: 'Выдано (шт)', kind: 'number', align: 'right' },
       { key: 'stockQty', label: 'На складе (шт)', kind: 'number', align: 'right' },
-      { key: 'deficitQty', label: 'Дефицит (шт)', kind: 'number', align: 'right' },
+      { key: 'toBuyQty', label: 'К закупке (шт)', kind: 'number', align: 'right' },
       { key: 'priceRub', label: 'Цена, руб', kind: 'number', align: 'right' },
       { key: 'amountRub', label: 'Сумма, руб', kind: 'number', align: 'right' },
     ],

@@ -97,6 +97,8 @@ export function buildAcceptanceJournal(
 /** Контекст нормы по позиции у конкретного сотрудника. */
 export type PpeEmployeeNormContext = PpeNormContext & {
   employeeId: string;
+  /** Размер позиции сотрудника (если известен) — в ведомости видно, чего именно не хватило. */
+  size?: string | null;
 };
 
 /** Строка отчёта «невыданное за период»: две независимые величины рядом. */
@@ -170,7 +172,7 @@ export function buildUndeliveredReport(args: {
       postTitle: meta?.postTitle ?? null,
       nomenclatureId: c.nomenclatureId,
       itemName: c.itemName ?? meta?.itemName ?? '',
-      size: meta?.size ?? null,
+      size: c.size ?? meta?.size ?? null,
       normQty: c.qty,
       issuedQty,
       qtyShort: Math.max(0, c.qty - issuedQty),

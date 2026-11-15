@@ -5,9 +5,15 @@
  * для 1С: журнал — это те же факты выдачи, но с контекстом нормы и с раздельными
  * величинами (количество на год и срок носки стоят рядом, но не смешаны).
  *
- * Почему из реплики, а не с сервера: факты выдачи к клиенту и так доезжают по синх-ке,
+ * Почему из реплики, а не с сервера: факты выдачи к клиенту и так доезжают по синк-ке,
  * а новая серверная таблица и новый контракт синхронизации — это лишний контрактный
  * риск ради выборки, которую реплика уже содержит.
+ *
+ * **База и размер.** Нормы приказа ссылаются на БАЗОВУЮ позицию, а выдача идёт по
+ * конкретному размеру. Поэтому выдача сопоставляется с нормой по правилу: точное
+ * совпадение номенклатуры → база размера → «вне нормы». Без этого позиция выданного
+ * не находит свою норму (кол-во на год пустое, а срок — «не выдавалось»), и ведомость
+ * врёт оператору ровно там, где он принимает решение: выдавать или заказывать.
  */
 import { isNull } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
@@ -15,7 +21,11 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import {
   buildAcceptanceJournal,
   buildUndeliveredReport,
+  matchEmployeeSizePosition,
   nextIssueDates,
+  PPE_SIZE_ATTRIBUTE_CODES,
+  ppeResolvePositionId,
+  ppeSizeKindForName,
   resolveEmployeeNorms,
   type PpeAcceptanceFact,
   type PpeEmployeeNormContext,
@@ -33,18 +43,17 @@ import {
   ppeIssueEntries,
   ppeNormLines,
 } from '../database/schema.js';
-
-/** Размер позиции вытаскиваем из названия: «Костюм зимний, р. 52» → «52». */
-function sizeOf(name: string): string {
-  const m = String(name ?? '').match(/р\.\s*([\dA-Za-z]+)/);
-  return m ? (m[1] ?? '') : '';
-}
+import { sizeOfPositionName } from './ppeIssueCoverageService.js';
+import { loadSnapshot } from './reports/context.js';
 
 type EmployeeInfo = {
   personnelNo: string | null;
   fullName: string;
   postTitle: string | null;
   departmentName: string | null;
+  sizeClothes: string | null;
+  sizeShoes: string | null;
+  height: string | null;
 };
 
 export type PpeJournalResult = {
@@ -71,16 +80,16 @@ export async function buildPpeJournal(
   const to = Number(args.toMs ?? Number.MAX_SAFE_INTEGER);
   const now = Number(args.now ?? Date.now());
 
-  const [employeeRows, nomRows, cardRows, entryRows, cardNormRows, lineRows, ppeCardRows] =
-    await Promise.all([
-      db.select().from(erpEmployeeCards).where(isNull(erpEmployeeCards.deletedAt)).limit(50_000),
-      db.select().from(erpNomenclature).where(isNull(erpNomenclature.deletedAt)).limit(100_000),
-      db.select().from(ppeIssueCards).where(isNull(ppeIssueCards.deletedAt)).limit(50_000),
-      db.select().from(ppeIssueEntries).where(isNull(ppeIssueEntries.deletedAt)).limit(200_000),
-      db.select().from(ppeCardNorms).where(isNull(ppeCardNorms.deletedAt)).limit(100_000),
-      db.select().from(ppeNormLines).where(isNull(ppeNormLines.deletedAt)).limit(200_000),
-      db.select().from(ppeEmployeeCards).where(isNull(ppeEmployeeCards.deletedAt)).limit(50_000),
-    ]);
+  const [employeeRows, nomRows, cardRows, entryRows, cardNormRows, lineRows, ppeCardRows, eav] = await Promise.all([
+    db.select().from(erpEmployeeCards).where(isNull(erpEmployeeCards.deletedAt)).limit(50_000),
+    db.select().from(erpNomenclature).where(isNull(erpNomenclature.deletedAt)).limit(100_000),
+    db.select().from(ppeIssueCards).where(isNull(ppeIssueCards.deletedAt)).limit(50_000),
+    db.select().from(ppeIssueEntries).where(isNull(ppeIssueEntries.deletedAt)).limit(200_000),
+    db.select().from(ppeCardNorms).where(isNull(ppeCardNorms.deletedAt)).limit(100_000),
+    db.select().from(ppeNormLines).where(isNull(ppeNormLines.deletedAt)).limit(200_000),
+    db.select().from(ppeEmployeeCards).where(isNull(ppeEmployeeCards.deletedAt)).limit(50_000),
+    loadSnapshot(db),
+  ]);
 
   const employees = new Map<string, EmployeeInfo>();
   for (const e of employeeRows) {
@@ -89,6 +98,9 @@ export async function buildPpeJournal(
       fullName: String(e.fullName ?? ''),
       postTitle: null,
       departmentName: null,
+      sizeClothes: null,
+      sizeShoes: null,
+      height: null,
     });
   }
   // Должность и подразделение — из личной карточки СИЗ (снимок на момент), как в выгрузке 1С.
@@ -99,7 +111,38 @@ export async function buildPpeJournal(
     if (c.departmentName) info.departmentName = String(c.departmentName);
   }
   const nomName = new Map<string, string>();
-  for (const n of nomRows) nomName.set(String(n.id), String(n.name ?? ''));
+  const parentById = new Map<string, string | null>();
+  const childrenByBase = new Map<string, Array<{ id: string; name: string }>>();
+  for (const n of nomRows) {
+    const id = String(n.id);
+    nomName.set(id, String(n.name ?? ''));
+    const parentId = n.parentNomenclatureId == null ? null : String(n.parentNomenclatureId);
+    parentById.set(id, parentId);
+    if (parentId) {
+      const list = childrenByBase.get(parentId) ?? [];
+      list.push({ id, name: String(n.name ?? '') });
+      childrenByBase.set(parentId, list);
+    }
+  }
+  // Размеры сотрудника живут в EAV-карточке (те же коды, что регистрирует карточка).
+  const employeeTypeId = eav.entityTypeIdByCode.get('employee');
+  if (employeeTypeId) {
+    const readAttr = (attrs: Record<string, unknown> | undefined, code: string): string | null => {
+      const raw = attrs?.[code];
+      if (raw == null || typeof raw === 'object') return null;
+      const text = String(raw).trim();
+      return text ? text : null;
+    };
+    for (const [entityId, entity] of eav.entitiesById) {
+      if (entity.typeId !== employeeTypeId) continue;
+      const info = employees.get(entityId);
+      if (!info) continue;
+      const attrs = eav.attrsByEntity.get(entityId) ?? {};
+      info.sizeClothes = readAttr(attrs, PPE_SIZE_ATTRIBUTE_CODES.clothes);
+      info.sizeShoes = readAttr(attrs, PPE_SIZE_ATTRIBUTE_CODES.shoes);
+      info.height = readAttr(attrs, PPE_SIZE_ATTRIBUTE_CODES.height);
+    }
+  }
 
   // Карточка выдачи → сотрудник; наборы норм карточки → контекст нормы сотрудника.
   const cardById = new Map<string, { employeeId: string; setIds: string[] }>();
@@ -142,7 +185,24 @@ export async function buildPpeJournal(
     }
     const merged = resolveEmployeeNorms(input);
     mergedByEmployee.set(employeeId, merged);
+    const info = employees.get(employeeId);
     for (const m of merged) {
+      // Размер позиции сотрудника: у размерной позиции — свой, у базы — по карточке.
+      const parentId = parentById.get(m.nomenclatureId) ?? null;
+      let size: string | null = null;
+      if (parentId) {
+        size = sizeOfPositionName(nomName.get(m.nomenclatureId) ?? '');
+      } else {
+        const kind = ppeSizeKindForName(nomName.get(m.nomenclatureId) ?? '');
+        const sizeValue =
+          kind === 'shoes' ? info?.sizeShoes ?? null : kind === 'clothes' ? info?.sizeClothes ?? null : null;
+        if (sizeValue) {
+          const children = childrenByBase.get(m.nomenclatureId) ?? [];
+          const matched = matchEmployeeSizePosition({ children, size: sizeValue, height: info?.height ?? null });
+          const child = matched ? children.find((c) => c.id === matched) : null;
+          size = (child ? sizeOfPositionName(child.name) : null) ?? sizeValue;
+        }
+      }
       contexts.push({
         employeeId,
         nomenclatureId: m.nomenclatureId,
@@ -150,14 +210,19 @@ export async function buildPpeJournal(
         wearKind: m.wearKind,
         wearMonths: m.wearMonths,
         itemName: nomName.get(m.nomenclatureId) ?? null,
+        size,
       });
     }
   }
 
-  // Факты выдачи за период.
+  // Факты выдачи: кладовщик выдаёт конкретный размер, а норма живёт на базовой позиции.
   const facts: PpeAcceptanceFact[] = [];
   const issuedByEmployeePosition: Array<{ employeeId: string; nomenclatureId: string; qty: number }> = [];
   const historyByEmployee = new Map<string, Array<{ nomenclatureId: string; qty: number; issuedAt: number }>>();
+  const positionIdsByEmployee = new Map<string, Set<string>>();
+  for (const [employeeId, merged] of mergedByEmployee) {
+    positionIdsByEmployee.set(employeeId, new Set(merged.map((m) => m.nomenclatureId)));
+  }
   for (const entry of entryRows) {
     const card = cardById.get(String(entry.cardId));
     if (!card) continue;
@@ -167,15 +232,23 @@ export async function buildPpeJournal(
     if (!info) continue;
     const nomenclatureId = String(entry.nomenclatureId);
     const itemName = nomName.get(nomenclatureId) ?? '';
+
+    // Позиция нормы этой выдачи: точное совпадение → база размера → нет (выдано сверх нормы).
+    const positionIds = positionIdsByEmployee.get(card.employeeId) ?? new Set<string>();
+    const parentId = parentById.get(nomenclatureId) ?? null;
+    const positionId = ppeResolvePositionId({
+      nomenclatureId,
+      parentId: parentId === nomenclatureId ? null : parentId,
+      positionIds,
+    });
+
     const history = historyByEmployee.get(card.employeeId) ?? [];
-    history.push({ nomenclatureId, qty: Number(entry.qty), issuedAt });
+    history.push({ nomenclatureId: positionId ?? nomenclatureId, qty: Number(entry.qty), issuedAt });
     historyByEmployee.set(card.employeeId, history);
     if (issuedAt < from || issuedAt > to) continue;
-    issuedByEmployeePosition.push({
-      employeeId: card.employeeId,
-      nomenclatureId,
-      qty: Number(entry.qty),
-    });
+    if (positionId) {
+      issuedByEmployeePosition.push({ employeeId: card.employeeId, nomenclatureId: positionId, qty: Number(entry.qty) });
+    }
     facts.push({
       issuedAt,
       employeeId: card.employeeId,
@@ -183,9 +256,9 @@ export async function buildPpeJournal(
       fullName: info.fullName,
       postTitle: info.postTitle,
       departmentName: info.departmentName,
-      nomenclatureId,
+      nomenclatureId: positionId ?? nomenclatureId,
       itemName,
-      size: sizeOf(itemName) || null,
+      size: sizeOfPositionName(itemName) || null,
       qty: Number(entry.qty),
       documentNo: null,
       // Возврат СИЗ (миграция 0126): дата «получил обратно» и процент износа едут
