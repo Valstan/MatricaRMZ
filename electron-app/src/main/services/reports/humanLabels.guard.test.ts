@@ -989,6 +989,7 @@ const COVERED_PRESETS: Array<{ presetId: string; filters?: Record<string, unknow
   { presetId: 'contract_payments_matrix', filters: { contractId: ID.contract } },
   { presetId: 'payments_overview' },
   { presetId: 'ppe_summary_sheet' },
+  { presetId: 'ppe_issue_by_person' },
   { presetId: 'ppe_by_size' },
   { presetId: 'ppe_unissued' },
   { presetId: 'ppe_stock_list' },

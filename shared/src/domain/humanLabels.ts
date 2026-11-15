@@ -234,6 +234,8 @@ export const REPORT_TOTAL_LABELS: Record<string, string> = {
   mismatchPositions: 'Позиций с расхождением, шт.',
   orders: 'Нарядов, шт.',
   deficitQty: 'Дефицит, шт.',
+  toBuyQty: 'К закупке, шт.',
+  missing: 'С нехваткой, чел.',
   annualQty: 'В год, шт.',
   annualAmountRub: 'В год, ₽',
   covered: 'Обеспечены, чел.',

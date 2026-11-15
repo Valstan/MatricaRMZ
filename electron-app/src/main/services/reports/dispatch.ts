@@ -28,6 +28,7 @@ import {
   buildPpeBySizeReport,
   buildPpeCoverageReport,
   buildPpeIssuedReport,
+  buildPpeIssueByPersonReport,
   buildPpeOperationsReport,
   buildPpeRecipientsReport,
   buildPpeRequestSheetReport,
@@ -141,6 +142,8 @@ async function dispatchReportPreset(
         return buildPaymentsOverviewReport(db, args.filters);
       case 'ppe_summary_sheet':
         return buildPpeSummarySheetReport(db, args.filters);
+      case 'ppe_issue_by_person':
+        return buildPpeIssueByPersonReport(db, args.filters);
       case 'ppe_by_size':
         return buildPpeBySizeReport(db, args.filters);
       case 'ppe_unissued':
