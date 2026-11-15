@@ -29,6 +29,7 @@ import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { useListUiState } from '../hooks/useListBehavior.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { ChildCardDialog } from '../components/ChildCardDialog.js';
 
 /** Сколько дней вперёд смотрим дни рождения — «кому и что дарить». */
@@ -124,6 +125,10 @@ export function ChildrenPage(props: { canEdit: boolean; refreshKey?: number }) {
   useEffect(() => {
     void refresh();
   }, [refresh, props.refreshKey]);
+
+  // Данные приезжают синком: без живого перечитывания список показывал бы пустоту,
+  // пока строка не доехала (реплика — pull-only, запись идёт серверной дверью).
+  useLiveDataRefresh(refresh, { domains: ['children', 'organization'] });
 
   const employeeById = useMemo(() => {
     const map = new Map<string, EmployeeRow>();

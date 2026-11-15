@@ -26,6 +26,7 @@ import { Input } from '../components/Input.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { useConfirm } from '../components/ConfirmContext.js';
+import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 
 type EmployeeRow = {
   id: string;
@@ -112,6 +113,10 @@ export function OrganizationPage(props: { canEdit: boolean; refreshKey?: number 
   useEffect(() => {
     void refresh();
   }, [refresh, props.refreshKey]);
+
+  // Мероприятия и выдача приезжают синком — без живого перечитывания журнал остался бы
+  // пустым до следующего открытия экрана.
+  useLiveDataRefresh(refresh, { domains: ['organization', 'children'] });
 
   const childById = useMemo(() => {
     const map = new Map<string, ChildDto>();

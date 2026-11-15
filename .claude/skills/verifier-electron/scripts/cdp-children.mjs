@@ -99,10 +99,14 @@ const HELPERS = `
   };
 `;
 
-/** Дата рождения через N дней — чтобы ребёнок попал в «Кого поздравить». */
-function birthDateInDays(days) {
+/**
+ * Дата рождения: через N дней, но в прошлом (год назад) — иначе это дата в будущем,
+ * а сервер такую отвергает. По ней «день рождения» и есть через N дней.
+ */
+function birthDateInDays(days, yearsBack = 9) {
   const d = new Date();
   d.setDate(d.getDate() + days);
+  d.setFullYear(d.getFullYear() - yearsBack);
   d.setHours(12, 0, 0, 0);
   return d.getTime();
 }
@@ -114,32 +118,43 @@ async function main() {
   await send(ws, 'Runtime.enable');
   await send(ws, 'Page.enable');
 
-  // Суперадмин стенда: раздел доступа «Дети и организационное» он обходит сам,
-  // а права children.* / organization.* у него полные.
+  // Вход: verify (admin) — права children.* / organization.* у него полные, а доступы
+  // по разделам читаются fail-open (нет атрибута — меню как раньше). Если verify на стенде
+  // не засеян — пробуем суперадмина стенда.
   const login = await evaluate(
     ws,
-    `const res = await window.matrica.auth.login({ username: 'valstan', password: 'valstan-dev' });
-     return { ok: res?.ok === true, error: res?.error ?? null };`,
+    `const attempts = [{ username: 'verify', password: 'verify123' }, { username: 'valstan', password: 'valstan-dev' }];
+     let last = null;
+     for (const cred of attempts) {
+       const res = await window.matrica.auth.login(cred);
+       last = { user: cred.username, ok: res?.ok === true, error: res?.error ?? null };
+       if (last.ok) return last;
+     }
+     return last ?? { ok: false, error: 'нет попытки входа' };`,
   );
-  note(login.ok, 'логин суперадмином стенда', login);
+  note(login.ok, `вход на стенд (${login.user ?? '—'})`, login);
   if (!login.ok) throw new Error('логин не прошёл');
   await sleep(2000);
   await evaluate(ws, `await dismissModals(); return true;`);
 
   // Фикстуры: ребёнок с днём рождения через 5 дней (попадёт в напоминания),
-  // ребёнок уволенного сотрудника (серенький) и выдача ему подарка.
+  // ребёнок УВОЛЕННОГО сотрудника (серенький — по статусу родителя) и выдача подарка.
   const seeded = await evaluate(
     ws,
     `const birth = ${birthDateInDays(5)};
-     const old = ${birthDateInDays(-9 * 365)};
+     const fired = await window.matrica.employees.create();
+     if (!fired?.ok) return { ok: false, reason: 'сотрудник-родитель не создан', error: fired?.error ?? null };
+     await window.matrica.employees.setAttr(fired.id, 'full_name', 'Смоук Уволенный Родитель');
+     await window.matrica.employees.setAttr(fired.id, 'employment_status', 'fired');
      const saved = await window.matrica.children.save({ fullName: 'Смоук Тестовый Ребёнок', birthDate: birth, gender: 'male', tags: ['svo'], note: 'смоук' });
      if (!saved?.ok) return { ok: false, reason: 'карточка ребёнка не заведена', error: saved?.error ?? null };
-     const silver = await window.matrica.children.save({ fullName: 'Смоук Серенький Ребёнок', birthDate: ${birthDateInDays(3)}, gender: 'female', note: 'смоук-серенький' });
+     const silver = await window.matrica.children.save({ fullName: 'Смоук Серенький Ребёнок', birthDate: ${birthDateInDays(3)}, gender: 'female', employeeId: fired.id, note: 'смоук-серенький' });
      const gift = await window.matrica.organization.saveGift({ recipientKind: 'child', recipientChildId: saved.id, kind: 'gift', title: 'Смоук-подарок', givenAt: Date.now() });
-     return { ok: true, childId: saved.id, silverId: silver?.ok ? silver.id : null, giftOk: gift?.ok === true };`,
+     return { ok: true, childId: saved.id, silverId: silver?.ok ? silver.id : null, silverError: silver?.error ?? null, parentId: fired.id, giftOk: gift?.ok === true };`,
   );
   note(seeded.ok, 'фикстуры заведены (карточка ребёнка, серенький, выдача)', seeded.ok ? undefined : seeded);
   if (!seeded.ok) throw new Error(`фикстуры: ${seeded.reason ?? ''} ${seeded.error ?? ''}`);
+  if (!seeded.silverId) note(false, 'карточка серенького ребёнка заведена', seeded);
 
   // Меню: Персонал и доступ → Дети.
   const nav = await evaluate(
@@ -207,11 +222,15 @@ async function main() {
   shots.push(await shot(ws, 'list'));
 
   // Серенький не должен попасть в «Кого поздравить» (у него ДР через 3 дня).
+  // Панель — блок НАД таблицей, поэтому режем текст по заголовку таблицы:
+  // иначе в проверку попал бы весь хвост страницы вместе со строкой серенького.
   const silverNotReminded = await evaluate(
     ws,
     `const body = document.body.innerText;
-     const panel = body.split('Кого поздравить')[1] ?? '';
-     return { ok: !panel.includes('Смоук Серенький Ребёнок'), panel: panel.slice(0, 200) };`,
+     const from = body.indexOf('Кого поздравить');
+     const to = body.indexOf('ФИО ребёнка');
+     const panel = from >= 0 ? body.slice(from, to > from ? to : undefined) : '';
+     return { ok: Boolean(panel) && !panel.includes('Смоук Серенький Ребёнок'), panel: panel.slice(0, 300) };`,
   );
   note(silverNotReminded.ok, 'серенький не попал в «Кого поздравить»', silverNotReminded);
 
@@ -276,6 +295,7 @@ async function main() {
     ws,
     `await window.matrica.children.remove(${JSON.stringify(seeded.childId)});
      if (${JSON.stringify(seeded.silverId)}) await window.matrica.children.remove(${JSON.stringify(seeded.silverId)});
+     if (${JSON.stringify(seeded.parentId)}) await window.matrica.employees.delete(${JSON.stringify(seeded.parentId)});
      return true;`,
   );
 
