@@ -234,6 +234,42 @@ async function main() {
   );
   note(silverNotReminded.ok, 'серенький не попал в «Кого поздравить»', silverNotReminded);
 
+  // Карточка ребёнка: открыть ИМЕННО активного (у сереньнего подарков нет).
+  const btn = await evaluate(
+    ws,
+    `const row = [...document.querySelectorAll('tr')].find((tr) => txt(tr).includes('Смоук Тестовый Ребёнок') && !txt(tr).includes('Серенький'));
+     if (!row) return { ok: false, reason: 'строка активного ребёнка не найдена' };
+     const b = [...row.querySelectorAll('button')].filter(visible).find((x) => txt(x) === 'Карточка');
+     if (!b) return { ok: false, reason: 'кнопка «Карточка» не найдена' };
+     click(b); await wait(1200);
+     return { ok: true };`,
+  );
+  note(btn.ok, 'карточка ребёнка открылась', btn.ok ? undefined : btn);
+  let card = { ok: false };
+  for (let i = 0; i < 12; i += 1) {
+    card = await evaluate(
+      ws,
+      `const body = document.body.innerText;
+       const age = /\\d+ лет/.test(body);
+       const history = body.includes('История подарков');
+       const gift = body.includes('Смоук-подарок');
+       const due = body.includes('пора дарить') || body.includes('Получили подарок');
+       return { ok: age && history && gift && due, age, history, gift, due };`,
+    );
+    if (card.ok) break;
+    await sleep(5000);
+  }
+  // Диалог закрываем ПОСЛЕ замера: закрытый диалог в следующем круге measurement'а
+  // мерил бы уже страницу без карточки.
+  await evaluate(
+    ws,
+    `const close = [...document.querySelectorAll('button')].filter(visible).find((b) => txt(b) === 'Закрыть');
+     if (close) { click(close); await wait(600); }
+     return true;`,
+  );
+  note(card.ok, 'карточка ребёнка: возраст, история подарков и «надо получить»', card.ok ? undefined : card);
+  shots.push(await shot(ws, 'card'));
+
   // Напоминание — заметкой: жмём «Напомнить» у первого ребёнка.
   const noteCreated = await evaluate(
     ws,
@@ -249,6 +285,13 @@ async function main() {
   shots.push(await shot(ws, 'reminder'));
 
   // Организационный модуль: раздел, мероприятие и журнал выдачи.
+  const eventSeeded = await evaluate(
+    ws,
+    `const res = await window.matrica.organization.saveEvent({ title: 'Смоук Мероприятие', kind: 'competition', eventDate: Date.now(), description: 'смоук' });
+     return { ok: res?.ok === true, id: res?.id ?? null, error: res?.error ?? null };`,
+  );
+  note(eventSeeded.ok, 'мероприятие заведено', eventSeeded.ok ? undefined : eventSeeded);
+
   const nav2 = await evaluate(
     ws,
     `if (!document.querySelector('.v3-menu-overlay')) {
@@ -289,6 +332,35 @@ async function main() {
   );
   note(journal.gift && journal.child, 'в журнале выдачи виден подарок и его получатель', journal);
   shots.push(await shot(ws, 'organization'));
+
+  // Отбор под мероприятие: открыть мероприятие и посмотреть список отбора.
+  // Мероприятие только что заведено — ждём, пока строка доедет в реплику.
+  let selection = { ok: false, reason: 'строка мероприятия не появилась' };
+  for (let i = 0; i < 12; i += 1) {
+    selection = await evaluate(
+      ws,
+      `const row = [...document.querySelectorAll('tr')].find((tr) => txt(tr).includes('Смоук Мероприятие'));
+       if (!row) return { ok: false, reason: 'строка мероприятия не найдена' };
+       const cells = row.querySelectorAll('td');
+       if (cells.length > 1) { const t = cells[1]; for (const type of ['mousedown','mouseup','click']) t.dispatchEvent(new MouseEvent(type, { bubbles: true })); }
+       await wait(1200);
+       const body = document.body.innerText;
+       const opened = body.includes('Отбор: кого зовём');
+       const listed = body.includes('Смоук Тестовый Ребёнок');
+       const checkbox = Boolean([...document.querySelectorAll('input[type=checkbox]')].filter(visible).length);
+       return { ok: opened && listed && checkbox, opened, listed, checkbox };`,
+    );
+    if (selection.ok) break;
+    await sleep(5000);
+  }
+  await evaluate(
+    ws,
+    `const close = [...document.querySelectorAll('button')].filter(visible).find((b) => txt(b) === 'Закрыть');
+     if (close) { click(close); await wait(600); }
+     return true;`,
+  );
+  note(selection.ok, 'отбор под мероприятие: список детей с выбором приглашения', selection.ok ? undefined : selection);
+  shots.push(await shot(ws, 'selection'));
 
   // Уборка: снесём заведённое.
   await evaluate(

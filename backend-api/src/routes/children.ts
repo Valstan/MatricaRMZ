@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 
 import { PermissionCode } from '../auth/permissions.js';
-import { requirePermission } from '../auth/middleware.js';
+import { requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import {
   createChild,
   deleteChild,
@@ -19,6 +19,11 @@ import {
  * безусловным backstop'ом (владение server) — эта дверь единственный путь записи.
  */
 export const childrenRouter = Router();
+
+/** Актор правки — попадает в журнал синка (кто записал строку). */
+function actor(req: Request): { id: string; username: string; role: string } | undefined {
+  return (req as AuthenticatedRequest).user;
+}
 
 const childBody = z.object({
   employeeId: z.string().uuid().nullable().optional(),
@@ -44,7 +49,7 @@ childrenRouter.get('/:id', requirePermission(PermissionCode.ChildrenView), async
 childrenRouter.post('/', requirePermission(PermissionCode.ChildrenEdit), async (req: Request, res: Response) => {
   const parsed = childBody.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ ok: false, error: 'неверные данные карточки ребёнка', issues: parsed.error.issues });
-  const result = await createChild(parsed.data);
+  const result = await createChild(parsed.data, actor(req));
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });
@@ -52,13 +57,13 @@ childrenRouter.post('/', requirePermission(PermissionCode.ChildrenEdit), async (
 childrenRouter.patch('/:id', requirePermission(PermissionCode.ChildrenEdit), async (req: Request, res: Response) => {
   const parsed = childBody.partial().safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ ok: false, error: 'неверные данные карточки ребёнка', issues: parsed.error.issues });
-  const result = await updateChild(String(req.params.id ?? ''), parsed.data);
+  const result = await updateChild(String(req.params.id ?? ''), parsed.data, actor(req));
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });
 
 childrenRouter.delete('/:id', requirePermission(PermissionCode.ChildrenEdit), async (req: Request, res: Response) => {
-  const result = await deleteChild(String(req.params.id ?? ''));
+  const result = await deleteChild(String(req.params.id ?? ''), actor(req));
   if (!result.ok) return res.status(404).json(result);
   return res.json(result);
 });

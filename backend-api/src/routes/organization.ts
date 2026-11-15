@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 
 import { PermissionCode } from '../auth/permissions.js';
-import { requirePermission } from '../auth/middleware.js';
+import { requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
 import {
   createGiftRecord,
   createOrgEvent,
@@ -24,6 +24,11 @@ import {
  * эта дверь единственный путь записи.
  */
 export const organizationRouter = Router();
+
+/** Актор правки — попадает в журнал синка (кто записал строку). */
+function actor(req: Request): { id: string; username: string; role: string } | undefined {
+  return (req as AuthenticatedRequest).user;
+}
 
 const selectionBody = z.object({
   childId: z.string().uuid(),
@@ -66,7 +71,7 @@ organizationRouter.get('/events/:id', requirePermission(PermissionCode.Organizat
 organizationRouter.post('/events', requirePermission(PermissionCode.OrganizationEdit), async (req: Request, res: Response) => {
   const parsed = eventBody.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ ok: false, error: 'неверные данные мероприятия', issues: parsed.error.issues });
-  const result = await createOrgEvent(parsed.data);
+  const result = await createOrgEvent(parsed.data, actor(req));
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });
@@ -74,13 +79,13 @@ organizationRouter.post('/events', requirePermission(PermissionCode.Organization
 organizationRouter.patch('/events/:id', requirePermission(PermissionCode.OrganizationEdit), async (req: Request, res: Response) => {
   const parsed = eventBody.partial().safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ ok: false, error: 'неверные данные мероприятия', issues: parsed.error.issues });
-  const result = await updateOrgEvent(String(req.params.id ?? ''), parsed.data);
+  const result = await updateOrgEvent(String(req.params.id ?? ''), parsed.data, actor(req));
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });
 
 organizationRouter.delete('/events/:id', requirePermission(PermissionCode.OrganizationEdit), async (req: Request, res: Response) => {
-  const result = await deleteOrgEvent(String(req.params.id ?? ''));
+  const result = await deleteOrgEvent(String(req.params.id ?? ''), actor(req));
   if (!result.ok) return res.status(404).json(result);
   return res.json(result);
 });
@@ -94,7 +99,7 @@ organizationRouter.get('/gifts', requirePermission(PermissionCode.OrganizationVi
 organizationRouter.post('/gifts', requirePermission(PermissionCode.OrganizationEdit), async (req: Request, res: Response) => {
   const parsed = giftBody.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ ok: false, error: 'неверные данные выдачи', issues: parsed.error.issues });
-  const result = await createGiftRecord(parsed.data);
+  const result = await createGiftRecord(parsed.data, actor(req));
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });
@@ -102,13 +107,13 @@ organizationRouter.post('/gifts', requirePermission(PermissionCode.OrganizationE
 organizationRouter.patch('/gifts/:id', requirePermission(PermissionCode.OrganizationEdit), async (req: Request, res: Response) => {
   const parsed = giftBody.partial().safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ ok: false, error: 'неверные данные выдачи', issues: parsed.error.issues });
-  const result = await updateGiftRecord(String(req.params.id ?? ''), parsed.data);
+  const result = await updateGiftRecord(String(req.params.id ?? ''), parsed.data, actor(req));
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });
 
 organizationRouter.delete('/gifts/:id', requirePermission(PermissionCode.OrganizationEdit), async (req: Request, res: Response) => {
-  const result = await deleteGiftRecord(String(req.params.id ?? ''));
+  const result = await deleteGiftRecord(String(req.params.id ?? ''), actor(req));
   if (!result.ok) return res.status(404).json(result);
   return res.json(result);
 });

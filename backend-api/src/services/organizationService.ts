@@ -6,6 +6,8 @@ import { GIFT_KINDS, ORG_EVENT_KINDS, parseEventSelections, serializeEventSelect
 
 import { db } from '../database/db.js';
 import { erpGiftRecords, erpOrgEvents } from '../database/schema.js';
+import { publishOrganizationRowNow, toGiftRecordInput, toOrgEventInput } from './sync/childrenSyncPublisherService.js';
+import type { SyncActor } from './childrenService.js';
 
 /**
  * Организационный модуль — серверная дверь.
@@ -230,13 +232,13 @@ export async function getOrgEvent(id: string): Promise<Result<{ event: OrgEventR
   return { ok: true, event: mapEvent(row) };
 }
 
-export async function createOrgEvent(input: OrgEventInput): Promise<Result<{ id: string }>> {
+export async function createOrgEvent(input: OrgEventInput, actor?: SyncActor): Promise<Result<{ id: string }>> {
   const checked = validateEvent(input);
   if (!checked.ok) return checked;
   const now = Date.now();
   const id = randomUUID();
-  await db.insert(erpOrgEvents).values({
-    id: id as any,
+  const row = {
+    id,
     title: checked.value.title,
     kind: checked.value.kind,
     eventDate: checked.value.eventDate,
@@ -244,12 +246,24 @@ export async function createOrgEvent(input: OrgEventInput): Promise<Result<{ id:
     selectionsJson: checked.value.selectionsJson,
     createdAt: now,
     updatedAt: now,
+    deletedAt: null as number | null,
+  };
+  await db.insert(erpOrgEvents).values({
+    id: id as any,
+    title: row.title,
+    kind: row.kind,
+    eventDate: row.eventDate,
+    description: row.description,
+    selectionsJson: row.selectionsJson,
+    createdAt: now,
+    updatedAt: now,
     syncStatus: 'pending',
   });
+  await publishOrganizationRowNow(toOrgEventInput(row as any), actor);
   return { ok: true, id };
 }
 
-export async function updateOrgEvent(id: string, input: OrgEventUpdate): Promise<Result<{ id: string }>> {
+export async function updateOrgEvent(id: string, input: OrgEventUpdate, actor?: SyncActor): Promise<Result<{ id: string }>> {
   const eventId = String(id ?? '').trim();
   if (!isUuid(eventId)) return { ok: false, error: 'id мероприятия должен быть uuid' };
   const [current] = await db
@@ -281,10 +295,12 @@ export async function updateOrgEvent(id: string, input: OrgEventUpdate): Promise
       syncStatus: 'pending',
     })
     .where(eq(erpOrgEvents.id, eventId as any));
+  const [fresh] = await db.select().from(erpOrgEvents).where(eq(erpOrgEvents.id, eventId as any)).limit(1);
+  if (fresh) await publishOrganizationRowNow(toOrgEventInput(fresh as any), actor);
   return { ok: true, id: eventId };
 }
 
-export async function deleteOrgEvent(id: string): Promise<Result<{ id: string }>> {
+export async function deleteOrgEvent(id: string, actor?: SyncActor): Promise<Result<{ id: string }>> {
   const eventId = String(id ?? '').trim();
   if (!isUuid(eventId)) return { ok: false, error: 'id мероприятия должен быть uuid' };
   const [current] = await db
@@ -297,6 +313,8 @@ export async function deleteOrgEvent(id: string): Promise<Result<{ id: string }>
     .update(erpOrgEvents)
     .set({ deletedAt: Date.now(), updatedAt: Date.now(), syncStatus: 'pending' })
     .where(eq(erpOrgEvents.id, eventId as any));
+  const [fresh] = await db.select().from(erpOrgEvents).where(eq(erpOrgEvents.id, eventId as any)).limit(1);
+  if (fresh) await publishOrganizationRowNow(toOrgEventInput(fresh as any), actor);
   return { ok: true, id: eventId };
 }
 
@@ -309,17 +327,17 @@ export async function listGiftRecords(): Promise<Result<{ gifts: GiftRecordRow[]
   return { ok: true, gifts: rows.map(mapGift) };
 }
 
-export async function createGiftRecord(input: GiftRecordInput): Promise<Result<{ id: string }>> {
+export async function createGiftRecord(input: GiftRecordInput, actor?: SyncActor): Promise<Result<{ id: string }>> {
   const checked = await validateGift(input);
   if (!checked.ok) return checked;
   const now = Date.now();
   const id = randomUUID();
-  await db.insert(erpGiftRecords).values({
-    id: id as any,
-    eventId: checked.value.eventId as any,
+  const row = {
+    id,
+    eventId: checked.value.eventId,
     recipientKind: checked.value.recipientKind,
-    recipientEmployeeId: checked.value.recipientEmployeeId as any,
-    recipientChildId: checked.value.recipientChildId as any,
+    recipientEmployeeId: checked.value.recipientEmployeeId,
+    recipientChildId: checked.value.recipientChildId,
     kind: checked.value.kind,
     title: checked.value.title,
     place: checked.value.place,
@@ -327,12 +345,28 @@ export async function createGiftRecord(input: GiftRecordInput): Promise<Result<{
     note: checked.value.note,
     createdAt: now,
     updatedAt: now,
+    deletedAt: null as number | null,
+  };
+  await db.insert(erpGiftRecords).values({
+    id: id as any,
+    eventId: row.eventId as any,
+    recipientKind: row.recipientKind,
+    recipientEmployeeId: row.recipientEmployeeId as any,
+    recipientChildId: row.recipientChildId as any,
+    kind: row.kind,
+    title: row.title,
+    place: row.place,
+    givenAt: row.givenAt,
+    note: row.note,
+    createdAt: now,
+    updatedAt: now,
     syncStatus: 'pending',
   });
+  await publishOrganizationRowNow(toGiftRecordInput(row as any), actor);
   return { ok: true, id };
 }
 
-export async function updateGiftRecord(id: string, input: GiftRecordInput): Promise<Result<{ id: string }>> {
+export async function updateGiftRecord(id: string, input: GiftRecordInput, actor?: SyncActor): Promise<Result<{ id: string }>> {
   const giftId = String(id ?? '').trim();
   if (!isUuid(giftId)) return { ok: false, error: 'id записи о выдаче должен быть uuid' };
   const [current] = await db
@@ -369,10 +403,12 @@ export async function updateGiftRecord(id: string, input: GiftRecordInput): Prom
       syncStatus: 'pending',
     })
     .where(eq(erpGiftRecords.id, giftId as any));
+  const [fresh] = await db.select().from(erpGiftRecords).where(eq(erpGiftRecords.id, giftId as any)).limit(1);
+  if (fresh) await publishOrganizationRowNow(toGiftRecordInput(fresh as any), actor);
   return { ok: true, id: giftId };
 }
 
-export async function deleteGiftRecord(id: string): Promise<Result<{ id: string }>> {
+export async function deleteGiftRecord(id: string, actor?: SyncActor): Promise<Result<{ id: string }>> {
   const giftId = String(id ?? '').trim();
   if (!isUuid(giftId)) return { ok: false, error: 'id записи о выдаче должен быть uuid' };
   const [current] = await db
@@ -385,5 +421,7 @@ export async function deleteGiftRecord(id: string): Promise<Result<{ id: string 
     .update(erpGiftRecords)
     .set({ deletedAt: Date.now(), updatedAt: Date.now(), syncStatus: 'pending' })
     .where(eq(erpGiftRecords.id, giftId as any));
+  const [fresh] = await db.select().from(erpGiftRecords).where(eq(erpGiftRecords.id, giftId as any)).limit(1);
+  if (fresh) await publishOrganizationRowNow(toGiftRecordInput(fresh as any), actor);
   return { ok: true, id: giftId };
 }
