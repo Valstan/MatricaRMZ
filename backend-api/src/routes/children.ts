@@ -12,11 +12,11 @@ import {
 } from '../services/childrenService.js';
 
 /**
- * Р В РІР‚СњР В Р’ВµР РЋРІР‚С™Р РЋР С“Р В РЎвЂќР В РЎвЂР В РІвЂћвЂ“ Р В РЎВР В РЎвЂўР В РўвЂР РЋРЎвЂњР В Р’В»Р РЋР Р‰ Р Р†Р вЂљРІР‚Сњ REST-Р В РўвЂР В Р вЂ Р В Р’ВµР РЋР вЂљР РЋР Р‰.
+ * Детский модуль — REST-дверь.
  *
- * Р В Р Р‹Р В РЎВР В РЎвЂўР РЋРІР‚С™Р РЋР вЂљР В Р’ВµР РЋРІР‚С™Р РЋР Р‰ Р В РЎвЂќР В Р’В°Р РЋР вЂљР РЋРІР‚С™Р В РЎвЂўР РЋРІР‚РЋР В РЎвЂќР В РЎвЂ Р В РўвЂР В Р’ВµР РЋРІР‚С™Р В Р’ВµР В РІвЂћвЂ“ Р В РЎВР В РЎвЂўР В Р’В¶Р В Р’ВµР РЋРІР‚С™ Р РЋРІР‚С™Р В РЎвЂўР РЋРІР‚С™, Р В РЎвЂќР В РЎвЂўР В РЎВР РЋРЎвЂњ Р В Р вЂ Р РЋРІР‚в„–Р В РўвЂР В Р’В°Р В Р вЂ¦ Р РЋР вЂљР В Р’В°Р В Р’В·Р В РўвЂР В Р’ВµР В Р’В» Р В РЎвЂ Р В РЎвЂ”Р РЋР вЂљР В Р’В°Р В Р вЂ Р В РЎвЂў `children.view`;
- * Р В Р вЂ Р В Р’ВµР РЋР С“Р РЋРІР‚С™Р В РЎвЂ Р Р†Р вЂљРІР‚Сњ Р РЋРІР‚С™Р В РЎвЂўР РЋРІР‚С™, Р В РЎвЂќР В РЎвЂўР В РЎВР РЋРЎвЂњ Р В Р вЂ Р РЋРІР‚в„–Р В РўвЂР В Р’В°Р В Р вЂ¦Р В РЎвЂў `children.edit`. Р В РЎв„ўР В Р’В»Р В РЎвЂР В Р’ВµР В Р вЂ¦Р РЋРІР‚С™Р РЋР С“Р В РЎвЂќР В РЎвЂР В РІвЂћвЂ“ push Р В Р вЂ  Р РЋР РЉР РЋРІР‚С™Р РЋРЎвЂњ Р РЋРІР‚С™Р В Р’В°Р В Р’В±Р В Р’В»Р В РЎвЂР РЋРІР‚В Р РЋРЎвЂњ Р В Р’В·Р В Р’В°Р В РЎвЂќР РЋР вЂљР РЋРІР‚в„–Р РЋРІР‚С™
- * Р В Р’В±Р В Р’ВµР В Р’В·Р РЋРЎвЂњР РЋР С“Р В Р’В»Р В РЎвЂўР В Р вЂ Р В Р вЂ¦Р РЋРІР‚в„–Р В РЎВ backstop'Р В РЎвЂўР В РЎВ (Р В Р вЂ Р В Р’В»Р В Р’В°Р В РўвЂР В Р’ВµР В Р вЂ¦Р В РЎвЂР В Р’Вµ server) Р Р†Р вЂљРІР‚Сњ Р РЋР РЉР РЋРІР‚С™Р В Р’В° Р В РўвЂР В Р вЂ Р В Р’ВµР РЋР вЂљР РЋР Р‰ Р В Р’ВµР В РўвЂР В РЎвЂР В Р вЂ¦Р РЋР С“Р РЋРІР‚С™Р В Р вЂ Р В Р’ВµР В Р вЂ¦Р В Р вЂ¦Р РЋРІР‚в„–Р В РІвЂћвЂ“ Р В РЎвЂ”Р РЋРЎвЂњР РЋРІР‚С™Р РЋР Р‰ Р В Р’В·Р В Р’В°Р В РЎвЂ”Р В РЎвЂР РЋР С“Р В РЎвЂ.
+ * Смотреть карточки детей может тот, кому выдан раздел и право `children.view`;
+ * вести — тот, кому выдано `children.edit`. Клиентский push в эту таблицу закрыт
+ * безусловным backstop'ом (владение server) — эта дверь единственный путь записи.
  */
 export const childrenRouter = Router();
 
@@ -48,7 +48,7 @@ childrenRouter.get('/:id', requirePermission(PermissionCode.ChildrenView), async
 
 childrenRouter.post('/', requirePermission(PermissionCode.ChildrenEdit), async (req: Request, res: Response) => {
   const parsed = childBody.safeParse(req.body ?? {});
-  if (!parsed.success) return res.status(400).json({ ok: false, error: 'Р В Р вЂ¦Р В Р’ВµР В Р вЂ Р В Р’ВµР РЋР вЂљР В Р вЂ¦Р РЋРІР‚в„–Р В Р’Вµ Р В РўвЂР В Р’В°Р В Р вЂ¦Р В Р вЂ¦Р РЋРІР‚в„–Р В Р’Вµ Р В РЎвЂќР В Р’В°Р РЋР вЂљР РЋРІР‚С™Р В РЎвЂўР РЋРІР‚РЋР В РЎвЂќР В РЎвЂ Р РЋР вЂљР В Р’ВµР В Р’В±Р РЋРІР‚ВР В Р вЂ¦Р В РЎвЂќР В Р’В°', issues: parsed.error.issues });
+  if (!parsed.success) return res.status(400).json({ ok: false, error: 'неверные данные карточки ребёнка', issues: parsed.error.issues });
   const result = await createChild(parsed.data, actor(req));
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
@@ -56,7 +56,7 @@ childrenRouter.post('/', requirePermission(PermissionCode.ChildrenEdit), async (
 
 childrenRouter.patch('/:id', requirePermission(PermissionCode.ChildrenEdit), async (req: Request, res: Response) => {
   const parsed = childBody.partial().safeParse(req.body ?? {});
-  if (!parsed.success) return res.status(400).json({ ok: false, error: 'Р В Р вЂ¦Р В Р’ВµР В Р вЂ Р В Р’ВµР РЋР вЂљР В Р вЂ¦Р РЋРІР‚в„–Р В Р’Вµ Р В РўвЂР В Р’В°Р В Р вЂ¦Р В Р вЂ¦Р РЋРІР‚в„–Р В Р’Вµ Р В РЎвЂќР В Р’В°Р РЋР вЂљР РЋРІР‚С™Р В РЎвЂўР РЋРІР‚РЋР В РЎвЂќР В РЎвЂ Р РЋР вЂљР В Р’ВµР В Р’В±Р РЋРІР‚ВР В Р вЂ¦Р В РЎвЂќР В Р’В°', issues: parsed.error.issues });
+  if (!parsed.success) return res.status(400).json({ ok: false, error: 'неверные данные карточки ребёнка', issues: parsed.error.issues });
   const result = await updateChild(String(req.params.id ?? ''), parsed.data, actor(req));
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);

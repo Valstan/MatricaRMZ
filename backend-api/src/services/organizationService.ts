@@ -10,15 +10,15 @@ import { publishOrganizationRowNow, toGiftRecordInput, toOrgEventInput } from '.
 import type { SyncActor } from './childrenService.js';
 
 /**
- * РћСЂРіР°РЅРёР·Р°С†РёРѕРЅРЅС‹Р№ РјРѕРґСѓР»СЊ вЂ” СЃРµСЂРІРµСЂРЅР°СЏ РґРІРµСЂСЊ.
+ * Организационный модуль — серверная дверь.
  *
- * РњРµСЂРѕРїСЂРёСЏС‚РёСЏ (РїСЂР°Р·РґРЅРёРєРё, СЃРѕСЂРµРІРЅРѕРІР°РЅРёСЏ, РґРЅРё СЂРѕР¶РґРµРЅРёСЏ) Рё Р¶СѓСЂРЅР°Р» РІС‹РґР°С‡Рё РїРѕРґР°СЂРєРѕРІ,
- * РїСЂРёР·РѕРІ Рё РіСЂР°РјРѕС‚. Р’РµРґС‘С‚ РўРћР›Р¬РљРћ СЌС‚Р° РґРІРµСЂСЊ: СЃС‚СЂРѕРєРё РїРёС€СѓС‚СЃСЏ РѕР±С‹С‡РЅС‹Рј insert/update
- * СЃ `sync_status = 'pending'`, Р° РїСѓР±Р»РёРєР°С‚РѕСЂ Р·РµСЂРєР°Р»Р° (`childrenSyncPublisherService`)
- * РґРѕРІРѕРґРёС‚ РёС… РґРѕ Р¶СѓСЂРЅР°Р»Р° вЂ” РёРЅР°С‡Рµ РёРЅРєСЂРµРјРµРЅС‚Р°Р»СЊРЅС‹Р№ pull РёС… РЅРµ СѓРІРёРґРёС‚ РЅРёРєРѕРіРґР°.
+ * Мероприятия (праздники, соревнования, дни рождения) и журнал выдачи подарков,
+ * призов и грамот. Ведёт ТОЛЬКО эта дверь: строки пишутся обычным insert/update
+ * с `sync_status = 'pending'`, а публикатор зеркала (`childrenSyncPublisherService`)
+ * доводит их до журнала — иначе инкрементальный pull их не увидит никогда.
  *
- * РџРѕР»СѓС‡Р°С‚РµР»СЊ РїРѕРґР°СЂРєР° вЂ” РЎРЎР«Р›РљРђ (СЃРѕС‚СЂСѓРґРЅРёРє РёР»Рё СЂРµР±С‘РЅРѕРє), Р° РЅРµ СЃРІРѕР±РѕРґРЅС‹Р№ С‚РµРєСЃС‚ СЃ Р¤РРћ:
- * СЃРІРѕР±РѕРґРЅС‹Р№ С‚РµРєСЃС‚ Р·Р°РІС‘Р» Р±С‹ РІ Р¶СѓСЂРЅР°Р»Рµ РґСѓР±Р»Рё.
+ * Получатель подарка — ССЫЛКА (сотрудник или ребёнок), а не свободный текст с ФИО:
+ * свободный текст завёл бы в журнале дубли.
  */
 
 type Result<T> = ({ ok: true } & T) | { ok: false; error: string };
@@ -127,15 +127,15 @@ type ValidatedEvent = {
 
 function validateEvent(input: OrgEventInput): { ok: true; value: ValidatedEvent } | { ok: false; error: string } {
   const title = String(input.title ?? '').trim();
-  if (!title) return { ok: false, error: 'РЅР°Р·РІР°РЅРёРµ РјРµСЂРѕРїСЂРёСЏС‚РёСЏ РѕР±СЏР·Р°С‚РµР»СЊРЅРѕ' };
-  if (title.length > 300) return { ok: false, error: 'РЅР°Р·РІР°РЅРёРµ РјРµСЂРѕРїСЂРёСЏС‚РёСЏ СЃР»РёС€РєРѕРј РґР»РёРЅРЅРѕРµ' };
+  if (!title) return { ok: false, error: 'название мероприятия обязательно' };
+  if (title.length > 300) return { ok: false, error: 'название мероприятия слишком длинное' };
   const kind = String(input.kind ?? 'other').trim().toLowerCase();
   if (!ORG_EVENT_KINDS.includes(kind as (typeof ORG_EVENT_KINDS)[number])) {
-    return { ok: false, error: 'РІРёРґ РјРµСЂРѕРїСЂРёСЏС‚РёСЏ Р·Р°РґР°РЅ РЅРµРІРµСЂРЅРѕ' };
+    return { ok: false, error: 'вид мероприятия задан неверно' };
   }
   const eventDate = input.eventDate == null ? null : Number(input.eventDate);
   if (eventDate != null && (!Number.isFinite(eventDate) || eventDate <= 0)) {
-    return { ok: false, error: 'РґР°С‚Р° РјРµСЂРѕРїСЂРёСЏС‚РёСЏ Р·Р°РґР°РЅР° РЅРµРІРµСЂРЅРѕ' };
+    return { ok: false, error: 'дата мероприятия задана неверно' };
   }
   return {
     ok: true,
@@ -166,34 +166,34 @@ type ValidatedGift = {
 async function validateGift(input: GiftRecordInput): Promise<{ ok: true; value: ValidatedGift } | { ok: false; error: string }> {
   const recipientKind = String(input.recipientKind ?? 'child').trim().toLowerCase();
   if (recipientKind !== 'child' && recipientKind !== 'employee') {
-    return { ok: false, error: 'РїРѕР»СѓС‡Р°С‚РµР»СЊ Р·Р°РґР°РЅ РЅРµРІРµСЂРЅРѕ' };
+    return { ok: false, error: 'получатель задан неверно' };
   }
   const recipientEmployeeId = input.recipientEmployeeId == null ? null : String(input.recipientEmployeeId).trim();
   const recipientChildId = input.recipientChildId == null ? null : String(input.recipientChildId).trim();
   if (recipientKind === 'child') {
-    if (!recipientChildId) return { ok: false, error: 'РїРѕР»СѓС‡Р°С‚РµР»СЊ-СЂРµР±С‘РЅРѕРє РѕР±СЏР·Р°С‚РµР»РµРЅ' };
-    if (!isUuid(recipientChildId)) return { ok: false, error: 'РєР°СЂС‚РѕС‡РєР° СЂРµР±С‘РЅРєР° РЅРµ РЅР°Р№РґРµРЅР°' };
+    if (!recipientChildId) return { ok: false, error: 'получатель-ребёнок обязателен' };
+    if (!isUuid(recipientChildId)) return { ok: false, error: 'карточка ребёнка не найдена' };
   } else {
-    if (!recipientEmployeeId) return { ok: false, error: 'РїРѕР»СѓС‡Р°С‚РµР»СЊ-СЃРѕС‚СЂСѓРґРЅРёРє РѕР±СЏР·Р°С‚РµР»РµРЅ' };
-    if (!isUuid(recipientEmployeeId)) return { ok: false, error: 'РїРѕР»СѓС‡Р°С‚РµР»СЊ-СЃРѕС‚СЂСѓРґРЅРёРє РЅРµ РЅР°Р№РґРµРЅ' };
+    if (!recipientEmployeeId) return { ok: false, error: 'получатель-сотрудник обязателен' };
+    if (!isUuid(recipientEmployeeId)) return { ok: false, error: 'получатель-сотрудник не найден' };
   }
   const eventId = input.eventId == null ? null : String(input.eventId).trim();
   if (eventId) {
-    if (!isUuid(eventId)) return { ok: false, error: 'РјРµСЂРѕРїСЂРёСЏС‚РёРµ РЅРµ РЅР°Р№РґРµРЅРѕ' };
+    if (!isUuid(eventId)) return { ok: false, error: 'мероприятие не найдено' };
     const [event] = await db
       .select({ id: erpOrgEvents.id })
       .from(erpOrgEvents)
       .where(and(eq(erpOrgEvents.id, eventId as any), isNull(erpOrgEvents.deletedAt)))
       .limit(1);
-    if (!event) return { ok: false, error: 'РјРµСЂРѕРїСЂРёСЏС‚РёРµ РЅРµ РЅР°Р№РґРµРЅРѕ' };
+    if (!event) return { ok: false, error: 'мероприятие не найдено' };
   }
   const kind = String(input.kind ?? 'gift').trim().toLowerCase();
   if (!GIFT_KINDS.includes(kind as (typeof GIFT_KINDS)[number])) {
-    return { ok: false, error: 'РІРёРґ РїРѕРґР°СЂРєР° Р·Р°РґР°РЅ РЅРµРІРµСЂРЅРѕ' };
+    return { ok: false, error: 'вид подарка задан неверно' };
   }
   const givenAt = input.givenAt == null ? null : Number(input.givenAt);
   if (givenAt != null && (!Number.isFinite(givenAt) || givenAt <= 0)) {
-    return { ok: false, error: 'РґР°С‚Р° РІС‹РґР°С‡Рё Р·Р°РґР°РЅР° РЅРµРІРµСЂРЅРѕ' };
+    return { ok: false, error: 'дата выдачи задана неверно' };
   }
   return {
     ok: true,
@@ -222,13 +222,13 @@ export async function listOrgEvents(): Promise<Result<{ events: OrgEventRow[] }>
 
 export async function getOrgEvent(id: string): Promise<Result<{ event: OrgEventRow }>> {
   const eventId = String(id ?? '').trim();
-  if (!isUuid(eventId)) return { ok: false, error: 'id РјРµСЂРѕРїСЂРёСЏС‚РёСЏ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ uuid' };
+  if (!isUuid(eventId)) return { ok: false, error: 'id мероприятия должен быть uuid' };
   const [row] = await db
     .select()
     .from(erpOrgEvents)
     .where(and(eq(erpOrgEvents.id, eventId as any), isNull(erpOrgEvents.deletedAt)))
     .limit(1);
-  if (!row) return { ok: false, error: 'РјРµСЂРѕРїСЂРёСЏС‚РёРµ РЅРµ РЅР°Р№РґРµРЅРѕ' };
+  if (!row) return { ok: false, error: 'мероприятие не найдено' };
   return { ok: true, event: mapEvent(row) };
 }
 
@@ -265,13 +265,13 @@ export async function createOrgEvent(input: OrgEventInput, actor?: SyncActor): P
 
 export async function updateOrgEvent(id: string, input: OrgEventUpdate, actor?: SyncActor): Promise<Result<{ id: string }>> {
   const eventId = String(id ?? '').trim();
-  if (!isUuid(eventId)) return { ok: false, error: 'id РјРµСЂРѕРїСЂРёСЏС‚РёСЏ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ uuid' };
+  if (!isUuid(eventId)) return { ok: false, error: 'id мероприятия должен быть uuid' };
   const [current] = await db
     .select()
     .from(erpOrgEvents)
     .where(and(eq(erpOrgEvents.id, eventId as any), isNull(erpOrgEvents.deletedAt)))
     .limit(1);
-  if (!current) return { ok: false, error: 'РјРµСЂРѕРїСЂРёСЏС‚РёРµ РЅРµ РЅР°Р№РґРµРЅРѕ' };
+  if (!current) return { ok: false, error: 'мероприятие не найдено' };
   const merged = validateEvent({
     title: input.title === undefined ? current.title : input.title,
     kind: input.kind === undefined ? current.kind : input.kind,
@@ -302,13 +302,13 @@ export async function updateOrgEvent(id: string, input: OrgEventUpdate, actor?: 
 
 export async function deleteOrgEvent(id: string, actor?: SyncActor): Promise<Result<{ id: string }>> {
   const eventId = String(id ?? '').trim();
-  if (!isUuid(eventId)) return { ok: false, error: 'id РјРµСЂРѕРїСЂРёСЏС‚РёСЏ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ uuid' };
+  if (!isUuid(eventId)) return { ok: false, error: 'id мероприятия должен быть uuid' };
   const [current] = await db
     .select()
     .from(erpOrgEvents)
     .where(and(eq(erpOrgEvents.id, eventId as any), isNull(erpOrgEvents.deletedAt)))
     .limit(1);
-  if (!current) return { ok: false, error: 'РјРµСЂРѕРїСЂРёСЏС‚РёРµ РЅРµ РЅР°Р№РґРµРЅРѕ' };
+  if (!current) return { ok: false, error: 'мероприятие не найдено' };
   await db
     .update(erpOrgEvents)
     .set({ deletedAt: Date.now(), updatedAt: Date.now(), syncStatus: 'pending' })
@@ -368,13 +368,13 @@ export async function createGiftRecord(input: GiftRecordInput, actor?: SyncActor
 
 export async function updateGiftRecord(id: string, input: GiftRecordInput, actor?: SyncActor): Promise<Result<{ id: string }>> {
   const giftId = String(id ?? '').trim();
-  if (!isUuid(giftId)) return { ok: false, error: 'id Р·Р°РїРёСЃРё Рѕ РІС‹РґР°С‡Рµ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ uuid' };
+  if (!isUuid(giftId)) return { ok: false, error: 'id записи о выдаче должен быть uuid' };
   const [current] = await db
     .select()
     .from(erpGiftRecords)
     .where(and(eq(erpGiftRecords.id, giftId as any), isNull(erpGiftRecords.deletedAt)))
     .limit(1);
-  if (!current) return { ok: false, error: 'Р·Р°РїРёСЃСЊ Рѕ РІС‹РґР°С‡Рµ РЅРµ РЅР°Р№РґРµРЅР°' };
+  if (!current) return { ok: false, error: 'запись о выдаче не найдена' };
   const checked = await validateGift({
     eventId: input.eventId === undefined ? current.eventId : input.eventId,
     recipientKind: input.recipientKind === undefined ? current.recipientKind : input.recipientKind,
@@ -410,13 +410,13 @@ export async function updateGiftRecord(id: string, input: GiftRecordInput, actor
 
 export async function deleteGiftRecord(id: string, actor?: SyncActor): Promise<Result<{ id: string }>> {
   const giftId = String(id ?? '').trim();
-  if (!isUuid(giftId)) return { ok: false, error: 'id Р·Р°РїРёСЃРё Рѕ РІС‹РґР°С‡Рµ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ uuid' };
+  if (!isUuid(giftId)) return { ok: false, error: 'id записи о выдаче должен быть uuid' };
   const [current] = await db
     .select()
     .from(erpGiftRecords)
     .where(and(eq(erpGiftRecords.id, giftId as any), isNull(erpGiftRecords.deletedAt)))
     .limit(1);
-  if (!current) return { ok: false, error: 'Р·Р°РїРёСЃСЊ Рѕ РІС‹РґР°С‡Рµ РЅРµ РЅР°Р№РґРµРЅР°' };
+  if (!current) return { ok: false, error: 'запись о выдаче не найдена' };
   await db
     .update(erpGiftRecords)
     .set({ deletedAt: Date.now(), updatedAt: Date.now(), syncStatus: 'pending' })
