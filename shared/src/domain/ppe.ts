@@ -7,6 +7,30 @@ export const PPE_DAY_MS = 86_400_000;
 /** За сколько дней до срока позиция попадает в «скоро выдавать». */
 export const PPE_DUE_SOON_DAYS = 14;
 
+/**
+ * Вид СИЗ: 'workwear' — спецодежда, 'soap' — мыло.
+ *
+ * Владелец (промт КАРМАНА #21): «нужна отдельная карточка на мыло: выдаётся отдельно от
+ * карточки по спецодежде, по своей норме». Значит, вид носят и набор норм, и карточка
+ * выдачи: наборы разных видов не смешиваются, а открытая карточка — одна на вид.
+ *
+ * Список — источник истины, а не только тип: контракт синка берёт его отсюда
+ * (как `PPE_WEAR_KINDS`), чтобы домен и контракт не разошлись.
+ */
+export const PPE_KINDS = ['workwear', 'soap'] as const;
+
+export type PpeKind = (typeof PPE_KINDS)[number];
+
+/** Вид по умолчанию: прежние наборы и карточки — спецодежда. */
+export const PPE_DEFAULT_KIND: PpeKind = 'workwear';
+
+/** Название вида по-русски — для подписей в интерфейсе. */
+export const PPE_KIND_RU: Record<PpeKind, string> = {
+  workwear: 'Спецодежда',
+  soap: 'Мыло',
+};
+
+
 export type PpeNormLineInput = {
   normSetId: string;
   nomenclatureId: string;

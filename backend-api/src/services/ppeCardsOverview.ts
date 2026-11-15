@@ -10,7 +10,7 @@
  * что показывает карточка и отчёты. Свой второй калькулятор тут означал бы, что список
  * говорит «пора», а карточка «в сроке».
  */
-import { and, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import {
   nextIssueDates,
@@ -282,7 +282,9 @@ export async function getPpeCardsOverview(): Promise<{ ok: true; rows: PpeOvervi
           closedAt: ppeIssueCards.closedAt,
         })
         .from(ppeIssueCards)
-        .where(isNull(ppeIssueCards.deletedAt)),
+        // Список карточек — про спецодежду: карточка мыла живёт отдельно (промты
+        // КАРМАНА #21/#26) и в «пора выдавать» по спецодежде мешать не должна.
+        .where(and(isNull(ppeIssueCards.deletedAt), eq(ppeIssueCards.kind, 'workwear'))),
       db
         .select({ cardId: ppeCardNorms.cardId, normSetId: ppeCardNorms.normSetId })
         .from(ppeCardNorms)

@@ -182,6 +182,9 @@ const WRITE_CHANNELS = new Set([
   'ppe:normLines:wearPeriod:set',
   'ppe:cards:open',
   'ppe:cards:assignNorms',
+  // Набор норм из карточки СИЗ (промты КАРМАНА #21/#26): заводится новый набор и
+  // сразу назначается карточке — пишет в карточку, значит идёт через write-гейт.
+  'ppe:cards:createNormSet',
   'ppe:cards:close',
   'ppe:cards:issue',
   // Возврат СИЗ (миграция 0126): «получил обратно» и снятие отметки — пишут в

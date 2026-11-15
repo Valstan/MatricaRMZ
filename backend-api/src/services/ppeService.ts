@@ -2,8 +2,11 @@ import { randomUUID } from 'node:crypto';
 
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 
+import { PPE_DEFAULT_KIND, PPE_KINDS, type PpeKind } from '@matricarmz/shared';
+
 import { db } from '../database/db.js';
 import {
+  erpEmployeeCards,
   erpNomenclature,
   ppeAbsences,
   ppeCardNorms,
@@ -38,6 +41,12 @@ export type PpeNormSetUpsert = {
   id?: string;
   name: string;
   postTitle?: string | null;
+  /**
+   * Вид набора: 'workwear' — спецодежда, 'soap' — мыло (промты КАРМАНА #21/#26).
+   * Не передан — спецодежда. Приказные наборы всегда 'workwear': вид приказа не
+   * переопределяем.
+   */
+  kind?: PpeKind | null;
   departmentId?: string | null;
   gender?: 'M' | 'F' | null;
   season?: 'winter' | 'summer' | null;
@@ -59,7 +68,9 @@ async function validateNomenclatureIds(ids: string[]): Promise<string | null> {
   return bad ? `nomenclatureId: ссылка ${bad} не существует или удалена` : null;
 }
 
-export async function listPpeNormSets(args: { postTitle?: string; gender?: string; season?: string } = {}): Promise<
+export async function listPpeNormSets(
+  args: { postTitle?: string; gender?: string; season?: string; kind?: PpeKind } = {},
+): Promise<
   Result<{
     rows: Array<{
       id: string;
@@ -78,6 +89,8 @@ export async function listPpeNormSets(args: { postTitle?: string; gender?: strin
       sourceLabel: string | null;
       occupationCode: string | null;
       occupationPost: string | null;
+      /** Вид набора: 'workwear' — спецодежда, 'soap' — мыло. */
+      kind: PpeKind;
     }>;
   }>
 > {
@@ -86,6 +99,7 @@ export async function listPpeNormSets(args: { postTitle?: string; gender?: strin
     if (args.postTitle) conditions.push(eq(ppeNormSets.postTitle, args.postTitle));
     if (args.gender) conditions.push(eq(ppeNormSets.gender, args.gender));
     if (args.season) conditions.push(eq(ppeNormSets.season, args.season));
+    if (args.kind) conditions.push(eq(ppeNormSets.kind, args.kind));
     const sets = await db
       .select({
         id: ppeNormSets.id,
@@ -100,6 +114,7 @@ export async function listPpeNormSets(args: { postTitle?: string; gender?: strin
         occupationId: ppeNormSets.occupationId,
         sourceKind: ppeNormSets.sourceKind,
         sourceLabel: ppeNormSets.sourceLabel,
+        kind: ppeNormSets.kind,
       })
       .from(ppeNormSets)
       .where(and(...conditions));
@@ -137,6 +152,7 @@ export async function listPpeNormSets(args: { postTitle?: string; gender?: strin
         sourceLabel: s.sourceLabel == null ? null : String(s.sourceLabel),
         occupationCode: occupationById.get(String(s.occupationId ?? ''))?.code ?? null,
         occupationPost: occupationById.get(String(s.occupationId ?? ''))?.postTitle ?? null,
+        kind: (s.kind === 'soap' ? 'soap' : 'workwear') as PpeKind,
       })),
     };
   } catch (e) {
@@ -162,6 +178,8 @@ export async function getPpeNormSet(id: string): Promise<
       sourceLabel: string | null;
       occupationCode: string | null;
       occupationPost: string | null;
+      /** Вид набора: 'workwear' — спецодежда, 'soap' — мыло. */
+      kind: PpeKind;
       lines: Array<{
         id: string;
         nomenclatureId: string;
@@ -240,6 +258,7 @@ export async function getPpeNormSet(id: string): Promise<
         sourceLabel: set.sourceLabel == null ? null : String(set.sourceLabel),
         occupationCode: occupation ? String(occupation.code) : null,
         occupationPost: occupation ? String(occupation.postTitle) : null,
+        kind: (set.kind === 'soap' ? 'soap' : 'workwear') as PpeKind,
         lines: lines.map((l) => {
           const nom = nomById.get(String(l.nomenclatureId));
           const spec = l.specId ? specById.get(String(l.specId)) : undefined;
@@ -283,6 +302,10 @@ export async function upsertPpeNormSet(input: PpeNormSetUpsert): Promise<Result<
     const id = String(input.id ?? randomUUID()).trim();
     const name = String(input.name ?? '').trim();
     if (!name) return { ok: false, error: 'name обязателен' };
+    const requestedKind = input.kind == null ? null : String(input.kind);
+    if (requestedKind != null && !PPE_KINDS.includes(requestedKind as PpeKind)) {
+      return { ok: false, error: `kind должен быть одним из: ${PPE_KINDS.join(', ')}` };
+    }
     if (input.lines.length === 0) return { ok: false, error: 'Набор норм должен содержать хотя бы одну строку' };
     for (const [i, line] of input.lines.entries()) {
       if (!Number.isInteger(line.qty) || line.qty <= 0) return { ok: false, error: `lines[${i}].qty должен быть целым больше нуля` };
@@ -324,8 +347,20 @@ export async function upsertPpeNormSet(input: PpeNormSetUpsert): Promise<Result<
     }
 
     const now = Date.now();
+    let savedKind: PpeKind = PPE_DEFAULT_KIND;
     await db.transaction(async (tx) => {
-      const existing = await tx.select({ id: ppeNormSets.id }).from(ppeNormSets).where(eq(ppeNormSets.id, id as any)).limit(1);
+      const existing = await tx
+        .select({ id: ppeNormSets.id, occupationId: ppeNormSets.occupationId, kind: ppeNormSets.kind })
+        .from(ppeNormSets)
+        .where(eq(ppeNormSets.id, id as any))
+        .limit(1);
+      // Приказной набор — всегда спецодежда: вид приказа не переопределяем. Свой набор
+      // завода помнит свой вид (иначе правка строк затирала бы «мыло» в «спецодежду»).
+      const kind: PpeKind = existing[0]?.occupationId
+        ? 'workwear'
+        : ((requestedKind as PpeKind | null) ??
+          (existing[0]?.kind === 'soap' ? ('soap' as PpeKind) : PPE_DEFAULT_KIND));
+      savedKind = kind;
       const values = {
         name,
         postTitle: input.postTitle ?? null,
@@ -333,6 +368,7 @@ export async function upsertPpeNormSet(input: PpeNormSetUpsert): Promise<Result<
         gender: input.gender ?? null,
         season: input.season ?? null,
         isDuty: input.isDuty === true,
+        kind,
         validFrom: input.validFrom ?? now,
         validTo: input.validTo ?? null,
         updatedAt: now,
@@ -386,16 +422,163 @@ export async function upsertPpeNormSet(input: PpeNormSetUpsert): Promise<Result<
         })),
       );
     });
+    // Набор вида «мыло» назначается всем открытым карточкам мыла: «мыло выдаём всем
+    // стандартно» — значит, один набор на всех, а не обход каждого сотрудника вручную.
+    if (savedKind === 'soap') {
+      await assignNormSetToCardsOfKind(id, 'soap');
+    }
     return { ok: true, id };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
 }
 
-export async function openPpeCard(args: { employeeId: string }): Promise<Result<{ id: string }>> {
+/**
+ * Назначить набор всем открытым карточкам данного вида.
+ *
+ * Нужно для вида «мыло»: норма у него одна на всех, и кладовщик не должен назначать
+ * её каждому сотруднику вручную. Карточки, где набор уже назначен, не трогаем.
+ */
+async function assignNormSetToCardsOfKind(normSetId: string, kind: PpeKind): Promise<number> {
+  const cards = await db
+    .select({ id: ppeIssueCards.id })
+    .from(ppeIssueCards)
+    .where(and(eq(ppeIssueCards.kind, kind), isNull(ppeIssueCards.closedAt), isNull(ppeIssueCards.deletedAt)));
+  if (cards.length === 0) return 0;
+  const cardIds = cards.map((c) => String(c.id));
+  const existing = await db
+    .select({ cardId: ppeCardNorms.cardId })
+    .from(ppeCardNorms)
+    .where(and(inArray(ppeCardNorms.cardId, cardIds as any), isNull(ppeCardNorms.deletedAt)));
+  const have = new Set(existing.map((r) => String(r.cardId)));
+  const fresh = cardIds.filter((id) => !have.has(id));
+  if (fresh.length === 0) return 0;
+  const now = Date.now();
+  await db.insert(ppeCardNorms).values(
+    fresh.map((cardId) => ({
+      id: randomUUID(),
+      cardId,
+      normSetId,
+      assignedAt: now,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+      syncStatus: 'pending',
+    })),
+  );
+  return fresh.length;
+}
+
+/**
+ * Набор норм заводится прямо из карточки СИЗ — одним действием (промт КАРМАНА #21:
+ * «набор норм должен заводиться прямо из карточки СИЗ, без ручной правки приказа — в том
+ * числе набор на мыло, которого в приказе сейчас нет»).
+ *
+ * Значит: позиции кладовщик видит в карточке, а набор — его заводской (без приказа), и
+ * он сразу назначен карточке, из которой заведён. Для вида «мыло» набор назначается всем
+ * открытым карточкам мыла — «мыло выдаём всем стандартно».
+ *
+ * Должность подставляется из карточки: набор, заведённый из карточки слесаря, потом
+ * подхватывается автоподбором «Назначить нормы по должности» у других слесарей.
+ */
+export async function createNormSetFromCard(args: {
+  cardId: string;
+  name: string;
+  kind?: PpeKind | null;
+  lines: PpeNormLineInput[];
+  postTitle?: string | null;
+}): Promise<Result<{ id: string; assigned: number }>> {
+  try {
+    const cardId = String(args.cardId ?? '').trim();
+    if (!cardId) return { ok: false, error: 'cardId обязателен' };
+    const name = String(args.name ?? '').trim();
+    if (!name) return { ok: false, error: 'Укажите название набора' };
+    const lines = args.lines ?? [];
+    if (lines.length === 0) return { ok: false, error: 'Набор норм должен содержать хотя бы одну строку' };
+
+    const cardRows = await db
+      .select({
+        id: ppeIssueCards.id,
+        employeeId: ppeIssueCards.employeeId,
+        kind: ppeIssueCards.kind,
+        closedAt: ppeIssueCards.closedAt,
+      })
+      .from(ppeIssueCards)
+      .where(and(eq(ppeIssueCards.id, cardId as any), isNull(ppeIssueCards.deletedAt)))
+      .limit(1);
+    const card = cardRows[0];
+    if (!card) return { ok: false, error: 'Карточка не найдена' };
+    if (card.closedAt != null) return { ok: false, error: 'Карточка закрыта — набор из неё не заводится' };
+
+    const cardKind: PpeKind = card.kind === 'soap' ? 'soap' : PPE_DEFAULT_KIND;
+    const requested = args.kind == null ? null : String(args.kind);
+    if (requested != null && !PPE_KINDS.includes(requested as PpeKind)) {
+      return { ok: false, error: `kind должен быть одним из: ${PPE_KINDS.join(', ')}` };
+    }
+    const kind: PpeKind = (requested as PpeKind | null) ?? cardKind;
+
+    // Должность сотрудника — основание автоподбора. Если её нет, набор остаётся
+    // «заводским» и назначается только вручную.
+    let postTitle = args.postTitle == null ? null : String(args.postTitle).trim();
+    if (!postTitle) {
+      const emp = await db
+        .select({ roleCode: erpEmployeeCards.roleCode })
+        .from(erpEmployeeCards)
+        .where(eq(erpEmployeeCards.id, card.employeeId as any))
+        .limit(1);
+      postTitle = emp[0]?.roleCode == null ? null : String(emp[0].roleCode);
+    }
+
+    const created = await upsertPpeNormSet({
+      name,
+      postTitle,
+      kind,
+      lines: lines.map((l) => ({
+        nomenclatureId: String(l.nomenclatureId),
+        qty: Number(l.qty),
+        wearMonths: l.wearMonths == null ? null : Number(l.wearMonths),
+      })),
+    });
+    if (!created.ok) return { ok: false, error: created.error };
+
+    // Назначение карточке, из которой заведён набор. Для мыла это уже сделал
+    // upsertPpeNormSet: норма у мыла одна на всех, она уехала всем открытым
+    // карточкам мыла вместе с заведением набора.
+    let assigned = 0;
+    if (kind !== 'soap') {
+      const existing = await db
+        .select({ cardId: ppeCardNorms.cardId })
+        .from(ppeCardNorms)
+        .where(and(eq(ppeCardNorms.cardId, cardId as any), eq(ppeCardNorms.normSetId, created.id as any), isNull(ppeCardNorms.deletedAt)))
+        .limit(1);
+      if (existing.length === 0) {
+        const now = Date.now();
+        await db.insert(ppeCardNorms).values({
+          id: randomUUID(),
+          cardId,
+          normSetId: created.id,
+          assignedAt: now,
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null,
+          syncStatus: 'pending',
+        });
+        assigned = 1;
+      }
+    }
+    return { ok: true, id: created.id, assigned };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function openPpeCard(args: { employeeId: string; kind?: PpeKind | null }): Promise<Result<{ id: string }>> {
   try {
     const employeeId = String(args.employeeId ?? '').trim();
     if (!employeeId) return { ok: false, error: 'employeeId обязателен' };
+    // Вид карточки: 'workwear' — спецодежда, 'soap' — мыло. Открытая карточка одна
+    // на вид, поэтому у сотрудника их может быть две.
+    const kind: PpeKind = args.kind === 'soap' ? 'soap' : PPE_DEFAULT_KIND;
     // Субъект модуля — строгая таблица, и вся дальнейшая нитка (нормы, выдачи,
     // распределение) знает только её id. Карточку из справочника программа заводит
     // сама (`ensurePpeEmployeeCard`): иначе кладовщик видел пустой пикер и «не найден»
@@ -409,6 +592,7 @@ export async function openPpeCard(args: { employeeId: string }): Promise<Result<
       await db.insert(ppeIssueCards).values({
         id,
         employeeId: cardEmployeeId,
+        kind,
         openedAt: now,
         closedAt: null,
         createdAt: now,
@@ -417,7 +601,24 @@ export async function openPpeCard(args: { employeeId: string }): Promise<Result<
         syncStatus: 'pending',
       });
     } catch {
-      return { ok: false, error: 'У сотрудника уже есть открытая карточка выдачи СИЗ' };
+      return {
+        ok: false,
+        error:
+          kind === 'soap'
+            ? 'У сотрудника уже есть открытая карточка по мылу'
+            : 'У сотрудника уже есть открытая карточка выдачи СИЗ',
+      };
+    }
+    // Карточка мыла сразу получает все живые наборы вида «мыло»: «мыло выдаём всем
+    // стандартно» — одна норма на всех, а не обход каждого сотрудника вручную.
+    if (kind === 'soap') {
+      const soapSets = await db
+        .select({ id: ppeNormSets.id })
+        .from(ppeNormSets)
+        .where(and(eq(ppeNormSets.kind, 'soap'), isNull(ppeNormSets.deletedAt)));
+      for (const set of soapSets) {
+        await assignNormSetToCardsOfKind(String(set.id), 'soap');
+      }
     }
     return { ok: true, id };
   } catch (e) {
@@ -431,20 +632,33 @@ export async function assignCardNorms(args: { cardId: string; normSetIds: string
     const normSetIds = [...new Set((args.normSetIds ?? []).map((v) => String(v).trim()).filter(Boolean))];
     if (!cardId) return { ok: false, error: 'cardId обязателен' };
     const card = await db
-      .select({ id: ppeIssueCards.id, closedAt: ppeIssueCards.closedAt })
+      .select({ id: ppeIssueCards.id, closedAt: ppeIssueCards.closedAt, kind: ppeIssueCards.kind })
       .from(ppeIssueCards)
       .where(and(eq(ppeIssueCards.id, cardId as any), isNull(ppeIssueCards.deletedAt)))
       .limit(1);
     if (!card[0]) return { ok: false, error: 'Карточка не найдена' };
     if (card[0].closedAt != null) return { ok: false, error: 'Карточка закрыта — нормы не назначаются' };
+    const cardKind: PpeKind = card[0].kind === 'soap' ? 'soap' : PPE_DEFAULT_KIND;
     if (normSetIds.length > 0) {
       const sets = await db
-        .select({ id: ppeNormSets.id })
+        .select({ id: ppeNormSets.id, kind: ppeNormSets.kind, name: ppeNormSets.name })
         .from(ppeNormSets)
         .where(and(inArray(ppeNormSets.id, normSetIds as any), isNull(ppeNormSets.deletedAt)));
-      const valid = new Set(sets.map((s) => String(s.id)));
-      const bad = normSetIds.find((v) => !valid.has(v));
+      const byId = new Map(sets.map((s) => [String(s.id), s]));
+      const bad = normSetIds.find((v) => !byId.has(v));
       if (bad) return { ok: false, error: `Набор норм ${bad} не существует или удалён` };
+      // Гейт вида: набор мыла не вешают на карточку спецодежды и наоборот — иначе
+      // выдача мыла попала бы в общий след выдачи спецодежды.
+      const wrongKind = sets.find((s) => (s.kind === 'soap' ? 'soap' : 'workwear') !== cardKind);
+      if (wrongKind) {
+        return {
+          ok: false,
+          error:
+            cardKind === 'soap'
+              ? `Набор «${wrongKind.name}» — не набор по мылу. В карточку мыла назначаются только наборы вида «мыло».`
+              : `Набор «${wrongKind.name}» — набор по мылу. В карточку по спецодежде назначаются только наборы вида «спецодежда».`,
+        };
+      }
     }
     const now = Date.now();
     const existing = await db
@@ -473,11 +687,13 @@ export async function assignCardNorms(args: { cardId: string; normSetIds: string
   }
 }
 
-export async function getPpeCard(args: { cardId?: string; employeeId?: string }): Promise<
+export async function getPpeCard(args: { cardId?: string; employeeId?: string; kind?: PpeKind | null }): Promise<
   Result<{
     card: {
       id: string;
       employeeId: string;
+      /** Вид карточки: 'workwear' — спецодежда, 'soap' — мыло. */
+      kind: PpeKind;
       openedAt: number;
       closedAt: number | null;
       norms: Array<{ normSetId: string; name: string; assignedAt: number }>;
@@ -498,12 +714,22 @@ export async function getPpeCard(args: { cardId?: string; employeeId?: string })
     const byCard = String(args.cardId ?? '').trim();
     const byEmployee = String(args.employeeId ?? '').trim();
     if (!byCard && !byEmployee) return { ok: false, error: 'Нужен cardId или employeeId' };
+    // Карточка по сотруднику — нужного вида: у сотрудника их может быть две
+    // (спецодежда и мыло), и молча взять «любую» значило бы показать не тот след выдачи.
+    const kind: PpeKind = args.kind === 'soap' ? 'soap' : PPE_DEFAULT_KIND;
     const cardRows = byCard
       ? await db.select().from(ppeIssueCards).where(and(eq(ppeIssueCards.id, byCard as any), isNull(ppeIssueCards.deletedAt))).limit(1)
       : await db
           .select()
           .from(ppeIssueCards)
-          .where(and(eq(ppeIssueCards.employeeId, byEmployee as any), isNull(ppeIssueCards.closedAt), isNull(ppeIssueCards.deletedAt)))
+          .where(
+            and(
+              eq(ppeIssueCards.employeeId, byEmployee as any),
+              eq(ppeIssueCards.kind, kind),
+              isNull(ppeIssueCards.closedAt),
+              isNull(ppeIssueCards.deletedAt),
+            ),
+          )
           .limit(1);
     const card = cardRows[0];
     if (!card) return { ok: false, error: 'Карточка не найдена' };
@@ -521,6 +747,7 @@ export async function getPpeCard(args: { cardId?: string; employeeId?: string })
       card: {
         id: String(card.id),
         employeeId: String(card.employeeId),
+        kind: (card.kind === 'soap' ? 'soap' : 'workwear') as PpeKind,
         openedAt: Number(card.openedAt),
         closedAt: card.closedAt == null ? null : Number(card.closedAt),
         norms: links.map((l) => ({ normSetId: String(l.normSetId), name: String(l.name), assignedAt: Number(l.assignedAt) })),
@@ -982,14 +1209,26 @@ export async function getPpeGroupNorms(groupId: string): Promise<Result<{ normSe
  * (ppe_group_norms), поэтому отзыв нормы у группы отзывает её у людей.
  * Чистое чтение для PR-4 (карточка показывает групповые с пометкой источника).
  */
-export async function resolveEmployeeNormSetIds(employeeId: string): Promise<Result<{ personal: string[]; group: string[] }>> {
+export async function resolveEmployeeNormSetIds(
+  employeeId: string,
+  kind: PpeKind | null = null,
+): Promise<Result<{ personal: string[]; group: string[] }>> {
   try {
     const key = String(employeeId ?? '').trim();
     if (!key) return { ok: false, error: 'employeeId обязателен' };
+    // Вид карточки: нормы мыла не должны попадать в карточку спецодежды и наоборот.
+    const cardKind: PpeKind = kind === 'soap' ? 'soap' : PPE_DEFAULT_KIND;
     const cards = await db
       .select({ id: ppeIssueCards.id })
       .from(ppeIssueCards)
-      .where(and(eq(ppeIssueCards.employeeId, key as any), isNull(ppeIssueCards.closedAt), isNull(ppeIssueCards.deletedAt)))
+      .where(
+        and(
+          eq(ppeIssueCards.employeeId, key as any),
+          eq(ppeIssueCards.kind, cardKind),
+          isNull(ppeIssueCards.closedAt),
+          isNull(ppeIssueCards.deletedAt),
+        ),
+      )
       .limit(1);
     const personal = cards[0]
       ? (
@@ -1010,7 +1249,15 @@ export async function resolveEmployeeNormSetIds(employeeId: string): Promise<Res
           await db
             .select({ normSetId: ppeGroupNorms.normSetId })
             .from(ppeGroupNorms)
-            .where(and(inArray(ppeGroupNorms.groupId, groupIds as any), isNull(ppeGroupNorms.deletedAt)))
+            .innerJoin(ppeNormSets, eq(ppeNormSets.id, ppeGroupNorms.normSetId))
+            .where(
+              and(
+                inArray(ppeGroupNorms.groupId, groupIds as any),
+                isNull(ppeGroupNorms.deletedAt),
+                isNull(ppeNormSets.deletedAt),
+                eq(ppeNormSets.kind, cardKind),
+              ),
+            )
         ).map((r) => String(r.normSetId))
         : [];
     return { ok: true, personal: [...new Set(personal)], group: [...new Set(group)] };
@@ -1274,10 +1521,19 @@ export async function distributeCollective(args: {
       .where(eq(ppeCollectives.id, collectiveId as any));
     try {
       const cardByEmployee = new Map<string, string>();
+      // Коллективная выдача — по спецодежде: карточку берём по виду, иначе при двух
+      // карточках у сотрудника (спецодежда и мыло) выдача попала бы в случайную.
       const cards = await db
         .select({ id: ppeIssueCards.id, employeeId: ppeIssueCards.employeeId })
         .from(ppeIssueCards)
-        .where(and(inArray(ppeIssueCards.employeeId, employeeIds as any), isNull(ppeIssueCards.closedAt), isNull(ppeIssueCards.deletedAt)));
+        .where(
+          and(
+            inArray(ppeIssueCards.employeeId, employeeIds as any),
+            eq(ppeIssueCards.kind, PPE_DEFAULT_KIND),
+            isNull(ppeIssueCards.closedAt),
+            isNull(ppeIssueCards.deletedAt),
+          ),
+        );
       for (const c of cards) cardByEmployee.set(String(c.employeeId), String(c.id));
       for (const employeeId of employeeIds) {
         if (cardByEmployee.has(employeeId)) continue;
@@ -1286,6 +1542,7 @@ export async function distributeCollective(args: {
           await db.insert(ppeIssueCards).values({
             id: cardId,
             employeeId,
+            kind: PPE_DEFAULT_KIND,
             openedAt: now,
             closedAt: null,
             createdAt: now,
@@ -1299,7 +1556,14 @@ export async function distributeCollective(args: {
           const again = await db
             .select({ id: ppeIssueCards.id })
             .from(ppeIssueCards)
-            .where(and(eq(ppeIssueCards.employeeId, employeeId as any), isNull(ppeIssueCards.closedAt), isNull(ppeIssueCards.deletedAt)))
+            .where(
+              and(
+                eq(ppeIssueCards.employeeId, employeeId as any),
+                eq(ppeIssueCards.kind, PPE_DEFAULT_KIND),
+                isNull(ppeIssueCards.closedAt),
+                isNull(ppeIssueCards.deletedAt),
+              ),
+            )
             .limit(1);
           if (again[0]) cardByEmployee.set(employeeId, String(again[0].id));
         }

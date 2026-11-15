@@ -8,9 +8,11 @@ import {
   normalizeLookupCompact,
   normalizeLookupText,
   PPE_DAY_MS,
+  PPE_KIND_RU,
   PPE_SIZE_ATTRIBUTE_CODES,
   ppeSizeKindForName,
   resolveEmployeeNorms,
+  type PpeKind,
   type PpeNextIssue,
   type PpeSizeKind,
   type PpeWearKind,
@@ -57,7 +59,7 @@ type CardDto = {
   }>;
 };
 
-type NormOption = { id: string; name: string; postTitle: string | null };
+type NormOption = { id: string; name: string; postTitle: string | null; kind?: 'workwear' | 'soap' };
 type IssueLine = { nomenclatureId: string; qty: string };
 type AbsenceRow = { id: string; employeeId: string; fromMs: number; toMs: number; kind: string };
 
@@ -208,6 +210,12 @@ export function PpeCardDetailsPage(props: {
   onBack?: () => void;
 }) {
   const { employeeId } = props;
+  /**
+   * Вид карточки СИЗ: 'workwear' — спецодежда, 'soap' — мыло (промты КАРМАНА #21/#26:
+   * «нужна отдельная карточка на мыло: выдаётся отдельно от карточки по спецодежде,
+   * по своей норме»). У сотрудника карточек может быть две — переключатель в шапке.
+   */
+  const [kind, setKind] = useState<PpeKind>('workwear');
   const [employees, setEmployees] = useState<SearchSelectOption[]>([]);
   const [card, setCard] = useState<CardDto | null>(null);
   const [cardMissing, setCardMissing] = useState(false);
@@ -219,6 +227,17 @@ export function PpeCardDetailsPage(props: {
   const [absenceFrom, setAbsenceFrom] = useState('');
   const [absenceTo, setAbsenceTo] = useState('');
   const [nomNames, setNomNames] = useState<Map<string, string>>(new Map());
+  /** Справочник номенклатуры для пикера позиции (заведение набора из карточки). */
+  const [nomenclatureOptions, setNomenclatureOptions] = useState<SearchSelectOption[]>([]);
+  /**
+   * Черновик набора, который заводится прямо из карточки (промт КАРМАНА #21):
+   * позиции берутся из норм карточки, кладовщик может добавить свою (например «Мыло»).
+   */
+  const [newSetName, setNewSetName] = useState('');
+  const [newSetLines, setNewSetLines] = useState<Array<{ nomenclatureId: string; qty: string; wearMonths: string }>>([]);
+  const [newSetNom, setNewSetNom] = useState<string | null>(null);
+  const [newSetQty, setNewSetQty] = useState('1');
+  const [newSetWear, setNewSetWear] = useState('12');
   /** Сертификат позиции (вид СИЗ) по id номенклатуры — из списка номенклатуры. */
   const [nomCertificates, setNomCertificates] = useState<Map<string, string>>(new Map());
   const [personnelByEmployee, setPersonnelByEmployee] = useState<Map<string, string>>(new Map());
@@ -312,6 +331,14 @@ export function PpeCardDetailsPage(props: {
       if (noms?.ok) {
         const rows = (noms.rows ?? []) as any[];
         setNomNames(new Map(rows.map((r) => [String(r.id), String(r.name ?? '')])));
+        setNomenclatureOptions(
+          rows.map((r) => ({
+            id: String(r.id),
+            label: String(r.name ?? ''),
+            ...(r.code ? { hintText: String(r.code) } : {}),
+            searchText: `${r.name ?? ''} ${r.code ?? ''}`,
+          })),
+        );
         setNomCertificates(
           new Map(
             rows
@@ -364,7 +391,7 @@ export function PpeCardDetailsPage(props: {
     setAbsences(abs?.ok ? abs.rows : []);
     // Нормы сотрудника = личные привязки + нормы его групп (ядро сливает с дедупом
     // и минимальным сроком) — групповые строки видны и учитываются здесь же.
-    const resolved = await window.matrica.ppe.employees.normSets(res.card.employeeId).catch(() => null);
+    const resolved = await window.matrica.ppe.employees.normSets(res.card.employeeId, kind).catch(() => null);
     const groupIds = resolved?.ok ? resolved.group : [];
     setGroupNormIds(groupIds);
     const setIds = [...new Set([...res.card.norms.map((n) => n.normSetId), ...groupIds])];
@@ -374,10 +401,19 @@ export function PpeCardDetailsPage(props: {
       if (det?.ok) allLines.push(...det.normSet.lines);
     }
     setNormLines(allLines);
+    // Черновик набора «из позиций карточки»: по умолчанию — текущие позиции карточки.
+    setNewSetLines(
+      allLines.map((l) => ({
+        nomenclatureId: l.nomenclatureId,
+        qty: String(l.qty),
+        wearMonths: l.wearMonths == null ? '' : String(l.wearMonths),
+      })),
+    );
+    setNewSetName(kind === 'soap' ? 'Мыло — всем' : 'Нормы по карточке');
     const personnelNo = personnelByEmployee.get(res.card.employeeId) ?? '';
     setSizes(personnelNo ? (sizesByPersonnel.get(personnelNo) ?? EMPTY_SIZES) : EMPTY_SIZES);
     await loadPersonalCard(res.card.employeeId, setIds);
-  }, [personnelByEmployee, sizesByPersonnel, loadPersonalCard]);
+  }, [personnelByEmployee, sizesByPersonnel, loadPersonalCard, kind]);
 
   /**
    * Срок носки по позиции проставляет кладовщик (решение владельца от 05.11): у годовой
@@ -414,7 +450,7 @@ export function PpeCardDetailsPage(props: {
   const findCard = useCallback(async () => {
     setBusy(true);
     try {
-      const res = await window.matrica.ppe.cards.byEmployee(employeeId);
+      const res = await window.matrica.ppe.cards.byEmployee(employeeId, kind);
       if (!res.ok) {
         setCard(null);
         setCardMissing(true);
@@ -432,12 +468,12 @@ export function PpeCardDetailsPage(props: {
     } finally {
       setBusy(false);
     }
-  }, [employeeId, loadCard, personnelByEmployee, sizesByPersonnel, loadPersonalCard]);
+  }, [employeeId, kind, loadCard, personnelByEmployee, sizesByPersonnel, loadPersonalCard]);
 
   useEffect(() => {
     void findCard();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- карточка перечитывается при смене сотрудника и после первого прихода справочника: findCard зависит от карт размеров, которые приезжают позже
-  }, [employeeId, personnelByEmployee.size]);
+  }, [employeeId, kind, personnelByEmployee.size]);
 
   /**
    * Шаблон печатной формы — с сервера. Личный шаблон перекрывает общий по ключу формы,
@@ -501,7 +537,7 @@ export function PpeCardDetailsPage(props: {
       // сначала «Завести карточку», а потом ещё раз назначать нормы.
       let cardId = card?.id ?? null;
       if (!cardId) {
-        const opened = await window.matrica.ppe.cards.open({ employeeId });
+        const opened = await window.matrica.ppe.cards.open({ employeeId, kind });
         if (!opened.ok) {
           setPostWarning(`Не удалось завести карточку выдачи: ${opened.error}`);
           return;
@@ -530,12 +566,61 @@ export function PpeCardDetailsPage(props: {
     }
   }
 
+  /**
+   * Набор норм заводится прямо из карточки — одним действием (промт КАРМАНА #21:
+   * «набор норм должен заводиться прямо из карточки СИЗ, без ручной правки приказа — в том
+   * числе набор на мыло, которого в приказе сейчас нет»).
+   *
+   * Набор уходит на сервер вместе с назначением карточке: для вида «мыло» он
+   * назначается всем открытым карточкам по мылу («мыло выдаём всем стандартно»).
+   */
+  async function createSetFromCard() {
+    if (!card) return;
+    const name = newSetName.trim();
+    if (!name) {
+      setStatus('Укажите название набора');
+      return;
+    }
+    const lines = newSetLines
+      .map((l) => ({
+        nomenclatureId: l.nomenclatureId,
+        qty: Math.trunc(Number(String(l.qty).replace(',', '.'))),
+        wearMonths: l.wearMonths.trim() === '' ? null : Math.trunc(Number(String(l.wearMonths).replace(',', '.'))),
+      }))
+      .filter((l) => l.nomenclatureId && Number.isInteger(l.qty) && l.qty > 0);
+    if (lines.length === 0) {
+      setStatus('Добавьте хотя бы одну позицию с количеством');
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await window.matrica.ppe.cards.createNormSet({
+        cardId: card.id,
+        name,
+        kind,
+        lines: lines.map((l) => ({ nomenclatureId: l.nomenclatureId, qty: l.qty, wearMonths: l.wearMonths })),
+      });
+      if (!res.ok) {
+        setStatus(`Ошибка: ${res.error}`);
+        return;
+      }
+      setStatus(
+        kind === 'soap'
+          ? 'Набор по мылу заведён и назначен карточкам по мылу'
+          : 'Набор заведён и назначен карточке',
+      );
+      await loadCard(card.id);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function openCard() {
     setBusy(true);
     try {
-      const res = await window.matrica.ppe.cards.open({ employeeId });
+      const res = await window.matrica.ppe.cards.open({ employeeId, kind });
       if (!res.ok) {
-        const existing = await window.matrica.ppe.cards.byEmployee(employeeId).catch(() => null);
+        const existing = await window.matrica.ppe.cards.byEmployee(employeeId, kind).catch(() => null);
         if (existing?.ok) {
           setStatus('');
           await loadCard(existing.card.id);
@@ -1011,6 +1096,19 @@ export function PpeCardDetailsPage(props: {
         </div>
       ) : null}
 
+      {/* Вид карточки: спецодежда и мыло — разные следы выдачи (промты КАРМАНА #21/#26). */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ color: 'var(--muted)', fontSize: 12 }}>Вид карточки:</span>
+        {(['workwear', 'soap'] as PpeKind[]).map((k) => (
+          <Button key={k} variant={kind === k ? 'primary' : 'ghost'} onClick={() => setKind(k)} disabled={busy}>
+            {PPE_KIND_RU[k]}
+          </Button>
+        ))}
+        {kind === 'soap' ? (
+          <span style={{ color: 'var(--muted)', fontSize: 12 }}>норма мыла одна на всех — выдаётся отдельно от спецодежды</span>
+        ) : null}
+      </div>
+
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <Button variant="ghost" onClick={() => printCard()} disabled={busy}>
           Печать
@@ -1135,9 +1233,15 @@ export function PpeCardDetailsPage(props: {
             </table>
             {canEdit ? (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-                <Button variant="primary" onClick={() => void assignNormsByPost()} disabled={busy}>
-                  Назначить нормы по должности
-                </Button>
+                {kind === 'workwear' ? (
+                  <Button variant="primary" onClick={() => void assignNormsByPost()} disabled={busy}>
+                    Назначить нормы по должности
+                  </Button>
+                ) : (
+                  <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+                    Нормы по должности — это приказ о спецодежде. Для мыла норма своя, заводится из карточки.
+                  </span>
+                )}
               </div>
             ) : null}
             {postWarning ? (
@@ -1197,6 +1301,7 @@ export function PpeCardDetailsPage(props: {
                     <SearchSelect
                       value={normToAssign}
                       options={normOptions
+                        .filter((o) => (o.kind ?? 'workwear') === kind)
                         .filter((o) => !card.norms.some((n) => n.normSetId === o.id))
                         .map((o) => ({
                           id: o.id,
@@ -1219,6 +1324,95 @@ export function PpeCardDetailsPage(props: {
               </div>
             ) : null}
           </SectionCard>
+
+          {canEdit && !closed ? (
+            <SectionCard title="Набор из позиций карточки">
+              <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>
+                Набор заводится прямо из карточки — без ручной правки приказа. Позиции взяты из норм карточки;
+                добавьте свою (например «Мыло»). Набор сразу назначается карточке
+                {kind === 'soap' ? ' и всем карточкам по мылу' : ''}.
+              </div>
+              <FormGrid>
+                <FormField label="Название набора">
+                  <Input value={newSetName} onChange={(e) => setNewSetName(e.target.value)} placeholder="Мыло — всем" />
+                </FormField>
+              </FormGrid>
+              {newSetLines.length > 0 ? (
+                <table className="table" style={{ width: '100%', marginBottom: 8 }}>
+                  <thead>
+                    <tr>
+                      <RowNumberHeaderCell style={ROWNUM_STYLE} />
+                      <th>Позиция</th>
+                      <th style={{ width: 90 }}>Кол-во</th>
+                      <th style={{ width: 110 }}>Носка, мес</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {newSetLines.map((l, i) => (
+                      <tr key={`${l.nomenclatureId}-${i}`}>
+                        <RowNumberCell n={i + 1} style={ROWNUM_STYLE} />
+                        <td>{nomName(l.nomenclatureId)}</td>
+                        <td>
+                          <Input
+                            value={l.qty}
+                            onChange={(e) => setNewSetLines((prev) => prev.map((x, j) => (j === i ? { ...x, qty: e.target.value } : x)))}
+                            inputMode="numeric"
+                          />
+                        </td>
+                        <td>
+                          <Input
+                            value={l.wearMonths}
+                            onChange={(e) => setNewSetLines((prev) => prev.map((x, j) => (j === i ? { ...x, wearMonths: e.target.value } : x)))}
+                            inputMode="numeric"
+                            placeholder="—"
+                          />
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <Button variant="ghost" tone="danger" onClick={() => setNewSetLines((prev) => prev.filter((_, j) => j !== i))} disabled={busy}>
+                            Убрать
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div style={{ color: 'var(--muted)', marginBottom: 8 }}>В карточке нет позиций — добавьте свою ниже.</div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 2fr) 90px 110px auto', gap: 8, alignItems: 'end' }}>
+                <FormField label="Позиция">
+                  <SearchSelect value={newSetNom} options={nomenclatureOptions} placeholder="Выберите позицию" showAllWhenEmpty onChange={setNewSetNom} />
+                </FormField>
+                <FormField label="Кол-во">
+                  <Input value={newSetQty} onChange={(e) => setNewSetQty(e.target.value)} inputMode="numeric" />
+                </FormField>
+                <FormField label="Носка, мес">
+                  <Input value={newSetWear} onChange={(e) => setNewSetWear(e.target.value)} inputMode="numeric" />
+                </FormField>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    if (!newSetNom) {
+                      setStatus('Выберите позицию');
+                      return;
+                    }
+                    setNewSetLines((prev) => [...prev, { nomenclatureId: newSetNom, qty: newSetQty, wearMonths: newSetWear }]);
+                    setNewSetNom(null);
+                    setNewSetQty('1');
+                  }}
+                  disabled={busy}
+                >
+                  + Позиция
+                </Button>
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <Button variant="primary" onClick={() => void createSetFromCard()} disabled={busy}>
+                  Завести набор и назначить
+                </Button>
+              </div>
+            </SectionCard>
+          ) : null}
 
           <SectionCard title="Сроки следующих выдач">
             {upcoming.length === 0 ? (

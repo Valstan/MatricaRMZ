@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { buildPpeIssueCard, wearPeriodText, type PpeWearKind } from '@matricarmz/shared';
+import { buildPpeIssueCard, wearPeriodText, type PpeKind, type PpeWearKind } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
@@ -33,6 +33,8 @@ type NormRow = {
   sourceLabel: string | null;
   occupationCode: string | null;
   occupationPost: string | null;
+  /** Вид набора: 'workwear' — спецодежда, 'soap' — мыло (промты КАРМАНА #21/#26). */
+  kind: 'workwear' | 'soap';
 };
 
 type NormLine = {
@@ -107,6 +109,10 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState('');
   const [seasonFilter, setSeasonFilter] = useState<PpeSeason | ''>('');
+  /** Вид набора в списке: '' — оба вида (спецодежда и мыло). */
+  const [kindFilter, setKindFilter] = useState<PpeKind | ''>('');
+  /** Вид набора, который заводится/правится. Приказные наборы — всегда спецодежда. */
+  const [kind, setKind] = useState<PpeKind>('workwear');
 
   const { confirm } = useConfirm();
   const canEdit = props.canEdit;
@@ -187,6 +193,7 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
     setIsDuty(row.isDuty);
     setDepartmentId(row.departmentId);
     setValidFrom(toInputDate(row.validFrom));
+    setKind(row.kind ?? 'workwear');
     setLineDraft(EMPTY_LINE);
     void refreshLines(row.id);
   }
@@ -201,6 +208,7 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
     setIsDuty(false);
     setDepartmentId(null);
     setValidFrom(toInputDate(Date.now()));
+    setKind('workwear');
     setLines([]);
     setLineDraft(EMPTY_LINE);
   }
@@ -231,6 +239,8 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
         name: name.trim(),
         ...(postTitle.trim() ? { postTitle: postTitle.trim() } : { postTitle: null }),
         ...conditionFields(),
+        // Вид набора: приказной — всегда спецодежда, свой набор помнит свой вид.
+        kind: isOrderBasis ? 'workwear' : kind,
         validFrom: vf,
         lines: lines.map((l) => ({ nomenclatureId: l.nomenclatureId, qty: l.qty, wearMonths: l.wearMonths })),
       });
@@ -268,6 +278,8 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
         name: name.trim() || (selected?.name ?? 'Набор'),
         ...(postTitle.trim() ? { postTitle: postTitle.trim() } : { postTitle: null }),
         ...conditionFields(),
+        // Вид набора не теряется при правке строк: upsert перезаписывает набор целиком.
+        kind: selected?.kind ?? kind,
         validFrom: fromInputDate(validFrom) ?? Date.now(),
         lines: next,
       });
@@ -300,6 +312,8 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
         name: name.trim() || (selected?.name ?? 'Набор'),
         ...(postTitle.trim() ? { postTitle: postTitle.trim() } : { postTitle: null }),
         ...conditionFields(),
+        // Вид набора не теряется при правке строк: upsert перезаписывает набор целиком.
+        kind: selected?.kind ?? kind,
         validFrom: fromInputDate(validFrom) ?? Date.now(),
         lines: next,
       });
@@ -318,9 +332,11 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const bySeason = seasonFilter ? rows.filter((r) => r.season === seasonFilter) : rows;
-    if (!q) return bySeason;
-    return bySeason.filter((r) => `${r.name} ${r.postTitle ?? ''}`.toLowerCase().includes(q));
-  }, [rows, query, seasonFilter]);
+    // Вид набора: мыло и спецодежда — разные наборы (промты КАРМАНА #21/#26).
+    const byKind = kindFilter ? bySeason.filter((r) => (r.kind ?? 'workwear') === kindFilter) : bySeason;
+    if (!q) return byKind;
+    return byKind.filter((r) => `${r.name} ${r.postTitle ?? ''}`.toLowerCase().includes(q));
+  }, [rows, query, seasonFilter, kindFilter]);
 
   const canEditLines = canEdit && !!selectedId && !isNew;
 
@@ -360,6 +376,16 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
             <option value="winter">Зима</option>
             <option value="summer">Лето</option>
           </select>
+          <select
+            value={kindFilter}
+            onChange={(e) => setKindFilter(e.target.value as PpeKind | '')}
+            style={{ padding: '4px 6px' }}
+            title="Фильтр по виду набора"
+          >
+            <option value="">Все виды</option>
+            <option value="workwear">Спецодежда</option>
+            <option value="soap">Мыло</option>
+          </select>
           {canEdit ? (
             <Button variant="primary" onClick={startNew} disabled={busy}>
               + Набор
@@ -393,6 +419,7 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
                       <div style={{ color: 'var(--muted)', fontSize: 12 }}>
                         {[
                           r.postTitle,
+                          r.kind === 'soap' ? 'мыло' : null,
                           r.isDuty ? 'дежурная' : null,
                           r.season ? SEASON_RU[r.season] : null,
                           r.gender ? GENDER_RU[r.gender] : null,
@@ -455,6 +482,18 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
                   placeholder="Слесарь РМЦ, основная"
                   title={isOrderBasis ? 'Название формируется по приказу: профессия и пункт' : undefined}
                 />
+              </FormField>
+              <FormField label="Вид набора">
+                <select
+                  value={kind}
+                  disabled={!canEdit || isOrderBasis}
+                  onChange={(e) => setKind(e.target.value as PpeKind)}
+                  style={{ width: '100%', padding: '4px 6px' }}
+                  title={isOrderBasis ? 'Приказ — это спецодежда: вид задаёт приказ' : undefined}
+                >
+                  <option value="workwear">Спецодежда</option>
+                  <option value="soap">Мыло</option>
+                </select>
               </FormField>
               <FormField label="Должность">
                 <Input

@@ -2591,7 +2591,13 @@ export type MatricaApi = {
   /** Кладовщик (СИЗ): нормы, карточки, группы, отпуска, коллективные — только на сервере (REST `/ppe/*`). */
   ppe: {
     norms: {
-      list: (args?: { postTitle?: string; gender?: 'M' | 'F'; season?: 'winter' | 'summer' }) => Promise<
+      /** Вид набора в фильтре: 'workwear' — спецодежда, 'soap' — мыло (промты КАРМАНА #21/#26). */
+      list: (args?: {
+        postTitle?: string;
+        gender?: 'M' | 'F';
+        season?: 'winter' | 'summer';
+        kind?: 'workwear' | 'soap';
+      }) => Promise<
         | {
             ok: true;
             rows: Array<{
@@ -2611,6 +2617,8 @@ export type MatricaApi = {
               sourceLabel: string | null;
               occupationCode: string | null;
               occupationPost: string | null;
+              /** Вид набора: 'workwear' — спецодежда, 'soap' — мыло (миграция 0131). */
+              kind: 'workwear' | 'soap';
             }>;
           }
         | { ok: false; error: string }
@@ -2634,6 +2642,8 @@ export type MatricaApi = {
               sourceLabel: string | null;
               occupationCode: string | null;
               occupationPost: string | null;
+              /** Вид набора: 'workwear' — спецодежда, 'soap' — мыло (миграция 0131). */
+              kind: 'workwear' | 'soap';
               lines: Array<{
                 id: string;
                 nomenclatureId: string;
@@ -2673,13 +2683,16 @@ export type MatricaApi = {
         gender?: 'M' | 'F' | null;
         season?: 'winter' | 'summer' | null;
         isDuty?: boolean;
+        /** Вид набора: 'workwear' — спецодежда, 'soap' — мыло (промты КАРМАНА #21/#26). */
+        kind?: 'workwear' | 'soap' | null;
         validFrom?: number;
         validTo?: number | null;
         lines: Array<{ nomenclatureId: string; qty: number; wearMonths: number | null; wearKind?: string | null }>;
       }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     };
     cards: {
-      open: (args: { employeeId: string }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+      /** Вид карточки: 'workwear' — спецодежда, 'soap' — мыло. */
+      open: (args: { employeeId: string; kind?: 'workwear' | 'soap' }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
       /**
        * Список карточек СИЗ: строка на сотрудника. Считает сервер — тем же ядром
        * `shared/ppe`, что и карточка, иначе список и карточка говорят разное про «пора».
@@ -2737,12 +2750,14 @@ export type MatricaApi = {
           }
         | { ok: false; error: string }
       >;
-      byEmployee: (employeeId: string) => Promise<
+      byEmployee: (employeeId: string, kind?: 'workwear' | 'soap') => Promise<
         | {
             ok: true;
             card: {
               id: string;
               employeeId: string;
+              /** Вид карточки: 'workwear' — спецодежда, 'soap' — мыло. */
+              kind: 'workwear' | 'soap';
               openedAt: number;
               closedAt: number | null;
               norms: Array<{ normSetId: string; name: string; assignedAt: number }>;
@@ -2761,6 +2776,18 @@ export type MatricaApi = {
         | { ok: false; error: string }
       >;
       assignNorms: (args: { cardId: string; normSetIds: string[] }) => Promise<{ ok: true; assigned: number } | { ok: false; error: string }>;
+      /**
+       * Набор норм заводится прямо из карточки СИЗ — одним действием (промт КАРМАНА #21):
+       * набор создаётся и сразу назначается карточке, без правки приказа. Для вида «мыло»
+       * набор назначается всем открытым карточкам мыла.
+       */
+      createNormSet: (args: {
+        cardId: string;
+        name: string;
+        kind?: 'workwear' | 'soap' | null;
+        postTitle?: string | null;
+        lines: Array<{ nomenclatureId: string; qty: number; wearMonths: number | null }>;
+      }) => Promise<{ ok: true; id: string; assigned: number } | { ok: false; error: string }>;
       close: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
       issue: (args: { cardId: string; warehouseId: string; docNo?: string; lines: Array<{ nomenclatureId: string; qty: number }> }) => Promise<
         { ok: true; documentId: string; entries: number } | { ok: false; error: string }
@@ -2808,7 +2835,8 @@ export type MatricaApi = {
     };
     /** Нормы сотрудника на сервере: личные и от групп (для показа «от группы»). */
     employees: {
-      normSets: (employeeId: string) => Promise<{ ok: true; personal: string[]; group: string[] } | { ok: false; error: string }>;
+      /** Вид карточки: нормы мыла не должны попадать в карточку спецодежды и наоборот. */
+      normSets: (employeeId: string, kind?: 'workwear' | 'soap') => Promise<{ ok: true; personal: string[]; group: string[] } | { ok: false; error: string }>;
       /** Сотрудники СИЗ (PR-6): пикер читает реплику `erp_employee_cards` — тот же источник, что у отчётов. */
       list: () => Promise<
         | {

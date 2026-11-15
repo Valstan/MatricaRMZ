@@ -83,8 +83,8 @@ describe('журнал приёмки СИЗ', () => {
         { employeeId: 'emp-1', personnelNo: '0001', fullName: 'Иванов Иван', postTitle: 'Кладовщик' },
       ],
       nextDueAt: new Map([
-        ['emp-1|nom-1', NOW - 86_400_000], // срок просрочен
-        ['emp-1|nom-2', NOW + 86_400_000],
+        ['emp-1|workwear|nom-1', NOW - 86_400_000], // срок просрочен
+        ['emp-1|workwear|nom-2', NOW + 86_400_000],
       ]),
       now: NOW,
     });
@@ -106,10 +106,46 @@ describe('журнал приёмки СИЗ', () => {
       employeeInfo: [
         { employeeId: 'emp-1', personnelNo: '0001', fullName: 'Иванов Иван', postTitle: 'Кладовщик' },
       ],
-      nextDueAt: new Map([['emp-1|nom-1', null]]),
+      nextDueAt: new Map([['emp-1|workwear|nom-1', null]]),
       now: NOW,
     });
     expect(rows[0]!.periodOverdue).toBe(false);
     expect(rows[0]!.wearText).toBe('срок не задан');
+  });
+
+  it('вид разводит нормы: выдача мыла не подхватывает норму спецодежды', () => {
+    // Промты КАРМАНА #21/#26: у мыла своя норма и свой след выдачи. Если бы контекст
+    // искался только по позиции, строка выдачи мыла показала бы норму спецодежды.
+    const rows = buildAcceptanceJournal(
+      [fact({ kind: 'soap', itemName: 'Мыло туалетное' })],
+      [context({ kind: 'workwear' }), context({ kind: 'soap', qty: 2, itemName: 'Мыло туалетное' })],
+    );
+    expect(rows[0]!.kind).toBe('soap');
+    expect(rows[0]!.normQty).toBe(2);
+    expect(rows[0]!.inNorm).toBe(true);
+  });
+
+  it('норма другого вида не подставляется в строку выдачи', () => {
+    const rows = buildAcceptanceJournal(
+      [fact({ kind: 'soap' })],
+      [context({ kind: 'workwear' })],
+    );
+    expect(rows[0]!.inNorm).toBe(false);
+    expect(rows[0]!.normQty).toBeNull();
+  });
+
+  it('выдано и невыдано считаются по виду: мыло не вычитается из нормы спецодежды', () => {
+    const rows = buildUndeliveredReport({
+      contexts: [context({ kind: 'workwear', qty: 2 })],
+      issuedByEmployeePosition: [{ employeeId: 'emp-1', nomenclatureId: 'nom-1', qty: 2, kind: 'soap' }],
+      employeeInfo: [
+        { employeeId: 'emp-1', personnelNo: '0001', fullName: 'Иванов Иван', postTitle: 'Кладовщик' },
+      ],
+      nextDueAt: new Map([['emp-1|workwear|nom-1', null]]),
+      now: NOW,
+    });
+    expect(rows[0]!.issuedQty).toBe(0);
+    expect(rows[0]!.qtyShort).toBe(2);
+    expect(rows[0]!.kind).toBe('workwear');
   });
 });

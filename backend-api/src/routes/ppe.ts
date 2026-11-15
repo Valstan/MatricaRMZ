@@ -8,6 +8,7 @@ import {
   assignCardNorms,
   closeCollective,
   closePpeCard,
+  createNormSetFromCard,
   createPpeAbsence,
   createPpeGroup,
   deletePpeAbsence,
@@ -100,13 +101,20 @@ async function idempotent<T extends Record<string, unknown>>(
 
 ppeRouter.get('/norms', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
   const parsed = z
-    .object({ postTitle: z.string().trim().min(1).optional(), gender: z.enum(['M', 'F']).optional(), season: z.enum(['winter', 'summer']).optional() })
+    .object({
+      postTitle: z.string().trim().min(1).optional(),
+      gender: z.enum(['M', 'F']).optional(),
+      season: z.enum(['winter', 'summer']).optional(),
+      // Вид набора: 'workwear' — спецодежда, 'soap' — мыло (промты КАРМАНА #21/#26).
+      kind: z.enum(['workwear', 'soap']).optional(),
+    })
     .safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
   const result = await listPpeNormSets({
     ...(parsed.data.postTitle ? { postTitle: parsed.data.postTitle } : {}),
     ...(parsed.data.gender ? { gender: parsed.data.gender } : {}),
     ...(parsed.data.season ? { season: parsed.data.season } : {}),
+    ...(parsed.data.kind ? { kind: parsed.data.kind } : {}),
   });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
@@ -148,6 +156,8 @@ ppeRouter.post('/norms', requirePermission(PermissionCode.ErpDictionaryEdit), as
       gender: z.enum(['M', 'F']).nullable().optional(),
       season: z.enum(['winter', 'summer']).nullable().optional(),
       isDuty: z.boolean().optional(),
+      // Вид набора: 'workwear' — спецодежда, 'soap' — мыло (промты КАРМАНА #21/#26).
+      kind: z.enum(['workwear', 'soap']).nullable().optional(),
       validFrom: z.coerce.number().int().positive().optional(),
       validTo: z.coerce.number().int().positive().nullable().optional(),
       clientOperationId: z.string().uuid().optional(),
@@ -180,6 +190,7 @@ ppeRouter.post('/norms', requirePermission(PermissionCode.ErpDictionaryEdit), as
         ...(parsed.data.gender !== undefined ? { gender: parsed.data.gender } : {}),
         ...(parsed.data.season !== undefined ? { season: parsed.data.season } : {}),
         ...(parsed.data.isDuty !== undefined ? { isDuty: parsed.data.isDuty } : {}),
+        ...(parsed.data.kind !== undefined ? { kind: parsed.data.kind } : {}),
         ...(parsed.data.validFrom !== undefined ? { validFrom: parsed.data.validFrom } : {}),
         ...(parsed.data.validTo !== undefined ? { validTo: parsed.data.validTo } : {}),
         lines: parsed.data.lines.map((l) => ({
@@ -193,9 +204,14 @@ ppeRouter.post('/norms', requirePermission(PermissionCode.ErpDictionaryEdit), as
 });
 
 ppeRouter.post('/cards/open', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
-  const parsed = z.object({ employeeId: z.string().uuid() }).safeParse(req.body);
+  const parsed = z
+    .object({ employeeId: z.string().uuid(), kind: z.enum(['workwear', 'soap']).optional() })
+    .safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
-  const result = await openPpeCard({ employeeId: parsed.data.employeeId });
+  const result = await openPpeCard({
+    employeeId: parsed.data.employeeId,
+    ...(parsed.data.kind ? { kind: parsed.data.kind } : {}),
+  });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });
@@ -203,7 +219,11 @@ ppeRouter.post('/cards/open', requirePermission(PermissionCode.ErpDictionaryEdit
 ppeRouter.get('/cards/by-employee/:employeeId', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
   const employeeId = String(req.params.employeeId ?? '').trim();
   if (!employeeId) return res.status(400).json({ ok: false, error: 'employeeId обязателен' });
-  const result = await getPpeCard({ employeeId });
+  const kind = z.enum(['workwear', 'soap']).safeParse(req.query.kind);
+  const result = await getPpeCard({
+    employeeId,
+    ...(kind.success ? { kind: kind.data } : {}),
+  });
   if (!result.ok) return res.status(404).json(result);
   return res.json(result);
 });
@@ -228,6 +248,47 @@ ppeRouter.post('/cards/:id/norms', requirePermission(PermissionCode.ErpDictionar
   if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
   if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
   const result = await assignCardNorms({ cardId: id, normSetIds: parsed.data.normSetIds });
+  if (!result.ok) return res.status(400).json(result);
+  return res.json(result);
+});
+
+/**
+ * Набор норм заводится прямо из карточки СИЗ — одним действием (промт КАРМАНА #21:
+ * «набор норм должен заводиться прямо из карточки СИЗ, без ручной правки приказа — в том
+ * числе набор на мыло, которого в приказе сейчас нет»). Набор создаётся и сразу
+ * назначается карточке; для вида «мыло» — всем открытым карточкам мыла.
+ */
+ppeRouter.post('/cards/:id/norm-sets', requirePermission(PermissionCode.ErpDictionaryEdit), async (req, res) => {
+  const id = String(req.params.id ?? '').trim();
+  if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
+  const parsed = z
+    .object({
+      name: z.string().trim().min(1),
+      kind: z.enum(['workwear', 'soap']).nullable().optional(),
+      postTitle: z.string().trim().min(1).nullable().optional(),
+      lines: z
+        .array(
+          z.object({
+            nomenclatureId: z.string().uuid(),
+            qty: z.coerce.number().int().positive(),
+            wearMonths: z.coerce.number().int().positive().nullable().optional(),
+          }),
+        )
+        .min(1),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const result = await createNormSetFromCard({
+    cardId: id,
+    name: parsed.data.name,
+    ...(parsed.data.kind ? { kind: parsed.data.kind } : {}),
+    ...(parsed.data.postTitle !== undefined ? { postTitle: parsed.data.postTitle } : {}),
+    lines: parsed.data.lines.map((l) => ({
+      nomenclatureId: l.nomenclatureId,
+      qty: l.qty,
+      wearMonths: l.wearMonths ?? null,
+    })),
+  });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });
@@ -421,7 +482,9 @@ ppeRouter.put('/groups/:id/norms', requirePermission(PermissionCode.ErpDictionar
 ppeRouter.get('/employees/:id/norm-sets', requirePermission(PermissionCode.ErpDictionaryView), async (req, res) => {
   const id = String(req.params.id ?? '').trim();
   if (!id) return res.status(400).json({ ok: false, error: 'id обязателен' });
-  const result = await resolveEmployeeNormSetIds(id);
+  // Вид карточки: нормы мыла не должны попадать в карточку спецодежды и наоборот.
+  const kind = z.enum(['workwear', 'soap']).safeParse(req.query.kind);
+  const result = await resolveEmployeeNormSetIds(id, kind.success ? kind.data : null);
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });

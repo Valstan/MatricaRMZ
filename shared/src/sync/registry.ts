@@ -541,6 +541,8 @@ const PPE_NORM_SET_FIELDS = withBase(
   { db: 'occupationId', dto: 'occupation_id' },
   { db: 'sourceKind', dto: 'source_kind' },
   { db: 'sourceLabel', dto: 'source_label' },
+  // Вид набора: 'workwear' — спецодежда, 'soap' — мыло (миграция 0131).
+  { db: 'kind', dto: 'kind' },
   { db: 'validFrom', dto: 'valid_from' },
   { db: 'validTo', dto: 'valid_to' },
 );
@@ -623,6 +625,8 @@ const PPE_PRINT_TEMPLATE_FIELDS = withBase(
 
 const PPE_ISSUE_CARD_FIELDS = withBase(
   { db: 'employeeId', dto: 'employee_id' },
+  // Вид карточки выдачи: 'workwear' — спецодежда, 'soap' — мыло (миграция 0131).
+  { db: 'kind', dto: 'kind' },
   { db: 'openedAt', dto: 'opened_at' },
   { db: 'closedAt', dto: 'closed_at' },
 );

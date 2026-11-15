@@ -13,7 +13,7 @@ import {
 import { OperationTypeCode } from '../domain/enums.js';
 import { ENGINE_RMZ_NUMBER_STATUSES } from '../domain/engineRmzNumber.js';
 import { SYSTEM_ROLE_CATALOG } from '../domain/permissions.js';
-import { PPE_WEAR_KINDS } from '../domain/ppe.js';
+import { PPE_KINDS, PPE_WEAR_KINDS } from '../domain/ppe.js';
 
 // Базовые поля синхронизации для всех таблиц.
 export const baseRowFields = {
@@ -364,6 +364,10 @@ export const ppeNormSetRowSchema = z.object({
   occupation_id: z.string().uuid().nullable().optional(),
   source_kind: z.enum(['ton', 'order766', 'local']).nullable().optional(),
   source_label: z.string().nullable().optional(),
+  // Вид набора: 'workwear' — спецодежда, 'soap' — мыло (промты КАРМАНА #21/#26).
+  // Мягко-опционально: строка, заведённая до миграции 0131, вида не несёт — читается
+  // как 'workwear'.
+  kind: z.enum(PPE_KINDS).nullable().optional(),
   valid_from: z.number().int(),
   valid_to: z.number().int().nullable().optional(),
 });
@@ -456,6 +460,9 @@ export const ppePrintTemplateRowSchema = z.object({
 export const ppeIssueCardRowSchema = z.object({
   ...baseRowFields,
   employee_id: z.string().uuid(),
+  // Вид карточки выдачи: 'workwear' — спецодежда, 'soap' — мыло (миграция 0131).
+  // Мягко-опционально: старые карточки вида не несут — читаются как 'workwear'.
+  kind: z.enum(PPE_KINDS).nullable().optional(),
   opened_at: z.number().int(),
   closed_at: z.number().int().nullable().optional(),
 });

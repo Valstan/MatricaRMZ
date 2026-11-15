@@ -519,6 +519,8 @@ export const ppeNormSets = sqliteTable('ppe_norm_sets', {
   occupationId: text('occupation_id'),
   sourceKind: text('source_kind'),
   sourceLabel: text('source_label'),
+  // Вид набора: 'workwear' — спецодежда, 'soap' — мыло (миграция 0131).
+  kind: text('kind').notNull().default('workwear'),
   validFrom: integer('valid_from').notNull(),
   validTo: integer('valid_to'),
   createdAt: integer('created_at').notNull(),
@@ -660,6 +662,8 @@ export const ppePrintTemplates = sqliteTable('ppe_print_templates', {
 export const ppeIssueCards = sqliteTable('ppe_issue_cards', {
   id: text('id').primaryKey(),
   employeeId: text('employee_id').notNull(),
+  // Вид карточки выдачи: 'workwear' — спецодежда, 'soap' — мыло (миграция 0131).
+  kind: text('kind').notNull().default('workwear'),
   openedAt: integer('opened_at').notNull(),
   closedAt: integer('closed_at'),
   createdAt: integer('created_at').notNull(),

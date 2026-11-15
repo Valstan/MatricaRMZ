@@ -662,7 +662,9 @@ const matricaApi = {
   },
   ppe: {
     norms: {
-      list: async (args?: { postTitle?: string; gender?: 'M' | 'F'; season?: 'winter' | 'summer' }) => ipcRenderer.invoke('ppe:norms:list', args),
+      // Вид набора: 'workwear' — спецодежда, 'soap' — мыло (промты КАРМАНА #21/#26).
+      list: async (args?: { postTitle?: string; gender?: 'M' | 'F'; season?: 'winter' | 'summer'; kind?: 'workwear' | 'soap' }) =>
+        ipcRenderer.invoke('ppe:norms:list', args),
       get: async (id: string) => ipcRenderer.invoke('ppe:norms:get', id),
       // Срок носки по позиции проставляет кладовщик: у годовой нормы срока в приказе нет.
       setWearPeriod: async (args: { id: string; wearMonths: number | null }) =>
@@ -675,6 +677,7 @@ const matricaApi = {
         gender?: 'M' | 'F' | null;
         season?: 'winter' | 'summer' | null;
         isDuty?: boolean;
+        kind?: 'workwear' | 'soap' | null;
         validFrom?: number;
         validTo?: number | null;
         lines: Array<{ nomenclatureId: string; qty: number; wearMonths: number | null; wearKind?: string | null }>;
@@ -686,12 +689,24 @@ const matricaApi = {
         ipcRenderer.invoke('ppe:journal:list', args),
     },
     cards: {
-      open: async (args: { employeeId: string }) => ipcRenderer.invoke('ppe:cards:open', args),
+      // Вид карточки: 'workwear' — спецодежда, 'soap' — мыло (промты КАРМАНА #21/#26).
+      open: async (args: { employeeId: string; kind?: 'workwear' | 'soap' }) => ipcRenderer.invoke('ppe:cards:open', args),
       get: async (id: string) => ipcRenderer.invoke('ppe:cards:get', id),
       /** Список карточек: строка на сотрудника, сроки считает сервер тем же ядром, что и карточка. */
       overview: async () => ipcRenderer.invoke('ppe:cards:overview'),
-      byEmployee: async (employeeId: string) => ipcRenderer.invoke('ppe:cards:byEmployee', employeeId),
+      byEmployee: async (employeeId: string, kind?: 'workwear' | 'soap') => ipcRenderer.invoke('ppe:cards:byEmployee', employeeId, kind),
       assignNorms: async (args: { cardId: string; normSetIds: string[] }) => ipcRenderer.invoke('ppe:cards:assignNorms', args),
+      /**
+       * Набор норм заводится прямо из карточки СИЗ — одним действием (промт КАРМАНА #21):
+       * набор создаётся и сразу назначается карточке, без правки приказа.
+       */
+      createNormSet: async (args: {
+        cardId: string;
+        name: string;
+        kind?: 'workwear' | 'soap' | null;
+        postTitle?: string | null;
+        lines: Array<{ nomenclatureId: string; qty: number; wearMonths: number | null }>;
+      }) => ipcRenderer.invoke('ppe:cards:createNormSet', args),
       close: async (id: string) => ipcRenderer.invoke('ppe:cards:close', id),
       issue: async (args: { cardId: string; warehouseId: string; docNo?: string; lines: Array<{ nomenclatureId: string; qty: number }> }) =>
         ipcRenderer.invoke('ppe:cards:issue', args),
@@ -721,7 +736,8 @@ const matricaApi = {
       },
     },
     employees: {
-      normSets: async (employeeId: string) => ipcRenderer.invoke('ppe:employees:normSets', employeeId),
+      // Вид карточки: нормы мыла не должны попадать в карточку спецодежды и наоборот.
+      normSets: async (employeeId: string, kind?: 'workwear' | 'soap') => ipcRenderer.invoke('ppe:employees:normSets', employeeId, kind),
       list: async () => ipcRenderer.invoke('ppe:employees:list'),
       /** Личная карточка СИЗ по форме приложения №3 + реквизиты для подстановки. */
       card: async (employeeId: string) => ipcRenderer.invoke('ppe:employees:card', employeeId),

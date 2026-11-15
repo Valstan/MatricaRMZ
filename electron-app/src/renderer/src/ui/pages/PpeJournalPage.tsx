@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import type { PpeJournalRow, PpeUndeliveredRow } from '@matricarmz/shared';
+import type { PpeJournalRow, PpeKind, PpeUndeliveredRow } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { FormField } from '../components/FormField.js';
@@ -48,6 +48,11 @@ export function PpeJournalPage() {
   const [undelivered, setUndelivered] = useState<PpeUndeliveredRow[]>([]);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
+  /**
+   * Вид выдачи в журнале: '' — оба вида. У мыла своя норма и свой след выдачи,
+   * поэтому журнал по мылу смотрится отдельно (промты КАРМАНА #21/#26).
+   */
+  const [kindFilter, setKindFilter] = useState<PpeKind | ''>('');
 
   const load = useCallback(async () => {
     const fromMs = fromDateInput(from, false);
@@ -77,6 +82,7 @@ export function PpeJournalPage() {
 
   const journalHtml = useMemo(() => {
     const body = rows
+      .filter((r) => !kindFilter || (r.kind ?? 'workwear') === kindFilter)
       .map(
         (r, i) =>
           `<tr><td style="text-align:right;">${i + 1}</td><td>${escapeHtml(fmtDate(r.issuedAt))}</td>` +
@@ -100,10 +106,11 @@ export function PpeJournalPage() {
       `<th style="text-align:left;">Дата возврата</th><th style="text-align:right;">Износ, %</th></tr></thead>` +
       `<tbody>${body}</tbody></table>`
     );
-  }, [rows]);
+  }, [rows, kindFilter]);
 
   const undeliveredHtml = useMemo(() => {
     const body = undelivered
+      .filter((r) => !kindFilter || (r.kind ?? 'workwear') === kindFilter)
       .filter((r) => r.qtyShort > 0 || r.periodOverdue)
       .map(
         (r, i) =>
@@ -122,7 +129,7 @@ export function PpeJournalPage() {
       `<th style="text-align:left;">Срок носки</th><th style="text-align:left;">По сроку</th></tr></thead>` +
       `<tbody>${body}</tbody></table>`
     );
-  }, [undelivered]);
+  }, [undelivered, kindFilter]);
 
   function print() {
     const title = `Журнал приёмки СИЗ за период ${fmtDate(fromDateInput(from, false))} — ${fmtDate(fromDateInput(to, true))}`;
@@ -155,6 +162,13 @@ export function PpeJournalPage() {
           <FormField label="По">
             <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </FormField>
+          <FormField label="Вид">
+            <select value={kindFilter} onChange={(e) => setKindFilter(e.target.value as PpeKind | '')} style={{ padding: '4px 6px' }}>
+              <option value="">Все виды</option>
+              <option value="workwear">Спецодежда</option>
+              <option value="soap">Мыло</option>
+            </select>
+          </FormField>
           <Button variant="primary" onClick={() => void load()} disabled={busy}>
             Показать
           </Button>
@@ -166,8 +180,8 @@ export function PpeJournalPage() {
       </SectionCard>
 
       <SectionCard title="Журнал приёмки">
-        <ListCount total={rows.length} shown={rows.length} />
-        {rows.length === 0 ? (
+        <ListCount total={rows.length} shown={rows.filter((r) => !kindFilter || (r.kind ?? 'workwear') === kindFilter).length} />
+        {rows.filter((r) => !kindFilter || (r.kind ?? 'workwear') === kindFilter).length === 0 ? (
           <div style={{ color: 'var(--muted)' }}>За период выдачи не было.</div>
         ) : (
           <table className="table" style={{ width: '100%' }}>
@@ -188,7 +202,9 @@ export function PpeJournalPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
+              {rows
+                .filter((r) => !kindFilter || (r.kind ?? 'workwear') === kindFilter)
+                .map((r, i) => (
                 <tr key={`${r.issuedAt}-${r.employeeId}-${r.nomenclatureId}-${i}`}>
                   <RowNumberCell n={i + 1} style={ROWNUM_STYLE} />
                   <td>{fmtDate(r.issuedAt)}</td>
@@ -216,7 +232,11 @@ export function PpeJournalPage() {
         </div>
         <ListCount
           total={undelivered.length}
-          shown={undelivered.filter((r) => r.qtyShort > 0 || r.periodOverdue).length}
+          shown={
+            undelivered.filter(
+              (r) => (!kindFilter || (r.kind ?? 'workwear') === kindFilter) && (r.qtyShort > 0 || r.periodOverdue),
+            ).length
+          }
         />
         <table className="table" style={{ width: '100%' }}>
           <thead>
@@ -233,6 +253,7 @@ export function PpeJournalPage() {
           </thead>
           <tbody>
             {undelivered
+              .filter((r) => !kindFilter || (r.kind ?? 'workwear') === kindFilter)
               .filter((r) => r.qtyShort > 0 || r.periodOverdue)
               .map((r, i) => (
                 <tr key={`${r.employeeId}-${r.nomenclatureId}`}>

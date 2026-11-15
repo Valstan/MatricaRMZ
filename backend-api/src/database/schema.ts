@@ -2262,6 +2262,12 @@ export const ppeNormSets = pgTable(
     occupationId: uuid('occupation_id').references(() => ppeOccupationRef.id),
     sourceKind: text('source_kind'),
     sourceLabel: text('source_label'),
+    /**
+     * Вид набора: 'workwear' — спецодежда, 'soap' — мыло (промты КАРМАНА #21/#26).
+     * Наборы разных видов не смешиваются: у мыла своя норма, своя выдача и свой журнал,
+     * а набор из карточки заводится без правки приказа.
+     */
+    kind: text('kind').notNull().default('workwear'),
     validFrom: bigint('valid_from', { mode: 'number' }).notNull(),
     validTo: bigint('valid_to', { mode: 'number' }),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
@@ -2390,6 +2396,12 @@ export const ppeIssueCards = pgTable(
     employeeId: uuid('employee_id')
       .notNull()
       .references(() => erpEmployeeCards.id),
+    /**
+     * Вид карточки выдачи: 'workwear' — спецодежда, 'soap' — мыло (промты КАРМАНА
+     * #21/#26: «отдельная карточка на мыло, выдаётся отдельно от карточки по спецодежде»).
+     * Открытая карточка — одна на вид: у сотрудника их может быть две.
+     */
+    kind: text('kind').notNull().default('workwear'),
     openedAt: bigint('opened_at', { mode: 'number' }).notNull(),
     closedAt: bigint('closed_at', { mode: 'number' }),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
@@ -2399,8 +2411,8 @@ export const ppeIssueCards = pgTable(
     lastServerSeq: bigint('last_server_seq', { mode: 'number' }),
   },
   (t) => ({
-    employeeOpenUq: uniqueIndex('ppe_issue_cards_employee_open_uq')
-      .on(t.employeeId)
+    employeeOpenUq: uniqueIndex('ppe_issue_cards_employee_kind_open_uq')
+      .on(t.employeeId, t.kind)
       .where(sql`${t.closedAt} is null and ${t.deletedAt} is null`),
     employeeIdx: index('ppe_issue_cards_employee_idx').on(t.employeeId),
   }),

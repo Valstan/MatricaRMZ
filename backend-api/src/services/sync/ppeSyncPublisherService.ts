@@ -95,6 +95,8 @@ export function toPpeNormSetInput(r: DbRow): SyncWriteInput {
     occupation_id: r['occupationId'] == null ? null : String(r['occupationId']),
     source_kind: r['sourceKind'] == null ? null : String(r['sourceKind']),
     source_label: r['sourceLabel'] == null ? null : String(r['sourceLabel']),
+    // Вид набора: 'workwear' — спецодежда, 'soap' — мыло (миграция 0131).
+    kind: String(r['kind'] ?? 'workwear'),
     valid_from: Number(r['validFrom']),
     valid_to: r['validTo'] == null ? null : Number(r['validTo']),
     created_at: Number(r['createdAt']),
@@ -216,6 +218,8 @@ export function toPpeIssueCardInput(r: DbRow): SyncWriteInput {
   return toRowInput(SyncTableName.PpeIssueCards, r, {
     id: String(r['id']),
     employee_id: String(r['employeeId']),
+    // Вид карточки выдачи: 'workwear' — спецодежда, 'soap' — мыло (миграция 0131).
+    kind: String(r['kind'] ?? 'workwear'),
     opened_at: Number(r['openedAt']),
     closed_at: r['closedAt'] == null ? null : Number(r['closedAt']),
     created_at: Number(r['createdAt']),
