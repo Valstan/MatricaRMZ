@@ -152,7 +152,8 @@ async function openReport(ws, tile, mustSee) {
   while (Date.now() < deadline) {
     await evaluate(ws, `const b = byText('Сформировать отчёт'); if (b) click(b); return true;`);
     await sleep(6000);
-    text = await evaluate(ws, `return txt(document);`);
+    // У Document свой textContent — всегда null, поэтому текст берём из body.
+    text = await evaluate(ws, `return txt(document.body);`);
     if (typeof text === 'string' && mustSee.every((m) => text.includes(m))) break;
   }
   return typeof text === 'string' ? text : '';
@@ -191,6 +192,8 @@ async function main() {
     const text = await openReport(ws, 'Ведомость по выдаче СИЗ', ['Сотрудник', 'Выдано', 'Не выдано', 'Состояние']);
     const headersOk = ['Сотрудник', 'Выдано', 'Не выдано', 'Состояние'].every((m) => text.includes(m));
     note(headersOk, 'ведомость по выдаче: колонки «Выдано / Не выдано / Состояние» на месте');
+    // Сценарий владельца: ботинок не хватило — по сотруднику видно, что не выдано.
+    note(text.includes('не выдано'), 'ведомость по выдаче: помечена позиция, которую не выдали');
     const rows = await evaluate(
       ws,
       `const pane = activePane();
