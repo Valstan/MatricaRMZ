@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 
-import { PPE_DEFAULT_KIND, PPE_KINDS, type PpeKind } from '@matricarmz/shared';
+import { PPE_DEFAULT_KIND, PPE_KINDS, ppeIssueRemainders, resolveEmployeeNorms, type PpeKind } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
 import {
@@ -795,6 +795,51 @@ function makePpeDocNo(now: number): string {
   return `PPE-${stamp}-${randomUUID().slice(0, 6).toUpperCase()}`;
 }
 
+/**
+ * Нормы карточки и её выдачи — вход для правила «сверх нормы не выдаём» (вид «мыло»).
+ *
+ * Нормы берём из наборов, назначенных карточке, и сливаем тем же ядром, что и карточка
+ * в клиенте; выдачи — по строке выдачи этой карточки.
+ */
+async function loadCardNormsAndEntries(cardId: string): Promise<{
+  norms: ReturnType<typeof resolveEmployeeNorms>;
+  entries: Array<{ nomenclatureId: string; qty: number; issuedAt: number; returnedAt: number | null }>;
+}> {
+  const setIds = (
+    await db
+      .select({ normSetId: ppeCardNorms.normSetId })
+      .from(ppeCardNorms)
+      .where(and(eq(ppeCardNorms.cardId, cardId as any), isNull(ppeCardNorms.deletedAt)))
+  ).map((r) => String(r.normSetId));
+  const lines = setIds.length
+    ? await db
+        .select()
+        .from(ppeNormLines)
+        .where(and(inArray(ppeNormLines.normSetId, setIds as any), isNull(ppeNormLines.deletedAt)))
+    : [];
+  const entries = await db
+    .select()
+    .from(ppeIssueEntries)
+    .where(and(eq(ppeIssueEntries.cardId, cardId as any), isNull(ppeIssueEntries.deletedAt)));
+  return {
+    norms: resolveEmployeeNorms(
+      lines.map((l) => ({
+        normSetId: String(l.normSetId),
+        nomenclatureId: String(l.nomenclatureId),
+        qty: Number(l.qty),
+        wearMonths: l.wearMonths == null ? null : Number(l.wearMonths),
+        wearKind: (l.wearKind == null ? null : String(l.wearKind)) as never,
+      })),
+    ),
+    entries: entries.map((e) => ({
+      nomenclatureId: String(e.nomenclatureId),
+      qty: Number(e.qty),
+      issuedAt: Number(e.issuedAt),
+      returnedAt: e.returnedAt == null ? null : Number(e.returnedAt),
+    })),
+  };
+}
+
 export async function issuePpe(args: {
   cardId: string;
   warehouseId: string;
@@ -813,7 +858,7 @@ export async function issuePpe(args: {
       if (!Number.isInteger(line.qty) || line.qty <= 0) return { ok: false, error: `lines[${i}].qty должен быть целым больше нуля` };
     }
     const card = await db
-      .select({ id: ppeIssueCards.id, closedAt: ppeIssueCards.closedAt })
+      .select({ id: ppeIssueCards.id, closedAt: ppeIssueCards.closedAt, kind: ppeIssueCards.kind })
       .from(ppeIssueCards)
       .where(and(eq(ppeIssueCards.id, cardId as any), isNull(ppeIssueCards.deletedAt)))
       .limit(1);
@@ -823,6 +868,42 @@ export async function issuePpe(args: {
     if (refError) return { ok: false, error: refError };
 
     const now = Date.now();
+    /**
+     * Гейт «сверх нормы не выдаём» — для вида «мыло» (промт КАРМАНА #21:
+     * «мыло выдаём всем стандартно, сверх нормы не выдаём»). Проверка идёт ДО
+     * складского документа: деньги склада не должны двигаться, если выдача сверх нормы.
+     * Для спецодежды норма остаётся напоминанием (так было и раньше) — запрет
+     * владелец просил именно про мыло.
+     */
+    if (card[0].kind === 'soap') {
+      const { norms, entries } = await loadCardNormsAndEntries(cardId);
+      const remainders = ppeIssueRemainders(norms, entries, now);
+      const byNom = new Map(remainders.map((r) => [r.nomenclatureId, r]));
+      const nomIds = args.lines.map((l) => String(l.nomenclatureId));
+      const noms = await db
+        .select({ id: erpNomenclature.id, name: erpNomenclature.name })
+        .from(erpNomenclature)
+        .where(inArray(erpNomenclature.id, nomIds as any));
+      const nameById = new Map(noms.map((n) => [String(n.id), String(n.name ?? '')]));
+      for (const line of args.lines) {
+        const nomId = String(line.nomenclatureId);
+        const label = nameById.get(nomId) ?? nomId;
+        const rem = byNom.get(nomId);
+        if (!rem) {
+          return {
+            ok: false,
+            error: `«${label}» нет в норме по мылу — сверх нормы не выдаём. Заведите набор по мылу и назначьте его карточке.`,
+          };
+        }
+        if (line.qty > rem.remaining) {
+          return {
+            ok: false,
+            error: `«${label}»: по норме осталось ${rem.remaining} шт за ${rem.periodMonths} мес., а выдать ${line.qty} шт — сверх нормы не выдаём.`,
+          };
+        }
+      }
+    }
+
     const docNo = String(args.docNo ?? '').trim() || makePpeDocNo(now);
     const created = await createWarehouseDocument({
       docType: 'stock_issue',

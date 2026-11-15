@@ -5,6 +5,8 @@ import {
   matchEmployeeSizePosition,
   nextIssueDates,
   PPE_DAY_MS,
+  ppeIssueRemainders,
+  ppeNormPeriodMonths,
   ppeSizeKindForName,
   resolveEmployeeNorms,
   resolveGroupNorms,
@@ -292,8 +294,67 @@ describe('ppe фаза 2: групповые нормы', () => {
   });
 });
 
-describe('ppe: подсказка размера сотрудника при выдаче', () => {
-  const row = (id: string, name: string) => ({ id, name });
+describe('ppe: остаток по норме («сверх нормы не выдаём»)', () => {
+  const NOW = Date.UTC(2026, 10, 15);
+
+  it('годовая норма — период 12 месяцев', () => {
+    expect(ppeNormPeriodMonths({ nomenclatureId: NOM_A, qty: 1, wearMonths: null, wearKind: 'annual' })).toBe(12);
+    expect(ppeNormPeriodMonths({ nomenclatureId: NOM_A, qty: 1, wearMonths: 1, wearKind: 'months' })).toBe(1);
+  });
+
+  it('без выдач остаток равен норме', () => {
+    const [r] = ppeIssueRemainders(
+      [{ nomenclatureId: NOM_A, qty: 4, wearMonths: 1, wearKind: 'months' }],
+      [],
+      NOW,
+    );
+    expect(r.remaining).toBe(4);
+    expect(r.issued).toBe(0);
+    expect(r.periodMonths).toBe(1);
+  });
+
+  it('выданное за период съедает остаток', () => {
+    const [r] = ppeIssueRemainders(
+      [{ nomenclatureId: NOM_A, qty: 4, wearMonths: 1, wearKind: 'months' }],
+      [{ nomenclatureId: NOM_A, qty: 3, issuedAt: NOW - 5 * PPE_DAY_MS }],
+      NOW,
+    );
+    expect(r.issued).toBe(3);
+    expect(r.remaining).toBe(1);
+  });
+
+  it('выданное вне периода остаток не трогает', () => {
+    const [r] = ppeIssueRemainders(
+      [{ nomenclatureId: NOM_A, qty: 4, wearMonths: 1, wearKind: 'months' }],
+      [{ nomenclatureId: NOM_A, qty: 4, issuedAt: NOW - 40 * PPE_DAY_MS }],
+      NOW,
+    );
+    expect(r.issued).toBe(0);
+    expect(r.remaining).toBe(4);
+  });
+
+  it('сданная обратно вещь норму не израсходовала', () => {
+    const [r] = ppeIssueRemainders(
+      [{ nomenclatureId: NOM_A, qty: 4, wearMonths: 1, wearKind: 'months' }],
+      [{ nomenclatureId: NOM_A, qty: 4, issuedAt: NOW - 5 * PPE_DAY_MS, returnedAt: NOW - 2 * PPE_DAY_MS }],
+      NOW,
+    );
+    expect(r.issued).toBe(0);
+    expect(r.remaining).toBe(4);
+  });
+
+  it('остаток не уходит в минус: сверх нормы просто нельзя', () => {
+    const [r] = ppeIssueRemainders(
+      [{ nomenclatureId: NOM_A, qty: 1, wearMonths: 1, wearKind: 'months' }],
+      [{ nomenclatureId: NOM_A, qty: 5, issuedAt: NOW - 2 * PPE_DAY_MS }],
+      NOW,
+    );
+    expect(r.issued).toBe(5);
+    expect(r.remaining).toBe(0);
+  });
+});
+
+describe('ppe: подсказка размера сотрудника при выдаче', () => {  const row = (id: string, name: string) => ({ id, name });
   const костюм = [row('n-46', 'Костюм зимний р.46'), row('n-48', 'Костюм зимний р.48'), row('n-50', 'Костюм зимний р.50')];
 
   it('размер совпадает целым словом в имени позиции', () => {
