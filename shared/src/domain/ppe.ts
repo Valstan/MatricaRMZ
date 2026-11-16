@@ -312,6 +312,66 @@ export function upcomingIssues(
     .sort((a, b) => (a.nextDueAt ?? 0) - (b.nextDueAt ?? 0) || (a.nomenclatureId < b.nomenclatureId ? -1 : 1));
 }
 
+/**
+ * Остаток по позиции: сколько ещё можно выдать по норме за текущий период.
+ *
+ * Правило владельца (промт КАРМАНА #21): «мыло выдаём всем стандартно, сверх
+ * нормы не выдаём». Чтобы это было правилом, а не текстом, остаток считается
+ * в домене — и запрет опирается на него, а не на память кладовщика.
+ *
+ * Период нормы: срок носки в месяцах, а годовая норма («1 шт.», «12 пар») —
+ * 12 месяцев. Выдано считается по выдачам за последний период: сколько уже
+ * выдали в этом окне, столько и съели из нормы.
+ *
+ * Возвращённая вещь (миграция 0126) в выданное не зачитывается: её сдали
+ * обратно, значит норму она не израсходовала.
+ */
+export type PpeIssueRemainder = {
+  nomenclatureId: string;
+  /** Норма за период (количество). */
+  allowance: number;
+  /** Выдано за текущий период. */
+  issued: number;
+  /** Сколько можно выдать ещё (норма минус выдано, не меньше нуля). */
+  remaining: number;
+  /** Период нормы в месяцах. */
+  periodMonths: number;
+};
+
+/** Период нормы в месяцах: срок носки, а годовая норма — 12 месяцев. */
+export function ppeNormPeriodMonths(norm: MergedPpeNorm): number {
+  return norm.wearMonths == null ? 12 : norm.wearMonths;
+}
+
+export function ppeIssueRemainders(
+  norms: MergedPpeNorm[],
+  entries: PpeIssueEntryInput[],
+  now: number,
+): PpeIssueRemainder[] {
+  return norms.map((n) => {
+    const periodMonths = ppeNormPeriodMonths(n);
+    const windowStart = now - periodMonths * 30 * PPE_DAY_MS;
+    // В окно периода попадает только то, что выдали за последние periodMonths.
+    // Возвращённое (сдали обратно) норму не израсходовало.
+    const issuedInPeriod = entries
+      .filter(
+        (e) =>
+          e.nomenclatureId === n.nomenclatureId &&
+          e.returnedAt == null &&
+          e.issuedAt >= windowStart &&
+          e.issuedAt <= now,
+      )
+      .reduce((sum, e) => sum + e.qty, 0);
+    return {
+      nomenclatureId: n.nomenclatureId,
+      allowance: n.qty,
+      issued: issuedInPeriod,
+      remaining: Math.max(0, n.qty - issuedInPeriod),
+      periodMonths,
+    };
+  });
+}
+
 // ── Нормы приказа о СИЗ (Минтруд 767н, Приложение №1) ─────────────────────────
 // Приказ пишет норму словами, и слова эти в документе «съехали»:
 // «1пара на 2года», «12 парсрок определяется документами изготовителя».

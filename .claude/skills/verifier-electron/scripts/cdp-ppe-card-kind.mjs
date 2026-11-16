@@ -448,6 +448,41 @@ async function main() {
   );
   note(gate?.ok === true && (gate?.skipped !== undefined || gate?.refused === true), 'гейт вида держит: мыло не назначается на карточку спецодежды', gate);
 
+  // ── 5б. Гейт «сверх нормы не выдаём» (вид «мыло») ───────────────────────
+  // Выдача сверх нормы должна быть отказана ДО складского документа: деньги
+  // склада не двигаются. Склад подставляем фиктивный — до него дело не дойдёт.
+  const cap = await evaluate(
+    call,
+    `(async () => {
+      const emps = await window.matrica.ppe.employees.list();
+      const emp = (emps.employees || [])[0];
+      const card = await window.matrica.ppe.cards.byEmployee(emp.id, 'soap');
+      if (!card.ok) return { ok: true, skipped: 'нет карточки по мылу' };
+      const sets = await window.matrica.ppe.norms.list({ kind: 'soap' });
+      const set = (sets.rows || []).find((r) => r.name === 'Мыло — смоук');
+      if (!set) return { ok: true, skipped: 'нет набора по мылу' };
+      const det = await window.matrica.ppe.norms.get(set.id);
+      const nom = det.ok ? det.normSet.lines[0] : null;
+      if (!nom) return { ok: true, skipped: 'набор без позиций' };
+      const res = await window.matrica.ppe.cards.issue({
+        cardId: card.card.id,
+        warehouseId: 'склад-не-существует',
+        lines: [{ nomenclatureId: nom.nomenclatureId, qty: 99 }],
+      });
+      return { ok: true, refused: !res.ok, error: res.ok ? null : res.error };
+    })()`,
+  );
+  note(
+    cap?.ok === true && (cap?.skipped !== undefined || cap?.refused === true),
+    'выдача сверх нормы по мылу отказана',
+    cap?.skipped ? cap : { причина: cap?.error },
+  );
+  note(
+    cap?.skipped !== undefined || String(cap?.error ?? '').includes('сверх нормы'),
+    'отказ объясняет правило (сверх нормы не выдаём)',
+    { причина: cap?.error },
+  );
+
   // ── 6. UI: фильтр вида в «Нормах выдачи» ───────────────────────────────
   await dismissOverlays(call);
   await openTab(call, 'Нормы выдачи');

@@ -10,6 +10,7 @@ import {
   PPE_DAY_MS,
   PPE_KIND_RU,
   PPE_SIZE_ATTRIBUTE_CODES,
+  ppeIssueRemainders,
   ppeSizeKindForName,
   resolveEmployeeNorms,
   type PpeKind,
@@ -761,6 +762,21 @@ export function PpeCardDetailsPage(props: {
     [merged, card, absences],
   );
 
+  /**
+   * Остаток по норме — для вида «мыло» (правило «сверх нормы не выдаём»).
+   * Тот же расчёт, что на сервере: остаток = норма за период − выданное за период.
+   */
+  const remainders = useMemo(
+    () => ppeIssueRemainders(merged, card?.entries ?? [], Date.now()),
+    [merged, card],
+  );
+  const remainderByNom = useMemo(() => new Map(remainders.map((r) => [r.nomenclatureId, r])), [remainders]);
+  /** Остаток по позиции; `null` — позиции нет в норме (для мыла это запрет). */
+  const remainderOf = useCallback(
+    (nomenclatureId: string) => remainderByNom.get(nomenclatureId) ?? null,
+    [remainderByNom],
+  );
+
   async function doIssue() {
     if (!card) return;
     if (!issueWarehouse) return setStatus('Выберите склад выдачи');
@@ -769,6 +785,23 @@ export function PpeCardDetailsPage(props: {
       .map((l) => ({ nomenclatureId: l.nomenclatureId, qty: Math.trunc(Number(String(l.qty).replace(',', '.'))) }));
     if (parsed.length === 0) return setStatus('Добавьте хотя бы одну позицию');
     if (parsed.some((l) => !Number.isInteger(l.qty) || l.qty <= 0)) return setStatus('Количество — целое больше нуля');
+    // Гейт «сверх нормы не выдаём» (вид «мыло»): сервер проверит и откажет, но клиент
+    // говорит о том же раньше — без проводки склада и без лишнего запроса.
+    if (kind === 'soap') {
+      for (const l of parsed) {
+        const rem = remainderOf(l.nomenclatureId);
+        if (!rem) {
+          setStatus(`«${nomName(l.nomenclatureId)}» нет в норме по мылу — сверх нормы не выдаём`);
+          return;
+        }
+        if (l.qty > rem.remaining) {
+          setStatus(
+            `«${nomName(l.nomenclatureId)}»: по норме осталось ${rem.remaining} шт за ${rem.periodMonths} мес., а выдать ${l.qty} шт — сверх нормы не выдаём`,
+          );
+          return;
+        }
+      }
+    }
     const ok = await confirm({
       title: 'Выдать СИЗ?',
       detail: `${empName(card.employeeId)}: ${parsed.map((l) => `${nomName(l.nomenclatureId)} — ${l.qty} шт`).join('; ')}. Документ расхода будет проведён сразу.`,
@@ -1586,6 +1619,15 @@ export function PpeCardDetailsPage(props: {
                       inputMode="numeric"
                       onChange={(e) => setIssueLines((prev) => prev.map((p, j) => (j === i ? { ...p, qty: e.target.value } : p)))}
                     />
+                    {kind === 'soap' && l.nomenclatureId ? (
+                      <div style={{ color: 'var(--muted)', fontSize: 12 }}>
+                        {(() => {
+                          const rem = remainderOf(l.nomenclatureId);
+                          if (!rem) return 'нет в норме по мылу';
+                          return `по норме осталось ${rem.remaining} шт за ${rem.periodMonths} мес.`;
+                        })()}
+                      </div>
+                    ) : null}
                   </FormField>
                   <Button variant="ghost" onClick={() => setIssueLines((prev) => prev.filter((_, j) => j !== i))} disabled={busy || issueLines.length <= 1}>
                     Убрать
