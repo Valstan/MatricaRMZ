@@ -23,7 +23,7 @@ import type {
   WorkOrderPayload,
   SupplyRequestPayload,
 } from '@matricarmz/shared';
-import { CLOCK_SKEW_THRESHOLD_MS, formatClockSkew } from '@matricarmz/shared';
+import { CLOCK_SKEW_THRESHOLD_MS, formatClockSkew, stuckAgeMinutes } from '@matricarmz/shared';
 import {
   ACCESS_SECTION_CATALOG,
   formatAppVersionLabel,
@@ -7108,6 +7108,21 @@ export function App() {
               Режим просмотра резервной копии, данные изменять невозможно, только копировать и сохранять в файлы
             </div>
           )}
+          {(() => {
+            const stuck = syncStatus?.stuckPending;
+            if (!stuck || !(stuck.count > 0)) return null;
+            const ageMin = stuckAgeMinutes(stuck.oldestPendingAt, Date.now());
+            return (
+              <div style={{ marginBottom: 10, padding: 10, borderRadius: 12, border: "1px solid #fca5a5", background: "#fef2f2", color: "#991b1b" }}>
+                <div>
+                  {`Записей не отправлено на сервер: ${stuck.count}. Самая старая ждёт ${ageMin} мин. (порог — ${stuck.thresholdMinutes} мин).`}
+                </div>
+                <div style={{ fontSize: 12, marginTop: 4 }}>
+                  Пока они в очереди этой машины, их не видит никто. Сообщите администратору — починить очередь может только он.
+                </div>
+              </div>
+            );
+          })()}
           {syncStatus?.lastResult?.reservedSkipped ? (
             <div style={{ marginBottom: 10, padding: 10, borderRadius: 12, border: "1px solid #fde68a", background: "#fffbeb", color: "#b45309" }}>
               {`Двигатель занят (${syncStatus.lastResult.reservedSkipped.holders.join(", ") || "другой сотрудник"}): ${syncStatus.lastResult.reservedSkipped.count} изменений пока не приняты — уйдут, когда резерв снимут.`}

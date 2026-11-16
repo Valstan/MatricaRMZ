@@ -132,6 +132,7 @@ function snapshotStatus(): SyncWireStatus | null {
     lastResult: status.lastResult,
     nextAutoSyncAt: manager.getNextAutoSyncAt(),
     apiBaseUrl: manager.getApiBaseUrl(),
+    stuckPending: status.stuckPending ?? null,
   };
 }
 

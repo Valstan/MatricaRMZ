@@ -10,6 +10,7 @@ import {
 } from '../database/schema.js';
 import { getInstanceRole, shouldRunBackgroundJobs } from './instanceRole.js';
 import { resolveLoginsToFullNames } from './employeeAuthService.js';
+import { getAutohealStatesForClients, type ClientAutohealState } from './diagnosticsAutohealState.js';
 import { logError, logInfo } from '../utils/logger.js';
 import { getLedgerLastSeq, loadLedgerTableRows } from '../ledger/ledgerService.js';
 
@@ -19,6 +20,9 @@ type SnapshotSection = {
   checksum: string | null;
   pendingCount?: number;
   errorCount?: number;
+  /** Строки, висящие в pending дольше порога (присылает клиент). */
+  stuckCount?: number;
+  oldestPendingAt?: number | null;
 };
 
 type PendingEntityItem = {
@@ -68,6 +72,13 @@ export type ConsistencyClientReport = {
   syncRequestType: string | null;
   syncRequestAt: number | null;
   diffs: ConsistencyDiff[];
+  /**
+   * Неотправленные строки клиента, которые висят дольше порога. Именно это было
+   * не видно в инциденте 16.11.2026: 617 строк висели на машине, сервер их не видел.
+   */
+  stuckPending: { count: number; oldestPendingAt: number | null } | null;
+  /** Что сервер сделал с расхождением: поставил починку или отложил (и почему). */
+  autoheal: ClientAutohealState | null;
 };
 
 const ENTITY_TYPE_CODES = ['engine', 'engine_brand', 'part', 'contract', 'customer', 'employee', 'tool', 'tool_property', 'tool_catalog'];
@@ -400,6 +411,30 @@ function diffSnapshots(server: ConsistencySnapshot, client: ConsistencySnapshot 
   return { status, diffs };
 }
 
+/**
+ * Застрявшие неотправленные строки клиента — по его снимку.
+ *
+ * Считаем только по таблицам: секции `entityTypes` — это разрез тех же строк `entities`
+ * по типам, и вместе с таблицами они считали бы одни и те же строки дважды.
+ *
+ * `null` — снимка клиента нет (нечем судить); `{count: 0}` — снимок есть, застрявших нет.
+ */
+function stuckPendingFromSnapshot(
+  snapshot: ConsistencySnapshot | null,
+): { count: number; oldestPendingAt: number | null } | null {
+  if (!snapshot) return null;
+  let count = 0;
+  let oldestPendingAt: number | null = null;
+  for (const section of Object.values(snapshot.tables ?? {})) {
+    const n = Number(section?.stuckCount ?? 0);
+    if (!(n > 0)) continue;
+    count += n;
+    const oldest = section?.oldestPendingAt == null ? null : Number(section.oldestPendingAt);
+    if (oldest != null && (oldestPendingAt == null || oldest < oldestPendingAt)) oldestPendingAt = oldest;
+  }
+  return { count, oldestPendingAt };
+}
+
 export async function getConsistencyReport() {
   const serverRows = await db
     .select()
@@ -444,6 +479,7 @@ export async function getConsistencyReport() {
   }
 
   const clientFullNames = await resolveLoginsToFullNames(clientRows.map((r) => r.lastUsername));
+  const autohealStates = await getAutohealStatesForClients();
   const clients: ConsistencyClientReport[] = clientIds.map((clientId) => {
     const settings = clientRows.find((r) => String(r.clientId) === clientId);
     const sync = syncByClient[clientId];
@@ -471,6 +507,8 @@ export async function getConsistencyReport() {
       syncRequestType: settings?.syncRequestType ?? null,
       syncRequestAt: settings?.syncRequestAt == null ? null : Number(settings.syncRequestAt),
       diffs: diff.diffs,
+      stuckPending: stuckPendingFromSnapshot(clientSnapshot),
+      autoheal: autohealStates.get(clientId) ?? null,
     };
   });
 

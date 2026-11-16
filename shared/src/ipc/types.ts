@@ -18,6 +18,7 @@ import type { WorkSheetRow, WorkSheetType } from '../domain/workSheets.js';
 import type { ContractPayments } from '../domain/payments.js';
 import type { MenuTabId } from '../domain/uiSections.js';
 import type { ScrapCriterionPartInfo } from '../domain/scrapCriterion.js';
+import type { StuckPendingSummary } from '../domain/stuckPending.js';
 import type {
   ProductionProgramDto,
   ProductionProgramLineDraftDto,
@@ -551,6 +552,12 @@ export type SyncStatus = {
   lastError: string | null;
   lastResult: SyncRunResult | null;
   nextAutoSyncInMs: number | null;
+  /**
+   * Неотправленные строки, которые висят дольше порога (инцидент 16.11.2026: 617 строк
+   * `attribute_values` в pending неделями, и никто об этом не знал). Пусто — проба не
+   * выполнилась, «застрявших нет» — это другое утверждение.
+   */
+  stuckPending?: StuckPendingSummary | null;
 };
 
 export type SyncProgressEvent = {

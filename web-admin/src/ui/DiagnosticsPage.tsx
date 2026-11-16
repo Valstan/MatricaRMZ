@@ -45,13 +45,21 @@ function statusLabel(status: ConsistencyClientReport['status']) {
 
 function renderSectionRow(
   label: string,
-  section: { count: number; maxUpdatedAt: number | null; checksum: string | null; pendingCount?: number; errorCount?: number } | null,
+  section: {
+    count: number;
+    maxUpdatedAt: number | null;
+    checksum: string | null;
+    pendingCount?: number;
+    errorCount?: number;
+    stuckCount?: number;
+  } | null,
 ) {
   if (!section) return `${label}: —`;
   const updated = section.maxUpdatedAt ? formatMoscowDateTime(section.maxUpdatedAt) : '—';
   const extras = [];
   if (section.pendingCount != null) extras.push(`ожидает=${section.pendingCount}`);
   if (section.errorCount != null) extras.push(`ошибок=${section.errorCount}`);
+  if (section.stuckCount) extras.push(`застряло=${section.stuckCount}`);
   const suffix = extras.length > 0 ? `, ${extras.join(', ')}` : '';
   return `${label}: записей=${section.count}, обновлено=${updated}${suffix}`;
 }
@@ -499,6 +507,14 @@ export function DiagnosticsPage() {
                   <span style={{ color: statusColor(c.status), fontWeight: 700 }}>{statusLabel(c.status)}</span>
                   <span style={{ color: '#64748b', fontSize: 12 }}>({c.status})</span>
                   {stale && <span style={{ color: '#b91c1c', fontSize: 12 }}>нет связи</span>}
+                  {c.stuckPending && c.stuckPending.count > 0 ? (
+                    <span style={{ color: '#b91c1c', fontSize: 12, fontWeight: 700 }}>застряло: {c.stuckPending.count}</span>
+                  ) : null}
+                  {c.autoheal?.deferred ? (
+                    <span style={{ color: '#b91c1c', fontSize: 12, fontWeight: 700 }}>
+                      лечение отложено: {c.autoheal.lastReason ?? 'причина не указана'}
+                    </span>
+                  ) : null}
                   {c.aliases?.length ? <span style={{ color: '#64748b', fontSize: 12 }}>дубликаты: {c.aliases.length}</span> : null}
                   <span style={{ flex: 1 }} />
                   <Button
@@ -536,7 +552,18 @@ export function DiagnosticsPage() {
                 {actionNotices[c.clientId] ? <div style={{ fontSize: 12, color: '#0369a1', marginTop: 4 }}>{actionNotices[c.clientId]}</div> : null}
                 <div style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>
                   Ожидает/Ошибки: {counts.pending} / {counts.error} · Различий: {counts.totalDiffs}
+                  {c.stuckPending ? ` · Застряло (дольше порога): ${c.stuckPending.count}` : ''}
                 </div>
+                {c.autoheal ? (
+                  <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                    автолечение: уровень {c.autoheal.level ?? '—'}
+                    {c.autoheal.lastAction
+                      ? `, ${c.autoheal.lastAction === 'enqueue' ? 'починка поставлена' : 'пропущено'}`
+                      : ''}
+                    {c.autoheal.lastReason ? ` (${c.autoheal.lastReason})` : ''}
+                    {c.autoheal.deferred ? ' — лечение отложено, дрейф сам не пройдёт' : ''}
+                  </div>
+                ) : null}
                 {isExpanded && c.aliases?.length ? (
                   <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
                     Другие записи этого компьютера:{' '}
@@ -574,7 +601,16 @@ export function DiagnosticsPage() {
                   <Button variant="ghost" onClick={() => void requestSync(c.clientId, 'sync_now')} disabled={loading}>
                     Повторить синхронизацию
                   </Button>
-                  <Button variant="ghost" onClick={() => void requestSync(c.clientId, 'force_full_pull')} disabled={loading}>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      // Полная перекачка обнуляет очередь клиента: неотправленные изменения
+                      // на этой машине исчезнут. Без подтверждения это тихая потеря работы.
+                      if (!confirm('Перекачать с сервера? Неотправленные изменения этого клиента будут потеряны — очередь обнулится.')) return;
+                      void requestSync(c.clientId, 'force_full_pull');
+                    }}
+                    disabled={loading}
+                  >
                     Перекачать с сервера
                   </Button>
                 </div>

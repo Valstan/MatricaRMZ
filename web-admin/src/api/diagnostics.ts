@@ -13,6 +13,9 @@ export type ConsistencySnapshot = {
       checksum: string | null;
       pendingCount?: number;
       errorCount?: number;
+      /** Строки, висящие в pending дольше порога (присылает клиент). */
+      stuckCount?: number;
+      oldestPendingAt?: number | null;
     }
   >;
   entityTypes: Record<
@@ -23,7 +26,15 @@ export type ConsistencySnapshot = {
       checksum: string | null;
       pendingCount?: number;
       errorCount?: number;
-      pendingItems?: Array<{ id: string; label: string; status: 'pending' | 'error'; updatedAt: number | null }>;
+      stuckCount?: number;
+      oldestPendingAt?: number | null;
+      pendingItems?: Array<{
+        id: string;
+        label: string;
+        status: 'pending' | 'error';
+        updatedAt: number | null;
+        stuck?: boolean;
+      }>;
     }
   >;
 };
@@ -46,6 +57,18 @@ export type ConsistencyClientReport = {
   syncRequestId: string | null;
   syncRequestType: string | null;
   syncRequestAt: number | null;
+  /** Неотправленные строки клиента, висящие дольше порога. */
+  stuckPending: { count: number; oldestPendingAt: number | null } | null;
+  /** Что сервер сделал с расхождением. */
+  autoheal: {
+    level: 'normal' | 'observe' | 'degraded' | 'critical' | null;
+    levelAt: number | null;
+    lastAction: 'enqueue' | 'skip' | null;
+    lastReason: string | null;
+    deferred: boolean;
+    requestType: string | null;
+    at: number | null;
+  } | null;
   diffs: Array<{
     kind: 'table' | 'entityType';
     name: string;
@@ -56,6 +79,8 @@ export type ConsistencyClientReport = {
       checksum: string | null;
       pendingCount?: number;
       errorCount?: number;
+      stuckCount?: number;
+      oldestPendingAt?: number | null;
     } | null;
     client: {
       count: number;
@@ -63,7 +88,15 @@ export type ConsistencyClientReport = {
       checksum: string | null;
       pendingCount?: number;
       errorCount?: number;
-      pendingItems?: Array<{ id: string; label: string; status: 'pending' | 'error'; updatedAt: number | null }>;
+      stuckCount?: number;
+      oldestPendingAt?: number | null;
+      pendingItems?: Array<{
+        id: string;
+        label: string;
+        status: 'pending' | 'error';
+        updatedAt: number | null;
+        stuck?: boolean;
+      }>;
     } | null;
   }>;
 };
