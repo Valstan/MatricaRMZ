@@ -425,7 +425,28 @@ async function main() {
           clientHeight: d.clientHeight,
           overflows: d.scrollHeight > d.clientHeight + 5,
         }));
-      return { basis, cells, scrollers, bodyHasUuid: /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(text) };
+      // Торговое наименование и сертификат позиции набора (промты КАРМАНА #20/#25):
+      // колонки должны быть в таблице, а в них — поля правки.
+      // Индексы сверяем по детям ячеек (thead и tbody могут рендерить номер строки
+      // разными тегами — по тегу заголовка индексы разъезжаются).
+      const headRow = posTable ? posTable.querySelector('thead tr') : null;
+      const headers = headRow ? Array.from(headRow.children).map((th) => (th.innerText || '').trim()) : [];
+      const tradeIdx = headers.findIndex((h) => h.includes('Торговое наименование'));
+      const certIdx = headers.findIndex((h) => h.includes('Сертификат позиции'));
+      const firstRow = posTable ? posTable.querySelector('tbody tr') : null;
+      const bodyCells = firstRow ? Array.from(firstRow.children) : [];
+      const cellInput = (idx) => {
+        if (!firstRow || idx < 0) return false;
+        const td = bodyCells[idx];
+        return !!td && !!td.querySelector('input');
+      };
+      const trade = {
+        hasHeader: tradeIdx >= 0,
+        hasCertHeader: certIdx >= 0,
+        tradeEditable: cellInput(tradeIdx),
+        certEditable: cellInput(certIdx),
+      };
+      return { basis, cells, scrollers, trade, bodyHasUuid: /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(text) };
     })()`,
   );
 
@@ -447,6 +468,18 @@ async function main() {
   note(
     (view?.scrollers ?? []).some((s) => s.overflows),
     'список наборов прокручивается внутри своей рамки',
+  );
+  // Торговое наименование и сертификат позиции набора (промты КАРМАНА #20/#25):
+  // без них кладовщик не может записать «свою номенклатуру» на позицию.
+  note(
+    !!view?.trade?.hasHeader && !!view?.trade?.hasCertHeader,
+    'в наборе есть колонки торгового наименования и сертификата позиции',
+    view?.trade,
+  );
+  note(
+    !!view?.trade?.tradeEditable && !!view?.trade?.certEditable,
+    'поля торгового наименования и сертификата позиции правятся',
+    view?.trade,
   );
   await shot(call, '01-set-selected');
 

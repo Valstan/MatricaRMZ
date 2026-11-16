@@ -20,14 +20,32 @@ $pidPath = Join-Path $state 'electron.pid'
 
 if (Test-Path $pidPath) {
     $oldPid = Get-Content $pidPath -ErrorAction SilentlyContinue
-    if ($oldPid -and (Get-Process -Id $oldPid -ErrorAction SilentlyContinue)) {
-        Write-Output "[start-electron] already running (PID=$oldPid). Run stop.ps1 to restart."
+    # Проверяем по живому electron.exe, а не по pid-файлу: после падения клиента
+    # остаётся живая cmd-обёртка, и старая проверка считала стенд «запущенным» —
+    # скрипт молча ничего не поднимал (16.11.2026).
+    $running = Get-Process -Name 'electron' -ErrorAction SilentlyContinue
+    if ($running) {
+        Write-Output "[start-electron] already running (electron PID=$($running[0].Id)). Run stop.ps1 to restart."
         exit 0
     }
+    Write-Output "[start-electron] stale pid file ($oldPid) — прошлый клиент упал, стартуем заново."
 }
 
 Import-DotEnv -Path $envPath
 Set-Location $repo
+
+# Build shared+ledger ONCE up-front, like start-backend.ps1 does. The Electron main
+# process imports their dist/ output at runtime: a stale shared/dist makes the
+# client die with "SyntaxError: The requested module '@matricarmz/shared' does
+# not provide an export named '<X>'" (16.11.2026 — после параллельного PR в
+# shared появился новый экспорт, а dist остался старым). Сборка здесь снимает
+# класс падений: клиент всегда поднимается против свежего shared.
+Write-Output "[start-electron] building shared + ledger once (no watch)..."
+& corepack pnpm --filter @matricarmz/shared --filter @matricarmz/ledger build 2>&1 | Tee-Object -FilePath $logPath
+if ($LASTEXITCODE -ne 0) {
+    Write-Output "[start-electron] shared/ledger build FAILED (see $logPath)"
+    exit 1
+}
 
 # CDP: when -Cdp is passed (or MATRICA_CDP_PORT is already in the env), make sure
 # the var is set so it propagates to the electron child process below. The main
