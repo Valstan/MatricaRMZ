@@ -6,8 +6,6 @@
 // карточке — «Контракт», поэтому сначала ищем совпадение ПО ЗНАЧЕНИЮ, и только
 // потом — по названию.
 
-import { parseTransferDate } from './fileSearch.js';
-
 /** Пункт, найденный в файле. */
 export type FileSearchFinding = {
   label: string;
@@ -61,6 +59,26 @@ function formatLocalDate(ms: number): string {
 }
 
 /**
+ * Дата из текста — «ДД.ММ.ГГГГ» или «ГГГГ-ММ-ДД».
+ *
+ * Разбираем части, а не переводим в миллисекунды: так обе стороны сравнения дают
+ * один и тот же вид независимо от часового пояса машины.
+ */
+function parseDateParts(text: string): string | null {
+  const direct = text.match(/^(\d{4})[-.](\d{1,2})[-.](\d{1,2})$/);
+  if (direct) {
+    const [, year, month, day] = direct;
+    return `${String(day).padStart(2, '0')}.${String(month).padStart(2, '0')}.${year}`;
+  }
+  const ru = text.match(/^(\d{1,2})[-.](\d{1,2})[-.](\d{4})$/);
+  if (ru) {
+    const [, day, month, year] = ru;
+    return `${String(day).padStart(2, '0')}.${String(month).padStart(2, '0')}.${year}`;
+  }
+  return null;
+}
+
+/**
  * Значение к сравнению: регистр, «ё», кавычки и «№» убраны, пробелы схлопнуты,
  * даты приведены к «ДД.ММ.ГГГГ» — той же форме, что видит оператор на экране.
  */
@@ -72,8 +90,8 @@ export function normalizeCompareValue(raw: unknown): string {
   }
   const text = String(raw).trim();
   if (!text) return '';
-  const parsedDate = parseTransferDate(text);
-  if (parsedDate != null) return formatLocalDate(parsedDate);
+  const date = parseDateParts(text);
+  if (date) return date;
   return text
     .toLowerCase()
     .replace(/ё/g, 'е')

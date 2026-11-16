@@ -22,6 +22,12 @@ describe('сверка найденного с карточкой', () => {
     expect(compareValuesEqual('24.06.2026', '25.06.2026')).toBe(false);
   });
 
+  it('дата приводится к «ДД.ММ.ГГГГ» без конвертации — иначе часовой пояс машины ломает сверку', () => {
+    expect(normalizeCompareValue('24.06.2026')).toBe('24.06.2026');
+    expect(normalizeCompareValue('2026-06-24')).toBe('24.06.2026');
+    expect(normalizeCompareValue('4.6.2026')).toBe('04.06.2026');
+  });
+
   it('короткие значения не ловятся «по вхождению»', () => {
     expect(compareValuesEqual('2', '2026')).toBe(false);
     expect(compareValuesEqual('41', '41/26')).toBe(false);
