@@ -159,6 +159,10 @@ export function labelSimilarity(a: string, b: string): number {
 /**
  * Сверка находок с карточкой.
  *
+ * `cardFields` — ВСЕ поля карточки, включая пустые: пустое поле и есть «есть что
+ * перенести». В списке «только в карточке» пустые поля не показываются — там
+ * интересно то, что в карточке уже заполнено.
+ *
  * Порядок важен: сначала по значению (названия в файле и в карточке разные), потом
  * по названию. Каждое поле карточки достаётся первой подходящей находке.
  */
@@ -177,6 +181,7 @@ export function compareFindingsWithCard(args: {
     for (let i = 0; i < cardFields.length; i += 1) {
       if (usedCard.has(i)) continue;
       const field = cardFields[i];
+      // По значению совпадает только заполненное поле: пустое не с чем сравнивать.
       if (!field || !field.value) continue;
       if (!compareValuesEqual(finding.value, field.value)) continue;
       best = i;
@@ -243,6 +248,8 @@ export function compareFindingsWithCard(args: {
 
   cardFields.forEach((field, i) => {
     if (usedCard.has(i)) return;
+    // Пустое поле без находки — не «пункт карточки», а пустое место: молчание.
+    if (!field.value) return;
     rows.push({
       key: `c${i}`,
       findingLabel: null,

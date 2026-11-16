@@ -72,6 +72,18 @@ describe('сверка найденного с карточкой', () => {
     expect(rows[0]).toMatchObject({ state: 'card_empty', matchedBy: 'label' });
   });
 
+  it('пустые поля карточки без находок не выглядят как «только в карточке»', () => {
+    const rows = compareFindingsWithCard({
+      findings: [],
+      cardFields: [
+        { code: 'engine_number', label: 'Номер двигателя', value: 'Э06АТ0889' },
+        { code: 'engine_note', label: 'Примечание', value: null },
+      ],
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ state: 'card_only', cardCode: 'engine_number' });
+  });
+
   it('пункт без пары в карточке виден как «нет такого пункта»', () => {
     const rows = compareFindingsWithCard({
       findings: [{ label: 'рекламация', value: 'да' }],

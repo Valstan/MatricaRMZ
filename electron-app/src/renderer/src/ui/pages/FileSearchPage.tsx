@@ -295,12 +295,12 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
     [findingCells],
   );
 
-  /** Пункты карточки, у которых есть значение (пустые — в списке «чего нет»). */
+  /**
+   * Все поля карточки, включая пустые: пустое поле — это «есть что перенести».
+   * В списке «только в карточке» пустые не показываются (это делает сверка).
+   */
   const cardFields = useMemo(
-    () =>
-      defs
-        .map((d) => ({ code: d.code, label: d.name, value: displayValue(card?.[d.code], labels) }))
-        .filter((row): row is { code: string; label: string; value: string } => row.value != null),
+    () => defs.map((d) => ({ code: d.code, label: d.name, value: displayValue(card?.[d.code], labels) })),
     [card, defs, labels],
   );
 
