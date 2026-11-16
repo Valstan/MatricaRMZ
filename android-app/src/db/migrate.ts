@@ -404,6 +404,8 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
       source_kind text,
       source_label text,
       nomenclature_id text,
+      trade_name text,
+      certificate text,
       created_at integer NOT NULL,
       updated_at integer NOT NULL,
       last_server_seq integer,
@@ -751,6 +753,17 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     // Вид набора (миграция 0131): 'workwear' — спецодежда, 'soap' — мыло.
     if (!ppeCols.has('kind')) {
       await sqlite.exec(`ALTER TABLE ppe_norm_sets ADD COLUMN kind text NOT NULL DEFAULT 'workwear';`);
+    }
+  }
+  // Торговое наименование и сертификат позиции набора (миграция 0132) — те же
+  // колонки, что в Electron-клиенте: сторож сверяет схемы двух реплик.
+  if (await hasTable(sqlite, 'ppe_norm_line_specs')) {
+    const specCols = await columnNames('ppe_norm_line_specs');
+    if (!specCols.has('trade_name')) {
+      await sqlite.exec(`ALTER TABLE ppe_norm_line_specs ADD COLUMN trade_name text;`);
+    }
+    if (!specCols.has('certificate')) {
+      await sqlite.exec(`ALTER TABLE ppe_norm_line_specs ADD COLUMN certificate text;`);
     }
   }
   // Вид карточки выдачи (миграция 0131): у сотрудника может быть две открытые
