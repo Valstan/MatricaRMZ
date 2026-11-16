@@ -66,7 +66,17 @@ export function registerPpeIpc(ctx: IpcContext) {
         kind?: 'workwear' | 'soap' | null;
         validFrom?: number;
         validTo?: number | null;
-        lines: Array<{ nomenclatureId: string; qty: number; wearMonths: number | null; wearKind?: string | null }>;
+        lines: Array<{
+          nomenclatureId: string;
+          qty: number;
+          wearMonths: number | null;
+          wearKind?: string | null;
+          // Приказная строка позиции: к ней привязаны торговое наименование и
+          // сертификат позиции набора (решение владельца 16.11.2026).
+          specId?: string | null;
+          tradeName?: string | null;
+          certificate?: string | null;
+        }>;
       },
     ) => {
       if (isViewMode(ctx)) return viewModeWriteError();

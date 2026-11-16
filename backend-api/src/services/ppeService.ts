@@ -35,6 +35,15 @@ export type PpeNormLineInput = {
   wearMonths: number | null;
   /** Вид нормы. Если не передан — вид прежней строки сохраняется. */
   wearKind?: string | null;
+  /**
+   * Приказная строка (spec), к которой относится позиция. Её торговое наименование
+   * и сертификат — свой у позиции набора (решение владельца 16.11.2026).
+   */
+  specId?: string | null;
+  /** Торговое наименование позиции набора — из должностной карточки выдачи («Костюм МОТОР»). */
+  tradeName?: string | null;
+  /** Сертификат позиции набора: свой у позиции, внутри набора — разный. */
+  certificate?: string | null;
 };
 
 export type PpeNormSetUpsert = {
@@ -188,6 +197,8 @@ export async function getPpeNormSet(id: string): Promise<
         nomenclatureCode: string | null;
         /** Сертификат позиции (миграция 0127): вид СИЗ. */
         certificate: string | null;
+        /** Торговое наименование позиции набора («Костюм МОТОР»). */
+        tradeName: string | null;
         qty: number;
         /** Срок носки; `null` — срока нет (годовая норма без срока, «до износа»). */
         wearMonths: number | null;
@@ -233,6 +244,9 @@ export async function getPpeNormSet(id: string): Promise<
             sourceLabel: ppeNormLineSpecs.sourceLabel,
             sourceKind: ppeNormLineSpecs.sourceKind,
             unit: ppeNormLineSpecs.unit,
+            // Торговое наименование и сертификат позиции набора (решение владельца 16.11.2026).
+            tradeName: ppeNormLineSpecs.tradeName,
+            certificate: ppeNormLineSpecs.certificate,
           })
           .from(ppeNormLineSpecs)
           .where(inArray(ppeNormLineSpecs.id, specIds as any))
@@ -267,9 +281,13 @@ export async function getPpeNormSet(id: string): Promise<
             nomenclatureId: String(l.nomenclatureId),
             nomenclatureName: nom ? String(nom.name) : null,
             nomenclatureCode: nom ? String(nom.code) : null,
-            // Сертификат позиции: вид СИЗ. Пересекается между наборами, внутри
-            // набора — разный (гейт в upsertPpeNormSet).
-            certificate: nom ? (nom.certificate == null ? null : String(nom.certificate)) : null,
+            // Сертификат позиции: сперва значение позиции набора (оно авторитетно с
+            // 16.11.2026), у старых наборов — сертификат номенклатуры (миграция 0127).
+            certificate:
+              (spec?.certificate == null ? null : String(spec.certificate)) ??
+              (nom ? (nom.certificate == null ? null : String(nom.certificate)) : null),
+            // Торговое наименование позиции: «Костюм МОТОР» из должностной карточки.
+            tradeName: spec?.tradeName == null ? null : String(spec.tradeName),
             qty: Number(l.qty),
             // `Number(null)` дал бы 0 — позиция с сроком «0 месяцев» выглядела бы
             // просроченной сразу после выдачи. Срока нет — значит null.
@@ -316,11 +334,11 @@ export async function upsertPpeNormSet(input: PpeNormSetUpsert): Promise<Result<
     const refError = await validateNomenclatureIds(input.lines.map((l) => l.nomenclatureId));
     if (refError) return { ok: false, error: refError };
 
-    // Гейт «свой сертификат» (решение владельца 09.11.2026): сертификат — идентификатор
-    // группы (вид СИЗ), он общий для нескольких позиций, но ВНУТРИ одного набора норм
-    // повторяться не должен: «у каждой позиции набора норм свой сертификат». Пересечение
-    // между разными наборами — законно (вся спецодежда завода может идти под одним).
-    // Проверка — по сертификату позиции номенклатуры: он и есть атрибут позиции.
+    // Гейт «свой сертификат» (решение владельца 09.11.2026, уточнено 16.11.2026):
+    // сертификат — свой у позиции набора; ВНУТРИ одного набора повторяться не должен.
+    // Пересечение между наборами — законно (вся спецодежда завода может идти под одним).
+    // Проверка — по сертификату позиции: сперва значение позиции набора, а у старых
+    // наборов (значения ещё нет) — сертификат номенклатуры, он и был авторитетным раньше.
     const certByNom = new Map<string, string>();
     for (const line of input.lines) {
       const nomId = String(line.nomenclatureId);
@@ -329,7 +347,8 @@ export async function upsertPpeNormSet(input: PpeNormSetUpsert): Promise<Result<
         .from(erpNomenclature)
         .where(and(eq(erpNomenclature.id, nomId as any), isNull(erpNomenclature.deletedAt)))
         .limit(1);
-      const cert = String(rows[0]?.certificate ?? '').trim();
+      const own = String(line.certificate ?? '').trim();
+      const cert = own || String(rows[0]?.certificate ?? '').trim();
       if (!cert) continue;
       const seen = certByNom.get(cert);
       if (seen && seen !== nomId) {
@@ -408,7 +427,7 @@ export async function upsertPpeNormSet(input: PpeNormSetUpsert): Promise<Result<
           id: randomUUID(),
           normSetId: id,
           nomenclatureId: String(l.nomenclatureId),
-          specId: (specByNomenclature.get(String(l.nomenclatureId)) ?? null) as any,
+          specId: (l.specId ?? specByNomenclature.get(String(l.nomenclatureId)) ?? null) as any,
           qty: l.qty,
           wearMonths: l.wearMonths,
           // Вид нормы: переданный — как есть; иначе прежний (переназначение норм не имеет
@@ -421,6 +440,22 @@ export async function upsertPpeNormSet(input: PpeNormSetUpsert): Promise<Result<
           syncStatus: 'pending',
         })),
       );
+      // Торговое наименование и сертификат позиции живут на приказной строке: она
+      // привязана к профессии, а должностная карточка выдачи — тоже по профессии
+      // (решение владельца 16.11.2026). Пишем только то, что кладовщик передал:
+      // пустая строка — значит «стереть», отсутствие поля — «не трогать».
+      for (const l of input.lines) {
+        const specId = l.specId ?? specByNomenclature.get(String(l.nomenclatureId)) ?? null;
+        if (!specId) continue;
+        const patch: { tradeName?: string | null; certificate?: string | null } = {};
+        if (l.tradeName !== undefined) patch.tradeName = String(l.tradeName ?? '').trim() || null;
+        if (l.certificate !== undefined) patch.certificate = String(l.certificate ?? '').trim() || null;
+        if (Object.keys(patch).length === 0) continue;
+        await tx
+          .update(ppeNormLineSpecs)
+          .set({ ...patch, updatedAt: now, syncStatus: 'pending' })
+          .where(eq(ppeNormLineSpecs.id, specId as any));
+      }
     });
     // Набор вида «мыло» назначается всем открытым карточкам мыла: «мыло выдаём всем
     // стандартно» — значит, один набор на всех, а не обход каждого сотрудника вручную.

@@ -594,6 +594,8 @@ export type PpeCardNormRow = {
   wearText: string;
   /** Сертификат позиции (миграция 0127): вид СИЗ. `null` — не задан. */
   certificate: string | null;
+  /** Торговое наименование позиции набора («Костюм МОТОР»). `null` — не задано. */
+  tradeName: string | null;
 };
 
 export async function listCardNormRows(normSetIds: string[]): Promise<PpeCardNormRow[]> {
@@ -656,7 +658,14 @@ export async function listCardNormRows(normSetIds: string[]): Promise<PpeCardNor
       wearMonths,
       qtyText: formatQty(qty, unit, wearKind, wearMonths),
       wearText: wearPeriodText(wearKind as PpeWearKind | null, wearMonths),
-      certificate: certByNom.get(String(line.nomenclatureId)) ?? null,
+      // Сертификат позиции: сперва значение позиции набора (авторитетно с 16.11.2026),
+      // у старых наборов — сертификат номенклатуры.
+      certificate:
+        (spec?.certificate == null ? null : String(spec.certificate).trim() || null) ??
+        certByNom.get(String(line.nomenclatureId)) ??
+        null,
+      // Торговое наименование позиции («Костюм МОТОР») — из должностной карточки.
+      tradeName: spec?.tradeName == null ? null : String(spec.tradeName),
     });
   }
   return out;

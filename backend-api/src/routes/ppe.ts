@@ -169,6 +169,11 @@ ppeRouter.post('/norms', requirePermission(PermissionCode.ErpDictionaryEdit), as
             // Срок носки может отсутствовать: годовая норма без срока («до износа»).
             wearMonths: z.coerce.number().int().positive().nullable().optional(),
             wearKind: z.string().trim().min(1).max(32).nullable().optional(),
+            // Приказная строка позиции: к ней привязаны торговое наименование и
+            // сертификат позиции набора (решение владельца 16.11.2026).
+            specId: z.string().uuid().nullable().optional(),
+            tradeName: z.string().trim().max(200).nullable().optional(),
+            certificate: z.string().trim().max(200).nullable().optional(),
           }),
         )
         .min(1),
@@ -198,6 +203,9 @@ ppeRouter.post('/norms', requirePermission(PermissionCode.ErpDictionaryEdit), as
           qty: l.qty,
           wearMonths: l.wearMonths ?? null,
           wearKind: l.wearKind ?? null,
+          ...(l.specId !== undefined ? { specId: l.specId } : {}),
+          ...(l.tradeName !== undefined ? { tradeName: l.tradeName } : {}),
+          ...(l.certificate !== undefined ? { certificate: l.certificate } : {}),
         })),
       }),
   );
