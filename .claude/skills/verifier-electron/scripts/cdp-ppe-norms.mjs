@@ -372,19 +372,27 @@ async function main() {
   note(onPage, 'открыт раздел «Кладовщик» → «Нормы выдачи»');
 
   // ── 4. Выбрать набор и проверить содержимое ─────────────────────────────
+  // Набор выбираем ДЕТЕРМИНИРОВАННО: печать бланка проверяется на наборе с
+  // фикстурой торговых данных («Пункт № 783» — на нём в стенде заведены
+  // «Костюм МОТОР» / «ТЕСТ-СЕРТИФИКАТ-001»). Раньше бралась первая строка,
+  // попавшая под /Пункт №|Прил\\.4|766н/ — а это набор из приказа 766н, где
+  // торговых данных нет, и печать краснела бы на пустом месте.
   const picked = await evaluate(
     call,
     `(() => {
       const rows = Array.from(document.querySelectorAll('tr'));
-      const hit = rows.find((tr) => /Пункт №|Прил\\.4|766н/.test(tr.innerText || ''));
+      const text = (tr) => tr.innerText || '';
+      const hit =
+        rows.find((tr) => /Пункт №\\s*783/.test(text(tr))) ||
+        rows.find((tr) => /Пункт №|Прил\\.4|766н/.test(text(tr)));
       if (!hit) return false;
       for (const type of ['mousedown', 'mouseup', 'click']) {
         hit.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
       }
-      return true;
+      return text(hit).split('\\n')[0].slice(0, 80);
     })()`,
   );
-  note(picked, 'набор с пунктом приказа выбран');
+  note(!!picked, 'набор с пунктом приказа выбран', picked || null);
   await sleep(2000);
 
   const view = await evaluate(
@@ -483,8 +491,61 @@ async function main() {
   );
   await shot(call, '01-set-selected');
 
-  // ── 5. Переход по позиции в карточку номенклатуры ───────────────────────
-  const beforeText = await evaluate(call, `document.body.innerText.slice(0, 120)`);
+  // ── 5. Бланк карточки выдачи: печать торгового наименования и сертификата позиции ──
+  // Промты КАРМАНА #20/#25: в должностной карточке наименование и № сертификата — по
+  // должности («Костюм МОТОР»), а не справочное имя номенклатуры.
+  //
+  // Печать открывает ОТДЕЛЬНОЕ окно предпросмотра (window.open + document.write) —
+  // читать надо его, а не исходную вкладку: в исходной вкладке печати нет.
+  const beforePrintTargets = new Set((await targets()).map((t) => t.id));
+  const printClicked = await evaluate(
+    call,
+    `(() => {
+      const btn = Array.from(document.querySelectorAll('button')).find((b) => (b.innerText || '').includes('Бланк карточки выдачи'));
+      if (!btn) return false;
+      for (const type of ['mousedown', 'mouseup', 'click']) {
+        btn.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      }
+      return true;
+    })()`,
+  );
+  note(printClicked, 'нажата кнопка «Бланк карточки выдачи»');
+
+  let printTarget = null;
+  for (let i = 0; i < 40 && !printTarget; i++) {
+    await sleep(400);
+    const now = await targets();
+    printTarget = now.find((t) => !beforePrintTargets.has(t.id)) ?? null;
+  }
+  note(!!printTarget, 'открылось отдельное окно предпросмотра печати');
+
+  let printText = '';
+  if (printTarget) {
+    const pws = await connect(printTarget.webSocketDebuggerUrl);
+    const pcall = makeSession(pws);
+    await pcall('Runtime.enable');
+    await pcall('Page.enable');
+    await sleep(700);
+    printText = String((await evaluate(pcall, `document.body.innerText || ''`)) ?? '');
+    await shot(pcall, '03-issue-card-blank');
+    try {
+      await evaluate(pcall, `window.close()`);
+    } catch {
+      /* окно могло закрыться само */
+    }
+  }
+  note(
+    printText.includes('Костюм МОТОР'),
+    'бланк выдачи печатает торговое наименование позиции',
+    printText.slice(0, 160),
+  );
+  note(
+    printText.includes('ТЕСТ-СЕРТИФИКАТ-001'),
+    'бланк выдачи печатает сертификат позиции',
+    printText.slice(0, 160),
+  );
+
+  // ── 6. Переход по позиции в карточку номенклатуры ───────────────────────
   const clicked = await evaluate(
     call,
     `(() => {
@@ -511,42 +572,6 @@ async function main() {
   );
   note(!!openedCard, 'открылась карточка номенклатуры', openedCard?.slice(0, 120));
   await shot(call, '02-nomenclature');
-
-  // ── 6. Бланк карточки выдачи: печать торгового наименования и сертификата позиции ──
-  // Промты КАРМАНА #20/#25: в должностной карточке наименование и № сертификата — по
-  // должности («Костюм МОТОР»), а не справочное имя номенклатуры.
-  await evaluate(
-    call,
-    `(() => {
-      const btn = Array.from(document.querySelectorAll('button')).find((b) => (b.innerText || '').includes('Бланк карточки выдачи'));
-      if (!btn) return false;
-      for (const type of ['mousedown', 'mouseup', 'click']) {
-        btn.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
-      }
-      return true;
-    })()`,
-  );
-  await sleep(2500);
-  const printed = await evaluate(
-    call,
-    `(() => {
-      const text = document.body.innerText || '';
-      const html = document.body.innerHTML || '';
-      return { text: text.slice(0, 3000), hasHtml: html.includes('Костюм МОТОР') };
-    })()`,
-  );
-  const printText = String(printed?.text ?? '');
-  note(
-    printText.includes('Костюм МОТОР'),
-    'бланк выдачи печатает торговое наименование позиции',
-    printText.slice(0, 160),
-  );
-  note(
-    printText.includes('ТЕСТ-СЕРТИФИКАТ-001'),
-    'бланк выдачи печатает сертификат позиции',
-    printText.slice(0, 160),
-  );
-  await shot(call, '03-issue-card-blank');
 
   await closeAll();
   const failed = steps.filter((s) => !s.ok);
