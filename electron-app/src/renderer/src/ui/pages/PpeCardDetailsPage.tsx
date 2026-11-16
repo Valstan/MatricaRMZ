@@ -40,6 +40,7 @@ import {
 } from '../utils/ppePrintTemplate.js';
 import { escapeHtml, formatMomentLabel, openPrintPreview, type PrintSection } from '../utils/printPreview.js';
 import { printPpeIssueCard } from '../utils/ppeIssueCardPrint.js';
+import { buildTradeByNom, resolveTradePosition } from '../utils/ppeTradePosition.js';
 
 type CardDto = {
   id: string;
@@ -766,25 +767,18 @@ export function PpeCardDetailsPage(props: {
    * профессиям разный. Поэтому печатаем торговые данные позиции, а справочные
    * (номенклатура) — только если торговых нет (старые наборы).
    */
-  const tradeByNom = useMemo(() => {
-    const map = new Map<string, { name: string | null; certificate: string | null }>();
-    for (const l of normLines) {
-      const id = String(l.nomenclatureId);
-      const current = map.get(id);
-      map.set(id, {
-        name: l.tradeName ?? current?.name ?? null,
-        certificate: l.certificate ?? current?.certificate ?? null,
-      });
-    }
-    // Размерный вариант ведёт к базе: выданная вещь — «Сапоги ТОФФ АЛЬП … (43)»,
-    // а торговое наименование и сертификат — у позиции набора, то есть у базы.
-    for (const [id, parentId] of nomParents) {
-      if (map.has(id)) continue;
-      const parent = map.get(parentId);
-      if (parent) map.set(id, parent);
-    }
-    return map;
-  }, [normLines, nomParents]);
+  const tradeByNom = useMemo(
+    () =>
+      buildTradeByNom(
+        normLines.map((l) => ({
+          nomenclatureId: String(l.nomenclatureId),
+          tradeName: l.tradeName ?? null,
+          certificate: l.certificate ?? null,
+        })),
+        nomParents,
+      ),
+    [normLines, nomParents],
+  );
 
   // Позиции размерного ряда, совпавшие с размером сотрудника (подсказка при выдаче).
   // Сравниваем внутри набора норм карточки, по целому слову: «8» ≠ «р. 48».
@@ -1038,7 +1032,7 @@ export function PpeCardDetailsPage(props: {
     const model = buildPpeIssueCard({
       positions: merged.map((m) => {
         const id = String(m.nomenclatureId);
-        const trade = tradeByNom.get(id);
+        const trade = resolveTradePosition(tradeByNom, id);
         return {
           nomenclatureId: id,
           // Торговое наименование позиции набора; нет — справочное (старые наборы).
@@ -1049,7 +1043,7 @@ export function PpeCardDetailsPage(props: {
       }),
       facts: (card.entries ?? []).map((e) => {
         const id = String(e.nomenclatureId);
-        const trade = tradeByNom.get(id);
+        const trade = resolveTradePosition(tradeByNom, id);
         return {
           nomenclatureId: id,
           issuedAt: e.issuedAt,
