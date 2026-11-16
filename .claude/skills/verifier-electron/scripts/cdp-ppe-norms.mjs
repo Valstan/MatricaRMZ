@@ -512,6 +512,42 @@ async function main() {
   note(!!openedCard, 'открылась карточка номенклатуры', openedCard?.slice(0, 120));
   await shot(call, '02-nomenclature');
 
+  // ── 6. Бланк карточки выдачи: печать торгового наименования и сертификата позиции ──
+  // Промты КАРМАНА #20/#25: в должностной карточке наименование и № сертификата — по
+  // должности («Костюм МОТОР»), а не справочное имя номенклатуры.
+  await evaluate(
+    call,
+    `(() => {
+      const btn = Array.from(document.querySelectorAll('button')).find((b) => (b.innerText || '').includes('Бланк карточки выдачи'));
+      if (!btn) return false;
+      for (const type of ['mousedown', 'mouseup', 'click']) {
+        btn.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      }
+      return true;
+    })()`,
+  );
+  await sleep(2500);
+  const printed = await evaluate(
+    call,
+    `(() => {
+      const text = document.body.innerText || '';
+      const html = document.body.innerHTML || '';
+      return { text: text.slice(0, 3000), hasHtml: html.includes('Костюм МОТОР') };
+    })()`,
+  );
+  const printText = String(printed?.text ?? '');
+  note(
+    printText.includes('Костюм МОТОР'),
+    'бланк выдачи печатает торговое наименование позиции',
+    printText.slice(0, 160),
+  );
+  note(
+    printText.includes('ТЕСТ-СЕРТИФИКАТ-001'),
+    'бланк выдачи печатает сертификат позиции',
+    printText.slice(0, 160),
+  );
+  await shot(call, '03-issue-card-blank');
+
   await closeAll();
   const failed = steps.filter((s) => !s.ok);
   console.log(`\nИТОГ: ${steps.length - failed.length}/${steps.length} PASS`);
