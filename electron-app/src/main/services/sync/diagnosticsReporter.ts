@@ -14,6 +14,7 @@ import {
   operations,
 } from '../../database/schema.js';
 import { SettingsKey, settingsGetNumber, settingsSetNumber } from '../settingsStore.js';
+import { STUCK_PENDING_MINUTES, isStuckPending, stuckPendingCutoff } from '@matricarmz/shared';
 import type { SnapshotSection } from './types.js';
 import { nowMs } from './progressEmitter.js';
 
@@ -22,6 +23,32 @@ const DIAGNOSTICS_SEND_INTERVAL_MS = 10 * 60_000;
 function hashSnapshot(count: number, maxUpdatedAt: number | null, sumUpdatedAt: number | null) {
   const raw = `${count}|${maxUpdatedAt ?? ''}|${sumUpdatedAt ?? ''}`;
   return createHash('md5').update(raw).digest('hex');
+}
+
+/**
+ * Сколько строк висит в `pending` дольше порога и когда застряла самая старая.
+ *
+ * Считаем по всем `pending`-строкам, включая надгробия (удалённые локально, но ещё не
+ * ушедшие на сервер): такие строки тоже висят, и по ним счётчик должен совпадать с тем,
+ * что видит оператор у себя в баннере.
+ */
+async function stuckPendingStats(
+  db: BetterSQLite3Database,
+  table: typeof entityTypes | typeof entities | typeof attributeDefs | typeof attributeValues | typeof operations,
+): Promise<{ stuckCount: number; oldestPendingAt: number | null }> {
+  const cutoff = stuckPendingCutoff(nowMs(), STUCK_PENDING_MINUTES);
+  const row = await db
+    .select({
+      stuckCount: sql<number>`coalesce(sum(case when ${table.syncStatus} = 'pending' and ${table.updatedAt} < ${cutoff} then 1 else 0 end), 0)`,
+      oldestPendingAt: sql<number | null>`min(case when ${table.syncStatus} = 'pending' and ${table.updatedAt} < ${cutoff} then ${table.updatedAt} end)`,
+    })
+    .from(table)
+    .limit(1);
+  const r = row[0];
+  return {
+    stuckCount: Math.max(0, Number(r?.stuckCount ?? 0) || 0),
+    oldestPendingAt: r?.oldestPendingAt == null ? null : Number(r.oldestPendingAt),
+  };
 }
 
 async function snapshotTable(
@@ -52,6 +79,7 @@ async function snapshotTable(
   const s = statusRow[0];
   const pendingCount = Number(s?.pendingCount ?? 0);
   const errorCount = Number(s?.errorCount ?? 0);
+  const stuck = await stuckPendingStats(db, table);
   return {
     table: '',
     count,
@@ -61,6 +89,8 @@ async function snapshotTable(
     checksum: hashSnapshot(count, maxUpdatedAt, sumUpdatedAt),
     pendingCount,
     errorCount,
+    stuckCount: stuck.stuckCount,
+    oldestPendingAt: stuck.oldestPendingAt,
   } as any;
 }
 
@@ -87,12 +117,24 @@ async function snapshotEntityType(db: BetterSQLite3Database, typeId: string) {
   const maxUpdatedAt = r?.maxUpdatedAt == null ? null : Number(r.maxUpdatedAt);
   const sumUpdatedAt = r?.sumUpdatedAt == null ? null : Number(r.sumUpdatedAt);
   const s = statusRow[0];
+  const cutoff = stuckPendingCutoff(nowMs(), STUCK_PENDING_MINUTES);
+  const stuckRow = await db
+    .select({
+      stuckCount: sql<number>`coalesce(sum(case when ${entities.syncStatus} = 'pending' and ${entities.updatedAt} < ${cutoff} then 1 else 0 end), 0)`,
+      oldestPendingAt: sql<number | null>`min(case when ${entities.syncStatus} = 'pending' and ${entities.updatedAt} < ${cutoff} then ${entities.updatedAt} end)`,
+    })
+    .from(entities)
+    .where(and(eq(entities.typeId, typeId as any), isNull(entities.deletedAt)))
+    .limit(1);
+  const st = stuckRow[0];
   return {
     count,
     maxUpdatedAt,
     checksum: hashSnapshot(count, maxUpdatedAt, sumUpdatedAt),
     pendingCount: Number(s?.pendingCount ?? 0),
     errorCount: Number(s?.errorCount ?? 0),
+    stuckCount: Math.max(0, Number(st?.stuckCount ?? 0) || 0),
+    oldestPendingAt: st?.oldestPendingAt == null ? null : Number(st.oldestPendingAt),
   };
 }
 
@@ -154,7 +196,7 @@ async function listPendingEntities(db: BetterSQLite3Database, typeId: string, li
     const label = labelMap.get(id) ?? id.slice(0, 8);
     const status = r.syncStatus === 'error' ? 'error' : 'pending';
     const updatedAt = r.updatedAt == null ? null : Number(r.updatedAt);
-    return { id, label, status, updatedAt };
+    return { id, label, status, updatedAt, stuck: isStuckPending(updatedAt, nowMs()) };
   });
 }
 

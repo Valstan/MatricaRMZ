@@ -17,6 +17,8 @@
  * работу оператора от строки, которая вечно не уезжает (сервер её отвергает) — иначе
  * одна такая строка держала бы синк в петле.
  */
+import { STUCK_PENDING_MINUTES, stuckPendingCutoff } from '@matricarmz/shared';
+
 import type { SqlExecutor } from '../../database/sqlExecutor.js';
 
 /** Таблицы реплики, у которых есть колонка `sync_status`. */
@@ -35,6 +37,28 @@ const PROBE_TABLES_FALLBACK_SQL = `
    WHERE type = 'table'
      AND name NOT LIKE 'sqlite_%'
      AND sql LIKE '%sync_status%'
+   ORDER BY name`;
+
+/**
+ * Таблицы, по которым считаем «застряло»: нужен ещё и `updated_at` — по нему видно,
+ * с какого момента строка висит. Таблицы без такой колонки пропускаем.
+ */
+const STUCK_TABLES_SQL = `
+  SELECT m.name AS name
+    FROM sqlite_master m
+   WHERE m.type = 'table'
+     AND m.name NOT LIKE 'sqlite_%'
+     AND EXISTS (SELECT 1 FROM pragma_table_info(m.name) p WHERE p.name = 'sync_status')
+     AND EXISTS (SELECT 1 FROM pragma_table_info(m.name) p WHERE p.name = 'updated_at')
+   ORDER BY m.name`;
+
+const STUCK_TABLES_FALLBACK_SQL = `
+  SELECT name
+    FROM sqlite_master
+   WHERE type = 'table'
+     AND name NOT LIKE 'sqlite_%'
+     AND sql LIKE '%sync_status%'
+     AND sql LIKE '%updated_at%'
    ORDER BY name`;
 
 /**
@@ -67,13 +91,32 @@ export function buildPendingCountSql(tables: readonly string[]): string {
   return `SELECT ${parts.join(' + ')} AS n`;
 }
 
+/**
+ * Строки, которые висят в `pending` дольше порога — «застряли».
+ *
+ * Зачем: инцидент 16.11.2026 — клиент держал 617 строк `attribute_values` в `pending`
+ * неделями, сервер их не видел, оператор об этом не знал. Обычный счётчик pending
+ * этого не показывал: строки были, но «неотправлено 617» никто не смотрел.
+ *
+ * Считаем только `sync_status = 'pending'`. Строки в `error` — это принятые сервером
+ * с отказом (у них свой баннер «строка не принята сервером»), смешивать две разные
+ * беды в один счётчик нельзя.
+ */
+export type StuckPendingProbe = {
+  count: number;
+  oldestPendingAt: number | null;
+  byTable: Array<{ table: string; n: number; oldestPendingAt: number | null }>;
+};
+
 let cachedTables: string[] | null = null;
 let cachedSql: string | null = null;
+let cachedStuckTables: string[] | null = null;
 
 /** Сбросить кэш списка таблиц (пересборка локальной БД, тесты). */
 export function resetPendingProbeCache(): void {
   cachedTables = null;
   cachedSql = null;
+  cachedStuckTables = null;
 }
 
 export async function listPendingProbeTables(exec: SqlExecutor): Promise<string[]> {
@@ -84,6 +127,57 @@ export async function listPendingProbeTables(exec: SqlExecutor): Promise<string[
   } catch {
     return await read(PROBE_TABLES_FALLBACK_SQL);
   }
+}
+
+async function listStuckProbeTables(exec: SqlExecutor): Promise<string[]> {
+  if (cachedStuckTables) return cachedStuckTables;
+  const read = async (sql: string) =>
+    (await exec.all<{ name: string }>(sql)).map((r) => String(r.name)).filter((name) => !DEFERRED_TABLES.has(name));
+  try {
+    cachedStuckTables = await read(STUCK_TABLES_SQL);
+  } catch {
+    cachedStuckTables = await read(STUCK_TABLES_FALLBACK_SQL);
+  }
+  return cachedStuckTables;
+}
+
+/**
+ * Потабличный счёт застрявших строк и время самой старой из них.
+ *
+ * `updated_at` — время последней правки строки: пока строка висит и не уезжает, её
+ * никто не трогает, поэтому оно и есть «с какого момента зависла».
+ */
+export async function countStuckPendingLocalRows(
+  exec: SqlExecutor,
+  opts?: { now?: number; minutes?: number },
+): Promise<StuckPendingProbe> {
+  const now = opts?.now ?? Date.now();
+  const minutes = opts?.minutes ?? STUCK_PENDING_MINUTES;
+  const cutoff = stuckPendingCutoff(now, minutes);
+  const tables = await listStuckProbeTables(exec);
+  const byTable: StuckPendingProbe['byTable'] = [];
+  let count = 0;
+  let oldestPendingAt: number | null = null;
+  for (const table of tables) {
+    const name = String(table).replace(/"/g, '""');
+    try {
+      const row = await exec.get<{ n: number; oldest: number | null }>(
+        `SELECT COUNT(*) AS n, MIN(updated_at) AS oldest FROM "${name}" WHERE sync_status = 'pending' AND updated_at IS NOT NULL AND updated_at < ?${deferredRowFilter(name)}`,
+        [cutoff],
+      );
+      const n = Math.max(0, Number(row?.n ?? 0) || 0);
+      const oldest = row?.oldest == null ? null : Number(row.oldest);
+      if (n > 0) {
+        byTable.push({ table: String(table), n, oldestPendingAt: oldest });
+        count += n;
+        if (oldest != null && (oldestPendingAt == null || oldest < oldestPendingAt)) oldestPendingAt = oldest;
+      }
+    } catch {
+      // Таблица могла переехать/пересобраться — молча пропускаем её, счётчик врёт меньше,
+      // чем падает проба целиком.
+    }
+  }
+  return { count, oldestPendingAt, byTable };
 }
 
 /**

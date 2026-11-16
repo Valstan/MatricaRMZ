@@ -1,11 +1,14 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
-import type { SyncRunResult, SyncStatus } from '@matricarmz/shared';
+import type { SyncRunResult, SyncStatus, StuckPendingSummary } from '@matricarmz/shared';
+
+import { STUCK_PENDING_MINUTES } from '@matricarmz/shared';
 
 import { flushPendingEngineReservationReleases } from './engineReservationClient.js';
 import {
   countPendingLocalChanges,
   countPendingLocalChangesByTable,
+  countStuckPendingLocalChanges,
   hasActiveSession,
   readLastPulledServerSeq,
   runSync,
@@ -40,6 +43,11 @@ const WAKE_MIN_GAP_MS = 1_000;
 const WAKE_STALL_PAUSE_MS = 5_000;
 /** Как часто сторож смотрит, не появилось ли своей несинканной работы. */
 const LOCAL_WATCH_MS = 1_000;
+/**
+ * Как часто пересчитываем застрявшие строки. Проба идёт по всем таблицам реплики
+ * (COUNT + MIN(updated_at)), поэтому — раз в полминуты, а не на каждом тике сторожа.
+ */
+const STUCK_PROBE_INTERVAL_MS = 30_000;
 /** Проба COUNT каждую секунду обязана быть миллисекундной — иначе сторож сам вешает цикл. */
 const SLOW_PROBE_MS = 500;
 /** Полный прогон дольше этого — аномалия, достойная серверного лога. */
@@ -70,6 +78,9 @@ export class SyncManager implements SyncControl {
   private localTimer: NodeJS.Timeout | null = null;
   private localBusy = false;
   private lastPendingRows: number | null = null;
+  /** Застрявшие неотправленные строки; null — проба ещё ни разу не считалась. */
+  private stuckPending: StuckPendingSummary | null = null;
+  private lastStuckProbeAt = 0;
   private lastDirtySyncAt: number | null = null;
   private localRetryDelayMs = LOCAL_RETRY_MIN_MS;
   /**
@@ -118,6 +129,7 @@ export class SyncManager implements SyncControl {
       lastError: this.lastError,
       lastResult: this.lastResult,
       nextAutoSyncInMs,
+      stuckPending: this.stuckPending,
     };
   }
 
@@ -292,12 +304,30 @@ export class SyncManager implements SyncControl {
       });
       this.localRetryDelayMs = action.nextRetryDelayMs;
       if (pendingRows >= 0) this.lastPendingRows = pendingRows;
+      await this.refreshStuckPending();
       if (!action.sync) return;
       this.lastDirtySyncAt = nowMs();
       await this.runOnce(this.progressOpts()).catch(() => undefined);
     } finally {
       this.localBusy = false;
     }
+  }
+
+  /**
+   * Пересчёт застрявших строк — с троттлингом: проба идёт по всем таблицам реплики.
+   * Проба не удалась — оставляем прошлое значение (оно честнее, чем «застрявших нет»).
+   */
+  private async refreshStuckPending(): Promise<void> {
+    const now = nowMs();
+    if (now - this.lastStuckProbeAt < STUCK_PROBE_INTERVAL_MS) return;
+    this.lastStuckProbeAt = now;
+    const probe = await countStuckPendingLocalChanges().catch(() => null);
+    if (!probe) return;
+    this.stuckPending = {
+      count: probe.count,
+      oldestPendingAt: probe.oldestPendingAt,
+      thresholdMinutes: STUCK_PENDING_MINUTES,
+    };
   }
 
   private progressOpts(): RunSyncOpts {
