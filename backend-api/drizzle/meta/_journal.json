@@ -918,6 +918,13 @@
       "when": 1794700801000,
       "tag": "0131_ppe_card_kind",
       "breakpoints": true
+    },
+    {
+      "idx": 131,
+      "version": "7",
+      "when": 1794878400000,
+      "tag": "0132_ppe_trade_position",
+      "breakpoints": true
     }
   ]
 }
