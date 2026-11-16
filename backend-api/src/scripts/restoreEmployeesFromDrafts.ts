@@ -181,7 +181,7 @@ async function main() {
         continue;
       }
       console.log(
-        `${emp.id}  ${fullName}  полей: ${codes.length}  черновик от ${new Date(draft.updated_at).toISOString()}`,
+        `${emp.id}  ${fullName}  полей: ${codes.length}  черновик от ${new Date(Number(draft.updated_at)).toISOString()}`,
       );
       const ts = Date.now();
       for (const [code, value] of Object.entries(values)) {
