@@ -119,9 +119,34 @@ async function makeFixture() {
   return path;
 }
 
+/**
+ * Фикстура: книга СТАРОГО формата `.xls` (OLE2/BIFF8) — так пишут выгрузки 1С.
+ * Сверху титульные строки, шапка столбцов ниже: проверяем, что модуль читает формат
+ * и берёт названия столбцов не из первой строки.
+ */
+async function makeLegacyFixture() {
+  const XLSX = requireFromApp('@e965/xlsx');
+  const path = join(FIXTURE_DIR, 'журнал ремонта.xls');
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([
+      ['ЖУРНАЛ'],
+      ['учета дел ремонта'],
+      ['№ двигателя', 'Контракт', 'Дата прихода'],
+      ['TEST-001', 'Д-200', '16.11.2026'],
+    ]),
+    'Журнал',
+  );
+  writeFileSync(path, XLSX.write(wb, { bookType: 'biff8', type: 'buffer' }));
+  return path;
+}
+
 async function main() {
   const fixturePath = await makeFixture();
+  const legacyPath = await makeLegacyFixture();
   const before = statSync(fixturePath);
+  const legacyBefore = statSync(legacyPath);
 
   const [target] = await targets();
   if (!target) throw new Error('нет renderer-таргета — окно не открылось');
@@ -153,7 +178,9 @@ async function main() {
     ws,
     `const res = await window.matrica.fileSearch.sources.set({ sources: [{
         id: 'fs_smoke', path: ${JSON.stringify(fixturePath)}, name: 'акты приёмки.xlsx',
-        kind: 'excel', addedAt: Date.now(), size: ${before.size}, modifiedAt: ${before.mtimeMs} }] });
+        kind: 'excel', addedAt: Date.now(), size: ${before.size}, modifiedAt: ${before.mtimeMs} },
+      { id: 'fs_smoke_xls', path: ${JSON.stringify(legacyPath)}, name: 'журнал ремонта.xls',
+        kind: 'excel', addedAt: Date.now(), size: ${legacyBefore.size}, modifiedAt: ${legacyBefore.mtimeMs} }] });
      return { ok: res?.ok === true };`,
   );
   note(seeded.ok, 'источник добавлен в список (мост)', seeded);
@@ -201,9 +228,21 @@ async function main() {
      if (!btn) return { ok: false, reason: 'кнопка «Искать» не найдена' };
      click(btn); await wait(3500);
      const body = document.body.innerText;
+     // Находка — список «подпись — значение», а не squeezed-таблица: подпись и значение
+     // лежат рядом в одной строке, и в таблице находок нет вовсе.
+     const labelEl = [...document.querySelectorAll('div')].find((d) => txt(d) === '№ двигателя');
+     const row = labelEl?.parentElement ?? null;
+     const sameRow = Boolean(row && txt(row).includes('TEST-001'));
+     // Находка не внутри таблицы: сама строка находки — обычный блок, а не ячейка.
+     const inTable = Boolean(labelEl?.closest('table'));
      return { ok: true, headers: body.includes('№ двигателя'), value: body.includes('TEST-001'),
               contract: body.includes('Д-100'), card: body.includes('Карточка двигателя из базы'),
               missing: body.includes('Чего в карточке нет'),
+              legacy: body.includes('Д-200') && body.includes('журнал ремонта.xls'),
+              legacyHeader: body.includes('Дата прихода'),
+              compare: body.includes('Сверка с файлами'),
+              badge: body.includes('совпадает') || body.includes('в карточке'),
+              sameRow, inTable,
               unreadable: body.includes('Файлы, которые не прочитались') };`,
   );
   note(search.ok, 'поиск выполнен', search.ok ? undefined : search);
@@ -212,6 +251,15 @@ async function main() {
   note(search.value && search.contract, 'значения строки на месте (номер и контракт)', search);
   note(search.card, 'справа — карточка двигателя из базы', search);
   note(search.missing, 'показан перечень недостающих характеристик', search);
+  // Новое (16.11.2026): старый формат .xls читается, шапка берётся под титулом.
+  note(search.legacy, 'старая книга .xls прочитана, строка найдена', search);
+  note(search.legacyHeader, 'названия столбцов взяты из шапки под титулом', search);
+  // Новое: явная сверка «файл ↔ карточка» с пометками.
+  note(search.compare, 'показан блок сверки карточки с файлами', search);
+  note(search.badge, 'у находок и пунктов карточки стоят пометки', search);
+  // Новое: находки списком, а не squeezed-таблицей.
+  note(search.sameRow, 'подпись и значение находки лежат рядом в одной строке', search);
+  note(!search.inTable, 'находки не втиснуты в таблицу', search);
   shots.push(await shot(ws, 'results'));
 
   // Перенос: предпросмотр «что → куда» без записи.
@@ -245,6 +293,12 @@ async function main() {
     sizeBefore: before.size,
     sizeAfter: after.size,
   });
+  const legacyAfter = statSync(legacyPath);
+  note(
+    legacyAfter.size === legacyBefore.size && legacyAfter.mtimeMs === legacyBefore.mtimeMs,
+    'старая книга .xls на диске не изменилась',
+    { sizeBefore: legacyBefore.size, sizeAfter: legacyAfter.size },
+  );
 
   const failed = steps.filter((s) => !s.ok);
   writeFileSync(OUT, JSON.stringify({ verdict: failed.length === 0 ? 'PASS' : 'FAIL', steps, screenshots: shots }, null, 2));
