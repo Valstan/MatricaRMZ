@@ -164,7 +164,13 @@ export function labelSimilarity(a: string, b: string): number {
  * интересно то, что в карточке уже заполнено.
  *
  * Порядок важен: сначала по значению (названия в файле и в карточке разные), потом
- * по названию. Каждое поле карточки достаётся первой подходящей находке.
+ * по названию.
+ *
+ * **Поле карточки не «достаётся» одной находке:** файлов обычно несколько, и в каждом
+ * своя строка по одному и тому же двигателю. Поэтому находка сопоставляется с полем
+ * карточки независимо от других находок, а «только в карточке» — это поля, к которым
+ * не подошла НИ ОДНА находка. (Так появилось на CDP-смоуке 16.11.2026: находка из
+ * второго файла теряла пару, потому что её забрала первая.)
  */
 export function compareFindingsWithCard(args: {
   findings: FileSearchFinding[];
@@ -173,27 +179,18 @@ export function compareFindingsWithCard(args: {
   const findings = args.findings ?? [];
   const cardFields = args.cardFields ?? [];
   const rows: FileSearchComparisonRow[] = [];
-  const usedCard = new Set<number>();
+  /** Поля карточки, к которым подошла хотя бы одна находка. */
+  const matchedCard = new Set<number>();
 
   const unmatched: Array<{ index: number; finding: FileSearchFinding }> = [];
   for (const [index, finding] of findings.entries()) {
-    let best = -1;
-    for (let i = 0; i < cardFields.length; i += 1) {
-      if (usedCard.has(i)) continue;
-      const field = cardFields[i];
-      // По значению совпадает только заполненное поле: пустое не с чем сравнивать.
-      if (!field || !field.value) continue;
-      if (!compareValuesEqual(finding.value, field.value)) continue;
-      best = i;
-      break;
-    }
+    const best = cardFields.findIndex((field) => field && field.value && compareValuesEqual(finding.value, field.value));
     if (best < 0) {
       unmatched.push({ index, finding });
       continue;
     }
-    usedCard.add(best);
-    const field = cardFields[best];
-    if (!field) continue;
+    matchedCard.add(best);
+    const field = cardFields[best]!;
     rows.push({
       key: `f${index}`,
       findingLabel: finding.label,
@@ -210,7 +207,6 @@ export function compareFindingsWithCard(args: {
     let best = -1;
     let bestScore = 0;
     for (let i = 0; i < cardFields.length; i += 1) {
-      if (usedCard.has(i)) continue;
       const field = cardFields[i];
       if (!field) continue;
       const score = labelSimilarity(item.finding.label, field.label);
@@ -221,7 +217,7 @@ export function compareFindingsWithCard(args: {
     }
     const field = best >= 0 ? cardFields[best] : undefined;
     if (field && bestScore >= FILE_SEARCH_LABEL_MATCH_THRESHOLD) {
-      usedCard.add(best);
+      matchedCard.add(best);
       rows.push({
         key: `f${item.index}`,
         findingLabel: item.finding.label,
@@ -247,7 +243,7 @@ export function compareFindingsWithCard(args: {
   }
 
   cardFields.forEach((field, i) => {
-    if (usedCard.has(i)) return;
+    if (matchedCard.has(i)) return;
     // Пустое поле без находки — не «пункт карточки», а пустое место: молчание.
     if (!field.value) return;
     rows.push({

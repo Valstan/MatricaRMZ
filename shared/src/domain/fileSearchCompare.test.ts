@@ -111,7 +111,7 @@ describe('сверка найденного с карточкой', () => {
     ]);
   });
 
-  it('одно поле карточки достаётся первой находке, а не двумя', () => {
+  it('одна и та же находка в двух файлах находит пару в карточке у обоих', () => {
     const rows = compareFindingsWithCard({
       findings: [
         { label: 'Номер двигателя', value: 'Э06АТ0889' },
@@ -119,7 +119,29 @@ describe('сверка найденного с карточкой', () => {
       ],
       cardFields: [{ code: 'engine_number', label: 'Номер двигателя', value: 'Э06АТ0889' }],
     });
-    expect(rows.filter((r) => r.state === 'same')).toHaveLength(1);
-    expect(rows.filter((r) => r.state === 'no_match')).toHaveLength(1);
+    expect(rows.filter((r) => r.state === 'same')).toHaveLength(2);
+    expect(rows.filter((r) => r.state === 'no_match')).toHaveLength(0);
+  });
+
+  it('находки из разных файлов сопоставляются с карточкой независимо друг от друга', () => {
+    // Тот же пункт в двух файлах: обе находки должны найти пару в карточке, а не
+    // «отбирать» её друг у друга (дефект, найденный CDP-смоуком 16.11.2026).
+    const rows = compareFindingsWithCard({
+      findings: [
+        { label: 'Номер двигателя', value: 'Э06АТ0889' },
+        { label: 'Номер двигателя', value: 'Э06АТ0889' },
+        { label: 'Дата прихода', value: '15.11.2026' },
+        { label: 'Дата прихода', value: '16.11.2026' },
+      ],
+      cardFields: [
+        { code: 'engine_number', label: 'Номер двигателя', value: 'Э06АТ0889' },
+        { code: 'arrival_date', label: 'Дата прихода', value: '16.11.2026' },
+      ],
+    });
+    expect(rows.filter((r) => r.state === 'same')).toHaveLength(3);
+    // Дата из первого файла расходится с карточкой — и это видно, а не «нет пункта».
+    expect(rows.filter((r) => r.state === 'different')).toHaveLength(1);
+    expect(rows.filter((r) => r.state === 'no_match')).toHaveLength(0);
+    expect(rows.filter((r) => r.state === 'card_only')).toHaveLength(0);
   });
 });
