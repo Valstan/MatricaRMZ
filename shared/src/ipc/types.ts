@@ -1515,6 +1515,13 @@ export type MatricaApi = {
     context: (args: { source: FileSearchSource; paragraphIndex: number; count?: number }) => Promise<
       { ok: true; paragraphs: string[] } | { ok: false; error: string }
     >;
+    /**
+     * Названия для ссылок карточки: id → номер договора / название заказчика.
+     * Без них в карточке видны uuid, а сверка «файл ↔ карточка» бессмысленна.
+     */
+    resolveLabels: (args: { ids: string[] }) => Promise<
+      { ok: true; labels: Record<string, string> } | { ok: false; error: string }
+    >;
     sources: {
       get: () => Promise<
         { ok: true; userId: string; sources: FileSearchSource[] } | { ok: false; error: string }

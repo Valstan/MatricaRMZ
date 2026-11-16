@@ -12,6 +12,7 @@ import { basename, extname } from 'node:path';
 
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
+import * as XLSX from '@e965/xlsx';
 
 import {
   docxXmlToText,
@@ -34,11 +35,11 @@ const READ_TIMEOUT_MS = 30000;
 
 export class SourceReadError extends Error {}
 
-export const SEARCH_SOURCE_EXTENSIONS = ['.xlsx', '.xlsm', '.docx', '.txt', '.csv', '.tsv'];
+export const SEARCH_SOURCE_EXTENSIONS = ['.xlsx', '.xlsm', '.xls', '.docx', '.txt', '.csv', '.tsv'];
 
 export function classifySearchSourceKind(filePath: string): FileSearchSourceKind | null {
   const ext = extname(String(filePath ?? '')).toLowerCase();
-  if (ext === '.xlsx' || ext === '.xlsm') return 'excel';
+  if (ext === '.xlsx' || ext === '.xlsm' || ext === '.xls') return 'excel';
   if (ext === '.docx') return 'word';
   if (ext === '.txt' || ext === '.csv' || ext === '.tsv') return 'text';
   return null;
@@ -141,8 +142,117 @@ async function assertFileReadable(path: string): Promise<number> {
   return size;
 }
 
+/**
+ * Книга старого формата `.xls` (Excel 97–2003) — это OLE2-контейнер, а не zip:
+ * `exceljs` его не читает в принципе. Разбирает его `@e965/xlsx` (SheetJS 0.20.x).
+ *
+ * Зачем: у оператора в «РМЗ» лежат десятки `.xls` — табели, «Дела ремонтов», —
+ * и без них модуль молча отказывал на самом нужном файле.
+ */
+async function readLegacyXlsSheets(path: string, notes: string[]): Promise<FileSearchExcelSheet[]> {
+  const buffer = await withTimeout(
+    readFile(path),
+    READ_TIMEOUT_MS,
+    `Не удалось прочитать книгу за ${Math.round(READ_TIMEOUT_MS / 1000)} с — файл слишком большой или недоступен`,
+  );
+  let workbook: XLSX.WorkBook;
+  try {
+    workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+  } catch (e) {
+    throw new SourceReadError(`Файл .xls не прочитан: ${String(e)}`);
+  }
+  const sheets: FileSearchExcelSheet[] = [];
+  for (const sheetName of workbook.SheetNames) {
+    const worksheet = workbook.Sheets[sheetName];
+    if (!worksheet) continue;
+    const ref = String(worksheet['!ref'] ?? '');
+    const range = ref ? XLSX.utils.decode_range(ref) : null;
+    const collected: { rowNumber: number; values: string[] }[] = [];
+    let truncated = false;
+    if (range) {
+      const lastRow = Math.min(range.e.r, range.s.r + MAX_SHEET_ROWS - 1);
+      if (range.e.r > lastRow) truncated = true;
+      for (let r = range.s.r; r <= lastRow; r += 1) {
+        const values: string[] = [];
+        const lastCol = Math.min(range.e.c, MAX_COLUMNS - 1);
+        for (let c = range.s.c; c <= lastCol; c += 1) {
+          values.push(xlsCellText(worksheet[XLSX.utils.encode_cell({ r, c })]));
+        }
+        while (values.length > 0 && values[values.length - 1] === '') values.pop();
+        if (values.length === 0) continue;
+        collected.push({ rowNumber: r + 1, values });
+      }
+    }
+    if (truncated) {
+      notes.push(`«${sheetName}»: прочитаны первые ${MAX_SHEET_ROWS} строк — остальные не просмотрены`);
+    }
+    const { headers, dataRows } = pickHeaderAndRows(collected);
+    sheets.push({ sheetName, headers, rows: dataRows });
+  }
+  return sheets;
+}
+
+function xlsCellText(cell: unknown): string {
+  if (cell == null || typeof cell !== 'object') return '';
+  const record = cell as { v?: unknown; w?: unknown; t?: unknown };
+  const value = record.v;
+  if (value == null) return '';
+  if (value instanceof Date) return formatExcelDate(value);
+  if (typeof value === 'boolean') return value ? 'да' : 'нет';
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '';
+  return String(value).trim();
+}
+
+/**
+ * Шапка таблицы — первая строка с двумя и более заполненными ячейками.
+ *
+ * Зачем: выгрузки 1С начинаются титулом («ЖУРНАЛ», «учёта дел ремонта…»), и
+ * шапка столбцов стоит ниже. Раньше первой непустой строкой считалась титульная
+ * — и в находках вместо названий столбцов оператор видел «ЖУРНАЛ».
+ */
+const HEADER_SCAN_ROWS = 20;
+
+function countFilled(values: string[]): number {
+  return values.filter((value) => value.trim().length > 0).length;
+}
+
+function pickHeaderAndRows(rows: { rowNumber: number; values: string[] }[]): {
+  headers: string[];
+  dataRows: { rowNumber: number; values: string[] }[];
+} {
+  const window = rows.slice(0, HEADER_SCAN_ROWS);
+  const candidate = window.find((r) => countFilled(r.values) >= 2);
+  const header = candidate ?? window[0] ?? null;
+  if (!header) return { headers: [], dataRows: [] };
+  const headerFill = countFilled(header.values);
+  // Шапка до ширины данных: у книг с объединёнными ячейками она короче, и без
+  // дополнения столбцы уезжают в «Столбец N».
+  const maxLen = rows.reduce((max, r) => Math.max(max, r.values.length), header.values.length);
+  const headers = [...header.values];
+  while (headers.length < maxLen) headers.push('');
+  // Подшапка: строка ниже шапки с меньшим числом заполненных ячеек. В выгрузках 1С
+  // «Двигатель» — объединённая группа, а под ним «Марка», «заводской номер».
+  // Пустую ячейку шапки берём из подшапки, иначе столбец остаётся «Столбец N».
+  const sub = window.find(
+    (r) =>
+      r.rowNumber > header.rowNumber && countFilled(r.values) >= 2 && countFilled(r.values) < headerFill,
+  );
+  if (sub) {
+    for (let i = 0; i < headers.length; i += 1) {
+      if (headers[i]) continue;
+      const value = sub.values[i];
+      if (value) headers[i] = value;
+    }
+  }
+  return {
+    headers,
+    dataRows: rows.filter((r) => r.rowNumber > header.rowNumber),
+  };
+}
+
 async function readExcelSheets(path: string, notes: string[]): Promise<FileSearchExcelSheet[]> {
   await assertFileReadable(path);
+  if (extname(path).toLowerCase() === '.xls') return readLegacyXlsSheets(path, notes);
   const workbook = new ExcelJS.Workbook();
   await withTimeout(
     workbook.xlsx.readFile(path),
@@ -151,12 +261,10 @@ async function readExcelSheets(path: string, notes: string[]): Promise<FileSearc
   );
   const sheets: FileSearchExcelSheet[] = [];
   workbook.eachSheet((worksheet) => {
-    const rows: { rowNumber: number; values: string[] }[] = [];
-    let headers: string[] = [];
-    let headersTaken = false;
+    const collected: { rowNumber: number; values: string[] }[] = [];
     let truncated = false;
     worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-      if (rows.length >= MAX_SHEET_ROWS) {
+      if (collected.length >= MAX_SHEET_ROWS) {
         truncated = true;
         return;
       }
@@ -165,17 +273,13 @@ async function readExcelSheets(path: string, notes: string[]): Promise<FileSearc
       for (let c = 1; c <= cellCount; c += 1) values.push(excelCellText(row.getCell(c).value));
       while (values.length > 0 && values[values.length - 1] === '') values.pop();
       if (values.length === 0) return;
-      if (!headersTaken) {
-        headers = values;
-        headersTaken = true;
-        return;
-      }
-      rows.push({ rowNumber, values });
+      collected.push({ rowNumber, values });
     });
     if (truncated) {
       notes.push(`«${worksheet.name}»: прочитаны первые ${MAX_SHEET_ROWS} строк — остальные не просмотрены`);
     }
-    sheets.push({ sheetName: worksheet.name, headers, rows });
+    const { headers, dataRows } = pickHeaderAndRows(collected);
+    sheets.push({ sheetName: worksheet.name, headers, rows: dataRows });
   });
   return sheets;
 }

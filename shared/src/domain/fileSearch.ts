@@ -73,10 +73,10 @@ export const FILE_SEARCH_MAX_MATCHES = 200;
 
 /** Фильтры диалога выбора файлов модуля. */
 export const FILE_SEARCH_DIALOG_FILTERS: ReadonlyArray<{ name: string; extensions: string[] }> = [
-  { name: 'Книги Excel', extensions: ['xlsx', 'xlsm'] },
+  { name: 'Книги Excel', extensions: ['xlsx', 'xlsm', 'xls'] },
   { name: 'Документы Word', extensions: ['docx'] },
   { name: 'Текстовые файлы', extensions: ['txt', 'csv', 'tsv'] },
-  { name: 'Все поддерживаемые', extensions: ['xlsx', 'xlsm', 'docx', 'txt', 'csv', 'tsv'] },
+  { name: 'Все поддерживаемые', extensions: ['xlsx', 'xlsm', 'xls', 'docx', 'txt', 'csv', 'tsv'] },
 ];
 
 export function normalizeFileSearchQuery(raw: unknown): string {

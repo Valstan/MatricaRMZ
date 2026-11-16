@@ -16,6 +16,7 @@ import {
   searchFileSources,
   sourceIdForPath,
 } from '../../services/fileSearchService.js';
+import { resolveReferenceLabels } from '../../services/fileSearchReferenceService.js';
 import { SettingsKey, settingsGetString, settingsSetString } from '../../services/settingsStore.js';
 
 type Err = { ok: false; error: string };
@@ -189,4 +190,25 @@ export function registerFileSearchIpc(ctx: IpcContext) {
       return { ok: false as const, error: String(e) };
     }
   });
+
+  /**
+   * Названия для ссылок карточки: id → номер договора / название заказчика.
+   *
+   * Право — как на чтение карточки (`engines.view`): ссылки в карточке и так
+   * видны, а названия лежат в той же локальной реплике.
+   */
+  ipcMain.handle(
+    'fileSearch:resolveLabels',
+    async (_e, args: { ids?: string[] }): Promise<{ ok: true; labels: Record<string, string> } | Err> => {
+      const gate = await requirePermOrResult(ctx, 'engines.view');
+      if (!gate.ok) return gate as Err;
+      try {
+        const ids = Array.isArray(args?.ids) ? args.ids.slice(0, 200) : [];
+        const labels = await resolveReferenceLabels(ctx.dataDb(), ids);
+        return { ok: true, labels };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+    },
+  );
 }
