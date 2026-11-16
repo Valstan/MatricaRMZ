@@ -372,7 +372,9 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
     const card = buildPpeIssueCard({
       positions: lines.map((l) => ({
         nomenclatureId: l.nomenclatureId,
-        name: lineLabel(l),
+        // Бланк выдачи по должности: торговое наименование позиции («Костюм МОТОР»),
+        // а справочное имя номенклатуры — только если торгового нет (старые наборы).
+        name: l.tradeName ?? lineLabel(l),
         certificate: l.certificate,
         unit: l.unit,
       })),

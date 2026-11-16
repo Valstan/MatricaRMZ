@@ -222,12 +222,28 @@ export function PpeCardDetailsPage(props: {
   const [cardMissing, setCardMissing] = useState(false);
   const [normOptions, setNormOptions] = useState<NormOption[]>([]);
   const [normToAssign, setNormToAssign] = useState<string | null>(null);
-  const [normLines, setNormLines] = useState<Array<{ nomenclatureId: string; qty: number; wearMonths: number | null; wearKind: PpeWearKind | null }>>([]);
+  const [normLines, setNormLines] = useState<
+    Array<{
+      nomenclatureId: string;
+      qty: number;
+      wearMonths: number | null;
+      wearKind: PpeWearKind | null;
+      /** Торговое наименование позиции набора («Костюм МОТОР») — промты #20/#25. */
+      tradeName?: string | null;
+      /** Сертификат позиции набора: свой у позиции, внутри набора — разный. */
+      certificate?: string | null;
+    }>
+  >([]);
   const [groupNormIds, setGroupNormIds] = useState<string[]>([]);
   const [absences, setAbsences] = useState<AbsenceRow[]>([]);
   const [absenceFrom, setAbsenceFrom] = useState('');
   const [absenceTo, setAbsenceTo] = useState('');
   const [nomNames, setNomNames] = useState<Map<string, string>>(new Map());
+  /**
+   * Размерный вариант → база. Выдача записывается по конкретной вещи (с размером),
+   * а торговое наименование и сертификат живут у позиции набора — у базы.
+   */
+  const [nomParents, setNomParents] = useState<Map<string, string>>(new Map());
   /** Справочник номенклатуры для пикера позиции (заведение набора из карточки). */
   const [nomenclatureOptions, setNomenclatureOptions] = useState<SearchSelectOption[]>([]);
   /**
@@ -332,6 +348,13 @@ export function PpeCardDetailsPage(props: {
       if (noms?.ok) {
         const rows = (noms.rows ?? []) as any[];
         setNomNames(new Map(rows.map((r) => [String(r.id), String(r.name ?? '')])));
+        setNomParents(
+          new Map(
+            rows
+              .filter((r) => r.parentNomenclatureId)
+              .map((r) => [String(r.id), String(r.parentNomenclatureId)]),
+          ),
+        );
         setNomenclatureOptions(
           rows.map((r) => ({
             id: String(r.id),
@@ -396,7 +419,14 @@ export function PpeCardDetailsPage(props: {
     const groupIds = resolved?.ok ? resolved.group : [];
     setGroupNormIds(groupIds);
     const setIds = [...new Set([...res.card.norms.map((n) => n.normSetId), ...groupIds])];
-    const allLines: Array<{ nomenclatureId: string; qty: number; wearMonths: number | null; wearKind: PpeWearKind | null }> = [];
+    const allLines: Array<{
+      nomenclatureId: string;
+      qty: number;
+      wearMonths: number | null;
+      wearKind: PpeWearKind | null;
+      tradeName?: string | null;
+      certificate?: string | null;
+    }> = [];
     for (const setId of setIds) {
       const det = await window.matrica.ppe.norms.get(setId).catch(() => null);
       if (det?.ok) allLines.push(...det.normSet.lines);
@@ -728,6 +758,34 @@ export function PpeCardDetailsPage(props: {
     [normLines],
   );
 
+  /**
+   * Торговое наименование и сертификат позиции набора (промты КАРМАНА #20/#25).
+   *
+   * В должностной карточке выдачи у владельца наименование и № сертификата — по
+   * должности: «Костюм МОТОР» — одна вещь на всех, а сертификат у перчаток по
+   * профессиям разный. Поэтому печатаем торговые данные позиции, а справочные
+   * (номенклатура) — только если торговых нет (старые наборы).
+   */
+  const tradeByNom = useMemo(() => {
+    const map = new Map<string, { name: string | null; certificate: string | null }>();
+    for (const l of normLines) {
+      const id = String(l.nomenclatureId);
+      const current = map.get(id);
+      map.set(id, {
+        name: l.tradeName ?? current?.name ?? null,
+        certificate: l.certificate ?? current?.certificate ?? null,
+      });
+    }
+    // Размерный вариант ведёт к базе: выданная вещь — «Сапоги ТОФФ АЛЬП … (43)»,
+    // а торговое наименование и сертификат — у позиции набора, то есть у базы.
+    for (const [id, parentId] of nomParents) {
+      if (map.has(id)) continue;
+      const parent = map.get(parentId);
+      if (parent) map.set(id, parent);
+    }
+    return map;
+  }, [normLines, nomParents]);
+
   // Позиции размерного ряда, совпавшие с размером сотрудника (подсказка при выдаче).
   // Сравниваем внутри набора норм карточки, по целому слову: «8» ≠ «р. 48».
   const hintedIds = useMemo(() => {
@@ -978,21 +1036,30 @@ export function PpeCardDetailsPage(props: {
   function printIssueCard() {
     if (!card) return;
     const model = buildPpeIssueCard({
-      positions: merged.map((m) => ({
-        nomenclatureId: m.nomenclatureId,
-        name: nomName(m.nomenclatureId),
-        certificate: nomCertificates.get(m.nomenclatureId) ?? null,
-        unit: null,
-      })),
-      facts: (card.entries ?? []).map((e) => ({
-        nomenclatureId: e.nomenclatureId,
-        issuedAt: e.issuedAt,
-        qty: e.qty,
-        wearPercent: e.wearPercent ?? null,
-        returnedAt: e.returnedAt ?? null,
-        name: nomName(e.nomenclatureId),
-        certificate: nomCertificates.get(e.nomenclatureId) ?? null,
-      })),
+      positions: merged.map((m) => {
+        const id = String(m.nomenclatureId);
+        const trade = tradeByNom.get(id);
+        return {
+          nomenclatureId: id,
+          // Торговое наименование позиции набора; нет — справочное (старые наборы).
+          name: trade?.name ?? nomName(id),
+          certificate: trade?.certificate ?? nomCertificates.get(id) ?? null,
+          unit: null,
+        };
+      }),
+      facts: (card.entries ?? []).map((e) => {
+        const id = String(e.nomenclatureId);
+        const trade = tradeByNom.get(id);
+        return {
+          nomenclatureId: id,
+          issuedAt: e.issuedAt,
+          qty: e.qty,
+          wearPercent: e.wearPercent ?? null,
+          returnedAt: e.returnedAt ?? null,
+          name: trade?.name ?? nomName(id),
+          certificate: trade?.certificate ?? nomCertificates.get(id) ?? null,
+        };
+      }),
     });
     printPpeIssueCard({
       title: `Карточка выдачи СИЗ — ${empName(card.employeeId)}`,
