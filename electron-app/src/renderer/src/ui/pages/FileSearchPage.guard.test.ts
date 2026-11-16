@@ -62,5 +62,25 @@ describe('модуль «Поиск по файлам»: сторож формы
     expect(matchPrefixRule('fileSearch:pick')).toBe('production');
     expect(matchPrefixRule('fileSearch:search')).toBe('production');
     expect(matchPrefixRule('fileSearch:context')).toBe('production');
+    expect(matchPrefixRule('fileSearch:resolveLabels')).toBe('production');
+  });
+
+  // Правка 16.11.2026: оператор увидел в карточке uuid вместо номера договора и
+  // не смог понять, где данные разошлись с файлом. Обе вещи легко теряются
+  // молча: типы и линт останутся зелёными.
+  it('ссылки карточки расшифровываются в названия, а не показываются как id', () => {
+    expect(PAGE).toContain('resolveLabels');
+    expect(PAGE).toContain('UUID_RE');
+  });
+
+  it('найденное сверяется с карточкой: видно, что совпало, что разошлось и что переносить', () => {
+    expect(PAGE).toContain('compareFindingsWithCard');
+    expect(PAGE).toContain('Сверка с файлами');
+    expect(PAGE).toContain('Расходится');
+  });
+
+  it('находки лежат списком «подпись — значение», а не squeezed-таблицей', () => {
+    expect(PAGE).toContain('renderFindingRow');
+    expect(PAGE).not.toContain('<th key={`${header}-${i}`}>');
   });
 });

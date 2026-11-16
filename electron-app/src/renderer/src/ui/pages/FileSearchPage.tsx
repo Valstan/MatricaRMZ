@@ -2,10 +2,14 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ENGINE_CARD_TRANSFER_TARGETS,
   buildEngineCardTransferPreview,
+  compareFindingsWithCard,
   engineCardMissingCharacteristics,
   parseTransferDate,
   suggestTransferTargetCode,
   type EngineCardTransferTarget,
+  type FileSearchComparisonRow,
+  type FileSearchComparisonState,
+  type FileSearchFinding,
   type FileSearchMatch,
   type FileSearchResult,
   type FileSearchSource,
@@ -32,6 +36,27 @@ const KIND_RU: Record<FileSearchSource['kind'], string> = {
   text: 'Текст',
 };
 
+/** Ссылка в карточке лежит id — узнаём по виду uuid. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Пометка у находки: что с чем сошлось. */
+const STATE_BADGE: Record<FileSearchComparisonState, { text: string; color: string }> = {
+  same: { text: 'совпадает с карточкой', color: '#15803d' },
+  different: { text: 'в карточке другое значение', color: '#b45309' },
+  card_empty: { text: 'в карточке пусто — есть что перенести', color: '#15803d' },
+  no_match: { text: 'в карточке нет такого пункта', color: '#64748b' },
+  card_only: { text: 'только в карточке', color: '#64748b' },
+};
+
+/** Пометка у пункта карточки, когда его видно в найденном. */
+const CARD_BADGE: Record<FileSearchComparisonState, { text: string; color: string } | null> = {
+  same: { text: 'есть в файлах', color: '#15803d' },
+  different: { text: 'расходится с файлами', color: '#b45309' },
+  card_empty: { text: 'в файлах другое', color: '#15803d' },
+  no_match: null,
+  card_only: { text: 'только в карточке', color: '#64748b' },
+};
+
 function cardValueText(value: unknown): string | null {
   if (value == null) return null;
   if (typeof value === 'boolean') return value ? 'да' : 'нет';
@@ -44,11 +69,20 @@ function formatMs(ms: number): string {
   return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-/** Даты в карточке лежат миллисекундами — оператору показываем датой. */
-function displayValue(value: unknown): string | null {
+/**
+ * Значение для показа: даты — датой, ссылки — названием из справочника.
+ *
+ * Без расшифровки в карточке видно «Контракт ed135695-…» — оператору это
+ * ничего не говорит, и сверка «файл ↔ карточка» невозможна: в файле лежит
+ * «303», а в карточке uuid.
+ */
+function displayValue(value: unknown, labels: Record<string, string>): string | null {
   if (value == null) return null;
   if (typeof value === 'number' && Number.isFinite(value) && value > 1_000_000_000_000) return formatMs(value);
-  return cardValueText(value);
+  const text = cardValueText(value);
+  if (!text) return null;
+  const label = labels[text];
+  return label ?? text;
 }
 
 function matchKey(match: FileSearchMatch): string {
@@ -57,12 +91,25 @@ function matchKey(match: FileSearchMatch): string {
     : `${match.sourceId}:p:${match.paragraphIndex}`;
 }
 
+/** Находка из строки листа: подпись столбца и значение. */
+type FindingCell = {
+  index: number;
+  cellKey: string;
+  matchKey: string;
+  label: string;
+  value: string;
+};
+
 /**
  * Модуль «Поиск по файлам» (промт КАРМАНА #32).
  *
  * Три блока сверху вниз: файлы-источники → строка поиска → результаты.
  * Результаты — две колонки: слева что нашлось в файлах, справа карточка
- * двигателя из базы (по ТОЧНОМУ совпадению номера) и перенос найденного в её поля.
+ * двигателя из базы (по ТОЧНОМУ совпадению номера), сверка найденного с
+ * карточкой и перенос найденного в её поля.
+ *
+ * Находки показываются не таблицей, а списком «подпись — значение»: в таблице
+ * столбцы сжимались, и значения выходили по одному символу в строке.
  *
  * Файлы читает главный процесс: в renderer нет ни `exceljs`, ни `jszip`, ни
  * доступа к диску — только результаты поиска.
@@ -78,10 +125,12 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
   const [lookup, setLookup] = useState<{ engine: EngineLookup; note: string | null } | null>(null);
   const [card, setCard] = useState<Record<string, unknown> | null>(null);
   const [defs, setDefs] = useState<{ code: string; name: string }[]>([]);
+  const [labels, setLabels] = useState<Record<string, string>>({});
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [pending, setPending] = useState<Pending | null>(null);
   const [targetCode, setTargetCode] = useState<string>(ENGINE_CARD_TRANSFER_TARGETS[0]?.code ?? '');
   const [extraLines, setExtraLines] = useState<Record<string, string[]>>({});
+  const [showAllCardOnly, setShowAllCardOnly] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -140,6 +189,17 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
     );
     const characteristics = await window.matrica.engines.characteristics();
     if (characteristics.ok) setDefs(characteristics.defs);
+    // Ссылки карточки (id справочников) превращаем в названия — иначе оператор
+    // видит uuid вместо номера договора и не может сверить карточку с файлом.
+    const ids = Object.values(attrs)
+      .filter((value): value is string => typeof value === 'string' && UUID_RE.test(value.trim()))
+      .map((value) => value.trim());
+    if (ids.length === 0) {
+      setLabels({});
+      return;
+    }
+    const resolved = await window.matrica.fileSearch.resolveLabels({ ids }).catch(() => null);
+    setLabels(resolved?.ok ? resolved.labels : {});
   }, []);
 
   const runSearch = useCallback(async () => {
@@ -193,9 +253,91 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
   const filled = useMemo(() => {
     if (!card) return [];
     return defs
-      .map((d) => ({ code: d.code, label: d.name, value: displayValue(card[d.code]) }))
+      .map((d) => ({ code: d.code, label: d.name, value: displayValue(card[d.code], labels) }))
       .filter((row) => row.value != null);
-  }, [card, defs]);
+  }, [card, defs, labels]);
+
+  /** Находки из строк листов: подпись столбца и значение. */
+  const findingCells = useMemo<FindingCell[]>(() => {
+    const cells: FindingCell[] = [];
+    let index = 0;
+    for (const match of result?.matches ?? []) {
+      if (match.kind !== 'excel') continue;
+      const key = matchKey(match);
+      match.values.forEach((value, columnIndex) => {
+        const text = String(value ?? '').trim();
+        if (!text) return;
+        cells.push({
+          index,
+          cellKey: `${key}:${columnIndex}`,
+          matchKey: key,
+          label: match.headers[columnIndex] || `Столбец ${columnIndex + 1}`,
+          value: text,
+        });
+        index += 1;
+      });
+    }
+    return cells;
+  }, [result]);
+
+  const cellsByMatch = useMemo(() => {
+    const map = new Map<string, FindingCell[]>();
+    for (const cell of findingCells) {
+      const list = map.get(cell.matchKey) ?? [];
+      list.push(cell);
+      map.set(cell.matchKey, list);
+    }
+    return map;
+  }, [findingCells]);
+
+  const findings = useMemo<FileSearchFinding[]>(
+    () => findingCells.map((cell) => ({ label: cell.label, value: cell.value })),
+    [findingCells],
+  );
+
+  /**
+   * Все поля карточки, включая пустые: пустое поле — это «есть что перенести».
+   * В списке «только в карточке» пустые не показываются (это делает сверка).
+   */
+  const cardFields = useMemo(
+    () => defs.map((d) => ({ code: d.code, label: d.name, value: displayValue(card?.[d.code], labels) })),
+    [card, defs, labels],
+  );
+
+  const comparison = useMemo(
+    () => compareFindingsWithCard({ findings, cardFields }),
+    [cardFields, findings],
+  );
+
+  const comparisonByFinding = useMemo(() => {
+    const map = new Map<string, FileSearchComparisonRow>();
+    for (const row of comparison) {
+      if (row.key.startsWith('f')) map.set(row.key, row);
+    }
+    return map;
+  }, [comparison]);
+
+  const comparisonByCardCode = useMemo(() => {
+    const map = new Map<string, FileSearchComparisonRow>();
+    for (const row of comparison) {
+      if (row.cardCode) map.set(row.cardCode, row);
+    }
+    return map;
+  }, [comparison]);
+
+  const groups = useMemo(() => {
+    const out: Record<FileSearchComparisonState, FileSearchComparisonRow[]> = {
+      same: [],
+      different: [],
+      card_empty: [],
+      no_match: [],
+      card_only: [],
+    };
+    for (const row of comparison) out[row.state].push(row);
+    return out;
+  }, [comparison]);
+
+  const transferableCodes = useMemo(() => new Set(ENGINE_CARD_TRANSFER_TARGETS.map((t) => t.code)), []);
 
   async function copyValue(value: string) {
     try {
@@ -277,6 +419,40 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
     }
     setExtraLines((prev) => ({ ...prev, [matchKey(match)]: res.paragraphs }));
   }
+
+  const renderFindingRow = (cell: FindingCell) => {
+    const cmp = comparisonByFinding.get(`f${cell.index}`);
+    const badge = cmp ? STATE_BADGE[cmp.state] : null;
+    return (
+      <div
+        key={cell.cellKey}
+        style={{
+          display: 'flex',
+          gap: 8,
+          alignItems: 'flex-start',
+          padding: '6px 0',
+          borderTop: '1px solid var(--input-border)',
+          flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ width: 180, flexShrink: 0, color: 'var(--muted)', fontSize: 12, wordBreak: 'break-word' }}>
+          {cell.label}
+        </div>
+        <div style={{ flex: 1, minWidth: 140, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{cell.value}</div>
+        {badge ? (
+          <span style={{ fontSize: 11, color: badge.color, whiteSpace: 'nowrap' }}>{badge.text}</span>
+        ) : null}
+        <div style={{ display: 'flex', gap: 4, whiteSpace: 'nowrap' }}>
+          <Button size="sm" variant="outline" onClick={() => void copyValue(cell.value)}>
+            Копировать
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => chooseTransfer(cell.value, cell.label)}>
+            В карточку
+          </Button>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
@@ -393,44 +569,14 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
             ) : (
               result.matches.map((match) => {
                 if (match.kind === 'excel') {
+                  const cells = cellsByMatch.get(matchKey(match)) ?? [];
                   return (
                     <div key={matchKey(match)} style={{ marginBottom: 16 }}>
                       <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>
                         {match.sourceName} · лист «{match.sheetName}» · строка {match.rowNumber}
                       </div>
-                      <div style={{ overflowX: 'auto' }}>
-                        <table className="table" style={{ width: '100%' }}>
-                          <thead>
-                            <tr>
-                              {match.headers.map((header, i) => (
-                                <th key={`${header}-${i}`}>{header || `Столбец ${i + 1}`}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            <tr>
-                              {match.values.map((value, i) => (
-                                <td key={`${value}-${i}`}>
-                                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                                    <span style={{ wordBreak: 'break-word' }}>{value || '—'}</span>
-                                    <Button size="sm" variant="outline" onClick={() => void copyValue(value)}>
-                                      Копировать
-                                    </Button>
-                                    {value ? (
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => chooseTransfer(value, match.headers[i] || `Столбец ${i + 1}`)}
-                                      >
-                                        В карточку
-                                      </Button>
-                                    ) : null}
-                                  </div>
-                                </td>
-                              ))}
-                            </tr>
-                          </tbody>
-                        </table>
+                      <div style={{ border: '1px solid var(--input-border)', borderRadius: 'var(--ui-radius-sm)', padding: '0 8px' }}>
+                        {cells.map(renderFindingRow)}
                       </div>
                     </div>
                   );
@@ -442,8 +588,11 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
                       {match.sourceName} · {match.kind === 'word' ? 'документ Word' : 'текстовый файл'} · абзац{' '}
                       {match.paragraphIndex + 1}
                     </div>
-                    <div style={{ border: '1px solid var(--input-border)', borderRadius: 'var(--ui-radius-sm)', padding: 8 }}>
+                    <div style={{ border: '1px solid var(--input-border)', borderRadius: 'var(--ui-radius-sm)', padding: 8, whiteSpace: 'pre-wrap' }}>
                       {match.text}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                      Текст не сверяется с полями карточки — сверьте его глазами.
                     </div>
                     <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
                       <Button size="sm" variant="outline" onClick={() => void copyValue(match.text)}>
@@ -489,18 +638,110 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
                   {lookup.engine.rmzCode ? ` · ${lookup.engine.rmzCode}` : ''}
                 </div>
 
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>Заполненные характеристики</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>Сверка с файлами</div>
+                {groups.different.length > 0 ? (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#b45309' }}>
+                      Расходится ({groups.different.length})
+                    </div>
+                    {groups.different.map((row) => (
+                      <div key={row.key} style={{ fontSize: 12, marginTop: 4 }}>
+                        <strong>{row.cardLabel ?? row.findingLabel}</strong>: в карточке «{row.cardValue}», в файлах «
+                        {row.findingValue}»
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {groups.card_empty.length > 0 ? (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#15803d' }}>
+                      В карточке пусто — есть что перенести ({groups.card_empty.length})
+                    </div>
+                    {groups.card_empty.map((row) => (
+                      <div key={row.key} style={{ fontSize: 12, marginTop: 4 }}>
+                        {row.cardLabel ? <strong>{row.cardLabel}</strong> : null}
+                        {row.cardLabel ? ': ' : ''}в файлах «{row.findingValue}»
+                        {row.cardCode && transferableCodes.has(row.cardCode)
+                          ? ' — поле можно перенести'
+                          : ' — поля для переноса нет'}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {groups.no_match.length > 0 ? (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>Только в файлах ({groups.no_match.length})</div>
+                    {groups.no_match.map((row) => (
+                      <div key={row.key} style={{ fontSize: 12, marginTop: 4, color: 'var(--muted)' }}>
+                        {row.findingLabel}: «{row.findingValue}» — в карточке такого пункта нет
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {groups.same.length > 0 ? (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#15803d' }}>
+                      Совпадает с карточкой ({groups.same.length})
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      {groups.same.map((row) => row.findingLabel).filter(Boolean).join(', ')}
+                    </div>
+                  </div>
+                ) : null}
+                {groups.card_only.length > 0 ? (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>
+                      Только в карточке ({groups.card_only.length})
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      {groups.card_only
+                        .slice(0, showAllCardOnly ? groups.card_only.length : 12)
+                        .map((row) => row.cardLabel)
+                        .filter(Boolean)
+                        .join(', ')}
+                      {groups.card_only.length > 12 ? (
+                        <button
+                          type="button"
+                          onClick={() => setShowAllCardOnly((prev) => !prev)}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'var(--primary, #2563eb)',
+                            cursor: 'pointer',
+                            padding: 0,
+                            fontSize: 12,
+                          }}
+                        >
+                          {showAllCardOnly ? ' — свернуть' : ` — показать все (${groups.card_only.length})`}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div style={{ fontSize: 12, color: 'var(--muted)', margin: '10px 0 4px' }}>Заполненные характеристики</div>
                 {filled.length === 0 ? (
                   <div style={{ color: 'var(--muted)', fontSize: 13 }}>В карточке пока ничего не заполнено.</div>
                 ) : (
                   <table className="table" style={{ width: '100%' }}>
                     <tbody>
-                      {filled.map((row) => (
-                        <tr key={row.code}>
-                          <td style={{ color: 'var(--muted)', fontSize: 12, width: '45%' }}>{row.label}</td>
-                          <td>{row.value}</td>
-                        </tr>
-                      ))}
+                      {filled.map((row) => {
+                        const cmp = comparisonByCardCode.get(row.code);
+                        const badge = cmp ? CARD_BADGE[cmp.state] : null;
+                        return (
+                          <tr key={row.code}>
+                            <td style={{ color: 'var(--muted)', fontSize: 12, width: '40%', wordBreak: 'break-word' }}>
+                              {row.label}
+                            </td>
+                            <td style={{ wordBreak: 'break-word' }}>
+                              {row.value}
+                              {badge ? (
+                                <div style={{ fontSize: 11, color: badge.color, marginTop: 2 }}>{badge.text}</div>
+                              ) : null}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}

@@ -74,7 +74,7 @@ describe('fileSearch:sources', () => {
 describe('fileSearch:pick', () => {
   it('поддерживаемый файл становится источником, неподдерживаемый — в skipped', async () => {
     const good = join(dir, 'акты.txt');
-    const bad = join(dir, 'акты.xls');
+    const bad = join(dir, 'акты.pdf');
     writeFileSync(good, 'строка\n', 'utf8');
     writeFileSync(bad, 'x', 'utf8');
     pickedPaths = [good, bad];

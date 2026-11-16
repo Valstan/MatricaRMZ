@@ -126,6 +126,8 @@ const matricaApi = {
       ipcRenderer.invoke('fileSearch:search', args),
     context: async (args: { source: FileSearchSource; paragraphIndex: number; count?: number }) =>
       ipcRenderer.invoke('fileSearch:context', args),
+    /** Названия для ссылок карточки: id → номер договора / название заказчика. */
+    resolveLabels: async (args: { ids: string[] }) => ipcRenderer.invoke('fileSearch:resolveLabels', args),
     sources: {
       get: async () => ipcRenderer.invoke('fileSearch:sources:get'),
       set: async (args: { sources: FileSearchSource[] }) => ipcRenderer.invoke('fileSearch:sources:set', args),

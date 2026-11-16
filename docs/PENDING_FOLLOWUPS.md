@@ -93,6 +93,7 @@
 - [⏳ Рекламация в истории ремонта: код сделан (3.117.0, 3.118.0 и 3.123.0) — осталась приёмка на парке 🗓 since:2026-11-09](pending/reklamaatsiya-v-istorii-remonta.md)
 - [⏳ СИЗ: у каждой позиции набора норм — своя номенклатура 🗓 since:2026-11-11](pending/siz-svoya-nomenklatura-na-poziciyu-nabora.md)
 - [⏳ Клиент не отправляет атрибуты нового сотрудника — карточки СИЗ пустеют 🗓 since:2026-11-16](pending/klient-ne-otpravlyaet-atributy-novogo-sotrudnika.md)
+- [⏳ «Поиск по файлам»: вёрстка, названия вместо id, сверка с карточкой, .xls — ждёт выката и приёмки 🗓 since:2026-11-16](pending/poisk-po-failam-dorabotka-priemka.md)
 - [⏳ СИЗ: карточка смывающих средств — остаток по образцу №43 (свидетельство, способ выдачи, расписка) 🗓 since:2026-11-14](pending/siz-kartochka-smyvayushchih-sredstv.md)
 - [⏳ Панель фильтров и ряд плашек колонок: плашки не наезжают, колонки — плашками — приёмка на парке (PR #1693) 🗓 since:2026-11-12](pending/panel-filtrov-spoilera-net-plashki-plavayushchie-priemka.md)
 - [⏳ Приёмка парка на 3.102.0: приказ о СИЗ и должности должны быть видны оператору 🗓 since:2026-11-03](pending/priemka-parka-na-3-101-0-prikaz-o-siz.md)

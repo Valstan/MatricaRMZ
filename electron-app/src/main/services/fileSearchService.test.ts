@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
+import * as XLSX from '@e965/xlsx';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { describeSearchSource, searchFileSources } from './fileSearchService.js';
@@ -24,6 +25,13 @@ async function makeExcel(path: string, rows: (string | Date)[][]): Promise<void>
   const ws = wb.addWorksheet('Лист1');
   for (const row of rows) ws.addRow(row);
   await wb.xlsx.writeFile(path);
+}
+
+/** Книга старого формата `.xls` (BIFF8) — пишем тем же движком, которым читаем. */
+async function makeLegacyXls(path: string, rows: (string | number)[][]): Promise<void> {
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Лист1');
+  writeFileSync(path, XLSX.write(wb, { bookType: 'biff8', type: 'buffer' }));
 }
 
 async function makeDocx(path: string, paragraphs: string[]): Promise<void> {
@@ -103,6 +111,55 @@ describe('searchFileSources', () => {
     expect(textMatch.kind).toBe('text');
   });
 
+  it('старая книга .xls читается и ищется так же, как .xlsx', async () => {
+    const path = join(dir, 'табель.xls');
+    await makeLegacyXls(path, [
+      ['№ двигателя', 'Контракт'],
+      ['Э06АТ0889', 303],
+    ]);
+    const result = await searchFileSources([await source(path)], 'Э06АТ0889');
+    expect(result.unreadable).toEqual([]);
+    expect(result.matches).toHaveLength(1);
+    const match = result.matches[0];
+    if (!match || match.kind !== 'excel') throw new Error('ожидался excel-match');
+    expect(match.rowNumber).toBe(2);
+    expect(match.headers).toEqual(['№ двигателя', 'Контракт']);
+    expect(match.values[1]).toBe('303');
+  });
+
+  it('титульные строки над шапкой не становятся названиями столбцов', async () => {
+    const path = join(dir, 'журнал.xlsx');
+    await makeExcel(path, [
+      ['ЖУРНАЛ'],
+      ['учета дел ремонта дизельных двигателей'],
+      ['Номер дела', 'Организация-поставщик', 'Двигатель'],
+      ['259-26', 'ООО "ОВК"', 'Э06АТ0889'],
+    ]);
+    const result = await searchFileSources([await source(path)], 'Э06АТ0889');
+    expect(result.matches).toHaveLength(1);
+    const match = result.matches[0];
+    if (!match || match.kind !== 'excel') throw new Error('ожидался excel-match');
+    expect(match.headers).toEqual(['Номер дела', 'Организация-поставщик', 'Двигатель']);
+    expect(match.rowNumber).toBe(4);
+  });
+
+  it('в .xls подшапка достраивает название объединённого столбца', async () => {
+    const path = join(dir, 'журнал.xls');
+    await makeLegacyXls(path, [
+      ['ЖУРНАЛ'],
+      ['Номер дела', 'Организация-поставщик', 'Двигатель'],
+      ['', '', 'Марка', 'заводской номер'],
+      ['259-26', 'ООО "ОВК"', 'В-46-2С1', 'Э06АТ0889'],
+    ]);
+    const result = await searchFileSources([await source(path)], 'Э06АТ0889');
+    expect(result.matches).toHaveLength(1);
+    const match = result.matches[0];
+    if (!match || match.kind !== 'excel') throw new Error('ожидался excel-match');
+    expect(match.headers[0]).toBe('Номер дела');
+    expect(match.headers[3]).toBe('заводской номер');
+    expect(match.values[3]).toBe('Э06АТ0889');
+  });
+
   it('пустой запрос не читает файлы', async () => {
     const path = join(dir, 'акты.xlsx');
     await makeExcel(path, [['№ двигателя'], ['41/26']]);
@@ -114,8 +171,15 @@ describe('searchFileSources', () => {
 
 describe('describeSearchSource', () => {
   it('не поддерживаемый формат — понятный отказ', async () => {
-    const path = join(dir, 'акты.xls');
+    const path = join(dir, 'акты.pdf');
     writeFileSync(path, 'x', 'utf8');
     await expect(describeSearchSource(path)).rejects.toThrow(/не поддерживается/);
+  });
+
+  it('старая книга .xls — поддерживаемый источник (OLE2, а не zip)', async () => {
+    const path = join(dir, 'табель.xls');
+    writeFileSync(path, 'x', 'utf8');
+    const src = await describeSearchSource(path);
+    expect(src.kind).toBe('excel');
   });
 });
