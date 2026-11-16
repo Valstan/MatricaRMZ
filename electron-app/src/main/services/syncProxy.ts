@@ -143,6 +143,7 @@ export class SyncProxy implements SyncControl {
       lastError: crashed ? 'движок синхронизации перезапускается' : this.status.lastError,
       lastResult: this.status.lastResult,
       nextAutoSyncInMs,
+      stuckPending: this.status.stuckPending ?? null,
     };
   }
 

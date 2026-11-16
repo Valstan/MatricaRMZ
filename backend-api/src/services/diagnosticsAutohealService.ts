@@ -5,10 +5,15 @@ import { db } from '../database/db.js';
 import { clientSettings, diagnosticsSnapshots } from '../database/schema.js';
 import { getConsistencyReport, type ConsistencyClientReport } from './diagnosticsConsistencyService.js';
 import { setClientSyncRequest } from './clientSettingsService.js';
+import { ingestServerCriticalEvent } from './criticalEventsService.js';
+import { parseJson } from './diagnosticsAutohealState.js';
 import { logError, logInfo } from '../utils/logger.js';
 
 type AutohealAction = 'force_full_pull_v2' | 'reset_sync_state_and_pull' | 'deep_repair';
 type AutohealSignalLevel = 'normal' | 'observe' | 'degraded' | 'critical';
+
+/** Как часто можно поднимать тревогу «лечение отложено» на один клиент. */
+const DEFERRED_ALERT_COOLDOWN_MS = 6 * 60 * 60_000;
 
 type AutohealSignal = {
   kind: 'autoheal_signal';
@@ -32,7 +37,14 @@ type AutohealActionAudit = {
   requestType?: AutohealAction;
   reason?: string;
   fingerprint?: string;
+  /** Уровень сигнала, при котором сервер принимал решение. */
+  level?: AutohealSignalLevel;
+  /** Лечение было нужно, но бюджет его не пустил — «лечение отложено». */
+  deferred?: boolean;
 };
+
+/** Состояние автолечения по клиенту — что сервер видел и что с этим сделал. */
+export type { ClientAutohealState } from './diagnosticsAutohealState.js';
 
 function nowMs() {
   return Date.now();
@@ -189,15 +201,6 @@ function buildFingerprint(report: ConsistencyClientReport) {
   return createHash('sha1').update(raw || 'empty').digest('hex');
 }
 
-function parseJson(raw: string | null | undefined): any {
-  if (!raw) return null;
-  try {
-    return JSON.parse(String(raw));
-  } catch {
-    return null;
-  }
-}
-
 async function saveDiagnosticsPayload(clientId: string, payload: Record<string, unknown>) {
   try {
     await db.insert(diagnosticsSnapshots).values({
@@ -227,6 +230,59 @@ async function auditAutohealEvent(clientId: string, payload: Record<string, unkn
 async function saveAutohealSignal(clientId: string, signal: AutohealSignal) {
   await saveDiagnosticsPayload(clientId, signal);
 }
+
+/**
+ * Тревога «лечение отложено».
+ *
+ * Инцидент 16.11.2026: клиент висел в `critical` неделями, автолечение каждый раз
+ * скипалось с `daily_budget_exceeded`, и это знал только журнал — владелец узнал
+ * случайно, когда сотрудник исчез из карточек. Теперь отложенное лечение — тревога.
+ *
+ * Не чаще раза в 6 часов на клиента: тревога, которая повторяется каждые 10 минут,
+ * превращается в шум, а шум владелец отключает — и сторож снова становится молчаливым.
+ */
+async function alertDeferredHeal(args: {
+  clientId: string;
+  reason: string;
+  budget: number;
+  signal: AutohealSignal;
+  history: Array<AutohealActionAudit & { createdAt: number }>;
+}) {
+  if (args.signal.level !== 'critical') return;
+  const now = nowMs();
+  const lastSkipAt = args.history
+    .filter((a) => a.reason === args.reason)
+    .reduce((max, a) => Math.max(max, Number(a.createdAt ?? 0)), 0);
+  if (lastSkipAt > 0 && now - lastSkipAt < DEFERRED_ALERT_COOLDOWN_MS) return;
+  ingestServerCriticalEvent({
+    eventCode: 'server.sync.autoheal_deferred',
+    title: 'Автолечение клиента отложено',
+    humanMessage:
+      `Клиент ${args.clientId}: расхождение с сервером на уровне critical, автолечение отложено ` +
+      `(${args.reason}, дневной бюджет ${args.budget}). Дрейф сам не пройдёт — починить вручную может администратор.`,
+    category: 'sync',
+    severity: 'error',
+    clientId: args.clientId,
+    dedupMessage: `autoheal_deferred:${args.reason}`,
+    aiDetails: {
+      clientId: args.clientId,
+      reason: args.reason,
+      budget: args.budget,
+      level: args.signal.level,
+      driftCount: args.signal.driftCount,
+      driftRatio: args.signal.driftRatio,
+      lagAbs: args.signal.lagAbs,
+      at: now,
+    },
+  });
+}
+
+/**
+ * Состояние автолечения по всем клиентам разом — для отчёта «Диагностика клиентов».
+ *
+ * Считаем по серверным снимкам за сутки: там лежат и сигналы (уровень расхождения), и
+ * действия автолечения (поставили починку / отложили и почему).
+ */
 
 async function loadRecentAutoheal(clientId: string) {
   const rows = await db
@@ -264,6 +320,7 @@ async function loadRecentAutoheal(clientId: string) {
       const requestTypeRaw = (payload as any).requestType;
       const reasonRaw = (payload as any).reason;
       const fpRaw = (payload as any).fingerprint;
+      const levelRaw = (payload as any).level;
       actions.push({
         kind: 'autoheal',
         at: Number((payload as any).at ?? row.createdAt ?? 0),
@@ -271,6 +328,10 @@ async function loadRecentAutoheal(clientId: string) {
         ...(requestTypeRaw ? { requestType: requestTypeRaw as AutohealAction } : {}),
         ...(reasonRaw ? { reason: String(reasonRaw) } : {}),
         ...(fpRaw ? { fingerprint: String(fpRaw) } : {}),
+        ...(levelRaw && ['normal', 'observe', 'degraded', 'critical'].includes(String(levelRaw))
+          ? { level: String(levelRaw) as AutohealSignalLevel }
+          : {}),
+        ...((payload as any).deferred ? { deferred: true } : {}),
         createdAt: Number(row?.createdAt ?? 0),
       });
     }
@@ -353,18 +414,31 @@ export async function evaluateAutohealForClient(clientId: string) {
     const cooldown = autohealCooldownMs();
     const now = nowMs();
     if (row?.syncRequestType) {
-      await auditAutohealEvent(clientId, { action: 'skip', reason: 'pending_request', requestType: row.syncRequestType });
+      await auditAutohealEvent(clientId, { action: 'skip', reason: 'pending_request', requestType: row.syncRequestType, level: signal.level });
       return { queued: false as const, reason: 'pending_request' };
     }
     if (row?.syncRequestAt && now - Number(row.syncRequestAt) < cooldown) {
-      await auditAutohealEvent(clientId, { action: 'skip', reason: 'cooldown', syncRequestAt: Number(row.syncRequestAt) });
+      await auditAutohealEvent(clientId, { action: 'skip', reason: 'cooldown', syncRequestAt: Number(row.syncRequestAt), level: signal.level });
       return { queued: false as const, reason: 'cooldown' };
     }
 
     const since24h = now - 24 * 60 * 60_000;
     const actionEvents = history.actions.filter((a) => a.action === 'enqueue' && a.createdAt >= since24h);
     if (actionEvents.length >= dailyActionBudget()) {
-      await auditAutohealEvent(clientId, { action: 'skip', reason: 'daily_budget_exceeded', budget: dailyActionBudget() });
+      await auditAutohealEvent(clientId, {
+        action: 'skip',
+        reason: 'daily_budget_exceeded',
+        budget: dailyActionBudget(),
+        level: signal.level,
+        deferred: true,
+      });
+      await alertDeferredHeal({
+        clientId,
+        reason: 'daily_budget_exceeded',
+        budget: dailyActionBudget(),
+        signal,
+        history: history.actions,
+      });
       return { queued: false as const, reason: 'daily_budget_exceeded' };
     }
     const deepRepairCount = actionEvents.filter((a) => a.requestType === 'deep_repair').length;
@@ -373,6 +447,15 @@ export async function evaluateAutohealForClient(clientId: string) {
         action: 'skip',
         reason: 'deep_repair_budget_exceeded',
         budget: deepRepairBudget(),
+        level: signal.level,
+        deferred: true,
+      });
+      await alertDeferredHeal({
+        clientId,
+        reason: 'deep_repair_budget_exceeded',
+        budget: deepRepairBudget(),
+        signal,
+        history: history.actions,
       });
       return { queued: false as const, reason: 'deep_repair_budget_exceeded' };
     }
@@ -390,6 +473,7 @@ export async function evaluateAutohealForClient(clientId: string) {
         reason: 'same_fingerprint_cooldown',
         fingerprint: signal.fingerprint,
         previousActionAt: sameFpRecent.createdAt,
+        level: signal.level,
       });
       return { queued: false as const, reason: 'same_fingerprint_cooldown' };
     }

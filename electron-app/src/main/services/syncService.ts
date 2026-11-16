@@ -116,7 +116,8 @@ import {
 } from './sync/errorRecovery.js';
 import { sendDiagnosticsSnapshot as sendDiagnosticsSnapshotImpl } from './sync/diagnosticsReporter.js';
 import { isOfflineSyncError } from './sync/syncErrorClassifier.js';
-import { countPendingLocalRows, countPendingLocalRowsByTable } from './sync/localPending.js';
+import { countPendingLocalRows, countPendingLocalRowsByTable, countStuckPendingLocalRows } from './sync/localPending.js';
+import type { StuckPendingProbe } from './sync/localPending.js';
 import { nowMs, yieldToEventLoop } from './sync/progressEmitter.js';
 import { fetchWithRetry } from './netFetch.js';
 
@@ -5010,6 +5011,17 @@ export async function countPendingLocalChangesByTable(): Promise<Array<{ table: 
   const exec = getSqlExecutor();
   if (!exec) return [];
   return await countPendingLocalRowsByTable(exec);
+}
+
+/**
+ * Неотправленные строки, которые висят дольше порога («застряли»).
+ *
+ * `null` — проба не выполнилась (нет доступа к локальной БД): это «не знаю», а не «нет».
+ */
+export async function countStuckPendingLocalChanges(): Promise<StuckPendingProbe | null> {
+  const exec = getSqlExecutor();
+  if (!exec) return null;
+  return await countStuckPendingLocalRows(exec);
 }
 
 export type RunSyncOptions = {
