@@ -106,7 +106,7 @@ const CASES = [
   {
     table: SyncTableName.PpeNormLineSpecs,
     map: toPpeNormLineSpecInput,
-    row: { ...BASE, occupationId: UID, name: 'Костюм для защиты от механических воздействий (истирания)', ppeType: 'Одежда специальная защитная', qty: 1, unit: 'шт.', wearKind: 'months', wearMonths: 12, sortOrder: 1, sourceRef: '1 шт.', sourceKind: 'ton', sourceLabel: 'Пункт № 1511', nomenclatureId: UID },
+    row: { ...BASE, occupationId: UID, name: 'Костюм для защиты от механических воздействий (истирания)', ppeType: 'Одежда специальная защитная', qty: 1, unit: 'шт.', wearKind: 'months', wearMonths: 12, sortOrder: 1, sourceRef: '1 шт.', sourceKind: 'ton', sourceLabel: 'Пункт № 1511', nomenclatureId: UID, tradeName: 'Костюм МОТОР', certificate: 'ЕАЭС N RU Д-CN.РА08.В.38076/23' },
   },
   {
     table: SyncTableName.PpeEmployeeCards,

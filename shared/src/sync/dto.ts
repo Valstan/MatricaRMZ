@@ -413,6 +413,17 @@ export const ppeNormLineSpecRowSchema = z.object({
   source_kind: z.enum(['ton', 'order766']).nullable().optional(),
   source_label: z.string().nullable().optional(),
   nomenclature_id: z.string().uuid().nullable().optional(),
+  /**
+   * Торговое наименование позиции («Костюм МОТОР» из должностной карточки выдачи).
+   * Внутри набора — своё у позиции; между наборами может совпадать: вещь одна и та же.
+   */
+  trade_name: z.string().nullable().optional(),
+  /**
+   * Сертификат позиции набора: свой у позиции, внутри набора — разный. Решение
+   * владельца 16.11.2026: сертификат живёт у позиции набора, а не у номенклатуры —
+   * один и тот же товар по разным профессиям имеет разные сертификаты.
+   */
+  certificate: z.string().nullable().optional(),
 });
 
 /** Личная карточка СИЗ по форме приложения №3. */

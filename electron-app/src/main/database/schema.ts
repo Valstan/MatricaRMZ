@@ -591,6 +591,10 @@ export const ppeNormLineSpecs = sqliteTable('ppe_norm_line_specs', {
   sourceKind: text('source_kind'),
   sourceLabel: text('source_label'),
   nomenclatureId: text('nomenclature_id'),
+  /** Торговое наименование позиции набора («Костюм МОТОР»). Сервер: миграция 0132. */
+  tradeName: text('trade_name'),
+  /** Сертификат позиции набора: свой у позиции, внутри набора — разный. Сервер: миграция 0132. */
+  certificate: text('certificate'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
   lastServerSeq: integer('last_server_seq'),

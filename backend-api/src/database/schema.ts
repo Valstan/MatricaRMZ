@@ -2237,6 +2237,18 @@ export const ppeNormLineSpecs = pgTable(
     /** Подпись источника для печати: «Пункт № 1511», «№ 766н Прил.4». */
     sourceLabel: text('source_label'),
     nomenclatureId: uuid('nomenclature_id').references(() => erpNomenclature.id),
+    /**
+     * Торговое наименование позиции набора — из должностной карточки выдачи
+     * («Костюм МОТОР»). Решение владельца 16.11.2026: своя номенклатура на позицию;
+     * между наборами наименование может совпадать (вещь одна и та же).
+     */
+    tradeName: text('trade_name'),
+    /**
+     * Сертификат позиции набора. Решение владельца 16.11.2026: сертификат живёт
+     * у позиции, а не у номенклатуры — один и тот же товар по разным профессиям
+     * имеет разные сертификаты. Внутри набора — разный.
+     */
+    certificate: text('certificate'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
