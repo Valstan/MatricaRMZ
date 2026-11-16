@@ -123,6 +123,36 @@ describe('ppeService: нормы', () => {
     if (!r.ok) expect(r.error).toContain('не существует');
   });
 
+  it('одинаковый сертификат у двух позиций набора — отказ', async () => {
+    // Решение владельца 16.11.2026: сертификат — свой у позиции набора, внутри
+    // набора повторяться не должен (между наборами — может).
+    const nom2 = 'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb';
+    state.queue.push([{ id: NOM }, { id: nom2 }]); // validateNomenclatureIds
+    state.queue.push([{ certificate: 'CERT-1' }]); // сертификат номенклатуры позиции 1
+    state.queue.push([{ certificate: 'CERT-1' }]); // сертификат номенклатуры позиции 2
+    const r = await upsertPpeNormSet({
+      name: 'Слесарь',
+      lines: [
+        { nomenclatureId: NOM, qty: 1, wearMonths: 12 },
+        { nomenclatureId: nom2, qty: 1, wearMonths: 12 },
+      ],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('Сертификат');
+  });
+
+  it('сертификат позиции важнее сертификата номенклатуры', async () => {
+    state.queue.push([{ id: NOM }]); // validateNomenclatureIds
+    state.queue.push([{ certificate: 'CERT-NOM' }]); // сертификат номенклатуры
+    state.queue.push([]); // existing: набора нет
+    state.queue.push([]); // sets
+    const r = await upsertPpeNormSet({
+      name: 'Слесарь',
+      lines: [{ nomenclatureId: NOM, qty: 1, wearMonths: 12, certificate: 'CERT-POS' }],
+    });
+    expect(r.ok).toBe(true);
+  });
+
   it('новый набор пишется со строками', async () => {
     state.queue.push([{ id: NOM }]); // validateNomenclatureIds
     state.queue.push([]); // existing: нет

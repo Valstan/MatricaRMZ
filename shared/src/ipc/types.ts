@@ -2652,6 +2652,8 @@ export type MatricaApi = {
                 nomenclatureCode: string | null;
                 /** Сертификат позиции (миграция 0127): вид СИЗ. Пересекается между наборами, внутри набора — разный. */
                 certificate: string | null;
+                /** Торговое наименование позиции набора («Костюм МОТОР»). */
+                tradeName: string | null;
                 qty: number;
                 /** Срок носки; `null` — срока нет (годовая норма без срока, «до износа»). */
                 wearMonths: number | null;

@@ -581,6 +581,9 @@ const PPE_NORM_LINE_SPEC_FIELDS = withBase(
   { db: 'sourceKind', dto: 'source_kind' },
   { db: 'sourceLabel', dto: 'source_label' },
   { db: 'nomenclatureId', dto: 'nomenclature_id' },
+  // Торговое наименование и сертификат позиции набора (решение владельца 16.11.2026).
+  { db: 'tradeName', dto: 'trade_name' },
+  { db: 'certificate', dto: 'certificate' },
 );
 
 // Личная карточка СИЗ по форме приложения №3. Реквизиты — снимок на момент выдачи.

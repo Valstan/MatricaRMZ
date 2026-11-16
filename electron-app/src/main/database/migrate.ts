@@ -785,6 +785,8 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
       source_kind text,
       source_label text,
       nomenclature_id text,
+      trade_name text,
+      certificate text,
       created_at integer NOT NULL,
       updated_at integer NOT NULL,
       last_server_seq integer,
@@ -905,6 +907,14 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     if (!cols.has('occupation_id')) sqlite.exec(`ALTER TABLE ppe_norm_sets ADD COLUMN occupation_id text;`);
     if (!cols.has('source_kind')) sqlite.exec(`ALTER TABLE ppe_norm_sets ADD COLUMN source_kind text;`);
     if (!cols.has('source_label')) sqlite.exec(`ALTER TABLE ppe_norm_sets ADD COLUMN source_label text;`);
+  }
+  // Приказная строка СИЗ: торговое наименование и сертификат позиции набора
+  // (сервер: миграция 0132; решение владельца 16.11.2026 — сертификат живёт у позиции,
+  // а не у номенклатуры: один и тот же товар по профессиям имеет разные сертификаты).
+  if (hasTable('ppe_norm_line_specs')) {
+    const cols = columnNames('ppe_norm_line_specs');
+    if (!cols.has('trade_name')) sqlite.exec(`ALTER TABLE ppe_norm_line_specs ADD COLUMN trade_name text;`);
+    if (!cols.has('certificate')) sqlite.exec(`ALTER TABLE ppe_norm_line_specs ADD COLUMN certificate text;`);
   }
   // Личная карточка СИЗ: ФИО по частям (форма приложения №3 требует три поля).
   if (hasTable('ppe_employee_cards')) {

@@ -157,6 +157,9 @@ export function toPpeNormLineSpecInput(r: DbRow): SyncWriteInput {
     source_kind: r['sourceKind'] == null ? null : String(r['sourceKind']),
     source_label: r['sourceLabel'] == null ? null : String(r['sourceLabel']),
     nomenclature_id: r['nomenclatureId'] == null ? null : String(r['nomenclatureId']),
+    // Торговое наименование и сертификат позиции набора (решение владельца 16.11.2026).
+    trade_name: r['tradeName'] == null ? null : String(r['tradeName']),
+    certificate: r['certificate'] == null ? null : String(r['certificate']),
     created_at: Number(r['createdAt']),
     updated_at: Number(r['updatedAt']),
     deleted_at: r['deletedAt'] == null ? null : Number(r['deletedAt']),

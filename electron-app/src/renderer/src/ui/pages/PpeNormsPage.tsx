@@ -45,6 +45,8 @@ type NormLine = {
   nomenclatureCode: string | null;
   /** Сертификат позиции (миграция 0127): вид СИЗ. Пересекается между наборами, внутри набора — разный. */
   certificate: string | null;
+  /** Торговое наименование позиции набора («Костюм МОТОР»). */
+  tradeName: string | null;
   qty: number;
   /** Срок носки; `null` — срока нет (годовая норма без срока, «до износа»). */
   wearMonths: number | null;
@@ -224,6 +226,28 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
     };
   }
 
+  /**
+   * Строка набора в виде, в котором её ждёт сервер: приказная строка (spec) и её
+   * торговое наименование с сертификатом. По решению владельца 16.11.2026 они
+   * принадлежат позиции набора, а не общей номенклатуре: «Костюм МОТОР» — одна
+   * вещь на всех, а сертификат у каждой должности свой.
+   */
+  function linePayload(l: NormLine) {
+    return {
+      nomenclatureId: l.nomenclatureId,
+      qty: l.qty,
+      wearMonths: l.wearMonths,
+      ...(l.specId ? { specId: l.specId } : {}),
+      ...(l.tradeName != null ? { tradeName: l.tradeName } : {}),
+      ...(l.certificate != null ? { certificate: l.certificate } : {}),
+    };
+  }
+
+  /** Правка полей позиции: торговое наименование и сертификат — свои у позиции. */
+  function updateLineField(id: string, patch: Partial<NormLine>) {
+    setLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  }
+
   async function save() {
     if (!name.trim()) return setStatus('Укажите название набора');
     if (isDuty && !departmentId) return setStatus('Укажите подразделение дежурного набора');
@@ -242,7 +266,7 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
         // Вид набора: приказной — всегда спецодежда, свой набор помнит свой вид.
         kind: isOrderBasis ? 'workwear' : kind,
         validFrom: vf,
-        lines: lines.map((l) => ({ nomenclatureId: l.nomenclatureId, qty: l.qty, wearMonths: l.wearMonths })),
+        lines: lines.map(linePayload),
       });
       if (!res.ok) {
         setStatus(`Ошибка: ${res.error}`);
@@ -268,7 +292,7 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
     if (lines.some((l) => l.nomenclatureId === lineDraft.nomenclatureId)) return setStatus('Эта позиция уже есть в наборе');
     setBusy(true);
     try {
-      const next = [...lines.map((l) => ({ nomenclatureId: l.nomenclatureId, qty: l.qty, wearMonths: l.wearMonths })), {
+      const next = [...lines.map(linePayload), {
         nomenclatureId: lineDraft.nomenclatureId,
         qty,
         wearMonths: wear,
@@ -306,7 +330,7 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
     if (!ok) return;
     setBusy(true);
     try {
-      const next = lines.filter((l) => l.id !== line.id).map((l) => ({ nomenclatureId: l.nomenclatureId, qty: l.qty, wearMonths: l.wearMonths }));
+      const next = lines.filter((l) => l.id !== line.id).map(linePayload);
       const res = await window.matrica.ppe.norms.upsert({
         id: selectedId,
         name: name.trim() || (selected?.name ?? 'Набор'),
@@ -587,8 +611,9 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
                     <tr>
                       <RowNumberHeaderCell style={ROWNUM_STYLE} />
                       <th>Позиция</th>
+                      <th>Торговое наименование</th>
+                      <th>Сертификат позиции</th>
                       <th>Основание</th>
-                      <th>Сертификат</th>
                       <th style={{ textAlign: 'right' }}>Кол-во</th>
                       <th style={{ textAlign: 'right' }}>Носка, мес</th>
                       {canEditLines ? <th /> : null}
@@ -624,7 +649,33 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
                           ) : null}
                         </td>
                         <td style={{ color: 'var(--muted)' }}>{l.sourceLabel ?? '—'}</td>
-                        <td>{l.certificate ?? '—'}</td>
+                        {canEditLines ? (
+                          <>
+                            <td>
+                              <input
+                                className="input"
+                                style={{ minWidth: 180 }}
+                                value={l.tradeName ?? ''}
+                                placeholder="например: Костюм МОТОР"
+                                onChange={(e) => updateLineField(l.id, { tradeName: e.target.value })}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                className="input"
+                                style={{ minWidth: 180 }}
+                                value={l.certificate ?? ''}
+                                placeholder="№ сертификата"
+                                onChange={(e) => updateLineField(l.id, { certificate: e.target.value })}
+                              />
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td>{l.tradeName ?? '—'}</td>
+                            <td>{l.certificate ?? '—'}</td>
+                          </>
+                        )}
                         <td style={{ textAlign: 'right' }}>
                           {l.qty}
                           {l.unit ? ` ${l.unit}` : ''}
