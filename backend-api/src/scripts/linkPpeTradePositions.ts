@@ -182,6 +182,28 @@ async function main() {
     });
   }
 
+  // Конфликт: две торговые позиции претендуют на одну приказную строку. Так бывает,
+  // когда в карточке два предмета одного вида («Костюм МОТОР» и «Костюм сварщика
+  // (Мелескин)»), а в приказе строка одна. Затирать друг друга нельзя — обе позиции
+  // потеряют данные; такая связь уходит кладовщику на выбор.
+  const claims = new Map<string, PlanRow[]>();
+  for (const p of plan) {
+    if (!p.specId) continue;
+    const list = claims.get(p.specId) ?? [];
+    list.push(p);
+    claims.set(p.specId, list);
+  }
+  const conflicted: Array<{ specId: string; names: string[] }> = [];
+  for (const [specId, rows] of claims) {
+    if (rows.length < 2) continue;
+    conflicted.push({ specId, names: rows.map((r) => r.tradeName) });
+    for (const p of rows) {
+      p.status = 'неоднозначно';
+      p.specId = null;
+      p.candidates = [...new Set([...p.candidates, ...rows.map((r) => `${r.tradeName} (та же приказная строка)`)])];
+    }
+  }
+
   const linked = plan.filter((p) => p.status === 'связано');
   const ambiguous = plan.filter((p) => p.status === 'неоднозначно');
   const missing = plan.filter((p) => p.status === 'не найдено');
@@ -253,6 +275,23 @@ async function main() {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    // Затирание прежних значений на спорных строках: там, где две торговые позиции
+    // претендовали на одну приказную строку, записано было имя последней. Очищаем —
+    // кладовщик выберет сам (в отчёте эти строки помечены «требует выбора»).
+    for (const c of conflicted) {
+      const cur = await client.query<{ trade_name: string | null }>(
+        'select trade_name from ppe_norm_line_specs where id = $1',
+        [c.specId],
+      );
+      const current = String(cur.rows[0]?.trade_name ?? '').trim();
+      if (!current || !c.names.some((n) => n === current)) continue;
+      await client.query(
+        `update ppe_norm_line_specs
+            set trade_name = null, certificate = null, updated_at = $2, sync_status = 'pending'
+          where id = $1`,
+        [c.specId, now],
+      );
+    }
     for (const p of linked) {
       await client.query(
         `update ppe_norm_line_specs
