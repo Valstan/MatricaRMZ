@@ -41,6 +41,7 @@
     "contracts:resync-slots:apply": "tsx src/scripts/resyncContractSlots.ts --apply",
     "positions:backfill": "tsx src/scripts/backfillEmployeePositions.ts",
     "employees:import-csv": "tsx src/scripts/importEmployeesCsv.ts",
+    "employees:restore-from-drafts": "tsx src/scripts/restoreEmployeesFromDrafts.ts",
     "engines:import": "tsx src/scripts/importEngineLedger.ts",
     "positions:backfill:apply": "tsx src/scripts/backfillEmployeePositions.ts --apply",
     "ppe:mirror-employees": "tsx src/scripts/mirrorPpeEmployees.ts",
