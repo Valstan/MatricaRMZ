@@ -20,7 +20,7 @@
 | Правка кладовщиком | набор норм: колонки «Торговое наименование» и «Сертификат позиции» |
 | Данные владельца | `backend-api/src/data/ppeTradePositions767.ts` — 117 позиций по 17 профессиям (генератор из docx) |
 
-**Гейты:** typecheck (все пакеты) — зелёный; lint (shared/backend-api/electron-app) — зелёный; тесты: shared 1908, backend-api 1410, electron-app 2347.
+**Гейты:** typecheck (все пакеты) — зелёный; lint (shared/backend-api/electron-app) — зелёный; тесты: shared 1908, backend-api 1410, electron-app 2347. **CDP-смоук набора норм — 18/18 PASS** (`cdp-ppe-norms.mjs`); смоук поймал и починил расхождение порядка ячеек с заголовками таблицы набора. Клиент стенда падал на старте — устранено (устаревшая сборка `shared`, Node-ABI у `better-sqlite3`, протухший pid-файл), подробности в [`docs/machines/PC79.md`](machines/PC79.md).
 
 ## Параллельная нить (worktree `m2`)
 

@@ -648,7 +648,6 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
                             <div style={{ color: 'var(--muted)', fontSize: 12 }}>{l.nomenclatureCode}</div>
                           ) : null}
                         </td>
-                        <td style={{ color: 'var(--muted)' }}>{l.sourceLabel ?? '—'}</td>
                         {canEditLines ? (
                           <>
                             <td>
@@ -676,6 +675,7 @@ export function PpeNormsPage(props: { canEdit: boolean; onOpenNomenclature?: (id
                             <td>{l.certificate ?? '—'}</td>
                           </>
                         )}
+                        <td style={{ color: 'var(--muted)' }}>{l.sourceLabel ?? '—'}</td>
                         <td style={{ textAlign: 'right' }}>
                           {l.qty}
                           {l.unit ? ` ${l.unit}` : ''}
