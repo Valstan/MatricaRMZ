@@ -21,6 +21,19 @@ function safeJsonParse(value: string | null): unknown {
   }
 }
 
+/**
+ * Текст ошибки сервера для оператора.
+ *
+ * «forbidden» — служебный маркер серверного гейта: в диалоге дублей он висел как
+ * «Ошибка: forbidden» (жалоба 17.11.2026) и ничего оператору не объяснял. Свои
+ * тексты сервера («нет права на обработку дублей сотрудников») оставляем как есть.
+ */
+function serverErrorText(r: { status: number; text?: string; json?: { error?: string } }, fallback: string): string {
+  const raw = String(r.text ?? '').trim() || String(r.json?.error ?? '').trim();
+  if (raw === 'forbidden') return 'Недостаточно прав: операцию отклонил сервер (нужно право администратора).';
+  return raw || fallback;
+}
+
 function toAttachmentPreviews(raw: unknown): Array<{ id: string; name: string; mime: string | null }> {
   if (!Array.isArray(raw)) return [];
   const previews: Array<{ id: string; name: string; mime: string | null }> = [];
@@ -558,7 +571,7 @@ export async function mergeEmployeesToServer(
     body: JSON.stringify({ employees }),
   });
   if (!r.ok) {
-    return { ok: false as const, error: r.text || r.json?.error || `server error ${r.status}` };
+    return { ok: false as const, error: serverErrorText(r, `server error ${r.status}`) };
   }
   return { ok: true as const, stats: r.json?.stats };
 }
@@ -570,7 +583,7 @@ export async function mergeEmployeesToServer(
  */
 export async function analyzeEmployeeDuplicatesRemote(sysDb: BetterSQLite3Database, apiBaseUrl: string) {
   const r = await httpAuthed(sysDb, apiBaseUrl, '/admin/masterdata/employees/dedupe/analyze', { method: 'GET' });
-  if (!r.ok) return { ok: false as const, error: r.text || r.json?.error || `server error ${r.status}` };
+  if (!r.ok) return { ok: false as const, error: serverErrorText(r, `server error ${r.status}`) };
   return r.json as { ok: boolean; totalEmployees?: number; groups?: unknown[]; error?: string };
 }
 
@@ -594,7 +607,7 @@ export async function findEmployeeDuplicatesRemote(
     `/admin/masterdata/employees/dedupe/check?${qs.toString()}`,
     { method: 'GET' },
   );
-  if (!r.ok) return { ok: false as const, error: r.text || r.json?.error || `server error ${r.status}` };
+  if (!r.ok) return { ok: false as const, error: serverErrorText(r, `server error ${r.status}`) };
   return r.json as { ok: boolean; matches?: unknown[]; error?: string };
 }
 
@@ -619,7 +632,7 @@ export async function checkEmployeeCardKeyRemote(
       body: JSON.stringify(args),
     },
   );
-  if (!r.ok) return { ok: false as const, error: r.text || r.json?.error || `server error ${r.status}` };
+  if (!r.ok) return { ok: false as const, error: serverErrorText(r, `server error ${r.status}`) };
   const json = r.json as {
     ok?: boolean;
     relation?: 'different' | 'disputed' | 'exact' | 'personnel';
@@ -655,7 +668,7 @@ export async function recordEmployeeDuplicateOverrideRemote(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(args),
   });
-  if (!r.ok) return { ok: false as const, error: r.text || r.json?.error || `server error ${r.status}` };
+  if (!r.ok) return { ok: false as const, error: serverErrorText(r, `server error ${r.status}`) };
   return r.json as { ok: boolean; error?: string };
 }
 
@@ -669,7 +682,7 @@ export async function mergeEmployeeDuplicatesRemote(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(args),
   });
-  if (!r.ok) return { ok: false as const, error: r.text || r.json?.error || `server error ${r.status}` };
+  if (!r.ok) return { ok: false as const, error: serverErrorText(r, `server error ${r.status}`) };
   return r.json as { ok: boolean; report?: unknown; error?: string };
 }
 
@@ -678,7 +691,13 @@ export async function deleteEmployeeRemote(sysDb: BetterSQLite3Database, apiBase
     method: 'POST',
   });
   if (!r.ok) {
-    return { ok: false as const, error: r.text || r.json?.error || `server error ${r.status}` };
+    // Стирание кадровой карточки — админский раздел: оператор-кладовщик сюда не
+    // вправе, и «forbidden» ему ничего не говорил (жалоба 17.11.2026).
+    const error =
+      r.status === 403
+        ? 'удаление карточки сотрудника — только для администратора'
+        : serverErrorText(r, `server error ${r.status}`);
+    return { ok: false as const, error };
   }
   const mode = r.json?.mode === 'deleted' ? 'deleted' : r.json?.mode === 'requested' ? 'requested' : null;
   return { ok: true as const, mode };
@@ -701,7 +720,7 @@ export async function removeDuplicateEmployeeRemote(
     body: JSON.stringify(args),
   });
   if (!r.ok) {
-    return { ok: false as const, error: r.text || r.json?.error || `server error ${r.status}`, reason: 'error' as const };
+    return { ok: false as const, error: serverErrorText(r, `server error ${r.status}`), reason: 'error' as const };
   }
   if (r.json?.ok !== true) {
     const reason = (r.json?.reason ?? 'not_duplicate') as 'not_duplicate' | 'disputed' | 'login' | 'merge_failed';

@@ -25,6 +25,7 @@ vi.mock('../auth/middleware.js', () => ({
     next();
   },
   requirePermission: () => (_req: any, _res: any, next: any) => next(),
+  requirePermissionForPaths: () => (_req: any, _res: any, next: any) => next(),
 }));
 
 vi.mock('../services/employeeAuthService.js', () => ({

@@ -7,7 +7,7 @@ import { isAssignableSystemRole } from '@matricarmz/shared';
 import { db } from '../database/db.js';
 import { permissionDelegations, permissions, userPermissions } from '../database/schema.js';
 import { hashPassword } from '../auth/password.js';
-import { requireAuth, requirePermission, type AuthenticatedRequest } from '../auth/middleware.js';
+import { requireAuth, requirePermissionForPaths, type AuthenticatedRequest } from '../auth/middleware.js';
 import { PermissionCode, defaultPermissionsForRole, getEffectivePermissionsForUser, hasPermission } from '../auth/permissions.js';
 import {
   createEmployeeEntity,
@@ -43,7 +43,11 @@ import {
 export const adminUsersRouter = Router();
 
 adminUsersRouter.use(requireAuth);
-adminUsersRouter.use(requirePermission(PermissionCode.AdminUsersManage));
+// Гейт — только на разделы ЭТОГО роутера. Роутер смонтирован на общем префиксе
+// `/admin` (рядом с `/admin/masterdata` и `/admin/clients`), и гейт на весь префикс
+// закрывал бы соседние разделы чужим правом: кладовщик с `employees.dedupe` получал
+// 403 «forbidden» в диалоге дублей (жалоба владельца 17.11.2026).
+adminUsersRouter.use(requirePermissionForPaths(PermissionCode.AdminUsersManage, ['/users', '/permissions', '/delegations']));
 
 function roleLevel(role: string) {
   const r = String(role ?? '').toLowerCase();
