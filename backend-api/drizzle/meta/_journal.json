@@ -939,6 +939,13 @@
       "when": 1794968400000,
       "tag": "0120_ppe_local_norms",
       "breakpoints": true
+    },
+    {
+      "idx": 134,
+      "version": "7",
+      "when": 1794972000000,
+      "tag": "0121_ppe_earplug_norms",
+      "breakpoints": true
     }
   ]
 }
