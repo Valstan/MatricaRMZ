@@ -946,6 +946,13 @@
       "when": 1794972000000,
       "tag": "0121_ppe_earplug_norms",
       "breakpoints": true
+    },
+    {
+      "idx": 135,
+      "version": "7",
+      "when": 1794975800000,
+      "tag": "0122_ppe_etn_alignment",
+      "breakpoints": true
     }
   ]
 }

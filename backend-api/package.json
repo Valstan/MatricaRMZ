@@ -43,6 +43,7 @@
     "employees:import-csv": "tsx src/scripts/importEmployeesCsv.ts",
     "employees:restore-from-drafts": "tsx src/scripts/restoreEmployeesFromDrafts.ts",
     "employees:link-trade-positions": "tsx src/scripts/linkPpeTradePositions.ts",
+    "ppe:publish-seed": "tsx src/scripts/publishPpeSeedToMirror.ts",
     "engines:import": "tsx src/scripts/importEngineLedger.ts",
     "positions:backfill:apply": "tsx src/scripts/backfillEmployeePositions.ts --apply",
     "ppe:mirror-employees": "tsx src/scripts/mirrorPpeEmployees.ts",

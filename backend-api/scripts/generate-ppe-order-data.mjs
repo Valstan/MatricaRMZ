@@ -293,17 +293,38 @@ function sizeKindFor(ppeType, name) {
 }
 
 // Базовая позиция — по уникальному (тип, наименование) из приказа.
+//
+// Код позиции («СИЗ-042») должен быть СТАБИЛЬНЫМ: переименование другой позиции
+// не должна сдвигать коды уже заведённых (иначе новая вставка падает по
+// уникальности `erp_nomenclature.code`, а база остаётся с чужими кодами).
+// Поэтому код существующей позиции берётся из эталона (--exclude-from), а новым
+// позициям выдаётся следующий свободный номер.
 const baseMap = new Map();
+const baseCodeByKey = new Map();
+if (excludeFromPath) {
+  const ref = readFileSync(excludeFromPath, 'utf8');
+  const re = /\{ id: '[0-9a-f-]{36}', name: '((?:[^'\\]|\\.)*)', ppeType: '((?:[^'\\]|\\.)*)', sizeKind: [^,]+, code: '([^']+)' \}/g;
+  let m;
+  while ((m = re.exec(ref)) !== null) {
+    baseCodeByKey.set(`${normKey(m[2])}|${normKey(m[1])}`, m[3]);
+  }
+}
+let nextBaseCode = 1;
+for (const code of baseCodeByKey.values()) {
+  const num = Number(String(code).replace(/^\D+/, ''));
+  if (Number.isFinite(num)) nextBaseCode = Math.max(nextBaseCode, num + 1);
+}
 for (const s of specs) {
   const key = `${normKey(s.ppeType)}|${normKey(s.name)}`;
   if (baseMap.has(key)) continue;
   const kind = sizeKindFor(s.ppeType, s.name);
+  const existingCode = baseCodeByKey.get(key);
   baseMap.set(key, {
     id: stableUuid(`nom-base:${key}`),
     name: s.name.replace(/\s+$/, ''),
     ppeType: s.ppeType,
     sizeKind: kind,
-    code: `СИЗ-${String(baseMap.size + 1).padStart(3, '0')}`,
+    code: existingCode ?? `СИЗ-${String(nextBaseCode++).padStart(3, '0')}`,
   });
 }
 const basePositions = [...baseMap.values()];
