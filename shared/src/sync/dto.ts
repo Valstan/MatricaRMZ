@@ -13,7 +13,7 @@ import {
 import { OperationTypeCode } from '../domain/enums.js';
 import { ENGINE_RMZ_NUMBER_STATUSES } from '../domain/engineRmzNumber.js';
 import { SYSTEM_ROLE_CATALOG } from '../domain/permissions.js';
-import { PPE_KINDS, PPE_WEAR_KINDS } from '../domain/ppe.js';
+import { PPE_KINDS, PPE_SOURCE_KINDS, PPE_WEAR_KINDS } from '../domain/ppe.js';
 
 // Базовые поля синхронизации для всех таблиц.
 export const baseRowFields = {
@@ -362,7 +362,7 @@ export const ppeNormSetRowSchema = z.object({
   is_duty: z.boolean().nullable().optional(),
   // Приказ о СИЗ: привязка набора к профессии приказа и подпись источника.
   occupation_id: z.string().uuid().nullable().optional(),
-  source_kind: z.enum(['ton', 'order766', 'local']).nullable().optional(),
+  source_kind: z.enum(PPE_SOURCE_KINDS).nullable().optional(),
   source_label: z.string().nullable().optional(),
   // Вид набора: 'workwear' — спецодежда, 'soap' — мыло (промты КАРМАНА #21/#26).
   // Мягко-опционально: строка, заведённая до миграции 0131, вида не несёт — читается
@@ -410,7 +410,7 @@ export const ppeNormLineSpecRowSchema = z.object({
   wear_months: z.number().int().nullable().optional(),
   sort_order: z.number().int(),
   source_ref: z.string().nullable().optional(),
-  source_kind: z.enum(['ton', 'order766']).nullable().optional(),
+  source_kind: z.enum(PPE_SOURCE_KINDS).nullable().optional(),
   source_label: z.string().nullable().optional(),
   nomenclature_id: z.string().uuid().nullable().optional(),
   /**

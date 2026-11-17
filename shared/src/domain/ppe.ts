@@ -404,6 +404,22 @@ export const PPE_WEAR_KINDS = [
 
 export type PpeWearKind = (typeof PPE_WEAR_KINDS)[number];
 
+/**
+ * Источник строки приказа (и набора норм).
+ * - `ton` — Типовые отраслевые нормы 767н;
+ * - `order766` — приказ 766н Прил.4 (СИЗ от пониженных температур);
+ * - `local` — **заводская норма**: вещь, которой в приказе нет, но её выдают по
+ *   решению владельца (12 «лишних» торговых позиций, 17.11.2026).
+ *
+ * Список — источник истины, а не только тип: контракт синка берёт его отсюда.
+ * Раньше перечисление жило отдельно в DTO, и когда домен добавил `local`, строка
+ * с `source_kind='local'` не прошла валидатор — ВЕСЬ проход зеркала СИЗ падал на
+ * `sync_invalid_row`, и новые нормы не доходили до парка.
+ */
+export const PPE_SOURCE_KINDS = ['ton', 'order766', 'local'] as const;
+
+export type PpeSourceKind = (typeof PPE_SOURCE_KINDS)[number];
+
 export type PpeOrderNorm = {
   /** Количество на год. */
   qty: number;
