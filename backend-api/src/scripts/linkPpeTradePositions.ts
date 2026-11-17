@@ -3,107 +3,36 @@
  * приказными строками набора норм (`ppe_norm_line_specs`).
  *
  * Промты КАРМАНА #20/#25: у каждой позиции набора — своя торговая номенклатура и
- * свой сертификат. Торговое имя и сертификат живут в должностной карточки выдачи
+ * свой сертификат. Торговое имя и сертификат живут в должностной карточке выдачи
  * (по профессии), приказная строка — в приказе 767н (тоже по профессии). Связь
- * строится по «виду СИЗ» и смыслу названия: в карточке вид не написан, поэтому
- * вид выводится из торгового имени, а при равенстве видов решает совпадение
- * значимых слов («Плащ ФОРЕСТ для защиты от воды» → «Пальто, полупальто, плащ
- * для защиты от воды», а не «Костюм для защиты от механических воздействий»).
+ * строится по виду СИЗ и смыслу названия; подбор живёт в
+ * [`ppeTradeLinking`](../services/ppeTradeLinking.js).
  *
- * Зимние позиции (766н, `source_kind='order766'`) из карточек не описаны: при
- * наличии основной нормы они исключаются из кандидатов — иначе «Костюм МОТОР»
- * совпал бы и с летним костюмом, и с зимним.
- *
- * Неоднозначные и не найденные — в отчёт кладовщику: это решение человека,
- * автоматика тут не решает.
+ * Спорные места (две вещи претендуют на одну норму) решает кладовщик: его ответы
+ * лежат в бланке выбора (CSV) и подаются флагом `--choices` — подбор их не
+ * переигрывает. Без бланка спорные строки уходят в отчёт «требует выбора».
  *
  * Usage:
  *   pnpm -F @matricarmz/backend-api employees:link-trade-positions            # dry-run + отчёт
  *   pnpm -F @matricarmz/backend-api employees:link-trade-positions -- --apply  # запись
- *   … --apply --entity=<id>   только один сотрудник (перезапись его позиций)
+ *   … --apply --entity=<id>   только одна приказная строка (перезапись её позиций)
+ *   … --choices=<csv>         бланк выбора кладовщика (решения применяются как есть)
  */
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 
 import { pool } from '../database/db.js';
 import { PPE_TRADE_POSITIONS } from '../data/ppeTradePositions767.js';
+import {
+  linkTradePositions,
+  parseChoicesCsv,
+  type SpecRow,
+  type TradeChoice,
+} from '../services/ppeTradeLinking.js';
 
 const APPLY = process.argv.includes('--apply');
 const ONLY = (process.argv.find((a) => a.startsWith('--entity=')) ?? '').split('=')[1]?.trim() || null;
+const CHOICES = (process.argv.find((a) => a.startsWith('--choices=')) ?? '').split('=')[1]?.trim() || null;
 const OUT_DIR = process.env.PPE_TRADE_REPORT_DIR ?? '.verifier-electron';
-
-/** Вид СИЗ по торговому имени (в карточке вид не написан). */
-const TRADE_KIND: Array<[string, string[]]> = [
-  ['ноги', ['ботинки', 'сапоги', 'полуботинки', 'боты', 'башмаки']],
-  ['руки', ['перчатки', 'краги', 'рукавицы', 'нарукавники']],
-  ['голова', ['каска', 'кепка', 'подшлемник', 'берет']],
-  ['глаза', ['очки']],
-  ['дыхание', ['полумаска', 'респиратор', 'фильтр', 'маска']],
-  ['слух', ['наушники', 'беруши']],
-  ['колени', ['наколенник']],
-  ['одежда', ['костюм', 'куртка', 'плащ', 'пальто', 'халат', 'комбинезон', 'фартук', 'жилет']],
-];
-
-/** Вид СИЗ по приказному виду (`ppe_type`). */
-function kindByOrderType(ppeType: string | null): string | null {
-  const text = String(ppeType ?? '').toLowerCase();
-  if (!text) return null;
-  if (text.includes('ног')) return 'ноги';
-  if (text.includes('рук')) return 'руки';
-  if (text.includes('голов')) return 'голова';
-  if (text.includes('глаз')) return 'глаза';
-  if (text.includes('дыхани')) return 'дыхание';
-  if (text.includes('слух')) return 'слух';
-  if (text.includes('одежд')) return 'одежда';
-  return null;
-}
-
-/** Слова, которые ничего не различают. */
-const STOP_WORDS = new Set(['для', 'от', 'и', 'в', 'по', 'с', 'к', 'а']);
-
-/** Значимые слова торгового имени: всё длиннее трёх букв, кроме служебных. */
-function significantWords(name: string): string[] {
-  return String(name ?? '')
-    .toLowerCase()
-    .split(/[^a-zа-яё0-9]+/i)
-    .map((w) => w.trim())
-    .filter((w) => w.length >= 4 && !STOP_WORDS.has(w));
-}
-
-function tradeKindOf(name: string): string | null {
-  const text = String(name ?? '').toLowerCase();
-  for (const [kind, words] of TRADE_KIND) {
-    if (words.some((w) => text.includes(w))) return kind;
-  }
-  return null;
-}
-
-function scoreBy(tradeWords: string[], orderName: string): number {
-  const text = String(orderName ?? '').toLowerCase();
-  let score = 0;
-  for (const w of tradeWords) if (text.includes(w)) score += 1;
-  return score;
-}
-
-type SpecRow = {
-  id: string;
-  occupationCode: string;
-  name: string;
-  ppeType: string | null;
-  sourceKind: string;
-  sortOrder: number;
-};
-
-type PlanRow = {
-  occupationCode: string;
-  tradeName: string;
-  certificate: string | null;
-  specId: string | null;
-  orderName: string | null;
-  kind: string | null;
-  score: number | null;
-  status: 'связано' | 'неоднозначно' | 'не найдено';
-  candidates: string[];
-};
 
 async function main() {
   const specRes = await pool.query<SpecRow>(
@@ -116,109 +45,37 @@ async function main() {
   );
   const specs = specRes.rows;
 
-  const plan: PlanRow[] = [];
-  for (const trade of PPE_TRADE_POSITIONS) {
-    const words = significantWords(trade.name);
-    const kind = tradeKindOf(trade.name);
-    let poolSpecs = specs.filter((s) => s.occupationCode === trade.occupationCode);
-    if (ONLY) {
-      // Ограничение на одну сущность: оставляем только её строки.
-      poolSpecs = poolSpecs.filter((s) => s.id === ONLY);
-    }
-    if (kind) {
-      const byKind = poolSpecs.filter((s) => kindByOrderType(s.ppeType) === kind);
-      // Вид известен, но в приказе у профессии такой строки нет — это не «неоднозначно»,
-      // а «нет пары»: значит, в приказе этой профессии такого СИЗ не предусмотрено.
-      if (byKind.length === 0) {
-        plan.push({
-          occupationCode: trade.occupationCode,
-          tradeName: trade.name,
-          certificate: trade.certificate,
-          specId: null,
-          orderName: null,
-          kind,
-          score: null,
-          status: 'не найдено',
-          candidates: [],
-        });
-        continue;
-      }
-      poolSpecs = byKind;
-    }
-    // Зимние (766н) в карточках не описаны — при наличии основной нормы они вне кандидатов.
-    const nonWinter = poolSpecs.filter((s) => s.sourceKind !== 'order766');
-    if (nonWinter.length > 0) poolSpecs = nonWinter;
-
-    if (poolSpecs.length === 0) {
-      plan.push({
-        occupationCode: trade.occupationCode,
-        tradeName: trade.name,
-        certificate: trade.certificate,
-        specId: null,
-        orderName: null,
-        kind,
-        score: null,
-        status: 'не найдено',
-        candidates: [],
-      });
-      continue;
-    }
-    const scored = poolSpecs
-      .map((s) => ({ s, score: scoreBy(words, s.name) }))
-      .sort((a, b) => b.score - a.score || a.s.sortOrder - b.s.sortOrder);
-    const best = scored[0]!;
-    const second = scored[1];
-    const unambiguous = !second || best.score > second.score;
-    plan.push({
-      occupationCode: trade.occupationCode,
-      tradeName: trade.name,
-      certificate: trade.certificate,
-      specId: unambiguous ? best.s.id : null,
-      orderName: best.s.name,
-      kind,
-      score: best.score,
-      status: unambiguous ? 'связано' : 'неоднозначно',
-      candidates: scored.slice(0, 5).map((x) => `${x.s.name} (очки ${x.score})`),
-    });
+  let choices: TradeChoice[] = [];
+  if (CHOICES) {
+    choices = parseChoicesCsv(readFileSync(CHOICES, 'utf8'));
+    console.log(`Бланк выбора кладовщика: ${CHOICES} — решений прочитано: ${choices.length}`);
   }
 
-  // Конфликт: две торговые позиции претендуют на одну приказную строку. Так бывает,
-  // когда в карточке два предмета одного вида («Костюм МОТОР» и «Костюм сварщика
-  // (Мелескин)»), а в приказе строка одна. Затирать друг друга нельзя — обе позиции
-  // потеряют данные; такая связь уходит кладовщику на выбор.
-  const claims = new Map<string, PlanRow[]>();
-  for (const p of plan) {
-    if (!p.specId) continue;
-    const list = claims.get(p.specId) ?? [];
-    list.push(p);
-    claims.set(p.specId, list);
-  }
-  const conflicted: Array<{ specId: string; names: string[] }> = [];
-  for (const [specId, rows] of claims) {
-    if (rows.length < 2) continue;
-    conflicted.push({ specId, names: rows.map((r) => r.tradeName) });
-    for (const p of rows) {
-      p.status = 'неоднозначно';
-      p.specId = null;
-      p.candidates = [...new Set([...p.candidates, ...rows.map((r) => `${r.tradeName} (та же приказная строка)`)])];
-    }
-  }
+  const plan = linkTradePositions(specs, PPE_TRADE_POSITIONS, choices, ONLY);
 
   const linked = plan.filter((p) => p.status === 'связано');
   const ambiguous = plan.filter((p) => p.status === 'неоднозначно');
+  const extra = plan.filter((p) => p.status === 'лишняя');
   const missing = plan.filter((p) => p.status === 'не найдено');
 
   mkdirSync(OUT_DIR, { recursive: true });
   const md = [
     '# Сверка: торговые позиции → приказные строки норм',
     '',
-    `Связано: **${linked.length}** · неоднозначно: **${ambiguous.length}** · не найдено: **${missing.length}** (из ${plan.length}).`,
+    `Связано: **${linked.length}** · лишних (в приказе нет своей строки): **${extra.length}** · неоднозначно: **${ambiguous.length}** · не найдено: **${missing.length}** (из ${plan.length}).`,
+    choices.length ? `Решения кладовщика применены: **${choices.length}**.` : 'Решения кладовщика не подавались (--choices).',
     '',
     '## Связано',
     '',
     '| Профессия | Торговое наименование | Приказная строка | Очки |',
     '|---|---|---|---|',
     ...linked.map((p) => `| ${p.occupationCode} | ${p.tradeName} | ${p.orderName} | ${p.score} |`),
+    '',
+    '## Лишние: в приказе для профессии нет своей строки',
+    '',
+    '| Профессия | Торговое наименование | Почему без строки |',
+    '|---|---|---|',
+    ...extra.map((p) => `| ${p.occupationCode} | ${p.tradeName} | ${p.note ?? ''} |`),
     '',
     '## Требует выбора кладовщика',
     '',
@@ -238,7 +95,7 @@ async function main() {
   const csvPath = `${OUT_DIR}/ppe-trade-link-report.csv`;
   writeFileSync(
     csvPath,
-    'профессия,торговое наименование,сертификат,статус,приказная строка,id приказной строки,кандидаты\n' +
+    'профессия,торговое наименование,сертификат,статус,приказная строка,id приказной строки,кандидаты,примечание\n' +
       plan
         .map((p) =>
           [
@@ -249,16 +106,22 @@ async function main() {
             `"${(p.orderName ?? '').replace(/"/g, '""')}"`,
             p.specId ?? '',
             `"${p.candidates.join('; ').replace(/"/g, '""')}"`,
+            `"${(p.note ?? '').replace(/"/g, '""')}"`,
           ].join(','),
         )
         .join('\n'),
     'utf8',
   );
 
-  console.log(`Связано: ${linked.length} · неоднозначно: ${ambiguous.length} · не найдено: ${missing.length} (из ${plan.length})`);
+  console.log(
+    `Связано: ${linked.length} · лишних: ${extra.length} · неоднозначно: ${ambiguous.length} · не найдено: ${missing.length} (из ${plan.length})`,
+  );
   console.log(`Отчёт: ${mdPath} и ${csvPath}`);
   for (const p of ambiguous) {
     console.log(`  [неоднозначно] ${p.occupationCode} «${p.tradeName}» → ${p.candidates.join('; ')}`);
+  }
+  for (const p of extra) {
+    console.log(`  [лишняя] ${p.occupationCode} «${p.tradeName}» — ${p.note ?? ''}`);
   }
   for (const p of missing) {
     console.log(`  [не найдено] ${p.occupationCode} «${p.tradeName}»`);
@@ -273,25 +136,9 @@ async function main() {
   // `pending`, и штатный публикатор СИЗ увозит её в журнал синка — клиенты её видят.
   const now = Date.now();
   const client = await pool.connect();
+  const cleared: string[] = [];
   try {
     await client.query('BEGIN');
-    // Затирание прежних значений на спорных строках: там, где две торговые позиции
-    // претендовали на одну приказную строку, записано было имя последней. Очищаем —
-    // кладовщик выберет сам (в отчёте эти строки помечены «требует выбора»).
-    for (const c of conflicted) {
-      const cur = await client.query<{ trade_name: string | null }>(
-        'select trade_name from ppe_norm_line_specs where id = $1',
-        [c.specId],
-      );
-      const current = String(cur.rows[0]?.trade_name ?? '').trim();
-      if (!current || !c.names.some((n) => n === current)) continue;
-      await client.query(
-        `update ppe_norm_line_specs
-            set trade_name = null, certificate = null, updated_at = $2, sync_status = 'pending'
-          where id = $1`,
-        [c.specId, now],
-      );
-    }
     for (const p of linked) {
       await client.query(
         `update ppe_norm_line_specs
@@ -299,6 +146,29 @@ async function main() {
           where id = $1`,
         [p.specId, p.tradeName, p.certificate, now],
       );
+    }
+    // Уборка: в строке осталось имя из справочника, но по новому плану этой
+    // позиции у строки нет (например, перчатки маляра уехали в свою строку, а в
+    // «Нарукавниках…» осталось их имя). Чистим только значения из справочника —
+    // правку кладовщика вручную (имя не из справочника) не трогаем.
+    const linkedBySpec = new Map(linked.map((p) => [p.specId!, p.tradeName]));
+    const machineNames = new Set(PPE_TRADE_POSITIONS.map((p) => p.name));
+    const stale = await client.query<{ id: string; trade_name: string | null }>(
+      `select id::text as id, trade_name from ppe_norm_line_specs
+        where deleted_at is null and trade_name is not null`,
+    );
+    for (const row of stale.rows) {
+      const current = String(row.trade_name ?? '').trim();
+      if (!machineNames.has(current)) continue;
+      const planned = linkedBySpec.get(row.id);
+      if (planned === current) continue;
+      await client.query(
+        `update ppe_norm_line_specs
+            set trade_name = null, certificate = null, updated_at = $2, sync_status = 'pending'
+          where id = $1`,
+        [row.id, now],
+      );
+      cleared.push(`${row.id} — было «${current}»${planned ? `, стало «${planned}»` : ', строка без позиции'}`);
     }
     await client.query('COMMIT');
   } catch (e) {
@@ -308,9 +178,12 @@ async function main() {
     client.release();
   }
 
+  console.log(`Записано связей: ${linked.length}. Очищено устаревших значений: ${cleared.length}.`);
+  for (const line of cleared) console.log(`  очищено: ${line}`);
+
   const { kickPpeSyncPublisher } = await import('../services/sync/ppeSyncPublisherService.js');
   await kickPpeSyncPublisher();
-  console.log(`Записано связей: ${linked.length}. Публикация в журнал синка — ок.`);
+  console.log('Публикация в журнал синка — ок.');
 }
 
 main()
