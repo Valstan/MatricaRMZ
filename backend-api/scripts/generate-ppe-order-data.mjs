@@ -59,6 +59,17 @@ const conflict = sqlOutPath ? ' ON CONFLICT (id) DO NOTHING' : '';
 const raw = sourcePaths.map((p) => readFileSync(p, 'utf8')).join('\n');
 const lines = raw.split(/\r?\n/).filter((l) => l.trim() !== '');
 
+/**
+ * Голова строки «заводской нормы» — нормы, которой нет в приказе 767н.
+ *
+ * Решение владельца 17.11.2026 по 12 «лишним» торговым позициям: завести свою
+ * норму. Такая строка НЕ из приказа: она помечена отдельным источником, чтобы в
+ * бланке выдачи и в отчётах было видно, где приказ, а где заводская правка.
+ * Вторая ячейка строки — код профессии приказа, к которой норма добавлена.
+ */
+const LOCAL_HEAD = 'Заводская норма';
+const LOCAL_LABEL = 'Заводская норма (решение владельца 17.11.2026)';
+
 /** Стабильный UUID из строки: миграция и скрипты берут одни и те же ссылки. */
 function stableUuid(seed) {
   const h = createHash('sha256').update(`ppe-order-767n:${seed}`).digest('hex');
@@ -99,8 +110,10 @@ for (const line of lines) {
 
   const head = cells[0] ?? '';
   // Голова строки: либо новый пункт приложения, либо профессия без пункта
-  // («Инженерно – технический персонал»), либо строка приказа 766н.
-  if (head !== '' && !/766н/.test(head)) {
+  // («Инженерно – технический персонал»), либо строка приказа 766н, либо
+  // ЗАВОДСКАЯ норма (решение владельца 17.11.2026 — «завести свою норму»).
+  const isLocal = head === LOCAL_HEAD;
+  if (head !== '' && !/766н/.test(head) && !isLocal) {
     const isPoint = /№\s*\d+/.test(head);
     cur = {
       point: isPoint ? head : '',
@@ -113,7 +126,16 @@ for (const line of lines) {
   // Примечание приказа к строке 766н: колонка профессии у них несёт пометку
   // («При наружных работах»), а не профессию.
   const note = /766н/.test(head) && cells[1] ? cells[1] : null;
-  cur.rows.push({ type, name, qty: norm, isOrder766: /766н/.test(head), note });
+  cur.rows.push({
+    type,
+    name,
+    qty: norm,
+    isOrder766: /766н/.test(head),
+    isLocal,
+    // У заводской строки вторая ячейка — код профессии, к которой норма добавлена.
+    localCode: isLocal ? (cells[1] ?? '') : null,
+    note,
+  });
 }
 
 // ── Профессии ─────────────────────────────────────────────────────────────────
@@ -151,19 +173,33 @@ for (const g of groups) {
   let order = 0;
   for (const row of g.rows) {
     order += 1;
-    const sourceKind = row.isOrder766 ? 'order766' : 'ton';
-    const counterKey = `${code}:${sourceKind}`;
+    const sourceKind = row.isOrder766 ? 'order766' : row.isLocal ? 'local' : 'ton';
+    // Заводская строка привязана к профессии из своей второй ячейки, а не к той,
+    // что открылась последней в файле.
+    const rowCode = row.isLocal ? row.localCode : code;
+    if (!rowCode) {
+      throw new Error(`У заводской строки не указан код профессии: «${row.name}»`);
+    }
+    const counterKey = `${rowCode}:${sourceKind}`;
     const idx = (specCounters.get(counterKey) ?? 0) + 1;
     specCounters.set(counterKey, idx);
     specs.push({
-      id: stableUuid(`spec:${code}:${sourceKind}:${idx}:${normKey(row.name)}`),
-      occupationCode: code,
+      id: stableUuid(`spec:${rowCode}:${sourceKind}:${idx}:${normKey(row.name)}`),
+      occupationCode: rowCode,
       sourceKind,
-      sourceLabel: row.isOrder766 ? '№ 766н Прил.4' : num ? `Пункт № ${num[1]}` : null,
+      sourceLabel: row.isOrder766
+        ? '№ 766н Прил.4'
+        : row.isLocal
+          ? LOCAL_LABEL
+          : num
+            ? `Пункт № ${num[1]}`
+            : null,
       ppeType: row.type,
       name: row.name,
       sourceRef: row.qty,
-      sortOrder: order,
+      // Внутри источника строки нумеруются с единицы (заводские нормы — свой
+      // источник, у них своя нумерация).
+      sortOrder: row.isLocal ? idx : order,
       note: row.note && row.note !== g.post ? row.note : null,
     });
   }
@@ -192,6 +228,17 @@ for (const occ of occupations) {
       sourceLabel: '№ 766н Прил.4',
       name: `${occ.postTitle} (СИЗ от пониженных температур, приказ 766н Прил.4)`,
       season: 'winter',
+    });
+  }
+  const hasLocal = specs.some((s) => s.occupationCode === occ.code && s.sourceKind === 'local');
+  if (hasLocal) {
+    normSets.push({
+      id: stableUuid(`set:${occ.code}:local`),
+      occupationCode: occ.code,
+      sourceKind: 'local',
+      sourceLabel: LOCAL_LABEL,
+      name: `${occ.postTitle} (Заводская норма)`,
+      season: null,
     });
   }
 }
@@ -360,8 +407,8 @@ export type PpeOrderSpec = {
   id: string;
   /** Код профессии из \`PPE_ORDER_OCCUPATIONS\`. */
   occupationCode: string;
-  /** Источник строки: ЕТН 767н или приказ 766н (СИЗ от пониженных температур). */
-  sourceKind: 'ton' | 'order766';
+  /** Источник строки: ЕТН 767н, приказ 766н (СИЗ от пониженных температур) или заводская норма. */
+  sourceKind: 'ton' | 'order766' | 'local';
   /** Подпись источника для колонки «Пункт типовых отраслевых норм». */
   sourceLabel: string | null;
   /** Тип средства защиты: «Средства защиты рук». */
@@ -380,7 +427,7 @@ export type PpeOrderSpec = {
 export type PpeOrderNormSet = {
   id: string;
   occupationCode: string;
-  sourceKind: 'ton' | 'order766';
+  sourceKind: 'ton' | 'order766' | 'local';
   sourceLabel: string | null;
   name: string;
   /** Сезон набора: зимние СИЗ выдаются по сезону (п. 19 приказа). */
@@ -449,28 +496,33 @@ parts.push(`-- Сид приказа о СИЗ (Минтруд 767н, Прило
 -- доменом \`parseOrderNormQty\` и в SQL не дублируется — здесь лежит РОВНО ТО,
 -- что написано в документе.${sqlOutPath ? '' : '\n-- ВНИМАНИЕ: этот файл — применённый сид 0118, переписывать его нельзя;\n-- новые строки оформляются отдельной миграцией (--sql-out) с ON CONFLICT.'}`);
 
-parts.push(`-- 1. Профессии приказа: код пункта приложения → наименование профессии.
+const newOccupations = occupations.filter((o) => isNew(o.id));
+if (newOccupations.length > 0) {
+  parts.push(`-- 1. Профессии приказа: код пункта приложения → наименование профессии.
 INSERT INTO ppe_occupation_ref (id, code, post_title, ton_kind, ton_label, ton_year, is_active, created_at, updated_at, sync_status)
 VALUES`);
-parts.push(
-  occupations
-    .filter((o) => isNew(o.id))
-    .map(
-      (o) =>
-        `  (${sqlStr(o.id)}, ${sqlStr(o.code)}, ${sqlStr(o.postTitle)}, ${sqlStr(o.tonKind)}, ${sqlStr(o.tonLabel)}, ${o.tonYear ?? 'NULL'}, true, ${NOW}, ${NOW}, 'synced')`,
-    )
-    .join(',\n') + conflict + ';',
-);
+  parts.push(
+    newOccupations
+      .map(
+        (o) =>
+          `  (${sqlStr(o.id)}, ${sqlStr(o.code)}, ${sqlStr(o.postTitle)}, ${sqlStr(o.tonKind)}, ${sqlStr(o.tonLabel)}, ${o.tonYear ?? 'NULL'}, true, ${NOW}, ${NOW}, 'synced')`,
+      )
+      .join(',\n') + conflict + ';',
+  );
+} else {
+  parts.push(`-- Новых профессий в этой миграции нет.`);
+}
 parts.push(`--> statement-breakpoint`);
 
-parts.push(`-- 2. Строки нормы приказа («приказные» строки): наименование, тип СИЗ, норма
--- как написана в документе, привязка к профессии и источнику (ЕТН 767н или 766н).
+const newSpecs = specs.filter((s) => isNew(s.id));
+if (newSpecs.length > 0) {
+  parts.push(`-- 2. Строки нормы приказа («приказные» строки): наименование, тип СИЗ, норма
+-- как написана в документе, привязка к профессии и источнику (ЕТН 767н, 766н или заводская норма).
 INSERT INTO ppe_norm_line_specs (id, occupation_id, name, ppe_type, qty, unit, wear_kind, wear_months, sort_order, source_ref, source_kind, source_label, created_at, updated_at, sync_status)
 VALUES`);
-parts.push(
-  specs
-    .filter((s) => isNew(s.id))
-    .map((s) => {
+  parts.push(
+    newSpecs
+      .map((s) => {
       const occ = occupations.find((o) => o.code === s.occupationCode);
       // Количество/единица/вид срока разбираются доменом; здесь — те же правила
       // (расхождение ловит тест `ppeOrderNorms.seed.test.ts`).
@@ -492,41 +544,52 @@ parts.push(
       return `  (${sqlStr(s.id)}, ${sqlStr(occ.id)}, ${sqlStr(s.name)}, ${sqlStr(s.ppeType)}, ${qty}, ${sqlStr(unit)}, ${sqlStr(wearKind)}, ${wearMonths}, ${s.sortOrder}, ${sqlStr(s.sourceRef)}, ${sqlStr(s.sourceKind)}, ${sqlStr(s.sourceLabel)}, ${NOW}, ${NOW}, 'synced')`;
     })
     .join(',\n') + conflict + ';',
-);
+  );
+} else {
+  parts.push(`-- 2. Новых строк приказа в этой миграции нет.`);
+}
 parts.push(`--> statement-breakpoint`);
 
-parts.push(`-- 3. Наборы норм: по профессии и по источнику. Зимний набор (766н) помечен
+const newNormSets = normSets.filter((s) => isNew(s.id));
+if (newNormSets.length > 0) {
+  parts.push(`-- 3. Наборы норм: по профессии и по источнику. Зимний набор (766н) помечен
 -- season='winter' — по п. 19 приказа СИЗ от пониженных температур выдаются
 -- сезонно, то есть ПОВЕРХ основной нормы, а не вместо неё.
 INSERT INTO ppe_norm_sets (id, name, post_title, gender, season, is_duty, occupation_id, source_kind, source_label, valid_from, created_at, updated_at, sync_status)
 VALUES`);
-parts.push(
-  normSets
-    .filter((s) => isNew(s.id))
-    .map((s) => {
-      const occ = occupations.find((o) => o.code === s.occupationCode);
-      return `  (${sqlStr(s.id)}, ${sqlStr(s.name)}, ${sqlStr(occ.postTitle)}, NULL, ${s.season ? sqlStr(s.season) : 'NULL'}, false, ${sqlStr(occ.id)}, ${sqlStr(s.sourceKind)}, ${sqlStr(s.sourceLabel)}, ${NOW}, ${NOW}, ${NOW}, 'synced')`;
-    })
-    .join(',\n') + conflict + ';',
-);
+  parts.push(
+    newNormSets
+      .map((s) => {
+        const occ = occupations.find((o) => o.code === s.occupationCode);
+        return `  (${sqlStr(s.id)}, ${sqlStr(s.name)}, ${sqlStr(occ.postTitle)}, NULL, ${s.season ? sqlStr(s.season) : 'NULL'}, false, ${sqlStr(occ.id)}, ${sqlStr(s.sourceKind)}, ${sqlStr(s.sourceLabel)}, ${NOW}, ${NOW}, ${NOW}, 'synced')`;
+      })
+      .join(',\n') + conflict + ';',
+  );
+} else {
+  parts.push(`-- 3. Новых наборов норм в этой миграции нет.`);
+}
 parts.push(`--> statement-breakpoint`);
 
-parts.push(`-- 4. Строки наборов норм: привязка строки приказа к базовой позиции
+const newNormLines = normLines.filter((l) => isNew(l.specId));
+if (newNormLines.length > 0) {
+  parts.push(`-- 4. Строки наборов норм: привязка строки приказа к базовой позиции
 -- номенклатуры и к «приказной» строке (spec_id). Размер сотрудника подставляется
 -- при выдаче — дерево «база → размеры», поэтому в норме лежит базовая модель.
 INSERT INTO ppe_norm_lines (id, norm_set_id, nomenclature_id, qty, wear_months, spec_id, unit, wear_kind, created_at, updated_at, sync_status)
 VALUES`);
-parts.push(
-  normLines
-    // Строка набора новая тогда, когда новая её приказная строка: id строк наборов
-    // живут в базе, а в TS-файле их нет — сверять надо по spec_id.
-    .filter((l) => isNew(l.specId))
-    .map((l) => {
-      const wear = l.wearMonths == null ? 'NULL' : l.wearMonths;
-      return `  (${sqlStr(l.id)}, ${sqlStr(l.normSetId)}, ${sqlStr(l.nomenclatureId)}, ${l.qty}, ${wear}, ${sqlStr(l.specId)}, ${sqlStr(l.unit)}, ${sqlStr(l.wearKind)}, ${NOW}, ${NOW}, 'synced')`;
-    })
-    .join(',\n') + conflict + ';',
-);
+  parts.push(
+    newNormLines
+      // Строка набора новая тогда, когда новая её приказная строка: id строк наборов
+      // живут в базе, а в TS-файле их нет — сверять надо по spec_id.
+      .map((l) => {
+        const wear = l.wearMonths == null ? 'NULL' : l.wearMonths;
+        return `  (${sqlStr(l.id)}, ${sqlStr(l.normSetId)}, ${sqlStr(l.nomenclatureId)}, ${l.qty}, ${wear}, ${sqlStr(l.specId)}, ${sqlStr(l.unit)}, ${sqlStr(l.wearKind)}, ${NOW}, ${NOW}, 'synced')`;
+      })
+      .join(',\n') + conflict + ';',
+  );
+} else {
+  parts.push(`-- 4. Новых строк наборов норм в этой миграции нет.`);
+}
 parts.push(`--> statement-breakpoint`);
 
 const newSpecIds = specs.filter((s) => isNew(s.id)).map((s) => s.id);
@@ -563,7 +626,11 @@ const nomRows = [
         `  (${sqlStr(s.id)}, ${sqlStr(s.code)}, ${sqlStr(s.name)}, 'material', 'workwear', ${sqlStr(s.parentId)}, true, 'synced', ${NOW}, ${NOW})`,
     ),
 ];
-parts.push(nomRows.join(',\n') + conflict + ';');
+if (nomRows.length > 0) {
+  parts.push(nomRows.join(',\n') + conflict + ';');
+} else {
+  parts.push(`-- 6. Новых позиций номенклатуры в этой миграции нет.`);
+}
 parts.push(`--> statement-breakpoint`);
 
 const sqlPath = sqlOutPath
