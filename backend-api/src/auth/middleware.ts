@@ -64,4 +64,27 @@ export function requirePermission(permCode: string) {
   };
 }
 
+/**
+ * Гейт права на ПОДРАЗДЕЛЫ роутера.
+ *
+ * Роутер, смонтированный на общем префиксе (`/admin`), нельзя гейтить целиком:
+ * `requirePermission` без пути срабатывает на ЛЮБОЙ запрос, попавший в роутер, —
+ * включая соседние разделы, смонтированные на том же префиксе. Так кладовщик с
+ * правом `employees.dedupe` получал 403 «forbidden» в диалоге дублей: `/admin/masterdata`
+ * перехватывался гейтом `admin.users.manage` ещё до своего роутера (жалоба
+ * владельца 17.11.2026, журнал `server.authz.denied` на проде).
+ *
+ * Здесь гейт применяется только к перечисленным префиксам путей ВНУТРИ роутера;
+ * остальные запросы проходят дальше к своему разделу.
+ */
+export function requirePermissionForPaths(permCode: string, prefixes: string[]) {
+  const gate = requirePermission(permCode);
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const path = req.path;
+    const inside = prefixes.some((p) => path === p || path.startsWith(`${p}/`));
+    if (!inside) return next();
+    return gate(req, res, next);
+  };
+}
+
 

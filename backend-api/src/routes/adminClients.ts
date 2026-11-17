@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { clientHasWatchdog } from '@matricarmz/shared';
 
-import { requireAuth, requirePermission } from '../auth/middleware.js';
+import { requireAuth, requirePermissionForPaths } from '../auth/middleware.js';
 import { PermissionCode } from '../auth/permissions.js';
 import {
   getOrCreateClientSettings,
@@ -18,7 +18,9 @@ import { resolveLoginsToFullNames } from '../services/employeeAuthService.js';
 export const adminClientsRouter = Router();
 
 adminClientsRouter.use(requireAuth);
-adminClientsRouter.use(requirePermission(PermissionCode.ClientsManage));
+// Гейт — только на свой раздел: роутер смонтирован на общем префиксе `/admin`,
+// и гейт на весь префикс закрывал бы соседние разделы (`/admin/masterdata`).
+adminClientsRouter.use(requirePermissionForPaths(PermissionCode.ClientsManage, ['/clients']));
 
 adminClientsRouter.get('/clients', async (_req, res) => {
   try {
