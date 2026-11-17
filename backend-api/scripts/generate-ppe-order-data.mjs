@@ -1,27 +1,62 @@
 /**
  * Генератор данных приказа о СИЗ (Минтруд 767н, Приложение №1).
  *
- * Одноразовый помощник: читает TSV-выгрузку таблицы 2 документа и пишет
+ * Читает TSV-источник таблицы приказа и пишет
  *   1) `backend-api/src/data/ppeOrderNorms767.ts` — источник правды по нормам
  *      приказа (человекочитаемый, ревьюится глазами);
- *   2) `backend-api/drizzle/0118_ppe_order_norms_seed.sql` — сид-миграция
- *      со стабильными UUID (те же, что в TS-файле).
+ *   2) SQL-миграцию со стабильными UUID (те же, что в TS-файле).
  *
- * В репо попадают оба файла; сам TSV из репо не хранится (в нём данные
- * документа, они уже разложены в TS-файле).
+ * Файл-источник — `backend-api/scripts/data/ppe-order-767n.tsv` (в репо лежит,
+ * чтобы новые строки приказа можно было завести воспроизводимо).
  *
- * Запуск: node scripts/generate-ppe-order-data.mjs <путь-к-tsv>
+ * Запуск:
+ *   node scripts/generate-ppe-order-data.mjs                       # источник по умолчанию
+ *   node scripts/generate-ppe-order-data.mjs <tsv> [<tsv> …]      # свои источники
+ *   node scripts/generate-ppe-order-data.mjs --sql-out <файл>     # SQL в отдельный файл
+ *   node scripts/generate-ppe-order-data.mjs --exclude-from <ts>   # в SQL только новые строки
+ *
+ * `--exclude-from` нужен, когда миграция уже применена: применённый SQL не
+ * переписывается, а новая миграция получает только то, чего в базе ещё нет
+ * (сверка идёт по id из указанного TS-файла).
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-const tsvPath = process.argv[2];
-if (!tsvPath) {
-  console.error('usage: node scripts/generate-ppe-order-data.mjs <tsv>');
-  process.exit(1);
+const args = process.argv.slice(2);
+const tsvPaths = [];
+let sqlOutPath = null;
+let excludeFromPath = null;
+for (let i = 0; i < args.length; i++) {
+  const arg = args[i];
+  if (arg === '--sql-out') sqlOutPath = args[++i] ?? null;
+  else if (arg === '--exclude-from') excludeFromPath = args[++i] ?? null;
+  else tsvPaths.push(arg);
 }
+const sourcePaths = tsvPaths.length > 0 ? tsvPaths : ['./data/ppe-order-767n.tsv'];
 
-const raw = readFileSync(tsvPath, 'utf8');
+/** Id уже заведённых сущностей — их в новую миграцию не пишем. */
+const excludeIds = excludeFromPath
+  ? (() => {
+      const raw = readFileSync(excludeFromPath, 'utf8');
+      const ids = new Set();
+      const re = /id: '([0-9a-f-]{36})'/g;
+      let m;
+      while ((m = re.exec(raw)) !== null) ids.add(m[1]);
+      return ids;
+    })()
+  : null;
+const isNew = (id) => !excludeIds || !excludeIds.has(id);
+
+/**
+ * Признак идемпотентности вставок.
+ *
+ * Новая миграция (`--sql-out`) вставляется с `ON CONFLICT (id) DO NOTHING` —
+ * повторный прогон на живой базе не должен падать. Сид 0118 применён на проде
+ * давно и переписывать его нельзя, поэтому для него остаётся прежний вид вставок.
+ */
+const conflict = sqlOutPath ? ' ON CONFLICT (id) DO NOTHING' : '';
+
+const raw = sourcePaths.map((p) => readFileSync(p, 'utf8')).join('\n');
 const lines = raw.split(/\r?\n/).filter((l) => l.trim() !== '');
 
 /** Стабильный UUID из строки: миграция и скрипты берут одни и те же ссылки. */
@@ -412,18 +447,19 @@ parts.push(`-- Сид приказа о СИЗ (Минтруд 767н, Прило
 -- Идемпотентно: фиксированные UUID + ON CONFLICT DO NOTHING. Повторный прогон
 -- безвреден. Норма приказа (количество, единица, форма срока) разбирается
 -- доменом \`parseOrderNormQty\` и в SQL не дублируется — здесь лежит РОВНО ТО,
--- что написано в документе.`);
+-- что написано в документе.${sqlOutPath ? '' : '\n-- ВНИМАНИЕ: этот файл — применённый сид 0118, переписывать его нельзя;\n-- новые строки оформляются отдельной миграцией (--sql-out) с ON CONFLICT.'}`);
 
 parts.push(`-- 1. Профессии приказа: код пункта приложения → наименование профессии.
 INSERT INTO ppe_occupation_ref (id, code, post_title, ton_kind, ton_label, ton_year, is_active, created_at, updated_at, sync_status)
 VALUES`);
 parts.push(
   occupations
+    .filter((o) => isNew(o.id))
     .map(
       (o) =>
         `  (${sqlStr(o.id)}, ${sqlStr(o.code)}, ${sqlStr(o.postTitle)}, ${sqlStr(o.tonKind)}, ${sqlStr(o.tonLabel)}, ${o.tonYear ?? 'NULL'}, true, ${NOW}, ${NOW}, 'synced')`,
     )
-    .join(',\n') + ';',
+    .join(',\n') + conflict + ';',
 );
 parts.push(`--> statement-breakpoint`);
 
@@ -433,6 +469,7 @@ INSERT INTO ppe_norm_line_specs (id, occupation_id, name, ppe_type, qty, unit, w
 VALUES`);
 parts.push(
   specs
+    .filter((s) => isNew(s.id))
     .map((s) => {
       const occ = occupations.find((o) => o.code === s.occupationCode);
       // Количество/единица/вид срока разбираются доменом; здесь — те же правила
@@ -454,7 +491,7 @@ parts.push(
       const wearMonths = wearKind === 'months' ? Number(years[1]) * 12 : 'NULL';
       return `  (${sqlStr(s.id)}, ${sqlStr(occ.id)}, ${sqlStr(s.name)}, ${sqlStr(s.ppeType)}, ${qty}, ${sqlStr(unit)}, ${sqlStr(wearKind)}, ${wearMonths}, ${s.sortOrder}, ${sqlStr(s.sourceRef)}, ${sqlStr(s.sourceKind)}, ${sqlStr(s.sourceLabel)}, ${NOW}, ${NOW}, 'synced')`;
     })
-    .join(',\n') + ';',
+    .join(',\n') + conflict + ';',
 );
 parts.push(`--> statement-breakpoint`);
 
@@ -465,11 +502,12 @@ INSERT INTO ppe_norm_sets (id, name, post_title, gender, season, is_duty, occupa
 VALUES`);
 parts.push(
   normSets
+    .filter((s) => isNew(s.id))
     .map((s) => {
       const occ = occupations.find((o) => o.code === s.occupationCode);
       return `  (${sqlStr(s.id)}, ${sqlStr(s.name)}, ${sqlStr(occ.postTitle)}, NULL, ${s.season ? sqlStr(s.season) : 'NULL'}, false, ${sqlStr(occ.id)}, ${sqlStr(s.sourceKind)}, ${sqlStr(s.sourceLabel)}, ${NOW}, ${NOW}, ${NOW}, 'synced')`;
     })
-    .join(',\n') + ';',
+    .join(',\n') + conflict + ';',
 );
 parts.push(`--> statement-breakpoint`);
 
@@ -480,14 +518,18 @@ INSERT INTO ppe_norm_lines (id, norm_set_id, nomenclature_id, qty, wear_months, 
 VALUES`);
 parts.push(
   normLines
+    // Строка набора новая тогда, когда новая её приказная строка: id строк наборов
+    // живут в базе, а в TS-файле их нет — сверять надо по spec_id.
+    .filter((l) => isNew(l.specId))
     .map((l) => {
       const wear = l.wearMonths == null ? 'NULL' : l.wearMonths;
       return `  (${sqlStr(l.id)}, ${sqlStr(l.normSetId)}, ${sqlStr(l.nomenclatureId)}, ${l.qty}, ${wear}, ${sqlStr(l.specId)}, ${sqlStr(l.unit)}, ${sqlStr(l.wearKind)}, ${NOW}, ${NOW}, 'synced')`;
     })
-    .join(',\n') + ';',
+    .join(',\n') + conflict + ';',
 );
 parts.push(`--> statement-breakpoint`);
 
+const newSpecIds = specs.filter((s) => isNew(s.id)).map((s) => s.id);
 parts.push(`-- 5. Привязка «приказная строка → базовая позиция номенклатуры». Это ключ
 -- подстановки: привязал позицию один раз — карточка сама подставляет наименование,
 -- единицу измерения, количество и пункт приложения.
@@ -497,7 +539,7 @@ UPDATE ppe_norm_line_specs s
     SELECT spec_id, nomenclature_id FROM ppe_norm_lines
      WHERE deleted_at IS NULL AND spec_id IS NOT NULL
   ) n
- WHERE s.id = n.spec_id AND s.nomenclature_id IS NULL;`);
+ WHERE s.id = n.spec_id AND s.nomenclature_id IS NULL${newSpecIds.length > 0 ? `\n   AND s.id IN (${newSpecIds.map((id) => sqlStr(id)).join(', ')})` : ''};`);
 
 parts.push(`--> statement-breakpoint`);
 
@@ -508,22 +550,29 @@ parts.push(`-- 6. Номенклатура СИЗ: базовая позиция
 INSERT INTO erp_nomenclature (id, code, name, item_type, category, parent_nomenclature_id, is_active, sync_status, created_at, updated_at)
 VALUES`);
 const nomRows = [
-  ...basePositions.map(
-    (b) =>
-      `  (${sqlStr(b.id)}, ${sqlStr(b.code)}, ${sqlStr(b.name)}, 'material', 'workwear', NULL, true, 'synced', ${NOW}, ${NOW})`,
-  ),
-  ...sizePositions.map(
-    (s) =>
-      `  (${sqlStr(s.id)}, ${sqlStr(s.code)}, ${sqlStr(s.name)}, 'material', 'workwear', ${sqlStr(s.parentId)}, true, 'synced', ${NOW}, ${NOW})`,
-  ),
+  ...basePositions
+    .filter((b) => isNew(b.id))
+    .map(
+      (b) =>
+        `  (${sqlStr(b.id)}, ${sqlStr(b.code)}, ${sqlStr(b.name)}, 'material', 'workwear', NULL, true, 'synced', ${NOW}, ${NOW})`,
+    ),
+  ...sizePositions
+    .filter((s) => isNew(s.id))
+    .map(
+      (s) =>
+        `  (${sqlStr(s.id)}, ${sqlStr(s.code)}, ${sqlStr(s.name)}, 'material', 'workwear', ${sqlStr(s.parentId)}, true, 'synced', ${NOW}, ${NOW})`,
+    ),
 ];
-parts.push(nomRows.join(',\n') + ';');
+parts.push(nomRows.join(',\n') + conflict + ';');
 parts.push(`--> statement-breakpoint`);
 
-const sqlPath = new URL('../drizzle/0118_ppe_order_norms_seed.sql', import.meta.url);
+const sqlPath = sqlOutPath
+  ? new URL(`../drizzle/${sqlOutPath}`, import.meta.url)
+  : new URL('../drizzle/0118_ppe_order_norms_seed.sql', import.meta.url);
 writeFileSync(sqlPath, `${parts.join('\n')}\n`, 'utf8');
 
 console.log(
   `профессий ${occupations.length}, строк ${specs.length}, наборов ${normSets.length}, ` +
-    `номенклатура ${basePositions.length}+${sizePositions.length}`,
+    `номенклатура ${basePositions.length}+${sizePositions.length}` +
+    (excludeIds ? `; в SQL только новые: профессий ${occupations.filter((o) => isNew(o.id)).length}, строк ${specs.filter((s) => isNew(s.id)).length}` : ''),
 );

@@ -92,9 +92,32 @@ describe('сид приказа о СИЗ', () => {
         expect(parsed.periodText).toBeNull();
       }
     }
-    // В приказе 191 строка: 113 годовых норм без оговорки, 52 «на N лет», 10 «до износа»,
-    // 16 «по документам изготовителя». Если это число вдруг другое — приказ перечитали.
-    expect(annual).toBe(113);
+    // В приказе 225 строк: 137 годовых норм без оговорки, 52 «на N лет», 10 «до износа»,
+    // 16 «по документам изготовителя». Если это число вдруг другое — приказ перечитали
+    // (17.11.2026 добавлены четыре профессии из ЕТН: 4902, 790, 3283, 4537).
+    expect(annual).toBe(137);
+  });
+
+  it('профессии из ЕТН, добавленные 17.11.2026, заведены со своими строками', () => {
+    // Вариант А по четырём должностным карточкам: профессии берутся из приказа,
+    // строки — из ЕТН Приложения №1. Пропала строка — заметим на тесте, а не на выдаче.
+    const expected: Record<string, { post: string; tonRows: number }> = {
+      '4902': { post: 'Тракторист', tonRows: 7 },
+      '790': { post: 'Водитель погрузчика', tonRows: 6 },
+      '3283': { post: 'Оператор станков с программным управлением', tonRows: 4 },
+      '4537': { post: 'Слесарь по ремонту автомобилей', tonRows: 9 },
+    };
+    for (const [code, want] of Object.entries(expected)) {
+      const occ = PPE_ORDER_OCCUPATIONS.find((o) => o.code === code);
+      expect(occ, `профессия ${code} (${want.post})`).toBeDefined();
+      expect(occ!.postTitle).toBe(want.post);
+      expect(occ!.tonLabel).toBe(`Пункт № ${code}`);
+      const tonRows = PPE_ORDER_SPECS.filter((s) => s.occupationCode === code && s.sourceKind === 'ton');
+      expect(tonRows.length, `строк приказа у профессии ${code}`).toBe(want.tonRows);
+      // У каждой профессии есть и зимний набор (766н) — иначе зимних СИЗ не выдать.
+      const sets = PPE_ORDER_NORM_SETS.filter((s) => s.occupationCode === code);
+      expect(sets.length, `наборов норм у профессии ${code}`).toBe(2);
+    }
   });
 
   it('срок, заданный приказом, остаётся сроком приказа', () => {
