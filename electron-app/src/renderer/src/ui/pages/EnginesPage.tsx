@@ -247,8 +247,22 @@ function toDateLabel(ms?: number | null) {
   return Number.isNaN(dt.getTime()) ? '' : formatMoscowDate(dt);
 }
 
-type DedupeEngine = { id: string; engineNumber: string; engineBrand: string; createdAt: number; opsCount: number };
-type DedupeGroup = { kind: 'exact' | 'similar'; engines: DedupeEngine[] };
+type DedupeEngine = {
+  id: string;
+  engineNumber: string;
+  engineBrand: string;
+  arrivalDate?: string;
+  createdAt: number;
+  opsCount: number;
+};
+type DedupeGroup = {
+  kind: 'exact' | 'similar';
+  engines: DedupeEngine[];
+  /** Какие поля карточек различаются — «заполнено по-разному». */
+  diffFields?: string[];
+  /** Расстояние между номерами (для «похожих»): 1 — одна правка, 2 — две. */
+  numberDistance?: number;
+};
 
 // "Поиск дублей двигателей" — full server-side scan of duplicate groups (exact by
 // canonical number + near-miss similar) with operator-chosen survivor merge. Mirrors the
@@ -259,6 +273,13 @@ function EngineDedupeModal(props: { onClose: () => void; onOpenEngine: (id: stri
   const [error, setError] = React.useState<string | null>(null);
   const [groups, setGroups] = React.useState<DedupeGroup[]>([]);
   const [total, setTotal] = React.useState(0);
+  // Режим разбора (владелец 18.11.2026): «По номеру» — реальные дубли (номер
+  // совпадает на 100%), «Похожие» — сильно похожие пары (карточки совпадают по
+  // марке, заказчику и дате прихода, отличается номер). По умолчанию — «По
+  // номеру»: это единственный режим, где «склеить» означает точно одно и то же.
+  const [mode, setMode] = React.useState<'exact' | 'similar'>('exact');
+  const [totalGroups, setTotalGroups] = React.useState(0);
+  const [truncated, setTruncated] = React.useState(false);
   const [survivorByGroup, setSurvivorByGroup] = React.useState<Record<number, string>>({});
   const [losersByGroup, setLosersByGroup] = React.useState<Record<number, Record<string, boolean>>>({});
   const [busyGroup, setBusyGroup] = React.useState<number | null>(null);
@@ -268,7 +289,7 @@ function EngineDedupeModal(props: { onClose: () => void; onOpenEngine: (id: stri
     setLoading(true);
     setError(null);
     setStatus('');
-    const r = await window.matrica.engines.dedupeAnalyze();
+    const r = await window.matrica.engines.dedupeAnalyze({ mode });
     if (!r.ok) {
       setError(r.error);
       setGroups([]);
@@ -277,6 +298,8 @@ function EngineDedupeModal(props: { onClose: () => void; onOpenEngine: (id: stri
     }
     setTotal(r.totalEngines);
     setGroups(r.groups);
+    setTotalGroups(r.totalGroups ?? r.groups.length);
+    setTruncated(r.truncated === true);
     const surv: Record<number, string> = {};
     const los: Record<number, Record<string, boolean>> = {};
     r.groups.forEach((g, i) => {
@@ -287,7 +310,7 @@ function EngineDedupeModal(props: { onClose: () => void; onOpenEngine: (id: stri
     setSurvivorByGroup(surv);
     setLosersByGroup(los);
     setLoading(false);
-  }, []);
+  }, [mode]);
   React.useEffect(() => {
     void analyze();
   }, [analyze]);
@@ -307,9 +330,15 @@ function EngineDedupeModal(props: { onClose: () => void; onOpenEngine: (id: stri
       return;
     }
     const survNum = group.engines.find((e) => e.id === survivorId)?.engineNumber ?? survivorId;
+    // В режиме «Похожие» это не одно и то же: показываем, чем карточки различаются,
+    // чтобы оператор не склеил два разных двигателя (владелец 18.11.2026).
+    const diffHint =
+      group.kind === 'similar' && group.diffFields && group.diffFields.length > 0
+        ? `\n\nРазличаются поля: ${group.diffFields.join(', ')}. Это ПОХОЖИЕ, а не точные дубли — сверьте номера по карточкам.`
+        : '';
     if (
       !window.confirm(
-        `Склеить ${loserIds.length} дубл(я/ей) в «${survNum}»?\n\nДубли будут помечены удалёнными, все их акты/операции перевешены на основной двигатель. Действие необратимо.`,
+        `Склеить ${loserIds.length} дубл(я/ей) в «${survNum}»?\n\nДубли будут помечены удалёнными, все их акты/операции перевешены на основной двигатель. Действие необратимо.${diffHint}`,
       )
     )
       return;
@@ -338,6 +367,26 @@ function EngineDedupeModal(props: { onClose: () => void; onOpenEngine: (id: stri
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', borderBottom: '1px solid rgba(15,23,42,0.12)' }}>
           <div style={{ fontWeight: 700, fontSize: 16 }}>Поиск дублей двигателей</div>
+          {/* Режим разбора (владелец 18.11.2026): «По номеру» — реальные дубли,
+              «Похожие» — сильно похожие пары. Раньше режимов не было, и «похожие»
+              клеились кластером: одна группа на 1478 РАЗНЫХ двигателей. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: 2, borderRadius: 8, background: 'rgba(15,23,42,0.06)' }} data-dedupe-mode-switch>
+            {(['exact', 'similar'] as const).map((m) => (
+              <Button
+                key={m}
+                variant={mode === m ? 'primary' : 'ghost'}
+                onClick={() => setMode(m)}
+                title={
+                  m === 'exact'
+                    ? 'Реальные дубли: номер двигателя совпадает на 100%'
+                    : 'Сильно похожие: карточки совпадают по марке, заказчику и дате прихода, отличается номер (опечатка)'
+                }
+                data-dedupe-mode={m}
+              >
+                {m === 'exact' ? 'По номеру' : 'Похожие'}
+              </Button>
+            ))}
+          </div>
           <div style={{ flex: 1 }} />
           <Button variant="ghost" onClick={() => void analyze()} disabled={loading}>
             Обновить
@@ -351,7 +400,19 @@ function EngineDedupeModal(props: { onClose: () => void; onOpenEngine: (id: stri
           {error ? <div style={{ color: '#dc2626' }}>Ошибка: {error}</div> : null}
           {status ? <div style={{ marginBottom: 10, color: '#2563eb' }}>{status}</div> : null}
           {!loading && !error && groups.length === 0 ? (
-            <div style={{ color: '#16a34a' }}>Дублей не найдено (просканировано {total} двигателей). Точные дубли склеиваются автоматически.</div>
+            <div style={{ color: '#16a34a' }}>
+              {mode === 'exact'
+                ? `Дублей не найдено (просканировано ${total} двигателей). Точные дубли склеиваются автоматически — здесь только те, что ждут разбора.`
+                : `Сильно похожих пар не найдено (просканировано ${total} двигателей). Похожими считаются пары с одинаковыми маркой, заказчиком и датой прихода, у которых отличается номер.`}
+            </div>
+          ) : null}
+          {!loading && !error && groups.length > 0 ? (
+            <div style={{ marginBottom: 10, color: '#6b7280', fontSize: 12 }}>
+              {mode === 'exact'
+                ? `Найдено реальных дублей (номер совпадает на 100%): ${totalGroups}.`
+                : `Найдено сильно похожих пар: ${totalGroups}. Похожая пара — это одинаковые марка, заказчик и дата прихода, а отличается номер (опечатка) или одно поле заполнено иначе.`}
+              {truncated ? ` Показаны не все — уточните поиск.` : ''}
+            </div>
           ) : null}
           {groups.map((g, gi) => (
             <div key={gi} style={{ border: '1px solid rgba(15,23,42,0.14)', borderRadius: 10, padding: 12, marginBottom: 12 }}>
@@ -363,6 +424,15 @@ function EngineDedupeModal(props: { onClose: () => void; onOpenEngine: (id: stri
                 </span>
                 <span style={{ color: '#6b7280', fontSize: 12 }}>{g.engines.length} двигател(я/ей)</span>
               </div>
+              {/* Расхождения по полям — отдельной строкой: оператор сразу видит, что
+                  «заполнено по-разному» (и почему это вообще похоже). */}
+              {g.diffFields && g.diffFields.length > 0 || g.numberDistance ? (
+                <div style={{ color: '#92400e', fontSize: 12, marginBottom: 6 }}>
+                  {g.diffFields && g.diffFields.length > 0 ? <>различаются: {g.diffFields.join(', ')}</> : null}
+                  {g.diffFields && g.diffFields.length > 0 && g.numberDistance ? ' · ' : null}
+                  {g.numberDistance ? <>в номере — правок: {g.numberDistance}</> : null}
+                </div>
+              ) : null}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {g.engines.map((e) => {
                   const isSurvivor = survivorByGroup[gi] === e.id;
@@ -379,6 +449,13 @@ function EngineDedupeModal(props: { onClose: () => void; onOpenEngine: (id: stri
                       </label>
                       <span style={{ fontWeight: 600 }}>{e.engineNumber || '(без номера)'}</span>
                       {e.engineBrand ? <span style={{ color: '#6b7280' }}>{e.engineBrand}</span> : null}
+                      {e.arrivalDate ? (
+                        <span style={{ color: '#6b7280', fontSize: 12 }}>
+                          приход {formatMoscowDate(Number(e.arrivalDate))}
+                        </span>
+                      ) : (
+                        <span style={{ color: '#b45309', fontSize: 12 }}>приход не заполнен</span>
+                      )}
                       <span style={{ color: '#9ca3af', fontSize: 12 }}>
                         актов: {e.opsCount}
                         {e.createdAt ? ` · ${formatMoscowDate(e.createdAt)}` : ''}

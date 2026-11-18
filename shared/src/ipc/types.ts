@@ -1154,14 +1154,45 @@ export type MasterdataResyncResult =
   | { ok: true; resync: MasterdataResyncSnapshot; sync: SyncRunResult | { ok: false; error: string } }
   | { ok: false; error: string };
 
+/**
+ * Режим разбора дублей двигателей (владелец 18.11.2026):
+ * - `exact` — реальные дубли: номер двигателя совпадает на 100%;
+ * - `similar` — сильно похожие ПАРЫ: карточки совпадают по марке, заказчику и
+ *   дате прихода, а отличается номер (опечатка) — плюс, максимум, одно другое
+ *   поле. Раньше похожие клеились кластером по транзитивной близости номеров и
+ *   выдавали группы по 1478 РАЗНЫХ двигателей одного заказчика.
+ */
+export type EngineDedupeMode = 'exact' | 'similar';
+
+/** Поля карточки двигателя, по которым показывают расхождение. */
+export type EngineDedupeField = 'марка' | 'заказчик' | 'дата прихода' | 'номер';
+
 export type EngineDedupeAnalyzeResult =
   | {
       ok: true;
+      /** Режим, по которому считали. */
+      mode: EngineDedupeMode;
       totalEngines: number;
       groups: Array<{
         kind: 'exact' | 'similar';
-        engines: Array<{ id: string; engineNumber: string; engineBrand: string; createdAt: number; opsCount: number }>;
+        engines: Array<{
+          id: string;
+          engineNumber: string;
+          engineBrand: string;
+          /** Дата прихода (пусто — не заполнена). */
+          arrivalDate: string;
+          createdAt: number;
+          opsCount: number;
+        }>;
+        /** Какие поля карточек различаются — «заполнено по-разному». */
+        diffFields: EngineDedupeField[];
+        /** Расстояние между номерами (для similar): 1 — одна правка, 2 — две. */
+        numberDistance?: number;
       }>;
+      /** Сколько групп найдено всего (показанные могут быть обрезаны потолком). */
+      totalGroups: number;
+      /** Список обрезан — оператору сказать, что список не весь. */
+      truncated: boolean;
     }
   | { ok: false; error: string };
 
@@ -1480,7 +1511,7 @@ export type MatricaApi = {
      */
     rmzNumbers: () => Promise<EngineRmzHistoryItem[]>;
     /** Массовый разбор дублей: полное сканирование НА СЕРВЕРЕ (не по локальному кешу). */
-    dedupeAnalyze: () => Promise<EngineDedupeAnalyzeResult>;
+    dedupeAnalyze: (args?: { mode?: EngineDedupeMode }) => Promise<EngineDedupeAnalyzeResult>;
     dedupeMerge: (args: { survivorId: string; loserIds: string[] }) => Promise<EngineDedupeMergeResult>;
     /** Строгая реплика карточки: запись — локально pending, уход в push забирает collectPending. */
     card: {

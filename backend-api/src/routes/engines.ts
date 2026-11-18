@@ -69,8 +69,11 @@ enginesRouter.delete(
 
 // Operator-driven engine dedupe (UI "Поиск дублей двигателей"). Analyze is read-only
 // (engines.view); merge is a destructive consolidation (engines.edit).
-enginesRouter.get('/dedupe', requireAuth, requirePermission(PermissionCode.EnginesView), async (_req, res) => {
-  const result = await analyzeEngineDuplicates();
+// mode: exact — реальные дубли (номер совпадает на 100%); similar — сильно похожие
+// пары (карточки совпадают по марке/заказчику/дате прихода, отличается номер).
+enginesRouter.get('/dedupe', requireAuth, requirePermission(PermissionCode.EnginesView), async (req, res) => {
+  const mode = req.query.mode === 'similar' ? 'similar' : 'exact';
+  const result = await analyzeEngineDuplicates({ mode });
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });
