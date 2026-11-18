@@ -25,6 +25,10 @@ function money(kop: number): string {
   return kop === 0 ? '—' : formatKopMoney(kop);
 }
 
+function moneyOrDash(kop: number | null): string {
+  return kop == null ? '—' : formatKopMoney(kop);
+}
+
 function rowCells(row: {
   engineNumber: string;
   brandLabel: string;
@@ -34,6 +38,9 @@ function rowCells(row: {
   paidAdvanceKop: number;
   paidFinalKop: number;
   dueKop: number;
+  vatKop: number | null;
+  netKop: number | null;
+  note: string;
   statusLabel: string;
   countdownLabel: string;
   emptySlot: boolean;
@@ -43,10 +50,13 @@ function rowCells(row: {
     <td>${escapeHtml(number)}</td>
     <td>${escapeHtml(row.brandLabel || '—')}</td>
     <td style="text-align:right">${escapeHtml(money(row.priceKop))}${row.priceFromPlan ? ' <span style="color:#666">(по плану)</span>' : ''}</td>
+    <td style="text-align:right">${escapeHtml(moneyOrDash(row.netKop))}</td>
+    <td style="text-align:right">${escapeHtml(moneyOrDash(row.vatKop))}</td>
     <td style="text-align:right">${escapeHtml(money(row.plannedAdvanceKop))}</td>
     <td style="text-align:right">${escapeHtml(money(row.paidAdvanceKop))}</td>
     <td style="text-align:right">${escapeHtml(money(row.dueKop))}</td>
     <td style="text-align:right">${escapeHtml(money(row.paidFinalKop))}</td>
+    <td>${escapeHtml(row.note || '—')}</td>
     <td>${escapeHtml(row.statusLabel || '—')}</td>
     <td>${escapeHtml(row.countdownLabel || '—')}</td>
   </tr>`;
@@ -56,11 +66,13 @@ function totalsRow(totals: EngineFinanceTotals, label: string): string {
   return `<tr style="font-weight:700">
     <td colspan="2" style="border-top:1px solid #333">${escapeHtml(label)}</td>
     <td style="text-align:right;border-top:1px solid #333">${escapeHtml(money(totals.priceKop))}</td>
+    <td style="text-align:right;border-top:1px solid #333">${escapeHtml(moneyOrDash(totals.netKop))}</td>
+    <td style="text-align:right;border-top:1px solid #333">${escapeHtml(moneyOrDash(totals.vatKop))}</td>
     <td style="text-align:right;border-top:1px solid #333">${escapeHtml(money(totals.plannedAdvanceKop))}</td>
     <td style="text-align:right;border-top:1px solid #333">${escapeHtml(money(totals.paidAdvanceKop))}</td>
     <td style="text-align:right;border-top:1px solid #333">${escapeHtml(money(totals.dueKop))}</td>
     <td style="text-align:right;border-top:1px solid #333">${escapeHtml(money(totals.paidFinalKop))}</td>
-    <td colspan="2" style="border-top:1px solid #333"></td>
+    <td colspan="3" style="border-top:1px solid #333"></td>
   </tr>`;
 }
 
@@ -71,10 +83,13 @@ export function buildEngineFinancePrint(args: EngineFinancePrintArgs): PrintSect
     <th>Номер двигателя</th>
     <th>Модель</th>
     <th style="text-align:right">Цена по договору, ₽</th>
+    <th style="text-align:right">Без НДС, ₽</th>
+    <th style="text-align:right">НДС, ₽</th>
     <th style="text-align:right">Аванс ${advancePercent}%, ₽</th>
     <th style="text-align:right">Внесено авансов, ₽</th>
     <th style="text-align:right">Долг, ₽</th>
     <th style="text-align:right">Окончат. расчёт, ₽</th>
+    <th>Примечание</th>
     <th>Состояние</th>
     <th>Отсчёт</th>
   </tr>`;
@@ -85,7 +100,7 @@ export function buildEngineFinancePrint(args: EngineFinancePrintArgs): PrintSect
         .map((row, idx) => `<tr><td style="text-align:right">${idx + 1}</td>${rowCells(row)}</tr>`)
         .join('');
       return `<tr>
-        <td colspan="10" style="font-weight:700;padding-top:10px">${escapeHtml(section.label)}</td>
+        <td colspan="12" style="font-weight:700;padding-top:10px">${escapeHtml(section.label)}</td>
       </tr>
       ${rows}
       ${totalsRow(section.totals, `Итого по разделу «${section.label}»:`)}`;

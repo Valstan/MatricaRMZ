@@ -29,6 +29,8 @@ export type EngineFinanceEngine = {
    * и отсчёт снова показывает все красные двигатели (сторож CountdownStale).
    */
   lastActivityAt?: number | null;
+  /** Примечание по двигателю (`engine_note` карточки) — «под восстановление» и т.п. */
+  engineNote?: string;
 };
 
 export type EngineFinanceRow = {
@@ -51,6 +53,12 @@ export type EngineFinanceRow = {
   paidFinalKop: number;
   /** Долг: цена минус всё внесённое, копейки. */
   dueKop: number;
+  /** НДС внутри цены, копейки. null — ставка раздела не оговорена (показываем «—», не ноль). */
+  vatKop: number | null;
+  /** Цена без НДС, копейки. null — ставка не оговорена. */
+  netKop: number | null;
+  /** Примечание по двигателю. */
+  note: string;
   /** Состояние двигателя (текст). */
   statusLabel: string;
   /** Отсчёт ремонта (текст) — пусто, если отсчёта нет. */
@@ -68,6 +76,12 @@ export type EngineFinanceTotals = {
   paidAdvanceKop: number;
   paidFinalKop: number;
   dueKop: number;
+  /** Сумма НДС по строкам, где ставка известна. null — ставка не задана нигде. */
+  vatKop: number | null;
+  /** Сумма «без НДС» по тем же строкам. */
+  netKop: number | null;
+  /** Сколько строк осталось без ставки НДС (в итог они не вошли). */
+  vatUnknownCount: number;
 };
 
 export type EngineFinanceSection = {
@@ -127,7 +141,7 @@ function sumPayments(slot: PaymentSlot, kinds: readonly string[]): number {
 }
 
 function emptyTotals(): EngineFinanceTotals {
-  return { count: 0, priceKop: 0, plannedAdvanceKop: 0, paidAdvanceKop: 0, paidFinalKop: 0, dueKop: 0 };
+  return { count: 0, priceKop: 0, plannedAdvanceKop: 0, paidAdvanceKop: 0, paidFinalKop: 0, dueKop: 0, vatKop: null, netKop: null, vatUnknownCount: 0 };
 }
 
 function addRow(totals: EngineFinanceTotals, row: EngineFinanceRow): void {
@@ -137,6 +151,26 @@ function addRow(totals: EngineFinanceTotals, row: EngineFinanceRow): void {
   totals.paidAdvanceKop += row.paidAdvanceKop;
   totals.paidFinalKop += row.paidFinalKop;
   totals.dueKop += row.dueKop;
+  if (row.vatKop == null) {
+    totals.vatUnknownCount += 1;
+    return;
+  }
+  totals.vatKop = (totals.vatKop ?? 0) + row.vatKop;
+  totals.netKop = (totals.netKop ?? 0) + (row.netKop ?? 0);
+}
+
+/**
+ * НДС внутри цены и цена без НДС.
+ *
+ * Цена по договору считается С НДС (так она и приходит из плана), поэтому НДС внутри
+ * суммы = цена × ставка/(100+ставка), а без НДС = цена − НДС. Ставки нет — оба числа
+ * null: показывать ноль значило бы утверждать, что НДС нет.
+ */
+function splitVat(priceKop: number, vatPercent: number | null | undefined): { vatKop: number | null; netKop: number | null } {
+  const percent = typeof vatPercent === 'number' && Number.isFinite(vatPercent) && vatPercent > 0 ? vatPercent : null;
+  if (percent == null || priceKop <= 0) return { vatKop: percent == null ? null : 0, netKop: percent == null ? null : priceKop };
+  const vatKop = Math.round((priceKop * percent) / (100 + percent));
+  return { vatKop, netKop: priceKop - vatKop };
 }
 
 function isoDay(ms: number | null | undefined): string {
@@ -168,6 +202,8 @@ export function buildEngineFinanceTable(args: {
   todayIso?: string;
   /** Срок ремонта по договору, дней. */
   repairDays?: number;
+  /** Ставка НДС по разделам, % (в разделе без ставки — НДС не считаем). */
+  vatPercentBySection?: ReadonlyMap<string, number>;
 }): EngineFinanceTable {
   const percent = Number.isFinite(args.advancePercent ?? 50) ? (args.advancePercent ?? 50) : 50;
   const today = args.todayIso ?? '';
@@ -235,6 +271,7 @@ export function buildEngineFinanceTable(args: {
             ? `просрочка ${Math.abs(cd?.daysLeft ?? 0)} дн.`
             : `осталось ${cd?.daysLeft ?? 0} дн.`;
     if (slot) seenSlotIds.add(slot.id);
+    const vat = splitVat(effectivePrice, args.vatPercentBySection?.get(sectionKey));
     push(sectionKey, {
       key: engine.id,
       engineId: engine.id,
@@ -248,6 +285,9 @@ export function buildEngineFinanceTable(args: {
       paidAdvanceKop: paidAdvance,
       paidFinalKop: paidFinal,
       dueKop: effectivePrice - paidAdvance - paidFinal,
+      vatKop: vat.vatKop,
+      netKop: vat.netKop,
+      note: engine.engineNote ?? '',
       statusLabel: engineFinanceStatusLabel(engine),
       countdownLabel,
       emptySlot: false,
@@ -261,6 +301,7 @@ export function buildEngineFinanceTable(args: {
     const totals = slotTotals(slot);
     const paidAdvance = sumPayments(slot, ['advance', 'extra_advance']);
     const paidFinal = sumPayments(slot, ['final']);
+    const vat = splitVat(totals.priceKop, args.vatPercentBySection?.get(slot.sectionKey));
     push(slot.sectionKey, {
       key: `slot:${slot.id}`,
       slotId: slot.id,
@@ -273,6 +314,9 @@ export function buildEngineFinanceTable(args: {
       paidAdvanceKop: paidAdvance,
       paidFinalKop: paidFinal,
       dueKop: totals.priceKop - paidAdvance - paidFinal,
+      vatKop: vat.vatKop,
+      netKop: vat.netKop,
+      note: '',
       statusLabel: 'двигатель не пришёл',
       countdownLabel: '',
       emptySlot: true,
@@ -305,6 +349,11 @@ export function buildEngineFinanceTable(args: {
     totals.paidAdvanceKop += section.totals.paidAdvanceKop;
     totals.paidFinalKop += section.totals.paidFinalKop;
     totals.dueKop += section.totals.dueKop;
+    totals.vatUnknownCount += section.totals.vatUnknownCount;
+    if (section.totals.vatKop != null) {
+      totals.vatKop = (totals.vatKop ?? 0) + section.totals.vatKop;
+      totals.netKop = (totals.netKop ?? 0) + (section.totals.netKop ?? 0);
+    }
   }
   return { sections, totals };
 }

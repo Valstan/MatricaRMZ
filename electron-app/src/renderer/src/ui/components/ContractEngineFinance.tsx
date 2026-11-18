@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 
 import {
   buildEngineFinanceTable,
@@ -15,6 +15,7 @@ import {
 import { Button } from './Button.js';
 import { CardTable } from './CardTable.js';
 import { DistributeToSelectedForm } from './DistributeToSelectedForm.js';
+import { Input } from './Input.js';
 import { SectionCard } from './SectionCard.js';
 import { openPrintPreview } from '../utils/printPreview.js';
 import { buildEngineFinancePrint } from '../utils/engineFinancePrint.js';
@@ -43,7 +44,8 @@ function lastActivityOf(engine: EngineListItem): number | null {
  * (план, платежи, карточки двигателей), поэтому ведомость не надо вести руками.
  *
  * Оператор здесь и работает: отмечает галочками приехавшие двигатели и разносит аванс
- * одним действием — процентом от стоимости по контракту.
+ * одним действием — процентом от стоимости по контракту; примечание по двигателю правится
+ * прямо в строке.
  */
 export function ContractEngineFinance(props: {
   contractPayments: ContractPayments;
@@ -58,7 +60,7 @@ export function ContractEngineFinance(props: {
   slotSelection?: ReadonlySet<string>;
   onToggleSlots?: (slotIds: readonly string[], checked: boolean) => void;
   onOpenEngine?: (engineId: string) => void;
-  /** Разнос аванса по отмеченным слотам (слоты — отмеченные здесь же). */
+  /** Разнос аванса по отмеченным слотам. */
   onDistribute?: (
     payload: { mode: 'amount'; amountKop: number } | { mode: 'percent'; percent: number },
     kind: PaymentKind,
@@ -66,8 +68,12 @@ export function ContractEngineFinance(props: {
     note: string,
     slotIds: readonly string[],
   ) => void;
+  /** Сохранить примечание по двигателю (то же поле `engine_note`, что и в карточке). */
+  onSaveNote?: (engineId: string, note: string) => void | Promise<void>;
   /** Срок ремонта по договору, дней. */
   repairDays: number;
+  /** Ставка НДС по разделам, % (в разделе без ставки — НДС не считаем). */
+  vatPercentBySection?: ReadonlyMap<string, number>;
   /** Заказчик — в шапке печатной формы. */
   customerName?: string;
 }) {
@@ -101,13 +107,15 @@ export function ContractEngineFinance(props: {
           // Дата последней работы: без неё порог «забытых карточек» молчит (сторож
           // CountdownStale) — и отсчёт снова станет бесполезным.
           ...(lastActivityOf(e) != null ? { lastActivityAt: lastActivityOf(e) as number } : {}),
+          ...(e.engineNote ? { engineNote: e.engineNote } : {}),
         })),
         ...(props.plan ? { plan: props.plan } : {}),
+        ...(props.vatPercentBySection ? { vatPercentBySection: props.vatPercentBySection } : {}),
         sectionLabels,
         advancePercent,
         repairDays: props.repairDays,
       }),
-    [props.contractPayments, props.engines, props.plan, props.repairDays, sectionLabels],
+    [props.contractPayments, props.engines, props.plan, props.repairDays, props.vatPercentBySection, sectionLabels],
   );
 
   const selectedSlotIds = useMemo(() => {
@@ -121,9 +129,9 @@ export function ContractEngineFinance(props: {
   }, [table.sections, props.slotSelection]);
 
   const money = (kop: number) => (kop === 0 ? '—' : `${formatKopMoney(kop)} ₽`);
+  const moneyOrDash = (kop: number | null) => (kop == null ? '—' : `${formatKopMoney(kop)} ₽`);
 
   function printAudit() {
-    const sections = table.sections;
     openPrintPreview({
       title: 'Аудит по цене',
       subtitle: `Контракт № ${String(props.sections.primary.number ?? '') || '—'}`,
@@ -131,13 +139,15 @@ export function ContractEngineFinance(props: {
       sections: buildEngineFinancePrint({
         contractNumber: String(props.sections.primary.number ?? ''),
         customerName: props.customerName ?? '',
-        sections,
+        sections: table.sections,
         totals: table.totals,
         advancePercent,
         dateIso: new Date().toLocaleDateString('ru-RU'),
       }),
     });
   }
+
+  const headCount = props.onToggleSlots ? 13 : 12;
 
   return (
     <SectionCard
@@ -149,6 +159,8 @@ export function ContractEngineFinance(props: {
         <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
           Двигателей и мест: {table.totals.count} · цена по договору {money(table.totals.priceKop)} · внесено{' '}
           {money(table.totals.paidAdvanceKop)} · долг {money(table.totals.dueKop)}
+          {table.totals.vatKop != null ? ` · НДС ${money(table.totals.vatKop)}` : ''}
+          {table.totals.vatUnknownCount > 0 ? ` · без ставки НДС: ${table.totals.vatUnknownCount} строк` : ''}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <Button variant="outline" tone="neutral" size="sm" onClick={printAudit}>
@@ -178,13 +190,17 @@ export function ContractEngineFinance(props: {
           <colgroup>
             {props.onToggleSlots ? <col style={{ width: 34 }} /> : <col />}
             <col style={{ width: 42 }} />
-            <col style={{ width: '16%' }} />
             <col style={{ width: '14%' }} />
-            <col style={{ width: '13%' }} />
             <col style={{ width: '12%' }} />
-            <col style={{ width: '12%' }} />
-            <col style={{ width: '12%' }} />
-            <col style={{ width: '13%' }} />
+            <col style={{ width: '11%' }} />
+            <col style={{ width: '11%' }} />
+            <col style={{ width: '10%' }} />
+            <col style={{ width: '11%' }} />
+            <col style={{ width: '11%' }} />
+            <col style={{ width: '11%' }} />
+            <col style={{ width: '11%' }} />
+            <col style={{ width: '14%' }} />
+            <col />
           </colgroup>
           <thead>
             <tr>
@@ -192,11 +208,14 @@ export function ContractEngineFinance(props: {
               <th style={TD_HEAD} data-col-kind="num">№</th>
               <th style={TD_HEAD} data-col-kind="name">Номер двигателя</th>
               <th style={TD_HEAD} data-col-kind="name">Модель</th>
-              <th style={TD_HEAD} data-col-kind="num">Цена по договору, ₽</th>
+              <th style={TD_HEAD} data-col-kind="num" title="Цена по договору (с НДС)">Цена, ₽</th>
+              <th style={TD_HEAD} data-col-kind="num" title="Цена без НДС — по ставке раздела">Без НДС, ₽</th>
+              <th style={TD_HEAD} data-col-kind="num" title="НДС внутри цены">НДС, ₽</th>
               <th style={TD_HEAD} data-col-kind="num">Аванс {advancePercent}%, ₽</th>
               <th style={TD_HEAD} data-col-kind="num">Внесено, ₽</th>
               <th style={TD_HEAD} data-col-kind="num">Долг, ₽</th>
               <th style={TD_HEAD} data-col-kind="num">Окончат. расчёт, ₽</th>
+              <th style={TD_HEAD} data-col-kind="text">Примечание</th>
               <th style={TD_HEAD} data-col-kind="text">Состояние</th>
             </tr>
           </thead>
@@ -207,7 +226,7 @@ export function ContractEngineFinance(props: {
                 <React.Fragment key={section.sectionKey}>
                   <tr>
                     <td
-                      colSpan={10}
+                      colSpan={headCount}
                       style={{ padding: '10px 8px 4px', fontWeight: 700, borderBottom: '1px solid var(--border)' }}
                     >
                       {section.label}
@@ -252,6 +271,8 @@ export function ContractEngineFinance(props: {
                             <span style={{ color: 'var(--subtle)' }} title="Цена по плану — место движку ещё не назначено"> (по плану)</span>
                           ) : null}
                         </td>
+                        <td className="num" data-col-kind="num" style={TD_CELL}>{moneyOrDash(row.netKop)}</td>
+                        <td className="num" data-col-kind="num" style={TD_CELL}>{moneyOrDash(row.vatKop)}</td>
                         <td className="num" data-col-kind="num" style={TD_CELL}>{money(row.plannedAdvanceKop)}</td>
                         <td className="num" data-col-kind="num" style={TD_CELL}>{money(row.paidAdvanceKop)}</td>
                         <td
@@ -262,6 +283,13 @@ export function ContractEngineFinance(props: {
                           {money(row.dueKop)}
                         </td>
                         <td className="num" data-col-kind="num" style={TD_CELL}>{money(row.paidFinalKop)}</td>
+                        <td data-col-kind="text" style={TD_CELL}>
+                          {row.engineId && props.canEdit && props.onSaveNote ? (
+                            <EngineNoteCell engineId={row.engineId} value={row.note} onSave={props.onSaveNote} />
+                          ) : (
+                            <span style={{ color: 'var(--subtle)' }}>{row.note || '—'}</span>
+                          )}
+                        </td>
                         <td data-col-kind="text" style={TD_CELL}>
                           {row.statusLabel}
                           {row.countdownLabel ? (
@@ -279,6 +307,12 @@ export function ContractEngineFinance(props: {
                       {money(section.totals.priceKop)}
                     </td>
                     <td className="num" data-col-kind="num" style={{ ...TD_CELL, borderTop: '1px solid var(--border)' }}>
+                      {moneyOrDash(section.totals.netKop)}
+                    </td>
+                    <td className="num" data-col-kind="num" style={{ ...TD_CELL, borderTop: '1px solid var(--border)' }}>
+                      {moneyOrDash(section.totals.vatKop)}
+                    </td>
+                    <td className="num" data-col-kind="num" style={{ ...TD_CELL, borderTop: '1px solid var(--border)' }}>
                       {money(section.totals.plannedAdvanceKop)}
                     </td>
                     <td className="num" data-col-kind="num" style={{ ...TD_CELL, borderTop: '1px solid var(--border)' }}>
@@ -290,7 +324,7 @@ export function ContractEngineFinance(props: {
                     <td className="num" data-col-kind="num" style={{ ...TD_CELL, borderTop: '1px solid var(--border)' }}>
                       {money(section.totals.paidFinalKop)}
                     </td>
-                    <td style={{ ...TD_CELL, borderTop: '1px solid var(--border)' }} />
+                    <td colSpan={2} style={{ ...TD_CELL, borderTop: '1px solid var(--border)' }} />
                   </tr>
                 </React.Fragment>
               );
@@ -301,6 +335,12 @@ export function ContractEngineFinance(props: {
               </td>
               <td className="num" data-col-kind="num" style={{ ...TD_CELL, borderTop: '2px solid var(--border)' }}>
                 {money(table.totals.priceKop)}
+              </td>
+              <td className="num" data-col-kind="num" style={{ ...TD_CELL, borderTop: '2px solid var(--border)' }}>
+                {moneyOrDash(table.totals.netKop)}
+              </td>
+              <td className="num" data-col-kind="num" style={{ ...TD_CELL, borderTop: '2px solid var(--border)' }}>
+                {moneyOrDash(table.totals.vatKop)}
               </td>
               <td className="num" data-col-kind="num" style={{ ...TD_CELL, borderTop: '2px solid var(--border)' }}>
                 {money(table.totals.plannedAdvanceKop)}
@@ -314,11 +354,62 @@ export function ContractEngineFinance(props: {
               <td className="num" data-col-kind="num" style={{ ...TD_CELL, borderTop: '2px solid var(--border)' }}>
                 {money(table.totals.paidFinalKop)}
               </td>
-              <td style={{ ...TD_CELL, borderTop: '2px solid var(--border)' }} />
+              <td colSpan={2} style={{ ...TD_CELL, borderTop: '2px solid var(--border)' }} />
             </tr>
           </tbody>
         </CardTable>
       </div>
     </SectionCard>
+  );
+}
+
+/**
+ * Ячейка примечания по двигателю: правится прямо в сводке и пишется тем же полем
+ * `engine_note`, что и в карточке двигателя (одна запись — одна дверь).
+ */
+function EngineNoteCell(props: {
+  engineId: string;
+  value: string;
+  onSave: (engineId: string, note: string) => void | Promise<void>;
+}) {
+  const [text, setText] = useState(props.value);
+  const [saving, setSaving] = useState(false);
+  /**
+   * Правка оператора — главная: пока он правит это поле, внешнее значение не затирает его.
+   * Список движков читает EAV, а он догоняет запись после цикла синка (как и любое другое
+   * поле движка), поэтому «подхватить» оттуда сразу после сохранения — значило бы стереть
+   * только что введённое. Внешнее значение придёт при следующем открытии карточки.
+   */
+  const editedRef = useRef(false);
+  React.useEffect(() => {
+    if (editedRef.current) return;
+    setText(props.value);
+  }, [props.value]);
+  const commit = async () => {
+    const next = text.trim();
+    if (next === (props.value ?? '').trim()) return;
+    setSaving(true);
+    try {
+      await props.onSave(props.engineId, next);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Input
+      value={text}
+      disabled={saving}
+      placeholder="—"
+      title="Примечание по двигателю"
+      onChange={(e) => {
+        editedRef.current = true;
+        setText(e.target.value);
+      }}
+      onBlur={() => void commit()}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') void commit();
+      }}
+      style={{ width: '100%' }}
+    />
   );
 }

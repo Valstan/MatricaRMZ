@@ -146,11 +146,24 @@ async function openSection(ws, group, item) {
 const CONTRACT_NUMBER = 'СМОУК-ФИН';
 
 async function main() {
-  const [target] = await targets();
-  if (!target) throw new Error('нет renderer-таргета — окно не открылось');
-  const ws = await connect(target.webSocketDebuggerUrl);
-  await send(ws, 'Runtime.enable');
-  await send(ws, 'Page.enable');
+  // Вкладок бывает две (карточка могла остаться открытой с прошлого прогона) — берём ту,
+  // где есть мост клиента: на пустой вкладке `window.matrica` не появляется никогда.
+  const pages = await targets();
+  let ws = null;
+  let target = null;
+  for (const candidate of pages) {
+    const candidateWs = await connect(candidate.webSocketDebuggerUrl);
+    await send(candidateWs, 'Runtime.enable');
+    await send(candidateWs, 'Page.enable');
+    const hasBridge = await evaluate(candidateWs, `return typeof window.matrica !== 'undefined';`).catch(() => false);
+    if (hasBridge) {
+      ws = candidateWs;
+      target = candidate;
+      break;
+    }
+  }
+  if (!ws || !target) throw new Error('нет вкладки с мостом клиента');
+  note(true, 'вкладка клиента найдена', { url: target.url });
 
   if (!/^http:\/\/127\.0\.0\.1:5173/.test(String(target.url ?? ''))) {
     await send(ws, 'Page.navigate', { url: 'http://127.0.0.1:5173/' });
@@ -218,7 +231,8 @@ async function main() {
      const sections = {
        primary: {
          number, internalNumber: '84/ГОЗ-25', customerId: null,
-         kind: 'military', engineBrands: [{ engineBrandId: String(brand.id), qty: 2, unitPrice: 100000 }],
+         kind: 'military', vatPercent: 20,
+         engineBrands: [{ engineBrandId: String(brand.id), qty: 2, unitPrice: 100000 }],
          parts: [],
        },
        addons: [],
@@ -282,20 +296,69 @@ async function main() {
      const rows = [...panel.querySelectorAll('tbody tr')].filter(visible);
      const body = txt(panel);
      return {
-       ok: head.some((h) => h.includes('Цена по договору')) && head.some((h) => h.includes('Долг')),
+       ok: head.some((h) => h.startsWith('Цена')) && head.some((h) => h.includes('Долг')),
        head,
        rows: rows.length,
        hasEngineRow: body.includes('TEST-001'),
        hasSectionTotal: body.includes('Итого по разделу'),
        hasContractTotal: body.includes('Итого по договору'),
        hasPrintButton: [...panel.querySelectorAll('button')].some((b) => txt(b).includes('аудит по цене')),
+       hasVatCols: head.some((h) => h.includes('Без НДС')) && head.some((h) => h.includes('НДС')),
+       hasNoteCol: head.some((h) => h.includes('Примечание')),
      };`,
   );
   note(tableInfo.ok, 'таблица сводки с колонками цены/аванса/долга на месте', tableInfo);
+  note(tableInfo.hasVatCols && tableInfo.hasNoteCol, 'колонки НДС и примечания есть', { head: tableInfo.head });
   note(tableInfo.hasEngineRow, 'строка двигателя TEST-001 видна в сводке', { rows: tableInfo.rows });
   note(tableInfo.hasSectionTotal && tableInfo.hasContractTotal, 'итоги по разделу и по договору посчитаны', tableInfo);
   note(tableInfo.hasPrintButton, 'кнопка печати «аудит по цене» есть', tableInfo);
+
+  // 2b. НДС: цена 100 000 ₽ со ставкой 20% → без НДС 83 333,33, НДС 16 666,67.
+  const vat = await evaluate(
+    ws,
+    `const panel = document.querySelector('[data-card-tab="finance"]');
+     const row = [...panel.querySelectorAll('tbody tr')].filter(visible).find((r) => txt(r).includes('TEST-001'));
+     const cells = row ? [...row.querySelectorAll('td')].map((td) => txt(td)) : [];
+     const body = txt(panel);
+     return {
+       ok: body.includes('83 333,33') && body.includes('16 666,67'),
+       hasNet: body.includes('83 333,33'),
+       hasVat: body.includes('16 666,67'),
+       cells,
+     };`,
+  );
+  note(vat.ok, 'НДС посчитан: без НДС 83 333,33 ₽ и НДС 16 666,67 ₽ (ставка 20% раздела)', vat);
   await shot(ws, '1-tab');
+
+  // 2c. Примечание по двигателю правится прямо в строке сводки.
+  // Проверяем ЗАПИСЬ (карточка движка — реплика, сразу), а не список: список движков
+  // читает EAV, а он догоняет запись после цикла синка — как и любое другое поле движка.
+  const noteSaved = await evaluate(
+    ws,
+    `const panel = document.querySelector('[data-card-tab="finance"]');
+     const row = [...panel.querySelectorAll('tbody tr')].filter(visible).find((r) => txt(r).includes('TEST-001'));
+     const input = row ? [...row.querySelectorAll('input')].find((i) => i.title === 'Примечание по двигателю') : null;
+     if (!input) return { ok: false, reason: 'поля примечания в строке нет' };
+     const proto = window.HTMLInputElement.prototype;
+     Object.getOwnPropertyDescriptor(proto, 'value').set.call(input, 'под восстановление');
+     input.dispatchEvent(new Event('input', { bubbles: true }));
+     input.dispatchEvent(new Event('change', { bubbles: true }));
+     await wait(600);
+     const afterInput = input.value;
+     input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+     input.blur();
+     await wait(2500);
+     const card = await window.matrica.engines.card.get(${JSON.stringify(seeded.engineId)}).catch(() => null);
+     const cardRow = card?.row ?? card;
+     const note = cardRow?.engine_note ?? cardRow?.engineNote ?? null;
+     return {
+       ok: String(note ?? '') === 'под восстановление',
+       note,
+       afterInput,
+       afterBlur: input.value,
+     };`,
+  );
+  note(noteSaved.ok, 'примечание по двигателю сохраняется из строки сводки', noteSaved);
 
   // 3. Галочка → массовый разнос.
   const before = await evaluate(
