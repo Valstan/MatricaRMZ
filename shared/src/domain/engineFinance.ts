@@ -29,10 +29,6 @@ export type EngineFinanceEngine = {
    * и отсчёт снова показывает все красные двигатели (сторож CountdownStale).
    */
   lastActivityAt?: number | null;
-  /** Дата приёмки заказчиком — «РКМ получены» в ведомости владельца. */
-  customerAcceptedAt?: number | null;
-  /** Дата отгрузки заказчику. */
-  customerSentAt?: number | null;
 };
 
 export type EngineFinanceRow = {
