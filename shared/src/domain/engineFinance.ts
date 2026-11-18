@@ -179,7 +179,6 @@ export function buildEngineFinanceTable(args: {
   for (const slot of args.contractPayments.slots) {
     if (slot.engineId) slotByEngine.set(slot.engineId, slot);
   }
-  const engineById = new Map(args.engines.map((e) => [e.id, e] as const));
 
   // Цена по плану для марки: если марка запланирована в одном разделе — берём её цену
   // и раздел (движок без места, но марка известна). Если в нескольких — цену не угадываем.
@@ -261,10 +260,8 @@ export function buildEngineFinanceTable(args: {
   }
 
   // 2. Плановые места без движка: их ждём (деньги по ним уже могут лежать).
-  let emptyIndex = 0;
   for (const slot of args.contractPayments.slots) {
     if (slot.engineId || seenSlotIds.has(slot.id)) continue;
-    emptyIndex += 1;
     const totals = slotTotals(slot);
     const paidAdvance = sumPayments(slot, ['advance', 'extra_advance']);
     const paidFinal = sumPayments(slot, ['final']);
