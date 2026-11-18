@@ -68,6 +68,15 @@ export type ContractPrimarySection = {
    * владелец не просил, а лишнее поле в каждом ДС пришлось бы заполнять вручную.
    */
   repairDays?: number;
+  /**
+   * Ставка НДС раздела, % (20 или 22). Цена по договору считается С НДС — поэтому
+   * «без НДС» = цена ÷ (1 + ставка/100), а «в т.ч. НДС» = остаток.
+   *
+   * Живёт ВНУТРИ contract_sections (как и срок ремонта): EAV заморожен, а секции едут
+   * в зеркало `erp_contracts.sections_json` сами — миграция не нужна. Пусто — ставка не
+   * оговорена, и сводка показывает «—», а не ноль (ноль означал бы «НДС нет»).
+   */
+  vatPercent?: number;
   engineBrands: ContractEngineBrandRow[];
   parts: ContractPartRow[];
 };
@@ -87,6 +96,8 @@ export type ContractAddonSection = {
   createdAt: number | null;
   /** Произвольное примечание оператора к дополнительному соглашению. */
   note: string;
+  /** Ставка НДС раздела, % — см. `ContractPrimarySection.vatPercent`. */
+  vatPercent?: number;
   engineBrands: ContractEngineBrandRow[];
   parts: ContractPartRow[];
 };
@@ -480,6 +491,32 @@ export function effectiveRepairDays(sections: ContractSections | null | undefine
   return parseRepairDays(sections?.primary?.repairDays) ?? DEFAULT_CONTRACT_REPAIR_DAYS;
 }
 
+/**
+ * Ставка НДС раздела: целое от 1 до 100. Мусор и ноль трактуем как «не оговорён» —
+ * пустая ставка значит «считать не от чего», а не «НДС нет».
+ */
+function parseVatPercent(raw: unknown): number | null {
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(n)) return null;
+  const percent = Math.trunc(n);
+  return percent >= 1 && percent <= 100 ? percent : null;
+}
+
+/**
+ * Ставка НДС раздела договора, % — для сводки по оплате. Дополнения наследуют ставку
+ * основного договора: у владельца в ведомости ставка стоит у каждого соглашения, но
+ * отдельная ставка на каждое ДС без нужды размножает реквизит.
+ */
+export function effectiveVatPercent(
+  sections: ContractSections | null | undefined,
+  sectionKey?: string,
+): number | null {
+  const primary = parseVatPercent(sections?.primary?.vatPercent);
+  if (!sectionKey || sectionKey === PRIMARY_CONTRACT_SECTION_KEY) return primary;
+  const addon = sections?.addons?.find((a) => contractSectionAddonToken(a.seq) === sectionKey);
+  return parseVatPercent(addon?.vatPercent) ?? primary;
+}
+
 const defaultPrimary: ContractPrimarySection = {
   number: '',
   signedAt: null,
@@ -508,6 +545,7 @@ export function parseContractSections(attrs: Record<string, unknown> | null | un
             customerId: primary.customerId != null ? String(primary.customerId) : null,
             kind: parseContractKind(primary.kind) ?? DEFAULT_CONTRACT_KIND,
             ...(parseRepairDays(primary.repairDays) != null ? { repairDays: parseRepairDays(primary.repairDays)! } : {}),
+            ...(parseVatPercent(primary.vatPercent) != null ? { vatPercent: parseVatPercent(primary.vatPercent)! } : {}),
             engineBrands: Array.isArray(primary.engineBrands) ? primary.engineBrands.filter((r) => r && typeof r.engineBrandId === 'string') : [],
             parts: Array.isArray(primary.parts) ? primary.parts.filter((p) => p && typeof p.partId === 'string') : [],
           }
@@ -523,6 +561,7 @@ export function parseContractSections(attrs: Record<string, unknown> | null | un
           dueAt: typeof add.dueAt === 'number' ? add.dueAt : null,
           createdAt: typeof add.createdAt === 'number' ? add.createdAt : null,
           note: typeof add.note === 'string' ? add.note : '',
+          ...(parseVatPercent(add.vatPercent) != null ? { vatPercent: parseVatPercent(add.vatPercent)! } : {}),
           engineBrands: Array.isArray(add.engineBrands) ? (add.engineBrands as ContractEngineBrandRow[]).filter((r) => r && typeof r.engineBrandId === 'string') : [],
           parts: Array.isArray(add.parts) ? (add.parts as ContractPartRow[]).filter((p) => p && typeof p.partId === 'string') : [],
         };

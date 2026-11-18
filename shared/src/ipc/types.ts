@@ -164,6 +164,8 @@ export type EngineListItem = {
   rmzCode?: string;
   engineBrand?: string;
   engineBrandId?: string;
+  /** Примечание по двигателю (`engine_note` карточки). */
+  engineNote?: string;
   customerId?: string;
   customerName?: string;
   contractId?: string;

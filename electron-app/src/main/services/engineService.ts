@@ -1101,6 +1101,7 @@ export async function listEngines(
   const defectDateDefId = defs['defect_date'];
   const workshopIdDefId = defs['workshop_id'];
   const scrapReasonDefId = defs['scrap_reason'];
+  const engineNoteDefId = defs['engine_note'];
   const statusDateDefIds = STATUS_CODES.map((c) => defs[statusDateCode(c)]).filter(Boolean) as string[];
   const attachmentsDefId = defs['attachments'];
   const repeatArrivalDefId = defs['repeat_arrival_flag'];
@@ -1156,6 +1157,7 @@ export async function listEngines(
     defectDateDefId,
     workshopIdDefId,
     scrapReasonDefId,
+    engineNoteDefId,
     attachmentsDefId,
     repeatArrivalDefId,
     numberCollisionDefId,
@@ -1359,6 +1361,14 @@ export async function listEngines(
       const raw = v != null ? safeJsonParse(v) : null;
       scrapReason = String(raw ?? '').trim();
     }
+    // Примечание по двигателю («под восстановление» и т.п.) — доезжает и в список:
+    // в сводке оплаты по двигателям примечание стоит рядом с деньгами.
+    let engineNote = '';
+    if (engineNoteDefId) {
+      const v = (rowValues.get(engineNoteDefId)?.json ?? null);
+      const raw = v != null ? safeJsonParse(v) : null;
+      engineNote = String(raw ?? '').trim();
+    }
     for (const statusDateDefId of statusDateDefIds) {
       const code = (statusDateDefById as Record<string, StatusCode | undefined>)[statusDateDefId];
       if (!code) continue;
@@ -1555,6 +1565,7 @@ export async function listEngines(
       // Шаг 8/2: плюс отметка боковой ветки единого списка (её с 8/1 ставит рука вместо галочки).
       isScrap: statusRejected || statusScrapMarked || criterionScrappedLive || scrapBranchLive,
       ...(scrapReason ? { scrapReason } : {}),
+      ...(engineNote ? { engineNote } : {}),
       ...(inventoryFlags?.actStarted === true ? { hasCompletenessAct: true } : {}),
       completenessActDate: inventoryFlags?.completenessInspectionAt ?? null,
       ...(inventoryFlags?.defectStarted === true ? { hasDefectAct: true } : {}),

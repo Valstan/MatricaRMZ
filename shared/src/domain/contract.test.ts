@@ -10,6 +10,7 @@ import {
   classifyEngineContractBinding,
   computeObjectProgress,
   effectiveRepairDays,
+  effectiveVatPercent,
   engineBindingLabel,
   isContractAddonToken,
   isEavFlagSet,
@@ -557,5 +558,46 @@ describe('срок ремонта по контракту', () => {
     });
     expect(parsed.addons).toHaveLength(1);
     expect(effectiveRepairDays(parsed)).toBe(45);
+  });
+});
+
+// Ставка НДС раздела: живёт в contract_sections (миграция не нужна — секции едут зеркалом).
+describe('ставка НДС раздела', () => {
+  it('читается из секции; мусор и ноль — «не оговорено»', () => {
+    const parsed = parseContractSections({
+      contract_sections: {
+        primary: { number: 'K-1', vatPercent: 20 },
+        addons: [{ number: 'ДС 1', seq: 1, vatPercent: 22 }],
+      },
+    });
+    expect(parsed.primary.vatPercent).toBe(20);
+    expect(parsed.addons[0]?.vatPercent).toBe(22);
+    expect(effectiveVatPercent(parsed)).toBe(20);
+
+    const безСтавки = parseContractSections({
+      contract_sections: { primary: { number: 'K-2', vatPercent: 0 }, addons: [] },
+    });
+    expect(безСтавки.primary.vatPercent).toBeUndefined();
+    expect(effectiveVatPercent(безСтавки)).toBeNull();
+  });
+
+  it('ДС без своей ставки наследует ставку основного договора', () => {
+    const parsed = parseContractSections({
+      contract_sections: {
+        primary: { number: 'K-1', vatPercent: 20 },
+        addons: [{ number: 'ДС 1', seq: 1 }],
+      },
+    });
+    expect(effectiveVatPercent(parsed, 'ДС 1')).toBe(20);
+  });
+
+  it('ДС со своей ставкой не наследует основную', () => {
+    const parsed = parseContractSections({
+      contract_sections: {
+        primary: { number: 'K-1', vatPercent: 20 },
+        addons: [{ number: 'ДС 1', seq: 1, vatPercent: 22 }],
+      },
+    });
+    expect(effectiveVatPercent(parsed, 'ДС 1')).toBe(22);
   });
 });

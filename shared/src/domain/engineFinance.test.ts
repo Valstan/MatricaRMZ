@@ -179,4 +179,75 @@ describe('buildEngineFinanceTable', () => {
     expect(table.totals.priceKop).toBe(400_000);
     expect(table.totals.dueKop).toBe(400_000);
   });
+
+  // НДС: цена по договору приходит с НДС, поэтому «без НДС» и «в т.ч. НДС» считаются
+  // от неё. Ставки нет — оба числа null: ноль означал бы «НДС нет», а это неправда.
+  describe('НДС', () => {
+    it('ставка 20% от цены 120 000 ₽: НДС 20 000, без НДС 100 000', () => {
+      const cp: ContractPayments = {
+        version: 1,
+        slots: [slot({ id: 's1', sectionKey: 'primary', engineId: 'e1', contractPriceKop: 12_000_000 })],
+      };
+      const table = buildEngineFinanceTable({
+        contractPayments: cp,
+        engines: [engine({ id: 'e1' })],
+        vatPercentBySection: new Map([['primary', 20]]),
+      });
+      const row = table.sections[0]?.rows[0];
+      expect(row?.vatKop).toBe(2_000_000);
+      expect(row?.netKop).toBe(10_000_000);
+      expect(table.totals.vatKop).toBe(2_000_000);
+      expect(table.totals.netKop).toBe(10_000_000);
+      expect(table.totals.vatUnknownCount).toBe(0);
+    });
+
+    it('ставки нет — НДС не считаем: null, а не ноль', () => {
+      const cp: ContractPayments = {
+        version: 1,
+        slots: [slot({ id: 's1', sectionKey: 'primary', engineId: 'e1', contractPriceKop: 12_000_000 })],
+      };
+      const table = buildEngineFinanceTable({
+        contractPayments: cp,
+        engines: [engine({ id: 'e1' })],
+      });
+      const row = table.sections[0]?.rows[0];
+      expect(row?.vatKop).toBeNull();
+      expect(row?.netKop).toBeNull();
+      expect(table.totals.vatKop).toBeNull();
+      expect(table.totals.vatUnknownCount).toBe(1);
+    });
+
+    it('ставка берётся по разделу: у ДС своя, у другого раздела — своя', () => {
+      const cp: ContractPayments = {
+        version: 1,
+        slots: [
+          slot({ id: 's1', sectionKey: 'primary', engineId: 'e1', contractPriceKop: 12_000_000 }),
+          slot({ id: 's2', sectionKey: 'ДС 1', engineId: 'e2', contractPriceKop: 12_200_000 }),
+        ],
+      };
+      const table = buildEngineFinanceTable({
+        contractPayments: cp,
+        engines: [engine({ id: 'e1' }), engine({ id: 'e2' })],
+        vatPercentBySection: new Map([
+          ['primary', 20],
+          ['ДС 1', 22],
+        ]),
+      });
+      expect(table.sections[0]?.rows[0]?.vatKop).toBe(2_000_000);
+      expect(table.sections[1]?.rows[0]?.vatKop).toBe(2_200_000);
+      expect(table.totals.vatKop).toBe(4_200_000);
+    });
+  });
+
+  it('примечание по двигателю попадает в строку', () => {
+    const cp: ContractPayments = {
+      version: 1,
+      slots: [slot({ id: 's1', sectionKey: 'primary', engineId: 'e1', contractPriceKop: 100_000 })],
+    };
+    const table = buildEngineFinanceTable({
+      contractPayments: cp,
+      engines: [engine({ id: 'e1', engineNote: 'под восстановление' })],
+    });
+    expect(table.sections[0]?.rows[0]?.note).toBe('под восстановление');
+  });
 });

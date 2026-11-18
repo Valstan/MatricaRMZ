@@ -55,6 +55,7 @@ import {
   distributeAmountToSlots,
   distributePercentToSlots,
   emptyContractPayments,
+  effectiveVatPercent,
   findSlotForEngine,
   formatKopMoney,
   isEngineDoneForCountdown,
@@ -481,6 +482,8 @@ function SectionBlock(props: {
   // Отвергнутый ввод срока ремонта: держим его в поле вместе с причиной. Молча вернуть
   // прежнее число нельзя — оператор решит, что срок сохранён, а сохранён он не был.
   const [repairDaysRejected, setRepairDaysRejected] = useState<string | null>(null);
+  // Ставка НДС раздела: тот же закон, что у срока ремонта, — пустое поле УДАЛЯЕТ ключ.
+  const [vatRejected, setVatRejected] = useState<string | null>(null);
   const sectionSlots = sectionToken
     ? (props.contractPayments?.slots ?? []).filter((s) => s.sectionKey === sectionToken)
     : [];
@@ -664,6 +667,29 @@ function SectionBlock(props: {
     onChange({ ...withoutDays, repairDays: days });
   };
 
+  /**
+   * Ставка НДС раздела, %: пустое поле УДАЛЯЕТ ключ («не оговорён» и «0 %» — разные вещи),
+   * значение вне 1..100 не применяется вовсе: парсер его всё равно отбросит, а оператор
+   * считал бы съеденное число сохранённым.
+   */
+  const changeVatPercent = (raw: string) => {
+    if (!primarySection) return;
+    const { vatPercent: _drop, ...withoutVat } = primarySection;
+    const text = raw.trim();
+    if (!text) {
+      setVatRejected(null);
+      onChange(withoutVat);
+      return;
+    }
+    const percent = Number(text);
+    if (!Number.isInteger(percent) || percent < 1 || percent > 100) {
+      setVatRejected(text);
+      return;
+    }
+    setVatRejected(null);
+    onChange({ ...withoutVat, vatPercent: percent });
+  };
+
   // C-#6: пустые под-разделы не показывают таблицу — только компактную «➕ Добавить…».
   const hasBrands = section.engineBrands.length > 0;
   const hasParts = section.parts.length > 0;
@@ -748,6 +774,24 @@ function SectionBlock(props: {
                   {repairDaysRejected
                     ? 'Допустимо целое число от 1 до 3650 — значение не сохранено.'
                     : `Считается с даты поступления двигателя на завод. Пусто — общий срок ${DEFAULT_CONTRACT_REPAIR_DAYS} дн.`}
+                </div>
+              </FormField>
+              <FormField label="Ставка НДС, %">
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={vatRejected ?? primarySection.vatPercent ?? ''}
+                  disabled={!canEdit}
+                  placeholder="20"
+                  onChange={(e) => changeVatPercent(e.target.value)}
+                  style={{ width: '100%', textAlign: 'right', ...(vatRejected ? { borderColor: 'var(--danger)' } : {}) }}
+                />
+                <div style={{ fontSize: 12, color: vatRejected ? 'var(--danger)' : 'var(--subtle)', marginTop: 4 }}>
+                  {vatRejected
+                    ? 'Допустимо целое число от 1 до 100 — значение не сохранено.'
+                    : 'Цена по договору указана с НДС: «без НДС» считается от неё. Пусто — ставка не оговорена.'}
                 </div>
               </FormField>
               <FormField label="Внутренний номер">
@@ -2327,7 +2371,31 @@ export function ContractDetailsPage(props: {
    * никакого fallback в соседние секции — свободный слот марки в целевой, иначе over-plan
    * там же (после подтверждения). Деньги за двигателем не едут — остаются на старом слоте.
    */
+  /**
+   * Примечание по двигателю из сводки оплаты. Пишется тем же полем `engine_note`, что и
+   * в карточке двигателя, и той же дверью `engines:card:save` — одна запись, одно место.
+   */
+  async function saveEngineNote(engineId: string, note: string) {
+    const normalizedId = String(engineId ?? '').trim();
+    if (!normalizedId) return;
+    const cardApi = (
+      window as unknown as {
+        matrica?: { engines?: { card?: { save?: (a: unknown) => Promise<unknown> } } };
+      }
+    ).matrica;
+    const saved = (await cardApi?.engines?.card?.save?.({
+      id: normalizedId,
+      fields: { engine_note: note },
+    })) as { ok?: boolean; error?: string } | null;
+    if (!saved?.ok) {
+      setBulkReport(`Ошибка сохранения примечания: ${String(saved?.error ?? 'неизвестно')}`);
+      return;
+    }
+    await loadProgress();
+  }
+
   async function moveEngineToSection(engineId: string, targetToken: string) {
+
     const normalizedId = String(engineId ?? '').trim();
     const target = String(targetToken ?? '').trim();
     if (!normalizedId || !target) return;
@@ -2862,6 +2930,22 @@ export function ContractDetailsPage(props: {
     () => parseContractSections(contract?.attributes ?? {}),
     [contract],
   );
+
+  /**
+   * Ставка НДС по разделам — для колонок «без НДС» и «НДС» в сводке оплаты. Раздел без
+   * ставки в карту не попадает: там НДС не считаем, а показываем «—», не ноль.
+   */
+  const vatPercentBySection = useMemo(() => {
+    const map = new Map<string, number>();
+    const primary = effectiveVatPercent(committedSectionsForFinance);
+    if (primary != null) map.set(PRIMARY_CONTRACT_SECTION_KEY, primary);
+    for (const addon of committedSectionsForFinance.addons) {
+      const token = contractSectionAddonToken(addon.seq);
+      const percent = effectiveVatPercent(committedSectionsForFinance, token);
+      if (percent != null) map.set(token, percent);
+    }
+    return map;
+  }, [committedSectionsForFinance]);
 
   /** План договора для сверки цены места — из КОММИТНЫХ секций, как и сверка слотов. */
   function committedPlanned(): PlannedSectionBrand[] {
@@ -3628,6 +3712,8 @@ export function ContractDetailsPage(props: {
               else await distributePercentToSelectedSlots(slotIds, payload.percent, kind, date, note);
             }}
             repairDays={effectiveRepairDays(sections)}
+            vatPercentBySection={vatPercentBySection}
+            onSaveNote={saveEngineNote}
             customerName={customerOptions.find((o) => o.id === sections?.primary.customerId)?.label ?? ''}
           />
           </div>
