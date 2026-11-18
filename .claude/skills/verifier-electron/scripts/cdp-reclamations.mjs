@@ -653,12 +653,13 @@ async function main() {
      await setQuery(root, ${JSON.stringify(NUMBER)});
      const btn = [...document.querySelectorAll('button')].find((b) => b.getAttribute('data-at-plant-mode'));
      if (!btn) return { ok: false, reason: 'переключатель режима не найден' };
-     const before = Boolean(document.querySelector('[data-at-plant-mode-note]'));
+     const before = btn.getAttribute('data-at-plant-mode');
      click(btn); await wait(1600);
-     const note = document.querySelector('[data-at-plant-mode-note]');
      const modeOn = btn.getAttribute('data-at-plant-mode') === 'on';
+     // Поясняющей надписи под рядом больше нет (решение владельца 18.11.2026): признак
+     // включённого режима — сама кнопка. Проверяем, что надпись не вернулась.
+     const noteGone = !document.querySelector('[data-at-plant-mode-note]');
      const inList = listRows(root).some((r) => txt(r).includes(${JSON.stringify(NUMBER)}));
-     const noteText = note ? txt(note) : '';
      // Отбор по этапу прошлого заезда: в режиме «сейчас» он НЕ должен ловить двигателя.
      let caughtInMode = null;
      if (prev?.code) {
@@ -686,13 +687,13 @@ async function main() {
      }
      await setQuery(root, '');
      return {
-       ok: true, before, modeOn, inList, noteText, prevCode: prev?.code ?? null,
+       ok: true, before, modeOn, noteGone, inList, prevCode: prev?.code ?? null,
        caughtInMode, caughtOutMode,
      };`,
   );
   note(
-    atPlantMode.ok && atPlantMode.modeOn && !atPlantMode.before,
-    'список двигателей: переключатель «Сейчас на заводе» включается и показывает подсказку режима',
+    atPlantMode.ok && atPlantMode.modeOn && atPlantMode.before === 'off' && atPlantMode.noteGone,
+    'список двигателей: переключатель «Сейчас на заводе» включается и помечен кнопкой (лишней надписи нет)',
     atPlantMode,
   );
   note(

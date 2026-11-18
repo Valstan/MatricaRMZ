@@ -29,12 +29,15 @@ describe('режим «Сейчас на заводе» в списке двиг
     expect(PAGE).toContain('applyEngineFacets(facetRows');
   });
 
-  it('оператор видит, что режим включён: в списке не все двигатели', () => {
-    expect(PAGE).toContain('data-at-plant-mode-note');
-    expect(PAGE).toContain('Режим «Сейчас на заводе»');
-    // Счётчики «сколько показано из скольких» — иначе режим выглядит как обычный список.
-    expect(PAGE).toContain('modeRows.length');
-    expect(PAGE).toContain('props.engines.length');
+  it('оператор видит, что режим включён: кнопка помечена, а лишней надписи нет', () => {
+    // Решение владельца 18.11.2026: поясняющая надпись под рядом кнопок убрана — она
+    // занимала место. Признак включённого режима остался на самой кнопке: primary-вариант
+    // и метка data-at-plant-mode="on". Если надпись вернётся — она опять съест высоту
+    // списка, поэтому сторож следит и за тем, что её НЕТ.
+    expect(PAGE).toContain("variant={atPlantOnly ? 'primary' : 'ghost'}");
+    expect(PAGE).toContain("data-at-plant-mode={atPlantOnly ? 'on' : 'off'}");
+    expect(PAGE).not.toContain('data-at-plant-mode-note');
+    expect(PAGE).not.toContain('Режим «Сейчас на заводе»: показаны только');
   });
 });
 
