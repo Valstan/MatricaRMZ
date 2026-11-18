@@ -121,6 +121,7 @@ export * from './domain/clientLabel.js';
 export * from './domain/watchdog.js';
 export * from './domain/globalSearch.js';
 export * from './domain/payments.js';
+export * from './domain/engineFinance.js';
 export * from './domain/reclamation.js';
 export * from './domain/repeatArrival.js';
 export * from './domain/ppe.js';
