@@ -15,10 +15,11 @@ import { EntityCardShell } from '../components/EntityCardShell.js';
 import { RowActions } from '../components/RowActions.js';
 import { SectionCard } from '../components/SectionCard.js';
 
-type ContractCardTab = 'contract' | 'engines' | 'parts' | 'accounting' | 'files';
+type ContractCardTab = 'contract' | 'engines' | 'finance' | 'parts' | 'accounting' | 'files';
 const CONTRACT_CARD_TABS: CardTab<ContractCardTab>[] = [
   { key: 'contract', label: 'Контракт и ДС' },
   { key: 'engines', label: 'Двигатели' },
+  { key: 'finance', label: 'Авансы и расчёт' },
   { key: 'parts', label: 'Детали' },
   { key: 'accounting', label: 'Бухгалтерия' },
   { key: 'files', label: 'Фото и документы' },
@@ -28,6 +29,8 @@ import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { DocumentHistoryPanel } from '../components/DocumentHistoryPanel.js';
 import { RowReorderButtons } from '../components/RowReorderButtons.js';
 import { ListCount } from '../components/ListCount.js';
+import { DistributeToSelectedForm } from '../components/DistributeToSelectedForm.js';
+import { ContractEngineFinance } from '../components/ContractEngineFinance.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import {
   parseContractSections,
@@ -47,7 +50,6 @@ import {
   CONTRACT_PAYMENTS_ATTR_CODE,
   PAYMENT_KIND_LABELS,
   attachEngineToSlot,
-  advancePercentShares,
   applyBulkEnginePlacement,
   countdownStatus,
   distributeAmountToSlots,
@@ -56,7 +58,6 @@ import {
   findSlotForEngine,
   formatKopMoney,
   isEngineDoneForCountdown,
-  parseMoneyToKop,
   planBulkEnginePlacement,
   planSlotForEngine,
   removePayment,
@@ -382,158 +383,8 @@ function todayIsoDate(): string {
 /** Строка списка секции: слот и занявший его двигатель (если приехал). */
 type SectionSlotRow = { slot: PaymentSlot; engine?: EngineListItem };
 
-// Форма «Разнести аванс» на ОТМЕЧЕННЫЕ галочками слоты.
-// Раньше спрашивалось «на слотов (из N)» и деньги ложились на первые N слотов секции по
-// порядку массива — выбрать конкретную марку было нельзя. Кейс владельца ровно обратный:
-// «аванс пришёл за 10 двигателей вот этой марки».
-//
-// Два способа задать сумму (владелец 13.11.2026): своей суммой — когда известно, сколько
-// пришло, и процентом от стоимости по контракту — когда известно «50% аванса по этим
-// двигателям». Оба раскладываются по ОТМЕЧЕННЫМ слотам.
-function DistributeToSelectedForm(props: {
-  selectedCount: number;
-  /** Платежи договора — нужны цены слотов для разноса по проценту. */
-  contractPayments?: ContractPayments | undefined;
-  /** Отмеченные слоты (для разноса по проценту). */
-  slotIds?: readonly string[];
-  onApply: (
-    payload: { mode: 'amount'; amountKop: number } | { mode: 'percent'; percent: number },
-    kind: PaymentKind,
-    date: string,
-    note: string,
-  ) => void;
-  onCancel: () => void;
-}) {
-  const [mode, setMode] = useState<'amount' | 'percent'>('amount');
-  const [amountText, setAmountText] = useState('');
-  const [percentText, setPercentText] = useState('');
-  const [kind, setKind] = useState<PaymentKind>('advance');
-  const [date, setDate] = useState(todayIsoDate());
-  const [note, setNote] = useState('');
-  const [error, setError] = useState('');
-  const amountKop = parseMoneyToKop(amountText);
-  const percent = Number.parseFloat(percentText.replace(',', '.'));
-  const percentOk = Number.isFinite(percent) && percent > 0;
-  // Живой расчёт: бухгалтер видит, что получит каждый двигатель, до нажатия кнопки.
-  const preview =
-    mode === 'amount'
-      ? amountKop != null && amountKop > 0 && props.selectedCount > 0
-        ? (() => {
-            const per = Math.floor(amountKop / props.selectedCount);
-            const rest = amountKop - per * props.selectedCount;
-            return `по ${formatKopMoney(per)} ₽ на ${props.selectedCount} поз.${
-              rest > 0 ? `, остаток ${formatKopMoney(rest)} ₽ — первой` : ''
-            }`;
-          })()
-        : ''
-      : percentOk && props.contractPayments && (props.slotIds ?? []).length > 0
-        ? (() => {
-            const shares = advancePercentShares(props.contractPayments, props.slotIds ?? [], percent);
-            const total = shares.reduce((s, x) => s + x.amountKop, 0);
-            return shares.length === 0
-              ? 'у отмеченных двигателей нет цены по контракту — процент не от чего считать'
-              : `${percent}% от суммы по ${shares.length} поз. — всего ${formatKopMoney(total)} ₽`;
-          })()
-        : '';
-  return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'end', flexWrap: 'wrap', padding: '8px 0' }}>
-      <FormField label="Как считать">
-        <div style={{ display: 'flex', gap: 6 }} data-distribute-mode>
-          {(
-            [
-              { key: 'amount', label: 'Суммой' },
-              { key: 'percent', label: '% от суммы двигателя' },
-            ] as const
-          ).map((opt) => (
-            <button
-              key={opt.key}
-              type="button"
-              data-distribute-mode-option={opt.key}
-              onClick={() => {
-                setMode(opt.key);
-                setError('');
-              }}
-              style={{
-                padding: '6px 10px',
-                borderRadius: 8,
-                border: '1px solid var(--border)',
-                background: mode === opt.key ? 'rgba(37, 99, 235, 0.15)' : 'var(--surface)',
-                fontWeight: mode === opt.key ? 700 : 400,
-                cursor: 'pointer',
-                fontSize: 13,
-              }}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      </FormField>
-      {mode === 'amount' ? (
-        <FormField label="Сумма, ₽">
-          <Input value={amountText} onChange={(e) => setAmountText(e.target.value)} placeholder="0,00" style={{ width: 130, textAlign: 'right' }} />
-        </FormField>
-      ) : (
-        <FormField label="Процент, %">
-          <Input
-            value={percentText}
-            onChange={(e) => setPercentText(e.target.value)}
-            placeholder="50"
-            inputMode="decimal"
-            style={{ width: 90, textAlign: 'right' }}
-          />
-        </FormField>
-      )}
-      <FormField label="Вид платежа">
-        <select
-          value={kind}
-          onChange={(e) => setKind(e.target.value as PaymentKind)}
-          style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid var(--input-border)', fontSize: 13 }}
-        >
-          {(['advance', 'extra_advance', 'final'] as PaymentKind[]).map((k) => (
-            <option key={k} value={k}>
-              {PAYMENT_KIND_LABELS[k]}
-            </option>
-          ))}
-        </select>
-      </FormField>
-      <FormField label="Дата оплаты">
-        <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: 140 }} />
-      </FormField>
-      <FormField label="Примечание">
-        <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="п/п №…" style={{ width: 160 }} />
-      </FormField>
-      <Button
-        size="sm"
-        onClick={() => {
-          if (props.selectedCount === 0) {
-            setError('Отметьте двигатели галочками');
-            return;
-          }
-          if (mode === 'amount') {
-            if (amountKop == null || amountKop <= 0) {
-              setError('Укажите сумму');
-              return;
-            }
-            props.onApply({ mode: 'amount', amountKop }, kind, date, note);
-            return;
-          }
-          if (!percentOk) {
-            setError('Укажите процент');
-            return;
-          }
-          props.onApply({ mode: 'percent', percent }, kind, date, note);
-        }}
-      >
-        Разнести на {props.selectedCount}
-      </Button>
-      <Button variant="ghost" tone="neutral" size="sm" onClick={props.onCancel}>
-        Отмена
-      </Button>
-      {preview ? <span style={{ color: 'var(--subtle)', fontSize: 12 }}>{preview}</span> : null}
-      {error ? <span style={{ color: 'var(--danger)', fontSize: 12 }}>{error}</span> : null}
-    </div>
-  );
-}
+
+
 
 function SectionBlock(props: {
   title: string;
@@ -2931,8 +2782,7 @@ export function ContractDetailsPage(props: {
   // оператор сначала видит, кто куда сядет и кто сверх плана, и только потом подтверждает.
 
   /** Отмеченные оператором двигатели (галочки в списке двигателей контракта). */
-  const [engineSelection, setEngineSelection] = useState<Set<string>>(new Set());
-  /** Раздел, куда переносим пачку. */
+  const [engineSelection, setEngineSelection] = useState<Set<string>>(new Set());  /** Раздел, куда переносим пачку. */
   const [bulkTarget, setBulkTarget] = useState<string>('');
   /** Предпросмотр раскладки — до записи. Пустой target — «разложить по плану». */
   const [bulkPreview, setBulkPreview] = useState<{ plan: BulkPlacementPlan; target: string } | null>(null);
@@ -3004,9 +2854,18 @@ export function ContractDetailsPage(props: {
     }));
   }
 
+  /**
+   * КОММИТНЫЕ секции договора. Не редактируемый стейт: несохранённые правки qty плодили бы
+   * места и сбивали бы сводку по авансам (сверка слотов и сводка считают по одному плану).
+   */
+  const committedSectionsForFinance = useMemo(
+    () => parseContractSections(contract?.attributes ?? {}),
+    [contract],
+  );
+
   /** План договора для сверки цены места — из КОММИТНЫХ секций, как и сверка слотов. */
   function committedPlanned(): PlannedSectionBrand[] {
-    return plannedSectionsOf(parseContractSections(contract?.attributes ?? {}));
+    return plannedSectionsOf(committedSectionsForFinance);
   }
 
   /**
@@ -3750,6 +3609,27 @@ export function ContractDetailsPage(props: {
             </SectionCard>
           ) : null}
 
+          </div>
+          {/* Авансы и расчёт по двигателям (промты КАРМАНА #18/#19): сводка «кто сколько
+              должен» по разделам — та же ведомость, что владелец вёл руками в Excel,
+              но строки берутся из данных программы (план, платежи, карточки двигателей). */}
+          <div data-card-tab="finance" hidden={activeTab !== 'finance'} style={{ gap: 16, minWidth: 0, ...(activeTab === 'finance' ? { display: 'grid' } : {}) }}>
+          <ContractEngineFinance
+            contractPayments={contractPayments}
+            engines={relatedEngines}
+            sections={committedSectionsForFinance}
+            plan={plannedSectionsOf(committedSectionsForFinance)}
+            canEdit={props.canEdit}
+            slotSelection={slotSelection}
+            onToggleSlots={toggleSlots}
+            {...(props.onOpenEngine ? { onOpenEngine: props.onOpenEngine } : {})}
+            onDistribute={async (payload, kind, date, note, slotIds) => {
+              if (payload.mode === 'amount') await distributeToSlots(slotIds, payload.amountKop, kind, date, note);
+              else await distributePercentToSelectedSlots(slotIds, payload.percent, kind, date, note);
+            }}
+            repairDays={effectiveRepairDays(sections)}
+            customerName={customerOptions.find((o) => o.id === sections?.primary.customerId)?.label ?? ''}
+          />
           </div>
           <div data-card-tab="parts" hidden={activeTab !== 'parts'} style={{ gap: 16, minWidth: 0, ...(activeTab === 'parts' ? { display: 'grid' } : {}) }}>
           <SectionCard className="entity-card-span-full" title="Детали" style={{ borderRadius: 0, padding: 16 }}>
