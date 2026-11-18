@@ -27,7 +27,6 @@ import { startOrganizationSyncPublisher } from './services/sync/childrenSyncPubl
 import { startDictionarySyncPublisher } from './services/sync/dictionarySyncPublisherService.js';
 import { startEngineNumbersReconcile } from './services/engineNumbersService.js';
 import { startAuditStatisticsScheduler } from './services/statisticsAuditService.js';
-import { startEngineDedupeJob } from './services/engineDedupeService.js';
 import { startCriticalEventsTelegramService } from './services/criticalEventsTelegramService.js';
 import { ensureBaseMasterdata } from './services/baseMasterdataService.js';
 import { ensureSyncSchemaGuard } from './services/sync/syncSchemaGuard.js';
@@ -105,7 +104,6 @@ async function bootstrap() {
     startAiAgentReportsScheduler();
   }
   if (runBackgroundJobs) {
-    startEngineDedupeJob();
     startAuditStatisticsScheduler();
     startAiAgentChatLearningService();
     startSyncPipelineSupervisorService();

@@ -1,13 +1,15 @@
-// Engine duplicate auto-merge (owner batch task 1, gate stage).
+// Engine duplicates: finding and merging (owner batch task 1 + UI «Поиск дублей»).
 //
 // A duplicate is born on sync-merge when two offline clients create "the same"
-// engine, so a write-time gate alone cannot prevent it. This service is the
-// backstop: a periodic in-process pass (primary instance only) that merges
-// duplicate groups by the canonical key normalizeLookupCompact(engine_number)
-// and surfaces what it did as a critical event. Running inside the backend
-// process avoids the LedgerStore multi-process write race that bit the
-// standalone CLI run (see PENDING_FOLLOWUPS «LedgerStore: writeFileSync без
-// локов»).
+// engine, so a write-time gate alone cannot prevent it. The service therefore
+// provides the tools to FIND duplicates (read-only) and to MERKE a group with
+// an operator-chosen survivor.
+//
+// ФОНОВОЙ АВТО-СКЛЕЙКИ НЕТ (владелец 18.11.2026): раз в час задача молча
+// склеивала дубли по совпадению номера — «вдруг склеит не то, что надо, а мы
+// потом концов не найдём». Меняет данные теперь только человек: диалог
+// «Поиск дублей» (основной путь) или ручной запуск скрипта
+// `masterdata:dedupe-engines` (dry-run по умолчанию).
 //
 // Merge semantics per group: survivor = most alive operations, tie -> oldest;
 // losers' operations are repointed to the survivor; survivor's empty attrs are
@@ -23,7 +25,7 @@ import { and, asc, eq, inArray, isNull, isNotNull } from 'drizzle-orm';
 
 import { db } from '../database/db.js';
 import { attributeDefs, attributeValues, entities, entityTypes, erpRegStockMovements, operations } from '../database/schema.js';
-import { logError, logInfo, logWarn } from '../utils/logger.js';
+import { logInfo } from '../utils/logger.js';
 import { setEntityAttribute, softDeleteEntity } from './adminMasterdataService.js';
 import { loadDedupeExemptEngineIds } from './engineNumberGuard.js';
 import {
@@ -425,61 +427,17 @@ export async function runEngineDedupePass(opts: {
   return out;
 }
 
-let dedupeJobRunning = false;
-
-export function startEngineDedupeJob() {
-  const enabled = String(process.env.MATRICA_ENGINE_DEDUPE_ENABLED ?? 'true').toLowerCase() === 'true';
-  if (!enabled) {
-    logInfo('engine dedupe job disabled (MATRICA_ENGINE_DEDUPE_ENABLED=false)');
-    return;
-  }
-  const intervalRaw = Number(process.env.MATRICA_ENGINE_DEDUPE_INTERVAL_MS ?? 3_600_000);
-  const intervalMs = Number.isFinite(intervalRaw) && intervalRaw >= 60_000 ? intervalRaw : 3_600_000;
-  const actorLogin = String(process.env.MATRICA_ENGINE_DEDUPE_ACTOR ?? 'valstan').trim() || 'valstan';
-
-  const tick = async () => {
-    if (dedupeJobRunning) return;
-    dedupeJobRunning = true;
-    try {
-      const res = await runEngineDedupePass({ apply: true, preferNewer: true, actorLogin });
-      if (res.groups > 0) {
-        logWarn('engine dedupe pass merged duplicates', {
-          groups: res.groups,
-          ops: res.opsRepointed,
-          stray: res.strayOpsRepointed,
-          fills: res.attrsFilled,
-          deleted: res.losersDeleted,
-        });
-        ingestServerCriticalEvent({
-          eventCode: 'engine_duplicates_merged',
-          title: 'Авто-склейка дублей двигателей',
-          humanMessage:
-            `Обнаружены и склеены дубли двигателей: групп ${res.groups}, актов перевешено ${res.opsRepointed}, ` +
-            `записей удалено ${res.losersDeleted}.` +
-            (res.conflicts.length ? ` Конфликтные поля (${res.conflicts.length}): ${res.conflicts.slice(0, 10).join('; ')}` : ''),
-          category: 'database',
-          severity: 'warn',
-          aiDetails: { log: res.log.slice(0, 200), conflicts: res.conflicts },
-        });
-      } else if (res.strayOpsRepointed > 0) {
-        logInfo('engine dedupe pass repointed stray operations', { stray: res.strayOpsRepointed });
-      }
-    } catch (e) {
-      logError('engine dedupe pass failed', { error: String(e) });
-    } finally {
-      dedupeJobRunning = false;
-    }
-  };
-
-  setTimeout(() => void tick(), 300_000);
-  setInterval(() => void tick(), intervalMs);
-  logInfo('engine dedupe job started', { intervalMs, actorLogin });
-}
-
 // ---------------------------------------------------------------------------
 // Operator-driven dedupe (UI "Поиск дублей двигателей"): analyze groups for
-// review + merge a group with an operator-chosen survivor. The periodic job
-// above auto-merges EXACT groups; this surfaces what is left for a human.
+// review + merge a group with an operator-chosen survivor.
+//
+// ФОНОВОЙ АВТО-СКЛЕЙКИ БОЛЬШЕ НЕТ (владелец 18.11.2026): «нам не нужно, чтобы
+// что-то там втихаря, без нашего ведома, вносило изменения — вдруг склеит не то
+// что надо, а мы потом концов не найдём». Задача, которая раз в час молча
+// склеивала дубли по совпадению номера, удалена целиком: ни таймера, ни
+// выключателя. Дубли находит и склеивает ТОЛЬКО человек — через диалог
+// «Поиск дублей» (или вручную скриптом `masterdata:dedupe-engines`, у которого
+// dry-run по умолчанию).
 //
 // ДВА РЕЖИМА (владелец 18.11.2026):
 //   * «По номеру» — реальные дубли: номер двигателя совпадает на 100%.
