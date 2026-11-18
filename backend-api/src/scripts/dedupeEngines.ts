@@ -3,9 +3,12 @@
 // Dry-run by default; --apply to mutate, --prefer-newer to resolve attr
 // conflicts toward the most recently created record, --actor=<login>.
 //
-// ⚠ When applying against a database whose backend services are RUNNING,
-// prefer the in-process periodic job (startEngineDedupeJob) — a standalone
-// process races the services for LedgerStore files (no file locking, see
+// Это РУЧНОЙ инструмент: склеивает только человек, который его запустил, и
+// только после dry-run. Фоновой авто-склейки больше нет (владелец 18.11.2026) —
+// основной путь теперь диалог «Поиск дублей», где склейку подтверждает человек.
+//
+// ⚠ Manual --apply against a database whose backend services are RUNNING
+// races the services for LedgerStore files (no file locking, see
 // PENDING_FOLLOWUPS). Manual --apply is safe only with services stopped.
 //
 // Usage:
