@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   addPayment,
   advancePercentShares,
+  applyBulkEnginePlacement,
   attachEngineToSlot,
   burningEnginesCount,
   collectContractPaymentsEngineIds,
@@ -18,6 +19,7 @@ import {
   parseContractPayments,
   parseMoneyToKop,
   paymentRowLabel,
+  planBulkEnginePlacement,
   planSlotForEngine,
   removePayment,
   REPAIR_COUNTDOWN_DAYS,
@@ -809,5 +811,330 @@ describe('labels and refs', () => {
       slots: [slot({ id: 'a', engineId: 'eng-1' }), slot({ id: 'b' })],
     };
     expect(collectContractPaymentsEngineIds(cp)).toEqual([{ path: 'slots[0].engineId', engineId: 'eng-1' }]);
+  });
+});
+
+// Промты КАРМАНА #18/#19: перенос двигателей пачкой и риск «попал не в тот слот».
+describe('planBulkEnginePlacement / applyBulkEnginePlacement', () => {
+  const plan = [
+    { sectionKey: 'primary', engineBrandId: 'brand-A', qty: 2, unitPrice: 1000 },
+    { sectionKey: 'ДС 1', engineBrandId: 'brand-A', qty: 1, unitPrice: 1000 },
+  ];
+
+  it('сажает двигатель в свободное место своей марки целевой секции', () => {
+    const cp: ContractPayments = {
+      version: 1,
+      slots: [slot({ id: 's-ds-a', sectionKey: 'ДС 1', engineBrandId: 'brand-A' })],
+    };
+    const res = planBulkEnginePlacement({
+      cp,
+      engines: [{ engineId: 'e1', engineBrandId: 'brand-A', sectionKey: '' }],
+      targetSectionKey: 'ДС 1',
+      planned: plan,
+    });
+    expect(res.seated).toBe(1);
+    expect(res.overPlan).toBe(0);
+    expect(res.moved).toBe(1);
+    expect(res.placements[0]?.slotId).toBe('s-ds-a');
+  });
+
+  it('не занимает занятое место: чужой двигатель не теряет место', () => {
+    const cp: ContractPayments = {
+      version: 1,
+      slots: [slot({ id: 's-busy', sectionKey: 'ДС 1', engineBrandId: 'brand-A', engineId: 'other' })],
+    };
+    const res = planBulkEnginePlacement({
+      cp,
+      engines: [{ engineId: 'e1', engineBrandId: 'brand-A', sectionKey: '' }],
+      targetSectionKey: 'ДС 1',
+    });
+    // Место своей марки занято — новое место заводится сверх плана, а не отбирается чужое.
+    expect(res.overPlan).toBe(1);
+    expect(res.seated).toBe(0);
+    expect(res.placements[0]?.slotId).toBeUndefined();
+  });
+
+  it('марка двигателя не садится в место чужой марки — только сверх плана', () => {
+    const cp: ContractPayments = {
+      version: 1,
+      slots: [slot({ id: 's-other', sectionKey: 'ДС 1', engineBrandId: 'brand-B' })],
+    };
+    const res = planBulkEnginePlacement({
+      cp,
+      engines: [{ engineId: 'e1', engineBrandId: 'brand-A', sectionKey: '' }],
+      targetSectionKey: 'ДС 1',
+    });
+    expect(res.overPlan).toBe(1);
+    expect(res.placements[0]?.slotId).toBeUndefined();
+  });
+
+  it('fallback в соседнюю секцию запрещён: цель — «ДС 1», место своей марки есть в primary', () => {
+    const cp: ContractPayments = {
+      version: 1,
+      slots: [slot({ id: 's-primary', sectionKey: 'primary', engineBrandId: 'brand-A' })],
+    };
+    const res = planBulkEnginePlacement({
+      cp,
+      engines: [{ engineId: 'e1', engineBrandId: 'brand-A', sectionKey: '' }],
+      targetSectionKey: 'ДС 1',
+    });
+    expect(res.overPlan).toBe(1);
+    expect(res.placements[0]?.toSectionKey).toBe('ДС 1');
+  });
+
+  it('уже в целевой секции и в её месте — ничего не делаем', () => {
+    const cp: ContractPayments = {
+      version: 1,
+      slots: [slot({ id: 's-a', sectionKey: 'ДС 1', engineBrandId: 'brand-A', engineId: 'e1' })],
+    };
+    const res = planBulkEnginePlacement({
+      cp,
+      engines: [{ engineId: 'e1', engineBrandId: 'brand-A', sectionKey: 'ДС 1' }],
+      targetSectionKey: 'ДС 1',
+    });
+    expect(res.alreadyThere).toBe(1);
+    expect(res.moved).toBe(0);
+    expect(res.seated).toBe(0);
+  });
+
+  it('двигатель без раздела переезжает в целевую секцию', () => {
+    const cp: ContractPayments = { version: 1, slots: [] };
+    const res = planBulkEnginePlacement({
+      cp,
+      engines: [{ engineId: 'e1', engineBrandId: 'brand-A', sectionKey: '' }],
+      targetSectionKey: 'ДС 1',
+    });
+    expect(res.moved).toBe(1);
+    expect(res.placements[0]?.fromSectionKey).toBe('');
+  });
+
+  it('два двигателя пачки не садятся в одно место', () => {
+    const cp: ContractPayments = {
+      version: 1,
+      slots: [slot({ id: 's-a', sectionKey: 'ДС 1', engineBrandId: 'brand-A' })],
+    };
+    const res = planBulkEnginePlacement({
+      cp,
+      engines: [
+        { engineId: 'e1', engineBrandId: 'brand-A', sectionKey: '' },
+        { engineId: 'e2', engineBrandId: 'brand-A', sectionKey: '' },
+      ],
+      targetSectionKey: 'ДС 1',
+    });
+    expect(res.seated).toBe(1);
+    expect(res.overPlan).toBe(1);
+    const ids = res.placements.map((p) => p.slotId).filter(Boolean);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('место с деньгами берётся первым: аванс встречает приехавший двигатель', () => {
+    const cp: ContractPayments = {
+      version: 1,
+      slots: [
+        slot({ id: 's-empty', sectionKey: 'ДС 1', engineBrandId: 'brand-A' }),
+        slot({
+          id: 's-paid',
+          sectionKey: 'ДС 1',
+          engineBrandId: 'brand-A',
+          payments: [{ id: 'p1', date: '2026-11-01', amountKop: 100, kind: 'advance' }],
+        }),
+      ],
+    };
+    const res = planBulkEnginePlacement({
+      cp,
+      engines: [{ engineId: 'e1', engineBrandId: 'brand-A', sectionKey: '' }],
+      targetSectionKey: 'ДС 1',
+    });
+    expect(res.placements[0]?.slotId).toBe('s-paid');
+  });
+
+  it('цена места, разошедшаяся с планом, помечается', () => {
+    const cp: ContractPayments = {
+      version: 1,
+      slots: [slot({ id: 's-a', sectionKey: 'ДС 1', engineBrandId: 'brand-A', contractPriceKop: 55_000 })],
+    };
+    const res = planBulkEnginePlacement({
+      cp,
+      engines: [{ engineId: 'e1', engineBrandId: 'brand-A', sectionKey: '' }],
+      targetSectionKey: 'ДС 1',
+      planned: plan,
+    });
+    expect(res.priceMismatch).toBe(1);
+  });
+
+  it('apply: переносит, деньги остаются на прежнем месте, движок не сидит в двух местах', () => {
+    const cp: ContractPayments = {
+      version: 1,
+      slots: [
+        slot({
+          id: 's-old',
+          sectionKey: 'primary',
+          engineBrandId: 'brand-A',
+          engineId: 'e1',
+          payments: [{ id: 'p1', date: '2026-11-01', amountKop: 100, kind: 'advance' }],
+        }),
+        slot({ id: 's-new', sectionKey: 'ДС 1', engineBrandId: 'brand-A' }),
+      ],
+    };
+    const res = planBulkEnginePlacement({
+      cp,
+      engines: [{ engineId: 'e1', engineBrandId: 'brand-A', sectionKey: 'primary' }],
+      targetSectionKey: 'ДС 1',
+      planned: plan,
+    });
+    const next = applyBulkEnginePlacement({ cp, plan: res, newId: nextId });
+    expect(findSlotForEngine(next, 'e1')?.id).toBe('s-new');
+    // Деньги остались на прежнем месте — «деньги без двигателя».
+    expect(next.slots.find((s) => s.id === 's-old')?.payments).toHaveLength(1);
+    expect(next.slots.find((s) => s.id === 's-old')?.engineId).toBeUndefined();
+  });
+
+  it('apply: сверх плана заводит новое место с маркой двигателя', () => {
+    const cp: ContractPayments = { version: 1, slots: [] };
+    const res = planBulkEnginePlacement({
+      cp,
+      engines: [{ engineId: 'e1', engineBrandId: 'brand-A', sectionKey: '' }],
+      targetSectionKey: 'ДС 1',
+    });
+    const next = applyBulkEnginePlacement({ cp, plan: res, newId: nextId });
+    expect(next.slots).toHaveLength(1);
+    expect(next.slots[0]?.engineId).toBe('e1');
+    expect(next.slots[0]?.engineBrandId).toBe('brand-A');
+    expect(next.slots[0]?.sectionKey).toBe('ДС 1');
+  });
+
+  it('apply: исходное состояние не мутируется', () => {
+    const cp: ContractPayments = { version: 1, slots: [slot({ id: 's-a', sectionKey: 'ДС 1', engineBrandId: 'brand-A' })] };
+    const res = planBulkEnginePlacement({
+      cp,
+      engines: [{ engineId: 'e1', engineBrandId: 'brand-A', sectionKey: '' }],
+      targetSectionKey: 'ДС 1',
+    });
+    const before = JSON.stringify(cp);
+    applyBulkEnginePlacement({ cp, plan: res, newId: nextId });
+    expect(JSON.stringify(cp)).toBe(before);
+  });
+
+  it('страж: сумма платежей пачки не меняется — перенос двигателей не двигает деньги', () => {
+    const cp: ContractPayments = {
+      version: 1,
+      slots: [
+        slot({
+          id: 's-old',
+          sectionKey: 'primary',
+          engineBrandId: 'brand-A',
+          engineId: 'e1',
+          payments: [{ id: 'p1', date: '2026-11-01', amountKop: 12_345, kind: 'advance' }],
+        }),
+        slot({
+          id: 's-new',
+          sectionKey: 'ДС 1',
+          engineBrandId: 'brand-A',
+          payments: [{ id: 'p2', date: '2026-11-02', amountKop: 50_000, kind: 'advance' }],
+        }),
+      ],
+    };
+    const sumAll = (state: ContractPayments) =>
+      state.slots.reduce((sum, s) => sum + s.payments.reduce((inner, p) => inner + p.amountKop, 0), 0);
+    const before = sumAll(cp);
+    const res = planBulkEnginePlacement({
+      cp,
+      engines: [{ engineId: 'e1', engineBrandId: 'brand-A', sectionKey: 'primary' }],
+      targetSectionKey: 'ДС 1',
+    });
+    const next = applyBulkEnginePlacement({ cp, plan: res, newId: nextId });
+    expect(sumAll(next)).toBe(before);
+  });
+
+  it('страж: откат к снимку возвращает состояние ровно в то же (раун-трип)', () => {
+    const snapshot: ContractPayments = {
+      version: 1,
+      slots: [
+        slot({ id: 's-old', sectionKey: 'primary', engineBrandId: 'brand-A', engineId: 'e1' }),
+        slot({ id: 's-new', sectionKey: 'ДС 1', engineBrandId: 'brand-A' }),
+      ],
+    };
+    const res = planBulkEnginePlacement({
+      cp: snapshot,
+      engines: [{ engineId: 'e1', engineBrandId: 'brand-A', sectionKey: 'primary' }],
+      targetSectionKey: 'ДС 1',
+    });
+    const after = applyBulkEnginePlacement({ cp: snapshot, plan: res, newId: nextId });
+    expect(JSON.stringify(after)).not.toBe(JSON.stringify(snapshot));
+    // Откат — это возврат снимка: после него состояние совпадает с исходным.
+    expect(findSlotForEngine(snapshot, 'e1')?.sectionKey).toBe('primary');
+    expect(findSlotForEngine(after, 'e1')?.sectionKey).toBe('ДС 1');
+  });
+
+
+  // Режим «разложить по плану» (целевой раздел пустой): раздел выбирается по строкам
+  // плана договора, а не угадывается.
+  describe('режим «по плану»', () => {
+    const plan = [
+      { sectionKey: 'primary', engineBrandId: 'brand-A', qty: 2, unitPrice: 1000 },
+      { sectionKey: 'ДС 2', engineBrandId: 'brand-B', qty: 1, unitPrice: 2000 },
+    ];
+
+    it('двигатель без раздела садится в раздел, где его марка запланирована', () => {
+      const cp: ContractPayments = {
+        version: 1,
+        slots: [slot({ id: 's-b', sectionKey: 'ДС 2', engineBrandId: 'brand-B' })],
+      };
+      const res = planBulkEnginePlacement({
+        cp,
+        engines: [{ engineId: 'e1', engineBrandId: 'brand-B', sectionKey: '' }],
+        targetSectionKey: '',
+        planned: plan,
+      });
+      expect(res.placements[0]?.toSectionKey).toBe('ДС 2');
+      expect(res.placements[0]?.slotId).toBe('s-b');
+      expect(res.moved).toBe(1);
+    });
+
+    it('марка не запланирована — место сверх плана в основном договоре', () => {
+      const cp: ContractPayments = { version: 1, slots: [] };
+      const res = planBulkEnginePlacement({
+        cp,
+        engines: [{ engineId: 'e1', engineBrandId: 'brand-Z', sectionKey: '' }],
+        targetSectionKey: '',
+        planned: plan,
+      });
+      expect(res.placements[0]?.toSectionKey).toBe('primary');
+      expect(res.overPlan).toBe(1);
+    });
+
+    it('двигатель со своим разделом из него не переносится', () => {
+      const cp: ContractPayments = {
+        version: 1,
+        slots: [slot({ id: 's-a', sectionKey: 'primary', engineBrandId: 'brand-A' })],
+      };
+      const res = planBulkEnginePlacement({
+        cp,
+        engines: [{ engineId: 'e1', engineBrandId: 'brand-A', sectionKey: 'primary' }],
+        targetSectionKey: '',
+        planned: plan,
+      });
+      expect(res.placements[0]?.toSectionKey).toBe('primary');
+      expect(res.moved).toBe(0);
+      expect(res.seated).toBe(1);
+    });
+
+    it('из двух запланированных разделов берётся тот, где есть свободное место марки', () => {
+      const planTwo = [
+        { sectionKey: 'primary', engineBrandId: 'brand-A', qty: 1, unitPrice: 1000 },
+        { sectionKey: 'ДС 2', engineBrandId: 'brand-A', qty: 1, unitPrice: 1000 },
+      ];
+      const cp: ContractPayments = {
+        version: 1,
+        slots: [slot({ id: 's-ds', sectionKey: 'ДС 2', engineBrandId: 'brand-A' })],
+      };
+      const res = planBulkEnginePlacement({
+        cp,
+        engines: [{ engineId: 'e1', engineBrandId: 'brand-A', sectionKey: '' }],
+        targetSectionKey: '',
+        planned: planTwo,
+      });
+      expect(res.placements[0]?.toSectionKey).toBe('ДС 2');
+    });
   });
 });

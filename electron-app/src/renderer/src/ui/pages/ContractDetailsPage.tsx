@@ -48,6 +48,7 @@ import {
   PAYMENT_KIND_LABELS,
   attachEngineToSlot,
   advancePercentShares,
+  applyBulkEnginePlacement,
   countdownStatus,
   distributeAmountToSlots,
   distributePercentToSlots,
@@ -56,12 +57,15 @@ import {
   formatKopMoney,
   isEngineDoneForCountdown,
   parseMoneyToKop,
+  planBulkEnginePlacement,
   planSlotForEngine,
   removePayment,
   slotTotals,
   syncSlotsWithPlan,
   STATUS_LABELS,
   type AttachedEngineRef,
+  type BulkEngineInput,
+  type BulkPlacementPlan,
   type ContractPayments,
   type PaymentKind,
   type PaymentSlot,
@@ -315,6 +319,26 @@ function collectProgressContractNumbers(sections: ContractSections | null): Set<
 
 function toggleExpanded(prev: Record<string, boolean>, key: string): Record<string, boolean> {
   return { ...prev, [key]: prev[key] === false };
+}
+
+/**
+ * План договора по секциям и маркам. Берётся из КОММИТНЫХ секций, а не из редактируемого
+ * стейта — иначе несохранённые правки qty плодили бы места. Одно место и для сверки слотов,
+ * и для предпросмотра раскладки пачки — иначе предпросмотр считал бы по одному плану,
+ * а запись — по другому.
+ */
+function plannedSectionsOf(sections: ContractSections): PlannedSectionBrand[] {
+  const planned: PlannedSectionBrand[] = [];
+  const push = (token: string, rows: ContractEngineBrandRow[]) => {
+    if (!token) return;
+    for (const row of rows) {
+      if (!row.engineBrandId || !(row.qty > 0)) continue;
+      planned.push({ sectionKey: token, engineBrandId: row.engineBrandId, qty: row.qty, unitPrice: row.unitPrice });
+    }
+  };
+  push(PRIMARY_CONTRACT_SECTION_KEY, sections.primary.engineBrands);
+  for (const addon of sections.addons) push(contractSectionAddonToken(addon.seq), addon.engineBrands);
+  return planned;
 }
 
 function currentEngineStatusLabel(engine: EngineListItem): string {
@@ -2296,6 +2320,20 @@ export function ContractDetailsPage(props: {
     [sections],
   );
 
+  /**
+   * Подпись раздела для предпросмотра раскладки. Основной договор здесь называем
+   * словами, а не его номером: в колонке «Куда» номер договора читался бы как имя
+   * секции, в которую едет двигатель.
+   */
+  const sectionLabelForPreview = useCallback(
+    (raw: string | null | undefined): string => {
+      const key = canonicalContractSectionKey(raw);
+      if (!key) return '';
+      return key === PRIMARY_CONTRACT_SECTION_KEY ? 'основной договор' : key;
+    },
+    [],
+  );
+
   /** Токены секций контракта в порядке предпочтения: основной договор, затем ДС. */
   const sectionKeys = useMemo(() => {
     const committed = parseContractSections(contract?.attributes ?? {});
@@ -2508,18 +2546,7 @@ export function ContractDetailsPage(props: {
   useEffect(() => {
     if (!contract) return;
     const committedSections = parseContractSections(contract.attributes ?? {});
-    const planned: PlannedSectionBrand[] = [];
-    const pushPlan = (token: string, rows: ContractEngineBrandRow[]) => {
-      if (!token) return;
-      for (const row of rows) {
-        if (!row.engineBrandId || !(row.qty > 0)) continue;
-        planned.push({ sectionKey: token, engineBrandId: row.engineBrandId, qty: row.qty, unitPrice: row.unitPrice });
-      }
-    };
-    pushPlan(PRIMARY_CONTRACT_SECTION_KEY, committedSections.primary.engineBrands);
-    for (const addon of committedSections.addons) {
-      pushPlan(contractSectionAddonToken(addon.seq), addon.engineBrands);
-    }
+    const planned = plannedSectionsOf(committedSections);
     const attached: AttachedEngineRef[] = relatedEngines
       .filter((e) => canonicalContractSectionKey(e.contractSectionNumber))
       .map((e) => ({
@@ -2893,16 +2920,220 @@ export function ContractDetailsPage(props: {
     });
   }, [relatedEngines, sections]);
 
-  /**
-   * Разложить «бесхозные» двигатели по слотам их марок. Автоматически при открытии карточки
-   * этого НЕ делаем: часть из них попадёт «сверх плана», а это либо ошибка марки, либо
-   * недобитый план — решение оператора, не наше.
-   */
-  async function placeEnginesWithoutSection() {
-    for (const engine of enginesWithoutSection) {
-      await attachEngineToSection(engine.id, '');
+
+
+
+  // --- Массовый перенос двигателей пачкой (промты КАРМАНА #18/#19) ---
+  //
+  // Владелец просил «отмечать галочками и переносить в какую-то ДС списком, скопом, целым
+  // блоком, а не прощёлкивать по одному». Вместе с этим он назвал риск: при автораскладке
+  // двигатель может попасть не в тот слот. Поэтому раскладка идёт через предпросмотр:
+  // оператор сначала видит, кто куда сядет и кто сверх плана, и только потом подтверждает.
+
+  /** Отмеченные оператором двигатели (галочки в списке двигателей контракта). */
+  const [engineSelection, setEngineSelection] = useState<Set<string>>(new Set());
+  /** Раздел, куда переносим пачку. */
+  const [bulkTarget, setBulkTarget] = useState<string>('');
+  /** Предпросмотр раскладки — до записи. Пустой target — «разложить по плану». */
+  const [bulkPreview, setBulkPreview] = useState<{ plan: BulkPlacementPlan; target: string } | null>(null);
+  /** Итог операции и отчёт оператору. */
+  const [bulkReport, setBulkReport] = useState('');
+  /** Снимок до/после — для отката одним действием. */
+  const [bulkUndo, setBulkUndo] = useState<{
+    before: ContractPayments;
+    after: ContractPayments;
+    /** Куда кого переносили и откуда — разделы в карточках на откат. */
+    placements: BulkPlacementPlan['placements'];
+  } | null>(null);
+
+
+  const selectedEngineItems = useMemo(
+    () => relatedEngines.filter((e) => engineSelection.has(e.id)),
+    [relatedEngines, engineSelection],
+  );
+
+  /** Место каждого двигателя — для колонки «Место». */
+  const slotByEngineId = useMemo(() => {
+    const map = new Map<string, PaymentSlot>();
+    for (const slot of contractPayments.slots) {
+      if (slot.engineId) map.set(slot.engineId, slot);
     }
+    return map;
+  }, [contractPayments]);
+
+  /**
+   * Двигатели контракта в порядке показа: сначала без раздела (их раньше не было видно
+   * нигде), потом по разделам договора. Сортировка нужна и для выбора пачки: оператор
+   * видит блоками, а не вперемешку.
+   */
+  const orderedEngines = useMemo(() => {
+    const sectionOrder = new Map<string, number>();
+    sectionOrder.set(PRIMARY_CONTRACT_SECTION_KEY, 0);
+    (sections?.addons ?? []).forEach((addon, idx) => sectionOrder.set(contractSectionAddonToken(addon.seq), idx + 1));
+    return [...relatedEngines].sort((a, b) => {
+      const tokenA = canonicalContractSectionKey(a.contractSectionNumber);
+      const tokenB = canonicalContractSectionKey(b.contractSectionNumber);
+      if (!tokenA && tokenB) return -1;
+      if (tokenA && !tokenB) return 1;
+      const orderA = sectionOrder.get(tokenA) ?? 99;
+      const orderB = sectionOrder.get(tokenB) ?? 99;
+      if (orderA !== orderB) return orderA - orderB;
+      return String(a.engineNumber ?? '').localeCompare(String(b.engineNumber ?? ''), 'ru');
+    });
+  }, [relatedEngines, sections]);
+
+
+  function toggleEngines(engineIds: readonly string[], checked: boolean) {
+    setEngineSelection((prev) => {
+      const next = new Set(prev);
+      for (const id of engineIds) {
+        if (checked) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+    setBulkPreview(null);
   }
+
+  /** Двигатели на вход доменной раскладки: он, его марка и его текущий раздел. */
+  function bulkInputs(): BulkEngineInput[] {
+    return selectedEngineItems.map((engine) => ({
+      engineId: engine.id,
+      ...(engine.engineBrandId ? { engineBrandId: engine.engineBrandId } : {}),
+      sectionKey: canonicalContractSectionKey(engine.contractSectionNumber),
+    }));
+  }
+
+  /** План договора для сверки цены места — из КОММИТНЫХ секций, как и сверка слотов. */
+  function committedPlanned(): PlannedSectionBrand[] {
+    return plannedSectionsOf(parseContractSections(contract?.attributes ?? {}));
+  }
+
+  /**
+   * Предпросмотр: «куда кто сядет» — до записи. Пустой target — «разложить по плану»:
+   * раздел выбирается по строкам плана договора.
+   */
+  async function previewBulkMove(target: string) {
+    if (selectedEngineItems.length === 0) {
+      setBulkReport('Отметьте двигатели галочками.');
+      return;
+    }
+    const wanted = target.trim();
+    if (target && !wanted) {
+      setBulkReport('Выберите раздел для переноса.');
+      return;
+    }
+    const current = await readContractPayments(props.contractId);
+    const plan = planBulkEnginePlacement({
+      cp: current,
+      engines: bulkInputs(),
+      targetSectionKey: wanted,
+      planned: committedPlanned(),
+    });
+    setBulkPreview({ plan, target: wanted });
+    setBulkReport('');
+  }
+
+  /** Записать раздел в карточку двигателя — тем же путём, что одиночный перенос. */
+  async function saveEngineSection(engineId: string, sectionKey: string): Promise<boolean> {
+    const cardApi = (
+      window as unknown as {
+        matrica?: { engines?: { card?: { save?: (a: unknown) => Promise<unknown> } } };
+      }
+    ).matrica;
+    const saved = (await cardApi?.engines?.card?.save?.({
+      id: engineId,
+      // Пустой раздел — это «раздела нет», а не пробел: снять значение нужно явно.
+      fields: { contract_section_number: sectionKey || null },
+    })) as { ok?: boolean; error?: string } | null;
+    if (!saved?.ok) {
+      setEngineAttachStatus(`Ошибка: ${String(saved?.error ?? 'неизвестно')}`);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Применить раскладку: места — одной записью платежей, разделы — карточкам двигателей.
+   * План считается по СВЕЖЕМУ состоянию (тот же приём, что у read-modify-write): за время
+   * между предпросмотром и подтверждением состояние могли поменять, и старые id мест
+   * тогда бы указывали в пустоту.
+   */
+  async function applyBulkMove() {
+    if (!bulkPreview) return;
+    const { target } = bulkPreview;
+    const inputs = bulkInputs();
+    let appliedPlan: BulkPlacementPlan | null = null;
+    let before: ContractPayments | null = null;
+    const r = await mutateContractPayments(props.contractId, (fresh) => {
+      before = fresh;
+      const plan = planBulkEnginePlacement({
+        cp: fresh,
+        engines: inputs,
+        targetSectionKey: target,
+        planned: committedPlanned(),
+      });
+      appliedPlan = plan;
+      return applyBulkEnginePlacement({ cp: fresh, plan, newId: () => crypto.randomUUID() });
+    });
+    if (!r.ok) {
+      setBulkReport(`Ошибка сохранения платежей: ${r.error}`);
+      return;
+    }
+    setContractPayments(r.next);
+    const plan = appliedPlan ?? bulkPreview.plan;
+    if (before) setBulkUndo({ before, after: r.next, placements: plan.placements });
+    let failed = 0;
+
+    for (const placement of plan.placements) {
+      if (placement.outcome === 'alreadyThere') continue;
+      const ok = await saveEngineSection(placement.engineId, placement.toSectionKey);
+      if (!ok) failed += 1;
+    }
+    await loadProgress();
+    setEngineSelection(new Set());
+    setBulkPreview(null);
+    setBulkReport(
+      [
+        `Перенесено: ${plan.moved}`,
+        `мест получено: ${plan.seated}`,
+        plan.overPlan > 0 ? `сверх плана: ${plan.overPlan}` : '',
+        plan.priceMismatch > 0 ? `цена места разошлась с планом: ${plan.priceMismatch}` : '',
+        failed > 0 ? `в карточку не записалось: ${failed}` : '',
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    );
+  }
+
+  /**
+   * Откат переноса: состояние платежей возвращается к снимку, разделы — к прежним.
+   * Если после переноса платежи меняли, откат не выполняем: он затёр бы чужую правку.
+   */
+  async function undoBulkMove() {
+    if (!bulkUndo) return;
+    const current = await readContractPayments(props.contractId);
+    if (JSON.stringify(current) !== JSON.stringify(bulkUndo.after)) {
+      setBulkReport('После переноса платежи меняли — откат не выполняю, чтобы не затереть правку.');
+      return;
+    }
+    const r = await mutateContractPayments(props.contractId, () => bulkUndo.before);
+
+    if (!r.ok) {
+      setBulkReport(`Ошибка отката: ${r.error}`);
+      return;
+    }
+    setContractPayments(r.next);
+    // Разделы в карточках двигателей возвращаем к прежним — иначе двигатель остался бы
+    // в новом разделе, а место у него — в старом.
+    for (const placement of bulkUndo.placements) {
+      await saveEngineSection(placement.engineId, placement.fromSectionKey);
+    }
+    await loadProgress();
+    setBulkUndo(null);
+    setBulkReport('Перенос откатан — состояние вернулось к снимку.');
+  }
+
 
   const availableEngineOptions = useMemo(
     () => allEngineOptions.filter((option) => !relatedEngineIds.has(option.id)),
@@ -3199,40 +3430,180 @@ export function ContractDetailsPage(props: {
               карточку они не появляются: секция проставляется вместе со слотом. */}
           </div>
           <div data-card-tab="engines" hidden={activeTab !== 'engines'} style={{ gap: 16, minWidth: 0, ...(activeTab === 'engines' ? { display: 'grid' } : {}) }}>
-          {enginesWithoutSection.length > 0 || props.canEdit ? (
-            <SectionCard className="entity-card-span-full" title="Двигатели без секции" style={{ borderRadius: 0, padding: 16 }}>
+          {relatedEngines.length > 0 || props.canEdit ? (
+            <SectionCard className="entity-card-span-full" title="Двигатели договора" style={{ borderRadius: 0, padding: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
                   Всего двигателей контракта: {relatedEngines.length}
-                  {enginesWithoutSection.length > 0 ? ` · без секции: ${enginesWithoutSection.length}` : ''}
+                  {enginesWithoutSection.length > 0 ? ` · без раздела: ${enginesWithoutSection.length}` : ''}
+                  {engineSelection.size > 0 ? ` · отмечено: ${engineSelection.size}` : ''}
                 </div>
+                {props.canEdit && relatedEngines.length > 0 ? (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <Button variant="ghost" tone="neutral" size="sm" onClick={() => toggleEngines(relatedEngines.map((e) => e.id), true)}>
+                      Выделить все
+                    </Button>
+                    {engineSelection.size > 0 ? (
+                      <Button
+                        variant="ghost"
+                        tone="neutral"
+                        size="sm"
+                        onClick={() => {
+                          setEngineSelection(new Set());
+                          setBulkPreview(null);
+                        }}
+                      >
+                        Снять выбор
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
+              {bulkReport ? (
+                <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, color: bulkReport.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>
+                    {bulkReport}
+                  </span>
+                  {bulkUndo ? (
+                    <Button variant="ghost" tone="neutral" size="sm" onClick={() => void undoBulkMove()}>
+                      Откатить перенос
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
+
               {engineAttachStatus ? (
                 <div style={{ marginTop: 10, color: engineAttachStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12 }}>
                   {engineAttachStatus}
                 </div>
               ) : null}
               {enginesWithoutSection.length > 0 ? (
-                <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
-                  <div style={{ fontSize: 12, color: 'var(--warning, #b45309)' }}>
-                    Эти двигатели привязаны к контракту, но не к секции — они не попадают ни в один слот и не
-                    участвуют в разнесении аванса. Нажмите «Разложить по слотам»: каждый сядет в свободный слот
-                    своей марки.
+                <div style={{ marginTop: 10, fontSize: 12, color: 'var(--warning, #b45309)' }}>
+                  Двигатели без раздела не попадают ни в одно место и не участвуют в разнесении аванса. Отметьте их
+                  и нажмите «Разложить по слотам» — каждый сядет в свободное место своей марки, а раздел возьмётся
+                  из плана договора.
+                </div>
+              ) : null}
+              {props.canEdit && engineSelection.size > 0 ? (
+                <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, color: 'var(--subtle)' }}>Отмечено: {engineSelection.size}</span>
+                  <Button variant="outline" tone="neutral" size="sm" onClick={() => void previewBulkMove('')}>
+                    Разложить по слотам
+                  </Button>
+                  <div style={{ maxWidth: 220 }}>
+                    <SearchSelect
+                      value={bulkTarget || null}
+                      options={sectionMoveOptions}
+                      placeholder="Перенести в раздел…"
+                      onChange={(next) => {
+                        setBulkTarget(String(next ?? '').trim());
+                        setBulkPreview(null);
+                      }}
+                    />
                   </div>
-                  <ListCount total={enginesWithoutSection.length} shown={enginesWithoutSection.length} />
+                  <Button variant="outline" tone="neutral" size="sm" onClick={() => void previewBulkMove(bulkTarget)}>
+                    Перенести пачкой
+                  </Button>
+                </div>
+              ) : null}
+              {bulkPreview ? (
+                <div
+                  style={{
+                    marginTop: 12,
+                    display: 'grid',
+                    gap: 8,
+                    border: '1px solid var(--border)',
+                    borderRadius: 6,
+                    padding: 12,
+                  }}
+                >
+                  <div style={{ fontSize: 12 }}>
+                    <strong>Куда сядут двигатели</strong>
+                    {bulkPreview.target
+                      ? ` — перенос в «${sectionLabelOf(bulkPreview.target)}»`
+                      : ' — разложить по плану договора'}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
+                    Перенесено: {bulkPreview.plan.moved} · мест получено: {bulkPreview.plan.seated}
+                    {bulkPreview.plan.overPlan > 0 ? ` · сверх плана: ${bulkPreview.plan.overPlan}` : ''}
+                    {bulkPreview.plan.priceMismatch > 0
+                      ? ` · цена места разошлась с планом: ${bulkPreview.plan.priceMismatch}`
+                      : ''}
+                    {bulkPreview.plan.alreadyThere > 0 ? ` · без изменений: ${bulkPreview.plan.alreadyThere}` : ''}
+                  </div>
+                  <CardTable className="list-table">
+                    <thead>
+                      <tr>
+                        <th style={TD_HEAD} data-col-kind="name">Двигатель</th>
+                        <th style={TD_HEAD} data-col-kind="name">Марка</th>
+                        <th style={TD_HEAD} data-col-kind="text">Откуда</th>
+                        <th style={TD_HEAD} data-col-kind="text">Куда</th>
+                        <th style={TD_HEAD} data-col-kind="text">Итог</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bulkPreview.plan.placements.map((placement) => {
+                        const engine = relatedEngines.find((e) => e.id === placement.engineId);
+                        const outcome =
+                          placement.outcome === 'alreadyThere'
+                            ? 'уже на своём месте'
+                            : placement.outcome === 'overPlan'
+                              ? 'сверх плана — место заводится заново'
+                              : `место${placement.slotPriceKop != null ? ` · ${formatKopMoney(placement.slotPriceKop)} ₽` : ''}`;
+                        return (
+                          <tr key={placement.engineId}>
+                            <td data-col-kind="name" style={TD_CELL}>{engine?.engineNumber || '—'}</td>
+                            <td data-col-kind="name" style={TD_CELL}>{engine?.engineBrand || '—'}</td>
+                            <td data-col-kind="text" style={TD_CELL}>
+                              {placement.fromSectionKey ? sectionLabelForPreview(placement.fromSectionKey) : 'без раздела'}
+                            </td>
+                            <td data-col-kind="text" style={TD_CELL}>{sectionLabelForPreview(placement.toSectionKey)}</td>
+                            <td
+                              data-col-kind="text"
+                              style={{
+                                ...TD_CELL,
+                                color: placement.outcome === 'overPlan' ? 'var(--warning, #b45309)' : 'inherit',
+                              }}
+                            >
+                              {outcome}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </CardTable>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                    <Button variant="ghost" tone="neutral" size="sm" onClick={() => setBulkPreview(null)}>
+                      Отмена
+                    </Button>
+                    <Button variant="outline" tone="neutral" size="sm" onClick={() => void applyBulkMove()}>
+                      Перенести
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+              {relatedEngines.length > 0 ? (
+                <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+                  <ListCount total={relatedEngines.length} shown={relatedEngines.length} />
                   <CardTable className="list-table">
                     <colgroup>
+                      {props.canEdit && <col style={{ width: 34 }} />}
                       <col />
-                      <col style={{ width: '30%' }} />
-                      <col style={{ width: '25%' }} />
+                      <col />
+                      <col style={{ width: '20%' }} />
+                      <col style={{ width: '16%' }} />
+                      <col style={{ width: '14%' }} />
                       <col />
                       {props.canEdit && <col style={{ width: 220 }} />}
                     </colgroup>
                     <thead>
                       <tr>
+                        {props.canEdit && <th style={TD_HEAD} />}
                         <RowNumberHeaderCell style={TD_HEAD} />
                         <th style={TD_HEAD} data-col-kind="name">Номер двигателя</th>
                         <th style={TD_HEAD} data-col-kind="name">Марка двигателя</th>
+                        <th style={TD_HEAD} data-col-kind="text">Раздел</th>
+                        <th style={TD_HEAD} data-col-kind="text">Место</th>
                         <th style={TD_HEAD} data-col-kind="text">Статус</th>
                         {props.canEdit && (
                           <th style={TD_HEAD} data-col-kind="text" title="Перенести двигатель в выбранную секцию">Секция</th>
@@ -3240,7 +3611,7 @@ export function ContractDetailsPage(props: {
                       </tr>
                     </thead>
                     <tbody>
-                      {enginesWithoutSection.map((engine, engineIdx) => {
+                      {orderedEngines.map((engine, engineIdx) => {
                         const currentToken = canonicalContractSectionKey(engine.contractSectionNumber);
                         const reservedByOther = Boolean(
                           engine.reservedByUserId && engine.reservedByUserId !== (props.currentUserId ?? ''),
@@ -3251,8 +3622,26 @@ export function ContractDetailsPage(props: {
                           currentToken && !sectionMoveOptions.some((o) => o.id === currentToken)
                             ? [{ id: currentToken, label: currentToken }, ...sectionMoveOptions]
                             : sectionMoveOptions;
+                        const slot = slotByEngineId.get(engine.id);
+                        // Место чужой марки — это ровно тот случай, из-за которого оператор
+                        // переживает за «не в тот слот»: показываем его, а не прячем.
+                        const slotBrandMismatch = Boolean(
+                          slot &&
+                            engine.engineBrandId &&
+                            slot.engineBrandId &&
+                            slot.engineBrandId !== engine.engineBrandId,
+                        );
                         return (
                           <tr key={engine.id}>
+                            {props.canEdit && (
+                              <td style={{ borderBottom: '1px solid var(--border)' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={engineSelection.has(engine.id)}
+                                  onChange={(e) => toggleEngines([engine.id], e.target.checked)}
+                                />
+                              </td>
+                            )}
                             <RowNumberCell n={engineIdx + 1} style={TD_CELL} />
                             <td data-col-kind="name" style={TD_CELL}>
                               {props.onOpenEngine ? (
@@ -3268,6 +3657,26 @@ export function ContractDetailsPage(props: {
                               )}
                             </td>
                             <td data-col-kind="name" style={TD_CELL}>{engine.engineBrand || '—'}</td>
+                            <td data-col-kind="text" style={TD_CELL}>
+                              {currentToken ? (
+                                sectionLabelOf(currentToken)
+                              ) : (
+                                <span style={{ color: 'var(--warning, #b45309)' }}>без раздела</span>
+                              )}
+                            </td>
+                            <td data-col-kind="text" style={TD_CELL}>
+                              {slot ? (
+                                <span
+                                  style={{ color: slotBrandMismatch ? 'var(--warning, #b45309)' : 'inherit' }}
+                                  title={slotBrandMismatch ? 'Марка места не совпадает с маркой двигателя' : undefined}
+                                >
+                                  {slot.contractPriceKop != null ? `${formatKopMoney(slot.contractPriceKop)} ₽` : 'место'}
+                                  {slotBrandMismatch ? ' ⚠' : ''}
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--warning, #b45309)' }}>без места</span>
+                              )}
+                            </td>
                             <td data-col-kind="text" style={TD_CELL}>{currentEngineStatusLabel(engine)}</td>
                             {props.canEdit && (
                               <td data-col-kind="text" style={TD_CELL}>
@@ -3298,14 +3707,8 @@ export function ContractDetailsPage(props: {
                       })}
                     </tbody>
                   </CardTable>
-                  {props.canEdit ? (
-                    <div>
-                      <Button variant="outline" tone="neutral" size="sm" onClick={() => void placeEnginesWithoutSection()}>
-                        Разложить по слотам
-                      </Button>
-                    </div>
-                  ) : null}
                 </div>
+
               ) : null}
               {props.canEdit && (
                 <div style={{ marginTop: 12 }}>

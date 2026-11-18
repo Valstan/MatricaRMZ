@@ -4,7 +4,7 @@
 // читает/пишет через контракт (`contract_id`), пустые слоты — деньги без двигателя.
 // Никакого DDL: едет существующим EAV-sync.
 
-import { canonicalContractSectionKey } from './contract.js';
+import { canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY } from './contract.js';
 import { repairStageRank } from './repairStages.js';
 
 export const CONTRACT_PAYMENTS_ATTR_CODE = 'contract_payments';
@@ -760,6 +760,218 @@ export function parseMoneyToKop(input: string): number | null {
   const cleaned = input.replace(/[\s\u00A0\u202F]/g, '').replace(',', '.');
   if (!cleaned || !/^-?\d+(\.\d{1,2})?$/.test(cleaned)) return null;
   return Math.round(Number(cleaned) * 100);
+}
+
+/**
+ * Массовая раскладка двигателей по местам (промты КАРМАНА #18/#19).
+ *
+ * ЗАЧЕМ. Владельцу нужно было «отметить галочками и перенести в ДС списком, скопом,
+ * целым блоком», а перенос шёл по одному — через дропдаун в каждой строке. Вместе с этим
+ * он назвал риск прямо: при автораскладке двигатель может попасть не в тот слот.
+ *
+ * РИСК ЗАКРЫТ ТРЕМЯ ПРАВИЛАМИ:
+ *  1. место выбирается ТОЛЬКО своей марки — двигатель с известной маркой не сядет в место
+ *     чужой марки (иначе аванс, выписанный под другую марку, достался бы не тому двигателю);
+ *  2. занятое место не трогаем — чужой двигатель не теряет место;
+ *  3. мест своей марки не хватило — место заводится СВЕРХ ПЛАНА, и это видно отдельным
+ *     счётчиком, а не проходит молча.
+ *
+ * Расчёт ЧИСТОЙ функцией и показывается оператору ДО записи: «куда кто сядет» видно
+ * до того, как что-то изменится.
+ */
+
+/** Двигатель на входе раскладки: он и место, где он сейчас. */
+export type BulkEngineInput = {
+  engineId: string;
+  engineBrandId?: string;
+  /** Канонический токен текущей секции двигателя; '' — раздела не было. */
+  sectionKey: string;
+};
+
+export type BulkPlacementOutcome =
+  /** сядет в свободное место своей марки целевой секции */
+  | 'seated'
+  /** мест своей марки в целевой секции нет — место заводится сверх плана */
+  | 'overPlan'
+  /** двигатель уже в целевой секции и уже сидит в её месте — ничего не делаем */
+  | 'alreadyThere';
+
+export type BulkEnginePlacement = {
+  engineId: string;
+  engineBrandId?: string;
+  /** Откуда переносим: токен секции ('' — раздела не было). */
+  fromSectionKey: string;
+  /** Куда переносим: целевая секция. */
+  toSectionKey: string;
+  outcome: BulkPlacementOutcome;
+  /** Место, в которое сядет (для 'seated'). */
+  slotId?: string;
+  /** Цена места в копейках — оператор видит, во сколько обошёлся двигатель. */
+  slotPriceKop?: number;
+  /** Цена места разошлась с ценой плана по этой марке — предупреждение. */
+  priceMismatch?: boolean;
+  /** Марка двигателя неизвестна — место выбрано без сверки марки. */
+  brandUnknown?: boolean;
+};
+
+export type BulkPlacementPlan = {
+  placements: BulkEnginePlacement[];
+  /** Перенесено в целевую секцию (из другой секции или из «без раздела»). */
+  moved: number;
+  /** Получили место своей марки. */
+  seated: number;
+  /** Сели сверх плана — мест своей марки не хватило. */
+  overPlan: number;
+  /** Уже были в целевой секции и в её месте. */
+  alreadyThere: number;
+  /** Мест, цена которых разошлась с планом по марке. */
+  priceMismatch: number;
+};
+
+/**
+ * Посчитать раскладку пачки по целевой секции. Ничего не меняет — только считает.
+ *
+ * Места своей марки берём из СВОБОДНЫХ мест целевой секции; если своих нет, двигатель
+ * получает место сверх плана (см. `BulkPlacementOutcome`). Fallback в соседние секции
+ * запрещён: оператор выбрал «ДС 2» — молчаливая посадка в основной договор он счёл бы
+ * ошибкой (то же правило, что у одиночного переноса: `strict`).
+ *
+ * `targetSectionKey` пустой — режим «разложить по плану»: раздел выбирается по строкам
+ * плана договора (марка двигателя ищется там, где она запланирована), а не угадывается.
+ * Двигатель, у которого раздел уже есть, из своего раздела не переносится — его только
+ * сажают в место.
+ */
+export function planBulkEnginePlacement(args: {
+  cp: ContractPayments;
+  engines: readonly BulkEngineInput[];
+  /**
+   * Куда переносим. '' — «разложить по плану»: раздел выбирается по плану договора.
+   */
+  targetSectionKey: string;
+  /** План договора — по нему выбирается раздел и сверяется цена места. */
+  planned?: readonly PlannedSectionBrand[];
+}): BulkPlacementPlan {
+  const target = String(args.targetSectionKey ?? '').trim();
+  const placements: BulkEnginePlacement[] = [];
+
+  // Цены плана по (секция, марка): место должно стоить столько, сколько весит марка.
+  const planPrices = new Map<string, Set<number>>();
+  // Разделы, где марка запланирована, — в порядке плана (основной договор, затем ДС).
+  const planSectionsByBrand = new Map<string, string[]>();
+  for (const p of args.planned ?? []) {
+    const key = `${p.sectionKey}\u0000${p.engineBrandId}`;
+    const set = planPrices.get(key) ?? new Set<number>();
+    set.add(Math.round(p.unitPrice * 100));
+    planPrices.set(key, set);
+    const sections = planSectionsByBrand.get(p.engineBrandId) ?? [];
+    if (!sections.includes(p.sectionKey)) sections.push(p.sectionKey);
+    planSectionsByBrand.set(p.engineBrandId, sections);
+  }
+
+  const currentSlotByEngine = new Map<string, PaymentSlot>();
+  for (const s of args.cp.slots) {
+    if (s.engineId) currentSlotByEngine.set(s.engineId, s);
+  }
+  // Занятые места — снимок на момент расчёта, чтобы два двигателя из пачки не задумали
+  // сесть в одно и то же место.
+  const occupied = new Set(args.cp.slots.filter((s) => s.engineId).map((s) => s.id));
+
+  const freeSlotsOf = (sectionKey: string) =>
+    args.cp.slots.filter((s) => s.sectionKey === sectionKey && !occupied.has(s.id));
+
+  for (const engine of args.engines) {
+    const currentSlot = currentSlotByEngine.get(engine.engineId);
+    const fromSectionKey = currentSlot ? currentSlot.sectionKey : String(engine.sectionKey ?? '');
+    // Куда садим этот двигатель. Явный раздел — строго он. Пустой раздел цели — «по плану».
+    let effectiveTarget = target;
+    if (!effectiveTarget) {
+      if (fromSectionKey) {
+        effectiveTarget = fromSectionKey;
+      } else {
+        const plannedSections = engine.engineBrandId ? planSectionsByBrand.get(engine.engineBrandId) ?? [] : [];
+        const withFreeSlot = plannedSections.find((sectionKey) => {
+          const free = freeSlotsOf(sectionKey);
+          return free.some((s) => !engine.engineBrandId || s.engineBrandId === engine.engineBrandId);
+        });
+        effectiveTarget = withFreeSlot ?? plannedSections[0] ?? PRIMARY_CONTRACT_SECTION_KEY;
+      }
+    }
+    const base = {
+      engineId: engine.engineId,
+      ...(engine.engineBrandId ? { engineBrandId: engine.engineBrandId } : {}),
+      fromSectionKey,
+      toSectionKey: effectiveTarget,
+    };
+    // Уже в целевой секции и уже сидит в её месте — трогать нечего.
+    if (currentSlot && currentSlot.sectionKey === effectiveTarget) {
+      placements.push({
+        ...base,
+        outcome: 'alreadyThere',
+        slotId: currentSlot.id,
+        ...(currentSlot.contractPriceKop != null ? { slotPriceKop: currentSlot.contractPriceKop } : {}),
+      });
+      continue;
+    }
+    const free = freeSlotsOf(effectiveTarget);
+    const pool = engine.engineBrandId ? free.filter((s) => s.engineBrandId === engine.engineBrandId) : free;
+    // Место с деньгами берём первым: аванс «встречает» приехавший двигатель.
+    const seat = pool.find((s) => s.payments.length > 0) ?? pool[0];
+    if (!seat) {
+      placements.push({ ...base, outcome: 'overPlan', ...(engine.engineBrandId ? {} : { brandUnknown: true }) });
+      continue;
+    }
+    occupied.add(seat.id);
+    const planPrice = planPrices.get(`${effectiveTarget}\u0000${engine.engineBrandId ?? ''}`);
+    const mismatch = Boolean(
+      planPrice && planPrice.size > 0 && seat.contractPriceKop != null && !planPrice.has(seat.contractPriceKop),
+    );
+    placements.push({
+      ...base,
+      outcome: 'seated',
+      slotId: seat.id,
+      ...(seat.contractPriceKop != null ? { slotPriceKop: seat.contractPriceKop } : {}),
+      ...(mismatch ? { priceMismatch: true } : {}),
+      ...(engine.engineBrandId ? {} : { brandUnknown: true }),
+    });
+  }
+
+  return {
+    placements,
+    moved: placements.filter((p) => p.outcome !== 'alreadyThere' && p.fromSectionKey !== p.toSectionKey).length,
+    seated: placements.filter((p) => p.outcome === 'seated').length,
+    overPlan: placements.filter((p) => p.outcome === 'overPlan').length,
+    alreadyThere: placements.filter((p) => p.outcome === 'alreadyThere').length,
+    priceMismatch: placements.filter((p) => p.priceMismatch).length,
+  };
+}
+
+/**
+ * Применить раскладку к состоянию платежей. Иммутабельно.
+ *
+ * Пишем через `attachEngineToSlot` — ту же дверь, что и одиночный перенос: двигатель
+ * не может сидеть в двух местах сразу, а деньги за ним остаются на прежнем месте.
+ */
+export function applyBulkEnginePlacement(args: {
+  cp: ContractPayments;
+  plan: BulkPlacementPlan;
+  newId: () => string;
+}): ContractPayments {
+  let next = args.cp;
+  for (const placement of args.plan.placements) {
+    if (placement.outcome === 'alreadyThere') continue;
+    next = attachEngineToSlot(
+      next,
+      {
+        sectionKey: placement.toSectionKey,
+        ...(placement.slotId ? { slotId: placement.slotId } : {}),
+        overPlan: placement.outcome === 'overPlan',
+      },
+      placement.engineId,
+      args.newId,
+      placement.engineBrandId,
+    );
+  }
+  return next;
 }
 
 /** Исходящие ссылки contract_payments (engineId слотов) — зеркало для реверс-индекса удаления. */
