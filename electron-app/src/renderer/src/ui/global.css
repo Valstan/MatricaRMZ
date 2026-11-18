@@ -51,9 +51,16 @@ body {
   --ui-input-autogrow-min-ch: 10;
   --ui-input-autogrow-max-ch: 48;
   --ui-input-autogrow-extra-ch: 2;
-  --app-bg-from: #e2e8f0;
-  --app-bg-via: #f8fafc;
-  --app-bg-to: #e0f2fe;
+  /* Нижний фон программы (владелец 18.11.2026): светлый металл. Раньше середина
+     градиента уходила в почти белый (#f8fafc), и фон читался как белый лист. Теперь
+     это сероватая холодная гамма с мягким бликом посередине — «жесть», но светлая.
+     Белые карточки на таком фоне отделяются, а не сливаются с ним. */
+  --app-bg-from: #d6dce4;
+  --app-bg-via: #e6eaef;
+  --app-bg-to: #c5ccd6;
+  /* Ряд управляющих кнопок вверху — на общем фоне он сливался: блок свой, и фон у
+     него слегка сероватый, темнее общего. */
+  --toolbar-bg: #c9d0da;
   --surface: #ffffff;
   --surface-2: #f8fafc;
   --border: rgba(15, 23, 42, 0.22);
@@ -161,6 +168,7 @@ body {
   --app-bg-from: #0b1024;
   --app-bg-via: #0b1f3a;
   --app-bg-to: #2f0b2a;
+  --toolbar-bg: #131c30;
   --surface: #0f172a;
   --surface-2: #111827;
   --border: rgba(148, 163, 184, 0.2);
@@ -260,6 +268,7 @@ body {
   --app-bg-from: #efe1c6;
   --app-bg-via: #faf1dd;
   --app-bg-to: #f3e3c3;
+  --toolbar-bg: #e9dcc0;
   --surface: #fffaf0;
   --surface-2: #f6ead2;
   --border: rgba(124, 74, 20, 0.34);
@@ -455,12 +464,32 @@ body {
   color: var(--text);
   font-size: 14px; /* medium-ish, readable for accounting UI */
   line-height: 1.35;
-  background: var(--app-bg-from); /* fallback behind gradient */
+  /* Нижний фон программы — тот, что видно за окнами карточек, за кнопками и за
+     разделами (владелец 18.11.2026): металлический, светлый, сероватый. Градиент
+     стоит ВСЕГДА, а не только в «украшенном» оформлении, — иначе в строгом фоне
+     программы низ оставался плоским и читался белым листом. */
+  background: linear-gradient(
+    160deg,
+    var(--app-bg-from),
+    var(--app-bg-via, var(--app-bg-from)),
+    var(--app-bg-to)
+  );
+  background-attachment: fixed;
 }
 
 #root {
   height: 100%;
   width: 100%;
+}
+
+/* Ряд управляющих кнопок вверху страницы (владелец 18.11.2026): фон блока слегка
+   сероватый, темнее общего фона программы, — иначе ряд сливался с ним и не читался
+   как отдельный блок. Внутренние отступы маленькие: ряд и так съедает высоту списка,
+   лишнее место оператору не нужно. */
+.mx-page-toolbar {
+  background: var(--toolbar-bg, var(--surface-2));
+  border-radius: 8px;
+  padding: 3px 8px;
 }
 
 /* macOS-like soft rounding via tokens (restyle 2026-06; replaces the former blanket

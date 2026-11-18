@@ -1251,14 +1251,6 @@ export function EnginesPage(props: {
         />
       </PageToolbar>
 
-      {atPlantOnly ? (
-        <div className="ui-muted" style={{ fontSize: 12, marginTop: 8, marginBottom: 4 }} data-at-plant-mode-note>
-          Режим «Сейчас на заводе»: показаны только двигатели, которые сейчас на заводе — {modeRows.length} из{' '}
-          {props.engines.length}. Считается текущий заезд: этапы прошлого цикла и сброшенные шагом назад
-          не действуют.
-        </div>
-      ) : null}
-
       <div style={{ marginTop: 8, flex: '0 0 auto' }}>
         <EngineFacetFilter
           engines={facetRows}
