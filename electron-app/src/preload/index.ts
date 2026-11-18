@@ -108,7 +108,8 @@ const matricaApi = {
       acquire: async (engineId: string) => ipcRenderer.invoke('engine:reservation:acquire', engineId),
       release: async (engineId: string) => ipcRenderer.invoke('engine:reservation:release', engineId),
     },
-    dedupeAnalyze: async () => ipcRenderer.invoke('engine:dedupe:analyze'),
+    dedupeAnalyze: async (args?: { mode?: 'exact' | 'similar' }) =>
+      ipcRenderer.invoke('engine:dedupe:analyze', args),
     dedupeMerge: async (args: { survivorId: string; loserIds: string[] }) => ipcRenderer.invoke('engine:dedupe:merge', args),
     card: {
       get: async (id: string) => ipcRenderer.invoke('engines:card:get', id),

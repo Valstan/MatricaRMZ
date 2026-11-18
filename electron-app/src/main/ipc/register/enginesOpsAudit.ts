@@ -78,9 +78,9 @@ export function registerEnginesOpsAuditIpc(ctx: IpcContext) {
   );
   // Bulk duplicate analysis + operator merge (full server scan — authoritative, not the
   // possibly-partial local cache).
-  ipcMain.handle('engine:dedupe:analyze', async () => {
+  ipcMain.handle('engine:dedupe:analyze', async (_e, args?: { mode?: 'exact' | 'similar' }) => {
     await requirePermOrThrow(ctx, 'engines.view');
-    return engineDedupeAnalyze(ctx.sysDb, ctx.mgr.getApiBaseUrl());
+    return engineDedupeAnalyze(ctx.sysDb, ctx.mgr.getApiBaseUrl(), args?.mode);
   });
   ipcMain.handle('engine:dedupe:merge', async (_e, args: { survivorId: string; loserIds: string[] }) => {
     if (isViewMode(ctx)) return viewModeWriteError();

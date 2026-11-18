@@ -16,7 +16,7 @@
 // current repair contract). Losers get a merged_into EAV attr (tombstone) and
 // are soft-deleted. A separate step repoints stray operations that offline
 // clients pushed against merged-away engines after the merge.
-import { SyncTableName, normalizeLookupCompact, damerauLevenshtein } from '@matricarmz/shared';
+import { SyncTableName, normalizeLookupCompact } from '@matricarmz/shared';
 import { randomUUID } from 'node:crypto';
 
 import { and, asc, eq, inArray, isNull, isNotNull } from 'drizzle-orm';
@@ -26,6 +26,12 @@ import { attributeDefs, attributeValues, entities, entityTypes, erpRegStockMovem
 import { logError, logInfo, logWarn } from '../utils/logger.js';
 import { setEntityAttribute, softDeleteEntity } from './adminMasterdataService.js';
 import { loadDedupeExemptEngineIds } from './engineNumberGuard.js';
+import {
+  ENGINE_DEDUPE_CORE_FIELDS,
+  findSimilarEnginePairs,
+  type EngineDedupeField,
+  type EngineDedupeMode,
+} from './engineDedupeSimilarity.js';
 import { ingestServerCriticalEvent } from './criticalEventsService.js';
 import { recordSyncChanges } from './sync/syncChangeService.js';
 
@@ -473,8 +479,16 @@ export function startEngineDedupeJob() {
 // ---------------------------------------------------------------------------
 // Operator-driven dedupe (UI "Поиск дублей двигателей"): analyze groups for
 // review + merge a group with an operator-chosen survivor. The periodic job
-// above auto-merges EXACT groups; this surfaces SIMILAR (near-miss) groups the
-// job can't safely touch, and lets the operator merge anything immediately.
+// above auto-merges EXACT groups; this surfaces what is left for a human.
+//
+// ДВА РЕЖИМА (владелец 18.11.2026):
+//   * «По номеру» — реальные дубли: номер двигателя совпадает на 100%.
+//   * «Похожие» — сильно похожие ПАРЫ: карточки совпадают по марке, заказчику и
+//     дате прихода, отличается номер (опечатка) — плюс, максимум, одно другое
+//     поле. Раньше номера склеивались кластером по транзитивной близости, и на
+//     живых данных это давало группы по 1478 РАЗНЫХ двигателей одного
+//     заказчика (номера завода идут подряд). Расчёт пар — в
+//     `engineDedupeSimilarity.ts`, там же и правило «сильно похожего».
 // ---------------------------------------------------------------------------
 
 export type EngineDupEngine = {
@@ -483,20 +497,37 @@ export type EngineDupEngine = {
   engineBrand: string;
   createdAt: number;
   opsCount: number;
+  /** Дата прихода как в карточке (пусто — не заполнена). */
+  arrivalDate: string;
 };
-export type EngineDupGroup = { kind: 'exact' | 'similar'; engines: EngineDupEngine[] };
 
-function editBudgetForKey(len: number): number {
-  return len < 4 ? 0 : len <= 7 ? 1 : 2;
-}
+export type EngineDupGroup = {
+  kind: 'exact' | 'similar';
+  engines: EngineDupEngine[];
+  /** Какие поля карточек различаются — «заполнено по-разному». */
+  diffFields: EngineDedupeField[];
+  /** Расстояние между номерами (для similar): 1 — одна правка, 2 — две. */
+  numberDistance?: number;
+};
 
 let dedupeAnalyzeRunning = false;
 
-export async function analyzeEngineDuplicates(): Promise<
-  { ok: true; totalEngines: number; groups: EngineDupGroup[] } | { ok: false; error: string }
+export async function analyzeEngineDuplicates(opts?: { mode?: EngineDedupeMode }): Promise<
+  | {
+      ok: true;
+      mode: EngineDedupeMode;
+      totalEngines: number;
+      groups: EngineDupGroup[];
+      /** Сколько групп найдено всего (показанные могут быть обрезаны потолком). */
+      totalGroups: number;
+      /** Список обрезан — оператору сказать, что список не весь. */
+      truncated: boolean;
+    }
+  | { ok: false; error: string }
 > {
   if (dedupeAnalyzeRunning) return { ok: false as const, error: 'анализ дублей уже выполняется, подождите' };
   dedupeAnalyzeRunning = true;
+  const mode: EngineDedupeMode = opts?.mode === 'similar' ? 'similar' : 'exact';
   try {
     const engineType = (
       await db
@@ -514,6 +545,8 @@ export async function analyzeEngineDuplicates(): Promise<
       .where(and(eq(attributeDefs.entityTypeId, typeId as never), isNull(attributeDefs.deletedAt)));
     const numberDef = defs.find((d) => String(d.code) === 'engine_number');
     const brandDef = defs.find((d) => String(d.code) === 'engine_brand');
+    const customerDef = defs.find((d) => String(d.code) === 'customer_id');
+    const arrivalDef = defs.find((d) => String(d.code) === 'arrival_date');
     if (!numberDef) return { ok: false as const, error: 'attribute def "engine_number" not found' };
 
     const engines = await db
@@ -523,9 +556,16 @@ export async function analyzeEngineDuplicates(): Promise<
       .limit(200_000);
     const engineIds = engines.map((e) => String(e.id));
     const createdAtById = new Map(engines.map((e) => [String(e.id), Number(e.createdAt)]));
-    if (engineIds.length === 0) return { ok: true as const, totalEngines: 0, groups: [] };
+    if (engineIds.length === 0) {
+      return { ok: true as const, mode, totalEngines: 0, groups: [], totalGroups: 0, truncated: false };
+    }
 
-    const wantDefIds = [String(numberDef.id), ...(brandDef ? [String(brandDef.id)] : [])];
+    const wantDefIds = [
+      String(numberDef.id),
+      ...(brandDef ? [String(brandDef.id)] : []),
+      ...(customerDef ? [String(customerDef.id)] : []),
+      ...(arrivalDef ? [String(arrivalDef.id)] : []),
+    ];
     const values = await db
       .select()
       .from(attributeValues)
@@ -538,87 +578,105 @@ export async function analyzeEngineDuplicates(): Promise<
       );
     const numberById = new Map<string, string>();
     const brandById = new Map<string, string>();
+    const customerById = new Map<string, string>();
+    const arrivalById = new Map<string, string>();
     for (const v of values) {
       const eid = String(v.entityId);
-      if (String(v.attributeDefId) === String(numberDef.id)) numberById.set(eid, parseAttr(v.valueJson));
-      else if (brandDef && String(v.attributeDefId) === String(brandDef.id)) brandById.set(eid, parseAttr(v.valueJson));
+      const defId = String(v.attributeDefId);
+      if (defId === String(numberDef.id)) numberById.set(eid, parseAttr(v.valueJson));
+      else if (brandDef && defId === String(brandDef.id)) brandById.set(eid, parseAttr(v.valueJson));
+      else if (customerDef && defId === String(customerDef.id)) customerById.set(eid, parseAttr(v.valueJson));
+      else if (arrivalDef && defId === String(arrivalDef.id)) arrivalById.set(eid, parseAttr(v.valueJson));
     }
 
-    // Canonical key per engine; engines sharing a key are exact duplicates.
     // Флагованные (повторный заезд / коллизия номера) не показываем оператору как дубли.
     const exemptIds = await loadDedupeExemptEngineIds();
-    const keyById = new Map<string, string>();
-    const enginesByKey = new Map<string, string[]>();
+
+    type EngineCard = {
+      id: string;
+      engineNumber: string;
+      engineBrand: string;
+      customerId: string;
+      arrivalDate: string;
+    };
+    const cards: EngineCard[] = [];
     for (const eid of engineIds) {
       if (exemptIds.has(eid)) continue;
-      const key = normalizeLookupCompact(numberById.get(eid) ?? '');
-      if (!key) continue;
-      keyById.set(eid, key);
-      if (!enginesByKey.has(key)) enginesByKey.set(key, []);
-      enginesByKey.get(key)!.push(eid);
+      const engineNumber = numberById.get(eid) ?? '';
+      if (!engineNumber) continue;
+      cards.push({
+        id: eid,
+        engineNumber,
+        engineBrand: brandById.get(eid) ?? '',
+        customerId: customerById.get(eid) ?? '',
+        arrivalDate: arrivalById.get(eid) ?? '',
+      });
     }
 
-    // Union-find over DISTINCT keys: union near-miss keys (edit distance <= budget).
-    // A cluster = transitively-near keys. Bucketed by length (±1) to bound the O(n^2).
-    const keys = [...enginesByKey.keys()];
-    const parent = new Map<string, string>(keys.map((k) => [k, k]));
-    const find = (k: string): string => {
-      let r = k;
-      while (parent.get(r) !== r) r = parent.get(r)!;
-      let c = k;
-      while (parent.get(c) !== c) {
-        const n = parent.get(c)!;
-        parent.set(c, r);
-        c = n;
-      }
-      return r;
+    const cardById = new Map(cards.map((c) => [c.id, c]));
+    /** Промежуточная группа: id двигателей + расхождения (карточки соберём ниже). */
+    type EngineDupDraft = {
+      kind: 'exact' | 'similar';
+      engines: string[];
+      diffFields: EngineDedupeField[];
+      numberDistance?: number;
     };
-    const union = (a: string, b: string) => {
-      const ra = find(a);
-      const rb = find(b);
-      if (ra !== rb) parent.set(ra, rb);
-    };
-    const byLen = new Map<number, string[]>();
-    for (const k of keys) {
-      if (!byLen.has(k.length)) byLen.set(k.length, []);
-      byLen.get(k.length)!.push(k);
-    }
-    let cmpBudget = 8_000_000; // hard cap on damerauLevenshtein calls — bounds CPU on huge datasets
+    let groups: EngineDupDraft[] = [];
+    let totalGroups = 0;
     let truncated = false;
-    for (const k of keys) {
-      const budget = editBudgetForKey(k.length);
-      if (budget === 0) continue;
-      // Window must span ±budget: a true distance-2 pair can differ in length by 2.
-      const candidates: string[] = [];
-      for (let l = k.length - budget; l <= k.length + budget; l += 1) {
-        const bucket = byLen.get(l);
-        if (bucket) candidates.push(...bucket);
+
+    if (mode === 'exact') {
+      // Реальные дубли: номер совпадает на 100%. Кластеров нет — только группы
+      // с ОДНИМ и тем же номером.
+      const byNumber = new Map<string, EngineCard[]>();
+      for (const card of cards) {
+        const key = normalizeLookupCompact(card.engineNumber);
+        const bucket = byNumber.get(key);
+        if (bucket) bucket.push(card);
+        else byNumber.set(key, [card]);
       }
-      for (const o of candidates) {
-        if (o === k || find(o) === find(k)) continue;
-        if (cmpBudget-- <= 0) {
-          truncated = true;
-          break;
-        }
-        const d = damerauLevenshtein(k, o, budget);
-        if (d > 0 && d <= budget) union(k, o);
+      const exactGroups = [...byNumber.values()].filter((items) => items.length >= 2);
+      totalGroups = exactGroups.length;
+      groups = exactGroups.map((items) => ({
+        kind: 'exact' as const,
+        engines: items.map((c) => c.id),
+        diffFields: [],
+      }));
+    } else {
+      // Сильно похожие ПАРЫ: правило в engineDedupeSimilarity.
+      const found = findSimilarEnginePairs(cards);
+      totalGroups = found.totalPairs;
+      truncated = found.truncated;
+      groups = found.pairs.map((pair) => ({
+        kind: 'similar' as const,
+        engines: [pair.a.id, pair.b.id],
+        diffFields: pair.diffFields,
+        numberDistance: pair.numberDistance,
+      }));
+    }
+
+    // Какие поля карточек различаются внутри группы — оператору видно, что
+    // именно «заполнено по-разному» (и почему это вообще похоже).
+    const resolved: EngineDupDraft[] = groups.map((g) => {
+      const members = g.engines.map((id) => cardById.get(id)).filter((c): c is EngineCard => Boolean(c));
+      const diff = new Set<EngineDedupeField>();
+      for (const field of ENGINE_DEDUPE_CORE_FIELDS) {
+        const valuesOf = members.map((c) =>
+          field === 'марка' ? c.engineBrand : field === 'заказчик' ? c.customerId : c.arrivalDate,
+        );
+        const filled = valuesOf.filter((v) => v.trim());
+        if (filled.length > 1 && new Set(filled).size > 1) diff.add(field);
       }
-      if (truncated) break;
-    }
-    if (truncated) logWarn('engine dedupe analyze: similar clustering truncated (comparison budget exhausted)');
-    const clusterKeys = new Map<string, string[]>();
-    for (const k of keys) {
-      const r = find(k);
-      if (!clusterKeys.has(r)) clusterKeys.set(r, []);
-      clusterKeys.get(r)!.push(k);
-    }
+      if (g.kind === 'similar' && g.engines.length >= 2) diff.add('номер');
+      return {
+        ...g,
+        diffFields: g.kind === 'exact' ? [...diff] : [...new Set([...diff, ...g.diffFields])],
+      };
+    });
 
     // ops counts (single batched query) for every engine that lands in a group.
     const groupEngineIds = new Set<string>();
-    for (const ks of clusterKeys.values()) {
-      const ids = ks.flatMap((k) => enginesByKey.get(k) ?? []);
-      if (ids.length >= 2) for (const id of ids) groupEngineIds.add(id);
-    }
+    for (const g of resolved) for (const id of g.engines) groupEngineIds.add(id);
     const opsCountById = new Map<string, number>();
     if (groupEngineIds.size > 0) {
       const rows = await db
@@ -630,25 +688,26 @@ export async function analyzeEngineDuplicates(): Promise<
         opsCountById.set(eid, (opsCountById.get(eid) ?? 0) + 1);
       }
     }
-    const toEngine = (eid: string): EngineDupEngine => ({
-      id: eid,
-      engineNumber: numberById.get(eid) ?? '',
-      engineBrand: brandById.get(eid) ?? '',
-      createdAt: createdAtById.get(eid) ?? 0,
-      opsCount: opsCountById.get(eid) ?? 0,
-    });
-
-    const groups: EngineDupGroup[] = [];
-    for (const ks of clusterKeys.values()) {
-      const ids = ks.flatMap((k) => enginesByKey.get(k) ?? []);
-      if (ids.length < 2) continue;
-      const kind: EngineDupGroup['kind'] = ks.length > 1 ? 'similar' : 'exact';
-      const sortedEngines = ids.map(toEngine).sort((a, b) => b.opsCount - a.opsCount || a.createdAt - b.createdAt);
-      groups.push({ kind, engines: sortedEngines });
-    }
-    // exact first, then similar; within a kind by group size desc.
-    groups.sort((a, b) => (a.kind === b.kind ? b.engines.length - a.engines.length : a.kind === 'exact' ? -1 : 1));
-    return { ok: true as const, totalEngines: engineIds.length, groups };
+    const toEngine = (eid: string): EngineDupEngine => {
+      const card = cardById.get(eid);
+      return {
+        id: eid,
+        engineNumber: card?.engineNumber ?? numberById.get(eid) ?? '',
+        engineBrand: card?.engineBrand ?? brandById.get(eid) ?? '',
+        arrivalDate: card?.arrivalDate ?? arrivalById.get(eid) ?? '',
+        createdAt: createdAtById.get(eid) ?? 0,
+        opsCount: opsCountById.get(eid) ?? 0,
+      };
+    };
+    const outGroups: EngineDupGroup[] = resolved.map((g) => ({
+      kind: g.kind,
+      diffFields: g.diffFields,
+      ...(g.numberDistance === undefined ? {} : { numberDistance: g.numberDistance }),
+      engines: g.engines.map(toEngine).sort((a, b) => b.opsCount - a.opsCount || a.createdAt - b.createdAt),
+    }));
+    // Точные дубли первыми, потом похожие; внутри — по размеру группы.
+    outGroups.sort((a, b) => (a.kind === b.kind ? b.engines.length - a.engines.length : a.kind === 'exact' ? -1 : 1));
+    return { ok: true as const, mode, totalEngines: engineIds.length, groups: outGroups, totalGroups, truncated };
   } catch (e) {
     return { ok: false as const, error: String(e) };
   } finally {

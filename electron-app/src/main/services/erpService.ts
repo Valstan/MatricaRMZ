@@ -1015,19 +1015,31 @@ export async function warehouseDirectoryPartCreate(
   }
 }
 
-export async function engineDedupeAnalyze(db: BetterSQLite3Database, apiBaseUrl: string) {
-  const path = '/engines/dedupe';
+export async function engineDedupeAnalyze(db: BetterSQLite3Database, apiBaseUrl: string, mode?: 'exact' | 'similar') {
+  const path = mode === 'similar' ? '/engines/dedupe?mode=similar' : '/engines/dedupe?mode=exact';
   try {
     const r = await httpAuthed(db, apiBaseUrl, path, { method: 'GET' });
     if (!r.ok) return { ok: false as const, error: formatHttpError(r, path) };
     if (!r.json?.ok) return { ok: false as const, error: unreadableResponseError(r) };
     return r.json as {
       ok: true;
+      mode: 'exact' | 'similar';
       totalEngines: number;
       groups: Array<{
         kind: 'exact' | 'similar';
-        engines: Array<{ id: string; engineNumber: string; engineBrand: string; createdAt: number; opsCount: number }>;
+        engines: Array<{
+          id: string;
+          engineNumber: string;
+          engineBrand: string;
+          arrivalDate: string;
+          createdAt: number;
+          opsCount: number;
+        }>;
+        diffFields: Array<'марка' | 'заказчик' | 'дата прихода' | 'номер'>;
+        numberDistance?: number;
       }>;
+      totalGroups: number;
+      truncated: boolean;
     };
   } catch (e) {
     return { ok: false as const, error: String(e) };
