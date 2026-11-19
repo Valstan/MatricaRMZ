@@ -884,6 +884,48 @@ const matricaApi = {
     }) => ipcRenderer.invoke('organization:saveGift', args),
     removeGift: async (id: string) => ipcRenderer.invoke('organization:removeGift', id),
   },
+  /**
+   * Модуль печатных форм: шаблоны форм и документы.
+   * Читаются и пишутся по REST (таблицы вне sync-контракта) — как шаблоны печати СИЗ.
+   */
+  printForms: {
+    templates: {
+      list: async (args?: { entityKey?: string }) => ipcRenderer.invoke('printForms:templates:list', args ?? {}),
+      save: async (args: {
+        id?: string;
+        ownerId?: 'shared' | 'personal';
+        entityKey: string;
+        formKey?: string;
+        name: string;
+        layoutJson: string;
+        isDefault?: boolean;
+      }) => ipcRenderer.invoke('printForms:templates:save', args),
+      delete: async (id: string) => ipcRenderer.invoke('printForms:templates:delete', id),
+    },
+    documents: {
+      list: async (args?: { scope?: 'inbox' | 'sent' | 'drafts' }) =>
+        ipcRenderer.invoke('printForms:documents:list', args ?? {}),
+      incomingCount: async () => ipcRenderer.invoke('printForms:documents:incomingCount'),
+      create: async (args: {
+        entityKey: string;
+        formKey?: string;
+        templateId?: string | null;
+        title: string;
+        valuesJson?: string;
+        layoutJson?: string;
+        note?: string;
+      }) => ipcRenderer.invoke('printForms:documents:create', args),
+      send: async (args: {
+        id: string;
+        recipientId?: string | null;
+        recipientUsername: string;
+        note?: string;
+      }) => ipcRenderer.invoke('printForms:documents:send', args),
+      decide: async (args: { id: string; decision: 'accepted' | 'rejected'; note?: string }) =>
+        ipcRenderer.invoke('printForms:documents:decide', args),
+      delete: async (id: string) => ipcRenderer.invoke('printForms:documents:delete', id),
+    },
+  },
   engineReclamations: {
     list: async (engineId: string) => ipcRenderer.invoke('engineReclamations:list', engineId),
     save: async (args: {

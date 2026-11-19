@@ -157,6 +157,11 @@ export const PermissionCode = {
   // Организационный модуль: мероприятия, журнал выдачи подарков, призов и грамот.
   OrganizationView: 'organization.view',
   OrganizationEdit: 'organization.edit',
+  // Модуль печатных форм (промты КАРМАНА #4/#5). Смотреть шаблоны печати может
+  // всякий, кто печатает; править СВОЙ личный шаблон — тоже (свой блок настроек
+  // под себя), а ОБЩИЙ шаблон — как справочник (erp.dictionary.edit).
+  PrintFormsView: 'print_forms.view',
+  PrintFormsEdit: 'print_forms.edit',
 } as const;
 
 export type PermissionCode = (typeof PermissionCode)[keyof typeof PermissionCode];
@@ -420,6 +425,18 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
     titleRu: 'Ведение организационного модуля',
     descriptionRu: 'Заводить мероприятия, вести отборы и записывать выдачу подарков, призов и грамот.',
   },
+  {
+    code: PermissionCode.PrintFormsView,
+    group: 'Печатные формы',
+    titleRu: 'Просмотр печатных форм',
+    descriptionRu: 'Видеть шаблоны печатных форм и печатать по ним.',
+  },
+  {
+    code: PermissionCode.PrintFormsEdit,
+    group: 'Печатные формы',
+    titleRu: 'Правка своих шаблонов печати',
+    descriptionRu: 'Создавать и править свои личные шаблоны печатных форм. Общие шаблоны правится отдельно — правом на справочники.',
+  },
 ];
 
 export const PERM_META_BY_CODE: Record<string, PermissionMeta> = Object.fromEntries(
@@ -532,6 +549,9 @@ const OPERATOR_BASE_PERMISSIONS: PermissionCode[] = [
   // прячет раздел), а ВЕСТИ — узкий круг, которому владелец выдал право поимённо.
   PermissionCode.ChildrenView,
   PermissionCode.OrganizationView,
+  // Модуль печатных форм: шаблоны нужны всем, кто печатает, — иначе печать выпадала бы
+  // из правды «у кого-то есть свой шаблон, у кого-то нет».
+  PermissionCode.PrintFormsView,
 ];
 
 // Edit footprint per operator role, added on top of the read-only base.
@@ -546,6 +566,8 @@ const OPERATOR_ROLE_EDIT: Record<string, PermissionCode[]> = {
     PermissionCode.FilesUpload,
     // ПП: двигателист планирует производство цеха — ведёт программу.
     PermissionCode.ProductionProgramEdit,
+    // Свой шаблон печати — под себя: свой набор блоков на карточке двигателя.
+    PermissionCode.PrintFormsEdit,
   ],
   technolog: [
     PermissionCode.PartsCreate,
@@ -557,6 +579,7 @@ const OPERATOR_ROLE_EDIT: Record<string, PermissionCode[]> = {
     PermissionCode.EnginesEdit,
     PermissionCode.FilesUpload,
     PermissionCode.FilesDelete,
+    PermissionCode.PrintFormsEdit,
   ],
   master: [
     PermissionCode.WorkOrdersCreate,
@@ -569,11 +592,13 @@ const OPERATOR_ROLE_EDIT: Record<string, PermissionCode[]> = {
     PermissionCode.FilesUpload,
     // ПП: мастер выписывает наряды по плану — ведёт и сам план.
     PermissionCode.ProductionProgramEdit,
+    PermissionCode.PrintFormsEdit,
   ],
   supply: [
     PermissionCode.SupplyRequestsCreate,
     PermissionCode.SupplyRequestsEdit,
     PermissionCode.FilesUpload,
+    PermissionCode.PrintFormsEdit,
   ],
   // Складские документы (приход/расход/перемещение/инвентаризация) с проведением
   // и номенклатура; заявки в снабжение — кладовщик заказывает пополнение.
@@ -596,10 +621,12 @@ const OPERATOR_ROLE_EDIT: Record<string, PermissionCode[]> = {
     // дубли одной кнопкой (анализ, слияние, удаление дубля). Право узкое:
     // кадровую карточку целиком оно не открывает.
     PermissionCode.EmployeesDedupe,
+    // Свой шаблон печати СИЗ — под свой бланк выдачи.
+    PermissionCode.PrintFormsEdit,
   ],
   // Табельщик — по должности: он заводит и ведёт табели первым, но отдельного права
   // сверх общей базы у него нет — границу «чужие табели только смотреть» держит авторство.
-  timekeeper: [PermissionCode.TimesheetEdit],
+  timekeeper: [PermissionCode.TimesheetEdit, PermissionCode.PrintFormsEdit],
   viewer: [],
 };
 

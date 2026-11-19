@@ -58,6 +58,7 @@ import { registerProductionProgramIpc } from './register/productionProgram.js';
 import { registerEngineReclamationsIpc } from './register/engineReclamations.js';
 import { registerChildrenIpc } from './register/children.js';
 import { registerOrganizationIpc } from './register/organization.js';
+import { registerPrintFormsIpc } from './register/printForms.js';
 import { registerWorkSheetsIpc } from './register/workSheets.js';
 import { registerContractPaymentsIpc } from './register/contractPayments.js';
 import { registerContractsIpc } from './register/contracts.js';
@@ -259,6 +260,7 @@ export function registerIpc(
   registerEngineReclamationsIpc(ctx);
   registerChildrenIpc(ctx);
   registerOrganizationIpc(ctx);
+  registerPrintFormsIpc(ctx);
   registerWorkSheetsIpc(ctx);
   registerContractPaymentsIpc(ctx);
   registerContractsIpc(ctx);
