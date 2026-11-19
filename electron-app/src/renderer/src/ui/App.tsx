@@ -1683,28 +1683,6 @@ export function App() {
     setTab(t);
   }, [setTab]);
 
-  // Заводит вкладку карточки и отвечает вызывающему, разрешено ли открытие. Фокус даёт не
-  // здесь, а пост-коммитный эффект — то есть уже ПОСЛЕ dirty-guard: при single-mount смена
-  // активной вкладки размонтировала бы грязную карточку раньше, чем оператор ответил диалогу.
-  const openCardTab = useCallback((kind: TabId, entityId: string): boolean => {
-    const id = String(entityId ?? '').trim();
-    if (!id) return true;
-    const title = cardTitleFnRef.current(kind, id);
-    // Снимок берём из ref, а не из замыкания рендера: при грязной карточке открытие
-    // выполняется отложенно (pendingCardOpenRef) и состояние вкладок к тому моменту иное.
-    const allowed = canOpenCardTab(tabsStateRef.current, kind, id);
-    dispatchTabs({
-      type: 'OPEN_CARD',
-      cardKind: kind,
-      entityId: id,
-      title,
-      titleIsFallback: isFallbackCardTitle(title),
-      focus: false,
-      originTabId: cardOriginTabId(kind),
-    });
-    return allowed;
-  }, [cardOriginTabId]);
-
   /**
    * Откуда открыли карточку — вкладка, в которую вернёмся после закрытия (владелец
    * 08.11.2026: «после закрытия документа оператор возвращается туда, откуда его
@@ -1712,6 +1690,9 @@ export function App() {
    *
    * Открыли из списка раздела (список виден рядом с карточкой) — вернёмся в этот список.
    * Открыли по ссылке из другой карточки — вернёмся в ту карточку (она и так активна).
+   *
+   * Объявлено ДО `openCardTab`: тот берёт источник отсюда, а порядок объявлений в теле
+   * компонента значим (и для TS, и для времени жизни const в первом рендере).
    */
   const cardOriginTabId = useCallback((kind: TabId): string => {
     const state = tabsStateRef.current;
@@ -1726,6 +1707,31 @@ export function App() {
     }
     return state.activeId;
   }, []);
+
+  // Заводит вкладку карточки и отвечает вызывающему, разрешено ли открытие. Фокус даёт не
+  // здесь, а пост-коммитный эффект — то есть уже ПОСЛЕ dirty-guard: при single-mount смена
+  // активной вкладки размонтировала бы грязную карточку раньше, чем оператор ответил диалогу.
+  const openCardTab = useCallback(
+    (kind: TabId, entityId: string): boolean => {
+      const id = String(entityId ?? '').trim();
+      if (!id) return true;
+      const title = cardTitleFnRef.current(kind, id);
+      // Снимок берём из ref, а не из замыкания рендера: при грязной карточке открытие
+      // выполняется отложенно (pendingCardOpenRef) и состояние вкладок к тому моменту иное.
+      const allowed = canOpenCardTab(tabsStateRef.current, kind, id);
+      dispatchTabs({
+        type: 'OPEN_CARD',
+        cardKind: kind,
+        entityId: id,
+        title,
+        titleIsFallback: isFallbackCardTitle(title),
+        focus: false,
+        originTabId: cardOriginTabId(kind),
+      });
+      return allowed;
+    },
+    [cardOriginTabId],
+  );
 
   // Баннер отказа гаснет сам. Таймер живёт здесь, а не в редьюсере: домен без часов.
   useEffect(() => {
