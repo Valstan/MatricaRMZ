@@ -2870,3 +2870,94 @@ export const erpGiftRecords = pgTable(
     employeeIdx: index('erp_gift_records_employee_idx').on(t.recipientEmployeeId),
   }),
 );
+
+/**
+ * Шаблон печатной формы — модуль «Печатные формы» (промты КАРМАНА #4/#5).
+ *
+ * Зачем отдельная таблица, а не переименование `ppe_print_templates`: та таблица
+ * в sync-контракте, её имя живёт в `SyncTableName`, `syncService.ts` и `errorRecovery.ts` —
+ * переименование тронет контур доставки, который работает каждый день. Здесь новая
+ * таблица с привязкой к ВИДУ ОБЪЕКТА (`entity_key`): карточка СИЗ, карточка двигателя,
+ * наряд, списки — и отдельные документы.
+ *
+ * Таблица живёт ВНЕ sync-контракта (как «Приказ о ценах на услуги»): шаблоны читает и
+ * пишет серверная дверь, клиент ходит по REST — ровно так же, как уже устроены
+ * шаблоны печати СИЗ (`ppe:printTemplates:list` → REST).
+ */
+export const printTemplates = pgTable(
+  'print_templates',
+  {
+    id: uuid('id').primaryKey(),
+    /** 'shared' — общий шаблон (виден всем); иначе id оператора-владельца (личный). */
+    ownerId: text('owner_id').notNull().default('shared'),
+    /** Вид объекта, к которому привязан шаблон: 'ppe_card' | 'engine_card' | 'work_order' | … */
+    entityKey: text('entity_key').notNull(),
+    /** Ключ формы внутри вида объекта. */
+    formKey: text('form_key').notNull(),
+    name: text('name').notNull(),
+    /** Раскладка: секции, колонки, картинки, правила подстановки, примечания. */
+    layoutJson: text('layout_json').notNull(),
+    /** Шаблон по умолчанию для своей пары (вид объекта + форма). */
+    isDefault: boolean('is_default').notNull().default(false),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    updatedBy: text('updated_by'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    ownerEntityFormNameUq: uniqueIndex('print_templates_owner_entity_form_name_uq')
+      .on(t.ownerId, t.entityKey, t.formKey, t.name)
+      .where(sql`${t.deletedAt} is null`),
+    entityIdx: index('print_templates_entity_idx').on(t.entityKey),
+  }),
+);
+
+/**
+ * Документ, созданный по печатной форме (служебная записка, заявление на отпуск).
+ *
+ * Шаблоны и документы хранятся ОТДЕЛЬНО — как карточки двигателей и карточки деталей:
+ * шаблон описывает форму, документ — заполненный экземпляр. Документ хранит СНИМОК
+ * раскладки на момент заполнения: правка шаблона не должна переписывать уже
+ * заполненный документ, который оператор уже отправил.
+ *
+ * Состояния приёмки: `draft` → `sent` → `accepted` | `rejected`. Приёмка — явное
+ * действие получателя; сама синхронизация строк её не заменяет.
+ */
+export const printDocuments = pgTable(
+  'print_documents',
+  {
+    id: uuid('id').primaryKey(),
+    /** Вид документа: 'document_service_note' | 'document_vacation_request' | … */
+    entityKey: text('entity_key').notNull(),
+    /** Ключ формы документа. */
+    formKey: text('form_key').notNull(),
+    /** Шаблон, из которого документ создан (шаблон могут удалить — документ останется). */
+    templateId: uuid('template_id'),
+    title: text('title').notNull(),
+    /** Заполненные значения полей: `{ fieldId: value }`. */
+    valuesJson: text('values_json').notNull().default('{}'),
+    /** Снимок раскладки шаблона на момент заполнения. */
+    layoutJson: text('layout_json').notNull().default('{}'),
+    /** 'draft' | 'sent' | 'accepted' | 'rejected'. */
+    status: text('status').notNull().default('draft'),
+    /** Автор документа (оператор, который создал). */
+    authorId: text('author_id').notNull(),
+    authorUsername: text('author_username').notNull().default(''),
+    /** Получатель, которому документ отправлен. */
+    recipientId: text('recipient_id'),
+    recipientUsername: text('recipient_username'),
+    /** Текст документа (для видов, где заполняется свободный текст). */
+    note: text('note').notNull().default(''),
+    /** Комментарий получателя при отклонении. */
+    decisionNote: text('decision_note').notNull().default(''),
+    decidedAt: bigint('decided_at', { mode: 'number' }),
+    decidedBy: text('decided_by'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    recipientStatusIdx: index('print_documents_recipient_status_idx').on(t.recipientId, t.status),
+    authorIdx: index('print_documents_author_idx').on(t.authorId),
+  }),
+);

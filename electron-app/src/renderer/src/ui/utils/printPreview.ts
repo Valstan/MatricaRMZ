@@ -1,13 +1,10 @@
 import { PRINT_MARGIN_MM, type PrintOrientation } from './listPrintLayout.js';
+import type { PrintSection } from '@matricarmz/shared';
 
-export type PrintSection = {
-  id: string;
-  title: string;
-  html: string;
-  checked?: boolean;
-  /** Не печатать заголовок секции (<h2>). Чекбокс-переключатель (по title) остаётся. */
-  hideTitle?: boolean;
-};
+// Тип блока печатной формы живёт в shared: шаблон (данные) ссылается на блоки формы,
+// и сервер, проверяющий шаблон, должен знать тот же контракт. Здесь — реэкспорт,
+// чтобы старые импорты из renderer'а продолжали работать.
+export type { PrintSection };
 
 /** Шапка печатного документа: она печатается, а не только видна в окне. */
 export type PrintHeader = {

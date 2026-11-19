@@ -36,6 +36,8 @@ import type {
   OrgEventSaveDto,
 } from '../domain/orgGifts.js';
 import type { FileSearchResult, FileSearchSource } from '../domain/fileSearch.js';
+import type { PrintTemplateRow } from '../domain/printTemplate.js';
+import type { PrintDocumentDto } from '../domain/printDocuments.js';
 
 /** Избранные разделы оператора (левая колонка оболочки). Локально, per-user scope. */
 export type SectionFavoritesResult = { ok: true; ids: MenuTabId[] } | { ok: false; error: string };
@@ -3275,6 +3277,52 @@ export type MatricaApi = {
       { ok: true; id: string } | { ok: false; error: string }
     >;
     removeGift: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+  };
+  /**
+   * Модуль печатных форм: шаблоны форм и документы.
+   * Читаются и пишутся по REST (таблицы вне sync-контракта) — как шаблоны печати СИЗ.
+   */
+  printForms: {
+    templates: {
+      list: (args?: { entityKey?: string }) => Promise<
+        { ok: true; rows: PrintTemplateRow[] } | { ok: false; error: string }
+      >;
+      save: (args: {
+        id?: string;
+        ownerId?: 'shared' | 'personal';
+        entityKey: string;
+        formKey?: string;
+        name: string;
+        layoutJson: string;
+        isDefault?: boolean;
+      }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+      delete: (id: string) => Promise<{ ok: true; deleted: true } | { ok: false; error: string }>;
+    };
+    documents: {
+      list: (args?: { scope?: 'inbox' | 'sent' | 'drafts' }) => Promise<
+        { ok: true; rows: PrintDocumentDto[] } | { ok: false; error: string }
+      >;
+      incomingCount: () => Promise<{ ok: true; count: number } | { ok: false; error: string }>;
+      create: (args: {
+        entityKey: string;
+        formKey?: string;
+        templateId?: string | null;
+        title: string;
+        valuesJson?: string;
+        layoutJson?: string;
+        note?: string;
+      }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+      send: (args: {
+        id: string;
+        recipientId?: string | null;
+        recipientUsername: string;
+        note?: string;
+      }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+      decide: (args: { id: string; decision: 'accepted' | 'rejected'; note?: string }) => Promise<
+        { ok: true; id: string } | { ok: false; error: string }
+      >;
+      delete: (id: string) => Promise<{ ok: true; deleted: true } | { ok: false; error: string }>;
+    };
   };
   /**
    * Рекламации двигателя: очередь заездов по рекламации (1-я, 2-я, 3-я …).

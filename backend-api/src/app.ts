@@ -52,6 +52,7 @@ import { engineReclamationsRouter } from './routes/engineReclamations.js';
 import { childrenRouter } from './routes/children.js';
 import { organizationRouter } from './routes/organization.js';
 import { repairStageTemplatesRouter } from './routes/repairStageTemplates.js';
+import { printFormsRouter } from './routes/printForms.js';
 import { noteStatisticsRequestActivity } from './services/statisticsAuditService.js';
 import { requireAuth, requirePermission } from './auth/middleware.js';
 import { PermissionCode } from './auth/permissions.js';
@@ -205,6 +206,9 @@ export function createApp() {
   // подарков (серверные двери записи).
   app.use('/children', requireAuth, childrenRouter);
   app.use('/organization', requireAuth, organizationRouter);
+  // Модуль печатных форм: шаблоны форм и документы (серверные двери записи;
+  // таблицы вне sync-контракта, клиент ходит по REST).
+  app.use('/print-forms', requireAuth, printFormsRouter);
 
   // Express 4 не ловит отклонённый промис async-обработчика — запрос висит до
   // клиентского таймаута, и оператор видит «не сохранилось» вместо ошибки
