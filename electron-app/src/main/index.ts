@@ -20,9 +20,11 @@ import {
   applyPendingUpdateIfAny,
   configureUpdateService,
   initAutoUpdate,
+  noteInstallTimingOnBoot,
   recoverStuckUpdateState,
   runAutoUpdateFlow,
   runUpdateHelperFlow,
+  simulateUpdateBarForDev,
   simulateUpdateUiForDev,
   startBackgroundUpdatePolling,
 } from './services/updateService.js';
@@ -811,10 +813,16 @@ app.whenReady().then(() => {
 
       // Dev-only верификация окна обновления симуляцией (в проде env не выставлен).
       const simUpdate = process.env.MATRICA_SIMULATE_UPDATE;
+      if (process.env.MATRICA_SIMULATE_UPDATE_BAR === '1') {
+        // Имитация фонового обновления: полоса в главном окне (смоук проверяет её на живой машине).
+        simulateUpdateBarForDev();
+      }
       if (simUpdate) {
         const simScenario = simUpdate === 'error' ? 'error' : simUpdate === 'loop' ? 'loop' : 'happy';
         void simulateUpdateUiForDev(simScenario);
       } else if (updatesEnabled) {
+        // Замер прошлой установки: по нему полоса обновления сможет сказать «осталось N с».
+        await noteInstallTimingOnBoot();
         // Применение уже скачанного обновления — локальная операция: делаем до окна,
         // чтобы окно не мелькнуло и не погасло. Сетевая проверка — после окна.
         await recoverStuckUpdateState();

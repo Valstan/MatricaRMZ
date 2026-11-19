@@ -6,7 +6,14 @@ import { appendFile, copyFile, mkdir, readFile, stat, writeFile, access, readdir
 import { basename, dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 
-import { compareAppVersion, formatAppVersionLabel } from '@matricarmz/shared';
+import {
+  compareAppVersion,
+  estimateDownloadRate,
+  formatAppVersionLabel,
+  monotonicOverallPct,
+  stageOverallPct,
+  type UpdateStage,
+} from '@matricarmz/shared';
 
 import { getNetworkState } from './networkService.js';
 import { downloadWithResume, fetchWithRetry } from './netFetch.js';
@@ -76,10 +83,14 @@ let backgroundInFlight = false;
 let updateUiWindow: BrowserWindow | null = null;
 let updateUiLocked = false;
 const updateLog: string[] = [];
-type UpdateStage = 'checking' | 'downloading' | 'verifying' | 'installing' | 'restarting' | 'uptodate' | 'error';
+// Тип этапа — общий (shared/src/domain/updateProgress.ts): там же живут веса этапов и
+// правило «процент только вперёд», чтобы главное окно и окно апдейтера считали одно и то же.
 type UpdateUiViewState = {
   message: string;
+  /** Общий процент полосы — то же число, что видит главное окно. */
   pct: number;
+  /** Процент внутри этапа (из него считается общий). */
+  stagePct: number;
   version: string;
   logs: string[];
   stage: UpdateStage;
@@ -96,6 +107,7 @@ function freshUpdateUiViewState(): UpdateUiViewState {
   return {
     message: 'Проверяем обновления…',
     pct: 0,
+    stagePct: 0,
     version: '',
     logs: [],
     stage: 'checking',
@@ -117,6 +129,15 @@ let updateUiViewState: UpdateUiViewState = freshUpdateUiViewState();
 let lastProgressBytes = 0;
 let lastProgressTs = 0;
 const SPEED_WINDOW_MS = 1000;
+// Общий прогресс обновления (владелец 08.11.2026 — «сейчас полос несколько, заменить на одну
+// тонкую посреди экрана»). Правило одно: у каждого этапа своя часть полосы, процент только
+// вперёд. Домен — shared/src/domain/updateProgress.ts.
+let lastOverallPct = 0;
+let downloadBytesPerSecond: number | null = null;
+let downloadEtaSeconds: number | null = null;
+// Длительность прошлой установки — оценка «осталось N с» для этапа установки. Пока замера нет,
+// оценки нет: «оценка недоступна» честнее нуля.
+let lastInstallDurationMs: number | null = null;
 let lastManualUpdatePromptAt = 0;
 const MANUAL_UPDATE_PROMPT_COOLDOWN_MS = 30 * 60_000;
 
@@ -127,7 +148,18 @@ type UpdateRuntimeState = {
   state: 'idle' | 'checking' | 'downloading' | 'downloaded' | 'error';
   source?: 'github' | 'yandex' | 'lan' | 'torrent' | 'server';
   version?: string;
+  /** Процент ВНУТРИ этапа (скачивания — 0…100). Для полосы нужен `overallPct`. */
   progress?: number;
+  /** Общий процент полосы: у каждого этапа своя часть, общий только вперёд. */
+  overallPct?: number;
+  /** Этап обновления — по нему оператор видит, что именно происходит. */
+  stage?: UpdateStage;
+  /** Версия, с которой работает программа сейчас. */
+  fromVersion?: string | null;
+  /** Версия, на которую обновляемся. */
+  toVersion?: string | null;
+  /** Секунды до конца; null — оценки нет (показываем «оценка недоступна», а не 0). */
+  etaSeconds?: number | null;
   message?: string;
   updatedAt: number;
 };
@@ -735,6 +767,8 @@ async function installNow(args: { installerPath: string; version?: string }) {
     return;
   }
   const helper = await prepareUpdateHelper();
+  // Замер длительности установки: по нему в следующий раз полоса сможет сказать «осталось N с».
+  await noteInstallStarted();
   await writeUpdaterLog(`update-helper spawn version=${args.version ?? 'unknown'} installer=${args.installerPath}`);
   const spawned = await spawnUpdateHelper({
     helperExePath: helper.helperExePath,
@@ -800,12 +834,137 @@ async function addUpdateLog(line: string) {
   await renderUpdateLog();
 }
 
-function setUpdateState(next: Partial<UpdateRuntimeState>) {
+/**
+ * Этап по состоянию runtime — одно правило для всех вызовов setUpdateState.
+ */
+function stageForRuntimeState(state: UpdateRuntimeState['state']): UpdateStage {
+  switch (state) {
+    case 'checking':
+      return 'checking';
+    case 'downloading':
+      return 'downloading';
+    case 'downloaded':
+      return 'downloaded';
+    case 'error':
+      return 'error';
+    default:
+      return 'idle';
+  }
+}
+
+/**
+ * Общий процент по этапу: монотонный, сбрасывается только на новой попытке обновления.
+ * Владелец 08.11.2026: «Прогресс идёт только вперёд и не прыгает назад».
+ */
+function nextOverallPct(stage: UpdateStage, stagePct: number): number {
+  if (stage === 'checking' || stage === 'idle') {
+    lastOverallPct = 0;
+    return 0;
+  }
+  if (stage === 'error') return lastOverallPct;
+  lastOverallPct = monotonicOverallPct(lastOverallPct, stageOverallPct(stage, stagePct));
+  return lastOverallPct;
+}
+
+/**
+ * Секунды до конца по этапу.
+ *
+ * Владелец просил на полосе «сколько секунд осталось ДО ОКОНЧАНИЯ УСТАНОВКИ» — то есть
+ * про весь остаток обновления, а не только про текущий этап. Поэтому при скачивании это
+ * остаток загрузки ПЛЮС оценка установки.
+ *
+ * Если оценки установки нет (первый апдейт на машине) — оценки нет вовсе: «оценка
+ * недоступна» честнее, чем показывать остаток загрузки, назвав его «до установки».
+ */
+function etaForStage(stage: UpdateStage): number | null {
+  if (stage === 'downloading') {
+    if (downloadEtaSeconds == null) return null;
+    if (lastInstallDurationMs == null) return null;
+    return Math.max(0, Math.round(downloadEtaSeconds + lastInstallDurationMs / 1000));
+  }
+  if (stage === 'installing' || stage === 'restarting') {
+    return lastInstallDurationMs != null ? Math.max(0, Math.round(lastInstallDurationMs / 1000)) : null;
+  }
+  return null;
+}
+
+/**
+ * Скорость и ETA скачивания по окну сэмплов — общие для главного окна и окна апдейтера.
+ * Скорость считается по ДЕЛЬТЕ байтов за окно (накопленные делить на время нельзя).
+ */
+function trackDownloadProgress(transferredBytes: number | null | undefined, totalBytes: number | null | undefined): void {
+  const t = Number(transferredBytes);
+  if (!Number.isFinite(t)) return;
+  const now = Date.now();
+  if (lastProgressTs === 0) {
+    lastProgressBytes = t;
+    lastProgressTs = now;
+    return;
+  }
+  if (now - lastProgressTs < SPEED_WINDOW_MS) return;
+  const windowSeconds = (now - lastProgressTs) / 1000;
+  const rate = estimateDownloadRate({
+    transferredBytes: t,
+    previousBytes: lastProgressBytes,
+    totalBytes: totalBytes ?? null,
+    windowSeconds,
+    previousBytesPerSecond: downloadBytesPerSecond,
+  });
+  lastProgressBytes = t;
+  lastProgressTs = now;
+  if (rate.bytesPerSecond != null) {
+    downloadBytesPerSecond = rate.bytesPerSecond;
+    downloadEtaSeconds = rate.etaSeconds;
+  }
+}
+
+/**
+ * Единая точка правды по прогрессу: этап → общий процент → главное окно. Окно апдейтера
+ * берёт из того же состояния, поэтому обе поверхности показывают одно и то же число.
+ */
+function applyProgress(args: {
+  stage: UpdateStage;
+  stagePct: number;
+  state?: UpdateRuntimeState['state'] | undefined;
+  source?: UpdateRuntimeState['source'] | undefined;
+  version?: string | null | undefined;
+  message?: string | undefined;
+}): void {
+  const stagePct = Math.max(0, Math.min(100, Math.floor(Number(args.stagePct) || 0)));
+  const overallPct = nextOverallPct(args.stage, stagePct);
+  const toVersion = args.version ?? updateState.toVersion ?? null;
   updateState = {
     ...updateState,
-    ...next,
+    ...(args.state ? { state: args.state } : {}),
+    ...(args.source ? { source: args.source } : {}),
+    ...(args.message != null ? { message: args.message } : {}),
+    progress: stagePct,
+    stage: args.stage,
+    overallPct,
+    fromVersion: app.getVersion(),
+    toVersion,
+    etaSeconds: etaForStage(args.stage),
     updatedAt: Date.now(),
   };
+}
+
+function setUpdateState(next: Partial<UpdateRuntimeState>) {
+  const state = next.state ?? updateState.state;
+  const stage = stageForRuntimeState(state);
+  const stagePct =
+    stage === 'downloading'
+      ? Math.max(0, Math.min(100, Number(next.progress ?? 0)))
+      : stage === 'downloaded'
+        ? 100
+        : 0;
+  applyProgress({
+    stage,
+    stagePct,
+    state,
+    source: next.source,
+    version: next.version ?? null,
+    message: next.message,
+  });
   pushUpdateStateToApp();
 }
 
@@ -940,6 +1099,29 @@ export async function simulateUpdateUiForDev(scenario: 'happy' | 'error' | 'loop
   await runUpdateSimOnce(scenario);
 }
 
+// Dev-only: имитация ФОНОВОГО обновления в главном окне — полоса видна без реального
+// релиза (в проде env не выставлен). Нужна для смоука: иначе полосу не на чём увидеть,
+// потому что фон выключен в dev (app.isPackaged == false).
+export function simulateUpdateBarForDev(): void {
+  if (app.isPackaged) return;
+  let stagePct = 0;
+  // Оценка установки: без неё полоса честно пишет «оценка недоступна» (см. etaForStage).
+  lastInstallDurationMs = 45_000;
+  const timer = setInterval(() => {
+    stagePct = Math.min(100, stagePct + 6);
+    // ETA — как при настоящей загрузке: секунды до конца уменьшаются вместе с процентом.
+    downloadEtaSeconds = Math.max(0, Math.round((100 - stagePct) * 1.4));
+    applyProgress({
+      stage: 'downloading',
+      stagePct,
+      version: '3.136.0',
+      message: 'Догружаем обновление…',
+    });
+    pushUpdateStateToApp();
+  }, 400);
+  setTimeout(() => clearInterval(timer), 120_000);
+}
+
 async function runUpdateSimOnce(scenario: 'happy' | 'error'): Promise<void> {
   lastProgressBytes = 0;
   lastProgressTs = 0;
@@ -1031,9 +1213,12 @@ function quitMainAppSoon(ms = 0) {
 
 async function setUpdateUi(msg: string, pct?: number, version?: string, opts?: UpdateUiOpts) {
   const w = updateUiWindow;
-  if (!w || w.isDestroyed()) return;
-  const nextPct = pct == null ? updateUiViewState.pct : Math.max(0, Math.min(100, Math.floor(pct)));
-  const next: UpdateUiViewState = { ...updateUiViewState, message: msg, pct: nextPct };
+  const stage = opts?.stage ?? updateUiViewState.stage;
+  const stagePct = pct == null ? updateUiViewState.stagePct : Math.max(0, Math.min(100, Math.floor(pct)));
+  // Общий процент — по весам этапа и только вперёд; окно апдейтера и главное окно получают
+  // одно и то же число (владелец 08.11.2026: «полос сейчас несколько — заменить на одну»).
+  const overallPct = nextOverallPct(stage, stagePct);
+  const next: UpdateUiViewState = { ...updateUiViewState, message: msg, stage, stagePct, pct: overallPct };
   if (!next.versionFromLabel) {
     const cur = app.getVersion();
     next.versionFromLabel = formatAppVersionLabel(cur);
@@ -1042,7 +1227,6 @@ async function setUpdateUi(msg: string, pct?: number, version?: string, opts?: U
     next.version = String(version);
     next.versionToLabel = formatAppVersionLabel(next.version);
   }
-  if (opts?.stage) next.stage = opts.stage;
   if (opts && Object.prototype.hasOwnProperty.call(opts, 'errorText')) {
     next.errorText = opts.errorText ?? null;
   }
@@ -1053,35 +1237,21 @@ async function setUpdateUi(msg: string, pct?: number, version?: string, opts?: U
     const total = opts.totalBytes ?? null;
     next.transferredBytes = t;
     next.totalBytes = total;
-    const now = Date.now();
-    if (t == null) {
-      // нет данных о байтах — скорость/ETA не трогаем
-    } else if (lastProgressTs === 0) {
-      // первый сэмпл: ставим якорь окна (скорость пока неизвестна), но размер показываем сразу
-      lastProgressBytes = t;
-      lastProgressTs = now;
-    } else if (now - lastProgressTs >= SPEED_WINDOW_MS) {
-      // граница окна: средняя скорость за окно + EMA-сглаживание поверх прошлой
-      const windowRate = t >= lastProgressBytes ? (t - lastProgressBytes) / ((now - lastProgressTs) / 1000) : 0;
-      if (windowRate > 0) {
-        const prev = updateUiViewState.bytesPerSecond;
-        const smoothed = prev != null && prev > 0 ? prev * 0.6 + windowRate * 0.4 : windowRate;
-        next.bytesPerSecond = smoothed;
-        next.etaSeconds = total != null ? Math.max(0, (total - t) / smoothed) : null;
-      }
-      lastProgressBytes = t;
-      lastProgressTs = now;
-    } else {
-      // внутри окна: сохраняем последние показанные скорость/ETA и коалесцируем пуш
-      next.bytesPerSecond = updateUiViewState.bytesPerSecond;
-      next.etaSeconds = updateUiViewState.etaSeconds;
-      coalesceProgress = next.stage === 'downloading' && nextPct < 100;
-    }
+    // Скорость и ETA считаются ОДИН раз на оба окна — главное окно тоже должно знать,
+    // сколько секунд осталось (раньше ETA жил только в окне апдейтера).
+    trackDownloadProgress(t, total);
+    next.bytesPerSecond = downloadBytesPerSecond;
+    next.etaSeconds = downloadEtaSeconds;
+    coalesceProgress = stage === 'downloading' && overallPct < 100;
   }
   if (opts && Object.prototype.hasOwnProperty.call(opts, 'deltaFullBytes')) {
     next.deltaFullBytes = opts.deltaFullBytes ?? null;
   }
   updateUiViewState = next;
+  // Главное окно получает тот же процент, тот же этап и тот же ETA.
+  applyProgress({ stage, stagePct, version: next.version || null, message: msg });
+  pushUpdateStateToApp();
+  if (!w || w.isDestroyed()) return;
   // Прогресс внутри окна копим в стейте; пушим на границе окна / при смене стадии / завершении —
   // чтобы текст в окне обновлялся ~раз в секунду, а не на каждый сетевой чанк.
   if (!coalesceProgress) pushUpdateUiState();
@@ -1542,6 +1712,8 @@ export async function applyPendingUpdateIfAny(parentWindow?: BrowserWindow | nul
   await addUpdateLog(`update helper: resolving resources path`);
   const helper = await prepareUpdateHelper();
   await addUpdateLog(`update helper: resources=${helper.resourcesPath}`);
+  // Замер длительности установки — оценка «осталось N с» в следующий раз.
+  await noteInstallStarted();
   await writeUpdaterLog(`update-helper resources=${helper.resourcesPath} launch=${helper.launchPath}`);
   await describePath('helper-exe', helper.helperExePath);
   await describePath('helper-launch', helper.launchPath);
@@ -2927,6 +3099,58 @@ async function recordUpdateOutcome(args: {
   } finally {
     lastDeltaDownloadedBytes = null;
   }
+}
+
+// Замер длительности установки — источник оценки «осталось N с» для этапа установки
+// (владелец 08.11.2026: «на полосе показывать, сколько секунд осталось до окончания
+// установки»). Пока замера нет — оценки нет: «оценка недоступна» честнее нуля.
+type InstallTiming = { startedAt?: number; lastMs?: number; samples?: number };
+
+function installTimingPath(): string {
+  return join(app.getPath('userData'), 'update-install-timing.json');
+}
+
+async function readInstallTiming(): Promise<InstallTiming | null> {
+  try {
+    const raw = await readFile(installTimingPath(), 'utf8');
+    const json = JSON.parse(raw) as InstallTiming;
+    return json && typeof json === 'object' ? json : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Пометить начало установки: по метке на следующем запуске узнаем, сколько она длилась. */
+async function noteInstallStarted(): Promise<void> {
+  try {
+    await writeFile(installTimingPath(), JSON.stringify({ startedAt: Date.now() } satisfies InstallTiming), 'utf8');
+  } catch {
+    // замер — не критично
+  }
+}
+
+/**
+ * На старте программы: если установка была, считаем её длительность и запоминаем как
+ * оценку для следующего раза. Вызывается один раз запуск.
+ */
+export async function noteInstallTimingOnBoot(): Promise<void> {
+  const timing = await readInstallTiming();
+  if (!timing) return;
+  if (timing.startedAt) {
+    const durationMs = Date.now() - Number(timing.startedAt);
+    // Замер берём только из правдоподобного диапазона: иначе в оценку попал бы час простоя.
+    if (durationMs > 1000 && durationMs < 30 * 60_000) {
+      const samples = Number(timing.samples ?? 0) + 1;
+      lastInstallDurationMs = durationMs;
+      await writeFile(
+        installTimingPath(),
+        JSON.stringify({ lastMs: durationMs, samples } satisfies InstallTiming),
+        'utf8',
+      ).catch(() => {});
+      return;
+    }
+  }
+  await rm(installTimingPath(), { force: true }).catch(() => {});
 }
 
 // Отгрузка исхода последнего обновления ОДИН раз после рестарта. Канал — существующий

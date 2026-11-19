@@ -555,21 +555,67 @@
   }
 }
 
-/* Полоса фоновой загрузки обновления: заливка ПОД вкладками во всю ширину полосы.
-   Лёгкий розовый и подложка (z-index ниже вкладок) — чтобы подписи читались как обычно;
-   без анимации ширины прыжки процентов выглядели бы дёрганьем. */
-.v3-tabs-progress {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  z-index: 0;
+/* Полоса обновления программы: одна, тонкая, длинная, посреди экрана (владелец
+   08.11.2026: «сейчас полос несколько — заменить на одну тонкую длинную посреди экрана»).
+   Раньше была заливка ПОД вкладками — её больше нет: полоса одна и на своём месте.
+   Полоса не перехватывает клики (pointer-events: none) — работать можно, не мешая. */
+.v3-update-bar {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 3500;
+  width: min(720px, 78vw);
   pointer-events: none;
-  background: rgba(236, 72, 153, 0.14);
-  transition: width 400ms ease-out;
+  background: rgba(17, 24, 39, 0.9);
+  color: #f9fafb;
+  border-radius: 12px;
+  padding: 10px 14px 12px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.35);
 }
 
-/* Полоса вкладок становится системой координат для заливки; сами вкладки — над ней. */
+.v3-update-bar-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.v3-update-bar-versions {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v3-update-bar-pct {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.v3-update-bar-eta {
+  color: #cbd5f5;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Дорожка тонкая: заливка идёт только вперёд, поэтому пружинить ширину незачем. */
+.v3-update-bar-track {
+  margin-top: 8px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+
+.v3-update-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #60a5fa, #34d399);
+  transition: width 300ms linear;
+}
+
+/* Полоса вкладок — своя система координат; вкладки и логотип над дорожкой. */
 .v3-tab-strip {
   position: relative;
 }

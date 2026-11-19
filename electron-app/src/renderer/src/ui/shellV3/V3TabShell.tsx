@@ -1,6 +1,6 @@
 ﻿import React, { useMemo } from 'react';
 import { Group, Panel, Separator, type Layout, type LayoutChangedMeta } from 'react-resizable-panels';
-import { shouldWarnTabsCount } from '@matricarmz/shared';
+import { formatEtaSeconds, shouldWarnTabsCount } from '@matricarmz/shared';
 
 import { resolveMenuTab, MENU_TAB_LABELS, type MenuTabId, type TabId } from '../layout/Tabs.js';
 import { FileTransferProgressPanel } from '../components/FileTransferProgressPanel.js';
@@ -82,8 +82,15 @@ export function V3TabShell(props: {
   /** Перезапуск программы из шапки — для оператора, который не может выгрузить её из трея.
    *  На планшете перезапуска нет (канала system.restart) — обработчик не передаётся, кнопки нет. */
   onRestartApp?: (() => void) | undefined;
-  /** Прогресс фоновой загрузки обновления: заливка под вкладками. `null` — ничего не качается. */
-  updateProgress?: { pct: number; version?: string | null } | null;
+  /** Полоса обновления: одна, тонкая, посреди экрана (владелец 08.11.2026 — «сейчас полос
+   *  несколько, заменить на одну тонкую длинную посреди экрана»). `null` — обновления нет. */
+  updateProgress?: {
+    pct: number;
+    fromLabel?: string | null;
+    toLabel?: string | null;
+    etaSeconds?: number | null;
+    stage?: string | null;
+  } | null;
   /** Короткое сообщение оператору — всплывает над телом вкладки и гаснет само. */
   notice?: ShellNotice | null;
   openTabs: OpenTab[];
@@ -337,6 +344,34 @@ export function V3TabShell(props: {
       {/* Прогресс загрузки/скачивания файлов — на любом экране: оператор должен видеть,
           что файл летит, а не гадать, не зависло ли. */}
       <FileTransferProgressPanel />
+      {/* Обновление программы — одна тонкая полоса посреди экрана (владелец 08.11.2026):
+          «Матрица X → Y», процент и сколько секунд осталось. Раньше полос было несколько
+          (заливка под вкладками + окно апдейтера) и процент прыгал назад между этапами. */}
+      {props.updateProgress != null && (
+        <div
+          className="v3-update-bar"
+          data-update-progress={String(props.updateProgress.pct)}
+          data-update-stage={props.updateProgress.stage ?? ''}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="v3-update-bar-head">
+            <span className="v3-update-bar-versions">
+              {props.updateProgress.fromLabel && props.updateProgress.toLabel
+                ? `${props.updateProgress.fromLabel} → ${props.updateProgress.toLabel}`
+                : (props.updateProgress.toLabel ?? props.updateProgress.fromLabel ?? 'Обновление программы')}
+            </span>
+            <span className="v3-update-bar-pct">{Math.max(0, Math.min(100, Math.round(props.updateProgress.pct)))}%</span>
+            <span className="v3-update-bar-eta">{formatEtaSeconds(props.updateProgress.etaSeconds)}</span>
+          </div>
+          <div className="v3-update-bar-track">
+            <div
+              className="v3-update-bar-fill"
+              style={{ width: `${Math.max(0, Math.min(100, props.updateProgress.pct))}%` }}
+            />
+          </div>
+        </div>
+      )}
       {/* Часы компьютера расходятся с часами сервера — плашка в шапке, не модалка:
           работать можно, но подписи и «свежесть» записей будут врать. */}
       {props.clockSkew?.problem ? (
@@ -359,18 +394,6 @@ export function V3TabShell(props: {
         </div>
       ) : null}
       <div className="v3-tab-strip" role="tablist">
-        {/* Прогресс фонового обновления — заливка ПОД вкладками во всю ширину (владелец
-            08.09.2026): видно, что программа что-то качает и скоро может перезагрузиться,
-            но подписи вкладок читаются как обычно. */}
-        {props.updateProgress != null && (
-          <div
-            className="v3-tabs-progress"
-            data-update-progress={String(props.updateProgress.pct)}
-            style={{ width: `${Math.max(0, Math.min(100, props.updateProgress.pct))}%` }}
-            title={`Загружается обновление ${props.updateProgress.version ?? ''} — ${props.updateProgress.pct}%`}
-            aria-hidden="true"
-          />
-        )}
         <img
           src={RMZ_LOGO_SRC}
           alt="RMZ"
