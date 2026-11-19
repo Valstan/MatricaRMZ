@@ -23,6 +23,8 @@ import { shouldAlertEvent, formatEvent } from './criticalEventsTelegramService.j
 import { readVaultSecret } from './karmanVaultClient.js';
 import { getInstanceRole, shouldRunBackgroundJobs } from './instanceRole.js';
 import { logInfo, logWarn } from '../utils/logger.js';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const MAX_API_BASE = 'https://platform-api2.max.ru';
 const DEFAULT_POLL_MS = 15_000;
@@ -78,6 +80,49 @@ async function resolveTarget(): Promise<{ kind: 'chat' | 'user'; value: string }
 export async function isMaxAlertConfigured(): Promise<boolean> {
   const [token, to] = await Promise.all([resolveToken(), resolveTarget()]);
   return token !== null && to !== null;
+}
+
+const MAX_TARGET_HINT_FILE = 'max-target.json';
+
+/**
+ * Записная книжка: адресат, который сервер однажды определил сам.
+ *
+ * Зачем. У МАКС `GET /chats` отключён, поэтому адресат известен ТОЛЬКО из входящего
+ * сообщения боту. Сообщение сервер вычитывает (и отвечает на него) — и адресат пропадает:
+ * в комнату он не пишется (бокс read-only), а в прод-журнале `logInfo` без флага
+ * `critical` не пишется ВОВСЕ (`shouldLog`: в prod-mode info молчит). Итог был такой:
+ * адресат определился — и потерялся, канал остался выключенным, и понять это было
+ * негде. Обе строки про адресата теперь помечены `critical: true`, а сам адресат
+ * кладётся сюда.
+ *
+ * Это НЕ источник правды для отправки: тревоги по-прежнему уходят по адресату из
+ * комнаты (`MAX_ALERT_CHAT_ID` / `MAX_ALERT_USER_ID`). Это подсказка «вот кого положить
+ * в комнату» — чтобы не ловить адресат в окно в одну минуту между поллинами.
+ */
+function maxTargetHintPath(): string {
+  return join(process.env.MATRICA_LOGS_DIR?.trim() || 'logs', MAX_TARGET_HINT_FILE);
+}
+
+function writeMaxTargetHint(to: { kind: 'chat' | 'user'; value: string }): void {
+  try {
+    const dir = process.env.MATRICA_LOGS_DIR?.trim() || 'logs';
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(maxTargetHintPath(), JSON.stringify({ ...to, at: Date.now() }), 'utf8');
+  } catch {
+    // подсказка — не критично
+  }
+}
+
+function readMaxTargetHint(): { kind: 'chat' | 'user'; value: string } | null {
+  try {
+    const json = JSON.parse(readFileSync(maxTargetHintPath(), 'utf8')) as { kind?: string; value?: string };
+    if ((json?.kind === 'chat' || json?.kind === 'user') && json?.value) {
+      return { kind: json.kind, value: String(json.value) };
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 let lastSentAt = 0;
@@ -222,7 +267,9 @@ export async function tryDiscoverMaxTargetOnce(): Promise<void> {
   if (await resolveTarget()) return;
   const found = await discoverMaxTarget();
   if (!found.ok) {
-    logInfo('канал МАКС: адресат пока не известен', { error: found.error });
+    // critical: в проде info-молчит (shouldLog) — без этого флага адресат был бы не виден
+    // нигде, и выглядело бы как «бот молчит».
+    logInfo('канал МАКС: адресат пока не известен', { error: found.error }, { critical: true });
     return;
   }
   const to = found.chatId ? { kind: 'chat' as const, value: found.chatId } : { kind: 'user' as const, value: found.userId ?? '' };
@@ -234,7 +281,8 @@ export async function tryDiscoverMaxTargetOnce(): Promise<void> {
       'Его нужно положить в комнату КАРМАНА ключом MAX_ALERT_CHAT_ID (или MAX_ALERT_USER_ID) — ' +
       'и канал поднимется сам.',
   );
-  logInfo('канал МАКС: адресат определён', { kind: to.kind, id: to.value });
+  writeMaxTargetHint(to);
+  logInfo('канал МАКС: адресат определён', { kind: to.kind, id: to.value }, { critical: true });
 }
 
 /**
@@ -268,6 +316,20 @@ export function startCriticalEventsMaxService() {
       }
       // Токен есть, адресата нет: ждём, пока владелец напишет боту, и узнаём адресат сами.
       logInfo('critical events MAX: токен есть, адресат не задан — ждём сообщения боту', {}, { critical: true });
+      // Если адресат уже определялся раньше — напоминаем, какой ключ и куда положить:
+      // сообщение боту сервер вычитывает, а в комнату записать не может (бокс read-only).
+      const hint = readMaxTargetHint();
+      if (hint) {
+        logInfo(
+          'канал МАКС: адресат был определён раньше — положите его в комнату КАРМАНА',
+          {
+            kind: hint.kind,
+            id: hint.value,
+            ключ: hint.kind === 'chat' ? 'MAX_ALERT_CHAT_ID' : 'MAX_ALERT_USER_ID',
+          },
+          { critical: true },
+        );
+      }
     }
     const pollMs = parseNumber(process.env.MATRICA_CRITICAL_MAX_POLL_MS, DEFAULT_POLL_MS, 3_000, 600_000);
     const errorEnabled = parseBool(process.env.MATRICA_CRITICAL_MAX_ERROR_ENABLED, true);
