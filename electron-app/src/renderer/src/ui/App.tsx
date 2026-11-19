@@ -2969,6 +2969,7 @@ export function App() {
         canViewParts: false,
         canManageEmployees: false,
         canEditEmployeePositions: false,
+        canEditEmployeeSizes: false,
         canViewEmployees: false,
         canManageWorkshops: false,
         canEditWorkshopRepairTemplates: false,
@@ -5839,7 +5840,7 @@ export function App() {
         );
       case 'employee':
         return (
-          <EmployeeDetailsPage key={k} employeeId={id} canEdit={caps.canManageEmployees} canEditPosition={caps.canEditEmployeePositions} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} canManageUsers={caps.canManageUsers} onAccessChanged={triggerEmployeesRefresh} me={authStatus.user} registerCardCloseActions={reg} requestClose={close} onOpenEmployee={openEmployee} onOpenPpeCard={openPpeCardEmployee} onOpenCounterparty={openCounterparty} onOpenContract={openContract} onOpenByCode={openByCode} onClose={close} />
+          <EmployeeDetailsPage key={k} employeeId={id} canEdit={caps.canManageEmployees} canEditPosition={caps.canEditEmployeePositions} canEditSizes={caps.canEditEmployeeSizes} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} canManageUsers={caps.canManageUsers} onAccessChanged={triggerEmployeesRefresh} me={authStatus.user} registerCardCloseActions={reg} requestClose={close} onOpenEmployee={openEmployee} onOpenPpeCard={openPpeCardEmployee} onOpenCounterparty={openCounterparty} onOpenContract={openContract} onOpenByCode={openByCode} onClose={close} />
         );
       case 'product':
         return (
@@ -6127,6 +6128,7 @@ export function App() {
             canEdit={caps.canEditNomenclature}
             canIssue={caps.canPostWarehouseDocs}
             canEditEmployee={caps.canManageEmployees}
+            canEditSizes={caps.canEditEmployeeSizes}
             onOpenEmployee={openEmployee}
             onBack={() => setTab('ppe_cards')}
           />
@@ -6565,6 +6567,7 @@ export function App() {
             employeeId={selectedEmployeeId}
             canEdit={caps.canManageEmployees}
             canEditPosition={caps.canEditEmployeePositions}
+            canEditSizes={caps.canEditEmployeeSizes}
             canViewFiles={caps.canViewFiles}
             canUploadFiles={caps.canUploadFiles}
             canManageUsers={caps.canManageUsers}
