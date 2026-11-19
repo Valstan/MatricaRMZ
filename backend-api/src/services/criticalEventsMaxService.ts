@@ -164,25 +164,51 @@ export async function discoverMaxTarget(): Promise<
   }
 }
 
-/** Достать из ответа обновлений первый разговор: чат, автор и текст сообщения. */
+/**
+ * Достать из ответа обновлений первый разговор: чат, автор и текст сообщения.
+ *
+ * Форма события взята из работающей реализации в «Сарафане» (`web/api/max_webhook.py`):
+ * при старте диалога MAX присылает событие `bot_started`, и **`chat_id` лежит на верхнем
+ * уровне** события, а не внутри `message`. Поэтому ищем рекурсивно по всему объекту, а не
+ * по одному месту: форма события у МАКС менялась и может измениться ещё.
+ */
 function extractMessageTarget(payload: unknown): { chatId?: string; userId?: string; text: string } | null {
   const updates = (payload as { updates?: unknown[] } | null)?.updates;
-  if (!Array.isArray(updates)) return null;
-  for (const update of updates) {
-    const message = (update as { message?: unknown } | null)?.message;
-    if (!message || typeof message !== 'object') continue;
-    const m = message as Record<string, unknown>;
-    const chat = (m.chat ?? {}) as Record<string, unknown>;
-    const user = (m.user ?? {}) as Record<string, unknown>;
-    const chatId = chat.chat_id ?? m.chat_id;
-    const userId = user.user_id ?? m.user_id;
-    if (chatId == null && userId == null) continue;
-    const out: { chatId?: string; userId?: string; text: string } = { text: String(m.text ?? '') };
-    if (chatId != null) out.chatId = String(chatId);
-    if (userId != null) out.userId = String(userId);
-    return out;
+  const list = Array.isArray(updates) ? updates : payload ? [payload] : [];
+  for (const update of list) {
+    const found = findChatRef(update);
+    if (found) return found;
   }
   return null;
+}
+
+/** Рекурсивный поиск `chat_id`/`user_id` и текста в объекте события. */
+function findChatRef(node: unknown, depth = 0): { chatId?: string; userId?: string; text: string } | null {
+  if (depth > 6 || node == null || typeof node !== 'object') return null;
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const hit = findChatRef(item, depth + 1);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  const obj = node as Record<string, unknown>;
+  const chat = (obj.chat ?? {}) as Record<string, unknown>;
+  const user = (obj.user ?? {}) as Record<string, unknown>;
+  const chatId = obj.chat_id ?? chat.chat_id ?? chat.id;
+  const userId = obj.user_id ?? user.user_id ?? user.id;
+  if (chatId == null && userId == null) {
+    // Ищем глубже: событие может лежать во вложенном объекте.
+    for (const value of Object.values(obj)) {
+      const hit = findChatRef(value, depth + 1);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  const out: { chatId?: string; userId?: string; text: string } = { text: String(obj.text ?? '') };
+  if (chatId != null) out.chatId = String(chatId);
+  if (userId != null) out.userId = String(userId);
+  return out;
 }
 
 /**
