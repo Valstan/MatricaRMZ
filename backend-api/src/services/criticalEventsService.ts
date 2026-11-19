@@ -602,6 +602,73 @@ export function ingestServerCriticalEvent(args: {
   });
 }
 
+/**
+ * Клиентское событие — отсюда оно попадает и в раздел «Критические события», и в
+ * рассылку (Telegram/МАКС). Отдельный вход, а не через логи клиента: сообщение о
+ * застрявшей очереди — это НЕ лог-строка, а факт «оператор нажал кнопку», и в
+ * журнале событий оно должно лежать отдельной записью с машиной и человеком.
+ */
+export function ingestClientCriticalEvent(args: {
+  eventCode: string;
+  title: string;
+  humanMessage: string;
+  category?: CriticalCategory;
+  severity?: CriticalSeverity;
+  aiDetails?: string | Record<string, unknown>;
+  clientId?: string | null;
+  username?: string | null;
+  /** Отпечаток для склейки повторов; по умолчанию — текст события. */
+  dedupMessage?: string;
+}) {
+  const eventCode = safeText(args.eventCode, 200);
+  const title = safeText(args.title, 300);
+  const humanMessage = safeText(args.humanMessage, 2_000);
+  if (!eventCode || !title || !humanMessage) return;
+  const categoryRaw = String(args.category ?? 'other').trim().toLowerCase();
+  const severityRaw = String(args.severity ?? 'error').trim().toLowerCase();
+  const category: CriticalCategory =
+    categoryRaw === 'sync' ||
+    categoryRaw === 'network' ||
+    categoryRaw === 'database' ||
+    categoryRaw === 'auth' ||
+    categoryRaw === 'storage' ||
+    categoryRaw === 'backend'
+      ? categoryRaw
+      : 'other';
+  const severity: CriticalSeverity =
+    severityRaw === 'fatal' ? 'fatal' : severityRaw === 'warn' ? 'warn' : 'error';
+  const clientId = normalizeClientId(args.clientId);
+  const username = args.username == null ? null : safeText(args.username, 120) || null;
+  const aiDetails =
+    typeof args.aiDetails === 'string'
+      ? safeText(args.aiDetails, 16_000)
+      : makeAiDetails({
+          source: 'client',
+          username,
+          clientId,
+          eventCode,
+          title,
+          humanMessage,
+          ...(args.aiDetails && typeof args.aiDetails === 'object' ? args.aiDetails : {}),
+          timestamp: Date.now(),
+        });
+  const fingerprintMessage = safeText(args.dedupMessage ?? humanMessage, 4_000);
+  appendEvent({
+    id: randomUUID(),
+    createdAt: Date.now(),
+    source: 'client',
+    severity,
+    category,
+    eventCode,
+    title,
+    humanMessage,
+    aiDetails,
+    username,
+    clientId,
+    fingerprint: eventFingerprint('client', username, clientId, eventCode, fingerprintMessage || humanMessage),
+  });
+}
+
 export function listCriticalEvents(args?: { days?: number; limit?: number }): CriticalEventRecord[] {
   // Ensure retention is enforced even on read-only periods (no new events appended).
   maybePrune(Date.now());

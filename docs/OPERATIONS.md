@@ -71,6 +71,12 @@ corepack pnpm run dev:electron
 - `MATRICA_SYNC_AUTOHEAL_COOLDOWN_MS`
 - `MATRICA_SYNC_DRIFT_THRESHOLD`
 - `MATRICA_SYNC_PULL_ADAPTIVE_ENABLED`
+- **Канал тревог в МАКС** (мессенджер MAX, второй внешний канал рядом с Telegram):
+  `MATRICA_MAX_ALERT_TOKEN` (токен бота), `MATRICA_MAX_ALERT_CHAT_ID` (групповой чат)
+  или `MATRICA_MAX_ALERT_USER_ID` (личный диалог), `MATRICA_CRITICAL_MAX_ENABLED`,
+  `MATRICA_CRITICAL_MAX_POLL_MS`, `MATRICA_CRITICAL_MAX_ERROR_CATEGORIES`.
+  **Без токена и адресата канал — честный no-op** (ни одного запроса наружу). Подробности
+  про заведение бота «Матрица РМЗ» — §8б.
 - Мост ИИваныч ↔ Телефон (D-111, план `docs/plans/iivanych-hotline-bridge-2026-10.md`):
   `HOTLINE_RELAY_SECRET`, `HOTLINE_RELAY_URL` (без них мост — честный no-op),
   `AI_CHAT_BRIDGE_ENABLED`, `AI_CHAT_BRIDGE_TICK_MS`, `AI_CHAT_BRIDGE_TIMEOUT_MS`,
@@ -131,6 +137,29 @@ corepack pnpm run dev:electron
 **`PROMPTS_TOKEN_MATRICARMZ` — токен раздела промтов** (мандат brain D-190): право читать и архивировать свой раздел. Выпускает сам проект, значение кладётся в эту комнату; в git не попадает. Выдача — **двухручная**: наша комната предлагает грант, а принимает **та комната, из которой сервис читает секреты** (у KARMANa это `karman-hotline` — slug из `GET /api/secrets/self` на боксе сервиса; комната `karman` существует, но пуста, и сервис её не читает). Грант 23 принят 08.11.2026 → `GET /api/prompts/section?project=MatricaRMZ` отвечает 200. Носитель — [`scripts/karman/prompts-section.mjs`](../scripts/karman/prompts-section.mjs), правило — в `AGENTS.md` §«Промты и планы проекта из КАРМАНА».
 
 **После каждой ротации секрета — класть новое значение в комнату тем же шагом.** Отставшее зеркало хуже отсутствующего: оно молча восстановит старое.
+
+## 8б) Канал тревог в МАКС: бот «Матрица РМЗ»
+
+Тревоги о застрявшей очереди отправки на сервер уходят владельцу в три места: в **чат программы** (сообщение от оператора супер-администратору), в **журнал критических событий** (раздел «Критические события») и во внешние каналы — **Telegram** (уже работает) и **МАКС** (этот раздел).
+
+**Как завести бота «Матрица РМЗ» в МАКС** (шаги владельца, в репозитории токена быть не должно):
+
+1. На платформе MAX для партнёров (dev.max.ru) создать бота с именем **«Матрица РМЗ»**. Токен бота выдаётся при создании: «Чат-боты» → `⋮` → «Настройки» → значок копирования у поля с токеном.
+2. Создать чат, куда бот будет писать (или использовать личный диалог с владельцем) и узнать его `chat_id` (или `user_id` владельца).
+3. Положить значения на бокс в `/etc/matricarmz/matricarmz.env`:
+   ```
+   MATRICA_MAX_ALERT_TOKEN=<токен бота>
+   MATRICA_MAX_ALERT_CHAT_ID=<chat_id>     # либо MATRICA_MAX_ALERT_USER_ID=<user_id>
+   ```
+   Либо в комнату КАРМАНА (`matricarmz`) ключом `MAX_ALERT_TOKEN` — тогда бэкенд возьмёт его сам при следующем чтении комнаты.
+4. Перезапустить бэкенд и проверить: `GET /health` → 200, а в журнале `logs/critical-events.ndjson` появится событие `client.sync.stuck_pending`.
+
+**Как это работает** (`backend-api/src/services/criticalEventsMaxService.ts`):
+
+- адрес API: `https://platform-api2.max.ru/messages?chat_id={chat_id}` (или `?user_id={user_id}`), токен — в заголовке `Authorization` (без `Bearer`);
+- ограничения платформы: не больше 2 сообщений в секунду в один диалог и 30 rps на бота — отправки выстроены с интервалом 600 мс;
+- отбор событий — тот же, что у Telegram (категории `sync`/`network`/`database` по умолчанию), свои переменные: `MATRICA_CRITICAL_MAX_ERROR_CATEGORIES`;
+- **без токена и адресата канал — честный no-op**: ни одного запроса наружу, поведение программы не меняется.
 
 ## 9) Off-site бэкап: шифрование и восстановление
 

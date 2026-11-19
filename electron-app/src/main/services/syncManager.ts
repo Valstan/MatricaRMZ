@@ -327,6 +327,9 @@ export class SyncManager implements SyncControl {
       count: probe.count,
       oldestPendingAt: probe.oldestPendingAt,
       thresholdMinutes: STUCK_PENDING_MINUTES,
+      // Потабличный разбор нужен для отчёта администратору («что именно не уходит»):
+      // в сводке он не помещается, а в отчёте без него пришлось бы гадать.
+      ...(probe.byTable && probe.byTable.length > 0 ? { byTable: probe.byTable } : {}),
     };
   }
 

@@ -28,6 +28,7 @@ import { startDictionarySyncPublisher } from './services/sync/dictionarySyncPubl
 import { startEngineNumbersReconcile } from './services/engineNumbersService.js';
 import { startAuditStatisticsScheduler } from './services/statisticsAuditService.js';
 import { startCriticalEventsTelegramService } from './services/criticalEventsTelegramService.js';
+import { startCriticalEventsMaxService } from './services/criticalEventsMaxService.js';
 import { ensureBaseMasterdata } from './services/baseMasterdataService.js';
 import { ensureSyncSchemaGuard } from './services/sync/syncSchemaGuard.js';
 import { getInstanceRole, isPrimaryInstance, shouldRunBackgroundJobs } from './services/instanceRole.js';
@@ -132,6 +133,9 @@ async function bootstrap() {
     // push-батч — отдельного таймера нет, повод всегда один и тот же: изменилась карточка.
     startEngineNumbersReconcile();
     startCriticalEventsTelegramService();
+    // МАКС — второй внешний канал тревог (в чат администратора, Telegram и МАКС).
+    // Без токена бота и адресата модуль — честный no-op.
+    startCriticalEventsMaxService();
     startAiChatHistoryCleanup();
     // D-073: копии вложений на боксе — кэш; протухшие снимаются, когда Я.Диск подтвердил свою.
     startFileCacheEvictionJob();

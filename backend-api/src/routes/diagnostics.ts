@@ -11,6 +11,11 @@ import { getSyncPipelineHealth } from '../services/diagnosticsSyncPipelineServic
 import { evaluateAutohealForClient } from '../services/diagnosticsAutohealService.js';
 import { deleteAllCriticalEvents, deleteCriticalEventById, listCriticalEvents } from '../services/criticalEventsService.js';
 import { resolveLoginsToFullNames } from '../services/employeeAuthService.js';
+import {
+  raiseStuckPendingAlert,
+  stuckPendingReportFromSnapshotTables,
+} from '../services/stuckPendingAlertService.js';
+import { STUCK_PENDING_MINUTES } from '@matricarmz/shared';
 
 export const diagnosticsRouter = Router();
 
@@ -56,7 +61,84 @@ diagnosticsRouter.post('/consistency/report', requirePermission(PermissionCode.S
       entityTypes: parsed.data.entityTypes ?? {},
     });
     const autoheal = await evaluateAutohealForClient(parsed.data.clientId);
-    return res.json({ ok: true, snapshot, autoheal });
+    // Очередь машины застряла — поднимаем аларм владельцу. Снимок приходит раз в
+    // 10 минут, окно анти-флуда внутри сервиса не даст превратить одну беду в десяток
+    // одинаковых сообщений.
+    const stuckReport = stuckPendingReportFromSnapshotTables(parsed.data.tables ?? {}, STUCK_PENDING_MINUTES);
+    let stuckAlert: { alerted: boolean; reason?: string } | null = null;
+    if (stuckReport) {
+      const raised = await raiseStuckPendingAlert({
+        actor: { id: String(actor.id), username: String(actor.username ?? ''), role: actor.role ?? 'user' },
+        clientId: parsed.data.clientId,
+        stuck: stuckReport,
+        trigger: 'auto',
+      }).catch(() => null);
+      if (raised) stuckAlert = { alerted: raised.alerted, ...(raised.reason ? { reason: raised.reason } : {}) };
+    }
+    return res.json({ ok: true, snapshot, autoheal, ...(stuckAlert ? { stuckAlert } : {}) });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// Кнопка «сообщить администратору» в баннере застрявшей очереди.
+//
+// Маршрут доступен любому авторизованному оператору: право писать в чат программы
+// здесь не нужно — отчёт идёт администратору (в его чат и во внешние каналы), а не
+// в общий чат парка.
+diagnosticsRouter.post('/stuck-pending/report', async (req, res) => {
+  const schema = z.object({
+    clientId: z.string().min(1).max(200),
+    count: z.number().int().nonnegative(),
+    oldestPendingAt: z.number().int().nullable().optional(),
+    thresholdMinutes: z.number().int().positive().max(1440).optional(),
+    byTable: z
+      .array(
+        z.object({
+          table: z.string().min(1).max(64),
+          n: z.number().int().nonnegative(),
+          oldestPendingAt: z.number().int().nullable().optional(),
+        }),
+      )
+      .max(50)
+      .optional(),
+    lastError: z.string().max(2000).nullable().optional(),
+    lastSyncAt: z.number().int().nullable().optional(),
+    appVersion: z.string().max(40).nullable().optional(),
+    hostName: z.string().max(120).nullable().optional(),
+  });
+  const parsed = schema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.flatten() });
+  const actor = (req as unknown as AuthenticatedRequest).user;
+  if (!actor?.id) return res.status(403).json({ ok: false, error: 'требуется авторизация' });
+  try {
+    const raised = await raiseStuckPendingAlert({
+      actor: { id: String(actor.id), username: String(actor.username ?? ''), role: actor.role ?? 'user' },
+      clientId: parsed.data.clientId,
+      clientName: parsed.data.hostName ?? null,
+      stuck: {
+        count: parsed.data.count,
+        oldestPendingAt: parsed.data.oldestPendingAt ?? null,
+        thresholdMinutes: parsed.data.thresholdMinutes ?? STUCK_PENDING_MINUTES,
+        byTable: (parsed.data.byTable ?? []).map((row) => ({
+          table: row.table,
+          n: row.n,
+          oldestPendingAt: row.oldestPendingAt ?? null,
+        })),
+        lastError: parsed.data.lastError ?? null,
+        lastSyncAt: parsed.data.lastSyncAt ?? null,
+      },
+      trigger: 'manual',
+      appVersion: parsed.data.appVersion ?? null,
+      force: true,
+    });
+    return res.json({
+      ok: true,
+      alerted: raised.alerted,
+      reason: raised.reason ?? null,
+      text: raised.text,
+      chatSent: raised.chatSent,
+    });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }
