@@ -5,9 +5,11 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import {
   ENGINE_BULK_INTAKE_MAX,
+  ENGINE_KIND_REQUIRED_MESSAGE,
   engineBulkIntakeKey,
   engineBulkIntakeMissingFields,
   engineBulkIntakeSimilarNumbers,
+  parseContractKind,
   parseEngineBulkIntake,
   parseRepairHistoryMeta,
   readBulkIntakeInternalNumber,
@@ -436,6 +438,22 @@ export async function applyEngineBulkIntake(
     }
   }
 
+  // Вид при ЗАВЕДЕНИИ обязателен (промты КАРМАНА #36 + #37): у нового двигателя вид
+  // либо из договора, либо ручной. Договор в пачке общий — вид из него возьмётся сам;
+  // а если договора нет ни у пачки, ни у строки, вид должен быть поставлен один на
+  // пачку. Проверяем ДО заведения: отказ на середине пачки оставил бы половину
+  // заведённых карточек без вида.
+  const batchEngineKind = parseContractKind(input?.engineKind);
+  const kindlessRows = rows.filter((row) => {
+    const action = row?.action ?? 'create';
+    // «Пропустить» и «дописать существующую» карточку не заводят — вид там не нужен.
+    if (action === 'skip' || action === 'update') return false;
+    return !(trimOrNull(row?.contractId) ?? contractId);
+  });
+  if (kindlessRows.length > 0 && !batchEngineKind) {
+    return { ok: false, error: ENGINE_KIND_REQUIRED_MESSAGE };
+  }
+
   const engineTypeId = await entityTypeId(db, 'engine');
   if (!engineTypeId) return { ok: false, error: 'В базе нет типа сущности «двигатель» — обратитесь к администратору.' };
 
@@ -451,6 +469,8 @@ export async function applyEngineBulkIntake(
       // в пачке бывают двигатели и другого заказчика (владелец 02.11.2026).
       customerId: trimOrNull(row?.customerId) ?? customerId,
       contractId: trimOrNull(row?.contractId) ?? contractId,
+      // Ручной вид — общий на пачку (промты КАРМАНА #36/#37): вида у строки нет.
+      engineKind: batchEngineKind,
       // «Входной контроль ОТК» строки перекрывает общий: у каждого двигателя своя дата.
       arrivalDate: msOrNull(row?.incomingOtkDate) ?? arrivalDate,
       internalNumber: internal.number,
@@ -637,6 +657,9 @@ export async function applyEngineBulkIntake(
     }
     if (offer.customerId) fields.customer_id = offer.customerId;
     if (offer.contractId) fields.contract_id = offer.contractId;
+    // Ручной вид — только когда он задан: вид из договора перебивает его сам, а пустое
+    // значение писать нельзя (гейт заведения тогда отобьёт запись).
+    if (offer.engineKind) fields.engine_kind = offer.engineKind;
     if (offer.arrivalDate) fields.arrival_date = offer.arrivalDate;
     if (offer.waybillNumber) fields.arrival_invoice = offer.waybillNumber;
     if (offer.internalNumber) {

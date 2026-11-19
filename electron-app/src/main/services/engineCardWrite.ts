@@ -1,12 +1,19 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
-import { engineInternalNumberDuplicateMessage, engineInternalNumberKey, normalizeLookupCompact } from '@matricarmz/shared';
+import {
+  engineInternalNumberDuplicateMessage,
+  engineInternalNumberKey,
+  engineKindRequirement,
+  normalizeLookupCompact,
+} from '@matricarmz/shared';
 
 import {
+  engineEntityExists,
   engineHasDuplicateBypassFlag,
   ensureEngineRow,
   findEngineDuplicateByNumber,
   findEngineInternalNumberDuplicate,
+  getContractKindById,
   getEngineAttrDefs,
 } from './engineService.js';
 import { isKnownEngineCardCode, readEngineCardStrict, saveEngineCardStrict } from './engineCardsReplica.js';
@@ -29,6 +36,15 @@ export type EngineCardWriteDeps = {
 };
 
 export type EngineCardWriteResult = { ok: true; changed: boolean } | { ok: false; error: string };
+
+/**
+ * Значение поля для гейта: присланное (даже пустое — это «оператор снял») либо то,
+ * что уже лежит в карточке. Пустая строка и null — «значения нет».
+ */
+function pickField(incoming: unknown, existing: unknown): string {
+  const raw = incoming !== undefined ? incoming : existing;
+  return String(raw ?? '').trim();
+}
 
 export async function saveEngineCardGated(
   deps: EngineCardWriteDeps,
@@ -85,6 +101,21 @@ export async function saveEngineCardGated(
           if (dup) return { ok: false, error: engineInternalNumberDuplicateMessage(dup) };
         }
       }
+    }
+    // Гейт вида при ЗАВЕДЕНИИ (промты КАРМАНА #36 + #37): новый двигатель нельзя
+    // сохранить без вида — договор уже выбран (вид возьмётся из него) либо оператор
+    // поставил вид руками. Строго только при первичном заведении: правка старой
+    // карточки, заведённой до появления вида, блокироваться не должна (иначе
+    // программа станет непригодна) — такие карточки видны в списке по ступени
+    // «Вид не задан».
+    // Гейт живёт здесь, а не в форме: у карточки два входа записи (карточка и
+    // пачечный приём), и проверка в форме обошлась бы пачкой (класс brain G363).
+    if (!(await engineEntityExists(db, id))) {
+      const contractId = pickField(fields.contract_id, (replica as Record<string, unknown> | null)?.contractId);
+      const manualKind = pickField(fields.engine_kind, (replica as Record<string, unknown> | null)?.engineKind);
+      const contractKind = contractId ? await getContractKindById(db, contractId) : null;
+      const required = engineKindRequirement({ contractKind, cardKind: manualKind });
+      if (!required.ok) return { ok: false, error: required.error };
     }
     // Deferred-create (как setAttr): сущность материализуется первой реальной
     // записью — брошенная пустая карточка призрака не оставляет. Строго после

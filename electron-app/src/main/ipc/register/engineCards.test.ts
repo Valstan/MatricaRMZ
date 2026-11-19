@@ -167,11 +167,31 @@ describe('engines:card:save (E3b)', () => {
     const { sqlite } = makeEavDb();
     registerEngineCardsIpc(makeCtx(sqlite));
     const save = handlers.get('engines:card:save')!;
-    const r = (await save({}, { id: 'e-3', fields: { engine_number: 'NEW-9' } })) as { ok: boolean; changed?: boolean };
+    // Вид обязателен при заведении (промты КАРМАНА #36/#37): у нового двигателя договор
+    // не выбран, значит вид ставит оператор.
+    const r = (await save({}, { id: 'e-3', fields: { engine_number: 'NEW-9', engine_kind: 'military' } })) as {
+      ok: boolean;
+      changed?: boolean;
+    };
     expect(r.ok).toBe(true);
     expect(r.changed).toBe(true);
     const ent = sqlite.prepare(`SELECT id FROM entities WHERE id='e-3'`).get();
     expect(ent).toBeTruthy();
+    sqlite.close();
+  });
+
+  it('новый двигатель без вида не сохраняется (гейт заведения)', async () => {
+    const { sqlite } = makeEavDb();
+    registerEngineCardsIpc(makeCtx(sqlite));
+    const save = handlers.get('engines:card:save')!;
+    const r = (await save({}, { id: 'e-4', fields: { engine_number: 'NEW-10' } })) as {
+      ok: boolean;
+      error?: string;
+    };
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('Вид двигателя не задан');
+    // Отбитая запись не оставляет сущность-призрак.
+    expect(sqlite.prepare(`SELECT id FROM entities WHERE id='e-4'`).get()).toBeFalsy();
     sqlite.close();
   });
 });

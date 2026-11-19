@@ -346,6 +346,61 @@ async function getContractKindMap(db: BetterSQLite3Database): Promise<Map<string
 }
 
 /**
+ * Вид ОДНОГО договора — для гейта заведения карточки двигателя (промты КАРМАНА #36/#37).
+ *
+ * Правила ровно как у `getContractKindMap` (списка), только для одного договора:
+ * договора нет — вида нет (`null`); договор есть, но секций у него нет — вид по умолчанию
+ * (ГОЗ), как и в списке договоров; секции есть — вид из них.
+ */
+export async function getContractKindById(db: BetterSQLite3Database, contractId: string): Promise<string | null> {
+  const id = String(contractId ?? '').trim();
+  if (!id) return null;
+  const typeId = await getEntityTypeIdByCode(db, EntityTypeCode.Contract);
+  if (!typeId) return null;
+  const contract = await db
+    .select({ id: entities.id })
+    .from(entities)
+    .where(and(eq(entities.id, id), eq(entities.typeId, typeId), isNull(entities.deletedAt)))
+    .limit(1);
+  if (!contract[0]) return null;
+  const defs = await db
+    .select({ id: attributeDefs.id, code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, typeId), isNull(attributeDefs.deletedAt)))
+    .limit(5000);
+  const sectionsDefId = defs.find((row) => String(row.code) === 'contract_sections')?.id ?? null;
+  if (!sectionsDefId) return DEFAULT_CONTRACT_KIND;
+  const values = await db
+    .select({ valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(
+      and(
+        eq(attributeValues.entityId, id),
+        eq(attributeValues.attributeDefId, sectionsDefId),
+        isNull(attributeValues.deletedAt),
+      ),
+    )
+    .limit(1);
+  const row = values[0];
+  if (!row) return DEFAULT_CONTRACT_KIND;
+  const raw = row.valueJson == null ? null : safeJsonParse(String(row.valueJson));
+  return parseContractSections({ contract_sections: raw }).primary.kind;
+}
+
+/**
+ * Заведена ли уже сущность двигателя. Deferred-create (двигатель появляется на первой
+ * реальной записи) — по этой проверке дверь отличает «новый двигатель» от «правки
+ * старой карточки»: строгость гейта вида нужна только при заведении, иначе программа
+ * была бы непригодна для карточек, заведённых до появления вида.
+ */
+export async function engineEntityExists(db: BetterSQLite3Database, engineId: string): Promise<boolean> {
+  const id = String(engineId ?? '').trim();
+  if (!id) return false;
+  const rows = await db.select({ id: entities.id }).from(entities).where(eq(entities.id, id)).limit(1);
+  return Boolean(rows[0]);
+}
+
+/**
  * Ручной вид двигателя по умолчанию для заказчика — из реплики `erp_counterparties`
  * (третий источник приоритета: договор → карточка двигателя → контрагент).
  * Одним запросом на всех заказчиков: список двигателей спрашивает вид у каждой строки.
