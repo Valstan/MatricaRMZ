@@ -26,6 +26,7 @@ import { SectionCard } from '../components/SectionCard.js';
 import { ACCESS_SECTION_CATALOG, SECTION_ACCESS_ATTR, SYSTEM_ROLE_CATALOG, accessSectionMeta, dependentsOfSection, isAssignableSystemRole, missingSectionDependencies, operatorRolePermissions, parseSectionMembership, sectionEditorRoleWarning, systemRoleTitleRu, parseEmploymentStatusAttr, permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
 import type { AccessSection, EntityReferenceTarget, QuickCreateRequest, QuickCreateResult, SectionMembership } from '@matricarmz/shared';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
+import { findPpeEmployeeIdByPersonnelNo } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
@@ -249,6 +250,8 @@ export function EmployeeDetailsPage(props: {
   canManageUsers: boolean;
   onAccessChanged?: () => void;
   onOpenEmployee?: (employeeId: string) => void;
+  /** Сквозной переход: карточка сотрудника → карточка СИЗ (промт КАРМАНА #40). */
+  onOpenPpeCard?: (ppeEmployeeId: string) => void;
   onOpenCounterparty?: (counterpartyId: string) => void;
   onOpenContract?: (contractId: string) => void;
   onOpenByCode?: Record<string, ((id: string) => void) | undefined>;
@@ -280,6 +283,13 @@ export function EmployeeDetailsPage(props: {
   const [transferKind, setTransferKind] = useState('position');
   const [transferDate, setTransferDate] = useState('');
   const [transferValue, setTransferValue] = useState('');
+  /**
+   * Карточка СИЗ этого сотрудника (строгая строка `erp_employee_cards` — зеркало ЗУП).
+   * Связь по табельному номеру: у карточки сотрудника и карточки СИЗ разные id.
+   */
+  const [ppeEmployeeId, setPpeEmployeeId] = useState<string | null>(null);
+  /** Сотрудника нет в зеркале СИЗ (например, заведён в программе руками) — карточки СИЗ у него нет. */
+  const [ppeEmployeeMissing, setPpeEmployeeMissing] = useState(false);
 
   const [customDefs, setCustomDefs] = useState<AttrDef[]>([]);
   const [customStatus, setCustomStatus] = useState('');
@@ -467,6 +477,12 @@ export function EmployeeDetailsPage(props: {
     void loadWorkshops();
   }, []);
 
+  // Карточка СИЗ сотрудника — по табельному номеру (общий ключ у карточек разный id).
+  useEffect(() => {
+    void loadPpeEmployeeLink();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the personnel number only; the loader is recreated each render and writes state
+  }, [personnelNumber]);
+
   useEffect(() => {
     void loadCustomDefs();
   }, []);
@@ -594,6 +610,26 @@ export function EmployeeDetailsPage(props: {
       setDepartmentsStatus('');
     } catch (e) {
       setDepartmentsStatus(`Ошибка: ${String(e)}`);
+    }
+  }
+
+  /**
+   * Карточка СИЗ этого сотрудника: строгая строка `erp_employee_cards` (зеркало ЗУП).
+   * Общий ключ с карточкой сотрудника — табельный номер (id у них разные).
+   */
+  async function loadPpeEmployeeLink() {
+    try {
+      const res = await window.matrica.ppe.employees.list().catch(() => null);
+      const rows = res?.ok ? res.employees : [];
+      const found = findPpeEmployeeIdByPersonnelNo(
+        rows as Array<{ id: string; personnelNo?: string | null }>,
+        personnelNumber,
+      );
+      setPpeEmployeeId(found);
+      setPpeEmployeeMissing(!found);
+    } catch {
+      setPpeEmployeeId(null);
+      setPpeEmployeeMissing(false);
     }
   }
 
@@ -1773,6 +1809,27 @@ export function EmployeeDetailsPage(props: {
       cardActions={
         <CardActionBar
           canEdit={canEditPosition}
+          extraActionsLeft={
+            props.onOpenPpeCard ? (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (!ppeEmployeeId) {
+                    setStatus(
+                      ppeEmployeeMissing
+                        ? 'Сотрудника нет в зеркале СИЗ (импорт ЗУП) — карточка СИЗ у него не заведена'
+                        : 'Карточка СИЗ не найдена по табельному номеру',
+                    );
+                    return;
+                  }
+                  props.onOpenPpeCard?.(ppeEmployeeId);
+                }}
+                disabled={!ppeEmployeeId}
+              >
+                Карточка СИЗ
+              </Button>
+            ) : undefined
+          }
           onCopyToNew={
             props.canEdit
               ? async () => {
