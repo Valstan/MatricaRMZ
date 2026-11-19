@@ -81,6 +81,18 @@ export type EmployeeMergeReport = {
   attrsFilled: number;
   /** Поля, которые не переносились, потому что защищены. */
   protectedSkipped: string[];
+  /**
+   * НЕ перенесённые непустые поля вторичной карточки — с причиной (промты КАРМАНА
+   * #52/#53: «данные одного из аккаунтов пропадают, остаются только данные одного
+   * аккаунта»). Раньше в отчёте был только счётчик, и потеря была НЕВИДИМА: оператор
+   * видел «заполнено полей: 0» и думал, что слияние не сработало.
+   *
+   * - `protected` — код защищён (логин, пароль, роль, доступ) — переносится отдельно;
+   * - `occupied` — у основной этот код уже заполнен, поэтому значение вторичной
+   *   не переносилось (если значения РАЗНЫЕ — это конфликт, решает оператор);
+   * - `write_failed` — запись отбита (причина — в `detail`).
+   */
+  notTransferred: Array<{ code: string; reason: 'protected' | 'occupied' | 'write_failed'; detail?: string }>;
   /** Перенесены ли пользовательские ссылки (чат, файлы, заметки, права, токены). */
   userReferencesMoved: boolean;
   /** Сколько строк `client_settings` перевешено с логина вторичного на логин основного. */
@@ -335,6 +347,7 @@ export async function mergeEmployees(args: {
       loserId,
       attrsFilled: 0,
       protectedSkipped: [],
+      notTransferred: [],
       userReferencesMoved: false,
       clientSettingsRelinked: 0,
       referencesMoved: 0,
@@ -348,9 +361,24 @@ export async function mergeEmployees(args: {
       if (!value) continue;
       if (PROTECTED_CODES.has(code)) {
         report.protectedSkipped.push(code);
+        report.notTransferred.push({ code, reason: 'protected', detail: 'защищённый код — переносится отдельно' });
         continue;
       }
-      if ((survivorAttrs.get(code) ?? '') !== '') continue;
+      const survivorValue = survivorAttrs.get(code) ?? '';
+      if (survivorValue !== '') {
+        // У основной этот код уже заполнен — значение вторичной не переносится. Если
+        // значения РАЗНЫЕ — это конфликт, и он обязан быть виден: раньше он терялся
+        // молча, и оператор видел лишь «заполнено полей: 0» (промты КАРМАНА #52/#53).
+        report.notTransferred.push({
+          code,
+          reason: 'occupied',
+          detail:
+            survivorValue === value
+              ? 'у основной уже заполнено тем же значением'
+              : `у основной «${survivorValue}», у вторичной «${value}» — расхождение, решает оператор`,
+        });
+        continue;
+      }
       fillable.push({ code, value });
     }
 
@@ -419,7 +447,12 @@ export async function mergeEmployees(args: {
       if (res.ok) {
         survivorAttrs.set(code, value);
         report.attrsFilled += 1;
+        continue;
       }
+      // Отказ записи — ТЕПЕРЬ ВИДЕН. Раньше он просто терялся: в отчёте оставался счётчик
+      // «заполнено полей: N», и оператор не понимал, почему часть данных не переехала
+      // (промты КАРМАНА #52/#53 — «данные одного из аккаунтов пропадают»).
+      report.notTransferred.push({ code, reason: 'write_failed', detail: String(res.error ?? 'запись отбита') });
     }
 
     // Вторая половина сотрудника — строки пользователя: чат, файлы, заметки, права, токены.

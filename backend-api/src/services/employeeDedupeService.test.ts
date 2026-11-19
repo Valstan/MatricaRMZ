@@ -46,7 +46,7 @@ vi.mock('./userDeletionService.js', () => ({ reassignUserReferences: vi.fn(async
 vi.mock('./criticalEventsService.js', () => ({ ingestServerCriticalEvent: vi.fn() }));
 
 const { db } = await import('../database/db.js');
-const { entities, entityTypes } = await import('../database/schema.js');
+const { entities, entityTypes, attributeDefs, attributeValues, users } = await import('../database/schema.js');
 const admin = await import('./adminMasterdataService.js');
 const { setEmployeeAuth } = await import('./employeeAuthService.js');
 const { repointEmployeeReferences } = await import('./employeeReferenceRepoint.js');
@@ -109,7 +109,36 @@ describe('путь записи (сторож по коду)', () => {
   const SRC = readFileSync(fileURLToPath(new URL('./employeeDedupeService.ts', import.meta.url)), 'utf8');
 
   it('непустое поле основного никогда не перетирается', () => {
-    expect(SRC).toContain("if ((survivorAttrs.get(code) ?? '') !== '') continue;");
+    expect(SRC).toContain("const survivorValue = survivorAttrs.get(code) ?? '';");
+    expect(SRC).toContain("if (survivorValue !== '') {");
+    // Ветка «у основной уже заполнено» НИЧЕГО не пишет в основную запись — только
+    // пополняет отчёт (иначе тихая потеря, промты КАРМАНА #52/#53).
+    const from = SRC.indexOf("if (survivorValue !== '') {");
+    const to = SRC.indexOf('fillable.push({ code, value });');
+    expect(from).toBeGreaterThan(-1);
+    expect(to).toBeGreaterThan(from);
+    expect(SRC.slice(from, to)).not.toContain('setEntityAttribute');
+  });
+
+  it('неперенесённые поля называются в отчёте, а не теряются молча', () => {
+    // Отчёт обязан перечислить коды, которые НЕ перенеслись, с причиной: оператор видел
+    // лишь «заполнено полей: 0» и думал, что слияние не сработало (промты #52/#53).
+    expect(SRC).toContain("notTransferred: [],");
+    expect(SRC).toContain("reason: 'protected'");
+    expect(SRC).toContain("reason: 'occupied'");
+    expect(SRC).toContain("reason: 'write_failed'");
+  });
+
+  it('запись атрибута воскрешает мёртвую строку, иначе значение пропадёт молча', () => {
+    // Уникальный индекс (entity_id, attribute_def_id) один на пару — «мёртвая» строка
+    // тоже строка. Запись в неё без снятия deleted_at выглядит успешной, а чтение её
+    // не видит: атрибут исчезает (промты КАРМАНА #52/#53).
+    const masterdata = readFileSync(fileURLToPath(new URL('./adminMasterdataService.ts', import.meta.url)), 'utf8');
+    expect(masterdata).toContain('const reviving = existing[0] !== undefined && existing[0].deletedAt != null;');
+    expect(masterdata).toContain('...(reviving ? { deletedAt: null } : {})');
+    const auth = readFileSync(fileURLToPath(new URL('./employeeAuthService.ts', import.meta.url)), 'utf8');
+    expect(auth).toContain('const reviving = existing[0].deletedAt != null;');
+    expect(auth).toContain('...(reviving ? { deletedAt: null } : {})');
   });
 
   it('dry-run возвращает отчёт ДО первой записи', () => {
@@ -252,5 +281,93 @@ describe('перевод ссылок в слиянии', () => {
       expect(r.report.referencesMoved).toBe(0);
       expect(r.report.referencesByStore).toEqual([]);
     }
+  });
+});
+
+/**
+ * Отчёт о слиянии: что НЕ перенеслось (промты КАРМАНА #52/#53).
+ *
+ * Жалоба владельца: «данные одного из аккаунтов пропадают, остаются только данные одного
+ * аккаунта». Пока в отчёте был только счётчик «полей заполнено N», потеря была невидима:
+ * оператор не понимал, что произошло, и списывал это на «слияние не работает».
+ */
+describe('отчёт о слиянии: что НЕ перенеслось', () => {
+  const SURVIVOR = 'aaaaaaaa-0000-0000-0000-000000000001';
+  const LOSER = 'aaaaaaaa-0000-0000-0000-000000000002';
+  const ACTOR = { id: 'u1', username: 'owner1', role: 'superadmin' };
+
+  beforeEach(() => {
+    state.selectByTable.clear();
+    vi.clearAllMocks();
+    state.selectByTable.set(entityTypes, [[{ id: 'type-employee' }]]);
+    state.selectByTable.set(entities, [[{ id: SURVIVOR }, { id: LOSER }]]);
+    state.selectByTable.set(users, [[]]);
+    state.selectByTable.set(attributeDefs, [
+      [
+        { id: 'd-role', code: 'role' },
+        { id: 'd-full', code: 'full_name' },
+        { id: 'd-tg', code: 'telegram_login' },
+      ],
+    ]);
+  });
+
+  it('у основной поле уже заполнено — в отчёт идёт код с причиной, а не молчание', async () => {
+    state.selectByTable.set(attributeValues, [
+      [{ attributeDefId: 'd-role', valueJson: '"Токарь"' }],
+      [{ attributeDefId: 'd-role', valueJson: '"Механик участка"' }],
+    ]);
+    const r = await mergeEmployees({ survivorId: SURVIVOR, loserId: LOSER, actor: ACTOR, dryRun: true });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.report.attrsFilled).toBe(0);
+    const occupied = r.report.notTransferred.find((n) => n.code === 'role');
+    expect(occupied?.reason).toBe('occupied');
+    // Расхождение значений обязано быть видно словами: «Токарь» против «Механик участка».
+    expect(occupied?.detail).toContain('Токарь');
+    expect(occupied?.detail).toContain('Механик участка');
+  });
+
+  it('пустое у основной поле переносится и в отчёт не попадает', async () => {
+    state.selectByTable.set(attributeValues, [
+      [],
+      [{ attributeDefId: 'd-tg', valueJson: '"@mechanic"' }],
+    ]);
+    const r = await mergeEmployees({ survivorId: SURVIVOR, loserId: LOSER, actor: ACTOR });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.report.attrsFilled).toBe(1);
+    expect(r.report.notTransferred).toEqual([]);
+    expect(vi.mocked(admin.setEntityAttribute).mock.calls[0]?.[2]).toBe('telegram_login');
+  });
+
+  it('отказ записи виден в отчёте, а не теряется', async () => {
+    state.selectByTable.set(attributeValues, [
+      [],
+      [{ attributeDefId: 'd-tg', valueJson: '"@mechanic"' }],
+    ]);
+    vi.mocked(admin.setEntityAttribute).mockImplementation(async (_actor, _id, code) =>
+      code === 'telegram_login'
+        ? { ok: false as const, error: 'связанный элемент не найден' }
+        : { ok: true as const },
+    );
+    const r = await mergeEmployees({ survivorId: SURVIVOR, loserId: LOSER, actor: ACTOR });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.report.attrsFilled).toBe(0);
+    const failed = r.report.notTransferred.find((n) => n.code === 'telegram_login');
+    expect(failed?.reason).toBe('write_failed');
+    expect(failed?.detail).toContain('связанный элемент не найден');
+  });
+
+  it('защищённые коды (логин, доступ) помечены отдельно и не считаются потерей данных', async () => {
+    state.selectByTable.set(attributeValues, [
+      [],
+      [{ attributeDefId: 'd-full', valueJson: '"Иванов Иван"' }],
+    ]);
+    const r = await mergeEmployees({ survivorId: SURVIVOR, loserId: LOSER, actor: ACTOR, dryRun: true });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.report.protectedSkipped).toEqual([]);
+    expect(r.report.notTransferred).toEqual([]);
   });
 });

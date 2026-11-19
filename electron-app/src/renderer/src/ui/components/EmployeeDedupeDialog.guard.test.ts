@@ -138,3 +138,27 @@ describe('ФИО пишется первым атрибутом', () => {
     }
   });
 });
+
+// Слияние дублей сотрудника: не перенесённые поля обязаны быть ВИДНЫ оператору
+// (промты КАРМАНА #52 + #53: «данные одного из аккаунтов пропадают, остаются только
+// данные одного аккаунта» — и в отчёте об этом не было ни слова).
+describe('диалог слияния показывает, что НЕ перенеслось', () => {
+  const SHARED_TYPES = read('../../../../../../shared/src/ipc/types.ts');
+
+  it('в отчёте есть поле с неперенесёнными кодами и причинами', () => {
+    expect(SHARED_TYPES).toContain('notTransferred: Array<{ code: string;');
+    expect(SHARED_TYPES).toContain("'protected' | 'occupied' | 'write_failed'");
+  });
+
+  it('диалог выводит неперенесённые коды отдельной строкой', () => {
+    expect(DIALOG).toContain('data-dedupe-not-transferred');
+    expect(DIALOG).toContain('m.report.notTransferred ?? []');
+    expect(DIALOG).toContain('NOT_TRANSFERRED_REASON_LABEL');
+  });
+
+  it('у каждой причины есть подпись словами, а не кодом', () => {
+    expect(DIALOG).toContain('protected:');
+    expect(DIALOG).toContain('occupied:');
+    expect(DIALOG).toContain('write_failed:');
+  });
+});
