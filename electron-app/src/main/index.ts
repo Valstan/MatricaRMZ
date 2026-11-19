@@ -813,8 +813,8 @@ app.whenReady().then(() => {
 
       // Dev-only верификация окна обновления симуляцией (в проде env не выставлен).
       const simUpdate = process.env.MATRICA_SIMULATE_UPDATE;
-      if (process.env.MATRICA_SIMULATE_UPDATE_BAR === '1') {
-        // Имитация фонового обновления: полоса в главном окне (смоук проверяет её на живой машине).
+      if (process.env.MATRICA_SIMULATE_UPDATE_BAR) {
+        // Имитация обновления в главном окне: полоса (bar) или тихий режим (quiet).
         simulateUpdateBarForDev();
       }
       if (simUpdate) {

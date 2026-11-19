@@ -748,6 +748,7 @@ export function V3TabShell(props: {
         {props.notice && (
           <div
             className={`v3-tabs-hint v3-shell-notice${props.notice.tone === 'error' ? ' v3-shell-notice-error' : ''}${props.notice.tone === 'reminder' ? ' v3-shell-notice-reminder' : ''}`}
+            data-shell-notice={props.notice.tone}
             role="status"
           >
             {props.notice.text}

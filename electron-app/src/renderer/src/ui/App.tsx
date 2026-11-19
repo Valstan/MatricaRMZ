@@ -27,6 +27,7 @@ import { CLOCK_SKEW_THRESHOLD_MS, formatClockSkew, stuckAgeMinutes } from '@matr
 import {
   ACCESS_SECTION_CATALOG,
   formatAppVersionLabel,
+  RELEASE_WELCOME_HISTORY,
   EMPTY_SUPPORT_CONTACT,
   hasSupportContact,
   sanitizeSupportContact,
@@ -1119,7 +1120,9 @@ export function App() {
           stage: updateStage,
         }
       : null;
-  const [updateInstallAsked, setUpdateInstallAsked] = useState('');
+  // Версия, для которой оператору уже сказали про обновление: сообщение одно на версию,
+  // иначе плашка мигала бы на каждом событии состояния.
+  const [updateNoticeShown, setUpdateNoticeShown] = useState('');
   const chatNewMessageAudioRef = useRef<HTMLAudioElement | null>(null);
   const chatPendingAudioRef = useRef<HTMLAudioElement | null>(null);
   const chatUnreadTotalRef = useRef<number>(0);
@@ -3259,7 +3262,7 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only audio element setup/teardown; ensureChatAudioElements is recreated every render, and re-running would pause and rebuild the audio elements on each render
   }, []);
 
-  // Обновление: главное окно слушает состояние (одна полоса прогресса + вопрос «сейчас или позже»).
+  // Обновление: главное окно слушает состояние (одна полоса прогресса).
   // Подписка — на весь сеанс: скачивание идёт в фоне и не спрашивает, открыт ли нужный экран.
   useEffect(() => {
     let alive = true;
@@ -3488,6 +3491,31 @@ export function App() {
     shellNoticeTimerRef.current = window.setTimeout(() => setShellNotice(null), SHELL_NOTICE_MS[tone]);
   }, []);
 
+  /**
+   * Обновление скачано — говорим ОДИН раз и тихо (владелец 08.11.2026: «перезагружать программу
+   * только тогда, когда это действительно требуется, а тогда показать сверху: вышло обновление,
+   * нажмите ‹Перезапуск›»).
+   *
+   * Раньше здесь была модалка «Установить сейчас / Позже» — она выскакивала посреди работы и
+   * пугала: будто программа сама перезагрузится. Теперь её нет: оператору говорит тихая плашка,
+   * а кнопка «Перезапуск» в шапке ставит обновление (см. restartApp). Ничего не теряется:
+   * установщик уже записан отложенным и применится при следующем запуске.
+   */
+  useEffect(() => {
+    if (updateState?.state !== 'downloaded') return;
+    const version = String(updateState.version ?? '').trim();
+    if (!version || updateNoticeShown === version) return;
+    setUpdateNoticeShown(version);
+    const label = formatAppVersionLabel(version);
+    const note = RELEASE_WELCOME_HISTORY.find((r) => r.releaseLabel === version);
+    // Первая новинка релиза — коротко, без markdown-звёздочек: плашка показывает чистый текст.
+    const first = String(note?.highlights?.[0] ?? '').replace(/\*\*/g, '').trim();
+    notifyOperator(
+      `Вышло обновление ${label} — нажмите «Перезапуск» в шапке, когда закончите работу.${first ? ` ${first}` : ''}`,
+      'reminder',
+    );
+  }, [updateState?.state, updateState?.version, updateNoticeShown, notifyOperator]);
+
   // Напоминания по заметкам. Сторож живёт на уровне приложения, а не на странице
   // «Заметки»: страница смонтирована только если её открывали, а напоминание
   // должно приходить в любой вкладке.
@@ -3526,14 +3554,22 @@ export function App() {
     if (!r?.ok) notifyOperator(r?.error ?? 'не удалось открыть настройки времени', 'error');
   }, [notifyOperator]);
   // Перезапуск программы: штатное гашение (движок, синк, трей) и подъём заново.
+  // Если обновление уже скачано — сначала ставим его: «нажмите ‹Перезапуск›» должно дать новую
+  // версию, а не просто перезапустить ту же самую (владелец 08.11.2026).
   const restartApp = useCallback(async () => {
+    if (updateState?.state === 'downloaded') {
+      notifyOperator('Ставлю скачанное обновление и перезапускаю программу…', 'info');
+      const applied = await window.matrica.update.installNow().catch(() => null);
+      if (applied?.ok) return;
+      notifyOperator('Не удалось поставить обновление — перезапускаю как есть.', 'error');
+    }
     const r = await window.matrica.system.restart().catch(() => null);
     if (!r?.ok) {
       notifyOperator(r?.error ?? 'не удалось перезапустить программу', 'error');
       return;
     }
     notifyOperator('Перезапускаю программу…', 'info');
-  }, [notifyOperator]);
+  }, [notifyOperator, updateState?.state]);
 
   /** Сообщение называет то, что произошло: упор в лимит — не «добавлено». */
   function announceDesktopOutcome(outcome: DesktopToggleOutcome | DesktopPutOutcome, label: string) {
@@ -5560,55 +5596,14 @@ export function App() {
   }
 
   /**
-   * «Обновление скачано»: ставить сейчас или позже (владелец 08.09.2026). Раньше фоновая
-   * проверка запускала установку сама — программа могла перезагрузиться посреди работы.
+   * Тихое сообщение об обновлении (владелец 08.11.2026): «вышло обновление, нажмите
+   * ‹Перезапуск›». Модалки «Установить сейчас / Позже» больше нет — она выскакивала
+   * посреди работы и пугала: программа якобы собирается перезагрузиться сама.
    *
-   * «Позже» ничего не теряет: установщик уже записан отложенным и применится при следующем
-   * запуске. Спрашиваем один раз на версию — иначе окно возвращалось бы на каждое событие
-   * состояния и мешало работать.
+   * Ничего не теряется: установщик уже записан отложенным (`queuePendingUpdate`) и применится
+   * при следующем запуске, а кнопка «Перезапуск» в шапке ставит его сразу. Сообщаем один раз
+   * на версию — иначе плашка мигала бы на каждом событии состояния.
    */
-  function renderUpdateReadyModal() {
-    if (!updateState || updateState.state !== 'downloaded') return null;
-    const version = String(updateState.version ?? '');
-    if (!version || updateInstallAsked === version) return null;
-    return (
-      <div
-        data-update-ready
-        style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(15, 23, 42, 0.6)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1200,
-          padding: 20,
-        }}
-      >
-        <div style={{ width: 'min(520px, 95vw)', background: 'var(--surface)', borderRadius: 14, padding: 16 }}>
-          <div style={{ fontWeight: 800, fontSize: 16 }}>Обновление скачано</div>
-          <div style={{ marginTop: 8, color: 'var(--muted)' }}>
-            {`Версия ${formatAppVersionLabel(version)} готова к установке. Установить сейчас — программа перезапустится; можно и позже: обновление встанет при следующем запуске.`}
-          </div>
-          <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-            <Button variant="ghost" data-update-later onClick={() => setUpdateInstallAsked(version)}>
-              Позже
-            </Button>
-            <Button
-              tone="success"
-              data-update-now
-              onClick={() => {
-                setUpdateInstallAsked(version);
-                void window.matrica.update.installNow().catch(() => {});
-              }}
-            >
-              Установить сейчас
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   function renderCardCloseModal() {
     if (!cardCloseModalOpen) return null;
@@ -7146,7 +7141,6 @@ export function App() {
         {renderFullSyncModal()}
         {renderFatalModal()}
         {renderCardCloseModal()}
-        {renderUpdateReadyModal()}
         {renderRecoveryModal()}
         {renderAppCloseSyncOverlay()}
         {tabsState.notice?.code === 'card_limit' && (
