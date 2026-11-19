@@ -16,7 +16,11 @@
 import { formatStuckPendingReport, type StuckPendingReport, type StuckPendingTableStat } from '@matricarmz/shared';
 
 import { ingestClientCriticalEvent } from './criticalEventsService.js';
-import { postChatMessageToSuperadmin } from './chatMessageService.js';
+import {
+  ensureMonitoringRoom,
+  postChatMessageToRoom,
+  postChatMessageToSuperadmin,
+} from './chatMessageService.js';
 import { resolveLoginsToFullNames } from './employeeAuthService.js';
 import { logInfo, logWarn } from '../utils/logger.js';
 
@@ -171,21 +175,42 @@ export async function raiseStuckPendingAlert(input: StuckPendingAlertInput): Pro
     logWarn('stuck pending alert: не удалось записать событие', { clientId, error: String(e) });
   }
 
-  // 2. Чат программы: владелец видит отчёт как обычное письмо от оператора.
+  // 2. Чат программы: тревога падает в комнату «Мониторинг завода» — там она не
+  //    теряется в ленте личных писем, а в комнату можно позвать заместителя
+  //    администратора. Если комнату завести не вышло (нет супер-админа) — пишем
+  //    лично супер-админу: лучше личное письмо, чем молчание.
   let chatSent = false;
+  let chatRoomId: string | null = null;
   try {
-    const sent = await postChatMessageToSuperadmin({
-      senderUserId: String(input.actor?.id ?? ''),
-      senderUsername: String(input.actor?.username ?? ''),
-      text,
-      actor: {
-        id: String(input.actor?.id ?? ''),
-        username: String(input.actor?.username ?? ''),
-        role: input.actor?.role ?? 'user',
-      },
-    });
-    chatSent = sent.ok;
-    if (!sent.ok) logWarn('stuck pending alert: сообщение в чат не отправлено', { clientId, error: sent.error });
+    chatRoomId = await ensureMonitoringRoom();
+    if (chatRoomId) {
+      const sent = await postChatMessageToRoom({
+        roomId: chatRoomId,
+        senderUserId: String(input.actor?.id ?? ''),
+        senderUsername: String(input.actor?.username ?? ''),
+        text,
+        actor: {
+          id: String(input.actor?.id ?? ''),
+          username: String(input.actor?.username ?? ''),
+          role: input.actor?.role ?? 'user',
+        },
+      });
+      chatSent = sent.ok;
+      if (!sent.ok) logWarn('stuck pending alert: сообщение в комнату не отправлено', { clientId, error: sent.error });
+    } else {
+      const sent = await postChatMessageToSuperadmin({
+        senderUserId: String(input.actor?.id ?? ''),
+        senderUsername: String(input.actor?.username ?? ''),
+        text,
+        actor: {
+          id: String(input.actor?.id ?? ''),
+          username: String(input.actor?.username ?? ''),
+          role: input.actor?.role ?? 'user',
+        },
+      });
+      chatSent = sent.ok;
+      if (!sent.ok) logWarn('stuck pending alert: сообщение в чат не отправлено', { clientId, error: sent.error });
+    }
   } catch (e) {
     logWarn('stuck pending alert: сообщение в чат упало', { clientId, error: String(e) });
   }

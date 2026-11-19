@@ -1,11 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const chatSent: string[] = [];
+const roomSent: string[] = [];
 const events: Array<Record<string, unknown>> = [];
 
 vi.mock('../services/chatMessageService.js', () => ({
   postChatMessageToSuperadmin: vi.fn(async (args: { text: string }) => {
     chatSent.push(String(args?.text ?? ''));
+    return { ok: true as const };
+  }),
+  ensureMonitoringRoom: vi.fn(async () => 'room-1'),
+  postChatMessageToRoom: vi.fn(async (args: { text: string }) => {
+    roomSent.push(String(args?.text ?? ''));
     return { ok: true as const };
   }),
 }));
@@ -47,6 +53,7 @@ function actor() {
 describe('аларм застрявшей очереди', () => {
   beforeEach(() => {
     chatSent.length = 0;
+    roomSent.length = 0;
     events.length = 0;
     resetStuckPendingAlertCooldown();
   });
@@ -77,7 +84,7 @@ describe('аларм застрявшей очереди', () => {
     expect(stuckPendingReportFromSnapshotTables(null, 15)).toBeNull();
   });
 
-  it('аларм уходит в чат администратору и в журнал событий — один и тот же текст', async () => {
+  it('аларм уходит в комнату мониторинга и в журнал событий — один и тот же текст', async () => {
     const res = await raiseStuckPendingAlert({
       actor: actor(),
       clientId: 'rmz4val-1a2b3c4d-1111-2222-3333-444455556666',
@@ -87,13 +94,13 @@ describe('аларм застрявшей очереди', () => {
     });
     expect(res.alerted).toBe(true);
     expect(res.chatSent).toBe(true);
-    expect(chatSent).toHaveLength(1);
-    expect(chatSent[0]).toContain('Иванов Иван Иванович');
-    expect(chatSent[0]).toContain('attribute_values: 617');
+    expect(roomSent).toHaveLength(1);
+    expect(roomSent[0]).toContain('Иванов Иван Иванович');
+    expect(roomSent[0]).toContain('attribute_values: 617');
     expect(events).toHaveLength(1);
     expect(events[0]?.eventCode).toBe('client.sync.stuck_pending');
-    // Текст в журнале событий и в чате — один: числа в каналах разойтись не должны.
-    expect(String(events[0]?.humanMessage)).toBe(chatSent[0]);
+    // Текст в журнале событий и в комнате — один: числа в каналах разойтись не должны.
+    expect(String(events[0]?.humanMessage)).toBe(roomSent[0]);
   });
 
   it('повторный авто-аларм по той же машине в окно анти-флуда не уходит', async () => {
@@ -101,7 +108,7 @@ describe('аларм застрявшей очереди', () => {
     const second = await raiseStuckPendingAlert({ actor: actor(), clientId: 'c-1', stuck, trigger: 'auto', cooldownMs: 30 * 60_000 });
     expect(second.alerted).toBe(false);
     expect(second.reason).toContain('окно');
-    expect(chatSent).toHaveLength(1);
+    expect(roomSent).toHaveLength(1);
   });
 
   it('кнопка оператора проходит окно автоматики (это и есть её смысл)', async () => {
@@ -115,7 +122,7 @@ describe('аларм застрявшей очереди', () => {
       manualCooldownMs: 0,
     });
     expect(manual.alerted).toBe(true);
-    expect(chatSent).toHaveLength(2);
+    expect(roomSent).toHaveLength(2);
   });
 
   it('кнопку нельзя залить: повтор в пределах её пола запрета молча отсекается', async () => {
@@ -137,6 +144,6 @@ describe('аларм застрявшей очереди', () => {
       manualCooldownMs: 2 * 60_000,
     });
     expect(second.alerted).toBe(false);
-    expect(chatSent).toHaveLength(1);
+    expect(roomSent).toHaveLength(1);
   });
 });

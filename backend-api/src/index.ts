@@ -29,6 +29,7 @@ import { startEngineNumbersReconcile } from './services/engineNumbersService.js'
 import { startAuditStatisticsScheduler } from './services/statisticsAuditService.js';
 import { startCriticalEventsTelegramService } from './services/criticalEventsTelegramService.js';
 import { startCriticalEventsMaxService } from './services/criticalEventsMaxService.js';
+import { ensureMonitoringRoom } from './services/chatMessageService.js';
 import { ensureBaseMasterdata } from './services/baseMasterdataService.js';
 import { ensureSyncSchemaGuard } from './services/sync/syncSchemaGuard.js';
 import { getInstanceRole, isPrimaryInstance, shouldRunBackgroundJobs } from './services/instanceRole.js';
@@ -136,6 +137,10 @@ async function bootstrap() {
     // МАКС — второй внешний канал тревог (в чат администратора, Telegram и МАКС).
     // Без токена бота и адресата модуль — честный no-op.
     startCriticalEventsMaxService();
+    // Комната «Мониторинг завода» в чате программы: тревоги падают в неё, а не в личку
+    // администратора. Заводится один раз при старте, чтобы в неё можно было позвать
+    // заместителя ДО первой аварии.
+    void ensureMonitoringRoom().catch(() => null);
     startAiChatHistoryCleanup();
     // D-073: копии вложений на боксе — кэш; протухшие снимаются, когда Я.Диск подтвердил свою.
     startFileCacheEvictionJob();
