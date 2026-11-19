@@ -17,6 +17,7 @@ import {
   isFactoryStageActive,
   reclamationMonthGroup,
   stripStageDateWhenWhereNow,
+  CONTRACT_KIND_LABELS,
   type EngineFacetSelection,
   type EngineListItem,
   type FacetDescriptor,
@@ -136,6 +137,9 @@ export function EnginesReportPage(props: ListReportPageProps) {
       { id: 'internal', label: 'Внутр. №', kind: 'num', render: (e) => text(e.internalNumberFull), sortValue: (e) => text(e.internalNumberFull) },
       { id: 'brand', label: 'Марка', kind: 'name', render: (e) => text(e.engineBrand), sortValue: (e) => text(e.engineBrand) },
       { id: 'contract', label: 'Договор', kind: 'name', render: (e) => text(e.contractName), sortValue: (e) => text(e.contractName) },
+      // Вид двигателя — из того же правила, что и в списке (общее правило `resolveEngineKind`):
+      // значение приходит в строке готовым, второй источник правды тут не заводим.
+      { id: 'kind', label: 'Вид', kind: 'name', render: (e) => (e.kind ? CONTRACT_KIND_LABELS[e.kind] : HUMAN_LABEL_DASH), sortValue: (e) => (e.kind ? CONTRACT_KIND_LABELS[e.kind] : '') },
       { id: 'customer', label: 'Заказчик', kind: 'name', render: (e) => text(e.customerName), sortValue: (e) => text(e.customerName) },
       {
         id: 'reclamation',

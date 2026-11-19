@@ -1,0 +1,99 @@
+/**
+ * Вид двигателя (ГОЗ — государственный оборонный заказ, или гражданский) — одно правило
+ * на всю программу (просьба владельца 18.11.2026).
+ *
+ * **Вид — вычисляемое значение, а не поле, которое кто-то переписывает.** У двигателя
+ * вид может прийти из трёх мест, и порядок один и тот же везде:
+ *
+ *   1. **договор** двигателя — вид договора (`contract_sections.primary.kind`);
+ *   2. **карточка** двигателя — ручное значение оператора (временное: живёт, пока
+ *      договора нет);
+ *   3. **карточка контрагента** — ручное значение заказчика (значение по умолчанию для
+ *      его двигателей).
+ *
+ * Раньше вид жил только в договоре, и в списке двигателей его не было вовсе: фильтровать
+ * «военку/гражданку» по двигателям было нечем, а в отчётах вид читался каждый раз по-своему.
+ *
+ * **Ручное значение не переписывается при появлении договора.** Оно просто перестаёт быть
+ * первым источником: договор перебивает его, и везде, где вид считается, он меняется сам.
+ * Стража, которая переписывала бы поле в фоне, конфликтовала бы с ручным значением и ломала
+ * бы историю («почему у двигателя вчера был ГОЗ, а сегодня гражданский» — потому что вчера
+ * договора не было).
+ *
+ * **Когда источников нет вовсе — вида нет (`null`), а не «ГОЗ по умолчанию».** Умолчание
+ * есть только у ДОГОВОРА (забытый переключатель не должен оставлять договор без вида);
+ * двигатель без договора, без ручного значения и без значения заказчика — это двигатель,
+ * про который ещё не сказано, какой он. Молчаливый «ГОЗ» был бы выдумкой: список показывал
+ * бы несуществующий факт, и фильтр отбирал бы не то.
+ *
+ * Прецедент — ровно тот же, что у заказчика двигателя (`engineCustomer.ts`): договор читается
+ * первым, поле карточки остаётся запасным путём, а `source` возвращается наружу, чтобы
+ * интерфейс мог показать оператору, откуда взято значение.
+ */
+import { CONTRACT_KIND_LABELS, parseContractKind, type ContractKind } from './contract.js';
+
+/** Откуда взят вид двигателя. */
+export type EngineKindSource = 'contract' | 'card' | 'counterparty' | 'none';
+
+export type EngineKindResolution = {
+  /** Вид двигателя; `null` — вид не задан (ни один источник не сказал). */
+  kind: ContractKind | null;
+  /** Источник значения — чтобы UI показал «из договора» / «вручную». */
+  source: EngineKindSource;
+};
+
+/** Источники вида: каждый может отсутствовать. */
+export type EngineKindSources = {
+  /** Вид договора двигателя (`contract_sections.primary.kind`). */
+  contractKind?: unknown;
+  /** Ручное значение в карточке двигателя. */
+  cardKind?: unknown;
+  /** Ручное значение в карточке контрагента (заказчика). */
+  counterpartyKind?: unknown;
+};
+
+/**
+ * Единственное место, где считается вид двигателя. Любое место, где вид показывается или
+ * фильтруется, зовёт эту функцию — второго источника правды в проекте быть не должно.
+ */
+export function resolveEngineKind(sources: EngineKindSources | null | undefined): EngineKindResolution {
+  const fromContract = parseContractKind(sources?.contractKind);
+  if (fromContract) return { kind: fromContract, source: 'contract' };
+
+  const fromCard = parseContractKind(sources?.cardKind);
+  if (fromCard) return { kind: fromCard, source: 'card' };
+
+  const fromCounterparty = parseContractKind(sources?.counterpartyKind);
+  if (fromCounterparty) return { kind: fromCounterparty, source: 'counterparty' };
+
+  return { kind: null, source: 'none' };
+}
+
+/** Подпись источника — интерфейсу показывать оператору, откуда взято значение. */
+export const ENGINE_KIND_SOURCE_LABELS: Record<EngineKindSource, string> = {
+  contract: 'из договора',
+  card: 'вручную в карточке',
+  counterparty: 'из карточки заказчика',
+  none: 'вид не задан',
+};
+
+/** Подпись вида для оператора: «ГОЗ» / «Гражданский»; вида нет — прочерк. */
+export function engineKindLabel(kind: ContractKind | null | undefined): string {
+  return kind ? CONTRACT_KIND_LABELS[kind] : '—';
+}
+
+/**
+ * Значение ступени фильтра для двигателя без вида: их надо отбирать отдельно («вид не
+ * задан»), иначе они молча выпадают из отбора вместе с фильтром по виду.
+ */
+export const ENGINE_KIND_NONE_VALUE = 'none';
+
+/** Значение ступени фильтра: вид двигателя либо «не задан». */
+export function engineKindFacetValue(kind: ContractKind | null | undefined): string {
+  return kind ?? ENGINE_KIND_NONE_VALUE;
+}
+
+/** Подпись значения ступени фильтра. */
+export function engineKindFacetLabel(kind: ContractKind | null | undefined): string {
+  return kind ? CONTRACT_KIND_LABELS[kind] : 'Вид не задан';
+}

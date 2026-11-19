@@ -339,6 +339,8 @@ export const erpCounterparties = sqliteTable('erp_counterparties', {
   address: text('address'),
   email: text('email'),
   phone: text('phone'),
+  /** Вид двигателя по умолчанию для заказчика: 'military' | 'civil' | '' (снят оператором) | null (не задан). */
+  engineKind: text('engine_kind'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
   lastServerSeq: integer('last_server_seq'),
@@ -473,6 +475,8 @@ export const erpEngineCards = sqliteTable('erp_engine_cards', {
   docsReturnScanDate: integer('docs_return_scan_date'),
   docsReturnOriginalDate: integer('docs_return_original_date'),
   docsNote: text('docs_note'),
+  /** Вид двигателя, поставленный руками в карточке: 'military' | 'civil' | '' (снят оператором) | null (не задан). */
+  engineKind: text('engine_kind'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
   lastServerSeq: integer('last_server_seq'),

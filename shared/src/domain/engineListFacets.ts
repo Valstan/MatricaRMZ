@@ -1,5 +1,12 @@
 import type { EngineListItem } from '../ipc/types.js';
-import { STATUS_LABELS, canonicalContractSectionKey, isContractAddonToken, type StatusCode } from './contract.js';
+import {
+  CONTRACT_KIND_LABELS,
+  STATUS_LABELS,
+  canonicalContractSectionKey,
+  isContractAddonToken,
+  type StatusCode,
+} from './contract.js';
+import { ENGINE_KIND_NONE_VALUE, engineKindFacetLabel, engineKindFacetValue } from './engineKind.js';
 import {
   ENGINE_FACTORY_STAGE_LABELS,
   engineFactoryStage,
@@ -43,6 +50,7 @@ import type { ArrivalRole } from './repeatArrival.js';
 export type EngineFacetId =
   | 'customer'
   | 'contract'
+  | 'kind'
   | 'brand'
   | 'arrivalYear'
   | 'arrival'
@@ -373,6 +381,28 @@ export function engineFacets(
           extraLabels: { [sectionValue]: `${contractLabel} — ${section}` },
         };
       },
+    },
+    {
+      kind: 'values',
+      id: 'kind',
+      // Вид двигателя — ГОЗ или гражданский (владелец 18.11.2026). Раньше вид жил только
+      // в договоре, и в списке двигателей его не было: отобрать «военку/гражданку» по
+      // двигателям было нечем. Считает вид `listEngines` по общему правилу
+      // `resolveEngineKind` (договор → карточка → контрагент), а ступень только показывает
+      // и отбирает — второго источника правды тут быть не должно.
+      label: 'Вид',
+      valueOf: (e) => ({
+        value: engineKindFacetValue(e.kind),
+        label: engineKindFacetLabel(e.kind),
+      }),
+      // Ряд полный: «ГОЗ» может не быть ни одного двигателя, и ступень, собранная по
+      // строкам, тогда просто исчезла бы из фильтра. Значение «Вид не задан» — отдельное:
+      // двигатели без вида должны отбираться отдельно, а не выпадать из отбора молча.
+      options: [
+        { value: 'military', label: CONTRACT_KIND_LABELS.military },
+        { value: 'civil', label: CONTRACT_KIND_LABELS.civil },
+        { value: ENGINE_KIND_NONE_VALUE, label: 'Вид не задан' },
+      ],
     },
     {
       kind: 'values',

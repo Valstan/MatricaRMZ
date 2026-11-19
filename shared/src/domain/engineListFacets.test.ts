@@ -634,3 +634,32 @@ describe('ступень «Заезд»', () => {
     expect(options.map((o) => o.count)).toEqual([1, 1, 1]);
   });
 });
+
+// Вид двигателя (ГОЗ / гражданский) — ступень списка (владелец 18.11.2026): отдельно военка,
+// отдельно гражданка, и двигатели без вида отбираются отдельным значением, а не молча
+// выпадают из отбора.
+const kindRows = [
+  { id: 'k1', engineNumber: '1', kind: 'military' },
+  { id: 'k2', engineNumber: '2', kind: 'military' },
+  { id: 'k3', engineNumber: '3', kind: 'civil' },
+  { id: 'k4', engineNumber: '4', kind: null },
+] as unknown as EngineListItem[];
+
+describe('ступень «Вид» — ГОЗ / гражданский / вид не задан', () => {
+  it('ряд полный: вид, которого нет ни на одном двигателе, из фильтра не исчезает', () => {
+    const options = engineFacetOptions(kindRows, {}, 'kind');
+    expect(options.map((o) => o.value)).toEqual(['military', 'civil', 'none']);
+    expect(options.map((o) => o.label)).toEqual(['ГОЗ', 'Гражданский', 'Вид не задан']);
+  });
+
+  it('счётчики считаются по тем же правилам, что и остальные ступени', () => {
+    const options = engineFacetOptions(kindRows, {}, 'kind');
+    expect(options.map((o) => o.count)).toEqual([2, 1, 1]);
+  });
+
+  it('выбор вида отбирает ровно его двигатели, а «без вида» — тех, у кого вида нет', () => {
+    expect(ids(applyEngineFacets(kindRows, { kind: ['military'] }))).toEqual(['k1', 'k2']);
+    expect(ids(applyEngineFacets(kindRows, { kind: ['civil'] }))).toEqual(['k3']);
+    expect(ids(applyEngineFacets(kindRows, { kind: ['none'] }))).toEqual(['k4']);
+  });
+});

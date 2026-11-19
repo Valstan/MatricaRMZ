@@ -22,6 +22,9 @@ const counterpartyRow = {
   address: null,
   email: null,
   phone: null,
+  // Ручной вид двигателя по умолчанию для заказчика (миграция 0133): колонка в строгой
+  // таблице есть всегда, поэтому и в фикстуре строки она есть.
+  engineKind: null,
   createdAt: 1_700_000_000_000,
   updatedAt: 1_700_000_001_000,
   deletedAt: null,

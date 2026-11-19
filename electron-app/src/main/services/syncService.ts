@@ -2429,6 +2429,7 @@ async function applyPulledChanges(
       case SyncTableName.ErpCounterparties:
         {
           const payload = payloadRaw;
+          const txt = (v: unknown) => (typeof v === 'string' ? v : null);
           groups.erp_counterparties.push({
             id: payload.id,
             name: payload.name,
@@ -2438,6 +2439,9 @@ async function applyPulledChanges(
             address: payload.address ?? null,
             email: payload.email ?? null,
             phone: payload.phone ?? null,
+            // Ручной вид двигателя по умолчанию для заказчика: '' — вид сняли оператором,
+            // null — вида не было. Различать нужно только ради COALESCE на сервере.
+            engineKind: txt(payload.engine_kind) ?? null,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
             lastServerSeq: payload.last_server_seq ?? null,
@@ -2592,6 +2596,8 @@ async function applyPulledChanges(
             docsReturnScanDate: num(payload.docs_return_scan_date),
             docsReturnOriginalDate: num(payload.docs_return_original_date),
             docsNote: txt(payload.docs_note),
+            // Ручной вид двигателя: '' — вид сняли оператором, null — вида не было.
+            engineKind: txt(payload.engine_kind) ?? null,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
             lastServerSeq: payload.last_server_seq ?? null,
@@ -3978,6 +3984,7 @@ async function applyPulledChanges(
       address: sql`excluded.address`,
       email: sql`excluded.email`,
       phone: sql`excluded.phone`,
+      engineKind: sql`excluded.engine_kind`,
       updatedAt: sql`excluded.updated_at`,
       lastServerSeq: sql`excluded.last_server_seq`,
       deletedAt: sql`excluded.deleted_at`,
@@ -4102,6 +4109,7 @@ async function applyPulledChanges(
       docsReturnScanDate: sql`excluded.docs_return_scan_date`,
       docsReturnOriginalDate: sql`excluded.docs_return_original_date`,
       docsNote: sql`excluded.docs_note`,
+      engineKind: sql`excluded.engine_kind`,
       updatedAt: sql`excluded.updated_at`,
       lastServerSeq: sql`excluded.last_server_seq`,
       deletedAt: sql`excluded.deleted_at`,

@@ -1,4 +1,6 @@
 import type { AuthFailureCode } from '../domain/authFailure.js';
+import type { ContractKind } from '../domain/contract.js';
+import type { EngineKindSource } from '../domain/engineKind.js';
 import type { EngineBulkIntakeApplyInput, EngineBulkIntakeApplyResult, EngineBulkIntakePreview } from '../domain/engineBulkIntake.js';
 import type { EngineRmzNumberStatus } from '../domain/engineRmzNumber.js';
 import type { EngineReservation } from '../domain/engineReservation.js';
@@ -65,6 +67,8 @@ export type CounterpartyStrictRow = {
   address: string | null;
   phone: string | null;
   email: string | null;
+  /** Ручной вид двигателя по умолчанию для заказчика ('military' | 'civil' | null). */
+  engine_kind: string | null;
   updated_at: number;
 };
 
@@ -171,6 +175,14 @@ export type EngineListItem = {
   contractId?: string;
   contractName?: string;
   contractSectionNumber?: string;
+  /**
+   * Вид двигателя: ГОЗ или гражданский. Считается по общему правилу
+   * `resolveEngineKind` (договор → карточка → контрагент); `null` — вид не задан
+   * (в отборе это отдельное значение «Вид не задан», а не молчаливый «ГОЗ»).
+   */
+  kind?: ContractKind | null;
+  /** Откуда взят вид — интерфейсу показывать оператору источник значения. */
+  kindSource?: EngineKindSource;
   arrivalDate?: number | null;
   /**
    * Крайний день ремонта (мс): дата поступления на завод плюс срок ремонта ЕГО контракта

@@ -6,6 +6,8 @@
 -- Данные терять нечего: таблица никогда не входила в sync-контракт и всегда пуста.
 -- Тот же DDL продублирован в `ensureClientSchemaParity` (migrate.ts) и в android-цепочке.
 -- Реплика не строже сервера (0020): повторяем ровно серверную nullability, без добавок.
+-- `engine_kind` — ручной вид двигателя по умолчанию для заказчика (сервер 0133):
+-- 'military' | 'civil' | '' (снят оператором) | NULL (вида не было). Nullable.
 
 DROP TABLE IF EXISTS `erp_counterparties`;
 --> statement-breakpoint
@@ -18,6 +20,7 @@ CREATE TABLE `erp_counterparties` (
 	`address` text,
 	`email` text,
 	`phone` text,
+	`engine_kind` text,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
 	`last_server_seq` integer,
