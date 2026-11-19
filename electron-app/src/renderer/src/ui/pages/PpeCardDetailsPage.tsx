@@ -1,8 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  EMPTY_EMPLOYEE_SIZES,
+  EMPLOYEE_DEPARTMENT_ATTR_CODE,
   HUMAN_LABEL_DASH,
   addWearMonths,
+  buildEmployeeLinks,
   buildPpeIssueCard,
   nextIssueDates,
   normalizeLookupCompact,
@@ -13,6 +16,8 @@ import {
   ppeIssueRemainders,
   ppeSizeKindForName,
   resolveEmployeeNorms,
+  type EmployeeSizes,
+  type PpeEmployeeLink,
   type PpeKind,
   type PpeNextIssue,
   type PpeSizeKind,
@@ -30,6 +35,7 @@ import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { ensureAttributeDefs, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { printSectionsToText } from '../utils/mailText.js';
 import {
   applyPrintTemplate,
@@ -133,8 +139,6 @@ function personalCardSizeFields(pc: PpeEmployeeCardDto | null): Array<{ label: s
 }
 
 /** Фактические размеры сотрудника — из EAV-карточки employee (та же, где их правит оператор). */
-type EmployeeSizes = { clothes: string; shoes: string; height: string };
-const EMPTY_SIZES: EmployeeSizes = { clothes: '', shoes: '', height: '' };
 function sizeMatchKey(raw: string): string {
   const compact = normalizeLookupCompact(String(raw ?? ''));
   return compact.match(/\d+/)?.[0] ?? compact;
@@ -149,18 +153,6 @@ const SIZE_LABEL_RU: Array<[PpeSizeKind, string]> = [
   ['clothes', 'одежда'],
   ['shoes', 'обувь'],
 ];
-
-function readEmployeeSizes(attributes: Record<string, unknown> | null | undefined): EmployeeSizes {
-  const text = (code: string): string => {
-    const raw = attributes?.[code];
-    return raw == null || typeof raw === 'object' ? '' : String(raw).trim();
-  };
-  return {
-    clothes: text(PPE_SIZE_ATTRIBUTE_CODES.clothes),
-    shoes: text(PPE_SIZE_ATTRIBUTE_CODES.shoes),
-    height: text(PPE_SIZE_ATTRIBUTE_CODES.height),
-  };
-}
 
 function sizesSummary(sizes: EmployeeSizes): string {
   const parts = SIZE_LABEL_RU.filter(([kind]) => sizes[kind]).map(([kind, label]) => `${label} ${sizes[kind]}`);
@@ -209,6 +201,14 @@ export function PpeCardDetailsPage(props: {
   employeeId: string;
   canEdit: boolean;
   canIssue: boolean;
+  /** Сквозной переход: карточка СИЗ → карточка сотрудника (промт КАРМАНА #40). */
+  onOpenEmployee?: (employeeId: string) => void;
+  /**
+   * Право править карточку сотрудника (кадровое `employees.create`). Ровно то же,
+   * что и в карточке сотрудника: без него поля подразделения и размеров — только
+   * для чтения. Правы сотрудников не расширяем.
+   */
+  canEditEmployee?: boolean;
   onBack?: () => void;
 }) {
   const { employeeId } = props;
@@ -259,10 +259,21 @@ export function PpeCardDetailsPage(props: {
   /** Сертификат позиции (вид СИЗ) по id номенклатуры — из списка номенклатуры. */
   const [nomCertificates, setNomCertificates] = useState<Map<string, string>>(new Map());
   const [personnelByEmployee, setPersonnelByEmployee] = useState<Map<string, string>>(new Map());
-  // Размеры по табельному номеру: карточка СИЗ знает строгого сотрудника (id из
-  // erp_employee_cards), а размеры живут в EAV-карточке employee — общий ключ один.
-  const [sizesByPersonnel, setSizesByPersonnel] = useState<Map<string, EmployeeSizes>>(new Map());
-  const [sizes, setSizes] = useState<EmployeeSizes>(EMPTY_SIZES);
+  /**
+   * Связь «карточка СИЗ ↔ карточка сотрудника» по табельному номеру: карточка СИЗ
+   * знает строгого сотрудника (id из erp_employee_cards), а карточка сотрудника и
+   * размеры живут в EAV — общий ключ один (промт КАРМАНА #40).
+   */
+  const [employeeLinks, setEmployeeLinks] = useState<Map<string, PpeEmployeeLink>>(new Map());
+  /** Тип сущности сотрудника и его определения атрибутов — для регистрации полей размеров. */
+  const [employeeTypeId, setEmployeeTypeId] = useState('');
+  const [employeeDefs, setEmployeeDefs] = useState<AttributeDefRow[]>([]);
+  const [sizes, setSizes] = useState<EmployeeSizes>(EMPTY_EMPLOYEE_SIZES);
+  /** Подразделения — справочник для правки `department_id` в карточке сотрудника. */
+  const [departmentOptions, setDepartmentOptions] = useState<SearchSelectOption[]>([]);
+  /** Черновики правки данных сотрудника из карточки СИЗ (размеры, подразделение). */
+  const [sizeDrafts, setSizeDrafts] = useState<EmployeeSizes>(EMPTY_EMPLOYEE_SIZES);
+  const [departmentDraft, setDepartmentDraft] = useState<string | null>(null);
   const [warehouses, setWarehouses] = useState<SearchSelectOption[]>([]);
   const [issueOpen, setIssueOpen] = useState(false);
   const [issueWarehouse, setIssueWarehouse] = useState<string | null>(null);
@@ -290,29 +301,33 @@ export function PpeCardDetailsPage(props: {
 
   const { confirm } = useConfirm();
   const canEdit = props.canEdit;
+  /** Право править карточку сотрудника — то же, что и в самой карточке сотрудника. */
+  const canEditEmployee = props.canEditEmployee === true;
   /** Позиции без срока носки: годовая норма, срок проставляет кладовщик. */
   const rowsWithoutPeriod = personalCardRows.filter((r) => r.wearKind === 'annual');
 
   /**
-   * Размеры сотрудников — из EAV-карточек `employee` (поля «Размер одежды», «Размер
-   * обуви», «Рост»). Карточка СИЗ и EAV-карточка живут разными id, поэтому размеры
-   * кладём в карту по табельному номеру — единственному общему ключу. Читаем тем же
-   * правом `masterdata.view`, что и справочник сотрудников (оно в базе роли оператора).
+   * Карточки сотрудников из EAV (`employee`): размеры, подразделение и id карточки
+   * — по общему ключу «табельный номер». Карточка СИЗ и EAV-карточка живут разными
+   * id, поэтому связь строим по номеру. Читаем тем же правом `masterdata.view`, что и
+   * справочник сотрудников (оно в базе роли оператора).
    */
-  const loadEmployeeSizes = useCallback(async () => {
+  const loadEmployeeLinks = useCallback(async () => {
     const types = await window.matrica.admin.entityTypes.list().catch(() => null as any);
     const employeeType = (types ?? []).find((t: any) => String(t.code ?? '') === 'employee');
     if (!employeeType) return;
+    const typeId = String(employeeType.id);
+    setEmployeeTypeId(typeId);
     const rows = await window.matrica.admin.entities
-      .listByEntityTypeWithAttrs(String(employeeType.id))
+      .listByEntityTypeWithAttrs(typeId)
       .catch(() => [] as Array<{ id: string; attributes: Record<string, unknown> }>);
-    const byPersonnel = new Map<string, EmployeeSizes>();
-    for (const row of rows) {
-      const personnelNo = String(row.attributes?.personnel_number ?? '').trim();
-      if (!personnelNo) continue;
-      byPersonnel.set(personnelNo, readEmployeeSizes(row.attributes));
-    }
-    setSizesByPersonnel(byPersonnel);
+    setEmployeeLinks(buildEmployeeLinks(rows));
+    // Определения атрибутов нужны для правки размеров: без них дверь записи отвечает
+    // «Неизвестный атрибут». Читаем тем же правом `masterdata.view`.
+    const defs = await window.matrica.admin.attributeDefs
+      .listByEntityType(typeId)
+      .catch(() => [] as AttributeDefRow[]);
+    setEmployeeDefs(defs as AttributeDefRow[]);
   }, []);
 
   const loadEmployees = useCallback(async () => {
@@ -327,8 +342,115 @@ export function PpeCardDetailsPage(props: {
       })),
     );
     setPersonnelByEmployee(new Map(empRows.map((e) => [String(e.id), String(e.personnelNo ?? '')])));
-    await loadEmployeeSizes();
-  }, [loadEmployeeSizes]);
+    await loadEmployeeLinks();
+  }, [loadEmployeeLinks]);
+
+  /**
+   * Связь текущего сотрудника СИЗ с карточкой сотрудника — по табельному номеру.
+   * Неоднозначный номер (два сотрудника) переход не даёт: открыли бы чужую карточку.
+   */
+  const employeeLink = useMemo(() => {
+    const personnelNo = personnelByEmployee.get(employeeId) ?? '';
+    if (!personnelNo) return undefined;
+    return employeeLinks.get(personnelNo);
+  }, [employeeId, personnelByEmployee, employeeLinks]);
+
+  /** Карточка сотрудника, в которую пишем размеры и подразделение (одна правда). */
+  const employeeEntityId = employeeLink && !employeeLink.ambiguous ? employeeLink.entityId : null;
+
+  /** Название подразделения по справочнику — для показа и сверки с импортом ЗУП. */
+  const departmentLabel = useMemo(
+    () => departmentOptions.find((o) => o.id === departmentDraft)?.label ?? '',
+    [departmentOptions, departmentDraft],
+  );
+
+  /**
+   * Размеры и подразделение на экране следуют за фактом: приехали новые данные
+   * сотрудника — переносим их и в черновики. Черновик operator'а не затирается
+   * фоновым обновлением, пока факт не изменился (ключ — сам факт).
+   */
+  const lastFactRef = useRef<string>('');
+  useEffect(() => {
+    const fact = JSON.stringify([employeeLink?.sizes ?? null, employeeLink?.departmentId ?? null]);
+    if (fact === lastFactRef.current) return;
+    lastFactRef.current = fact;
+    const next = employeeLink?.sizes ?? EMPTY_EMPLOYEE_SIZES;
+    setSizes(next);
+    setSizeDrafts(next);
+    setDepartmentDraft(employeeLink?.departmentId ?? null);
+  }, [employeeLink]);
+
+  /**
+   * Правка данных сотрудника прямо из карточки СИЗ.
+   *
+   * Пишем в карточку сотрудника (EAV), а не в карточку СИЗ: размеры и подразделение
+   * принадлежат сотруднику, своя копия в карточке СИЗ развела бы значения («в карточке
+   * СИЗ одно, у сотрудника другое»). Дверь — та же единственная, что и в карточке
+   * сотрудника (`employees:setAttr`), поэтому права и гейт дублей те же.
+   */
+  const saveEmployeeData = useCallback(async () => {
+    if (!employeeEntityId) {
+      setStatus('Карточка сотрудника не найдена по табельному номеру — править нельзя');
+      return;
+    }
+    const current = employeeLink?.sizes ?? EMPTY_EMPLOYEE_SIZES;
+    const writes: Array<{ code: string; value: unknown; label: string }> = [];
+    if (sizeDrafts.clothes.trim() !== current.clothes) {
+      writes.push({ code: PPE_SIZE_ATTRIBUTE_CODES.clothes, value: sizeDrafts.clothes.trim(), label: 'Размер одежды' });
+    }
+    if (sizeDrafts.shoes.trim() !== current.shoes) {
+      writes.push({ code: PPE_SIZE_ATTRIBUTE_CODES.shoes, value: sizeDrafts.shoes.trim(), label: 'Размер обуви' });
+    }
+    if (sizeDrafts.height.trim() !== current.height) {
+      writes.push({ code: PPE_SIZE_ATTRIBUTE_CODES.height, value: sizeDrafts.height.trim(), label: 'Рост' });
+    }
+    if ((departmentDraft ?? null) !== (employeeLink?.departmentId ?? null)) {
+      writes.push({
+        code: EMPLOYEE_DEPARTMENT_ATTR_CODE,
+        value: departmentDraft ?? null,
+        label: 'Структурное подразделение',
+      });
+    }
+    if (!writes.length) {
+      setStatus('Изменений нет');
+      return;
+    }
+    setBusy(true);
+    try {
+      // Определения атрибутов размеров могли не быть заведены на этой машине (карточку
+      // сотрудника никто не открывал) — тогда дверь записи ответит «Неизвестный атрибут».
+      // Регистрируем те же коды, что и карточка сотрудника (новых атрибутов не заводим).
+      if (employeeTypeId) {
+        await ensureAttributeDefs(
+          employeeTypeId,
+          [
+            { code: PPE_SIZE_ATTRIBUTE_CODES.clothes, name: 'Размер одежды', dataType: 'text', sortOrder: 106 },
+            { code: PPE_SIZE_ATTRIBUTE_CODES.shoes, name: 'Размер обуви', dataType: 'text', sortOrder: 107 },
+            { code: PPE_SIZE_ATTRIBUTE_CODES.height, name: 'Рост', dataType: 'text', sortOrder: 108 },
+          ],
+          employeeDefs,
+        ).catch(() => null);
+      }
+      for (const write of writes) {
+        const res = await window.matrica.employees.setAttr(employeeEntityId, write.code, write.value);
+        if (!res?.ok) {
+          const unknownAttr = String(res?.error ?? '').includes('Неизвестный атрибут');
+          setStatus(
+            res?.blockReason
+              ? `Гейт дублей остановил запись «${write.label}» (${res.error ?? 'совпадение по карточке'}). Разберите дубль в карточке сотрудника.`
+              : unknownAttr
+                ? `«${write.label}» не заведено в карточке сотрудника (нет атрибута ${write.code}) — заведите поле в карточке сотрудника.`
+                : `Ошибка: ${res?.error ?? 'не удалось сохранить'}`,
+          );
+          return;
+        }
+      }
+      setStatus('Сохранено в карточке сотрудника');
+      await loadEmployeeLinks();
+    } finally {
+      setBusy(false);
+    }
+  }, [employeeEntityId, employeeLink, sizeDrafts, departmentDraft, loadEmployeeLinks, employeeTypeId, employeeDefs]);
 
   // Вкладка живёт в keep-alive: без импульса размеры и табельные, поправленные в карточке
   // сотрудника, не подтянулись бы до перезапуска клиента.
@@ -336,15 +458,23 @@ export function PpeCardDetailsPage(props: {
 
   useEffect(() => {
     void (async () => {
-      const [norms, wh] = await Promise.all([
+      const [norms, wh, deps] = await Promise.all([
         window.matrica.ppe.norms.list().catch(() => null),
         window.matrica.warehouseLocations.list({ activeOnly: true }).catch(() => null),
+        window.matrica.employees.departmentsList().catch(() => null as unknown as any[]),
       ]);
       await loadEmployees();
       if (norms?.ok) setNormOptions(norms.rows);
       if (wh?.ok) {
         setWarehouses((wh.rows ?? []).map((w: any) => ({ id: String(w.id), label: String(w.name ?? w.code ?? '') })));
       }
+      // Справочник подразделений — для правки `department_id` в карточке сотрудника.
+      const depOptions = (deps ?? []).map((r: any) => ({
+        id: String(r.id),
+        label: r.displayName ? String(r.displayName) : String(r.id).slice(0, 8),
+      }));
+      depOptions.sort((a: { label: string }, b: { label: string }) => a.label.localeCompare(b.label, 'ru'));
+      setDepartmentOptions(depOptions);
       const noms = await window.matrica.warehouse.nomenclatureList({ limit: 2000, offset: 0 }).catch(() => null);
       if (noms?.ok) {
         const rows = (noms.rows ?? []) as any[];
@@ -442,10 +572,8 @@ export function PpeCardDetailsPage(props: {
       })),
     );
     setNewSetName(kind === 'soap' ? 'Мыло — всем' : 'Нормы по карточке');
-    const personnelNo = personnelByEmployee.get(res.card.employeeId) ?? '';
-    setSizes(personnelNo ? (sizesByPersonnel.get(personnelNo) ?? EMPTY_SIZES) : EMPTY_SIZES);
     await loadPersonalCard(res.card.employeeId, setIds);
-  }, [personnelByEmployee, sizesByPersonnel, loadPersonalCard, kind]);
+  }, [loadPersonalCard, kind]);
 
   /**
    * Срок носки по позиции проставляет кладовщик (решение владельца от 05.11): у годовой
@@ -489,8 +617,6 @@ export function PpeCardDetailsPage(props: {
         setAbsences([]);
         setGroupNormIds([]);
         setNormLines([]);
-        const personnelNo = personnelByEmployee.get(employeeId) ?? '';
-        setSizes(personnelNo ? (sizesByPersonnel.get(personnelNo) ?? EMPTY_SIZES) : EMPTY_SIZES);
         // Личная карточка по форме приложения №3 заводится по факту — её реквизиты
         // нужны кладовщику и без открытой карточки выдачи.
         await loadPersonalCard(employeeId, []);
@@ -500,7 +626,7 @@ export function PpeCardDetailsPage(props: {
     } finally {
       setBusy(false);
     }
-  }, [employeeId, kind, loadCard, personnelByEmployee, sizesByPersonnel, loadPersonalCard]);
+  }, [employeeId, kind, loadCard, loadPersonalCard]);
 
   useEffect(() => {
     void findCard();
@@ -1254,6 +1380,21 @@ export function PpeCardDetailsPage(props: {
             Завести карточку
           </Button>
         ) : null}
+        {props.onOpenEmployee ? (
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (!employeeEntityId) {
+                setStatus('Карточка сотрудника не найдена по табельному номеру — перехода нет');
+                return;
+              }
+              props.onOpenEmployee?.(employeeEntityId);
+            }}
+            disabled={busy || !employeeEntityId}
+          >
+            Открыть карточку сотрудника
+          </Button>
+        ) : null}
       </div>
 
       {cardMissing ? (
@@ -1346,6 +1487,85 @@ export function PpeCardDetailsPage(props: {
           <div style={{ color: 'var(--muted)' }}>
             {busy ? 'Загружаем личную карточку…' : 'Личная карточка не заведена.'}
           </div>
+        )}
+      </SectionCard>
+
+      {/*
+        Данные сотрудника: подтянуты в карточку СИЗ из карточки сотрудника — здесь же и
+        правятся. Пишем ТУДА ЖЕ (в карточку сотрудника): своя копия в карточке СИЗ развела
+        бы значения. Право — то же, что и в карточке сотрудника, без него поля только для
+        чтения (промт КАРМАНА #40).
+      */}
+      <SectionCard title="Данные сотрудника">
+        <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>
+          Подразделение и размеры берутся из карточки сотрудника. Правка идёт туда же — в карточку
+          сотрудника: своя копия здесь развела бы значения.
+        </div>
+        {employeeLink?.ambiguous ? (
+          <div style={{ color: 'var(--warn, #b45309)', fontSize: 12 }}>
+            На табельный номер «{employeeLink.personnelNo}» найдено два сотрудника — связь неоднозначна:
+            и перехода, и правки нет. Разберите дубль сотрудников.
+          </div>
+        ) : !employeeEntityId ? (
+          <div style={{ color: 'var(--muted)' }}>
+            Карточка сотрудника по табельному номеру не найдена — править нельзя.
+          </div>
+        ) : (
+          <>
+            <FormGrid>
+              <FormField label="Структурное подразделение">
+                <SearchSelect
+                  value={departmentDraft}
+                  options={departmentOptions}
+                  placeholder="Подразделение"
+                  showAllWhenEmpty
+                  onChange={setDepartmentDraft}
+                  disabled={!canEditEmployee}
+                />
+              </FormField>
+              <FormField label="Размер одежды">
+                <Input
+                  value={sizeDrafts.clothes}
+                  onChange={(e) => setSizeDrafts((s) => ({ ...s, clothes: e.target.value }))}
+                  disabled={!canEditEmployee}
+                  placeholder="не заполнен"
+                />
+              </FormField>
+              <FormField label="Размер обуви">
+                <Input
+                  value={sizeDrafts.shoes}
+                  onChange={(e) => setSizeDrafts((s) => ({ ...s, shoes: e.target.value }))}
+                  disabled={!canEditEmployee}
+                  placeholder="не заполнен"
+                />
+              </FormField>
+              <FormField label="Рост">
+                <Input
+                  value={sizeDrafts.height}
+                  onChange={(e) => setSizeDrafts((s) => ({ ...s, height: e.target.value }))}
+                  disabled={!canEditEmployee}
+                  placeholder="не заполнен"
+                />
+              </FormField>
+            </FormGrid>
+            {personalCard?.departmentName && personalCard.departmentName !== departmentLabel ? (
+              <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 6 }}>
+                В импорте ЗУП указано подразделение «{personalCard.departmentName}» — оно не совпадает с
+                карточкой сотрудника.
+              </div>
+            ) : null}
+            {canEditEmployee ? (
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+                <Button variant="primary" onClick={() => void saveEmployeeData()} disabled={busy}>
+                  Сохранить в карточке сотрудника
+                </Button>
+              </div>
+            ) : (
+              <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 6 }}>
+                Правка доступна с тем же правом, что и в карточке сотрудника.
+              </div>
+            )}
+          </>
         )}
       </SectionCard>
 

@@ -5792,7 +5792,7 @@ export function App() {
         );
       case 'employee':
         return (
-          <EmployeeDetailsPage key={k} employeeId={id} canEdit={caps.canManageEmployees} canEditPosition={caps.canEditEmployeePositions} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} canManageUsers={caps.canManageUsers} onAccessChanged={triggerEmployeesRefresh} me={authStatus.user} registerCardCloseActions={reg} requestClose={close} onOpenEmployee={openEmployee} onOpenCounterparty={openCounterparty} onOpenContract={openContract} onOpenByCode={openByCode} onClose={close} />
+          <EmployeeDetailsPage key={k} employeeId={id} canEdit={caps.canManageEmployees} canEditPosition={caps.canEditEmployeePositions} canViewFiles={caps.canViewFiles} canUploadFiles={caps.canUploadFiles} canManageUsers={caps.canManageUsers} onAccessChanged={triggerEmployeesRefresh} me={authStatus.user} registerCardCloseActions={reg} requestClose={close} onOpenEmployee={openEmployee} onOpenPpeCard={openPpeCardEmployee} onOpenCounterparty={openCounterparty} onOpenContract={openContract} onOpenByCode={openByCode} onClose={close} />
         );
       case 'product':
         return (
@@ -6079,6 +6079,8 @@ export function App() {
             employeeId={selectedPpeCardEmployeeId}
             canEdit={caps.canEditNomenclature}
             canIssue={caps.canPostWarehouseDocs}
+            canEditEmployee={caps.canManageEmployees}
+            onOpenEmployee={openEmployee}
             onBack={() => setTab('ppe_cards')}
           />
         )}
@@ -6520,6 +6522,7 @@ export function App() {
             registerCardCloseActions={registerCardCloseActions}
             requestClose={requestCardClose}
             onOpenEmployee={openEmployee}
+            onOpenPpeCard={openPpeCardEmployee}
             onOpenCounterparty={openCounterparty}
             onOpenContract={openContract}
             onOpenByCode={openByCode}
