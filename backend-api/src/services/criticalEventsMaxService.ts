@@ -20,6 +20,7 @@
  */
 import { listCriticalEvents, type CriticalEventRecord } from './criticalEventsService.js';
 import { shouldAlertEvent, formatEvent } from './criticalEventsTelegramService.js';
+import { readVaultSecret } from './karmanVaultClient.js';
 import { getInstanceRole, shouldRunBackgroundJobs } from './instanceRole.js';
 import { logInfo, logWarn } from '../utils/logger.js';
 
@@ -50,23 +51,33 @@ function parseNumber(raw: string | undefined, fallback: number, min: number, max
   return Math.max(min, Math.min(max, Math.trunc(value)));
 }
 
-function token(): string | null {
-  const value = envText('MATRICA_MAX_ALERT_TOKEN');
-  return value ? value : null;
+/**
+ * Токен бота: сначала env прод-бокса, потом комната КАРМАНА (ключ `MAX_ALERT_TOKEN`).
+ * Комната — наш «сейф»: положили токен туда и перезапустили сервис — канал работает, и
+ * токен не лежит в git.
+ */
+async function resolveToken(): Promise<string | null> {
+  const fromEnv = envText('MATRICA_MAX_ALERT_TOKEN');
+  if (fromEnv) return fromEnv;
+  return await readVaultSecret('MAX_ALERT_TOKEN');
 }
 
-/** Адресат: групповой чат (chat_id) либо личный диалог (user_id). */
-function target(): { kind: 'chat' | 'user'; value: string } | null {
-  const chatId = envText('MATRICA_MAX_ALERT_CHAT_ID');
+/**
+ * Адресат: групповой чат (`MAX_ALERT_CHAT_ID`) или личный диалог (`MAX_ALERT_USER_ID`).
+ * Сначала env, потом комната — тем же порядком, что и токен.
+ */
+async function resolveTarget(): Promise<{ kind: 'chat' | 'user'; value: string } | null> {
+  const chatId = envText('MATRICA_MAX_ALERT_CHAT_ID') || (await readVaultSecret('MAX_ALERT_CHAT_ID'));
   if (chatId) return { kind: 'chat', value: chatId };
-  const userId = envText('MATRICA_MAX_ALERT_USER_ID');
+  const userId = envText('MATRICA_MAX_ALERT_USER_ID') || (await readVaultSecret('MAX_ALERT_USER_ID'));
   if (userId) return { kind: 'user', value: userId };
   return null;
 }
 
 /** Канал МАКС настроен (токен и адресат на месте). Без него — честный no-op. */
-export function isMaxAlertConfigured(): boolean {
-  return token() !== null && target() !== null;
+export async function isMaxAlertConfigured(): Promise<boolean> {
+  const [token, to] = await Promise.all([resolveToken(), resolveTarget()]);
+  return token !== null && to !== null;
 }
 
 let lastSentAt = 0;
@@ -78,12 +89,19 @@ let lastSentAt = 0;
  * Иначе — результат ответа платформы (401 — токен неверен, 403 — бота заблокировали).
  */
 export async function sendMaxAlert(text: string): Promise<{ ok: true } | { ok: false; error: string }> {
-  const accessToken = token();
-  const to = target();
+  const [accessToken, to] = await Promise.all([resolveToken(), resolveTarget()]);
   if (!accessToken || !to) return { ok: false, error: 'канал МАКС не настроен (нет токена/адресата)' };
   const body = String(text ?? '').trim();
   if (!body) return { ok: false, error: 'пустое сообщение' };
+  return await sendMaxMessage(accessToken, to, body);
+}
 
+/** Отправить в конкретный чат/диалог (минуя настройку адресата) — нужно для разового ответа боту. */
+async function sendMaxMessage(
+  accessToken: string,
+  to: { kind: 'chat' | 'user'; value: string },
+  body: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   // Платформа: не больше 2 сообщений в секунду в один диалог.
   const wait = MIN_SEND_GAP_MS - (Date.now() - lastSentAt);
   if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
@@ -111,6 +129,89 @@ export async function sendMaxAlert(text: string): Promise<{ ok: true } | { ok: f
 }
 
 /**
+ * Разовый сбор адресата: узнать, куда писать.
+ *
+ * Почему так: с июня 2026 `GET /chats` у МАКС **отключён** — бот не может узнать список
+ * своих чатов, и адресата приходится выяснять иначе: владелец пишет боту одно
+ * сообщение, а мы читаем его через long polling (`GET /updates`) и отвечаем в тот же чат,
+ * показав адресат. Дальше адресат кладётся в комнату КАРМАН (`MAX_ALERT_CHAT_ID`) — и
+ * тревоги идут туда молча.
+ *
+ * Long polling тут — только для ОДНОГО раза (узнать адресата); сами тревоги — исходящие
+ * сообщения, и платформа запрещает long polling именно как способ обработки событий
+ * (для этого у неё webhook), а не как способ отправки.
+ */
+export async function discoverMaxTarget(): Promise<
+  { ok: true; chatId?: string; userId?: string; text: string } | { ok: false; error: string }
+> {
+  const accessToken = await resolveToken();
+  if (!accessToken) return { ok: false, error: 'нет токена бота (env или комната КАРМАНА)' };
+  try {
+    const resp = await fetch(`${MAX_API_BASE}/updates?timeout=5&limit=100`, {
+      headers: { Authorization: accessToken },
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!resp.ok) {
+      const detail = await resp.text().catch(() => '');
+      return { ok: false, error: `MAX HTTP ${resp.status}: ${detail.slice(0, 200)}` };
+    }
+    const payload = (await resp.json().catch(() => null)) as unknown;
+    const found = extractMessageTarget(payload);
+    if (!found) return { ok: false, error: 'в обновлениях нет сообщений — напишите боту что-нибудь' };
+    return { ok: true, ...found };
+  } catch (e) {
+    return { ok: false, error: `MAX недоступен: ${String(e)}` };
+  }
+}
+
+/** Достать из ответа обновлений первый разговор: чат, автор и текст сообщения. */
+function extractMessageTarget(payload: unknown): { chatId?: string; userId?: string; text: string } | null {
+  const updates = (payload as { updates?: unknown[] } | null)?.updates;
+  if (!Array.isArray(updates)) return null;
+  for (const update of updates) {
+    const message = (update as { message?: unknown } | null)?.message;
+    if (!message || typeof message !== 'object') continue;
+    const m = message as Record<string, unknown>;
+    const chat = (m.chat ?? {}) as Record<string, unknown>;
+    const user = (m.user ?? {}) as Record<string, unknown>;
+    const chatId = chat.chat_id ?? m.chat_id;
+    const userId = user.user_id ?? m.user_id;
+    if (chatId == null && userId == null) continue;
+    const out: { chatId?: string; userId?: string; text: string } = { text: String(m.text ?? '') };
+    if (chatId != null) out.chatId = String(chatId);
+    if (userId != null) out.userId = String(userId);
+    return out;
+  }
+  return null;
+}
+
+/**
+ * Фоновая попытка узнать адресата: токен есть, а адресата нет (владелец ещё не написал
+ * боту). Как только он напишет — бот отвечает, и адресат печатается в лог: его кладут в
+ * комнату КАРМАН ключом `MAX_ALERT_CHAT_ID`, и тревоги идут в МАКС.
+ */
+export async function tryDiscoverMaxTargetOnce(): Promise<void> {
+  const accessToken = await resolveToken();
+  if (!accessToken) return;
+  if (await resolveTarget()) return;
+  const found = await discoverMaxTarget();
+  if (!found.ok) {
+    logInfo('канал МАКС: адресат пока не известен', { error: found.error });
+    return;
+  }
+  const to = found.chatId ? { kind: 'chat' as const, value: found.chatId } : { kind: 'user' as const, value: found.userId ?? '' };
+  await sendMaxMessage(
+    accessToken,
+    to,
+    'Матрица РМЗ на связи: тревоги завода будут приходить сюда.\n' +
+      `Адресат: ${to.kind === 'chat' ? 'чат' : 'личный диалог'} ${to.value}.\n` +
+      'Его нужно положить в комнату КАРМАНА ключом MAX_ALERT_CHAT_ID (или MAX_ALERT_USER_ID) — ' +
+      'и канал поднимется сам.',
+  );
+  logInfo('канал МАКС: адресат определён', { kind: to.kind, id: to.value });
+}
+
+/**
  * Рассылка критических событий в МАКС — тот же отбор, что у Telegram (категории и
  * уровень задаются своими переменными), но свой счётчик отправок: каналы живут
  * независимо, и поломка одного не должна глушить другой.
@@ -124,75 +225,89 @@ export function startCriticalEventsMaxService() {
     return;
   }
   if (started) return;
-  if (!isMaxAlertConfigured()) {
-    logInfo('critical events MAX notifier disabled (нет MATRICA_MAX_ALERT_TOKEN/адресата)', {}, { critical: true });
-    return;
-  }
   if (!parseBool(process.env.MATRICA_CRITICAL_MAX_ENABLED, true)) {
     logInfo('critical events MAX notifier disabled (MATRICA_CRITICAL_MAX_ENABLED=false)', {}, { critical: true });
     return;
   }
-
   started = true;
-  const pollMs = parseNumber(process.env.MATRICA_CRITICAL_MAX_POLL_MS, DEFAULT_POLL_MS, 3_000, 600_000);
-  const errorEnabled = parseBool(process.env.MATRICA_CRITICAL_MAX_ERROR_ENABLED, true);
-  const errorCategories = parseCategorySet(process.env.MATRICA_CRITICAL_MAX_ERROR_CATEGORIES);
-  const codeWindowMs = parseNumber(process.env.MATRICA_CRITICAL_MAX_CODE_WINDOW_MS, DEFAULT_CODE_WINDOW_MS, 60_000, 3_600_000);
-  const maxPerCodeWindow = parseNumber(
-    process.env.MATRICA_CRITICAL_MAX_PER_CODE_WINDOW,
-    DEFAULT_MAX_PER_CODE_WINDOW,
-    1,
-    50,
-  );
-  const seen = new Set<string>();
-  const codeSentAt = new Map<string, number[]>();
 
-  for (const event of listCriticalEvents({ days: LOOKBACK_DAYS, limit: 1000 })) {
-    if (shouldAlertEvent(event, { errorEnabled, errorCategories })) seen.add(event.id);
-  }
-
-  const tick = async () => {
-    try {
-      const events = listCriticalEvents({ days: LOOKBACK_DAYS, limit: 1000 })
-        .filter((event) => shouldAlertEvent(event, { errorEnabled, errorCategories }) && !seen.has(event.id))
-        .sort((a, b) => Number(a.createdAt) - Number(b.createdAt));
-      if (events.length === 0) return;
-
-      for (const event of events.slice(0, 20)) {
-        const now = Date.now();
-        const codeKey = String(event.eventCode ?? '');
-        const times = (codeSentAt.get(codeKey) ?? []).filter((at) => now - at <= codeWindowMs);
-        if (times.length >= maxPerCodeWindow) {
-          // Событие уже уходило в этот канал недавно — молча помечаем как отправленное,
-          // иначе оно копится и уйдёт пачкой через час.
-          seen.add(event.id);
-          continue;
-        }
-        const sent = await sendMaxAlert(formatEvent(event));
-        if (!sent.ok) {
-          logWarn('critical MAX notify failed', { eventId: event.id, eventCode: event.eventCode, error: sent.error });
-          continue;
-        }
-        times.push(now);
-        codeSentAt.set(codeKey, times);
-        seen.add(event.id);
+  // Токен и адресат могут лежать в комнате КАРМАНА — читаем её асинхронно, поэтому
+  // старт канала уходит в отдельную задачу.
+  void (async () => {
+    if (!(await isMaxAlertConfigured())) {
+      const token = await resolveToken();
+      if (!token) {
+        logInfo('critical events MAX notifier disabled (нет MATRICA_MAX_ALERT_TOKEN в env и в комнате)', {}, { critical: true });
+        return;
       }
-
-      if (seen.size > 5000) {
-        seen.clear();
-        for (const event of listCriticalEvents({ days: LOOKBACK_DAYS, limit: 1000 })) {
-          if (shouldAlertEvent(event, { errorEnabled, errorCategories })) seen.add(event.id);
-        }
-      }
-    } catch (error) {
-      logWarn('critical MAX notifier tick failed', { error: String(error) });
+      // Токен есть, адресата нет: ждём, пока владелец напишет боту, и узнаём адресат сами.
+      logInfo('critical events MAX: токен есть, адресат не задан — ждём сообщения боту', {}, { critical: true });
     }
-  };
+    const pollMs = parseNumber(process.env.MATRICA_CRITICAL_MAX_POLL_MS, DEFAULT_POLL_MS, 3_000, 600_000);
+    const errorEnabled = parseBool(process.env.MATRICA_CRITICAL_MAX_ERROR_ENABLED, true);
+    const errorCategories = parseCategorySet(process.env.MATRICA_CRITICAL_MAX_ERROR_CATEGORIES);
+    const codeWindowMs = parseNumber(process.env.MATRICA_CRITICAL_MAX_CODE_WINDOW_MS, DEFAULT_CODE_WINDOW_MS, 60_000, 3_600_000);
+    const maxPerCodeWindow = parseNumber(
+      process.env.MATRICA_CRITICAL_MAX_PER_CODE_WINDOW,
+      DEFAULT_MAX_PER_CODE_WINDOW,
+      1,
+      50,
+    );
+    const seen = new Set<string>();
+    const codeSentAt = new Map<string, number[]>();
 
-  void tick();
-  setInterval(() => {
+    for (const event of listCriticalEvents({ days: LOOKBACK_DAYS, limit: 1000 })) {
+      if (shouldAlertEvent(event, { errorEnabled, errorCategories })) seen.add(event.id);
+    }
+
+    const tick = async () => {
+      try {
+        const events = listCriticalEvents({ days: LOOKBACK_DAYS, limit: 1000 })
+          .filter((event) => shouldAlertEvent(event, { errorEnabled, errorCategories }) && !seen.has(event.id))
+          .sort((a, b) => Number(a.createdAt) - Number(b.createdAt));
+        if (events.length === 0) return;
+
+        for (const event of events.slice(0, 20)) {
+          const now = Date.now();
+          const codeKey = String(event.eventCode ?? '');
+          const times = (codeSentAt.get(codeKey) ?? []).filter((at) => now - at <= codeWindowMs);
+          if (times.length >= maxPerCodeWindow) {
+            // Событие уже уходило в этот канал недавно — молча помечаем как отправленное,
+            // иначе оно копится и уйдёт пачкой через час.
+            seen.add(event.id);
+            continue;
+          }
+          const sent = await sendMaxAlert(formatEvent(event));
+          if (!sent.ok) {
+            logWarn('critical MAX notify failed', { eventId: event.id, eventCode: event.eventCode, error: sent.error });
+            continue;
+          }
+          times.push(now);
+          codeSentAt.set(codeKey, times);
+          seen.add(event.id);
+        }
+
+        if (seen.size > 5000) {
+          seen.clear();
+          for (const event of listCriticalEvents({ days: LOOKBACK_DAYS, limit: 1000 })) {
+            if (shouldAlertEvent(event, { errorEnabled, errorCategories })) seen.add(event.id);
+          }
+        }
+      } catch (error) {
+        logWarn('critical MAX notifier tick failed', { error: String(error) });
+      }
+    };
+
     void tick();
-  }, pollMs);
+    setInterval(() => {
+      void tick();
+    }, pollMs);
+
+    // Раз в минуту пробуем узнать адресата (если его ещё нет) — и отвечаем боту.
+    setInterval(() => {
+      void tryDiscoverMaxTargetOnce().catch(() => null);
+    }, 60_000);
+  })();
 }
 
 /** Категории, по которым ошибка уходит в МАКС (те же, что у Telegram по умолчанию). */

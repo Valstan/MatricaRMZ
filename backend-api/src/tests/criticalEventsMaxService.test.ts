@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { isMaxAlertConfigured, sendMaxAlert } from '../services/criticalEventsMaxService.js';
+// Комната КАРМАНА в тестах пустая: рантайм читает её сам, но в тестах это лишний шум.
+vi.mock('../services/karmanVaultClient.js', () => ({
+  readVaultSecret: vi.fn(async () => null),
+}));
+
+import { discoverMaxTarget, isMaxAlertConfigured, sendMaxAlert } from '../services/criticalEventsMaxService.js';
 
 /**
  * Канал МАКС: без токена и адресата он — честный no-op (ни одного запроса наружу),
@@ -25,21 +30,21 @@ describe('канал МАКС', () => {
   });
 
   it('без токена и адресата канала нет — и запросов наружу тоже нет', async () => {
-    expect(isMaxAlertConfigured()).toBe(false);
+    expect(await isMaxAlertConfigured()).toBe(false);
     const res = await sendMaxAlert('тест');
     expect(res.ok).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('токен без адресата — канала тоже нет (адресат обязателен)', () => {
+  it('токен без адресата — канала тоже нет (адресат обязателен)', async () => {
     process.env.MATRICA_MAX_ALERT_TOKEN = 'secret-token';
-    expect(isMaxAlertConfigured()).toBe(false);
+    expect(await isMaxAlertConfigured()).toBe(false);
   });
 
   it('со всеми настройками сообщение уходит по контракту MAX Bot API', async () => {
     process.env.MATRICA_MAX_ALERT_TOKEN = 'secret-token';
     process.env.MATRICA_MAX_ALERT_CHAT_ID = 'chat-42';
-    expect(isMaxAlertConfigured()).toBe(true);
+    expect(await isMaxAlertConfigured()).toBe(true);
     const res = await sendMaxAlert('🚨 очередь застряла');
     expect(res.ok).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -72,5 +77,32 @@ describe('канал МАКС', () => {
     const res = await sendMaxAlert('   ');
     expect(res.ok).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('адресат узнаётся из сообщения боту (GET /chats у МАКС отключён)', async () => {
+    process.env.MATRICA_MAX_ALERT_TOKEN = 'secret-token';
+    fetchMock.mockImplementation(async () =>
+      new Response(
+        JSON.stringify({
+          updates: [
+            { type: 'message_created', message: { chat: { chat_id: 777 }, user: { user_id: 42 }, text: 'Привет' } },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    const found = await discoverMaxTarget();
+    expect(found.ok).toBe(true);
+    expect(found.ok === true && found.chatId).toBe('777');
+    expect(found.ok === true && found.userId).toBe('42');
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toContain('/updates');
+  });
+
+  it('без сообщений адресат не определён — и это не ошибка канала', async () => {
+    process.env.MATRICA_MAX_ALERT_TOKEN = 'secret-token';
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({ updates: [] }), { status: 200 }));
+    const found = await discoverMaxTarget();
+    expect(found.ok).toBe(false);
   });
 });
