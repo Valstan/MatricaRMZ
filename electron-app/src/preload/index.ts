@@ -192,6 +192,12 @@ const matricaApi = {
     resetLocalDb: async () => ipcRenderer.invoke('sync:resetLocalDb'),
     dropRejectedRow: async (args: { table: string; rowId: string }) =>
       ipcRenderer.invoke('sync:dropRejectedRow', args),
+    /**
+     * Сообщить администратору о застрявшей очереди отправки на сервер (кнопка в
+     * баннере). Отчёт уходит на сервер — он кладёт его в чат администратора и во
+     * внешние каналы (Telegram, МАКС).
+     */
+    reportStuckPending: async () => ipcRenderer.invoke('sync:stuckPending:report'),
     onProgress: (handler: (event: any) => void) => {
       const wrapped = (_e: Electron.IpcRendererEvent, payload: any) => handler(payload);
       ipcRenderer.on('sync:progress', wrapped);

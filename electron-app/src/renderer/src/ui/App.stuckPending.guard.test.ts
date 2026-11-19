@@ -17,6 +17,8 @@ function src(rel: string): string {
 const APP = src('./App.tsx');
 const PROBE = src('../../../main/services/sync/localPending.ts');
 const MANAGER = src('../../../main/services/syncManager.ts');
+const PRELOAD = src('../../../preload/index.ts');
+const SYNC_IPC = src('../../../main/ipc/register/authAndSync.ts');
 
 describe('застрявшие неотправленные строки видны', () => {
   it('оператору показывается баннер про очередь', () => {
@@ -33,5 +35,25 @@ describe('застрявшие неотправленные строки вид�
   it('сводка доходит до статуса синка, который читает интерфейс', () => {
     expect(MANAGER).toContain('countStuckPendingLocalChanges');
     expect(MANAGER).toContain('stuckPending');
+  });
+});
+
+describe('из баннера можно сообщить администратору', () => {
+  it('в баннере есть кнопка, а не только просьба словами', () => {
+    expect(APP).toContain('Нажмите здесь, чтобы сообщить администратору');
+    expect(APP).toContain('data-stuck-pending-report');
+    expect(APP).toContain('reportStuckPending');
+  });
+
+  it('кнопка зовёт канал отчёта, а канал доступен из интерфейса', () => {
+    expect(PRELOAD).toContain('reportStuckPending');
+    expect(SYNC_IPC).toContain("ipcMain.handle('sync:stuckPending:report'");
+    // Отчёт уходит на сервер — он кладёт его администратору в чат и во внешние каналы.
+    expect(SYNC_IPC).toContain('/diagnostics/stuck-pending/report');
+  });
+
+  it('потабличный разбор доезжает до отчёта — видно, ЧТО именно не уходит', () => {
+    expect(MANAGER).toContain('byTable');
+    expect(SYNC_IPC).toContain('byTable');
   });
 });

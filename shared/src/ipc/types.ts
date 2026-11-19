@@ -1649,6 +1649,15 @@ export type MatricaApi = {
      * надгробие уезжает штатным push; остальным — отказ с объяснением.
      */
     dropRejectedRow: (args: { table: string; rowId: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    /**
+     * Сообщить администратору о застрявшей очереди отправки на сервер (кнопка в
+     * баннере). Отчёт уходит на сервер: он кладёт его в чат администратора, в раздел
+     * «Критические события» и во внешние каналы (Telegram, МАКС).
+     */
+    reportStuckPending: () => Promise<
+      | { ok: true; alerted: boolean; reason: string | null; text: string; chatSent: boolean }
+      | { ok: false; error: string }
+    >;
   };
   changes: {
     list: (args?: { status?: string; limit?: number }) => Promise<ChangesListResult>;

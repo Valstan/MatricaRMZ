@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   STUCK_PENDING_MINUTES,
   emptyStuckPendingSummary,
+  formatStuckPendingReport,
   isStuckPending,
   stuckAgeMinutes,
   stuckPendingCutoff,
@@ -43,5 +44,62 @@ describe('порог «застряло»', () => {
     expect(stuckAgeMinutes(now - 30_000, now)).toBe(1);
     expect(stuckAgeMinutes(now - 5 * 60_000, now)).toBe(5);
     expect(stuckAgeMinutes(null, now)).toBe(0);
+  });
+});
+
+describe('отчёт администратору о застрявшей очереди', () => {
+  const NOW = Date.parse('2026-11-19T10:00:00Z');
+  const stuck = {
+    count: 617,
+    oldestPendingAt: NOW - 83 * 60_000,
+    thresholdMinutes: 15,
+    byTable: [
+      { table: 'attribute_values', n: 617, oldestPendingAt: NOW - 83 * 60_000 },
+      { table: 'entities', n: 3, oldestPendingAt: NOW - 20 * 60_000 },
+    ],
+    lastError: 'sync failed: server rejected row',
+    lastSyncAt: NOW - 90 * 60_000,
+  };
+
+  it('в отчёте есть всё, без чего разбор не начать: машина, время, оператор, по таблицам, причина', () => {
+    const text = formatStuckPendingReport({
+      clientId: 'rmz4val-1a2b3c4d-1111-2222-3333-444455556666',
+      clientName: 'rmz4val',
+      operator: { username: 'operator', fullName: 'Иванов Иван Иванович', position: 'инженер' },
+      stuck,
+      detectedAt: NOW,
+      trigger: 'manual',
+      appVersion: '3.134.0',
+    });
+    expect(text).toContain('Машина: rmz4val');
+    expect(text).toContain('83 мин');
+    expect(text).toContain('Иванов Иван Иванович');
+    expect(text).toContain('инженер');
+    expect(text).toContain('attribute_values: 617');
+    expect(text).toContain('entities: 3');
+    expect(text).toContain('sync failed: server rejected row');
+    expect(text).toContain('3.134.0');
+    expect(text).toContain('оператор нажал');
+  });
+
+  it('без оператора и без машины отчёт всё равно читается — «неизвестно» вместо пустоты', () => {
+    const text = formatStuckPendingReport({
+      clientId: '',
+      stuck: { ...stuck, byTable: [] },
+      detectedAt: NOW,
+      trigger: 'auto',
+    });
+    expect(text).toContain('оператор неизвестен');
+    expect(text).toContain('клиент неизвестен');
+    expect(text).toContain('сработало автоматически');
+  });
+
+  it('таблицы в отчёте идут от большего к меньшему — по самой большой видно и причину', () => {
+    const text = formatStuckPendingReport({
+      clientId: 'c-1',
+      stuck,
+      detectedAt: NOW,
+    });
+    expect(text.indexOf('attribute_values: 617')).toBeLessThan(text.indexOf('entities: 3'));
   });
 });

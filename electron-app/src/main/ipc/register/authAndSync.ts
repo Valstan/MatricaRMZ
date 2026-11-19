@@ -1,4 +1,5 @@
 import { BrowserWindow, app, ipcMain, net } from 'electron';
+import { hostname } from 'node:os';
 
 import { SyncTableName } from '@matricarmz/shared';
 
@@ -21,6 +22,7 @@ import { loginMruRecent, loginMruRecord } from '../../services/loginMruService.j
 import { softDeleteOperation } from '../../services/operationService.js';
 import { SettingsKey, settingsGetNumber, settingsGetString, settingsSetString } from '../../services/settingsStore.js';
 import { parseBlockedRows, serializeBlockedRows } from '../../services/sync/blockedRows.js';
+import { httpAuthed } from '../../services/httpClient.js';
 import { resetLocalDatabase, resetSyncState } from '../../services/syncService.js';
 import { AUTO_SYNC_MS } from '../../services/syncControl.js';
 import { isViewMode } from '../ipcContext.js';
@@ -122,6 +124,54 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
       const rest = parseBlockedRows(raw).filter((r) => !(r.table === table && r.id === rowId));
       await settingsSetString(ctx.dataDb(), SettingsKey.SyncBlockedRows, serializeBlockedRows(rest)).catch(() => {});
       return { ok: true as const };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
+  // Сообщить администратору о застрявшей очереди (кнопка в баннере, 18.11.2026).
+  //
+  // Отчёт уходит СЕРВЕРУ, а не в чат парка: сервер знает, кто супер-админ, и кладёт
+  // сообщение ему в чат и во внешние каналы (Telegram, МАКС). Оператор при этом
+  // ничего не пишет сам и не должен знать, кто администратор.
+  ipcMain.handle('sync:stuckPending:report', async () => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'режим просмотра' };
+    const status = ctx.mgr.getStatus();
+    const stuck = status.stuckPending;
+    if (!stuck || !(stuck.count > 0)) return { ok: false as const, error: 'застрявших записей нет' };
+    const clientId = String((await settingsGetString(ctx.dataDb(), SettingsKey.ClientId)) ?? '').trim();
+    if (!clientId) return { ok: false as const, error: 'не известен id машины' };
+    try {
+      const res = await httpAuthed(
+        ctx.dataDb(),
+        ctx.mgr.getApiBaseUrl(),
+        '/diagnostics/stuck-pending/report',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clientId,
+            count: stuck.count,
+            oldestPendingAt: stuck.oldestPendingAt ?? null,
+            thresholdMinutes: stuck.thresholdMinutes,
+            byTable: stuck.byTable ?? [],
+            lastError: status.lastError ?? null,
+            lastSyncAt: status.lastSyncAt ?? null,
+            appVersion: app.getVersion(),
+            hostName: hostname(),
+          }),
+        },
+        { timeoutMs: 20_000, attempts: 2 },
+      );
+      if (!res.ok) {
+        return { ok: false as const, error: String(res.text ?? res.json?.error ?? `HTTP ${res.status}`) };
+      }
+      return {
+        ok: true as const,
+        alerted: res.json?.alerted === true,
+        reason: (res.json?.reason ?? null) as string | null,
+        text: (res.json?.text ?? '') as string,
+        chatSent: res.json?.chatSent === true,
+      };
     } catch (e) {
       return { ok: false as const, error: String(e) };
     }

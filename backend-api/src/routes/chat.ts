@@ -10,6 +10,7 @@ import { chatMessages, chatReads, fileAssets, userPresence } from '../database/s
 import { SyncTableName } from '@matricarmz/shared';
 import { getSuperadminUserId, listEmployeesAuth, normalizeRole } from '../services/employeeAuthService.js';
 import { canAccessFile } from '../services/fileAccessService.js';
+import { chatMessagePayload as chatMessagePayloadDto, type ChatMessageRow } from '../services/chatMessageService.js';
 import { recordSyncChanges } from '../services/sync/syncChangeService.js';
 
 export const chatRouter = Router();
@@ -25,32 +26,8 @@ function isAdminRole(role: string) {
   return r === 'admin' || r === 'superadmin';
 }
 
-function chatMessagePayload(row: {
-  id: string;
-  senderUserId: string;
-  senderUsername: string;
-  recipientUserId: string | null;
-  messageType: string;
-  bodyText: string | null;
-  payloadJson: string | null;
-  createdAt: number;
-  updatedAt: number;
-  deletedAt: number | null;
-  syncStatus: string;
-}) {
-  return {
-    id: String(row.id),
-    sender_user_id: String(row.senderUserId),
-    sender_username: String(row.senderUsername),
-    recipient_user_id: row.recipientUserId == null ? null : String(row.recipientUserId),
-    message_type: String(row.messageType),
-    body_text: row.bodyText == null ? null : String(row.bodyText),
-    payload_json: row.payloadJson == null ? null : String(row.payloadJson),
-    created_at: Number(row.createdAt),
-    updated_at: Number(row.updatedAt),
-    deleted_at: row.deletedAt == null ? null : Number(row.deletedAt),
-    sync_status: String(row.syncStatus ?? 'synced'),
-  };
+function chatMessagePayload(row: ChatMessageRow) {
+  return chatMessagePayloadDto(row);
 }
 
 function chatReadPayload(row: {

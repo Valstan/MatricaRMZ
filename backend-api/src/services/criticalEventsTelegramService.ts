@@ -77,7 +77,11 @@ export async function resolveAlertTarget(): Promise<{ kind: 'chat'; value: strin
   return { kind: 'login', value: telegramLogin };
 }
 
-function shouldAlertEvent(event: CriticalEventRecord, opts: { errorEnabled: boolean; errorCategories: Set<string> }) {
+/**
+ * Отбор события для тревоги. Общий для всех внешних каналов (Telegram, МАКС) —
+ * иначе один канал кричит о том, о чём другой молчит.
+ */
+export function shouldAlertEvent(event: CriticalEventRecord, opts: { errorEnabled: boolean; errorCategories: Set<string> }) {
   if (SUPPRESSED_ALERT_EVENT_CODES.has(String(event.eventCode ?? '').trim().toLowerCase())) return false;
   if (event.severity === 'fatal') return true;
   if (!opts.errorEnabled) return false;
@@ -85,7 +89,8 @@ function shouldAlertEvent(event: CriticalEventRecord, opts: { errorEnabled: bool
   return opts.errorCategories.has(String(event.category ?? '').trim().toLowerCase());
 }
 
-function formatEvent(event: CriticalEventRecord) {
+/** Текст тревоги для внешнего канала. Общий для Telegram и МАКС — числа не должны расходиться. */
+export function formatEvent(event: CriticalEventRecord) {
   const ts = new Date(Number(event.createdAt)).toLocaleString('ru-RU', { timeZone: DEFAULT_TZ });
   const prefix = event.severity === 'fatal' ? 'Критический алерт' : 'Серьезная ошибка';
   const header = `[${prefix}] ${event.title}`;

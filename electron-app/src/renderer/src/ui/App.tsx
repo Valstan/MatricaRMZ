@@ -876,9 +876,43 @@ export function App() {
   const [fatalError, setFatalError] = useState<{ message: string; stack?: string | null } | null>(null);
   const [fatalOpen, setFatalOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  // Отчёт администратору о застрявшей очереди (кнопка в баннере): «отправляю…» и
+  // ответ — что вышло (ушло / уже отправляли / почему не вышло).
+  const [stuckReportBusy, setStuckReportBusy] = useState(false);
+  const [stuckReportNote, setStuckReportNote] = useState('');
   // Двухклик-подтверждение «Отбросить» у rejected-строки (09.10.2026): снос локальной
   // работы — осознанное действие, а не случайный клик по баннеру.
   const [dropConfirmId, setDropConfirmId] = useState<string | null>(null);
+
+  async function reportStuckPending() {
+    if (stuckReportBusy) return;
+    setStuckReportBusy(true);
+    setStuckReportNote('');
+    try {
+      const r = await window.matrica.sync.reportStuckPending();
+      if (!r?.ok) {
+        const error = r?.error ?? 'неизвестно';
+        setStuckReportNote(`Не отправилось: ${error}`);
+        notifyOperator(`Не удалось сообщить администратору: ${error}`, 'error');
+        return;
+      }
+      if (r.alerted) {
+        setStuckReportNote('Отчёт отправлен администратору.');
+        notifyOperator('Отчёт об застрявшей очереди отправлен администратору.', 'reminder');
+        return;
+      }
+      // Аларм по этой машине мог уйти минуту назад (окно против спама) — это не ошибка.
+      const reason = r.reason ?? 'Аларм уже отправляли.';
+      setStuckReportNote(reason);
+      notifyOperator(reason, 'reminder');
+    } catch (e) {
+      const text = String(e);
+      setStuckReportNote(`Не отправилось: ${text}`);
+      notifyOperator(`Не удалось сообщить администратору: ${text}`, 'error');
+    } finally {
+      setStuckReportBusy(false);
+    }
+  }
 
   async function dropRejectedRow(table: string, rowId: string) {
     const key = `${table}:${rowId}`;
@@ -7136,7 +7170,27 @@ export function App() {
                   {`Записей не отправлено на сервер: ${stuck.count}. Самая старая ждёт ${ageMin} мин. (порог — ${stuck.thresholdMinutes} мин).`}
                 </div>
                 <div style={{ fontSize: 12, marginTop: 4 }}>
-                  Пока они в очереди этой машины, их не видит никто. Сообщите администратору — починить очередь может только он.
+                  Пока они в очереди этой машины, их не видит никто. Починить очередь может только администратор.
+                </div>
+                <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    data-stuck-pending-report
+                    disabled={stuckReportBusy}
+                    onClick={() => void reportStuckPending()}
+                    style={{
+                      background: "#991b1b",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: 8,
+                      padding: "4px 12px",
+                      cursor: stuckReportBusy ? "default" : "pointer",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {stuckReportBusy ? "Отправляю…" : "Нажмите здесь, чтобы сообщить администратору"}
+                  </button>
+                  {stuckReportNote ? <span style={{ fontSize: 12 }}>{stuckReportNote}</span> : null}
                 </div>
               </div>
             );
