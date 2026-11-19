@@ -157,3 +157,6 @@ export function printFormKindTitle(key: string | null | undefined): string {
 
 /** Виды форм, которые заполняет оператор, а потом печатает (документы). */
 export const PRINT_DOCUMENT_KINDS: readonly PrintFormKindDef[] = PRINT_FORM_KINDS.filter((k) => k.isDocument);
+
+/** Форма, которую предлагают первой в редакторе: карточка СИЗ — самая печатаемая. */
+export const DEFAULT_PRINT_FORM_KEY: PrintFormEntityKey = 'ppe_card';

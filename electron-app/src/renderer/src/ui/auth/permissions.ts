@@ -84,6 +84,12 @@ export type UiCaps = {
   canViewOrganization: boolean;
   /** Организационный модуль: вести мероприятия и журнал выдачи. */
   canEditOrganization: boolean;
+  /** Модуль печатных форм: видеть шаблоны печати. */
+  canViewPrintForms: boolean;
+  /** Модуль печатных форм: править СВОИ личные шаблоны. */
+  canEditPrintForms: boolean;
+  /** Модуль печатных форм: править ОБЩИЕ шаблоны (как справочник — `erp.dictionary.edit`). */
+  canEditSharedPrintForms: boolean;
 };
 
 export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
@@ -169,6 +175,13 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
   const canViewOrganization = has(perms, 'organization.view');
   const canEditOrganization = has(perms, 'organization.edit');
 
+  // Модуль печатных форм: шаблоны нужны всякому, кто печатает (право в базе
+  // оператора); править свой личный шаблон — тоже.
+  const canViewPrintForms = has(perms, 'print_forms.view');
+  const canEditPrintForms = has(perms, 'print_forms.edit');
+  // Общий шаблон печати — как справочник: тем же правом, что и общие шаблоны печати СИЗ.
+  const canEditSharedPrintForms = has(perms, 'erp.dictionary.edit');
+
   return {
     canViewEmployees,
     canViewTimesheets,
@@ -238,6 +251,9 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
     canEditChildren,
     canViewOrganization,
     canEditOrganization,
+    canViewPrintForms,
+    canEditPrintForms,
+    canEditSharedPrintForms,
   };
 }
 

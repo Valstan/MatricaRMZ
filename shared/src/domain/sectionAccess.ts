@@ -131,7 +131,10 @@ export const ACCESS_SECTION_CATALOG: readonly AccessSectionMeta[] = [
   {
     id: AccessSection.Reports,
     titleRu: 'Отчёты и аналитика',
-    menuTabs: ['reports', 'custom_reports', 'report_templates', 'workshop_stats'],
+    // «Печатные формы» — сюда же: это настройка вывода (шаблоны печати), рядом с
+    // «Готовыми отчётами». Отдельный раздел не заводим — править свои шаблоны
+    // должен тот же круг, что и видеть отчёты.
+    menuTabs: ['reports', 'custom_reports', 'report_templates', 'print_forms', 'workshop_stats'],
   },
   {
     id: AccessSection.Directories,

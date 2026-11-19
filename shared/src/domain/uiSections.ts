@@ -73,6 +73,7 @@ export type TabId =
   | 'employee'
   | 'children'
   | 'organization'
+  | 'print_forms'
   | 'access_sections'
   | 'timesheets'
   | 'timesheet'
@@ -199,6 +200,7 @@ const menuTabSet = new Set<MenuTabId>([
   'employees',
   'children',
   'organization',
+  'print_forms',
   'timesheets',
   'access_sections',
   'reports',
@@ -307,6 +309,7 @@ export const MENU_TAB_LABELS: Record<MenuTabId, string> = {
   employees: 'Сотрудники',
   children: 'Дети',
   organization: 'Организационное',
+  print_forms: 'Печатные формы',
   timesheets: 'Табель',
   access_sections: 'Доступы по разделам',
   reports: 'Отчёты',
@@ -334,7 +337,7 @@ export const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   workwear: ['ppe_cards', 'ppe_norms', 'ppe_groups', 'ppe_collective', 'ppe_import', 'ppe_stock', 'ppe_reports', 'ppe_vacations'],
   business: ['contracts', 'counterparties'],
   people: ['employees', 'children', 'organization', 'timesheets', 'access_sections'],
-  control: ['reports', 'custom_reports', 'report_templates', 'changes', 'audit', 'notes', 'masterdata', 'workshops', 'workshop_stats', 'warehouses_admin', 'empty_cards', 'drafts', 'admin'],
+  control: ['reports', 'custom_reports', 'report_templates', 'print_forms', 'changes', 'audit', 'notes', 'masterdata', 'workshops', 'workshop_stats', 'warehouses_admin', 'empty_cards', 'drafts', 'admin'],
 };
 
 export function groupForTab(tab: MenuTabId): MenuGroupId {
