@@ -40,7 +40,8 @@ function note(ok, what, extra) {
 }
 
 async function targets() {
-  const res = await fetch(`http://127.0.0.1:${PORT}/json/list`, { signal: AbortSignal.timeout(5000) });
+  // Локальный стенд CDP на loopback — не браузерный код приложения, cleartext здесь уместен.
+  const res = await fetch(`http://127.0.0.1:${PORT}/json/list`, { signal: AbortSignal.timeout(5000) }); // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
   const list = await res.json();
   return list.filter((t) => t.type === 'page' && !String(t.url).startsWith('devtools://'));
 }
@@ -177,7 +178,8 @@ function readEnvFile(path) {
 
 async function backendAlive() {
   try {
-    const res = await fetch(`http://127.0.0.1:${BACKEND_PORT}/health`, { signal: AbortSignal.timeout(3000) });
+    // Проба живости локального стенда по loopback — cleartext здесь уместен.
+    const res = await fetch(`http://127.0.0.1:${BACKEND_PORT}/health`, { signal: AbortSignal.timeout(3000) }); // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
     return res.ok;
   } catch {
     return false;
@@ -215,7 +217,9 @@ async function ensureBackend() {
 
 /** REST-вызов к серверу стенда (отдельным токеном — сессию клиента не трогаем). */
 async function rest(path, { method = 'GET', token, body } = {}) {
-  const res = await fetch(`http://127.0.0.1:${BACKEND_PORT}${path}`, {
+  // Локальный стенд по loopback — cleartext здесь уместен.
+  const res = await fetch(`http://127.0.0.1:${BACKEND_PORT}${path}`, { // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
+    method,
     method,
     headers: {
       'Content-Type': 'application/json',
