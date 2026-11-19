@@ -111,6 +111,7 @@ export const ACCESS_SECTION_CATALOG: readonly AccessSectionMeta[] = [
       'ppe_import',
       'ppe_stock',
       'ppe_reports',
+      'ppe_vacations',
     ],
   },
   {

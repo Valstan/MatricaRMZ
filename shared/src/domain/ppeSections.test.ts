@@ -4,13 +4,23 @@ import { ACCESS_SECTION_CATALOG, AccessSection } from './sectionAccess.js';
 import { DEFAULT_GROUP_TABS, GROUP_LABELS, MENU_TAB_LABELS, groupForTab, resolveMenuTab } from './uiSections.js';
 
 // Кладовщик (СИЗ): вкладки живут в своей группе «Кладовщик» (MVP — четыре,
-// фаза 2 добавила группы, коллективную выдачу и импорт), доступом их держит
-// раздел «Склад». Карточка ppe_card — детальная, родитель — список ppe_cards
-// (подсветка меню). Тест ловит рассинхрон трёх словарей.
+// фаза 2 добавила группы, коллективную выдачу и импорт, 19.11.2026 — график
+// отпусков), доступом их держит раздел «Склад». Карточка ppe_card — детальная,
+// родитель — список ppe_cards (подсветка меню). Тест ловит рассинхрон трёх
+// словарей.
 describe('ppe: вкладки Кладовщика в меню и доступах', () => {
-  const tabs = ['ppe_cards', 'ppe_norms', 'ppe_groups', 'ppe_collective', 'ppe_import', 'ppe_stock', 'ppe_reports'] as const;
+  const tabs = [
+    'ppe_cards',
+    'ppe_norms',
+    'ppe_groups',
+    'ppe_collective',
+    'ppe_import',
+    'ppe_stock',
+    'ppe_reports',
+    'ppe_vacations',
+  ] as const;
 
-  it('все семь — пункты меню со своими подписями', () => {
+  it('все восемь — пункты меню со своими подписями', () => {
     for (const t of tabs) {
       expect(resolveMenuTab(t)).toBe(t);
       expect(MENU_TAB_LABELS[t].length).toBeGreaterThan(0);
@@ -18,9 +28,10 @@ describe('ppe: вкладки Кладовщика в меню и доступа
     expect(MENU_TAB_LABELS.ppe_cards).toBe('Карточки СИЗ');
     expect(MENU_TAB_LABELS.ppe_norms).toBe('Нормы выдачи');
     expect(MENU_TAB_LABELS.ppe_collective).toBe('Коллективная выдача');
+    expect(MENU_TAB_LABELS.ppe_vacations).toBe('График отпусков');
   });
 
-  it('все семь — в группе «Кладовщик», и только они', () => {
+  it('все восемь — в группе «Кладовщик», и только они', () => {
     expect(DEFAULT_GROUP_TABS.workwear).toEqual([...tabs]);
     expect(GROUP_LABELS.workwear).toBe('Кладовщик');
     for (const t of tabs) expect(groupForTab(t)).toBe('workwear');
@@ -30,7 +41,7 @@ describe('ppe: вкладки Кладовщика в меню и доступа
     expect(resolveMenuTab('ppe_card')).toBe('ppe_cards');
   });
 
-  it('раздел «Склад» открывает все семь вкладок', () => {
+  it('раздел «Склад» открывает все восемь вкладок', () => {
     const warehouse = ACCESS_SECTION_CATALOG.find((s) => s.id === AccessSection.Warehouse);
     expect(warehouse).toBeDefined();
     for (const t of tabs) expect(warehouse!.menuTabs).toContain(t);
