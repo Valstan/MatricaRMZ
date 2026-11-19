@@ -21,6 +21,7 @@ import {
 } from '@matricarmz/shared';
 
 import type { IpcContext } from './ipcContext.js';
+import { EMPLOYEE_SIZE_ATTR_CODES } from '@matricarmz/shared';
 import { getSectionMembershipByLogin } from '../services/employeeService.js';
 import { entities, entityTypes } from '../database/schema.js';
 
@@ -338,19 +339,20 @@ export function createSectionIpcGate(ctx: IpcContext) {
   }
 
   /**
-   * Узкое исключение из гейта раздела: запись ДОЛЖНОСТИ сотрудника.
+   * Узкое исключение из гейта раздела: запись УЗКИХ полей карточки сотрудника.
    *
-   * Кладовщику (решение владельца 2026-11-03) нужно править должность, чтобы
-   * подобралась норма приказа по должности. Editor'а раздела «Персонал» у него
-   * нет — и не нужно: кадровую карточку он не ведёт. Право узкое
-   * (`employees.position.edit`), проверяет его сам обработчик.
+   * Кладовщику (решения владельца 03.11.2026 и 19.11.2026) нужно править должность
+   * (чтобы норма приказа подобралась) и фактические размеры (он меряет сотрудника
+   * при выдаче СИЗ). Editor'а раздела «Персонал» у него нет — и не нужно: кадровую
+   * карточку он не ведёт. Право узкое, проверяет его сам обработчик.
    */
-  async function isPositionWrite(channel: string, args: unknown[]): Promise<boolean> {
+  async function isNarrowEmployeeWrite(channel: string, args: unknown[]): Promise<boolean> {
     if (channel !== 'employees:setAttr') return false;
     const attrCode = String(args[1] ?? '').trim().toLowerCase();
-    if (attrCode !== 'role') return false;
     const perms = await ctx.currentPermissions().catch(() => ({}) as Record<string, boolean>);
-    return perms['employees.position.edit'] === true;
+    if (attrCode === 'role') return perms['employees.position.edit'] === true;
+    if (EMPLOYEE_SIZE_ATTR_CODES.includes(attrCode)) return perms['employees.sizes.edit'] === true;
+    return false;
   }
 
   /** Обернуть handler канала section-гейтом (или вернуть как есть, если канал не гейтится). */
@@ -360,7 +362,7 @@ export function createSectionIpcGate(ctx: IpcContext) {
     if (!prefixSection && !entityGated) return handler;
     const level: 'viewer' | 'editor' = isWriteGatedChannel(channel) ? 'editor' : 'viewer';
     return async (event: unknown, ...args: unknown[]) => {
-      if (await isPositionWrite(channel, args)) return handler(event, ...args);
+      if (await isNarrowEmployeeWrite(channel, args)) return handler(event, ...args);
       const sectionId = prefixSection ?? (await sectionForEntityArgs(channel, args));
       if (sectionId && !(await isAllowed(sectionId, level))) {
         const title = accessSectionMeta(sectionId)?.titleRu ?? sectionId;

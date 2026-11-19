@@ -11,6 +11,13 @@ export const PermissionCode = {
    */
   EmployeesPositionEdit: 'employees.position.edit',
   /**
+   * Узкое право: править фактические размеры сотрудника (одежда, обувь, рост).
+   * Кладовщик меряет сотрудника при выдаче СИЗ — он и должен вносить размеры
+   * (решение владельца 19.11.2026). Кадровую карточку целиком это право не
+   * открывает: для неё есть `employees.create`.
+   */
+  EmployeesSizesEdit: 'employees.sizes.edit',
+  /**
    * Узкое право: разбирать дубли сотрудников — анализ, слияние, удаление дубля.
    * Отдельно от employees.create: оператор-кладовщик должен уметь прибрать дубли
    * (решение владельца 09.11.2026), не получая права вести кадровую карточку
@@ -182,6 +189,7 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
   { code: PermissionCode.EmployeesView, group: 'Сотрудники', titleRu: 'Просмотр сотрудников' },
   { code: PermissionCode.EmployeesCreate, group: 'Сотрудники', titleRu: 'Добавление/редактирование сотрудников' },
   { code: PermissionCode.EmployeesPositionEdit, group: 'Сотрудники', titleRu: 'Изменение должностей сотрудников' },
+  { code: PermissionCode.EmployeesSizesEdit, group: 'Сотрудники', titleRu: 'Изменение размеров сотрудника' },
   { code: PermissionCode.EmployeesDedupe, group: 'Сотрудники', titleRu: 'Обработка дублей сотрудников' },
 
   { code: PermissionCode.MasterDataView, group: 'Справочники', titleRu: 'Просмотр справочников (мастер-данные)' },
@@ -581,6 +589,9 @@ const OPERATOR_ROLE_EDIT: Record<string, PermissionCode[]> = {
     // правит должности, чтобы норма приказа подбиралась по должности. Кадровую
     // карточку целиком это право не открывает.
     PermissionCode.EmployeesPositionEdit,
+    // Размеры сотрудника (решение владельца 19.11.2026): кладовщик меряет при выдаче СИЗ
+    // и вносит их сам — из карточки СИЗ, где они и живут.
+    PermissionCode.EmployeesSizesEdit,
     // Дубли сотрудников — по решению владельца (09.11.2026): кладовщик разбирает
     // дубли одной кнопкой (анализ, слияние, удаление дубля). Право узкое:
     // кадровую карточку целиком оно не открывает.

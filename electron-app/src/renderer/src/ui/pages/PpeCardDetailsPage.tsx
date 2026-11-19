@@ -209,6 +209,12 @@ export function PpeCardDetailsPage(props: {
    * для чтения. Правы сотрудников не расширяем.
    */
   canEditEmployee?: boolean;
+  /**
+   * Узкое право на фактические размеры (`employees.sizes.edit`): кладовщик меряет
+   * сотрудника при выдаче СИЗ и вносит размеры прямо здесь (решение владельца
+   * 19.11.2026). Подразделение при этом остаётся кадровым.
+   */
+  canEditSizes?: boolean;
   onBack?: () => void;
 }) {
   const { employeeId } = props;
@@ -303,6 +309,10 @@ export function PpeCardDetailsPage(props: {
   const canEdit = props.canEdit;
   /** Право править карточку сотрудника — то же, что и в самой карточке сотрудника. */
   const canEditEmployee = props.canEditEmployee === true;
+  /** Узкое право на размеры — кладовщик вносит их из карточки СИЗ. */
+  const canEditSizes = props.canEditSizes === true || canEditEmployee;
+  /** Подразделение — кадровое поле: узкое право на размеры его не открывает. */
+  const canEditDepartment = canEditEmployee;
   /** Позиции без срока носки: годовая норма, срок проставляет кладовщик. */
   const rowsWithoutPeriod = personalCardRows.filter((r) => r.wearKind === 'annual');
 
@@ -395,16 +405,18 @@ export function PpeCardDetailsPage(props: {
     }
     const current = employeeLink?.sizes ?? EMPTY_EMPLOYEE_SIZES;
     const writes: Array<{ code: string; value: unknown; label: string }> = [];
-    if (sizeDrafts.clothes.trim() !== current.clothes) {
-      writes.push({ code: PPE_SIZE_ATTRIBUTE_CODES.clothes, value: sizeDrafts.clothes.trim(), label: 'Размер одежды' });
+    if (canEditSizes) {
+      if (sizeDrafts.clothes.trim() !== current.clothes) {
+        writes.push({ code: PPE_SIZE_ATTRIBUTE_CODES.clothes, value: sizeDrafts.clothes.trim(), label: 'Размер одежды' });
+      }
+      if (sizeDrafts.shoes.trim() !== current.shoes) {
+        writes.push({ code: PPE_SIZE_ATTRIBUTE_CODES.shoes, value: sizeDrafts.shoes.trim(), label: 'Размер обуви' });
+      }
+      if (sizeDrafts.height.trim() !== current.height) {
+        writes.push({ code: PPE_SIZE_ATTRIBUTE_CODES.height, value: sizeDrafts.height.trim(), label: 'Рост' });
+      }
     }
-    if (sizeDrafts.shoes.trim() !== current.shoes) {
-      writes.push({ code: PPE_SIZE_ATTRIBUTE_CODES.shoes, value: sizeDrafts.shoes.trim(), label: 'Размер обуви' });
-    }
-    if (sizeDrafts.height.trim() !== current.height) {
-      writes.push({ code: PPE_SIZE_ATTRIBUTE_CODES.height, value: sizeDrafts.height.trim(), label: 'Рост' });
-    }
-    if ((departmentDraft ?? null) !== (employeeLink?.departmentId ?? null)) {
+    if (canEditDepartment && (departmentDraft ?? null) !== (employeeLink?.departmentId ?? null)) {
       writes.push({
         code: EMPLOYEE_DEPARTMENT_ATTR_CODE,
         value: departmentDraft ?? null,
@@ -450,11 +462,18 @@ export function PpeCardDetailsPage(props: {
     } finally {
       setBusy(false);
     }
-  }, [employeeEntityId, employeeLink, sizeDrafts, departmentDraft, loadEmployeeLinks, employeeTypeId, employeeDefs]);
+  }, [employeeEntityId, employeeLink, sizeDrafts, departmentDraft, loadEmployeeLinks, employeeTypeId, employeeDefs, canEditSizes, canEditDepartment]);
 
   // Вкладка живёт в keep-alive: без импульса размеры и табельные, поправленные в карточке
   // сотрудника, не подтянулись бы до перезапуска клиента.
-  useLiveDataRefresh(loadEmployees, { intervalMs: 60_000, domains: ['ppe', 'warehouse', 'employees'] });
+  //
+  // Домены: 'directories' — это `attribute_values`, где живут размеры. Без него правка
+  // размеров в карточке сотрудника не обновляла бы карточку СИЗ (связь должна работать
+  // в обе стороны, решение владельца 19.11.2026) — она ждала бы минутного интервала.
+  useLiveDataRefresh(loadEmployees, {
+    intervalMs: 60_000,
+    domains: ['ppe', 'warehouse', 'employees', 'directories'],
+  });
 
   useEffect(() => {
     void (async () => {
@@ -1520,14 +1539,14 @@ export function PpeCardDetailsPage(props: {
                   placeholder="Подразделение"
                   showAllWhenEmpty
                   onChange={setDepartmentDraft}
-                  disabled={!canEditEmployee}
+                  disabled={!canEditDepartment}
                 />
               </FormField>
               <FormField label="Размер одежды">
                 <Input
                   value={sizeDrafts.clothes}
                   onChange={(e) => setSizeDrafts((s) => ({ ...s, clothes: e.target.value }))}
-                  disabled={!canEditEmployee}
+                  disabled={!canEditSizes}
                   placeholder="не заполнен"
                 />
               </FormField>
@@ -1535,7 +1554,7 @@ export function PpeCardDetailsPage(props: {
                 <Input
                   value={sizeDrafts.shoes}
                   onChange={(e) => setSizeDrafts((s) => ({ ...s, shoes: e.target.value }))}
-                  disabled={!canEditEmployee}
+                  disabled={!canEditSizes}
                   placeholder="не заполнен"
                 />
               </FormField>
@@ -1543,7 +1562,7 @@ export function PpeCardDetailsPage(props: {
                 <Input
                   value={sizeDrafts.height}
                   onChange={(e) => setSizeDrafts((s) => ({ ...s, height: e.target.value }))}
-                  disabled={!canEditEmployee}
+                  disabled={!canEditSizes}
                   placeholder="не заполнен"
                 />
               </FormField>
@@ -1554,11 +1573,16 @@ export function PpeCardDetailsPage(props: {
                 карточкой сотрудника.
               </div>
             ) : null}
-            {canEditEmployee ? (
+            {canEditSizes || canEditDepartment ? (
               <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
                 <Button variant="primary" onClick={() => void saveEmployeeData()} disabled={busy}>
                   Сохранить в карточке сотрудника
                 </Button>
+                <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+                  {canEditSizes
+                    ? 'Размеры и подразделение пишутся в карточку сотрудника — одна правда.'
+                    : 'Размеры сохраняются в карточку сотрудника.'}
+                </span>
               </div>
             ) : (
               <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 6 }}>

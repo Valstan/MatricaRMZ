@@ -26,6 +26,7 @@ import { SectionCard } from '../components/SectionCard.js';
 import { ACCESS_SECTION_CATALOG, SECTION_ACCESS_ATTR, SYSTEM_ROLE_CATALOG, accessSectionMeta, dependentsOfSection, isAssignableSystemRole, missingSectionDependencies, operatorRolePermissions, parseSectionMembership, sectionEditorRoleWarning, systemRoleTitleRu, parseEmploymentStatusAttr, permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
 import type { AccessSection, EntityReferenceTarget, QuickCreateRequest, QuickCreateResult, SectionMembership } from '@matricarmz/shared';
 import { buildLinkTypeOptions, normalizeForMatch, suggestLinkTargetCodeWithRules, type LinkRule } from '@matricarmz/shared';
+import { EMPLOYEE_SIZE_ATTR_CODES } from '@matricarmz/shared';
 import { findPpeEmployeeIdByPersonnelNo } from '@matricarmz/shared';
 import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
@@ -245,6 +246,8 @@ export function EmployeeDetailsPage(props: {
   canEdit: boolean;
   /** Узкое право на должность: правит только её, остальные поля — за кадровиком. */
   canEditPosition?: boolean;
+  /** Узкое право на фактические размеры (решение владельца 19.11.2026). */
+  canEditSizes?: boolean;
   canViewFiles: boolean;
   canUploadFiles: boolean;
   canManageUsers: boolean;
@@ -263,6 +266,8 @@ export function EmployeeDetailsPage(props: {
   const { confirm, pickChoice, promptText } = useConfirm();
   // Должность — единственное поле, которое правит узкое право (кладовщик).
   const canEditPosition = props.canEdit || props.canEditPosition === true;
+  /** Узкое право на фактические размеры (кладовщик, решение владельца 19.11.2026). */
+  const canEditSizes = props.canEdit || props.canEditSizes === true;
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [status, setStatus] = useState('');
   const [activeTab, setActiveTab] = useState<EmployeeCardTab>('main');
@@ -779,10 +784,13 @@ export function EmployeeDetailsPage(props: {
   }
 
   async function saveAttr(code: string, value: unknown): Promise<boolean> {
-    // Кладовщик (узкое право на должность) правит ровно один атрибут — должность.
-    // Остальные поля карточки остаются за кадровым правом.
-    const isPosition = String(code ?? '').trim().toLowerCase() === 'role';
-    if (!props.canEdit && !(isPosition && canEditPosition)) return false;
+    // Кладовщик (узкие права) правит ровно те атрибуты, которые ему выдали:
+    // должность (03.11.2026) и фактические размеры (19.11.2026 — он меряет
+    // сотрудника при выдаче СИЗ). Остальные поля карточки остаются за кадровым правом.
+    const attrCode = String(code ?? '').trim().toLowerCase();
+    const isPosition = attrCode === 'role';
+    const isSize = EMPLOYEE_SIZE_ATTR_CODES.includes(attrCode);
+    if (!props.canEdit && !((isPosition && canEditPosition) || (isSize && canEditSizes))) return false;
     setStatus('Сохранение…');
     const r = await window.matrica.employees.setAttr(props.employeeId, code, value);
     if (!r.ok) {
@@ -849,10 +857,20 @@ export function EmployeeDetailsPage(props: {
   }
 
   async function saveAllAndClose(): Promise<boolean> {
-    // Узкое право на должность: пишем ТОЛЬКО должность — остальные поля карточки
-    // кладовщик не трогает (и не должен: кадровое право у него нет).
-    if (!props.canEdit && canEditPosition) {
-      if (!(await saveAttr('role', position.trim() || null))) return false;
+    // Узкие права: пишем ТОЛЬКО те поля, которые выданы (должность и/или размеры) —
+    // остальные поля карточки кладовщик не трогает (и не должен: кадрового права
+    // у него нет).
+    if (!props.canEdit && (canEditPosition || canEditSizes)) {
+      if (canEditPosition && !(await saveAttr('role', position.trim() || null))) return false;
+      if (canEditSizes) {
+        for (const code of EMPLOYEE_SIZE_ATTR_CODES) {
+          if (!Object.prototype.hasOwnProperty.call(customDraftValues, code)) continue;
+          const next = (customDraftValues as Record<string, unknown>)[code];
+          const current = employee?.attributes?.[code];
+          if (String(next ?? '') === String(current ?? '')) continue;
+          if (!(await saveAttr(code, next))) return false;
+        }
+      }
       await ensurePositionInDirectory(position);
       dirtyRef.current = false;
       return true;
@@ -1357,12 +1375,19 @@ export function EmployeeDetailsPage(props: {
       );
     }
     const text = value == null ? '' : String(value);
+    // Узкие права: кладовщик правит ровно те поля, которые ему выдали (должность,
+    // фактические размеры). Остальные — только для чтения.
+    const defCode = String(def.code ?? '').trim().toLowerCase();
+    const editable =
+      props.canEdit ||
+      (defCode === 'role' && canEditPosition) ||
+      (EMPLOYEE_SIZE_ATTR_CODES.includes(defCode) && canEditSizes);
     return (
       <Input
         value={text}
-        disabled={!props.canEdit}
+        disabled={!editable}
         onChange={(e) => {
-          if (!props.canEdit) return;
+          if (!editable) return;
           dirtyRef.current = true;
           setCustomDraftValues((prev) => ({ ...prev, [def.code]: e.target.value }));
         }}

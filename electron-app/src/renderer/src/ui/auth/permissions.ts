@@ -38,6 +38,8 @@ export type UiCaps = {
   canManageEmployees: boolean;
   /** Узкое право: править должность сотрудника (справочник и карточка). */
   canEditEmployeePositions: boolean;
+  /** Узкое право: править фактические размеры сотрудника (решение владельца 19.11.2026). */
+  canEditEmployeeSizes: boolean;
   canViewTimesheets: boolean;
   /** Заводить табель могут все, кто работает в программе (владелец 13.11.2026). */
   canCreateTimesheets: boolean;
@@ -132,6 +134,7 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
   const canViewEmployees = has(perms, 'employees.view');
   const canManageEmployees = has(perms, 'employees.create');
   const canEditEmployeePositions = has(perms, 'employees.position.edit');
+  const canEditEmployeeSizes = has(perms, 'employees.sizes.edit');
   const canViewTimesheets = has(perms, 'timesheet.view');
   const canCreateTimesheets = has(perms, 'timesheet.create');
   const canEditTimesheets = has(perms, 'timesheet.edit');
@@ -203,6 +206,7 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
     canViewAudit,
     canManageEmployees,
     canEditEmployeePositions,
+    canEditEmployeeSizes,
 
     canViewFiles,
     canUploadFiles,

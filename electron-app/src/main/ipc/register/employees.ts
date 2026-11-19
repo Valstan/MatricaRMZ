@@ -8,6 +8,7 @@ import { createEntity, getEntityDetails, getEntityTypeIdByCode, listEntitiesByTy
 import { analyzeEmployeeDuplicatesRemote, checkEmployeeCardKeyRemote, deleteEmployeeRemote, findEmployeeDuplicatesRemote, getSectionMembershipByLogin, getSectionMembershipByUserId, listEmployeeAttributeDefs, listEmployeesSummary, mergeEmployeeDuplicatesRemote, mergeEmployeesToServer, recordEmployeeDuplicateOverrideRemote, removeDuplicateEmployeeRemote } from '../../services/employeeService.js';
 import { saveEmployeeCardGated } from '../../services/employeeCardWrite.js';
 import { adminResyncEmployees, viewUserPermissions } from '../../services/adminUsersService.js';
+import { EMPLOYEE_SIZE_ATTR_CODES } from '@matricarmz/shared';
 
 /**
  * Ключ сравнения должностей: регистр, ё→е и лишние пробелы не должны плодить дубли
@@ -58,10 +59,15 @@ export function registerEmployeesIpc(ctx: IpcContext) {  // Self-read собст
     // Должность — узкое право: кладовщик правит должность сотрудника, чтобы
     // подобралась норма приказа (решение владельца 2026-11-03). Остальные поля
     // карточки остаются за кадровым правом employees.create.
+    // Размеры — тоже узкое право (решение владельца 2026-11-19): кладовщик меряет
+    // сотрудника при выдаче СИЗ и вносит размеры из карточки СИЗ.
+    const attrCode = String(code ?? '').trim().toLowerCase();
     const gate =
-      String(code ?? '').trim().toLowerCase() === 'role'
+      attrCode === 'role'
         ? await requireAnyPermOrResult(ctx, ['employees.create', 'employees.position.edit'])
-        : await requirePermOrResult(ctx, 'employees.create');
+        : EMPLOYEE_SIZE_ATTR_CODES.includes(attrCode)
+          ? await requireAnyPermOrResult(ctx, ['employees.create', 'employees.sizes.edit'])
+          : await requirePermOrResult(ctx, 'employees.create');
     if (!gate.ok) return gate;
     // Гейт дублей (просьба владельца 07.11.2026: «дублей сотрудников не мог
     // оператор создавать»). Проверка — в общей двери карточки: ключ личности

@@ -217,6 +217,22 @@ export function isEmployeePositionAttrCode(attrCode: string | null | undefined):
   return (attrCode ?? '').trim().toLowerCase() === EMPLOYEE_POSITION_ATTR_CODE;
 }
 
+/**
+ * Коды атрибутов фактических размеров сотрудника (`ppe_size_clothes`,
+ * `ppe_size_shoes`, `ppe_height`). Их правит кладовщик по узкому праву
+ * `employees.sizes.edit` — решение владельца 19.11.2026.
+ */
+export const EMPLOYEE_SIZE_ATTR_CODES: readonly string[] = [
+  'ppe_size_clothes',
+  'ppe_size_shoes',
+  'ppe_height',
+];
+
+/** True если строка пишет один из фактических размеров сотрудника. */
+export function isEmployeeSizeAttrCode(attrCode: string | null | undefined): boolean {
+  return EMPLOYEE_SIZE_ATTR_CODES.includes((attrCode ?? '').trim().toLowerCase());
+}
+
 // entity_type code -> requirement (entities / attribute_values rows).
 const ENTITY_TYPE_REQUIREMENT: Record<string, LedgerWriteRequirement> = {
   engine: { kind: 'permission', code: PermissionCode.EnginesEdit },
@@ -441,6 +457,15 @@ export function ledgerWriteRequirement(args: {
         kind: 'own_employee_any',
         code: PermissionCode.EmployeesCreate,
         alt: [PermissionCode.EmployeesPositionEdit],
+      };
+    }
+    // Размеры сотрудника — тоже узкое право (решение владельца 19.11.2026):
+    // кладовщик меряет сотрудника при выдаче СИЗ и вносит размеры сам.
+    if (code === 'employee' && table === SyncTableName.AttributeValues && isEmployeeSizeAttrCode(args.attrCode)) {
+      return {
+        kind: 'own_employee_any',
+        code: PermissionCode.EmployeesCreate,
+        alt: [PermissionCode.EmployeesSizesEdit],
       };
     }
     return ENTITY_TYPE_REQUIREMENT[code] ?? { kind: 'open' };

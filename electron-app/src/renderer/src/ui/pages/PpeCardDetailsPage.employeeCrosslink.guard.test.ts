@@ -50,9 +50,14 @@ describe('карточка СИЗ — правка данных сотрудни
   });
 
   it('без права на карточку сотрудника поля только для чтения', () => {
+    // Право на размеры — узкое (кладовщик меряет сотрудника при выдаче СИЗ),
+    // подразделение — кадровое: у кладовщика размеры правятся, а подразделение
+    // остаётся только для чтения.
     expect(PPE_PAGE).toContain('const canEditEmployee = props.canEditEmployee === true');
-    expect(PPE_PAGE).toContain('disabled={!canEditEmployee}');
-    expect(PPE_PAGE).toMatch(/\{canEditEmployee \? \(/);
+    expect(PPE_PAGE).toContain('const canEditSizes = props.canEditSizes === true || canEditEmployee;');
+    expect(PPE_PAGE).toContain('const canEditDepartment = canEditEmployee;');
+    expect(PPE_PAGE).toContain('disabled={!canEditSizes}');
+    expect(PPE_PAGE).toContain('disabled={!canEditDepartment}');
   });
 
   it('после правки карточка СИЗ перечитывает данные сотрудника', () => {
