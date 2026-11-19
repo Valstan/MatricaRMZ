@@ -31,11 +31,19 @@ describe('встроенная плитка «Скрипты обслужива�
     );
   });
 
-  it('нажатие на плитку открывает окно скриптов, а не «пустой ярлык»', () => {
+  it('нажатие на плитку сразу запускает окно скриптов, а не «пустой ярлык»', () => {
+    // Решение владельца 19.11.2026: щелчок по плитке на Верстаке распаковывает архив и
+    // поднимает главный скрипт с окном — без лишнего окна внутри программы.
     expect(APP).toContain('if (isBuiltinDesktopLink(link)) {');
-    expect(APP).toContain('setClientOpsOpen(true);');
-    // Раскладка вызова может меняться (добавились пропсы кнопки инструкции), поэтому
-    // проверяем по смыслу — имя окна и его состояние рядом, а не по точному тексту строки.
+    expect(APP).toContain('void launchClientOpsWindow();');
+    expect(APP).toContain('window.matrica.clientOps');
+    expect(APP).toContain('.launch(tab ? { tab } : {})');
+  });
+
+  it('если окно не поднялось — открывается запасной путь (справочное окно)', () => {
+    // Отказ запуска не должен оставлять оператора ни с чем: справочное окно даёт архив
+    // в проводнике, копию в «Загрузки» и пароль.
+    expect(APP).toMatch(/launchClientOpsWindow[\s\S]{0,900}setClientOpsOpen\(true\)/);
     expect(APP).toMatch(/<ClientOpsDialog[\s\S]{0,200}open=\{clientOpsOpen\}/);
   });
 
@@ -60,6 +68,16 @@ describe('встроенная плитка «Скрипты обслужива�
     expect(DIALOG).toContain('bundle.password');
     expect(DIALOG).toContain("run('reveal')");
     expect(DIALOG).toContain("run('saveCopy')");
+  });
+
+  it('окно скрипта запускается так, чтобы оно БЫЛО видно (грабля M214)', () => {
+    // `detached: true` и `windowsHide: true` у Node убивают графическое окно PowerShell:
+    // процесс стартует и молча уходит, оператор видит только уведомление. Консоль прячет
+    // сам PowerShell флагом `-WindowStyle Hidden`.
+    const service = src('../../../../main/services/clientOpsService.ts');
+    expect(service).toContain("'-WindowStyle', 'Hidden'");
+    expect(service, 'detached убивает окно — грабля M214').not.toMatch(/spawn\([\s\S]{0,600}detached:\s*true/);
+    expect(service, 'windowsHide убивает окно — грабля M214').not.toMatch(/spawn\([\s\S]{0,600}windowsHide:\s*true/);
   });
 
   it('пара функций работает и на живых данных — контроль, что сторож не проверяет одни строки', () => {

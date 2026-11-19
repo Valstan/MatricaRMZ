@@ -1576,10 +1576,6 @@ export type MatricaApi = {
     saveCopy: () => Promise<{ ok: true; folder: string } | { ok: false; error: string }>;
     /** Короткая инструкция для системного администратора (из архива скриптов). */
     adminInstruction: () => Promise<{ ok: true; text: string } | { ok: false; error: string }>;
-    /** Свежая установка (не обновление) и инструкцию ещё не показывали. */
-    freshInstallPending: () => Promise<boolean>;
-    /** Отметить, что инструкцию показали — второй раз не показываем. */
-    freshInstallAck: () => Promise<{ ok: true }>;
   };
   maintenance: {
     emptyCardsAnalyze: () => Promise<MaintenanceEmptyCardsAnalyzeResult>;

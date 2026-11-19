@@ -144,8 +144,6 @@ const matricaApi = {
     reveal: async () => ipcRenderer.invoke('clientOps:reveal'),
     saveCopy: async () => ipcRenderer.invoke('clientOps:saveCopy'),
     adminInstruction: async () => ipcRenderer.invoke('clientOps:adminInstruction'),
-    freshInstallPending: async () => ipcRenderer.invoke('clientOps:freshInstallPending'),
-    freshInstallAck: async () => ipcRenderer.invoke('clientOps:freshInstallAck'),
   },
   maintenance: {
     emptyCardsAnalyze: async () => ipcRenderer.invoke('maintenance:emptyCards:analyze'),

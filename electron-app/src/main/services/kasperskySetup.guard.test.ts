@@ -5,14 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
- * Механика «показать инструкцию по Касперскому один раз» держится на трёх тонких местах,
- * и молчаливая поломка каждого из них выглядит одинаково: инструкция просто не появляется.
+ * Инструкция по настройке Касперского открывается ТОЛЬКО по кнопке.
  *
- *  1. Установщик пишет метку ТОЛЬКО при установке с нуля (`${ifNot} ${isUpdated}`).
- *     При обновлении метки нет — иначе окно лезло бы на каждой настроенной машине.
- *  2. Клиент читает метку из папки данных и снимает её после показа.
- *  3. Кнопка в окне обслуживания открывает ту же инструкцию — на обновлении, где автопоказа
- *     нет, она остаётся единственным способом её найти.
+ * Решение владельца 19.11.2026: окно-инструкция больше не лезет само при старте
+ * программы (тем более после обновления — метку «свежая установка» снимали только
+ * после нажатия «Готово», и окно возвращалось при каждом запуске). Установщик
+ * метку больше не пишет, клиент её не читает, а IPC-двери, которыми она
+ * управлялась, сняты. Инструкция остаётся доступной по кнопке в справочном окне
+ * «Скрипты обслуживания» — это её единственный вход.
  */
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 
@@ -37,51 +37,28 @@ const PRELOAD = read('electron-app/src/preload/index.ts');
 const IPC = read('electron-app/src/main/ipc/register/clientOps.ts');
 const TYPES = read('shared/src/ipc/types.ts');
 
-describe('инструкция по настройке Касперского: показ на свежей установке и кнопка при обновлении', () => {
-  it('установщик пишет метку только при установке с нуля', () => {
-    // `${isUpdated}` истинно только когда установку запустил автообновлятель. Метка вне
-    // этой ветки означала бы: обновление → окно лезет на машину, которая уже настроена.
-    expect(INSTALLER).toContain('!macro MarkFreshInstall');
-    expect(INSTALLER).toMatch(/!macro MarkFreshInstall[\s\S]*\$\{ifNot\} \$\{isUpdated\}/);
-    expect(INSTALLER).toContain('!insertmacro MarkFreshInstall');
-  });
-
-  it('метка лежит в папке данных клиента — она переживает обновления', () => {
-    // В папке установки метка исчезала бы при каждом обновлении (каталог заменяется
-    // целиком), и «показали один раз» не запоминалось бы.
-    expect(SERVICE).toContain("join(app.getPath('userData'), 'kaspersky-setup-needed.flag')");
-    // Установщик пишет метку в ТОТ ЖЕ каталог: userData клиента — «%APPDATA%\@matricarmz\
-    // electron-app». Расхождение путей = метка, которую никто не прочитает.
-    expect(INSTALLER).toContain('"$APPDATA\\@matricarmz\\electron-app\\kaspersky-setup-needed.flag"');
-  });
-
-  it('установщик пишет метку вызовом FileOpen с тремя параметрами', () => {
-    // NSIS: `FileOpen <handle> <имя файла> <режим>` — ровно три. Прежний вызов
-    // `FileOpen /o=$0 "kaspersky-setup-needed.flag"` компилировался только в CI: makensis
-    // отвечал «FileOpen expects 3 parameters, got 2» и ронял сборку инсталлятора
-    // (12.11.2026, релиз v3.120.0). Сторож ловит это локально, за секунды.
+describe('инструкция по настройке Касперского: только по кнопке, без автопоказа', () => {
+  it('установщик метку свежей установки больше не пишет', () => {
+    expect(INSTALLER, 'метка осталась в установщике — она ничего не управляет').not.toContain('MarkFreshInstall');
+    expect(INSTALLER_CODE, 'метка осталась в коде установщика').not.toContain('kaspersky-setup-needed.flag');
     expect(INSTALLER_CODE, 'у FileOpen ровно три параметра — /o= отсюда лишний').not.toContain('FileOpen /o=');
-    expect(INSTALLER_CODE).toMatch(/FileOpen \$0 "[^"]*kaspersky-setup-needed\.flag" w/);
-    expect(INSTALLER_CODE).toContain('FileWrite $0 "1"');
-    expect(INSTALLER_CODE).toContain('FileClose $0');
-    // Папка данных клиента на свежей машине может не существовать — без неё метка не пишется
-    // и автопоказ инструкции не срабатывает.
-    expect(INSTALLER_CODE).toContain('CreateDirectory "$APPDATA\\@matricarmz\\electron-app"');
   });
 
-  it('клиент читает метку и снимает её после показа', () => {
-    expect(SERVICE).toContain('export function isFreshInstallPending');
-    expect(SERVICE).toContain('export function clearFreshInstallFlag');
-    expect(SERVICE).toContain('rmSync(freshInstallFlagPath()');
+  it('клиент метку ни не читает, ни не снимает', () => {
+    expect(SERVICE).not.toContain('freshInstallFlagPath');
+    expect(SERVICE).not.toContain('isFreshInstallPending');
+    expect(SERVICE).not.toContain('clearFreshInstallFlag');
+    expect(APP, 'программа снова лезет с инструкцией при старте').not.toContain('freshInstallPending');
+    expect(APP).not.toContain('freshInstallAck');
   });
 
-  it('автопоказ срабатывает после входа в программу', () => {
-    // До входа окно закрывало бы экран входа.
-    expect(APP).toContain('clientOps.freshInstallPending()');
-    expect(APP).toMatch(/if \(!authStatus\.loggedIn\) return;[\s\S]{0,400}freshInstallPending/);
+  it('окно инструкции само не открывается ни при каких условиях', () => {
+    // Автопоказ был единственным местом, где окно открывалось без щелчка.
+    expect(APP).not.toMatch(/setKasperskySetupOpen\(true\)\s*;\s*\}\s*,\s*\[authStatus\.loggedIn\]/);
+    expect(APP).toMatch(/<KasperskySetupDialog[\s\S]{0,400}open=\{kasperskySetupOpen\}/);
   });
 
-  it('при обновлении инструкция доступна по кнопке в окне обслуживания', () => {
+  it('инструкция доступна по кнопке в справочном окне', () => {
     expect(CLIENT_OPS_DIALOG).toContain('onOpenInstruction');
     expect(CLIENT_OPS_DIALOG).toContain('Инструкция для администратора');
     expect(APP).toContain('onOpenInstruction');
@@ -93,10 +70,16 @@ describe('инструкция по настройке Касперского: �
   });
 
   it('проводка IPC на месте с обеих сторон', () => {
-    for (const call of ['adminInstruction', 'freshInstallPending', 'freshInstallAck']) {
+    for (const call of ['adminInstruction']) {
       expect(PRELOAD, `в preload нет ${call}`).toContain(call);
       expect(IPC, `в IPC нет ${call}`).toContain(call);
       expect(TYPES, `в типах нет ${call}`).toContain(call);
+    }
+    // Двери метки сняты — иначе они повиснут в типах мёртвым грузом.
+    for (const call of ['freshInstallPending', 'freshInstallAck']) {
+      expect(PRELOAD, `в preload осталась мёртвая дверь ${call}`).not.toContain(call);
+      expect(IPC, `в IPC осталась мёртвая дверь ${call}`).not.toContain(call);
+      expect(TYPES, `в типах осталась мёртвая дверь ${call}`).not.toContain(call);
     }
   });
 

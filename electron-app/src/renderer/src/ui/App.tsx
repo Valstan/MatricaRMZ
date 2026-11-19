@@ -1233,8 +1233,9 @@ export function App() {
   const [desktopUi, setDesktopUi] = useState<UserUiProfileDesktop>(() => createEmptyDesktop());
   // Окно «Скрипты обслуживания»: открывается встроенной плиткой Верстака и пунктом МЕНЮ.
   const [clientOpsOpen, setClientOpsOpen] = useState(false);
-  // Окно инструкции по настройке Касперского. Показывается само на СВЕЖЕЙ установке
-  // (метку ставит установщик) — на обновлении машина настроена, и лишний показ шумит.
+  // Окно инструкции по настройке Касперского. Открывается ТОЛЬКО по кнопке — решение владельца
+  // 19.11.2026: при старте программы (тем более после обновления) окно лезло само и закрывало
+  // экран; инструкция ищется по кнопке, а не навязывается.
   const [kasperskySetupOpen, setKasperskySetupOpen] = useState(false);
   // Передача файлов между Верстаками: что отправляем и что нам прислали.
   const [sendFileTarget, setSendFileTarget] = useState<{ fileId: string; name: string } | null>(null);
@@ -1879,21 +1880,6 @@ export function App() {
       alive = false;
     };
   }, []);
-
-  // Инструкция по настройке Касперского на СВЕЖЕЙ установке (метку ставит установщик).
-  // После входа в программу: до входа окно закрывало бы экран входа. На обновлении метки
-  // нет — машина настроена, и инструкция доступна по кнопке в окне обслуживания.
-  useEffect(() => {
-    if (!authStatus.loggedIn) return;
-    let alive = true;
-    void window.matrica.clientOps.freshInstallPending().then((pending) => {
-      if (!alive || !pending) return;
-      setKasperskySetupOpen(true);
-    }).catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [authStatus.loggedIn]);
 
   useEffect(() => {
     if (!authStatus.loggedIn) return;
@@ -4585,10 +4571,34 @@ export function App() {
     else notifyOperator(`Не удалось отправить файл: ${r.error}`, 'error');
   }
 
+  /**
+   * Окно обслуживания машины: распаковать архив со скриптами и запустить главный скрипт
+   * `matrica-ops.ps1` (окно с вкладками; по умолчанию — «Касперский», где собирается
+   * информация о компьютере и готовятся списки исключений и доверенных программ).
+   *
+   * Прав администратора не спрашиваем: скрипт их не поднимает и работает в учётке
+   * пользователя (решение владельца 12.11.2026). Если окно не поднялось — открываем
+   * справочное окно: там архив в проводнике, копия в «Загрузки» и пароль, то есть
+   * запасной путь не теряется.
+   */
+  async function launchClientOpsWindow(tab?: 'kaspersky' | 'lan') {
+    const res = await window.matrica.clientOps
+      .launch(tab ? { tab } : {})
+      .catch((e) => ({ ok: false as const, error: String(e) }));
+    if (res.ok) {
+      notifyOperator('Открываю окно обслуживания — оно появится через несколько секунд.');
+      return;
+    }
+    notifyOperator(`Не удалось открыть окно обслуживания: ${res.error}`, 'error');
+    setClientOpsOpen(true);
+  }
+
   async function openDesktopShortcut(link: unknown) {
-    // Встроенная плитка ведёт не в раздел программы, а в окно со скриптами обслуживания.
+    // Встроенная плитка ведёт не в раздел программы, а сразу в окно со скриптами
+    // обслуживания: решение владельца 19.11.2026 — щелчок по плитке на Верстаке
+    // распаковывает архив и поднимает главный скрипт, без лишних окон.
     if (isBuiltinDesktopLink(link)) {
-      setClientOpsOpen(true);
+      void launchClientOpsWindow();
       return;
     }
     const file = desktopFileFromLink(link);
@@ -7087,8 +7097,6 @@ export function App() {
           onClose={() => setKasperskySetupOpen(false)}
           onDone={() => {
             setKasperskySetupOpen(false);
-            // Отмечаем: инструкцию показали, второй раз на этой машине не показываем.
-            void window.matrica.clientOps.freshInstallAck();
           }}
           onRunHelper={() => {
             // Помощник готовит два файла для импорта — это и есть «сделать список».

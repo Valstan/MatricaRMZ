@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { app, shell } from 'electron';
@@ -125,16 +125,22 @@ export function launchClientOps(
   try {
     // `-sta` обязателен: без однопоточной квартиры WinForms не отдаёт буфер обмена, а кнопки
     // «Копировать» — половина смысла окна с исключениями.
-    const psArgs = ['-sta', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script];
+    //
+    // ⚠️ `-WindowStyle Hidden` вместо `windowsHide: true` у Node — НЕВЫДУМКА: при `windowsHide`
+    // (CREATE_NO_WINDOW) и при `detached: true` (DETACHED_PROCESS) окно WinForms НЕ ПОКАЗЫВАЕТСЯ
+    // (при `detached` процесс к тому же уходит сразу, код 0). Проверено на живом клиенте 19.11.2026:
+    // скрипт стартовал, распаковывался архив, уведомление «Открываю окно обслуживания» уходило
+    // оператору — а окна не было. Окно видно только когда у процесса есть своя консоль, скрытая
+    // средствами самого PowerShell. Грабля — [M214].
+    const psArgs = ['-sta', '-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', script];
     if (args.tab) psArgs.push('-Tab', args.tab);
     // Свои пути передаём явно. Скрипт умеет искать их сам, но после подъёма прав на НЕадминской
     // учётке (оператор вводит чужие данные) он окажется в ЧУЖОМ профиле, где Матрицы нет вовсе —
     // и правило брандмауэра не для чего было бы создавать. Мы эти пути знаем точно.
     psArgs.push('-ClientExe', process.execPath, '-UserDataDir', app.getPath('userData'));
     const child = spawn('powershell.exe', psArgs, {
-      detached: true,
+      // НЕ detached и НЕ windowsHide — см. комментарий выше: оба флага убивают графическое окно.
       stdio: 'ignore',
-      windowsHide: true,
       cwd: extracted.dir,
     });
     // Окно живёт дольше клиента: оператор может закрыть Матрицу, пока правит антивирус.
@@ -142,39 +148,6 @@ export function launchClientOps(
     return { ok: true, dir: extracted.dir };
   } catch (e) {
     return { ok: false, error: `Не удалось запустить окно обслуживания: ${String(e)}` };
-  }
-}
-
-/**
- * Метка «установка с нуля». Её пишет установщик (`installer.nsh`, макро
- * MarkFreshInstall) — и только когда установка НЕ обновление. Так программа
- * отличает «машину настроили впервые» от «прилетело обновление на настроенную
- * машину», не гадая по датам и не спрашивая пользователя.
- *
- * Метка лежит в папке данных клиента и потому переживает обновления. После
- * показа инструкции метка удаляется: показывать её второй раз на той же
- * машине незачем.
- */
-function freshInstallFlagPath(): string {
-  return join(app.getPath('userData'), 'kaspersky-setup-needed.flag');
-}
-
-/** Есть ли метка свежей установки (инструкцию ещё не показывали). */
-export function isFreshInstallPending(): boolean {
-  try {
-    return existsSync(freshInstallFlagPath());
-  } catch {
-    return false;
-  }
-}
-
-/** Снять метку: инструкцию показали, второй раз не показываем. */
-export function clearFreshInstallFlag(): void {
-  try {
-    rmSync(freshInstallFlagPath(), { force: true });
-  } catch {
-    // Метка не удалилась — инструкция покажется ещё раз. Не критично: лишний
-    // показ лучше, чем молчаливый пропуск настройки антивируса.
   }
 }
 
