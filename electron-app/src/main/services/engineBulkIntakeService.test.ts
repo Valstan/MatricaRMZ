@@ -6,7 +6,7 @@ import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { describe, expect, it } from 'vitest';
 
-import { ENGINE_BULK_INTAKE_MAX } from '@matricarmz/shared';
+import { ENGINE_BULK_INTAKE_MAX, ENGINE_KIND_REQUIRED_MESSAGE } from '@matricarmz/shared';
 
 import { applyEngineBulkIntake, previewEngineBulkIntake } from './engineBulkIntakeService.js';
 
@@ -197,9 +197,10 @@ describe('previewEngineBulkIntake', () => {
 });
 
 describe('applyEngineBulkIntake', () => {
-  it('без общих полей заводит карточку с одним номером — все поля необязательны', async () => {
+  it('без общих полей заводит карточку с одним номером — все поля необязательны, кроме вида', async () => {
     const sqlite = makeDb();
     const r = await applyEngineBulkIntake(deps(sqlite), {
+      engineKind: 'military',
       rows: [{ number: 'NEW-1', action: 'create' }],
     });
     expect(r.ok).toBe(true);
@@ -207,6 +208,43 @@ describe('applyEngineBulkIntake', () => {
     expect(r.created).toBe(1);
     const row = cardRow(sqlite, r.createdIds[0] ?? '');
     expect(row).toMatchObject({ n: 'NEW-1', b: null, c: null, k: null, a: null, i: null });
+    sqlite.close();
+  });
+
+  it('без договора и без вида пачка не заводится ни одной карточки (промты #36/#37)', async () => {
+    const sqlite = makeDb();
+    const r = await applyEngineBulkIntake(deps(sqlite), {
+      rows: [{ number: 'NEW-1', action: 'create' }],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toBe(ENGINE_KIND_REQUIRED_MESSAGE);
+    // Отказ ДО заведения: половина пачки без вида — не «принято наполовину».
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM erp_engine_cards').get()).toMatchObject({ n: 0 });
+    sqlite.close();
+  });
+
+  it('вид пачки пишется в карточку', async () => {
+    const sqlite = makeDb();
+    const r = await applyEngineBulkIntake(deps(sqlite), {
+      engineKind: 'civil',
+      rows: [{ number: 'NEW-1', action: 'create' }],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const row = sqlite
+      .prepare('SELECT engine_kind AS k FROM erp_engine_cards WHERE id = ?')
+      .get(r.createdIds[0] ?? '') as Record<string, unknown>;
+    expect(row).toMatchObject({ k: 'civil' });
+    sqlite.close();
+  });
+
+  it('с договором вид пачке не нужен: он возьмётся из договора', async () => {
+    const sqlite = makeDb();
+    const r = await applyEngineBulkIntake(deps(sqlite), {
+      contractId: 'contract-1',
+      rows: [{ number: 'NEW-1', action: 'create' }],
+    });
+    expect(r.ok).toBe(true);
     sqlite.close();
   });
 
@@ -263,6 +301,7 @@ describe('applyEngineBulkIntake', () => {
     const sqlite = makeDb();
     const r = await applyEngineBulkIntake(deps(sqlite), {
       brandId: 'brand-bosch',
+      engineKind: 'military',
       rows: [
         { number: 'NEW-1', action: 'create', internalNumber: '41/26' },
         { number: 'NEW-2', action: 'create', internalNumber: '42' },
@@ -280,6 +319,7 @@ describe('applyEngineBulkIntake', () => {
   it('дата дефектовки ставит этап «Разборка/Дефектовка» один раз', async () => {
     const sqlite = makeDb();
     const r = await applyEngineBulkIntake(deps(sqlite, true), {
+      engineKind: 'military',
       arrivalDate: ARRIVAL,
       defectDate: DEFECT,
       rows: [{ number: 'NEW-1', action: 'create' }],
@@ -295,6 +335,7 @@ describe('applyEngineBulkIntake', () => {
   it('без права писать этапы дата дефектовки не теряется молча — попадает в итог', async () => {
     const sqlite = makeDb();
     const r = await applyEngineBulkIntake(deps(sqlite, false), {
+      engineKind: 'military',
       defectDate: DEFECT,
       rows: [{ number: 'NEW-1', action: 'create' }],
     });

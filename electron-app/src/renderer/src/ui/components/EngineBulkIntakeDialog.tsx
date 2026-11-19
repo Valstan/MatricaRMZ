@@ -1,6 +1,7 @@
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
+  CONTRACT_KIND_LABELS,
   ENGINE_BULK_INTAKE_MAX,
   ENGINE_INVENTORY_STAGE,
   effectiveEngineBulkIntakeAction,
@@ -13,6 +14,7 @@ import {
   formatEngineInternalNumber,
   readBulkIntakeInternalNumber,
   splitEngineBulkIntakeNumbers,
+  type ContractKind,
   type EngineBulkIntakeAction,
   type EngineBulkIntakeField,
   type EngineBulkIntakeMassField,
@@ -158,6 +160,10 @@ export function EngineBulkIntakeDialog(props: {
   const [brandId, setBrandId] = useState('');
   const [customerId, setCustomerId] = useState('');
   const [contractId, setContractId] = useState('');
+  // Ручной вид двигателя для карточек пачки (промты КАРМАНА #36/#37): без договора
+  // вид обязателен при заведении — иначе карточка завёлась бы «без вида» и молча
+  // выпала бы из отбора «военка/гражданка».
+  const [engineKind, setEngineKind] = useState('');
   const [arrivalDate, setArrivalDate] = useState(toInputDate(Date.now()));
   const [defectDate, setDefectDate] = useState('');
   const [draft, setDraft] = useState('');
@@ -310,6 +316,7 @@ export function EngineBulkIntakeDialog(props: {
         brandId: brandId || null,
         customerId: customerId || null,
         contractId: contractId || null,
+        engineKind: engineKind || null,
         arrivalDate: fromInputDate(arrivalDate),
         internalNumber: null,
         internalNumberYear: null,
@@ -344,7 +351,7 @@ export function EngineBulkIntakeDialog(props: {
         }
       }
     },
-    [arrivalDate, brandId, contractId, customerId, defectDate, massFieldList, rows, selectedRows],
+    [arrivalDate, brandId, contractId, customerId, defectDate, engineKind, massFieldList, rows, selectedRows],
   );
 
   const selectedCount = useMemo(() => Object.values(selectedRows).filter(Boolean).length, [selectedRows]);
@@ -354,6 +361,7 @@ export function EngineBulkIntakeDialog(props: {
       brandId: brandId || null,
       customerId: customerId || null,
       contractId: contractId || null,
+      engineKind: engineKind || null,
       arrivalDate: fromInputDate(arrivalDate),
       defectDate: fromInputDate(defectDate),
     };
@@ -389,7 +397,7 @@ export function EngineBulkIntakeDialog(props: {
         conflicts: (existing ? engineBulkIntakeConflictingFields(existing, offer) : []) as EngineBulkIntakeField[],
       };
     });
-  }, [rows, decisions, internalNumbers, rowBrands, rowCustomers, rowContracts, rowOtk, rowWaybills, rowDefect, bindings, brandId, customerId, contractId, arrivalDate, defectDate, nowMs]);
+  }, [rows, decisions, internalNumbers, rowBrands, rowCustomers, rowContracts, rowOtk, rowWaybills, rowDefect, bindings, brandId, customerId, contractId, engineKind, arrivalDate, defectDate, nowMs]);
 
   const summary = engineBulkIntakeSummary(items);
   const toCreate = summary.create + summary.repeat;
@@ -455,6 +463,7 @@ export function EngineBulkIntakeDialog(props: {
         brandId: brandId || null,
         customerId: customerId || null,
         contractId: contractId || null,
+        engineKind: engineKind || null,
         arrivalDate: fromInputDate(arrivalDate),
         defectDate: fromInputDate(defectDate),
         rows: items
@@ -743,6 +752,48 @@ export function EngineBulkIntakeDialog(props: {
               disabled={busy}
             />
           </label>
+          {/* Вид двигателя (промты КАРМАНА #36/#37): при заведении вид обязателен — с
+              договором он возьмётся сам, без договора оператор ставит его руками. */}
+          <div style={{ display: 'grid', gap: 4 }} data-bulk-intake-kind>
+            <span style={hintStyle}>Вид двигателя</span>
+            {contractId ? (
+              <span style={hintStyle} data-bulk-intake-kind-from-contract="true">
+                Возьмётся из договора — вручную ставить не нужно.
+              </span>
+            ) : (
+              <div style={{ display: 'flex', gap: 6 }}>
+                {(Object.keys(CONTRACT_KIND_LABELS) as ContractKind[]).map((kind) => {
+                  const on = engineKind === kind;
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      data-bulk-intake-kind-option={kind}
+                      disabled={busy}
+                      onClick={() => setEngineKind(on ? '' : kind)}
+                      title={`Отметить двигатели как «${CONTRACT_KIND_LABELS[kind]}»`}
+                      style={{
+                        flex: 1,
+                        padding: '6px 10px',
+                        borderRadius: 8,
+                        border: '1px solid var(--border)',
+                        background: on ? 'rgba(37, 99, 235, 0.15)' : 'var(--surface)',
+                        fontWeight: on ? 700 : 400,
+                        cursor: busy ? 'default' : 'pointer',
+                      }}
+                    >
+                      {CONTRACT_KIND_LABELS[kind]}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {!contractId && !engineKind ? (
+              <span style={hintStyle} data-bulk-intake-kind-required="true">
+                Без договора вид обязателен: без него карточки не заведутся.
+              </span>
+            ) : null}
+          </div>
           <label style={{ display: 'grid', gap: 4 }}>
             <span style={hintStyle}>
               <input

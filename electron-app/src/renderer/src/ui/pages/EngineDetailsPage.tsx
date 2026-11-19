@@ -2535,6 +2535,13 @@ export function EngineDetailsPage(props: {
               <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
                 ручное значение — перекроется, когда появится договор
               </div>
+              {!engineKind && !String(committedAttributes.engine_number ?? '').trim() ? (
+                // Вид обязателен при заведении (промты КАРМАНА #36 + #37): дверь записи
+                // отобьёт карточку без вида — предупреждаем до сохранения, а не после.
+                <div style={{ fontSize: 12, color: 'var(--warning, #b45309)' }} data-engine-kind-required="true">
+                  Вид обязателен для нового двигателя: без него карточку не сохранить.
+                </div>
+              ) : null}
             </>
           )}
         </div>

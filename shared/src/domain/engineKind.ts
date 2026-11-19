@@ -97,3 +97,51 @@ export function engineKindFacetValue(kind: ContractKind | null | undefined): str
 export function engineKindFacetLabel(kind: ContractKind | null | undefined): string {
   return kind ? CONTRACT_KIND_LABELS[kind] : 'Вид не задан';
 }
+
+/**
+ * Гейт вида при ЗАВЕДЕНИИ двигателя (промты КАРМАНА #36 + #37, владелец 18.11.2026).
+ *
+ * **Новый двигатель нельзя сохранить без вида.** Договор у него уже выбран — вид берётся
+ * из договора, спрашивать оператора не надо. Договора нет — вид оператор ставит руками
+ * (военный или гражданский), и без этого карточка не сохраняется.
+ *
+ * **Почему это требование владельца, а не украшение:** двигатель без вида молча выпадает
+ * из отбора по виду («военка/гражданка»), и в отчётах он выглядит как ничей. Вид, который
+ * никто не сказал, — это не «ГОЗ по умолчанию», а отсутствие факта.
+ *
+ * **Третий источник приоритета (вид заказчика по умолчанию) гейтом НЕ принимается:**
+ * по требованию владельца при заведении вид выбирает оператор, а не подставляется
+ * из карточки контрагента. Иначе «принудительно попросить» означало бы «и так сойдёт».
+ *
+ * Гейт живёт в домене, а дверь записи карточки его зовёт: правило должно быть одно и
+ * то же для карточки и для пачечного приёма (второй вход в ту же дверь).
+ */
+export type EngineKindRequirement =
+  | { ok: true; kind: ContractKind; source: 'contract' | 'card' }
+  | { ok: false; error: string };
+
+/**
+ * Источники для гейта заведения: вид договора (если договор выбран) и ручной вид карточки.
+ */
+export type EngineKindRequirementSources = {
+  /** Вид договора двигателя; `null`/пусто — договор не выбран или вида у него нет. */
+  contractKind?: unknown;
+  /** Ручной вид в карточке двигателя. */
+  cardKind?: unknown;
+};
+
+/** Текст отказа для оператора. */
+export const ENGINE_KIND_REQUIRED_MESSAGE =
+  'Вид двигателя не задан: выберите договор — вид возьмётся из него — или поставьте вид вручную (ГОЗ или гражданский).';
+
+/**
+ * Проверка вида для заведения двигателя. `ok: false` — вид не задан, и карточку
+ * сохранять нельзя: возвращаем текст для оператора.
+ */
+export function engineKindRequirement(sources: EngineKindRequirementSources | null | undefined): EngineKindRequirement {
+  const fromContract = parseContractKind(sources?.contractKind);
+  if (fromContract) return { ok: true, kind: fromContract, source: 'contract' };
+  const fromCard = parseContractKind(sources?.cardKind);
+  if (fromCard) return { ok: true, kind: fromCard, source: 'card' };
+  return { ok: false, error: ENGINE_KIND_REQUIRED_MESSAGE };
+}

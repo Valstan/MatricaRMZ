@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ENGINE_KIND_NONE_VALUE,
+  ENGINE_KIND_REQUIRED_MESSAGE,
   ENGINE_KIND_SOURCE_LABELS,
   engineKindFacetLabel,
   engineKindFacetValue,
   engineKindLabel,
+  engineKindRequirement,
   resolveEngineKind,
+  type EngineKindRequirementSources,
 } from './engineKind.js';
 
 // Правило владельца 18.11.2026: вид двигателя (ГОЗ / гражданский) должен быть один и тот же
@@ -76,5 +79,47 @@ describe('resolveEngineKind', () => {
     expect(engineKindFacetValue(null)).toBe(ENGINE_KIND_NONE_VALUE);
     expect(engineKindFacetLabel(null)).toBe('Вид не задан');
     expect(engineKindFacetLabel('civil')).toBe('Гражданский');
+  });
+});
+
+// Гейт заведения (промты КАРМАНА #36 + #37): новый двигатель нельзя сохранить без вида.
+describe('engineKindRequirement', () => {
+  it('договор выбран — вид берётся из него, оператора не спрашиваем', () => {
+    expect(engineKindRequirement({ contractKind: 'military' })).toEqual({
+      ok: true,
+      kind: 'military',
+      source: 'contract',
+    });
+  });
+
+  it('договора нет — вид оператор ставит руками', () => {
+    expect(engineKindRequirement({ cardKind: 'civil' })).toEqual({ ok: true, kind: 'civil', source: 'card' });
+  });
+
+  it('ни договора, ни ручного вида — запись отклоняется с понятным текстом', () => {
+    const r = engineKindRequirement({});
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toBe(ENGINE_KIND_REQUIRED_MESSAGE);
+    expect(r.ok === false && r.error).toContain('ГОЗ');
+  });
+
+  it('пустые значения — это «вида нет», а не вид', () => {
+    expect(engineKindRequirement({ contractKind: '', cardKind: '' }).ok).toBe(false);
+    expect(engineKindRequirement({ contractKind: null, cardKind: null }).ok).toBe(false);
+    expect(engineKindRequirement(null).ok).toBe(false);
+  });
+
+  it('вид заказчика гейтом НЕ принимается: при заведении вид выбирает оператор', () => {
+    // Третий источник приоритета (вид заказчика по умолчанию) — для показа, но не для
+    // заведения: иначе «принудительно попросить поставить вид» означало бы «и так сойдёт».
+    expect(engineKindRequirement({ counterpartyKind: 'military' } as EngineKindRequirementSources).ok).toBe(false);
+  });
+
+  it('договор важнее ручного значения: спорный ручной вид не мешает заведению', () => {
+    expect(engineKindRequirement({ contractKind: 'military', cardKind: 'civil' })).toEqual({
+      ok: true,
+      kind: 'military',
+      source: 'contract',
+    });
   });
 });
