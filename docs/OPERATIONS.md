@@ -155,6 +155,8 @@ corepack pnpm run dev:electron
 
 **Значения по умолчанию** (env, если что-то задавать руками): `MATRICA_MAX_ALERT_TOKEN`, `MATRICA_MAX_ALERT_CHAT_ID` / `MATRICA_MAX_ALERT_USER_ID`, `MATRICA_CRITICAL_MAX_ENABLED`, `MATRICA_CRITICAL_MAX_POLL_MS` (15 с), `MATRICA_CRITICAL_MAX_ERROR_CATEGORIES` (`sync,network,database`), `MATRICA_CRITICAL_MAX_PER_CODE_WINDOW` (3 на код за 10 минут).
 
+**Сертификат МАКС — обязателен.** Корневой CA Минцифры «Russian Trusted Root CA» не в системном доверенном списке, и Node читает свой набор корней: без `NODE_EXTRA_CA_CERTS` бэкенд не поговорит с МАКС («unable to get local issuer certificate»). Цепочка лежит в репозитории (`deploy/certs/max-ca.pem`, публичный файл) — куда её положить на боксе и что дописать в env, написано в [`deploy/certs/README.md`](../deploy/certs/README.md).
+
 **Как это работает** (`backend-api/src/services/criticalEventsMaxService.ts`):
 
 - адрес API: `https://platform-api2.max.ru/messages?chat_id={chat_id}` (или `?user_id={user_id}`), токен — в заголовке `Authorization` (без `Bearer`);
