@@ -127,6 +127,7 @@ export * from './domain/repeatArrival.js';
 export * from './domain/ppe.js';
 export * from './domain/ppeAcceptance.js';
 export * from './domain/ppeEmployeeLink.js';
+export * from './domain/ppeVacationSchedule.js';
 export * from './domain/ppeStockReport.js';
 export * from './domain/ppeIssueCard.js';
 export * from './domain/ppeIssueCoverage.js';

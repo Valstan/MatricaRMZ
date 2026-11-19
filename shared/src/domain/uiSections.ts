@@ -49,6 +49,7 @@ export type TabId =
   | 'ppe_import'
   | 'ppe_stock'
   | 'ppe_reports'
+  | 'ppe_vacations'
   | 'workshop_stats'
   | 'custom_reports'
   | 'report_templates'
@@ -191,6 +192,7 @@ const menuTabSet = new Set<MenuTabId>([
   'ppe_import',
   'ppe_stock',
   'ppe_reports',
+  'ppe_vacations',
   'workshop_stats',
   'engine_assembly_bom',
   'repair_norms',
@@ -300,6 +302,7 @@ export const MENU_TAB_LABELS: Record<MenuTabId, string> = {
   ppe_import: 'Импорт СИЗ',
   ppe_stock: 'Склад СИЗ',
   ppe_reports: 'Отчёты СИЗ',
+  ppe_vacations: 'График отпусков',
   workshop_stats: 'Статистика цехов',
   employees: 'Сотрудники',
   children: 'Дети',
@@ -328,7 +331,7 @@ export const DEFAULT_GROUP_TABS: Record<MenuGroupId, MenuTabId[]> = {
   production: ['engines', 'file_search', 'engine_rmz_numbers', 'now_at_plant', 'production_program', 'work_sheets', 'assembly_forecast', 'engine_brands', 'engine_brand_groups', 'parts', 'engine_assembly_bom', 'repair_norms', 'tools'],
   supply: ['requests', 'work_orders', 'work_order_templates', 'services', 'services_by_brand', 'service_price_orders', 'tool_accounting'],
   warehouse: ['nomenclature', 'parts_dedupe', 'stock_balances', 'warehouse_locations', 'stock_documents', 'stock_receipts', 'stock_issues', 'stock_transfers', 'stock_inventory', 'repair_fund_audit', 'warehouse_analytics'],
-  workwear: ['ppe_cards', 'ppe_norms', 'ppe_groups', 'ppe_collective', 'ppe_import', 'ppe_stock', 'ppe_reports'],
+  workwear: ['ppe_cards', 'ppe_norms', 'ppe_groups', 'ppe_collective', 'ppe_import', 'ppe_stock', 'ppe_reports', 'ppe_vacations'],
   business: ['contracts', 'counterparties'],
   people: ['employees', 'children', 'organization', 'timesheets', 'access_sections'],
   control: ['reports', 'custom_reports', 'report_templates', 'changes', 'audit', 'notes', 'masterdata', 'workshops', 'workshop_stats', 'warehouses_admin', 'empty_cards', 'drafts', 'admin'],

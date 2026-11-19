@@ -41,6 +41,7 @@ export const V2_LIST_TABS: ReadonlySet<TabId> = new Set<TabId>([
   'repair_norms',
   'ppe_cards',
   'ppe_norms',
+  'ppe_vacations',
   'requests',
   'work_orders',
   'services',
