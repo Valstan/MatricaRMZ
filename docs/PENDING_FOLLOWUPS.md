@@ -53,6 +53,8 @@
 
 ## 🟡 Техдолг и отложенное
 
+- [🟡 Печатные формы: офлайн-шаблоны (таблицы вне sync-контракта — печать по шаблону требует связи с сервером) 🗓 since:2026-11-20](pending/pechatnye-formy-oflayn-shablony.md)
+
 - [🟡 11 списков вне общей панели кнопок: свой ряд, без переполнения и меню «⋯» 🗓 since:2026-11-13](pending/spiski-vne-obshchey-paneli-bez-perepolneniya.md)
 - [🟡 Контракты: догоняем модуль до остальной программы 🗓 since:2026-11-13](pending/kontrakty-dogonyaem-module-do-ostalnoy-programmy.md)
 
