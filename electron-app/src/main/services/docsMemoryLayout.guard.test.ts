@@ -14,6 +14,15 @@ const INDEX_PATH = resolve(DOCS, 'GOTCHAS.md');
 const CHUNKS_DIR = resolve(DOCS, 'gotchas');
 const INDEX_LIMIT_BYTES = 50 * 1024;
 
+/**
+ * Размер индекса меряем по содержимому, а не по байтам на диске: переводы строк —
+ * артефакт платформы (Windows CRLF, Linux LF), и из-за них один и тот же индекс
+ * проходил гейт в CI и падал на машине разработчика. Считаем то, что уедет в git.
+ */
+function contentBytes(path: string): number {
+  return Buffer.from(readFileSync(path, 'utf-8').replace(/\r\n/g, '\n'), 'utf8').length;
+}
+
 const PENDING_INDEX_PATH = resolve(DOCS, 'PENDING_FOLLOWUPS.md');
 const PENDING_CHUNKS_DIR = resolve(DOCS, 'pending');
 const CALENDAR_HEADING = 'Календарь ротаций и дедлайнов';
@@ -40,7 +49,7 @@ const chunkFiles = existsSync(CHUNKS_DIR)
 
 describe('раскладка docs: индекс грабель + файл на запись', () => {
   it('индекс не толще потолка', () => {
-    expect(statSync(INDEX_PATH).size).toBeLessThanOrEqual(INDEX_LIMIT_BYTES);
+    expect(contentBytes(INDEX_PATH)).toBeLessThanOrEqual(INDEX_LIMIT_BYTES);
   });
 
   it('в каждой строке индекса номер совпадает со ссылкой', () => {
@@ -85,7 +94,7 @@ const pendingH1 = (file: string) =>
 
 describe('раскладка docs: индекс открытых задач + файл на пункт', () => {
   it('индекс не толще потолка', () => {
-    expect(statSync(PENDING_INDEX_PATH).size).toBeLessThanOrEqual(INDEX_LIMIT_BYTES);
+    expect(contentBytes(PENDING_INDEX_PATH)).toBeLessThanOrEqual(INDEX_LIMIT_BYTES);
   });
 
   it('за каждой ссылкой индекса стоит файл пункта', () => {
@@ -134,7 +143,7 @@ const tableRows = (path: string) =>
 
 describe('раскладка docs: done-индекс и архив прошлых поколений', () => {
   it('живой done-индекс не толще потолка', () => {
-    expect(statSync(COMPLETED_PATH).size).toBeLessThanOrEqual(COMPLETED_LIMIT_BYTES);
+    expect(contentBytes(COMPLETED_PATH)).toBeLessThanOrEqual(COMPLETED_LIMIT_BYTES);
   });
 
   it('шапка держит правило «одна строка» и ссылку на архив', () => {
