@@ -872,6 +872,27 @@ const CARD_DETAIL_TABS: ReadonlyArray<TabId> = [
   'ppe_card',
 ];
 
+/**
+ * Этапы, на которых обновление ИДЁТ и полоса должна быть видна. «Скачано, ждёт перезапуска» —
+ * не в списке: там полоса погасла, а оператору сказано сообщением.
+ */
+const UPDATE_ACTIVE_STAGES = ['checking', 'downloading', 'verifying', 'installing', 'restarting'];
+
+/**
+ * Состояние обновления из главного процесса (канал `update:appState`).
+ * Общий процент и этап пришли из main — полоса одна, и она не прыгает назад.
+ */
+type UpdateStateView = {
+  state: string;
+  version?: string | null;
+  progress?: number | null;
+  overallPct?: number | null;
+  stage?: string | null;
+  fromVersion?: string | null;
+  toVersion?: string | null;
+  etaSeconds?: number | null;
+};
+
 export function App() {
   const { pickChoice } = useConfirm();
   const [fatalError, setFatalError] = useState<{ message: string; stack?: string | null } | null>(null);
@@ -1083,7 +1104,21 @@ export function App() {
    * Состояние обновления в главном окне (владелец 08.09.2026). Фон больше не ставит обновление
    * молча: пока оно качается — заливка под вкладками, когда скачано — вопрос «сейчас или позже».
    */
-  const [updateState, setUpdateState] = useState<{ state: string; version?: string | null; progress?: number | null } | null>(null);
+  const [updateState, setUpdateState] = useState<UpdateStateView | null>(null);
+  // Полоса обновления видна, пока обновление ИДЁТ. Скачанное и ждущее перезапуска — не
+  // «идёт»: там полоса не нужна, оператору скажет сообщение (тихий режим).
+  const updateStage = updateState?.stage ?? null;
+  const updateBusy = updateStage != null && UPDATE_ACTIVE_STAGES.includes(updateStage);
+  const updateProgress =
+    updateBusy && typeof updateState?.overallPct === 'number'
+      ? {
+          pct: Math.max(0, Math.min(100, Math.round(updateState.overallPct))),
+          fromLabel: updateState?.fromVersion ? formatAppVersionLabel(updateState.fromVersion) : null,
+          toLabel: updateState?.toVersion ? formatAppVersionLabel(updateState.toVersion) : null,
+          etaSeconds: typeof updateState?.etaSeconds === 'number' ? updateState.etaSeconds : null,
+          stage: updateStage,
+        }
+      : null;
   const [updateInstallAsked, setUpdateInstallAsked] = useState('');
   const chatNewMessageAudioRef = useRef<HTMLAudioElement | null>(null);
   const chatPendingAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -3224,18 +3259,18 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only audio element setup/teardown; ensureChatAudioElements is recreated every render, and re-running would pause and rebuild the audio elements on each render
   }, []);
 
-  // Обновление: главное окно слушает состояние (полоса прогресса + вопрос «сейчас или позже»).
+  // Обновление: главное окно слушает состояние (одна полоса прогресса + вопрос «сейчас или позже»).
   // Подписка — на весь сеанс: скачивание идёт в фоне и не спрашивает, открыт ли нужный экран.
   useEffect(() => {
     let alive = true;
     const off = window.matrica.update?.onState?.((state) => {
       if (!alive) return;
-      setUpdateState(state as unknown as { state: string; version?: string | null; progress?: number | null });
+      setUpdateState(state as unknown as UpdateStateView);
     });
     void (async () => {
       try {
         const r = await window.matrica.update.status();
-        if (alive && r?.ok) setUpdateState(r.status as unknown as { state: string; version?: string | null; progress?: number | null });
+        if (alive && r?.ok) setUpdateState(r.status as unknown as UpdateStateView);
       } catch {
         /* состояние обновления — справочное, его отсутствие ничего не ломает */
       }
@@ -7279,11 +7314,7 @@ export function App() {
               // кнопку там не показываем, чтобы не предлагать действие, которое не сработает.
               isAndroidPlatform() ? undefined : () => void restartApp()
             }
-              updateProgress={
-                updateState?.state === 'downloading' && typeof updateState.progress === 'number'
-                  ? { pct: Math.round(updateState.progress), version: updateState.version ?? null }
-                  : null
-              }
+              updateProgress={updateProgress}
               availableTabs={sectionGatedTabs}
               tabletOperatorMenu={tabletActive && userRole !== "superadmin"}
               menuLabels={menuLabels}
