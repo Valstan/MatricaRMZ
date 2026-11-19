@@ -105,4 +105,14 @@ describe('канал МАКС', () => {
     const found = await discoverMaxTarget();
     expect(found.ok).toBe(false);
   });
+
+  it('событие bot_started: chat_id лежит на верхнем уровне (контракт из «Сарафана»)', async () => {
+    process.env.MATRICA_MAX_ALERT_TOKEN = 'secret-token';
+    fetchMock.mockImplementation(async () =>
+      new Response(JSON.stringify({ updates: [{ type: 'bot_started', chat_id: 557954956 }] }), { status: 200 }),
+    );
+    const found = await discoverMaxTarget();
+    expect(found.ok).toBe(true);
+    expect(found.ok === true && found.chatId).toBe('557954956');
+  });
 });
