@@ -27,6 +27,11 @@ export type V2SessionCard = {
   kind: string;
   entityId: string;
   title: string;
+  /**
+   * Вкладка, из которой карточку открыли: после закрытия возвращаемся туда (владелец
+   * 08.11.2026). Без этого поля возврат после перезапуска лёг бы «куда попало».
+   */
+  originTabId?: string;
 };
 
 /** Workspace session: open card tabs + focus + split, restored on next app start. */
@@ -177,7 +182,8 @@ function sanitizeSessionCard(value: unknown): V2SessionCard | null {
   const kind = String(raw.kind ?? '').trim();
   const entityId = String(raw.entityId ?? '').trim();
   if (!kind || !entityId) return null;
-  return { kind, entityId, title: String(raw.title ?? '').trim() };
+  const originTabId = String(raw.originTabId ?? '').trim();
+  return { kind, entityId, title: String(raw.title ?? '').trim(), ...(originTabId ? { originTabId } : {}) };
 }
 
 function sanitizeSession(value: unknown): V2Session {

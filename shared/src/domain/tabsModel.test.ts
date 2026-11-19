@@ -609,7 +609,9 @@ describe('tabsModel: восстановление полосы из сессии
     expect(snapshot).toEqual([
       { kind: 'chat' },
       { kind: 'list', tabId: 'engines' },
-      { kind: 'card', card: { kind: 'engine', entityId: 'E1', title: 'Д-41' } },
+      // Источник («откуда открыли») переживает персист: без него возврат после закрытия
+      // карточки летел бы «куда попало» (владелец 08.11.2026).
+      { kind: 'card', card: { kind: 'engine', entityId: 'E1', title: 'Д-41', originTabId: 'list:engines' } },
     ]);
     const restored = run(
       createTabsState(),
@@ -700,12 +702,78 @@ describe('tabsModel: ответы оболочке', () => {
     // вместо совета «закройте отработанные» получилось бы уведомление о запрете.
     expect(V3_MAX_TOTAL_TABS).toBeGreaterThan(V3_WARN_TOTAL_TABS);
   });
-
   it('идентичность активной карточки одна и производная', () => {
     const s = run(createTabsState(), openCard('engine', 'E1'));
     expect(activeCardTab(s)?.cardKind).toBe('engine');
     expect(activeCardTab(s)?.entityId).toBe('E1');
     expect(cardTabs(s)).toHaveLength(1);
     expect(activeCardTab(tabsReducer(s, { type: 'FOCUS', id: MENU_TAB_ID }))).toBeNull();
+  });
+});
+
+// Возврат по месту открытия (владелец 08.11.2026): «после закрытия документа оператор
+// возвращается туда, откуда его открывал, а не в случайную вкладку». Прежнее правило
+// уводило на вкладку слева — «куда попало».
+describe('tabsModel: возврат по месту открытия', () => {
+  it('открыли карточку из списка раздела — закрыли, вернулись в этот список', () => {
+    let s = run(createTabsState(), openList('engines', 'Двигатели'));
+    s = run(s, { ...openCard('engine', 'E1'), originTabId: listTabId('engines') });
+    expect(s.activeId).toBe('card:engine:E1');
+    const next = tabsReducer(s, { type: 'CLOSE', id: 'card:engine:E1' });
+    expect(next.activeId).toBe(listTabId('engines'));
+  });
+
+  it('открыли карточку по ссылке из другой карточки — вернулись в ту карточку', () => {
+    let s = run(createTabsState(), openList('ppe_cards', 'Карточки СИЗ'));
+    s = run(s, { ...openCard('ppe_card', 'C1'), originTabId: listTabId('ppe_cards') });
+    s = run(s, { ...openCard('employee', 'E1'), originTabId: 'card:ppe_card:C1' });
+    const next = tabsReducer(s, { type: 'CLOSE', id: 'card:employee:E1' });
+    expect(next.activeId).toBe('card:ppe_card:C1');
+  });
+
+  it('источника уже нет — действует прежнее правило «вкладка слева», а не пустота', () => {
+    let s = run(createTabsState(), openList('engines', 'Двигатели'));
+    s = run(s, { ...openCard('engine', 'E1'), originTabId: listTabId('engines') });
+    // Список закрыли раньше карточки.
+    s = tabsReducer(s, { type: 'CLOSE', id: listTabId('engines') });
+    const next = tabsReducer(s, { type: 'CLOSE', id: 'card:engine:E1' });
+    expect(next.activeId).not.toBe(listTabId('engines'));
+    expect(next.activeId).toBe(MENU_TAB_ID);
+  });
+
+  it('редьюсер и focusAfterClose дают одинаковый ответ — иначе вкладка и фокус разъедутся', () => {
+    let s = run(createTabsState(), openList('engines', 'Двигатели'));
+    s = run(s, { ...openCard('engine', 'E1'), originTabId: listTabId('engines') });
+    expect(focusAfterClose(s, 'card:engine:E1')).toBe(tabsReducer(s, { type: 'CLOSE', id: 'card:engine:E1' }).activeId);
+  });
+
+  it('источником не может быть сама карточка — закрытие вернуло бы фокус на закрытую вкладку', () => {
+    const s = run(createTabsState(), openCard('engine', 'E1'));
+    const again = tabsReducer(s, {
+      type: 'OPEN_CARD',
+      cardKind: 'engine',
+      entityId: 'E1',
+      title: 'E1',
+      titleIsFallback: false,
+      focus: true,
+      originTabId: 'card:engine:E1',
+    });
+    expect(again.tabs[1]?.originTabId).not.toBe('card:engine:E1');
+  });
+
+  it('переоткрыли карточку из другого места — источник обновился', () => {
+    let s = run(createTabsState(), openList('engines', 'Двигатели'));
+    s = run(s, { ...openCard('engine', 'E1'), originTabId: listTabId('engines') });
+    s = run(s, openList('ppe_cards', 'Карточки СИЗ'));
+    s = run(s, { ...openCard('engine', 'E1'), originTabId: listTabId('ppe_cards') });
+    expect(s.tabs.find((t) => t.id === 'card:engine:E1')?.originTabId).toBe(listTabId('ppe_cards'));
+  });
+
+  it('без источника (старая сессия) — прежнее правило «вкладка слева»', () => {
+    const s = run(createTabsState(), openList('engines', 'Двигатели'), openCard('engine', 'E1'));
+    // Источник не задан — поведение прежнее, лишних кнопок и пустот нет.
+    expect(s.tabs.find((t) => t.id === 'card:engine:E1')?.originTabId).toBe(listTabId('engines'));
+    const next = tabsReducer(s, { type: 'CLOSE', id: 'card:engine:E1' });
+    expect(next.activeId).toBe(listTabId('engines'));
   });
 });
