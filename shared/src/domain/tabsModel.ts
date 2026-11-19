@@ -56,6 +56,16 @@ export type CardTab = {
   entityId: string;
   /** Заголовок ещё фолбэк («Вид · id6»): таким нельзя затирать резолвнутое имя. */
   titleIsFallback: boolean;
+  /**
+   * Вкладка, из которой карточку открыли: после закрытия возвращаемся ТУДА (владелец
+   * 08.11.2026 — «после закрытия документа оператор возвращается туда, откуда его
+   * открывал, а не в случайную вкладку»).
+   *
+   * Пусто — вкладки-источника уже нет (её закрыли раньше): тогда действует прежнее
+   * правило «вкладка слева». Источник хранится в карточке, а не в счётчике позиций:
+   * список могли свернуть, а вкладка — остаться.
+   */
+  originTabId?: string;
 };
 
 export type WorkTab = MenuTab | ChatTab | AiChatTab | SettingsTab | ListTab | CardTab;
@@ -85,6 +95,8 @@ export type CardRef = {
   entityId: string;
   title: string;
   titleIsFallback: boolean;
+  /** Вкладка-источник: откуда карточку открыли (см. `CardTab.originTabId`). */
+  originTabId?: string;
 };
 
 // Поля экшенов намеренно обязательные (в т.ч. focus): под exactOptionalPropertyTypes
@@ -98,6 +110,12 @@ export type TabsAction =
       title: string;
       titleIsFallback: boolean;
       focus: boolean;
+      /**
+       * Вкладка-источник: откуда открыли карточку. Пусто — берём активную вкладку
+       * на момент открытия (вызывающий знает контекст лучше редьюсера: он видит, из
+       * списка раздела открыли или по ссылке из другой карточки).
+       */
+      originTabId?: string;
     }
   | { type: 'OPEN_SINGLETON'; id: SingletonTabId; label: string; focus: boolean }
   | { type: 'FOCUS'; id: string }
@@ -197,6 +215,7 @@ function makeCardTab(ref: CardRef): CardTab | null {
   const cardKind = ref.cardKind.trim();
   const entityId = ref.entityId.trim();
   if (!cardKind || !entityId) return null;
+  const originTabId = ref.originTabId?.trim();
   return {
     id: cardTabId(cardKind, entityId),
     kind: 'card',
@@ -204,6 +223,7 @@ function makeCardTab(ref: CardRef): CardTab | null {
     cardKind,
     entityId,
     titleIsFallback: ref.titleIsFallback,
+    ...(originTabId ? { originTabId } : {}),
   };
 }
 
@@ -411,19 +431,34 @@ export function reduceTabs(state: TabsState, action: TabsAction): TabsResult {
     }
 
     case 'OPEN_CARD': {
+      // Вкладка-источник: из списка раздела возвращаемся в этот список, по ссылке из
+      // другой карточки — в ту карточку. Если вызывающий не сказал (старая сборка
+      // сессии) — берём активную вкладку на момент открытия.
+      const cardId = cardTabId(action.cardKind.trim(), action.entityId.trim());
+      const idx = state.tabs.findIndex((t) => t.id === cardId);
+      const existing = idx >= 0 ? state.tabs[idx] : undefined;
+      const prevOrigin = existing?.kind === 'card' ? existing.originTabId : undefined;
+      const rawOrigin = action.originTabId?.trim() || state.activeId;
+      // Источником не может быть сама карточка: закрытие вернуло бы фокус на закрытую
+      // вкладку. Тогда оставляем прежний источник (или пусто — вернём «сосед слева»).
+      const originTabId = rawOrigin === cardId ? (prevOrigin ?? '') : rawOrigin;
       const card = makeCardTab({
         cardKind: action.cardKind,
         entityId: action.entityId,
         title: action.title,
         titleIsFallback: action.titleIsFallback,
+        originTabId,
       });
       if (card === null) return keep(state);
-      const idx = state.tabs.findIndex((t) => t.id === card.id);
-      const existing = idx >= 0 ? state.tabs[idx] : undefined;
       if (existing !== undefined && existing.kind === 'card') {
         // Рефокус уже открытой карточки лимитом НЕ гейтится — обход через ref не нужен.
         const retitled = withCardTitle(existing, action.title, action.titleIsFallback);
-        const tabs = retitled === null ? state.tabs : replaceAt(state.tabs, idx, retitled);
+        // Источник обновляем, только если он РЕАЛЬНО изменился: карточку могли открыть
+        // заново из другого места. Если не изменился — вкладки не трогаем вовсе (та же
+        // ссылка на состояние: адаптеры дёргают dispatch на каждый рендер).
+        const originChanged = originTabId !== (existing.originTabId ?? '');
+        const merged: CardTab = { ...(retitled ?? existing), ...(originChanged ? { originTabId } : {}) };
+        const tabs = retitled === null && !originChanged ? state.tabs : replaceAt(state.tabs, idx, merged);
         return ok(state, {
           tabs,
           activeId: action.focus ? card.id : state.activeId,
@@ -474,9 +509,11 @@ export function reduceTabs(state: TabsState, action: TabsAction): TabsResult {
       const target = idx >= 0 ? state.tabs[idx] : undefined;
       if (target === undefined || target.kind === 'menu') return keep(state);
       const tabs = state.tabs.filter((_, i) => i !== idx);
-      // Фокус двигаем ТОЛЬКО если закрыли активную вкладку — сосед слева, дно МЕНЮ.
-      const activeId =
-        state.activeId === target.id ? (state.tabs[idx - 1]?.id ?? MENU_TAB_ID) : state.activeId;
+      // Фокус двигаем ТОЛЬКО если закрыли активную вкладку. Куда — по общему правилу
+      // `focusAfterClose` (возврат по месту открытия, иначе сосед слева, иначе МЕНЮ):
+      // императивный слой спрашивает ровно эту же функцию, иначе tab и активная вкладка
+      // разъедутся.
+      const activeId = focusAfterClose(state, target.id);
       const secondary =
         state.secondary !== null && state.secondary.id === target.id ? null : state.secondary;
       return ok(state, { tabs, activeId, secondary, notice: state.notice });
@@ -675,11 +712,25 @@ export function canOpenCardTab(state: TabsState, cardKind: TabSectionId, entityI
  * Куда уедет фокус при закрытии вкладки id. Экспортируется, чтобы императивный слой
  * (reopenV2Card, загрузка данных соседней карточки) знал ответ ДО диспатча и не
  * расходился с редьюсером — сегодня этот выбор считается отдельно в App.tsx:2957.
+ *
+ * **Возврат по месту открытия** (владелец 08.11.2026): закрыл карточку — вернись туда,
+ * откуда открывал, а не «куда попало» (прежнее правило уводило на вкладку слева).
+ * Источник лежит в самой карточке (`originTabId`); если той вкладки уже нет — действует
+ * прежнее правило «сосед слева», а не пустота.
  */
 export function focusAfterClose(state: TabsState, id: string): string {
   const idx = state.tabs.findIndex((t) => t.id === id);
   if (idx <= 0) return state.activeId;
   if (state.activeId !== id) return state.activeId;
+  const closed = state.tabs[idx];
+  if (
+    closed !== undefined &&
+    closed.kind === 'card' &&
+    closed.originTabId &&
+    state.tabs.some((t) => t.id === closed.originTabId)
+  ) {
+    return closed.originTabId;
+  }
   return state.tabs[idx - 1]?.id ?? MENU_TAB_ID;
 }
 
@@ -717,7 +768,15 @@ export function sessionTabs(state: TabsState): V3SessionTab[] {
         out.push({ kind: 'list', tabId: t.tabId });
         break;
       case 'card':
-        out.push({ kind: 'card', card: { kind: t.cardKind, entityId: t.entityId, title: t.label } });
+        out.push({
+          kind: 'card',
+          card: {
+            kind: t.cardKind,
+            entityId: t.entityId,
+            title: t.label,
+            ...(t.originTabId ? { originTabId: t.originTabId } : {}),
+          },
+        });
         break;
       default:
         out.push({ kind: t.kind });

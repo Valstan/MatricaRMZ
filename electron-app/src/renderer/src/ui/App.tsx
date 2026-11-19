@@ -55,6 +55,7 @@ import {
   createTabsState,
   focusAfterClose,
   hasTab,
+  listTabId,
   parseTabId,
   sessionSecondaryCard,
   sessionTabs,
@@ -1682,26 +1683,55 @@ export function App() {
     setTab(t);
   }, [setTab]);
 
+  /**
+   * Откуда открыли карточку — вкладка, в которую вернёмся после закрытия (владелец
+   * 08.11.2026: «после закрытия документа оператор возвращается туда, откуда его
+   * открывал, а не в случайную вкладку»).
+   *
+   * Открыли из списка раздела (список виден рядом с карточкой) — вернёмся в этот список.
+   * Открыли по ссылке из другой карточки — вернёмся в ту карточку (она и так активна).
+   *
+   * Объявлено ДО `openCardTab`: тот берёт источник отсюда, а порядок объявлений в теле
+   * компонента значим (и для TS, и для времени жизни const в первом рендере).
+   */
+  const cardOriginTabId = useCallback((kind: TabId): string => {
+    const state = tabsStateRef.current;
+    const parent = CARD_PARENT_TAB[kind];
+    const listId = parent ? listTabId(parent) : '';
+    // Раздел, в котором оператор сейчас: у карточки — её список (CARD_PARENT_TAB),
+    // у списка — он сам.
+    const current = tabRef.current as string;
+    const currentSection = CARD_PARENT_TAB[current as TabId] ?? current;
+    if (listId && parent && currentSection === parent && state.tabs.some((t) => t.id === listId)) {
+      return listId;
+    }
+    return state.activeId;
+  }, []);
+
   // Заводит вкладку карточки и отвечает вызывающему, разрешено ли открытие. Фокус даёт не
   // здесь, а пост-коммитный эффект — то есть уже ПОСЛЕ dirty-guard: при single-mount смена
   // активной вкладки размонтировала бы грязную карточку раньше, чем оператор ответил диалогу.
-  const openCardTab = useCallback((kind: TabId, entityId: string): boolean => {
-    const id = String(entityId ?? '').trim();
-    if (!id) return true;
-    const title = cardTitleFnRef.current(kind, id);
-    // Снимок берём из ref, а не из замыкания рендера: при грязной карточке открытие
-    // выполняется отложенно (pendingCardOpenRef) и состояние вкладок к тому моменту иное.
-    const allowed = canOpenCardTab(tabsStateRef.current, kind, id);
-    dispatchTabs({
-      type: 'OPEN_CARD',
-      cardKind: kind,
-      entityId: id,
-      title,
-      titleIsFallback: isFallbackCardTitle(title),
-      focus: false,
-    });
-    return allowed;
-  }, []);
+  const openCardTab = useCallback(
+    (kind: TabId, entityId: string): boolean => {
+      const id = String(entityId ?? '').trim();
+      if (!id) return true;
+      const title = cardTitleFnRef.current(kind, id);
+      // Снимок берём из ref, а не из замыкания рендера: при грязной карточке открытие
+      // выполняется отложенно (pendingCardOpenRef) и состояние вкладок к тому моменту иное.
+      const allowed = canOpenCardTab(tabsStateRef.current, kind, id);
+      dispatchTabs({
+        type: 'OPEN_CARD',
+        cardKind: kind,
+        entityId: id,
+        title,
+        titleIsFallback: isFallbackCardTitle(title),
+        focus: false,
+        originTabId: cardOriginTabId(kind),
+      });
+      return allowed;
+    },
+    [cardOriginTabId],
+  );
 
   // Баннер отказа гаснет сам. Таймер живёт здесь, а не в редьюсере: домен без часов.
   useEffect(() => {
@@ -4428,6 +4458,9 @@ export function App() {
               entityId: t.card.entityId,
               title: t.card.title,
               titleIsFallback: isFallbackCardTitle(t.card.title),
+              // Вкладка-источник переживает перезапуск: иначе возврат после закрытия
+              // карточки летел бы «куда попало» (владелец 08.11.2026).
+              ...(t.card.originTabId ? { originTabId: t.card.originTabId } : {}),
             },
           });
           continue;
@@ -4455,6 +4488,7 @@ export function App() {
             entityId: c.entityId,
             title: c.title,
             titleIsFallback: isFallbackCardTitle(c.title),
+            ...(c.originTabId ? { originTabId: c.originTabId } : {}),
           },
         });
       }
