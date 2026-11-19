@@ -102,6 +102,12 @@ describe('одна полоса и общий процент', () => {
     expect(SERVICE, 'в состоянии есть версии «с какой на какую»').toContain('fromVersion: app.getVersion()');
   });
 
+  it('состояние сохраняет версию обновления', () => {
+    // Ловушка: при переходе на applyProgress поле `version` потерялось, и тихое сообщение
+    // «вышло обновление» молча не показывалось (версия приходила пустой).
+    expect(SERVICE).toContain('...(toVersion ? { version: toVersion } : {}),');
+  });
+
   it('без оценки времени показывается прочерк, а не ноль', () => {
     expect(DOMAIN).toContain("return 'оценка недоступна';");
     expect(SERVICE, 'ETA приходит в главное окно, а не только в окно апдейтера').toContain('etaSeconds: etaForStage(args.stage)');
@@ -115,10 +121,21 @@ describe('одна полоса и общий процент', () => {
 });
 
 describe('оператор видит и решает', () => {
-  it('вопрос задаётся один раз на версию, а не на каждое событие', () => {
-    expect(APP).toContain('if (!version || updateInstallAsked === version) return null;');
-    expect(APP).toContain('data-update-later');
-    expect(APP).toContain('data-update-now');
+  it('модалки «сейчас или позже» больше нет — обновление приходит тихо', () => {
+    expect(APP, 'модалка выскакивала посреди работы и пугала: будто программа сама перезагрузится').not.toContain('data-update-ready');
+    expect(APP).not.toContain('data-update-now');
+    expect(APP).not.toContain('data-update-later');
+    expect(APP, 'вместо модалки — одно тихое сообщение').toContain('Вышло обновление');
+    expect(APP).toContain('«Перезапуск»');
+  });
+
+  it('сообщение одно на версию, а не на каждое событие состояния', () => {
+    expect(APP).toContain('if (!version || updateNoticeShown === version) return;');
+  });
+
+  it('кнопка «Перезапуск» применяет скачанное обновление, а не просто перезапускает', () => {
+    expect(APP, 'иначе «нажмите ‹Перезапуск›» не даст новой версии').toContain("updateState?.state === 'downloaded'");
+    expect(APP).toContain('window.matrica.update.installNow()');
   });
 
   it('«Позже» ничего не теряет — обновление уже записано отложенным', () => {

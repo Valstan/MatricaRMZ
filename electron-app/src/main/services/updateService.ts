@@ -938,6 +938,9 @@ function applyProgress(args: {
     ...(args.state ? { state: args.state } : {}),
     ...(args.source ? { source: args.source } : {}),
     ...(args.message != null ? { message: args.message } : {}),
+    // Версию, на которую обновляемся, держим и в `version` (её ждут и полоса, и тихое
+    // сообщение «вышло обновление»), и в `toVersion` (из неё собирается подпись «X → Y»).
+    ...(toVersion ? { version: toVersion } : {}),
     progress: stagePct,
     stage: args.stage,
     overallPct,
@@ -1099,11 +1102,24 @@ export async function simulateUpdateUiForDev(scenario: 'happy' | 'error' | 'loop
   await runUpdateSimOnce(scenario);
 }
 
-// Dev-only: имитация ФОНОВОГО обновления в главном окне — полоса видна без реального
-// релиза (в проде env не выставлен). Нужна для смоука: иначе полосу не на чём увидеть,
-// потому что фон выключен в dev (app.isPackaged == false).
+// Dev-only: имитация обновления в главном окне — полоса обновления (в проде env не выставлен).
+// Режимы:
+//   bar   (по умолчанию) — фон качает бесконечно: видно полосу, её процент и ETA;
+//   quiet                — сразу «скачали»: видно тихий режим (сообщение вместо модалки).
 export function simulateUpdateBarForDev(): void {
   if (app.isPackaged) return;
+  const mode = String(process.env.MATRICA_SIMULATE_UPDATE_BAR ?? '').trim().toLowerCase();
+  if (mode === 'quiet') {
+    setTimeout(() => {
+      setUpdateState({
+        state: 'downloaded',
+        version: '3.136.0',
+        progress: 100,
+        message: 'Обновление скачано — нажмите «Перезапуск» в шапке, когда закончите работу.',
+      });
+    }, 4000);
+    return;
+  }
   let stagePct = 0;
   // Оценка установки: без неё полоса честно пишет «оценка недоступна» (см. etaForStage).
   lastInstallDurationMs = 45_000;
@@ -1111,6 +1127,7 @@ export function simulateUpdateBarForDev(): void {
     stagePct = Math.min(100, stagePct + 6);
     // ETA — как при настоящей загрузке: секунды до конца уменьшаются вместе с процентом.
     downloadEtaSeconds = Math.max(0, Math.round((100 - stagePct) * 1.4));
+    if (stagePct >= 100) stagePct = 0; // цикл: полоса всё время идёт
     applyProgress({
       stage: 'downloading',
       stagePct,
@@ -1119,7 +1136,7 @@ export function simulateUpdateBarForDev(): void {
     });
     pushUpdateStateToApp();
   }, 400);
-  setTimeout(() => clearInterval(timer), 120_000);
+  setTimeout(() => clearInterval(timer), 600_000);
 }
 
 async function runUpdateSimOnce(scenario: 'happy' | 'error'): Promise<void> {
