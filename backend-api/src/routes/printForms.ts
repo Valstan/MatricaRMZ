@@ -151,6 +151,8 @@ const documentBody = z.object({
   valuesJson: z.string().optional(),
   layoutJson: z.string().optional(),
   note: z.string().max(5000).optional(),
+  recipientId: z.string().nullable().optional(),
+  recipientUsername: z.string().nullable().optional(),
 });
 
 printFormsRouter.post('/documents', async (req: Request, res: Response) => {
@@ -167,6 +169,8 @@ printFormsRouter.post('/documents', async (req: Request, res: Response) => {
     valuesJson: parsed.data.valuesJson ?? '{}',
     layoutJson: parsed.data.layoutJson ?? '{}',
     note: parsed.data.note ?? '',
+    recipientId: parsed.data.recipientId ?? null,
+    recipientUsername: parsed.data.recipientUsername ?? null,
     authorId: actor.id,
     authorUsername: actor.username,
   });

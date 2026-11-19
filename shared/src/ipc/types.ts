@@ -3311,6 +3311,8 @@ export type MatricaApi = {
         valuesJson?: string;
         layoutJson?: string;
         note?: string;
+        recipientId?: string | null;
+        recipientUsername?: string | null;
       }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
       send: (args: {
         id: string;

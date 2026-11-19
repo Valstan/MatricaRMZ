@@ -238,6 +238,7 @@ const EmployeesPage = lazyPage('./pages/EmployeesPage.tsx', 'EmployeesPage');
 const ChildrenPage = lazyPage('./pages/ChildrenPage.tsx', 'ChildrenPage');
 const OrganizationPage = lazyPage('./pages/OrganizationPage.tsx', 'OrganizationPage');
 const PrintFormsPage = lazyPage('./pages/PrintFormsPage.tsx', 'PrintFormsPage');
+const PrintDocumentsPage = lazyPage('./pages/PrintDocumentsPage.tsx', 'PrintDocumentsPage');
 const TimesheetsPage = lazyPage('./pages/TimesheetsPage.tsx', 'TimesheetsPage');
 const TimesheetGridPage = lazyPage('./pages/TimesheetGridPage.tsx', 'TimesheetGridPage');
 const EmployeeDetailsPage = lazyPage('./pages/EmployeeDetailsPage.tsx', 'EmployeeDetailsPage');
@@ -716,6 +717,7 @@ const MENU_LABELS: Record<MenuTabId, string> = {
   children: 'Дети',
   organization: 'Организационное',
   print_forms: 'Печатные формы',
+  print_documents: 'Документы и заявки',
   history: 'История',
   user_screens: 'Мои экраны',
   masterdata: 'Справочники',
@@ -3099,7 +3101,7 @@ export function App() {
     ...(authStatus.loggedIn ? (['notes'] as const) : []),
     ...(authStatus.loggedIn ? (['drafts'] as const) : []),
     ...(caps.canViewReports ? (['reports', 'custom_reports', 'report_templates'] as const) : []),
-    ...(caps.canViewPrintForms ? (['print_forms'] as const) : []),
+    ...(caps.canViewPrintForms ? (['print_forms', 'print_documents'] as const) : []),
     ...(caps.canViewMasterData ? (['masterdata'] as const) : []),
     ...(caps.canViewMasterData ? (['empty_cards'] as const) : []),
     ...(caps.canManageWorkshops || caps.canViewMasterData ? (['workshops', 'workshop_stats'] as const) : []),
@@ -6557,6 +6559,8 @@ export function App() {
         {t === 'print_forms' && (
           <PrintFormsPage canEdit={caps.canEditPrintForms} canEditShared={caps.canEditSharedPrintForms} />
         )}
+
+        {t === 'print_documents' && <PrintDocumentsPage canEdit={caps.canEditPrintForms} />}
 
         {t === 'tool' && selectedToolId && (
           <ToolDetailsPage

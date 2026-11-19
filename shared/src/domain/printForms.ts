@@ -38,6 +38,14 @@ export type PrintFormEntityKey =
   | 'document_service_note'
   | 'document_vacation_request';
 
+/** Поле, которое оператор заполняет при создании документа. */
+export type PrintDocumentInputDef = {
+  /** Ключ значения; он же id блока формы, куда значение подставляется. */
+  id: string;
+  label: string;
+  type: 'text' | 'textarea' | 'date';
+};
+
 export type PrintFormKindDef = {
   key: PrintFormEntityKey;
   title: string;
@@ -45,6 +53,8 @@ export type PrintFormKindDef = {
   /** Форма — документ: её заполняют, а потом печатают (служебная записка, заявление). */
   isDocument?: boolean;
   sections: readonly PrintFormSectionDef[];
+  /** Что оператор заполняет при создании документа (только для isDocument). */
+  inputFields?: readonly PrintDocumentInputDef[];
 };
 
 export const PRINT_FORM_KINDS: readonly PrintFormKindDef[] = [
@@ -118,6 +128,7 @@ export const PRINT_FORM_KINDS: readonly PrintFormKindDef[] = [
       { id: 'body', title: 'Текст записки' },
       { id: 'sign', title: 'Подписи' },
     ],
+    inputFields: [{ id: 'body', label: 'Текст записки', type: 'textarea' }],
   },
   {
     key: 'document_vacation_request',
@@ -130,6 +141,10 @@ export const PRINT_FORM_KINDS: readonly PrintFormKindDef[] = [
       { id: 'period', title: 'Период отпуска' },
       { id: 'reason', title: 'Причина' },
       { id: 'sign', title: 'Подписи' },
+    ],
+    inputFields: [
+      { id: 'period', label: 'Период отпуска (с … по …)', type: 'text' },
+      { id: 'reason', label: 'Причина', type: 'text' },
     ],
   },
 ];

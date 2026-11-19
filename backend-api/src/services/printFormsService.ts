@@ -295,6 +295,8 @@ export async function createPrintDocument(input: {
   valuesJson: string;
   layoutJson: string;
   note?: string;
+  recipientId?: string | null;
+  recipientUsername?: string | null;
   authorId: string;
   authorUsername: string;
 }): Promise<Result<{ id: string }>> {
@@ -322,6 +324,8 @@ export async function createPrintDocument(input: {
       status: 'draft',
       authorId: String(input.authorId ?? ''),
       authorUsername: String(input.authorUsername ?? ''),
+      recipientId: input.recipientId ?? null,
+      recipientUsername: input.recipientUsername ?? null,
       note: String(input.note ?? ''),
       createdAt: now,
       updatedAt: now,
