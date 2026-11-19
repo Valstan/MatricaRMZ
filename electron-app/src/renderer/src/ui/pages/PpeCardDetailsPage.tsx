@@ -45,6 +45,7 @@ import {
   type PpePrintTemplateLayout,
 } from '../utils/ppePrintTemplate.js';
 import { escapeHtml, formatMomentLabel, openPrintPreview, type PrintSection } from '../utils/printPreview.js';
+import { PrintFormsDialog } from '../components/PrintFormsDialog.js';
 import { printPpeIssueCard } from '../utils/ppeIssueCardPrint.js';
 import { buildTradeByNom, resolveTradePosition } from '../utils/ppeTradePosition.js';
 
@@ -215,6 +216,11 @@ export function PpeCardDetailsPage(props: {
    * 19.11.2026). Подразделение при этом остаётся кадровым.
    */
   canEditSizes?: boolean;
+  /**
+   * Право править ОБЩИЕ печатные формы (`erp.dictionary.edit`): без него в окне
+   * печати доступна правка только своего личного шаблона.
+   */
+  canEditSharedTemplates?: boolean;
   onBack?: () => void;
 }) {
   const { employeeId } = props;
@@ -304,6 +310,11 @@ export function PpeCardDetailsPage(props: {
    * в localStorage и не переезжал между машинами — теперь шаблон в БД.
    */
   const [printTemplate, setPrintTemplate] = useState<PpePrintTemplateLayout>({});
+
+  /** Окно общей печатной формы (промт КАРМАНА #4): выбор шаблона и правка на лету. */
+  const [printFormsOpen, setPrintFormsOpen] = useState(false);
+  const [personalCardTitle, setPersonalCardTitle] = useState('');
+  const [personalCardSections, setPersonalCardSections] = useState<PrintSection[]>([]);
 
   const { confirm } = useConfirm();
   const canEdit = props.canEdit;
@@ -1164,7 +1175,7 @@ export function PpeCardDetailsPage(props: {
       { id: 'sign', title: 'Подписи', html: sign },
     ];
     // Шаблон печати снимает выключенные блоки; порядок остаётся приказным.
-    return { title, sections: applyPrintTemplate(sections, printTemplate) };
+    return { title, sections: applyPrintTemplate(sections, printTemplate), rawSections: sections };
   }
 
   /**
@@ -1206,18 +1217,18 @@ export function PpeCardDetailsPage(props: {
     });
   }
 
-  function printPersonalCard() {    const form = buildPersonalCardForm();
-    openPrintPreview({
-      title: form.title,
-      sections: form.sections,
-      printHeader: {
-        title: form.title,
-        // Заголовок формы уже есть отдельной секцией — иначе печатается дважды.
-        hideTitle: true,
-        meta: `Напечатано: ${formatMomentLabel(new Date())}`,
-        ...(printTemplate.headerNote ? { lines: [printTemplate.headerNote] } : {}),
-      },
-    });
+  /**
+   * Печать личной карточки — через общий модуль печатных форм (промт КАРМАНА #4):
+   * оператор выбирает шаблон, видит лист «как на бумаге» и может отключить пункты
+   * или на лету поправить саму форму. Старый шаблон `ppe_print_templates` остаётся
+   * запасным: если новых шаблонов нет (сервер недоступен, миграция не применена),
+   * печать идёт по нему, а не «просто без шаблона».
+   */
+  function printPersonalCard() {
+    const form = buildPersonalCardForm();
+    setPrintFormsOpen(true);
+    setPersonalCardTitle(form.title);
+    setPersonalCardSections(form.rawSections);
   }
 
   async function exportPersonalCardToWord() {
@@ -2004,6 +2015,18 @@ export function PpeCardDetailsPage(props: {
       ) : null}
 
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger, #b00)' : 'var(--muted)' }}>{status}</div> : null}
+
+      {printFormsOpen ? (
+        <PrintFormsDialog
+          title={personalCardTitle}
+          entityKey="ppe_card"
+          buildSections={() => personalCardSections}
+          fallbackLayout={printTemplate}
+          canEdit={props.canEdit}
+          canEditShared={props.canEditSharedTemplates === true}
+          onClose={() => setPrintFormsOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

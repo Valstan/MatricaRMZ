@@ -6196,6 +6196,7 @@ export function App() {
             canIssue={caps.canPostWarehouseDocs}
             canEditEmployee={caps.canManageEmployees}
             canEditSizes={caps.canEditEmployeeSizes}
+            canEditSharedTemplates={caps.canEditSharedPrintForms}
             onOpenEmployee={openEmployee}
             onBack={() => setTab('ppe_cards')}
           />
