@@ -8,6 +8,13 @@ import {
 
 import { Button } from './Button.js';
 
+/** Почему поле не перенеслось — словами для оператора (промты КАРМАНА #52/#53). */
+const NOT_TRANSFERRED_REASON_LABEL: Record<string, string> = {
+  protected: 'защищённое поле (логин, пароль, доступ)',
+  occupied: 'у основной уже заполнено',
+  write_failed: 'запись отбита',
+};
+
 /**
  * Поиск и слияние дублей сотрудников (просьба владельца 08.09.2026: один человек завёлся
  * дважды — автоматический аккаунт и созданный им самим).
@@ -237,6 +244,22 @@ export function EmployeeDedupeDialog(props: { onClose: () => void; onMerged: () 
                   {report.conflicts.map((c) => `${c.label}: ${c.values.map((v) => v.value).join(' / ')}`).join('; ')}
                 </div>
               ) : null}
+
+              {(() => {
+                // Не перенесённые поля дублей — с причиной (промты КАРМАНА #52/#53). Раньше
+                // оператор видел только счётчик «полей будет заполнено N» и не понимал,
+                // почему часть данных не переехала: потеря была молчаливой.
+                const notTransferred = (report?.merged ?? []).flatMap((m) => m.report.notTransferred ?? []);
+                if (notTransferred.length === 0) return null;
+                return (
+                  <div data-dedupe-not-transferred style={{ marginTop: 6, color: 'var(--warning, #b45309)' }}>
+                    Не перенесено из дублей:{' '}
+                    {notTransferred
+                      .map((n) => `${n.code} — ${NOT_TRANSFERRED_REASON_LABEL[n.reason] ?? n.reason}`)
+                      .join('; ')}
+                  </div>
+                );
+              })()}
 
               <div style={{ marginTop: 10, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                 <Button variant="ghost" data-dedupe-dry disabled={busyGroup === i || !survivorId || loserIds.length === 0} onClick={() => void runMerge(i, true)}>

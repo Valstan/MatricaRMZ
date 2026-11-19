@@ -996,14 +996,24 @@ async function upsertAttrValue(entityId: string, defId: string, value: unknown) 
   const ts = nowMs();
   const payloadJson = value == null ? null : JSON.stringify(value);
   const existing = await db
-    .select({ id: attributeValues.id, createdAt: attributeValues.createdAt })
+    .select({ id: attributeValues.id, createdAt: attributeValues.createdAt, deletedAt: attributeValues.deletedAt })
     .from(attributeValues)
     .where(and(eq(attributeValues.entityId, entityId as any), eq(attributeValues.attributeDefId, defId as any)))
     .limit(1);
   if (existing[0]) {
+    // Строка на пару (entity, attr) одна — уникальный индекс без фильтра по deleted_at.
+    // Если она «мёртвая» (tombstone), её надо ВОСКРЕСИТЬ: иначе значение ляжет в
+    // мёртвую строку, чтение её не увидит, и атрибут пропадёт молча (промты КАРМАНА
+    // #52/#53: «данные одного из аккаунтов пропадают»).
+    const reviving = existing[0].deletedAt != null;
     await db
       .update(attributeValues)
-      .set({ valueJson: payloadJson, updatedAt: ts, syncStatus: 'synced' })
+      .set({
+        valueJson: payloadJson,
+        updatedAt: ts,
+        syncStatus: 'synced',
+        ...(reviving ? { deletedAt: null } : {}),
+      })
       .where(eq(attributeValues.id, existing[0].id as any));
   } else {
     await db.insert(attributeValues).values({

@@ -641,6 +641,15 @@ export type EmployeeMergeReport = {
   loserId: string;
   attrsFilled: number;
   protectedSkipped: string[];
+  /**
+   * НЕ перенесённые непустые поля вторичной карточки — с причиной (промты КАРМАНА
+   * #52/#53). Раньше в отчёте был только счётчик, и потеря была невидима.
+   *
+   * - `protected` — код защищён (логин, пароль, роль, доступ) — переносится отдельно;
+   * - `occupied` — у основной этот код уже заполнен (разные значения — конфликт);
+   * - `write_failed` — запись отбита, причина в `detail`.
+   */
+  notTransferred: Array<{ code: string; reason: 'protected' | 'occupied' | 'write_failed'; detail?: string }>;
   userReferencesMoved: boolean;
   clientSettingsRelinked: number;
   /** Сколько ссылок на вторичную запись переведено на основную (в проверке — будет переведено). */

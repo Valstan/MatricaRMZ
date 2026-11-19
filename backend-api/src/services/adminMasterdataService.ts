@@ -1384,6 +1384,11 @@ export async function setEntityAttribute(
   const defId = byCode[code];
   if (!defId) return { ok: false as const, error: `Неизвестный атрибут: ${code}` };
 
+  // Существующая строка ищется БЕЗ фильтра по deleted_at: уникальный индекс
+  // (entity_id, attribute_def_id) один на пару, и «мёртвая» строка (tombstone) — тоже
+  // строка. Если её не воскресить, новое значение запишется в МЁРТВУЮ строку: чтение
+  // её не увидит (фильтр deleted_at IS NULL), и атрибут молча пропадёт — а при слиянии
+  // карточек это и есть «данные одного из аккаунтов исчезли».
   const existing = await db
     .select()
     .from(attributeValues)
@@ -1391,6 +1396,9 @@ export async function setEntityAttribute(
     .limit(1);
   const existingAttrUpdatedAt = existing[0] ? Number(existing[0].updatedAt) : null;
   const ts = existingAttrUpdatedAt == null || !Number.isFinite(existingAttrUpdatedAt) ? nowMs() : Math.max(nowMs(), existingAttrUpdatedAt + 1);
+  // Мёртвую строку воскрешаем: значение должно быть видно читателям, иначе запись
+  // «прошла», а атрибута нет (регрессия слияния саморегистрации, промты КАРМАНА #52/#53).
+  const reviving = existing[0] !== undefined && existing[0].deletedAt != null;
 
   const payloadJson = toValueJson(value);
   if (String(existing[0]?.valueJson ?? '') !== payloadJson) {
@@ -1454,7 +1462,14 @@ export async function setEntityAttribute(
   if (existing[0]) {
     await db
       .update(attributeValues)
-      .set({ valueJson: payloadJson, updatedAt: ts, syncStatus: 'synced' })
+      .set({
+        valueJson: payloadJson,
+        updatedAt: ts,
+        syncStatus: 'synced',
+        // Воскрешение tombstone: иначе значение легло бы в мёртвую строку и пропало бы
+        // из чтения (см. комментарий про existing выше).
+        ...(reviving ? { deletedAt: null } : {}),
+      })
       .where(eq(attributeValues.id, existing[0].id));
     const payload = attributeValuePayload({
       id: String(existing[0].id),
@@ -1463,7 +1478,7 @@ export async function setEntityAttribute(
       valueJson: payloadJson,
       createdAt: Number(existing[0].createdAt),
       updatedAt: ts,
-      deletedAt: existing[0].deletedAt == null ? null : Number(existing[0].deletedAt),
+      deletedAt: reviving ? null : existing[0].deletedAt == null ? null : Number(existing[0].deletedAt),
       syncStatus: 'synced',
     });
     const syncOptions = options.allowSyncConflicts ? { allowSyncConflicts: true } : {};
