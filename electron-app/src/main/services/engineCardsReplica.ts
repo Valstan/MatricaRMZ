@@ -72,6 +72,9 @@ const CODE_TO_COL: Readonly<Record<string, keyof CardRow>> = {
   docs_return_scan_date: 'docsReturnScanDate',
   docs_return_original_date: 'docsReturnOriginalDate',
   docs_note: 'docsNote',
+  // Ручной вид двигателя ('military' | 'civil' | '' — вид сняли оператором | null — вида
+  // не было). Второй источник приоритета: договор → карточка → контрагент.
+  engine_kind: 'engineKind',
 };
 
 const FLAG_COLS: ReadonlySet<string> = new Set([
@@ -161,6 +164,7 @@ export function strictRowToSnake(row: CardRow): Record<string, unknown> {
     docs_return_scan_date: num(r.docsReturnScanDate),
     docs_return_original_date: num(r.docsReturnOriginalDate),
     docs_note: txt(r.docsNote),
+    engine_kind: txt(r.engineKind),
   };
 }
 

@@ -100,6 +100,16 @@ const engineCardPatchSchema = z.object({
   docs_return_scan_date: msOrNull,
   docs_return_original_date: msOrNull,
   docs_note: textOrNull,
+  /**
+   * Ручной вид двигателя ('military' | 'civil' | '' | null) — второй источник приоритета
+   * вида (договор → карточка → контрагент). Живёт в строгой колонке, а НЕ в EAV-следе:
+   * EAV заморожен (AGENTS.md §EAV system), и в `ENGINE_CARD_TRAIL_ORDER` этого кода нет.
+   *
+   * '' — вид снят оператором, null — вида не было. Различать надо только ради COALESCE
+   * в applyPushBatch: клиент старой версии присылает строку без этого поля и не должен
+   * затирать вид, поставленный оператором.
+   */
+  engine_kind: z.enum(['military', 'civil', '']).nullable().optional(),
 });
 
 type EngineCardPatch = z.infer<typeof engineCardPatchSchema>;
@@ -191,6 +201,7 @@ function toEngineCardRow(r: typeof erpEngineCards.$inferSelect): Record<string, 
     docs_return_scan_date: r.docsReturnScanDate ?? null,
     docs_return_original_date: r.docsReturnOriginalDate ?? null,
     docs_note: r.docsNote ?? null,
+    engine_kind: r.engineKind ?? null,
     created_at: Number(r.createdAt),
     updated_at: Number(r.updatedAt),
     deleted_at: r.deletedAt ?? null,
@@ -495,6 +506,9 @@ export async function patchEngineCardStrict(
     ...(patch.docs_return_scan_date !== undefined ? { docsReturnScanDate: patch.docs_return_scan_date ?? null } : {}),
     ...(patch.docs_return_original_date !== undefined ? { docsReturnOriginalDate: patch.docs_return_original_date ?? null } : {}),
     ...(patch.docs_note !== undefined ? { docsNote: textOrNullDb(patch.docs_note) ?? null } : {}),
+    // Вид двигателя: пустая строка — «вид снят», null — «вида не было». Здесь '' НЕ
+    // сворачивается в null (как обычный текст): различие нужно для COALESCE в push.
+    ...(patch.engine_kind !== undefined ? { engineKind: patch.engine_kind ?? null } : {}),
   };
   if (Object.keys(set).length === 0) return { ok: true, row: toEngineCardRow(cur), changed: false };
   const updated = await db

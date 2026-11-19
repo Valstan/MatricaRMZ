@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { EngineDetails, EngineDuplicateMatches, EngineInternalNumberDuplicate, FileRef, SupplyRequestItem } from '@matricarmz/shared';
-import { looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, DEFAULT_CONTRACT_REPAIR_DAYS, effectiveRepairDays, buildContractSectionOptions, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, isEavFlagSet, isEngineDoneForCountdown, compareStageRecency, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, formatEngineRmzNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, arrivalPlacements, arrivalPlacementLabel, REPAIR_HISTORY_OPERATION_TYPE, buildRepairHistoryMeta, type ArrivalListItem, type ArrivalPlacement, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
+import { looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, DEFAULT_CONTRACT_REPAIR_DAYS, effectiveRepairDays, buildContractSectionOptions, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, isEavFlagSet, isEngineDoneForCountdown, compareStageRecency, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, formatEngineRmzNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, arrivalPlacements, arrivalPlacementLabel, REPAIR_HISTORY_OPERATION_TYPE, buildRepairHistoryMeta, CONTRACT_KIND_LABELS, type ArrivalListItem, type ArrivalPlacement, type ContractKind, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
@@ -534,6 +534,13 @@ export function EngineDetailsPage(props: {
   );
 
   const [customerId, setCustomerId] = useState(String(props.engine.attributes?.customer_id ?? ''));
+  // Ручной вид двигателя (второй источник приоритета: договор → карточка → контрагент).
+  // Живёт, пока у двигателя нет договора; договор его перебивает. Пустая строка — «вид не
+  // задан» (в отличие от null: пустая строка доезжает до сервера как явное снятие вида).
+  const [engineKind, setEngineKind] = useState(() => String(props.engine.attributes?.engine_kind ?? ''));
+  // Вид договора двигателя — из его секций. Договор перебивает ручное значение, поэтому
+  // оператор должен видеть, откуда взялся показанный вид.
+  const [contractKind, setContractKind] = useState<ContractKind | null>(null);
   const [contractId, setContractId] = useState(String(props.engine.attributes?.contract_id ?? ''));
   // Ключ секции держим каноническим (`primary` / «ДС {seq}»): в старых записях тут
   // лежал номер договора, и он переставал совпадать с секцией, как только номер правили.
@@ -1058,6 +1065,7 @@ export function EngineDetailsPage(props: {
     setArrivalDate(toInputDate(committed.arrival_date as number | null | undefined));
     setCustomerId(String(committed.customer_id ?? ''));
     setContractId(String(committed.contract_id ?? ''));
+    setEngineKind(String(committed.engine_kind ?? ''));
     setContractSectionNumber(canonicalContractSectionKey(committed.contract_section_number as string | null | undefined));
     const attrs = committed;
     const flags: Partial<Record<StatusCode, boolean>> = {};
@@ -1147,6 +1155,7 @@ export function EngineDetailsPage(props: {
       setContractCustomerId('');
       setContractSectionOptions([]);
       setContractRepairDays(DEFAULT_CONTRACT_REPAIR_DAYS);
+      setContractKind(null);
       setContractSectionsState('idle');
       return;
     }
@@ -1161,11 +1170,13 @@ export function EngineDetailsPage(props: {
         setContractRepairDays(effectiveRepairDays(sections));
         const contractAttrs = ((contract as { attributes?: Record<string, unknown> })?.attributes ?? {}) as Record<string, unknown>;
         setContractCustomerId(String(sections.primary.customerId ?? contractAttrs.customer_id ?? '').trim());
+        setContractKind(sections.primary.kind);
         setContractSectionsState('idle');
       } catch {
         if (cancelled) return;
         setContractSectionOptions([]);
         setContractRepairDays(DEFAULT_CONTRACT_REPAIR_DAYS);
+        setContractKind(null);
         setContractSectionsState('error');
       }
     })();
@@ -1402,6 +1413,10 @@ export function EngineDetailsPage(props: {
         customer_id: contractCustomerId ? asNullableText(attrs.customer_id) : asNullableText(customerId),
         contract_id: asNullableText(contractId),
         contract_section_number: asNullableText(resolvedSectionKey),
+        // Ручной вид двигателя. Пустая строка — «вид не задан», и она ЕДЕТ до сервера как
+        // явное снятие (не null): на сервере null означает «строка пришла без этого поля» —
+        // так клиент старой версии не затирает вид, поставленный оператором.
+        engine_kind: engineKind,
       };
       // Рекламации здесь НЕ пишутся: очередь заездов — единственный писатель
       // (кнопка «Сохранить очередь» и сброс карточки перед её сохранением).
@@ -1434,6 +1449,7 @@ export function EngineDetailsPage(props: {
         customer_id: asNullableText(attrs.customer_id),
         contract_id: asNullableText(attrs.contract_id),
         contract_section_number: asNullableText(attrs.contract_section_number),
+        engine_kind: String(attrs.engine_kind ?? ''),
       };
       currentValues.reclamation_flag = isEavFlagSet(attrs.reclamation_flag);
       currentValues.reclamation_accepted_date = normalizeDateInput(attrs.reclamation_accepted_date);
@@ -2438,6 +2454,92 @@ export function EngineDetailsPage(props: {
           ),
         }
       : null,
+    // Вид двигателя (владелец 18.11.2026): вид должен быть один и тот же в списке, в
+    // фильтрах, в отчётах и в карточках, и его должно быть видно, откуда он взялся.
+    // Договор перебивает всё: пока договора нет — вид ставит оператор руками.
+    {
+      code: 'engine_kind',
+      defaultOrder: 47,
+      label: 'Вид двигателя',
+      value: contractKind
+        ? CONTRACT_KIND_LABELS[contractKind]
+        : engineKind
+          ? CONTRACT_KIND_LABELS[engineKind as ContractKind]
+          : 'не задан',
+      render: (
+        <div style={{ display: 'grid', gap: 4 }} data-engine-kind>
+          {contractKind ? (
+            // Договор перебивает ручное значение. Само ручное значение НЕ переписывается —
+            // оно просто перестало быть первым источником (общее правило `resolveEngineKind`).
+            <>
+              <div data-engine-kind-value={contractKind}>{CONTRACT_KIND_LABELS[contractKind]}</div>
+              <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
+                из договора
+                {engineKind && engineKind !== contractKind
+                  ? ` — в карточке стояло «${CONTRACT_KIND_LABELS[engineKind as ContractKind]}», перекроется договором`
+                  : ''}
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  type="button"
+                  data-engine-kind-option="none"
+                  disabled={!canEditEnginesEff}
+                  onClick={() => {
+                    setSessionChanged(true);
+                    setEngineKind('');
+                  }}
+                  title="Вид не задан — двигатель без договора и без ручного значения"
+                  style={{
+                    flex: 1,
+                    padding: '6px 10px',
+                    borderRadius: 8,
+                    border: '1px solid var(--border)',
+                    background: engineKind ? 'var(--surface)' : 'rgba(37, 99, 235, 0.15)',
+                    fontWeight: engineKind ? 400 : 700,
+                    cursor: canEditEnginesEff ? 'pointer' : 'default',
+                  }}
+                >
+                  Не задан
+                </button>
+                {(Object.keys(CONTRACT_KIND_LABELS) as ContractKind[]).map((kind) => {
+                  const on = engineKind === kind;
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      data-engine-kind-option={kind}
+                      disabled={!canEditEnginesEff}
+                      onClick={() => {
+                        setSessionChanged(true);
+                        setEngineKind(kind);
+                      }}
+                      title={`Отметить двигатель как «${CONTRACT_KIND_LABELS[kind]}»`}
+                      style={{
+                        flex: 1,
+                        padding: '6px 10px',
+                        borderRadius: 8,
+                        border: '1px solid var(--border)',
+                        background: on ? 'rgba(37, 99, 235, 0.15)' : 'var(--surface)',
+                        fontWeight: on ? 700 : 400,
+                        cursor: canEditEnginesEff ? 'pointer' : 'default',
+                      }}
+                    >
+                      {CONTRACT_KIND_LABELS[kind]}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
+                ручное значение — перекроется, когда появится договор
+              </div>
+            </>
+          )}
+        </div>
+      ),
+    },
     // Цех (workshop_id) удалён из «Основного» карточки двигателя (план 2026-10):
     // двигатель не привязан к цеху; цех — атрибут этапа ремонта (work_sheets),
     // отображается в списках и отчёте «Сейчас на заводе» из workSheet.workshopId.

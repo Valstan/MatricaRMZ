@@ -7,6 +7,8 @@ import {
   describeFacetSelectionForRows,
   engineFacetIsActive,
   engineStageFacetOptions,
+  ENGINE_KIND_SOURCE_LABELS,
+  CONTRACT_KIND_LABELS,
   facetDateBound,
   facetRangeOf,
   isEngineAtPlant,
@@ -174,6 +176,8 @@ export type EnginesPageUiState = {
     | 'completenessAct'
     | 'reclamation'
     | 'engineStage'
+    /** Вид двигателя (ГОЗ / гражданский) — владелец 18.11.2026. */
+    | 'kind'
     /** Цех последнего события истории (13.10.2026). */
     | 'workshop'
     /** Дата прохождения выбранного в фильтре «История» этапа (12.10.2026). */
@@ -674,6 +678,13 @@ export function EnginesPage(props: {
           const r = (bindingRank(a) - bindingRank(b)) * dir;
           return r !== 0 ? r : String(a.engineNumber ?? '').localeCompare(String(b.engineNumber ?? ''), 'ru');
         }
+        case 'kind': {
+          // Порядок вида задан, а не по алфавиту: сперва ГОЗ, потом гражданский, потом
+          // двигатели без вида (их в списке видно как «—», и сортировать их надо в конце).
+          const kindRank = (x: EngineListItem) => (x.kind === 'military' ? 0 : x.kind === 'civil' ? 1 : 2);
+          const r = (kindRank(a) - kindRank(b)) * dir;
+          return r !== 0 ? r : String(a.engineNumber ?? '').localeCompare(String(b.engineNumber ?? ''), 'ru');
+        }
         case 'engineStage': {
           // Сортировка — по линейке этапов, а не по алфавиту: «Сборка» обязана стоять
           // позже «Укладки» независимо от букв. Без этапа — раньше всех (как без даты).
@@ -923,6 +934,28 @@ export function EnginesPage(props: {
         kind: 'name',
         printValue: (e) => bindingTextLabel(e),
         render: (e) => renderBindingCell(e),
+      },
+      {
+        id: 'kind',
+        // Вид двигателя — ГОЗ или гражданский (владелец 18.11.2026): вид должен быть виден
+        // в списке и по нему должен быть отбор. Значение приходит готовым в строке
+        // (`listEngines` считает его по общему правилу `resolveEngineKind`), а подсказка
+        // показывает источник: «из договора» / «вручную в карточке» — иначе оператор
+        // не поймёт, что ручное значение перебьётся договором.
+        label: 'Вид',
+        tabletLabel: 'Вид',
+        sortable: true,
+        sortKey: 'kind',
+        kind: 'name',
+        printValue: (e) => (e.kind ? CONTRACT_KIND_LABELS[e.kind] : '—'),
+        render: (e) =>
+          e.kind ? (
+            <span title={`Вид двигателя: ${ENGINE_KIND_SOURCE_LABELS[e.kindSource ?? 'none']}`}>
+              {CONTRACT_KIND_LABELS[e.kind]}
+            </span>
+          ) : (
+            <span className="ui-muted">—</span>
+          ),
       },
       {
         id: 'completenessAct',

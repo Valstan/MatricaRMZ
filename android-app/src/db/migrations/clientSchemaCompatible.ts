@@ -28,7 +28,7 @@ import type { AsyncDrizzleDb } from '../drizzleAsync.js';
 
 // Должна совпадать с electron-app (гейт — тест рядом). Не импортируем значение
 // напрямую: electron-файл тянет better-sqlite3/node:crypto и в браузерный бандл не годится.
-export const CURRENT_CLIENT_SCHEMA_VERSION = 14;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 15;
 
 type Migration = {
   from: number;
@@ -65,6 +65,25 @@ const MIGRATIONS: Migration[] = [
       const cols = await sqlite.all<{ name: string }>(`PRAGMA table_info('notes')`);
       if (!cols.some((c) => c.name === 'reminders_json')) {
         await sqlite.exec(`ALTER TABLE notes ADD COLUMN reminders_json text;`);
+      }
+    },
+  },
+  {
+    from: 14,
+    to: 15,
+    name: 'engine_kind: ручной вид двигателя (карточка и контрагент)',
+    up: async (_db, sqlite) => {
+      // Зеркало одноимённого шага electron-файла: колонка аддитивная и nullable,
+      // '' — вид сняли оператором, null — вида не было. Различать их нужно только
+      // ради COALESCE на сервере: старый клиент без колонки не должен затирать вид,
+      // который поставил оператор.
+      for (const table of ['erp_engine_cards', 'erp_counterparties'] as const) {
+        const cols = await sqlite.all<{ name: string }>(`PRAGMA table_info('${table}')`);
+        // Таблицы реплик приходят из drizzle-цепочки; на клиенте без них шаг не нужен.
+        if (cols.length === 0) continue;
+        if (!cols.some((c) => c.name === 'engine_kind')) {
+          await sqlite.exec(`ALTER TABLE ${table} ADD COLUMN engine_kind text;`);
+        }
       }
     },
   },

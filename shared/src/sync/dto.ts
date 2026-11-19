@@ -224,6 +224,11 @@ export const erpCounterpartyRowSchema = z.object({
   address: z.string().nullable().optional(),
   email: z.string().nullable().optional(),
   phone: z.string().nullable().optional(),
+  // Ручной вид двигателя по умолчанию для заказчика ('military' | 'civil' | '' | null).
+  // null — вид не задан; '' — вид снят оператором (значение было, и его убрали). Различать
+  // их нужно только ради COALESCE на сервере: клиент без этой колонки (старая версия) не
+  // должен затирать вид, поставленный оператором.
+  engine_kind: z.string().nullable().optional(),
 });
 
 export const erpContractRowSchema = z.object({
@@ -332,6 +337,9 @@ export const erpEngineCardRowSchema = z.object({
   docs_return_scan_date: z.number().int().nullable().optional(),
   docs_return_original_date: z.number().int().nullable().optional(),
   docs_note: z.string().nullable().optional(),
+  // Ручной вид двигателя ('military' | 'civil' | '' | null) — см. комментарий у
+  // `erpCounterpartyRowSchema`: null — не задан, '' — снят оператором.
+  engine_kind: z.string().nullable().optional(),
 });
 
 // Сквозной программный номер карточки двигателя (план engine-rmz-numbers-2026-10).

@@ -50,6 +50,7 @@ function makeDb() {
   sqlite.exec(`
     CREATE TABLE erp_counterparties (id text PRIMARY KEY NOT NULL, name text NOT NULL,
       short_name text, inn text, kpp text, address text, email text, phone text,
+      engine_kind text,
       created_at integer NOT NULL, updated_at integer NOT NULL, last_server_seq integer,
       deleted_at integer, sync_status text NOT NULL DEFAULT 'synced');
     CREATE TABLE erp_contracts (id text PRIMARY KEY NOT NULL, number text,

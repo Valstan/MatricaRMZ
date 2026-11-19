@@ -1654,6 +1654,11 @@ export async function applyPushBatch(
       const parsed = parseRows(SyncTableName.ErpEngineCards, raw, erpEngineCardRowSchema);
       const rows = await filterStaleBySeqOrUpdatedAt(erpEngineCards, parsed, SyncTableName.ErpEngineCards);
       const t = (v: unknown): string | null => (v == null || v === '' ? null : String(v));
+      // Ручной вид двигателя: '' и null здесь РАЗНЫЕ. '' — вид снят оператором (был, и
+      // убрали), null — вида не было либо строка пришла без поля от клиента старой
+      // версии. Различать надо только ради COALESCE в SET ниже: старый клиент не должен
+      // затирать вид, поставленный оператором, а явное снятие — должно затирать.
+      const kindT = (v: unknown): string | null => (v == null ? null : String(v));
       if (rows.length > 0) {
         const ids = Array.from(new Set(rows.map((r) => String(r.id))));
         const currentRows = await tx
@@ -1729,6 +1734,7 @@ export async function applyPushBatch(
               docsReturnScanDate: (r.docs_return_scan_date as number | null) ?? null,
               docsReturnOriginalDate: (r.docs_return_original_date as number | null) ?? null,
               docsNote: t(r.docs_note),
+              engineKind: kindT(r.engine_kind),
               createdAt: r.created_at,
               updatedAt: r.updated_at,
               deletedAt: r.deleted_at ?? null,
@@ -1801,6 +1807,11 @@ export async function applyPushBatch(
               docsReturnScanDate: sql`excluded.docs_return_scan_date`,
               docsReturnOriginalDate: sql`excluded.docs_return_original_date`,
               docsNote: sql`excluded.docs_note`,
+              // Ручной вид двигателя: COALESCE, потому что клиент старой версии присылает
+              // строку карточки БЕЗ этого поля (null) — и не должен затирать вид, который
+              // оператор поставил. Явное снятие вида приезжает пустой строкой ('') и
+              // затирает как надо: COALESCE берёт не-NULL первый аргумент.
+              engineKind: sql`COALESCE(excluded.engine_kind, ${erpEngineCards.engineKind})`,
               updatedAt: sql`excluded.updated_at`,
               deletedAt: sql`excluded.deleted_at`,
               syncStatus: 'synced',
@@ -2867,6 +2878,7 @@ export async function applyPushBatch(
                     address: r.address ?? null,
                     email: r.email ?? null,
                     phone: r.phone ?? null,
+                    engineKind: r.engine_kind ?? null,
                     createdAt: r.created_at,
                     updatedAt: r.updated_at,
                     deletedAt: r.deleted_at ?? null,
@@ -2884,6 +2896,10 @@ export async function applyPushBatch(
                     address: sql`excluded.address`,
                     email: sql`excluded.email`,
                     phone: sql`excluded.phone`,
+                    // Ручной вид двигателя по умолчанию для заказчика: пишет серверная
+                    // дверь (`patchCounterpartyStrict`), клиент сюда не пишет — таблица
+                    // под управлением сервера.
+                    engineKind: sql`excluded.engine_kind`,
                     updatedAt: sql`excluded.updated_at`,
                     deletedAt: sql`excluded.deleted_at`,
                     syncStatus: 'synced',

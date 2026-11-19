@@ -323,6 +323,9 @@ export function registerContractsIpc(ctx: IpcContext) {
           address: (row.address as string | null) ?? null,
           phone: (row.phone as string | null) ?? null,
           email: (row.email as string | null) ?? null,
+          // Ручной вид двигателя по умолчанию для заказчика (третий источник
+          // приоритета вида двигателя: договор → карточка → контрагент).
+          engine_kind: (row.engineKind as string | null) ?? null,
           updated_at: Number(row.updatedAt ?? 0),
         },
       };
@@ -355,6 +358,9 @@ export function registerContractsIpc(ctx: IpcContext) {
               address: (r.address as string | null) ?? null,
               phone: (r.phone as string | null) ?? null,
               email: (r.email as string | null) ?? null,
+              // Ручной вид двигателя по умолчанию для заказчика (третий источник
+              // приоритета вида двигателя: договор → карточка → контрагент).
+              engine_kind: (r.engineKind as string | null) ?? null,
               updated_at: Number(r.updatedAt ?? 0),
             };
           }),

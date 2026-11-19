@@ -1,6 +1,8 @@
 -- Реплика карточек двигателей (план engine-cards-strict-2026-10, E3a).
 -- Nullability — ровно как серверная erp_engine_cards (миграция 0105), иначе
 -- checkReplicaStrictness уронит pull. Флаги — integer NOT NULL DEFAULT 0.
+-- `engine_kind` — ручной вид двигателя (сервер 0133): 'military' | 'civil' | '' (снят
+-- оператором) | NULL (вида не было). Nullable — ровно как на сервере.
 -- Тот же DDL продублирован в `ensureClientSchemaParity` (migrate.ts) и в android-миграторе.
 
 CREATE TABLE `erp_engine_cards` (
@@ -62,6 +64,7 @@ CREATE TABLE `erp_engine_cards` (
 	`docs_return_scan_date` integer,
 	`docs_return_original_date` integer,
 	`docs_note` text,
+	`engine_kind` text,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
 	`last_server_seq` integer,

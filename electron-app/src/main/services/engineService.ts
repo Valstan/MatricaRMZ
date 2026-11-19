@@ -20,6 +20,7 @@ import {
   isEngineReservationLive,
   parseEngineReservation,
   STATUS_CODES,
+  DEFAULT_CONTRACT_KIND,
   DEFAULT_CONTRACT_REPAIR_DAYS,
   PRIMARY_CONTRACT_SECTION_KEY,
   countdownStatus,
@@ -46,6 +47,7 @@ import {
   normalizeLookupCompact,
   parseContractSections,
   resolveEngineCustomer,
+  resolveEngineKind,
   shortContractSuffixLabel,
   searchLookupOptionsTiered,
   statusDateCode,
@@ -54,7 +56,7 @@ import {
   type EngineStageEntry,
 } from '@matricarmz/shared';
 
-import { attributeDefs, attributeValues, entities, entityTypes, erpEngineCards, erpEngineNumbers, operations } from '../database/schema.js';
+import { attributeDefs, attributeValues, entities, entityTypes, erpCounterparties, erpEngineCards, erpEngineNumbers, operations } from '../database/schema.js';
 import { collectChunked } from '../utils/sqlChunks.js';
 import { mergeStrictCardAttrs, readEngineCardStrict, strictRowToSnake, type EavCardAttr } from './engineCardsReplica.js';
 import { listReclamationDefectNaturesFromQueue, loadEngineReclamationFactsMap } from './engineReclamationReplica.js';
@@ -304,6 +306,60 @@ async function getContractRepairDaysMap(db: BetterSQLite3Database): Promise<Map<
   for (const row of valueRows) {
     const raw = row.valueJson == null ? null : safeJsonParse(String(row.valueJson));
     out.set(String(row.entityId), effectiveRepairDays(parseContractSections({ contract_sections: raw })));
+  }
+  return out;
+}
+
+/**
+ * Вид договора (`contract_sections.primary.kind`) — ОДНИМ запросом на все договоры.
+ * Считает `listEngines`: вид двигателя берётся из договора прежде всего (общее правило
+ * `resolveEngineKind`), а сам вид договора из строки списка не видно — он лежит в
+ * секциях договора, и каждый потребитель добирал бы его сам.
+ *
+ * Договора без секций в карте нет: у них вид считается умолчанием (ГОЗ) — ровно так же,
+ * как в списке договоров (`contractListFacets`).
+ */
+async function getContractKindMap(db: BetterSQLite3Database): Promise<Map<string, string>> {
+  const typeId = await getEntityTypeIdByCode(db, EntityTypeCode.Contract);
+  if (!typeId) return new Map();
+
+  const contractDefs = await db
+    .select({ id: attributeDefs.id, code: attributeDefs.code })
+    .from(attributeDefs)
+    .where(and(eq(attributeDefs.entityTypeId, typeId), isNull(attributeDefs.deletedAt)))
+    .limit(5000);
+  const sectionsDefId = contractDefs.find((row) => String(row.code) === 'contract_sections')?.id ?? null;
+  if (!sectionsDefId) return new Map();
+
+  const valueRows = await db
+    .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
+    .from(attributeValues)
+    .where(and(eq(attributeValues.attributeDefId, sectionsDefId), isNull(attributeValues.deletedAt)))
+    .limit(200_000);
+
+  const out = new Map<string, string>();
+  for (const row of valueRows) {
+    const raw = row.valueJson == null ? null : safeJsonParse(String(row.valueJson));
+    out.set(String(row.entityId), parseContractSections({ contract_sections: raw }).primary.kind);
+  }
+  return out;
+}
+
+/**
+ * Ручной вид двигателя по умолчанию для заказчика — из реплики `erp_counterparties`
+ * (третий источник приоритета: договор → карточка двигателя → контрагент).
+ * Одним запросом на всех заказчиков: список двигателей спрашивает вид у каждой строки.
+ */
+async function getCounterpartyKindMap(db: BetterSQLite3Database): Promise<Map<string, string>> {
+  const rows = await db
+    .select({ id: erpCounterparties.id, engineKind: erpCounterparties.engineKind })
+    .from(erpCounterparties)
+    .where(isNull(erpCounterparties.deletedAt))
+    .limit(20_000);
+  const out = new Map<string, string>();
+  for (const row of rows) {
+    const kind = String(row.engineKind ?? '').trim();
+    if (kind) out.set(String(row.id), kind);
   }
   return out;
 }
@@ -1120,6 +1176,12 @@ export async function listEngines(
   mark('maps.contractCustomer');
   const contractRepairDaysById = await getContractRepairDaysMap(db);
   mark('maps.contractRepairDays');
+  // Вид двигателя (ГОЗ / гражданский): договор → карточка → контрагент. Карты нужны
+  // списку целиком — по строке их собирать было бы запросом на каждый двигатель.
+  const contractKindById = await getContractKindMap(db);
+  mark('maps.contractKind');
+  const counterpartyKindById = await getCounterpartyKindMap(db);
+  mark('maps.counterpartyKind');
   const engineIds = engines.map((e) => e.id);
   const inventoryFlagsByEngineId = await getEngineInventoryFlagsMap(db, engineIds, opts?.onPhase ? { onPhase: opts.onPhase } : undefined);
   mark('maps.inventoryFlags');
@@ -1500,6 +1562,17 @@ export async function listEngines(
     const customerName = resolvedCustomerId ? customerNameById.get(resolvedCustomerId) : undefined;
     const contractName = contractId ? contractNameById.get(contractId) : undefined;
     const contractSignedAt = contractId ? contractSignedAtById.get(contractId) : undefined;
+    // Вид двигателя — по общему правилу `resolveEngineKind`: договор → карточка → контрагент.
+    // Договор перебивает всё: появился договор — вид переопределился сам, ручное значение
+    // в карточке при этом НЕ переписывается (оно просто перестало быть первым источником).
+    // Договора нет — вид из ручного значения карточки, а если и его нет, то из вида
+    // заказчика по умолчанию. Источников нет вовсе — вида нет (null), а не «ГОЗ».
+    const strictCard = strictByEngineId.get(e.id);
+    const cardKind = strictCard && strictCard.deletedAt == null ? String(strictCard.engineKind ?? '') : '';
+    const contractKind =
+      contractId && contractNameById.has(contractId) ? (contractKindById.get(contractId) ?? DEFAULT_CONTRACT_KIND) : null;
+    const counterpartyKind = resolvedCustomerId ? (counterpartyKindById.get(resolvedCustomerId) ?? null) : null;
+    const kindResolution = resolveEngineKind({ contractKind, cardKind, counterpartyKind });
     // Срок ремонта — из контракта двигателя; у двигателя без договора остаётся общий срок по
     // умолчанию (договора нет, а обязательство по срокам у завода всё равно есть).
     const repairDays = (contractId ? contractRepairDaysById.get(contractId) : undefined) ?? DEFAULT_CONTRACT_REPAIR_DAYS;
@@ -1554,6 +1627,9 @@ export async function listEngines(
       contractId: contractId ?? '',
       ...(contractName ? { contractName } : {}),
       ...(contractSectionNumber ? { contractSectionNumber } : {}),
+      // Вид двигателя и его источник — по общему правилу `resolveEngineKind`.
+      kind: kindResolution.kind,
+      kindSource: kindResolution.source,
       arrivalDate: arrivalDate ?? null,
       ...(repairDueDate != null ? { repairDueDate } : {}),
       ...(repairCountdown?.daysLeft != null ? { daysLeftForRepair: repairCountdown.daysLeft } : {}),

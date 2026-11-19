@@ -67,6 +67,9 @@ export function toCounterpartyInput(r: Record<string, unknown>): SyncWriteInput 
     address: row['address'] == null ? null : String(row['address']),
     email: row['email'] == null ? null : String(row['email']),
     phone: row['phone'] == null ? null : String(row['phone']),
+    // Ручной вид двигателя по умолчанию для заказчика: '' и null — оба «вида нет»,
+    // различать их незачем (в отличие от карточки двигателя, где '' значит «снят»).
+    engine_kind: row['engineKind'] == null ? null : String(row['engineKind']),
     created_at: Number(row['createdAt']),
     updated_at: Number(row['updatedAt']),
     deleted_at: row['deletedAt'] == null ? null : Number(row['deletedAt']),

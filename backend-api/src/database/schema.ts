@@ -830,6 +830,15 @@ export const erpCounterparties = pgTable(
     address: text('address'),
     email: text('email'),
     phone: text('phone'),
+    /**
+     * Ручной вид двигателя по умолчанию для этого заказчика ('military' | 'civil').
+     * Третий источник приоритета вида двигателя: договор → карточка двигателя → контрагент.
+     *
+     * Живёт в строгой колонке, а не в EAV-атрибуте: EAV заморожен (AGENTS.md §EAV system),
+     * а пересборка зеркала из EAV (`rebuild_erp_counterparty`) колонки вне своего списка
+     * не трогает — значение переживает правку названия заказчика.
+     */
+    engineKind: text('engine_kind'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
@@ -998,6 +1007,15 @@ export const erpEngineCards = pgTable(
     docsReturnScanDate: bigint('docs_return_scan_date', { mode: 'number' }),
     docsReturnOriginalDate: bigint('docs_return_original_date', { mode: 'number' }),
     docsNote: text('docs_note'),
+    /**
+     * Ручной вид двигателя ('military' | 'civil') — второй источник приоритета:
+     * договор → карточка двигателя → контрагент. Живёт, пока у двигателя нет договора.
+     *
+     * Строгая колонка, а не EAV-атрибут: EAV заморожен (AGENTS.md §EAV system), а
+     * пересборка зеркала из EAV (`rebuild_erp_engine_card`) колонки вне своего списка
+     * не трогает — значение переживает любую правку карточки.
+     */
+    engineKind: text('engine_kind'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),

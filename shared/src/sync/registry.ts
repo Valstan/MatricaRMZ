@@ -410,6 +410,11 @@ const ERP_COUNTERPARTY_FIELDS = withBase(
   { db: 'address', dto: 'address' },
   { db: 'email', dto: 'email' },
   { db: 'phone', dto: 'phone' },
+  // Ручной вид двигателя по умолчанию для этого заказчика (третий источник приоритета:
+  // договор → карточка двигателя → контрагент). Живёт в строгой таблице, а не в EAV:
+  // EAV заморожен (AGENTS.md §EAV system), и колонка зеркала переживает пересборку
+  // строки из EAV (триггер `rebuild_erp_counterparty` не трогает колонки вне своего списка).
+  { db: 'engineKind', dto: 'engine_kind' },
 );
 
 const ERP_CONTRACT_FIELDS = withBase(
@@ -513,6 +518,10 @@ const ERP_ENGINE_CARD_FIELDS = withBase(
   { db: 'docsReturnScanDate', dto: 'docs_return_scan_date' },
   { db: 'docsReturnOriginalDate', dto: 'docs_return_original_date' },
   { db: 'docsNote', dto: 'docs_note' },
+  // Ручной вид двигателя (второй источник приоритета: договор → карточка → контрагент).
+  // Строгая колонка, а не EAV-атрибут: EAV заморожен (AGENTS.md §EAV system), а
+  // пересборка зеркала из EAV (`rebuild_erp_engine_card`) колонки вне своего списка не трогает.
+  { db: 'engineKind', dto: 'engine_kind' },
 );
 
 // Сквозной программный номер карточки двигателя (план engine-rmz-numbers-2026-10).

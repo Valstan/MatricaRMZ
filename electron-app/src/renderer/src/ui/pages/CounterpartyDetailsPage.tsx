@@ -15,12 +15,13 @@ import {
   CONTRACT_KIND_LABELS,
   contractAmountFromSections,
   parseContractSections,
+  type ContractKind,
   type CounterpartyStrictRow,
 } from '@matricarmz/shared';
 
 // Ядро карточки — строгая реплика/двери (план contract-cutover-2026-10, C2).
 // Вложения остаются в EAV (в strict-зеркале их нет).
-const COUNTERPARTY_CORE_CODES = new Set(['name', 'short_name', 'inn', 'kpp', 'address', 'phone', 'email']);
+const COUNTERPARTY_CORE_CODES = new Set(['name', 'short_name', 'inn', 'kpp', 'address', 'phone', 'email', 'engine_kind']);
 
 type CounterpartyEntity = {
   id: string;
@@ -59,6 +60,9 @@ export function CounterpartyDetailsPage(props: {
   const [address, setAddress] = useState<string>('');
   const [phone, setPhone] = useState<string>('');
   const [email, setEmail] = useState<string>('');
+  // Ручной вид двигателя по умолчанию для этого заказчика — третий источник приоритета
+  // вида двигателя (договор → карточка двигателя → контрагент). Пусто — вида нет.
+  const [engineKind, setEngineKind] = useState<string>('');
   const [attachments, setAttachments] = useState<unknown>([]);
   const dirtyRef = useRef(false);
   // Сброс обязан пересевать форму даже когда updatedAt не изменился (иначе ресид-эффект
@@ -388,6 +392,7 @@ export function CounterpartyDetailsPage(props: {
     setAddress(String(row.address ?? ''));
     setPhone(String(row.phone ?? ''));
     setEmail(String(row.email ?? ''));
+    setEngineKind(String(row.engine_kind ?? ''));
   }
 
   async function saveAllAndClose(): Promise<boolean> {
@@ -403,6 +408,8 @@ export function CounterpartyDetailsPage(props: {
           address: address.trim() || null,
           phone: phone.trim() || null,
           email: email.trim() || null,
+          // Вид двигателя по умолчанию для этого заказчика (третий источник приоритета).
+          engine_kind: engineKind || null,
         },
       })) as { ok: boolean; row?: CounterpartyStrictRow; error?: string } | null;
       if (!r?.ok) {
@@ -515,6 +522,70 @@ export function CounterpartyDetailsPage(props: {
         value: email,
         render: (
           <Input value={email} disabled={!props.canEdit} onChange={(e) => { setEmail(e.target.value); dirtyRef.current = true; }} />
+        ),
+      },
+      {
+        // Вид двигателя по умолчанию для этого заказчика (третий источник приоритета:
+        // договор → карточка двигателя → контрагент). Значение по умолчанию для его
+        // двигателей: у двигателя с договором вид всё равно берётся из договора.
+        code: 'engine_kind',
+        defaultOrder: 70,
+        label: 'Вид двигателя (по умолчанию)',
+        value: engineKind ? CONTRACT_KIND_LABELS[engineKind as ContractKind] : 'не задан',
+        render: (
+          <div style={{ display: 'grid', gap: 4 }} data-counterparty-engine-kind>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                type="button"
+                data-counterparty-engine-kind-option="none"
+                disabled={!props.canEdit}
+                onClick={() => {
+                  setEngineKind('');
+                  dirtyRef.current = true;
+                }}
+                style={{
+                  flex: 1,
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  border: '1px solid var(--border)',
+                  background: engineKind ? 'var(--surface)' : 'rgba(37, 99, 235, 0.15)',
+                  fontWeight: engineKind ? 400 : 700,
+                  cursor: props.canEdit ? 'pointer' : 'default',
+                }}
+              >
+                Не задан
+              </button>
+              {(Object.keys(CONTRACT_KIND_LABELS) as ContractKind[]).map((kind) => {
+                const on = engineKind === kind;
+                return (
+                  <button
+                    key={kind}
+                    type="button"
+                    data-counterparty-engine-kind-option={kind}
+                    disabled={!props.canEdit}
+                    onClick={() => {
+                      setEngineKind(kind);
+                      dirtyRef.current = true;
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '6px 10px',
+                      borderRadius: 8,
+                      border: '1px solid var(--border)',
+                      background: on ? 'rgba(37, 99, 235, 0.15)' : 'var(--surface)',
+                      fontWeight: on ? 700 : 400,
+                      cursor: props.canEdit ? 'pointer' : 'default',
+                    }}
+                  >
+                    {CONTRACT_KIND_LABELS[kind]}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
+              по умолчанию для его двигателей — у двигателя с договором вид всё равно из договора
+            </div>
+          </div>
         ),
       },
       {

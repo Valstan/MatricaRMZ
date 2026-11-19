@@ -47,7 +47,7 @@ type Migration = {
 // ⚠️ Android-клиент держит порт этого механизма
 // (android-app/src/db/migrations/clientSchemaCompatible.ts): при добавлении шага
 // НОВЕЕ 12 зеркаль его туда (константу версии сверяет тест android-app).
-export const CURRENT_CLIENT_SCHEMA_VERSION = 14;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 15;
 
 const MIGRATIONS: Migration[] = [
   {
@@ -508,6 +508,26 @@ const MIGRATIONS: Migration[] = [
       const cols = sqlite.prepare(`PRAGMA table_info('notes')`).all() as Array<{ name: string }>;
       if (!cols.some((c) => c.name === 'reminders_json')) {
         sqlite.exec(`ALTER TABLE notes ADD COLUMN reminders_json text;`);
+      }
+    },
+  },
+  {
+    from: 14,
+    to: 15,
+    name: 'engine_kind: ручной вид двигателя (карточка и контрагент)',
+    up: async (_db, sqlite) => {
+      // Колонка аддитивная и nullable: 'military' | 'civil' | '' (вид был и его сняли
+      // оператором) | null (вида не было). Различать '' и NULL нужно только ради
+      // COALESCE на сервере: старый клиент без колонки не должен затирать вид, который
+      // поставил оператор. Строки, заведённые раньше, остаются со своим null — вид
+      // приедет следующим pull'ом, а пустая строка (снятие вида) — только явной записью.
+      for (const table of ['erp_engine_cards', 'erp_counterparties'] as const) {
+        const cols = sqlite.prepare(`PRAGMA table_info('${table}')`).all() as Array<{ name: string }>;
+        // Таблицы реплик приходят из drizzle-цепочки; на клиенте без них шаг не нужен.
+        if (cols.length === 0) continue;
+        if (!cols.some((c) => c.name === 'engine_kind')) {
+          sqlite.exec(`ALTER TABLE ${table} ADD COLUMN engine_kind text;`);
+        }
       }
     },
   },

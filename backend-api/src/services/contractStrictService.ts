@@ -59,6 +59,15 @@ const counterpartyPatchSchema = z.object({
   address: textOrNull,
   email: textOrNull,
   phone: textOrNull,
+  /**
+   * Ручной вид двигателя по умолчанию для этого заказчика — третий источник приоритета
+   * вида двигателя (договор → карточка двигателя → контрагент). null — вида нет.
+   *
+   * Живёт в строгой колонке `erp_counterparties.engine_kind`, а НЕ в EAV: EAV заморожен
+   * (AGENTS.md §EAV system), и в EAV-след (writeEavTrail) эта колонка НЕ попадает —
+   * новый EAV-атрибут под видом заводить нельзя.
+   */
+  engine_kind: z.enum(['military', 'civil']).nullable().optional(),
 });
 
 type ContractPatch = z.infer<typeof contractPatchSchema>;
@@ -207,6 +216,7 @@ function toCounterpartyRow(r: typeof erpCounterparties.$inferSelect): Record<str
     address: r.address ?? null,
     email: r.email ?? null,
     phone: r.phone ?? null,
+    engine_kind: r.engineKind ?? null,
     created_at: Number(r.createdAt),
     updated_at: Number(r.updatedAt),
     deleted_at: r.deletedAt ?? null,
@@ -460,6 +470,7 @@ export async function createCounterpartyStrict(raw: unknown, actor: PublishActor
       address: parsed.data.address ?? null,
       email: parsed.data.email ?? null,
       phone: parsed.data.phone ?? null,
+      engineKind: parsed.data.engine_kind ?? null,
       createdAt: ts,
       updatedAt: ts,
       deletedAt: null,
@@ -475,6 +486,7 @@ export async function createCounterpartyStrict(raw: unknown, actor: PublishActor
         address: parsed.data.address ?? null,
         email: parsed.data.email ?? null,
         phone: parsed.data.phone ?? null,
+        engineKind: parsed.data.engine_kind ?? null,
         updatedAt: ts,
         deletedAt: null,
         syncStatus: 'pending',
@@ -522,6 +534,9 @@ export async function patchCounterpartyStrict(
     ...(patch.address !== undefined ? { address: patch.address ?? null } : {}),
     ...(patch.email !== undefined ? { email: patch.email ?? null } : {}),
     ...(patch.phone !== undefined ? { phone: patch.phone ?? null } : {}),
+    // Вид двигателя по умолчанию — строгая колонка, в EAV-след он НЕ попадает:
+    // EAV заморожен (AGENTS.md §EAV system), новый атрибут под видом не заводим.
+    ...(patch.engine_kind !== undefined ? { engineKind: patch.engine_kind ?? null } : {}),
   };
   if (Object.keys(set).length === 0) return { ok: true, row: toCounterpartyRow(cur), changed: false };
   const ts = nowMs();

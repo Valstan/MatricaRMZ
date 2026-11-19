@@ -181,6 +181,7 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
       address text,
       email text,
       phone text,
+      engine_kind text,
       created_at integer NOT NULL,
       updated_at integer NOT NULL,
       last_server_seq integer,
@@ -319,6 +320,7 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
       docs_return_scan_date integer,
       docs_return_original_date integer,
       docs_note text,
+      engine_kind text,
       created_at integer NOT NULL,
       updated_at integer NOT NULL,
       last_server_seq integer,
@@ -940,6 +942,23 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
           `CREATE INDEX IF NOT EXISTS erp_employee_cards_personnel_no_idx ON erp_employee_cards(personnel_no);`,
         );
       }
+    }
+  }
+
+  // erp_engine_cards.engine_kind / erp_counterparties.engine_kind — ручной вид двигателя
+  // (миграция сервера 0133): 'military' | 'civil' | '' (вид был и его сняли оператором) |
+  // null (вида не было). Nullable — ровно как на сервере, иначе checkReplicaStrictness уронит
+  // pull.
+  //
+  // Зеркало electron-app/src/main/database/migrate.ts: эти таблицы создаёт drizzle-цепочка
+  // (0027/0032), а CREATE TABLE IF NOT EXISTS на уже существующей таблице ничего не меняет.
+  // Свежая установка идёт мимо версионной цепочки (ClientSchemaVersion базлайнится сразу),
+  // поэтому колонку доводим здесь — под проверкой наличия: ALTER TABLE ADD COLUMN в SQLite
+  // не умеет IF NOT EXISTS, а повторный ALTER уронил бы транзакцию миграции.
+  for (const table of ['erp_engine_cards', 'erp_counterparties'] as const) {
+    if (!(await hasTable(sqlite, table))) continue;
+    if (!(await columnNames(table)).has('engine_kind')) {
+      await sqlite.exec(`ALTER TABLE ${table} ADD COLUMN engine_kind text;`);
     }
   }
 
