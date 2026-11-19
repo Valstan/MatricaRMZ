@@ -100,6 +100,7 @@ printFormsRouter.put('/templates', async (req: Request, res: Response) => {
   const result = await savePrintTemplate({
     ...(parsed.data.id ? { id: parsed.data.id } : {}),
     ownerId,
+    actorId: actor.id,
     entityKey: parsed.data.entityKey,
     formKey: parsed.data.formKey ?? parsed.data.entityKey,
     name: parsed.data.name,

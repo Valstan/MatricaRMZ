@@ -130,6 +130,8 @@ export function validatePrintTemplateLayout(layoutJson: string): Result<{ layout
 export async function savePrintTemplate(input: {
   id?: string;
   ownerId: string;
+  /** Кто правит — для проверки, что чужой личный шаблон не перезаписать. */
+  actorId: string;
   entityKey: string;
   formKey: string;
   name: string;
@@ -150,11 +152,18 @@ export async function savePrintTemplate(input: {
     const now = Date.now();
     const id = String(input.id ?? '').trim() || crypto.randomUUID();
     const existing = await db
-      .select({ id: printTemplates.id })
+      .select({ id: printTemplates.id, ownerId: printTemplates.ownerId })
       .from(printTemplates)
       .where(eq(printTemplates.id, id as never))
       .limit(1);
     if (existing.length > 0) {
+      // Чужой ЛИЧНЫЙ шаблон перезаписывать нельзя: id можно узнать, а шаблон —
+      // настройка конкретного оператора. Общий — по праву на справочники (его
+      // проверяет дверь, здесь только факт владения).
+      const row = existing[0];
+      if (row && row.ownerId !== 'shared' && row.ownerId !== input.ownerId && row.ownerId !== input.actorId) {
+        return { ok: false, error: 'Личный шаблон правит его владелец' };
+      }
       await db
         .update(printTemplates)
         .set({
