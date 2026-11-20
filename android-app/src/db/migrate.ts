@@ -653,6 +653,8 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
       queue_no integer NOT NULL,
       accepted_at integer,
       shipped_at integer,
+      contract_id text,
+      customer_id text,
       customer_reason text,
       actual_defect text,
       defect_nature text,
@@ -975,6 +977,23 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
   if (await hasTable(sqlite, 'erp_production_program_rows')) {
     if (!(await columnNames('erp_production_program_rows')).has('operator_note')) {
       await sqlite.exec(`ALTER TABLE erp_production_program_rows ADD COLUMN operator_note text;`);
+    }
+  }
+
+  // erp_engine_reclamations.contract_id / customer_id — свой договор и контрагент у
+  // каждого заезда по рекламации (миграция сервера 0136, промты КАРМАНА #42/#43).
+  // Nullable — ровно как на сервере, иначе checkReplicaStrictness уронит pull.
+  //
+  // Зеркало electron-app/src/main/database/migrate.ts: долгоживущая БД планшета
+  // создана без этих колонок, а CREATE TABLE IF NOT EXISTS на существующей таблице
+  // ничего не меняет.
+  if (await hasTable(sqlite, 'erp_engine_reclamations')) {
+    const cols = await columnNames('erp_engine_reclamations');
+    if (!cols.has('contract_id')) {
+      await sqlite.exec(`ALTER TABLE erp_engine_reclamations ADD COLUMN contract_id text;`);
+    }
+    if (!cols.has('customer_id')) {
+      await sqlite.exec(`ALTER TABLE erp_engine_reclamations ADD COLUMN customer_id text;`);
     }
   }
 

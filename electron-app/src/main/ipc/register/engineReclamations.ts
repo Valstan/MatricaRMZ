@@ -28,6 +28,10 @@ export type EngineReclamationDto = {
   queueNo: number;
   acceptedAt: number | null;
   shippedAt: number | null;
+  /** Договор заезда — свой у каждого заезда (владелец 19.11.2026). */
+  contractId: string | null;
+  /** Контрагент заезда (заказчик/поставщик) — запасной путь, если договора нет. */
+  customerId: string | null;
   customerReason: string | null;
   actualDefect: string | null;
   defectNature: string | null;
@@ -93,6 +97,8 @@ export function registerEngineReclamationsIpc(ctx: IpcContext) {
             queueNo: Number(r.queueNo),
             acceptedAt: r.acceptedAt == null ? null : Number(r.acceptedAt),
             shippedAt: r.shippedAt == null ? null : Number(r.shippedAt),
+            contractId: r.contractId == null ? null : String(r.contractId),
+            customerId: r.customerId == null ? null : String(r.customerId),
             customerReason: r.customerReason == null ? null : String(r.customerReason),
             actualDefect: r.actualDefect == null ? null : String(r.actualDefect),
             defectNature: r.defectNature == null ? null : String(r.defectNature),
@@ -118,6 +124,10 @@ export function registerEngineReclamationsIpc(ctx: IpcContext) {
           queueNo: number;
           acceptedAt?: number | null;
           shippedAt?: number | null;
+          /** Договор заезда — свой у каждого заезда. */
+          contractId?: string | null;
+          /** Контрагент заезда (заказчик/поставщик) — запасной путь. */
+          customerId?: string | null;
           customerReason?: string | null;
           actualDefect?: string | null;
           defectNature?: string | null;

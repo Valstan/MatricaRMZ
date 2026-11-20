@@ -3050,6 +3050,10 @@ async function applyPulledChanges(
             queueNo: payload.queue_no,
             acceptedAt: payload.accepted_at ?? null,
             shippedAt: payload.shipped_at ?? null,
+            // Свой договор и контрагент заезда (владелец 19.11.2026): без них в реплике
+            // заезд остался бы без заказчика, а вкладка «История заездов» — без сторон.
+            contractId: payload.contract_id ?? null,
+            customerId: payload.customer_id ?? null,
             customerReason: payload.customer_reason ?? null,
             actualDefect: payload.actual_defect ?? null,
             defectNature: payload.defect_nature ?? null,
@@ -4521,6 +4525,8 @@ async function applyPulledChanges(
       queueNo: sql`excluded.queue_no`,
       acceptedAt: sql`excluded.accepted_at`,
       shippedAt: sql`excluded.shipped_at`,
+      contractId: sql`excluded.contract_id`,
+      customerId: sql`excluded.customer_id`,
       customerReason: sql`excluded.customer_reason`,
       actualDefect: sql`excluded.actual_defect`,
       defectNature: sql`excluded.defect_nature`,

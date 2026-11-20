@@ -11,6 +11,7 @@ import { isScrapEngine } from '@matricarmz/shared';
 import { SectionCard } from '../components/SectionCard.js';
 import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { EngineHistoryFeedPanel } from '../components/EngineHistoryFeedPanel.js';
+import { EngineArrivalsTab } from '../components/EngineArrivalsTab.js';
 import { AttachmentsModule } from '../components/AttachmentsModule.js';
 import { EngineReclamationTab, type EngineReclamationTabHandle, type ReclamationDraft } from '../components/EngineReclamationTab.js';
 import { EngineTagPrintDialog, type EngineTagInitial, type EngineTagSource } from '../components/EngineTagPrintDialog.js';
@@ -56,11 +57,11 @@ const FEATURE_ENGINE_DISMANTLE = false;
 type LinkOpt = SearchSelectOption;
 
 /** Вкладки карточки двигателя (реорганизация «полотенца», план reclamation-mvp-2026-07). */
-export type EngineCardTab = 'main' | 'completeness' | 'defect' | 'history' | 'files' | 'passport' | 'reclamation' | 'payments' | 'docs';
+export type EngineCardTab = 'main' | 'completeness' | 'defect' | 'history' | 'arrivals' | 'files' | 'passport' | 'reclamation' | 'payments' | 'docs';
 
 /** Вкладки, которые показываются только с правом на операции. Список, а не перечисление
  * ключей в фильтре: забытый ключ открывал бы акты тому, кому их видеть нельзя. */
-const OPERATIONS_ONLY_TABS = new Set<EngineCardTab>(['completeness', 'defect', 'history']);
+const OPERATIONS_ONLY_TABS = new Set<EngineCardTab>(['completeness', 'defect', 'history', 'arrivals']);
 
 const ENGINE_CARD_TABS: { key: EngineCardTab; label: string }[] = [
   { key: 'main', label: 'Основное' },
@@ -70,6 +71,9 @@ const ENGINE_CARD_TABS: { key: EngineCardTab; label: string }[] = [
   { key: 'completeness', label: 'Акт комплектности' },
   { key: 'defect', label: 'Акт разборки/дефектовки' },
   { key: 'history', label: 'История ремонта' },
+  // История заездов (владелец 19.11.2026): все заезды номера — приходы, отъезды, свои
+  // договоры и контрагенты по каждому заезду. Видна тем же, кто видит историю ремонта.
+  { key: 'arrivals', label: 'История заездов' },
   { key: 'files', label: 'Фото и документы' },
   // Паспорт двигателя (владелец 02.10.2026): пока только скан-файлы, поля и печать — позже.
   { key: 'passport', label: 'Паспорт' },
@@ -992,6 +996,17 @@ export function EngineDetailsPage(props: {
       placement: selfPlacement,
       archived: others.filter((o) => o.placement.role === 'archived'),
       current: others.find((o) => o.placement.role === 'current') ?? null,
+      // Старые заезды номера — для ленты «История заездов» (вкладка карточки).
+      // Коллизии номера — не заезды (другой физический двигатель), в ленту не идут.
+      siblings: dupMatches.exact
+        .filter((c) => c.id !== props.engineId && !c.isNumberCollision && placements.get(c.id) != null)
+        .map((c) => ({
+          id: c.id,
+          engineNumber: c.engineNumber,
+          engineBrand: c.engineBrand,
+          arrivalDate: c.arrivalDate ?? null,
+          roleLabel: arrivalPlacementLabel(placements.get(c.id)) || undefined,
+        })),
     };
   }, [
     dupMatches,
@@ -3226,8 +3241,6 @@ export function EngineDetailsPage(props: {
             canEdit={canEditEnginesEff}
             workshopOptions={workshopOptions}
             engineLabel={formatEngineGateLabel({ engineBrand, engineNumber, internalNumberFull })}
-            mainArrivalDate={fromInputDate(arrivalDate)}
-            mainShippingDate={statusDates.status_customer_sent ?? null}
             onChanged={() => {
               void props.onEngineUpdated();
               void reloadLastStage();
@@ -3236,6 +3249,27 @@ export function EngineDetailsPage(props: {
           />
           <DocumentHistoryPanel entityId={props.engineId} canView={props.canViewAudit === true} />
           </div>
+        </div>
+      )}
+
+      {props.canViewOperations && (
+        /* Вкладка «История заездов» (владелец 19.11.2026, промт КАРМАНА #42): вся
+           история движений двигателя по номеру — приходы, отъезды, свои договоры и
+           контрагенты по каждому заезду. Текущая информация остаётся на «Основном»,
+           старые даты в неё не подставляются. */
+        <div className="entity-card-span-full" data-card-tab="arrivals" hidden={activeTab !== 'arrivals'}>
+          <EngineArrivalsTab
+            engineId={props.engineId}
+            engineNumber={String(props.engine.attributes?.engine_number ?? engineNumber ?? '')}
+            mainArrivalDate={arrivalDateMsForChecklist}
+            mainShippingDate={statusDates.status_customer_sent ?? null}
+            mainContractId={String(props.engine.attributes?.contract_id ?? '')}
+            mainCustomerId={String(props.engine.attributes?.customer_id ?? '')}
+            siblings={arrivalGroup?.siblings ?? []}
+            contractOptions={linkLists.contract_id ?? []}
+            customerOptions={linkLists.customer_id ?? []}
+            {...(props.onOpenEngine ? { onOpenEngine: props.onOpenEngine } : {})}
+          />
         </div>
       )}
 
@@ -3324,6 +3358,10 @@ export function EngineDetailsPage(props: {
             reclamationTabHandleRef.current = handle;
           }}
           natureOptions={reclNatureOptions}
+          contractOptions={linkLists.contract_id ?? []}
+          customerOptions={linkLists.customer_id ?? []}
+          {...(props.onOpenContract ? { onOpenContract: props.onOpenContract } : {})}
+          {...(props.onOpenCounterparty ? { onOpenCounterparty: props.onOpenCounterparty } : {})}
           onNotice={(text) => setSaveStatus(text)}
           attachmentsSlot={
             <AttachmentsModule

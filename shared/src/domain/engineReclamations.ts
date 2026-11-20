@@ -16,6 +16,11 @@
 //
 // Хранение — отдельная строгая таблица `erp_engine_reclamations` (EAV под заморозкой,
 // AGENTS.md §EAV), одна строка — один заезд по рекламации.
+//
+// Договор и контрагент — СВОИ у каждого заезда (владелец 19.11.2026): движок мог
+// вернуться по рекламации уже по другому договору и по другому контрагенту.
+
+import { resolveEngineCustomer, type EngineCustomerSource } from './engineCustomer.js';
 
 /** Одна рекламация (один заезд по рекламации) — как её видит клиент. */
 export type EngineReclamationDto = {
@@ -28,6 +33,18 @@ export type EngineReclamationDto = {
   acceptedAt: number | null;
   /** Дата отправки заказчику после рекламации (мс). */
   shippedAt: number | null;
+  /**
+   * Договор заезда (uuid). У заезда свой: движок мог вернуться по рекламации уже по
+   * другому договору (владелец 19.11.2026: «в каждом заезде могут быть разные
+   * договоры, разные поставщики и заказчики»).
+   */
+  contractId: string | null;
+  /**
+   * Контрагент заезда (заказчик/поставщик) — запасной путь: если договора нет,
+   * заказчик берётся отсюда. При договоре главный источник — договор
+   * (`resolveEngineCustomer`), иначе появятся две правды.
+   */
+  customerId: string | null;
   /** Описание дефекта изделия (что заявил заказчик). */
   customerReason: string | null;
   /** Фактически установленный дефект (что увидели при разборе). */
@@ -47,6 +64,8 @@ export type EngineReclamationInput = {
   queueNo?: number | undefined;
   acceptedAt?: number | null | undefined;
   shippedAt?: number | null | undefined;
+  contractId?: string | null | undefined;
+  customerId?: string | null | undefined;
   customerReason?: string | null | undefined;
   actualDefect?: string | null | undefined;
   defectNature?: string | null | undefined;
@@ -246,10 +265,16 @@ export type EngineVisit = {
   visitNo: number;
   /** Рекламация, породившая заезд (null — основной цикл). */
   reclamation: EngineReclamationDto | null;
+  /** Вид заезда: основной цикл карточки или возврат по рекламации. */
+  kind: 'main' | 'reclamation';
   /** Дата прихода (мс). */
   arrivalDate: number | null;
   /** Дата отгрузки (мс). */
   shippingDate: number | null;
+  /** Договор заезда: у основного цикла — с карточки, у рекламации — свой. */
+  contractId: string | null;
+  /** Контрагент заезда — запасной путь, если договора нет. */
+  customerId: string | null;
   /** Подпись заезда для истории. */
   label: string;
 };
@@ -257,6 +282,10 @@ export type EngineVisit = {
 export function buildEngineVisits(args: {
   mainArrivalDate?: number | null | undefined;
   mainShippingDate?: number | null | undefined;
+  /** Договор основного цикла — с карточки двигателя. */
+  mainContractId?: string | null | undefined;
+  /** Контрагент основного цикла — с карточки двигателя (запасной путь). */
+  mainCustomerId?: string | null | undefined;
   reclamations?: readonly EngineReclamationDto[] | null | undefined;
 }): EngineVisit[] {
   const visits: EngineVisit[] = [];
@@ -266,8 +295,11 @@ export function buildEngineVisits(args: {
     visits.push({
       visitNo: 1,
       reclamation: null,
+      kind: 'main',
       arrivalDate: mainArrival,
       shippingDate: mainShipping,
+      contractId: text(args.mainContractId),
+      customerId: text(args.mainCustomerId),
       label: 'Основной цикл',
     });
   }
@@ -276,12 +308,33 @@ export function buildEngineVisits(args: {
     visits.push({
       visitNo: visits.length + 1,
       reclamation,
+      kind: 'reclamation',
       arrivalDate: ms(reclamation.acceptedAt),
       shippingDate: ms(reclamation.shippedAt),
+      contractId: text(reclamation.contractId),
+      customerId: text(reclamation.customerId),
       label: `Рекламация №${reclamation.queueNo}`,
     });
   }
   return visits;
+}
+
+/**
+ * Контрагент (заказчик/поставщик) заезда — тем же правилом, что и у карточки
+ * двигателя: сначала договор заезда, и только если его нет — поле самой строки.
+ *
+ * Договор у заезда свой (движок мог вернуться по рекламации уже по другому
+ * договору), поэтому заказчика заезда нельзя брать из карточки: у карточки он
+ * один, а заездов у номера — несколько.
+ */
+export function resolveEngineVisitCustomer(
+  visit: Pick<EngineVisit, 'contractId' | 'customerId'>,
+  contractCustomerById: ReadonlyMap<string, string>,
+): { id: string; source: EngineCustomerSource } {
+  return resolveEngineCustomer(
+    { contractId: visit?.contractId ?? null, customerId: visit?.customerId ?? null },
+    contractCustomerById,
+  );
 }
 
 /**

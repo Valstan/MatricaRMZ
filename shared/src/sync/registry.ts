@@ -749,6 +749,9 @@ const ERP_ENGINE_RECLAMATION_FIELDS = withBase(
   { db: 'queueNo', dto: 'queue_no' },
   { db: 'acceptedAt', dto: 'accepted_at' },
   { db: 'shippedAt', dto: 'shipped_at' },
+  // Свой договор и контрагент заезда (владелец 19.11.2026) — у каждого заезда свои.
+  { db: 'contractId', dto: 'contract_id' },
+  { db: 'customerId', dto: 'customer_id' },
   { db: 'customerReason', dto: 'customer_reason' },
   { db: 'actualDefect', dto: 'actual_defect' },
   { db: 'defectNature', dto: 'defect_nature' },

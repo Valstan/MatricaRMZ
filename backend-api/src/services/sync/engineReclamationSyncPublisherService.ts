@@ -41,6 +41,8 @@ export function toEngineReclamationInput(r: DbRow): SyncWriteInput {
       queue_no: Number(r['queueNo']),
       accepted_at: r['acceptedAt'] == null ? null : Number(r['acceptedAt']),
       shipped_at: r['shippedAt'] == null ? null : Number(r['shippedAt']),
+      contract_id: r['contractId'] == null ? null : String(r['contractId']),
+      customer_id: r['customerId'] == null ? null : String(r['customerId']),
       customer_reason: r['customerReason'] == null ? null : String(r['customerReason']),
       actual_defect: r['actualDefect'] == null ? null : String(r['actualDefect']),
       defect_nature: r['defectNature'] == null ? null : String(r['defectNature']),
