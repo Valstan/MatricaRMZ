@@ -145,10 +145,11 @@ const HELPERS = `
     const out = [];
     for (const r of rows) {
       const cells = [...r.querySelectorAll('td')];
-      if (cells.length < 4) continue;
+      if (cells.length < 5) continue;
       const first = txt(cells[0]);
       if (!first.startsWith('⠿')) continue;
-      out.push({ engine: txt(cells[3]), global: txt(cells[1]), inContract: txt(cells[2]) });
+      // Порядок колонок: ручка, № п/п, № в договоре, организация, двигатель.
+      out.push({ engine: txt(cells[4]), global: txt(cells[1]), inContract: txt(cells[2]) });
     }
     return out;
   };
@@ -189,9 +190,10 @@ async function main() {
     ws,
     `const engines = await call(() => window.matrica.engines.list(), 15000);
      const list = engines?.rows ?? engines ?? [];
-     const withNumber = list.filter((e) => e.engineNumber);
-     if (withNumber.length < 2) return { ok: false, reason: 'на стенде меньше двух движков с номером' };
-     const [e1, e2] = withNumber;
+     // Подпись двигателя — как на экране строки плана: марка + номер.
+     const label = (e) => [e.engineBrand, e.engineNumber].filter(Boolean).join(' ') || String(e.rmzCode ?? e.id);
+     if (list.length < 2) return { ok: false, reason: 'на стенде меньше двух движков' };
+     const [e1, e2] = list;
      const sections = { primary: { number: 'СМОУК-ПОРЯДОК/2026', kind: 'military', engineBrands: [] }, addons: [] };
      const created = await call(() => window.matrica.contracts.contract.create({ fields: { number: 'СМОУК-ПОРЯДОК/2026', sections_json: JSON.stringify(sections) } }), 20000);
      if (!created || !created.ok) return { ok: false, reason: 'договор не создан: ' + (created?.error ?? 'нет ответа') };
@@ -207,7 +209,7 @@ async function main() {
        contractKind: 'military',
        engineId: String(e.id),
        engineMark: String(e.engineBrand ?? ''),
-       engineNumber: String(e.engineNumber ?? ''),
+       engineNumber: String(e.engineNumber ?? e.rmzCode ?? ''),
        state: 'restoration',
        shippingPlanAt: null,
        factors: '',
@@ -215,32 +217,55 @@ async function main() {
      });
      const rows = [mk(e1), mk(e2)];
      const now = Date.now();
+     // Планы от прошлых прогонов с тем же названием — убираем: иначе плитка
+     // выберет не тот план, и проверка будет смотреть не туда.
+     const stale = await call(() => window.matrica.productionProgram.list(), 15000);
+     if (stale && stale.ok) {
+       for (const p of stale.rows) {
+         if (String(p.title ?? '').startsWith('СМОУК ПОРЯДОК')) await call(() => window.matrica.productionProgram.remove(p.id), 15000);
+       }
+     }
+     // Название уникально на прогон: плишка ищется по названию, а старый план с тем же
+     // названием ещё висит в реплике минуту — и клик ушёл бы не туда.
+     const title = 'СМОУК ПОРЯДОК ' + Date.now();
      const prog = await call(() => window.matrica.productionProgram.create({
        periodStart: now, periodEnd: now + 13 * 24 * 3600 * 1000,
-       shop: 'Цех № 1', title: 'СМОУК ПОРЯДОК', status: 'draft', signatureSlots: null,
+       shop: 'Цех № 1', title, status: 'draft', signatureSlots: null,
      }), 20000);
      if (!prog || !prog.ok) return { ok: false, reason: 'план не создан: ' + (prog?.error ?? 'нет ответа') };
      const saved = await call(() => window.matrica.productionProgram.saveRows({ id: prog.id, rows: rows.map((r, i) => ({ ...r, orderNo: i + 1 })) }), 20000);
      if (!saved || !saved.ok) return { ok: false, reason: 'строки не записаны: ' + (saved?.error ?? 'нет ответа') };
-     return { ok: true, contractId, programId: prog.id,
-              e1: { id: String(e1.id), number: String(e1.engineNumber ?? '') },
-              e2: { id: String(e2.id), number: String(e2.engineNumber ?? '') } };`,
+     return { ok: true, contractId, programId: prog.id, title,
+              e1: { id: String(e1.id), number: String(e1.engineNumber ?? e1.rmzCode ?? ''), label: label(e1) },
+              e2: { id: String(e2.id), number: String(e2.engineNumber ?? e2.rmzCode ?? ''), label: label(e2) } };`,
     180000,
   );
   note(fixture.ok, 'фикстура: договор, два движка и план с двумя строками', fixture);
   if (!fixture.ok) throw new Error(`фикстура: ${fixture.reason}`);
 
-  // 3. Открываем ПП и выбираем наш план.
+  // 3. Открываем ПП и выбираем наш план. План едет в реплику зеркалом (минута) —
+  //    ждём его, иначе плашки на экране ещё нет.
   const nav = await evaluate(
     ws,
     `const ok = await openSection('Производственная программа', 'Строки плана');
      if (!ok) return { ok: false, reason: 'раздел ПП не открылся' };
-     const tile = [...document.querySelectorAll('button')].filter(visible).find((b) => txt(b).includes('СМОУК ПОРЯДОК'));
-     if (!tile) return { ok: false, reason: 'плашка плана не найдена' };
-     click(tile); await wait(2500);
-     const rows = planRowsOnScreen();
-     return { ok: rows.length >= 2, rows };`,
-    90000,
+     for (let i = 0; i < 30; i++) {
+       const tile = [...document.querySelectorAll('button')].filter(visible).find((b) => txt(b).includes(${JSON.stringify(fixture.title)}));
+       if (tile) {
+         click(tile); await wait(2000);
+         // Строки плана приходят в реплику чуть позже шапки плана — ждём их.
+         for (let k = 0; k < 20; k++) {
+           const rows = planRowsOnScreen();
+           if (rows.length >= 2) return { ok: true, rows };
+           await wait(3000);
+         }
+         return { ok: false, reason: 'строки плана не доехали в реплику', rows: planRowsOnScreen() };
+       }
+       try { await call(() => window.matrica.sync.run(), 20000); } catch (e) {}
+       await wait(5000);
+     }
+     return { ok: false, reason: 'плашка плана не дождалась в реплике' };`,
+    240000,
   );
   note(nav.ok, 'ПП открыта, план выбран', nav);
   if (!nav.ok) throw new Error(`навигация: ${nav.reason}`);
@@ -256,6 +281,18 @@ async function main() {
   if (!numbers.ok) throw new Error('нумерации не видны');
   const firstEngine = numbers.rows[0]?.engine ?? '';
   const secondEngine = numbers.rows[1]?.engine ?? '';
+
+  // Кто именно стоял ВТОРЫМ до перетаскивания — берём с сервера (на экране у
+  // безномерного движка подпись пустая, по ней не опознать).
+  const beforeOrder = await evaluate(
+    ws,
+    `const fresh = await call(() => window.matrica.productionProgram.get(${JSON.stringify(fixture.programId)}), 20000);
+     if (!fresh || !fresh.ok) return { ok: false };
+     const lines = (fresh.lines ?? []).slice().sort((a, b) => Number(a.orderNo) - Number(b.orderNo));
+     return { ok: true, order: lines.map((l) => String(l.engineId ?? '')) };`,
+    60000,
+  );
+  const movedId = beforeOrder.order?.[1] ?? '';
 
   // 5. Перетаскиваем ВТОРУЮ строку на первую: порядок меняется, цифры едут за строками.
   const dragged = await evaluate(
@@ -288,6 +325,7 @@ async function main() {
     'цифры поехали за строками: первая строка — 1 и 1',
     { after: dragged.after },
   );
+  await shot(ws, '1-after-drag');
 
   // 6. Порядок записан на сервер (автосэйв после перетаскивания).
   const onServer = await evaluate(
@@ -298,15 +336,17 @@ async function main() {
        if (!fresh || !fresh.ok) continue;
        const lines = (fresh.lines ?? []).slice().sort((a, b) => Number(a.orderNo) - Number(b.orderNo));
        if (lines.length < 2) continue;
-       return { ok: true, order: lines.map((l) => String(l.engineNumber ?? '')), rows: lines.length };
+       return { ok: true, order: lines.map((l) => ({ engineId: String(l.engineId ?? ''), number: String(l.engineNumber ?? '') })), rows: lines.length };
      }
      return { ok: false, reason: 'порядок не доехал до сервера' };`,
     120000,
   );
+  // Перетаскивали строку, которая ДО перетаскивания была второй. Значит на сервере
+  // первой должна оказаться именно она.
   note(
-    onServer.ok && onServer.order?.[0] === fixture.e2.number,
+    onServer.ok && onServer.order?.[0]?.engineId === movedId,
     'новый порядок записан на сервер',
-    { serverOrder: onServer.order, movedToTop: fixture.e2.number },
+    { serverOrder: onServer.order, movedToTop: movedId },
   );
 
   // 7. Уборка: план снимаем, движки отвязываем, договор удаляем.

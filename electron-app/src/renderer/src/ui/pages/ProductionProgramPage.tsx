@@ -217,7 +217,7 @@ export function ProductionProgramPage(props: Props) {
    * номера п/п по позиции). Отказ сервера оставляем на экране: правка остаётся
    * «несохранённой», а ошибка называет виновную строку («строка 3: …»).
    */
-  const persist = useCallback(
+  const persistRows = useCallback(
     async (programId: string, payload: PendingSave): Promise<boolean> => {
       if (payload.header) {
         const h = payload.header;
@@ -269,6 +269,7 @@ export function ProductionProgramPage(props: Props) {
           note: l.note,
         })),
       ];
+      console.log('[PP-AUTOSAVE] persist program=', programId, 'sent=', sentRows.length, 'known=', known.size, 'foreign=', foreign.length);
       const res = await window.matrica.productionProgram.saveRows({
         id: programId,
         rows: sentRows.map((r, i) => ({
@@ -302,6 +303,24 @@ export function ProductionProgramPage(props: Props) {
       return true;
     },
     [markSaved],
+  );
+
+  /**
+   * Обёртка записи: обрыв связи (сервер недоступен, сеть легла) — это тоже
+   * нужно показать. Без неё исключение из моста глоталось, и оператор видел
+   * «Правка не сохранена» без причины — молчание вместо ответа.
+   */
+  const persist = useCallback(
+    async (programId: string, payload: PendingSave): Promise<boolean> => {
+      try {
+        return await persistRows(programId, payload);
+      } catch (e) {
+        setError(`Не удалось записать: ${String(e instanceof Error ? e.message : e)}`);
+        setStatus('');
+        return false;
+      }
+    },
+    [persistRows],
   );
 
   /**
