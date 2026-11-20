@@ -120,6 +120,24 @@ describe('одна полоса и общий процент', () => {
   });
 });
 
+describe('полоса не застревает', () => {
+  it('dev-сборка не оставляет стадию «checking» над рабочим экраном', () => {
+    // Симптом (20.11.2026, стенд): полоса «Матрица3-РМЗ (135) · 0% · оценка недоступна» висела
+    // поверх всех окон до конца сессии. Причина: dev-выход из флоу обновления стоял ПОСЛЕ стадии
+    // «Проверяем обновления…» — состояние «checking» уходило в главное окно, и его уже никто
+    // не снимал (в установленном клиенте ветка «uptodate» полосу гасит, а в dev — нет).
+    const flow = SERVICE.slice(SERVICE.indexOf('export async function runAutoUpdateFlow('));
+    const devExit = flow.indexOf('if (!app.isPackaged)');
+    const checking = flow.indexOf("await stageUpdate('Проверяем обновления…', 0);");
+    expect(devExit, 'dev-выход из флоу обновления должен быть').toBeGreaterThan(-1);
+    expect(checking, 'стадия «Проверяем обновления…» должна остаться в коде').toBeGreaterThan(-1);
+    expect(devExit, 'dev-выход должен быть ДО стадии checking — иначе полоса застревает на весь сеанс').toBeLessThan(
+      checking,
+    );
+    expect(flow, 'dev-выход обязан вернуть состояние в «покоя»').toContain("setUpdateState({ state: 'idle' });");
+  });
+});
+
 describe('оператор видит и решает', () => {
   it('модалки «сейчас или позже» больше нет — обновление приходит тихо', () => {
     expect(APP, 'модалка выскакивала посреди работы и пугала: будто программа сама перезагрузится').not.toContain('data-update-ready');
