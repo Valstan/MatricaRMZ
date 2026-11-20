@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   PRODUCTION_PROGRAM_PERIOD_LABELS,
@@ -65,6 +65,51 @@ type Props = {
 
 type DraftRow = ProductionProgramLineDraftDto & { id: string };
 
+/** Поля шапки программы, которые оператор правит на экране. */
+type ProgramHeaderFields = {
+  title: string;
+  shop: string;
+  periodStart: number;
+  periodEnd: number;
+  status: string;
+  signatureSlots: string | null;
+};
+
+/**
+ * Что уходит на сервер по программе. Часть = null — эту часть не трогаем:
+ * шапка и строки шлются отдельно, чтобы правка шапки не переписывала строки
+ * (замена набора — полная, и лишняя отправка строк сняла бы чужую строку).
+ */
+type PendingSave = {
+  rows: DraftRow[] | null;
+  header: ProgramHeaderFields | null;
+};
+
+/**
+ * Слепок значимых полей строки: по нему видно, что зеркало догнало нашу правку.
+ * Порядок (№ п/п) сюда не входит намеренно: чужое добавление двигателя сдвигает
+ * номера у нас, и по номеру мы бы ждали зеркала вечно.
+ */
+function rowContentSignature(row: {
+  id?: string | null;
+  groupLabel?: string | null;
+  engineId?: string | null;
+  state?: string | null;
+  shippingPlanAt?: number | null;
+  factors?: string | null;
+  note?: string | null;
+}): string {
+  return [
+    String(row.id ?? ''),
+    String(row.groupLabel ?? ''),
+    String(row.engineId ?? ''),
+    String(row.state ?? ''),
+    String(row.shippingPlanAt ?? ''),
+    String(row.factors ?? ''),
+    String(row.note ?? ''),
+  ].join('\u0001');
+}
+
 /** Строка плана на экране: снимок строки + живые данные карточки двигателя. */
 type ScreenRow = {
   row: DraftRow;
@@ -125,6 +170,177 @@ export function ProductionProgramPage(props: Props) {
   // реестр нельзя: это засоряет реестр и попадает под гейт дублей).
   const [employees, setEmployees] = useState<WorkOrderSignatureEmployee[]>([]);
 
+  // ── Правка плана: грязный экран, автосохранение и защита от отстающего зеркала ──
+  // Баг владельца 19.11.2026: двигатель, добавленный в производственную программу,
+  // пропадал через несколько секунд. Причина клиентская: строки жили только в
+  // памяти (автосохранения не было — писала только кнопка «Сохранить»), а живое
+  // обновление реплики (15 с) перечитывало её целиком и затирало несохранённое.
+  // Теперь: пока правка не уехала — реплика её не трогает, и она уезжает сама.
+  // Тот же гейт, что в карточке контракта (канон #1240).
+  /** Программы с несохранённой правкой — для явной пометки на экране. */
+  const [unsavedProgramIds, setUnsavedProgramIds] = useState<string[]>([]);
+  const unsavedRef = useRef<Set<string>>(new Set());
+  /** Что ушли на сервер и какие строки сняли — по этому ждём зеркало. */
+  const pendingSyncRef = useRef<Map<string, { sent: string[]; removedIds: string[] }>>(new Map());
+  /** Шапка, которую правят на экране: пока зеркало не догнало — держим свою. */
+  const headerOverrideRef = useRef<Map<string, ProgramHeaderFields>>(new Map());
+  /** Строки на экране — снимок для автосохранения. */
+  const rowsRef = useRef<DraftRow[]>([]);
+  /** Строки, которые мы правили, — по программе: переключение программ не теряет правку. */
+  const localRowsRef = useRef<Map<string, DraftRow[]>>(new Map());
+  /** Последняя реплика — по ней дополняем набор перед записью (чужую строку не снимаем). */
+  const linesRef = useRef<ProductionProgramLineDto[]>([]);
+  /** Отложенное автосохранение: программа → снимок строк и шапки. */
+  const pendingSaveRef = useRef<Map<string, PendingSave>>(new Map());
+  const autosaveTimerRef = useRef<number | null>(null);
+
+  /** Правка ещё не уехала на сервер — помечаем программу. */
+  const markUnsaved = useCallback((programId: string) => {
+    unsavedRef.current.add(programId);
+    setUnsavedProgramIds((prev) => (prev.includes(programId) ? prev : [...prev, programId]));
+  }, []);
+
+  /** Правка уехала — пометку снимаем. */
+  const markSaved = useCallback((programId: string) => {
+    unsavedRef.current.delete(programId);
+    setUnsavedProgramIds((prev) => prev.filter((id) => id !== programId));
+  }, []);
+
+  /**
+   * Запись программы: шапка (PATCH) и строки (полная замена набора).
+   * Единственная дверь записи строк — как чинили 10.11 (постоянные id строк,
+   * номера п/п по позиции). Отказ сервера оставляем на экране: правка остаётся
+   * «несохранённой», а ошибка называет виновную строку («строка 3: …»).
+   */
+  const persist = useCallback(
+    async (programId: string, payload: PendingSave): Promise<boolean> => {
+      if (payload.header) {
+        const h = payload.header;
+        const res = await window.matrica.productionProgram.update({
+          id: programId,
+          periodStart: h.periodStart,
+          periodEnd: h.periodEnd,
+          shop: h.shop,
+          title: h.title,
+          status: h.status,
+          signatureSlots: h.signatureSlots,
+        });
+        if (!res.ok) {
+          setError(res.error);
+          setStatus('');
+          return false;
+        }
+      }
+      if (!payload.rows) {
+        // Правлена только шапка — строки не трогаем (замена набора — полная).
+        setError('');
+        markSaved(programId);
+        setStatus('Сохранено. План приедет на этот компьютер при следующей синхронизации.');
+        return true;
+      }
+      // Замена набора — полная: сервер снимает строку, которой нет в наборе.
+      // Значит в набор надо положить и те строки, которых мы не знали, но которые
+      // уже есть в реплике (строку соседа с другого компьютера снимать нельзя).
+      // Снятые НАМИ строки при этом исключены — иначе они воскреснут.
+      const removed = pendingSyncRef.current.get(programId)?.removedIds ?? [];
+      const known = new Set(payload.rows.map((r) => String(r.id)));
+      const foreign = linesRef.current.filter(
+        (l) => l.programId === programId && !known.has(String(l.id)) && !removed.includes(String(l.id)),
+      );
+      const sentRows = [
+        ...payload.rows,
+        ...foreign.map((l) => ({
+          id: String(l.id),
+          orderNo: 0,
+          contractId: l.contractId,
+          groupLabel: l.groupLabel,
+          contractKind: l.contractKind,
+          engineId: l.engineId,
+          engineMark: l.engineMark,
+          engineNumber: l.engineNumber,
+          state: l.state,
+          shippingPlanAt: l.shippingPlanAt,
+          factors: l.factors,
+          note: l.note,
+        })),
+      ];
+      const res = await window.matrica.productionProgram.saveRows({
+        id: programId,
+        rows: sentRows.map((r, i) => ({
+          id: r.id,
+          orderNo: i + 1,
+          contractId: r.contractId ?? null,
+          groupLabel: r.groupLabel,
+          contractKind: r.contractKind ?? null,
+          engineId: r.engineId ?? null,
+          engineMark: r.engineMark ?? '',
+          engineNumber: r.engineNumber ?? '',
+          state: r.state ?? null,
+          shippingPlanAt: r.shippingPlanAt ?? null,
+          factors: r.factors ?? '',
+          note: r.note ?? '',
+        })),
+      });
+      if (!res.ok) {
+        setError(res.error);
+        setStatus('');
+        return false;
+      }
+      setError('');
+      markSaved(programId);
+      const pending = pendingSyncRef.current.get(programId) ?? { sent: [], removedIds: [] };
+      pendingSyncRef.current.set(programId, {
+        ...pending,
+        sent: payload.rows.map((r) => rowContentSignature(r)),
+      });
+      setStatus('Сохранено. План приедет на этот компьютер при следующей синхронизации.');
+      return true;
+    },
+    [markSaved],
+  );
+
+  /**
+   * Автосохранение: ушедшая правка не должна зависеть от кнопки «Сохранить» —
+   * «забыл нажать» больше не значит «потерял». Снимок берём на момент правки,
+   * поэтому переключение программы не съедает правку предыдущей.
+   */
+  const scheduleAutosave = useCallback(
+    (programId: string, payload: PendingSave) => {
+      if (!props.canEdit) return;
+      // Правки складываются: правка шапки не должна отменять ушедшие строки.
+      const pending = pendingSaveRef.current.get(programId) ?? { rows: null, header: null };
+      pendingSaveRef.current.set(programId, {
+        rows: payload.rows ?? pending.rows,
+        header: payload.header ?? pending.header,
+      });
+      if (autosaveTimerRef.current != null) window.clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = window.setTimeout(() => {
+        autosaveTimerRef.current = null;
+        const pendingSaves = [...pendingSaveRef.current.entries()];
+        pendingSaveRef.current.clear();
+        for (const [pid, snapshot] of pendingSaves) void persist(pid, snapshot);
+      }, 1200);
+    },
+    [props.canEdit, persist],
+  );
+
+  /**
+   * Правка строк на экране: обновляем снимок, помечаем программу и ставим
+   * автосохранение. Снимок для отправки — из текущего состояния строк.
+   */
+  const applyRows = useCallback(
+    (updater: (prev: DraftRow[]) => DraftRow[], programId: string | null) => {
+      if (!programId) return;
+      const next = updater(rowsRef.current);
+      rowsRef.current = next;
+      localRowsRef.current.set(programId, next);
+      setRows(next);
+      markUnsaved(programId);
+      scheduleAutosave(programId, { rows: next, header: null });
+    },
+    [markUnsaved, scheduleAutosave],
+  );
+
   const reload = useCallback(async () => {
     const res = await window.matrica.productionProgram.list();
     if (!res.ok) {
@@ -132,8 +348,28 @@ export function ProductionProgramPage(props: Props) {
       return;
     }
     setError('');
-    setPrograms(res.rows);
+    // Шапку, которую правят на экране, реплика не затирает: зеркало отстаёт на
+    // минуту, и без этого правка «Название/Цех/Период/Статус» исчезала бы сама.
+    setPrograms(
+      res.rows.map((p) => {
+        const override = headerOverrideRef.current.get(p.id);
+        if (!override) return p;
+        const mirrorCaughtUp =
+          p.title === override.title &&
+          p.shop === override.shop &&
+          p.periodStart === override.periodStart &&
+          p.periodEnd === override.periodEnd &&
+          p.status === override.status;
+        if (mirrorCaughtUp) {
+          // Зеркало показало нашу шапку — дальше реплика ведёт сама.
+          headerOverrideRef.current.delete(p.id);
+          return p;
+        }
+        return { ...p, ...override };
+      }),
+    );
     setLines(res.lines);
+    linesRef.current = res.lines;
     setSelectedId((prev) => prev ?? (res.rows[0]?.id ?? null));
   }, []);
 
@@ -198,27 +434,75 @@ export function ProductionProgramPage(props: Props) {
   useEffect(() => {
     if (!selectedId) {
       setRows([]);
+      rowsRef.current = [];
+      unsavedRef.current.clear();
+      setUnsavedProgramIds([]);
+      pendingSyncRef.current.clear();
       return;
     }
-    setRows(
-      lines
-        .filter((l) => l.programId === selectedId)
-        .map((l) => ({
-          id: l.id,
-          orderNo: l.orderNo,
-          contractId: l.contractId,
-          groupLabel: l.groupLabel,
-          contractKind: l.contractKind,
-          engineId: l.engineId,
-          engineMark: l.engineMark,
-          engineNumber: l.engineNumber,
-          state: l.state,
-          shippingPlanAt: l.shippingPlanAt,
-          factors: l.factors,
-          note: l.note,
-        })),
-    );
+    const replicaRows = lines.filter((l) => l.programId === selectedId);
+    const local = localRowsRef.current.get(selectedId);
+    // Правка не уехала на сервер — реплика её не трогает (канон #1240).
+    // Без этого гейта добавленный двигатель пропадал через 15 секунд.
+    if (unsavedRef.current.has(selectedId) && local) {
+      rowsRef.current = local;
+      setRows(local);
+      return;
+    }
+    // Зеркало программ публикуется раз в 60 с, а живое обновление приходит через
+    // 15 с: между сохранением и публикацией реплика отдаёт СТАРУЮ версию строк.
+    // Пока зеркало не догнало нашу правку — на экране держим свою.
+    const pending = pendingSyncRef.current.get(selectedId);
+    if (pending && local) {
+      const replicaIds = new Set(replicaRows.map((l) => String(l.id)));
+      // Зеркало догнало нашу правку — когда в реплике те же строки с теми же
+      // значениями (а не просто те же id: правку ячейки зеркало ещё не показало).
+      const mirrorCaughtUp = pending.sent.every((sig) => {
+        const id = sig.split('\u0001')[0] ?? '';
+        const row = replicaRows.find((l) => String(l.id) === id);
+        return !!row && rowContentSignature(row) === sig;
+      });
+      const removedStillInMirror = pending.removedIds.some((id) => replicaIds.has(id));
+      if (!mirrorCaughtUp || removedStillInMirror) {
+        rowsRef.current = local;
+        setRows(local);
+        return;
+      }
+      pendingSyncRef.current.delete(selectedId);
+    }
+    const next = replicaRows.map((l) => ({
+      id: l.id,
+      orderNo: l.orderNo,
+      contractId: l.contractId,
+      groupLabel: l.groupLabel,
+      contractKind: l.contractKind,
+      engineId: l.engineId,
+      engineMark: l.engineMark,
+      engineNumber: l.engineNumber,
+      state: l.state,
+      shippingPlanAt: l.shippingPlanAt,
+      factors: l.factors,
+      note: l.note,
+    }));
+    rowsRef.current = next;
+    localRowsRef.current.set(selectedId, next);
+    setRows(next);
   }, [lines, selectedId]);
+
+  // Уход со страницы не должен терять правку: отложенное автосохранение уходит
+  // сразу, а не ждёт таймер на размонтированной странице.
+  useEffect(() => {
+    // Ссылки берём здесь: между постановкой эффекта и размонтированием
+    // значение ref могло смениться (правило react-hooks/exhaustive-deps).
+    const pendingSaves = pendingSaveRef;
+    const timer = autosaveTimerRef;
+    return () => {
+      if (timer.current != null) window.clearTimeout(timer.current);
+      const pendingSavesNow = [...pendingSaves.current.entries()];
+      pendingSaves.current.clear();
+      for (const [pid, snapshot] of pendingSavesNow) void persist(pid, snapshot);
+    };
+  }, [persist]);
 
   const engineById = useMemo(() => new Map(props.engines.map((e) => [String(e.id), e])), [props.engines]);
 
@@ -330,8 +614,26 @@ export function ProductionProgramPage(props: Props) {
     return map;
   }, [programs, lines, props.engines]);
 
+  /**
+   * Правка шапки программы. Как и строки, шапка не должна пропадать сама:
+   * реплика отстаёт на минуту, поэтому своё значение держим до того, как
+   * зеркало его покажет (см. reload), и уходит оно само, без кнопки.
+   */
   const setHeader = (patch: Partial<ProductionProgramDto>) => {
+    if (!selectedId || !selected) return;
     setPrograms((prev) => prev.map((p) => (p.id === selectedId ? { ...p, ...patch } : p)));
+    const next = { ...selected, ...patch };
+    const header: ProgramHeaderFields = {
+      title: String(next.title ?? ''),
+      shop: String(next.shop ?? ''),
+      periodStart: Number(next.periodStart ?? 0),
+      periodEnd: Number(next.periodEnd ?? 0),
+      status: String(next.status ?? 'draft'),
+      signatureSlots: next.signatureSlots ?? null,
+    };
+    headerOverrideRef.current.set(selectedId, header);
+    markUnsaved(selectedId);
+    scheduleAutosave(selectedId, { rows: null, header });
   };
 
   /** Смена программы: вид периода — по её датам. */
@@ -340,6 +642,10 @@ export function ProductionProgramPage(props: Props) {
     setPeriodKindOverride(null);
     setPickerContract('');
     setPickerEngine('');
+    // Строки прежней программы не показываем под шапкой новой — сначала пусто,
+    // потом приедет содержимое выбранной программы (своё или из реплики).
+    setRows([]);
+    rowsRef.current = [];
   };
 
   const inferredPeriodKind = useMemo<ProductionProgramPeriodKind>(
@@ -403,41 +709,19 @@ export function ProductionProgramPage(props: Props) {
     setBusy(true);
     setError('');
     try {
-      const res = await window.matrica.productionProgram.update({
-        id: selected.id,
-        periodStart: selected.periodStart,
-        periodEnd: selected.periodEnd,
-        shop: selected.shop,
-        title: selected.title,
-        status: selected.status,
-        signatureSlots: selected.signatureSlots,
+      // Кнопка «Сохранить» — то же самое, что автосохранение, только сразу:
+      // шапка и строки уходят одной записью.
+      await persist(selected.id, {
+        rows: rowsRef.current,
+        header: {
+          title: String(selected.title ?? ''),
+          shop: String(selected.shop ?? ''),
+          periodStart: Number(selected.periodStart ?? 0),
+          periodEnd: Number(selected.periodEnd ?? 0),
+          status: String(selected.status ?? 'draft'),
+          signatureSlots: selected.signatureSlots ?? null,
+        },
       });
-      if (!res.ok) {
-        setError(res.error);
-        return;
-      }
-      const rowsRes = await window.matrica.productionProgram.saveRows({
-        id: selected.id,
-        rows: rows.map((r, i) => ({
-          id: r.id,
-          orderNo: i + 1,
-          contractId: r.contractId ?? null,
-          groupLabel: r.groupLabel,
-          contractKind: r.contractKind ?? null,
-          engineId: r.engineId ?? null,
-          engineMark: r.engineMark ?? '',
-          engineNumber: r.engineNumber ?? '',
-          state: r.state ?? null,
-          shippingPlanAt: r.shippingPlanAt ?? null,
-          factors: r.factors ?? '',
-          note: r.note ?? '',
-        })),
-      });
-      if (!rowsRes.ok) {
-        setError(rowsRes.error);
-        return;
-      }
-      setStatus('Сохранено. План приедет на этот компьютер при следующей синхронизации.');
     } finally {
       setBusy(false);
     }
@@ -459,6 +743,12 @@ export function ProductionProgramPage(props: Props) {
       setPrograms((prev) => prev.filter((p) => p.id !== programId));
       setLines((prev) => prev.filter((l) => l.programId !== programId));
       setSelectedId((prev) => (prev === programId ? null : prev));
+      // Снятая программа — её несохранённая правка больше не нужна.
+      unsavedRef.current.delete(programId);
+      setUnsavedProgramIds((prev) => prev.filter((id) => id !== programId));
+      pendingSyncRef.current.delete(programId);
+      headerOverrideRef.current.delete(programId);
+      localRowsRef.current.delete(programId);
       setStatus('Программа снята. Правка дойдёт до остальных компьютеров при синхронизации.');
     } finally {
       setBusy(false);
@@ -499,26 +789,26 @@ export function ProductionProgramPage(props: Props) {
       );
       return;
     }
-    setRows((prev) => [
-      ...prev,
-      {
-        // Постоянный id строки: пока id был черновым («draft-…»), сервер на каждое
-        // сохранение заводил новый uuid и снимал старый — журнал увозил пару
-        // «удалить + вставить», и двигатель на время ПРОПАДАЛ из плана.
-        id: crypto.randomUUID(),
-        orderNo: prev.length + 1,
-        contractId: contractId || null,
-        groupLabel,
-        contractKind: kind,
-        engineId: String(engine.id),
-        engineMark: String(engine.engineBrand ?? ''),
-        engineNumber: String(engine.engineNumber ?? ''),
-        state: suggested[0] ?? null,
-        shippingPlanAt: null,
-        factors: '',
-        note: '',
-      },
-    ]);
+    // Постоянный id строки: пока id был черновым («draft-…»), сервер на каждое
+    // сохранение заводил новый uuid и снимал старый — журнал увозил пару
+    // «удалить + вставить», и двигатель на время ПРОПАДАЛ из плана.
+    const newRow: DraftRow = {
+      id: crypto.randomUUID(),
+      orderNo: rowsRef.current.length + 1,
+      contractId: contractId || null,
+      groupLabel,
+      contractKind: kind,
+      engineId: String(engine.id),
+      engineMark: String(engine.engineBrand ?? ''),
+      engineNumber: String(engine.engineNumber ?? ''),
+      state: suggested[0] ?? null,
+      shippingPlanAt: null,
+      factors: '',
+      note: '',
+    };
+    // Строка уходит на сервер сама (автосохранение) и до этого не пропадает:
+    // живое обновление реплики не трогает несохранённое (баг 19.11.2026).
+    applyRows((prev) => [...prev, newRow], selectedId);
     setPickerEngine('');
   }
 
@@ -657,6 +947,13 @@ export function ProductionProgramPage(props: Props) {
         ) : null}
         {status ? (
           <div style={{ color: 'var(--subtle)', fontSize: 12 }}>{status}</div>
+        ) : null}
+        {/* Правка, которая ещё не уехала, видна оператору: молчание здесь — это
+            потеря работы (баг 19.11.2026 — двигатель пропадал из плана). */}
+        {selectedId && unsavedProgramIds.includes(selectedId) ? (
+          <div style={{ color: 'var(--danger)', fontSize: 12 }}>
+            Правка не сохранена — уходит на сервер сама. Если не уходит — смотрите ошибку выше.
+          </div>
         ) : null}
         {!selected ? (
           <SectionCard title="Программа">
@@ -883,8 +1180,10 @@ export function ProductionProgramPage(props: Props) {
                                   value={r.state ?? ''}
                                   disabled={!props.canEdit}
                                   onChange={(e) =>
-                                    setRows((prev) =>
-                                      prev.map((x) => (x.id === r.id ? { ...x, state: e.target.value || null } : x)),
+                                    applyRows(
+                                      (prev) =>
+                                        prev.map((x) => (x.id === r.id ? { ...x, state: e.target.value || null } : x)),
+                                      selectedId,
                                     )
                                   }
                                   style={{ padding: '2px 4px' }}
@@ -904,8 +1203,10 @@ export function ProductionProgramPage(props: Props) {
                                   disabled={!props.canEdit}
                                   onChange={(e) => {
                                     const next = parseIsoDate(String(e.target.value ?? ''));
-                                    setRows((prev) =>
-                                      prev.map((x) => (x.id === r.id ? { ...x, shippingPlanAt: next } : x)),
+                                    applyRows(
+                                      (prev) =>
+                                        prev.map((x) => (x.id === r.id ? { ...x, shippingPlanAt: next } : x)),
+                                      selectedId,
                                     );
                                   }}
                                 />
@@ -915,8 +1216,10 @@ export function ProductionProgramPage(props: Props) {
                                   value={r.factors ?? ''}
                                   disabled={!props.canEdit}
                                   onChange={(e) =>
-                                    setRows((prev) =>
-                                      prev.map((x) => (x.id === r.id ? { ...x, factors: e.target.value } : x)),
+                                    applyRows(
+                                      (prev) =>
+                                        prev.map((x) => (x.id === r.id ? { ...x, factors: e.target.value } : x)),
+                                      selectedId,
                                     )
                                   }
                                   style={{ padding: '2px 4px', width: 180 }}
@@ -927,8 +1230,9 @@ export function ProductionProgramPage(props: Props) {
                                   value={r.note ?? ''}
                                   disabled={!props.canEdit}
                                   onChange={(e) =>
-                                    setRows((prev) =>
-                                      prev.map((x) => (x.id === r.id ? { ...x, note: e.target.value } : x)),
+                                    applyRows(
+                                      (prev) => prev.map((x) => (x.id === r.id ? { ...x, note: e.target.value } : x)),
+                                      selectedId,
                                     )
                                   }
                                   style={{ padding: '2px 4px', width: 160 }}
@@ -938,7 +1242,21 @@ export function ProductionProgramPage(props: Props) {
                                 <td>
                                   <button
                                     type="button"
-                                    onClick={() => setRows((prev) => prev.filter((x) => x.id !== r.id))}
+                                    onClick={() => {
+                                      // Снятая строка: пока зеркало её не отпустило,
+                                      // зеркало считается старым и не перетирает наш вид.
+                                      if (selectedId) {
+                                        const pending = pendingSyncRef.current.get(selectedId) ?? {
+                                          sent: [],
+                                          removedIds: [],
+                                        };
+                                        pendingSyncRef.current.set(selectedId, {
+                                          ...pending,
+                                          removedIds: [...pending.removedIds, r.id],
+                                        });
+                                      }
+                                      applyRows((prev) => prev.filter((x) => x.id !== r.id), selectedId);
+                                    }}
                                     title="Убрать строку из плана"
                                     style={{
                                       border: 'none',
