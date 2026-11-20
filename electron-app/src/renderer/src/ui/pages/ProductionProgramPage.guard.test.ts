@@ -187,3 +187,55 @@ describe('производственная программа — правка �
     expect(PAGE).toContain('!known.has(String(l.id)) && !removed.includes(String(l.id))');
   });
 });
+
+/**
+ * Порядок в производственной программе (промты КАРМАНА #48 + #49): перетаскивание
+ * двигателей и групп, две нумерации, тон строки по факту из карточки.
+ *
+ * Скрепы держат три вещи, которые молча ломаются:
+ *  1. порядок групп — по строкам (как в печати), а не по названию договора:
+ *     иначе экран и печать показывают разный порядок и перетащить группу некуда;
+ *  2. обе нумерации считаются по позиции (домен `productionProgramNumbering`),
+ *     а не берутся из сохранённого `orderNo`;
+ *  3. перетаскивание — только тем же путём записи (`applyRows` → `saveRows`).
+ */
+describe('порядок в производственной программе', () => {
+  it('группы идут в порядке строк, а не по названию договора', () => {
+    expect(PAGE, 'сортировка групп по названию возвращает экран к прежнему виду').not.toContain(
+      'a.label.localeCompare(b.label',
+    );
+    expect(PAGE).toContain('return [...byKey.values()];');
+  });
+
+  it('две нумерации — общая и внутри договора, по позиции', () => {
+    expect(PAGE).toContain('productionProgramNumbering(rows)');
+    expect(PAGE).toContain('<th title="Сквозной номер по программе">№ п/п</th>');
+    expect(PAGE).toContain('<th title="Номер двигателя внутри своего договора">№ в договоре</th>');
+    expect(PAGE).toContain('num?.global ??');
+    expect(PAGE).toContain('num?.inContract ??');
+  });
+
+  it('перетаскивание: двигатель — в пределах договора, группа — целиком', () => {
+    expect(PAGE).toContain('productionProgramMoveRowWithinGroup(rowsRef.current, drag.key, targetRowId)');
+    expect(PAGE).toContain('productionProgramMoveGroup(rowsRef.current, drag.key, targetGroupKey)');
+    expect(PAGE).toContain("kind: 'row'");
+    expect(PAGE).toContain("kind: 'group'");
+  });
+
+  it('после перетаскивания правка уходит той же дверью записи', () => {
+    expect(PAGE, 'перетаскивание — это правка строк, значит тот же applyRows').toContain(
+      'applyRows(() => next, selectedId);',
+    );
+  });
+
+  it('тон строки — доменное правило по факту из карточки', () => {
+    expect(PAGE).toContain('productionProgramRowTone(engine)');
+    expect(PAGE).toContain('style={tone.background ? { background: tone.background } : undefined}');
+  });
+
+  it('печатная форма остаётся по образцу: семь колонок, вторая нумерация — на экране', () => {
+    expect(PRINT_HTML, 'форма ПП — документ с фиксированными колонками образца').not.toContain(
+      '№ в договоре',
+    );
+  });
+});
