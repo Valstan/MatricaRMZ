@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { normalizeLookupCompact, validateEngineReclamationQueue } from '@matricarmz/shared';
+import { normalizeLookupCompact, parseContractSections, validateEngineReclamationQueue } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { Input } from './Input.js';
 import { SectionCard } from './SectionCard.js';
-import { SearchSelect } from './SearchSelect.js';
+import { SearchSelect, type SearchSelectOption } from './SearchSelect.js';
+import { EntityReferenceField } from './EntityReferenceField.js';
 import { UnifiedDateInput } from './UnifiedDateInput.js';
 import { AutoGrowTextarea } from './AutoGrowTextarea.js';
 import { insertTextAtSelection } from '../utils/insertText.js';
@@ -32,6 +33,10 @@ export type ReclamationDraft = {
   id: string | null;
   /** Номер в очереди: 1, 2, 3 … */
   queueNo: number;
+  /** Договор ЗАЕЗДА — свой у каждого заезда (владелец 19.11.2026). */
+  contractId: string;
+  /** Контрагент заезда (заказчик/поставщик) — запасной путь, если договора нет. */
+  customerId: string;
   acceptedDate: string;
   defectDescription: string;
   actualDefect: string;
@@ -46,6 +51,8 @@ function emptyDraft(queueNo: number): ReclamationDraft {
   return {
     id: null,
     queueNo,
+    contractId: '',
+    customerId: '',
     acceptedDate: '',
     defectDescription: '',
     actualDefect: '',
@@ -62,6 +69,8 @@ function toDraft(row: {
   queueNo: number;
   acceptedAt: number | null;
   shippedAt: number | null;
+  contractId: string | null;
+  customerId: string | null;
   customerReason: string | null;
   actualDefect: string | null;
   defectNature: string | null;
@@ -78,6 +87,8 @@ function toDraft(row: {
   return {
     id: row.id,
     queueNo: row.queueNo,
+    contractId: row.contractId ?? '',
+    customerId: row.customerId ?? '',
     acceptedDate: iso(row.acceptedAt),
     defectDescription: row.customerReason ?? '',
     actualDefect: row.actualDefect ?? '',
@@ -130,6 +141,13 @@ export function EngineReclamationTab(props: {
   natureOptions: string[];
   onNotice: (text: string) => void;
   attachmentsSlot: React.ReactNode;
+  /** Справочник договоров — выбор договора ЗАЕЗДА (свой у каждого заезда). */
+  contractOptions?: SearchSelectOption[];
+  /** Справочник контрагентов — выбор заказчика/поставщика заезда. */
+  customerOptions?: SearchSelectOption[];
+  /** Открыть карточку договора / контрагента из поля заезда. */
+  onOpenContract?: (contractId: string) => void;
+  onOpenCounterparty?: (counterpartyId: string) => void;
   /** Ручка вкладки для карточки двигателя (см. EngineReclamationTabHandle). */
   registerHandle?: (handle: EngineReclamationTabHandle | null) => void;
 }) {
@@ -161,6 +179,34 @@ export function EngineReclamationTab(props: {
    */
   const [knownIds, setKnownIds] = useState<string[]>([]);
 
+  /**
+   * Заказчик заезда — из ЕГО договора (тот же закон, что у карточки двигателя:
+   * договор → контрагент, поле строки — запасной путь). Читаем договор один раз
+   * на заезд: их у движка единицы, а правило должно быть одно на всю программу.
+   */
+  const resolveCustomerByContract = useCallback(async (rows: ReclamationDraft[]): Promise<ReclamationDraft[]> => {
+    const ids = Array.from(new Set(rows.map((r) => r.contractId).filter((v): v is string => !!v)));
+    if (ids.length === 0) return rows;
+    const resolved: Record<string, string> = {};
+    await Promise.all(
+      ids.map(async (id) => {
+        try {
+          const contract = await window.matrica.admin.entities.get(id);
+          const attrs = ((contract as { attributes?: Record<string, unknown> } | null)?.attributes ?? {}) as Record<string, unknown>;
+          const sections = parseContractSections(attrs);
+          const customerId = String(sections.primary.customerId ?? attrs.customer_id ?? '').trim();
+          if (customerId) resolved[id] = customerId;
+        } catch {
+          /* нет доступа к справочнику — останется как записано */
+        }
+      }),
+    );
+    return rows.map((r) => {
+      const fromContract = r.contractId ? resolved[r.contractId] : undefined;
+      return fromContract ? { ...r, customerId: fromContract } : r;
+    });
+  }, []);
+
   const load = useCallback(async () => {
     if (!props.engineId) return;
     setLoading(true);
@@ -170,7 +216,7 @@ export function EngineReclamationTab(props: {
         setError(res.error);
         return;
       }
-      const rows = res.rows.map(toDraft);
+      const rows = await resolveCustomerByContract(res.rows.map(toDraft));
       setQueue(rows);
       setDirty(false);
       setQueueSource(res.source ?? 'replica');
@@ -179,7 +225,7 @@ export function EngineReclamationTab(props: {
     } finally {
       setLoading(false);
     }
-  }, [props.engineId]);
+  }, [props.engineId, resolveCustomerByContract]);
 
   useEffect(() => {
     // Перечитываем реплику только если правок нет: иначе уход на другую вкладку
@@ -203,6 +249,31 @@ export function EngineReclamationTab(props: {
     setDirty(true);
     setSavedLocally(false);
     setQueue((prev) => prev.map((q) => (q.queueNo === selectedQueueNo ? { ...q, ...patch } : q)));
+  };
+
+  /**
+   * Выбор договора заезда — контрагент подтягивается из него же.
+   *
+   * Контрагент в заезде живой строкой, а не копией: договор знает своего контрагента,
+   * и заезд берёт его оттуда. Правило одно на всю программу (карточка двигателя —
+   * так же), иначе у заезда появился бы второй заказчик.
+   */
+  const pickContract = async (contractId: string | null) => {
+    const id = String(contractId ?? '').trim();
+    if (!id) {
+      patchSelected({ contractId: '' });
+      return;
+    }
+    let customerId = '';
+    try {
+      const contract = await window.matrica.admin.entities.get(id);
+      const attrs = ((contract as { attributes?: Record<string, unknown> } | null)?.attributes ?? {}) as Record<string, unknown>;
+      const sections = parseContractSections(attrs);
+      customerId = String(sections.primary.customerId ?? attrs.customer_id ?? '').trim();
+    } catch {
+      /* договор не прочитался — контрагент останется прежним */
+    }
+    patchSelected({ contractId: id, customerId });
   };
 
   const addReclamation = () => {
@@ -274,6 +345,8 @@ export function EngineReclamationTab(props: {
           queueNo: q.queueNo,
           acceptedAt: fromIsoDate(q.acceptedDate),
           shippedAt: fromIsoDate(q.shippedDate),
+          contractId: q.contractId || null,
+          customerId: q.customerId || null,
           customerReason: q.defectDescription || null,
           actualDefect: q.actualDefect || null,
           defectNature: q.defectNature || null,
@@ -565,6 +638,39 @@ export function EngineReclamationTab(props: {
           ) : (
             <>
               <div style={{ fontWeight: 700, fontSize: 14 }}>Рекламация №{selected.queueNo}</div>
+
+              {row(
+                'Договор заезда',
+                <EntityReferenceField
+                  target="contract"
+                  targetLabel="Договор заезда"
+                  value={selected.contractId || null}
+                  options={props.contractOptions ?? []}
+                  disabled={!canEdit}
+                  onChange={(next) => void pickContract(next)}
+                  {...(props.onOpenContract ? { onOpen: props.onOpenContract } : {})}
+                />,
+              )}
+
+              {row(
+                'Контрагент (заказчик)',
+                <EntityReferenceField
+                  target="customer"
+                  targetLabel="Контрагент заезда"
+                  value={selected.customerId || null}
+                  options={props.customerOptions ?? []}
+                  disabled={!canEdit || !!selected.contractId}
+                  onChange={(next) => patchSelected({ customerId: next ?? '' })}
+                  {...(props.onOpenCounterparty ? { onOpen: props.onOpenCounterparty } : {})}
+                />,
+              )}
+
+              <div className="ui-muted" style={{ fontSize: 11 }}>
+                {selected.contractId
+                  ? 'Контрагент взят из договора заезда — так же, как в карточке двигателя.'
+                  : 'Договора нет — контрагент заезда указывается здесь. Заезд без договора и без контрагента — норма, но в истории заездов он будет без заказчика.'}
+              </div>
+
               {row(
                 'Дата приёмки по рекламации',
                 dateInput(
