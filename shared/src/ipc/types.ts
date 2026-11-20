@@ -3241,6 +3241,14 @@ export type MatricaApi = {
     list: () => Promise<
       { ok: true; rows: ProductionProgramDto[]; lines: ProductionProgramLineDto[] } | { ok: false; error: string }
     >;
+    /**
+     * План со строками С СЕРВЕРА. Реплика отстаёт на минуту, а замена набора строк
+     * на сервере — полная: собирать набор по реплике значит снести чужую строку.
+     */
+    get: (id: string) => Promise<
+      | { ok: true; row: ProductionProgramDto; lines: ProductionProgramLineDto[] }
+      | { ok: false; error: string }
+    >;
     create: (args: ProductionProgramSaveDto) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     update: (args: ProductionProgramSaveDto & { id: string }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     saveRows: (args: { id: string; rows: ProductionProgramLineDraftDto[] }) => Promise<

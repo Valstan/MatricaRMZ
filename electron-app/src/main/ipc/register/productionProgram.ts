@@ -126,6 +126,23 @@ export function registerProductionProgramIpc(ctx: IpcContext) {
   );
 
   ipcMain.handle(
+    'productionProgram:get',
+    async (
+      _e,
+      id: string,
+    ): Promise<Result<{ row: ProductionProgramDto; lines: ProductionProgramLineDto[] }>> => {
+      // Чтение плана С СЕРВЕРА, а не из реплики: зеркало программ публикуется раз
+      // в минуту, а замена набора строк на сервере — полная. Собирать набор по
+      // устаревшей реплике значит снести строку, добавленную другим оператором.
+      return toResult(
+        await httpAuthed(ctx.sysDb, base(), `/production-program/${encodeURIComponent(String(id ?? ''))}`, {
+          method: 'GET',
+        }),
+      );
+    },
+  );
+
+  ipcMain.handle(
     'productionProgram:create',
     async (
       _e,

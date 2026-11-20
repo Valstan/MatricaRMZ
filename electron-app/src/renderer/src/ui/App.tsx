@@ -6026,6 +6026,7 @@ export function App() {
             }}
             canCreate={caps.canEditEngines}
             canViewMasterData={caps.canViewMasterData}
+            canEditProductionProgram={caps.canEditProductionProgram}
             onNotify={notifyOperator}
             {...(caps.canCreateWorkOrders
               ? {
