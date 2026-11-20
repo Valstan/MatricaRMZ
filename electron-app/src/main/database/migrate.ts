@@ -689,6 +689,8 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
       shipped_at integer,
       contract_id text,
       customer_id text,
+      arrival_invoice text,
+      shipment_invoice text,
       customer_reason text,
       actual_defect text,
       defect_nature text,
@@ -1240,6 +1242,10 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     const cols = columnNames('erp_engine_reclamations');
     if (!cols.has('contract_id')) sqlite.exec(`ALTER TABLE erp_engine_reclamations ADD COLUMN contract_id text;`);
     if (!cols.has('customer_id')) sqlite.exec(`ALTER TABLE erp_engine_reclamations ADD COLUMN customer_id text;`);
+    // Накладные заезда (миграция сервера 0137): номер накладной прихода и отгрузки —
+    // по заезду, а не по карточке.
+    if (!cols.has('arrival_invoice')) sqlite.exec(`ALTER TABLE erp_engine_reclamations ADD COLUMN arrival_invoice text;`);
+    if (!cols.has('shipment_invoice')) sqlite.exec(`ALTER TABLE erp_engine_reclamations ADD COLUMN shipment_invoice text;`);
   }
 
   // erp_nomenclature.directory_kind / directory_ref_id — добавлены через clientSchemaMigrations 7->8.

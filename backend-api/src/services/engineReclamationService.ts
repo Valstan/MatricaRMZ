@@ -34,6 +34,10 @@ export type EngineReclamationRow = {
   contractId: string | null;
   /** Контрагент заезда (заказчик/поставщик) — запасной путь, если договора нет. */
   customerId: string | null;
+  /** Накладная прихода по заезду (номер). */
+  arrivalInvoice: string | null;
+  /** Накладная отгрузки по заезду (номер). */
+  shipmentInvoice: string | null;
   customerReason: string | null;
   actualDefect: string | null;
   defectNature: string | null;
@@ -52,6 +56,8 @@ export type EngineReclamationDraft = {
   shippedAt?: number | null | undefined;
   contractId?: string | null | undefined;
   customerId?: string | null | undefined;
+  arrivalInvoice?: string | null | undefined;
+  shipmentInvoice?: string | null | undefined;
   customerReason?: string | null | undefined;
   actualDefect?: string | null | undefined;
   defectNature?: string | null | undefined;
@@ -75,6 +81,8 @@ function mapRow(r: typeof erpEngineReclamations.$inferSelect): EngineReclamation
     shippedAt: r.shippedAt == null ? null : Number(r.shippedAt),
     contractId: r.contractId == null ? null : String(r.contractId),
     customerId: r.customerId == null ? null : String(r.customerId),
+    arrivalInvoice: r.arrivalInvoice == null ? null : String(r.arrivalInvoice),
+    shipmentInvoice: r.shipmentInvoice == null ? null : String(r.shipmentInvoice),
     customerReason: r.customerReason == null ? null : String(r.customerReason),
     actualDefect: r.actualDefect == null ? null : String(r.actualDefect),
     defectNature: r.defectNature == null ? null : String(r.defectNature),
@@ -207,6 +215,8 @@ export async function replaceEngineReclamations(
     shippedAt: number | null;
     contractId: string | null;
     customerId: string | null;
+    arrivalInvoice: string | null;
+    shipmentInvoice: string | null;
     customerReason: string | null;
     actualDefect: string | null;
     defectNature: string | null;
@@ -229,6 +239,10 @@ export async function replaceEngineReclamations(
     if (!contractId.ok) return contractId;
     const customerId = optionalUuid(raw.customerId, `рекламация ${i + 1}: контрагент`);
     if (!customerId.ok) return customerId;
+    const arrivalInvoice = optionalText(raw.arrivalInvoice, 200, `рекламация ${i + 1}: накладная прихода`);
+    if (!arrivalInvoice.ok) return arrivalInvoice;
+    const shipmentInvoice = optionalText(raw.shipmentInvoice, 200, `рекламация ${i + 1}: накладная отгрузки`);
+    if (!shipmentInvoice.ok) return shipmentInvoice;
     const customerReason = optionalText(raw.customerReason, 4000, `рекламация ${i + 1}: описание дефекта`);
     if (!customerReason.ok) return customerReason;
     const actualDefect = optionalText(raw.actualDefect, 4000, `рекламация ${i + 1}: фактический дефект`);
@@ -249,6 +263,8 @@ export async function replaceEngineReclamations(
       shippedAt: shippedAt.value,
       contractId: contractId.value,
       customerId: customerId.value,
+      arrivalInvoice: arrivalInvoice.value,
+      shipmentInvoice: shipmentInvoice.value,
       customerReason: customerReason.value,
       actualDefect: actualDefect.value,
       defectNature: defectNature.value,
@@ -308,6 +324,8 @@ export async function replaceEngineReclamations(
       shippedAt: row.shippedAt,
       contractId: row.contractId,
       customerId: row.customerId,
+      arrivalInvoice: row.arrivalInvoice,
+      shipmentInvoice: row.shipmentInvoice,
       customerReason: row.customerReason,
       actualDefect: row.actualDefect,
       defectNature: row.defectNature,

@@ -655,6 +655,8 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
       shipped_at integer,
       contract_id text,
       customer_id text,
+      arrival_invoice text,
+      shipment_invoice text,
       customer_reason text,
       actual_defect text,
       defect_nature text,
@@ -994,6 +996,14 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     }
     if (!cols.has('customer_id')) {
       await sqlite.exec(`ALTER TABLE erp_engine_reclamations ADD COLUMN customer_id text;`);
+    }
+    // Накладные заезда (миграция сервера 0137): номер накладной прихода и отгрузки —
+    // по заезду, а не по карточке.
+    if (!cols.has('arrival_invoice')) {
+      await sqlite.exec(`ALTER TABLE erp_engine_reclamations ADD COLUMN arrival_invoice text;`);
+    }
+    if (!cols.has('shipment_invoice')) {
+      await sqlite.exec(`ALTER TABLE erp_engine_reclamations ADD COLUMN shipment_invoice text;`);
     }
   }
 

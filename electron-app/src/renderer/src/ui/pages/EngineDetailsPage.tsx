@@ -3265,6 +3265,8 @@ export function EngineDetailsPage(props: {
             mainShippingDate={statusDates.status_customer_sent ?? null}
             mainContractId={String(props.engine.attributes?.contract_id ?? '')}
             mainCustomerId={String(props.engine.attributes?.customer_id ?? '')}
+            mainArrivalInvoice={String(props.engine.attributes?.arrival_invoice ?? '')}
+            mainShipmentInvoice={String(props.engine.attributes?.shipment_invoice ?? '')}
             siblings={arrivalGroup?.siblings ?? []}
             contractOptions={linkLists.contract_id ?? []}
             customerOptions={linkLists.customer_id ?? []}

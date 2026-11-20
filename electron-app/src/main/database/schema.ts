@@ -877,6 +877,10 @@ export const erpEngineReclamations = sqliteTable('erp_engine_reclamations', {
   contractId: text('contract_id'),
   /** Контрагент заезда (заказчик/поставщик) — запасной путь, если договора нет. */
   customerId: text('customer_id'),
+  /** Накладная прихода по заезду (номер). */
+  arrivalInvoice: text('arrival_invoice'),
+  /** Накладная отгрузки по заезду (номер). */
+  shipmentInvoice: text('shipment_invoice'),
   customerReason: text('customer_reason'),
   actualDefect: text('actual_defect'),
   defectNature: text('defect_nature'),

@@ -2,8 +2,12 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   buildEngineVisits,
+  engineVisitPayments,
+  formatKopMoney,
+  parseContractPayments,
   parseContractSections,
   resolveEngineVisitCustomer,
+  type ContractPayments,
   type EngineReclamationDto,
 } from '@matricarmz/shared';
 
@@ -18,11 +22,17 @@ import { formatMoscowDate } from '../utils/dateUtils.js';
  * поэтому по каждому заезду это заполняется отдельно».
  *
  * Что в ленте:
- *  · **основной цикл** карточки — приход, отправка, договор и контрагент с карточки;
- *  · **рекламации** карточки — свои даты, свой дефект и акт, СВОЙ договор и контрагент
- *    (движок мог вернуться по рекламации уже по другому договору);
- *  · **старые заезды** — карточки с тем же номером: другой заезд того же двигателя виден
- *    тут же, а не в другом списке.
+ *  · **основной цикл** карточки — приход, отправка, договор и контрагент с карточки,
+ *    накладные с карточки;
+ *  · **рекламации** карточки — свои даты, свой дефект и акт, СВОЙ договор, контрагент
+ *    и накладные (движок мог вернуться по рекламации уже по другому договору);
+ *  · **старые заезды** — карточки с тем же номером, помеченные как архивные: другой
+ *    заезд того же двигателя виден тут же, а не в другом списке.
+ *
+ * Владелец 20.11.2026 (дополнение к объёму): «ну ладно история ремонта она вобще
+ * отдельно идет во вкладке история ремонта, но тут хотя бы знать когда приехал в тот
+ * заезд когда уехал какой номер накладных был, сколько по контракту наверно там
+ * оплачено было». Поэтому в строке заезда — ещё и накладные и оплаты по его договору.
  *
  * Разделение «текущее / вся история»: карточка («Основное») — это текущая информация,
  * здесь — вся история по движениям. Старые даты в текущие поля карточки не подставляются.
@@ -40,6 +50,9 @@ export type EngineArrivalsTabProps = {
   mainShippingDate?: number | null;
   mainContractId?: string | null;
   mainCustomerId?: string | null;
+  /** Накладные основного цикла — с карточки (у рекламации свои, в строке заезда). */
+  mainArrivalInvoice?: string | null;
+  mainShipmentInvoice?: string | null;
   /**
    * Старые заезды — карточки с тем же номером. Список приходит из подсказки о дублях
    * карточки (`dupMatches.exact`): второй запрос по парку не делается.
@@ -68,7 +81,15 @@ type SiblingVisit = {
   shippingDate: number | null;
   contractId: string | null;
   customerId: string | null;
+  arrivalInvoice: string | null;
+  shipmentInvoice: string | null;
   roleLabel: string | null;
+};
+
+/** Договор заезда: контрагент (из договора) и платежи по нему. */
+type ContractInfo = {
+  customerId: string;
+  payments: ContractPayments | null;
 };
 
 type ArrivalRow = {
@@ -80,6 +101,8 @@ type ArrivalRow = {
   shippingDate: number | null;
   contractId: string | null;
   customerId: string | null;
+  arrivalInvoice: string | null;
+  shipmentInvoice: string | null;
   /** Дефект по заезду (рекламация) — для истории. */
   defect: string | null;
   /** Номер акта исследования (рекламация). */
@@ -110,8 +133,8 @@ function dateLabel(ms: number | null): string {
 export function EngineArrivalsTab(props: EngineArrivalsTabProps) {
   const [reclamations, setReclamations] = useState<EngineReclamationDto[]>([]);
   const [siblings, setSiblings] = useState<SiblingVisit[]>([]);
-  /** Контрагент каждого договора — договор → контрагент (правило «заказчик из договора»). */
-  const [contractCustomers, setContractCustomers] = useState<Record<string, string>>({});
+  /** Договоры заездов: контрагент (из договора) и платежи по нему. */
+  const [contractInfo, setContractInfo] = useState<Record<string, ContractInfo>>({});
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -128,7 +151,7 @@ export function EngineArrivalsTab(props: EngineArrivalsTabProps) {
     } catch (e) {
       setStatus(`Ошибка: ${String(e)}`);
     }
-    // Старые заезды: карточку читаем по одной — из неё нужны её договор, контрагент и
+    // Старые заезды: карточку читаем по одной — из неё нужны её договор, накладные и
     // дата отправки. Нет доступа к справочнику — заезд просто покажется беднее.
     const list = props.siblings ?? [];
     try {
@@ -145,6 +168,8 @@ export function EngineArrivalsTab(props: EngineArrivalsTabProps) {
             shippingDate: toMs(attrs.status_customer_sent_date),
             contractId: toId(attrs.contract_id),
             customerId: toId(attrs.customer_id),
+            arrivalInvoice: toId(attrs.arrival_invoice),
+            shipmentInvoice: toId(attrs.shipment_invoice),
             roleLabel: candidate.roleLabel ?? null,
           });
         }),
@@ -171,12 +196,22 @@ export function EngineArrivalsTab(props: EngineArrivalsTabProps) {
         mainShippingDate: props.mainShippingDate ?? null,
         mainContractId: props.mainContractId ?? null,
         mainCustomerId: props.mainCustomerId ?? null,
+        mainArrivalInvoice: props.mainArrivalInvoice ?? null,
+        mainShipmentInvoice: props.mainShipmentInvoice ?? null,
         reclamations,
       }),
-    [props.mainArrivalDate, props.mainShippingDate, props.mainContractId, props.mainCustomerId, reclamations],
+    [
+      props.mainArrivalDate,
+      props.mainShippingDate,
+      props.mainContractId,
+      props.mainCustomerId,
+      props.mainArrivalInvoice,
+      props.mainShipmentInvoice,
+      reclamations,
+    ],
   );
 
-  /** Все договоры ленты — чтобы один раз прочитать контрагента каждого. */
+  /** Все договоры ленты — чтобы один раз прочитать контрагента и платежи каждого. */
   const contractIds = useMemo(() => {
     const ids = new Set<string>();
     for (const visit of ownVisits) if (visit.contractId) ids.add(visit.contractId);
@@ -188,28 +223,36 @@ export function EngineArrivalsTab(props: EngineArrivalsTabProps) {
     if (contractIds.length === 0) return undefined;
     let cancelled = false;
     void (async () => {
-      const map: Record<string, string> = {};
+      const map: Record<string, ContractInfo> = {};
       await Promise.all(
         contractIds.map(async (id) => {
           try {
             const contract = await window.matrica.admin.entities.get(id);
             const attrs = ((contract as { attributes?: Record<string, unknown> } | null)?.attributes ?? {}) as Record<string, unknown>;
             const sections = parseContractSections(attrs);
-            const customerId = String(sections.primary.customerId ?? attrs.customer_id ?? '').trim();
-            if (customerId) map[id] = customerId;
+            // Платежи договора — строгая реплика (`contractPayments:get`), тот же источник,
+            // что и вкладка «Платежи» двигателя: один счёт на две точки, цифры не разойдутся.
+            const res = await window.matrica.contractPayments.get(id).catch(() => null);
+            map[id] = {
+              customerId: String(sections.primary.customerId ?? attrs.customer_id ?? '').trim(),
+              payments: res && res.ok ? parseContractPayments(res.payments) : null,
+            };
           } catch {
-            /* нет доступа к справочнику — заказчик останется пустым, а не «прочерк» */
+            /* нет доступа к справочнику — договор останется без контрагента и платежей */
           }
         }),
       );
-      if (!cancelled) setContractCustomers(map);
+      if (!cancelled) setContractInfo(map);
     })();
     return () => {
       cancelled = true;
     };
   }, [contractIds]);
 
-  const customerByContract = useMemo(() => new Map(Object.entries(contractCustomers)), [contractCustomers]);
+  const customerByContract = useMemo(
+    () => new Map(Object.entries(contractInfo).map(([id, info]) => [id, info.customerId])),
+    [contractInfo],
+  );
 
   /** Строки ленты: все заезды номера по времени прихода. */
   const rows = useMemo<ArrivalRow[]>(() => {
@@ -224,6 +267,8 @@ export function EngineArrivalsTab(props: EngineArrivalsTabProps) {
         shippingDate: visit.shippingDate,
         contractId: visit.contractId,
         customerId: visit.customerId,
+        arrivalInvoice: visit.arrivalInvoice,
+        shipmentInvoice: visit.shipmentInvoice,
         defect: reclamation ? (reclamation.actualDefect ?? reclamation.customerReason ?? null) : null,
         actNumber: reclamation ? reclamation.actNumber ?? null : null,
         siblingEngineId: null,
@@ -241,6 +286,8 @@ export function EngineArrivalsTab(props: EngineArrivalsTabProps) {
         shippingDate: s.shippingDate,
         contractId: s.contractId,
         customerId: s.customerId,
+        arrivalInvoice: s.arrivalInvoice,
+        shipmentInvoice: s.shipmentInvoice,
         defect: null,
         actNumber: null,
         siblingEngineId: s.engineId,
@@ -278,11 +325,27 @@ export function EngineArrivalsTab(props: EngineArrivalsTabProps) {
     [props.customerOptions, customerByContract],
   );
 
+  /** Оплаты заезда — по слоту двигателя в его договоре (тот же счёт, что на вкладке «Платежи»). */
+  const paymentsOf = useCallback(
+    (contractId: string | null) => {
+      const info = contractId ? contractInfo[contractId] : undefined;
+      return engineVisitPayments({ contractPayments: info?.payments ?? null, engineId: props.engineId });
+    },
+    [contractInfo, props.engineId],
+  );
+
+  const invoicesLabel = useCallback((row: ArrivalRow): string => {
+    const parts: string[] = [];
+    if (row.arrivalInvoice) parts.push(`приход ${row.arrivalInvoice}`);
+    if (row.shipmentInvoice) parts.push(`отгрузка ${row.shipmentInvoice}`);
+    return parts.length ? parts.join(' · ') : '—';
+  }, []);
+
   return (
     <div data-engine-arrivals-tab style={{ width: '100%', maxWidth: 1400, margin: '0 auto', display: 'grid', gap: 12 }}>
       <div className="ui-muted" style={{ fontSize: 12 }}>
-        Текущая информация — на вкладке «Основное». Здесь вся история заездов: приходы, отъезды, свои договоры и
-        контрагенты по каждому заезду.
+        Текущая информация — на вкладке «Основное». Здесь вся история заездов: приходы, отъезды, свои договоры,
+        контрагенты, накладные и оплаты по каждому заезду.
       </div>
 
       {status ? (
@@ -300,7 +363,7 @@ export function EngineArrivalsTab(props: EngineArrivalsTabProps) {
           <table data-engine-arrivals-table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
             <thead>
               <tr>
-                {['№', 'Заезд', 'Приход', 'Отправка', 'Договор', 'Контрагент', 'Дефект и акт', ''].map((h, i) => (
+                {['№', 'Заезд', 'Приход', 'Отправка', 'Договор', 'Контрагент', 'Накладные', 'Оплачено по договору', 'Дефект и акт', ''].map((h, i) => (
                   <th
                     key={`${i}-${h}`}
                     style={{ textAlign: 'left', padding: '4px 8px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}
@@ -311,36 +374,57 @@ export function EngineArrivalsTab(props: EngineArrivalsTabProps) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
-                <tr key={row.key} data-engine-arrival-row={row.key} data-engine-arrival-kind={row.kind}>
-                  <td style={{ padding: '4px 8px', whiteSpace: 'nowrap', color: 'var(--subtle)' }}>{row.no}</td>
-                  <td style={{ padding: '4px 8px', whiteSpace: 'nowrap' }}>
-                    <span style={{ fontWeight: 600 }}>{row.label}</span>
-                    {row.roleNote ? <div className="ui-muted" style={{ fontSize: 11 }}>{row.roleNote}</div> : null}
-                  </td>
-                  <td style={{ padding: '4px 8px', whiteSpace: 'nowrap' }}>{dateLabel(row.arrivalDate)}</td>
-                  <td style={{ padding: '4px 8px', whiteSpace: 'nowrap' }}>{dateLabel(row.shippingDate)}</td>
-                  <td style={{ padding: '4px 8px' }}>{contractLabel(row.contractId)}</td>
-                  <td style={{ padding: '4px 8px' }}>{customerLabel(row.contractId, row.customerId)}</td>
-                  <td style={{ padding: '4px 8px' }}>
-                    {row.defect ? <div>{row.defect}</div> : null}
-                    {row.actNumber ? <div className="ui-muted" style={{ fontSize: 11 }}>Акт {row.actNumber}</div> : null}
-                    {!row.defect && !row.actNumber ? '—' : null}
-                  </td>
-                  <td style={{ padding: '4px 8px', whiteSpace: 'nowrap' }}>
-                    {row.siblingEngineId && props.onOpenEngine ? (
-                      <button
-                        type="button"
-                        data-engine-arrival-open={row.siblingEngineId}
-                        onClick={() => props.onOpenEngine?.(row.siblingEngineId as string)}
-                        style={{ fontSize: 12, background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
-                      >
-                        Открыть карточку
-                      </button>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
+              {rows.map((row) => {
+                const payments = paymentsOf(row.contractId);
+                return (
+                  <tr key={row.key} data-engine-arrival-row={row.key} data-engine-arrival-kind={row.kind}>
+                    <td style={{ padding: '4px 8px', whiteSpace: 'nowrap', color: 'var(--subtle)' }}>{row.no}</td>
+                    <td style={{ padding: '4px 8px', whiteSpace: 'nowrap' }}>
+                      <span style={{ fontWeight: 600 }}>{row.label}</span>
+                      {row.roleNote ? <div className="ui-muted" style={{ fontSize: 11 }}>{row.roleNote}</div> : null}
+                    </td>
+                    <td style={{ padding: '4px 8px', whiteSpace: 'nowrap' }}>{dateLabel(row.arrivalDate)}</td>
+                    <td style={{ padding: '4px 8px', whiteSpace: 'nowrap' }}>{dateLabel(row.shippingDate)}</td>
+                    <td style={{ padding: '4px 8px' }}>{contractLabel(row.contractId)}</td>
+                    <td style={{ padding: '4px 8px' }}>{customerLabel(row.contractId, row.customerId)}</td>
+                    <td style={{ padding: '4px 8px', whiteSpace: 'nowrap' }} data-engine-arrival-invoices={row.key}>
+                      {invoicesLabel(row)}
+                    </td>
+                    <td style={{ padding: '4px 8px', whiteSpace: 'nowrap' }} data-engine-arrival-paid={row.key}>
+                      {payments.hasSlot ? (
+                        <>
+                          <div>
+                            {formatKopMoney(payments.paidKop)} ₽
+                            {payments.priceKop != null ? ` из ${formatKopMoney(payments.priceKop)} ₽` : ''}
+                          </div>
+                          {payments.lastPaymentDate ? (
+                            <div className="ui-muted" style={{ fontSize: 11 }}>последний платёж {payments.lastPaymentDate}</div>
+                          ) : null}
+                        </>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td style={{ padding: '4px 8px' }}>
+                      {row.defect ? <div>{row.defect}</div> : null}
+                      {row.actNumber ? <div className="ui-muted" style={{ fontSize: 11 }}>Акт {row.actNumber}</div> : null}
+                      {!row.defect && !row.actNumber ? '—' : null}
+                    </td>
+                    <td style={{ padding: '4px 8px', whiteSpace: 'nowrap' }}>
+                      {row.siblingEngineId && props.onOpenEngine ? (
+                        <button
+                          type="button"
+                          data-engine-arrival-open={row.siblingEngineId}
+                          onClick={() => props.onOpenEngine?.(row.siblingEngineId as string)}
+                          style={{ fontSize: 12, background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
+                        >
+                          Открыть карточку
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
