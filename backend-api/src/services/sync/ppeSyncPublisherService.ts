@@ -346,7 +346,9 @@ const TABLES_IN_ORDER = [
   { table: ppeOccupationRef, map: toPpeOccupationRefInput },
   { table: ppeNormLineSpecs, map: toPpeNormLineSpecInput },
   { table: ppeNormSets, map: toPpeNormSetInput },
-  { table: ppeIssueCards, map: toPpeIssueCardInput },
+  // Карточки выдачи: порядок внутри таблицы задан — закрытые раньше открытых
+  // (см. `compareIssueCardsForReplica`).
+  { table: ppeIssueCards, map: toPpeIssueCardInput, order: compareIssueCardsForReplica },
   { table: ppeNormLines, map: toPpeNormLineInput },
   { table: ppeCardNorms, map: toPpeCardNormInput },
   { table: ppeIssueEntries, map: toPpeIssueEntryInput },
@@ -363,13 +365,46 @@ const TABLES_IN_ORDER = [
   { table: ppePrintTemplates, map: toPpePrintTemplateInput },
 ] as const;
 
+/**
+ * Порядок строк карточек выдачи в журнале: закрытые и удалённые — раньше открытых.
+ *
+ * Зачем. У сотрудника открытая карточка одна НА ВИД (частичный уникальный индекс
+ * по паре employee_id + kind). Сервер такую пару не даст, а реплика клиента может
+ * получить промежуточное состояние: карточку закрыли и открыли новую, и обе строки
+ * уехали в журнал одним проходом. Если открытая придёт раньше закрытой, клиент
+ * вставит её, пока старая ещё висит открытой, и упрётся в свой уникальный индекс —
+ * `UNIQUE constraint failed: ppe_issue_cards.employee_id, ppe_issue_cards.kind`
+ * (класс M72: полный pull не лечит реплику, где осталась живая строка). Закрытая
+ * должна освободить место ПЕРВОЙ — тогда промежуточное состояние реплики законно.
+ *
+ * Порядок строк в массиве задаёт номера журнала (writeSyncChanges идёт по массиву),
+ * а pull отдаёт строки по `last_server_seq` — клиент применит их в том же порядке,
+ * в котором они опубликованы.
+ */
+function compareIssueCardsForReplica(a: DbRow, b: DbRow): number {
+  const aOpen = a['closedAt'] == null && a['deletedAt'] == null;
+  const bOpen = b['closedAt'] == null && b['deletedAt'] == null;
+  // Открытые — в конец: закрытая должна освободить место открытой.
+  if (aOpen !== bOpen) return aOpen ? 1 : -1;
+  const opened = Number(a['openedAt'] ?? 0) - Number(b['openedAt'] ?? 0);
+  if (opened !== 0) return opened;
+  return String(a['id'] ?? '').localeCompare(String(b['id'] ?? ''));
+}
+
 /** Один проход: опубликовать строки, помеченные `pending`. Возвращает число опубликованных. */
 export async function publishPendingPpe(): Promise<number> {
   let total = 0;
-  for (const { table, map } of TABLES_IN_ORDER) {
-    const rows = await db.select().from(table).where(ne(table.syncStatus, 'synced')).limit(BATCH_LIMIT);
-    if (rows.length === 0) continue;
-    const inputs = (rows as Array<Record<string, unknown>>).map(map);
+  for (const descriptor of TABLES_IN_ORDER) {
+    const { table, map } = descriptor;
+    const order = 'order' in descriptor ? descriptor.order : undefined;
+    const raw = (await db
+      .select()
+      .from(table)
+      .where(ne(table.syncStatus, 'synced'))
+      .limit(BATCH_LIMIT)) as Array<Record<string, unknown>>;
+    if (raw.length === 0) continue;
+    const rows = order ? [...raw].sort(order) : raw;
+    const inputs = rows.map(map);
     await writeSyncChanges(inputs, SYSTEM_ACTOR, { allowSyncConflicts: true });
     total += inputs.length;
   }

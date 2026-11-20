@@ -59,9 +59,13 @@ import {
   directoryEngineBrands,
   ppeNormSets,
   ppeNormLines,
+  ppeOccupationRef,
+  ppeNormLineSpecs,
   ppeIssueCards,
   ppeCardNorms,
   ppeIssueEntries,
+  ppeEmployeeCards,
+  ppePrintTemplates,
   ppeAbsences,
   ppeGroups,
   ppeGroupMembers,
@@ -2645,6 +2649,10 @@ async function applyPulledChanges(
             occupationId: payload.occupation_id ?? null,
             sourceKind: payload.source_kind ?? null,
             sourceLabel: payload.source_label ?? null,
+            // Вид набора (миграция 0131): 'workwear' — спецодежда, 'soap' — мыло.
+            // Без этого поля insert брал дефолт колонки ('workwear'), и набор по мылу
+            // в реплике выглядел как набор по спецодежде — молча, без ошибки.
+            kind: payload.kind ?? 'workwear',
             validFrom: payload.valid_from,
             validTo: payload.valid_to ?? null,
             createdAt: payload.created_at,
@@ -2716,6 +2724,11 @@ async function applyPulledChanges(
             sourceKind: payload.source_kind ?? null,
             sourceLabel: payload.source_label ?? null,
             nomenclatureId: payload.nomenclature_id ?? null,
+            // Торговое наименование и сертификат позиции набора (сервер: миграция 0132).
+            // Без них строка приказа в реплике теряла имя позиции — выгрузка для 1С
+            // брала itemName из этого join'а и выдавала пустоту.
+            tradeName: payload.trade_name ?? null,
+            certificate: payload.certificate ?? null,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
             lastServerSeq: payload.last_server_seq ?? null,
@@ -2789,6 +2802,13 @@ async function applyPulledChanges(
           groups.ppe_issue_cards.push({
             id: payload.id,
             employeeId: payload.employee_id,
+            // Вид карточки выдачи (миграция 0131): 'workwear' — спецодежда, 'soap' — мыло.
+            // Это поле клиент до 20.11.2026 не вез вовсе: insert брал дефолт колонки
+            // ('workwear'), и карточка по мылу вставала в реплику как ещё одна карточка
+            // по спецодежде — а на неё бил уникальный индекс открытой карточки, и падал
+            // весь батч pull (весь парк). Старые строки журнала без поля kind — это
+            // спецодежда, дефолт сервера.
+            kind: payload.kind ?? 'workwear',
             openedAt: payload.opened_at,
             closedAt: payload.closed_at ?? null,
             createdAt: payload.created_at,
@@ -2825,6 +2845,10 @@ async function applyPulledChanges(
             qty: Number(payload.qty ?? 0),
             issuedAt: payload.issued_at,
             documentId: payload.document_id,
+            // Возврат СИЗ (сервер: миграция 0126): «получил обратно», кто принял, износ.
+            returnedAt: payload.returned_at == null ? null : Number(payload.returned_at),
+            returnedBy: payload.returned_by ?? null,
+            wearPercent: payload.wear_percent == null ? null : Number(payload.wear_percent),
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
             lastServerSeq: payload.last_server_seq ?? null,
@@ -4139,6 +4163,51 @@ async function applyPulledChanges(
   }
 
   // Кладовщик (СИЗ), MVP: наборы раньше строк, карточки раньше привязок и выдач.
+  // Приказ о СИЗ: профессии и приказные строки — раньше наборов (набор ссылается на
+  // профессию приказа, строка нормы — на набор). Эти таблицы приезжали в pull, но
+  // в реплику не писались: строки собирались и молча терялись — выгрузка для 1С
+  // брала из них имя позиции, подразделение и должность и выдавала пустоту.
+  if (groups.ppe_occupation_ref.length > 0) {
+    emitApply(SyncTableName.PpeOccupationRef, groups.ppe_occupation_ref.length);
+    await upsertPulledRowsInChunks(db, ppeOccupationRef, groups.ppe_occupation_ref, ppeOccupationRef.id, {
+      code: sql`excluded.code`,
+      postTitle: sql`excluded.post_title`,
+      tonKind: sql`excluded.ton_kind`,
+      tonLabel: sql`excluded.ton_label`,
+      tonYear: sql`excluded.ton_year`,
+      departmentId: sql`excluded.department_id`,
+      isActive: sql`excluded.is_active`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  if (groups.ppe_norm_line_specs.length > 0) {
+    emitApply(SyncTableName.PpeNormLineSpecs, groups.ppe_norm_line_specs.length);
+    await upsertPulledRowsInChunks(db, ppeNormLineSpecs, groups.ppe_norm_line_specs, ppeNormLineSpecs.id, {
+      occupationId: sql`excluded.occupation_id`,
+      name: sql`excluded.name`,
+      ppeType: sql`excluded.ppe_type`,
+      qty: sql`excluded.qty`,
+      unit: sql`excluded.unit`,
+      wearKind: sql`excluded.wear_kind`,
+      wearMonths: sql`excluded.wear_months`,
+      sortOrder: sql`excluded.sort_order`,
+      sourceRef: sql`excluded.source_ref`,
+      sourceKind: sql`excluded.source_kind`,
+      sourceLabel: sql`excluded.source_label`,
+      nomenclatureId: sql`excluded.nomenclature_id`,
+      tradeName: sql`excluded.trade_name`,
+      certificate: sql`excluded.certificate`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
   if (groups.ppe_norm_sets.length > 0) {
     emitApply(SyncTableName.PpeNormSets, groups.ppe_norm_sets.length);
     await upsertPulledRowsInChunks(db, ppeNormSets, groups.ppe_norm_sets, ppeNormSets.id, {
@@ -4148,6 +4217,12 @@ async function applyPulledChanges(
       gender: sql`excluded.gender`,
       season: sql`excluded.season`,
       isDuty: sql`excluded.is_duty`,
+      // Привязка набора к профессии приказа и подпись источника — тоже обновляются:
+      // без них набор «прирос» бы к старой профессии навсегда.
+      occupationId: sql`excluded.occupation_id`,
+      sourceKind: sql`excluded.source_kind`,
+      sourceLabel: sql`excluded.source_label`,
+      kind: sql`excluded.kind`,
       validFrom: sql`excluded.valid_from`,
       validTo: sql`excluded.valid_to`,
       updatedAt: sql`excluded.updated_at`,
@@ -4161,6 +4236,7 @@ async function applyPulledChanges(
     emitApply(SyncTableName.PpeIssueCards, groups.ppe_issue_cards.length);
     await upsertPulledRowsInChunks(db, ppeIssueCards, groups.ppe_issue_cards, ppeIssueCards.id, {
       employeeId: sql`excluded.employee_id`,
+      kind: sql`excluded.kind`,
       openedAt: sql`excluded.opened_at`,
       closedAt: sql`excluded.closed_at`,
       updatedAt: sql`excluded.updated_at`,
@@ -4210,6 +4286,9 @@ async function applyPulledChanges(
       qty: sql`excluded.qty`,
       issuedAt: sql`excluded.issued_at`,
       documentId: sql`excluded.document_id`,
+      returnedAt: sql`excluded.returned_at`,
+      returnedBy: sql`excluded.returned_by`,
+      wearPercent: sql`excluded.wear_percent`,
       updatedAt: sql`excluded.updated_at`,
       lastServerSeq: sql`excluded.last_server_seq`,
       deletedAt: sql`excluded.deleted_at`,
@@ -4305,6 +4384,61 @@ async function applyPulledChanges(
       roleCode: sql`excluded.role_code`,
       isActive: sql`excluded.is_active`,
       updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  // Личная карточка СИЗ (форма приложения №3) и шаблоны печатных форм: приезжали
+  // в pull, но в реплику не писались. Карточка нужна выгрузке для 1С (подразделение,
+  // должность, размеры), шаблон — запасным печать личной карточки, когда сервер
+  // недоступен.
+  if (groups.ppe_employee_cards.length > 0) {
+    emitApply(SyncTableName.PpeEmployeeCards, groups.ppe_employee_cards.length);
+    await upsertPulledRowsInChunks(db, ppeEmployeeCards, groups.ppe_employee_cards, ppeEmployeeCards.id, {
+      employeeId: sql`excluded.employee_id`,
+      fullName: sql`excluded.full_name`,
+      lastName: sql`excluded.last_name`,
+      firstName: sql`excluded.first_name`,
+      middleName: sql`excluded.middle_name`,
+      personnelNo: sql`excluded.personnel_no`,
+      departmentId: sql`excluded.department_id`,
+      departmentName: sql`excluded.department_name`,
+      postTitle: sql`excluded.post_title`,
+      occupationId: sql`excluded.occupation_id`,
+      gender: sql`excluded.gender`,
+      height: sql`excluded.height`,
+      sizeClothes: sql`excluded.size_clothes`,
+      sizeShoes: sql`excluded.size_shoes`,
+      sizeGloves: sql`excluded.size_gloves`,
+      sizeHeadgear: sql`excluded.size_headgear`,
+      sizeRespirator: sql`excluded.size_respirator`,
+      sizeOd: sql`excluded.size_od`,
+      sizeHands: sql`excluded.size_hands`,
+      hireDate: sql`excluded.hire_date`,
+      positionChangedDate: sql`excluded.position_changed_date`,
+      occupationNotes: sql`excluded.occupation_notes`,
+      issuedBy: sql`excluded.issued_by`,
+      preparedBy: sql`excluded.prepared_by`,
+      preparedAt: sql`excluded.prepared_at`,
+      updatedAt: sql`excluded.updated_at`,
+      lastServerSeq: sql`excluded.last_server_seq`,
+      deletedAt: sql`excluded.deleted_at`,
+      syncStatus: 'synced',
+    });
+  }
+
+  if (groups.ppe_print_templates.length > 0) {
+    emitApply(SyncTableName.PpePrintTemplates, groups.ppe_print_templates.length);
+    await upsertPulledRowsInChunks(db, ppePrintTemplates, groups.ppe_print_templates, ppePrintTemplates.id, {
+      ownerId: sql`excluded.owner_id`,
+      formKey: sql`excluded.form_key`,
+      name: sql`excluded.name`,
+      layoutJson: sql`excluded.layout_json`,
+      isDefault: sql`excluded.is_default`,
+      updatedAt: sql`excluded.updated_at`,
+      updatedBy: sql`excluded.updated_by`,
       lastServerSeq: sql`excluded.last_server_seq`,
       deletedAt: sql`excluded.deleted_at`,
       syncStatus: 'synced',
