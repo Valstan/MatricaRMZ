@@ -944,6 +944,10 @@ const matricaApi = {
         queueNo: number;
         acceptedAt?: number | null;
         shippedAt?: number | null;
+        /** Договор заезда — свой у каждого заезда. */
+        contractId?: string | null;
+        /** Контрагент заезда (заказчик/поставщик) — запасной путь. */
+        customerId?: string | null;
         customerReason?: string | null;
         actualDefect?: string | null;
         defectNature?: string | null;

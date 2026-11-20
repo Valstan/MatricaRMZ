@@ -614,6 +614,11 @@ export const erpEngineReclamationRowSchema = z.object({
   queue_no: z.number().int(),
   accepted_at: z.number().int().nullable().optional(),
   shipped_at: z.number().int().nullable().optional(),
+  // Свой договор и контрагент заезда (владелец 19.11.2026): движок мог вернуться по
+  // рекламации уже по другому договору. Мягкие: строка, заведённая до миграции,
+  // приезжает без них.
+  contract_id: z.string().uuid().nullable().optional(),
+  customer_id: z.string().uuid().nullable().optional(),
   customer_reason: z.string().nullable().optional(),
   actual_defect: z.string().nullable().optional(),
   defect_nature: z.string().nullable().optional(),

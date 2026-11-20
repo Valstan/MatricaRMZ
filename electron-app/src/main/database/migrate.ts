@@ -687,6 +687,8 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
       queue_no integer NOT NULL,
       accepted_at integer,
       shipped_at integer,
+      contract_id text,
+      customer_id text,
       customer_reason text,
       actual_defect text,
       defect_nature text,
@@ -1227,6 +1229,17 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
   // живых клиентов; здесь — страховка для тех, кто идёт мимо цепочки.
   if (hasTable('erp_production_program_rows') && !columnNames('erp_production_program_rows').has('operator_note')) {
     sqlite.exec(`ALTER TABLE erp_production_program_rows ADD COLUMN operator_note text;`);
+  }
+
+  // erp_engine_reclamations.contract_id / customer_id — свой договор и контрагент у
+  // каждого заезда по рекламации (миграция сервера 0136, промты КАРМАНА #42/#43).
+  // Nullable — ровно как на сервере, иначе checkReplicaStrictness уронит pull.
+  // ALTER, а не только CREATE TABLE выше: долгоживущая БД парка создана без этих
+  // колонок, а CREATE TABLE IF NOT EXISTS на существующей таблице ничего не меняет.
+  if (hasTable('erp_engine_reclamations')) {
+    const cols = columnNames('erp_engine_reclamations');
+    if (!cols.has('contract_id')) sqlite.exec(`ALTER TABLE erp_engine_reclamations ADD COLUMN contract_id text;`);
+    if (!cols.has('customer_id')) sqlite.exec(`ALTER TABLE erp_engine_reclamations ADD COLUMN customer_id text;`);
   }
 
   // erp_nomenclature.directory_kind / directory_ref_id — добавлены через clientSchemaMigrations 7->8.

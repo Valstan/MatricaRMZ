@@ -873,6 +873,10 @@ export const erpEngineReclamations = sqliteTable('erp_engine_reclamations', {
   queueNo: integer('queue_no').notNull(),
   acceptedAt: integer('accepted_at'),
   shippedAt: integer('shipped_at'),
+  /** Договор заезда — свой у каждого заезда (владелец 19.11.2026). */
+  contractId: text('contract_id'),
+  /** Контрагент заезда (заказчик/поставщик) — запасной путь, если договора нет. */
+  customerId: text('customer_id'),
   customerReason: text('customer_reason'),
   actualDefect: text('actual_defect'),
   defectNature: text('defect_nature'),

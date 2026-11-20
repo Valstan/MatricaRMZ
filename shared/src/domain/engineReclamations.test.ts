@@ -7,6 +7,7 @@ import {
   engineReclamationHistoryLines,
   engineReclamationShipments,
   formatQueueDate,
+  resolveEngineVisitCustomer,
   sortEngineReclamations,
   validateEngineReclamationQueue,
   type EngineReclamationDto,
@@ -19,6 +20,8 @@ function reclamation(overrides: Partial<EngineReclamationDto> = {}): EngineRecla
     queueNo: 1,
     acceptedAt: null,
     shippedAt: null,
+    contractId: null,
+    customerId: null,
     customerReason: null,
     actualDefect: null,
     defectNature: null,
@@ -148,6 +151,47 @@ describe('порядок рекламаций', () => {
  * из САМОЙ очереди: EAV-зеркало поддерживалось только при сохранении карточки, и
  * «Сохранить очередь» отслеживание в отчётах и фильтрах не двигало.
  */
+/**
+ * У каждого заезда — свой договор и контрагент (владелец 19.11.2026: «в каждом заезде
+ * могут быть разные договоры, разные поставщики и заказчики — поэтому по каждому заезду
+ * это заполняется отдельно»).
+ */
+describe('заезды: свой договор и контрагент у каждого', () => {
+  it('основной цикл берёт договор и контрагента карточки, рекламация — свои', () => {
+    const visits = buildEngineVisits({
+      mainArrivalDate: BASE,
+      mainShippingDate: BASE + 5 * DAY,
+      mainContractId: 'contract-main',
+      mainCustomerId: 'customer-main',
+      reclamations: [
+        reclamation({ queueNo: 1, acceptedAt: BASE + 10 * DAY, contractId: 'contract-2', customerId: 'customer-2' }),
+      ],
+    });
+    expect(visits[0]?.kind).toBe('main');
+    expect(visits[0]?.contractId).toBe('contract-main');
+    expect(visits[0]?.customerId).toBe('customer-main');
+    expect(visits[1]?.kind).toBe('reclamation');
+    expect(visits[1]?.contractId).toBe('contract-2');
+    expect(visits[1]?.customerId).toBe('customer-2');
+  });
+
+  it('заказчик заезда — из его договора, а не из поля строки', () => {
+    const contractCustomers = new Map([['contract-2', 'customer-of-contract']]);
+    const resolved = resolveEngineVisitCustomer({ contractId: 'contract-2', customerId: 'customer-2' }, contractCustomers);
+    expect(resolved).toEqual({ id: 'customer-of-contract', source: 'contract' });
+  });
+
+  it('без договора заказчик берётся из поля заезда', () => {
+    const resolved = resolveEngineVisitCustomer({ contractId: null, customerId: 'customer-2' }, new Map());
+    expect(resolved).toEqual({ id: 'customer-2', source: 'card' });
+  });
+
+  it('пустой заезд — контрагента нет', () => {
+    const resolved = resolveEngineVisitCustomer({ contractId: null, customerId: null }, new Map());
+    expect(resolved).toEqual({ id: '', source: 'none' });
+  });
+});
+
 describe('очередь рекламаций: факты отслеживания', () => {
   it('пустая очередь — двигатель не рекламационный', () => {
     expect(engineReclamationFacts([])).toEqual({ isReclamation: false, acceptedAt: null, shippedAt: null });

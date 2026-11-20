@@ -19,6 +19,10 @@ const reclamationBody = z.object({
   queueNo: z.number().int().optional(),
   acceptedAt: z.number().nullable().optional(),
   shippedAt: z.number().nullable().optional(),
+  /** Договор заезда — свой у каждого заезда (владелец 19.11.2026). */
+  contractId: z.string().trim().nullable().optional(),
+  /** Контрагент заезда (заказчик/поставщик) — запасной путь, если договора нет. */
+  customerId: z.string().trim().nullable().optional(),
   customerReason: z.string().nullable().optional(),
   actualDefect: z.string().nullable().optional(),
   defectNature: z.string().nullable().optional(),

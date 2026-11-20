@@ -30,6 +30,10 @@ export type EngineReclamationRow = {
   queueNo: number;
   acceptedAt: number | null;
   shippedAt: number | null;
+  /** Договор заезда (uuid) — свой у каждого заезда. */
+  contractId: string | null;
+  /** Контрагент заезда (заказчик/поставщик) — запасной путь, если договора нет. */
+  customerId: string | null;
   customerReason: string | null;
   actualDefect: string | null;
   defectNature: string | null;
@@ -46,6 +50,8 @@ export type EngineReclamationDraft = {
   queueNo?: number | undefined;
   acceptedAt?: number | null | undefined;
   shippedAt?: number | null | undefined;
+  contractId?: string | null | undefined;
+  customerId?: string | null | undefined;
   customerReason?: string | null | undefined;
   actualDefect?: string | null | undefined;
   defectNature?: string | null | undefined;
@@ -67,6 +73,8 @@ function mapRow(r: typeof erpEngineReclamations.$inferSelect): EngineReclamation
     queueNo: Number(r.queueNo),
     acceptedAt: r.acceptedAt == null ? null : Number(r.acceptedAt),
     shippedAt: r.shippedAt == null ? null : Number(r.shippedAt),
+    contractId: r.contractId == null ? null : String(r.contractId),
+    customerId: r.customerId == null ? null : String(r.customerId),
     customerReason: r.customerReason == null ? null : String(r.customerReason),
     actualDefect: r.actualDefect == null ? null : String(r.actualDefect),
     defectNature: r.defectNature == null ? null : String(r.defectNature),
@@ -94,6 +102,20 @@ function optionalText(value: string | null | undefined, limit: number, label: st
   if (t.length > limit) return { ok: false, error: `${label} длиннее ${limit} символов` };
   const trimmed = t.trim();
   return { ok: true, value: trimmed ? trimmed : null };
+}
+
+/**
+ * Ссылка на запись (договор, контрагент) — uuid или пусто.
+ *
+ * Пустая строка — это «не задано», а не «битая ссылка»: у заезда договор может не
+ * быть (движок приехал без договора), и это законное состояние.
+ */
+function optionalUuid(value: string | null | undefined, label: string): FieldResult<string | null> {
+  if (value == null) return { ok: true, value: null };
+  const trimmed = String(value).trim();
+  if (!trimmed) return { ok: true, value: null };
+  if (!isUuid(trimmed)) return { ok: false, error: `${label} должен быть ссылкой на запись (uuid)` };
+  return { ok: true, value: trimmed };
 }
 
 /** Очередь рекламаций двигателя — по порядку заездов. */
@@ -183,6 +205,8 @@ export async function replaceEngineReclamations(
     queueNo: number;
     acceptedAt: number | null;
     shippedAt: number | null;
+    contractId: string | null;
+    customerId: string | null;
     customerReason: string | null;
     actualDefect: string | null;
     defectNature: string | null;
@@ -201,6 +225,10 @@ export async function replaceEngineReclamations(
     if (!acceptedAt.ok) return acceptedAt;
     const shippedAt = optionalMs(raw.shippedAt, `рекламация ${i + 1}: дата отправки`);
     if (!shippedAt.ok) return shippedAt;
+    const contractId = optionalUuid(raw.contractId, `рекламация ${i + 1}: договор`);
+    if (!contractId.ok) return contractId;
+    const customerId = optionalUuid(raw.customerId, `рекламация ${i + 1}: контрагент`);
+    if (!customerId.ok) return customerId;
     const customerReason = optionalText(raw.customerReason, 4000, `рекламация ${i + 1}: описание дефекта`);
     if (!customerReason.ok) return customerReason;
     const actualDefect = optionalText(raw.actualDefect, 4000, `рекламация ${i + 1}: фактический дефект`);
@@ -219,6 +247,8 @@ export async function replaceEngineReclamations(
       queueNo,
       acceptedAt: acceptedAt.value,
       shippedAt: shippedAt.value,
+      contractId: contractId.value,
+      customerId: customerId.value,
       customerReason: customerReason.value,
       actualDefect: actualDefect.value,
       defectNature: defectNature.value,
@@ -276,6 +306,8 @@ export async function replaceEngineReclamations(
       queueNo: row.queueNo,
       acceptedAt: row.acceptedAt,
       shippedAt: row.shippedAt,
+      contractId: row.contractId,
+      customerId: row.customerId,
       customerReason: row.customerReason,
       actualDefect: row.actualDefect,
       defectNature: row.defectNature,

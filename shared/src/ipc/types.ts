@@ -3364,6 +3364,10 @@ export type MatricaApi = {
         queueNo: number;
         acceptedAt?: number | null;
         shippedAt?: number | null;
+        /** Договор заезда — свой у каждого заезда (владелец 19.11.2026). */
+        contractId?: string | null;
+        /** Контрагент заезда (заказчик/поставщик) — запасной путь, если договора нет. */
+        customerId?: string | null;
         customerReason?: string | null;
         actualDefect?: string | null;
         defectNature?: string | null;
