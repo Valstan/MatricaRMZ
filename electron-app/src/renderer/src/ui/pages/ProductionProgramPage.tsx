@@ -1555,7 +1555,9 @@ export function ProductionProgramPage(props: Props) {
                                 <td>{num?.inContract ?? ''}</td>
                               <td title={item.organization}>{item.organization || '—'}</td>
                               <td>
-                                {[engine?.engineBrand ?? r.engineMark, engine?.engineNumber ?? r.engineNumber]
+                                {/* Марка и номер — по тому же правилу, что печать и выгрузка
+                                    (живая карточка, снимок строки — запасной вариант). */}
+                                {[engine?.engineBrand || r.engineMark, engine?.engineNumber || r.engineNumber]
                                   .filter(Boolean)
                                   .join(' ')}
                               </td>
@@ -1574,7 +1576,7 @@ export function ProductionProgramPage(props: Props) {
                                       openStageDialog(
                                         r.id,
                                         String(engine?.id ?? r.engineId ?? ''),
-                                        [engine?.engineBrand ?? r.engineMark, engine?.engineNumber ?? r.engineNumber]
+                                        [engine?.engineBrand || r.engineMark, engine?.engineNumber || r.engineNumber]
                                           .filter(Boolean)
                                           .join(' '),
                                         code,

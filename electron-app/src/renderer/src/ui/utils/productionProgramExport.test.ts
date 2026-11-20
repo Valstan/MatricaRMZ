@@ -136,6 +136,42 @@ describe('выгрузка плана производственной прог�
     expect(spec.filters.some((f) => f.includes('Двигателей в плане: 3'))).toBe(true);
   });
 
+  it('марка и номер — живые (карточка), снимок строки — запасной вариант', () => {
+    // Карточка двигателя переименована после того, как строка попала в план:
+    // план не живёт отдельной жизнью — показываем живое, снимок только как запасной.
+    const stale = buildProductionProgramExportRows({
+      ...INPUT,
+      rows: [
+        {
+          id: 'r1',
+          contractId: 'c1',
+          groupLabel: 'ООО «Заказчик» № 125/2026',
+          engineId: 'e1',
+          engineMark: 'СТАРЫЙ',
+          engineNumber: 'СТАРЫЙ-001',
+          state: 'restoration',
+          note: '',
+        },
+        {
+          id: 'r2',
+          contractId: 'c1',
+          groupLabel: 'ООО «Заказчик» № 125/2026',
+          engineId: 'e9',
+          engineMark: 'ИЗ СНИМКА',
+          engineNumber: 'ИЗ-СНИМКА-002',
+          state: 'restoration',
+          note: '',
+        },
+      ],
+      engines: [
+        { id: 'e1', engineBrand: 'Д-245', engineNumber: '001', statusFlags: {} },
+        // Карточки e9 нет (двигатель уехал из картотеки) — показываем снимок строки.
+      ] as never[],
+    } as never);
+    expect(stale[0]?.engine).toBe('Д-245 001');
+    expect(stale[1]?.engine).toBe('ИЗ СНИМКА ИЗ-СНИМКА-002');
+  });
+
   it('буфер обмена: шапка и строки через табуляцию — вставится таблицей', () => {
     const text = buildProductionProgramClipboardText(INPUT as never);
     const lines = text.split('\n');

@@ -1100,8 +1100,12 @@ export function buildProductionProgramPrintModel(input: ProductionProgramPrintIn
       groupLabel,
       contractKind: parseContractKind(raw.contractKind),
       engineId,
-      engineMark: String(raw.engineMark ?? '').trim(),
-      engineNumber: String(raw.engineNumber ?? '').trim(),
+      // Марка и номер — **живые**: план не живёт отдельной жизнью, правка карточки
+      // видна в плане сразу (правило модуля). Снимок строки — запасной вариант:
+      // карточки двигателя может не быть (двигатель уехал из картотеки), и тогда
+      // показывать пустоту вместо номера хуже, чем снимок.
+      engineMark: String(engine?.engineBrand || raw.engineMark || '').trim(),
+      engineNumber: String(engine?.engineNumber || raw.engineNumber || '').trim(),
       state: parseProductionProgramState(raw.state),
       stageCode: stage?.code ?? '',
       stageName: stage?.name ?? '',
