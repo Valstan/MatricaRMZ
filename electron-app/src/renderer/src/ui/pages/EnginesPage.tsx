@@ -42,6 +42,7 @@ import { useSearchMode } from '../hooks/useSearchMode.js';
 import { Button } from '../components/Button.js';
 import { LabelPrintDialog } from '../components/LabelPrintDialog.js';
 import { EngineTagPrintDialog, type EngineTagInitial } from '../components/EngineTagPrintDialog.js';
+import { ProductionProgramAddEnginesDialog } from '../components/ProductionProgramAddEnginesDialog.js';
 import { useTagPrintQueue } from '../hooks/useTagPrintQueue.js';
 import { ListColumnChips, type ColumnDescriptor } from '../components/ListColumnChips.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
@@ -497,10 +498,18 @@ export function EnginesPage(props: {
   onNotify?: (message: string, tone?: 'info' | 'error') => void;
   /** ПКМ → «Наряд на сборку» (тема D): открыть новый сборочный наряд для этого двигателя. */
   onCreateAssemblyOrder?: (engine: EngineListItem) => void;
+  /**
+   * Право вести производственную программу (`production_program.edit`): только
+   * с ним в пачке появляется пункт «Добавить в производственную программу».
+   */
+  canEditProductionProgram?: boolean;
   /** Кнопка «Отчёт „Двигатели“» → объединённый пресет engines (разрезы/фильтры/колонки/шаблоны). */
 }) {
   const [dedupeOpen, setDedupeOpen] = React.useState(false);
   const [bulkIntakeOpen, setBulkIntakeOpen] = React.useState(false);
+  const [addToProgramOpen, setAddToProgramOpen] = React.useState(false);
+  /** Двигатели, выбранные для добавления в производственную программу. */
+  const [programAddEngines, setProgramAddEngines] = React.useState<EngineListItem[]>([]);
   const [labelDialogOpen, setLabelDialogOpen] = React.useState(false);
   const [printDialogOpen, setPrintDialogOpen] = React.useState(false);
   // Бирки печатаются по строкам, которые оператор выделил (а не по фильтру, как этикетки),
@@ -811,6 +820,20 @@ export function EnginesPage(props: {
           setTagInitial(menuRows.map((e) => ({ ...e, engineId: String(e.id) })));
         },
       });
+      // Добавление в производственную программу — только пачкой: одна строка
+      // добавляется прямо в самой программе (там виден её состав и порядок).
+      if (props.canEditProductionProgram) {
+        items.push({
+          id: 'engine-add-to-program-bulk',
+          label: `🏭 Добавить в производственную программу (${menuRows.length})`,
+          onClick: () => {
+            setTagHintVisible(false);
+            // Выделение ловим ЗДЕСЬ: меню закроется, и `menuRows` станет пустым.
+            setProgramAddEngines(menuRows);
+            setAddToProgramOpen(true);
+          },
+        });
+      }
       return items;
     }
     if (menuRows.length !== 1) return [];
@@ -1522,6 +1545,22 @@ export function EnginesPage(props: {
 
       {menu && menuItems.length > 0 ? (
         <ListContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
+      ) : null}
+
+      {props.canEditProductionProgram ? (
+        <ProductionProgramAddEnginesDialog
+          open={addToProgramOpen}
+          engines={programAddEngines}
+          onClose={() => {
+            setAddToProgramOpen(false);
+            setProgramAddEngines([]);
+          }}
+          onDone={(r) => {
+            const parts = [`В план «${r.programTitle}» добавлено: ${r.added}`];
+            if (r.skipped.length > 0) parts.push(`не взято: ${r.skipped.length}`);
+            props.onNotify?.(parts.join(' · '), r.added > 0 ? 'info' : 'error');
+          }}
+        />
       ) : null}
 
       {props.canCreate && (

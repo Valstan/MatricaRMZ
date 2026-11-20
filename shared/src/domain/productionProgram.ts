@@ -374,6 +374,43 @@ export function productionProgramEngineHint(engine: EngineListItem | null | unde
 }
 
 /**
+ * Строка плана из карточки двигателя — одна точка правды для всех мест
+ * добавления (страница программы и список двигателей): значения берутся из
+ * карточки, состояние — из вида договора, подпись группы — из договора.
+ *
+ * Идентификатор строки даёт вызывающий, и он должен быть ПОСТОЯННЫМ: черновой
+ * id ронял строку при сохранении (чинили 10.11).
+ */
+export function productionProgramRowFromEngine(input: {
+  id: string;
+  engine: EngineListItem;
+  /** Подпись группы: организация и номер договора (без неё строка не имеет группы). */
+  groupLabel: string;
+  /** Вид договора — по нему подставляется состояние строки. */
+  contractKind?: ContractKind | null;
+}): ProductionProgramLineDraftDto & { id: string } {
+  const engine = input.engine;
+  // Вид договора — по разделам договора; если их нет, берём вид двигателя
+  // (он считается по тому же правилу: договор → карточка → контрагент).
+  const kind = input.contractKind ?? engine.kind ?? null;
+  const suggested = suggestedProductionProgramStates(kind);
+  return {
+    id: input.id,
+    orderNo: 0,
+    contractId: engine.contractId == null ? null : String(engine.contractId),
+    groupLabel: input.groupLabel,
+    contractKind: kind,
+    engineId: String(engine.id),
+    engineMark: String(engine.engineBrand ?? ''),
+    engineNumber: String(engine.engineNumber ?? ''),
+    state: suggested[0] ?? null,
+    shippingPlanAt: null,
+    factors: '',
+    note: '',
+  };
+}
+
+/**
  * Подсветка строки плана на печати.
  *
  * Решение владельца: основная подсветка — двигатель ГОТОВ К ОТГРУЗКЕ (прошёл

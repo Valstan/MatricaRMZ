@@ -13,8 +13,8 @@ import {
   productionProgramExecutionSummary,
   productionProgramOrganizationLabel,
   productionProgramPeriodKind,
+  productionProgramRowFromEngine,
   productionProgramRowExecution,
-  suggestedProductionProgramStates,
   type EngineListItem,
   type ProductionProgramDto,
   type ProductionProgramExecutionSummary,
@@ -778,7 +778,6 @@ export function ProductionProgramPage(props: Props) {
     if (!engine) return;
     const contractId = String(engine.contractId ?? '');
     const kind = contractId ? await contractKindOf(contractId) : null;
-    const suggested = suggestedProductionProgramStates(kind);
     // Шапка группы — человеческое наименование договора (организация и номер).
     // Идентификатор в неё не идёт: в отчёте это «номер вместо наименования».
     // Наименования нет — строку не берём: без группы строки план не складывается.
@@ -789,25 +788,14 @@ export function ProductionProgramPage(props: Props) {
       );
       return;
     }
-    // Постоянный id строки: пока id был черновым («draft-…»), сервер на каждое
-    // сохранение заводил новый uuid и снимал старый — журнал увозил пару
-    // «удалить + вставить», и двигатель на время ПРОПАДАЛ из плана.
-    const newRow: DraftRow = {
-      id: crypto.randomUUID(),
-      orderNo: rowsRef.current.length + 1,
-      contractId: contractId || null,
-      groupLabel,
-      contractKind: kind,
-      engineId: String(engine.id),
-      engineMark: String(engine.engineBrand ?? ''),
-      engineNumber: String(engine.engineNumber ?? ''),
-      state: suggested[0] ?? null,
-      shippingPlanAt: null,
-      factors: '',
-      note: '',
-    };
     // Строка уходит на сервер сама (автосохранение) и до этого не пропадает:
     // живое обновление реплики не трогает несохранённое (баг 19.11.2026).
+    // Строка собирается общим доменным правилом — тем же, что и при добавлении
+    // из списка двигателей.
+    const newRow: DraftRow = {
+      ...productionProgramRowFromEngine({ id: crypto.randomUUID(), engine, groupLabel, contractKind: kind }),
+      orderNo: rowsRef.current.length + 1,
+    };
     applyRows((prev) => [...prev, newRow], selectedId);
     setPickerEngine('');
   }

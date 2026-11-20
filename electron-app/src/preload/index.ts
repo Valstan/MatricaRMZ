@@ -810,6 +810,8 @@ const matricaApi = {
   },
   productionProgram: {
     list: async () => ipcRenderer.invoke('productionProgram:list'),
+    /** План со строками С СЕРВЕРА (реплика отстаёт на минуту, а набор строк заменяется целиком). */
+    get: async (id: string) => ipcRenderer.invoke('productionProgram:get', id),
     create: async (args: {
       periodStart: number;
       periodEnd: number;

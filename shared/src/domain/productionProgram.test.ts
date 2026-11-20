@@ -14,6 +14,7 @@ import {
   productionProgramOrganizationLabel,
   productionProgramPeriodKind,
   productionProgramRowExecution,
+  productionProgramRowFromEngine,
   productionProgramRowHighlight,
   productionProgramExecutionSummary,
   PRODUCTION_PROGRAM_SIGNATURE_SLOTS,
@@ -451,5 +452,63 @@ describe('выполнение плана по факту из карточки 
     expect(summary.inWork).toBe(1);
     expect(summary.onTime).toBe(2);
     expect(summary.overdue).toBe(2);
+  });
+});
+
+describe('строка плана из карточки двигателя (#44/#45)', () => {
+  it('значения берутся из карточки, состояние — из вида договора', () => {
+    const row = productionProgramRowFromEngine({
+      id: 'row-1',
+      engine: engine({
+        id: 'e42',
+        engineBrand: 'В-59УМС',
+        engineNumber: '240-1',
+        contractId: 'contract-1',
+      }),
+      groupLabel: 'Заказчик · 125/2',
+      contractKind: 'military',
+    });
+    expect(row.id).toBe('row-1');
+    expect(row.engineId).toBe('e42');
+    expect(row.engineMark).toBe('В-59УМС');
+    expect(row.engineNumber).toBe('240-1');
+    expect(row.contractId).toBe('contract-1');
+    expect(row.groupLabel).toBe('Заказчик · 125/2');
+    // Военный договор — восстановление или ремонтопригодность.
+    expect(row.state).toBe('restoration');
+    expect(row.shippingPlanAt).toBeNull();
+    expect(row.factors).toBe('');
+    expect(row.note).toBe('');
+  });
+
+  it('гражданский договор — капитальный ремонт; без вида договора берётся вид двигателя', () => {
+    const civil = productionProgramRowFromEngine({
+      id: 'row-2',
+      engine: engine({ id: 'e43', contractId: 'contract-2' }),
+      groupLabel: 'Заказчик · 77/1',
+      contractKind: 'civil',
+    });
+    expect(civil.state).toBe('capital_repair');
+    // Разделов договора нет — вид берём у двигателя (тот же источник: договор → карточка).
+    const byEngineKind = productionProgramRowFromEngine({
+      id: 'row-3',
+      engine: engine({ id: 'e44', contractId: null, kind: 'civil' }),
+      groupLabel: 'Заказчик · 1/1',
+      contractKind: null,
+    });
+    expect(byEngineKind.contractId).toBeNull();
+    expect(byEngineKind.contractKind).toBe('civil');
+    expect(byEngineKind.state).toBe('capital_repair');
+  });
+
+  it('двигатель без договора даёт строку без группы — её в план брать нельзя', () => {
+    const row = productionProgramRowFromEngine({
+      id: 'row-4',
+      engine: engine({ id: 'e45', contractId: null }),
+      groupLabel: '',
+      contractKind: null,
+    });
+    expect(row.groupLabel).toBe('');
+    expect(row.contractId).toBeNull();
   });
 });
