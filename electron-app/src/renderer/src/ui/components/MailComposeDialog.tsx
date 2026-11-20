@@ -58,6 +58,13 @@ export function MailComposeDialog(props: MailComposeProps) {
     if (!props.attachment) return;
     let alive = true;
     void (async () => {
+      // Мост может быть старым (клиент не обновлён): без проверки вызов упал бы
+      // молча, и оператор смотрел бы на «готовим файл…» до бесконечности —
+      // ровно так и было, пока preload не отдавал раздел `mail`.
+      if (typeof window.matrica.mail?.prepareAttachment !== 'function') {
+        if (alive) setStatus('Вложение недоступно: обновите программу');
+        return;
+      }
       const res = await window.matrica.mail.prepareAttachment(props.attachment!).catch(() => null);
       if (!alive) return;
       if (res?.ok) setAttachment({ path: res.path, name: res.name });
