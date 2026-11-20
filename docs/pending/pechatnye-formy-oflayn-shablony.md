@@ -7,7 +7,7 @@
 
 Шаблоны печатных форм и документы живут в **серверных таблицах вне sync-контракта**
 (`print_templates`, `print_documents`) — решение нити, обоснование в
-[`plans/print-forms-module-2026-11.md`](../plans/print-forms-module-2026-11.md) §«Решение по
+[`plans/_archive/print-forms-module-2026-11.md`](../plans/_archive/print-forms-module-2026-11.md) §«Решение по
 контуру данных»: шаблоны и сегодня читались по сети в момент печати
 (`ppe:printTemplates:list` → REST), а локальная реплика `ppe_print_templates` формой не
 использовалась; добавление таблиц в контракт — это ~15 файлов контура доставки ради копии,
