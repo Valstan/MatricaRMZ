@@ -11,7 +11,7 @@ import { isScrapEngine } from '@matricarmz/shared';
 import { SectionCard } from '../components/SectionCard.js';
 import { RepairChecklistPanel } from '../components/RepairChecklistPanel.js';
 import { EngineHistoryFeedPanel } from '../components/EngineHistoryFeedPanel.js';
-import { EngineArrivalsTab } from '../components/EngineArrivalsTab.js';
+import { EngineVisitsPanel } from '../components/EngineVisitsPanel.js';
 import { AttachmentsModule } from '../components/AttachmentsModule.js';
 import { EngineReclamationTab, type EngineReclamationTabHandle, type ReclamationDraft } from '../components/EngineReclamationTab.js';
 import { EngineTagPrintDialog, type EngineTagInitial, type EngineTagSource } from '../components/EngineTagPrintDialog.js';
@@ -57,11 +57,11 @@ const FEATURE_ENGINE_DISMANTLE = false;
 type LinkOpt = SearchSelectOption;
 
 /** Вкладки карточки двигателя (реорганизация «полотенца», план reclamation-mvp-2026-07). */
-export type EngineCardTab = 'main' | 'completeness' | 'defect' | 'history' | 'arrivals' | 'files' | 'passport' | 'reclamation' | 'payments' | 'docs';
+export type EngineCardTab = 'main' | 'completeness' | 'defect' | 'history' | 'files' | 'passport' | 'reclamation' | 'payments' | 'docs';
 
 /** Вкладки, которые показываются только с правом на операции. Список, а не перечисление
  * ключей в фильтре: забытый ключ открывал бы акты тому, кому их видеть нельзя. */
-const OPERATIONS_ONLY_TABS = new Set<EngineCardTab>(['completeness', 'defect', 'history', 'arrivals']);
+const OPERATIONS_ONLY_TABS = new Set<EngineCardTab>(['completeness', 'defect', 'history']);
 
 const ENGINE_CARD_TABS: { key: EngineCardTab; label: string }[] = [
   { key: 'main', label: 'Основное' },
@@ -71,9 +71,8 @@ const ENGINE_CARD_TABS: { key: EngineCardTab; label: string }[] = [
   { key: 'completeness', label: 'Акт комплектности' },
   { key: 'defect', label: 'Акт разборки/дефектовки' },
   { key: 'history', label: 'История ремонта' },
-  // История заездов (владелец 19.11.2026): все заезды номера — приходы, отъезды, свои
-  // договоры и контрагенты по каждому заезду. Видна тем же, кто видит историю ремонта.
-  { key: 'arrivals', label: 'История заездов' },
+  // История заездов переехала в «Основное» (владелец 20.11.2026): заезды — раскрывающиеся
+  // разделы «Заезд 1», «Заезд 2»… внутри карточки, свежие сверху.
   { key: 'files', label: 'Фото и документы' },
   // Паспорт двигателя (владелец 02.10.2026): пока только скан-файлы, поля и печать — позже.
   { key: 'passport', label: 'Паспорт' },
@@ -2994,7 +2993,25 @@ export function EngineDetailsPage(props: {
             с пустотой справа): span-full тянется на всю grid-ширину, но внутренний
             контейнер капнут и центрирован, контролы не растягиваются. UI-аудит p2 #5. */}
         <div className="entity-card-span-full" data-card-tab="main" hidden={activeTab !== 'main'} style={{ maxWidth: 820, width: '100%', margin: '0 auto' }}>
-        <SectionCard style={{ padding: 12, background: 'rgba(59, 130, 246, 0.08)' }}>
+        {/* Разделы заездов (владелец 20.11.2026) — заезды раскрываются прямо в карточке:
+            свежие сверху, у каждого свои даты, договор, контрагент, накладные и своя история
+            ремонта. Редактируемая карточка — внутри раздела ТЕКУЩЕГО заезда: править можно
+            только то, что правится сейчас. */}
+        <EngineVisitsPanel
+          engineId={props.engineId}
+          canViewOperations={props.canViewOperations}
+          mainArrivalDate={arrivalDateMsForChecklist}
+          mainShippingDate={statusDates.status_customer_sent ?? null}
+          mainContractId={String(props.engine.attributes?.contract_id ?? '')}
+          mainCustomerId={String(props.engine.attributes?.customer_id ?? '')}
+          mainArrivalInvoice={String(props.engine.attributes?.arrival_invoice ?? '')}
+          mainShipmentInvoice={String(props.engine.attributes?.shipment_invoice ?? '')}
+          siblings={arrivalGroup?.siblings ?? []}
+          contractOptions={linkLists.contract_id ?? []}
+          customerOptions={linkLists.customer_id ?? []}
+          {...(props.onOpenEngine ? { onOpenEngine: props.onOpenEngine } : {})}
+          renderCurrentCard={() => (
+            <SectionCard style={{ padding: 12, background: 'rgba(59, 130, 246, 0.08)' }}>
         <DraggableFieldList
           items={mainFields}
           getKey={(f) => f.code}
@@ -3085,11 +3102,13 @@ export function EngineDetailsPage(props: {
             </div>
           )}
         </div>
-      </SectionCard>
+            </SectionCard>
+          )}
+        />
+        </div>
 
       {/* Модуль движения деталей скрыт из вкладки «Основное» (PR-I): детали не отслеживаются,
           модуль на будущее. Секция удалена из рендера; диалоги ниже оставлены. */}
-        </div>
 
       {FEATURE_ENGINE_DISMANTLE && (
         <EngineDismantlePreviewDialog
@@ -3249,29 +3268,6 @@ export function EngineDetailsPage(props: {
           />
           <DocumentHistoryPanel entityId={props.engineId} canView={props.canViewAudit === true} />
           </div>
-        </div>
-      )}
-
-      {props.canViewOperations && (
-        /* Вкладка «История заездов» (владелец 19.11.2026, промт КАРМАНА #42): вся
-           история движений двигателя по номеру — приходы, отъезды, свои договоры и
-           контрагенты по каждому заезду. Текущая информация остаётся на «Основном»,
-           старые даты в неё не подставляются. */
-        <div className="entity-card-span-full" data-card-tab="arrivals" hidden={activeTab !== 'arrivals'}>
-          <EngineArrivalsTab
-            engineId={props.engineId}
-            engineNumber={String(props.engine.attributes?.engine_number ?? engineNumber ?? '')}
-            mainArrivalDate={arrivalDateMsForChecklist}
-            mainShippingDate={statusDates.status_customer_sent ?? null}
-            mainContractId={String(props.engine.attributes?.contract_id ?? '')}
-            mainCustomerId={String(props.engine.attributes?.customer_id ?? '')}
-            mainArrivalInvoice={String(props.engine.attributes?.arrival_invoice ?? '')}
-            mainShipmentInvoice={String(props.engine.attributes?.shipment_invoice ?? '')}
-            siblings={arrivalGroup?.siblings ?? []}
-            contractOptions={linkLists.contract_id ?? []}
-            customerOptions={linkLists.customer_id ?? []}
-            {...(props.onOpenEngine ? { onOpenEngine: props.onOpenEngine } : {})}
-          />
         </div>
       )}
 

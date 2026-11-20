@@ -272,8 +272,8 @@ export type EngineVisit = {
   visitNo: number;
   /** Рекламация, породившая заезд (null — основной цикл). */
   reclamation: EngineReclamationDto | null;
-  /** Вид заезда: основной цикл карточки или возврат по рекламации. */
-  kind: 'main' | 'reclamation';
+  /** Вид заезда: основной цикл карточки, возврат по рекламации или прежняя карточка того же номера. */
+  kind: 'main' | 'reclamation' | 'archived';
   /** Дата прихода (мс). */
   arrivalDate: number | null;
   /** Дата отгрузки (мс). */

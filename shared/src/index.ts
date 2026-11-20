@@ -87,6 +87,8 @@ export * from './domain/contract.js';
 export * from './domain/productionProgram.js';
 // Рекламации двигателя: очередь заездов и гейт дат.
 export * from './domain/engineReclamations.js';
+// Заезды двигателя как сущность: текущий/прошлый, тон раздела, разбивка истории ремонта.
+export * from './domain/engineVisits.js';
 export * from './domain/adminUsers.js';
 export * from './domain/employees.js';
 // Детский модуль и организационный модуль: карточка ребёнка, мероприятия, журнал выдачи.
