@@ -35,7 +35,7 @@
 - **Промты КАРМАНА:** живых **10 (5 пар)** — #18/#19 (оплата движков), #20/#25 (своя номенклатура СИЗ, ждёт выбора кладовщика), #42/#43 (история заездов), #48/#49 (**следующая пара**), #50/#51 (меню с кнопками — после модуля печатных форм). В архиве: #46/#47, #44/#45, #4/#5 и ещё 15 пар. Читать: `node scripts/karman/prompts-section.mjs list` (токен и адрес — из `%USERPROFILE%\.matricarmz-keys\`).
 - **Прод:** v3.135.0; торговая привязка — 128; фоновую авто-склейку дублей сняли. **Telegram с прод-бокса недоступен начисто (connection timeout) — тревоги идут только в МАКС** ([пункт](pending/set-vps-rvetsya-kruglosutochno-telegram-klienty-i-ssh.md)).
 - **Открытых PR:** нет. Все PR этой сессии смержены: #1835, #1836, #1839, #1840.
-- **Локальные ветки, которые НЕ трогал:** `feat/print-forms-final` (3 коммита нити печатных форм; их содержимое вошло в `main` сквошем — сами коммиты в `main` не лежат), `agent/matricarmz-2` (чужая, в своём worktree `MatricaRMZ\.claude\worktrees\m2`), `chore/session-close-2026-11` и `chore/session-close-v2` (в чужих worktree), `release/v3.135.0` (в worktree `MatricaRMZ-enginekind`).
+- **Локальные ветки:** от нити печатных форм остатки убраны (их содержимое вошло в `main` сквошем — сами коммиты в `main` не лежали). Не тронуты: `agent/matricarmz-2` (чужая, в своём worktree `MatricaRMZ\.claude\worktrees\m2`), `chore/session-close-2026-11` и `chore/session-close-v2` (в чужих worktree), `docs/gate-025-closed` (worktree `MatricaRMZ-pf`), `release/v3.135.0` (worktree `MatricaRMZ-enginekind`).
 
 ## Что не сработало
 
