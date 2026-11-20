@@ -98,13 +98,13 @@ describe('право на операции закрывает акт-вклад�
     expect(CARD).toMatch(/\{props\.canViewOperations && \(\s*<div[^>]*data-card-tab="acts"/);
   });
 
-  it('в константе ровно четыре ключа, и все они — настоящие вкладки', () => {
+  it('в константе ровно три ключа, и все они — настоящие вкладки', () => {
     const decl = CARD.match(/const OPERATIONS_ONLY_TABS = new Set<EngineCardTab>\(\[([^\]]*)\]\)/);
     expect(decl).not.toBeNull();
     const keys = [...(decl?.[1] ?? '').matchAll(/'([^']+)'/g)].map((m) => m[1]);
-    // «История заездов» (19.11.2026) — под тем же правом, что и история ремонта: она
-    // показывает приходы, отъезды и акты заездов, то есть ту же операционную правду.
-    expect(keys.slice().sort()).toEqual(['arrivals', 'completeness', 'defect', 'history'].sort());
+    // «История заездов» отдельной вкладкой больше нет (владелец 20.11.2026): заезды —
+    // раскрывающиеся разделы внутри «Основного», а не отдельная вкладка.
+    expect(keys.slice().sort()).toEqual(['completeness', 'defect', 'history'].sort());
     // Ключ, которого нет в списке вкладок, спрятал бы вкладку от всех сразу.
     for (const key of keys) expect(CARD).toContain(`{ key: '${key}', label:`);
   });
