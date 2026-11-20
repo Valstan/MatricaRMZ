@@ -7,6 +7,7 @@ import {
   productionProgramContractLabel,
   productionProgramEngineHint,
   productionProgramRowFromEngine,
+  looksLikeIdentifier,
   type EngineListItem,
   type ProductionProgramDto,
 } from '@matricarmz/shared';
@@ -91,25 +92,33 @@ export function ProductionProgramAddEnginesDialog(props: {
   const [error, setError] = useState('');
 
   /**
-   * Вид договора — по разделам договора. Кэш на одну загрузку: у пачки
-   * двигателей договоров обычно несколько, а запрос по каждому — дубль работы.
+   * Договор по id: вид (из его разделов) и номер (номер в карточке двигателя
+   * может отсутствовать — тогда он берётся из строгой реплики, как на странице
+   * программы). Кэш на одну загрузку: у пачки двигателей договоров несколько,
+   * а запрос по каждому — дубль работы.
    */
-  const contractKindOf = useCallback(async (contractId: string, cache: Map<string, ContractKind | null>) => {
-    if (cache.has(contractId)) return cache.get(contractId) ?? null;
-    let kind: ContractKind | null = null;
-    try {
-      const res = await window.matrica.contracts.contract.get(contractId);
-      if (res.ok && res.row) {
-        const parsed = parseContractSections({ contract_sections: res.row.sections_json });
-        const k = parsed?.primary?.kind;
-        kind = k === 'military' || k === 'civil' ? k : null;
+  const contractInfoOf = useCallback(
+    async (contractId: string, cache: Map<string, { kind: ContractKind | null; number: string }>) => {
+      if (cache.has(contractId)) return cache.get(contractId)!;
+      let kind: ContractKind | null = null;
+      let number = '';
+      try {
+        const res = await window.matrica.contracts.contract.get(contractId);
+        if (res.ok && res.row) {
+          const parsed = parseContractSections({ contract_sections: res.row.sections_json });
+          const k = parsed?.primary?.kind;
+          kind = k === 'military' || k === 'civil' ? k : null;
+          number = String(res.row.number ?? '').trim();
+        }
+      } catch {
+        kind = null;
       }
-    } catch {
-      kind = null;
-    }
-    cache.set(contractId, kind);
-    return kind;
-  }, []);
+      const info = { kind, number };
+      cache.set(contractId, info);
+      return info;
+    },
+    [],
+  );
 
   // Загрузка: программы и разбор каждого двигателя (можно ли его взять).
   useEffect(() => {
@@ -123,22 +132,45 @@ export function ProductionProgramAddEnginesDialog(props: {
       const programRows: ProductionProgramDto[] = list.ok ? list.rows : [];
       setPrograms(programRows);
 
-      // Виды договоров — по одному запросу на договор.
-      const cache = new Map<string, ContractKind | null>();
-      const kinds = new Map<string, ContractKind | null>();
-      for (const engine of props.engines) {
+      // Карточки двигателей читаем ЗДЕСЬ, а не берём из списка на экране: список
+      // может быть старее привязки к договору (зеркало едет до минуты), и тогда
+      // двигатель был бы отказан напрасно — «нет договора» при договоре, который
+      // в данных уже есть.
+      let engines = props.engines;
+      try {
+        const fresh = await window.matrica.engines.list();
+        if (fresh.length > 0) {
+          const byId = new Map(fresh.map((e) => [String(e.id), e]));
+          engines = props.engines.map((e) => byId.get(String(e.id)) ?? e);
+        }
+      } catch {
+        // Реплика не прочиталась — берём те карточки, что пришли со списка.
+      }
+      if (!alive) return;
+
+      // Вид и номер договора — по одному запросу на договор.
+      const cache = new Map<string, { kind: ContractKind | null; number: string }>();
+      const infos = new Map<string, { kind: ContractKind | null; number: string }>();
+      for (const engine of engines) {
         const contractId = String(engine.contractId ?? '');
-        if (!contractId || kinds.has(contractId)) continue;
-        kinds.set(contractId, await contractKindOf(contractId, cache));
+        if (!contractId || infos.has(contractId)) continue;
+        infos.set(contractId, await contractInfoOf(contractId, cache));
       }
 
-      const prepared: EngineRow[] = props.engines.map((engine) => {
+      const prepared: EngineRow[] = engines.map((engine) => {
         const hint = productionProgramEngineHint(engine);
+        const contractId = String(engine.contractId ?? '');
+        const info = infos.get(contractId);
+        // Номер договора: из карточки двигателя, а если там пусто или служебный
+        // идентификатор — из строгой реплики (как на странице программы).
+        const rawNumber = String(engine.contractName ?? '').trim();
+        const contractNumber =
+          rawNumber && !looksLikeIdentifier(rawNumber) ? rawNumber : (info?.number ?? '');
         const groupLabel = productionProgramContractLabel({
           organization: engine.customerName ?? null,
-          contractNumber: engine.contractName ?? null,
+          contractNumber,
         });
-        const contractKind = kinds.get(String(engine.contractId ?? '')) ?? null;
+        const contractKind = info?.kind ?? null;
         if (!groupLabel) {
           return {
             engine,
@@ -181,7 +213,7 @@ export function ProductionProgramAddEnginesDialog(props: {
     return () => {
       alive = false;
     };
-  }, [props.open, props.engines, contractKindOf]);
+  }, [props.open, props.engines, contractInfoOf]);
 
   const choices = useMemo<ProgramChoice[]>(() => {
     const list: ProgramChoice[] = programs.map((p) => ({
