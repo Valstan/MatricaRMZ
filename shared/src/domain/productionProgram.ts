@@ -411,6 +411,99 @@ export function productionProgramRowFromEngine(input: {
 }
 
 /**
+ * Нумерация строк плана: общая по программе и своя внутри договора.
+ *
+ * Обе считаются **по позиции**, а не по сохранённому числу: после перетаскивания
+ * сохранённые номера разъезжаются, и цифры на экране перестают быть правдой.
+ * Своя нумерация внутри договора отдельным полем не хранится — она выводится
+ * из порядка строк.
+ */
+export type ProductionProgramNumbering = {
+  /** Сквозной «№ п/п» по программе. */
+  global: number;
+  /** «№ п/п» внутри своего договора. */
+  inContract: number;
+};
+
+/** Ключ группы строк: договор + подпись группы (как в печатной модели). */
+export function productionProgramGroupKey(row: {
+  contractId?: string | null;
+  groupLabel?: string | null;
+}): string {
+  return `${row.contractId ? String(row.contractId) : ''}::${productionProgramGroupLabel(row.groupLabel)}`;
+}
+
+/**
+ * Нумерация строк плана по текущему порядку: общая по программе и своя внутри
+ * договора. Считается по позиции строки в плоском массиве — тот же порядок, по
+ * которому печать собирает группы (`buildProductionProgramPrintModel`), чтобы
+ * на экране и на бумаге цифры совпадали.
+ */
+export function productionProgramNumbering(
+  rows: readonly {
+    id?: string | null;
+    contractId?: string | null;
+    groupLabel?: string | null;
+  }[],
+): Map<string, ProductionProgramNumbering> {
+  const result = new Map<string, ProductionProgramNumbering>();
+  const inGroup = new Map<string, number>();
+  let global = 0;
+  for (const row of rows ?? []) {
+    global += 1;
+    const key = productionProgramGroupKey(row);
+    const n = (inGroup.get(key) ?? 0) + 1;
+    inGroup.set(key, n);
+    const id = String(row.id ?? '');
+    if (id) result.set(id, { global, inContract: n });
+  }
+  return result;
+}
+
+/**
+ * Перестановка двигателя **в пределах своего договора**: строка занимает место
+ * указанной строки цели (в том же договоре). Чужая группа не затрагивается.
+ *
+ * Возвращает НОВЫЙ массив строк (порядок в нём — это и есть порядок плана).
+ */
+export function productionProgramMoveRowWithinGroup<
+  T extends { id?: string | null; contractId?: string | null; groupLabel?: string | null },
+>(rows: readonly T[], rowId: string, targetRowId: string): T[] {
+  const list = [...(rows ?? [])];
+  const from = list.findIndex((r) => String(r.id ?? '') === rowId);
+  if (from < 0) return list;
+  const target = list.findIndex((r) => String(r.id ?? '') === targetRowId);
+  if (target < 0 || target === from) return list;
+  const moving = list[from]!;
+  // Двигатель едет только внутри своего договора: цель — строка того же договора.
+  if (productionProgramGroupKey(moving) !== productionProgramGroupKey(list[target]!)) return list;
+  list.splice(from, 1);
+  const to = list.findIndex((r) => String(r.id ?? '') === targetRowId);
+  list.splice(to < 0 ? list.length : to, 0, moving);
+  return list;
+}
+
+/**
+ * Перестановка группы (договора со своим блоком движков) **внутри программы**:
+ * блок уезжает целиком и встаёт на место другой группы.
+ */
+export function productionProgramMoveGroup<
+  T extends { id?: string | null; contractId?: string | null; groupLabel?: string | null },
+>(rows: readonly T[], groupKey: string, targetGroupKey: string): T[] {
+  const list = [...(rows ?? [])];
+  if (groupKey === targetGroupKey) return list;
+  const block = list.filter((r) => productionProgramGroupKey(r) === groupKey);
+  if (block.length === 0) return list;
+  const rest = list.filter((r) => productionProgramGroupKey(r) !== groupKey);
+  const targetIndex = rest.findIndex((r) => productionProgramGroupKey(r) === targetGroupKey);
+  if (targetIndex < 0) {
+    // Цели нет — блок уходит в конец программы.
+    return [...rest, ...block];
+  }
+  return [...rest.slice(0, targetIndex), ...block, ...rest.slice(targetIndex)];
+}
+
+/**
  * Подсветка строки плана на печати.
  *
  * Решение владельца: основная подсветка — двигатель ГОТОВ К ОТГРУЗКЕ (прошёл
@@ -419,6 +512,36 @@ export function productionProgramRowFromEngine(input: {
  * весь план «позеленеет» и подсветка перестанет что-то значить.
  */
 export type ProductionProgramHighlight = 'ready' | 'shipped' | 'none';
+
+/**
+ * Тон строки плана на экране: фон по факту из карточки движка.
+ *
+ * Правило живёт в домене, а не в компоненте страницы: один источник правды,
+ * иначе подсветка на экране разойдётся с подсветкой на печати (тот же запрет,
+ * что у `productionProgramEngineHint`).
+ */
+export type ProductionProgramRowTone = {
+  /** Фон строки ('' — без заливки). */
+  background: string;
+  /** Подсказка: почему строка такого цвета. */
+  label: string;
+};
+
+/** Заливка строки «готов к отгрузке» — та же, что на печатной форме. */
+export const PRODUCTION_PROGRAM_READY_BACKGROUND = '#dcfce7';
+
+export function productionProgramRowTone(
+  engine: EngineListItem | null | undefined,
+): ProductionProgramRowTone {
+  const highlight = productionProgramRowHighlight(engine);
+  if (highlight === 'ready') {
+    return { background: PRODUCTION_PROGRAM_READY_BACKGROUND, label: 'Готов к отгрузке — на заводе' };
+  }
+  if (highlight === 'shipped') {
+    return { background: '', label: 'Отгружен' };
+  }
+  return { background: '', label: '' };
+}
 
 export function productionProgramRowHighlight(
   engine: EngineListItem | null | undefined,

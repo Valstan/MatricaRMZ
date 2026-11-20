@@ -13,8 +13,13 @@ import {
   productionProgramExecutionSummary,
   productionProgramOrganizationLabel,
   productionProgramPeriodKind,
+  productionProgramGroupKey,
+  productionProgramMoveGroup,
+  productionProgramMoveRowWithinGroup,
+  productionProgramNumbering,
   productionProgramRowFromEngine,
   productionProgramRowExecution,
+  productionProgramRowTone,
   type EngineListItem,
   type ProductionProgramDto,
   type ProductionProgramExecutionSummary,
@@ -212,7 +217,7 @@ export function ProductionProgramPage(props: Props) {
    * номера п/п по позиции). Отказ сервера оставляем на экране: правка остаётся
    * «несохранённой», а ошибка называет виновную строку («строка 3: …»).
    */
-  const persist = useCallback(
+  const persistRows = useCallback(
     async (programId: string, payload: PendingSave): Promise<boolean> => {
       if (payload.header) {
         const h = payload.header;
@@ -264,6 +269,7 @@ export function ProductionProgramPage(props: Props) {
           note: l.note,
         })),
       ];
+      console.log('[PP-AUTOSAVE] persist program=', programId, 'sent=', sentRows.length, 'known=', known.size, 'foreign=', foreign.length);
       const res = await window.matrica.productionProgram.saveRows({
         id: programId,
         rows: sentRows.map((r, i) => ({
@@ -297,6 +303,24 @@ export function ProductionProgramPage(props: Props) {
       return true;
     },
     [markSaved],
+  );
+
+  /**
+   * Обёртка записи: обрыв связи (сервер недоступен, сеть легла) — это тоже
+   * нужно показать. Без неё исключение из моста глоталось, и оператор видел
+   * «Правка не сохранена» без причины — молчание вместо ответа.
+   */
+  const persist = useCallback(
+    async (programId: string, payload: PendingSave): Promise<boolean> => {
+      try {
+        return await persistRows(programId, payload);
+      } catch (e) {
+        setError(`Не удалось записать: ${String(e instanceof Error ? e.message : e)}`);
+        setStatus('');
+        return false;
+      }
+    },
+    [persistRows],
   );
 
   /**
@@ -570,7 +594,14 @@ export function ProductionProgramPage(props: Props) {
     return map;
   }, [contracts]);
 
-  /** Строки плана, сгруппированные по договору (владелец 10.11.2026). */
+  /**
+   * Строки плана, сгруппированные по договору (владелец 10.11.2026).
+   *
+   * Порядок групп — **как в печати**: по порядку строк (порядок первого
+   * появления), а не по названию договора. Иначе экран и печать показывают
+   * разный порядок, и перетащить группу некуда. Раньше тут стояла сортировка по
+   * названию — её убрали 20.11.2026 (план нити «порядок»).
+   */
   const groups = useMemo(() => {
     const byKey = new Map<string, { key: string; label: string; items: ScreenRow[] }>();
     for (const row of rows) {
@@ -590,8 +621,38 @@ export function ProductionProgramPage(props: Props) {
       }
       group.items.push({ row, engine, organization });
     }
-    return [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label, 'ru'));
+    return [...byKey.values()];
   }, [rows, engineById, contractLabelById, contractNumberOf]);
+
+  /**
+   * Две нумерации строк: общая по программе и своя внутри договора. Считаются
+   * по позиции — после перетаскивания сохранённые номера разъезжаются, и цифры
+   * на экране перестают быть правдой.
+   */
+  const numbering = useMemo(() => productionProgramNumbering(rows), [rows]);
+
+  /**
+   * Перетаскивание: двигатель едет **в пределах своего договора**, группа
+   * (договор со своим блоком) — целиком. Порядок после перетаскивания — это
+   * порядок строк; номера пересчитываются и уходят тем же `saveRows`.
+   */
+  const [drag, setDrag] = useState<{ kind: 'row' | 'group'; key: string } | null>(null);
+
+  const dropRowOn = (targetRowId: string) => {
+    if (!drag || drag.kind !== 'row') return;
+    setDrag(null);
+    const next = productionProgramMoveRowWithinGroup(rowsRef.current, drag.key, targetRowId);
+    if (next === rowsRef.current) return;
+    applyRows(() => next, selectedId);
+  };
+
+  const dropGroupOn = (targetGroupKey: string) => {
+    if (!drag || drag.kind !== 'group') return;
+    setDrag(null);
+    const next = productionProgramMoveGroup(rowsRef.current, drag.key, targetGroupKey);
+    if (next === rowsRef.current) return;
+    applyRows(() => next, selectedId);
+  };
 
   /**
    * Сводка выполнения по каждой программе — то, что показывается на плашке
@@ -1096,7 +1157,9 @@ export function ProductionProgramPage(props: Props) {
                 <table className="list-table" style={{ width: '100%' }}>
                   <thead>
                     <tr>
-                      <th>№ п/п</th>
+                      <th />
+                      <th title="Сквозной номер по программе">№ п/п</th>
+                      <th title="Номер двигателя внутри своего договора">№ в договоре</th>
                       <th>Организация, договор</th>
                       <th>Двигатель</th>
                       <th>Выполнение</th>
@@ -1110,33 +1173,92 @@ export function ProductionProgramPage(props: Props) {
                   <tbody>
                     {groups.length === 0 ? (
                       <tr>
-                        <td colSpan={props.canEdit ? 9 : 8} className="ui-muted">
+                        <td colSpan={props.canEdit ? 11 : 10} className="ui-muted">
                           Строк в плане нет
                         </td>
                       </tr>
                     ) : null}
-                    {groups.map((group) => (
-                      <React.Fragment key={group.key}>
-                        <tr style={{ background: '#f3f4f6' }}>
-                          <td
-                            colSpan={props.canEdit ? 9 : 8}
-                            style={{ fontWeight: 700, padding: '4px 6px', whiteSpace: 'normal' }}
+                    {groups.map((group) => {
+                      const groupKey = group.items[0] ? productionProgramGroupKey(group.items[0].row) : group.key;
+                      return (
+                        <React.Fragment key={group.key}>
+                          <tr
+                            style={{ background: '#f3f4f6' }}
+                            onDragOver={(e) => {
+                              if (drag?.kind !== 'group') return;
+                              e.preventDefault();
+                              e.dataTransfer.dropEffect = 'move';
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              dropGroupOn(groupKey);
+                            }}
                           >
-                            {group.label}
-                          </td>
-                        </tr>
-                        {group.items.map((item, i) => {
-                          const r = item.row;
-                          const engine = item.engine;
-                          // Выполнение — по живой карточке: ОТК пройден → готов к
-                          // отгрузке, отгружен → выполнено, срок — плановая отгрузка.
-                          const execution = productionProgramRowExecution({
-                            engine,
-                            shippingPlanAt: r.shippingPlanAt ?? null,
-                          });
-                          return (
-                            <tr key={r.id}>
-                              <td>{i + 1}</td>
+                            <td
+                              colSpan={props.canEdit ? 11 : 10}
+                              style={{ fontWeight: 700, padding: '4px 6px', whiteSpace: 'normal' }}
+                            >
+                              <span
+                                draggable={props.canEdit}
+                                onDragStart={(e) => {
+                                  e.dataTransfer.effectAllowed = 'move';
+                                  e.dataTransfer.setData('text/plain', groupKey);
+                                  setDrag({ kind: 'group', key: groupKey });
+                                }}
+                                title={props.canEdit ? 'Перетащите группу — она переедет со своим блоком' : undefined}
+                                style={{ cursor: props.canEdit ? 'grab' : undefined, userSelect: 'none' }}
+                              >
+                                ⠿ {group.label}
+                              </span>
+                            </td>
+                          </tr>
+                          {group.items.map((item) => {
+                            const r = item.row;
+                            const engine = item.engine;
+                            // Выполнение — по живой карточке: ОТК пройден → готов к
+                            // отгрузке, отгружен → выполнено, срок — плановая отгрузка.
+                            const execution = productionProgramRowExecution({
+                              engine,
+                              shippingPlanAt: r.shippingPlanAt ?? null,
+                            });
+                            // Тон строки — по факту из карточки (тот же домен, что и печать).
+                            const tone = productionProgramRowTone(engine);
+                            const num = numbering.get(r.id);
+                            return (
+                              <tr
+                                key={r.id}
+                                onDragOver={(e) => {
+                                  if (drag?.kind !== 'row') return;
+                                  e.preventDefault();
+                                  e.dataTransfer.dropEffect = 'move';
+                                }}
+                                onDrop={(e) => {
+                                  e.preventDefault();
+                                  dropRowOn(r.id);
+                                }}
+                                style={tone.background ? { background: tone.background } : undefined}
+                                title={tone.label || undefined}
+                              >
+                                <td>
+                                  <span
+                                    draggable={props.canEdit}
+                                    onDragStart={(e) => {
+                                      e.dataTransfer.effectAllowed = 'move';
+                                      e.dataTransfer.setData('text/plain', r.id);
+                                      setDrag({ kind: 'row', key: r.id });
+                                    }}
+                                    title={
+                                      props.canEdit
+                                        ? 'Перетащите двигатель — он встанет на новое место в своём договоре'
+                                        : undefined
+                                    }
+                                    style={{ cursor: props.canEdit ? 'grab' : undefined, userSelect: 'none' }}
+                                  >
+                                    ⠿
+                                  </span>
+                                </td>
+                                <td>{num?.global ?? ''}</td>
+                                <td>{num?.inContract ?? ''}</td>
                               <td title={item.organization}>{item.organization || '—'}</td>
                               <td>
                                 {[engine?.engineBrand ?? r.engineMark, engine?.engineNumber ?? r.engineNumber]
@@ -1261,7 +1383,8 @@ export function ProductionProgramPage(props: Props) {
                           );
                         })}
                       </React.Fragment>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
