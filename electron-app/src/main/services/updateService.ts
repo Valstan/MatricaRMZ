@@ -2192,13 +2192,17 @@ export async function runAutoUpdateFlow(
   updateInFlight = true;
   let lockAcquired = false;
   try {
-    showUpdateWindow(opts.parentWindow ?? null);
-    await stageUpdate('Проверяем обновления…', 0);
-
+    // Dev-сборка обновление не выполняет — выходим ДО показа окна и стадии «Проверяем обновления…».
+    // Раньше dev-выход стоял ПОСЛЕ stageUpdate: стадия «checking» уходила в главное окно и уже
+    // не снималась — полоса навсегда оставалась «0% · оценка недоступна» поверх работы
+    // (жалоба владельца 20.11.2026: «висит прогресс-бар и не уходит никуда, мешает работе»).
     if (!app.isPackaged) {
+      setUpdateState({ state: 'idle' });
       closeUpdateWindowSoon(300);
       return { action: 'no_update' };
     }
+    showUpdateWindow(opts.parentWindow ?? null);
+    await stageUpdate('Проверяем обновления…', 0);
 
     lockAcquired = await acquireUpdateLock('foreground');
     if (!lockAcquired) {
