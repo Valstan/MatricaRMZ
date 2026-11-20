@@ -1135,6 +1135,21 @@ export function buildProductionProgramPrintModel(input: ProductionProgramPrintIn
   };
 }
 
+/**
+ * Подпись этапа для показа строки: у отгруженного двигателя без строки этапа — «Отгружен».
+ *
+ * Правило живёт здесь, потому что его показывают два места — лист печати и файл выгрузки.
+ * Повторённое в каждом своя копия разъезжается: на бумаге «Отгружен», а в Excel пусто.
+ */
+export function productionProgramStageText(row: {
+  stageLabel?: string | null;
+  highlight?: ProductionProgramHighlight | null;
+}): string {
+  const label = String(row.stageLabel ?? '').trim();
+  if (label) return label;
+  return row.highlight === 'shipped' ? 'Отгружен' : '';
+}
+
 // ────────────────────────────────────────────────────────────
 // Контракт клиента (DTO)
 // ────────────────────────────────────────────────────────────

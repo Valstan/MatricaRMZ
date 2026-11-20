@@ -3,6 +3,7 @@ import {
   buildProductionProgramPrintModel,
   formatProductionProgramPeriod,
   parseProductionProgramState,
+  productionProgramStageText,
   type ProductionProgramPrintInput,
   type ProductionProgramPrintModel,
 } from '@matricarmz/shared';
@@ -79,10 +80,10 @@ function rowHtml(model: ProductionProgramPrintModel): string {
       // что-то значить (решение владельца).
       const ready = row.highlight === 'ready';
       const bg = ready ? 'background:#dcfce7' : '';
-      const shipped = row.highlight === 'shipped';
       // Этап — из карточки двигателя. Отгружен без строки этапа — грифом: иначе
-      // на бумаге было бы пусто, а двигатель уехал.
-      const stageText = row.stageLabel || (shipped ? 'Отгружен' : '');
+      // на бумаге было бы пусто, а двигатель уехал. Правило — в домене: тем же
+      // пользуется выгрузка плана в файл, иначе лист и файл разойдутся.
+      const stageText = productionProgramStageText(row);
       body.push(
         `<tr style="${bg}">` +
           `<td style="border:1px solid #111827;padding:3px 4px;text-align:center">${row.orderNo}</td>` +
