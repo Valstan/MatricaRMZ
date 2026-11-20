@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { CardExportSpec, ChatDeepLinkPayload, EngineBulkIntakeApplyInput, FileSearchSource, ListExportFormat, ListExportSpec, PartMetadata } from '@matricarmz/shared';
+import type { MailAttachmentSpec } from '../main/services/mailService.js';
 
 // Нативный сканер QR ставит сюда планшет (android-app/src/platform/qrScan.ts) до
 // загрузки renderer. На десктопе хука нет — мост честно отвечает unsupported,
@@ -1274,6 +1275,19 @@ const matricaApi = {
   exports: {
     list: async (args: { format: ListExportFormat; spec: ListExportSpec }) => ipcRenderer.invoke('exports:list', args),
     card: async (args: CardExportSpec) => ipcRenderer.invoke('exports:card', args),
+  },
+  /**
+   * Письмо с вложением (кнопка «Почта» у печати и выгрузки).
+   *
+   * Без этого блока окно письма открывалось, а вложение не собиралось никогда:
+   * `window.matrica.mail` был undefined, и вызов падал молча — оператор видел
+   * «готовим файл…» до бесконечности (смоук ПП-меню 20.11.2026).
+   */
+  mail: {
+    prepareAttachment: async (args: MailAttachmentSpec) => ipcRenderer.invoke('mail:prepareAttachment', args),
+    revealAttachment: async (args: { path: string }) => ipcRenderer.invoke('mail:revealAttachment', args),
+    openDraft: async (args: { to?: string; cc?: string; subject: string; body: string }) =>
+      ipcRenderer.invoke('mail:openDraft', args),
   },
   chat: {
     usersList: async () => ipcRenderer.invoke('chat:usersList'),
