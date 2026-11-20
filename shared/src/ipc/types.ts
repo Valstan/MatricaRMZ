@@ -3254,6 +3254,15 @@ export type MatricaApi = {
     saveRows: (args: { id: string; rows: ProductionProgramLineDraftDto[] }) => Promise<
       { ok: true; count: number } | { ok: false; error: string }
     >;
+    /**
+     * Ручная отметка оператора на строке плана ('attention' — особое внимание).
+     *
+     * Своя дверь: полная замена набора строк (saveRows) отметку НЕ трогает — иначе
+     * правка, собранная по устаревшей реплике, затирала бы чужую отметку.
+     */
+    setRowOperatorNote: (args: { programId: string; rowId: string; mark: string | null }) => Promise<
+      { ok: true; id: string; operatorNote: string | null } | { ok: false; error: string }
+    >;
     remove: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
   };
   /**

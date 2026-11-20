@@ -736,6 +736,10 @@ const ERP_PRODUCTION_PROGRAM_ROW_FIELDS = withBase(
   { db: 'shippingPlanAt', dto: 'shipping_plan_at' },
   { db: 'factors', dto: 'factors' },
   { db: 'note', dto: 'note' },
+  // Ручная отметка оператора ('attention') — свой фон строки плана. Строгая
+  // колонка, а не EAV-атрибут (EAV заморожен). Значение — ПРИЗНАК, цвет
+  // выводится из него в домене.
+  { db: 'operatorNote', dto: 'operator_note' },
 );
 
 // Рекламации двигателя (очередь заездов). Даты приёма и отправки — nullable:

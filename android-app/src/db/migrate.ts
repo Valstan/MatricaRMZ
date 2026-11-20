@@ -638,6 +638,7 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
       shipping_plan_at integer,
       factors text NOT NULL,
       note text NOT NULL,
+      operator_note text,
       created_at integer NOT NULL,
       updated_at integer NOT NULL,
       last_server_seq integer,
@@ -959,6 +960,21 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
     if (!(await hasTable(sqlite, table))) continue;
     if (!(await columnNames(table)).has('engine_kind')) {
       await sqlite.exec(`ALTER TABLE ${table} ADD COLUMN engine_kind text;`);
+    }
+  }
+
+  // erp_production_program_rows.operator_note — ручная отметка оператора на строке
+  // плана (миграция сервера 0135, промты КАРМАНА #48/#49): признак 'attention',
+  // null — отметки нет. Nullable — ровно как на сервере, иначе checkReplicaStrictness
+  // уронит pull.
+  //
+  // Зеркало electron-app/src/main/database/migrate.ts: долгоживущая БД планшета
+  // создана без этой колонки, а CREATE TABLE IF NOT EXISTS на существующей таблице
+  // ничего не меняет. Шаг 15→16 версионной цепочки догоняет живых клиентов;
+  // здесь — страховка для тех, кто идёт мимо цепочки.
+  if (await hasTable(sqlite, 'erp_production_program_rows')) {
+    if (!(await columnNames('erp_production_program_rows')).has('operator_note')) {
+      await sqlite.exec(`ALTER TABLE erp_production_program_rows ADD COLUMN operator_note text;`);
     }
   }
 

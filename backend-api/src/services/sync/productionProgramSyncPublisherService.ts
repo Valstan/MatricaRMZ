@@ -69,6 +69,10 @@ export function toProductionProgramLineInput(r: DbRow): SyncWriteInput {
       shipping_plan_at: r['shippingPlanAt'] == null ? null : Number(r['shippingPlanAt']),
       factors: String(r['factors']),
       note: String(r['note']),
+      // Ручная отметка оператора ('attention') — едет вместе со строкой, иначе
+      // отметка осталась бы на одном компьютере (а она как раз для обмена
+      // данными между операторами).
+      operator_note: r['operatorNote'] == null ? null : String(r['operatorNote']),
       created_at: Number(r['createdAt']),
       updated_at: Number(r['updatedAt']),
       deleted_at: r['deletedAt'] == null ? null : Number(r['deletedAt']),

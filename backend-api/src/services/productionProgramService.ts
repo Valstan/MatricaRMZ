@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 
-import { looksLikeIdentifier, parseProductionProgramState } from '@matricarmz/shared';
+import { looksLikeIdentifier, parseProductionProgramOperatorMark, parseProductionProgramState } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
 import { erpProductionProgramRows, erpProductionPrograms } from '../database/schema.js';
@@ -48,6 +48,8 @@ export type ProductionProgramLineRow = {
   shippingPlanAt: number | null;
   factors: string;
   note: string;
+  /** Ручная отметка оператора ('attention') — свой фон строки; null — отметки нет. */
+  operatorNote: string | null;
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null;
@@ -99,6 +101,7 @@ function mapLine(r: typeof erpProductionProgramRows.$inferSelect): ProductionPro
     shippingPlanAt: r.shippingPlanAt == null ? null : Number(r.shippingPlanAt),
     factors: String(r.factors),
     note: String(r.note),
+    operatorNote: r.operatorNote == null ? null : String(r.operatorNote),
     createdAt: Number(r.createdAt),
     updatedAt: Number(r.updatedAt),
     deletedAt: r.deletedAt == null ? null : Number(r.deletedAt),
@@ -477,6 +480,11 @@ export async function replaceProductionProgramRows(
         shippingPlanAt: row.shippingPlanAt,
         factors: row.factors,
         note: row.note,
+        // `operatorNote` здесь НЕ пишется — намеренно. Отметка оператора живёт
+        // своей дверью (setProductionProgramRowOperatorNote): замена набора —
+        // полная, и она приходит из клиента, чья реплика отстаёт на минуту.
+        // Если бы отметка ехала в наборе, правка соседнего оператора затирала
+        // бы чужую отметку (тот же класс, что «строка плана пропадает»).
         updatedAt: now,
         syncStatus: 'pending',
       };
@@ -494,4 +502,46 @@ export async function replaceProductionProgramRows(
   });
 
   return { ok: true, count: checked.length };
+}
+
+/**
+ * Ручная отметка оператора на строке плана (промты КАРМАНА #48/#49, шаг 5
+ * плана владельца #49 от 19.11.2026).
+ *
+ * СВОЯ дверь, а не поле в замене набора строк: замена набора — полная, и она
+ * приходит из клиента, чья реплика отстаёт на минуту. Если бы отметка ехала в
+ * наборе, правка одного оператора затирала бы отметку, поставленную другим
+ * («особое внимание» — это как раз обмен данными между операторами).
+ *
+ * Отметка не влияет на порядок строк и не трогает остальные поля строки.
+ * Пустое значение — снять отметку.
+ */
+export async function setProductionProgramRowOperatorNote(
+  programId: string,
+  rowId: string,
+  mark: string | null | undefined,
+): Promise<Result<{ id: string; operatorNote: string | null }>> {
+  const pid = String(programId ?? '').trim();
+  const rid = String(rowId ?? '').trim();
+  if (!isUuid(pid)) return { ok: false, error: 'id программы должен быть uuid' };
+  if (!isUuid(rid)) return { ok: false, error: 'id строки должен быть uuid' };
+  const raw = mark == null ? '' : String(mark).trim();
+  const parsed = raw ? parseProductionProgramOperatorMark(raw) : null;
+  if (raw && !parsed) {
+    return { ok: false, error: `отметка оператора неизвестна: ${raw}` };
+  }
+  const now = Date.now();
+  const updated = await db
+    .update(erpProductionProgramRows)
+    .set({ operatorNote: parsed, updatedAt: now, syncStatus: 'pending' })
+    .where(
+      and(
+        eq(erpProductionProgramRows.id, rid as any),
+        eq(erpProductionProgramRows.programId, pid as any),
+        isNull(erpProductionProgramRows.deletedAt),
+      ),
+    )
+    .returning({ id: erpProductionProgramRows.id });
+  if (updated.length === 0) return { ok: false, error: 'строка плана не найдена' };
+  return { ok: true, id: rid, operatorNote: parsed };
 }

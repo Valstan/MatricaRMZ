@@ -3004,6 +3004,9 @@ async function applyPulledChanges(
             shippingPlanAt: payload.shipping_plan_at ?? null,
             factors: payload.factors,
             note: payload.note,
+            // Ручная отметка оператора ('attention') — без неё отметка осталась бы
+            // на одном компьютере (а она как раз для обмена между операторами).
+            operatorNote: payload.operator_note ?? null,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
             lastServerSeq: payload.last_server_seq ?? null,
@@ -4353,6 +4356,7 @@ async function applyPulledChanges(
       shippingPlanAt: sql`excluded.shipping_plan_at`,
       factors: sql`excluded.factors`,
       note: sql`excluded.note`,
+      operatorNote: sql`excluded.operator_note`,
       updatedAt: sql`excluded.updated_at`,
       lastServerSeq: sql`excluded.last_server_seq`,
       deletedAt: sql`excluded.deleted_at`,

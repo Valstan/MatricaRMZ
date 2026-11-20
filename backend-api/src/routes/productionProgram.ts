@@ -9,6 +9,7 @@ import {
   getProductionProgram,
   listProductionPrograms,
   replaceProductionProgramRows,
+  setProductionProgramRowOperatorNote,
   updateProductionProgram,
 } from '../services/productionProgramService.js';
 
@@ -81,6 +82,29 @@ productionProgramRouter.put('/:id/rows', requirePermission(PermissionCode.Produc
   if (!result.ok) return res.status(400).json(result);
   return res.json(result);
 });
+
+/**
+ * Ручная отметка оператора на строке плана («особое внимание»).
+ *
+ * Своя дверь, а не поле в замене набора строк: замена набора — полная, и она
+ * приходит из клиента, чья реплика отстаёт на минуту. Отметка ехала бы в
+ * наборе — правка одного оператора затирала бы отметку, поставленную другим.
+ */
+productionProgramRouter.patch(
+  '/:id/rows/:rowId/operator-note',
+  requirePermission(PermissionCode.ProductionProgramEdit),
+  async (req: Request, res: Response) => {
+    const parsed = z.object({ mark: z.string().trim().nullable().optional() }).safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ ok: false, error: 'неверная отметка', issues: parsed.error.issues });
+    const result = await setProductionProgramRowOperatorNote(
+      String(req.params.id ?? ''),
+      String(req.params.rowId ?? ''),
+      parsed.data.mark ?? null,
+    );
+    if (!result.ok) return res.status(400).json(result);
+    return res.json(result);
+  },
+);
 
 productionProgramRouter.delete('/:id', requirePermission(PermissionCode.ProductionProgramEdit), async (req: Request, res: Response) => {
   const result = await deleteProductionProgram(String(req.params.id ?? ''));

@@ -847,6 +847,12 @@ const matricaApi = {
       }>;
     }) => ipcRenderer.invoke('productionProgram:saveRows', args),
     remove: async (id: string) => ipcRenderer.invoke('productionProgram:remove', id),
+    /**
+     * Ручная отметка оператора на строке плана ('attention' — особое внимание).
+     * Своя дверь: полная замена набора строк (saveRows) отметку не трогает.
+     */
+    setRowOperatorNote: async (args: { programId: string; rowId: string; mark: string | null }) =>
+      ipcRenderer.invoke('productionProgram:setRowOperatorNote', args),
   },
   children: {
     list: async () => ipcRenderer.invoke('children:list'),

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { getTableName } from 'drizzle-orm';
+import { getTableConfig } from 'drizzle-orm/pg-core';
 import { describe, expect, it } from 'vitest';
 
 import { erpProductionProgramRows, erpProductionPrograms } from '../database/schema.js';
@@ -50,5 +51,39 @@ describe('миграция production_program (0124)', () => {
   it('drizzle-схема экспортирует обе таблицы', () => {
     expect(getTableName(erpProductionPrograms)).toBe('erp_production_programs');
     expect(getTableName(erpProductionProgramRows)).toBe('erp_production_program_rows');
+  });
+});
+
+// Ручная отметка оператора на строке плана (промты КАРМАНА #48/#49): миграция
+// 0135 добавляет колонку `operator_note`.
+//
+// Почему отдельный сторож: миграция ВНЕ журнала drizzle применяется молча —
+// так уже было с `0134_print_forms`, и на проде таблицы печатных форм не
+// появились, а выкат прошёл как «успешный».
+describe('миграция отметки оператора в плане (0135)', () => {
+  const file = '0135_production_program_operator_note.sql';
+  const sql = readFileSync(join(drizzleDir, file), 'utf8').replace(/\r\n/g, '\n');
+
+  it('файл миграции существует и добавляет колонку в строки плана', () => {
+    expect(readdirSync(drizzleDir)).toContain(file);
+    expect(sql).toContain('ALTER TABLE erp_production_program_rows');
+    expect(sql).toContain('operator_note text');
+  });
+
+  it('числится в журнале drizzle (без записи миграция не применится)', () => {
+    const journal = JSON.parse(readFileSync(join(drizzleDir, 'meta', '_journal.json'), 'utf8')) as {
+      entries: Array<{ idx: number; tag: string; when: number }>;
+    };
+    const entry = journal.entries.find((e) => e.tag === '0135_production_program_operator_note');
+    expect(entry).toBeTruthy();
+    // `when` строго больше предыдущей миграции: drizzle выбирает миграции по
+    // времени, а не по имени файла.
+    const previous = journal.entries.filter((e) => e.idx < (entry?.idx ?? 0)).at(-1);
+    expect(entry?.when ?? 0).toBeGreaterThan(previous?.when ?? 0);
+  });
+
+  it('колонка есть в drizzle-схеме сервера', () => {
+    const config = getTableConfig(erpProductionProgramRows);
+    expect(config.columns.map((c) => c.name)).toContain('operator_note');
   });
 });

@@ -672,6 +672,7 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
       shipping_plan_at integer,
       factors text NOT NULL,
       note text NOT NULL,
+      operator_note text,
       created_at integer NOT NULL,
       updated_at integer NOT NULL,
       last_server_seq integer,
@@ -1213,6 +1214,19 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
     if (!columnNames(table).has('engine_kind')) {
       sqlite.exec(`ALTER TABLE ${table} ADD COLUMN engine_kind text;`);
     }
+  }
+
+  // erp_production_program_rows.operator_note — ручная отметка оператора на строке
+  // плана (миграция сервера 0135, промты КАРМАНА #48/#49): признак 'attention',
+  // null — отметки нет. Nullable — ровно как на сервере, иначе checkReplicaStrictness
+  // уронит pull.
+  //
+  // Почему ALTER, а не только CREATE TABLE выше: долгоживущая БД парка создана
+  // без этой колонки, а CREATE TABLE IF NOT EXISTS на существующей таблице ничего
+  // не меняет. Шаг 15→16 версионной цепочки (clientSchemaMigrations) догоняет
+  // живых клиентов; здесь — страховка для тех, кто идёт мимо цепочки.
+  if (hasTable('erp_production_program_rows') && !columnNames('erp_production_program_rows').has('operator_note')) {
+    sqlite.exec(`ALTER TABLE erp_production_program_rows ADD COLUMN operator_note text;`);
   }
 
   // erp_nomenclature.directory_kind / directory_ref_id — добавлены через clientSchemaMigrations 7->8.

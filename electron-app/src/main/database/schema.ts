@@ -853,6 +853,8 @@ export const erpProductionProgramRows = sqliteTable('erp_production_program_rows
   shippingPlanAt: integer('shipping_plan_at'),
   factors: text('factors').notNull(),
   note: text('note').notNull(),
+  /** Ручная отметка оператора ('attention') — свой фон строки; null — отметки нет. */
+  operatorNote: text('operator_note'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
   lastServerSeq: integer('last_server_seq'),

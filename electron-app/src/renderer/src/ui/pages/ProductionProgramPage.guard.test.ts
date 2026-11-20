@@ -229,7 +229,7 @@ describe('порядок в производственной программе'
   });
 
   it('тон строки — доменное правило по факту из карточки', () => {
-    expect(PAGE).toContain('productionProgramRowTone(engine)');
+    expect(PAGE).toContain('productionProgramRowTone(engine, r.operatorNote)');
     expect(PAGE).toContain('style={tone.background ? { background: tone.background } : undefined}');
   });
 
@@ -237,5 +237,57 @@ describe('порядок в производственной программе'
     expect(PRINT_HTML, 'форма ПП — документ с фиксированными колонками образца').not.toContain(
       '№ в договоре',
     );
+  });
+});
+
+/**
+ * Ручная отметка оператора на строке плана (промты КАРМАНА #48 + #49, шаг 5
+ * плана владельца): «оператор может помечать отдельные двигатели, чтобы быстрее
+ * находить в производственной программе и обмениваться данными с другими
+ * операторами».
+ *
+ * Скрепы держат вещи, которые молча ломаются:
+ *  1. отметка едет СВОЕЙ дверью — полная замена набора строк её не трогает
+ *     (иначе правка, собранная по устаревшей реплике, затирала бы чужую отметку);
+ *  2. отметка входит в слепок строки — иначе живое обновление реплики (15 с)
+ *     снимет её с экрана (тот же класс, что «двигатель пропадал через 15 секунд»);
+ *  3. набор допустимых отметок задан явно — интерфейс не придумывает значения.
+ */
+describe('отметка оператора в производственной программе', () => {
+  it('на экране есть выбор отметки из явного набора', () => {
+    expect(PAGE).toContain('<th title="Отметка оператора: особое внимание">Отметка</th>');
+    expect(PAGE).toContain('PRODUCTION_PROGRAM_OPERATOR_MARKS.map');
+    expect(PAGE).toContain('PRODUCTION_PROGRAM_OPERATOR_MARK_LABELS[m]');
+    expect(SHARED_DOMAIN).toContain('export const PRODUCTION_PROGRAM_OPERATOR_MARKS');
+  });
+
+  it('отметка идёт своей дверью, а не в замене набора строк', () => {
+    expect(PAGE).toContain('window.matrica.productionProgram.setRowOperatorNote({ programId, rowId, mark })');
+    // Набор записи строк отметку не везёт: она пишется только своей дверью.
+    const payloadStart = PAGE.indexOf('rows: sentRows.map((r, i) => ({');
+    const payloadEnd = PAGE.indexOf('})),', payloadStart);
+    expect(payloadStart).toBeGreaterThan(0);
+    expect(payloadEnd).toBeGreaterThan(payloadStart);
+    const saveRowsBody = PAGE.slice(payloadStart, payloadEnd);
+    expect(saveRowsBody).not.toContain('operatorNote');
+    expect(saveRowsBody).not.toContain('operator_note');
+  });
+
+  it('отметка входит в слепок строки — реплика её не снимет с экрана', () => {
+    expect(PAGE).toContain("String(row.operatorNote ?? ''),");
+  });
+
+  it('отказ сервера откатывает отметку и говорит об этом', () => {
+    expect(PAGE).toContain('restoreOperatorNote(programId, rowId, previous);');
+    expect(PAGE).toContain('Не удалось поставить отметку');
+  });
+
+  it('пока зеркало не догнало отметку, на экране держится своя строка', () => {
+    expect(PAGE).toContain('sent: next.map((r) => rowContentSignature(r)),');
+  });
+
+  it('тон строки учитывает отметку оператора', () => {
+    expect(SHARED_DOMAIN).toContain('export function productionProgramRowTone(');
+    expect(SHARED_DOMAIN).toContain('PRODUCTION_PROGRAM_ATTENTION_BACKGROUND');
   });
 });
