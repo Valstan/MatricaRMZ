@@ -28,6 +28,13 @@ import { logInfo } from '../utils/logger.js';
 /** Контракт ответа — как в `ppeOrderNormsService`: успех несёт поля прямо, провал — `error`. */
 type Result<T> = ({ ok: true } & T) | { ok: false; error: string };
 
+/** Нарушение уникальности Postgres (23505) — по нему отличаем «имя занято» от прочих сбоев. */
+function isUniqueViolation(e: unknown): boolean {
+  const code = (e as { code?: unknown } | null)?.code;
+  const cause = (e as { cause?: { code?: unknown } } | null)?.cause;
+  return code === '23505' || cause?.code === '23505';
+}
+
 export type PrintTemplateDto = {
   id: string;
   ownerId: string;
@@ -176,19 +183,28 @@ export async function savePrintTemplate(input: {
         } as never)
         .where(eq(printTemplates.id, id as never));
     } else {
-      await db.insert(printTemplates).values({
-        id,
-        ownerId,
-        entityKey,
-        formKey,
-        name,
-        layoutJson: String(input.layoutJson ?? ''),
-        isDefault: input.isDefault === true,
-        updatedAt: now,
-        updatedBy: input.updatedBy ?? null,
-        createdAt: now,
-        deletedAt: null,
-      });
+      try {
+        await db.insert(printTemplates).values({
+          id,
+          ownerId,
+          entityKey,
+          formKey,
+          name,
+          layoutJson: String(input.layoutJson ?? ''),
+          isDefault: input.isDefault === true,
+          updatedAt: now,
+          updatedBy: input.updatedBy ?? null,
+          createdAt: now,
+          deletedAt: null,
+        });
+      } catch (e) {
+        // Одноимённый шаблон у одного владельца — это не «ошибка сервера», а понятный
+        // отказ: оператор правит существующий, а не плодит копии с тем же именем.
+        if (isUniqueViolation(e)) {
+          return { ok: false, error: 'Шаблон с таким названием уже есть' };
+        }
+        throw e;
+      }
     }
     // «По умолчанию» — один на пару (владелец + вид объекта + форма): иначе печать
     // брала бы шаблон наугад, и оператор не понимал бы, почему на бумаге не то.
