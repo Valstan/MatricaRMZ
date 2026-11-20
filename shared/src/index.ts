@@ -121,6 +121,8 @@ export * from './domain/releaseWelcome.js';
 export * from './domain/calver.js';
 export * from './domain/appVersion.js';
 export * from './domain/updateProgress.js';
+// Что клиент делает с обновлением: отложенное не имеет права глушить более новое.
+export * from './domain/updateFlow.js';
 export * from './domain/clientLabel.js';
 export * from './domain/watchdog.js';
 export * from './domain/globalSearch.js';
