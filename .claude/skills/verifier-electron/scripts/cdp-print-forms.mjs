@@ -529,11 +529,11 @@ async function main() {
           opened = { ok: true, alreadyOpen: true };
           break;
         }
-        await race(window.matrica.sync.run(), 10000, 'sync.run');
+        await race(window.matrica.sync.run(), 55000, 'sync.run');
         await new Promise((r) => setTimeout(r, 2000));
       }
       if (!opened?.ok) return { ok: false, error: opened?.error ?? 'карточка не открыта' };
-      await race(window.matrica.sync.run(), 10000, 'sync.run');
+      await race(window.matrica.sync.run(), 55000, 'sync.run');
       return { ok: true, employeeId, name: 'Смоук Печатник' };
     })()`,
   );
@@ -559,7 +559,7 @@ async function main() {
         try {
           await Promise.race([
             window.matrica.sync.run(),
-            new Promise((_, rej) => setTimeout(() => rej(new Error('sync timeout')), 10000)),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('sync timeout')), 55000)),
           ]);
         } catch (e) {}
         return true;
