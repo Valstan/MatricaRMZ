@@ -34,6 +34,8 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { MailSendButton } from '../components/MailSendButton.js';
+import { PageToolbar } from '../components/PageToolbar.js';
 import {
   ProductionProgramStageDialog,
   type ProductionProgramStageSubmitArgs,
@@ -44,6 +46,11 @@ import { SearchSelect } from '../components/SearchSelect.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { UnifiedDateInput } from '../components/UnifiedDateInput.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { listToText } from '../utils/mailText.js';
+import {
+  buildProductionProgramClipboardText,
+  buildProductionProgramExportSpec,
+} from '../utils/productionProgramExport.js';
 
 /**
  * Производственная программа (ПП) — страница модуля.
@@ -192,8 +199,11 @@ export function ProductionProgramPage(props: Props) {
   const [busy, setBusy] = useState(false);
   const [pickerContract, setPickerContract] = useState<string>('');
   const [pickerEngine, setPickerEngine] = useState<string>('');
-  // Форма, подготовленная к печати: открывается превью, а не принтер.
-  const [printInput, setPrintInput] = useState<ProductionProgramPrintInput | null>(null);
+  // Превью печати открыто? Данные для него — общая модель печати (`programPrintInput`),
+  // из неё же собираются выгрузка в файл, письмо и буфер обмена.
+  const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
+  /** Что собираем в файл прямо сейчас («В Word» / «В Excel»). */
+  const [exportBusy, setExportBusy] = useState<'docx' | 'xlsx' | null>(null);
   // Вид периода: null — показываем вид, выведенный из самих дат.
   const [periodKindOverride, setPeriodKindOverride] = useState<ProductionProgramPeriodKind | null>(null);
   // Номер договора, подтянутый из строгой реплики: в строке двигателя его может не
@@ -1048,14 +1058,15 @@ export function ProductionProgramPage(props: Props) {
   }
 
   /**
-   * Кнопка «Печать» открывает ПРЕВЬЮ, а не принтер (владелец 10.11.2026):
-   * раньше сразу выскакивало системное окно принтера, и форму печати нельзя было
-   * ни посмотреть, ни поправить (закрытие окна принтера закрывало и форму).
-   * Превью — промежуточный этап: галочки подписей, кегли разделов и кнопка печати.
+   * Модель печати плана: строки, карточки двигателей и подписи.
+   *
+   * Из неё собираются и печатный лист, и выгрузка в Word/Excel, и письмо, и буфер
+   * обмена. Одна модель — одна правда: файл, который разошёлся бы с листом,
+   * пришлось бы чинить дважды.
    */
-  function openPrintPreview() {
-    if (!selected) return;
-    setPrintInput({
+  const programPrintInput = useMemo<ProductionProgramPrintInput | null>(() => {
+    if (!selected) return null;
+    return {
       title: selected.title,
       shop: selected.shop,
       period: { start: selected.periodStart, end: selected.periodEnd },
@@ -1072,7 +1083,60 @@ export function ProductionProgramPage(props: Props) {
       })),
       engines: props.engines,
       employees,
-    });
+    };
+  }, [selected, rows, props.engines, employees]);
+
+  /**
+   * Кнопка «Печать» открывает ПРЕВЬЮ, а не принтер (владелец 10.11.2026):
+   * раньше сразу выскакивало системное окно принтера, и форму печати нельзя было
+   * ни посмотреть, ни поправить (закрытие окна принтера закрывало и форму).
+   * Превью — промежуточный этап: галочки подписей, кегли разделов и кнопка печати.
+   */
+  function openPrintPreview() {
+    if (!selected) return;
+    setPrintPreviewOpen(true);
+  }
+
+  /**
+   * Выгрузка плана в Word/Excel — общий экспортёр (`exports:list`): свой сборщик
+   * в модуле означал бы второй файл, который разъедется с общим.
+   */
+  const exportBundle = useMemo(
+    () => (programPrintInput ? buildProductionProgramExportSpec(programPrintInput) : null),
+    [programPrintInput],
+  );
+
+  async function exportProgram(format: 'docx' | 'xlsx') {
+    if (!exportBundle) return;
+    setExportBusy(format);
+    try {
+      const res = await window.matrica.exports.list({ format, spec: exportBundle.spec });
+      if (res.ok) {
+        setError('');
+        setStatus(`Файл сохранён: ${res.name}`);
+      } else if (!res.cancelled) {
+        setStatus('');
+        setError(`Не удалось выгрузить план: ${res.error}`);
+      }
+    } finally {
+      setExportBusy(null);
+    }
+  }
+
+  /**
+   * План в буфер обмена: таблица с табуляцией — вставляется в Excel и в Word
+   * одним движением (в отличие от «Колонка: значение», который разбирают руками).
+   */
+  async function copyProgramToClipboard() {
+    if (!programPrintInput) return;
+    try {
+      await navigator.clipboard.writeText(buildProductionProgramClipboardText(programPrintInput));
+      setError('');
+      setStatus(`Скопировано строк: ${rows.length}`);
+    } catch {
+      setStatus('');
+      setError('Не удалось скопировать в буфер обмена');
+    }
   }
 
   const hint = pickerEngine ? productionProgramEngineHint(engineById.get(pickerEngine) ?? null) : null;
@@ -1194,22 +1258,68 @@ export function ProductionProgramPage(props: Props) {
           </SectionCard>
         ) : (
           <>
-            <SectionCard
-              title="Программа"
-              actions={
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <Button onClick={() => void saveProgram()} disabled={busy || !props.canEdit}>
-                    Сохранить
+            <SectionCard title="Программа">
+              {/* Ряд управляющих кнопок модуля (промты КАРМАНА #50/#51): сохранить, печать,
+                  Word, Excel, почта, буфер. Тот же ряд, что в списках: что не поместилось —
+                  уезжает в меню «⋯». Права не расширяем: печать и выгрузка доступны всем,
+                  кто видит модуль, — как и раньше. */}
+              <div style={{ marginBottom: 10 }}>
+                <PageToolbar>
+                <Button onClick={() => void saveProgram()} disabled={busy || !props.canEdit} data-pp-action="save">
+                  Сохранить
+                </Button>
+                <Button variant="ghost" onClick={openPrintPreview} data-pp-action="print">
+                  Печать
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => void exportProgram('docx')}
+                  disabled={!exportBundle || exportBusy !== null}
+                  title="Выгрузить план в Word"
+                  data-pp-action="word"
+                >
+                  {exportBusy === 'docx' ? 'Готовим…' : 'В Word'}
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => void exportProgram('xlsx')}
+                  disabled={!exportBundle || exportBusy !== null}
+                  title="Выгрузить план в Excel"
+                  data-pp-action="excel"
+                >
+                  {exportBusy === 'xlsx' ? 'Готовим…' : 'В Excel'}
+                </Button>
+                {exportBundle ? (
+                  <MailSendButton
+                    subject={`${selected.title} — производственная программа`}
+                    summary={[
+                      selected.title,
+                      formatProductionProgramPeriod({ start: selected.periodStart, end: selected.periodEnd }),
+                      `${exportBundle.rows.length} двиг.`,
+                      selected.shop,
+                    ]}
+                    body={() => listToText(exportBundle.fields, exportBundle.rows)}
+                    attachment={() => ({ kind: 'list', format: 'docx', spec: exportBundle.spec })}
+                    label="Почта"
+                    dataAttr="pp"
+                  />
+                ) : null}
+                <Button
+                  variant="ghost"
+                  onClick={() => void copyProgramToClipboard()}
+                  disabled={rows.length === 0}
+                  title="Скопировать план в буфер обмена — вставится таблицей"
+                  data-pp-action="copy"
+                >
+                  Скопировать
+                </Button>
+                {props.canEdit ? (
+                  <Button variant="ghost" onClick={() => void removeProgram()} disabled={busy} data-pp-action="delete">
+                    Удалить
                   </Button>
-                  <Button onClick={openPrintPreview}>Печать</Button>
-                  {props.canEdit ? (
-                    <Button onClick={() => void removeProgram()} disabled={busy}>
-                      Удалить
-                    </Button>
-                  ) : null}
-                </div>
-              }
-            >
+                ) : null}
+                </PageToolbar>
+              </div>
               <div
                 style={{
                   display: 'grid',
@@ -1445,7 +1555,9 @@ export function ProductionProgramPage(props: Props) {
                                 <td>{num?.inContract ?? ''}</td>
                               <td title={item.organization}>{item.organization || '—'}</td>
                               <td>
-                                {[engine?.engineBrand ?? r.engineMark, engine?.engineNumber ?? r.engineNumber]
+                                {/* Марка и номер — по тому же правилу, что печать и выгрузка
+                                    (живая карточка, снимок строки — запасной вариант). */}
+                                {[engine?.engineBrand || r.engineMark, engine?.engineNumber || r.engineNumber]
                                   .filter(Boolean)
                                   .join(' ')}
                               </td>
@@ -1464,7 +1576,7 @@ export function ProductionProgramPage(props: Props) {
                                       openStageDialog(
                                         r.id,
                                         String(engine?.id ?? r.engineId ?? ''),
-                                        [engine?.engineBrand ?? r.engineMark, engine?.engineNumber ?? r.engineNumber]
+                                        [engine?.engineBrand || r.engineMark, engine?.engineNumber || r.engineNumber]
                                           .filter(Boolean)
                                           .join(' '),
                                         code,
@@ -1572,7 +1684,9 @@ export function ProductionProgramPage(props: Props) {
       </div>
 
       {/* Превью печатной формы — промежуточный этап между «Печать» и принтером. */}
-      {printInput ? <ProductionProgramPrintPreview input={printInput} onClose={() => setPrintInput(null)} /> : null}
+      {printPreviewOpen && programPrintInput ? (
+        <ProductionProgramPrintPreview input={programPrintInput} onClose={() => setPrintPreviewOpen(false)} />
+      ) : null}
 
       {/* Модалка этапа: этап пишется в историю ремонта двигателя целиком. */}
       {stageDialog ? (

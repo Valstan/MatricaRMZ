@@ -1100,8 +1100,12 @@ export function buildProductionProgramPrintModel(input: ProductionProgramPrintIn
       groupLabel,
       contractKind: parseContractKind(raw.contractKind),
       engineId,
-      engineMark: String(raw.engineMark ?? '').trim(),
-      engineNumber: String(raw.engineNumber ?? '').trim(),
+      // Марка и номер — **живые**: план не живёт отдельной жизнью, правка карточки
+      // видна в плане сразу (правило модуля). Снимок строки — запасной вариант:
+      // карточки двигателя может не быть (двигатель уехал из картотеки), и тогда
+      // показывать пустоту вместо номера хуже, чем снимок.
+      engineMark: String(engine?.engineBrand || raw.engineMark || '').trim(),
+      engineNumber: String(engine?.engineNumber || raw.engineNumber || '').trim(),
       state: parseProductionProgramState(raw.state),
       stageCode: stage?.code ?? '',
       stageName: stage?.name ?? '',
@@ -1133,6 +1137,21 @@ export function buildProductionProgramPrintModel(input: ProductionProgramPrintIn
     approver: PRODUCTION_PROGRAM_APPROVER,
     signatures,
   };
+}
+
+/**
+ * Подпись этапа для показа строки: у отгруженного двигателя без строки этапа — «Отгружен».
+ *
+ * Правило живёт здесь, потому что его показывают два места — лист печати и файл выгрузки.
+ * Повторённое в каждом своя копия разъезжается: на бумаге «Отгружен», а в Excel пусто.
+ */
+export function productionProgramStageText(row: {
+  stageLabel?: string | null;
+  highlight?: ProductionProgramHighlight | null;
+}): string {
+  const label = String(row.stageLabel ?? '').trim();
+  if (label) return label;
+  return row.highlight === 'shipped' ? 'Отгружен' : '';
 }
 
 // ────────────────────────────────────────────────────────────
