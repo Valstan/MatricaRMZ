@@ -82,6 +82,12 @@ export function V3TabShell(props: {
   /** Перезапуск программы из шапки — для оператора, который не может выгрузить её из трея.
    *  На планшете перезапуска нет (канала system.restart) — обработчик не передаётся, кнопки нет. */
   onRestartApp?: (() => void) | undefined;
+  /** Обновление скачано и ждёт нажатия «Перезапуск» — кнопка должна это показывать
+   *  (владелец 21.11.2026: «у меня стоит 136 версия и не обновляется на следующие»:
+   *  обновление лежало готовое сутки, а кнопка выглядела как обычная). */
+  updateReady?: boolean;
+  /** Подпись версии обновления для подсказки кнопки («Матрица3-РМЗ (138)»). */
+  updateVersionLabel?: string | null;
   /** Полоса обновления: одна, тонкая, посреди экрана (владелец 08.11.2026 — «сейчас полос
    *  несколько, заменить на одну тонкую длинную посреди экрана»). `null` — обновления нет. */
   updateProgress?: {
@@ -538,11 +544,17 @@ export function V3TabShell(props: {
         {props.onRestartApp ? (
           <button
             type="button"
-            className="v3-account-btn"
+            className={`v3-account-btn${props.updateReady ? ' v3-restart-btn--ready' : ''}`}
             data-restart-app-btn
-            title="Перезапуск: закрыть всё и открыть заново (компьютер перезагружать не нужно)"
+            data-update-ready={props.updateReady ? '1' : undefined}
+            title={
+              props.updateReady
+                ? `Обновление ${props.updateVersionLabel ?? ''} скачано — нажмите, чтобы установить и перезапустить программу`.trim()
+                : 'Перезапуск: закрыть всё и открыть заново (компьютер перезагружать не нужно)'
+            }
             onClick={() => props.onRestartApp?.()}
           >
+            {props.updateReady ? <span className="v3-update-ready-dot" aria-hidden="true" /> : null}
             <span aria-hidden="true">⟳</span>
             <span className="v3-account-name">Перезапуск</span>
           </button>

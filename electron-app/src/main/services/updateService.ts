@@ -7,10 +7,12 @@ import { basename, dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 
 import {
+  chooseUpdateFlow,
   compareAppVersion,
   estimateDownloadRate,
   formatAppVersionLabel,
   monotonicOverallPct,
+  nextGenerationVersion,
   stageOverallPct,
   type UpdateStage,
 } from '@matricarmz/shared';
@@ -1110,14 +1112,25 @@ export function simulateUpdateBarForDev(): void {
   if (app.isPackaged) return;
   const mode = String(process.env.MATRICA_SIMULATE_UPDATE_BAR ?? '').trim().toLowerCase();
   if (mode === 'quiet') {
-    setTimeout(() => {
+    // Тихий режим: сразу «скачали» — видно плашку и кнопку «Перезапуск» с точкой.
+    // Версия ЧЕРЕДУЕТСЯ: будто пока старый релиз ждал, пришёл ещё более новый (ровно тот
+    // случай, из-за которого парк стоял на старых версиях). Повтор нужен и смоуку:
+    // плашка гаснет за 20 секунд, а эффект в окне перезапускается на новой версии.
+    const current = app.getVersion();
+    const next = nextGenerationVersion(current);
+    let n = 0;
+    const fire = () => {
+      n += 1;
       setUpdateState({
         state: 'downloaded',
-        version: '3.136.0',
+        version: n % 2 === 1 ? current : next,
         progress: 100,
         message: 'Обновление скачано — нажмите «Перезапуск» в шапке, когда закончите работу.',
       });
-    }, 4000);
+    };
+    const timer = setInterval(fire, 30_000);
+    setTimeout(() => clearInterval(timer), 600_000);
+    setTimeout(fire, 4000);
     return;
   }
   let stagePct = 0;
@@ -1880,7 +1893,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
   async function tick() {
     await syncConfiguredUpdateDirFromSettings();
     if (updateInFlight || backgroundInFlight) return;
-    const pending = await readPendingUpdate();
+    let pending = await readPendingUpdate();
     if (!app.isPackaged) return;
     backgroundInFlight = true;
     let lockAcquired = await acquireUpdateLock('background');
@@ -1899,7 +1912,25 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
       let candidateVersion: string | undefined;
       let candidateReason: string | undefined;
 
-      if (pending?.version && compareSemver(pending.version, current) > 0) {
+      // Что делать с отложенным обновлением — решает домен (shared/updateFlow).
+      // ПРАВИЛО: отложенное НЕ ГЛУШИТ более новое. Раньше клиент, увидев отложенное,
+      // сразу выходил и больше не спрашивал сервер — про следующий релиз (3.138.0)
+      // он не узнавал никогда, пока оператор не нажмёт «Перезапуск» (21.11.2026:
+      // «у меня стоит 136 версия и не обновляется на следующие»).
+      const latestServerMeta = await fetchLatestUpdateMetaFromServer();
+      const flow = chooseUpdateFlow({
+        currentVersion: current,
+        pendingVersion: pending?.version ?? null,
+        serverVersion: latestServerMeta?.version ?? null,
+      });
+      if (flow === 'discard-pending') {
+        await writeUpdaterLog(
+          `pending-update superseded: pending=${pending?.version ?? '-'} server=${latestServerMeta?.version ?? '-'}`,
+        );
+        await clearPendingUpdate();
+        pending = null;
+      }
+      if (flow === 'offer-pending' && pending?.version) {
         setUpdateState({
           state: 'downloaded',
           source: 'server',
@@ -1910,7 +1941,7 @@ export function startBackgroundUpdatePolling(opts: { intervalMs?: number } = {})
         return;
       }
 
-      const publishedUpdate = await resolvePublishedServerUpdate(current);
+      const publishedUpdate = await resolvePublishedServerUpdate(current, latestServerMeta);
       if (!publishedUpdate) {
         setUpdateState({ state: 'idle' });
         return;

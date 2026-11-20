@@ -27,6 +27,7 @@ import { CLOCK_SKEW_THRESHOLD_MS, formatClockSkew, stuckAgeMinutes } from '@matr
 import {
   ACCESS_SECTION_CATALOG,
   formatAppVersionLabel,
+  formatUpdateReadyNotice,
   RELEASE_WELCOME_HISTORY,
   EMPTY_SUPPORT_CONTACT,
   hasSupportContact,
@@ -884,6 +885,14 @@ const CARD_DETAIL_TABS: ReadonlyArray<TabId> = [
 const UPDATE_ACTIVE_STAGES = ['checking', 'downloading', 'verifying', 'installing', 'restarting'];
 
 /**
+ * Как часто напоминать про готовое обновление, пока оператор его не поставил.
+ * Плашка гаснет за секунды, а обновление может ждать сутки — молчаливое ожидание
+ * выглядит как «обновлений нет» (владелец 21.11.2026: «у меня стоит 136 версия и не
+ * обновляется на следующие»).
+ */
+const UPDATE_REMINDER_EVERY_MS = 30 * 60_000;
+
+/**
  * Состояние обновления из главного процесса (канал `update:appState`).
  * Общий процент и этап пришли из main — полоса одна, и она не прыгает назад.
  */
@@ -1107,7 +1116,8 @@ export function App() {
   const [chatUnreadTotal, setChatUnreadTotal] = useState<number>(0);
   /**
    * Состояние обновления в главном окне (владелец 08.09.2026). Фон больше не ставит обновление
-   * молча: пока оно качается — заливка под вкладками, когда скачано — вопрос «сейчас или позже».
+   * молча: пока оно качается — заливка под вкладками, когда скачано — тихая плашка и кнопка
+   * «Перезапуск» с точкой в шапке (обновление готово и ждёт).
    */
   const [updateState, setUpdateState] = useState<UpdateStateView | null>(null);
   // Полоса обновления видна, пока обновление ИДЁТ. Скачанное и ждущее перезапуска — не
@@ -1124,9 +1134,6 @@ export function App() {
           stage: updateStage,
         }
       : null;
-  // Версия, для которой оператору уже сказали про обновление: сообщение одно на версию,
-  // иначе плашка мигала бы на каждом событии состояния.
-  const [updateNoticeShown, setUpdateNoticeShown] = useState('');
   const chatNewMessageAudioRef = useRef<HTMLAudioElement | null>(null);
   const chatPendingAudioRef = useRef<HTMLAudioElement | null>(null);
   const chatUnreadTotalRef = useRef<number>(0);
@@ -3509,17 +3516,20 @@ export function App() {
   useEffect(() => {
     if (updateState?.state !== 'downloaded') return;
     const version = String(updateState.version ?? '').trim();
-    if (!version || updateNoticeShown === version) return;
-    setUpdateNoticeShown(version);
+    if (!version) return;
     const label = formatAppVersionLabel(version);
     const note = RELEASE_WELCOME_HISTORY.find((r) => r.releaseLabel === version);
     // Первая новинка релиза — коротко, без markdown-звёздочек: плашка показывает чистый текст.
     const first = String(note?.highlights?.[0] ?? '').replace(/\*\*/g, '').trim();
-    notifyOperator(
-      `Вышло обновление ${label} — нажмите «Перезапуск» в шапке, когда закончите работу.${first ? ` ${first}` : ''}`,
-      'reminder',
-    );
-  }, [updateState?.state, updateState?.version, updateNoticeShown, notifyOperator]);
+    const text = `${formatUpdateReadyNotice({ versionLabel: label })}${first ? ` ${first}` : ''}`;
+    notifyOperator(text, 'reminder');
+    // Плашка гаснет, а обновление может ждать сутки — и оператор о нём не знает
+    // (владелец 21.11.2026: «у меня стоит 136 версия и не обновляется на следущие»:
+    // обновление было готово, но подсказка показалась один раз и пропала).
+    // Поэтому напоминаем каждые полчаса, пока обновление не поставили.
+    const timer = window.setInterval(() => notifyOperator(text, 'reminder'), UPDATE_REMINDER_EVERY_MS);
+    return () => window.clearInterval(timer);
+  }, [updateState?.state, updateState?.version, notifyOperator]);
 
   // Напоминания по заметкам. Сторож живёт на уровне приложения, а не на странице
   // «Заметки»: страница смонтирована только если её открывали, а напоминание
@@ -7324,6 +7334,12 @@ export function App() {
               isAndroidPlatform() ? undefined : () => void restartApp()
             }
               updateProgress={updateProgress}
+              updateReady={updateState?.state === 'downloaded'}
+              updateVersionLabel={
+                updateState?.state === 'downloaded' && updateState?.version
+                  ? formatAppVersionLabel(String(updateState.version))
+                  : null
+              }
               availableTabs={sectionGatedTabs}
               tabletOperatorMenu={tabletActive && userRole !== "superadmin"}
               menuLabels={menuLabels}
