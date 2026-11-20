@@ -10,12 +10,15 @@ import {
   parseProductionProgramState,
   productionProgramContractLabel,
   productionProgramEngineHint,
+  productionProgramEngineStage,
   productionProgramGroupLabel,
   productionProgramOrganizationLabel,
   productionProgramPeriodKind,
   productionProgramRowExecution,
   productionProgramRowFromEngine,
   productionProgramRowHighlight,
+  productionProgramStageNeighbours,
+  productionProgramStageOptions,
   productionProgramExecutionSummary,
   PRODUCTION_PROGRAM_SIGNATURE_SLOTS,
   PRODUCTION_PROGRAM_STATE_LABELS,
@@ -131,8 +134,58 @@ describe('подсказка по двигателю', () => {
   });
 });
 
-describe('подсветка строк на печати', () => {
-  it('готов к отгрузке (обкатка + ОТК) — основная подсветка', () => {
+/**
+ * Этап двигателя в плане (владелец 20.11.2026): колонка «Этап» показывает, где
+ * двигатель сейчас, и этап меняется прямо из плана — полной записью в историю
+ * ремонта.
+ */
+describe('этап двигателя в плане', () => {
+  it('этап читается из карточки и подписывается с датой', () => {
+    const stage = productionProgramEngineStage(
+      engine({ lastStageCode: 'sborka', lastStageName: 'Сборка двигателя', lastStageAt: 5_000 }),
+    );
+    expect(stage?.code).toBe('sborka');
+    expect(stage?.name).toBe('Сборка двигателя');
+    expect(stage?.at).toBe(5_000);
+    expect(stage?.label).toContain('Сборка двигателя');
+    expect(stage?.dateLabel).not.toBe('');
+  });
+
+  it('этапов ещё не было — этапа нет (в ячейке не врём)', () => {
+    expect(productionProgramEngineStage(engine({ lastStageCode: null }))).toBeNull();
+    expect(productionProgramEngineStage(null)).toBeNull();
+  });
+
+  it('название этапа берётся из реестра, если карточка его не принесла', () => {
+    const stage = productionProgramEngineStage(engine({ lastStageCode: 'obkatka', lastStageName: null }));
+    expect(stage?.name).toBe('Обкатка двигателя');
+  });
+
+  it('меню этапов — по линейке ремонта, текущий помечен', () => {
+    const options = productionProgramStageOptions(null, 'sborka');
+    // Линейка: приёмка → разборка → укладка → сборка → обкатка → ОТК → отгрузка.
+    const codes = options.map((o) => o.code);
+    expect(codes.indexOf('sborka')).toBeLessThan(codes.indexOf('obkatka'));
+    expect(options.find((o) => o.code === 'sborka')?.isCurrent).toBe(true);
+    expect(options.find((o) => o.code === 'obkatka')?.isCurrent).toBe(false);
+    // Боковая ветка (утиль и брак) в меню — последней, а не первой.
+    expect(codes.at(-1)).toBe('scrap_branch');
+  });
+
+  it('соседи этапа: следующий и предыдущий по линейке', () => {
+    const { next, prev } = productionProgramStageNeighbours(null, 'sborka');
+    expect(next?.code).toBe('obkatka');
+    expect(prev?.code).toBe('ukladka');
+  });
+
+  it('боковая ветка соседом этапа не считается', () => {
+    // «Утиль и брак» — не шаг назад по линейке, а другой исход.
+    const { prev } = productionProgramStageNeighbours(null, 'arrival');
+    expect(prev?.code).not.toBe('scrap_branch');
+  });
+});
+
+describe('подсветка строк на печати', () => {  it('готов к отгрузке (обкатка + ОТК) — основная подсветка', () => {
     expect(productionProgramRowHighlight(engine({ lastStageCode: 'otk', lastStageAt: 5_000 }))).toBe('ready');
   });
 

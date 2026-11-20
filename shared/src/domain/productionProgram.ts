@@ -23,7 +23,8 @@ import type { ContractKind } from './contract.js';
 import { parseContractKind, shortContractSuffix } from './contract.js';
 import { engineStateLabel } from './engineFactoryStage.js';
 import { resolveEngineTruthDates } from './engineReclamation.js';
-import { repairStageRank } from './repairStages.js';
+import { DEFAULT_REPAIR_STAGE_TEMPLATES, repairStageRank, type RepairStageTemplate } from './repairStages.js';
+import { moscowDayKey } from './workSheetDuplicates.js';
 import { findEmployeeByPositionGroups, formatEmployeeSurnameInitials, type WorkOrderSignatureEmployee } from './workOrderSignatures.js';
 import { HUMAN_LABEL_DASH, humanCellText, looksLikeIdentifier } from './humanLabels.js';
 
@@ -371,6 +372,131 @@ export function productionProgramEngineHint(engine: EngineListItem | null | unde
     return { tone: 'ok', text: 'Готов к отгрузке — на заводе, можно брать' };
   }
   return { tone: 'ok', text: reclamation ? 'На заводе (рекламация) — можно брать' : 'На заводе — можно брать' };
+}
+
+// ────────────────────────────────────────────────────────────
+// Этап двигателя в плане
+// ────────────────────────────────────────────────────────────
+
+/**
+ * Текущий этап двигателя — из карточки, по ПОСЛЕДНЕЙ строке истории ремонта.
+ *
+ * Источник — `EngineListItem.lastStageCode/lastStageName/lastStageAt`: это уже
+ * посчитанный в карточке «где двигатель сейчас» (служебная отметка «создание
+ * карточки» из расчёта места исключена). Плану не нужен свой расчёт этапов —
+ * иначе экран и карточка разойдутся.
+ *
+ * Подпись — «Сборка двигателя · 12.11.2026»: этап без даты половина правды.
+ */
+export type ProductionProgramEngineStage = {
+  /** Код этапа единого списка (`repairStages.ts`). */
+  code: string;
+  /** Название этапа. */
+  name: string;
+  /** Дата этапа (мс) — null, если этап без даты. */
+  at: number | null;
+  /** Дата этапа подписью: «12.11.2026» (пусто, если этап без даты). */
+  dateLabel: string;
+  /** Подпись для колонки: название и дата. */
+  label: string;
+};
+
+/** Название этапа по коду: серверный справочник, а без него — статика шага 1. */
+export function productionProgramStageName(code: string | null | undefined): string {
+  const c = String(code ?? '').trim().toLowerCase();
+  if (!c) return '';
+  return DEFAULT_REPAIR_STAGE_TEMPLATES.find((t) => t.code === c)?.name ?? c;
+}
+
+/**
+ * Текущий этап двигателя для колонки плана.
+ *
+ * Пусто (null) — этапов ещё не было: тогда ячейка предлагает выбрать этап, но
+ * не врёт, что двигатель «где-то».
+ */
+export function productionProgramEngineStage(
+  engine: EngineListItem | null | undefined,
+): ProductionProgramEngineStage | null {
+  if (!engine) return null;
+  const code = String(engine.lastStageCode ?? '').trim().toLowerCase();
+  if (!code) return null;
+  const at =
+    typeof engine.lastStageAt === 'number' && Number.isFinite(engine.lastStageAt) && engine.lastStageAt > 0
+      ? engine.lastStageAt
+      : null;
+  const name = String(engine.lastStageName ?? '').trim() || productionProgramStageName(code);
+  const dateLabel = at ? moscowDayKey(at) : '';
+  return {
+    code,
+    name,
+    at,
+    dateLabel,
+    label: dateLabel ? `${name} · ${dateLabel}` : name,
+  };
+}
+
+/** Пункт меню выбора этапа. */
+export type ProductionProgramStageOption = {
+  code: string;
+  name: string;
+  /** Ранг этапа в линейке (порядок ремонта). */
+  sortOrder: number;
+  /** Это текущий этап двигателя. */
+  isCurrent: boolean;
+};
+
+/**
+ * Меню выбора этапа — по линейке ремонта, сверху вниз.
+ *
+ * Порядок по рангу, а не по алфавиту: оператор идёт по этапам сверху вниз, и
+ * «следующий» обязан стоять рядом с текущим. Текущий этап помечен — иначе
+ * оператор не поймёт, где он сейчас, и запишет тот же этап ещё раз.
+ */
+export function productionProgramStageOptions(
+  templates: readonly RepairStageTemplate[] | null | undefined,
+  currentCode: string | null | undefined,
+): ProductionProgramStageOption[] {
+  const list = (templates && templates.length > 0 ? templates : DEFAULT_REPAIR_STAGE_TEMPLATES)
+    .filter((t) => !t.archivedAt)
+    .slice()
+    // Боковая ветка (утиль и брак) в порядок по датам не входит — поэтому в меню
+    // она последняя, а не первой: иначе «Утиль и брак» стоял бы над приёмкой.
+    .sort((a, b) => Number(Boolean(a.sideBranch)) - Number(Boolean(b.sideBranch)) || a.sortOrder - b.sortOrder);
+  const current = String(currentCode ?? '').trim().toLowerCase();
+  return list.map((t) => ({
+    code: t.code,
+    name: t.name,
+    sortOrder: t.sortOrder,
+    isCurrent: t.code === current,
+  }));
+}
+
+/**
+ * Соседи текущего этапа по линейке: следующий (выше по рангу) и предыдущий.
+ *
+ * Заказ владельца (20.11.2026): «можно было выбрать другой какой-то этап,
+ * следующий, например, или предыдущий» — поэтому в модалке есть кнопки перехода
+ * на соседа, а не только общий список.
+ */
+export function productionProgramStageNeighbours(
+  templates: readonly RepairStageTemplate[] | null | undefined,
+  currentCode: string | null | undefined,
+): { next: RepairStageTemplate | null; prev: RepairStageTemplate | null } {
+  // Боковая ветка (утиль и брак) соседом этапа не является: это не шаг назад
+  // по линейке, а другой исход. В «предыдущий» она не попадает.
+  const line = (templates && templates.length > 0 ? templates : DEFAULT_REPAIR_STAGE_TEMPLATES).filter(
+    (t) => !t.sideBranch,
+  );
+  const options = productionProgramStageOptions(line, currentCode);
+  const current = options.find((o) => o.isCurrent) ?? null;
+  if (!current) return { next: null, prev: null };
+  const byCode = new Map<string, RepairStageTemplate>(line.map((t) => [t.code, t]));
+  const above = options.filter((o) => o.sortOrder > current.sortOrder);
+  const below = options.filter((o) => o.sortOrder < current.sortOrder);
+  // Ближайший ВЫШЕ по линейке = следующий шаг ремонта; ближайший НИЖЕ = шаг назад.
+  const next = above.length > 0 ? byCode.get(above[0]!.code) ?? null : null;
+  const prev = below.length > 0 ? byCode.get(below[below.length - 1]!.code) ?? null : null;
+  return { next, prev };
 }
 
 /**
@@ -875,16 +1001,23 @@ export type ProductionProgramPrintRow = {
   engineMark: string;
   engineNumber: string;
   state: ProductionProgramState | null;
-  /** Плановая отгрузка (ручная). */
-  shippingPlanAt: number | null;
-  /** Факт отгрузки — из карточки двигателя (для подсказки/подсветки). */
-  shippingFactAt: number | null;
+  /**
+   * Текущий этап двигателя — из карточки (последний этап истории ремонта).
+   *
+   * В плане «Отгрузка» и «Факторы» убраны (решение владельца 20.11.2026): отгрузка
+   * видна этапом, а «Факторы» после чистки колонок печатались бы всегда пустыми.
+   * Вместо них — этап: на бумаге видно, где двигатель сейчас.
+   */
+  stageCode: string;
+  stageName: string;
+  stageAt: number | null;
+  /** Подпись этапа для печати: «Сборка двигателя · 12.11.2026». */
+  stageLabel: string;
   /**
    * Живая подпись «Организация» для строки: заказчик и три цифры номера договора
    * (до слэша). Берётся из карточки двигателя, а не из снимка строки плана.
    */
   organizationLabel: string;
-  factors: string;
   note: string;
   highlight: ProductionProgramHighlight;
 };
@@ -919,9 +1052,6 @@ export type ProductionProgramPrintInput = {
     engineMark?: string | null;
     engineNumber?: string | null;
     state?: string | null;
-    shippingPlanAt?: number | null;
-    shippingFactAt?: number | null;
-    factors?: string | null;
     note?: string | null;
   }[];
   /** Факт по двигателю (для подсветки): ключ — id двигателя. */
@@ -961,6 +1091,8 @@ export function buildProductionProgramPrintModel(input: ProductionProgramPrintIn
     orderNo += 1;
     const engineId = raw.engineId ? String(raw.engineId) : null;
     const engine = engineId ? engineById.get(engineId) ?? null : null;
+    // Этап — из живой карточки двигателя: на бумаге видно, где он сейчас.
+    const stage = productionProgramEngineStage(engine);
     group.rows.push({
       id: String(raw.id ?? ''),
       orderNo,
@@ -971,13 +1103,10 @@ export function buildProductionProgramPrintModel(input: ProductionProgramPrintIn
       engineMark: String(raw.engineMark ?? '').trim(),
       engineNumber: String(raw.engineNumber ?? '').trim(),
       state: parseProductionProgramState(raw.state),
-      shippingPlanAt: typeof raw.shippingPlanAt === 'number' && raw.shippingPlanAt > 0 ? raw.shippingPlanAt : null,
-      // Факт отгрузки — по источнику правды по датам (рекламация выше основного цикла).
-      shippingFactAt:
-        typeof raw.shippingFactAt === 'number' && raw.shippingFactAt > 0
-          ? raw.shippingFactAt
-          : productionProgramEngineDates(engine).shippingDate,
-      factors: String(raw.factors ?? '').trim(),
+      stageCode: stage?.code ?? '',
+      stageName: stage?.name ?? '',
+      stageAt: stage?.at ?? null,
+      stageLabel: stage?.label ?? '',
       note: String(raw.note ?? '').trim(),
       organizationLabel:
         productionProgramOrganizationLabel({
