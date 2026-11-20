@@ -599,6 +599,10 @@ export const erpProductionProgramLineRowSchema = z.object({
   shipping_plan_at: z.number().int().nullable().optional(),
   factors: z.string(),
   note: z.string(),
+  // Ручная отметка оператора ('attention') — свой фон строки. Мягкая: строка,
+  // заведённая до миграции, приезжает без отметки, и лишняя строка в pull
+  // молча исчезла бы, а разбор значения живёт в домене (productionProgram.ts).
+  operator_note: z.string().nullable().optional(),
 });
 
 // Рекламация двигателя: одна строка — один заезд по рекламации.

@@ -2708,6 +2708,15 @@ export const erpProductionProgramRows = pgTable(
     /** Факторы, влияющие на выполнение плана. */
     factors: text('factors').notNull(),
     note: text('note').notNull(),
+    /**
+     * Ручная отметка оператора ('attention') — свой фон строки плана.
+     *
+     * ПРИЗНАК, а не цвет (цвет выводится в домене). На порядок строк не
+     * влияет и живёт своей дверью: полная замена набора строк эту колонку не
+     * трогает, иначе правка, собранная по устаревшей реплике, затирала бы
+     * чужую отметку.
+     */
+    operatorNote: text('operator_note'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),

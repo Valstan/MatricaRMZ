@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  PRODUCTION_PROGRAM_OPERATOR_MARK_LABELS,
+  PRODUCTION_PROGRAM_OPERATOR_MARKS,
   PRODUCTION_PROGRAM_PERIOD_LABELS,
   PRODUCTION_PROGRAM_STATES,
   PRODUCTION_PROGRAM_STATE_LABELS,
@@ -68,7 +70,14 @@ type Props = {
   canEdit: boolean;
 };
 
-type DraftRow = ProductionProgramLineDraftDto & { id: string };
+/**
+ * Строка плана на экране: снимок строки + живые данные карточки двигателя.
+ *
+ * `operatorNote` — ручная отметка оператора («особое внимание»). Она НЕ входит
+ * в набор записи (замена набора строк её не трогает — своя дверь), но живёт в
+ * строке на экране: её показываем и по ней ждём зеркало.
+ */
+type DraftRow = ProductionProgramLineDraftDto & { id: string; operatorNote: string | null };
 
 /** Поля шапки программы, которые оператор правит на экране. */
 type ProgramHeaderFields = {
@@ -94,6 +103,10 @@ type PendingSave = {
  * Слепок значимых полей строки: по нему видно, что зеркало догнало нашу правку.
  * Порядок (№ п/п) сюда не входит намеренно: чужое добавление двигателя сдвигает
  * номера у нас, и по номеру мы бы ждали зеркала вечно.
+ *
+ * Отметка оператора (operatorNote) входит: она ставится своей дверью, и без неё
+ * в слепке живое обновление реплики сняло бы отметку с экрана через 15 секунд —
+ * ровно тот класс, что «двигатель пропадал через несколько секунд».
  */
 function rowContentSignature(row: {
   id?: string | null;
@@ -103,6 +116,7 @@ function rowContentSignature(row: {
   shippingPlanAt?: number | null;
   factors?: string | null;
   note?: string | null;
+  operatorNote?: string | null;
 }): string {
   return [
     String(row.id ?? ''),
@@ -112,6 +126,7 @@ function rowContentSignature(row: {
     String(row.shippingPlanAt ?? ''),
     String(row.factors ?? ''),
     String(row.note ?? ''),
+    String(row.operatorNote ?? ''),
   ].join('\u0001');
 }
 
@@ -365,6 +380,68 @@ export function ProductionProgramPage(props: Props) {
     [markUnsaved, scheduleAutosave],
   );
 
+  /** Строка, которой сейчас пишется отметка (её выборку нельзя дёргать повторно). */
+  const [noteBusyRowId, setNoteBusyRowId] = useState<string | null>(null);
+  /** Защита от повторной отправки: состояние React обновляется асинхронно. */
+  const noteBusyRef = useRef(false);
+
+  /** Откат отметки, если сервер её не принял: на экране должна быть правда. */
+  const restoreOperatorNote = useCallback((programId: string, rowId: string, value: string | null) => {
+    const back = rowsRef.current.map((r) => (r.id === rowId ? { ...r, operatorNote: value } : r));
+    rowsRef.current = back;
+    localRowsRef.current.set(programId, back);
+    setRows(back);
+  }, []);
+
+  /**
+   * Ручная отметка оператора («особое внимание») на строке плана.
+   *
+   * СВОЯ дверь (PATCH .../operator-note), а не поле в замене набора строк: замена
+   * набора — полная, и приходит она с клиента, чья реплика отстаёт на минуту.
+   * Отметка ехала бы в наборе — правка одного оператора затирала бы отметку,
+   * поставленную другим (а отметка как раз для обмена данными между ними).
+   */
+  const setRowOperatorNote = useCallback(
+    async (rowId: string, mark: string | null) => {
+      if (!selectedId || !props.canEdit || noteBusyRef.current) return;
+      const programId = selectedId;
+      const previous = rowsRef.current.find((r) => r.id === rowId)?.operatorNote ?? null;
+      // Показываем выбор сразу: зеркало догонит отметку через минуту, а оператор
+      // должен видеть свой выбор сейчас — иначе он решит, что не сработало.
+      const next = rowsRef.current.map((r) => (r.id === rowId ? { ...r, operatorNote: mark } : r));
+      rowsRef.current = next;
+      localRowsRef.current.set(programId, next);
+      setRows(next);
+      noteBusyRef.current = true;
+      setNoteBusyRowId(rowId);
+      setError('');
+      try {
+        const res = await window.matrica.productionProgram.setRowOperatorNote({ programId, rowId, mark });
+        if (!res.ok) {
+          restoreOperatorNote(programId, rowId, previous);
+          setError(res.error);
+          return;
+        }
+        // Пока зеркало не догнало отметку — держим свою строку: иначе живое
+        // обновление реплики (15 с) снимет отметку с экрана (тот же класс, что
+        // «двигатель пропадал через несколько секунд»).
+        const pending = pendingSyncRef.current.get(programId) ?? { sent: [], removedIds: [] };
+        pendingSyncRef.current.set(programId, {
+          ...pending,
+          sent: next.map((r) => rowContentSignature(r)),
+        });
+        setStatus('Отметка сохранена. На остальные компьютеры придёт при синхронизации.');
+      } catch (e) {
+        restoreOperatorNote(programId, rowId, previous);
+        setError(`Не удалось поставить отметку: ${String(e instanceof Error ? e.message : e)}`);
+      } finally {
+        noteBusyRef.current = false;
+        setNoteBusyRowId(null);
+      }
+    },
+    [props.canEdit, restoreOperatorNote, selectedId],
+  );
+
   const reload = useCallback(async () => {
     const res = await window.matrica.productionProgram.list();
     if (!res.ok) {
@@ -507,6 +584,7 @@ export function ProductionProgramPage(props: Props) {
       shippingPlanAt: l.shippingPlanAt,
       factors: l.factors,
       note: l.note,
+      operatorNote: l.operatorNote ?? null,
     }));
     rowsRef.current = next;
     localRowsRef.current.set(selectedId, next);
@@ -856,6 +934,8 @@ export function ProductionProgramPage(props: Props) {
     const newRow: DraftRow = {
       ...productionProgramRowFromEngine({ id: crypto.randomUUID(), engine, groupLabel, contractKind: kind }),
       orderNo: rowsRef.current.length + 1,
+      // Отметки у новой строки нет: её ставит оператор, руками.
+      operatorNote: null,
     };
     applyRows((prev) => [...prev, newRow], selectedId);
     setPickerEngine('');
@@ -1167,13 +1247,14 @@ export function ProductionProgramPage(props: Props) {
                       <th>Отгрузка</th>
                       <th>Факторы</th>
                       <th>Примечание</th>
+                      <th title="Отметка оператора: особое внимание">Отметка</th>
                       {props.canEdit ? <th /> : null}
                     </tr>
                   </thead>
                   <tbody>
                     {groups.length === 0 ? (
                       <tr>
-                        <td colSpan={props.canEdit ? 11 : 10} className="ui-muted">
+                        <td colSpan={props.canEdit ? 12 : 11} className="ui-muted">
                           Строк в плане нет
                         </td>
                       </tr>
@@ -1195,7 +1276,7 @@ export function ProductionProgramPage(props: Props) {
                             }}
                           >
                             <td
-                              colSpan={props.canEdit ? 11 : 10}
+                              colSpan={props.canEdit ? 12 : 11}
                               style={{ fontWeight: 700, padding: '4px 6px', whiteSpace: 'normal' }}
                             >
                               <span
@@ -1221,8 +1302,9 @@ export function ProductionProgramPage(props: Props) {
                               engine,
                               shippingPlanAt: r.shippingPlanAt ?? null,
                             });
-                            // Тон строки — по факту из карточки (тот же домен, что и печать).
-                            const tone = productionProgramRowTone(engine);
+                            // Тон строки — по факту из карточки (тот же домен, что и печать),
+                            // а ручная отметка оператора сильнее факта.
+                            const tone = productionProgramRowTone(engine, r.operatorNote);
                             const num = numbering.get(r.id);
                             return (
                               <tr
@@ -1347,6 +1429,22 @@ export function ProductionProgramPage(props: Props) {
                                   }
                                   style={{ padding: '2px 4px', width: 160 }}
                                 />
+                              </td>
+                              <td>
+                                <select
+                                  value={r.operatorNote ?? ''}
+                                  disabled={!props.canEdit || noteBusyRowId === r.id}
+                                  onChange={(e) => void setRowOperatorNote(r.id, e.target.value || null)}
+                                  title="Отметка оператора: особое внимание — нужны особые действия с этим двигателем"
+                                  style={{ padding: '2px 4px', maxWidth: 170 }}
+                                >
+                                  <option value="">—</option>
+                                  {PRODUCTION_PROGRAM_OPERATOR_MARKS.map((m) => (
+                                    <option key={m} value={m}>
+                                      {PRODUCTION_PROGRAM_OPERATOR_MARK_LABELS[m]}
+                                    </option>
+                                  ))}
+                                </select>
                               </td>
                               {props.canEdit ? (
                                 <td>

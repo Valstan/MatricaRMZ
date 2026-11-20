@@ -37,6 +37,7 @@ describe('публикация зеркала производственной �
     shippingPlanAt: null,
     factors: '',
     note: '',
+    operatorNote: null,
   };
 
   it('erp_production_programs: строка публикации проходит схему контракта', () => {
@@ -56,6 +57,15 @@ describe('публикация зеркала производственной �
     expect(toProductionProgramInput({ ...program, deletedAt: 1_700_000_002_000 }).type).toBe('delete');
     expect(toProductionProgramLineInput({ ...line }).type).toBe('upsert');
     expect(toProductionProgramLineInput({ ...line, deletedAt: 1_700_000_002_000 }).type).toBe('delete');
+  });
+
+  it('отметка оператора едет в зеркало вместе со строкой', () => {
+    // Отметка нужна на других компьютерах: она и есть «обмен данными между
+    // операторами». Без неё зеркало привезло бы строку без отметки.
+    expect(toProductionProgramLineInput({ ...line, operatorNote: 'attention' }).row.operator_note).toBe(
+      'attention',
+    );
+    expect(toProductionProgramLineInput({ ...line }).row.operator_note).toBeNull();
   });
 
   it('поля в snake_case ровно как ждёт реестр (кроме ledger-owned)', () => {

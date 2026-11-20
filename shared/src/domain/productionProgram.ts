@@ -530,10 +530,68 @@ export type ProductionProgramRowTone = {
 /** Заливка строки «готов к отгрузке» — та же, что на печатной форме. */
 export const PRODUCTION_PROGRAM_READY_BACKGROUND = '#dcfce7';
 
+/**
+ * Ручная отметка оператора на строке плана (промты КАРМАНА #48/#49, владелец
+ * 19.11.2026): «оператор может помечать некоторые двигатели, чтобы быстрее
+ * находить в производственной программе и обмениваться данными с другими
+ * операторами — чтобы внимание к этому двигателю было особенное».
+ *
+ * Это НЕ состояние строки плана (`ProductionProgramState`) и НЕ стадия ремонта:
+ * три разные вещи, у каждой своё поле. Отметка не влияет на порядок строк.
+ *
+ * Хранится ПРИЗНАК, а не цвет: цвет выводится из признака — смена палитры не
+ * должна быть перекраской данных. Набор признаков задан ЯВНО (как
+ * `engineScrapRowStyle`), а не «произвольный цвет из интерфейса».
+ */
+export const ProductionProgramOperatorMark = {
+  Attention: 'attention',
+} as const;
+export type ProductionProgramOperatorMark =
+  (typeof ProductionProgramOperatorMark)[keyof typeof ProductionProgramOperatorMark];
+
+export const PRODUCTION_PROGRAM_OPERATOR_MARKS: readonly ProductionProgramOperatorMark[] = [
+  ProductionProgramOperatorMark.Attention,
+];
+
+export const PRODUCTION_PROGRAM_OPERATOR_MARK_LABELS: Record<ProductionProgramOperatorMark, string> = {
+  attention: 'Особое внимание',
+};
+
+/** Заливка строки под ручную отметку оператора. */
+export const PRODUCTION_PROGRAM_ATTENTION_BACKGROUND = '#fef3c7';
+
+/** Разбор сохранённой отметки: неизвестное значение — это не отметка. */
+export function parseProductionProgramOperatorMark(raw: unknown): ProductionProgramOperatorMark | null {
+  const value = String(raw ?? '').trim();
+  return (PRODUCTION_PROGRAM_OPERATOR_MARKS as readonly string[]).includes(value)
+    ? (value as ProductionProgramOperatorMark)
+    : null;
+}
+
+/** Подпись отметки для интерфейса (пусто — отметки нет). */
+export function productionProgramOperatorMarkLabel(raw: unknown): string {
+  const parsed = parseProductionProgramOperatorMark(raw);
+  return parsed ? PRODUCTION_PROGRAM_OPERATOR_MARK_LABELS[parsed] : '';
+}
+
 export function productionProgramRowTone(
   engine: EngineListItem | null | undefined,
+  operatorMark?: string | null | undefined,
 ): ProductionProgramRowTone {
   const highlight = productionProgramRowHighlight(engine);
+  const factLabel =
+    highlight === 'ready' ? 'Готов к отгрузке — на заводе' : highlight === 'shipped' ? 'Отгружен' : '';
+  // Отметка оператора сильнее факта из карточки: её поставили руками именно
+  // для того, чтобы эту строку заметили. Факт при этом не теряется — он в
+  // подсказке строки и в колонке «Выполнение».
+  if (parseProductionProgramOperatorMark(operatorMark)) {
+    return {
+      background: PRODUCTION_PROGRAM_ATTENTION_BACKGROUND,
+      label: factLabel
+        ? `Особое внимание (отметка оператора) · ${factLabel}`
+        : 'Особое внимание (отметка оператора)',
+    };
+  }
   if (highlight === 'ready') {
     return { background: PRODUCTION_PROGRAM_READY_BACKGROUND, label: 'Готов к отгрузке — на заводе' };
   }
@@ -981,6 +1039,11 @@ export type ProductionProgramLineDto = {
   shippingPlanAt: number | null;
   factors: string;
   note: string;
+  /**
+   * Ручная отметка оператора ('attention') — свой фон строки. Приезжает зеркалом
+   * вместе со строкой; на порядок не влияет.
+   */
+  operatorNote: string | null;
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null;

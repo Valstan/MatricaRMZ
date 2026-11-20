@@ -45,6 +45,8 @@ export type ProductionProgramLineDto = {
   shippingPlanAt: number | null;
   factors: string;
   note: string;
+  /** Ручная отметка оператора ('attention') — свой фон строки; null — отметки нет. */
+  operatorNote: string | null;
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null;
@@ -114,6 +116,7 @@ export function registerProductionProgramIpc(ctx: IpcContext) {
             shippingPlanAt: r.shippingPlanAt == null ? null : Number(r.shippingPlanAt),
             factors: String(r.factors),
             note: String(r.note),
+            operatorNote: r.operatorNote == null ? null : String(r.operatorNote),
             createdAt: Number(r.createdAt),
             updatedAt: Number(r.updatedAt),
             deletedAt: r.deletedAt == null ? null : Number(r.deletedAt),
@@ -235,6 +238,38 @@ export function registerProductionProgramIpc(ctx: IpcContext) {
         await httpAuthed(ctx.sysDb, base(), `/production-program/${encodeURIComponent(String(id ?? ''))}`, {
           method: 'DELETE',
         }),
+      );
+    },
+  );
+
+  /**
+   * Ручная отметка оператора на строке плана («особое внимание»).
+   *
+   * Своя дверь, а не поле в замене набора строк: замена набора — полная, и она
+   * приходит из клиента, чья реплика отстаёт на минуту. Отметка ехала бы в
+   * наборе — правка одного оператора затирала бы чужую отметку.
+   */
+  ipcMain.handle(
+    'productionProgram:setRowOperatorNote',
+    async (
+      _e,
+      args: { programId: string; rowId: string; mark: string | null },
+    ): Promise<Result<{ id: string; operatorNote: string | null }>> => {
+      if (isViewMode(ctx)) return viewModeWriteError();
+      const programId = String(args?.programId ?? '');
+      const rowId = String(args?.rowId ?? '');
+      const mark = args?.mark == null ? null : String(args.mark);
+      return toResult(
+        await httpAuthed(
+          ctx.sysDb,
+          base(),
+          `/production-program/${encodeURIComponent(programId)}/rows/${encodeURIComponent(rowId)}/operator-note`,
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mark }),
+          },
+        ),
       );
     },
   );

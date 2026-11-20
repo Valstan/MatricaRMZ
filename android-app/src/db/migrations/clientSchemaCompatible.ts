@@ -28,7 +28,7 @@ import type { AsyncDrizzleDb } from '../drizzleAsync.js';
 
 // Должна совпадать с electron-app (гейт — тест рядом). Не импортируем значение
 // напрямую: electron-файл тянет better-sqlite3/node:crypto и в браузерный бандл не годится.
-export const CURRENT_CLIENT_SCHEMA_VERSION = 15;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 16;
 
 type Migration = {
   from: number;
@@ -84,6 +84,23 @@ const MIGRATIONS: Migration[] = [
         if (!cols.some((c) => c.name === 'engine_kind')) {
           await sqlite.exec(`ALTER TABLE ${table} ADD COLUMN engine_kind text;`);
         }
+      }
+    },
+  },
+  {
+    from: 15,
+    to: 16,
+    name: 'erp_production_program_rows operator_note (отметка оператора)',
+    up: async (_db, sqlite) => {
+      // Зеркало одноимённого шага electron-файла: колонка аддитивная и nullable —
+      // признак отметки ('attention') либо null (отметки нет). Значение — признак,
+      // а не цвет: цвет выводится из него в домене.
+      const cols = await sqlite.all<{ name: string }>(`PRAGMA table_info('erp_production_program_rows')`);
+      // Таблица реплики ПП приходит из безусловного DDL (migrate.ts); на клиенте без
+      // неё шаг не нужен.
+      if (cols.length === 0) return;
+      if (!cols.some((c) => c.name === 'operator_note')) {
+        await sqlite.exec(`ALTER TABLE erp_production_program_rows ADD COLUMN operator_note text;`);
       }
     },
   },

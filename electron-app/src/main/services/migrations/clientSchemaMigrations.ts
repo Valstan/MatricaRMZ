@@ -47,7 +47,7 @@ type Migration = {
 // ⚠️ Android-клиент держит порт этого механизма
 // (android-app/src/db/migrations/clientSchemaCompatible.ts): при добавлении шага
 // НОВЕЕ 12 зеркаль его туда (константу версии сверяет тест android-app).
-export const CURRENT_CLIENT_SCHEMA_VERSION = 15;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 16;
 
 const MIGRATIONS: Migration[] = [
   {
@@ -528,6 +528,24 @@ const MIGRATIONS: Migration[] = [
         if (!cols.some((c) => c.name === 'engine_kind')) {
           sqlite.exec(`ALTER TABLE ${table} ADD COLUMN engine_kind text;`);
         }
+      }
+    },
+  },
+  {
+    from: 15,
+    to: 16,
+    name: 'erp_production_program_rows operator_note (отметка оператора)',
+    up: async (_db, sqlite) => {
+      // Колонка аддитивная и nullable: признак отметки ('attention') | null (отметки
+      // нет). Значение — признак, а не цвет: цвет выводится из него в домене.
+      // Строки, заведённые раньше, остаются со своим null — отметка приедет
+      // следующим pull'ом.
+      const cols = sqlite.prepare(`PRAGMA table_info('erp_production_program_rows')`).all() as Array<{ name: string }>;
+      // Таблица реплики ПП приходит из безусловного DDL (migrate.ts); на клиенте без
+      // неё шаг не нужен.
+      if (cols.length === 0) return;
+      if (!cols.some((c) => c.name === 'operator_note')) {
+        sqlite.exec(`ALTER TABLE erp_production_program_rows ADD COLUMN operator_note text;`);
       }
     },
   },
