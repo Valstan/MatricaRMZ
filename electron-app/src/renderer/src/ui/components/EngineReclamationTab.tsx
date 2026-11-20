@@ -265,15 +265,19 @@ export function EngineReclamationTab(props: {
       return;
     }
     let customerId = '';
+    let read = false;
     try {
       const contract = await window.matrica.admin.entities.get(id);
       const attrs = ((contract as { attributes?: Record<string, unknown> } | null)?.attributes ?? {}) as Record<string, unknown>;
       const sections = parseContractSections(attrs);
       customerId = String(sections.primary.customerId ?? attrs.customer_id ?? '').trim();
+      read = true;
     } catch {
-      /* договор не прочитался — контрагент останется прежним */
+      /* договор не прочитался — контрагент останется прежним, а не пропадёт */
     }
-    patchSelected({ contractId: id, customerId });
+    // Договор не прочитали — контрагента НЕ трогаем: иначе непрочитанный справочник
+    // стёр бы записанного заказчика, и заезд остался бы вовсе без стороны.
+    patchSelected(read ? { contractId: id, customerId } : { contractId: id });
   };
 
   const addReclamation = () => {
