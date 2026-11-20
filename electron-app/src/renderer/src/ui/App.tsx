@@ -5979,7 +5979,11 @@ export function App() {
           />
         )}
         {t === 'production_program' && (
-          <ProductionProgramPage engines={engines} canEdit={caps.canEditProductionProgram} />
+          <ProductionProgramPage
+            engines={engines}
+            canEdit={caps.canEditProductionProgram}
+            canEditStages={caps.canEditWorkSheets}
+          />
         )}
         {t === 'work_sheet' && selectedWorkSheetId && (
           <WorkSheetDetailsPage

@@ -84,17 +84,17 @@ describe('производственная программа — экран п�
     expect(PAGE).not.toContain('draft-${');
   });
 
-  it('план следит за выполнением сам: счётчики на плашке и отметка в строке', () => {
+  it('план следит за выполнением сам: счётчики на плашке', () => {
     // Владелец (10.11.2026): «план сам себя отслеживал, выполнение плана по статусам
     // двигателей… показывать, сколько двигателей ещё не собраны, невыполнены, сколько
     // выполнены».
+    // Владелец (20.11.2026): колонка «Выполнение» убрана — движение двигателя видно
+    // по колонке «Этап». Счётчики на плашке остались: они считаются по факту из карточки.
     expect(PAGE).toContain('productionProgramExecutionSummary');
-    expect(PAGE).toContain('productionProgramRowExecution');
     expect(PAGE).toContain('Собрано');
     expect(PAGE).toContain('Просрочено');
-    expect(PAGE).toContain('<th>Выполнение</th>');
+    expect(PAGE, 'колонка «Выполнение» убрана — движение видно по этапу').not.toContain('<th>Выполнение</th>');
     expect(SHARED_DOMAIN).toContain('export function productionProgramExecutionSummary');
-    expect(SHARED_DOMAIN).toContain('export function productionProgramRowExecution');
   });
 
   it('«Печать» открывает превью, а не сразу принтер', () => {
@@ -233,61 +233,93 @@ describe('порядок в производственной программе'
     expect(PAGE).toContain('style={tone.background ? { background: tone.background } : undefined}');
   });
 
-  it('печатная форма остаётся по образцу: семь колонок, вторая нумерация — на экране', () => {
+  it('печатная форма остаётся по образцу: шесть колонок, вторая нумерация — на экране', () => {
     expect(PRINT_HTML, 'форма ПП — документ с фиксированными колонками образца').not.toContain(
       '№ в договоре',
     );
+    expect(PRINT_HTML, 'колонки формы: этап вместо отгрузки и факторов').toContain("'Этап'");
+    expect(PRINT_HTML).not.toContain('Факторы, влияющие на выполнение плана');
+    expect(PRINT_HTML).not.toContain("'Отгрузка'");
   });
 });
 
 /**
- * Ручная отметка оператора на строке плана (промты КАРМАНА #48 + #49, шаг 5
- * плана владельца): «оператор может помечать отдельные двигатели, чтобы быстрее
- * находить в производственной программе и обмениваться данными с другими
- * операторами».
+ * Ручная отметка оператора на строке плана (промты КАРМАНА #48 + #49).
  *
- * Скрепы держат вещи, которые молча ломаются:
- *  1. отметка едет СВОЕЙ дверью — полная замена набора строк её не трогает
- *     (иначе правка, собранная по устаревшей реплике, затирала бы чужую отметку);
- *  2. отметка входит в слепок строки — иначе живое обновление реплики (15 с)
- *     снимет её с экрана (тот же класс, что «двигатель пропадал через 15 секунд»);
- *  3. набор допустимых отметок задан явно — интерфейс не придумывает значения.
+ * Владелец (20.11.2026) вернул колонку «Отметка» с экрана: в плане остались
+ * «Этап» и «Примечание», а отдельный выпадающий список «особое внимание» —
+ * лишний. Данные при этом НЕ выбрасываются: отметка остаётся в строке плана,
+ * подсветка строки по ней работает, и вернуть колонку — одна правка.
  */
 describe('отметка оператора в производственной программе', () => {
-  it('на экране есть выбор отметки из явного набора', () => {
-    expect(PAGE).toContain('<th title="Отметка оператора: особое внимание">Отметка</th>');
-    expect(PAGE).toContain('PRODUCTION_PROGRAM_OPERATOR_MARKS.map');
-    expect(PAGE).toContain('PRODUCTION_PROGRAM_OPERATOR_MARK_LABELS[m]');
-    expect(SHARED_DOMAIN).toContain('export const PRODUCTION_PROGRAM_OPERATOR_MARKS');
+  it('колонки «Отметка» на экране нет', () => {
+    expect(PAGE).not.toContain('Отметка оператора: особое внимание');
+    expect(PAGE).not.toContain('PRODUCTION_PROGRAM_OPERATOR_MARKS.map');
   });
 
-  it('отметка идёт своей дверью, а не в замене набора строк', () => {
-    expect(PAGE).toContain('window.matrica.productionProgram.setRowOperatorNote({ programId, rowId, mark })');
-    // Набор записи строк отметку не везёт: она пишется только своей дверью.
-    const payloadStart = PAGE.indexOf('rows: sentRows.map((r, i) => ({');
-    const payloadEnd = PAGE.indexOf('})),', payloadStart);
-    expect(payloadStart).toBeGreaterThan(0);
-    expect(payloadEnd).toBeGreaterThan(payloadStart);
-    const saveRowsBody = PAGE.slice(payloadStart, payloadEnd);
-    expect(saveRowsBody).not.toContain('operatorNote');
-    expect(saveRowsBody).not.toContain('operator_note');
-  });
-
-  it('отметка входит в слепок строки — реплика её не снимет с экрана', () => {
+  it('отметка остаётся в данных строки и в подсветке', () => {
+    // Слепок строки отметку включает — иначе живое обновление реплики (15 с)
+    // снимет её с экрана (тот же класс, что «двигатель пропадал через 15 секунд»).
     expect(PAGE).toContain("String(row.operatorNote ?? ''),");
-  });
-
-  it('отказ сервера откатывает отметку и говорит об этом', () => {
-    expect(PAGE).toContain('restoreOperatorNote(programId, rowId, previous);');
-    expect(PAGE).toContain('Не удалось поставить отметку');
-  });
-
-  it('пока зеркало не догнало отметку, на экране держится своя строка', () => {
-    expect(PAGE).toContain('sent: next.map((r) => rowContentSignature(r)),');
-  });
-
-  it('тон строки учитывает отметку оператора', () => {
+    expect(PAGE).toContain('productionProgramRowTone(engine, r.operatorNote)');
     expect(SHARED_DOMAIN).toContain('export function productionProgramRowTone(');
     expect(SHARED_DOMAIN).toContain('PRODUCTION_PROGRAM_ATTENTION_BACKGROUND');
+  });
+});
+
+/**
+ * Колонка «Этап» в производственной программе (владелец 20.11.2026).
+ *
+ * Заказ: «в производственной программе, в таблицу, в список добавить колонку —
+ * этап, на каком этапе сейчас находится двигатель. Это берётся из карточки
+ * двигателя, из истории его ремонта, и вписывается самый последний статус».
+ *
+ * Скрепы держат три вещи, которые молча ломаются:
+ *  1. этап читается из ЖИВОЙ карточки, а не из снимка строки плана;
+ *  2. смена этапа пишет ПОЛНОСТЬЮ — как строку истории ремонта (общим путём с
+ *     карточкой), а не «статус в плане»;
+ *  3. срок по плану не потерян вместе с колонкой «Отгрузка» — он в модалке.
+ */
+describe('колонка «Этап» в производственной программе', () => {
+  it('колонка «Этап» есть, а убранных колонок нет', () => {
+    expect(PAGE).toContain('<th title="На каком этапе сейчас двигатель — из истории ремонта">Этап</th>');
+    expect(PAGE).not.toContain('<th>Отгрузка</th>');
+    expect(PAGE).not.toContain('<th>Факторы</th>');
+    expect(PAGE).not.toContain('<th>Выполнение</th>');
+  });
+
+  it('этап читается из живой карточки двигателя', () => {
+    expect(PAGE).toContain('productionProgramEngineStage(engine)');
+    expect(PAGE).toContain('productionProgramStageOptions(stageTemplates, null)');
+    expect(SHARED_DOMAIN).toContain('export function productionProgramEngineStage(');
+    expect(SHARED_DOMAIN).toContain('export function productionProgramStageOptions(');
+    expect(SHARED_DOMAIN).toContain('export function productionProgramStageNeighbours(');
+  });
+
+  it('смена этапа идёт через модалку с полями этапа', () => {
+    expect(PAGE).toContain('ProductionProgramStageDialog');
+    const DIALOG = src('../components/ProductionProgramStageDialog.tsx');
+    // Поля этапа: дата завершения, цех, примечание — как в карточке двигателя.
+    expect(DIALOG).toContain('Дата завершения этапа');
+    expect(DIALOG).toContain('Примечание к этапу');
+    expect(DIALOG).toContain('Срок по плану (дата отгрузки)');
+    // Следующий/предыдущий этап — заказ владельца: «выбрать другой этап, следующий
+    // или предыдущий».
+    expect(DIALOG).toContain('Следующий этап');
+    expect(DIALOG).toContain('Предыдущий этап');
+  });
+
+  it('этап пишется в историю ремонта общим путём с карточкой', () => {
+    // Не «статус в плане»: та же дверь `workSheets:stages:save`, что и в карточке
+    // двигателя, — со всеми гейтами (субординация дат, дубль за день, возврат).
+    expect(PAGE).toContain('window.matrica.workSheets.stages.save({');
+    expect(PAGE).toContain("window.dispatchEvent(new Event('matrica:engines-changed'));");
+  });
+
+  it('срок по плану не потерян вместе с колонкой «Отгрузка»', () => {
+    // Срок живёт в строке плана (`shippingPlanAt`) и пишется тем же путём, что
+    // любая правка строки, — иначе счётчики «В срок / Просрочено» стали бы нулём.
+    expect(PAGE).toContain('shippingPlanAt: deadline');
+    expect(SHARED_DOMAIN).toContain('export function productionProgramExecutionSummary');
   });
 });

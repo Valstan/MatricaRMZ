@@ -7,8 +7,6 @@ import {
   type ProductionProgramPrintModel,
 } from '@matricarmz/shared';
 
-import { formatMoscowDate } from './dateUtils.js';
-
 /**
  * Печатная форма производственной программы (ПП) — по образцу «ПП Цех № 1».
  *
@@ -22,16 +20,22 @@ import { formatMoscowDate } from './dateUtils.js';
  * Оформление строк — инлайном (классы не читаются при выгрузке в Word).
  */
 
-/** Ширины колонок в мм — из образца. */
-const COL_WIDTHS_MM = [15.7, 47.8, 62.0, 39.5, 28.1, 43.0, 34.8] as const;
+/**
+ * Ширины колонок в мм — из образца.
+ *
+ * Колонок стало шесть (владелец 20.11.2026): «Отгрузка» и «Факторы» убраны —
+ * отгрузка видна этапом, а «Факторы» после чистки колонок печатались бы всегда
+ * пустыми. Вместо них — «Этап». Ширина освободившегося места ушла в «Примечание»
+ * (там теперь всё, что неясно: в колонке «Факторы» писали именно это).
+ */
+const COL_WIDTHS_MM = [15.7, 47.8, 62.0, 39.5, 43.0, 63.0] as const;
 
 const HEADERS = [
   '№ п/п',
   'Организация',
   'Марка и номер двигателя',
   'Состояние',
-  'Отгрузка',
-  'Факторы, влияющие на выполнение плана',
+  'Этап',
   'Примечание',
 ] as const;
 
@@ -44,11 +48,13 @@ function escapeHtml(s: unknown): string {
     .replaceAll("'", '&#039;');
 }
 
-/** Дата плановой отгрузки — в формате образца («15.11.2026»). */
-function formatPlanDate(ms: number | null): string {
-  if (!ms || !Number.isFinite(ms) || ms <= 0) return '';
-  return formatMoscowDate(ms);
-}
+/**
+ * Дата плановой отгрузки — в формате образца («15.11.2026»).
+ *
+ * Колонки «Отгрузка» в форме больше нет (владелец 20.11.2026): дату этапа
+ * печатает сам домен (подпись этапа), а отдельный форматтер даты отгрузки
+ * остался бы без единого потребителя.
+ */
 
 function stateCell(state: string | null): string {
   // Разбор значения — в домене (там же, где состояние определено): строка из базы
@@ -74,12 +80,9 @@ function rowHtml(model: ProductionProgramPrintModel): string {
       const ready = row.highlight === 'ready';
       const bg = ready ? 'background:#dcfce7' : '';
       const shipped = row.highlight === 'shipped';
-      const shipping = row.shippingPlanAt
-        ? formatPlanDate(row.shippingPlanAt)
-        : row.shippingFactAt
-          ? formatPlanDate(row.shippingFactAt)
-          : '';
-      const shippingText = shipped ? `${shipping} (отгружен)` : shipping;
+      // Этап — из карточки двигателя. Отгружен без строки этапа — грифом: иначе
+      // на бумаге было бы пусто, а двигатель уехал.
+      const stageText = row.stageLabel || (shipped ? 'Отгружен' : '');
       body.push(
         `<tr style="${bg}">` +
           `<td style="border:1px solid #111827;padding:3px 4px;text-align:center">${row.orderNo}</td>` +
@@ -88,8 +91,7 @@ function rowHtml(model: ProductionProgramPrintModel): string {
             [row.engineMark, row.engineNumber].filter(Boolean).join(' '),
           )}</td>` +
           `<td style="border:1px solid #111827;padding:3px 4px">${stateCell(row.state)}</td>` +
-          `<td style="border:1px solid #111827;padding:3px 4px">${escapeHtml(shippingText)}</td>` +
-          `<td style="border:1px solid #111827;padding:3px 4px">${escapeHtml(row.factors)}</td>` +
+          `<td style="border:1px solid #111827;padding:3px 4px">${escapeHtml(stageText)}</td>` +
           `<td style="border:1px solid #111827;padding:3px 4px">${escapeHtml(row.note)}</td>` +
           `</tr>`,
       );

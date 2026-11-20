@@ -1,8 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
-  PRODUCTION_PROGRAM_OPERATOR_MARK_LABELS,
-  PRODUCTION_PROGRAM_OPERATOR_MARKS,
+  DEFAULT_REPAIR_STAGE_TEMPLATES,
   PRODUCTION_PROGRAM_PERIOD_LABELS,
   PRODUCTION_PROGRAM_STATES,
   PRODUCTION_PROGRAM_STATE_LABELS,
@@ -12,6 +11,7 @@ import {
   parseContractSections,
   productionProgramContractLabel,
   productionProgramEngineHint,
+  productionProgramEngineStage,
   productionProgramExecutionSummary,
   productionProgramOrganizationLabel,
   productionProgramPeriodKind,
@@ -20,8 +20,8 @@ import {
   productionProgramMoveRowWithinGroup,
   productionProgramNumbering,
   productionProgramRowFromEngine,
-  productionProgramRowExecution,
   productionProgramRowTone,
+  productionProgramStageOptions,
   type EngineListItem,
   type ProductionProgramDto,
   type ProductionProgramExecutionSummary,
@@ -29,10 +29,16 @@ import {
   type ProductionProgramLineDto,
   type ProductionProgramPeriodKind,
   type ProductionProgramPrintInput,
+  type RepairStageTemplate,
   type WorkOrderSignatureEmployee,
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import {
+  ProductionProgramStageDialog,
+  type ProductionProgramStageSubmitArgs,
+  type ProductionProgramStageSubmitResult,
+} from '../components/ProductionProgramStageDialog.js';
 import { ProductionProgramPrintPreview } from '../components/ProductionProgramPrintPreview.js';
 import { SearchSelect } from '../components/SearchSelect.js';
 import { SectionCard } from '../components/SectionCard.js';
@@ -68,6 +74,14 @@ type Props = {
   engines: EngineListItem[];
   /** Право вести план (`production_program.edit`). */
   canEdit: boolean;
+  /**
+   * Право записывать этапы ремонта (`work_sheets.edit`).
+   *
+   * Отдельное право не для красоты: этап — это запись в ИСТОРИИ РЕМОНТА двигателя,
+   * и ведение плана не даёт права её переписывать. Без этого права колонка «Этап»
+   * читается, но не меняется.
+   */
+  canEditStages: boolean;
 };
 
 /**
@@ -189,6 +203,20 @@ export function ProductionProgramPage(props: Props) {
   // его карточки; если нет — ФИО из документа-образца (вносить подписантов в кадровый
   // реестр нельзя: это засоряет реестр и попадает под гейт дублей).
   const [employees, setEmployees] = useState<WorkOrderSignatureEmployee[]>([]);
+  // Реестр этапов ремонта (серверный справочник; без сервера — статика шага 1):
+  // из него меню выбора этапа в колонке «Этап».
+  const [stageTemplates, setStageTemplates] = useState<RepairStageTemplate[]>([...DEFAULT_REPAIR_STAGE_TEMPLATES]);
+  // Справочник цехов — поле «Цех» в модалке этапа.
+  const [workshops, setWorkshops] = useState<Array<{ id: string; label: string }>>([]);
+  /** Открытая модалка этапа: строка плана, двигатель и выбранный этап. */
+  const [stageDialog, setStageDialog] = useState<{
+    rowId: string;
+    engineId: string;
+    engineLabel: string;
+    code: string;
+  } | null>(null);
+  /** Строка, которой сейчас пишется этап (её выборку нельзя дёргать повторно). */
+  const [stageBusyRowId, setStageBusyRowId] = useState<string | null>(null);
 
   // ── Правка плана: грязный экран, автосохранение и защита от отстающего зеркала ──
   // Баг владельца 19.11.2026: двигатель, добавленный в производственную программу,
@@ -380,67 +408,95 @@ export function ProductionProgramPage(props: Props) {
     [markUnsaved, scheduleAutosave],
   );
 
-  /** Строка, которой сейчас пишется отметка (её выборку нельзя дёргать повторно). */
-  const [noteBusyRowId, setNoteBusyRowId] = useState<string | null>(null);
-  /** Защита от повторной отправки: состояние React обновляется асинхронно. */
-  const noteBusyRef = useRef(false);
+  // ── Этап двигателя: запись из плана в историю ремонта ──
+  // Заказ владельца 20.11.2026: этап меняется прямо из производственной программы,
+  // и заносится он ПОЛНОСТЬЮ — как строка истории ремонта (с датой, цехом,
+  // примечанием), а не как «статус в плане».
+  //
+  // Поэтому пишем тем же путём, что и карточка: `workSheets:stages:save` →
+  // `saveRepairStageRow`. Все гейты (субординация дат, дубль за день, возврат
+  // назад) — те же самые, иначе из плана можно было бы сломать историю.
 
-  /** Откат отметки, если сервер её не принял: на экране должна быть правда. */
-  const restoreOperatorNote = useCallback((programId: string, rowId: string, value: string | null) => {
-    const back = rowsRef.current.map((r) => (r.id === rowId ? { ...r, operatorNote: value } : r));
-    rowsRef.current = back;
-    localRowsRef.current.set(programId, back);
-    setRows(back);
-  }, []);
+  /** Открыть модалку этапа для строки плана. */
+  const openStageDialog = useCallback(
+    (rowId: string, engineId: string, engineLabel: string, code: string) => {
+      if (!props.canEdit || !props.canEditStages) return;
+      setStageBusyRowId(rowId);
+      setStageDialog({ rowId, engineId, engineLabel, code });
+    },
+    [props.canEdit, props.canEditStages],
+  );
 
   /**
-   * Ручная отметка оператора («особое внимание») на строке плана.
+   * Запись этапа из модалки.
    *
-   * СВОЯ дверь (PATCH .../operator-note), а не поле в замене набора строк: замена
-   * набора — полная, и приходит она с клиента, чья реплика отстаёт на минуту.
-   * Отметка ехала бы в наборе — правка одного оператора затирала бы отметку,
-   * поставленную другим (а отметка как раз для обмена данными между ними).
+   * Две записи, два хранилища, и они НЕОДНОРОДНЫ:
+   *  · этап — в историю ремонта двигателя (`operations`), тем же путём, что карточка;
+   *  · «Срок по плану» — в строку плана (`shippingPlanAt`), тем же путём, что любая
+   *    правка строки (автосохранение).
+   * Сначала пишем этап: он главный. Срок не записываем, если этап не записался —
+   * иначе оператор увидит «срок есть», а этап не встанет.
    */
-  const setRowOperatorNote = useCallback(
-    async (rowId: string, mark: string | null) => {
-      if (!selectedId || !props.canEdit || noteBusyRef.current) return;
+  const submitStage = useCallback(
+    async (args: ProductionProgramStageSubmitArgs): Promise<ProductionProgramStageSubmitResult> => {
+      const dialog = stageDialog;
+      if (!dialog) return { ok: false, error: 'Этап не выбран' };
       const programId = selectedId;
-      const previous = rowsRef.current.find((r) => r.id === rowId)?.operatorNote ?? null;
-      // Показываем выбор сразу: зеркало догонит отметку через минуту, а оператор
-      // должен видеть свой выбор сейчас — иначе он решит, что не сработало.
-      const next = rowsRef.current.map((r) => (r.id === rowId ? { ...r, operatorNote: mark } : r));
-      rowsRef.current = next;
-      localRowsRef.current.set(programId, next);
-      setRows(next);
-      noteBusyRef.current = true;
-      setNoteBusyRowId(rowId);
-      setError('');
+      const atMs = parseIsoDate(args.date);
+      if (atMs == null) return { ok: false, error: 'Укажите дату, когда этап был завершён' };
+      const wsLabel = workshops.find((w) => w.id === args.workshopId)?.label ?? '';
       try {
-        const res = await window.matrica.productionProgram.setRowOperatorNote({ programId, rowId, mark });
-        if (!res.ok) {
-          restoreOperatorNote(programId, rowId, previous);
-          setError(res.error);
-          return;
-        }
-        // Пока зеркало не догнало отметку — держим свою строку: иначе живое
-        // обновление реплики (15 с) снимет отметку с экрана (тот же класс, что
-        // «двигатель пропадал через несколько секунд»).
-        const pending = pendingSyncRef.current.get(programId) ?? { sent: [], removedIds: [] };
-        pendingSyncRef.current.set(programId, {
-          ...pending,
-          sent: next.map((r) => rowContentSignature(r)),
+        const res = await window.matrica.workSheets.stages.save({
+          id: crypto.randomUUID(),
+          engineId: dialog.engineId,
+          code: args.code,
+          atMs,
+          ...(args.note.trim() ? { note: args.note.trim() } : {}),
+          ...(args.workshopId ? { workshopId: args.workshopId } : {}),
+          ...(wsLabel ? { workshopName: wsLabel } : {}),
+          ...(args.repeatPass ? { repeatPass: args.repeatPass } : {}),
+          ...(args.confirmDefectDate ? { confirmDefectDate: true } : {}),
         });
-        setStatus('Отметка сохранена. На остальные компьютеры придёт при синхронизации.');
+        if (!res.ok) {
+          // Вопросы гейтов (дубль за день, смена даты дефектовки) решает модалка.
+          return {
+            ok: false,
+            error: res.error,
+            ...(res.duplicate
+              ? { duplicate: { nextPass: res.duplicate.nextPass, typeName: res.duplicate.typeName, atMs: res.duplicate.atMs } }
+              : {}),
+            ...(res.defectDateChange ? { defectDateChange: res.defectDateChange } : {}),
+          };
+        }
+        // Этап записан — список двигателей перечитать, иначе колонка «Этап»
+        // покажет прежнее состояние до следующего живого обновления.
+        window.dispatchEvent(new Event('matrica:engines-changed'));
+        // Срок по плану — в строку плана (счётчики «В срок / Просрочено»).
+        const deadline = args.planDeadline ? parseIsoDate(args.planDeadline) : null;
+        if (programId) {
+          const current = rowsRef.current.find((r) => r.id === dialog.rowId)?.shippingPlanAt ?? null;
+          if (deadline !== current) {
+            applyRows(
+              (prev) => prev.map((x) => (x.id === dialog.rowId ? { ...x, shippingPlanAt: deadline } : x)),
+              programId,
+            );
+          }
+        }
+        setError('');
+        setStatus('Этап записан в историю ремонта двигателя. На остальные компьютеры придёт при синхронизации.');
+        return { ok: true };
       } catch (e) {
-        restoreOperatorNote(programId, rowId, previous);
-        setError(`Не удалось поставить отметку: ${String(e instanceof Error ? e.message : e)}`);
-      } finally {
-        noteBusyRef.current = false;
-        setNoteBusyRowId(null);
+        return { ok: false, error: `Не удалось записать этап: ${String(e instanceof Error ? e.message : e)}` };
       }
     },
-    [props.canEdit, restoreOperatorNote, selectedId],
+    [applyRows, selectedId, stageDialog, workshops],
   );
+
+  /** Закрыть модалку этапа. */
+  const closeStageDialog = useCallback(() => {
+    setStageDialog(null);
+    setStageBusyRowId(null);
+  }, []);
 
   const reload = useCallback(async () => {
     const res = await window.matrica.productionProgram.list();
@@ -496,6 +552,35 @@ export function ProductionProgramPage(props: Props) {
         setEmployees([]);
       }
     })();
+  }, []);
+
+  // Реестр этапов и справочник цехов — для колонки «Этап» и её модалки.
+  // Реестр: серверный справочник, а без сервера — статика шага 1 (та же
+  // философа, что в карточке двигателя: без справочника экран честно говорит,
+  // что работает на запасном списке). Цеха — по справочнику, как в карточке.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await window.matrica.workSheets.stages.templates.list();
+        if (alive && res.ok && Array.isArray(res.templates) && res.templates.length > 0) {
+          setStageTemplates(res.templates);
+        }
+      } catch {
+        /* остаётся статика */
+      }
+      try {
+        const res = await window.matrica.workshops.list({ activeOnly: true });
+        if (alive && res.ok) {
+          setWorkshops(res.rows.map((w) => ({ id: String(w.id), label: String(w.name || w.code) })));
+        }
+      } catch {
+        /* цех остаётся пустым — этап запишется без цеха */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
   }, []);
 
   // Номер договора подтягиваем из строгой реплики там, где в строке двигателя его нет
@@ -607,6 +692,27 @@ export function ProductionProgramPage(props: Props) {
   }, [persist]);
 
   const engineById = useMemo(() => new Map(props.engines.map((e) => [String(e.id), e])), [props.engines]);
+
+  /**
+   * Меню этапов — один раз на набор шаблонов (список общий для всех строк).
+   * «Сейчас» помечается в ячейке сравнением с этапом двигателя: иначе на каждый
+   * ряд пришлось бы собирать свой список — на каждый ввод в «Примечании».
+   */
+  const stageMenuOptions = useMemo(() => productionProgramStageOptions(stageTemplates, null), [stageTemplates]);
+
+  /**
+   * Цех по умолчанию для этапа: цех программы, если он есть в справочнике цехов.
+   *
+   * Цех программы — свободный текст («Цех № 1»), а этап пишет цех по справочнику
+   * (id + снимок имени). Совпадение по названию — единственное, что можно сделать
+   * без новой связи; если цеха в справочнике нет, поле остаётся пустым.
+   */
+  const defaultWorkshopId = useMemo(() => {
+    const shop = String(selected?.shop ?? '').trim().toLowerCase();
+    if (!shop) return '';
+    const match = workshops.find((w) => w.label.trim().toLowerCase() === shop);
+    return match?.id ?? '';
+  }, [selected?.shop, workshops]);
 
   /** Номер договора по его id: из карточки двигателя, иначе — из строгой реплики. */
   const contractNumberById = useMemo(() => {
@@ -962,8 +1068,6 @@ export function ProductionProgramPage(props: Props) {
         engineMark: r.engineMark ?? '',
         engineNumber: r.engineNumber ?? '',
         state: r.state ?? null,
-        shippingPlanAt: r.shippingPlanAt ?? null,
-        factors: r.factors ?? '',
         note: r.note ?? '',
       })),
       engines: props.engines,
@@ -1242,19 +1346,19 @@ export function ProductionProgramPage(props: Props) {
                       <th title="Номер двигателя внутри своего договора">№ в договоре</th>
                       <th>Организация, договор</th>
                       <th>Двигатель</th>
-                      <th>Выполнение</th>
+                      {/* Этап заменил «Выполнение», «Отгрузку» и «Отметку» (владелец
+                          20.11.2026): движение двигателя видно по одному столбцу, а
+                          отгрузка — это теперь этап единого списка. */}
+                      <th title="На каком этапе сейчас двигатель — из истории ремонта">Этап</th>
                       <th>Состояние</th>
-                      <th>Отгрузка</th>
-                      <th>Факторы</th>
                       <th>Примечание</th>
-                      <th title="Отметка оператора: особое внимание">Отметка</th>
                       {props.canEdit ? <th /> : null}
                     </tr>
                   </thead>
                   <tbody>
                     {groups.length === 0 ? (
                       <tr>
-                        <td colSpan={props.canEdit ? 12 : 11} className="ui-muted">
+                        <td colSpan={props.canEdit ? 9 : 8} className="ui-muted">
                           Строк в плане нет
                         </td>
                       </tr>
@@ -1276,7 +1380,7 @@ export function ProductionProgramPage(props: Props) {
                             }}
                           >
                             <td
-                              colSpan={props.canEdit ? 12 : 11}
+                              colSpan={props.canEdit ? 9 : 8}
                               style={{ fontWeight: 700, padding: '4px 6px', whiteSpace: 'normal' }}
                             >
                               <span
@@ -1296,12 +1400,10 @@ export function ProductionProgramPage(props: Props) {
                           {group.items.map((item) => {
                             const r = item.row;
                             const engine = item.engine;
-                            // Выполнение — по живой карточке: ОТК пройден → готов к
-                            // отгрузке, отгружен → выполнено, срок — плановая отгрузка.
-                            const execution = productionProgramRowExecution({
-                              engine,
-                              shippingPlanAt: r.shippingPlanAt ?? null,
-                            });
+                            // Этап — по живой карточке двигателя (последний этап истории
+                            // ремонта). Колонка «Выполнение» убрана (владелец 20.11.2026):
+                            // движение видно по этапу.
+                            const stage = productionProgramEngineStage(engine);
                             // Тон строки — по факту из карточки (тот же домен, что и печать),
                             // а ручная отметка оператора сильнее факта.
                             const tone = productionProgramRowTone(engine, r.operatorNote);
@@ -1348,22 +1450,45 @@ export function ProductionProgramPage(props: Props) {
                                   .join(' ')}
                               </td>
                               <td>
+                                {/* Этап: меню выбора в ячейке + дата этапа. Выбор этапа
+                                    открывает модалку — этап пишется в историю ремонта
+                                    целиком, а не «меняет статус в плане». */}
                                 <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-                                  <span
-                                    style={{
-                                      fontSize: 12,
-                                      color:
-                                        execution.state === 'ready' || execution.state === 'shipped'
-                                          ? '#166534'
-                                          : execution.state === 'inWork'
-                                            ? '#1d4ed8'
-                                            : 'var(--subtle)',
+                                  <select
+                                    value={stage?.code ?? ''}
+                                    disabled={!props.canEdit || !props.canEditStages || stageBusyRowId === r.id}
+                                    data-pp-stage-select={r.id}
+                                    onChange={(e) => {
+                                      const code = e.target.value;
+                                      if (!code || code === stage?.code) return;
+                                      openStageDialog(
+                                        r.id,
+                                        String(engine?.id ?? r.engineId ?? ''),
+                                        [engine?.engineBrand ?? r.engineMark, engine?.engineNumber ?? r.engineNumber]
+                                          .filter(Boolean)
+                                          .join(' '),
+                                        code,
+                                      );
                                     }}
+                                    title={
+                                      props.canEditStages
+                                        ? 'Выберите этап — откроется окно с датой, цехом и примечанием'
+                                        : 'Нет права править этапы ремонта'
+                                    }
+                                    style={{ padding: '2px 4px', maxWidth: 220 }}
                                   >
-                                    {execution.stateLabel}
-                                  </span>
-                                  {execution.overdue ? (
-                                    <span style={{ fontSize: 11, color: 'var(--danger)' }}>просрочен</span>
+                                    <option value="">— этап не задан —</option>
+                                    {stageMenuOptions.map((o) => (
+                                      <option key={o.code} value={o.code}>
+                                        {o.name}
+                                        {o.code === stage?.code ? ' (сейчас)' : ''}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  {stage?.at ? (
+                                    <span className="ui-muted" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
+                                      {stage.dateLabel}
+                                    </span>
                                   ) : null}
                                 </div>
                               </td>
@@ -1389,35 +1514,6 @@ export function ProductionProgramPage(props: Props) {
                                 </select>
                               </td>
                               <td>
-                                <UnifiedDateInput
-                                  type="date"
-                                  value={isoDate(r.shippingPlanAt)}
-                                  disabled={!props.canEdit}
-                                  onChange={(e) => {
-                                    const next = parseIsoDate(String(e.target.value ?? ''));
-                                    applyRows(
-                                      (prev) =>
-                                        prev.map((x) => (x.id === r.id ? { ...x, shippingPlanAt: next } : x)),
-                                      selectedId,
-                                    );
-                                  }}
-                                />
-                              </td>
-                              <td>
-                                <input
-                                  value={r.factors ?? ''}
-                                  disabled={!props.canEdit}
-                                  onChange={(e) =>
-                                    applyRows(
-                                      (prev) =>
-                                        prev.map((x) => (x.id === r.id ? { ...x, factors: e.target.value } : x)),
-                                      selectedId,
-                                    )
-                                  }
-                                  style={{ padding: '2px 4px', width: 180 }}
-                                />
-                              </td>
-                              <td>
                                 <input
                                   value={r.note ?? ''}
                                   disabled={!props.canEdit}
@@ -1429,22 +1525,6 @@ export function ProductionProgramPage(props: Props) {
                                   }
                                   style={{ padding: '2px 4px', width: 160 }}
                                 />
-                              </td>
-                              <td>
-                                <select
-                                  value={r.operatorNote ?? ''}
-                                  disabled={!props.canEdit || noteBusyRowId === r.id}
-                                  onChange={(e) => void setRowOperatorNote(r.id, e.target.value || null)}
-                                  title="Отметка оператора: особое внимание — нужны особые действия с этим двигателем"
-                                  style={{ padding: '2px 4px', maxWidth: 170 }}
-                                >
-                                  <option value="">—</option>
-                                  {PRODUCTION_PROGRAM_OPERATOR_MARKS.map((m) => (
-                                    <option key={m} value={m}>
-                                      {PRODUCTION_PROGRAM_OPERATOR_MARK_LABELS[m]}
-                                    </option>
-                                  ))}
-                                </select>
                               </td>
                               {props.canEdit ? (
                                 <td>
@@ -1493,6 +1573,21 @@ export function ProductionProgramPage(props: Props) {
 
       {/* Превью печатной формы — промежуточный этап между «Печать» и принтером. */}
       {printInput ? <ProductionProgramPrintPreview input={printInput} onClose={() => setPrintInput(null)} /> : null}
+
+      {/* Модалка этапа: этап пишется в историю ремонта двигателя целиком. */}
+      {stageDialog ? (
+        <ProductionProgramStageDialog
+          engineLabel={stageDialog.engineLabel}
+          currentStage={productionProgramEngineStage(engineById.get(stageDialog.engineId) ?? null)}
+          templates={stageTemplates}
+          workshops={workshops}
+          initialCode={stageDialog.code}
+          planDeadline={isoDate(rowsRef.current.find((r) => r.id === stageDialog.rowId)?.shippingPlanAt ?? null)}
+          defaultWorkshopId={defaultWorkshopId}
+          onClose={closeStageDialog}
+          onSubmit={submitStage}
+        />
+      ) : null}
     </div>
   );
 }
