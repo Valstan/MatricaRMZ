@@ -6,6 +6,7 @@ import {
   engineReclamationFacts,
   engineReclamationHistoryLines,
   engineReclamationShipments,
+  engineVisitPayments,
   formatQueueDate,
   resolveEngineVisitCustomer,
   sortEngineReclamations,
@@ -22,6 +23,8 @@ function reclamation(overrides: Partial<EngineReclamationDto> = {}): EngineRecla
     shippedAt: null,
     contractId: null,
     customerId: null,
+    arrivalInvoice: null,
+    shipmentInvoice: null,
     customerReason: null,
     actualDefect: null,
     defectNature: null,
@@ -189,6 +192,73 @@ describe('заезды: свой договор и контрагент у ка�
   it('пустой заезд — контрагента нет', () => {
     const resolved = resolveEngineVisitCustomer({ contractId: null, customerId: null }, new Map());
     expect(resolved).toEqual({ id: '', source: 'none' });
+  });
+});
+
+/**
+ * У заезда — накладные и оплаты по его договору (владелец 20.11.2026: «какой номер
+ * накладных был, сколько по контракту наверно там оплачено было»).
+ */
+describe('заезды: накладные и оплаты по договору заезда', () => {
+  it('накладные основного цикла — с карточки, рекламации — свои', () => {
+    const visits = buildEngineVisits({
+      mainArrivalDate: BASE,
+      mainShippingDate: BASE + 5 * DAY,
+      mainArrivalInvoice: 'НП-100',
+      mainShipmentInvoice: 'НО-100',
+      reclamations: [
+        reclamation({
+          queueNo: 1,
+          acceptedAt: BASE + 10 * DAY,
+          arrivalInvoice: 'НП-200',
+          shipmentInvoice: 'НО-200',
+        }),
+      ],
+    });
+    expect(visits[0]?.arrivalInvoice).toBe('НП-100');
+    expect(visits[0]?.shipmentInvoice).toBe('НО-100');
+    expect(visits[1]?.arrivalInvoice).toBe('НП-200');
+    expect(visits[1]?.shipmentInvoice).toBe('НО-200');
+  });
+
+  it('оплаты заезда — по слоту двигателя в его договоре', () => {
+    const payments = {
+      version: 1 as const,
+      slots: [
+        {
+          id: 'slot-1',
+          sectionKey: 'primary',
+          engineId: 'e1',
+          contractPriceKop: 500_000,
+          payments: [
+            { id: 'p1', date: '2026-10-01', amountKop: 200_000, kind: 'advance' as const },
+            { id: 'p2', date: '2026-10-15', amountKop: 150_000, kind: 'final' as const },
+          ],
+        },
+      ],
+    };
+    const summary = engineVisitPayments({ contractPayments: payments, engineId: 'e1' });
+    expect(summary.hasSlot).toBe(true);
+    expect(summary.paidKop).toBe(350_000);
+    expect(summary.priceKop).toBe(500_000);
+    expect(summary.lastPaymentDate).toBe('2026-10-15');
+  });
+
+  it('двигателя нет в договоре заезда — платежей нет (не чужих)', () => {
+    const payments = {
+      version: 1 as const,
+      slots: [
+        {
+          id: 'slot-1',
+          sectionKey: 'primary',
+          engineId: 'other',
+          payments: [{ id: 'p1', date: '2026-10-01', amountKop: 200_000, kind: 'advance' as const }],
+        },
+      ],
+    };
+    const summary = engineVisitPayments({ contractPayments: payments, engineId: 'e1' });
+    expect(summary.hasSlot).toBe(false);
+    expect(summary.paidKop).toBe(0);
   });
 });
 

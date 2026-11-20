@@ -619,6 +619,10 @@ export const erpEngineReclamationRowSchema = z.object({
   // приезжает без них.
   contract_id: z.string().uuid().nullable().optional(),
   customer_id: z.string().uuid().nullable().optional(),
+  // Накладные заезда (владелец 20.11.2026): «какой номер накладных был» — по заезду,
+  // а не по карточке (у основного цикла накладные в карточке, у рекламации — свои).
+  arrival_invoice: z.string().nullable().optional(),
+  shipment_invoice: z.string().nullable().optional(),
   customer_reason: z.string().nullable().optional(),
   actual_defect: z.string().nullable().optional(),
   defect_nature: z.string().nullable().optional(),

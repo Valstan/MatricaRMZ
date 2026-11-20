@@ -32,6 +32,10 @@ export type EngineReclamationDto = {
   contractId: string | null;
   /** Контрагент заезда (заказчик/поставщик) — запасной путь, если договора нет. */
   customerId: string | null;
+  /** Накладная прихода по заезду (номер). */
+  arrivalInvoice: string | null;
+  /** Накладная отгрузки по заезду (номер). */
+  shipmentInvoice: string | null;
   customerReason: string | null;
   actualDefect: string | null;
   defectNature: string | null;
@@ -99,6 +103,8 @@ export function registerEngineReclamationsIpc(ctx: IpcContext) {
             shippedAt: r.shippedAt == null ? null : Number(r.shippedAt),
             contractId: r.contractId == null ? null : String(r.contractId),
             customerId: r.customerId == null ? null : String(r.customerId),
+            arrivalInvoice: r.arrivalInvoice == null ? null : String(r.arrivalInvoice),
+            shipmentInvoice: r.shipmentInvoice == null ? null : String(r.shipmentInvoice),
             customerReason: r.customerReason == null ? null : String(r.customerReason),
             actualDefect: r.actualDefect == null ? null : String(r.actualDefect),
             defectNature: r.defectNature == null ? null : String(r.defectNature),
@@ -128,6 +134,9 @@ export function registerEngineReclamationsIpc(ctx: IpcContext) {
           contractId?: string | null;
           /** Контрагент заезда (заказчик/поставщик) — запасной путь. */
           customerId?: string | null;
+          /** Накладные заезда (номера). */
+          arrivalInvoice?: string | null;
+          shipmentInvoice?: string | null;
           customerReason?: string | null;
           actualDefect?: string | null;
           defectNature?: string | null;

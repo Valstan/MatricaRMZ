@@ -139,7 +139,9 @@ const HELPERS = `
       shipping: cells[3] ?? '',
       contract: cells[4] ?? '',
       customer: cells[5] ?? '',
-      defect: cells[6] ?? '',
+      invoices: cells[6] ?? '',
+      paid: cells[7] ?? '',
+      defect: cells[8] ?? '',
     };
   });
 `;
@@ -188,6 +190,14 @@ async function main() {
      const customerType = byCode('customer');
      if (!contractType || !customerType) return { ok: false, reason: 'нет типов сущностей contract/customer' };
 
+     // Двигатель — ПЕРВЫМ: слот платежей договора привязан к нему, и оплаты заезда
+     // считаются по этому слоту.
+     const engines = await call(() => window.matrica.engines.list(), 20000);
+     const list = engines?.rows ?? engines ?? [];
+     const engine = list.find((e) => String(e.engineNumber ?? '').startsWith('TEST-')) ?? list.find((e) => String(e.engineNumber ?? '').trim()) ?? list[0];
+     if (!engine) return { ok: false, reason: 'на стенде нет двигателей' };
+     const engineId = String(engine.id);
+
      const cp = await call(() => window.matrica.admin.entities.create(String(customerType.id)), 15000);
      if (!cp || !cp.ok) return { ok: false, reason: 'контрагент не создан: ' + (cp?.error ?? '') };
      await call(() => window.matrica.admin.entities.setAttr(String(cp.id), 'name', ${JSON.stringify(CUSTOMER_NAME)}, String(customerType.id)), 15000);
@@ -205,11 +215,22 @@ async function main() {
        sectionsOk = Boolean(r && r.ok);
      } catch (e) { sectionsOk = false; }
 
-     const engines = await call(() => window.matrica.engines.list(), 20000);
-     const list = engines?.rows ?? engines ?? [];
-     const engine = list.find((e) => String(e.engineNumber ?? '').startsWith('TEST-')) ?? list.find((e) => String(e.engineNumber ?? '').trim()) ?? list[0];
-     if (!engine) return { ok: false, reason: 'на стенде нет двигателей' };
-     const engineId = String(engine.id);
+     // Оплаты по договору — строгая реплика (contractPayments.save), как их пишет
+     // вкладка «Платежи»: слот на наш движок, цена по договору и один аванс.
+     const PAY_KOP = 123400;
+     const PRICE_KOP = 500000;
+     let paymentsOk = false;
+     try {
+       const next = {
+         version: 1,
+         slots: [{
+           id: crypto.randomUUID(), sectionKey: 'primary', engineId, contractPriceKop: PRICE_KOP,
+           payments: [{ id: crypto.randomUUID(), date: '2026-10-01', amountKop: PAY_KOP, kind: 'advance' }],
+         }],
+       };
+       const r = await call(() => window.matrica.contractPayments.save({ contractId, next }), 20000);
+       paymentsOk = Boolean(r && r.ok);
+     } catch (e) { paymentsOk = false; }
 
      // Заезд по рекламации — серверной дверью: заезд пишет сервер, и он же проверяет
      // гейт «заезды не пересекаются» (даты приёма/отправки).
@@ -219,6 +240,7 @@ async function main() {
      const saved = await call(() => window.matrica.engineReclamations.save({
        engineId,
        rows: [{ queueNo: 1, acceptedAt, shippedAt, contractId, customerId: String(cp.id),
+                arrivalInvoice: 'НП-СМОУК-1', shipmentInvoice: 'НО-СМОУК-1',
                 customerReason: 'Смоук: дефект по рекламации', defectNature: 'Трещина', actNumber: 'СМОУК/1', comment: 'смоук' }],
        mainArrivalDate: acceptedAt - 60 * day,
        mainShippingDate: acceptedAt - 50 * day,
@@ -232,7 +254,10 @@ async function main() {
               reclamationId: row ? String(row.id) : '',
               rowContractId: row ? String(row.contractId ?? '') : '',
               rowCustomerId: row ? String(row.customerId ?? '') : '',
-              acceptedAt, shippedAt, sectionsOk };`,
+              rowArrivalInvoice: row ? String(row.arrivalInvoice ?? '') : '',
+              rowShipmentInvoice: row ? String(row.shipmentInvoice ?? '') : '',
+              payKop: PAY_KOP, priceKop: PRICE_KOP,
+              acceptedAt, shippedAt, sectionsOk, paymentsOk };`,
     180000,
   );
   note(fixture.ok, 'фикстура: контрагент, договор и заезд по рекламации со своими сторонами', fixture);
@@ -333,6 +358,18 @@ async function main() {
     'у заезда свой контрагент (заказчик/поставщик)',
     reclamationRow ? { customer: reclamationRow.customer } : undefined,
   );
+  // Накладные заезда (владелец 20.11.2026: «какой номер накладных был»).
+  note(
+    Boolean(reclamationRow) && reclamationRow.invoices.includes('НП-СМОУК-1') && reclamationRow.invoices.includes('НО-СМОУК-1'),
+    'у заезда видны свои накладные (приход и отгрузка)',
+    reclamationRow ? { invoices: reclamationRow.invoices } : undefined,
+  );
+  // Оплаты по договору заезда (владелец 20.11.2026: «сколько по контракту оплачено было»).
+  note(
+    Boolean(reclamationRow) && reclamationRow.paid.includes('1 234,00') && reclamationRow.paid.includes('5 000,00'),
+    'по договору заезда видно оплачено и цену',
+    reclamationRow ? { paid: reclamationRow.paid } : undefined,
+  );
   await shot(ws, '1-arrivals-tab');
 
   // 7. В очереди рекламаций у заезда есть поля договора и контрагента, и договор виден.
@@ -355,19 +392,29 @@ async function main() {
      if (!panel || panel.hasAttribute('hidden')) return { ok: false, reason: 'вкладка «Рекламация» не открылась' };
      const body = panel.innerText;
      const hasContractField = body.includes('Договор заезда');
-     const hasCustomerField = body.includes('Контрагент (заказчик)');
+     const hasCustomerField = body.includes('Контрагент');
+     const hasArrivalInvoice = body.includes('Накладная прихода');
+     const hasShipmentInvoice = body.includes('Накладная отгрузки');
      // Значение поля «Договор заезда» — подпись выбранного договора.
      const input = [...panel.querySelectorAll('input')].filter(visible)
        .find((i) => String(i.value ?? '').includes('СМОУК-ЗАЕЗДЫ'));
      const customerInput = [...panel.querySelectorAll('input')].filter(visible)
        .find((i) => String(i.value ?? '').includes('СМОУК-ЗАЕЗДЫ-ЗАКАЗЧИК'));
-     return { ok: hasContractField && hasCustomerField, hasContractField, hasCustomerField,
+     const invoiceInput = [...panel.querySelectorAll('input')].filter(visible)
+       .find((i) => String(i.value ?? '').includes('НП-СМОУК-1'));
+     return { ok: hasContractField && hasCustomerField && hasArrivalInvoice && hasShipmentInvoice,
+              hasContractField, hasCustomerField, hasArrivalInvoice, hasShipmentInvoice,
               contractValue: input ? String(input.value) : '',
               customerValue: customerInput ? String(customerInput.value) : '',
+              invoiceValue: invoiceInput ? String(invoiceInput.value) : '',
               panelText: body.replace(/\\s+/g, ' ').slice(0, 300) };`,
     120000,
   );
-  note(form.ok, 'в очереди рекламаций есть поля «Договор заезда» и «Контрагент (заказчик)»', form);
+  note(
+    form.ok,
+    'в очереди рекламаций есть поля «Договор заезда», «Контрагент» и накладные',
+    form,
+  );
   note(
     String(form.contractValue ?? '').includes('СМОУК-ЗАЕЗДЫ'),
     'выбранный договор заезда виден в форме',
@@ -377,6 +424,11 @@ async function main() {
     String(form.customerValue ?? '').includes('СМОУК-ЗАЕЗДЫ-ЗАКАЗЧИК'),
     'контрагент заезда виден в форме',
     { customerValue: form.customerValue },
+  );
+  note(
+    String(form.invoiceValue ?? '').includes('НП-СМОУК-1'),
+    'накладная прихода заезда видна в форме',
+    { invoiceValue: form.invoiceValue },
   );
   await shot(ws, '2-reclamation-form');
 

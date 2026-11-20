@@ -23,6 +23,9 @@ const reclamationBody = z.object({
   contractId: z.string().trim().nullable().optional(),
   /** Контрагент заезда (заказчик/поставщик) — запасной путь, если договора нет. */
   customerId: z.string().trim().nullable().optional(),
+  /** Накладные заезда (номера). */
+  arrivalInvoice: z.string().trim().nullable().optional(),
+  shipmentInvoice: z.string().trim().nullable().optional(),
   customerReason: z.string().nullable().optional(),
   actualDefect: z.string().nullable().optional(),
   defectNature: z.string().nullable().optional(),

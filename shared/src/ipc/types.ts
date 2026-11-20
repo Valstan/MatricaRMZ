@@ -3368,6 +3368,9 @@ export type MatricaApi = {
         contractId?: string | null;
         /** Контрагент заезда (заказчик/поставщик) — запасной путь, если договора нет. */
         customerId?: string | null;
+        /** Накладные заезда (номера). */
+        arrivalInvoice?: string | null;
+        shipmentInvoice?: string | null;
         customerReason?: string | null;
         actualDefect?: string | null;
         defectNature?: string | null;

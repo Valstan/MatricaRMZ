@@ -37,6 +37,10 @@ export type ReclamationDraft = {
   contractId: string;
   /** Контрагент заезда (заказчик/поставщик) — запасной путь, если договора нет. */
   customerId: string;
+  /** Накладная прихода по заезду (номер). */
+  arrivalInvoice: string;
+  /** Накладная отгрузки по заезду (номер). */
+  shipmentInvoice: string;
   acceptedDate: string;
   defectDescription: string;
   actualDefect: string;
@@ -53,6 +57,8 @@ function emptyDraft(queueNo: number): ReclamationDraft {
     queueNo,
     contractId: '',
     customerId: '',
+    arrivalInvoice: '',
+    shipmentInvoice: '',
     acceptedDate: '',
     defectDescription: '',
     actualDefect: '',
@@ -71,6 +77,8 @@ function toDraft(row: {
   shippedAt: number | null;
   contractId: string | null;
   customerId: string | null;
+  arrivalInvoice: string | null;
+  shipmentInvoice: string | null;
   customerReason: string | null;
   actualDefect: string | null;
   defectNature: string | null;
@@ -89,6 +97,8 @@ function toDraft(row: {
     queueNo: row.queueNo,
     contractId: row.contractId ?? '',
     customerId: row.customerId ?? '',
+    arrivalInvoice: row.arrivalInvoice ?? '',
+    shipmentInvoice: row.shipmentInvoice ?? '',
     acceptedDate: iso(row.acceptedAt),
     defectDescription: row.customerReason ?? '',
     actualDefect: row.actualDefect ?? '',
@@ -351,6 +361,8 @@ export function EngineReclamationTab(props: {
           shippedAt: fromIsoDate(q.shippedDate),
           contractId: q.contractId || null,
           customerId: q.customerId || null,
+          arrivalInvoice: q.arrivalInvoice || null,
+          shipmentInvoice: q.shipmentInvoice || null,
           customerReason: q.defectDescription || null,
           actualDefect: q.actualDefect || null,
           defectNature: q.defectNature || null,
@@ -657,7 +669,7 @@ export function EngineReclamationTab(props: {
               )}
 
               {row(
-                'Контрагент (заказчик)',
+                'Контрагент',
                 <EntityReferenceField
                   target="customer"
                   targetLabel="Контрагент заезда"
@@ -672,8 +684,30 @@ export function EngineReclamationTab(props: {
               <div className="ui-muted" style={{ fontSize: 11 }}>
                 {selected.contractId
                   ? 'Контрагент взят из договора заезда — так же, как в карточке двигателя.'
-                  : 'Договора нет — контрагент заезда указывается здесь. Заезд без договора и без контрагента — норма, но в истории заездов он будет без заказчика.'}
+                  : 'Договора нет — контрагент заезда указывается здесь. Кто он — заказчик ремонта или поставщик деталей — решается на месте: в учёте нужна одна ссылка, а не название роли.'}
               </div>
+
+              {row(
+                'Накладная прихода',
+                <Input
+                  value={selected.arrivalInvoice}
+                  disabled={!canEdit}
+                  title="Номер накладной прихода двигателя по этому заезду"
+                  data-recl-field="arrival-invoice"
+                  onChange={(e) => patchSelected({ arrivalInvoice: String(e.target.value ?? '') })}
+                />,
+              )}
+
+              {row(
+                'Накладная отгрузки',
+                <Input
+                  value={selected.shipmentInvoice}
+                  disabled={!canEdit}
+                  title="Номер накладной отгрузки двигателя по этому заезду"
+                  data-recl-field="shipment-invoice"
+                  onChange={(e) => patchSelected({ shipmentInvoice: String(e.target.value ?? '') })}
+                />,
+              )}
 
               {row(
                 'Дата приёмки по рекламации',

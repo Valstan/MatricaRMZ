@@ -21,6 +21,7 @@
 // вернуться по рекламации уже по другому договору и по другому контрагенту.
 
 import { resolveEngineCustomer, type EngineCustomerSource } from './engineCustomer.js';
+import { findSlotForEngine, slotTotals, type ContractPayments } from './payments.js';
 
 /** Одна рекламация (один заезд по рекламации) — как её видит клиент. */
 export type EngineReclamationDto = {
@@ -45,6 +46,10 @@ export type EngineReclamationDto = {
    * (`resolveEngineCustomer`), иначе появятся две правды.
    */
   customerId: string | null;
+  /** Накладная прихода по заезду (номер). */
+  arrivalInvoice: string | null;
+  /** Накладная отгрузки по заезду (номер). */
+  shipmentInvoice: string | null;
   /** Описание дефекта изделия (что заявил заказчик). */
   customerReason: string | null;
   /** Фактически установленный дефект (что увидели при разборе). */
@@ -66,6 +71,8 @@ export type EngineReclamationInput = {
   shippedAt?: number | null | undefined;
   contractId?: string | null | undefined;
   customerId?: string | null | undefined;
+  arrivalInvoice?: string | null | undefined;
+  shipmentInvoice?: string | null | undefined;
   customerReason?: string | null | undefined;
   actualDefect?: string | null | undefined;
   defectNature?: string | null | undefined;
@@ -275,6 +282,10 @@ export type EngineVisit = {
   contractId: string | null;
   /** Контрагент заезда — запасной путь, если договора нет. */
   customerId: string | null;
+  /** Накладная прихода по заезду (номер). */
+  arrivalInvoice: string | null;
+  /** Накладная отгрузки по заезду (номер). */
+  shipmentInvoice: string | null;
   /** Подпись заезда для истории. */
   label: string;
 };
@@ -286,6 +297,9 @@ export function buildEngineVisits(args: {
   mainContractId?: string | null | undefined;
   /** Контрагент основного цикла — с карточки двигателя (запасной путь). */
   mainCustomerId?: string | null | undefined;
+  /** Накладные основного цикла — с карточки двигателя. */
+  mainArrivalInvoice?: string | null | undefined;
+  mainShipmentInvoice?: string | null | undefined;
   reclamations?: readonly EngineReclamationDto[] | null | undefined;
 }): EngineVisit[] {
   const visits: EngineVisit[] = [];
@@ -300,6 +314,8 @@ export function buildEngineVisits(args: {
       shippingDate: mainShipping,
       contractId: text(args.mainContractId),
       customerId: text(args.mainCustomerId),
+      arrivalInvoice: text(args.mainArrivalInvoice),
+      shipmentInvoice: text(args.mainShipmentInvoice),
       label: 'Основной цикл',
     });
   }
@@ -313,6 +329,8 @@ export function buildEngineVisits(args: {
       shippingDate: ms(reclamation.shippedAt),
       contractId: text(reclamation.contractId),
       customerId: text(reclamation.customerId),
+      arrivalInvoice: text(reclamation.arrivalInvoice),
+      shipmentInvoice: text(reclamation.shipmentInvoice),
       label: `Рекламация №${reclamation.queueNo}`,
     });
   }
@@ -335,6 +353,47 @@ export function resolveEngineVisitCustomer(
     { contractId: visit?.contractId ?? null, customerId: visit?.customerId ?? null },
     contractCustomerById,
   );
+}
+
+/**
+ * Платежи заезда — сколько по его договору оплачено (владелец 20.11.2026: «сколько по
+ * контракту наверно там оплачено было»).
+ *
+ * Считается ТЕМ ЖЕ правилом, что и вкладка «Платежи» двигателя: платежи лежат в
+ * договоре (`contract_payments`), слот — по двигателю, сумма — `slotTotals`. Одна
+ * правда на две точки: лента заездов и вкладка платежей не могут разойтись.
+ *
+ * У заезда свой договор — значит и свой слот: деньги по договору основного цикла не
+ * показываем в заезде по рекламации.
+ */
+export type EngineVisitPayments = {
+  /** Оплачено по слоту двигателя в договоре заезда (копейки). */
+  paidKop: number;
+  /** Цена по договору для этого двигателя (копейки) — null, если цена не задана. */
+  priceKop: number | null;
+  /** Дата последнего платежа по заезду (ISO) — null, если платежей не было. */
+  lastPaymentDate: string | null;
+  /** Слот найден (двигатель есть в договоре) — иначе платежей нет вовсе. */
+  hasSlot: boolean;
+};
+
+export function engineVisitPayments(args: {
+  /** Платежи договора заезда (разобранный `contract_payments`). */
+  contractPayments?: ContractPayments | null | undefined;
+  /** Двигатель, чей слот ищем. */
+  engineId: string;
+}): EngineVisitPayments {
+  const empty: EngineVisitPayments = { paidKop: 0, priceKop: null, lastPaymentDate: null, hasSlot: false };
+  if (!args.contractPayments || !args.engineId) return empty;
+  const slot = findSlotForEngine(args.contractPayments, args.engineId);
+  if (!slot) return empty;
+  const totals = slotTotals(slot);
+  return {
+    paidKop: totals.paidKop,
+    priceKop: totals.priceKop ?? null,
+    lastPaymentDate: totals.lastPaymentDate ?? null,
+    hasSlot: true,
+  };
 }
 
 /**
