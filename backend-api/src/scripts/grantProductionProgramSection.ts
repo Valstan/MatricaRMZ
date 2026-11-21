@@ -1,16 +1,9 @@
 import 'dotenv/config';
 
-import {
-  AccessSection,
-  SECTION_ACCESS_ATTR,
-  parseSectionMembership,
-  serializeSectionMembership,
-  type SectionAccessLevel,
-  type SectionMembership,
-} from '@matricarmz/shared';
+import { ACCESS_SECTION_CATALOG, AccessSection, type SectionAccessLevel } from '@matricarmz/shared';
 
 import { pool } from '../database/db.js';
-import { setEntityAttribute } from '../services/adminMasterdataService.js';
+import { setEmployeeSectionAccessOne } from '../services/employeeAuthService.js';
 
 /**
  * Выдать раздел «Производственная программа» (уточнение владельца к плану 55,
@@ -21,12 +14,17 @@ import { setEntityAttribute } from '../services/adminMasterdataService.js';
  * Круг: все живые аккаунты — `viewer` (видят план), трое, названные владельцем
  * поимённо, — `editor` (ведут план; тем же гейтом закрыта запись на клиенте).
  *
+ * КАНОН ЗАПИСИ: `setEmployeeSectionAccessOne` — та же дверь, что и переключатель
+ * раздела в админке (B3/R4b: база и запись — в `user_section_access`; клиент читает
+ * membership из строгой реплики). Писать в EAV нельзя: триггеры зеркала сняты на
+ * R4b, и такая запись до клиента не доедет.
+ *
  * Что НЕ трогаем:
- * - аккаунты, у которых membership НЕ задан (атрибута нет): клиент читает такие как
- *   fail-open (меню как раньше) — запись membership сузила бы их меню до одного
- *   раздела. Такие остаются как есть;
+ * - аккаунты, у которых membership НЕ задан (в строгой таблице нет строк): клиент
+ *   читает такие как fail-open (меню как раньше) — запись membership сузила бы их
+ *   меню до одного раздела. Такие остаются как есть;
  * - суперадмин: разделы он обходит по роли;
- * - чужие разделы membership — добавляется только ключ ПП, остальное не трогается.
+ * - чужие разделы membership — правится только уровень раздела ПП.
  *
  * Логины круга — только аргументом запуска (D-041: в репозитории их быть не может).
  *
@@ -35,20 +33,9 @@ import { setEntityAttribute } from '../services/adminMasterdataService.js';
  */
 const SECTION = AccessSection.ProductionProgram;
 
-export type MembershipChange = {
-  membership: SectionMembership;
-  changed: boolean;
-};
-
-/**
- * Чистая часть: добавить (или обновить) уровень раздела ПП в membership.
- * Остальные разделы не трогаются; пустой/битый membership трактуется как пустой.
- */
-export function nextMembership(raw: string | null | undefined, level: SectionAccessLevel): MembershipChange {
-  const current = parseSectionMembership(raw ?? null);
-  const membership: SectionMembership = { ...current, [SECTION]: level };
-  const changed = current[SECTION] !== level;
-  return { membership, changed };
+/** Уровень раздела для аккаунта: круг editor'ов ведёт план, остальные читают. */
+export function wantedLevel(login: string, editors: ReadonlySet<string>): SectionAccessLevel {
+  return editors.has(String(login ?? '').trim().toLowerCase()) ? 'editor' : 'viewer';
 }
 
 function log(...args: unknown[]) {
@@ -72,79 +59,68 @@ type Row = {
   id: string;
   login: string;
   role: string;
-  membershipRaw: string | null;
+  /** Уровень раздела ПП, как он лежит в каноне (`user_section_access`). */
+  currentLevel: SectionAccessLevel | null;
+  /** Есть ли у аккаунта хоть какой-то раздел: пусто = «не засеяно» (fail-open). */
+  hasAnySection: boolean;
 };
 
-async function loadEmployees(): Promise<Row[]> {
+async function loadAccounts(): Promise<Row[]> {
   const r = await pool.query(
-    `select e.id::text as id,
-            trim(both '"' from lg.value_json) as login,
-            coalesce(trim(both '"' from sr.value_json), '') as role,
-            sa.value_json as membership_raw
-       from entities e
-       join entity_types et on et.id = e.type_id and et.code = 'employee' and et.deleted_at is null
-       join attribute_defs lg_def on lg_def.entity_type_id = e.type_id and lg_def.code = 'login' and lg_def.deleted_at is null
-       join attribute_values lg on lg.entity_id = e.id and lg.attribute_def_id = lg_def.id and lg.deleted_at is null
-       left join attribute_defs sr_def on sr_def.entity_type_id = e.type_id and sr_def.code = 'system_role' and sr_def.deleted_at is null
-       left join attribute_values sr on sr.entity_id = e.id and sr.attribute_def_id = sr_def.id and sr.deleted_at is null
-       left join attribute_defs sa_def on sa_def.entity_type_id = e.type_id and sa_def.code = $1 and sa_def.deleted_at is null
-       left join attribute_values sa on sa.entity_id = e.id and sa.attribute_def_id = sa_def.id and sa.deleted_at is null
-      where e.deleted_at is null
-      order by login`,
-    [SECTION_ACCESS_ATTR],
+    `select u.id::text as id,
+            u.login,
+            u.system_role as role,
+            pp.level as pp_level,
+            (select count(*)::int from user_section_access any_s
+              where any_s.user_id = u.id and any_s.deleted_at is null) as section_count
+       from users u
+       left join user_section_access pp
+              on pp.user_id = u.id and pp.section_id = $1 and pp.deleted_at is null
+      where u.deleted_at is null
+      order by u.login`,
+    [SECTION],
   );
   return r.rows.map((row: any) => ({
     id: String(row.id),
     login: String(row.login ?? '').trim(),
     role: String(row.role ?? '').trim(),
-    membershipRaw: row.membership_raw == null ? null : String(row.membership_raw),
+    currentLevel: row.pp_level == null ? null : (String(row.pp_level) === 'editor' ? 'editor' : 'viewer'),
+    hasAnySection: Number(row.section_count ?? 0) > 0,
   }));
-}
-
-async function resolveActor(): Promise<{ id: string; username: string; role: 'admin' | 'superadmin' }> {
-  const r = await pool.query(
-    `select e.id::text as id, trim(both '"' from lg.value_json) as username
-       from entities e
-       join entity_types et on et.id = e.type_id and et.code = 'employee' and et.deleted_at is null
-       join attribute_defs sr_def on sr_def.entity_type_id = e.type_id and sr_def.code = 'system_role' and sr_def.deleted_at is null
-       join attribute_values sr on sr.entity_id = e.id and sr.attribute_def_id = sr_def.id and sr.deleted_at is null
-            and trim(both '"' from sr.value_json) = 'superadmin'
-       left join attribute_defs lg_def on lg_def.entity_type_id = e.type_id and lg_def.code = 'login' and lg_def.deleted_at is null
-       left join attribute_values lg on lg.entity_id = e.id and lg.attribute_def_id = lg_def.id and lg.deleted_at is null
-      where e.deleted_at is null
-      order by username
-      limit 1`,
-  );
-  if (r.rows.length === 0) throw new Error('нет суперадмина среди сотрудников — актор записи не найден');
-  return { id: String(r.rows[0].id), username: String(r.rows[0].username ?? ''), role: 'superadmin' };
 }
 
 async function main() {
   const apply = process.argv.includes('--apply');
   const editors = editorsFromArg('--editors');
 
-  const employees = await loadEmployees();
-  const withLogin = employees.filter((e) => e.login !== '');
-  const missing = [...editors].filter((login) => !withLogin.some((e) => e.login.toLowerCase() === login));
+  const accounts = await loadAccounts();
+  const missing = [...editors].filter((login) => !accounts.some((a) => a.login.toLowerCase() === login));
   if (missing.length > 0) {
     console.error(`логины не найдены в базе: ${missing.join(', ')} — ничего не записано`);
     process.exit(1);
   }
 
-  const actor = await resolveActor();
-  log(`актор записи: ${actor.username}`);
   log(`раздел: ${SECTION}; круг editor'ов: ${[...editors].join(', ')}`);
 
-  const anchor = await pool.query('select id from access_sections where id = $1', [SECTION]);
-  if (anchor.rows.length === 0) {
+  // Каталог-якорь разделов: без строки в `access_sections` запись в
+  // `user_section_access` падает по FK (а зеркало EAV выбрасывало бы раздел молча).
+  // Новый раздел = INSERT, а не миграция схемы (0086). Поэтому здесь — все разделы
+  // каталога, не только раздел ПП: на проде не хватало якоря «Дети и организационное»
+  // (модуль 15.11) — раздел был невыдаваемым.
+  const anchor = await pool.query('select id from access_sections', []);
+  const anchored = new Set(anchor.rows.map((r: any) => String(r.id)));
+  const missingAnchors = ACCESS_SECTION_CATALOG.map((s) => s.id).filter((id) => !anchored.has(id));
+  if (missingAnchors.length > 0) {
     if (apply) {
-      await pool.query('insert into access_sections (id) values ($1) on conflict (id) do nothing', [SECTION]);
-      log(`+ якорь раздела '${SECTION}' в access_sections создан (без него зеркало EAV→strict тихо выбросило бы раздел)`);
+      for (const id of missingAnchors) {
+        await pool.query('insert into access_sections (id) values ($1) on conflict (id) do nothing', [id]);
+      }
+      log(`+ якоря разделов в access_sections созданы: ${missingAnchors.join(', ')}`);
     } else {
-      log(`(dry-run) якорь раздела '${SECTION}' в access_sections отсутствует — будет создан при --apply`);
+      log(`(dry-run) якоря разделов в access_sections отсутствуют и будут созданы при --apply: ${missingAnchors.join(', ')}`);
     }
   } else {
-    log(`якорь раздела '${SECTION}' на месте`);
+    log('якоря всех разделов каталога на месте');
   }
 
   let planned = 0;
@@ -153,27 +129,23 @@ async function main() {
   let skippedSuperadmin = 0;
   let failed = 0;
 
-  for (const row of withLogin) {
+  for (const row of accounts) {
     if (row.role === 'superadmin') {
       skippedSuperadmin += 1;
       continue;
     }
-    if (row.membershipRaw == null) {
+    if (!row.hasAnySection) {
       // membership не задан → клиент читает fail-open (меню как раньше). Запись
       // membership сузила бы меню до одного раздела — такой аккаунт не трогаем.
       skippedNoMembership += 1;
       continue;
     }
-    const level: SectionAccessLevel = editors.has(row.login.toLowerCase()) ? 'editor' : 'viewer';
-    const { membership, changed } = nextMembership(row.membershipRaw, level);
-    if (!changed) continue;
+    const level = wantedLevel(row.login, editors);
+    if (row.currentLevel === level) continue;
     planned += 1;
-    log(`   ${row.login} [${row.role || '?'}] → ${SECTION}: ${level}`);
+    log(`   ${row.login} [${row.role || '?'}] → ${SECTION}: ${row.currentLevel ?? 'нет'} → ${level}`);
     if (!apply) continue;
-    const res = await setEntityAttribute(actor, row.id, SECTION_ACCESS_ATTR, serializeSectionMembership(membership), {
-      allowSyncConflicts: true,
-      allowProtectedAttrs: true,
-    });
+    const res = await setEmployeeSectionAccessOne(row.id, SECTION, level);
     if (!res.ok) {
       failed += 1;
       log(`   ✗ ${row.login}: ${(res as any).error}`);
