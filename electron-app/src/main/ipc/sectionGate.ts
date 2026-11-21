@@ -33,6 +33,10 @@ const PREFIX_RULES: ReadonlyArray<readonly [string, AccessSection]> = [
   ['fileSearch:', 'production'],
   ['ops:', 'production'],
   ['workSheets:', 'production'],
+  // Производственная программа (ПП) — свой раздел (владелец 21.11.2026): план читает
+  // весь завод, а пишет его узкий круг. Наблюдатель видит план (viewer), править его
+  // может только editor этого раздела — тем же гейтом, что и остальные разделы.
+  ['productionProgram:', 'production_program'],
   ['parts:', 'production'],
   ['checklists:', 'production'],
   ['warehouse:assemblyBom:', 'production'],
@@ -141,6 +145,13 @@ const WRITE_CHANNELS = new Set([
   'workSheets:types:restore',
   'workSheets:rows:save',
   'workSheets:rows:delete',
+  // Производственная программа: план ведут трое (уровень editor этого раздела),
+  // наблюдатель читает. Границу держит и серверное право `production_program.edit`.
+  'productionProgram:create',
+  'productionProgram:update',
+  'productionProgram:saveRows',
+  'productionProgram:remove',
+  'productionProgram:setRowOperatorNote',
   // work_orders
   'workOrders:create',
   'workOrders:update',

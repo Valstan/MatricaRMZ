@@ -307,20 +307,34 @@ describe('табель не привязан к разделу доступа', 
 });
 
 /**
- * Производственная программа (ПП): план читает весь завод (владелец 21.11.2026 —
- * «доступ у всех, то есть как у наблюдателя»), и данные его разделом не закрыты:
- * запись идёт серверной дверью REST, клиентский push закрыт владением server,
- * канала ПП в IPC-гейте по разделам нет. Поэтому плитка ПП не привязана к разделу —
- * как вкладка «Табель»: право на просмотр есть → плитка есть.
+ * Производственная программа (ПП) — СВОЙ раздел (уточнение владельца к плану 55,
+ * 21.11.2026): план читает весь завод, но «ПП для всех» не должно означать
+ * «двигатели и номенклатура для всех». Раздел ПП выдаётся отдельно, и остальные
+ * одиннадцать вкладок «Производства» при этом не открываются.
  */
-describe('плитка ПП не привязана к разделу доступа', () => {
-  it('вкладка ПП не числится ни в одном разделе', () => {
-    for (const section of ACCESS_SECTION_CATALOG) {
-      expect(section.menuTabs ?? [], section.id).not.toContain('production_program');
-    }
+describe('ПП — свой раздел доступа', () => {
+  it('вкладка ПП числится в разделе «Производственная программа», а не в «Производстве»', () => {
+    const pp = ACCESS_SECTION_CATALOG.find((s) => s.id === AccessSection.ProductionProgram);
+    expect(pp).toBeDefined();
+    expect(pp!.menuTabs).toContain('production_program');
+    const production = ACCESS_SECTION_CATALOG.find((s) => s.id === AccessSection.Production);
+    expect(production?.menuTabs ?? [], 'production').not.toContain('production_program');
   });
 
   it('вкладка ПП остаётся в меню группы «Производство» (реестр меню — не разделы)', () => {
     expect(groupForTab('production_program')).toBe('production');
+  });
+
+  it('засев даёт разделу ПП уровень viewer любой ролью — вести план может названный круг', () => {
+    for (const role of ['engineer', 'technolog', 'master', 'supply', 'storekeeper', 'timekeeper', 'viewer', 'admin', 'user', 'superadmin']) {
+      expect(seedMembershipForRole(role).production_program, role).toBe('viewer');
+    }
+    expect(seedMembershipForRole('pending').production_program).toBeUndefined();
+    expect(seedMembershipForRole('employee').production_program).toBeUndefined();
+  });
+
+  it('таблицы плана принадлежат разделу ПП, а не «Производству»', () => {
+    expect(sectionForLedgerWrite({ table: 'erp_production_programs' })).toBe(AccessSection.ProductionProgram);
+    expect(sectionForLedgerWrite({ table: 'erp_production_program_rows' })).toBe(AccessSection.ProductionProgram);
   });
 });
