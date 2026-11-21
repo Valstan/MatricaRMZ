@@ -20,6 +20,7 @@ const read = (name: string) =>
 
 const BACKFILL = read('backfillContractSectionTokens.ts');
 const CANONICALIZE = read('canonicalizeContractSectionKeys.ts');
+const RESYNC_SLOTS = read('resyncContractSlots.ts');
 
 describe('разбор раздела договора — одно правило', () => {
   it('перенос раздела ДС зовёт доменное правило, а не свой разбор', () => {
@@ -42,5 +43,13 @@ describe('разбор раздела договора — одно правил
     expect(BACKFILL).toContain('setEntityAttribute');
     expect(CANONICALIZE).toContain('setEntityAttribute');
     expect(BACKFILL).not.toMatch(/update\s+attribute_values/i);
+  });
+
+  it('скрипт автораскладки мест берёт то же правило раздела', () => {
+    // Скрипт раскладывает двигатели по местам и решает, в какой раздел движок сядет.
+    // Если он разберёт раздел иначе, чем перенос, — движок уедет со своего ДС на
+    // основной договор, а карточка (старое правило) тут же вернёт его обратно.
+    expect(RESYNC_SLOTS).toContain('planContractSectionToken');
+    expect(RESYNC_SLOTS).not.toMatch(/canonicalContractSectionKey\(/);
   });
 });
