@@ -95,10 +95,9 @@
 ## ⏳ Ждёт внешнего окна / события
 
 - [⏳ Свой ключ DeepSeek под проект (D-188): выпускает владелец, переезд делаем мы 🗓 since:2026-11-08](pending/svoy-key-deepseek-dlya-proekta-d-188.md)
-- [⏳ Промты проекта из КАРМАНА (D-190): пара «оплата двигателей» закрыта и в архиве; живая — «СИЗ: своя номенклатура» (решения приняты, ждёт прогона на проде и архива) 🗓 since:2026-11-08](pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md)
+- [⏳ Промты проекта из КАРМАНА (D-190): пары «оплата двигателей» и «СИЗ: своя номенклатура» закрыты и в архиве; живые — права на производственную программу и MiniMax-воркер 🗓 since:2026-11-08](pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md)
 - [⏳ Дубли сотрудников: остаток — штатка с ПДО и приёмка на парке (запрет по полному ключу сделан) 🗓 since:2026-11-09](pending/dubli-sotrudnikov-ostatok-zapret-po-polnomu-klyuchu-shtatka-s-pdo.md)
 - [⏳ Рекламация в истории ремонта: код сделан (3.117.0, 3.118.0 и 3.123.0) — осталась приёмка на парке 🗓 since:2026-11-09](pending/reklamaatsiya-v-istorii-remonta.md)
-- [⏳ СИЗ: 14 спорных пар закрыты решениями, ждёт прогона на проде и архива промтов 🗓 since:2026-11-11](pending/siz-svoya-nomenklatura-na-poziciyu-nabora.md)
 - [⏳ Клиент не отправлял атрибуты нового сотрудника — симптом снят, причина не найдена 🗓 since:2026-11-16](pending/klient-ne-otpravlyaet-atributy-novogo-sotrudnika.md)
 - [⏳ «Поиск по файлам»: вёрстка, названия вместо id, сверка с карточкой, .xls — выкат v3.131.0 сделан, ждёт приёмки 🗓 since:2026-11-16](pending/poisk-po-failam-dorabotka-priemka.md)
 - [⏳ СИЗ: карточка смывающих средств — остаток по образцу №43 (свидетельство, способ выдачи, расписка) 🗓 since:2026-11-14](pending/siz-kartochka-smyvayushchih-sredstv.md)
