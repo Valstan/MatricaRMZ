@@ -145,6 +145,13 @@ const WRITE_CHANNELS = new Set([
   'workSheets:types:restore',
   'workSheets:rows:save',
   'workSheets:rows:delete',
+  // Производственная программа: план ведут трое (уровень editor этого раздела),
+  // наблюдатель читает. Границу держит и серверное право `production_program.edit`.
+  'productionProgram:create',
+  'productionProgram:update',
+  'productionProgram:saveRows',
+  'productionProgram:remove',
+  'productionProgram:setRowOperatorNote',
   // work_orders
   'workOrders:create',
   'workOrders:update',
