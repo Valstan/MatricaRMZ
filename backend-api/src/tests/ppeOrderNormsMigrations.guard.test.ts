@@ -34,6 +34,7 @@ const MIGRATIONS = [
   '0121_ppe_earplug_norms.sql',
   '0122_ppe_etn_alignment.sql',
   '0138_ppe_local_norms_new_professions.sql',
+  '0139_ppe_local_norms_electrician.sql',
 ];
 
 function readMigration(name: string): string {

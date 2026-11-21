@@ -995,6 +995,13 @@
       "when": 1795340400000,
       "tag": "0138_ppe_local_norms_new_professions",
       "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "7",
+      "when": 1795347600000,
+      "tag": "0139_ppe_local_norms_electrician",
+      "breakpoints": true
     }
   ]
 }

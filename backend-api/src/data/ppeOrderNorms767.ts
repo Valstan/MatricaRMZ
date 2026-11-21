@@ -367,6 +367,8 @@ export const PPE_ORDER_SPECS: readonly PpeOrderSpec[] = [
   { id: 'b1de02e6-a1dd-52d2-a60c-e94295f307b5', occupationCode: '4902', sourceKind: 'local', sourceLabel: 'Заводская норма (решение владельца 21.11.2026)', ppeType: 'Одежда специальная защитная', name: 'Пальто, полупальто, плащ для защиты от воды — ФОРЕСТ', sourceRef: '1 шт. на 2 года', sortOrder: 2, note: null },
   { id: 'ffb0ee94-4dd3-5667-a316-80cc25dc51e7', occupationCode: '790', sourceKind: 'local', sourceLabel: 'Заводская норма (решение владельца 21.11.2026)', ppeType: 'Одежда специальная защитная', name: 'Костюм для защиты от механических воздействий (истирания) — МОТОР', sourceRef: '1 шт.', sortOrder: 1, note: null },
   { id: 'd90b90b4-bbb3-57f8-a6e1-a02bfb523552', occupationCode: '790', sourceKind: 'local', sourceLabel: 'Заводская норма (решение владельца 21.11.2026)', ppeType: 'Одежда специальная защитная', name: 'Пальто, полупальто, плащ для защиты от воды — ФОРЕСТ', sourceRef: '1 шт. на 2 года', sortOrder: 2, note: null },
+  { id: 'e4c48647-8fc2-51c8-a8b0-74c97f1758cd', occupationCode: '4581', sourceKind: 'local', sourceLabel: 'Заводская норма (решение владельца 17.11.2026)', ppeType: 'Средства защиты ног', name: 'Обувь специальная для защиты от механических воздействий (ударов)', sourceRef: '1 пара', sortOrder: 2, note: null },
+  { id: '4de80d4d-c538-5dfb-ab08-46ac0c49b331', occupationCode: '4581', sourceKind: 'local', sourceLabel: 'Заводская норма (решение владельца 17.11.2026)', ppeType: 'Средства защиты рук', name: 'Перчатки для защиты от механических воздействий (истирания) — хлопковые с латексным двойным обливом', sourceRef: '6 пар', sortOrder: 3, note: null },
 ];
 
 export const PPE_ORDER_NORM_SETS: readonly PpeOrderNormSet[] = [

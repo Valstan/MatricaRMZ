@@ -648,12 +648,6 @@ UPDATE ppe_norm_line_specs s
 
 parts.push(`--> statement-breakpoint`);
 
-parts.push(`-- 6. Номенклатура СИЗ: базовая позиция (без размера) и её размерный ряд.
--- Размер — отдельная позиция-вариант с родителем-базой (один уровень), как
--- заведено для остальной номенклатуры. Категория 'workwear' отделяет СИЗ от
--- деталей — в фонд деталей они не попадают.
-INSERT INTO erp_nomenclature (id, code, name, item_type, category, parent_nomenclature_id, is_active, sync_status, created_at, updated_at)
-VALUES`);
 const nomRows = [
   ...basePositions
     .filter((b) => isNew(b.id))
@@ -668,10 +662,18 @@ const nomRows = [
         `  (${sqlStr(s.id)}, ${sqlStr(s.code)}, ${sqlStr(s.name)}, 'material', 'workwear', ${sqlStr(s.parentId)}, true, 'synced', ${NOW}, ${NOW})`,
     ),
 ];
+// Заголовок INSERT идёт вместе со строками: без строк он оставляет в файле
+// висящий «VALUES» — такой SQL не разбирается (ошибка 42601 на миграции).
 if (nomRows.length > 0) {
+  parts.push(`-- 6. Номенклатура СИЗ: базовая позиция (без размера) и её размерный ряд.
+-- Размер — отдельная позиция-вариант с родителем-базой (один уровень), как
+-- заведено для остальной номенклатуры. Категория 'workwear' отделяет СИЗ от
+-- деталей — в фонд деталей они не попадают.
+INSERT INTO erp_nomenclature (id, code, name, item_type, category, parent_nomenclature_id, is_active, sync_status, created_at, updated_at)
+VALUES`);
   parts.push(nomRows.join(',\n') + conflict + ';');
 } else {
-  parts.push(`-- 6. Новых позиций номенклатуры в этой миграции нет.`);
+  parts.push(`-- 6. Новых позиций номенклатуры в этой миграции нет: базовые позиции и их размерные ряды уже заведены.`);
 }
 parts.push(`--> statement-breakpoint`);
 
