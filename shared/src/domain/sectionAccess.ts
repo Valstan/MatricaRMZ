@@ -16,6 +16,14 @@ export const SECTION_ACCESS_ATTR = 'section_access';
 
 export const AccessSection = {
   Production: 'production',
+  /**
+   * Производственная программа (ПП) — СВОЙ раздел (уточнение владельца к плану 55,
+   * 21.11.2026): план читает весь завод, но «ПП для всех» не должно означать
+   * «двигатели и номенклатура для всех». Отдельный раздел даёт ровно это: выдаётся
+   * `production_program` уровнем viewer, а одиннадцать остальных вкладок
+   * «Производства» не едут.
+   */
+  ProductionProgram: 'production_program',
   WorkOrders: 'work_orders',
   /** Private work orders of a confined owner — membership replaces the old hardcode (Ф3). */
   RestrictedWorkOrders: 'restricted_work_orders',
@@ -65,12 +73,14 @@ export const ACCESS_SECTION_CATALOG: readonly AccessSectionMeta[] = [
     // «Производство» (ENTITY_TYPE_SECTION.engine_brand_group), а меню пряталось по
     // этому же списку — плитка показывалась тем, кому раздел не выдан, и открывалась
     // отказом «Нет доступа к разделу «Производство»».
-    // ПП («production_program») в разделе НЕ числится: план производства читает
-    // весь завод (владелец 21.11.2026 — «доступ у всех, то есть как у наблюдателя»),
-    // и данные его разделом не закрыты — запись идёт серверной дверью REST, клиентский
-    // push закрыт владением server, канала ПП в IPC-гейте по разделам нет. Плитка ПП
-    // видна всем, у кого есть право `production_program.view`, — как вкладка «Табель».
     menuTabs: ['engines', 'file_search', 'engine_rmz_numbers', 'work_sheets', 'assembly_forecast', 'engine_brands', 'engine_brand_groups', 'parts', 'engine_assembly_bom', 'repair_norms', 'tools'],
+  },
+  {
+    // ПП — свой раздел (владелец 21.11.2026): план читает весь завод, а вести его —
+    // трое. Выдача этого раздела НЕ открывает остальные вкладки «Производства».
+    id: AccessSection.ProductionProgram,
+    titleRu: 'Производственная программа',
+    menuTabs: ['production_program'],
   },
   {
     id: AccessSection.WorkOrders,
@@ -381,9 +391,9 @@ export const LEDGER_SECTION_BY_TABLE: Readonly<Record<string, AccessSection>> = 
   erp_engine_instances: AccessSection.Production,
   // Строки списка деталей — та же секция, что и сам лист (operations без типа → Production).
   erp_engine_inventory_lines: AccessSection.Production,
-  // Производственная программа (ПП) — производственный контур.
-  erp_production_programs: AccessSection.Production,
-  erp_production_program_rows: AccessSection.Production,
+  // Производственная программа (ПП) — свой раздел (владелец 21.11.2026).
+  erp_production_programs: AccessSection.ProductionProgram,
+  erp_production_program_rows: AccessSection.ProductionProgram,
   // Детский и организационный модуль — свой раздел (персональные данные детей).
   erp_employee_children: AccessSection.Organization,
   erp_org_events: AccessSection.Organization,
@@ -436,9 +446,11 @@ export function seedMembershipForRole(role: string | null | undefined): SectionM
   switch (r) {
     case 'superadmin':
     case 'admin':
-      return { ...seedAll('editor'), administration: 'editor' };
+      // Раздел ПП — всегда viewer: вести производственный план может круг, названный
+      // владельцем поимённо, а не вся роль (даже admin).
+      return { ...seedAll('editor'), administration: 'editor', production_program: 'viewer' };
     case 'user': // legacy full-access tier — keep working as before
-      return seedAll('editor');
+      return { ...seedAll('editor'), production_program: 'viewer' };
     case 'engineer':
       return seedAll('viewer', { production: 'editor' });
     case 'technolog':
