@@ -56,3 +56,10 @@ jobs:
       # рантаймовой зависимости и ширину окна ожидания primary (канон: не меньше 90 с).
       - name: Backend deploy script smoke test
         run: bash scripts/prod-ops/deploy-backend.test.sh
+
+      # Выкат артефактов клиента: скрипт кладёт на прод то, что потом раздаёт всему парку.
+      # Прежняя версия сверяла размеры манифеста и blockmap КОНСТАНТАМИ прошлого релиза —
+      # на любом новом релизе сверка была ложной. Смоук держит сверку по манифесту и по
+      # цифрам релиза и то, что в прод уходит только согласованная тройка.
+      - name: Client artifacts fetch script smoke test
+        run: bash scripts/prod-ops/fetch-client-artifacts.test.sh
