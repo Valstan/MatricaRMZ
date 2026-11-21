@@ -71,6 +71,26 @@ describe('operator role presets (RBAC #474)', () => {
     }
   });
 
+  // Производственная программа (ПП): план читает весь завод, а ведут его трое,
+  // названные владельцем поимённо (21.11.2026). Право на ведение ни одной роли не
+  // даёт — ни операторской, ни admin'у, ни легаси `user`: выдаётся персональным
+  // override'ом (см. `defaultPermissionsForRole` в backend).
+  it('права на ведение ПП нет ни в одной роли, а право на чтение есть у всех', () => {
+    for (const role of ['engineer', 'technolog', 'master', 'supply', 'storekeeper', 'timekeeper', 'viewer']) {
+      const perms = operatorRolePermissions(role)!;
+      expect(perms[PermissionCode.ProductionProgramEdit], role).toBeFalsy();
+      expect(perms[PermissionCode.ProductionProgramView], role).toBe(true);
+    }
+  });
+
+  it('право на ведение ПП выдаётся поимённо и не admin-only', () => {
+    const row = PERMISSION_CATALOG.find((p) => p.code === PermissionCode.ProductionProgramEdit);
+    expect(row).toBeDefined();
+    expect(permGroupRu(PermissionCode.ProductionProgramEdit)).toBe('Производственная программа');
+    expect(permTitleRu(PermissionCode.ProductionProgramEdit)).toContain('Ведение производственной программы');
+    expect(permAdminOnly(PermissionCode.ProductionProgramEdit)).toBe(false);
+  });
+
   it('viewer edits nothing', () => {
     const perms = operatorRolePermissions('viewer')!;
     expect(perms[PermissionCode.EnginesEdit]).toBeFalsy();

@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('../database/db.js', () => ({ db: {}, pool: {} }));
 
 const { defaultPermissionsForRole } = await import('./permissions.js');
-const { PermissionCode } = await import('@matricarmz/shared');
+const { PermissionCode, operatorRolePermissions } = await import('@matricarmz/shared');
 
 describe('defaultPermissionsForRole — pending lockout (security-hardening C1)', () => {
   it('pending (self-registered, unapproved) gets NO permissions', () => {
@@ -51,5 +51,36 @@ describe('defaultPermissionsForRole — права на этапы работ в
     const perms = defaultPermissionsForRole('superadmin');
     expect(perms[PermissionCode.WorkSheetsEdit]).toBe(true);
     expect(perms[PermissionCode.WorkSheetTypesEdit]).toBe(true);
+  });
+});
+
+// Производственная программа (ПП): план ведут трое, названные владельцем поимённо
+// (21.11.2026). Роль права не даёт даже admin'у и легаси `user` — иначе «только
+// трое» держалось бы ровно до первого нового администратора. Выдаётся персональным
+// override'ом.
+describe('defaultPermissionsForRole — право вести ПП выдаётся поимённо', () => {
+  it('admin и легаси user не получают его от роли, читать план могут', () => {
+    for (const role of ['admin', 'user']) {
+      const perms = defaultPermissionsForRole(role);
+      expect(perms[PermissionCode.ProductionProgramEdit], role).toBe(false);
+      expect(perms[PermissionCode.ProductionProgramView], role).toBe(true);
+    }
+  });
+
+  it('суперадмин — единственный, у кого оно от роли', () => {
+    expect(defaultPermissionsForRole('superadmin')[PermissionCode.ProductionProgramEdit]).toBe(true);
+  });
+
+  it('операторские роли его не получают, а читать план могут', () => {
+    for (const role of ['engineer', 'technolog', 'master', 'supply', 'storekeeper', 'timekeeper', 'viewer']) {
+      const perms = operatorRolePermissions(role)!;
+      expect(perms[PermissionCode.ProductionProgramEdit], role).toBeFalsy();
+      expect(perms[PermissionCode.ProductionProgramView], role).toBe(true);
+    }
+  });
+
+  it('роли без доступа к программе прав не получают вовсе', () => {
+    expect(defaultPermissionsForRole('pending')).toEqual({});
+    expect(defaultPermissionsForRole('employee')).toEqual({});
   });
 });

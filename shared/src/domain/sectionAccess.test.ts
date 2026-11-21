@@ -16,6 +16,7 @@ import {
   seedMembershipForRole,
   serializeSectionMembership,
 } from './sectionAccess.js';
+import { groupForTab } from './uiSections.js';
 
 describe('parse/serialize membership', () => {
   it('round-trips and drops unknown sections/levels', () => {
@@ -302,5 +303,24 @@ describe('табель не привязан к разделу доступа', 
     for (const section of ACCESS_SECTION_CATALOG) {
       expect(section.menuTabs ?? [], section.id).not.toContain('timesheets');
     }
+  });
+});
+
+/**
+ * Производственная программа (ПП): план читает весь завод (владелец 21.11.2026 —
+ * «доступ у всех, то есть как у наблюдателя»), и данные его разделом не закрыты:
+ * запись идёт серверной дверью REST, клиентский push закрыт владением server,
+ * канала ПП в IPC-гейте по разделам нет. Поэтому плитка ПП не привязана к разделу —
+ * как вкладка «Табель»: право на просмотр есть → плитка есть.
+ */
+describe('плитка ПП не привязана к разделу доступа', () => {
+  it('вкладка ПП не числится ни в одном разделе', () => {
+    for (const section of ACCESS_SECTION_CATALOG) {
+      expect(section.menuTabs ?? [], section.id).not.toContain('production_program');
+    }
+  });
+
+  it('вкладка ПП остаётся в меню группы «Производство» (реестр меню — не разделы)', () => {
+    expect(groupForTab('production_program')).toBe('production');
   });
 });
