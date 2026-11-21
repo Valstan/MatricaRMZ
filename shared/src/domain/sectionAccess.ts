@@ -65,7 +65,12 @@ export const ACCESS_SECTION_CATALOG: readonly AccessSectionMeta[] = [
     // «Производство» (ENTITY_TYPE_SECTION.engine_brand_group), а меню пряталось по
     // этому же списку — плитка показывалась тем, кому раздел не выдан, и открывалась
     // отказом «Нет доступа к разделу «Производство»».
-    menuTabs: ['engines', 'file_search', 'engine_rmz_numbers', 'work_sheets', 'assembly_forecast', 'engine_brands', 'engine_brand_groups', 'parts', 'engine_assembly_bom', 'repair_norms', 'tools', 'production_program'],
+    // ПП («production_program») в разделе НЕ числится: план производства читает
+    // весь завод (владелец 21.11.2026 — «доступ у всех, то есть как у наблюдателя»),
+    // и данные его разделом не закрыты — запись идёт серверной дверью REST, клиентский
+    // push закрыт владением server, канала ПП в IPC-гейте по разделам нет. Плитка ПП
+    // видна всем, у кого есть право `production_program.view`, — как вкладка «Табель».
+    menuTabs: ['engines', 'file_search', 'engine_rmz_numbers', 'work_sheets', 'assembly_forecast', 'engine_brands', 'engine_brand_groups', 'parts', 'engine_assembly_bom', 'repair_norms', 'tools'],
   },
   {
     id: AccessSection.WorkOrders,

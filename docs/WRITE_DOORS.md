@@ -6,9 +6,9 @@
 
 | Дверь | Всего | Разобрано | Статус |
 |---|---|---|---|
-| **Ledger push** (`POST /ledger/tx/submit` → `applyLedgerTxs` → `partitionLedgerInputsByAuthz` → `writeSyncChanges`) | 30 таблиц контракта | **30** | ✅ таблица ниже, механизм `SYNC_TABLE_OWNERSHIP` + два сторожа |
+| **Ledger push** (`POST /ledger/tx/submit` → `applyLedgerTxs` → `partitionLedgerInputsByAuthz` → `writeSyncChanges`) | 55 таблиц в карте владения | **32** | ✅ механизм `SYNC_TABLE_OWNERSHIP` + два сторожа; ⏳ таблица ниже — снимок: добавлена ПП, не разобраны ещё 23 (СИЗ, рекламации, дети/организация, номера РМЗ) |
 | **`/changes/:id/apply`** (та же цепочка через `applyLedgerTxs`) | 1 | 1 | ✅ тот же гейт (`changesApplyAuthz.test.ts`) |
-| **REST-ручки записи** (`router.post/put/patch/delete` в `backend-api/src/routes/`) | 171 обработчик в 33 файлах | **0** | ⏳ к 16.10 |
+| **REST-ручки записи** (`router.post/put/patch/delete` в `backend-api/src/routes/`) | 171 обработчик в 33 файлах (снимок 21.09) | **5** (ПП) | ⏳ к 16.10; ПП разобран ниже |
 | **Скрипты-импортёры / обслуживание** (`backend-api/src/scripts/`) | 94 файла; 18 пишут через `writeSyncChanges`, 14 — прямым `db.insert/update/delete` | **0** | ⏳ к 16.10; прямые записи в sync-таблицы — кандидаты на M6/M15 |
 | **Фоновые задачи** (сервисы с `setInterval`/расписанием) | 10 | **0** | ⏳ к 16.10 |
 
@@ -51,6 +51,22 @@
 | `erp_contract_payment_slots` | permission | `contracts.edit` | по праву (бухгалтерия и планшет в цеху, офлайн) |
 | `erp_contract_payments` | permission | `contracts.edit` | по праву |
 | `erp_engine_cards` | permission | `engines.edit` | по праву (цех с планшета, офлайн); гейты дублей — pre-sign партицией, не правом |
+| `erp_production_programs` / `erp_production_program_rows` | **server** (с 20.11) | backstop server-managed; вторая линия — requirement `superadmin` | ничего: крафт плана с клиента в журнал не уходит |
+
+## ПП: серверная дверь записи (промты КАРМАНА #54 + #55, решение владельца 21.11.2026)
+
+План производства **читает всяк, кто работает в программе** (`production_program.view` — в базе оператора), а **вести его могут только трое**, названные владельцем поимённо. Право на ведение — `production_program.edit`: **ни одна роль его не даёт** (в том числе `admin` и легаси `user` — кламп в `defaultPermissionsForRole`), выдаётся персональным override'ом (`user_permissions.allowed = true`), скриптом `perm:grant-pp-trio`. Плитка ПП в меню от раздела «Производство» не зависит — как вкладка «Табель».
+
+| Дверь | Что делает | Кто проверяет | Кто может |
+|---|---|---|---|
+| `POST /production-program` | создать план | `requirePermission(ProductionProgramEdit)` | трое редакторов |
+| `PATCH /production-program/:id` | правка шапки плана | то же | трое |
+| `PUT /production-program/:id/rows` | полная замена набора строк | то же | трое |
+| `PATCH /production-program/:id/rows/:rowId/operator-note` | отметка оператора на строке | то же | трое |
+| `DELETE /production-program/:id` | удалить план | то же | трое |
+| `GET /production-program`, `GET /production-program/:id` | чтение | `requirePermission(ProductionProgramView)` | все, кто работает в программе |
+
+**Проверок прав внутри `productionProgramService.ts` нет** — вся авторизация живёт в роуте, это и есть единственная точка отказа: ослабление `requirePermission` снимает защиту целиком.
 
 ## Что в ledger-двери ещё открыто
 

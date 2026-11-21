@@ -53,6 +53,11 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
   all[PermissionCode.WorkSheetsEdit] = r === 'superadmin';
   all[PermissionCode.WorkSheetTypesEdit] = r === 'superadmin';
   all[PermissionCode.RepairStageTemplatesEdit] = r === 'superadmin';
+  // Производственная программа (ПП): тот же уклад — план ведут трое, названные
+  // владельцем поимённо (21.11.2026). Роль права не даёт даже admin'у и легаси
+  // `user`: иначе «только трое» держалось бы ровно до первого нового администратора.
+  // Выдаётся персональным override'ом в админке.
+  all[PermissionCode.ProductionProgramEdit] = r === 'superadmin';
   return all;
 }
 

@@ -57,6 +57,8 @@
 
 - [🟡 Индекс грабель у потолка: новая грабля не влезает без сокращения формулировок 🗓 since:2026-11-20](pending/indeks-grabeley-u-potolka.md)
 
+- [🟡 Логины сотрудников в коде: старый скрипт выдачи прав нарушает D-041 🗓 since:2026-11-21](pending/loginy-sotrudnikov-v-kode-staryy-skript-vydachi-d-041.md)
+
 - [🟡 Печатные формы: офлайн-шаблоны (таблицы вне sync-контракта — печать по шаблону требует связи с сервером) 🗓 since:2026-11-20](pending/pechatnye-formy-oflayn-shablony.md)
 
 - [🟡 11 списков вне общей панели кнопок: свой ряд, без переполнения и меню «⋯» 🗓 since:2026-11-13](pending/spiski-vne-obshchey-paneli-bez-perepolneniya.md)
