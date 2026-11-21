@@ -16,7 +16,11 @@
  *    «Нарукавникам…», каска — к «Головному убору…».
  * 2. **Решения кладовщика — данные, а не разговор.** Спорные строки (две вещи
  *    претендуют на одну норму) решает человек; его ответ лежит в бланке выбора
- *    (`--choices=<csv>`) и применяется точно, без пересчёта.
+ *    (`--choices=<csv>`) и применяется точно, без пересчёта. Решение «не
+ *    привязывать» действует независимо от того, есть ли в приказе строка под
+ *    видом СИЗ, а название строки, которой у профессии нет, уточняется подбором
+ *    по торговому идентификатору («… — У-2К») — решение кладовщика при этом не
+ *    теряется.
  *
  * Вид, к которому относится и торговое имя, и приказная строка, — один и тот же
  * словарь: ноги, руки, голова, глаза, дыхание, слух, колени, одежда, лицо.
@@ -64,6 +68,16 @@ export function significantWords(name: string): string[] {
     .filter((w) => w.length >= 4 && !STOP_WORDS.has(w));
 }
 
+/** Предмет торгового имени — первое значимое слово: «перчатки», «нарукавники», «кепка». */
+export function itemNoun(name: string): string | null {
+  const first = String(name ?? '')
+    .toLowerCase()
+    .split(/[^a-zа-яё0-9]+/i)
+    .map((w) => w.trim())
+    .find((w) => w.length >= 3 && !STOP_WORDS.has(w));
+  return first ?? null;
+}
+
 /** Вид по торговому имени. */
 export function tradeKindOf(name: string): string | null {
   const text = String(name ?? '').toLowerCase();
@@ -106,6 +120,59 @@ function scoreBy(tradeWords: string[], orderName: string): number {
   const text = String(orderName ?? '').toLowerCase();
   let score = 0;
   for (const w of tradeWords) if (text.includes(w)) score += 1;
+  return score;
+}
+
+/** Торговый идентификатор в названии строки приказа: «… — У-2К» → «У-2К». */
+export function orderIdentifier(name: string): string | null {
+  const m = String(name ?? '').match(/\s+—\s+(.+)$/);
+  return m ? m[1]!.trim() : null;
+}
+
+/** Название строки приказа без торгового идентификатора: «… — У-2К» → «…». */
+export function baseOrderName(name: string): string {
+  const text = String(name ?? '').trim();
+  // Идентификатор может содержать дефис («СОЮЗ-2»), поэтому отбрасываем всё после
+  // ПОСЛЕДНЕГО разделителя « — ».
+  const m = text.match(/^(.+)\s+—\s+([^—]+)$/);
+  return m ? m[1]!.trim() : text;
+}
+
+/**
+ * Совпадение по торговому идентификатору: «Полумаска (У-2К)» → строка «… — У-2К».
+ * Слов из идентификатора в подборе не видно («2К», «0113» — короткие), а по
+ * идентификатору вещь узнаётся однозначно.
+ *
+ * Вес небольшой: идентификатор бывает у нескольких вещей сразу (перчатки и
+ * нарукавники одной сертификации — «ЛАЙТ/BERD»), и решает не он, а предмет строки.
+ */
+function identifierBonus(tradeName: string, orderName: string): number {
+  const id = orderIdentifier(orderName);
+  if (!id) return 0;
+  const trade = String(tradeName ?? '').toLowerCase();
+  const ident = id.toLowerCase();
+  return ident.length >= 3 && trade.includes(ident) ? 2 : 0;
+}
+
+/**
+ * Очки кандидата: совпавшие слова + бонус за торговый идентификатор − штраф за
+ * чужой предмет.
+ *
+ * Штраф: перчатки не ложатся в строку про нарукавники, костюм — в строку про
+ * плащ. Общий «Головной убор» — единственное исключение: кепка, каска и
+ * подшлемник по карточкам завода идут именно в него.
+ */
+function scoreCandidate(tradeName: string, tradeWords: string[], orderName: string): number {
+  let score = scoreBy(tradeWords, orderName) + identifierBonus(tradeName, orderName);
+  const noun = itemNoun(tradeName);
+  if (noun) {
+    const row = String(orderName ?? '').toLowerCase();
+    // Общий «Головной убор» приказа — единственное исключение: кепка, каска и
+    // подшлемник по карточкам завода идут именно в него. Строка с торговым
+    // идентификатором («… — кепка СОЮЗ-2») — не общий слот, а своя норма.
+    const generic = row.startsWith('головной убор') && !orderIdentifier(orderName);
+    if (!generic && !row.includes(noun)) score -= 5;
+  }
   return score;
 }
 
@@ -176,6 +243,28 @@ export function linkTradePositions(
     let pool = specs.filter((s) => s.occupationCode === trade.occupationCode);
     if (onlySpecId) pool = pool.filter((s) => s.id === onlySpecId);
 
+    const chosen = choiceByKey.get(choiceKey(trade.occupationCode, trade.name));
+
+    // Решение кладовщика «не привязывать» — выше подбора: оно не зависит от того,
+    // есть ли в приказе строка под вид СИЗ. Решение владельца 17.11.2026 про
+    // наколенники и закрытые очки сварщика — таких строк в приказе нет ни у кого,
+    // и раньше оно терялось: подбор успевал объявить позицию «не найдено».
+    if (chosen?.skip) {
+      plan.push({
+        occupationCode: trade.occupationCode,
+        tradeName: trade.name,
+        certificate: trade.certificate,
+        specId: null,
+        orderName: null,
+        kind,
+        score: null,
+        status: 'лишняя',
+        candidates: [],
+        note: 'решение кладовщика: не привязывать',
+      });
+      continue;
+    }
+
     if (kind) {
       const byKind = pool.filter((s) => kindByOrder(s.ppeType, s.name) === kind);
       // Вид известен, но в приказе у профессии такой строки нет — это не «неоднозначно»,
@@ -191,6 +280,9 @@ export function linkTradePositions(
           score: null,
           status: 'не найдено',
           candidates: [],
+          ...(chosen
+            ? { note: `выбор кладовщика «${chosen.orderName}»: в приказе нет строки под вид «${kind}» — нужна своя норма` }
+            : {}),
         });
         continue;
       }
@@ -217,22 +309,6 @@ export function linkTradePositions(
     }
 
     // Решение кладовщика — точное попадание в норму, подбор не участвует.
-    const chosen = choiceByKey.get(choiceKey(trade.occupationCode, trade.name));
-    if (chosen?.skip) {
-      plan.push({
-        occupationCode: trade.occupationCode,
-        tradeName: trade.name,
-        certificate: trade.certificate,
-        specId: null,
-        orderName: null,
-        kind,
-        score: null,
-        status: 'лишняя',
-        candidates: [],
-        note: 'решение кладовщика: не привязывать',
-      });
-      continue;
-    }
     if (chosen) {
       const target =
         pool.find((s) => s.name === chosen.orderName) ??
@@ -252,6 +328,34 @@ export function linkTradePositions(
         });
         continue;
       }
+      // Названия строки из бланка у профессии нет: бланк заполняли по другой должности
+      // или текст строки поменялся. Решение кладовщика терять нельзя — ищем строку с
+      // тем же названием без торгового идентификатора, а если такой нет — по подбору.
+      const base = baseOrderName(chosen.orderName);
+      const byBase = pool.filter((s) => baseOrderName(s.name) === base);
+      const cands = byBase.length > 0 ? byBase : pool;
+      const withId = cands.filter((s) => identifierBonus(trade.name, s.name) > 0);
+      const finalists = withId.length > 0 ? withId : cands;
+      const scored = finalists
+        .map((s) => ({ s, score: scoreCandidate(trade.name, words, s.name) }))
+        .sort((a, b) => b.score - a.score || a.s.sortOrder - b.s.sortOrder);
+      const best = scored[0]!;
+      const second = scored[1];
+      if (finalists.length === 1 || (second && best.score > second.score)) {
+        plan.push({
+          occupationCode: trade.occupationCode,
+          tradeName: trade.name,
+          certificate: trade.certificate,
+          specId: best.s.id,
+          orderName: best.s.name,
+          kind,
+          score: best.score,
+          status: 'связано',
+          candidates: [],
+          note: `выбор кладовщика («${chosen.orderName}») — строка уточнена по подбору`,
+        });
+        continue;
+      }
       plan.push({
         occupationCode: trade.occupationCode,
         tradeName: trade.name,
@@ -260,15 +364,15 @@ export function linkTradePositions(
         orderName: null,
         kind,
         score: null,
-        status: 'не найдено',
-        candidates: [],
-        note: `выбор кладовщика «${chosen}» не найден среди строк приказа — подбор не выполнен`,
+        status: 'неоднозначно',
+        candidates: scored.slice(0, 5).map((x) => `${x.s.name} (очки ${x.score})`),
+        note: `выбор кладовщика «${chosen.orderName}»: такой строки приказа у профессии нет, подбор неоднозначен`,
       });
       continue;
     }
 
     const scored = pool
-      .map((s) => ({ s, score: scoreBy(words, s.name) }))
+      .map((s) => ({ s, score: scoreCandidate(trade.name, words, s.name) }))
       .sort((a, b) => b.score - a.score || a.s.sortOrder - b.s.sortOrder);
     const best = scored[0]!;
     const second = scored[1];

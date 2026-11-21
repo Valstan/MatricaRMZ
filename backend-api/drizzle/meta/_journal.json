@@ -988,6 +988,13 @@
       "when": 1795334100000,
       "tag": "0137_engine_reclamation_invoices",
       "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "7",
+      "when": 1795340400000,
+      "tag": "0138_ppe_local_norms_new_professions",
+      "breakpoints": true
     }
   ]
 }

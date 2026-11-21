@@ -69,6 +69,11 @@ const lines = raw.split(/\r?\n/).filter((l) => l.trim() !== '');
  */
 const LOCAL_HEAD = 'Заводская норма';
 const LOCAL_LABEL = 'Заводская норма (решение владельца 17.11.2026)';
+// Продолжение того же правила («завести свою норму») для новых должностей —
+// отдельная метка, чтобы в бланке выдачи было видно, каким решением заведена строка.
+const LOCAL_HEAD_21_11 = 'Заводская норма 21.11';
+const LOCAL_LABEL_21_11 = 'Заводская норма (решение владельца 21.11.2026)';
+const localLabelOf = (head) => (head === LOCAL_HEAD_21_11 ? LOCAL_LABEL_21_11 : LOCAL_LABEL);
 
 /** Стабильный UUID из строки: миграция и скрипты берут одни и те же ссылки. */
 function stableUuid(seed) {
@@ -112,7 +117,7 @@ for (const line of lines) {
   // Голова строки: либо новый пункт приложения, либо профессия без пункта
   // («Инженерно – технический персонал»), либо строка приказа 766н, либо
   // ЗАВОДСКАЯ норма (решение владельца 17.11.2026 — «завести свою норму»).
-  const isLocal = head === LOCAL_HEAD;
+  const isLocal = head === LOCAL_HEAD || head === LOCAL_HEAD_21_11;
   if (head !== '' && !/766н/.test(head) && !isLocal) {
     const isPoint = /№\s*\d+/.test(head);
     cur = {
@@ -134,6 +139,8 @@ for (const line of lines) {
     isLocal,
     // У заводской строки вторая ячейка — код профессии, к которой норма добавлена.
     localCode: isLocal ? (cells[1] ?? '') : null,
+    // Метка решения владельца — по «голове» строки: 17.11 и 21.11 — разные решения.
+    localLabel: isLocal ? localLabelOf(head) : null,
     note,
   });
 }
@@ -190,7 +197,7 @@ for (const g of groups) {
       sourceLabel: row.isOrder766
         ? '№ 766н Прил.4'
         : row.isLocal
-          ? LOCAL_LABEL
+          ? row.localLabel
           : num
             ? `Пункт № ${num[1]}`
             : null,
@@ -206,6 +213,17 @@ for (const g of groups) {
 }
 
 // ── Наборы норм: по профессии и по источнику ─────────────────────────────────
+// Метка источника у заводского набора — одна на набор: решение, которым набор
+// заведён. Если нормы заведены разными решениями (17.11 и 21.11), метка набора —
+// от первого решения, иначе набор и его строки разошлись бы по метке.
+for (const code of new Set(specs.filter((s) => s.sourceKind === 'local').map((s) => s.occupationCode))) {
+  const label =
+    specs.find((s) => s.occupationCode === code && s.sourceKind === 'local')?.sourceLabel ?? LOCAL_LABEL;
+  for (const s of specs) {
+    if (s.occupationCode === code && s.sourceKind === 'local') s.sourceLabel = label;
+  }
+}
+
 const normSets = [];
 for (const occ of occupations) {
   const hasTon = specs.some((s) => s.occupationCode === occ.code && s.sourceKind === 'ton');
@@ -232,11 +250,14 @@ for (const occ of occupations) {
   }
   const hasLocal = specs.some((s) => s.occupationCode === occ.code && s.sourceKind === 'local');
   if (hasLocal) {
+    // Метка набора — та же, что у его строк: решение владельца у них одно.
+    const localLabel =
+      specs.find((s) => s.occupationCode === occ.code && s.sourceKind === 'local')?.sourceLabel ?? LOCAL_LABEL;
     normSets.push({
       id: stableUuid(`set:${occ.code}:local`),
       occupationCode: occ.code,
       sourceKind: 'local',
-      sourceLabel: LOCAL_LABEL,
+      sourceLabel: localLabel,
       name: `${occ.postTitle} (Заводская норма)`,
       season: null,
     });
