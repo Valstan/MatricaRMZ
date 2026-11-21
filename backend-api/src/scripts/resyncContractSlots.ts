@@ -463,7 +463,8 @@ async function loadSlots(): Promise<Map<string, SlotDbRow[]>> {
     `SELECT id::text AS id, contract_id::text AS contract_id, section_key, engine_brand_id::text AS engine_brand_id,
             engine_id::text AS engine_id, contract_price_kop::text AS contract_price_kop, created_at, updated_at
        FROM erp_contract_payment_slots
-      WHERE deleted_at IS NULL`,
+      WHERE deleted_at IS NULL
+      ORDER BY contract_id, id`,
   );
   const byContract = new Map<string, SlotDbRow[]>();
   for (const row of r.rows as Array<Record<string, unknown>>) {
@@ -690,13 +691,25 @@ async function applyPlans(plans: ContractPlan[], snapshotPath: string | null): P
 
   const CHUNK = 500;
   let applied = 0;
+  let skipped = 0;
   for (let i = 0; i < rows.length; i += CHUNK) {
     const chunk = rows.slice(i, i + CHUNK);
-    await writeSyncChanges(chunk.map((u) => toSyncInput(u.row)), ACTOR, { allowSyncConflicts: true });
+    const res = await writeSyncChanges(chunk.map((u) => toSyncInput(u.row)), ACTOR, { allowSyncConflicts: true });
     applied += chunk.length;
+    // Пропущенные строки — не «записалось и ладно»: applyPushBatch отбрасывает запись,
+    // чей updated_at старее серверного (парк успел записать своё). Такие строки останутся
+    // незакрытыми — про них и говорим оператору, иначе он увидит «всё записано» и не
+    // заметит, что часть раскладки ещё не применена.
+    skipped += res.skipped?.length ?? 0;
     console.log(`  записано ${applied}/${rows.length}`);
   }
   console.log(`Готово: ${applied} строк мест.`);
+  if (skipped > 0) {
+    console.log(
+      `⚠ Пропущено строк: ${skipped} (сервер посчитал их устаревшими — парк записал своё). ` +
+        `Прогоните ещё раз: скрипт идемпотентен и доберёт остаток.`,
+    );
+  }
 }
 
 async function rollback(file: string): Promise<void> {
