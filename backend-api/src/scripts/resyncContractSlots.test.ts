@@ -7,6 +7,7 @@ import { parseContractSections } from '@matricarmz/shared';
 
 import {
   buildCurrentPayments,
+  canonicalSectionKey,
   diffPlacements,
   diffSlots,
   plannedSectionsOf,
@@ -189,8 +190,19 @@ describe('скрипт автораскладки — правила запис�
   });
 
   it('раздел не выдумывается: движок без раздела мест не получает', () => {
-    expect(SCRIPT).toContain('canonicalContractSectionKey');
+    expect(SCRIPT).toContain('canonicalSectionKey');
     expect(SCRIPT).toContain('enginesWithoutSection');
+  });
+
+  it('раздел читается каноном «ДС {seq} / голое число — номер ДС», а не старым правилом', () => {
+    // Старое правило сворачивало голое число в «primary» и сдвигало двигатель с его ДС.
+    expect(SCRIPT).toContain('planContractSectionToken');
+    expect(SCRIPT).not.toMatch(/canonicalContractSectionKey\(/);
+    expect(canonicalSectionKey('ДС 3')).toBe('ДС 3');
+    expect(canonicalSectionKey('3')).toBe('ДС 3');
+    expect(canonicalSectionKey('primary')).toBe('primary');
+    expect(canonicalSectionKey('')).toBe('');
+    expect(canonicalSectionKey(null)).toBe('');
   });
 
   it('план считается доменным правилом, а не своей копией', () => {

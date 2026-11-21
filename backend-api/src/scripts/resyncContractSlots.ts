@@ -8,9 +8,9 @@ import { fileURLToPath } from 'node:url';
 
 import {
   SyncTableName,
-  canonicalContractSectionKey,
   contractSectionToken,
   parseContractSections,
+  planContractSectionToken,
   syncSlotsWithPlan,
   type AttachedEngineRef,
   type ContractPayments,
@@ -233,6 +233,20 @@ export function totalPaymentsKop(cp: ContractPayments): number {
 
 function brandKey(sectionKey: string, brandId: string | null): string {
   return `${sectionKey}\u0000${brandId ?? ''}`;
+}
+
+/**
+ * Канонический раздел двигателя — ПРАВИЛО ОДНО (`planContractSectionToken`, решение
+ * владельца 13.11.2026): «ДС {seq}» — токен ДС, голое число («3») — тоже номер ДС,
+ * всё прочее не-ДС — основной договор, пусто — «раздела нет».
+ *
+ * Старое `canonicalContractSectionKey` сворачивал голое число в «primary» и сдвигал
+ * двигатель с его ДС на основной договор — на живых данных голых чисел нет (проверено
+ * 21.11.2026), но правило должно быть одно, иначе скрипт и перенос разделов разойдутся.
+ */
+export function canonicalSectionKey(raw: string | null | undefined): string {
+  const plan = planContractSectionToken(raw);
+  return plan.next ?? plan.current;
 }
 
 /**
@@ -569,7 +583,7 @@ async function planContracts(contractFilter: string | null): Promise<{ plans: Co
     let enginesWithoutSection = 0;
     for (const e of engineRows) {
       numbers.set(e.id, e.engine_number);
-      const sectionKey = canonicalContractSectionKey(e.contract_section_number);
+      const sectionKey = canonicalSectionKey(e.contract_section_number);
       if (!sectionKey) {
         enginesWithoutSection += 1;
         continue;
