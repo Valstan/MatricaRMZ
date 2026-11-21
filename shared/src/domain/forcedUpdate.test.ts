@@ -118,7 +118,7 @@ describe('решение о принудительном обновлении', 
       candidate: candidate(),
       latestVersion: '3.140.0',
       now: NOW,
-      latestPublishedAt: NOW - 2 * 60 * 60_000,
+      latestPublishedAt: NOW - 30 * 60_000,
     });
     expect(decision.forced).toBe(false);
     expect(decision.reason).toBe('release-too-fresh');
