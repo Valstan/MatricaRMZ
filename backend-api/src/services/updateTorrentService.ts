@@ -507,6 +507,23 @@ export async function getLatestUpdateFileMeta() {
   return { version: st.version, fileName: st.fileName, size, sha256, ...blockmap };
 }
 
+/**
+ * Когда последний инсталлятор появился на сервере (mtime файла, epoch ms).
+ *
+ * Это и есть момент публикации релиза: файл кладут на бокс релиз-процессом, и
+ * с этого момента клиенты могут его взять. Правило принудительного обновления
+ * (владелец 21.11.2026) этим временем ограничивает «не перезапускается долгое
+ * время»: свежий релиз машине не вменяем.
+ */
+export async function getLatestUpdateFilePublishedAt(): Promise<number | null> {
+  const st = getLatestTorrentState();
+  if (!st?.filePath) return null;
+  const statRes = await stat(st.filePath).catch(() => null);
+  if (!statRes || !statRes.isFile()) return null;
+  const mtimeMs = Number(statRes.mtimeMs ?? 0);
+  return Number.isFinite(mtimeMs) && mtimeMs > 0 ? mtimeMs : null;
+}
+
 export function getUpdateTorrentStatus() {
   const updatesDir = getUpdatesDir();
   return {

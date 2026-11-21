@@ -208,6 +208,27 @@ killDoneUninstall:
   CreateShortCut "$SMSTARTUP\MatricaRMZ.lnk" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" "--minimized" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0
 !macroend
 
+; --- Тихая установка поднимает программу --------------------------------------
+; electron-builder в тихом режиме (/S) программу НЕ запускает: старт стоит за
+; веткой «не тихо» (templates/nsis/installSection.nsh, ONE_CLICK + RUN_AFTER_FINISH).
+; Тихо ставит именно сторож (watchdog/main.go) — в том числе по команде
+; принудительного обновления (правило владельца 21.11.2026).
+;
+; Без этого после принудительного обновления машина оставалась бы с установленной
+; программой, но БЕЗ запущенной: установщик в customInit закрывает работающий
+; клиент, а поднять его в тихом режиме было уже некому — до следующего входа в
+; систему (или до клиента 3.139+, где появилась кнопка «Перезапуск» в шапке)
+; работать на такой машине было бы нечем.
+;
+; Запускаем тем же способом, каким electron-builder запускает программу после
+; обычной установки: ${StdUtils.ExecShellAsUser} — старт от имени пользователя,
+; даже если установщик поднят с правами администратора.
+!macro StartClientAfterSilentInstall
+  ${if} ${Silent}
+    ${StdUtils.ExecShellAsUser} $0 "$INSTDIR\${APP_EXECUTABLE_FILENAME}" "open" ""
+  ${endIf}
+!macroend
+
 ; --- Метка «установка с нуля» СНЯТА (19.11.2026) ------------------------------------
 ; Инструкция по настройке Касперского больше не показывается при первом запуске: окно
 ; лезло само (тем более после обновления, если метку не сняли) и закрывало экран.
@@ -295,6 +316,7 @@ killDoneUninstall:
   !insertmacro InstallWatchdog
   !insertmacro InstallKasperskyHelper
   !insertmacro InstallClientAutostart
+  !insertmacro StartClientAfterSilentInstall
 !macroend
 
 !macro customUnInstall

@@ -125,6 +125,8 @@ export * from './domain/updateProgress.js';
 export * from './domain/updateFlow.js';
 export * from './domain/clientLabel.js';
 export * from './domain/watchdog.js';
+// Принудительное обновление парка: отставание ≥2 релизов + окно 12:30 МСК.
+export * from './domain/forcedUpdate.js';
 export * from './domain/globalSearch.js';
 export * from './domain/payments.js';
 export * from './domain/engineFinance.js';
