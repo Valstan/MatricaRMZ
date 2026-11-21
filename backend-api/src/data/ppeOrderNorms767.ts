@@ -359,6 +359,14 @@ export const PPE_ORDER_SPECS: readonly PpeOrderSpec[] = [
   { id: '1115bb81-a3fe-52b0-a933-8f90c08f8100', occupationCode: '3522', sourceKind: 'local', sourceLabel: 'Заводская норма (решение владельца 17.11.2026)', ppeType: 'Средства защиты органов дыхания', name: 'Средства индивидуальной защиты органов дыхания с принудительной подачей воздуха — У-2К', sourceRef: 'до износа', sortOrder: 3, note: null },
   { id: 'd64af4f2-3ac4-5952-a36b-50159b616bda', occupationCode: '5224', sourceKind: 'local', sourceLabel: 'Заводская норма (решение владельца 17.11.2026)', ppeType: 'Средства защиты органов дыхания', name: 'Противоаэрозольные, противоаэрозольные с дополнительной защитой от паров и газов средства индивидуальной защиты органов дыхания с фильтрующей лицевой частью - фильтрующие полумаски — ЗМ 6200', sourceRef: 'до износа', sortOrder: 3, note: null },
   { id: '76193722-bc06-52f8-a60c-33a17ba4d9fe', occupationCode: '1418', sourceKind: 'local', sourceLabel: 'Заводская норма (решение владельца 17.11.2026)', ppeType: 'Средства защиты органа слуха', name: 'Противошумные вкладыши (беруши) или противошумные наушники, включая активные, и их комплектующие — СОМЗ-93', sourceRef: 'определяется документами изготовителя', sortOrder: 1, note: null },
+  { id: 'a7551b87-ab97-5cc5-a968-a94810f9e4f7', occupationCode: '4537', sourceKind: 'local', sourceLabel: 'Заводская норма (решение владельца 21.11.2026)', ppeType: 'Средства защиты головы', name: 'Головной убор для защиты от общих производственных загрязнений — кепка СОЮЗ-2', sourceRef: '1 шт.', sortOrder: 1, note: null },
+  { id: '694242fc-4280-5f79-aff9-3b768303f68a', occupationCode: '4537', sourceKind: 'local', sourceLabel: 'Заводская норма (решение владельца 21.11.2026)', ppeType: 'Одежда специальная защитная', name: 'Пальто, полупальто, плащ для защиты от воды — ФОРЕСТ', sourceRef: '1 шт. на 2 года', sortOrder: 2, note: null },
+  { id: 'efd879e9-cfa6-5dcb-ab24-4baa6c20a8a0', occupationCode: '3522', sourceKind: 'local', sourceLabel: 'Заводская норма (решение владельца 17.11.2026)', ppeType: 'Средства защиты головы', name: 'Головной убор для защиты от общих производственных загрязнений — кепка СОЮЗ-2', sourceRef: '1 шт.', sortOrder: 4, note: null },
+  { id: '4793be65-f1c9-589c-abfc-852b4c9f3268', occupationCode: '4537', sourceKind: 'local', sourceLabel: 'Заводская норма (решение владельца 21.11.2026)', ppeType: 'Средства защиты рук', name: 'Нарукавники для защиты от кислот и щелочей — ЛАЙТ/BERD', sourceRef: '2 пары', sortOrder: 3, note: null },
+  { id: 'b3d688ac-9c1e-54eb-abd2-a27cb60f4823', occupationCode: '4902', sourceKind: 'local', sourceLabel: 'Заводская норма (решение владельца 21.11.2026)', ppeType: 'Средства защиты рук', name: 'Нарукавники для защиты от кислот и щелочей — ЛАЙТ/BERD', sourceRef: '12 пар', sortOrder: 1, note: null },
+  { id: 'b1de02e6-a1dd-52d2-a60c-e94295f307b5', occupationCode: '4902', sourceKind: 'local', sourceLabel: 'Заводская норма (решение владельца 21.11.2026)', ppeType: 'Одежда специальная защитная', name: 'Пальто, полупальто, плащ для защиты от воды — ФОРЕСТ', sourceRef: '1 шт. на 2 года', sortOrder: 2, note: null },
+  { id: 'ffb0ee94-4dd3-5667-a316-80cc25dc51e7', occupationCode: '790', sourceKind: 'local', sourceLabel: 'Заводская норма (решение владельца 21.11.2026)', ppeType: 'Одежда специальная защитная', name: 'Костюм для защиты от механических воздействий (истирания) — МОТОР', sourceRef: '1 шт.', sortOrder: 1, note: null },
+  { id: 'd90b90b4-bbb3-57f8-a6e1-a02bfb523552', occupationCode: '790', sourceKind: 'local', sourceLabel: 'Заводская норма (решение владельца 21.11.2026)', ppeType: 'Одежда специальная защитная', name: 'Пальто, полупальто, плащ для защиты от воды — ФОРЕСТ', sourceRef: '1 шт. на 2 года', sortOrder: 2, note: null },
 ];
 
 export const PPE_ORDER_NORM_SETS: readonly PpeOrderNormSet[] = [
@@ -418,12 +426,15 @@ export const PPE_ORDER_NORM_SETS: readonly PpeOrderNormSet[] = [
   { id: 'd9c99df3-1102-51e2-abf1-ab28360150ad', occupationCode: 'admin-staff', sourceKind: 'order766', sourceLabel: '№ 766н Прил.4', name: 'Административно – управленческий персонал (СИЗ от пониженных температур, приказ 766н Прил.4)', season: 'winter' },
   { id: '2efe6401-a1b2-5ca6-a281-9655de7f3e26', occupationCode: '4902', sourceKind: 'ton', sourceLabel: 'Пункт № 4902', name: 'Тракторист (Пункт № 4902)', season: null },
   { id: '41d7dec1-94ac-5a85-a40e-e20b2728ccc1', occupationCode: '4902', sourceKind: 'order766', sourceLabel: '№ 766н Прил.4', name: 'Тракторист (СИЗ от пониженных температур, приказ 766н Прил.4)', season: 'winter' },
+  { id: 'b4dd6889-7315-5d7d-a4ea-d9319366fee3', occupationCode: '4902', sourceKind: 'local', sourceLabel: 'Заводская норма (решение владельца 21.11.2026)', name: 'Тракторист (Заводская норма)', season: null },
   { id: '7f9c88a8-c3dd-5103-aad5-dccb03d71da1', occupationCode: '790', sourceKind: 'ton', sourceLabel: 'Пункт № 790', name: 'Водитель погрузчика (Пункт № 790)', season: null },
   { id: '509d8b75-338d-5427-a623-ba7d03a835cd', occupationCode: '790', sourceKind: 'order766', sourceLabel: '№ 766н Прил.4', name: 'Водитель погрузчика (СИЗ от пониженных температур, приказ 766н Прил.4)', season: 'winter' },
+  { id: '9a25fb42-f4f5-5ba6-aedf-57f677bf9f4c', occupationCode: '790', sourceKind: 'local', sourceLabel: 'Заводская норма (решение владельца 21.11.2026)', name: 'Водитель погрузчика (Заводская норма)', season: null },
   { id: '345bdf1a-9b6a-51fd-a5eb-3b8ed555fe72', occupationCode: '3283', sourceKind: 'ton', sourceLabel: 'Пункт № 3283', name: 'Оператор станков с программным управлением (Пункт № 3283)', season: null },
   { id: '404a405e-4008-5293-ad90-8144e27cc0d8', occupationCode: '3283', sourceKind: 'order766', sourceLabel: '№ 766н Прил.4', name: 'Оператор станков с программным управлением (СИЗ от пониженных температур, приказ 766н Прил.4)', season: 'winter' },
   { id: '06a78778-547b-5454-a845-a502232825c9', occupationCode: '4537', sourceKind: 'ton', sourceLabel: 'Пункт № 4537', name: 'Слесарь по ремонту автомобилей (Пункт № 4537)', season: null },
   { id: 'c7eb855a-a3cd-56f4-a353-e875e54f2495', occupationCode: '4537', sourceKind: 'order766', sourceLabel: '№ 766н Прил.4', name: 'Слесарь по ремонту автомобилей (СИЗ от пониженных температур, приказ 766н Прил.4)', season: 'winter' },
+  { id: 'a316f14e-1f85-5f3d-a6f4-7b1e71f5f9c8', occupationCode: '4537', sourceKind: 'local', sourceLabel: 'Заводская норма (решение владельца 21.11.2026)', name: 'Слесарь по ремонту автомобилей (Заводская норма)', season: null },
 ];
 
 export const PPE_ORDER_BASE_POSITIONS: readonly PpeOrderBasePosition[] = [
@@ -502,6 +513,9 @@ export const PPE_ORDER_BASE_POSITIONS: readonly PpeOrderBasePosition[] = [
   { id: '55af538a-8988-5ef6-a53a-a24f7261278c', name: 'Средства индивидуальной защиты органов дыхания с принудительной подачей воздуха — У-2К', ppeType: 'Средства защиты органов дыхания', sizeKind: null, code: 'СИЗ-070' },
   { id: '60c0bc36-1604-508c-ae4c-0e790e14c63c', name: 'Противоаэрозольные, противоаэрозольные с дополнительной защитой от паров и газов средства индивидуальной защиты органов дыхания с фильтрующей лицевой частью - фильтрующие полумаски — ЗМ 6200', ppeType: 'Средства защиты органов дыхания', sizeKind: null, code: 'СИЗ-075' },
   { id: '149e8739-773b-51cc-a922-4f25a7c223e3', name: 'Противошумные вкладыши (беруши) или противошумные наушники, включая активные, и их комплектующие — СОМЗ-93', ppeType: 'Средства защиты органа слуха', sizeKind: null, code: 'СИЗ-076' },
+  { id: '6965eca7-c758-5095-ac18-83c4bb1d56be', name: 'Пальто, полупальто, плащ для защиты от воды — ФОРЕСТ', ppeType: 'Одежда специальная защитная', sizeKind: 'clothes', code: 'СИЗ-077' },
+  { id: '721ea7f2-9045-5268-a106-1bb2243e4892', name: 'Нарукавники для защиты от кислот и щелочей — ЛАЙТ/BERD', ppeType: 'Средства защиты рук', sizeKind: 'gloves', code: 'СИЗ-078' },
+  { id: '840c8307-e56f-5542-a9d3-598893af0312', name: 'Костюм для защиты от механических воздействий (истирания) — МОТОР', ppeType: 'Одежда специальная защитная', sizeKind: 'clothes', code: 'СИЗ-079' },
 ];
 
 export const PPE_ORDER_SIZE_POSITIONS: readonly PpeOrderSizePosition[] = [
@@ -871,4 +885,23 @@ export const PPE_ORDER_SIZE_POSITIONS: readonly PpeOrderSizePosition[] = [
   { id: '190dfd34-cbdc-579a-a1ee-5e56c2860110', parentId: 'b5b28a01-d3ae-57b6-a3c8-d4c128b54e5f', name: 'Перчатки для защиты от механических воздействий (истирания) — хлопковые с латексным двойным обливом, р. L', code: 'СИЗ-069-L' },
   { id: '56712a7f-2b16-5061-af08-b021925e4dc2', parentId: 'b5b28a01-d3ae-57b6-a3c8-d4c128b54e5f', name: 'Перчатки для защиты от механических воздействий (истирания) — хлопковые с латексным двойным обливом, р. XL', code: 'СИЗ-069-XL' },
   { id: 'e16e8a5a-6de3-5c6f-aec2-45fcb34bc437', parentId: 'b5b28a01-d3ae-57b6-a3c8-d4c128b54e5f', name: 'Перчатки для защиты от механических воздействий (истирания) — хлопковые с латексным двойным обливом, р. XXL', code: 'СИЗ-069-XXL' },
+  { id: '38c968b9-2955-5eba-ad82-ba0a8d3168d0', parentId: '6965eca7-c758-5095-ac18-83c4bb1d56be', name: 'Пальто, полупальто, плащ для защиты от воды — ФОРЕСТ, р. 44', code: 'СИЗ-077-44' },
+  { id: '0e1094d2-c2d5-50f8-a5ea-c3f0fd3fe5f7', parentId: '6965eca7-c758-5095-ac18-83c4bb1d56be', name: 'Пальто, полупальто, плащ для защиты от воды — ФОРЕСТ, р. 46', code: 'СИЗ-077-46' },
+  { id: 'e6f5957b-f406-5d8e-a344-3c7e6cb2ab08', parentId: '6965eca7-c758-5095-ac18-83c4bb1d56be', name: 'Пальто, полупальто, плащ для защиты от воды — ФОРЕСТ, р. 48', code: 'СИЗ-077-48' },
+  { id: '497acead-063e-5f47-a4e4-3edf09301a21', parentId: '6965eca7-c758-5095-ac18-83c4bb1d56be', name: 'Пальто, полупальто, плащ для защиты от воды — ФОРЕСТ, р. 50', code: 'СИЗ-077-50' },
+  { id: 'b9cad7d4-60bd-5d65-a6cf-a3a6bc4a7575', parentId: '6965eca7-c758-5095-ac18-83c4bb1d56be', name: 'Пальто, полупальто, плащ для защиты от воды — ФОРЕСТ, р. 52', code: 'СИЗ-077-52' },
+  { id: '520b3ca6-74ce-5998-ac46-0a7ffae57976', parentId: '6965eca7-c758-5095-ac18-83c4bb1d56be', name: 'Пальто, полупальто, плащ для защиты от воды — ФОРЕСТ, р. 54', code: 'СИЗ-077-54' },
+  { id: '0508c65a-3a23-511f-adce-d6445ddac87d', parentId: '6965eca7-c758-5095-ac18-83c4bb1d56be', name: 'Пальто, полупальто, плащ для защиты от воды — ФОРЕСТ, р. 56', code: 'СИЗ-077-56' },
+  { id: 'dec0de88-3d48-56c3-aedd-7242697127ae', parentId: '721ea7f2-9045-5268-a106-1bb2243e4892', name: 'Нарукавники для защиты от кислот и щелочей — ЛАЙТ/BERD, р. S', code: 'СИЗ-078-S' },
+  { id: 'd6b424dd-fd67-52c1-a083-b6ebdd964a17', parentId: '721ea7f2-9045-5268-a106-1bb2243e4892', name: 'Нарукавники для защиты от кислот и щелочей — ЛАЙТ/BERD, р. M', code: 'СИЗ-078-M' },
+  { id: '900023cf-69c4-5a8d-afcd-810f2bff1d4b', parentId: '721ea7f2-9045-5268-a106-1bb2243e4892', name: 'Нарукавники для защиты от кислот и щелочей — ЛАЙТ/BERD, р. L', code: 'СИЗ-078-L' },
+  { id: '900e83a5-3362-5db0-a852-0f80da4e833b', parentId: '721ea7f2-9045-5268-a106-1bb2243e4892', name: 'Нарукавники для защиты от кислот и щелочей — ЛАЙТ/BERD, р. XL', code: 'СИЗ-078-XL' },
+  { id: '2d56144c-7168-537c-a6f3-873f899bb51a', parentId: '721ea7f2-9045-5268-a106-1bb2243e4892', name: 'Нарукавники для защиты от кислот и щелочей — ЛАЙТ/BERD, р. XXL', code: 'СИЗ-078-XXL' },
+  { id: '6e988b11-4be1-526d-ab12-7c1b75ab903d', parentId: '840c8307-e56f-5542-a9d3-598893af0312', name: 'Костюм для защиты от механических воздействий (истирания) — МОТОР, р. 44', code: 'СИЗ-079-44' },
+  { id: '1e7e99ae-b45f-54c7-ad8c-8ab1b747ed1c', parentId: '840c8307-e56f-5542-a9d3-598893af0312', name: 'Костюм для защиты от механических воздействий (истирания) — МОТОР, р. 46', code: 'СИЗ-079-46' },
+  { id: '789ac550-8fb0-5d1d-a90f-500ad1d6ec91', parentId: '840c8307-e56f-5542-a9d3-598893af0312', name: 'Костюм для защиты от механических воздействий (истирания) — МОТОР, р. 48', code: 'СИЗ-079-48' },
+  { id: 'af6d667f-4f82-5cee-a2e0-d8f8dcb1a275', parentId: '840c8307-e56f-5542-a9d3-598893af0312', name: 'Костюм для защиты от механических воздействий (истирания) — МОТОР, р. 50', code: 'СИЗ-079-50' },
+  { id: '2bf39f45-81e4-5112-a832-4efdcc4b3a74', parentId: '840c8307-e56f-5542-a9d3-598893af0312', name: 'Костюм для защиты от механических воздействий (истирания) — МОТОР, р. 52', code: 'СИЗ-079-52' },
+  { id: 'fac03988-57a9-5b3a-af25-08f140c878f3', parentId: '840c8307-e56f-5542-a9d3-598893af0312', name: 'Костюм для защиты от механических воздействий (истирания) — МОТОР, р. 54', code: 'СИЗ-079-54' },
+  { id: 'e419a737-f165-5d36-ac31-d80d8ad9bc92', parentId: '840c8307-e56f-5542-a9d3-598893af0312', name: 'Костюм для защиты от механических воздействий (истирания) — МОТОР, р. 56', code: 'СИЗ-079-56' },
 ];
