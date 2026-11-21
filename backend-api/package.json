@@ -63,6 +63,8 @@
     "perm:grant-pp-trio:apply": "tsx src/scripts/grantProductionProgramEditTrio.ts --apply",
     "sections:grant-pp": "tsx src/scripts/grantProductionProgramSection.ts",
     "sections:grant-pp:apply": "tsx src/scripts/grantProductionProgramSection.ts --apply",
+    "access:grant-org": "tsx src/scripts/grantOrganizationModuleAccess.ts",
+    "access:grant-org:apply": "tsx src/scripts/grantOrganizationModuleAccess.ts --apply",
     "security:role-report": "tsx src/scripts/roleReport.ts",
     "masterdata:seed-nomenclature-groups": "tsx src/scripts/seedNomenclatureGroups.ts",
     "masterdata:migrate-directories-to-nomenclature": "tsx src/scripts/migrateDirectoriesToNomenclature.ts",

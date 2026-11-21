@@ -43,6 +43,13 @@ export const AccessSection = {
    * они попадать не должны. Людей в раздел добавляет владелец.
    */
   Organization: 'organization',
+  /**
+   * Список «Дети» — ОТДЕЛЬНЫЙ раздел от организационного отдела (владелец 21.11.2026):
+   * организационный отдел видят все (только чтение), а «Дети» и данные о детях — только
+   * суперадмин и тот, кто ими ведёт (хозяин модуля). Раздел закрытый: назначает
+   * суперадмин.
+   */
+  Children: 'children',
 } as const;
 export type AccessSection = (typeof AccessSection)[keyof typeof AccessSection];
 
@@ -166,10 +173,18 @@ export const ACCESS_SECTION_CATALOG: readonly AccessSectionMeta[] = [
   },
   {
     id: AccessSection.Organization,
-    titleRu: 'Дети и организационное',
-    // Отдельный раздел: карточки детей — персональные данные, в общий кадровый
-    // контур они не попадают. Людей в раздел добавляет владелец.
-    menuTabs: ['children', 'organization'],
+    titleRu: 'Организационный отдел',
+    // Мероприятия и журнал выдачи подарков, призов и грамот видят ВСЕ, кто работает в
+    // программе, — правит их узкий круг (владелец 21.11.2026). Значит раздел обычный
+    // (засевается ролью), а уровень засева — viewer: право ведения выдаётся поимённо.
+    menuTabs: ['organization'],
+  },
+  {
+    id: AccessSection.Children,
+    titleRu: 'Дети',
+    // Список детей и карточки детей — только суперадмин и хозяин модуля (владелец
+    // 21.11.2026). Раздел закрытый: назначает суперадмин, поимённо.
+    menuTabs: ['children'],
     restrictedAssign: true,
   },
 ] as const;
@@ -394,8 +409,10 @@ export const LEDGER_SECTION_BY_TABLE: Readonly<Record<string, AccessSection>> = 
   // Производственная программа (ПП) — свой раздел (владелец 21.11.2026).
   erp_production_programs: AccessSection.ProductionProgram,
   erp_production_program_rows: AccessSection.ProductionProgram,
-  // Детский и организационный модуль — свой раздел (персональные данные детей).
-  erp_employee_children: AccessSection.Organization,
+  // Детский и организационный модули — свои разделы: карточки детей — в закрытый
+  // раздел `children` (виден только суперадмину и хозяину модуля), мероприятия и журнал
+  // выдачи — в общий `organization`.
+  erp_employee_children: AccessSection.Children,
   erp_org_events: AccessSection.Organization,
   erp_gift_records: AccessSection.Organization,
   warehouse_locations: AccessSection.Warehouse,
@@ -447,10 +464,16 @@ export function seedMembershipForRole(role: string | null | undefined): SectionM
     case 'superadmin':
     case 'admin':
       // Раздел ПП — всегда viewer: вести производственный план может круг, названный
-      // владельцем поимённо, а не вся роль (даже admin).
-      return { ...seedAll('editor'), administration: 'editor', production_program: 'viewer' };
+      // владельцем поимённо, а не вся роль (даже admin). Организационный отдел — тоже
+      // viewer: его ведёт хозяин модуля, а не вся роль.
+      return {
+        ...seedAll('editor'),
+        administration: 'editor',
+        production_program: 'viewer',
+        organization: 'viewer',
+      };
     case 'user': // legacy full-access tier — keep working as before
-      return { ...seedAll('editor'), production_program: 'viewer' };
+      return { ...seedAll('editor'), production_program: 'viewer', organization: 'viewer' };
     case 'engineer':
       return seedAll('viewer', { production: 'editor' });
     case 'technolog':

@@ -307,6 +307,37 @@ describe('табель не привязан к разделу доступа', 
 });
 
 /**
+ * Организационный отдел и «Дети» — РАЗНЫЕ разделы (владелец 21.11.2026): организационный
+ * отдел (мероприятия, журнал выдачи) видят все, кто работает в программе, ведёт его
+ * хозяин модуля; «Дети» и данные о детях — только суперадмин и хозяин.
+ */
+describe('организационный отдел и «Дети» — разные разделы', () => {
+  it('вкладка «Дети» числится в закрытом разделе, «Организационное» — в общем', () => {
+    const children = ACCESS_SECTION_CATALOG.find((s) => s.id === AccessSection.Children);
+    const organization = ACCESS_SECTION_CATALOG.find((s) => s.id === AccessSection.Organization);
+    expect(children?.menuTabs).toContain('children');
+    expect(children?.restrictedAssign).toBe(true);
+    expect(organization?.menuTabs).toContain('organization');
+    expect(organization?.menuTabs ?? []).not.toContain('children');
+    expect(organization?.restrictedAssign).toBeUndefined();
+  });
+
+  it('засев: организационный отдел — viewer любой ролью, «Дети» — никому', () => {
+    for (const role of ['engineer', 'technolog', 'master', 'supply', 'storekeeper', 'timekeeper', 'viewer', 'admin', 'user']) {
+      const m = seedMembershipForRole(role);
+      expect(m.organization, role).toBe('viewer');
+      expect(m.children, role).toBeUndefined();
+    }
+  });
+
+  it('карточки детей принадлежат разделу «Дети», мероприятия — организационному', () => {
+    expect(sectionForLedgerWrite({ table: 'erp_employee_children' })).toBe(AccessSection.Children);
+    expect(sectionForLedgerWrite({ table: 'erp_org_events' })).toBe(AccessSection.Organization);
+    expect(sectionForLedgerWrite({ table: 'erp_gift_records' })).toBe(AccessSection.Organization);
+  });
+});
+
+/**
  * Производственная программа (ПП) — СВОЙ раздел (уточнение владельца к плану 55,
  * 21.11.2026): план читает весь завод, но «ПП для всех» не должно означать
  * «двигатели и номенклатура для всех». Раздел ПП выдаётся отдельно, и остальные

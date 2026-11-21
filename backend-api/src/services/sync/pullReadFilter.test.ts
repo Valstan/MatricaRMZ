@@ -27,10 +27,16 @@ vi.mock('../../database/db.js', () => {
 
 const { entityTypes, attributeDefs } = await import('../../database/schema.js');
 const { makePullReadFilter, isPullTableAllowedForRole, resetPullReadFilterCache } = await import('./pullReadFilter.js');
+const { getEffectivePermissionsForUser } = await import('../../auth/permissions.js');
+
+vi.mock('../../auth/permissions.js', () => ({
+  getEffectivePermissionsForUser: vi.fn(async () => ({}) as Record<string, boolean>),
+}));
 
 const ATTRS = 'attribute_values';
 const ENTITIES = 'entities';
 const AUDIT = 'audit_log';
+const CHILDREN = 'erp_employee_children';
 
 function seed() {
   state.selectByTable.set(entityTypes, [[{ id: 't-emp' }]]);
@@ -100,6 +106,22 @@ describe('makePullReadFilter — admin', () => {
     expect(f(ATTRS, { attribute_def_id: 'd-birth', entity_id: 'other' })).toBe(true);
     expect(f(AUDIT, { id: 'a1' })).toBe(true);
     expect(f(ATTRS, { attribute_def_id: 'd-pwd', entity_id: 'other' })).toBe(false); // credential
+  });
+});
+
+describe('makePullReadFilter — карточки детей (владелец 21.11.2026)', () => {
+  it('строки детей не едут в реплику тому, у кого нет права children.view', async () => {
+    vi.mocked(getEffectivePermissionsForUser).mockResolvedValue({});
+    const f = await makePullReadFilter({ id: 'self', role: 'engineer' });
+    expect(f(CHILDREN, { id: 'c1' })).toBe(false);
+    // Остальные таблицы детьми не затронуты.
+    expect(f(ENTITIES, { id: 'x' })).toBe(true);
+  });
+
+  it('суперадмину и хозяину модуля строки детей видны', async () => {
+    vi.mocked(getEffectivePermissionsForUser).mockResolvedValue({ 'children.view': true });
+    const f = await makePullReadFilter({ id: 'owner', role: 'supply' });
+    expect(f(CHILDREN, { id: 'c1' })).toBe(true);
   });
 });
 
