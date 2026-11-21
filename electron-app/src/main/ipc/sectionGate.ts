@@ -64,6 +64,13 @@ const PREFIX_RULES: ReadonlyArray<readonly [string, AccessSection]> = [
   ['employees:permissionsGet', 'people'],
   ['employees:sectionMembershipGet', 'people'],
   ['employees:resyncFromServer', 'people'],
+  // Организационный отдел (мероприятия, журнал выдачи) — общий раздел: видят все, кто
+  // работает в программе, ведёт хозяин модуля. Каналов этого модуля в гейте не было
+  // вовсе — данные читались мимо разделов.
+  ['organization:', 'organization'],
+  // Дети — закрытый раздел (владелец 21.11.2026): карточки детей и данные о них
+  // видят только суперадмин и хозяин модуля.
+  ['children:', 'children'],
   // timesheets:* — без гейта по разделу (владелец 13.11.2026): табель доступен всем,
   // кто работает в программе; править свой табель может только автор (гейт на сервере).
   ['reports:', 'reports'],
@@ -253,6 +260,15 @@ const WRITE_CHANNELS = new Set([
   'workshops:upsert',
   'workshops:delete',
   'maintenance:emptyCards:delete',
+  // Детский и организационный модули (владелец 21.11.2026): организационный отдел ведёт
+  // хозяин модуля (editor раздела), «Дети» — он же и суперадмин. Наблюдатель
+  // организационного отдела читает, но править не может.
+  'children:save',
+  'children:remove',
+  'organization:saveEvent',
+  'organization:removeEvent',
+  'organization:saveGift',
+  'organization:removeGift',
 ]);
 
 const TYPE_ARG_CHANNELS = new Set([

@@ -24,6 +24,11 @@
  * synced audit_log — see docs/plans/_archive/h1-table-read-authz-2026-06.md §12). Use
  * isPullTableAllowedForRole at the surface level to skip fetching it entirely.
  *
+ * Детский модуль: карточки детей — персональные данные, и видеть их должен узкий
+ * круг (владелец 21.11.2026): суперадмин и хозяин модуля. Права `children.view` ни одна
+ * роль не даёт, поэтому строки таблицы детей не едут в реплику тем, у кого этого права
+ * нет — то же отношение к персональным данным, что и для `birth_date`/`hire_date`.
+ *
  * Resolution is cheap: an employee attribute's attribute_def_id encodes both the
  * entity type (employee) and the field, so we precompute the def-id sets once
  * (cached) and each per-row check is O(1).
@@ -33,6 +38,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { SyncTableName, isOperatorRole } from '@matricarmz/shared';
 
 import { db } from '../../database/db.js';
+import { getEffectivePermissionsForUser } from '../../auth/permissions.js';
 import { attributeDefs, entityTypes } from '../../database/schema.js';
 import { isHiddenAttributeName } from '../ai/sensitiveFilter.js';
 
@@ -107,8 +113,13 @@ export async function makePullReadFilter(
   const sets = await employeeDefSets();
   const isAdmin = isAdminRole(actor.role);
   const isOperator = isOperatorRole(String(actor.role ?? '').toLowerCase());
+  // Право на детей — поимённое (ни одна роль его не даёт), поэтому спрашиваем
+  // эффективные права актора, а не роль.
+  const effective = await getEffectivePermissionsForUser(String(actor.id ?? ''));
+  const canSeeChildren = effective?.['children.view'] === true;
   return (table, row) => {
     if (!isAdmin && ADMIN_ONLY_PULL_TABLES.has(table)) return false;
+    if (table === SyncTableName.ErpEmployeeChildren && !canSeeChildren) return false;
     if (table !== SyncTableName.AttributeValues) return true;
     const defId = String(row['attribute_def_id'] ?? '');
     if (sets.credential.has(defId)) return false; // credential — drop for everyone

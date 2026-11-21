@@ -75,6 +75,19 @@ describe('operator role presets (RBAC #474)', () => {
   // названные владельцем поимённо (21.11.2026). Право на ведение ни одной роли не
   // даёт — ни операторской, ни admin'у, ни легаси `user`: выдаётся персональным
   // override'ом (см. `defaultPermissionsForRole` в backend).
+  // Организационный отдел видят все, кто работает в программе; «Дети» и данные о детях —
+  // только суперадмин и хозяин модуля (владелец 21.11.2026). Права на детей не даёт ни
+  // одна роль: они выдаются поимённо.
+  it('права на «Детей» не достаётся ни одной роли, а организационный отдел видят все', () => {
+    for (const role of ['engineer', 'technolog', 'master', 'supply', 'storekeeper', 'timekeeper', 'viewer']) {
+      const perms = operatorRolePermissions(role)!;
+      expect(perms[PermissionCode.ChildrenView], role).toBeFalsy();
+      expect(perms[PermissionCode.ChildrenEdit], role).toBeFalsy();
+      expect(perms[PermissionCode.OrganizationView], role).toBe(true);
+      expect(perms[PermissionCode.OrganizationEdit], role).toBeFalsy();
+    }
+  });
+
   it('права на ведение ПП нет ни в одной роли, а право на чтение есть у всех', () => {
     for (const role of ['engineer', 'technolog', 'master', 'supply', 'storekeeper', 'timekeeper', 'viewer']) {
       const perms = operatorRolePermissions(role)!;

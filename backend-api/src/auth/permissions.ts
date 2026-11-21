@@ -58,6 +58,14 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
   // `user`: иначе «только трое» держалось бы ровно до первого нового администратора.
   // Выдаётся персональным override'ом в админке.
   all[PermissionCode.ProductionProgramEdit] = r === 'superadmin';
+  // Дети — данные персональные, и видеть их должен узкий круг (владелец 21.11.2026):
+  // суперадмин и хозяин модуля. Ни одна роль, включая admin и легаси `user`, прав
+  // на детей не получает — выдаётся поимённо.
+  all[PermissionCode.ChildrenView] = r === 'superadmin';
+  all[PermissionCode.ChildrenEdit] = r === 'superadmin';
+  // Организационный отдел видят все, но ведёт его хозяин модуля — роль (даже admin)
+  // права на ведение не даёт.
+  all[PermissionCode.OrganizationEdit] = r === 'superadmin';
   return all;
 }
 

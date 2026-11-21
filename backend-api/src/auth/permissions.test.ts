@@ -54,6 +54,33 @@ describe('defaultPermissionsForRole — права на этапы работ в
   });
 });
 
+// Детский модуль: карточки детей и данные о них видят только суперадмин и хозяин модуля
+// (владелец 21.11.2026). Ни одна роль, включая admin и легаси `user`, права на детей не
+// получает — выдаётся персональным override'ом.
+describe('defaultPermissionsForRole — права на «Детей» выдаются поимённо', () => {
+  it('admin и легаси user не получают права на детей и не ведут организационный отдел', () => {
+    for (const role of ['admin', 'user']) {
+      const perms = defaultPermissionsForRole(role);
+      expect(perms[PermissionCode.ChildrenView], role).toBe(false);
+      expect(perms[PermissionCode.ChildrenEdit], role).toBe(false);
+      expect(perms[PermissionCode.OrganizationEdit], role).toBe(false);
+      // Организационный отдел видят все, кто работает в программе.
+      expect(perms[PermissionCode.OrganizationView], role).toBe(true);
+    }
+  });
+
+  it('суперадмин видит и ведёт оба модуля', () => {
+    const perms = defaultPermissionsForRole('superadmin');
+    expect(perms[PermissionCode.ChildrenView]).toBe(true);
+    expect(perms[PermissionCode.ChildrenEdit]).toBe(true);
+    expect(perms[PermissionCode.OrganizationEdit]).toBe(true);
+  });
+
+  it('роли без доступа к программе прав не получают вовсе', () => {
+    expect(defaultPermissionsForRole('pending')).toEqual({});
+    expect(defaultPermissionsForRole('employee')).toEqual({});
+  });
+});
 // Производственная программа (ПП): план ведут трое, названные владельцем поимённо
 // (21.11.2026). Роль права не даёт даже admin'у и легаси `user` — иначе «только
 // трое» держалось бы ровно до первого нового администратора. Выдаётся персональным
