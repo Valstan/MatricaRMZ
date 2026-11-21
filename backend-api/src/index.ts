@@ -27,6 +27,7 @@ import { startOrganizationSyncPublisher } from './services/sync/childrenSyncPubl
 import { startDictionarySyncPublisher } from './services/sync/dictionarySyncPublisherService.js';
 import { startEngineNumbersReconcile } from './services/engineNumbersService.js';
 import { startAuditStatisticsScheduler } from './services/statisticsAuditService.js';
+import { startForcedUpdateJob } from './services/forcedUpdateService.js';
 import { startCriticalEventsTelegramService } from './services/criticalEventsTelegramService.js';
 import { startCriticalEventsMaxService } from './services/criticalEventsMaxService.js';
 import { ensureMonitoringRoom } from './services/chatMessageService.js';
@@ -148,6 +149,9 @@ async function bootstrap() {
     startDiagnosticsRetentionJob();
     // Цена «с 1-го числа» из приказа — в карточку услуги ночным проходом, без напоминаний.
     startServicePriceSweepJob();
+    // Правило владельца 21.11.2026: машины, отставшие от последнего релиза на
+    // 2+ версии и не перезапускавшиеся, обновляются принудительно в 12:30 МСК.
+    startForcedUpdateJob();
     startAiChatDirectWorker();
     // D-111: мост очереди ИИваныча в Телефон (живая сессия отвечает, пока DeepSeek не оплачен).
     startAiChatHotlineBridge();
