@@ -27,6 +27,7 @@ import { DEFAULT_REPAIR_STAGE_TEMPLATES, repairStageRank, type RepairStageTempla
 import { moscowDayKey } from './workSheetDuplicates.js';
 import { findEmployeeByPositionGroups, formatEmployeeSurnameInitials, type WorkOrderSignatureEmployee } from './workOrderSignatures.js';
 import { HUMAN_LABEL_DASH, humanCellText, looksLikeIdentifier } from './humanLabels.js';
+import { normalizeLookupCompact } from './lookupNormalize.js';
 
 /**
  * Подпись договора для плана: организация + номер договора (как в Word-форме).
@@ -1222,3 +1223,357 @@ export type ProductionProgramSaveDto = {
   status?: string;
   signatureSlots?: string | null;
 };
+
+/**
+ * Слияние серверных строк с локальной правкой.
+ *
+ * Набор строк плана заменяется ЦЕЛИКОМ, а зеркало программ отстаёт на минуту.
+ * Значит, перед любой записью надо взять серверные строки за основу и положить
+ * поверх них нашу правку: иначе запись снимет строку, добавленную другим
+ * оператором минуту назад (её ещё нет в нашей реплике).
+ *
+ * Правила:
+ *  · строка есть и на сервере, и у нас — наша версия (мы её правили);
+ *  · строка только на сервере — чужая, её НЕ трогаем;
+ *  · строка только у нас — наша новая (ещё не уехала на сервер).
+ */
+export function productionProgramMergeRows<T extends { id: string }>(input: {
+  server: readonly T[];
+  local: readonly T[];
+}): T[] {
+  const localById = new Map(input.local.map((row) => [String(row.id), row]));
+  const serverIds = new Set(input.server.map((row) => String(row.id)));
+  const out: T[] = [];
+  for (const row of input.server) {
+    const mine = localById.get(String(row.id));
+    out.push(mine ?? row);
+  }
+  for (const row of input.local) {
+    if (!serverIds.has(String(row.id))) out.push(row);
+  }
+  return out;
+}
+
+// ────────────────────────────────────────────────────────────
+// Блок «Требует данных»: проблемные строки плана и их переезд
+// (промты КАРМАНА #64 + #65, ответы владельца #66 → D-246)
+// ────────────────────────────────────────────────────────────
+
+/**
+ * Подпись группы проблемных строк — словами: сервер не принимает в подписи группы
+ * технический идентификатор (`productionProgramService.ts:344-346`). Это тот самый
+ * «блок без договора» из задания владельца: строки без договора живут внутри
+ * программы, и когда договор появляется, они САМИ уезжают в группу своего договора.
+ */
+export const PRODUCTION_PROGRAM_PENDING_GROUP_LABEL = 'Требует данных';
+
+/** Проблема строки плана — по карточке двигателя. */
+export type ProductionProgramEngineProblemCode =
+  | 'ok'
+  | 'no_card'
+  | 'no_contract'
+  | 'no_customer'
+  | 'no_history'
+  | 'shipped'
+  | 'scrap';
+
+/**
+ * Тексты причин — единый список: по нему мы узнаём СВОЙ служебный текст в
+ * примечании и не затираем примечание, написанное оператором руками.
+ */
+export const PRODUCTION_PROGRAM_ENGINE_PROBLEM_TEXTS: Record<ProductionProgramEngineProblemCode, string> = {
+  ok: 'Годен для плана',
+  no_card: 'Нет карточки в базе',
+  no_contract: 'Нет договора',
+  no_customer: 'Нет контрагента',
+  no_history: 'Нет истории ремонта',
+  shipped: 'Уже отгружен — в план не берём',
+  scrap: 'Утиль — восстановление',
+};
+
+export type ProductionProgramEngineProblem = {
+  code: ProductionProgramEngineProblemCode;
+  /** Причина словами: едет в примечание строки, в печать и в чат. */
+  text: string;
+  /** Проблема мешает строке уехать в группу своего договора. */
+  blocking: boolean;
+  /** Строку взять в план нельзя (двигатель отгружен). */
+  forbidden: boolean;
+};
+
+/**
+ * Причина, по которой двигатель не может встать в план (или встать не может).
+ *
+ * «Нет контрагента» и «нет истории ремонта» — ПРЕДУПРЕЖДЕНИЯ, а не блок: договор у
+ * двигателя есть, значит строка встаёт в группу своего договора (шапка группы
+ * сложится из номера договора), а отсутствие контрагента или этапов оператор
+ * видит в отчёте добавления. Блокируют переезд только «нет карточки» и «нет
+ * договора» — до них строке группы не из чего собрать (ответы владельца #66).
+ */
+export function productionProgramEngineProblem(
+  engine: EngineListItem | null | undefined,
+): ProductionProgramEngineProblem {
+  const text = (code: ProductionProgramEngineProblemCode) =>
+    PRODUCTION_PROGRAM_ENGINE_PROBLEM_TEXTS[code];
+  if (!engine) {
+    return { code: 'no_card', text: text('no_card'), blocking: true, forbidden: false };
+  }
+  const hint = productionProgramEngineHint(engine);
+  if (hint.tone === 'block') {
+    return { code: 'shipped', text: text('shipped'), blocking: true, forbidden: true };
+  }
+  if (engine.isScrap === true) {
+    return { code: 'scrap', text: text('scrap'), blocking: false, forbidden: false };
+  }
+  if (!String(engine.contractId ?? '').trim()) {
+    return { code: 'no_contract', text: text('no_contract'), blocking: true, forbidden: false };
+  }
+  if (!String(engine.customerName ?? '').trim()) {
+    return { code: 'no_customer', text: text('no_customer'), blocking: false, forbidden: false };
+  }
+  if (!(engine.stageCodes ?? []).length) {
+    return { code: 'no_history', text: text('no_history'), blocking: false, forbidden: false };
+  }
+  return { code: 'ok', text: text('ok'), blocking: false, forbidden: false };
+}
+
+/**
+ * Причина, по которой строка ждёт в блоке: у договора не видно номера — шапке
+ * группы не из чего сложиться (номер приходит зеркалом позже карточки).
+ *
+ * Служебный текст: как и остальные причины, он узнаётся по списку и снимается,
+ * когда строка уезжает в группу договора.
+ */
+export const PRODUCTION_PROGRAM_NO_CONTRACT_NUMBER_NOTE = 'Нет номера договора';
+
+/** Примечание строки — наш служебный текст (пусто или одна из причин)? */
+export function productionProgramSystemNote(note: string | null | undefined): boolean {
+  const text = String(note ?? '').trim();
+  if (!text) return true;
+  if (text === PRODUCTION_PROGRAM_NO_CONTRACT_NUMBER_NOTE) return true;
+  return Object.values(PRODUCTION_PROGRAM_ENGINE_PROBLEM_TEXTS).includes(text);
+}
+
+/** Ключ нормализованного номера двигателя — тот же, что у гейта дублей и пакетного приёма. */
+function productionProgramNumberKey(value: string | null | undefined): string {
+  return normalizeLookupCompact(String(value ?? ''));
+}
+
+/** Указатель по карточкам двигателей: по id и по номеру. */
+export type ProductionProgramEngineIndex = {
+  byId: Map<string, EngineListItem>;
+  byNumber: Map<string, EngineListItem[]>;
+};
+
+export function productionProgramEngineIndex(engines: readonly EngineListItem[]): ProductionProgramEngineIndex {
+  const byId = new Map<string, EngineListItem>();
+  const byNumber = new Map<string, EngineListItem[]>();
+  for (const engine of engines ?? []) {
+    const id = String(engine.id);
+    if (id) byId.set(id, engine);
+    const key = productionProgramNumberKey(engine.engineNumber);
+    if (!key) continue;
+    const list = byNumber.get(key);
+    if (list) list.push(engine);
+    else byNumber.set(key, [engine]);
+  }
+  return { byId, byNumber };
+}
+
+export type ProductionProgramEngineMatch = {
+  /** Найденная карточка (null — не нашлась или неоднозначно). */
+  engine: EngineListItem | null;
+  /** Номер совпал с несколькими карточками: выбрать одну молча нельзя. */
+  ambiguous: boolean;
+  /** Сколько карточек совпало. */
+  matches: number;
+};
+
+/**
+ * Карточка по номеру двигателя.
+ *
+ * Номер в базе НЕ уникален (`erp_engine_cards_number_idx` — не уникальный индекс),
+ * поэтому при нескольких совпадениях выбор не делаем: строка остаётся в блоке, а
+ * оператор разбирается сам.
+ */
+export function productionProgramEngineMatch(
+  index: ProductionProgramEngineIndex,
+  number: string | null | undefined,
+): ProductionProgramEngineMatch {
+  const key = productionProgramNumberKey(number);
+  if (!key) return { engine: null, ambiguous: false, matches: 0 };
+  const found = index.byNumber.get(key) ?? [];
+  if (found.length === 0) return { engine: null, ambiguous: false, matches: 0 };
+  if (found.length === 1) return { engine: found[0]!, ambiguous: false, matches: 1 };
+  return { engine: null, ambiguous: true, matches: found.length };
+}
+
+/** Строка плана в том виде, в каком её видит проход перепроверки. */
+export type ProductionProgramPendingRowLike = {
+  id?: string | null;
+  contractId?: string | null;
+  engineId?: string | null;
+  engineNumber?: string | null;
+};
+
+/** Кандидат блока «Требует данных»: строка и её карточка (если нашлась). */
+export type ProductionProgramPendingCandidate = {
+  rowId: string;
+  engine: EngineListItem | null;
+  /** Номер совпал с несколькими карточками — строка остаётся в блоке. */
+  ambiguous: boolean;
+};
+
+/**
+ * Строки блока «Требует данных» и их карточки.
+ *
+ * Нужно клиенту, чтобы знать, у каких договоров читать вид (договор читается с
+ * сервера, а не из реплики) — до того, как проход перепроверки примет решение.
+ */
+export function productionProgramPendingCandidates(
+  rows: readonly ProductionProgramPendingRowLike[],
+  index: ProductionProgramEngineIndex,
+): ProductionProgramPendingCandidate[] {
+  const out: ProductionProgramPendingCandidate[] = [];
+  for (const row of rows ?? []) {
+    if (String(row.contractId ?? '').trim()) continue;
+    const rowId = String(row.id ?? '');
+    const byId = String(row.engineId ?? '').trim();
+    const direct = byId ? index.byId.get(byId) : undefined;
+    if (direct) {
+      out.push({ rowId, engine: direct, ambiguous: false });
+      continue;
+    }
+    const match = productionProgramEngineMatch(index, row.engineNumber);
+    out.push({ rowId, engine: match.engine, ambiguous: match.ambiguous });
+  }
+  return out;
+}
+
+export type ProductionProgramPendingResolution<T> = {
+  /** Строки после прохода: переехавшие — на своих местах, остальные — как были. */
+  rows: T[];
+  /** Что-то изменилось? (запись идёт только при true) */
+  changed: boolean;
+  /** Сколько строк уехало из блока в группу своего договора. */
+  moved: number;
+  /** Сколько строк осталось в блоке. */
+  unresolved: number;
+};
+
+/**
+ * Проход перепроверки блока «Требует данных».
+ *
+ * Строка без договора ищет свою карточку (по id, а если его нет — по номеру) и,
+ * когда у карточки появились договор и контрагент, **уезжает в группу своего
+ * договора**: меняются `contractId` и `groupLabel`, а ключ группы считается из
+ * них — значит, строка меняет группу сама.
+ *
+ * Пишем только при РЕАЛЬНОМ изменении: иначе каждое открытие программы писало бы
+ * в сервер и могло перебить правку оператора (канон #1240).
+ */
+export function productionProgramResolvePendingRows<
+  T extends ProductionProgramLineDraftDto & { id: string },
+>(input: {
+  rows: readonly T[];
+  index: ProductionProgramEngineIndex;
+  /** Подпись группы (организация и номер договора) по карточке. Пусто — договора нет. */
+  contractLabelOf: (engine: EngineListItem) => string;
+  /** Вид договора по его id (из строгой реплики). */
+  contractKindOf?: (contractId: string) => ContractKind | null;
+}): ProductionProgramPendingResolution<T> {
+  const updates = new Map<string, { next: T; moved: boolean }>();
+  let moved = 0;
+  let unresolved = 0;
+
+  for (const row of input.rows ?? []) {
+    if (String(row.contractId ?? '').trim()) continue;
+    const rowId = String(row.id ?? '');
+    const byId = String(row.engineId ?? '').trim();
+    const direct = byId ? input.index.byId.get(byId) : undefined;
+    const match = direct ? { engine: direct, ambiguous: false } : productionProgramEngineMatch(input.index, row.engineNumber);
+    const engine = match.engine;
+    if (!engine) {
+      unresolved += 1;
+      continue;
+    }
+    const problem = productionProgramEngineProblem(engine);
+    const next: T = { ...row };
+    let dirty = false;
+
+    // Карточка нашлась — привязываем её к строке (даже если договора ещё нет:
+    // строка без карточки в блоке — это «номер есть, карточки нет»).
+    if (!byId) {
+      next.engineId = String(engine.id);
+      dirty = true;
+    }
+    if (!String(next.engineMark ?? '').trim() && engine.engineBrand) {
+      next.engineMark = String(engine.engineBrand);
+      dirty = true;
+    }
+    if (!String(next.engineNumber ?? '').trim() && engine.engineNumber) {
+      next.engineNumber = String(engine.engineNumber);
+      dirty = true;
+    }
+
+    const label = problem.blocking ? '' : input.contractLabelOf(engine);
+    // Шапка группы не годится — строка ждёт в блоке (номер договора ещё не доехал).
+    const labelUsable = !!label && !looksLikeIdentifier(label);
+    const canMove = !problem.blocking && labelUsable;
+    if (canMove) {
+      next.contractId = String(engine.contractId);
+      next.groupLabel = label;
+      next.contractKind = input.contractKindOf?.(String(engine.contractId)) ?? engine.kind ?? null;
+      // Причина снята — служебный текст убираем, а примечание оператора не трогаем.
+      if (productionProgramSystemNote(row.note)) next.note = '';
+      moved += 1;
+      dirty = true;
+    } else {
+      unresolved += 1;
+      // Причина в примечании — обновляем, только если там наш служебный текст:
+      // написанное оператором руками не затираем.
+      const note = problem.blocking ? problem.text : PRODUCTION_PROGRAM_NO_CONTRACT_NUMBER_NOTE;
+      if (productionProgramSystemNote(row.note) && row.note !== note) {
+        next.note = note;
+        dirty = true;
+      }
+    }
+    if (dirty) updates.set(rowId, { next, moved: canMove });
+  }
+
+  if (updates.size === 0) {
+    return { rows: [...(input.rows ?? [])], changed: false, moved: 0, unresolved };
+  }
+
+  // Переехавшие строки встают рядом со своей группой — план читается по порядку.
+  const kept: T[] = [];
+  const movedRows: Array<{ row: T; groupKey: string; placed: boolean }> = [];
+  for (const row of input.rows ?? []) {
+    const update = updates.get(String(row.id ?? ''));
+    if (!update) {
+      kept.push(row);
+      continue;
+    }
+    if (update.moved) {
+      movedRows.push({ row: update.next, groupKey: productionProgramGroupKey(update.next), placed: false });
+    } else {
+      kept.push(update.next);
+    }
+  }
+  const out: T[] = [];
+  for (const row of kept) {
+    out.push(row);
+    const key = productionProgramGroupKey(row);
+    for (const m of movedRows) {
+      if (!m.placed && m.groupKey === key) {
+        m.placed = true;
+        out.push(m.row);
+      }
+    }
+  }
+  for (const m of movedRows) {
+    if (!m.placed) out.push(m.row);
+  }
+
+  return { rows: out, changed: true, moved, unresolved };
+}

@@ -5993,6 +5993,7 @@ export function App() {
             engines={engines}
             canEdit={caps.canEditProductionProgram}
             canEditStages={caps.canEditWorkSheets}
+            onOpenEngine={(id: string) => void openEngine(id)}
           />
         )}
         {t === 'work_sheet' && selectedWorkSheetId && (

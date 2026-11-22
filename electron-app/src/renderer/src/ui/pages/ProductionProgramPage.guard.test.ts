@@ -17,6 +17,8 @@ function src(rel: string): string {
 const PAGE = src('./ProductionProgramPage.tsx');
 const PREVIEW = src('../components/ProductionProgramPrintPreview.tsx');
 const PRINT_HTML = src('../utils/productionProgramPrintHtml.ts');
+const ADD_BY_NUMBERS = src('../components/ProductionProgramAddEnginesByNumbersDialog.tsx');
+const APP = src('../App.tsx');
 const CSS = src('../global.css');
 const SHARED_DOMAIN = src('../../../../../../shared/src/domain/productionProgram.ts');
 
@@ -230,7 +232,10 @@ describe('порядок в производственной программе'
 
   it('тон строки — доменное правило по факту из карточки', () => {
     expect(PAGE).toContain('productionProgramRowTone(engine, r.operatorNote)');
-    expect(PAGE).toContain('style={tone.background ? { background: tone.background } : undefined}');
+    // Тон кладётся в фон строки; синий выбор выделения накладывается ПОСЛЕ него
+    // (так же, как в остальных списках программы).
+    expect(PAGE).toContain('...(tone.background ? { background: tone.background } : {}),');
+    expect(PAGE).toContain("...(isSelected ? { background: 'rgba(37, 99, 235, 0.14)' } : {}),");
   });
 
   it('печатная форма остаётся по образцу: шесть колонок, вторая нумерация — на экране', () => {
@@ -321,5 +326,95 @@ describe('колонка «Этап» в производственной про
     // любая правка строки, — иначе счётчики «В срок / Просрочено» стали бы нулём.
     expect(PAGE).toContain('shippingPlanAt: deadline');
     expect(SHARED_DOMAIN).toContain('export function productionProgramExecutionSummary');
+  });
+});
+
+/**
+ * Добавление двигателей списком, блок «Требует данных» с автопереездом, клик в
+ * карточку и контекстное меню (промты КАРМАНА #64 + #65, ответы владельца #66 → D-246).
+ *
+ * Скрепы держат вещи, которые молча ломаются:
+ *  1. разбор номеров — общий с пакетным приёмом (своя грамматика номеров разойдётся);
+ *  2. проблемная строка живёт в блоке «Требует данных» и уезжает в свой договор
+ *     САМА — по смене `contractId`/`groupLabel`, без новых таблиц;
+ *  3. причина проблемы едет в примечание — и в печать (значит, печать не правим);
+ *  4. перепроверка пишет только при реальном изменении — иначе каждое открытие
+ *     программы пишет в сервер и перебивает правку оператора;
+ *  5. добавление списком не сносит строку, добавленную другим оператором.
+ */
+describe('производственная программа — добавление списком и работа со строками', () => {
+  it('разбор номеров — общий с пакетным приёмом, свой парсер не заводим', () => {
+    expect(ADD_BY_NUMBERS).toContain('parseEngineBulkIntake');
+    expect(ADD_BY_NUMBERS).toContain('productionProgramEngineMatch');
+  });
+
+  it('по каждому номеру видна проблема, у строки есть галочка, кнопка — одна внизу', () => {
+    expect(ADD_BY_NUMBERS).toContain('productionProgramEngineProblem');
+    expect(ADD_BY_NUMBERS).toContain('type="checkbox"');
+    expect(ADD_BY_NUMBERS).toContain('Добавить в производственную программу');
+    // Причина видна рядом с номером, а не в тексте ошибки.
+    expect(ADD_BY_NUMBERS).toContain('row.reason');
+  });
+
+  it('проблемная строка живёт в блоке «Требует данных», причина — в примечании', () => {
+    expect(ADD_BY_NUMBERS).toContain('PRODUCTION_PROGRAM_PENDING_GROUP_LABEL');
+    expect(ADD_BY_NUMBERS).toContain('note: row.reason');
+    expect(SHARED_DOMAIN).toContain("export const PRODUCTION_PROGRAM_PENDING_GROUP_LABEL = 'Требует данных';");
+    // Никаких новых таблиц и атрибутов: временный блок = существующая группа.
+    expect(SHARED_DOMAIN).not.toContain('production_program_pending');
+  });
+
+  it('переезд — смена договора и подписи группы, ключ группы считается из них', () => {
+    expect(SHARED_DOMAIN).toContain('export function productionProgramResolvePendingRows');
+    expect(SHARED_DOMAIN).toContain('next.contractId = String(engine.contractId);');
+    expect(SHARED_DOMAIN).toContain('next.groupLabel = label;');
+    expect(SHARED_DOMAIN).toContain('export function productionProgramGroupKey');
+  });
+
+  it('перепроверка — и при открытии программы, и кнопкой, и только при реальном изменении', () => {
+    expect(PAGE).toContain('recheckPending');
+    expect(PAGE).toContain('data-pp-action="recheck"');
+    expect(PAGE).toContain('void recheckPending();');
+    // Запись — только через applyRows (одна дверь) и только при изменении.
+    expect(PAGE).toContain('if (!result.changed) {');
+    expect(PAGE).toContain('applyRows(() => result.rows, programId);');
+  });
+
+  it('добавление списком мержит серверные строки — чужую строку не сносим', () => {
+    expect(PAGE).toContain('productionProgramMergeRows');
+    expect(SHARED_DOMAIN).toContain('export function productionProgramMergeRows');
+    // Модалка читает строки плана с сервера: реплика отстаёт на минуту.
+    expect(ADD_BY_NUMBERS).toContain('window.matrica.productionProgram.get(props.programId)');
+  });
+
+  it('клик по двигателю открывает карточку', () => {
+    expect(PAGE).toContain('onOpenEngine');
+    expect(PAGE).toContain('data-pp-open-engine');
+    expect(APP).toContain('onOpenEngine={(id: string) => void openEngine(id)}');
+  });
+
+  it('выделение строк и контекстное меню: печать, копия, почта', () => {
+    expect(PAGE).toContain('useListSelection');
+    expect(PAGE).toContain("persistKey: 'list:production-program:selection'");
+    // Без маркера корня клик по таблице гасит выделение.
+    expect(PAGE).toContain('data-list-root="true"');
+    expect(PAGE).toContain('ListContextMenu');
+    expect(PAGE).toContain('Распечатать выделенные');
+    expect(PAGE).toContain('Скопировать выделенные');
+    expect(PAGE).toContain('Отправить почтой');
+  });
+
+  it('строка без шапки группы на сервер не уходит — она ждёт в блоке', () => {
+    // Сервер отвергает весь набор строк, если шапка группы пустая (замена набора
+    // полная) — значит, пустая подпись уехать не должна никогда.
+    expect(ADD_BY_NUMBERS).toContain('PRODUCTION_PROGRAM_NO_CONTRACT_NUMBER_NOTE');
+    expect(ADD_BY_NUMBERS).toContain('contractLabelOf');
+    // Подпись группы — от страницы: её снимок в модалке отставал от страницы.
+    expect(PAGE).toContain('contractLabelOf={(engine) => contractLabelById.get(String(engine.contractId ?? \'\')) ?? \'\'}');
+  });
+
+  it('состав плана меняется только по праву ведения плана', () => {
+    expect(PAGE).toContain('Убрать из программы');
+    expect(PAGE).toContain('props.canEdit ? 10 : 9');
   });
 });
