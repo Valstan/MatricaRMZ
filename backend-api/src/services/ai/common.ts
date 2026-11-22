@@ -17,8 +17,15 @@ export type AiProfile = 'fast' | 'balanced' | 'quality';
 // `deepseek-v4-flash` — устаревший алиас, который ещё мапится на тот же flash, но
 // завтра может исчезнуть, поэтому его мы только принимаем и сводим на каноническое.
 const MODEL_FLASH = 'deepseek-flash';
+/**
+ * Модель воркера MiniMax на проде (промт КАРМАНА #56): ею зовут локальный движок,
+ * когда `MATRICA_AI_PROVIDER=minimax`. Без неё в белом списке фильтр env молча свел бы
+ * запрос на flash — то есть воркер не позвали бы вовсе, и цепочка звеньев (D-243)
+ * работала бы только на платном.
+ */
+const MODEL_MINIMAX_WORKER = 'minimax-m3.1-flash';
 /** Модели, которыми движок вправе звать провайдера. Всё, чего здесь нет, — не наша. */
-const ALLOWED_MODELS = new Set<string>([MODEL_FLASH]);
+const ALLOWED_MODELS = new Set<string>([MODEL_FLASH, MODEL_MINIMAX_WORKER]);
 /** Старое имя той же модели: принимаем, но зовём каноническое. */
 const MODEL_ALIASES = new Map<string, string>([['deepseek-v4-flash', MODEL_FLASH]]);
 

@@ -245,7 +245,7 @@ async function finish(
     answerFilesJson?: string | null;
     escalationNote?: string | null;
     /** Звено, посчитавшее ответ; null/не задано — ответа не было (эскалация). */
-    answerSource?: 'deepseek' | null;
+    answerSource?: 'engine' | 'deepseek' | null;
   },
 ) {
   const ts = nowMs();
@@ -343,7 +343,9 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
 
   const side: IivanychAnswerSide = { escalationReason: null, tables: [], fullToolsEnabled: false };
 
-  // Единственное звено: DeepSeek напрямую.
+  // Цепочка звеньев (D-243): MiniMax на продсервере — рабочее звено, платный DeepSeek —
+  // последний (fail-open, как в «Сарафане»). Контракт ИИваныча, очередь и воркер при
+  // этом не меняются: правка только в транспорте (`llmProvider.ts`).
   //
   // Контур A (движок opencode на проде) снят 06.11.2026 по решению владельца: счёт
   // DeepSeek оплачен, и движок стал лишним звеном — он не давал ничего, чего не умеет
@@ -383,11 +385,17 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
     return;
   }
 
+  // Какое звено посчитало ответ: воркер MiniMax (`engine`) или платный страхователь
+  // (`deepseek`). Значение видно оператору в окне чата — по нему видно, что контур
+  // ушёл в платного, а не «молча сломался».
+  const answerSource = result.answerSource ?? 'deepseek';
+  const answerSourceLabel = answerSource === 'engine' ? 'MiniMax-воркер' : 'DeepSeek';
+
   const answerText = result.text.trim();
   if (!answerText) {
     await finish(row, actor, {
       status: 'escalated',
-      escalationNote: 'DeepSeek вернул пустой ответ (исчерпаны шаги или лимит токенов).',
+      escalationNote: `${answerSourceLabel} вернул пустой ответ (исчерпаны шаги или лимит токенов).`,
     });
     // Имена вызванных tools показывают, на чём именно закольцевался ответ.
     logError('ai chat direct: empty answer', {
@@ -428,12 +436,12 @@ async function answerOne(row: any, actor: AiChatActor): Promise<void> {
     answerText,
     answerFilesJson: attachRefs.length > 0 ? JSON.stringify(attachRefs) : null,
     // Источник ответа виден оператору в окне чата (не только в логе прода, где
-    // INFO не пишется вовсе): единственное звено — DeepSeek.
-    answerSource: 'deepseek',
+    // INFO не пишется вовсе): воркер MiniMax или платный DeepSeek.
+    answerSource,
   });
   logInfo('ai chat direct: answered', {
     id: requestId,
-    source: 'deepseek',
+    source: answerSource,
     steps: result.steps,
     tools: result.toolUses.length,
     // Имена вызванных инструментов: без них по журналу видно только ЧИСЛО вызовов,
