@@ -183,7 +183,14 @@ def main() -> int:
         return 0
 
     existing = HOSTS_PATH.read_text(encoding="utf-8").splitlines() if HOSTS_PATH.exists() else []
-    HOSTS_PATH.write_text(merge_hosts_file(existing, lines), encoding="utf-8")
+    content = merge_hosts_file(existing, lines)
+    # Замена атомарная: пишем во временный файл рядом и переименовываем. Прямая запись
+    # обрезает /etc/hosts на старте — и падение процесса посреди записи (а бокс у нас
+    # 1536 МБ без swap, OOM-killer не выдумка) оставило бы файл ПУСТЫМ, то есть
+    # сломанным DNS для всего бокса, а не только для MiniMax.
+    tmp = HOSTS_PATH.with_name(HOSTS_PATH.name + ".minimax-pin.tmp")
+    tmp.write_text(content, encoding="utf-8")
+    os.replace(tmp, HOSTS_PATH)
     print("записано в %s: %d строк" % (HOSTS_PATH, len(lines)))
     return 0
 
