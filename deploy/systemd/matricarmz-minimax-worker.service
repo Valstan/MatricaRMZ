@@ -16,6 +16,9 @@ WorkingDirectory=__MATRICA_REPO_DIR__/backend-api
 EnvironmentFile=/etc/matricarmz/matricarmz.env
 Environment=HOST=127.0.0.1
 Environment=MATRICA_MINIMAX_WORKER_PORT=3010
+# MiniMax Code CLI стоит в пользовательском префиксе (`npm i -g --prefix ~/.local`),
+# а системный сервис его в PATH не видит — без этой строки `mcode` не найдётся.
+Environment=PATH=/home/__MATRICA_USER__/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # Роль `worker`: фоновые джобы бэкенда этот юнит НЕ поднимает. Иначе вторая
 # обработка очереди ИИваныча — тот же вопрос получит два ответа (services/instanceRole.ts).
 Environment=MATRICA_INSTANCE_ROLE=worker
