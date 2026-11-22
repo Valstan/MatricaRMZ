@@ -105,10 +105,13 @@ CLI, запускает `mcode exec` и отдаёт ответ в Anthropic-с�
 
 ## 4. Что осталось за владельцем (прод без слов владельца не трогаем)
 
-1. **Токен пула в комнате.** В комнате `matricarmz` положить ключ **`KARMAN_MINIMAX_TOKEN`** — токен комнаты
-   Кармана **с правом записи** (`skm_…`). Рантайм читает комнату сам (`services/karmanVaultClient.ts`,
-   кэш 5 минут) — переписывать `/etc/matricarmz/matricarmz.env` **не нужно**, и пишущий токен на бокс
-   не кладём (в env остаётся только read-only `SECRETS_TOKEN`). Это и есть сервисный грант.
+1. ~~**Токен пула в комнате.**~~ **Сделано 22.11.2026:** заведена служебная комната
+   **`matricarmz-minimax`** (имя «MatricaRMZ» → расход пула идёт в тот же проект учёта), её rw-токен
+   положен в комнату `matricarmz` под ключом **`KARMAN_MINIMAX_TOKEN`**. Бокс читает его своим
+   **read-only** токеном — право записи в свою комнату бокс по-прежнему **не** получает.
+   Приёмка вживую с бокса: ключ читается; `self` → `slug=matricarmz-minimax`, `canWrite=true`;
+   `POST /api/minimax/renew` с несуществующим `account_id` → **404** (пуль токен принял, аккаунт не
+   израсходован). Подробности — [`docs/OPERATIONS.md`](OPERATIONS.md) §8а.
 2. **Установить юнит на проде** (после выката кода с этим PR):
    `bash deploy/systemd/install-backend.sh` → `sudo systemctl enable --now matricarmz-minimax-worker.service`.
 3. **MiniMax Code на боксе:** CLI (`MINIMAX_CLI`), каталог профилей `MINIMAX_ACCOUNTS_DIR`
