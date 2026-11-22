@@ -12,7 +12,7 @@
 |---|---|
 | 0. `/opt/minimax-accounts` | создан, `valstan:valstan` (юнит работает от `valstan`) |
 | 1. свежая выкладка `dist` | run `45024134590` на `410a5940`; primary и secondary — по 6 с; nginx `{"ok":true,"version":"3.141.0"}`; откат — `.deploy-backup/20261122-190616`; **ворота #1904 в `dist` есть** (`createAgentGate`, `agentsActive` в ответе `/health`) |
-| 2. DNS-пин MiniMax | 5 строк в `/etc/hosts` (`agent/account/platform/api/www.minimax.io`) |
+| 2. DNS-пин MiniMax | 5 строк в `/etc/hosts` (`agent/account/platform/api/www.minimax.io`); **баг пина исправлен** (PR #1912–#1914): прежняя версия оставляла старые адреса над свежими, и резолв шёл по мёртвым — на проде проверено 23:00:32, в файле один блок, `getent` отдаёт закреплённый адрес, `curl` к api/agent → rc=0 |
 | 3. юниты | `matricarmz-minimax-{worker.service,dns-pin.service,dns-pin.timer}` установлены и `enable --now`; таймер пина — следующий прогон в 20:00 МСК |
 | 4. включение звена | **включали и сразу откатили** — нашли дефект fail-open (ниже); после фикса включили снова, приёмка пройдена |
 
