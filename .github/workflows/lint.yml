@@ -70,3 +70,11 @@ jobs:
       # а снятый ядром процесс показан в отчёте и не выдаётся за успех.
       - name: MiniMax worker RAM measurement smoke test
         run: bash scripts/prod-ops/measure-minimax-worker-ram.test.sh
+
+      # Пин адресов MiniMax в /etc/hosts: скрипт пишет в системный файл на боксе, и его
+      # ошибка выглядит как «агент не доходит до MiniMax» — без сообщения об ошибке.
+      # Прежняя версия выкидывала только заголовок своей секции, но не её строки: каждый
+      # прогон таймера оставлял старые адреса НАД свежими, и резолв начинался с мёртвых.
+      # Смоук держит идемпотентность (один блок после many прогонов) и сохранность чужих строк.
+      - name: MiniMax DNS pin script smoke test
+        run: bash scripts/prod-ops/minimax-dns-pin.test.sh

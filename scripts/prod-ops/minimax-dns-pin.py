@@ -29,11 +29,12 @@
 from __future__ import annotations
 
 import argparse
+import os
 import socket
 import struct
 import sys
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 HOSTS = (
     "agent.minimax.io",
@@ -43,7 +44,10 @@ HOSTS = (
     "www.minimax.io",
 )
 RESOLVERS = ("1.1.1.1", "9.9.9.9", "8.8.8.8")
-HOSTS_PATH = Path("/etc/hosts")
+# Путь к файлу hosts — переопределяется только для приёмки (тест гоняет на фикстуре).
+HOSTS_PATH = Path(os.environ.get("MATRICA_MINIMAX_PIN_HOSTS") or "/etc/hosts")
+# Фикстура адресов "host=ip,host=ip" — пропускает сетевую часть (приёмка без сети).
+ADDRESSES_FIXTURE = os.environ.get("MATRICA_MINIMAX_PIN_FIXTURE") or ""
 MARK = "# minimax-pin (обновляется скриптом minimax-dns-pin.py)"
 
 
@@ -108,30 +112,109 @@ def pick(host: str) -> str:
     return ""
 
 
+def pick_from_fixture(raw: str) -> Dict[str, str]:
+    """Адреса из фикстуры "host=ip,host=ip" — сетевой части нет (приёмка)."""
+    out: Dict[str, str] = {}
+    for chunk in raw.split(","):
+        chunk = chunk.strip()
+        if not chunk or "=" not in chunk:
+            continue
+        host, _, addr = chunk.partition("=")
+        host = host.strip()
+        addr = addr.strip()
+        if host in HOSTS and addr:
+            out[host] = addr
+    return out
+
+
+def render_section(addresses: Dict[str, str]) -> List[str]:
+    """Строки секции пина: по одной на хост, в порядке HOSTS."""
+    lines: List[str] = []
+    for host in HOSTS:
+        addr = addresses.get(host, "")
+        if addr:
+            lines.append("%s %s" % (addr, host))
+        else:
+            print("%-22s -> рабочего адреса не нашлось" % host, file=sys.stderr)
+    return lines
+
+
+def previous_addresses(existing: List[str]) -> Dict[str, str]:
+    """Адреса из прошлой секции пина (по каждому хосту — последний в файле).
+
+    Нужны как запасной вариант: если проба сегодня не нашла живого адреса, прошлый
+    может ещё работать, а DNS-адрес — заведомо мёртвый (ради него пин и нужен).
+    """
+    prev: Dict[str, str] = {}
+    for ln in existing:
+        parts = ln.split()
+        if len(parts) == 2 and parts[1] in HOSTS:
+            prev[parts[1]] = parts[0]
+    return prev
+
+
+def merge_hosts_file(existing: List[str], section: List[str]) -> str:
+    """Собирает новый файл hosts: чужие строки как есть, секция пина — одна и последняя.
+
+    ⚠️ Раньше выкидался только заголовок секции, а её строки — нет. Каждый прогон
+    оставлял свои 5 адресов НАД свежими, и резолв (getaddrinfo отдаёт адреса в порядке
+    файла) начинался со старых, уже мёртвых: Node пробует IPv4-адреса по порядку, и
+    мёртвый первый съедал весь таймаут агента (120 с) при живом аккаунте пула.
+    Теперь выкидываются все строки наших хостов — и прошлые блоки, и текущий.
+    """
+    kept: List[str] = []
+    for ln in existing:
+        if MARK in ln:
+            continue
+        parts = ln.split()
+        if len(parts) == 2 and parts[1] in HOSTS:
+            continue
+        kept.append(ln)
+    body = "\n".join(kept).rstrip("\n")
+    head = f"{body}\n" if body else ""
+    return head + MARK + "\n" + "\n".join(section) + "\n"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Пин адресов MiniMax в /etc/hosts")
     ap.add_argument("--check", action="store_true", help="только проверить, ничего не писать")
     args = ap.parse_args()
 
-    lines: List[str] = []
+    if ADDRESSES_FIXTURE:
+        addresses = pick_from_fixture(ADDRESSES_FIXTURE)
+    else:
+        addresses = {host: pick(host) for host in HOSTS}
     for host in HOSTS:
-        addr = pick(host)
+        addr = addresses.get(host, "")
         if addr:
-            lines.append("%s %s" % (addr, host))
             print("%-22s -> %s" % (host, addr))
-        else:
-            print("%-22s -> рабочего адреса не нашлось" % host, file=sys.stderr)
+
+    lines = render_section(addresses)
     if not lines:
         return 1
 
     if args.check:
         return 0
 
-    current = [ln for ln in HOSTS_PATH.read_text(encoding="utf-8").splitlines() if MARK not in ln]
-    HOSTS_PATH.write_text(
-        "\n".join(current).rstrip("\n") + "\n" + MARK + "\n" + "\n".join(lines) + "\n",
-        encoding="utf-8",
-    )
+    existing = HOSTS_PATH.read_text(encoding="utf-8").splitlines() if HOSTS_PATH.exists() else []
+    # Хост, для которого сегодня не нашлось живого адреса, оставляем на прошлом:
+    # DNS-адрес для этих хостов заведомо мёртвый (ради этого пин и нужен), а прошлый
+    # пин ещё может работать. Иначе частичный успех пробы выкинул бы хост из файла.
+    prev = previous_addresses(existing)
+    final = dict(addresses)
+    for host in HOSTS:
+        if host not in final and host in prev:
+            final[host] = prev[host]
+            print("%-22s -> %s (прошлый: живого сегодня не нашлось)" % (host, prev[host]))
+    lines = render_section(final)
+    content = merge_hosts_file(existing, lines)
+    # Замена атомарная: пишем во временный файл рядом и переименовываем. Прямая запись
+    # обрезает /etc/hosts на старте — и падение процесса посреди записи (а бокс у нас
+    # 1536 МБ без swap, OOM-killer не выдумка) оставило бы файл ПУСТЫМ, то есть
+    # сломанным DNS для всего бокса, а не только для MiniMax.
+    tmp = HOSTS_PATH.with_name(HOSTS_PATH.name + ".minimax-pin.tmp")
+    tmp.write_text(content, encoding="utf-8")
+    os.replace(tmp, HOSTS_PATH)
     print("записано в %s: %d строк" % (HOSTS_PATH, len(lines)))
     return 0
 
