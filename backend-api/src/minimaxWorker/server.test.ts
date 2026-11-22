@@ -159,6 +159,94 @@ describe('POST /v1/messages', () => {
   });
 });
 
+describe('аренда аккаунта', () => {
+  it('аккаунт берётся один и переиспользуется — пул не сгорает на каждый вопрос', async () => {
+    let calls = 0;
+    const { app } = createWorkerApp(
+      config,
+      deps({
+        takeAccount: async () => {
+          calls += 1;
+          return {
+            account: { id: 7, email: 'pool@example.com' },
+            access_token: 'access-1',
+            expires_at_ms: 9_999_999_999_999,
+          };
+        },
+      }),
+    );
+    for (let i = 0; i < 2; i += 1) {
+      const res = await request(app)
+        .post('/v1/messages')
+        .set('Authorization', 'Bearer worker-token')
+        .send(MESSAGES);
+      expect(res.status).toBe(200);
+    }
+    expect(calls).toBe(1);
+  });
+
+  it('протухший вход: аккаунт выбрасывается, берётся следующий, запрос повторяется', async () => {
+    const taken: number[] = [];
+    let attempt = 0;
+    const { app } = createWorkerApp(
+      config,
+      deps({
+        takeAccount: async () => {
+          const id = taken.length + 1;
+          taken.push(id);
+          return {
+            account: { id, email: 'pool@example.com' },
+            access_token: `access-${id}`,
+            expires_at_ms: 9_999_999_999_999,
+          };
+        },
+        runAgent: (async () => {
+          attempt += 1;
+          if (attempt === 1) {
+            return { ok: false, reason: 'agent_failed', detail: '401 unauthorized', payload: null };
+          }
+          return { ok: true, text: '{"text":"ответ"}', payload: { status: 'succeeded' } };
+        }) as unknown as WorkerDeps['runAgent'],
+      }),
+    );
+    const res = await request(app)
+      .post('/v1/messages')
+      .set('Authorization', 'Bearer worker-token')
+      .send(MESSAGES);
+    expect(res.status).toBe(200);
+    expect(taken).toEqual([1, 2]);
+  });
+
+  it('вход скоро истечёт — цепочка продлевается тем же аккаунтом, новый не берётся', async () => {
+    const renewed: number[] = [];
+    let takes = 0;
+    const { app } = createWorkerApp(
+      config,
+      deps({
+        takeAccount: async () => {
+          takes += 1;
+          return {
+            account: { id: 5, email: 'pool@example.com' },
+            access_token: 'old-token',
+            expires_at_ms: Date.now() + 60_000,
+          };
+        },
+        renewAccount: async (_options, accountId) => {
+          renewed.push(accountId);
+          return { access_token: 'new-token', expires_at_ms: Date.now() + 3_600_000, renewed: true };
+        },
+      }),
+    );
+    const res = await request(app)
+      .post('/v1/messages')
+      .set('Authorization', 'Bearer worker-token')
+      .send(MESSAGES);
+    expect(res.status).toBe(200);
+    expect(renewed).toEqual([5]);
+    expect(takes).toBe(1);
+  });
+});
+
 describe('GET /health', () => {
   it('отвечает без токена и показывает состояние пула', async () => {
     const { app } = createWorkerApp(config, deps());
