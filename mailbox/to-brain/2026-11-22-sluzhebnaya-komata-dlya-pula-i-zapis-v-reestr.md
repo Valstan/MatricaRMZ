@@ -6,6 +6,7 @@ kind: directive
 compliance: should
 urgency: normal
 topic: "Служебная комната matricarmz-minimax под пул MiniMax: внесите её в реестр access/INDEX.md §2.2"
+ref: 2026-11-21-local-minimax-access-automated
 ---
 
 # Служебная комната под пул MiniMax — нужна запись в реестре (и уточнение граблей гранта)

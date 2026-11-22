@@ -139,6 +139,57 @@ describe('callLlmWithTools', () => {
   });
 });
 
+describe('fail-open на платного страхователя', () => {
+  /** Отказ воркера, который fail-open обязан перехватить (503 — не 400/401/403). */
+  const workerDown = () => Object.assign(new Error('503 pool_empty'), { status: 503 });
+
+  it('в пути ИИваныча страхователь получает СВОЁ имя модели, а не имя воркера', async () => {
+    process.env.MATRICA_AI_PROVIDER = 'minimax';
+    create
+      .mockRejectedValueOnce(workerDown())
+      .mockResolvedValueOnce(textResponse('Ответ платного страхователя.'));
+
+    const result = await callLlmWithTools({
+      model: 'deepseek-flash',
+      systemBlocks: [{ type: 'text', text: 'system' }],
+      userMessage: 'вопрос',
+      tools: [],
+      maxSteps: 1,
+      executeTool: async () => ({ content: 'ok' }),
+    });
+
+    expect(result.text).toBe('Ответ платного страхователя.');
+    expect(result.answerSource).toBe('deepseek');
+    const workerCall = create.mock.calls[0]?.[0] as { model: string };
+    const failoverCall = create.mock.calls[1]?.[0] as { model: string };
+    expect(workerCall.model).toBe('minimax-m3.1-flash');
+    // Имя модели — свойство звена: DeepSeek со именем воркера отвечает 400 и страховка
+    // не срабатывает (проверено на проде 22.11.2026).
+    expect(failoverCall.model).toBe('deepseek-flash');
+  });
+
+  it('в простом вызове страхователь тоже получает своё имя модели', async () => {
+    process.env.MATRICA_AI_PROVIDER = 'minimax';
+    create.mockRejectedValueOnce(workerDown()).mockResolvedValueOnce(textResponse('Ответ страхователя.'));
+
+    const text = await callLlm({ model: 'deepseek-flash', system: 'system', user: 'user' });
+
+    expect(text).toBe('Ответ страхователя.');
+    const failoverCall = create.mock.calls[1]?.[0] as { model: string };
+    expect(failoverCall.model).toBe('deepseek-flash');
+  });
+
+  it('400 от воркера откатом не считается — это наша ошибка, а не отказ звена', async () => {
+    process.env.MATRICA_AI_PROVIDER = 'minimax';
+    create.mockRejectedValueOnce(Object.assign(new Error('400 bad request'), { status: 400 }));
+
+    await expect(
+      callLlm({ model: 'deepseek-flash', system: 'system', user: 'user' }),
+    ).rejects.toThrow(/400 bad request/);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('callLlmJson', () => {
   const JSON_ARGS = {
     model: 'deepseek-flash',
