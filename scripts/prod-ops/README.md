@@ -72,6 +72,21 @@ TAG=v3.140.0 bash scripts/prod-ops/fetch-client-artifacts.sh --verify-only    # 
 - `mv` — только в пределах одной ФС (атомарно, пересканирование манифеста не увидит полузалитый файл, ловушка M40), свежие файлы помечаются `touch` (чистка выбирает оставляемый .exe по времени файла, M194 + M196).
 - Приёмка — `fetch-client-artifacts.test.sh` (18 проверок, без сети: `curl` подменён фикстурой). Гоняется в CI (job `prod-ops-backup`).
 
+## Замер пика памяти агента MiniMax Code (`measure-minimax-worker-ram.sh`)
+
+Агент MiniMax Code живёт десятки секунд внутри одного запроса к воркеру, и поймать его RSS «глазами» нельзя: окно закрывается между командами. Скрипт делает всё на боксе одним запуском — снимает RSS во время запроса, печатает пик по агенту и по воркеру и смотрит, снимал ли кто-то процесс (`dmesg`).
+
+```bash
+cd ~/MatricaRMZ
+bash scripts/prod-ops/measure-minimax-worker-ram.sh --dry-run   # проверить окружение, не тратя аккаунт
+bash scripts/prod-ops/measure-minimax-worker-ram.sh               # замер: живой запрос к воркеру
+```
+
+- **Бокс — 1536 МБ без swap:** два агента разом = OOM-killer снимает крупнейший процесс. Поэтому замер не «для галочки», а приёмка ворот «один агент за раз» (#1904).
+- **Живой запрос может взять аккаунт из пула** (у Кармана выдача = погашение) ⇒ `--dry-run` ничего не отправляет.
+- Коды возврата: `0` — агент ответил, пик измерен; `2` — пул пуст (мерить нечего); `3` — воркер ответил не 200 **или** ядро сняло процесс (тогда это не «успех», а провал замера).
+- Приёмка — `measure-minimax-worker-ram.test.sh` (12 проверок, без сети: шимы `ps`/`curl`/`sleep`/`dmesg`). Гоняется в CI (job `prod-ops-backup`); локально — на машине с bash и `ps` (в WSL2 тоже работает).
+
 ## Перенос вложений на Я.Диск (`files:offload-to-yandex`)
 
 С D-073 хранилище вложений — Я.Диск, бокс — кэш: загрузка кладёт копию в `uploads/local` и сразу на Яндекс, сборщик в backend снимает копии, к которым не обращались дольше `MATRICA_LOCAL_CACHE_TTL_DAYS` (3), после подтверждения копии на Яндексе. Строка остаётся `local` (единственная копия на боксе) только если Яндекс не ответил при загрузке — такие и все дожившие с прежних времён переносит этот скрипт:
@@ -186,6 +201,10 @@ python3 -c "import json;print(json.load(open('$MATRICA_LEDGER_DIR/index.json'))[
 | `MATRICA_AUTH_WINDOW_MIN` | watch-auth | окно анализа (default 5 мин) |
 | `MATRICA_AUTH_THRESHOLD` | watch-auth | порог 401/403 на IP в окне (default 10) |
 | `MATRICA_AUTH_COOLDOWN_MIN` | watch-auth | минут между повторными алертами по тому же IP (default 60) |
+| `MATRICA_MINIMAX_WORKER_URL` | measure-ram | адрес воркера (default `http://127.0.0.1:3010/v1/messages`) |
+| `MATRICA_MINIMAX_WORKER_TOKEN` | measure-ram | токен воркера (default `minimax-worker-local` — тот же дефолт, что у юнита и у бэкенда) |
+| `MATRICA_MINIMAX_MEASURE_TIMEOUT` | measure-ram | сколько ждать ответ агента (default 180 с) |
+| `MATRICA_MINIMAX_MEASURE_DIR` | measure-ram | куда класть сэмплы и ответ (default `/tmp`) |
 
 ## Логи
 

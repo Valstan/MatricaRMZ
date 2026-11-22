@@ -63,3 +63,10 @@ jobs:
       # цифрам релиза и то, что в прод уходит только согласованная тройка.
       - name: Client artifacts fetch script smoke test
         run: bash scripts/prod-ops/fetch-client-artifacts.test.sh
+
+      # Замер пика памяти агента MiniMax Code: бокс 1536 МБ без swap, и два агента разом =
+      # OOM-killer снимает крупнейший процесс. Смоук держит три исхода, которые нельзя
+      # перепутать: замер посчитан по сэмплам, пустой пул отличается от ответа агента,
+      # а снятый ядром процесс показан в отчёте и не выдаётся за успех.
+      - name: MiniMax worker RAM measurement smoke test
+        run: bash scripts/prod-ops/measure-minimax-worker-ram.test.sh
