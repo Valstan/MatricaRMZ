@@ -68,6 +68,7 @@ export function CardActionBar(props: CardActionBarProps) {
     <div
       ref={barRef}
       className="card-action-bar"
+      data-card-action-bar="1"
       style={{
         position: 'sticky',
         top: 0,
@@ -76,23 +77,20 @@ export function CardActionBar(props: CardActionBarProps) {
         padding: '6px 0',
       }}
     >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          width: '100%',
-          gap: 6,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 8, flex: '0 0 auto' }}>
+      <div className="card-action-bar__row">
+        <div className="card-action-bar__group card-action-bar__group--left">
           {props.cardLabel && (
-            <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--text)', whiteSpace: 'nowrap', marginRight: 6 }}>
+            <span
+              className="card-action-bar__label"
+              style={{ fontSize: 18, fontWeight: 800, color: 'var(--text)', whiteSpace: 'nowrap', marginRight: 6 }}
+            >
               {props.cardLabel}
             </span>
           )}
           {props.canEdit && props.onCopyToNew && (
             <Button variant="ghost" title="Создать новую карточку с этими же данными" onClick={props.onCopyToNew}>
-              Скопировать в новую карточку
+              <span className="card-action-bar__label-full">Скопировать в новую карточку</span>
+              <span className="card-action-bar__label-short">Скопировать</span>
             </Button>
           )}
           {props.canEdit && props.onSave && (
@@ -107,18 +105,15 @@ export function CardActionBar(props: CardActionBarProps) {
           )}
           {props.canEdit && props.onSaveAsDraft && (
             <Button variant="ghost" title="Отложить как черновик — без проведения в документооборот; найти можно в разделе «Черновики»" onClick={props.onSaveAsDraft}>
-              Сохранить как черновик
+              <span className="card-action-bar__label-full">Сохранить как черновик</span>
+              <span className="card-action-bar__label-short">В черновик</span>
             </Button>
           )}
           {props.extraActionsLeft}
         </div>
         <div
+          className="card-action-bar__group card-action-bar__group--center"
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 6,
-            flex: 1,
             flexWrap: props.centerNoWrap ? 'nowrap' : 'wrap',
             overflowX: props.centerNoWrap ? 'auto' : undefined,
             minWidth: props.centerNoWrap ? 0 : undefined,
@@ -137,14 +132,22 @@ export function CardActionBar(props: CardActionBarProps) {
           )}
           {props.onClose && (
             <Button variant="ghost" tone="neutral" title="Закрыть с выбором сохранения изменений" onClick={props.onClose}>
-              Закрыть карточку
+              <span className="card-action-bar__label-full">Закрыть карточку</span>
+              <span className="card-action-bar__label-short">Закрыть</span>
             </Button>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, flex: 1 }}>
+        <div className="card-action-bar__group card-action-bar__group--right">
           {props.canEdit && props.onDelete && (
             <Button variant="ghost" tone="danger" title="Удалить карточку" onClick={() => void handleDeleteClick()}>
-              {props.deleteLabel || 'Удалить карточку'}
+              {props.deleteLabel ? (
+                props.deleteLabel
+              ) : (
+                <>
+                  <span className="card-action-bar__label-full">Удалить карточку</span>
+                  <span className="card-action-bar__label-short">Удалить</span>
+                </>
+              )}
             </Button>
           )}
         </div>

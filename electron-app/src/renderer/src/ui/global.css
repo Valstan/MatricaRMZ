@@ -459,6 +459,78 @@ body {
   padding: 4px 6px;
 }
 
+/* ── Панель действий карточки: раскладка в классах, а не в инлайне ───────────
+   Инлайн-стиль перебить извне нельзя, а планшетному режиму ряд нужно перестроить
+   (перенос вместо выхода за край). Поэтому статичная часть раскладки уехала в
+   классы; значения на десктопе — те же, что были инлайном. Пропсы ряда
+   (centerNoWrap) остались инлайном: это решение владельца для конкретной карточки. */
+.card-action-bar__row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 6px;
+}
+.card-action-bar__group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.card-action-bar__group--left {
+  justify-content: flex-start;
+  flex: 0 0 auto;
+}
+.card-action-bar__group--center {
+  justify-content: center;
+  gap: 6px;
+  flex: 1;
+}
+.card-action-bar__group--right {
+  justify-content: flex-end;
+  gap: 6px;
+  flex: 1;
+}
+/* Длинные подписи кнопок на планшете сокращаются; полная — в title. */
+.card-action-bar__label-short {
+  display: none;
+}
+
+/* ── Планшет: кнопки карточки помещаются в экран ────────────────────────────
+   Жалоба владельца (промт КАРМАНА #70): кнопки управления карточкой уходили за
+   правый край — левая группа не сжималась и выталкивала «Закрыть карточку» и
+   «Удалить» за экран. На планшете ряд переносится, группы сжимаются и переносят
+   кнопки внутри себя, длинные подписи сокращаются. */
+:root[data-ui-mode='tablet'] .card-action-bar__row {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  row-gap: 6px;
+}
+:root[data-ui-mode='tablet'] .card-action-bar__group--left {
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+:root[data-ui-mode='tablet'] .card-action-bar__group--center,
+:root[data-ui-mode='tablet'] .card-action-bar__group--right {
+  flex: 1 1 0;
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+:root[data-ui-mode='tablet'] .card-action-bar__group > * {
+  max-width: 100%;
+}
+:root[data-ui-mode='tablet'] .card-action-bar__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+:root[data-ui-mode='tablet'] .card-action-bar__label-full {
+  display: none;
+}
+:root[data-ui-mode='tablet'] .card-action-bar__label-short {
+  display: inline;
+}
+
 body {
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   color: var(--text);
