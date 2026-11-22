@@ -129,7 +129,37 @@ else
   fail "чужая строка потеряна при частичном пине"
 fi
 
-# 5. Запись атомарная: временный файл не остаётся рядом.
+# 5. Частичная проба: хост, для которого живого адреса не нашлось, остаётся на ПРОШЛОМ
+#    адресе, а не выкидывается из файла (DNS-адрес для этих хостов заведомо мёртвый).
+HOSTS_FILE="$ROOT/hosts3"
+cat > "$HOSTS_FILE" <<'EOF'
+127.0.0.1	localhost
+# minimax-pin (обновляется скриптом minimax-dns-pin.py)
+10.6.6.9 agent.minimax.io
+10.6.6.8 account.minimax.io
+10.6.6.7 platform.minimax.io
+10.6.6.6 api.minimax.io
+10.6.6.5 www.minimax.io
+EOF
+MATRICA_MINIMAX_PIN_HOSTS="$HOSTS_FILE" MATRICA_MINIMAX_PIN_FIXTURE="api.minimax.io=10.0.0.4" python3 "$SUT" >/dev/null 2>&1
+n4="$(our_lines "$HOSTS_FILE")"
+if [[ "$n4" == "5" ]]; then
+  ok "частичная проба — все пять хостов остались в файле"
+else
+  fail "частичная проба — строк на наши хосты: $n4 (ожидалось 5)"
+fi
+if grep -q '10.6.6.9 agent.minimax.io' "$HOSTS_FILE"; then
+  ok "хост без живого адреса остался на прошлом пине"
+else
+  fail "прошлый пин хоста без живого адреса потерян: $(grep minimax.io "$HOSTS_FILE" | tr '\n' ' ')"
+fi
+if grep -q '10.0.0.4 api.minimax.io' "$HOSTS_FILE"; then
+  ok "хост с живым адресом обновлён"
+else
+  fail "свежий адрес не записан"
+fi
+
+# 6. Запись атомарная: временный файл не остаётся рядом.
 if [[ -f "$HOSTS_FILE.minimax-pin.tmp" ]]; then
   fail "временный файл остался рядом с hosts"
 else

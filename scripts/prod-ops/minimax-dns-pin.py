@@ -139,6 +139,20 @@ def render_section(addresses: Dict[str, str]) -> List[str]:
     return lines
 
 
+def previous_addresses(existing: List[str]) -> Dict[str, str]:
+    """Адреса из прошлой секции пина (по каждому хосту — последний в файле).
+
+    Нужны как запасной вариант: если проба сегодня не нашла живого адреса, прошлый
+    может ещё работать, а DNS-адрес — заведомо мёртвый (ради него пин и нужен).
+    """
+    prev: Dict[str, str] = {}
+    for ln in existing:
+        parts = ln.split()
+        if len(parts) == 2 and parts[1] in HOSTS:
+            prev[parts[1]] = parts[0]
+    return prev
+
+
 def merge_hosts_file(existing: List[str], section: List[str]) -> str:
     """Собирает новый файл hosts: чужие строки как есть, секция пина — одна и последняя.
 
@@ -183,6 +197,16 @@ def main() -> int:
         return 0
 
     existing = HOSTS_PATH.read_text(encoding="utf-8").splitlines() if HOSTS_PATH.exists() else []
+    # Хост, для которого сегодня не нашлось живого адреса, оставляем на прошлом:
+    # DNS-адрес для этих хостов заведомо мёртвый (ради этого пин и нужен), а прошлый
+    # пин ещё может работать. Иначе частичный успех пробы выкинул бы хост из файла.
+    prev = previous_addresses(existing)
+    final = dict(addresses)
+    for host in HOSTS:
+        if host not in final and host in prev:
+            final[host] = prev[host]
+            print("%-22s -> %s (прошлый: живого сегодня не нашлось)" % (host, prev[host]))
+    lines = render_section(final)
     content = merge_hosts_file(existing, lines)
     # Замена атомарная: пишем во временный файл рядом и переименовываем. Прямая запись
     # обрезает /etc/hosts на старте — и падение процесса посреди записи (а бокс у нас
