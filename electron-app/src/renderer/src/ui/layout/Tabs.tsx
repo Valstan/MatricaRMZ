@@ -47,6 +47,10 @@ export type TabsLayoutPrefs = {
  * клиента; разделы добавляются «по ходу пьесы» — включить страницу + доложить
  * методы моста). Применяется по платформе (isAndroidPlatform), а не по UI-режиму:
  * это свойство клиента, а не рабочего места.
+ *
+ * Производственная программа (промт КАРМАНА #70, п.4): раздел добавлен и в
+ * ANDROID_TABS, и в TABLET_OPERATOR_TABS — эффективное меню планшета это
+ * пересечение двух таблиц, и раздел в одной из них срезался бы фильтром.
  */
 export const ANDROID_TABS: readonly MenuTabId[] = [
   'engines',
@@ -54,6 +58,7 @@ export const ANDROID_TABS: readonly MenuTabId[] = [
   'work_orders',
   'stock_documents',
   'repair_fund_audit',
+  'production_program',
 ];
 
 export const TABLET_OPERATOR_TABS: readonly MenuTabId[] = [
@@ -69,6 +74,8 @@ export const TABLET_OPERATOR_TABS: readonly MenuTabId[] = [
   'stock_documents',
   'requests',
   'repair_fund_audit',
+  // Производственная программа — план производства на планшете (промт #70, п.4).
+  'production_program',
 ];
 
 type TabVisualMeta = {

@@ -704,6 +704,24 @@ export function V3TabShell(props: {
               <span className="v3-fav-card-icon" aria-hidden="true">🛠️</span>
               <span className="v3-fav-card-label">ВЕРСТАК</span>
             </button>
+            {/* Производственная программа (промт КАРМАНА #70, п.5: «в левую вертикальную
+                полосу меню добавить значок производственной программы»). Постоянная плашка,
+                не избранное: значок должен быть на месте всегда. Показываем тем, кому
+                раздел выдан (availableTabs — уже с учётом прав): плашка без раздела
+                открыла бы пустую вкладку. */}
+            {props.availableTabs.includes('production_program') && (
+              <button
+                type="button"
+                className="v3-fav-card v3-fav-card-program"
+                data-fav-card="production_program"
+                aria-label="Производственная программа"
+                title="Производственная программа"
+                onClick={() => { setMenuOverlayOpen(false); props.onMenuTab('production_program'); }}
+              >
+                <span className="v3-fav-card-icon" aria-hidden="true">📆</span>
+                <span className="v3-fav-card-label">ПРОГРАММА</span>
+              </button>
+            )}
           </div>
         </div>
       {/* Сравнение живёт ВНУТРИ общего контейнера: будь оно другой веткой тернарника,

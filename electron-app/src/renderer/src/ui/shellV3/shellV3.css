@@ -721,6 +721,13 @@
   border-color: #e9c3b4;
 }
 
+/* Постоянная плашка «Производственная программа» (промт КАРМАНА #70, п.5):
+   тот же кремовый тон, что у ВЕРСТАКА, — плашка не должна выбиваться из полосы. */
+.v3-fav-card-program {
+  background: #fdf3e4;
+  border-color: #e8d6bb;
+}
+
 .v3-fav-card-ai .v3-fav-card-icon,
 .v3-fav-card-ai .v3-fav-card-label {
   position: relative;
