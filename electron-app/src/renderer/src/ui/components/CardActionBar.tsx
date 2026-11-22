@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Button } from './Button.js';
 import { useConfirm } from './ConfirmContext.js';
+import { isAndroidPlatform } from '../platform.js';
 
 export type CardActionBarProps = {
   canEdit: boolean;
@@ -125,7 +126,7 @@ export function CardActionBar(props: CardActionBarProps) {
             </Button>
           )}
           {props.extraActionsCenter}
-          {props.onPrint && (
+          {props.onPrint && !isAndroidPlatform() && (
             <Button variant="ghost" tone="info" title="Распечатать карточку" onClick={props.onPrint}>
               Распечатать
             </Button>

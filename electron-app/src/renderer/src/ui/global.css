@@ -563,6 +563,26 @@ body {
   display: inline;
 }
 
+/* ── Планшет (Android): действия, которых на планшете нет ───────────────────
+   В WebView нет печати (window.print не печатает), а «В Word»/«В Excel» упираются
+   в каналы экспорта, на планшете не зарегистрированные. Кнопка, которая ничего
+   не делает, хуже отсутствующей кнопки (та же мысль, что у MailSendButton и
+   ListExportButtons) — поэтому на планшете их не показываем.
+   Признак планшета — data-platform на :root (android-app/src/main.tsx). */
+:root[data-platform='android'] [data-pp-action='print'],
+:root[data-platform='android'] [data-pp-action='word'],
+:root[data-platform='android'] [data-pp-action='excel'] {
+  display: none !important;
+}
+/* Обёртка кнопки в ряду PageToolbar прячется вместе с кнопкой, чтобы в ряду не
+   оставалось пустого места (`:has()` — там, где он есть; кнопка скрыта в любом
+   случае правилом выше). */
+:root[data-platform='android'] .mx-page-toolbar > div:has([data-pp-action='print']),
+:root[data-platform='android'] .mx-page-toolbar > div:has([data-pp-action='word']),
+:root[data-platform='android'] .mx-page-toolbar > div:has([data-pp-action='excel']) {
+  display: none !important;
+}
+
 body {
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   color: var(--text);

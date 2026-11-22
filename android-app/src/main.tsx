@@ -9,6 +9,13 @@ import { Capacitor } from '@capacitor/core';
 // Платформенный флаг ДО загрузки renderer-бандла: ANDROID_TABS-пресет меню и
 // скрытия (печать/вложения/платежи/чат/AI) читают его через ui/platform.ts.
 (globalThis as Record<string, unknown>).__MATRICA_PLATFORM__ = 'android';
+// Тот же признак — в разметке :root: стили могут скрыть то, что на планшете
+// не работает (печать панели ПП: в WebView window.print не печатает).
+try {
+  document.documentElement.dataset.platform = 'android';
+} catch {
+  // ignore — renderer всё равно читает признак через ui/platform.ts
+}
 
 declare const __MATRICA_APP_VERSION__: string;
 

@@ -18,6 +18,7 @@ import { registerAdminIpc } from '../../../electron-app/src/main/ipc/register/ad
 import { registerAuthAndSyncIpc } from '../../../electron-app/src/main/ipc/register/authAndSync.js';
 import { registerChangesIpc } from '../../../electron-app/src/main/ipc/register/changes.js';
 import { registerChecklistsIpc } from '../../../electron-app/src/main/ipc/register/checklists.js';
+import { registerContractsIpc } from '../../../electron-app/src/main/ipc/register/contracts.js';
 import { registerDraftsIpc } from '../../../electron-app/src/main/ipc/register/drafts.js';
 import { registerEmployeesIpc } from '../../../electron-app/src/main/ipc/register/employees.js';
 import { registerEngineActTemplatesIpc } from '../../../electron-app/src/main/ipc/register/engineActTemplates.js';
@@ -26,6 +27,7 @@ import { registerErpIpc } from '../../../electron-app/src/main/ipc/register/erp.
 import { registerLoggingIpc } from '../../../electron-app/src/main/ipc/register/logging.js';
 import { registerNotesIpc } from '../../../electron-app/src/main/ipc/register/notes.js';
 import { registerPartsIpc } from '../../../electron-app/src/main/ipc/register/parts.js';
+import { registerProductionProgramIpc } from '../../../electron-app/src/main/ipc/register/productionProgram.js';
 import { registerSettingsIpc } from '../../../electron-app/src/main/ipc/register/settings.js';
 import { registerSectionFavoritesIpc } from '../../../electron-app/src/main/ipc/register/sectionFavorites.js';
 import { registerSupplyRequestsIpc } from '../../../electron-app/src/main/ipc/register/supplyRequests.js';
@@ -114,6 +116,13 @@ export function wireIpcForAndroid(core: AndroidCore): IpcContext {
   registerNotesIpc(ctx);
   registerPartsIpc(ctx);
   registerErpIpc(ctx);
+  // Производственная программа (промт КАРМАНА #70, п.4): план на планшете.
+  // Чтение — из локальной реплики (работает без сети), запись — серверной дверью
+  // REST (как на десктопе: «нужна сеть» здесь штатно).
+  registerProductionProgramIpc(ctx);
+  // «№ в договоре» в плане ПП тянется из карточки договора: домен «Договоры»
+  // нужен странице. Права и гейт раздела — те же, что на десктопе (server решает).
+  registerContractsIpc(ctx);
   // Вложения: свой узкий мост поверх REST (десктопный files.ts построен вокруг
   // путей на диске и на планшете неприменим).
   registerAndroidFilesIpc(ctx);
