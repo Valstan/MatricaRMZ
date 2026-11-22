@@ -115,6 +115,9 @@ electron-app/build/watchdog/
 electron-app/build/kaspersky/
 # Trust assets (root CA + install/probe scripts) are staged by beforePack — not committed.
 electron-app/build/trust/
+# Рантайм локального звена MiniMax + конфиг клиентской комнаты «Кармана» (в нём токен) —
+# готовит CI, в git ему не место НИКОГДА.
+electron-app/build/local-minimax/
 
 
 
