@@ -36,6 +36,8 @@ import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { useListSelection } from '../hooks/useListSelection.js';
+import { useListBehaviorSettings } from '../hooks/useListBehaviorSettings.js';
+import { ListLassoLayer } from '../components/ListLassoLayer.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { searchModeEmptyText } from '../components/SearchModeHint.js';
 import { useSearchMode } from '../hooks/useSearchMode.js';
@@ -48,6 +50,9 @@ import {
   buildDeleteRowsStatus,
   buildListContextMenuItems,
   copyRowsToClipboard,
+  listCopyAction,
+  listDeleteAction,
+  listPrintAction,
   printRowsPreview,
   resolveMenuRows,
 } from '../utils/listContextActions.js';
@@ -262,6 +267,8 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
   const displayRows = sorted;
 
   const selection = useListSelection(displayRows.map((row) => row.id));
+  // Правила поведения списков — из общего источника (D-248), без частных настроек страницы.
+  const listBehavior = useListBehaviorSettings();
 
   const headerCellStyle: React.CSSProperties = {
     padding: '10px 12px',
@@ -504,6 +511,9 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
   function rowProps(row: Row): VirtualTableRowProps {
     return {
       'data-list-selected': selection.isSelected(row.id) ? 'true' : undefined,
+      // Маркер строки для выделения контуром (Ctrl + рамка) — правило одно на программу.
+      'data-list-row': 'true',
+      'data-list-row-key': row.id,
       style: { borderBottom: '1px solid #f3f4f6', cursor: 'pointer' },
       onContextMenu: (e) => {
         const result = selection.onRowContextMenu(e, row.id);
@@ -717,6 +727,7 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
           </div>
         </div>
       ) : null}
+      <ListLassoLayer enabled={listBehavior.lasso} onSelect={selection.selectMany} />
       {menu ? (
         <ListContextMenu
           x={menu.x}
@@ -724,13 +735,17 @@ export function EmployeesPage(props: { onOpen: (id: string) => Promise<void>; ca
           items={buildListContextMenuItems({
             rows: resolveMenuRows(menu.targetIds, rowById),
             bulk: menu.bulk,
-            canDelete: props.canDelete,
             getId: (row) => row.id,
             onSelect: selection.toggleSelect,
-            onPrint: printRows,
-            onCopy: copyRows,
-            onDelete: deleteRows,
             onClearSelection: selection.clearSelection,
+            hasSelection: selection.selectedCount > 0,
+            // Меню собирается из объявления действий списка: недоступного пункта в нём
+            // нет, а новое действие попадает само (промт КАРМАНА #67).
+            actions: [
+              listPrintAction({ available: true, print: printRows }),
+              listCopyAction({ available: true, copy: copyRows }),
+              listDeleteAction<Row>({ available: props.canDelete, remove: deleteRows, getId: (row) => row.id }),
+            ],
           })}
           onClose={() => setMenu(null)}
         />

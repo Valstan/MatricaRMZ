@@ -1,3 +1,9 @@
+import {
+  DEFAULT_LIST_BEHAVIOR_SETTINGS,
+  sanitizeListBehaviorSettings,
+  type ListBehaviorSettings,
+} from './listBehavior.js';
+
 export type UiDisplayTarget = 'departmentButtons' | 'sectionButtons' | 'listFont' | 'cardFont';
 export type UiDisplayButtonState = 'active' | 'inactive';
 export const UI_PRESET_IDS = ['small', 'medium', 'large', 'xlarge'] as const;
@@ -89,6 +95,12 @@ export type UiControlSettings = UiControlTuning & {
     editorPresetId: UiPresetId;
     profiles: Record<UiPresetId, UiControlTuning>;
   };
+  /**
+   * Правила поведения списков — одна настройка на всю программу (D-248).
+   * Живут в глобальных дефолтах и НЕ участвуют в слиянии с личными настройками:
+   * см. `mergeUiControlSettings`.
+   */
+  listBehavior: ListBehaviorSettings;
 };
 
 export const UI_DEFAULTS_VERSION = 1;
@@ -277,6 +289,7 @@ export const DEFAULT_UI_CONTROL_SETTINGS: UiControlSettings = {
     editorPresetId: DEFAULT_UI_PRESET_ID,
     profiles: clonePresetProfiles(DEFAULT_UI_PRESET_PROFILES),
   },
+  listBehavior: { ...DEFAULT_LIST_BEHAVIOR_SETTINGS },
 };
 
 function clampNumber(raw: unknown, fallback: number, min: number, max: number): number {
@@ -476,6 +489,7 @@ export function sanitizeUiControlSettings(raw: unknown): UiControlSettings {
       editorPresetId,
       profiles: clonePresetProfiles(profiles),
     },
+    listBehavior: sanitizeListBehaviorSettings(value.listBehavior, base.listBehavior),
   };
 }
 
@@ -497,6 +511,11 @@ export function mergeUiControlSettings(base: UiControlSettings, overlay?: unknow
       editorPresetId: sanitizeUiPresetId(o.presets.editorPresetId, b.presets.editorPresetId),
       profiles: mergedProfiles,
     },
+    // D-248: правила поведения списков — одна настройка на всю программу. Личные
+    // настройки их НЕ перекрывают: иначе чья-то личная правка стала бы второй правдой
+    // и «везде одинаково» перестало бы быть истиной. Берём всегда из `base` (глобальные
+    // дефолты), а не из `overlay`.
+    listBehavior: { ...b.listBehavior },
   };
 }
 

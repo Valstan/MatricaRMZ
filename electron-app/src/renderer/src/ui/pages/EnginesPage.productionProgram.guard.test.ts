@@ -25,18 +25,20 @@ const TYPES = src('../../../../../../shared/src/ipc/types.ts');
 
 describe('добавление двигателей в производственную программу из списка', () => {
   it('пункт меню есть в bulk-ветке и только при праве вести программу', () => {
-    const bulk = PAGE.slice(PAGE.indexOf('if (menu.bulk) {'), PAGE.indexOf('if (menuRows.length !== 1)'));
+    // Список объявляет свои действия (промт КАРМАНА #67): пункт добавления в план —
+    // объявление с `scope: 'bulk'`, а не отдельная ветка меню.
+    const bulk = PAGE.slice(PAGE.indexOf('if (menu.bulk) {'), PAGE.indexOf('} else if (menuRows.length === 1'));
     expect(bulk, 'пункт добавления в план живёт в ветке пачки').toContain(
       'Добавить в производственную программу',
     );
     expect(bulk, 'пункт показывается только при праве production_program.edit').toContain(
       'if (props.canEditProductionProgram)',
     );
-    expect(bulk, 'для одной строки пункт не предлагается').toContain('return items;');
+    expect(bulk, 'для одной строки пункт не предлагается').toContain("scope: 'bulk'");
   });
 
   it('выделение для модалки снимается в момент клика — после закрытия меню его нет', () => {
-    expect(PAGE).toContain('setProgramAddEngines(menuRows);');
+    expect(PAGE).toContain('setProgramAddEngines(rows);');
     expect(PAGE).toContain('engines={programAddEngines}');
   });
 

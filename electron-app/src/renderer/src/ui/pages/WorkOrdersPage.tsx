@@ -45,9 +45,14 @@ import {
   buildDeleteRowsStatus,
   buildListContextMenuItems,
   copyRowsToClipboard,
+  listCopyAction,
+  listDeleteAction,
+  listPrintAction,
   printRowsPreview,
   resolveMenuRows,
 } from '../utils/listContextActions.js';
+import { useListBehaviorSettings } from '../hooks/useListBehaviorSettings.js';
+import { ListLassoLayer } from '../components/ListLassoLayer.js';
 
 type Row = {
   id: string;
@@ -244,6 +249,8 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
   const displayRows = sorted;
 
   const selection = useListSelection(displayRows.map((row) => row.id));
+  // Правила поведения списков — из общего источника (D-248).
+  const listBehavior = useListBehaviorSettings();
 
   function onSort(key: SortKey) {
     patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
@@ -468,6 +475,9 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
     const rowBg = WO_STATUS_PALETTE[rowStatusCode(row, Date.now())].rowBg;
     return {
       'data-list-selected': selected ? 'true' : undefined,
+      // Маркер строки для выделения контуром (Ctrl + рамка).
+      'data-list-row': 'true',
+      'data-list-row-key': row.id,
       style: { cursor: 'pointer', ...(selected ? {} : { background: rowBg }) },
       onClick: () => {
         selection.onRowPrimaryAction(row.id);
@@ -531,13 +541,16 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
     return buildListContextMenuItems({
       rows: menuRows,
       bulk: menu.bulk,
-      canDelete: props.canDelete,
       getId: (row) => row.id,
       onSelect: selection.toggleSelect,
-      onPrint: printRows,
-      onCopy: copyRows,
-      onDelete: deleteRows,
       onClearSelection: selection.clearSelection,
+      hasSelection: selection.selectedCount > 0,
+      // Меню собирается из объявления действий списка (промт КАРМАНА #67).
+      actions: [
+        listPrintAction({ available: true, print: printRows }),
+        listCopyAction({ available: true, copy: copyRows }),
+        listDeleteAction<Row>({ available: props.canDelete, remove: deleteRows, getId: (row) => row.id }),
+      ],
     });
   }, [menu, menuRows, props.canDelete, selection, printRows, copyRows, deleteRows]);
 
@@ -675,6 +688,7 @@ export function WorkOrdersPage(props: { onOpen: (id: string, opts?: { initialPay
           />
         )}
       </div>
+      <ListLassoLayer enabled={listBehavior.lasso} onSelect={selection.selectMany} />
       {menu && menuItems.length > 0 ? (
         <ListContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
       ) : null}

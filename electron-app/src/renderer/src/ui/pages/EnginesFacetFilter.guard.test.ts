@@ -208,7 +208,11 @@ describe('бирки печатаются по выделенным строка
   });
 
   it('пункт ПКМ-меню для пачки выделенных строк есть и не зависит от наряда на сборку', () => {
-    expect(PAGE).toContain('Бирки на выбранные (${menuRows.length})');
+    // Пункт объявлен списком как групповое действие (промт КАРМАНА #67): счётчик
+    // «(N)» к подписи добавляет сам кит.
+    expect(PAGE).toContain("id: 'engine-tags-bulk'");
+    expect(PAGE).toContain("label: '🏷️ Бирки на выбранные'");
+    expect(PAGE).toContain("scope: 'bulk'");
     // Раньше меню вовсе не открывалось без onCreateAssemblyOrder — тогда пункт был бы недостижим.
     expect(PAGE).not.toContain('if (!result.openMenu || !props.onCreateAssemblyOrder) return;');
   });

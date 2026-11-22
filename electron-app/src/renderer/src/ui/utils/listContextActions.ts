@@ -13,6 +13,142 @@ export type ListContextMenuActionItem = {
   disabled?: boolean;
 };
 
+/**
+ * Объявление действия списка.
+ *
+ * Список **объявляет**, что он умеет, — и меню собирается из объявления. Раньше шаблон
+ * был жёстким: «печать» и «копирование» были обязательными параметрами, «удаление»
+ * присутствовало всегда и лишь гасло (серый пункт). По заказу владельца (промт КАРМАНА #67)
+ * в меню должно быть ровно то, что список реально умеет: недоступного пункта не должно
+ * быть ВООБЩЕ, а новое действие списка обязано попадать в меню само.
+ */
+export type ListActionDeclaration<T> = {
+  /** Стабильный идентификатор действия (для тестов и для отладки). */
+  id: string;
+  /** Подпись для одной строки. */
+  label: string;
+  /** Подпись для пачки. По умолчанию — `label` + счётчик выделенных. */
+  bulkLabel?: string;
+  /**
+   * Список реально умеет это действие (и у оператора есть право). `false` ⇒ пункт
+   * в меню НЕ появляется — он не гасится серым (гаснущий пункт читался как «умеет,
+   * но запрещено», а это враньё списка о самом себе).
+   */
+  available: boolean;
+  /** Где действие применимо: одна строка, пачка или и то и другое. */
+  scope?: 'single' | 'bulk' | 'both';
+  /** Опасное действие (удаление) — рисуется красным. */
+  danger?: boolean;
+  /** Что делать. Получает выбранные строки (одну или пачку). */
+  run: (rows: T[]) => void | Promise<void>;
+};
+
+/**
+ * Стандартные объявления действий. Подписи и правила — ОДНИ на всю программу: список
+ * объявляет, что умеет, и берёт готовую формулировку. Расхождение подписей между
+ * списками — это расхождение поведения, а правило здесь как раз про «везде одинаково».
+ */
+export function listPrintAction<T>(args: {
+  available: boolean;
+  print: (rows: T[]) => void;
+}): ListActionDeclaration<T> {
+  return {
+    id: 'print',
+    label: 'Распечатать',
+    bulkLabel: 'Распечатать выделенные',
+    available: args.available,
+    scope: 'both',
+    run: (rows) => args.print(rows),
+  };
+}
+
+export function listCopyAction<T>(args: {
+  available: boolean;
+  copy: (rows: T[]) => void | Promise<void>;
+}): ListActionDeclaration<T> {
+  return {
+    id: 'copy',
+    label: 'Скопировать',
+    bulkLabel: 'Скопировать выделенные',
+    available: args.available,
+    scope: 'both',
+    run: (rows) => void args.copy(rows),
+  };
+}
+
+export function listDeleteAction<T>(args: {
+  available: boolean;
+  remove: (ids: string[]) => void | Promise<void>;
+  getId: (row: T) => string;
+}): ListActionDeclaration<T> {
+  return {
+    id: 'delete',
+    label: 'Удалить',
+    bulkLabel: 'Удалить выделенные',
+    available: args.available,
+    scope: 'both',
+    danger: true,
+    run: (rows) => void args.remove(rows.map((row) => args.getId(row))),
+  };
+}
+
+export type ListContextMenuBuilderArgs<T> = {
+  /** Строки, к которым открыто меню (одна или пачка). */
+  rows: T[];
+  /** Меню открыто на пачке выделенных строк, а не на одной. */
+  bulk: boolean;
+  /** Объявленные списком действия. */
+  actions: Array<ListActionDeclaration<T>>;
+  getId: (row: T) => string;
+  /** «Выделить строку» — есть, когда список умеет выделять одиночную строку. */
+  onSelect?: (id: string) => void;
+  /** «Снять выделение». */
+  onClearSelection?: () => void;
+  /** Есть ли выделение вообще (пункт «Снять выделение» показываем только тогда). */
+  hasSelection?: boolean;
+};
+
+/**
+ * Собирает меню строки списка из объявленных действий.
+ *
+ * Правила (заказ владельца, промт #67):
+ *  - недоступное действие в меню отсутствует (не гасится);
+ *  - «удалить» появляется только там, где список умеет удалять и есть право;
+ *  - одно объявление обслуживает и одиночную строку, и пачку (`scope`);
+ *  - счётчик пачки добавляется автоматически.
+ */
+export function buildListContextMenuItems<T>(args: ListContextMenuBuilderArgs<T>): ListContextMenuActionItem[] {
+  if (!args.rows.length) return [];
+  const count = args.rows.length;
+  const items: ListContextMenuActionItem[] = [];
+
+  if (!args.bulk && args.onSelect) {
+    const row = args.rows[0]!;
+    items.push({ id: 'select-row', label: 'Выделить', onClick: () => args.onSelect?.(args.getId(row)) });
+  }
+
+  for (const action of args.actions) {
+    if (!action.available) continue;
+    const scope = action.scope ?? 'both';
+    if (args.bulk ? scope === 'single' : scope === 'bulk') continue;
+    const label = args.bulk
+      ? `${action.bulkLabel ?? action.label} (${count})`
+      : action.label;
+    items.push({
+      id: action.id,
+      label,
+      ...(action.danger ? { danger: true } : {}),
+      onClick: () => void action.run(args.rows),
+    });
+  }
+
+  if (args.onClearSelection && (args.hasSelection ?? count > 1)) {
+    items.push({ id: 'clear-selected', label: 'Снять выделение', onClick: args.onClearSelection });
+  }
+
+  return items;
+}
+
 function normalizeCell(value: unknown): string {
   if (value == null) return '—';
   const text = String(value).trim();
@@ -76,53 +212,5 @@ export function buildDeleteConfirmMessage(args: {
 
 export function resolveMenuRows<T>(targetIds: string[], rowById: ReadonlyMap<string, T>): T[] {
   return targetIds.map((id) => rowById.get(id)).filter((row): row is T => Boolean(row));
-}
-
-export function buildListContextMenuItems<T>(args: {
-  rows: T[];
-  bulk: boolean;
-  canDelete: boolean;
-  getId: (row: T) => string;
-  onSelect: (id: string) => void;
-  onPrint: (rows: T[]) => void;
-  onCopy: (rows: T[]) => void | Promise<void>;
-  onDelete: (ids: string[]) => void | Promise<void>;
-  onClearSelection: () => void;
-  /**
-   * Доп. пункты для ОДИНОЧНОЙ строки (не bulk) — прикладной контекст конкретной страницы
-   * (напр. «Наряд на сборку» из списка двигателей). Добавляются перед «Удалить».
-   */
-  extraSingleItems?: (row: T) => ListContextMenuActionItem[];
-}): ListContextMenuActionItem[] {
-  if (!args.rows.length) return [];
-  if (args.bulk) {
-    const count = args.rows.length;
-    return [
-      { id: 'print-selected', label: `Распечатать выделенные (${count})`, onClick: () => args.onPrint(args.rows) },
-      { id: 'copy-selected', label: `Скопировать выделенные (${count})`, onClick: () => void args.onCopy(args.rows) },
-      {
-        id: 'delete-selected',
-        label: `Удалить выделенные (${count})`,
-        danger: true,
-        disabled: !args.canDelete,
-        onClick: () => void args.onDelete(args.rows.map((row) => args.getId(row))),
-      },
-      { id: 'clear-selected', label: 'Снять выделение', onClick: args.onClearSelection },
-    ];
-  }
-  const row = args.rows[0]!;
-  return [
-    { id: 'select-row', label: 'Выделить', onClick: () => args.onSelect(args.getId(row)) },
-    { id: 'print-row', label: 'Распечатать', onClick: () => args.onPrint([row]) },
-    { id: 'copy-row', label: 'Скопировать', onClick: () => void args.onCopy([row]) },
-    ...(args.extraSingleItems?.(row) ?? []),
-    {
-      id: 'delete-row',
-      label: 'Удалить',
-      danger: true,
-      disabled: !args.canDelete,
-      onClick: () => void args.onDelete([args.getId(row)]),
-    },
-  ];
 }
 

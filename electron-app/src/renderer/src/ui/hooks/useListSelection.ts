@@ -75,6 +75,18 @@ export function useListSelection(orderedIds: string[], opts?: { persistKey?: str
     setCursorId(id);
   };
 
+  /**
+   * Выделение набором — для выделения контуром (Ctrl + рамка, промт КАРМАНА #67).
+   * Набор ЗАМЕНЯЕТ текущее выделение: рамка — это явное «выделить вот эти строки»,
+   * а не добавление к тому, что было отмечено раньше.
+   */
+  const selectMany = (ids: string[]) => {
+    const next = new Set(ids.filter((id) => id.length > 0));
+    setSelectedIds(next);
+    setAnchorId(next.size ? [...next][next.size - 1]! : null);
+    setCursorId(next.size ? [...next][next.size - 1]! : null);
+  };
+
   const addRangeTo = (targetId: string) => {
     const ids = orderedIds;
     if (!ids.length) return;
@@ -185,6 +197,7 @@ export function useListSelection(orderedIds: string[], opts?: { persistKey?: str
     clearSelection,
     toggleSelect,
     selectOnly,
+    selectMany,
     onRowPrimaryAction,
     onRowContextMenu,
   };
