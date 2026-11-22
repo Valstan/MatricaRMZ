@@ -1341,6 +1341,8 @@ const matricaApi = {
     delete: async (args: { id: string }) => ipcRenderer.invoke('aiChat:delete', args),
     setVerdict: async (args: { id: string; verdictText: string }) => ipcRenderer.invoke('aiChat:setVerdict', args),
     meta: async () => ipcRenderer.invoke('aiChat:meta'),
+    /** Состояние локального звена: считает этот компьютер или сервер. */
+    localStatus: async () => ipcRenderer.invoke('aiChat:localStatus'),
   },
   aiAgent: {
     // Синхронный AI-контур (ai:assist / ai:conversations:*) снесён 2026-07-25 —

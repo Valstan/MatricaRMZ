@@ -1,14 +1,15 @@
 // Асинхронный AI-чат: локальный CRUD очереди вопросов (sync-таблица ai_chat_requests).
-// Клиент пишет ТОЛЬКО вопрос (owner-private, ≤5/час — гейт на сервере); ответ приезжает
-// pull'ом — сервер отвечает движком завода (opencode на проде) через секунды-минуты после
-// push'а, поэтому создание вопроса сразу пинает синк. Локального движка на клиенте нет
-// (решение владельца 23.10.2026): считает всегда сервер.
+// Вопрос пишет клиент (owner-private, ≤5/час — гейт на сервере); ответ приезжает
+// pull'ом. С 22.11.2026 (D-243/D-244) у клиента появилось ЛОКАЛЬНОЕ звено: этот же
+// компьютер может взять вопрос в работу (claim, status=processing) и положить
+// ответ, посчитанный локальным MiniMax. Ответ сервера приезжает pull'ом, когда
+// локальное звено не справилось.
 // Файл вопроса заливается на Яндекс через существующий files-контур.
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { asc, eq, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 
-import type { AiChatMetaResult, AiChatRequestItem, AiChatRequestStatus } from '@matricarmz/shared';
+import type { AiChatAnswerSource, AiChatMetaResult, AiChatRequestItem, AiChatRequestStatus } from '@matricarmz/shared';
 
 import { aiChatRequests } from '../database/schema.js';
 import { getSession } from './authService.js';
@@ -69,7 +70,7 @@ export async function aiChatList(
 export async function aiChatCreate(
   db: BetterSQLite3Database,
   apiBaseUrl: string,
-  args: { questionText: string; filePath?: string },
+  args: { questionText: string; filePath?: string; claimLocal?: boolean },
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   try {
     const me = await currentUser(db);
@@ -89,14 +90,16 @@ export async function aiChatCreate(
     }
 
     const ts = nowMs();
-    // Строка всегда уходит на сервер: считает движок завода, локального звена нет.
+    // Claim локального звена: вопрос берёт в работу этот компьютер (status=processing),
+    // и серверный воркер такую строку не берёт — иначе ответили бы оба. Без локального
+    // звена вопрос уходит в очередь сервера, как и раньше.
     await db.insert(aiChatRequests).values({
       id,
       userId: me.id,
       username: me.username,
       questionText,
       questionFileJson,
-      status: 'pending',
+      status: args.claimLocal ? 'processing' : 'pending',
       createdAt: ts,
       updatedAt: ts,
       deletedAt: null,
@@ -171,6 +174,68 @@ export async function aiChatSetVerdict(
     await db
       .update(aiChatRequests)
       .set({ verdictText, updatedAt: nowMs(), syncStatus: 'pending' })
+      .where(eq(aiChatRequests.id, String(args.id)));
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/**
+ * Ответ локального звена: автор своего вопроса пишет ответ, посчитанный его
+ * компьютером (D-243/D-244). Строка должна быть в 'processing' — это claim клиента:
+ * пока клиент держит вопрос, серверный воркер его не берёт.
+ */
+export async function aiChatAnswerLocally(
+  db: BetterSQLite3Database,
+  args: { id: string; answerText: string; source: AiChatAnswerSource },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const me = await currentUser(db);
+    if (!me) return { ok: false, error: 'auth required' };
+    const answerText = String(args.answerText ?? '').trim();
+    if (!answerText) return { ok: false, error: 'empty answer' };
+    const existing = await db.select().from(aiChatRequests).where(eq(aiChatRequests.id, String(args.id))).limit(1);
+    const cur = existing[0] as any;
+    if (!cur || cur.deletedAt != null) return { ok: false, error: 'not found' };
+    if (String(cur.userId) !== me.id) return { ok: false, error: 'not owner' };
+    if (String(cur.status) !== 'processing') return { ok: false, error: 'not claimed' };
+    await db
+      .update(aiChatRequests)
+      .set({
+        status: 'answered',
+        answerText,
+        answeredAt: nowMs(),
+        serverAnswerSource: args.source,
+        updatedAt: nowMs(),
+        syncStatus: 'pending',
+      })
+      .where(eq(aiChatRequests.id, String(args.id)));
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/**
+ * Отпустить вопрос обратно в очередь: локальное звено не справилось (пул пуст,
+ * рантайм сломан) — вопрос должен ответить сервер, а не висеть.
+ */
+export async function aiChatReleaseQuestion(
+  db: BetterSQLite3Database,
+  args: { id: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const me = await currentUser(db);
+    if (!me) return { ok: false, error: 'auth required' };
+    const existing = await db.select().from(aiChatRequests).where(eq(aiChatRequests.id, String(args.id))).limit(1);
+    const cur = existing[0] as any;
+    if (!cur || cur.deletedAt != null) return { ok: false, error: 'not found' };
+    if (String(cur.userId) !== me.id) return { ok: false, error: 'not owner' };
+    if (String(cur.status) !== 'processing') return { ok: false, error: 'not claimed' };
+    await db
+      .update(aiChatRequests)
+      .set({ status: 'pending', updatedAt: nowMs(), syncStatus: 'pending' })
       .where(eq(aiChatRequests.id, String(args.id)));
     return { ok: true };
   } catch (e) {

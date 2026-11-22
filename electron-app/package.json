@@ -109,6 +109,14 @@
         {
           "from": "installer/kaspersky-desktop-readme.txt",
           "to": "kaspersky-desktop-readme.txt"
+        },
+        {
+          "from": "resources/local-minimax/**/*",
+          "to": "local-minimax/app"
+        },
+        {
+          "from": "build/local-minimax/**/*",
+          "to": "local-minimax/runtime"
         }
       ],
       "target": [

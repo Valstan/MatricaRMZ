@@ -123,3 +123,60 @@ describe('applyAiChatPushPolicy', () => {
     expect(() => applyAiChatPushPolicy([row()], map, ctx({ actorIsAdmin: true }))).toThrow('ai_chat_not_pending');
   });
 });
+
+// Локальное звено на клиенте (D-243/D-244): автор своего вопроса может взять его
+// в работу (claim) и положить ответ, посчитанный его компьютером. Без этой ветки
+// серверный воркер ответил бы вторым — и платный DeepSeek сгорел бы впустую.
+describe('applyAiChatPushPolicy: клиентский локальный ответ', () => {
+  const CLAIMED = new Map([['q1', existing({ status: 'processing' })]]);
+
+  it('claim: новый вопрос приходит в processing — серверный воркер его не берёт', () => {
+    const out = applyAiChatPushPolicy([row({ status: 'processing' })], new Map(), ctx());
+    expect(out[0]!.status).toBe('processing');
+    expect(out[0]!.answer_text).toBeNull();
+  });
+
+  it('ответ локального звена принимается: автор кладёт текст и источник', () => {
+    const r = row({ status: 'answered', answer_text: 'ответ локального агента', answer_source: 'local_minimax', answered_at: 123 });
+    const out = applyAiChatPushPolicy([r], CLAIMED, ctx());
+    expect(out[0]!.status).toBe('answered');
+    expect(out[0]!.answer_text).toBe('ответ локального агента');
+    expect(out[0]!.answer_source).toBe('local_minimax');
+    expect(out[0]!.answered_at).toBe(123);
+  });
+
+  it('резерв с клиента (deepseek_client) — тоже клиентский источник', () => {
+    const r = row({ status: 'answered', answer_text: 'ответ DeepSeek с машины', answer_source: 'deepseek_client' });
+    const out = applyAiChatPushPolicy([r], CLAIMED, ctx());
+    expect(out[0]!.answer_source).toBe('deepseek_client');
+  });
+
+  it('локальное звено не справилось — вопрос возвращается в очередь', () => {
+    const out = applyAiChatPushPolicy([row({ status: 'pending' })], CLAIMED, ctx());
+    expect(out[0]!.status).toBe('pending');
+    expect(out[0]!.answer_text).toBeNull();
+    expect(out[0]!.answer_source).toBeNull();
+  });
+
+  it('серверный источник клиент подделать не может', () => {
+    const r = row({ status: 'answered', answer_text: 'подделка', answer_source: 'engine' });
+    expect(() => applyAiChatPushPolicy([r], CLAIMED, ctx())).toThrow('ai_chat_not_pending');
+  });
+
+  it('пустой ответ — не ответ', () => {
+    const r = row({ status: 'answered', answer_text: '   ', answer_source: 'local_minimax' });
+    expect(() => applyAiChatPushPolicy([r], CLAIMED, ctx())).toThrow('ai_chat_not_pending');
+  });
+
+  it('чужую claim-строку не трогают', () => {
+    const map = new Map([['q1', existing({ userId: 'other-user', status: 'processing' })]]);
+    expect(() => applyAiChatPushPolicy([row()], map, ctx())).toThrow('ai_chat_owner');
+  });
+
+  it('уже отвеченную сервером строку локальный ответ не перебивает', () => {
+    const map = new Map([['q1', existing({ status: 'answered', answerText: 'ответ сервера' })]]);
+    expect(() =>
+      applyAiChatPushPolicy([row({ status: 'answered', answer_text: 'локальный', answer_source: 'local_minimax' })], map, ctx()),
+    ).toThrow('ai_chat_not_pending');
+  });
+});

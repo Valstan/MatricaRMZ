@@ -14,9 +14,16 @@ const BASE = {
 };
 
 describe('aiChatRequestRowSchema.answer_source', () => {
-  it('знает два звена серверной цепочки', () => {
+  it('знает серверные звена цепочки', () => {
     expect(aiChatRequestRowSchema.parse({ ...BASE, answer_source: 'engine' }).answer_source).toBe('engine');
     expect(aiChatRequestRowSchema.parse({ ...BASE, answer_source: 'deepseek' }).answer_source).toBe('deepseek');
+  });
+
+  // С 22.11.2026 ответ может посчитать компьютер оператора (D-243/D-244): локальный
+  // MiniMax или резервный DeepSeek с машины. Значения едут в том же поле.
+  it('знает клиентские звена (локальный MiniMax и резерв с машины)', () => {
+    expect(aiChatRequestRowSchema.parse({ ...BASE, answer_source: 'local_minimax' }).answer_source).toBe('local_minimax');
+    expect(aiChatRequestRowSchema.parse({ ...BASE, answer_source: 'deepseek_client' }).answer_source).toBe('deepseek_client');
   });
 
   it('старые строки и эскалации — null/без поля', () => {
@@ -29,5 +36,6 @@ describe('aiChatRequestRowSchema.answer_source', () => {
   it('прочие значения отвергаются', () => {
     expect(() => aiChatRequestRowSchema.parse({ ...BASE, answer_source: 'local' })).toThrow();
     expect(() => aiChatRequestRowSchema.parse({ ...BASE, answer_source: 'engine ' })).toThrow();
+    expect(() => aiChatRequestRowSchema.parse({ ...BASE, answer_source: 'minimax_prod' })).toThrow();
   });
 });

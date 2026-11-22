@@ -11,13 +11,14 @@ import {
   aiChatSetVerdict,
   aiChatUpdate,
 } from '../../services/aiChatService.js';
+import { localLinkStatus, runLocalAnswer } from '../../services/localMiniMaxService.js';
 
 const writeError = { ok: false as const, error: 'AI-чат недоступен в режиме просмотра бэкапа' };
 
 /**
- * Ииваныч считает только сервер (решение владельца 23.10.2026): локального движка на
- * клиенте нет, поэтому режимов и диагностики движка здесь тоже нет — вопрос всегда
- * уходит на прод, ответ приезжает синком.
+ * ИИваныч считает локально, когда этот компьютер умеет (D-243/D-244): модуль MiniMax
+ * на машине оператора берёт аккаунт у «Кармана» и отвечает молча. Не умеет — считает
+ * сервер, как раньше.
  */
 export function registerAiChatIpc(ctx: IpcContext) {
   ipcMain.handle('aiChat:list', async () => {
@@ -31,9 +32,22 @@ export function registerAiChatIpc(ctx: IpcContext) {
     if (args?.filePath && !consumeIssuedPath(args.filePath)) {
       return { ok: false as const, error: 'путь не из диалога выбора файлов' };
     }
-    const res = await aiChatCreate(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), args);
+    // Claim локального звена: пока этот компьютер держит вопрос, серверный воркер
+    // его не берёт — иначе ответили бы оба, а платный DeepSeek сгорел бы впустую.
+    const status = localLinkStatus();
+    const claimLocal = status.configured && status.state !== 'no_accounts' && status.state !== 'broken';
+    const res = await aiChatCreate(ctx.dataDb(), ctx.mgr.getApiBaseUrl(), { ...args, claimLocal });
     // Сервер отвечает сразу, как получит вопрос — не ждём очередного тика синка.
     if (res.ok) void ctx.mgr.runOnce().catch(() => undefined);
+    if (res.ok && claimLocal) {
+      const questionText = String(args?.questionText ?? '');
+      void runLocalAnswer({
+        db: ctx.dataDb(),
+        id: res.id,
+        questionText,
+        runSync: () => void ctx.mgr.runOnce().catch(() => undefined),
+      });
+    }
     return res;
   });
 
@@ -54,5 +68,10 @@ export function registerAiChatIpc(ctx: IpcContext) {
 
   ipcMain.handle('aiChat:meta', async () => {
     return await aiChatMeta(ctx.sysDb, ctx.mgr.getApiBaseUrl());
+  });
+
+  /** Состояние локального звена: панель показывает, кто считает — этот компьютер или сервер. */
+  ipcMain.handle('aiChat:localStatus', async () => {
+    return { ok: true as const, status: localLinkStatus() };
   });
 }

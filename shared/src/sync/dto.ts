@@ -160,10 +160,12 @@ export const aiChatRequestRowSchema = z.object({
   answered_at: z.number().int().nullable().optional(),
   escalation_note: z.string().nullable().optional(),
   verdict_text: z.string().nullable().optional(), // вердикт суперадмина по эскалации
-  // Какое звено серверной цепочки посчитало ответ: `engine` — движок завода,
-  // `deepseek` — последнее звено. Поле серверное: клиент его не пишет (push-гейт
-  // затирает), клиенту оно нужно только для показа источника ответа.
-  answer_source: z.enum(['engine', 'deepseek']).nullable().optional(),
+  // Какое звено цепочки посчитало ответ: `engine` — движок завода на проде,
+  // `deepseek` — платный DeepSeek на проде, `local_minimax` — локальный MiniMax
+  // на машине оператора, `deepseek_client` — DeepSeek с машины оператора.
+  // Серверные значения клиент не пишет (push-гейт затирает); клиентские пишет
+  // только автор своего вопроса — гейт допускает их отдельной веткой.
+  answer_source: z.enum(['engine', 'deepseek', 'local_minimax', 'deepseek_client']).nullable().optional(),
 });
 
 // B3/R3 — аккаунты и доступы по разделам.
