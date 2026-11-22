@@ -417,30 +417,62 @@ body {
   font-size: 15px;
 }
 
-/* ── Планшет: горизонтальный скролл списков ─────────────────────────────────
-   На планшете колонки часто шире экрана. Каждая страница оборачивает <table> в
-   <div style="overflow:clip"> — этот clip-барьер мешает и скроллу, и расширению
-   div'а до ширины таблицы. :has(> table.list-table) точечно снимает clip и даёт
-   обёртке расти (width:max-content) — тогда родительский контейнер с overflow:auto
-   показывает горизонтальную полосу прокрутки.
-   Pinch-zoom из MainActivity.java даёт общий масштаб; скролл — доступ к крайним
-   колонкам без уменьшения всего интерфейса. */
+/* ── Планшет: данные перестраиваются под экран ──────────────────────────────
+   Раньше планшетное правило уводило широкие таблицы в горизонтальную прокрутку:
+   div:has(> table.list-table){width:max-content} + .list-table-wrap{overflow-x:auto}
+   — то есть «не влезает» = «прокрутка вбок» (промт КАРМАНА #70, п.2: «все данные
+   желательно перестраивать под экран планшета, потому что они уходят за край»).
+   Теперь таблица занимает ширину экрана, а хук useAdaptiveListTables считает
+   ширины колонок и говорит CSS, какие колонки свернуть (data-list-fit-hide).
+   Горизонтальная прокрутка остаётся запасным путём — для таблиц с фиксированными
+   колонками (colgroup в px), которые перестроить нельзя. */
 :root[data-ui-mode='tablet'] div:has(> table.list-table) {
-  width: max-content !important;
+  width: 100% !important;
   min-width: 100% !important;
   overflow: visible !important;
 }
 :root[data-ui-mode='tablet'] .list-table-wrap {
-  width: max-content !important;
+  width: 100% !important;
   min-width: 100% !important;
   overflow-x: auto !important;
   -webkit-overflow-scrolling: touch;
+}
+/* Свёрнутые под ширину экрана колонки. Правило живёт в стилях, а не в разметке:
+   колонка скрыта и у виртуализированных строк, которые перерисовываются на ходу.
+   Ячейка на всю ширину (colspan — полка редактора) не прячется: это не колонка. */
+:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="1"] tr > :nth-child(1):not([colspan]),
+:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="2"] tr > :nth-child(2):not([colspan]),
+:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="3"] tr > :nth-child(3):not([colspan]),
+:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="4"] tr > :nth-child(4):not([colspan]),
+:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="5"] tr > :nth-child(5):not([colspan]),
+:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="6"] tr > :nth-child(6):not([colspan]),
+:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="7"] tr > :nth-child(7):not([colspan]),
+:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="8"] tr > :nth-child(8):not([colspan]),
+:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="9"] tr > :nth-child(9):not([colspan]),
+:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="10"] tr > :nth-child(10):not([colspan]),
+:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="11"] tr > :nth-child(11):not([colspan]),
+:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="12"] tr > :nth-child(12):not([colspan]),
+:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="13"] tr > :nth-child(13):not([colspan]),
+:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="14"] tr > :nth-child(14):not([colspan]),
+:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="15"] tr > :nth-child(15):not([colspan]),
+:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="16"] tr > :nth-child(16):not([colspan]),
+:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="17"] tr > :nth-child(17):not([colspan]),
+:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="18"] tr > :nth-child(18):not([colspan]),
+:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="19"] tr > :nth-child(19):not([colspan]),
+:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="20"] tr > :nth-child(20):not([colspan]) {
+  display: none;
 }
 
 /* ── Планшет: одноэтажные шапки колонок ─────────────────────────────────────
    Шапки не переносятся, обрезаются «…», шрифт мельче. Заголовок остаётся
    читаемым через title (listHeaderKindProps на narrow-колонках) и через hover.
    padding снижен — высота шапки минимальна, больше места строкам данных. */
+:root[data-ui-mode='tablet'] table.list-table th,
+:root[data-ui-mode='tablet'] table.list-table td {
+  /* Ячейка обязана уметь стать уже своего содержимого — иначе потолок ширины
+     (--ui-list-col-N-max-ch) не действует и таблица всё равно уезжает за край. */
+  min-width: 0;
+}
 :root[data-ui-mode='tablet'] table.list-table th {
   white-space: nowrap;
   overflow: hidden;

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 
 import { perfTrace } from '../utils/perfTrace.js';
+import { planTabletFit, type FitColumn, type FitColumnKind } from '../utils/tabletListFit.js';
 import {
   RECALC_DELAY_MS,
   SCROLL_QUIET_MS,
@@ -45,6 +46,46 @@ function isSingleListMode() {
   }
 }
 
+/**
+ * Планшетный режим (data-ui-mode='tablet' на :root, ставит App.tsx). Тот же
+ * признак, по которому global.css перестраивает списки, — чтобы вёрстка и
+ * раскладка колонок решали одно и то же.
+ */
+function isTabletLayout(): boolean {
+  return document?.documentElement?.dataset?.uiMode === 'tablet';
+}
+
+let chMeasureCtx: CanvasRenderingContext2D | null = null;
+
+/**
+ * Ширина цифры «0» шрифтом таблицы — это и есть «ch» в CSS. Меряем canvas'ом:
+ * `ch` из вычисленных стилей различается от реальной ширины глифа, а бюджет
+ * экрана должен считаться в тех же единицах, что и `--ui-list-col-N-max-ch`.
+ */
+function measureChPx(table: HTMLTableElement): number {
+  const cs = getComputedStyle(table);
+  const fontSize = Number.parseFloat(cs.fontSize) || 14;
+  try {
+    chMeasureCtx = chMeasureCtx ?? document.createElement('canvas').getContext('2d');
+    if (chMeasureCtx) {
+      chMeasureCtx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      const w = chMeasureCtx.measureText('0').width;
+      if (w > 0) return w;
+    }
+  } catch {
+    // ignore — падаем на грубую оценку
+  }
+  return Math.max(4, fontSize * 0.5);
+}
+
+function columnKindOf(headerCell: Element | undefined): FitColumnKind {
+  const kind = headerCell?.getAttribute('data-col-kind');
+  if (kind === 'flag' || kind === 'num' || kind === 'date' || kind === 'name' || kind === 'text' || kind === 'thumbs' || kind === 'rownum') {
+    return kind;
+  }
+  return 'other';
+}
+
 function isMostlyNumeric(value: string) {
   const text = normalizeText(value);
   if (!text) return false;
@@ -57,6 +98,7 @@ function isMostlyNumeric(value: string) {
 function recalcAdaptiveTableColumns() {
   const root = document.documentElement;
   const singleMode = isSingleListMode();
+  const tabletLayout = isTabletLayout();
   const textMaxCh = clamp(readNumberCssVar(root, '--ui-list-text-max-ch', 100), 24, 100);
   const modeAttr = singleMode ? 'single' : 'multi';
   if (root.dataset.uiListColumnsMode !== modeAttr) root.dataset.uiListColumnsMode = modeAttr;
@@ -76,7 +118,29 @@ function recalcAdaptiveTableColumns() {
     // двадцать переменных снимались и ставились заново на каждый пересчёт, а каждая такая
     // запись гасит раскладку таблицы целиком.
     const plannedMaxCh = new Map<number, string>();
-    if (!singleMode) recalcTableColumnPlan(table, textMaxCh, plannedMaxCh);
+    const fitColumns: FitColumn[] = [];
+    // Планшет: ширины считаются и в режиме 'single' — там ширины не считались
+    // вовсе, и таблица не знала своей ширины: она уезжала за край экрана
+    // (промт КАРМАНА #70, п.2). На десктопе режим 'single' не трогаем.
+    if (!singleMode || tabletLayout) recalcTableColumnPlan(table, textMaxCh, plannedMaxCh, fitColumns);
+
+    if (tabletLayout) {
+      // Доступная ширина — по обёртке: на планшете она растянута на всю панель
+      // (global.css), поэтому clientWidth — это ширина экрана для списка.
+      const availablePx = wrapper?.clientWidth ?? 0;
+      const chPx = measureChPx(table);
+      const plan = planTabletFit(fitColumns, availablePx > 0 && chPx > 0 ? availablePx / chPx : 0);
+      for (let col = 1; col <= 20; col += 1) {
+        const width = plan.widthsCh[col];
+        plannedMaxCh.set(col, width ? String(width) : '');
+      }
+      // Свёрнутые колонки прячет CSS по номеру (data-list-fit-hide): правило живёт
+      // в стилях, а не в разметке, — поэтому работает и с виртуализированными
+      // строками, которые перерисовываются на ходу.
+      if (plan.collapsed.length > 0) table.setAttribute('data-list-fit-hide', plan.collapsed.join(' '));
+      else table.removeAttribute('data-list-fit-hide');
+    }
+
     for (let col = 1; col <= 20; col += 1) {
       const varName = `--ui-list-col-${col}-max-ch`;
       const next = plannedMaxCh.get(col) ?? '';
@@ -87,7 +151,12 @@ function recalcAdaptiveTableColumns() {
   }
 }
 
-function recalcTableColumnPlan(table: HTMLTableElement, textMaxCh: number, plannedMaxCh: Map<number, string>) {
+function recalcTableColumnPlan(
+  table: HTMLTableElement,
+  textMaxCh: number,
+  plannedMaxCh: Map<number, string>,
+  fitColumns: FitColumn[],
+) {
   const headerCells = Array.from(table.querySelectorAll('thead th'));
   const bodyRows = Array.from(table.querySelectorAll('tbody tr')).slice(0, 240) as HTMLTableRowElement[];
   // Ячейки и их нормализованный текст — по одному разу на строку. Прежде на каждую ячейку
@@ -104,8 +173,13 @@ function recalcTableColumnPlan(table: HTMLTableElement, textMaxCh: number, plann
 
   for (let col = 0; col < colCount; col += 1) {
     // Колонка «№» (data-col-kind="rownum") сама схлопывается CSS; замер ей только вредит
-    // (получила бы --ui-list-col-1-max-ch «имени» и title на каждой ячейке).
-    if (headerCells[col]?.getAttribute('data-col-kind') === 'rownum') continue;
+    // (получила бы --ui-list-col-1-max-ch «имени» и title на каждой ячейке). В план
+    // укладки она входит: свернуть служебную «№» нельзя.
+    const kind = columnKindOf(headerCells[col]);
+    if (headerCells[col]?.getAttribute('data-col-kind') === 'rownum') {
+      fitColumns.push({ index: col + 1, kind: 'rownum', contentCh: 4 });
+      continue;
+    }
     const headerText = normalizeText(headerCells[col]?.textContent ?? '');
     const lengths: number[] = [];
     let numericVotes = 0;
@@ -139,7 +213,12 @@ function recalcTableColumnPlan(table: HTMLTableElement, textMaxCh: number, plann
       else textVotes += 1;
     }
 
-    if (lengths.length === 0) continue;
+    if (lengths.length === 0) {
+      // Пустая колонка (в видимых строках данных нет) — узкая, но место в бюджете
+      // экрана она занимает: без неё план посчитал бы ширину неверно.
+      fitColumns.push({ index: col + 1, kind, contentCh: 8 });
+      continue;
+    }
     const sorted = lengths.slice().sort((a, b) => a - b);
     // Quantile-based sizing keeps the majority width and ignores rare long outliers.
     const p65 = quantile(sorted, 0.65);
@@ -154,6 +233,7 @@ function recalcTableColumnPlan(table: HTMLTableElement, textMaxCh: number, plann
     if (hasInteractiveContent) maxCh = Math.max(maxCh, 22);
 
     plannedMaxCh.set(col + 1, String(maxCh));
+    fitColumns.push({ index: col + 1, kind, contentCh: maxCh });
 
     // Заголовок теперь всегда однострочный, поэтому подсказка на нём нужна не «иногда»,
     // а всегда, когда подпись длиннее колонки: иначе обрезанное имя нечем прочитать.
