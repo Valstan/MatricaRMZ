@@ -11,14 +11,18 @@ import {
   parseContractSections,
   productionProgramContractLabel,
   productionProgramEngineHint,
+  productionProgramEngineIndex,
   productionProgramEngineStage,
   productionProgramExecutionSummary,
+  productionProgramMergeRows,
   productionProgramOrganizationLabel,
+  productionProgramPendingCandidates,
   productionProgramPeriodKind,
   productionProgramGroupKey,
   productionProgramMoveGroup,
   productionProgramMoveRowWithinGroup,
   productionProgramNumbering,
+  productionProgramResolvePendingRows,
   productionProgramRowFromEngine,
   productionProgramRowTone,
   productionProgramStageOptions,
@@ -34,8 +38,14 @@ import {
 } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
+import { ListContextMenu, type ListContextMenuItem } from '../components/ListContextMenu.js';
 import { MailSendButton } from '../components/MailSendButton.js';
+import { MailComposeDialog } from '../components/MailComposeDialog.js';
 import { PageToolbar } from '../components/PageToolbar.js';
+import {
+  ProductionProgramAddEnginesByNumbersDialog,
+  type ProductionProgramAddByNumbersResult,
+} from '../components/ProductionProgramAddEnginesByNumbersDialog.js';
 import {
   ProductionProgramStageDialog,
   type ProductionProgramStageSubmitArgs,
@@ -46,7 +56,9 @@ import { SearchSelect } from '../components/SearchSelect.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { UnifiedDateInput } from '../components/UnifiedDateInput.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
+import { useListSelection } from '../hooks/useListSelection.js';
 import { listToText } from '../utils/mailText.js';
+import { buildRowsText, copyRowsToClipboard, printRowsPreview, type ListContextColumn } from '../utils/listContextActions.js';
 import {
   buildProductionProgramClipboardText,
   buildProductionProgramExportSpec,
@@ -89,6 +101,13 @@ type Props = {
    * читается, но не меняется.
    */
   canEditStages: boolean;
+  /**
+   * Открыть карточку двигателя из строки плана (промт КАРМАНА #64).
+   *
+   * Без этой двери номер двигателя в плане — просто текст: оператор должен был
+   * искать карточку в списке двигателей вручную.
+   */
+  onOpenEngine?: (engineId: string) => void;
 };
 
 /**
@@ -189,6 +208,13 @@ function parseIsoDate(value: string): number | null {
   return Number.isFinite(ts) ? ts : null;
 }
 
+/** Подпись состояния строки плана (в печати, копии и письме — одна и та же). */
+function programStateLabel(state: string | null | undefined): string {
+  const key = String(state ?? '').trim();
+  if (!key) return '';
+  return PRODUCTION_PROGRAM_STATE_LABELS[key as keyof typeof PRODUCTION_PROGRAM_STATE_LABELS] ?? key;
+}
+
 export function ProductionProgramPage(props: Props) {
   const [programs, setPrograms] = useState<ProductionProgramDto[]>([]);
   const [lines, setLines] = useState<ProductionProgramLineDto[]>([]);
@@ -227,6 +253,14 @@ export function ProductionProgramPage(props: Props) {
   } | null>(null);
   /** Строка, которой сейчас пишется этап (её выборку нельзя дёргать повторно). */
   const [stageBusyRowId, setStageBusyRowId] = useState<string | null>(null);
+  /** Модалка «Добавить двигатели списком» открыта? (промт КАРМАНА #64) */
+  const [addByNumbersOpen, setAddByNumbersOpen] = useState(false);
+  /** ПКМ-меню строк плана: где открыто и какие строки в выделении. */
+  const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
+  /** Письмо по выделенным строкам — окно письма (контекстное меню, пункт «почта»). */
+  const [mailSelection, setMailSelection] = useState<{ subject: string; summary: string[]; body: string } | null>(null);
+  /** Вид договора по его id — кэш на сессию: перепроверка спрашивает его каждый проход. */
+  const contractKindCacheRef = useRef<Map<string, 'military' | 'civil' | null>>(new Map());
 
   // ── Правка плана: грязный экран, автосохранение и защита от отстающего зеркала ──
   // Баг владельца 19.11.2026: двигатель, добавленный в производственную программу,
@@ -1011,7 +1045,7 @@ export function ProductionProgramPage(props: Props) {
   }
 
   /** Вид договора (военный/гражданский) — из его секций; нужен для подсказки состояния. */
-  async function contractKindOf(contractId: string): Promise<'military' | 'civil' | null> {
+  const contractKindOf = useCallback(async (contractId: string): Promise<'military' | 'civil' | null> => {
     try {
       const res = await window.matrica.contracts.contract.get(contractId);
       if (!res.ok || !res.row) return null;
@@ -1025,7 +1059,7 @@ export function ProductionProgramPage(props: Props) {
     } catch {
       return null;
     }
-  }
+  }, []);
 
   async function addEngine() {
     if (!pickerEngine) return;
@@ -1056,6 +1090,320 @@ export function ProductionProgramPage(props: Props) {
     applyRows((prev) => [...prev, newRow], selectedId);
     setPickerEngine('');
   }
+
+  /**
+   * Перепроверка блока «Требует данных» (промт КАРМАНА #64, ответы владельца #66).
+   *
+   * Строки без договора ищут свою карточку и, когда у карточки появился договор с
+   * контрагентом, уезжают в группу своего договора: меняются `contractId` и
+   * `groupLabel`, а ключ группы считается из них — строка меняет группу сама.
+   *
+   * Проход ОДИН и тот же для кнопки «Перепроверить» и для автопроверки при
+   * открытии программы. Запись — только при РЕАЛЬНОМ изменении: иначе каждое
+   * открытие писало бы в сервер и могло перебить правку оператора (канон #1240).
+   */
+  const recheckPending = useCallback(
+    async (opts?: { manual?: boolean }) => {
+      const programId = selectedId;
+      if (!programId || !props.canEdit) return;
+      const current = rowsRef.current;
+      if (current.length === 0) return;
+      const index = productionProgramEngineIndex(props.engines);
+      const candidates = productionProgramPendingCandidates(current, index);
+      if (candidates.length === 0) {
+        if (opts?.manual) setStatus('Перепроверка: строк, требующих данных, нет.');
+        return;
+      }
+      // Вид договора нужен для переезда — он лежит в строгой реплике, а не в карточке.
+      const kinds = new Map<string, 'military' | 'civil' | null>();
+      const contractIds = [
+        ...new Set(candidates.map((c) => String(c.engine?.contractId ?? '')).filter(Boolean)),
+      ];
+      for (const id of contractIds) {
+        if (!contractKindCacheRef.current.has(id)) {
+          contractKindCacheRef.current.set(id, await contractKindOf(id));
+        }
+        kinds.set(id, contractKindCacheRef.current.get(id) ?? null);
+      }
+      const result = productionProgramResolvePendingRows({
+        rows: current,
+        index,
+        contractLabelOf: (engine) => contractLabelById.get(String(engine.contractId ?? '')) ?? '',
+        contractKindOf: (contractId) => kinds.get(contractId) ?? null,
+      });
+      if (!result.changed) {
+        if (opts?.manual) setStatus('Перепроверка: все строки на своих местах.');
+        return;
+      }
+      applyRows(() => result.rows, programId);
+      setStatus(
+        result.moved > 0
+          ? `Перепроверка: ${result.moved} строк перешло в свои договоры, ${result.unresolved} ждут данных.`
+          : `Перепроверка: обновлено строк, ${result.unresolved} ждут данных.`,
+      );
+    },
+    [applyRows, contractKindOf, contractLabelById, props.canEdit, props.engines, selectedId],
+  );
+
+  /**
+   * Автоперепроверка при открытии программы (и при обновлении каталога двигателей):
+   * карточка могла получить договор уже после того, как программу открыли.
+   *
+   * Пока правка не уехала — не трогаем (иначе перепроверка затирала бы правку
+   * оператора, ровно тот класс, что «двигатель пропадал через 15 секунд»).
+   */
+  useEffect(() => {
+    if (!selectedId) return;
+    if (unsavedRef.current.has(selectedId)) return;
+    void recheckPending();
+  }, [selectedId, lines, props.engines, recheckPending]);
+
+  /**
+   * Добавление двигателей списком (промт КАРМАНА #64).
+   *
+   * Строки от модалки ложатся поверх СЕРВЕРНЫХ строк плана: реплика отстаёт на
+   * минуту, а набор заменяется целиком — без чтения с сервера запись снесла бы
+   * строку, добавленную другим оператором. Своя правка при этом главнее.
+   */
+  const addRowsByNumbers = useCallback(
+    (result: ProductionProgramAddByNumbersResult) => {
+      const programId = selectedId;
+      if (!programId) return;
+      const serverDrafts: DraftRow[] = result.serverRows.map((l) => ({
+        id: String(l.id),
+        orderNo: Number(l.orderNo),
+        contractId: l.contractId ?? null,
+        groupLabel: l.groupLabel,
+        contractKind: l.contractKind ?? null,
+        engineId: l.engineId ?? null,
+        engineMark: l.engineMark ?? '',
+        engineNumber: l.engineNumber ?? '',
+        state: l.state ?? null,
+        shippingPlanAt: l.shippingPlanAt ?? null,
+        factors: l.factors ?? '',
+        note: l.note ?? '',
+        operatorNote: l.operatorNote ?? null,
+      }));
+      const added: DraftRow[] = result.rows.map((r) => ({
+        ...r,
+        id: String(r.id),
+        operatorNote: null,
+      }));
+      applyRows(
+        (prev) => [...productionProgramMergeRows({ server: serverDrafts, local: prev }), ...added],
+        programId,
+      );
+      const skipped =
+        result.skipped.length > 0
+          ? ` Пропущено: ${result.skipped.map((s) => `${s.label} — ${s.reason}`).join('; ')}.`
+          : '';
+      setStatus(`Добавлено двигателей: ${result.added}.${skipped}`);
+    },
+    [applyRows, selectedId],
+  );
+
+  /**
+   * Убрать строки из плана.
+   *
+   * Снятые НАМИ строки запоминаются: пока зеркало их не отпустило, оно считается
+   * старым и не перетирает наш вид (иначе снятая строка воскресла бы).
+   */
+  const removeRows = useCallback(
+    (ids: string[]) => {
+      const programId = selectedId;
+      if (!programId || ids.length === 0) return;
+      const pending = pendingSyncRef.current.get(programId) ?? { sent: [], removedIds: [] };
+      pendingSyncRef.current.set(programId, {
+        ...pending,
+        removedIds: [...new Set([...pending.removedIds, ...ids])],
+      });
+      applyRows((prev) => prev.filter((x) => !ids.includes(String(x.id))), programId);
+      setStatus(`Убрано строк из программы: ${ids.length}.`);
+    },
+    [applyRows, selectedId],
+  );
+
+  /**
+   * Выделение строк плана: свой набор (не путать с выделением в списке двигателей) —
+   * ключ свой, иначе выделение пережило бы переход между списками.
+   */
+  const selection = useListSelection(
+    rows.map((r) => String(r.id)),
+    { persistKey: 'list:production-program:selection' },
+  );
+
+  /** Отметка всех строк плана: снять, если отмечены уже все. */
+  const allRowsSelected = rows.length > 0 && rows.every((r) => selection.isSelected(String(r.id)));
+  const someRowsSelected = rows.some((r) => selection.isSelected(String(r.id)));
+  const toggleAllRows = () => {
+    if (allRowsSelected) {
+      selection.clearSelection();
+      return;
+    }
+    for (const r of rows) {
+      if (!selection.isSelected(String(r.id))) selection.toggleSelect(String(r.id));
+    }
+  };
+
+  /** Строки плана по id — для меню и печати выделения. */
+  const screenRowById = useMemo(() => {
+    const map = new Map<string, ScreenRow>();
+    for (const group of groups) {
+      for (const item of group.items) map.set(String(item.row.id), item);
+    }
+    return map;
+  }, [groups]);
+
+  /** Колонки для печати и копии ВЫДЕЛЕННЫХ строк — те же, что в печатной форме плана. */
+  const selectionColumns = useMemo<ListContextColumn<ScreenRow>[]>(
+    () => [
+      { title: '№ п/п', value: (r) => String(numbering.get(String(r.row.id))?.global ?? '') },
+      { title: 'Организация, договор', value: (r) => r.organization || '—' },
+      {
+        title: 'Двигатель',
+        value: (r) =>
+          [r.engine?.engineBrand || r.row.engineMark, r.engine?.engineNumber || r.row.engineNumber]
+            .filter(Boolean)
+            .join(' '),
+      },
+      { title: 'Этап', value: (r) => productionProgramEngineStage(r.engine)?.label ?? '' },
+      { title: 'Состояние', value: (r) => programStateLabel(r.row.state) },
+      { title: 'Примечание', value: (r) => r.row.note ?? '' },
+    ],
+    [numbering],
+  );
+
+  const printSelectedRows = useCallback(
+    (items: ScreenRow[]) => {
+      printRowsPreview({
+        title: selected?.title ?? 'Производственная программа',
+        sectionTitle: 'Строки производственной программы',
+        rows: items,
+        columns: selectionColumns,
+      });
+    },
+    [selected?.title, selectionColumns],
+  );
+
+  const copySelectedRows = useCallback(
+    async (items: ScreenRow[]) => {
+      try {
+        await copyRowsToClipboard(items, selectionColumns);
+        setError('');
+        setStatus(`Скопировано строк: ${items.length}`);
+      } catch {
+        setStatus('');
+        setError('Не удалось скопировать в буфер обмена');
+      }
+    },
+    [selectionColumns],
+  );
+
+  /** Письмо по выделенным строкам: текст письма — те же колонки, что печать и копия. */
+  const mailSelectedRows = useCallback(
+    (items: ScreenRow[]) => {
+      setMailSelection({
+        subject: `${selected?.title ?? 'Производственная программа'} — выделенные строки`,
+        summary: [
+          selected?.title ?? '',
+          selected
+            ? formatProductionProgramPeriod({ start: selected.periodStart, end: selected.periodEnd })
+            : '',
+          `строк: ${items.length}`,
+          selected?.shop ?? '',
+        ].filter(Boolean),
+        body: buildRowsText(items, selectionColumns),
+      });
+    },
+    [selected, selectionColumns],
+  );
+
+  const menuRows = useMemo<ScreenRow[]>(
+    () =>
+      menu
+        ? menu.targetIds
+            .map((id) => screenRowById.get(String(id)))
+            .filter((row): row is ScreenRow => Boolean(row))
+        : [],
+    [menu, screenRowById],
+  );
+
+  /**
+   * Меню строк плана (ПКМ): печать, копия, почта — по выделению; для одной строки
+   * — ещё переход в карточку; для пачки — убрать из программы (по праву ведения
+   * плана). В общем ките «почты» нет, а «Удалить» завязан на отдельный `onDelete`
+   * — поэтому меню ПП собираем своё.
+   */
+  const canEdit = props.canEdit;
+  const onOpenEngine = props.onOpenEngine;
+  const menuItems = useMemo<ListContextMenuItem[]>(() => {
+    if (!menu || menuRows.length === 0) return [];
+    const items: ListContextMenuItem[] = [];
+    const count = menuRows.length;
+    if (menu.bulk) {
+      items.push({
+        id: 'pp-print-selected',
+        label: `Распечатать выделенные (${count})`,
+        onClick: () => printSelectedRows(menuRows),
+      });
+      items.push({
+        id: 'pp-copy-selected',
+        label: `Скопировать выделенные (${count})`,
+        onClick: () => void copySelectedRows(menuRows),
+      });
+      items.push({
+        id: 'pp-mail-selected',
+        label: `Отправить почтой (${count})`,
+        onClick: () => mailSelectedRows(menuRows),
+      });
+      if (canEdit) {
+        items.push({
+          id: 'pp-remove-selected',
+          label: `Убрать из программы (${count})`,
+          danger: true,
+          onClick: () => removeRows(menuRows.map((r) => String(r.row.id))),
+        });
+      }
+      items.push({
+        id: 'pp-clear-selection',
+        label: 'Снять выделение',
+        onClick: () => selection.clearSelection(),
+      });
+      return items;
+    }
+    const row = menuRows[0]!;
+    const engineId = String(row.engine?.id ?? '');
+    items.push({
+      id: 'pp-open-engine',
+      label: 'Открыть карточку',
+      disabled: !engineId,
+      onClick: () => {
+        if (engineId) onOpenEngine?.(engineId);
+      },
+    });
+    items.push({ id: 'pp-print-row', label: 'Распечатать', onClick: () => printSelectedRows([row]) });
+    items.push({ id: 'pp-copy-row', label: 'Скопировать', onClick: () => void copySelectedRows([row]) });
+    items.push({ id: 'pp-mail-row', label: 'Отправить почтой', onClick: () => mailSelectedRows([row]) });
+    if (canEdit) {
+      items.push({
+        id: 'pp-remove-row',
+        label: 'Убрать из программы',
+        danger: true,
+        onClick: () => removeRows([String(row.row.id)]),
+      });
+    }
+    return items;
+  }, [
+    canEdit,
+    copySelectedRows,
+    mailSelectedRows,
+    menu,
+    menuRows,
+    onOpenEngine,
+    printSelectedRows,
+    removeRows,
+    selection,
+  ]);
 
   /**
    * Модель печати плана: строки, карточки двигателей и подписи.
@@ -1268,6 +1616,18 @@ export function ProductionProgramPage(props: Props) {
                 <Button onClick={() => void saveProgram()} disabled={busy || !props.canEdit} data-pp-action="save">
                   Сохранить
                 </Button>
+                {/* Перепроверка блока «Требует данных»: строки без договора ищут
+                    свою карточку и уезжают в свой договор, когда он появился
+                    (промт КАРМАНА #64, ответы владельца #66). */}
+                <Button
+                  variant="ghost"
+                  onClick={() => void recheckPending({ manual: true })}
+                  disabled={!props.canEdit || rows.length === 0}
+                  title="Перепроверить строки, ждущие данных: они уедут в свои договоры"
+                  data-pp-action="recheck"
+                >
+                  Перепроверить
+                </Button>
                 <Button variant="ghost" onClick={openPrintPreview} data-pp-action="print">
                   Печать
                 </Button>
@@ -1433,9 +1793,21 @@ export function ProductionProgramPage(props: Props) {
                       }}
                     />,
                   )}
-                  <Button onClick={() => void addEngine()} disabled={!pickerEngine}>
-                    Добавить в план
-                  </Button>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <Button onClick={() => void addEngine()} disabled={!pickerEngine}>
+                      Добавить в план
+                    </Button>
+                    {/* Вариант «списком»: оператор вставляет номера и видит по
+                        каждому, что с ним (промт КАРМАНА #64). */}
+                    <Button
+                      variant="ghost"
+                      onClick={() => setAddByNumbersOpen(true)}
+                      data-pp-action="add-by-numbers"
+                      title="Добавить двигатели списком номеров — по каждому видна проблема"
+                    >
+                      Добавить списком
+                    </Button>
+                  </div>
                   {hint ? (
                     <div style={{ fontSize: 12, color: 'var(--subtle)', gridColumn: '1 / -1' }}>{hint.text}</div>
                   ) : null}
@@ -1447,10 +1819,25 @@ export function ProductionProgramPage(props: Props) {
               {/* Без своей горизонтальной прокрутки: вложенный скролл-контейнер
                   перехватывает sticky-шапку, и она уезжает вместе с таблицей. Широкая
                   таблица доезжает прокруткой бокса карточки. */}
-              <div style={{ overflow: 'visible' }}>
+              <div style={{ overflow: 'visible' }} data-list-root="true">
                 <table className="list-table" style={{ width: '100%' }}>
                   <thead>
                     <tr>
+                      {/* Отметка строк: множественный выбор и контекстное меню по
+                          выделению (печать, копия, почта). */}
+                      <th style={{ width: 32 }}>
+                        <input
+                          type="checkbox"
+                          checked={allRowsSelected}
+                          ref={(el) => {
+                            if (el) el.indeterminate = !allRowsSelected && someRowsSelected;
+                          }}
+                          onChange={() => toggleAllRows()}
+                          aria-label="Выделить все строки плана"
+                          title={allRowsSelected ? 'Снять выделение со всех' : 'Выделить все'}
+                          style={{ cursor: 'pointer', margin: 0 }}
+                        />
+                      </th>
                       <th />
                       <th title="Сквозной номер по программе">№ п/п</th>
                       <th title="Номер двигателя внутри своего договора">№ в договоре</th>
@@ -1468,7 +1855,7 @@ export function ProductionProgramPage(props: Props) {
                   <tbody>
                     {groups.length === 0 ? (
                       <tr>
-                        <td colSpan={props.canEdit ? 9 : 8} className="ui-muted">
+                        <td colSpan={props.canEdit ? 10 : 9} className="ui-muted">
                           Строк в плане нет
                         </td>
                       </tr>
@@ -1490,7 +1877,7 @@ export function ProductionProgramPage(props: Props) {
                             }}
                           >
                             <td
-                              colSpan={props.canEdit ? 9 : 8}
+                              colSpan={props.canEdit ? 10 : 9}
                               style={{ fontWeight: 700, padding: '4px 6px', whiteSpace: 'normal' }}
                             >
                               <span
@@ -1518,6 +1905,15 @@ export function ProductionProgramPage(props: Props) {
                             // а ручная отметка оператора сильнее факта.
                             const tone = productionProgramRowTone(engine, r.operatorNote);
                             const num = numbering.get(r.id);
+                            const isSelected = selection.isSelected(String(r.id));
+                            // Марка и номер — по тому же правилу, что печать и выгрузка
+                            // (живая карточка, снимок строки — запасной вариант).
+                            const engineCellLabel = [
+                              engine?.engineBrand || r.engineMark,
+                              engine?.engineNumber || r.engineNumber,
+                            ]
+                              .filter(Boolean)
+                              .join(' ');
                             return (
                               <tr
                                 key={r.id}
@@ -1530,9 +1926,47 @@ export function ProductionProgramPage(props: Props) {
                                   e.preventDefault();
                                   dropRowOn(r.id);
                                 }}
-                                style={tone.background ? { background: tone.background } : undefined}
+                                onClick={(e) => {
+                                  // Shift+клик — переключить отметку строки (как в списках),
+                                  // обычный клик — только курсор выделения.
+                                  if (e.shiftKey) {
+                                    e.preventDefault();
+                                    selection.toggleSelect(String(r.id));
+                                    return;
+                                  }
+                                  selection.onRowPrimaryAction(String(r.id));
+                                }}
+                                onContextMenu={(e) => {
+                                  const result = selection.onRowContextMenu(e, String(r.id));
+                                  if (!result.openMenu) return;
+                                  setMenu({
+                                    x: e.clientX,
+                                    y: e.clientY,
+                                    targetIds: result.targetIds,
+                                    bulk: result.bulk,
+                                  });
+                                }}
+                                {...(isSelected ? { 'data-list-selected': 'true' as const } : {})}
+                                style={{
+                                  ...(tone.background ? { background: tone.background } : {}),
+                                  // Синий выбор накладывается ПОСЛЕ тона строки — так же,
+                                  // как в остальных списках программы.
+                                  ...(isSelected ? { background: 'rgba(37, 99, 235, 0.14)' } : {}),
+                                }}
                                 title={tone.label || undefined}
                               >
+                                <td
+                                  style={{ width: 32, textAlign: 'center' }}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => selection.toggleSelect(String(r.id))}
+                                    aria-label={`Выделить строку ${r.engineNumber || r.id}`}
+                                    style={{ cursor: 'pointer', margin: 0 }}
+                                  />
+                                </td>
                                 <td>
                                   <span
                                     draggable={props.canEdit}
@@ -1555,11 +1989,35 @@ export function ProductionProgramPage(props: Props) {
                                 <td>{num?.inContract ?? ''}</td>
                               <td title={item.organization}>{item.organization || '—'}</td>
                               <td>
-                                {/* Марка и номер — по тому же правилу, что печать и выгрузка
-                                    (живая карточка, снимок строки — запасной вариант). */}
-                                {[engine?.engineBrand || r.engineMark, engine?.engineNumber || r.engineNumber]
-                                  .filter(Boolean)
-                                  .join(' ')}
+                                {/* Номер двигателя — ссылка в карточку (промт КАРМАНА #64):
+                                    до этого оператор искал карточку в списке двигателей
+                                    вручную. Клик — по номеру, а не по строке: иначе он
+                                    спорил бы с выделением строк. */}
+                                {engine && props.onOpenEngine ? (
+                                  <button
+                                    type="button"
+                                    data-pp-open-engine={String(engine.id)}
+                                    title="Открыть карточку двигателя"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      props.onOpenEngine?.(String(engine.id));
+                                    }}
+                                    style={{
+                                      background: 'none',
+                                      border: 'none',
+                                      padding: 0,
+                                      margin: 0,
+                                      color: 'inherit',
+                                      font: 'inherit',
+                                      textDecoration: 'underline',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    {engineCellLabel}
+                                  </button>
+                                ) : (
+                                  engineCellLabel
+                                )}
                               </td>
                               <td>
                                 {/* Этап: меню выбора в ячейке + дата этапа. Выбор этапа
@@ -1700,6 +2158,34 @@ export function ProductionProgramPage(props: Props) {
           defaultWorkshopId={defaultWorkshopId}
           onClose={closeStageDialog}
           onSubmit={submitStage}
+        />
+      ) : null}
+
+      {/* Добавление двигателей списком номеров (промт КАРМАНА #64). */}
+      {addByNumbersOpen && selected ? (
+        <ProductionProgramAddEnginesByNumbersDialog
+          open={addByNumbersOpen}
+          engines={props.engines}
+          contractLabelOf={(engine) => contractLabelById.get(String(engine.contractId ?? '')) ?? ''}
+          programId={selected.id}
+          programTitle={selected.title}
+          onClose={() => setAddByNumbersOpen(false)}
+          onDone={addRowsByNumbers}
+        />
+      ) : null}
+
+      {/* ПКМ-меню строк плана: печать, копия, почта — по выделению. */}
+      {menu && menuItems.length > 0 ? (
+        <ListContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
+      ) : null}
+
+      {/* Письмо по выделенным строкам. */}
+      {mailSelection ? (
+        <MailComposeDialog
+          subject={mailSelection.subject}
+          summary={mailSelection.summary}
+          body={mailSelection.body}
+          onClose={() => setMailSelection(null)}
         />
       ) : null}
     </div>
