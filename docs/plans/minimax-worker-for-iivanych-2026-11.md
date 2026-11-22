@@ -141,3 +141,51 @@ CLI, запускает `mcode exec` и отдаёт ответ в Anthropic-с�
   а это по правилу fail-open **не** повод уйти на страхователя, то есть поломка была бы глухой.
   Ретраи SDK у воркера отключены (`maxRetries: 0`): отказ пула обрабатывает наш fail-open, иначе
   ожидание ушло бы в три попытки.
+
+
+## 6. Что сделано 22.11.2026 (живая проверка на боксе)
+
+**Грант выдан и проверен с бокса.** Заведена служебная комната `matricarmz-minimax` (имя «MatricaRMZ» →
+тот же проект учёта), её rw-токен лежит в комнате `matricarmz` под ключом `KARMAN_MINIMAX_TOKEN`.
+Бокс читает его **read-only** токеном: `GET /api/secrets?key=KARMAN_MINIMAX_TOKEN` → значение на месте;
+`GET /api/secrets/self` этим токеном → `slug=matricarmz-minimax`, `canWrite=true`;
+`POST /api/minimax/renew` с несуществующим `account_id` → **404** (пуль токен принял, аккаунт не израсходован).
+Комната не «девственная» ⇒ повторный `provision` на этот slug даст 409, а не отзовёт токен.
+
+**Код доставлен на бокс.** `deploy-backend.sh` (штатный путь): pull → артефакт `backend-dist` → проверка →
+прежний `dist` в `.deploy-backup/20261122-145608` → раскладка → рестарт primary (8 с) → secondary (6 с).
+Приёмка: 3001 → 200, 3002 → 200, nginx → 200, `backend-api/dist/minimaxWorker/` на месте. Клиент не трогали,
+версия 3.141.0 прежняя — поведение программы не изменилось.
+
+**Бокс подготовлен:** MiniMax Code CLI 0.7.4 (`npm i -g --prefix ~/.local @minimax-ai/code`, 342 МБ, без root);
+DNS-пин адресов MiniMax (резолверы бокса отдают недоступные Akamai-адреса — проверено вживую: `api.minimax.io`,
+`agent.minimax.io`, `account.minimax.io`, `platform.minimax.io` — таймаут на 443; скрипт находит живые адреса
+у 1.1.1.1 для всех пяти).
+
+**Живой прогон воркера с бокса:** сервис поднялся (`/health` → `pool: configured`, токен из комнаты), запрос
+`POST /v1/messages` дошёл до пула и получил **честный отказ**: `503 {"error":"no_free_accounts","reason":"pool_empty"}`.
+Это ровно то, что нужно: «аккаунтов нет» и «сервис сломался» — разные вещи, а бэкенд по такому уходит на
+платного страхователя (DeepSeek). Состояние пула на 22.11: 141 аккаунт, **124 использованы сегодня, 138
+закреплены за потребителями** — пул исчерпан, первый аккаунт появится в окне вендорского сброса (МСК 00:00/03:00).
+
+**Что осталось за владельцем — три команды, их не пускает локальный гейт** (запись в системные пути на проде:
+`/etc/hosts`, `/etc/systemd/system`, `/etc/matricarmz/*.env`; гейт не умеет спросить и отказывает — обходить
+нельзя, это ровно класс «чистка старого APK»):
+
+```bash
+# 1. пин адресов MiniMax (без него агент на боксе не доходит до MiniMax)
+sudo python3 ~/MatricaRMZ/scripts/prod-ops/minimax-dns-pin.py
+# 2. юниты: воркер + таймер пина
+bash ~/MatricaRMZ/deploy/systemd/install-backend.sh
+sudo systemctl enable --now matricarmz-minimax-dns-pin.timer
+sudo systemctl start matricarmz-minimax-dns-pin.service
+sudo systemctl enable --now matricarmz-minimax-worker.service
+# 3. включить звено — ПОСЛЕ успешного прогона воркера (иначе аккаунты пула тратятся впустую)
+echo 'MATRICA_AI_PROVIDER=minimax' >> /etc/matricarmz/matricarmz.env
+sudo systemctl restart matricarmz-backend-primary.service
+```
+
+Порядок обязателен: сначала пин, потом юнит, потом живой прогон воркера (`curl -fsS http://127.0.0.1:3010/health`),
+и только потом переключение звена — иначе каждый вопрос ИИваныча будет **сжигать аккаунт пула** на попытку
+достучаться до MiniMax и уходить в DeepSeek.
+
