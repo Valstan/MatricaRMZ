@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Рендерит и устанавливает systemd-юниты backend-api из шаблонов в этой папке.
+# Рендерит и устанавливает systemd-юниты backend-api и воркера MiniMax
+# из шаблонов в этой папке.
 #
-# Шаблоны matricarmz-backend-{primary,secondary}.service содержат плейсхолдеры:
+# Шаблоны matricarmz-backend-{primary,secondary}.service и
+# matricarmz-minimax-worker.service содержат плейсхолдеры:
 #   __MATRICA_USER__      — сервисный пользователь (по умолчанию: кто запускает скрипт)
 #   __MATRICA_REPO_DIR__  — клон репозитория на сервере (по умолчанию: $HOME/MatricaRMZ)
 # Имя пользователя и путь к клону в репозиторий не пишем (AGENTS.md §recon-поверхность),
@@ -22,6 +24,9 @@ MATRICA_USER="${MATRICA_USER:-$(id -un)}"
 MATRICA_REPO_DIR="${MATRICA_REPO_DIR:-$HOME/MatricaRMZ}"
 DRY_RUN="${DRY_RUN:-0}"
 UNITS=(matricarmz-backend-primary.service matricarmz-backend-secondary.service)
+# Воркер MiniMax: отдельный сервис, отдельный рестарт — поднимать его можно
+# позже бэкенда (к нему ещё нужен токен пула из комнаты КАРМАНА).
+WORKER_UNITS=(matricarmz-minimax-worker.service)
 
 render() {
   sed -e "s|__MATRICA_USER__|$MATRICA_USER|g" -e "s|__MATRICA_REPO_DIR__|$MATRICA_REPO_DIR|g" "$1"
@@ -34,7 +39,7 @@ if [[ "$DRY_RUN" != 1 && ! -d "$MATRICA_REPO_DIR/backend-api" ]]; then
 fi
 
 changed=0
-for unit in "${UNITS[@]}"; do
+for unit in "${UNITS[@]}" "${WORKER_UNITS[@]}"; do
   src="$SCRIPT_DIR/$unit"
   dst="/etc/systemd/system/$unit"
   [[ -f "$src" ]] || { echo "ERROR: нет шаблона $src" >&2; exit 1; }
@@ -78,3 +83,5 @@ fi
 echo
 echo "Готово. Сервисы не перезапускались. Рестарт отдельным шагом:"
 echo "  sudo systemctl restart ${UNITS[*]}"
+echo "Воркер MiniMax — отдельный сервис, поднимается после выдачи токена пула:"
+echo "  sudo systemctl enable --now ${WORKER_UNITS[*]}"

@@ -21,6 +21,37 @@ curl -fsk https://127.0.0.1/health   # smoke-check
 
 > **Предусловия:** клон репо в `~/MatricaRMZ` сервисного пользователя (иначе — `MATRICA_REPO_DIR`), собранный `backend-api/dist` (`pnpm -F @matricarmz/backend-api build`), `node` в `/usr/bin/node`, секрет-файл `/etc/matricarmz/matricarmz.env`, и **симлинк** `backend-api/.env → /etc/matricarmz/matricarmz.env` (его сносит `git clean -fdx` — пересоздать `ln -sfn /etc/matricarmz/matricarmz.env ~/MatricaRMZ/backend-api/.env`, иначе `db:migrate` падает). Рестарт релизом — `sudo systemctl restart matricarmz-backend-primary.service matricarmz-backend-secondary.service`.
 
+## `matricarmz-minimax-worker` — воркер MiniMax (движок ИИваныча на проде)
+
+Промт КАРМАНА **#56**, план **#57**: сервис, который берёт свободный аккаунт MiniMax в «Кармане»,
+поднимает на нём агента MiniMax Code и говорит с бэкендом по Anthropic-совместимому `/v1/messages`.
+Контракт ИИваныча при этом не меняется — правка только в транспорте.
+
+- **Порт 3010, только `127.0.0.1`:** наружу воркер не выставляется, ходит к нему бэкенд на том же
+  боксе. nginx для этого не нужен.
+- **`MATRICA_INSTANCE_ROLE=worker` — обязательно.** Иначе юнит поднял бы второй набор фоновых задач,
+  а с ним второй воркер очереди `ai_chat_requests`: один вопрос получил бы два ответа
+  (`backend-api/src/services/instanceRole.ts`).
+- **Код воркера едет в общем `backend-api/dist`** (`dist/minimaxWorker/index.js`): отдельного пакета
+  нет, сборка и деплой — те же, что у бэкенда.
+- **Токен пула — из комнаты КАРМАНА**, а не из env-файла бокса: ключ `KARMAN_MINIMAX_TOKEN` читает
+  `backend-api/src/services/karmanVaultClient.ts` (кэш 5 минут). Пишущий токен на бокс не кладём
+  (решение владельца, `AGENTS.md` §Prod server) — в env остаётся только read-only `SECRETS_TOKEN`.
+
+### Установка на проде
+
+```bash
+# от сервисного пользователя, из корня клона; поставит и юнит воркера
+bash deploy/systemd/install-backend.sh
+sudo systemctl enable --now matricarmz-minimax-worker.service
+curl -fsS http://127.0.0.1:3010/health    # {"ok":true,"service":"minimax-worker",…}
+```
+
+**Порядок важен:** сначала выдача токена пула в комнату (шаг владельца), потом запуск юнита, потом
+включение звена (`MATRICA_AI_PROVIDER=minimax` в `/etc/matricarmz/matricarmz.env` + рестарт primary).
+Пока `MATRICA_AI_PROVIDER` не переключён, бэкенд работает как раньше — напрямую с DeepSeek.
+Подробности и приёмка — [`docs/plans/minimax-worker-for-iivanych-2026-11.md`](../../docs/plans/minimax-worker-for-iivanych-2026-11.md).
+
 ## `matricarmz-cleanup-updates` — еженедельная очистка старых .exe
 
 После каждого релиза GitHub Action кладёт новый `MatricaRMZ-Setup-X.Y.Z.exe` в `/opt/matricarmz/updates/`. Старые установщики оттуда не удаляются автоматически — со временем там скапливается ~270 МБ (4–5 версий × ~70 МБ).
