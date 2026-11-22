@@ -6,6 +6,7 @@ kind: idea
 compliance: suggest
 urgency: normal
 topic: "Два переносимых приёма нитки MiniMax-воркер: сервисный грант через комнату (пишущий токен не ложится на бокс) и Anthropic-совместимая фасадка над CLI-агентом (свободный текст → tool_use)"
+ref: 2026-11-21-local-minimax-access-automated
 ---
 
 # Два приёма из нитки «MiniMax-воркер на проде» (промты #56/#57)

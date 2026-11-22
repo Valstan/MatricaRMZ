@@ -212,32 +212,44 @@ function isFailoverWorthy(error: unknown): boolean {
   return !(status === 400 || status === 401 || status === 403);
 }
 
-/** Имя модели на проводе: для воркера — его собственное. */
-function wireModel(model: string): string {
-  if (getLlmProvider() !== 'minimax') return model;
+/**
+ * Имя модели на проводе: у воркера — своё, у страхователя — своё.
+ *
+ * ⚠️ Имя едет ВМЕСТЕ с клиентом, а не берётся из env: при отказе воркера fail-open
+ * уходит на DeepSeek, а DeepSeek со именем модели воркера отвечает 400
+ * «supported API model names are deepseek-flash, deepseek-v4-pro» (проверено на проде
+ * 22.11.2026) — то есть страхователь не отвечал, а вопрос оператора падал в ошибку
+ * вместо ответа. Имя модели — свойство звена, а не настройки процесса.
+ */
+function wireModel(provider: LlmProviderName, model: string): string {
+  if (provider !== 'minimax') return model;
   return String(process.env.MATRICA_MINIMAX_WORKER_MODEL ?? MINIMAX_WORKER_MODEL).trim() || model;
 }
 
 /**
  * Один вызов с fail-open: воркер MiniMax не ответил — уходим на платного
  * страхователя (D-243) и возвращаем, какое звено ответило.
+ *
+ * `fn` получает звено, к которому обращается: по нему выбирается и имя модели
+ * (см. `wireModel`), иначе страхователь получит имя модели воркера.
  */
 async function callWithFailover<T>(
   scope: string,
-  fn: (client: Anthropic) => Promise<T>,
+  fn: (client: Anthropic, provider: LlmProviderName) => Promise<T>,
 ): Promise<{ result: T; source: LlmAnswerSource }> {
-  if (getLlmProvider() !== 'minimax') {
-    return { result: await fn(getClient()), source: 'deepseek' };
+  const provider = getLlmProvider();
+  if (provider !== 'minimax') {
+    return { result: await fn(getClient(), provider), source: 'deepseek' };
   }
   try {
-    return { result: await fn(getClient()), source: 'engine' };
+    return { result: await fn(getClient(), 'minimax'), source: 'engine' };
   } catch (e) {
     if (!isFailoverWorthy(e)) throw e;
     logError('llm: воркер MiniMax не ответил — ухожу на платного страхователя', {
       scope,
       error: String(e),
     });
-    return { result: await fn(getDeepseekClient()), source: 'deepseek' };
+    return { result: await fn(getDeepseekClient(), 'deepseek'), source: 'deepseek' };
   }
 }
 
@@ -261,10 +273,10 @@ export async function callLlm(args: {
   const scope = args.scope ?? 'llm';
   const maxTokens = args.options?.maxTokens ?? 1024;
   try {
-    const { result: resp } = await callWithFailover(scope, (client) =>
+    const { result: resp } = await callWithFailover(scope, (client, provider) =>
       client.messages.create(
         {
-          model: wireModel(args.model),
+          model: wireModel(provider, args.model),
           max_tokens: maxTokens,
           system: args.system,
           messages: [{ role: 'user', content: args.user }],
@@ -329,8 +341,8 @@ export async function callLlmJson<T = unknown>(args: {
   // откате, повторный запрос уходил бы с другим префиксом и терял кэш целиком. Просьба
   // словами безвредна и там, где инструмент принуждается параметром.
   const system = `${args.system}\n\nОтвет верни единственным вызовом инструмента ${args.toolName} — обычным текстом не отвечай.`;
-  const request = (forceTool: boolean): Anthropic.MessageCreateParamsNonStreaming => ({
-    model: wireModel(args.model),
+  const request = (forceTool: boolean, provider: LlmProviderName): Anthropic.MessageCreateParamsNonStreaming => ({
+    model: wireModel(provider, args.model),
     max_tokens: maxTokens,
     system,
     tools: [
@@ -349,13 +361,13 @@ export async function callLlmJson<T = unknown>(args: {
     ...(args.options?.temperature != null ? { temperature: args.options.temperature } : {}),
   });
   try {
-    const { result: resp } = await callWithFailover(scope, (client) =>
+    const { result: resp } = await callWithFailover(scope, (client, provider) =>
       client.messages
-        .create(request(forcesTool), { signal: ac.signal })
+        .create(request(forcesTool, provider), { signal: ac.signal })
         .catch(async (err: unknown) => {
           // Страховка, если принуждение отвергнет и другой провайдер.
           if (!forcesTool || !isThinkingToolChoiceError(err)) throw err;
-          return client.messages.create(request(false), { signal: ac.signal });
+          return client.messages.create(request(false, provider), { signal: ac.signal });
         }),
     );
     trackUsage(scope, args.model, 'json', resp.usage, resp.stop_reason);
@@ -492,11 +504,14 @@ export async function callLlmWithTools(args: {
   // воркера переводит запрос на страхователя и держит его там до конца цикла —
   // иначе шаги могли бы считать разные звенья, а источник ответа был бы враньём.
   let activeClient = getClient();
+  let activeProvider: LlmProviderName = getLlmProvider() === 'minimax' ? 'minimax' : 'deepseek';
   let answerSource: LlmAnswerSource = getLlmProvider() === 'minimax' ? 'engine' : 'deepseek';
   let failedOver = false;
-  const callProvider = async <T,>(fn: (client: Anthropic) => Promise<T>): Promise<T> => {
+  const callProvider = async <T,>(
+    fn: (client: Anthropic, provider: LlmProviderName) => Promise<T>,
+  ): Promise<T> => {
     try {
-      return await fn(activeClient);
+      return await fn(activeClient, activeProvider);
     } catch (e) {
       if (failedOver || getLlmProvider() !== 'minimax' || !isFailoverWorthy(e)) throw e;
       failedOver = true;
@@ -506,7 +521,10 @@ export async function callLlmWithTools(args: {
         error: String(e),
       });
       activeClient = getDeepseekClient();
-      return fn(activeClient);
+      // Звено сменилось — значит, и имя модели на проводе должно быть от страхователя,
+      // а не от воркера (см. `wireModel`).
+      activeProvider = 'deepseek';
+      return fn(activeClient, activeProvider);
     }
   };
   try {
@@ -515,10 +533,10 @@ export async function callLlmWithTools(args: {
       // вызовом (enable_full_tools) — и следующий запрос обязан объявить эти инструменты,
       // иначе провайдер отвергнет историю с незнакомым tool_use.
       const tools = resolveTools(args.tools);
-      const resp = await callProvider((client) =>
+      const resp = await callProvider((client, provider) =>
         client.messages.create(
           {
-            model: wireModel(args.model),
+            model: wireModel(provider, args.model),
             max_tokens: args.options?.maxTokens ?? 1024,
             system: toSystemParam(args.systemBlocks),
             tools,
@@ -584,8 +602,11 @@ export async function callLlmWithTools(args: {
     // {type:'none'}` эндпойнт принимает, однако рендерит запрос ровно как «без тулов»
     // (`input=5, cache_read=896` против 1152 у варианта с тулами), то есть общего префикса
     // с шагами не даёт всё равно — менять поведение ради него смысла нет.
-    const finalRequest = (withTools: boolean): Anthropic.MessageCreateParamsNonStreaming => ({
-      model: wireModel(args.model),
+    const finalRequest = (
+      withTools: boolean,
+      provider: LlmProviderName,
+    ): Anthropic.MessageCreateParamsNonStreaming => ({
+      model: wireModel(provider, args.model),
       max_tokens: args.options?.maxTokens ?? 1024,
       system: toSystemParam(args.systemBlocks),
       ...(withTools ? { tools: resolveTools(args.tools) } : {}),
@@ -593,15 +614,15 @@ export async function callLlmWithTools(args: {
       ...(args.options?.temperature != null ? { temperature: args.options.temperature } : {}),
     });
     let finalRetried = false;
-    const finalResp = await callProvider((client) =>
+    const finalResp = await callProvider((client, provider) =>
       client.messages
-        .create(finalRequest(false), { signal: ac.signal })
+        .create(finalRequest(false, provider), { signal: ac.signal })
         // Если эндпойнт не принимает историю с tool_use без объявленных тулов — откатываемся
         // на прежнее поведение: частичный ответ лучше отказа. Откат стоит ещё одного полного
         // запроса, поэтому он помечен в логе, а не молчит.
         .catch(async () => {
           finalRetried = true;
-          return client.messages.create(finalRequest(true), { signal: ac.signal });
+          return client.messages.create(finalRequest(true, provider), { signal: ac.signal });
         }),
     );
     addUsage(
@@ -659,11 +680,14 @@ export async function streamLlmWithTools(args: {
   const usage: LlmCallUsage = { ...EMPTY_USAGE };
   let finalText = '';
   let activeClient = getClient();
+  let activeProvider: LlmProviderName = getLlmProvider() === 'minimax' ? 'minimax' : 'deepseek';
   let answerSource: LlmAnswerSource = getLlmProvider() === 'minimax' ? 'engine' : 'deepseek';
   let failedOver = false;
-  const callProvider = async <T,>(fn: (client: Anthropic) => Promise<T>): Promise<T> => {
+  const callProvider = async <T,>(
+    fn: (client: Anthropic, provider: LlmProviderName) => Promise<T>,
+  ): Promise<T> => {
     try {
-      return await fn(activeClient);
+      return await fn(activeClient, activeProvider);
     } catch (e) {
       if (failedOver || getLlmProvider() !== 'minimax' || !isFailoverWorthy(e)) throw e;
       failedOver = true;
@@ -673,16 +697,24 @@ export async function streamLlmWithTools(args: {
         error: String(e),
       });
       activeClient = getDeepseekClient();
-      return fn(activeClient);
+      activeProvider = 'deepseek';
+      return fn(activeClient, activeProvider);
     }
   };
   /**
    * Шаг стрима. Воркер MiniMax отвечает одним JSON-объектом, а не потоком SSE:
    * для него шаг — обычный запрос, а текст отдаём событием целиком.
+   *
+   * Параметры собираются билдером: имя модели зависит от звена, а звено может
+   * смениться на страхователя прямо во время шага (см. `wireModel`).
    */
-  const runStep = async (params: Anthropic.MessageCreateParamsNonStreaming): Promise<Anthropic.Message> => {
+  const runStep = async (
+    params: (provider: LlmProviderName) => Anthropic.MessageCreateParamsNonStreaming,
+  ): Promise<Anthropic.Message> => {
     if (getLlmProvider() === 'minimax') {
-      const message = await callProvider((client) => client.messages.create(params, { signal: ac.signal }));
+      const message = await callProvider((client, provider) =>
+        client.messages.create(params(provider), { signal: ac.signal }),
+      );
       const text = message.content
         .filter((b): b is Anthropic.TextBlock => b.type === 'text')
         .map((b) => b.text)
@@ -690,7 +722,7 @@ export async function streamLlmWithTools(args: {
       if (text) await args.onEvent({ type: 'text', delta: text });
       return message;
     }
-    const stream = activeClient.messages.stream(params, { signal: ac.signal });
+    const stream = activeClient.messages.stream(params(activeProvider), { signal: ac.signal });
     stream.on('text', (delta: string) => {
       if (delta) void args.onEvent({ type: 'text', delta });
     });
@@ -698,14 +730,14 @@ export async function streamLlmWithTools(args: {
   };
   try {
     for (let step = 1; step <= maxSteps; step++) {
-      const finalMessage = await runStep({
-        model: wireModel(args.model),
+      const finalMessage = await runStep((provider) => ({
+        model: wireModel(provider, args.model),
         max_tokens: args.options?.maxTokens ?? 1024,
         system: toSystemParam(args.systemBlocks),
         tools: args.tools,
         messages,
         ...(args.options?.temperature != null ? { temperature: args.options.temperature } : {}),
-      });
+      }));
       addUsage(usage, trackUsage(scope, args.model, `stream-step${step}`, finalMessage.usage, finalMessage.stop_reason));
       const toolUseBlocks = finalMessage.content.filter(
         (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
@@ -768,14 +800,14 @@ export async function streamLlmWithTools(args: {
       messages.push({ role: 'user', content: toolResults });
     }
     appendFinalInstruction(messages);
-    const synthesizedMessage = await runStep({
-      model: wireModel(args.model),
+    const synthesizedMessage = await runStep((provider) => ({
+      model: wireModel(provider, args.model),
       max_tokens: args.options?.maxTokens ?? 1024,
       system: toSystemParam(args.systemBlocks),
       tools: args.tools,
       messages,
       ...(args.options?.temperature != null ? { temperature: args.options.temperature } : {}),
-    });
+    }));
     addUsage(
       usage,
       trackUsage(scope, args.model, 'stream-final', synthesizedMessage.usage, synthesizedMessage.stop_reason),
