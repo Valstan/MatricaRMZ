@@ -129,6 +129,18 @@ else
   fail "чужая строка потеряна при частичном пине"
 fi
 
+# 5. Запись атомарная: временный файл не остаётся рядом.
+if [[ -f "$HOSTS_FILE.minimax-pin.tmp" ]]; then
+  fail "временный файл остался рядом с hosts"
+else
+  ok "временного файла рядом нет"
+fi
+if [[ "$(head -1 "$HOSTS_FILE" | grep -c '127.0.0.1')" == "1" ]]; then
+  ok "файл hosts начинается с исходной первой строки (не с пустоты)"
+else
+  fail "первая строка hosts не та: $(head -1 "$HOSTS_FILE")"
+fi
+
 echo
 echo "Итог: PASS=$PASS FAIL=$FAILED"
 [[ "$FAILED" -eq 0 ]] || exit 1
