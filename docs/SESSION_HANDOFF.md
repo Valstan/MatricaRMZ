@@ -44,6 +44,7 @@ sudo systemctl restart matricarmz-backend-primary.service
 ## Контекст
 
 - **Прод:** v3.141.0 на обоих инстансах; бэкенд перезапущен в 14:56 МСК (выкладка с воркером), откат — `bash scripts/prod-ops/deploy-backend.sh rollback 20261122-145608`. Telegram с прод-бокса недоступен, тревоги идут только в МАКС.
+- **RAM бокса:** всего 1536 МБ, **доступно ~1030 МБ** (used 505, buff/cache 917), диск — 1,9 ГБ свободно. Пик `mcode exec` по замеру «Сарафана» — ~380 МБ ⇒ один агент помещается, два нет (поэтому в воркере ворота «один прогон за раз», PR #1904). Замер пика на живом прогоне — шаг владельца.
 - **Парк:** первый проход правила принудительного обновления в 12:30 МСК отработал — «обновление получили **1 машина: PC79 (3.139.0 → 3.141.0)**» (в проход попадают только живые; спящий парк уедет следующим днём). Искать в `logs/critical-events.ndjson`, не в `journalctl`.
 - **Стенд на этой машине:** backend на 3001, локальный PostgreSQL 17 на 5432 (`matricarmz_dev`).
 - **Файлы:** план нитки — [`docs/plans/minimax-worker-for-iivanych-2026-11.md`](docs/plans/minimax-worker-for-iivanych-2026-11.md); грабля — [`docs/gotchas/M222.md`](docs/gotchas/M222.md); канон комнаты — `AGENTS.md` §Prod server и [`docs/OPERATIONS.md`](docs/OPERATIONS.md) §8а; письма в Мозг — `mailbox/to-brain/2026-11-22-sluzhebnaya-komata-dlya-pula-i-zapis-v-reestr.md` и `…-servisnyy-grant-cherez-komatu-i-fasadka-nad-cli-agentom.md`.
