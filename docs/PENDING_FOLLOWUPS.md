@@ -53,8 +53,6 @@
 
 ## 🟡 Техдолг и отложенное
 
-- [🟡 Чистка старого APK: гейт прав не пускает удаляющую команду 🗓 since:2026-11-22](pending/chistka-staryh-apk-na-prode-gate-ne-puskaet.md)
-
 - [🟡 Профиль машины PC79.md — 207 КБ: пора разложить на индекс и файлы 🗓 since:2026-11-21](pending/profil-mashiny-pc79-207-kb-razlozhit.md)
 
 - [🟡 Индекс грабель у потолка: новая грабля не влезает без сокращения формулировок 🗓 since:2026-11-20](pending/indeks-grabeley-u-potolka.md)
@@ -100,7 +98,7 @@
 
 - [⏳ Свой ключ DeepSeek под проект (D-188): выпускает владелец, переезд делаем мы 🗓 since:2026-11-08](pending/svoy-key-deepseek-dlya-proekta-d-188.md)
 - [⏳ Промты проекта из КАРМАНА (D-190): права на производственную программу закрыты 21.11 и в архиве; живая пара — MiniMax-воркер 🗓 since:2026-11-08](pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md)
-- [⏳ MiniMax-воркер на проде: блок выполнен, воркер живой; ждём выкладку фикса fail-open и включение звена 🗓 since:2026-11-22](pending/minimax-worker-ekspluataciya-na-prode.md)
+- [⏳ MiniMax-воркер на проде: воркер живой, звено включено; ждём первый ответ от MiniMax (пул) и замер RAM 🗓 since:2026-11-22](pending/minimax-worker-ekspluataciya-na-prode.md)
 - [⏳ Дубли сотрудников: остаток — штатка с ПДО и приёмка на парке (запрет по полному ключу сделан) 🗓 since:2026-11-09](pending/dubli-sotrudnikov-ostatok-zapret-po-polnomu-klyuchu-shtatka-s-pdo.md)
 - [⏳ Рекламация в истории ремонта: код сделан (3.117.0, 3.118.0 и 3.123.0) — осталась приёмка на парке 🗓 since:2026-11-09](pending/reklamaatsiya-v-istorii-remonta.md)
 - [⏳ Клиент не отправлял атрибуты нового сотрудника — симптом снят, причина не найдена 🗓 since:2026-11-16](pending/klient-ne-otpravlyaet-atributy-novogo-sotrudnika.md)
