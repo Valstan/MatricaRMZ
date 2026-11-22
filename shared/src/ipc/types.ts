@@ -4179,8 +4179,9 @@ export type MatricaApi = {
     usersList: () => Promise<ChatUsersListResult>;
   };
   aiChat: {
-    // Асинхронный AI-чат (очередь вопросов). Считает всегда сервер: движок завода
-    // на проде, локального звена на клиенте нет (решение владельца 23.10.2026).
+    // Асинхронный AI-чат (очередь вопросов). Считает либо этот компьютер (локальный
+    // модуль MiniMax, D-243/D-244), либо сервер — если локальное звено не настроено
+    // или не справилось.
     list: () => Promise<
       { ok: true; items: import('../domain/aiChatSchedule.js').AiChatRequestItem[] } | { ok: false; error: string }
     >;
@@ -4191,6 +4192,8 @@ export type MatricaApi = {
     delete: (args: { id: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
     setVerdict: (args: { id: string; verdictText: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
     meta: () => Promise<import('../domain/aiChatSchedule.js').AiChatMetaResult>;
+    /** Кто считает вопрос: этот компьютер или сервер. */
+    localStatus: () => Promise<{ ok: true; status: import('../domain/aiChatSchedule.js').AiChatLocalStatus }>;
   };
   /** Часы компьютера против часов сервера + перезапуск программы. */
   system: {

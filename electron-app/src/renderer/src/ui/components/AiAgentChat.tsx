@@ -5,8 +5,8 @@
 // Файлы — через существующий files-контур (Яндекс.Диск).
 import React, { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 
-import type { AiAgentContext, AiAgentEvent, AiChatRequestItem, AiChatTemplate, FileRef } from '@matricarmz/shared';
-import { AI_CHAT_MAX_QUESTIONS_PER_HOUR, AI_CHAT_STATUS_LABELS, formatAiChatAnswerSourceLabel, isAiChatInFlight } from '@matricarmz/shared';
+import type { AiAgentContext, AiAgentEvent, AiChatLocalStatus, AiChatRequestItem, AiChatTemplate, FileRef } from '@matricarmz/shared';
+import { AI_CHAT_LOCAL_STATE_LABELS, AI_CHAT_MAX_QUESTIONS_PER_HOUR, AI_CHAT_STATUS_LABELS, formatAiChatAnswerSourceLabel, isAiChatInFlight } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { IvanychFigure } from './IvanychFigure.js';
@@ -138,8 +138,8 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [engineReady, setEngineReady] = useState<boolean | null>(null);
-  // Ииваныч считает только сервер (решение владельца 23.10.2026): локального движка
-  // на клиенте нет — в панели видно лишь, готов ли сервер принять вопрос.
+  // Кто считает вопрос: этот компьютер (локальный модуль MiniMax) или сервер.
+  const [localStatus, setLocalStatus] = useState<AiChatLocalStatus | null>(null);
   const [me, setMe] = useState<{ id: string; role: string } | null>(null);
   const [now, setNow] = useState<number>(Date.now());
   const [activeHints, setActiveHints] = useState<string[]>([]);
@@ -154,6 +154,8 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
     if (res.ok) setItems(res.items);
     const meta = await window.matrica.aiChat.meta();
     if (meta.ok) setEngineReady(meta.ready);
+    const local = await window.matrica.aiChat.localStatus();
+    if (local.ok) setLocalStatus(local.status);
   }, []);
 
   // Ответ приезжает в реплику только синком, а авто-синк ходит раз в 5 минут —
@@ -629,6 +631,11 @@ export const AiAgentChat = forwardRef<AiAgentChatHandle, {
         {engineReady === false ? (
           <span title="Сервер не может принять вопрос прямо сейчас — вопрос сохранится и будет обработан позже">
             🔴 ИИваныч сейчас недоступен: <b>вопрос сохранится и будет обработан позже</b>
+          </span>
+        ) : localStatus?.configured ? (
+          <span title={localStatus.detail}>
+            {AI_CHAT_LOCAL_STATE_LABELS[localStatus.state]}{' '}
+            <b>{localStatus.state === 'ready' ? 'ИИваныч на связи' : localStatus.detail}</b>
           </span>
         ) : (
           <span title="Считает движок завода на сервере — на этом компьютере ничего не запускается">
