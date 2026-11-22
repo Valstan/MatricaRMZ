@@ -90,6 +90,16 @@ const MAX_DEAD_IDS = 50;
 /** За сколько до истечения access продлеваем цепочку: раньше — отказ придёт молча. */
 const RENEW_WINDOW_MS = 5 * 60_000;
 
+/**
+ * Сколько агентов может работать одновременно.
+ *
+ * ⚠️ На боксе 1536 МБ, swap запрещён: `mcode exec` — пик ~381 МБ по node-процессам
+ * (у «Сарафана» воркер один раз убивался по OOM). Два одновременных прогона — это
+ * ~800 МБ поверх postgres и двух инстансов бэкенда ⇒ ядро снимает крупнейший процесс.
+ * Поэтому прогон агента — **строго один**, остальные ждут в очереди.
+ */
+const MAX_CONCURRENT_AGENT_RUNS = 1;
+
 /** Признаки «аккаунт больше не годится»: вход протух или очки кончились. */
 const STALE_LEASE_MARKERS = [
   'token expired',
@@ -113,6 +123,40 @@ const STALE_LEASE_MARKERS = [
 export function isStaleLeaseFailure(detail: string): boolean {
   const text = String(detail ?? '').toLowerCase();
   return STALE_LEASE_MARKERS.some((marker) => text.includes(marker));
+}
+
+/**
+ * Ворота прогона агента: одновременно работает `limit` агентов, остальные ждут.
+ *
+ * Слот передаётся ожидающему **напрямую** (без гонки за свободный слот) — иначе
+ * два запроса, разбуженных одновременно, могли бы взять слот каждый и запустить
+ * по два CLI-процесса.
+ */
+export function createAgentGate(limit: number) {
+  let active = 0;
+  const waiters: Array<() => void> = [];
+  return {
+    get active(): number {
+      return active;
+    },
+    get queued(): number {
+      return waiters.length;
+    },
+    async run<T>(fn: () => Promise<T>): Promise<T> {
+      if (active < limit) {
+        active += 1;
+      } else {
+        await new Promise<void>((resolve) => waiters.push(resolve));
+      }
+      try {
+        return await fn();
+      } finally {
+        const next = waiters.shift();
+        if (next) next();
+        else active -= 1;
+      }
+    },
+  };
 }
 
 function statusForFailure(error: KarmanPoolError): number {
@@ -155,6 +199,7 @@ export function createWorkerApp(
 ): { app: express.Express; state: WorkerState } {
   const resolved: WorkerDeps = { ...DEFAULT_DEPS, ...deps };
   const state: WorkerState = { deadAccountIds: [], pausedUntilMs: 0, lease: null };
+  const gate = createAgentGate(MAX_CONCURRENT_AGENT_RUNS);
   const app = express();
 
   app.use(express.json({ limit: '8mb' }));
@@ -186,6 +231,8 @@ export function createWorkerApp(
       model: config.model,
       paused: Date.now() < state.pausedUntilMs,
       account: state.lease?.accountId ?? null,
+      agentsActive: gate.active,
+      agentsQueued: gate.queued,
     });
   });
 
@@ -323,18 +370,20 @@ export function createWorkerApp(
     const user = buildAgentUserPayload({ messages });
 
     const runAgentFor = (profile: MinimaxProfile) =>
-      resolved.runAgent(
-        { system, user, task: 'Ответь сотруднику по заданию выше.' },
-        {
-          cli: config.cli,
-          model: config.model,
-          maxSteps: config.maxSteps,
-          mode: config.cliMode,
-          timeoutSec: config.timeoutSec,
-          configDir: profile.configDir,
-          dataDir: profile.dataDir,
-          maxOldSpaceMb: config.maxOldSpaceMb,
-        },
+      gate.run(() =>
+        resolved.runAgent(
+          { system, user, task: 'Ответь сотруднику по заданию выше.' },
+          {
+            cli: config.cli,
+            model: config.model,
+            maxSteps: config.maxSteps,
+            mode: config.cliMode,
+            timeoutSec: config.timeoutSec,
+            configDir: profile.configDir,
+            dataDir: profile.dataDir,
+            maxOldSpaceMb: config.maxOldSpaceMb,
+          },
+        ),
       );
 
     let lease: MinimaxLease;
