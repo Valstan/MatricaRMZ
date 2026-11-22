@@ -189,3 +189,26 @@ sudo systemctl restart matricarmz-backend-primary.service
 и только потом переключение звена — иначе каждый вопрос ИИваныча будет **сжигать аккаунт пула** на попытку
 достучаться до MiniMax и уходить в DeepSeek.
 
+## 7. Пред-полёт второй сессии (22.11.2026, MiniMax Code): блок команд исправлен
+
+План выше описывал шаги по состоянию на 14:56. Вторая сессия (пред-полёт перед включением) нашла
+три вещи, которые тихо ломали бы нитку, и переписала блок — актуальная версия в
+[`docs/pending/minimax-worker-ekspluataciya-na-prode.md`](../pending/minimax-worker-ekspluataciya-na-prode.md)
+(раздел «Блок команд»). Коротко:
+
+1. **Выложенный `dist` старше ворот #1904.** На боксе в `backend-api/dist/minimaxWorker/server.js`
+   нет ни `createAgentGate`, ни `agentsActive` ⇒ сборка до 7105a1a7 (15:12), тогда как выкладка
+   шла в 14:56. Включать воркер на нём — разрешить два одновременных `mcode exec` (~380 МБ каждый)
+   на боксе в 1536 МБ без swap ⇒ OOM-killer. Поэтому **первым шагом идёт свежая выкладка**
+   (`deploy-backend.sh` берёт последний успешный `backend-dist` с main — он уже включает #1904),
+   и только после неё — запуск воркера.
+2. **`/opt/minimax-accounts` не существует, `/opt` — root.** Юнит работает от `valstan` и каталог
+   профилей сам не создаст (`materializeProfile` → EACCES → 502 → тихий уход на DeepSeek).
+3. **Файл env владельцу не принадлежит** (`root:valstan`, 640) ⇒ `echo >>` упал бы с Permission
+   denied; запись — `sudo sed -i` (и меняет значение, а не добавляет вторую строку с тем же ключом).
+
+**Граница гейта:** в этом рантайме гейт отказал и на штатные скрипты репозитория
+(`deploy-backend.sh`, `install-backend.sh` через ssh) — `HOST_CAPABILITY_UNAVAILABLE: this Runtime
+host cannot prompt for permission`. Read-only ssh, `git pull`, `curl` проходят. Обходить нельзя ⇒
+блок исполняет владелец; слово владельца в том же ходе снимает блок (грабля **M213**).
+
