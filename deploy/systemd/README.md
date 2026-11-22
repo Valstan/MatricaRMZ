@@ -52,6 +52,28 @@ curl -fsS http://127.0.0.1:3010/health    # {"ok":true,"service":"minimax-worker
 Пока `MATRICA_AI_PROVIDER` не переключён, бэкенд работает как раньше — напрямую с DeepSeek.
 Подробности и приёмка — [`docs/plans/minimax-worker-for-iivanych-2026-11.md`](../../docs/plans/minimax-worker-for-iivanych-2026-11.md).
 
+## `matricarmz-minimax-dns-pin` — пин адресов MiniMax (таймер раз в час)
+
+**Зачем.** DNS-резолверы бокса отдают для `*.minimax.io` адреса Akamai, до которых TCP **не доходит**
+(таймаут ~12 с) — проверено на боксе 22.11.2026 для `api.minimax.io`, `agent.minimax.io`,
+`account.minimax.io`, `platform.minimax.io`. Без пина агент MiniMax Code на боксе не выходит в сеть.
+
+**Как.** `scripts/prod-ops/minimax-dns-pin.py` спрашивает A-записи у 1.1.1.1 / 9.9.9.9 / 8.8.8.8, оставляет
+только те адреса, до которых реально доходит соединение на 443, и записывает их в `/etc/hosts` под своим
+маркером (секция перезаписывается целиком — адреса Akamai ротируются, ручная запись протухнет).
+
+### Установка на проде
+
+```bash
+bash deploy/systemd/install-backend.sh          # поставит и юнит, и таймер
+sudo systemctl enable --now matricarmz-minimax-dns-pin.timer
+sudo systemctl start matricarmz-minimax-dns-pin.service   # один прогон сейчас — не ждать таймера
+systemctl list-timers matricarmz-minimax-dns-pin.timer
+```
+
+Проверка, что пин жив: `getent hosts api.minimax.io` → адрес из живых, и
+`timeout 8 bash -c 'cat < /dev/null > /dev/tcp/api.minimax.io/443'` → соединение проходит.
+
 ## `matricarmz-cleanup-updates` — еженедельная очистка старых .exe
 
 После каждого релиза GitHub Action кладёт новый `MatricaRMZ-Setup-X.Y.Z.exe` в `/opt/matricarmz/updates/`. Старые установщики оттуда не удаляются автоматически — со временем там скапливается ~270 МБ (4–5 версий × ~70 МБ).

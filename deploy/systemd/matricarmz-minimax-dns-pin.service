@@ -1,0 +1,16 @@
+# ШАБЛОН — не копировать в /etc/systemd/system как есть.
+# Плейсхолдер __MATRICA_REPO_DIR__ подставляет deploy/systemd/install-backend.sh
+# (клон репо на сервере, не в репозитории — AGENTS.md §recon-поверхность).
+#
+# Пин адресов MiniMax: резолверы VPS отдают для *.minimax.io адреса Akamai, до которых
+# TCP не доходит (таймаут) — без пина агент MiniMax Code на боксе не выходит в сеть.
+[Unit]
+Description=MatricaRMZ: пин рабочих адресов MiniMax в /etc/hosts
+After=network.target
+
+[Service]
+Type=oneshot
+# Пишет /etc/hosts — нужен root.
+User=root
+WorkingDirectory=__MATRICA_REPO_DIR__
+ExecStart=/usr/bin/python3 __MATRICA_REPO_DIR__/scripts/prod-ops/minimax-dns-pin.py

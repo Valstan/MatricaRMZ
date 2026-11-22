@@ -27,6 +27,9 @@ UNITS=(matricarmz-backend-primary.service matricarmz-backend-secondary.service)
 # Воркер MiniMax: отдельный сервис, отдельный рестарт — поднимать его можно
 # позже бэкенда (к нему ещё нужен токен пула из комнаты КАРМАНА).
 WORKER_UNITS=(matricarmz-minimax-worker.service)
+# Пин адресов MiniMax: без него агент на боксе не доходит до MiniMax (резолверы VPS
+# отдают недоступные адреса Akamai). Ставится тем же скриптом, включается таймером.
+PIN_UNITS=(matricarmz-minimax-dns-pin.service matricarmz-minimax-dns-pin.timer)
 
 render() {
   sed -e "s|__MATRICA_USER__|$MATRICA_USER|g" -e "s|__MATRICA_REPO_DIR__|$MATRICA_REPO_DIR|g" "$1"
@@ -39,7 +42,7 @@ if [[ "$DRY_RUN" != 1 && ! -d "$MATRICA_REPO_DIR/backend-api" ]]; then
 fi
 
 changed=0
-for unit in "${UNITS[@]}" "${WORKER_UNITS[@]}"; do
+for unit in "${UNITS[@]}" "${WORKER_UNITS[@]}" "${PIN_UNITS[@]}"; do
   src="$SCRIPT_DIR/$unit"
   dst="/etc/systemd/system/$unit"
   [[ -f "$src" ]] || { echo "ERROR: нет шаблона $src" >&2; exit 1; }
@@ -85,3 +88,5 @@ echo "Готово. Сервисы не перезапускались. Рест
 echo "  sudo systemctl restart ${UNITS[*]}"
 echo "Воркер MiniMax — отдельный сервис, поднимается после выдачи токена пула:"
 echo "  sudo systemctl enable --now ${WORKER_UNITS[*]}"
+echo "Пин адресов MiniMax — таймер (без него агент на боксе не ходит в MiniMax):"
+echo "  sudo systemctl enable --now ${PIN_UNITS[1]}"
