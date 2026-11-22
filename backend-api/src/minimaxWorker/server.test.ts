@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { loadConfig } from './config.js';
 import { KarmanPoolError } from './karmanPool.js';
-import { createWorkerApp, type WorkerDeps } from './server.js';
+import { createAgentGate, createWorkerApp, type WorkerDeps } from './server.js';
 
 const config = loadConfig({
   KARMAN_MINIMAX_API_URL: 'https://karman.example/api/minimax',
@@ -217,8 +217,7 @@ describe('аренда аккаунта', () => {
     expect(taken).toEqual([1, 2]);
   });
 
-  it('вход скоро истечёт — цепочка продлевается тем же аккаунтом, новый не берётся', async () => {
-    const renewed: number[] = [];
+  it('вход скоро истечёт — цепочка продлевается тем же аккаунтом, новый не берётся', async () => {    const renewed: number[] = [];
     let takes = 0;
     const { app } = createWorkerApp(
       config,
@@ -244,6 +243,82 @@ describe('аренда аккаунта', () => {
     expect(res.status).toBe(200);
     expect(renewed).toEqual([5]);
     expect(takes).toBe(1);
+  });
+});
+
+describe('ворота прогона агента', () => {
+  it('второй агент ждёт первого — два CLI-процесса на 1536 МБ не поднимаем', async () => {
+    const gate = createAgentGate(1);
+    const order: string[] = [];
+    let releaseFirst: () => void = () => {};
+
+    const first = gate.run(async () => {
+      order.push('first-start');
+      await new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      order.push('first-end');
+      return 'first';
+    });
+    const second = gate.run(async () => {
+      order.push('second-start');
+      return 'second';
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(order).toEqual(['first-start']);
+    expect(gate.queued).toBe(1);
+
+    releaseFirst();
+    expect(await first).toBe('first');
+    expect(await second).toBe('second');
+    expect(order).toEqual(['first-start', 'first-end', 'second-start']);
+    expect(gate.active).toBe(0);
+  });
+
+  it('в приложении второй запрос ждёт первого (агент один за раз)', async () => {
+    let started = 0;
+    let release: () => void = () => {};
+    const { app } = createWorkerApp(
+      config,
+      deps({
+        runAgent: (async () => {
+          started += 1;
+          // Первый прогон держим на паузе — он и должен занять единственный слот.
+          if (started === 1) {
+            await new Promise<void>((resolve) => {
+              release = resolve;
+            });
+          }
+          return { ok: true, text: '{"text":"ответ"}', payload: { status: 'succeeded' } };
+        }) as unknown as WorkerDeps['runAgent'],
+      }),
+    );
+    // `.then()` — запрос supertest стартует только там (до await он не отправлен),
+    // поэтому оба уходят в полёт сразу — иначе второй ждал бы не в воротах, а в тесте.
+    const first = request(app)
+      .post('/v1/messages')
+      .set('Authorization', 'Bearer worker-token')
+      .send(MESSAGES)
+      .then((r) => r);
+    const second = request(app)
+      .post('/v1/messages')
+      .set('Authorization', 'Bearer worker-token')
+      .send(MESSAGES)
+      .then((r) => r);
+
+    // Ждём, пока первый запрос дойдёт до агента (запрос идёт через пул и профиль).
+    for (let i = 0; i < 100 && started === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(started).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(started).toBe(1);
+
+    release();
+    expect((await first).status).toBe(200);
+    expect((await second).status).toBe(200);
+    expect(started).toBe(2);
   });
 });
 
