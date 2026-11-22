@@ -63,6 +63,9 @@ import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
 import { useListSelection } from '../hooks/useListSelection.js';
+import { useListBehaviorSettings } from '../hooks/useListBehaviorSettings.js';
+import { ListLassoLayer } from '../components/ListLassoLayer.js';
+import { buildListContextMenuItems, type ListActionDeclaration } from '../utils/listContextActions.js';
 import { ListContextMenu, type ListContextMenuItem } from '../components/ListContextMenu.js';
 import { resolveMenuRows } from '../utils/listContextActions.js';
 import { ListExportButtons } from '../components/ListExportButtons.js';
@@ -796,6 +799,8 @@ export function EnginesPage(props: {
     displayRows.map((e) => String(e.id)),
     { persistKey: 'list:engines:selection' },
   );
+  // Правила поведения списков — из общего источника (D-248).
+  const listBehavior = useListBehaviorSettings();
   // Бирки — единственное действие списка, которое работает от ВЫДЕЛЕНИЯ: печать этикеток
   // и печать списка берут отфильтрованное, а пачка бирок «на весь фильтр» — это пачка бумаги.
   // Набор считается по ВСЕМ строкам, а не только видимым: выпавшее из поиска выделение
@@ -809,40 +814,60 @@ export function EnginesPage(props: {
   const menuRows = useMemo(() => (menu ? resolveMenuRows(menu.targetIds, engineById) : []), [menu, engineById]);
   const menuItems = useMemo<ListContextMenuItem[]>(() => {
     if (!menu) return [];
-    const items: ListContextMenuItem[] = [];
+    // Список ОБЪЯВЛЯЕТ свои действия — меню собирается из объявления (промт КАРМАНА #67).
+    // Действия двигателей: бирки на выбранные, добавление в производственную программу,
+    // наряд на сборку. Печати/копирования/удаления этот список не умеет — значит, и
+    // таких пунктов в меню нет.
+    const actions: ListActionDeclaration<EngineListItem>[] = [];
     if (menu.bulk) {
       // Пачка выделенных строк: бирки на них — единственное групповое действие списка.
-      items.push({
+      actions.push({
         id: 'engine-tags-bulk',
-        label: `🏷️ Бирки на выбранные (${menuRows.length})`,
-        onClick: () => {
+        label: '🏷️ Бирки на выбранные',
+        bulkLabel: '🏷️ Бирки на выбранные',
+        available: true,
+        scope: 'bulk',
+        run: (rows) => {
           setTagHintVisible(false);
-          setTagInitial(menuRows.map((e) => ({ ...e, engineId: String(e.id) })));
+          setTagInitial(rows.map((e) => ({ ...e, engineId: String(e.id) })));
         },
       });
       // Добавление в производственную программу — только пачкой: одна строка
       // добавляется прямо в самой программе (там виден её состав и порядок).
       if (props.canEditProductionProgram) {
-        items.push({
+        actions.push({
           id: 'engine-add-to-program-bulk',
-          label: `🏭 Добавить в производственную программу (${menuRows.length})`,
-          onClick: () => {
+          label: '🏭 Добавить в производственную программу',
+          bulkLabel: '🏭 Добавить в производственную программу',
+          available: true,
+          scope: 'bulk',
+          run: (rows) => {
             setTagHintVisible(false);
             // Выделение ловим ЗДЕСЬ: меню закроется, и `menuRows` станет пустым.
-            setProgramAddEngines(menuRows);
+            setProgramAddEngines(rows);
             setAddToProgramOpen(true);
           },
         });
       }
-      return items;
+    } else if (menuRows.length === 1 && props.onCreateAssemblyOrder) {
+      actions.push({
+        id: 'assembly-order',
+        label: '🛠️ Наряд на сборку',
+        available: true,
+        scope: 'single',
+        run: (rows) => props.onCreateAssemblyOrder?.(rows[0]!),
+      });
     }
-    if (menuRows.length !== 1) return [];
-    const engine = menuRows[0]!;
-    if (props.onCreateAssemblyOrder) {
-      items.push({ id: 'assembly-order', label: '🛠️ Наряд на сборку', onClick: () => props.onCreateAssemblyOrder?.(engine) });
-    }
-    return items;
-  }, [menu, menuRows, props]);
+    return buildListContextMenuItems({
+      rows: menuRows,
+      bulk: menu.bulk,
+      getId: (e) => String(e.id),
+      onSelect: selection.toggleSelect,
+      onClearSelection: selection.clearSelection,
+      hasSelection: selection.selectedCount > 0,
+      actions,
+    });
+  }, [menu, menuRows, props, selection]);
 
   type EngineColumn = ColumnDescriptor & {
     sortable: boolean;
@@ -1214,6 +1239,9 @@ export function EnginesPage(props: {
   function engineRowProps(e: EngineListItem): VirtualTableRowProps {
     const isSelected = selection.isSelected(String(e.id));
     return {
+      // Маркер строки для выделения контуром (Ctrl + рамка).
+      'data-list-row': 'true',
+      'data-list-row-key': String(e.id),
       onClick: (event) => {
         // Shift+клик — выделение строк (для печати выделенных), обычный клик — открыть карточку.
         if (event.shiftKey) {
@@ -1542,6 +1570,8 @@ export function EnginesPage(props: {
           />
         )}
       </div>
+
+      <ListLassoLayer enabled={listBehavior.lasso} onSelect={selection.selectMany} />
 
       {menu && menuItems.length > 0 ? (
         <ListContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />

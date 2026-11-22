@@ -19,9 +19,14 @@ import {
   buildDeleteRowsStatus,
   buildListContextMenuItems,
   copyRowsToClipboard,
+  listCopyAction,
+  listDeleteAction,
+  listPrintAction,
   printRowsPreview,
   resolveMenuRows,
 } from '../utils/listContextActions.js';
+import { useListBehaviorSettings } from '../hooks/useListBehaviorSettings.js';
+import { ListLassoLayer } from '../components/ListLassoLayer.js';
 
 type Row = {
   id: string;
@@ -94,6 +99,8 @@ export function ToolPropertiesPage(props: {
   );
   const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
   const selection = useListSelection(sorted.map((row) => row.id));
+  // Правила поведения списков — из общего источника (D-248).
+  const listBehavior = useListBehaviorSettings();
 
   function onSort(key: SortKey) {
     patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
@@ -204,6 +211,9 @@ export function ToolPropertiesPage(props: {
                 <tr
                   key={row.id}
                   data-list-selected={selection.isSelected(row.id) ? 'true' : undefined}
+                  // Маркер строки для выделения контуром (Ctrl + рамка).
+                  data-list-row="true"
+                  data-list-row-key={row.id}
                   style={{ borderBottom: '1px solid #f3f4f6', cursor: 'pointer' }}
                   onContextMenu={(e) => {
                     const result = selection.onRowContextMenu(e, row.id);
@@ -224,6 +234,7 @@ export function ToolPropertiesPage(props: {
           </table>
         </div>
       </div>
+      <ListLassoLayer enabled={listBehavior.lasso} onSelect={selection.selectMany} />
       {menu ? (
         <ListContextMenu
           x={menu.x}
@@ -231,13 +242,16 @@ export function ToolPropertiesPage(props: {
           items={buildListContextMenuItems({
             rows: resolveMenuRows(menu.targetIds, rowById),
             bulk: menu.bulk,
-            canDelete: props.canDelete,
             getId: (row) => row.id,
             onSelect: selection.toggleSelect,
-            onPrint: printRows,
-            onCopy: copyRows,
-            onDelete: deleteRows,
             onClearSelection: selection.clearSelection,
+            hasSelection: selection.selectedCount > 0,
+            // Меню собирается из объявления действий списка (промт КАРМАНА #67).
+            actions: [
+              listPrintAction({ available: true, print: printRows }),
+              listCopyAction({ available: true, copy: copyRows }),
+              listDeleteAction<Row>({ available: props.canDelete, remove: deleteRows, getId: (row) => row.id }),
+            ],
           })}
           onClose={() => setMenu(null)}
         />

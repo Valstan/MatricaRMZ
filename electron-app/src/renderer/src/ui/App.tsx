@@ -129,6 +129,7 @@ import { useAiAgentTracker } from './ai/useAiAgentTracker.js';
 import { useTabFocusSelectAll } from './hooks/useTabFocusSelectAll.js';
 import { useAutoGrowInputs } from './hooks/useAutoGrowInputs.js';
 import { useAdaptiveListTables } from './hooks/useAdaptiveListTables.js';
+import { applyListBehaviorCssVars, setListBehaviorSettings } from './hooks/useListBehaviorSettings.js';
 import {
   COLUMN_LAYOUT_CHANGE_EVENT,
   hydrateColumnLayouts,
@@ -1876,12 +1877,15 @@ export function App() {
   const applyEffectiveUiSettings = useCallback((settings: UiControlSettings) => {
     setEffectiveUiControl(sanitizeUiControlSettings(settings));
   }, []);
-
   useEffect(() => {
     const safe = withUiControlPresetApplied(effectiveUiControl, sanitizeUiPresetId(effectiveUiControl.presets.defaultPresetId ?? DEFAULT_UI_PRESET_ID, DEFAULT_UI_PRESET_ID));
     const displayPrefs = uiControlToDisplayPrefs(safe);
     setUiPrefs((prev) => ({ ...prev, displayPrefs }));
     const root = document.documentElement;
+    // Правила поведения списков (D-248): одна настройка на всю программу. Применяется
+    // здесь — из глобальных дефолтов; личные настройки их не перекрывают (см. merge).
+    setListBehaviorSettings(safe.listBehavior);
+    applyListBehaviorCssVars(root, safe.listBehavior);
     // Инлайн-канал (style.setProperty) сильнее CSS-каскада → в планшетном режиме он
     // молча перебивал токены :root[data-ui-mode='tablet'] из global.css, и хит-таргеты
     // не росли (аудит 2026-07-22). Планшет задаёт МИНИМУМ: берём max(пользовательское,

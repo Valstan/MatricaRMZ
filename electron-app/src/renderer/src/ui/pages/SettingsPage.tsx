@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import type { UiDisplayPrefs } from '@matricarmz/shared';
-import { formatClientLabel } from '@matricarmz/shared';
+import type { ListBehaviorSettings, UiControlSettings, UiDisplayPrefs } from '@matricarmz/shared';
+import { DEFAULT_LIST_BEHAVIOR_SETTINGS, formatClientLabel } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
@@ -43,6 +43,11 @@ export function SettingsPage(props: {
   onLogout: () => void;
 }) {
   const { confirm: confirmModal } = useConfirm();
+  // Правила поведения списков (D-248): одна настройка на всю программу, живёт в
+  // глобальных дефолтах. Меняет её суперадмин — и правило меняется ВЕЗДЕ сразу.
+  const [globalUiDefaults, setGlobalUiDefaults] = useState<UiControlSettings | null>(null);
+  const [listBehavior, setListBehavior] = useState<ListBehaviorSettings>({ ...DEFAULT_LIST_BEHAVIOR_SETTINGS });
+  const [listBehaviorStatus, setListBehaviorStatus] = useState('');
   const tabVisibleRef = useTabVisibleRef();
   const [loggingEnabled, setLoggingEnabled] = useState<boolean>(false);
   const [loggingMode, setLoggingMode] = useState<'prod' | 'dev'>('prod');
@@ -436,6 +441,46 @@ export function SettingsPage(props: {
     setEnterAsTab(props.uiPrefs.enterAsTab === true);
   }, [props.uiPrefs]);
 
+  // Глобальные дефолты программы (где живут правила поведения списков) читает суперадмин.
+  useEffect(() => {
+    const role = String(authUser?.role ?? profileUser?.role ?? '').trim().toLowerCase();
+    if (role !== 'superadmin') return;
+    void window.matrica.settings.uiControlGet().then((r: any) => {
+      if (!r?.ok || !r?.globalDefaults) return;
+      const defaults = r.globalDefaults as UiControlSettings;
+      setGlobalUiDefaults(defaults);
+      setListBehavior({ ...DEFAULT_LIST_BEHAVIOR_SETTINGS, ...(defaults.listBehavior ?? {}) });
+    }).catch(() => {});
+  }, [authUser?.role, profileUser?.role]);
+
+  /**
+   * Сохраняет правила поведения списков в ГЛОБАЛЬНЫЕ дефолты программы.
+   * Личных отступлений нет (D-248): правило одно, и меняет его суперадмин.
+   */
+  async function handleSaveListBehavior(next: ListBehaviorSettings) {
+    const current = globalUiDefaults;
+    if (!current) {
+      setListBehaviorStatus('Глобальные настройки не загружены — обновите страницу.');
+      return;
+    }
+    setListBehavior(next);
+    setListBehaviorStatus('Сохранение...');
+    try {
+      const res = await window.matrica.settings.uiControlSetGlobal({
+        uiSettings: { ...current, listBehavior: next },
+        bumpVersion: true,
+      });
+      if (!res?.ok) {
+        setListBehaviorStatus(`Ошибка сохранения: ${formatError(res?.error ?? 'unknown error')}`);
+        return;
+      }
+      setGlobalUiDefaults((res.globalDefaults as UiControlSettings) ?? current);
+      setListBehaviorStatus('Правила сохранены — действуют во всех списках программы.');
+    } catch (e) {
+      setListBehaviorStatus(`Ошибка сохранения: ${formatError(e)}`);
+    }
+  }
+
   async function handleToggleLogging() {
     try {
       setStatus('Сохранение...');
@@ -722,6 +767,41 @@ export function SettingsPage(props: {
                     данные, — и возвращаются свайпом от язычка у края экрана или нажатием на него.
                     Кнопки сохранения не прячутся никогда.
                   </div>
+                </div>
+              </>
+            )}
+            {isSuperadmin && (
+              <>
+                <div style={{ color: 'var(--muted)' }}>Правила списков</div>
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <div style={{ color: 'var(--muted)', fontSize: 12 }}>
+                    Одно правило на всю программу: перетаскивание с подсветкой, перемещение
+                    стрелками по ручке, выделение контуром и контекстное меню — одинаково во
+                    всех списках. Личных отступлений нет: меняется здесь — меняется везде.
+                  </div>
+                  {(
+                    [
+                      { key: 'dragVisual', label: 'Подсветка при перетаскивании' },
+                      { key: 'keyboardMove', label: 'Перемещение стрелками по ручке' },
+                      { key: 'lasso', label: 'Выделение контуром (Ctrl + рамка)' },
+                      { key: 'contextMenu', label: 'Контекстное меню списка' },
+                    ] as Array<{ key: keyof ListBehaviorSettings; label: string }>
+                  ).map((item) => (
+                    <div key={item.key} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <Button
+                        variant={listBehavior[item.key] ? 'primary' : 'ghost'}
+                        onClick={() => void handleSaveListBehavior({ ...listBehavior, [item.key]: !listBehavior[item.key] })}
+                      >
+                        {listBehavior[item.key] ? 'Включено' : 'Выключено'}
+                      </Button>
+                      <span style={{ fontSize: 12 }}>{item.label}</span>
+                    </div>
+                  ))}
+                  {listBehaviorStatus ? (
+                    <div style={{ color: listBehaviorStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--muted)', fontSize: 12 }}>
+                      {listBehaviorStatus}
+                    </div>
+                  ) : null}
                 </div>
               </>
             )}

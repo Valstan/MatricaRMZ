@@ -18,6 +18,8 @@ import { useColumnLayout } from '../hooks/useColumnLayout.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { useListColumnsMode } from '../hooks/useListColumnsMode.js';
 import { useListSelection } from '../hooks/useListSelection.js';
+import { useListBehaviorSettings } from '../hooks/useListBehaviorSettings.js';
+import { ListLassoLayer } from '../components/ListLassoLayer.js';
 import { sortArrow, toggleSort, useListUiState, usePersistedScrollTop, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import {
@@ -55,6 +57,9 @@ import {
   buildDeleteRowsStatus,
   buildListContextMenuItems,
   copyRowsToClipboard,
+  listCopyAction,
+  listDeleteAction,
+  listPrintAction,
   printRowsPreview,
   resolveMenuRows,
 } from '../utils/listContextActions.js';
@@ -605,6 +610,8 @@ export function ContractsPage(props: {
   );
   const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
   const selection = useListSelection(sorted.map((row) => row.id));
+  // Правила поведения списков — из общего источника (D-248), без частных настроек страницы.
+  const listBehavior = useListBehaviorSettings();
 
   function onSort(key: SortKey) {
     patchState(toggleSort(listState.sortKey as SortKey, listState.sortDir, key));
@@ -984,6 +991,9 @@ export function ContractsPage(props: {
       <tr
         key={row.id}
         data-list-selected={selection.isSelected(row.id) ? 'true' : undefined}
+        // Маркер строки для выделения контуром (Ctrl + рамка) — правило одно на программу.
+        data-list-row="true"
+        data-list-row-key={row.id}
         style={{
           borderBottom: '1px solid #f3f4f6',
           cursor: 'pointer',
@@ -1163,6 +1173,7 @@ export function ContractsPage(props: {
       <div ref={containerRef} onScroll={onScroll} style={{ marginTop: 2, flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
         <TwoColumnList items={sorted} enabled={twoCol} renderColumn={(items, _c, _n, startIndex) => renderTable(items, startIndex)} />
       </div>
+      <ListLassoLayer enabled={listBehavior.lasso} onSelect={selection.selectMany} />
       {menu ? (
         <ListContextMenu
           x={menu.x}
@@ -1170,13 +1181,17 @@ export function ContractsPage(props: {
           items={buildListContextMenuItems({
             rows: resolveMenuRows(menu.targetIds, rowById),
             bulk: menu.bulk,
-            canDelete: props.canDelete,
             getId: (row) => row.id,
             onSelect: selection.toggleSelect,
-            onPrint: printRows,
-            onCopy: copyRows,
-            onDelete: deleteRows,
             onClearSelection: selection.clearSelection,
+            hasSelection: selection.selectedCount > 0,
+            // Меню собирается из объявления действий списка: недоступного пункта в нём
+            // нет, а новое действие попадает само (промт КАРМАНА #67).
+            actions: [
+              listPrintAction({ available: true, print: printRows }),
+              listCopyAction({ available: true, copy: copyRows }),
+              listDeleteAction<Row>({ available: props.canDelete, remove: deleteRows, getId: (row) => row.id }),
+            ],
           })}
           onClose={() => setMenu(null)}
         />
