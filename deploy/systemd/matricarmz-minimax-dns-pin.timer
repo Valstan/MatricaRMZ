@@ -1,0 +1,11 @@
+# Таймер пин-адресов MiniMax (раз в час: адреса Akamai ротируются, запись вручную протухнет).
+[Unit]
+Description=Раз в час переписывать пин адресов MiniMax в /etc/hosts
+
+[Timer]
+OnCalendar=hourly
+# Пропущенный запуск — догнать при загрузке.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
