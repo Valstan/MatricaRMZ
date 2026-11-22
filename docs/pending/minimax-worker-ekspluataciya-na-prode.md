@@ -34,6 +34,34 @@
 **Что осталось:** релиз кода на прод, установка юнита, MiniMax Code CLI и DNS-пин на боксе, замер
 RAM, включение звена (`MATRICA_AI_PROVIDER=minimax`) и приёмка на живом вопросе — пункты 2–6 ниже.
 
+**Уточнение 22.11.2026 (после живой проверки):** релиз **не нужен** — код воркера уже на боксе
+(выкладка `backend-dist`, приёмка 3001/3002/nginx), MiniMax Code CLI 0.7.4 тоже установлен
+(`npm i -g --prefix ~/.local @minimax-ai/code`, без root). Остались **три команды, которые не пускает
+локальный гейт** (запись в системные пути на проде: `/etc/hosts`, `/etc/systemd/system`,
+`/etc/matricarmz/*.env`; гейт не умеет спросить и отказывает — обходить нельзя, тот же класс, что
+чистка старого APK):
+
+```bash
+# 1. пин адресов MiniMax (без него агент на боксе не доходит до MiniMax: резолверы бокса
+#    отдают недоступные Akamai-адреса — проверено вживью, все 5 хостов таймаутят на 443)
+sudo python3 ~/MatricaRMZ/scripts/prod-ops/minimax-dns-pin.py
+# 2. юниты: воркер + таймер пина
+bash ~/MatricaRMZ/deploy/systemd/install-backend.sh
+sudo systemctl enable --now matricarmz-minimax-dns-pin.timer
+sudo systemctl start matricarmz-minimax-dns-pin.service
+sudo systemctl enable --now matricarmz-minimax-worker.service
+# 3. включить звено — ПОСЛЕ успешного прогона воркера (иначе аккаунты пула тратятся впустую)
+echo 'MATRICA_AI_PROVIDER=minimax' >> /etc/matricarmz/matricarmz.env
+sudo systemctl restart matricarmz-backend-primary.service
+```
+
+**Проверка после шага 2:** `curl -fsS http://127.0.0.1:3010/health` → `{"ok":true,"pool":"configured",…}`.
+
+**Живой прогон уже сделан (22.11.2026):** воркер поднялся вручную с бокса, запрос дошёл до пула и получил
+честный отказ `503 {"error":"no_free_accounts","reason":"pool_empty"}` — контур живой, пул на сегодня
+исчерпан (141 аккаунт, 124 использованы сегодня, 138 закреплены за потребителями). Первый аккаунт
+появится в окне вендорского сброса (МСК 00:00/03:00) — это механика пула, не наш блокер.
+
 ## 2. Установка на проде (после выката кода с этим PR)
 
 ```bash
