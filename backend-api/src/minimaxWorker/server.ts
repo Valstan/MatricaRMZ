@@ -116,12 +116,18 @@ export function createWorkerApp(
   app.use(express.json({ limit: '8mb' }));
 
   // Локальный эндпойнт воркера: доступ с хоста — по токену. Наружу не выставляем.
+  //
+  // ⚠️ Anthropic SDK шлёт ключ как `X-Api-Key` (при `apiKey`), а не `Authorization: Bearer`
+  // (тот идёт от `authToken`). Поэтому принимаем оба заголовка: иначе бэкенд, ходящий
+  // тем же SDK, получил бы 401 — и не смог бы уйти на платного страхователя.
   app.use((req, res, next) => {
     if (req.path === '/health') return next();
-    const header = String(req.headers.authorization ?? '');
-    const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+    const bearer = String(req.headers.authorization ?? '');
+    const bearerToken = bearer.startsWith('Bearer ') ? bearer.slice(7).trim() : '';
+    const apiKey = String(req.headers['x-api-key'] ?? '').trim();
+    const token = bearerToken || apiKey;
     if (!token || token !== config.serviceToken) {
-      res.status(401).json({ error: 'Требуется Bearer-токен воркера' });
+      res.status(401).json({ error: 'Требуется токен воркера (X-Api-Key или Authorization: Bearer)' });
       return;
     }
     next();

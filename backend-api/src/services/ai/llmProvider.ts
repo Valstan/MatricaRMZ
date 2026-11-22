@@ -177,7 +177,10 @@ function buildClient(provider: LlmProviderName): Anthropic {
       : provider === 'minimax'
         ? String(process.env.MATRICA_MINIMAX_WORKER_URL ?? MINIMAX_WORKER_BASE_URL).trim().replace(/\/+$/, '')
         : '';
-  return new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) });
+  // У воркера свои правила повторов: отказ воркера мы обрабатываем сами (fail-open
+  // на DeepSeek), а не SDK-овыми ретраями — иначе отказ пула ждал бы три попытки.
+  const maxRetries = provider === 'minimax' ? 0 : undefined;
+  return new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}), ...(maxRetries != null ? { maxRetries } : {}) });
 }
 
 function getClient(): Anthropic {

@@ -53,6 +53,15 @@ describe('POST /v1/messages', () => {
     expect(res.status).toBe(401);
   });
 
+  it('принимает ключ в X-Api-Key — так его шлёт Anthropic SDK', async () => {
+    const { app } = createWorkerApp(config, deps());
+    const res = await request(app)
+      .post('/v1/messages')
+      .set('X-Api-Key', 'worker-token')
+      .send(MESSAGES);
+    expect(res.status).toBe(200);
+  });
+
   it('отвечает в Anthropic-совместимом виде', async () => {
     const { app } = createWorkerApp(config, deps());
     const res = await request(app)
