@@ -9,6 +9,7 @@ import {
   formatProductionProgramPeriod,
   looksLikeIdentifier,
   parseContractSections,
+  parseProductionProgramSignatureSlots,
   productionProgramContractLabel,
   productionProgramEngineHint,
   productionProgramEngineIndex,
@@ -26,7 +27,9 @@ import {
   productionProgramRowFromEngine,
   productionProgramRowTone,
   productionProgramStageOptions,
+  serializePrintSignatureSlots,
   type EngineListItem,
+  type PrintSignatureSlot,
   type ProductionProgramDto,
   type ProductionProgramDropSide,
   type ProductionProgramExecutionSummary,
@@ -1616,6 +1619,9 @@ export function ProductionProgramPage(props: Props) {
       })),
       engines: props.engines,
       employees,
+      // Состав подписей — сохранённый оператором. `null` (не задан) — печатаются роли
+      // по умолчанию; сохранённый набор заменяет их целиком.
+      signatureSlots: selected.signatureSlots ? parseProductionProgramSignatureSlots(selected.signatureSlots) : null,
     };
   }, [selected, rows, props.engines, employees]);
 
@@ -2318,7 +2324,15 @@ export function ProductionProgramPage(props: Props) {
 
       {/* Превью печатной формы — промежуточный этап между «Печать» и принтером. */}
       {printPreviewOpen && programPrintInput ? (
-        <ProductionProgramPrintPreview input={programPrintInput} onClose={() => setPrintPreviewOpen(false)} />
+        <ProductionProgramPrintPreview
+          input={programPrintInput}
+          onClose={() => setPrintPreviewOpen(false)}
+          onSignatureSlotsChange={(slots: readonly PrintSignatureSlot[]) => {
+            // Состав подписей — данные программы, а не вид печати: правка уходит в
+            // документ, иначе добавленная подпись не печаталась бы в следующий раз.
+            setHeader({ signatureSlots: serializePrintSignatureSlots(slots) });
+          }}
+        />
       ) : null}
 
       {/* Модалка этапа: этап пишется в историю ремонта двигателя целиком. */}

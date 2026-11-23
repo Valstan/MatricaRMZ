@@ -1,8 +1,14 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import { buildProductionProgramPrintModel, type ProductionProgramPrintInput } from '@matricarmz/shared';
+import {
+  PRODUCTION_PROGRAM_SIGNATURE_SLOTS,
+  resolveProductionProgramSignatureSlots,
+  type PrintSignatureSlot,
+  type ProductionProgramPrintInput,
+} from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { PrintSignatureBlockEditor } from './PrintSignatureBlockEditor.js';
 import { productionProgramPrintHtml } from '../utils/productionProgramPrintHtml.js';
 
 /**
@@ -12,12 +18,15 @@ import { productionProgramPrintHtml } from '../utils/productionProgramPrintHtml.
  * принтера — оператор не мог ни посмотреть форму, ни поправить её (закрытие окна
  * принтера закрывало и форму). Теперь между «Печать» и принтером есть промежуточный
  * этап: форма показана как будет на бумаге, и её можно настроить:
- *  · галочки у подписей — ненужная подпись убирается из печати;
+ *  · блок подписей — **редактируемый**: добавить, изменить и удалить подпись
+ *    (заказ владельца 23.11.2026), снять галочку — подпись не печатается;
  *  · кегли разделов — шапка, список строк и подписи размером independently;
  *  · кнопка «Печать» отправляет на принтер именно то, что видно в превью.
  *
- * Настройки живут в состоянии окна: это вид печати, а не данные плана — в саму
- * программу они не пишутся.
+ * Настройки кеглей и снятые подписи живут в состоянии окна: это вид печати, а не
+ * данные плана. А вот **состав подписей** — данные программы: правка уходит в
+ * документ (`onSignatureSlotsChange`), иначе добавленная подпись не печаталась бы
+ * в следующий раз.
  */
 
 /** A4 landscape в пикселях при 96 dpi — размер iframe с документом. */
@@ -29,15 +38,35 @@ const PREVIEW_SCALE = 0.62;
 const MIN_FONT_SIZE = 8;
 const MAX_FONT_SIZE = 24;
 
-export function ProductionProgramPrintPreview(props: { input: ProductionProgramPrintInput; onClose: () => void }) {
+export function ProductionProgramPrintPreview(props: {
+  input: ProductionProgramPrintInput;
+  onClose: () => void;
+  /**
+   * Правка состава подписей. Уходит в документ (программу), а не остаётся в окне:
+   * иначе добавленная подпись не печаталась бы в следующий раз.
+   */
+  onSignatureSlotsChange?: (slots: readonly PrintSignatureSlot[]) => void;
+}) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [headerFontSize, setHeaderFontSize] = useState(14);
   const [tableFontSize, setTableFontSize] = useState(14);
   const [signatureFontSize, setSignatureFontSize] = useState(14);
 
-  // Подписи модели — список для галочек. Снятая подпись просто не печатается.
-  const allSignatures = useMemo(() => buildProductionProgramPrintModel(props.input).signatures, [props.input]);
-  const [enabledCaptions, setEnabledCaptions] = useState<string[]>(() => allSignatures.map((s) => s.caption));
+  // Слоты подписей документа: сохранённые оператором, иначе роли по умолчанию.
+  const slots = useMemo(
+    () => resolveProductionProgramSignatureSlots(props.input.signatureSlots ?? null),
+    [props.input.signatureSlots],
+  );
+  // Снятые подписи — только на этот раз (правка печати, не документа). После
+  // правки состава список снятых сбрасывается: индексы поменялись местами.
+  const [skipped, setSkipped] = useState<number[]>([]);
+  useEffect(() => {
+    setSkipped([]);
+  }, [props.input.signatureSlots]);
+  const printedIndexes = useMemo(
+    () => slots.map((_slot, index) => index).filter((index) => !skipped.includes(index)),
+    [slots, skipped],
+  );
 
   const html = useMemo(
     () =>
@@ -45,13 +74,13 @@ export function ProductionProgramPrintPreview(props: { input: ProductionProgramP
         headerFontSize,
         tableFontSize,
         signatureFontSize,
-        signatureCaptions: enabledCaptions,
+        signatureSlots: slots.filter((_slot, index) => printedIndexes.includes(index)),
       }),
-    [props.input, headerFontSize, tableFontSize, signatureFontSize, enabledCaptions],
+    [props.input, headerFontSize, tableFontSize, signatureFontSize, slots, printedIndexes],
   );
 
-  const toggleSignature = (caption: string) => {
-    setEnabledCaptions((prev) => (prev.includes(caption) ? prev.filter((c) => c !== caption) : [...prev, caption]));
+  const togglePrinted = (index: number) => {
+    setSkipped((prev) => (prev.includes(index) ? prev.filter((i) => i !== index) : [...prev, index]));
   };
 
   const stepFont = (setter: (next: number) => void, value: number, delta: number) => {
@@ -138,22 +167,19 @@ export function ProductionProgramPrintPreview(props: { input: ProductionProgramP
             <div style={{ display: 'grid', gap: 6 }}>
               <strong style={{ fontSize: 13 }}>Подписи</strong>
               <span style={{ fontSize: 12, color: 'var(--subtle)' }}>
-                Снимите галочку — подпись не попадёт на печать.
+                Добавьте, измените или уберите подпись — состав уходит в программу и печатается на
+                бумаге. Галочка снимает подпись только с этой печати.
               </span>
-              {allSignatures.map((s) => (
-                <label key={s.caption} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13 }}>
-                  <input
-                    type="checkbox"
-                    checked={enabledCaptions.includes(s.caption)}
-                    onChange={() => toggleSignature(s.caption)}
-                    style={{ marginTop: 2 }}
-                  />
-                  <span>
-                    <span style={{ display: 'block' }}>{s.caption}</span>
-                    <span style={{ display: 'block', fontSize: 12, color: 'var(--subtle)' }}>{s.name}</span>
-                  </span>
-                </label>
-              ))}
+              <PrintSignatureBlockEditor
+                slots={slots}
+                employees={props.input.employees ?? []}
+                onChange={(next) => props.onSignatureSlotsChange?.(next)}
+                suggestions={PRODUCTION_PROGRAM_SIGNATURE_SLOTS.map((def) => def.caption)}
+                disabled={!props.onSignatureSlotsChange}
+                printedIndexes={printedIndexes}
+                onTogglePrinted={togglePrinted}
+                rankKey="employee:production-program-signature"
+              />
             </div>
           </div>
 

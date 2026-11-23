@@ -5,6 +5,7 @@ import {
   parseProductionProgramState,
   productionProgramStageText,
   type ProductionProgramPrintInput,
+  type ProductionProgramSignatureSlot,
   type ProductionProgramPrintModel,
 } from '@matricarmz/shared';
 
@@ -141,10 +142,13 @@ export type ProductionProgramPrintOptions = {
   /** Кегль подписей (pt). По умолчанию 14. */
   signatureFontSize?: number | undefined;
   /**
-   * Подписи, которые печатаем (по названию должности). undefined/null — все.
+   * Подписи, которые печатаем (слоты целиком). undefined/null — берём из модели.
    * Пустой список — ни одной подписи.
+   *
+   * Именно слоты, а не должности: должность оператор теперь меняет, и две подписи
+   * могут оказаться с одинаковой должностью — фильтр по названию печатал бы не то.
    */
-  signatureCaptions?: readonly string[] | null | undefined;
+  signatureSlots?: readonly ProductionProgramSignatureSlot[] | null | undefined;
 };
 
 const DEFAULT_FONT_SIZE = 14;
@@ -161,12 +165,12 @@ export function productionProgramPrintHtml(
   input: ProductionProgramPrintInput,
   options?: ProductionProgramPrintOptions,
 ): string {
-  const model = buildProductionProgramPrintModel(input);
+  const model = buildProductionProgramPrintModel(
+    options?.signatureSlots ? { ...input, signatureSlots: options.signatureSlots } : input,
+  );
   const headerSize = clampFontSize(options?.headerFontSize, DEFAULT_FONT_SIZE);
   const tableSize = clampFontSize(options?.tableFontSize, DEFAULT_FONT_SIZE);
   const signatureSize = clampFontSize(options?.signatureFontSize, DEFAULT_FONT_SIZE);
-  const wanted = options?.signatureCaptions ?? null;
-  const signatures = wanted == null ? model.signatures : model.signatures.filter((s) => wanted.includes(s.caption));
   const colgroup = `<colgroup>${COL_WIDTHS_MM.map((w) => `<col style="width:${w}mm"/>`).join('')}</colgroup>`;
   const header = HEADERS.map(
     (h, i) =>
@@ -202,7 +206,7 @@ ${colgroup}
 <thead><tr>${header}</tr></thead>
 <tbody>${rowHtml(model)}</tbody>
 </table>
-${signaturesHtml({ ...model, signatures }, signatureSize)}
+${signaturesHtml(model, signatureSize)}
 </body></html>`;
 }
 
