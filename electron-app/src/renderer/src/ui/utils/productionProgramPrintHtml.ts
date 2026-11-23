@@ -132,7 +132,7 @@ function signaturesHtml(model: ProductionProgramPrintModel, fontSize: number): s
   return `<table style="width:100%;border-collapse:collapse;margin-top:14px">${rows.join('')}</table>`;
 }
 
-/** Настройки печати формы ПП: кегли и состав подписей. */
+/** Настройки печати формы ПП: кегли разделов. */
 export type ProductionProgramPrintOptions = {
   /** Кегль шапки формы (pt). По умолчанию 14. */
   headerFontSize?: number | undefined;
@@ -140,11 +140,6 @@ export type ProductionProgramPrintOptions = {
   tableFontSize?: number | undefined;
   /** Кегль подписей (pt). По умолчанию 14. */
   signatureFontSize?: number | undefined;
-  /**
-   * Подписи, которые печатаем (по названию должности). undefined/null — все.
-   * Пустой список — ни одной подписи.
-   */
-  signatureCaptions?: readonly string[] | null | undefined;
 };
 
 const DEFAULT_FONT_SIZE = 14;
@@ -165,8 +160,11 @@ export function productionProgramPrintHtml(
   const headerSize = clampFontSize(options?.headerFontSize, DEFAULT_FONT_SIZE);
   const tableSize = clampFontSize(options?.tableFontSize, DEFAULT_FONT_SIZE);
   const signatureSize = clampFontSize(options?.signatureFontSize, DEFAULT_FONT_SIZE);
-  const wanted = options?.signatureCaptions ?? null;
-  const signatures = wanted == null ? model.signatures : model.signatures.filter((s) => wanted.includes(s.caption));
+  // Состав подписей — в самой модели: печатная форма печатает ровно те строки, что
+  // пришли во входе. Отбор «какие строки печатать» делает вызывающий (форма) — по
+  // ключу строки, а не по названию должности: должность меняется при правке, и отбор
+  // по названию молча терял бы строку.
+  const signatures = model.signatures;
   const colgroup = `<colgroup>${COL_WIDTHS_MM.map((w) => `<col style="width:${w}mm"/>`).join('')}</colgroup>`;
   const header = HEADERS.map(
     (h, i) =>

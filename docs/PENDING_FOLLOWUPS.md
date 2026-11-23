@@ -64,6 +64,8 @@
 
 - [🟡 Печатные формы: офлайн-шаблоны (таблицы вне sync-контракта — печать по шаблону требует связи с сервером) 🗓 since:2026-11-20](pending/pechatnye-formy-oflayn-shablony.md)
 
+- [🟡 Печатные формы: ПП как шаблон + общий редактор подписей (после правки блока подписей ПП) 🗓 since:2026-11-23](pending/pechatnye-formy-shablon-dlya-pp-i-obshchiy-redaktor-podpisey.md)
+
 - [🟡 11 списков вне общей панели кнопок: свой ряд, без переполнения и меню «⋯» 🗓 since:2026-11-13](pending/spiski-vne-obshchey-paneli-bez-perepolneniya.md)
 - [🟡 Контракты: догоняем модуль до остальной программы 🗓 since:2026-11-13](pending/kontrakty-dogonyaem-module-do-ostalnoy-programmy.md)
 

@@ -17,6 +17,7 @@ import {
   productionProgramRowExecution,
   productionProgramRowFromEngine,
   productionProgramRowHighlight,
+  productionProgramSignatureSlotsFromRaw,
   productionProgramStageNeighbours,
   productionProgramStageOptions,
   productionProgramExecutionSummary,
@@ -84,6 +85,61 @@ describe('подписи программы', () => {
     expect(parseProductionProgramSignatureSlots([{ caption: 'X', employeeId: null, fullName: 'Y' }])).toEqual([
       { caption: 'X', employeeId: null, fullName: 'Y' },
     ]);
+  });
+
+  it('строка подписи без должности, но с человеком — не теряется', () => {
+    // Должность оператор вписывает позже; молча выбросить такую строку — значит
+    // потерять правку (ровно то, из-за чего блок подписей и делали редактируемым).
+    expect(parseProductionProgramSignatureSlots([{ caption: '', employeeId: 'emp-9', fullName: '' }])).toEqual([
+      { caption: '', employeeId: 'emp-9', fullName: '' },
+    ]);
+    // А строка, в которой нет ничего, — не хранится.
+    expect(parseProductionProgramSignatureSlots([{ caption: '', employeeId: null, fullName: '' }])).toEqual([]);
+  });
+
+  it('сохранённые слоты — как есть: своя должность остаётся, удалённая строка не возвращается', () => {
+    // Владелец 23.11.2026: блок подписей редактируемый. Раньше сохранённое
+    // накладывалось на образец: своя должность выбрасывалась, а удалённая строка
+    // возвращалась сама — «добавить подпись» было невозможно в принципе.
+    const saved = [
+      { caption: 'Начальник цеха № 4', employeeId: 'emp-9', fullName: 'Петров П.П.' },
+      { caption: 'Коммерческий директор', employeeId: null, fullName: 'Беркута А.А.' },
+    ];
+    const slots = resolveProductionProgramSignatureSlots(saved);
+    expect(slots).toHaveLength(2);
+    expect(slots[0]?.caption).toBe('Начальник цеха № 4');
+    expect(slots[0]?.employeeId).toBe('emp-9');
+    expect(slots.map((s) => s.caption)).not.toContain('Директор');
+  });
+
+  it('пустой сохранённый список — подписей нет (оператор удалил все)', () => {
+    expect(resolveProductionProgramSignatureSlots([])).toEqual([]);
+  });
+
+  it('из сырого значения: нет значения ⇒ образец, пустой список ⇒ пусто, битый JSON ⇒ образец', () => {
+    expect(productionProgramSignatureSlotsFromRaw(null)).toHaveLength(8);
+    expect(productionProgramSignatureSlotsFromRaw('')).toHaveLength(8);
+    expect(productionProgramSignatureSlotsFromRaw('{broken')).toHaveLength(8);
+    expect(productionProgramSignatureSlotsFromRaw('[]')).toEqual([]);
+    expect(productionProgramSignatureSlotsFromRaw([{ caption: 'X', employeeId: null, fullName: 'Y' }])).toEqual([
+      { caption: 'X', employeeId: null, fullName: 'Y' },
+    ]);
+    expect(
+      productionProgramSignatureSlotsFromRaw(
+        JSON.stringify([{ caption: 'Начальник цеха № 4', employeeId: 'emp-9', fullName: 'Петров П.П.' }]),
+      ),
+    ).toEqual([{ caption: 'Начальник цеха № 4', employeeId: 'emp-9', fullName: 'Петров П.П.' }]);
+  });
+
+  it('в печатной модели подписи берутся из сохранённого состава, а не из образца', () => {
+    const model = buildProductionProgramPrintModel({
+      title: 'ПП',
+      shop: 'Цех № 1',
+      period: { start: 0, end: 0 },
+      rows: [],
+      signatureSlots: [{ caption: 'Начальник цеха № 4', employeeId: null, fullName: 'Петров П.П.' }],
+    });
+    expect(model.signatures).toEqual([{ caption: 'Начальник цеха № 4', name: 'Петров П.П.', source: 'document' }]);
   });
 
   it('привязанный сотрудник печатается из карточки, без привязки — из документа', () => {

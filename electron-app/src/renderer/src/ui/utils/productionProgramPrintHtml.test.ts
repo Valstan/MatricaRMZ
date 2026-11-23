@@ -146,12 +146,22 @@ describe('настройки печатной формы ПП', () => {
     expect(html).toContain('font-size:12pt');
   });
 
-  it('снятая подпись не печатается', () => {
-    const html = productionProgramPrintHtml(INPUT as never, {
-      signatureCaptions: ['Коммерческий директор'],
-    });
+  it('печатаются ровно те строки подписей, что пришли во входе', () => {
+    // Отбор «какие строки печатать» делает печатная форма (по ключу строки, а не по
+    // названию должности: должность меняется при правке). В форму уходит уже отобранный
+    // состав — значит, печать видит ровно его.
+    const html = productionProgramPrintHtml({
+      ...INPUT,
+      signatureSlots: [{ caption: 'Коммерческий директор', employeeId: null, fullName: 'Беркута А.А.' }],
+    } as never);
     expect(html).toContain('Коммерческий директор');
     expect(html).not.toContain('Начальник цеха №1');
+  });
+
+  it('пустой состав подписей — на листе подписей нет', () => {
+    const html = productionProgramPrintHtml({ ...INPUT, signatureSlots: [] } as never);
+    expect(html).not.toContain('Коммерческий директор');
+    expect(html).toContain('УТВЕРЖДАЮ');
   });
 
   it('кегль не выходит за разумные пределы', () => {

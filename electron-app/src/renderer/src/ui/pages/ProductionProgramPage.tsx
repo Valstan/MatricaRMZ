@@ -25,6 +25,7 @@ import {
   productionProgramResolvePendingRows,
   productionProgramRowFromEngine,
   productionProgramRowTone,
+  productionProgramSignatureSlotsFromRaw,
   productionProgramStageOptions,
   type EngineListItem,
   type ProductionProgramDto,
@@ -34,6 +35,7 @@ import {
   type ProductionProgramLineDto,
   type ProductionProgramPeriodKind,
   type ProductionProgramPrintInput,
+  type ProductionProgramSignatureSlot,
   type RepairStageTemplate,
   type WorkOrderSignatureEmployee,
 } from '@matricarmz/shared';
@@ -1591,6 +1593,18 @@ export function ProductionProgramPage(props: Props) {
   ]);
 
   /**
+   * Состав подписей программы — данные программы (не вид печати).
+   *
+   * Блок подписей редактируется прямо в печатной форме (владелец 23.11.2026), и
+   * правка уходит в программу: кто подписывает лист — это часть документа, а не
+   * настройка принтера. Состав нужен и печати, и выгрузке файлом — одна модель.
+   */
+  const programSignatureSlots = useMemo(
+    () => productionProgramSignatureSlotsFromRaw(selected?.signatureSlots ?? null),
+    [selected?.signatureSlots],
+  );
+
+  /**
    * Модель печати плана: строки, карточки двигателей и подписи.
    *
    * Из неё собираются и печатный лист, и выгрузка в Word/Excel, и письмо, и буфер
@@ -1616,8 +1630,14 @@ export function ProductionProgramPage(props: Props) {
       })),
       engines: props.engines,
       employees,
+      signatureSlots: programSignatureSlots,
     };
-  }, [selected, rows, props.engines, employees]);
+  }, [selected, rows, props.engines, employees, programSignatureSlots]);
+
+  /** Состав подписей изменили в печатной форме — пишем его в программу. */
+  function changeSignatureSlots(slots: ProductionProgramSignatureSlot[]) {
+    setHeader({ signatureSlots: JSON.stringify(slots) });
+  }
 
   /**
    * Кнопка «Печать» открывает ПРЕВЬЮ, а не принтер (владелец 10.11.2026):
@@ -2316,9 +2336,17 @@ export function ProductionProgramPage(props: Props) {
         )}
       </div>
 
-      {/* Превью печатной формы — промежуточный этап между «Печать» и принтером. */}
+      {/* Превью печатной формы — промежуточный этап между «Печать» и принтером.
+          Блок подписей в нём редактируется: состав подписей — данные программы,
+          поэтому правка уходит в программу (и в выгрузку файлом). */}
       {printPreviewOpen && programPrintInput ? (
-        <ProductionProgramPrintPreview input={programPrintInput} onClose={() => setPrintPreviewOpen(false)} />
+        <ProductionProgramPrintPreview
+          input={programPrintInput}
+          signatureSlots={programSignatureSlots}
+          canEditSignatures={props.canEdit}
+          onSignatureSlotsChange={changeSignatureSlots}
+          onClose={() => setPrintPreviewOpen(false)}
+        />
       ) : null}
 
       {/* Модалка этапа: этап пишется в историю ремонта двигателя целиком. */}

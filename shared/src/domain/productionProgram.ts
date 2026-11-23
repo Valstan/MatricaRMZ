@@ -291,32 +291,72 @@ export function parseProductionProgramSignatureSlots(raw: unknown): ProductionPr
     if (!item || typeof item !== 'object') continue;
     const rec = item as Record<string, unknown>;
     const caption = String(rec.caption ?? '').trim();
-    if (!caption) continue;
     const employeeIdRaw = String(rec.employeeId ?? '').trim();
+    const fullName = String(rec.fullName ?? '').trim();
+    // Совсем пустую строку выбрасываем: её незачем хранить. Но строка, где есть человек
+    // или ФИО (должность оператор ещё не вписал), — остаётся: иначе правка терялась бы
+    // молча, а это ровно тот случай, из-за которого блок подписей и делали редактируемым.
+    if (!caption && !employeeIdRaw && !fullName) continue;
     out.push({
       caption,
       employeeId: employeeIdRaw || null,
-      fullName: String(rec.fullName ?? '').trim(),
+      fullName,
     });
   }
   return out;
 }
 
 /**
- * Слоты программы: сохранённые — как есть; недостающие — из образца (ФИО из
- * документа, сотрудник не привязан). Так программа, созданная до правки блока
- * подписей, печатается с полным комплектом строк.
+ * Слоты программы: сохранённые — КАК ЕСТЬ; значения нет — образец (ФИО из
+ * документа, сотрудник не привязан).
+ *
+ * Правило «сохранённое — как есть», а не «наложить сохранённое на образец», —
+ * потому что блок подписей РЕДАКТИРУЕМЫЙ (владелец 23.11.2026: «блок подписей
+ * нужно сделать редактируемым… добавлять и удалять подписи»). При наложении
+ * удалённая оператором строка возвращалась бы сама, а новая должность
+ * («Начальник цеха № 4») выбрасывалась бы молча — то есть «добавить подпись» было
+ * бы невозможно в принципе.
+ *
+ * `saved === null` — блок не трогали: печатается образец. Так программа, созданная
+ * до появления редактора, печатается с полным комплектом строк.
  */
 export function resolveProductionProgramSignatureSlots(
   saved: readonly ProductionProgramSignatureSlot[] | null | undefined,
 ): ProductionProgramSignatureSlot[] {
-  const byCaption = new Map<string, ProductionProgramSignatureSlot>();
-  for (const slot of saved ?? []) byCaption.set(slot.caption, slot);
-  return PRODUCTION_PROGRAM_SIGNATURE_SLOTS.map((def) => {
-    const stored = byCaption.get(def.caption);
-    if (stored) return { ...stored };
-    return { caption: def.caption, employeeId: null, fullName: def.fullName };
-  });
+  if (saved != null) return saved.map((slot) => ({ ...slot }));
+  return PRODUCTION_PROGRAM_SIGNATURE_SLOTS.map((def) => ({
+    caption: def.caption,
+    employeeId: null,
+    fullName: def.fullName,
+  }));
+}
+
+/**
+ * Слоты подписи из того, что лежит в строке программы (JSON-строка или массив).
+ *
+ * Три состояния различаются ОСТОРОЖНО — иначе редактор подписей «сам воскресает»
+ * удалённое или, наоборот, молча теряет подписи:
+ *  · значения нет (null) — блок не трогали ⇒ образец;
+ *  · значение есть и это пустой список — оператор удалил ВСЕ подписи ⇒ пусто;
+ *  · значение есть, но разобрать нельзя (битый JSON) ⇒ образец: печатать нечего
+ *    и молча терять заведённое тоже нельзя.
+ */
+export function productionProgramSignatureSlotsFromRaw(raw: unknown): ProductionProgramSignatureSlot[] {
+  if (raw == null) return resolveProductionProgramSignatureSlots(null);
+  if (Array.isArray(raw)) return resolveProductionProgramSignatureSlots(parseProductionProgramSignatureSlots(raw));
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return resolveProductionProgramSignatureSlots(null);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      return resolveProductionProgramSignatureSlots(null);
+    }
+    if (!Array.isArray(parsed)) return resolveProductionProgramSignatureSlots(null);
+    return resolveProductionProgramSignatureSlots(parseProductionProgramSignatureSlots(parsed));
+  }
+  return resolveProductionProgramSignatureSlots(null);
 }
 
 /**

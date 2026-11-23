@@ -1,8 +1,14 @@
 import React, { useMemo, useRef, useState } from 'react';
 
-import { buildProductionProgramPrintModel, type ProductionProgramPrintInput } from '@matricarmz/shared';
+import {
+  PRODUCTION_PROGRAM_SIGNATURE_SLOTS,
+  resolveProductionProgramSignatureSlots,
+  type ProductionProgramPrintInput,
+  type ProductionProgramSignatureSlot,
+} from '@matricarmz/shared';
 
 import { Button } from './Button.js';
+import { SignatureSlotsEditor, type SignatureSlotRow } from './SignatureSlotsEditor.js';
 import { productionProgramPrintHtml } from '../utils/productionProgramPrintHtml.js';
 
 /**
@@ -12,12 +18,19 @@ import { productionProgramPrintHtml } from '../utils/productionProgramPrintHtml.
  * принтера — оператор не мог ни посмотреть форму, ни поправить её (закрытие окна
  * принтера закрывало и форму). Теперь между «Печать» и принтером есть промежуточный
  * этап: форма показана как будет на бумаге, и её можно настроить:
- *  · галочки у подписей — ненужная подпись убирается из печати;
- *  · кегли разделов — шапка, список строк и подписи размером independently;
- *  · кнопка «Печать» отправляет на принтер именно то, что видно в превью.
+ *  · **состав подписей** — блок подписей редактируется прямо здесь: должность,
+ *    человек (из кадрового реестра) или ФИО от руки, добавление и удаление строк
+ *    (владелец 23.11.2026: «открыли производственную программу на печать, и там
+ *    надо добавить ещё одну подпись, а мы не можем, никак»);
+ *  · **галочки «печать»** — снятая строка просто не попадает на лист (это вид печати,
+ *    а не состав документа);
+ *  · **кегли разделов** — шапка, список строк и подписи размером independently;
+ *  · **кнопка «Печать»** отправляет на принтер именно то, что видно в превью.
  *
- * Настройки живут в состоянии окна: это вид печати, а не данные плана — в саму
- * программу они не пишутся.
+ * Что остаётся видом печати, а что — данными документа:
+ *  · кегли и галочки «печать» — **вид печати** (живут в окне, в программу не пишутся);
+ *  · **состав подписей** — **данные программы** (уходят в программу и в выгрузку
+ *    файлом): кто подписывает лист — это часть документа, а не настройка принтера.
  */
 
 /** A4 landscape в пикселях при 96 dpi — размер iframe с документом. */
@@ -29,30 +42,92 @@ const PREVIEW_SCALE = 0.62;
 const MIN_FONT_SIZE = 8;
 const MAX_FONT_SIZE = 24;
 
-export function ProductionProgramPrintPreview(props: { input: ProductionProgramPrintInput; onClose: () => void }) {
+/** Подсказки должностей в редакторе подписей — роли из образца печатной формы. */
+const CAPTION_SUGGESTIONS = PRODUCTION_PROGRAM_SIGNATURE_SLOTS.map((slot) => slot.caption);
+
+/** Строка блока подписей → доменный слот (в программу и в печать идёт без ключа строки). */
+function toSlot(row: SignatureSlotRow): ProductionProgramSignatureSlot {
+  return {
+    caption: row.caption,
+    employeeId: row.employeeId,
+    fullName: row.fullName,
+  };
+}
+
+/**
+ * Строки блока подписей на старте окна.
+ *
+ * Ключ строки — только для интерфейса: по нему форма помнит, какую строку печатать,
+ * когда должность переписали или строки переставили (должность для этого не годится —
+ * она меняется при правке).
+ */
+function initialRows(slots: readonly ProductionProgramSignatureSlot[]): SignatureSlotRow[] {
+  return slots.map((slot, index) => ({
+    id: `slot-${index}`,
+    caption: slot.caption,
+    employeeId: slot.employeeId ?? null,
+    fullName: slot.fullName ?? '',
+  }));
+}
+
+export function ProductionProgramPrintPreview(props: {
+  input: ProductionProgramPrintInput;
+  onClose: () => void;
+  /** Можно ли править состав подписей (право вести план). */
+  canEditSignatures?: boolean;
+  /**
+   * Состав подписей программы (данные программы).
+   *
+   * null/undefined — блок не трогали: в форме образцовый набор строк.
+   */
+  signatureSlots?: readonly ProductionProgramSignatureSlot[] | null;
+  /** Состав изменили — сохранить в программе. */
+  onSignatureSlotsChange?: (slots: ProductionProgramSignatureSlot[]) => void;
+}) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [headerFontSize, setHeaderFontSize] = useState(14);
   const [tableFontSize, setTableFontSize] = useState(14);
   const [signatureFontSize, setSignatureFontSize] = useState(14);
 
-  // Подписи модели — список для галочек. Снятая подпись просто не печатается.
-  const allSignatures = useMemo(() => buildProductionProgramPrintModel(props.input).signatures, [props.input]);
-  const [enabledCaptions, setEnabledCaptions] = useState<string[]>(() => allSignatures.map((s) => s.caption));
+  // Состав подписей — состояние окна: набор строк программы. Ключи строк — свои,
+  // чтобы «печатать / не печатать» не путалось при правке должности или перестановке.
+  const [rows, setRows] = useState<SignatureSlotRow[]>(() =>
+    initialRows(props.signatureSlots ?? resolveProductionProgramSignatureSlots(null)),
+  );
+  const [printedIds, setPrintedIds] = useState<string[]>(() =>
+    initialRows(props.signatureSlots ?? resolveProductionProgramSignatureSlots(null)).map((row) => row.id),
+  );
+
+  const employees = props.input.employees ?? [];
+
+  const changeRows = (next: SignatureSlotRow[]) => {
+    setRows(next);
+    props.onSignatureSlotsChange?.(next.map(toSlot));
+  };
+
+  const togglePrinted = (id: string) => {
+    setPrintedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  // На лист идут ТОЛЬКО отмеченные строки: снятая подпись не печатается. Состав
+  // (все строки) уходит в программу и в выгрузку файлом — это разные вещи.
+  const printedSlots = useMemo(
+    () => rows.filter((row) => printedIds.includes(row.id)).map(toSlot),
+    [rows, printedIds],
+  );
 
   const html = useMemo(
     () =>
-      productionProgramPrintHtml(props.input, {
-        headerFontSize,
-        tableFontSize,
-        signatureFontSize,
-        signatureCaptions: enabledCaptions,
-      }),
-    [props.input, headerFontSize, tableFontSize, signatureFontSize, enabledCaptions],
+      productionProgramPrintHtml(
+        { ...props.input, signatureSlots: printedSlots },
+        {
+          headerFontSize,
+          tableFontSize,
+          signatureFontSize,
+        },
+      ),
+    [props.input, printedSlots, headerFontSize, tableFontSize, signatureFontSize],
   );
-
-  const toggleSignature = (caption: string) => {
-    setEnabledCaptions((prev) => (prev.includes(caption) ? prev.filter((c) => c !== caption) : [...prev, caption]));
-  };
 
   const stepFont = (setter: (next: number) => void, value: number, delta: number) => {
     setter(Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, value + delta)));
@@ -126,7 +201,7 @@ export function ProductionProgramPrintPreview(props: { input: ProductionProgramP
           </Button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 300px) minmax(0, 1fr)', minHeight: 0, flex: 1 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 340px) minmax(0, 1fr)', minHeight: 0, flex: 1 }}>
           <div style={{ borderRight: '1px solid var(--border)', overflow: 'auto', padding: 12, display: 'grid', gap: 14, alignContent: 'start' }}>
             <div style={{ display: 'grid', gap: 8 }}>
               <strong style={{ fontSize: 13 }}>Размеры шрифта</strong>
@@ -138,22 +213,32 @@ export function ProductionProgramPrintPreview(props: { input: ProductionProgramP
             <div style={{ display: 'grid', gap: 6 }}>
               <strong style={{ fontSize: 13 }}>Подписи</strong>
               <span style={{ fontSize: 12, color: 'var(--subtle)' }}>
-                Снимите галочку — подпись не попадёт на печать.
+                Должность и человек — своими словами. Снимите галочку — подпись не попадёт на печать.
               </span>
-              {allSignatures.map((s) => (
-                <label key={s.caption} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13 }}>
+              <SignatureSlotsEditor
+                rows={rows}
+                canEdit={props.canEditSignatures === true}
+                employees={employees}
+                rankKey="employee:production-program-signature"
+                onChange={changeRows}
+                captionSuggestions={CAPTION_SUGGESTIONS}
+                datalistId="pp-signature-captions"
+                addLabel="+ Добавить подпись"
+                hint={
+                  props.canEditSignatures === true
+                    ? 'Состав подписей сохраняется в программе — он печатается и в файле выгрузки.'
+                    : 'Состав подписей задаёт тот, кто ведёт план.'
+                }
+                renderExtra={(row) => (
                   <input
                     type="checkbox"
-                    checked={enabledCaptions.includes(s.caption)}
-                    onChange={() => toggleSignature(s.caption)}
+                    checked={printedIds.includes(row.id)}
+                    onChange={() => togglePrinted(row.id)}
+                    title="Печатать эту подпись"
                     style={{ marginTop: 2 }}
                   />
-                  <span>
-                    <span style={{ display: 'block' }}>{s.caption}</span>
-                    <span style={{ display: 'block', fontSize: 12, color: 'var(--subtle)' }}>{s.name}</span>
-                  </span>
-                </label>
-              ))}
+                )}
+              />
             </div>
           </div>
 

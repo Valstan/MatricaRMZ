@@ -109,10 +109,13 @@ describe('производственная программа — экран п�
     expect(PREVIEW).toContain('type="checkbox"');
     expect(PREVIEW).toContain('Подписи');
     expect(PREVIEW).toContain('Размеры шрифта');
-    // Печатная форма умеет настраиваться: кегли и состав подписей.
-    expect(PRINT_HTML).toContain('signatureCaptions');
+    // Печатная форма умеет настраиваться: кегли разделов и состав подписей.
+    // Состав подписей приходит во вход (отбор строк делает форма — по ключу строки),
+    // поэтому в HTML нет отбора по названию должности: должность меняется при правке.
     expect(PRINT_HTML).toContain('signatureFontSize');
     expect(PRINT_HTML).toContain('tableFontSize');
+    expect(PRINT_HTML).toContain('model.signatures');
+    expect(PRINT_HTML).not.toContain('signatureCaptions');
   });
 });
 
