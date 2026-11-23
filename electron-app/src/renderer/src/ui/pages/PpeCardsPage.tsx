@@ -21,15 +21,29 @@ import { ColumnToggleButton } from '../components/ColumnToggleButton.js';
 import { FacetFilter } from '../components/FacetFilter.js';
 import { ToolbarSearchField } from '../components/ToolbarSearchField.js';
 import { ListCount } from '../components/ListCount.js';
+import { ListContextMenu, type ListContextMenuItem } from '../components/ListContextMenu.js';
 import { ListExportButtons } from '../components/ListExportButtons.js';
+import { ListLassoLayer } from '../components/ListLassoLayer.js';
 import { ListPrintDialog } from '../components/ListPrintDialog.js';
 import { PageToolbar, ToolbarPin } from '../components/PageToolbar.js';
 import { RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { VirtualTable, type VirtualTableRowProps } from '../components/VirtualTable.js';
 import { useColumnLayout } from '../hooks/useColumnLayout.js';
+import { useListBehaviorSettings } from '../hooks/useListBehaviorSettings.js';
+import { useListSelection } from '../hooks/useListSelection.js';
 import { useListUiState, usePersistedScrollTop, sortArrow, toggleSort, useSortedItems } from '../hooks/useListBehavior.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { isAndroidPlatform, tabletColumnLabel } from '../platform.js';
+import {
+  buildCopyRowsStatus,
+  buildListContextMenuItems,
+  copyRowsToClipboard,
+  listCopyAction,
+  listPrintAction,
+  resolveMenuRows,
+  type ListActionDeclaration,
+  type ListContextColumn,
+} from '../utils/listContextActions.js';
 import { listCellKindProps, listHeaderKindProps, type ListColumnKind } from '../utils/listColumnKinds.js';
 import { buildListPrintColumns } from '../utils/listPrintColumns.js';
 
@@ -159,6 +173,7 @@ function fillCell(row: Row): React.ReactNode {
  * карточка: список и карточка не могут говорить разное про «пора».
  */
 export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
+  const { onOpen } = props;
   const { state, patchState } = useListUiState<ListState>('list:ppe-cards', DEFAULT_STATE);
   const { query, sortKey, sortDir } = state;
   const facets = sanitizePpeCardsFacetSelection(state.facets);
@@ -169,6 +184,10 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('');
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  /** Строки, которые печатает меню (правый клик по строке или по пачке). `null` — печатает
+   *  сам список: выделенное, если выделение есть, иначе весь список по фильтру. */
+  const [printScopeRows, setPrintScopeRows] = useState<Row[] | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
 
   const load = useCallback(async () => {
     const res = await window.matrica.ppe.cards.overview().catch(() => null);
@@ -387,6 +406,71 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
   );
   const printColumns = useMemo(() => buildListPrintColumns(allColumns), [allColumns]);
 
+  // Кит списков (промт КАРМАНА #67, D-248): правила поведения — из общего источника,
+  // меню собирается из объявления действий, выделение контуром — общий слой.
+  // Идентификатор строки — `employeeId`: он у строки свой и не меняется при сортировке
+  // и фильтре (в отличие от номера строки, который после фильтра уезжает на другую строку).
+  const selection = useListSelection(
+    sorted.map((row) => row.employeeId),
+    { persistKey: 'list:ppe-cards:selection' },
+  );
+  const listBehavior = useListBehaviorSettings();
+
+  /** Выделенные строки — по ВСЕМ строкам, а не только видимым: выпавшее из поиска
+   *  выделение обязано дождаться оператора, а не молча выпасть из печати. */
+  const selectedRows = useMemo(
+    () => rows.filter((row) => selection.selectedIds.has(row.employeeId)),
+    [rows, selection.selectedIds],
+  );
+  const rowById = useMemo(() => new Map(rows.map((row) => [row.employeeId, row])), [rows]);
+  const menuRows = useMemo(() => (menu ? resolveMenuRows(menu.targetIds, rowById) : []), [menu, rowById]);
+
+  /** Колонки для копирования в буфер — те же, что на экране: текст берётся из того же
+   *  `render`, что и печать, иначе оператор скопирует одно, а увидит другое. */
+  const contextColumns = useMemo<ListContextColumn<Row>[]>(
+    () => printColumns.map((col) => ({ title: col.label, value: (row: Row) => col.printValue(row) })),
+    [printColumns],
+  );
+
+  const menuItems = useMemo<ListContextMenuItem[]>(() => {
+    if (!menu) return [];
+    // Список ОБЪЯВЛЯЕТ свои действия — меню собирается из объявления (промт КАРМАНА #67).
+    // Действия списка карточек СИЗ: открыть карточку сотрудника, распечатать, скопировать.
+    // Удалять в этом списке нечего ⇒ пункта «Удалить» в меню нет ВООБЩЕ, а не гаснет серым.
+    const actions: ListActionDeclaration<Row>[] = [
+      {
+        id: 'open-ppe-card',
+        label: 'Открыть карточку СИЗ',
+        available: true,
+        scope: 'single',
+        run: (menuTargets) => onOpen(menuTargets[0]!.employeeId),
+      },
+      listPrintAction<Row>({
+        available: true,
+        print: (printRows) => {
+          setPrintScopeRows(printRows);
+          setPrintDialogOpen(true);
+        },
+      }),
+      listCopyAction<Row>({
+        available: true,
+        copy: async (copyRows) => {
+          await copyRowsToClipboard(copyRows, contextColumns);
+          setStatus(buildCopyRowsStatus(copyRows.length));
+        },
+      }),
+    ];
+    return buildListContextMenuItems({
+      rows: menuRows,
+      bulk: menu.bulk,
+      getId: (row) => row.employeeId,
+      onSelect: selection.toggleSelect,
+      onClearSelection: selection.clearSelection,
+      hasSelection: selection.selectedCount > 0,
+      actions,
+    });
+  }, [menu, menuRows, selection, contextColumns, onOpen]);
+
   function onSortHeader(nextKey: SortKey) {
     const next = toggleSort(sortKey, sortDir, nextKey);
     patchState({ sortKey: next.sortKey, sortDir: next.sortDir });
@@ -439,9 +523,28 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
   }
 
   function rowProps(row: Row): VirtualTableRowProps {
+    const isSelected = selection.isSelected(row.employeeId);
     return {
       style: { cursor: 'pointer', opacity: row.isActive ? 1 : 0.55 },
-      onClick: () => props.onOpen(row.employeeId),
+      // Маркер строки для выделения контуром (Ctrl + рамка) — правило одно на программу.
+      'data-list-row': 'true',
+      'data-list-row-key': row.employeeId,
+      ...(isSelected ? { 'data-list-selected': 'true' as const } : {}),
+      onClick: (event) => {
+        // Shift+клик — выделение строк, обычный клик — открыть карточку сотрудника.
+        if (event.shiftKey) {
+          event.preventDefault();
+          selection.toggleSelect(row.employeeId);
+          return;
+        }
+        selection.onRowPrimaryAction(row.employeeId);
+        props.onOpen(row.employeeId);
+      },
+      onContextMenu: (event) => {
+        const result = selection.onRowContextMenu(event, row.employeeId);
+        if (!result.openMenu) return;
+        setMenu({ x: event.clientX, y: event.clientY, targetIds: result.targetIds, bulk: result.bulk });
+      },
       title: 'Открыть карточку СИЗ',
     };
   }
@@ -476,7 +579,10 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
           <Button
             variant="ghost"
             data-list-print
-            onClick={() => setPrintDialogOpen(true)}
+            onClick={() => {
+              setPrintScopeRows(null);
+              setPrintDialogOpen(true);
+            }}
             title="Печать текущего списка: колонки как на экране, объём под контролем"
           >
             Печать списка
@@ -487,7 +593,7 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
           columns={printColumns}
           visibleColumnIds={visibleColumns.map((c) => c.id)}
           rows={sorted}
-          selectedRows={[]}
+          selectedRows={selectedRows}
           storageKey="list:ppe-cards:printFields"
           filtersSummary={describeFacetSelection(PPE_CARDS_FACETS as readonly FacetDescriptor<Row>[], facets as FacetSelection, {
             search: query,
@@ -502,7 +608,7 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
           columns={printColumns}
           visibleColumnIds={visibleColumns.map((c) => c.id)}
           rows={sorted}
-          selectedRows={[]}
+          selectedRows={printScopeRows ?? selectedRows}
           storageKey="list:ppe-cards:printFields"
           filtersSummary={describeFacetSelection(PPE_CARDS_FACETS as readonly FacetDescriptor<Row>[], facets as FacetSelection, {
             search: query,
@@ -564,6 +670,12 @@ export function PpeCardsPage(props: { onOpen: (employeeId: string) => void }) {
           }
         />
       </div>
+
+      {/* Выделение контуром (Ctrl + рамка) — общий слой кита: правило одно на программу. */}
+      <ListLassoLayer enabled={listBehavior.lasso} onSelect={selection.selectMany} />
+      {menu && menuItems.length > 0 ? (
+        <ListContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
+      ) : null}
     </div>
   );
 }

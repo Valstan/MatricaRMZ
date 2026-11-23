@@ -25,6 +25,11 @@ $state = Get-StandStateDir -Stand $Stand
 $logPath = Join-Path $state 'electron.log'
 $pidPath = Join-Path $state 'electron.pid'
 
+# Импорт env ДО подстановки портов стенда: `.env.dev` написан под стенд `main`
+# (backend 3001), и импорт после подстановки перебивал порт линии — клиент именованного
+# стенда уезжал на ЧУЖОЙ backend (ровно то смешение, ради которого стенды и разделили).
+Import-DotEnv -Path $envPath
+
 # Свой порт рендера и свой backend — иначе стенд линии сядет на чужой.
 $env:MATRICA_RENDERER_PORT = "$($standPorts.Renderer)"
 $env:MATRICA_API_URL = "http://127.0.0.1:$($standPorts.Backend)"
@@ -49,7 +54,6 @@ if (Test-Path $pidPath) {
     Write-Output "[start-electron] stale pid file ($oldPid) — прошлый клиент упал, стартуем заново."
 }
 
-Import-DotEnv -Path $envPath
 Set-Location $repo
 
 # Build shared+ledger ONCE up-front, like start-backend.ps1 does. The Electron main
