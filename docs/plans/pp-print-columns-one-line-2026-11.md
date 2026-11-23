@@ -54,7 +54,7 @@
 **Что делать с длинным значением в структурных колонках** (сейчас — многоточие):
 обрезать с многоточием (как сделано) или разрешить перенос в этих колонках тоже, ценой
 «шапка + строки»? Длинные значения — это прежде всего «Организация» (названия юрлиц) и
-«Этап». Файл: [`docs/pending/pp-print-columns-acceptance.md`](../pending/pp-print-columns-acceptance.md).
+«Этап». Файл: [`docs/pending/pp-print-form-acceptance.md`](../pending/pp-print-form-acceptance.md).
 
 ## Границы
 

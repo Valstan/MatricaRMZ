@@ -101,15 +101,25 @@ function oneLineCellStyle(extra?: string): string {
   return `${base};white-space:nowrap;overflow:hidden;text-overflow:ellipsis`;
 }
 
+/**
+ * Правила разрывов страниц (промт #74): блок контракта и блок подписей не рвутся.
+ *
+ * Правила — **инлайном**, как всё оформление формы: при выгрузке в Word классы не
+ * читаются, а разрывы страниц должны работать и там.
+ */
+const BREAK_INSIDE_AVOID = 'break-inside:avoid;page-break-inside:avoid';
+/** Шапка группы не отрывается от своих строк: «не отрывать от следующего абзаца». */
+const BREAK_AFTER_AVOID = 'break-after:avoid;page-break-after:avoid';
+
 function rowHtml(model: ProductionProgramPrintModel): string {
   const body: string[] = [];
   for (const group of model.groups) {
     // Шапка группы: организация и номер договора — одна строка на весь план.
-    body.push(
-      `<tr style="background:#f3f4f6;font-weight:700">` +
+    const rows: string[] = [
+      `<tr style="background:#f3f4f6;font-weight:700;${BREAK_AFTER_AVOID}">` +
         `<td colspan="${HEADERS.length}" style="border:1px solid #111827;padding:4px 6px">${escapeHtml(group.label)}</td>` +
         `</tr>`,
-    );
+    ];
     for (const row of group.rows) {
       // Подсветка — только «готов к отгрузке»: отгруженные строки получают гриф
       // «Отгружен» БЕЗ заливки, иначе весь план «позеленеет» и подсветка перестанет
@@ -123,8 +133,8 @@ function rowHtml(model: ProductionProgramPrintModel): string {
       // «Примечание» — единственная колонка, которой разрешено переноситься:
       // это свободный текст, обрезать его на бумаге нельзя (в нём — причина
       // ошибки строки, см. D-246), поэтому его ужали, но не запретили перенос.
-      body.push(
-        `<tr style="${bg}">` +
+      rows.push(
+        `<tr style="${[bg, 'break-inside:avoid'].filter(Boolean).join(';')}">` +
           `<td style="${oneLineCellStyle('text-align:center')}">${row.orderNo}</td>` +
           `<td style="${oneLineCellStyle()}">${escapeHtml(row.organizationLabel)}</td>` +
           `<td style="${oneLineCellStyle()}">${escapeHtml(
@@ -136,10 +146,14 @@ function rowHtml(model: ProductionProgramPrintModel): string {
           `</tr>`,
       );
     }
+    // **Свой `<tbody>` на блок контракта** (промт #74): пока все договоры лежали в
+    // одном `<tbody>`, блок нельзя было перенести — разрыв страницы попадал внутрь
+    // списка двигателей, и шапка группы оставалась на прошлом листе без своих строк.
+    body.push(`<tbody style="${BREAK_INSIDE_AVOID}">${rows.join('')}</tbody>`);
   }
   if (body.length === 0) {
     body.push(
-      `<tr><td colspan="${HEADERS.length}" style="border:1px solid #111827;padding:6px;text-align:center">Строк в плане нет</td></tr>`,
+      `<tbody><tr><td colspan="${HEADERS.length}" style="border:1px solid #111827;padding:6px;text-align:center">Строк в плане нет</td></tr></tbody>`,
     );
   }
   return body.join('');
@@ -168,7 +182,9 @@ function signaturesHtml(model: ProductionProgramPrintModel, fontSize: number): s
     rows.push(`<tr>${pair.join('')}${pair.length === 1 ? '<td style="border:0"></td>' : ''}</tr>`);
   }
   if (rows.length === 0) return '';
-  return `<table style="width:100%;border-collapse:collapse;margin-top:14px">${rows.join('')}</table>`;
+  // Подписи — тоже блок, который нельзя рвать между страницами (промт #74):
+  // половина подписей на одном листе и половина на другом — не подпись.
+  return `<table style="width:100%;border-collapse:collapse;margin-top:14px;${BREAK_INSIDE_AVOID}">${rows.join('')}</table>`;
 }
 
 /** Настройки печати формы ПП: кегли и состав подписей. */
@@ -229,6 +245,9 @@ body { margin: 0; font-family: "Times New Roman", Times, serif; font-size: ${tab
 .pp-period { text-align: center; font-size: ${headerSize}pt; margin-bottom: 8px; }
 table.pp-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 table.pp-table th { background: #f3f4f6; }
+/* Промт #74: шапка колонок повторяется на каждом листе, строка не рвётся пополам. */
+table.pp-table thead { display: table-header-group; }
+table.pp-table tr { break-inside: avoid; }
 </style>
 </head><body>
 <div class="pp-head">
@@ -244,7 +263,7 @@ table.pp-table th { background: #f3f4f6; }
 <table class="pp-table">
 ${colgroup}
 <thead><tr>${header}</tr></thead>
-<tbody>${rowHtml(model)}</tbody>
+${rowHtml(model)}
 </table>
 ${signaturesHtml(model, signatureSize)}
 </body></html>`;
