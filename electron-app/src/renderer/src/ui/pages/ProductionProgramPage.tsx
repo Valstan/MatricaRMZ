@@ -28,6 +28,7 @@ import {
   productionProgramStageOptions,
   type EngineListItem,
   type ProductionProgramDto,
+  type ProductionProgramDropSide,
   type ProductionProgramExecutionSummary,
   type ProductionProgramLineDraftDto,
   type ProductionProgramLineDto,
@@ -39,6 +40,7 @@ import {
 
 import { Button } from '../components/Button.js';
 import { ListContextMenu, type ListContextMenuItem } from '../components/ListContextMenu.js';
+import { ListRowHandle } from '../components/ListRowHandle.js';
 import { MailSendButton } from '../components/MailSendButton.js';
 import { MailComposeDialog } from '../components/MailComposeDialog.js';
 import { PageToolbar } from '../components/PageToolbar.js';
@@ -55,8 +57,11 @@ import { ProductionProgramPrintPreview } from '../components/ProductionProgramPr
 import { SearchSelect } from '../components/SearchSelect.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { UnifiedDateInput } from '../components/UnifiedDateInput.js';
+import { useListBehaviorSettings } from '../hooks/useListBehaviorSettings.js';
+import { useListDrag } from '../hooks/useListDrag.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { useListSelection } from '../hooks/useListSelection.js';
+import { LIST_DROP_INDICATOR_COLOR, listDragRowStyle, type ListDropTarget } from '../utils/listDragVisual.js';
 import { listToText } from '../utils/mailText.js';
 import { buildRowsText, copyRowsToClipboard, printRowsPreview, type ListContextColumn } from '../utils/listContextActions.js';
 import {
@@ -192,6 +197,15 @@ const PROGRAM_STATUS_TONES: Record<string, { bg: string; border: string; text: s
   draft: { bg: '#f1f5f9', border: '#cbd5e1', text: '#475569' },
   approved: { bg: '#dcfce7', border: '#86efac', text: '#166534' },
 };
+
+/**
+ * Префикс маркера строки-заголовка группы (`data-list-row-key`).
+ *
+ * Кит считает прямоугольники строк по этому маркеру, поэтому заголовок группы
+ * отличается от строки движка префиксом: иначе «цель» перетаскивания нельзя
+ * отличить от обычной строки.
+ */
+const GROUP_ROW_PREFIX = 'group:';
 
 function isoDate(ms: number | null | undefined): string {
   if (!ms || !Number.isFinite(ms) || ms <= 0) return '';
@@ -860,27 +874,198 @@ export function ProductionProgramPage(props: Props) {
   const numbering = useMemo(() => productionProgramNumbering(rows), [rows]);
 
   /**
-   * Перетаскивание: двигатель едет **в пределах своего договора**, группа
-   * (договор со своим блоком) — целиком. Порядок после перетаскивания — это
-   * порядок строк; номера пересчитываются и уходят тем же `saveRows`.
+   * Перетаскивание строк плана — **общий слой кита** (промт КАРМАНА #67, шов с ПП).
+   *
+   * Состояние перетаскивания больше не живёт в странице: его держит `useListDrag`.
+   * Раньше здесь был свой `useState`, и отменённое перетаскивание (Esc или drop мимо
+   * строки) оставляло страницу «залипшей» — состояние гасло только при следующем drop.
+   *
+   * Смысл перестановки — прежний и доменный: двигатель едет **в пределах своего
+   * договора**, группа (договор со своим блоком) — целиком. Кит считает механику
+   * (место вставки, подсветку, сброс), домен — куда именно встать.
    */
-  const [drag, setDrag] = useState<{ kind: 'row' | 'group'; key: string } | null>(null);
+  const listBehavior = useListBehaviorSettings();
+  const dragLayer = useListDrag({ enabled: props.canEdit });
 
-  const dropRowOn = (targetRowId: string) => {
-    if (!drag || drag.kind !== 'row') return;
-    setDrag(null);
-    const next = productionProgramMoveRowWithinGroup(rowsRef.current, drag.key, targetRowId);
-    if (next === rowsRef.current) return;
+  /**
+   * Доменный ключ группы (договор + подпись) — по строкам и по группам экрана.
+   *
+   * Перестановка в ПП групповая: двигатель едет внутри своего договора, а договор
+   * уезжает со своим блоком. Киту это знать не нужно — он считает место вставки,
+   * а «свой или чужой договор» решает домен.
+   */
+  const groupKeys = useMemo(() => {
+    const byRowId = new Map<string, string>();
+    const lastRowIdByGroup = new Map<string, string>();
+    const rowIds = new Set<string>();
+    for (const group of groups) {
+      const domainKey = group.items[0] ? productionProgramGroupKey(group.items[0].row) : group.key;
+      for (const item of group.items) {
+        const rowId = String(item.row.id);
+        byRowId.set(rowId, domainKey);
+        lastRowIdByGroup.set(domainKey, rowId);
+        rowIds.add(rowId);
+      }
+    }
+    return { byRowId, lastRowIdByGroup, rowIds };
+  }, [groups]);
+
+  /** Порядок строк не изменился — перестановку незачем сохранять. */
+  const sameRowOrder = (a: readonly DraftRow[], b: readonly DraftRow[]) =>
+    a.length === b.length && a.every((row, idx) => String(row.id) === String(b[idx]?.id ?? ''));
+
+  /** Двигатель встал на место: перед целевой строкой или после неё. */
+  const dropRow = (sourceRowId: string, targetRowId: string, side: ProductionProgramDropSide) => {
+    const current = rowsRef.current;
+    const next = productionProgramMoveRowWithinGroup(current, sourceRowId, targetRowId, side);
+    if (sameRowOrder(current, next)) return;
     applyRows(() => next, selectedId);
   };
 
-  const dropGroupOn = (targetGroupKey: string) => {
-    if (!drag || drag.kind !== 'group') return;
-    setDrag(null);
-    const next = productionProgramMoveGroup(rowsRef.current, drag.key, targetGroupKey);
-    if (next === rowsRef.current) return;
+  /** Группа (договор со своим блоком) встала на место целиком. */
+  const dropGroup = (sourceGroupKey: string, targetGroupKey: string, side: ProductionProgramDropSide) => {
+    const current = rowsRef.current;
+    const next = productionProgramMoveGroup(current, sourceGroupKey, targetGroupKey, side);
+    if (sameRowOrder(current, next)) return;
     applyRows(() => next, selectedId);
   };
+
+  /**
+   * Куда встанет перетаскиваемая группа.
+   *
+   * Внутри группы границы нет: блок двигается **между договорами**, а не внутри
+   * чужого договора. Поэтому над заголовком — «перед этой группой», а над её
+   * строками — по половине строки (верхняя: перед, нижняя: за блоком).
+   */
+  const groupDropTarget = useCallback(
+    (targetKey: string, side: ProductionProgramDropSide) => {
+      const isHeader = targetKey.startsWith(GROUP_ROW_PREFIX);
+      const groupKey = isHeader ? targetKey.slice(GROUP_ROW_PREFIX.length) : groupKeys.byRowId.get(targetKey);
+      if (!groupKey) return null;
+      return { groupKey, side: isHeader ? ('before' as const) : side };
+    },
+    [groupKeys],
+  );
+
+  /**
+   * Сброс перетаскивания: состояние гасит сам кит (по `dragend`/`drop` на уровне
+   * документа), а источник мы читаем из `dataTransfer` — кит кладёт туда ключ
+   * того, что тянут. Своего состояния про перетаскивание у страницы больше нет.
+   */
+  const handleDrop = (event: React.DragEvent<HTMLTableSectionElement>) => {
+    const sourceKey = event.dataTransfer.getData('text/plain');
+    dragLayer.drop(event, (target: ListDropTarget) => {
+      if (!sourceKey) return;
+      const targetKey = target.key ?? '';
+      const side: ProductionProgramDropSide = target.position === 'after' ? 'after' : 'before';
+      // Тянут строку — целью может быть только строка (заголовок группы — не цель).
+      if (groupKeys.rowIds.has(sourceKey)) {
+        if (!targetKey || targetKey.startsWith(GROUP_ROW_PREFIX)) return;
+        dropRow(sourceKey, targetKey, side);
+        return;
+      }
+      // Тянут группу — целью может быть и заголовок группы, и строка внутри неё.
+      const groupTarget = groupDropTarget(targetKey, side);
+      if (!groupTarget) return;
+      dropGroup(sourceKey, groupTarget.groupKey, groupTarget.side);
+    });
+  };
+
+  /**
+   * Место вставки — одно, и оператор должен видеть его до отпускания мыши.
+   *
+   * Считает кит (общий слой), показывает страница: линия стоит там, куда встанет
+   * перетаскиваемое, а там, куда встать нельзя, линии нет.
+   */
+  const dropMarker = useMemo(() => {
+    const drag = dragLayer.drag;
+    const target = dragLayer.dropTarget;
+    if (!drag || !target || !listBehavior.dragVisual) return null;
+    const side: ProductionProgramDropSide = target.position === 'after' ? 'after' : 'before';
+    const targetKey = target.key ?? '';
+    if (groupKeys.rowIds.has(drag.key)) {
+      // Тянут строку: место вставки — у целевой строки и только внутри своего договора.
+      if (!targetKey || targetKey.startsWith(GROUP_ROW_PREFIX) || targetKey === drag.key) return null;
+      const from = groupKeys.byRowId.get(drag.key);
+      const to = groupKeys.byRowId.get(targetKey);
+      if (!from || !to || from !== to) return null;
+      return { key: targetKey, edge: side === 'before' ? ('top' as const) : ('bottom' as const) };
+    }
+    // Тянут группу: место вставки — между группами.
+    const groupTarget = groupDropTarget(targetKey, side);
+    if (!groupTarget || groupTarget.groupKey === drag.key) return null;
+    if (groupTarget.side === 'before') {
+      return { key: `${GROUP_ROW_PREFIX}${groupTarget.groupKey}`, edge: 'top' as const };
+    }
+    const lastRowId = groupKeys.lastRowIdByGroup.get(groupTarget.groupKey);
+    return lastRowId
+      ? { key: lastRowId, edge: 'bottom' as const }
+      : { key: `${GROUP_ROW_PREFIX}${groupTarget.groupKey}`, edge: 'bottom' as const };
+  }, [dragLayer.drag, dragLayer.dropTarget, listBehavior.dragVisual, groupKeys, groupDropTarget]);
+
+  /** Подсветка перетаскиваемого — стиль кита (приглушение + красная рамка). */
+  const dragHighlight = useMemo(() => {
+    const drag = dragLayer.drag;
+    if (!drag || !listBehavior.dragVisual) return null;
+    return listDragRowStyle(drag.key, drag.key);
+  }, [dragLayer.drag, listBehavior.dragVisual]);
+
+  /** Стиль строки плана: подсветка перетаскивания и линия места вставки. */
+  const rowDragStyle = (rowId: string): React.CSSProperties => {
+    const style: React.CSSProperties = {};
+    const drag = dragLayer.drag;
+    if (drag && listBehavior.dragVisual) {
+      if (drag.key === rowId) {
+        Object.assign(style, dragHighlight ?? {});
+      } else if (
+        !groupKeys.rowIds.has(drag.key) &&
+        groupKeys.byRowId.get(drag.key) === groupKeys.byRowId.get(rowId) &&
+        dragHighlight?.opacity !== undefined
+      ) {
+        // Тянут группу — её строки гаснут вместе с блоком.
+        style.opacity = dragHighlight.opacity;
+      }
+    }
+    if (dropMarker && dropMarker.key === rowId) {
+      style.boxShadow = `inset 0 ${dropMarker.edge === 'top' ? '2px' : '-2px'} 0 ${LIST_DROP_INDICATOR_COLOR}`;
+    }
+    return style;
+  };
+
+  /** Стиль заголовка группы: подсветка перетаскиваемой группы и линия места вставки. */
+  const groupHeaderStyle = (groupKey: string): React.CSSProperties => {
+    const style: React.CSSProperties = {};
+    const drag = dragLayer.drag;
+    if (drag && listBehavior.dragVisual && drag.key === groupKey) {
+      Object.assign(style, dragHighlight ?? {});
+    }
+    if (dropMarker && dropMarker.key === `${GROUP_ROW_PREFIX}${groupKey}`) {
+      style.boxShadow = `inset 0 ${dropMarker.edge === 'top' ? '2px' : '-2px'} 0 ${LIST_DROP_INDICATOR_COLOR}`;
+    }
+    return style;
+  };
+
+  /**
+   * Автоскролл у края списка — это прокрутка контейнера, поэтому кит должен знать
+   * прокручиваемый элемент. У таблицы плана своего скролла нет (она едет в
+   * прокрутке бокса карточки) — берём ближайшего прокручиваемого предка.
+   */
+  const listRootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const root = listRootRef.current;
+    if (!root) return;
+    let el: HTMLElement | null = root.parentElement;
+    while (el) {
+      const style = window.getComputedStyle(el);
+      if (/(auto|scroll|overlay)/.test(`${style.overflowY} ${style.overflow}`)) {
+        dragLayer.scrollRef.current = el;
+        return;
+      }
+      el = el.parentElement;
+    }
+    dragLayer.scrollRef.current = root;
+  }, [dragLayer.scrollRef]);
 
   /**
    * Сводка выполнения по каждой программе — то, что показывается на плашке
@@ -1819,7 +2004,7 @@ export function ProductionProgramPage(props: Props) {
               {/* Без своей горизонтальной прокрутки: вложенный скролл-контейнер
                   перехватывает sticky-шапку, и она уезжает вместе с таблицей. Широкая
                   таблица доезжает прокруткой бокса карточки. */}
-              <div style={{ overflow: 'visible' }} data-list-root="true">
+              <div style={{ overflow: 'visible' }} data-list-root="true" ref={listRootRef}>
                 <table className="list-table" style={{ width: '100%' }}>
                   <thead>
                     <tr>
@@ -1852,7 +2037,14 @@ export function ProductionProgramPage(props: Props) {
                       {props.canEdit ? <th /> : null}
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody
+                    // Место вставки и подсветку считает общий слой кита: страница
+                    // только показывает результат и говорит, куда встать.
+                    onDragOver={(e) => {
+                      dragLayer.overRow(e);
+                    }}
+                    onDrop={handleDrop}
+                  >
                     {groups.length === 0 ? (
                       <tr>
                         <td colSpan={props.canEdit ? 10 : 9} className="ui-muted">
@@ -1865,33 +2057,26 @@ export function ProductionProgramPage(props: Props) {
                       return (
                         <React.Fragment key={group.key}>
                           <tr
-                            style={{ background: '#f3f4f6' }}
-                            onDragOver={(e) => {
-                              if (drag?.kind !== 'group') return;
-                              e.preventDefault();
-                              e.dataTransfer.dropEffect = 'move';
-                            }}
-                            onDrop={(e) => {
-                              e.preventDefault();
-                              dropGroupOn(groupKey);
-                            }}
+                            // Маркер строки-заголовка: кит по нему считает границы групп.
+                            data-list-row="true"
+                            data-list-row-key={`${GROUP_ROW_PREFIX}${groupKey}`}
+                            style={{ background: '#f3f4f6', ...groupHeaderStyle(groupKey) }}
                           >
                             <td
                               colSpan={props.canEdit ? 10 : 9}
                               style={{ fontWeight: 700, padding: '4px 6px', whiteSpace: 'normal' }}
                             >
-                              <span
+                              {/* Ручка группы — общая ручка кита: перетаскивание мышью.
+                                  Перемещение стрелками в ПП ждёт группового кита
+                                  (см. `docs/pending/pp-seam-with-list-kit.md`). */}
+                              <ListRowHandle
+                                rowKey={groupKey}
                                 draggable={props.canEdit}
-                                onDragStart={(e) => {
-                                  e.dataTransfer.effectAllowed = 'move';
-                                  e.dataTransfer.setData('text/plain', groupKey);
-                                  setDrag({ kind: 'group', key: groupKey });
-                                }}
-                                title={props.canEdit ? 'Перетащите группу — она переедет со своим блоком' : undefined}
-                                style={{ cursor: props.canEdit ? 'grab' : undefined, userSelect: 'none' }}
-                              >
-                                ⠿ {group.label}
-                              </span>
+                                onDragStart={(e) => dragLayer.startDrag(e, { kind: 'group', key: groupKey })}
+                                label={group.label}
+                              />
+                              {' '}
+                              {group.label}
                             </td>
                           </tr>
                           {group.items.map((item) => {
@@ -1917,15 +2102,10 @@ export function ProductionProgramPage(props: Props) {
                             return (
                               <tr
                                 key={r.id}
-                                onDragOver={(e) => {
-                                  if (drag?.kind !== 'row') return;
-                                  e.preventDefault();
-                                  e.dataTransfer.dropEffect = 'move';
-                                }}
-                                onDrop={(e) => {
-                                  e.preventDefault();
-                                  dropRowOn(r.id);
-                                }}
+                                // Маркер строки: кит по нему считает место вставки —
+                                // правило одно на программу (промт КАРМАНА #67).
+                                data-list-row="true"
+                                data-list-row-key={String(r.id)}
                                 onClick={(e) => {
                                   // Shift+клик — переключить отметку строки (как в списках),
                                   // обычный клик — только курсор выделения.
@@ -1952,6 +2132,8 @@ export function ProductionProgramPage(props: Props) {
                                   // Синий выбор накладывается ПОСЛЕ тона строки — так же,
                                   // как в остальных списках программы.
                                   ...(isSelected ? { background: 'rgba(37, 99, 235, 0.14)' } : {}),
+                                  // Подсветка перетаскивания и линия места вставки — по киту.
+                                  ...rowDragStyle(String(r.id)),
                                 }}
                                 title={tone.label || undefined}
                               >
@@ -1968,22 +2150,15 @@ export function ProductionProgramPage(props: Props) {
                                   />
                                 </td>
                                 <td>
-                                  <span
+                                  {/* Ручка строки — общая ручка кита: перетаскивание мышью.
+                                      Перемещение стрелками в ПП ждёт группового кита
+                                      (см. `docs/pending/pp-seam-with-list-kit.md`). */}
+                                  <ListRowHandle
+                                    rowKey={String(r.id)}
                                     draggable={props.canEdit}
-                                    onDragStart={(e) => {
-                                      e.dataTransfer.effectAllowed = 'move';
-                                      e.dataTransfer.setData('text/plain', r.id);
-                                      setDrag({ kind: 'row', key: r.id });
-                                    }}
-                                    title={
-                                      props.canEdit
-                                        ? 'Перетащите двигатель — он встанет на новое место в своём договоре'
-                                        : undefined
-                                    }
-                                    style={{ cursor: props.canEdit ? 'grab' : undefined, userSelect: 'none' }}
-                                  >
-                                    ⠿
-                                  </span>
+                                    onDragStart={(e) => dragLayer.startDrag(e, { kind: 'row', key: String(r.id) })}
+                                    label={engineCellLabel || `строка ${r.id}`}
+                                  />
                                 </td>
                                 <td>{num?.global ?? ''}</td>
                                 <td>{num?.inContract ?? ''}</td>

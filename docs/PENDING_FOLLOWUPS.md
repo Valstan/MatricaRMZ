@@ -177,6 +177,7 @@
 ## 🟢 Крупные фичи / решения владельца
 
 - [Списки по одним правилам (промт #67): кит и верхний уровень сделаны, остались карточки, отчёты и шов с ПП 🗓 since:2026-11-23](pending/unified-list-rules-cards-and-reports.md)
+- [🟡 ПП на ките: хвост шва — клавиатурное перемещение по ручке (нужен групповой кит) 🗓 since:2026-11-23](pending/pp-seam-with-list-kit.md)
 - [Пакет владельца 12.09: отчёты, спецификации, два учёта 🗓 since:2026-09-12 🟢](pending/paket-vladeltsa-12-09-otchety-spetsifikatsii-dva-ucheta.md)
 - [Большой рефакторинг трёх клиентов — остаток программы 🗓 since:2026-08-08 🟡](pending/bolshoy-refaktoring-trekh-klientov-ostatok-programmy.md)
 - [Хвосты v3 «Вкладки» после сноса старых оболочек 🗓 since:2026-07-28](pending/khvosty-v3-vkladki-posle-snosa-starykh-obolochek.md)

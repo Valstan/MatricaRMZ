@@ -218,8 +218,8 @@ describe('порядок в производственной программе'
   });
 
   it('перетаскивание: двигатель — в пределах договора, группа — целиком', () => {
-    expect(PAGE).toContain('productionProgramMoveRowWithinGroup(rowsRef.current, drag.key, targetRowId)');
-    expect(PAGE).toContain('productionProgramMoveGroup(rowsRef.current, drag.key, targetGroupKey)');
+    expect(PAGE).toContain('productionProgramMoveRowWithinGroup(current, sourceRowId, targetRowId, side)');
+    expect(PAGE).toContain('productionProgramMoveGroup(current, sourceGroupKey, targetGroupKey, side)');
     expect(PAGE).toContain("kind: 'row'");
     expect(PAGE).toContain("kind: 'group'");
   });
@@ -245,6 +245,65 @@ describe('порядок в производственной программе'
     expect(PRINT_HTML, 'колонки формы: этап вместо отгрузки и факторов').toContain("'Этап'");
     expect(PRINT_HTML).not.toContain('Факторы, влияющие на выполнение плана');
     expect(PRINT_HTML).not.toContain("'Отгрузка'");
+  });
+});
+
+/**
+ * Шов ПП с общим слоем кита (промт КАРМАНА #67, D-247).
+ *
+ * ПП была единственным списком программы, где перетаскивание было «своим»:
+ * состояние жило в странице, подсветки перетаскиваемой строки не было, а
+ * `onDragEnd` не стояло вовсе — отменённое перетаскивание оставляло страницу
+ * «залипшей». Кит (`hooks/useListDrag.ts`) это закрывает, но только если ПП
+ * берёт его, а не копит механику у себя.
+ *
+ * Скрепы ниже держат ровно это: состояние перетаскивания в ПП — из кита, строки
+ * помечены (по ним кит считает место вставки), ручка — общая, а сопровождение
+ * подчинено общей настройке программы.
+ */
+describe('ПП на общем ките списков', () => {
+  it('состояние перетаскивания — из кита, а не своё в странице', () => {
+    expect(PAGE, 'ПП должна брать перетаскивание из общего слоя кита').toContain('useListDrag');
+    expect(PAGE, 'своего состояния перетаскивания в странице быть не должно — иначе «залипание» вернётся').not.toContain(
+      "useState<{ kind: 'row' | 'group'; key: string } | null>",
+    );
+    // Сброс — на уровне документа, а не в обработчике строки: отмена (Esc) и
+    // drop мимо строки тоже обязаны гасить состояние.
+    expect(PAGE).toContain('dragLayer.drop(');
+    expect(PAGE).toContain('dragLayer.overRow(');
+  });
+
+  it('строки и заголовки групп помечены — по ним кит считает место вставки', () => {
+    expect(PAGE).toContain('data-list-row="true"');
+    expect(PAGE).toContain('data-list-row-key={String(r.id)}');
+    expect(PAGE).toContain('data-list-row-key={`${GROUP_ROW_PREFIX}${groupKey}`}');
+  });
+
+  it('ручка строки и группы — общая ручка кита, а не своя', () => {
+    expect(PAGE).toContain('ListRowHandle');
+    expect(PAGE, 'своя ручка ⠿ в ПП = разъезд с китом').not.toContain('⠿');
+  });
+
+  it('сопровождение перетаскивания — по общей настройке программы', () => {
+    expect(PAGE, 'правила поведения списков берутся из общего источника').toContain('useListBehaviorSettings');
+    expect(PAGE).toContain('listBehavior.dragVisual');
+    expect(PAGE, 'цвет линии места вставки — из кита').toContain('LIST_DROP_INDICATOR_COLOR');
+  });
+
+  it('двигатель едет внутри своего договора, а группа — со своим блоком', () => {
+    // Кит считает место вставки; «свой или чужой договор» решает домен.
+    expect(PAGE).toContain('productionProgramMoveRowWithinGroup');
+    expect(PAGE).toContain('productionProgramMoveGroup');
+    expect(SHARED_DOMAIN).toContain('export function productionProgramMoveRowWithinGroup');
+    expect(SHARED_DOMAIN).toContain('export function productionProgramMoveGroup');
+  });
+
+  it('группа встаёт между договорами, а не внутрь чужого блока', () => {
+    // Внутри группы границы нет: блок двигается между договорами. Над заголовком —
+    // «перед этой группой», над её строками — по половине строки (верхняя: перед,
+    // нижняя: за блоком). Иначе переезд блока зависит от пикселя.
+    expect(PAGE).toContain('groupDropTarget');
+    expect(PAGE).toContain("isHeader ? ('before' as const) : side");
   });
 });
 
