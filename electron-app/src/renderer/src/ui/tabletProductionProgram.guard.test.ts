@@ -16,6 +16,8 @@ const src = (rel: string) => readFileSync(path.resolve(__dirname, rel), 'utf8').
 
 const TABS = src('./layout/Tabs.tsx');
 const SHELL = src('./shellV3/V3TabShell.tsx');
+const APP = src('./App.tsx');
+const REASON_UTIL = src('./utils/sectionGateReason.ts');
 const GLOBAL_CSS = src('./global.css');
 const IPC_WIRING = src('../../../../../android-app/src/core/ipcWiring.ts');
 const ANDROID_MAIN = src('../../../../../android-app/src/main.tsx');
@@ -71,5 +73,41 @@ describe('производственная программа на планше�
     expect(GLOBAL_CSS, 'правило спрятано не только для Android — десктоп потеряет выгрузку').toContain(
       ":root[data-platform='android']",
     );
+  });
+});
+
+/**
+ * Раздел не должен исчезать молча (промт КАРМАНА #84, владелец 24.11.2026).
+ *
+ * Претензия: «на планшете так и не появилась в меню “Производственная программа”».
+ * Три фильтра режут раздел по отдельности (право → членство в разделе → пресет
+ * клиента), и оператор видел только следствие: раздела нет, и почему — неизвестно.
+ * Теперь причина считается и говорится словами.
+ */
+describe('раздел не исчезает молча', () => {
+  it('причина среза считается по трём фильтрам и переводится в слова', () => {
+    expect(APP, 'причина среза не считается').toContain('sectionGateReason(');
+    expect(APP, 'причина не показывается оператору').toContain('sectionGateReasonText(');
+    expect(REASON_UTIL, 'логика причины вынесена в отдельный модуль').toContain('export function sectionGateReason');
+    expect(REASON_UTIL, 'нет текста про «не выдан учётной записи»').toContain('не выдан вашей учётной записи');
+  });
+
+  it('клик по срезанному разделу объясняет причину, а не молчит', () => {
+    expect(APP, 'срезанный раздел по-прежнему игнорируется молча').toContain('notifyOperator');
+    expect(APP, 'в уведомлении нет причины среза').toContain('не открывается');
+  });
+
+  it('плашка ПП остаётся, когда раздел срезан, и говорит, чем срезан', () => {
+    expect(SHELL, 'плашка не знает о причине среза').toContain('sectionGateNotes');
+    expect(SHELL, 'плашка прячется вместе с разделом').toContain('v3-fav-card-cut');
+    expect(APP, 'оболочка не получает причины среза').toContain('sectionGateNotes={sectionGateNotes}');
+  });
+
+  it('раздел клиента попадает и в пресет рамки, и в пресет оператора — иначе его срежет пересечение', () => {
+    const androidTabs = tabList(TABS, 'ANDROID_TABS');
+    const operatorTabs = tabList(TABS, 'TABLET_OPERATOR_TABS');
+    for (const tab of androidTabs) {
+      expect(operatorTabs, `раздел ${tab} есть в ANDROID_TABS, но его нет в TABLET_OPERATOR_TABS`).toContain(tab);
+    }
   });
 });
