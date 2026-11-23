@@ -588,14 +588,27 @@ export function productionProgramNumbering(
 }
 
 /**
+ * Сторона места вставки: перед целевой строкой или после неё.
+ *
+ * Общий слой перетаскивания (кит, промт КАРМАНА #67) отдаёт место вставки
+ * именно так — «перед/после». Домен переводит это в порядок строк: правило
+ * перестановки одно, а сторона приходит оттуда, где считали прямоугольники.
+ */
+export type ProductionProgramDropSide = 'before' | 'after';
+
+/**
  * Перестановка двигателя **в пределах своего договора**: строка занимает место
  * указанной строки цели (в том же договоре). Чужая группа не затрагивается.
  *
  * Возвращает НОВЫЙ массив строк (порядок в нём — это и есть порядок плана).
+ *
+ * `side` — сторона места вставки от кита: `before` (по умолчанию) ставит строку
+ * перед целевой, `after` — сразу после неё. Двигатель при этом остаётся в своём
+ * договоре: строка принадлежит группе по данным, а не по месту в массиве.
  */
 export function productionProgramMoveRowWithinGroup<
   T extends { id?: string | null; contractId?: string | null; groupLabel?: string | null },
->(rows: readonly T[], rowId: string, targetRowId: string): T[] {
+>(rows: readonly T[], rowId: string, targetRowId: string, side: ProductionProgramDropSide = 'before'): T[] {
   const list = [...(rows ?? [])];
   const from = list.findIndex((r) => String(r.id ?? '') === rowId);
   if (from < 0) return list;
@@ -605,18 +618,23 @@ export function productionProgramMoveRowWithinGroup<
   // Двигатель едет только внутри своего договора: цель — строка того же договора.
   if (productionProgramGroupKey(moving) !== productionProgramGroupKey(list[target]!)) return list;
   list.splice(from, 1);
-  const to = list.findIndex((r) => String(r.id ?? '') === targetRowId);
-  list.splice(to < 0 ? list.length : to, 0, moving);
+  let to = list.findIndex((r) => String(r.id ?? '') === targetRowId);
+  if (to < 0) to = list.length;
+  if (side === 'after') to += 1;
+  list.splice(to, 0, moving);
   return list;
 }
 
 /**
  * Перестановка группы (договора со своим блоком движков) **внутри программы**:
  * блок уезжает целиком и встаёт на место другой группы.
+ *
+ * `side` — сторона места вставки от кита: `before` (по умолчанию) ставит блок
+ * перед целевой группой, `after` — сразу за её блоком.
  */
 export function productionProgramMoveGroup<
   T extends { id?: string | null; contractId?: string | null; groupLabel?: string | null },
->(rows: readonly T[], groupKey: string, targetGroupKey: string): T[] {
+>(rows: readonly T[], groupKey: string, targetGroupKey: string, side: ProductionProgramDropSide = 'before'): T[] {
   const list = [...(rows ?? [])];
   if (groupKey === targetGroupKey) return list;
   const block = list.filter((r) => productionProgramGroupKey(r) === groupKey);
@@ -627,7 +645,14 @@ export function productionProgramMoveGroup<
     // Цели нет — блок уходит в конец программы.
     return [...rest, ...block];
   }
-  return [...rest.slice(0, targetIndex), ...block, ...rest.slice(targetIndex)];
+  let insertAt = targetIndex;
+  if (side === 'after') {
+    // За целевой группой: вставляем после её последней строки.
+    let last = targetIndex;
+    while (last + 1 < rest.length && productionProgramGroupKey(rest[last + 1]!) === targetGroupKey) last += 1;
+    insertAt = last + 1;
+  }
+  return [...rest.slice(0, insertAt), ...block, ...rest.slice(insertAt)];
 }
 
 /**

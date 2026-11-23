@@ -59,12 +59,34 @@ describe('перетаскивание в производственной пр�
     expect(cross.map((r) => r.id)).toEqual(['a1', 'a2', 'b1', 'c1']);
   });
 
+  it('двигатель встаёт перед целевой строкой или после неё (сторона от кита)', () => {
+    // Сторону места вставки считает общий слой перетаскивания (кит) и отдаёт
+    // домену: домен переводит её в порядок строк, не нарушая договор строки.
+    const before = productionProgramMoveRowWithinGroup(ROWS, 'a2', 'a1', 'before');
+    expect(before.map((r) => r.id)).toEqual(['a2', 'a1', 'b1', 'c1']);
+    const after = productionProgramMoveRowWithinGroup(ROWS, 'a1', 'a2', 'after');
+    expect(after.map((r) => r.id)).toEqual(['a2', 'a1', 'b1', 'c1']);
+    // Чужая группа — не цель даже со стороной: двигатель свой договор не покидает.
+    const cross = productionProgramMoveRowWithinGroup(ROWS, 'a1', 'b1', 'after');
+    expect(cross.map((r) => r.id)).toEqual(['a1', 'a2', 'b1', 'c1']);
+  });
+
   it('группа уезжает целиком со своим блоком', () => {
     const key1 = productionProgramGroupKey(ROWS[0]!);
     const key3 = productionProgramGroupKey(ROWS[3]!);
     const moved = productionProgramMoveGroup(ROWS, key3, key1);
     // Блок «Заказчик 3» встал перед блоком «Заказчик 1» и унёс свою строку.
     expect(moved.map((r) => r.id)).toEqual(['c1', 'a1', 'a2', 'b1']);
+  });
+
+  it('группа встаёт перед целевой или сразу за её блоком (сторона от кита)', () => {
+    const key1 = productionProgramGroupKey(ROWS[0]!);
+    const key3 = productionProgramGroupKey(ROWS[3]!);
+    const before = productionProgramMoveGroup(ROWS, key3, key1, 'before');
+    expect(before.map((r) => r.id)).toEqual(['c1', 'a1', 'a2', 'b1']);
+    const after = productionProgramMoveGroup(ROWS, key3, key1, 'after');
+    // Блок «Заказчик 3» встал после блока «Заказчик 1» (перед «Заказчиком 2»).
+    expect(after.map((r) => r.id)).toEqual(['a1', 'a2', 'c1', 'b1']);
   });
 
   it('группа без цели уходит в конец программы', () => {
