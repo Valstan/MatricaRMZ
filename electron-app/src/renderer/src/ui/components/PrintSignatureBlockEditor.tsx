@@ -11,6 +11,8 @@ import {
 import { Button } from './Button.js';
 import { EntityReferenceField } from './EntityReferenceField.js';
 import { Input } from './Input.js';
+import { ListReorderHandle } from './ListReorderHandle.js';
+import { useListReorder } from '../hooks/useListReorder.js';
 
 /**
  * Редактор блока подписей печатной формы — общий слой (заказ владельца 23.11.2026).
@@ -56,6 +58,16 @@ export function PrintSignatureBlockEditor(props: {
 }) {
   const listId = useId();
   const slots = props.slots ?? [];
+  const canReorder = props.disabled !== true;
+
+  // Перестановка строк блока — общим китом списков (промт КАРМАНА #67, D-248):
+  // блок подписей наряда уже на ките (ручка «⠿»), и два одинаковых блока подписей
+  // в двух формах должны вести себя одинаково.
+  const reorder = useListReorder({
+    rows: slots,
+    canReorder,
+    onReorder: (rows) => props.onChange(rows),
+  });
 
   const employeeOptions = useMemo(
     () =>
@@ -83,16 +95,25 @@ export function PrintSignatureBlockEditor(props: {
           <option key={caption} value={caption} />
         ))}
       </datalist>
-      {slots.map((slot, index) => {
+      {/* Граница списка: перетаскивание строки не должно целить в соседние списки
+          формы (у наряда их три — бригада, подписи, виды работ). */}
+      <div ref={reorder.scopeRef} style={{ display: 'grid', gap: 6 }}>
+        {slots.map((slot, index) => {
         const employee = slot.employeeId
           ? (props.employees ?? []).find((e) => String(e.id ?? '').trim() === slot.employeeId)
           : undefined;
         const unitLine = [employee?.position, String(employee?.fullName ?? employee?.displayName ?? '').trim()]
           .filter(Boolean)
           .join(' · ');
+        const rowKey = reorder.keys[index] ?? '';
         return (
           <div
-            key={`${slot.caption}-${index}`}
+            // Ключ строки — НЕ по должности: должность редактируется, и ключ с ней
+            // пересоздавал бы строку на каждом нажатии клавиши (терялся фокус поля).
+            key={`pp-signature-slot-${index}`}
+            // Маркеры кита перестановки: строки блока — обычные строки списка.
+            data-list-row="true"
+            data-list-row-key={rowKey}
             style={{
               display: 'grid',
               gap: 6,
@@ -100,7 +121,10 @@ export function PrintSignatureBlockEditor(props: {
               border: '1px solid var(--border)',
               borderRadius: 8,
               background: 'var(--surface)',
+              ...reorder.rowStyle(rowKey),
             }}
+            onDragOver={reorder.onDragOver}
+            onDrop={reorder.onDrop}
           >
             <div
               style={{
@@ -157,13 +181,20 @@ export function PrintSignatureBlockEditor(props: {
                   Удалить
                 </Button>
               )}
+              {/* Ручка перемещения — общая (кит списков), как в блоке подписей наряда. */}
+              {canReorder ? (
+                <ListReorderHandle {...reorder.handleProps(rowKey, { label: `подпись ${index + 1}` })} />
+              ) : (
+                <span />
+              )}
             </div>
             <div style={{ fontSize: 12, color: 'var(--muted)', minHeight: 14, wordBreak: 'break-word' }}>
               {unitLine || (slot.employeeId ? '' : 'Подпись и расшифровка от руки')}
             </div>
           </div>
         );
-      })}
+        })}
+      </div>
       {slots.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 12 }}>Подписи не добавлены</div> : null}
       {props.disabled ? null : (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
