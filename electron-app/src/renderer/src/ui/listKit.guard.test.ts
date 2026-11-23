@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
@@ -48,6 +48,19 @@ const REPORT_PAGES = [
   './pages/reports/EnginesReportPage.tsx',
   './pages/reports/EnginesNowAtPlantReportPage.tsx',
   './pages/reports/WorkSheetsReportPage.tsx',
+];
+
+/**
+ * Диалоги-редакторы, в которых строки тоже умеют менять порядок (шаг «карточки» нитки).
+ *
+ * Правило то же: перестановка строк идёт через кит — ручка «⠿» с перетаскиванием и
+ * стрелками. Кнопки ↑/↓ были второй механикой рядом с китом — их больше нет нигде.
+ */
+const REORDER_DIALOGS = [
+  './components/WorkSheetTypeEditorDialog.tsx',
+  './components/WorkOrderTemplateEditorDialog.tsx',
+  './components/RepairStageTemplateDialog.tsx',
+  './components/NomenclatureTemplateCompositionEditor.tsx',
 ];
 
 const MENU_BUILDER = src('./utils/listContextActions.ts');
@@ -144,6 +157,47 @@ describe('списки карточек, которые умеют менять 
     const handle = src('./components/ListReorderHandle.tsx');
     expect(handle).toContain('ListRowHandle');
     expect(handle, 'ручка карточек не из кита').toContain("from './ListRowHandle.js'");
+  });
+});
+
+describe('диалоги-редакторы, где строки меняют порядок, живут по одному киту', () => {
+  it('перестановка идёт через кит — общий хук и общая ручка', () => {
+    for (const dialog of REORDER_DIALOGS) {
+      const text = src(dialog);
+      expect(text, `${dialog}: перестановка строк идёт мимо кита`).toContain('useListReorder');
+      expect(text, `${dialog}: ручка перемещения не из кита`).toContain('ListReorderHandle');
+    }
+  });
+
+  it('кнопок ↑/↓ в диалогах больше нет — это была вторая механика', () => {
+    for (const dialog of REORDER_DIALOGS) {
+      expect(src(dialog), `${dialog}: остались кнопки ↑/↓ — вторая механика рядом с китом`).not.toContain(
+        'RowReorderButtons',
+      );
+    }
+  });
+
+  it('строки помечены — по ним кит находит строки и считает место вставки', () => {
+    for (const dialog of REORDER_DIALOGS) {
+      const text = src(dialog);
+      expect(text, `${dialog}: у строк нет маркера data-list-row`).toContain('data-list-row');
+      expect(text, `${dialog}: у строк нет маркера data-list-row-key`).toContain('data-list-row-key');
+    }
+  });
+
+  it('у каждого списка своя граница — перетаскивание не целит в чужой список', () => {
+    for (const dialog of REORDER_DIALOGS) {
+      expect(src(dialog), `${dialog}: у списка нет границы (scopeRef) — перетаскивание целилось бы в соседний список`).toContain(
+        'scopeRef',
+      );
+    }
+  });
+
+  it('кнопок ↑/↓ в программе не осталось — компонент удалён, а не забыт', () => {
+    expect(
+      existsSync(fileURLToPath(new URL('./components/RowReorderButtons.tsx', import.meta.url))),
+      'компонент кнопок ↑/↓ снова в программе — вторая механика рядом с китом',
+    ).toBe(false);
   });
 });
 

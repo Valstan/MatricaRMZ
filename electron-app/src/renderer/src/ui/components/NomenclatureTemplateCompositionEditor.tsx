@@ -4,15 +4,16 @@ import type { WarehouseNomenclatureTemplateProperty } from '@matricarmz/shared';
 import { Button } from './Button.js';
 import { ListCount } from './ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from './RowNumberCell.js';
-import { RowReorderButtons } from './RowReorderButtons.js';
+import { ListReorderHandle } from './ListReorderHandle.js';
 import { SearchSelect } from './SearchSelect.js';
 import {
-  moveTemplateProperty,
   parseTemplatePropertiesJson,
   removeTemplateProperty,
+  renumberTemplateProperties,
   serializeTemplatePropertiesJson,
   setTemplatePropertyRequired,
 } from '../utils/nomenclatureTemplateProperties.js';
+import { useListReorder } from '../hooks/useListReorder.js';
 
 export type NomenclatureTemplateCompositionEditorTemplate = {
   id: string;
@@ -54,6 +55,14 @@ export function NomenclatureTemplateCompositionEditor(props: {
     setPickPropertyId(null);
     setErr('');
   }, [props.open, props.template]);
+
+  // Свойства шаблона — по общему киту (промт КАРМАНА #67): единая ручка «⠿» вместо
+  // кнопок ↑/↓. Порядок свойств — это `sortOrder`, он пересобирается по новому порядку.
+  const reorder = useListReorder({
+    rows,
+    canReorder: true,
+    onReorder: (next) => setRows(renumberTemplateProperties(next)),
+  });
 
   if (!props.open || !props.template) return null;
 
@@ -151,61 +160,68 @@ export function NomenclatureTemplateCompositionEditor(props: {
         </div>
 
         <ListCount total={rows.length} shown={rows.length} />
-        <table className="list-table" style={{ marginBottom: 14 }}>
-          <thead>
-            <tr>
-              <RowNumberHeaderCell />
-              <th style={{ width: 72 }}>Порядок</th>
-              <th>Свойство</th>
-              <th style={{ width: 100 }}>Обяз.</th>
-              <th style={{ width: 90 }} />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
+        {/* Граница списка: перетаскивание считает строки ТОЛЬКО свойств этого шаблона. */}
+        <div ref={reorder.scopeRef}>
+          <table className="list-table" style={{ marginBottom: 14 }}>
+            <thead>
               <tr>
-                <td colSpan={5} style={{ color: 'var(--subtle)', padding: 12, textAlign: 'center' }}>
-                  В шаблоне пока нет свойств
-                </td>
+                <RowNumberHeaderCell />
+                <th style={{ width: 72 }}>Порядок</th>
+                <th>Свойство</th>
+                <th style={{ width: 100 }}>Обяз.</th>
+                <th style={{ width: 90 }} />
               </tr>
-            ) : (
-              rows.map((row, idx) => {
-                const meta = propertyById.get(row.propertyId);
-                return (
-                  <tr key={row.propertyId}>
-                    <RowNumberCell n={idx + 1} />
-                    <td>
-                      <RowReorderButtons
-                        canMoveUp={idx > 0}
-                        canMoveDown={idx < rows.length - 1}
-                        onMoveUp={() => setRows((prev) => moveTemplateProperty(prev, idx, idx - 1))}
-                        onMoveDown={() => setRows((prev) => moveTemplateProperty(prev, idx, idx + 1))}
-                      />
-                    </td>
-                    <td>
-                      <div style={{ fontWeight: 600 }}>{meta?.name ?? row.propertyId}</div>
-                      <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
-                        {meta?.code ?? ''} {meta?.dataType ? `· ${meta.dataType}` : ''}
-                      </div>
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <input
-                        type="checkbox"
-                        checked={row.required === true}
-                        onChange={(e) => setRows((prev) => setTemplatePropertyRequired(prev, row.propertyId, e.target.checked))}
-                      />
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      <Button type="button" variant="ghost" size="sm" onClick={() => setRows((prev) => removeTemplateProperty(prev, row.propertyId))}>
-                        Удалить
-                      </Button>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={5} style={{ color: 'var(--subtle)', padding: 12, textAlign: 'center' }}>
+                    В шаблоне пока нет свойств
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row, idx) => {
+                  const meta = propertyById.get(row.propertyId);
+                  const key = reorder.keys[idx] ?? '';
+                  return (
+                    <tr
+                      key={row.propertyId}
+                      // Маркер строки для кита перестановки (промт КАРМАНА #67).
+                      data-list-row="true"
+                      data-list-row-key={key}
+                      style={reorder.rowStyle(key)}
+                      onDragOver={reorder.onDragOver}
+                      onDrop={reorder.onDrop}
+                    >
+                      <RowNumberCell n={idx + 1} />
+                      <td>
+                        <ListReorderHandle {...reorder.handleProps(key, { label: `свойство ${idx + 1}` })} />
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{meta?.name ?? row.propertyId}</div>
+                        <div style={{ fontSize: 12, color: 'var(--subtle)' }}>
+                          {meta?.code ?? ''} {meta?.dataType ? `· ${meta.dataType}` : ''}
+                        </div>
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={row.required === true}
+                          onChange={(e) => setRows((prev) => setTemplatePropertyRequired(prev, row.propertyId, e.target.checked))}
+                        />
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <Button type="button" variant="ghost" size="sm" onClick={() => setRows((prev) => removeTemplateProperty(prev, row.propertyId))}>
+                          Удалить
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
           <Button type="button" variant="ghost" disabled={busy} onClick={props.onClose}>

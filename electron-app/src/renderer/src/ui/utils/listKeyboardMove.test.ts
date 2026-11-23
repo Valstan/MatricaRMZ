@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyHandleClick, computeBlockMove, describeMoveResult } from './listKeyboardMove.js';
+import {
+  applyHandleClick,
+  claimMoveOwner,
+  computeBlockMove,
+  currentMoveOwner,
+  describeMoveResult,
+  registerMoveOwner,
+  releaseMoveOwner,
+} from './listKeyboardMove.js';
 
 const order = ['a', 'b', 'c', 'd', 'e'];
 
@@ -61,5 +69,48 @@ describe('перемещение блоком', () => {
     const moved = describeMoveResult(['a', 'c', 'b'], ['c'], true);
     expect(moved).toContain('позиция: 2');
     expect(describeMoveResult(order, ['a'], false)).toContain('край списка');
+  });
+});
+
+describe('активен только один список', () => {
+  it('ручка второго списка снимает режим первого — стрелка двигает один список', () => {
+    const first = Symbol('first');
+    const second = Symbol('second');
+    let firstCleared = 0;
+    const unregisterFirst = registerMoveOwner(first, () => {
+      firstCleared += 1;
+    });
+    const unregisterSecond = registerMoveOwner(second, () => {});
+
+    claimMoveOwner(first);
+    expect(currentMoveOwner()).toBe(first);
+
+    claimMoveOwner(second);
+    expect(firstCleared, 'режим прежнего списка не сняли').toBe(1);
+    expect(currentMoveOwner()).toBe(second);
+
+    unregisterFirst();
+    unregisterSecond();
+  });
+
+  it('снятие регистрации освобождает режим перемещения', () => {
+    const owner = Symbol('solo');
+    const unregister = registerMoveOwner(owner, () => {});
+    claimMoveOwner(owner);
+    expect(currentMoveOwner()).toBe(owner);
+    unregister();
+    expect(currentMoveOwner()).toBe(null);
+  });
+
+  it('отпустить режим может только его владелец', () => {
+    const owner = Symbol('owner');
+    const other = Symbol('other');
+    const unregister = registerMoveOwner(owner, () => {});
+    claimMoveOwner(owner);
+    releaseMoveOwner(other);
+    expect(currentMoveOwner(), 'чужой список снял режим не того, кто двигает').toBe(owner);
+    releaseMoveOwner(owner);
+    expect(currentMoveOwner()).toBe(null);
+    unregister();
   });
 });

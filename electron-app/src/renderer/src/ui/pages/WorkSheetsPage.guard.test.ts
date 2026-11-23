@@ -153,7 +153,9 @@ describe('этапы работ — экран', () => {
     expect(STAGE_DIALOG).toContain('data-stage-template-new');
     expect(STAGE_DIALOG).toContain('data-stage-template-save');
     expect(STAGE_DIALOG, 'приоритет — drag-and-drop, на планшете стрелки').toContain('onDrop');
-    expect(STAGE_DIALOG).toContain('RowReorderButtons');
+    expect(STAGE_DIALOG, 'приоритет двигается по общему киту, а не кнопками ↑/↓').toContain('useListReorder');
+    expect(STAGE_DIALOG, 'ручка перемещения — из кита').toContain('ListReorderHandle');
+    expect(STAGE_DIALOG, 'вторая механика (кнопки ↑/↓) вернулась').not.toContain('RowReorderButtons');
     expect(STAGE_DIALOG).toContain('window.matrica.workSheets.stages.templates.reorder(');
   });
 
