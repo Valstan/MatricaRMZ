@@ -68,13 +68,47 @@ describe('печатная форма производственной прог�
     expect(html).not.toContain('font-size:12pt');
   });
 
-  it('шесть колонок заданной ширины (в сумме — печатная полоса 271 мм)', () => {
-    // Колонок стало шесть (владелец 20.11.2026): «Отгрузка» и «Факторы» убраны,
-    // вместо них «Этап»; освободившаяся ширина ушла в «Примечание».
-    for (const width of [15.7, 47.8, 62.0, 39.5, 43.0, 63.0]) {
+  it('шесть колонок: «Примечание» ужато, остальные — в одну строку (промт #72)', () => {
+    // Заказ владельца 23.11.2026: колонку «Примечание» ужать, остальные колонки —
+    // в одну строку. Ширины посчитаны по типичным значениям при 14 pt Times:
+    // «ООО «Заказчик» · 239» (≈57 мм), шапка «Марка и номер двигателя» (≈62,7 мм),
+    // «Капитальный ремонт» (≈47 мм), «Выходной контроль ОТК» (≈55 мм).
+    for (const width of [15.7, 58.0, 64.0, 48.0, 55.0, 30.3]) {
       expect(html).toContain(`width:${width}mm`);
     }
     expect(html).toContain('<colgroup>');
+    // Ширин «до #72» на листе больше нет (в HTML число печатается без хвоста
+    // «.0» — «63mm», а не «63.0mm»).
+    expect(html).not.toContain('width:63mm');
+    expect(html).not.toContain('width:62mm');
+    expect(html).not.toContain('width:47.8mm');
+    // Сумма ширин — ровно печатная полоса A4 landscape при полях 12,7 мм: больше —
+    // таблица уедет на второй лист, меньше — пустое поле справа.
+    const widths = [...html.matchAll(/<col style="width:([\d.]+)mm"\/>/g)].map((m) => Number(m[1]));
+    expect(widths).toHaveLength(6);
+    expect(widths.reduce((sum, w) => sum + w, 0)).toBeCloseTo(271, 5);
+  });
+
+  it('заголовок колонки не переносится', () => {
+    // Шапка выше строк — это уже не «шапка + строки», а каша.
+    expect(html).toContain('white-space:nowrap');
+  });
+
+  it('структурные колонки — в одну строку, «Примечание» переносится', () => {
+    // Пять колонок не переносятся и обрезаются многоточием: ширины рассчитаны
+    // руками (`table-layout: fixed` + `<colgroup>`), поэтому длинное значение
+    // иначе расписало бы строку на две.
+    const dataRows = html.split('</tr>').filter((r) => r.includes('padding:3px 4px'));
+    expect(dataRows).toHaveLength(2);
+    for (const row of dataRows) {
+      const cells = row.split('<td').slice(1);
+      expect(cells).toHaveLength(6);
+      expect(cells.slice(0, 5).every((c) => c.includes('white-space:nowrap'))).toBe(true);
+      expect(cells.slice(0, 5).every((c) => c.includes('text-overflow:ellipsis'))).toBe(true);
+      // «Примечание» — свободный текст: в нём причина ошибки строки (D-246),
+      // обрезать её на бумаге нельзя ⇒ перенос разрешён.
+      expect(cells[5]).not.toContain('white-space:nowrap');
+    }
   });
 
   it('заголовки колонок — как в образце, с этапом вместо отгрузки и факторов', () => {

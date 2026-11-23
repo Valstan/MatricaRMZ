@@ -29,8 +29,26 @@ import {
  * отгрузка видна этапом, а «Факторы» после чистки колонок печатались бы всегда
  * пустыми. Вместо них — «Этап». Ширина освободившегося места ушла в «Примечание»
  * (там теперь всё, что неясно: в колонке «Факторы» писали именно это).
+ *
+ * **Пересобраны по заказу владельца 23.11.2026 (промт #72):** «Примечание» ужато,
+ * остальные колонки — в одну строку.
+ *
+ * Ширины посчитаны по **типичным значениям** при 14 pt Times (≈2,4 мм на знак,
+ * +2,6 мм полей ячейки), а не «на глаз»:
+ *
+ * | Колонка | Что в неё влезает | Нужно | Стало |
+ * |---|---|---|---|
+ * | № п/п | шапка «№ п/п» | 15,3 | 15,7 |
+ * | Организация | «ООО «Заказчик» · 239» | 57 | 58,0 |
+ * | Марка и номер двигателя | **шапка** (на 62 мм переносилась на две строки) | 62,7 | 64,0 |
+ * | Состояние | «Капитальный ремонт» | 47 | 48,0 |
+ * | Этап | «Выходной контроль ОТК» | 55 | 55,0 |
+ * | Примечание | свободный текст — единственная колонка с переносом | — | **30,3** |
+ *
+ * Сумма — те же **271 мм** (полоса A4 landscape при полях 12,7 мм): сумма не
+ * «примерно», а точно ширина полосы, иначе таблица уезжает на второй лист.
  */
-const COL_WIDTHS_MM = [15.7, 47.8, 62.0, 39.5, 43.0, 63.0] as const;
+const COL_WIDTHS_MM = [15.7, 58.0, 64.0, 48.0, 55.0, 30.3] as const;
 
 const HEADERS = [
   '№ п/п',
@@ -66,6 +84,23 @@ function stateCell(state: string | null): string {
   return escapeHtml(label || '—');
 }
 
+/** База стиля ячейки строки плана. */
+const CELL_STYLE = 'border:1px solid #111827;padding:3px 4px';
+
+/**
+ * Ячейка, которая держит **одну строку** (промт #72: «остальные колонки — в одну
+ * строку»).
+ *
+ * Ширины колонок считаются руками (`table-layout: fixed` + `<colgroup>`), поэтому
+ * длинное значение либо вылезет за границу ячейки, либо распишет строку на две
+ * строки — и «шапка + строки» превратится в кашу. Многоточие честнее молчаливого
+ * обрезания: видно, что значение не поместилось.
+ */
+function oneLineCellStyle(extra?: string): string {
+  const base = extra ? `${CELL_STYLE};${extra}` : CELL_STYLE;
+  return `${base};white-space:nowrap;overflow:hidden;text-overflow:ellipsis`;
+}
+
 function rowHtml(model: ProductionProgramPrintModel): string {
   const body: string[] = [];
   for (const group of model.groups) {
@@ -85,16 +120,19 @@ function rowHtml(model: ProductionProgramPrintModel): string {
       // на бумаге было бы пусто, а двигатель уехал. Правило — в домене: тем же
       // пользуется выгрузка плана в файл, иначе лист и файл разойдутся.
       const stageText = productionProgramStageText(row);
+      // «Примечание» — единственная колонка, которой разрешено переноситься:
+      // это свободный текст, обрезать его на бумаге нельзя (в нём — причина
+      // ошибки строки, см. D-246), поэтому его ужали, но не запретили перенос.
       body.push(
         `<tr style="${bg}">` +
-          `<td style="border:1px solid #111827;padding:3px 4px;text-align:center">${row.orderNo}</td>` +
-          `<td style="border:1px solid #111827;padding:3px 4px">${escapeHtml(row.organizationLabel)}</td>` +
-          `<td style="border:1px solid #111827;padding:3px 4px">${escapeHtml(
+          `<td style="${oneLineCellStyle('text-align:center')}">${row.orderNo}</td>` +
+          `<td style="${oneLineCellStyle()}">${escapeHtml(row.organizationLabel)}</td>` +
+          `<td style="${oneLineCellStyle()}">${escapeHtml(
             [row.engineMark, row.engineNumber].filter(Boolean).join(' '),
           )}</td>` +
-          `<td style="border:1px solid #111827;padding:3px 4px">${stateCell(row.state)}</td>` +
-          `<td style="border:1px solid #111827;padding:3px 4px">${escapeHtml(stageText)}</td>` +
-          `<td style="border:1px solid #111827;padding:3px 4px">${escapeHtml(row.note)}</td>` +
+          `<td style="${oneLineCellStyle()}">${stateCell(row.state)}</td>` +
+          `<td style="${oneLineCellStyle()}">${escapeHtml(stageText)}</td>` +
+          `<td style="${CELL_STYLE}">${escapeHtml(row.note)}</td>` +
           `</tr>`,
       );
     }
@@ -174,7 +212,9 @@ export function productionProgramPrintHtml(
   const colgroup = `<colgroup>${COL_WIDTHS_MM.map((w) => `<col style="width:${w}mm"/>`).join('')}</colgroup>`;
   const header = HEADERS.map(
     (h, i) =>
-      `<th style="border:1px solid #111827;padding:4px 5px;font-size:${tableSize}pt;text-align:center;${i === 1 || i === 5 || i === 6 ? 'text-align:left' : ''}">${escapeHtml(h)}</th>`,
+      // Заголовок — одна строка (промт #72): ширины колонок рассчитаны под него,
+      // а перенос сделал бы шапку выше и сбил «шапка + строки».
+      `<th style="border:1px solid #111827;padding:4px 5px;font-size:${tableSize}pt;text-align:center;white-space:nowrap;${i === 1 || i === 5 ? 'text-align:left' : ''}">${escapeHtml(h)}</th>`,
   ).join('');
 
   return `<!doctype html>
