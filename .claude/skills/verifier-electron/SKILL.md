@@ -55,6 +55,57 @@ Stop:
 .\.claude\skills\verifier-electron\scripts\stop.ps1
 ```
 
+## Параллельные стенды (несколько линий одновременно)
+
+Заказ владельца 23.11: «между рабочими областями Матрицы РМЗ разделить ресурсы
+стенда, чтобы они могли каждая запускать свой стенд, а не ждать очереди к
+одному, и чтобы не мешали друг другу при тестировании».
+
+**Именованный стенд** — параметр `-Stand <имя>`: `main` (по умолчанию), `lane1`,
+`lane2`, `lane3`. У каждого стенда свои ресурсы:
+
+| Ресурс | Стенд `main` | `lane1` / `lane2` / `lane3` | Зачем |
+|---|---|---|---|
+| CDP-порт | 9222 | 9223 / 9224 / 9225 | по нему же рантайм изолирует `userData` (профиль, сессия, авторизация) |
+| Порт рендера (Vite) | 5173 | 5174 / 5175 / 5176 | иначе вторая линия не поднимет Vite («порт занят») |
+| Порт backend | 3001 | 3002 / 3003 / 3004 | свой API под свой стенд |
+| База PostgreSQL | `matricarmz_dev` | `matricarmz_dev_lane1` … | **главное**: тесты одной линии не видят и не меняют данные другой |
+| Каталог состояния | `.verifier-electron/` | `.verifier-electron/laneN/` | свои логи и pid-файлы |
+
+```powershell
+# Линия поднимает СВОЙ стенд (пример — вторая линия):
+.\.claude\skills\verifier-electron\scripts\setup-db.ps1 -Stand lane1
+.\.claude\skills\verifier-electron\scripts\start-backend.ps1 -Stand lane1
+.\.claude\skills\verifier-electron\scripts\start-electron.ps1 -Stand lane1 -Cdp
+
+# драйв — с портом СВОЕГО стенда:
+$env:MATRICA_CDP_PORT = '9223'
+node .\.claude\skills\verifier-electron\scripts\cdp-drive.mjs
+
+# гасить — только свой стенд:
+.\.claude\skills\verifier-electron\scripts\stop.ps1 -Stand lane1
+```
+
+**Два правила, без которых линии мешают друг другу:**
+
+1. **`stop.ps1` гасит только свой стенд.** Раньше он смахивал **все** процессы
+   `electron.exe` на машине — то есть гасил стенд соседней линии и вообще любой
+   Electron (включая прод-клиент «Матрицы РМЗ»). Теперь убираются только свои
+   процессы — по своему CDP-порту и по своему репозиторию.
+2. **«Уже запущено» проверяется по СВОИМ процессам.** Раньше брался первый
+   попавшийся `electron.exe` ⇒ стенд линии видел чужой клиент и думал, что его
+   стенд уже поднят (линии делили один стенд и ждали очереди).
+
+**Снапшот прода** (`.verifier-electron/prod-schema.sql`, `*.dump`) — общий на
+все стенды, читается только; засев идёт в **свою** базу стенда.
+
+**Отдельно про ABI `better-sqlite3`:** нативный модуль — **один общий pnpm-инстанс
+на репозиторий**, и один `.node` не обслуживает две ABI сразу. У каждой линии
+свой worktree ⇒ свои `node_modules` ⇒ своя сборка. Но после `pnpm install` в
+worktree линии обязателен `corepack pnpm -C electron-app exec electron-builder
+install-app-deps` (иначе клиент линии упадёт на SQLite-init), а для
+`electron-app` vitest (под Node) — наоборот, `corepack pnpm rebuild better-sqlite3`.
+
 ## Driving в живом UI (для Claude в `/verify`)
 
 ### Способ 1 — CDP-драйвер (основной, computer-use-независимый)

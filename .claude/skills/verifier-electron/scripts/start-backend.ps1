@@ -1,21 +1,30 @@
-# Starts backend-api dev in background using .env.dev. Waits for /health.
+﻿# Starts backend-api dev in background using .env.dev. Waits for /health.
+#
+# -Stand <имя> — ИМЕНОВАННЫЙ СТЕНД (23.11, заказ владельца: линии не должны
+# делить один стенд). Свой порт и своя база PostgreSQL: иначе тесты одной
+# линии видят и меняют данные другой.
+
+param(
+    [string]$Stand = ''
+)
 
 . (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) '_common.ps1')
 
 $repo = Get-RepoRoot
+$standPorts = Get-StandPorts -Stand $Stand
 $envPath = Join-Path $repo 'backend-api\.env.dev'
 if (-not (Test-Path $envPath)) {
     throw "$envPath missing - run setup-env.ps1 first"
 }
 
-$state = Get-StateDir
+$state = Get-StandStateDir -Stand $Stand
 $logPath = Join-Path $state 'backend.log'
 $pidPath = Join-Path $state 'backend.pid'
 
 if (Test-Path $pidPath) {
     $oldPid = Get-Content $pidPath -ErrorAction SilentlyContinue
     if ($oldPid -and (Get-Process -Id $oldPid -ErrorAction SilentlyContinue)) {
-        Write-Output "[start-backend] already running (PID=$oldPid). Run stop.ps1 to restart."
+        Write-Output "[start-backend] стенд '$($standPorts.Name)' уже запущен (PID=$oldPid). Run stop.ps1 -Stand $($standPorts.Name) to restart."
         exit 0
     }
 }
@@ -27,7 +36,14 @@ if (Test-Path $pidPath) {
 Import-DotEnv -Path $envPath
 Set-Location $repo
 
-$backendPort = if ($env:PORT) { [int]$env:PORT } else { 3001 }
+# Именованный стенд ⇒ свой порт (не делим с соседней линией).
+$backendPort = if ($standPorts.Name -ne 'main') { $standPorts.Backend }
+                elseif ($env:PORT) { [int]$env:PORT }
+                else { 3001 }
+$env:PORT = "$backendPort"
+# Именованный стенд ⇒ своя база (тесты линий не должны видеть данные друг друга).
+$standDb = Get-StandDb -Stand $Stand
+$env:PG_VERIFY_DB = $standDb
 
 # Fail fast if port already taken.
 $sock = New-Object System.Net.Sockets.TcpClient
