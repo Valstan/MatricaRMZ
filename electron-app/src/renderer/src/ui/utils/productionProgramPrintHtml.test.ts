@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import { productionProgramPrintHtml } from './productionProgramPrintHtml.js';
 
+/** Ширины колонок из печатного HTML — в том порядке, в котором идут колонки формы. */
+function columnWidthsMm(html: string): number[] {
+  return [...html.matchAll(/<col style="width:([\d.]+)mm"\/>/g)].map((m) => Number(m[1]));
+}
+
 // Печатная форма ПП — по образцу «ПП Цех № 1»: A4 landscape, поля 12,7 мм, шесть
 // колонок заданной ширины (владелец 20.11.2026: «Отгрузка» и «Факторы» убраны,
 // вместо них «Этап»), кегль не меньше 14 pt (требование владельца важнее
@@ -69,12 +74,33 @@ describe('печатная форма производственной прог�
   });
 
   it('шесть колонок заданной ширины (в сумме — печатная полоса 271 мм)', () => {
-    // Колонок стало шесть (владелец 20.11.2026): «Отгрузка» и «Факторы» убраны,
-    // вместо них «Этап»; освободившаяся ширина ушла в «Примечание».
-    for (const width of [15.7, 47.8, 62.0, 39.5, 43.0, 63.0]) {
-      expect(html).toContain(`width:${width}mm`);
-    }
+    // Ширины пересчитаны 23.11.2026 (владелец): «Примечание» ужато, освободившаяся
+    // ширина ушла в остальные колонки — чтобы их содержимое печаталось в одну строку.
+    expect(columnWidthsMm(html)).toEqual([17.5, 75.0, 42.5, 48.0, 56.0, 32.0]);
     expect(html).toContain('<colgroup>');
+  });
+
+  it('сумма ширин колонок не больше печатной полосы 271 мм', () => {
+    // Ужимать колонку можно только за счёт других: браузер ширины не пересчитывает
+    // (`table-layout: fixed` + `<colgroup>`), а полоса A4 landscape при полях
+    // 12,7 мм — ровно 271 мм.
+    const sum = columnWidthsMm(html).reduce((acc, w) => acc + w, 0);
+    expect(sum).toBeLessThanOrEqual(271);
+    expect(sum).toBeCloseTo(271, 5);
+  });
+
+  it('«Примечание» — самая узкая колонка, остальным досталось содержимое', () => {
+    const widths = columnWidthsMm(html);
+    const note = widths.at(-1) ?? 0;
+    expect(note).toBeLessThanOrEqual(32);
+    // Остальные колонки — шире примечания: иначе «освободившаяся ширина» никуда не ушла.
+    for (const w of widths.slice(1, -1)) {
+      expect(w).toBeGreaterThan(note);
+    }
+  });
+
+  it('число колонок совпадает с числом заголовков', () => {
+    expect(columnWidthsMm(html).length).toBe(6);
   });
 
   it('заголовки колонок — как в образце, с этапом вместо отгрузки и факторов', () => {
