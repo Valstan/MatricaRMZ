@@ -35,7 +35,7 @@
 | **~2026-08-04** | Прогон deadcode-дельты (knip) | [deadcode-сканер](pending/deadcode-skaner-mesyachnaya-delta-standing.md) |
 | **~2026-08-10** | Проверить, что парк обновился до ≥ v2026.808.1830 → затем ретро-скрипты контрактов | [слоты контракта](pending/khvosty-nitki-sloty-kontrakta-pechat-naryadov.md) |
 | **≤2026-11-26** | Ротация SSH-ключа прода `PC79` (выпущен 2026-08-28); ключ `RMZ4VAL` от 2026-06-02 просрочен — за своей машиной | `PROJECT_STATE.md` §SSH |
-| **2026-11-23, 03:00 МСК** | **Приёмка MiniMax-воркера: первый живой ответ от MiniMax** — пул наполняется в 03:00 МСК, не в 00:00 (сутки комнаты в Кармане считаются по UTC; в 00:01 и 00:20 МСК пул законно пуст — проверено живыми вызовами, повторять не надо). Команда: `bash ~/MatricaRMZ/scripts/prod-ops/measure-minimax-worker-ram.sh` на боксе | [нитка воркера](pending/minimax-worker-ekspluataciya-na-prode.md) |
+| **2026-11-23, 03:00 МСК** | **Приёмка MiniMax-воркера: первый живой ответ от MiniMax** — окно сброса суток прошло, но **пул остался пуст**: воркер жив и ходит в комнату `matricarmz-minimax` каждые ~3 часа, ответ — честный `no_free_accounts` (в 03:00 и 06:00 МСК). Значит аккаунтов в комнате нет — это сторона Кармана (письмо Мозгу 23.11). Ждём наполнения пула; до него нечем мерить пик RAM `mcode exec` и неоткуда ответ `engine`. Команда на боксе, когда пул наполнят: `bash ~/MatricaRMZ/scripts/prod-ops/measure-minimax-worker-ram.sh` | [нитка воркера](pending/minimax-worker-ekspluataciya-na-prode.md) |
 | **Q3 2026 (авг–сен)** | Квартальный стратегический self-review → письмо в `to-brain` | [deadcode-сканер](pending/deadcode-skaner-mesyachnaya-delta-standing.md) |
 | **2026-10-01** | Мозгу строкой: три места `grep -q` под `pipefail` переписаны? (G355/G322). **Ответ готов заранее:** три в `scripts/prod-ops/` переписаны 16.09 (PR #942, v3.36.0), 4-е найдено 18.09 в `deploy/systemd/install.sh:60` и закрыто тем же PR, что и это письмо | закрыт 18.09 — [COMPLETED.md](COMPLETED.md) §Инфра |
 | **2026-10-02** | Мандат brain **D-096**, пять строк по дешёвому: где собирается прод-бэкенд (#324) · `default_server` + чужой Host (#251) · заголовки трёх ассетов прода (#250) · чисто ли в логах CI (#223) · три правила в каноне (#166/#125/#152). **Отправлено досрочно 18.09** письмом `2026-09-18-d096-five-cheap-lines-early-and-four-defects-the-lines-uncovered` | `mailbox/to-brain/`, письмо-мандат `2026-09-18-d096-ten-pool-ideas-go-to-work-your-slice-and-three-dates` |
@@ -98,9 +98,10 @@
 
 ## ⏳ Ждёт внешнего окна / события
 
+- [⏳ Претензия 23.11: данные оператора не уходят на сервер — нужен снимок клиента и слово владельца на прод-запись 🗓 since:2026-11-23](pending/dannie-operatora-ne-uhodyat-na-server.md)
 - [⏳ Свой ключ DeepSeek под проект (D-188): выпускает владелец, переезд делаем мы 🗓 since:2026-11-08](pending/svoy-key-deepseek-dlya-proekta-d-188.md)
-- [⏳ Промты проекта из КАРМАНА (D-190): права на производственную программу закрыты 21.11 и в архиве; живая пара — MiniMax-воркер 🗓 since:2026-11-08](pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md)
-- [⏳ MiniMax-воркер на проде: воркер живой, звено включено; ждём первый ответ от MiniMax (пул) и замер RAM 🗓 since:2026-11-22](pending/minimax-worker-ekspluataciya-na-prode.md)
+- [⏳ Промты проекта из КАРМАНА (D-190): очередь 23.11 разобрана (#70–#77 закрыты и в архиве); живы #56–#63 и #67–#69 🗓 since:2026-11-08](pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md)
+- [⏳ MiniMax-воркер на проде: воркер живой, звено включено; ждём первый ответ от MiniMax — пул Кармана пуст даже после сброса суток 🗓 since:2026-11-22](pending/minimax-worker-ekspluataciya-na-prode.md)
 - [⏳ Локальный MiniMax на клиенте: код выпущен (v3.142.0), ждём комнату «Кармана», рантайм в CI и смоук на живой машине 🗓 since:2026-11-23](pending/lokalnyy-minimax-na-kliente-privyka-i-runtaym.md)
 - [⏳ Планшетная версия «Матрицы РМЗ»: код готов, APK выложен релизом v3.143.0 (уезжающее левое меню) — ждём проверку на устройстве 🗓 since:2026-11-23](pending/planshetnaya-versiya-matritsy-rmz-na-planshete.md)
 - [⏳ Дубли сотрудников: остаток — штатка с ПДО и приёмка на парке (запрет по полному ключу сделан) 🗓 since:2026-11-09](pending/dubli-sotrudnikov-ostatok-zapret-po-polnomu-klyuchu-shtatka-s-pdo.md)
