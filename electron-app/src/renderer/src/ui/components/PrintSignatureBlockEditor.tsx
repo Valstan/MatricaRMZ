@@ -104,8 +104,10 @@ export function PrintSignatureBlockEditor(props: {
           >
             <div
               style={{
+                // Поля складываются по ширине: в узкой колонке превью (240–300 px)
+                // четыре поля в ряд нечитаемы, в широкой — помещаются в строку.
                 display: 'grid',
-                gridTemplateColumns: props.printedIndexes ? 'auto minmax(120px, 0.8fr) minmax(180px, 1.2fr) minmax(120px, 0.8fr) auto' : 'minmax(120px, 0.8fr) minmax(180px, 1.2fr) minmax(120px, 0.8fr) auto',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
                 gap: 8,
                 alignItems: 'center',
               }}
