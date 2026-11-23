@@ -182,7 +182,7 @@
 - [Списки по одним правилам (промт #67): кит, верхний уровень, карточки, отчёты, диалоги, ПП и список СИЗ — сделаны; осталась приёмка 🗓 since:2026-11-23](pending/unified-list-rules-cards-and-reports.md)
 - [🟡 Подписи печатных форм: приёмка на живой печати ПП и перенос на наряд (нужен ли) 🗓 since:2026-11-23](pending/print-signature-slots-acceptance.md)
 - [Печатная форма ПП: колонки в одну строку и разрывы страниц — приёмка и решение по обрезанным значениям 🗓 since:2026-11-23](pending/pp-print-form-acceptance.md)
-- [🟡 ПП на ките: хвост шва — клавиатурное перемещение по ручке (нужен групповой кит) 🗓 since:2026-11-23](pending/pp-seam-with-list-kit.md)
+- [🟡 ПП на ките: хвост шва — приёмка владельцем (код закрыт) 🗓 since:2026-11-23](pending/pp-seam-with-list-kit.md)
 - [Пакет владельца 12.09: отчёты, спецификации, два учёта 🗓 since:2026-09-12 🟢](pending/paket-vladeltsa-12-09-otchety-spetsifikatsii-dva-ucheta.md)
 - [Большой рефакторинг трёх клиентов — остаток программы 🗓 since:2026-08-08 🟡](pending/bolshoy-refaktoring-trekh-klientov-ostatok-programmy.md)
 - [Хвосты v3 «Вкладки» после сноса старых оболочек 🗓 since:2026-07-28](pending/khvosty-v3-vkladki-posle-snosa-starykh-obolochek.md)

@@ -62,9 +62,11 @@ import { SectionCard } from '../components/SectionCard.js';
 import { UnifiedDateInput } from '../components/UnifiedDateInput.js';
 import { useListBehaviorSettings } from '../hooks/useListBehaviorSettings.js';
 import { useListDrag } from '../hooks/useListDrag.js';
+import { useListKeyboardMove } from '../hooks/useListKeyboardMove.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { useListSelection } from '../hooks/useListSelection.js';
 import { LIST_DROP_INDICATOR_COLOR, listDragRowStyle, type ListDropTarget } from '../utils/listDragVisual.js';
+import type { ListMoveGrouping } from '../utils/listKeyboardMove.js';
 import { listToText } from '../utils/mailText.js';
 import {
   buildListContextMenuItems,
@@ -923,8 +925,11 @@ export function ProductionProgramPage(props: Props) {
   }, [groups]);
 
   /** Порядок строк не изменился — перестановку незачем сохранять. */
-  const sameRowOrder = (a: readonly DraftRow[], b: readonly DraftRow[]) =>
-    a.length === b.length && a.every((row, idx) => String(row.id) === String(b[idx]?.id ?? ''));
+  const sameRowOrder = useCallback(
+    (a: readonly DraftRow[], b: readonly DraftRow[]) =>
+      a.length === b.length && a.every((row, idx) => String(row.id) === String(b[idx]?.id ?? '')),
+    [],
+  );
 
   /** Двигатель встал на место: перед целевой строкой или после неё. */
   const dropRow = (sourceRowId: string, targetRowId: string, side: ProductionProgramDropSide) => {
@@ -941,6 +946,61 @@ export function ProductionProgramPage(props: Props) {
     if (sameRowOrder(current, next)) return;
     applyRows(() => next, selectedId);
   };
+
+  /**
+   * Клавиатурное перемещение по ручке — общий кит в **групповом** режиме.
+   *
+   * Хвост шва с ПП: китовый `useListKeyboardMove` считал движение по плоскому списку,
+   * а в ПП порядок групповой — двигатель едет внутри своего договора, договор — со
+   * своим блоком. Кит получил групповой режим (`grouping`), и границы те же, что и
+   * у мыши: те же доменные ключи групп (`productionProgramGroupKey`).
+   */
+  const moveGrouping = useMemo(() => {
+    const groupKeyList: string[] = [];
+    const rowKeysOf = new Map<string, string[]>();
+    const groupOfRow = new Map<string, string>();
+    for (const group of groups) {
+      const domainKey = group.items[0] ? productionProgramGroupKey(group.items[0].row) : group.key;
+      const rowKeys = group.items.map((item) => String(item.row.id));
+      groupKeyList.push(domainKey);
+      rowKeysOf.set(domainKey, rowKeys);
+      for (const rowKey of rowKeys) groupOfRow.set(rowKey, domainKey);
+    }
+    const grouping: ListMoveGrouping = {
+      groupKeys: groupKeyList,
+      rowKeysOf: (groupKey) => rowKeysOf.get(groupKey) ?? [],
+      groupOfRow: (rowKey) => groupOfRow.get(rowKey) ?? null,
+      isGroupHeader: (key) => rowKeysOf.has(key),
+    };
+    // Плоский порядок кита — блоки групп подряд: заголовок, затем его строки.
+    const orderedIds = groupKeyList.flatMap((groupKey) => [groupKey, ...(rowKeysOf.get(groupKey) ?? [])]);
+    return { grouping, orderedIds };
+  }, [groups]);
+
+  /** Новый порядок строк по порядку кита: заголовки групп — не строки, их пропускаем. */
+  const applyProgramMove = useCallback(
+    (order: string[]) => {
+      const current = rowsRef.current;
+      const byId = new Map(current.map((row) => [String(row.id), row]));
+      const next: DraftRow[] = [];
+      for (const key of order) {
+        const row = byId.get(key);
+        if (row) next.push(row);
+      }
+      // Строка, о которой новый порядок не сказал, не теряется молча.
+      for (const row of current) if (!next.includes(row)) next.push(row);
+      if (sameRowOrder(current, next)) return;
+      applyRows(() => next, selectedId);
+    },
+    [applyRows, selectedId, sameRowOrder],
+  );
+
+  const programMove = useListKeyboardMove({
+    enabled: props.canEdit && listBehavior.keyboardMove,
+    orderedIds: moveGrouping.orderedIds,
+    grouping: moveGrouping.grouping,
+    onMove: applyProgramMove,
+  });
 
   /**
    * Куда встанет перетаскиваемая группа.
@@ -2081,18 +2141,21 @@ export function ProductionProgramPage(props: Props) {
                             // Маркер строки-заголовка: кит по нему считает границы групп.
                             data-list-row="true"
                             data-list-row-key={`${GROUP_ROW_PREFIX}${groupKey}`}
-                            style={{ background: '#f3f4f6', ...groupHeaderStyle(groupKey) }}
+                            style={{ background: '#f3f4f6', ...groupHeaderStyle(groupKey), ...programMove.moveRowStyle(groupKey) }}
                           >
                             <td
                               colSpan={props.canEdit ? 10 : 9}
                               style={{ fontWeight: 700, padding: '4px 6px', whiteSpace: 'normal' }}
                             >
-                              {/* Ручка группы — общая ручка кита: перетаскивание мышью.
-                                  Перемещение стрелками в ПП ждёт группового кита
-                                  (см. `docs/pending/pp-seam-with-list-kit.md`). */}
+                              {/* Ручка группы — общая ручка кита: перетаскивание мышью и
+                                  перемещение стрелками (групповой режим кита: группа едет
+                                  целиком среди других групп). */}
                               <ListRowHandle
                                 rowKey={groupKey}
                                 draggable={props.canEdit}
+                                onHandleClick={programMove.onHandleClick}
+                                active={programMove.moveKeys.includes(groupKey)}
+                                blockCount={programMove.moveKeys.length}
                                 onDragStart={(e) => dragLayer.startDrag(e, { kind: 'group', key: groupKey })}
                                 label={group.label}
                               />
@@ -2155,6 +2218,8 @@ export function ProductionProgramPage(props: Props) {
                                   ...(isSelected ? { background: 'rgba(37, 99, 235, 0.14)' } : {}),
                                   // Подсветка перетаскивания и линия места вставки — по киту.
                                   ...rowDragStyle(String(r.id)),
+                                  // Красная рамка режима перемещения стрелками — по киту.
+                                  ...programMove.moveRowStyle(String(r.id)),
                                 }}
                                 title={tone.label || undefined}
                               >
@@ -2171,12 +2236,15 @@ export function ProductionProgramPage(props: Props) {
                                   />
                                 </td>
                                 <td>
-                                  {/* Ручка строки — общая ручка кита: перетаскивание мышью.
-                                      Перемещение стрелками в ПП ждёт группового кита
-                                      (см. `docs/pending/pp-seam-with-list-kit.md`). */}
+                                  {/* Ручка строки — общая ручка кита: перетаскивание мышью и
+                                      перемещение стрелками (двигатель едет внутри своего
+                                      договора — групповой режим кита). */}
                                   <ListRowHandle
                                     rowKey={String(r.id)}
                                     draggable={props.canEdit}
+                                    onHandleClick={programMove.onHandleClick}
+                                    active={programMove.moveKeys.includes(String(r.id))}
+                                    blockCount={programMove.moveKeys.length}
                                     onDragStart={(e) => dragLayer.startDrag(e, { kind: 'row', key: String(r.id) })}
                                     label={engineCellLabel || `строка ${r.id}`}
                                   />
