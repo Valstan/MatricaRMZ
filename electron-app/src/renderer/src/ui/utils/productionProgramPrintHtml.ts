@@ -134,7 +134,7 @@ function rowHtml(model: ProductionProgramPrintModel): string {
       // это свободный текст, обрезать его на бумаге нельзя (в нём — причина
       // ошибки строки, см. D-246), поэтому его ужали, но не запретили перенос.
       rows.push(
-        `<tr style="${bg};break-inside:avoid">` +
+        `<tr style="${[bg, 'break-inside:avoid'].filter(Boolean).join(';')}">` +
           `<td style="${oneLineCellStyle('text-align:center')}">${row.orderNo}</td>` +
           `<td style="${oneLineCellStyle()}">${escapeHtml(row.organizationLabel)}</td>` +
           `<td style="${oneLineCellStyle()}">${escapeHtml(
