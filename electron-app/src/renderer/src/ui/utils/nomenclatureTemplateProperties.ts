@@ -73,11 +73,12 @@ export function setTemplatePropertyRequired(
   return rows.map((r) => (r.propertyId === id ? { ...r, required } : r));
 }
 
-export function moveTemplateProperty(rows: WarehouseNomenclatureTemplateProperty[], from: number, to: number): WarehouseNomenclatureTemplateProperty[] {
-  if (from === to || from < 0 || to < 0 || from >= rows.length || to >= rows.length) return rows;
-  const next = [...rows];
-  const [item] = next.splice(from, 1);
-  if (!item) return rows;
-  next.splice(to, 0, item);
-  return next.map((r, index) => ({ ...r, sortOrder: index * 10 }));
+/**
+ * Перенумеровать порядок свойств после перестановки.
+ *
+ * `sortOrder` — это позиция свойства в шаблоне (шаг 10), и после перестановки он обязан
+ * меняться вместе с позицией: иначе сохранённый JSON разойдётся с тем, что на экране.
+ */
+export function renumberTemplateProperties(rows: WarehouseNomenclatureTemplateProperty[]): WarehouseNomenclatureTemplateProperty[] {
+  return rows.map((r, index) => (r.sortOrder === index * 10 ? r : { ...r, sortOrder: index * 10 }));
 }

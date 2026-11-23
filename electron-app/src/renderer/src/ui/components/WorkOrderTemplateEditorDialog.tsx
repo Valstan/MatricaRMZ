@@ -23,9 +23,9 @@ import { ListCount } from './ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from './RowNumberCell.js';
 import { EntityReferenceField } from './EntityReferenceField.js';
 import { Input } from './Input.js';
-import { RowReorderButtons } from './RowReorderButtons.js';
+import { ListReorderHandle } from './ListReorderHandle.js';
 import { SearchSelect, type SearchSelectOption } from './SearchSelect.js';
-import { moveArrayItem } from '../utils/moveArrayItem.js';
+import { useListReorder } from '../hooks/useListReorder.js';
 
 type EditorLine = {
   id: string;
@@ -196,6 +196,62 @@ export type WorkOrderTemplateEditorDialogProps = {
   onClose: () => void;
   onSaved?: (template: WorkOrderTemplateDto) => void;
 };
+
+/**
+ * Слоты подписей одного блока — по общему киту (промт КАРМАНА #67).
+ *
+ * Отдельный компонент не из красоты: у шаблона наряда блоков подписей несколько, и у
+ * каждого своя граница списка (перетаскивание не целит в соседний блок). Хук кита
+ * вызывается по одному разу на список, поэтому блок — это отдельный компонент.
+ */
+function WorkOrderTemplateSignatureSlots(props: {
+  slots: WorkOrderSignatureSlot[];
+  canEdit: boolean;
+  onChange: (slots: WorkOrderSignatureSlot[]) => void;
+  children: (slot: WorkOrderSignatureSlot, index: number) => React.ReactNode;
+  /** Действия строки справа от ручки (удаление слота). */
+  trailing?: (slot: WorkOrderSignatureSlot, index: number) => React.ReactNode;
+}) {
+  const reorder = useListReorder({
+    rows: props.slots,
+    canReorder: props.canEdit,
+    onReorder: (rows) => props.onChange(rows),
+  });
+
+  return (
+    // Граница списка: перетаскивание считает строки ТОЛЬКО этого блока подписей.
+    <div ref={reorder.scopeRef} style={{ display: 'grid', gap: 6 }}>
+      {props.slots.map((slot, idx) => {
+        const key = reorder.keys[idx] ?? '';
+        return (
+          <div
+            key={`slot-${key}`}
+            // Маркер строки для кита перестановки (промт КАРМАНА #67).
+            data-list-row="true"
+            data-list-row-key={key}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(140px, 0.7fr) minmax(200px, 1.4fr) auto auto',
+              gap: 8,
+              alignItems: 'center',
+              ...reorder.rowStyle(key),
+            }}
+            onDragOver={reorder.onDragOver}
+            onDrop={reorder.onDrop}
+          >
+            {props.children(slot, idx)}
+            {props.canEdit ? (
+              <ListReorderHandle {...reorder.handleProps(key, { label: `подпись ${idx + 1}` })} />
+            ) : (
+              <span />
+            )}
+            {props.trailing ? props.trailing(slot, idx) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 /**
  * Editor для одного шаблона наряда. Создание (templateId=null) или редактирование
@@ -671,58 +727,48 @@ export function WorkOrderTemplateEditorDialog(props: WorkOrderTemplateEditorDial
                 return (
                   <div key={block.id} style={{ display: 'grid', gap: 6, marginBottom: 8 }}>
                     <div style={{ fontWeight: 600, fontSize: 13 }}>{block.title}</div>
-                    {slots.map((slot, idx) => (
-                      <div
-                        key={`${block.id}-${idx}`}
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: 'minmax(140px, 0.7fr) minmax(200px, 1.4fr) auto auto',
-                          gap: 8,
-                          alignItems: 'center',
-                        }}
-                      >
-                        <Input
-                          list="wo-template-signature-captions"
-                          value={slot.caption ?? ''}
-                          disabled={!props.canEdit || submitting}
-                          placeholder="Роль"
-                          onChange={(e) => setSlot(idx, 'caption', e.target.value)}
-                        />
-                        <EntityReferenceField
-                          target="employee"
-                          targetLabel="Сотрудник"
-                          rankKey="employee:work-order-signature"
-                          value={slot.employeeId || null}
-                          options={employees}
-                          placeholder="Сотрудник (необязательно)"
-                          disabled={!props.canEdit || submitting}
-                          onChange={(next) => setSlot(idx, 'employeeId', next ?? '')}
-                        />
-                        {props.canEdit ? (
-                          <RowReorderButtons
-                            canMoveUp={idx > 0}
-                            canMoveDown={idx < slots.length - 1}
-                            onMoveUp={() => setTemplateSignatureSlots(block.id, moveArrayItem(slots, idx, idx - 1))}
-                            onMoveDown={() => setTemplateSignatureSlots(block.id, moveArrayItem(slots, idx, idx + 1))}
+                    <WorkOrderTemplateSignatureSlots
+                      slots={slots}
+                      canEdit={props.canEdit}
+                      onChange={(next) => setTemplateSignatureSlots(block.id, next)}
+                      {...(props.canEdit
+                        ? {
+                            trailing: (_slot: WorkOrderSignatureSlot, idx: number) => (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={submitting}
+                                style={{ color: 'var(--danger)' }}
+                                onClick={() => setTemplateSignatureSlots(block.id, slots.filter((_, j) => j !== idx))}
+                              >
+                                ✕
+                              </Button>
+                            ),
+                          }
+                        : {})}
+                    >
+                      {(slot, idx) => (
+                        <>
+                          <Input
+                            list="wo-template-signature-captions"
+                            value={slot.caption ?? ''}
+                            disabled={!props.canEdit || submitting}
+                            placeholder="Роль"
+                            onChange={(e) => setSlot(idx, 'caption', e.target.value)}
                           />
-                        ) : (
-                          <span />
-                        )}
-                        {props.canEdit ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={submitting}
-                            style={{ color: 'var(--danger)' }}
-                            onClick={() => setTemplateSignatureSlots(block.id, slots.filter((_, j) => j !== idx))}
-                          >
-                            ✕
-                          </Button>
-                        ) : (
-                          <span />
-                        )}
-                      </div>
-                    ))}
+                          <EntityReferenceField
+                            target="employee"
+                            targetLabel="Сотрудник"
+                            rankKey="employee:work-order-signature"
+                            value={slot.employeeId || null}
+                            options={employees}
+                            placeholder="Сотрудник (необязательно)"
+                            disabled={!props.canEdit || submitting}
+                            onChange={(next) => setSlot(idx, 'employeeId', next ?? '')}
+                          />
+                        </>
+                      )}
+                    </WorkOrderTemplateSignatureSlots>
                     {props.canEdit ? (
                       <div>
                         <Button

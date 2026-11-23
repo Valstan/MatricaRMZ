@@ -81,6 +81,46 @@ export function computeBlockMove(
   return { order: [...rest.slice(0, at), ...block, ...rest.slice(at)], moved: true };
 }
 
+/**
+ * Активен только ОДИН список в программе.
+ *
+ * На странице списков несколько (карточка наряда: бригада, подписи, виды работ;
+ * редактор шаблона наряда: блоки подписей), и ручка «⠿» есть у каждого. Без этого
+ * правила клик по ручке второго списка НЕ снимал бы режим первого — и одно нажатие
+ * стрелки двигало бы строки обоих списков сразу. Активная ручка — одна: значит, и
+ * список, который двигают, один.
+ */
+const moveOwners = new Map<symbol, () => void>();
+let activeOwner: symbol | null = null;
+
+/** Зарегистрировать список в ките (при монтировании). Возвращает функцию снятия. */
+export function registerMoveOwner(owner: symbol, clear: () => void): () => void {
+  moveOwners.set(owner, clear);
+  return () => {
+    moveOwners.delete(owner);
+    if (activeOwner === owner) activeOwner = null;
+  };
+}
+
+/** Забрать режим перемещения себе: у прежнего владельца он снимается. */
+export function claimMoveOwner(owner: symbol): void {
+  for (const [other, clear] of moveOwners) {
+    if (other === owner) continue;
+    clear();
+  }
+  activeOwner = owner;
+}
+
+/** Отпустить режим перемещения — если он принадлежит этому владельцу. */
+export function releaseMoveOwner(owner: symbol): void {
+  if (activeOwner === owner) activeOwner = null;
+}
+
+/** Кто сейчас двигает строки (null — никто). */
+export function currentMoveOwner(): symbol | null {
+  return activeOwner;
+}
+
 /** Что сказать скринридеру (и что показать в подсказке) при перемещении. */
 export function describeMoveResult(order: string[], block: string[], moved: boolean): string {
   if (!moved) return 'Строка не двигается — это край списка';

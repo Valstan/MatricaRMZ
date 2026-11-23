@@ -4,7 +4,8 @@ import type { RepairStageTemplate } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
 import { Input } from './Input.js';
-import { RowReorderButtons } from './RowReorderButtons.js';
+import { ListReorderHandle } from './ListReorderHandle.js';
+import { useListReorder } from '../hooks/useListReorder.js';
 
 const AUTO_FROM_LABELS: Record<string, string> = {
   defectAct: 'Кнопка «Провести дефектовку»',
@@ -36,7 +37,6 @@ export function RepairStageTemplateDialog(props: {
   const [draft, setDraft] = useState<Draft>(draftFrom(null));
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
-  const [dragCode, setDragCode] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -86,15 +86,15 @@ export function RepairStageTemplateDialog(props: {
     }
   }
 
-  const move = (code: string, dir: -1 | 1) => {
-    const i = live.findIndex((t) => t.code === code);
-    const j = i + dir;
-    if (i < 0 || j < 0 || j >= live.length) return;
-    const next = [...live];
-    const [taken] = next.splice(i, 1);
-    next.splice(j, 0, taken!);
-    void commitOrder(next);
-  };
+  // ПОРЯДОК ЭТАПОВ — по общему киту (промт КАРМАНА #67): единая ручка «⠿» вместо
+  // кнопок ↑/↓ и своего drag-and-drop. Кит считает механику перемещения (мышь, стрелки,
+  // линия места вставки), а сохраняет порядок по-прежнему сервер — `commitOrder`
+  // вызывает `templates.reorder` и сервер перенумеровывает приоритеты.
+  const reorder = useListReorder({
+    rows: live,
+    canReorder: !busy,
+    onReorder: (next) => void commitOrder(next),
+  });
 
   const [mergeSource, setMergeSource] = useState('');
   const [mergeTarget, setMergeTarget] = useState('');
@@ -234,57 +234,45 @@ export function RepairStageTemplateDialog(props: {
     >
         <div style={{ display: 'grid', gap: 6, alignContent: 'start' }}>
           <div style={{ fontWeight: 700 }}>Шаблон этапов</div>
-          <div className="ui-muted" style={{ fontSize: 12 }}>Порядок — приоритет: тяните мышкой или стрелками</div>
-          {live.map((t) => (
-            <div
-              key={t.code}
-              draggable={!busy}
-              data-stage-template-row={t.code}
-              onDragStart={() => setDragCode(t.code)}
-              onDragEnd={() => setDragCode(null)}
-              onDragOver={(e) => {
-                e.preventDefault();
-              }}
-              onDrop={() => {
-                if (!dragCode || dragCode === t.code) return;
-                const from = live.findIndex((x) => x.code === dragCode);
-                const to = live.findIndex((x) => x.code === t.code);
-                if (from < 0 || to < 0) return;
-                const next = [...live];
-                const [taken] = next.splice(from, 1);
-                next.splice(to, 0, taken!);
-                setDragCode(null);
-                void commitOrder(next);
-              }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '6px 8px',
-                borderRadius: 6,
-                border: '1px solid var(--border)',
-                background: t.code === selectedCode ? 'rgba(59,130,246,0.12)' : dragCode === t.code ? 'rgba(59,130,246,0.06)' : 'transparent',
-                cursor: busy ? 'default' : 'grab',
-              }}
-            >
-              <RowReorderButtons
-                canMoveUp={!busy && live[0]?.code !== t.code}
-                canMoveDown={!busy && live[live.length - 1]?.code !== t.code}
-                onMoveUp={() => move(t.code, -1)}
-                onMoveDown={() => move(t.code, 1)}
-                stopPropagation
-              />
-              <button
-                type="button"
-                onClick={() => pick(t)}
-                style={{ flex: 1, textAlign: 'left', background: 'transparent', border: 0, cursor: 'pointer', padding: 0 }}
-              >
-                {t.name}
-                {t.sideBranch ? <span className="ui-muted"> · вне порядка</span> : null}
-                {t.autoFrom ? <span className="ui-muted"> · автомат</span> : null}
-              </button>
-            </div>
-          ))}
+          <div className="ui-muted" style={{ fontSize: 12 }}>Порядок — приоритет: тяните мышкой за ручку «⠿» или двигайте стрелками</div>
+          {/* Граница списка: перетаскивание считает строки ТОЛЬКО живых этапов. */}
+          <div ref={reorder.scopeRef} style={{ display: 'grid', gap: 6 }}>
+            {live.map((t, idx) => {
+              const key = reorder.keys[idx] ?? '';
+              return (
+                <div
+                  key={t.code}
+                  data-stage-template-row={t.code}
+                  // Маркер строки для кита перестановки (промт КАРМАНА #67).
+                  data-list-row="true"
+                  data-list-row-key={key}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 8px',
+                    borderRadius: 6,
+                    border: '1px solid var(--border)',
+                    background: t.code === selectedCode ? 'rgba(59,130,246,0.12)' : 'transparent',
+                    ...reorder.rowStyle(key),
+                  }}
+                  onDragOver={reorder.onDragOver}
+                  onDrop={reorder.onDrop}
+                >
+                  <ListReorderHandle {...reorder.handleProps(key, { label: `этап ${idx + 1}` })} />
+                  <button
+                    type="button"
+                    onClick={() => pick(t)}
+                    style={{ flex: 1, textAlign: 'left', background: 'transparent', border: 0, cursor: 'pointer', padding: 0 }}
+                  >
+                    {t.name}
+                    {t.sideBranch ? <span className="ui-muted"> · вне порядка</span> : null}
+                    {t.autoFrom ? <span className="ui-muted"> · автомат</span> : null}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
           <Button variant="ghost" onClick={() => pick(null)} data-stage-template-new>
             + Новый этап
           </Button>
