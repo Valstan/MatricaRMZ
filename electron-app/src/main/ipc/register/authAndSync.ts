@@ -1,7 +1,9 @@
-import { BrowserWindow, app, ipcMain, net } from 'electron';
+import { BrowserWindow, app, ipcMain, net, shell } from 'electron';
 import { hostname } from 'node:os';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
-import { SyncTableName, formatStuckPendingReport } from '@matricarmz/shared';
+import { SyncTableName, formatPendingExportReport, formatStuckPendingReport } from '@matricarmz/shared';
 
 import type { IpcContext } from '../ipcContext.js';
 import {
@@ -25,6 +27,7 @@ import { parseBlockedRows, serializeBlockedRows } from '../../services/sync/bloc
 import { httpAuthed } from '../../services/httpClient.js';
 import { httpFailureText } from '../../services/httpFailureText.js';
 import { resetLocalDatabase, resetSyncState } from '../../services/syncService.js';
+import { readPendingExportState } from '../../services/sync/pendingExportState.js';
 import { AUTO_SYNC_MS } from '../../services/syncControl.js';
 import { isViewMode } from '../ipcContext.js';
 
@@ -198,6 +201,35 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
       return { ok: false as const, error: String(e), reportText };
     }
   });
+  // Отчёт по неотправленным данным, выгруженным в файл на машине (кнопка в баннере).
+  //
+  // Отчёт НЕ уходит на сервер: сами данные лежат на машине оператора, и администратору
+  // нужен файл, а не строка в чате. Поэтому канал только собирает текст — оператор
+  // копирует его и прикладывает файл сам.
+  ipcMain.handle('sync:pendingExport:report', async () => {
+    if (isViewMode(ctx)) return { ok: false as const, error: 'режим просмотра' };
+    // Читаем остатки напрямую, а не из статуса движка: статус едет из воркера раз в
+    // секунду, а оператор жмёт кнопку сразу после перезапуска — и должен увидеть правду.
+    const summary = await readPendingExportState(app.getPath('userData'));
+    if (summary.files.length === 0) return { ok: false as const, error: 'выгрузок нет' };
+    const clientId = String((await settingsGetString(ctx.dataDb(), SettingsKey.ClientId)) ?? '').trim();
+    const text = formatPendingExportReport({ clientId, summary, appVersion: app.getVersion() });
+    return { ok: true as const, text };
+  });
+
+  // Показать файл-выгрузку в Проводнике: оператор должен отдать файл администратору, а
+  // искать его в папке AppData вручную не всякий догадается.
+  ipcMain.handle('sync:pendingExport:reveal', async (_e, args: { name?: string }) => {
+    const name = String(args?.name ?? '').trim();
+    // Имя приходит из интерфейса — пускаем только наши файлы выгрузки и только из папки
+    // данных программы (произвольные пути открывать нельзя).
+    if (!/^pending-export-[A-Za-z0-9._-]+\.json$/.test(name)) return { ok: false as const, error: 'не тот файл' };
+    const target = join(app.getPath('userData'), name);
+    if (!existsSync(target)) return { ok: false as const, error: 'файл не найден' };
+    shell.showItemInFolder(target);
+    return { ok: true as const };
+  });
+
   ipcMain.handle('sync:reset', async () => {
     if (isViewMode(ctx)) return { ok: false as const, error: 'view mode' };
     await resetSyncState(ctx.sysDb);
