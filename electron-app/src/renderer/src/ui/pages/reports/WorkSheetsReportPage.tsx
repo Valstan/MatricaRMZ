@@ -45,6 +45,9 @@ import { formatMoscowDate } from '../../utils/dateUtils.js';
 import { listCellKindProps, listHeaderKindProps, type ListColumnKind } from '../../utils/listColumnKinds.js';
 import { buildListPrintColumns } from '../../utils/listPrintColumns.js';
 import { loadWorkSheetTypes } from '../../utils/workSheetTypesCache.js';
+import { ListContextMenu } from '../../components/ListContextMenu.js';
+import { ListLassoLayer } from '../../components/ListLassoLayer.js';
+import { useReportListKit } from './reportListKit.js';
 import type { ListReportPageProps } from './listReportPages.js';
 
 /**
@@ -105,6 +108,9 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
   const [fieldColumns, setFieldColumns] = useState<WorkSheetColumn[]>([]);
   const [workshopNameById, setWorkshopNameById] = useState<Map<string, string>>(() => new Map());
   const [printOpen, setPrintOpen] = useState(false);
+  // Строки, которые печатает меню (правый клик по строке или по пачке). `null` — печатает
+  // сам отчёт: весь список по фильтру или выделенное, если выделение есть.
+  const [printScopeRows, setPrintScopeRows] = useState<WorkSheetRow[] | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const { state: ui, patchState } = useListUiState<ListUiState>('report:workSheets:ui', {
@@ -308,6 +314,29 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
   }, [ui.groupBy, workshopLabel]);
   const items = useMemo(() => flattenGrouped(sorted, levels), [sorted, levels]);
 
+  // Строки списка БЕЗ заголовков групп: заголовок группы не строка — его не выделяем
+  // и в контур не берём.
+  const selectableRows = useMemo(
+    () =>
+      items
+        .filter((it): it is Extract<(typeof items)[number], { kind: 'row' }> => it.kind === 'row')
+        .map((it) => it.row),
+    [items],
+  );
+
+  // Кит списков (промт КАРМАНА #67, D-248): правила поведения — из общего источника,
+  // меню собирается из объявления действий, выделение контуром — общий слой.
+  const listKit = useReportListKit<WorkSheetRow>({
+    rows: selectableRows,
+    columns: visibleColumns,
+    onPrint: (printRows) => {
+      setPrintScopeRows(printRows);
+      setPrintOpen(true);
+    },
+    // Отчёт уже показывает свою строку статуса (загрузка/ошибка) — копирование докладываем туда же.
+    onStatus: setStatus,
+  });
+
   // Подпись группы для печати: путь заголовков над строкой, как на экране.
   const groupLabelByRow = useMemo(() => {
     const map = new Map<string, string>();
@@ -380,6 +409,11 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
     const it = items[i]!;
     if (it.kind === 'group') return { 'data-report-group': it.key };
     return {
+      // Маркер строки для выделения контуром (Ctrl + рамка) — правило одно на программу.
+      'data-list-row': 'true',
+      'data-list-row-key': it.row.id,
+      'data-list-selected': listKit.selection.isSelected(it.row.id) ? 'true' : undefined,
+      onContextMenu: (e) => listKit.onRowContextMenu(e, it.row.id),
       onClick: () => props.onOpenEngine(it.row.engineId),
       title: 'Открыть карточку двигателя',
       // Розовая пометка утиля — признак из каталога двигателей (одно правило на программу).
@@ -389,7 +423,7 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }} data-work-sheets-report>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }} data-work-sheets-report data-list-root="true">
       <PageToolbar>
         <Button variant="ghost" onClick={props.onBack}>
           К списку Отчётов
@@ -412,7 +446,7 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
           </label>
         </ToolbarPin>
         {!isAndroidPlatform() && props.canExport && (
-          <Button variant="ghost" data-list-print onClick={() => setPrintOpen(true)} title="Печать текущего списка (по фильтру, с заголовками групп) с выбором полей">
+          <Button variant="ghost" data-list-print onClick={() => { setPrintScopeRows(null); setPrintOpen(true); }} title="Печать текущего списка (по фильтру, с заголовками групп) с выбором полей">
             Печать списка
           </Button>
         )}
@@ -422,7 +456,7 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
           columns={buildListPrintColumns(columns)}
           visibleColumnIds={visibleColumns.map((c) => c.id)}
           rows={sorted.length > 0 ? items.filter((it) => it.kind === 'row').map((it) => (it.kind === 'row' ? it.row : null)!).filter(Boolean) : []}
-          selectedRows={[]}
+          selectedRows={listKit.selectedRows}
           storageKey="report:workSheets:printFields"
           filtersSummary={describeFacetSelectionForRows(facets, rows, ui.facets as FacetSelection, {
             search: ui.query,
@@ -496,7 +530,7 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
           columns={buildListPrintColumns(columns)}
           visibleColumnIds={visibleColumns.map((c) => c.id)}
           rows={sorted.length > 0 ? items.filter((it) => it.kind === 'row').map((it) => (it.kind === 'row' ? it.row : null)!).filter(Boolean) : []}
-          selectedRows={[]}
+          selectedRows={printScopeRows ?? listKit.selectedRows}
           storageKey="report:workSheets:printFields"
           rowGroupLabel={(r) => groupLabelByRow.get(r.id) || null}
           rowBackground={(r) => engineScrapRowBackgroundPrint(engineScrapById(scrapFlags, r.engineId))}
@@ -505,6 +539,17 @@ export function WorkSheetsReportPage(props: ListReportPageProps) {
             grouping: ui.groupBy === 'none' ? '' : GROUP_BY_LABELS[ui.groupBy],
           })}
           onClose={() => setPrintOpen(false)}
+        />
+      ) : null}
+
+      {/* Выделение контуром (Ctrl + рамка) — общий слой кита: правило одно на программу. */}
+      <ListLassoLayer enabled={listKit.listBehavior.lasso} onSelect={listKit.selection.selectMany} />
+      {listKit.menu ? (
+        <ListContextMenu
+          x={listKit.menu.x}
+          y={listKit.menu.y}
+          items={listKit.menuItems}
+          onClose={() => listKit.setMenu(null)}
         />
       ) : null}
     </div>
