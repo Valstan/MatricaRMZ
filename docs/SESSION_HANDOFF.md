@@ -59,7 +59,7 @@
 производственную программу открыли на печать, и там надо добавить еще одну подпись, а мы не
 можем, никак».
 
-**Ветка:** `feat/print-form-signature-block` (от свежего `main` после PR #1934). План:
+**Ветка:** `feat/print-form-signature-block` (от свежего `main` после PR #1934; **PR #1937**). План:
 [`docs/plans/pechatnye-formy-blok-podpisey-2026-11.md`](docs/plans/pechatnye-formy-blok-podpisey-2026-11.md).
 
 - **Сделано:** в печатной форме ПП блок «Подписи» стал **редактируемым** — должность, человек
