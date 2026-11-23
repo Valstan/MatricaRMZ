@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 
 import {
   PRODUCTION_PROGRAM_SIGNATURE_SLOTS,
@@ -10,6 +10,17 @@ import {
 import { Button } from './Button.js';
 import { PrintSignatureBlockEditor } from './PrintSignatureBlockEditor.js';
 import { productionProgramPrintHtml } from '../utils/productionProgramPrintHtml.js';
+
+/**
+ * Ключ слота для вида печати: должность + сотрудник + ФИО.
+ *
+ * Это «содержание» подписи, а не её номер: номер сдвигается при правке блока,
+ * и снятая подпись возвращалась бы сама. По содержанию снятая подпись переживает
+ * правку соседней строки, добавление строки и перестановку.
+ */
+function printSlotKey(slot: PrintSignatureSlot): string {
+  return `${String(slot.caption ?? '')}|${String(slot.employeeId ?? '')}|${String(slot.fullName ?? '')}`;
+}
 
 /**
  * Превью печатной формы производственной программы (владелец 10.11.2026).
@@ -57,15 +68,14 @@ export function ProductionProgramPrintPreview(props: {
     () => resolveProductionProgramSignatureSlots(props.input.signatureSlots ?? null),
     [props.input.signatureSlots],
   );
-  // Снятые подписи — только на этот раз (правка печати, не документа). После
-  // правки состава список снятых сбрасывается: индексы поменялись местами.
-  const [skipped, setSkipped] = useState<number[]>([]);
-  useEffect(() => {
-    setSkipped([]);
-  }, [props.input.signatureSlots]);
+  // Снятые подписи — по СОДЕРЖАНИЮ слота, а не по индексу. Индекс сдвигается при
+  // любой правке блока (правка соседней строки, добавление строки, перестановка),
+  // и снятая подпись возвращалась бы сама. По содержимому она переживает всё это:
+  // снята подпись — значит снята до конца печати.
+  const [skippedSlots, setSkippedSlots] = useState<string[]>([]);
   const printedIndexes = useMemo(
-    () => slots.map((_slot, index) => index).filter((index) => !skipped.includes(index)),
-    [slots, skipped],
+    () => slots.map((_slot, index) => index).filter((index) => !skippedSlots.includes(printSlotKey(slots[index]!))),
+    [slots, skippedSlots],
   );
 
   const html = useMemo(
@@ -80,7 +90,8 @@ export function ProductionProgramPrintPreview(props: {
   );
 
   const togglePrinted = (index: number) => {
-    setSkipped((prev) => (prev.includes(index) ? prev.filter((i) => i !== index) : [...prev, index]));
+    const key = printSlotKey(slots[index]!);
+    setSkippedSlots((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
   };
 
   const stepFont = (setter: (next: number) => void, value: number, delta: number) => {
