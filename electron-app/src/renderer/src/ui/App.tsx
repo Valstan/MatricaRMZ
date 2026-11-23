@@ -7347,6 +7347,9 @@ export function App() {
               }
               availableTabs={sectionGatedTabs}
               tabletOperatorMenu={tabletActive && userRole !== "superadmin"}
+              // Планшетный режим: левое меню уезжает за край после паузы
+              // (владелец 23.11.2026). На десктопе полоса постоянна.
+              railAutoHide={tabletActive}
               menuLabels={menuLabels}
               buttonLayout={(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v2.buttonLayout}
               onButtonLayoutChange={(next) => updateV2Prefs({ ...(shellPrefs ?? DEFAULT_UI_SHELL_PREFS).v2, buttonLayout: next })}
