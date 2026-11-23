@@ -125,6 +125,15 @@ export const ipcRenderer = {
   },
 };
 
+// Проводника у планшета нет: файловой системы у WebView нет, показывать нечего.
+// Канал «показать файл» на планшете до сюда не доходит (шим node:fs отвечает
+// «файла нет»), но если дойдёт — падать надо громко и с причиной, а не молча.
+export const shell = {
+  showItemInFolder(_fullPath: string): void {
+    throw new Error('на планшете нет файловой системы — показывать файл негде');
+  },
+};
+
 export const contextBridge = {
   exposeInMainWorld(key: string, value: unknown): void {
     (globalThis as Record<string, unknown>)[key] = value;

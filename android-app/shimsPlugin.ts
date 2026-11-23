@@ -38,6 +38,7 @@ export function androidShims(opts: { target: 'browser' | 'vitest' }): ShimPlugin
         return resolve(shimsDir, 'nodeCrypto.ts');
       }
       if (browser && source === 'node:fs/promises') return resolve(shimsDir, 'nodeFsPromises.ts');
+      if (browser && source === 'node:fs') return resolve(shimsDir, 'nodeFs.ts');
       if (browser && source === 'node:path') return resolve(shimsDir, 'nodePath.ts');
       if (browser && (source === 'node:os' || source === 'os')) return resolve(shimsDir, 'nodeOs.ts');
       // Relative-импорты платформенных модулей ИЗ портированных main-сервисов —
