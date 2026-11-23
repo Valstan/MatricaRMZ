@@ -60,7 +60,6 @@
 
 - [🟡 Индекс грабель у потолка: новая грабля не влезает без сокращения формулировок 🗓 since:2026-11-20](pending/indeks-grabeley-u-potolka.md)
 
-- [🟡 Логины сотрудников в коде: старый скрипт выдачи прав нарушает D-041 🗓 since:2026-11-21](pending/loginy-sotrudnikov-v-kode-staryy-skript-vydachi-d-041.md)
 
 - [🟡 Печатные формы: офлайн-шаблоны (таблицы вне sync-контракта — печать по шаблону требует связи с сервером) 🗓 since:2026-11-20](pending/pechatnye-formy-oflayn-shablony.md)
 
@@ -187,7 +186,7 @@
 - [Хвосты v3 «Вкладки» после сноса старых оболочек 🗓 since:2026-07-28](pending/khvosty-v3-vkladki-posle-snosa-starykh-obolochek.md)
 - [Импорт остатков из 1С — приёмка третьей итерации + автозабор (этап 5) 🗓 since:2026-07-27](pending/import-ostatkov-iz-1s-priemka-tretey-iteratsii.md)
 - [«Принят на хранение» — зарезервировать под сценарий долгого хранения + дедлайн 🗓 since:2026-07-29 🟢](pending/prinyat-na-khranenie-zarezervirovat-pod-stsenariy.md)
-- [Проверить, что двигатель с PC51 (asia2) доехал сам 🗓 since:2026-07-29 🟡](pending/proverit-chto-dvigatel-s-pc51-asia2-doekhal-sam.md)
+- [Проверить, что двигатель с PC51 доехал сам 🗓 since:2026-07-29 🟡](pending/proverit-chto-dvigatel-s-pc51-doehal-sam.md)
 - [Идея: производная «стадия» двигателя в карточке (разборка/дефектовка/сборка) 🗓 since:2026-07-29 🟢](pending/ideya-proizvodnaya-stadiya-dvigatelya-v-kartochke.md)
 - [Платежи по двигателям — обкатка бухгалтером 🗓 since:2026-07-29 🟢](pending/platezhi-po-dvigatelyam-obkatka-bukhgalterom.md)
 - [Хвосты нитки «слоты контракта / печать нарядов» 🗓 since:2026-07-31 🟡](pending/khvosty-nitki-sloty-kontrakta-pechat-naryadov.md)

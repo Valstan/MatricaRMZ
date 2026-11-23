@@ -1,6 +1,6 @@
 # 🔴 Инцидент 18.09: синхронизация встала у всего парка из-за двух мусорных строк BOM 🗓 since:2026-09-18
 
-Клиенты (PC18/`asklad`, PC79/`valstan` — то есть не машинная частность) падали на каждом pull: `UNIQUE constraint failed: erp_engine_assembly_bom.engine_nomenclature_id, erp_engine_assembly_bom.version` в `applyPulledChanges` → `upsertPulledRowsInChunks`. Разбор — грабля **M142**.
+Клиенты (PC18 и PC79 — то есть не машинная частность) падали на каждом pull: `UNIQUE constraint failed: erp_engine_assembly_bom.engine_nomenclature_id, erp_engine_assembly_bom.version` в `applyPulledChanges` → `upsertPulledRowsInChunks`. Разбор — грабля **M142**.
 
 **Корень:** клиентская SQLite объявляла `UNIQUE (engine_nomenclature_id, version)`, которого в серверной PG **нет вообще** (колонка устарела — марки BOM переехали в `erp_engine_assembly_bom_brand_links`). На проде лежат две строки с одной парой: `cae759d0` «Новая BOM» и `91a5246a` «BOM В-59», обе с `engine_nomenclature_id = fdc6b732…`, `version = 1`, созданы 18–19.04 и **обе удалены 19.04**. Клиентский индекс не был частичным, поэтому soft-delete не спасал. Падал весь батч, а не строка.
 
