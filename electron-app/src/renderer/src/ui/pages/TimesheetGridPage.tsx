@@ -15,9 +15,9 @@ import {
 import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { MailComposeDialog } from '../components/MailComposeDialog.js';
-import { RowReorderButtons } from '../components/RowReorderButtons.js';
+import { ListReorderHandle } from '../components/ListReorderHandle.js';
+import { useListReorder } from '../hooks/useListReorder.js';
 import { TimesheetPrintDialog, type TimesheetPrintBlocks, type TimesheetPrintVariant } from '../components/TimesheetPrintDialog.js';
-import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { printSectionsToText } from '../utils/mailText.js';
 import { buildWorkOrderA4PreviewHtml, printSectionsDirect } from '../utils/printPreview.js';
 import { buildTimesheetPrintSections, timesheetPrintCss, timesheetPrintTitle, type TimesheetPrintInput } from '../utils/timesheetPrintHtml.js';
@@ -73,8 +73,6 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
   const [printDlg, setPrintDlg] = useState(false);
   /** Письмо с табелем: собирается по тем же настройкам, что печать. */
   const [mailPayload, setMailPayload] = useState<{ title: string; summary: string[]; body: string; spec: CardExportSpec } | null>(null);
-  const dragRowIdx = useRef<number | null>(null);
-  const [dropIdx, setDropIdx] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const [gridMaxH, setGridMaxH] = useState<number | null>(null);
@@ -407,11 +405,17 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
     const r = await window.matrica.timesheets.reorderRows({ timesheetId: props.timesheetId, rowIds: next.map((x) => x.id) });
     if (!r.ok) { flash(`Ошибка: ${r.error}`, 3000); await reload(); }
   }
-  function moveRow(from: number, to: number) {
-    if (!ts) return;
-    const next = moveArrayItem(ts.rows, from, to);
-    if (next !== ts.rows) void applyOrder(next);
-  }
+
+  // СТРОКИ ТАБЕЛЯ — по общему киту (промт КАРМАНА #67): ручка «⠿» с перетаскиванием
+  // и стрелками вместо кнопок ↑/↓ и своего перетаскивания мышью по колонке с ФИО.
+  const rowsReorder = useListReorder({
+    rows: ts?.rows ?? [],
+    canReorder: canEdit,
+    onReorder: (rows) => {
+      void applyOrder(rows);
+    },
+  });
+
   function sortRowsAlpha() {
     if (!ts) return;
     const next = [...ts.rows].sort((a, b) => (a.fullName || '').localeCompare(b.fullName || '', 'ru'));
@@ -659,7 +663,14 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
         onMouseMove={(e) => { if (brush) setCursorPos({ x: e.clientX, y: e.clientY }); }}
         onMouseLeave={() => setCursorPos(null)}
       >
-        <table ref={tableRef} style={{ borderCollapse: 'collapse', fontSize: appliedFont, width: '100%', tableLayout: 'auto' }}>
+        {/* Граница списка: перетаскивание считает строки ТОЛЬКО табеля. */}
+        <table
+          ref={(el) => {
+            tableRef.current = el;
+            rowsReorder.scopeRef(el);
+          }}
+          style={{ borderCollapse: 'collapse', fontSize: appliedFont, width: '100%', tableLayout: 'auto' }}
+        >
           <thead>
             <tr style={{ background: '#0f2f72', color: '#fff' }}>
               {/* Шапка залипает сверху: при прокрутке длинного табеля видно, в какой день недели
@@ -695,15 +706,18 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
               const rowCells = dayList.map((d) => ({ day: d, ...getCell(row.id, d) }));
               const totals = computeTimesheetRowTotals(rowCells, codes);
               return (
-                <tr key={row.id}>
+                <tr
+                  key={row.id}
+                  // Маркер строки для кита перестановки (промт КАРМАНА #67).
+                  data-list-row="true"
+                  data-list-row-key={rowsReorder.keys[idx] ?? ''}
+                  style={rowsReorder.rowStyle(rowsReorder.keys[idx] ?? '')}
+                  onDragOver={rowsReorder.onDragOver}
+                  onDrop={rowsReorder.onDrop}
+                >
                   <td style={{ ...bCell, position: 'sticky', left: 0, background: '#fff', zIndex: 1 }}>{idx + 1}</td>
                   <td
-                    draggable={canEdit}
-                    onDragStart={(e) => { dragRowIdx.current = idx; e.dataTransfer.effectAllowed = 'move'; }}
-                    onDragOver={(e) => { if (dragRowIdx.current == null) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dropIdx !== idx) setDropIdx(idx); }}
-                    onDrop={(e) => { e.preventDefault(); const from = dragRowIdx.current; dragRowIdx.current = null; setDropIdx(null); if (from != null && from !== idx) moveRow(from, idx); }}
-                    onDragEnd={() => { dragRowIdx.current = null; setDropIdx(null); }}
-                    title={canEdit ? 'Перетащите, чтобы поменять сотрудников местами' : undefined}
+                    title={canEdit ? 'Перетащите ручку справа, чтобы поменять сотрудников местами' : undefined}
                     style={{
                       ...bCell,
                       position: 'sticky',
@@ -712,8 +726,6 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
                       zIndex: 1,
                       textAlign: 'left',
                       whiteSpace: 'nowrap',
-                      cursor: canEdit ? 'grab' : 'default',
-                      boxShadow: dropIdx === idx ? 'inset 0 2px 0 0 #2563eb' : undefined,
                     }}
                   >
                     {row.fullName || '(без имени)'}
@@ -763,11 +775,10 @@ export function TimesheetGridPage(props: { timesheetId: string; canEdit: boolean
                   {canEdit && (
                     <td style={bCell}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                        <RowReorderButtons
-                          canMoveUp={idx > 0}
-                          canMoveDown={idx < presentRows.length - 1}
-                          onMoveUp={() => moveRow(idx, idx - 1)}
-                          onMoveDown={() => moveRow(idx, idx + 1)}
+                        <ListReorderHandle
+                          {...rowsReorder.handleProps(rowsReorder.keys[idx] ?? '', {
+                            label: `сотрудник ${idx + 1}`,
+                          })}
                         />
                         <input
                           type="checkbox"

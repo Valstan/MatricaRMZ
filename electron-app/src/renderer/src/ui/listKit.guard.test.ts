@@ -21,6 +21,23 @@ const KIT_PAGES = [
   './pages/ToolPropertiesPage.tsx',
 ];
 
+/**
+ * Списки КАРТОЧЕК, которые умеют менять порядок строк (фаза «карточки» нитки).
+ *
+ * Правило одно на всю программу: перестановка строк идёт через кит — ручка «⠿» с
+ * перетаскиванием и стрелками. Кнопки ↑/↓ (`RowReorderButtons`) — это вторая механика,
+ * и именно её эта фаза закрывает.
+ */
+const REORDER_CARD_PAGES = [
+  './pages/ContractDetailsPage.tsx',
+  './pages/WorkOrderDetailsPage.tsx',
+  './pages/ToolDetailsPage.tsx',
+  './pages/StockDocumentDetailsPage.tsx',
+  './pages/SupplyRequestDetailsPage.tsx',
+  './pages/TimesheetGridPage.tsx',
+  './pages/EmployeeDetailsPage.tsx',
+];
+
 const MENU_BUILDER = src('./utils/listContextActions.ts');
 const SELECTION_HOOK = src('./hooks/useListSelection.ts');
 const BEHAVIOR_HOOK = src('./hooks/useListBehaviorSettings.ts');
@@ -74,5 +91,45 @@ describe('списки верхнего уровня живут по одном�
   it('настройка правил — одна на программу и не перекрывается личными настройками', () => {
     expect(SHARED_LIST_BEHAVIOR).toContain('DEFAULT_LIST_BEHAVIOR_SETTINGS');
     expect(SHARED_CONTROL).toContain('listBehavior: { ...b.listBehavior }');
+  });
+});
+
+describe('списки карточек, которые умеют менять порядок, живут по одному киту', () => {
+  it('перестановка идёт через кит — общий хук и общая ручка', () => {
+    for (const page of REORDER_CARD_PAGES) {
+      const text = src(page);
+      expect(text, `${page}: перестановка строк идёт мимо кита`).toContain('useListReorder');
+      expect(text, `${page}: ручка перемещения не из кита`).toContain('ListReorderHandle');
+    }
+  });
+
+  it('кнопок ↑/↓ в списках карточек больше нет — это была вторая механика', () => {
+    for (const page of REORDER_CARD_PAGES) {
+      expect(src(page), `${page}: остались кнопки ↑/↓ — вторая механика рядом с китом`).not.toContain(
+        'RowReorderButtons',
+      );
+    }
+  });
+
+  it('строки помечены — по ним кит находит строки и считает место вставки', () => {
+    for (const page of REORDER_CARD_PAGES) {
+      const text = src(page);
+      expect(text, `${page}: у строк нет маркера data-list-row`).toContain('data-list-row');
+      expect(text, `${page}: у строк нет маркера data-list-row-key`).toContain('data-list-row-key');
+    }
+  });
+
+  it('у каждого списка своя граница — перетаскивание не целит в чужой список', () => {
+    for (const page of REORDER_CARD_PAGES) {
+      expect(src(page), `${page}: у списка нет границы (scopeRef) — перетаскивание целилось бы в соседний список`).toContain(
+        'scopeRef',
+      );
+    }
+  });
+
+  it('ручка одна на программу, а не по копии в каждой карточке', () => {
+    const handle = src('./components/ListReorderHandle.tsx');
+    expect(handle).toContain('ListRowHandle');
+    expect(handle, 'ручка карточек не из кита').toContain("from './ListRowHandle.js'");
   });
 });
