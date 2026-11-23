@@ -81,12 +81,33 @@ function stateCell(state: string | null): string {
   return escapeHtml(label || '—');
 }
 
-function rowHtml(model: ProductionProgramPrintModel): string {
-  const body: string[] = [];
+/**
+ * Тело таблицы: каждый контракт — отдельный `<tbody>`.
+ *
+ * `<tbody>` — единица разрыва страницы в HTML-таблицах. Пока все контракты лежали
+ * в одном `<tbody>`, единицы разрыва не было вовсе: блок контракта рвался по
+ * строкам как попало, а его шапка могла остаться внизу страницы («висячая» шапка).
+ * Заказ владельца 23.11.2026: «если блок контракта не помещается на странице и
+ * делится на две — перенести его целиком на следующую страницу».
+ *
+ * Чего правило не может: блок длиннее страницы (контракт с десятками двигателей)
+ * неразрывным не станет — движок всё равно разорвёт. Правило работает для блоков,
+ * которые влезают.
+ */
+function bodiesHtml(model: ProductionProgramPrintModel): string {
+  if (model.groups.length === 0) {
+    return (
+      `<tbody><tr><td colspan="${HEADERS.length}" style="border:1px solid #111827;padding:6px;text-align:center">Строк в плане нет</td></tr></tbody>`
+    );
+  }
+  const bodies: string[] = [];
   for (const group of model.groups) {
+    const rows: string[] = [];
     // Шапка группы: организация и номер договора — одна строка на весь план.
-    body.push(
-      `<tr style="background:#f3f4f6;font-weight:700">` +
+    // `break-after: avoid` — не отрывать шапку от своих строк: иначе она уезжает
+    // вниз страницы одна, а двигатели — на следующую.
+    rows.push(
+      `<tr style="background:#f3f4f6;font-weight:700;break-after:avoid;page-break-after:avoid">` +
         `<td colspan="${HEADERS.length}" style="border:1px solid #111827;padding:4px 6px">${escapeHtml(group.label)}</td>` +
         `</tr>`,
     );
@@ -100,7 +121,7 @@ function rowHtml(model: ProductionProgramPrintModel): string {
       // на бумаге было бы пусто, а двигатель уехал. Правило — в домене: тем же
       // пользуется выгрузка плана в файл, иначе лист и файл разойдутся.
       const stageText = productionProgramStageText(row);
-      body.push(
+      rows.push(
         `<tr style="${bg}">` +
           `<td style="border:1px solid #111827;padding:3px 4px;text-align:center">${row.orderNo}</td>` +
           `<td style="border:1px solid #111827;padding:3px 4px">${escapeHtml(row.organizationLabel)}</td>` +
@@ -113,13 +134,9 @@ function rowHtml(model: ProductionProgramPrintModel): string {
           `</tr>`,
       );
     }
+    bodies.push(`<tbody>${rows.join('')}</tbody>`);
   }
-  if (body.length === 0) {
-    body.push(
-      `<tr><td colspan="${HEADERS.length}" style="border:1px solid #111827;padding:6px;text-align:center">Строк в плане нет</td></tr>`,
-    );
-  }
-  return body.join('');
+  return bodies.join('');
 }
 
 /**
@@ -145,7 +162,7 @@ function signaturesHtml(model: ProductionProgramPrintModel, fontSize: number): s
     rows.push(`<tr>${pair.join('')}${pair.length === 1 ? '<td style="border:0"></td>' : ''}</tr>`);
   }
   if (rows.length === 0) return '';
-  return `<table style="width:100%;border-collapse:collapse;margin-top:14px">${rows.join('')}</table>`;
+  return `<table class="pp-signatures" style="width:100%;border-collapse:collapse;margin-top:14px">${rows.join('')}</table>`;
 }
 
 /** Настройки печати формы ПП: кегли и состав подписей. */
@@ -209,6 +226,14 @@ table.pp-table th { background: #f3f4f6; }
    этом переносится по границе — таблица фиксированной ширины, иначе он вылезает
    за колонку и ломает всю строку. */
 table.pp-table td, table.pp-table th { overflow-wrap: break-word; }
+/* Разрывы страниц (владелец 23.11.2026): блок контракта и блок подписей не делятся
+   между страницами. Единица разрыва — тело таблицы (tbody, по группе); правило держит
+   и строки. Блок длиннее страницы разорвётся всё равно — это не правило, а физика
+   листа. */
+table.pp-table tbody { break-inside: avoid; page-break-inside: avoid; }
+table.pp-table tr { break-inside: avoid; page-break-inside: avoid; }
+table.pp-signatures { break-inside: avoid; page-break-inside: avoid; }
+table.pp-signatures tr { break-inside: avoid; page-break-inside: avoid; }
 </style>
 </head><body>
 <div class="pp-head">
@@ -224,7 +249,7 @@ table.pp-table td, table.pp-table th { overflow-wrap: break-word; }
 <table class="pp-table">
 ${colgroup}
 <thead><tr>${header}</tr></thead>
-<tbody>${rowHtml(model)}</tbody>
+${bodiesHtml(model)}
 </table>
 ${signaturesHtml(model, signatureSize)}
 </body></html>`;
