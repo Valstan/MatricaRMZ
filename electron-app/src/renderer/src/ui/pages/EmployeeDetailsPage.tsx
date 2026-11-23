@@ -421,6 +421,17 @@ export function EmployeeDetailsPage(props: {
     effective: Record<string, boolean>;
   } | null>(null);
   const [accountStatus, setAccountStatus] = useState('');
+  /**
+   * Состояние учётной записи: `loading` | `account` | `none` | `error`.
+   *
+   * `error` — сервер не ответил (нет права, сеть, сбой): состояние НЕИЗВЕСТНО.
+   * Показывать в этом состоянии форму «создать учётную запись» нельзя — учётная
+   * запись может уже существовать (владелец 23.11.2026: «логин вижу, а пароль
+   * сменить не могу — есть только кнопка "Создать учётную запись", а учётная запись
+   * уже есть»). Раньше любой отказ приравнивался к «записи нет», и форма создания
+   * появлялась поверх существующей.
+   */
+  const [accountState, setAccountState] = useState<'loading' | 'account' | 'none' | 'error'>('loading');
   const [permQuery, setPermQuery] = useState('');
   const [accountLogin, setAccountLogin] = useState('');
   const [accountPassword, setAccountPassword] = useState('');
@@ -663,15 +674,21 @@ export function EmployeeDetailsPage(props: {
     if (!r.ok) {
       const err = r.error ?? 'unknown';
       setAccountPerms(null);
-      if (err.includes('employee not found') || err.includes('HTTP 404')) {
+      // 404 — учётной записи нет (строгая таблица `users` не знает этого сотрудника).
+      // Любая другая ошибка — состояние НЕИЗВЕСТНО: показываем ошибку, а не форму
+      // «создать» (иначе можно создать вторую запись поверх существующей).
+      if (err.includes('employee not found') || err.includes('HTTP 404') || err.includes('сотрудник не найден')) {
         setAccountStatus('Учётной записи нет.');
+        setAccountState('none');
       } else {
         setAccountStatus(`Ошибка: ${err}`);
+        setAccountState('error');
       }
       return;
     }
     setAccountPerms(r);
     setAccountStatus('');
+    setAccountState(r.user ? 'account' : 'none');
     try {
       const m = await window.matrica.employees.sectionMembershipGet(props.employeeId);
       setReplicaMembership(m && m.ok ? (m.membership ?? null) : null);
@@ -2229,7 +2246,7 @@ export function EmployeeDetailsPage(props: {
           <span style={{ flex: 1 }} />
         </div>
 
-          {accountUser ? (
+          {accountState === 'account' && accountUser ? (
             <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 140px', gap: 10, alignItems: 'center' }}>
                 <div style={{ color: 'var(--subtle)', fontSize: 12 }}>Логин</div>
@@ -2303,7 +2320,12 @@ export function EmployeeDetailsPage(props: {
               <SectionAccessMirror
                 employeeId={props.employeeId}
                 membership={replicaMembership ?? parseSectionMembership((employee?.attributes ?? {})[SECTION_ACCESS_ATTR])}
-                employeeRole={String((employee?.attributes ?? {})['system_role'] ?? '')}
+                // Роль — из СЕРВЕРА (`permissions-view` → `normalizeRole`), а не из
+                // EAV-атрибута `system_role`: после cutover 0103 зеркальные триггеры
+                // снесены, и EAV-роль заморожена — у администратора она показывала
+                // «Наблюдатель» (владелец 23.11.2026). Пустая роль = «не знаем»:
+                // предупреждение о разделе тогда просто не показывается.
+                employeeRole={accountUser?.role ?? ''}
                 canEdit={meRole === 'superadmin'}
                 onSaved={() => {
                   // Зеркало сохранило свой раздел само: форму трогаем только когда она чистая,
@@ -2336,6 +2358,21 @@ export function EmployeeDetailsPage(props: {
                 </Button>
               </div>
             </div>
+          ) : accountState === 'error' ? (
+            <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+              <div style={{ color: 'var(--danger)' }}>{accountStatus}</div>
+              <div style={{ color: 'var(--subtle)', fontSize: 12 }}>
+                Состояние учётной записи неизвестно — пока сервер не ответил, создавать её нельзя:
+                учётная запись может уже существовать. Обновите и попробуйте снова.
+              </div>
+              <div>
+                <Button variant="ghost" onClick={() => void loadAccountPerms()}>
+                  Обновить
+                </Button>
+              </div>
+            </div>
+          ) : accountState === 'loading' ? (
+            <div style={{ marginTop: 10, color: 'var(--subtle)' }}>Проверяем учётную запись…</div>
           ) : (
             <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
               <div style={{ color: 'var(--subtle)' }}>Учётной записи нет.</div>
