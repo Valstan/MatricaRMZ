@@ -38,11 +38,24 @@ const REORDER_CARD_PAGES = [
   './pages/EmployeeDetailsPage.tsx',
 ];
 
+/**
+ * Отчётные списки — те же три страницы, что в `pages/reports/`. Объём шага «отчёты»
+ * зафиксирован в плане нитки (`docs/plans/unified-list-rules-2026-11.md`): по D-248 ③
+ * в объём входят только таблицы-страницы, а пресетные таблицы и конструктор отчётов —
+ * нет. Проверка границы объёма — в `pages/reports/reportListKit.guard.test.ts`.
+ */
+const REPORT_PAGES = [
+  './pages/reports/EnginesReportPage.tsx',
+  './pages/reports/EnginesNowAtPlantReportPage.tsx',
+  './pages/reports/WorkSheetsReportPage.tsx',
+];
+
 const MENU_BUILDER = src('./utils/listContextActions.ts');
 const SELECTION_HOOK = src('./hooks/useListSelection.ts');
 const BEHAVIOR_HOOK = src('./hooks/useListBehaviorSettings.ts');
 const SHARED_CONTROL = src('../../../../../shared/src/domain/uiControl.ts');
 const SHARED_LIST_BEHAVIOR = src('../../../../../shared/src/domain/listBehavior.ts');
+const REPORT_KIT = src('./pages/reports/reportListKit.ts');
 
 describe('списки верхнего уровня живут по одному киту', () => {
   it('каждый список берёт правила из общего источника, а не из своих настроек', () => {
@@ -94,6 +107,7 @@ describe('списки верхнего уровня живут по одном�
   });
 });
 
+<<<<<<< HEAD
 describe('списки карточек, которые умеют менять порядок, живут по одному киту', () => {
   it('перестановка идёт через кит — общий хук и общая ручка', () => {
     for (const page of REORDER_CARD_PAGES) {
@@ -131,5 +145,36 @@ describe('списки карточек, которые умеют менять 
     const handle = src('./components/ListReorderHandle.tsx');
     expect(handle).toContain('ListRowHandle');
     expect(handle, 'ручка карточек не из кита').toContain("from './ListRowHandle.js'");
+  });
+});
+
+describe('отчётные списки живут по тому же киту', () => {
+  it('каждый отчётный список подключён к киту: контур, маркеры строк, корень списка', () => {
+    for (const page of REPORT_PAGES) {
+      const text = src(page);
+      expect(text, `${page}: отчётный список не подключён к киту`).toContain('useReportListKit');
+      expect(text, `${page}: слой выделения контуром не подключён`).toContain('ListLassoLayer');
+      expect(text, `${page}: нет маркера корня списка — клик мимо не гасит выделение`).toContain(
+        'data-list-root="true"',
+      );
+      expect(text, `${page}: у строк нет маркера data-list-row-key`).toContain('data-list-row-key');
+    }
+  });
+
+  it('правила поведения отчёта берутся из общего источника, а не из настроек страницы', () => {
+    expect(REPORT_KIT, 'отчётный список берёт правила поведения не из общего источника').toContain(
+      'useListBehaviorSettings',
+    );
+    for (const page of REPORT_PAGES) {
+      expect(src(page), `${page}: контур включается не общей настройкой`).toContain('listKit.listBehavior.lasso');
+    }
+  });
+
+  it('в отчёте удалять нечего — пункта «Удалить» в его меню нет ВООБЩЕ, а не гаснет', () => {
+    expect(REPORT_KIT, 'в объявлении действий отчёта снова появилось удаление').not.toContain('listDeleteAction');
+    expect(REPORT_KIT, 'пункт «Удалить» в меню отчёта — объявление, а не гаснущая подпись').not.toContain("'Удалить'");
+    for (const page of REPORT_PAGES) {
+      expect(src(page), `${page}: отчётный список объявляет удаление`).not.toContain('listDeleteAction');
+    }
   });
 });

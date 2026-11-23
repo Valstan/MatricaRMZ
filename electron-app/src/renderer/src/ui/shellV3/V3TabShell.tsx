@@ -10,6 +10,7 @@ import { buildV2Buttons } from '../shellV2/v2ButtonCatalog.js';
 import type { ActionButtonId } from '../shellV2/menuActions.js';
 import type { MenuButtonDescriptor } from '../shellV2/v2ButtonCatalog.js';
 import { useChromeVisibility } from '../shell/ChromeVisibilityContext.js';
+import { useAutoHideRail } from '../hooks/useAutoHideRail.js';
 import type { ShellNotice } from '../shell/shellNotice.js';
 import { TabVisibilityProvider } from '../shell/TabVisibilityContext.js';
 import { matricaPlatform } from '../platform.js';
@@ -61,6 +62,12 @@ export interface OpenTab {
 export function V3TabShell(props: {
   availableTabs: MenuTabId[];
   tabletOperatorMenu: boolean;
+  /**
+   * Планшетный режим: левое меню уезжает за край после паузы (владелец 23.11.2026).
+   * На десктопе полоса постоянна — там ей уезжать незачем, поэтому флаг снимает
+   * вопрос «а не поломаем ли мы десктоп».
+   */
+  railAutoHide?: boolean;
   menuLabels: Partial<Record<MenuTabId, string>>;
   buttonLayout: V2ButtonLayout;
   onButtonLayoutChange: (next: V2ButtonLayout) => void;
@@ -154,6 +161,24 @@ export function V3TabShell(props: {
   // Контекстное меню плашки левой панели: снять закреплённый раздел (владелец 22.10.2026 —
   // «схватил и убрал» заменили на правую кнопку, чтобы плашку нельзя было снести случайно).
   const [railMenu, setRailMenu] = React.useState<{ x: number; y: number; id: MenuTabId; label: string } | null>(null);
+  // Планшет: левое меню уезжает за край после паузы и возвращается по жесту
+  // (владелец 23.11.2026). На десктопе хук выключен — полоса постоянна.
+  const railAutoHideEnabled = props.railAutoHide === true;
+  const { hidden: railHidden, reveal: railReveal, hide: railHide, setHoldOpen: railSetHoldOpen } = useAutoHideRail({
+    enabled: railAutoHideEnabled,
+  });
+  // Тап или свайп от левого края возвращает полосу: на планшете нет ни мыши, ни
+  // наведения, а вернуть меню иначе нечем.
+  React.useEffect(() => {
+    if (!railAutoHideEnabled) return;
+    const onEdge = (e: PointerEvent) => {
+      if (!railHidden) return;
+      if (e.clientX > 32) return;
+      railReveal();
+    };
+    document.addEventListener('pointerdown', onEdge, true);
+    return () => document.removeEventListener('pointerdown', onEdge, true);
+  }, [railAutoHideEnabled, railHidden, railReveal]);
   const activeForOverlay = props.openTabs.find((t) => t.id === props.activeTabId);
   const activeKindForOverlay = activeForOverlay?.kind;
   React.useEffect(() => {
@@ -646,7 +671,27 @@ export function V3TabShell(props: {
       {/* Левая панель (владелец 12.10.2026, плашки-квадраты — 22.10.2026): разделы, которые
           оператор закрепил сам, и постоянные ИИваныч/ВЕРСТАК. Снять плашку — правой кнопкой. */}
       <div className="v3-body-row">
-        <div className="v3-fav-rail" data-fav-rail="1">
+        {/* Ручка возврата (планшет): полоса уехала — вернуть её надо чем-то, а на планшете
+            нет ни мыши, ни наведения. Тонкая полоса у левого края: тап по ней (или свайп
+            от края) возвращает меню. */}
+        {railAutoHideEnabled && railHidden && (
+          <button
+            type="button"
+            className="v3-rail-handle"
+            data-rail-handle="1"
+            aria-label="Показать левое меню"
+            title="Показать левое меню"
+            onClick={() => railReveal()}
+          />
+        )}
+        <div
+          className={`v3-fav-rail${railHidden ? ' v3-fav-rail--hidden' : ''}`}
+          data-fav-rail="1"
+          onPointerEnter={() => railSetHoldOpen(true)}
+          onPointerLeave={() => railSetHoldOpen(false)}
+          onPointerDown={() => railSetHoldOpen(true)}
+          onPointerUp={() => railSetHoldOpen(false)}
+        >
           <div className="v3-fav-rail-list" title="Избранные разделы">
             {favoriteCards.map((btn) => (
               <button
@@ -723,6 +768,22 @@ export function V3TabShell(props: {
               </button>
             )}
           </div>
+          {/* Свернуть меню руками (планшет): авто-уезд ждёт паузы, а оператору нужно
+              убрать полосу сейчас — освободить экран под список. На десктопе кнопки нет:
+              там полоса и так на месте, и сворачивать нечего. */}
+          {railAutoHideEnabled && (
+            <button
+              type="button"
+              className="v3-rail-collapse"
+              data-rail-collapse="1"
+              aria-label="Убрать левое меню"
+              title="Убрать левое меню"
+              onClick={() => railHide()}
+            >
+              <span aria-hidden="true">‹</span>
+              <span>Меню</span>
+            </button>
+          )}
         </div>
       {/* Сравнение живёт ВНУТРИ общего контейнера: будь оно другой веткой тернарника,
           включение «2 рядом» размонтировало бы все живые панели разом. */}

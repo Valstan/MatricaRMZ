@@ -57,6 +57,9 @@ import { useWorkSheetTypeRefs } from '../../hooks/useWorkSheetTypeRefs.js';
 import { resolveWorkshopName, useWorkshopNames } from '../../hooks/useWorkshopNames.js';
 import { useRepairStageTemplateRefs } from '../../hooks/useRepairStageTemplateRefs.js';
 import { isAndroidPlatform } from '../../platform.js';
+import { ListContextMenu } from '../../components/ListContextMenu.js';
+import { ListLassoLayer } from '../../components/ListLassoLayer.js';
+import { useReportListKit } from './reportListKit.js';
 import type { ListReportPageProps } from './listReportPages.js';
 
 /**
@@ -142,6 +145,10 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
   // Без этого колонка «Цех» была пустой, а ступень «Цех» — «без названия».
   const workshopNameById = useWorkshopNames();
   const [printOpen, setPrintOpen] = useState(false);
+  // Строки, которые печатает меню (правый клик по строке или по пачке). `null` — печатает
+  // сам отчёт: весь список по фильтру или выделенное, если выделение есть.
+  const [printScopeRows, setPrintScopeRows] = useState<Row[] | null>(null);
+  const [status, setStatus] = useState('');
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const { state: ui, patchState } = useListUiState<ListUiState>('report:enginesNowAtPlant:ui', {
@@ -379,6 +386,28 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
   }, [ui.groupBy]);
   const items = useMemo(() => flattenGrouped(sorted, levels), [sorted, levels]);
 
+  // Строки списка БЕЗ заголовков групп: заголовок группы не строка — его не выделяем
+  // и в контур не берём.
+  const selectableRows = useMemo(
+    () =>
+      items
+        .filter((it): it is Extract<(typeof items)[number], { kind: 'row' }> => it.kind === 'row')
+        .map((it) => it.row),
+    [items],
+  );
+
+  // Кит списков (промт КАРМАНА #67, D-248): правила поведения — из общего источника,
+  // меню собирается из объявления действий, выделение контуром — общий слой.
+  const listKit = useReportListKit<Row>({
+    rows: selectableRows,
+    columns: visibleColumns,
+    onPrint: (printRows) => {
+      setPrintScopeRows(printRows);
+      setPrintOpen(true);
+    },
+    onStatus: setStatus,
+  });
+
   // Подпись группы для печати: путь заголовков над строкой, как на экране.
   const groupLabelByRow = useMemo(() => {
     const map = new Map<string, string>();
@@ -444,11 +473,21 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
   const rowProps = (i: number): VirtualTableRowProps => {
     const it = items[i]!;
     if (it.kind === 'group') return { 'data-report-group': it.key };
-    return { onClick: () => props.onOpenEngine(it.row.id), title: 'Открыть карточку двигателя', style: { cursor: 'pointer', ...engineScrapRowStyle(it.row.isScrap) }, 'data-report-engine-row': it.row.id };
+    return {
+      // Маркер строки для выделения контуром (Ctrl + рамка) — правило одно на программу.
+      'data-list-row': 'true',
+      'data-list-row-key': it.row.id,
+      'data-list-selected': listKit.selection.isSelected(it.row.id) ? 'true' : undefined,
+      onContextMenu: (e) => listKit.onRowContextMenu(e, it.row.id),
+      onClick: () => props.onOpenEngine(it.row.id),
+      title: 'Открыть карточку двигателя',
+      style: { cursor: 'pointer', ...engineScrapRowStyle(it.row.isScrap) },
+      'data-report-engine-row': it.row.id,
+    };
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }} data-engines-now-at-plant-report>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }} data-engines-now-at-plant-report data-list-root="true">
       <PageToolbar>
         <Button variant="ghost" onClick={props.onBack}>
           {props.backLabel ?? 'К списку Отчётов'}
@@ -471,7 +510,7 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
           </label>
         </ToolbarPin>
         {!isAndroidPlatform() && props.canExport && (
-          <Button variant="ghost" data-list-print onClick={() => setPrintOpen(true)} title="Печать текущего списка (по фильтру, с заголовками групп) с выбором полей">
+          <Button variant="ghost" data-list-print onClick={() => { setPrintScopeRows(null); setPrintOpen(true); }} title="Печать текущего списка (по фильтру, с заголовками групп) с выбором полей">
             Печать списка
           </Button>
         )}
@@ -481,7 +520,7 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
           columns={buildListPrintColumns(columns)}
           visibleColumnIds={visibleColumns.map((c) => c.id)}
           rows={sorted.length > 0 ? items.filter((it) => it.kind === 'row').map((it) => (it.kind === 'row' ? it.row : null)!).filter(Boolean) : []}
-          selectedRows={[]}
+          selectedRows={listKit.selectedRows}
           storageKey="report:enginesNowAtPlant:printFields"
           filtersSummary={describeFacetSelectionForRows(facets, rows, activeFacets, {
             search: ui.query,
@@ -511,6 +550,7 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
         ) : null}
       </div>
 
+      {status ? <div style={{ marginTop: 10, color: status.startsWith('Ошибка') ? '#b91c1c' : '#6b7280' }}>{status}</div> : null}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'nowrap' }}>
         <ListCount total={rows.length} shown={sorted.length} extra="на заводе на сегодня" style={{ marginTop: 6, flex: '0 0 auto' }} />
 
@@ -555,7 +595,7 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
           columns={buildListPrintColumns(columns)}
           visibleColumnIds={visibleColumns.map((c) => c.id)}
           rows={sorted.length > 0 ? items.filter((it) => it.kind === 'row').map((it) => (it.kind === 'row' ? it.row : null)!).filter(Boolean) : []}
-          selectedRows={[]}
+          selectedRows={printScopeRows ?? listKit.selectedRows}
           storageKey="report:enginesNowAtPlant:printFields"
           rowGroupLabel={(r) => groupLabelByRow.get(r.id) || null}
           rowBackground={(r) => engineScrapRowBackgroundPrint(r.isScrap)}
@@ -564,6 +604,17 @@ export function EnginesNowAtPlantReportPage(props: ListReportPageProps) {
             grouping: ui.groupBy === 'none' ? '' : GROUP_BY_LABELS[ui.groupBy],
           })}
           onClose={() => setPrintOpen(false)}
+        />
+      ) : null}
+
+      {/* Выделение контуром (Ctrl + рамка) — общий слой кита: правило одно на программу. */}
+      <ListLassoLayer enabled={listKit.listBehavior.lasso} onSelect={listKit.selection.selectMany} />
+      {listKit.menu ? (
+        <ListContextMenu
+          x={listKit.menu.x}
+          y={listKit.menu.y}
+          items={listKit.menuItems}
+          onClose={() => listKit.setMenu(null)}
         />
       ) : null}
     </div>
