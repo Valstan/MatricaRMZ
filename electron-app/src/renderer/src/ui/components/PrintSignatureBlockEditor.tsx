@@ -99,100 +99,100 @@ export function PrintSignatureBlockEditor(props: {
           формы (у наряда их три — бригада, подписи, виды работ). */}
       <div ref={reorder.scopeRef} style={{ display: 'grid', gap: 6 }}>
         {slots.map((slot, index) => {
-        const employee = slot.employeeId
-          ? (props.employees ?? []).find((e) => String(e.id ?? '').trim() === slot.employeeId)
-          : undefined;
-        const unitLine = [employee?.position, String(employee?.fullName ?? employee?.displayName ?? '').trim()]
-          .filter(Boolean)
-          .join(' · ');
-        const rowKey = reorder.keys[index] ?? '';
-        return (
-          <div
-            // Ключ строки — НЕ по должности: должность редактируется, и ключ с ней
-            // пересоздавал бы строку на каждом нажатии клавиши (терялся фокус поля).
-            key={`pp-signature-slot-${index}`}
-            // Маркеры кита перестановки: строки блока — обычные строки списка.
-            data-list-row="true"
-            data-list-row-key={rowKey}
-            style={{
-              display: 'grid',
-              gap: 6,
-              padding: '8px 10px',
-              border: '1px solid var(--border)',
-              borderRadius: 8,
-              background: 'var(--surface)',
-              ...reorder.rowStyle(rowKey),
-            }}
-            onDragOver={reorder.onDragOver}
-            onDrop={reorder.onDrop}
-          >
+          const employee = slot.employeeId
+            ? (props.employees ?? []).find((e) => String(e.id ?? '').trim() === slot.employeeId)
+            : undefined;
+          const unitLine = [employee?.position, String(employee?.fullName ?? employee?.displayName ?? '').trim()]
+            .filter(Boolean)
+            .join(' · ');
+          const rowKey = reorder.keys[index] ?? '';
+          return (
             <div
+              // Ключ строки — НЕ по должности: должность редактируется, и ключ с ней
+              // пересоздавал бы строку на каждом нажатии клавиши (терялся фокус поля).
+              key={`pp-signature-slot-${index}`}
+              // Маркеры кита перестановки: строки блока — обычные строки списка.
+              data-list-row="true"
+              data-list-row-key={rowKey}
               style={{
-                // Поля складываются по ширине: в узкой колонке превью (240–300 px)
-                // четыре поля в ряд нечитаемы, в широкой — помещаются в строку.
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-                gap: 8,
-                alignItems: 'center',
+                gap: 6,
+                padding: '8px 10px',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                background: 'var(--surface)',
+                ...reorder.rowStyle(rowKey),
               }}
+              onDragOver={reorder.onDragOver}
+              onDrop={reorder.onDrop}
             >
-              {props.printedIndexes ? (
-                <input
-                  type="checkbox"
-                  data-print-signature-printed={index}
-                  checked={props.printedIndexes.includes(index)}
-                  onChange={() => props.onTogglePrinted?.(index)}
-                  title="Подпись печатается"
-                  style={{ marginTop: 2 }}
+              <div
+                style={{
+                  // Поля складываются по ширине: в узкой колонке превью (240–300 px)
+                  // четыре поля в ряд нечитаемы, в широкой — помещаются в строку.
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                  gap: 8,
+                  alignItems: 'center',
+                }}
+              >
+                {props.printedIndexes ? (
+                  <input
+                    type="checkbox"
+                    data-print-signature-printed={index}
+                    checked={props.printedIndexes.includes(index)}
+                    onChange={() => props.onTogglePrinted?.(index)}
+                    title="Подпись печатается"
+                    style={{ marginTop: 2 }}
+                  />
+                ) : null}
+                <Input
+                  list={listId}
+                  value={slot.caption}
+                  disabled={props.disabled === true}
+                  placeholder="Должность (напр. «Начальник цеха»)"
+                  onChange={(e) => setSlot(index, { caption: e.target.value })}
                 />
-              ) : null}
-              <Input
-                list={listId}
-                value={slot.caption}
-                disabled={props.disabled === true}
-                placeholder="Должность (напр. «Начальник цеха»)"
-                onChange={(e) => setSlot(index, { caption: e.target.value })}
-              />
-              <EntityReferenceField
-                target="employee"
-                targetLabel="Сотрудник"
-                value={slot.employeeId || null}
-                options={employeeOptions}
-                disabled={props.disabled === true}
-                optionsReady
-                rankKey={props.rankKey ?? 'employee:print-signature'}
-                onChange={(next) => setSlot(index, { employeeId: next || '' })}
-                placeholder="Сотрудник (пусто — подпись от руки)"
-              />
-              <Input
-                value={slot.fullName}
-                disabled={props.disabled === true}
-                placeholder="ФИО (пусто — из карточки сотрудника)"
-                onChange={(e) => setSlot(index, { fullName: e.target.value })}
-              />
-              {props.disabled ? (
-                <span />
-              ) : (
-                <Button
-                  variant="ghost"
-                  style={{ color: 'var(--danger)' }}
-                  onClick={() => props.onChange(removePrintSignatureSlot(slots, index))}
-                >
-                  Удалить
-                </Button>
-              )}
-              {/* Ручка перемещения — общая (кит списков), как в блоке подписей наряда. */}
-              {canReorder ? (
-                <ListReorderHandle {...reorder.handleProps(rowKey, { label: `подпись ${index + 1}` })} />
-              ) : (
-                <span />
-              )}
+                <EntityReferenceField
+                  target="employee"
+                  targetLabel="Сотрудник"
+                  value={slot.employeeId || null}
+                  options={employeeOptions}
+                  disabled={props.disabled === true}
+                  optionsReady
+                  rankKey={props.rankKey ?? 'employee:print-signature'}
+                  onChange={(next) => setSlot(index, { employeeId: next || '' })}
+                  placeholder="Сотрудник (пусто — подпись от руки)"
+                />
+                <Input
+                  value={slot.fullName}
+                  disabled={props.disabled === true}
+                  placeholder="ФИО (пусто — из карточки сотрудника)"
+                  onChange={(e) => setSlot(index, { fullName: e.target.value })}
+                />
+                {props.disabled ? (
+                  <span />
+                ) : (
+                  <Button
+                    variant="ghost"
+                    style={{ color: 'var(--danger)' }}
+                    onClick={() => props.onChange(removePrintSignatureSlot(slots, index))}
+                  >
+                    Удалить
+                  </Button>
+                )}
+                {/* Ручка перемещения — общая (кит списков), как в блоке подписей наряда. */}
+                {canReorder ? (
+                  <ListReorderHandle {...reorder.handleProps(rowKey, { label: `подпись ${index + 1}` })} />
+                ) : (
+                  <span />
+                )}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', minHeight: 14, wordBreak: 'break-word' }}>
+                {unitLine || (slot.employeeId ? '' : 'Подпись и расшифровка от руки')}
+              </div>
             </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', minHeight: 14, wordBreak: 'break-word' }}>
-              {unitLine || (slot.employeeId ? '' : 'Подпись и расшифровка от руки')}
-            </div>
-          </div>
-        );
+          );
         })}
       </div>
       {slots.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 12 }}>Подписи не добавлены</div> : null}
