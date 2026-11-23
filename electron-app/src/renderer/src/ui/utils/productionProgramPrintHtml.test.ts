@@ -153,6 +153,58 @@ describe('печатная форма производственной прог�
 });
 
 /**
+ * Разрывы страниц (владелец 23.11.2026, промт #74): списки двигателей (блоки
+ * контрактов) и подписи не рвутся между страницами.
+ *
+ * Пока все договоры лежали в одном `<tbody>`, блок нельзя было перенести — разрыв
+ * попадал внутрь списка двигателей, а шапка группы оставалась на прошлом листе без
+ * своих строк.
+ */
+describe('разрывы страниц печатной формы ПП', () => {
+  const twoGroups = {
+    ...INPUT,
+    rows: [
+      ...INPUT.rows,
+      {
+        id: 'r3',
+        contractId: 'c2',
+        groupLabel: 'ООО «Второй заказчик» № 9/2026',
+        contractKind: 'military' as const,
+        engineId: 'e2',
+        engineMark: 'Д-245',
+        engineNumber: '002',
+        state: 'repairable',
+        note: '',
+      },
+    ],
+  } as never;
+
+  it('у каждого блока контракта — свой tbody, и блок не рвётся', () => {
+    const html = productionProgramPrintHtml(twoGroups);
+    expect(html.match(/<tbody/g) ?? []).toHaveLength(2);
+    expect(html).toContain('<tbody style="break-inside:avoid;page-break-inside:avoid">');
+  });
+
+  it('шапка группы не отрывается от своих строк', () => {
+    const html = productionProgramPrintHtml(twoGroups);
+    expect(html).toContain('break-after:avoid;page-break-after:avoid');
+  });
+
+  it('подписи не рвутся между страницами', () => {
+    const html = productionProgramPrintHtml(INPUT as never);
+    // Правило — на самой таблице подписей (до первой подписи идёт её тег).
+    expect(html).toContain(
+      '<table style="width:100%;border-collapse:collapse;margin-top:14px;break-inside:avoid;page-break-inside:avoid">',
+    );
+  });
+
+  it('шапка колонок повторяется на каждом листе', () => {
+    const html = productionProgramPrintHtml(INPUT as never);
+    expect(html).toContain('display: table-header-group');
+  });
+});
+
+/**
  * Настройки печати (владелец 10.11.2026): превью с галочками подписей и
  * регулировкой кеглей, подписи вертикально в два столбца.
  */
