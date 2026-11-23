@@ -153,6 +153,77 @@ describe('печатная форма производственной прог�
 });
 
 /**
+ * Разрывы страниц (владелец 23.11.2026): блок контракта и блок подписей не должны
+ * делиться между страницами — «если блок контракта не помещается на странице и
+ * делится на две — перенести его целиком на следующую страницу».
+ */
+describe('разрывы страниц печатной формы ПП', () => {
+  const TWO_GROUPS = {
+    ...INPUT,
+    rows: [
+      ...INPUT.rows,
+      {
+        id: 'r3',
+        contractId: 'c2',
+        groupLabel: 'ООО «Другой заказчик» № 7/2026',
+        contractKind: 'military' as const,
+        engineId: 'e3',
+        engineMark: 'Д-245',
+        engineNumber: '003',
+        state: 'restoration' as const,
+        note: '',
+      },
+    ],
+    engines: [
+      ...(INPUT.engines as never[]),
+      {
+        id: 'e3',
+        engineNumber: '003',
+        engineBrand: 'Д-245',
+        statusFlags: {},
+        lastStageCode: 'otk',
+        lastStageAt: Date.UTC(2026, 10, 13, 12),
+      },
+    ],
+  };
+
+  it('каждый контракт — отдельный <tbody>: блок рвётся не по строкам', () => {
+    // <tbody> — единица разрыва страницы в HTML-таблицах. Пока все контракты лежали
+    // в одном <tbody>, блок контракта рвался по строкам как попало, а его шапка
+    // могла остаться внизу страницы.
+    const html = productionProgramPrintHtml(TWO_GROUPS as never);
+    const bodies = html.match(/<tbody>/g) ?? [];
+    expect(bodies.length).toBe(2);
+    // Каждый контракт — в своём теле: шапка первого не едет в теле второго.
+    const [first, second] = html.split('<tbody>').slice(1);
+    expect(first).toContain('ООО «Заказчик» № 125/2026');
+    expect(first).not.toContain('ООО «Другой заказчик» № 7/2026');
+    expect(second).toContain('ООО «Другой заказчик» № 7/2026');
+    expect(second).not.toContain('ООО «Заказчик» № 125/2026');
+  });
+
+  it('правила неразрыва: тело группы, строки и блок подписей', () => {
+    const html = productionProgramPrintHtml(TWO_GROUPS as never);
+    expect(html).toContain('table.pp-table tbody { break-inside: avoid; page-break-inside: avoid; }');
+    expect(html).toContain('table.pp-table tr { break-inside: avoid; page-break-inside: avoid; }');
+    expect(html).toContain('table.pp-signatures { break-inside: avoid; page-break-inside: avoid; }');
+    // Шапка контракта не отрывается от своих строк.
+    expect(html).toContain('break-after:avoid;page-break-after:avoid');
+  });
+
+  it('блок подписей помечен классом — правило неразрыва к нему applies', () => {
+    const html = productionProgramPrintHtml(INPUT as never);
+    expect(html).toContain('<table class="pp-signatures"');
+  });
+
+  it('пустой план — тоже одно тело, а не пустая таблица', () => {
+    const html = productionProgramPrintHtml({ ...INPUT, rows: [] } as never);
+    expect((html.match(/<tbody>/g) ?? []).length).toBe(1);
+    expect(html).toContain('Строк в плане нет');
+  });
+});
+
+/**
  * Настройки печати (владелец 10.11.2026): превью с галочками подписей и
  * регулировкой кеглей, подписи вертикально в два столбца.
  */
