@@ -15,7 +15,8 @@ import { Button } from '../components/Button.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { Input } from '../components/Input.js';
-import { RowReorderButtons } from '../components/RowReorderButtons.js';
+import { ListReorderHandle } from '../components/ListReorderHandle.js';
+import { useListReorder } from '../hooks/useListReorder.js';
 import { ListCount } from '../components/ListCount.js';
 import { MailSendButton } from '../components/MailSendButton.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
@@ -23,7 +24,6 @@ import { SearchSelect } from '../components/SearchSelect.js';
 import { useRecentSelectOptions } from '../hooks/useRecentSelectOptions.js';
 import { promptNomenclatureArticle } from '../utils/promptNomenclatureArticle.js';
 import { useWarehouseReferenceData } from '../hooks/useWarehouseReferenceData.js';
-import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { fetchWarehouseStockAllPages } from '../utils/warehousePagedFetch.js';
 import { buildStockDocumentSnapshot } from '../utils/stockDocumentDirty.js';
 import { withArrivalNote } from '../utils/engineOptionLabel.js';
@@ -429,9 +429,15 @@ export function StockDocumentDetailsPage(props: {
     return null;
   }
 
-  function moveLine(from: number, to: number) {
-    setLines((prev) => normalizeLineOrder(moveArrayItem(prev, from, to)));
-  }
+  // СТРОКИ СКЛАДСКОГО ДОКУМЕНТА — по общему киту (промт КАРМАНА #67). Номера строк
+  // (lineNo) следуют за порядком — иначе печать и отчёты покажут старый порядок.
+  const linesReorder = useListReorder({
+    rows: lines,
+    canReorder: canEditDocument,
+    onReorder: (rows) => {
+      setLines(normalizeLineOrder(rows));
+    },
+  });
 
   function toDocumentLineInput(line: EditableLine) {
     return {
@@ -964,7 +970,8 @@ export function StockDocumentDetailsPage(props: {
           </div>
         </div>
         <ListCount total={lines.length} shown={lines.length} />
-        <table className="list-table">
+        {/* Граница списка: перетаскивание считает строки ТОЛЬКО этого списка. */}
+        <table className="list-table" ref={linesReorder.scopeRef}>
           <thead>
             <tr>
               <RowNumberHeaderCell />
@@ -1008,7 +1015,15 @@ export function StockDocumentDetailsPage(props: {
                     )
                   : [];
                 return (
-                  <tr key={line.id || idx}>
+                  <tr
+                    key={line.id || idx}
+                    // Маркер строки для кита перестановки (промт КАРМАНА #67).
+                    data-list-row="true"
+                    data-list-row-key={linesReorder.keys[idx] ?? ''}
+                    style={linesReorder.rowStyle(linesReorder.keys[idx] ?? '')}
+                    onDragOver={linesReorder.onDragOver}
+                    onDrop={linesReorder.onDrop}
+                  >
                     <RowNumberCell n={idx + 1} />
                     <td data-col-kind="name" style={{ minWidth: 280 }}>
                       <EntityReferenceField
@@ -1157,11 +1172,10 @@ export function StockDocumentDetailsPage(props: {
                     {canEditDocument ? (
                       <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                          <RowReorderButtons
-                            canMoveUp={idx > 0}
-                            canMoveDown={idx < lines.length - 1}
-                            onMoveUp={() => moveLine(idx, idx - 1)}
-                            onMoveDown={() => moveLine(idx, idx + 1)}
+                          <ListReorderHandle
+                            {...linesReorder.handleProps(linesReorder.keys[idx] ?? '', {
+                              label: `строка ${idx + 1}`,
+                            })}
                           />
                           <Button
                             variant="ghost"

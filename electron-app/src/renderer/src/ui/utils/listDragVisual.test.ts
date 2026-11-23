@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { listDragRowStyle, resolveDropTarget } from './listDragVisual.js';
+import { listDragRowStyle, listDropIndicatorStyle, resolveDropTarget } from './listDragVisual.js';
 
 const rects = [
   { key: 'a', top: 0, bottom: 20 },
@@ -50,5 +50,27 @@ describe('подсветка перетаскиваемой строки', () =>
 
   it('когда перетаскивания нет — стили обычные', () => {
     expect(listDragRowStyle(null, 'a')).toEqual({});
+  });
+});
+
+describe('линия места вставки', () => {
+  it('строка-цель показывает, что вставка будет ПЕРЕД ней', () => {
+    expect(listDropIndicatorStyle({ key: 'b', position: 'before' }, 'b')).toEqual({
+      boxShadow: 'inset 0 2px 0 0 var(--danger)',
+    });
+  });
+
+  it('строка-цель показывает, что вставка будет ПОСЛЕ неё', () => {
+    expect(listDropIndicatorStyle({ key: 'b', position: 'after' }, 'b')).toEqual({
+      boxShadow: 'inset 0 -2px 0 0 var(--danger)',
+    });
+  });
+
+  it('остальные строки не трогаются', () => {
+    expect(listDropIndicatorStyle({ key: 'b', position: 'before' }, 'c')).toEqual({});
+  });
+
+  it('когда перетаскивания нет — линии нет', () => {
+    expect(listDropIndicatorStyle(null, 'b')).toEqual({});
   });
 });

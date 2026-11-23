@@ -35,6 +35,20 @@ export function useListKeyboardMove(opts: {
   orderedIds: string[];
   /** Список сохраняет новый порядок. */
   onMove: (order: string[]) => void;
+  /**
+   * Пересчёт ключей перемещаемого блока ПОСЛЕ перестановки.
+   *
+   * Ключ строки в списках карточек — это её НОМЕР (позиция): у строк договора, наряда и
+   * склада своего id чаще всего нет, а выдуманный id пришлось бы где-то хранить и
+   * передёргивать при каждой правке — это вторая механика рядом с китом.
+   *
+   * Но у номера есть свойство: после перестановки номер строки меняется. Значит, блок
+   * «перемещаемая строка» обязан пересчитать свои номера по новому порядку — иначе
+   * второе нажатие стрелки сдвинет уже ДРУГУЮ строку (ту, что встала на это место).
+   * Этот пересчёт и есть `remapKeys`: по старому порядку и новому порядку он отдаёт
+   * новые номера тех же строк.
+   */
+  remapKeys?: (blockKeys: string[], order: string[]) => string[];
 }) {
   const [block, setBlock] = useState<ListMoveBlock>({ keys: [] });
   const [announcement, setAnnouncement] = useState('');
@@ -42,6 +56,7 @@ export function useListKeyboardMove(opts: {
   const orderedIds = opts.orderedIds;
   const onMove = opts.onMove;
   const enabled = opts.enabled;
+  const remapKeys = opts.remapKeys;
 
   const clear = useCallback(() => {
     setBlock({ keys: [] });
@@ -67,8 +82,14 @@ export function useListKeyboardMove(opts: {
       }
       setAnnouncement(describeMoveResult(result.order, block.keys, true));
       onMove(result.order);
+      // Блок пересчитывает свои номера по новому порядку: строка сдвинулась — значит,
+      // у неё теперь другой номер. Без этого второе нажатие стрелки двигало бы ту
+      // строку, что встала на её место, а не ту, что двигают.
+      if (remapKeys) {
+        setBlock((prev) => ({ keys: remapKeys(prev.keys, result.order) }));
+      }
     },
-    [enabled, block.keys, orderedIds, onMove],
+    [enabled, block.keys, orderedIds, onMove, remapKeys],
   );
 
   // Стрелки работают, когда ручка в фокусе (оператор нажал на неё) и когда блок выбран.

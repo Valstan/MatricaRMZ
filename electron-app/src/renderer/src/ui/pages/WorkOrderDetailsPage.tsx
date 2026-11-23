@@ -46,7 +46,8 @@ import { useConfirm } from '../components/ConfirmContext.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
 import { Input } from '../components/Input.js';
-import { RowReorderButtons } from '../components/RowReorderButtons.js';
+import { ListReorderHandle } from '../components/ListReorderHandle.js';
+import { useListReorder } from '../hooks/useListReorder.js';
 import { SectionCard } from '../components/SectionCard.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { WorkOrderTemplateEditorDialog } from '../components/WorkOrderTemplateEditorDialog.js';
@@ -66,7 +67,6 @@ import {
 import { checkAssemblyDuplicate, formatEngineGateLabel } from '../utils/assemblyDuplicateGate.js';
 import { formatAssemblyVariantLabel } from '../utils/assemblyVariant.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
-import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { normalizeLookupText } from '../utils/searchMatching.js';
 import { buildWorkOrderA4PreviewHtml, openPrintPreview } from '../utils/printPreview.js';
 import { printSectionsToText } from '../utils/mailText.js';
@@ -286,6 +286,68 @@ function authorshipLine(payload: WorkOrderPayload) {
         </span>
       ) : null}
     </>
+  );
+}
+
+/**
+ * СЛОТЫ ПОДПИСЕЙ блока наряда — отдельный список внутри блока.
+ *
+ * Отдельный компонент, а не часть карточки: у каждого блока подписей СВОЙ список
+ * и своя граница перетаскивания (перетаскивание слота в одном блоке не должно целить
+ * в слоты другого). Список — по общему киту (промт КАРМАНА #67).
+ */
+function WorkOrderSignatureSlots(props: {
+  slots: WorkOrderSignatureSlot[];
+  canEdit: boolean;
+  onChange: (slots: WorkOrderSignatureSlot[]) => void;
+  children: (slot: WorkOrderSignatureSlot, index: number) => React.ReactNode;
+}) {
+  const reorder = useListReorder({
+    rows: props.slots,
+    canReorder: props.canEdit,
+    onReorder: (rows) => props.onChange(rows),
+  });
+
+  return (
+    <div ref={reorder.scopeRef}>
+      {props.slots.map((slot, idx) => (
+        <div
+          key={`wo-signature-slot-${idx}`}
+          // Маркер строки для кита перестановки (промт КАРМАНА #67).
+          data-list-row="true"
+          data-list-row-key={reorder.keys[idx] ?? ''}
+          style={{
+            display: 'grid',
+            gap: 6,
+            padding: '8px 10px',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            background: 'var(--surface)',
+            ...reorder.rowStyle(reorder.keys[idx] ?? ''),
+          }}
+          onDragOver={reorder.onDragOver}
+          onDrop={reorder.onDrop}
+        >
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(140px, 0.7fr) minmax(220px, 1.5fr) auto auto',
+              gap: 8,
+              alignItems: 'center',
+            }}
+          >
+            {props.children(slot, idx)}
+            {props.canEdit ? (
+              <ListReorderHandle
+                {...reorder.handleProps(reorder.keys[idx] ?? '', { label: `подпись ${idx + 1}` })}
+              />
+            ) : (
+              <span />
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -1619,18 +1681,30 @@ export function WorkOrderDetailsPage(props: {
     return { id, label: clean, existing: false };
   }
 
-  function moveCrewMember(from: number, to: number) {
-    if (!payload) return;
-    patch({ ...payload, crew: moveArrayItem(payload.crew, from, to) });
-  }
+  // БРИГАДА НАРЯДА — по общему киту (промт КАРМАНА #67): ручка «⠿» с перетаскиванием
+  // и стрелками вместо кнопок ↑/↓.
+  const crewReorder = useListReorder({
+    rows: payload?.crew ?? [],
+    canReorder: canEditNow,
+    onReorder: (rows) => {
+      if (!payload) return;
+      patch({ ...payload, crew: rows });
+    },
+  });
 
-  function moveFreeWorkLine(from: number, to: number) {
-    if (!payload) return;
-    patch({
-      ...payload,
-      freeWorks: moveArrayItem(payload.freeWorks, from, to).map((line, idx) => ({ ...line, lineNo: idx + 1 })),
-    });
-  }
+  // СВОБОДНЫЕ СТРОКИ РАБОТ НАРЯДА — по общему киту (промт КАРМАНА #67). Номера строк
+  // (lineNo) следуют за порядком — иначе печать бланка покажет старый порядок.
+  const freeWorksReorder = useListReorder({
+    rows: payload?.freeWorks ?? [],
+    canReorder: canEditNow,
+    onReorder: (rows) => {
+      if (!payload) return;
+      patch({
+        ...payload,
+        freeWorks: rows.map((line, idx) => ({ ...line, lineNo: idx + 1 })),
+      });
+    },
+  });
 
   function addFreeWorkLine() {
     if (!payload) return;
@@ -1838,7 +1912,8 @@ export function WorkOrderDetailsPage(props: {
   const crewSection = (
     <SectionCard className="entity-card-span-full">
       <ListCount total={payload.crew.length} shown={payload.crew.length} />
-      <div className="list-table-wrap list-table-wrap--single">
+      {/* Граница списка: перетаскивание считает строки ТОЛЬКО бригады. */}
+      <div className="list-table-wrap list-table-wrap--single" ref={crewReorder.scopeRef}>
         <table className="list-table list-table--single-mode work-order-table" style={{ width: '100%' }}>
           <colgroup>
             <col />
@@ -1860,7 +1935,15 @@ export function WorkOrderDetailsPage(props: {
           </thead>
           <tbody>
             {payload.crew.map((member, idx) => (
-              <tr key={`crew-${idx}-${member.employeeId}`}>
+              <tr
+                key={`crew-${idx}-${member.employeeId}`}
+                // Маркер строки для кита перестановки (промт КАРМАНА #67).
+                data-list-row="true"
+                data-list-row-key={crewReorder.keys[idx] ?? ''}
+                style={crewReorder.rowStyle(crewReorder.keys[idx] ?? '')}
+                onDragOver={crewReorder.onDragOver}
+                onDrop={crewReorder.onDrop}
+              >
                 <RowNumberCell n={idx + 1} />
                 <td data-col-kind="name">
                   <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8, alignItems: 'start' }}>
@@ -1947,11 +2030,10 @@ export function WorkOrderDetailsPage(props: {
                 {canEditNow && (
                   <td style={{ textAlign: 'center' }}>
                     <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                      <RowReorderButtons
-                        canMoveUp={idx > 0}
-                        canMoveDown={idx < payload.crew.length - 1}
-                        onMoveUp={() => moveCrewMember(idx, idx - 1)}
-                        onMoveDown={() => moveCrewMember(idx, idx + 1)}
+                      <ListReorderHandle
+                        {...crewReorder.handleProps(crewReorder.keys[idx] ?? '', {
+                          label: `сотрудник ${idx + 1}`,
+                        })}
                       />
                       <Button
                         variant="ghost"
@@ -2128,29 +2210,16 @@ export function WorkOrderDetailsPage(props: {
           return (
             <div key={block.id} style={{ display: 'grid', gap: 8 }}>
               <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{block.title}</div>
-              {slots.map((slot, idx) => {
+              <WorkOrderSignatureSlots
+                slots={slots}
+                canEdit={canEditNow}
+                onChange={(next) => setSignatureSlots(block.id, next)}
+              >
+                {(slot, idx) => {
                 const employee = slot.employeeId ? employees.find((e) => e.id === slot.employeeId) : undefined;
                 const unitLine = [employee?.position, resolveEmployeeUnit(employee)].filter(Boolean).join(' · ');
                 return (
-                  <div
-                    key={`${block.id}-${idx}`}
-                    style={{
-                      display: 'grid',
-                      gap: 6,
-                      padding: '8px 10px',
-                      border: '1px solid var(--border)',
-                      borderRadius: 8,
-                      background: 'var(--surface)',
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'minmax(140px, 0.7fr) minmax(220px, 1.5fr) auto auto',
-                        gap: 8,
-                        alignItems: 'center',
-                      }}
-                    >
+                  <>
                       <Input
                         list="wo-signature-captions"
                         value={slot.caption ?? ''}
@@ -2172,16 +2241,6 @@ export function WorkOrderDetailsPage(props: {
                         placeholder="Сотрудник (пусто — подпись от руки)"
                       />
                       {canEditNow ? (
-                        <RowReorderButtons
-                          canMoveUp={idx > 0}
-                          canMoveDown={idx < slots.length - 1}
-                          onMoveUp={() => setSignatureSlots(block.id, moveArrayItem(slots, idx, idx - 1))}
-                          onMoveDown={() => setSignatureSlots(block.id, moveArrayItem(slots, idx, idx + 1))}
-                        />
-                      ) : (
-                        <span />
-                      )}
-                      {canEditNow ? (
                         <Button
                           variant="ghost"
                           style={{ color: 'var(--danger)' }}
@@ -2192,13 +2251,13 @@ export function WorkOrderDetailsPage(props: {
                       ) : (
                         <span />
                       )}
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', minHeight: 14, wordBreak: 'break-word' }}>
-                      {unitLine || (slot.employeeId ? '' : 'Подпись и расшифровка от руки')}
-                    </div>
-                  </div>
+                      <div style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--muted)', minHeight: 14, wordBreak: 'break-word' }}>
+                        {unitLine || (slot.employeeId ? '' : 'Подпись и расшифровка от руки')}
+                      </div>
+                  </>
                 );
-              })}
+                }}
+              </WorkOrderSignatureSlots>
               {slots.length === 0 && <div style={{ color: 'var(--muted)', fontSize: 12 }}>Подписи не добавлены</div>}
               {canEditNow && (
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -3223,7 +3282,8 @@ export function WorkOrderDetailsPage(props: {
       <div style={{ maxWidth: '100%', marginInline: 'auto', width: '100%' }}>
         <SectionCard className="entity-card-span-full work-order-works-panel">
         <ListCount total={payload.freeWorks.length} shown={payload.freeWorks.length} />
-        <div className="list-table-wrap list-table-wrap--single">
+        {/* Граница списка: перетаскивание считает строки ТОЛЬКО видов работ. */}
+        <div className="list-table-wrap list-table-wrap--single" ref={freeWorksReorder.scopeRef}>
           <table className="list-table list-table--single-mode work-order-table">
             <colgroup>
               <col />
@@ -3306,7 +3366,15 @@ export function WorkOrderDetailsPage(props: {
                     })
                   : engineOptions;
                 return (
-                <tr key={`free-work-line-${idx}`}>
+                <tr
+                  key={`free-work-line-${idx}`}
+                  // Маркер строки для кита перестановки (промт КАРМАНА #67).
+                  data-list-row="true"
+                  data-list-row-key={freeWorksReorder.keys[idx] ?? ''}
+                  style={freeWorksReorder.rowStyle(freeWorksReorder.keys[idx] ?? '')}
+                  onDragOver={freeWorksReorder.onDragOver}
+                  onDrop={freeWorksReorder.onDrop}
+                >
                   <RowNumberCell n={idx + 1} />
                   {!appliedHiddenFields.has('engineNumber') && payload.workOrderKind !== WorkOrderKind.Assembly ? (
                     <td data-col-kind="name">
@@ -3554,11 +3622,10 @@ export function WorkOrderDetailsPage(props: {
                   {canEditNow && (
                     <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                       <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                        <RowReorderButtons
-                          canMoveUp={idx > 0}
-                          canMoveDown={idx < payload.freeWorks.length - 1}
-                          onMoveUp={() => moveFreeWorkLine(idx, idx - 1)}
-                          onMoveDown={() => moveFreeWorkLine(idx, idx + 1)}
+                        <ListReorderHandle
+                          {...freeWorksReorder.handleProps(freeWorksReorder.keys[idx] ?? '', {
+                            label: `строка работ ${idx + 1}`,
+                          })}
                         />
                         <Button
                           variant="ghost"

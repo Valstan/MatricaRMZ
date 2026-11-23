@@ -4,7 +4,8 @@ import { Button } from '../components/Button.js';
 import { CardTable } from '../components/CardTable.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { Input } from '../components/Input.js';
-import { RowReorderButtons } from '../components/RowReorderButtons.js';
+import { ListReorderHandle } from '../components/ListReorderHandle.js';
+import { useListReorder } from '../hooks/useListReorder.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
@@ -21,7 +22,6 @@ import { CardActionBar } from '../components/CardActionBar.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
-import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { lookupLabel } from '../utils/lookupLabel.js';
 
 type Option = { id: string; label: string };
@@ -229,10 +229,14 @@ export function ToolDetailsPage(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- initial per-tool load; refresh/refreshMovements/loadOptions are recreated each render (adding them would refetch every render), and loadOptions reads departmentId — keying on it would reload the whole card on department change
   }, [props.toolId]);
 
-  function movePropertyRow(from: number, to: number) {
-    const next = moveArrayItem(properties, from, to);
-    void updateProperties(next);
-  }
+  // СВОЙСТВА ИНСТРУМЕНТА — по общему киту (промт КАРМАНА #67).
+  const propertiesReorder = useListReorder({
+    rows: properties,
+    canReorder: props.canEdit,
+    onReorder: (rows) => {
+      void updateProperties(rows);
+    },
+  });
 
   useEffect(() => {
     if (!props.registerCardCloseActions) return;
@@ -736,11 +740,28 @@ export function ToolDetailsPage(props: {
           ) : undefined
         }
       >
+        {/* Граница списка: перетаскивание считает строки ТОЛЬКО этого списка. */}
+        <div ref={propertiesReorder.scopeRef}>
         {properties.length === 0 && <div style={{ color: 'var(--subtle)' }}>Нет свойств.</div>}
         {properties.map((row, idx) => {
           const hints = row.propertyId ? propertyValueHints[row.propertyId] ?? [] : [];
           return (
-            <div key={`${row.propertyId}-${idx}`} className="card-row" style={{ display: 'grid', gridTemplateColumns: propertyRowGridTemplate, gap: 8, padding: '4px 6px' }}>
+            <div
+              key={`${row.propertyId}-${idx}`}
+              className="card-row"
+              // Маркер строки для кита перестановки (промт КАРМАНА #67).
+              data-list-row="true"
+              data-list-row-key={propertiesReorder.keys[idx] ?? ''}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: propertyRowGridTemplate,
+                gap: 8,
+                padding: '4px 6px',
+                ...propertiesReorder.rowStyle(propertiesReorder.keys[idx] ?? ''),
+              }}
+              onDragOver={propertiesReorder.onDragOver}
+              onDrop={propertiesReorder.onDrop}
+            >
               <div>Свойство</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start', minWidth: 0 }}>
                 <EntityReferenceField
@@ -785,11 +806,10 @@ export function ToolDetailsPage(props: {
               </div>
               {props.canEdit ? (
                 <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center', justifySelf: compactToolCardLayout ? 'start' : undefined }}>
-                  <RowReorderButtons
-                    canMoveUp={idx > 0}
-                    canMoveDown={idx < properties.length - 1}
-                    onMoveUp={() => movePropertyRow(idx, idx - 1)}
-                    onMoveDown={() => movePropertyRow(idx, idx + 1)}
+                  <ListReorderHandle
+                    {...propertiesReorder.handleProps(propertiesReorder.keys[idx] ?? '', {
+                      label: `свойство ${idx + 1}`,
+                    })}
                   />
                   <Button
                     variant="ghost"
@@ -815,6 +835,7 @@ export function ToolDetailsPage(props: {
             </div>
           );
         })}
+        </div>
       </SectionCard>
 
       <SectionCard title="Движение инструмента">

@@ -20,7 +20,8 @@ const EMPLOYEE_CARD_TABS: CardTab<EmployeeCardTab>[] = [
   { key: 'access', label: 'Доступ' },
   { key: 'files', label: 'Фото и документы' },
 ];
-import { RowReorderButtons } from '../components/RowReorderButtons.js';
+import { ListReorderHandle } from '../components/ListReorderHandle.js';
+import { useListReorder } from '../hooks/useListReorder.js';
 import { RowActions } from '../components/RowActions.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { ACCESS_SECTION_CATALOG, SECTION_ACCESS_ATTR, SYSTEM_ROLE_CATALOG, accessSectionMeta, dependentsOfSection, isAssignableSystemRole, missingSectionDependencies, operatorRolePermissions, parseSectionMembership, sectionEditorRoleWarning, systemRoleTitleRu, parseEmploymentStatusAttr, permAdminOnly, permGroupRu, permTitleRu } from '@matricarmz/shared';
@@ -32,7 +33,6 @@ import { escapeHtml, openPrintPreview } from '../utils/printPreview.js';
 import { formatMoscowDate } from '../utils/dateUtils.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
-import { moveArrayItem } from '../utils/moveArrayItem.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 import { quickCreateEntity } from '../utils/quickCreateEntity.js';
@@ -469,10 +469,16 @@ export function EmployeeDetailsPage(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load keyed by employeeId only; loadEmployee is recreated each render and writes state, so listing it would re-run the fetch after every render
   }, [props.employeeId]);
 
-  function moveTransfer(from: number, to: number) {
-    dirtyRef.current = true;
-    setTransfers((prev) => moveArrayItem(prev, from, to));
-  }
+  // ПЕРЕВОДЫ СОТРУДНИКА — по общему киту (промт КАРМАНА #67): ручка «⠿» с
+  // перетаскиванием и стрелками вместо кнопок ↑/↓.
+  const transfersReorder = useListReorder({
+    rows: transfers,
+    canReorder: props.canEdit,
+    onReorder: (rows) => {
+      dirtyRef.current = true;
+      setTransfers(rows);
+    },
+  });
 
   useEffect(() => {
     void loadDepartments();
@@ -1981,20 +1987,34 @@ export function EmployeeDetailsPage(props: {
       </div>
       <div data-card-tab="transfers" hidden={activeTab !== 'transfers'} className="entity-card-span-full">
       <SectionCard title="Переводы" style={{ border: '1px solid var(--border)' }}>
-        <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+        {/* Граница списка: перетаскивание считает строки ТОЛЬКО этого списка. */}
+        <div style={{ marginTop: 10, display: 'grid', gap: 8 }} ref={transfersReorder.scopeRef}>
           {transfers.length === 0 && <div style={{ color: 'var(--subtle)' }}>Переводов нет</div>}
           {transfers.map((t, idx) => (
-            <div key={t.id} style={{ display: 'grid', gridTemplateColumns: props.canEdit ? 'repeat(auto-fit, minmax(min(160px, 100%), 1fr)) auto' : 'repeat(auto-fit, minmax(min(160px, 100%), 1fr))', gap: 8, alignItems: 'center' }}>
+            <div
+              key={t.id}
+              // Маркер строки для кита перестановки (промт КАРМАНА #67).
+              data-list-row="true"
+              data-list-row-key={transfersReorder.keys[idx] ?? ''}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: props.canEdit ? 'repeat(auto-fit, minmax(min(160px, 100%), 1fr)) auto' : 'repeat(auto-fit, minmax(min(160px, 100%), 1fr))',
+                gap: 8,
+                alignItems: 'center',
+                ...transfersReorder.rowStyle(transfersReorder.keys[idx] ?? ''),
+              }}
+              onDragOver={transfersReorder.onDragOver}
+              onDrop={transfersReorder.onDrop}
+            >
               <div style={{ color: 'var(--text)' }}>{t.kind === 'department' ? 'Подразделение' : 'Должность'}</div>
               <div style={{ color: 'var(--subtle)' }}>{t.date ? formatMoscowDate(t.date) : '—'}</div>
               <div style={{ color: 'var(--text)' }}>{t.value || '—'}</div>
               {props.canEdit ? (
                 <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                  <RowReorderButtons
-                    canMoveUp={idx > 0}
-                    canMoveDown={idx < transfers.length - 1}
-                    onMoveUp={() => moveTransfer(idx, idx - 1)}
-                    onMoveDown={() => moveTransfer(idx, idx + 1)}
+                  <ListReorderHandle
+                    {...transfersReorder.handleProps(transfersReorder.keys[idx] ?? '', {
+                      label: `перевод ${idx + 1}`,
+                    })}
                   />
                   <Button
                     variant="ghost"
