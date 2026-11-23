@@ -26,6 +26,11 @@ import { resolveEngineTruthDates } from './engineReclamation.js';
 import { DEFAULT_REPAIR_STAGE_TEMPLATES, repairStageRank, type RepairStageTemplate } from './repairStages.js';
 import { moscowDayKey } from './workSheetDuplicates.js';
 import { findEmployeeByPositionGroups, formatEmployeeSurnameInitials, type WorkOrderSignatureEmployee } from './workOrderSignatures.js';
+import {
+  parsePrintSignatureSlots,
+  resolvePrintSignatureSlots,
+  type PrintSignatureSlot,
+} from './printSignatures.js';
 import { HUMAN_LABEL_DASH, humanCellText, looksLikeIdentifier } from './humanLabels.js';
 import { normalizeLookupCompact } from './lookupNormalize.js';
 
@@ -161,14 +166,13 @@ export function suggestedProductionProgramStates(kind: ContractKind | null | und
 // Подписи программы
 // ────────────────────────────────────────────────────────────
 
-/** Слот подписи программы: должность + ФИО (из документа или из базы). */
-export type ProductionProgramSignatureSlot = {
-  caption: string;
-  /** id сотрудника из базы; null — ФИО берётся из документа-образца или вписано вручную. */
-  employeeId: string | null;
-  /** ФИО из документа-образца (или вписанное вручную) — печатается, если сотрудник не найден. */
-  fullName: string;
-};
+/**
+ * Слот подписи программы: должность + ФИО (из документа или из базы).
+ *
+ * Модель — общая для печатных форм (`printSignatures.ts`): ПП просто печатает свой
+ * блок подписей, а правило одно на все формы.
+ */
+export type ProductionProgramSignatureSlot = PrintSignatureSlot;
 
 /** Описание слота по умолчанию: должность, ФИО из образца и подбор по должности. */
 export type ProductionProgramSignatureSlotDef = {
@@ -273,50 +277,28 @@ export function findProductionProgramSignatory(
 /**
  * Разбор сохранённых слотов подписи (JSON в строке программы).
  * Мусор и неизвестные значения не роняют разбор — слот просто теряет ФИО.
+ *
+ * Правило разбора — общее для печатных форм (`printSignatures.ts`).
  */
 export function parseProductionProgramSignatureSlots(raw: unknown): ProductionProgramSignatureSlot[] {
-  let value: unknown = raw;
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (!trimmed) return [];
-    try {
-      value = JSON.parse(trimmed);
-    } catch {
-      return [];
-    }
-  }
-  if (!Array.isArray(value)) return [];
-  const out: ProductionProgramSignatureSlot[] = [];
-  for (const item of value) {
-    if (!item || typeof item !== 'object') continue;
-    const rec = item as Record<string, unknown>;
-    const caption = String(rec.caption ?? '').trim();
-    if (!caption) continue;
-    const employeeIdRaw = String(rec.employeeId ?? '').trim();
-    out.push({
-      caption,
-      employeeId: employeeIdRaw || null,
-      fullName: String(rec.fullName ?? '').trim(),
-    });
-  }
-  return out;
+  return parsePrintSignatureSlots(raw);
 }
 
 /**
- * Слоты программы: сохранённые — как есть; недостающие — из образца (ФИО из
- * документа, сотрудник не привязан). Так программа, созданная до правки блока
- * подписей, печатается с полным комплектом строк.
+ * Слоты программы: сохранённые — как есть (в том числе добавленные оператором);
+ * недостающие роли по умолчанию — дописываются в конец. Так программа, созданная до
+ * правки блока подписей, печатается с полным комплектом строк, а добавленная
+ * подпись не исчезает.
  */
 export function resolveProductionProgramSignatureSlots(
   saved: readonly ProductionProgramSignatureSlot[] | null | undefined,
 ): ProductionProgramSignatureSlot[] {
-  const byCaption = new Map<string, ProductionProgramSignatureSlot>();
-  for (const slot of saved ?? []) byCaption.set(slot.caption, slot);
-  return PRODUCTION_PROGRAM_SIGNATURE_SLOTS.map((def) => {
-    const stored = byCaption.get(def.caption);
-    if (stored) return { ...stored };
-    return { caption: def.caption, employeeId: null, fullName: def.fullName };
-  });
+  const defaults: ProductionProgramSignatureSlot[] = PRODUCTION_PROGRAM_SIGNATURE_SLOTS.map((def) => ({
+    caption: def.caption,
+    employeeId: null,
+    fullName: def.fullName,
+  }));
+  return resolvePrintSignatureSlots(saved, defaults);
 }
 
 /**

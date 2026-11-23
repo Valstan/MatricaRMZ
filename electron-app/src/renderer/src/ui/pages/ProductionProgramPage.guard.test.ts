@@ -16,6 +16,7 @@ function src(rel: string): string {
 
 const PAGE = src('./ProductionProgramPage.tsx');
 const PREVIEW = src('../components/ProductionProgramPrintPreview.tsx');
+const SIGNATURE_EDITOR = src('../components/PrintSignatureBlockEditor.tsx');
 const PRINT_HTML = src('../utils/productionProgramPrintHtml.ts');
 const ADD_BY_NUMBERS = src('../components/ProductionProgramAddEnginesByNumbersDialog.tsx');
 const APP = src('../App.tsx');
@@ -106,11 +107,14 @@ describe('производственная программа — экран п�
     // Прямая печать мимо превью — значит, оператор снова увидит только окно принтера.
     expect(PAGE).not.toContain('openProductionProgramPrint');
     expect(PREVIEW).toContain('data-pp-print-preview');
-    expect(PREVIEW).toContain('type="checkbox"');
+    // Галочка «снять подпись» теперь в общем редакторе подписей (23.11.2026).
+    expect(PREVIEW).toContain('PrintSignatureBlockEditor');
+    expect(SIGNATURE_EDITOR).toContain('type="checkbox"');
     expect(PREVIEW).toContain('Подписи');
     expect(PREVIEW).toContain('Размеры шрифта');
     // Печатная форма умеет настраиваться: кегли и состав подписей.
-    expect(PRINT_HTML).toContain('signatureCaptions');
+    // Состав — слотами, а не должностями: должность оператор теперь меняет (23.11.2026).
+    expect(PRINT_HTML).toContain('signatureSlots');
     expect(PRINT_HTML).toContain('signatureFontSize');
     expect(PRINT_HTML).toContain('tableFontSize');
   });

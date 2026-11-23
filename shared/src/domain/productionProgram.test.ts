@@ -224,6 +224,37 @@ describe('период программы', () => {
 describe('модель печати', () => {
   const period = buildProductionProgramPeriod('two_weeks', new Date(2026, 10, 1).getTime());
 
+  it('добавленная оператором подпись доходит до модели печати (корень: слоты вне образца терялись)', () => {
+    // Заказ владельца 23.11.2026: «в производственную программу открыли на печать, а там
+    // надо добавить ещё одну подпись, а мы не можем». Прежде модель собирала подписи ТОЛЬКО
+    // из ролей по умолчанию, и добавленный слот молча исчезал.
+    const model = buildProductionProgramPrintModel({
+      title: 'ПРОИЗВОДСТВЕННАЯ ПРОГРАММА (ЦЕХ № 1)',
+      shop: 'Цех № 1',
+      period,
+      rows: [],
+      signatureSlots: [
+        { caption: 'Коммерческий директор', employeeId: null, fullName: 'Беркута А.А.' },
+        { caption: 'Главный инженер', employeeId: null, fullName: 'Сидоров С.С.' },
+      ],
+    });
+
+    expect(model.signatures.map((s) => s.caption)).toEqual(['Коммерческий директор', 'Главный инженер']);
+    expect(model.signatures[1]?.name).toBe('Сидоров С.С.');
+  });
+
+  it('не сохранено ни одной подписи — печатаются роли по умолчанию', () => {
+    const model = buildProductionProgramPrintModel({
+      title: 'ПРОИЗВОДСТВЕННАЯ ПРОГРАММА (ЦЕХ № 1)',
+      shop: 'Цех № 1',
+      period,
+      rows: [],
+      signatureSlots: null,
+    });
+
+    expect(model.signatures).toHaveLength(PRODUCTION_PROGRAM_SIGNATURE_SLOTS.length);
+  });
+
   it('строки группируются по договору, «№ п/п» сквозной по перевозчикам', () => {
     const model = buildProductionProgramPrintModel({
       title: 'ПРОИЗВОДСТВЕННАЯ ПРОГРАММА (ЦЕХ № 1)',

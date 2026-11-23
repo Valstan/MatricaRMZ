@@ -147,11 +147,25 @@ describe('настройки печатной формы ПП', () => {
   });
 
   it('снятая подпись не печатается', () => {
+    // Фильтр — по слотам, а не по должности: должность оператор теперь меняет, и две
+    // подписи могут оказаться с одинаковой должностью.
     const html = productionProgramPrintHtml(INPUT as never, {
-      signatureCaptions: ['Коммерческий директор'],
+      signatureSlots: [{ caption: 'Коммерческий директор', employeeId: null, fullName: 'Беркута А.А.' }],
     });
     expect(html).toContain('Коммерческий директор');
     expect(html).not.toContain('Начальник цеха №1');
+  });
+
+  it('добавленная подпись печатается наравне с образцовыми', () => {
+    // Заказ владельца 23.11.2026: «надо добавить ещё одну подпись, а мы не можем».
+    const html = productionProgramPrintHtml(INPUT as never, {
+      signatureSlots: [
+        { caption: 'Коммерческий директор', employeeId: null, fullName: 'Беркута А.А.' },
+        { caption: 'Главный инженер', employeeId: null, fullName: 'Сидоров С.С.' },
+      ],
+    });
+    expect(html).toContain('Главный инженер');
+    expect(html).toContain('Сидоров С.С.');
   });
 
   it('кегль не выходит за разумные пределы', () => {
