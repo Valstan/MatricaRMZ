@@ -2,15 +2,18 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 
 import {
+  applyGroupedHandleClick,
   applyHandleClick,
   claimMoveOwner,
   computeBlockMove,
+  computeGroupedBlockMove,
   currentMoveOwner,
   describeMoveResult,
   registerMoveOwner,
   releaseMoveOwner,
   type HandleClickMode,
   type ListMoveBlock,
+  type ListMoveGrouping,
 } from '../utils/listKeyboardMove.js';
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -53,6 +56,15 @@ export function useListKeyboardMove(opts: {
    * новые номера тех же строк.
    */
   remapKeys?: (blockKeys: string[], order: string[]) => string[];
+  /**
+   * Список с группами (ПП: договор → его двигатели).
+   *
+   * Без этого кит считает движение по плоскому списку. С ним — по границам групп:
+   * строка едет внутри своей группы, группа (её заголовок) — целиком среди других
+   * групп. Плоский порядок `orderedIds` в таком списке — блоки групп подряд:
+   * заголовок, затем его строки.
+   */
+  grouping?: ListMoveGrouping;
 }) {
   const [block, setBlock] = useState<ListMoveBlock>({ keys: [] });
   const [announcement, setAnnouncement] = useState('');
@@ -65,6 +77,7 @@ export function useListKeyboardMove(opts: {
   const onMove = opts.onMove;
   const enabled = opts.enabled;
   const remapKeys = opts.remapKeys;
+  const grouping = opts.grouping;
 
   const clear = useCallback(() => {
     setBlock({ keys: [] });
@@ -79,19 +92,23 @@ export function useListKeyboardMove(opts: {
     (key: string, event: ReactMouseEvent | ReactKeyboardEvent) => {
       if (!enabled) return;
       const mode: HandleClickMode = event.shiftKey ? 'range' : event.ctrlKey || event.metaKey ? 'add' : 'replace';
-      const next = applyHandleClick(block, key, orderedIds, mode);
+      const next = grouping
+        ? applyGroupedHandleClick(block, key, orderedIds, grouping, mode)
+        : applyHandleClick(block, key, orderedIds, mode);
       setBlock(next);
       // Ручка этого списка забирает режим себе — у другого списка он снимается.
       if (next.keys.length) claimMoveOwner(owner);
       else releaseMoveOwner(owner);
     },
-    [enabled, orderedIds, block, owner],
+    [enabled, orderedIds, block, owner, grouping],
   );
 
   const move = useCallback(
     (direction: -1 | 1) => {
       if (!enabled || !block.keys.length) return;
-      const result = computeBlockMove(orderedIds, block.keys, direction);
+      const result = grouping
+        ? computeGroupedBlockMove(orderedIds, grouping, block.keys, direction)
+        : computeBlockMove(orderedIds, block.keys, direction);
       if (!result.moved) {
         setAnnouncement(describeMoveResult(result.order, block.keys, false));
         return;
@@ -105,7 +122,7 @@ export function useListKeyboardMove(opts: {
         setBlock((prev) => ({ keys: remapKeys(prev.keys, result.order) }));
       }
     },
-    [enabled, block.keys, orderedIds, onMove, remapKeys],
+    [enabled, block.keys, orderedIds, onMove, remapKeys, grouping],
   );
 
   // Стрелки работают, когда ручка в фокусе (оператор нажал на неё) и когда блок выбран.

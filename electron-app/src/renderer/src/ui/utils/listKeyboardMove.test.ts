@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  applyGroupedHandleClick,
   applyHandleClick,
   claimMoveOwner,
   computeBlockMove,
+  computeGroupedBlockMove,
   currentMoveOwner,
   describeMoveResult,
   registerMoveOwner,
   releaseMoveOwner,
+  type ListMoveGrouping,
 } from './listKeyboardMove.js';
 
 const order = ['a', 'b', 'c', 'd', 'e'];
@@ -112,5 +115,85 @@ describe('активен только один список', () => {
     releaseMoveOwner(owner);
     expect(currentMoveOwner()).toBe(null);
     unregister();
+  });
+});
+
+/**
+ * Список с группами — ПП: договор (группа) и его двигатели (строки).
+ *
+ * Плоский порядок кита в таком списке — блоки групп подряд: заголовок, затем строки.
+ */
+describe('список с группами (ПП): строки едут внутри группы, группа — целиком', () => {
+  const groupedOrder = ['g1', 'r1', 'r2', 'g2', 'r3'];
+  const grouping: ListMoveGrouping = {
+    groupKeys: ['g1', 'g2'],
+    rowKeysOf: (groupKey) => (groupKey === 'g1' ? ['r1', 'r2'] : groupKey === 'g2' ? ['r3'] : []),
+    groupOfRow: (rowKey) => (rowKey === 'r3' ? 'g2' : rowKey.startsWith('r') ? 'g1' : null),
+    isGroupHeader: (key) => key === 'g1' || key === 'g2',
+  };
+
+  it('двигатель едет внутри своего договора', () => {
+    const result = computeGroupedBlockMove(groupedOrder, grouping, ['r2'], -1);
+    expect(result.order).toEqual(['g1', 'r2', 'r1', 'g2', 'r3']);
+    expect(result.moved).toBe(true);
+  });
+
+  it('двигатель свой договор не покидает — край группы это край', () => {
+    const result = computeGroupedBlockMove(groupedOrder, grouping, ['r1'], -1);
+    expect(result.moved).toBe(false);
+    expect(result.order).toEqual(groupedOrder);
+  });
+
+  it('группа едет целиком среди других групп — со своим блоком строк', () => {
+    const result = computeGroupedBlockMove(groupedOrder, grouping, ['g1'], 1);
+    expect(result.order).toEqual(['g2', 'r3', 'g1', 'r1', 'r2']);
+    expect(result.moved).toBe(true);
+  });
+
+  it('группа на краю не двигается', () => {
+    const result = computeGroupedBlockMove(groupedOrder, grouping, ['g2'], 1);
+    expect(result.moved).toBe(false);
+    expect(result.order).toEqual(groupedOrder);
+  });
+
+  it('блок из строк разных групп не едет никуда — молча уехавший двигатель хуже', () => {
+    const result = computeGroupedBlockMove(groupedOrder, grouping, ['r2', 'r3'], -1);
+    expect(result.moved).toBe(false);
+    expect(result.order).toEqual(groupedOrder);
+  });
+
+  it('ручка заголовка выбирает всю группу', () => {
+    const block = applyGroupedHandleClick({ keys: [] }, 'g1', groupedOrder, grouping, 'replace');
+    expect(block.keys).toEqual(['g1', 'r1', 'r2']);
+  });
+
+  it('повторный клик по ручке заголовка снимает режим', () => {
+    const block = applyGroupedHandleClick({ keys: ['g1', 'r1', 'r2'] }, 'g1', groupedOrder, grouping, 'replace');
+    expect(block.keys).toEqual([]);
+  });
+
+  it('ручка строки выбирает саму строку', () => {
+    const block = applyGroupedHandleClick({ keys: [] }, 'r1', groupedOrder, grouping, 'replace');
+    expect(block.keys).toEqual(['r1']);
+  });
+
+  it('Ctrl+клик не собирает блок через границу группы', () => {
+    const block = applyGroupedHandleClick({ keys: ['r2'] }, 'r3', groupedOrder, grouping, 'add');
+    expect(block.keys).toEqual(['r3']);
+  });
+
+  it('Ctrl+клик внутри группы копит блок', () => {
+    const block = applyGroupedHandleClick({ keys: ['r1'] }, 'r2', groupedOrder, grouping, 'add');
+    expect(block.keys).toEqual(['r1', 'r2']);
+  });
+
+  it('Shift+клик берёт диапазон внутри группы', () => {
+    const block = applyGroupedHandleClick({ keys: ['r1'] }, 'r2', groupedOrder, grouping, 'range');
+    expect(block.keys).toEqual(['r1', 'r2']);
+  });
+
+  it('Shift+клик в другой группе начинает диапазон заново', () => {
+    const block = applyGroupedHandleClick({ keys: ['r1'] }, 'r3', groupedOrder, grouping, 'range');
+    expect(block.keys).toEqual(['r3']);
   });
 });
