@@ -16,7 +16,7 @@
   по ним кит считает место вставки.
 - **Домен:** `productionProgramMoveRowWithinGroup` и `productionProgramMoveGroup` приняли сторону
   вставки (`before` / `after`) — её отдаёт кит; прежнее поведение (по умолчанию `before`) не изменилось.
-- **✅ Групповое клавиатурное перемещение по ручке** (хвост шва, PR #1959+): кит получил
+- **✅ Групповое клавиатурное перемещение по ручке** (хвост шва, PR #1972): кит получил
   **групповой режим** (`utils/listKeyboardMove.ts`: `ListMoveGrouping`,
   `applyGroupedHandleClick`, `computeGroupedBlockMove`), хук
   (`hooks/useListKeyboardMove.ts`) — необязательный параметр `grouping`, ПП
