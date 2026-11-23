@@ -656,8 +656,9 @@
 }
 
 .v3-fav-rail {
-  flex: 0 0 112px;
-  width: 112px;
+  --v3-rail-w: 112px;
+  flex: 0 0 var(--v3-rail-w);
+  width: var(--v3-rail-w);
   min-height: 0;
   /* Прокрутка живёт на списке избранного (ниже), а не здесь: постоянные плашки внизу
      обязаны стоять на месте при любой прокрутке, а подсказка ИИваныча — не обрезаться. */
@@ -668,6 +669,68 @@
   padding: 8px 6px;
   background: var(--surface, #fff);
   border-right: 1px solid var(--border);
+  /* Уезд за край (планшет, владелец 23.11.2026) — анимируется и появляться должен
+     так же плавно, как исчезает: полоса уезжает ВМЕСТЕ с возвратом места под список. */
+  transition: transform 220ms ease, margin-left 220ms ease;
+}
+
+/* Полоса уехала за левый край: transform уводит её за экран, margin — отдаёт её
+   место списку (иначе список остался бы на 112 px уже). */
+.v3-fav-rail--hidden {
+  transform: translateX(calc(-1 * var(--v3-rail-w)));
+  margin-left: calc(-1 * var(--v3-rail-w));
+}
+
+/* Ручка возврата у левого края (планшет): на тач-экране нет ни мыши, ни наведения,
+   а вернуть уехавшее меню иначе нечем. Узкая полоса на всю высоту — тап по ней
+   (или свайп от края) возвращает меню. */
+.v3-rail-handle {
+  flex: 0 0 22px;
+  width: 22px;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-right: 1px solid var(--border);
+  background: var(--surface, #fff);
+  cursor: pointer;
+  position: relative;
+}
+.v3-rail-handle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 48px;
+  margin: -24px 0 0 -2px;
+  border-radius: 2px;
+  background: var(--border);
+  opacity: 0.9;
+}
+.v3-rail-handle:hover::after,
+.v3-rail-handle:focus-visible::after {
+  background: var(--accent, #2563eb);
+}
+
+/* Свернуть меню руками (планшет): авто-уезд ждёт паузы, а оператору нужно
+   освободить экран под список сейчас. */
+.v3-rail-collapse {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 38px;
+  margin-top: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.v3-rail-collapse:hover {
+  background: var(--surface-2, #f8fafc);
 }
 
 .v3-fav-rail-list {
