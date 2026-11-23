@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { httpAuthed } from '../../services/httpClient.js';
+import { httpFailureText } from '../../services/httpFailureText.js';
 import { erpCounterparties, erpContracts } from '../../database/schema.js';
 
 type Err = { ok: false; error: string };
@@ -15,8 +16,7 @@ function base(ctx: IpcContext): string {
 function toResult<T>(r: { ok: boolean; status: number; json?: unknown; text?: string }): T | Err {
   if (r.ok && r.json && typeof r.json === 'object') return r.json as T;
   if (r.ok) return { ok: true } as unknown as T;
-  const errPayload = r.json as { error?: unknown } | null;
-  const msg = (errPayload && typeof errPayload.error === 'string' ? errPayload.error : r.text) || `HTTP ${r.status}`;
+  const msg = httpFailureText(r);
   return { ok: false, error: String(msg) };
 }
 

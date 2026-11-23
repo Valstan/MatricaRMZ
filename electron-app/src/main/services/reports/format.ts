@@ -13,6 +13,7 @@ import {
 
 
 import { formatMoscowDate, formatMoscowDateTime, formatRuMoney, formatRuNumber, formatRuPercent } from '../../utils/dateUtils.js';
+import { httpFailureLine } from '../httpFailureText.js';
 
 
 
@@ -98,17 +99,8 @@ export function formatTotalsGuide(totals: Record<string, unknown>): string {
 }
 
 export function formatHttpError(r: { status: number; json?: unknown; text?: unknown }): string {
-  const jsonObj = r?.json && typeof r.json === 'object' ? (r.json as Record<string, unknown>) : null;
-  const jsonErr = jsonObj ? (jsonObj.error ?? jsonObj.message ?? null) : null;
-  const msg =
-    typeof jsonErr === 'string'
-      ? jsonErr
-      : jsonErr != null
-        ? JSON.stringify(jsonErr)
-        : typeof r.text === 'string' && r.text.trim()
-          ? r.text.trim()
-          : '';
-  return `HTTP ${r.status}${msg ? `: ${msg}` : ''}`;
+  // Общее правило текста неудачи (страница антивируса не показывается, текст режется).
+  return httpFailureLine(r);
 }
 
 export function resolveContractLabel(contractId: string, fallbackMap: Map<string, string>): string {

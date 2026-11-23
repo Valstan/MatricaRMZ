@@ -1,21 +1,10 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import { httpAuthed } from './httpClient.js';
+import { httpFailureLine, httpFailureText } from './httpFailureText.js';
 
 const MAX_PARTS_LIST_LIMIT = 5000;
 
-function formatHttpError(r: { status: number; json?: any; text?: string }): string {
-  const jsonErr = r?.json && typeof r.json === 'object' ? (r.json.error ?? r.json.message ?? null) : null;
-  const msg =
-    typeof jsonErr === 'string'
-      ? jsonErr
-      : jsonErr != null
-        ? JSON.stringify(jsonErr)
-        : typeof r.text === 'string' && r.text.trim()
-          ? r.text.trim()
-          : '';
-  return `HTTP ${r.status}${msg ? `: ${msg}` : ''}`;
-}
 
 export async function partsList(
   db: BetterSQLite3Database,
@@ -58,7 +47,7 @@ export async function partsList(
     // Важно: используем /parts/ (со слэшем), чтобы избежать 301 /parts -> /parts/ (301 превращает POST в GET).
     const url = `/parts/${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
     const r = await httpAuthed(db, apiBaseUrl, url, { method: 'GET' });
-    if (!r.ok) return { ok: false, error: `list ${formatHttpError(r)}` };
+    if (!r.ok) return { ok: false, error: `list ${httpFailureLine(r)}` };
     if (!r.json?.ok) return { ok: false, error: 'bad list response' };
     return r.json as any;
   } catch (e) {
@@ -96,7 +85,7 @@ export async function partsGet(
     if (!partId) return { ok: false, error: 'partId is empty' };
 
     const r = await httpAuthed(db, apiBaseUrl, `/parts/${encodeURIComponent(partId)}`, { method: 'GET' });
-    if (!r.ok) return { ok: false, error: `get ${formatHttpError(r)}` };
+    if (!r.ok) return { ok: false, error: `get ${httpFailureLine(r)}` };
     if (!r.json?.ok) return { ok: false, error: 'bad get response' };
     return r.json as any;
   } catch (e) {
@@ -125,8 +114,8 @@ export async function partsCreate(
       body,
     });
     console.log('[partsService] partsCreate: response status=', r.status, 'json=', r.json);
-    if (!r.ok) return { ok: false, error: `create ${formatHttpError(r)}` };
-    if (!r.json) return { ok: false, error: `create response missing json: ${r.text ?? ''}`.trim() };
+    if (!r.ok) return { ok: false, error: `create ${httpFailureLine(r)}` };
+    if (!r.json) return { ok: false, error: `create response missing json: ${httpFailureText(r)}`.trim() };
     if (!r.json.ok) return { ok: false, error: r.json.error ?? 'bad create response' };
     // Проверяем, что это ответ от POST, а не от GET (который возвращает parts вместо part)
     if (r.json.parts !== undefined) {
@@ -156,7 +145,7 @@ export async function partsUpdateAttribute(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ value: args.value }),
     });
-    if (!r.ok) return { ok: false, error: `update ${formatHttpError(r)}` };
+    if (!r.ok) return { ok: false, error: `update ${httpFailureLine(r)}` };
     if (!r.json?.ok) return { ok: false, error: 'bad update response' };
     return r.json as any;
   } catch (e) {
@@ -174,7 +163,7 @@ export async function partsDelete(
     if (!partId) return { ok: false, error: 'partId is empty' };
 
     const r = await httpAuthed(db, apiBaseUrl, `/parts/${encodeURIComponent(partId)}`, { method: 'DELETE' });
-    if (!r.ok) return { ok: false, error: `delete ${formatHttpError(r)}` };
+    if (!r.ok) return { ok: false, error: `delete ${httpFailureLine(r)}` };
     if (!r.json?.ok) return { ok: false, error: 'bad delete response' };
     return { ok: true };
   } catch (e) {
@@ -198,7 +187,7 @@ export async function partsGetFiles(
     if (!partId) return { ok: false, error: 'partId is empty' };
 
     const r = await httpAuthed(db, apiBaseUrl, `/parts/${encodeURIComponent(partId)}/files`, { method: 'GET' });
-    if (!r.ok) return { ok: false, error: `getFiles ${formatHttpError(r)}` };
+    if (!r.ok) return { ok: false, error: `getFiles ${httpFailureLine(r)}` };
     if (!r.json?.ok) return { ok: false, error: 'bad getFiles response' };
     return r.json as any;
   } catch (e) {
@@ -222,7 +211,7 @@ export async function partsBrandLinksList(
       const r = await httpAuthed(db, apiBaseUrl, `/parts/${encodeURIComponent(partId)}/brand-links${qs ? `?${qs}` : ''}`, {
         method: 'GET',
       });
-      if (!r.ok) return { ok: false, error: `part brand links ${formatHttpError(r)}` };
+      if (!r.ok) return { ok: false, error: `part brand links ${httpFailureLine(r)}` };
       if (!r.json?.ok) return { ok: false, error: 'bad part brand links response' };
       return r.json as any;
     }
@@ -234,7 +223,7 @@ export async function partsBrandLinksList(
     query.set('engineBrandId', engineBrandId);
     query.set('limit', '5000');
     const r = await httpAuthed(db, apiBaseUrl, `/parts?${query.toString()}`, { method: 'GET' });
-    if (!r.ok) return { ok: false, error: `part list ${formatHttpError(r)}` };
+    if (!r.ok) return { ok: false, error: `part list ${httpFailureLine(r)}` };
     if (!r.json?.ok || !Array.isArray(r.json.parts)) return { ok: false, error: 'bad part list response' };
     const brandLinks = (r.json.parts as any[])
       .flatMap((p) => (Array.isArray(p?.brandLinks) ? p.brandLinks : []))
@@ -275,7 +264,7 @@ export async function partsBrandLinksUpsert(
         ...(args.linkId ? { linkId: args.linkId } : {}),
       }),
     });
-    if (!r.ok) return { ok: false, error: `part brand link ${formatHttpError(r)}` };
+    if (!r.ok) return { ok: false, error: `part brand link ${httpFailureLine(r)}` };
     if (!r.json?.ok) return { ok: false, error: 'bad part brand link response' };
     if (!r.json.linkId) return { ok: false, error: 'bad part brand link response: missing linkId' };
     return r.json as any;
@@ -301,7 +290,7 @@ export async function partsBrandLinksDelete(
       `/parts/${encodeURIComponent(partId)}/brand-links/${encodeURIComponent(linkId)}`,
       { method: 'DELETE' },
     );
-    if (!r.ok) return { ok: false, error: `delete part brand link ${formatHttpError(r)}` };
+    if (!r.ok) return { ok: false, error: `delete part brand link ${httpFailureLine(r)}` };
     if (!r.json?.ok) return { ok: false, error: 'bad delete part brand link response' };
     return { ok: true };
   } catch (e) {
@@ -341,7 +330,7 @@ export async function partsCreateAttributeDef(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!r.ok) return { ok: false, error: `attributeDefCreate ${formatHttpError(r)}` };
+    if (!r.ok) return { ok: false, error: `attributeDefCreate ${httpFailureLine(r)}` };
     if (!r.json?.ok) return { ok: false, error: r.json?.error ? String(r.json.error) : 'bad attributeDefCreate response' };
     const id = String(r.json?.id ?? '');
     if (!id) return { ok: false, error: 'attributeDefCreate response missing id' };

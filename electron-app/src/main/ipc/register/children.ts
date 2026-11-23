@@ -7,6 +7,7 @@ import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, viewModeWriteError } from '../ipcContext.js';
 import { erpEmployeeChildren } from '../../database/schema.js';
 import { httpAuthed } from '../../services/httpClient.js';
+import { httpFailureText } from '../../services/httpFailureText.js';
 
 type Ok<T> = { ok: true } & T;
 type Err = { ok: false; error: string };
@@ -15,8 +16,7 @@ type Result<T> = Ok<T> | Err;
 function toResult<T>(r: { ok: boolean; status: number; json?: unknown; text?: string }): Result<T> {
   if (r.ok && r.json && typeof r.json === 'object') return r.json as Result<T>;
   if (r.ok) return { ok: true } as Ok<T>;
-  const errPayload = r.json as { error?: unknown } | null;
-  const msg = (errPayload && typeof errPayload.error === 'string' ? errPayload.error : r.text) || `HTTP ${r.status}`;
+  const msg = httpFailureText(r);
   return { ok: false, error: String(msg) };
 }
 

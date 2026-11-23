@@ -3,6 +3,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import type { ReportBuilderExportResult, ReportBuilderPreviewRequest, ReportBuilderPreviewResult } from '@matricarmz/shared';
 import { httpAuthed } from './httpClient.js';
+import { httpFailureLine } from './httpFailureText.js';
 
 async function renderHtmlWindow(html: string) {
   const win = new BrowserWindow({
@@ -19,7 +20,7 @@ async function renderHtmlWindow(html: string) {
 
 export async function reportsBuilderMeta(db: BetterSQLite3Database, apiBaseUrl: string) {
   const r = await httpAuthed(db, apiBaseUrl, '/reports/builder/meta', { method: 'GET' });
-  if (!r.ok) return { ok: false as const, error: r.text ?? 'meta failed' };
+  if (!r.ok) return { ok: false as const, error: httpFailureLine(r) };
   return r.json as any;
 }
 
@@ -33,7 +34,7 @@ export async function reportsBuilderPreview(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(args),
   });
-  if (!r.ok) return { ok: false, error: r.text ?? 'preview failed' };
+  if (!r.ok) return { ok: false, error: httpFailureLine(r) };
   return r.json as any;
 }
 
@@ -47,7 +48,7 @@ export async function reportsBuilderExport(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(args),
   });
-  if (!r.ok) return { ok: false, error: r.text ?? 'export failed' };
+  if (!r.ok) return { ok: false, error: httpFailureLine(r) };
   return r.json as any;
 }
 

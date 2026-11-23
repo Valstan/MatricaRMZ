@@ -1,5 +1,6 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { httpAuthed } from './httpClient.js';
+import { httpFailureLine } from './httpFailureText.js';
 
 const RETRYABLE_GATEWAY_STATUSES = new Set([502, 503, 504]);
 
@@ -7,35 +8,13 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function stripHtml(raw: string): string {
-  const text = String(raw ?? '')
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return text;
-}
-
-function shortBodyMessage(raw: string): string {
-  const text = stripHtml(raw);
-  if (!text) return '';
-  if (text.length <= 180) return text;
-  return `${text.slice(0, 177)}...`;
-}
-
 function formatHttpError(r: { status: number; json?: any; text?: string }): string {
   if (RETRYABLE_GATEWAY_STATUSES.has(Number(r?.status ?? 0))) {
     return `HTTP ${r.status}: сервер временно недоступен (gateway)`;
   }
-  const jsonErr = r?.json && typeof r.json === 'object' ? (r.json.error ?? r.json.message ?? null) : null;
-  const msg =
-    typeof jsonErr === 'string'
-      ? jsonErr
-      : jsonErr != null
-        ? JSON.stringify(jsonErr)
-        : typeof r.text === 'string' && r.text.trim()
-          ? shortBodyMessage(r.text)
-          : '';
-  return `HTTP ${r.status}${msg ? `: ${msg}` : ''}`;
+  // Общее правило текста неудачи: страницу (антивирус/прокси) не показываем,
+  // обычный текст режем до читаемого размера.
+  return httpFailureLine(r);
 }
 
 function isEntityTypeNotFound(error: string) {
