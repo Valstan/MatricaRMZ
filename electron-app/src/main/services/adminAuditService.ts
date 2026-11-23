@@ -1,19 +1,8 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import { httpAuthed } from './httpClient.js';
+import { httpFailureLine } from './httpFailureText.js';
 
-function formatHttpError(r: { status: number; json?: any; text?: string }): string {
-  const jsonErr = r?.json && typeof r.json === 'object' ? (r.json.error ?? r.json.message ?? null) : null;
-  const msg =
-    typeof jsonErr === 'string'
-      ? jsonErr
-      : jsonErr != null
-        ? JSON.stringify(jsonErr)
-        : typeof r.text === 'string' && r.text.trim()
-          ? r.text.trim()
-          : '';
-  return `HTTP ${r.status}${msg ? `: ${msg}` : ''}`;
-}
 
 export async function adminAuditList(
   db: BetterSQLite3Database,
@@ -28,7 +17,7 @@ export async function adminAuditList(
   if (args?.actionType) q.set('actionType', String(args.actionType));
   const path = `/admin/audit/list${q.toString() ? `?${q.toString()}` : ''}`;
   const r = await httpAuthed(db, apiBaseUrl, path, { method: 'GET' });
-  if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
+  if (!r.ok) return { ok: false as const, error: httpFailureLine(r) };
   return r.json ?? { ok: false as const, error: 'bad json' };
 }
 
@@ -42,7 +31,7 @@ export async function adminAuditDailySummary(
   if (args?.cutoffHour != null) q.set('cutoffHour', String(args.cutoffHour));
   const path = `/admin/audit/daily-summary${q.toString() ? `?${q.toString()}` : ''}`;
   const r = await httpAuthed(db, apiBaseUrl, path, { method: 'GET' });
-  if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
+  if (!r.ok) return { ok: false as const, error: httpFailureLine(r) };
   return r.json ?? { ok: false as const, error: 'bad json' };
 }
 
@@ -56,6 +45,6 @@ export async function adminAuditDocument(
   const q = new URLSearchParams({ entityId: String(args.entityId) });
   if (args.limit != null) q.set('limit', String(args.limit));
   const r = await httpAuthed(db, apiBaseUrl, `/admin/audit/document?${q.toString()}`, { method: 'GET' });
-  if (!r.ok) return { ok: false as const, error: formatHttpError(r) };
+  if (!r.ok) return { ok: false as const, error: httpFailureLine(r) };
   return r.json ?? { ok: false as const, error: 'bad json' };
 }

@@ -17,6 +17,7 @@ import {
 import { getSession } from './authService.js';
 import { SettingsKey, settingsGetString, settingsSetString } from './settingsStore.js';
 import { httpAuthed } from './httpClient.js';
+import { httpFailureLine } from './httpFailureText.js';
 import { logMessage } from './logService.js';
 import { previewCache } from './previewCache.js';
 import { beginFileTransfer, endFileTransfer, updateFileTransfer } from './fileTransferProgress.js';
@@ -38,18 +39,6 @@ function safeFilename(name: string): string {
   return base.replaceAll(/[^a-zA-Z0-9а-яА-Я._ -]+/g, '_').slice(0, 180) || 'file';
 }
 
-function formatHttpError(r: { status: number; json?: any; text?: string }): string {
-  const jsonErr = r?.json && typeof r.json === 'object' ? (r.json.error ?? r.json.message ?? null) : null;
-  const msg =
-    typeof jsonErr === 'string'
-      ? jsonErr
-      : jsonErr != null
-        ? JSON.stringify(jsonErr)
-        : typeof r.text === 'string' && r.text.trim()
-          ? r.text.trim()
-          : '';
-  return `HTTP ${r.status}${msg ? `: ${msg}` : ''}`;
-}
 
 async function ensureSessionAccessToken(db: BetterSQLite3Database): Promise<string | null> {
   const session = await getSession(db).catch(() => null);
@@ -355,8 +344,8 @@ export async function filesUpload(
         { timeoutMs: 120_000 },
       );
       if (!initRes.ok) {
-        void logMessage(db, apiBaseUrl, 'warn', `file upload init failed: ${formatHttpError(initRes)}`, { component: 'files', action: 'upload:init' });
-        return bail(`init ${formatHttpError(initRes)}`);
+        void logMessage(db, apiBaseUrl, 'warn', `file upload init failed: ${httpFailureLine(initRes)}`, { component: 'files', action: 'upload:init' });
+        return bail(`init ${httpFailureLine(initRes)}`);
       }
       const json = initRes.json as any;
       if (!json?.ok || !json?.file) return bail('bad init response');
@@ -414,8 +403,8 @@ export async function filesUpload(
       { timeoutMs: 120_000 },
     );
     if (!r.ok) {
-      void logMessage(db, apiBaseUrl, 'warn', `file upload failed: ${formatHttpError(r)}`, { component: 'files', action: 'upload' });
-      return bail(`upload ${formatHttpError(r)}`);
+      void logMessage(db, apiBaseUrl, 'warn', `file upload failed: ${httpFailureLine(r)}`, { component: 'files', action: 'upload' });
+      return bail(`upload ${httpFailureLine(r)}`);
     }
     if (!r.json?.ok || !r.json?.file) return bail('bad upload response');
     const file = r.json.file as FileRef;
@@ -479,7 +468,7 @@ export async function filesMeta(
   const fileId = String(args?.fileId || '').trim();
   if (!fileId) return { ok: false, error: 'fileId is empty' };
   const res = await httpAuthed(db, apiBaseUrl, `/files/${encodeURIComponent(fileId)}/meta`, { method: 'GET' });
-  if (!res.ok) return { ok: false, error: `meta ${formatHttpError(res)}` };
+  if (!res.ok) return { ok: false, error: `meta ${httpFailureLine(res)}` };
   if (!res.json?.ok || !res.json?.file) return { ok: false, error: 'bad meta response' };
   return { ok: true, file: res.json.file as FileRef };
 }
@@ -500,8 +489,8 @@ export async function filesDownload(
 
     const metaRes = await httpAuthed(db, apiBaseUrl, `/files/${encodeURIComponent(fileId)}/meta`, { method: 'GET' });
     if (!metaRes.ok) {
-      void logMessage(db, apiBaseUrl, 'warn', `file download meta failed: ${formatHttpError(metaRes)}`, { component: 'files', action: 'download:meta' });
-      return bail(`meta ${formatHttpError(metaRes)}`);
+      void logMessage(db, apiBaseUrl, 'warn', `file download meta failed: ${httpFailureLine(metaRes)}`, { component: 'files', action: 'download:meta' });
+      return bail(`meta ${httpFailureLine(metaRes)}`);
     }
     if (!metaRes.json?.ok || !metaRes.json?.file) return bail('bad meta response');
     const meta = metaRes.json.file as FileRef;
@@ -533,9 +522,9 @@ export async function filesDownload(
     // If Yandex: get direct URL and stream download.
     const urlRes = await httpAuthed(db, apiBaseUrl, `/files/${encodeURIComponent(fileId)}/url`, { method: 'GET' });
     if (!urlRes.ok) {
-      void logMessage(db, apiBaseUrl, 'warn', `file download url failed: ${formatHttpError(urlRes)}`, { component: 'files', action: 'download:url' });
-      endFileTransfer(transfer.id, { ok: false, error: `url ${formatHttpError(urlRes)}` });
-      return { ok: false, error: `url ${formatHttpError(urlRes)}` };
+      void logMessage(db, apiBaseUrl, 'warn', `file download url failed: ${httpFailureLine(urlRes)}`, { component: 'files', action: 'download:url' });
+      endFileTransfer(transfer.id, { ok: false, error: `url ${httpFailureLine(urlRes)}` });
+      return { ok: false, error: `url ${httpFailureLine(urlRes)}` };
     }
     const directUrl = urlRes.json?.url as string | null | undefined;
 
@@ -612,7 +601,7 @@ export async function filesDelete(
     if (!fileId) return { ok: false, error: 'fileId is empty' };
 
     const r = await httpAuthed(db, apiBaseUrl, `/files/${encodeURIComponent(fileId)}`, { method: 'DELETE' });
-    if (!r.ok) return { ok: false, error: `delete ${formatHttpError(r)}` };
+    if (!r.ok) return { ok: false, error: `delete ${httpFailureLine(r)}` };
     if (!r.json?.ok) return { ok: false, error: 'bad delete response' };
     previewCache.delete(fileId);
     return r.json as any;
@@ -634,8 +623,8 @@ export async function filesPreviewGet(
 
     const r = await httpAuthed(db, apiBaseUrl, `/files/${encodeURIComponent(fileId)}/preview`, { method: 'GET' }, { timeoutMs: 30_000 });
     if (!r.ok) {
-      void logMessage(db, apiBaseUrl, 'warn', `file preview failed: ${formatHttpError(r)}`, { component: 'files', action: 'preview' });
-      return { ok: false, error: `preview ${formatHttpError(r)}` };
+      void logMessage(db, apiBaseUrl, 'warn', `file preview failed: ${httpFailureLine(r)}`, { component: 'files', action: 'preview' });
+      return { ok: false, error: `preview ${httpFailureLine(r)}` };
     }
     if (!r.json?.ok) return { ok: false, error: 'bad preview response' };
 

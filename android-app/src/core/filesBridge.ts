@@ -8,6 +8,7 @@
 // намеренно не регистрируются — шим ответит мягким «недоступно на планшете».
 import { getSession } from '../../../electron-app/src/main/services/authService.js';
 import { httpAuthed } from '../../../electron-app/src/main/services/httpClient.js';
+import { httpFailureLine } from '../../../electron-app/src/main/services/httpFailureText.js';
 import type { IpcContext } from '../../../electron-app/src/main/ipc/ipcContext.js';
 import { requirePermOrResult } from '../../../electron-app/src/main/ipc/ipcContext.js';
 
@@ -16,8 +17,8 @@ import { ipcMain } from 'electron';
 type FileRefLike = { id: string; name: string; size: number; mime?: string };
 
 function formatHttpError(r: { status: number; json?: any; text?: string }): string {
-  const reason = r.json?.error ?? r.text ?? '';
-  return `HTTP ${r.status}${reason ? `: ${String(reason).slice(0, 200)}` : ''}`;
+  // Общее правило текста неудачи (страница антивируса не показывается, текст режется).
+  return httpFailureLine(r);
 }
 
 async function bytesToDataUrl(blob: Blob, fallbackMime: string): Promise<string> {

@@ -16,6 +16,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import { attributeValues } from '../database/schema.js';
 import { httpAuthed } from './httpClient.js';
+import { httpFailureLine } from './httpFailureText.js';
 import { SettingsKey, settingsGetString, settingsSetString } from './settingsStore.js';
 
 const PENDING_RELEASE_CAP = 50;
@@ -45,9 +46,10 @@ function formatHttpError(r: { status: number; json?: any; text?: string }): stri
   // Двигатель материализуется в БД только первой записью атрибута (deferred create),
   // поэтому на только что созданной карточке сервер честно отвечает 404.
   if (r.status === 404) return 'Сначала сохраните карточку двигателя, потом берите его в работу';
-  const msg = typeof body?.error === 'string' ? body.error : typeof r.text === 'string' ? r.text.trim() : '';
-  return `HTTP ${r.status}${msg ? `: ${msg}` : ''}`;
+  // Общее правило текста неудачи: страницу (антивирус/прокси) не показываем.
+  return httpFailureLine(r);
 }
+
 
 /**
  * Кладём строку резерва в реплику сразу, со `sync_status='synced'`: замок должен

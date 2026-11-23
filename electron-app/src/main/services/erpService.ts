@@ -4,6 +4,7 @@ import { filterRowsTiered } from '@matricarmz/shared';
 import type { GlobalSearchResponse, PartMetadata, PartSpec, WarehouseLookupOption, WarehouseLookups } from '@matricarmz/shared';
 
 import { httpAuthed } from './httpClient.js';
+import { httpFailureLine } from './httpFailureText.js';
 import { listEntitiesByTypeWithAttrs } from './entityService.js';
 import { decorateNomenclatureReplicaRow, masterdataLookupLabel, type NomenclatureReplicaRefs } from './nomenclatureReplica.js';
 import {
@@ -78,23 +79,10 @@ function formatHttpError(
     }
     return 'HTTP 404: API недоступно на сервере (проверьте настройки nginx/proxy).';
   }
-  const jsonErr = r?.json && typeof r.json === 'object' ? (r.json.error ?? r.json.message ?? null) : null;
-  const rawMsg =
-    typeof jsonErr === 'string'
-      ? jsonErr
-      : jsonErr != null
-        ? JSON.stringify(jsonErr)
-        : typeof r.text === 'string' && r.text.trim()
-          ? r.text.trim()
-          : '';
-  const msg = rawMsg
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 240);
-  return `HTTP ${r.status}${msg ? `: ${msg}` : ''}`;
+  // Общее правило текста неудачи: страницу (антивирус/прокси) не показываем,
+  // обычный текст режем до читаемого размера.
+  return httpFailureLine(r);
 }
-
 // HTTP 2xx, а тела в форме `{ ok: true, … }` нет: JSON не разобрался (обрыв на середине
 // тела — таймер транспорта снимается по заголовкам, тело читается без него) либо вместо
 // JSON пришла страница прокси/портала. Раньше это выглядело как «unknown» на экране.

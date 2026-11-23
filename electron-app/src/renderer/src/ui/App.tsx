@@ -894,6 +894,22 @@ const UPDATE_ACTIVE_STAGES = ['checking', 'downloading', 'verifying', 'installin
 const UPDATE_REMINDER_EVERY_MS = 30 * 60_000;
 
 /**
+ * Короткий текст ошибки для баннера оператора.
+ *
+ * Текст ошибки может прийти из любого места (главный процесс, сетевой сбой), а в
+ * баннере читается только короткая строка. Страница антивируса на 170 КБ уехала
+ * прямо в чат владельцу (инцидент 23.11.2026) — потому текст режем здесь, последним
+ * рубежом перед глазами оператора.
+ */
+function clipOperatorError(text: string, max = 300): string {
+  const flat = String(text ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (flat.length <= max) return flat;
+  return `${flat.slice(0, max).trimEnd()}…`;
+}
+
+/**
  * Состояние обновления из главного процесса (канал `update:appState`).
  * Общий процент и этап пришли из main — полоса одна, и она не прыгает назад.
  */
@@ -917,6 +933,9 @@ export function App() {
   // ответ — что вышло (ушло / уже отправляли / почему не вышло).
   const [stuckReportBusy, setStuckReportBusy] = useState(false);
   const [stuckReportNote, setStuckReportNote] = useState('');
+  // Текст отчёта для копирования: когда канал перехватили (антивирус), отчёт не ушёл —
+  // но он не должен пропасть: оператор копирует текст и отдаёт администратору иначе.
+  const [stuckReportText, setStuckReportText] = useState<string | null>(null);
   // Двухклик-подтверждение «Отбросить» у rejected-строки (09.10.2026): снос локальной
   // работы — осознанное действие, а не случайный клик по баннеру.
   const [dropConfirmId, setDropConfirmId] = useState<string | null>(null);
@@ -925,11 +944,16 @@ export function App() {
     if (stuckReportBusy) return;
     setStuckReportBusy(true);
     setStuckReportNote('');
+    setStuckReportText(null);
     try {
       const r = await window.matrica.sync.reportStuckPending();
       if (!r?.ok) {
-        const error = r?.error ?? 'неизвестно';
+        // Причину обрезаем: текст ошибки может прийти из любого места, а в баннер
+        // оператора длинная строка не читается (инцидент 23.11.2026 — страница
+        // антивируса на 170 КБ уехала прямо в чат владельцу).
+        const error = clipOperatorError(r?.error ?? 'неизвестно');
         setStuckReportNote(`Не отправилось: ${error}`);
+        setStuckReportText(r.reportText ?? null);
         notifyOperator(`Не удалось сообщить администратору: ${error}`, 'error');
         return;
       }
@@ -7287,6 +7311,27 @@ export function App() {
                     {stuckReportBusy ? "Отправляю…" : "Нажмите здесь, чтобы сообщить администратору"}
                   </button>
                   {stuckReportNote ? <span style={{ fontSize: 12 }}>{stuckReportNote}</span> : null}
+                  {stuckReportText ? (
+                    <button
+                      type="button"
+                      data-stuck-pending-copy
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(stuckReportText);
+                        notifyOperator('Отчёт скопирован — отправьте его администратору (например, в мессенджер).');
+                      }}
+                      style={{
+                        background: "#fff",
+                        color: "#991b1b",
+                        border: "1px solid #fca5a5",
+                        borderRadius: 8,
+                        padding: "4px 12px",
+                        cursor: "pointer",
+                        fontWeight: 700,
+                      }}
+                    >
+                      Скопировать отчёт
+                    </button>
+                  ) : null}
                 </div>
               </div>
             );

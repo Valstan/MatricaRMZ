@@ -1,6 +1,7 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import { httpAuthed } from './httpClient.js';
+import { httpFailureText } from './httpFailureText.js';
 
 export type CriticalEventItem = {
   id: string;
@@ -53,7 +54,7 @@ export async function criticalEventsList(
   const query = `/diagnostics/critical-events?days=${days}&limit=${limit}`;
   const res = await httpAuthed(db, apiBaseUrl, query, { method: 'GET' }, { timeoutMs: 20_000 });
   if (!res.ok) {
-    return { ok: false, error: String(res.text ?? res.json?.error ?? `HTTP ${res.status}`) };
+    return { ok: false, error: httpFailureText(res) };
   }
   const rows = Array.isArray(res.json?.events) ? res.json.events : [];
   const events = rows.map((row: any) => normalizeItem(row)).filter((row: CriticalEventItem | null): row is CriticalEventItem => Boolean(row));
@@ -70,7 +71,7 @@ export async function criticalEventDelete(
   const query = `/diagnostics/critical-events/${encodeURIComponent(id)}`;
   const res = await httpAuthed(db, apiBaseUrl, query, { method: 'DELETE' }, { timeoutMs: 20_000 });
   if (!res.ok) {
-    return { ok: false, error: String(res.text ?? res.json?.error ?? `HTTP ${res.status}`) };
+    return { ok: false, error: httpFailureText(res) };
   }
   return { ok: true, deleted: res.json?.deleted === true };
 }
@@ -82,7 +83,7 @@ export async function criticalEventsClear(
   const query = '/diagnostics/critical-events';
   const res = await httpAuthed(db, apiBaseUrl, query, { method: 'DELETE' }, { timeoutMs: 20_000 });
   if (!res.ok) {
-    return { ok: false, error: String(res.text ?? res.json?.error ?? `HTTP ${res.status}`) };
+    return { ok: false, error: httpFailureText(res) };
   }
   return { ok: true, deleted: Number.isFinite(Number(res.json?.deleted)) ? Number(res.json.deleted) : 0 };
 }

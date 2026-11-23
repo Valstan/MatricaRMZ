@@ -5,20 +5,9 @@ import { basename, dirname, join, resolve } from 'node:path';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
 import { httpAuthed } from './httpClient.js';
+import { httpFailureLine } from './httpFailureText.js';
 import { logMessage } from './logService.js';
 
-function formatHttpError(r: { status: number; json?: any; text?: string }): string {
-  const jsonErr = r?.json && typeof r.json === 'object' ? (r.json.error ?? r.json.message ?? null) : null;
-  const msg =
-    typeof jsonErr === 'string'
-      ? jsonErr
-      : jsonErr != null
-        ? JSON.stringify(jsonErr)
-        : typeof r.text === 'string' && r.text.trim()
-          ? r.text.trim()
-          : '';
-  return `HTTP ${r.status}${msg ? `: ${msg}` : ''}`;
-}
 
 // Downloaded nightly backups are full plaintext SQLite snapshots of the whole DB,
 // cached here only for the duration of a "view backup" session. They are deleted on
@@ -35,8 +24,8 @@ export async function nightlyBackupsList(
   try {
     const r = await httpAuthed(db, apiBaseUrl, '/backups/nightly', { method: 'GET' }, { timeoutMs: 30_000 });
     if (!r.ok) {
-      void logMessage(db, apiBaseUrl, 'warn', `backup list failed: ${formatHttpError(r)}`, { component: 'backups', action: 'nightlyList' });
-      return { ok: false, error: `list ${formatHttpError(r)}` };
+      void logMessage(db, apiBaseUrl, 'warn', `backup list failed: ${httpFailureLine(r)}`, { component: 'backups', action: 'nightlyList' });
+      return { ok: false, error: `list ${httpFailureLine(r)}` };
     }
     if (!r.json?.ok || !Array.isArray(r.json.backups)) return { ok: false, error: 'bad list response' };
     return { ok: true, backups: r.json.backups as NightlyBackupListItem[] };
@@ -65,12 +54,12 @@ export async function nightlyBackupDownload(
     });
     const urlRes = await httpAuthed(db, apiBaseUrl, `/backups/nightly/${encodeURIComponent(date)}/url`, { method: 'GET' }, { timeoutMs: 30_000 });
     if (!urlRes.ok) {
-      void logMessage(db, apiBaseUrl, 'warn', `backup url failed: ${formatHttpError(urlRes)}`, {
+      void logMessage(db, apiBaseUrl, 'warn', `backup url failed: ${httpFailureLine(urlRes)}`, {
         component: 'backups',
         action: 'nightlyUrl',
         date,
       });
-      return { ok: false, error: `url ${formatHttpError(urlRes)}` };
+      return { ok: false, error: `url ${httpFailureLine(urlRes)}` };
     }
     if (!urlRes.json?.ok || !urlRes.json.url) return { ok: false, error: 'bad url response' };
     const directUrl = String(urlRes.json.url || '');
@@ -142,8 +131,8 @@ export async function nightlyBackupRunNow(
   try {
     const r = await httpAuthed(db, apiBaseUrl, '/backups/nightly/run', { method: 'POST' }, { timeoutMs: 10_000 });
     if (!r.ok) {
-      void logMessage(db, apiBaseUrl, 'warn', `backup run failed: ${formatHttpError(r)}`, { component: 'backups', action: 'nightlyRun' });
-      return { ok: false, error: `run ${formatHttpError(r)}` };
+      void logMessage(db, apiBaseUrl, 'warn', `backup run failed: ${httpFailureLine(r)}`, { component: 'backups', action: 'nightlyRun' });
+      return { ok: false, error: `run ${httpFailureLine(r)}` };
     }
     if (!r.json?.ok) return { ok: false, error: 'bad run response' };
     void logMessage(db, apiBaseUrl, 'info', 'backup run started', { component: 'backups', action: 'nightlyRun', critical: true });

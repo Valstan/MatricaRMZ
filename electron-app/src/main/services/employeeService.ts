@@ -9,6 +9,7 @@ import {
 } from '@matricarmz/shared';
 
 import { httpAuthed } from './httpClient.js';
+import { httpFailureText } from './httpFailureText.js';
 import { attributeDefs, attributeValues, entities, entityTypes, users, userSectionAccess } from '../database/schema.js';
 
 
@@ -31,7 +32,10 @@ function safeJsonParse(value: string | null): unknown {
 function serverErrorText(r: { status: number; text?: string; json?: { error?: string } }, fallback: string): string {
   const raw = String(r.text ?? '').trim() || String(r.json?.error ?? '').trim();
   if (raw === 'forbidden') return 'Недостаточно прав: операцию отклонил сервер (нужно право администратора).';
-  return raw || fallback;
+  if (!raw) return fallback;
+  // Общее правило текста неудачи: страницу (антивирус/прокси) не показываем,
+  // обычный текст режем до читаемого размера.
+  return httpFailureText(r);
 }
 
 function toAttachmentPreviews(raw: unknown): Array<{ id: string; name: string; mime: string | null }> {
