@@ -44,11 +44,11 @@ describe('pickArrivalKeeper — канон даты приёмки: карточ
 
 describe('stageAuthorAfterMerge — человек важнее скрипта', () => {
   it('у живой автор-скрипт, у старой человек → переносим человека', () => {
-    expect(stageAuthorAfterMerge('stages:backfill', 'sapegin')).toBe('sapegin');
+    expect(stageAuthorAfterMerge('stages:backfill', 'operator1')).toBe('operator1');
   });
 
   it('у живой уже человек — не трогаем', () => {
-    expect(stageAuthorAfterMerge('sapegin', 'valstan')).toBeNull();
+    expect(stageAuthorAfterMerge('operator1', 'valstan')).toBeNull();
   });
 
   it('у старой тоже служебный/пусто — нечего переносить', () => {

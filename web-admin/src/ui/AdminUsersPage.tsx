@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import type { AdminUserPermissionsPayload, AdminUserSummary, PermissionDelegation } from '@matricarmz/shared';
 import { SYSTEM_ROLE_CATALOG, isAssignableSystemRole, permAdminOnly, permGroupRu, permTitleRu, systemRoleTitleRu } from '@matricarmz/shared';
 import { Button } from './components/Button.js';
 import { Input } from './components/Input.js';
+import { SearchSelect } from './components/SearchSelect.js';
 import * as adminUsers from '../api/adminUsers.js';
 import * as authApi from '../api/auth.js';
 import * as ledger from '../api/ledger.js';
@@ -20,6 +21,7 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
   const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [userPerms, setUserPerms] = useState<AdminUserPermissionsPayload | null>(null);
   const [permQuery, setPermQuery] = useState<string>('');
+  const [pendingQuery, setPendingQuery] = useState<string>('');
   const [delegations, setDelegations] = useState<PermissionDelegation[]>([]);
   const [newDelegation, setNewDelegation] = useState<{ fromUserId: string; permCode: string; endsAt: string; note: string }>({
     fromUserId: '',
@@ -59,6 +61,41 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
     if (!normalized) return 'Пользователь';
     return systemRoleTitleRu(normalized);
   }
+
+  /**
+   * Поиск по пользователям (владелец 23.11.2026): в веб-версии, во вкладке «Админ»,
+   * пользователя приходилось искать ручной прокруткой списка.
+   *
+   * Набор опций общий для всех мест, где выбирают пользователя: одно объявление —
+   * один список, иначе поиск появится в одном углу, а прокрутка останется в другом.
+   * `searchText` — логин: владелец ищет и по фамилии, и по логину.
+   */
+  const userOptions = useMemo(
+    () =>
+      users.map((u) => ({
+        id: u.id,
+        label: `${u.username} (${formatAccessLabel(u.role, u.isActive)})${u.isActive ? '' : ' [disabled]'}${u.deleteRequestedAt ? ' [на удаление]' : ''}`,
+        searchText: `${u.login ?? ''} ${u.username ?? ''}`,
+      })),
+    [users],
+  );
+
+  /** Пользователи, ожидающие одобрения: их нельзя выбрать целью слияния. */
+  const pendingUserIds = useMemo(
+    () => new Set(users.filter((u) => String(u.role).toLowerCase() === 'pending').map((u) => u.id)),
+    [users],
+  );
+
+  /** Цели слияния — все, кроме ожидающих одобрения (как было в списке до поиска). */
+  const mergeTargetOptions = useMemo(() => userOptions.filter((o) => !pendingUserIds.has(o.id)), [userOptions, pendingUserIds]);
+
+  /** Ожидающие одобрения, отфильтрованные поиском по ФИО/логину. */
+  const pendingUsers = useMemo(() => {
+    const query = pendingQuery.trim().toLowerCase();
+    const all = users.filter((u) => String(u.role).toLowerCase() === 'pending');
+    if (!query) return all;
+    return all.filter((u) => `${u.username ?? ''} ${u.login ?? ''}`.toLowerCase().includes(query));
+  }, [users, pendingQuery]);
 
   async function refreshUsers() {
     const r = await adminUsers.listUsers();
@@ -443,9 +480,17 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
             <div style={{ marginTop: 12, border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
               <strong>Ожидают одобрения</strong>
               <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
-                {users
-                  .filter((u) => String(u.role).toLowerCase() === 'pending')
-                  .map((u) => {
+                <Input
+                  value={pendingQuery}
+                  onChange={(e) => setPendingQuery(e.target.value)}
+                  placeholder="Поиск по ожидающим: фамилия, имя или логин"
+                />
+                {pendingUsers.length === 0 && (
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    {pendingQuery.trim() ? 'Никого не найдено' : 'Никто не ожидает одобрения'}
+                  </div>
+                )}
+                {pendingUsers.map((u) => {
                     const mergeTarget = pendingMergeTargets[u.id] ?? '';
                     const pendingRole = pendingRoles[u.id] ?? 'viewer';
                     return (
@@ -490,20 +535,13 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                           >
                             Одобрить
                           </Button>
-                          <select
-                            value={mergeTarget}
-                            onChange={(e) => setPendingMergeTargets((p) => ({ ...p, [u.id]: e.target.value }))}
+                          <SearchSelect
+                            value={mergeTarget || null}
+                            options={mergeTargetOptions}
+                            placeholder="Слить с существующим…"
                             disabled={!canApprovePending}
-                          >
-                            <option value="">Слить с существующим…</option>
-                            {users
-                              .filter((x) => String(x.role).toLowerCase() !== 'pending')
-                              .map((x) => (
-                                <option key={x.id} value={x.id}>
-                                  {x.username} ({x.role})
-                                </option>
-                              ))}
-                          </select>
+                            onChange={(next) => setPendingMergeTargets((p) => ({ ...p, [u.id]: next ?? '' }))}
+                          />
                           <Button
                             variant="ghost"
                             onClick={async () => {
@@ -590,19 +628,17 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
               <div className="muted" style={{ marginTop: 12, marginBottom: 6 }}>
                 Выбрать пользователя
               </div>
-              <select
-                value={selectedUserId}
-                onChange={(e) => setSelectedUserId(e.target.value)}
-                style={{ width: '100%', padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-              >
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.username} ({formatAccessLabel(u.role, u.isActive)}) {u.isActive ? '' : '[disabled]'}{' '}
-                    {u.deleteRequestedAt ? '[на удаление]' : ''}
-                  </option>
-                ))}
-                {users.length === 0 && <option value="">(пусто)</option>}
-              </select>
+              <SearchSelect
+                value={selectedUserId || null}
+                options={userOptions}
+                placeholder="Поиск: фамилия, имя или логин"
+                onChange={(next) => setSelectedUserId(next ?? '')}
+              />
+              {users.length === 0 && (
+                <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>
+                  (список пользователей пуст)
+                </div>
+              )}
             </div>
 
             <div style={{ border: '1px solid #f3f4f6', borderRadius: 12, padding: 12 }}>
@@ -909,18 +945,12 @@ export function AdminUsersPage(props: { canManageUsers: boolean; me?: { id: stri
                       Делегировать право выбранному пользователю до даты.
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                      <select
-                        value={newDelegation.fromUserId}
-                        onChange={(e) => setNewDelegation((p) => ({ ...p, fromUserId: e.target.value }))}
-                        style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #d1d5db' }}
-                      >
-                        <option value="">делегирует (пользователь)</option>
-                        {users.map((u) => (
-                          <option key={u.id} value={u.id}>
-                            {u.username}
-                          </option>
-                        ))}
-                      </select>
+                      <SearchSelect
+                        value={newDelegation.fromUserId || null}
+                        options={userOptions}
+                        placeholder="делегирует (пользователь)"
+                        onChange={(next) => setNewDelegation((p) => ({ ...p, fromUserId: next ?? '' }))}
+                      />
                       <Input
                         value={newDelegation.permCode}
                         onChange={(e) => setNewDelegation((p) => ({ ...p, permCode: e.target.value }))}

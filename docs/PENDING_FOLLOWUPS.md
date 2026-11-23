@@ -60,7 +60,6 @@
 
 - [🟡 Индекс грабель у потолка: новая грабля не влезает без сокращения формулировок 🗓 since:2026-11-20](pending/indeks-grabeley-u-potolka.md)
 
-- [🟡 Логины сотрудников в коде: старый скрипт выдачи прав нарушает D-041 🗓 since:2026-11-21](pending/loginy-sotrudnikov-v-kode-staryy-skript-vydachi-d-041.md)
 
 - [🟡 Печатные формы: офлайн-шаблоны (таблицы вне sync-контракта — печать по шаблону требует связи с сервером) 🗓 since:2026-11-20](pending/pechatnye-formy-oflayn-shablony.md)
 
@@ -178,15 +177,16 @@
 
 ## 🟢 Крупные фичи / решения владельца
 
-- [Списки по одним правилам (промт #67): кит, верхний уровень, карточки, отчёты и список СИЗ сделаны; остались шов с ПП и приёмка 🗓 since:2026-11-23](pending/unified-list-rules-cards-and-reports.md)
+- [Списки по одним правилам (промт #67): кит, верхний уровень, карточки, отчёты, диалоги, ПП и список СИЗ — сделаны; осталась приёмка 🗓 since:2026-11-23](pending/unified-list-rules-cards-and-reports.md)
 - [🟡 Подписи печатных форм: приёмка на живой печати ПП и перенос на наряд (нужен ли) 🗓 since:2026-11-23](pending/print-signature-slots-acceptance.md)
+- [Печатная форма ПП: колонки в одну строку и разрывы страниц — приёмка и решение по обрезанным значениям 🗓 since:2026-11-23](pending/pp-print-form-acceptance.md)
 - [🟡 ПП на ките: хвост шва — клавиатурное перемещение по ручке (нужен групповой кит) 🗓 since:2026-11-23](pending/pp-seam-with-list-kit.md)
 - [Пакет владельца 12.09: отчёты, спецификации, два учёта 🗓 since:2026-09-12 🟢](pending/paket-vladeltsa-12-09-otchety-spetsifikatsii-dva-ucheta.md)
 - [Большой рефакторинг трёх клиентов — остаток программы 🗓 since:2026-08-08 🟡](pending/bolshoy-refaktoring-trekh-klientov-ostatok-programmy.md)
 - [Хвосты v3 «Вкладки» после сноса старых оболочек 🗓 since:2026-07-28](pending/khvosty-v3-vkladki-posle-snosa-starykh-obolochek.md)
 - [Импорт остатков из 1С — приёмка третьей итерации + автозабор (этап 5) 🗓 since:2026-07-27](pending/import-ostatkov-iz-1s-priemka-tretey-iteratsii.md)
 - [«Принят на хранение» — зарезервировать под сценарий долгого хранения + дедлайн 🗓 since:2026-07-29 🟢](pending/prinyat-na-khranenie-zarezervirovat-pod-stsenariy.md)
-- [Проверить, что двигатель с PC51 (asia2) доехал сам 🗓 since:2026-07-29 🟡](pending/proverit-chto-dvigatel-s-pc51-asia2-doekhal-sam.md)
+- [Проверить, что двигатель с PC51 доехал сам 🗓 since:2026-07-29 🟡](pending/proverit-chto-dvigatel-s-pc51-doehal-sam.md)
 - [Идея: производная «стадия» двигателя в карточке (разборка/дефектовка/сборка) 🗓 since:2026-07-29 🟢](pending/ideya-proizvodnaya-stadiya-dvigatelya-v-kartochke.md)
 - [Платежи по двигателям — обкатка бухгалтером 🗓 since:2026-07-29 🟢](pending/platezhi-po-dvigatelyam-obkatka-bukhgalterom.md)
 - [Хвосты нитки «слоты контракта / печать нарядов» 🗓 since:2026-07-31 🟡](pending/khvosty-nitki-sloty-kontrakta-pechat-naryadov.md)

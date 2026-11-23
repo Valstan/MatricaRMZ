@@ -11,20 +11,37 @@ import { isSuperadminLogin, listEmployeesAuth } from '../services/employeeAuthSe
 
 /**
  * Выдать `work_sheets.edit` узкому кругу (план favorites-work-stages-defaults-2026-10,
- * PR-6, решение владельца 12.10.2026): valstan, sapegin, fatyhova. У остальных —
- * отобрать (явный override `allowed=false`, как в revoke 15.09.2026: виден в админке
- * как «настроено вручную» и держится независимо от будущих правок ролей).
+ * PR-6, решение владельца 12.10.2026): круг из трёх, названных владельцем вне
+ * репозитория. У остальных — отобрать (явный override `allowed=false`, как в revoke
+ * 15.09.2026: виден в админке как «настроено вручную» и держится независимо от
+ * будущих правок ролей).
  *
- * valstan — супер-админ: overrides на него не читаются вовсе (право и так есть
+ * Суперадмин — исключение: overrides на него не читаются вовсе (право и так есть
  * по роли), строка ему не пишется, в отчёте он идёт отдельной строкой.
  *
- *   corepack pnpm -F @matricarmz/backend-api perm:grant-worksheets-trio          # dry-run
- *   corepack pnpm -F @matricarmz/backend-api perm:grant-worksheets-trio:apply    # запись
+ * Логины — только аргументом запуска: в репозитории их быть не может (D-041).
+ *
+ *   corepack pnpm -F @matricarmz/backend-api perm:grant-worksheets-trio -- --editors=<логин1,логин2,логин3>
+ *   corepack pnpm -F @matricarmz/backend-api perm:grant-worksheets-trio:apply -- --editors=...
  */
-const TRIO = ['valstan', 'sapegin', 'fatyhova'];
+const PERM = PermissionCode.WorkSheetsEdit as any;
+
+function editorsFromArg(flag: string): ReadonlySet<string> {
+  const raw = process.argv.find((a) => a.startsWith(`${flag}=`));
+  const list = (raw ? raw.slice(flag.length + 1) : '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  if (list.length === 0) {
+    console.error(`Нужен ${flag}=<логины через запятую> — состав круга в репозитории не хранится (D-041).`);
+    process.exit(2);
+  }
+  return new Set(list);
+}
 
 async function main() {
   const apply = process.argv.includes('--apply');
+  const editors = editorsFromArg('--editors');
   const list = await listEmployeesAuth();
   if (!list.ok) {
     console.error(list.error || 'не удалось загрузить сотрудников');
@@ -34,7 +51,7 @@ async function main() {
   const norm = (v: unknown) => String(v ?? '').trim().toLowerCase();
   const rows = list.rows as Array<{ id: unknown; login: unknown }>;
   const byLogin = new Map(rows.map((r) => [norm(r.login), r]));
-  const missing = TRIO.filter((login) => !byLogin.has(login));
+  const missing = [...editors].filter((login) => !byLogin.has(login));
   if (missing.length > 0) {
     console.error(`логины не найдены в базе: ${missing.join(', ')} — ничего не записано`);
     process.exit(1);
@@ -43,7 +60,7 @@ async function main() {
   const existing = await db
     .select({ userId: userPermissions.userId, allowed: userPermissions.allowed })
     .from(userPermissions)
-    .where(and(eq(userPermissions.permCode, PermissionCode.WorkSheetsEdit as any)));
+    .where(and(eq(userPermissions.permCode, PERM)));
   const current = new Map(existing.map((r) => [String(r.userId), !!r.allowed]));
 
   const ts = Date.now();
@@ -60,7 +77,7 @@ async function main() {
       superadmins.push(login);
       continue;
     }
-    const want = TRIO.includes(norm(login));
+    const want = editors.has(norm(login));
     const has = current.get(id) === true;
     if (want && has) {
       alreadyOk += 1;
@@ -72,7 +89,7 @@ async function main() {
     if (!apply) continue;
     await db
       .insert(userPermissions)
-      .values({ id: randomUUID(), userId: id as any, permCode: PermissionCode.WorkSheetsEdit as any, allowed: want, createdAt: ts })
+      .values({ id: randomUUID(), userId: id as any, permCode: PERM, allowed: want, createdAt: ts })
       .onConflictDoUpdate({
         target: [userPermissions.userId, userPermissions.permCode],
         set: { allowed: want, createdAt: ts },
@@ -91,7 +108,7 @@ async function main() {
     .from(permissionDelegations)
     .where(
       and(
-        eq(permissionDelegations.permCode, PermissionCode.WorkSheetsEdit as any),
+        eq(permissionDelegations.permCode, PERM),
         isNull(permissionDelegations.revokedAt),
         lte(permissionDelegations.startsAt, ts as any),
       ),
