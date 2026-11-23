@@ -8,21 +8,22 @@ import { wantedLevel } from './grantProductionProgramSection.js';
  * регистром, а «не тот человек» здесь = дыра в правах.
  */
 describe('wantedLevel — уровень раздела ПП для аккаунта', () => {
-  const editors = new Set(['sapegin', 'fatyhova']);
+  // Логины в фикстуре — вымышленные (D-041: реальных логинов в репозитории быть не может).
+  const editors = new Set(['editor1', 'editor2']);
 
   it('круг editor’ов ведёт план', () => {
-    expect(wantedLevel('sapegin', editors)).toBe('editor');
-    expect(wantedLevel('fatyhova', editors)).toBe('editor');
+    expect(wantedLevel('editor1', editors)).toBe('editor');
+    expect(wantedLevel('editor2', editors)).toBe('editor');
   });
 
   it('остальные — наблюдатели', () => {
-    expect(wantedLevel('ozerolove', editors)).toBe('viewer');
-    expect(wantedLevel('novosel', editors)).toBe('viewer');
+    expect(wantedLevel('viewer1', editors)).toBe('viewer');
+    expect(wantedLevel('viewer2', editors)).toBe('viewer');
   });
 
   it('регистр и пробелы не мешают', () => {
-    expect(wantedLevel('  SAPEGIN ', editors)).toBe('editor');
-    expect(wantedLevel('Fatyhova', editors)).toBe('editor');
+    expect(wantedLevel('  EDITOR1 ', editors)).toBe('editor');
+    expect(wantedLevel('Editor2', editors)).toBe('editor');
   });
 
   it('пустой логин — наблюдатель', () => {
