@@ -100,7 +100,7 @@
 
 - [⏳ Претензия 23.11: данные оператора не уходят на сервер — нужен снимок клиента и слово владельца на прод-запись 🗓 since:2026-11-23](pending/dannie-operatora-ne-uhodyat-na-server.md)
 - [⏳ Свой ключ DeepSeek под проект (D-188): выпускает владелец, переезд делаем мы 🗓 since:2026-11-08](pending/svoy-key-deepseek-dlya-proekta-d-188.md)
-- [⏳ Промты проекта из КАРМАНА (D-190): очередь 23.11 разобрана (#70–#77 закрыты и в архиве); живы #56–#63 и #67–#69 🗓 since:2026-11-08](pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md)
+- [⏳ Промты проекта из КАРМАНА (D-190): очередь 23.11 разобрана — #70–#81 закрыты и в архиве; живы #82–#85 (#82/#83 ждут снимок клиента, #84/#85 — приёмку на планшете) 🗓 since:2026-11-08](pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md)
 - [⏳ MiniMax-воркер на проде: воркер живой, звено включено; ждём первый ответ от MiniMax — пул Кармана пуст даже после сброса суток 🗓 since:2026-11-22](pending/minimax-worker-ekspluataciya-na-prode.md)
 - [⏳ Локальный MiniMax на клиенте: код выпущен (v3.142.0), ждём комнату «Кармана», рантайм в CI и смоук на живой машине 🗓 since:2026-11-23](pending/lokalnyy-minimax-na-kliente-privyka-i-runtaym.md)
 - [⏳ Планшетная версия «Матрицы РМЗ»: код готов, APK выложен релизом v3.143.0 (уезжающее левое меню) — ждём проверку на устройстве 🗓 since:2026-11-23](pending/planshetnaya-versiya-matritsy-rmz-na-planshete.md)
@@ -113,7 +113,8 @@
 - [⏳ Приёмка парка на 3.102.0: приказ о СИЗ и должности должны быть видны оператору 🗓 since:2026-11-03](pending/priemka-parka-na-3-101-0-prikaz-o-siz.md)
 - [⏳ Проставить сроки носки по 113 годовым позициям приказа о СИЗ: без срока они не попадают в «пора выдавать» 🗓 since:2026-11-05](pending/prostat-sroki-noski-po-godovym-poziciyam-prikaza-siz.md)
 - [⏳ Выгрузка СИЗ в 1С: структура файла ждёт бухгалтера 🗓 since:2026-11-03](pending/vygruzka-siz-v-1s-struktura-zhdet-buhgaltera.md)
-- [Импорт ЗУП: живого образца выгрузки так и не было — проверено на фикстуре 🗓 since:2026-10-18](pending/import-zup-zhivogo-obraztsa-vygruzki-tak-i-ne-bylo.md)
+- [⏳ Импорт ЗУП: настоящая выгрузка пришла (23.11) и упала на «Шапка не распознана» — разбор исправлен (PR #1968), ждём приёмку на файле 🗓 since:2026-10-18](pending/import-zup-zhivogo-obraztsa-vygruzki-tak-i-ne-bylo.md)
+- [⏳ ПП: сетка полей шапки — правка сделана (PR #1969), приёмка глазами: живой смоук на этой машине невозможен (гейт не даёт поднять БД) 🗓 since:2026-11-23](pending/pp-header-grid-acceptance.md)
 - [🟡 «Кладовщик»: показать раздел кладовщику завода (фаза 2) 🗓 since:2026-10-20](pending/kladovshchik-pokazat-razdel-kladovshchiku-zavoda-faza-2.md)
 - [🟡 Почта из программы: транспорт `mailto:`, SMTP — решением владельца 🗓 since:2026-10-21](pending/pochta-iz-programmy-transport-mailto-smtp-resheniem.md)
 - [Ложные «Возвраты» в этапах ремонта на проде — пересчёт скриптом, нужно ОК владельца 🗓 since:2026-10-22](pending/lozhnye-vozvraty-v-etapakh-remonta-na-prode-pereschet.md)

@@ -100,6 +100,100 @@ describe('ppeImport: разбор книги', () => {
   });
 });
 
+// Промт КАРМАНА #78: настоящая выгрузка ЗУП/1С не проходила проверку («Шапка не
+// распознана»). Причина — поиск шапки требовал точных заголовков, а чтение шло
+// по алиасам; плюс лист выдач в выгрузке 1С — одна колонка «Номенклатура/артикул».
+describe('ppeImport: поиск шапки не строже чтения (промт #78)', () => {
+  it('книга с алиасами опознаётся так же, как с эталонными заголовками', async () => {
+    const buf = await buildWorkbook({
+      Кадры: [['Таб. №', 'Ф.И.О.', 'Должность', 'Подразделение', 'Пол', 'Дата рождения', 'Дата приема', 'Дата увольнения', 'Отпуск с', 'Отпуск по'], empRow(101, 'Иванова Мария Петровна')],
+      Выдачи: [['Таб. №', 'Наименование', 'Код', 'Размер', 'Количество', 'Дата'], [101, 'Ботинки', 'BT-9', '', 1, '10.01.2026']],
+    });
+    const r = await parsePpeImportWorkbook(buf);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.parsed.employeeSheet).toBe('Кадры');
+    expect(r.parsed.issueSheet).toBe('Выдачи');
+    expect(r.parsed.employees[0]).toMatchObject({ personnelNo: '101', fullName: 'Иванова Мария Петровна' });
+    expect(r.parsed.issues[0]).toMatchObject({ personnelNo: '101', nomName: 'Ботинки', article: 'BT-9' });
+  });
+
+  it('объединённая колонка «Номенклатура/артикул» — лист выдач опознаётся', async () => {
+    const buf = await buildWorkbook({
+      Сотрудники: [EMP_HEADER, empRow(101, 'Иванова Мария Петровна')],
+      Выдачи: [['Таб. №', 'Номенклатура/артикул', 'Размер', 'Кол-во', 'Дата'], [101, 'Ботинки (BT-9)', '', 1, '10.01.2026']],
+    });
+    const r = await parsePpeImportWorkbook(buf);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.parsed.issueSheet).toBe('Выдачи');
+    expect(r.parsed.issues[0]).toMatchObject({ personnelNo: '101', nomName: 'Ботинки (BT-9)', article: '', nomCombined: true });
+  });
+
+  it('шапка ниже 10-й строки опознаётся (сверху отчёт, период, фильтр)', async () => {
+    const filler: unknown[][] = [['Выгрузка ЗУП за 2026 год'], ['Отбор: все сотрудники'], [], [], [], [], [], [], [], [], []];
+    const buf = await buildWorkbook({ Выгрузка: [...filler, EMP_HEADER, empRow(101, 'Иванова Мария Петровна')] });
+    const r = await parsePpeImportWorkbook(buf);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.parsed.employeeSheet).toBe('Выгрузка');
+    expect(r.parsed.employees[0]).toMatchObject({ line: 13, personnelNo: '101' });
+  });
+
+  it('на чужом файле ошибка называет, что нашли и чего не хватает', async () => {
+    const buf = await buildWorkbook({
+      Лист1: [['ФИО', 'Должность'], ['Петров Иван', 'Слесарь']],
+      Лист2: [['Дата', 'Номенклатура'], ['10.01.2026', 'Ботинки']],
+    });
+    const r = await parsePpeImportWorkbook(buf);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toContain('Шапка не распознана');
+    expect(r.error).toContain('Листы книги: Лист1, Лист2');
+    expect(r.error).toContain('нашли: ФИО, Должность');
+    expect(r.error).toContain('не нашли: Табельный номер');
+    expect(r.error).toContain('искали: табельный номер');
+  });
+
+  it('объединённая ячейка сопоставляется с позицией программы', () => {
+    const { ok, preview } = validatePpeImport(
+      {
+        employeeSheet: null, issueSheet: 'В',
+        employees: [],
+        issues: [{ line: 2, personnelNo: '101', nomName: 'Ботинки (BT-9)', article: '', nomCombined: true, size: '', qtyRaw: 1, dateRaw: '10.03.2026' }],
+      },
+      snapshot(),
+    );
+    expect(ok).toBe(true);
+    expect(preview.summary.issues).toEqual({ create: 1, skip: 0, conflict: 0 });
+  });
+
+  it('объединённая ячейка с одним артикулом — тоже сопоставляется', () => {
+    const { ok, preview } = validatePpeImport(
+      {
+        employeeSheet: null, issueSheet: 'В',
+        employees: [],
+        issues: [{ line: 2, personnelNo: '101', nomName: 'BT-9', article: '', nomCombined: true, size: '', qtyRaw: 1, dateRaw: '10.03.2026' }],
+      },
+      snapshot(),
+    );
+    expect(ok).toBe(true);
+    expect(preview.summary.issues).toEqual({ create: 1, skip: 0, conflict: 0 });
+  });
+
+  it('две отдельные колонки «Номенклатура»/«Артикул» работают как раньше', async () => {
+    const buf = await buildWorkbook({
+      Кадры: [EMP_HEADER, empRow(101, 'Иванова Мария Петровна')],
+      История: [ISS_HEADER, [101, 'Ботинки', 'BT-9', '', 1, '10.01.2026']],
+    });
+    const r = await parsePpeImportWorkbook(buf);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.parsed.issues[0]).toMatchObject({ nomName: 'Ботинки', article: 'BT-9' });
+    expect(r.parsed.issues[0]!.nomCombined).toBeFalsy();
+  });
+});
+
 describe('ppeImport: валидация сотрудников', () => {
   const snap = snapshot();
 

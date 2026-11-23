@@ -1738,9 +1738,11 @@ export function ProductionProgramPage(props: Props) {
 
   const hint = pickerEngine ? productionProgramEngineHint(engineById.get(pickerEngine) ?? null) : null;
 
-  const fieldLabel = (label: string, control: React.ReactNode) => (
-    <label style={{ display: 'grid', gap: 4, fontSize: 12, minWidth: 0 }}>
-      <span style={{ color: 'var(--subtle)' }}>{label}</span>
+  // Подпись — одна строка: подписи одинаковой высоты ⇒ поля стоят на одной линии.
+  // Обёртка — грид: подпись и контрол в одной ячейке (два узла в ячейку класть нельзя).
+  const fieldLabel = (label: string, control: React.ReactNode, style?: React.CSSProperties) => (
+    <label style={{ display: 'grid', gap: 4, fontSize: 12, minWidth: 0, ...style }}>
+      <span style={{ color: 'var(--subtle)', whiteSpace: 'nowrap' }}>{label}</span>
       {control}
     </label>
   );
@@ -1929,12 +1931,17 @@ export function ProductionProgramPage(props: Props) {
                 ) : null}
                 </PageToolbar>
               </div>
+              {/* Шапка программы. Раньше поля стояли в одной сетке `auto-fit` без `min-width: 0`
+                  у контролов: у грид-элемента `min-width: auto` = собственная min-content ширина,
+                  а у инпута в планшетных токенах (16px) она шире трека ⇒ поле вылезало из своего
+                  трека на соседнее (промт владельца #80). Теперь ряд — flex с переносом, ширины
+                  заданы явно, у контролов `minWidth: 0`. */}
               <div
                 style={{
-                  display: 'grid',
+                  display: 'flex',
+                  flexWrap: 'wrap',
                   gap: 10,
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
-                  alignItems: 'end',
+                  alignItems: 'flex-start',
                 }}
               >
                 {fieldLabel(
@@ -1943,8 +1950,9 @@ export function ProductionProgramPage(props: Props) {
                     value={selected.title}
                     disabled={!props.canEdit}
                     onChange={(e) => setHeader({ title: e.target.value })}
-                    style={{ padding: '4px 6px', width: '100%' }}
+                    style={{ padding: '4px 6px', width: '100%', minWidth: 0, boxSizing: 'border-box' }}
                   />,
+                  { flex: '2 1 260px' },
                 )}
                 {fieldLabel(
                   'Цех',
@@ -1952,8 +1960,9 @@ export function ProductionProgramPage(props: Props) {
                     value={selected.shop}
                     disabled={!props.canEdit}
                     onChange={(e) => setHeader({ shop: e.target.value })}
-                    style={{ padding: '4px 6px', width: '100%' }}
+                    style={{ padding: '4px 6px', width: '100%', minWidth: 0, boxSizing: 'border-box' }}
                   />,
+                  { flex: '1 1 170px' },
                 )}
                 {fieldLabel(
                   'Период',
@@ -1961,7 +1970,7 @@ export function ProductionProgramPage(props: Props) {
                     value={periodKind}
                     disabled={!props.canEdit}
                     onChange={(e) => applyPeriodKind(e.target.value as ProductionProgramPeriodKind)}
-                    style={{ padding: '4px 6px', width: '100%' }}
+                    style={{ padding: '4px 6px', width: '100%', minWidth: 0, boxSizing: 'border-box' }}
                   >
                     {(['two_weeks', 'month', 'custom'] as ProductionProgramPeriodKind[]).map((kind) => (
                       <option key={kind} value={kind}>
@@ -1969,6 +1978,7 @@ export function ProductionProgramPage(props: Props) {
                       </option>
                     ))}
                   </select>,
+                  { flex: '1 1 170px' },
                 )}
                 {fieldLabel(
                   'Период с',
@@ -1977,7 +1987,9 @@ export function ProductionProgramPage(props: Props) {
                     value={isoDate(selected.periodStart)}
                     disabled={!props.canEdit}
                     onChange={(e) => applyPeriodDate('start', String(e.target.value ?? ''))}
+                    style={{ minWidth: 0, boxSizing: 'border-box' }}
                   />,
+                  { flex: '1 1 150px' },
                 )}
                 {fieldLabel(
                   'Период по',
@@ -1986,7 +1998,9 @@ export function ProductionProgramPage(props: Props) {
                     value={isoDate(selected.periodEnd)}
                     disabled={!props.canEdit}
                     onChange={(e) => applyPeriodDate('end', String(e.target.value ?? ''))}
+                    style={{ minWidth: 0, boxSizing: 'border-box' }}
                   />,
+                  { flex: '1 1 150px' },
                 )}
                 {fieldLabel(
                   'Статус программы',
@@ -1994,21 +2008,22 @@ export function ProductionProgramPage(props: Props) {
                     value={selected.status}
                     disabled={!props.canEdit}
                     onChange={(e) => setHeader({ status: e.target.value })}
-                    style={{ padding: '4px 6px', width: '100%' }}
+                    style={{ padding: '4px 6px', width: '100%', minWidth: 0, boxSizing: 'border-box' }}
                   >
                     <option value="draft">Черновик</option>
                     <option value="approved">Утверждён</option>
                   </select>,
+                  { flex: '1 1 180px' },
                 )}
               </div>
 
               {props.canEdit ? (
                 <div
                   style={{
-                    display: 'grid',
+                    display: 'flex',
+                    flexWrap: 'wrap',
                     gap: 8,
-                    gridTemplateColumns: 'minmax(220px, 1fr) minmax(240px, 1fr) auto',
-                    alignItems: 'end',
+                    alignItems: 'flex-end',
                     marginTop: 12,
                   }}
                 >
@@ -2025,6 +2040,7 @@ export function ProductionProgramPage(props: Props) {
                         setPickerEngine('');
                       }}
                     />,
+                    { flex: '1 1 220px' },
                   )}
                   {fieldLabel(
                     'Двигатель',
@@ -2041,8 +2057,9 @@ export function ProductionProgramPage(props: Props) {
                         if (contractId) setPickerContract(contractId);
                       }}
                     />,
+                    { flex: '1 1 240px' },
                   )}
-                  <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, flex: '0 0 auto' }}>
                     <Button onClick={() => void addEngine()} disabled={!pickerEngine}>
                       Добавить в план
                     </Button>
@@ -2058,7 +2075,7 @@ export function ProductionProgramPage(props: Props) {
                     </Button>
                   </div>
                   {hint ? (
-                    <div style={{ fontSize: 12, color: 'var(--subtle)', gridColumn: '1 / -1' }}>{hint.text}</div>
+                    <div style={{ fontSize: 12, color: 'var(--subtle)', flex: '1 1 100%' }}>{hint.text}</div>
                   ) : null}
                 </div>
               ) : null}

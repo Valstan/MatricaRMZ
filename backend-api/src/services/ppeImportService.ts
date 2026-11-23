@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 
-import { match1cNomenclature, normalizeLookupCompact } from '@matricarmz/shared';
+import { match1cNomenclature, normalizeLookupCompact, type Stock1cItem, type Stock1cMatchResult } from '@matricarmz/shared';
 import { and, eq, isNull } from 'drizzle-orm';
 import ExcelJS from 'exceljs';
 
@@ -23,35 +23,51 @@ type Result<T> = ({ ok: true } & T) | { ok: false; error: string };
 type Actor = { id: string; username: string; role?: string };
 
 // ────────────────────────────────────────────────────────────
-// Ожидаемые колонки (утверждены владельцем 2026-10-15).
-// Несовпадение шапки — понятная ошибка со списком, а не молчаливый мусор.
+// Концепты колонок (утверждены владельцем 2026-10-15).
+//
+// Список один — и на поиск шапки, и на чтение колонок. Раньше поиск требовал
+// точных заголовков, а чтение шло по алиасам: файл, который прочитался бы, не
+// опознавался («Шапка не распознана»). Второй источник правды здесь — тот же
+// класс дефекта, поэтому списка ровно один.
 // ────────────────────────────────────────────────────────────
 
-/** Лист сотрудников типовой выгрузки ЗУП. */
-export const PPE_IMPORT_EMPLOYEE_COLUMNS = [
-  'Табельный номер',
-  'ФИО',
-  'Должность',
-  'Подразделение',
-  'Пол',
-  'Дата рождения',
-  'Дата приёма',
-  'Дата увольнения',
-  'Отпуск с',
-  'Отпуск по',
+/** Концепт колонки: как её могут назвать в файле (алиасы) и как звать в ошибке. */
+type ColumnConcept = { key: string; title: string; aliases: string[] };
+
+const CONCEPTS: ColumnConcept[] = [
+  { key: 'personnel', title: 'Табельный номер', aliases: ['табельный номер', 'таб. №', 'таб.номер', 'табельный №'] },
+  { key: 'fio', title: 'ФИО', aliases: ['фио', 'ф.и.о.', 'фамилия имя отчество'] },
+  { key: 'position', title: 'Должность', aliases: ['должность'] },
+  { key: 'department', title: 'Подразделение', aliases: ['подразделение'] },
+  { key: 'gender', title: 'Пол', aliases: ['пол'] },
+  { key: 'birth', title: 'Дата рождения', aliases: ['дата рождения'] },
+  { key: 'hire', title: 'Дата приёма', aliases: ['дата приёма', 'дата приема'] },
+  { key: 'fire', title: 'Дата увольнения', aliases: ['дата увольнения'] },
+  { key: 'vacFrom', title: 'Отпуск с', aliases: ['отпуск с'] },
+  { key: 'vacTo', title: 'Отпуск по', aliases: ['отпуск по'] },
+  { key: 'size', title: 'Размер', aliases: ['размер'] },
+  { key: 'qty', title: 'Кол-во', aliases: ['кол-во', 'количество', 'колво'] },
+  { key: 'date', title: 'Дата', aliases: ['дата'] },
+  { key: 'nomName', title: 'Номенклатура', aliases: ['номенклатура', 'наименование'] },
+  { key: 'article', title: 'Артикул', aliases: ['артикул', 'код'] },
+  { key: 'nomCombined', title: 'Номенклатура/артикул', aliases: ['номенклатура/артикул', 'номенклатура / артикул', 'номенклатура-артикул'] },
 ];
 
-/** Лист прошлых выдач. */
-export const PPE_IMPORT_ISSUE_COLUMNS = ['Таб. №', 'Номенклатура', 'Артикул', 'Размер', 'Кол-во', 'Дата'];
+function conceptOf(key: string): ColumnConcept {
+  const found = CONCEPTS.find((c) => c.key === key);
+  if (!found) throw new Error(`Неизвестный концепт колонки: ${key}`);
+  return found;
+}
 
-const EMPLOYEE_REQUIRED = ['табельный номер', 'фио'];
-const ISSUE_REQUIRED = ['таб. №', 'дата'];
-const ISSUE_NOM_REQUIRED = ['номенклатура', 'артикул'];
+/** Что обязано быть на листе сотрудников. */
+const EMPLOYEE_REQUIRED = ['personnel', 'fio'];
+/** Что обязательно на листе выдач. */
+const ISSUE_REQUIRED = ['personnel', 'date'];
+/** Одной из этих достаточно — линия номенклатуры (объединённая колонка — тоже). */
+const ISSUE_NOM_ANY = ['nomName', 'article', 'nomCombined'];
 
-const PERSONNEL_ALIASES = ['табельный номер', 'таб. №', 'таб.номер', 'табельный №'];
-const FIO_ALIASES = ['фио', 'ф.и.о.', 'фамилия имя отчество'];
-const NOM_NAME_ALIASES = ['номенклатура', 'наименование'];
-const ARTICLE_ALIASES = ['артикул', 'код'];
+/** Сколько строк листа смотрим в поиске шапки: у выгрузок 1С сверху отчёт, период, фильтр. */
+const HEADER_SEARCH_ROWS = 25;
 
 export const PPE_IMPORT_MAX_BYTES = 10 * 1024 * 1024;
 /** Preview-id живёт 30 минут. */
@@ -149,6 +165,8 @@ export type RawIssueRow = {
   personnelNo: string;
   nomName: string;
   article: string;
+  /** Ячейка пришла из объединённой колонки «Номенклатура/артикул». */
+  nomCombined?: boolean;
   size: string;
   qtyRaw: unknown;
   dateRaw: unknown;
@@ -161,32 +179,104 @@ export type ParsedPpeImport = {
   issues: RawIssueRow[];
 };
 
-function findHeaderRow(
-  ws: ExcelJS.Worksheet,
-  required: string[],
-  anyOf: string[] = [],
-): { row: number; colByHeader: Map<string, number> } | null {
-  const maxRow = Math.min(ws.rowCount, 10);
-  for (let r = 1; r <= maxRow; r++) {
-    const row = ws.getRow(r);
-    const colByHeader = new Map<string, number>();
-    for (let c = 1; c <= ws.columnCount; c++) {
-      const h = normHeader(cellText(row.getCell(c).value));
-      if (h && !colByHeader.has(h)) colByHeader.set(h, c);
-    }
-    const hasAll = required.every((h) => colByHeader.has(h));
-    const hasAny = anyOf.length === 0 || anyOf.some((h) => colByHeader.has(h));
-    if (hasAll && hasAny) return { row: r, colByHeader };
-  }
-  return null;
+type SheetHeader = {
+  row: number;
+  /** концепт колонки → номер колонки в книге. */
+  cols: Map<string, number>;
+  /** названия концептов, которые в этой строке найдены (для ошибки). */
+  found: string[];
+};
+
+/** Объединённая колонка «Номенклатура/артикул» — в выгрузке 1С одна ячейка на оба поля. */
+function isCombinedNomHeader(norm: string): boolean {
+  const compact = normalizeLookupCompact(norm);
+  if (!compact) return false;
+  const hasName = compact.includes('номенклатура') || compact.includes('наименование');
+  return hasName && compact.includes('артикул');
 }
 
-function pick(colByHeader: Map<string, number>, aliases: string[]): number | null {
-  for (const a of aliases) {
-    const c = colByHeader.get(a);
-    if (c != null) return c;
+/** Шапка строки: какая колонка за какой концепт стоит. */
+function readSheetHeader(ws: ExcelJS.Worksheet, row: number): SheetHeader {
+  const cols = new Map<string, number>();
+  const found = new Set<string>();
+  const r = ws.getRow(row);
+  for (let c = 1; c <= ws.columnCount; c++) {
+    const h = normHeader(cellText(r.getCell(c).value));
+    if (!h) continue;
+    if (isCombinedNomHeader(h)) {
+      if (!cols.has('nomCombined')) {
+        cols.set('nomCombined', c);
+        found.add(conceptOf('nomCombined').title);
+      }
+      continue;
+    }
+    for (const concept of CONCEPTS) {
+      if (cols.has(concept.key)) continue;
+      if (concept.aliases.includes(h)) {
+        cols.set(concept.key, c);
+        found.add(concept.title);
+        break;
+      }
+    }
   }
-  return null;
+  return { row, cols, found: [...found] };
+}
+
+type SheetProbe = {
+  sheet: string;
+  row: number;
+  found: string[];
+  /** концепты, которых не хватило. */
+  missing: string[];
+  ok: boolean;
+  header: SheetHeader;
+};
+
+/**
+ * Ищем строку шапки на листе: нужное должно найтись, любого из «либо-или» — тоже.
+ *
+ * Возвращаем лучший кандидат (где не хватает меньше) — из него собирается
+ * понятная ошибка: что в файле нашли и какой колонки не хватает.
+ */
+function probeSheetHeader(ws: ExcelJS.Worksheet, required: string[], anyOf: string[]): SheetProbe {
+  const maxRow = Math.min(ws.rowCount, HEADER_SEARCH_ROWS);
+  let best: SheetProbe | null = null;
+  for (let r = 1; r <= maxRow; r++) {
+    const header = readSheetHeader(ws, r);
+    const missingRequired = required.filter((k) => !header.cols.has(k));
+    const anyMissing = anyOf.length > 0 && !anyOf.some((k) => header.cols.has(k));
+    const missing = anyMissing ? [...missingRequired, ...anyOf] : missingRequired;
+    const probe: SheetProbe = { sheet: ws.name, row: r, found: header.found, missing, ok: missing.length === 0, header };
+    if (probe.ok) return probe;
+    if (!best || missing.length < best.missing.length) best = probe;
+  }
+  return best ?? { sheet: ws.name, row: 0, found: [], missing: required, ok: false, header: { row: 0, cols: new Map(), found: [] } };
+}
+
+/** «Табельный номер (искали: табельный номер, таб. №, …)» — что искали, а не «ждёт колонку A, B, C». */
+function missingText(keys: string[]): string {
+  const titles = keys.map((k) => conceptOf(k).title).join(' или ');
+  const aliases = keys.flatMap((k) => conceptOf(k).aliases);
+  return `${titles} (искали: ${aliases.join(', ')})`;
+}
+
+/** Ошибка нераспознанной шапки: листы книги, что нашли и чего не хватает. */
+function headerErrorMessage(sheetNames: string[], probes: SheetProbe[]): string {
+  const bySheet = new Map<string, SheetProbe>();
+  for (const p of probes) {
+    const prev = bySheet.get(p.sheet);
+    if (!prev || p.missing.length < prev.missing.length) bySheet.set(p.sheet, p);
+  }
+  const lines = [...bySheet.values()]
+    .sort((a, b) => a.missing.length - b.missing.length)
+    .slice(0, 4)
+    .map((p) => {
+      const found = p.found.length ? `нашли: ${p.found.join(', ')}` : 'не узнали ни одной колонки';
+      const missing = p.missing.length ? `; не нашли: ${missingText(p.missing)}` : '';
+      return `«${p.sheet}» (стр. ${p.row}): ${found}${missing}`;
+    });
+  const names = sheetNames.length > 6 ? `${sheetNames.slice(0, 6).join(', ')} и ещё ${sheetNames.length - 6}` : sheetNames.join(', ');
+  return `Шапка не распознана. Листы книги: ${names}. ${lines.join('. ')}.`;
 }
 
 export async function parsePpeImportWorkbook(buffer: Buffer): Promise<Result<{ parsed: ParsedPpeImport }>> {
@@ -202,48 +292,49 @@ export async function parsePpeImportWorkbook(buffer: Buffer): Promise<Result<{ p
     }
     let employeeSheet: string | null = null;
     let issueSheet: string | null = null;
-    const heads: {
-      emp: { row: number; colByHeader: Map<string, number> } | null;
-      iss: { row: number; colByHeader: Map<string, number> } | null;
-    } = { emp: null, iss: null };
+    const heads: { emp: SheetProbe | null; iss: SheetProbe | null } = { emp: null, iss: null };
+    const sheetNames: string[] = [];
+    const probes: SheetProbe[] = [];
     wb.eachSheet((ws) => {
+      sheetNames.push(ws.name);
       if (!heads.emp) {
-        const found = findHeaderRow(ws, EMPLOYEE_REQUIRED);
-        if (found) {
-          heads.emp = found;
+        const probe = probeSheetHeader(ws, EMPLOYEE_REQUIRED, []);
+        if (probe.ok) {
+          heads.emp = probe;
           employeeSheet = ws.name;
+        } else {
+          probes.push(probe);
         }
       }
       if (!heads.iss) {
-        const found = findHeaderRow(ws, ISSUE_REQUIRED, ISSUE_NOM_REQUIRED);
-        if (found) {
-          heads.iss = found;
+        const probe = probeSheetHeader(ws, ISSUE_REQUIRED, ISSUE_NOM_ANY);
+        if (probe.ok) {
+          heads.iss = probe;
           issueSheet = ws.name;
+        } else {
+          probes.push(probe);
         }
       }
     });
     const empHead = heads.emp;
     const issHead = heads.iss;
     if (!empHead && !issHead) {
-      return {
-        ok: false,
-        error: `Шапка не распознана: лист сотрудников ждёт колонки ${PPE_IMPORT_EMPLOYEE_COLUMNS.join(', ')}; лист выдач — ${PPE_IMPORT_ISSUE_COLUMNS.join(', ')}`,
-      };
+      return { ok: false, error: headerErrorMessage(sheetNames, probes) };
     }
     const parsed: ParsedPpeImport = { employeeSheet, issueSheet, employees: [], issues: [] };
     if (empHead) {
       const ws = wb.getWorksheet(employeeSheet!)!;
-      const cols = empHead.colByHeader;
-      const cNo = pick(cols, PERSONNEL_ALIASES)!;
-      const cFio = pick(cols, FIO_ALIASES)!;
-      const cPos = pick(cols, ['должность']);
-      const cDep = pick(cols, ['подразделение']);
-      const cSex = pick(cols, ['пол']);
-      const cBirth = pick(cols, ['дата рождения']);
-      const cHire = pick(cols, ['дата приёма', 'дата приема']);
-      const cFire = pick(cols, ['дата увольнения']);
-      const cVacFrom = pick(cols, ['отпуск с']);
-      const cVacTo = pick(cols, ['отпуск по']);
+      const cols = empHead.header.cols;
+      const cNo = cols.get('personnel')!;
+      const cFio = cols.get('fio')!;
+      const cPos = cols.get('position');
+      const cDep = cols.get('department');
+      const cSex = cols.get('gender');
+      const cBirth = cols.get('birth');
+      const cHire = cols.get('hire');
+      const cFire = cols.get('fire');
+      const cVacFrom = cols.get('vacFrom');
+      const cVacTo = cols.get('vacTo');
       for (let r = empHead.row + 1; r <= ws.rowCount; r++) {
         const row = ws.getRow(r);
         const cells = [cNo, cFio, cPos, cDep, cSex, cBirth, cHire, cFire, cVacFrom, cVacTo]
@@ -267,24 +358,29 @@ export async function parsePpeImportWorkbook(buffer: Buffer): Promise<Result<{ p
     }
     if (issHead) {
       const ws = wb.getWorksheet(issueSheet!)!;
-      const cols = issHead.colByHeader;
-      const cNo = pick(cols, PERSONNEL_ALIASES)!;
-      const cNom = pick(cols, NOM_NAME_ALIASES);
-      const cArt = pick(cols, ARTICLE_ALIASES);
-      const cSize = pick(cols, ['размер']);
-      const cQty = pick(cols, ['кол-во', 'количество', 'колво']);
-      const cDate = pick(cols, ['дата'])!;
+      const cols = issHead.header.cols;
+      const cNo = cols.get('personnel')!;
+      const cNom = cols.get('nomName');
+      const cArt = cols.get('article');
+      const cCombined = cols.get('nomCombined');
+      const cSize = cols.get('size');
+      const cQty = cols.get('qty');
+      const cDate = cols.get('date')!;
       for (let r = issHead.row + 1; r <= ws.rowCount; r++) {
         const row = ws.getRow(r);
-        const probe = [cNo, cNom, cArt, cSize, cQty, cDate]
+        const probe = [cNo, cNom, cArt, cCombined, cSize, cQty, cDate]
           .filter((c): c is number => c != null)
           .map((c) => row.getCell(c).value);
         if (probe.every((v) => cellText(v) === '' && !(v instanceof Date) && typeof v !== 'number')) continue;
+        const nomText = cNom == null ? '' : cellText(row.getCell(cNom).value);
+        const artText = cArt == null ? '' : cellText(row.getCell(cArt).value);
+        const combinedText = cCombined == null ? '' : cellText(row.getCell(cCombined).value);
         parsed.issues.push({
           line: r,
           personnelNo: personnelKey(row.getCell(cNo).value),
-          nomName: cNom == null ? '' : cellText(row.getCell(cNom).value),
-          article: cArt == null ? '' : cellText(row.getCell(cArt).value),
+          nomName: nomText || combinedText,
+          article: artText,
+          nomCombined: cCombined != null && !nomText && !artText,
           size: cSize == null ? '' : cellText(row.getCell(cSize).value),
           qtyRaw: cQty == null ? null : row.getCell(cQty).value,
           dateRaw: row.getCell(cDate).value,
@@ -375,6 +471,29 @@ export function resolveIssueNomenclature(args: {
     ok: false,
     error: `размер «${args.size}» ${containing.length === 0 ? 'не найден' : 'неоднозначен'} среди вариантов «${args.baseName}»`,
   };
+}
+
+/**
+ * Сопоставление строки выдачи с номенклатурой программы.
+ *
+ * Объединённая колонка «Номенклатура/артикул» несёт в одной ячейке и имя, и
+ * артикул — как именно, файл не говорит. Пробуем два прочтения: сначала как
+ * имя (домен склеивает артикул с именем в обоих порядках, а компакт-нормализация
+ * снимает скобки и разделители: «Ботинки (BT-9)», «Ботинки BT-9» и «BT-9 Ботинки» —
+ * одно и то же), затем как чистый артикул. Канон — `match1cNomenclature`, свои
+ * правила разбора не заводим.
+ *
+ * Правило одно и в preview, и в apply — иначе они снова разъедутся.
+ */
+function matchIssueNomenclature(
+  issue: { nomName: string; article: string; nomCombined?: boolean | undefined; qty?: number },
+  candidates: Array<{ id: string; name: string; article: string }>,
+): Stock1cMatchResult<Stock1cItem> {
+  const qty = issue.qty ?? 1;
+  const asName = match1cNomenclature([{ article: issue.article, name: issue.nomName, unit: '', qty }], candidates);
+  if (!issue.nomCombined || asName.matched.length > 0 || asName.ambiguous.length > 0) return asName;
+  const asArticle = match1cNomenclature([{ article: issue.nomName, name: '', unit: '', qty }], candidates);
+  return asArticle.matched.length > 0 || asArticle.ambiguous.length > 0 ? asArticle : asName;
 }
 
 export function validatePpeImport(parsed: ParsedPpeImport, snapshot: PpeImportSnapshot): { ok: boolean; preview: PpeImportPreview } {
@@ -552,7 +671,7 @@ export function validatePpeImport(parsed: ParsedPpeImport, snapshot: PpeImportSn
       conflict('пустые и номенклатура, и артикул');
       continue;
     }
-    const matched = match1cNomenclature([{ article: iss.article, name: iss.nomName, unit: '', qty }], nomCandidates);
+    const matched = matchIssueNomenclature({ nomName: iss.nomName, article: iss.article, nomCombined: iss.nomCombined, qty }, nomCandidates);
     if (matched.ambiguous.length > 0) {
       conflict('номенклатура неоднозначна — уточните артикул');
       continue;
@@ -953,7 +1072,7 @@ export async function applyPpeImportPreview(args: {
       if (!live[0]) continue;
       const employeeId = String(live[0].id);
       const candidates = snapshot.noms.map((n) => ({ id: n.id, name: n.name, article: n.code || n.sku || '' }));
-      const matched = match1cNomenclature([{ article: iss.article, name: iss.nomName, unit: '', qty }], candidates);
+      const matched = matchIssueNomenclature({ nomName: iss.nomName, article: iss.article, nomCombined: iss.nomCombined, qty }, candidates);
       if (matched.matched.length !== 1 || matched.ambiguous.length > 0) continue;
       const base = nomById.get(matched.matched[0]!.nom.id);
       if (!base) continue;
