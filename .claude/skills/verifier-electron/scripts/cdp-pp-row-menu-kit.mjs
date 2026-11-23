@@ -18,6 +18,11 @@
  *     «Снять выделение» — из кита; пункта «Открыть карточку» в пачке нет;
  *  4. прогон убирает за собой план.
  *
+ * **Стенд:** нужен ОДИН движок (вторая строка плана — намеренно без двигателя),
+ * право `production_program.edit` у суперадмина и свободный CDP-порт. Право на
+ * свежей стендовой БД не выдано засевом — иначе пункта «Убрать из программы»
+ * не будет, и смоук зацепится на нём (рецепт выдачи — в профиле машины PC79).
+ *
  *   node .claude/skills/verifier-electron/scripts/cdp-pp-row-menu-kit.mjs
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
@@ -204,14 +209,14 @@ async function main() {
     ws,
     `const engines = await call(() => window.matrica.engines.list(), 15000);
      const list = engines?.rows ?? engines ?? [];
-     if (list.length < 2) return { ok: false, reason: 'на стенде меньше двух движков' };
-     const [e1, e2] = list;
+     if (list.length < 1) return { ok: false, reason: 'на стенде нет ни одного движка' };
+     const [e1] = list;
      const number = 'СМОУК-МЕНЮ-КИТ/' + Date.now();
      const sections = { primary: { number, kind: 'military', engineBrands: [] }, addons: [] };
      const created = await call(() => window.matrica.contracts.contract.create({ fields: { number, sections_json: JSON.stringify(sections) } }), 20000);
      if (!created || !created.ok) return { ok: false, reason: 'договор не создан: ' + (created?.error ?? 'нет ответа') };
      const contractId = String(created.row.id);
-     for (const e of [e1, e2]) await call(() => window.matrica.engines.setAttr(String(e.id), 'contract_id', contractId), 15000);
+     for (const e of [e1]) await call(() => window.matrica.engines.setAttr(String(e.id), 'contract_id', contractId), 15000);
      try { await call(() => window.matrica.sync.run(), 20000); } catch (e) {}
      await wait(3000);
      const rowWithEngine = {
