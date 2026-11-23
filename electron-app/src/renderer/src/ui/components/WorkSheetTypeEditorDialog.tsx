@@ -12,8 +12,9 @@ import {
 
 import { Button } from './Button.js';
 import { Input } from './Input.js';
-import { RowReorderButtons } from './RowReorderButtons.js';
+import { ListReorderHandle } from './ListReorderHandle.js';
 import { loadWorkSheetTypes } from '../utils/workSheetTypesCache.js';
+import { useListReorder } from '../hooks/useListReorder.js';
 
 /** Цех для выпадающих списков этапов работ. Живёт здесь: диалог строки сменился карточкой. */
 export type WorkshopOption = { id: string; label: string };
@@ -92,14 +93,14 @@ export function WorkSheetTypeEditorDialog(props: {
         return required ? { ...rest, required: true } : rest;
       }),
     }));
-  const moveCol = (i: number, dir: -1 | 1) =>
-    setDraft((d) => {
-      const next = [...d.columns];
-      const j = i + dir;
-      if (j < 0 || j >= next.length) return d;
-      [next[i], next[j]] = [next[j]!, next[i]!];
-      return { ...d, columns: next };
-    });
+  // КОЛОНКИ ВИДА РАБОТ — по общему киту (промт КАРМАНА #67): единая ручка «⠿»
+  // (перетаскивание мышью + стрелки по клику) вместо кнопок ↑/↓. Порядок колонок —
+  // часть черновика, он уходит на сервер вместе с видом работ.
+  const reorder = useListReorder({
+    rows: draft.columns,
+    canReorder: true,
+    onReorder: (rows) => setDraft((d) => ({ ...d, columns: rows })),
+  });
   const addCol = () => {
     const label = newColLabel.trim();
     if (!label) return;
@@ -242,35 +243,50 @@ export function WorkSheetTypeEditorDialog(props: {
 
           <div style={{ fontWeight: 600 }}>Колонки вида работ</div>
           {draft.columns.length === 0 ? <div className="ui-muted">Пока только общие: дата, двигатель, цех, исполнитель, примечание.</div> : null}
-          {draft.columns.map((c, i) => (
-            <div key={c.code} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 150px auto auto', gap: 8, alignItems: 'center' }} data-work-sheet-column={c.code}>
-              <RowReorderButtons canMoveUp={i > 0} canMoveDown={i < draft.columns.length - 1} onMoveUp={() => moveCol(i, -1)} onMoveDown={() => moveCol(i, 1)} />
-              <Input value={c.label} onChange={(e) => patchCol(i, { label: e.target.value })} title={`код: ${c.code}`} />
-              <select value={c.type} onChange={(e) => patchCol(i, { type: e.target.value as WorkSheetColumnType })}>
-                {WORK_SHEET_COLUMN_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {WORK_SHEET_COLUMN_TYPE_LABELS[t]}
-                  </option>
-                ))}
-              </select>
-              <label style={{ display: 'inline-flex', gap: 4, alignItems: 'center', whiteSpace: 'nowrap' }}>
-                <input type="checkbox" checked={c.required === true} onChange={(e) => setRequired(i, e.target.checked)} />
-                <span className="ui-muted">обяз.</span>
-              </label>
-              <Button variant="ghost" onClick={() => setDraft((d) => ({ ...d, columns: d.columns.filter((_, j) => j !== i) }))} title="Убрать колонку">
-                ✕
-              </Button>
-              {c.type === 'choice' ? (
-                <div style={{ gridColumn: '2 / -1' }}>
-                  <Input
-                    value={(c.options ?? []).join(', ')}
-                    placeholder="Варианты через запятую"
-                    onChange={(e) => patchCol(i, { options: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })}
-                  />
+          {/* Граница списка: перетаскивание считает строки ТОЛЬКО колонок этого вида работ. */}
+          <div ref={reorder.scopeRef} style={{ display: 'grid', gap: 8 }}>
+            {draft.columns.map((c, i) => {
+              const key = reorder.keys[i] ?? '';
+              return (
+                <div
+                  key={c.code}
+                  data-work-sheet-column={c.code}
+                  // Маркер строки для кита перестановки (промт КАРМАНА #67).
+                  data-list-row="true"
+                  data-list-row-key={key}
+                  style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 150px auto auto', gap: 8, alignItems: 'center', ...reorder.rowStyle(key) }}
+                  onDragOver={reorder.onDragOver}
+                  onDrop={reorder.onDrop}
+                >
+                  <ListReorderHandle {...reorder.handleProps(key, { label: `колонка ${i + 1}` })} />
+                  <Input value={c.label} onChange={(e) => patchCol(i, { label: e.target.value })} title={`код: ${c.code}`} />
+                  <select value={c.type} onChange={(e) => patchCol(i, { type: e.target.value as WorkSheetColumnType })}>
+                    {WORK_SHEET_COLUMN_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {WORK_SHEET_COLUMN_TYPE_LABELS[t]}
+                      </option>
+                    ))}
+                  </select>
+                  <label style={{ display: 'inline-flex', gap: 4, alignItems: 'center', whiteSpace: 'nowrap' }}>
+                    <input type="checkbox" checked={c.required === true} onChange={(e) => setRequired(i, e.target.checked)} />
+                    <span className="ui-muted">обяз.</span>
+                  </label>
+                  <Button variant="ghost" onClick={() => setDraft((d) => ({ ...d, columns: d.columns.filter((_, j) => j !== i) }))} title="Убрать колонку">
+                    ✕
+                  </Button>
+                  {c.type === 'choice' ? (
+                    <div style={{ gridColumn: '2 / -1' }}>
+                      <Input
+                        value={(c.options ?? []).join(', ')}
+                        placeholder="Варианты через запятую"
+                        onChange={(e) => patchCol(i, { options: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })}
+                      />
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
-            </div>
-          ))}
+              );
+            })}
+          </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <Input value={newColLabel} placeholder="Подпись новой колонки" onChange={(e) => setNewColLabel(e.target.value)} data-work-sheet-new-column />
             <select value={newColType} onChange={(e) => setNewColType(e.target.value as WorkSheetColumnType)}>

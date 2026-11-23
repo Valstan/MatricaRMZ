@@ -3,8 +3,12 @@ import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent
 
 import {
   applyHandleClick,
+  claimMoveOwner,
   computeBlockMove,
+  currentMoveOwner,
   describeMoveResult,
+  registerMoveOwner,
+  releaseMoveOwner,
   type HandleClickMode,
   type ListMoveBlock,
 } from '../utils/listKeyboardMove.js';
@@ -53,6 +57,10 @@ export function useListKeyboardMove(opts: {
   const [block, setBlock] = useState<ListMoveBlock>({ keys: [] });
   const [announcement, setAnnouncement] = useState('');
 
+  // Идентичность списка в ките: активен только один список, и ручка другого списка
+  // снимает режим этого (иначе одна стрелка двигала бы строки обоих сразу).
+  const owner = useMemo(() => Symbol('list-move-owner'), []);
+
   const orderedIds = opts.orderedIds;
   const onMove = opts.onMove;
   const enabled = opts.enabled;
@@ -61,15 +69,23 @@ export function useListKeyboardMove(opts: {
   const clear = useCallback(() => {
     setBlock({ keys: [] });
     setAnnouncement('');
-  }, []);
+    releaseMoveOwner(owner);
+  }, [owner]);
+
+  // Регистрация списка в ките: снятие — при размонтировании.
+  useEffect(() => registerMoveOwner(owner, clear), [owner, clear]);
 
   const onHandleClick = useCallback(
     (key: string, event: ReactMouseEvent | ReactKeyboardEvent) => {
       if (!enabled) return;
       const mode: HandleClickMode = event.shiftKey ? 'range' : event.ctrlKey || event.metaKey ? 'add' : 'replace';
-      setBlock((prev) => applyHandleClick(prev, key, orderedIds, mode));
+      const next = applyHandleClick(block, key, orderedIds, mode);
+      setBlock(next);
+      // Ручка этого списка забирает режим себе — у другого списка он снимается.
+      if (next.keys.length) claimMoveOwner(owner);
+      else releaseMoveOwner(owner);
     },
-    [enabled, orderedIds],
+    [enabled, orderedIds, block, owner],
   );
 
   const move = useCallback(
@@ -99,6 +115,9 @@ export function useListKeyboardMove(opts: {
     if (!enabled || !block.keys.length) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (isTypingTarget(event.target)) return;
+      // Двигает ТОЛЬКО список, чья ручка активна: на странице списков их несколько,
+      // и одно нажатие стрелки не должно двигать строки двух списков сразу.
+      if (currentMoveOwner() !== owner) return;
       if (event.key === 'ArrowUp') {
         event.preventDefault();
         move(-1);
@@ -118,7 +137,7 @@ export function useListKeyboardMove(opts: {
     return () => {
       document.removeEventListener('keydown', onKeyDown, true);
     };
-  }, [enabled, block.keys.length, move, clear]);
+  }, [enabled, block.keys.length, move, clear, owner]);
 
   const isMoving = useMemo(() => block.keys.length > 0, [block.keys.length]);
 
