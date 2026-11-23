@@ -663,9 +663,12 @@ export function EmployeeDetailsPage(props: {
       const opts = (rows as any[]).map((w) => ({ id: String(w.id), label: String(w.name ?? w.id) }));
       opts.sort((a, b) => a.label.localeCompare(b.label, 'ru'));
       setWorkshops(opts);
-      setWorkshopsStatus('');
-    } catch (e) {
-      setWorkshopsStatus(`Ошибка: ${String(e)}`);
+      setWorkshopsStatus(opts.length === 0 ? 'Справочник цехов пуст' : '');
+    } catch {
+      // Сырое сообщение IPC («Error invoking remote method 'workshop'») в поле цеха
+      // оператору ничего не говорит: показываем человеческое объяснение, детали
+      // остаются в журнале main-процесса.
+      setWorkshopsStatus('Список цехов не загрузился — обновите карточку');
     }
   }
 
