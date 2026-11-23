@@ -1,4 +1,4 @@
-# Shared helpers for verifier-electron scripts. Sourced via `. _common.ps1`.
+﻿# Shared helpers for verifier-electron scripts. Sourced via `. _common.ps1`.
 
 $ErrorActionPreference = 'Stop'
 
@@ -88,6 +88,86 @@ function Get-StateDir {
     $dir = Join-Path $repo '.verifier-electron'
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
     return $dir
+}
+
+# ─────────────────────────────────────────────────────────── ИМЕНОВАННЫЕ СТЕНДЫ
+# Заказ владельца (23.11): «можно между рабочими областями Матрицы РМЗ
+# разделить ресурсы стенда, чтобы каждая запускала свой стенд, а не ждала
+# очереди к одному, и чтобы не мешали друг другу при тестировании».
+#
+# Что для этого нужно и как оно устроено:
+#   * Свой CDP-порт   — по нему же рантайм изолирует `userData`
+#     (`app.setPath('userData', '…-cdp-<port>')`), то есть клиент, профиль и
+#     сессия у каждого стенда свои (это уже было в коде).
+#   * Свой порт рендерера (Vite) и свой порт backend — иначе второй стенд
+#     либо не поднимется («порт занят»), либо сядет на чужой.
+#   * Своя база PostgreSQL — иначе тесты одной линии видят и меняют данные
+#     другой (это и есть «мешают при тестировании»).
+#   * Свой каталог состояния (логи, pid-файлы) — иначе `stop.ps1` одной линии
+#     гасит стенд другой.
+#   * `stop.ps1` не должен убивать ЧУЖИЕ процессы electron: раньше он смахивал
+#     все `electron.exe` на машине (включая стенды других линий и прод-клиент).
+
+function Get-StandName {
+    # Имя стенда: -Stand <имя> или $env:MATRICA_STAND, по умолчанию 'main'.
+    param([string]$Stand = '')
+    if ($Stand) { return $Stand }
+    if ($env:MATRICA_STAND) { return $env:MATRICA_STAND }
+    return 'main'
+}
+
+function Get-StandPorts {
+    # Порты стенда. Имена: main (стенд по умолчанию), lane1..lane3 — линии.
+    param([string]$Stand = '')
+    $name = Get-StandName -Stand $Stand
+    $known = @('main', 'lane1', 'lane2', 'lane3')
+    $i = $known.IndexOf($name)
+    $offset = if ($i -ge 0) { $i } else { 1 }
+    return @{
+        Name     = $name
+        Offset   = $offset
+        Cdp      = 9222 + $offset
+        Backend  = 3001 + $offset
+        Renderer = 5173 + $offset
+    }
+}
+
+function Get-StandStateDir {
+    # Каталог состояния стенда: .verifier-electron для main, .verifier-electron/<имя> — иначе.
+    param([string]$Stand = '')
+    $name = Get-StandName -Stand $Stand
+    $repo = Get-RepoRoot
+    $dir = if ($name -eq 'main') { Join-Path $repo '.verifier-electron' }
+           else { Join-Path $repo (Join-Path '.verifier-electron' $name) }
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    return $dir
+}
+
+function Get-StandDb {
+    # База стенда: у каждого стенда своя (иначе тесты линий мешают друг другу).
+    param([string]$Stand = '')
+    $name = Get-StandName -Stand $Stand
+    if ($name -eq 'main') { return 'matricarmz_dev' }
+    return ('matricarmz_dev_' + ($name -replace '[^a-zA-Z0-9_]', '_'))
+}
+
+function Get-OwnElectronProcesses {
+    # Процессы electron ЭТОГО стенда: по его CDP-порту или по его репозиторию.
+    # Чужие electron (стенд другой линии, прод-клиент) сюда не попадают.
+    param([string]$Stand = '')
+    $ports = Get-StandPorts -Stand $Stand
+    $repo = Get-RepoRoot
+    $out = @()
+    try {
+        foreach ($p in (Get-CimInstance Win32_Process -Filter "Name='electron.exe'")) {
+            $cl = [string]$p.CommandLine
+            if (-not $cl) { continue }
+            if ($cl -like "*--remote-debugging-port=$($ports.Cdp)*" -or $cl -like "*$repo*") {
+                $out += $p
+            }
+        }
+    } catch {}
+    return $out
 }
 
 function Import-DotEnv {

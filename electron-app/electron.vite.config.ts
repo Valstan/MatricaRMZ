@@ -48,6 +48,11 @@ export default defineConfig({
       // while Electron main loadURL('http://localhost:5173') resolves IPv4
       // and falls back to loadFile(dist) on miss — masking stale UI.
       host: '127.0.0.1',
+      // Порт рендера — из env (23.11: параллельные стенды). Каждый стенд
+      // получает свой порт, иначе вторая линия не поднимется Vite («порт
+      // занят»). electron-vite сам выставит ELECTRON_RENDERER_URL на фактический
+      // порт — main-процесс грузит renderer по нему, правки в коде не нужны.
+      port: Number(process.env.MATRICA_RENDERER_PORT || 5173),
     },
     build: {
       outDir: resolve(__dirname, 'dist/renderer'),

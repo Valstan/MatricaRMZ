@@ -1,10 +1,14 @@
-# Idempotently creates the matricarmz_dev database on local PostgreSQL.
+﻿# Idempotently creates the matricarmz_dev database on local PostgreSQL.
 #
 # Flags:
 #   -Reset    drop and recreate (DESTRUCTIVE).
+#   -Stand    имя именованного стенда (23.11): своя БД, чтобы линии не делили
+#             данные. Дамп схемы/сидов берётся из ОБЩЕГО каталога (снапшот
+#             прода один на всех) — засев идёт в свою базу стенда.
 
 param(
-    [switch]$Reset
+    [switch]$Reset,
+    [string]$Stand = ''
 )
 
 . (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) '_common.ps1')
@@ -12,6 +16,11 @@ param(
 Test-PgConnectivity
 $psql = Require-Psql
 $pg = Get-PgConfig
+if ($Stand) {
+    $pg.Database = Get-StandDb -Stand $Stand
+    $env:PG_VERIFY_DB = $pg.Database
+    Write-Output "[setup-db] стенд '$Stand' → база $($pg.Database)"
+}
 
 function Invoke-Psql {
     param([string]$Db, [string]$Sql)
@@ -46,6 +55,7 @@ if ($exists -eq '1') {
 # Restore production schema (schema-only dump) if user provided it.
 # This pre-populates __drizzle_migrations so Drizzle skips already-applied
 # migrations and avoids ordering issues with seed-style migrations like 0024.
+# Снапшот — из ОБЩЕГО каталога (он один на все стенды).
 $state = Get-StateDir
 
 # Find dump file: prefer .dump (custom format via pg_restore), fallback to .sql (plain via psql).
