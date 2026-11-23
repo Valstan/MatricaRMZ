@@ -5,6 +5,7 @@ import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, viewModeWriteError } from '../ipcContext.js';
 import { erpEngineReclamations } from '../../database/schema.js';
 import { httpAuthed } from '../../services/httpClient.js';
+import { httpFailureText } from '../../services/httpFailureText.js';
 import { syncEngineReclamationMirror } from '../../services/engineReclamationMirror.js';
 import { syncEngineReclamationStages } from '../../services/engineReclamationStages.js';
 import { loadRepairStageTemplates } from '../../services/repairStageService.js';
@@ -55,8 +56,7 @@ export type EngineReclamationStagesSummary = {
 function toResult<T>(r: { ok: boolean; status: number; json?: unknown; text?: string }): Result<T> {
   if (r.ok && r.json && typeof r.json === 'object') return r.json as Result<T>;
   if (r.ok) return { ok: true } as Ok<T>;
-  const errPayload = r.json as { error?: unknown } | null;
-  const msg = (errPayload && typeof errPayload.error === 'string' ? errPayload.error : r.text) || `HTTP ${r.status}`;
+  const msg = httpFailureText(r);
   return { ok: false, error: String(msg) };
 }
 

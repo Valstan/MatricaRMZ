@@ -1667,7 +1667,7 @@ export type MatricaApi = {
      */
     reportStuckPending: () => Promise<
       | { ok: true; alerted: boolean; reason: string | null; text: string; chatSent: boolean }
-      | { ok: false; error: string }
+      | { ok: false; error: string; reportText?: string }
     >;
   };
   changes: {

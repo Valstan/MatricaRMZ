@@ -1,7 +1,7 @@
 import { BrowserWindow, app, ipcMain, net } from 'electron';
 import { hostname } from 'node:os';
 
-import { SyncTableName } from '@matricarmz/shared';
+import { SyncTableName, formatStuckPendingReport } from '@matricarmz/shared';
 
 import type { IpcContext } from '../ipcContext.js';
 import {
@@ -23,6 +23,7 @@ import { softDeleteOperation } from '../../services/operationService.js';
 import { SettingsKey, settingsGetNumber, settingsGetString, settingsSetString } from '../../services/settingsStore.js';
 import { parseBlockedRows, serializeBlockedRows } from '../../services/sync/blockedRows.js';
 import { httpAuthed } from '../../services/httpClient.js';
+import { httpFailureText } from '../../services/httpFailureText.js';
 import { resetLocalDatabase, resetSyncState } from '../../services/syncService.js';
 import { AUTO_SYNC_MS } from '../../services/syncControl.js';
 import { isViewMode } from '../ipcContext.js';
@@ -140,6 +141,24 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
     if (!stuck || !(stuck.count > 0)) return { ok: false as const, error: 'застрявших записей нет' };
     const clientId = String((await settingsGetString(ctx.dataDb(), SettingsKey.ClientId)) ?? '').trim();
     if (!clientId) return { ok: false as const, error: 'не известен id машины' };
+    // Текст отчёта собираем на клиенте ДО отправки: если канал перехватил антивирус
+    // (инцидент 23.11.2026 — страница Kaspersky вместо ответа сервера), отчёт всё равно
+    // должен попасть к администратору — хотя бы через буфер обмена.
+    const reportText = formatStuckPendingReport({
+      clientId,
+      clientName: hostname(),
+      operator: { username: 'оператор этой машины' },
+      stuck: {
+        count: stuck.count,
+        oldestPendingAt: stuck.oldestPendingAt ?? null,
+        thresholdMinutes: stuck.thresholdMinutes,
+        byTable: stuck.byTable ?? [],
+        lastError: status.lastError ?? null,
+        lastSyncAt: status.lastSyncAt ?? null,
+      },
+      trigger: 'manual',
+      appVersion: app.getVersion(),
+    });
     try {
       const res = await httpAuthed(
         ctx.dataDb(),
@@ -163,7 +182,10 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
         { timeoutMs: 20_000, attempts: 2 },
       );
       if (!res.ok) {
-        return { ok: false as const, error: String(res.text ?? res.json?.error ?? `HTTP ${res.status}`) };
+        // Тело ответа целиком в текст оператору не годится: это может быть страница
+        // антивируса на 170 КБ (инцидент 23.11.2026). Короткая причина + текст отчёта,
+        // который можно скопировать и отдать администратору другим каналом.
+        return { ok: false as const, error: httpFailureText(res), reportText };
       }
       return {
         ok: true as const,
@@ -173,7 +195,7 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
         chatSent: res.json?.chatSent === true,
       };
     } catch (e) {
-      return { ok: false as const, error: String(e) };
+      return { ok: false as const, error: String(e), reportText };
     }
   });
   ipcMain.handle('sync:reset', async () => {
