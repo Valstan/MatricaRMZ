@@ -144,6 +144,7 @@ export class SyncProxy implements SyncControl {
       lastResult: this.status.lastResult,
       nextAutoSyncInMs,
       stuckPending: this.status.stuckPending ?? null,
+      pendingExport: this.status.pendingExport ?? null,
     };
   }
 

@@ -121,6 +121,7 @@ import {
 import { sendDiagnosticsSnapshot as sendDiagnosticsSnapshotImpl } from './sync/diagnosticsReporter.js';
 import { isOfflineSyncError } from './sync/syncErrorClassifier.js';
 import { countPendingLocalRows, countPendingLocalRowsByTable, countStuckPendingLocalRows } from './sync/localPending.js';
+import { PENDING_EXPORT_PREFIX, PENDING_EXPORT_SUFFIX, markExportFileKept, readKeptExportFiles, unmarkExportFileKept } from './sync/pendingExportState.js';
 import type { StuckPendingProbe } from './sync/localPending.js';
 import { nowMs, yieldToEventLoop } from './sync/progressEmitter.js';
 import { fetchWithRetry } from './netFetch.js';
@@ -4900,7 +4901,6 @@ export function setResetLocalDatabaseImpl(impl: typeof resetLocalDatabaseOverrid
 // file OUTSIDE the DB; after the next successful sync on the fresh DB the rows
 // are replayed as sync_status='pending' (LWW by updated_at) and pushed normally.
 
-const PENDING_EXPORT_PREFIX = 'pending-export-';
 const PENDING_EXPORT_KEEP = 5;
 
 function pendingExportDir(): string {
@@ -4910,7 +4910,7 @@ function pendingExportDir(): string {
 async function listPendingExportFiles(): Promise<string[]> {
   try {
     const names = await readdir(pendingExportDir());
-    return names.filter((n) => n.startsWith(PENDING_EXPORT_PREFIX) && n.endsWith('.json')).sort();
+    return names.filter((n) => n.startsWith(PENDING_EXPORT_PREFIX) && n.endsWith(PENDING_EXPORT_SUFFIX)).sort();
   } catch {
     return [];
   }
@@ -4918,6 +4918,7 @@ async function listPendingExportFiles(): Promise<string[]> {
 
 export async function exportPendingRowsToDisk(
   db: BetterSQLite3Database,
+  reason?: string,
 ): Promise<{ ok: boolean; file: string | null; rows: number }> {
   try {
     const packs = await collectPending(db);
@@ -4925,10 +4926,26 @@ export async function exportPendingRowsToDisk(
     if (total === 0) return { ok: true, file: null, rows: 0 };
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const file = join(pendingExportDir(), `${PENDING_EXPORT_PREFIX}${ts}.json`);
-    await writeFile(file, JSON.stringify({ version: 1, exportedAt: nowMs(), appVersion: getSyncHost().appVersion(), packs }), 'utf8');
+    // Причина выгрузки едет в сам файл: без неё по остатку непонятно, что вызвало
+    // пересборку базы, а оператор с администратором смотрят файл именно из-за этого.
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        exportedAt: nowMs(),
+        appVersion: getSyncHost().appVersion(),
+        ...(reason ? { reason } : {}),
+        packs,
+      }),
+      'utf8',
+    );
     const names = await listPendingExportFiles();
-    for (const stale of names.slice(0, Math.max(0, names.length - PENDING_EXPORT_KEEP))) {
-      await rm(join(pendingExportDir(), stale), { force: true }).catch(() => {});
+    // Чистка не трогает выгрузки, которые реплей не смог вернуть в базу: в них лежат
+    // неотправленные данные оператора, которых больше нигде нет.
+    const kept = await readKeptExportFiles(pendingExportDir());
+    const stale = names.filter((n) => !kept.includes(n)).slice(0, Math.max(0, names.length - PENDING_EXPORT_KEEP));
+    for (const name of stale) {
+      await rm(join(pendingExportDir(), name), { force: true }).catch(() => {});
     }
     logSync(`pending export saved rows=${total} file=${file}`);
     return { ok: true, file, rows: total };
@@ -5013,10 +5030,14 @@ export async function replayPendingExports(db: BetterSQLite3Database, apiBaseUrl
       }
       if (failed === 0) {
         await rm(file, { force: true }).catch(() => {});
+        await unmarkExportFileKept(pendingExportDir(), name).catch(() => {});
         logSync(`pending replay done restored=${restored} skippedOlder=${skippedOlder} file=${name}`);
       } else {
         // Keep the file: rows that no longer fit the schema wait for a client
         // version that can replay them; the admin sees it in diagnostics.
+        // Файл помечается «непригодным»: чистка по числу файлов его не удалит —
+        // в нём единственная копия неотправленных данных оператора.
+        await markExportFileKept(pendingExportDir(), name).catch(() => {});
         logSync(`pending replay partial restored=${restored} skippedOlder=${skippedOlder} failed=${failed} file kept: ${name}`);
         if (apiBaseUrl) {
           void logMessage(db, apiBaseUrl, 'error', `pending replay partial: ${failed} rows not restored (${name})`, {
@@ -5037,8 +5058,9 @@ export async function resetLocalDatabase(db: BetterSQLite3Database, reason = 'ui
   try {
     logSync(`local db reset requested reason=${reason}`);
     // Dump unpushed rows BEFORE anything is deleted — they are replayed into the
-    // fresh DB after its first successful sync.
-    await exportPendingRowsToDisk(db).catch(() => ({ file: null, rows: 0 }));
+    // fresh DB after its first successful sync. The reason travels with the file:
+    // it tells the operator (and the admin) what caused the rebuild.
+    await exportPendingRowsToDisk(db, reason).catch(() => ({ file: null, rows: 0 }));
     // The DB copy of the session dies with the file, but the sidecar survives:
     // a local rebuild is not a logout — the server-side tokens are still valid.
     await clearSyncSession(db, { includeSidecar: false }).catch(() => {});
@@ -5924,7 +5946,7 @@ export async function runSync(
         // and replayed after the pull — the clear must never destroy unpushed
         // work. Only when even the export failed is the full pull aborted; the
         // admin sees the error in the sync-request ack and can re-trigger.
-        const exported = await exportPendingRowsToDisk(db);
+        const exported = await exportPendingRowsToDisk(db, 'full_pull');
         if (!exported.ok) {
           logSync(`full pull aborted: pending export failed (pushError=${pushError ?? 'none'})`);
           return {

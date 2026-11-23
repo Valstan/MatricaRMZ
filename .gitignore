@@ -20,6 +20,10 @@ build
 # verifier-electron runtime (logs, PIDs)
 .verifier-electron/
 
+# Локальный JSON-отчёт прогона vitest (репортер json с --outputFile) — артефакт машины,
+# не содержимое проекта.
+electron-app/vitest-report.json
+
 # MCP server config (machine-specific absolute paths)
 .mcp.json
 

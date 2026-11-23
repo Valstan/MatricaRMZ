@@ -1,6 +1,6 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 
-import type { SyncRunResult, SyncStatus, StuckPendingSummary } from '@matricarmz/shared';
+import type { SyncRunResult, SyncStatus, StuckPendingSummary, PendingExportSummary } from '@matricarmz/shared';
 
 import { STUCK_PENDING_MINUTES } from '@matricarmz/shared';
 
@@ -15,6 +15,8 @@ import {
   waitForServerChanges,
 } from './syncService.js';
 import { isOfflineSyncError } from './sync/syncErrorClassifier.js';
+import { readPendingExportState } from './sync/pendingExportState.js';
+import { getSyncHost } from './syncHost.js';
 import { computeLocalDirtyAction, computeNextSyncDelayMs, computeWakeIdlePauseMs } from './sync/syncScheduling.js';
 import { SLOW_LOOP_P99_MS, lagMetadata } from './eventLoopLagMetrics.js';
 import type { EventLoopLag } from './eventLoopLagMetrics.js';
@@ -48,6 +50,11 @@ const LOCAL_WATCH_MS = 1_000;
  * (COUNT + MIN(updated_at)), поэтому — раз в полминуты, а не на каждом тике сторожа.
  */
 const STUCK_PROBE_INTERVAL_MS = 30_000;
+/**
+ * Как часто перечитываем остатки файлов-выгрузок. Файлы крупные, но меняются редко, а
+ * разбор кэшируется по (имя, размер, mtime) — поэтому полминуты хватает с запасом.
+ */
+const EXPORT_PROBE_INTERVAL_MS = 30_000;
 /** Проба COUNT каждую секунду обязана быть миллисекундной — иначе сторож сам вешает цикл. */
 const SLOW_PROBE_MS = 500;
 /** Полный прогон дольше этого — аномалия, достойная серверного лога. */
@@ -81,6 +88,12 @@ export class SyncManager implements SyncControl {
   /** Застрявшие неотправленные строки; null — проба ещё ни разу не считалась. */
   private stuckPending: StuckPendingSummary | null = null;
   private lastStuckProbeAt = 0;
+  /**
+   * Неотправленные данные, выгруженные в файл на машине: их нет на сервере, и пока файл
+   * лежит, оператор должен об этом знать (жалоба 23.11.2026). null — выгрузок нет.
+   */
+  private pendingExport: PendingExportSummary | null = null;
+  private lastExportProbeAt = 0;
   private lastDirtySyncAt: number | null = null;
   private localRetryDelayMs = LOCAL_RETRY_MIN_MS;
   /**
@@ -130,6 +143,7 @@ export class SyncManager implements SyncControl {
       lastResult: this.lastResult,
       nextAutoSyncInMs,
       stuckPending: this.stuckPending,
+      pendingExport: this.pendingExport,
     };
   }
 
@@ -170,6 +184,10 @@ export class SyncManager implements SyncControl {
     this.scheduleNext(this.baseIntervalMs);
     this.startServerWake();
     this.startLocalWatch();
+    // Остатки выгрузок — сразу: после пересборки базы программа перезапускается, и
+    // оператор должен увидеть, что его неотправленные данные лежат файлом, не дожидаясь
+    // первого синка.
+    void this.refreshPendingExport(true);
   }
 
   private scheduleNext(delayMs: number) {
@@ -305,6 +323,7 @@ export class SyncManager implements SyncControl {
       this.localRetryDelayMs = action.nextRetryDelayMs;
       if (pendingRows >= 0) this.lastPendingRows = pendingRows;
       await this.refreshStuckPending();
+      await this.refreshPendingExport();
       if (!action.sync) return;
       this.lastDirtySyncAt = nowMs();
       await this.runOnce(this.progressOpts()).catch(() => undefined);
@@ -331,6 +350,20 @@ export class SyncManager implements SyncControl {
       // в сводке он не помещается, а в отчёте без него пришлось бы гадать.
       ...(probe.byTable && probe.byTable.length > 0 ? { byTable: probe.byTable } : {}),
     };
+  }
+
+  /**
+   * Пересчёт остатков выгрузок на машине. Файлы появляются и исчезают редко (пересборка
+   * базы, отмена полной загрузки, реплей), поэтому хватает редкой пробы; читать их на
+   * каждый тик сторожа — лишняя работа с диском.
+   */
+  private async refreshPendingExport(force = false): Promise<void> {
+    const now = nowMs();
+    if (!force && now - this.lastExportProbeAt < EXPORT_PROBE_INTERVAL_MS) return;
+    this.lastExportProbeAt = now;
+    const state = await readPendingExportState(getSyncHost().userDataPath()).catch(() => null);
+    if (!state) return;
+    this.pendingExport = state.files.length > 0 ? state : null;
   }
 
   private progressOpts(): RunSyncOpts {
@@ -432,6 +465,10 @@ export class SyncManager implements SyncControl {
       return r;
     } finally {
       this.inFlight = false;
+      // Реплей выгрузок отработал внутри прогона: остатки могли исчезнуть (реплей удалил
+      // файл) или остаться (реплей частичный). Статус должен показать это сразу, а не
+      // через полминуты сторожа.
+      await this.refreshPendingExport(true);
     }
   }
 

@@ -4,7 +4,7 @@
 // только там есть безопасное хранилище ключей).
 //
 // Модуль без node/electron-импортов: его тянут оба процесса и тесты прокси.
-import type { SyncRunResult, SyncStatus, StuckPendingSummary } from '@matricarmz/shared';
+import type { SyncRunResult, SyncStatus, StuckPendingSummary, PendingExportSummary } from '@matricarmz/shared';
 
 import type { SyncRefreshOutcome, SyncSessionView } from '../services/syncSession.js';
 
@@ -56,6 +56,8 @@ export type SyncWireStatus = {
   apiBaseUrl: string;
   /** Застрявшие неотправленные строки — считает воркер (база живёт в нём). */
   stuckPending?: StuckPendingSummary | null;
+  /** Неотправленные данные, выгруженные в файл на машине: на сервере их нет. */
+  pendingExport?: PendingExportSummary | null;
 };
 
 /** Ответы воркера на заявки main. */

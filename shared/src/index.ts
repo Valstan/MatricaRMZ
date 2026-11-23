@@ -153,6 +153,7 @@ export * from './domain/import1cStock.js';
 export * from './domain/supportContact.js';
 export * from './domain/labelEmoji.js';
 export * from './domain/stuckPending.js';
+export * from './domain/pendingExport.js';
 export * from './domain/syncTableDomains.js';
 export * from './domain/printTemplate.js';
 export * from './domain/printForms.js';

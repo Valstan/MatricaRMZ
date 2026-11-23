@@ -23,7 +23,7 @@ import type {
   WorkOrderPayload,
   SupplyRequestPayload,
 } from '@matricarmz/shared';
-import { CLOCK_SKEW_THRESHOLD_MS, formatClockSkew, stuckAgeMinutes } from '@matricarmz/shared';
+import { CLOCK_SKEW_THRESHOLD_MS, formatClockSkew, pendingExportReasonText, stuckAgeMinutes } from '@matricarmz/shared';
 import {
   ACCESS_SECTION_CATALOG,
   formatAppVersionLabel,
@@ -939,6 +939,43 @@ export function App() {
   // Двухклик-подтверждение «Отбросить» у rejected-строки (09.10.2026): снос локальной
   // работы — осознанное действие, а не случайный клик по баннеру.
   const [dropConfirmId, setDropConfirmId] = useState<string | null>(null);
+  // Неотправленные данные, лежащие файлом на машине: оператор должен отдать файл
+  // администратору. Текст отчёта копируется в буфер — отправлять его на сервер нельзя,
+  // данные живут на машине оператора, а не в чате.
+  const [pendingExportNote, setPendingExportNote] = useState('');
+  const [pendingExportText, setPendingExportText] = useState<string | null>(null);
+
+  /** Показать файл-выгрузку в Проводнике — оператору остаётся приложить его к отчёту. */
+  async function revealPendingExport() {
+    const file = syncStatus?.pendingExport?.files?.[0];
+    if (!file) return;
+    try {
+      const r = await window.matrica.sync.revealPendingExport({ name: file.name });
+      if (r?.ok) {
+        setPendingExportNote('Файл показан в Проводнике — приложите его к отчёту администратору.');
+        return;
+      }
+      setPendingExportNote(`Не удалось показать файл: ${clipOperatorError(r?.error ?? 'нет файла')}`);
+    } catch (e) {
+      setPendingExportNote(`Не удалось показать файл: ${clipOperatorError(String(e))}`);
+    }
+  }
+
+  /** Текст отчёта копируется в буфер: данные на машине, отправлять их на сервер нельзя. */
+  async function copyPendingExportReport() {
+    try {
+      const r = await window.matrica.sync.pendingExportReport();
+      if (!r?.ok) {
+        setPendingExportNote(`Не удалось собрать отчёт: ${clipOperatorError(r?.error ?? 'неизвестно')}`);
+        return;
+      }
+      await navigator.clipboard?.writeText(r.text);
+      setPendingExportText(r.text);
+      setPendingExportNote('Отчёт скопирован — отправьте его администратору и приложите файл.');
+    } catch (e) {
+      setPendingExportNote(`Не удалось собрать отчёт: ${clipOperatorError(String(e))}`);
+    }
+  }
 
   async function reportStuckPending() {
     if (stuckReportBusy) return;
@@ -7330,6 +7367,79 @@ export function App() {
                       }}
                     >
                       Скопировать отчёт
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })()}
+          {(() => {
+            const exportState = syncStatus?.pendingExport;
+            if (!exportState || exportState.files.length === 0) return null;
+            return (
+              <div
+                data-pending-export-banner
+                style={{ marginBottom: 10, padding: 10, borderRadius: 12, border: "1px solid #fca5a5", background: "#fef2f2", color: "#991b1b" }}
+              >
+                <div>
+                  {`Неотправленные данные лежат файлом на этой машине: ${exportState.rows} записей. На сервере их нет.`}
+                </div>
+                <div style={{ fontSize: 12, marginTop: 4 }}>
+                  {`${pendingExportReasonText(exportState.reason)}. Файлы: ${exportState.files.map((f) => f.name).join(', ')} — они в папке данных программы (AppData → MatricaRMZ). Пока файлы не отданы администратору, эти данные не видит никто и они пропадут при переустановке программы.`}
+                </div>
+                <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    data-pending-export-reveal
+                    onClick={() => void revealPendingExport()}
+                    style={{
+                      background: "#991b1b",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: 8,
+                      padding: "4px 12px",
+                      cursor: "pointer",
+                      fontWeight: 700,
+                    }}
+                  >
+                    Показать файл в папке
+                  </button>
+                  <button
+                    type="button"
+                    data-pending-export-copy
+                    onClick={() => void copyPendingExportReport()}
+                    style={{
+                      background: "#fff",
+                      color: "#991b1b",
+                      border: "1px solid #fca5a5",
+                      borderRadius: 8,
+                      padding: "4px 12px",
+                      cursor: "pointer",
+                      fontWeight: 700,
+                    }}
+                  >
+                    Скопировать отчёт
+                  </button>
+                  {pendingExportNote ? <span style={{ fontSize: 12 }}>{pendingExportNote}</span> : null}
+                  {pendingExportText ? (
+                    <button
+                      type="button"
+                      data-pending-export-copy-text
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(pendingExportText);
+                        notifyOperator('Отчёт скопирован — отправьте его администратору (например, в мессенджер).');
+                      }}
+                      style={{
+                        background: "#fff",
+                        color: "#991b1b",
+                        border: "1px solid #fca5a5",
+                        borderRadius: 8,
+                        padding: "4px 12px",
+                        cursor: "pointer",
+                        fontWeight: 700,
+                      }}
+                    >
+                      Скопировать отчёт ещё раз
                     </button>
                   ) : null}
                 </div>

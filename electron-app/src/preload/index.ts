@@ -199,6 +199,14 @@ const matricaApi = {
      * внешние каналы (Telegram, МАКС).
      */
     reportStuckPending: async () => ipcRenderer.invoke('sync:stuckPending:report'),
+    /**
+     * Текст отчёта по неотправленным данным, лежащим файлом на машине. Отчёт НЕ уходит
+     * на сервер: администратору нужен сам файл, а текст оператор копирует и прикладывает
+     * к нему.
+     */
+    pendingExportReport: async () => ipcRenderer.invoke('sync:pendingExport:report'),
+    /** Показать файл-выгрузку в Проводнике — чтобы оператор приложил его к отчёту. */
+    revealPendingExport: async (args: { name: string }) => ipcRenderer.invoke('sync:pendingExport:reveal', args),
     onProgress: (handler: (event: any) => void) => {
       const wrapped = (_e: Electron.IpcRendererEvent, payload: any) => handler(payload);
       ipcRenderer.on('sync:progress', wrapped);

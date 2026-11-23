@@ -21,6 +21,7 @@ import type { ContractPayments } from '../domain/payments.js';
 import type { MenuTabId } from '../domain/uiSections.js';
 import type { ScrapCriterionPartInfo } from '../domain/scrapCriterion.js';
 import type { StuckPendingSummary } from '../domain/stuckPending.js';
+import type { PendingExportSummary } from '../domain/pendingExport.js';
 import type {
   ProductionProgramDto,
   ProductionProgramLineDraftDto,
@@ -574,6 +575,12 @@ export type SyncStatus = {
    * выполнилась, «застрявших нет» — это другое утверждение.
    */
   stuckPending?: StuckPendingSummary | null;
+  /**
+   * Неотправленные данные, выгруженные в файл на машине (после пересборки локальной базы
+   * или прерванной полной загрузки). Пока файл лежит — этих данных нет на сервере, и
+   * оператор должен об этом знать (жалоба 23.11.2026). Пусто — выгрузок нет.
+   */
+  pendingExport?: PendingExportSummary | null;
 };
 
 export type SyncProgressEvent = {
@@ -1669,6 +1676,14 @@ export type MatricaApi = {
       | { ok: true; alerted: boolean; reason: string | null; text: string; chatSent: boolean }
       | { ok: false; error: string; reportText?: string }
     >;
+    /**
+     * Текст отчёта по неотправленным данным, лежащим файлом на машине. Отчёт НЕ уходит
+     * на сервер: администратору нужен сам файл, а текст оператор копирует и прикладывает
+     * к нему.
+     */
+    pendingExportReport: () => Promise<{ ok: true; text: string } | { ok: false; error: string }>;
+    /** Показать файл-выгрузку в Проводнике — чтобы оператор приложил его к отчёту. */
+    revealPendingExport: (args: { name: string }) => Promise<{ ok: true } | { ok: false; error: string }>;
   };
   changes: {
     list: (args?: { status?: string; limit?: number }) => Promise<ChangesListResult>;
