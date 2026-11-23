@@ -66,7 +66,16 @@ import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { useListSelection } from '../hooks/useListSelection.js';
 import { LIST_DROP_INDICATOR_COLOR, listDragRowStyle, type ListDropTarget } from '../utils/listDragVisual.js';
 import { listToText } from '../utils/mailText.js';
-import { buildRowsText, copyRowsToClipboard, printRowsPreview, type ListContextColumn } from '../utils/listContextActions.js';
+import {
+  buildListContextMenuItems,
+  buildRowsText,
+  copyRowsToClipboard,
+  listCopyAction,
+  listPrintAction,
+  printRowsPreview,
+  type ListActionDeclaration,
+  type ListContextColumn,
+} from '../utils/listContextActions.js';
 import {
   buildProductionProgramClipboardText,
   buildProductionProgramExportSpec,
@@ -1517,70 +1526,59 @@ export function ProductionProgramPage(props: Props) {
   );
 
   /**
-   * Меню строк плана (ПКМ): печать, копия, почта — по выделению; для одной строки
-   * — ещё переход в карточку; для пачки — убрать из программы (по праву ведения
-   * плана). В общем ките «почты» нет, а «Удалить» завязан на отдельный `onDelete`
-   * — поэтому меню ПП собираем своё.
+   * Меню строк плана (ПКМ) — по общему киту: список ОБЪЯВЛЯЕТ свои действия, а меню
+   * собирается из объявления (промт КАРМАНА #67, D-247). Правило одно на всю
+   * программу: недоступного пункта в меню НЕТ ВОВСЕ, а не гасится серым.
+   * Поэтому «Открыть карточку» есть только у строки с двигателем (в группе
+   * «требует данных» двигателя нет), а «Убрать из программы» — только по праву
+   * ведения плана.
    */
   const canEdit = props.canEdit;
   const onOpenEngine = props.onOpenEngine;
   const menuItems = useMemo<ListContextMenuItem[]>(() => {
     if (!menu || menuRows.length === 0) return [];
-    const items: ListContextMenuItem[] = [];
-    const count = menuRows.length;
-    if (menu.bulk) {
-      items.push({
-        id: 'pp-print-selected',
-        label: `Распечатать выделенные (${count})`,
-        onClick: () => printSelectedRows(menuRows),
-      });
-      items.push({
-        id: 'pp-copy-selected',
-        label: `Скопировать выделенные (${count})`,
-        onClick: () => void copySelectedRows(menuRows),
-      });
-      items.push({
-        id: 'pp-mail-selected',
-        label: `Отправить почтой (${count})`,
-        onClick: () => mailSelectedRows(menuRows),
-      });
-      if (canEdit) {
-        items.push({
-          id: 'pp-remove-selected',
-          label: `Убрать из программы (${count})`,
-          danger: true,
-          onClick: () => removeRows(menuRows.map((r) => String(r.row.id))),
-        });
-      }
-      items.push({
-        id: 'pp-clear-selection',
-        label: 'Снять выделение',
-        onClick: () => selection.clearSelection(),
-      });
-      return items;
-    }
-    const row = menuRows[0]!;
-    const engineId = String(row.engine?.id ?? '');
-    items.push({
-      id: 'pp-open-engine',
-      label: 'Открыть карточку',
-      disabled: !engineId,
-      onClick: () => {
-        if (engineId) onOpenEngine?.(engineId);
+    const actions: ListActionDeclaration<ScreenRow>[] = [
+      {
+        id: 'pp-open-engine',
+        label: 'Открыть карточку',
+        available: Boolean(menuRows[0]?.engine?.id),
+        scope: 'single',
+        run: (rows) => {
+          const engineId = String(rows[0]?.engine?.id ?? '');
+          if (engineId) onOpenEngine?.(engineId);
+        },
       },
-    });
-    items.push({ id: 'pp-print-row', label: 'Распечатать', onClick: () => printSelectedRows([row]) });
-    items.push({ id: 'pp-copy-row', label: 'Скопировать', onClick: () => void copySelectedRows([row]) });
-    items.push({ id: 'pp-mail-row', label: 'Отправить почтой', onClick: () => mailSelectedRows([row]) });
-    if (canEdit) {
-      items.push({
-        id: 'pp-remove-row',
+      listPrintAction({ available: true, print: (rows) => printSelectedRows(rows) }),
+      listCopyAction({ available: true, copy: (rows) => void copySelectedRows(rows) }),
+      // Почта — объявляемое действие списка, как «бирки» у двигателей: своего
+      // шаблона в ките нет, и это нормально — меню собирается из объявления.
+      {
+        id: 'pp-mail',
+        label: 'Отправить почтой',
+        bulkLabel: 'Отправить почтой выделенные',
+        available: true,
+        scope: 'both',
+        run: (rows) => mailSelectedRows(rows),
+      },
+      {
+        id: 'pp-remove',
         label: 'Убрать из программы',
+        bulkLabel: 'Убрать из программы',
+        available: canEdit,
+        scope: 'both',
         danger: true,
-        onClick: () => removeRows([String(row.row.id)]),
-      });
-    }
-    return items;
+        run: (rows) => removeRows(rows.map((r) => String(r.row.id))),
+      },
+    ];
+    return buildListContextMenuItems({
+      rows: menuRows,
+      bulk: menu.bulk,
+      getId: (r) => String(r.row.id),
+      onSelect: selection.toggleSelect,
+      onClearSelection: selection.clearSelection,
+      hasSelection: selection.selectedCount > 0,
+      actions,
+    });
   }, [
     canEdit,
     copySelectedRows,

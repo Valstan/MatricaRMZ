@@ -19,6 +19,7 @@ const PREVIEW = src('../components/ProductionProgramPrintPreview.tsx');
 const SIGNATURE_EDITOR = src('../components/PrintSignatureBlockEditor.tsx');
 const PRINT_HTML = src('../utils/productionProgramPrintHtml.ts');
 const ADD_BY_NUMBERS = src('../components/ProductionProgramAddEnginesByNumbersDialog.tsx');
+const LIST_ACTIONS = src('../utils/listContextActions.ts');
 const APP = src('../App.tsx');
 const CSS = src('../global.css');
 const SHARED_DOMAIN = src('../../../../../../shared/src/domain/productionProgram.ts');
@@ -462,8 +463,12 @@ describe('производственная программа — добавле
     // Без маркера корня клик по таблице гасит выделение.
     expect(PAGE).toContain('data-list-root="true"');
     expect(PAGE).toContain('ListContextMenu');
-    expect(PAGE).toContain('Распечатать выделенные');
-    expect(PAGE).toContain('Скопировать выделенные');
+    // Подписи печати и копии — общие, из кита: страница берёт готовое объявление.
+    expect(PAGE).toContain('listPrintAction');
+    expect(PAGE).toContain('listCopyAction');
+    expect(LIST_ACTIONS).toContain('Распечатать выделенные');
+    expect(LIST_ACTIONS).toContain('Скопировать выделенные');
+    // Почта — объявляемое действие самой страницы (в ките своего шаблона нет).
     expect(PAGE).toContain('Отправить почтой');
   });
 
@@ -479,5 +484,59 @@ describe('производственная программа — добавле
   it('состав плана меняется только по праву ведения плана', () => {
     expect(PAGE).toContain('Убрать из программы');
     expect(PAGE).toContain('props.canEdit ? 10 : 9');
+  });
+});
+
+/**
+ * Меню ПП — по общему киту, из объявления действий (промт КАРМАНА #67, D-247).
+ *
+ * ПП была последним списком программы, чьё меню собиралось руками: свои подписи,
+ * свои счётчики и «Открыть карточку», которое у строки без двигателя гасилось
+ * серым. Заказ владельца — «меню = ровно то, что список умеет»: недоступного
+ * пункта не должно быть вовсе, а новое действие списка обязано попадать в меню
+ * само. Правило одно на всю программу ⇒ меню ПП собирает общий сборщик.
+ */
+describe('меню ПП — из объявления действий кита', () => {
+  it('меню собирает общий сборщик кита, а не страница руками', () => {
+    expect(PAGE, 'меню ПП обязано собираться общим сборщиком кита').toContain('buildListContextMenuItems');
+    expect(PAGE, 'своя сборка пунктов в странице = разъезд с китом').not.toContain(
+      'const items: ListContextMenuItem[] = []',
+    );
+    // Старые ручные пункты — их больше нет.
+    expect(PAGE).not.toContain("'pp-print-selected'");
+    expect(PAGE).not.toContain("'pp-print-row'");
+    expect(PAGE).not.toContain("'pp-copy-row'");
+    expect(PAGE).not.toContain("'pp-remove-row'");
+    expect(PAGE).not.toContain("'pp-clear-selection'");
+  });
+
+  it('недоступный пункт ОТСУТСТВУЕТ, а не гасится серым', () => {
+    // У строки без двигателя карточки нет — пункта «Открыть карточку» быть не
+    // должно, а не «серая кнопка, которая ничего не делает».
+    expect(PAGE, 'гасящий серым пункт — враньё списка о самом себе').not.toContain('disabled: !engineId');
+    expect(PAGE, 'доступность действия объявляется, а не гасится').toContain(
+      'available: Boolean(menuRows[0]?.engine?.id)',
+    );
+  });
+
+  it('«почта» и «убрать из программы» — объявляемые действия', () => {
+    expect(PAGE).toContain("id: 'pp-mail'");
+    expect(PAGE).toContain('Отправить почтой');
+    // Убрать из программы — по праву ведения плана: нет права ⇒ нет пункта.
+    expect(PAGE).toContain('available: canEdit');
+    expect(PAGE).toContain('danger: true');
+  });
+
+  it('«выделить» и «снять выделение» — из кита, а не своими пунктами', () => {
+    expect(PAGE).toContain('onSelect: selection.toggleSelect');
+    expect(PAGE).toContain('onClearSelection: selection.clearSelection');
+    expect(PAGE).toContain('hasSelection: selection.selectedCount > 0');
+  });
+
+  it('печать и копия — общие объявления кита, свои подписи у страницы нет', () => {
+    expect(PAGE).toContain('listPrintAction');
+    expect(PAGE).toContain('listCopyAction');
+    // Счётчик пачки и слово «выделенные» — из кита, у страницы их быть не должно.
+    expect(PAGE, 'счётчик выделенных — общее правило кита').not.toContain('выделенные (${count})');
   });
 });
