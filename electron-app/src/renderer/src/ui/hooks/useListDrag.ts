@@ -24,8 +24,9 @@ const AUTOSCROLL_STEP_PX = 18;
  * поэтому отмена перетаскивания (Esc, drop мимо строки) больше не оставляет список
  * «залипшим» с подсвеченной строкой. Раньше это чинили вручную и только в одном месте.
  */
-export function useListDrag(opts?: { enabled?: boolean }) {
+export function useListDrag(opts?: { enabled?: boolean; scope?: () => HTMLElement | null }) {
   const enabled = opts?.enabled !== false;
+  const scope = opts?.scope;
   const [drag, setDrag] = useState<ListDragSource | null>(null);
   const [dropTarget, setDropTarget] = useState<ListDropTarget | null>(null);
   const dragRef = useRef<ListDragSource | null>(null);
@@ -63,9 +64,20 @@ export function useListDrag(opts?: { enabled?: boolean }) {
 
   /** Строки списка в координатах экрана — по ним считается место вставки. */
   const collectRowRects = useCallback((): ListRowRect[] => {
-    const root = scrollRef.current;
-    const scope = root ?? document;
-    const rows = Array.from(scope.querySelectorAll<HTMLElement>('[data-list-row="true"][data-list-row-key]'));
+    // ГРАНИЦА СПИСКА: строки собираются только внутри своего контейнера. На карточке
+    // наряда списков три (бригада, подписи, строки работ), и без границы перетаскивание
+    // в одном списке считало бы строки соседних — место вставки уезжало бы в чужой список.
+    const root = scope?.() ?? scrollRef.current;
+    const scopeEl = root ?? document;
+    const rows = Array.from(scopeEl.querySelectorAll<HTMLElement>('[data-list-row="true"][data-list-row-key]'))
+      // Вложенный список (поставки внутри позиции заявки) — свой: его строки не должны
+      // попасть в расчёт места вставки внешнего списка. Без своей границы (scope не
+      // задан) фильтр не применяется — иначе список без разметки потерял бы строки.
+      .filter((row) => {
+        if (!root) return true;
+        const owner = row.closest('[data-list-scope="true"]');
+        return !owner || owner === scopeEl;
+      });
     return rows.map((row) => {
       const rect = row.getBoundingClientRect();
       return {
@@ -74,7 +86,7 @@ export function useListDrag(opts?: { enabled?: boolean }) {
         bottom: rect.bottom,
       };
     });
-  }, []);
+  }, [scope]);
 
   const autoScroll = useCallback((clientY: number) => {
     const container = scrollRef.current;

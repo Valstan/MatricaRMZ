@@ -74,3 +74,20 @@ export function listDragRowStyle(dragKey: string | null, rowKey: string): {
 
 /** Цвет линии места вставки. */
 export const LIST_DROP_INDICATOR_COLOR = 'var(--danger)';
+
+/**
+ * Линия места вставки на СТРОКЕ, рядом с которой отпустили.
+ *
+ * Без неё оператор тащит строку и не видит, где она встанет: «куда встанет» читается
+ * случайно. Линия рисуется самой строкой-целью — сверху («до») или снизу («после») —
+ * и это работает в любом списке: и в таблице, и в списке карточек на div'ах.
+ */
+export function listDropIndicatorStyle(
+  dropTarget: { key: string | null; position: 'before' | 'after' } | null,
+  rowKey: string,
+): { boxShadow?: string } {
+  if (!dropTarget || !dropTarget.key) return {};
+  if (dropTarget.key !== rowKey) return {};
+  const line = `inset 0 2px 0 0 ${LIST_DROP_INDICATOR_COLOR}`;
+  return { boxShadow: dropTarget.position === 'before' ? line : `inset 0 -2px 0 0 ${LIST_DROP_INDICATOR_COLOR}` };
+}

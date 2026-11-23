@@ -38,6 +38,12 @@ export function CardTable(props: {
   wrapStyle?: React.CSSProperties;
   /** Режим обёртки. */
   mode?: CardTableMode;
+  /**
+   * Граница списка (промт КАРМАНА #67): элемент, внутри которого перетаскивание
+   * собирает строки ЭТОГО списка. На карточке наряда таблиц несколько, и без границы
+   * перетаскивание в одной целило бы в строки соседней.
+   */
+  scopeRef?: (el: HTMLElement | null) => void;
 }) {
   const mode = props.mode ?? 'default';
   const wrapClass = [
@@ -50,7 +56,11 @@ export function CardTable(props: {
     .join(' ');
   return (
     <div className={wrapClass} style={props.wrapStyle}>
-      <table className={`ui-table${props.className ? ` ${props.className}` : ''}`} style={props.style}>
+      <table
+        className={`ui-table${props.className ? ` ${props.className}` : ''}`}
+        style={props.style}
+        {...(props.scopeRef ? { ref: props.scopeRef } : {})}
+      >
         {props.children}
       </table>
     </div>

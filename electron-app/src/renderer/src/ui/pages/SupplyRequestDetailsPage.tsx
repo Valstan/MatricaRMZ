@@ -6,7 +6,8 @@ import type { SupplyRequestDelivery, SupplyRequestItem, SupplyRequestPayload, Wa
 import { Button } from '../components/Button.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { Input } from '../components/Input.js';
-import { RowReorderButtons } from '../components/RowReorderButtons.js';
+import { ListReorderHandle } from '../components/ListReorderHandle.js';
+import { useListReorder } from '../hooks/useListReorder.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
 import { DraggableFieldList } from '../components/DraggableFieldList.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
@@ -29,7 +30,6 @@ import { CardActionBar } from '../components/CardActionBar.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
-import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { buildSearchOption, joinOptionHint, joinOptionSearch, mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
 import { createNomenclatureLineFromPreset } from '../utils/createWarehouseNomenclatureFromDirectory.js';
 import { promptNomenclatureArticle } from '../utils/promptNomenclatureArticle.js';
@@ -238,6 +238,67 @@ function printSupplyRequest(
 
 // Phase 3d: cardType key for this editor's recovery drafts (window.matrica.drafts.*).
 const SUPPLY_REQUEST_DRAFT_TYPE = 'supply_request';
+
+/**
+ * ФАКТИЧЕСКИЕ ПОСТАВКИ позиции заявки — отдельный список внутри позиции.
+ *
+ * Отдельный компонент, а не часть карточки: у каждой позиции СВОЙ список поставок,
+ * и у каждого списка — своя граница перетаскивания (перетаскивание поставки в одной
+ * позиции не должно целить в поставки другой). Список поставок — по общему киту
+ * (промт КАРМАНА #67), как и всё остальное.
+ */
+function SupplyRequestDeliveries(props: {
+  deliveries: SupplyRequestDelivery[];
+  canEdit: boolean;
+  /** Ключ строки поставки для React. */
+  rowKey: (index: number) => string;
+  onChange: (deliveries: SupplyRequestDelivery[]) => void;
+  onRemove: (index: number) => void;
+  children: (row: SupplyRequestDelivery, index: number) => React.ReactNode;
+}) {
+  const reorder = useListReorder({
+    rows: props.deliveries,
+    canReorder: props.canEdit,
+    onReorder: (rows) => props.onChange(rows),
+  });
+
+  return (
+    <div ref={reorder.scopeRef}>
+      {props.deliveries.map((d, di) => (
+        <div
+          key={props.rowKey(di)}
+          // Маркер строки для кита перестановки (промт КАРМАНА #67).
+          data-list-row="true"
+          data-list-row-key={reorder.keys[di] ?? ''}
+          style={{
+            display: 'grid',
+            gridTemplateColumns: props.canEdit ? '160px 120px 1fr auto' : '160px 120px 1fr',
+            gap: 10,
+            alignItems: 'center',
+            marginBottom: 6,
+            ...reorder.rowStyle(reorder.keys[di] ?? ''),
+          }}
+          onDragOver={reorder.onDragOver}
+          onDrop={reorder.onDrop}
+        >
+          {props.children(d, di)}
+          {props.canEdit ? (
+            <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+              <ListReorderHandle
+                {...reorder.handleProps(reorder.keys[di] ?? '', { label: `поставка ${di + 1}` })}
+              />
+              <Button variant="ghost" onClick={() => props.onRemove(di)}>
+                Удалить
+              </Button>
+            </div>
+          ) : (
+            <div />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function SupplyRequestDetailsPage(props: {
   id: string;
@@ -649,20 +710,26 @@ export function SupplyRequestDetailsPage(props: {
     scheduleSave({ ...currentPayload, items: normalized }, options?.markSessionChange ?? true);
   }
 
-  function moveRequestItem(from: number, to: number) {
-    const currentPayload = payloadRef.current;
-    if (!currentPayload) return;
-    const items = [...(currentPayload.items ?? [])];
-    const rowKeys = [...itemRowKeysRef.current];
-    if (from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) return;
-    const [movedItem] = items.splice(from, 1);
-    const [movedKey] = rowKeys.splice(from, 1);
-    if (!movedItem || !movedKey) return;
-    items.splice(to, 0, movedItem);
-    rowKeys.splice(to, 0, movedKey);
-    setExpandedLine(null);
-    replaceRequestItems(items, { rowKeys });
-  }
+  /**
+   * ПОЗИЦИИ ЗАЯВКИ — по общему киту (промт КАРМАНА #67).
+   *
+   * Ключи строк (`itemRowKeysRef`) переставляются по ТОЙ ЖЕ перестановке, что и строки:
+   * ключ — это React-ключ строки, и разъехавшийся ключ означал бы, что React перепутал
+   * строки при следующей перерисовке (значение из одной строки появлялось бы в другой).
+   */
+  const itemsReorder = useListReorder({
+    rows: payload?.items ?? [],
+    canReorder: props.canEdit,
+    onReorder: (rows, order) => {
+      const currentPayload = payloadRef.current;
+      if (!currentPayload) return;
+      const rowKeys = order
+        .map((key) => itemRowKeysRef.current[Number(key)])
+        .filter((key): key is string => Boolean(key));
+      setExpandedLine(null);
+      replaceRequestItems(rows, { rowKeys });
+    },
+  });
 
   function removeRequestItem(index: number) {
     const currentPayload = payloadRef.current;
@@ -691,16 +758,6 @@ export function SupplyRequestDetailsPage(props: {
     });
     if (!ok) return;
     removeRequestItem(index);
-  }
-
-  function moveDelivery(itemIndex: number, from: number, to: number) {
-    const currentPayload = payloadRef.current;
-    if (!currentPayload) return;
-    const items = [...(currentPayload.items ?? [])];
-    const cur = ensureItem(items[itemIndex], itemIndex + 1);
-    const deliveries = moveArrayItem([...(cur.deliveries ?? [])], from, to);
-    items[itemIndex] = { ...cur, deliveries };
-    scheduleSave({ ...currentPayload, items });
   }
 
   async function saveNow(next: SupplyRequestPayload): Promise<boolean> {
@@ -1284,7 +1341,8 @@ export function SupplyRequestDetailsPage(props: {
         </div>
 
         <ListCount total={(payload.items ?? []).length} shown={(payload.items ?? []).length} />
-        <div className="list-table-wrap list-table-wrap--single">
+        {/* Граница списка: перетаскивание считает строки ТОЛЬКО этого списка (позиций заявки). */}
+        <div className="list-table-wrap list-table-wrap--single" ref={itemsReorder.scopeRef}>
           <table className="list-table list-table--single-mode work-order-table supply-request-items-table">
             <colgroup>
               <col style={{ width: 54 }} />
@@ -1328,32 +1386,25 @@ export function SupplyRequestDetailsPage(props: {
                 return (
                   <React.Fragment key={itemRowKeysRef.current[idx] ?? `supply-request-item-${idx}`}>
                     <tr
-                      style={expandedLine === idx ? { background: 'var(--list-row-bg-hover)' } : undefined}
+                      // Маркер строки для кита перестановки (промт КАРМАНА #67).
+                      data-list-row="true"
+                      data-list-row-key={itemsReorder.keys[idx] ?? ''}
+                      style={{
+                        ...(expandedLine === idx ? { background: 'var(--list-row-bg-hover)' } : {}),
+                        ...itemsReorder.rowStyle(itemsReorder.keys[idx] ?? ''),
+                      }}
+                      onDragOver={itemsReorder.onDragOver}
+                      onDrop={itemsReorder.onDrop}
                     >
                       <RowNumberCell n={idx + 1} />
                       {props.canEdit && (
                         <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                           <div style={{ display: 'inline-flex', gap: 4 }}>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              disabled={idx === 0}
-                              title="Поднять строку выше"
-                              onClick={() => moveRequestItem(idx, idx - 1)}
-                            >
-                              ↑
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              disabled={idx === (payload.items?.length ?? 0) - 1}
-                              title="Опустить строку ниже"
-                              onClick={() => moveRequestItem(idx, idx + 1)}
-                            >
-                              ↓
-                            </Button>
+                            <ListReorderHandle
+                              {...itemsReorder.handleProps(itemsReorder.keys[idx] ?? '', {
+                                label: `позиция ${idx + 1}`,
+                              })}
+                            />
                           </div>
                         </td>
                       )}
@@ -1571,17 +1622,33 @@ export function SupplyRequestDetailsPage(props: {
 
                           {(it.deliveries ?? []).length === 0 && <div style={{ color: 'var(--subtle)' }}>Поставок пока нет.</div>}
 
-                          {(it.deliveries ?? []).map((d, di) => (
-                            <div
-                              key={di}
-                              style={{
-                                display: 'grid',
-                                gridTemplateColumns: props.canEdit ? '160px 120px 1fr auto' : '160px 120px 1fr',
-                                gap: 10,
-                                alignItems: 'center',
-                                marginBottom: 6,
-                              }}
-                            >
+                          <SupplyRequestDeliveries
+                            deliveries={it.deliveries ?? []}
+                            canEdit={props.canEdit}
+                            rowKey={(di) => `supply-request-delivery-${idx}-${di}`}
+                            onChange={(deliveries) => {
+                              const items = [...(payload.items ?? [])];
+                              const cur = ensureItem(items[idx], idx + 1);
+                              items[idx] = { ...cur, deliveries };
+                              scheduleSave({ ...payload, items });
+                            }}
+                            onRemove={(di) => {
+                              void (async () => {
+                                const ok = await confirmModal({
+                                  detail: `Будет удалена запись фактической поставки №${di + 1} по строке заявки №${it.lineNo ?? idx + 1} («${(it.name ?? '').trim() || 'без названия'}»).`,
+                                });
+                                if (!ok) return;
+                                const items = [...(payload.items ?? [])];
+                                const cur = ensureItem(items[idx], idx + 1);
+                                const deliveries = [...(cur.deliveries ?? [])];
+                                deliveries.splice(di, 1);
+                                items[idx] = { ...cur, deliveries };
+                                scheduleSave({ ...payload, items });
+                              })();
+                            }}
+                          >
+                            {(d, di) => (
+                              <>
                               <Input
                                 type="date"
                                 value={toInputDate(d.deliveredAt)}
@@ -1629,39 +1696,9 @@ export function SupplyRequestDetailsPage(props: {
                                 style={compactInputStyle}
                                 placeholder="Примечание…"
                               />
-                              {props.canEdit ? (
-                                <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                                  <RowReorderButtons
-                                    canMoveUp={di > 0}
-                                    canMoveDown={di < (it.deliveries?.length ?? 0) - 1}
-                                    onMoveUp={() => moveDelivery(idx, di, di - 1)}
-                                    onMoveDown={() => moveDelivery(idx, di, di + 1)}
-                                  />
-                                  <Button
-                                    variant="ghost"
-                                    onClick={() => {
-                                      void (async () => {
-                                        const ok = await confirmModal({
-                                          detail: `Будет удалена запись фактической поставки №${di + 1} по строке заявки №${it.lineNo ?? idx + 1} («${(it.name ?? '').trim() || 'без названия'}»).`,
-                                        });
-                                        if (!ok) return;
-                                        const items = [...(payload.items ?? [])];
-                                        const cur = ensureItem(items[idx], idx + 1);
-                                        const deliveries = [...(cur.deliveries ?? [])];
-                                        deliveries.splice(di, 1);
-                                        items[idx] = { ...cur, deliveries };
-                                        scheduleSave({ ...payload, items });
-                                      })();
-                                    }}
-                                  >
-                                    Удалить
-                                  </Button>
-                                </div>
-                              ) : (
-                                <div />
-                              )}
-                            </div>
-                          ))}
+                              </>
+                            )}
+                          </SupplyRequestDeliveries>
                         </td>
                       </tr>
                     )}

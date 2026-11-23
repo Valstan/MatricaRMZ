@@ -27,7 +27,8 @@ const CONTRACT_CARD_TABS: CardTab<ContractCardTab>[] = [
 import { CardTable } from '../components/CardTable.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { DocumentHistoryPanel } from '../components/DocumentHistoryPanel.js';
-import { RowReorderButtons } from '../components/RowReorderButtons.js';
+import { ListReorderHandle } from '../components/ListReorderHandle.js';
+import { useListReorder } from '../hooks/useListReorder.js';
 import { ListCount } from '../components/ListCount.js';
 import { DistributeToSelectedForm } from '../components/DistributeToSelectedForm.js';
 import { ContractEngineFinance } from '../components/ContractEngineFinance.js';
@@ -99,7 +100,6 @@ import { paymentCountdownVisual } from '../utils/paymentCountdownVisual.js';
 import { buildServiceMemoSections } from '../utils/serviceMemo.js';
 import { buildAdvanceMemoSections } from '../utils/advanceMemo.js';
 import { CollapsibleSection } from '../components/CollapsibleSection.js';
-import { moveArrayItem } from '../utils/moveArrayItem.js';
 import { SearchSelect, type SearchSelectOption } from '../components/SearchSelect.js';
 import { mapEntityRowsToSearchOptions, mapPartRowsToSearchOptions } from '../utils/selectOptions.js';
 import { compareEngineOptions, engineOptionLabel } from '../utils/engineOptionLabel.js';
@@ -598,9 +598,20 @@ function SectionBlock(props: {
     update({ engineBrands: next });
   };
 
-  const moveEngineBrand = (from: number, to: number) => {
-    update({ engineBrands: moveArrayItem(section.engineBrands, from, to) });
-  };
+  // ПЕРЕСТАНОВКА СТРОК РАЗДЕЛА — по общему киту (промт КАРМАНА #67): ручка «⠿»,
+  // перетаскивание мышью и стрелки. Два списка — две границы: перетаскивание в одном
+  // не должно целить в строки другого.
+  const engineBrandReorder = useListReorder({
+    rows: section.engineBrands,
+    canReorder: canEdit,
+    onReorder: (rows) => update({ engineBrands: rows }),
+  });
+
+  const partsReorder = useListReorder({
+    rows: section.parts,
+    canReorder: canEdit,
+    onReorder: (rows) => update({ parts: rows }),
+  });
 
   const updateEngineBrand = (idx: number, patch: Partial<ContractEngineBrandRow>) => {
     const next = [...section.engineBrands];
@@ -628,10 +639,6 @@ function SectionBlock(props: {
     if (!ok) return;
     const next = section.parts.filter((_, i) => i !== idx);
     update({ parts: next });
-  };
-
-  const movePart = (from: number, to: number) => {
-    update({ parts: moveArrayItem(section.parts, from, to) });
   };
 
   const updatePart = (idx: number, patch: Partial<ContractPartRow>) => {
@@ -916,7 +923,7 @@ function SectionBlock(props: {
             )}
           </div>
           <ListCount total={section.engineBrands.length} shown={section.engineBrands.length} />
-          <CardTable className="list-table">
+          <CardTable className="list-table" scopeRef={engineBrandReorder.scopeRef}>
               <colgroup>
                 <col />
                 <col />
@@ -941,7 +948,15 @@ function SectionBlock(props: {
                   const dangling = !resolved && Boolean(row.engineBrandId) && engineBrandOptions.length > 0;
                   const label = resolved ?? (row.engineBrandId ? '⚠ марка удалена' : '—');
                   return (
-                    <tr key={idx}>
+                    <tr
+                      key={idx}
+                      // Маркер строки для кита перестановки (промт КАРМАНА #67).
+                      data-list-row="true"
+                      data-list-row-key={engineBrandReorder.keys[idx] ?? ''}
+                      style={engineBrandReorder.rowStyle(engineBrandReorder.keys[idx] ?? '')}
+                      onDragOver={engineBrandReorder.onDragOver}
+                      onDrop={engineBrandReorder.onDrop}
+                    >
                       <RowNumberCell n={idx + 1} style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }} />
                       <td data-col-kind="name" style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
@@ -992,11 +1007,10 @@ function SectionBlock(props: {
                       {canEdit && (
                         <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
                           <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                            <RowReorderButtons
-                              canMoveUp={idx > 0}
-                              canMoveDown={idx < section.engineBrands.length - 1}
-                              onMoveUp={() => moveEngineBrand(idx, idx - 1)}
-                              onMoveDown={() => moveEngineBrand(idx, idx + 1)}
+                            <ListReorderHandle
+                              {...engineBrandReorder.handleProps(engineBrandReorder.keys[idx] ?? '', {
+                                label: `марка ${idx + 1}`,
+                              })}
                             />
                             <Button variant="ghost" tone="danger" size="sm" onClick={() => void removeEngineBrand(idx)}>
                               ×
@@ -1023,7 +1037,7 @@ function SectionBlock(props: {
             )}
           </div>
           <ListCount total={section.parts.length} shown={section.parts.length} />
-          <CardTable className="list-table">
+          <CardTable className="list-table" scopeRef={partsReorder.scopeRef}>
               <colgroup>
                 <col />
                 <col />
@@ -1046,7 +1060,15 @@ function SectionBlock(props: {
                 {section.parts.map((row, idx) => {
                   const label = partOptions.find((o) => o.id === row.partId)?.label ?? (row.partId || '—');
                   return (
-                    <tr key={idx}>
+                    <tr
+                      key={idx}
+                      // Маркер строки для кита перестановки (промт КАРМАНА #67).
+                      data-list-row="true"
+                      data-list-row-key={partsReorder.keys[idx] ?? ''}
+                      style={partsReorder.rowStyle(partsReorder.keys[idx] ?? '')}
+                      onDragOver={partsReorder.onDragOver}
+                      onDrop={partsReorder.onDrop}
+                    >
                       <RowNumberCell n={idx + 1} style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }} />
                       <td data-col-kind="name" style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'start' }}>
@@ -1097,11 +1119,10 @@ function SectionBlock(props: {
                       {canEdit && (
                         <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
                           <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                            <RowReorderButtons
-                              canMoveUp={idx > 0}
-                              canMoveDown={idx < section.parts.length - 1}
-                              onMoveUp={() => movePart(idx, idx - 1)}
-                              onMoveDown={() => movePart(idx, idx + 1)}
+                            <ListReorderHandle
+                              {...partsReorder.handleProps(partsReorder.keys[idx] ?? '', {
+                                label: `деталь ${idx + 1}`,
+                              })}
                             />
                             <Button variant="ghost" tone="danger" size="sm" onClick={() => void removePart(idx)}>
                               ×
@@ -2691,10 +2712,15 @@ export function ContractDetailsPage(props: {
     setExecutionParts((current) => current.filter((_, rowIdx) => rowIdx !== idx));
   }
 
-  function moveExecutionPart(from: number, to: number) {
-    dirtyRef.current = true;
-    setExecutionParts((current) => moveArrayItem(current, from, to));
-  }
+  // ПЕРЕСТАНОВКА СТРОК ИСПОЛНЕНИЯ — по общему киту (промт КАРМАНА #67).
+  const executionPartsReorder = useListReorder({
+    rows: executionParts,
+    canReorder: props.canEdit,
+    onReorder: (rows) => {
+      dirtyRef.current = true;
+      setExecutionParts(rows);
+    },
+  });
 
   function addExecutionPartRow(partId: string) {
     const normalizedId = String(partId ?? '').trim();
@@ -3740,7 +3766,7 @@ export function ContractDetailsPage(props: {
             {expandedBlocks.contractParts !== false && (
               <div style={{ marginTop: 12, display: 'grid', gap: 12 }}>
                 <ListCount total={executionParts.length} shown={executionParts.length} />
-                <CardTable className="list-table">
+                <CardTable className="list-table" scopeRef={executionPartsReorder.scopeRef}>
                   <colgroup>
                     <col />
                     <col />
@@ -3761,7 +3787,15 @@ export function ContractDetailsPage(props: {
                     {executionParts.map((row, idx) => {
                       const label = partOptions.find((option) => option.id === row.partId)?.label ?? row.partId;
                       return (
-                        <tr key={row.partId}>
+                        <tr
+                          key={row.partId}
+                          // Маркер строки для кита перестановки (промт КАРМАНА #67).
+                          data-list-row="true"
+                          data-list-row-key={executionPartsReorder.keys[idx] ?? ''}
+                          style={executionPartsReorder.rowStyle(executionPartsReorder.keys[idx] ?? '')}
+                          onDragOver={executionPartsReorder.onDragOver}
+                          onDrop={executionPartsReorder.onDrop}
+                        >
                           <RowNumberCell n={idx + 1} style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }} />
                           <td data-col-kind="name" style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
                             {row.partId && props.onOpenPart ? (
@@ -3797,11 +3831,10 @@ export function ContractDetailsPage(props: {
                           {props.canEdit && (
                             <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
                               <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                                <RowReorderButtons
-                                  canMoveUp={idx > 0}
-                                  canMoveDown={idx < executionParts.length - 1}
-                                  onMoveUp={() => moveExecutionPart(idx, idx - 1)}
-                                  onMoveDown={() => moveExecutionPart(idx, idx + 1)}
+                                <ListReorderHandle
+                                  {...executionPartsReorder.handleProps(executionPartsReorder.keys[idx] ?? '', {
+                                    label: `деталь ${idx + 1}`,
+                                  })}
                                 />
                                 <Button variant="ghost" tone="danger" size="sm" onClick={() => removeExecutionPart(idx)}>
                                   ×
