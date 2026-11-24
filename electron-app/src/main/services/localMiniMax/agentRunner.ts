@@ -98,9 +98,12 @@ function readShimTarget(cmdPath: string): string | null {
   for (const raw of quoted) {
     const value = raw.slice(1, -1).replace(/%~dp0/g, dir).trim();
     if (!value) continue;
-    if (!SCRIPT_EXTENSIONS.includes(extname(value).toLowerCase())) continue;
+    // Путь внутри shim написан обратными слэшами (стиль Windows) — на POSIX их
+    // надо превратить в прямые, иначе resolve получит несуществующий путь.
+    const native = process.platform === 'win32' ? value : value.replace(/\\/g, '/');
+    if (!SCRIPT_EXTENSIONS.includes(extname(native).toLowerCase())) continue;
     // resolve нормализует «..» (shim npm ссылается на пакет через «%dp0\..\»).
-    const absolute = resolve(dir, value);
+    const absolute = resolve(dir, native);
     if (existsSync(absolute)) return absolute;
   }
   return null;
