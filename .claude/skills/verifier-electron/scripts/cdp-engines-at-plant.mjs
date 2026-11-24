@@ -426,6 +426,11 @@ async function main() {
   const s8 = await evaluate(
     ws,
     `const pane = activePane();
+     // Панель сворачивается своей кнопкой (промт КАРМАНА #106), а раскрытость живёт в
+     // состоянии списка ⇒ прошлый прогон мог оставить её свёрнутой. Разворачиваем: дальше
+     // проверяем развёрнутую панель (сворачивание проверяет cdp-facet-panel.mjs).
+     const collapseBtn = vis('[data-facet-collapse]', pane)[0] ?? null;
+     if (collapseBtn && collapseBtn.getAttribute('aria-expanded') === 'false') { click(collapseBtn); await wait(800); }
      const panel = vis('[data-engine-facets]', pane)[0] ?? null;
      const ids = vis('[data-facet-field]', pane).map((b) => b.getAttribute('data-facet-field'));
      const reset = vis('[data-facet-reset]', pane)[0] ?? null;

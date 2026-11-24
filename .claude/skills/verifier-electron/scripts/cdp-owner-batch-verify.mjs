@@ -226,14 +226,31 @@ async function main() {
 
   // --- [2] фильтры под одной кнопкой ----------------------------------------
   await ensureHelpers(cdp);
-  console.log('\n[2] Фильтры всегда на виду');
-  // Кнопки «Фильтры» больше нет (владелец 12.11.2026): панель стоит под тулбаром всегда,
-  // сворачивать её нечем — и проверять «переключение в обе стороны» больше нечего.
+  console.log('\n[2] Фильтры: панель под тулбаром, сворачивается своей кнопкой');
+  // Кнопки «Фильтры» в тулбаре нет (владелец 12.11.2026): панель стоит под тулбаром. С
+  // 24.11.2026 (промт КАРМАНА #106) панель сворачивается СВОЕЙ кнопкой, и раскрытость живёт
+  // в состоянии списка ⇒ прошлый прогон мог оставить её свёрнутой. Разворачиваем: дальше
+  // проверяем развёрнутую панель (сворачивание проверяет cdp-facet-panel.mjs).
+  const facetCollapsed = await cdp.evalAsync(
+    "(() => { const b = document.querySelector('[data-facet-collapse]'); return b ? b.getAttribute('aria-expanded') : null; })()",
+  );
+  if (facetCollapsed === 'false') {
+    await cdp.evalAsync("window.__mv.click(document.querySelector('[data-facet-collapse]'))");
+    await sleep(800);
+  }
   const toggleExists = await cdp.evalAsync("Boolean(document.querySelector('[data-facet-toggle]'))");
   check('кнопки «Фильтры» в тулбаре нет', toggleExists === false);
+  const collapseBtn = await cdp.evalAsync(
+    "(() => { const b = document.querySelector('[data-facet-collapse]'); return b ? { expanded: b.getAttribute('aria-expanded'), vis: window.__mv.vis(b) } : null; })()",
+  );
+  check(
+    'у панели есть кнопка сворачивания, и панель развёрнута',
+    collapseBtn != null && collapseBtn.expanded === 'true' && collapseBtn.vis === true,
+    JSON.stringify(collapseBtn),
+  );
 
   const fields = await cdp.evalAsync(
-    "[...document.querySelectorAll('[data-facet-field]')].map(b => b.getAttribute('data-facet-field'))",
+    "[...document.querySelectorAll('[data-facet-field]')].filter(e => window.__mv.vis(e)).map(b => b.getAttribute('data-facet-field'))",
   );
   check('панель фильтров на виду', Array.isArray(fields) && fields.length > 0, `ступеней: ${fields?.length}`);
   for (const id of ['defectAct', 'status', 'workshop', 'arrivalDate', 'defectDate', 'shippingDate']) {

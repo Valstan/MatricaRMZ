@@ -230,7 +230,11 @@ async function main() {
     ws,
     `const root = listRoot();
      const panel = root?.parentElement ?? document;
-     // Кнопки «Фильтры» больше нет (владелец 12.11.2026): панель всегда на виду.
+     // Кнопки «Фильтры» в тулбаре нет (владелец 12.11.2026). С 24.11.2026 панель сворачивается
+     // СВОЕЙ кнопкой (промт КАРМАНА #106), а раскрытость живёт в состоянии списка ⇒ прошлый
+     // прогон мог оставить её свёрнутой. Разворачиваем: дальше проверяем развёрнутую панель.
+     const collapseBtn = [...panel.querySelectorAll('[data-facet-collapse]')].find((b) => visible(b));
+     if (collapseBtn && collapseBtn.getAttribute('aria-expanded') === 'false') { click(collapseBtn); await wait(800); }
      if (vis('[data-facet-toggle]', panel).length > 0) return { ok: false, reason: 'кнопка «Фильтры» ещё в интерфейсе' };
      const text = txt(panel);
      const wanted = ['Карточка', 'Выдача', 'Размер одежды', 'Размер обуви', 'Заполнено', 'Уволен'];
