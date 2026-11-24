@@ -141,6 +141,7 @@ describe('engineFactoryStageOrder — ряд групп от позднего к
       'stage:otk',
       'stage:obkatka',
       'stage:sborka',
+      'stage:faza',
       'stage:ukladka',
       'stage:parts_repair',
       'stage:disassembly_defect',

@@ -18,6 +18,7 @@ describe('DEFAULT_REPAIR_STAGE_TEMPLATES — один единый список'
       'disassembly_defect',
       'parts_repair',
       'ukladka',
+      'faza',
       'sborka',
       'obkatka',
       'otk',

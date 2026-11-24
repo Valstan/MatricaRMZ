@@ -17,11 +17,11 @@ import {
   stageAnsweringAliases,
 } from './repairStages.js';
 
-describe('шаблон этапов (состав 05.10.2026 + входной контроль и ремонт деталей 14.10.2026)', () => {
-  it('линейка из 11 + боковая ветка, приоритеты строго растут', () => {
-    expect(DEFAULT_REPAIR_STAGE_TEMPLATES).toHaveLength(14);
+describe('шаблон этапов (состав 05.10.2026 + входной контроль и ремонт деталей 14.10.2026 + фаза 24.11.2026)', () => {
+  it('линейка из 12 + боковая ветка, приоритеты строго растут', () => {
+    expect(DEFAULT_REPAIR_STAGE_TEMPLATES).toHaveLength(15);
     const line = DEFAULT_REPAIR_STAGE_TEMPLATES.filter((t) => !t.sideBranch).map((t) => t.sortOrder);
-    expect(line).toEqual([5, 10, 11, 15, 20, 30, 40, 50, 60, 70, 80, 81, 90]);
+    expect(line).toEqual([5, 10, 11, 15, 20, 30, 40, 45, 50, 60, 70, 80, 81, 90]);
   });
 
   it('«Вал» не этап, «Отгрузка» и «Приемка заказчиком» — разные этапы', () => {
@@ -64,10 +64,70 @@ describe('шаблон этапов (состав 05.10.2026 + входной к
     expect(names.get('disassembly_defect')).toBe('Разборка/Дефектовка');
     expect(names.get('parts_repair')).toBe('Ремонт деталей');
     expect(names.get('ukladka')).toBe('Укладка вала');
+    expect(names.get('faza')).toBe('Фаза');
     expect(names.get('sborka')).toBe('Сборка двигателя');
     expect(names.get('obkatka')).toBe('Обкатка двигателя');
     expect(names.get('shipped')).toBe('Отгрузка двигателя заказчику');
     expect(names.get('accepted')).toBe('Приемка двигателя заказчиком');
+  });
+});
+
+describe('фаза — этап между укладкой вала и сборкой двигателя (владелец 24.11.2026)', () => {
+  const DAY1 = Date.UTC(2026, 8, 27, 21, 0, 0);
+  const DAY2 = Date.UTC(2026, 8, 28, 21, 0, 0);
+
+  it('фаза стоит строго между укладкой и сборкой — по рангу и по порядку линейки', () => {
+    expect(repairStageRank('faza')).toBeGreaterThan(repairStageRank('ukladka'));
+    expect(repairStageRank('faza')).toBeLessThan(repairStageRank('sborka'));
+    const line = DEFAULT_REPAIR_STAGE_TEMPLATES.filter((t) => !t.sideBranch).map((t) => t.code);
+    expect(line.indexOf('faza')).toBe(line.indexOf('ukladka') + 1);
+    expect(line.indexOf('faza')).toBe(line.indexOf('sborka') - 1);
+  });
+
+  it('фаза — обычный этап: своё имя, только вручную, вне боковой ветки', () => {
+    const t = repairStageTemplate('faza');
+    expect(t.name).toBe('Фаза');
+    expect(t.autoFrom).toBeUndefined();
+    expect(t.sideBranch).toBeUndefined();
+  });
+
+  it('субординация: фазу нельзя отметить раньше укладки', () => {
+    const stages = [{ code: 'ukladka' as const, at: DAY2 }];
+    expect(findStageDateConflict(stages, 'faza', DAY1)).toBe('ukladka');
+  });
+
+  it('субординация: сборка не может быть раньше фазы', () => {
+    const stages = [{ code: 'faza' as const, at: DAY2 }];
+    expect(findStageDateConflict(stages, 'sborka', DAY1)).toBe('faza');
+  });
+
+  it('порядок «укладка → фаза → сборка» — фаза идёт следом за укладкой', () => {
+    const stages = [
+      { code: 'ukladka' as const, at: DAY1 },
+      { code: 'faza' as const, at: DAY2 },
+    ];
+    expect(findStageDateConflict(stages, 'sborka', DAY2)).toBeNull();
+  });
+
+  it('возврат назад: после сборки вернулись к фазе — шаг назад; фаза после укладки — вперёд', () => {
+    expect(isStageBackwardMove([{ code: 'sborka' as const, at: DAY1 }], 'faza', DAY2)).toBe(true);
+    expect(isStageBackwardMove([{ code: 'ukladka' as const, at: DAY1 }], 'faza', DAY2)).toBe(false);
+  });
+
+  it('сборка, внесённая позже с ранней датой, — не возврат (довнесение пропущенного)', () => {
+    // Фаза датирована позже сборки: значит, сборку внесли задним числом — это
+    // «догоняющая» запись, а не шаг назад по лестнице этапов.
+    const stages = [{ code: 'faza' as const, at: DAY2 }];
+    expect(isStageBackwardMove(stages, 'sborka', DAY1)).toBe(false);
+  });
+
+  it('фаза переносится при перебивке номера — она не ниже укладки', () => {
+    expect(isTransferableStageCode('faza')).toBe(true);
+  });
+
+  it('фаза — в ремонте, а не «на заводе» (ранг выше приёмки)', () => {
+    expect(repairStageRank('faza')).toBeGreaterThan(repairStageRank('arrival'));
+    expect(repairStageRank('faza')).toBeLessThan(repairStageRank('obkatka'));
   });
 });
 

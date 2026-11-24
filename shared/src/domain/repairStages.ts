@@ -13,6 +13,11 @@
 // `incoming_otk` («Входной контроль ОТК», автомат акта комплектности —
 // проводится вместе с приёмкой, рангом сразу за ней) и `parts_repair`
 // («Ремонт деталей», между разборкой и укладкой, только вручную).
+//
+// Дополнение 24.11.2026 (слово владельца): `faza` («Фаза») — этап МЕЖДУ
+// «Укладкой вала» и «Сборкой двигателя»: сперва укладка, потом фаза, потом
+// сборка. Схема обычная, стандартная — как у остальных этапов: отметка вручную,
+// с датой выполнения и цехом, произведёвшим фазу.
 
 import type { WorkSheetDuplicateRef } from './workSheetDuplicates.js';
 import { moscowDayKey } from './workSheetDuplicates.js';
@@ -25,6 +30,7 @@ export const REPAIR_STAGE_CODES = [
   'disassembly_defect',
   'parts_repair',
   'ukladka',
+  'faza',
   'sborka',
   'obkatka',
   'otk',
@@ -84,6 +90,12 @@ export const DEFAULT_REPAIR_STAGE_TEMPLATES: ReadonlyArray<RepairStageTemplate> 
   { code: 'disassembly_defect', name: 'Разборка/Дефектовка', sortOrder: 20, autoFrom: 'defectAct' },
   { code: 'parts_repair', name: 'Ремонт деталей', sortOrder: 30 },
   { code: 'ukladka', name: 'Укладка вала', sortOrder: 40 },
+  // Фаза (слово владельца 24.11.2026): этап между укладкой вала и сборкой двигателя.
+  // Схема обычная, стандартная: отмечается вручную, с датой и цехом, произведёвшим фазу.
+  // Ранг 45 — строго между укладкой (40) и сборкой (50), без перенумерации соседей:
+  // прецедент не-10-шаговых значений в линейке уже есть (5, 11, 15, 81).
+  // Автоматики нет (`autoFrom` не задаём) — фазу ставит оператор, как «Ремонт деталей».
+  { code: 'faza', name: 'Фаза', sortOrder: 45 },
   { code: 'sborka', name: 'Сборка двигателя', sortOrder: 50 },
   { code: 'obkatka', name: 'Обкатка двигателя', sortOrder: 60 },
   { code: 'otk', name: 'Выходной контроль ОТК', sortOrder: 70 },

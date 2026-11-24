@@ -210,6 +210,16 @@ async function main() {
     listOptions.includes('Укладка вала') && listOptions.includes('Сборка двигателя') && listOptions.includes('Выходной контроль ОТК'),
     'список: канон-имена на месте («Укладка вала», «Сборка двигателя», «Выходной контроль ОТК»)',
   );
+  // Фаза (слово владельца 24.11.2026) — между укладкой вала и сборкой двигателя.
+  note(listOptions.includes('Фаза'), 'список: «Фаза» есть в диалоге', { listOptions });
+  const iUkladka = listOptions.indexOf('Укладка вала');
+  const iFaza = listOptions.indexOf('Фаза');
+  const iSborka = listOptions.indexOf('Сборка двигателя');
+  note(
+    iFaza > iUkladka && iSborka > iFaza,
+    'список: «Фаза» идёт между «Укладка вала» и «Сборка двигателя»',
+    { iUkladka, iFaza, iSborka },
+  );
   note(
     !listOptions.some((o) => o.includes('картер') || o === 'Приёмка ОТК' || o === 'Сборка' || o === 'Обкатка'),
     'список: старых имён вида работ нет',
