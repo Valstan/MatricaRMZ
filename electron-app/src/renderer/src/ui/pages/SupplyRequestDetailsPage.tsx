@@ -27,6 +27,7 @@ import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type Attribu
 import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { CardActionBar } from '../components/CardActionBar.js';
+import { buildCardActions } from '../utils/objectActions.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import type { SearchSelectOption } from '../components/SearchSelect.js';
@@ -1122,55 +1123,62 @@ export function SupplyRequestDetailsPage(props: {
         <CardActionBar
           canEdit={props.canEdit}
           cardLabel="Заявка"
-          onCopyToNew={() => {
-            void (async () => {
-              const r = await window.matrica.supplyRequests.create();
-              if (r?.ok && r.id && payload) {
-                const copy = { ...payload, requestNumber: '', status: 'draft' as const };
-                await window.matrica.supplyRequests.update({ id: r.id, payload: copy });
-              }
-            })();
-          }}
-          onSave={() => {
-            void saveAllAndClose().catch(() => undefined);
-          }}
-          onSaveAndClose={() => {
-            void saveAllAndClose().then((ok) => { if (ok) props.onClose(); }).catch(() => undefined);
-          }}
-          onSaveAsDraft={() => {
-            void (async () => {
-              if (!payload || !props.canEdit) return;
-              // Park as an explicit draft — no commit to operations (no row / number for a new
-              // request). Cancel the pending autosave so it can't re-stamp it back to «recovery».
-              if (draftTimerRef.current != null) {
-                window.clearTimeout(draftTimerRef.current);
-                draftTimerRef.current = null;
-              }
-              const ok = await saveDraftNow(payload, 'explicit');
-              if (!ok) {
-                setSaveStatus('Ошибка: не удалось сохранить черновик');
-                return;
-              }
-              sessionHadChanges.current = false;
-              props.onClose();
-            })();
-          }}
-          onReset={() => {
-            void (async () => {
-              sessionHadChanges.current = false;
-              if (draftTimerRef.current != null) {
-                window.clearTimeout(draftTimerRef.current);
-                draftTimerRef.current = null;
-              }
-              await clearDraft();
-              await load();
-            })();
-          }}
-          onDelete={payload.requestNumber?.trim() ? () => void handleDelete() : undefined}
           deleteConfirmDetail={`Будет удалена заявка на закупку №${String(payload.requestNumber ?? '').trim() || props.id}${payload.title?.trim() ? ` — «${payload.title.trim()}»` : ''}.`}
-          onClose={() => props.requestClose?.()}
-          onPrint={() => printSupplyRequest(payload, departmentLabel, 'full', orderedPrintRows)}
           deleteLabel="Удалить заявку"
+          actions={buildCardActions({
+            kind: 'supply_request',
+            canEdit: props.canEdit,
+            labels: { delete: 'Удалить заявку' },
+            handlers: {
+              copy_to_new: () => {
+                void (async () => {
+                  const r = await window.matrica.supplyRequests.create();
+                  if (r?.ok && r.id && payload) {
+                    const copy = { ...payload, requestNumber: '', status: 'draft' as const };
+                    await window.matrica.supplyRequests.update({ id: r.id, payload: copy });
+                  }
+                })();
+              },
+              save: () => {
+                void saveAllAndClose().catch(() => undefined);
+              },
+              save_and_close: () => {
+                void saveAllAndClose().then((ok) => { if (ok) props.onClose(); }).catch(() => undefined);
+              },
+              save_as_draft: () => {
+                void (async () => {
+                  if (!payload || !props.canEdit) return;
+                  // Park as an explicit draft — no commit to operations (no row / number for a new
+                  // request). Cancel the pending autosave so it can't re-stamp it back to «recovery».
+                  if (draftTimerRef.current != null) {
+                    window.clearTimeout(draftTimerRef.current);
+                    draftTimerRef.current = null;
+                  }
+                  const ok = await saveDraftNow(payload, 'explicit');
+                  if (!ok) {
+                    setSaveStatus('Ошибка: не удалось сохранить черновик');
+                    return;
+                  }
+                  sessionHadChanges.current = false;
+                  props.onClose();
+                })();
+              },
+              reset: () => {
+                void (async () => {
+                  sessionHadChanges.current = false;
+                  if (draftTimerRef.current != null) {
+                    window.clearTimeout(draftTimerRef.current);
+                    draftTimerRef.current = null;
+                  }
+                  await clearDraft();
+                  await load();
+                })();
+              },
+              delete: payload.requestNumber?.trim() ? () => void handleDelete() : undefined,
+              close: () => props.requestClose?.(),
+              print: () => printSupplyRequest(payload, departmentLabel, 'full', orderedPrintRows),
+            },
+          })}
         />
       </div>
       {saveStatus && <div style={{ color: saveStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)', fontSize: 12, padding: '0 0 4px' }}>{saveStatus}</div>}

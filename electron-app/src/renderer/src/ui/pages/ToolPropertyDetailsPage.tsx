@@ -5,6 +5,7 @@ import { Input } from '../components/Input.js';
 import { SuggestInput } from '../components/SuggestInput.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { CardActionBar } from '../components/CardActionBar.js';
+import { buildCardActions } from '../utils/objectActions.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 
 export function ToolPropertyDetailsPage(props: {
@@ -104,32 +105,38 @@ export function ToolPropertyDetailsPage(props: {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
       <CardActionBar
         canEdit={props.canEdit}
-        onCopyToNew={() => {
-          void (async () => {
-            const r = await window.matrica.tools.properties.create();
-            if (r?.ok && r.id) {
-              await window.matrica.tools.properties.setAttr({ id: r.id, code: 'name', value: name.trim() });
-              await window.matrica.tools.properties.setAttr({ id: r.id, code: 'params', value: params.trim() });
-            }
-          })();
-        }}
-        onSave={() => {
-          void (async () => {
-            await saveAll();
-          })();
-        }}
-        onSaveAndClose={() => {
-          void (async () => {
-            if (!(await saveAll())) return;
-            props.onBack();
-          })();
-        }}
-        onReset={() => {
-          void refresh().then(() => {
-            dirtyRef.current = false;
-          });
-        }}
-        onClose={() => props.requestClose?.()}
+        actions={buildCardActions({
+          kind: 'tool_property',
+          canEdit: props.canEdit,
+          handlers: {
+            copy_to_new: () => {
+              void (async () => {
+                const r = await window.matrica.tools.properties.create();
+                if (r?.ok && r.id) {
+                  await window.matrica.tools.properties.setAttr({ id: r.id, code: 'name', value: name.trim() });
+                  await window.matrica.tools.properties.setAttr({ id: r.id, code: 'params', value: params.trim() });
+                }
+              })();
+            },
+            save: () => {
+              void (async () => {
+                await saveAll();
+              })();
+            },
+            save_and_close: () => {
+              void (async () => {
+                if (!(await saveAll())) return;
+                props.onBack();
+              })();
+            },
+            reset: () => {
+              void refresh().then(() => {
+                dirtyRef.current = false;
+              });
+            },
+            close: () => props.requestClose?.(),
+          },
+        })}
       />
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <Button variant="ghost" onClick={props.onBack}>

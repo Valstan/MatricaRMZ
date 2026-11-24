@@ -98,8 +98,15 @@ const EDIT_ONLY_SLOTS: ReadonlySet<ObjectActionSlot> = new Set<ObjectActionSlot>
   'delete',
 ]);
 
-/** Обработчики кнопок карточки — по слоту. Нет обработчика ⇒ нет кнопки. */
-export type ObjectActionHandlers = Partial<Record<ObjectActionSlot, () => void | Promise<void>>>;
+/**
+ * Обработчики кнопок карточки — по слоту. Нет обработчика ⇒ нет кнопки.
+ *
+ * Слот может быть задан пустым значением (`undefined`): карточка отдаёт обработчик
+ * только когда он уместен (например, «удалить» — у нового этапа работ его нет).
+ */
+export type ObjectActionHandlers = {
+  [K in ObjectActionSlot]?: (() => void | Promise<void>) | undefined;
+};
 
 /** Объявление действия карточки: слот + подпись + готовность. */
 export type CardObjectAction = {
@@ -135,11 +142,15 @@ export function buildCardActions(args: {
     const ownsCapability = capabilities.includes(template.capability);
     const editable = !EDIT_ONLY_SLOTS.has(template.slot) || args.canEdit;
     const available = ownsCapability && Boolean(handler) && editable;
-    const label = args.labels?.[template.slot] ?? template.label;
+    const customLabel = args.labels?.[template.slot];
+    const label = customLabel ?? template.label;
+    // Своя подпись — это своя кнопка целиком: сокращённая подпись из каталога («Удалить»)
+    // к ней не годится, иначе на планшете оператор увидит не то, что нажал.
+    const shortLabel = customLabel ? undefined : template.shortLabel;
     actions.push({
       slot: template.slot,
       label,
-      ...(template.shortLabel ? { shortLabel: template.shortLabel } : {}),
+      ...(shortLabel ? { shortLabel } : {}),
       danger: template.slot === 'delete',
       available,
       run: handler ?? (() => undefined),

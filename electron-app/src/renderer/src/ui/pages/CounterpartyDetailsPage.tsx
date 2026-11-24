@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { CardActionBar } from '../components/CardActionBar.js';
+import { buildCardActions } from '../utils/objectActions.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { Input } from '../components/Input.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
@@ -619,49 +620,57 @@ export function CounterpartyDetailsPage(props: {
       <div style={{ flexShrink: 0, borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
         <CardActionBar
           canEdit={props.canEdit}
-          onCopyToNew={() => {
-            void (async () => {
-              if (!typeId) return;
-              const created = await window.matrica.admin.entities.create(typeId);
-              if (created?.ok && 'id' in created) {
-                await window.matrica.admin.entities.setAttr(created.id, 'name', name.trim() + ' (копия)');
-                await window.matrica.admin.entities.setAttr(created.id, 'inn', inn.trim() || null);
-                await window.matrica.admin.entities.setAttr(created.id, 'kpp', kpp.trim() || null);
-                await window.matrica.admin.entities.setAttr(created.id, 'address', address.trim() || null);
-                await window.matrica.admin.entities.setAttr(created.id, 'phone', phone.trim() || null);
-                await window.matrica.admin.entities.setAttr(created.id, 'email', email.trim() || null);
-              }
-            })();
-          }}
-          onSave={() => { void saveAllAndClose().catch(() => undefined); }}
-          onSaveAndClose={() => { void saveAllAndClose().then((ok) => { if (ok) props.onClose(); }).catch(() => undefined); }}
-          onSaveAsDraft={() => {
-            void (async () => {
-              // Явная парковка в черновик: без записи в EAV; отменяем отложенный
-              // автосейв, чтобы он не перештамповал kind обратно в recovery.
-              cancelPendingDraftSave();
-              const ok = await saveDraftNow(currentDraftSnapshot(), 'explicit');
-              if (!ok) {
-                setStatus('Ошибка: не удалось сохранить черновик');
-                return;
-              }
-              dirtyRef.current = false;
-              props.onClose();
-            })();
-          }}
-          onReset={() => {
-            void (async () => {
-              dirtyRef.current = false;
-              cancelPendingDraftSave();
-              await clearDraft();
-              draftRestoredRef.current = false;
-              setReseedKey((k) => k + 1);
-              await load();
-            })();
-          }}
-          onDelete={() => void handleDelete()}
+          // Кнопки карточки — ИЗ КАТАЛОГА действий по объекту (домен задаёт набор,
+          // карточка — обработчики). Кнопки, которой у объекта нет, не бывает.
+          actions={buildCardActions({
+            kind: 'counterparty',
+            canEdit: props.canEdit,
+            handlers: {
+              copy_to_new: () => {
+                void (async () => {
+                  if (!typeId) return;
+                  const created = await window.matrica.admin.entities.create(typeId);
+                  if (created?.ok && 'id' in created) {
+                    await window.matrica.admin.entities.setAttr(created.id, 'name', name.trim() + ' (копия)');
+                    await window.matrica.admin.entities.setAttr(created.id, 'inn', inn.trim() || null);
+                    await window.matrica.admin.entities.setAttr(created.id, 'kpp', kpp.trim() || null);
+                    await window.matrica.admin.entities.setAttr(created.id, 'address', address.trim() || null);
+                    await window.matrica.admin.entities.setAttr(created.id, 'phone', phone.trim() || null);
+                    await window.matrica.admin.entities.setAttr(created.id, 'email', email.trim() || null);
+                  }
+                })();
+              },
+              save: () => { void saveAllAndClose().catch(() => undefined); },
+              save_and_close: () => { void saveAllAndClose().then((ok) => { if (ok) props.onClose(); }).catch(() => undefined); },
+              save_as_draft: () => {
+                void (async () => {
+                  // Явная парковка в черновик: без записи в EAV; отменяем отложенный
+                  // автосейв, чтобы он не перештамповал kind обратно в recovery.
+                  cancelPendingDraftSave();
+                  const ok = await saveDraftNow(currentDraftSnapshot(), 'explicit');
+                  if (!ok) {
+                    setStatus('Ошибка: не удалось сохранить черновик');
+                    return;
+                  }
+                  dirtyRef.current = false;
+                  props.onClose();
+                })();
+              },
+              reset: () => {
+                void (async () => {
+                  dirtyRef.current = false;
+                  cancelPendingDraftSave();
+                  await clearDraft();
+                  draftRestoredRef.current = false;
+                  setReseedKey((k) => k + 1);
+                  await load();
+                })();
+              },
+              delete: () => void handleDelete(),
+              close: () => props.requestClose?.(),
+            },
+          })}
           deleteConfirmDetail={`Будет удалён контрагент «${name.trim() || props.counterpartyId}»${inn.trim() ? ` (ИНН ${inn.trim()})` : ''}.`}
-          onClose={() => props.requestClose?.()}
         />
       </div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>

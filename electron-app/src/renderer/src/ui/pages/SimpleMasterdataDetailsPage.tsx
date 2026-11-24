@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
 import { CardActionBar } from '../components/CardActionBar.js';
+import { buildCardActions } from '../utils/objectActions.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
@@ -1187,56 +1188,60 @@ export function SimpleMasterdataDetailsPage(props: {
         <CardActionBar
           canEdit={props.canEdit}
           cardLabel={isService ? 'Услуга' : undefined}
-          onSave={() => {
-            void saveAll().catch(() => undefined);
-          }}
-          onSaveAsDraft={
-            draftCardType
-              ? () => {
-                  void (async () => {
-                    // Явная парковка в черновик: без записи в EAV; отменяем отложенный
-                    // автосейв, чтобы он не перештамповал kind обратно в recovery.
-                    cancelPendingDraftSave();
-                    const ok = await saveDraftNow(currentDraftSnapshot(), 'explicit');
-                    if (!ok) {
-                      setStatus('Ошибка: не удалось сохранить черновик');
-                      return;
-                    }
-                    dirtyRef.current = false;
-                    props.onClose();
-                  })();
-                }
-              : undefined
-          }
-          onCopyToNew={() => {
-            void (async () => {
-              if (!entityTypeId) return;
-              const created = await window.matrica.admin.entities.create(entityTypeId);
-              if (created?.ok && 'id' in created) {
-                await window.matrica.admin.entities.setAttr(created.id, 'name', name.trim() + ' (копия)');
-                if (description.trim()) await window.matrica.admin.entities.setAttr(created.id, 'description', description.trim());
-                if (shop.trim()) await window.matrica.admin.entities.setAttr(created.id, 'shop', shop.trim());
-                if (article.trim()) await window.matrica.admin.entities.setAttr(created.id, 'article', article.trim());
-                if (unit.trim()) await window.matrica.admin.entities.setAttr(created.id, 'unit', unit.trim());
-                const p = normalizeNumberValue(price);
-                if (p != null) await window.matrica.admin.entities.setAttr(created.id, 'price', p);
-              }
-            })();
-          }}
-          onSaveAndClose={() => {
-            // Закрытие — внутри saveAllAndClose и только после успешной записи.
-            // Раньше закрытие висело в безусловном .then, а проверка дублей уходила
-            // в рекурсию: кнопка не делала ничего — ни записи, ни закрытия.
-            void saveAllAndClose().catch(() => undefined);
-          }}
-          onReset={() => {
-            void load().then(() => {
-              dirtyRef.current = false;
-            });
-          }}
-          onDelete={() => void handleDelete()}
           deleteConfirmDetail={`Будет удалена (помечена удалённой) запись справочника «${props.title}» (${props.typeCode}): «${name.trim() || props.entityId}».`}
-          onClose={() => props.requestClose?.()}
+          actions={buildCardActions({
+            kind: 'masterdata',
+            canEdit: props.canEdit,
+            handlers: {
+              save: () => {
+                void saveAll().catch(() => undefined);
+              },
+              save_as_draft: draftCardType
+                  ? () => {
+                      void (async () => {
+                        // Явная парковка в черновик: без записи в EAV; отменяем отложенный
+                        // автосейв, чтобы он не перештамповал kind обратно в recovery.
+                        cancelPendingDraftSave();
+                        const ok = await saveDraftNow(currentDraftSnapshot(), 'explicit');
+                        if (!ok) {
+                          setStatus('Ошибка: не удалось сохранить черновик');
+                          return;
+                        }
+                        dirtyRef.current = false;
+                        props.onClose();
+                      })();
+                    }
+                  : undefined,
+              copy_to_new: () => {
+                void (async () => {
+                  if (!entityTypeId) return;
+                  const created = await window.matrica.admin.entities.create(entityTypeId);
+                  if (created?.ok && 'id' in created) {
+                    await window.matrica.admin.entities.setAttr(created.id, 'name', name.trim() + ' (копия)');
+                    if (description.trim()) await window.matrica.admin.entities.setAttr(created.id, 'description', description.trim());
+                    if (shop.trim()) await window.matrica.admin.entities.setAttr(created.id, 'shop', shop.trim());
+                    if (article.trim()) await window.matrica.admin.entities.setAttr(created.id, 'article', article.trim());
+                    if (unit.trim()) await window.matrica.admin.entities.setAttr(created.id, 'unit', unit.trim());
+                    const p = normalizeNumberValue(price);
+                    if (p != null) await window.matrica.admin.entities.setAttr(created.id, 'price', p);
+                  }
+                })();
+              },
+              save_and_close: () => {
+                // Закрытие — внутри saveAllAndClose и только после успешной записи.
+                // Раньше закрытие висело в безусловном .then, а проверка дублей уходила
+                // в рекурсию: кнопка не делала ничего — ни записи, ни закрытия.
+                void saveAllAndClose().catch(() => undefined);
+              },
+              reset: () => {
+                void load().then(() => {
+                  dirtyRef.current = false;
+                });
+              },
+              delete: () => void handleDelete(),
+              close: () => props.requestClose?.(),
+            },
+          })}
         />
       }
       status={status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}

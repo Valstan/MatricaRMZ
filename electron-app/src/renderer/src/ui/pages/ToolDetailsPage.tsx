@@ -19,6 +19,7 @@ import { quickCreateEntity } from '../utils/quickCreateEntity.js';
 import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { useWindowWidth } from '../hooks/useWindowWidth.js';
 import { CardActionBar } from '../components/CardActionBar.js';
+import { buildCardActions } from '../utils/objectActions.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { EntityCardShell } from '../components/EntityCardShell.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
@@ -536,50 +537,57 @@ export function ToolDetailsPage(props: {
     <CardActionBar
       canEdit={props.canEdit}
       cardLabel="Инструмент"
-      onCopyToNew={() => {
-        void (async () => {
-          const r = await window.matrica.tools.create();
-          if (r.ok && r.tool.id) {
-            await window.matrica.tools.setAttr({ toolId: r.tool.id, code: 'name', value: name.trim() + ' (копия)' });
-            await window.matrica.tools.setAttr({ toolId: r.tool.id, code: 'description', value: description.trim() });
-          }
-        })();
-      }}
-      onSave={() => { void saveAllFields().catch(() => undefined); }}
-      onSaveAndClose={() => { void saveAllFields().then((ok) => { if (ok) props.onBack(); }).catch(() => undefined); }}
-      onReset={() => {
-        void (async () => {
-          await refresh();
-          await refreshMovements();
-          clearMoveForm();
-          dirtyRef.current = false;
-        })();
-      }}
-      onPrint={printToolCard}
-      onClose={() => {
-        void (async () => {
-          if (dirtyRef.current) {
-            if (window.confirm('Сохранить изменения перед выходом?')) {
-              if (!(await saveAllFields())) return;
-            } else {
-              dirtyRef.current = false;
-            }
-          }
-          props.onBack();
-        })();
-      }}
-      onDelete={() => {
-        void (async () => {
-          const r = await window.matrica.tools.delete(props.toolId);
-          if (!r.ok) {
-            setStatus(`Ошибка удаления: ${r.error}`);
-            return;
-          }
-          props.onBack();
-        })();
-      }}
       deleteLabel="Удалить инструмент"
       deleteConfirmDetail={`Будет удалён инструмент «${name.trim() || props.toolId}»${toolNumber ? `, таб. № ${toolNumber}` : ''}. Действие обычно нельзя отменить.`}
+      actions={buildCardActions({
+        kind: 'tool',
+        canEdit: props.canEdit,
+        labels: { delete: 'Удалить инструмент' },
+        handlers: {
+          copy_to_new: () => {
+            void (async () => {
+              const r = await window.matrica.tools.create();
+              if (r.ok && r.tool.id) {
+                await window.matrica.tools.setAttr({ toolId: r.tool.id, code: 'name', value: name.trim() + ' (копия)' });
+                await window.matrica.tools.setAttr({ toolId: r.tool.id, code: 'description', value: description.trim() });
+              }
+            })();
+          },
+          save: () => { void saveAllFields().catch(() => undefined); },
+          save_and_close: () => { void saveAllFields().then((ok) => { if (ok) props.onBack(); }).catch(() => undefined); },
+          reset: () => {
+            void (async () => {
+              await refresh();
+              await refreshMovements();
+              clearMoveForm();
+              dirtyRef.current = false;
+            })();
+          },
+          print: printToolCard,
+          close: () => {
+            void (async () => {
+              if (dirtyRef.current) {
+                if (window.confirm('Сохранить изменения перед выходом?')) {
+                  if (!(await saveAllFields())) return;
+                } else {
+                  dirtyRef.current = false;
+                }
+              }
+              props.onBack();
+            })();
+          },
+          delete: () => {
+            void (async () => {
+              const r = await window.matrica.tools.delete(props.toolId);
+              if (!r.ok) {
+                setStatus(`Ошибка удаления: ${r.error}`);
+                return;
+              }
+              props.onBack();
+            })();
+          },
+        },
+      })}
     />
   );
 
