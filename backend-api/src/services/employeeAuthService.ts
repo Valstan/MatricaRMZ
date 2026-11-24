@@ -18,6 +18,7 @@ import {
 
 type NormalizedRole = SystemRole;
 import { recordSyncChanges } from './sync/syncChangeService.js';
+import { planSectionAccessWrites, type SectionAccessRow } from './sectionAccessPlan.js';
 
 const SUPERADMIN_LOGIN = 'valstan';
 
@@ -1305,41 +1306,40 @@ export async function setEmployeeSectionAccess(employeeId: string, rawMembership
   }
   const ts = nowMs();
   const current = await db
-    .select({ id: userSectionAccess.id, sectionId: userSectionAccess.sectionId, level: userSectionAccess.level })
+    .select({
+      id: userSectionAccess.id,
+      sectionId: userSectionAccess.sectionId,
+      level: userSectionAccess.level,
+      deletedAt: userSectionAccess.deletedAt,
+    })
     .from(userSectionAccess)
-    .where(and(eq(userSectionAccess.userId, employeeId as any), isNull(userSectionAccess.deletedAt)));
-  const curBySection = new Map(current.map((r) => [String(r.sectionId), r]));
-  for (const [sectionId, level] of Object.entries(membership)) {
-    const cur = curBySection.get(sectionId);
-    if (cur && String(cur.level) === String(level)) continue;
-    if (cur) {
+    .where(eq(userSectionAccess.userId, employeeId as any));
+  for (const step of planSectionAccessWrites(current as SectionAccessRow[], membership)) {
+    if (step.kind === 'keep') continue;
+    if (step.kind === 'revoke') {
       await db
         .update(userSectionAccess)
-        .set({ level: String(level), updatedAt: ts, deletedAt: null })
-        .where(
-          and(
-            eq(userSectionAccess.id, cur.id as any),
-            sql`(${userSectionAccess.level}, ${userSectionAccess.deletedAt}) is distinct from (${String(level)}, ${null})`,
-          ),
-        );
-    } else {
+        .set({ deletedAt: ts, updatedAt: ts })
+        .where(and(eq(userSectionAccess.id, step.rowId as any), isNull(userSectionAccess.deletedAt)));
+      continue;
+    }
+    if (step.kind === 'insert') {
       await db.insert(userSectionAccess).values({
         id: randomUUID(),
         userId: employeeId as any,
-        sectionId,
-        level: String(level),
+        sectionId: step.sectionId,
+        level: step.level,
         createdAt: ts,
         updatedAt: ts,
         deletedAt: null,
       });
+      continue;
     }
-  }
-  for (const cur of current) {
-    if (String(cur.sectionId) in membership) continue;
+    // update | revive: живая строка меняет уровень, тумбстоун — оживает.
     await db
       .update(userSectionAccess)
-      .set({ deletedAt: ts, updatedAt: ts })
-      .where(and(eq(userSectionAccess.id, cur.id as any), isNull(userSectionAccess.deletedAt)));
+      .set({ level: step.level, updatedAt: ts, deletedAt: null })
+      .where(and(eq(userSectionAccess.id, step.rowId as any), isNull(userSectionAccess.deletedAt)));
   }
   return { ok: true as const, membership };
 }
