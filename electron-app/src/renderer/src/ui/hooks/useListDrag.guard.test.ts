@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
@@ -115,5 +115,57 @@ describe('перетаскивание: проводка событий в ки�
     // раньше времени, если состояние уже погасло.
     expect(REORDER).toContain('drag.sourceKeyOf(event)');
     expect(REORDER).not.toContain('if (!drag.drag) return;');
+  });
+});
+
+/**
+ * Все страницы на ките — а не только ПП.
+ *
+ * Правка в ките чинит оба пути (ПП через `useListDrag` напрямую, карточки —
+ * через `useListReorder`), но страница может «сойти с кита»: завести своё
+ * состояние перетаскивания или повесить свой слушатель `drop`. Тогда класс
+ * «строка осталась на месте» вернётся на этой странице, а кит будет чинить
+ * только ПП. Сторож ловит именно это.
+ */
+describe('перетаскивание: все страницы ведут перестановку через кит', () => {
+  const UI_ROOT = fileURLToPath(new URL('..', import.meta.url));
+
+  function walk(dir: string): string[] {
+    const out: string[] = [];
+    for (const entry of readdirSync(dir)) {
+      const full = `${dir}/${entry}`;
+      if (statSync(full).isDirectory()) out.push(...walk(full));
+      else if (full.endsWith('.ts') || full.endsWith('.tsx')) out.push(full);
+    }
+    return out;
+  }
+
+  const pages = walk(UI_ROOT)
+    .filter((file) => !file.includes('.test.'))
+    // Сам кит (и его проводник) — не «страница»: там слушатель `drop` законен.
+    .filter((file) => !file.endsWith('hooks/useListDrag.ts') && !file.endsWith('hooks/useListReorder.ts'))
+    .map((file) => ({ file: file.slice(UI_ROOT.length).replace(/\\/g, '/'), text: readFileSync(file, 'utf8') }))
+    .filter(({ text }) => text.includes('useListDrag') || text.includes('useListReorder'));
+
+  it('страницы на ките есть — список не сдулся', () => {
+    // ПП + карточки (наряд, договор, сотрудник, табель, склад, снабжение,
+    // инструмент и редакторы). Если это число упало — скорее всего, кто-то
+    // увёл страницу с кита, и починка перестала её чинить.
+    expect(pages.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('ни одна страница не заводит своё состояние перетаскивания', () => {
+    const offenders = pages
+      .filter(({ text }) => text.includes('drag.drag') || text.includes("addEventListener('drop'"))
+      .map(({ file }) => file);
+    expect(offenders).toEqual([]);
+  });
+
+  it('источник перетаскивания на всех страницах идёт из dataTransfer', () => {
+    // ПП читает `event.dataTransfer.getData('text/plain')`, карточки —
+    // `drag.sourceKeyOf(event)`. Оба пути переживают погашенное состояние кита.
+    const pp = pages.find(({ file }) => file.endsWith('ProductionProgramPage.tsx'));
+    expect(pp?.text).toContain("event.dataTransfer.getData('text/plain')");
+    expect(REORDER).toContain('drag.sourceKeyOf(event)');
   });
 });
