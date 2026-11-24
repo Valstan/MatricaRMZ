@@ -57,6 +57,8 @@
 - [✅ Кит перетаскивания: живой прогон второго пути (карточки) доведён 🗓 since:2026-11-24](pending/kit-peretaskivaniya-zhivoy-progon-vtorogo-pute.md)
 - [🟡 Списки вне кита: 44 таблицы-страницы ещё не переведены 🗓 since:2026-11-25](pending/list-kit-remaining-pages.md)
 
+- [🟡 Дубли общих модулей: объединить лестницы «где двигатель сейчас» и общий escapeHtml — решения владельца 🗓 since:2026-11-25](pending/dubl-obshchih-modulev-lestnicy-i-escapehtml.md)
+
 - [🟡 Отчётные таблицы вне кита: пресеты и конструктор отчётов — нужен устойчивый ключ строки от сервера 🗓 since:2026-11-23](pending/otchetnye-tablitsy-presetov-i-konstruktor-otchetov-vne-kita.md)
 
 - [🟡 Индекс грабель у потолка: новая грабля не влезает без сокращения формулировок 🗓 since:2026-11-20](pending/indeks-grabeley-u-potolka.md)
