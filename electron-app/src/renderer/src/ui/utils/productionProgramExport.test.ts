@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
+import { productionProgramNumbering } from '@matricarmz/shared';
+
 import {
   buildProductionProgramClipboardText,
   buildProductionProgramExportRows,
   buildProductionProgramExportSpec,
 } from './productionProgramExport.js';
+import { productionProgramPrintHtml } from './productionProgramPrintHtml.js';
 
 // Выгрузка плана ПП в Word/Excel и в буфер обмена (промты КАРМАНА #50/#51).
 //
@@ -186,5 +189,66 @@ describe('выгрузка плана производственной прог�
     const lines = text.split('\n');
     expect(lines).toHaveLength(4);
     expect(lines[3]).toContain('и ещё 1 строк');
+  });
+});
+
+/**
+ * Файл и лист считают номер одинаково (промт КАРМАНА #104).
+ *
+ * Прежде номер внутри договора считался в трёх местах: на экране — доменом, в
+ * файле выгрузки — `index + 1`, в печати — его не было вовсе. Теперь считалка
+ * одна (`productionProgramNumberingCounters`), и этот сторож не даёт разъезду
+ * вернуться: строка в Excel, строка на листе и строка на экране обязаны нести
+ * одно и то же число.
+ */
+describe('лист, файл и экран считают номер по одному правилу', () => {
+  /** Номера из напечатанного листа: первая ячейка строки — «сквозной / в договоре». */
+  function printedNumbers(html: string): string[] {
+    return [
+      ...html.matchAll(/<td style="border:1px solid #111827;padding:3px 4px;text-align:center[^"]*">([^<]*)<\/td>/g),
+    ].map((m) => (m[1] ?? '').trim());
+  }
+
+  it('«№ в договоре» в файле совпадает с номером на листе — построчно', () => {
+    const rows = buildProductionProgramExportRows(INPUT as never);
+    const printed = printedNumbers(productionProgramPrintHtml(INPUT as never));
+
+    expect(printed).toEqual(['1 / 1', '2 / 2', '3 / 1']);
+    expect(rows.map((row) => row.inContractNo)).toEqual([1, 2, 1]);
+    expect(printed.map((cell) => cell.split('/')[1]?.trim())).toEqual(
+      rows.map((row) => String(row.inContractNo)),
+    );
+    expect(printed.map((cell) => cell.split('/')[0]?.trim())).toEqual(rows.map((row) => String(row.orderNo)));
+  });
+
+  it('номер на экране совпадает с номером в файле и на листе', () => {
+    const rows = buildProductionProgramExportRows(INPUT as never);
+    const numbering = productionProgramNumbering(INPUT.rows);
+    const printed = printedNumbers(productionProgramPrintHtml(INPUT as never));
+
+    rows.forEach((row, index) => {
+      const screen = numbering.get(INPUT.rows[index]!.id);
+      expect(row.orderNo, 'сквозной номер').toBe(screen?.global);
+      expect(row.inContractNo, 'номер внутри договора').toBe(screen?.inContract);
+      expect(printed[index], 'число на листе').toBe(`${row.orderNo} / ${row.inContractNo}`);
+    });
+  });
+
+  it('после перестановки строк номер внутри договора пересчитывается во всех трёх местах', () => {
+    const swappedRows = [INPUT.rows[1]!, INPUT.rows[0]!, INPUT.rows[2]!];
+    const swapped = {
+      ...INPUT,
+      rows: swappedRows,
+    } as never;
+
+    const rows = buildProductionProgramExportRows(swapped);
+    const printed = printedNumbers(productionProgramPrintHtml(swapped));
+    const numbering = productionProgramNumbering(swappedRows);
+
+    // Первой в договоре стала «r2» — её номер внутри договора — 1.
+    expect(rows.map((row) => row.inContractNo)).toEqual([1, 2, 1]);
+    expect(printed).toEqual(['1 / 1', '2 / 2', '3 / 1']);
+    expect(numbering.get('r2')?.inContract).toBe(1);
+    expect(numbering.get('r1')?.inContract).toBe(2);
   });
 });

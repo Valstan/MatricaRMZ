@@ -12,6 +12,7 @@ import {
   productionProgramEngineHint,
   productionProgramEngineStage,
   productionProgramGroupLabel,
+  productionProgramNumbering,
   productionProgramOrganizationLabel,
   productionProgramPeriodKind,
   productionProgramRowExecution,
@@ -321,6 +322,76 @@ describe('модель печати', () => {
     expect(model.engineCount).toBe(3);
     expect(model.groups[0]?.rows[0]?.contractKind).toBe('military');
     expect(model.signatures).toHaveLength(7);
+  });
+
+  /**
+   * Нумерация по контракту доходит до печати (промт КАРМАНА #104).
+   *
+   * Раньше в модели печати номера внутри договора не было вовсе — на листе была
+   * только сквозная нумерация, и вторая нумерация «пропадала» именно на печати.
+   */
+  it('номер внутри договора доходит до модели печати', () => {
+    const model = buildProductionProgramPrintModel({
+      title: 'ПП',
+      shop: 'Цех № 1',
+      period,
+      rows: [
+        { id: 'r1', contractId: 'c1', groupLabel: 'Договор 1', engineMark: 'ТМЗ', engineNumber: '001' },
+        { id: 'r2', contractId: 'c1', groupLabel: 'Договор 1', engineMark: 'ТМЗ', engineNumber: '002' },
+        { id: 'r3', contractId: 'c2', groupLabel: 'Договор 2', engineMark: 'ТМЗ', engineNumber: '003' },
+        { id: 'r4', contractId: 'c2', groupLabel: 'Договор 2', engineMark: 'ТМЗ', engineNumber: '004' },
+      ],
+    });
+
+    // В каждом договоре своя нумерация с единицы; сквозная — по программе.
+    expect(model.groups.map((group) => group.rows.map((row) => row.inContractNo))).toEqual([
+      [1, 2],
+      [1, 2],
+    ]);
+    expect(model.groups.flatMap((group) => group.rows.map((row) => row.orderNo))).toEqual([1, 2, 3, 4]);
+  });
+
+  it('нумерация печати и экрана — одна считалка', () => {
+    // Правило «одна модель — одна правда»: три места (экран, файл выгрузки, лист)
+    // считают номер по одному правилу, иначе цифры разъезжаются.
+    const rows = [
+      { id: 'r1', contractId: 'c1', groupLabel: 'Договор 1' },
+      { id: 'r2', contractId: 'c1', groupLabel: 'Договор 1' },
+      { id: 'r3', contractId: 'c2', groupLabel: 'Договор 2' },
+    ];
+    const numbering = productionProgramNumbering(rows);
+    const model = buildProductionProgramPrintModel({ title: 'ПП', shop: 'Цех № 1', period, rows });
+
+    for (const group of model.groups) {
+      for (const row of group.rows) {
+        const num = numbering.get(row.id);
+        expect(row.orderNo, 'сквозной номер на бумаге и на экране').toBe(num?.global);
+        expect(row.inContractNo, 'номер внутри договора на бумаге и на экране').toBe(num?.inContract);
+      }
+    }
+  });
+
+  it('номер внутри договора пересчитывается при перестановке строк', () => {
+    // Номер выводится из порядка строк, а не хранится: после перестановки он
+    // меняется — и меняется одинаково на экране и на бумаге.
+    const r1 = { id: 'r1', contractId: 'c1', groupLabel: 'Договор 1' };
+    const r2 = { id: 'r2', contractId: 'c1', groupLabel: 'Договор 1' };
+    const r3 = { id: 'r3', contractId: 'c2', groupLabel: 'Договор 2' };
+
+    const model = buildProductionProgramPrintModel({
+      title: 'ПП',
+      shop: 'Цех № 1',
+      period,
+      rows: [r2, r1, r3],
+    });
+
+    expect(model.groups[0]?.rows.map((row) => [row.id, row.inContractNo])).toEqual([
+      ['r2', 1],
+      ['r1', 2],
+    ]);
+    const numbering = productionProgramNumbering([r2, r1, r3]);
+    expect(numbering.get('r2')?.inContract).toBe(1);
+    expect(numbering.get('r1')?.inContract).toBe(2);
   });
 
   it('подсветка строки считается по факту из карточки двигателя', () => {
