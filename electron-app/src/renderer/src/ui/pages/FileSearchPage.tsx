@@ -142,6 +142,13 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
   const [previews, setPreviews] = useState<Record<string, string>>({});
   /** Развёрнутые находки: по умолчанию открыта первая — сразу видно содержимое. */
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  /**
+   * Есть ли на машине системный мастер печати фотографий (промт #102).
+   *
+   * Renderer про ОС не знает — спрашиваем у главного процесса, и кнопка
+   * прячется сама, если мастера нет.
+   */
+  const [osPrintWizard, setOsPrintWizard] = useState(false);
 
   const [lookup, setLookup] = useState<{ engine: EngineLookup; note: string | null } | null>(null);
   const [card, setCard] = useState<Record<string, unknown> | null>(null);
@@ -159,6 +166,8 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
       if (res.ok) setSources(res.sources);
       const foldersRes = await window.matrica.fileSearch.folders.get();
       if (foldersRes.ok) setFolders(foldersRes.folders);
+      const caps = await window.matrica.fileSearch.printCapabilities().catch(() => null);
+      if (caps?.ok) setOsPrintWizard(caps.osPrintWizard);
     })();
   }, []);
 
@@ -295,6 +304,35 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
         return;
       }
       setStatus(`Отправлено на печать: ${picked.size}.`);
+    } finally {
+      setBusy(false);
+    }
+  }, [picked]);
+
+  /**
+   * Печать через СИСТЕМНЫЙ мастер печати фотографий (промт КАРМАНА #102) —
+   * то, что владелец назвал «Microsoft Picture Manager»: в системном окне
+   * оператор правит размер и раскладку и сам жмёт «Печать».
+   *
+   * Один файл — одно системное окно, поэтому картинок лучше отбирать немного.
+   */
+  const printPickedViaOs = useCallback(async () => {
+    if (picked.size === 0) {
+      setStatus('Отметьте галочками картинки, которые нужно напечатать.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await window.matrica.fileSearch.printImages({ ids: [...picked], mode: 'os' });
+      if (!res.ok) {
+        setStatus(`${res.error}`);
+        return;
+      }
+      setStatus(
+        res.failed
+          ? `Открыто окон мастера печати: ${res.opened}. Не открылось: ${res.failed}.`
+          : `Открыто окон мастера печати: ${res.opened}. Правите размер и печатаете в них.`,
+      );
     } finally {
       setBusy(false);
     }
@@ -761,6 +799,16 @@ export function FileSearchPage(props: { canEdit?: boolean }) {
                   <Button variant="primary" onClick={() => void printPicked()} disabled={busy || picked.size === 0}>
                     Отправить на печать
                   </Button>
+                  {osPrintWizard ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => void printPickedViaOs()}
+                      disabled={busy || picked.size === 0}
+                      title="Системный мастер печати фотографий: в его окне вы правите размер и раскладку"
+                    >
+                      Через мастер печати фотографий
+                    </Button>
+                  ) : null}
                   <Button variant="outline" onClick={() => setPicked(new Set())} disabled={picked.size === 0}>
                     Снять отметки
                   </Button>

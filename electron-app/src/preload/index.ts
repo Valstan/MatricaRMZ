@@ -140,7 +140,10 @@ const matricaApi = {
     /** Крупное превью картинки по id, выданному главным процессом. */
     imagePreview: async (args: { id: string }) => ipcRenderer.invoke('fileSearch:imagePreview', args),
     /** Отобранные картинки — на печать (системный диалог печати). */
-    printImages: async (args: { ids: string[] }) => ipcRenderer.invoke('fileSearch:printImages', args),
+    printImages: async (args: { ids: string[]; mode?: 'dialog' | 'os' }) =>
+      ipcRenderer.invoke('fileSearch:printImages', args),
+    /** Умеет ли машина системный мастер печати фотографий (кнопка прячется сама). */
+    printCapabilities: async () => ipcRenderer.invoke('fileSearch:printCapabilities'),
     folders: {
       get: async () => ipcRenderer.invoke('fileSearch:folders:get'),
       set: async (args: { folders: FileSearchFolderSource[] }) => ipcRenderer.invoke('fileSearch:folders:set', args),

@@ -1608,8 +1608,14 @@ export type MatricaApi = {
     imagePreview: (args: { id: string }) => Promise<
       { ok: true; dataUrl: string } | { ok: false; error: string }
     >;
-    /** Отобранные картинки — на печать (системный диалог печати). */
-    printImages: (args: { ids: string[] }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    /** Отобранные картинки — на печать. `mode: 'os'` — системный мастер печати фотографий. */
+    printImages: (args: { ids: string[]; mode?: 'dialog' | 'os' }) => Promise<
+      { ok: true; opened?: number; failed?: number } | { ok: false; error: string }
+    >;
+    /** Умеет ли машина системный мастер печати фотографий (кнопка прячется сама). */
+    printCapabilities: () => Promise<
+      { ok: true; osPrintWizard: boolean } | { ok: false; error: string }
+    >;
     folders: {
       get: () => Promise<
         { ok: true; userId: string; folders: FileSearchFolderSource[] } | { ok: false; error: string }
