@@ -832,6 +832,11 @@ export const erpProductionPrograms = sqliteTable('erp_production_programs', {
   title: text('title').notNull(),
   status: text('status').notNull().default('draft'),
   signatureSlots: text('signature_slots'),
+  // Шаблон подписей, из которого взят состав (промт КАРМАНА #120). ССЫЛКА, а не
+  // содержимое: `signature_slots` остаётся трёхзначным (null — «оператор не трогал
+  // блок», [] — «снял всё»), и по этой ссылке видно, что состав пришёл из шаблона.
+  // null — шаблон не применялся.
+  signatureTemplateId: text('signature_template_id'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
   lastServerSeq: integer('last_server_seq'),

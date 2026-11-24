@@ -651,6 +651,7 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
       title text NOT NULL,
       status text NOT NULL DEFAULT 'draft',
       signature_slots text,
+      signature_template_id text,
       created_at integer NOT NULL,
       updated_at integer NOT NULL,
       last_server_seq integer,
@@ -1245,6 +1246,18 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
   // клиентов; здесь — страховка для тех, кто идёт мимо цепочки.
   if (hasTable('erp_production_programs') && !columnNames('erp_production_programs').has('workshop_id')) {
     sqlite.exec(`ALTER TABLE erp_production_programs ADD COLUMN workshop_id text;`);
+  }
+
+  // erp_production_programs.signature_template_id — ссылка на шаблон подписей ПП,
+  // из которого взят состав (промт КАРМАНА #120). Nullable — ровно как на сервере,
+  // иначе checkReplicaStrictness уронит pull.
+  //
+  // Почему ALTER, а не только CREATE TABLE выше: долгоживущая БД парка создана без
+  // этой колонки, а CREATE TABLE IF NOT EXISTS на существующей таблице ничего не
+  // меняет. Шаг 17→18 версионной цепочки (clientSchemaMigrations) догоняет живых
+  // клиентов; здесь — страховка для тех, кто идёт мимо цепочки.
+  if (hasTable('erp_production_programs') && !columnNames('erp_production_programs').has('signature_template_id')) {
+    sqlite.exec(`ALTER TABLE erp_production_programs ADD COLUMN signature_template_id text;`);
   }
 
   // erp_engine_reclamations.contract_id / customer_id — свой договор и контрагент у
