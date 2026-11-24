@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Button } from './Button.js';
 import { useConfirm } from './ConfirmContext.js';
 import { isAndroidPlatform } from '../platform.js';
+import type { CardObjectAction, ObjectActionSlot } from '../utils/objectActions.js';
 
 export type CardActionBarProps = {
   canEdit: boolean;
@@ -23,6 +24,15 @@ export type CardActionBarProps = {
   onClose?: (() => void) | undefined;
   extraActionsLeft?: React.ReactNode | undefined;
   extraActionsCenter?: React.ReactNode | undefined;
+  /**
+   * Кнопки карточки из КАТАЛОГА действий по объекту (`utils/objectActions.ts`).
+   *
+   * Если задан — он ЕДИНСТВЕННЫЙ источник кнопок панели: legacy-пропы `onSave`,
+   * `onPrint`, `onDelete` и т. п. игнорируются. Кнопка появляется, только если объект
+   * умеет эту функцию, обработчик передан и есть право на правку, — «мёртвых кнопок»
+   * (кнопка, которой у объекта нет) не бывает.
+   */
+  actions?: CardObjectAction[] | undefined;
 };
 
 export function CardActionBar(props: CardActionBarProps) {
@@ -49,10 +59,11 @@ export function CardActionBar(props: CardActionBarProps) {
     };
   }, []);
 
-  async function handleDeleteClick() {
-    if (!props.onDelete) return;
+  async function handleDeleteClick(run?: () => void | Promise<void>) {
+    const remove = run ?? props.onDelete;
+    if (!remove) return;
     if (props.deleteSkipBuiltInConfirm) {
-      props.onDelete();
+      remove();
       return;
     }
     const actionLabel = (props.deleteLabel || 'Удалить карточку').replace(/\s+$/, '');
@@ -60,7 +71,37 @@ export function CardActionBar(props: CardActionBarProps) {
       props.deleteConfirmDetail?.trim() ||
       `${actionLabel}.\n\nБудет удалена открытая карточка${props.cardLabel ? ` (${props.cardLabel})` : ''}. Обычно это действие нельзя отменить.`;
     const ok = await confirm({ detail });
-    if (ok) props.onDelete();
+    if (ok) remove();
+  }
+
+  // Каталог действий по объекту: если карточка его передала, кнопки берутся только из него.
+  const declarative = props.actions;
+  const actionFor = (slot: ObjectActionSlot): CardObjectAction | undefined =>
+    declarative?.find((action) => action.slot === slot);
+
+  function renderAction(
+    slot: ObjectActionSlot,
+    tone: 'success' | 'info' | 'warn' | 'danger' | 'neutral' | undefined,
+    title: string,
+  ) {
+    const action = actionFor(slot);
+    if (!action || !action.available) return null;
+    const onClick =
+      slot === 'delete'
+        ? () => void handleDeleteClick(action.run)
+        : () => void action.run();
+    return (
+      <Button variant="ghost" title={title} onClick={onClick} {...(tone ? { tone } : {})}>
+        {action.shortLabel ? (
+          <>
+            <span className="card-action-bar__label-full">{action.label}</span>
+            <span className="card-action-bar__label-short">{action.shortLabel}</span>
+          </>
+        ) : (
+          action.label
+        )}
+      </Button>
+    );
   }
 
   return (
@@ -86,28 +127,36 @@ export function CardActionBar(props: CardActionBarProps) {
               {props.cardLabel}
             </span>
           )}
-          {props.canEdit && props.onCopyToNew && (
-            <Button variant="ghost" title="Создать новую карточку с этими же данными" onClick={props.onCopyToNew}>
-              <span className="card-action-bar__label-full">Скопировать в новую карточку</span>
-              <span className="card-action-bar__label-short">Скопировать</span>
-            </Button>
-          )}
-          {props.canEdit && props.onSave && (
-            <Button variant="ghost" tone="success" title="Сохранить изменения" onClick={props.onSave}>
-              Сохранить
-            </Button>
-          )}
-          {props.canEdit && props.onSaveAndClose && (
-            <Button variant="ghost" tone="success" title="Сохранить изменения и закрыть карточку" onClick={props.onSaveAndClose}>
-              Сохранить и выйти
-            </Button>
-          )}
-          {props.canEdit && props.onSaveAsDraft && (
-            <Button variant="ghost" title="Отложить как черновик — без проведения в документооборот; найти можно в разделе «Черновики»" onClick={props.onSaveAsDraft}>
-              <span className="card-action-bar__label-full">Сохранить как черновик</span>
-              <span className="card-action-bar__label-short">В черновик</span>
-            </Button>
-          )}
+          {declarative
+            ? renderAction('copy_to_new', undefined, 'Создать новую карточку с этими же данными')
+            : props.canEdit && props.onCopyToNew && (
+              <Button variant="ghost" title="Создать новую карточку с этими же данными" onClick={props.onCopyToNew}>
+                <span className="card-action-bar__label-full">Скопировать в новую карточку</span>
+                <span className="card-action-bar__label-short">Скопировать</span>
+              </Button>
+            )}
+          {declarative
+            ? renderAction('save', 'success', 'Сохранить изменения')
+            : props.canEdit && props.onSave && (
+              <Button variant="ghost" tone="success" title="Сохранить изменения" onClick={props.onSave}>
+                Сохранить
+              </Button>
+            )}
+          {declarative
+            ? renderAction('save_and_close', 'success', 'Сохранить изменения и закрыть карточку')
+            : props.canEdit && props.onSaveAndClose && (
+              <Button variant="ghost" tone="success" title="Сохранить изменения и закрыть карточку" onClick={props.onSaveAndClose}>
+                Сохранить и выйти
+              </Button>
+            )}
+          {declarative
+            ? renderAction('save_as_draft', undefined, 'Отложить как черновик — без проведения в документооборот; найти можно в разделе «Черновики»')
+            : props.canEdit && props.onSaveAsDraft && (
+              <Button variant="ghost" title="Отложить как черновик — без проведения в документооборот; найти можно в разделе «Черновики»" onClick={props.onSaveAsDraft}>
+                <span className="card-action-bar__label-full">Сохранить как черновик</span>
+                <span className="card-action-bar__label-short">В черновик</span>
+              </Button>
+            )}
           {props.extraActionsLeft}
         </div>
         <div
@@ -122,37 +171,45 @@ export function CardActionBar(props: CardActionBarProps) {
             minWidth: 0,
           }}
         >
-          {props.canEdit && props.onReset && (
-            <Button variant="ghost" title="Сбросить внесенные изменения" onClick={props.onReset}>
-              Сброс
-            </Button>
-          )}
+          {declarative
+            ? renderAction('reset', undefined, 'Сбросить внесенные изменения')
+            : props.canEdit && props.onReset && (
+              <Button variant="ghost" title="Сбросить внесенные изменения" onClick={props.onReset}>
+                Сброс
+              </Button>
+            )}
           {props.extraActionsCenter}
-          {props.onPrint && !isAndroidPlatform() && (
-            <Button variant="ghost" tone="info" title="Распечатать карточку" onClick={props.onPrint}>
-              Распечатать
-            </Button>
-          )}
-          {props.onClose && (
-            <Button variant="ghost" tone="neutral" title="Закрыть с выбором сохранения изменений" onClick={props.onClose}>
-              <span className="card-action-bar__label-full">Закрыть карточку</span>
-              <span className="card-action-bar__label-short">Закрыть</span>
-            </Button>
-          )}
+          {declarative
+            ? renderAction('print', 'info', 'Распечатать карточку')
+            : props.onPrint && !isAndroidPlatform() && (
+              <Button variant="ghost" tone="info" title="Распечатать карточку" onClick={props.onPrint}>
+                Распечатать
+              </Button>
+            )}
+          {declarative
+            ? renderAction('close', 'neutral', 'Закрыть с выбором сохранения изменений')
+            : props.onClose && (
+              <Button variant="ghost" tone="neutral" title="Закрыть с выбором сохранения изменений" onClick={props.onClose}>
+                <span className="card-action-bar__label-full">Закрыть карточку</span>
+                <span className="card-action-bar__label-short">Закрыть</span>
+              </Button>
+            )}
         </div>
         <div className="card-action-bar__group card-action-bar__group--right">
-          {props.canEdit && props.onDelete && (
-            <Button variant="ghost" tone="danger" title="Удалить карточку" onClick={() => void handleDeleteClick()}>
-              {props.deleteLabel ? (
-                props.deleteLabel
-              ) : (
-                <>
-                  <span className="card-action-bar__label-full">Удалить карточку</span>
-                  <span className="card-action-bar__label-short">Удалить</span>
-                </>
-              )}
-            </Button>
-          )}
+          {declarative
+            ? renderAction('delete', 'danger', 'Удалить карточку')
+            : props.canEdit && props.onDelete && (
+              <Button variant="ghost" tone="danger" title="Удалить карточку" onClick={() => void handleDeleteClick()}>
+                {props.deleteLabel ? (
+                  props.deleteLabel
+                ) : (
+                  <>
+                    <span className="card-action-bar__label-full">Удалить карточку</span>
+                    <span className="card-action-bar__label-short">Удалить</span>
+                  </>
+                )}
+              </Button>
+            )}
         </div>
       </div>
     </div>
