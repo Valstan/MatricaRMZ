@@ -56,8 +56,6 @@
 
 - [🟡 Отчётные таблицы вне кита: пресеты и конструктор отчётов — нужен устойчивый ключ строки от сервера 🗓 since:2026-11-23](pending/otchetnye-tablitsy-presetov-i-konstruktor-otchetov-vne-kita.md)
 
-- [🟡 Профиль машины PC79.md — 207 КБ: пора разложить на индекс и файлы 🗓 since:2026-11-21](pending/profil-mashiny-pc79-207-kb-razlozhit.md)
-
 - [🟡 Индекс грабель у потолка: новая грабля не влезает без сокращения формулировок 🗓 since:2026-11-20](pending/indeks-grabeley-u-potolka.md)
 
 
