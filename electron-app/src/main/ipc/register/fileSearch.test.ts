@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -103,5 +103,70 @@ describe('fileSearch:search', () => {
     expect(r.ok).toBe(true);
     expect(r.result.matches).toHaveLength(1);
     expect(r.result.unreadable).toEqual([]);
+  });
+});
+
+describe('папки: хранение, поиск по названию, печать (промт КАРМАНА #88)', () => {
+  it('папки сохраняются по пользователю и переживают перезапуск', async () => {
+    const folders = [{ id: 'fsf_1', path: join(dir, 'Э06АТ0889'), name: 'Э06АТ0889', addedAt: 1 }];
+    const set = handlers.get('fileSearch:folders:set')!;
+    expect(await set({}, { folders })).toEqual({ ok: true });
+
+    const get = handlers.get('fileSearch:folders:get')!;
+    const mine = (await get({})) as { ok: boolean; folders: { path: string }[] };
+    expect(mine.folders.map((f) => f.path)).toEqual([join(dir, 'Э06АТ0889')]);
+
+    // Другой пользователь на этой машине видит свой пустой список.
+    registerFileSearchIpc(makeCtx('user-2'));
+    const other = (await handlers.get('fileSearch:folders:get')!({})) as { ok: boolean; folders: unknown[] };
+    expect(other.folders).toEqual([]);
+  });
+
+  it('поиск идёт по сохранённым папкам, а не по тому, что прислал renderer', async () => {
+    const engineDir = join(dir, 'Э06АТ0889');
+    mkdirSync(engineDir);
+    writeFileSync(join(engineDir, '1.jpg'), 'x', 'utf8');
+    const set = handlers.get('fileSearch:folders:set')!;
+    await set({}, { folders: [{ id: 'fsf_1', path: engineDir, name: 'Э06АТ0889', addedAt: 1 }] });
+
+    const search = handlers.get('fileSearch:searchFolders')!;
+    const r = (await search({}, { query: 'Э06АТ0889' })) as {
+      ok: boolean;
+      result: { matches: { name: string; matchedBy: string }[] };
+    };
+    expect(r.ok).toBe(true);
+    expect(r.result.matches.some((m) => m.name === 'Э06АТ0889' && m.matchedBy === 'folder')).toBe(true);
+  });
+
+  it('картинка выдаётся по id, а путь на диск в renderer не уходит', async () => {
+    const engineDir = join(dir, 'Э06АТ0889');
+    mkdirSync(engineDir);
+    writeFileSync(join(engineDir, '1.jpg'), 'x', 'utf8');
+    const set = handlers.get('fileSearch:folders:set')!;
+    await set({}, { folders: [{ id: 'fsf_1', path: engineDir, name: 'Э06АТ0889', addedAt: 1 }] });
+
+    const search = handlers.get('fileSearch:searchFolders')!;
+    const res = (await search({}, { query: 'Э06АТ0889' })) as {
+      ok: boolean;
+      result: { images: { id: string }[] };
+    };
+    const image = res.result.images[0];
+    expect(image?.id).toBeTruthy();
+    // В ответе нет пути на диск — renderer знает только id.
+    expect(JSON.stringify(res)).not.toContain(engineDir);
+  });
+
+  it('чужой id не печатается: печать идёт только по выданным main', async () => {
+    const print = handlers.get('fileSearch:printImages')!;
+    const r = (await print({}, { ids: ['fsimg_чужой'] })) as { ok: boolean; error?: string };
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('Не выбрано');
+  });
+
+  it('превью неизвестного id честно отказывает', async () => {
+    const preview = handlers.get('fileSearch:imagePreview')!;
+    const r = (await preview({}, { id: 'fsimg_чужой' })) as { ok: boolean; error?: string };
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('не найдена');
   });
 });

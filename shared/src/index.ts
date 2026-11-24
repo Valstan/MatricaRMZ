@@ -10,6 +10,7 @@ export * from './domain/partsDedup.js';
 export * from './domain/fileStorage.js';
 export * from './domain/fileSearch.js';
 export * from './domain/fileSearchCompare.js';
+export * from './domain/fileSearchFolders.js';
 export * from './domain/repairChecklist.js';
 export * from './domain/engineInventoryLines.js';
 export * from './domain/engineInventoryLineId.js';

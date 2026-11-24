@@ -52,6 +52,12 @@ export const SettingsKey = {
    * Локально и машинно: путь на другой машине невалиден, роумить его незачем.
    */
   FileSearchSources: 'fileSearch.sources',
+  /**
+   * Папки-источники модуля «Поиск по файлам» (поиск по названию) — карта по
+   * пользователю (JSON). Локально и машинно, как и файлы: путь на другой
+   * машине невалиден.
+   */
+  FileSearchFolders: 'fileSearch.folders',
 
   // Client identity (stable per workstation)
   ClientId: 'clientId',
