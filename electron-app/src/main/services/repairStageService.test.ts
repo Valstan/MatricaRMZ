@@ -446,6 +446,26 @@ describe('ensureRepairStageRow', () => {
     expect(rows[0]).toMatchObject({ code: 'faza', name: 'Фаза', pass: 1 });
   });
 
+  it('фаза отмечается по обычной схеме: дата + цех (снимком имени)', async () => {
+    // Схема «Фазы» — обычная, стандартная: этап, дата выполнения и цех,
+    // произведёвший фазу. Цех оператор выбирает руками, как у всех этапов.
+    const { db } = makeDb();
+    const res = await saveRepairStageRow(
+      db,
+      { id: 's1', engineId: 'eng-1', code: 'faza', atMs: DAY1, workshopId: 'w-1', workshopName: 'Цех 1' },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(res).toMatchObject({ ok: true });
+    const rows = await listRepairStageRows(db, 'eng-1');
+    expect(rows[0]).toMatchObject({ code: 'faza', name: 'Фаза', at: DAY1, pass: 1 });
+    const raw = (await getOperation(db, 's1'))?.metaJson ?? 'null';
+    const meta = parseRepairHistoryMeta(raw);
+    expect(meta?.stage).toMatchObject({ code: 'faza', name: 'Фаза' });
+    expect(meta?.workshopId).toBe('w-1');
+    expect(meta?.workshopName).toBe('Цех 1');
+  });
+
   it('фаза встаёт между укладкой и сборкой по субординации дат', async () => {
     const { db } = makeDb();
     // Укладка позже фазы — субординация нарушена, фаза не проходит.
