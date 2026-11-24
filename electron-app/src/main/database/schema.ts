@@ -285,9 +285,12 @@ export const aiChatRequests = sqliteTable(
     answeredAt: integer('answered_at'),
     escalationNote: text('escalation_note'),
     verdictText: text('verdict_text'),
-    // Какое звено серверной цепочки посчитало ответ: `engine` | `deepseek`.
-    // Пишет только сервер; клиент показывает источник в окне чата.
-    serverAnswerSource: text('answer_source'),
+    // Какое звено цепочки посчитало ответ: `engine` | `deepseek` (сервер) либо
+    // `local_minimax` | `deepseek_client` (локальное звено машины оператора).
+    // Имя поля обязано совпадать с реестром sync (shared/src/sync/registry.ts):
+    // push клиента собирается общим toSyncRow, и при другом имени источник
+    // ответа молча уезжал бы на сервер пустым (D-243/D-244).
+    answerSource: text('answer_source'),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
     lastServerSeq: integer('last_server_seq'),

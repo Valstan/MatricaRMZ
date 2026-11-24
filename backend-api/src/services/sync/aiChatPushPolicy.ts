@@ -85,6 +85,28 @@ export function applyAiChatPushPolicy(
       // — это claim клиента: вопрос считает его компьютер, серверный воркер такую
       // строку не берёт (он берёт только 'pending'). Если клиент умрёт, строку вернёт
       // в очередь серверный reclaimStale (10 минут без движения).
+      //
+      // Тот же claim, но уже с ответом: локальный модуль успел посчитать раньше,
+      // чем первая строка доехала до сервера (например, сервер был недоступен, а
+      // «Карман» — доступен, и ответ собрался локально). Ответ АВТОРА своего же
+      // вопроса принимаем: сервер на эту строку ещё не отвечал, отвечать ему
+      // нечего, а очки пула уже потрачены — терять ответ нельзя. Подделать серверный
+      // источник нельзя: clientAnswerFields пропускает только клиентские.
+      const clientAnswer = clientAnswerFields(r);
+      if (clientAnswer && r.status === 'answered') {
+        allowed.push({
+          ...r,
+          user_id: ctx.actorId,
+          status: 'answered',
+          answer_text: clientAnswer.answerText,
+          answer_files_json: null,
+          answered_at: clientAnswer.answeredAt,
+          escalation_note: null,
+          verdict_text: null,
+          answer_source: clientAnswer.answerSource,
+        });
+        continue;
+      }
       allowed.push({
         ...r,
         user_id: ctx.actorId,

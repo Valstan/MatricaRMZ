@@ -40,7 +40,7 @@ function mapRow(row: any): AiChatRequestItem {
     answeredAt: row.answeredAt == null ? null : Number(row.answeredAt),
     escalationNote: row.escalationNote == null ? null : String(row.escalationNote),
     verdictText: row.verdictText == null ? null : String(row.verdictText),
-    serverAnswerSource: (row.serverAnswerSource ?? null) as 'engine' | 'deepseek' | null,
+    serverAnswerSource: (row.answerSource ?? null) as AiChatAnswerSource | null,
     createdAt: Number(row.createdAt),
     updatedAt: Number(row.updatedAt),
     deletedAt: row.deletedAt == null ? null : Number(row.deletedAt),
@@ -206,7 +206,7 @@ export async function aiChatAnswerLocally(
         status: 'answered',
         answerText,
         answeredAt: nowMs(),
-        serverAnswerSource: args.source,
+        answerSource: args.source,
         updatedAt: nowMs(),
         syncStatus: 'pending',
       })

@@ -1,6 +1,17 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
-import { buildAgentArgs, buildAgentEnv, buildMcpConfig, parseExecResult } from './agentRunner.js';
+import {
+  buildAgentArgs,
+  buildAgentEnv,
+  buildMcpConfig,
+  parseExecResult,
+  resolveAgentCommand,
+  resolveMcodeEntry,
+} from './agentRunner.js';
 import { profileDirs } from './agentProfile.js';
 
 // Молчание — это не «спрятать окно», а набор флагов запуска: `windowsHide` и НЕ
@@ -75,5 +86,58 @@ describe('запуск локального агента', () => {
 
   it('нет exec.result — результата нет, это не «пустой ответ»', () => {
     expect(parseExecResult('что-то другое\n{не json}')).toBeNull();
+  });
+});
+
+// npm на Windows кладёт рядом shim `mcode.cmd`, а Node такие файлы запускать
+// отказывается: без `shell` — EINVAL, с `shell` — лишнее окно консоли. Значит
+// клиент обязан запускать настоящий вход (JS-скрипт) рантайм-node модуля.
+describe('вход MiniMax Code', () => {
+  it('shim .cmd разрешается в JS-вход, который лежит рядом', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mcode-'));
+    const js = join(dir, 'mcode.js');
+    const cmd = join(dir, 'mcode.cmd');
+    writeFileSync(js, '// entry', 'utf8');
+    writeFileSync(cmd, '@ECHO off\n"%~dp0\\mcode.js" %*\n', 'utf8');
+    expect(resolveMcodeEntry(cmd)).toBe(js);
+  });
+
+  it('путь внутри shim npm тоже находится', () => {
+    // Раскладка npm: node_modules/.bin/mcode.cmd → node_modules/@minimax-ai/code/bin/mcode.js
+    const root = mkdtempSync(join(tmpdir(), 'mcode-'));
+    const binDir = join(root, '.bin');
+    mkdirSync(binDir, { recursive: true });
+    const pkgDir = join(root, '@minimax-ai', 'code', 'bin');
+    mkdirSync(pkgDir, { recursive: true });
+    const js = join(pkgDir, 'mcode.js');
+    const cmd = join(binDir, 'mcode.cmd');
+    writeFileSync(js, '// entry', 'utf8');
+    writeFileSync(cmd, `@ECHO off\r\n"%~dp0\\..\\@minimax-ai\\code\\bin\\mcode.js" %*\r\n`, 'utf8');
+    expect(resolveMcodeEntry(cmd)).toBe(js);
+  });
+
+  it('JS-вход запускается рантайм-node модуля, а не системным', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mcode-'));
+    const js = join(dir, 'mcode.js');
+    const node = join(dir, 'node.exe');
+    writeFileSync(js, '// entry', 'utf8');
+    writeFileSync(node, '', 'utf8');
+    const cmd = resolveAgentCommand({
+      mcodePath: js,
+      nodePath: node,
+      args: ['exec', '--permission', 'off'],
+    });
+    expect(cmd.command).toBe(node);
+    expect(cmd.args).toEqual([js, 'exec', '--permission', 'off']);
+  });
+
+  it('исполняемый файл (.exe) запускается сам, без node', () => {
+    const cmd = resolveAgentCommand({
+      mcodePath: 'C:\\rt\\mcode.exe',
+      nodePath: 'C:\\rt\\node.exe',
+      args: ['exec'],
+    });
+    expect(cmd.command).toBe('C:\\rt\\mcode.exe');
+    expect(cmd.args).toEqual(['exec']);
   });
 });

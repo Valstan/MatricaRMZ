@@ -179,4 +179,34 @@ describe('applyAiChatPushPolicy: клиентский локальный отв�
       applyAiChatPushPolicy([row({ status: 'answered', answer_text: 'локальный', answer_source: 'local_minimax' })], map, ctx()),
     ).toThrow('ai_chat_not_pending');
   });
+
+  // Гонка: локальный модуль считает быстрее, чем первая строка доезжает до
+  // сервера (сервер был недоступен, «Карман» — доступен). Тогда ответ приходит
+  // в пуше, который для сервера ещё «новая строка». Ответ автора своего
+  // вопроса принимаем — сервер на эту строку не отвечал, а очки пула потрачены.
+  it('ответ готов раньше первого пуша: строка рождается уже отвеченной', () => {
+    const r = row({ status: 'answered', answer_text: 'ответ локального агента', answer_source: 'local_minimax', answered_at: 321 });
+    const out = applyAiChatPushPolicy([r], new Map(), ctx());
+    expect(out[0]!.status).toBe('answered');
+    expect(out[0]!.answer_text).toBe('ответ локального агента');
+    expect(out[0]!.answer_source).toBe('local_minimax');
+    expect(out[0]!.answered_at).toBe(321);
+    expect(out[0]!.user_id).toBe(ACTOR);
+  });
+
+  it('но серверный источник в новой строке по-прежнему не проходит', () => {
+    const r = row({ status: 'answered', answer_text: 'подделка', answer_source: 'engine' });
+    const out = applyAiChatPushPolicy([r], new Map(), ctx());
+    expect(out[0]!.status).toBe('pending');
+    expect(out[0]!.answer_text).toBeNull();
+    expect(out[0]!.answer_source).toBeNull();
+  });
+
+  it('пустой текст клиентского ответа — не ответ: строка уходит в очередь', () => {
+    const r = row({ status: 'answered', answer_text: '   ', answer_source: 'local_minimax' });
+    const out = applyAiChatPushPolicy([r], new Map(), ctx());
+    expect(out[0]!.status).toBe('pending');
+    expect(out[0]!.answer_text).toBeNull();
+    expect(out[0]!.answer_source).toBeNull();
+  });
 });
