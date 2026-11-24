@@ -56,15 +56,19 @@ export type ProductionProgramExportRow = {
  * Порядок групп и строк внутри них сохраняется: сквозной «№ п/п» и номер внутри
  * договора на экране считаются ровно так же (`productionProgramNumbering`), поэтому
  * файл и лист не разойдутся ни в одной цифре.
+ *
+ * Номер внутри договора берётся **из модели печати** (`row.inContractNo`), а не
+ * считается здесь заново: своя считалка в выгрузке — это ровно та причина, по
+ * которой файл и лист расходились между собой.
  */
 export function buildProductionProgramExportRows(input: ProductionProgramPrintInput): ProductionProgramExportRow[] {
   const model = buildProductionProgramPrintModel(input);
   const out: ProductionProgramExportRow[] = [];
   for (const group of model.groups) {
-    group.rows.forEach((row, index) => {
+    for (const row of group.rows) {
       out.push({
         orderNo: row.orderNo,
-        inContractNo: index + 1,
+        inContractNo: row.inContractNo,
         organization: row.organizationLabel,
         contract: group.label,
         engine: [row.engineMark, row.engineNumber].filter(Boolean).join(' '),
@@ -72,7 +76,7 @@ export function buildProductionProgramExportRows(input: ProductionProgramPrintIn
         state: row.state ? PRODUCTION_PROGRAM_STATE_LABELS[row.state] : '',
         note: row.note,
       });
-    });
+    }
   }
   return out;
 }

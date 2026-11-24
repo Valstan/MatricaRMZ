@@ -543,10 +543,47 @@ export function productionProgramGroupKey(row: {
 }
 
 /**
+ * Счётчики нумерации строк плана — **одно правило** для трёх мест: экран, файл
+ * выгрузки и печатный лист.
+ *
+ * Оба номера считаются **по позиции** строки, а не по сохранённому числу: после
+ * перетаскивания сохранённые номера разъезжаются, и цифры на экране перестают
+ * быть правдой. Ключ группы — общий (`productionProgramGroupKey`), поэтому печать
+ * и экран делят строки по договорам одинаково, а «номер внутри договора» на
+ * бумаге и в файле считается той же считалкой.
+ *
+ * `global` — сквозной номер по программе, `inContract` — номер строки **внутри
+ * своего договора**, по позиции в массиве строк (индексы совпадают с входным
+ * массивом: это позволяет печати и выгрузке считать по позиции, не опираясь на
+ * идентификаторы строк).
+ */
+export function productionProgramNumberingCounters(
+  rows: readonly {
+    contractId?: string | null;
+    groupLabel?: string | null;
+  }[],
+): { global: number; inContract: number[] } {
+  const inGroup = new Map<string, number>();
+  const inContract: number[] = [];
+  let global = 0;
+  for (const row of rows ?? []) {
+    global += 1;
+    const key = productionProgramGroupKey(row);
+    const n = (inGroup.get(key) ?? 0) + 1;
+    inGroup.set(key, n);
+    inContract.push(n);
+  }
+  return { global, inContract };
+}
+
+/**
  * Нумерация строк плана по текущему порядку: общая по программе и своя внутри
  * договора. Считается по позиции строки в плоском массиве — тот же порядок, по
  * которому печать собирает группы (`buildProductionProgramPrintModel`), чтобы
  * на экране и на бумаге цифры совпадали.
+ *
+ * Считалка — общая с печатью (`productionProgramNumberingCounters`): разные
+ * счётчики в проекте разъезжались (на экране было одно, в файле другое).
  */
 export function productionProgramNumbering(
   rows: readonly {
@@ -556,15 +593,12 @@ export function productionProgramNumbering(
   }[],
 ): Map<string, ProductionProgramNumbering> {
   const result = new Map<string, ProductionProgramNumbering>();
-  const inGroup = new Map<string, number>();
+  const { inContract } = productionProgramNumberingCounters(rows);
   let global = 0;
-  for (const row of rows ?? []) {
+  for (const [index, row] of (rows ?? []).entries()) {
     global += 1;
-    const key = productionProgramGroupKey(row);
-    const n = (inGroup.get(key) ?? 0) + 1;
-    inGroup.set(key, n);
     const id = String(row.id ?? '');
-    if (id) result.set(id, { global, inContract: n });
+    if (id) result.set(id, { global, inContract: inContract[index] ?? 0 });
   }
   return result;
 }
@@ -1000,6 +1034,15 @@ export type ProductionProgramPrintRow = {
   id: string;
   /** Номер «№ п/п» — сквозной по строкам-перевозчикам (шапки групп номера не занимают). */
   orderNo: number;
+  /**
+   * Номер строки **внутри своего договора** — как на экране («№ в договоре»).
+   *
+   * Считается той же считалкой, что и на экране
+   * (`productionProgramNumberingCounters`), поэтому на бумаге, в файле выгрузки и
+   * на экране цифры совпадают до единой. Отдельным полем в БД не хранится —
+   * выводится из порядка строк (см. `productionProgramNumbering`).
+   */
+  inContractNo: number;
   contractId: string | null;
   /** Строка-шапка группы: организация + номер договора. */
   groupLabel: string;
@@ -1082,14 +1125,19 @@ export function buildProductionProgramPrintModel(input: ProductionProgramPrintIn
 
   const groups: ProductionProgramPrintGroup[] = [];
   const groupByKey = new Map<string, ProductionProgramPrintGroup>();
+  // Нумерация — **одна считалка** с экраном и файлом выгрузки: сквозной номер и
+  // номер внутри договора считаются по позиции строки (`productionProgramNumberingCounters`).
+  const counters = productionProgramNumberingCounters(input.rows ?? []);
   let orderNo = 0;
 
-  for (const raw of input.rows ?? []) {
+  for (const [index, raw] of (input.rows ?? []).entries()) {
     const contractId = raw.contractId ? String(raw.contractId) : null;
     // Шапка группы — человеческое наименование договора. Технический идентификатор
     // в печать не идёт (прочерк): форма плана — документ для подписей, а не выгрузка.
     const groupLabel = productionProgramGroupLabel(raw.groupLabel);
-    const key = `${contractId ?? ''}::${groupLabel}`;
+    // Ключ группы — общий доменный (`productionProgramGroupKey`): иначе печать и
+    // экран делили бы строки по договорам по-разному и цифры разъезжались.
+    const key = productionProgramGroupKey({ contractId, groupLabel: raw.groupLabel ?? null });
     let group = groupByKey.get(key);
     if (!group) {
       group = { contractId, label: groupLabel, rows: [] };
@@ -1097,6 +1145,7 @@ export function buildProductionProgramPrintModel(input: ProductionProgramPrintIn
       groups.push(group);
     }
     orderNo += 1;
+    const inContractNo = counters.inContract[index] ?? 1;
     const engineId = raw.engineId ? String(raw.engineId) : null;
     const engine = engineId ? engineById.get(engineId) ?? null : null;
     // Этап — из живой карточки двигателя: на бумаге видно, где он сейчас.
@@ -1104,6 +1153,7 @@ export function buildProductionProgramPrintModel(input: ProductionProgramPrintIn
     group.rows.push({
       id: String(raw.id ?? ''),
       orderNo,
+      inContractNo,
       contractId,
       groupLabel,
       contractKind: parseContractKind(raw.contractKind),
