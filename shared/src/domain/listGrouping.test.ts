@@ -38,3 +38,38 @@ describe('flattenGrouped', () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 });
+
+// Разрез «По договору» списка двигателей (промт КАРМАНА #105). Доменный движок
+// не менялся — этот тест фиксирует его поведение на форме уровня «договор»:
+// ключ — договор карточки, подпись — номер договора, пусто — «Без договора».
+describe('уровень «договор»', () => {
+  type C = { id: string; customer: string; contractId: string; contractName: string };
+  const contractRows: C[] = [
+    { id: 'a', customer: 'Альфа', contractId: 'c1', contractName: '12/2024' },
+    { id: 'b', customer: 'Альфа', contractId: 'c1', contractName: '12/2024' },
+    { id: 'c', customer: 'Бета', contractId: 'c2', contractName: '07/2024' },
+    { id: 'd', customer: 'Альфа', contractId: '', contractName: '' },
+  ];
+  const byContract = {
+    keyOf: (r: C) => {
+      const label = r.contractName.trim();
+      const id = r.contractId.trim();
+      return { key: id || `name:${label.toLowerCase()}`, label: label || 'Без договора' };
+    },
+  };
+  const byCustomer = { keyOf: (r: C) => ({ key: r.customer, label: r.customer }) };
+
+  it('группы по договорам, счётчики — число строк, без ранга — по подписи', () => {
+    const items = flattenGrouped(contractRows, [byContract]);
+    expect(items.map((i) => (i.kind === 'group' ? `[${i.label}×${i.count}]` : i.row.id))).toEqual([
+      '[07/2024×1]', 'c', '[12/2024×2]', 'a', 'b', '[Без договора×1]', 'd',
+    ]);
+  });
+
+  it('«Заказчик → договор»: два уровня вкладываются, договор внутри заказчика', () => {
+    const items = flattenGrouped(contractRows, [byCustomer, byContract]);
+    expect(items.map((i) => (i.kind === 'group' ? `${'-'.repeat(i.depth)}${i.label}×${i.count}` : i.row.id))).toEqual([
+      'Альфа×3', '-12/2024×2', 'a', 'b', '-Без договора×1', 'd', 'Бета×1', '-07/2024×1', 'c',
+    ]);
+  });
+});

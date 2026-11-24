@@ -209,12 +209,14 @@ export type EnginesPageUiState = {
   atPlantOnly?: boolean;
 };
 
-export type EngineListGroupBy = 'stage' | 'customer' | 'customer_stage' | 'none';
+export type EngineListGroupBy = 'stage' | 'customer' | 'customer_stage' | 'contract' | 'customer_contract' | 'none';
 
 const ENGINE_LIST_GROUP_BY_LABELS: Record<EngineListGroupBy, string> = {
   stage: 'По этапу на заводе',
   customer: 'По заказчику',
   customer_stage: 'Заказчик → этап',
+  contract: 'По договору',
+  customer_contract: 'Заказчик → договор',
   none: 'Без группировки',
 };
 
@@ -757,6 +759,21 @@ export function EnginesPage(props: {
         return { key: String(e.customerId ?? '').trim() || `name:${label.toLowerCase()}` || 'none', label: label || 'Без заказчика' };
       },
     };
+    // Группировка по договору (промт КАРМАНА #105): ключ — договор карточки
+    // (`contractId`), подпись — его НОМЕР (`contractName` = атрибут `number` договора;
+    // своего названия у договора нет). Двигатели без договора — отдельная группа
+    // «Без договора», не «прочие».
+    // ДС (дополнительное соглашение) — отдельный атрибут карточки
+    // (`contractSectionNumber`), договор остаётся основным ⇒ ДС сливается со
+    // своим договором, как в отчёте «Двигатели» и в списке этапов работ
+    // (фасет «Контракт» в фильтре ДС различает — это другая механика, её не трогаем).
+    const byContract: GroupLevel<EngineListItem> = {
+      keyOf: (e) => {
+        const label = String(e.contractName ?? '').trim();
+        const id = String(e.contractId ?? '').trim();
+        return { key: id || `name:${label.toLowerCase()}`, label: label || 'Без договора' };
+      },
+    };
     switch (groupBy) {
       case 'stage':
         return [byStage];
@@ -764,6 +781,10 @@ export function EnginesPage(props: {
         return [byCustomer];
       case 'customer_stage':
         return [byCustomer, byStage];
+      case 'contract':
+        return [byContract];
+      case 'customer_contract':
+        return [byCustomer, byContract];
       default:
         return [];
     }

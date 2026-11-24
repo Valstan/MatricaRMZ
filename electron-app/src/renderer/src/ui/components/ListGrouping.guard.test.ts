@@ -27,6 +27,24 @@ describe('группировка списка двигателей', () => {
     expect(ENGINES).toContain("case 'customer_stage':");
   });
 
+  it('разрез «По договору»: ключ — договор карточки, подпись — номер договора', () => {
+    // Промт КАРМАНА #105: группировка по контрактам (договорам) в списке двигателей.
+    expect(ENGINES).toContain("contract: 'По договору'");
+    expect(ENGINES).toContain("case 'contract':");
+    expect(ENGINES).toContain('return [byContract];');
+    expect(ENGINES).toContain("const id = String(e.contractId ?? '').trim();");
+    expect(ENGINES).toContain("const label = String(e.contractName ?? '').trim();");
+  });
+
+  it('двигатель без договора — отдельная группа «Без договора»', () => {
+    expect(ENGINES).toContain("label: label || 'Без договора'");
+  });
+
+  it('комбинация «Заказчик → договор» — тем же приёмом, что «Заказчик → этап»', () => {
+    expect(ENGINES).toContain("customer_contract: 'Заказчик → договор'");
+    expect(ENGINES).toContain('return [byCustomer, byContract];');
+  });
+
   it('строки раскладывает flattenGrouped, а не плоский массив', () => {
     expect(ENGINES).toContain('flattenGrouped(sorted, groupLevels)');
     expect(ENGINES).toContain('count={groupedItems.length}');
