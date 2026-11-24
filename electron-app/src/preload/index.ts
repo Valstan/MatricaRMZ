@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import type { CardExportSpec, ChatDeepLinkPayload, EngineBulkIntakeApplyInput, FileSearchSource, ListExportFormat, ListExportSpec, PartMetadata } from '@matricarmz/shared';
+import type { CardExportSpec, ChatDeepLinkPayload, EngineBulkIntakeApplyInput, FileSearchFolderSource, FileSearchSource, ListExportFormat, ListExportSpec, PartMetadata } from '@matricarmz/shared';
 import type { MailAttachmentSpec } from '../main/services/mailService.js';
 
 // Нативный сканер QR ставит сюда планшет (android-app/src/platform/qrScan.ts) до
@@ -133,6 +133,17 @@ const matricaApi = {
     sources: {
       get: async () => ipcRenderer.invoke('fileSearch:sources:get'),
       set: async (args: { sources: FileSearchSource[] }) => ipcRenderer.invoke('fileSearch:sources:set', args),
+    },
+    /** Поиск по папкам: по названию папки или файла (промт КАРМАНА #88). */
+    pickFolder: async () => ipcRenderer.invoke('fileSearch:pickFolder'),
+    searchFolders: async (args: { query: string }) => ipcRenderer.invoke('fileSearch:searchFolders', args),
+    /** Крупное превью картинки по id, выданному главным процессом. */
+    imagePreview: async (args: { id: string }) => ipcRenderer.invoke('fileSearch:imagePreview', args),
+    /** Отобранные картинки — на печать (системный диалог печати). */
+    printImages: async (args: { ids: string[] }) => ipcRenderer.invoke('fileSearch:printImages', args),
+    folders: {
+      get: async () => ipcRenderer.invoke('fileSearch:folders:get'),
+      set: async (args: { folders: FileSearchFolderSource[] }) => ipcRenderer.invoke('fileSearch:folders:set', args),
     },
   },
   desktopTransfer: {

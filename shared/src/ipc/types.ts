@@ -37,6 +37,7 @@ import type {
   OrgEventSaveDto,
 } from '../domain/orgGifts.js';
 import type { FileSearchResult, FileSearchSource } from '../domain/fileSearch.js';
+import type { FileSearchFolderResult, FileSearchFolderSource } from '../domain/fileSearchFolders.js';
 import type { PrintTemplateRow } from '../domain/printTemplate.js';
 import type { PrintDocumentDto } from '../domain/printDocuments.js';
 
@@ -1590,6 +1591,30 @@ export type MatricaApi = {
         { ok: true; userId: string; sources: FileSearchSource[] } | { ok: false; error: string }
       >;
       set: (args: { sources: FileSearchSource[] }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    };
+    /**
+     * Поиск по папкам: по НАЗВАНИЮ папки или файла (промт КАРМАНА #88).
+     * Папки с фотографиями двигателей; найденная папка показывается вместе
+     * с крупными превью содержимого.
+     */
+    pickFolder: () => Promise<
+      | { ok: true; folders: FileSearchFolderSource[]; skipped: string[] }
+      | { ok: false; error: string }
+    >;
+    searchFolders: (args: { query: string }) => Promise<
+      { ok: true; result: FileSearchFolderResult } | { ok: false; error: string }
+    >;
+    /** Крупное превью картинки — по id, который выдал главный процесс. */
+    imagePreview: (args: { id: string }) => Promise<
+      { ok: true; dataUrl: string } | { ok: false; error: string }
+    >;
+    /** Отобранные картинки — на печать (системный диалог печати). */
+    printImages: (args: { ids: string[] }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    folders: {
+      get: () => Promise<
+        { ok: true; userId: string; folders: FileSearchFolderSource[] } | { ok: false; error: string }
+      >;
+      set: (args: { folders: FileSearchFolderSource[] }) => Promise<{ ok: true } | { ok: false; error: string }>;
     };
   };
   /** Передача файлов между Верстаками: отправка коллеге и разбор входящих. */

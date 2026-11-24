@@ -83,4 +83,36 @@ describe('модуль «Поиск по файлам»: сторож формы
     expect(PAGE).toContain('renderFindingRow');
     expect(PAGE).not.toContain('<th key={`${header}-${i}`}>');
   });
+
+  // Правка 24.11.2026 (промт КАРМАНА #88): поиск по папкам — по НАЗВАНИЮ.
+  // Четыре правила, которые легко сломать правкой страницы:
+  // 1. Диск читает главный процесс. Renderer не должен ни читать папки, ни
+  //    просить «картинку по произвольному пути» — только по id, который main
+  //    выдал сам (иначе канал становится мостом «прочитай любой файл»).
+  // 2. Превью — крупные: оператор должен разглядеть, что на фото.
+  // 3. Печать идёт через существующий путь печати фотографий.
+  // 4. Модуль ничего не пишет: ни в папки, ни в файлы.
+  it('рендерер не читает диск и не просит картинку по пути', () => {
+    expect(PAGE).not.toMatch(/readdir|readFileSync|writeFileSync/);
+    expect(PAGE).not.toMatch(/fileSearch\.imagePreview\(\{\s*path/);
+    // Превью запрашивается по id, а не по пути на диске.
+    expect(PAGE).toContain('imagePreview({ id: image.id })');
+  });
+
+  it('папки ищутся по названию, а превью крупные', () => {
+    expect(PAGE).toContain('searchFolders');
+    expect(PAGE).toContain('по названию в папках');
+    // Крупное превью: 220×220 и contain — картинка не обрезается.
+    expect(PAGE).toContain('width: 220');
+    expect(PAGE).toContain('objectFit: \'contain\'');
+  });
+
+  it('печать отобранного идёт через существующий путь печати фотографий', () => {
+    expect(PAGE).toContain('printImages');
+    expect(PAGE).toContain('Отправить на печать');
+  });
+
+  it('модуль не пишет ни в папки, ни в файлы', () => {
+    expect(PAGE).not.toMatch(/writeFile|createWriteStream|showSaveDialog|mkdir|rmSync|unlink/);
+  });
 });
