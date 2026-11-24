@@ -770,7 +770,6 @@ export function EngineAssemblyBomDetailsPage(props: {
       <CardActionBar
         canEdit={props.canEdit}
         cardLabel="BOM двигателя"
-        centerNoWrap
         onPrint={
           data
             ? () => {

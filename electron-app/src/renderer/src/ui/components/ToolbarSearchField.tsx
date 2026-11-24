@@ -3,7 +3,8 @@ import React, { useCallback, useRef, useState } from 'react';
 import { Input } from './Input.js';
 
 /**
- * Поле поиска в панели кнопок списка (владелец 13.11.2026, промты КАРМАНА #9 и #13).
+ * Поле поиска в панели кнопок списка (владелец 13.11.2026, промты КАРМАНА #9 и #13;
+ * владелец 24.11.2026, промт #118 — ряд кнопок влево и мельче на планшете).
  *
  * Правило одно и общее для всех списков: **поле раздвигается при фокусе и сжимается обратно
  * без фокуса**. Пока оператор не начал печатать, поле занимает в ряду скромное место; при фокусе
@@ -12,16 +13,20 @@ import { Input } from './Input.js';
  * в одну кнопку — см. комментарий в `PageToolbar.tsx`).
  *
  * Накладка, а не перестройка ряда: поле уходит из потока (уходит и его место в ряду — обёртка
- * держит базовую ширину), а правый край ряда (`overflow: hidden`) подрезает её по месту.
+ * держит базовую ширину), а правый край ряда подрезает её по месту.
+ *
+ * Ширина свёрнутого поля — АДАПТИВНАЯ (класс `.mx-toolbar-search` в global.css: доля от
+ * ширины ряда с потолком и полом). Константы в пикселях больше нет: на планшете 1024 px
+ * фиксированные 280 px — это почти треть экрана, и ряд кнопок не помещался (жалоба владельца
+ * 24.11.2026). Ширина от размера окна зависит — значит, кэш ширин ряда пересчитывается
+ * вместе с ней (в `PageToolbar` ширина окна входит в подпись замера).
  *
  * Текст при сжимании обрезается по ширине поля, а не исчезает: значение поля не меняется.
  */
 
-/** Ширина поля в свёрнутом виде — столько оператор видит всегда. */
-const BASE_WIDTH = 280;
 /** Потолок развёрнутого поля: больше — уже не поиск, а полоса во всю окна. */
 const MAX_WIDTH = 480;
-/** Резерв под кнопку «⋯» у правого края ряда: развёрнутое поле её не закрывает. */
+/** Резерв под кнопку «⋯» у края ряда: развёрнутое поле её не закрывает. */
 const MENU_RESERVE = 54;
 /** Высота поля — держим и когда поле ушло в накладку (в потоке его тогда нет). */
 const FIELD_HEIGHT = 'var(--ui-input-height, 28px)';
@@ -45,7 +50,9 @@ export function ToolbarSearchField(props: {
     // Слева — край ряда, справа — кнопка «⋯»: поле может закрыть всё между ними.
     const left = wrapRect.left - rowRect.left - row.clientLeft;
     const room = row.clientWidth - left - MENU_RESERVE;
-    setExpandedWidth(Math.max(BASE_WIDTH, Math.min(MAX_WIDTH, room)));
+    // Свёрнутое поле уже адаптивно (мельче на узком экране) — развёрнутое не уже его.
+    const collapsed = Math.round(wrapRect.width);
+    setExpandedWidth(Math.max(collapsed, Math.min(MAX_WIDTH, Math.round(room))));
   }, []);
 
   return (
@@ -53,12 +60,12 @@ export function ToolbarSearchField(props: {
       ref={wrapRef}
       data-toolbar-search
       data-toolbar-search-expanded={expandedWidth != null ? 'on' : 'off'}
+      className="mx-toolbar-search"
       style={{
         // Обёртка — containing block накладки: развёрнутое поле растёт вправо от своего места.
         position: 'relative',
         display: 'inline-flex',
         alignItems: 'center',
-        width: BASE_WIDTH,
         minWidth: 0,
         height: FIELD_HEIGHT,
       }}

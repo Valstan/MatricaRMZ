@@ -3,9 +3,15 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { PopupLayer, useAnchoredPopup } from './PopupLayer.js';
 
 /**
- * Ряд кнопок списка в ОДНУ строку (владелец 08.09.2026): что не поместилось по ширине —
- * уезжает в выпадающее меню справа, а не переносится второй строкой. Перенос съедал высоту
- * у самого списка и на узком окне прятал таблицу под тулбаром.
+ * Ряд кнопок списка (владелец 08.09.2026 — одна строка; владелец 24.11.2026, промт КАРМАНА #118
+ * — «все управляющие кнопки прижать влево, и если они выходят за правый край — переносить их
+ * влево»).
+ *
+ * Ряд прижат ВЛЕВО и переносится на вторую строку: кнопка, не поместившаяся по ширине, уезжает
+ * на следующую строку, а не за правый край окна (на планшете справа кнопки уходили за край, и
+ * оператору приходилось прокручивать экран). Меню «⋯» осталось как запасной путь для ряда, который
+ * не влезает в ДВЕ строки: выше двух строк тулбар съедал бы высоту списка (решение владельца
+ * 08.09.2026) и прятал таблицу под собой.
  *
  * Ширины замеряются один раз на состав ряда: первый проход рисует все элементы, `useLayoutEffect`
  * снимает их ширины ДО отрисовки на экране (поэтому мигания нет), дальше по ним считается, что
@@ -32,6 +38,12 @@ export function ToolbarPin(props: { children: React.ReactNode }) {
 const GAP = 8;
 /** Ширина кнопки «⋯» вместе с зазором — резерв, чтобы она сама не оказалась за краем. */
 const MENU_WIDTH = 46;
+/**
+ * Сколько строк занимает ряд. Две — потому что выше тулбар съедал бы высоту списка
+ * и прятал таблицу под собой (решение владельца 08.09.2026). Всё, что не влезает
+ * в две строки, уходит в меню «⋯» — но «⋯» стоит СЛЕВА, рядом с кнопками.
+ */
+const MAX_ROWS = 2;
 
 type ToolbarItem = { key: string; node: React.ReactNode };
 
@@ -46,7 +58,6 @@ export function PageToolbar(props: { children: React.ReactNode; className?: stri
         })),
     [props.children],
   );
-  const signature = items.map((it) => it.key).join('|');
 
   const rowRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef(new Map<string, HTMLElement>());
@@ -60,13 +71,18 @@ export function PageToolbar(props: { children: React.ReactNode; className?: stri
   const measuredRef = useRef<typeof measured>(null);
   const measureRef = useRef<() => void>(() => {});
   const [rowWidth, setRowWidth] = useState(0);
+  // Подпись замера — состав ряда И ширина окна: поле поиска адаптивно (на узком экране
+  // оно мельче), и без перезамера кэш ширин после изменения размера окна врал бы
+  // (план #119, п.17).
+  const signature = `${items.map((it) => it.key).join('|')}@${rowWidth}`;
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  // Кнопка «⋯» по определению стоит у правого края — панель обязана вернуться в экран.
-  // Меню «Ещё кнопки» уезжает порталом в body: тулбар липкий и со своим z-index,
-  // внутри него меню оказывалось под соседней шапкой (PopupLayer).
+  // Кнопка «⋯» стоит в конце ряда — но ряд прижат влево, поэтому и «⋯» у левого края
+  // (владелец 24.11.2026: «⋯» — слева). Меню «Ещё кнопки» уезжает порталом в body:
+  // тулбар липкий и со своим z-index, внутри него меню оказывалось под соседней
+  // шапкой (PopupLayer). Меню раскрывается вправо от кнопки — справа от неё пусто.
   const [menuAnchor, setMenuAnchor] = useState<HTMLDivElement | null>(null);
-  const popup = useAnchoredPopup(menuOpen, menuAnchor, { align: 'right' });
+  const popup = useAnchoredPopup(menuOpen, menuAnchor, { align: 'left' });
 
   const setItemRef = useCallback((key: string, el: HTMLElement | null) => {
     if (el) itemRefs.current.set(key, el);
@@ -87,8 +103,14 @@ export function PageToolbar(props: { children: React.ReactNode; className?: stri
     const pinned: Record<string, boolean> = {};
     for (const it of items) {
       const el = itemRefs.current.get(it.key);
-      widths[it.key] = el ? Math.ceil(el.getBoundingClientRect().width) : 0;
-      pinned[it.key] = Boolean(el?.querySelector('[data-toolbar-pin]'));
+      const live = el ? Math.ceil(el.getBoundingClientRect().width) : 0;
+      // Элемент, уехавший в меню, в DOM не лежит — его ширина нулевая. Прежнюю мерку
+      // сохраняем: иначе пересчёт счёл бы его бесплатным, и ряд «схлопнул» бы в одну кнопку.
+      const prev = measuredRef.current?.widths[it.key] ?? 0;
+      widths[it.key] = live > 0 ? live : prev;
+      pinned[it.key] = el
+        ? Boolean(el.querySelector('[data-toolbar-pin]'))
+        : Boolean(measuredRef.current?.pinned[it.key]);
     }
     if (items.length > 0 && Object.values(widths).every((w) => w <= 0)) return;
     const next = { signature, widths, pinned };
@@ -130,10 +152,15 @@ export function PageToolbar(props: { children: React.ReactNode; className?: stri
     if (measuring || rowWidth <= 0 || !measured) return empty;
     const widthOf = (key: string) => measured.widths[key] ?? 0;
     let needed = items.reduce((sum, it) => sum + widthOf(it.key), 0) + GAP * Math.max(0, items.length - 1);
-    if (needed <= rowWidth) return empty;
+    // Ряд переносится на вторую строку (владелец 24.11.2026) — но не выше: тулбар выше
+    // двух строк съедал бы высоту списка. Всё, что в две строки не влезает, уходит в меню.
+    const budget = rowWidth * MAX_ROWS;
+    if (needed <= budget) return empty;
     const hidden = new Set<string>();
     needed += GAP + MENU_WIDTH;
-    for (let i = items.length - 1; i >= 0 && needed > rowWidth; i -= 1) {
+    // Приоритет ЯВНЫЙ: с конца ряда (самое младшее) — в меню «⋯» первым. Раньше это
+    // читалось как «кнопки исчезли», теперь они рядом, в меню слева от ряда.
+    for (let i = items.length - 1; i >= 0 && needed > budget; i -= 1) {
       const it = items[i];
       if (!it || measured.pinned[it.key]) continue;
       hidden.add(it.key);
@@ -176,9 +203,15 @@ export function PageToolbar(props: { children: React.ReactNode; className?: stri
         display: 'flex',
         gap: GAP,
         alignItems: 'center',
+        // Ряд прижат влево (владелец 24.11.2026) и переносится на вторую строку:
+        // кнопка, не поместившаяся по ширине, уходит влево-вниз, а не за правый край.
+        justifyContent: 'flex-start',
         flex: '0 0 auto',
-        flexWrap: 'nowrap',
-        overflow: 'hidden',
+        flexWrap: 'wrap',
+        rowGap: GAP,
+        // Обрезки больше нет: перенесённая на вторую строку кнопка иначе срезалась бы
+        // краем ряда (и была бы недоступна).
+        overflow: 'visible',
       }}
     >
       {/* Уехавший в меню элемент из строки убирается совсем, а не прячется стилем: иначе диалоги
@@ -196,7 +229,7 @@ export function PageToolbar(props: { children: React.ReactNode; className?: stri
             menuRef.current = el;
             setMenuAnchor(el);
           }}
-          style={{ position: 'relative', marginLeft: 'auto', flex: '0 0 auto' }}
+          style={{ position: 'relative', flex: '0 0 auto' }}
         >
           <button
             type="button"

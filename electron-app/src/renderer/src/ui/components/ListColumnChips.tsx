@@ -104,8 +104,11 @@ export function ListColumnChips(props: {
         display: 'flex',
         alignItems: 'center',
         gap: 3,
-        flexWrap: 'nowrap',
-        overflowX: 'auto',
+        // Ряд плашек переносится, а не прокручивается вбок (владелец 24.11.2026):
+        // горизонтальная прокрутка была как раз тем «приходится прокручивать
+        // экран», на которое жаловался владелец.
+        flexWrap: 'wrap',
+        overflowX: 'visible',
         overflowY: 'hidden',
         padding: '2px 0',
         // Ряд стоит рядом со строкой статистики («Всего: N · Показано: M»), поэтому он должен

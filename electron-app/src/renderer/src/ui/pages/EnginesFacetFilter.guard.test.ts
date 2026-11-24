@@ -86,11 +86,14 @@ describe('ступенчатый фильтр доезжает до строк �
     expect(PAGE).toContain('<ToolbarPin>');
   });
 
-  it('ряд кнопок — одна строка, лишнее уезжает в меню справа', () => {
-    // Владелец 08.09.2026: перенос второй строкой съедал высоту у самого списка.
-    expect(PAGE, 'перенос строкой вернул бы прежнюю беду').not.toContain("flexWrap: 'wrap'");
+  it('ряд кнопок — влево, лишнее переносится на вторую строку, дальше — в меню', () => {
+    // Владелец 24.11.2026 (промт КАРМАНА #118) отменил прежнее «строго одна строка»:
+    // кнопка, не поместившаяся по ширине, переносится ВЛЕВО (на вторую строку), а не
+    // уезжает за правый край. Предел — две строки (выше тулбар съедал бы высоту списка).
     expect(PAGE).toContain('<PageToolbar>');
-    expect(TOOLBAR).toContain("flexWrap: 'nowrap'");
+    expect(TOOLBAR).toContain("flexWrap: 'wrap'");
+    expect(TOOLBAR).toContain("justifyContent: 'flex-start'");
+    expect(TOOLBAR).toContain('const MAX_ROWS = 2;');
     expect(TOOLBAR).toContain('data-toolbar-overflow');
     expect(TOOLBAR, 'закреплённые элементы в меню не уезжают').toContain('if (!it || measured.pinned[it.key]) continue;');
     expect(TOOLBAR, 'уехавший элемент рисуется в ОДНОМ месте, иначе диалог раздвоится').toContain(
