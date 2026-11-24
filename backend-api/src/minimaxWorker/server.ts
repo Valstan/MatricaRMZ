@@ -34,6 +34,7 @@ import {
   type KarmanOffer,
   type KarmanPoolClientOptions,
 } from './karmanPool.js';
+import { PoolBackoff } from './poolBackoff.js';
 import { runAgent } from './minimaxAgent.js';
 import { shapeAgentAnswer } from './toolUseShaper.js';
 import type { MinimaxWorkerConfig } from './config.js';
@@ -47,7 +48,7 @@ export type WorkerDeps = {
   }>;
   reportActivation: (
     options: KarmanPoolClientOptions,
-    payload: { account_id?: number | null; email?: string | null; points?: number | null; activation_index?: number | null },
+    payload: { account_id?: number | null; email?: string | null },
   ) => Promise<void>;
   materializeProfile: typeof materializeProfile;
   runAgent: typeof runAgent;
@@ -66,7 +67,7 @@ export type MinimaxLease = {
 export type WorkerState = {
   /** id аккаунтов, которые не подошли: Карману их передаём `exclude=`, иначе он отдаст тот же. */
   deadAccountIds: number[];
-  /** Пауза после отказа Кармана/пустого пула: волна не должна молотить ручку и ловить 429. */
+  /** Пул на паузе после отказа — до какого момента (epoch мс). */
   pausedUntilMs: number;
   /** Текущая аренда: один аккаунт на много запросов (выдача = погашение). */
   lease: MinimaxLease | null;
@@ -85,7 +86,6 @@ const DEFAULT_DEPS: WorkerDeps = {
   },
 };
 
-const PAUSE_AFTER_FAILURE_MS = 10_000;
 const MAX_DEAD_IDS = 50;
 /** За сколько до истечения access продлеваем цепочку: раньше — отказ придёт молча. */
 const RENEW_WINDOW_MS = 5 * 60_000;
@@ -159,9 +159,19 @@ export function createAgentGate(limit: number) {
   };
 }
 
+/**
+ * Код ответа по причине отказа.
+ *
+ * ⚠️ Все «сейчас нельзя» (пул пуст, Карман недоступен, лимит) — это 503: по
+ * правилу fail-open бэкенд уходит на платного страхователя (D-243). 400/401/403
+ * откатом **не** считаются: это наша ошибка или нет доступа, и молчаливый откат
+ * спрятал бы поломку.
+ */
 function statusForFailure(error: KarmanPoolError): number {
   switch (error.reason) {
     case 'pool_empty':
+    case 'pool_no_tokens':
+    case 'pool_no_handable':
     case 'karman_unavailable':
     case 'token_read_only':
     case 'token_unauthorized':
@@ -199,6 +209,15 @@ export function createWorkerApp(
 ): { app: express.Express; state: WorkerState } {
   const resolved: WorkerDeps = { ...DEFAULT_DEPS, ...deps };
   const state: WorkerState = { deadAccountIds: [], pausedUntilMs: 0, lease: null };
+  /**
+   * Паузы между попытками взять аккаунт.
+   *
+   * ⚠️ Раньше пауза была одна на все отказы (10 с): пустой пул на сутки и
+   * «Карман не ответил» ждали одинаково, а лимит Кармана (60 запросов в минуту
+   * на токен и IP) в это укладывается впритык. Теперь пауза зависит от причины
+   * и растёт при повторных отказах (см. `poolBackoff.ts`).
+   */
+  const backoff = new PoolBackoff();
   const gate = createAgentGate(MAX_CONCURRENT_AGENT_RUNS);
   const app = express();
 
@@ -223,13 +242,18 @@ export function createWorkerApp(
   });
 
   app.get('/health', (_req, res) => {
+    const snapshot = backoff.snapshot();
     res.json({
       ok: true,
       service: 'minimax-worker',
       pool: config.karmanApiBase ? 'configured' : 'not_configured',
       cli: config.cli,
       model: config.model,
-      paused: Date.now() < state.pausedUntilMs,
+      paused: backoff.isPaused(),
+      /** До какого момента пул не опрашиваем — видно, когда ждать снова. */
+      pausedUntilMs: snapshot.pausedUntilMs || null,
+      /** Причина последнего отказа: пул пуст / Карман недоступен / лимит. */
+      lastFailure: snapshot.lastReason,
       account: state.lease?.accountId ?? null,
       agentsActive: gate.active,
       agentsQueued: gate.queued,
@@ -311,8 +335,6 @@ export function createWorkerApp(
       .reportActivation(poolOptions, {
         account_id: account.id,
         email: account.email ?? null,
-        points: account.points_next ?? null,
-        activation_index: account.activation_index ?? null,
       })
       .catch((e) => logWarn('minimax worker: активация не отмечена', { error: String(e) }));
 
@@ -341,8 +363,12 @@ export function createWorkerApp(
       return;
     }
 
-    if (Date.now() < state.pausedUntilMs) {
-      res.status(503).json({ error: 'Пул Кармана на паузе после отказа', reason: 'pool_paused' });
+    if (backoff.isPaused()) {
+      res.status(503).json({
+        error: 'Пул Кармана на паузе после отказа',
+        reason: 'pool_paused',
+        retryAfterMs: backoff.remainingMs(),
+      });
       return;
     }
 
@@ -392,9 +418,18 @@ export function createWorkerApp(
     } catch (e) {
       const failure =
         e instanceof KarmanPoolError ? e : new KarmanPoolError('karman_unavailable', 0, String(e));
-      state.pausedUntilMs = Date.now() + PAUSE_AFTER_FAILURE_MS;
-      logWarn('minimax worker: пул Кармана не ответил', { reason: failure.reason, detail: failure.detail });
-      res.status(statusForFailure(failure)).json({ error: failure.detail, reason: failure.reason });
+      const delayMs = backoff.noteFailure(failure.reason);
+      state.pausedUntilMs = Date.now() + delayMs;
+      logWarn('minimax worker: пул Кармана не ответил', {
+        reason: failure.reason,
+        detail: failure.detail,
+        retryInMs: delayMs,
+      });
+      res.status(statusForFailure(failure)).json({
+        error: failure.detail,
+        reason: failure.reason,
+        retryAfterMs: delayMs,
+      });
       return;
     }
 
@@ -417,8 +452,18 @@ export function createWorkerApp(
       } catch (e) {
         const failure =
           e instanceof KarmanPoolError ? e : new KarmanPoolError('karman_unavailable', 0, String(e));
-        state.pausedUntilMs = Date.now() + PAUSE_AFTER_FAILURE_MS;
-        res.status(statusForFailure(failure)).json({ error: failure.detail, reason: failure.reason });
+        const delayMs = backoff.noteFailure(failure.reason);
+        state.pausedUntilMs = Date.now() + delayMs;
+        logWarn('minimax worker: пул Кармана не ответил', {
+          reason: failure.reason,
+          detail: failure.detail,
+          retryInMs: delayMs,
+        });
+        res.status(statusForFailure(failure)).json({
+          error: failure.detail,
+          reason: failure.reason,
+          retryAfterMs: delayMs,
+        });
         return;
       }
     }
@@ -428,6 +473,11 @@ export function createWorkerApp(
       res.status(502).json({ error: run.detail, reason: run.reason });
       return;
     }
+
+    // Пул снова в работе — счётчики неудач обнуляются, иначе пауза росла бы
+    // на ровном месте после одного успеха.
+    backoff.noteSuccess();
+    state.pausedUntilMs = 0;
 
     const shaped = shapeAgentAnswer(run.text, tools.map((t) => ({ name: t.name })));
     if (shaped.warnings.length) {

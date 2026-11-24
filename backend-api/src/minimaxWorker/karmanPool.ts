@@ -21,10 +21,21 @@ export type KarmanPoolAccount = {
   hint_source?: string | null;
 };
 
+/**
+ * Причины «честной пустоты» — что именно у Кармана кончилось.
+ *
+ * Разные причины ⇒ разные ответы владельцу: «свободных аккаунтов нет»,
+ * «аккаунты есть, а пар токенов нет» и «все кандидаты непригодны» — это
+ * разные вещи, а не одно «пусто» (ADR-0017 «Сарафана»: «кончились аккаунты»
+ * и «кончилась квота» — разные причины и разные сообщения; brain G619).
+ */
+export type KarmanEmptyReason = 'no_free_accounts' | 'no_tokens_ready' | 'no_handable_accounts';
+
 export type KarmanOffer = {
   account: KarmanPoolAccount | null;
   tier?: string | null;
-  reason?: string | null;
+  /** Причина пустоты: у Кармана — поле `reason` (всегда при `account: null`). */
+  reason?: KarmanEmptyReason | null;
   recommended?: boolean;
   why?: string;
   free?: number;
@@ -50,7 +61,12 @@ export type KarmanFailureReason =
   | 'token_unauthorized'
   | 'token_read_only'
   | 'rate_limited'
+  /** Свободных аккаунтов нет вовсе (`no_free_accounts`). */
   | 'pool_empty'
+  /** Аккаунты свободны, а пары токенов нет (`no_tokens_ready`). */
+  | 'pool_no_tokens'
+  /** Кандидаты есть, но все непригодны (`no_handable_accounts`). */
+  | 'pool_no_handable'
   | 'account_not_found'
   | 'account_not_ours'
   | 'bad_request';
@@ -149,6 +165,15 @@ async function request(
  *
  * `exclude` — id аккаунтов, которые нам не подошли (Карман отдаст следующего):
  * без него он вернёт тот же id, и мы снова получим «очки кончились».
+ *
+ * ⚠️ Честная пустота — это HTTP 200 с `account: null`, а не ошибка: у Кармана
+ * так помечается «сейчас нельзя». Причины разные, и различать их надо:
+ *   - `no_free_accounts`     — свободных аккаунтов нет (пул исчерпан на сутки);
+ *   - `no_tokens_ready`      — аккаунты есть, а пары токенов нет (отдавать нечего);
+ *   - `no_handable_accounts` — кандидаты были, но все отбракованы (оборванная
+ *     цепочка токенов, клетку забрали, вендор не ответил).
+ * Схлопывать их в одно «пусто» нельзя: у них разные сроки ожидания и разные
+ * причины (ADR-0017 «Сарафана», brain G619).
  */
 export async function takeAccount(
   options: KarmanPoolClientOptions & { exclude?: number[] },
@@ -160,10 +185,17 @@ export async function takeAccount(
   const body = await request(options, 'GET', `/accounts/available${suffix}`);
   const offer = body as unknown as KarmanOffer;
   if (!offer.account) {
-    const reason = String(offer.reason ?? 'no_free_accounts');
-    throw new KarmanPoolError('pool_empty', 200, reason);
+    const reason = (String(offer.reason ?? 'no_free_accounts') || 'no_free_accounts') as KarmanEmptyReason;
+    throw new KarmanPoolError(emptyReasonToFailure(reason), 200, reason);
   }
   return offer;
+}
+
+/** Причина пустоты → класс отказа: чем «пустее», тем дольше ждать. */
+export function emptyReasonToFailure(reason: string): KarmanFailureReason {
+  if (reason === 'no_tokens_ready') return 'pool_no_tokens';
+  if (reason === 'no_handable_accounts') return 'pool_no_handable';
+  return 'pool_empty';
 }
 
 /** Продлить цепочку токенов того же аккаунта (access живёт ~12 ч). */
@@ -172,18 +204,43 @@ export async function renewAccount(
   accountId: number,
 ): Promise<KarmanRenewal> {
   const body = await request(options, 'POST', '/renew', { account_id: accountId });
-  return body as unknown as KarmanRenewal;
+  const renewal = body as unknown as KarmanRenewal;
+  // Карман обязан вернуть свежий access. Без него продление бессмысленно: профиль
+  // записался бы с пустым токеном, и агент упал бы на входе с «не авторизован».
+  if (!renewal.access_token) {
+    throw new KarmanPoolError('karman_unavailable', 200, 'Карман не вернул вход при продлении');
+  }
+  return renewal;
 }
 
-/** Отметить активацию: сколько очков было на выданном токене (наблюдение, не запись учёта). */
+/**
+ * Отметить активацию: сколько очков было на выданном токене.
+ *
+ * ⚠️ Это **наблюдение**, а не управление учётом: пара токенов сюда не принимается,
+ * активацию и окно ведёт сам Карман. Поэтому шлём только «кто именно работал» —
+ * `account_id` и почту.
+ *
+ * ⚠️ **Поля не отправляем пустыми.** Схема Кармана — `z.coerce.number()`: значение
+ * `null` превращается в число (`points: null` → `0`!), а `null` в строке и в
+ * `activation_index` даёт 400. Явный `null` в теле — это либо ложное наблюдение
+ * («очков было 0»), либо отказ ручки. Отсутствующее поле надо **не слать вовсе**.
+ *
+ * Очки и клетку (`points`, `activation_index`) мы не отправляем: это факт панели
+ * MiniMax, которого у нас нет, — Карман посчитает их сам (`source: computed`).
+ */
 export async function reportActivation(
   options: KarmanPoolClientOptions,
-  payload: { account_id?: number | null; email?: string | null; points?: number | null; activation_index?: number | null },
+  payload: { account_id?: number | null; email?: string | null },
 ): Promise<void> {
-  await request(options, 'POST', '/activations', {
-    account_id: payload.account_id ?? null,
-    email: payload.email ?? null,
-    points: payload.points ?? null,
-    activation_index: payload.activation_index ?? null,
-  });
+  const body: Record<string, unknown> = {};
+  if (typeof payload.account_id === 'number' && Number.isInteger(payload.account_id)) {
+    body.account_id = payload.account_id;
+  }
+  const email = String(payload.email ?? '').trim();
+  if (email) body.email = email;
+  // Ничего опознающего не осталось — ручка скажет «Нужен account_id или email».
+  if (!body.account_id && !body.email) {
+    throw new KarmanPoolError('bad_request', 0, 'нечего отмечать: нет ни account_id, ни почты');
+  }
+  await request(options, 'POST', '/activations', body);
 }
