@@ -26,6 +26,7 @@ import type {
   ProductionProgramDto,
   ProductionProgramLineDraftDto,
   ProductionProgramLineDto,
+  ProductionProgramPatchDto,
   ProductionProgramSaveDto,
 } from '../domain/productionProgram.js';
 import type { EngineReclamationDto } from '../domain/engineReclamations.js';
@@ -3296,7 +3297,12 @@ export type MatricaApi = {
       | { ok: false; error: string }
     >;
     create: (args: ProductionProgramSaveDto) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
-    update: (args: ProductionProgramSaveDto & { id: string }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    /**
+     * Правка шапки (PATCH): уходят ТОЛЬКО те поля, которые правил оператор.
+     *
+     * Поля, которых нет в объекте, сервер не трогает; `null` — очистка.
+     */
+    update: (args: ProductionProgramPatchDto & { id: string }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
     saveRows: (args: { id: string; rows: ProductionProgramLineDraftDto[] }) => Promise<
       { ok: true; count: number } | { ok: false; error: string }
     >;

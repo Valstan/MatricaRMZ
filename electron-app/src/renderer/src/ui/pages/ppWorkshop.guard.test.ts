@@ -46,7 +46,10 @@ describe('ПП: цех выбирается из справочника, а не
   it('в шапке носится связь по id вместе со снимком имени', () => {
     expect(PAGE).toContain('workshopId: string | null');
     expect(PAGE).toContain('workshopId: next.workshopId == null ? null : String(next.workshopId)');
-    expect(PAGE).toContain('workshopId: h.workshopId,');
+    // Связь едет в правке шапки — но только когда оператор правил цех: в PATCH
+    // уходят те поля, которые правлены (иначе правка названия уносила бы с собой
+    // подписи — 24.11.2026).
+    expect(PAGE).toContain('args.workshopId = h.workshopId;');
     expect(PAGE).toContain('workshopId: selected.workshopId ?? null,');
   });
 
