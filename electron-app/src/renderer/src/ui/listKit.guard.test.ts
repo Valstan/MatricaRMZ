@@ -19,6 +19,9 @@ const KIT_PAGES = [
   './pages/WorkOrdersPage.tsx',
   './pages/CounterpartiesPage.tsx',
   './pages/ToolPropertiesPage.tsx',
+  // Справочники: начало фазы «остальные модули» — те же правила, тот же кит.
+  './pages/EngineBrandGroupsPage.tsx',
+  './pages/EngineBrandsPage.tsx',
   // Список карточек СИЗ — тоже страница верхнего уровня: список сотрудников, а не пикер.
   // До 23.11.2026 он стоял мимо кита (корневой маркер был, а выделения, контура и меню — нет).
   './pages/PpeCardsPage.tsx',

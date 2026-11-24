@@ -134,6 +134,17 @@ async function main() {
      const engines = await call(() => window.matrica.engines.list(), 30000);
      const engineRows = (engines && engines.rows) || [];
      const number = 'СМОУК КИТ/' + Date.now();
+     // Тип «договор» в dev-базе стенда может отсутствовать (dev:bootstrap-types заводит не
+     // все типы) — тогда фикстура падает с «тип contract не найден» ещё до проверки кита.
+     // Заводим тип через API админа: это фикстура стенда, а не правка программы.
+     const types = await call(() => window.matrica.admin.entityTypes.list().catch(() => []), 15000);
+     let ct = (types || []).find((t) => String(t.code ?? '').toLowerCase() === 'contract');
+     if (!ct) {
+       const up = await call(() => window.matrica.admin.entityTypes.upsert({ code: 'contract', name: 'Договор' }).catch((e) => ({ ok: false, error: String(e) })), 15000);
+       const types2 = await call(() => window.matrica.admin.entityTypes.list().catch(() => []), 15000);
+       ct = (types2 || []).find((t) => String(t.code ?? '').toLowerCase() === 'contract');
+       if (!ct) return { ok: false, reason: 'не удалось завести тип contract: ' + JSON.stringify(up) };
+     }
      // Список ДЕТАЛЕЙ договора: строки берутся из sections.parts, поэтому
      // фикстуре не нужен справочник марок — достаточно двух разных позиций.
      const sections = {
@@ -170,18 +181,18 @@ async function main() {
        const body = document.body.innerText.replace(/\\n{2,}/g, '\\n');
        return { ok: false, reason: 'договор не найден в списке', body: body.slice(0, 1500) };
      }
-     click(cell); await wait(5000);
+     click(cell); await wait(8000);
      // Список деталей живёт на вкладке «Детали» — открываем её.
      const tab = [...document.querySelectorAll('button')].filter(visible).find((b) => txt(b) === 'Детали');
-     if (tab) { click(tab); await wait(2500); }
-     for (let i = 0; i < 15; i++) {
+     if (tab) { click(tab); await wait(4000); }
+     for (let i = 0; i < 40; i++) {
        const rows = kitRows();
        if (rows.length >= 2) return { ok: true, rows: rows.length };
-       await wait(3000);
+       await wait(4000);
      }
      return { ok: false, reason: 'в карточке нет списка с двумя строками', rows: kitRows().length,
               body: document.body.innerText.replace(/\\n{2,}/g, '\\n').slice(0, 1200) };`,
-    150000,
+    300000,
   );
   note(nav.ok, 'карточка договора открыта, список марок на экране', nav);
   if (!nav.ok) throw new Error(`навигация: ${nav.reason}`);

@@ -6,6 +6,24 @@ import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { ListCount } from '../components/ListCount.js';
 import { RowNumberCell, RowNumberHeaderCell } from '../components/RowNumberCell.js';
+// Кит списков (промт КАРМАНА #67): правила — из общего источника, меню — из объявления действий.
+import { useListSelection } from '../hooks/useListSelection.js';
+import { useListBehaviorSettings } from '../hooks/useListBehaviorSettings.js';
+import { ListLassoLayer } from '../components/ListLassoLayer.js';
+import { ListContextMenu } from '../components/ListContextMenu.js';
+import {
+  buildCopyRowsStatus,
+  buildDeleteConfirmMessage,
+  buildDeleteRowsStatus,
+  buildListContextMenuItems,
+  copyRowsToClipboard,
+  listCopyAction,
+  listDeleteAction,
+  listPrintAction,
+  printRowsPreview,
+  resolveMenuRows,
+  type ListContextColumn,
+} from '../utils/listContextActions.js';
 
 const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
@@ -23,6 +41,73 @@ export function TimesheetsPage(props: { canCreate: boolean; canEdit: boolean; on
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [weekMode, setWeekMode] = useState<5 | 6>(6);
   const [busy, setBusy] = useState('');
+  // Кит списка: выделение, контур и меню — по общим правилам программы (D-248).
+  const selection = useListSelection(rows.map((r) => r.id));
+  const listBehavior = useListBehaviorSettings();
+  const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
+  const rowById = new Map(rows.map((r) => [r.id, r]));
+  const menuRows = menu ? resolveMenuRows(menu.targetIds, rowById) : [];
+
+  const contextColumns: ListContextColumn<TimesheetHeader>[] = [
+    { title: 'Цех / подразделение', value: (r) => r.scopeName || r.workshopName || '—' },
+    { title: 'Период', value: (r) => `${MONTHS[r.month - 1] ?? r.month} ${r.year}` },
+    { title: 'Режим', value: (r) => `${r.weekMode}-дн.` },
+    { title: 'Норма, ч', value: (r) => String(r.normHours ?? '—') },
+    { title: 'Статус', value: (r) => (r.status === 'closed' ? 'Закрыт' : 'Черновик') },
+    { title: 'Автор', value: (r) => r.createdBy || '—' },
+  ];
+
+  function printRows(items: TimesheetHeader[]) {
+    printRowsPreview({
+      title: items.length > 1 ? `Выделенные табели (${items.length})` : `Табель: ${items[0]?.scopeName || items[0]?.workshopName || '(без названия)'}`,
+      sectionTitle: 'Список табелей',
+      rows: items,
+      columns: contextColumns,
+    });
+  }
+
+  async function copyRows(items: TimesheetHeader[]) {
+    await copyRowsToClipboard(items, contextColumns);
+    setBusy(buildCopyRowsStatus(items.length));
+    setTimeout(() => setBusy(''), 2000);
+  }
+
+  /** Удаление табелей из пачки — теми же правами, что и кнопка «Удалить» в строке. */
+  async function deleteRows(ids: string[]) {
+    if (!props.canEdit || ids.length === 0) return;
+    const deletable = ids.filter((id) => {
+      const row = rowById.get(id);
+      return Boolean(row && (row.isAuthor || !row.createdBy));
+    });
+    if (deletable.length === 0) {
+      setBusy('Удалять чужие табели нельзя');
+      setTimeout(() => setBusy(''), 3000);
+      return;
+    }
+    const message = buildDeleteConfirmMessage({
+      selectedCount: deletable.length,
+      selectedManyLabel: 'выделенные табели',
+      singleLabel: 'табель',
+    });
+    const ok = await confirm({ detail: `${message}\n\nДействие необратимо.` });
+    if (!ok) return;
+    let failed = 0;
+    for (const id of deletable) {
+      const r = await window.matrica.timesheets.delete(id);
+      if (!r.ok) failed += 1;
+    }
+    setBusy(
+      buildDeleteRowsStatus({
+        failedCount: failed,
+        deletedCount: deletable.length - failed,
+        deletedManyLabel: 'табелей',
+        deletedSingleLabel: 'Табель удалён',
+      }),
+    );
+    setTimeout(() => setBusy(''), 3000);
+    selection.clearSelection();
+    void load();
+  }
 
   async function load() {
     const [w, d, t] = await Promise.all([
@@ -72,7 +157,7 @@ export function TimesheetsPage(props: { canCreate: boolean; canEdit: boolean; on
   }
 
   return (
-    <div style={{ padding: 4 }}>
+    <div data-list-root="true" style={{ padding: 4 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
         <h2 style={{ margin: 0 }}>Табель учёта рабочего времени</h2>
         {busy && <span style={{ color: busy.startsWith('Ошибка') ? '#b91c1c' : '#64748b', fontSize: 13 }}>{busy}</span>}
@@ -143,7 +228,23 @@ export function TimesheetsPage(props: { canCreate: boolean; canEdit: boolean; on
             {rows.map((r, i) => {
               const period = `${MONTHS[r.month - 1] ?? r.month} ${r.year}`;
               return (
-                <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => props.onOpen(r.id)}>
+                <tr
+                  key={r.id}
+                  data-list-selected={selection.isSelected(r.id) ? 'true' : undefined}
+                  // Маркер строки для выделения контуром (Ctrl + рамка) — правило одно на программу.
+                  data-list-row="true"
+                  data-list-row-key={r.id}
+                  style={{ cursor: 'pointer' }}
+                  onContextMenu={(e) => {
+                    const result = selection.onRowContextMenu(e, r.id);
+                    if (!result.openMenu) return;
+                    setMenu({ x: e.clientX, y: e.clientY, targetIds: result.targetIds, bulk: result.bulk });
+                  }}
+                  onClick={() => {
+                    selection.onRowPrimaryAction(r.id);
+                    props.onOpen(r.id);
+                  }}
+                >
                   <RowNumberCell n={i + 1} style={{ ...tdStyle, ...ROWNUM_STYLE }} />
                   <td style={tdStyle}>{r.scopeName || r.workshopName}</td>
                   <td style={tdStyle}>{period}</td>
@@ -176,6 +277,34 @@ export function TimesheetsPage(props: { canCreate: boolean; canEdit: boolean; on
           </tbody>
         </table>
       </div>
+      {/* Выделение контуром (Ctrl + рамка) — слой кита, включается общей настройкой. */}
+      <ListLassoLayer enabled={listBehavior.lasso} onSelect={selection.selectMany} />
+      {menu ? (
+        <ListContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={buildListContextMenuItems({
+            rows: menuRows,
+            bulk: menu.bulk,
+            getId: (row) => row.id,
+            onSelect: selection.toggleSelect,
+            onClearSelection: selection.clearSelection,
+            hasSelection: selection.selectedCount > 0,
+            // Список ОБЪЯВЛЯЕТ свои действия (промт КАРМАНА #67): «Удалить» появляется
+            // только когда выбранные табели удалить можно (свои — да, чужие — нет).
+            actions: [
+              listPrintAction({ available: true, print: printRows }),
+              listCopyAction({ available: true, copy: copyRows }),
+              listDeleteAction<TimesheetHeader>({
+                available: props.canEdit && menuRows.every((r) => r.isAuthor || !r.createdBy),
+                remove: deleteRows,
+                getId: (row) => row.id,
+              }),
+            ],
+          })}
+          onClose={() => setMenu(null)}
+        />
+      ) : null}
     </div>
   );
 }
