@@ -13,6 +13,7 @@ import type { SearchSelectOption } from '../components/SearchSelect.js';
 import { WorkSheetFieldEditor, fromWorkSheetDateInput, toWorkSheetDateInput } from '../components/WorkSheetFieldEditor.js';
 import type { WorkshopOption } from '../components/WorkSheetTypeEditorDialog.js';
 import { formatEngineGateLabel } from '../utils/assemblyDuplicateGate.js';
+import { buildCardActions } from '../utils/objectActions.js';
 import { buildEngineSearchOptions } from '../utils/selectOptions.js';
 import { askWorkSheetDuplicate } from '../utils/workSheetDuplicateGate.js';
 import { loadWorkSheetTypes } from '../utils/workSheetTypesCache.js';
@@ -315,11 +316,23 @@ export function WorkSheetDetailsPage(props: {
         <CardActionBar
           canEdit={props.canEdit && !busy}
           cardLabel={title}
-          {...(props.canEdit ? { onSave: () => void save() } : {})}
-          {...(props.canEdit ? { onSaveAndClose: () => void save({ close: true }) } : {})}
-          {...(props.canEdit ? { onReset: () => void load() } : {})}
-          {...(props.canEdit && !props.isNew ? { onDelete: () => void remove(), deleteLabel: 'Удалить этап работ', deleteSkipBuiltInConfirm: true } : {})}
-          onClose={props.onClose}
+          // Кнопки карточки — из каталога действий по объекту: кнопка есть только там,
+          // где объект умеет функцию и есть обработчик. У нового этапа работ нет
+          // «удалить» — и кнопки нет (раньше набор задавался пропсами от руки).
+          actions={buildCardActions({
+            kind: 'work_sheet_row',
+            canEdit: props.canEdit && !busy,
+            handlers: {
+              save: () => void save(),
+              save_and_close: () => void save({ close: true }),
+              reset: () => void load(),
+              ...(props.canEdit && !props.isNew ? { delete: () => void remove() } : {}),
+              close: () => props.onClose(),
+            },
+            labels: { delete: 'Удалить этап работ' },
+          })}
+          deleteLabel="Удалить этап работ"
+          deleteSkipBuiltInConfirm
         />
       }
       status={status ? <span style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</span> : null}

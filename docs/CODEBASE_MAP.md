@@ -48,7 +48,7 @@
 | **Поиск по файлам и папкам (десктоп)** | страница — `electron-app/src/renderer/src/ui/pages/FileSearchPage.tsx`; домен — `shared/src/domain/fileSearch.ts` (по содержимому) и `shared/src/domain/fileSearchFolders.ts` (по названию, в папках); main — `services/fileSearchService.ts` (Excel/Word/текст), `services/fileSearchFolderService.ts` (скан папок + реестр выданных `id`), `services/localImagePreview.ts` (крупное превью через `nativeImage`), `services/fileService.ts` (`photosPrintLocalPaths` — печать локальных картинок); IPC — `ipc/register/fileSearch.ts`; план — [`plans/file-search-module-2026-11.md`](plans/file-search-module-2026-11.md) и [`plans/file-search-folders-2026-11.md`](plans/file-search-folders-2026-11.md) | Два режима: по содержимому выбранных файлов и **по названию** в выбранных папках (номер двигателя в названии папки «Э06АТ0889» ⇒ крупные превью картинок, галочки, печать). Границы: renderer не читает диск — картинка получает `id` от main, путь не уходит; папки для поиска берутся из `sync_state`, а не из аргументов renderer; каналы `fileSearch:` гейтятся разделом «Производство» (`sectionGate.ts`) |
 | **Updates** | `routes/updates.ts`, `services/updateTorrentService.ts` | Раздача Windows-installer'ов (`.exe` + `latest.yml`), торрент |
 | **Маршруты** | `backend-api/src/routes/*.ts` | Точка входа Express: `warehouse`, `workOrders`, `parts`, `erp`, `sync`, `ledger`, `auth`, ... |
-| **Drizzle schema** | `backend-api/src/database/schema.ts` | Поля колонок, индексы, FK; миграции в `backend-api/drizzle/` (последняя — `0097`) |
+| **Drizzle schema** | `backend-api/src/database/schema.ts` | Поля колонок, индексы, FK; миграции в `backend-api/drizzle/` (последняя — `0142`) |
 
 ## Frontend (`electron-app/src/renderer/src/ui/`)
 
@@ -90,6 +90,7 @@
 | `assemblyForecast.ts` | Pure-логика прогноза сборки (kit'ы, варианты, edge cases) |
 | `workSheets.ts`, `engineRepairHistory.ts` | **Этапы работ** (15.09.2026): колонки узла (`sanitizeWorkSheetColumns`, код из подписи), поля строки (`buildWorkSheetFields`, нормализация по типу, `workSheetFieldsSummary`), узлы по умолчанию, ступени фильтра по колонкам (`workSheetFacets`). Строка этапа работ = запись истории ремонта (`operations` типа `repair_history_entry`) с `meta.sheet`; история классифицируется `entryType: manual\|status\|transfer\|sheet` (`repairHistoryEntryType` выводит для старых строк). **Новый ключ meta — сразу и в `parseRepairHistoryMeta`, и в `buildRepairHistoryMeta`**: парсер режет неизвестные |
 | `workOrder.ts`, `workOrderSignatures.ts` | Типы нарядов, расчёт ФИО подписантов |
+| `productionProgramSignatureTemplate.ts` | Шаблон подписей производственной программы (слоты подписей ПП, новая нить подписей — рядом с общим слоем `printSignatures.ts`) |
 | `reports.ts` | Реестр пресетов отчётов, типы параметров |
 | `releaseWelcome.ts` | `RELEASE_WELCOME_HISTORY` — текст для оператора при автообновлении |
 | `desktop.ts`, `deepLinkRoute.ts` | Верстак: санитайзер секции (`pos`, `shortcutsMigratedAt`, `desktopUsage` — «прививка»), тумблер/`put` с явным исходом, ключ ссылки для дедупа (`file:`/роут/`tab:`), переезд «Быстрого запуска». Сетка: `desktopTileMetrics` (шесть шагов размера) и `desktopLayoutGrid` (кто в какой ячейке при N колонках). Рейтинг: `desktopUsageBump`/`Add`/`Score`/`Steps` — затухание `0.5^(возраст/7)`, окно 30 дней, шаг по месту в распределении с правилом ничьих. Файловый ярлык: `desktopFileLink`/`desktopFileFromLink`/`desktopFileIcon` — нагрузка живёт ВНУТРИ `link`, потому что новое поле ярлыка срезал бы санитайзер. Разбор ссылки приложения (`resolveDeepLinkRoute`) — здесь же, renderer реэкспортирует |
@@ -97,9 +98,13 @@
 | `part.ts`, `contract.ts`, `employees.ts`, `supplyRequest.ts` | Доменные типы остальных сущностей |
 | `enums.ts`, `systemIds.ts`, `linkFieldRules.ts` | Перечисления, системные UUID, правила связей |
 
+## Глобальные модули
+
+Модули, работающие на всю систему, — в отдельном реестре [`GLOBAL_MODULES.md`](GLOBAL_MODULES.md) (карта уже 52 КБ, реестр туда не влезает). **Правило: прежде чем писать новый модуль — прочитать реестр** и проверить: нет ли готового (тогда доработать его, а не заводить второй). Ритуал — три строки «Глобальной линзы» в плане (скилл `.claude/skills/global-lens/SKILL.md`), по образцу заводской линзы. Гейт актуальности — `electron-app/src/main/services/globalModules.guard.test.ts`.
+
 ## БД
 
-- **PostgreSQL 17 (prod, 17.8):** основная БД. Миграции — [`backend-api/drizzle/*.sql`](../backend-api/drizzle). Последняя merged: `0095_service_price_orders.sql`. Drizzle schema: `backend-api/src/database/schema.ts`.
+- **PostgreSQL 17 (prod, 17.8):** основная БД. Миграции — [`backend-api/drizzle/*.sql`](../backend-api/drizzle). Последняя merged: `0142_production_program_signature_templates.sql`. Drizzle schema: `backend-api/src/database/schema.ts`. Таблицы шаблонов этапов и печатных форм: `repair_stage_templates`, `print_templates` (сервер ведёт, вне синк-контракта клиента).
 - **SQLite (клиент):** локальный кэш. Миграции — `electron-app/drizzle/`. Накат при старте Electron.
 - **EAV (`attribute_values`):** атрибуты сущностей без DDL. Новые атрибуты регистрировать в `ensureAttributeDefs` (`SimpleMasterdataDetailsPage.tsx`). См. `AGENTS.md` §EAV.
 - **Журнал изменений:** таблица `ledger_tx_index` (seq, таблица, строка, payload открытым текстом со штампом seq, актор) + `SEQUENCE ledger_seq`; реестр выпусков — `release_registry`. Пишет только `ledgerService.signAndAppendDetailed` (через `writeSyncChanges`).
