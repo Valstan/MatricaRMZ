@@ -59,6 +59,10 @@ export const ANDROID_TABS: readonly MenuTabId[] = [
   'stock_documents',
   'repair_fund_audit',
   'production_program',
+  // Черновики карточек (промт КАРМАНА #111: «черновики не открываются»).
+  // Домен `drafts` на планшете зарегистрирован давно, а раздел в пресете не был:
+  // оператор видел счётчик черновиков, а открыть черновик было нечем.
+  'drafts',
 ];
 
 export const TABLET_OPERATOR_TABS: readonly MenuTabId[] = [
@@ -76,6 +80,9 @@ export const TABLET_OPERATOR_TABS: readonly MenuTabId[] = [
   'repair_fund_audit',
   // Производственная программа — план производства на планшете (промт #70, п.4).
   'production_program',
+  // Черновики карточек — в обоих пресетах: эффективное меню планшета это
+  // пересечение двух таблиц, и раздел в одной из них срезался бы фильтром.
+  'drafts',
 ];
 
 type TabVisualMeta = {
