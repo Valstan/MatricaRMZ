@@ -18,10 +18,12 @@
 -- «История ремонта», пачка, ПП). Автоматики у фазы нет (`auto_from` — только
 -- `defectAct`/`kittingAct`) — фазу ставит оператор, как «Ремонт деталей».
 --
--- Все операторы идемпотентны (повторный накат ничего не меняет).
+-- Все операторы идемпотентны (повторный накат ничего не меняет). `ON CONFLICT DO NOTHING`
+-- — без указания индекса (как в 0128/0129): конфликт возможен и по коду (если этап завели
+-- руками в «Карте этапов» с другим id), и такой конфликт не должен ронять накат.
 INSERT INTO "repair_stage_templates" ("id", "code", "name", "sort_order", "auto_from", "side_branch", "updated_at")
 VALUES ('9a1f0c1e-0001-4c2a-9c01-000000000016', 'faza', 'Фаза', 45, NULL, false, (extract(epoch from now()) * 1000)::bigint)
-ON CONFLICT ("id") DO NOTHING;
+ON CONFLICT DO NOTHING;
 --> statement-breakpoint
 -- Канон-имя и приоритет — на случай, если строка уже заведена вручную.
 UPDATE "repair_stage_templates" SET "name" = 'Фаза', "sort_order" = 45, "updated_at" = (extract(epoch from now()) * 1000)::bigint WHERE "code" = 'faza' AND "archived_at" IS NULL;

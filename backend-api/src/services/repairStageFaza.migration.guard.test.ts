@@ -27,7 +27,11 @@ describe('миграция фазы (0141)', () => {
   });
 
   it('операторы идемпотентны — повторный накат ничего не ломает', () => {
-    expect(sql).toContain('ON CONFLICT ("id") DO NOTHING');
+    // `ON CONFLICT DO NOTHING` без указания индекса (как в 0128/0129): конфликт
+    // возможен и по коду, если этап завели руками с другим id, — и он не должен
+    // ронять накат.
+    expect(sql).toContain('ON CONFLICT DO NOTHING');
+    expect(sql).not.toContain('ON CONFLICT ("id")');
     expect(sql).toContain('WHERE "code" = \'faza\' AND "archived_at" IS NULL');
   });
 
