@@ -665,18 +665,31 @@ async function main() {
     `// Значение в отборе: при свёрнутой панели должно быть видно, что отбор не спрятался.
      const cell = vis('[data-facet-field]').find(hoverable);
      if (!cell) return { skip: 'нет ячейки ступени на виду' };
-     // Открываем меню ступени и прикалываем его: открытое меню должно пережить сворачивание.
-     click(cell); await wait(700);
-     const m2 = vis('[data-facet-menu]')[0] ?? null;
-     if (m2) { const v = m2.querySelector('[data-facet-value]'); if (v) { click(v); await wait(1000); } }
+     // Выбираем значение в ступени, где варианты ЕСТЬ: на минимальных фикстурах стенда у
+     // «Заказчика» значений нет, а без выбранного значения нечего проверять — плашек нет.
+     let pickedFacet = null;
+     for (const c of vis('[data-facet-field]').filter(hoverable)) {
+       click(c); await wait(500);
+       const m = vis('[data-facet-menu]')[0] ?? null;
+       const v = m ? m.querySelector('[data-facet-value]') : null;
+       if (!v) { click(c); await wait(200); continue; }
+       click(v); await wait(900);
+       pickedFacet = c.getAttribute('data-facet-field');
+       break;
+     }
+     // Открытое меню ступени (приколотое) должно пережить сворачивание.
+     const cell2 = vis('[data-facet-field]').find(hoverable);
+     if (cell2) { click(cell2); await wait(600); }
      const panel = document.querySelector('[data-engine-facets]');
-     const listRoot = document.querySelector('[data-list-root="true"]');
+     const listRoot = vis('[data-list-root="true"]')[0] ?? document.querySelector('[data-list-root="true"]');
      const h = (el) => Math.round(el?.getBoundingClientRect().height ?? 0);
      const top = (el) => Math.round(el?.getBoundingClientRect().top ?? 0);
      const before = {
        panelH: h(panel),
        listTop: top(listRoot),
+       listH: h(listRoot),
        chips: document.querySelectorAll('[data-facet-chip]').length,
+       pickedFacet,
      };
      const toggle = document.querySelector('[data-facet-collapse]');
      if (!toggle) return { skip: 'нет кнопки сворачивания' };
@@ -691,6 +704,7 @@ async function main() {
        chipsVisible: [...document.querySelectorAll('[data-facet-chip]')].filter(painted).length,
        panelH: h(panel),
        listTop: top(listRoot),
+       listH: h(listRoot),
        resetText: txt(vis('[data-facet-reset]')[0]),
      };
      click(toggle); await wait(900);
@@ -701,6 +715,7 @@ async function main() {
        menuVisible: vis('[data-facet-menu]').length,
        panelH: h(panel),
        listTop: top(listRoot),
+       listH: h(listRoot),
      };
      return { before, collapsed, back };`,
   );
@@ -726,10 +741,13 @@ async function main() {
       before: before.panelH,
       after: collapsed.panelH,
     });
-    note(collapsed.listTop < before.listTop, 'список поднялся вверх — освободившееся место занял он', {
-      before: before.listTop,
-      after: collapsed.listTop,
-    });
+    // Место освобождается ВЫСОТОЙ рабочей области: её верх стоит на месте (панель выше),
+    // а растягивается список — то самое «место под список», о котором просил владелец.
+    note(
+      collapsed.listH > before.listH,
+      'рабочая область списка выросла — освободившееся место занял он',
+      { before: before.listH, after: collapsed.listH },
+    );
     note(back.expanded === 'true' && back.fieldsVisible > 0, 'кнопка развернула панель обратно', back);
     note(back.chips === before.chips, 'отбор пережил сворачивание (те же значения)', {
       before: before.chips,
