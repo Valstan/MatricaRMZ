@@ -4,6 +4,7 @@ import { Button } from '../components/Button.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { CardActionBar } from '../components/CardActionBar.js';
+import { buildCardActions } from '../utils/objectActions.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { Input } from '../components/Input.js';
 import { SearchSelectWithCreate } from '../components/SearchSelectWithCreate.js';
@@ -1881,79 +1882,75 @@ export function EmployeeDetailsPage(props: {
               </Button>
             ) : undefined
           }
-          onCopyToNew={
-            props.canEdit
-              ? async () => {
-                  const r = await window.matrica.employees.create();
-                  if (!r?.ok || !r?.id) return;
-                  const full = buildFullName(lastName, firstName, middleName);
-                  // ФИО первым: карточка материализуется на первом успешном атрибуте, и
-                  // гейт дублей остановит запись ДО её появления.
-                  if (full) {
-                    const nameWrite = await window.matrica.employees.setAttr(r.id, 'full_name', full);
-                    if (!nameWrite.ok) {
-                      setStatus(`Ошибка: ${nameWrite.error ?? 'unknown'}`);
-                      return;
-                    }
-                  }
-                  if (lastName.trim()) await window.matrica.employees.setAttr(r.id, 'last_name', lastName.trim());
-                  if (firstName.trim()) await window.matrica.employees.setAttr(r.id, 'first_name', firstName.trim());
-                  if (middleName.trim()) await window.matrica.employees.setAttr(r.id, 'middle_name', middleName.trim());
-                  if (position.trim()) await window.matrica.employees.setAttr(r.id, 'role', position.trim());
-                  if (personnelNumber.trim()) await window.matrica.employees.setAttr(r.id, 'personnel_number', personnelNumber.trim());
-                  if (departmentId) await window.matrica.employees.setAttr(r.id, 'department_id', departmentId);
-                  dirtyRef.current = false;
-                }
-              : undefined
-          }
-          onSave={
-            canEditPosition
-              ? () => void saveAllAndClose().catch(() => undefined)
-              : undefined
-          }
-          onSaveAndClose={
-            canEditPosition
-              ? () => void saveAllAndClose().then((ok) => { if (ok) props.onClose(); }).catch(() => undefined)
-              : undefined
-          }
-          onSaveAsDraft={
-            props.canEdit
-              ? () => {
-                  void (async () => {
-                    // Явная парковка в черновик: без записи в EAV; отменяем отложенный
-                    // автосейв, чтобы он не перештамповал kind обратно в recovery.
-                    cancelPendingDraftSave();
-                    const ok = await saveDraftNow(currentDraftSnapshot(), 'explicit');
-                    if (!ok) {
-                      setStatus('Ошибка: не удалось сохранить черновик');
-                      return;
-                    }
-                    dirtyRef.current = false;
-                    props.onClose();
-                  })();
-                }
-              : undefined
-          }
-          onReset={
-            props.canEdit
-              ? () =>
-                  void (async () => {
-                    dirtyRef.current = false;
-                    cancelPendingDraftSave();
-                    await clearDraft();
-                    draftRestoredRef.current = false;
-                    await loadEmployee();
-                    await loadAccountPerms();
-                  })()
-              : undefined
-          }
-          onDelete={props.canEdit ? () => void handleDelete() : undefined}
           deleteConfirmDetail={
             meRole === 'superadmin'
               ? `Будет удалён сотрудник «${computedFullName || props.employeeId}». Это действие нельзя отменить.`
               : `Будет отправлен запрос на удаление сотрудника «${computedFullName || props.employeeId}».`
           }
-          onClose={props.requestClose ? () => props.requestClose?.() : undefined}
+          actions={buildCardActions({
+            kind: 'employee',
+            canEdit: canEditPosition,
+            handlers: {
+              copy_to_new: props.canEdit
+                  ? async () => {
+                      const r = await window.matrica.employees.create();
+                      if (!r?.ok || !r?.id) return;
+                      const full = buildFullName(lastName, firstName, middleName);
+                      // ФИО первым: карточка материализуется на первом успешном атрибуте, и
+                      // гейт дублей остановит запись ДО её появления.
+                      if (full) {
+                        const nameWrite = await window.matrica.employees.setAttr(r.id, 'full_name', full);
+                        if (!nameWrite.ok) {
+                          setStatus(`Ошибка: ${nameWrite.error ?? 'unknown'}`);
+                          return;
+                        }
+                      }
+                      if (lastName.trim()) await window.matrica.employees.setAttr(r.id, 'last_name', lastName.trim());
+                      if (firstName.trim()) await window.matrica.employees.setAttr(r.id, 'first_name', firstName.trim());
+                      if (middleName.trim()) await window.matrica.employees.setAttr(r.id, 'middle_name', middleName.trim());
+                      if (position.trim()) await window.matrica.employees.setAttr(r.id, 'role', position.trim());
+                      if (personnelNumber.trim()) await window.matrica.employees.setAttr(r.id, 'personnel_number', personnelNumber.trim());
+                      if (departmentId) await window.matrica.employees.setAttr(r.id, 'department_id', departmentId);
+                      dirtyRef.current = false;
+                    }
+                  : undefined,
+              save: canEditPosition
+                  ? () => void saveAllAndClose().catch(() => undefined)
+                  : undefined,
+              save_and_close: canEditPosition
+                  ? () => void saveAllAndClose().then((ok) => { if (ok) props.onClose(); }).catch(() => undefined)
+                  : undefined,
+              save_as_draft: props.canEdit
+                  ? () => {
+                      void (async () => {
+                        // Явная парковка в черновик: без записи в EAV; отменяем отложенный
+                        // автосейв, чтобы он не перештамповал kind обратно в recovery.
+                        cancelPendingDraftSave();
+                        const ok = await saveDraftNow(currentDraftSnapshot(), 'explicit');
+                        if (!ok) {
+                          setStatus('Ошибка: не удалось сохранить черновик');
+                          return;
+                        }
+                        dirtyRef.current = false;
+                        props.onClose();
+                      })();
+                    }
+                  : undefined,
+              reset: props.canEdit
+                  ? () =>
+                      void (async () => {
+                        dirtyRef.current = false;
+                        cancelPendingDraftSave();
+                        await clearDraft();
+                        draftRestoredRef.current = false;
+                        await loadEmployee();
+                        await loadAccountPerms();
+                      })()
+                  : undefined,
+              delete: props.canEdit ? () => void handleDelete() : undefined,
+              close: props.requestClose ? () => props.requestClose?.() : undefined,
+            },
+          })}
         />
       }
       actions={

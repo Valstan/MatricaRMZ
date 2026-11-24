@@ -82,18 +82,41 @@
 | `engine` | copy_to_new · save · save_and_close · save_as_draft · reset · print · delete · close · attachments · payments |
 | `work_order` | copy_to_new · save · save_and_close · save_as_draft · reset · print · delete · close · signatures · attachments |
 | `work_sheet_row` | save · save_and_close · reset · delete · close |
-| `counterparty` | copy_to_new · save · save_and_close · reset · print · delete · close · attachments |
-| `contract` | copy_to_new · save · save_and_close · reset · print · delete · close · attachments · payments |
-| `employee` | copy_to_new · save · save_and_close · reset · print · delete · close · attachments |
+| `counterparty` | copy_to_new · save · save_and_close · save_as_draft · reset · print · delete · close · attachments |
+| `contract` | copy_to_new · save · save_and_close · save_as_draft · reset · print · delete · close · attachments · payments |
+| `employee` | copy_to_new · save · save_and_close · save_as_draft · reset · print · delete · close · attachments |
 | `part` | copy_to_new · save · save_and_close · reset · delete · close |
-| `tool` | copy_to_new · save · save_and_close · reset · delete · close |
+| `tool` | copy_to_new · save · save_and_close · reset · print · delete · close |
+| `tool_property` | copy_to_new · save · save_and_close · reset · close |
 | `nomenclature` | copy_to_new · save · save_and_close · reset · delete · close |
-| `supply_request` | copy_to_new · save · save_and_close · reset · print · delete · close · attachments |
-| `engine_brand` | copy_to_new · save · save_and_close · reset · delete · close |
+| `masterdata` | copy_to_new · save · save_and_close · save_as_draft · reset · delete · close |
+| `supply_request` | copy_to_new · save · save_and_close · save_as_draft · reset · print · delete · close · attachments |
+| `engine_brand` | copy_to_new · save · save_and_close · save_as_draft · reset · delete · close |
 | `stock_document` | save · save_and_close · reset · delete · close · print |
 | `bom` | copy_to_new · save · save_and_close · reset · delete · close · print |
 
-Первый переведённый объект: карточка этапа работ (`electron-app/src/renderer/src/ui/pages/WorkSheetDetailsPage.tsx`, тип `work_sheet_row`) — у нового этапа работ нет «удалить», и кнопки нет; печати у этого типа тоже нет (бланк одного этапа не печатают — сторож `WorkSheetsPage.guard.test.ts`).
+### Перенос карточек на каталог
+
+Набор кнопок карточки задаёт домен (`OBJECT_CAPABILITIES`), а не рукописный список пропсов. Прогресс переноса (все карточки с панелью `CardActionBar`):
+
+| Карточка | Тип объекта | На каталоге |
+|---|---|---|
+| `WorkSheetDetailsPage.tsx` | work_sheet_row | да |
+| `ContractDetailsPage.tsx` | contract | да |
+| `CounterpartyDetailsPage.tsx` | counterparty | да |
+| `EmployeeDetailsPage.tsx` | employee | да |
+| `EngineDetailsPage.tsx` | engine | да |
+| `EngineBrandDetailsPage.tsx` | engine_brand | да |
+| `EngineAssemblyBomDetailsPage.tsx` | bom | да |
+| `SupplyRequestDetailsPage.tsx` | supply_request | да |
+| `ToolDetailsPage.tsx` | tool | да |
+| `ToolPropertyDetailsPage.tsx` | tool_property | да |
+| `SimpleMasterdataDetailsPage.tsx` | masterdata | да |
+| `WorkOrderDetailsPage.tsx` | work_order | да |
+
+**Было 12 карточек с набором кнопок «руками» → стало 0.** Сторож `electron-app/src/renderer/src/ui/pages/cardActionCatalog.guard.test.ts` краснеет, если появится новая карточка, собирающая кнопки вручную.
+
+Перенос не меняет права: право на правку (`canEdit`) — часть условия появления кнопки, новые права не вводились. Legacy-пропы `CardActionBar` сохранены — карточка, переведённая позже, продолжит работать как раньше.
 
 ## Правило пополнения
 

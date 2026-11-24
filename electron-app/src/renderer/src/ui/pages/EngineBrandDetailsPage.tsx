@@ -6,6 +6,7 @@ import { Input } from '../components/Input.js';
 import { SectionCard } from '../components/SectionCard.js';
 import { AttachmentsPanel } from '../components/AttachmentsPanel.js';
 import { CardActionBar } from '../components/CardActionBar.js';
+import { buildCardActions } from '../utils/objectActions.js';
 import { SearchModeToggle, searchModeOf } from '../components/SearchModeToggle.js';
 import { searchModeEmptyText } from '../components/SearchModeHint.js';
 import { useSearchMode } from '../hooks/useSearchMode.js';
@@ -1065,47 +1066,53 @@ export function EngineBrandDetailsPage(props: {
       <div style={{ flexShrink: 0, borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
         <CardActionBar
           canEdit={props.canEdit}
-          onCopyToNew={() => {
-            void (async () => {
-              const types = await window.matrica.admin.entityTypes.list().catch(() => [] as any[]);
-              const type = (types as any[]).find((t: any) => String(t.code) === 'engine_brand');
-              if (!type?.id) return;
-              const created = await window.matrica.admin.entities.create(type.id);
-              if (created?.ok && 'id' in created) {
-                await window.matrica.admin.entities.setAttr(created.id, 'name', name.trim() + ' (копия)');
-                await window.matrica.admin.entities.setAttr(created.id, 'description', description.trim() || null);
-              }
-            })();
-          }}
-          onSave={() => { void saveAllAndClose(); }}
-          onSaveAndClose={() => { void saveAllAndClose().then((ok) => { if (ok) props.onClose(); }); }}
-          onSaveAsDraft={() => {
-            void (async () => {
-              // Явная парковка в черновик: без записи в EAV; отменяем отложенный
-              // автосейв, чтобы он не перештамповал kind обратно в recovery.
-              cancelPendingDraftSave();
-              const ok = await saveDraftNow(currentDraftSnapshot(), 'explicit');
-              if (!ok) {
-                setStatus('Ошибка: не удалось сохранить черновик');
-                return;
-              }
-              dirtyRef.current = false;
-              props.onClose();
-            })();
-          }}
-          onReset={() => {
-            void (async () => {
-              dirtyRef.current = false;
-              cancelPendingDraftSave();
-              await clearDraft();
-              draftRestoredRef.current = false;
-              draftPartsRestoredRef.current = false;
-              await Promise.all([loadBrand(), loadBrandParts({ force: true })]);
-            })();
-          }}
-          onDelete={() => void handleDelete()}
           deleteConfirmDetail={`Будет удалена марка двигателя «${name.trim() || props.brandId}».`}
-          onClose={() => props.requestClose?.()}
+          actions={buildCardActions({
+            kind: 'engine_brand',
+            canEdit: props.canEdit,
+            handlers: {
+              copy_to_new: () => {
+                void (async () => {
+                  const types = await window.matrica.admin.entityTypes.list().catch(() => [] as any[]);
+                  const type = (types as any[]).find((t: any) => String(t.code) === 'engine_brand');
+                  if (!type?.id) return;
+                  const created = await window.matrica.admin.entities.create(type.id);
+                  if (created?.ok && 'id' in created) {
+                    await window.matrica.admin.entities.setAttr(created.id, 'name', name.trim() + ' (копия)');
+                    await window.matrica.admin.entities.setAttr(created.id, 'description', description.trim() || null);
+                  }
+                })();
+              },
+              save: () => { void saveAllAndClose(); },
+              save_and_close: () => { void saveAllAndClose().then((ok) => { if (ok) props.onClose(); }); },
+              save_as_draft: () => {
+                void (async () => {
+                  // Явная парковка в черновик: без записи в EAV; отменяем отложенный
+                  // автосейв, чтобы он не перештамповал kind обратно в recovery.
+                  cancelPendingDraftSave();
+                  const ok = await saveDraftNow(currentDraftSnapshot(), 'explicit');
+                  if (!ok) {
+                    setStatus('Ошибка: не удалось сохранить черновик');
+                    return;
+                  }
+                  dirtyRef.current = false;
+                  props.onClose();
+                })();
+              },
+              reset: () => {
+                void (async () => {
+                  dirtyRef.current = false;
+                  cancelPendingDraftSave();
+                  await clearDraft();
+                  draftRestoredRef.current = false;
+                  draftPartsRestoredRef.current = false;
+                  await Promise.all([loadBrand(), loadBrandParts({ force: true })]);
+                })();
+              },
+              delete: () => void handleDelete(),
+              close: () => props.requestClose?.(),
+            },
+          })}
         />
       </div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>

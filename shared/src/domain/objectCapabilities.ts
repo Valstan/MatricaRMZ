@@ -28,7 +28,9 @@ export type ObjectKind =
   | 'employee'
   | 'part'
   | 'tool'
+  | 'tool_property'
   | 'nomenclature'
+  | 'masterdata'
   | 'supply_request'
   | 'engine_brand'
   | 'stock_document'
@@ -62,14 +64,16 @@ export const OBJECT_CAPABILITIES: Record<ObjectKind, readonly ObjectCapabilityId
   engine: ['copy_to_new', 'save', 'save_and_close', 'save_as_draft', 'reset', 'print', 'delete', 'close', 'attachments', 'payments'],
   work_order: ['copy_to_new', 'save', 'save_and_close', 'save_as_draft', 'reset', 'print', 'delete', 'close', 'signatures', 'attachments'],
   work_sheet_row: ['save', 'save_and_close', 'reset', 'delete', 'close'],
-  counterparty: ['copy_to_new', 'save', 'save_and_close', 'reset', 'print', 'delete', 'close', 'attachments'],
-  contract: ['copy_to_new', 'save', 'save_and_close', 'reset', 'print', 'delete', 'close', 'attachments', 'payments'],
-  employee: ['copy_to_new', 'save', 'save_and_close', 'reset', 'print', 'delete', 'close', 'attachments'],
+  counterparty: ['copy_to_new', 'save', 'save_and_close', 'save_as_draft', 'reset', 'print', 'delete', 'close', 'attachments'],
+  contract: ['copy_to_new', 'save', 'save_and_close', 'save_as_draft', 'reset', 'print', 'delete', 'close', 'attachments', 'payments'],
+  employee: ['copy_to_new', 'save', 'save_and_close', 'save_as_draft', 'reset', 'print', 'delete', 'close', 'attachments'],
   part: ['copy_to_new', 'save', 'save_and_close', 'reset', 'delete', 'close'],
-  tool: ['copy_to_new', 'save', 'save_and_close', 'reset', 'delete', 'close'],
+  tool: ['copy_to_new', 'save', 'save_and_close', 'reset', 'print', 'delete', 'close'],
+  tool_property: ['copy_to_new', 'save', 'save_and_close', 'reset', 'close'],
   nomenclature: ['copy_to_new', 'save', 'save_and_close', 'reset', 'delete', 'close'],
-  supply_request: ['copy_to_new', 'save', 'save_and_close', 'reset', 'print', 'delete', 'close', 'attachments'],
-  engine_brand: ['copy_to_new', 'save', 'save_and_close', 'reset', 'delete', 'close'],
+  masterdata: ['copy_to_new', 'save', 'save_and_close', 'save_as_draft', 'reset', 'delete', 'close'],
+  supply_request: ['copy_to_new', 'save', 'save_and_close', 'save_as_draft', 'reset', 'print', 'delete', 'close', 'attachments'],
+  engine_brand: ['copy_to_new', 'save', 'save_and_close', 'save_as_draft', 'reset', 'delete', 'close'],
   stock_document: ['save', 'save_and_close', 'reset', 'delete', 'close', 'print'],
   bom: ['copy_to_new', 'save', 'save_and_close', 'reset', 'delete', 'close', 'print'],
 };
@@ -89,7 +93,9 @@ export const OBJECT_KINSHIP: Record<ObjectKind, readonly ObjectKind[]> = {
   employee: ['counterparty', 'part'],
   part: ['tool', 'nomenclature', 'employee'],
   tool: ['part', 'nomenclature'],
+  tool_property: ['tool', 'nomenclature'],
   nomenclature: ['part', 'tool'],
+  masterdata: ['nomenclature', 'part'],
   supply_request: ['nomenclature', 'part'],
   engine_brand: ['nomenclature', 'part'],
   stock_document: ['bom', 'nomenclature'],

@@ -10,6 +10,7 @@ import { Button } from '../components/Button.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { CardActionBar } from '../components/CardActionBar.js';
+import { buildCardActions } from '../utils/objectActions.js';
 import { GroupedSearchSelect, type GroupedSearchSelectGroup } from '../components/GroupedSearchSelect.js';
 import { Input } from '../components/Input.js';
 import { MultiSearchSelect } from '../components/MultiSearchSelect.js';
@@ -770,52 +771,6 @@ export function EngineAssemblyBomDetailsPage(props: {
       <CardActionBar
         canEdit={props.canEdit}
         cardLabel="BOM двигателя"
-        onPrint={
-          data
-            ? () => {
-                void (async () => {
-                  const printed = await window.matrica.warehouse.assemblyBomPrint(data.header.id);
-                  if (!printed?.ok) {
-                    setStatus(`Ошибка печати: ${String(printed?.error ?? 'unknown')}`);
-                    return;
-                  }
-                  const payload = printed.payload as unknown as BomDetails | undefined;
-                  const header = payload?.header ?? data.header;
-                  const lines = Array.isArray(payload?.lines) ? payload.lines : data.lines;
-                  const brandsForPrint = (header.engineBrandIds ?? [])
-                    .map((id) => lookupLabel(id, (key) => brandLabelById.get(key), BRAND_LABEL_TEXTS))
-                    .join(', ') || '—';
-                  openPrintPreview({
-                    title: 'Спецификация сборки двигателя',
-                    subtitle: `${String(header.name ?? 'Без названия')} • марки: ${brandsForPrint} • версия: ${String(header.version ?? 1)}`,
-                    sections: [
-                      {
-                        id: 'summary',
-                        title: 'Карточка BOM',
-                        html: keyValueTable([
-                          ['Название', String(header.name ?? '—')],
-                          ['Марки двигателя', brandsForPrint],
-                          ['Версия', String(header.version ?? 1)],
-                          ['Статус', String(header.status ?? '—')],
-                          ['Строк в спецификации', String(lines.length)],
-                        ]),
-                      },
-                      ...buildBomFullSections(lines, componentTypeLabelMap),
-                    ],
-                  });
-                  setStatus('');
-                })();
-              }
-            : undefined
-        }
-        onSave={() => void saveBom()}
-        onSaveAndClose={() =>
-          void (async () => {
-            if (await saveBom()) props.onClose();
-          })()
-        }
-        onClose={requestCloseBomCard}
-        onDelete={props.canEdit && data ? () => setDeleteConfirmOpen(true) : undefined}
         deleteSkipBuiltInConfirm
         deleteLabel="Удалить спецификацию"
         extraActionsCenter={
@@ -842,6 +797,56 @@ export function EngineAssemblyBomDetailsPage(props: {
             На один лист
           </Button>
         }
+        actions={buildCardActions({
+          kind: 'bom',
+          canEdit: props.canEdit,
+          labels: { delete: 'Удалить спецификацию' },
+          handlers: {
+            print: data
+                ? () => {
+                    void (async () => {
+                      const printed = await window.matrica.warehouse.assemblyBomPrint(data.header.id);
+                      if (!printed?.ok) {
+                        setStatus(`Ошибка печати: ${String(printed?.error ?? 'unknown')}`);
+                        return;
+                      }
+                      const payload = printed.payload as unknown as BomDetails | undefined;
+                      const header = payload?.header ?? data.header;
+                      const lines = Array.isArray(payload?.lines) ? payload.lines : data.lines;
+                      const brandsForPrint = (header.engineBrandIds ?? [])
+                        .map((id) => lookupLabel(id, (key) => brandLabelById.get(key), BRAND_LABEL_TEXTS))
+                        .join(', ') || '—';
+                      openPrintPreview({
+                        title: 'Спецификация сборки двигателя',
+                        subtitle: `${String(header.name ?? 'Без названия')} • марки: ${brandsForPrint} • версия: ${String(header.version ?? 1)}`,
+                        sections: [
+                          {
+                            id: 'summary',
+                            title: 'Карточка BOM',
+                            html: keyValueTable([
+                              ['Название', String(header.name ?? '—')],
+                              ['Марки двигателя', brandsForPrint],
+                              ['Версия', String(header.version ?? 1)],
+                              ['Статус', String(header.status ?? '—')],
+                              ['Строк в спецификации', String(lines.length)],
+                            ]),
+                          },
+                          ...buildBomFullSections(lines, componentTypeLabelMap),
+                        ],
+                      });
+                      setStatus('');
+                    })();
+                  }
+                : undefined,
+            save: () => void saveBom(),
+            save_and_close: () =>
+              void (async () => {
+                if (await saveBom()) props.onClose();
+              })(),
+            close: requestCloseBomCard,
+            delete: props.canEdit && data ? () => setDeleteConfirmOpen(true) : undefined,
+          },
+        })}
       />
 
       {status ? <div style={{ color: status.startsWith('Ошибка') ? 'var(--danger)' : 'var(--subtle)' }}>{status}</div> : null}

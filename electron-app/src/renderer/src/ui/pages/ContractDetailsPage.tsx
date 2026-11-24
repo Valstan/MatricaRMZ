@@ -5,6 +5,7 @@ import { ContractNumberText } from '../components/ContractNumberText.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { CardActionBar } from '../components/CardActionBar.js';
+import { buildCardActions } from '../utils/objectActions.js';
 import { CardTabs, type CardTab } from '../components/CardTabs.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { Input } from '../components/Input.js';
@@ -3232,47 +3233,56 @@ export function ContractDetailsPage(props: {
         <CardActionBar
           canEdit={props.canEdit}
           cardLabel="Контракт"
-          onCopyToNew={() => {
-            void (async () => {
-              if (!sections) return;
-              const copied = { ...sections, primary: { ...sections.primary, number: `${sections.primary.number ?? ''} (копия)` } };
-              const r = (await window.matrica.contracts.contract.create({
-                fields: {
-                  sections_json: JSON.stringify(copied),
-                  execution_parts_json: JSON.stringify(normalizeContractExecutionParts(executionParts)),
-                  number: `${sections.primary.number ?? ''} (копия)`,
-                },
-              })) as { ok: boolean; error?: string } | null;
-              if (!r?.ok) setStatus(`Ошибка: ${(r as { error?: string } | null)?.error ?? 'unknown'}`);
-            })();
-          }}
-          onSave={() => { void saveAllAndClose().catch(() => undefined); }}
-          onSaveAndClose={() => { void saveAllAndClose().then((ok) => { if (ok) props.onClose(); }).catch(() => undefined); }}
-          onSaveAsDraft={() => {
-            void (async () => {
-              // Явная парковка в черновик: без записи в EAV; отменяем отложенный
-              // автосейв, чтобы он не перештамповал kind обратно в recovery.
-              cancelPendingDraftSave();
-              const ok = await saveDraftNow(currentDraftSnapshot(), 'explicit');
-              if (!ok) {
-                setStatus('Ошибка: не удалось сохранить черновик');
-                return;
-              }
-              dirtyRef.current = false;
-              props.onClose();
-            })();
-          }}
-          onReset={() => {
-            void (async () => {
-              dirtyRef.current = false;
-              await clearDraft();
-              await loadContract();
-              await loadProgress();
-            })();
-          }}
-          onDelete={() => void handleDelete()}
+          // Кнопки карточки — ИЗ КАТАЛОГА действий по объекту: набор задаёт домен
+          // (OBJECT_CAPABILITIES), а не рукописный список пропсов; обработчики — карточка.
+          // Кнопки, которой у объекта нет, не бывает ВООБЩЕ.
+          actions={buildCardActions({
+            kind: 'contract',
+            canEdit: props.canEdit,
+            handlers: {
+              copy_to_new: () => {
+                void (async () => {
+                  if (!sections) return;
+                  const copied = { ...sections, primary: { ...sections.primary, number: `${sections.primary.number ?? ''} (копия)` } };
+                  const r = (await window.matrica.contracts.contract.create({
+                    fields: {
+                      sections_json: JSON.stringify(copied),
+                      execution_parts_json: JSON.stringify(normalizeContractExecutionParts(executionParts)),
+                      number: `${sections.primary.number ?? ''} (копия)`,
+                    },
+                  })) as { ok: boolean; error?: string } | null;
+                  if (!r?.ok) setStatus(`Ошибка: ${(r as { error?: string } | null)?.error ?? 'unknown'}`);
+                })();
+              },
+              save: () => { void saveAllAndClose().catch(() => undefined); },
+              save_and_close: () => { void saveAllAndClose().then((ok) => { if (ok) props.onClose(); }).catch(() => undefined); },
+              save_as_draft: () => {
+                void (async () => {
+                  // Явная парковка в черновик: без записи в EAV; отменяем отложенный
+                  // автосейв, чтобы он не перештамповал kind обратно в recovery.
+                  cancelPendingDraftSave();
+                  const ok = await saveDraftNow(currentDraftSnapshot(), 'explicit');
+                  if (!ok) {
+                    setStatus('Ошибка: не удалось сохранить черновик');
+                    return;
+                  }
+                  dirtyRef.current = false;
+                  props.onClose();
+                })();
+              },
+              reset: () => {
+                void (async () => {
+                  dirtyRef.current = false;
+                  await clearDraft();
+                  await loadContract();
+                  await loadProgress();
+                })();
+              },
+              delete: () => void handleDelete(),
+              close: () => props.requestClose?.(),
+            },
+          })}
           deleteConfirmDetail={`Будет удалён контракт №${String(sections?.primary.number ?? '').trim() || props.contractId}. Действие обычно нельзя отменить.`}
-          onClose={() => props.requestClose?.()}
         />
       }
       actions={

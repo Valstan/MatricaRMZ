@@ -40,13 +40,20 @@ const GATED_BY_THROW: Array<[string, string]> = [
 describe('Карточки: «Сохранить и выйти» закрывает только после успешного сохранения', () => {
   it('список карточек в стороже не пуст и покрывает все кнопки', () => {
     const files = readdirSync(pagesDir).filter((f) => f.endsWith('.tsx'));
-    const withButton = files.filter((f) => read(f).includes('Сохранить и выйти'));
+    // Кнопка «Сохранить и выйти» бывает двух видов: legacy-проп `onSaveAndClose` и
+    // слот каталога `save_and_close:` — обе формы ловятся, иначе переведённая
+    // карточка выпала бы из сторожа тихо.
+    const withButton = files.filter((f) => {
+      const src = read(f);
+      return src.includes('Сохранить и выйти') || src.includes('save_and_close:');
+    });
     // Наряд и простые справочники проверяются отдельными тестами ниже.
     const covered = new Set([
       ...GATED_ON_RESULT.map(([f]) => f),
       ...GATED_BY_THROW.map(([f]) => f),
       'WorkOrderDetailsPage.tsx',
       'SimpleMasterdataDetailsPage.tsx',
+      'WorkSheetDetailsPage.tsx',
     ]);
     const missed = withButton.filter((f) => !covered.has(f));
     expect(missed, `карточки с кнопкой «Сохранить и выйти» вне сторожа: ${missed.join(', ')}`).toEqual([]);
@@ -66,13 +73,23 @@ describe('Карточки: «Сохранить и выйти» закрыва�
 
   it('WorkOrderDetailsPage: неуспех сохранения оставляет карточку открытой', () => {
     const src = read('WorkOrderDetailsPage.tsx');
-    const at = src.indexOf('onSaveAndClose={');
+    const at = src.indexOf('save_and_close:');
     expect(at, 'нет обработчика «Сохранить и выйти»').toBeGreaterThan(-1);
     const block = src.slice(at, at + 700);
     expect(block, 'результат сохранения наряда не проверяется — карточка закроется и унесёт правки').toContain(
       'const ok = await flushSave(payload);',
     );
     expect(block, 'при неудаче наряда карточка всё равно закрывается').toContain('if (!ok) return;');
+  });
+
+  it('WorkSheetDetailsPage: закрытие — внутри успешного сохранения', () => {
+    const src = read('WorkSheetDetailsPage.tsx');
+    const at = src.indexOf('save_and_close:');
+    expect(at, 'нет обработчика «Сохранить и выйти»').toBeGreaterThan(-1);
+    const block = src.slice(at, at + 300);
+    expect(block, 'этап работ закрывается вместе с сохранением — неудача записи унесёт правки').toContain(
+      'save({ close: true })',
+    );
   });
 
   it('SimpleMasterdataDetailsPage: без рекурсии и закрытие после успешной записи', () => {
@@ -89,8 +106,9 @@ describe('Карточки: «Сохранить и выйти» закрыва�
     expect(checkBody, 'после проверки дублей карточка должна писать и закрываться сама').toContain(
       "if (action === 'saveAndClose') props.onClose();",
     );
-    const at = src.indexOf('onSaveAndClose={');
+    const at = src.indexOf('save_and_close:');
     const block = src.slice(at, at + 400);
+    expect(at, 'нет обработчика «Сохранить и выйти»').toBeGreaterThan(-1);
     expect(block, 'кнопка закрывает карточку безусловно — неудача записи унесёт правки').not.toContain(
       '.then(() => props.onClose())',
     );

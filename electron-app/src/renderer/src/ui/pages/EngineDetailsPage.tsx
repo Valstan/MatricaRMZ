@@ -26,6 +26,7 @@ import { buildEngineReclamationPrintModel } from '../utils/enginePrintModel.js';
 import { formatMoscowDate, formatMoscowDateTime } from '../utils/dateUtils.js';
 import { ensureAttributeDefs, orderFieldsByDefs, persistFieldOrder, type AttributeDefRow } from '../utils/fieldOrder.js';
 import { CardActionBar } from '../components/CardActionBar.js';
+import { buildCardActions } from '../utils/objectActions.js';
 import { CardTabs } from '../components/CardTabs.js';
 import type { CardCloseActions } from '../cardCloseTypes.js';
 import { mapEntityRowsToSearchOptions } from '../utils/selectOptions.js';
@@ -2882,48 +2883,54 @@ export function EngineDetailsPage(props: {
               </Button>
             )
           }
-          onCopyToNew={() => {
-            void (async () => {
-              const r = await window.matrica.engines.create();
-              if (r?.id) {
-                // E4: копия пишется strict-путём (реплика + push).
-                const api = (
-                  window as unknown as {
-                    matrica?: { engines?: { card?: { save?: (a: unknown) => Promise<unknown> } } };
-                  }
-                ).matrica;
-                await api?.engines?.card?.save?.({
-                  id: r.id,
-                  fields: {
-                    engine_number: engineNumber + ' (копия)',
-                    engine_brand: engineBrand || null,
-                    engine_brand_id: engineBrandId || null,
-                  },
-                });
-              }
-            })();
-          }}
-          onSave={() => { void saveAllAndClose().catch(() => undefined); }}
-          onSaveAndClose={() => { void saveAllAndClose().then(() => props.onClose()).catch(() => undefined); }}
-          onSaveAsDraft={() => {
-            void (async () => {
-              // Явная парковка в черновик: без записи в EAV; отменяем отложенный
-              // автосейв, чтобы он не перештамповал kind обратно в recovery.
-              cancelPendingDraftSave();
-              const ok = await saveDraftNow(currentDraftSnapshot(), 'explicit');
-              if (!ok) {
-                setSaveStatus('Ошибка: не удалось сохранить черновик');
-                return;
-              }
-              setSessionChanged(false);
-              props.onClose();
-            })();
-          }}
-          onPrint={props.canPrintEngineCard && !isAndroidPlatform() ? handlePrint : undefined}
-          onDelete={() => void handleDelete()}
           deleteSkipBuiltInConfirm
           deleteConfirmDetail={`Будет удалён двигатель «${String(engineNumber || '').trim() || props.engineId}» (марка: ${String(engineBrand || '—').trim()}). Действие обычно нельзя отменить.`}
-          onClose={() => props.requestClose?.()}
+          actions={buildCardActions({
+            kind: 'engine',
+            canEdit: canEditEnginesEff,
+            handlers: {
+              copy_to_new: () => {
+                void (async () => {
+                  const r = await window.matrica.engines.create();
+                  if (r?.id) {
+                    // E4: копия пишется strict-путём (реплика + push).
+                    const api = (
+                      window as unknown as {
+                        matrica?: { engines?: { card?: { save?: (a: unknown) => Promise<unknown> } } };
+                      }
+                    ).matrica;
+                    await api?.engines?.card?.save?.({
+                      id: r.id,
+                      fields: {
+                        engine_number: engineNumber + ' (копия)',
+                        engine_brand: engineBrand || null,
+                        engine_brand_id: engineBrandId || null,
+                      },
+                    });
+                  }
+                })();
+              },
+              save: () => { void saveAllAndClose().catch(() => undefined); },
+              save_and_close: () => { void saveAllAndClose().then(() => props.onClose()).catch(() => undefined); },
+              save_as_draft: () => {
+                void (async () => {
+                  // Явная парковка в черновик: без записи в EAV; отменяем отложенный
+                  // автосейв, чтобы он не перештамповал kind обратно в recovery.
+                  cancelPendingDraftSave();
+                  const ok = await saveDraftNow(currentDraftSnapshot(), 'explicit');
+                  if (!ok) {
+                    setSaveStatus('Ошибка: не удалось сохранить черновик');
+                    return;
+                  }
+                  setSessionChanged(false);
+                  props.onClose();
+                })();
+              },
+              print: props.canPrintEngineCard && !isAndroidPlatform() ? handlePrint : undefined,
+              delete: () => void handleDelete(),
+              close: () => props.requestClose?.(),
+            },
+          })}
         />
       }
       status={

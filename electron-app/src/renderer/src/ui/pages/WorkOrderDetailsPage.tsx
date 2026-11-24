@@ -41,6 +41,7 @@ import {
 
 import { Button } from '../components/Button.js';
 import { CardActionBar } from '../components/CardActionBar.js';
+import { buildCardActions } from '../utils/objectActions.js';
 import { CardTabs, type CardTab } from '../components/CardTabs.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { EntityReferenceField } from '../components/EntityReferenceField.js';
@@ -1839,73 +1840,78 @@ export function WorkOrderDetailsPage(props: {
     <CardActionBar
       canEdit={canEditNow}
       cardLabel="Наряд"
-      onCopyToNew={() => {
-        void (async () => {
-          if (!payload) return;
-          await copyToNewWorkOrder(payload);
-        })();
-      }}
-      onSave={() => {
-        void (async () => {
-          if (payload && canEditNow) await flushSave(payload);
-          dirtyRef.current = false;
-        })();
-      }}
-      onSaveAndClose={() => {
-        void (async () => {
-          // Закрываем карточку ТОЛЬКО после успешного сохранения: иначе неуспех
-          // тихо уносит правки оператора (жалоба владельца 01.11.2026).
-          if (!payload || !canEditNow) {
-            props.onClose();
-            return;
-          }
-          const ok = await flushSave(payload);
-          if (!ok) return;
-          dirtyRef.current = false;
-          props.onClose();
-        })();
-      }}
-      onSaveAsDraft={() => {
-        void (async () => {
-          if (!payload || !canEditNow) return;
-          // Park as an explicit draft — no commit to operations (no row / number for a new order).
-          // Cancel the pending autosave so it can't re-stamp the draft back to «recovery».
-          if (draftTimerRef.current != null) {
-            window.clearTimeout(draftTimerRef.current);
-            draftTimerRef.current = null;
-          }
-          const ok = await saveDraftNow(payload, 'explicit');
-          if (!ok) {
-            setStatus('Не удалось сохранить черновик');
-            return;
-          }
-          dirtyRef.current = false;
-          setStatus('Сохранено как черновик');
-          props.onClose();
-        })();
-      }}
-      onPrint={() => setPrintDialogOpen(true)}
-      onClose={() => props.requestClose?.()}
-      onDelete={
-        Number(payload?.workOrderNumber) > 0
-          ? () => {
-              void (async () => {
-                const r = await window.matrica.workOrders.delete(props.id);
-                if (!r.ok) {
-                  setStatus(`Ошибка удаления: ${r.error}`);
-                  return;
-                }
-                props.onClose();
-              })();
-            }
-          : undefined
-      }
       deleteLabel="Удалить наряд"
       deleteConfirmDetail={
         payload
           ? `Будет удалён наряд №${String(payload.workOrderNumber ?? '—')} от ${formatMoscowDate(payload.orderDate)}. Действие обычно нельзя отменить.`
           : undefined
       }
+      actions={buildCardActions({
+        kind: 'work_order',
+        canEdit: canEditNow,
+        labels: { delete: 'Удалить наряд' },
+        handlers: {
+          copy_to_new: () => {
+            void (async () => {
+              if (!payload) return;
+              await copyToNewWorkOrder(payload);
+            })();
+          },
+          save: () => {
+            void (async () => {
+              if (payload && canEditNow) await flushSave(payload);
+              dirtyRef.current = false;
+            })();
+          },
+          save_and_close: () => {
+            void (async () => {
+              // Закрываем карточку ТОЛЬКО после успешного сохранения: иначе неуспех
+              // тихо уносит правки оператора (жалоба владельца 01.11.2026).
+              if (!payload || !canEditNow) {
+                props.onClose();
+                return;
+              }
+              const ok = await flushSave(payload);
+              if (!ok) return;
+              dirtyRef.current = false;
+              props.onClose();
+            })();
+          },
+          save_as_draft: () => {
+            void (async () => {
+              if (!payload || !canEditNow) return;
+              // Park as an explicit draft — no commit to operations (no row / number for a new order).
+              // Cancel the pending autosave so it can't re-stamp the draft back to «recovery».
+              if (draftTimerRef.current != null) {
+                window.clearTimeout(draftTimerRef.current);
+                draftTimerRef.current = null;
+              }
+              const ok = await saveDraftNow(payload, 'explicit');
+              if (!ok) {
+                setStatus('Не удалось сохранить черновик');
+                return;
+              }
+              dirtyRef.current = false;
+              setStatus('Сохранено как черновик');
+              props.onClose();
+            })();
+          },
+          print: () => setPrintDialogOpen(true),
+          close: () => props.requestClose?.(),
+          delete: Number(payload?.workOrderNumber) > 0
+              ? () => {
+                  void (async () => {
+                    const r = await window.matrica.workOrders.delete(props.id);
+                    if (!r.ok) {
+                      setStatus(`Ошибка удаления: ${r.error}`);
+                      return;
+                    }
+                    props.onClose();
+                  })();
+                }
+              : undefined,
+        },
+      })}
     />
   );
 

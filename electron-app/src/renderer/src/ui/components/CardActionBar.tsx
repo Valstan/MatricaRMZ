@@ -86,6 +86,9 @@ export function CardActionBar(props: CardActionBarProps) {
   ) {
     const action = actionFor(slot);
     if (!action || !action.available) return null;
+    // Печати на Android нет — как и в legacy-ветке ниже: каталог не должен
+    // возвращать кнопку, которой на этой платформе нет.
+    if (slot === 'print' && isAndroidPlatform()) return null;
     const onClick =
       slot === 'delete'
         ? () => void handleDeleteClick(action.run)
