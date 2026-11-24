@@ -1335,7 +1335,18 @@ export async function setEmployeeSectionAccess(employeeId: string, rawMembership
       });
       continue;
     }
-    // update | revive: живая строка меняет уровень, тумбстоун — оживает.
+    if (step.kind === 'revive') {
+      // Оживление тумбстоуна: фильтр `deleted_at IS NULL` здесь ЗАПРЕЩЁН — он
+      // отсёк бы ровно ту строку, которую оживляем, и выдача молча ничего бы не
+      // сделала (замер на стенде lane1, 25.11.2026: сервер отвечал ok, а раздел
+      // оставался снятым).
+      await db
+        .update(userSectionAccess)
+        .set({ level: step.level, updatedAt: ts, deletedAt: null })
+        .where(eq(userSectionAccess.id, step.rowId as any));
+      continue;
+    }
+    // update: живая строка меняет уровень (тумбстоун она не бывает — его оживляет revive).
     await db
       .update(userSectionAccess)
       .set({ level: step.level, updatedAt: ts, deletedAt: null })
