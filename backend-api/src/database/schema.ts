@@ -2686,6 +2686,15 @@ export const erpProductionPrograms = pgTable(
     status: text('status').notNull().default('draft'),
     /** Слоты подписей (должность + ФИО + сотрудник) JSON-строкой: текстовый DTO-контракт. */
     signatureSlots: text('signature_slots'),
+    /**
+     * Шаблон подписей, из которого взят состав (промт КАРМАНА #120).
+     *
+     * ССЫЛКА, а не содержимое: `signature_slots` остаётся трёхзначным
+     * (`null` — «оператор не трогал блок», `[]` — «снял всё»), и по этой
+     * ссылке видно, что состав пришёл из шаблона, а не правлен руками.
+     * null — шаблон не применялся.
+     */
+    signatureTemplateId: uuid('signature_template_id'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
@@ -2696,6 +2705,45 @@ export const erpProductionPrograms = pgTable(
     periodIdx: index('erp_production_programs_period_idx').on(t.periodStart),
     shopIdx: index('erp_production_programs_shop_idx').on(t.shop),
     workshopIdx: index('erp_production_programs_workshop_idx').on(t.workshopId),
+    signatureTemplateIdx: index('erp_production_programs_signature_template_idx').on(t.signatureTemplateId),
+  }),
+);
+
+/**
+ * Шаблон подписей производственной программы (промт КАРМАНА #120, план #121).
+ *
+ * Заказ владельца: доработанный набор подписей должен приходить уже в СЛЕДУЮЩИЕ
+ * программы, а не оставаться в одной. Поэтому набор подписей вынесен в
+ * справочник-шаблон, а программа помнит, ИЗ КАКОГО шаблона взяла состав
+ * (`erp_production_programs.signature_template_id`).
+ *
+ * Таблица ВНЕ sync-контракта (как `print_templates`): её ведёт только серверная
+ * дверь REST, клиент ходит по ней запросом. Иначе шаблон разъехался бы по
+ * репликам и «общий для парка» шаблон стал бы набором разных шаблонов.
+ *
+ * Владелец — `ownerId`: 'shared' — общий для завода шаблон (подставляется в
+ * новые программы), иначе id оператора. Личные шаблоны в первый шаг не заводим.
+ */
+export const productionProgramSignatureTemplates = pgTable(
+  'production_program_signature_templates',
+  {
+    id: uuid('id').primaryKey(),
+    /** 'shared' — общий шаблон (виден всему заводу); иначе id оператора-владельца. */
+    ownerId: text('owner_id').notNull().default('shared'),
+    name: text('name').notNull(),
+    /** Состав шаблона: JSON-строка со слотами (тот же контракт, что у программы). */
+    slots: text('slots').notNull(),
+    /** Шаблон по умолчанию — его подставляют в новые программы. */
+    isDefault: boolean('is_default').notNull().default(false),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    updatedBy: text('updated_by'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    ownerNameUq: uniqueIndex('production_program_signature_templates_owner_name_uq')
+      .on(t.ownerId, t.name)
+      .where(sql`${t.deletedAt} is null`),
   }),
 );
 

@@ -48,6 +48,7 @@ import { contractsRouter, counterpartiesRouter } from './routes/contracts.js';
 import { ppeRouter } from './routes/ppe.js';
 import { signatureDefaultsRouter } from './routes/signatureDefaults.js';
 import { productionProgramRouter } from './routes/productionProgram.js';
+import { productionProgramSignatureTemplatesRouter } from './routes/productionProgramSignatureTemplates.js';
 import { engineReclamationsRouter } from './routes/engineReclamations.js';
 import { childrenRouter } from './routes/children.js';
 import { organizationRouter } from './routes/organization.js';
@@ -200,6 +201,9 @@ export function createApp() {
   app.use('/ppe', ppeRouter);
   app.use('/signature-defaults', signatureDefaultsRouter);
   app.use('/production-program', requireAuth, productionProgramRouter);
+  // Шаблон подписей ПП по умолчанию (промт КАРМАНА #120): общий для завода набор
+  // подписей, который подставляется в новые программы. Таблица вне sync-контракта.
+  app.use('/production-program-signature-templates', requireAuth, productionProgramSignatureTemplatesRouter);
   // Рекламации двигателя: очередь заездов по рекламации (серверная дверь записи).
   app.use('/engine-reclamations', requireAuth, engineReclamationsRouter);
   // Детский и организационный модуль: карточки детей, мероприятия и журнал выдачи

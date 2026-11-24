@@ -41,6 +41,12 @@ const programBody = z.object({
   title: z.string().trim().min(1).max(300),
   status: z.enum(['draft', 'approved']).optional(),
   signatureSlots: z.string().nullable().optional(),
+  /**
+   * Ссылка на шаблон подписей (промт КАРМАНА #120): из какого шаблона взят
+   * состав. null — шаблон не применялся. Поле обязано быть в схеме: zod
+   * отбрасывает неизвестные ключи, и без него ссылка молча терялась бы.
+   */
+  signatureTemplateId: z.string().trim().max(64).nullable().optional(),
 });
 
 const lineBody = z.object({

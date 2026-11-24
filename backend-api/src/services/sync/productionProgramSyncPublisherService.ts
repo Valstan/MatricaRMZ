@@ -56,6 +56,8 @@ export function toProductionProgramInput(r: DbRow): SyncWriteInput {
       title: String(r['title']),
       status: String(r['status']),
       signature_slots: r['signatureSlots'] == null ? null : String(r['signatureSlots']),
+      // Ссылка на шаблон подписей (промт КАРМАНА #120): null — шаблон не применялся.
+      signature_template_id: r['signatureTemplateId'] == null ? null : String(r['signatureTemplateId']),
       created_at: Number(r['createdAt']),
       updated_at: Number(r['updatedAt']),
       deleted_at: r['deletedAt'] == null ? null : Number(r['deletedAt']),

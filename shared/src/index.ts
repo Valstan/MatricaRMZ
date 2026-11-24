@@ -88,6 +88,9 @@ export * from './domain/contract.js';
 export * from './domain/productionProgram.js';
 // Подписи печатных форм — общий слой (слоты, правки, порядок печати).
 export * from './domain/printSignatures.js';
+// Шаблон подписей производственной программы (промт КАРМАНА #120): выбор шаблона
+// по умолчанию и разбор его состава.
+export * from './domain/productionProgramSignatureTemplate.js';
 // Рекламации двигателя: очередь заездов и гейт дат.
 export * from './domain/engineReclamations.js';
 // Заезды двигателя как сущность: текущий/прошлый, тон раздела, разбивка истории ремонта.

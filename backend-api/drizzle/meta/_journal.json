@@ -1016,6 +1016,13 @@
       "when": 1795440400000,
       "tag": "0141_repair_stage_faza",
       "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1795444000000,
+      "tag": "0142_production_program_signature_templates",
+      "breakpoints": true
     }
   ]
 }

@@ -58,6 +58,10 @@ export function defaultPermissionsForRole(role: string): Record<string, boolean>
   // `user`: иначе «только трое» держалось бы ровно до первого нового администратора.
   // Выдаётся персональным override'ом в админке.
   all[PermissionCode.ProductionProgramEdit] = r === 'superadmin';
+  // Шаблон подписей ПП по умолчанию (промт КАРМАНА #120): подставляется в НОВЫЕ
+  // программы всего завода — тот же уклад, что и ведение плана: роль не даёт,
+  // выдаётся поимённо.
+  all[PermissionCode.ProductionProgramSignatureTemplatesEdit] = r === 'superadmin';
   // Дети — данные персональные, и видеть их должен узкий круг (владелец 21.11.2026):
   // суперадмин и хозяин модуля. Ни одна роль, включая admin и легаси `user`, прав
   // на детей не получает — выдаётся поимённо.

@@ -584,6 +584,8 @@ export const erpProductionProgramRowSchema = z.object({
   title: z.string(),
   status: z.enum(['draft', 'approved']),
   signature_slots: z.string().nullable().optional(),
+  /** Шаблон подписей, из которого взят состав; null — шаблон не применялся. */
+  signature_template_id: z.string().nullable().optional(),
 });
 
 // Строка плана ПП. contract_kind — снимок вида договора на момент добавления
