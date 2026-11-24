@@ -93,6 +93,7 @@ import type { SyncRunResult } from '@matricarmz/shared';
 import { clearSyncSession, readSyncSession, refreshSyncSession } from './syncSession.js';
 import { ensureClientSchemaCompatible } from './migrations/clientSchemaMigrations.js';
 import { buildOrphanCleanupSql } from './sync/repairSql.js';
+import { runPullLoopWithTimelineGuard } from './sync/pullTimelineGuard.js';
 import { DEPENDENCY_TABLE, planDependencyRequeue, type SkippedRowLike } from './sync/dependencyRequeue.js';
 import { lwwRejectedByTable, skippedRowAction } from './sync/skipReasonPolicy.js';
 import { budgetForTable, operationsReserve as reserveOperations } from './sync/pushBudget.js';
@@ -5692,26 +5693,53 @@ export async function runSync(
         return pullJson;
       };
       const pullAll = async (sinceValue: number) => {
-        let sinceCursor = sinceValue;
-        let totalPulled = 0;
-        let last: SyncPullResponse | null = null;
-        for (let i = 0; i < 2000; i += 1) {
-          const res = await pullOnce(sinceCursor);
-          totalPulled += res.changes.length;
-          last = res;
-          const serverLastSeq = Number((res as any).server_last_seq ?? res.server_cursor ?? 0);
-          const cursor = Number(res.server_cursor ?? 0);
-          const progressBySeq =
-            progressMode === 'incremental' && serverLastSeq > 0 ? Math.max(0, Math.min(0.999, cursor / serverLastSeq)) : null;
-          emitSyncProgress('progress', { pulled: totalPulled, progress: progressBySeq });
-          if (!res.has_more) break;
-          if (res.server_cursor === sinceCursor) {
-            logSync(`pull paging stalled cursor=${sinceCursor}, stopping`);
-            break;
-          }
-          sinceCursor = res.server_cursor;
-        }
-        return { last, totalPulled, changedTables: Object.fromEntries(incrementalChangedTables) };
+        // Курсор клиента ВЫШЕ головы журнала = реплика собрана по чужой линии
+        // (сервер пересоздали / клиент перевели на другой сервер). Инкрементальный
+        // pull тогда доставит только хвост, а начало линии — строку аккаунта в том
+        // числе — уже никогда: условие доезда строгое `last_server_seq > since`.
+        // Строка доступа без строки аккаунта бесполезна (membership = users ⋈
+        // user_section_access), поэтому член не доедет никогда, а источник будет
+        // врать «реплика» («раздел не выдан» вместо «данные не обновлены»).
+        // Лечение — пересобрать реплику целиком (см. sync/pullTimelineGuard.ts).
+        let lastPullPage: SyncPullResponse | null = null;
+        const loop = await runPullLoopWithTimelineGuard<SyncPullResponse>({
+          pullOnce: async (since: number) => {
+            const page = await pullOnce(since);
+            lastPullPage = page;
+            return page;
+          },
+          repairReplica: async (info) => {
+            logSync(
+              `pull: курсор ${info.clientCursor} выше головы журнала ${info.serverLastSeq} — реплика с чужой линии, пересобираем целиком`,
+            );
+            // Неотправленное — на диск, ДО чистки: чистка не должна съесть чужую работу.
+            const exported = await exportPendingRowsToDisk(db, 'cross_timeline_repair');
+            if (!exported.ok) {
+              logSync('pull replica rebuild skipped: pending export failed');
+              return {
+                totalPulled: 0,
+                changedTables: {},
+                last: lastPullPage ?? ({ server_cursor: 0, server_last_seq: 0, has_more: false, changes: [] } as unknown as SyncPullResponse),
+              };
+            }
+            await clearLocalSyncTablesForFullPull(db).catch((e) => {
+              logSync(`pull replica rebuild pre-clean failed err=${formatError(e)}`);
+            });
+            const full = await pullFullState();
+            return { totalPulled: full.totalPulled, changedTables: full.changedTables, last: full.pullJson };
+          },
+          since: sinceValue,
+          onProgress: ({ cursor, serverLastSeq, pulled }) => {
+            const progressBySeq =
+              progressMode === 'incremental' && serverLastSeq > 0 ? Math.max(0, Math.min(0.999, cursor / serverLastSeq)) : null;
+            emitSyncProgress('progress', { pulled, progress: progressBySeq });
+          },
+        });
+        return {
+          last: loop.last,
+          totalPulled: loop.totalPulled,
+          changedTables: { ...Object.fromEntries(incrementalChangedTables), ...loop.changedTables },
+        };
       };
       const prepareMs = nowMs() - startedAt;
       const collectStartedAt = nowMs();
