@@ -158,6 +158,8 @@ export * from './domain/supportContact.js';
 export * from './domain/labelEmoji.js';
 export * from './domain/stuckPending.js';
 export * from './domain/pendingExport.js';
+export * from './domain/syncSkipReasons.js';
+export * from './domain/repairHistoryWriteGate.js';
 export * from './domain/syncTableDomains.js';
 export * from './domain/printTemplate.js';
 export * from './domain/printForms.js';

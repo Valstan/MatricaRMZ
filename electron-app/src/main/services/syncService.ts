@@ -94,6 +94,8 @@ import { clearSyncSession, readSyncSession, refreshSyncSession } from './syncSes
 import { ensureClientSchemaCompatible } from './migrations/clientSchemaMigrations.js';
 import { buildOrphanCleanupSql } from './sync/repairSql.js';
 import { DEPENDENCY_TABLE, planDependencyRequeue, type SkippedRowLike } from './sync/dependencyRequeue.js';
+import { lwwRejectedByTable, skippedRowAction } from './sync/skipReasonPolicy.js';
+import { budgetForTable, operationsReserve as reserveOperations } from './sync/pushBudget.js';
 import {
   blockedIdsForTable,
   mergeBlockedRows,
@@ -1148,6 +1150,15 @@ async function collectPending(db: BetterSQLite3Database) {
   const pending = 'pending';
   const errored = 'error';
 
+  /** Сколько строк таблицы ждёт отправки (нужно для резерва бюджета и диагностики). */
+  const countPendingRows = async (table: any): Promise<number> => {
+    const res = (await db
+      .select({ n: sql<number>`count(*)` })
+      .from(table)
+      .where(eq(table.syncStatus, pending))) as any[];
+    return Number(res?.[0]?.n ?? 0);
+  };
+
   const packs: SyncPushRequest['upserts'] = [];
   let total = 0;
 
@@ -1273,13 +1284,35 @@ async function collectPending(db: BetterSQLite3Database) {
   await recoverErroredRows(erpContractPayments, erpContractPaymentRowSchema, SyncTableName.ErpContractPaymentPayments);
   await recoverErroredRows(erpEngineCards, erpEngineCardRowSchema, SyncTableName.ErpEngineCards);
 
+  /**
+   * Приоритет таблиц (план #114, шаг 27): `operations` (в т.ч. история ремонта) не
+   * должен вытесняться первыми четырьмя таблицами. Раньше бюджет push резался по
+   * остатку, и когда первые таблицы набирали 1200 строк, пачка `operations` не
+   * собиралась ВООБЩЕ — без единой ошибки: строка висела `pending` вечно. Теперь
+   * под `operations` резервируется место, а отсечение таблицы бюджетом не молчит.
+   */
+  const operationsReserve = reserveOperations(
+    await countPendingRows(operations),
+    MAX_ROWS_PER_TABLE[SyncTableName.Operations] ?? MAX_TOTAL_ROWS_PER_PUSH,
+  );
+  const budgetFor = (table: SyncTableName) => budgetForTable(table, operationsReserve, MAX_TOTAL_ROWS_PER_PUSH);
+
   async function add(table: SyncTableName, rows: unknown[]) {
     if (rows.length === 0) return;
-    if (total >= MAX_TOTAL_ROWS_PER_PUSH) return;
+    if (total >= budgetFor(table)) {
+      logSync(`push budget cut table=${table} collected=0 (остаток в pending уедет следующим push)`);
+      return;
+    }
     const perTableLimit = MAX_ROWS_PER_TABLE[table] ?? MAX_TOTAL_ROWS_PER_PUSH;
-    const remaining = MAX_TOTAL_ROWS_PER_PUSH - total;
+    const remaining = budgetFor(table) - total;
     const take = Math.max(0, Math.min(rows.length, perTableLimit, remaining));
-    if (take === 0) return;
+    if (take === 0) {
+      logSync(`push budget cut table=${table} collected=0 (остаток в pending уедет следующим push)`);
+      return;
+    }
+    if (take < rows.length) {
+      logSync(`push budget cut table=${table} collected=${take} dropped=${rows.length - take}`);
+    }
     const sliced = rows.slice(0, take);
     // Важно: клиентская БД использует camelCase поля (drizzle),
     // а контракт синхронизации (shared DTO) — snake_case.
@@ -1289,24 +1322,46 @@ async function collectPending(db: BetterSQLite3Database) {
   }
 
   const limitFor = (table: SyncTableName) => {
-    if (total >= MAX_TOTAL_ROWS_PER_PUSH) return 0;
+    if (total >= budgetFor(table)) return 0;
     const perTableLimit = MAX_ROWS_PER_TABLE[table] ?? MAX_TOTAL_ROWS_PER_PUSH;
-    const remaining = MAX_TOTAL_ROWS_PER_PUSH - total;
+    const remaining = budgetFor(table) - total;
     return Math.max(0, Math.min(perTableLimit, remaining));
   };
 
-  const pendingEntityTypes = await db
-    .select()
-    .from(entityTypes)
-    .where(eq(entityTypes.syncStatus, pending))
-    .limit(limitFor(SyncTableName.EntityTypes));
+  /**
+   * Забирает pending-строки таблицы с запасом на одну строку: так видно, что
+   * таблица отсечена лимитом, и это можно НАЗВАТЬ в логе. Раньше отсечение было
+   * молчанием (план #114, шаг 27): строка висела `pending`, и никто не знал почему.
+   */
+  async function takePending(table: any, tableName: SyncTableName): Promise<any[]> {
+    const perTableLimit = MAX_ROWS_PER_TABLE[tableName] ?? MAX_TOTAL_ROWS_PER_PUSH;
+    const budgetRemaining = budgetFor(tableName) - total;
+    const limit = Math.max(0, Math.min(perTableLimit, budgetRemaining));
+    if (limit <= 0) {
+      const pendingNow = await countPendingRows(table);
+      if (pendingNow > 0) {
+        logSync(`push budget cut table=${tableName} collected=0 pending=${pendingNow}`);
+      }
+      return [];
+    }
+    const rows = (await db
+      .select()
+      .from(table)
+      .where(eq(table.syncStatus, pending))
+      .limit(limit + 1)) as any[];
+    if (rows.length > limit) {
+      logSync(
+        `push budget cut table=${tableName} collected=${limit} reason=${budgetRemaining < perTableLimit ? 'push_budget' : 'table_limit'}`,
+      );
+      return rows.slice(0, limit);
+    }
+    return rows;
+  }
+
+  const pendingEntityTypes = await takePending(entityTypes, SyncTableName.EntityTypes);
   await add(SyncTableName.EntityTypes, pendingEntityTypes);
 
-  const pendingEntities = await db
-    .select()
-    .from(entities)
-    .where(eq(entities.syncStatus, pending))
-    .limit(limitFor(SyncTableName.Entities));
+  const pendingEntities = await takePending(entities, SyncTableName.Entities);
   {
     const valid: typeof pendingEntities = [];
     const invalidIds: string[] = [];
@@ -1371,11 +1426,7 @@ async function collectPending(db: BetterSQLite3Database) {
     }
   }
   {
-    const pendingDefs = await db
-      .select()
-      .from(attributeDefs)
-      .where(eq(attributeDefs.syncStatus, pending))
-      .limit(limitFor(SyncTableName.AttributeDefs));
+    const pendingDefs = await takePending(attributeDefs, SyncTableName.AttributeDefs);
     const valid: typeof pendingDefs = [];
     const invalidIds: string[] = [];
     for (const row of pendingDefs) {
@@ -1394,11 +1445,7 @@ async function collectPending(db: BetterSQLite3Database) {
     await add(SyncTableName.AttributeDefs, valid);
   }
   {
-    const pendingValues = await db
-      .select()
-      .from(attributeValues)
-      .where(eq(attributeValues.syncStatus, pending))
-      .limit(limitFor(SyncTableName.AttributeValues));
+    const pendingValues = await takePending(attributeValues, SyncTableName.AttributeValues);
     const valid: typeof pendingValues = [];
     const invalidIds: string[] = [];
     for (const row of pendingValues) {
@@ -1417,11 +1464,7 @@ async function collectPending(db: BetterSQLite3Database) {
     await add(SyncTableName.AttributeValues, valid);
   }
   {
-    const pendingOps = await db
-      .select()
-      .from(operations)
-      .where(eq(operations.syncStatus, pending))
-      .limit(limitFor(SyncTableName.Operations));
+    const pendingOps = await takePending(operations, SyncTableName.Operations);
     const valid: typeof pendingOps = [];
     const invalidIds: string[] = [];
     for (const row of pendingOps) {
@@ -5915,15 +5958,24 @@ export async function runSync(
             logSync(`push skipped rows count=${json.skipped.length} sample=${sample}`);
             const engineGateIds: string[] = [];
             const permanentByTable = new Map<SyncTableName, string[]>();
+            // Отказ по устареванию (серверная копия строки новее присланной): ретрай
+            // не поможет, но и в карантин такую строку нельзя — данные не потеряны,
+            // серверная версия приедет pull'ом. Клиент снимает `pending` (план #114,
+            // шаг 28; класс «строка создана локально, а на сервер не уехала»).
+            const lwwRejected = lwwRejectedByTable(json.skipped as SkippedRowLike[]);
+            let lwwRejectedCount = 0;
             for (const row of json.skipped) {
               const table = String(row?.table ?? '');
               const rowId = String(row?.row_id ?? '');
               const reason = String(row?.reason ?? '');
+              const action = skippedRowAction(row as SkippedRowLike);
               const reserved = parseEngineReservationSkipReason(reason);
-              if (reserved) {
+              if (action === 'reserved' && reserved) {
                 reservedSkippedCount += 1;
                 if (reserved.holderLogin) reservedSkippedHolders.add(reserved.holderLogin);
-              } else if (row?.permanent === true && table && rowId) {
+              } else if (action === 'lww_rejected') {
+                lwwRejectedCount += 1;
+              } else if (action === 'permanent' && table && rowId) {
                 // Постоянный отказ (09.10.2026): ретрай не поможет — в error и карантин,
                 // оператор решает (баннер): чинить данные или отбросить строку.
                 const arr = permanentByTable.get(table as SyncTableName) ?? [];
@@ -5949,6 +6001,17 @@ export async function runSync(
             if (engineGateIds.length > 0) {
               await markPendingError(db, SyncTableName.ErpEngineCards, engineGateIds);
               logSync(`push engine card gate rejections marked error count=${engineGateIds.length}`);
+            }
+            if (lwwRejected.size > 0) {
+              const validTables = new Set<string>(Object.values(SyncTableName));
+              for (const [table, ids] of lwwRejected) {
+                if (!validTables.has(table) || ids.length === 0) continue;
+                // Снимаем `pending`: серверная копия новее, её привезёт pull. Строка
+                // больше не уходит в push — иначе она уходила бы снова и снова с
+                // неизменным payload (письмо проекта в Мозг 24.11.2026, п.2).
+                await markAllSynced(db, table as SyncTableName, ids);
+              }
+              logSync(`push lww-rejected rows cleared from pending count=${lwwRejectedCount}`);
             }
             if (permanentByTable.size > 0) {
               const validTables = new Set<string>(Object.values(SyncTableName));

@@ -6028,6 +6028,7 @@ export function App() {
             currentUserRole={userRole}
             canViewOperations={caps.canViewOperations}
             canEditOperations={caps.canEditOperations}
+            canEditWorkSheets={caps.canEditWorkSheets}
             canPrintEngineCard={caps.canPrintReports}
             canViewMasterData={caps.canViewMasterData}
             canEditMasterData={caps.canEditMasterData}
@@ -6421,6 +6422,7 @@ export function App() {
             currentUserRole={userRole}
             canViewOperations={caps.canViewOperations}
             canEditOperations={caps.canEditOperations}
+            canEditWorkSheets={caps.canEditWorkSheets}
             canPrintEngineCard={caps.canPrintReports}
             canViewMasterData={caps.canViewMasterData}
             canEditMasterData={caps.canEditMasterData}

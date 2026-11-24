@@ -33,6 +33,7 @@ import {
   isSuperadminOnlyAttrCode,
   isWorkSheetRowWrite,
   isRepairStageRowWrite,
+  canWriteRepairHistory,
   ledgerWriteRequirement,
   PermissionCode,
   isEmployeePositionAttrCode,
@@ -275,7 +276,7 @@ export async function partitionLedgerInputsByAuthz(
     if (
       role !== 'superadmin' &&
       isWorkSheetRowWrite({ table: inp.table, operationType, operationMetaJson }) &&
-      perms[PermissionCode.WorkSheetsEdit] !== true
+      !canWriteRepairHistory(perms, 'sheet')
     ) {
       denied.push({ table: inp.table, row_id: inp.row_id, reason: 'forbidden:work_sheet_row' });
       continue;
@@ -289,8 +290,7 @@ export async function partitionLedgerInputsByAuthz(
     if (
       role !== 'superadmin' &&
       isRepairStageRowWrite({ table: inp.table, operationType, operationMetaJson }) &&
-      perms[PermissionCode.WorkSheetsEdit] !== true &&
-      perms[PermissionCode.OperationsEdit] !== true
+      !canWriteRepairHistory(perms, 'stage')
     ) {
       denied.push({ table: inp.table, row_id: inp.row_id, reason: 'forbidden:repair_stage_row' });
       continue;
