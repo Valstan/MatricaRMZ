@@ -52,7 +52,12 @@ function isSingleListMode() {
  * раскладка колонок решали одно и то же.
  */
 function isTabletLayout(): boolean {
-  return document?.documentElement?.dataset?.uiMode === 'tablet';
+  // 'compact' — тот же планшетный контур (данные перестраиваются под экран), только
+  // мельче (владелец 24.11.2026). Признак прежний — data-ui-mode на :root.
+  return (
+    document?.documentElement?.dataset?.uiMode === 'tablet' ||
+    document?.documentElement?.dataset?.uiMode === 'compact'
+  );
 }
 
 let chMeasureCtx: CanvasRenderingContext2D | null = null;

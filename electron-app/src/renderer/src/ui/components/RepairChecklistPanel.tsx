@@ -3946,9 +3946,10 @@ function TableEditor(props: {
 }) {
   const { confirm } = useConfirm();
   // Планшетный режим (Ф1b): в планшете степперы +/- показываем даже в списке деталей и крупнее.
+  // Только режим «под палец» ('tablet'): в режиме «под стилус» ('compact') степперы мелкие.
   const { isTabletDevice } = useTabletDevice();
-  const { isTabletUi } = useUiMode();
-  const tabletActive = isTabletDevice && isTabletUi;
+  const { isBigTouchUi } = useUiMode();
+  const tabletActive = isTabletDevice && isBigTouchUi;
   const cols = props.columns.length ? props.columns : [{ id: 'value', label: 'Значение' }];
   const rows = props.rows ?? [];
   const isDefectItemsTable = props.tableId === 'defect_items';

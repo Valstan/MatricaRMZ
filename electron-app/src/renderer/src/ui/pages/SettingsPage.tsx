@@ -5,7 +5,7 @@ import { DEFAULT_LIST_BEHAVIOR_SETTINGS, formatClientLabel } from '@matricarmz/s
 import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { SearchSelect } from '../components/SearchSelect.js';
-import { useTabletDevice } from '../hooks/useUiMode.js';
+import { useTabletDevice, type UiMode } from '../hooks/useUiMode.js';
 import { isAndroidPlatform } from '../platform.js';
 import { readChromeAutoHidePref, writeChromeAutoHidePref } from '../shell/ChromeVisibilityContext.js';
 import { useTabVisibleRef } from '../shell/TabVisibilityContext.js';
@@ -37,6 +37,11 @@ export function SettingsPage(props: {
   onDecorChange?: (decor: 'strict' | 'fancy') => void;
   onPaletteChange?: (palette: string) => void;
   onTabletToggle?: () => void;
+  /** Живой режим интерфейса: 'tablet' — под палец, 'compact' — под стилус, 'comp' — обычный. */
+  uiMode?: UiMode;
+  onUiModeChange?: (mode: UiMode) => void;
+  /** Перечитать применённые настройки интерфейса (после смены масштаба программы). */
+  onUiControlRefresh?: () => void;
   decor?: 'strict' | 'fancy';
   palette?: string;
   tabletActive?: boolean;
@@ -720,6 +725,35 @@ export function SettingsPage(props: {
                   <Button variant={props.tabletActive ? 'primary' : 'ghost'} onClick={() => props.onTabletToggle?.()}>
                     {props.tabletActive ? 'Включён (коснись для выкл)' : 'Выключен (коснись для вкл)'}
                   </Button>
+                </div>
+              </>
+            )}
+            {props.onUiModeChange != null && (
+              <>
+                <div style={{ color: 'var(--muted)' }}>Размер интерфейса на планшете</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <Button variant={props.uiMode === 'tablet' ? 'primary' : 'ghost'} onClick={() => props.onUiModeChange?.('tablet')}>
+                    Крупно (под палец)
+                  </Button>
+                  <Button variant={props.uiMode === 'compact' ? 'primary' : 'ghost'} onClick={() => props.onUiModeChange?.('compact')}>
+                    Мелко (под стилус)
+                  </Button>
+                  <Button variant={props.uiMode === 'comp' ? 'primary' : 'ghost'} onClick={() => props.onUiModeChange?.('comp')}>
+                    Обычный (как на ПК)
+                  </Button>
+                </div>
+                <div style={{ color: 'var(--muted)', fontSize: 12 }}>
+                  «Мелко» — интерфейс под стилус: кнопки и строки меньше, на экране планшета
+                  помещается больше. Применяется сразу и хранится на этом устройстве.
+                </div>
+              </>
+            )}
+            {globalUiDefaults && (
+              <>
+                <div style={{ color: 'var(--muted)' }}>Масштаб интерфейса программы</div>
+                <div style={{ color: 'var(--muted)', fontSize: 12 }}>
+                  Один переключатель меняет размеры разом: шрифты, кнопки, поля, строки.
+                  Действует во всей программе.
                 </div>
               </>
             )}

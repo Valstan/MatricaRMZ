@@ -20,6 +20,36 @@ const MAIN_ACTIVITY = src(
 );
 const ANDROID_INDEX = src('../../../../../android-app/src/index.html');
 const ELECTRON_INDEX = src('../../index.html');
+const GLOBAL_CSS = src('./global.css');
+const APP = src('./App.tsx');
+
+/**
+ * Глобальный переключатель масштаба (владелец 24.11.2026, промт КАРМАНА #118) — это
+ * ТОКЕНЫ, а не зум. Сторож держит именно это: `zoom`/`transform: scale` на :root ломает
+ * портальные попапы (PopupLayer + useAnchoredPopup считают координаты от кнопки и зажимают
+ * по window.innerWidth) и сразу конфликтует с нативным щипковым зумом WebView (два зума).
+ */
+describe('масштаб интерфейса — токенами, а не зумом', () => {
+  it('зума на :root нет — попапы не поедут', () => {
+    // Блок :root (первый в файле) — только токены: ни зума, ни transform: scale.
+    // (Анимации и календарь масштабируются локально — это другое и попапы не ломает.)
+    const rootStart = GLOBAL_CSS.indexOf(':root {');
+    const rootBlock = GLOBAL_CSS.slice(rootStart, GLOBAL_CSS.indexOf('\n}', rootStart));
+    expect(GLOBAL_CSS, 'zoom в интерфейсе ломает портальные попапы').not.toMatch(/^\s*zoom\s*:/m);
+    expect(rootBlock, 'transform: scale на :root ломает портальные попапы').not.toMatch(/transform:\s*scale/);
+  });
+
+  it('масштаб задаётся коэффициентом токена', () => {
+    expect(GLOBAL_CSS, 'нет коэффициента масштаба --ui-scale').toContain('--ui-scale: 1;');
+    expect(GLOBAL_CSS, 'кнопки не масштабируются коэффициентом').toContain('calc(28px * var(--ui-scale))');
+    expect(APP, 'коэффициент масштаба не ставится в :root').toContain("root.style.setProperty('--ui-scale'");
+  });
+
+  it('нативный щипок WebView остаётся как был — своего второго зума не заводим', () => {
+    expect(MAIN_ACTIVITY, 'широкий вьюпорт выключен').toContain('settings.setUseWideViewPort(true)');
+    expect(MAIN_ACTIVITY, 'зум WebView выключен совсем').toContain('settings.setSupportZoom(true)');
+  });
+});
 
 describe('уменьшение интерфейса щипком на планшете', () => {
   it('WebView разрешает масштаб ниже вписанной ширины', () => {

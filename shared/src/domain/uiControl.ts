@@ -6,9 +6,18 @@ import {
 
 export type UiDisplayTarget = 'departmentButtons' | 'sectionButtons' | 'listFont' | 'cardFont';
 export type UiDisplayButtonState = 'active' | 'inactive';
-export const UI_PRESET_IDS = ['small', 'medium', 'large', 'xlarge'] as const;
+export const UI_PRESET_IDS = ['xsmall', 'small', 'medium', 'large', 'xlarge'] as const;
 export type UiPresetId = (typeof UI_PRESET_IDS)[number];
 export const DEFAULT_UI_PRESET_ID: UiPresetId = 'medium';
+
+/** Человеческие названия пресетов масштаба (выбор в Настройках). */
+export const UI_PRESET_LABELS: Record<UiPresetId, string> = {
+  xsmall: 'Очень мелкий',
+  small: 'Мелкий',
+  medium: 'Обычный',
+  large: 'Крупный',
+  xlarge: 'Очень крупный',
+};
 
 export type UiDisplayButtonStyle = {
   fontSize: number;
@@ -44,6 +53,12 @@ export type UiControlTuning = {
     space3: number;
     space4: number;
     space5: number;
+    /**
+     * Коэффициент масштаба пресета (глобальный переключатель масштаба, владелец
+     * 24.11.2026). Умножает размеры, которых нет в инлайн-канале App.tsx: кнопки,
+     * поля, отступы. 1 — «как было»; меньше — мельче.
+     */
+    uiScale: number;
   };
   menuButtons: {
     selectedTarget: UiDisplayTarget;
@@ -131,6 +146,7 @@ const DEFAULT_UI_CONTROL_TUNING: UiControlTuning = {
     space3: 12,
     space4: 16,
     space5: 20,
+    uiScale: 1,
   },
   menuButtons: {
     selectedTarget: DEFAULT_UI_DISPLAY_PREFS.selectedTarget,
@@ -208,6 +224,7 @@ function cloneUiControlTuning(tuning: UiControlTuning): UiControlTuning {
 
 function clonePresetProfiles(profiles: Record<UiPresetId, UiControlTuning>): Record<UiPresetId, UiControlTuning> {
   return {
+    xsmall: cloneUiControlTuning(profiles.xsmall),
     small: cloneUiControlTuning(profiles.small),
     medium: cloneUiControlTuning(profiles.medium),
     large: cloneUiControlTuning(profiles.large),
@@ -216,9 +233,34 @@ function clonePresetProfiles(profiles: Record<UiPresetId, UiControlTuning>): Rec
 }
 
 const DEFAULT_UI_PRESET_PROFILES: Record<UiPresetId, UiControlTuning> = {
+  // «Ещё мельче» (владелец 24.11.2026: «нужно сделать вариант интерфейса ещё более
+  // мелким — может, даже глобальный переключатель… шрифт 14 → 12, 18 → 16»).
+  // Отдельный пресет, а не «шаг −2» от текущего: у каждого пресета свой набор значений,
+  // и «ещё мельче» не должен зависеть от того, какой пресет выбран сейчас.
+  xsmall: {
+    ...cloneUiControlTuning(DEFAULT_UI_CONTROL_TUNING),
+    global: { ...DEFAULT_UI_CONTROL_TUNING.global, titleFontSize: 15, sectionFontSize: 12, bodyFontSize: 11, mutedFontSize: 10, space1: 3, space2: 6, space3: 8, space4: 10, space5: 14, uiScale: 0.85 },
+    menuButtons: {
+      ...DEFAULT_UI_CONTROL_TUNING.menuButtons,
+      departmentButtons: {
+        active: { ...DEFAULT_UI_CONTROL_TUNING.menuButtons.departmentButtons.active, fontSize: 18, width: 170, height: 108, paddingX: 10, paddingY: 3, gap: 5 },
+        inactive: { ...DEFAULT_UI_CONTROL_TUNING.menuButtons.departmentButtons.inactive, fontSize: 18, width: 170, height: 108, paddingX: 10, paddingY: 3, gap: 5 },
+      },
+      sectionButtons: {
+        active: { ...DEFAULT_UI_CONTROL_TUNING.menuButtons.sectionButtons.active, fontSize: 16, width: 150, height: 46, paddingX: 10, paddingY: 5, gap: 4 },
+        inactive: { ...DEFAULT_UI_CONTROL_TUNING.menuButtons.sectionButtons.inactive, fontSize: 16, width: 150, height: 46, paddingX: 10, paddingY: 5, gap: 4 },
+      },
+    },
+    cards: { ...DEFAULT_UI_CONTROL_TUNING.cards, fontSize: 12, rowPaddingY: 2, rowPaddingX: 4, rowGap: 2, sectionAltStrength: 5 },
+    lists: { ...DEFAULT_UI_CONTROL_TUNING.lists, fontSize: 12, rowPaddingY: 2, rowPaddingX: 4, textColumnMaxCh: 40, autoColumnsGapPx: 7 },
+    directories: { ...DEFAULT_UI_CONTROL_TUNING.directories, tableFontSize: 11, entityCardMinWidth: 380 },
+    layout: { ...DEFAULT_UI_CONTROL_TUNING.layout, contentMaxWidth: 1120, blockMinWidth: 280, blockMaxWidth: 620 },
+    misc: { ...DEFAULT_UI_CONTROL_TUNING.misc, datePickerScale: 1.5, datePickerFontSize: 12 },
+    inputs: { ...DEFAULT_UI_CONTROL_TUNING.inputs, autoGrowMinChars: 7, autoGrowMaxChars: 30, autoGrowExtraChars: 1 },
+  },
   small: {
     ...cloneUiControlTuning(DEFAULT_UI_CONTROL_TUNING),
-    global: { ...DEFAULT_UI_CONTROL_TUNING.global, titleFontSize: 17, sectionFontSize: 14, bodyFontSize: 12, mutedFontSize: 11, space3: 10, space4: 12, space5: 16 },
+    global: { ...DEFAULT_UI_CONTROL_TUNING.global, titleFontSize: 17, sectionFontSize: 14, bodyFontSize: 12, mutedFontSize: 11, space3: 10, space4: 12, space5: 16, uiScale: 0.92 },
     menuButtons: {
       ...DEFAULT_UI_CONTROL_TUNING.menuButtons,
       departmentButtons: {
@@ -240,7 +282,7 @@ const DEFAULT_UI_PRESET_PROFILES: Record<UiPresetId, UiControlTuning> = {
   medium: cloneUiControlTuning(DEFAULT_UI_CONTROL_TUNING),
   large: {
     ...cloneUiControlTuning(DEFAULT_UI_CONTROL_TUNING),
-    global: { ...DEFAULT_UI_CONTROL_TUNING.global, titleFontSize: 19, sectionFontSize: 16, bodyFontSize: 14, mutedFontSize: 12, space4: 18, space5: 22 },
+    global: { ...DEFAULT_UI_CONTROL_TUNING.global, titleFontSize: 19, sectionFontSize: 16, bodyFontSize: 14, mutedFontSize: 12, space4: 18, space5: 22, uiScale: 1.08 },
     menuButtons: {
       ...DEFAULT_UI_CONTROL_TUNING.menuButtons,
       departmentButtons: {
@@ -261,7 +303,7 @@ const DEFAULT_UI_PRESET_PROFILES: Record<UiPresetId, UiControlTuning> = {
   },
   xlarge: {
     ...cloneUiControlTuning(DEFAULT_UI_CONTROL_TUNING),
-    global: { ...DEFAULT_UI_CONTROL_TUNING.global, titleFontSize: 20, sectionFontSize: 17, bodyFontSize: 14, mutedFontSize: 12, space4: 20, space5: 24 },
+    global: { ...DEFAULT_UI_CONTROL_TUNING.global, titleFontSize: 20, sectionFontSize: 17, bodyFontSize: 14, mutedFontSize: 12, space4: 20, space5: 24, uiScale: 1.15 },
     menuButtons: {
       ...DEFAULT_UI_CONTROL_TUNING.menuButtons,
       departmentButtons: {
@@ -390,6 +432,9 @@ function sanitizeUiControlTuning(raw: unknown, fallback: UiControlTuning): UiCon
       space3: clampNumber(globalRaw.space3, fallback.global.space3, 0, 40),
       space4: clampNumber(globalRaw.space4, fallback.global.space4, 0, 60),
       space5: clampNumber(globalRaw.space5, fallback.global.space5, 0, 80),
+      // Коэффициент масштаба: меньше 1 — мельче. Границы жёсткие: ниже интерфейс
+      // нечитаем, выше — разъезжается вёрстка.
+      uiScale: clampNumber(globalRaw.uiScale, fallback.global.uiScale, 0.6, 1.4),
     },
     menuButtons: {
       selectedTarget: menuDisplay.selectedTarget,
@@ -471,6 +516,7 @@ export function sanitizeUiControlSettings(raw: unknown): UiControlSettings {
   const profilesRaw = presetsRaw.profiles && typeof presetsRaw.profiles === 'object' ? (presetsRaw.profiles as Record<string, unknown>) : {};
   const hasProfileInput = UI_PRESET_IDS.some((id) => profilesRaw[id] != null);
   const profiles: Record<UiPresetId, UiControlTuning> = {
+    xsmall: sanitizeUiControlTuning(profilesRaw.xsmall, base.presets.profiles.xsmall),
     small: sanitizeUiControlTuning(profilesRaw.small, base.presets.profiles.small),
     medium: sanitizeUiControlTuning(profilesRaw.medium, base.presets.profiles.medium),
     large: sanitizeUiControlTuning(profilesRaw.large, base.presets.profiles.large),
@@ -498,6 +544,7 @@ export function mergeUiControlSettings(base: UiControlSettings, overlay?: unknow
   const b = sanitizeUiControlSettings(base);
   const o = sanitizeUiControlSettings(overlay);
   const mergedProfiles: Record<UiPresetId, UiControlTuning> = {
+    xsmall: mergeUiControlTuning(b.presets.profiles.xsmall, o.presets.profiles.xsmall),
     small: mergeUiControlTuning(b.presets.profiles.small, o.presets.profiles.small),
     medium: mergeUiControlTuning(b.presets.profiles.medium, o.presets.profiles.medium),
     large: mergeUiControlTuning(b.presets.profiles.large, o.presets.profiles.large),
