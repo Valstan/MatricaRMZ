@@ -29,7 +29,10 @@ describe('системный мастер печати фотографий (п�
   it('пустой список картинок — понятная ошибка', async () => {
     const res = await printImagesViaOsWizard([]);
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toContain('Не выбрано');
+    if (!res.ok) {
+      // Вне Windows отказ приходит раньше (мастера нет) — тоже внятный.
+      expect(res.error).toContain(isWin ? 'Не выбрано' : 'только на Windows');
+    }
   });
 
   it('пустой путь не запускает ничего', async () => {
