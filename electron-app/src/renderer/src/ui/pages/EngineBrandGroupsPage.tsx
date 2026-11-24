@@ -12,6 +12,24 @@ import { useLiveDataRefresh } from '../hooks/useLiveDataRefresh.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 import { parseIdArray } from '../utils/groupBrandIds.js';
 import { loadAllGroupMembers, reexpandPartsForGroup } from '../utils/liveGroupSync.js';
+// Кит списков (промт КАРМАНА #67): правила — из общего источника, меню — из объявления действий.
+import { useListSelection } from '../hooks/useListSelection.js';
+import { useListBehaviorSettings } from '../hooks/useListBehaviorSettings.js';
+import { ListLassoLayer } from '../components/ListLassoLayer.js';
+import { ListContextMenu } from '../components/ListContextMenu.js';
+import {
+  buildCopyRowsStatus,
+  buildDeleteConfirmMessage,
+  buildDeleteRowsStatus,
+  buildListContextMenuItems,
+  copyRowsToClipboard,
+  listCopyAction,
+  listDeleteAction,
+  listPrintAction,
+  printRowsPreview,
+  resolveMenuRows,
+  type ListContextColumn,
+} from '../utils/listContextActions.js';
 
 type GroupRow = { id: string; name: string; description: string; brandCount: number };
 
@@ -77,6 +95,79 @@ export function EngineBrandGroupsPage(props: {
   );
   const sorted = useMemo(() => [...filtered].sort((a, b) => a.name.localeCompare(b.name, 'ru')), [filtered]);
 
+  // Кит списка: выделение, контур и меню — по общим правилам программы (D-248).
+  // Правила поведения берутся из общего источника, а не из настроек страницы.
+  const sortedIds = useMemo(() => sorted.map((row) => row.id), [sorted]);
+  const selection = useListSelection(sortedIds);
+  const listBehavior = useListBehaviorSettings();
+  const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
+  const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
+
+  const contextColumns = useMemo<ListContextColumn<GroupRow>[]>(
+    () => [
+      { title: 'Название группы', value: (row) => row.name },
+      { title: 'Марок', value: (row) => String(row.brandCount) },
+      { title: 'Описание', value: (row) => row.description || '—' },
+    ],
+    [],
+  );
+
+  function printRows(items: GroupRow[]) {
+    printRowsPreview({
+      title: items.length > 1 ? `Выделенные группы (${items.length})` : `Группа: ${items[0]?.name || '(без названия)'}`,
+      sectionTitle: 'Список групп марок',
+      rows: items,
+      columns: contextColumns,
+    });
+  }
+
+  async function copyRows(items: GroupRow[]) {
+    await copyRowsToClipboard(items, contextColumns);
+    setStatus(buildCopyRowsStatus(items.length));
+  }
+
+  /** Удаление групп из пачки — тем же путём, что и кнопка «✕» в строке. */
+  async function deleteRows(ids: string[]) {
+    if (!props.canCreate || ids.length === 0) return;
+    const message = buildDeleteConfirmMessage({
+      selectedCount: ids.length,
+      selectedManyLabel: 'выделенные группы',
+      singleLabel: 'группу',
+    });
+    const ok = await confirm({
+      title: ids.length > 1 ? 'Удалить группы марок?' : 'Удалить группу марок?',
+      detail: `${message}\n\nУ деталей с живой привязкой к группам связи будут сняты; связи, добавленные вручную, останутся.`,
+      confirmLabel: 'Удалить',
+      confirmTone: 'danger',
+    });
+    if (!ok) return;
+    let failed = 0;
+    for (const id of ids) {
+      const r = await window.matrica.admin.entities.softDelete(id).catch(() => null);
+      if (!r?.ok) {
+        failed += 1;
+        continue;
+      }
+      // Симметрия: снять живые связи удалённой группы у деталей.
+      try {
+        const gm = await loadAllGroupMembers();
+        await reexpandPartsForGroup(id, gm);
+      } catch {
+        /* self-heal починит при следующем открытии детали */
+      }
+    }
+    setStatus(
+      buildDeleteRowsStatus({
+        failedCount: failed,
+        deletedCount: ids.length - failed,
+        deletedManyLabel: 'групп',
+        deletedSingleLabel: 'Группа удалена',
+      }),
+    );
+    selection.clearSelection();
+    await refresh();
+  }
+
   async function addGroup() {
     if (!props.canCreate || !entityTypeId) return;
     setStatus('');
@@ -113,7 +204,7 @@ export function EngineBrandGroupsPage(props: {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', minHeight: 0 }}>
+    <div data-list-root="true" style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         {props.canCreate ? (
           <Button onClick={() => void addGroup()} disabled={!entityTypeId}>
@@ -150,7 +241,23 @@ export function EngineBrandGroupsPage(props: {
           </thead>
           <tbody>
             {sorted.map((row, i) => (
-              <tr key={row.id} style={{ cursor: 'pointer' }} onClick={() => void props.onOpen(row.id)}>
+              <tr
+                key={row.id}
+                data-list-selected={selection.isSelected(row.id) ? 'true' : undefined}
+                // Маркер строки для выделения контуром (Ctrl + рамка) — правило одно на программу.
+                data-list-row="true"
+                data-list-row-key={row.id}
+                style={{ cursor: 'pointer' }}
+                onContextMenu={(e) => {
+                  const result = selection.onRowContextMenu(e, row.id);
+                  if (!result.openMenu) return;
+                  setMenu({ x: e.clientX, y: e.clientY, targetIds: result.targetIds, bulk: result.bulk });
+                }}
+                onClick={() => {
+                  selection.onRowPrimaryAction(row.id);
+                  void props.onOpen(row.id);
+                }}
+              >
                 <RowNumberCell n={i + 1} />
                 <td data-col-kind="name">{row.name}</td>
                 <td data-col-kind="num" style={{ textAlign: 'right' }}>{row.brandCount}</td>
@@ -174,6 +281,30 @@ export function EngineBrandGroupsPage(props: {
           </tbody>
         </table>
       </div>
+      {/* Выделение контуром (Ctrl + рамка) — слой кита, включается общей настройкой. */}
+      <ListLassoLayer enabled={listBehavior.lasso} onSelect={selection.selectMany} />
+      {menu ? (
+        <ListContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={buildListContextMenuItems({
+            rows: resolveMenuRows(menu.targetIds, rowById),
+            bulk: menu.bulk,
+            getId: (row) => row.id,
+            onSelect: selection.toggleSelect,
+            onClearSelection: selection.clearSelection,
+            hasSelection: selection.selectedCount > 0,
+            // Список ОБЪЯВЛЯЕТ свои действия (промт КАРМАНА #67): «Удалить» есть только
+            // там, где список умеет удалять и есть право.
+            actions: [
+              listPrintAction({ available: true, print: printRows }),
+              listCopyAction({ available: true, copy: copyRows }),
+              listDeleteAction<GroupRow>({ available: props.canCreate, remove: deleteRows, getId: (row) => row.id }),
+            ],
+          })}
+          onClose={() => setMenu(null)}
+        />
+      ) : null}
     </div>
   );
 }

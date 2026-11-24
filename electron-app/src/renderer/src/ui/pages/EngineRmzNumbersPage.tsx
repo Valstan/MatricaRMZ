@@ -3,6 +3,22 @@ import type { EngineRmzHistoryItem } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { Input } from '../components/Input.js';
+// Кит списков (промт КАРМАНА #67): правила — из общего источника, меню — из объявления действий.
+import { useListSelection } from '../hooks/useListSelection.js';
+import { useListBehaviorSettings } from '../hooks/useListBehaviorSettings.js';
+import { ListLassoLayer } from '../components/ListLassoLayer.js';
+import { ListContextMenu } from '../components/ListContextMenu.js';
+import {
+  buildCopyRowsStatus,
+  buildListContextMenuItems,
+  copyRowsToClipboard,
+  listCopyAction,
+  listPrintAction,
+  printRowsPreview,
+  resolveMenuRows,
+  type ListActionDeclaration,
+  type ListContextColumn,
+} from '../utils/listContextActions.js';
 
 /**
  * Реестр «Номера РМЗ» (план engine-rmz-numbers-2026-10, PR-4).
@@ -117,8 +133,58 @@ export function EngineRmzNumbersPage(props: { onOpenEngine?: (engineId: string) 
         ? 'Удалённых карточек нет — все выданные номера принадлежат живым карточкам.'
         : 'Ничего не найдено по этому запросу.';
 
+  // Кит списка: выделение, контур и меню — по общим правилам программы (D-248).
+  const selection = useListSelection(visible.map((r) => r.engineId));
+  const listBehavior = useListBehaviorSettings();
+  const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
+  const rowById = useMemo(() => new Map(rows.map((r) => [r.engineId, r])), [rows]);
+  const menuRows = menu ? resolveMenuRows(menu.targetIds, rowById) : [];
+
+  const contextColumns = useMemo<ListContextColumn<EngineRmzHistoryItem>[]>(
+    () => [
+      { title: 'РМЗ', value: (r) => r.rmzCode },
+      { title: 'Номер', value: (r) => r.engineNumber || '—' },
+      { title: 'Внутр. №', value: (r) => r.internalNumber || '—' },
+      { title: 'Марка', value: (r) => r.engineBrand || '—' },
+      { title: 'Состояние', value: (r) => STATUS_LABELS[r.status] },
+      { title: 'Кто создал', value: (r) => r.createdBy || '—' },
+      { title: 'Когда удалил', value: (r) => r.cardDeletedBy || '—' },
+      { title: 'Причина', value: (r) => r.deleteReason || '—' },
+    ],
+    [],
+  );
+
+  function printRows(items: EngineRmzHistoryItem[]) {
+    printRowsPreview({
+      title: items.length > 1 ? `Выделенные номера (${items.length})` : `Номер: ${items[0]?.rmzCode ?? '(без номера)'}`,
+      sectionTitle: 'Реестр номеров РМЗ',
+      rows: items,
+      columns: contextColumns,
+    });
+  }
+
+  async function copyRows(items: EngineRmzHistoryItem[]) {
+    await copyRowsToClipboard(items, contextColumns);
+    setStatus(buildCopyRowsStatus(items.length));
+  }
+
+  /**
+   * «Открыть карточку» — действие самого списка: у живой карточки номер есть и карточку
+   * открыть можно, у удалённой — нельзя, и пункта в меню тогда НЕТ ВООБЩЕ (промт #67).
+   */
+  const openEngineAction: ListActionDeclaration<EngineRmzHistoryItem> = {
+    id: 'open-engine',
+    label: 'Открыть карточку двигателя',
+    available: menuRows.length > 0 && menuRows.every((r) => r.status === 'active'),
+    scope: 'single',
+    run: (items) => {
+      const engineId = items[0]?.engineId;
+      if (engineId) props.onOpenEngine?.(engineId);
+    },
+  };
+
   return (
-    <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12, height: '100%', minHeight: 0 }}>
+    <div data-list-root="true" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12, height: '100%', minHeight: 0 }}>
       <div>
         <h2 style={{ margin: '0 0 4px' }}>🔢 Номера РМЗ</h2>
         <div style={{ fontSize: 13, color: '#64748b' }}>
@@ -180,7 +246,17 @@ export function EngineRmzNumbersPage(props: { onOpenEngine?: (engineId: string) 
               return (
                 <React.Fragment key={row.engineId}>
                   <tr
+                    data-list-selected={selection.isSelected(row.engineId) ? 'true' : undefined}
+                    // Маркер строки для выделения контуром (Ctrl + рамка) — правило одно на программу.
+                    data-list-row="true"
+                    data-list-row-key={row.engineId}
+                    onContextMenu={(e) => {
+                      const result = selection.onRowContextMenu(e, row.engineId);
+                      if (!result.openMenu) return;
+                      setMenu({ x: e.clientX, y: e.clientY, targetIds: result.targetIds, bulk: result.bulk });
+                    }}
                     onClick={() => {
+                      selection.onRowPrimaryAction(row.engineId);
                       if (canExpand) setExpanded(isOpen ? '' : row.engineId);
                       else if (row.status === 'active') props.onOpenEngine?.(row.engineId);
                     }}
@@ -264,6 +340,31 @@ export function EngineRmzNumbersPage(props: { onOpenEngine?: (engineId: string) 
           </tbody>
         </table>
       </div>
+
+      {/* Выделение контуром (Ctrl + рамка) — слой кита, включается общей настройкой. */}
+      <ListLassoLayer enabled={listBehavior.lasso} onSelect={selection.selectMany} />
+      {menu ? (
+        <ListContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={buildListContextMenuItems({
+            rows: menuRows,
+            bulk: menu.bulk,
+            getId: (row) => row.engineId,
+            onSelect: selection.toggleSelect,
+            onClearSelection: selection.clearSelection,
+            hasSelection: selection.selectedCount > 0,
+            // Список ОБЪЯВЛЯЕТ свои действия (промт КАРМАНА #67). Удалять номера РМЗ
+            // нельзя никогда — пункта «Удалить» в меню НЕТ ВООБЩЕ, а не гаснет.
+            actions: [
+              openEngineAction,
+              listPrintAction({ available: true, print: printRows }),
+              listCopyAction({ available: true, copy: copyRows }),
+            ],
+          })}
+          onClose={() => setMenu(null)}
+        />
+      ) : null}
 
       <div style={{ fontSize: 12, color: '#94a3b8' }}>
         Показано {visible.length} из {rows.length}. Номер выдаёт сервер: у карточки, сохранённой без связи, номера ещё нет —

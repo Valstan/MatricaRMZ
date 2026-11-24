@@ -46,6 +46,7 @@ import {
 
 import { Button } from '../components/Button.js';
 import { ListContextMenu, type ListContextMenuItem } from '../components/ListContextMenu.js';
+import { ListLassoLayer } from '../components/ListLassoLayer.js';
 import { ListRowHandle } from '../components/ListRowHandle.js';
 import { MailSendButton } from '../components/MailSendButton.js';
 import { MailComposeDialog } from '../components/MailComposeDialog.js';
@@ -2854,6 +2855,14 @@ export function ProductionProgramPage(props: Props) {
       {menu && menuItems.length > 0 ? (
         <ListContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
       ) : null}
+
+      {/* Выделение контуром (Ctrl + рамка) — слой кита, как в остальных списках программы
+          (промт КАРМАНА #67). Заголовки групп строкой плана НЕ считаются: в выделении
+          участвуют только строки двигателей — иначе в набор попали бы ключи групп. */}
+      <ListLassoLayer
+        enabled={listBehavior.lasso}
+        onSelect={(keys) => selection.selectMany(keys.filter((key) => !key.startsWith(GROUP_ROW_PREFIX)))}
+      />
 
       {/* Письмо по выделенным строкам. */}
       {mailSelection ? (

@@ -19,6 +19,21 @@ import { useCardContentIds } from '../hooks/useListDeepFilter.js';
 import { formatMoscowDateTime } from '../utils/dateUtils.js';
 import { matchesQueryInRecord } from '../utils/search.js';
 import { countListedPartsByBrand } from '../utils/engineBrandSummary.js';
+// Кит списков (промт КАРМАНА #67): правила — из общего источника, меню — из объявления действий.
+import { useListSelection } from '../hooks/useListSelection.js';
+import { useListBehaviorSettings } from '../hooks/useListBehaviorSettings.js';
+import { ListLassoLayer } from '../components/ListLassoLayer.js';
+import { ListContextMenu } from '../components/ListContextMenu.js';
+import {
+  buildCopyRowsStatus,
+  buildListContextMenuItems,
+  copyRowsToClipboard,
+  listCopyAction,
+  listPrintAction,
+  printRowsPreview,
+  resolveMenuRows,
+  type ListContextColumn,
+} from '../utils/listContextActions.js';
 
 type BrandRow = { id: string; name: string; updatedAt: number };
 
@@ -181,6 +196,37 @@ export function EngineBrandsPage(props: {
     [sortedRows, brandToGroups, groupOptions],
   );
 
+  // Кит списка: выделение, контур и меню — по общим правилам программы (D-248).
+  // Правила поведения берутся из общего источника, а не из настроек страницы.
+  const sortedIds = useMemo(() => sortedRows.map((row) => row.id), [sortedRows]);
+  const selection = useListSelection(sortedIds);
+  const listBehavior = useListBehaviorSettings();
+  const [menu, setMenu] = useState<{ x: number; y: number; targetIds: string[]; bulk: boolean } | null>(null);
+  const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
+
+  const contextColumns = useMemo<ListContextColumn<BrandRow>[]>(
+    () => [
+      { title: 'Наименование марки двигателя', value: (row) => row.name },
+      { title: 'Списочное количество деталей', value: (row) => String(brandPartCounts[row.id] ?? 0) },
+      { title: 'Дата изменения', value: (row) => (row.updatedAt ? formatMoscowDateTime(row.updatedAt) : '—') },
+    ],
+    [brandPartCounts],
+  );
+
+  function printRows(items: BrandRow[]) {
+    printRowsPreview({
+      title: items.length > 1 ? `Выделенные марки (${items.length})` : `Марка: ${items[0]?.name || '(без названия)'}`,
+      sectionTitle: 'Список марок двигателей',
+      rows: items,
+      columns: contextColumns,
+    });
+  }
+
+  async function copyRows(items: BrandRow[]) {
+    await copyRowsToClipboard(items, contextColumns);
+    setStatus(buildCopyRowsStatus(items.length));
+  }
+
   function onSort(nextKey: SortKey) {
     if (sortKey === nextKey) {
       setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
@@ -240,8 +286,20 @@ export function EngineBrandsPage(props: {
 
   function rowProps(row: BrandRow): VirtualTableRowProps {
     return {
+      'data-list-selected': selection.isSelected(row.id) ? 'true' : undefined,
+      // Маркер строки для выделения контуром (Ctrl + рамка) — правило одно на программу.
+      'data-list-row': 'true',
+      'data-list-row-key': row.id,
       style: { cursor: 'pointer' },
-      onClick: () => void props.onOpen(row.id),
+      onContextMenu: (e) => {
+        const result = selection.onRowContextMenu(e, row.id);
+        if (!result.openMenu) return;
+        setMenu({ x: e.clientX, y: e.clientY, targetIds: result.targetIds, bulk: result.bulk });
+      },
+      onClick: () => {
+        selection.onRowPrimaryAction(row.id);
+        void props.onOpen(row.id);
+      },
     };
   }
 
@@ -271,7 +329,7 @@ export function EngineBrandsPage(props: {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', minHeight: 0 }}>
+    <div data-list-root="true" style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         {props.canCreate ? (
           <Button onClick={() => void addBrand()} disabled={!entityTypeId}>
@@ -348,6 +406,29 @@ export function EngineBrandsPage(props: {
           />
         )}
       </div>
+      {/* Выделение контуром (Ctrl + рамка) — слой кита, включается общей настройкой. */}
+      <ListLassoLayer enabled={listBehavior.lasso} onSelect={selection.selectMany} />
+      {menu ? (
+        <ListContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={buildListContextMenuItems({
+            rows: resolveMenuRows(menu.targetIds, rowById),
+            bulk: menu.bulk,
+            getId: (row) => row.id,
+            onSelect: selection.toggleSelect,
+            onClearSelection: selection.clearSelection,
+            hasSelection: selection.selectedCount > 0,
+            // Список ОБЪЯВЛЯЕТ свои действия (промт КАРМАНА #67). Удалять марки
+            // двигателей здесь нечем — пункта «Удалить» в меню НЕТ ВООБЩЕ, а не гаснет.
+            actions: [
+              listPrintAction({ available: true, print: printRows }),
+              listCopyAction({ available: true, copy: copyRows }),
+            ],
+          })}
+          onClose={() => setMenu(null)}
+        />
+      ) : null}
     </div>
   );
 }
