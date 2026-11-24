@@ -169,7 +169,21 @@ membership как **INNER JOIN** `users ⋈ user_section_access`. Строка �
 Правка: `backend-api/src/services/sectionAccessPlan.ts` — план записи знает
 `revive`: тумбстоун **оживает** (`deleted_at = NULL`), а не заменяется вставкой.
 Сторож: `backend-api/src/services/sectionAccessPlan.test.ts` (краснеет без правки:
-план без `revive` выдаёт `insert`, который constraint отвергнет).
+план без `revive` выдаёт `insert`, который constraint отвергнет) и
+`backend-api/src/services/sectionAccessRevive.guard.test.ts` (сторож по SQL
+писателя: юнит-тест плана проверяет РЕШЕНИЕ, а условие `WHERE` он не видит — а
+ошибка была именно там: UPDATE оживления нёс фильтр `deleted_at IS NULL`, то
+есть отсекал ровно ту строку, которую оживлял; сервер отвечал `ok`, а раздел
+оставался снятым).
+
+### Обрыв 1б (сервер, backend-api) — выдача раздела не публикуется
+
+Снятие/оживление доступа доходит до строки, но не всегда до журнала: строка
+`user_section_access` публикуется отдельным триггером
+(`trg_user_sections_publish_upd` → `mirror_enqueue` → публикатор), и её номер
+обновляется только там. Проверяется по журналу: после оживления приходят
+**две** строки подряд — `users` (seq 612) и `user_section_access` (seq 613),
+то есть аккаунт едет вместе со своим доступом (см. обрыв 3).
 
 ### Обрыв 2 (сервер, backend-api) — якоря каталога разделов: раздел не выдаётся вообще
 
