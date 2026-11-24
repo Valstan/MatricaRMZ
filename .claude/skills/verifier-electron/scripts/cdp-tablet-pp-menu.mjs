@@ -448,18 +448,29 @@ async function main() {
   note(ppArrived.ok, 'раздел «Производственная программа» доехал до реплики клиента', ppArrived);
 
   // ── Шаг 5. Раздел в МЕНЮ. ─────────────────────────────────────────────────
+  // Гейт разделов обновляется НЕ мгновенно: главный процесс кэширует membership
+  // на 15 с, рендерер перечитывает его раз в ~30 с. Поэтому ждём не «мгновенно»,
+  // а «пока меню не покажет раздел» — иначе смоук ловит гонку, а не продукт.
   const menu = await evaluate(
     ws,
-    `const menuBtn = byText('МЕНЮ');
-     if (!menuBtn) return { ok: false, reason: 'нет кнопки МЕНЮ' };
-     if (!document.querySelector('.v3-menu-overlay')) { click(menuBtn); await wait(2000); }
-     const overlay = document.querySelector('.v3-menu-overlay');
-     if (!overlay) return { ok: false, reason: 'оверлей меню не открылся' };
-     const labels = [...overlay.querySelectorAll('button')].map(txt);
-     const hit = labels.find((l) => l.includes('Производственная программа'));
-     return { ok: true, hasProgram: Boolean(hit), hit: hit ?? null,
-              productionGroup: labels.filter((l) => l.includes('Производство')).slice(0, 4) };`,
-    40000,
+    `for (let i = 0; i < 45; i += 1) {
+       const menuBtn = byText('МЕНЮ');
+       if (menuBtn && !document.querySelector('.v3-menu-overlay')) { click(menuBtn); await wait(1500); }
+       const overlay = document.querySelector('.v3-menu-overlay');
+       if (!overlay) return { ok: false, reason: 'оверлей меню не открылся' };
+       const labels = [...overlay.querySelectorAll('button')].map(txt);
+       const hit = labels.find((l) => l.includes('Производственная программа'));
+       if (hit) {
+         return { ok: true, hasProgram: true, hit,
+                  productionGroup: labels.filter((l) => l.includes('Производство')).slice(0, 4) };
+       }
+       if (i === 44) {
+         return { ok: true, hasProgram: false, hit: null,
+                  productionGroup: labels.filter((l) => l.includes('Производство')).slice(0, 4) };
+       }
+       await wait(2000);
+     }`,
+    180000,
   );
   note(menu.ok && menu.hasProgram, 'раздел «Производственная программа» есть в МЕНЮ', menu);
   await shot(ws, '1-menu');
@@ -467,10 +478,18 @@ async function main() {
   // ── Шаг 6. Клик по плишке → страница ПП: слева список, справа программа. ────
   const opened = await evaluate(
     ws,
-    `const el = document.querySelector('[data-fav-card="production_program"]');
+    `let el = null;
+     for (let i = 0; i < 45; i += 1) {
+       el = document.querySelector('[data-fav-card="production_program"]');
+       if (el && !String(el.className).includes('v3-fav-card-cut')) break;
+       await wait(2000);
+     }
      if (!el) return { ok: false, reason: 'нет плишки' };
+     if (String(el.className).includes('v3-fav-card-cut')) {
+       return { ok: false, reason: 'плишка ПП ещё срезана гейтом (membership не обновился)' };
+     }
      click(el);
-     for (let i = 0; i < 60; i += 1) {
+     for (let j = 0; j < 30; j += 1) {
        await wait(500);
        const page = document.querySelector('.production-program-page');
        if (!page) continue;
@@ -482,7 +501,7 @@ async function main() {
                 bodyHead: body.slice(0, 300) };
      }
      return { ok: false, reason: 'страница ПП не открылась' };`,
-    60000,
+    240000,
   );
   note(opened.ok, 'клик по плишке открывает страницу ПП', opened);
   note(opened.ok && opened.hasListHeading, 'на странице есть список производственных программ (левая колонка)', opened);
@@ -505,19 +524,21 @@ async function main() {
   } else {
     const cut = await evaluate(
       ws,
-      `for (let i = 0; i < 90; i += 1) {
-         await wait(1000);
+      `for (let i = 0; i < 60; i += 1) {
+         await wait(2000);
          try { await call(() => window.matrica.sync.run(), 30000); } catch (e) {}
          const m = await membershipState();
-         if (m.keys && m.keys.includes('production') && !m.keys.includes('production_program')) {
-           const t = tileState();
+         const t = tileState();
+         // Ждём и доставки membership, и обновления гейта (кэш 15 с + рефетч
+         // рендерера ~30 с): срезанная плишка — это и есть проверяемое состояние.
+         if (m.keys && m.keys.includes('production') && !m.keys.includes('production_program') && t.cut) {
            return { ok: true, membership: m.keys, source: m.source, tile: t,
                     saysNotGranted: /не выдан/i.test(t.title + ' ' + t.aria),
                     saysStale: /не обновлены|синх/i.test(t.title + ' ' + t.aria) };
          }
        }
        return { ok: false, reason: 'membership не доехал в реплику клиента' };`,
-      180000,
+      300000,
     );
     note(cut.ok, 'клиент видит membership и режет раздел ПП', cut);
     note(cut.ok && cut.tile?.cut, 'плишка ПП срезана гейтом и осталась на месте (приглушена, а не спрятана)', cut);
@@ -575,15 +596,18 @@ async function main() {
     const back = await evaluate(
       ws,
       `for (let i = 0; i < 60; i += 1) {
-         await wait(1000);
+         await wait(2000);
          try { await call(() => window.matrica.sync.run(), 30000); } catch (e) {}
          const m = await membershipState();
-         if (!m.keys || !m.keys.includes('production')) {
-           return { ok: true, membership: m.keys, tile: tileState() };
+         const t = tileState();
+         // Снятие должно дойти до реплики, и гейт должен пересчитаться: при пустом
+         // membership (fail-open) плишка снова открыта.
+         if ((!m.keys || !m.keys.includes('production')) && !t.cut) {
+           return { ok: true, membership: m.keys, tile: t };
          }
        }
        return { ok: false, reason: 'выдача не снялась в реплике' };`,
-      120000,
+      300000,
     );
     note(cleanup.ok && back.ok && !back.tile?.cut, 'уборка: раздел снят, плишка ПП снова открыта', { cleanup, back });
   }
