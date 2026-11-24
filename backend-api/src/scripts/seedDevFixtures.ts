@@ -2,10 +2,10 @@ import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
 import { and, eq, isNull } from 'drizzle-orm';
 
-import { AttributeDataType, EntityTypeCode } from '@matricarmz/shared';
+import { AttributeDataType, ACCESS_SECTION_CATALOG, EntityTypeCode } from '@matricarmz/shared';
 
 import { db, pool } from '../database/db.js';
-import { attributeDefs, attributeValues, entities, entityTypes } from '../database/schema.js';
+import { accessSections, attributeDefs, attributeValues, entities, entityTypes } from '../database/schema.js';
 import { hashPassword } from '../auth/password.js';
 import {
   createEmployeeEntity,
@@ -237,10 +237,35 @@ async function ensureEmployee(login: string, password: string, role: 'admin' | '
   return id;
 }
 
+/**
+ * Якоря разделов каталога в `access_sections`.
+ *
+ * `user_section_access.section_id` ссылается на `access_sections(id)`, а строки
+ * каталога — это ДАННЫЕ, а не схема (0086 заводил только первые десять). Без
+ * якоря раздел невыдаваем: запись в `user_section_access` падает по FK, и
+ * суперадмин не может выдать даже «Производственную программу» (замер на стенде
+ * lane1, 25.11.2026: `Failed query: insert into "user_section_access" ...`).
+ *
+ * Якоря НИЧЕГО не выдают: только делают раздел выдаваемым. Права по разделам
+ * выдаёт человек (или скрипт выдачи), и это решение остаётся за ним.
+ */
+async function ensureAccessSectionAnchors(): Promise<number> {
+  let created = 0;
+  for (const section of ACCESS_SECTION_CATALOG) {
+    const res = await db.insert(accessSections).values({ id: section.id }).onConflictDoNothing();
+    created += Number(res.rowCount ?? 0);
+  }
+  return created;
+}
+
 async function main() {
   const verifyLogin = process.env.MATRICA_VERIFY_LOGIN?.trim() || 'verify';
   const verifyPassword = process.env.MATRICA_VERIFY_PASSWORD?.trim() || 'verify123';
   const superadminPassword = process.env.MATRICA_SUPERADMIN_PASSWORD?.trim() || 'valstan-dev';
+
+  console.log('[seed] access_sections: якоря разделов каталога ...');
+  const anchorsCreated = await ensureAccessSectionAnchors();
+  console.log(`[seed] якорей разделов создано: ${anchorsCreated}`);
 
   console.log(`[seed] valstan (superadmin) ...`);
   const valstanId = await ensureEmployee('valstan', superadminPassword, 'superadmin', 'Superadmin (dev)');
