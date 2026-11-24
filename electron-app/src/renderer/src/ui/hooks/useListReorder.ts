@@ -142,8 +142,11 @@ export function useListReorder<T>(opts: {
      * списка) и приходит ключом строки-цели со стороной — «до» или «после».
      */
     onDrop: (event: React.DragEvent) => {
-      if (!drag.drag) return;
-      const draggedKey = drag.drag.key;
+      // Источник берём из `dataTransfer` (а не из состояния кита): состояние могло
+      // быть погашено слушателем, отработавшим раньше обработчика страницы, — и
+      // тогда перестановка молча не случилась бы (см. `utils/listDragDrop.ts`).
+      const draggedKey = drag.sourceKeyOf(event);
+      if (!draggedKey) return;
       drag.drop(event, (target) => {
         if (!target.key) return;
         dropRow(draggedKey, target.key, target.position);
