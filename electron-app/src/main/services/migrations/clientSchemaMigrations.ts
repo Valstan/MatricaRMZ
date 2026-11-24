@@ -47,7 +47,7 @@ type Migration = {
 // ⚠️ Android-клиент держит порт этого механизма
 // (android-app/src/db/migrations/clientSchemaCompatible.ts): при добавлении шага
 // НОВЕЕ 12 зеркаль его туда (константу версии сверяет тест android-app).
-export const CURRENT_CLIENT_SCHEMA_VERSION = 16;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 17;
 
 const MIGRATIONS: Migration[] = [
   {
@@ -546,6 +546,23 @@ const MIGRATIONS: Migration[] = [
       if (cols.length === 0) return;
       if (!cols.some((c) => c.name === 'operator_note')) {
         sqlite.exec(`ALTER TABLE erp_production_program_rows ADD COLUMN operator_note text;`);
+      }
+    },
+  },
+  {
+    from: 16,
+    to: 17,
+    name: 'erp_production_programs workshop_id (цех из справочника)',
+    up: async (_db, sqlite) => {
+      // Колонка аддитивная и nullable: id цеха из `directory_workshops`. У программ,
+      // заведённых до связи, её нет (NULL) — бэкфилл проставляет связь только при
+      // однозначном совпадении, неоднозначные ждут решения владельца.
+      const cols = sqlite.prepare(`PRAGMA table_info('erp_production_programs')`).all() as Array<{ name: string }>;
+      // Таблица реплики ПП приходит из безусловного DDL (migrate.ts); на клиенте без
+      // неё шаг не нужен.
+      if (cols.length === 0) return;
+      if (!cols.some((c) => c.name === 'workshop_id')) {
+        sqlite.exec(`ALTER TABLE erp_production_programs ADD COLUMN workshop_id text;`);
       }
     },
   },

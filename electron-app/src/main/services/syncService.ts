@@ -3001,6 +3001,9 @@ async function applyPulledChanges(
             periodStart: payload.period_start,
             periodEnd: payload.period_end,
             shop: payload.shop,
+            // Связь с цехом по id (владелец 24.11.2026): null — у программы,
+            // заведённой до появления связи.
+            workshopId: payload.workshop_id ?? null,
             title: payload.title,
             status: payload.status,
             signatureSlots: payload.signature_slots ?? null,
@@ -4473,6 +4476,7 @@ async function applyPulledChanges(
       periodStart: sql`excluded.period_start`,
       periodEnd: sql`excluded.period_end`,
       shop: sql`excluded.shop`,
+      workshopId: sql`excluded.workshop_id`,
       title: sql`excluded.title`,
       status: sql`excluded.status`,
       signatureSlots: sql`excluded.signature_slots`,

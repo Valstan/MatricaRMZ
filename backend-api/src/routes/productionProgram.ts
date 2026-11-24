@@ -27,6 +27,16 @@ const programBody = z.object({
   periodStart: z.number(),
   periodEnd: z.number(),
   shop: z.string().trim().min(1).max(120),
+  /**
+   * Цех из справочника (`directory_workshops`) — связь по id.
+   *
+   * Поле обязано быть в схеме: zod отбрасывает неизвестные ключи, и без него
+   * сервер получил бы программу БЕЗ цеха (а `shop` — текстом), то есть связь
+   * терялась бы молча, а ошибка не всплывала бы. Пустое значение — legacy-путь
+   * (цех остаётся текстом); непустое проверяется сервисом (uuid + наличие в
+   * справочнике), и сервер сам кладёт снимок имени в `shop`.
+   */
+  workshopId: z.string().trim().max(64).nullable().optional(),
   title: z.string().trim().min(1).max(300),
   status: z.enum(['draft', 'approved']).optional(),
   signatureSlots: z.string().nullable().optional(),

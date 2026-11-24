@@ -647,6 +647,7 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
       period_start integer NOT NULL,
       period_end integer NOT NULL,
       shop text NOT NULL,
+      workshop_id text,
       title text NOT NULL,
       status text NOT NULL DEFAULT 'draft',
       signature_slots text,
@@ -1231,6 +1232,19 @@ export function ensureClientSchemaParity(sqlite: Database.Database) {
   // живых клиентов; здесь — страховка для тех, кто идёт мимо цепочки.
   if (hasTable('erp_production_program_rows') && !columnNames('erp_production_program_rows').has('operator_note')) {
     sqlite.exec(`ALTER TABLE erp_production_program_rows ADD COLUMN operator_note text;`);
+  }
+
+  // erp_production_programs.workshop_id — связь программы с цехом по id справочника
+  // `directory_workshops` (миграция сервера 0140, владелец 24.11.2026: «цех должен
+  // выбираться из базы»). Nullable — ровно как на сервере, иначе checkReplicaStrictness
+  // уронит pull.
+  //
+  // Почему ALTER, а не только CREATE TABLE выше: долгоживущая БД парка создана без
+  // этой колонки, а CREATE TABLE IF NOT EXISTS на существующей таблице ничего не
+  // меняет. Шаг 16→17 версионной цепочки (clientSchemaMigrations) догоняет живых
+  // клиентов; здесь — страховка для тех, кто идёт мимо цепочки.
+  if (hasTable('erp_production_programs') && !columnNames('erp_production_programs').has('workshop_id')) {
+    sqlite.exec(`ALTER TABLE erp_production_programs ADD COLUMN workshop_id text;`);
   }
 
   // erp_engine_reclamations.contract_id / customer_id — свой договор и контрагент у

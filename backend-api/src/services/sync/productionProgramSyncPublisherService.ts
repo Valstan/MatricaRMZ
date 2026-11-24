@@ -40,6 +40,9 @@ export function toProductionProgramInput(r: DbRow): SyncWriteInput {
       period_start: Number(r['periodStart']),
       period_end: Number(r['periodEnd']),
       shop: String(r['shop']),
+      // Связь с цехом по id: без неё в реплике нечем ни искать, ни фильтровать
+      // программы по цехам (владелец 24.11.2026). null — связи пока нет.
+      workshop_id: r['workshopId'] == null ? null : String(r['workshopId']),
       title: String(r['title']),
       status: String(r['status']),
       signature_slots: r['signatureSlots'] == null ? null : String(r['signatureSlots']),
