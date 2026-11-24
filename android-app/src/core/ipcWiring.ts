@@ -23,6 +23,8 @@ import { registerDraftsIpc } from '../../../electron-app/src/main/ipc/register/d
 import { registerEmployeesIpc } from '../../../electron-app/src/main/ipc/register/employees.js';
 import { registerEngineActTemplatesIpc } from '../../../electron-app/src/main/ipc/register/engineActTemplates.js';
 import { registerEnginesOpsAuditIpc } from '../../../electron-app/src/main/ipc/register/enginesOpsAudit.js';
+import { registerEngineBulkIntakeIpc } from '../../../electron-app/src/main/ipc/register/engineBulkIntake.js';
+import { registerEngineCardsIpc } from '../../../electron-app/src/main/ipc/register/engineCards.js';
 import { registerErpIpc } from '../../../electron-app/src/main/ipc/register/erp.js';
 import { registerLoggingIpc } from '../../../electron-app/src/main/ipc/register/logging.js';
 import { registerNotesIpc } from '../../../electron-app/src/main/ipc/register/notes.js';
@@ -88,6 +90,19 @@ export function wireIpcForAndroid(core: AndroidCore): IpcContext {
   registerAuthAndSyncIpc(ctx);
   registerChangesIpc(ctx);
   registerEnginesOpsAuditIpc(ctx);
+  // Карточки двигателей и пакетный приём (промт КАРМАНА #111: «вносим изменения в
+  // карточку двигателя — ничего не сохраняется, на сервер не уходит»).
+  //
+  // Причина была не в правах: домен просто НЕ был зарегистрирован в мосте
+  // планшета, и preload отдавал функции, для которых в шине нет хэндлера —
+  // шим отвечал «недоступно на планшете: engines:card:save», и запись не
+  // доходила ни до локальной БД, ни до очереди push'а.
+  //
+  // Запись карточки — локальная реплика со `sync_status='pending'`, уходит
+  // push'ом (тот же путь, что у десктопа), так что офлайн-правка в цеху
+  // доезжает до сервера при следующем синке.
+  registerEngineCardsIpc(ctx);
+  registerEngineBulkIntakeIpc(ctx);
   registerDraftsIpc(ctx);
   registerEmployeesIpc(ctx);
   registerAdminIpc(ctx);

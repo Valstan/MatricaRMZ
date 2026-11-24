@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { describe, expect, it } from 'vitest';
 
-import { getRestrictedWorkOrderPolicyLocal, getSectionMembershipByLogin } from './employeeService.js';
+import { getRestrictedWorkOrderPolicyLocal, getSectionMembershipByLogin, getSectionMembershipByLoginWithSource } from './employeeService.js';
 
 // B3/R3 — офлайн-гейт разделов читает реплику строгих таблиц, а пока её нет —
 // по-прежнему EAV. Проверяется и то и другое, потому что ошибка в любую сторону
@@ -91,6 +91,40 @@ describe('офлайн-гейт разделов: источник membership', 
     const { sqlite, db } = makeDb();
     seedEav(sqlite, [{ id: 'e1', login: 'oper1', sections: { work_orders: 'editor' } }]);
     expect(await getSectionMembershipByLogin(db, 'oper1')).toEqual({ work_orders: 'editor' });
+  });
+
+  /**
+   * Источник ответа — это не техническая деталь, а смысл отказа.
+   *
+   * Жалоба владельца (промт #111): «производственная программа не открывается —
+   * говорит, что нету доступа, хотя доступ открыт». Причина: на машине без
+   * налитой реплики membership читается из ЗАМОРОЖЕННОГО EAV-зеркала
+   * `section_access` (миграция 0103 снесла его триггеры), где раздела ПП нет ни
+   * у кого. Ответ зеркала не авторитетен — и клиент не должен говорить по нему
+   * «обратитесь к администратору».
+   */
+  it('источник membership: реплика — авторитетна, EAV-зеркало — нет', async () => {
+    const { sqlite, db } = makeDb();
+    // 1. Реплика налита → ответ из канона.
+    seedReplica(sqlite, [
+      { id: 'e1', login: 'oper1', role: 'master', sections: [{ id: 's1', section: 'production', level: 'viewer' }] },
+    ]);
+    const fromReplica = await getSectionMembershipByLoginWithSource(db, 'oper1');
+    expect(fromReplica.source).toBe('replica');
+    expect(fromReplica.membership).toEqual({ production: 'viewer' });
+
+    // 2. Реплика пуста → фолбэк на зеркало, и источник честно называется.
+    const { sqlite: sqlite2, db: db2 } = makeDb();
+    seedEav(sqlite2, [{ id: 'e1', login: 'oper1', sections: { work_orders: 'editor' } }]);
+    const fromEav = await getSectionMembershipByLoginWithSource(db2, 'oper1');
+    expect(fromEav.source).toBe('legacy_eav');
+    expect(fromEav.membership).toEqual({ work_orders: 'editor' });
+
+    // 3. Нигде ничего нет → ни членства, ни источника ('none' → fail-open).
+    const { db: db3 } = makeDb();
+    const empty = await getSectionMembershipByLoginWithSource(db3, 'oper1');
+    expect(empty.membership).toBeNull();
+    expect(empty.source).toBe('none');
   });
 
   it('реплика налита → читаем ЕЁ, а не EAV', async () => {

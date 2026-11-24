@@ -22,7 +22,7 @@ import {
 
 import type { IpcContext } from './ipcContext.js';
 import { EMPLOYEE_SIZE_ATTR_CODES } from '@matricarmz/shared';
-import { getSectionMembershipByLogin } from '../services/employeeService.js';
+import { getSectionMembershipByLoginWithSource, type SectionMembershipSource } from '../services/employeeService.js';
 import { entities, entityTypes } from '../database/schema.js';
 
 // Longest-prefix wins (порядок не важен — выбираем самое длинное совпадение).
@@ -314,17 +314,30 @@ export function isWriteGatedChannel(channel: string): boolean {
 
 export function createSectionIpcGate(ctx: IpcContext) {
   // Membership-кэш: гейт стоит на каждом IPC-вызове, скан EAV на каждый — дорого.
-  let membershipCache: { login: string; value: SectionMembership | null; at: number } | null = null;
+  // Вместе со значением кэшируем ИСТОЧНИК: «реплика» или «замороженное EAV-зеркало».
+  // Источник решает, что сказать оператору при отказе (см. refuseMessage).
+  let membershipCache: {
+    login: string;
+    value: SectionMembership | null;
+    source: SectionMembershipSource;
+    at: number;
+  } | null = null;
   const MEMBERSHIP_TTL_MS = 15_000;
 
-  async function membershipFor(login: string): Promise<SectionMembership | null> {
+  async function membershipFor(login: string): Promise<{
+    value: SectionMembership | null;
+    source: SectionMembershipSource;
+  }> {
     const now = Date.now();
     if (membershipCache && membershipCache.login === login && now - membershipCache.at < MEMBERSHIP_TTL_MS) {
-      return membershipCache.value;
+      return { value: membershipCache.value, source: membershipCache.source };
     }
-    const value = await getSectionMembershipByLogin(ctx.dataDb(), login).catch(() => null);
-    membershipCache = { login, value, at: now };
-    return value;
+    const read = await getSectionMembershipByLoginWithSource(ctx.dataDb(), login).catch(() => ({
+      membership: null,
+      source: 'none' as SectionMembershipSource,
+    }));
+    membershipCache = { login, value: read.membership, source: read.source, at: now };
+    return { value: read.membership, source: read.source };
   }
 
   async function isAllowed(sectionId: AccessSection, level: 'viewer' | 'editor'): Promise<boolean> {
@@ -332,9 +345,9 @@ export function createSectionIpcGate(ctx: IpcContext) {
     if (!viewer.login) return true; // не залогинен — auth-контроль на самих хэндлерах
     if (String(viewer.role ?? '').toLowerCase() === 'superadmin') return true;
     const membership = await membershipFor(viewer.login.toLowerCase());
-    if (membership == null) return true; // не засеяно (legacy) — fail-open
+    if (membership.value == null) return true; // не засеяно (legacy) — fail-open
     const check = level === 'editor' ? canEditSection : canViewSection;
-    return check({ membership, role: viewer.role, sectionId });
+    return check({ membership: membership.value, role: viewer.role, sectionId });
   }
 
   const typeCodeCache = new Map<string, string>(); // entityTypeId → code (типы неизменны в рамках сессии)
@@ -404,14 +417,45 @@ export function createSectionIpcGate(ctx: IpcContext) {
       const sectionId = prefixSection ?? (await sectionForEntityArgs(channel, args));
       if (sectionId && !(await isAllowed(sectionId, level))) {
         const title = accessSectionMeta(sectionId)?.titleRu ?? sectionId;
-        throw new Error(
-          level === 'editor' && (await isAllowed(sectionId, 'viewer'))
-            ? `Раздел «${title}» доступен вам только для просмотра`
-            : `Нет доступа к разделу «${title}» — обратитесь к администратору`,
-        );
+        throw new Error(await refuseMessage(sectionId, level, title));
       }
       return handler(event, ...args);
     };
+  }
+
+  /**
+   * Что сказать оператору при отказе по разделу.
+   *
+   * Разные источника membership дают РАЗНЫЕ отказы — и разница видна невооружённым
+   * глазом:
+   *
+   * 1. Ответ из реплики (`users ⋈ user_section_access`) авторитетен: раздела
+   *    действительно нет → «обратитесь к администратору» — честно.
+   * 2. Ответ из ЗАМОРОЖЕННОГО EAV-зеркала `section_access` (реплика на машине ещё
+   *    не налита) авторитетен лишь наполовину: зеркало заморожено миграцией 0103,
+   *    и разделов, выданных после неё, в нём нет НИ У КОГО. Отказывать и говорить
+   *    «обратитесь к администратору» здесь — ложь: доступ может быть выдан, а
+   *    клиент просто не знает. Правильный ответ — назвать настоящую причину:
+   *    «данные о доступах на этом устройстве не обновлены».
+   *
+   * Права при этом НЕ расширяются: раздел остаётся закрытым, меняется только
+   * объяснение. Решение владельца о судьбе самого EAV-зеркала (убрать или чинить)
+   * — отдельный открытый вопрос (docs/pending/perekhodnaya-eav-vetka-oflayn-geyta-snyat-na-b6.md).
+   */
+  async function refuseMessage(
+    sectionId: AccessSection,
+    level: 'viewer' | 'editor',
+    title: string,
+  ): Promise<string> {
+    const viewer = await ctx.currentViewer();
+    const login = viewer.login ? viewer.login.toLowerCase() : '';
+    const membership = login ? await membershipFor(login) : { value: null, source: 'none' as SectionMembershipSource };
+    if (membership.source === 'legacy_eav') {
+      return `Раздел «${title}» на этом устройстве пока недоступен: данные о доступах не обновлены (нужен синх). Права на сервере при этом не менялись.`;
+    }
+    return level === 'editor' && membership.value && (await isAllowed(sectionId, 'viewer'))
+      ? `Раздел «${title}» доступен вам только для просмотра`
+      : `Нет доступа к разделу «${title}» — обратитесь к администратору`;
   }
 
   return { wrap };
