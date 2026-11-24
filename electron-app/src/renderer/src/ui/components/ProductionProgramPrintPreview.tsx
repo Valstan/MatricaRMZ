@@ -5,6 +5,7 @@ import {
   resolveProductionProgramSignatureSlots,
   type PrintSignatureSlot,
   type ProductionProgramPrintInput,
+  type ProductionProgramSignatureTemplate,
 } from '@matricarmz/shared';
 
 import { Button } from './Button.js';
@@ -57,11 +58,28 @@ export function ProductionProgramPrintPreview(props: {
    * иначе добавленная подпись не печаталась бы в следующий раз.
    */
   onSignatureSlotsChange?: (slots: readonly PrintSignatureSlot[]) => void;
+  /**
+   * Шаблон подписей ПП (промт КАРМАНА #120): общий для завода набор подписей.
+   *
+   * Блок показывается ТОЛЬКО при праве `production_program.signature_templates.edit`:
+   * без права оператор не видит ни списка шаблонов, ни кнопок их применения.
+   */
+  signatureTemplates?: readonly ProductionProgramSignatureTemplate[];
+  /** Шаблон, из которого взят текущий состав программы. */
+  signatureTemplateId?: string | null;
+  /** Есть ли право вести шаблон подписей. */
+  canEditTemplates?: boolean;
+  /** Применить шаблон к программе (состав + ссылка на шаблон). */
+  onApplyTemplate?: (id: string) => void;
+  /** Сохранить текущий состав программы как шаблон по умолчанию. */
+  onSaveAsTemplate?: (name: string) => void;
 }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [headerFontSize, setHeaderFontSize] = useState(14);
   const [tableFontSize, setTableFontSize] = useState(14);
   const [signatureFontSize, setSignatureFontSize] = useState(14);
+  /** Выбранный в списке шаблон подписей (применяется кнопкой). */
+  const [templateId, setTemplateId] = useState<string>('');
 
   // Слоты подписей документа: сохранённые оператором, иначе роли по умолчанию.
   const slots = useMemo(
@@ -192,6 +210,57 @@ export function ProductionProgramPrintPreview(props: {
                 rankKey="employee:production-program-signature"
               />
             </div>
+
+            {props.canEditTemplates ? (
+              <div style={{ display: 'grid', gap: 6 }}>
+                <strong style={{ fontSize: 13 }}>Шаблон подписей</strong>
+                <span style={{ fontSize: 12, color: 'var(--subtle)' }}>
+                  Общий для завода набор подписей: применяется к программе одним движением и
+                  подставляется в новые планы.
+                </span>
+                <select
+                  data-pp-signature-template-select
+                  value={templateId || props.signatureTemplateId || ''}
+                  onChange={(e) => setTemplateId(String(e.target.value ?? ''))}
+                  style={{ fontSize: 13, padding: 6, borderRadius: 6, border: '1px solid var(--border)' }}
+                >
+                  <option value="">— выберите шаблон —</option>
+                  {(props.signatureTemplates ?? []).map((tpl) => (
+                    <option key={tpl.id} value={tpl.id}>
+                      {tpl.name}
+                      {tpl.isDefault ? ' (по умолчанию)' : ''}
+                    </option>
+                  ))}
+                </select>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <Button
+                    variant="ghost"
+                    data-pp-signature-template-apply
+                    disabled={!(templateId || props.signatureTemplateId)}
+                    onClick={() => {
+                      const id = templateId || props.signatureTemplateId || '';
+                      if (!id) return;
+                      props.onApplyTemplate?.(id);
+                    }}
+                  >
+                    Применить шаблон
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    data-pp-signature-template-save-default
+                    onClick={() => {
+                      // Имя шаблона спрашиваем по месту: без него шаблон не назвать,
+                      // а отдельный диалог ради одной строки — лишний экран.
+                      const name = window.prompt('Название шаблона подписей', 'Подписи ПП');
+                      if (!name || !name.trim()) return;
+                      props.onSaveAsTemplate?.(name.trim());
+                    }}
+                  >
+                    Сохранить как шаблон по умолчанию
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div style={{ overflow: 'auto', padding: 12, background: 'var(--surface-sunken, #f8fafc)' }}>

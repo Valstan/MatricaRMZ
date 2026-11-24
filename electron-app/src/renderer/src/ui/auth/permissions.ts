@@ -76,6 +76,11 @@ export type UiCaps = {
   canViewProductionProgram: boolean;
   /** Производственная программа (ПП): вести план (строки, состояния, отгрузка, подписи). */
   canEditProductionProgram: boolean;
+  /**
+   * Шаблон подписей ПП по умолчанию (промт КАРМАНА #120): вести общий для завода
+   * набор подписей, который подставляется в новые программы.
+   */
+  canEditProductionProgramSignatureTemplates: boolean;
   /** Детский модуль: видеть карточки детей. */
   canViewChildren: boolean;
   /** Детский модуль: вести карточки детей. */
@@ -167,6 +172,12 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
   // вести его — те, кому выдано `production_program.edit`.
   const canViewProductionProgram = has(perms, 'production_program.view');
   const canEditProductionProgram = has(perms, 'production_program.edit');
+  // Шаблон подписей ПП по умолчанию — право отдельное и поимённое: шаблон
+  // подставляется в новые программы всего завода, а не в план одного оператора.
+  const canEditProductionProgramSignatureTemplates = has(
+    perms,
+    'production_program.signature_templates.edit',
+  );
 
   // Детский и организационный модули: смотреть может тот, кому выдан раздел
   // (меню прячет раздел), вести — узкий круг с правом `*.edit`.
@@ -246,6 +257,7 @@ export function deriveUiCaps(perms: PermissionsMap | null | undefined): UiCaps {
 
     canViewProductionProgram,
     canEditProductionProgram,
+    canEditProductionProgramSignatureTemplates,
 
     canViewChildren,
     canEditChildren,

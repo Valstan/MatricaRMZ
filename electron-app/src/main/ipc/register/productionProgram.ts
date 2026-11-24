@@ -1,6 +1,8 @@
 import { and, asc, inArray, isNull } from 'drizzle-orm';
 import { ipcMain } from 'electron';
 
+import type { ProductionProgramSignatureTemplate } from '@matricarmz/shared';
+
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, viewModeWriteError } from '../ipcContext.js';
 import { erpProductionProgramRows, erpProductionPrograms } from '../../database/schema.js';
@@ -39,23 +41,9 @@ export type ProductionProgramDto = {
 /**
  * Шаблон подписей ПП — как его отдаёт сервер (промт КАРМАНА #120).
  *
- * Форма — общая с `shared/src/domain/productionProgramSignatureTemplate.ts`;
- * здесь она объявлена локально, чтобы main-контур не зависел от сборки
- * `shared/dist` в момент запуска.
+ * Форма — общая с `shared/src/domain/productionProgramSignatureTemplate.ts`.
  */
-export type ProductionProgramSignatureTemplateDto = {
-  id: string;
-  /** 'shared' — общий для парка шаблон; иначе id оператора-владельца. */
-  ownerId: string;
-  name: string;
-  /** Состав шаблона — JSON-строка со слотами подписей. */
-  slots: string;
-  /** Шаблон по умолчанию: его подставляют в новые программы. */
-  isDefault: boolean;
-  updatedAt: number;
-  updatedBy: string | null;
-  createdAt: number;
-};
+export type ProductionProgramSignatureTemplateDto = ProductionProgramSignatureTemplate;
 
 export type ProductionProgramLineDto = {
   id: string;

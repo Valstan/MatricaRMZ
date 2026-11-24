@@ -1183,6 +1183,14 @@ export type ProductionProgramDto = {
   title: string;
   status: string;
   signatureSlots: string | null;
+  /**
+   * Шаблон подписей, из которого взят состав (промт КАРМАНА #120).
+   *
+   * null — шаблон не применялся. Ссылка, а не содержимое: `signatureSlots`
+   * остаётся трёхзначным (`null` — «оператор не трогал блок», `[]` — «снял
+   * всё»), и по этой ссылке видно, что состав пришёл из шаблона.
+   */
+  signatureTemplateId: string | null;
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null;
@@ -1244,6 +1252,8 @@ export type ProductionProgramSaveDto = {
   title: string;
   status?: string;
   signatureSlots?: string | null;
+  /** Ссылка на шаблон подписей (промт КАРМАНА #120). */
+  signatureTemplateId?: string | null;
 };
 
 /**
@@ -1266,6 +1276,8 @@ export type ProductionProgramPatchDto = {
   title?: string;
   status?: string;
   signatureSlots?: string | null;
+  /** Ссылка на шаблон подписей: `null` — снять ссылку (состав остаётся свой). */
+  signatureTemplateId?: string | null;
 };
 
 /**

@@ -29,6 +29,7 @@ import type {
   ProductionProgramPatchDto,
   ProductionProgramSaveDto,
 } from '../domain/productionProgram.js';
+import type { ProductionProgramSignatureTemplate } from '../domain/productionProgramSignatureTemplate.js';
 import type { EngineReclamationDto } from '../domain/engineReclamations.js';
 import type { ChildDto, ChildSaveDto } from '../domain/children.js';
 import type {
@@ -3316,6 +3317,24 @@ export type MatricaApi = {
       { ok: true; id: string; operatorNote: string | null } | { ok: false; error: string }
     >;
     remove: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    /**
+     * Шаблон подписей ПП (промт КАРМАНА #120): общий для завода набор подписей,
+     * который подставляют в новые программы.
+     *
+     * Живёт на сервере (таблица вне sync-контракта) — клиент ходит своей дверью.
+     */
+    listSignatureTemplates: () => Promise<
+      { ok: true; rows: ProductionProgramSignatureTemplate[] } | { ok: false; error: string }
+    >;
+    /** Завести/править шаблон; `isDefault` — сделать шаблоном по умолчанию. */
+    saveSignatureTemplate: (args: {
+      id?: string | null;
+      name: string;
+      slots: string;
+      isDefault?: boolean;
+    }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+    /** Снять шаблон подписей. */
+    deleteSignatureTemplate: (id: string) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
   };
   /**
    * Детский модуль: карточки детей сотрудников.

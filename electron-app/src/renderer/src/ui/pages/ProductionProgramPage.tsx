@@ -26,11 +26,14 @@ import {
   productionProgramResolvePendingRows,
   productionProgramRowFromEngine,
   productionProgramRowTone,
+  productionProgramSignatureTemplateSlots,
   productionProgramStageOptions,
+  resolveProductionProgramSignatureSlots,
   serializePrintSignatureSlots,
   type EngineListItem,
   type PrintSignatureSlot,
   type ProductionProgramDto,
+  type ProductionProgramSignatureTemplate,
   type ProductionProgramDropSide,
   type ProductionProgramExecutionSummary,
   type ProductionProgramLineDraftDto,
@@ -121,6 +124,14 @@ type Props = {
    */
   canEditStages: boolean;
   /**
+   * Право вести общий шаблон подписей ПП
+   * (`production_program.signature_templates.edit`).
+   *
+   * Отдельное право от ведения плана: шаблон подставляется в новые программы
+   * всего завода, то есть правит его не тот, кто ведёт план.
+   */
+  canEditSignatureTemplates?: boolean;
+  /**
    * Открыть карточку двигателя из строки плана (промт КАРМАНА #64).
    *
    * Без этой двери номер двигателя в плане — просто текст: оператор должен был
@@ -149,6 +160,8 @@ type ProgramHeaderFields = {
   periodEnd: number;
   status: string;
   signatureSlots: string | null;
+  /** Шаблон подписей, из которого взят состав; null — шаблон не применялся. */
+  signatureTemplateId: string | null;
 };
 
 /**
@@ -196,6 +209,7 @@ function changedHeaderFields(
   if (patch.periodEnd !== undefined) out.periodEnd = header.periodEnd;
   if (patch.status !== undefined) out.status = header.status;
   if (patch.signatureSlots !== undefined) out.signatureSlots = header.signatureSlots;
+  if (patch.signatureTemplateId !== undefined) out.signatureTemplateId = header.signatureTemplateId;
   return out;
 }
 
@@ -338,6 +352,16 @@ export function ProductionProgramPage(props: Props) {
   // Реестр этапов ремонта (серверный справочник; без сервера — статика шага 1):
   // из него меню выбора этапа в колонке «Этап».
   const [stageTemplates, setStageTemplates] = useState<RepairStageTemplate[]>([...DEFAULT_REPAIR_STAGE_TEMPLATES]);
+  /**
+   * Шаблоны подписей ПП (промт КАРМАНА #120): общий для завода набор подписей,
+   * который подставляется в новые программы.
+   *
+   * Живут на сервере (таблица вне sync-контракта), поэтому клиент держит свой
+   * кэш: список перечитывается при открытии страницы и после правки шаблона,
+   * а при недоступном сервере остаётся последний увиденный — окно печати
+   * открывается и без сети.
+   */
+  const [signatureTemplates, setSignatureTemplates] = useState<ProductionProgramSignatureTemplate[]>([]);
   // Справочник цехов — поле «Цех» в модалке этапа.
   const [workshops, setWorkshops] = useState<Array<{ id: string; label: string }>>([]);
   /** Открытая модалка этапа: строка плана, двигатель и выбранный этап. */
@@ -440,6 +464,7 @@ export function ProductionProgramPage(props: Props) {
           title?: string;
           status?: string;
           signatureSlots?: string | null;
+          signatureTemplateId?: string | null;
         } = { id: programId };
         if (dirty.has('title')) {
           args.title = h.title;
@@ -468,6 +493,10 @@ export function ProductionProgramPage(props: Props) {
         if (dirty.has('signatureSlots')) {
           args.signatureSlots = h.signatureSlots;
           sentFields.push('signatureSlots');
+        }
+        if (dirty.has('signatureTemplateId')) {
+          args.signatureTemplateId = h.signatureTemplateId;
+          sentFields.push('signatureTemplateId');
         }
         if (sentFields.length > 0) {
           const res = await window.matrica.productionProgram.update(args);
@@ -793,6 +822,12 @@ export function ProductionProgramPage(props: Props) {
         if (override.signatureSlots !== undefined && (p.signatureSlots ?? null) !== override.signatureSlots) {
           pending.signatureSlots = override.signatureSlots;
         }
+        if (
+          override.signatureTemplateId !== undefined &&
+          (p.signatureTemplateId ?? null) !== override.signatureTemplateId
+        ) {
+          pending.signatureTemplateId = override.signatureTemplateId;
+        }
         if (Object.keys(pending).length === 0) {
           // Зеркало показало нашу шапку — дальше реплика ведёт сама.
           headerOverrideRef.current.delete(p.id);
@@ -810,6 +845,79 @@ export function ProductionProgramPage(props: Props) {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  /**
+   * Шаблоны подписей — перечитываем с сервера (клиентский кэш).
+   *
+   * Ошибку НЕ выносим в общую полосу ошибок: шаблоны — справочник, а без него
+   * программа живёт как раньше. При недоступном сервере остаётся последний
+   * увиденный список — окно печати открывается и без сети.
+   */
+  const reloadSignatureTemplates = useCallback(async () => {
+    try {
+      const res = await window.matrica.productionProgram.listSignatureTemplates();
+      if (!res.ok) return;
+      setSignatureTemplates(res.rows ?? []);
+    } catch {
+      // Сервер недоступен — держим прежний кэш.
+    }
+  }, []);
+
+  useEffect(() => {
+    void reloadSignatureTemplates();
+  }, [reloadSignatureTemplates]);
+
+  /**
+   * «Применить шаблон»: подставляем состав шаблона в программу.
+   *
+   * Через `setHeader` — иначе потерялся бы автосейв: правка осталась бы на
+   * экране, но не уехала бы на сервер.
+   */
+  const applySignatureTemplate = (templateId: string) => {
+    const tpl = signatureTemplates.find((t) => t.id === templateId);
+    if (!tpl) return;
+    const slots = productionProgramSignatureTemplateSlots(tpl);
+    setHeader({
+      signatureSlots: serializePrintSignatureSlots(slots),
+      signatureTemplateId: tpl.id,
+    });
+    setStatus(`Шаблон «${tpl.name}» применён`);
+  };
+
+  /**
+   * «Сохранить как шаблон по умолчанию»: текущий состав программы — в шаблон.
+   *
+   * Имя спрашивает вызывающий (окно печати): без названия шаблон не найти.
+   */
+  const saveSignatureTemplateAsDefault = async (name: string) => {
+    if (!selected) return;
+    // Состав программы: сохранённый — как есть; null («не трогал») — роли по
+    // умолчанию, иначе в шаблон ушёл бы ПУСТОЙ набор.
+    const saved = selected.signatureSlots
+      ? parseProductionProgramSignatureSlots(selected.signatureSlots)
+      : null;
+    const slots = resolveProductionProgramSignatureSlots(saved);
+    if (slots.length === 0) {
+      setError('В программе нет подписей — сохранять нечего');
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await window.matrica.productionProgram.saveSignatureTemplate({
+        name,
+        slots: serializePrintSignatureSlots(slots),
+        isDefault: true,
+      });
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setStatus('Шаблон сохранён');
+      await reloadSignatureTemplates();
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // План ведёт сервер, клиент читает реплику: только что созданный план приедет
   // публикацией зеркала и pull'ом — страница перечитывает список по этому событию.
@@ -1416,6 +1524,7 @@ export function ProductionProgramPage(props: Props) {
       periodEnd: Number(next.periodEnd ?? 0),
       status: String(next.status ?? 'draft'),
       signatureSlots: next.signatureSlots ?? null,
+      signatureTemplateId: next.signatureTemplateId ?? null,
     };
     // Оверрайд хранит ТОЛЬКО правленые поля: он держит на экране нашу правку,
     // пока зеркало её не показало. Если держать там весь снимок из реплики,
@@ -1539,6 +1648,7 @@ export function ProductionProgramPage(props: Props) {
           periodEnd: Number(selected.periodEnd ?? 0),
           status: String(selected.status ?? 'draft'),
           signatureSlots: selected.signatureSlots ?? null,
+          signatureTemplateId: selected.signatureTemplateId ?? null,
         },
       });
     } finally {
@@ -2704,6 +2814,11 @@ export function ProductionProgramPage(props: Props) {
             // документ, иначе добавленная подпись не печаталась бы в следующий раз.
             setHeader({ signatureSlots: serializePrintSignatureSlots(slots) });
           }}
+          signatureTemplates={signatureTemplates}
+          signatureTemplateId={selected?.signatureTemplateId ?? null}
+          canEditTemplates={!!props.canEditSignatureTemplates}
+          onApplyTemplate={(id) => applySignatureTemplate(id)}
+          onSaveAsTemplate={(name) => void saveSignatureTemplateAsDefault(name)}
         />
       ) : null}
 
