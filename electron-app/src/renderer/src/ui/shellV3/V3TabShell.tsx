@@ -61,6 +61,12 @@ export interface OpenTab {
 
 export function V3TabShell(props: {
   availableTabs: MenuTabId[];
+  /**
+   * Почему раздел срезан гейтом — словами для оператора (промт КАРМАНА #84).
+   * Ключ — раздел, значение — причина. Раздел с причиной не исчезает из полосы:
+   * плашка остаётся и говорит, чем её срезали (нет права / не выдан / не в пресете).
+   */
+  sectionGateNotes?: Partial<Record<MenuTabId, string>>;
   tabletOperatorMenu: boolean;
   /**
    * Планшетный режим: левое меню уезжает за край после паузы (владелец 23.11.2026).
@@ -751,16 +757,30 @@ export function V3TabShell(props: {
             </button>
             {/* Производственная программа (промт КАРМАНА #70, п.5: «в левую вертикальную
                 полосу меню добавить значок производственной программы»). Постоянная плашка,
-                не избранное: значок должен быть на месте всегда. Показываем тем, кому
-                раздел выдан (availableTabs — уже с учётом прав): плашка без раздела
-                открыла бы пустую вкладку. */}
-            {props.availableTabs.includes('production_program') && (
+                не избранное: значок должен быть на месте всегда.
+                Промт КАРМАНА #84 (24.11.2026): плашка не исчезает молча — если раздел срезал
+                гейт (нет права / раздел не выдан / не в пресете клиента), плашка остаётся на
+                месте, но приглушена и говорит, чем её срезали. Раньше она просто пропадала,
+                и оператор не понимал, чего ему не хватает. */}
+            {(props.availableTabs.includes('production_program') || props.sectionGateNotes?.production_program) && (
               <button
                 type="button"
-                className="v3-fav-card v3-fav-card-program"
+                className={
+                  props.sectionGateNotes?.production_program
+                    ? 'v3-fav-card v3-fav-card-program v3-fav-card-cut'
+                    : 'v3-fav-card v3-fav-card-program'
+                }
                 data-fav-card="production_program"
-                aria-label="Производственная программа"
-                title="Производственная программа"
+                aria-label={
+                  props.sectionGateNotes?.production_program
+                    ? `Производственная программа — ${props.sectionGateNotes.production_program}`
+                    : 'Производственная программа'
+                }
+                title={
+                  props.sectionGateNotes?.production_program
+                    ? `Производственная программа — ${props.sectionGateNotes.production_program}`
+                    : 'Производственная программа'
+                }
                 onClick={() => { setMenuOverlayOpen(false); props.onMenuTab('production_program'); }}
               >
                 <span className="v3-fav-card-icon" aria-hidden="true">📆</span>

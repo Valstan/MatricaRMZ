@@ -791,6 +791,14 @@
   border-color: #e8d6bb;
 }
 
+/* Раздел срезан гейтом (нет права / не выдан / не в пресете клиента) — плашка
+   остаётся на месте, но приглушена: так оператор видит, что раздел есть, и по
+   нажатию получает причину (промт КАРМАНА #84). */
+.v3-fav-card-cut {
+  opacity: 0.55;
+  border-style: dashed;
+}
+
 .v3-fav-card-ai .v3-fav-card-icon,
 .v3-fav-card-ai .v3-fav-card-label {
   position: relative;

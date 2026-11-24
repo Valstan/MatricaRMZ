@@ -149,6 +149,7 @@ import { describeRejectedRow } from './utils/syncRejected.js';
 import { logUiUsage } from './utils/uiUsageLog.js';
 import { resolveQuickStartTile } from './utils/favoriteShortcut.js';
 import { sanitizeSectionFavoriteIds, toggleSectionFavoriteId } from './utils/sectionFavorites.js';
+import { sectionGateReason, sectionGateReasonText } from './utils/sectionGateReason.js';
 import type { CardCloseActions } from './cardCloseTypes.js';
 // Только тип: страница грузится лениво, и обычный импорт утянул бы её в стартовый бандл.
 import type { EngineCardTab } from './pages/EngineDetailsPage.js';
@@ -3193,6 +3194,25 @@ export function App() {
     ? sectionGatedTabsFull.filter((t) => ANDROID_TABS.includes(t))
     : sectionGatedTabsFull;
   const sectionGatedTabsKey = sectionGatedTabs.join('|');
+  // Раздел могут срезать три фильтра, и оператор видел только следствие: раздел
+  // исчезал из меню, плашка в левой полосе не появлялась, и почему — неизвестно
+  // (претензия владельца 23.11.2026, промт КАРМАНА #84). Здесь считаем причину
+  // по каждому разделу, чтобы сказать её словами, а не исчезнуть молча.
+  const sectionGateNote = (t: MenuTabId): string | null => {
+    const reason = sectionGateReason({
+      allowedByRight: availableTabs.includes(t),
+      allowedByMembership: sectionGatedTabsFull.includes(t),
+      allowedByTabletPreset: sectionGatedTabs.includes(t),
+    });
+    return reason ? sectionGateReasonText(reason) : null;
+  };
+  // Постоянные плашки-разделы левой полосы: их нельзя просто спрятать, когда раздел
+  // срезал гейт (промт КАРМАНА #84) — плашка остаётся на месте и объясняет.
+  const sectionGateNotes: Partial<Record<MenuTabId, string>> = {};
+  for (const t of ['production_program'] as const) {
+    const note = sectionGateNote(t);
+    if (note) sectionGateNotes[t] = note;
+  }
   const userTab: Exclude<
     TabId,
     | 'engine'
@@ -3506,7 +3526,13 @@ export function App() {
     // Гейт по правам (sectionGatedTabs); скрытия кнопок МЕНЮ живут в buttonLayout.hidden —
     // второй, независимый список скрытий (tabsLayout) здесь больше не участвует: из-за него
     // видимая кнопка молча «не работала».
-    if (!sectionGatedTabs.includes(t) && !isUserTab) return;
+    if (!sectionGatedTabs.includes(t) && !isUserTab) {
+      // Раздел срезан гейтом — говорим почему, а не делаем вид, что клик не сработал
+      // (промт КАРМАНА #84: раздел не должен исчезать молча).
+      const note = sectionGateNote(t);
+      if (note) notifyOperator(`«${menuLabels[t] ?? t}» не открывается: ${note}.`);
+      return;
+    }
     if (t === 'assembly_forecast') {
       openReportPreset('assembly_forecast_7d');
       return;
@@ -7501,6 +7527,7 @@ export function App() {
                   : null
               }
               availableTabs={sectionGatedTabs}
+              sectionGateNotes={sectionGateNotes}
               tabletOperatorMenu={tabletActive && userRole !== "superadmin"}
               // Планшетный режим: левое меню уезжает за край после паузы
               // (владелец 23.11.2026). На десктопе полоса постоянна.
