@@ -184,6 +184,44 @@ async function ackBatch(claimed: OutboxRow[]): Promise<void> {
   `);
 }
 
+/**
+ * Аккаунты, которые обязаны уехать вместе со своими доступами.
+ *
+ * ЗАЧЕМ. Membership на клиенте собирается как INNER JOIN `users ⋈
+ * user_section_access`: строка доступа без строки аккаунта бесполезна (логина в
+ * ней нет, сопоставлять не с чем). А строка аккаунта публикуется в журнал ОДИН
+ * раз — при заведении учётной записи, — тогда как строка доступа публикуется
+ * позже, при каждой выдаче/снятии. Условие доезда строгое
+ * `last_server_seq > since`, поэтому клиент, чей курсор уже выше номера строки
+ * аккаунта, строку аккаунта НЕ получит НИКОГДА.
+ *
+ * Измерено на стенде lane1 (25.11.2026): `users` опубликованы под seq 124/125,
+ * а `user_section_access` — под 678; клиент с курсором выше 125 получил доступ,
+ * но не аккаунт, и membership читался пустым («раздел не выдан» при выданном).
+ *
+ * Поэтому аккаунт едет вместе со своими доступами: публикатор обновляет его
+ * номер тем же проходом, и пара `users ⋈ user_section_access` приезжает к
+ * клиенту одним окном. Порядок внутри пачки — аккаунты раньше доступов (FK),
+ * его задаёт публикатор.
+ */
+export function accountRowsForAccessRows<
+  A extends { id?: unknown },
+  S extends { userId?: unknown },
+>(accessRows: S[], accountsById: Map<string, A>, alreadyPublished: ReadonlySet<string> = new Set()): A[] {
+  const ids = new Set<string>();
+  for (const r of accessRows) {
+    const id = String((r as { userId?: unknown })?.userId ?? '');
+    if (id) ids.add(id);
+  }
+  const out: A[] = [];
+  for (const id of ids) {
+    if (alreadyPublished.has(id)) continue;
+    const account = accountsById.get(id);
+    if (account) out.push(account);
+  }
+  return out;
+}
+
 /** Один проход публикации. Возвращает число опубликованных строк. */
 export async function publishPendingUserRows(): Promise<number> {
   const claimed = await takeBatch(BATCH_LIMIT);
@@ -199,12 +237,27 @@ export async function publishPendingUserRows(): Promise<number> {
     ? await db.select().from(userSectionAccess).where(inArray(userSectionAccess.id, sectionIds as string[]))
     : [];
 
+  // Аккаунт едет вместе со своим доступом: без него клиент не соберёт membership
+  // (INNER JOIN users ⋈ user_section_access) — см. accountRowsForAccessRows.
+  const accessUserIds = [...new Set(sectionRows.map((r) => String(r.userId)))];
+  const companionAccounts = accessUserIds.length
+    ? await db.select().from(users).where(inArray(users.id, accessUserIds as string[]))
+    : [];
+  const accountsById = new Map(companionAccounts.map((r) => [String(r.id), r]));
+  const alreadyPublished = new Set(userRows.map((r) => String(r.id)));
+  const companionRows = accountRowsForAccessRows(
+    sectionRows as Array<{ userId?: unknown }>,
+    accountsById as Map<string, (typeof companionAccounts)[number]>,
+    alreadyPublished,
+  );
+
   // Заявка на строку, которой в PG больше нет, просто снимается: публиковать
   // нечего, а тумбстоуны зеркало держит само (0088).
   const inputs: SyncWriteInput[] = [
     // Аккаунты раньше доступов: FK user_id -> users, и клиентская чистка
     // FK-сирот снесла бы доступы, приехавшие раньше своего аккаунта.
     ...orderRowsForPublication(userRows as Array<Record<string, unknown>>).map(toUserInput),
+    ...orderRowsForPublication(companionRows as Array<Record<string, unknown>>).map(toUserInput),
     ...orderRowsForPublication(sectionRows as Array<Record<string, unknown>>).map(toSectionInput),
   ];
 
