@@ -825,6 +825,8 @@ const matricaApi = {
       periodStart: number;
       periodEnd: number;
       shop: string;
+      /** Цех из справочника (id): сервер сам возьмёт имя и запишет снимком. */
+      workshopId?: string | null;
       title: string;
       status?: string;
       signatureSlots?: string | null;
@@ -834,6 +836,8 @@ const matricaApi = {
       periodStart?: number;
       periodEnd?: number;
       shop?: string;
+      /** Цех из справочника (id): сервер сам возьмёт имя и запишет снимком. */
+      workshopId?: string | null;
       title?: string;
       status?: string;
       signatureSlots?: string | null;

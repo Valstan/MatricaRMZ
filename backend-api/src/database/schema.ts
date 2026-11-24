@@ -2666,8 +2666,21 @@ export const erpProductionPrograms = pgTable(
     /** Начало периода плана (мс) — как в Word-форме «01.11-15.11». */
     periodStart: bigint('period_start', { mode: 'number' }).notNull(),
     periodEnd: bigint('period_end', { mode: 'number' }).notNull(),
-    /** Цех: «Цех № 1» из образца. */
+    /** Цех: «Цех № 1» из образца. Это СНИМОК имени цеха — ради печати и выгрузки. */
     shop: text('shop').notNull(),
+    /**
+     * Цех программы по id справочника `directory_workshops`.
+     *
+     * Связь живёт здесь, а не в тексте: по тексту искать, фильтровать и считать
+     * статистику по цехам нельзя (владелец 24.11.2026). `shop` рядом остаётся
+     * снимком имени — на печати он идёт как в образце («Цех № 1»), даже если цех
+     * переименуют.
+     *
+     * null — программа заведена до появления связи (или цех в справочнике не
+     * найден): такие строки бэкфиллим ТОЛЬКО при однозначном совпадении, неоднозначные
+     * не угадываем.
+     */
+    workshopId: uuid('workshop_id'),
     title: text('title').notNull(),
     /** `draft` — черновик, `approved` — утверждён. */
     status: text('status').notNull().default('draft'),
@@ -2682,6 +2695,7 @@ export const erpProductionPrograms = pgTable(
   (t) => ({
     periodIdx: index('erp_production_programs_period_idx').on(t.periodStart),
     shopIdx: index('erp_production_programs_shop_idx').on(t.shop),
+    workshopIdx: index('erp_production_programs_workshop_idx').on(t.workshopId),
   }),
 );
 

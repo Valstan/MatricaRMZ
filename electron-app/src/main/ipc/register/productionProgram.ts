@@ -22,7 +22,10 @@ export type ProductionProgramDto = {
   id: string;
   periodStart: number;
   periodEnd: number;
+  /** Снимок имени цеха — ради печати и выгрузки. */
   shop: string;
+  /** Цех из справочника `directory_workshops`; null — связи пока нет. */
+  workshopId: string | null;
   title: string;
   status: string;
   signatureSlots: string | null;
@@ -95,6 +98,7 @@ export function registerProductionProgramIpc(ctx: IpcContext) {
             periodStart: Number(p.periodStart),
             periodEnd: Number(p.periodEnd),
             shop: String(p.shop),
+            workshopId: p.workshopId == null ? null : String(p.workshopId),
             title: String(p.title),
             status: String(p.status),
             signatureSlots: p.signatureSlots == null ? null : String(p.signatureSlots),
@@ -153,6 +157,7 @@ export function registerProductionProgramIpc(ctx: IpcContext) {
         periodStart: number;
         periodEnd: number;
         shop: string;
+        workshopId?: string | null;
         title: string;
         status?: string;
         signatureSlots?: string | null;
@@ -178,6 +183,7 @@ export function registerProductionProgramIpc(ctx: IpcContext) {
         periodStart?: number;
         periodEnd?: number;
         shop?: string;
+        workshopId?: string | null;
         title?: string;
         status?: string;
         signatureSlots?: string | null;

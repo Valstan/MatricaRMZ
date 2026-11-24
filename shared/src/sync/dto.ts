@@ -577,7 +577,10 @@ export const erpProductionProgramRowSchema = z.object({
   ...baseRowFields,
   period_start: z.number().int(),
   period_end: z.number().int(),
+  /** Снимок имени цеха — ради печати (в образце «Цех № 1»). */
   shop: z.string(),
+  /** Цех из справочника `directory_workshops`: связь по id. Мягкий nullable — у программ, заведённых до связи, её нет. */
+  workshop_id: z.string().nullable().optional(),
   title: z.string(),
   status: z.enum(['draft', 'approved']),
   signature_slots: z.string().nullable().optional(),

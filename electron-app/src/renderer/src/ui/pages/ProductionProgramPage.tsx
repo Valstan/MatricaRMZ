@@ -141,7 +141,10 @@ type DraftRow = ProductionProgramLineDraftDto & { id: string; operatorNote: stri
 /** Поля шапки программы, которые оператор правит на экране. */
 type ProgramHeaderFields = {
   title: string;
+  /** Снимок имени цеха (на печать и в выгрузку). */
   shop: string;
+  /** Цех из справочника `directory_workshops` — связь по id; null — legacy-текст. */
+  workshopId: string | null;
   periodStart: number;
   periodEnd: number;
   status: string;
@@ -220,6 +223,15 @@ const PROGRAM_STATUS_TONES: Record<string, { bg: string; border: string; text: s
  * отличить от обычной строки.
  */
 const GROUP_ROW_PREFIX = 'group:';
+
+/**
+ * Метка варианта «цех не из справочника» в поле «Цех».
+ *
+ * Программы, заведённые ДО появления связи (`workshopId`), хранят цех текстом.
+ * Они должны остаться видимыми и сохраняемыми — поэтому такой цех показан
+ * отдельным вариантом, а не пропадает молча.
+ */
+const LEGACY_SHOP_VALUE = '__legacy_shop__';
 
 function isoDate(ms: number | null | undefined): string {
   if (!ms || !Number.isFinite(ms) || ms <= 0) return '';
@@ -341,6 +353,7 @@ export function ProductionProgramPage(props: Props) {
           periodStart: h.periodStart,
           periodEnd: h.periodEnd,
           shop: h.shop,
+          workshopId: h.workshopId,
           title: h.title,
           status: h.status,
           signatureSlots: h.signatureSlots,
@@ -586,6 +599,7 @@ export function ProductionProgramPage(props: Props) {
         const mirrorCaughtUp =
           p.title === override.title &&
           p.shop === override.shop &&
+          (p.workshopId ?? null) === (override.workshopId ?? null) &&
           p.periodStart === override.periodStart &&
           p.periodEnd === override.periodEnd &&
           p.status === override.status;
@@ -775,16 +789,50 @@ export function ProductionProgramPage(props: Props) {
   /**
    * Цех по умолчанию для этапа: цех программы, если он есть в справочнике цехов.
    *
-   * Цех программы — свободный текст («Цех № 1»), а этап пишет цех по справочнику
-   * (id + снимок имени). Совпадение по названию — единственное, что можно сделать
-   * без новой связи; если цеха в справочнике нет, поле остаётся пустым.
+   * Цех программы — теперь связь по id (`workshopId`, владелец 24.11.2026), а этап
+   * пишет цех по справочнику (id + снимок имени) — так что связь переносится напрямую.
+   * У программ, заведённых до связи, id нет: остаётся сверка по названию, а если и
+   * цеха в справочнике нет — поле пустое.
    */
   const defaultWorkshopId = useMemo(() => {
+    const linkedId = String(selected?.workshopId ?? '').trim();
+    if (linkedId) return linkedId;
     const shop = String(selected?.shop ?? '').trim().toLowerCase();
     if (!shop) return '';
     const match = workshops.find((w) => w.label.trim().toLowerCase() === shop);
     return match?.id ?? '';
-  }, [selected?.shop, workshops]);
+  }, [selected?.shop, selected?.workshopId, workshops]);
+
+  /**
+   * Варианты цеха в шапке: справочник + сохранённая связь.
+   *
+   * Если цех программы отключили (soft-delete), он не попадёт в активные — но
+   * программа на него ссылается, и молча подменить её цех другим нельзя: связь
+   * показываем отдельной строкой.
+   */
+  const shopOptions = useMemo(() => {
+    const opts = workshops.map((w) => ({ id: w.id, label: w.label, missing: false }));
+    const currentId = String(selected?.workshopId ?? '').trim();
+    if (currentId && !opts.some((o) => o.id === currentId)) {
+      opts.push({
+        id: currentId,
+        label: String(selected?.shop ?? '').trim() || 'цех из справочника',
+        missing: true,
+      });
+    }
+    return opts;
+  }, [workshops, selected?.shop, selected?.workshopId]);
+
+  /** Цех программы, заведённой до появления связи: текст без id. */
+  const legacyShopText = useMemo(() => {
+    if (!selected) return '';
+    if (String(selected.workshopId ?? '').trim()) return '';
+    return String(selected.shop ?? '').trim();
+  }, [selected]);
+
+  /** Что выбрано в поле «Цех»: id цеха, либо метка legacy-текста, либо пусто. */
+  const shopChoice =
+    String(selected?.workshopId ?? '').trim() || (legacyShopText ? LEGACY_SHOP_VALUE : '');
 
   /** Номер договора по его id: из карточки двигателя, иначе — из строгой реплики. */
   const contractNumberById = useMemo(() => {
@@ -1172,6 +1220,7 @@ export function ProductionProgramPage(props: Props) {
     const header: ProgramHeaderFields = {
       title: String(next.title ?? ''),
       shop: String(next.shop ?? ''),
+      workshopId: next.workshopId == null ? null : String(next.workshopId),
       periodStart: Number(next.periodStart ?? 0),
       periodEnd: Number(next.periodEnd ?? 0),
       status: String(next.status ?? 'draft'),
@@ -1180,6 +1229,22 @@ export function ProductionProgramPage(props: Props) {
     headerOverrideRef.current.set(selectedId, header);
     markUnsaved(selectedId);
     scheduleAutosave(selectedId, { rows: null, header });
+  };
+
+  /**
+   * Выбор цеха в шапке: связь по id справочника + снимок имени для печати.
+   *
+   * Сервер — единственный авторитет: имя цеха он возьмёт из справочника сам, а
+   * `shop` мы шлём снимком, чтобы печать и выгрузка не ждали сервер.
+   */
+  const applyWorkshopChoice = (value: string) => {
+    if (value === LEGACY_SHOP_VALUE) {
+      setHeader({ workshopId: null, shop: legacyShopText });
+      return;
+    }
+    const chosen = shopOptions.find((o) => o.id === value);
+    if (!chosen) return;
+    setHeader({ workshopId: chosen.id, shop: chosen.label });
   };
 
   /** Смена программы: вид периода — по её датам. */
@@ -1229,10 +1294,15 @@ export function ProductionProgramPage(props: Props) {
       periodStart.setHours(12, 0, 0, 0);
       const periodEnd = new Date(periodStart);
       periodEnd.setDate(periodEnd.getDate() + 13);
+      // Цех нового плана — из справочника (владелец 24.11.2026). Берём первый
+      // активный цех, а оператор сразу переставит его в шапке. Справочник пуст —
+      // legacy-текст, чтобы создание не падало (сервер требует непустой цех).
+      const firstWorkshop = workshops[0] ?? null;
       const res = await window.matrica.productionProgram.create({
         periodStart: periodStart.getTime(),
         periodEnd: periodEnd.getTime(),
-        shop: 'Цех № 1',
+        shop: firstWorkshop ? firstWorkshop.label : 'Цех № 1',
+        workshopId: firstWorkshop ? firstWorkshop.id : null,
         title: `Производственная программа ${formatProductionProgramPeriod({ start: periodStart.getTime(), end: periodEnd.getTime() })}`,
         status: 'draft',
         signatureSlots: null,
@@ -1262,6 +1332,7 @@ export function ProductionProgramPage(props: Props) {
         header: {
           title: String(selected.title ?? ''),
           shop: String(selected.shop ?? ''),
+          workshopId: selected.workshopId ?? null,
           periodStart: Number(selected.periodStart ?? 0),
           periodEnd: Number(selected.periodEnd ?? 0),
           status: String(selected.status ?? 'draft'),
@@ -1956,12 +2027,27 @@ export function ProductionProgramPage(props: Props) {
                 )}
                 {fieldLabel(
                   'Цех',
-                  <input
-                    value={selected.shop}
+                  // Цех — ВЫБОР из справочника `directory_workshops`, а не свободный
+                  // текст (владелец 24.11.2026): связь по id нужна, чтобы искать,
+                  // фильтровать и считать статистику по цехам.
+                  <select
+                    value={shopChoice}
                     disabled={!props.canEdit}
-                    onChange={(e) => setHeader({ shop: e.target.value })}
+                    onChange={(e) => applyWorkshopChoice(e.target.value)}
                     style={{ padding: '4px 6px', width: '100%', minWidth: 0, boxSizing: 'border-box' }}
-                  />,
+                    data-pp-field="workshop"
+                  >
+                    {shopChoice === '' ? <option value="">— выберите цех —</option> : null}
+                    {legacyShopText ? (
+                      <option value={LEGACY_SHOP_VALUE}>{legacyShopText} (не из справочника)</option>
+                    ) : null}
+                    {shopOptions.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
+                        {o.missing ? ' (нет в справочнике)' : ''}
+                      </option>
+                    ))}
+                  </select>,
                   { flex: '1 1 170px' },
                 )}
                 {fieldLabel(

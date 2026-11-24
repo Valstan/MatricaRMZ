@@ -2,6 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DragEvent as ReactDragEvent } from 'react';
 
 import {
+  decideListDragDrop,
+  listDragSourceKey,
+  type ListDragEventLike,
+} from '../utils/listDragDrop.js';
+import {
   listDragRowStyle,
   resolveDropTarget,
   type ListDragSource,
@@ -23,6 +28,17 @@ const AUTOSCROLL_STEP_PX = 18;
  * И ЗАКРЫВАЕТ дыру с `onDragEnd`: состояние перетаскивания гасится на уровне документа,
  * поэтому отмена перетаскивания (Esc, drop мимо строки) больше не оставляет список
  * «залипшим» с подсвеченной строкой. Раньше это чинили вручную и только в одном месте.
+ *
+ * ⚠️ ПОРЯДОК СОБЫТИЙ (здесь ломалось перетаскивание — владелец 24.11.2026):
+ * React делегирует `onDrop` на корневой контейнер, поэтому обработчик страницы
+ * срабатывает в фазе ВСПЛЫТИЯ на корне — ПОЗЖЕ capture-фазы на `document`.
+ * Слушатель `drop` на `document` с `capture = true` гасил состояние перетаскивания
+ * ДО того, как страница прочитала источник, — строка подсвечивалась, линия
+ * вставки показывалась, а порядок не менялся. Поэтому:
+ *  · `drop` на `document` слушаем в фазе ВСПЛЫТИЯ (после обработчика страницы);
+ *  · `dragend` — отдельное событие, оно приходит после drop, capture тут безопасен;
+ *  · источник перетаскивания берём из `dataTransfer`, а не из ref кита.
+ * Подробности и чистая часть — `utils/listDragDrop.ts`.
  */
 export function useListDrag(opts?: { enabled?: boolean; scope?: () => HTMLElement | null }) {
   const enabled = opts?.enabled !== false;
@@ -40,14 +56,19 @@ export function useListDrag(opts?: { enabled?: boolean; scope?: () => HTMLElemen
 
   // Сброс по событию документа: `dragend` на элементе не срабатывает, если drop
   // прошёл мимо цели или оператор отменил перетаскивание клавишей Escape.
+  //
+  // `drop` — ТОЛЬКО в фазе всплытия: React отдаёт `onDrop` странице в фазе
+  // всплытия на корневом контейнере, и наш слушатель на `document` обязан
+  // прийти ПОСЛЕ него. С capture-фазой он пришёл бы раньше и погасил
+  // состояние до того, как страница прочитала источник (см. шапку файла).
   useEffect(() => {
     if (!enabled) return;
     const onEnd = () => clear();
     document.addEventListener('dragend', onEnd, true);
-    document.addEventListener('drop', onEnd, true);
+    document.addEventListener('drop', onEnd, false);
     return () => {
       document.removeEventListener('dragend', onEnd, true);
-      document.removeEventListener('drop', onEnd, true);
+      document.removeEventListener('drop', onEnd, false);
     };
   }, [enabled, clear]);
 
@@ -114,13 +135,32 @@ export function useListDrag(opts?: { enabled?: boolean; scope?: () => HTMLElemen
     [enabled, collectRowRects, autoScroll],
   );
 
+  /**
+   * Ключ перетаскиваемой строки — из `dataTransfer` (то, что кит положил при
+   * старте перетаскивания), с откатом на ref кита.
+   *
+   * Источник истины — `dataTransfer`: он переживает любое состояние ref'а
+   * кита, а ref мог быть погашен слушателем, отработавшим раньше.
+   */
+  const sourceKeyOf = useCallback((event: ListDragEventLike | null | undefined): string => {
+    return listDragSourceKey(event, dragRef.current?.key ?? null);
+  }, []);
+
   const drop = useCallback(
     (event: ReactDragEvent, onDropAt: (target: ListDropTarget) => void) => {
-      if (!enabled || !dragRef.current) return;
+      if (!enabled) return;
+      const wasDragging = dragRef.current != null;
+      const sourceKey = listDragSourceKey(event, dragRef.current?.key ?? null);
+      // Это не наше перетаскивание — чужой drop браузеру не мешаем.
+      if (!sourceKey && !wasDragging) return;
       event.preventDefault();
       const target = resolveDropTarget(event.clientY, collectRowRects());
+      const decision = decideListDragDrop({ sourceKey, target });
+      // Состояние гасим всегда: и когда перестановка случилась, и когда цель
+      // не нашлась (drop мимо строки) — список не должен остаться «залипшим».
       clear();
-      if (target) onDropAt(target);
+      if (decision.kind === 'ignore') return;
+      onDropAt(decision.target);
     },
     [enabled, collectRowRects, clear],
   );
@@ -134,6 +174,11 @@ export function useListDrag(opts?: { enabled?: boolean; scope?: () => HTMLElemen
     startDrag,
     overRow,
     drop,
+    /**
+     * Ключ перетаскиваемой строки по событию — для страниц, которые читают
+     * источник сами (ПП читает `dataTransfer` напрямую).
+     */
+    sourceKeyOf,
     clear,
     /** Стиль перетаскиваемой строки (общий для всех списков). */
     rowStyle: (rowKey: string) => listDragRowStyle(drag?.key ?? null, rowKey),

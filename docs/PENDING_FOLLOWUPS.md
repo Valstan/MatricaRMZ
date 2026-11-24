@@ -54,6 +54,9 @@
 
 ## 🟡 Техдолг и отложенное
 
+- [🟡 ПП: приёмка глазами — поля шапки и перетаскивание 🗓 since:2026-11-24](pending/pp-priemka-glazami-shapka-i-peretaskivanie.md)
+- [🟡 Кит перетаскивания: живой прогон второго пути (карточки) не доведён 🗓 since:2026-11-24](pending/kit-peretaskivaniya-zhivoy-progon-vtorogo-pute.md)
+
 - [🟡 Отчётные таблицы вне кита: пресеты и конструктор отчётов — нужен устойчивый ключ строки от сервера 🗓 since:2026-11-23](pending/otchetnye-tablitsy-presetov-i-konstruktor-otchetov-vne-kita.md)
 
 - [🟡 Индекс грабель у потолка: новая грабля не влезает без сокращения формулировок 🗓 since:2026-11-20](pending/indeks-grabeley-u-potolka.md)
@@ -96,6 +99,7 @@
 
 ## ⏳ Ждёт внешнего окна / события
 
+- [⏳ Прод-бэкфилл цехов программ: ждёт решения владельца (рантайм не пускает к прод-БД) 🗓 since:2026-11-24](pending/pp-backfill-workshop-na-prode-reshenie-vladeltsa.md)
 - [⏳ Данные оператора: серверная дверь починена, клиент 3.135.0 роняет pull — остались снимок машины, обновление ≥3.136.0 и приёмка 🗓 since:2026-11-23](pending/dannie-operatora-ne-uhodyat-na-server.md)
 - [⏳ Строки списка деталей застряли в отправке: клиент заново шлёт отвергнутую по LWW строку, а pull на Android не отработал 🗓 since:2026-11-24](pending/stroki-spiska-detaley-zastryali-v-otpravke.md)
 - [⏳ Свой ключ DeepSeek под проект (D-188): выпускает владелец, переезд делаем мы 🗓 since:2026-11-08](pending/svoy-key-deepseek-dlya-proekta-d-188.md)

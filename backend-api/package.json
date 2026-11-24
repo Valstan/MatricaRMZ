@@ -1,6 +1,6 @@
 {
   "name": "@matricarmz/backend-api",
-  "version": "3.144.0",
+  "version": "3.145.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -40,6 +40,8 @@
     "contracts:canonicalize-section-keys:apply": "tsx src/scripts/canonicalizeContractSectionKeys.ts --apply",
     "contracts:resync-slots": "tsx src/scripts/resyncContractSlots.ts",
     "contracts:resync-slots:apply": "tsx src/scripts/resyncContractSlots.ts --apply",
+    "production-programs:backfill-workshop": "tsx src/scripts/backfillProductionProgramWorkshop.ts",
+    "production-programs:backfill-workshop:apply": "tsx src/scripts/backfillProductionProgramWorkshop.ts --apply",
     "positions:backfill": "tsx src/scripts/backfillEmployeePositions.ts",
     "employees:import-csv": "tsx src/scripts/importEmployeesCsv.ts",
     "employees:restore-from-drafts": "tsx src/scripts/restoreEmployeesFromDrafts.ts",
