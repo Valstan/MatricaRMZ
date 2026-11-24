@@ -78,3 +78,10 @@ jobs:
       # Смоук держит идемпотентность (один блок после many прогонов) и сохранность чужих строк.
       - name: MiniMax DNS pin script smoke test
         run: bash scripts/prod-ops/minimax-dns-pin.test.sh
+
+      # Раскатка воркера MiniMax на проде: по умолчанию скрипт НИЧЕГО не меняет, а включение
+      # звена раньше времени сжигает аккаунты пула Кармана впустую. Смоук держит главное:
+      # dry-run не зовёт sudo/systemctl вообще, отсутствие кода воркера даёт код 1, мягкие
+      # замечания — код 2, а значение токена пула в вывод не попадает.
+      - name: MiniMax worker rollout script smoke test
+        run: bash scripts/prod-ops/deploy-minimax-worker.test.sh

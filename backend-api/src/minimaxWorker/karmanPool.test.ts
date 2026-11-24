@@ -48,6 +48,29 @@ describe('takeAccount', () => {
     });
   });
 
+  it('причины пустоты различаются: «нет аккаунтов» ≠ «нет пары токенов» ≠ «все непригодны»', async () => {
+    const empty = (async () =>
+      jsonResponse(200, { account: null, reason: 'no_free_accounts' })) as unknown as typeof fetch;
+    const noTokens = (async () =>
+      jsonResponse(200, { account: null, reason: 'no_tokens_ready' })) as unknown as typeof fetch;
+    const noHandable = (async () =>
+      jsonResponse(200, { account: null, reason: 'no_handable_accounts' })) as unknown as typeof fetch;
+
+    await expect(takeAccount(client(empty))).rejects.toMatchObject({ reason: 'pool_empty' });
+    await expect(takeAccount(client(noTokens))).rejects.toMatchObject({ reason: 'pool_no_tokens' });
+    await expect(takeAccount(client(noHandable))).rejects.toMatchObject({ reason: 'pool_no_handable' });
+  });
+
+  it('причина пустоты сохраняется в detail — по ней видно, что именно кончилось', async () => {
+    const fetchImpl = (async () =>
+      jsonResponse(200, { account: null, reason: 'no_handable_accounts' })) as unknown as typeof fetch;
+
+    await expect(takeAccount(client(fetchImpl))).rejects.toMatchObject({
+      reason: 'pool_no_handable',
+      detail: 'no_handable_accounts',
+    });
+  });
+
   it('read-only токен отличается от недоступного сервиса', async () => {
     const fetchImpl = (async () => jsonResponse(403, { error: 'read-only' })) as unknown as typeof fetch;
     await expect(takeAccount(client(fetchImpl))).rejects.toMatchObject({ reason: 'token_read_only' });
@@ -97,27 +120,43 @@ describe('renewAccount', () => {
     const fetchImpl = (async () => jsonResponse(409, { error: 'не наш' })) as unknown as typeof fetch;
     await expect(renewAccount(client(fetchImpl), 7)).rejects.toMatchObject({ reason: 'account_not_ours' });
   });
+
+  it('Карман не вернул вход — это отказ, а не продление без токена', async () => {
+    const fetchImpl = (async () => jsonResponse(200, { account_id: 7, renewed: false })) as unknown as typeof fetch;
+    await expect(renewAccount(client(fetchImpl), 7)).rejects.toMatchObject({
+      reason: 'karman_unavailable',
+    });
+  });
 });
 
 describe('reportActivation', () => {
-  it('передаёт наблюдение очки/клетка', async () => {
+  it('передаёт опознание аккаунта и ничего лишнего', async () => {
     let body: unknown = null;
     const fetchImpl = (async (_url: string, init?: RequestInit) => {
       body = JSON.parse(String(init?.body ?? '{}'));
       return jsonResponse(200, { account_id: 7 });
     }) as unknown as typeof fetch;
 
-    await reportActivation(client(fetchImpl), {
-      account_id: 7,
-      email: 'pool@example.com',
-      points: 1000,
-      activation_index: 3,
-    });
-    expect(body).toEqual({
-      account_id: 7,
-      email: 'pool@example.com',
-      points: 1000,
-      activation_index: 3,
+    await reportActivation(client(fetchImpl), { account_id: 7, email: 'pool@example.com' });
+    expect(body).toEqual({ account_id: 7, email: 'pool@example.com' });
+  });
+
+  it('пустые поля не отправляются: `null` в теле — это 400 у Кармана, а points превратился бы в 0', async () => {
+    let body: unknown = null;
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body ?? '{}'));
+      return jsonResponse(200, { account_id: 7 });
+    }) as unknown as typeof fetch;
+
+    await reportActivation(client(fetchImpl), { account_id: 7, email: null });
+    expect(body).toEqual({ account_id: 7 });
+    expect(Object.values(body as Record<string, unknown>)).not.toContain(null);
+  });
+
+  it('нечего отмечать — отказ до сети, а не 400 от Кармана', async () => {
+    const fetchImpl = (async () => jsonResponse(200, {})) as unknown as typeof fetch;
+    await expect(reportActivation(client(fetchImpl), { account_id: null, email: null })).rejects.toMatchObject({
+      reason: 'bad_request',
     });
   });
 });
