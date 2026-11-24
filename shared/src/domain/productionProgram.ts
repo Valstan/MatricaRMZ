@@ -1174,7 +1174,15 @@ export type ProductionProgramDto = {
   id: string;
   periodStart: number;
   periodEnd: number;
+  /** Снимок имени цеха — ради печати и выгрузки (в образце «Цех № 1»). */
   shop: string;
+  /**
+   * Цех из справочника `directory_workshops` — связь по id.
+   *
+   * null — программа заведена до появления связи (или цех в справочнике не
+   * нашёлся): такие ждут решения владельца, а не угадывания.
+   */
+  workshopId: string | null;
   title: string;
   status: string;
   signatureSlots: string | null;
@@ -1229,6 +1237,13 @@ export type ProductionProgramSaveDto = {
   periodStart: number;
   periodEnd: number;
   shop: string;
+  /**
+   * Цех из справочника `directory_workshops` (id).
+   *
+   * Если задан — сервер сам возьмёт имя цеха и запишет его снимком в `shop`.
+   * Если пусто — остаётся legacy-путь: `shop` приходит текстом.
+   */
+  workshopId?: string | null;
   title: string;
   status?: string;
   signatureSlots?: string | null;

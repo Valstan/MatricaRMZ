@@ -613,6 +613,7 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
       period_start integer NOT NULL,
       period_end integer NOT NULL,
       shop text NOT NULL,
+      workshop_id text,
       title text NOT NULL,
       status text NOT NULL DEFAULT 'draft',
       signature_slots text,
@@ -979,6 +980,21 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
   if (await hasTable(sqlite, 'erp_production_program_rows')) {
     if (!(await columnNames('erp_production_program_rows')).has('operator_note')) {
       await sqlite.exec(`ALTER TABLE erp_production_program_rows ADD COLUMN operator_note text;`);
+    }
+  }
+
+  // erp_production_programs.workshop_id — связь программы с цехом по id справочника
+  // `directory_workshops` (миграция сервера 0140, владелец 24.11.2026: «цех должен
+  // выбираться из базы»). Nullable — ровно как на сервере, иначе checkReplicaStrictness
+  // уронит pull.
+  //
+  // Зеркало electron-app/src/main/database/migrate.ts: долгоживущая БД планшета создана
+  // без этой колонки, а CREATE TABLE IF NOT EXISTS на существующей таблице ничего не
+  // меняет. Шаг 16→17 версионной цепочки догоняет живых клиентов; здесь — страховка
+  // для тех, кто идёт мимо цепочки.
+  if (await hasTable(sqlite, 'erp_production_programs')) {
+    if (!(await columnNames('erp_production_programs')).has('workshop_id')) {
+      await sqlite.exec(`ALTER TABLE erp_production_programs ADD COLUMN workshop_id text;`);
     }
   }
 

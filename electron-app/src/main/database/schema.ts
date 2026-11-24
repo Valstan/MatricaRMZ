@@ -826,6 +826,9 @@ export const erpProductionPrograms = sqliteTable('erp_production_programs', {
   periodStart: integer('period_start').notNull(),
   periodEnd: integer('period_end').notNull(),
   shop: text('shop').notNull(),
+  // Цех программы по id справочника `directory_workshops` (связь). Nullable — ровно
+  // как на сервере: у программ, заведённых до связи, её нет (миграция сервера 0140).
+  workshopId: text('workshop_id'),
   title: text('title').notNull(),
   status: text('status').notNull().default('draft'),
   signatureSlots: text('signature_slots'),

@@ -5,7 +5,7 @@ import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { looksLikeIdentifier, parseProductionProgramOperatorMark, parseProductionProgramState } from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
-import { erpProductionProgramRows, erpProductionPrograms } from '../database/schema.js';
+import { directoryWorkshops, erpProductionProgramRows, erpProductionPrograms } from '../database/schema.js';
 
 /**
  * Производственная программа (ПП) — серверная дверь.
@@ -25,7 +25,10 @@ export type ProductionProgramRow = {
   id: string;
   periodStart: number;
   periodEnd: number;
+  /** Снимок имени цеха — ради печати и выгрузки (в образце «Цех № 1»). */
   shop: string;
+  /** Цех из справочника `directory_workshops`; null — связи пока нет. */
+  workshopId: string | null;
   title: string;
   status: string;
   signatureSlots: string | null;
@@ -60,6 +63,7 @@ type ValidatedProgram = {
   periodStart: number;
   periodEnd: number;
   shop: string;
+  workshopId: string | null;
   title: string;
   status: string;
   signatureSlots: string | null;
@@ -77,6 +81,7 @@ function mapProgram(r: typeof erpProductionPrograms.$inferSelect): ProductionPro
     periodStart: Number(r.periodStart),
     periodEnd: Number(r.periodEnd),
     shop: String(r.shop),
+    workshopId: r.workshopId == null ? null : String(r.workshopId),
     title: String(r.title),
     status: String(r.status),
     signatureSlots: r.signatureSlots == null ? null : String(r.signatureSlots),
@@ -151,7 +156,16 @@ export async function getProductionProgram(id: string): Promise<Result<{ row: Pr
 export type ProductionProgramInput = {
   periodStart: number;
   periodEnd: number;
+  /** Снимок имени цеха (у legacy-программ — свободный текст). */
   shop: string;
+  /**
+   * Цех из справочника `directory_workshops`.
+   *
+   * Если задан — сервер сам берёт имя цеха из справочника и записывает его
+   * снимком в `shop` (сервер — единственный авторитет, AGENTS.md §Ценности 5).
+   * Если пусто — остаётся legacy-путь: `shop` приходит текстом.
+   */
+  workshopId?: string | null | undefined;
   title: string;
   status?: string | undefined;
   signatureSlots?: string | null | undefined;
@@ -162,6 +176,7 @@ export type ProductionProgramUpdateInput = {
   periodStart?: number | undefined;
   periodEnd?: number | undefined;
   shop?: string | undefined;
+  workshopId?: string | null | undefined;
   title?: string | undefined;
   status?: string | undefined;
   signatureSlots?: string | null | undefined;
@@ -224,6 +239,33 @@ export type ProductionProgramLineInput = {
   note: string;
 };
 
+/**
+ * Цех программы из справочника `directory_workshops`.
+ *
+ * Возвращает пару «id + имя»: id — связь (по ней ищут, фильтруют и считают
+ * статистику по цехам), имя — снимок для печати и выгрузки.
+ *
+ * Пустой id — legacy-путь: цех остаётся текстом (программа заведена до появления
+ * связи, или цех в справочнике не нашёлся и ждёт решения владельца).
+ */
+export async function resolveProductionProgramWorkshop(
+  workshopId: string | null | undefined,
+): Promise<Result<{ id: string | null; name: string | null }>> {
+  const id = String(workshopId ?? '').trim();
+  if (!id) return { ok: true, id: null, name: null };
+  if (!isUuid(id)) return { ok: false, error: 'цех должен быть uuid' };
+  const [workshop] = await db
+    .select({ id: directoryWorkshops.id, name: directoryWorkshops.name })
+    .from(directoryWorkshops)
+    .where(eq(directoryWorkshops.id, id as any))
+    .limit(1);
+  // Цех, который отключили (soft-delete), остаётся в справочнике — и программа,
+  // что на него ссылается, обязана сохраняться. Поэтому ищем по факту строки,
+  // а не по «живой».
+  if (!workshop) return { ok: false, error: 'цех не найден в справочнике' };
+  return { ok: true, id: String(workshop.id), name: String(workshop.name) };
+}
+
 function validateProgramInput(args: ProductionProgramInput): Result<ValidatedProgram> {
   const periodStart = Number(args.periodStart);
   const periodEnd = Number(args.periodEnd);
@@ -231,6 +273,7 @@ function validateProgramInput(args: ProductionProgramInput): Result<ValidatedPro
   if (periodEnd < periodStart) return { ok: false, error: 'конец периода раньше начала' };
   const shop = String(args.shop ?? '').trim();
   if (!shop) return { ok: false, error: 'цех обязателен' };
+  const workshopId = args.workshopId == null || String(args.workshopId).trim() === '' ? null : String(args.workshopId).trim();
   const title = String(args.title ?? '').trim();
   if (!title) return { ok: false, error: 'название обязательно' };
   const status = String(args.status ?? 'draft').trim() || 'draft';
@@ -244,11 +287,18 @@ function validateProgramInput(args: ProductionProgramInput): Result<ValidatedPro
       return { ok: false, error: 'подписи должны быть JSON-массивом' };
     }
   }
-  return { ok: true, periodStart, periodEnd, shop, title, status, signatureSlots };
+  return { ok: true, periodStart, periodEnd, shop, workshopId, title, status, signatureSlots };
 }
 
 export async function createProductionProgram(args: ProductionProgramInput): Promise<Result<{ id: string }>> {
-  const checked = validateProgramInput(args);
+  // Цех — из справочника: сервер сам берёт имя и кладёт его снимком в `shop`.
+  const workshop = await resolveProductionProgramWorkshop(args.workshopId);
+  if (!workshop.ok) return workshop;
+  const checked = validateProgramInput({
+    ...args,
+    shop: workshop.name ?? args.shop,
+    workshopId: workshop.id,
+  });
   if (!checked.ok) return checked;
   const now = Date.now();
   const id = randomUUID();
@@ -257,6 +307,7 @@ export async function createProductionProgram(args: ProductionProgramInput): Pro
     periodStart: checked.periodStart,
     periodEnd: checked.periodEnd,
     shop: checked.shop,
+    workshopId: checked.workshopId as any,
     title: checked.title,
     status: checked.status,
     signatureSlots: checked.signatureSlots,
@@ -279,10 +330,16 @@ export async function updateProductionProgram(
     .where(and(eq(erpProductionPrograms.id, programId as any), isNull(erpProductionPrograms.deletedAt)))
     .limit(1);
   if (!current) return { ok: false, error: 'программа не найдена' };
+  // Цех приходит от клиента как id справочника; имя — из справочника, не от клиента.
+  const workshop = await resolveProductionProgramWorkshop(
+    args.workshopId === undefined ? current.workshopId : args.workshopId,
+  );
+  if (!workshop.ok) return workshop;
   const merged: ProductionProgramInput = {
     periodStart: args.periodStart ?? Number(current.periodStart),
     periodEnd: args.periodEnd ?? Number(current.periodEnd),
-    shop: args.shop ?? String(current.shop),
+    shop: workshop.name ?? args.shop ?? String(current.shop),
+    workshopId: workshop.id,
     title: args.title ?? String(current.title),
     status: args.status ?? String(current.status),
     signatureSlots: args.signatureSlots === undefined ? (current.signatureSlots == null ? null : String(current.signatureSlots)) : args.signatureSlots,
@@ -295,6 +352,7 @@ export async function updateProductionProgram(
       periodStart: checked.periodStart,
       periodEnd: checked.periodEnd,
       shop: checked.shop,
+      workshopId: checked.workshopId as any,
       title: checked.title,
       status: checked.status,
       signatureSlots: checked.signatureSlots,

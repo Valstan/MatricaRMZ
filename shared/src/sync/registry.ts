@@ -718,6 +718,9 @@ const ERP_PRODUCTION_PROGRAM_FIELDS = withBase(
   { db: 'periodStart', dto: 'period_start' },
   { db: 'periodEnd', dto: 'period_end' },
   { db: 'shop', dto: 'shop' },
+  // Цех из справочника: связь по id (по ней ищут, фильтруют и считают статистику
+  // по цехам). `shop` рядом — снимок имени для печати.
+  { db: 'workshopId', dto: 'workshop_id' },
   { db: 'title', dto: 'title' },
   { db: 'status', dto: 'status' },
   { db: 'signatureSlots', dto: 'signature_slots' },

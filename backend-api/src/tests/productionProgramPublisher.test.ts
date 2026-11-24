@@ -19,6 +19,9 @@ describe('публикация зеркала производственной �
     periodStart: 1_762_000_000_000,
     periodEnd: 1_762_700_000_000,
     shop: 'Цех № 1',
+    // Связь с цехом по id справочника (владелец 24.11.2026). null — программа
+    // заведена до появления связи.
+    workshopId: null as string | null,
     title: 'ПП Цех 1 с 01.11 по 15.11.2026',
     status: 'draft',
     signatureSlots: null,
@@ -66,6 +69,12 @@ describe('публикация зеркала производственной �
       'attention',
     );
     expect(toProductionProgramLineInput({ ...line }).row.operator_note).toBeNull();
+  });
+
+  it('связь с цехом едет в зеркало — по ней ищут и фильтруют программы по цехам', () => {
+    const workshopId = '22222222-2222-4222-8222-222222222222';
+    expect(toProductionProgramInput({ ...program, workshopId }).row.workshop_id).toBe(workshopId);
+    expect(toProductionProgramInput({ ...program }).row.workshop_id).toBeNull();
   });
 
   it('поля в snake_case ровно как ждёт реестр (кроме ledger-owned)', () => {

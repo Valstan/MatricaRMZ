@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { getTableName } from 'drizzle-orm';
+import { getTableConfig } from 'drizzle-orm/sqlite-core';
 import { describe, expect, it } from 'vitest';
 
 import { erpProductionProgramRows, erpProductionPrograms } from '../database/schema.js';
@@ -47,6 +48,18 @@ describe('реплика производственной программы', (
   it('drizzle-схема клиента экспортирует обе таблицы', () => {
     expect(getTableName(erpProductionPrograms)).toBe('erp_production_programs');
     expect(getTableName(erpProductionProgramRows)).toBe('erp_production_program_rows');
+  });
+
+  it('связь с цехом есть в реплике и она nullable — ровно как на сервере', () => {
+    // `workshop_id` — id цеха из `directory_workshops` (миграция сервера 0140).
+    // Nullable на обоих концах: иначе checkReplicaStrictness уронит pull.
+    for (const text of [electron, android]) {
+      expect(text).toContain('workshop_id text');
+    }
+    const columns = getTableConfig(erpProductionPrograms).columns;
+    const column = columns.find((c) => c.name === 'workshop_id');
+    expect(column, 'в клиентской схеме нет workshop_id').toBeTruthy();
+    expect(column?.notNull).toBe(false);
   });
 
   it('реплика ПП — server-write: клиент в таблицы не пишет', () => {

@@ -87,3 +87,44 @@ describe('миграция отметки оператора в плане (0135
     expect(config.columns.map((c) => c.name)).toContain('operator_note');
   });
 });
+
+/**
+ * Цех программы — из справочника, а не свободный текст (владелец 24.11.2026).
+ *
+ * Миграция 0140 добавляет связь `workshop_id` (id цеха из `directory_workshops`)
+ * рядом со снимком имени `shop`, который идёт на печать и в выгрузку.
+ */
+describe('миграция цеха производственной программы (0140)', () => {
+  const file = '0140_production_program_workshop.sql';
+  const sql = readFileSync(join(drizzleDir, file), 'utf8').replace(/\r\n/g, '\n');
+
+  it('файл миграции существует и добавляет колонку связи', () => {
+    expect(readdirSync(drizzleDir)).toContain(file);
+    expect(sql).toContain('ALTER TABLE erp_production_programs');
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS workshop_id uuid');
+    expect(sql).toContain('CREATE INDEX IF NOT EXISTS erp_production_programs_workshop_idx');
+  });
+
+  it('миграция аддитивная: данных она не трогает (связь ставит отдельный скрипт)', () => {
+    // Бэкфилл — отдельной командой с dry-run и отчётом: необратимая запись в
+    // прод-БД идёт только по правилу однозначного совпадения (прод-гейт #025).
+    expect(sql).not.toMatch(/UPDATE\s+erp_production_programs/i);
+  });
+
+  it('числится в журнале drizzle (без записи миграция не применится)', () => {
+    const journal = JSON.parse(readFileSync(join(drizzleDir, 'meta', '_journal.json'), 'utf8')) as {
+      entries: Array<{ idx: number; tag: string; when: number }>;
+    };
+    const entry = journal.entries.find((e) => e.tag === '0140_production_program_workshop');
+    expect(entry).toBeTruthy();
+    const previous = journal.entries.filter((e) => e.idx < (entry?.idx ?? 0)).at(-1);
+    expect(entry?.when ?? 0).toBeGreaterThan(previous?.when ?? 0);
+  });
+
+  it('колонка есть в drizzle-схеме сервера и она nullable', () => {
+    const config = getTableConfig(erpProductionPrograms);
+    const column = config.columns.find((c) => c.name === 'workshop_id');
+    expect(column).toBeTruthy();
+    expect(column?.notNull).toBe(false);
+  });
+});
