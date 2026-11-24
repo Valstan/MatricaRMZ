@@ -26,6 +26,7 @@ import {
   searchFolderSources,
 } from '../../services/fileSearchFolderService.js';
 import { readLocalImagePreview } from '../../services/localImagePreview.js';
+import { osPrintWizardAvailable, printImagesViaOsWizard } from '../../services/localImagePrint.js';
 import { photosPrintLocalPaths } from '../../services/fileService.js';
 import { resolveReferenceLabels } from '../../services/fileSearchReferenceService.js';
 import { SettingsKey, settingsGetString, settingsSetString } from '../../services/settingsStore.js';
@@ -377,12 +378,22 @@ export function registerFileSearchIpc(ctx: IpcContext) {
    * Печать отобранных картинок.
    *
    * Пути берутся из реестра main по выданным id: печатать можно только то,
-   * что main сам нашёл в папках оператора. Системный диалог печати — оператор
-   * правит размер и сам отправляет на печать (промт #88).
+   * что main сам нашёл в папках оператора.
+   *
+   * Два режима (промт КАРМАНА #102):
+   *  - `dialog` — системный диалог печати Chromium, все картинки сразу;
+   *  - `os` — СИСТЕМНЫЙ мастер печати фотографий (то, что владелец назвал
+   *    «Microsoft Picture Manager»): оператор в системном окне правит размер
+   *    и раскладку и жмёт «Печать». Один файл — одно окно.
+   *
+   * Если системный мастер не открылся — внятное сообщение и предложение
+   * запасного пути «Печать», а не тишина.
    */
   ipcMain.handle(
     'fileSearch:printImages',
-    async (_e, args: { ids?: string[] }): Promise<{ ok: true } | Err> => {
+    async (_e, args: { ids?: string[]; mode?: 'dialog' | 'os' }): Promise<
+      { ok: true; opened?: number; failed?: number } | Err
+    > => {
       try {
         const ids = Array.isArray(args?.ids) ? args.ids.slice(0, MAX_FOLDER_MATCHES) : [];
         const paths: string[] = [];
@@ -391,10 +402,29 @@ export function registerFileSearchIpc(ctx: IpcContext) {
           if (resolved) paths.push(resolved.path);
         }
         if (paths.length === 0) return { ok: false, error: 'Не выбрано ни одной картинки' };
+        if (args?.mode === 'os') {
+          const result = await printImagesViaOsWizard(paths);
+          if (!result.ok) return { ok: false, error: result.error };
+          return { ok: true, opened: result.opened, failed: result.failed };
+        }
         return await photosPrintLocalPaths(paths);
       } catch (e) {
         return { ok: false, error: String(e) };
       }
     },
   );
+
+  /**
+   * Умеет ли эта машина системный мастер печати фотографий.
+   *
+   * Renderer про ОС ничего не знает (десктоп и планшет собираются по-разному),
+   * поэтому способность спрашивается у main — и кнопка прячется сама.
+   */
+  ipcMain.handle('fileSearch:printCapabilities', async () => {
+    try {
+      return { ok: true as const, osPrintWizard: osPrintWizardAvailable() };
+    } catch (e) {
+      return { ok: false as const, error: String(e) };
+    }
+  });
 }

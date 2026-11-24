@@ -112,6 +112,18 @@ describe('модуль «Поиск по файлам»: сторож формы
     expect(PAGE).toContain('Отправить на печать');
   });
 
+  // Промт КАРМАНА #102: «Microsoft Picture Manager» — это НЕ Chromium-диалог,
+  // а системный мастер печати фотографий (photowiz.dll), где оператор правит
+  // размер и раскладку. Значит, у отобранных картинок ДВЕ кнопки, а кнопка
+  // системного мастера прячется, если машина его не умеет.
+  it('есть вторая кнопка — печать через системный мастер печати фотографий', () => {
+    expect(PAGE).toContain("mode: 'os'");
+    expect(PAGE).toContain('Через мастер печати фотографий');
+    expect(PAGE).toContain('printCapabilities');
+    // Кнопка рисуется только если мастер на машине есть.
+    expect(PAGE).toContain('osPrintWizard ?');
+  });
+
   it('модуль не пишет ни в папки, ни в файлы', () => {
     expect(PAGE).not.toMatch(/writeFile|createWriteStream|showSaveDialog|mkdir|rmSync|unlink/);
   });
