@@ -94,6 +94,7 @@ import { clearSyncSession, readSyncSession, refreshSyncSession } from './syncSes
 import { ensureClientSchemaCompatible } from './migrations/clientSchemaMigrations.js';
 import { buildOrphanCleanupSql } from './sync/repairSql.js';
 import { runPullLoopWithTimelineGuard } from './sync/pullTimelineGuard.js';
+import { buildStateSnapshotQueryParams } from './sync/stateSnapshotQuery.js';
 import { DEPENDENCY_TABLE, planDependencyRequeue, type SkippedRowLike } from './sync/dependencyRequeue.js';
 import { lwwRejectedByTable, skippedRowAction } from './sync/skipReasonPolicy.js';
 import { budgetForTable, operationsReserve as reserveOperations } from './sync/pushBudget.js';
@@ -5539,10 +5540,12 @@ export async function runSync(
       logSync(`start clientId=${clientId} apiBaseUrl=${currentApiBaseUrl}`);
       emitStage('prepare', 'подготовка синхронизации', { service: 'sync' });
       const pullStatePage = async (table: string, cursorId: string | null, pageSize = FULL_STATE_PAGE_SIZE) => {
-        const query = new URLSearchParams();
-        query.set('table', table);
+        // include_deleted=true — обязателен: полный pull в конце ставит курсор на
+        // голову журнала, поэтому тумбстоун, не попавший в snapshot, становится
+        // недостижим навсегда, а в реплике остаётся живая устаревшая строка.
+        // См. sync/stateSnapshotQuery.ts (замер на стенде lane1, 25.11.2026).
+        const query = buildStateSnapshotQueryParams(table, cursorId);
         query.set('limit', String(pageSize));
-        if (cursorId) query.set('cursor_id', cursorId);
         const url = `${currentApiBaseUrl}/ledger/state/snapshot?${query.toString()}`;
         const res = await fetchAuthed(
           db,
