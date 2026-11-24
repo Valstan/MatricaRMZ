@@ -28,6 +28,7 @@ import {
   userSectionAccessRowSchema,
   SyncTableRegistry,
   toSyncRow,
+  LWW_REJECTED_REASON,
   type SyncPushRequest,
 } from '@matricarmz/shared';
 import { and, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
@@ -530,11 +531,25 @@ export async function applyPushBatch(
       }
     }
 
+    /**
+     * Отсев устаревших строк перед применением.
+     *
+     * Отказ по устареванию (`lww_rejected`) — серверная копия строки новее
+     * присланной. Раньше он был МОЛЧАЛИВЫМ: строка просто выпадала из батча, и
+     * клиент об этом не узнавал — она навсегда оставалась `pending` и уходила в
+     * каждый push снова и снова (класс «строка создана локально, а на сервер не
+     * уехала», письмо проекта в Мозг 24.11.2026). Теперь отказ назван, и клиент
+     * по нему снимает `pending`: серверная копия новее, её привезёт pull.
+     *
+     * `staleReason` — как называть такой отказ для этой таблицы. Для `operations`
+     * это `lww_rejected` (по нему клиент снимает pending); для зеркал остаётся
+     * `conflict` — их поведение не меняем.
+     */
     async function filterStaleBySeqOrUpdatedAt(
       table: any,
       rows: any[],
       tableName: SyncTableName,
-      opts?: { allowConflicts?: boolean; allowSyncConflicts?: boolean },
+      opts?: { allowConflicts?: boolean; allowSyncConflicts?: boolean; staleReason?: string },
     ): Promise<any[]> {
       if (rows.length === 0) return rows;
       const ids = rows.map((r) => r.id);
@@ -558,6 +573,8 @@ export async function applyPushBatch(
       // НЕ общий throw: это ретрай оффлайн-очереди (напр. self-heal requeue клиента),
       // и одна такая строка не имеет права блокировать push всей машины (правило M49).
       const undeleteSkippedIds: string[] = [];
+      // Отказ по устареванию (серверная копия новее) — раньше молчаливый.
+      const lwwSkippedIds: string[] = [];
       const filtered = rows.filter((r) => {
         const cur = map.get(String(r.id));
         if (!cur || !Number.isFinite(cur.updatedAt)) return true;
@@ -580,11 +597,31 @@ export async function applyPushBatch(
             return false;
           }
           if (incomingDeleted && cur.deletedAt == null) return true;
-          return !(cur.updatedAt > r.updated_at);
+          if (cur.updatedAt > r.updated_at) {
+            lwwSkippedIds.push(String(r.id));
+            return false;
+          }
+          return true;
         }
         if (r.deleted_at && cur.deletedAt == null) return true;
-        return !(cur.updatedAt > r.updated_at);
+        if (cur.updatedAt > r.updated_at) {
+          lwwSkippedIds.push(String(r.id));
+          return false;
+        }
+        return true;
       });
+      if (lwwSkippedIds.length > 0) {
+        addSkipMetric('conflict', tableName, lwwSkippedIds.length, 'lww');
+        logSkip('sync stale rows rejected (LWW guard)', {
+          table: tableName,
+          conflicts: lwwSkippedIds.length,
+          client_id: req.client_id,
+          user: actor.username,
+        });
+        for (const rowId of lwwSkippedIds) {
+          addSkippedRow({ table: tableName, row_id: rowId, reason: opts?.staleReason ?? LWW_REJECTED_REASON });
+        }
+      }
       if (undeleteSkippedIds.length > 0) {
         addSkipMetric('conflict', tableName, undeleteSkippedIds.length, 'tombstone_undelete');
         logSkip('sync tombstone undelete rows skipped', {
@@ -610,7 +647,7 @@ export async function applyPushBatch(
             addSkippedRow({
               table: tableName,
               row_id: rowId,
-              reason: 'conflict',
+              reason: opts?.staleReason ?? 'conflict',
             });
           }
         } else if (!opts?.allowConflicts) {
@@ -1218,7 +1255,15 @@ export async function applyPushBatch(
     {
       const raw = grouped.get(SyncTableName.Operations) ?? [];
       const parsed = parseRows(SyncTableName.Operations, raw, operationRowSchema);
-      let rows = await filterStaleBySeqOrUpdatedAt(operations, parsed, SyncTableName.Operations);
+      // Конфликт по seq — per-row отказ, а не падение всего батча: одна конфликтная
+      // строка (обычно история ремонта, которую правили на двух машинах) больше не
+      // роняет push всей машины — остальные строки применяются как обычно.
+      // Отказ называется `lww_rejected`: серверная копия новее, клиент снимает
+      // `pending` и берёт серверную (её привезёт pull).
+      let rows = await filterStaleBySeqOrUpdatedAt(operations, parsed, SyncTableName.Operations, {
+        allowSyncConflicts: true,
+        staleReason: LWW_REJECTED_REASON,
+      });
       const ids = rows.map((r) => r.id);
       const existing = await tx
         .select()

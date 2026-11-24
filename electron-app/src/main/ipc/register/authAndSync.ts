@@ -226,7 +226,16 @@ export function registerAuthAndSyncIpc(ctx: IpcContext) {
     if (!/^pending-export-[A-Za-z0-9._-]+\.json$/.test(name)) return { ok: false as const, error: 'не тот файл' };
     const target = join(app.getPath('userData'), name);
     if (!existsSync(target)) return { ok: false as const, error: 'файл не найден' };
-    shell.showItemInFolder(target);
+    try {
+      shell.showItemInFolder(target);
+    } catch {
+      // Планшета: файловой системы у WebView нет, показать файл негде. Оператору
+      // нужен честный ответ, а не падение канала (план #114, шаг 30).
+      return {
+        ok: false as const,
+        error: 'На планшете нет файловой системы: файл выгрузки хранится внутри приложения и не переживает очистку данных. Отдайте данные администратору с ПК.',
+      };
+    }
     return { ok: true as const };
   });
 

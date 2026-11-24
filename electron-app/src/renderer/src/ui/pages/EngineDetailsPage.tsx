@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { EngineDetails, EngineDuplicateMatches, EngineInternalNumberDuplicate, FileRef, SupplyRequestItem } from '@matricarmz/shared';
+import { PermissionCode, canWriteRepairHistory } from '@matricarmz/shared';
 import { looksLikeIdentifier, ENGINE_DOC_FIELDS, ENGINE_EXTRA_MAIN_FIELDS, ENGINE_FLAT_FIELDS, parseContractSections, DEFAULT_CONTRACT_REPAIR_DAYS, effectiveRepairDays, buildContractSectionOptions, canonicalContractSectionKey, PRIMARY_CONTRACT_SECTION_KEY, isEavFlagSet, isEngineDoneForCountdown, compareStageRecency, STATUS_CODES, STATUS_LABELS, statusDateCode, DEFECT_NATURE_SEED_LABELS, ENGINE_INTERNAL_NUMBER_CODE, ENGINE_INTERNAL_NUMBER_YEAR_CODE, ENGINE_RESERVATION_CODE, parseEngineReservation, engineReservationState, shouldRenewEngineReservation, formatEngineReservationHolder, formatEngineReservationUntil, formatEngineInternalNumber, formatEngineRmzNumber, parseEngineInternalNumberInput, resolveEngineInternalNumberYear, isValidEngineInternalNumberYear, engineInternalNumberDuplicateMessage, arrivalPlacements, arrivalPlacementLabel, REPAIR_HISTORY_OPERATION_TYPE, buildRepairHistoryMeta, CONTRACT_KIND_LABELS, type ArrivalListItem, type ArrivalPlacement, type ContractKind, type ContractSectionOption, type StatusCode } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
@@ -427,6 +428,12 @@ export function EngineDetailsPage(props: {
   currentUserRole: string;
   canViewOperations: boolean;
   canEditOperations: boolean;
+  /**
+   * Право заполнять этапы работ (`work_sheets.edit`). Метку этапа ремонта пишет
+   * либо узкий круг с этим правом, либо мастер с `operations.edit` — дизъюнкция
+   * та же, что на сервере (план #114, шаг 24).
+   */
+  canEditWorkSheets?: boolean;
   canPrintEngineCard: boolean;
   canViewMasterData: boolean;
   canEditMasterData: boolean;
@@ -480,6 +487,17 @@ export function EngineDetailsPage(props: {
   const reservedByOther = reservationState === 'other' && !overrideUnlock;
   const canEditEnginesEff = props.canEditEngines && !reservedByOther;
   const canEditOperationsEff = props.canEditOperations && !reservedByOther;
+  // Метка этапа ремонта и ручная запись — разные права, и смотрят они на ту же
+  // таблицу, что и сервер (`shared/src/domain/repairHistoryWriteGate.ts`, план #114,
+  // шаг 24). Прежний UI-гейт был `engines.edit`: технолог видел кнопку, а сервер
+  // резал строку (`forbidden:repair_history_entry`) — запись оставалась только на
+  // планшете («нажал, а не уехало»).
+  const repairHistoryPerms = {
+    [PermissionCode.WorkSheetsEdit]: props.canEditWorkSheets === true,
+    [PermissionCode.OperationsEdit]: props.canEditOperations === true,
+  };
+  const canEditStageEff = canWriteRepairHistory(repairHistoryPerms, 'stage') && !reservedByOther;
+  const canEditManualEff = canWriteRepairHistory(repairHistoryPerms, 'manual') && !reservedByOther;
   // Вкладка «Рекламация» без права правки прежде показывала только строку «двигатель не
   // принят» — кнопки нет, причины нет, и оператор читает это как поломку программы
   // (реальный запрос владельца 2026-08-20). Называем причину и что делать.
@@ -3257,7 +3275,9 @@ export function EngineDetailsPage(props: {
               вместо трёх отдельных лент на одних и тех же строках operations. */}
           <EngineHistoryFeedPanel
             engineId={props.engineId}
-            canEdit={canEditEnginesEff}
+            canEdit={canEditStageEff}
+            canEditManual={canEditOperationsEff}
+            canTransfer={canEditEnginesEff}
             workshopOptions={workshopOptions}
             engineLabel={formatEngineGateLabel({ engineBrand, engineNumber, internalNumberFull })}
             onChanged={() => {

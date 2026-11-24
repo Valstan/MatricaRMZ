@@ -6,7 +6,7 @@ import {
 } from '@matricarmz/shared';
 
 import type { IpcContext } from '../ipcContext.js';
-import { isViewMode, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
+import { isViewMode, requireAnyPermOrResult, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { httpAuthed } from '../../services/httpClient.js';
 import { httpFailureText } from '../../services/httpFailureText.js';
 import {
@@ -248,7 +248,12 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
 
   ipcMain.handle('workSheets:stages:save', async (_e, args: SaveRepairStageInput) => {
     if (isViewMode(ctx)) return viewModeWriteError();
-    const gate = await requirePermOrResult(ctx, 'work_sheets.edit');
+    // Метка этапа — дизъюнкция: `work_sheets.edit` (узкий круг ставит руками)
+    // ИЛИ `operations.edit` (мастера ставят автоматами). Сервер режет ровно так же
+    // (`ledgerAuthzGuard`, `isRepairStageRowWrite`), прежний клиентский гейт требовал
+    // только `work_sheets.edit` — мастер без него не мог пометить этап, а сервер его
+    // принял бы (план #114, шаг 25).
+    const gate = await requireAnyPermOrResult(ctx, ['work_sheets.edit', 'operations.edit']);
     if (!gate.ok) return gate as Err;
     try {
       const { templates } = await loadStageTemplates();
@@ -260,7 +265,8 @@ export function registerWorkSheetsIpc(ctx: IpcContext) {
 
   ipcMain.handle('workSheets:stages:remove', async (_e, id: string) => {
     if (isViewMode(ctx)) return viewModeWriteError();
-    const gate = await requirePermOrResult(ctx, 'work_sheets.edit');
+    // Снятие метки этапа — тот же гейт, что и её постановка (дизъюнкция).
+    const gate = await requireAnyPermOrResult(ctx, ['work_sheets.edit', 'operations.edit']);
     if (!gate.ok) return gate as Err;
     try {
       const allowed = await assertRepairStageDeletable(ctx.dataDb(), String(id ?? ''));

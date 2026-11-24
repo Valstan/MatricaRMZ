@@ -54,7 +54,15 @@ function today(): string {
 
 export function EngineHistoryFeedPanel(props: {
   engineId: string;
+  /**
+   * Метка этапа ремонта. Гейт — тот же, что на сервере (`ledgerAuthzGuard`):
+   * `work_sheets.edit` ИЛИ `operations.edit` (дизъюнкция, план #114, шаг 24).
+   */
   canEdit: boolean;
+  /** Ручная запись истории: `operations.edit` (как любая операция в таймлайне). */
+  canEditManual?: boolean;
+  /** Перенос этапов между двигателями: `engines.edit` (своя операция, не этап). */
+  canTransfer?: boolean;
   workshopOptions: Array<{ id: string; label: string }>;
   /** Перерисовать карточку после записи: этап влияет на строку списка (цех, действие). */
   onChanged?: () => void;
@@ -67,6 +75,11 @@ export function EngineHistoryFeedPanel(props: {
   const [templates, setTemplates] = useState<StageTemplate[]>([]);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // Гейты по видам записи (план #114, шаг 24). Ручная запись и метка этапа —
+  // разные права: сервер режет их по-разному, и UI-гейт должен смотреть на то же.
+  const canEditManual = props.canEditManual ?? props.canEdit;
+  const canTransfer = props.canTransfer ?? props.canEdit;
 
   // Две формы добавления (владелец 01.10.2026): этап из шаблона и ручная запись.
   // Обе раскрываются кнопками и прячутся после записи/отмены — инлайн-полей вверху нет.
@@ -487,48 +500,50 @@ export function EngineHistoryFeedPanel(props: {
         <span className="ui-muted">{feed.length > 0 ? `${feed.length} событий` : 'событий пока нет'}</span>
         <div style={{ flex: 1 }} />
         {props.canEdit && (
-          <>
-            <Button
-              variant="ghost"
-              data-repair-stage-form-open
-              onClick={() => {
-                resetStageForm();
-                setStageDate(today());
-                setAddingManual(false);
-                setAddingStage(true);
-              }}
-            >
-              Добавить этап ремонта
-            </Button>
-            <Button
-              variant="ghost"
-              data-repair-history-add
-              onClick={() => {
-                resetDraft();
-                setAddingStage(false);
-                setAddingManual(true);
-              }}
-            >
-              Добавить запись
-            </Button>
-            <Button
-              variant="ghost"
-              data-transfer-open
-              onClick={() => {
-                setAddingStage(false);
-                setAddingManual(false);
-                setTransferOpen(true);
-              }}
-            >
-              Перенести этапы…
-            </Button>
-          </>
+          <Button
+            variant="ghost"
+            data-repair-stage-form-open
+            onClick={() => {
+              resetStageForm();
+              setStageDate(today());
+              setAddingManual(false);
+              setAddingStage(true);
+            }}
+          >
+            Добавить этап ремонта
+          </Button>
+        )}
+        {canEditManual && (
+          <Button
+            variant="ghost"
+            data-repair-history-add
+            onClick={() => {
+              resetDraft();
+              setAddingStage(false);
+              setAddingManual(true);
+            }}
+          >
+            Добавить запись
+          </Button>
+        )}
+        {canTransfer && (
+          <Button
+            variant="ghost"
+            data-transfer-open
+            onClick={() => {
+              setAddingStage(false);
+              setAddingManual(false);
+              setTransferOpen(true);
+            }}
+          >
+            Перенести этапы…
+          </Button>
         )}
       </div>
 
       {/* Перенос этапов при перебивке номера: срез «от укладки вала и выше» уезжает
         на выбранный двигатель, обе истории получают записи о переносе. */}
-      {props.canEdit && transferOpen && (
+      {canTransfer && transferOpen && (
         <TransferStagesDialog
           sourceEngineId={props.engineId}
           sourceLabel={props.engineLabel ?? props.engineId}
@@ -678,7 +693,7 @@ export function EngineHistoryFeedPanel(props: {
         </div>
       )}
 
-      {addingManual && (
+      {canEditManual && addingManual && (
         <div style={{ display: 'grid', gap: 6, padding: 10, border: '1px solid var(--border)', borderRadius: 10, background: 'var(--surface-2)' }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <div style={{ width: 170 }}>
@@ -992,7 +1007,7 @@ export function EngineHistoryFeedPanel(props: {
                           ✕
                         </Button>
                       )}
-                      {props.canEdit && item.kind === 'manual' && (
+                      {canEditManual && item.kind === 'manual' && (
                         <>
                           <Button
                             variant="ghost"
