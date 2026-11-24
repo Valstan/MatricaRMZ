@@ -280,7 +280,7 @@ function isExcepted(channel: string): boolean {
   );
 }
 
-const rootOf = (channel: string): string => channel.split(':')[0];
+const rootOf = (channel: string): string => channel.split(':')[0] ?? channel;
 
 describe('поверхность каналов планшета', () => {
   const preload = preloadInvokeChannels();

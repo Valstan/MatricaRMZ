@@ -444,23 +444,47 @@ export async function getSectionMembershipByLogin(
   dataDb: BetterSQLite3Database,
   login: string,
 ): Promise<SectionMembership | null> {
+  return (await getSectionMembershipByLoginWithSource(dataDb, login)).membership;
+}
+
+/**
+ * Откуда взят membership — и почему это важно говорить.
+ *
+ * - `replica` — канон: локальная реплика `users ⋈ user_section_access`, налитая с
+ *   сервера. Ответ авторитетен: «раздела нет» — значит правда «раздела нет».
+ * - `legacy_eav` — ФОЛБЭК на замороженное EAV-зеркало `section_access` (реплика на
+ *   машине ещё не налита). Миграция 0103 снесла триггеры зеркала, поэтому в нём
+ *   нет, например, раздела «Производственная программа» НИ У КОГО. Ответ НЕ
+ *   авторитетен: отсутствие раздела в зеркале ничего не значит.
+ * - `none` — доступа нет вовсе (не засеяно нигде) → fail-open, как и раньше.
+ *
+ * Разница между первыми двумя — это ровно то, из-за чего планшет говорил «нет
+ * доступа» человеку, которому доступ выдан: сервер разрешает, а клиент без
+ * налитой реплики смотрит в пустое зеркало и отказывает.
+ */
+export type SectionMembershipSource = 'replica' | 'legacy_eav' | 'none';
+
+export async function getSectionMembershipByLoginWithSource(
+  dataDb: BetterSQLite3Database,
+  login: string,
+): Promise<{ membership: SectionMembership | null; source: SectionMembershipSource }> {
   const l = String(login ?? '').trim().toLowerCase();
-  if (!l) return null;
+  if (!l) return { membership: null, source: 'none' };
 
   const replica = await replicaMembershipRows(dataDb);
   if (replica) {
     const hit = replica.find((r) => r.login === l);
     // Пустой membership — «не засеяно» (fail-open), симметрично серверу.
-    if (!hit || Object.keys(hit.membership).length === 0) return null;
-    return hit.membership;
+    if (!hit || Object.keys(hit.membership).length === 0) return { membership: null, source: 'replica' };
+    return { membership: hit.membership, source: 'replica' };
   }
 
   const employeeTypeId = await getEntityTypeIdByCode(dataDb, 'employee');
-  if (!employeeTypeId) return null;
+  if (!employeeTypeId) return { membership: null, source: 'none' };
   const { byCode } = await getDefsByType(dataDb, employeeTypeId);
   const loginDef = byCode.login;
   const sectionDef = byCode.section_access;
-  if (!loginDef || !sectionDef) return null;
+  if (!loginDef || !sectionDef) return { membership: null, source: 'none' };
   const loginRows = await dataDb
     .select({ entityId: attributeValues.entityId, valueJson: attributeValues.valueJson })
     .from(attributeValues)
@@ -470,7 +494,7 @@ export async function getSectionMembershipByLogin(
     const v = safeJsonParse(r.valueJson ? String(r.valueJson) : null);
     return String(v ?? '').trim().toLowerCase() === l;
   })?.entityId;
-  if (!employeeId) return null;
+  if (!employeeId) return { membership: null, source: 'none' };
   const rows = await dataDb
     .select({ valueJson: attributeValues.valueJson })
     .from(attributeValues)
@@ -482,15 +506,15 @@ export async function getSectionMembershipByLogin(
       ),
     )
     .limit(1);
-  if (!rows[0]) return null;
+  if (!rows[0]) return { membership: null, source: 'none' };
   const membership = parseSectionMembership(safeJsonParse(rows[0].valueJson ? String(rows[0].valueJson) : null));
   // Пустой membership ({} — например, у сотрудника сняли все разделы или значение битое) —
   // трактуем как «не засеяно» (fail-open), СИММЕТРИЧНО серверу
   // (backend restrictedWorkOrders.getSectionMembershipForLogin:111). До этого клиентский
   // section-гейт считал {} «засеянным пустым» и отказывал во ВСЕХ разделах, тогда как
   // серверный write-гейт для того же пользователя был fail-open — инцидент 2026-07-10.
-  if (Object.keys(membership).length === 0) return null;
-  return membership;
+  if (Object.keys(membership).length === 0) return { membership: null, source: 'none' };
+  return { membership, source: 'legacy_eav' };
 }
 
 /**
