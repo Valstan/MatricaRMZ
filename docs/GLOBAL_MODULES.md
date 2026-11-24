@@ -75,7 +75,25 @@
 
 Обратная связь (совет при разработке, не подсказка в рантайме): `suggestCapabilityAdditions(kind)` → «объект X не умеет A, а похожий объект Y умеет — можно ли добавить Y?».
 
-Первый переведённый объект: карточка этапа работ (`electron-app/src/renderer/src/ui/pages/WorkSheetDetailsPage.tsx`) — у нового этапа работ нет «удалить», и кнопки нет.
+**Типы объектов и их возможности** (ключ домена ↔ реестр; гейт сверяет эту таблицу с `OBJECT_CAPABILITIES`, чтобы домен и реестр не разошлись):
+
+| Тип объекта | Возможности |
+|---|---|
+| `engine` | copy_to_new · save · save_and_close · save_as_draft · reset · print · delete · close · attachments · payments |
+| `work_order` | copy_to_new · save · save_and_close · save_as_draft · reset · print · delete · close · signatures · attachments |
+| `work_sheet_row` | save · save_and_close · reset · delete · close |
+| `counterparty` | copy_to_new · save · save_and_close · reset · print · delete · close · attachments |
+| `contract` | copy_to_new · save · save_and_close · reset · print · delete · close · attachments · payments |
+| `employee` | copy_to_new · save · save_and_close · reset · print · delete · close · attachments |
+| `part` | copy_to_new · save · save_and_close · reset · delete · close |
+| `tool` | copy_to_new · save · save_and_close · reset · delete · close |
+| `nomenclature` | copy_to_new · save · save_and_close · reset · delete · close |
+| `supply_request` | copy_to_new · save · save_and_close · reset · print · delete · close · attachments |
+| `engine_brand` | copy_to_new · save · save_and_close · reset · delete · close |
+| `stock_document` | save · save_and_close · reset · delete · close · print |
+| `bom` | copy_to_new · save · save_and_close · reset · delete · close · print |
+
+Первый переведённый объект: карточка этапа работ (`electron-app/src/renderer/src/ui/pages/WorkSheetDetailsPage.tsx`, тип `work_sheet_row`) — у нового этапа работ нет «удалить», и кнопки нет; печати у этого типа тоже нет (бланк одного этапа не печатают — сторож `WorkSheetsPage.guard.test.ts`).
 
 ## Правило пополнения
 

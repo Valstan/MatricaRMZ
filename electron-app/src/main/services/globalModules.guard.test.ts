@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 
+import { OBJECT_CAPABILITIES } from '@matricarmz/shared';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -150,6 +151,32 @@ describe('реестр глобальных модулей', () => {
     expect(readRepo('docs/CODEBASE_MAP.md'), 'в карте нет блока о глобальных модулях').toContain(
       'GLOBAL_MODULES.md',
     );
+  });
+
+  it('таблица типов объектов совпадает с доменом (реестр ↔ OBJECT_CAPABILITIES)', () => {
+    // Реестр и домен — две записи одного факта. Разошлись — значит кнопка на карточке
+    // рисуется по одной версии, а подсказка советует по другой.
+    const rows = new Map<string, string[]>();
+    for (const match of registry.matchAll(/^\|\s*`([a-z_]+)`\s*\|\s*([^|]+?)\s*\|$/gm)) {
+      const capabilities = match[2]!.split('·').map((s) => s.trim()).filter(Boolean);
+      rows.set(match[1]!, capabilities);
+    }
+    expect(rows.size, 'в реестре нет таблицы типов объектов').toBeGreaterThan(0);
+    const domain = OBJECT_CAPABILITIES as Record<string, readonly string[]>;
+    const mismatched: string[] = [];
+    for (const [kind, capabilities] of rows) {
+      const live = domain[kind];
+      if (!live) {
+        mismatched.push(`${kind}: в домене такого типа нет`);
+        continue;
+      }
+      const liveSet = [...live].sort().join(',');
+      const docSet = [...capabilities].sort().join(',');
+      if (liveSet !== docSet) mismatched.push(`${kind}: реестр [${docSet}] ≠ домен [${liveSet}]`);
+    }
+    const missing = Object.keys(domain).filter((kind) => !rows.has(kind));
+    expect(missing, `в реестре нет типов объектов: ${missing.join(', ')}`).toEqual([]);
+    expect(mismatched, `реестр разошёлся с доменом: ${mismatched.join('; ')}`).toEqual([]);
   });
 });
 
