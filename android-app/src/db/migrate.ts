@@ -617,6 +617,7 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
       title text NOT NULL,
       status text NOT NULL DEFAULT 'draft',
       signature_slots text,
+      signature_template_id text,
       created_at integer NOT NULL,
       updated_at integer NOT NULL,
       last_server_seq integer,
@@ -995,6 +996,20 @@ export async function ensureClientSchemaParity(sqlite: AsyncSqlite): Promise<voi
   if (await hasTable(sqlite, 'erp_production_programs')) {
     if (!(await columnNames('erp_production_programs')).has('workshop_id')) {
       await sqlite.exec(`ALTER TABLE erp_production_programs ADD COLUMN workshop_id text;`);
+    }
+  }
+
+  // erp_production_programs.signature_template_id — ссылка на шаблон подписей ПП,
+  // из которого взят состав (промт КАРМАНА #120). Nullable — ровно как на сервере,
+  // иначе checkReplicaStrictness уронит pull.
+  //
+  // Зеркало electron-app/src/main/database/migrate.ts: долгоживущая БД планшета создана
+  // без этой колонки, а CREATE TABLE IF NOT EXISTS на существующей таблице ничего не
+  // меняет. Шаг 17→18 версионной цепочки догоняет живых клиентов; здесь — страховка
+  // для тех, кто идёт мимо цепочки.
+  if (await hasTable(sqlite, 'erp_production_programs')) {
+    if (!(await columnNames('erp_production_programs')).has('signature_template_id')) {
+      await sqlite.exec(`ALTER TABLE erp_production_programs ADD COLUMN signature_template_id text;`);
     }
   }
 
