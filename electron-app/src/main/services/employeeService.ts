@@ -6,6 +6,7 @@ import {
   restrictedWorkOrderPolicyFromMemberships,
   type RestrictedWorkOrderPolicy,
   type SectionMembership,
+  type SectionMembershipSource,
 } from '@matricarmz/shared';
 
 import { httpAuthed } from './httpClient.js';
@@ -462,7 +463,7 @@ export async function getSectionMembershipByLogin(
  * доступа» человеку, которому доступ выдан: сервер разрешает, а клиент без
  * налитой реплики смотрит в пустое зеркало и отказывает.
  */
-export type SectionMembershipSource = 'replica' | 'legacy_eav' | 'none';
+export type { SectionMembershipSource };
 
 export async function getSectionMembershipByLoginWithSource(
   dataDb: BetterSQLite3Database,

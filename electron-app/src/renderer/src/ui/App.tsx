@@ -22,6 +22,7 @@ import type {
   ReportThemeId,
   WorkOrderPayload,
   SupplyRequestPayload,
+  SectionMembershipSource,
 } from '@matricarmz/shared';
 import { CLOCK_SKEW_THRESHOLD_MS, formatClockSkew, pendingExportReasonText, stuckAgeMinutes } from '@matricarmz/shared';
 import {
@@ -1365,29 +1366,41 @@ export function App() {
   const [v2SecondaryEpoch, setV2SecondaryEpoch] = useState(0);
   const secondaryCloseRef = useRef<CardCloseActions | null>(null);
   const [sectionMembership, setSectionMembership] = useState<Partial<Record<string, 'viewer' | 'editor'>> | null>(null);
+  /**
+   * Откуда взят membership «доступа по разделам»: `replica` — канон (локальная
+   * реплика `users ⋈ user_section_access`), `legacy_eav` — замороженное EAV-зеркало
+   * (ответ НЕ авторитетен: разделов, выданных после миграции 0103, в нём нет ни у
+   * кого), `none` — не засеяно.
+   *
+   * Нужен меню, чтобы оно говорило ПРАВДУ, почему закрыт раздел: «не выдан вашей
+   * учётной записи» или «данные о доступах на этом устройстве не обновлены (нужен
+   * синх)». Раньше меню говорило первое всегда — и на планшете уводило людей искать
+   * несуществующую проблему с выдачей прав (промт КАРМАНА #84).
+   */
+  const [sectionMembershipSource, setSectionMembershipSource] = useState<SectionMembershipSource>('none');
   useEffect(() => {
     let cancelled = false;
     if (!authStatus.loggedIn) {
       setSectionMembership(null);
+      setSectionMembershipSource('none');
       return;
     }
-    void window.matrica.access
-      .sectionsSelf()
-      .then((m) => {
-        if (!cancelled) setSectionMembership(m && typeof m === 'object' ? m : null);
-      })
-      .catch(() => {
-        if (!cancelled) setSectionMembership(null);
+    const readMembership = () =>
+      Promise.all([
+        window.matrica.access.sectionsSelf(),
+        window.matrica.access.sectionsSelfSource().catch(() => 'none' as SectionMembershipSource),
+      ]).then(([m, source]) => {
+        if (cancelled) return;
+        setSectionMembership(m && typeof m === 'object' ? m : null);
+        setSectionMembershipSource(source === 'replica' || source === 'legacy_eav' ? source : 'none');
       });
+    void readMembership().catch(() => {
+      if (!cancelled) setSectionMembership(null);
+    });
     // Периодический рефетч: правка membership действующего пользователя (в т.ч. под тем же
     // логином) подхватывается без релогина в пределах ~30с. Пауза при скрытом окне.
     const stop = pollWhenVisible(() => {
-      void window.matrica.access
-        .sectionsSelf()
-        .then((m) => {
-          if (!cancelled) setSectionMembership(m && typeof m === 'object' ? m : null);
-        })
-        .catch(() => {});
+      void readMembership().catch(() => {});
     }, 30_000);
     return () => {
       cancelled = true;
@@ -3277,6 +3290,7 @@ export function App() {
       allowedByRight: availableTabs.includes(t),
       allowedByMembership: sectionGatedTabsFull.includes(t),
       allowedByTabletPreset: sectionGatedTabs.includes(t),
+      membershipSource: sectionMembershipSource,
     });
     return reason ? sectionGateReasonText(reason) : null;
   };

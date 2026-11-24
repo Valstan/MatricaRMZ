@@ -9,8 +9,15 @@
 // Модуль отвечает на один вопрос: каким фильтром срезан раздел, — чтобы
 // интерфейс сказал это словами, а не исчез молча.
 
+import type { SectionMembershipSource } from '@matricarmz/shared';
+
 /** Фильтр, срезавший раздел. */
-export type SectionGateReason = 'no_right' | 'no_membership' | 'not_in_tablet_preset';
+export type SectionGateReason =
+  | 'no_right'
+  | 'no_membership'
+  /** Раздел не выдан — но клиент смотрит в замороженное зеркало и НЕ ЗНАЕТ, выдан ли он. */
+  | 'no_membership_stale'
+  | 'not_in_tablet_preset';
 
 /**
  * Причина, по которой раздел не открывается; `null` — раздел открыт.
@@ -18,6 +25,14 @@ export type SectionGateReason = 'no_right' | 'no_membership' | 'not_in_tablet_pr
  * Порядок — от общего к частому: право, потом членство в разделе, потом
  * пресет клиента. Проверка права первой: раздел, которого нет в праве,
  * «не выдан» быть не может — иначе оператор получит неверную причину.
+ *
+ * Членство — единственный фильтр, у которого есть «слепой» источник:
+ * `legacy_eav` (замороженное EAV-зеркало `section_access`, в нём нет разделов,
+ * выданных после миграции 0103, — то есть нет, например, ПП ни у кого). Ответ
+ * из такого зеркала НЕ авторитетен: «нет в зеркале» ≠ «не выдан». Поэтому при
+ * таком источнике причина — не «не выдан», а «данные о доступах не обновлены».
+ * Права при этом не расширяются: раздел остаётся закрытым, меняется только
+ * объяснение (та же политика, что в IPC-гейте разделов).
  */
 export function sectionGateReason(args: {
   /** Раздел есть в списке по правам (`availableTabs`). */
@@ -26,10 +41,17 @@ export function sectionGateReason(args: {
   allowedByMembership: boolean;
   /** Раздел есть после пресета клиента (планшетной рамки). */
   allowedByTabletPreset: boolean;
+  /**
+   * Откуда взят membership. `undefined`/`replica` — авторитетный источник;
+   * `legacy_eav` — замороженное зеркало (ответ не авторитетен).
+   */
+  membershipSource?: SectionMembershipSource;
 }): SectionGateReason | null {
   if (args.allowedByTabletPreset) return null;
   if (!args.allowedByRight) return 'no_right';
-  if (!args.allowedByMembership) return 'no_membership';
+  if (!args.allowedByMembership) {
+    return args.membershipSource === 'legacy_eav' ? 'no_membership_stale' : 'no_membership';
+  }
   return 'not_in_tablet_preset';
 }
 
@@ -40,6 +62,10 @@ export function sectionGateReasonText(reason: SectionGateReason): string {
       return 'нет права на этот раздел';
     case 'no_membership':
       return 'раздел не выдан вашей учётной записи';
+    case 'no_membership_stale':
+      // Правда вместо лжи: «не выдан» уводило бы людей искать выдачу прав, которой
+      // может и быть — просто клиент смотрит в замороженное зеркало (нужен синк).
+      return 'данные о доступах на этом устройстве не обновлены (нужен синх)';
     case 'not_in_tablet_preset':
       return 'раздел не входит в меню планшета';
     default:

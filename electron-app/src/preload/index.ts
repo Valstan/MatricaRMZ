@@ -427,6 +427,11 @@ const matricaApi = {
   },
   access: {
     sectionsSelf: async () => ipcRenderer.invoke('access:sections:self'),
+    /**
+     * Откуда взят membership: `replica` (канон) / `legacy_eav` (замороженное зеркало —
+     * ответ не авторитетен) / `none`. Меню говорит по нему ПРАВДУ, почему закрыт раздел.
+     */
+    sectionsSelfSource: async () => ipcRenderer.invoke('access:sections:self:source'),
   },
   employees: {
     list: async () => ipcRenderer.invoke('employees:list'),

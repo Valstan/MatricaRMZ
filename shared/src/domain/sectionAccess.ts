@@ -56,6 +56,23 @@ export type AccessSection = (typeof AccessSection)[keyof typeof AccessSection];
 export type SectionAccessLevel = 'viewer' | 'editor';
 export type SectionMembership = Partial<Record<AccessSection, SectionAccessLevel>>;
 
+/**
+ * Откуда клиент взял membership «доступа по разделам» — и почему это важно говорить.
+ *
+ * - `replica` — канон: локальная реплика `users ⋈ user_section_access`, налитая с сервера.
+ *   Ответ авторитетен: «раздела нет» — значит правда «раздела нет».
+ * - `legacy_eav` — ФОЛБЭК на замороженное EAV-зеркало `section_access` (реплика на машине
+ *   ещё не налита). Миграция 0103 снесла триггеры зеркала, поэтому в нём нет, например,
+ *   раздела «Производственная программа» НИ У КОГО. Ответ НЕ авторитетен: отсутствие
+ *   раздела в зеркале ничего не значит — значит лишь, что клиент не знает про выдачу.
+ * - `none` — доступа нет вовсе (не засеяно нигде) → fail-open, как и раньше.
+ *
+ * Источник нужен и в UI: меню, закрывая раздел, обязано сказать ПРАВДУ — «не выдан» или
+ * «данные о доступах на этом устройстве не обновлены (нужен синх)». Иначе оператор
+ * (и админ, к которому он придёт) ищут несуществующую проблему с выдачей прав.
+ */
+export type SectionMembershipSource = 'replica' | 'legacy_eav' | 'none';
+
 export type AccessSectionMeta = {
   id: AccessSection;
   titleRu: string;
