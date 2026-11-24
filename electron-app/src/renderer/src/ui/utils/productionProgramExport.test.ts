@@ -235,14 +235,15 @@ describe('лист, файл и экран считают номер по одн
   });
 
   it('после перестановки строк номер внутри договора пересчитывается во всех трёх местах', () => {
+    const swappedRows = [INPUT.rows[1]!, INPUT.rows[0]!, INPUT.rows[2]!];
     const swapped = {
       ...INPUT,
-      rows: [INPUT.rows[1], INPUT.rows[0], INPUT.rows[2]],
+      rows: swappedRows,
     } as never;
 
     const rows = buildProductionProgramExportRows(swapped);
     const printed = printedNumbers(productionProgramPrintHtml(swapped));
-    const numbering = productionProgramNumbering(swapped.rows);
+    const numbering = productionProgramNumbering(swappedRows);
 
     // Первой в договоре стала «r2» — её номер внутри договора — 1.
     expect(rows.map((row) => row.inContractNo)).toEqual([1, 2, 1]);
