@@ -1036,4 +1036,50 @@ export async function photosPrint(
   }
 }
 
+/**
+ * Печать картинок, которые лежат на диске оператора (папки с фото двигателей).
+ *
+ * Тот же путь печати, что у `photosPrint`: окно скрытое, но НЕ offscreen
+ * (offscreen-печать падает «Invalid printer settings» — грабли зафиксированы
+ * в `renderPhotosWindow`), и системный диалог печати без `silent` — оператор
+ * сам выбирает принтер, масштаб и ориентацию перед печатью.
+ *
+ * Отличие — источник: не серверные вложения по id, а локальные пути. Список
+ * путей приходит из модуля «Поиск по файлам» и печатается как есть.
+ */
+export async function photosPrintLocalPaths(
+  localPaths: string[],
+  opts?: { listHtml?: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const images: string[] = [];
+  const skipped: string[] = [];
+  for (const raw of localPaths) {
+    const p = String(raw ?? '').trim();
+    if (!p) continue;
+    if (mimeForPath(p).startsWith('image/')) images.push(p);
+    else skipped.push(basename(p));
+  }
+  const buildOpts: { offscreen: boolean; listHtml?: string; skippedNames?: string[] } = { offscreen: false };
+  if (opts?.listHtml) buildOpts.listHtml = opts.listHtml;
+  if (skipped.length > 0) buildOpts.skippedNames = skipped;
+  if (images.length === 0 && !buildOpts.listHtml && !buildOpts.skippedNames) {
+    return { ok: false, error: 'Нет файлов для печати' };
+  }
+  const win = await renderPhotosWindow(images, buildOpts);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      // Без silent: системный диалог печати — оператор выбирает принтер сам.
+      win.webContents.print({ printBackground: true }, (ok, errorType) => {
+        if (!ok) return reject(new Error(errorType || 'print failed'));
+        resolve();
+      });
+    });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  } finally {
+    win.destroy();
+  }
+}
+
 
