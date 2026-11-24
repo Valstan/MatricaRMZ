@@ -182,6 +182,53 @@ export type ProductionProgramUpdateInput = {
   signatureSlots?: string | null | undefined;
 };
 
+/** Текущая шапка программы — то, поверх чего ложится правка. */
+export type ProductionProgramCurrentHeader = {
+  periodStart: number;
+  periodEnd: number;
+  shop: string;
+  workshopId: string | null;
+  title: string;
+  status: string;
+  signatureSlots: string | null;
+};
+
+/**
+ * Слияние правки шапки с текущей строкой.
+ *
+ * Правило одно и рабочее:
+ *  · поля, которых НЕТ в правке, — сервер не трогает (`undefined`);
+ *  · `null` — осознанная очистка поля.
+ *
+ * Разница эта — главная в жалобе владельца 24.11.2026 («подписи то
+ * появляются, то исчезают»): клиент слал в PATCH всю шапку из реплики, а
+ * реплика отстаёт на минуту — вместе с названием уезжал `signatureSlots:
+ * null`, и сервер честно стирал подписи, которые оператор сохранил.
+ *
+ * Имя цеха (`shop`) и связь с цехом (`workshopId`) приходят уже разрешёнными:
+ * сервер берёт имя из справочника сам (см. `resolveProductionProgramWorkshop`).
+ */
+export function mergeProductionProgramHeader(
+  current: ProductionProgramCurrentHeader,
+  patch: ProductionProgramUpdateInput,
+  resolved: { shop: string; workshopId: string | null },
+): ProductionProgramInput {
+  return {
+    periodStart: patch.periodStart ?? Number(current.periodStart),
+    periodEnd: patch.periodEnd ?? Number(current.periodEnd),
+    shop: resolved.shop,
+    workshopId: resolved.workshopId,
+    title: patch.title ?? String(current.title),
+    status: patch.status ?? String(current.status),
+    signatureSlots:
+      patch.signatureSlots === undefined
+        ? current.signatureSlots == null
+          ? null
+          : String(current.signatureSlots)
+        : patch.signatureSlots,
+  };
+}
+
 /** Черновик строки плана — как приходит от редактора (частично заполненная). */
 export type ProductionProgramLineDraft = {
   id?: string | null | undefined;
@@ -283,6 +330,24 @@ function validateProgramInput(args: ProductionProgramInput): Result<ValidatedPro
     try {
       const parsed = JSON.parse(signatureSlots);
       if (!Array.isArray(parsed)) return { ok: false, error: 'подписи должны быть списком' };
+      // Состав слотов проверяем: сервер — точка правды, а печать берёт слоты
+      // как есть. Слот не-объект или с нестроковой должностью — это мусор,
+      // который иначе тихо уехал бы в печать.
+      for (const item of parsed) {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+          return { ok: false, error: 'подпись должна быть объектом (должность, сотрудник, ФИО)' };
+        }
+        const rec = item as Record<string, unknown>;
+        if (rec.caption !== undefined && typeof rec.caption !== 'string') {
+          return { ok: false, error: 'должность в подписи должна быть строкой' };
+        }
+        if (rec.fullName !== undefined && typeof rec.fullName !== 'string') {
+          return { ok: false, error: 'ФИО в подписи должно быть строкой' };
+        }
+        if (rec.employeeId !== undefined && rec.employeeId !== null && typeof rec.employeeId !== 'string') {
+          return { ok: false, error: 'сотрудник в подписи — это id или пустое значение' };
+        }
+      }
     } catch {
       return { ok: false, error: 'подписи должны быть JSON-массивом' };
     }
@@ -335,15 +400,19 @@ export async function updateProductionProgram(
     args.workshopId === undefined ? current.workshopId : args.workshopId,
   );
   if (!workshop.ok) return workshop;
-  const merged: ProductionProgramInput = {
-    periodStart: args.periodStart ?? Number(current.periodStart),
-    periodEnd: args.periodEnd ?? Number(current.periodEnd),
-    shop: workshop.name ?? args.shop ?? String(current.shop),
-    workshopId: workshop.id,
-    title: args.title ?? String(current.title),
-    status: args.status ?? String(current.status),
-    signatureSlots: args.signatureSlots === undefined ? (current.signatureSlots == null ? null : String(current.signatureSlots)) : args.signatureSlots,
-  };
+  const merged = mergeProductionProgramHeader(
+    {
+      periodStart: Number(current.periodStart),
+      periodEnd: Number(current.periodEnd),
+      shop: String(current.shop),
+      workshopId: current.workshopId == null ? null : String(current.workshopId),
+      title: String(current.title),
+      status: String(current.status),
+      signatureSlots: current.signatureSlots == null ? null : String(current.signatureSlots),
+    },
+    args,
+    { shop: workshop.name ?? args.shop ?? String(current.shop), workshopId: workshop.id },
+  );
   const checked = validateProgramInput(merged);
   if (!checked.ok) return checked;
   await db

@@ -152,6 +152,54 @@ type ProgramHeaderFields = {
 };
 
 /**
+ * Ключи полей шапки.
+ *
+ * По ним ведётся учёт «что оператор правил сам»: в PATCH уходят ТОЛЬКО эти
+ * поля. Раньше в PATCH сваливался весь снимок шапки из реплики, а реплика
+ * отстаёт на минуту — правка названия уезжала с подписями `null`, и сервер
+ * трактовал это как «очистить подписи» (жалоба владельца 24.11.2026:
+ * «подписи то появляются, то исчезают»).
+ */
+type ProgramHeaderField = keyof ProgramHeaderFields;
+
+/**
+ * Значение поля шапки в оверрайде — то, что мы сейчас показываем на экране.
+ *
+ * Сверяем с тем, что ушло на сервер: если оператор успел изменить поле ещё
+ * раз, пока правка летела, поле остаётся «правленым» и уедет следующим
+ * автосохранением.
+ */
+function headerOverrideValue(
+  fields: Partial<ProgramHeaderFields> | undefined,
+  field: ProgramHeaderField,
+): ProgramHeaderFields[ProgramHeaderField] | undefined {
+  if (!fields) return undefined;
+  return fields[field];
+}
+
+/**
+ * Поля шапки, которые оператор правил в этом патче.
+ *
+ * Отдельная функция: оверрайд (что держим на экране) и «правленые поля»
+ * (что уходит в PATCH) считаются по одному и тому же списку — иначе они
+ * разойдутся, и правка уедет без своего поля.
+ */
+function changedHeaderFields(
+  patch: Partial<ProgramHeaderFields>,
+  header: ProgramHeaderFields,
+): Partial<ProgramHeaderFields> {
+  const out: Partial<ProgramHeaderFields> = {};
+  if (patch.title !== undefined) out.title = header.title;
+  if (patch.shop !== undefined) out.shop = header.shop;
+  if (patch.workshopId !== undefined) out.workshopId = header.workshopId;
+  if (patch.periodStart !== undefined) out.periodStart = header.periodStart;
+  if (patch.periodEnd !== undefined) out.periodEnd = header.periodEnd;
+  if (patch.status !== undefined) out.status = header.status;
+  if (patch.signatureSlots !== undefined) out.signatureSlots = header.signatureSlots;
+  return out;
+}
+
+/**
  * Что уходит на сервер по программе. Часть = null — эту часть не трогаем:
  * шапка и строки шлются отдельно, чтобы правка шапки не переписывала строки
  * (замена набора — полная, и лишняя отправка строк сняла бы чужую строку).
@@ -232,6 +280,14 @@ const GROUP_ROW_PREFIX = 'group:';
  * отдельным вариантом, а не пропадает молча.
  */
 const LEGACY_SHOP_VALUE = '__legacy_shop__';
+
+/**
+ * Пауза перед повтором отправки после отказа (обрыв связи).
+ *
+ * Правка при этом не теряется: снимок лежит в очереди и уйдёт, как только
+ * связь восстановится.
+ */
+const RETRY_DELAY_MS = 5000;
 
 function isoDate(ms: number | null | undefined): string {
   if (!ms || !Number.isFinite(ms) || ms <= 0) return '';
@@ -314,8 +370,23 @@ export function ProductionProgramPage(props: Props) {
   const unsavedRef = useRef<Set<string>>(new Set());
   /** Что ушли на сервер и какие строки сняли — по этому ждём зеркало. */
   const pendingSyncRef = useRef<Map<string, { sent: string[]; removedIds: string[] }>>(new Map());
-  /** Шапка, которую правят на экране: пока зеркало не догнало — держим свою. */
-  const headerOverrideRef = useRef<Map<string, ProgramHeaderFields>>(new Map());
+  /**
+   * Шапка, которую правят на экране: пока зеркало не догнало — держим свою.
+   *
+   * Держим ТОЛЬКО правленые поля: если держать здесь весь снимок из реплики,
+   * то отставшее зеркало тянет на экран устаревшее значение (в том числе
+   * подписи) — и правка «то появляется, то исчезает» возвращается (класс M118:
+   * сравнение «тот же список» по полям, в которые забыли новое поле).
+   */
+  const headerOverrideRef = useRef<Map<string, Partial<ProgramHeaderFields>>>(new Map());
+  /**
+   * Поля шапки, которые оператор правил и которые сервер ещё не принял.
+   *
+   * По ним собирается PATCH: уходят только эти поля ⇒ правка названия
+   * программы не затирает подписи, а сервер не получает «очистить подписи»
+   * там, где оператор подписи не трогал.
+   */
+  const headerDirtyRef = useRef<Map<string, Set<ProgramHeaderField>>>(new Map());
   /** Строки на экране — снимок для автосохранения. */
   const rowsRef = useRef<DraftRow[]>([]);
   /** Строки, которые мы правили, — по программе: переключение программ не теряет правку. */
@@ -325,6 +396,10 @@ export function ProductionProgramPage(props: Props) {
   /** Отложенное автосохранение: программа → снимок строк и шапки. */
   const pendingSaveRef = useRef<Map<string, PendingSave>>(new Map());
   const autosaveTimerRef = useRef<number | null>(null);
+  /** Повтор отправки после отказа: правка не должна пропасть из-за обрыва связи. */
+  const retryTimerRef = useRef<number | null>(null);
+  /** Сброс очереди для повтора — чтобы не завязывать ссылки в цикл. */
+  const flushRef = useRef<(() => void) | null>(null);
 
   /** Правка ещё не уехала на сервер — помечаем программу. */
   const markUnsaved = useCallback((programId: string) => {
@@ -348,27 +423,77 @@ export function ProductionProgramPage(props: Props) {
     async (programId: string, payload: PendingSave): Promise<boolean> => {
       if (payload.header) {
         const h = payload.header;
-        const res = await window.matrica.productionProgram.update({
-          id: programId,
-          periodStart: h.periodStart,
-          periodEnd: h.periodEnd,
-          shop: h.shop,
-          workshopId: h.workshopId,
-          title: h.title,
-          status: h.status,
-          signatureSlots: h.signatureSlots,
-        });
-        if (!res.ok) {
-          setError(res.error);
-          setStatus('');
-          return false;
+        // В PATCH уходят ТОЛЬКО те поля шапки, которые оператор правил сам.
+        //
+        // Раньше сюда сваливался весь снимок шапки из реплики, а реплика
+        // отстаёт на минуту: правка названия уезжала с подписями `null`, и
+        // сервер трактовал `null` как «очистить подписи» ⇒ подпись стиралась
+        // на сервере (жалоба владельца 24.11.2026).
+        const dirty = headerDirtyRef.current.get(programId) ?? new Set<ProgramHeaderField>();
+        const sentFields: ProgramHeaderField[] = [];
+        const args: {
+          id: string;
+          periodStart?: number;
+          periodEnd?: number;
+          shop?: string;
+          workshopId?: string | null;
+          title?: string;
+          status?: string;
+          signatureSlots?: string | null;
+        } = { id: programId };
+        if (dirty.has('title')) {
+          args.title = h.title;
+          sentFields.push('title');
+        }
+        if (dirty.has('shop')) {
+          args.shop = h.shop;
+          sentFields.push('shop');
+        }
+        if (dirty.has('workshopId')) {
+          args.workshopId = h.workshopId;
+          sentFields.push('workshopId');
+        }
+        if (dirty.has('periodStart')) {
+          args.periodStart = h.periodStart;
+          sentFields.push('periodStart');
+        }
+        if (dirty.has('periodEnd')) {
+          args.periodEnd = h.periodEnd;
+          sentFields.push('periodEnd');
+        }
+        if (dirty.has('status')) {
+          args.status = h.status;
+          sentFields.push('status');
+        }
+        if (dirty.has('signatureSlots')) {
+          args.signatureSlots = h.signatureSlots;
+          sentFields.push('signatureSlots');
+        }
+        if (sentFields.length > 0) {
+          const res = await window.matrica.productionProgram.update(args);
+          if (!res.ok) {
+            setError(res.error);
+            setStatus('');
+            return false;
+          }
+          // Принятое сервером поле из «правленых» убираем — но только если
+          // оператор не успел изменить его ещё раз, пока правка летела.
+          const current = headerOverrideRef.current.get(programId);
+          const dirtyNow = headerDirtyRef.current.get(programId);
+          if (dirtyNow) {
+            for (const field of sentFields) {
+              if (headerOverrideValue(current, field) !== args[field]) continue;
+              dirtyNow.delete(field);
+            }
+            if (dirtyNow.size === 0) headerDirtyRef.current.delete(programId);
+          }
         }
       }
       if (!payload.rows) {
         // Правлена только шапка — строки не трогаем (замена набора — полная).
         setError('');
         markSaved(programId);
-        setStatus('Сохранено. План приедет на этот компьютер при следующей синхронизации.');
+        setStatus('Сохранено на сервере. На остальные компьютеры придёт при синхронизации (до минуты).');
         return true;
       }
       // Замена набора — полная: сервер снимает строку, которой нет в наборе.
@@ -427,10 +552,40 @@ export function ProductionProgramPage(props: Props) {
         ...pending,
         sent: payload.rows.map((r) => rowContentSignature(r)),
       });
-      setStatus('Сохранено. План приедет на этот компьютер при следующей синхронизации.');
+      setStatus('Сохранено на сервере. На остальные компьютеры придёт при синхронизации (до минуты).');
       return true;
     },
     [markSaved],
+  );
+
+  /** Повтор отправки после отказа — правка не должна ждать следующего клика. */
+  const scheduleRetry = useCallback(() => {
+    if (retryTimerRef.current != null) return;
+    retryTimerRef.current = window.setTimeout(() => {
+      retryTimerRef.current = null;
+      flushRef.current?.();
+    }, RETRY_DELAY_MS);
+  }, []);
+
+  /**
+   * Отказ записи: снимок возвращается в очередь.
+   *
+   * Раньше снимок автосэйва снимался с очереди ДО записи, и при отказе
+   * (обрыв связи) правка просто исчезала — оператор терял, например, состав
+   * подписей. Теперь снимок ждёт в очереди и уходит, как только связь вернётся.
+   */
+  const requeueSave = useCallback(
+    (programId: string, payload: PendingSave) => {
+      const pending = pendingSaveRef.current.get(programId) ?? { rows: null, header: null };
+      pendingSaveRef.current.set(programId, {
+        rows: payload.rows ?? pending.rows,
+        header: payload.header ?? pending.header,
+      });
+      markUnsaved(programId);
+      setStatus('Правка не сохранена — осталась в очереди и уйдёт, как только связь восстановится.');
+      scheduleRetry();
+    },
+    [markUnsaved, scheduleRetry],
   );
 
   /**
@@ -441,15 +596,35 @@ export function ProductionProgramPage(props: Props) {
   const persist = useCallback(
     async (programId: string, payload: PendingSave): Promise<boolean> => {
       try {
-        return await persistRows(programId, payload);
+        const ok = await persistRows(programId, payload);
+        if (!ok) requeueSave(programId, payload);
+        return ok;
       } catch (e) {
         setError(`Не удалось записать: ${String(e instanceof Error ? e.message : e)}`);
         setStatus('');
+        requeueSave(programId, payload);
         return false;
       }
     },
-    [persistRows],
+    [persistRows, requeueSave],
   );
+
+  /**
+   * Сброс отложенного сохранения: снимки уходят на сервер.
+   *
+   * Отдельная функция — ею пользуются и автосэйв, и повтор после отказа.
+   */
+  const flushPendingSaves = useCallback(() => {
+    const pendingSaves = [...pendingSaveRef.current.entries()];
+    pendingSaveRef.current.clear();
+    for (const [pid, snapshot] of pendingSaves) void persist(pid, snapshot);
+  }, [persist]);
+
+  // Сброс зовёт запись, а запись при отказе — сброс: без ссылки цикл ссылок
+  // не завязать (правило react-hooks/exhaustive-deps).
+  useEffect(() => {
+    flushRef.current = flushPendingSaves;
+  }, [flushPendingSaves]);
 
   /**
    * Автосохранение: ушедшая правка не должна зависеть от кнопки «Сохранить» —
@@ -468,12 +643,10 @@ export function ProductionProgramPage(props: Props) {
       if (autosaveTimerRef.current != null) window.clearTimeout(autosaveTimerRef.current);
       autosaveTimerRef.current = window.setTimeout(() => {
         autosaveTimerRef.current = null;
-        const pendingSaves = [...pendingSaveRef.current.entries()];
-        pendingSaveRef.current.clear();
-        for (const [pid, snapshot] of pendingSaves) void persist(pid, snapshot);
+        flushPendingSaves();
       }, 1200);
     },
-    [props.canEdit, persist],
+    [props.canEdit, flushPendingSaves],
   );
 
   /**
@@ -596,19 +769,37 @@ export function ProductionProgramPage(props: Props) {
       res.rows.map((p) => {
         const override = headerOverrideRef.current.get(p.id);
         if (!override) return p;
-        const mirrorCaughtUp =
-          p.title === override.title &&
-          p.shop === override.shop &&
-          (p.workshopId ?? null) === (override.workshopId ?? null) &&
-          p.periodStart === override.periodStart &&
-          p.periodEnd === override.periodEnd &&
-          p.status === override.status;
-        if (mirrorCaughtUp) {
+        // Зеркало догоняет правку ПО ПОЛЯМ: как только оно показало наше поле,
+        // поле отпускается и дальше ведёт сама реплика.
+        //
+        // Раньше сравнение перечисляло поля поимённо и подписей в списке не
+        // было: как только остальные поля совпали, оверрайд снимался целиком,
+        // и правка подписей пропадала с экрана до прихода зеркала — «подписи то
+        // появляются, то исчезают» (класс M118: сравнение «тот же список» по
+        // полям, в которые забыли добавить новое).
+        const pending: Partial<ProgramHeaderFields> = {};
+        if (override.title !== undefined && p.title !== override.title) pending.title = override.title;
+        if (override.shop !== undefined && p.shop !== override.shop) pending.shop = override.shop;
+        if (override.workshopId !== undefined && (p.workshopId ?? null) !== override.workshopId) {
+          pending.workshopId = override.workshopId;
+        }
+        if (override.periodStart !== undefined && p.periodStart !== override.periodStart) {
+          pending.periodStart = override.periodStart;
+        }
+        if (override.periodEnd !== undefined && p.periodEnd !== override.periodEnd) {
+          pending.periodEnd = override.periodEnd;
+        }
+        if (override.status !== undefined && p.status !== override.status) pending.status = override.status;
+        if (override.signatureSlots !== undefined && (p.signatureSlots ?? null) !== override.signatureSlots) {
+          pending.signatureSlots = override.signatureSlots;
+        }
+        if (Object.keys(pending).length === 0) {
           // Зеркало показало нашу шапку — дальше реплика ведёт сама.
           headerOverrideRef.current.delete(p.id);
           return p;
         }
-        return { ...p, ...override };
+        headerOverrideRef.current.set(p.id, pending);
+        return { ...p, ...pending };
       }),
     );
     setLines(res.lines);
@@ -1213,7 +1404,7 @@ export function ProductionProgramPage(props: Props) {
    * реплика отстаёт на минуту, поэтому своё значение держим до того, как
    * зеркало его покажет (см. reload), и уходит оно само, без кнопки.
    */
-  const setHeader = (patch: Partial<ProductionProgramDto>) => {
+  const setHeader = (patch: Partial<ProgramHeaderFields>) => {
     if (!selectedId || !selected) return;
     setPrograms((prev) => prev.map((p) => (p.id === selectedId ? { ...p, ...patch } : p)));
     const next = { ...selected, ...patch };
@@ -1226,7 +1417,18 @@ export function ProductionProgramPage(props: Props) {
       status: String(next.status ?? 'draft'),
       signatureSlots: next.signatureSlots ?? null,
     };
-    headerOverrideRef.current.set(selectedId, header);
+    // Оверрайд хранит ТОЛЬКО правленые поля: он держит на экране нашу правку,
+    // пока зеркало её не показало. Если держать там весь снимок из реплики,
+    // отставшее зеркало тянет на экран устаревшее значение (в том числе
+    // подписи) — и правка «то появляется, то исчезает» вернулась бы.
+    const changed = changedHeaderFields(patch, header);
+    const override = headerOverrideRef.current.get(selectedId) ?? {};
+    headerOverrideRef.current.set(selectedId, { ...override, ...changed });
+    // Правленые поля — отдельно: в PATCH уходят только они (см. persistRows),
+    // иначе правка названия затирала бы подписи на сервере.
+    const dirty = headerDirtyRef.current.get(selectedId) ?? new Set<ProgramHeaderField>();
+    for (const field of Object.keys(changed) as ProgramHeaderField[]) dirty.add(field);
+    headerDirtyRef.current.set(selectedId, dirty);
     markUnsaved(selectedId);
     scheduleAutosave(selectedId, { rows: null, header });
   };
@@ -1365,6 +1567,7 @@ export function ProductionProgramPage(props: Props) {
       setUnsavedProgramIds((prev) => prev.filter((id) => id !== programId));
       pendingSyncRef.current.delete(programId);
       headerOverrideRef.current.delete(programId);
+      headerDirtyRef.current.delete(programId);
       localRowsRef.current.delete(programId);
       setStatus('Программа снята. Правка дойдёт до остальных компьютеров при синхронизации.');
     } finally {

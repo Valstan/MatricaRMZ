@@ -20,6 +20,7 @@ import {
   productionProgramStageNeighbours,
   productionProgramStageOptions,
   productionProgramExecutionSummary,
+  PRODUCTION_PROGRAM_APPROVER,
   PRODUCTION_PROGRAM_SIGNATURE_SLOTS,
   PRODUCTION_PROGRAM_STATE_LABELS,
   resolveProductionProgramSignatureName,
@@ -64,15 +65,27 @@ describe('состояния строк производственной про�
 });
 
 describe('подписи программы', () => {
-  it('в образце 8 строк подписи, гриф утверждения отдельный', () => {
-    expect(PRODUCTION_PROGRAM_SIGNATURE_SLOTS).toHaveLength(8);
+  it('в образце 7 строк подписи, гриф утверждения отдельный', () => {
+    // Заказ владельца 24.11.2026: «убери директора из подписей — оставь его
+    // только в разделе Утверждаю». Гриф «УТВЕРЖДАЮ» при этом не тронут.
+    expect(PRODUCTION_PROGRAM_SIGNATURE_SLOTS).toHaveLength(7);
     expect(PRODUCTION_PROGRAM_SIGNATURE_SLOTS[0]?.caption).toBe('Коммерческий директор');
-    expect(PRODUCTION_PROGRAM_SIGNATURE_SLOTS.at(-1)?.caption).toBe('Директор');
+    expect(PRODUCTION_PROGRAM_SIGNATURE_SLOTS.at(-1)?.caption).toBe(
+      'Начальник отдела по рекламационной работе и работе с ВП',
+    );
+    // Директора в блоке подписей нет — ни отдельной строкой, ни внутри другой.
+    expect(PRODUCTION_PROGRAM_SIGNATURE_SLOTS.map((s) => s.caption)).not.toContain('Директор');
+  });
+
+  it('директор остался в грифе «УТВЕРЖДАЮ»', () => {
+    expect(PRODUCTION_PROGRAM_APPROVER.title).toBe('УТВЕРЖДАЮ');
+    expect(PRODUCTION_PROGRAM_APPROVER.position).toContain('Директор');
+    expect(PRODUCTION_PROGRAM_APPROVER.fullName).not.toBe('');
   });
 
   it('несохранённые слоты достраиваются ФИО из образца', () => {
     const slots = resolveProductionProgramSignatureSlots(null);
-    expect(slots).toHaveLength(8);
+    expect(slots).toHaveLength(7);
     expect(slots[0]?.fullName).toBe('Беркута А.А.');
     expect(slots[0]?.employeeId).toBeNull();
   });
@@ -103,15 +116,17 @@ describe('подписи программы', () => {
     expect(unbound).toEqual({ name: 'Беркута А.А.', source: 'document' });
   });
 
-  it('подбор по должности находит сотрудника; «Директор» не достаёт коммерческого директора', () => {
+  it('подбор по должности находит сотрудника; директор не достаётся в чужие слоты', () => {
     const employees = [
       { id: 'emp-1', fullName: 'Беркута Алексей Алексеевич', position: 'Коммерческий директор', employmentStatus: 'working' },
       { id: 'emp-2', fullName: 'Тихомиров Иван Анатольевич', position: 'Директор', employmentStatus: 'working' },
     ];
     const commercial = PRODUCTION_PROGRAM_SIGNATURE_SLOTS.find((s) => s.caption === 'Коммерческий директор')!;
-    const director = PRODUCTION_PROGRAM_SIGNATURE_SLOTS.find((s) => s.caption === 'Директор')!;
+    const technical = PRODUCTION_PROGRAM_SIGNATURE_SLOTS.find((s) => s.caption === 'Технический директор')!;
     expect(findProductionProgramSignatory(employees, commercial)?.id).toBe('emp-1');
-    expect(findProductionProgramSignatory(employees, director)?.id).toBe('emp-2');
+    // Слота «Директор» больше нет (24.11.2026), и обычный директор не должен
+    // занимать чужую строку подписи.
+    expect(findProductionProgramSignatory(employees, technical)?.id).not.toBe('emp-2');
   });
 });
 
@@ -300,7 +315,7 @@ describe('модель печати', () => {
     expect(model.groups[1]?.rows.map((r) => r.orderNo)).toEqual([3]);
     expect(model.engineCount).toBe(3);
     expect(model.groups[0]?.rows[0]?.contractKind).toBe('military');
-    expect(model.signatures).toHaveLength(8);
+    expect(model.signatures).toHaveLength(7);
   });
 
   it('подсветка строки считается по факту из карточки двигателя', () => {

@@ -176,7 +176,7 @@ describe('производственная программа — правка �
   });
 
   it('шапку, которую правят на экране, реплика тоже не затирает', () => {
-    expect(PAGE).toContain('headerOverrideRef.current.set(selectedId, header);');
+    expect(PAGE).toContain('headerOverrideRef.current.set(selectedId, { ...override, ...changed });');
   });
 
   it('несохранённая правка видна оператору, а не молчит', () => {
@@ -192,6 +192,52 @@ describe('производственная программа — правка �
     // Значит в набор обязаны попасть и те строки, что уже есть в реплике, но не
     // пришли к нам (другой компьютер). Снятые НАМИ строки при этом исключены.
     expect(PAGE).toContain('!known.has(String(l.id)) && !removed.includes(String(l.id))');
+  });
+});
+
+/**
+ * Подписи ПП не теряются при синхронизации (жалоба владельца 24.11.2026:
+ * «подписи то появляются, то исчезают», «с сервером долго синхронизируется»).
+ *
+ * Два независимых дефекта, оба закрыты здесь:
+ *  1. сравнение «зеркало догнало мою правку» перечисляло поля поимённо и
+ *     подписей в списке не было ⇒ правка подписей терялась на экране, как
+ *     только совпали остальные поля (класс M118);
+ *  2. в PATCH уезжала вся шапка из реплики, а `signatureSlots: null` сервер
+ *     трактует как «очистить подписи» ⇒ правка названия стирала подписи
+ *     на сервере.
+ */
+describe('производственная программа — подписи не теряются при синхронизации', () => {
+  it('сравнение «зеркало догнало» учитывает подписи', () => {
+    expect(PAGE, 'подписи должны ждать своего зеркала, а не отпускаться вместе с шапкой').toContain(
+      'override.signatureSlots !== undefined && (p.signatureSlots ?? null) !== override.signatureSlots',
+    );
+  });
+
+  it('в PATCH уходят только те поля шапки, которые правил оператор', () => {
+    expect(PAGE).toContain("if (dirty.has('signatureSlots')) {");
+    expect(PAGE).toContain('args.signatureSlots = h.signatureSlots;');
+    // Снимок шапки из реплики в PATCH ехать не должен: реплика отстаёт на
+    // минуту, и её `null` по подписям стирал бы подписи на сервере.
+    expect(PAGE, 'PATCH не должен нести снимок шапки из реплики').not.toContain('signatureSlots: h.signatureSlots,');
+    expect(PAGE, 'PATCH не должен нести снимок шапки из реплики').not.toContain('workshopId: h.workshopId,');
+  });
+
+  it('правленые поля шапки помечены отдельно — по ним и собирается PATCH', () => {
+    expect(PAGE).toContain('const headerDirtyRef = useRef<Map<string, Set<ProgramHeaderField>>>(new Map());');
+    expect(PAGE).toContain('for (const field of Object.keys(changed) as ProgramHeaderField[]) dirty.add(field);');
+  });
+
+  it('отказ записи возвращает правку в очередь — и она уходит повторно', () => {
+    expect(PAGE).toContain('requeueSave(programId, payload);');
+    expect(PAGE).toContain('scheduleRetry();');
+    expect(PAGE, 'очередь повтора должна звать ту же дверь записи').toContain(
+      'for (const [pid, snapshot] of pendingSaves) void persist(pid, snapshot);',
+    );
+  });
+
+  it('оператору сказано честно: сохранено на сервере, остальным — при синхронизации', () => {
+    expect(PAGE).toContain('Сохранено на сервере. На остальные компьютеры придёт при синхронизации');
   });
 });
 

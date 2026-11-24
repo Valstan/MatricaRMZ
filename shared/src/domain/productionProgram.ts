@@ -181,18 +181,20 @@ export type ProductionProgramSignatureSlotDef = {
   fullName: string;
   /** Группы ключевых слов должности (AND по группам, OR внутри группы) — как в `findEmployeeByPositionGroups`. */
   positionGroups: readonly string[][];
-  /** Ключевые слова, которые ИСКЛЮЧАЮТ сотрудника: нужны, чтобы «Директор» не достал
-   *  «Коммерческого директора» (тот тоже содержит слово «директор»). */
+  /** Ключевые слова, которые ИСКЛЮЧАЮТ сотрудника: страховка для широких слотов
+   *  (например, «директор» без уточнения цеха не должен достать «Коммерческого
+   *  директора»). */
   excludePositionHints?: readonly string[];
 };
 
 /**
- * Слоты подписи ПП — 8 строк из образца.
+ * Слоты подписи ПП — 7 строк из образца.
  *
- * 7 должностей перечислены в образце подписей; восьмая строка — директор завода
- * (он же в грифе «УТВЕРЖДАЮ» справа вверху). ФИО взяты ИЗ ОБРАЗЦА: подписанты ПП —
- * это строки подписей модуля, а НЕ карточки сотрудников: вносить их в кадровый
- * реестр нельзя (засоряет реестр и попадает под гейт дублей).
+ * Директора в блоке подписей НЕТ (заказ владельца 24.11.2026): он остался
+ * только в грифе «УТВЕРЖДАЮ» справа вверху (`PRODUCTION_PROGRAM_APPROVER`).
+ * ФИО взяты ИЗ ОБРАЗЦА: подписанты ПП — это строки подписей модуля, а НЕ
+ * карточки сотрудников: вносить их в кадровый реестр нельзя (засоряет реестр
+ * и попадает под гейт дублей).
  */
 export const PRODUCTION_PROGRAM_SIGNATURE_SLOTS: readonly ProductionProgramSignatureSlotDef[] = [
   {
@@ -230,12 +232,6 @@ export const PRODUCTION_PROGRAM_SIGNATURE_SLOTS: readonly ProductionProgramSigna
     fullName: 'А.Р. Гомаюнова',
     positionGroups: [['начальник'], ['рекламац']],
   },
-  {
-    caption: 'Директор',
-    fullName: 'И.А. Тихомиров',
-    positionGroups: [['директор']],
-    excludePositionHints: ['коммерческ', 'техническ', 'зам'],
-  },
 ] as const;
 
 /** Гриф утверждения: «УТВЕРЖДАЮ / Директор АО «Малмыжский РМЗ» / И.А. Тихомиров». */
@@ -262,7 +258,8 @@ function containsAnyHint(position: string, hints: readonly string[]): boolean {
  * Подбор сотрудника по должности для строки подписи ПП.
  *
  * Переиспользует `findEmployeeByPositionGroups` (тот же подбор по `role`, что у
- * нарядов), но с исключениями: «Директор» иначе нашёл бы «Коммерческого директора».
+ * нарядов), но с исключениями: широкий слот («директор» без уточнения цеха)
+ * иначе нашёл бы «Коммерческого директора».
  */
 export function findProductionProgramSignatory(
   employees: readonly WorkOrderSignatureEmployee[],
@@ -1245,6 +1242,28 @@ export type ProductionProgramSaveDto = {
    */
   workshopId?: string | null;
   title: string;
+  status?: string;
+  signatureSlots?: string | null;
+};
+
+/**
+ * Частичная правка шапки плана (PATCH).
+ *
+ * Разница между «не прислано» и «очистить» — рабочая, а не формальная:
+ *  · поля, которых НЕТ в объекте, сервер не трогает;
+ *  · `null` — осознанная очистка поля.
+ *
+ * Клиент шлёт только те поля, которые правил оператор: если в PATCH ехала бы
+ * вся шапка из реплики, то правка названия уносила бы с собой подписи
+ * (`null` из устаревшей реплики) и стирала их на сервере — жалоба владельца
+ * 24.11.2026 («подписи то появляются, то исчезают»).
+ */
+export type ProductionProgramPatchDto = {
+  periodStart?: number;
+  periodEnd?: number;
+  shop?: string;
+  workshopId?: string | null;
+  title?: string;
   status?: string;
   signatureSlots?: string | null;
 };

@@ -20,7 +20,17 @@ import { erpProductionProgramRows, erpProductionPrograms } from '../../database/
 import { logError, logInfo } from '../../utils/logger.js';
 import { writeSyncChanges, type SyncWriteInput } from './syncWriteService.js';
 
-const PUBLISH_TICK_MS = 60_000;
+/**
+ * Период публикации зеркала ПП.
+ *
+ * Было 60 с — и правка шапки (в том числе состава подписей) доезжала до
+ * остальных компьютеров минуту, а оператор на своём компьютере видел
+ * «подпись то появляется, то исчезает» (жалоба владельца 24.11.2026).
+ *
+ * 10 с: публикуются только неопубликованные строки (`sync_status`), так что
+ * нагрузка на журнал не растёт — растёт лишь частота опроса.
+ */
+const PUBLISH_TICK_MS = 10_000;
 const BATCH_LIMIT = 500;
 
 const SYSTEM_ACTOR = { id: 'system', username: 'system', role: 'system' } as const;
