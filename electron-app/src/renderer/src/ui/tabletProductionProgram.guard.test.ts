@@ -21,6 +21,10 @@ const REASON_UTIL = src('./utils/sectionGateReason.ts');
 const GLOBAL_CSS = src('./global.css');
 const IPC_WIRING = src('../../../../../android-app/src/core/ipcWiring.ts');
 const ANDROID_MAIN = src('../../../../../android-app/src/main.tsx');
+const ANDROID_SHIM = src('../../../../../android-app/src/bridge/shim.ts');
+const EMPLOYEE_IPC = src('../../../main/ipc/register/employees.ts');
+const PRELOAD = src('../../../preload/index.ts');
+const PP_PAGE = src('./pages/ProductionProgramPage.tsx');
 
 /** Список из объявления массива по имени. */
 function tabList(source: string, name: string): string[] {
@@ -109,5 +113,70 @@ describe('раздел не исчезает молча', () => {
     for (const tab of androidTabs) {
       expect(operatorTabs, `раздел ${tab} есть в ANDROID_TABS, но его нет в TABLET_OPERATOR_TABS`).toContain(tab);
     }
+  });
+});
+
+/**
+ * Правда вместо лжи (промт КАРМАНА #84, разбор планшета 25.11.2026).
+ *
+ * Разбор показал: на планшете раздел срезал гейт ЧЛЕНСТВА, а клиент смотрел
+ * membership в замороженное EAV-зеркало `section_access` — там разделов, выданных
+ * после миграции 0103, нет ни у кого. Ответ такого источника не авторитетен, и
+ * IPC-гейт уже говорит «данные о доступах не обновлены (нужен синх)», а меню —
+ * по-старому «раздел не выдан вашей учётной записи». Одно говорит правду, второе
+ * врёт: оператор (и админ, к которому он придёт) ищет несуществующую проблему
+ * с выдачей прав.
+ *
+ * Теперь источник доезжает до меню — и причина называется по источнику.
+ */
+describe('причина среза называет источник, а не выдумывает выдачу прав', () => {
+  it('клиент отдаёт источник membership отдельным каналом', () => {
+    expect(EMPLOYEE_IPC, 'канал источника membership не зарегистрирован').toContain('access:sections:self:source');
+    expect(EMPLOYEE_IPC, 'источник берётся тем же read\'ом, что и сам membership').toContain(
+      'getSectionMembershipByLoginWithSource',
+    );
+    expect(PRELOAD, 'preload не отдаёт источник в renderer').toContain('sectionsSelfSource');
+  });
+
+  it('планшетный шим отдаёт источник тоже — иначе renderer упадёт на его вызове', () => {
+    expect(ANDROID_SHIM, 'шим планшета не отвечает на чтение источника membership').toContain(
+      'sectionsSelfSource',
+    );
+  });
+
+  it('меню знает источник и говорит по нему разные вещи', () => {
+    expect(APP, 'меню не читает источник membership').toContain('sectionsSelfSource');
+    expect(APP, 'источник не передан в расчёт причины').toContain('membershipSource: sectionMembershipSource');
+    expect(REASON_UTIL, 'нет отдельной причины для слепого источника').toContain('no_membership_stale');
+    expect(REASON_UTIL, 'в тексте нет «нужен синх»').toContain('нужен синх');
+  });
+
+  it('права при этом не расширяются: раздел остаётся закрытым, меняется только объяснение', () => {
+    // Никакого «открыть всё»: причина — текст, а не обход гейта.
+    expect(REASON_UTIL, 'причина превратилась в доступ').not.toMatch(/allowedByMembership\s*[:=]\s*true/);
+    expect(APP, 'меню не стало fail-open при слепом источнике').not.toContain(
+      'membershipSource === \'legacy_eav\' ? availableTabs',
+    );
+  });
+});
+
+/**
+ * Плишка — это вход в СПИСОК производственных программ (промт КАРМАНА #84,
+ * п.2: «быстрый переход в список производственных программ»).
+ *
+ * Ломается тихо: плашка может открыть пустую вкладку (раздел не отрисован) или
+ * не открыть ничего. Сторож держит цепочку: плашка → раздел → страница ПП со
+ * списком программ.
+ */
+describe('плишка ПП ведёт в список производственных программ', () => {
+  it('клик по плашке открывает раздел, а не пустую вкладку', () => {
+    expect(SHELL, 'плашка ПП не зовёт меню-раздел').toContain("props.onMenuTab('production_program')");
+    expect(APP, 'раздел ПП не отрисован страницей').toContain("t === 'production_program'");
+    expect(APP, 'страница ПП не подключена').toContain('<ProductionProgramPage');
+  });
+
+  it('страница ПП показывает список программ (плашки слева) — это и есть вход', () => {
+    expect(PP_PAGE, 'на странице нет списка производственных программ').toContain('programs.map');
+    expect(PP_PAGE, 'программа не выбирается из списка').toContain('selectProgram(p.id)');
   });
 });

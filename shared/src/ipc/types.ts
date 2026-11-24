@@ -13,7 +13,7 @@ import type { WorkshopStatsResult } from '../domain/workshopStats.js';
 import type { TimesheetCodeDef, TimesheetData, TimesheetHeader } from '../domain/timesheet.js';
 import type { UserUiProfile } from '../domain/userUiProfile.js';
 import type { UiShellPrefs } from '../domain/uiShellV2.js';
-import type { SectionMembership } from '../domain/sectionAccess.js';
+import type { SectionMembership, SectionMembershipSource } from '../domain/sectionAccess.js';
 import type { SupportContact } from '../domain/supportContact.js';
 import type { ServicePriceHistoryDto, ServicePriceOrderDto } from '../domain/servicePriceOrders.js';
 import type { WorkSheetRow, WorkSheetType } from '../domain/workSheets.js';
@@ -2092,6 +2092,18 @@ export type MatricaApi = {
      * `null` = не засеяно либо superadmin (гейтинг не применяется) → меню работает fail-open.
      */
     sectionsSelf: () => Promise<SectionMembership | null>;
+    /**
+     * Откуда взят membership (см. `SectionMembershipSource`): `replica` — канон, ответ
+     * авторитетен; `legacy_eav` — замороженное EAV-зеркало, ответ НЕ авторитетен
+     * (разделов, выданных после миграции 0103, в нём нет ни у кого); `none` — не
+     * засеяно вовсе.
+     *
+     * Нужен меню, чтобы оно говорило оператору правду: закрывая раздел, назвать
+     * причину — «не выдан вашей учётной записи» или «данные о доступах на этом
+     * устройстве не обновлены (нужен синх)». Иначе клиент без налитой реплики
+     * отправляет людей искать несуществующую проблему с выдачей прав.
+     */
+    sectionsSelfSource: () => Promise<SectionMembershipSource>;
   };
   employees: {
     list: () => Promise<EmployeeListItem[]>;

@@ -5,10 +5,10 @@ import { ipcMain } from 'electron';
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, requireAnyPermOrResult, requirePermOrResult, viewModeWriteError } from '../ipcContext.js';
 import { createEntity, getEntityDetails, getEntityTypeIdByCode, listEntitiesByType, listEntitiesByTypeWithAttrs, setEntityAttribute, softDeleteEntity } from '../../services/entityService.js';
-import { analyzeEmployeeDuplicatesRemote, checkEmployeeCardKeyRemote, deleteEmployeeRemote, findEmployeeDuplicatesRemote, getSectionMembershipByLogin, getSectionMembershipByUserId, listEmployeeAttributeDefs, listEmployeesSummary, mergeEmployeeDuplicatesRemote, mergeEmployeesToServer, recordEmployeeDuplicateOverrideRemote, removeDuplicateEmployeeRemote } from '../../services/employeeService.js';
+import { analyzeEmployeeDuplicatesRemote, checkEmployeeCardKeyRemote, deleteEmployeeRemote, findEmployeeDuplicatesRemote, getSectionMembershipByLogin, getSectionMembershipByLoginWithSource, getSectionMembershipByUserId, listEmployeeAttributeDefs, listEmployeesSummary, mergeEmployeeDuplicatesRemote, mergeEmployeesToServer, recordEmployeeDuplicateOverrideRemote, removeDuplicateEmployeeRemote } from '../../services/employeeService.js';
 import { saveEmployeeCardGated } from '../../services/employeeCardWrite.js';
 import { adminResyncEmployees, viewUserPermissions } from '../../services/adminUsersService.js';
-import { EMPLOYEE_SIZE_ATTR_CODES } from '@matricarmz/shared';
+import { EMPLOYEE_SIZE_ATTR_CODES, type SectionMembershipSource } from '@matricarmz/shared';
 
 /**
  * Ключ сравнения должностей: регистр, ё→е и лишние пробелы не должны плодить дубли
@@ -29,6 +29,30 @@ export function registerEmployeesIpc(ctx: IpcContext) {  // Self-read собст
     if (!viewer.login) return null;
     if (String(viewer.role ?? '').toLowerCase() === 'superadmin') return null; // bypass — гейтинг не применяется
     return getSectionMembershipByLogin(ctx.dataDb(), viewer.login);
+  });
+
+  /**
+   * Откуда взят membership — тем же read'ом, что и сам membership.
+   *
+   * Меню закрывает раздел по членству и обязано сказать ПРАВДУ, почему: «не выдан
+   * вашей учётной записи» (ответ из реплики — авторитетен) или «данные о доступах на
+   * этом устройстве не обновлены (нужен синх)» (ответ из замороженного EAV-зеркала —
+   * не авторитетен: разделов, выданных после миграции 0103, в зеркале нет ни у кого).
+   * Без этого источника клиент без налитой реплики врал: раздел «не выдан» — и люди
+   * шли искать несуществующую проблему с выдачей прав.
+   *
+   * Отдельный канал (а не второй элемент ответа `access:sections:self`) — чтобы не
+   * менять форму ответа у существующих вызовов (их три, включая редактор экранов).
+   */
+  ipcMain.handle('access:sections:self:source', async () => {
+    const viewer = await ctx.currentViewer();
+    if (!viewer.login) return 'none';
+    if (String(viewer.role ?? '').toLowerCase() === 'superadmin') return 'none'; // bypass — источник не важен
+    const read = await getSectionMembershipByLoginWithSource(ctx.dataDb(), viewer.login).catch(() => ({
+      membership: null,
+      source: 'none' as SectionMembershipSource,
+    }));
+    return read.source;
   });
 
   ipcMain.handle('employees:list', async () => {
