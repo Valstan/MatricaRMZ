@@ -292,7 +292,12 @@ async function grantSection(api, username, sectionId, level) {
   try {
     const auth = { Authorization: `Bearer ${login.accessToken}` };
     const list = await (await fetch(`${used}/admin/users`, { headers: auth })).json();
-    const target = (list?.users ?? []).find((u) => String(u.username ?? u.login ?? '').toLowerCase() === username.toLowerCase());
+    // Ищем по `login`, а не по `username`: в `username` сервер отдаёт отображаемое
+    // имя («Verifier (dev)»), а логин там — отдельное поле. Поиск по `username`
+    // молча не находил оператора и рубил всю ветку «раздел срезан».
+    const target = (list?.users ?? []).find(
+      (u) => String(u.login ?? u.username ?? '').trim().toLowerCase() === username.toLowerCase(),
+    );
     if (!target) return { ok: false, reason: `учётка ${username} не найдена среди пользователей`, api: used };
     const res = await (
       await fetch(`${used}/admin/users/${target.id}/section-access/one`, {
@@ -415,6 +420,33 @@ async function main() {
   note(tile.found, 'в левой полосе есть постоянная плишка ПП', tile);
   note(tile.found && tile.visible, 'плишка ПП видима (не спрятана)', tile);
 
+  // ── Шаг 4.5. Оператору нужен раздел «Производственная программа». ───────────
+  // Гейт разделов режет вкладку, когда у человека ЕСТЬ разделы, а нужного среди
+  // них нет. Пока у оператора membership пуст, гейт молчит (fail-open) и вкладка
+  // ПП видна — но шаги 5–7 тогда проверяли бы пустоту, а не выдачу. Поэтому
+  // смоук сам выдаёт раздел ПП тем же REST'ом стенда, что и «Производство»
+  // в шаге 7, и ждёт его в реплике.
+  //
+  // Дальше (шаг 7) смоук СНИМАЕТ этот раздел и выдаёт «Производство»: срез
+  // плишки проверяется именно на состоянии «раздел ПП снят». Поэтому шаги
+  // 5–7 и ветка среза — это две разные фазы, а не одно состояние.
+  const ppGranted = await grantSection(API, 'verify', 'production_program', 'viewer');
+  note(ppGranted.ok, 'оператору verify выдан раздел «Производственная программа» (предмет шагов 5–7)', ppGranted);
+  const ppArrived = await evaluate(
+    ws,
+    `for (let i = 0; i < 90; i += 1) {
+       await wait(1000);
+       try { await call(() => window.matrica.sync.run(), 30000); } catch (e) {}
+       const m = await membershipState();
+       if (m.keys && m.keys.includes('production_program')) {
+         return { ok: true, membership: m.keys, source: m.source };
+       }
+     }
+     return { ok: false, reason: 'раздел ПП не доехал в реплику клиента' };`,
+    180000,
+  );
+  note(ppArrived.ok, 'раздел «Производственная программа» доехал до реплики клиента', ppArrived);
+
   // ── Шаг 5. Раздел в МЕНЮ. ─────────────────────────────────────────────────
   const menu = await evaluate(
     ws,
@@ -461,8 +493,13 @@ async function main() {
   // срезана — а именно срезанная плишка и должна объяснять, чем её резали.
   // Доступами по разделам управляет ТОЛЬКО суперадмин ⇒ выдачу делаем его
   // токеном напрямую в REST стенда (`/admin/users/:id/section-access/one`).
+  const ppRevoked = await grantSection(API, 'verify', 'production_program', null);
   const granted = await grantSection(API, 'verify', 'production', 'viewer');
-  note(granted.ok, 'суперадмин выдал оператору verify раздел «Производство» (ПП — не выдан)', granted);
+  note(
+    ppRevoked.ok && granted.ok,
+    'суперадмин выдал оператору verify раздел «Производство» (ПП — не выдан)',
+    { ppRevoked, granted },
+  );
   if (!granted.ok) {
     note(false, 'ветку «раздел срезан» проверить не удалось (выдача не удалась) — остальное выше уже проверено', granted);
   } else {
@@ -472,7 +509,7 @@ async function main() {
          await wait(1000);
          try { await call(() => window.matrica.sync.run(), 30000); } catch (e) {}
          const m = await membershipState();
-         if (m.keys && m.keys.includes('production')) {
+         if (m.keys && m.keys.includes('production') && !m.keys.includes('production_program')) {
            const t = tileState();
            return { ok: true, membership: m.keys, source: m.source, tile: t,
                     saysNotGranted: /не выдан/i.test(t.title + ' ' + t.aria),
