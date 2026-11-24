@@ -38,12 +38,33 @@ const PAGES = [
   'reports/WorkSheetsReportPage',
 ].map((name) => [name, src(`../pages/${name}.tsx`)] as const);
 
-describe('тулбар списка — одна строка', () => {
-  it('ряд не переносится, а лишнее уезжает в меню справа', () => {
-    expect(TOOLBAR).toContain("flexWrap: 'nowrap'");
-    expect(TOOLBAR).toContain("overflow: 'hidden'");
+describe('тулбар списка — влево и с переносом', () => {
+  it('ряд прижат влево, а не поместившееся переносится, а не срезается', () => {
+    // Владелец 24.11.2026 (промт КАРМАНА #118): «все управляющие кнопки нужно
+    // прижать влево, и если они выходят за правый край — переносить их влево».
+    expect(TOOLBAR).toContain("justifyContent: 'flex-start'");
+    expect(TOOLBAR).toContain("flexWrap: 'wrap'");
+    // Обрезки больше нет: перенесённая на вторую строку кнопка иначе срезалась бы
+    // краем ряда и стала бы недоступна.
+    expect(TOOLBAR).not.toContain("overflow: 'hidden'");
     expect(TOOLBAR).toContain('data-toolbar-overflow');
   });
+
+  it('кнопка «⋯» стоит у левого края, а не прижата вправо', () => {
+    // `marginLeft: 'auto'` прижимал «⋯» к правому краю — на планшете это и было
+    // «кнопки уходят за край экрана».
+    expect(TOOLBAR).not.toContain("marginLeft: 'auto'");
+    expect(TOOLBAR).toContain('const MAX_ROWS = 2;');
+  });
+
+  it('правило переполнения с явным приоритетом: с конца ряда — в меню', () => {
+    // Порядок ухода в меню задан явно (с конца ряда) и ограничен двумя строками:
+    // выше тулбар съедал бы высоту списка и прятал таблицу под собой.
+    expect(TOOLBAR).toContain('const budget = rowWidth * MAX_ROWS;');
+    expect(TOOLBAR).toContain('for (let i = items.length - 1; i >= 0 && needed > budget; i -= 1) {');
+    expect(TOOLBAR).toContain('if (!it || measured.pinned[it.key]) continue;');
+  });
+
   it('ширины замеряются один раз на состав ряда', () => {
     // Повторный замер по спрятанным элементам дал бы нули и схлопнул ряд в одну кнопку.
     expect(TOOLBAR).toContain('const measuring = measured?.signature !== signature;');
@@ -59,6 +80,15 @@ describe('тулбар списка — одна строка', () => {
     expect(TOOLBAR).toContain('if (measuredRef.current?.signature === signature) return;');
     // Наблюдатель пересоздаётся вместе с замером: тот же ряд, то же правило.
     expect(TOOLBAR).toContain('const observer = new ResizeObserver(');
+  });
+
+  it('ширина окна входит в подпись замера — кэш не врёт после переезда окна', () => {
+    // Поле поиска адаптивно (мельче на узком экране) → ширина кнопок зависит от
+    // ширины ряда. Без ширины окна в подписи кэш остался бы от старого размера.
+    expect(TOOLBAR).toContain('@${rowWidth}');
+    // Уехавший в меню элемент в DOM не лежит: прежнюю мерку сохраняем, иначе он
+    // считался бы бесплатным и ряд схлопнул бы в одну кнопку.
+    expect(TOOLBAR).toContain('widths[it.key] = live > 0 ? live : prev;');
   });
 
   it('закреплённое в меню не уезжает', () => {
@@ -109,9 +139,14 @@ describe('панель кнопок: общее поле поиска и кор�
 
   it('без фокуса поле возвращается к базовой ширине, текст обрезается, а не исчезает', () => {
     expect(SEARCH_FIELD).toContain('onBlur={() => setExpandedWidth(null)}');
-    expect(SEARCH_FIELD).toContain('const BASE_WIDTH = 280;');
-    // Ширина базовая — фиксированная: от окна она не зависит, иначе кэш ширин ряда
-    // (меряется один раз на состав) после изменения размера окна врал бы.
+    // Ширина свёрнутого поля — АДАПТИВНАЯ (живёт в стилях): на планшете 1024 px
+    // фиксированные 280 px были почти третью экрана, и ряд кнопок не помещался
+    // (жалоба владельца 24.11.2026).
+    expect(SEARCH_FIELD).toContain('className="mx-toolbar-search"');
+    expect(SEARCH_FIELD).not.toContain('const BASE_WIDTH = 280;');
+    expect(CSS, 'ширина поля поиска не задаётся стилями').toMatch(/\.mx-toolbar-search\s*\{[^}]*width:/);
+    // Единиц от окна (`vw`) в компоненте быть не должно: ширина живёт в стилях,
+    // а кэш ширин ряда пересчитывается вместе с шириной окна (см. подпись замера).
     expect(SEARCH_FIELD).not.toMatch(/BASE_WIDTH = .*vw/);
   });
 

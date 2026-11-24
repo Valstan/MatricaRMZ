@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import type { ListBehaviorSettings, UiControlSettings, UiDisplayPrefs } from '@matricarmz/shared';
-import { DEFAULT_LIST_BEHAVIOR_SETTINGS, formatClientLabel } from '@matricarmz/shared';
+import type { ListBehaviorSettings, UiControlSettings, UiDisplayPrefs, UiPresetId } from '@matricarmz/shared';
+import { DEFAULT_LIST_BEHAVIOR_SETTINGS, UI_PRESET_IDS, UI_PRESET_LABELS, formatClientLabel } from '@matricarmz/shared';
 
 import { Button } from '../components/Button.js';
 import { useConfirm } from '../components/ConfirmContext.js';
 import { SearchSelect } from '../components/SearchSelect.js';
-import { useTabletDevice } from '../hooks/useUiMode.js';
+import { useTabletDevice, type UiMode } from '../hooks/useUiMode.js';
 import { isAndroidPlatform } from '../platform.js';
 import { readChromeAutoHidePref, writeChromeAutoHidePref } from '../shell/ChromeVisibilityContext.js';
 import { useTabVisibleRef } from '../shell/TabVisibilityContext.js';
@@ -37,6 +37,11 @@ export function SettingsPage(props: {
   onDecorChange?: (decor: 'strict' | 'fancy') => void;
   onPaletteChange?: (palette: string) => void;
   onTabletToggle?: () => void;
+  /** Живой режим интерфейса: 'tablet' — под палец, 'compact' — под стилус, 'comp' — обычный. */
+  uiMode?: UiMode;
+  onUiModeChange?: (mode: UiMode) => void;
+  /** Перечитать применённые настройки интерфейса (после смены масштаба программы). */
+  onUiControlRefresh?: () => void;
   decor?: 'strict' | 'fancy';
   palette?: string;
   tabletActive?: boolean;
@@ -48,6 +53,7 @@ export function SettingsPage(props: {
   const [globalUiDefaults, setGlobalUiDefaults] = useState<UiControlSettings | null>(null);
   const [listBehavior, setListBehavior] = useState<ListBehaviorSettings>({ ...DEFAULT_LIST_BEHAVIOR_SETTINGS });
   const [listBehaviorStatus, setListBehaviorStatus] = useState('');
+  const [uiScaleStatus, setUiScaleStatus] = useState('');
   const tabVisibleRef = useTabVisibleRef();
   const [loggingEnabled, setLoggingEnabled] = useState<boolean>(false);
   const [loggingMode, setLoggingMode] = useState<'prod' | 'dev'>('prod');
@@ -481,6 +487,36 @@ export function SettingsPage(props: {
     }
   }
 
+  /**
+   * Глобальный переключатель масштаба (владелец 24.11.2026, промт КАРМАНА #118):
+   * один пресет уменьшает/увеличивает все элементы программы разом — шрифты, кнопки,
+   * поля, строки. Сохраняется в глобальные дефолты программы (их меняет суперадмин),
+   * а не в личные настройки: масштаб — свойство рабочего места, как и режим планшета.
+   */
+  async function handleSetUiScale(presetId: UiPresetId) {
+    const current = globalUiDefaults;
+    if (!current) {
+      setUiScaleStatus('Глобальные настройки не загружены — обновите страницу.');
+      return;
+    }
+    setUiScaleStatus('Сохранение...');
+    try {
+      const res = await window.matrica.settings.uiControlSetGlobal({
+        uiSettings: { ...current, presets: { ...current.presets, defaultPresetId: presetId } },
+        bumpVersion: true,
+      });
+      if (!res?.ok) {
+        setUiScaleStatus(`Ошибка сохранения: ${formatError(res?.error ?? 'unknown error')}`);
+        return;
+      }
+      setGlobalUiDefaults((res.globalDefaults as UiControlSettings) ?? current);
+      setUiScaleStatus(`Масштаб интерфейса: ${UI_PRESET_LABELS[presetId]} — действует во всей программе.`);
+      props.onUiControlRefresh?.();
+    } catch (e) {
+      setUiScaleStatus(`Ошибка сохранения: ${formatError(e)}`);
+    }
+  }
+
   async function handleToggleLogging() {
     try {
       setStatus('Сохранение...');
@@ -721,6 +757,49 @@ export function SettingsPage(props: {
                     {props.tabletActive ? 'Включён (коснись для выкл)' : 'Выключен (коснись для вкл)'}
                   </Button>
                 </div>
+              </>
+            )}
+            {props.onUiModeChange != null && (
+              <>
+                <div style={{ color: 'var(--muted)' }}>Размер интерфейса на планшете</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <Button variant={props.uiMode === 'tablet' ? 'primary' : 'ghost'} onClick={() => props.onUiModeChange?.('tablet')}>
+                    Крупно (под палец)
+                  </Button>
+                  <Button variant={props.uiMode === 'compact' ? 'primary' : 'ghost'} onClick={() => props.onUiModeChange?.('compact')}>
+                    Мелко (под стилус)
+                  </Button>
+                  <Button variant={props.uiMode === 'comp' ? 'primary' : 'ghost'} onClick={() => props.onUiModeChange?.('comp')}>
+                    Обычный (как на ПК)
+                  </Button>
+                </div>
+                <div style={{ color: 'var(--muted)', fontSize: 12 }}>
+                  «Мелко» — интерфейс под стилус: кнопки и строки меньше, на экране планшета
+                  помещается больше. Применяется сразу и хранится на этом устройстве.
+                </div>
+              </>
+            )}
+            {globalUiDefaults && (
+              <>
+                <div style={{ color: 'var(--muted)' }}>Масштаб интерфейса программы</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {UI_PRESET_IDS.map((id) => (
+                    <Button
+                      key={id}
+                      variant={globalUiDefaults.presets.defaultPresetId === id ? 'primary' : 'ghost'}
+                      onClick={() => void handleSetUiScale(id)}
+                    >
+                      {UI_PRESET_LABELS[id]}
+                    </Button>
+                  ))}
+                </div>
+                <div style={{ color: 'var(--muted)', fontSize: 12 }}>
+                  Один переключатель меняет размеры разом: шрифты, кнопки, поля, строки.
+                  Действует во всей программе.
+                </div>
+                {uiScaleStatus ? (
+                  <div style={{ color: 'var(--muted)', fontSize: 12 }}>{uiScaleStatus}</div>
+                ) : null}
               </>
             )}
             <div style={{ color: 'var(--muted)' }}>Это планшет</div>

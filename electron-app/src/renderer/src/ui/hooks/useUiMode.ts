@@ -10,14 +10,20 @@ import { isAndroidPlatform } from '../platform.js';
 //      явно (галочка в Настройках). Заморозка нужна, чтобы подключение мыши / смена разрешения /
 //      складывание трансформера не флипали видимость кнопки в рантайме — надёжного live-детекта
 //      «это планшет» не существует (тач — свойство наличия, не класс устройства).
-//   2. uiMode ('comp'|'tablet') — живой touch-layout, что переключает сама кнопка.
+//   2. uiMode ('comp'|'tablet'|'compact') — живой размер интерфейса (владелец 24.11.2026,
+//      промт КАРМАНА #118). 'tablet' — крупно, под палец; 'compact' — мелко, под стилус
+//      (планшетный контур остаётся, размеры уходят ниже десктопных); 'comp' — обычный ПК.
+//
+// ⚠ Разделение намеренное: «цеховой режим» владельца — это раздутый 'tablet', а НЕ флаг
+// машины deviceIsTablet (развилка плана #119 п.1). Выключение 'tablet' не выключает
+// планшетный контур (перестройка данных под экран, меню, рельс) — только размеры.
 
 const DEVICE_IS_TABLET_KEY = 'matrica:deviceIsTablet';
 const DEVICE_IS_TABLET_EVENT = 'matrica:device-is-tablet-changed';
 const UI_MODE_KEY = 'matrica:uiMode';
 const UI_MODE_EVENT = 'matrica:ui-mode-changed';
 
-export type UiMode = 'comp' | 'tablet';
+export type UiMode = 'comp' | 'tablet' | 'compact';
 
 // Эвристика «похоже на планшет» для стартового ПРЕДЛОЖЕНИЯ (не для рантайм-гейта).
 // any-pointer/any-hover, а не pointer/hover: подключение мыши к планшету не должно
@@ -98,7 +104,9 @@ export function useTabletDevice() {
 // применение через isTabletDevice).
 function readUiMode(): UiMode {
   try {
-    return window?.localStorage?.getItem(UI_MODE_KEY) === 'comp' ? 'comp' : 'tablet';
+    const raw = window?.localStorage?.getItem(UI_MODE_KEY);
+    if (raw === 'comp' || raw === 'compact' || raw === 'tablet') return raw;
+    return 'tablet';
   } catch {
     return 'tablet';
   }
@@ -116,9 +124,15 @@ function writeUiMode(mode: UiMode): void {
 export function useUiMode() {
   const [uiMode, setMode] = useState<UiMode>(readUiMode);
 
+  const setUiMode = useCallback((mode: UiMode) => {
+    writeUiMode(mode);
+    setMode(mode);
+  }, []);
+
+  // Переключатель в шапке: крупно → мелко (стилус) → обычный ПК → крупно.
   const toggle = useCallback(() => {
     setMode((prev) => {
-      const next: UiMode = prev === 'tablet' ? 'comp' : 'tablet';
+      const next: UiMode = prev === 'tablet' ? 'compact' : prev === 'compact' ? 'comp' : 'tablet';
       writeUiMode(next);
       return next;
     });
@@ -127,7 +141,7 @@ export function useUiMode() {
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
       if (event.key !== UI_MODE_KEY) return;
-      setMode(event.newValue === 'comp' ? 'comp' : 'tablet');
+      setMode(readUiMode());
     };
     const onModeChanged = () => setMode(readUiMode());
     window?.addEventListener('storage', onStorage);
@@ -140,7 +154,12 @@ export function useUiMode() {
 
   return {
     uiMode,
-    isTabletUi: uiMode === 'tablet',
+    /** Планшетный КОНТУР (данные перестраиваются под экран, меню/рельс — как на планшете).
+     *  Включён и в 'tablet', и в 'compact': «мелко» — это про размеры, а не про контур. */
+    isTabletUi: uiMode === 'tablet' || uiMode === 'compact',
+    /** Крупный touch-layout «под палец» — только 'tablet'. В 'compact' (стилус) — нет. */
+    isBigTouchUi: uiMode === 'tablet',
+    setUiMode,
     toggle,
   };
 }

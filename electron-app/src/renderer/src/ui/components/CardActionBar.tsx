@@ -23,8 +23,6 @@ export type CardActionBarProps = {
   onClose?: (() => void) | undefined;
   extraActionsLeft?: React.ReactNode | undefined;
   extraActionsCenter?: React.ReactNode | undefined;
-  /** Одна строка для центральной группы (без переноса); при нехватке места — горизонтальная прокрутка. */
-  centerNoWrap?: boolean | undefined;
 };
 
 export function CardActionBar(props: CardActionBarProps) {
@@ -115,9 +113,13 @@ export function CardActionBar(props: CardActionBarProps) {
         <div
           className="card-action-bar__group card-action-bar__group--center"
           style={{
-            flexWrap: props.centerNoWrap ? 'nowrap' : 'wrap',
-            overflowX: props.centerNoWrap ? 'auto' : undefined,
-            minWidth: props.centerNoWrap ? 0 : undefined,
+            // Горизонтальной прокрутки больше нет (жалоба владельца 24.11.2026: «на
+            // планшете справа некоторые кнопки уходят за край экрана, и приходится
+            // прокручивать экран»): не поместившиеся кнопки переносятся на вторую
+            // строку панели, а не уезжают за край.
+            flexWrap: 'wrap',
+            rowGap: 6,
+            minWidth: 0,
           }}
         >
           {props.canEdit && props.onReset && (

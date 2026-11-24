@@ -172,6 +172,45 @@ type RecentVisitEntry = {
 
 const RECENT_VISITS_LIMIT = 10;
 const NAVIGATION_HISTORY_LIMIT = 10;
+
+/**
+ * Базовые размеры интерфейса по режимам (владелец 24.11.2026, промт КАРМАНА #118).
+ *
+ *   comp    — обычный ПК: размеры приходят из пресета масштаба (ниже не подставляются),
+ *   tablet  — «под палец»: крупно (бывшие планшетные минимумы),
+ *   compact — «под стилус»: мелко, ниже десктопных.
+ *
+ * Итоговый размер = база режима × коэффициент масштаба пресета (`uiScale`).
+ * ⚠ Инлайн-канал (`style.setProperty`) сильнее каскада: без этих баз режим не подействовал бы
+ * на токены, которые ставит этот канал (прецедент PR #330).
+ */
+const UI_MODE_SIZE_BASE = {
+  comp: { title: 18, section: 15, body: 13, muted: 12, table: 13, list: 14, card: 14, datepicker: 14, rowPadY: 3, rowPadX: 6, cardGap: 3, cardPadY: 3, cardPadX: 6 },
+  tablet: { title: 22, section: 18, body: 16, muted: 14, table: 16, list: 17, card: 17, datepicker: 16, rowPadY: 10, rowPadX: 10, cardGap: 8, cardPadY: 10, cardPadX: 10 },
+  compact: { title: 16, section: 13, body: 12, muted: 11, table: 12, list: 12, card: 12, datepicker: 12, rowPadY: 2, rowPadX: 4, cardGap: 3, cardPadY: 2, cardPadX: 4 },
+} as const;
+type UiSizeMode = keyof typeof UI_MODE_SIZE_BASE;
+/** Ниже этого размера текст на экране не читается — «мелко» не значит «нечитаемо». */
+const MIN_UI_SIZE = 9;
+/** Границы коэффициента масштаба пресета: ниже — нечитаемо, выше — интерфейс разъезжается. */
+const MIN_UI_SCALE = 0.6;
+const MAX_UI_SCALE = 1.4;
+
+/**
+ * Коэффициент масштаба выбранного пресета (глобальный переключатель масштаба, владелец
+ * 24.11.2026). Живёт в профиле пресета: переключение пресета в Настройках меняет размеры
+ * разом — шрифты, кнопки, поля, отступы.
+ */
+function uiScaleOf(settings: UiControlSettings): number {
+  const presetId = sanitizeUiPresetId(
+    settings.presets?.defaultPresetId ?? DEFAULT_UI_PRESET_ID,
+    DEFAULT_UI_PRESET_ID,
+  );
+  const raw = Number(settings.presets?.profiles?.[presetId]?.global?.uiScale);
+  if (!Number.isFinite(raw) || raw <= 0) return 1;
+  return Math.min(MAX_UI_SCALE, Math.max(MIN_UI_SCALE, raw));
+}
+
 type StockDocumentParentTab = 'stock_documents' | 'stock_receipts' | 'stock_issues' | 'stock_transfers' | 'stock_inventory';
 
 type AppNavigationStep = {
@@ -1221,6 +1260,8 @@ export function App() {
     displayPrefs: DEFAULT_UI_DISPLAY_PREFS,
   });
   const [effectiveUiControl, setEffectiveUiControl] = useState<UiControlSettings>(DEFAULT_UI_CONTROL_SETTINGS);
+  // Коэффициент масштаба выбранного пресета: умножает базовые размеры режима.
+  const uiScale = useMemo(() => uiScaleOf(effectiveUiControl), [effectiveUiControl]);
   useTabFocusSelectAll({ enableEnterAsTab: uiPrefs.enterAsTab });
   useAutoGrowInputs();
   useAdaptiveListTables();
@@ -1229,7 +1270,7 @@ export function App() {
   // кнопки, машинно-локально, сеётся эвристикой один раз); isTabletUi — живой touch-layout,
   // что переключает большая кнопка «Комп/Планшет» в шапке.
   const { isTabletDevice } = useTabletDevice();
-  const { isTabletUi, toggle: toggleUiMode } = useUiMode();
+  const { uiMode, isTabletUi, setUiMode, toggle: toggleUiMode } = useUiMode();
   const tabletActive = isTabletDevice && isTabletUi;
   const [tabsLayout, setTabsLayout] = useState<TabsLayoutPrefs | null>(null);
   // V2 shell («Резиновый»): per-user выбор оболочки + личные настройки 3-колоночного макета.
@@ -1939,6 +1980,13 @@ export function App() {
   const applyEffectiveUiSettings = useCallback((settings: UiControlSettings) => {
     setEffectiveUiControl(sanitizeUiControlSettings(settings));
   }, []);
+  // Перечитать применённые настройки интерфейса: после смены глобального масштаба
+  // (Настройки → «Масштаб интерфейса программы») размеры должны примениться сразу.
+  const refreshEffectiveUiControl = useCallback(() => {
+    void window.matrica.settings.uiControlGet().then((r: any) => {
+      if (r?.ok && r?.effective) applyEffectiveUiSettings(r.effective as UiControlSettings);
+    });
+  }, [applyEffectiveUiSettings]);
   useEffect(() => {
     const safe = withUiControlPresetApplied(effectiveUiControl, sanitizeUiPresetId(effectiveUiControl.presets.defaultPresetId ?? DEFAULT_UI_PRESET_ID, DEFAULT_UI_PRESET_ID));
     const displayPrefs = uiControlToDisplayPrefs(safe);
@@ -1948,15 +1996,29 @@ export function App() {
     // здесь — из глобальных дефолтов; личные настройки их не перекрывают (см. merge).
     setListBehaviorSettings(safe.listBehavior);
     applyListBehaviorCssVars(root, safe.listBehavior);
-    // Инлайн-канал (style.setProperty) сильнее CSS-каскада → в планшетном режиме он
-    // молча перебивал токены :root[data-ui-mode='tablet'] из global.css, и хит-таргеты
-    // не росли (аудит 2026-07-22). Планшет задаёт МИНИМУМ: берём max(пользовательское,
-    // планшетный токен) — больший пользовательский размер по-прежнему уважается.
-    const tmin = (value: number, tabletMin: number) => (tabletActive ? Math.max(value, tabletMin) : value);
-    root.style.setProperty('--ui-title-size', `${tmin(safe.global.titleFontSize, 22)}px`);
-    root.style.setProperty('--ui-section-size', `${tmin(safe.global.sectionFontSize, 18)}px`);
-    root.style.setProperty('--ui-body-size', `${tmin(safe.global.bodyFontSize, 16)}px`);
-    root.style.setProperty('--ui-muted-size', `${tmin(safe.global.mutedFontSize, 14)}px`);
+    // Инлайн-канал (style.setProperty) сильнее CSS-каскада → режим, заданный только в
+    // :root[data-ui-mode=…], на токены этого канала не действует (прецедент PR #330:
+    // «инлайн-канал молча перебивал 11 токенов»). Поэтому размер считаем ЗДЕСЬ.
+    //
+    // Размер = база режима × коэффициент масштаба пресета:
+    //   comp    — размеры самого пресета (обычный ПК),
+    //   tablet  — база «под палец»,
+    //   compact — база «под стилус» (владелец 24.11.2026).
+    // Планшетные минимумы больше не «потолок снизу» для выбранного пресета: в 'compact'
+    // их нет вовсе, в 'tablet' база умножается на коэффициент масштаба (план #119, п.14).
+    const sizeMode: UiSizeMode = !tabletActive ? 'comp' : uiMode === 'compact' ? 'compact' : 'tablet';
+    const base = UI_MODE_SIZE_BASE[sizeMode];
+    const scale = uiScale;
+    // На обычном ПК размер берётся из пресета (он уже учитывает масштаб), на планшете —
+    // из базы режима, умноженной на масштаб.
+    const size = (presetValue: number, modeValue: number) =>
+      Math.max(MIN_UI_SIZE, Math.round(sizeMode === 'comp' ? presetValue : modeValue * scale));
+    // Коэффициент масштаба — в CSS: кнопки, поля и отступы, которых нет в этом канале.
+    root.style.setProperty('--ui-scale', String(scale));
+    root.style.setProperty('--ui-title-size', `${size(safe.global.titleFontSize, base.title)}px`);
+    root.style.setProperty('--ui-section-size', `${size(safe.global.sectionFontSize, base.section)}px`);
+    root.style.setProperty('--ui-body-size', `${size(safe.global.bodyFontSize, base.body)}px`);
+    root.style.setProperty('--ui-muted-size', `${size(safe.global.mutedFontSize, base.muted)}px`);
     root.style.setProperty('--ui-space-1', `${safe.global.space1}px`);
     root.style.setProperty('--ui-space-2', `${safe.global.space2}px`);
     root.style.setProperty('--ui-space-3', `${safe.global.space3}px`);
@@ -1968,29 +2030,32 @@ export function App() {
     root.style.setProperty('--ui-list-auto-columns-max', String(Math.max(1, Math.min(3, Math.round(safe.lists.autoColumnsMax)))));
     root.style.setProperty('--ui-list-auto-columns-gap-px', `${Math.max(0, Math.round(safe.lists.autoColumnsGapPx))}`);
     root.style.setProperty('--ui-card-font-size', `${safe.cards.fontSize}px`);
-    root.style.setProperty('--list-row-padding-y', `${tmin(safe.lists.rowPaddingY, 10)}px`);
-    root.style.setProperty('--list-row-padding-x', `${tmin(safe.lists.rowPaddingX, 10)}px`);
-    root.style.setProperty('--card-row-gap', `${tmin(safe.cards.rowGap, 8)}px`);
-    root.style.setProperty('--card-row-padding-y', `${tmin(safe.cards.rowPaddingY, 10)}px`);
-    root.style.setProperty('--card-row-padding-x', `${tmin(safe.cards.rowPaddingX, 10)}px`);
+    root.style.setProperty('--list-row-padding-y', `${size(safe.lists.rowPaddingY, base.rowPadY)}px`);
+    root.style.setProperty('--list-row-padding-x', `${size(safe.lists.rowPaddingX, base.rowPadX)}px`);
+    root.style.setProperty('--card-row-gap', `${size(safe.cards.rowGap, base.cardGap)}px`);
+    root.style.setProperty('--card-row-padding-y', `${size(safe.cards.rowPaddingY, base.cardPadY)}px`);
+    root.style.setProperty('--card-row-padding-x', `${size(safe.cards.rowPaddingX, base.cardPadX)}px`);
     const sectionAltStrength = Math.max(0, Math.min(30, Math.round(Number(safe.cards.sectionAltStrength ?? 0))));
     const sectionAltOdd = safe.cards.sectionAltBackgrounds ? Math.max(0, Math.floor(sectionAltStrength / 2)) : 0;
     const sectionAltEven = safe.cards.sectionAltBackgrounds ? sectionAltStrength : 0;
     root.style.setProperty('--ui-section-card-alt-odd', `${sectionAltOdd}%`);
     root.style.setProperty('--ui-section-card-alt-even', `${sectionAltEven}%`);
-    root.style.setProperty('--ui-table-size', `${tmin(safe.directories.tableFontSize, 16)}px`);
+    root.style.setProperty('--ui-table-size', `${size(safe.directories.tableFontSize, base.table)}px`);
     root.style.setProperty('--entity-card-min-width', `${safe.directories.entityCardMinWidth}px`);
     root.style.setProperty('--ui-content-max-width', `${safe.layout.contentMaxWidth}px`);
     root.style.setProperty('--ui-content-block-min-width', `${safe.layout.blockMinWidth}px`);
     root.style.setProperty('--ui-content-block-max-width', `${safe.layout.blockMaxWidth}px`);
-    // Календарь: масштаб попапа (ячейки) и шрифт инпута тоже не ниже планшетного минимума.
-    root.style.setProperty('--ui-datepicker-scale', String(tmin(Number(safe.misc.datePickerScale) || 1, 2)));
-    root.style.setProperty('--ui-datepicker-font-size', `${tmin(safe.misc.datePickerFontSize, 16)}px`);
+    // Календарь: масштаб попапа (ячейки) и шрифт инпута — по базе режима × масштаб.
+    const dateScale = sizeMode === 'comp'
+      ? Number(safe.misc.datePickerScale) || 1
+      : Math.max(1, Math.min(3, Math.round((sizeMode === 'compact' ? 1.4 : 2) * scale)));
+    root.style.setProperty('--ui-datepicker-scale', String(Math.max(1, Math.min(3, dateScale))));
+    root.style.setProperty('--ui-datepicker-font-size', `${size(safe.misc.datePickerFontSize, base.datepicker)}px`);
     root.style.setProperty('--ui-input-autogrow-min-ch', String(safe.inputs.autoGrowMinChars));
     root.style.setProperty('--ui-input-autogrow-max-ch', String(safe.inputs.autoGrowMaxChars));
     root.style.setProperty('--ui-input-autogrow-extra-ch', String(safe.inputs.autoGrowExtraChars));
     root.dataset.uiInputAutogrowAll = safe.inputs.autoGrowAllFields ? '1' : '0';
-  }, [effectiveUiControl, tabletActive]);
+  }, [effectiveUiControl, tabletActive, uiMode, uiScale]);
 
   function sameEngineDetails(a: EngineDetails | null, b: EngineDetails | null) {
     if (a === b) return true;
@@ -3042,31 +3107,40 @@ export function App() {
     }
   }, [resolvedTheme]);
 
-  // Планшетный режим → data-ui-mode на :root; CSS-блок [data-ui-mode='tablet'] в global.css
-  // поднимает хит-таргеты/шрифты/паддинги. На не-планшете (или при выборе «Комп») — 'comp'.
+  // Планшетный режим → data-ui-mode на :root; CSS-блоки [data-ui-mode='tablet'] и
+  // [data-ui-mode='compact'] в global.css поднимают/опускают хит-таргеты, шрифты и
+  // паддинги. На не-планшете (или при выборе «Комп») — 'comp'.
+  // 'compact' — режим «под стилус» (владелец 24.11.2026): планшетный контур остаётся,
+  // размеры уходят ниже десктопных.
   useEffect(() => {
     try {
-      document.documentElement.dataset.uiMode = tabletActive ? 'tablet' : 'comp';
+      document.documentElement.dataset.uiMode = !tabletActive
+        ? 'comp'
+        : uiMode === 'compact'
+          ? 'compact'
+          : 'tablet';
     } catch {
       // ignore
     }
-  }, [tabletActive]);
+  }, [tabletActive, uiMode]);
 
   useEffect(() => {
     const root = document.documentElement;
-    const TABLET_MIN_FONT = 17;
+    // Списочный/карточный шрифт задаётся ЭТИМ инлайн-каналом (инлайн > CSS-правило темы),
+    // поэтому размер режима подмешиваем здесь же, а не в CSS-блоке. В режиме 'compact'
+    // планшетный минимум НЕ применяется: «мелко» — это и есть смысл режима (план #119, п.14).
+    const sizeMode: UiSizeMode = !tabletActive ? 'comp' : uiMode === 'compact' ? 'compact' : 'tablet';
+    const base = UI_MODE_SIZE_BASE[sizeMode];
+    const scale = uiScale;
     let listSize = Math.max(10, Math.min(48, Number(uiPrefs.displayPrefs?.listFontSize ?? DEFAULT_UI_DISPLAY_PREFS.listFontSize)));
     let cardSize = Math.max(10, Math.min(48, Number(uiPrefs.displayPrefs?.cardFontSize ?? DEFAULT_UI_DISPLAY_PREFS.cardFontSize)));
-    // Списочный/карточный шрифт задаётся ЭТИМ инлайн-каналом (инлайн > CSS-правило темы),
-    // поэтому планшет-минимум подмешиваем здесь же, а не в CSS-блоке. Больший пользовательский
-    // размер уважаем (Math.max) — лишь поднимаем мелкий до планшетного минимума.
-    if (tabletActive) {
-      listSize = Math.max(listSize, TABLET_MIN_FONT);
-      cardSize = Math.max(cardSize, TABLET_MIN_FONT);
+    if (sizeMode !== 'comp') {
+      listSize = Math.max(MIN_UI_SIZE, Math.round(base.list * scale));
+      cardSize = Math.max(MIN_UI_SIZE, Math.round(base.card * scale));
     }
     root.style.setProperty('--ui-list-font-size', `${listSize}px`);
     root.style.setProperty('--ui-card-font-size', `${cardSize}px`);
-  }, [uiPrefs.displayPrefs, tabletActive]);
+  }, [uiPrefs.displayPrefs, tabletActive, uiMode, uiScale]);
 
   const capsRaw = deriveUiCaps(authStatus.permissions ?? null);
   const userRole = String(authStatus.user?.role ?? '').trim().toLowerCase();
@@ -7246,6 +7320,9 @@ export function App() {
         onPaletteChange={((palette: string) => { void persistPalette(palette as UiPaletteId); })}
         onTabletToggle={isTabletDevice ? toggleUiMode : undefined}
         tabletActive={isTabletDevice ? tabletActive : undefined}
+        uiMode={uiMode}
+        onUiModeChange={setUiMode}
+        onUiControlRefresh={refreshEffectiveUiControl}
       />
     );
   };

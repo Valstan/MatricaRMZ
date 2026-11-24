@@ -36,18 +36,22 @@ body {
   --ui-content-block-max-width: min(95vw, 1200px);
   --ui-datepicker-scale: 2;
   --ui-datepicker-font-size: 14px;
+  /* Глобальный переключатель масштаба (владелец 24.11.2026): коэффициент, на который
+     умножаются размеры, которых нет в инлайн-канале (кнопки, поля). Ставит его App.tsx
+     из выбранного пресета масштаба; значение 1 — «как было». */
+  --ui-scale: 1;
   --ui-button-sm-padding: 4px 8px;
-  --ui-button-sm-height: 26px;
-  --ui-button-sm-font-size: 12px;
+  --ui-button-sm-height: calc(26px * var(--ui-scale));
+  --ui-button-sm-font-size: calc(12px * var(--ui-scale));
   --ui-button-md-padding: 5px 9px;
-  --ui-button-md-height: 28px;
-  --ui-button-md-font-size: 13px;
+  --ui-button-md-height: calc(28px * var(--ui-scale));
+  --ui-button-md-font-size: calc(13px * var(--ui-scale));
   --ui-button-lg-padding: 8px 12px;
-  --ui-button-lg-height: 34px;
-  --ui-button-lg-font-size: 14px;
+  --ui-button-lg-height: calc(34px * var(--ui-scale));
+  --ui-button-lg-font-size: calc(14px * var(--ui-scale));
   --ui-input-padding: 4px 6px;
-  --ui-input-height: 28px;
-  --ui-input-font-size: 13px;
+  --ui-input-height: calc(28px * var(--ui-scale));
+  --ui-input-font-size: calc(13px * var(--ui-scale));
   --ui-input-autogrow-min-ch: 10;
   --ui-input-autogrow-max-ch: 48;
   --ui-input-autogrow-extra-ch: 2;
@@ -262,8 +266,8 @@ body {
   --ui-body-size: 14px;
   --ui-muted-size: 13px;
   --ui-table-size: 14px;
-  --ui-input-font-size: 14px;
-  --ui-input-height: 30px;
+  --ui-input-font-size: calc(14px * var(--ui-scale));
+  --ui-input-height: calc(30px * var(--ui-scale));
 
   --app-bg-from: #efe1c6;
   --app-bg-via: #faf1dd;
@@ -368,19 +372,19 @@ body {
   --ui-table-size: 16px;
   --ui-report-font-size: 16px;
 
-  --ui-input-height: 46px;
+  --ui-input-height: calc(46px * var(--ui-scale));
   --ui-input-padding: 8px 10px;
-  --ui-input-font-size: 16px;
+  --ui-input-font-size: calc(16px * var(--ui-scale));
 
-  --ui-button-sm-height: 40px;
+  --ui-button-sm-height: calc(40px * var(--ui-scale));
   --ui-button-sm-padding: 8px 12px;
-  --ui-button-sm-font-size: 14px;
-  --ui-button-md-height: 44px;
+  --ui-button-sm-font-size: calc(14px * var(--ui-scale));
+  --ui-button-md-height: calc(44px * var(--ui-scale));
   --ui-button-md-padding: 10px 14px;
-  --ui-button-md-font-size: 15px;
-  --ui-button-lg-height: 48px;
+  --ui-button-md-font-size: calc(15px * var(--ui-scale));
+  --ui-button-lg-height: calc(48px * var(--ui-scale));
   --ui-button-lg-padding: 12px 18px;
-  --ui-button-lg-font-size: 16px;
+  --ui-button-lg-font-size: calc(16px * var(--ui-scale));
 
   --list-row-padding-y: 10px;
   --list-row-padding-x: 10px;
@@ -393,6 +397,109 @@ body {
   /* Плитки тем в каталоге отчётов — палец, а не мышь. */
   --ui-report-theme-tile-height: 128px;
   --ui-report-theme-tile-padding: 16px 20px;
+}
+
+/* ── Планшет «под стилус» (владелец 24.11.2026, промт КАРМАНА #118) ──────────
+   Третий режим интерфейса — 'compact'. Отличие от 'tablet' (крупно, под палец):
+   МЕЛКО, ниже десктопных размеров. Планшетный контур при этом ОСТАЁТСЯ: данные
+   перестраиваются под экран, рельс и меню — как на планшете. Меняются только размеры.
+   ⚠ Инлайн-канал (style.setProperty в App.tsx) сильнее каскада → размеры шрифтов
+   задаёт он же (UI_MODE_SIZE_BASE в App.tsx). Тут — токены, которых у инлайн-канала
+   нет (кнопки, поля), и ПЛАНШЕТНЫЙ КОНТУР (перестройка таблиц под экран). */
+:root[data-ui-mode='compact'] {
+  --ui-title-size: 16px;
+  --ui-section-size: 13px;
+  --ui-body-size: 12px;
+  --ui-muted-size: 11px;
+  --ui-table-size: 12px;
+  --ui-report-font-size: 13px;
+
+  --ui-input-height: calc(26px * var(--ui-scale));
+  --ui-input-padding: 3px 5px;
+  --ui-input-font-size: calc(12px * var(--ui-scale));
+
+  --ui-button-sm-height: calc(22px * var(--ui-scale));
+  --ui-button-sm-padding: 3px 6px;
+  --ui-button-sm-font-size: calc(11px * var(--ui-scale));
+  --ui-button-md-height: calc(24px * var(--ui-scale));
+  --ui-button-md-padding: 4px 7px;
+  --ui-button-md-font-size: calc(12px * var(--ui-scale));
+  --ui-button-lg-height: calc(28px * var(--ui-scale));
+  --ui-button-lg-padding: 5px 9px;
+  --ui-button-lg-font-size: calc(13px * var(--ui-scale));
+
+  --list-row-padding-y: 2px;
+  --list-row-padding-x: 4px;
+  --card-row-padding-y: 2px;
+  --card-row-padding-x: 4px;
+  --card-row-gap: 3px;
+
+  --ui-datepicker-font-size: 12px;
+
+  --ui-report-theme-tile-height: 96px;
+  --ui-report-theme-tile-padding: 12px 14px;
+}
+
+/* ── Планшетный контур в режиме «под стилус» ─────────────────────────────────
+   Тот же, что у 'tablet': таблица занимает ширину экрана (не max-content), свёрнутые
+   колонки прячутся правилом в стилях, панель действий карточки переносится, длинные
+   подписи сокращаются. Иначе на планшете данные снова уезжали бы за край. */
+:root[data-ui-mode='compact'] div:has(> table.list-table) {
+  width: 100% !important;
+  min-width: 100% !important;
+  overflow: visible !important;
+}
+:root[data-ui-mode='compact'] .list-table-wrap {
+  width: 100% !important;
+  min-width: 100% !important;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+:root[data-ui-mode='compact'] table.list-table th,
+:root[data-ui-mode='compact'] table.list-table td {
+  min-width: 0;
+}
+:root[data-ui-mode='compact'] table.list-table th {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.62rem;
+  padding: 2px 4px;
+  line-height: 1.2;
+}
+:root[data-ui-mode='compact'] table.list-table td {
+  font-size: 0.68rem;
+  padding: 2px 4px;
+}
+:root[data-ui-mode='compact'] .card-action-bar__row {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  row-gap: 6px;
+}
+:root[data-ui-mode='compact'] .card-action-bar__group--left {
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+:root[data-ui-mode='compact'] .card-action-bar__group--center,
+:root[data-ui-mode='compact'] .card-action-bar__group--right {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+:root[data-ui-mode='compact'] .card-action-bar__group > * {
+  max-width: 100%;
+}
+:root[data-ui-mode='compact'] .card-action-bar__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+:root[data-ui-mode='compact'] .card-action-bar__label-full {
+  display: none;
+}
+:root[data-ui-mode='compact'] .card-action-bar__label-short {
+  display: inline;
 }
 
 /* «Сырые» контролы, которые не идут через токены — правим точечно, но всё ещё без JSX. */
@@ -440,26 +547,26 @@ body {
 /* Свёрнутые под ширину экрана колонки. Правило живёт в стилях, а не в разметке:
    колонка скрыта и у виртуализированных строк, которые перерисовываются на ходу.
    Ячейка на всю ширину (colspan — полка редактора) не прячется: это не колонка. */
-:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="1"] tr > :nth-child(1):not([colspan]),
-:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="2"] tr > :nth-child(2):not([colspan]),
-:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="3"] tr > :nth-child(3):not([colspan]),
-:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="4"] tr > :nth-child(4):not([colspan]),
-:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="5"] tr > :nth-child(5):not([colspan]),
-:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="6"] tr > :nth-child(6):not([colspan]),
-:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="7"] tr > :nth-child(7):not([colspan]),
-:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="8"] tr > :nth-child(8):not([colspan]),
-:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="9"] tr > :nth-child(9):not([colspan]),
-:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="10"] tr > :nth-child(10):not([colspan]),
-:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="11"] tr > :nth-child(11):not([colspan]),
-:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="12"] tr > :nth-child(12):not([colspan]),
-:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="13"] tr > :nth-child(13):not([colspan]),
-:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="14"] tr > :nth-child(14):not([colspan]),
-:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="15"] tr > :nth-child(15):not([colspan]),
-:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="16"] tr > :nth-child(16):not([colspan]),
-:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="17"] tr > :nth-child(17):not([colspan]),
-:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="18"] tr > :nth-child(18):not([colspan]),
-:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="19"] tr > :nth-child(19):not([colspan]),
-:root[data-ui-mode='tablet'] table.list-table[data-list-fit-hide~="20"] tr > :nth-child(20):not([colspan]) {
+:root:is([data-ui-mode='tablet'], [data-ui-mode='compact']) table.list-table[data-list-fit-hide~="1"] tr > :nth-child(1):not([colspan]),
+:root:is([data-ui-mode='tablet'], [data-ui-mode='compact']) table.list-table[data-list-fit-hide~="2"] tr > :nth-child(2):not([colspan]),
+:root:is([data-ui-mode='tablet'], [data-ui-mode='compact']) table.list-table[data-list-fit-hide~="3"] tr > :nth-child(3):not([colspan]),
+:root:is([data-ui-mode='tablet'], [data-ui-mode='compact']) table.list-table[data-list-fit-hide~="4"] tr > :nth-child(4):not([colspan]),
+:root:is([data-ui-mode='tablet'], [data-ui-mode='compact']) table.list-table[data-list-fit-hide~="5"] tr > :nth-child(5):not([colspan]),
+:root:is([data-ui-mode='tablet'], [data-ui-mode='compact']) table.list-table[data-list-fit-hide~="6"] tr > :nth-child(6):not([colspan]),
+:root:is([data-ui-mode='tablet'], [data-ui-mode='compact']) table.list-table[data-list-fit-hide~="7"] tr > :nth-child(7):not([colspan]),
+:root:is([data-ui-mode='tablet'], [data-ui-mode='compact']) table.list-table[data-list-fit-hide~="8"] tr > :nth-child(8):not([colspan]),
+:root:is([data-ui-mode='tablet'], [data-ui-mode='compact']) table.list-table[data-list-fit-hide~="9"] tr > :nth-child(9):not([colspan]),
+:root:is([data-ui-mode='tablet'], [data-ui-mode='compact']) table.list-table[data-list-fit-hide~="10"] tr > :nth-child(10):not([colspan]),
+:root:is([data-ui-mode='tablet'], [data-ui-mode='compact']) table.list-table[data-list-fit-hide~="11"] tr > :nth-child(11):not([colspan]),
+:root:is([data-ui-mode='tablet'], [data-ui-mode='compact']) table.list-table[data-list-fit-hide~="12"] tr > :nth-child(12):not([colspan]),
+:root:is([data-ui-mode='tablet'], [data-ui-mode='compact']) table.list-table[data-list-fit-hide~="13"] tr > :nth-child(13):not([colspan]),
+:root:is([data-ui-mode='tablet'], [data-ui-mode='compact']) table.list-table[data-list-fit-hide~="14"] tr > :nth-child(14):not([colspan]),
+:root:is([data-ui-mode='tablet'], [data-ui-mode='compact']) table.list-table[data-list-fit-hide~="15"] tr > :nth-child(15):not([colspan]),
+:root:is([data-ui-mode='tablet'], [data-ui-mode='compact']) table.list-table[data-list-fit-hide~="16"] tr > :nth-child(16):not([colspan]),
+:root:is([data-ui-mode='tablet'], [data-ui-mode='compact']) table.list-table[data-list-fit-hide~="17"] tr > :nth-child(17):not([colspan]),
+:root:is([data-ui-mode='tablet'], [data-ui-mode='compact']) table.list-table[data-list-fit-hide~="18"] tr > :nth-child(18):not([colspan]),
+:root:is([data-ui-mode='tablet'], [data-ui-mode='compact']) table.list-table[data-list-fit-hide~="19"] tr > :nth-child(19):not([colspan]),
+:root:is([data-ui-mode='tablet'], [data-ui-mode='compact']) table.list-table[data-list-fit-hide~="20"] tr > :nth-child(20):not([colspan]) {
   display: none;
 }
 
@@ -494,13 +601,19 @@ body {
 /* ── Панель действий карточки: раскладка в классах, а не в инлайне ───────────
    Инлайн-стиль перебить извне нельзя, а планшетному режиму ряд нужно перестроить
    (перенос вместо выхода за край). Поэтому статичная часть раскладки уехала в
-   классы; значения на десктопе — те же, что были инлайном. Пропсы ряда
-   (centerNoWrap) остались инлайном: это решение владельца для конкретной карточки. */
+   классы; значения на десктопе — те же, что были инлайном.
+   Владелец 24.11.2026 (промт КАРМАНА #118): все управляющие кнопки — ВЛЕВО.
+   Поэтому ни одна группа больше не прижата к правому краю и не растягивается:
+   иначе «Удалить» уезжало за правый край экрана (жалоба: «на планшете справа
+   некоторые кнопки уходят за край, и приходится прокручивать экран»). */
 .card-action-bar__row {
   display: flex;
   align-items: center;
   width: 100%;
   gap: 6px;
+  /* Ряд переносится: не поместившаяся кнопка уходит на вторую строку, а не за край. */
+  flex-wrap: wrap;
+  row-gap: 6px;
 }
 .card-action-bar__group {
   display: flex;
@@ -513,14 +626,14 @@ body {
   flex: 0 0 auto;
 }
 .card-action-bar__group--center {
-  justify-content: center;
+  justify-content: flex-start;
   gap: 6px;
-  flex: 1;
+  flex: 0 0 auto;
 }
 .card-action-bar__group--right {
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 6px;
-  flex: 1;
+  flex: 0 0 auto;
 }
 /* Длинные подписи кнопок на планшете сокращаются; полная — в title. */
 .card-action-bar__label-short {
@@ -544,7 +657,9 @@ body {
 }
 :root[data-ui-mode='tablet'] .card-action-bar__group--center,
 :root[data-ui-mode='tablet'] .card-action-bar__group--right {
-  flex: 1 1 0;
+  /* Группы не растягиваются: кнопки идут подряд слева (владелец 24.11.2026),
+     а не «левая группа — середина — правая группа у края». */
+  flex: 0 1 auto;
   flex-wrap: wrap;
   row-gap: 6px;
 }
@@ -614,6 +729,17 @@ body {
   background: var(--toolbar-bg, var(--surface-2));
   border-radius: 8px;
   padding: 3px 8px;
+}
+
+/* Поле поиска в панели кнопок списка (владелец 24.11.2026): ширина АДАПТИВНАЯ.
+   На планшете 1024 px фиксированные 280 px — это почти треть экрана, и ряд кнопок
+   не помещался. Доля от ширины ряда с полом и потолком: на узком экране поле
+   мельче, на широком — не разрастается. Ширина живёт здесь, а не константой в
+   компоненте: ряд меряет кнопки и считает переполнение, и константа перестала бы
+   совпадать с тем, что на экране. */
+.mx-toolbar-search {
+  width: clamp(140px, 24%, 280px);
+  flex: 0 0 auto;
 }
 
 /* macOS-like soft rounding via tokens (restyle 2026-06; replaces the former blanket
