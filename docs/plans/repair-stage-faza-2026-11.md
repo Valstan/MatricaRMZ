@@ -50,8 +50,23 @@
 
 ## Гейты
 
-- `corepack pnpm -F @matricarmz/shared test` — 2176 тестов, зелёные.
-- `corepack pnpm -F @matricarmz/backend-api test` — зелёные.
-- `corepack pnpm -F @matricarmz/electron-app test` — зелёные.
-- `corepack pnpm -r typecheck` + `corepack pnpm -F @matricarmz/electron-app typecheck:test` + `corepack pnpm -r lint`.
-- CDP e2e-смоук — **не гонялся**: локальный PostgreSQL на машине PC79 не поднимается (см. `docs/machines/parts/PC79/stand.md`), приёмка глазами — за владельцем.
+- `corepack pnpm -F @matricarmz/shared test` — 2177 тестов, зелёные.
+- `corepack pnpm -F @matricarmz/backend-api test` — 1647 тестов (193 файла), зелёные.
+- `corepack pnpm -F @matricarmz/electron-app test` — 2824 теста (327 файлов), зелёные.
+- `corepack pnpm -F @matricarmz/android-app test` — 89 тестов, зелёные.
+- `corepack pnpm -r typecheck` + `corepack pnpm -F @matricarmz/electron-app typecheck:test` + `corepack pnpm -r lint` — зелёные.
+- CI (PR #1993): 10/10 — в т.ч. `migrate-and-verify` (полная цепочка drizzle на PostgreSQL) и `check-sync-contract`.
+- **Миграция 0141 проверена на живом PostgreSQL**: накат на чистой БД даёт `ukladka=40, faza=45, sborka=50`; повторный накат идемпотентен; сценарий «этап завели руками с другим id» (конфликт по коду) накат не роняет — `UPDATE` приводит канон-имя и приоритет к правильным.
+- CDP e2e-смоук — **не гонялся**: для него нужен живой Electron с PostgreSQL, а локальный PostgreSQL на PC79 поднимается нестабильно (см. `docs/machines/parts/PC79/stand.md`); приёмка глазами — за владельцем.
+
+## Приёмка (критерии задания)
+
+| # | Критерий | Проверка | Итог |
+|---|---|---|---|
+| 1 | «Фаза» есть в списке этапов ремонта | код в реестре + статике + миграции; тесты домена | ✔ код; смоук не гонялся |
+| 2 | «Фаза» стоит между «Укладкой вала» и «Сборкой двигателя» | тест домена (`sortOrder('faza')=45`, строго между 40 и 50); накат на PostgreSQL | ✔ `ukladka=40, faza=45, sborka=50` |
+| 3 | Субординация: фазу нельзя отметить раньше укладки | тест `findStageDateConflict` + тест `saveRepairStageRow` | ✔ |
+| 4 | Сборка не может быть раньше фазы | тест домена | ✔ |
+| 5 | Отметка фазы — со схемой: дата + цех | тест `saveRepairStageRow`: в meta `stage{code,name}`, `workshopId`, `workshopName` | ✔ |
+| 6 | Двигатель на «фазе» — «В ремонте», а не «На заводе» | тест `engineStateLabel` + группа «Фаза» в ряду отчёта | ✔ |
+| 7 | Новый этап не сломал остальные сценарии | все пакеты + CI | ✔ 2177 + 1647 + 2824 + 89 тестов, CI 10/10 |
