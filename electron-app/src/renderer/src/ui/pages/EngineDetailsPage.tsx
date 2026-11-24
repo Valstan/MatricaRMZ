@@ -3276,7 +3276,7 @@ export function EngineDetailsPage(props: {
           <EngineHistoryFeedPanel
             engineId={props.engineId}
             canEdit={canEditStageEff}
-            canEditManual={canEditOperationsEff}
+            canEditManual={canEditManualEff}
             canTransfer={canEditEnginesEff}
             workshopOptions={workshopOptions}
             engineLabel={formatEngineGateLabel({ engineBrand, engineNumber, internalNumberFull })}
