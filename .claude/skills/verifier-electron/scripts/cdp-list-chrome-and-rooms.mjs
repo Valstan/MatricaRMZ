@@ -327,7 +327,18 @@ async function main() {
   );
   check('поиск из ряда не уехал', searchStays === true);
   // Кнопки «Фильтры» в ряду больше нет (владелец 12.11.2026) — вместо неё панель фильтров
-  // стоит под тулбаром всегда и уехать в меню переполнения не может.
+  // стоит под тулбаром и уехать в меню переполнения не может.
+  //
+  // С 24.11.2026 панель ещё и СВОРАЧИВАЕТСЯ (промт КАРМАНА #106), а раскрытость живёт в
+  // состоянии списка ⇒ прошлый прогон мог оставить её свёрнутой. Разворачиваем: дальше
+  // проверяем саму панель, а не её свёрнутое состояние.
+  const facetCollapsed = await cdp.evalAsync(
+    "(() => { const b = window.__mv.panelFor('Марка', '[data-facet-collapse]'); return b ? b.getAttribute('aria-expanded') : null; })()",
+  );
+  if (facetCollapsed === 'false') {
+    await cdp.evalAsync("window.__mv.click(window.__mv.panelFor('Марка', '[data-facet-collapse]'))");
+    await sleep(800);
+  }
   const facetToggleGone = await cdp.evalAsync("!window.__mv.panelFor('Марка', '[data-facet-toggle]')");
   check('кнопки «Фильтры» в ряду нет', facetToggleGone === true);
   const panelVisible = await cdp.evalAsync("Boolean(window.__mv.panelFor('Марка', '[data-engine-facets]'))");
@@ -348,7 +359,8 @@ async function main() {
     "(() => { const b = window.__mv.toolbar(); return b ? [...b.querySelectorAll('button')].some(x => window.__mv.txt(x).includes('Колонки списка')) : false; })()",
   );
   check('в тулбаре кнопки колонок больше нет', inToolbar === false);
-  // Панель фильтров всегда на виду (владелец 12.11.2026) — раскрывать её нечем.
+  // Панель фильтров на виду под тулбаром (владелец 12.11.2026). С 24.11.2026 она ещё и
+  // сворачивается своей кнопкой — но здесь проверяем развёрнутую панель.
   const alreadyOpen = await cdp.evalAsync("Boolean(window.__mv.panelFor('Марка', '[data-engine-facets]'))");
   check('панель фильтров на виду', alreadyOpen === true);
   const inPanel = await cdp.evalAsync("Boolean(window.__mv.panelFor('Марка', '[data-facet-columns]'))");

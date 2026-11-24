@@ -220,13 +220,16 @@ async function openSection(ws, group, item) {
 }
 
 // Привести панель фильтров в чистое состояние: стенд живёт между прогонами, а прошлый прогон
-// оставляет отбор. Кнопки «Фильтры» больше нет (владелец 12.11.2026) — панель всегда на виду,
-// поэтому проверяем именно это.
+// оставляет отбор. Кнопки «Фильтры» в тулбаре нет (владелец 12.11.2026) — панель стоит под
+// тулбаром. С 24.11.2026 панель ещё и СВОРАЧИВАЕТСЯ (промт КАРМАНА #106), и раскрытость живёт
+// в состоянии списка ⇒ прошлый прогон мог оставить её свёрнутой — тогда проверять нечего.
 async function openPanel(ws) {
   return evaluate(
     ws,
     `let how = 'панель на виду';
-     if (vis('[data-facet-field]').length === 0) return 'панель фильтров не отрисована';
+     const c = document.querySelector('[data-facet-collapse]');
+     if (c && c.getAttribute('aria-expanded') === 'false') { click(c); await wait(800); how += ', панель развёрнута'; }
+     if (vis('[data-facet-field]').length === 0) return how + ', но ступени не отрисованы';
      if (vis('[data-facet-toggle]').length > 0) return 'кнопка «Фильтры» всё ещё в интерфейсе';
      const r = vis('[data-facet-reset]')[0];
      if (r && !r.disabled) { click(r); await wait(800); how += ', отбор сброшен'; }
@@ -652,7 +655,115 @@ async function main() {
     }
   }
 
-  // ── 9. Уборка: снять отбор, чтобы стенд не остался с чужим фильтром ─
+  // ── 9. Панель сворачивается кнопкой (владелец 24.11.2026, промт КАРМАНА #106) ───────────
+  // «По умолчанию панель фильтров всегда развёрнута, но если она мешает, то нужна кнопка
+  // свернуть панель, чтобы освободить место под рабочую область списка». Отбор при этом
+  // остаётся видимым (плашки и счётчик) — иначе список выглядел бы «неправильным».
+  console.log('== сворачивание панели ==');
+  const collapse = await evaluate(
+    ws,
+    `// Значение в отборе: при свёрнутой панели должно быть видно, что отбор не спрятался.
+     const cell = vis('[data-facet-field]').find(hoverable);
+     if (!cell) return { skip: 'нет ячейки ступени на виду' };
+     // Выбираем значение в ступени, где варианты ЕСТЬ: на минимальных фикстурах стенда у
+     // «Заказчика» значений нет, а без выбранного значения нечего проверять — плашек нет.
+     let pickedFacet = null;
+     for (const c of vis('[data-facet-field]').filter(hoverable)) {
+       click(c); await wait(500);
+       const m = vis('[data-facet-menu]')[0] ?? null;
+       const v = m ? m.querySelector('[data-facet-value]') : null;
+       if (!v) { click(c); await wait(200); continue; }
+       click(v); await wait(900);
+       pickedFacet = c.getAttribute('data-facet-field');
+       break;
+     }
+     // Открытое меню ступени (приколотое) должно пережить сворачивание.
+     const cell2 = vis('[data-facet-field]').find(hoverable);
+     if (cell2) { click(cell2); await wait(600); }
+     const panel = document.querySelector('[data-engine-facets]');
+     const listRoot = vis('[data-list-root="true"]')[0] ?? document.querySelector('[data-list-root="true"]');
+     const h = (el) => Math.round(el?.getBoundingClientRect().height ?? 0);
+     const top = (el) => Math.round(el?.getBoundingClientRect().top ?? 0);
+     const before = {
+       panelH: h(panel),
+       listTop: top(listRoot),
+       listH: h(listRoot),
+       chips: document.querySelectorAll('[data-facet-chip]').length,
+       pickedFacet,
+     };
+     const toggle = document.querySelector('[data-facet-collapse]');
+     if (!toggle) return { skip: 'нет кнопки сворачивания' };
+     click(toggle); await wait(900);
+     const body = document.querySelector('[data-facet-panel-body]');
+     const collapsed = {
+       expanded: toggle.getAttribute('aria-expanded'),
+       bodyHidden: body?.hasAttribute('hidden') ?? null,
+       bodyH: h(body),
+       fieldsVisible: vis('[data-facet-field]').length,
+       chips: document.querySelectorAll('[data-facet-chip]').length,
+       chipsVisible: [...document.querySelectorAll('[data-facet-chip]')].filter(painted).length,
+       panelH: h(panel),
+       listTop: top(listRoot),
+       listH: h(listRoot),
+       resetText: txt(vis('[data-facet-reset]')[0]),
+     };
+     click(toggle); await wait(900);
+     const back = {
+       expanded: toggle.getAttribute('aria-expanded'),
+       fieldsVisible: vis('[data-facet-field]').length,
+       chips: document.querySelectorAll('[data-facet-chip]').length,
+       menuVisible: vis('[data-facet-menu]').length,
+       panelH: h(panel),
+       listTop: top(listRoot),
+       listH: h(listRoot),
+     };
+     return { before, collapsed, back };`,
+  );
+  if (collapse.skip) {
+    note(false, `панель сворачивается по кнопке: ${collapse.skip}`);
+  } else {
+    const { before, collapsed, back } = collapse;
+    note(collapsed.expanded === 'false', 'кнопка свернула панель (aria-expanded=false)', collapsed);
+    note(
+      collapsed.bodyHidden === true && collapsed.bodyH === 0,
+      'содержимое панели скрыто: высота 0, ступени не нарисованы',
+      { bodyHidden: collapsed.bodyHidden, bodyH: collapsed.bodyH },
+    );
+    note(collapsed.fieldsVisible === 0, 'ступени при свёрнутой панели не видны', {
+      fieldsVisible: collapsed.fieldsVisible,
+    });
+    note(
+      collapsed.chips > 0 && collapsed.chipsVisible === collapsed.chips,
+      'при свёрнутой панели выбранные значения ВИДНЫ (отбор не спрятался)',
+      { chips: collapsed.chips, chipsVisible: collapsed.chipsVisible },
+    );
+    note(collapsed.panelH < before.panelH, 'панель стала ниже — место освободилось', {
+      before: before.panelH,
+      after: collapsed.panelH,
+    });
+    // Место освобождается ВЫСОТОЙ рабочей области: её верх стоит на месте (панель выше),
+    // а растягивается список — то самое «место под список», о котором просил владелец.
+    note(
+      collapsed.listH > before.listH,
+      'рабочая область списка выросла — освободившееся место занял он',
+      { before: before.listH, after: collapsed.listH },
+    );
+    note(back.expanded === 'true' && back.fieldsVisible > 0, 'кнопка развернула панель обратно', back);
+    note(back.chips === before.chips, 'отбор пережил сворачивание (те же значения)', {
+      before: before.chips,
+      after: back.chips,
+    });
+    note(back.menuVisible > 0, 'открытое меню ступени пережило сворачивание', {
+      menuVisible: back.menuVisible,
+    });
+    note(back.panelH === before.panelH, 'после разворачивания панель вернулась к прежней высоте', {
+      before: before.panelH,
+      after: back.panelH,
+    });
+  }
+  await shot(ws, '5-collapse');
+
+  // ── 10. Уборка: снять отбор, чтобы стенд не остался с чужим фильтром ─
   await evaluate(
     ws,
     `const r = vis('[data-facet-reset]')[0];

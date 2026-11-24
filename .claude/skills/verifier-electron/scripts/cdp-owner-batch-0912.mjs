@@ -294,11 +294,21 @@ async function main() {
   }
   check('список сотрудников открыт', listOpen);
 
-  // Кнопки «Фильтры» в тулбаре больше нет (владелец 12.11.2026): панель фильтров всегда
-  // на виду под тулбаром, и сворачивать её нечем.
+  // Кнопки «Фильтры» в тулбаре больше нет (владелец 12.11.2026): панель фильтров стоит под
+  // тулбаром. С 24.11.2026 (промт КАРМАНА #106) панель ещё и сворачивается своей кнопкой, а
+  // раскрытость живёт в состоянии списка ⇒ прошлый прогон мог оставить её свёрнутой.
+  const facetCollapsed = await cdp.evalAsync(
+    "(() => { const b = document.querySelector('[data-facet-collapse]'); return b ? b.getAttribute('aria-expanded') : null; })()",
+  );
+  if (facetCollapsed === 'false') {
+    await cdp.evalAsync("window.__mv.click(document.querySelector('[data-facet-collapse]'))");
+    await sleep(800);
+  }
   const toggle = await cdp.evalAsync("(() => { const b = document.querySelector('[data-facet-toggle]'); return b ? { text: window.__mv.txt(b), vis: window.__mv.vis(b) } : null; })()");
   check('кнопки «Фильтры» в тулбаре нет', toggle === null, toggle ? toggle.text : 'нет');
-  const panelOnScreen = await cdp.evalAsync("Boolean(document.querySelector('[data-facet-field]'))");
+  const panelOnScreen = await cdp.evalAsync(
+    "Boolean([...document.querySelectorAll('[data-facet-field]')].find(e => window.__mv.vis(e)))",
+  );
   check('панель фильтров на виду', panelOnScreen === true);
 
   const before = await cdp.evalAsync("window.__mv.all('tbody tr').length");

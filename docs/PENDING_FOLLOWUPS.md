@@ -111,7 +111,7 @@
 - [⏳ Клиент не отправлял атрибуты нового сотрудника — симптом снят, причина не найдена 🗓 since:2026-11-16](pending/klient-ne-otpravlyaet-atributy-novogo-sotrudnika.md)
 - [⏳ «Поиск по файлам»: вёрстка, названия вместо id, сверка с карточкой, .xls — выкат v3.131.0 сделан, ждёт приёмки 🗓 since:2026-11-16](pending/poisk-po-failam-dorabotka-priemka.md)
 - [⏳ СИЗ: карточка смывающих средств — остаток по образцу №43 (свидетельство, способ выдачи, расписка) 🗓 since:2026-11-14](pending/siz-kartochka-smyvayushchih-sredstv.md)
-- [⏳ Панель фильтров и ряд плашек колонок: плашки не наезжают, колонки — плашками — приёмка на парке (PR #1693) 🗓 since:2026-11-12](pending/panel-filtrov-spoilera-net-plashki-plavayushchie-priemka.md)
+- [⏳ Панель фильтров: плашки не наезжают, панель сворачивается кнопкой — приёмка на парке (PR #1693, промт КАРМАНА #106) 🗓 since:2026-11-12](pending/panel-filtrov-spoilera-net-plashki-plavayushchie-priemka.md)
 - [⏳ Приёмка парка на 3.102.0: приказ о СИЗ и должности должны быть видны оператору 🗓 since:2026-11-03](pending/priemka-parka-na-3-101-0-prikaz-o-siz.md)
 - [⏳ Проставить сроки носки по 113 годовым позициям приказа о СИЗ: без срока они не попадают в «пора выдавать» 🗓 since:2026-11-05](pending/prostat-sroki-noski-po-godovym-poziciyam-prikaza-siz.md)
 - [⏳ Выгрузка СИЗ в 1С: структура файла ждёт бухгалтера 🗓 since:2026-11-03](pending/vygruzka-siz-v-1s-struktura-zhdet-buhgaltera.md)
