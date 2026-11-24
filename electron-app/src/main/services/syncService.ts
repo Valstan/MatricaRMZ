@@ -3007,6 +3007,9 @@ async function applyPulledChanges(
             title: payload.title,
             status: payload.status,
             signatureSlots: payload.signature_slots ?? null,
+            // Ссылка на шаблон подписей (промт КАРМАНА #120): null — шаблон не
+            // применялся.
+            signatureTemplateId: payload.signature_template_id ?? null,
             createdAt: payload.created_at,
             updatedAt: payload.updated_at,
             lastServerSeq: payload.last_server_seq ?? null,
@@ -4480,6 +4483,7 @@ async function applyPulledChanges(
       title: sql`excluded.title`,
       status: sql`excluded.status`,
       signatureSlots: sql`excluded.signature_slots`,
+      signatureTemplateId: sql`excluded.signature_template_id`,
       updatedAt: sql`excluded.updated_at`,
       lastServerSeq: sql`excluded.last_server_seq`,
       deletedAt: sql`excluded.deleted_at`,

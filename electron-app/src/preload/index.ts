@@ -880,6 +880,20 @@ const matricaApi = {
      */
     setRowOperatorNote: async (args: { programId: string; rowId: string; mark: string | null }) =>
       ipcRenderer.invoke('productionProgram:setRowOperatorNote', args),
+    /**
+     * Шаблон подписей ПП (промт КАРМАНА #120): общий для завода набор подписей,
+     * который подставляют в новые программы. Живёт на сервере — клиент ходит
+     * своей дверью REST.
+     */
+    listSignatureTemplates: async () => ipcRenderer.invoke('productionProgram:listSignatureTemplates'),
+    saveSignatureTemplate: async (args: {
+      id?: string | null;
+      name: string;
+      slots: string;
+      isDefault?: boolean;
+    }) => ipcRenderer.invoke('productionProgram:saveSignatureTemplate', args),
+    deleteSignatureTemplate: async (id: string) =>
+      ipcRenderer.invoke('productionProgram:deleteSignatureTemplate', id),
   },
   children: {
     list: async () => ipcRenderer.invoke('children:list'),

@@ -1,6 +1,8 @@
 import { and, asc, inArray, isNull } from 'drizzle-orm';
 import { ipcMain } from 'electron';
 
+import type { ProductionProgramSignatureTemplate } from '@matricarmz/shared';
+
 import type { IpcContext } from '../ipcContext.js';
 import { isViewMode, viewModeWriteError } from '../ipcContext.js';
 import { erpProductionProgramRows, erpProductionPrograms } from '../../database/schema.js';
@@ -29,10 +31,19 @@ export type ProductionProgramDto = {
   title: string;
   status: string;
   signatureSlots: string | null;
+  /** Шаблон подписей, из которого взят состав; null — шаблон не применялся. */
+  signatureTemplateId: string | null;
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null;
 };
+
+/**
+ * Шаблон подписей ПП — как его отдаёт сервер (промт КАРМАНА #120).
+ *
+ * Форма — общая с `shared/src/domain/productionProgramSignatureTemplate.ts`.
+ */
+export type ProductionProgramSignatureTemplateDto = ProductionProgramSignatureTemplate;
 
 export type ProductionProgramLineDto = {
   id: string;
@@ -102,6 +113,7 @@ export function registerProductionProgramIpc(ctx: IpcContext) {
             title: String(p.title),
             status: String(p.status),
             signatureSlots: p.signatureSlots == null ? null : String(p.signatureSlots),
+            signatureTemplateId: p.signatureTemplateId == null ? null : String(p.signatureTemplateId),
             createdAt: Number(p.createdAt),
             updatedAt: Number(p.updatedAt),
             deletedAt: p.deletedAt == null ? null : Number(p.deletedAt),
@@ -161,6 +173,7 @@ export function registerProductionProgramIpc(ctx: IpcContext) {
         title: string;
         status?: string;
         signatureSlots?: string | null;
+        signatureTemplateId?: string | null;
       },
     ): Promise<Result<{ id: string }>> => {
       if (isViewMode(ctx)) return viewModeWriteError();
@@ -187,6 +200,7 @@ export function registerProductionProgramIpc(ctx: IpcContext) {
         title?: string;
         status?: string;
         signatureSlots?: string | null;
+        signatureTemplateId?: string | null;
       },
     ): Promise<Result<{ id: string }>> => {
       if (isViewMode(ctx)) return viewModeWriteError();
@@ -275,6 +289,61 @@ export function registerProductionProgramIpc(ctx: IpcContext) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ mark }),
           },
+        ),
+      );
+    },
+  );
+
+  /**
+   * Шаблон подписей ПП (промт КАРМАНА #120): общий для завода набор подписей,
+   * который подставляют в новые программы.
+   *
+   * Таблица шаблонов живёт на сервере (вне sync-контракта), поэтому клиент
+   * ходит к ней своей дверью REST, а не тянет из реплики.
+   */
+  ipcMain.handle(
+    'productionProgram:listSignatureTemplates',
+    async (): Promise<Result<{ rows: ProductionProgramSignatureTemplateDto[] }>> => {
+      return toResult(
+        await httpAuthed(ctx.sysDb, base(), '/production-program-signature-templates', {
+          method: 'GET',
+        }),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    'productionProgram:saveSignatureTemplate',
+    async (
+      _e,
+      args: {
+        id?: string | null;
+        name: string;
+        slots: string;
+        isDefault?: boolean;
+      },
+    ): Promise<Result<{ id: string }>> => {
+      if (isViewMode(ctx)) return viewModeWriteError();
+      return toResult(
+        await httpAuthed(ctx.sysDb, base(), '/production-program-signature-templates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(args ?? {}),
+        }),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    'productionProgram:deleteSignatureTemplate',
+    async (_e, id: string): Promise<Result<{ id: string }>> => {
+      if (isViewMode(ctx)) return viewModeWriteError();
+      return toResult(
+        await httpAuthed(
+          ctx.sysDb,
+          base(),
+          `/production-program-signature-templates/${encodeURIComponent(String(id ?? ''))}`,
+          { method: 'DELETE' },
         ),
       );
     },

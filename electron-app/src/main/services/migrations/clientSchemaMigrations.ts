@@ -47,7 +47,7 @@ type Migration = {
 // ⚠️ Android-клиент держит порт этого механизма
 // (android-app/src/db/migrations/clientSchemaCompatible.ts): при добавлении шага
 // НОВЕЕ 12 зеркаль его туда (константу версии сверяет тест android-app).
-export const CURRENT_CLIENT_SCHEMA_VERSION = 17;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 18;
 
 const MIGRATIONS: Migration[] = [
   {
@@ -563,6 +563,23 @@ const MIGRATIONS: Migration[] = [
       if (cols.length === 0) return;
       if (!cols.some((c) => c.name === 'workshop_id')) {
         sqlite.exec(`ALTER TABLE erp_production_programs ADD COLUMN workshop_id text;`);
+      }
+    },
+  },
+  {
+    from: 17,
+    to: 18,
+    name: 'erp_production_programs signature_template_id (шаблон подписей ПП)',
+    up: async (_db, sqlite) => {
+      // Колонка аддитивная и nullable: ссылка на шаблон подписей, из которого взяли
+      // состав (промт КАРМАНА #120). У программ, заведённых до шаблона, её нет
+      // (NULL) — состав у них свой, шаблон не применялся.
+      const cols = sqlite.prepare(`PRAGMA table_info('erp_production_programs')`).all() as Array<{ name: string }>;
+      // Таблица реплики ПП приходит из безусловного DDL (migrate.ts); на клиенте без
+      // неё шаг не нужен.
+      if (cols.length === 0) return;
+      if (!cols.some((c) => c.name === 'signature_template_id')) {
+        sqlite.exec(`ALTER TABLE erp_production_programs ADD COLUMN signature_template_id text;`);
       }
     },
   },

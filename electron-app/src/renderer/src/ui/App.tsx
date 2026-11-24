@@ -6158,6 +6158,7 @@ export function App() {
             engines={engines}
             canEdit={caps.canEditProductionProgram}
             canEditStages={caps.canEditWorkSheets}
+            canEditSignatureTemplates={caps.canEditProductionProgramSignatureTemplates}
             onOpenEngine={(id: string) => void openEngine(id)}
           />
         )}

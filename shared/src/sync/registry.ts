@@ -724,6 +724,9 @@ const ERP_PRODUCTION_PROGRAM_FIELDS = withBase(
   { db: 'title', dto: 'title' },
   { db: 'status', dto: 'status' },
   { db: 'signatureSlots', dto: 'signature_slots' },
+  // Ссылка на шаблон подписей ПП (промт КАРМАНА #120): по ней видно, что состав
+  // пришёл из шаблона, а не правлен руками.
+  { db: 'signatureTemplateId', dto: 'signature_template_id' },
 );
 
 const ERP_PRODUCTION_PROGRAM_ROW_FIELDS = withBase(

@@ -28,7 +28,7 @@ import type { AsyncDrizzleDb } from '../drizzleAsync.js';
 
 // Должна совпадать с electron-app (гейт — тест рядом). Не импортируем значение
 // напрямую: electron-файл тянет better-sqlite3/node:crypto и в браузерный бандл не годится.
-export const CURRENT_CLIENT_SCHEMA_VERSION = 17;
+export const CURRENT_CLIENT_SCHEMA_VERSION = 18;
 
 type Migration = {
   from: number;
@@ -117,6 +117,23 @@ const MIGRATIONS: Migration[] = [
       if (cols.length === 0) return;
       if (!cols.some((c) => c.name === 'workshop_id')) {
         await sqlite.exec(`ALTER TABLE erp_production_programs ADD COLUMN workshop_id text;`);
+      }
+    },
+  },
+  {
+    from: 17,
+    to: 18,
+    name: 'erp_production_programs signature_template_id (шаблон подписей ПП)',
+    up: async (_db, sqlite) => {
+      // Зеркало одноимённого шага electron-файла: колонка аддитивная и nullable —
+      // ссылка на шаблон подписей, из которого взяли состав (промт КАРМАНА #120),
+      // либо null (шаблон не применялся).
+      const cols = await sqlite.all<{ name: string }>(`PRAGMA table_info('erp_production_programs')`);
+      // Таблица реплики ПП приходит из безусловного DDL (migrate.ts); на клиенте без
+      // неё шаг не нужен.
+      if (cols.length === 0) return;
+      if (!cols.some((c) => c.name === 'signature_template_id')) {
+        await sqlite.exec(`ALTER TABLE erp_production_programs ADD COLUMN signature_template_id text;`);
       }
     },
   },

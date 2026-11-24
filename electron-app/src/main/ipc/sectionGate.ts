@@ -159,6 +159,11 @@ const WRITE_CHANNELS = new Set([
   'productionProgram:saveRows',
   'productionProgram:remove',
   'productionProgram:setRowOperatorNote',
+  // Шаблон подписей ПП по умолчанию (промт КАРМАНА #120): общий для завода
+  // набор подписей. Правит его не тот, кто ведёт план, а владелец шаблона —
+  // границу держит и серверное право `production_program.signature_templates.edit`.
+  'productionProgram:saveSignatureTemplate',
+  'productionProgram:deleteSignatureTemplate',
   // work_orders
   'workOrders:create',
   'workOrders:update',

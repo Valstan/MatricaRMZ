@@ -2,10 +2,19 @@ import { randomUUID } from 'node:crypto';
 
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 
-import { looksLikeIdentifier, parseProductionProgramOperatorMark, parseProductionProgramState } from '@matricarmz/shared';
+import {
+  looksLikeIdentifier,
+  parseProductionProgramOperatorMark,
+  parseProductionProgramState,
+  serializePrintSignatureSlots,
+} from '@matricarmz/shared';
 
 import { db } from '../database/db.js';
 import { directoryWorkshops, erpProductionProgramRows, erpProductionPrograms } from '../database/schema.js';
+import {
+  productionProgramSignatureTemplateSlots,
+  resolveDefaultProductionProgramSignatureTemplate,
+} from './productionProgramSignatureTemplateService.js';
 
 /**
  * Производственная программа (ПП) — серверная дверь.
@@ -32,6 +41,8 @@ export type ProductionProgramRow = {
   title: string;
   status: string;
   signatureSlots: string | null;
+  /** Шаблон подписей, из которого взят состав; null — шаблон не применялся. */
+  signatureTemplateId: string | null;
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null;
@@ -67,6 +78,7 @@ type ValidatedProgram = {
   title: string;
   status: string;
   signatureSlots: string | null;
+  signatureTemplateId: string | null;
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -85,6 +97,7 @@ function mapProgram(r: typeof erpProductionPrograms.$inferSelect): ProductionPro
     title: String(r.title),
     status: String(r.status),
     signatureSlots: r.signatureSlots == null ? null : String(r.signatureSlots),
+    signatureTemplateId: r.signatureTemplateId == null ? null : String(r.signatureTemplateId),
     createdAt: Number(r.createdAt),
     updatedAt: Number(r.updatedAt),
     deletedAt: r.deletedAt == null ? null : Number(r.deletedAt),
@@ -169,6 +182,13 @@ export type ProductionProgramInput = {
   title: string;
   status?: string | undefined;
   signatureSlots?: string | null | undefined;
+  /**
+   * Ссылка на шаблон подписей, из которого взят состав (промт КАРМАНА #120).
+   *
+   * null — шаблон не применялся. Ссылка, а не содержимое: по ней видно, что
+   * состав пришёл из шаблона, а не правлен руками.
+   */
+  signatureTemplateId?: string | null | undefined;
 };
 
 /** Правка шапки: приходят только изменённые поля. */
@@ -180,6 +200,8 @@ export type ProductionProgramUpdateInput = {
   title?: string | undefined;
   status?: string | undefined;
   signatureSlots?: string | null | undefined;
+  /** Ссылка на шаблон подписей (см. `ProductionProgramInput`). */
+  signatureTemplateId?: string | null | undefined;
 };
 
 /** Текущая шапка программы — то, поверх чего ложится правка. */
@@ -191,6 +213,8 @@ export type ProductionProgramCurrentHeader = {
   title: string;
   status: string;
   signatureSlots: string | null;
+  /** Шаблон подписей (необязателен: у программ без шаблона ссылки нет). */
+  signatureTemplateId?: string | null;
 };
 
 /**
@@ -226,6 +250,12 @@ export function mergeProductionProgramHeader(
           ? null
           : String(current.signatureSlots)
         : patch.signatureSlots,
+    signatureTemplateId:
+      patch.signatureTemplateId === undefined
+        ? current.signatureTemplateId == null
+          ? null
+          : String(current.signatureTemplateId)
+        : patch.signatureTemplateId,
   };
 }
 
@@ -325,6 +355,11 @@ function validateProgramInput(args: ProductionProgramInput): Result<ValidatedPro
   if (!title) return { ok: false, error: 'название обязательно' };
   const status = String(args.status ?? 'draft').trim() || 'draft';
   if (status !== 'draft' && status !== 'approved') return { ok: false, error: 'статус плана: draft или approved' };
+  const signatureTemplateIdRaw = args.signatureTemplateId == null ? '' : String(args.signatureTemplateId).trim();
+  const signatureTemplateId = signatureTemplateIdRaw === '' ? null : signatureTemplateIdRaw;
+  if (signatureTemplateId !== null && !isUuid(signatureTemplateId)) {
+    return { ok: false, error: 'ссылка на шаблон подписей должна быть uuid' };
+  }
   const signatureSlots = args.signatureSlots == null ? null : String(args.signatureSlots);
   if (signatureSlots !== null && signatureSlots.trim()) {
     try {
@@ -352,7 +387,7 @@ function validateProgramInput(args: ProductionProgramInput): Result<ValidatedPro
       return { ok: false, error: 'подписи должны быть JSON-массивом' };
     }
   }
-  return { ok: true, periodStart, periodEnd, shop, workshopId, title, status, signatureSlots };
+  return { ok: true, periodStart, periodEnd, shop, workshopId, title, status, signatureSlots, signatureTemplateId };
 }
 
 export async function createProductionProgram(args: ProductionProgramInput): Promise<Result<{ id: string }>> {
@@ -365,6 +400,22 @@ export async function createProductionProgram(args: ProductionProgramInput): Pro
     workshopId: workshop.id,
   });
   if (!checked.ok) return checked;
+  // Шаблон подписей по умолчанию (промт КАРМАНА #120): новая программа приходит
+  // УЖЕ с доработанным набором подписей — «каждый раз не редактировать печатные
+  // формы с подписями».
+  //
+  // Подставляем ТОЛЬКО когда клиент не прислал состав: `signatureSlots = null`
+  // означает «оператор блок не трогал», и это единственный случай, где дефолт
+  // уместен. Программа с ручными правками дефолтом не перетирается (критерий
+  // приёмки №4): подстановка живёт только на создании.
+  const template = await resolveDefaultProductionProgramSignatureTemplate();
+  const templateSlots = template ? productionProgramSignatureTemplateSlots(template) : [];
+  const signatureSlots =
+    checked.signatureSlots === null && template && templateSlots.length > 0
+      ? serializePrintSignatureSlots(templateSlots)
+      : checked.signatureSlots;
+  const signatureTemplateId =
+    checked.signatureSlots === null && signatureSlots !== null && template ? template.id : checked.signatureTemplateId;
   const now = Date.now();
   const id = randomUUID();
   await db.insert(erpProductionPrograms).values({
@@ -375,7 +426,8 @@ export async function createProductionProgram(args: ProductionProgramInput): Pro
     workshopId: checked.workshopId as any,
     title: checked.title,
     status: checked.status,
-    signatureSlots: checked.signatureSlots,
+    signatureSlots,
+    signatureTemplateId: signatureTemplateId as any,
     createdAt: now,
     updatedAt: now,
     syncStatus: 'pending',
@@ -409,6 +461,7 @@ export async function updateProductionProgram(
       title: String(current.title),
       status: String(current.status),
       signatureSlots: current.signatureSlots == null ? null : String(current.signatureSlots),
+      signatureTemplateId: current.signatureTemplateId == null ? null : String(current.signatureTemplateId),
     },
     args,
     { shop: workshop.name ?? args.shop ?? String(current.shop), workshopId: workshop.id },
@@ -425,6 +478,7 @@ export async function updateProductionProgram(
       title: checked.title,
       status: checked.status,
       signatureSlots: checked.signatureSlots,
+      signatureTemplateId: checked.signatureTemplateId as any,
       updatedAt: Date.now(),
       syncStatus: 'pending',
     })

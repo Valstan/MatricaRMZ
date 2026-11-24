@@ -149,6 +149,14 @@ export const PermissionCode = {
   // override'ом (см. `defaultPermissionsForRole` в backend).
   ProductionProgramView: 'production_program.view',
   ProductionProgramEdit: 'production_program.edit',
+  /**
+   * Шаблон подписей ПП по умолчанию (промт КАРМАНА #120, план #121).
+   *
+   * Отдельное поимённое право: шаблон подставляется в НОВЫЕ программы всего
+   * завода, то есть правит его не тот, кто ведёт план, а тот, кому владелец
+   * это доверил. Роль его не даёт (как `repair_stage_templates.edit`).
+   */
+  ProductionProgramSignatureTemplatesEdit: 'production_program.signature_templates.edit',
 
   // Детский модуль: карточки детей сотрудников. Видеть и вести может только суперадмин
   // и хозяин модуля (владелец 21.11.2026): даты рождения и признаки детей — персональные
@@ -400,6 +408,15 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
     descriptionRu:
       'Создавать и править планы производства: строки плана, состояния, отгрузка, подписи. ' +
       'Роль этого права не даёт никому — производственный план ведут трое, названные владельцем поимённо.',
+  },
+  {
+    code: PermissionCode.ProductionProgramSignatureTemplatesEdit,
+    group: 'Производственная программа',
+    titleRu: 'Шаблон подписей ПП по умолчанию',
+    descriptionRu:
+      'Вести общий для завода шаблон подписей производственной программы: заводить, править и ' +
+      'выбирать шаблон по умолчанию, который подставляется в новые планы. ' +
+      'Роль этого права не даёт никому — выдаётся поимённо.',
   },
   {
     code: PermissionCode.ChildrenView,
