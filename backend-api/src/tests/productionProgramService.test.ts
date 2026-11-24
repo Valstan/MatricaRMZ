@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveProductionProgramRowId, validateLine } from '../services/productionProgramService.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+import {
+  planProductionProgramRowWrite,
+  resolveProductionProgramRowId,
+  validateLine,
+} from '../services/productionProgramService.js';
 
 // Оператору — человеческие наименования. Технический идентификатор в шапке группы
 // — это «номер вместо наименования»: в печатной форме плана он выглядит как
@@ -88,5 +95,61 @@ describe('id строки плана: постоянный, а не новый �
       fallbackId: () => 'new-id',
     });
     expect(id).toBe(ROW_UUID);
+  });
+});
+
+/**
+ * Строка плана, id которой уже занят: вставка или обновление.
+ *
+ * Инцидент 20.11.2026: строку сняли из плана (мягко удалили), клиентская реплика
+ * отстала и прислала тот же id снова. Дверь делала слепой INSERT — PostgreSQL
+ * отвечал 23505 (PK), запись падала целиком, у оператора план не сохранялся, а
+ * очередь синка висела с тех пор («данные не уходят на сервер»).
+ *
+ * Данные при этом не терялись: строка на сервере была. Терялось сохранение.
+ */
+describe('id строки плана занят — это обновление, а не вставка', () => {
+  it('свободный id — вставка', () => {
+    expect(planProductionProgramRowWrite({ idTaken: false, softDeleted: false })).toEqual({ mode: 'insert' });
+  });
+
+  it('id занят живой строкой — обновление без восстановления', () => {
+    expect(planProductionProgramRowWrite({ idTaken: true, softDeleted: false })).toEqual({
+      mode: 'update',
+      restore: false,
+    });
+  });
+
+  it('id занят мягко удалённой строкой — обновление с восстановлением', () => {
+    expect(planProductionProgramRowWrite({ idTaken: true, softDeleted: true })).toEqual({
+      mode: 'update',
+      restore: true,
+    });
+  });
+
+  it('дверь берёт в расчёт ВСЕ строки программы, включая мягко удалённые', () => {
+    const src = readFileSync(
+      fileURLToPath(new URL('../services/productionProgramService.ts', import.meta.url)),
+      'utf8',
+    ).replace(/\r\n/g, '\n');
+    expect(src, 'мягко удалённые строки выпадают из выборки — и тот же id снова падает на PK').toContain(
+      'const allRows = await tx',
+    );
+    expect(src, 'existingById должен знать и мягко удалённые строки').toContain(
+      'new Map(allRows.map((r) => [String(r.id), r]))',
+    );
+    expect(src, 'слепой INSERT по занятому id — источник 23505').not.toContain(
+      'if (existingById.has(item.id))',
+    );
+  });
+
+  it('ошибка записи не уезжает необработанным отказом — клиент получает внятный ответ', () => {
+    const route = readFileSync(
+      fileURLToPath(new URL('../routes/productionProgram.ts', import.meta.url)),
+      'utf8',
+    ).replace(/\r\n/g, '\n');
+    expect(route, 'роут не ловит ошибку базы — клиент видит зависшую ошибку').toContain(
+      'не удалось сохранить строки плана',
+    );
   });
 });

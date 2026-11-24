@@ -378,6 +378,33 @@ export function validateLine(input: ProductionProgramLineDraft, index: number): 
 }
 
 /**
+ * Что делать со строкой плана, id которой уже занят в таблице.
+ *
+ * Случай «id занят» — не редкость: строку могли снять из плана раньше (мягко
+ * удалить), а клиентская реплика отстала и присылает тот же id снова. Слепой
+ * INSERT в этом месте ронял всю запись на сервере (PK 23505) — инцидент
+ * 20.11.2026: у оператора план переставал сохраняться, а её очередь синка
+ * висела с тех пор. Поэтому id, занятый строкой (в том числе мягко удалённой),
+ * ведёт себя как обновление, а мягко удалённая строка — восстанавливается.
+ *
+ * Отдельная функция, а не размазанная по транзакции проверка: правило обязано
+ * быть проверяемым без базы (тест в `tests/productionProgramService.test.ts`).
+ */
+export type ProductionProgramRowWritePlan =
+  | { mode: 'insert' }
+  | { mode: 'update'; restore: boolean };
+
+export function planProductionProgramRowWrite(args: {
+  /** Есть ли в таблице строка с таким id (включая мягко удалённые). */
+  idTaken: boolean;
+  /** Мягко удалена ли строка с таким id. */
+  softDeleted: boolean;
+}): ProductionProgramRowWritePlan {
+  if (!args.idTaken) return { mode: 'insert' };
+  return { mode: 'update', restore: args.softDeleted };
+}
+
+/**
  * Полная замена строк плана: план — один документ, редактор отправляет его целиком.
  *
  * Строки с известным id обновляются на месте (id стабилен — реплика клиента не
@@ -413,11 +440,16 @@ export async function replaceProductionProgramRows(
   }
 
   await db.transaction(async (tx) => {
-    const existing = await tx
+    // ВСЕ строки программы, включая мягко удалённые: клиентская реплика отстаёт,
+    // и та же строка может прийти снова с тем же id. Раньше мягко удалённые в
+    // выборку не попадали — и дверь делала слепой INSERT, который ронял запись
+    // на PK (23505, инцидент 20.11.2026).
+    const allRows = await tx
       .select()
       .from(erpProductionProgramRows)
-      .where(and(eq(erpProductionProgramRows.programId, pid as any), isNull(erpProductionProgramRows.deletedAt)));
-    const existingById = new Map(existing.map((r) => [String(r.id), r]));
+      .where(eq(erpProductionProgramRows.programId, pid as any));
+    const existing = allRows.filter((r) => r.deletedAt == null);
+    const existingById = new Map(allRows.map((r) => [String(r.id), r]));
 
     // Id, занятые другой программой: такой клиентский id не берём.
     const requestedIds = checked.map((r) => (r.id ? String(r.id) : '')).filter((id) => isUuid(id));
@@ -465,6 +497,12 @@ export async function replaceProductionProgramRows(
     }
 
     // 3. Вставка и обновление строк с их постоянными id.
+    //
+    // Правило — через planProductionProgramRowWrite: id, занятый строкой
+    // (в том числе мягко удалённой), ведёт себя как обновление, а мягко
+    // удалённая строка восстанавливается. Слепой INSERT здесь ронял всю
+    // запись на PK (23505) — инцидент 20.11.2026 (оператор: план перестал
+    // сохраняться, очередь синка висела).
     for (const item of plan) {
       const row = item.row;
       const values = {
@@ -488,8 +526,21 @@ export async function replaceProductionProgramRows(
         updatedAt: now,
         syncStatus: 'pending',
       };
-      if (existingById.has(item.id)) {
-        await tx.update(erpProductionProgramRows).set(values).where(eq(erpProductionProgramRows.id, item.id as any));
+      const current = existingById.get(item.id);
+      const write = planProductionProgramRowWrite({
+        idTaken: current != null,
+        softDeleted: current != null && current.deletedAt != null,
+      });
+      if (write.mode === 'update') {
+        // Восстановление снимает `deleted_at`: клиент прислал строку снова —
+        // значит, по его набору она в плане нужна (набор полный, он и есть
+        // истина плана). Идентичность строки при этом не меняется — журнал
+        // несёт обновление, а не пару «удалить + вставить» (из-за которой
+        // двигатель пропадал из плана, владелец 10.11.2026).
+        await tx
+          .update(erpProductionProgramRows)
+          .set({ ...values, ...(write.restore ? { deletedAt: null } : {}) })
+          .where(eq(erpProductionProgramRows.id, item.id as any));
       } else {
         await tx.insert(erpProductionProgramRows).values({ id: item.id as any, createdAt: now, ...values });
       }
@@ -503,7 +554,6 @@ export async function replaceProductionProgramRows(
 
   return { ok: true, count: checked.length };
 }
-
 /**
  * Ручная отметка оператора на строке плана (промты КАРМАНА #48/#49, шаг 5
  * плана владельца #49 от 19.11.2026).

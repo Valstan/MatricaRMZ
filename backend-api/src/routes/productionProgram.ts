@@ -12,6 +12,7 @@ import {
   setProductionProgramRowOperatorNote,
   updateProductionProgram,
 } from '../services/productionProgramService.js';
+import { logError } from '../utils/logger.js';
 
 /**
  * Производственная программа (ПП) — REST-дверь модуля.
@@ -78,9 +79,20 @@ productionProgramRouter.patch('/:id', requirePermission(PermissionCode.Productio
 productionProgramRouter.put('/:id/rows', requirePermission(PermissionCode.ProductionProgramEdit), async (req: Request, res: Response) => {
   const parsed = z.object({ rows: z.array(lineBody) }).safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ ok: false, error: 'неверные строки плана', issues: parsed.error.issues });
-  const result = await replaceProductionProgramRows(String(req.params.id ?? ''), parsed.data.rows);
-  if (!result.ok) return res.status(400).json(result);
-  return res.json(result);
+  try {
+    const result = await replaceProductionProgramRows(String(req.params.id ?? ''), parsed.data.rows);
+    if (!result.ok) return res.status(400).json(result);
+    return res.json(result);
+  } catch (e) {
+    // Ошибка базы не должна уезжать необработанным отказом: Express 4 не ловит
+    // отказ async-обработчика, и клиент видел «зависшую ошибку» вместо ответа
+    // (инцидент 20.11.2026 — план не сохранялся, у оператора висела ошибка).
+    logError('production program rows replace failed', {
+      programId: String(req.params.id ?? ''),
+      error: String(e),
+    });
+    return res.status(500).json({ ok: false, error: 'не удалось сохранить строки плана — попробуйте ещё раз' });
+  }
 });
 
 /**
