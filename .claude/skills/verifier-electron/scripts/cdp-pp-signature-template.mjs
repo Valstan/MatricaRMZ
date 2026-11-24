@@ -198,6 +198,9 @@ async function main() {
   await sleep(1500);
 
   // 4. Новый план P1 (кнопка в UI). План ведёт сервер — ждём зеркало.
+  // Сравниваем НАБОР ИДЕНТИФИКАТОРОВ, а не количество: снятый план уходит из
+  // реплики той же волной, что приходит новый, и по счёту «стало больше» новый
+  // план не поймать (реплика остаётся того же размера).
   const before = await evaluate(ws, `const res = await window.matrica.productionProgram.list(); return res.ok ? res.rows.map((r) => r.id) : [];`);
   const created1 = await evaluate(
     ws,
@@ -206,7 +209,7 @@ async function main() {
      click(b); await wait(3000);
      for (let i = 0; i < 40; i++) {
        const res = await window.matrica.productionProgram.list();
-       if (res.ok && res.rows.length > ${JSON.stringify(before.length)}) return { ok: true, count: res.rows.length };
+       if (res.ok && res.rows.some((r) => !${JSON.stringify(before)}.includes(r.id))) return { ok: true, count: res.rows.length };
        try { await window.matrica.sync.run(); } catch (e) {}
        await wait(4000);
      }
@@ -220,7 +223,8 @@ async function main() {
     ws,
     `const res = await window.matrica.productionProgram.list();
      if (!res.ok) return null;
-     const rows = res.rows;
+     const fresh = res.rows.filter((r) => !${JSON.stringify(before)}.includes(r.id));
+     const rows = fresh.length ? fresh : res.rows;
      return rows.length ? String(rows[rows.length - 1].id) : null;`,
   );
   note(Boolean(p1Id), 'id плана P1 получен', { p1Id });
@@ -301,7 +305,7 @@ async function main() {
   note(setC2.ok, 'состав P1 заменён вручную на C2 (ссылка на шаблон снята)', setC2);
 
   // 9. Новый план P2 — он обязан прийти с подписями шаблона (критерий 1).
-  const before2 = await evaluate(ws, `const res = await window.matrica.productionProgram.list(); return res.ok ? res.rows.length : 0;`);
+  const before2 = await evaluate(ws, `const res = await window.matrica.productionProgram.list(); return res.ok ? res.rows.map((r) => r.id) : [];`);
   const created2 = await evaluate(
     ws,
     `const b = byText('Новый план');
@@ -309,7 +313,7 @@ async function main() {
      click(b); await wait(3000);
      for (let i = 0; i < 40; i++) {
        const res = await window.matrica.productionProgram.list();
-       if (res.ok && res.rows.length > ${JSON.stringify(before2)}) return { ok: true, count: res.rows.length };
+       if (res.ok && res.rows.some((r) => !${JSON.stringify(before2)}.includes(r.id))) return { ok: true, count: res.rows.length };
        try { await window.matrica.sync.run(); } catch (e) {}
        await wait(4000);
      }
@@ -322,7 +326,9 @@ async function main() {
     ws,
     `const list = await window.matrica.productionProgram.list();
      const rows = list.ok ? list.rows : [];
-     const id = rows.length ? String(rows[rows.length - 1].id) : null;
+     const fresh = rows.filter((r) => !${JSON.stringify(before2)}.includes(r.id));
+     const pick = fresh.length ? fresh : rows;
+     const id = pick.length ? String(pick[pick.length - 1].id) : null;
      if (!id) return { ok: false };
      const one = await window.matrica.productionProgram.get(id);
      if (!one.ok) return { ok: false, error: one.error };
