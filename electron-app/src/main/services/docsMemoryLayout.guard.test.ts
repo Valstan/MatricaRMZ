@@ -206,3 +206,76 @@ describe('раскладка docs: done-индекс и архив прошлы�
     expect(stale.map((row) => `${row.first} ${row.name.slice(0, 40)}`), 'живой индекс держит то, что уже в архиве').toEqual([]);
   });
 });
+
+/**
+ * Профиль машины — тот же случай, что и реестры: он читается **на старте каждой сессии**,
+ * поэтому профиль, выросший за 200 КБ, — это 60 КБ лишнего контекста каждый запуск.
+ * Раскладка та же (ADR-0013): индекс + файл на запись, только части лежат по hostname
+ * (`docs/machines/parts/<hostname>/`), чтобы машины не сталкивались между собой.
+ *
+ * Потолки касаются только профилей, у которых есть части: чужие машины правят свой
+ * профиль сами, и не наш сторож диктует им потолок.
+ */
+const MACHINES_DIR = resolve(DOCS, 'machines');
+const MACHINE_PARTS_ROOT = resolve(MACHINES_DIR, 'parts');
+/** Потолок индекса профиля: он читается на старте каждой сессии. */
+const MACHINE_PROFILE_INDEX_LIMIT_BYTES = 16 * 1024;
+/** Потолок части: часть читают по надобности, но она тоже должна оставаться читаемой. */
+const MACHINE_PROFILE_PART_LIMIT_BYTES = 40 * 1024;
+
+const machineHosts = existsSync(MACHINE_PARTS_ROOT)
+  ? readdirSync(MACHINE_PARTS_ROOT, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+  : [];
+
+describe('профили машин: индекс + части по hostname', () => {
+  it('часть профиля не толще потолка', () => {
+    const tooFat: string[] = [];
+    for (const host of machineHosts) {
+      const dir = resolve(MACHINE_PARTS_ROOT, host);
+      for (const name of readdirSync(dir)) {
+        const bytes = contentBytes(resolve(dir, name));
+        if (bytes > MACHINE_PROFILE_PART_LIMIT_BYTES) tooFat.push(`${host}/${name}: ${bytes}`);
+      }
+    }
+    expect(tooFat).toEqual([]);
+  });
+
+  it('индекс профиля тонкий — его читает каждая сессия на этой машине', () => {
+    const tooFat: string[] = [];
+    for (const host of machineHosts) {
+      const indexPath = resolve(MACHINES_DIR, `${host}.md`);
+      if (!existsSync(indexPath)) continue;
+      const bytes = contentBytes(indexPath);
+      if (bytes > MACHINE_PROFILE_INDEX_LIMIT_BYTES) tooFat.push(`${host}.md: ${bytes}`);
+    }
+    expect(tooFat).toEqual([]);
+  });
+
+  it('индекс профиля ссылается на каждую часть — иначе часть не найдут', () => {
+    const broken: string[] = [];
+    for (const host of machineHosts) {
+      const indexPath = resolve(MACHINES_DIR, `${host}.md`);
+      if (!existsSync(indexPath)) continue;
+      const indexText = readFileSync(indexPath, 'utf8');
+      for (const name of readdirSync(resolve(MACHINE_PARTS_ROOT, host))) {
+        if (!indexText.includes(`parts/${host}/${name}`)) broken.push(`${host}.md → ${name}`);
+      }
+    }
+    expect(broken).toEqual([]);
+  });
+
+  it('каждая часть упомянута в индексе — осиротевшая часть не читается', () => {
+    const orphans: string[] = [];
+    for (const host of machineHosts) {
+      const indexPath = resolve(MACHINES_DIR, `${host}.md`);
+      if (!existsSync(indexPath)) continue;
+      const indexText = readFileSync(indexPath, 'utf8');
+      for (const name of readdirSync(resolve(MACHINE_PARTS_ROOT, host))) {
+        if (!indexText.includes(name)) orphans.push(`${host}/${name}`);
+      }
+    }
+    expect(orphans).toEqual([]);
+  });
+});
