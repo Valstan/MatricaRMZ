@@ -5061,6 +5061,54 @@ export async function replayPendingExports(db: BetterSQLite3Database, apiBaseUrl
   }
 }
 
+/**
+ * Сообщить администратору: неотправленные строки оператора после пересборки БД
+ * остались ТОЛЬКО в файле экспорта.
+ *
+ * Почему это нужно отдельно: пересборка локальной базы удаляет и базу, и её копию в
+ * очереди — на сервере этих строк тоже нет (они туда не доехали). Единственная копия —
+ * `pending-export-*.json` в userData. Если про это не сказать, файл quietly лежит, а
+ * оператор смотрит на пустую программу и думает, что данные пропали.
+ *
+ * В сообщение идут ТОЛЬКО цифры и имя файла — значений строк (персональные данные) там
+ * нет: по тем же правилам, что и в остальных диагностических сообщениях синка.
+ */
+async function reportUnsentRowsMovedToExport(
+  db: BetterSQLite3Database,
+  apiBaseUrl: string,
+  reason: string,
+): Promise<void> {
+  try {
+    const names = await listPendingExportFiles();
+    const latest = names[names.length - 1] ?? null;
+    let rows = 0;
+    if (latest) {
+      const parsed = JSON.parse(await readFile(join(pendingExportDir(), latest), 'utf8')) as {
+        packs?: Array<{ rows?: unknown[] }>;
+      } | null;
+      rows = (parsed?.packs ?? []).reduce((acc, p) => acc + (Array.isArray(p?.rows) ? p.rows.length : 0), 0);
+    }
+    logSync(`local db rebuilt: unsent rows moved to export file rows=${rows} file=${latest ?? 'none'} reason=${reason}`);
+    if (!apiBaseUrl) return;
+    await logMessage(
+      db,
+      apiBaseUrl,
+      'error',
+      `local database rebuilt (${reason}): ${rows} unsent row(s) now live only in the export file — the administrator must collect it`,
+      {
+        component: 'sync',
+        action: 'local_db_rebuild',
+        critical: true,
+        rows,
+        file: latest,
+        reason,
+      },
+    );
+  } catch (e) {
+    logSync(`unsent rows export report failed: ${formatError(e)}`);
+  }
+}
+
 export async function resetLocalDatabase(db: BetterSQLite3Database, reason = 'ui') {
   if (resetLocalDatabaseOverride) return resetLocalDatabaseOverride(db, reason);
   try {
@@ -5372,6 +5420,14 @@ export async function runSync(
   };
   logSync(`sync.run.start id=${syncRunId} clientId=${clientId} mode=${progressMode}`);
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    // База пересобрана в этом прогоне: файлы экспорта только что записаны, реплеить
+    // их нельзя (базы уже нет) — и не надо (это те же самые строки, что только что
+    // выгрузили).
+    let dbRebuilt = false;
+    // Реплей уже отработал в этом прогоне (успешный путь) — тогда в finally повторять
+    // не нужно: файл экспорта удалён, а повторный реплей всё равно ничего не найдёт.
+    let replayDone = false;
+    let replayMs = 0;
     try {
       const session = await readSyncSession(db).catch(() => null);
       if (!session?.accessToken) {
@@ -5403,7 +5459,13 @@ export async function runSync(
         // Rebuild remains only for a genuinely unusable local DB (version
         // downgrade, broken migration chain, failed migration step).
         logSync(`schema rebuild: ${compatibility.reason ?? 'unknown'}`);
+        dbRebuilt = true;
         await resetLocalDatabase(db, 'schema_mismatch');
+        // Неотправленные строки оператора после пересборки лежат ТОЛЬКО в файле
+        // экспорта: базы больше нет, а на сервере их тоже нет. Администратор должен
+        // узнать об этом сразу и с цифрами — иначе файл quietly лежит, пока машина
+        // не приедет за ним сама (а она может не приехать никогда).
+        await reportUnsentRowsMovedToExport(db, currentApiBaseUrl, compatibility.reason ?? 'unknown');
         scheduleAppRestartAfterDbReset('schema_mismatch');
         return {
           ok: false,
@@ -6123,13 +6185,15 @@ export async function runSync(
       // Ledger block sync is skipped: blocks are never read on the client and
       // downloading ~44k blocks takes ~7 minutes of network time with no benefit.
       emitStage('finalize', 'завершение синхронизации', { service: 'sync', progress: 0.98 });
-      // Rows exported before a DB rebuild are replayed as pending now that the
-      // fresh DB is populated; the next sync cycle pushes them.
+      // Реплей неотправленных строк из файла экспорта: на успешном пути — здесь,
+      // на пути ошибки — в блоке finally (см. комментарий там). Один вызов:
+      // реплей уже отработал — файл удалён, второй раз нечего делать.
       const replayStartedAt = nowMs();
       await replayPendingExports(db, currentApiBaseUrl).catch((e) => {
         logSync(`pending replay error: ${formatError(e)}`);
       });
-      const replayMs = nowMs() - replayStartedAt;
+      replayMs = nowMs() - replayStartedAt;
+      replayDone = true;
       if (fullPull) {
         const durationMs = Math.max(0, nowMs() - fullPull.startedAt);
         await settingsSetNumber(db, SettingsKey.LastFullPullDurationMs, durationMs).catch(() => {});
@@ -6212,6 +6276,25 @@ export async function runSync(
         clientId,
       });
       return { ok: false, pushed: 0, pulled: 0, serverCursor: 0, error: offline ? 'offline' : err };
+    } finally {
+      // Реплей неотправленных строк из файла экспорта — ВСЕГДА, даже если цикл упал.
+      //
+      // Инцидент 24.11.2026 (оператор, данные не уходят на сервер): после пересборки
+      // локальной БД неотправленные строки лежат только в файле экспорта. Реплей стоял
+      // в конце успешного пути — ПОСЛЕ pull. Любой сбой pull (у парка это сплошная
+      // серия падений на реплике карточек СИЗ) выпрыгивал из прогона ДО реплея: файл
+      // лежал, база была пустая, данные оператора не возвращались в базу никогда — и
+      // повторялось это на каждом цикле. Теперь реплей не зависит от исхода pull.
+      //
+      // После пересборки БД реплей не нужен и невозможен: базы уже нет, а файл только
+      // что записан (dbRebuilt).
+      if (!replayDone && !dbRebuilt) {
+        const startedAtReplay = nowMs();
+        await replayPendingExports(db, currentApiBaseUrl).catch((e) => {
+          logSync(`pending replay error (error path): ${formatError(e)}`);
+        });
+        replayMs = nowMs() - startedAtReplay;
+      }
     }
   }
   const err = 'sync failed: apiBaseUrl auto-fix exhausted';
