@@ -10,9 +10,11 @@
 // keystore, hotline-секрет) клиентам не достаются.
 
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { app } from 'electron';
+
+import { resolveMcodeEntry } from './agentRunner.js';
 
 /** Каталог модуля на машине оператора. ВНЕ путей уборки следов opencode ('engine'). */
 export const LOCAL_MINIMAX_DIR_NAME = 'local-minimax';
@@ -59,7 +61,15 @@ function resourcesDir(): string {
   return process.resourcesPath ?? '';
 }
 
-function readRuntimeBundle(): RuntimeBundle {
+/**
+ * Bundle рантайма: сам файл и его каталог.
+ *
+ * Относительные пути внутри bundle (`node`, `mcode`) разрешаются ОТ КАТАЛОГА
+ * ЭТОГО ФАЙЛА: в сборке это `resources/local-minimax/runtime`, в dev-режиме —
+ * `electron-app/build/local-minimax`. Раньше относительные пути всегда
+ * смотрели в resources-каталог, и в dev модуль объявлялся «не настроенным».
+ */
+function readRuntimeBundle(): { bundle: RuntimeBundle; baseDir: string } {
   const candidates = [
     join(resourcesDir(), 'local-minimax', 'runtime', 'config.json'),
     join(process.cwd(), 'electron-app', 'build', 'local-minimax', 'config.json'),
@@ -69,12 +79,22 @@ function readRuntimeBundle(): RuntimeBundle {
     if (!existsSync(path)) continue;
     try {
       const parsed = JSON.parse(readFileSync(path, 'utf8')) as RuntimeBundle;
-      return parsed && typeof parsed === 'object' ? parsed : {};
+      return { bundle: parsed && typeof parsed === 'object' ? parsed : {}, baseDir: dirname(path) };
     } catch {
-      return {};
+      return { bundle: {}, baseDir: dirname(path) };
     }
   }
-  return {};
+  return { bundle: {}, baseDir: join(resourcesDir(), 'local-minimax', 'runtime') };
+}
+
+/** Мост к базе: в сборке — resources, в dev — каталог resources исходников. */
+function dbMcpPath(): string {
+  const candidates = [
+    join(resourcesDir(), 'local-minimax', 'app', 'matrica-db-mcp.mjs'),
+    join(process.cwd(), 'electron-app', 'resources', 'local-minimax', 'matrica-db-mcp.mjs'),
+    join(process.cwd(), 'resources', 'local-minimax', 'matrica-db-mcp.mjs'),
+  ];
+  return candidates.find((path) => existsSync(path)) ?? candidates[0]!;
 }
 
 function firstNonEmpty(...values: (string | undefined | null)[]): string {
@@ -100,8 +120,7 @@ function runtimePath(baseDir: string, value: string | undefined, fallback: strin
  * дешёвая, только читает файлы.
  */
 export function loadLocalMiniMaxConfig(): LocalMiniMaxConfig {
-  const bundleDir = join(resourcesDir(), 'local-minimax', 'runtime');
-  const bundle = readRuntimeBundle();
+  const { bundle, baseDir } = readRuntimeBundle();
   const userData = app.getPath('userData');
   const profileDir = join(userData, LOCAL_MINIMAX_DIR_NAME, 'profile');
   const workspaceDir = join(userData, LOCAL_MINIMAX_DIR_NAME, 'workspace');
@@ -110,15 +129,17 @@ export function loadLocalMiniMaxConfig(): LocalMiniMaxConfig {
   const karmanToken = firstNonEmpty(process.env.MATRICA_KARMAN_CLIENT_TOKEN, bundle.karmanToken);
   const project = firstNonEmpty(bundle.project, 'matricarmz-clients');
   const deepseekApiKey = firstNonEmpty(process.env.MATRICA_DEEPSEEK_CLIENT_KEY, bundle.deepseekApiKey);
-  const nodePath = runtimePath(bundleDir, bundle.node, 'bin/node.exe');
-  const mcodePath = runtimePath(bundleDir, bundle.mcode, 'bin/mcode.cmd');
-  const dbMcpPath = join(resourcesDir(), 'local-minimax', 'app', 'matrica-db-mcp.mjs');
+  const nodePath = runtimePath(baseDir, bundle.node, 'bin/node.exe');
+  // shim npm (.cmd) Node не исполняет — ищем настоящий JS-вход (или .exe).
+  const mcodePath = resolveMcodeEntry(runtimePath(baseDir, bundle.mcode, 'bin/mcode.cmd'));
+  const bridgePath = dbMcpPath();
 
   const missing: string[] = [];
   if (!karmanUrl) missing.push('адрес «Кармана»');
   if (!karmanToken) missing.push('токен клиентской комнаты');
+  if (!existsSync(nodePath)) missing.push('рантайм Node.js');
   if (!existsSync(mcodePath)) missing.push('рантайм MiniMax Code');
-  if (!existsSync(dbMcpPath)) missing.push('мост к базе');
+  if (!existsSync(bridgePath)) missing.push('мост к базе');
 
   if (missing.length > 0) {
     return {
@@ -136,7 +157,7 @@ export function loadLocalMiniMaxConfig(): LocalMiniMaxConfig {
   return {
     configured: true,
     reason: 'локальный модуль готов',
-    runtime: { karmanUrl, karmanToken, project, deepseekApiKey, nodePath, mcodePath, dbMcpPath },
+    runtime: { karmanUrl, karmanToken, project, deepseekApiKey, nodePath, mcodePath, dbMcpPath: bridgePath },
     profileDir,
     workspaceDir,
   };

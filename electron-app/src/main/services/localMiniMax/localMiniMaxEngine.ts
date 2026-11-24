@@ -162,6 +162,7 @@ export async function answerQuestionLocally(
 
   let attempt = await run({
     mcodePath: runtime.mcodePath,
+    nodePath: runtime.nodePath,
     profile,
     workspaceDir: config.workspaceDir,
     question,
@@ -181,6 +182,7 @@ export async function answerQuestionLocally(
       writeCredential(profile, next);
       attempt = await run({
         mcodePath: runtime.mcodePath,
+        nodePath: runtime.nodePath,
         profile,
         workspaceDir: config.workspaceDir,
         question,

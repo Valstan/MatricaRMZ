@@ -30,6 +30,8 @@ const PRELOAD = readFileSync(resolve(here, '../../preload/index.ts'), 'utf8');
 const TYPES = readFileSync(resolve(here, '../../../../shared/src/ipc/types.ts'), 'utf8');
 const PANEL = readFileSync(resolve(here, '../../renderer/src/ui/components/AiAgentChat.tsx'), 'utf8');
 const CLEANUP = readFileSync(resolve(here, 'opencodeTracesCleanup.ts'), 'utf8');
+const CLIENT_SCHEMA = readFileSync(resolve(here, '../database/schema.ts'), 'utf8');
+const REGISTRY = readFileSync(resolve(here, '../../../../shared/src/sync/registry.ts'), 'utf8');
 const PUSH_POLICY = readFileSync(
   resolve(here, '../../../../backend-api/src/services/sync/aiChatPushPolicy.ts'),
   'utf8',
@@ -71,5 +73,14 @@ describe('Ииваныч — локальное звение на клиенте
     expect(CLEANUP).toContain("'versions'");
     expect(CLEANUP).toContain('matricarmz-engine');
     expect(CLEANUP).not.toContain('local-minimax');
+  });
+
+  it('ответ локального звена уезжает на сервер: имя поля в реплике совпадает с реестром', () => {
+    // Реестр sync берёт поле из строки реплики по имени. Расхождение имён
+    // означало бы, что источник ответа уезжает пустым, сервер отвергает такой
+    // ответ, и локальный ответ оператора теряется.
+    expect(REGISTRY).toContain("{ db: 'answerSource', dto: 'answer_source' }");
+    expect(CLIENT_SCHEMA).toContain("answerSource: text('answer_source')");
+    expect(CHAT_SERVICE).toContain('answerSource: args.source');
   });
 });

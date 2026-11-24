@@ -14,7 +14,7 @@
 
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, extname, join, resolve } from 'node:path';
 
 import type { AgentProfile } from './agentProfile.js';
 
@@ -38,8 +38,10 @@ export const AGENT_SYSTEM_PROMPT = [
 ].join('\n');
 
 export type AgentRunRequest = {
-  /** Исполняемый файл MiniMax Code. */
+  /** Исполняемый файл MiniMax Code (JS-вход или .exe; shim .cmd разрешается). */
   mcodePath: string;
+  /** Рантайм Node.js рядом с модулем — им запускается JS-вход MiniMax Code. */
+  nodePath?: string;
   /** Профиль агента (каталоги и токен-стор). */
   profile: AgentProfile;
   /** Рабочий каталог прогона: тут .mcp.json и входные файлы. */
@@ -56,6 +58,82 @@ export type AgentRunRequest = {
 export type AgentRunResult =
   | { ok: true; answer: string; details: Record<string, unknown> }
   | { ok: false; reason: string; message: string; details: Record<string, unknown> };
+
+/** Расширения, которые Node запускает сам как скрипт. */
+const SCRIPT_EXTENSIONS = ['.js', '.mjs', '.cjs'];
+/** Обёртки npm для Windows — Node их исполнять отказывается (EINVAL без shell). */
+const CMD_EXTENSIONS = ['.cmd', '.bat'];
+
+/**
+ * Настоящий вход MiniMax Code.
+ *
+ * npm на Windows кладёт рядом shim `mcode.cmd`, а Node такие файлы запускать
+ * отказывается (без `shell` — EINVAL, а `shell` открыл бы окно консоли).
+ * Значит «запуск по абсолютному пути к исполняемому файлу» надо понимать
+ * буквально: ищем JS-вход (сначала одноимённый файл рядом, потом путь внутри
+ * shim) и запускаем его рантайм-node, который едет с модулем.
+ */
+export function resolveMcodeEntry(mcodePath: string): string {
+  const ext = extname(mcodePath).toLowerCase();
+  if (SCRIPT_EXTENSIONS.includes(ext)) return mcodePath;
+  if (!CMD_EXTENSIONS.includes(ext)) return mcodePath;
+
+  const base = mcodePath.slice(0, mcodePath.length - ext.length);
+  for (const candidate of SCRIPT_EXTENSIONS.map((e) => `${base}${e}`)) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return readShimTarget(mcodePath) ?? mcodePath;
+}
+
+/** Путь на JS-вход внутри shim npm: `"%~dp0\\..\\@minimax-ai\\code\\bin\\mcode.js"`. */
+function readShimTarget(cmdPath: string): string | null {
+  let text = '';
+  try {
+    text = readFileSync(cmdPath, 'utf8');
+  } catch {
+    return null;
+  }
+  const dir = dirname(cmdPath);
+  const quoted = text.match(/"[^"]+"/g) ?? [];
+  for (const raw of quoted) {
+    const value = raw.slice(1, -1).replace(/%~dp0/g, dir).trim();
+    if (!value) continue;
+    if (!SCRIPT_EXTENSIONS.includes(extname(value).toLowerCase())) continue;
+    // resolve нормализует «..» (shim npm ссылается на пакет через «%dp0\..\»).
+    const absolute = resolve(dir, value);
+    if (existsSync(absolute)) return absolute;
+  }
+  return null;
+}
+
+export type AgentCommand = {
+  /** Что запускаем. */
+  command: string;
+  /** Аргументы запуска (для JS-входа первым идёт сам скрипт). */
+  args: string[];
+};
+
+/**
+ * Команда запуска агента. JS-вход запускается рантайм-node рядом с модулем
+ * (`node.exe` из extraResources), а не системным Node — на машине парка его нет,
+ * и не `electron.exe` (это запустило бы приложение, а не скрипт).
+ */
+export function resolveAgentCommand(params: {
+  mcodePath: string;
+  nodePath?: string;
+  args: string[];
+}): AgentCommand {
+  const entry = resolveMcodeEntry(params.mcodePath);
+  const ext = extname(entry).toLowerCase();
+  if (SCRIPT_EXTENSIONS.includes(ext)) {
+    const node = params.nodePath && existsSync(params.nodePath) ? params.nodePath : '';
+    if (!node) {
+      return { command: entry, args: params.args };
+    }
+    return { command: node, args: [entry, ...params.args] };
+  }
+  return { command: entry, args: params.args };
+}
 
 /** Конфиг MCP проекта: рантайм MiniMax Code читает `.mcp.json` из рабочего каталога. */
 export function buildMcpConfig(dbMcp: AgentRunRequest['dbMcp']): string {
@@ -162,6 +240,13 @@ export async function runAgent(req: AgentRunRequest): Promise<AgentRunResult> {
 
   const args = buildAgentArgs({ answerFile, systemPromptFile, payloadFile, timeoutMs, maxSteps, model });
   const env = buildAgentEnv(req.profile, logFile);
+  // Запуск по абсолютному пути к исполняемому файлу: JS-вход MiniMax Code идёт
+  // через рантайм-node модуля, shim npm (.cmd) не исполняется Node вовсе.
+  const command = resolveAgentCommand({
+    mcodePath: req.mcodePath,
+    ...(req.nodePath ? { nodePath: req.nodePath } : {}),
+    args,
+  });
 
   return await new Promise<AgentRunResult>((resolve) => {
     let stdout = '';
@@ -175,7 +260,7 @@ export async function runAgent(req: AgentRunRequest): Promise<AgentRunResult> {
       resolve(result);
     };
 
-    const child = spawn(req.mcodePath, args, {
+    const child = spawn(command.command, command.args, {
       cwd: workspaceDir,
       env,
       windowsHide: true,
