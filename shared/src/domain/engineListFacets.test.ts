@@ -492,6 +492,7 @@ describe('ступень «Текущее состояние» со справо
       'stage:disassembly_defect',
       'stage:parts_repair',
       'stage:ukladka',
+      'stage:faza',
       'stage:sborka',
       'stage:obkatka',
       'stage:otk',

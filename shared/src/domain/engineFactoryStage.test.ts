@@ -141,6 +141,7 @@ describe('engineFactoryStageOrder — ряд групп от позднего к
       'stage:otk',
       'stage:obkatka',
       'stage:sborka',
+      'stage:faza',
       'stage:ukladka',
       'stage:parts_repair',
       'stage:disassembly_defect',
@@ -179,6 +180,20 @@ describe('engineStateLabel / engineDaysOnSite — отчёт «Двигател�
     expect(engineStateLabel({ arrivalDate: T0, statusFlags: { status_storage_received: true } })).toBe('Принят');
     expect(engineStateLabel({ arrivalDate: T0 })).toBe('На заводе');
     expect(engineStateLabel({})).toBe('Заведён');
+  });
+  it('фаза — двигатель «В ремонте», а не «На заводе» (этап 24.11.2026)', () => {
+    // Фаза (ранг 45) выше приёмки (10) и ниже обкатки (60): движок, отмеченный
+    // фазой, ремонтируется — он не «на заводе» и ещё не «готов, не отгружен».
+    expect(
+      engineStateLabel({ arrivalDate: T0, lastStageCode: 'faza', lastStageAt: T0 }),
+    ).toBe('В ремонте');
+    expect(
+      engineStateLabel({ arrivalDate: T0, lastStageCode: 'ukladka', lastStageAt: T0 }),
+    ).toBe('В ремонте');
+    // Обкатка — уже «готов, не отгружен», фаза до неё не дотягивает.
+    expect(
+      engineStateLabel({ arrivalDate: T0, lastStageCode: 'obkatka', lastStageAt: T0 }),
+    ).toBe('Готов, не отгружен');
   });
   it('рекламация выше основного цикла: состояние решает ветка рекламации', () => {
     // Двигатель уехал заказчику по основному ремонту и вернулся по рекламации: его

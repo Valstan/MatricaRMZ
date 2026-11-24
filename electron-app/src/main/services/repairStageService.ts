@@ -55,6 +55,24 @@ function templateByCode(
   return templates.find((t) => t.code === c) ?? null;
 }
 
+/**
+ * Порог снятия метки «утиль»: этап «Укладка вала» и выше.
+ *
+ * Раньше здесь стояло число 40 — привязка к абсолютному приоритету. Этап «Фаза»
+ * (слово владельца 24.11.2026) стоит между укладкой и сборкой, и такая привязка
+ * разъезжалась бы при любой перенумерации линейки в «Карте этапов» (drag&drop
+ * переписывает приоритеты 10, 20, 30, …). Поэтому порог берётся от кода `ukladka`
+ * в ТОМ ЖЕ справочнике, по которому сравнивается отмечаемый этап: при перенумерации
+ * линейки обе стороны едут вместе.
+ *
+ * Фаза (45) порог проходит ⇒ метка «утиль» на ней снимается — это правильно:
+ * фаза стоит ниже обкатки, но уже выше укладки.
+ */
+function scrapFlagClearThreshold(templates: ReadonlyArray<RepairStageTemplate>): number {
+  const ukladka = templateByCode(templates, 'ukladka');
+  return ukladka?.sortOrder ?? repairStageRank('ukladka');
+}
+
 /** Строки-этапы двигателя для гейтов (без удалённых). */
 export async function listRepairStageRows(
   db: BetterSQLite3Database,
@@ -247,7 +265,7 @@ export async function saveRepairStageRow(
   });
 
   // Снятие статуса «утиль» при укладке/сборке и выше
-  if (template.sortOrder >= 40) {
+  if (template.sortOrder >= scrapFlagClearThreshold(templates)) {
     await clearEngineScrapFlag(db, engineId);
   }
 

@@ -143,7 +143,7 @@ const HELPERS = `
     el.dispatchEvent(new Event('change', { bubbles: true }));
   };
   /** Коды этапов единого списка — по тем, что есть в меню выбора. */
-  const STAGE_CODES = ['card_created','arrival','arrival_reclamation','incoming_otk','disassembly_defect','parts_repair','ukladka','sborka','obkatka','otk','shipped','shipped_reclamation','accepted','scrap_branch'];
+  const STAGE_CODES = ['card_created','arrival','arrival_reclamation','incoming_otk','disassembly_defect','parts_repair','ukladka','faza','sborka','obkatka','otk','shipped','shipped_reclamation','accepted','scrap_branch'];
   /** Ячейка этапа: селект, у которого есть варианты этапов ремонта. */
   const stageSelectOf = (row) => [...row.querySelectorAll('select')].find((s) => [...s.options].some((o) => STAGE_CODES.includes(o.value)));
   /** Строки плана на экране: ручка, двигатель, текущий этап. */

@@ -190,7 +190,12 @@ describe('этап двигателя в плане', () => {
   it('соседи этапа: следующий и предыдущий по линейке', () => {
     const { next, prev } = productionProgramStageNeighbours(null, 'sborka');
     expect(next?.code).toBe('obkatka');
-    expect(prev?.code).toBe('ukladka');
+    // Фаза (24.11.2026) стоит между укладкой и сборкой — предыдущий сосед сборки
+    // теперь фаза, а не укладка.
+    expect(prev?.code).toBe('faza');
+    const ukladkaNeighbours = productionProgramStageNeighbours(null, 'faza');
+    expect(ukladkaNeighbours.next?.code).toBe('sborka');
+    expect(ukladkaNeighbours.prev?.code).toBe('ukladka');
   });
 
   it('боковая ветка соседом этапа не считается', () => {

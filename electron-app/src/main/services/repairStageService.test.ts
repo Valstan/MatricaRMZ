@@ -319,6 +319,68 @@ describe('читатель', () => {
   });
 });
 
+// Снятие метки «утиль»: этап «Укладка вала» и выше. Порог берётся от кода `ukladka`
+// в том же справочнике, а не жёстким числом 40 — иначе перенумерация линейки
+// в «Карте этапов» (drag&drop переписывает приоритеты 10, 20, 30…) разъезжала бы
+// с этапом. Фаза (45) порог проходит ⇒ метка снимается и на ней.
+describe('снятие метки «утиль»', () => {
+  function seedScrapFlag(sqlite: Database.Database, engineId: string): void {
+    sqlite.exec(`INSERT INTO attribute_defs (id, entity_type_id, code) VALUES ('d1', 'engine', 'is_scrap');`);
+    sqlite
+      .prepare(
+        `INSERT INTO attribute_values (id, entity_id, attribute_def_id, value_json, created_at, updated_at)
+          VALUES (?, ?, 'd1', 'true', 1, 1)`,
+      )
+      .run('v1', engineId);
+  }
+
+  function scrapFlagValue(sqlite: Database.Database, engineId: string): unknown {
+    const row = sqlite
+      .prepare(
+        `SELECT av.value_json AS v FROM attribute_values av JOIN attribute_defs ad ON ad.id = av.attribute_def_id
+          WHERE av.entity_id = ? AND ad.code = 'is_scrap'`,
+      )
+      .get(engineId) as { v: unknown } | undefined;
+    return row?.v;
+  }
+
+  it('этап ниже укладки метку не снимает', async () => {
+    const { sqlite, db } = makeDb();
+    seedScrapFlag(sqlite, 'eng-1');
+    await saveRepairStageRow(
+      db,
+      { id: 's1', engineId: 'eng-1', code: 'parts_repair', atMs: DAY1 },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(scrapFlagValue(sqlite, 'eng-1')).toBe('true');
+  });
+
+  it('укладка метку снимает', async () => {
+    const { sqlite, db } = makeDb();
+    seedScrapFlag(sqlite, 'eng-1');
+    await saveRepairStageRow(
+      db,
+      { id: 's1', engineId: 'eng-1', code: 'ukladka', atMs: DAY1 },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(scrapFlagValue(sqlite, 'eng-1')).toBe('"0"');
+  });
+
+  it('фаза снимает метку — она выше укладки по линейке', async () => {
+    const { sqlite, db } = makeDb();
+    seedScrapFlag(sqlite, 'eng-1');
+    await saveRepairStageRow(
+      db,
+      { id: 's1', engineId: 'eng-1', code: 'faza', atMs: DAY1 },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(scrapFlagValue(sqlite, 'eng-1')).toBe('"0"');
+  });
+});
+
 // Шаг 8 плана unified-repair-stages: авто-простановка этапов (наследник
 // авто-переходов статусов). Идемпотентна, гейты записи — те же, что у ручного
 // ввода (субординация дат, пометка возврата).
@@ -374,6 +436,45 @@ describe('ensureRepairStageRow', () => {
     expect(incoming).toMatchObject({ ok: true, marked: true, pass: 1 });
     const parts = await ensureRepairStageRow(db, 'eng-1', 'parts_repair', DAY1, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES);
     expect(parts).toMatchObject({ ok: true, marked: true, pass: 1 });
+  });
+
+  it('фаза известна реестру (слово владельца 24.11.2026) — между укладкой и сборкой', async () => {
+    const { db } = makeDb();
+    const faza = await ensureRepairStageRow(db, 'eng-1', 'faza', DAY1, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES);
+    expect(faza).toMatchObject({ ok: true, marked: true, pass: 1 });
+    const rows = await listRepairStageRows(db, 'eng-1');
+    expect(rows[0]).toMatchObject({ code: 'faza', name: 'Фаза', pass: 1 });
+  });
+
+  it('фаза отмечается по обычной схеме: дата + цех (снимком имени)', async () => {
+    // Схема «Фазы» — обычная, стандартная: этап, дата выполнения и цех,
+    // произведёвший фазу. Цех оператор выбирает руками, как у всех этапов.
+    const { db } = makeDb();
+    const res = await saveRepairStageRow(
+      db,
+      { id: 's1', engineId: 'eng-1', code: 'faza', atMs: DAY1, workshopId: 'w-1', workshopName: 'Цех 1' },
+      'tester',
+      DEFAULT_REPAIR_STAGE_TEMPLATES,
+    );
+    expect(res).toMatchObject({ ok: true });
+    const rows = await listRepairStageRows(db, 'eng-1');
+    expect(rows[0]).toMatchObject({ code: 'faza', name: 'Фаза', at: DAY1, pass: 1 });
+    const raw = (await getOperation(db, 's1'))?.metaJson ?? 'null';
+    const meta = parseRepairHistoryMeta(raw);
+    expect(meta?.stage).toMatchObject({ code: 'faza', name: 'Фаза' });
+    expect(meta?.workshopId).toBe('w-1');
+    expect(meta?.workshopName).toBe('Цех 1');
+  });
+
+  it('фаза встаёт между укладкой и сборкой по субординации дат', async () => {
+    const { db } = makeDb();
+    // Укладка позже фазы — субординация нарушена, фаза не проходит.
+    await ensureRepairStageRow(db, 'eng-1', 'ukladka', DAY2, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES);
+    const early = await ensureRepairStageRow(db, 'eng-1', 'faza', DAY1, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES);
+    expect(early).toMatchObject({ ok: false });
+    // Сборка раньше фазы — тоже отказ.
+    const sborka = await ensureRepairStageRow(db, 'eng-1', 'sborka', DAY1, 'ivanov', DEFAULT_REPAIR_STAGE_TEMPLATES);
+    expect(sborka).toMatchObject({ ok: false });
   });
 });
 
