@@ -4,7 +4,7 @@
 
 **Status:** ACTIVE
 **Updated:** 2026-11-25 (вторая сессия линии 2 — **SKIP снят: живая карточка этапа работ, PASS 31 / FAIL 0 / SKIP 0**; **MiniMax Code / MiniMax-M3.1-Flash**, машина **PC79**)
-**Branch:** `main` @ `023f9d64` (закрытие первой сессии: PR #2014 + PR #2015). Работа этой сессии — ветка `docs/lane2-live-work-sheet-card-2026-11` (docs-only: план нитки, профиль машины, скилл `verifier-electron`, письмо в мозг, этот handoff).
+**Branch:** `main` @ `023f9d64` (закрытие первой сессии: PR #2014 + PR #2015). Работа этой сессии — **PR #2016** (docs-only: план нитки, профиль машины, скилл `verifier-electron`, письмо в мозг, этот handoff).
 **Last released version:** **v3.145.0** (прод + APK `MatricaRMZ-3.145.0.apk`)
 
 ## Текущая нитка
@@ -34,7 +34,7 @@
 - **План нитки:** [`docs/plans/global-modules-registry-audit-2026-11.md`](plans/global-modules-registry-audit-2026-11.md) — внутрирепозиторная копия промтов КАРМАНА #124 / #125 / #128. Реализовано и слито (PR #2006, #2011, #2014, #2015); живая проверка закрыта; открытым остался пункт про дубли.
 - **Связанные коммиты:** `8dec0855` (#2006 — реестр + линза + дубли + каталог действий), `f61ebc0c` (#2011 — миграция 11 карточек на каталог), `2161c319` (#2010 — канон Совета), `df91d16d` (#2014 — первая живая проверка + результат нитки), `023f9d64` (#2015 — закрытие первой сессии).
 - **Прод:** **v3.145.0** на обоих инстансах, APK `MatricaRMZ-3.145.0.apk`. Правки #2006 / #2010 / #2011 / #2014 в прод **не выкачены** — релиз отдельным осознанным шагом (`/reliz`).
-- **Открытых PR:** нет (эта сессия — docs-only PR по ветке `docs/lane2-live-work-sheet-card-2026-11`).
+- **Открытых PR:** нет (работа этой сессии — docs-only **PR #2016**, ветка `docs/lane2-live-work-sheet-card-2026-11`).
 - **Локальные ветки:** ветка сессии — `docs/lane2-live-work-sheet-card-2026-11` (в worktree `m2`). Ветки других линий живут в своих worktree (`base/lane1-2026-11-25`, `base/lane3-2026-11-25`, `docs/pc79-profile-pg-and-sweep`, `chore/session-close-2026-11`, `fix/update-bar-stuck-in-dev`, `sync/main`, `release/v3.135.0`) — **не трогаем**. **Осталась ветка с коммитами вне `main`:** `docs/pp-print-measurement-2026-11-23` — 3 коммита, PR #1961 **закрыт без мержа**, всё запушено на origin ⇒ оставить как есть (чужая работа).
 - **Стенд:** lane2 поднимался в этой сессии (backend 3003, vite 5175, CDP 9230; PostgreSQL на этой машине **жив**, редкость). После прогона — погашен, better-sqlite3 возвращён в режим **node**. Рецепт — [`machines/parts/PC79/stand.md`](machines/parts/PC79/stand.md) и [`machines/parts/PC79/smokes.md`](machines/parts/PC79/smokes.md).
 - **Артефакты прогона** — вне git (`.verifier-electron/` в `.gitignore`): отчёт `cdp-object-actions-report-object-actions.json`, скриншоты карточек (двигатель, марка, этап работ), драйвер `cdp-object-actions-catalog.mjs`, скрипт стенда `stand-lane2.ps1`. **Прошлый драйвер был утрачен между сессиями** ⇒ теперь рецепт и находки записаны в профиль машины и в скилл `verifier-electron`.
