@@ -1186,6 +1186,15 @@ export async function applyPushBatch(
           const curUpdated = Number(pairExisting?.updatedAt ?? 0);
           if (Number.isFinite(curUpdated) && curUpdated > 0 && Number(r.updated_at ?? 0) < curUpdated) {
             pairLwwConflicts += 1;
+            // Отказ НАЗВАН — иначе клиент о строке не узнает и держал её в очереди
+            // вечно (инцидент PC63 17–25.11.2026: 4 строки `attribute_values` висели
+            // в pending неделю, хотя сервер их отверг как устаревшие). Клиент по
+            // `lww_rejected` снимает `pending`: серверная копия новее, её привезёт pull.
+            addSkippedRow({
+              table: SyncTableName.AttributeValues,
+              row_id: String(r.id),
+              reason: LWW_REJECTED_REASON,
+            });
             continue;
           }
           attributeValueIdRemap[String(r.id)] = resolvedId;

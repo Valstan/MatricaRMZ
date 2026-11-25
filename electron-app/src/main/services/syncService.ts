@@ -97,6 +97,7 @@ import { runPullLoopWithTimelineGuard } from './sync/pullTimelineGuard.js';
 import { buildStateSnapshotQueryParams } from './sync/stateSnapshotQuery.js';
 import { DEPENDENCY_TABLE, planDependencyRequeue, type SkippedRowLike } from './sync/dependencyRequeue.js';
 import { lwwRejectedByTable, skippedRowAction } from './sync/skipReasonPolicy.js';
+import { confirmedRows } from './sync/confirmedRows.js';
 import { budgetForTable, operationsReserve as reserveOperations } from './sync/pushBudget.js';
 import {
   blockedIdsForTable,
@@ -1252,7 +1253,13 @@ async function collectPending(db: BetterSQLite3Database) {
       )
       .limit(limit);
     if (!rows.length) return;
-    const ids = (rows as any[]).map((r) => String(r.id));
+    // Строку, которую сервер УЖЕ подтвердил, возвращать в очередь нельзя: она на
+    // сервере есть. Без этой оговорки самолечение крутило no-op строку по кругу —
+    // инцидент PC63 17–25.11.2026 (4 строки `attribute_values` в pending неделю).
+    const ids = (rows as any[])
+      .map((r) => String(r.id))
+      .filter((id) => !confirmedRows.isConfirmed(tableName, id, now));
+    if (!ids.length) return;
     await db.update(table).set({ syncStatus: pending as any }).where(inArray(table.id, ids as any));
     logSync(`push requeue unconfirmed rows table=${tableName} count=${ids.length}`);
   }
@@ -6085,12 +6092,17 @@ export async function runSync(
             }
             for (const [table, ids] of byTable.entries()) {
               await markAllSynced(db, table, ids);
+              // Сервер подтвердил строки — они на сервере есть. Помним это, чтобы
+              // самолечение (`requeueUnconfirmedRows`) не вернуло их в очередь: у
+              // no-op строки сервер не меняет номер, и pull её не привезёт.
+              confirmedRows.remember(table, ids);
             }
           } else {
             // После успешного push помечаем отправленные строки как synced.
             for (const pack of pushedPacks) {
               const ids = (pack.rows as any[]).map((x) => x.id).filter(Boolean);
               await markAllSynced(db, pack.table, ids);
+              confirmedRows.remember(pack.table, ids);
             }
           }
           break;

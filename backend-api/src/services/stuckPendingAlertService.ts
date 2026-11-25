@@ -21,7 +21,7 @@ import {
   postChatMessageToRoom,
   postChatMessageToSuperadmin,
 } from './chatMessageService.js';
-import { resolveLoginsToFullNames } from './employeeAuthService.js';
+import { resolveLoginsToFullNames, getSuperadminUserId } from './employeeAuthService.js';
 import { logInfo, logWarn } from '../utils/logger.js';
 
 /** Код события — по нему и в журнале событий, и в гейтах видно, о чём речь. */
@@ -184,15 +184,30 @@ export async function raiseStuckPendingAlert(input: StuckPendingAlertInput): Pro
   try {
     chatRoomId = await ensureMonitoringRoom();
     if (chatRoomId) {
+      // Тревога — событие СИСТЕМЫ, а не письмо оператора: отправляем её от владельца
+      // комнаты (супер-админа). Раньше отправляли от имени оператора, а он не состоит
+      // в комнате тревог ⇒ запись отбивалась гейтом (`sync_policy_denied:
+      // chat_room_member`) ⇒ ни кнопка «сообщить администратору», ни авто-аларм до
+      // администратора не доходили (инцидент PC63, 25.11.2026: 14 тревог за день —
+      // все мимо комнаты). В тексте отчёта оператор назван отдельно.
+      const superadminId = await getSuperadminUserId();
+      const roomOwner =
+        superadminId && superadminId !== String(input.actor?.id ?? '')
+          ? { id: superadminId, username: 'мониторинг', role: 'superadmin' }
+          : {
+              id: String(input.actor?.id ?? ''),
+              username: String(input.actor?.username ?? ''),
+              role: input.actor?.role ?? 'user',
+            };
       const sent = await postChatMessageToRoom({
         roomId: chatRoomId,
-        senderUserId: String(input.actor?.id ?? ''),
-        senderUsername: String(input.actor?.username ?? ''),
+        senderUserId: roomOwner.id,
+        senderUsername: roomOwner.username,
         text,
         actor: {
-          id: String(input.actor?.id ?? ''),
-          username: String(input.actor?.username ?? ''),
-          role: input.actor?.role ?? 'user',
+          id: roomOwner.id,
+          username: roomOwner.username,
+          role: roomOwner.role,
         },
       });
       chatSent = sent.ok;
