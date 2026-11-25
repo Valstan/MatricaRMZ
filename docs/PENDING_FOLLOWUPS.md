@@ -107,7 +107,7 @@
 - [⏳ Данные оператора: серверная дверь починена, клиент 3.135.0 роняет pull — остались снимок машины, обновление ≥3.136.0 и приёмка 🗓 since:2026-11-23](pending/dannie-operatora-ne-uhodyat-na-server.md)
 - [⏳ Строки списка деталей застряли в отправке: клиент заново шлёт отвергнутую по LWW строку, а pull на Android не отработал 🗓 since:2026-11-24](pending/stroki-spiska-detaley-zastryali-v-otpravke.md)
 - [⏳ Свой ключ DeepSeek под проект (D-188): выпускает владелец, переезд делаем мы 🗓 since:2026-11-08](pending/svoy-key-deepseek-dlya-proekta-d-188.md)
-- [⏳ Промты проекта из КАРМАНА (D-190): живой очереди нет — все 50 промтов раздела архивные и закрыты слитыми PR; ждём новых 🗓 since:2026-11-08](pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md)
+- [⏳ Промты проекта из КАРМАНА (D-190): #133/#135/#136 сделаны кодом (PR #2023), живые #137/#138 (глобальный поиск: группировка выдачи и сужение поиска) 🗓 since:2026-11-08](pending/proekty-zabirayut-svoi-promty-iz-karmana-d-190.md)
 - [⏳ MiniMax-воркер на проде: воркер живой, звено включено; ждём первый ответ от MiniMax — пул Кармана пуст даже после сброса суток 🗓 since:2026-11-22](pending/minimax-worker-ekspluataciya-na-prode.md)
 - [⏳ Локальный MiniMax на клиенте: код выпущен (v3.142.0), ждём комнату «Кармана», рантайм в CI и смоук на живой машине 🗓 since:2026-11-23](pending/lokalnyy-minimax-na-kliente-privyka-i-runtaym.md)
 - [⏳ Планшетная версия «Матрицы РМЗ»: код готов, APK выложен релизом v3.143.0 (уезжающее левое меню) — причина среза названа (данные о доступах не обновлены — нужен синх), ждём проверку на устройстве 🗓 since:2026-11-23](pending/planshetnaya-versiya-matritsy-rmz-na-planshete.md)
