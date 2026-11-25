@@ -4,7 +4,7 @@
 // кроме сервера (globalThis.fetch) и самой SQLite-платформы.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { startBridgeHarness, type BridgeHarness } from './testing/bridgeHarness.js';
+import { API, startBridgeHarness, type BridgeHarness } from './testing/bridgeHarness.js';
 
 describe('android bridge smoke (preload → шина → register → сервисы)', () => {
   let h: BridgeHarness;
@@ -184,5 +184,189 @@ describe('домены, подключённые по промту #142, отв�
     // Выгрузка CSV — наоборот, работает (файл не пишется, отдаётся содержимое).
     const csv = await h.matrica().reports.presetCsv({ presetId: 'engines' });
     expect(JSON.stringify(csv)).not.toContain('канал не заведён на планшете');
+  });
+});
+
+/**
+ * Правка СОХРАНЯЕТСЯ — а не просто «канал ответил» (промт КАРМАНА #142, критерий 1).
+ *
+ * Смоук выше доказывает одно: домен заведён в мосте. Владельцу же жаловались на
+ * другое: «правки не сохраняются». Ответ «канал ответил ok» этому не
+ * противоречит — запись может уйти в никуда, и оператор увидит «сохранилось».
+ *
+ * Здесь проверяется второе — для доменов, чья запись уходит СЕРВЕРНОЙ ДВЕРЬЮ
+ * (REST). Требование к каждому:
+ *   1. правка не отказана (ни «не заведён», ни «нет права», ни «нет доступа»);
+ *   2. запрос с планшета УШЁЛ на сервер — нужным методом и по нужному маршруту;
+ *   3. в теле запроса — правка оператора, а не пустой вызов;
+ *   4. id, который вернул сервер, доехал обратно на планшет.
+ *
+ * Пункт 2 — главный: без него «сохранилось» ничего не значит, потому что
+ * запись могла остаться на устройстве и уйти в никуда.
+ */
+type WriteCall = { method: string; path: string; body: Record<string, unknown> | null };
+
+/** Перехват серверных запросов: пишем запрос в список и отвечаем как живой сервер. */
+function captureWrites(calls: WriteCall[]): (url: string, init?: RequestInit) => Response | null {
+  return (url: string, init?: RequestInit): Response | null => {
+    const method = String(init?.method ?? 'GET').toUpperCase();
+    if (method === 'GET') return null;
+    let body: Record<string, unknown> | null = null;
+    if (init?.body) {
+      try {
+        body = JSON.parse(String(init.body)) as Record<string, unknown>;
+      } catch {
+        body = null;
+      }
+    }
+    calls.push({ method, path: url.startsWith(API) ? url.slice(API.length) : url, body });
+    // Сервер отвечает как живой: правка возвращает id, по которому её потом читают.
+    return Response.json({ ok: true, id: 'server-id-1' });
+  };
+}
+
+type WriteCase = {
+  /** Имя домена так, как его видит оператор. */
+  name: string;
+  /** Метод и маршрут серверной двери, которых ждём. */
+  method: string;
+  path: string;
+  /** Правка через настоящий preload моста. */
+  call: (h: BridgeHarness) => Promise<{ ok: boolean; id?: string; error?: string }>;
+  /** Что должно быть в теле запроса — доказательство, что ушла правка оператора. */
+  bodyHas: (body: Record<string, unknown> | null) => boolean;
+};
+
+const WRITE_CASES: readonly WriteCase[] = [
+  {
+    name: 'табель',
+    method: 'POST',
+    path: '/timesheets',
+    call: (h) => h.matrica().timesheets.create({ year: 2026, month: 11, weekMode: 5 }),
+    bodyHas: (b) => b?.year === 2026 && b?.month === 11,
+  },
+  {
+    name: 'дети',
+    method: 'POST',
+    path: '/children',
+    call: (h) => h.matrica().children.save({ fullName: 'Проверка Тестова', birthDate: 1_700_000_000_000 }),
+    bodyHas: (b) => b?.fullName === 'Проверка Тестова',
+  },
+  {
+    name: 'организация',
+    method: 'POST',
+    path: '/organization/events',
+    call: (h) => h.matrica().organization.saveEvent({ title: 'Проверка: праздник', kind: 'holiday' }),
+    bodyHas: (b) => b?.title === 'Проверка: праздник',
+  },
+  {
+    name: 'печатные формы',
+    method: 'PUT',
+    path: '/print-forms/templates',
+    call: (h) =>
+      h.matrica().printForms.templates.save({
+        entityKey: 'engine',
+        name: 'Проверка: акт',
+        layoutJson: '{"fields":[]}',
+      }),
+    bodyHas: (b) => b?.name === 'Проверка: акт' && b?.entityKey === 'engine',
+  },
+  {
+    name: 'цены на услуги',
+    method: 'POST',
+    path: '/service-pricing/orders',
+    call: (h) =>
+      h.matrica().servicePricing.orders.upsert({
+        orderNumber: 'ПР-1',
+        orderDate: 1_700_000_000_000,
+        title: 'Проверка: приказ',
+        effectiveFrom: 1_700_000_000_000,
+      }),
+    bodyHas: (b) => b?.orderNumber === 'ПР-1',
+  },
+  {
+    name: 'подписи по умолчанию',
+    method: 'POST',
+    path: '/signature-defaults',
+    call: (h) => h.matrica().signatureDefaults.set({ fieldKey: 'engine_head', employeeId: 'emp-1' }),
+    bodyHas: (b) => b?.fieldKey === 'engine_head' && b?.employeeId === 'emp-1',
+  },
+  {
+    name: 'СИЗ',
+    method: 'POST',
+    path: '/ppe/groups',
+    call: (h) => h.matrica().ppe.groups.create({ name: 'Проверка: коллектив' }),
+    bodyHas: (b) => b?.name === 'Проверка: коллектив',
+  },
+  {
+    name: 'рекламации двигателей',
+    method: 'PUT',
+    path: '/engine-reclamations/e-1',
+    call: (h) =>
+      h.matrica().engineReclamations.save({
+        engineId: 'e-1',
+        rows: [{ queueNo: 1, customerReason: 'Проверка: заезд' }],
+      }),
+    bodyHas: (b) => Array.isArray(b?.rows) && (b?.rows as unknown[]).length === 1,
+  },
+];
+
+describe('правка в доменах промта #142 уходит на сервер и не теряется', () => {
+  let h: BridgeHarness | null = null;
+
+  afterEach(async () => {
+    await h?.dispose();
+    h = null;
+  });
+
+  for (const c of WRITE_CASES) {
+    it(`${c.name}: правка ушла на сервер и вернула id`, async () => {
+      const calls: WriteCall[] = [];
+      h = await startBridgeHarness({ routes: captureWrites(calls) });
+
+      const res = await c.call(h);
+
+      // 1. Отказа быть не должно — и отказ должен называть причину, а не молчать.
+      expect(res.ok, `правка отказала: ${res.error ?? 'без причины'}`).toBe(true);
+      expect(res.error ?? '').not.toContain('канал не заведён на планшете');
+      expect(res.error ?? '').not.toContain('Нет доступа к разделу');
+
+      // 2. Запрос ушёл на серверную дверь — нужным методом и маршрутом.
+      const write = calls.find((x) => x.method === c.method && x.path === c.path);
+      expect(
+        write,
+        `правка не ушла на сервер: ${c.method} ${c.path} не запрошен (запрошено: ${calls
+          .map((x) => `${x.method} ${x.path}`)
+          .join(', ')})`,
+      ).toBeDefined();
+
+      // 3. В теле — правка оператора.
+      expect(c.bodyHas(write!.body), `тело правки не то: ${JSON.stringify(write!.body)}`).toBe(true);
+
+      // 4. id сервера доехал обратно на планшет.
+      expect(res.id, 'id сервера не доехал до планшета').toBe('server-id-1');
+    });
+  }
+
+  it('правка без сети говорит «нужна сеть», а не «нет доступа» и не «не заведён»', async () => {
+    // Отказ по сети — штатный для планшета (правки уходят по HTTP в серверные
+    // двери). Важно, чтобы оператор видел ПРИЧИНУ: «нужна сеть», а не
+    // «недостаточно прав» — иначе вернётся ровно тот диагноз, который владелец
+    // поставил неверно.
+    //
+    // Сетевой сбой приходит ОТКАЗОМ (исключением), а не ответом `{ok:false}` —
+    // renderer ловит его и печатает «Ошибка сохранения: <текст>». Поэтому текст
+    // достаём из исключения (та же приёмка, что в refusalReasons.smoke.test.ts).
+    h = await startBridgeHarness({ offlineAfterLogin: true });
+    let text = '';
+    try {
+      const res = await h.matrica().timesheets.create({ year: 2026, month: 11 });
+      text = res.ok ? '' : (res.error ?? '');
+    } catch (e) {
+      text = String((e as Error)?.message ?? e);
+    }
+    expect(text).toContain('нужна сеть');
+    expect(text).not.toContain('канал не заведён на планшете');
+    expect(text).not.toContain('Нет доступа к разделу');
   });
 });
