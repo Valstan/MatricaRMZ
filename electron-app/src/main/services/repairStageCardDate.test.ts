@@ -116,6 +116,26 @@ describe('этап следует за датой карточки', () => {
     expect(await listDeletedRepairStageRows(db, 'eng-1')).toHaveLength(0);
   });
 
+  it('возвращённый этап перестаёт быть копией даты карточки — авто-связь его не гасит', async () => {
+    // Решение оператора «факт есть» делает запись самостоятельной (как ручная правка):
+    // иначе следующий сейв карточки с пустой датой погасил бы её обратно и кнопка
+    // «Вернуть» была бы пустой.
+    const { db } = makeDb();
+    await syncCardDateStageRow(db, 'eng-1', 'arrival', 'arrival_date', DAY1, 'tester');
+    await syncCardDateStageRow(db, 'eng-1', 'arrival', 'arrival_date', null, 'petrov');
+    const rowId = (await listDeletedRepairStageRows(db, 'eng-1'))[0]?.id ?? '';
+    await restoreRepairStageRow(db, rowId);
+
+    const live = await listRepairStageRows(db, 'eng-1');
+    expect(live[0]?.source).toBeUndefined();
+
+    // Дата в карточке по-прежнему пуста — этап остаётся живым.
+    const res = await syncCardDateStageRow(db, 'eng-1', 'arrival', 'arrival_date', null, 'tester');
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.action).toBe('skipped-manual');
+    expect(await listRepairStageRows(db, 'eng-1')).toHaveLength(1);
+  });
+
   it('этап, который правили руками, авто-связь не трогает (решение владельца)', async () => {
     const { db } = makeDb();
     // Строка поставлена руками: следа источника у неё нет.
