@@ -573,6 +573,22 @@ export async function syncCardDateStageRow(
 
   if (!existing) {
     if (atMs === null) return { ok: true, action: 'skipped', rowId: null };
+    // Дата вернулась после того, как этап ею был погашен: воскрешаем ТУ ЖЕ строку, а не
+    // заводим вторую. Иначе в истории окажется два «Приёмка» — живой и погашенный, —
+    // и «Вернуть» на погашенном оживил бы дубль.
+    const gone = (await listDeletedRepairStageRows(db, id)).find(
+      (r) => r.code === stageCode && r.extinguished?.attr === sourceAttr,
+    );
+    if (gone) {
+      const revived = await saveRepairStageRow(
+        db,
+        { id: gone.id, engineId: id, code: stageCode, atMs, source },
+        actor,
+        templates,
+      );
+      if (!revived.ok) return revived;
+      return { ok: true, action: 'created', rowId: revived.id };
+    }
     const saved = await saveRepairStageRow(
       db,
       { id: randomUUID(), engineId: id, code: stageCode, atMs, source },
@@ -635,6 +651,13 @@ export async function restoreRepairStageRow(
   const meta = parseRepairHistoryMeta(existing.metaJson ?? null);
   if (!meta || repairHistoryEntryType(meta, existing.operationType) !== 'stage') {
     return { ok: false, error: 'Эта запись истории — не строка этапа, вернуть её здесь нельзя' };
+  }
+  // Возвращать нечего, если такой же этап уже есть в истории: двумя живыми строками
+  // одного этапа история ремонта становится неправдивой («где двигатель» считает по
+  // последней дате, а оператор увидит две).
+  const live = await listRepairStageRows(db, String(existing.engineEntityId ?? ''));
+  if (live.some((r) => r.code === meta.stage?.code)) {
+    return { ok: false, error: 'Такой этап уже есть в истории ремонта — возвращать нечего' };
   }
   const { kind: _kind, ...rest } = meta;
   const nextMeta = buildRepairHistoryMeta({ ...rest, extinguished: null });

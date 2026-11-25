@@ -6,6 +6,7 @@ import { DEFAULT_REPAIR_STAGE_TEMPLATES, parseRepairHistoryMeta } from '@matrica
 
 import { getOperation } from './operationService.js';
 import {
+  deleteRepairStageRow,
   listDeletedRepairStageRows,
   listRepairStageRows,
   restoreRepairStageRow,
@@ -164,6 +165,37 @@ describe('этап следует за датой карточки', () => {
     const res = await syncCardDateStageRow(db, 'eng-1', 'arrival', 'status_customer_sent_date', null, 'tester');
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.action).toBe('skipped-manual');
+    expect(await listRepairStageRows(db, 'eng-1')).toHaveLength(1);
+  });
+
+  it('дата вернулась после погашения — оживает та же строка, а не заводится вторая', async () => {
+    const { db } = makeDb();
+    await syncCardDateStageRow(db, 'eng-1', 'arrival', 'arrival_date', DAY1, 'tester');
+    const rowId = (await listRepairStageRows(db, 'eng-1'))[0]?.id ?? '';
+    await syncCardDateStageRow(db, 'eng-1', 'arrival', 'arrival_date', null, 'tester');
+    expect(await listRepairStageRows(db, 'eng-1')).toHaveLength(0);
+
+    const res = await syncCardDateStageRow(db, 'eng-1', 'arrival', 'arrival_date', DAY2, 'tester');
+    expect(res.ok).toBe(true);
+    const live = await listRepairStageRows(db, 'eng-1');
+    expect(live).toHaveLength(1);
+    expect(live[0]?.id).toBe(rowId);
+    expect(live[0]?.at).toBe(DAY2);
+    expect(live[0]?.extinguished).toBeUndefined();
+  });
+
+  it('возврат отказывает, если такой же этап уже есть в истории (двух живых строк быть не должно)', async () => {
+    const { db } = makeDb();
+    await syncCardDateStageRow(db, 'eng-1', 'arrival', 'arrival_date', DAY1, 'tester');
+    const gone = await listDeletedRepairStageRows(db, 'eng-1');
+    expect(gone).toHaveLength(0);
+    // Ручное снятие этапа — тоже мягкое удаление: строка уходит в «погашенные».
+    const rowId = (await listRepairStageRows(db, 'eng-1'))[0]?.id ?? '';
+    await deleteRepairStageRow(db, rowId);
+    expect((await listDeletedRepairStageRows(db, 'eng-1'))).toHaveLength(1);
+    // Вернуть такую строку можно — живого дубля нет.
+    const back = await restoreRepairStageRow(db, rowId);
+    expect(back.ok).toBe(true);
     expect(await listRepairStageRows(db, 'eng-1')).toHaveLength(1);
   });
 });
